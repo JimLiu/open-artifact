@@ -240,7 +240,7 @@ export class HostingGateway {
         }
         next = destination.pathname + destination.search + destination.hash;
       } catch { return reply(res, 400, 'Invalid destination'); }
-      res.writeHead(303, { Location: next, 'Set-Cookie': `${who.id ? who.content ? CONTENT : FRAME : OWNER}=${this.sign(who.id ? `${who.content ? 'content' : 'frame'}:${who.id}` : 'owner-cookie')}; Path=/; Secure; HttpOnly; SameSite=${who.id ? 'None' : 'Strict'}; Max-Age=31536000`, 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' }).end();
+      res.writeHead(303, { Location: next, 'Set-Cookie': `${who.id ? who.content ? CONTENT : FRAME : OWNER}=${this.sign(who.id ? `${who.content ? 'content' : 'frame'}:${who.id}` : 'owner-cookie')}; Path=/; Secure; HttpOnly; SameSite=${who.id ? 'None' : 'Lax'}; Max-Age=31536000`, 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' }).end();
       return;
     }
     const route = await this.route(req);

@@ -93,7 +93,7 @@ test('real hosted owner, isolated frame and native guest roles survive only thei
     const owner = new URL(ownerUrl);
     const login = await call(owner.pathname + owner.search);
     assert.equal(login.status, 303);
-    assert.match(login.headers['set-cookie']![0]!, /Secure; HttpOnly; SameSite=Strict/);
+    assert.match(login.headers['set-cookie']![0]!, /Secure; HttpOnly; SameSite=Lax/);
     const ownerCookie = cookieOf(login);
     assert.equal((await call('/api/open-artifact.artifacts', undefined, ownerCookie)).status, 200);
     for (const path of ['/__hub', '/__harness', '/mcp', '/__open-artifact/health', '/api/open-artifact.type.register']) {
