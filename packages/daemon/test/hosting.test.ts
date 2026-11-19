@@ -1,7 +1,8 @@
 import { tempDir } from './helpers.ts';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { request, type IncomingHttpHeaders } from 'node:http';
+import { createServer, request, type IncomingHttpHeaders } from 'node:http';
 import { networkInterfaces } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -12,6 +13,35 @@ import { guestShareTarget } from '../src/hosting-shares.ts';
 import { loadSettings, saveSettings, validateHostingSettings } from '../src/settings.ts';
 
 const host = Object.values(networkInterfaces()).flat().find(value => value?.family === 'IPv4' && !value.internal)?.address;
+test('nested native Motion invite paths stay public and reach only their own guest listener', { skip: !host }, async () => {
+  const pagePath = '/motion/native-page/';
+  const token = 'motion-viewer-token-1234';
+  const joinPath = `${pagePath}s/${token}`;
+  const backend = createServer((req, res) => res.end(req.url));
+  await new Promise<void>(resolve => backend.listen(0, host!, resolve));
+  const upstream = `http://${host}:${(backend.address() as { port: number }).port}`;
+  let gateway: HostingGateway | undefined;
+  try {
+    const guest = guestShareTarget('art_motion', '/motion-root', `${upstream}${pagePath}`, `${upstream}${joinPath}`, [host!]);
+    assert.equal(guest.cookieName, `motion_guest_${createHash('sha256').update('/motion-root').digest('hex').slice(0, 12)}`);
+    gateway = new HostingGateway({ shellOrigin: 'https://shell.example', frameOrigin: 'https://{id}.frames.example', listenHost: host!, port: 0,
+      stateFile: join(tempDir('oa-motion-share-'), 'key'), shellUpstream: 'http://127.0.0.1:4800',
+      resolveArtifact: async () => null, resolveGuest: async () => guest });
+    const port = await gateway.start();
+    const invite = new URL(gateway.guestUrl('art_motion', token));
+    const call = (path: string) => new Promise<{ status: number; body: string }>((resolve, reject) => {
+      const req = request({ host, port, path, headers: { host: invite.host } }, res => {
+        let body = ''; res.on('data', chunk => body += chunk); res.on('end', () => resolve({ status: res.statusCode!, body }));
+      }); req.on('error', reject); req.end();
+    });
+    assert.deepEqual(await call(invite.pathname), { status: 200, body: joinPath });
+    assert.equal((await call('/motion/another-page/s/' + token)).status, 403);
+    assert.equal((await call('/__open-artifact/share')).status, 403);
+    for (const path of ['/motion/another-page/s/' + token, pagePath + 'private/s/' + token, pagePath + 'o/' + token]) {
+      assert.throws(() => guestShareTarget('art_motion', '/motion-root', `${upstream}${pagePath}`, upstream + path, [host!]));
+    }
+  } finally { await gateway?.close(); await new Promise<void>(resolve => backend.close(() => resolve())); }
+});
 test('real hosted owner, isolated frame and native guest roles survive only their intended boundaries', { skip: !host }, async () => {
   const dir = tempDir('oa-hosting-');
   const assets = join(dir, 'assets');

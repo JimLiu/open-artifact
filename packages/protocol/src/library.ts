@@ -192,6 +192,8 @@ export const LIBRARY_ROUTES = {
 export interface ShellBoot {
   /** The same Shell served by a type server for CLI and LAN visits, without the daemon library. */
   typeServer?: { role: 'owner' | 'editor' | 'commenter' | 'viewer'; invite?: string; sharePath?: string };
+  /** Copyable owner Shell address; hosted daemons include the owner capability. Never sent to guests. */
+  viewUrl?: string;
   id: string;
   url: string;
   title: string;

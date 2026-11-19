@@ -4,7 +4,7 @@ import { createServer, request, type IncomingMessage, type ServerResponse, type 
 import { isIP } from 'node:net';
 import { dirname } from 'node:path';
 import type { Duplex } from 'node:stream';
-import { publicOrigin, safePath as cleanPath, publicGuestCookie, type GuestShareTarget } from './hosting-shares.ts';
+import { publicOrigin, safePath as cleanPath, publicGuestCookie, nativeSharePath, type GuestShareTarget } from './hosting-shares.ts';
 
 
 export interface HostedArtifact {
@@ -162,10 +162,13 @@ export class HostingGateway {
       const upstream = new URL(guest.upstream);
       const address = upstream.hostname.replace(/^\[|\]$/g, '');
       if (upstream.protocol !== 'http:' || !isIP(address) || address.startsWith('127.') || ['::1', '0.0.0.0', '::'].includes(address) || address.toLowerCase().startsWith('::ffff:') || upstream.username || upstream.password) return null;
-      const join = /^\/s\/[A-Za-z0-9_-]{16,64}$/.test(path);
+      const invite = nativeSharePath(path, guest.pagePath);
+      const join = invite?.joinPrefix === '/s/';
       if (path.startsWith('/_open-artifact/shell/assets/') && !['GET', 'HEAD'].includes(req.method || '')) return null;
       if (!join && !path.startsWith(guest.pagePath) && !/^\/_blob\/[A-Za-z0-9_-]+(?:\.[a-z0-9]+)?$/.test(path) && !/^\/_open-artifact\/shell\/assets\/[A-Za-z0-9_./-]+$/.test(path)) return null;
-      return { ...who, target: new URL(req.url!, upstream), broker: false, guestTarget: guest };
+      const target = new URL(req.url!, upstream);
+      if (join) target.pathname = `${guest.joinPrefix}${invite!.token}`;
+      return { ...who, target, broker: false, guestTarget: guest };
     }
     if (!preflight && !this.authorized(req, who)) return null;
     const broker = !who.guest && !who.content && who.id !== null && req.headers.origin === this.shell.origin;

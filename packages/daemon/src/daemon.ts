@@ -59,7 +59,7 @@ import {
 } from '@open-artifact/protocol';
 import { HarnessHub, systemBrowse, type PollParams } from './harness.ts';
 import { HostingGateway } from './hosting-gateway.ts';
-import { guestShareTarget, type GuestShareTarget } from './hosting-shares.ts';
+import { guestShareTarget, nativeSharePath, type GuestShareTarget } from './hosting-shares.ts';
 import { Inbox } from './inbox.ts';
 import { callerFromRequest, handleMcp, type McpMessage, type McpReply } from './mcp.ts';
 import { nudgeSession } from './nudge.ts';
@@ -987,6 +987,7 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
       root: record.root,
       page: page?.page ?? null,
       pageUrl: page?.page_url ?? null,
+      viewUrl: this.viewUrl(record.id),
       pageKind: page?.kind ?? null,
       problem,
       empty,
@@ -1330,7 +1331,7 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
   private publicShare(record: ArtifactRecord, view: ShareView): ShareView {
     if (!this.gateway) return view;
     return { ...view, links: Object.fromEntries(Object.entries(view.links).map(([role, link]) => {
-      const token = link?.url && /^\/s\/([A-Za-z0-9_-]{16,64})$/.exec(new URL(link.url).pathname)?.[1];
+      const token = link?.url && nativeSharePath(new URL(link.url).pathname)?.token;
       return [role, link && { ...link, ...(token ? { url: this.gateway!.guestUrl(record.id, token) } : {}) }];
     })), tailnet: undefined };
   }

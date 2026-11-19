@@ -10,6 +10,7 @@ export interface GuestShareTarget {
   /** A concrete local LAN listener, never the loopback owner listener. */
   upstream: string;
   pagePath: string;
+  joinPrefix: string;
   token: string;
   cookieName: string;
 }
@@ -27,19 +28,27 @@ export function publicOrigin(value: string): string {
   return url.origin;
 }
 
+/** Native types use /s/token; legacy types put the invite under their own page. */
+export function nativeSharePath(path: string, pagePath?: string): { token: string; joinPrefix: string } | null {
+  const match = /^(\/(?:[a-z][a-z0-9-]*\/[A-Za-z0-9_-]+\/)?s\/)([A-Za-z0-9_-]{16,64})$/.exec(path);
+  if (!match || pagePath !== undefined && match[1] !== '/s/' && match[1] !== `${pagePath}s/`) return null;
+  return { token: match[2]!, joinPrefix: match[1]! };
+}
+
 /** Map a trusted type-server share response onto its matching non-loopback listener. */
 export function guestShareTarget(id: string, root: string, pageUrl: string, shareUrl: string, localAddresses: readonly string[]): GuestShareTarget {
   if (!ID.test(id)) throw new Error('Invalid artifact id');
   const page = new URL(pageUrl);
   const link = new URL(shareUrl);
   const address = link.hostname.replace(/^\[|\]$/g, '');
-  const token = /^\/s\/([A-Za-z0-9_-]{16,64})$/.exec(link.pathname)?.[1];
-  if (page.protocol !== 'http:' || link.protocol !== 'http:' || page.username || page.password || link.username || link.password || link.search || link.hash || !token) throw new Error('Invalid type-server share URL');
+  const invite = nativeSharePath(link.pathname, page.pathname);
+  if (page.protocol !== 'http:' || link.protocol !== 'http:' || page.username || page.password || link.username || link.password || link.search || link.hash || !invite) throw new Error('Invalid type-server share URL');
   if (!isIP(address) || address === '::1' || address === '0.0.0.0' || address === '::' || address.startsWith('127.') || address.toLowerCase().startsWith('::ffff:') || !localAddresses.includes(address)) throw new Error('Guest upstream must be an allowlisted non-loopback local address');
   if (page.port !== link.port) throw new Error('Guest and owner must use the same type-server port');
   const pagePath = safePath(page.pathname);
   if (!/^\/[a-z][a-z0-9-]*\/[A-Za-z0-9_-]+\/$/.test(pagePath)) throw new Error('Unsupported guest page path');
-  return { id, upstream: link.origin, pagePath, token, cookieName: `oa_guest_${createHash('sha256').update(resolve(root)).digest('hex').slice(0, 12)}` };
+  const kind = invite.joinPrefix === '/s/' ? 'oa' : pagePath.split('/')[1]!.replace(/-/g, '_');
+  return { id, upstream: link.origin, pagePath, ...invite, cookieName: `${kind}_guest_${createHash('sha256').update(resolve(root)).digest('hex').slice(0, 12)}` };
 }
 
 /** Only the native guest credential is allowed back to the public browser. */

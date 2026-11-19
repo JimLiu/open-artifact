@@ -32,8 +32,10 @@ function shareFragment(boot: ShellBoot | null, fragment: string): string {
 /** The Shell's own address for this artifact. */
 export function shellLink(fragment = location.hash): string {
   const boot = bootOf();
-  const base = boot.typeServer ? boot.typeServer.invite ?? location.origin + location.pathname : `${location.origin}/a/${encodeURIComponent(boot.id)}`;
-  return base + shareFragment(boot, fragment);
+  const base = boot.typeServer ? boot.typeServer.invite ?? location.origin + location.pathname : boot.viewUrl ?? `${location.origin}/a/${encodeURIComponent(boot.id)}`;
+  const url = new URL(base);
+  url.hash = shareFragment(boot, fragment);
+  return url.href;
 }
 
 /**
