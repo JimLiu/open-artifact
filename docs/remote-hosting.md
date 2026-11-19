@@ -49,6 +49,9 @@ not just the artifact named in the URL: keep it private, never share it with
 collaborators. Back up `$OPEN_ARTIFACT_HOME/hosting.key` with the daemon settings
 and library if the same owner links must survive moving or restoring the daemon.
 Clearing the hosting origins disables access but does not revoke capability keys.
+Use **Copy link** in the artifact menu to retain the owner capability. Copying the
+address bar after login only copies `/a/<id>`, which needs an existing owner cookie
+and intentionally does not authenticate another browser.
 
 Use the existing Share panel for collaborators. Public guest links have their
 own isolated host and retain native editor/commenter/viewer roles. Guests never
