@@ -39,7 +39,6 @@ import {
   type LibraryEvent,
   type OpenArtifactSettings,
   type HostingSettings,
-  type OpenRequest,
   type ResolvedEntry,
   type SessionRef,
   type ShareRequest,
@@ -532,12 +531,7 @@ export class Daemon extends EventEmitter<{ exit: [] }> {
         if (!record) return null;
         const page = await this.openPage(record, {
           shell: hosting.publicShellOrigin!,
-          hosted: {
-            shellOrigin: hosting.publicShellOrigin!,
-            frameOrigin: gateway.frameOrigin(id),
-            contentOrigin: gateway.contentOrigin(id),
-            contentBootstrapUrl: gateway.contentBootstrapUrl(id),
-          },
+          gateway,
         });
         return { pageUrl: page.page, ...(page.content_url ? { contentUrl: page.content_url } : {}) };
       },
@@ -1179,7 +1173,7 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
    * Resolves the artifact's page: `page` is what the Shell frames, an
    * absolute address on the page's own origin.
    */
-  async openPage(record: ArtifactRecord, context: { lang?: string | undefined; shell?: string; hosted?: OpenRequest['hosted'] } = {}): Promise<Omit<OpenPage, 'lastUsed'>> {
+  async openPage(record: ArtifactRecord, context: { lang?: string | undefined; shell?: string; gateway?: HostingGateway } = {}): Promise<Omit<OpenPage, 'lastUsed'>> {
     const type = this.typeOf(record);
     if (!type) throw new OpenArtifactError('type_missing', `The type ${record.type} is not installed.`);
     if (!type.runnable || !type.entry) throw new OpenArtifactError('type_not_runnable', type.problems.join(' ') || `${type.id} cannot open.`);
@@ -1190,12 +1184,13 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
       out = { kind, page, page_url: page };
       this.watchFolder(record);
     } else {
-      const hosted = context.hosted ?? (this.gateway ? {
-        shellOrigin: this.settings.hosting.publicShellOrigin!,
-        frameOrigin: this.gateway.frameOrigin(record.id),
-        contentOrigin: this.gateway.contentOrigin(record.id),
-        contentBootstrapUrl: this.gateway.contentBootstrapUrl(record.id),
-      } : undefined);
+      const gateway = context.gateway ?? this.gateway;
+      const hosted = gateway ? {
+        shellOrigin: context.gateway ? context.shell! : this.settings.hosting.publicShellOrigin!,
+        frameOrigin: gateway.frameOrigin(record.id),
+        contentOrigin: gateway.contentOrigin(record.id),
+        contentBootstrapUrl: gateway.contentBootstrapUrl(record.id),
+      } : undefined;
       const got = await this.servers.open(type, record, { ...(context.lang ? { lang: context.lang } : {}), shell: hosted?.shellOrigin ?? context.shell ?? this.origin, ...(hosted ? { hosted } : {}) });
       out = { kind, page: got.url, page_url: got.page_url, ...(got.content_url ? { content_url: got.content_url } : {}) };
     }

@@ -4,15 +4,13 @@ import { createServer, request, type IncomingMessage, type ServerResponse, type 
 import { isIP } from 'node:net';
 import { dirname } from 'node:path';
 import type { Duplex } from 'node:stream';
-import { guestRequestHeaders, publicGuestCookie, type GuestShareTarget } from './hosting-shares.ts';
+import { publicOrigin, safePath as cleanPath, publicGuestCookie, type GuestShareTarget } from './hosting-shares.ts';
 
 
 export interface HostedArtifact {
   pageUrl: string;
   /** SDK content host, e.g. http://art_ID.frame.localhost:port/. Never an API server. */
   contentUrl?: string;
-  /** Extra shared asset paths on the type server, never control or API paths. */
-  assetPaths?: string[];
 }
 export interface HostingGatewayOptions {
   shellOrigin: string;
@@ -25,8 +23,6 @@ export interface HostingGatewayOptions {
   resolveArtifact(id: string): Promise<HostedArtifact | null>;
   /** Native sharing listener; must already be validated as a local non-loopback target. */
   resolveGuest?(id: string): Promise<GuestShareTarget | null>;
-  /** Transform shell HTML/JSON boot data. Never return daemon bearer credentials. */
-  rewriteShellBody?(body: string, contentType: string): string | Promise<string>;
 }
 const ID = /^art_[a-z0-9]+$/;
 const OWNER = '__Host-oa_owner';
@@ -39,11 +35,7 @@ function contentPath(path: string): boolean {
 }
 const blocked = /^\/(?:__hub|__harness|mcp|__open-artifact)(?:[/.]|$)|^\/api\/open-artifact\.type\./;
 const hop = new Set(['connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization', 'te', 'trailer', 'transfer-encoding', 'upgrade']);
-function origin(value: string): URL {
-  const url = new URL(value);
-  if (url.protocol !== 'https:' || url.username || url.password || url.pathname !== '/' || url.search || url.hash) throw new Error('Public origins must be HTTPS origins');
-  return url;
-}
+const origin = (value: string): URL => new URL(publicOrigin(value));
 function localTarget(value: string): URL {
   const url = new URL(value);
   if (url.protocol !== 'http:' || !['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname) && !/^art_[a-z0-9]+\.frame\.localhost$/.test(url.hostname) || url.username || url.password) throw new Error('Upstream must be local HTTP');
@@ -52,12 +44,6 @@ function localTarget(value: string): URL {
 function cookie(req: IncomingMessage, name: string): string | undefined {
   const values = (req.headers.cookie || '').split(';').map(value => value.trim()).filter(value => value.startsWith(`${name}=`));
   return values.length === 1 ? values[0]!.slice(name.length + 1) : undefined;
-}
-function cleanPath(value: string): string {
-  if (!value.startsWith('/') || value.startsWith('//') || /[\\\r\n\0]/.test(value)) throw new Error('Invalid path');
-  const path = decodeURIComponent(value.split('?')[0]!);
-  if (/[\\\0]/.test(path) || path.split('/').some(part => part === '.' || part === '..') || /%[0-9a-f]{2}/i.test(path)) throw new Error('Invalid path');
-  return path;
 }
 function reply(res: ServerResponse, status: number, message: string): void {
   res.writeHead(status, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' }).end(message);
@@ -96,19 +82,17 @@ export class HostingGateway {
     cleanPath(path);
     return `${this.shell.origin}/__hosting/owner/${this.sign('owner-link')}?next=${encodeURIComponent(path)}`;
   }
-  frameOrigin(id: string): string { if (!ID.test(id)) throw new Error('Invalid artifact id'); return origin(this.options.frameOrigin.replace('{id}', id.replace('art_', 'art-'))).origin; }
-  guestOrigin(id: string): string {
+  private artifactOrigin(id: string, prefix = ''): string {
     if (!ID.test(id)) throw new Error('Invalid artifact id');
-    return origin(this.options.frameOrigin.replace('{id}', `guest-${id.replace('art_', 'art-')}`)).origin;
+    return origin(this.options.frameOrigin.replace('{id}', prefix + id.replace('art_', 'art-'))).origin;
   }
+  frameOrigin(id: string): string { return this.artifactOrigin(id); }
+  guestOrigin(id: string): string { return this.artifactOrigin(id, 'guest-'); }
   guestUrl(id: string, token: string): string {
     if (!/^[A-Za-z0-9_-]{16,64}$/.test(token)) throw new Error('Invalid guest token');
     return `${this.guestOrigin(id)}/s/${token}`;
   }
-  contentOrigin(id: string): string {
-    if (!ID.test(id)) throw new Error('Invalid artifact id');
-    return origin(this.options.frameOrigin.replace('{id}', `content-${id.replace('art_', 'art-')}`)).origin;
-  }
+  contentOrigin(id: string): string { return this.artifactOrigin(id, 'content-'); }
   /** Reusable read-only artifact capability: cached SDK frame sessions outlive bootstrap tickets. */
   contentUrl(id: string, path = '/'): string {
     cleanPath(path);
@@ -120,16 +104,13 @@ export class HostingGateway {
   }
   /** Call only when rendering authenticated shell boot data, never in an anonymous response. */
   frameUrl(id: string, path = '/'): string {
-    return this.bootstrapUrl(id, path, false);
-  }
-  private bootstrapUrl(id: string, path: string, content: boolean): string {
-    const external = content ? this.contentOrigin(id) : this.frameOrigin(id);
+    const external = this.frameOrigin(id);
     cleanPath(path);
     const nonce = randomBytes(24).toString('base64url');
     const expires = Date.now() + 60_000;
     for (const [ticket, at] of this.tickets) if (at < Date.now()) this.tickets.delete(ticket);
-    this.tickets.set(`${content ? 'content' : 'frame'}:${id}:${nonce}`, expires);
-    return `${external}/__hosting/${content ? 'content' : 'frame'}/${nonce}?next=${encodeURIComponent(path)}`;
+    this.tickets.set(`frame:${id}:${nonce}`, expires);
+    return `${external}/__hosting/frame/${nonce}?next=${encodeURIComponent(path)}`;
   }
   async start(): Promise<number> {
     await new Promise<void>((resolve, reject) => { this.server.once('error', reject); this.server.listen(this.options.port, this.options.listenHost, () => { this.server.off('error', reject); resolve(); }); });
@@ -151,14 +132,20 @@ export class HostingGateway {
     return ID.test(id) ? { id, content, guest, external: content ? this.contentOrigin(id) : guest ? this.guestOrigin(id) : this.frameOrigin(id) } : null;
   }
   private authorized(req: IncomingMessage, who: Identity): boolean { return this.equal(cookie(req, who.id ? who.content ? CONTENT : FRAME : OWNER), this.sign(who.id ? `${who.content ? 'content' : 'frame'}:${who.id}` : 'owner-cookie')); }
-  private headers(req: IncomingMessage, target: URL): OutgoingHttpHeaders {
+  private headers(req: IncomingMessage, route: Route): OutgoingHttpHeaders {
+    const target = route.target;
     const headers: OutgoingHttpHeaders = {};
     const connection = new Set(String(req.headers.connection || '').toLowerCase().split(',').map(v => v.trim()));
     for (const [name, value] of Object.entries(req.headers)) {
       if (!hop.has(name) && !connection.has(name) && !['host', 'cookie', 'authorization', 'origin', 'referer', 'accept-encoding', 'forwarded'].includes(name) && !name.startsWith('x-forwarded-')) headers[name] = value;
     }
     headers.host = target.host;
-    if (req.headers.origin !== undefined) headers.origin = target.origin;
+    if (req.headers.origin !== undefined) headers.origin = !route.guest && /^\/f\/[^/]+\//.test(target.pathname) ? route.external : target.origin;
+    if (route.guestTarget) {
+      const name = route.guestTarget.cookieName;
+      const value = cookie(req, name);
+      if (value && /^[A-Za-z0-9_-]+$/.test(value)) headers.cookie = `${name}=${value}`;
+    }
     headers['accept-encoding'] = 'identity';
     return headers;
   }
@@ -200,7 +187,7 @@ export class HostingGateway {
     }
     const page = localTarget(artifact.pageUrl);
     const prefix = page.pathname.endsWith('/') ? page.pathname : page.pathname.slice(0, page.pathname.lastIndexOf('/') + 1);
-    if (path !== '/' && !path.startsWith(prefix) && !(artifact.assetPaths || []).some(p => p !== '/' && path.startsWith(p))) return null;
+    if (path !== '/' && !path.startsWith(prefix)) return null;
     if (broker && (!path.startsWith(`${prefix}_api/`) || !['GET', 'HEAD', 'POST', 'OPTIONS'].includes(req.method || ''))) return null;
     const target = new URL(req.url!, page.origin);
     if (path === '/') { target.pathname = page.pathname; target.search = page.search + (target.search ? `${page.search ? '&' : '?'}${target.search.slice(1)}` : ''); }
@@ -245,8 +232,7 @@ export class HostingGateway {
     }
     const route = await this.route(req);
     if (!route) return reply(res, 403, 'Not granted');
-    const requestHeaders = route.guestTarget ? guestRequestHeaders(route.guestTarget, req.headers, route.external) : this.headers(req, route.target);
-    if (!route.guest && /^\/f\/[^/]+\//.test(route.target.pathname) && req.headers.origin !== undefined) requestHeaders.origin = route.external;
+    const requestHeaders = this.headers(req, route);
     const upstream = request(route.target, { method: req.method, headers: requestHeaders, ...route.guest ? {} : { hostname: '127.0.0.1', family: 4 } }, response => {
       const headers: OutgoingHttpHeaders = {};
       for (const [name, value] of Object.entries(response.headers)) if (!hop.has(name) && name !== 'set-cookie' && !name.startsWith('access-control-')) headers[name] = value;
@@ -278,12 +264,8 @@ export class HostingGateway {
         });
         response.on('error', () => res.destroy()); return;
       }
-      if (!route.id && this.options.rewriteShellBody && /(?:text\/html|application\/json)/.test(type)) {
-        const chunks: Buffer[] = [];
-        let size = 0;
-        response.on('data', (chunk: Buffer) => { size += chunk.length; if (size > 8 * 1024 * 1024) { response.destroy(); res.destroy(); } else chunks.push(chunk); });
-        response.on('end', () => { void Promise.resolve(this.options.rewriteShellBody!(Buffer.concat(chunks).toString(), type)).then(body => { delete headers['content-length']; delete headers['content-encoding']; res.writeHead(response.statusCode || 502, headers).end(body); }).catch(() => res.destroy()); });
-      } else { res.writeHead(response.statusCode || 502, headers); response.pipe(res); }
+      res.writeHead(response.statusCode || 502, headers);
+      response.pipe(res);
       response.on('error', () => res.destroy());
     });
     upstream.on('error', () => { if (!res.headersSent) reply(res, 502, 'Artifact upstream unavailable'); else res.destroy(); });
@@ -294,8 +276,7 @@ export class HostingGateway {
   private async upgrade(req: IncomingMessage, socket: Duplex, head: Buffer): Promise<void> {
     const route = await this.route(req);
     if (!route || !route.id || route.content || route.target.pathname.startsWith('/_open-artifact/shell/assets/') || (req.headers.origin !== route.external && !route.broker) || String(req.headers.upgrade).toLowerCase() !== 'websocket') { socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n'); return; }
-    const headers = route.guestTarget ? guestRequestHeaders(route.guestTarget, req.headers, route.external) : this.headers(req, route.target);
-    if (!route.guest && /^\/f\/[^/]+\//.test(route.target.pathname)) headers.origin = route.external;
+    const headers = this.headers(req, route);
     headers.connection = 'Upgrade'; headers.upgrade = 'websocket';
     const upstream = request(route.target, { headers, ...route.guest ? {} : { hostname: '127.0.0.1', family: 4 } });
     upstream.on('upgrade', (response, peer, first) => {

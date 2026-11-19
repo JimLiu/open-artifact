@@ -38,7 +38,7 @@ export interface OpenArtifactSettings {
     /** What to do with a wake for a session nobody can reach. */
     fallback: 'ask' | 'inbox';
   };
-  /** Shared hosting preferences; remote support must be checked separately. */
+  /** Shared gateway settings; responses report whether the listener is active. */
   hosting: HostingSettings;
   /** Preferred daemon port. */
   serverPort: number;

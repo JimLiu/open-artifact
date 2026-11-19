@@ -107,6 +107,9 @@ The plugin adds the `Artifact`, `ArtifactData` and `ArtifactComments` MCP tools,
 page comments back into the session. How each app gets comments back, and what was tested in each, is in
 [plugins/README.md](plugins/README.md).
 
+Using DSH on a remote server? [Remote HTTPS hosting](docs/remote-hosting.md) adds shared UI settings,
+authenticated owner links and isolated editor origins behind your TLS reverse proxy.
+
 ### 2. As a skill for any other agent
 
 Copy or point your agent at [`skills/open-artifact/`](skills/open-artifact/SKILL.md) (built by

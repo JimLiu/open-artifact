@@ -1,11 +1,9 @@
 import { createHash } from 'node:crypto';
-import type { IncomingHttpHeaders, OutgoingHttpHeaders } from 'node:http';
 import { isIP } from 'node:net';
 import { resolve } from 'node:path';
 
 const ID = /^art_[a-z0-9]+$/;
 const TOKEN = /^[A-Za-z0-9_-]{16,64}$/;
-const hop = new Set(['connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization', 'te', 'trailer', 'transfer-encoding', 'upgrade']);
 
 export interface GuestShareTarget {
   id: string;
@@ -16,14 +14,14 @@ export interface GuestShareTarget {
   cookieName: string;
 }
 
-function safePath(value: string): string {
+export function safePath(value: string): string {
   if (!value.startsWith('/') || value.startsWith('//') || /[\\\r\n\0]/.test(value)) throw new Error('Invalid guest path');
   const decoded = decodeURIComponent(value.split('?')[0]!);
   if (/[\\\0]/.test(decoded) || decoded.split('/').some(part => part === '.' || part === '..') || /%[0-9a-f]{2}/i.test(decoded)) throw new Error('Invalid guest path');
   return decoded;
 }
 
-function publicOrigin(value: string): string {
+export function publicOrigin(value: string): string {
   const url = new URL(value);
   if (url.protocol !== 'https:' || url.username || url.password || url.pathname !== '/' || url.search || url.hash) throw new Error('Guest sharing requires an HTTPS origin');
   return url.origin;
@@ -42,23 +40,6 @@ export function guestShareTarget(id: string, root: string, pageUrl: string, shar
   const pagePath = safePath(page.pathname);
   if (!/^\/[a-z][a-z0-9-]*\/[A-Za-z0-9_-]+\/$/.test(pagePath)) throw new Error('Unsupported guest page path');
   return { id, upstream: link.origin, pagePath, token, cookieName: `oa_guest_${createHash('sha256').update(resolve(root)).digest('hex').slice(0, 12)}` };
-}
-
-/** Validate browser Origin before rewriting it; never forward any owner credentials. */
-export function guestRequestHeaders(target: GuestShareTarget, headers: IncomingHttpHeaders, origin: string): OutgoingHttpHeaders {
-  const external = publicOrigin(origin);
-  if (headers.origin !== undefined && headers.origin !== external) throw new Error('Cross-origin guest request refused');
-  const out: OutgoingHttpHeaders = {};
-  const connection = new Set(String(headers.connection || '').toLowerCase().split(',').map(value => value.trim()));
-  for (const [name, value] of Object.entries(headers)) {
-    if (!hop.has(name) && !connection.has(name) && !['host', 'cookie', 'authorization', 'origin', 'referer', 'forwarded', 'accept-encoding'].includes(name) && !name.startsWith('x-forwarded-')) out[name] = value;
-  }
-  out.host = new URL(target.upstream).host;
-  out['accept-encoding'] = 'identity';
-  if (headers.origin !== undefined) out.origin = target.upstream;
-  const cookies = String(headers.cookie || '').split(';').map(value => value.trim()).filter(value => value.startsWith(`${target.cookieName}=`));
-  if (cookies.length === 1 && /^[A-Za-z0-9_-]+$/.test(cookies[0]!.slice(target.cookieName.length + 1))) out.cookie = cookies[0];
-  return out;
 }
 
 /** Only the native guest credential is allowed back to the public browser. */

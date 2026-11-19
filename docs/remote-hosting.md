@@ -17,7 +17,9 @@ Open **Settings -> Artifact Hosting**. Configure:
 Save applies the shared daemon settings immediately. All harnesses and artifact
 types use the same configuration. Settings survive daemon and DSH restarts.
 Clear both origins to return to local-only access. An occupied listener fails
-without replacing the active configuration.
+without replacing the active configuration. The shared settings are stored in
+`~/.agents/open-artifact/settings.json` (or `$OPEN_ARTIFACT_HOME/settings.json`).
+Saving changes the gateway, not your DNS, TLS certificates or reverse proxy.
 
 The gateway uses public DNS-safe `art-...` labels for internal `art_...` IDs.
 Provision DNS and certificates for `*.frames.example.com`; it covers editor,
@@ -42,8 +44,11 @@ origins before forwarding to an allowlisted local artifact server.
 
 An owner URL authenticates the browser with a Secure, HttpOnly, host-only cookie,
 then redirects to the artifact without the capability in its address. The owner
-link is persistent across restarts and grants owner access to this local library:
-keep it private, never share it with collaborators.
+link is persistent across restarts and grants owner access to this local library,
+not just the artifact named in the URL: keep it private, never share it with
+collaborators. Back up `$OPEN_ARTIFACT_HOME/hosting.key` with the daemon settings
+and library if the same owner links must survive moving or restoring the daemon.
+Clearing the hosting origins disables access but does not revoke capability keys.
 
 Use the existing Share panel for collaborators. Public guest links have their
 own isolated host and retain native editor/commenter/viewer roles. Guests never
@@ -67,33 +72,22 @@ independently of open conversations.
 `dsh-open-artifact` replaces the old `dsh-claude-*` integration; it does not import
 its catalog or preserve old capability URL formats automatically.
 
-```sh
-node scripts/migrate-legacy-baoyu.mjs --catalog /path/to/.dsh/baoyu-design/artifacts --out /path/to/new-copies
-node scripts/migrate-legacy-baoyu.mjs --apply --catalog /path/to/.dsh/baoyu-design/artifacts --out /path/to/new-copies
-```
+Copy existing roots before adoption; never let both runtimes edit the same
+files or sharing keys. Check legacy blob locations and verify rendering, edits
+and exports before replacing the old installation. Old URLs require a one-time
+re-share. Migration tooling is outside this hosting change.
 
-The default is a write-free preview. Apply copies supported content into new
-roots, relocates old blob directories byte-for-byte, preserves legacy metadata
-in a manifest, refuses collisions/symlinks, and never modifies original roots or
-sharing keys. Adopt the copied roots using their manifest `type_url` and title,
-then verify rendering, editing, assets and exports before replacing the old
-installation. Old links require a one-time re-share with the new URLs.
-
-Motion is not a built-in type in this release. The migration utility refuses to
-silently treat it as Data or discard it. Install a compatible custom type before
-migrating Motion, or preserve its source and exports in the rollback archive.
-Docs/Sheets layout relocation and Data live connectors require additional
-compatibility checks; the manifest reports those limitations.
+Motion needs a compatible custom type; it is not built in. Do not silently
+relabel it as Data or discard its source. Docs, Sheets and Data connectors also
+need format-specific migration checks.
 
 ## Verification
 
 ```sh
 npm run check
-node scripts/migrate-legacy-baoyu.test.mjs
 ```
 
-Gateway tests cover owner authentication, isolated cookies, private-route refusal,
-strict Origin validation, HTTP/SSE/WebSocket transport, nested content isolation,
-real native guest roles and revocation, and persisted owner URLs after restart.
-Browser checks additionally verify actual rendering and edits; fetching an HTML
-shell successfully is not sufficient evidence that the editor works.
+Compact integration checks cover authentication, Origin/control-route refusal,
+native guest roles and revocation, persistent owner links and broker credentials.
+Browser verification should additionally exercise rendering, edits, nested frames
+and SSE/WebSocket transport: fetching an HTML shell is not enough.
