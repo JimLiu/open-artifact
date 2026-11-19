@@ -176,7 +176,8 @@ export class HostingGateway {
       const address = upstream.hostname.replace(/^\[|\]$/g, '');
       if (upstream.protocol !== 'http:' || !isIP(address) || address.startsWith('127.') || ['::1', '0.0.0.0', '::'].includes(address) || address.toLowerCase().startsWith('::ffff:') || upstream.username || upstream.password) return null;
       const join = /^\/s\/[A-Za-z0-9_-]{16,64}$/.test(path);
-      if (!join && !path.startsWith(guest.pagePath) && !/^\/_blob\/[A-Za-z0-9_-]+(?:\.[a-z0-9]+)?$/.test(path)) return null;
+      if (path.startsWith('/_open-artifact/shell/assets/') && !['GET', 'HEAD'].includes(req.method || '')) return null;
+      if (!join && !path.startsWith(guest.pagePath) && !/^\/_blob\/[A-Za-z0-9_-]+(?:\.[a-z0-9]+)?$/.test(path) && !/^\/_open-artifact\/shell\/assets\/[A-Za-z0-9_./-]+$/.test(path)) return null;
       return { ...who, target: new URL(req.url!, upstream), broker: false, guestTarget: guest };
     }
     if (!preflight && !this.authorized(req, who)) return null;
@@ -267,6 +268,16 @@ export class HostingGateway {
         headers.location = `${route.external}${location.pathname}${location.search}${location.hash}`;
       }
       const type = String(response.headers['content-type'] || '');
+      if (route.guest && type.includes('text/html')) {
+        const chunks: Buffer[] = []; let size = 0;
+        response.on('data', (chunk: Buffer) => { size += chunk.length; if (size > 8 * 1024 * 1024) { response.destroy(); res.destroy(); } else chunks.push(chunk); });
+        response.on('end', () => {
+          const body = Buffer.concat(chunks).toString().replaceAll(route.target.origin, route.external);
+          delete headers['content-length']; delete headers['content-encoding'];
+          res.writeHead(response.statusCode || 502, headers).end(body);
+        });
+        response.on('error', () => res.destroy()); return;
+      }
       if (!route.id && this.options.rewriteShellBody && /(?:text\/html|application\/json)/.test(type)) {
         const chunks: Buffer[] = [];
         let size = 0;
@@ -282,7 +293,7 @@ export class HostingGateway {
   }
   private async upgrade(req: IncomingMessage, socket: Duplex, head: Buffer): Promise<void> {
     const route = await this.route(req);
-    if (!route || !route.id || route.content || (req.headers.origin !== route.external && !route.broker) || String(req.headers.upgrade).toLowerCase() !== 'websocket') { socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n'); return; }
+    if (!route || !route.id || route.content || route.target.pathname.startsWith('/_open-artifact/shell/assets/') || (req.headers.origin !== route.external && !route.broker) || String(req.headers.upgrade).toLowerCase() !== 'websocket') { socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n'); return; }
     const headers = route.guestTarget ? guestRequestHeaders(route.guestTarget, req.headers, route.external) : this.headers(req, route.target);
     if (!route.guest && /^\/f\/[^/]+\//.test(route.target.pathname)) headers.origin = route.external;
     headers.connection = 'Upgrade'; headers.upgrade = 'websocket';
