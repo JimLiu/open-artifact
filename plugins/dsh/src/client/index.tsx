@@ -14,6 +14,7 @@ import type { ComponentType } from 'react';
 import { httpApi } from './api.ts';
 import { cardDefinition, threadUrl, type CardData } from './cards.ts';
 import { ArtifactsPage } from './components/ArtifactsPage.tsx';
+import { HostingSettings } from './components/HostingSettings.tsx';
 import { EventCards, type EventCardsProps } from './components/EventCards.tsx';
 import { followHostOpens } from './host-open.ts';
 import { EMPTY_SESSIONS, EnvProvider, type PageEnv } from './env.tsx';
@@ -83,6 +84,7 @@ function joinCards(ctx: ClientContext, t: Translate): void {
 
 /** Registers the page and its sidebar entry. */
 function joinPage(ctx: ClientContext, t: Translate): void {
+  ctx.slots.inject('settings.section', () => ctx.slots.register({ name: 'settings.section', id: 'open-artifact-hosting', order: 65, label: () => 'Artifact Hosting' }, HostingSettings as ComponentType<never>));
   const host = pageHost(ctx);
   const store = createPageStore({ api: httpApi, host, t });
   const sessions = () => {

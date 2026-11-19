@@ -93,7 +93,7 @@ type DocExportedNotes = Awaited<ReturnType<DocCapability['exportFile']>>['notes'
 
 /** Options of {@link createLocalProvider}. */
 export interface LocalProviderOptions {
-  /** The page base URL; defaults to the directory of `location.href`. */
+  /** The page base URL; defaults to the directory of `location.href`. An explicit cross-origin base includes cookies for Shell brokerage. */
   base?: string;
   /**
    * Called once when the event stream was cut and the server no longer lets
@@ -141,6 +141,9 @@ function makeClientId(): string {
  */
 export function createLocalProvider(options: LocalProviderOptions = {}): CapabilityProvider {
   const base = new URL(options.base ?? './', location.href);
+  // The Shell broker validates this explicit base before using the frame's host-only cookie.
+  const crossOrigin = options.base !== undefined && base.origin !== new URL(location.href).origin;
+  const request = (target: string, init?: RequestInit): Promise<Response> => fetch(target, crossOrigin ? { ...init, credentials: 'include' } : init);
   const client = makeClientId();
   const url = (path: string, query?: Record<string, string>): string => {
     const target = new URL(path, base);
@@ -151,7 +154,7 @@ export function createLocalProvider(options: LocalProviderOptions = {}): Capabil
   const json = async <T>(path: string, init?: RequestInit, query?: Record<string, string>): Promise<T> => {
     let response: Response;
     try {
-      response = await fetch(url(path, query), init);
+      response = await request(url(path, query), init);
     } catch (error) {
       throw new ArtifactError('unavailable', error instanceof Error ? error.message : String(error));
     }
@@ -194,7 +197,7 @@ export function createLocalProvider(options: LocalProviderOptions = {}): Capabil
     dispatch(event.type as ServerEventName, JSON.parse((event as MessageEvent<string>).data) as ServerEvents[ServerEventName]);
   };
   const useEventSource = (): void => {
-    const source = new EventSource(url(API.events, { client }));
+    const source = new EventSource(url(API.events, { client }), crossOrigin ? { withCredentials: true } : undefined);
     fallback = source;
     for (const name of listeners.keys()) source.addEventListener(name, fromSource);
     // An EventSource retries by itself, but gives up (CLOSED) on a refusal.
@@ -239,7 +242,7 @@ export function createLocalProvider(options: LocalProviderOptions = {}): Capabil
       if (!was) return false;
       let response: Response;
       try {
-        response = await fetch(url(API.session), { cache: 'no-store' });
+        response = await request(url(API.session), { cache: 'no-store' });
       } catch {
         return false; // the server is down: keep reconnecting
       }
@@ -429,7 +432,7 @@ export function createLocalProvider(options: LocalProviderOptions = {}): Capabil
         exportFile: async (query) => {
           let response: Response;
           try {
-            response = await fetch(url(DOC_API.exportFile, { format: query.format, ...(query.tab ? { tab: query.tab } : {}), ...(query.paper ? { paper: query.paper } : {}) }), { cache: 'no-store' });
+            response = await request(url(DOC_API.exportFile, { format: query.format, ...(query.tab ? { tab: query.tab } : {}), ...(query.paper ? { paper: query.paper } : {}) }), { cache: 'no-store' });
           } catch (error) {
             throw new ArtifactError('unavailable', error instanceof Error ? error.message : String(error));
           }
@@ -532,7 +535,7 @@ export function createLocalProvider(options: LocalProviderOptions = {}): Capabil
   async function fetchBytes(route: string, query: Record<string, string>): Promise<Uint8Array> {
     let response: Response;
     try {
-      response = await fetch(url(route, query), { cache: 'no-store' });
+      response = await request(url(route, query), { cache: 'no-store' });
     } catch (error) {
       throw new ArtifactError('unavailable', error instanceof Error ? error.message : String(error));
     }

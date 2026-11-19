@@ -183,6 +183,20 @@ export function registerRoutes(routes: RouteRegistry, options: RouteOptions = {}
       },
     });
 
+  route(PATHS.hosting, ['GET', 'POST'], async (request) => {
+    if (request.method === 'GET') return json(await api('hosting'));
+    const origin = request.headers.get('origin');
+    if (origin) {
+      try {
+        if (origin === 'null' || new URL(origin).host !== (request.headers.get('host') || new URL(request.url).host)) return json({ error: 'Cross-origin write refused.' }, 403);
+      } catch { return json({ error: 'Cross-origin write refused.' }, 403); }
+    }
+    let body: unknown;
+    try { body = await request.json(); }
+    catch { return json({ error: 'Expected JSON hosting settings.' }, 400); }
+    return json(await api('hosting', { body }));
+  });
+
   route(PATHS.list, ['GET'], async () => {
     const [list, types] = await Promise.all([
       api<{ artifacts?: ArtifactView[] }>(LIBRARY_ROUTES.artifacts),

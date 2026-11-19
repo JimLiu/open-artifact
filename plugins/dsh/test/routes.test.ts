@@ -103,6 +103,22 @@ function routesWith(...tokens: string[]) {
 }
 
 describe('routes', () => {
+  it('reads and saves shared hosting settings without exposing the daemon token', async () => {
+    const settings = { publicShellOrigin: 'https://artifacts.example.com', frameOriginTemplate: 'https://{artifactId}.frames.example.net' };
+    answers['/api/open-artifact.hosting'] = (entry) => ({ json: { settings: entry.method === 'POST' ? JSON.parse(entry.body.toString()) : settings, remote: { supported: false, enabled: false } } });
+    const { call } = routesWith(TOKEN);
+    assert.deepEqual((await (await call(PATHS.hosting)).json()).settings, settings);
+    const saved = await call(PATHS.hosting, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: 'https://app.local' }, body: JSON.stringify(settings) });
+    assert.equal(saved.status, 200);
+    assert.deepEqual((await saved.json()).settings, settings);
+    assert.equal(seen.at(-1)?.auth, `Bearer ${TOKEN}`);
+    const count = seen.length;
+    for (const origin of ['null', 'https://evil.example', 'not-an-origin']) {
+      assert.equal((await call(PATHS.hosting, { method: 'POST', headers: { Origin: origin }, body: '{}' })).status, 403);
+    }
+    assert.equal(seen.length, count);
+    assert.equal((await call(PATHS.hosting, { method: 'POST', body: 'bad json' })).status, 400);
+  });
   it('registers every page path under the base, buffered', () => {
     const { routes } = routesWith(TOKEN);
     // The host.open and updates routes come with what they need only.

@@ -47,6 +47,8 @@ export interface FrameSession {
   ver: string;
   contract: Contract;
   contentOrigin: string;
+  /** Reusable read-only content capability; never a Shell or broker credential. */
+  contentBootstrapUrl?: string;
   shellOrigin: string;
   /** The broker generation: calls stamped with another one are not run. */
   brokerGen: number;

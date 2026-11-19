@@ -7,6 +7,22 @@
 /** A marketplace source. */
 export type MarketplaceSource = { source: 'github'; repo: string; ref?: string } | { source: 'git'; url: string; ref?: string } | { source: 'directory'; path: string };
 
+/** Public gateway configuration; both origins null disables the listener. */
+export interface HostingSettings {
+  publicShellOrigin: string | null;
+  /** HTTPS origin with `{artifactId}` as its first, complete hostname label. */
+  frameOriginTemplate: string | null;
+  /** Concrete non-loopback interface used by the authenticated gateway. */
+  listenHost: string | null;
+  port: number;
+}
+
+/** Public hosting configuration and the daemon's actual support status. */
+export interface HostingResponse {
+  settings: HostingSettings;
+  remote: { supported: boolean; enabled: boolean; reason?: string; error?: string; restartRequired?: boolean };
+}
+
 /** Settings. */
 export interface OpenArtifactSettings {
   /** Where types are looked for. `~` is expanded. */
@@ -22,6 +38,8 @@ export interface OpenArtifactSettings {
     /** What to do with a wake for a session nobody can reach. */
     fallback: 'ask' | 'inbox';
   };
+  /** Shared hosting preferences; remote support must be checked separately. */
+  hosting: HostingSettings;
   /** Preferred daemon port. */
   serverPort: number;
   /** Folder under a workspace where new artifacts go. */
@@ -44,6 +62,7 @@ export const DEFAULT_SETTINGS: OpenArtifactSettings = {
   disabledTypes: [],
   flags: {},
   wake: { fallback: 'ask' },
+  hosting: { publicShellOrigin: null, frameOriginTemplate: null, listenHost: null, port: 4801 },
   serverPort: 4800,
   artifactsDir: 'artifacts',
   homeWorkspace: '~/OpenArtifact',

@@ -187,7 +187,7 @@ export class TypeServers {
   }
 
   /** The artifact's page (absolute addresses): a URL template filled in, or `/__open-artifact/open` asked of the server. */
-  async open(type: TypeInfo, record: { id: string; root: string; title: string }, context: { lang?: string; shell: string }): Promise<{ url: string; page_url: string }> {
+  async open(type: TypeInfo, record: { id: string; root: string; title: string }, context: { lang?: string; shell: string; hosted?: OpenRequest['hosted'] }): Promise<{ url: string; page_url: string; content_url?: string }> {
     const entry = remoteEntry(type);
     if (entry.kind === 'url' && !entry.open) {
       const url = fillTemplate(entry.url, { id: record.id, lang: context.lang, root: record.root });
@@ -199,12 +199,12 @@ export class TypeServers {
       const url = fillTemplate(entry.url!, { id: record.id, lang: context.lang, root: record.root });
       return { url, page_url: url };
     }
-    const request: OpenRequest = { id: record.id, root: record.root, title: record.title, lang: context.lang || 'en', shell: context.shell };
+    const request: OpenRequest = { id: record.id, root: record.root, title: record.title, lang: context.lang || 'en', shell: context.shell, ...(context.hosted ? { hosted: context.hosted } : {}) };
     const out = await this.call<Partial<OpenResult>>(type, 'POST', TYPE_SERVER_ROUTES.open, request);
     if (!out || typeof out.url !== 'string') throw new OpenArtifactError('server_failed', `${type.id}: ${TYPE_SERVER_ROUTES.open} returned no url.`);
     const url = new URL(out.url, base).href;
     const pageUrl = typeof out.page_url === 'string' ? new URL(out.page_url, base).href : url;
-    return { url, page_url: pageUrl };
+    return { url, page_url: pageUrl, ...(typeof out.content_url === 'string' ? { content_url: new URL(out.content_url, base).href } : {}) };
   }
 
   /** Calls one of the server's `/__open-artifact/*` routes with its secret. */

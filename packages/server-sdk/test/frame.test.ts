@@ -13,6 +13,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { after, before, describe, it } from 'node:test';
+import { runInNewContext } from 'node:vm';
 import { DbStore, docSha256, mergePatch } from '../src/frame/db.ts';
 import { FrameSite, frameActions, mountFrameSite, parseDeclaration, type FrameEvent, type FrameSession } from '../src/frame/index.ts';
 import { TypeApi, TypeServer } from '../src/index.ts';
@@ -425,6 +426,45 @@ describe('frame-host', () => {
     }
   });
 
+  it('uses only authenticated hosted origins and keeps content isolated', async () => {
+    const hosted = { shellOrigin: 'https://shell.example.test', frameOrigin: 'https://frame.example.test', contentOrigin: 'https://content.example.test', contentBootstrapUrl: 'https://content.example.test/__hosting/content/content_only-token' };
+    for (const contentBootstrapUrl of [
+      'https://evil.example/__hosting/content/token',
+      'https://frame.example.test/__hosting/content/token',
+      'http://content.example.test/__hosting/content/token',
+      'https://user:secret@content.example.test/__hosting/content/token',
+      'https://content.example.test/__hosting/frame/token',
+      'https://content.example.test/__hosting/content/token?next=/',
+      'https://content.example.test/__hosting/content/token#fragment',
+      'https://content.example.test/__hosting/content/token/extra',
+    ]) assert.equal((await openArtifact('open', { id: ID, root, hosted: { ...hosted, contentBootstrapUrl } })).status, 400, contentBootstrapUrl);
+    const invalid = await openArtifact('open', { id: ID, root, hosted: { ...hosted, contentOrigin: hosted.frameOrigin } });
+    assert.equal(invalid.status, 400);
+    assert.equal((await openArtifact('open', { id: ID, root, hosted: { ...hosted, shellOrigin: 'http://shell.example.test' } })).status, 400);
+    assert.equal((await http(port, { method: 'POST', path: '/__open-artifact/open', body: { id: ID, root, hosted } })).status, 401);
+    const opened = await openArtifact('open', { id: ID, root, hosted });
+    assert.equal(opened.status, 200, opened.text);
+    page = new URL(opened.json.url).pathname;
+    const session = await shellApi('session', undefined, hosted.frameOrigin);
+    assert.equal(session.status, 200);
+    assert.equal(session.json.contentOrigin, hosted.contentOrigin);
+    assert.equal(session.json.contentBootstrapUrl, hosted.contentBootstrapUrl);
+    assert.equal(session.json.shellOrigin, hosted.frameOrigin);
+    assert.equal((await shellApi('session', undefined, hosted.contentOrigin)).status, 403);
+    assert.equal((await shellApi('session', undefined, hosted.shellOrigin)).status, 403);
+    const html = await http(port, { path: page + '?open_artifact_shell=https://evil.example' });
+    assert.match(html.text, /name="open-artifact-shell-origin" content="https:\/\/shell.example.test"/);
+    assert.match(String(html.headers['content-security-policy']), /frame-src https:\/\/content.example.test/);
+    assert.doesNotMatch(String(html.headers['content-security-policy']), /localhost/);
+    const contentHtml = await content('/_f/v/');
+    assert.match(contentHtml.text, /"shellOrigin":"https:\/\/frame.example.test"/);
+    assert.equal(contentHtml.headers['content-security-policy'], 'frame-ancestors https://frame.example.test https://shell.example.test');
+    assert.doesNotMatch(contentHtml.text, /content_only-token/, 'content bootstrap must not be injected into untrusted content');
+    const local = await openArtifact('open', { id: ID, root });
+    page = new URL(local.json.url).pathname;
+    assert.equal((await shellApi('session')).status, 200);
+  });
+
   it('info action, and closing unmounts', async () => {
     const info = await action('info', {});
     assert.ok(info.info.files.some((f: { path: string }) => f.path === 'project/hello.txt'));
@@ -435,6 +475,25 @@ describe('frame-host', () => {
 });
 
 describe('frame-host units', () => {
+  it('bootstraps each nested content version through the reusable content-only URL', () => {
+    const source = readFileSync(join(import.meta.dirname, '../src/frame/client/shell.ts'), 'utf8');
+    const start = source.indexOf('  const pageUrl =');
+    const end = source.indexOf('\n  };', start) + '\n  };'.length;
+    assert.ok(start > 0 && end > start);
+    const pageUrlSource = source.slice(start, end).replace('(v: string): string', '(v)');
+    const contentOrigin = 'https://content.example.test';
+    const session = { contentBootstrapUrl: `${contentOrigin}/__hosting/content/reusable_content_capability` };
+    const urlFor = runInNewContext(`${pageUrlSource}\npageUrl;`, { URL, contentOrigin, session, location: { hash: '#slide-2' } }) as (v: string) => string;
+    for (const ver of ['first', 'next/version', 'after-cache-expiration']) {
+      const url = new URL(urlFor(ver));
+      assert.equal(url.origin, contentOrigin);
+      assert.equal(url.pathname, '/__hosting/content/reusable_content_capability');
+      assert.equal(url.searchParams.get('next'), `/_f/${encodeURIComponent(ver)}/#slide-2`);
+      assert.equal(url.hash, '');
+    }
+    const localUrlFor = runInNewContext(`${pageUrlSource}\npageUrl;`, { URL, contentOrigin, session: {}, location: { hash: '' } }) as (v: string) => string;
+    assert.equal(localUrlFor('local'), `${contentOrigin}/_f/local/`);
+  });
   it('parseDeclaration reads the block in any order and ignores the rest', () => {
     const d = parseDeclaration('<script>\n  // artifact.json\n  var monitoring = { readyTimeoutS: 9 };\n  var key = "k";\n  // ../next/module.ts\n  var capabilities = { db: {} };\n</script>');
     assert.ok(d);

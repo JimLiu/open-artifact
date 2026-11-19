@@ -35,7 +35,8 @@ type Any = any;
   const $ = <T extends HTMLElement = HTMLElement>(id: string): T => document.getElementById(id) as T;
   const params = new URLSearchParams(location.search);
   const LOCAL_ORIGIN = /^http:\/\/(127\.0\.0\.1|localhost|\[::1\]):\d{1,5}$/;
-  const outerOrigin = LOCAL_ORIGIN.test(params.get('open_artifact_shell') || '') ? params.get('open_artifact_shell')! : null;
+  const hostedOuter = document.querySelector<HTMLMetaElement>('meta[name="open-artifact-shell-origin"]')?.content;
+  const outerOrigin = hostedOuter ?? (LOCAL_ORIGIN.test(params.get('open_artifact_shell') || '') ? params.get('open_artifact_shell')! : null);
   const outer = outerOrigin && window.parent !== window ? window.parent : null;
   const client = randomId(16);
   const api = (name: string): string => new URL(`api/frame/${name}`, location.href).href;
@@ -215,7 +216,13 @@ type Any = any;
     }
   }
 
-  const pageUrl = (v: string): string => `${contentOrigin}/_f/${encodeURIComponent(v)}/${location.hash}`;
+  const pageUrl = (v: string): string => {
+    const next = `/_f/${encodeURIComponent(v)}/${location.hash}`;
+    if (!session?.contentBootstrapUrl) return `${contentOrigin}${next}`;
+    const bootstrap = new URL(session.contentBootstrapUrl);
+    bootstrap.searchParams.set('next', next);
+    return bootstrap.href;
+  };
 
   function mountPage(): void {
     const f = document.createElement('iframe');

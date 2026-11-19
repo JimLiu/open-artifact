@@ -12,7 +12,7 @@ import { randomBytes } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { appendFileSync, cpSync, createReadStream, existsSync, openSync, readFileSync, readdirSync, rmSync, statSync, watch, writeFileSync, writeSync, closeSync, type Dirent, type FSWatcher } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { userInfo } from 'node:os';
+import { networkInterfaces, userInfo } from 'node:os';
 import { dirname, extname, isAbsolute, join, resolve, sep } from 'node:path';
 import { Readable, type Duplex } from 'node:stream';
 import { fileURLToPath } from 'node:url';
@@ -38,6 +38,8 @@ import {
   type DaemonState,
   type LibraryEvent,
   type OpenArtifactSettings,
+  type HostingSettings,
+  type OpenRequest,
   type ResolvedEntry,
   type SessionRef,
   type ShareRequest,
@@ -57,12 +59,14 @@ import {
   type WakeThread,
 } from '@open-artifact/protocol';
 import { HarnessHub, systemBrowse, type PollParams } from './harness.ts';
+import { HostingGateway } from './hosting-gateway.ts';
+import { guestShareTarget, type GuestShareTarget } from './hosting-shares.ts';
 import { Inbox } from './inbox.ts';
 import { callerFromRequest, handleMcp, type McpMessage, type McpReply } from './mcp.ts';
 import { nudgeSession } from './nudge.ts';
 import { ensureDir, expandHome, files, inside, openArtifactHome, readJson, writeJson } from './paths.ts';
 import { ACTION_CALL_MS, TypeServers } from './servers.ts';
-import { loadSettings } from './settings.ts';
+import { hostingResponse, loadSettings, saveSettings, validateHostingSettings } from './settings.ts';
 import { ArtifactStore, sessionKeyOf, userEditsAfter, type StoreChange } from './store.ts';
 import { Tools, type ShareAccess } from './tools.ts';
 import { TypeRegistry, type ListedType, type TypeInfo } from './types.ts';
@@ -367,6 +371,7 @@ interface OpenPage {
   /** What the Shell frames (absolute). */
   page: string;
   page_url: string;
+  content_url?: string;
   lastUsed: number;
 }
 
@@ -417,6 +422,9 @@ export class Daemon extends EventEmitter<{ exit: [] }> {
   private lastActivity = Date.now();
   private timer: ReturnType<typeof setInterval> | undefined;
   private closed = false;
+  private gateway: HostingGateway | null = null;
+  private hostingError: string | undefined;
+  private hostingUpdate: Promise<void> = Promise.resolve();
 
   constructor(options: DaemonOptions = {}) {
     super();
@@ -511,7 +519,60 @@ export class Daemon extends EventEmitter<{ exit: [] }> {
 
   /** The Shell address of an artifact. */
   viewUrl(id: string): string {
-    return `${this.origin}/a/${id}`;
+    return this.gateway?.ownerUrl(`/a/${id}`) ?? `${this.origin}/a/${id}`;
+  }
+
+  private makeGateway(hosting: HostingSettings): HostingGateway {
+    const gateway = new HostingGateway({
+      shellOrigin: hosting.publicShellOrigin!, frameOrigin: hosting.frameOriginTemplate!.replace('{artifactId}', '{id}'),
+      listenHost: hosting.listenHost!, port: hosting.port, stateFile: join(openArtifactHome(), 'hosting.key'), shellUpstream: this.origin,
+      resolveGuest: (id) => this.guestTarget(id),
+      resolveArtifact: async (id) => {
+        const record = this.store.get(id);
+        if (!record) return null;
+        const page = await this.openPage(record, {
+          shell: hosting.publicShellOrigin!,
+          hosted: {
+            shellOrigin: hosting.publicShellOrigin!,
+            frameOrigin: gateway.frameOrigin(id),
+            contentOrigin: gateway.contentOrigin(id),
+            contentBootstrapUrl: gateway.contentBootstrapUrl(id),
+          },
+        });
+        return { pageUrl: page.page, ...(page.content_url ? { contentUrl: page.content_url } : {}) };
+      },
+    });
+    return gateway;
+  }
+
+  private async applyHosting(hosting: HostingSettings, persist: boolean): Promise<void> {
+    const previous = this.gateway;
+    const previousSettings = this.settings.hosting;
+    const enabled = !!hosting.publicShellOrigin;
+    if (previous && JSON.stringify(hosting) === JSON.stringify(previousSettings)) {
+      if (persist) saveSettings({ hosting });
+      this.hostingError = undefined;
+      return;
+    }
+    const sameBind = previous && enabled && hosting.listenHost === previousSettings.listenHost && hosting.port === previousSettings.port;
+    if (sameBind) { await previous.close(); this.gateway = null; }
+    let next: HostingGateway | null = null;
+    try {
+      if (enabled) { next = this.makeGateway(hosting); await next.start(); }
+      if (persist) saveSettings({ hosting });
+    } catch (error) {
+      await next?.close();
+      if (sameBind) {
+        try { const rollback = this.makeGateway(previousSettings); await rollback.start(); this.gateway = rollback; }
+        catch (rollbackError) { this.gateway = null; this.log(`hosting rollback failed: ${String(rollbackError)}`); }
+      }
+      this.hostingError = (error as Error).message;
+      throw error;
+    }
+    this.gateway = next;
+    this.settings.hosting = hosting;
+    this.hostingError = undefined;
+    if (previous && !sameBind) await previous.close();
   }
 
   private typeOf(record: ArtifactRecord): ListedType | null {
@@ -562,6 +623,8 @@ export class Daemon extends EventEmitter<{ exit: [] }> {
     this.timer = setInterval(() => this.tick(), 30_000);
     this.timer.unref?.();
     this.log(`daemon ${VERSION} listening at ${this.origin} (home ${openArtifactHome()})`);
+    try { await this.applyHosting(this.settings.hosting, false); }
+    catch (error) { this.hostingError = (error as Error).message; this.log(`hosting failed to start: ${this.hostingError}`); }
     // Links handed out before a restart keep working: open what is shared again.
     void this.remountShared();
     return this;
@@ -691,7 +754,7 @@ export class Daemon extends EventEmitter<{ exit: [] }> {
         this.unwatch(id);
       }
     }
-    if (!this.idleMs) return;
+    if (!this.idleMs || this.gateway) return;
     const busy = this.harnesses.connections.size > 0 || this.pages.size > 0 || this.eventClients.size > 0 || this.typeEventClients.size > 0;
     if (busy) this.lastActivity = Date.now();
     else if (Date.now() - this.lastActivity > this.idleMs) {
@@ -705,6 +768,8 @@ export class Daemon extends EventEmitter<{ exit: [] }> {
   close(): void {
     if (this.closed) return;
     this.closed = true;
+    void this.gateway?.close();
+    this.gateway = null;
     clearInterval(this.timer);
     this.servers.closeAll();
     for (const id of [...this.watchers.keys()]) this.unwatch(id);
@@ -906,7 +971,14 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
     const empty = !!type?.detect.length && !type.detect.some((rel) => existsSync(join(record.root, rel)));
     if (!empty) {
       try {
-        page = await this.openPage(record, { lang: langOf(req), ...(req?.headers.host ? { shell: `http://${req.headers.host}` } : {}) });
+        page = await this.openPage(record, { lang: langOf(req), ...(this.gateway ? { shell: this.settings.hosting.publicShellOrigin! } : req?.headers.host ? { shell: `http://${req.headers.host}` } : {}) });
+        if (this.gateway) {
+          const raw = new URL(page.page);
+          raw.searchParams.set(SHELL_PARAMS.shell, this.settings.hosting.publicShellOrigin!);
+          raw.searchParams.set(SHELL_PARAMS.id, record.id);
+          const hosted = this.gateway.frameUrl(record.id, `${raw.pathname}${raw.search}`);
+          page = { ...page, page: hosted, page_url: hosted };
+        }
       } catch (error) {
         problem = (error as Error)?.message ?? String(error);
       }
@@ -1071,7 +1143,7 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
       typeMissing: !type,
       root: record.root,
       view_url: this.viewUrl(record.id),
-      page_url: this.pages.get(record.id)?.page_url ?? this.viewUrl(record.id),
+      page_url: this.gateway ? this.viewUrl(record.id) : this.pages.get(record.id)?.page_url ?? this.viewUrl(record.id),
       owner: record.owner ? { harness: record.owner.harness, session: record.owner.session, workspace: record.owner.workspace, ...live } : null,
       pinned: !!record.pinnedAt,
       createdAt: record.createdAt,
@@ -1107,7 +1179,7 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
    * Resolves the artifact's page: `page` is what the Shell frames, an
    * absolute address on the page's own origin.
    */
-  async openPage(record: ArtifactRecord, context: { lang?: string | undefined; shell?: string } = {}): Promise<Omit<OpenPage, 'lastUsed'>> {
+  async openPage(record: ArtifactRecord, context: { lang?: string | undefined; shell?: string; hosted?: OpenRequest['hosted'] } = {}): Promise<Omit<OpenPage, 'lastUsed'>> {
     const type = this.typeOf(record);
     if (!type) throw new OpenArtifactError('type_missing', `The type ${record.type} is not installed.`);
     if (!type.runnable || !type.entry) throw new OpenArtifactError('type_not_runnable', type.problems.join(' ') || `${type.id} cannot open.`);
@@ -1118,8 +1190,14 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
       out = { kind, page, page_url: page };
       this.watchFolder(record);
     } else {
-      const got = await this.servers.open(type, record, { ...(context.lang ? { lang: context.lang } : {}), shell: context.shell ?? this.origin });
-      out = { kind, page: got.url, page_url: got.page_url };
+      const hosted = context.hosted ?? (this.gateway ? {
+        shellOrigin: this.settings.hosting.publicShellOrigin!,
+        frameOrigin: this.gateway.frameOrigin(record.id),
+        contentOrigin: this.gateway.contentOrigin(record.id),
+        contentBootstrapUrl: this.gateway.contentBootstrapUrl(record.id),
+      } : undefined);
+      const got = await this.servers.open(type, record, { ...(context.lang ? { lang: context.lang } : {}), shell: hosted?.shellOrigin ?? context.shell ?? this.origin, ...(hosted ? { hosted } : {}) });
+      out = { kind, page: got.url, page_url: got.page_url, ...(got.content_url ? { content_url: got.content_url } : {}) };
     }
     this.pages.set(record.id, { ...out, lastUsed: Date.now() });
     return out;
@@ -1241,6 +1319,27 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
     body.pipe(res);
   }
 
+  private async guestTarget(id: string): Promise<GuestShareTarget | null> {
+    const record = this.store.get(id);
+    const type = record && this.typeOf(record);
+    if (!record || !type || type.entry?.kind === 'static' || !type.entry?.share) return null;
+    const page = await this.openPage(record);
+    const view = await this.servers.call<ShareView>(type, 'GET', TYPE_SERVER_ROUTES.share, undefined, { id });
+    if (!view.lan) return null;
+    const native = Object.values(view.links).find(link => link?.on && link.url)?.url;
+    if (!native) return null;
+    const addresses = Object.values(networkInterfaces()).flatMap(entries => (entries ?? []).filter(entry => !entry.internal).map(entry => entry.address));
+    return guestShareTarget(id, record.root, page.page, native, addresses);
+  }
+
+  private publicShare(record: ArtifactRecord, view: ShareView): ShareView {
+    if (!this.gateway) return view;
+    return { ...view, links: Object.fromEntries(Object.entries(view.links).map(([role, link]) => {
+      const token = link?.url && /^\/s\/([A-Za-z0-9_-]{16,64})$/.exec(new URL(link.url).pathname)?.[1];
+      return [role, link && { ...link, ...(token ? { url: this.gateway!.guestUrl(record.id, token) } : {}) }];
+    })), tailnet: undefined };
+  }
+
   /** The artifact's LAN sharing, through its type server's `/__open-artifact/share`. */
   private async shareOf(record: ArtifactRecord): Promise<ShareAccess> {
     const type = this.typeOf(record);
@@ -1249,10 +1348,10 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
       // The server knows the artifact once it opened it (again, if it restarted since).
       await this.openPage(record);
       return {
-        view: () => this.servers.call<ShareView>(type, 'GET', TYPE_SERVER_ROUTES.share, undefined, { id: record.id }),
-        update: (change) => {
+        view: async () => this.publicShare(record, await this.servers.call<ShareView>(type, 'GET', TYPE_SERVER_ROUTES.share, undefined, { id: record.id })),
+        update: async (change) => {
           const request: ShareRequest = { id: record.id, ...change };
-          return this.servers.call<ShareView>(type, 'POST', TYPE_SERVER_ROUTES.share, request);
+          return this.publicShare(record, await this.servers.call<ShareView>(type, 'POST', TYPE_SERVER_ROUTES.share, request));
         },
       };
     }
@@ -1429,6 +1528,21 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
   private async libraryCall(req: IncomingMessage, res: ServerResponse, name: string, url: URL, get: boolean): Promise<void> {
     const R = LIBRARY_ROUTES;
     switch (name) {
+      case R.hosting: {
+        if (!get) {
+          if (req.method !== 'POST') {
+            req.resume();
+            res.writeHead(405, { Allow: 'GET, HEAD, POST' }).end();
+            return;
+          }
+          const hosting = validateHostingSettings(await readJsonBody(req));
+          const update = this.hostingUpdate.then(() => this.applyHosting(hosting, true));
+          this.hostingUpdate = update.catch(() => undefined);
+          try { await update; }
+          catch { return sendJson(res, 409, hostingResponse(this.settings.hosting, !!this.gateway, this.hostingError)); }
+        }
+        return sendJson(res, 200, hostingResponse(this.settings.hosting, !!this.gateway, this.hostingError));
+      }
       case R.artifacts: {
         const type = url.searchParams.get('type');
         const harness = url.searchParams.get('harness');
@@ -1522,14 +1636,14 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
           body.host !== false && record.owner
             ? await this.harnesses.hostOpen(record.owner, { url: artifactUrl(record.id), view_url: this.viewUrl(record.id), title: record.title })
             : false;
-        return sendJson(res, 200, { view_url: this.viewUrl(record.id), page: page.page, page_url: page.page_url, shownInHarness: shown });
+        return sendJson(res, 200, { view_url: this.viewUrl(record.id), page: this.gateway ? this.viewUrl(record.id) : page.page, page_url: this.gateway ? this.viewUrl(record.id) : page.page_url, shownInHarness: shown });
       }
       case R.preview: {
         // Start its page without counting as an opening and without the Shell (for thumbnails); the idle sweep stops it.
         const body = await readJsonBody<{ id: string; url: string }>(req);
         const record = this.store.require(body.id ?? body.url);
         const page = await this.openPage(record, { lang: langOf(req) });
-        return sendJson(res, 200, { page_url: page.page_url, view_url: this.viewUrl(record.id) });
+        return sendJson(res, 200, { page_url: this.gateway ? this.viewUrl(record.id) : page.page_url, view_url: this.viewUrl(record.id) });
       }
       case R.create: {
         // From the home page: a type and a title, no session. The artifact belongs to nobody until an agent adopts it.

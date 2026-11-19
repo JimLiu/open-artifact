@@ -162,6 +162,8 @@ export interface AskRequest {
 
 /** Library API route names (after `/api/open-artifact.`). */
 export const LIBRARY_ROUTES = {
+  /** GET hosting preferences/status; POST validated preferences (local owner/process only). */
+  hosting: 'hosting',
   artifacts: 'artifacts',
   artifact: 'artifact',
   types: 'types',

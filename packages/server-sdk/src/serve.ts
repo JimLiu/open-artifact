@@ -119,6 +119,39 @@ export interface AgentHook {
   request(request: Omit<WakeRequestItem, 'id'> & { id?: string }): Promise<TypeApiWakeResult>;
 }
 
+/** Trusted browser origins supplied only through the authenticated daemon open API. */
+export interface HostedFrameContext {
+  shellOrigin: string;
+  frameOrigin: string;
+  contentOrigin: string;
+  /** Reusable, artifact-scoped read-only content bootstrap capability. */
+  contentBootstrapUrl?: string;
+}
+
+export function hostedFrameContext(value: unknown): HostedFrameContext | undefined {
+  if (value === undefined) return undefined;
+  if (!value || typeof value !== 'object') throw new OpenArtifactError('invalid_argument', 'hosted context needs three distinct HTTPS origins.', { status: 400 });
+  const raw = value as Record<string, unknown>;
+  const origins = ['shellOrigin', 'frameOrigin', 'contentOrigin'].map((key) => {
+    const origin = raw[key];
+    let url: URL;
+    try { url = new URL(String(origin)); } catch { throw new OpenArtifactError('invalid_argument', 'hosted context needs three distinct HTTPS origins.', { status: 400 }); }
+    if (typeof origin !== 'string' || url.protocol !== 'https:' || url.origin !== origin || url.username || url.password) throw new OpenArtifactError('invalid_argument', 'hosted context needs three distinct HTTPS origins.', { status: 400 });
+    return origin;
+  });
+  if (new Set(origins).size !== 3) throw new OpenArtifactError('invalid_argument', 'Content, frame and Shell origins must be isolated.', { status: 400 });
+  let contentBootstrapUrl: string | undefined;
+  if (raw.contentBootstrapUrl !== undefined) {
+    let url: URL;
+    try { url = new URL(String(raw.contentBootstrapUrl)); } catch { throw new OpenArtifactError('invalid_argument', 'Invalid hosted content bootstrap URL.', { status: 400 }); }
+    if (typeof raw.contentBootstrapUrl !== 'string' || url.origin !== origins[2] || url.protocol !== 'https:' || url.username || url.password || url.search || url.hash || !/^\/__hosting\/content\/[A-Za-z0-9_-]+$/.test(url.pathname)) {
+      throw new OpenArtifactError('invalid_argument', 'Content bootstrap must be a scoped capability on the hosted content origin.', { status: 400 });
+    }
+    contentBootstrapUrl = url.href;
+  }
+  return { shellOrigin: origins[0]!, frameOrigin: origins[1]!, contentOrigin: origins[2]!, ...(contentBootstrapUrl ? { contentBootstrapUrl } : {}) };
+}
+
 /** What `mountSite` gets besides the artifact folder. */
 export interface SiteContext {
   /** Artifact id. */
@@ -146,6 +179,7 @@ export interface SiteContext {
    * server routes content hosts ({@link TypeServerOptions.contentHosts}); else null.
    */
   contentOrigin?: string | null;
+  hosted?: HostedFrameContext;
 }
 
 /** One open artifact, as actions see it. */
@@ -494,6 +528,7 @@ interface Mounted extends ArtifactRef {
   /** Open event streams. */
   streams: number;
   lastUsed: number;
+  hosted?: HostedFrameContext;
 }
 
 /** A type server built on the SDK: the `/__open-artifact/*` routes plus routing to each artifact's site. */
@@ -639,14 +674,15 @@ export class TypeServer {
   // ---- artifacts -----------------------------------------------------------------------------------------------------
 
   /** Mounts an artifact (or finds it mounted); idempotent. */
-  async open(request: Partial<OpenRequest>): Promise<ArtifactRef & { page: string }> {
+  async open(request: Partial<OpenRequest> & { hosted?: HostedFrameContext }): Promise<ArtifactRef & { page: string }> {
     const { id, root, title } = request;
+    const hosted = hostedFrameContext(request.hosted);
     if (typeof id !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(id)) throw new OpenArtifactError('invalid_argument', 'open needs an artifact id.', { status: 400 });
     if (typeof root !== 'string' || !isAbsolute(root)) {
       throw new OpenArtifactError('invalid_argument', 'open needs the artifact root (an absolute path).', { status: 400 });
     }
     const have = this.byId.get(id);
-    if (have && have.root === resolve(root)) {
+    if (have && have.root === resolve(root) && JSON.stringify(have.hosted) === JSON.stringify(hosted)) {
       have.lastUsed = Date.now();
       if (title) have.title = title;
       return have;
@@ -654,12 +690,12 @@ export class TypeServer {
     if (have) this.unmount(id);
     const busy = this.mounting.get(id);
     if (busy) return busy;
-    const work = this.mount(id, resolve(root), title).finally(() => this.mounting.delete(id));
+    const work = this.mount(id, resolve(root), title, hosted).finally(() => this.mounting.delete(id));
     this.mounting.set(id, work);
     return work;
   }
 
-  private async mount(id: string, root: string, title: string | undefined): Promise<Mounted> {
+  private async mount(id: string, root: string, title: string | undefined, hosted?: HostedFrameContext): Promise<Mounted> {
     if (!existsSync(root)) throw new OpenArtifactError('not_found', `The folder ${root} is gone.`, { status: 404 });
     const logFile = join(root, LOG_FILE);
     const log = (line: string): void => {
@@ -696,6 +732,7 @@ export class TypeServer {
       agentHook: { thread: (view) => wake({ threads: [view] }), request: (request) => wake({ requests: [request] }) },
       ...(agentName ? { agentName } : {}),
       ...(agentWakesIdle === false ? { agentWakesIdle } : {}),
+      ...(hosted ? { hosted } : {}),
       contentOrigin: this.options.contentHosts && CONTENT_HOST.test(`${id}.frame.localhost:${this.port}`) ? `http://${id}.frame.localhost:${this.port}` : null,
       open: async () => {
         throw new OpenArtifactError('unsupported', 'Opening another folder from a page is not supported here.');
@@ -706,7 +743,7 @@ export class TypeServer {
       site.close();
       throw new OpenArtifactError('conflict', `${other.root} is already open at ${site.page}.`, { status: 409 });
     }
-    const entry: Mounted = { id, root, title: title ?? '', site, page: site.page, streams: 0, lastUsed: Date.now() };
+    const entry: Mounted = { id, root, title: title ?? '', site, page: site.page, streams: 0, lastUsed: Date.now(), ...(hosted ? { hosted } : {}) };
     this.byId.set(id, entry);
     this.byPage.set(site.page, entry);
     try {
@@ -866,7 +903,7 @@ export class TypeServer {
     if (path === TYPE_SERVER_ROUTES.open && !get) {
       const entry = await this.open(body as Partial<OpenRequest>);
       const page = `${this.origin}${entry.page}`;
-      const result: OpenResult = { url: page, page_url: page };
+      const result: OpenResult = { url: page, page_url: page, ...(this.options.contentHosts ? { content_url: `http://${entry.id}.frame.localhost:${this.port}/` } : {}) };
       return sendJson(res, 200, result);
     }
     if (path === TYPE_SERVER_ROUTES.close && !get) {

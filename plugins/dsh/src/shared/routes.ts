@@ -12,6 +12,8 @@ export const ROUTE_BASE = '/api/open-artifact.artifacts';
 export const PATHS = Object.freeze({
   /** GET: every artifact in the library and the types a new session can make ({@link ArtifactList}). */
   list: ROUTE_BASE,
+  /** GET/POST: shared hosting preferences; saving does not enable public serving. */
+  hosting: `${ROUTE_BASE}.hosting`,
   /** POST `?id=`: count it as opened and start its page (`{ url, sessionId, title }`; `url` is the Shell). */
   open: `${ROUTE_BASE}.open`,
   /** POST `?id=`: start its page without counting an opening (`{ url }`, the page itself): for a thumbnail. */

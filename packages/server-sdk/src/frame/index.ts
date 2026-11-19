@@ -29,7 +29,7 @@ import { userInfo } from 'node:os';
 import { dirname, join, resolve, sep } from 'node:path';
 import type { Duplex } from 'node:stream';
 import { fileURLToPath } from 'node:url';
-import type { ArtifactRef, ServerAction, Site, SiteContext, StreamResponse } from '../serve.ts';
+import { hostedFrameContext, type ArtifactRef, type ServerAction, type Site, type SiteContext, type StreamResponse } from '../serve.ts';
 import { AGENT_AUTHOR, COMMENTS_FILE, CommentStore, agentView, type Author, type Thread } from './comments.ts';
 import { DbStore, docPathsOf } from './db.ts';
 import { readDeclaration, type Declaration } from './declaration.ts';
@@ -195,14 +195,15 @@ export class FrameSite implements Site {
     this.root = root;
     this.typeDir = typeDir;
     this.declaration = declaration;
-    this.ctx = ctx;
+    const hosted = hostedFrameContext(ctx.hosted);
+    this.ctx = { ...ctx, ...(hosted ? { hosted } : {}) };
     this.id = ctx.id;
     this.title = ctx.title ?? '';
     this.page = `/f/${randomBytes(18).toString('base64url')}/`;
-    this.contentOrigin = ctx.contentOrigin!;
-    const port = new URL(this.contentOrigin).port;
-    this.shellOrigin = `http://127.0.0.1:${port}`;
-    this.shellOrigins = new Set([this.shellOrigin, `http://localhost:${port}`]);
+    this.contentOrigin = ctx.hosted?.contentOrigin ?? ctx.contentOrigin!;
+    const port = new URL(ctx.contentOrigin!).port;
+    this.shellOrigin = ctx.hosted?.frameOrigin ?? `http://127.0.0.1:${port}`;
+    this.shellOrigins = new Set(ctx.hosted ? [ctx.hosted.frameOrigin] : [this.shellOrigin, `http://localhost:${port}`]);
     this.db = new DbStore(root);
     this.comments = new CommentStore(root);
     this.files = new FileStore(root);
@@ -419,6 +420,7 @@ export class FrameSite implements Site {
       ver: this.ver,
       contract: CONTRACT,
       contentOrigin: this.contentOrigin,
+      ...(this.ctx.hosted?.contentBootstrapUrl ? { contentBootstrapUrl: this.ctx.hosted.contentBootstrapUrl } : {}),
       shellOrigin: this.shellOrigin,
       brokerGen: this.brokerGen,
       grants: this.grants,
@@ -818,7 +820,7 @@ export class FrameSite implements Site {
       'Content-Length': body.length,
       'Cache-Control': 'no-store',
       // Every ancestor counts: the inner shell and the Open Artifact Shell around it, both on this computer.
-      'Content-Security-Policy': 'frame-ancestors http://127.0.0.1:* http://localhost:*',
+      'Content-Security-Policy': this.ctx.hosted ? `frame-ancestors ${this.shellOrigin} ${this.ctx.hosted.shellOrigin}` : 'frame-ancestors http://127.0.0.1:* http://localhost:*',
       'X-Content-Type-Options': 'nosniff',
       'Referrer-Policy': 'no-referrer',
     });
@@ -832,7 +834,11 @@ export class FrameSite implements Site {
     }
     const port = new URL(this.shellOrigin).port;
     if (name === 'shell.html') {
-      return this.sendFile(req, res, join(CLIENT_DIR, name), 'text/html; charset=utf-8', false, {
+      const body = Buffer.from(readFileSync(join(CLIENT_DIR, name), 'utf8').replace(/<head\b[^>]*>/i, (head) => head + (this.ctx.hosted ? `<meta name="open-artifact-shell-origin" content="${this.ctx.hosted.shellOrigin}">` : '')));
+      res.writeHead(200, {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Content-Length': body.length,
+        'Cache-Control': 'no-store',
         'Content-Security-Policy': [
           "default-src 'none'",
           "script-src 'self'",
@@ -840,14 +846,17 @@ export class FrameSite implements Site {
           "img-src 'self' data: blob:",
           // The comment views' font (Inter) is inlined as data: URLs in comments.css.
           "font-src 'self' data:",
-          `connect-src 'self' ws://127.0.0.1:${port} ws://localhost:${port}`,
+          this.ctx.hosted ? `connect-src 'self' ${this.shellOrigin.replace('https:', 'wss:')}` : `connect-src 'self' ws://127.0.0.1:${port} ws://localhost:${port}`,
           // CSP host sources cannot spell an id with '_', so: any artifact origin on this server's port.
-          `frame-src http://*.frame.localhost:${port}`,
+          this.ctx.hosted ? `frame-src ${this.contentOrigin}` : `frame-src http://*.frame.localhost:${port}`,
           "base-uri 'none'",
           "form-action 'none'",
+          ...(this.ctx.hosted ? [`frame-ancestors ${this.ctx.hosted.shellOrigin}`] : []),
         ].join('; '),
         'Referrer-Policy': 'origin',
       });
+      res.end(req.method === 'HEAD' ? undefined : body);
+      return;
     }
     return this.sendFile(req, res, join(CLIENT_DIR, name), 'text/css; charset=utf-8');
   }

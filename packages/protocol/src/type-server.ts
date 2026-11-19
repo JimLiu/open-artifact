@@ -74,6 +74,15 @@ export interface TypeServerHealth {
   open?: number;
 }
 
+/** Public isolation context, delivered only over authenticated private type-server RPC. */
+export interface HostedFrameContext {
+  shellOrigin: string;
+  frameOrigin: string;
+  contentOrigin: string;
+  /** Artifact-scoped content bootstrap URL; the page appends its versioned next path. */
+  contentBootstrapUrl?: string;
+}
+
 /** `POST /__open-artifact/open`: open (or find) the page of one artifact. */
 export interface OpenRequest {
   id: string;
@@ -84,6 +93,7 @@ export interface OpenRequest {
   lang?: string;
   /** Origin of the Shell that will frame the page. */
   shell?: string;
+  hosted?: HostedFrameContext;
 }
 
 /** `POST /__open-artifact/open` answer. */
@@ -92,6 +102,8 @@ export interface OpenResult {
   url: string;
   /** The page without the Shell, when different. */
   page_url?: string;
+  /** Private local content origin of SDK frame-host types; never a browser owner URL. */
+  content_url?: string;
 }
 
 /** `POST /__open-artifact/close`. */
