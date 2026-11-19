@@ -105,6 +105,23 @@ test('real hosted owner, isolated frame and native guest roles survive only thei
     const frame = new URL(gateway.frameUrl('art_one', page));
     const frameCookie = cookieOf(await call(frame.pathname + frame.search, frame.host));
     assert.equal((await call(frame.pathname + frame.search, frame.host)).status, 403, 'frame ticket is single-use');
+    assert.equal((await call(frame.pathname + frame.search, frame.host, frameCookie)).status, 303, 'authenticated frame reload reuses its cookie');
+    assert.equal((await call(frame.pathname + frame.search, frame.host, ownerCookie)).status, 403, 'owner cookie cannot redeem a spent frame ticket');
+    const expired = new URL(gateway.frameUrl('art_one', page));
+    const now = Date.now;
+    Date.now = () => now() + 61_000;
+    try {
+      assert.equal((await call(expired.pathname + expired.search, expired.host)).status, 403);
+      assert.equal((await call(expired.pathname + expired.search, expired.host, frameCookie)).status, 303);
+    } finally { Date.now = now; }
+    const params = '&panel=share&comment=thread1&tab=tab1&open_artifact_shell=https%3A%2F%2Fshell.example&untrusted=ignored';
+    const redirected = await call(owner.pathname + owner.search + params);
+    const destination = new URL(redirected.headers.location!, 'https://shell.example');
+    for (const [key, value] of [['panel', 'share'], ['comment', 'thread1'], ['tab', 'tab1'], ['open_artifact_shell', 'https://shell.example']]) assert.equal(destination.searchParams.get(key!), value);
+    assert.equal(destination.searchParams.has('untrusted'), false);
+    assert.equal((await call(frame.pathname + frame.search + params, frame.host, frameCookie)).headers.location, page + destination.search);
+    assert.equal((await call(frame.pathname + frame.search, 'art-two.frames.example', frameCookie)).status, 403);
+    assert.equal((await call(owner.pathname + '?next=%2F%2Fevil.example' + params)).status, 400);
     assert.equal((await call(page, frame.host, frameCookie)).status, 200);
     assert.equal((await call(page, 'art-two.frames.example', frameCookie)).status, 403);
     assert.equal((await call('/', undefined, frameCookie)).status, 403);

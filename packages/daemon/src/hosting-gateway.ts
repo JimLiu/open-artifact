@@ -226,10 +226,20 @@ export class HostingGateway {
       if (req.method !== 'GET') return reply(res, 405, 'GET required');
       const ticket = `${who.content ? 'content' : 'frame'}:${who.id}:${(content || frame)?.[1]}`;
       const valid = owner ? this.equal(owner[1], this.sign('owner-link')) : content ? this.equal(content[1], this.sign(`content-link:${who.id}`)) : (this.tickets.get(ticket) || 0) > Date.now();
-      if (!valid) return reply(res, 403, 'Invalid capability');
+      if (!valid && !(frame && this.authorized(req, who))) return reply(res, 403, 'Invalid capability');
       if (frame || content) this.tickets.delete(ticket);
-      const next = new URL(req.url!, who.external).searchParams.get('next') || '/';
-      try { if (who.content && !contentPath(cleanPath(next))) throw new Error('Invalid content destination'); cleanPath(next); } catch { return reply(res, 400, 'Invalid destination'); }
+      const params = new URL(req.url!, who.external).searchParams;
+      let next = params.get('next') || '/';
+      try {
+        if (who.content && !contentPath(cleanPath(next))) throw new Error('Invalid content destination');
+        cleanPath(next);
+        const destination = new URL(next, who.external);
+        if (destination.origin !== who.external) throw new Error('Invalid destination origin');
+        for (const name of ['panel', 'comment', 'tab', 'open_artifact_shell', 'open_artifact_id', 'doc_link_base', 'open_artifact_engine', 'open_artifact_live']) {
+          if (params.has(name)) destination.searchParams.set(name, params.get(name)!);
+        }
+        next = destination.pathname + destination.search + destination.hash;
+      } catch { return reply(res, 400, 'Invalid destination'); }
       res.writeHead(303, { Location: next, 'Set-Cookie': `${who.id ? who.content ? CONTENT : FRAME : OWNER}=${this.sign(who.id ? `${who.content ? 'content' : 'frame'}:${who.id}` : 'owner-cookie')}; Path=/; Secure; HttpOnly; SameSite=${who.id ? 'None' : 'Strict'}; Max-Age=31536000`, 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' }).end();
       return;
     }
