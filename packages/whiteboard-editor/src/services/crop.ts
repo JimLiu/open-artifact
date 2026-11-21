@@ -8,7 +8,7 @@ import type { ElementId, ImageCrop } from '@open-artifact/whiteboard-core';
 import { writeImageCrop } from '../selection/transform.ts';
 import { useBoard } from '../state/board.ts';
 import { useSelection } from '../state/selection.ts';
-import { gestureKey } from '../tools/select.ts';
+import { gestureKey } from '../tools/gesture.ts';
 import { announce } from './announce.ts';
 
 /** Said when ⌘Z cancels a crop. */

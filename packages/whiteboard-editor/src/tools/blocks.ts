@@ -24,7 +24,7 @@ import { addedMessage, announce } from '../services/announce.ts';
 import { editContent } from '../services/actions.ts';
 import { useSelection } from '../state/selection.ts';
 import { useTool } from '../state/tool.ts';
-import { pastThreshold, type Gesture, type PointerSample } from './gesture.ts';
+import { gestureKey, pastThreshold, type Gesture, type PointerSample } from './gesture.ts';
 import {
   DEFAULT_PLACE_SIZE,
   createContainer,
@@ -36,7 +36,7 @@ import {
   ensureRoom,
   placeElement,
 } from './place.ts';
-import { forgetTap, gestureKey } from './select.ts';
+import { forgetTap } from './select.ts';
 
 /** A gesture that places something when the press is released without dragging far. */
 function placeOnRelease(place: (at: Point) => void): Gesture {

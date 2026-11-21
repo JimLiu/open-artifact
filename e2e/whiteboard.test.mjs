@@ -193,6 +193,65 @@ describe('whiteboard', { skip: skipFor('whiteboard') }, () => {
     } finally { await p.close(); }
   });
 
+  it('undoes a drag with repeated positions and a pause in one step', { skip: noBrowser }, async () => {
+    const dragRoot = tmpDir('whiteboard-drag-undo');
+    for (const folder of ['db', '_blobs']) fs.cpSync(path.join(root, folder), path.join(dragRoot, folder), { recursive: true });
+    const { url: dragUrl } = await run.json(['open', dragRoot, '--type', 'whiteboard', '--json']);
+    const p = await browser.load(dragUrl, { ready });
+    try {
+      const card = "document.querySelector('#wb-resizeCard')";
+      assert.ok(await p.waitFor(card));
+      const start = await p.evaluate(`(() => {
+        const box = ${card}.getBoundingClientRect();
+        return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+      })()`);
+      const position = () => p.evaluate(`${card}.style.left`);
+      const original = await position();
+      const pointer = (type, dx, buttons) => p.cdp('Input.dispatchMouseEvent', { type, x: start.x + dx, y: start.y, button: 'left', buttons, clickCount: 1 });
+      await pointer('mousePressed', 0, 1);
+      await pointer('mouseMoved', 40, 1);
+      assert.ok(await p.waitFor(`${card}.style.left !== ${JSON.stringify(original)}`));
+      const first = await position();
+      await pointer('mouseMoved', 40, 1);
+      await new Promise(resolve => setTimeout(resolve, 1650));
+      const remoteText = 'Updated by another editor';
+      await run.json(['write-db', dragRoot, JSON.stringify([{ op: 'update', path: 'elements/resizeCard', data: { text: remoteText } }])]);
+      const text = `${card}.querySelector('.wb-shape-text').textContent`;
+      assert.ok(await p.waitFor(`${text} === ${JSON.stringify(remoteText)}`));
+      await pointer('mouseMoved', 117, 1);
+      assert.ok(await p.waitFor(`${card}.style.left !== ${JSON.stringify(first)}`));
+      await pointer('mouseReleased', 117, 0);
+      const final = await position();
+      assert.notEqual(final, original);
+
+      const mod = process.platform === 'darwin' ? { meta: true } : { ctrl: true };
+      await p.press('z', mod);
+      assert.equal(await position(), original, 'one undo restores the start of the drag');
+      assert.equal(await p.evaluate(text), remoteText, 'undo leaves the edit received during the drag');
+      await p.press('z', { ...mod, shift: true });
+      assert.equal(await position(), final, 'one redo restores the final drop');
+      const saved = () => JSON.parse(fs.readFileSync(path.join(dragRoot, 'db/elements/resizeCard.json'))).x;
+      assert.ok(await until(() => Math.abs(saved() - parseFloat(final)) < 0.01), `saved position ${saved()} should match ${final}`);
+
+      await pointer('mousePressed', 117, 1);
+      await pointer('mouseMoved', 155, 1);
+      assert.ok(await p.waitFor(`${card}.style.left !== ${JSON.stringify(final)}`));
+      const intermediate = await position();
+      // On a horizontal drag, Shift recomputes the same position without moving the pointer.
+      await p.cdp('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: 'Shift', code: 'ShiftLeft', modifiers: 8 });
+      await p.cdp('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Shift', code: 'ShiftLeft' });
+      assert.equal(await position(), intermediate);
+      await pointer('mouseMoved', 193, 1);
+      assert.ok(await p.waitFor(`${card}.style.left !== ${JSON.stringify(intermediate)}`));
+      await pointer('mouseReleased', 193, 0);
+      await p.press('z', mod);
+      assert.equal(await position(), final, 'a second drag undoes separately even after no-op frames');
+      await p.press('z', mod);
+      assert.equal(await position(), original);
+      assert.deepEqual(p.problems, []);
+    } finally { await p.close(); }
+  });
+
   it('edits a non-first cell, saves it, and reopens it', { skip: noBrowser }, async () => {
     const p = await browser.load(url, { ready });
     try {

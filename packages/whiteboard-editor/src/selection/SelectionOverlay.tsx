@@ -68,7 +68,7 @@ import { useCoarsePointer } from '../ui/hooks.ts';
 import { sideDotPoint } from '../tools/hit.ts';
 import { SIDE_DOTS_MIN_SIZE, SIDE_DOT_OFFSET_PX } from '../tools/place.ts';
 import { sideDotTitle, sideDotsWithRoom } from '../lib/side-dots.ts';
-import { gestureKey } from '../tools/select.ts';
+import { gestureKey } from '../tools/gesture.ts';
 import { AreaMarquee } from './AreaMarquee.tsx';
 import { CROP_IMAGE_CHANGED_ELSEWHERE, cropTargetChanged } from './crop-guard.ts';
 import { driveFromHandle, surfaceOf } from './drive.ts';

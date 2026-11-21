@@ -6,8 +6,8 @@
  * - Local edits arrive through the board store's sink ({@link changeBoard}).
  *   Each becomes one step that records what changed field by field, so
  *   undoing a move never takes back someone else's text edit. Edits with
- *   the same `coalesce` key in quick succession (a drag's frames, typing)
- *   merge into one step.
+ *   the same gesture key merge into one step, including across pauses.
+ *   Repeated keyboard edits and follow-up corrections merge in quick succession.
  * - The engine's snapshots flow back into the board store: the board, the
  *   save status, refusals and one-time notices (shown as toasts). Once the
  *   fonts have loaded, the board shown is fitted to them (text wraps widen
@@ -27,12 +27,14 @@ import { toast } from '@open-artifact/ui';
 import type { ChromeCommand, ChromeReport } from '@open-artifact/runtime';
 import {
   AGENT_STEP_LABEL,
+  applyBoardDiff,
   createBoardStepCommitter,
   createCommandHistory,
   createFontFitContent,
   createLiveBoardDocument,
   createStepSaysUndo,
   createTableEditor,
+  diffBoardContents,
   planSectionGrowth,
   sectionStillNeedsGrowth,
   type Board,
@@ -52,13 +54,14 @@ import { setBoardSink, setBoardSnapshot, tellRemoteChange, useBoard, type Change
 import { useHistory } from '../state/history.ts';
 import { currentMeasures } from '../state/measures.ts';
 import { useSelection } from '../state/selection.ts';
+import { isGestureKey } from '../tools/gesture.ts';
 import { askedRecently, useAgent } from './agent.ts';
 import { installUndoHandler, redo, undo } from './commands.ts';
 import { session } from './session.ts';
 import { onShellCommand, setShellReport, useShellDraws } from './shell.ts';
 import { flushTableCell, setTableEditor } from './table-edits.ts';
 
-/** Longest pause between two edits with the same `coalesce` key that still merge into one step. */
+/** Longest pause between keyboard edits or follow-up corrections that still merge. */
 export const COALESCE_WINDOW_MS = 1500;
 /** The agent's writes count as an answer to this page when it asked within this long. */
 export const AGENT_ANSWER_WINDOW_MS = 15 * 60 * 1000;
@@ -137,6 +140,8 @@ interface OpenStep {
   label: string;
   /** The content before the first edit of the run. */
   start: BoardContent;
+  /** The content after the last edit of the run. */
+  end: BoardContent;
   step: HistoryStep;
   at: number;
 }
@@ -313,27 +318,34 @@ export function startSync(options: SyncOptions = {}): () => void {
   const commitLocal = (before: BoardContent, after: BoardContent, change: ChangeOptions): void => {
     closeAnswer();
     const now = Date.now();
-    const joins = open !== null && now - open.at <= COALESCE_WINDOW_MS && (change.follows === true || (change.coalesce !== undefined && open.key === change.coalesce));
+    const coalesce = change.coalesce;
+    const sameKey = coalesce !== undefined && open?.key === coalesce;
+    const joins = open !== null && (
+      (sameKey && isGestureKey(coalesce)) ||
+      (now - open.at <= COALESCE_WINDOW_MS && (sameKey || change.follows === true))
+    );
     const run = joins ? open : null;
     const label = change.follows === true && run ? run.label : (change.label ?? 'Edit');
     const key = change.follows === true && run ? run.key : change.coalesce;
-    open = null;
     lastSeeded = undefined;
     refused = false;
     if (!commitStep(label, before, after)) {
       if (!refused) doc.setContent(after);
       return;
     }
+    open = null;
     let step = lastSeeded;
     let start = before;
     // Join the run only when its step is right below this one (nothing else was recorded between).
     if (run && step !== undefined && raw.above(run.step)?.length === 1 && raw.drop(step) && raw.drop(run.step)) {
       lastSeeded = undefined;
-      start = run.start;
+      // Keep remote changes that arrived between the two local edits out of the undo step.
+      const intervening = run.end === before ? null : diffBoardContents(run.end, before);
+      start = intervening ? applyBoardDiff(run.start, intervening, 'forward') : run.start;
       // `false`: the run ended where it began (dragged back), so it leaves no step.
-      step = commitStep(label, run.start, stepDoc.content()) ? lastSeeded : undefined;
+      step = commitStep(label, start, stepDoc.content()) ? lastSeeded : undefined;
     }
-    if (step !== undefined) open = { key, label, start, step, at: now };
+    if (step !== undefined) open = { key, label, start, end: stepDoc.content(), step, at: now };
   };
 
   const publishHistory = (): void => {

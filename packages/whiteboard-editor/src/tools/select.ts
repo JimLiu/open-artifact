@@ -46,7 +46,7 @@ import { useTool } from '../state/tool.ts';
 import { useInteraction } from '../selection/store.ts';
 import { setLiftedElements } from '../elements/view-state.ts';
 import { videoClickedRecently } from '../elements/video-playback.ts';
-import { pastThreshold, type Gesture, type PointerSample } from './gesture.ts';
+import { gestureKey, pastThreshold, type Gesture, type PointerSample } from './gesture.ts';
 import { panGesture } from './hand.ts';
 import { containerAtPoint, hitContext, pressTargetAt, type HitContext } from './hit.ts';
 import { DOUBLE_TAP, MARQUEE_START_SLOP_PX, createTextAt, placeElement } from './place.ts';
@@ -56,14 +56,6 @@ import { TOUCH_LONG_PRESS_MS, isQuickTap, reduceTouchPress, type TouchPress } fr
 /* ------------------------------------------------------------------------ */
 /* Shared bits                                                              */
 /* ------------------------------------------------------------------------ */
-
-let gestureSerial = 0;
-
-/** A fresh coalescing key for one gesture (`<gesture>:<id>:<n>`), so two quick drags stay two undo steps. */
-export function gestureKey(gesture: string, id: string): string {
-  gestureSerial += 1;
-  return `${gesture}:${id}:${gestureSerial}`;
-}
 
 /** True when the event asks for the platform's primary modifier (⌘ on Apple platforms, Ctrl elsewhere). */
 export function hasModifier(event: Pick<PointerEvent, 'metaKey' | 'ctrlKey'>): boolean {
