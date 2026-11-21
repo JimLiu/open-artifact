@@ -52,12 +52,16 @@ export interface ScoreData {
   tempo?: ScoreTempo;
 }
 
-/** One line of `modules/narration.js`: a take (an audio asset) and its words. */
+/**
+ * One line of `modules/narration.js`: a take (an audio asset) and its words. With `from`, the line plays `dur` seconds
+ * of its asset from that second on: a cut of a clip's own sound (a video asset) or of a longer recording.
+ */
 export interface NarrationLine {
   at: FilmSeconds;
   dur: number;
   text: string;
   audio: string;
+  from?: number;
 }
 
 export interface NarrationData {

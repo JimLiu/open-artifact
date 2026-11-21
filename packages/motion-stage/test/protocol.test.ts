@@ -145,6 +145,7 @@ test('every stage message is accepted in its own shape', () => {
       narration: { lines: [{ at: 1, dur: 2, text: 'Hello', audio: 'line-1.mp3' }], duck: null },
       loadMs: 40,
     },
+    { type: 'ready', meta, score: null, narration: { lines: [{ at: 1, dur: 2, text: 'Hi', audio: 'c-tao', from: 18.05 }], duck: -12 }, loadMs: 1 },
     { type: 'presented', seq: 1, t: 0.5, ok: true, ms: 3.2 },
     { type: 'frame', seq: 2, t: 1, svg: '<svg/>', pw: 960, ph: 540, ms: 20 },
     { type: 'frame-error', seq: 2, hold: true, env: false, message: 'render(1.000) threw: x' },
@@ -165,6 +166,7 @@ test('a stage message with a wrong field is refused', () => {
   const bad: unknown[] = [
     { type: 'hello' },
     { type: 'ready', meta: { ...meta, fps: 25 }, score: null, narration: null, loadMs: 1 },
+    { type: 'ready', meta, score: null, narration: { lines: [{ at: 1, dur: 2, text: 'Hi', audio: 'c-tao', from: '18' }], duck: null }, loadMs: 1 },
     { type: 'console', level: 'debug', text: 'x' },
     { type: 'error', phase: 'init', message: 'x', stack: '' },
     { type: 'texts', nodes: [{ x: 1 }] },

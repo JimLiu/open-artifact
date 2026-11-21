@@ -1,6 +1,7 @@
 import { playSeconds } from '@open-artifact/motion-core';
 import type { PlaySeconds } from '@open-artifact/motion-core';
 import type { FilmTimeline } from '../timeline.ts';
+import { takeKey } from './plan.ts';
 import type { NarrationPlan } from './plan.ts';
 import type { DecodedNarration } from './speech.ts';
 
@@ -49,13 +50,14 @@ export function voiceoverLines(narration: DecodedNarration, timeline: FilmTimeli
   for (const line of narration.plan.lines) {
     const at = timeline.toPlay(line.at);
     if (at === null) continue;
-    const take = narration.takes.get(line.audio);
+    const key = takeKey(line);
+    const take = narration.takes.get(key);
     lines.push({
       at,
       dur: take?.duration ?? line.dur,
       text: line.text,
       audio: line.audio,
-      peaks: narration.peaks.get(line.audio) ?? null,
+      peaks: narration.peaks.get(key) ?? null,
     });
   }
   return lines;

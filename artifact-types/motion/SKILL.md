@@ -112,7 +112,7 @@ by `reference/history.md`.
 | `modules/shared.js` | Runs once before any scene; starts `window.W`, the world's drawings. |
 | `modules/scene-<id>.js` | One scene: one `kit.scene('<id>', {init, render, rough?})` call. |
 | `modules/score.js` | `kit.score((S, T) => …)`: the music and effects (`reference/sound.md`). |
-| `modules/narration.js` | `kit.narration((T) => ({lines: […]}))`: a voiceover and its captions (`reference/voice.md`). |
+| `modules/narration.js` | `kit.narration((T) => ({lines: […]}))`: a voiceover, or a clip's own sound, and its captions (`reference/voice.md`). |
 | `modules/<name>` | Any other module: `{"kind": "css" \| "html" \| "js" \| "json" \| "text", "text"}`, read with `kit.module(name)` or `kit.json(name)`. |
 | `assets/<name>` | `{"ref": "/_blob/<32 hex>" \| "data:…;base64,…", "mime", "w"?, "h"?}`: an image, font, clip or voice clip (`reference/film-api.md` §1). |
 
@@ -143,8 +143,8 @@ a host, the `publish` above, with the film's own name as `title` (never "Motion"
 
 1. **Ask.** Before you create or fill a new film, read `reference/questions.md`: what to ask (style, colors, length,
    and the facts only they know), in one form, and when to ask nothing. A refusal comes before any form. Never ask
-   again after the answer: make the film with what you have. A voiceover, narration or an audio file of theirs: read
-   `reference/voice.md` before `questions.md`.
+   again after the answer: make the film with what you have. A voiceover, narration, an audio file of theirs or a
+   clip's own sound: read `reference/voice.md` before `questions.md`.
 2. **Read** `reference/rough-cut.md`, `reference/finalize.md`, `reference/motion.md` and `reference/film-api.md` in one
    go (and `reference/recreate-ui.md` if the film shows their product, `reference/design-systems.md` if a system is in
    play, `reference/explainer.md` if the film explains something: how a thing works, a finding, a piece of news, and

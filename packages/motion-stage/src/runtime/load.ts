@@ -86,10 +86,17 @@ function narrationOf(cut: Cut, given: StageFilm, clock: SceneClock): NarrationRe
   const limits = given.narration;
   if (!limits || cut.narration === undefined || cut.narration === null) return null;
   try {
-    const read = readNarration(cut.narration, cut.duration, limits);
+    const clips = new Set(given.assets.filter((asset) => asset.mime.startsWith('video/')).map((asset) => asset.name));
+    const read = readNarration(cut.narration, cut.duration, limits, clips);
     if (!read) return null;
     // A line starts on the action it speaks of, so its start moves with the picture; its length is the take's own.
-    const lines: PlayedNarrationLine[] = read.lines.map((line) => ({ at: clock.back(line.at), dur: line.dur, text: line.text, audio: line.audio }));
+    const lines: PlayedNarrationLine[] = read.lines.map((line) => ({
+      at: clock.back(line.at),
+      dur: line.dur,
+      text: line.text,
+      audio: line.audio,
+      ...(line.from !== undefined ? { from: line.from } : {}),
+    }));
     if (read.captions !== false) film.captions = captionLayer(lines, read.captions.style, Math.min(cut.width, cut.height), fontFamilies.sans);
     return { lines, duck: read.duck };
   } catch (error) {

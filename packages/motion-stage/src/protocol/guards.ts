@@ -204,7 +204,12 @@ function isNarration(value: unknown): value is NarrationReport {
     isFields(value) &&
     isNullable(value['duck'], isNumber) &&
     isListOf(value['lines'], (line: unknown): line is NarrationReport['lines'][number] =>
-      isFields(line) && isNumber(line['at']) && isNumber(line['dur']) && isString(line['text']) && isString(line['audio']),
+      isFields(line) &&
+      isNumber(line['at']) &&
+      isNumber(line['dur']) &&
+      isString(line['text']) &&
+      isString(line['audio']) &&
+      (line['from'] === undefined || isNumber(line['from'])),
     )
   );
 }

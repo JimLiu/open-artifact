@@ -125,6 +125,8 @@ export interface PlayedNarrationLine {
   dur: number;
   text: string;
   audio: string;
+  /** The second of the asset this line's cut starts at, when it plays a cut of it (a clip's own sound). */
+  from?: number;
 }
 export interface NarrationReport {
   lines: PlayedNarrationLine[];

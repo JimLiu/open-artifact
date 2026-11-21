@@ -20,9 +20,14 @@ const fields = (value: unknown): Record<string, unknown> | null =>
 
 /**
  * The cut's narration, held to the host's limits: the page applies the same, so a line dropped here is named and
- * not captioned.
+ * not captioned. `clips` are the film's video assets, whose sound a line plays only as a cut (with `from`).
  */
-export function readNarration(narration: unknown, duration: number, limits: NarrationLimits): ReadNarration | null {
+export function readNarration(
+  narration: unknown,
+  duration: number,
+  limits: NarrationLimits,
+  clips: ReadonlySet<string> = new Set(),
+): ReadNarration | null {
   const given = fields(narration);
   if (!given || !Array.isArray(given['lines'])) return null;
   const all: unknown[] = given['lines'];
@@ -34,6 +39,7 @@ export function readNarration(narration: unknown, duration: number, limits: Narr
     const dur = line?.['dur'];
     const text = line?.['text'];
     const audio = line?.['audio'];
+    const from = line?.['from'];
     if (
       typeof at !== 'number' ||
       typeof dur !== 'number' ||
@@ -41,18 +47,24 @@ export function readNarration(narration: unknown, duration: number, limits: Narr
       !(dur > 0 && dur <= limits.maxLineSeconds) ||
       typeof text !== 'string' ||
       typeof audio !== 'string' ||
-      !audio
+      !audio ||
+      (from !== undefined && !(typeof from === 'number' && from >= 0 && Number.isFinite(from)))
     ) {
       console.error(
         'narration line ' +
           (i + 1) +
           ' is left out. It needs { at, text, audio, dur }: a start in seconds inside the film, the words, the name of an audio asset, and that audio’s length in seconds (' +
           limits.maxLineSeconds +
-          ' at most); at and dur as numbers',
+          ' at most); at and dur as numbers, and from, where given, a second of that asset (0 or more)',
       );
       return;
     }
-    lines.push({ at: at as FilmSeconds, text, audio, dur });
+    if (from === undefined && clips.has(audio)) {
+      console.error(
+        'narration line ' + (i + 1) + ' names the clip ' + JSON.stringify(audio) + ' with no from, so it is silent: give the clip’s second its words start at as from',
+      );
+    }
+    lines.push({ at: at as FilmSeconds, text, audio, dur, ...(typeof from === 'number' ? { from } : {}) });
   });
   const captions = given['captions'];
   const style = fields(captions)?.['style'];

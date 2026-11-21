@@ -61,14 +61,24 @@ export type { ScorePass, ScorePassOptions, SchedulerTimers } from './scheduler.t
 
 export { DEFAULT_NARRATION_LIMITS } from './narration/limits.ts';
 export type { NarrationLimits } from './narration/limits.ts';
-export { clipCaption, planNarration } from './narration/plan.ts';
+export { clipCaption, planNarration, takeKey } from './narration/plan.ts';
 export type { NarrationPlan } from './narration/plan.ts';
 export { DUCK_ATTACK_SECONDS, DUCK_RELEASE_SECONDS, duckEnvelope, sampleEnvelope } from './narration/duck.ts';
 export type { DuckPoint } from './narration/duck.ts';
 export { voicePeaks } from './narration/peaks.ts';
 export { placeSpeech } from './narration/speech.ts';
 export type { DecodedNarration, Speech, SpeechClip, TakeIssue } from './narration/speech.ts';
-export { decodeNarration, judgeTakeBytes, judgeTakeSeconds } from './narration/decode.ts';
+export {
+  CUT_FADE_SECONDS,
+  cutSamples,
+  decodeNarration,
+  isClipContainer,
+  judgeCut,
+  judgeSourceBytes,
+  judgeSourceSeconds,
+  judgeTakeBytes,
+  judgeTakeSeconds,
+} from './narration/decode.ts';
 export type { DecodeOptions, TakeDecoder } from './narration/decode.ts';
 export { captionCues, cueAt, voiceoverLines } from './narration/captions.ts';
 export type { CaptionCue, VoiceoverLine } from './narration/captions.ts';

@@ -84,6 +84,31 @@ test('narration lines outside the film or its limits are left out and named', ()
   assert.equal(readNarration('nothing', 10, { maxLines: 1, maxLineSeconds: 1 }), null);
 });
 
+test('a narration line may cut from its asset: from is kept, a bad one leaves the line out, a clip without one is named', () => {
+  const read = readNarration(
+    {
+      lines: [
+        { at: 1, dur: 2, text: 'In his words', audio: 'c-tao', from: 18.05 },
+        { at: 4, dur: 2, text: 'Before it starts', audio: 'c-tao', from: -1 },
+        { at: 6, dur: 2, text: 'Not a second', audio: 'c-tao', from: '3' },
+        { at: 8, dur: 1, text: 'No from', audio: 'c-tao' },
+      ],
+    },
+    10,
+    { maxLines: 10, maxLineSeconds: 30 },
+    new Set(['c-tao']),
+  );
+  assert.deepEqual(
+    read?.lines.map((line) => [line.at, line.from]),
+    [
+      [1, 18.05],
+      [8, undefined],
+    ],
+  );
+  assert.equal(errors.length, 3);
+  assert.match(errors[2] ?? '', /names the clip "c-tao" with no from/);
+});
+
 test('a long caption shows in parts of about equal length, each for its share of the time', () => {
   const words = Array.from({ length: 30 }, (_, i) => 'word' + i).join(' ');
   const cues = captionCues([{ at: 2 as PlaySeconds, dur: 6, text: words, audio: 'a.mp3' }]);

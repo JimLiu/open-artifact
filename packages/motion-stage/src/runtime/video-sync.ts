@@ -81,6 +81,23 @@ function settled(video: HTMLVideoElement, quick: boolean): Promise<void> | null 
   });
 }
 
+/** A playing clip this far or more from its time is sought to it. */
+export const RESEEK_SECONDS = 0.25;
+/** Nearer than that but this far or more, it plays a little faster or slower until it catches up. */
+export const NUDGE_FROM_SECONDS = 0.04;
+/** By at most this share of its rate. */
+export const MOST_NUDGE = 0.05;
+
+/**
+ * The rate a playing clip plays at: the film's, or, while it is `drift` seconds behind (positive) or ahead of its time
+ * by NUDGE_FROM_SECONDS or more, faster or slower by half the drift as a share, MOST_NUDGE at most. So a clip whose
+ * sound narration plays stays within a frame or two of it, unheard, without a seek's stutter.
+ */
+export function nudgedRate(drift: number, base: number): number {
+  if (!(Math.abs(drift) >= NUDGE_FROM_SECONDS)) return base;
+  return base * (1 + Math.max(-MOST_NUDGE, Math.min(MOST_NUDGE, drift / 2)));
+}
+
 export type VideoMode = 'play' | 'hold' | 'frame';
 
 export interface VideoClock {
@@ -111,8 +128,11 @@ function syncVideo(video: HTMLVideoElement, t: FilmSeconds, mode: VideoMode, eps
   if (video.error) return null;
   const time = videoTime(video, t);
   if (mode === 'play' && time.live && !time.explicit) {
-    if (clock.retimed && Math.abs(video.playbackRate - clock.rate) > 1e-4) video.playbackRate = clock.rate;
-    if ((video.paused || (!video.seeking && video.readyState >= 3)) && Math.abs(video.currentTime - time.at) > 0.25) video.currentTime = time.at;
+    const steady = !video.paused && !video.seeking && video.readyState >= 3;
+    const drift = time.at - video.currentTime;
+    const rate = nudgedRate(steady ? drift : 0, clock.retimed ? clock.rate : 1);
+    if (Math.abs(video.playbackRate - rate) > 1e-4) video.playbackRate = rate;
+    if ((video.paused || steady) && Math.abs(drift) > RESEEK_SECONDS) video.currentTime = time.at;
     if (video.paused) {
       video.play().catch((error: unknown) => {
         const name = error instanceof Error ? error.name : String(error);

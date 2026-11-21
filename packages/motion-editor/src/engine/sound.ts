@@ -17,7 +17,13 @@ export function scoreOnPlayClock(score: PlayedScore | null): ScoreData | null {
 export function narrationOnPlayClock(report: NarrationReport | null): NarrationData | null {
   if (report === null || report.lines.length === 0) return null;
   return {
-    lines: report.lines.map((line) => ({ at: filmSeconds(line.at), dur: line.dur, text: line.text, audio: line.audio })),
+    lines: report.lines.map((line) => ({
+      at: filmSeconds(line.at),
+      dur: line.dur,
+      text: line.text,
+      audio: line.audio,
+      ...(line.from !== undefined ? { from: line.from } : {}),
+    })),
     ...(report.duck !== null ? { duck: report.duck } : {}),
   };
 }
@@ -29,7 +35,10 @@ export interface SoundLoad {
   bytes(ref: string): Promise<ArrayBuffer | null>;
 }
 
-/** Gives the sound player (through `give`) the score at once, then the narration once its takes are decoded. */
+/**
+ * Gives the sound player (through `give`) the score at once, then the narration once its takes are decoded. A line
+ * that names a clip reads the clip's bytes, so its cut is heard from them.
+ */
 export async function loadFilmSound(give: (input: FilmSoundInput) => void, ready: ReadyMessage, load: SoundLoad): Promise<void> {
   const duration = filmSeconds(ready.meta.duration);
   const timeline = identityTimeline(duration);

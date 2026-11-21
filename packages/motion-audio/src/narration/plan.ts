@@ -9,13 +9,24 @@ export interface NarrationPlan {
   readonly captions: NarrationData['captions'];
 }
 
+/**
+ * What a line plays, as its decoded take is found: the take's name, or for a cut (a line with `from`) the asset, the
+ * second it starts at and its length, so two cuts of one clip are two takes.
+ */
+export function takeKey(line: Pick<NarrationLine, 'audio' | 'from' | 'dur'>): string {
+  return line.from === undefined ? line.audio : `${line.audio}@${line.from}+${line.dur}`;
+}
+
 /** A line's words, cut to the caption limit without splitting a surrogate pair. */
 export function clipCaption(text: string): string {
   const cut = text.length > MAX_CAPTION_UNITS && /[\ud800-\udbff]/.test(text[MAX_CAPTION_UNITS - 1] ?? '') ? MAX_CAPTION_UNITS - 1 : MAX_CAPTION_UNITS;
   return text.slice(0, cut);
 }
 
-/** Keeps the lines that start within the film and are no longer than a line may be; null when none is left. */
+/**
+ * Keeps the lines that start within the film and are no longer than a line may be, and whose `from`, where given, is a
+ * second of their asset (0 or more); null when none is left.
+ */
 export function planNarration(
   narration: NarrationData,
   duration: FilmSeconds,
@@ -25,11 +36,14 @@ export function planNarration(
   for (const line of narration.lines.slice(0, limits.maxLines)) {
     if (!(line.at >= 0 && line.at < duration)) continue;
     if (!(line.dur > 0 && line.dur <= limits.maxLineSeconds)) continue;
+    const from = line.from;
+    if (from !== undefined && !(typeof from === 'number' && from >= 0 && Number.isFinite(from))) continue;
     lines.push({
       at: line.at,
       dur: line.dur,
       audio: typeof line.audio === 'string' ? line.audio.slice(0, MAX_TAKE_NAME) : '',
       text: typeof line.text === 'string' ? clipCaption(line.text) : '',
+      ...(from !== undefined ? { from } : {}),
     });
   }
   if (lines.length === 0) return null;

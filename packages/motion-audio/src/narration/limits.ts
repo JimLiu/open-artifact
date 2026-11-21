@@ -13,6 +13,10 @@ export interface NarrationLimits {
   readonly maxTakeKib: number;
   /** A plain 16-bit PCM wave's size in KiB. */
   readonly maxWavKib: number;
+  /** A clip (a video asset) whose sound lines cut from, in KiB. */
+  readonly maxClipKib: number;
+  /** And its length in seconds, or that of a recording lines cut from. */
+  readonly maxClipSeconds: number;
 }
 
 export const DEFAULT_NARRATION_LIMITS: NarrationLimits = {
@@ -24,6 +28,8 @@ export const DEFAULT_NARRATION_LIMITS: NarrationLimits = {
   maxLineChars: 300,
   maxTakeKib: 256,
   maxWavKib: 1536,
+  maxClipKib: 65536,
+  maxClipSeconds: 600,
 };
 
 /** The duck a narration may ask for, in dB. */

@@ -2,12 +2,20 @@ import type { PlaySeconds } from '@open-artifact/motion-core';
 import type { FilmTimeline } from '../timeline.ts';
 import { duckEnvelope } from './duck.ts';
 import type { DuckPoint } from './duck.ts';
+import { takeKey } from './plan.ts';
 import type { NarrationPlan } from './plan.ts';
 
-/** Why a take is silent: over the size limit, past the total, not decodable, or longer than a line may be. */
-export type TakeIssue = 'big' | 'total' | 'undecodable' | 'long';
+/**
+ * Why a take is silent: over the size limit, past the total, not decodable, or longer than a line (or for what lines
+ * cut from, a clip) may be; a cut that starts at or past its asset's end; a clip named by a line with no `from`.
+ */
+export type TakeIssue = 'big' | 'total' | 'undecodable' | 'long' | 'past' | 'clip';
 
-/** Narration with its takes decoded. `found` has each take's seconds, or why it is silent; a missing take is not in it. */
+/**
+ * Narration with its takes decoded, each under its `takeKey`. `found` has each take's seconds, or why it is silent; a
+ * missing take is not in it. For a cut, `found` has it under its key, and what it is cut from under the asset's name
+ * where that is why it is silent.
+ */
 export interface DecodedNarration {
   readonly plan: NarrationPlan;
   readonly takes: ReadonlyMap<string, AudioBuffer>;
@@ -38,7 +46,7 @@ export function placeSpeech(narration: DecodedNarration | null, timeline: FilmTi
   if (narration === null) return null;
   const clips: SpeechClip[] = [];
   for (const line of narration.plan.lines) {
-    const buffer = narration.takes.get(line.audio);
+    const buffer = narration.takes.get(takeKey(line));
     const at = timeline.toPlay(line.at);
     if (buffer === undefined || at === null) continue;
     clips.push({ at, buffer });

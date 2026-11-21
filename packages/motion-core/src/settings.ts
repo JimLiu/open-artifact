@@ -52,6 +52,8 @@ export const VOICE_SETTINGS = {
   maxLineChars: 300,
   maxTakeKib: 256,
   maxWavKib: 1536,
+  maxClipKib: 65536,
+  maxClipSeconds: 600,
 } as const;
 
 export const SCENE_SETTINGS = {

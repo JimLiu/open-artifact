@@ -23,7 +23,7 @@ for it in your scratch directory or the working directory, never in the film's f
 `<file>~1` … `~99` beyond that; 500 modules and 16 MiB in all. `film/script`: 200 KiB. `film` and `assets`: 2 MiB each.
 A batch: 50 writes and 1 MB.
 
-**`assets/<file>`** `{"ref":"/_blob/<32 hex>", "mime":"image/webp", "w":1440, "h":900}`, one per image or font the cut uses, 96 at most. `ref` is this film's own upload or a small `data:…;base64,` URI. An SVG is never uploaded: put its markup in an html module. `mime` is required and exact, the upload reply's content type or the `data:` URI's own (`image/png|jpeg|gif|webp|svg+xml`, `font/woff2|woff|ttf|otf`, `video/mp4|webm`); missing or misspelt, the asset is silently dropped. There is no audio type for pictures: `audio/wav` and `audio/mpeg` are for voice clips alone, as uploads, never `data:` (voice.md). The cut reads an image as `kit.assets.url('<file>')` and places a clip with `kit.video('<file>')`; a font becomes a face named by its file's stem.
+**`assets/<file>`** `{"ref":"/_blob/<32 hex>", "mime":"image/webp", "w":1440, "h":900}`, one per image or font the cut uses, 96 at most. `ref` is this film's own upload or a small `data:…;base64,` URI. An SVG is never uploaded: put its markup in an html module. `mime` is required and exact, the upload reply's content type or the `data:` URI's own (`image/png|jpeg|gif|webp|svg+xml`, `font/woff2|woff|ttf|otf`, `video/mp4|webm`); missing or misspelt, the asset is silently dropped. There is no audio type for pictures: `audio/wav` and `audio/mpeg` are for voice clips alone, as uploads, never `data:` (voice.md). The cut reads an image as `kit.assets.url('<file>')` and places a clip with `kit.video('<file>')`, whose sound narration lines can play (voice.md); a font becomes a face named by its file's stem.
 
 ## 2. One film, one size
 
@@ -39,7 +39,7 @@ before each `render`. Destructure what you use: `const { seg, lerp, eo, eio, eob
 **DOM and content.** `kit.el(tag, {class, style, text, html, attrs:{…}}, [children])`; `kit.h('<div>…</div>')`, that element, or for several roots a box-less parent: move and select them, not it; a trailing `<style>` is dropped;
 `kit.esc(s)`; `kit.css(text)` adds a style inside the stage. `kit.module(name)`, `kit.json(name)`. `kit.assets.url(name)`,
 `.image(name)` (a Promise: await it in `init`), `.has(name)`, `.list()`. `kit.video(name, {start, loop, class, style})` makes a
-muted clip for you to add to the stage, shown at film time `t − start` (in a scene, from its beginning); `kit.seek(video, s)` in `render` shows second `s`. `kit.fonts.sans`, `.serif`, `.mono`,
+muted clip for you to add to the stage, shown at film time `t − start` (in a scene, from its beginning); `kit.seek(video, s)` in `render` shows second `s`. The clip's own sound is heard through narration lines that name it with a `from` (voice.md, "A clip's own sound"). `kit.fonts.sans`, `.serif`, `.mono`,
 `(kit.fonts.display || kit.fonts.sans)` hold double quotes, so inside a `style="…"` write the stack as `base.css` does. `kit.W`, `kit.H`.
 
 **Time and easing,** all pure. `clamp01`, `clamp(x,a,b)`, `seg(t,a,b)` (0 to 1 across a to b), `lerp`, `smoothstep(a,b,x)`, `eo`,
