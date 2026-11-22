@@ -60,6 +60,7 @@ DeepSeek Harness installs its prebuilt package directly from npm.
 | [GitHub Copilot](plugins/copilot/README.md) CLI | Add the extracted root as a marketplace, then install `open-artifact@open-artifact`. |
 | [GitHub Copilot](plugins/copilot/README.md) in VS Code | Run **Chat: Install Plugin from Source** and select the extracted `copilot/` folder. |
 | [Antigravity](plugins/antigravity/README.md) | Install the extracted `antigravity/` folder with `agy plugin install` or copy it to `~/.gemini/config/plugins/open-artifact`, then restart the app. |
+| [ZCode](plugins/zcode/README.md) | In Plugin Marketplace, add the extracted `zcode/` folder as a plugin marketplace, then install **Open Artifact** from the listing. |
 | [ChatGPT on the web](plugins/chatgpt/README.md) | Run the prebuilt connector from the extracted `chatgpt/` folder and connect it over HTTPS. |
 | [DeepSeek Harness](https://www.npmjs.com/package/dsh-open-artifact) | In Plugins, choose **Add plugin** and enter `dsh-open-artifact` as the npm package. In the CLI, run `dsh plugin --profile web add dsh-open-artifact` for the web profile. |
 

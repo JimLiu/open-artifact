@@ -54,6 +54,7 @@
 | [GitHub Copilot](plugins/copilot/README.md) CLI | 把解压目录添加为插件市场，再安装 `open-artifact@open-artifact`。 |
 | VS Code 里的 [GitHub Copilot](plugins/copilot/README.md) | 运行 **Chat: Install Plugin from Source**，选择解压出的 `copilot/`。 |
 | [Antigravity](plugins/antigravity/README.md) | 用 `agy plugin install` 安装解压出的 `antigravity/`，或把目录复制到 `~/.gemini/config/plugins/open-artifact`，然后重启应用。 |
+| [ZCode](plugins/zcode/README.md) | 在插件市场里把解压出的 `zcode/` 添加为插件市场，再从列表安装 **Open Artifact**。 |
 | [网页版 ChatGPT](plugins/chatgpt/README.md) | 从解压出的 `chatgpt/` 运行预构建连接器，再通过 HTTPS 接入。 |
 | [DeepSeek Harness](https://www.npmjs.com/package/dsh-open-artifact) | 在插件页面选择「添加插件」，输入 npm 包名 `dsh-open-artifact`。CLI 的 web profile 可用 `dsh plugin --profile web add dsh-open-artifact`。 |
 
