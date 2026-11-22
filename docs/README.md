@@ -1,9 +1,35 @@
-# Open Artifact guides
+# Open Artifact documentation
 
 [中文](README.zh-CN.md)
 
-Guides for putting artifacts on a **site** (a server that gives them a web address that works when your computer is
-off) and for connecting your computers and agents to it.
+Guides written for both **people** (fast overview, concrete workflows, examples) and **AI agents** (exact tools, CLI commands, decision rules, and safety checks).
+
+## Getting started & core concepts
+
+| Guide | Read it when |
+| --- | --- |
+| [What is Open Artifact?](overview.md) | You want to understand what Open Artifact is, its core advantages, how the daemon/Shell/agent loop works, and how to get started. |
+| [Artifact types overview](artifact-types.md) | You want to compare all 8 built-in artifact types, decide which type fits a task, or understand the 3 storage models. |
+| [How agents use Open Artifact](agent-guide.md) | You are an AI agent (or setting up one) and need the exact MCP tools, CLI fallback, creation lifecycle, comment handling, and safety rules. |
+
+## Artifact type guides
+
+Detailed feature breakdowns and usage guides (for both users and agents) for each built-in type:
+
+| Type | Guide | Best for | Exports |
+| --- | --- | --- | --- |
+| `slides` | [Slides](types/slides.md) | 16:9 / 4:3 decks, speaker notes, builds, full-screen presenter | PDF, PPTX, HTML, PNG |
+| `design` | [Design](types/design.md) | Infinite canvas of live `.dc.html` artboards, prototypes, print pieces | PNG, JPEG, PDF, HTML (+ Figma, ZIP) |
+| `design-system` | [Design System](types/design-system.md) | Brand book, multi-theme tokens, live component previews, asset groups | Installed by Design, Slides, Data, Motion |
+| `whiteboard` | [Whiteboard](types/whiteboard.md) | Shared infinite board: stickies, shapes, arrows, ink, tables, live embeds | PNG |
+| `sheets` | [Sheets](types/sheets.md) | Multi-sheet spreadsheets with Rust/WASM formula engine, tables, charts, interactive panels | XLSX, CSV |
+| `data` | [Data](types/data.md) | Live dashboards & reports from MCP connectors, CSV/JSON files, calculations | PDF, HTML, JSON |
+| `docs` | [Docs](types/docs.md) | Multi-tab living documents with smart chips, tracked suggestions, Mermaid diagrams | Markdown, Word (`.docx`), PDF, HTML |
+| `motion` | [Motion](types/motion.md) | Short animated films drawn from time `t`, score, voiceover, by-hand editing | MP4, GIF, HTML player, ZIP |
+
+## Self-hosting & extensions
+
+Guides for putting artifacts on a **site** (a server that gives them a web address that works when your computer is off) and connecting your computers and agents to it:
 
 | Guide | Read it when |
 | --- | --- |
@@ -14,11 +40,12 @@ off) and for connecting your computers and agents to it.
 | [Connecting your computers and agents](connecting-agents.md) | Connecting a computer, publishing, publishing by itself, install-time presets per agent app, remote MCP, dashboards' data. |
 | [Plugins](plugins.md) | People should sign in with your company's login, permissions should come from your own service or a table, an action must be refused by policy, or other systems must hear what happens. Using plugins on Node and Cloudflare, five worked examples, and writing one. |
 
-Each guide works for a person reading it and for an agent doing it on someone's behalf: the steps are numbered, each
-with the exact command, the output to expect, a check and what to do if it fails, and each guide starts with the
-questions an agent must ask rather than guess. What was run while writing a guide, and what was not, is said at the
-step.
+Each hosting guide works for a person reading it and for an agent doing it on someone's behalf: the steps are numbered, each with the exact command, the output to expect, a check and what to do if it fails, and each guide starts with the questions an agent must ask rather than guess.
 
-More detail for operators: [packages/host/README.md](../packages/host/README.md) (every setting of the Node site),
-[deploy/cloudflare/README.md](../deploy/cloudflare/README.md) (the Worker's internals, limits and costs),
-[deploy/aws/README.md](../deploy/aws/README.md), [plugins/README.md](../plugins/README.md) (each agent app).
+## More detail for operators & contributors
+
+- [AGENTS.md](../AGENTS.md) and `docs/references/` — Coding-agent guide, architecture, build/test/release, and documentation sync rules.
+- [plugins/README.md](../plugins/README.md) — Every supported agent app, hooks, and MCP wiring.
+- [packages/host/README.md](../packages/host/README.md) — Every setting of the Node site.
+- [deploy/cloudflare/README.md](../deploy/cloudflare/README.md) — The Worker's internals, limits and costs.
+- [deploy/aws/README.md](../deploy/aws/README.md) — AWS deployment details.

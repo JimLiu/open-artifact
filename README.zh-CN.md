@@ -24,16 +24,26 @@
    └──────────────── "Send to agent" ──────────────▶ 评论回到 Agent 的会话
 ```
 
+## 文档指南
+
+完整的双语（中/英）用户与 Agent 文档在 [docs/](docs/README.zh-CN.md)：
+
+- [什么是 Open Artifact？](docs/overview.zh-CN.md) — 核心概念、核心优势与快速上手。
+- [Artifact 类型总览](docs/artifact-types.zh-CN.md) — 对比全部 8 种类型、选型建议与存储模型。
+- [Agent 使用指南](docs/agent-guide.zh-CN.md) — MCP 工具、CLI 回退、生命周期、评论处理与安全边界。
+
 ## Artifact 类型
 
-| 类型 | 你得到什么 | 标识文件 | 导出格式 |
-|---|---|---|---|
-| [Slides](artifact-types/slides/SKILL.md) | 1920×1080 的演示文稿：幻灯片栏、总览、演讲者备注、逐项动画、转场、演示模式 | `project/deck.json` | PDF、PPTX、HTML、PNG |
-| [Design](artifact-types/design/SKILL.md) | 由实时 `.dc.html` 画板组成的无限画布：界面、组件、可点击原型、便签、多页面 | `project/canvas.json` | PNG、JPEG、PDF、HTML |
-| [Design System](artifact-types/design-system/SKILL.md) | 品牌手册：设计令牌（tokens）、带对比度检查的颜色、字体样张、实时组件预览、素材。Design 和 Slides 都可以安装它 | `project/design-system.json` | — |
-| [Whiteboard](artifact-types/whiteboard/SKILL.md) | 多人共享的无限白板：便利贴、形状、箭头、手绘、图片、表格、嵌入网页、实时光标、计时器 | `db/board/meta.json` | PNG |
-| [Docs](artifact-types/docs/SKILL.md) | 分标签页的在线文档：标题、列表、表格、图片、日期、提及和下拉选项；可接受或拒绝的修改建议、评论、每个标签页各自的版本历史；可导入 Markdown、Word 和 PDF | `doc/doc.json` | Markdown、Word、PDF、HTML |
-| [Motion](artifact-types/motion/SKILL.md) | 短动画影片：场景是按时间绘制的 HTML/CSS/JS，自动生成配乐，先粗剪再定稿，字幕和旁白；可以手改文字、配色、字体、场景长度和单个元素的样式；评论可以钉在某一时刻或画面上的某一点 | `db/film/meta.json` | MP4、GIF、HTML、ZIP |
+| 类型 | 你得到什么 | 标识文件 | 导出格式 | 指南 |
+|---|---|---|---|---|
+| **Slides** | 1920×1080（或 4:3）的演示文稿：幻灯片栏、总览、演讲者备注、逐项动画、转场、演示模式 | `project/deck.json` | PDF、PPTX、HTML、PNG | [指南](docs/types/slides.zh-CN.md) · [SKILL](artifact-types/slides/SKILL.md) |
+| **Design** | 由实时 `.dc.html` 画板组成的无限画布：界面、组件、可点击原型、便签、多页面 | `project/canvas.json` | PNG、JPEG、PDF、HTML | [指南](docs/types/design.zh-CN.md) · [SKILL](artifact-types/design/SKILL.md) |
+| **Design System** | 品牌手册：设计令牌（tokens）、带对比度检查的颜色、字体样张、实时组件预览、素材。Design、Slides、Data 和 Motion 都可以安装它 | `project/design-system.json` | — | [指南](docs/types/design-system.zh-CN.md) · [SKILL](artifact-types/design-system/SKILL.md) |
+| **Whiteboard** | 多人共享的无限白板：便利贴、形状、箭头、手绘、图片、表格、嵌入网页、实时光标、计时器 | `db/board/meta.json` | PNG | [指南](docs/types/whiteboard.zh-CN.md) · [SKILL](artifact-types/whiteboard/SKILL.md) |
+| **Sheets** | 多人共享的电子表格：多工作表单元格、完整公式引擎、数字格式、边框、合并单元格、带筛选的数据表、下拉菜单、复选框、条件格式、冻结与分组行列、基于单元格的图表、CSV 导入、单元格历史 | `sheet/sheet.json` | XLSX、CSV | [指南](docs/types/sheets.zh-CN.md) · [SKILL](artifact-types/sheets/SKILL.md) |
+| **Data** | 实时数据看板或报告：支持 CSV/JSON/文本上传、实时 MCP 连接器查询或脚本计算，由原生 HTML/CSS/d3 渲染；Sources 展示每个数字的来源；支持筛选、手改文字与 Remix 草稿 | `db/dash/meta.json` | PDF、HTML、JSON | [指南](docs/types/data.zh-CN.md) · [SKILL](artifact-types/data/SKILL.md) |
+| **Docs** | 分标签页的在线文档：标题、列表、表格、图片、日期、提及和下拉选项；可接受或拒绝的修改建议、评论、每个标签页各自的版本历史；可导入 Markdown、Word 和 PDF | `doc/doc.json` | Markdown、Word、PDF、HTML | [指南](docs/types/docs.zh-CN.md) · [SKILL](artifact-types/docs/SKILL.md) |
+| **Motion** | 短动画影片：场景是按时间绘制的 HTML/CSS/JS，自动生成配乐，先粗剪再定稿，字幕和旁白；可以手改文字、配色、字体、场景长度和单个元素的样式；评论可以钉在某一时刻或画面上的某一点 | `db/film/meta.json` | MP4、GIF、HTML、ZIP | [指南](docs/types/motion.zh-CN.md) · [SKILL](artifact-types/motion/SKILL.md) |
 
 每个类型文件夹都是一个独立的 skill：`SKILL.md` 告诉 Agent 怎么写，`reference/` 说明文件格式，`artifact-type.json`
 向宿主描述这个类型，`scripts/`（构建产物）里是命令行工具和编辑器。
@@ -70,6 +80,8 @@ DeepSeek Harness 有新版时，可以在 Open Artifact 页面点击「更新」
 /open-artifact slides a 6-slide pitch for this repo
 /open-artifact design three landing page options for a coffee shop
 /open-artifact whiteboard a retro board for last sprint
+/open-artifact sheets 按类别统计并汇总的月度预算表
+/open-artifact data 基于 signups.csv 制作按月注册看板
 /open-artifact docs 一份 2027 年的招聘计划，包括岗位、预算和时间线
 /open-artifact motion a 20-second launch animation for this app
 ```
@@ -175,10 +187,14 @@ node scripts/build-wasm.mjs   # 需要 cargo + wasm32-unknown-unknown、wasm-bin
 | `packages/design-core`、`design-editor`、`dc` | Design 的数据模型（`canvas.json`）、编辑器，以及 `.dc.html` 画板格式。 |
 | `packages/design-system-core`、`design-system-editor` | Design System 的数据模型（令牌语法、CSS 编译器）和编辑器。 |
 | `packages/whiteboard-core`、`whiteboard-editor` | Whiteboard 的数据模型（schema、实时同步、几何计算）和编辑器。 |
+| `packages/sheets-core`、`sheets-editor` | Sheets 的数据模型（工作簿、单元格、样式、数据表、图表）和编辑器。 |
+| `packages/data-core`、`data-editor` | Data 的数据模型（数据集、查询、规则、看板页面）和编辑器。 |
+| `packages/docs-core`、`docs-editor` | Docs 的数据模型（带 ID 的块与字符、ops、修订建议、Markdown）和编辑器。 |
 | `packages/motion-core`、`motion-stage`、`motion-audio`、`motion-export`、`motion-editor` | Motion 的数据模型（影片文档、场景、手改记录）、沙箱舞台和它的 `kit`、配乐合成、MP4/GIF/HTML/ZIP 导出，以及播放器。 |
 | **共享** | |
+| `packages/live-store` | Whiteboard、Data 与 Motion 共用的实时文档同步库。 |
 | `packages/ui`、`editor-kit`、`export-kit` | UI 组件库（Base UI + Tailwind）、各编辑器共用的部分（评论、历史、在线状态……）、浏览器端导出。 |
-| `packages/canvas-engine`、`wasm-*`、`crates/` | WebGL2 画布引擎，以及背后的 Rust/WebAssembly crate（画布、导出、白板几何）。 |
+| `packages/canvas-engine`、`wasm-*`、`crates/` | WebGL2 画布引擎，以及背后的 Rust/WebAssembly crate（画布、导出、白板几何、数据规则、表格公式引擎与动效编码/频闪分析）。 |
 | `e2e/` | 端到端测试。 |
 | `scripts/` | `build.mjs`、`build-plugins.mjs`、`build-skill.mjs`、`build-wasm.mjs`。 |
 
