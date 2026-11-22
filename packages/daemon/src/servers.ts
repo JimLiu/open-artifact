@@ -22,6 +22,8 @@ import {
   OPEN_ARTIFACT_PROTOCOL,
   OpenArtifactError,
   READY_TIMEOUT_MS,
+  PUBLIC_READY_TIMEOUT_MS,
+  PUBLIC_URL_COMMAND_ENV,
   TYPE_SERVER_ROUTES,
   shellPath,
   type OpenRequest,
@@ -384,7 +386,8 @@ export class TypeServers {
       OPEN_ARTIFACT_STATE_DIR: stateDir,
     };
     const env: NodeJS.ProcessEnv = { ...process.env, ...(isNode ? { ELECTRON_RUN_AS_NODE: '1' } : {}), ...start.env, ...openArtifactEnv };
-    const readyMs = Number(process.env.OPEN_ARTIFACT_SERVER_READY_MS) || READY_TIMEOUT_MS;
+    // A server behind a reverse proxy resolves its public origin before it is ready, which may mean starting a tunnel.
+    const readyMs = Number(process.env.OPEN_ARTIFACT_SERVER_READY_MS) || (process.env[PUBLIC_URL_COMMAND_ENV] ? PUBLIC_READY_TIMEOUT_MS : READY_TIMEOUT_MS);
     return new Promise((resolveReady, rejectReady) => {
       let child: ChildProcess;
       try {

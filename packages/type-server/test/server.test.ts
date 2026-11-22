@@ -228,6 +228,8 @@ describe('type server', () => {
     assert.equal(preflight.headers.get('access-control-allow-origin'), shell);
     const session = await fetch(new URL('_api/session', page), { headers: { origin: shell } });
     assert.equal(session.headers.get('access-control-allow-origin'), shell);
+    // The broker sends cookies, so a sign-in proxy in front of each origin lets it through.
+    assert.equal(session.headers.get('access-control-allow-credentials'), 'true');
     const write = await fetch(new URL('_api/publish', page), {
       method: 'POST',
       headers: { 'content-type': 'application/json', origin: shell, 'sec-fetch-site': 'same-site' },
@@ -238,6 +240,7 @@ describe('type server', () => {
     // Another origin gets no CORS answer and may not write.
     const other = await fetch(new URL('_api/session', page), { headers: { origin: 'http://127.0.0.1:5000' } });
     assert.equal(other.headers.get('access-control-allow-origin'), null);
+    assert.equal(other.headers.get('access-control-allow-credentials'), null);
     const refused = await fetch(new URL('_api/publish', page), {
       method: 'POST',
       headers: { 'content-type': 'application/json', origin: 'http://127.0.0.1:5000' },
@@ -581,6 +584,18 @@ describe('type server: top-level visits, stale frames and cached editor files', 
     }
     // The values arrive URL-encoded, as the Shell sets them.
     assert.equal((await raw(`${stale}?open_artifact_shell=http%3A%2F%2F127.0.0.1%3A4800&open_artifact_id=${id}`, document)).status, 302);
+    // Behind a reverse proxy the daemon's public origin (OPEN_ARTIFACT_PUBLIC_URL, inherited from the daemon) is its Shell too.
+    const proxied = 'https://artifacts.example.test';
+    assert.equal((await raw(framed(stale, '', proxied, id), document)).status, 404, 'not without the setting');
+    process.env.OPEN_ARTIFACT_PUBLIC_URL = proxied;
+    try {
+      const res = await raw(framed(stale, '', proxied, id), document);
+      assert.equal(res.status, 302);
+      assert.equal(res.headers.location, `${proxied}/a/${id}`);
+      assert.equal((await raw(framed(stale, '', 'https://other.example.test', id), document)).status, 404);
+    } finally {
+      delete process.env.OPEN_ARTIFACT_PUBLIC_URL;
+    }
   });
 
   it('refuses to send a stale page anywhere else', async () => {

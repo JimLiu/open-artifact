@@ -27,6 +27,35 @@ export const HEALTH_MISSES = 3;
 /** Failed starts after which the daemon gives up on a type server. */
 export const MAX_RESTARTS = 5;
 
+/**
+ * Serving through a reverse proxy, such as a remote sandbox's tunnel: `OPEN_ARTIFACT_PUBLIC_URL` is the daemon's public
+ * origin, and `OPEN_ARTIFACT_PUBLIC_URL_COMMAND` a shell command each type server runs once it listens, with
+ * `OPEN_ARTIFACT_LISTEN_PORT` set, whose first line of output is that port's public origin. Each listener keeps an
+ * origin of its own (an artifact's page must not share the daemon's). The proxy must keep the request's Host and
+ * authenticate the people it lets through: its requests come from loopback, so the daemon and the pages take them as
+ * the owner's.
+ */
+export const PUBLIC_URL_ENV = 'OPEN_ARTIFACT_PUBLIC_URL';
+export const PUBLIC_URL_COMMAND_ENV = 'OPEN_ARTIFACT_PUBLIC_URL_COMMAND';
+export const LISTEN_PORT_ENV = 'OPEN_ARTIFACT_LISTEN_PORT';
+/** How long a type server has to print its ready line when it must resolve its public origin first, ms. */
+export const PUBLIC_READY_TIMEOUT_MS = 120_000;
+
+/** The origin of a public URL (`https://host[:port]`, no path), or an error that says what is wrong with it. */
+export function publicOriginOf(text: string): string {
+  let url: URL;
+  try {
+    url = new URL(text.trim());
+  } catch {
+    throw new Error(`"${text.trim()}" is not a URL; a public origin looks like https://artifacts.example.com`);
+  }
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') throw new Error(`${url.href}: a public origin is http or https`);
+  if ((url.pathname !== '/' && url.pathname !== '') || url.search || url.hash || url.username) {
+    throw new Error(`${url.href}: a public origin has no path, query or credentials (the proxy serves it at /)`);
+  }
+  return url.origin;
+}
+
 /** Environment variables the daemon passes to a type server. */
 export interface TypeServerEnv {
   /** Protocol version, `1`. */

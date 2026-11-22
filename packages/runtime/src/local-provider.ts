@@ -102,6 +102,12 @@ export interface LocalProviderOptions {
    * "No access" page.
    */
   onAccessChange?: (change: AccessChange) => void;
+  /**
+   * Whether requests to `base` carry cookies. The Shell's broker sets
+   * `'include'`: behind a proxy that puts each server on an origin of its own,
+   * the proxy's sign-in cookie is what lets the broker's calls through.
+   */
+  credentials?: RequestCredentials;
 }
 
 /**
@@ -147,11 +153,13 @@ export function createLocalProvider(options: LocalProviderOptions = {}): Capabil
     for (const [key, value] of Object.entries(query ?? {})) target.searchParams.set(key, value);
     return target.toString();
   };
+  const send = (input: string, init?: RequestInit): Promise<Response> =>
+    fetch(input, options.credentials ? { credentials: options.credentials, ...init } : init);
 
   const json = async <T>(path: string, init?: RequestInit, query?: Record<string, string>): Promise<T> => {
     let response: Response;
     try {
-      response = await fetch(url(path, query), init);
+      response = await send(url(path, query), init);
     } catch (error) {
       throw new ArtifactError('unavailable', error instanceof Error ? error.message : String(error));
     }
@@ -194,7 +202,7 @@ export function createLocalProvider(options: LocalProviderOptions = {}): Capabil
     dispatch(event.type as ServerEventName, JSON.parse((event as MessageEvent<string>).data) as ServerEvents[ServerEventName]);
   };
   const useEventSource = (): void => {
-    const source = new EventSource(url(API.events, { client }));
+    const source = new EventSource(url(API.events, { client }), { withCredentials: options.credentials === 'include' });
     fallback = source;
     for (const name of listeners.keys()) source.addEventListener(name, fromSource);
     // An EventSource retries by itself, but gives up (CLOSED) on a refusal.
@@ -239,7 +247,7 @@ export function createLocalProvider(options: LocalProviderOptions = {}): Capabil
       if (!was) return false;
       let response: Response;
       try {
-        response = await fetch(url(API.session), { cache: 'no-store' });
+        response = await send(url(API.session), { cache: 'no-store' });
       } catch {
         return false; // the server is down: keep reconnecting
       }
@@ -429,7 +437,7 @@ export function createLocalProvider(options: LocalProviderOptions = {}): Capabil
         exportFile: async (query) => {
           let response: Response;
           try {
-            response = await fetch(url(DOC_API.exportFile, { format: query.format, ...(query.tab ? { tab: query.tab } : {}), ...(query.paper ? { paper: query.paper } : {}) }), { cache: 'no-store' });
+            response = await send(url(DOC_API.exportFile, { format: query.format, ...(query.tab ? { tab: query.tab } : {}), ...(query.paper ? { paper: query.paper } : {}) }), { cache: 'no-store' });
           } catch (error) {
             throw new ArtifactError('unavailable', error instanceof Error ? error.message : String(error));
           }
@@ -540,7 +548,7 @@ export function createLocalProvider(options: LocalProviderOptions = {}): Capabil
   async function fetchBytes(route: string, query: Record<string, string>): Promise<Uint8Array> {
     let response: Response;
     try {
-      response = await fetch(url(route, query), { cache: 'no-store' });
+      response = await send(url(route, query), { cache: 'no-store' });
     } catch (error) {
       throw new ArtifactError('unavailable', error instanceof Error ? error.message : String(error));
     }

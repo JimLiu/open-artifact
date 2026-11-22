@@ -24,7 +24,7 @@
  * their role (`sharing.ts`).
  */
 
-import { ARTIFACT_ID, SHELL_PARAMS, shellPath, type ShellBoot } from '@open-artifact/protocol';
+import { ARTIFACT_ID, PUBLIC_URL_ENV, SHELL_PARAMS, publicOriginOf, shellPath, type ShellBoot } from '@open-artifact/protocol';
 import { groupUploadRecord, prepareSystemUpload, systemUploadLimit } from './design-system-upload.ts';
 import type { StoredBlob } from './store.ts';
 import { syncSystems } from './ds-sync.ts';
@@ -238,15 +238,24 @@ const assetHeaders = (file: string): Record<string, string> => (isHashedName(fil
 
 /** A Shell origin a stale page address may send its visitor back to: plain http on this computer, any port. */
 const LOOPBACK_ORIGIN = /^http:\/\/(?:127\.0\.0\.1|localhost|\[::1\])(?::[1-9][0-9]{0,4})?$/;
+/** The daemon's public origin behind a reverse proxy ({@link PUBLIC_URL_ENV}, which a type server inherits), else `null`. */
+function daemonPublicOrigin(): string | null {
+  try {
+    return process.env[PUBLIC_URL_ENV] ? publicOriginOf(process.env[PUBLIC_URL_ENV]!) : null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * The daemon's Shell of a page address whose artifact is no longer open here: `<open_artifact_shell>/a/<id>`, when the
- * Shell is a loopback origin (never anywhere else, so this is no open redirect) and the id an artifact id; else `null`.
+ * Shell is a loopback origin or the daemon's public one (never anywhere else, so this is no open redirect) and the id
+ * an artifact id; else `null`.
  */
 function reopenAddress(url: URL): string | null {
   const shell = url.searchParams.get(SHELL_PARAMS.shell);
   const id = url.searchParams.get(SHELL_PARAMS.id);
-  if (!shell || !id || !ARTIFACT_ID.test(id) || !LOOPBACK_ORIGIN.test(shell) || !URL.canParse(shell) || new URL(shell).origin !== shell) return null;
+  if (!shell || !id || !ARTIFACT_ID.test(id) || !(LOOPBACK_ORIGIN.test(shell) || shell === daemonPublicOrigin()) || !URL.canParse(shell) || new URL(shell).origin !== shell) return null;
   return shell + shellPath(id);
 }
 
@@ -332,6 +341,12 @@ export interface TypeServer {
   stop(): Promise<void>;
   /** Base URL once listening. */
   readonly url: string;
+  /**
+   * The public origin a reverse proxy serves this server at (`https://types.example.com`): page addresses use it, and
+   * requests for its host are let in. The proxy must keep the request's Host and do its own authentication: requests
+   * from it arrive from loopback, as the owner's do.
+   */
+  setPublicUrl(url: string): void;
 }
 
 /** Stable id of a folder without `.artifact.json`. */
@@ -398,6 +413,11 @@ export function createTypeServer(options: TypeServerOptions): TypeServer {
   const snapshotTokens = new Set<string>();
   const byId = new Map<string, OpenArtifact>();
   let baseUrl = '';
+  /** `baseUrl` as a reverse proxy serves it (`setPublicUrl`), else `baseUrl`; pages are addressed by it. */
+  let pageBase = '';
+  let publicHost = '';
+  /** Whether a request for `host` is this server's: on loopback, at its public origin, or a share listener's. */
+  const hostAllowed = (host: string | undefined): boolean => isLocalHost(host) || (!!publicHost && host === publicHost) || sharing.hostAllowed(host);
   let lastActivity = Date.now();
   let ownConnectors: ConnectorsHost | null = null;
   const connectors = (): ConnectorsHost => options.connectors ?? (ownConnectors ??= new ConnectorsHost({ log }));
@@ -653,7 +673,7 @@ export function createTypeServer(options: TypeServerOptions): TypeServer {
   /* ---------------------------------------------------------------------- */
 
   const pageUrl = (artifact: OpenArtifact, shell?: string): string => {
-    const url = new URL(`${artifact.type}/${artifact.token}/`, baseUrl);
+    const url = new URL(`${artifact.type}/${artifact.token}/`, pageBase || baseUrl);
     if (shell) url.searchParams.set('open_artifact_shell', shell);
     return url.toString();
   };
@@ -873,6 +893,8 @@ export function createTypeServer(options: TypeServerOptions): TypeServer {
     const shell = shellOriginOf(artifact, req);
     if (shell) {
       res.setHeader('access-control-allow-origin', shell);
+      // The broker sends cookies (a proxy in front may need its own sign-in cookie).
+      res.setHeader('access-control-allow-credentials', 'true');
       res.setHeader('vary', 'Origin');
       if (method === 'OPTIONS') {
         res.writeHead(204, {
@@ -1421,7 +1443,7 @@ export function createTypeServer(options: TypeServerOptions): TypeServer {
 
   const handle = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     lastActivity = Date.now();
-    if (!isLocalHost(req.headers.host) && !sharing.hostAllowed(req.headers.host)) throw new HttpError(403, 'not_granted', 'Unknown Host.');
+    if (!hostAllowed(req.headers.host)) throw new HttpError(403, 'not_granted', 'Unknown Host.');
     const url = new URL(req.url ?? '/', baseUrl);
     const segments = url.pathname.split('/').slice(1).map((s) => decodeURIComponent(s));
 
@@ -1617,7 +1639,7 @@ export function createTypeServer(options: TypeServerOptions): TypeServer {
       socket.end(`HTTP/1.1 ${status}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
     };
     socket.on('error', () => socket.destroy());
-    if (!isLocalHost(req.headers.host) && !sharing.hostAllowed(req.headers.host)) return refuse('403 Forbidden');
+    if (!hostAllowed(req.headers.host)) return refuse('403 Forbidden');
     const url = new URL(req.url ?? '/', baseUrl);
     let segments: string[];
     try {
@@ -1686,6 +1708,11 @@ export function createTypeServer(options: TypeServerOptions): TypeServer {
           resolvePromise(baseUrl);
         });
       });
+    },
+    setPublicUrl(url: string) {
+      const origin = publicOriginOf(url);
+      pageBase = `${origin}/`;
+      publicHost = new URL(origin).host;
     },
     open,
     close,

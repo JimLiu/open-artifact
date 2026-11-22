@@ -56,6 +56,8 @@ import {
   type WakeRequestItem,
   type WakeStatus,
   type WakeThread,
+  PUBLIC_URL_ENV,
+  publicOriginOf,
 } from '@open-artifact/protocol';
 import { HarnessHub, systemBrowse, type PollParams } from './harness.ts';
 import { Inbox } from './inbox.ts';
@@ -365,6 +367,11 @@ export interface DaemonOptions {
    * Default {@link systemBrowse}.
    */
   browse?: ((url: string) => boolean) | null;
+  /**
+   * The origin a reverse proxy serves the daemon at (`https://artifacts.example.com`): view URLs and the Shell use it.
+   * Default `$OPEN_ARTIFACT_PUBLIC_URL`. See {@link PUBLIC_URL_ENV} for what the proxy must do.
+   */
+  publicUrl?: string;
 }
 
 /** A resolved artifact page. */
@@ -411,6 +418,8 @@ export class Daemon extends EventEmitter<{ exit: [] }> {
   readonly tools: Tools;
   readonly harnesses: HarnessHub;
   readonly shellDir: string;
+  /** {@link DaemonOptions.publicUrl}'s origin, or `null` on this computer only. */
+  readonly publicOrigin: string | null;
   readonly homeDir: string;
   readonly server: Server;
 
@@ -449,6 +458,8 @@ export class Daemon extends EventEmitter<{ exit: [] }> {
     this.idleMs = options.idleMs ?? Number(process.env.OPEN_ARTIFACT_IDLE_MS ?? 30 * 60_000);
     this.quiet = options.quiet ?? false;
     this.shellDir = resolve(options.shellDir ?? defaultUiDir('shell'));
+    const publicUrl = options.publicUrl ?? process.env[PUBLIC_URL_ENV];
+    this.publicOrigin = publicUrl ? publicOriginOf(publicUrl) : null;
     this.homeDir = resolve(options.homeDir ?? defaultUiDir('home'));
     this.logFile = join(files.logs(), 'daemon.log');
     const log = (line: string): void => this.log(line);
@@ -526,14 +537,19 @@ export class Daemon extends EventEmitter<{ exit: [] }> {
     if (!this.quiet && process.env.OPEN_ARTIFACT_LOG_STDERR === '1') process.stderr.write(text);
   }
 
-  /** The daemon's base URL. */
+  /** The daemon's base URL on this computer, which its clients and the type servers call. */
   get origin(): string {
     return `http://127.0.0.1:${this.port}`;
   }
 
+  /** The origin people open pages at: the public one behind a reverse proxy, else {@link origin}. */
+  get pageOrigin(): string {
+    return this.publicOrigin ?? this.origin;
+  }
+
   /** The Shell address of an artifact. */
   viewUrl(id: string): string {
-    return `${this.origin}/a/${id}`;
+    return `${this.pageOrigin}/a/${id}`;
   }
 
   private typeOf(record: ArtifactRecord): ListedType | null {
@@ -578,12 +594,12 @@ export class Daemon extends EventEmitter<{ exit: [] }> {
         port += 1;
       }
     }
-    this.hosts = new Set([`127.0.0.1:${this.port}`, `localhost:${this.port}`, `[::1]:${this.port}`]);
+    this.hosts = new Set([`127.0.0.1:${this.port}`, `localhost:${this.port}`, `[::1]:${this.port}`, ...(this.publicOrigin ? [new URL(this.publicOrigin).host] : [])]);
     const state: DaemonState = { url: this.origin, port: this.port, pid: process.pid, token: this.token, version: VERSION, startedAt: new Date().toISOString() };
     writeJson(files.daemon(), state, 0o600);
     this.timer = setInterval(() => this.tick(), 30_000);
     this.timer.unref?.();
-    this.log(`daemon ${VERSION} listening at ${this.origin} (home ${openArtifactHome()})`);
+    this.log(`daemon ${VERSION} listening at ${this.origin}${this.publicOrigin ? `, served at ${this.publicOrigin}` : ''} (home ${openArtifactHome()})`);
     // Links handed out before a restart keep working: open what is shared again.
     void this.remountShared();
     return this;
@@ -755,6 +771,11 @@ export class Daemon extends EventEmitter<{ exit: [] }> {
   }
 
   // ---- requests ----------------------------------------------------------------------------------------------------
+
+  /** The origin of a Shell loaded at `host`: the public one (https behind most proxies) or a loopback name's. */
+  private shellOriginOf(host: string): string {
+    return this.publicOrigin && new URL(this.publicOrigin).host === host ? this.publicOrigin : `http://${host}`;
+  }
 
   /** Our own names and the static entries' (DNS rebinding gets a 421). */
   private hostAllowed(req: IncomingMessage): boolean {
@@ -960,7 +981,7 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
       this.shellOpens.delete(record.id);
       return have.done;
     }
-    const context = { lang: langOf(req), ...(req?.headers.host ? { shell: `http://${req.headers.host}` } : {}) };
+    const context = { lang: langOf(req), ...(req?.headers.host ? { shell: this.shellOriginOf(req.headers.host) } : {}) };
     const opening: ShellOpening = {
       at: null,
       taken: false,
@@ -1191,7 +1212,7 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
       out = { kind, page, page_url: page };
       this.watchFolder(record);
     } else {
-      const got = await this.servers.open(type, record, { ...(context.lang ? { lang: context.lang } : {}), shell: context.shell ?? this.origin });
+      const got = await this.servers.open(type, record, { ...(context.lang ? { lang: context.lang } : {}), shell: context.shell ?? this.pageOrigin });
       out = { kind, page: got.url, page_url: got.page_url };
     }
     this.pages.set(record.id, { ...out, lastUsed: Date.now() });
@@ -1254,7 +1275,7 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
     // The Shell's frame address visited as a page of its own (copied, opened from history): the Shell shows it. The
     // bare address (`page_url`, "Open in new tab") stays the page without the Shell.
     if (req.method === 'GET' && req.headers['sec-fetch-dest'] === 'document' && url.searchParams.has(SHELL_PARAMS.shell)) {
-      res.writeHead(302, { Location: this.origin + shellPath(id), 'Cache-Control': 'no-store' }).end();
+      res.writeHead(302, { Location: this.pageOrigin + shellPath(id), 'Cache-Control': 'no-store' }).end();
       return;
     }
     const page = this.pages.get(id);
@@ -1747,7 +1768,7 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
     const ui = uiFromRequest(req);
     const one = (message: McpMessage): Promise<McpReply | null> => {
       const caller = callerFromRequest(req, this.harnesses, message?.params?._meta);
-      return handleMcp(message, { tools: this.tools, caller, version: VERSION, workspaceOf: (ref) => this.harnesses.workspaceOf(ref), ui, origin: this.origin });
+      return handleMcp(message, { tools: this.tools, caller, version: VERSION, workspaceOf: (ref) => this.harnesses.workspaceOf(ref), ui, origin: this.pageOrigin });
     };
     if (Array.isArray(body)) {
       const out = (await Promise.all(body.map(one))).filter((reply): reply is McpReply => reply !== null);

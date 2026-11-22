@@ -32,7 +32,7 @@ import { homedir } from 'node:os';
 import { basename, delimiter, dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { clearAsking, clearWaiter, formatRequests, markAsking, markTaken, pending, touchWaiter, WAITER_HEARTBEAT_MS, agentPaths } from './agent.ts';
-import type { ReadyLine } from '@open-artifact/protocol';
+import { LISTEN_PORT_ENV, PUBLIC_READY_TIMEOUT_MS, PUBLIC_URL_COMMAND_ENV, publicOriginOf, type ReadyLine } from '@open-artifact/protocol';
 import { daemonFromEnv, envPort, typeServerEnv } from './daemon.ts';
 import { mimeOf } from './http.ts';
 import { createTypeServer, detectType, type OpenResult } from './server.ts';
@@ -616,6 +616,18 @@ async function cmdServe(args: Args): Promise<void> {
     const value: ServerRecord = { pid: process.pid, url, secret, version: 1 };
     await writeFile(join(stateDir(), 'server.json'), `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
   }
+  // Behind a reverse proxy the pages are addressed at this port's public origin; the ready line keeps the local URL,
+  // which the daemon calls.
+  const command = process.env[PUBLIC_URL_COMMAND_ENV];
+  if (command) {
+    const listening = Number(new URL(url).port);
+    try {
+      server.setPublicUrl(await publicUrlOf(command, listening));
+    } catch (error) {
+      console.error(`[open-artifact] ${PUBLIC_URL_COMMAND_ENV} gave no public origin for port ${listening}: ${(error as Error).message}`);
+      process.exit(1);
+    }
+  }
   // The readiness line a daemon waits for (Open Artifact protocol).
   const ready: ReadyLine = { openArtifact: 'ready', url };
   process.stdout.write(`${JSON.stringify(ready)}\n`);
@@ -801,4 +813,24 @@ if (process.argv[1] && resolve(process.argv[1]) === SELF) {
       process.exit(1);
     },
   );
+}
+
+/** Runs the public URL command for `port` and returns the origin its first line of output names. */
+function publicUrlOf(command: string, port: number): Promise<string> {
+  return new Promise((resolveUrl, reject) => {
+    const child = spawn(process.platform === 'win32' ? 'cmd' : 'sh', process.platform === 'win32' ? ['/c', command] : ['-c', command], {
+      env: { ...process.env, [LISTEN_PORT_ENV]: String(port) },
+      stdio: ['ignore', 'pipe', 'inherit'],
+    });
+    let out = '';
+    const timer = setTimeout(() => child.kill(), PUBLIC_READY_TIMEOUT_MS - 5_000);
+    child.stdout.on('data', (chunk: Buffer) => (out += chunk));
+    child.on('error', (error) => { clearTimeout(timer); reject(error); });
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      const line = out.split('\n').find((text) => text.trim());
+      if (code !== 0 || !line) return reject(new Error(code === 0 ? 'it printed nothing' : `it exited with ${code ?? 'a signal'}`));
+      try { resolveUrl(publicOriginOf(line)); } catch (error) { reject(error); }
+    });
+  });
 }

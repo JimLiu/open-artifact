@@ -51,7 +51,7 @@ const SLOW = new Set(['artifact.publish', 'assets.upload', 'downloads.save', 'ag
 let gen = 0;
 let backend: Backend | null = null;
 /** Creates the backend for a page base; replaced in tests. */
-let makeProvider = (base: string): CapabilityProvider => createLocalProvider({ base });
+let makeProvider = (base: string): CapabilityProvider => createLocalProvider({ base, credentials: 'include' });
 
 /** The current broker generation. */
 export function brokerGen(): number {
