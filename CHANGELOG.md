@@ -6,6 +6,30 @@ agent plugins. Since 0.9.0 they all share one version; before that `dsh-open-art
 Each entry is written from the commits since the previous tag (`node scripts/changelog.mjs` lists them); see
 [Releasing](README.md#releasing).
 
+## [0.13.0] - 2026-11-22
+
+Publish artifacts to a site of your own: a cloud host for a server, a LAN machine or Cloudflare, with sign-in, sharing, plugins and a remote MCP endpoint.
+
+### Added
+
+- A cloud host serves artifacts on the web with sign-in (an owner key, OIDC, GitHub or Cloudflare Access), sharing with people or by link, and the owner, editor, commenter and viewer roles. Its home page lists your artifacts and those shared with you, with upload and a trash.
+- The host runs as one Node process on a server or a LAN machine (plain http is allowed on a LAN), with a Dockerfile and deployment files for Docker and AWS, or on Cloudflare as a Worker with Durable Objects and D1. A same-site mode serves artifact pages under the host's own domain when you have only one.
+- `open-artifact remote` connects a computer to a host: sign in with a device code, publish an artifact or a folder, and keep the local files and the published copy in sync both ways. A default site, automatic publishing and install-time presets from environment variables (`OPEN_ARTIFACT_REMOTE`, `OPEN_ARTIFACT_PUBLISH`) are supported.
+- Published Data dashboards show a snapshot of their live data, refreshed from the owner's computer (every six hours unless set otherwise).
+- Agents reach a host over a remote MCP endpoint (`/mcp`) with OAuth sign-in.
+- Host plugins (`@open-artifact/host-plugin`) add sign-in methods, role rules, guards, event handlers, routes and UI to a host from a plain module with typed configuration. Six examples are in `examples/host-plugins`.
+- Guides for hosting on a LAN, on a server and on Cloudflare, for connecting agents and for writing plugins, in English and Chinese, under `docs/`.
+- A ZCode plugin.
+
+### Changed
+
+- On a host, exports are made in the browser, and Docs exports PDF through the browser's print dialog.
+
+### Fixed
+
+- The Design System editor no longer loses an undo or redo made while a save is on its way.
+- Changes written to an artifact's folder in the first moments after it opens are no longer missed on macOS.
+
 ## [0.12.5] - 2026-11-22
 
 Design snapshots and exports preserve artboard web fonts, and zooming keeps artboards ready to use.
@@ -372,6 +396,7 @@ One version for every package, with Docs and Sheets in every plugin.
 - Plugins for Claude Code, Codex, Cursor, Copilot, ChatGPT and DeepSeek Harness.
 - English and Chinese READMEs, under Apache-2.0.
 
+[0.13.0]: https://github.com/JimLiu/open-artifact/compare/v0.12.5...v0.13.0
 [0.12.5]: https://github.com/JimLiu/open-artifact/compare/v0.12.4...v0.12.5
 [0.12.4]: https://github.com/JimLiu/open-artifact/compare/v0.12.3...v0.12.4
 [0.12.3]: https://github.com/JimLiu/open-artifact/compare/v0.12.2...v0.12.3

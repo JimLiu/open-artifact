@@ -56,7 +56,7 @@ node packages/host/src/node/main.ts serve
 On its first start the host prints the owner's sign-in address, once:
 
 ```
-Open Artifact host 0.12.3 listening on http://127.0.0.1:4900
+Open Artifact host 0.13.0 listening on http://127.0.0.1:4900
   app:     http://localhost:4900
   content: http://{id}.content.localhost:4900
   data:    /Users/you/.open-artifact-host

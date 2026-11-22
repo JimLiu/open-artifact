@@ -1,6 +1,6 @@
 {
   "name": "@open-artifact/wasm-sheets",
-  "version": "0.12.5",
+  "version": "0.13.0",
   "private": true,
   "type": "module",
   "description": "The Sheets workbook engine compiled from crates/open-artifact-sheets to WebAssembly (generated/, built by scripts/build-wasm.mjs). The module is a file of its own: pages fetch it in their worker, Node reads it from disk.",

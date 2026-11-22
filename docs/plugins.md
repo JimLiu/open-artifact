@@ -407,7 +407,7 @@ secret, which only the proxy knows.
    **Expect** from the site:
 
    ```
-   Open Artifact host 0.12.3 listening on http://127.0.0.1:4911
+   Open Artifact host 0.13.0 listening on http://127.0.0.1:4911
      app:     http://localhost:4912
      content: http://{id}.content.localhost:4912
      data:    /Users/you/oa-plugins-demo/site

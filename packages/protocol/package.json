@@ -1,6 +1,6 @@
 {
   "name": "@open-artifact/protocol",
-  "version": "0.12.5",
+  "version": "0.13.0",
   "private": true,
   "type": "module",
   "description": "The Open Artifact protocol: typed contracts shared by the daemon, harness adapters, type servers, the Shell and pages.",
