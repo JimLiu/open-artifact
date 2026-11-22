@@ -65,7 +65,7 @@ export const BROKERED_METHODS: { readonly [K in CapabilityName]: readonly string
   user: ['me'],
   agent: ['send', 'status'],
   room: ['self', 'presence', 'peers', 'emit'],
-  downloads: ['save'],
+  downloads: ['save', 'check'],
   db: ['get', 'list', 'write'],
   comments: ['list', 'create', 'reply', 'edit', 'react', 'setResolved', 'move', 'remove', 'sendToAgent'],
   history: ['list', 'files', 'read', 'readBytes', 'diff', 'restore', 'dismissNotice'],
@@ -384,7 +384,8 @@ export function createShellProvider(options: ShellProviderOptions = {}): Capabil
         return ns;
       }
       case 'downloads': {
-        const ns: DownloadsCapability = { save: (file) => c('save', [file], true) };
+        // The Shell says when its host saves in this browser (a cloud host): the page then sends every role's files.
+        const ns: DownloadsCapability = { save: (file) => c('save', [file], true), ...(config.browser === true ? { browser: true, check: () => c('check') } : {}) };
         return ns;
       }
       case 'mcp': {

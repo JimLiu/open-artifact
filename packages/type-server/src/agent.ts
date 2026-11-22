@@ -23,7 +23,8 @@ import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node
 import { join } from 'node:path';
 import type { AgentDelivery, AgentRequest, AgentSendResult, AgentStatus } from '@open-artifact/runtime/capabilities';
 import { sanitizeUntrusted } from '@open-artifact/runtime/untrusted';
-import type { TypeApi } from '@open-artifact/server-sdk';
+import type { WakeSender } from '@open-artifact/protocol';
+import type { TypeApiLike } from '@open-artifact/server-sdk';
 import { wakeRequests } from './daemon.ts';
 import { writeAtomic } from './store.ts';
 
@@ -125,6 +126,15 @@ export async function isAsking(root: string, changedAt: number, now = Date.now()
   }
 }
 
+/** When the agent last said it asks the person (ms since the epoch), or null when it has not. */
+export async function askedAt(root: string): Promise<number | null> {
+  try {
+    return (await stat(agentPaths(root).asking)).mtimeMs;
+  } catch {
+    return null;
+  }
+}
+
 /** Normalizes what a page sent. Throws on a malformed request. */
 export function normalizeRequest(request: AgentRequest, deliver: AgentDelivery): QueuedRequest {
   if (!request || typeof request.text !== 'string' || !request.text.trim()) throw new Error('request.text must be a non-empty string.');
@@ -202,9 +212,11 @@ export async function sendToAgent(options: {
   root: string;
   artifactId: string;
   request: QueuedRequest;
-  daemon: TypeApi | null;
+  daemon: TypeApiLike | null;
+  /** Who sent it, when not the owner (an editor on a hosted artifact): travels with the wake to the agent. */
+  from?: WakeSender;
 }): Promise<AgentSendResult> {
-  const { root, artifactId, request, daemon } = options;
+  const { root, artifactId, request, daemon, from } = options;
   if (daemon && request.deliver === 'send') {
     const result = await wakeRequests(daemon, artifactId, [
       {
@@ -214,6 +226,7 @@ export async function sendToAgent(options: {
         // The selection travels as text: data the agent reads, never instructions.
         ...(request.context ? { selection: JSON.stringify(request.context) } : {}),
         sentAt: request.at,
+        ...(from ? { from } : {}),
       },
     ]);
     if (result.status === 'delivered' || result.status === 'resumed') return { status: 'delivered' };
@@ -231,25 +244,38 @@ export async function sendToAgent(options: {
 
 /** How long the daemon's word on an artifact's agent (its name, whether it is woken) is kept, ms. */
 const PRESENCE_MS = 5_000;
-const presences = new Map<string, { at: number; value: Promise<{ name?: string; wakesIdle?: boolean }> }>();
+/** Above this many kept answers of one daemon, stale ones are dropped (a cloud host serves many artifacts). */
+const PRESENCES_KEPT = 256;
+type Presence = { at: number; value: Promise<{ name?: string; wakesIdle?: boolean }> };
+/** Kept answers per daemon, then per artifact id: two daemons in one process never see each other's word. */
+const presences = new WeakMap<TypeApiLike, Map<string, Presence>>();
 
 /** The daemon's word on the agent of artifact `id`: its name, and whether an idle session is woken. */
-function presenceOf(daemon: TypeApi, id: string, now = Date.now()): Promise<{ name?: string; wakesIdle?: boolean }> {
-  const kept = presences.get(id);
-  if (kept && now - kept.at < PRESENCE_MS) return kept.value;
+function presenceOf(daemon: TypeApiLike, id: string, now = Date.now()): Promise<{ name?: string; wakesIdle?: boolean }> {
+  let kept = presences.get(daemon);
+  if (!kept) presences.set(daemon, (kept = new Map()));
+  const known = kept.get(id);
+  if (known && now - known.at < PRESENCE_MS) return known.value;
+  if (kept.size >= PRESENCES_KEPT) for (const [key, entry] of kept) if (now - entry.at >= PRESENCE_MS) kept.delete(key);
   const value = daemon.presence(id).then(
     (p) => ({ ...(p.agentName ? { name: p.agentName } : {}), ...(typeof p.wakesIdle === 'boolean' ? { wakesIdle: p.wakesIdle } : {}) }),
     () => ({}),
   );
-  presences.set(id, { at: now, value });
+  kept.set(id, { at: now, value });
   return value;
+}
+
+/** Forgets the daemon's kept word on artifact `id`'s agent (every artifact's when omitted): the next status asks again. */
+export function forgetPresence(daemon: TypeApiLike, id?: string): void {
+  if (id === undefined) presences.delete(daemon);
+  else presences.get(daemon)?.delete(id);
 }
 
 /**
  * The agent status the page shows; with the daemon and the artifact's id, the agent's own name and whether it is
  * woken. `changedAt`: when the agent last changed the artifact (ms), which ends a wait on the person.
  */
-export async function agentStatus(root: string, daemon: TypeApi | null, busy: boolean, id?: string, changedAt = 0): Promise<AgentStatus> {
+export async function agentStatus(root: string, daemon: TypeApiLike | null, busy: boolean, id?: string, changedAt = 0): Promise<AgentStatus> {
   const said = daemon && id ? await presenceOf(daemon, id) : {};
   // An agent that asked is in the middle of its work, so it counts as there even without a `wait` running.
   const asking = await isAsking(root, changedAt);

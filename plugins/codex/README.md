@@ -37,6 +37,13 @@ folder, so the daemon looks the thread's folder up: from its hook, or from the t
 - `skills/open-artifact/`: the skill, carrying the daemon;
 - `hooks/hooks.json`: SessionStart, UserPromptSubmit and Stop.
 
+## Publish to a server
+
+Codex gives a plugin's MCP server only a few variables of its own (`HOME`, `PATH`, `USER`, …), so `OPEN_ARTIFACT_*`
+variables in your shell do not reach Open Artifact. Put them in `~/.agents/open-artifact/preset.json` instead
+(`{ "OPEN_ARTIFACT_REMOTE": "https://artifacts.example.com" }`), or link a site yourself with
+`open-artifact remote add <name> <https://host>`. See [the plugins README](../README.md#use-a-server-instead-of-this-computer).
+
 ## Send to agent
 
 Comments sent from the page reach the thread that made the artifact at session start, with your next message, or,

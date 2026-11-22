@@ -309,12 +309,14 @@ export async function startExport(confirmed = false): Promise<void> {
     const made = await produce(format, state, run.signal, report);
     if (run.signal.aborted) throw new DOMException('cancelled', 'AbortError');
     let delivery: Delivery;
+    const downloads = maybeSession()?.downloads ?? null;
     try {
-      delivery = await deliverFile(made.file, maybeSession()?.downloads ?? null);
+      delivery = await deliverFile(made.file, downloads);
     } catch (error) {
       if (exportRun !== run) return;
       const message = error instanceof Error && error.message !== '' ? error.message : words.EXPORT_FAILED;
-      set({ step: { kind: 'failed', format, title: words.notSaved(format), message, fix: null, smaller: false, file: made.file } });
+      // A host that saves in the browser refused the person (a viewer the owner does not let export): no way around it.
+      set({ step: { kind: 'failed', format, title: words.notSaved(format), message, fix: null, smaller: false, file: downloads?.browser === true ? null : made.file } });
       return;
     }
     if (exportRun !== run) return;

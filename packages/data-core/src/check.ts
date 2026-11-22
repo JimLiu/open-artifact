@@ -408,6 +408,8 @@ function checkDataset(
         `source.connector "${source.connector}" isn’t set up and turned on in connectors.json (${[...context.connectors].join(', ') || 'none is'}), so the query doesn’t run (runs says absent) until the person adds that server or you name one of theirs.`,
       );
     if (source.tool === '') issue('source.tool is missing: the tool the query calls.');
+    if (data.snapshot !== undefined && data.snapshot !== false)
+      issue(`snapshot is false or left out (false keeps this query's rows off a published dashboard's snapshot); the page ignores ${JSON.stringify(data.snapshot)}.`);
     if (!source.call) report(doc, 'info', 'is written with the older kind "query"; "call" takes filters with rules.');
     if (source.rulesRefused)
       issue('source.rules are refused: each names a filter and holds only type, enum, pattern, minLength, maxLength, minimum, maximum, or items with minItems and maxItems.');

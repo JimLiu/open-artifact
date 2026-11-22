@@ -23,7 +23,7 @@ import {
 } from '@open-artifact/motion-core';
 import { readFileSync, statSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
-import { Script } from 'node:vm';
+import { parse } from 'acorn';
 import type { CheckContext, CheckFinding, WriteRefusal } from './types.ts';
 
 /** The marker file, relative to the content folder (`db/`). */
@@ -39,15 +39,21 @@ export const validateMotionContext = (value: unknown): unknown => validateVideoV
 /** People's own documents (`data/…`) are not edits of the film, so the version history leaves them out. */
 export const motionHistoryIgnores = (path: string): boolean => path.startsWith(`${USER_DATA_COLLECTION}/`);
 
-/** Parses code as the player runs it: inside a block, with `kit` in scope. Nothing is run. */
-export function motionSyntaxError(code: string, name: string): SyntaxProblem | null {
+/**
+ * Parses code as the player runs it: a classic script, inside a block, with `kit` in scope. Nothing is run. The
+ * parser is acorn (JavaScript itself, no `node:vm`), so the check is the same on a host without `vm`, such as a
+ * Worker. `_name` is the file the problem is reported against by the caller.
+ */
+export function motionSyntaxError(code: string, _name: string): SyntaxProblem | null {
   try {
-    new Script(`{ const kit = undefined;\n${code}\n}`, { filename: name });
+    parse(`{ const kit = undefined;\n${code}\n}`, { ecmaVersion: 'latest', sourceType: 'script' });
     return null;
   } catch (error) {
     if (!(error instanceof SyntaxError)) return null;
-    const line = /:(\d+)\s*$/m.exec(error.stack?.split('\n')[0] ?? '')?.[1];
-    return { message: error.message, ...(line !== undefined && Number(line) > 1 ? { line: Number(line) - 1 } : {}) };
+    const line = (error as SyntaxError & { loc?: { line?: unknown } }).loc?.line;
+    // acorn ends its message with the position, "(line:column)": the line is reported on its own.
+    const message = error.message.replace(/\s*\(\d+:\d+\)$/, '');
+    return { message, ...(typeof line === 'number' && line > 1 ? { line: line - 1 } : {}) };
   }
 }
 

@@ -8,7 +8,9 @@
  * under `location.custom` and `anchor` is its stable JSON text, so the page
  * gets back exactly what it gave. Writes take `comments.json.lock` (O_EXCL)
  * and replace the file through a dot temp file; the file exists only once
- * there is a thread.
+ * there is a thread. A store whose process is the only writer of the folder
+ * (`lock: 'process'`, a host's own storage) locks within the process instead,
+ * never waits on a file, and removes a lock file a crash left behind.
  */
 
 import { randomBytes } from 'node:crypto';
@@ -84,6 +86,16 @@ interface CommentsDoc {
   threads: Thread[];
 }
 
+/**
+ * How a {@link CommentStore} keeps two writes apart: `file`, the O_EXCL lock file every process honours (the agent's
+ * CLI and the type server write the same folder); `process`, within this process alone, for a store whose process is
+ * the only writer (no file is made, and nothing waits).
+ */
+export type CommentLock = 'file' | 'process';
+
+/** Files being written under the `process` lock, by path: a write that comes back to the same file while it runs. */
+const writing = new Set<string>();
+
 const newId = (prefix: string): string => `${prefix}${randomBytes(5).toString('hex')}`;
 const now = (): string => new Date().toISOString();
 
@@ -91,9 +103,14 @@ export class CommentStore {
   readonly root: string;
   readonly file: string;
 
-  constructor(root: string) {
+  readonly lock: CommentLock;
+
+  constructor(root: string, options: { lock?: CommentLock } = {}) {
     this.root = root;
     this.file = join(root, COMMENTS_FILE);
+    this.lock = options.lock ?? 'file';
+    // The only writer: a lock file here was left by a write that never finished (a crash), and nobody holds it.
+    if (this.lock === 'process') rmSync(`${this.file}.lock`, { force: true });
   }
 
   load(): CommentsDoc {
@@ -129,6 +146,16 @@ export class CommentStore {
 
   /** Runs `fn(doc)` under the lock and writes the result back. */
   mutate<T>(fn: (doc: CommentsDoc) => T): T {
+    if (this.lock === 'process') {
+      // A write runs to its end in one turn of this process, so the only other writer can be `fn` itself.
+      if (writing.has(this.file)) throw new FrameError('unavailable', 'comments.json is being written.', 409);
+      writing.add(this.file);
+      try {
+        return this.write(fn);
+      } finally {
+        writing.delete(this.file);
+      }
+    }
     const lock = `${this.file}.lock`;
     const started = Date.now();
     let fd: number;
@@ -151,18 +178,23 @@ export class CommentStore {
       }
     }
     try {
-      const doc = this.load();
-      const out = fn(doc);
-      if (doc.threads.length || existsSync(this.file)) {
-        const tmp = join(this.root, `.${COMMENTS_FILE}.${randomBytes(4).toString('hex')}.tmp`);
-        writeFileSync(tmp, `${JSON.stringify({ version: 1, threads: doc.threads }, null, 2)}\n`);
-        renameSync(tmp, this.file);
-      }
-      return out;
+      return this.write(fn);
     } finally {
       closeSync(fd);
       rmSync(lock, { force: true });
     }
+  }
+
+  /** Reads, applies `fn` and replaces the file (the caller holds the lock). */
+  private write<T>(fn: (doc: CommentsDoc) => T): T {
+    const doc = this.load();
+    const out = fn(doc);
+    if (doc.threads.length || existsSync(this.file)) {
+      const tmp = join(this.root, `.${COMMENTS_FILE}.${randomBytes(4).toString('hex')}.tmp`);
+      writeFileSync(tmp, `${JSON.stringify({ version: 1, threads: doc.threads }, null, 2)}\n`);
+      renameSync(tmp, this.file);
+    }
+    return out;
   }
 
   create(input: { anchor?: unknown; label?: unknown; detail?: unknown; location?: unknown; text: unknown; to?: unknown; author?: Author }): Thread {

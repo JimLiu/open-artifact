@@ -139,4 +139,6 @@ test('a file over the host’s limit goes to the browser', () => {
   assert.equal(deliveryRoute(HOST_SAVE_MAX_BYTES, true), 'host');
   assert.equal(deliveryRoute(HOST_SAVE_MAX_BYTES + 1, true), 'browser');
   assert.equal(deliveryRoute(10, false), 'browser');
+  // A host that saves in the browser (a cloud host) has no cap of its own: a long film still goes through it.
+  assert.equal(deliveryRoute(HOST_SAVE_MAX_BYTES + 1, true, true), 'host');
 });

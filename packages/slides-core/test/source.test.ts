@@ -242,6 +242,16 @@ describe('4:3 decks', () => {
     }
     assert.equal(SLIDE_WIDTH, 1920);
   });
+
+  it("checks a deck at its own size without touching the editor's width (a server checks many decks at once)", () => {
+    const files = new Map([
+      ['deck.json', JSON.stringify({ v: 4, title: 'x', size: '4:3', format: 'source', order: ['cover'] })],
+      ['deck.css', '@media (max-width: 1500px){p{color:red}}'],
+      ['slides/cover.html', '<section id="cover"><p>Hi</p></section>'],
+    ]);
+    checkSlidesProject(files, { lints: false });
+    assert.equal(SLIDE_WIDTH, 1920);
+  });
 });
 
 describe('nested lists in the inline format', () => {

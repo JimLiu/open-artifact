@@ -31,6 +31,7 @@ import {
   type CapabilityName,
   type CapabilityProvider,
 } from '@open-artifact/runtime';
+import { cloudProvider, type CloudPolicy } from './cloud-provider.ts';
 
 /** Where answers go: the page's window at its origin. */
 export type PagePost = (message: CapToPage, transfer?: Transferable[]) => void;
@@ -52,6 +53,16 @@ let gen = 0;
 let backend: Backend | null = null;
 /** Creates the backend for a page base; replaced in tests. */
 let makeProvider = (base: string): CapabilityProvider => createLocalProvider({ base });
+/** Set when a cloud host serves the Shell: each backend is wrapped by {@link cloudProvider}. */
+let cloudPolicy: CloudPolicy | null = null;
+
+/**
+ * Cloud mode (`policy`) or not (`null`): downloads save in the browser and `mcp` is not offered. Takes effect for the
+ * next backend; set it before the page asks for anything.
+ */
+export function setCloudPolicy(policy: CloudPolicy | null): void {
+  cloudPolicy = policy;
+}
 
 /** The current broker generation. */
 export function brokerGen(): number {
@@ -63,6 +74,7 @@ export function resetBroker(factory?: (base: string) => CapabilityProvider): voi
   for (const stop of backend?.stops ?? []) stop();
   backend = null;
   gen = 0;
+  cloudPolicy = null;
   if (factory) makeProvider = factory;
 }
 
@@ -90,7 +102,8 @@ function backendFor(base: string, post: PagePost): Backend {
   if (backend?.base === base) return backend;
   const previous = backend;
   for (const stop of previous?.stops ?? []) stop();
-  backend = { base, provider: makeProvider(base), namespaces: new Map(), stops: [], granted: new Set() };
+  const provider = makeProvider(base);
+  backend = { base, provider: cloudPolicy ? cloudProvider(provider, cloudPolicy) : provider, namespaces: new Map(), stops: [], granted: new Set() };
   // A page that was already wired to another backend: its pending calls
   // went to the old one and will not be answered.
   if (previous?.granted.size) rewire(post, []);
@@ -146,6 +159,8 @@ export async function want(message: Extract<CapToShell, { openArtifact: 'cap_wan
   if (!ns) return no();
   const config: Record<string, unknown> = {};
   if (cap === 'artifact') config.id = ns.id;
+  // A host that saves in the browser (cloud-provider.ts) says so: the page then sends its files here for every role.
+  if (cap === 'downloads' && ns.browser === true) config.browser = true;
   if (cap === 'user') {
     try {
       config.me = await (ns.me as () => Promise<unknown>)();

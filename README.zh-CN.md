@@ -102,6 +102,19 @@ node artifact-types/design/scripts/cli.mjs wait ./my-design                 # �
 其他命令：`check`、`generate`、`upload`、`context`、`comments`、`history`、`share`、`status`、`stop` 等。不带参数运行
 CLI 可以看到完整列表。
 
+## 部署到自己的服务器
+
+站点给你的作品一个网址，你的电脑关机也能打开：别人登录后打开分享给自己的作品，一起编辑、评论，你的 Agent 把作品发布到
+这里。指南在 [docs/](docs/README.zh-CN.md)：
+
+- [把作品放到站点上](docs/hosting.zh-CN.md)：站点怎么工作、该选哪一种。从这里开始。
+- [家里或办公室内网的站点](docs/hosting-lan.zh-CN.md)：不要域名，走 http。
+- [带域名的自有服务器站点](docs/hosting-server.zh-CN.md)：Docker Compose 加 Caddy、登录方式、AWS。
+- [Cloudflare 上的站点](docs/hosting-cloudflare.zh-CN.md)：一个 Worker，加 D1 和 Durable Objects。
+- [连接你的电脑和 Agent](docs/connecting-agents.zh-CN.md)：`open-artifact remote add`、发布、自动发布新建的作品、安装时的
+  预设、远程 MCP、仪表盘的数据。
+- [插件](docs/plugins.zh-CN.md)：接入公司账号登录、来自你自己服务的权限、操作规则、事件通知和邀请邮件；怎么用插件，怎么写插件。
+
 ## 开发
 
 ### 从源码构建

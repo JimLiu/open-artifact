@@ -11,7 +11,7 @@ import { copyText } from '../../lib/format.ts';
 import { t } from '../../lib/i18n.ts';
 import { attachFrame, embedded, frameLoaded } from '../bridge.ts';
 import { ask, frameShown, markPhase, newSession, retryBoot } from '../actions.ts';
-import { useAgentName } from '../hooks.ts';
+import { useAgentName, useCloud, useMayAsk } from '../hooks.ts';
 import { COVER_FADE_MS, FRAME_READY_FALLBACK_MS, addressWithoutThread, pageAddress, pageOriginOf, readyOnLoad } from '../model.ts';
 import { alignSpin } from '../preboot.ts';
 import { useBoot, useShell } from '../store.ts';
@@ -101,13 +101,15 @@ export function PageFrame() {
 export function EmptyArtifact() {
   const boot = useBoot();
   const agent = useAgentName();
-  const sessions = useShell((state) => !!state.host?.caps.sessions);
+  // A cloud host has no folder to name and no session to start here.
+  const cloud = !!useCloud();
+  const sessions = useShell((state) => !!state.host?.caps.sessions) && !cloud;
   const [status, setStatus] = useState('');
   const prompt = boot.prompt ?? '';
   return (
     <div className="max-w-2xl px-8 py-10">
       <h2 className="mb-2 mt-0 text-base font-semibold">{t('emptyTitle')}</h2>
-      <p className="mb-3 mt-0 text-fg-muted">{t('emptyBody', { type: boot.typeTitle, root: boot.root })}</p>
+      <p className="mb-3 mt-0 text-fg-muted">{cloud ? t('emptyBodyCloud', { type: boot.typeTitle }) : t('emptyBody', { type: boot.typeTitle, root: boot.root })}</p>
       <textarea
         readOnly
         value={prompt}
@@ -152,6 +154,9 @@ export function ProblemState() {
   const agent = useAgentName();
   const status = useShell((state) => state.askStatus);
   const canRetry = useShell((state) => state.canRetry);
+  const cloud = !!useCloud();
+  // Only a cloud host hides it by role (elsewhere it shows as it always did).
+  const askable = useMayAsk() || !cloud;
   const problem = boot.problem || t('noPage');
   return (
     <div className="max-w-2xl px-8 py-10">
@@ -160,16 +165,18 @@ export function ProblemState() {
         {t('problemTitle')}
       </h2>
       <pre className="whitespace-pre-wrap break-words font-mono text-xs text-fg-muted">{problem}</pre>
-      <p className="text-xs text-fg-muted">{t('folder', { root: boot.root })}</p>
+      {cloud ? null : <p className="text-xs text-fg-muted">{t('folder', { root: boot.root })}</p>}
       <div className="flex flex-wrap gap-2">
         {canRetry ? (
           <Button size="lg" variant="primary" icon={<RotateCw className="size-3.5" />} onClick={() => void retryBoot()}>
             {t('tryAgain')}
           </Button>
         ) : null}
-        <Button size="lg" icon={<MessageSquare className="size-3.5" />} onClick={() => void ask(t('problemAsk', { problem }), agent)}>
-          {t('askToLook', { agent })}
-        </Button>
+        {askable ? (
+          <Button size="lg" icon={<MessageSquare className="size-3.5" />} onClick={() => void ask(t('problemAsk', { problem }), agent)}>
+            {t('askToLook', { agent })}
+          </Button>
+        ) : null}
       </div>
       <p role="status" className="mt-2 text-xs text-fg-muted">
         {status}

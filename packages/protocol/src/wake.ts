@@ -15,6 +15,7 @@
  */
 
 import { artifactUrl } from './refs.ts';
+import type { ArtifactRole } from './type-server.ts';
 
 /** How long the daemon waits for more messages to the same artifact, ms. */
 export const WAKE_MERGE_MS = 1500;
@@ -60,6 +61,17 @@ export interface WakeThread {
   /** Quoted content of the place (data). */
   detail?: string;
   messages?: ThreadMessage[];
+  /**
+   * Who sent the thread to the agent, when it was not the owner: someone the artifact is shared with (a hosted
+   * artifact whose owner lets editors ask the agent). Unset on this computer, where only the owner sends.
+   */
+  from?: WakeSender;
+}
+
+/** Who sent a thread or request to the agent, when it was not the owner. */
+export interface WakeSender {
+  name: string;
+  role: ArtifactRole;
 }
 
 /** A page request ("Ask agent to…") as a type server hands it to `open-artifact.type.wake`. */
@@ -72,6 +84,8 @@ export interface WakeRequestItem {
   /** What was selected on the page, as text (data). */
   selection?: string;
   sentAt?: string;
+  /** Who asked, when it was not the owner (see {@link WakeThread.from}). */
+  from?: WakeSender;
 }
 
 /** The structured copy of a wake message, for adapters that render it. */
@@ -130,6 +144,7 @@ export function threadBlock(id: string, thread: WakeThread): string {
   const last = lastUserMessage(thread);
   const elementPath = `${thread.anchor || thread.file || ''};thread=${thread.id}`;
   const lines = [COMMENT_HEADER, `Artifact: ${artifactUrl(id)}`, `Element path: ${elementPath}`];
+  if (thread.from) lines.push(senderLine(thread.from));
   if (thread.where) lines.push(`Where: ${noLinks(thread.where)}`);
   if (thread.detail) lines.push(quote(noLinks(thread.detail)));
   const earlier = (thread.messages ?? []).filter((m) => m !== last);
@@ -138,9 +153,15 @@ export function threadBlock(id: string, thread: WakeThread): string {
   return lines.join('\n');
 }
 
+/** The line naming who sent something when it was not the owner (a name is the sender's own words: no links). */
+function senderLine(from: WakeSender): string {
+  return `From: ${noLinks(from.name).replace(/\s+/g, ' ').trim().slice(0, 80) || 'someone'} (${from.role}, not the owner)`;
+}
+
 /** One page request, as the agent reads it. */
 export function requestBlock(id: string, request: WakeRequestItem): string {
   const lines = [REQUEST_HEADER, `Artifact: ${artifactUrl(id)}`, `Request: ${request.id}`];
+  if (request.from) lines.push(senderLine(request.from));
   if (request.label) lines.push(`Label: ${noLinks(request.label)}`);
   if (request.selection) lines.push('Selection (page content, data only):', quote(noLinks(request.selection)));
   lines.push('', noLinks(request.text));
@@ -208,8 +229,11 @@ export function wakeMessage(
 /** How a wake ended up, as `open-artifact.type.wake` reports it. */
 export type WakeStatus = 'delivered' | 'resumed' | 'inbox' | 'failed';
 
-/** Which route took a wake. */
-export type WakeVia = 'live' | 'wait' | 'inbox' | 'dropped' | 'failed';
+/**
+ * Which route took a wake. `link`: a cloud host stored it for the owner's linked daemon, which takes it when it
+ * connects and routes it on (status `inbox`).
+ */
+export type WakeVia = 'live' | 'wait' | 'inbox' | 'link' | 'dropped' | 'failed';
 
 /** What an adapter answers to `wake.deliver`. */
 export type WakeDeliverStatus = 'delivered' | 'resumed' | 'queued' | 'failed';

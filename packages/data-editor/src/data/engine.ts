@@ -35,6 +35,7 @@ import { createDatasetsStore, type DatasetsStore } from '../state/datasets.ts';
 import { createCalculationEngine, getFunctionCode } from './calc-engine.ts';
 import { appendCalculationDatasets, getCalculationRun } from './calculations.ts';
 import { connectorSetupRequest, getConnectionFixAction, type ConnectionFixAction } from './fixes.ts';
+import { createLiveSnapshotSource, withLiveSnapshot, type LiveSnapshotSource } from './live-snapshot.ts';
 import { createMcpToolClient, type ConnectorTool } from './mcp.ts';
 import {
   IDLE_DATASET_RUN,
@@ -91,6 +92,8 @@ export interface DataEngineOptions {
   savedRows?: SavedRowsReader;
   /** Who `data/users/me` stands for (the session's viewer when left out). */
   viewerId?: () => string | null;
+  /** The live-data snapshot answers fall back to without connectors (the session's store when left out). */
+  snapshot?: LiveSnapshotSource;
 }
 
 /** The engine that turns the dashboard's datasets into runs and tables for the page and the panels. */
@@ -203,7 +206,10 @@ export function createDataEngine(options: DataEngineOptions = {}): DataEngine {
     scope: options.scope ?? defaultScope(),
     now,
   });
-  const client = createMcpToolClient({ mcp, cache });
+  const ownsSnapshot = options.snapshot === undefined;
+  const snapshot = options.snapshot ?? createLiveSnapshotSource(() => maybeSession()?.db ?? null);
+  // Without connectors (a hosted page), the answers the owner's computer took stand in for live calls.
+  const client = withLiveSnapshot(createMcpToolClient({ mcp, cache }), () => mcp() !== null, snapshot);
   const ownsSavedRows = options.savedRows === undefined;
   const savedRows = options.savedRows ?? createSavedRowsReader({ db: () => maybeSession()?.db ?? null, clock });
   const viewerId = options.viewerId ?? (() => maybeSession()?.viewer.id ?? null);
@@ -398,6 +404,10 @@ export function createDataEngine(options: DataEngineOptions = {}): DataEngine {
   };
 
   live.subscribe(() => schedulePublish(true));
+  // New answers pushed from the owner's computer: the live queries run again on them.
+  const stopSnapshot = snapshot.subscribe(() => {
+    if (!disposed && mcp() === null) live.refreshAll();
+  });
   const stopSavedRows = savedRows.subscribe((path) => {
     const table = savedRows.current(path);
     if (table === null) return;
@@ -570,7 +580,9 @@ export function createDataEngine(options: DataEngineOptions = {}): DataEngine {
       disposed = true;
       listeners.clear();
       stopSavedRows();
+      stopSnapshot();
       if (ownsSavedRows) savedRows.dispose();
+      if (ownsSnapshot) snapshot.dispose();
     },
   };
   rebuild();

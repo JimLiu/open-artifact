@@ -23,3 +23,6 @@ The person started this message with `/open-artifact`. The first word after it i
 
 To share it, call `Artifact {action: "open", url, panel: "share"}`, which opens its share panel for the person; never
 make links yourself.
+Publishing to a site, publishing a dashboard's data and connecting a site are the person's decisions too: do not run
+`open-artifact publish`, `unpublish` or `remote` commands, or call the daemon for them; ask the person, who does it
+from the Share panel or their own terminal.

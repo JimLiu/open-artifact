@@ -6,7 +6,7 @@
  */
 
 import { DEFAULT_DASHBOARD_TITLE, type Dataset } from '@open-artifact/data-core';
-import { saveFile, type SavedFile } from '@open-artifact/editor-kit';
+import { assertMayExport, saveFile, type SavedFile } from '@open-artifact/editor-kit';
 import { toast } from '@open-artifact/ui';
 import { maybeDataEngine, type DataEngine } from '../data/engine.ts';
 import { partitionUsedDatasets } from '../data/status.ts';
@@ -106,6 +106,9 @@ let busy = false;
 /** Runs an export: opens the print dialog for `pdf`, else makes the file and saves it. */
 export async function exportDashboard(format: DashboardExportFormat): Promise<DashboardExportOutcome> {
   if (format === 'pdf') {
+    // A print is no download, but the PDF button follows the owner's export switch like the others (a viewer refused
+    // on a host). Only the product's own button: the browser's print and a screenshot stay open to anyone who sees it.
+    await assertMayExport(maybeSession()?.downloads);
     await printDashboard();
     return { format, printed: true };
   }
@@ -117,6 +120,9 @@ export async function exportDashboard(format: DashboardExportFormat): Promise<Da
 const isDeclined = (error: unknown): boolean =>
   (error instanceof DOMException && error.name === 'AbortError') ||
   (typeof error === 'object' && error !== null && 'code' in error && (error as { code: unknown }).code === 'declined');
+
+/** The host said no (a viewer, while the owner does not let viewers export): its words are the whole message. */
+const isRefused = (error: unknown): boolean => typeof error === 'object' && error !== null && 'code' in error && (error as { code: unknown }).code === 'not_writer';
 
 const errorText = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
@@ -134,7 +140,8 @@ export async function downloadDashboardExport(format: DashboardExportFormat): Pr
     if (outcome.format !== 'pdf')
       toast.add({ title: outcome.saved.to === 'host' ? `Saved ${outcome.filename}` : `Downloaded ${outcome.filename}` });
   } catch (error) {
-    if (!isDeclined(error)) toast.add({ title: 'Export failed. Try again.', description: errorText(error), type: 'error' });
+    if (isRefused(error)) toast.add({ title: errorText(error), type: 'error' });
+    else if (!isDeclined(error)) toast.add({ title: 'Export failed. Try again.', description: errorText(error), type: 'error' });
   } finally {
     busy = false;
   }

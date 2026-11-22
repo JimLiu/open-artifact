@@ -702,3 +702,19 @@ describe('type server: top-level visits, stale frames and cached editor files', 
     assert.match(boardPage.body, /src="\/_open-artifact\/editors\/whiteboard\/assets\/index-AbCd_123\.js"/);
   });
 });
+
+describe('actionsOfType', () => {
+  it('lists the server\'s actions for every type, and a Sheet\'s or a doc\'s own after them', async () => {
+    const { actionsOfType, SERVER_ACTIONS } = await import('../src/index.ts');
+    const server = SERVER_ACTIONS.map((a) => a.name);
+    assert.deepEqual(actionsOfType('whiteboard').map((a) => a.name), server);
+    assert.deepEqual(actionsOfType('design').map((a) => a.name), server);
+    assert.deepEqual(actionsOfType('sheets').map((a) => a.name), [...server, 'read', 'update', 'batch', 'widget', 'info', 'export']);
+    // A doc's list starts with duplicate: nothing depends on where one list ends any more.
+    assert.deepEqual(actionsOfType('docs').map((a) => a.name), [...server, 'duplicate', 'create', 'read', 'update', 'delete', 'batch', 'export', 'import']);
+    for (const action of actionsOfType('sheets')) {
+      assert.ok(action.effect === 'read' || action.effect === 'write', action.name);
+      assert.equal(typeof action.schema, 'object', action.name);
+    }
+  });
+});

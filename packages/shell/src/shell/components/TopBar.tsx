@@ -10,7 +10,10 @@ import { StatusDot } from '../../components/OwnerBadge.tsx';
 import { t } from '../../lib/i18n.ts';
 import { command, runAction } from '../bridge.ts';
 import { closeShell, openSession } from '../actions.ts';
-import { useAgentName, useCanOpenSession, useOwner, useOwnerState, useWorking } from '../hooks.ts';
+import { Account } from '../../components/Account.tsx';
+import { SiteBrand } from '../../components/SiteBrand.tsx';
+import { mayComment } from '../../lib/cloud.ts';
+import { useAgentName, useCanOpenSession, useCloud, useMayAsk, useOwner, useOwnerState, useRole, useWorking } from '../hooks.ts';
 import { saveIndicator } from '../model.ts';
 import { useShell } from '../store.ts';
 import { Peers } from './Peers.tsx';
@@ -111,9 +114,17 @@ export function TopBar() {
   const docs = useShell(state => state.boot?.type === 'docs');
   const title = useShell(state => state.boot?.type === 'docs' ? state.report.title || state.boot.title : state.boot?.title);
   const hostToolbar = useShell((state) => !!state.host?.caps.toolbar);
+  const role = useRole();
+  const askable = useMayAsk();
+  const cloud = useCloud();
   return (
     <header aria-label={t('artifactOptions')} className={cn("flex shrink-0 items-center gap-2 border-b border-line bg-surface pl-2.5 pr-2 max-sm:gap-1 max-sm:px-1.5", docs ? 'h-10' : 'h-12')}>
       <div className="flex min-w-0 flex-1 items-center gap-1.5">
+        {cloud?.site?.brand ? (
+          <a href={`${cloud.appOrigin}/`} className="flex min-w-0 max-w-40 shrink-0 items-center rounded px-1 hover:bg-hover">
+            <SiteBrand site={cloud.site} compact />
+          </a>
+        ) : null}
         {docs && <button aria-label={t('documentTabs')} className="hidden size-7 shrink-0 items-center justify-center [@media(max-width:480px)_and_(pointer:coarse)]:inline-flex"
           onClick={() => runAction('open_page_list')}><PanelLeft className="size-4" /></button>}
         {standalone && !docs ? <span className="truncate font-medium">{title}</span> : <TitleMenu />}
@@ -125,8 +136,9 @@ export function TopBar() {
         {!docs && <HistoryButton />}
         <SharePanel />
         {docs && <HistoryButton />}
-        <CommentsButton comments={comments} command={command} readOnly={standalone?.role === 'viewer'} />
-        {standalone ? null : <AskButton />}
+        <CommentsButton comments={comments} command={command} readOnly={!mayComment(role)} />
+        {askable ? <AskButton /> : null}
+        {cloud ? <Account cloud={cloud} /> : null}
         {hostToolbar || standalone ? null : <IconButton label={t('close')} icon={<X className="size-4" />} size="lg" onClick={closeShell} />}
       </div>
     </header>

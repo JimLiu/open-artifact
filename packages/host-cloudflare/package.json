@@ -1,0 +1,21 @@
+{
+  "name": "@open-artifact/host-cloudflare",
+  "version": "0.12.5",
+  "private": true,
+  "type": "module",
+  "description": "The Open Artifact cloud host on Cloudflare: a node:fs over a Durable Object's SQLite, the Fetch and WebSocket bridges to the type server, and the per-artifact room object. The wrangler project that bundles it is deploy/cloudflare.",
+  "exports": {
+    ".": "./src/index.ts",
+    "./fs": "./src/fs/index.ts",
+    "./fs/promises": "./src/fs/promises.ts"
+  },
+  "dependencies": {
+    "@open-artifact/host": "0.12.5",
+    "@open-artifact/host-plugin": "0.12.5",
+    "@open-artifact/protocol": "0.12.5",
+    "@open-artifact/runtime": "0.12.5",
+    "@open-artifact/server-sdk": "0.12.5",
+    "@open-artifact/type-server": "0.12.5"
+  },
+  "license": "Apache-2.0"
+}

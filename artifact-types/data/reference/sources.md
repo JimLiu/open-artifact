@@ -24,6 +24,10 @@ Base it on your own call's answer. An answer can also come back failed inside a 
 
 `call(tool, args)` makes another call on the same connector, for a next page or a running query. It gives what `answer` would be, or with `call(tool, args, {items: true})` what `items` would. Calls run one after another, the same call at most once a second, and a whole load has 15 minutes. A loader that pages does so on every load, for every reader, so it asks for what the page shows and no more, and returns `truncated: true` where it stops short. Sources shows the dataset's own call, not the ones a loader makes: a further call worth checking is better a dataset of its own (`reference/dependent-calls.md`). Mark a call that only waits on a running query `call(tool, args, {poll: true})`.
 
+## Published copies
+
+On a cloud host the page reads, in place of a live call, the answer the owner's linked computer saved for exactly that call (`data/live/answers/<id>`, status in `data/live`); see Sharing in the guide for when it refreshes. A dataset with `"snapshot": false` (beside `source`, `false` only) is never saved there. An answer over 256 KB fails that query by name and keeps its last rows, so a query meant for a published dashboard asks only for what the page shows. A loader's own `call(...)` is not replayed there: put such a call in a dataset of its own if published readers need it.
+
 ## How fresh
 
 `updates` in `dash/settings` is the Refresh data menu: how old a result may be when someone opens the page, as `viewed`, `5min`, `hour`, `day`, `week` or a number of minutes, and any other word means `viewed`. If the person says how fresh it must be, `update` it with a number. No reader's browser keeps an answer longer than seven days, whatever the pick. Nothing runs on a timer: a query runs only in a page someone has open.

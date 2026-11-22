@@ -9,6 +9,7 @@
 
 import type { ResolvedEntry, TypeRuntime, TypeScope } from './manifest.ts';
 import type { SessionRef } from './refs.ts';
+import type { ArtifactRole, ShareCloudView } from './type-server.ts';
 
 /** The record the daemon keeps for one artifact (`artifacts/<id>.json`). */
 export interface ArtifactRecord {
@@ -38,7 +39,46 @@ export interface ArtifactRecord {
    * {@link agentSeenAt} as `changed_files`.
    */
   userEdits?: Record<string, string>;
+  /** The cloud host this artifact is published to (its working copy syncs there through Link), or none. */
+  remote?: ArtifactRemote | null;
+  /**
+   * Automatic publishing (`settings.cloud.publish: "auto"`): `pending` for an artifact created while it was on and not
+   * on its site yet (the daemon publishes it in the background, retrying failures); `off` once the person unpublished
+   * it, so it is never published by itself again. Absent for everything else (made before, or published by hand).
+   */
+  autoPublish?: 'pending' | 'off' | null;
+  /**
+   * A Data dashboard's live data goes to its host with it: `true` once the person confirmed it (publishing it from the
+   * Share panel or the CLI, or "Publish its data" there), `false` once they took it back. Until then the daemon never
+   * runs its queries for the host, so an automatic publish carries no rows. Absent for every other type.
+   */
+  dataPublish?: boolean | null;
 }
+
+/** Where an artifact is published on a cloud host, as {@link ArtifactRecord.remote}. */
+export interface ArtifactRemote {
+  /** Name of the remote in the daemon's remotes file, e.g. `work`. */
+  name: string;
+  /** The host's app origin. */
+  host: string;
+  /** The artifact's address on the host (`<host>/a/<id>`): what tools give as `view_url`. */
+  url: string;
+  /** Path -> etag (sha256 hex) at the last sync. */
+  base: Record<string, string>;
+  /** ISO time of the last sync, or `null` before the first. */
+  syncedAt: string | null;
+}
+
+/** Where an artifact is published, as lists show it: {@link ArtifactRemote} without the sync bookkeeping (`base`). */
+export type ArtifactRemoteView = Omit<ArtifactRemote, 'base'>;
+
+/**
+ * Why a remote or a published artifact's last sync failed, as a stable code beside its English `lastError`: the host
+ * could not be reached (`unreachable`), the person must sign in again (`signed_out`), the id is taken there
+ * (`conflict`), the artifact is larger than the host takes (`too_large`), the host refused otherwise (`refused`), or
+ * anything else (`error`).
+ */
+export type RemoteErrorCode = 'unreachable' | 'signed_out' | 'conflict' | 'too_large' | 'refused' | 'error';
 
 /** `.artifact.json` in the artifact folder: lets a moved folder be recognized. */
 export interface ArtifactMarker {
@@ -77,6 +117,41 @@ export interface ArtifactView {
   shared: boolean;
   /** A type server has the page open. */
   open: boolean;
+  /** Set by a cloud host: the viewer's role on this artifact (own artifacts are `owner`). The daemon leaves it out. */
+  role?: ArtifactRole;
+  /**
+   * Set by the daemon: where the artifact is published (its web address is `remote.url`), or `null` when it is local
+   * only. The sync state is `GET remotes`'s. A cloud host leaves it out.
+   */
+  remote?: ArtifactRemoteView | null;
+  /** Set by a cloud host in the trash list (`artifacts?trashed=1`): when the artifact went to the trash. */
+  trashedAt?: string | null;
+  /** Set by a cloud host on one artifact (`artifact?id=`): the owner's agent, for the Ask pane. */
+  agent?: CloudAgentView;
+}
+
+/**
+ * What a cloud host says of the artifact owner's agent: whether what is asked from the page reaches it now.
+ *
+ * - `online`: a computer the owner linked (`open-artifact remote add`) is connected now: it gets a request at once.
+ * - `offline`: the owner linked a computer, and it is not connected: a request waits until it is.
+ * - `mcp`: no computer connected, but an MCP client of the owner's used the site lately: its agent sees a request
+ *   the next time it works on the artifact.
+ * - `none`: no agent at all: a request waits until the owner connects one.
+ */
+export interface CloudAgentView {
+  state: 'online' | 'offline' | 'mcp' | 'none';
+  /** The agent's name as the owner labelled it (a linked computer's, an MCP client's), else a generic one. */
+  name: string;
+}
+
+/**
+ * `POST /api/open-artifact.artifacts.ask`'s answer from a cloud host: `via: 'link'` (kept in the owner's outbox), and
+ * `status` `delivered` when the owner's linked computer is connected (it gets it now), else `inbox` (it waits).
+ */
+export interface CloudAskAnswer {
+  via: 'link';
+  status: 'delivered' | 'inbox';
 }
 
 /** `GET /api/open-artifact.artifact?id=`: one artifact with its folder size. */
@@ -221,6 +296,52 @@ export interface ShellBoot {
   userName: string;
   /** Daemon version. */
   version: string;
+  /** Set when a cloud host serves the Shell: who is looking and how to sign in or out. `root` is `''` there. */
+  cloud?: ShellCloud;
+}
+
+/** {@link ShellBoot.cloud}: the Shell as a cloud host serves it. */
+export interface ShellCloud {
+  /** The signed-in person; null for a link guest or an anonymous visitor. */
+  user: { id: string; name: string; email?: string; avatar?: string } | null;
+  /** The viewer's role on this artifact. */
+  role: ArtifactRole;
+  /** The host's app origin (Shell, home, sign-in, Library API). */
+  appOrigin: string;
+  /** Where to sign in, coming back to this artifact. */
+  signInUrl: string;
+  /** Where to sign out. */
+  signOutUrl: string;
+  /** The artifact's sharing settings, so the Shell can gate Ask and export before the share view loads. */
+  settings?: ShareCloudView['settings'];
+  /** The owner's agent, for the Ask pane (later changes come as `artifacts/changed` and the artifact's `agent`). */
+  agent?: CloudAgentView;
+  /** What the host's plugins add to its pages (links, the site's brand); absent when they add nothing. */
+  site?: CloudSiteUi;
+}
+
+/**
+ * A host's own additions to its pages, from its plugins (`ui`): plain text and checked addresses only (an `https:`
+ * or `http:` URL, or a path on the host), never HTML.
+ */
+export interface CloudSiteUi {
+  /** Links in the account menu (`account-menu`) or on the home page (`home`). */
+  links?: Array<{ label: string; href: string; where: 'account-menu' | 'home' }>;
+  /** The site's name and logo, shown in the top bar, the home page's header and the sign-in page. */
+  brand?: { name?: string; logoUrl?: string };
+}
+
+/**
+ * What a cloud host inlines into the home page (`window.__OPEN_ARTIFACT_HOME__`); the local daemon leaves it `null`.
+ * The cloud part is {@link ShellCloud} without an artifact's role or settings.
+ */
+export interface HomeBoot {
+  cloud?: Omit<ShellCloud, 'role' | 'settings' | 'agent'> & {
+    /** Days an artifact stays in the trash before the host deletes it for good (`OA_TRASH_DAYS`; 0: until purged). */
+    trashDays?: number;
+    /** What the host accepts: `importBytes`, the largest archive (zip) an upload may be. */
+    limits?: { importBytes: number };
+  };
 }
 
 /** `~/.agents/open-artifact/daemon.json`: how clients find the running daemon. */

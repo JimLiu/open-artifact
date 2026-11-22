@@ -8,7 +8,8 @@
     "open-artifact-type-server": "./src/cli.ts"
   },
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./archive": "./src/archive.ts"
   },
   "dependencies": {
     "@open-artifact/protocol": "0.12.5",
@@ -24,6 +25,7 @@
     "@open-artifact/wasm-sheets": "0.12.5",
     "@open-artifact/motion-core": "0.12.5",
     "@open-artifact/motion-stage": "0.12.5",
+    "acorn": "8.19.0",
     "pdfjs-dist": "6.4.299"
   },
   "license": "Apache-2.0"

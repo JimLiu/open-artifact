@@ -29,6 +29,12 @@ Antigravity and start a new conversation.
 - `skills/open-artifact/`: the skill, carrying the daemon;
 - `hooks.json`: `SessionStart`, `PreInvocation` and `Stop`.
 
+## Publish to a server
+
+The plugin has no setting for it. Put the site in `~/.agents/open-artifact/preset.json`
+(`{ "OPEN_ARTIFACT_REMOTE": "https://artifacts.example.com" }`), or link one yourself with
+`open-artifact remote add <name> <https://host>`. See [the plugins README](../README.md#use-a-server-instead-of-this-computer).
+
 ## Send to agent
 
 Comments sent from the page reach the agent at session start, before its next model call (`PreInvocation`, so also

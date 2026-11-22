@@ -154,7 +154,8 @@ function EstimateNote({ format, estimate, film, movOffered }: { format: ExportFo
           : mov !== null
             ? `${mov.warning} ${mov.suggestion}`
             : '';
-      const hostCap = maybeSession()?.downloads != null && estimate.estimate.bytes > HOST_SAVE_MAX_BYTES;
+      const downloads = maybeSession()?.downloads;
+      const hostCap = downloads != null && downloads.browser !== true && estimate.estimate.bytes > HOST_SAVE_MAX_BYTES;
       return (
         <>
           <Note>{describeEstimate(format, estimate.estimate, video, fps, maxBytes)}</Note>

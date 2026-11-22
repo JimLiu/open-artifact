@@ -49,6 +49,59 @@ plugin. Each plugin carries the skill with the daemon vendored in `skills/open-a
 (run by `npm run build`), which writes `lib/` and vendors the daemon into `vendor/`. DeepSeek Harness installs it from
 that folder; `build-plugins.mjs` leaves it alone.
 
+## Use a server instead of this computer
+
+Each plugin can link the daemon to an Open Artifact server, so artifacts are published there. The daemon reads
+`OPEN_ARTIFACT_REMOTE`, `OPEN_ARTIFACT_REMOTE_NAME`, `OPEN_ARTIFACT_REMOTE_TOKEN`, `OPEN_ARTIFACT_PUBLISH` and
+`OPEN_ARTIFACT_REMOTE_INSECURE_HTTP` once, when it starts ([README](../README.md#use-a-server-instead-of-this-computer)).
+It takes them from the process that started it, usually a plugin's MCP bridge, and the bridge gets only what its app
+gives it: Claude Code and the Copilot CLI pass their own environment on, Codex and Cursor do not (see the table). One
+daemon serves every app on the computer, so whichever app starts it first decides its environment; a daemon that is
+already running keeps what it started with (`open-artifact daemon stop`, and the next tool call starts it again).
+
+`preset.json` in the Open Artifact folder takes the same keys and works for every app, however it was started:
+
+```json
+{ "OPEN_ARTIFACT_REMOTE": "https://artifacts.example.com", "OPEN_ARTIFACT_PUBLISH": "auto" }
+```
+
+| Plugin | Point it at a site | Turn on publishing by itself | Verified how |
+| --- | --- | --- | --- |
+| Claude Code | The plugin's **Open Artifact server** setting (`userConfig.remote`, asked when the plugin is enabled; reaches the daemon as `OPEN_ARTIFACT_PLUGIN_REMOTE`, used only when `OPEN_ARTIFACT_REMOTE` is unset); or `OPEN_ARTIFACT_REMOTE` in the environment `claude` starts in; or `preset.json`. | `OPEN_ARTIFACT_PUBLISH=auto` in that environment or `preset.json`; or `open-artifact remote auto on`, or the Share panel. | Claude Code 2.1.318, `claude -p --plugin-dir` with a probe MCP server: a `userConfig` value reaches `.mcp.json`'s `env` (empty when unset) and the shell's variables reach the server. `claude plugin validate` passes. |
+| Codex | `preset.json`. Codex starts MCP servers with only `HOME`, `LOGNAME`, `PATH`, `SHELL`, `USER`, `LANG`, `LC_ALL`, `TERM`, `TMPDIR`, `TZ` and the server entry's own `env`, so variables in your shell never reach the plugin's bridge; the plugin format (Agent Plugins 1.0 `mcp.json`) has no install-time setting. | `OPEN_ARTIFACT_PUBLISH: "auto"` in `preset.json`; or `open-artifact remote auto on`, or the Share panel. | Read from Codex's source (`codex-rs/rmcp-client/src/utils.rs`, `DEFAULT_ENV_VARS`) and the Agent Plugins `mcp.json` schema. Not run (no Codex here). |
+| Cursor | A team admin sets the plugin variable **Open Artifact server** (`OPEN_ARTIFACT_SERVER`) in the Cursor dashboard (Plugins, Configure); or `OPEN_ARTIFACT_REMOTE` in the environment Cursor starts in (the plugin's `mcp.json` forwards the five variables with `${env:…}`, since Cursor passes no other environment to MCP servers); or `preset.json`. | `OPEN_ARTIFACT_PUBLISH=auto` in that environment or `preset.json`; or `open-artifact remote auto on`, or the Share panel. | cursor-agent 2026.11.13, `--plugin-dir` with the plugin's own `plugin.json` and `mcp.json` around a probe server: a variable from the shell arrives; the shell's environment is not inherited otherwise; an unset variable or plugin variable arrives as the literal `${…}`, which the daemon treats as unset. Setting the variable in the team dashboard and the Cursor app itself were not tried. |
+| Copilot (CLI, VS Code agent mode) | `OPEN_ARTIFACT_REMOTE` in the environment `copilot` starts in, or `preset.json`. No install-time setting in the plugin format. | `OPEN_ARTIFACT_PUBLISH=auto` there or in `preset.json`; or `open-artifact remote auto on`, or the Share panel. | Copilot CLI 1.0.114, `copilot -p --plugin-dir` with a probe server: the shell's variables reach a plugin's MCP server (GitHub's docs say only `PATH` and a few others are inherited: if a later version follows the docs, use `preset.json`). VS Code agent mode not tried. |
+| Antigravity | `preset.json`. No install-time setting in the plugin format, and whether the app passes its environment to a plugin's MCP server is not documented. | `OPEN_ARTIFACT_PUBLISH: "auto"` in `preset.json`; or `open-artifact remote auto on`, or the Share panel. | Antigravity's plugin and MCP docs read; not run. |
+| DeepSeek Harness (`dsh/`) | `OPEN_ARTIFACT_REMOTE` in the environment DeepSeek Harness runs in (the plugin starts the daemon with its whole environment), or `preset.json`. | `OPEN_ARTIFACT_PUBLISH=auto` there or in `preset.json`; or `open-artifact remote auto on`, or the Share panel. | Read from the plugin's code (`daemonOptions` copies `process.env`). Not run. Its `cordis.patch.yml` config has no server setting: whether DeepSeek Harness shows a plugin's config to the person could not be confirmed. |
+| ChatGPT on the web | The environment of `open-artifact chatgpt`, or `preset.json`. | `OPEN_ARTIFACT_PUBLISH=auto` there or in `preset.json`; or `open-artifact remote auto on`. | Read from the code (the command starts the daemon with its own environment). Not run. |
+| Any agent using the skill | The environment the agent runs `open-artifact` in, or `preset.json`. | `OPEN_ARTIFACT_PUBLISH=auto` there or in `preset.json`; or `open-artifact remote auto on`. | Read from the code, as above. Not run. |
+
+An app opened from the Dock or the Start menu does not see variables from your shell profile: use `preset.json` there.
+Turning publishing by itself off again, and choosing the default server, are left to the person (`open-artifact remote
+auto off`, `open-artifact remote default <name>`, or the Share panel). No agent tool changes them.
+
+### Rolling a preset out to a team
+
+- **Where:** `preset.json` in the Open Artifact folder, `~/.agents/open-artifact/preset.json` on macOS and Linux and
+  `%USERPROFILE%\.agents\open-artifact\preset.json` on Windows (or `$OPEN_ARTIFACT_HOME/preset.json` when that is
+  set; Codex and Cursor do not pass `OPEN_ARTIFACT_HOME` to the plugin either, so keep the default folder there). It is
+  read when the daemon starts. A management tool can drop it before the person first uses an agent app.
+- **Precedence:** what the person set wins (`settings.json`, `remotes.json`, `open-artifact remote …`, the Share
+  panel), then the environment, then `preset.json`, then the defaults. A preset adds its site once: a site the person
+  removed is not added again, and a token that was used is never sent again. An address, its name and its token
+  travel together: a token in `preset.json` is not paired with an address from the environment, nor is
+  `OPEN_ARTIFACT_REMOTE_INSECURE_HTTP`.
+- **Signing in:** without a token, the daemon starts a device sign-in that the person approves in the browser (the
+  link is in `open-artifact remote status`, the Share panel and the agent's next tool result). This is the safest
+  route. A token (`open-artifact-host link-token --user <email>`) signs the computer in with no approval; put it in
+  `preset.json` with mode 0600 (owner only: `chmod 600`), not in an environment variable, which other processes of
+  the same user can read. The daemon still uses a `preset.json` holding a token that others can read, but says so
+  in its log (`daemon.log`).
+- **Plain http:** only for this computer and a private network (private addresses, `.local`, `.lan`, `.home.arpa`,
+  `.internal`, one-word names, `nip.io`/`sslip.io` names that spell only private addresses); decided by the name,
+  never by what it resolves to. `OPEN_ARTIFACT_REMOTE_INSECURE_HTTP=1` allows any host and makes the daemon warn
+  that the token and the artifacts cross the network unencrypted: do not roll it out for a site on the internet.
+
 ## How a plugin reaches the daemon
 
 - **MCP server:** `node <plugin>/skills/open-artifact/scripts/open-artifact.mjs mcp --harness <name>`, a stdio

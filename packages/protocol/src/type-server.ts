@@ -116,10 +116,57 @@ export interface ShareRequest {
   reset?: ShareRole[];
   /** Guest id → a new role (its link must be on), or `null` to remove them. */
   guests?: Record<string, ShareRole | null>;
+  /** Cloud host: who may open the artifact without being named. */
+  access?: GeneralAccess;
+  /** Cloud host: {@link CloudMember.id} → a new role, or `null` to remove them. */
+  members?: Record<string, ShareRole | null>;
+  /** Cloud host: change some of the artifact's sharing settings. */
+  settings?: Partial<ShareCloudView['settings']>;
 }
 
 /** A role a share link grants. */
 export type ShareRole = 'editor' | 'commenter' | 'viewer';
+
+/** A role on an artifact: its owner's, or one sharing grants. */
+export type ArtifactRole = 'owner' | ShareRole;
+
+/**
+ * Who may open an artifact on a cloud host without being named: only its members (`restricted`), anyone with a share
+ * link (`link`), or anyone at all (`public`, as a viewer).
+ */
+export type GeneralAccess = 'restricted' | 'link' | 'public';
+
+/** Someone an artifact is shared with on a cloud host: a person, an invited address, a domain or a group. */
+export interface CloudMember {
+  /** `user:<id>`, `email:<address>`, `domain:<name>` or `group:<provider>:<name>`. */
+  id: string;
+  kind: 'user' | 'email' | 'domain' | 'group';
+  /** What the Share panel shows: a name, an address, a domain or a group name. */
+  label: string;
+  email?: string;
+  /** Picture URL. */
+  avatar?: string;
+  role: ShareRole;
+  /** An invited address nobody has signed in with yet. */
+  pending?: boolean;
+}
+
+/** {@link ShareView.cloud}: sharing on a cloud host. */
+export interface ShareCloudView {
+  /** The artifact's address on the host. */
+  url: string;
+  access: GeneralAccess;
+  owner: { id: string; name: string; email?: string; avatar?: string };
+  members: CloudMember[];
+  /** Whether this viewer may change sharing. */
+  canManage: boolean;
+  settings: {
+    /** People who may only view may still download or export it. */
+    viewersCanExport: boolean;
+    /** Editors may send requests to the owner's agent. */
+    editorsCanAskAgent: boolean;
+  };
+}
 
 /** Someone who joined through a share link. */
 export interface ShareGuest {
@@ -149,6 +196,8 @@ export interface ShareView {
   guests?: ShareGuest[];
   /** The same links at this computer's Tailscale address (the roles whose link is on), for people on the tailnet. */
   tailnet?: { address: string; links: Partial<Record<ShareRole, string>> };
+  /** Set by a cloud host, which has no local network sharing (`lan` is `false` there). */
+  cloud?: ShareCloudView;
 }
 
 /**

@@ -43,6 +43,13 @@ installing from the new path.
 - `skills/open-artifact/`: the skill, carrying the daemon;
 - `hooks.json`: `sessionStart`, `userPromptTransformed` and `agentStop`.
 
+## Publish to a server
+
+The Copilot CLI passes its environment to the plugin's MCP server, so `OPEN_ARTIFACT_REMOTE` (and the other
+`OPEN_ARTIFACT_*` preset variables) set where `copilot` starts reach Open Artifact. For VS Code, or an app started from
+the Dock or Start menu, use `~/.agents/open-artifact/preset.json`. See
+[the plugins README](../README.md#use-a-server-instead-of-this-computer).
+
 ## Send to agent
 
 Comments sent from the page reach Copilot with your next message (CLI), or, when they arrive while it works, by

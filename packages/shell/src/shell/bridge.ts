@@ -26,6 +26,7 @@ import { DOC_FRAGMENT, SLIDE_FRAGMENT } from '@open-artifact/protocol';
 import type { ChromeCommand, ChromeExportItem, ChromeExportState, PageToShell, ShellToHost, ShellToPage } from '@open-artifact/protocol';
 import { CHROME_DRAWS, isShellMessage } from '@open-artifact/protocol';
 import { toast } from '@open-artifact/ui';
+import { mayComment, roleOf } from '../lib/cloud.ts';
 import { t } from '../lib/i18n.ts';
 import { call as brokerCall, want as brokerWant, type PagePost } from './broker.ts';
 import { browserClipboard, createClipboardRelay } from './clipboard.ts';
@@ -186,7 +187,7 @@ function onPageMessage(message: PageToShell, event: MessageEvent): void {
   }
   switch (message.openArtifact) {
     case 'request_comment_mode':
-      if (store.boot?.typeServer?.role !== 'viewer' && showsComments(store.report) && typeof message.on === 'boolean') {
+      if (mayComment(roleOf(store.boot)) && showsComments(store.report) && typeof message.on === 'boolean') {
         const anchor = message.on && typeof message.anchor === 'string' ? message.anchor : undefined;
         command({ cmd: 'comments_mode', on: message.on, ...(anchor ? { anchor } : {}) });
       }

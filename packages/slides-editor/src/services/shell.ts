@@ -8,7 +8,7 @@
 
 import type { ChromeReport } from '@open-artifact/runtime';
 import { slideHistory } from './history.ts';
-import { agentChrome, chromeReporter, openMessageCount } from '@open-artifact/editor-kit';
+import { agentChrome, chromeReporter, mayExportHere, openMessageCount } from '@open-artifact/editor-kit';
 import { create } from 'zustand';
 import { isDirty, useDeck, type SaveState } from '../state/deck.ts';
 import { useView } from '../state/view.ts';
@@ -99,7 +99,7 @@ function savedOf(save: SaveState): ChromeSaved {
 
 /** The export formats offered. */
 export function exportFormats(): ChromeFormat[] {
-  if (session().viewer.role !== 'owner') return [];
+  if (!mayExportHere(session().viewer.role, session().downloads)) return [];
   const deck = useDeck.getState();
   const empty = deck.status !== 'ready' || playableSlides().length === 0;
   const disabled = empty || exportBusy();
@@ -262,7 +262,7 @@ export function startShellBridge(): void {
       }
       case 'export_format': {
         const { request, format, variant } = command;
-        if (session().viewer.role !== 'owner') {
+        if (!mayExportHere(session().viewer.role, session().downloads)) {
           shell.exportState(request, 'unsupported');
           return;
         }

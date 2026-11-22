@@ -174,12 +174,13 @@ const escHtml = (text: string): string => text.replace(/[&<>"']/g, (c) => ({ '&'
 /**
  * The page a frame gets when it cannot be shown: one line for whoever looks at it, and a script that tells the
  * Shell framing it (`frame_denied`, see `@open-artifact/protocol`'s `PageToShell`) so the Shell can open it again or
- * say why. The message carries no secret, so it goes to any parent.
+ * say why. The message carries no secret, so it goes to any parent. `ancestors` is who may frame it (a host: its app
+ * origin).
  */
-export function sendFrameDenied(res: ServerResponse, status: number, reason: FrameDeniedReason, title: string, message: string): void {
+export function sendFrameDenied(res: ServerResponse, status: number, reason: FrameDeniedReason, title: string, message: string, ancestors = '*'): void {
   const script = `parent.postMessage({ openArtifact: 'frame_denied', reason: ${JSON.stringify(reason)} }, '*');`;
   const html = `<!doctype html><html><head><meta charset="utf-8"><title>${escHtml(title)}</title></head><body><p>${escHtml(message)}</p><script>${script}</script></body></html>`;
-  send(res, status, html, MIME.html!, { 'content-security-policy': "default-src 'none'; script-src 'unsafe-inline'; frame-ancestors *" });
+  send(res, status, html, MIME.html!, { 'content-security-policy': `default-src 'none'; script-src 'unsafe-inline'; frame-ancestors ${ancestors}` });
 }
 
 /** Sends an error as `{code, message, …}`. */

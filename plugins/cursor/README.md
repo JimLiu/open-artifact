@@ -27,6 +27,14 @@ the installed folder name `open-artifact`. Run **Developer: Reload Window**.
 - `skills/open-artifact/`: the skill, carrying the daemon;
 - `hooks/hooks.json`: `sessionStart`, `postToolUse` and `stop`.
 
+## Publish to a server
+
+A team admin can set the plugin's **Open Artifact server** variable (`OPEN_ARTIFACT_SERVER`) in the Cursor dashboard.
+Otherwise `mcp.json` forwards `OPEN_ARTIFACT_REMOTE`, `OPEN_ARTIFACT_REMOTE_NAME`, `OPEN_ARTIFACT_REMOTE_TOKEN`,
+`OPEN_ARTIFACT_PUBLISH` and `OPEN_ARTIFACT_REMOTE_INSECURE_HTTP` from the environment Cursor starts in (Cursor passes
+no other variables to MCP servers), and `~/.agents/open-artifact/preset.json` works however Cursor was started. See
+[the plugins README](../README.md#use-a-server-instead-of-this-computer).
+
 ## Send to agent
 
 Comments sent from the page reach the agent at the start of a chat, after any tool call it makes (as added context,

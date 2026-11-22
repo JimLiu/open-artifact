@@ -72,7 +72,23 @@ export const API = {
   systemCopy: '_api/design/system-copy',
   mcpTools: '_api/mcp/tools',
   mcpCall: '_api/mcp/call',
+  /**
+   * `POST` {@link DataRefreshRequest} → {@link DataRefreshResponse}: a hosted Data dashboard asks its owner's computer to
+   * run its live queries again (the host queues it; no connector runs there).
+   */
+  dataRefresh: '_api/data/refresh',
 } as const;
+
+/** `POST _api/data/refresh`: the dataset ids to refresh, all live queries when left out. */
+export interface DataRefreshRequest {
+  queries?: string[];
+}
+
+/** `POST _api/data/refresh`'s answer: queued; `online` says whether the owner's computer is linked now to take it. */
+export interface DataRefreshResponse {
+  queued: true;
+  online: boolean;
+}
 
 /** Root-relative prefix every upload is served under. */
 export const BLOB_PREFIX = '/_blob/';

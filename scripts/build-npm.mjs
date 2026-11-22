@@ -28,6 +28,7 @@ const REPOSITORY = 'https://github.com/JimLiu/open-artifact';
 /** The workspace packages published as libraries (folders under packages/). Apps and the daemon stay private. */
 const LIBRARIES = [
   'protocol',
+  'host-plugin',
   'runtime',
   'server-sdk',
   'ui',

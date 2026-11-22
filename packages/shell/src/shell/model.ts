@@ -23,6 +23,7 @@ import {
   type ShareView,
   type ShellBoot,
 } from '@open-artifact/protocol';
+import { isCloudShared } from '../lib/cloud.ts';
 
 /** The owner session as the library reports it. */
 export type Owner = NonNullable<ArtifactView['owner']>;
@@ -192,8 +193,12 @@ export function pageOriginOf(page: string | null, shellHref: string): string {
   }
 }
 
-/** The Share button shows "shared": from the share state when loaded, else the page or the library. */
+/**
+ * The Share button shows "shared": from the share state when loaded (on a cloud host: anyone named, or access past
+ * them), else the page or the library.
+ */
 export function isShared(view: ShareView | null, report: ChromeReport, artifact: Pick<ArtifactView, 'shared'> | null): boolean {
+  if (view?.cloud) return isCloudShared(view.cloud);
   return view ? view.lan : !!(report.shareOn || artifact?.shared);
 }
 
@@ -219,9 +224,12 @@ export function leastRole(view: ShareView): ShareRole | null {
 export type Delivery = 'delivered' | 'inbox' | 'failed';
 
 /** The {@link Delivery} of an `artifacts.ask` answer. */
-export function deliveryOf(via: string | undefined): Delivery {
+export function deliveryOf(via: string | undefined, status?: string): Delivery {
   if (via === 'live' || via === 'wait') return 'delivered';
-  if (via === 'inbox') return 'inbox';
+  // A cloud host whose owner's computer is connected: it has it now.
+  if (via === 'link' && status === 'delivered') return 'delivered';
+  // `link`: a cloud host keeps it until the owner's computer connects; like the inbox, the agent sees it later.
+  if (via === 'inbox' || via === 'link') return 'inbox';
   return 'failed';
 }
 

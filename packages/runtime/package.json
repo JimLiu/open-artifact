@@ -10,7 +10,8 @@
     "./http-api": "./src/http-api.ts",
     "./untrusted": "./src/untrusted.ts",
     "./sheet-api": "./src/sheet-api.ts",
-    "./doc-api": "./src/doc-api.ts"
+    "./doc-api": "./src/doc-api.ts",
+    "./roles": "./src/roles.ts"
   },
   "dependencies": {
     "@open-artifact/protocol": "0.12.5"

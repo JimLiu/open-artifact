@@ -11,7 +11,8 @@ import { maybeSession, session } from './session.ts';
 /** Downloads `url` as `name`. */
 export async function downloadUrl(url: string, name: string): Promise<void> {
   const downloads = session().downloads;
-  if (downloads && session().isOwner) {
+  // The owner, or anyone on a host that saves in the browser (it decides whether a viewer may).
+  if (downloads && (session().isOwner || downloads.browser === true)) {
     try {
       const response = await fetch(url);
       if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);

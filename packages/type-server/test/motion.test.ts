@@ -32,6 +32,12 @@ describe('motion type', () => {
     assert.equal(motionSyntaxError('window.CUT = kit.scenes();', 'cut.js'), null);
     assert.equal(motionSyntaxError('const kit = 1;', 'cut.js')?.message.includes('kit'), true);
     assert.equal(motionSyntaxError('let a = 1;\nlet b = (;', 'cut.js')?.line, 2);
+    // A classic script, as the player runs it (no `node:vm`: the same on a host without it).
+    assert.equal(motionSyntaxError('(;', 'cut.js')?.line, 1);
+    assert.notEqual(motionSyntaxError('await thing;', 'cut.js'), null);
+    assert.notEqual(motionSyntaxError('return 1;', 'cut.js'), null);
+    assert.equal(motionSyntaxError('const f = async () => { await 1; };\nclass A { #x = 1 }\nlet y = a?.b ?? 2n;', 'cut.js'), null);
+    assert.doesNotMatch(motionSyntaxError('let b = (;', 'cut.js')!.message, /\(\d+:\d+\)/);
     const findings = TYPES.motion.check(new Map([['film/script', JSON.stringify({ code: 'window.CUT = (' })]]));
     assert.ok(findings.some((finding) => finding.file === 'db/film/script.json' && /does not parse/.test(finding.message)));
   });

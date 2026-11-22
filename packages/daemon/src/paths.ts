@@ -34,6 +34,10 @@ export const files = {
   trash: (): string => join(openArtifactHome(), 'trash'),
   thumbnails: (): string => join(openArtifactHome(), 'thumbnails'),
   servers: (): string => join(openArtifactHome(), 'servers'),
+  /** Cloud remotes and their tokens (`remotes.json`, mode 0600). */
+  remotes: (): string => join(openArtifactHome(), 'remotes.json'),
+  /** Install-time cloud presets for machines that cannot set environment variables (`preset.json`, read at start). */
+  preset: (): string => join(openArtifactHome(), 'preset.json'),
 };
 
 /** Creates a folder (and its parents) and returns it. */

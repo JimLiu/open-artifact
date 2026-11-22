@@ -6,6 +6,8 @@
 
 import { create } from 'zustand';
 import type { ArtifactDetail, ArtifactView, ChromeExportItem, ChromeReport, ShareView, ShellBoot } from '@open-artifact/protocol';
+import type { DataPublishInfo } from '../lib/api.ts';
+import type { CloudInfo, ConnectStart, RemoteInfo } from '../lib/publish.ts';
 import { hasExportTab, type HostInfo, type SentMessage } from './model.ts';
 
 /** Which tab of the Share panel shows. */
@@ -23,6 +25,32 @@ export interface ShareState {
   exports: ChromeExportItem[] | null;
   /** Which copy button shows "Copied" for a moment. */
   copied: string | null;
+}
+
+/** Connecting a site to publish to, step by step (the Share panel's "Connect a site…" form). */
+export type ConnectStep =
+  | { step: 'closed' }
+  | { step: 'form'; host: string; name: string; error: string }
+  | { step: 'starting'; host: string; name: string }
+  | { step: 'code'; start: ConnectStart }
+  | { step: 'done'; host: string; user: string }
+  | { step: 'failed'; host: string; name: string; error: string };
+
+/** Publishing to the web: the daemon's sites and what this artifact does there. */
+export interface PublishState {
+  /** `GET remotes`; `null` until loaded. */
+  remotes: RemoteInfo[] | null;
+  /** `GET remotes`'s `cloud` (the default site, publishing by itself); `null` until loaded or from an older daemon. */
+  cloud: CloudInfo | null;
+  /** The daemon has no publishing (an older daemon): the panel leaves the section out. */
+  missing: boolean;
+  connect: ConnectStep;
+  /** What runs now: `publish:<remote>`, `unpublish` or `cloud` (a change of the default site or publishing by itself). */
+  busy: string | null;
+  /** The last publish or unpublish failure, in plain words. */
+  error: string;
+  /** A Data dashboard's live data on its site (`artifacts.data`); `null` for other types or until read. */
+  data: DataPublishInfo | null;
 }
 
 /** State of the Shell. */
@@ -58,6 +86,7 @@ export interface ShellState {
    */
   exportWanted: boolean;
   share: ShareState;
+  publish: PublishState;
   /** The "Ask agent" pane is open. */
   askOpen: boolean;
   /** Messages sent from the ask pane. */
@@ -93,6 +122,7 @@ export interface ShellActions {
   closeShare(): void;
   setShareTab(tab: ShareTab): void;
   patchShare(patch: Partial<ShareState>): void;
+  patchPublish(patch: Partial<PublishState>): void;
   setAskOpen(open: boolean): void;
   setSent(sent: SentMessage[]): void;
   setAskStatus(status: string): void;
@@ -103,6 +133,7 @@ export interface ShellActions {
 }
 
 const EMPTY_SHARE: ShareState = { view: null, unsupported: false, error: '', exports: null, copied: null };
+const EMPTY_PUBLISH: PublishState = { remotes: null, cloud: null, missing: false, connect: { step: 'closed' }, busy: null, error: '', data: null };
 
 /** The Shell's store. */
 export const useShell = create<ShellState & ShellActions>()((set, get) => ({
@@ -121,6 +152,7 @@ export const useShell = create<ShellState & ShellActions>()((set, get) => ({
   shareTab: 'share',
   exportWanted: false,
   share: EMPTY_SHARE,
+  publish: EMPTY_PUBLISH,
   askOpen: false,
   sent: [],
   askStatus: '',
@@ -154,6 +186,7 @@ export const useShell = create<ShellState & ShellActions>()((set, get) => ({
   closeShare: () => set({ shareOpen: false, exportWanted: false }),
   setShareTab: (tab) => set((state) => ({ shareTab: tab === 'export' && !hasExportTab(state.report) ? 'share' : tab, exportWanted: false })),
   patchShare: (patch) => set((state) => ({ share: { ...state.share, ...patch } })),
+  patchPublish: (patch) => set((state) => ({ publish: { ...state.publish, ...patch } })),
   setAskOpen: (askOpen) => set({ askOpen }),
   setSent: (sent) => set({ sent }),
   setAskStatus: (askStatus) => set({ askStatus }),

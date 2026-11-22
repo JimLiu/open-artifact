@@ -214,6 +214,12 @@ export interface Viewer {
   id: string;
   name: string;
   role: Role;
+  /** Who they are on a cloud host: a signed-in person, a link guest, an agent or an anonymous visitor. Unset locally. */
+  kind?: 'user' | 'guest' | 'agent' | 'anonymous';
+  /** Their address, on a cloud host that knows it. */
+  email?: string;
+  /** Their picture's URL, on a cloud host that knows it. */
+  avatar?: string;
 }
 
 /** The `user` capability. */
@@ -334,6 +340,18 @@ export interface RoomCapability {
 export interface DownloadsCapability {
   /** Saves a file. The local host takes a single file of up to 512 MB; other hosts may take less. */
   save(file: { name: string; data: Blob }): Promise<{ savedTo?: string }>;
+  /**
+   * True when the host saves each file as this browser's own download rather than on a computer of its own (a cloud
+   * host): any role may then ask, the host decides whether the person may export, and there is no size limit but the
+   * browser's.
+   */
+  readonly browser?: boolean;
+  /**
+   * Where `browser` is true: resolves when the person may export now, else rejects with `not_writer` and the host's
+   * words. For an export that is not a file (a print): it follows the same switch. That keeps the product's own
+   * buttons consistent; it is no security boundary (a viewer can always print from the browser or take a screenshot).
+   */
+  check?(): Promise<void>;
 }
 
 /* -------------------------------------------------------------------------- */

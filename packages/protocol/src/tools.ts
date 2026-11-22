@@ -99,6 +99,8 @@ export interface ArtifactArgs {
    */
   lan?: boolean;
   links?: { editor?: boolean; commenter?: boolean; viewer?: boolean };
+  /** share: publish to this cloud remote (by its name), where the person allowed the agent to (`remotes.<name>.agentMayPublish`). */
+  cloud?: string;
 }
 
 /** The Shell panels `open` can show: the Share panel, or its Export tab. */
@@ -254,6 +256,11 @@ const ARTIFACT_SCHEMA: ToolInputSchema = {
       type: 'string',
       enum: ARTIFACT_PANELS,
       description: 'open: also open the page\'s Share panel (share), for the person to share it on the network, or its Export tab (export), for them to download a file.',
+    },
+    cloud: {
+      type: 'string',
+      description:
+        "share: publish the artifact to this cloud remote (its name, as `open-artifact remote list` shows it). It works only on a remote the person set up and let agents publish to (agentMayPublish); otherwise the person publishes it, from the Share panel or with `open-artifact publish <id> --remote <name>`.",
     },
   },
 };

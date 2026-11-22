@@ -134,6 +134,8 @@ export interface ApiOptions {
   /** Query parameters. */
   query?: Record<string, string | undefined>;
   signal?: AbortSignal;
+  /** More request headers (the CLI says who it is: `X-Open-Artifact-Client`, `X-Open-Artifact-Agent`). */
+  headers?: Record<string, string>;
 }
 
 /** One Library API call (`/api/open-artifact.<name>`) with the daemon token. Returns the parsed JSON body. */
@@ -142,7 +144,7 @@ export async function api<T = unknown>(state: DaemonState, name: string, body?: 
   for (const [key, value] of Object.entries(options.query ?? {})) if (value !== undefined) url.searchParams.set(key, value);
   const response = await fetch(url, {
     method: options.method ?? (body === undefined ? 'GET' : 'POST'),
-    headers: { Authorization: `Bearer ${state.token}`, ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) },
+    headers: { ...options.headers, Authorization: `Bearer ${state.token}`, ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) },
     ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
     ...(options.signal ? { signal: options.signal } : {}),
   });

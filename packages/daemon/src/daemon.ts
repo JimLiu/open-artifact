@@ -17,6 +17,7 @@ import { dirname, extname, isAbsolute, join, resolve, sep } from 'node:path';
 import { Readable, type Duplex } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import {
+  DATA_REFRESH_ACTION,
   HARNESS_PATH,
   HARNESS_SUBPROTOCOL,
   LIBRARY_ROUTES,
@@ -36,6 +37,7 @@ import {
   type AskRequest,
   type CreateArtifactRequest,
   type DaemonHealth,
+  type DataRefreshResult,
   type DaemonState,
   type LibraryEvent,
   type OpenArtifactSettings,
@@ -57,19 +59,25 @@ import {
   type WakeStatus,
   type WakeThread,
 } from '@open-artifact/protocol';
+import { DATA_TYPE, DataRefresher } from './data-refresh.ts';
 import { HarnessHub, systemBrowse, type PollParams } from './harness.ts';
 import { Inbox } from './inbox.ts';
+import { LinkHub } from './link.ts';
 import { callerFromRequest, handleMcp, uiFromRequest, type McpMessage, type McpReply } from './mcp.ts';
 import { nudgeSession } from './nudge.ts';
 import { ensureDir, expandHome, files, inside, openArtifactHome, readJson, writeJson } from './paths.ts';
 import { ACTION_CALL_MS, TypeServers } from './servers.ts';
-import { loadSettings } from './settings.ts';
+import { readPreset, type CloudPreset } from './preset.ts';
+import { loadSettings, saveCloudSettings } from './settings.ts';
 import { ArtifactStore, sessionKeyOf, userEditsAfter, type StoreChange } from './store.ts';
 import { Tools, type ShareAccess } from './tools.ts';
 import { TypeRegistry, type ListedType, type TypeInfo } from './types.ts';
 import { WakeRouter, type WakeResult } from './wake.ts';
 import { acceptWebSocket } from './ws.ts';
 import pkg from '../package.json' with { type: 'json' };
+
+/** How long a dashboard's live-data refresh may take on its type server, ms (every live query, one by one). */
+const DATA_REFRESH_MS = 15 * 60_000;
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -403,6 +411,8 @@ export class Daemon extends EventEmitter<{ exit: [] }> {
   /** Bearer token of the Library and Harness APIs and MCP. */
   readonly token = randomBytes(24).toString('base64url');
   settings: OpenArtifactSettings;
+  /** Install-time cloud presets (environment, `preset.json`), read once at construction. */
+  private readonly preset: CloudPreset;
   readonly types: TypeRegistry;
   readonly store: ArtifactStore;
   readonly inbox: Inbox;
@@ -410,6 +420,10 @@ export class Daemon extends EventEmitter<{ exit: [] }> {
   readonly servers: TypeServers;
   readonly tools: Tools;
   readonly harnesses: HarnessHub;
+  /** Cloud remotes and the sync of what is published to them. */
+  readonly link: LinkHub;
+  /** Live data of published dashboards: the snapshots this computer takes for their hosts. */
+  readonly data: DataRefresher;
   readonly shellDir: string;
   readonly homeDir: string;
   readonly server: Server;
@@ -444,7 +458,8 @@ export class Daemon extends EventEmitter<{ exit: [] }> {
     super();
     ensureDir(openArtifactHome(), 0o700);
     ensureDir(files.logs());
-    this.settings = loadSettings();
+    this.preset = readPreset();
+    this.settings = loadSettings(this.preset);
     this.wantPort = options.port ?? this.settings.serverPort;
     this.idleMs = options.idleMs ?? Number(process.env.OPEN_ARTIFACT_IDLE_MS ?? 30 * 60_000);
     this.quiet = options.quiet ?? false;
@@ -465,6 +480,39 @@ export class Daemon extends EventEmitter<{ exit: [] }> {
       nudge: (target, payload) => void nudgeSession(target, payload.artifact, { log }),
     });
     this.servers = new TypeServers({ daemonUrl: () => this.origin, tokenFor: (typeId) => this.typeToken(typeId), log });
+    const browse = options.browse === undefined ? systemBrowse : options.browse;
+    this.link = new LinkHub({
+      store: this.store,
+      inbox: this.inbox,
+      settings: () => this.settings,
+      wake: (id, item) => this.wake.queue(id, item),
+      archive: (record) => this.archiveBytes(record),
+      browse,
+      log,
+      version: VERSION,
+      saveCloud: (patch) => {
+        saveCloudSettings(patch);
+        this.settings = loadSettings(this.preset);
+      },
+      insecureHttp: () => this.preset.insecureHttp === true,
+      data: {
+        published: (id) => this.data.published(id),
+        requested: (id, queries) => void this.data.refresh(id, { ...(queries ? { queries } : {}), reason: 'asked from the host' }),
+        unpublished: (record) => void this.data.unpublished(record),
+      },
+    });
+    this.data = new DataRefresher({
+      store: this.store,
+      settings: () => this.settings,
+      run: async (record, args) => {
+        const type = this.typeOf(record);
+        if (!type) throw new OpenArtifactError('not_found', `The type ${record.type} is not installed.`);
+        return this.servers.call<DataRefreshResult>(type, 'POST', `${TYPE_SERVER_ROUTES.actions}${encodeURIComponent(DATA_REFRESH_ACTION)}`, { id: record.id, root: record.root, args }, undefined, DATA_REFRESH_MS);
+      },
+      sync: (id) => this.link.syncNow(id),
+      owner: (record) => this.link.ownerName(record),
+      log,
+    });
     this.tools = new Tools({
       types: this.types,
       store: this.store,
@@ -473,6 +521,7 @@ export class Daemon extends EventEmitter<{ exit: [] }> {
       settings: () => this.settings,
       viewUrl: (id) => this.viewUrl(id),
       openPage: (record) => this.openPage(record),
+      reopenPage: (record) => this.reopenPage(record),
       typeAction: (type, record, name, args) =>
         this.servers.call(type, 'POST', `${TYPE_SERVER_ROUTES.actions}${encodeURIComponent(name)}`, { id: record.id, root: record.root, args }, undefined, ACTION_CALL_MS),
       typeActions: (type, options) => this.servers.actions(type, options),
@@ -482,6 +531,7 @@ export class Daemon extends EventEmitter<{ exit: [] }> {
       agentActing: (id, phase) => this.agentActing(id, phase),
       openAfterFirstWrite: (record, caller) => this.openAfterFirstWrite(record, caller),
       cancelOpenAfterFirstWrite: (id) => this.pendingOpens.get(id)?.(),
+      link: this.link,
     });
     this.harnesses = new HarnessHub({
       token: this.token,
@@ -489,7 +539,7 @@ export class Daemon extends EventEmitter<{ exit: [] }> {
       tools: this.tools,
       inbox: this.inbox,
       log,
-      browse: options.browse === undefined ? systemBrowse : options.browse,
+      browse,
       openArtifact: async (url, caller) => {
         const result = await this.tools.call('Artifact', { action: 'open', url }, caller);
         if (result.error) throw new OpenArtifactError(result.error.code, result.error.message);
@@ -531,9 +581,9 @@ export class Daemon extends EventEmitter<{ exit: [] }> {
     return `http://127.0.0.1:${this.port}`;
   }
 
-  /** The Shell address of an artifact. */
+  /** The Shell address of an artifact: its cloud address once it is published. */
   viewUrl(id: string): string {
-    return `${this.origin}/a/${id}`;
+    return this.store.get(id)?.remote?.url ?? `${this.origin}/a/${id}`;
   }
 
   private typeOf(record: ArtifactRecord): ListedType | null {
@@ -586,6 +636,9 @@ export class Daemon extends EventEmitter<{ exit: [] }> {
     this.log(`daemon ${VERSION} listening at ${this.origin} (home ${openArtifactHome()})`);
     // Links handed out before a restart keep working: open what is shared again.
     void this.remountShared();
+    // Published artifacts sync again, and each remote's events come in (nothing without a remote).
+    this.link.start(this.preset);
+    this.data.start();
     return this;
   }
 
@@ -714,7 +767,7 @@ export class Daemon extends EventEmitter<{ exit: [] }> {
       }
     }
     if (!this.idleMs) return;
-    const busy = this.harnesses.connections.size > 0 || this.pages.size > 0 || this.eventClients.size > 0 || this.typeEventClients.size > 0;
+    const busy = this.harnesses.connections.size > 0 || this.pages.size > 0 || this.eventClients.size > 0 || this.typeEventClients.size > 0 || this.link.busy();
     if (busy) this.lastActivity = Date.now();
     else if (Date.now() - this.lastActivity > this.idleMs) {
       this.log('idle: exiting');
@@ -731,6 +784,8 @@ export class Daemon extends EventEmitter<{ exit: [] }> {
     this.servers.closeAll();
     for (const id of [...this.watchers.keys()]) this.unwatch(id);
     for (const stop of [...this.pendingOpens.values()]) stop();
+    this.link.close();
+    this.data.close();
     for (const client of this.typeEventClients) client.res.end();
     this.harnesses.close();
     for (const res of this.eventClients) res.end();
@@ -788,6 +843,28 @@ export class Daemon extends EventEmitter<{ exit: [] }> {
     if (this.hasToken(req)) return true;
     if (!isLoopback(req.socket.remoteAddress)) return false;
     return req.headers.origin !== undefined && this.originOk(req) && String(req.headers['content-type'] ?? '').startsWith('application/json');
+  }
+
+  /**
+   * Who asked for a publishing or site change, for the daemon's log (`audit:` lines): a page of this daemon's origin
+   * (the Shell or the home page, in this computer's browser), or a process holding the daemon token, which says what it
+   * is with `X-Open-Artifact-Client` (`cli`) and, inside an agent's session, `X-Open-Artifact-Agent`. Those headers are
+   * the caller's word: a process that leaves them out is logged as one that did not say what it is.
+   */
+  private askedBy(req: IncomingMessage, route: string): string {
+    const header = (name: string): string => {
+      const value = req.headers[name];
+      if (typeof value !== 'string' || !value) return '';
+      try {
+        return decodeURIComponent(value).replace(/[^\x20-\x7e]/g, '?').slice(0, 200);
+      } catch {
+        return '?';
+      }
+    };
+    if (!this.hasToken(req)) return `a page of this daemon in this computer's browser (the Shell), route ${route}`;
+    const agent = header('x-open-artifact-agent');
+    const who = header('x-open-artifact-client') === 'cli' ? 'the open-artifact command line' : 'a process holding the daemon token that did not say what it is';
+    return `${who}${agent ? ` inside the agent session ${agent}` : ''}, route ${route}`;
   }
 
   private hasToken(req: IncomingMessage): boolean {
@@ -1005,6 +1082,11 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
       res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' }).end(`No artifact ${id}.`);
       return;
     }
+    // A published artifact is edited on its host: one editable page, not two. Offline, the working copy shows here.
+    if (found.remote && this.link.reachable(found.remote.name)) {
+      res.writeHead(302, { Location: found.remote.url, 'Cache-Control': 'no-store' }).end();
+      return;
+    }
     const record = this.touchOpened(found);
     let template: string | null = null;
     try {
@@ -1101,6 +1183,21 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
   }
 
   /** A copy of the artifact beside it: its content, not its bookkeeping (dot files, history, exports). */
+  /**
+   * Adds the artifact in `folder` (its `.artifact.json` or a type's marker files say which type), owned by no session,
+   * as Artifact {action:"adopt"} does: its record, or null when the folder is missing or holds no artifact of a known
+   * type. Other failures throw.
+   */
+  private async adoptFolder(folder: string): Promise<ArtifactRecord | null> {
+    const result = await this.tools.call('Artifact', { action: 'adopt', folder }, {});
+    if (result.error) {
+      if (result.error.code === 'not_found' || result.error.code === 'invalid_argument') return null;
+      throw new OpenArtifactError(result.error.code, result.error.message);
+    }
+    const id = artifactIdOf(String(result.url ?? ''));
+    return id ? this.store.update(id, { owner: null, createdBy: null }) : null;
+  }
+
   private async duplicate(record: ArtifactRecord, name?: string): Promise<ArtifactRecord> {
     if (record.type === 'docs') {
       const type = this.typeOf(record);
@@ -1154,6 +1251,7 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
       thumbnail: this.thumbnailOf(record.id),
       shared: sharedOnLan(record.root),
       open: this.pages.has(record.id),
+      remote: record.remote ? { name: record.remote.name, host: record.remote.host, url: record.remote.url, syncedAt: record.remote.syncedAt } : null,
     };
   }
 
@@ -1196,6 +1294,18 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
     }
     this.pages.set(record.id, { ...out, lastUsed: Date.now() });
     return out;
+  }
+
+  /**
+   * Closes the artifact in its type server, waiting for it, then opens it again: what a sync pulled into a folder its
+   * server keeps in memory (a published doc's or Sheet's `doc/`, `sheet/`) is read anew. Its open pages reconnect.
+   */
+  async reopenPage(record: ArtifactRecord): Promise<void> {
+    const type = this.typeOf(record);
+    if (type?.entry?.kind === 'server' && type.entry.open && this.servers.isReady(type.id)) {
+      await this.servers.call(type, 'POST', TYPE_SERVER_ROUTES.close, { id: record.id }).catch(() => undefined);
+    }
+    await this.openPage(record);
   }
 
   /** The artifact left the list: its type server may let it go. */
@@ -1290,19 +1400,8 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
    * or whose server has no such route, answers `unsupported`.
    */
   private async sendArchive(req: IncomingMessage, res: ServerResponse, record: ArtifactRecord): Promise<void> {
-    const type = this.typeOf(record);
-    const entry = type?.entry;
-    const unsupported = (): OpenArtifactError => new OpenArtifactError('unsupported', `${type?.title ?? record.type} folders cannot be zipped here.`);
-    if (!type || !entry || entry.kind === 'static') throw unsupported();
-    await this.openPage(record);
     const head = req.method === 'HEAD';
-    const answer = await this.servers.fetchRaw(type, head ? 'HEAD' : 'GET', TYPE_SERVER_ROUTES.archive, { id: record.id });
-    if (!answer.ok) {
-      const body = (await answer.json().catch(() => null)) as { code?: unknown; message?: unknown } | null;
-      if (answer.status === 404 || answer.status === 405) throw unsupported();
-      const code = typeof body?.code === 'string' ? body.code : answer.status === 413 ? 'too_large' : 'server_failed';
-      throw new OpenArtifactError(code, typeof body?.message === 'string' ? body.message : `${type.id}: the zip answered ${answer.status}.`, { status: answer.status });
-    }
+    const answer = await this.archiveAnswer(record, head ? 'HEAD' : 'GET');
     const headers: Record<string, string> = { 'Content-Type': 'application/zip', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' };
     const disposition = answer.headers.get('content-disposition');
     if (disposition) headers['Content-Disposition'] = disposition;
@@ -1318,6 +1417,29 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
     });
     body.on('error', () => res.destroy());
     body.pipe(res);
+  }
+
+  /** The type server's answer to `/__open-artifact/archive` for the artifact, refused answers thrown. */
+  private async archiveAnswer(record: ArtifactRecord, method: 'GET' | 'HEAD', timeoutMs?: number): Promise<Response> {
+    const type = this.typeOf(record);
+    const entry = type?.entry;
+    const unsupported = (): OpenArtifactError => new OpenArtifactError('unsupported', `${type?.title ?? record.type} folders cannot be zipped here.`);
+    if (!type || !entry || entry.kind === 'static') throw unsupported();
+    await this.openPage(record);
+    const answer = await this.servers.fetchRaw(type, method, TYPE_SERVER_ROUTES.archive, { id: record.id }, timeoutMs);
+    if (!answer.ok) {
+      const body = (await answer.json().catch(() => null)) as { code?: unknown; message?: unknown } | null;
+      if (answer.status === 404 || answer.status === 405) throw unsupported();
+      const code = typeof body?.code === 'string' ? body.code : answer.status === 413 ? 'too_large' : 'server_failed';
+      throw new OpenArtifactError(code, typeof body?.message === 'string' ? body.message : `${type.id}: the zip answered ${answer.status}.`, { status: answer.status });
+    }
+    return answer;
+  }
+
+  /** The artifact's folder as a zip, made by its type server with the export's rules (what Link publishes). */
+  private async archiveBytes(record: ArtifactRecord): Promise<Uint8Array> {
+    const answer = await this.archiveAnswer(record, 'GET', 300_000);
+    return new Uint8Array(await answer.arrayBuffer());
   }
 
   /** The artifact's LAN sharing, through its type server's `/__open-artifact/share`. */
@@ -1694,6 +1816,124 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
         const workspace = typeof body.workspace === 'string' && body.workspace ? body.workspace : null;
         const session = this.harnesses.byPid(pids, harness) ?? (harness ? this.harnesses.recentSession(harness, workspace) : null);
         return sendJson(res, 200, { session });
+      }
+      case 'remotes':
+        return sendJson(res, 200, { remotes: this.link.status(), cloud: this.link.cloudStatus(), ...(this.link.presetProblem ? { presetProblem: this.link.presetProblem } : {}) });
+      case 'cloud.settings': {
+        // A person's choice (the CLI's `remote default` / `remote auto`, the Share panel): never an agent tool.
+        const body = await readJsonBody<{ default: string | null; publish: 'auto' | 'manual' }>(req);
+        const patch: { default?: string | null; publish?: 'auto' | 'manual' } = {};
+        if (body.default === null || typeof body.default === 'string') patch.default = body.default || null;
+        if (body.publish !== undefined) patch.publish = body.publish;
+        const cloud = this.link.setCloud(patch);
+        const said = [
+          ...(patch.default !== undefined ? [patch.default ? `default site ${patch.default}` : 'no default site'] : []),
+          ...(patch.publish ? [`automatic publishing ${patch.publish === 'auto' ? 'on' : 'off'}`] : []),
+        ];
+        if (said.length) this.log(`audit: ${said.join(', ')}, asked by ${this.askedBy(req, name)}`);
+        return sendJson(res, 200, { cloud });
+      }
+      case 'remotes.add': {
+        // Starts a device sign-in; the daemon polls the host. `remotes.add.wait` reports how it ends.
+        // `browse: false`: the Shell shows the approval link itself, so no browser window is opened here.
+        // `insecureHttp`: plain http to a host that is not on a private network (`remote add --insecure-http`).
+        const body = await readJsonBody<{ name: string; host: string; browse: boolean; insecureHttp: boolean }>(req);
+        const started = await this.link.signIn(String(body.name ?? ''), body.host, { browse: body.browse !== false, insecureHttp: body.insecureHttp === true });
+        this.log(`audit: connecting the site ${String(body.name ?? '')} (${started.host}${body.insecureHttp === true ? ', --insecure-http' : ''}), asked by ${this.askedBy(req, name)}`);
+        return sendJson(res, 200, started);
+      }
+      case 'remotes.add.cancel': {
+        // The person cancelled the sign-in (the Share panel's Cancel): the daemon stops polling the host.
+        const body = await readJsonBody<{ name: string }>(req);
+        return sendJson(res, 200, this.link.cancelSignIn(String(body.name ?? '')));
+      }
+      case 'remotes.add.wait': {
+        const body = await readJsonBody<{ name: string; ms: number }>(req);
+        const ms = Math.min(Math.max(Number(body.ms) || 25_000, 0), 60_000);
+        return sendJson(res, 200, await this.link.signInResult(String(body.name ?? ''), ms));
+      }
+      case 'remotes.remove': {
+        const body = await readJsonBody<{ name: string; force: boolean }>(req);
+        const removed = this.link.removeRemote(String(body.name ?? ''), body.force === true);
+        this.log(`audit: removed the site ${removed.removed}${removed.unlinked.length ? ` (left local only: ${removed.unlinked.join(', ')})` : ''}, asked by ${this.askedBy(req, name)}`);
+        return sendJson(res, 200, removed);
+      }
+      case 'artifacts.publish': {
+        // A person's act (the CLI or the Share panel): publishes to a remote. `data: true` is the person's word that a
+        // dashboard's rows go with it (the Share panel says so before its Publish); without it a dashboard whose data
+        // was not confirmed goes up without rows, and the answer's `data` says so (the CLI then asks at a terminal).
+        const body = await readJsonBody<{ id: string; url: string; folder: string; remote: string; adopt: boolean; data: boolean }>(req);
+        const folder = typeof body.folder === 'string' && body.folder ? resolve(expandHome(body.folder)) : null;
+        let record = folder ? this.store.byRoot(folder) : this.store.require(body.id ?? body.url);
+        // `adopt` (the CLI's publish <folder>): a folder that holds an artifact this daemon does not know yet is added
+        // first, as Artifact {action:"adopt"} would; one that holds none stays refused.
+        let adopted = false;
+        if (!record && folder && body.adopt === true) {
+          record = await this.adoptFolder(folder);
+          adopted = record !== null;
+        }
+        if (!record) {
+          throw new OpenArtifactError('not_found', `No artifact in ${body.folder}.`, {
+            fix: `Give the artifact id, or the folder an artifact lives in. To make the folder an artifact first, adopt it with its type: open-artifact artifact '{"action":"adopt","folder":"${folder ?? body.folder}","type_url":"open-artifact://type/<type>"}' (open-artifact types lists them).`,
+          });
+        }
+        let remote = typeof body.remote === 'string' ? body.remote : '';
+        // Published already and no site named: the site it is on (publishing again is how the CLI adds its data).
+        if (!remote && record.remote) remote = record.remote.name;
+        if (!remote) {
+          // None named: the default site (`settings.cloud.default`, or the only remote).
+          const names = Object.keys(this.link.remotes.list());
+          const chosen = this.link.defaultRemote();
+          if (!chosen) {
+            throw new OpenArtifactError('invalid_argument', names.length ? `Which remote? ${names.join(', ')}.` : 'No remote yet.', {
+              fix: names.length ? 'Pass --remote <name>, or choose the default: open-artifact remote default <name>.' : 'Add one: open-artifact remote add <name> <https://host>.',
+            });
+          }
+          remote = chosen;
+        }
+        const already = record.remote?.name === remote;
+        const next = await this.link.publish(record, remote);
+        const confirmsData = next.type === DATA_TYPE && body.data === true && next.dataPublish !== true;
+        if (!already || confirmsData) {
+          this.log(`audit: ${already ? 'confirmed the data of' : 'published'} ${next.id} to ${remote}${!already && confirmsData ? ' with its data' : ''}, asked by ${this.askedBy(req, name)}`);
+        }
+        if (confirmsData) void this.data.confirm(next.id, true).catch(() => undefined);
+        const data = next.type === DATA_TYPE ? this.data.status(next.id) : null;
+        return sendJson(res, 200, {
+          url: artifactUrl(next.id),
+          id: next.id,
+          remote: next.remote?.name,
+          view_url: next.remote?.url,
+          ...(adopted ? { adopted: { type: next.type, title: next.title, root: next.root } } : {}),
+          ...(data ? { data: { live: data.live, publish: data.publish || confirmsData } } : {}),
+        });
+      }
+      case 'artifacts.data': {
+        // A published dashboard's live data: how it stands; `publish` confirms (or takes back) that its data goes with
+        // it; `refresh` runs its queries now. A person's act (the Share panel), never the agent's.
+        const body = await readJsonBody<{ id: string; url: string; publish: boolean; refresh: boolean }>(req);
+        const record = this.store.require(body.id ?? body.url);
+        if (record.type !== DATA_TYPE) throw new OpenArtifactError('invalid_argument', `${artifactUrl(record.id)} is not a Data dashboard.`);
+        if (typeof body.publish === 'boolean') {
+          if (body.publish !== (record.dataPublish === true)) {
+            this.log(`audit: ${body.publish ? 'confirmed publishing the data of' : 'stopped publishing the data of'} ${record.id}, asked by ${this.askedBy(req, name)}`);
+          }
+          await this.data.confirm(record.id, body.publish);
+        }
+        if (body.refresh === true) {
+          const fresh = this.store.require(record.id);
+          if (!this.data.eligible(fresh)) throw new OpenArtifactError('invalid_argument', fresh.remote ? 'Its data is not published: confirm publishing its data first.' : 'It is not published.');
+          await this.data.refresh(record.id, { reason: 'asked here' });
+        }
+        return sendJson(res, 200, this.data.status(record.id));
+      }
+      case 'artifacts.unpublish': {
+        const body = await readJsonBody<{ id: string; url: string }>(req);
+        const record = this.store.require(body.id ?? body.url);
+        const from = record.remote?.name;
+        const next = await this.link.unpublish(record);
+        this.log(`audit: unpublished ${next.id} from ${from}, asked by ${this.askedBy(req, name)}`);
+        return sendJson(res, 200, { url: artifactUrl(next.id), id: next.id, view_url: this.viewUrl(next.id) });
       }
       case 'session.attach':
         return sendJson(res, 200, this.harnesses.pollAttach(await this.pollBody(req)));

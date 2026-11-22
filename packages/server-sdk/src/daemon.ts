@@ -52,6 +52,12 @@ export interface TypeApiOptions {
 /** What {@link TypeApi.wake} hands to the owner's session. */
 export type TypeApiWakeBody = Omit<TypeApiWakeRequest, 'id'>;
 
+/**
+ * The part of the Type API a type server calls back: what an embedder (a cloud host running the type server in its
+ * own process) implements in place of a daemon.
+ */
+export type TypeApiLike = Pick<TypeApi, 'wake' | 'presence' | 'touch'>;
+
 /** The Type API client. */
 export class TypeApi {
   /** Base URL of the daemon without a trailing slash, or `null` when standalone. */

@@ -3,9 +3,20 @@
 import { create } from 'zustand';
 import type { ArtifactView, TypeView, TypesResponse } from '@open-artifact/protocol';
 import type { HomeHost } from './host.ts';
+import type { TrashedView } from './trash.ts';
+import type { UploadEvent, UploadState } from './upload.ts';
+import { uploadStep } from './upload.ts';
 
 /** The home page's tabs. */
 export type HomeTab = 'artifacts' | 'types';
+
+/** The cloud home page's tabs. */
+export type CloudTab = 'artifacts' | 'trash';
+
+/** The tab the cloud home page opens on: the Trash for `/#trash` (where a trashed artifact's address sends its owner). */
+export function initialCloudTab(hash: string = typeof location === 'undefined' ? '' : location.hash): CloudTab {
+  return hash === '#trash' ? 'trash' : 'artifacts';
+}
 
 /** State of the home page. */
 export interface HomeState {
@@ -22,8 +33,18 @@ export interface HomeState {
   creating: TypeView | null;
   /** The artifact the rename dialog renames, while it is open. */
   renaming: ArtifactView | null;
-  /** The artifact just deleted, while its undo shows. */
-  undo: { id: string; title: string } | null;
+  /** The artifact just deleted, while its undo shows (`trash`: on a cloud host, moved to the trash). */
+  undo: { id: string; title: string; trash?: boolean } | null;
+  /** The cloud home page's tab. */
+  cloudTab: CloudTab;
+  /** The cloud home page's trash; `null` until loaded. */
+  trash: TrashedView[] | null;
+  /** The host said it cannot delete for good (501): "Delete forever" is not offered any more. */
+  purgeUnsupported: boolean;
+  /** The trashed artifact the "Delete forever" confirmation is about, while it is open. */
+  purging: { id: string; title: string } | null;
+  /** The upload of a zip (cloud home page). */
+  upload: UploadState;
 }
 
 /** Changes to the home page's state. */
@@ -36,6 +57,11 @@ export interface HomeActions {
   setCreating(type: TypeView | null): void;
   setRenaming(artifact: ArtifactView | null): void;
   setUndo(undo: HomeState['undo']): void;
+  setCloudTab(tab: CloudTab): void;
+  setTrash(trash: TrashedView[] | null): void;
+  setPurgeUnsupported(): void;
+  setPurging(purging: HomeState['purging']): void;
+  uploadEvent(event: UploadEvent): void;
 }
 
 const TAB_KEY = 'open-artifact.tab';
@@ -58,6 +84,11 @@ export const useHome = create<HomeState & HomeActions>()((set) => ({
   creating: null,
   renaming: null,
   undo: null,
+  cloudTab: initialCloudTab(),
+  trash: null,
+  purgeUnsupported: false,
+  purging: null,
+  upload: { kind: 'idle' },
 
   setTab: (tab) => {
     try {
@@ -74,4 +105,9 @@ export const useHome = create<HomeState & HomeActions>()((set) => ({
   setCreating: (creating) => set({ creating }),
   setRenaming: (renaming) => set({ renaming }),
   setUndo: (undo) => set({ undo }),
+  setCloudTab: (cloudTab) => set({ cloudTab }),
+  setTrash: (trash) => set({ trash }),
+  setPurgeUnsupported: () => set({ purgeUnsupported: true }),
+  setPurging: (purging) => set({ purging }),
+  uploadEvent: (event) => set((state) => ({ upload: uploadStep(state.upload, event) })),
 }));

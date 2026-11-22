@@ -9,6 +9,7 @@
  * capability when it fits, else as an ordinary browser download.
  */
 
+import { mayExportHere } from '@open-artifact/editor-kit';
 import { displayTitle } from '@open-artifact/slides-core';
 import { deckOrder, useDeck } from '../state/deck.ts';
 import type { CaptureContext } from './capture.ts';
@@ -111,7 +112,8 @@ async function render(request: ExportRequest, job: ExportJob): Promise<Blob> {
  * the host refusing it, another export running).
  */
 export async function runExport(request: ExportRequest, progress?: (done: number, total: number) => void, options: { writing?: { written: number; planned: number } } = {}): Promise<ExportResult> {
-  if (maybeSession()?.viewer.role !== 'owner') throw new Error('Only the owner can download the deck.');
+  const current = maybeSession();
+  if (!current || !mayExportHere(current.viewer.role, current.downloads)) throw new Error('Only the owner can download the deck.');
   if (busy) throw new Error('Another export is still running.');
   const state = useDeck.getState();
   if (state.status !== 'ready') throw new Error('The deck has not finished loading.');

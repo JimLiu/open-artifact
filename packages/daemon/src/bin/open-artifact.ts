@@ -12,6 +12,10 @@
  *   open-artifact watch [--harness <name>]               print a line whenever comments wait for this session (a harness monitor)
  *   open-artifact chatgpt [--port <n>] [--workspace <dir>] [--rotate]   the tools over HTTP for ChatGPT on the web (behind an HTTPS tunnel)
  *   open-artifact home                                   print the Open Artifact home folder
+ *   open-artifact remote add <name> <https://host> [--insecure-http] [--no-browser] | list | remove <name> [--force] [--json] | status [--json]    cloud remotes
+ *   open-artifact remote default <name> | --clear       the remote used when none is named
+ *   open-artifact remote auto on|off                     publish new artifacts to the default remote by themselves
+ *   open-artifact publish <id|folder> [--remote <name>]  publish an artifact (a folder not added yet is added first); unpublish <id> takes it off
  */
 
 import { execFileSync } from 'node:child_process';
@@ -19,10 +23,13 @@ import { readFileSync, realpathSync } from 'node:fs';
 import { resolve as resolvePath, sep } from 'node:path';
 import { createInterface } from 'node:readline';
 import type { DaemonState, SessionRef, ToolCallResult } from '@open-artifact/protocol';
+import { agentSessionOf, dataChoice, dataLeftOut, DATA_QUESTION, personOnlyRefusal, saidYes, type PersonAct } from '../agent-session.ts';
 import { api, ensureDaemon, readDaemon } from '../client.ts';
-import { harnessProfile } from '../harness.ts';
+import { harnessProfile, shippedProfilesDir } from '../harness.ts';
 import { clientShowsApps } from '../mcp-app.ts';
-import { openArtifactHome } from '../paths.ts';
+import { files, openArtifactHome } from '../paths.ts';
+import { remoteRemovedText, remoteStatusText } from '../remote-status.ts';
+import type { CloudStatus, RemoteStatus } from '../link.ts';
 import { loadSettings } from '../settings.ts';
 import { TypeRegistry } from '../types.ts';
 
@@ -37,7 +44,18 @@ open-artifact wait [--timeout <ms>]                  wait for this session's nex
 open-artifact hook <event> [--harness <name>]        harness hooks: SessionStart, UserPromptSubmit, Stop
 open-artifact watch [--harness <name>]               print a line whenever comments wait for this session (a harness monitor)
 open-artifact chatgpt [--port <n>] [--workspace <dir>] [--rotate]   the tools over HTTP for ChatGPT on the web (behind an HTTPS tunnel)
-open-artifact home                                   print the Open Artifact home folder`;
+open-artifact home                                   print the Open Artifact home folder
+open-artifact remote add <name> <https://host> [--insecure-http] [--no-browser]   link this computer to a cloud host (signs
+                                                     in in the browser; --no-browser prints the address and code instead;
+                                                     http only on a private network, unless --insecure-http)
+open-artifact remote list | status [--json] | remove <name> [--force] [--json]
+open-artifact remote default <name> | --clear        the remote publish uses when none is named (the first one added)
+open-artifact remote auto on|off                     publish every new artifact to the default remote by itself
+open-artifact publish <id|folder> [--remote <name>]  publish an artifact to a cloud remote (its folder keeps syncing;
+                                                     a folder not added yet is added first)
+open-artifact unpublish <id>                         take it off the host; it is local only again
+publish, unpublish and remote add / remove / default / auto are the person's decisions: run inside an agent's session,
+they are refused, and the agent asks the person instead.`;
 
 /** Takes `--name <value>` out of the arguments. */
 function flag(name: string): string | undefined;
@@ -475,6 +493,182 @@ async function daemon(sub: string | undefined): Promise<void> {
   }
 }
 
+/**
+ * The agent session this command runs in (`agent-session.ts`: the variables agent apps set in their agents' commands),
+ * or `null` in a person's own terminal.
+ */
+const AGENT = agentSessionOf(process.env, [files.harnesses(), shippedProfilesDir()]);
+
+/**
+ * Who this command line is, for the daemon's log of publishing and site changes: the CLI, and the agent session it
+ * runs in when there is one (only where the person allowed the act, or it would have been refused here).
+ */
+function whoHeaders(): Record<string, string> {
+  return {
+    'X-Open-Artifact-Client': 'cli',
+    ...(AGENT ? { 'X-Open-Artifact-Agent': encodeURIComponent(`${AGENT.harness}${AGENT.session ? ` session ${AGENT.session}` : ''}`) } : {}),
+  };
+}
+
+/**
+ * Ends the command when `act` is the person's to do and it runs inside an agent session they did not allow it in
+ * (`agent-session.ts`); `command` is what to give the person to run themselves.
+ */
+function personOnly(act: PersonAct, command: string, remote?: string | null): void {
+  const refusal = personOnlyRefusal(act, AGENT, { remote: remote ?? null, settings: loadSettings(), command });
+  if (refusal) die(refusal);
+}
+
+/** A Library API call whose failure (`{code, message}`) ends the command. */
+async function daemonCall<T>(name: string, body?: unknown): Promise<T> {
+  const state = await ensureDaemon();
+  const answer = await api<T & { code?: unknown; message?: unknown; fix?: unknown }>(state, name, body, { headers: whoHeaders() });
+  if (answer && typeof answer === 'object' && typeof answer.code === 'string' && typeof answer.message === 'string') {
+    die(`${answer.message}${typeof answer.fix === 'string' ? `\n  ${answer.fix}` : ''}`);
+  }
+  return answer;
+}
+
+/** `open-artifact remote ...`: the cloud remotes this daemon is linked to. */
+async function remote(sub: string | undefined): Promise<void> {
+  switch (sub) {
+    case 'add': {
+      const insecureHttp = argv.includes('--insecure-http');
+      // `--no-browser`: print the address and the code and open nothing (scripts, a remote shell, an agent's terminal).
+      const noBrowser = argv.includes('--no-browser');
+      const [name, host] = argv.filter((a) => a !== '--insecure-http' && a !== '--no-browser');
+      if (!name || !host) die('remote add <name> <https://host> [--insecure-http] [--no-browser]');
+      personOnly('remote-add', `open-artifact remote add ${name} ${host}${insecureHttp ? ' --insecure-http' : ''}${noBrowser ? ' --no-browser' : ''}`);
+      const started = await daemonCall<{ host: string; user_code: string; verification_uri_complete: string; opened: boolean; warning?: string }>('remotes.add', {
+        name,
+        host,
+        ...(insecureHttp ? { insecureHttp: true } : {}),
+        ...(noBrowser ? { browse: false } : {}),
+      });
+      if (started.warning) process.stderr.write(`Warning: ${started.warning}\n`);
+      process.stderr.write(
+        started.opened
+          ? `Opened ${started.verification_uri_complete} in your browser: check that it shows the code ${started.user_code}, then approve.\nWaiting for the approval...\n`
+          : `Open ${started.verification_uri_complete} in a browser where you are signed in to the site, check that it shows the code ${started.user_code}, then approve.\nWaiting for the approval...\n`,
+      );
+      for (;;) {
+        const result = await daemonCall<{ status: 'done' | 'pending'; user?: { name?: string; email?: string; id?: string } }>('remotes.add.wait', { name, ms: 25_000 });
+        if (result.status === 'done') {
+          const who = result.user?.email || result.user?.name || result.user?.id || 'you';
+          return out(`Linked ${name} (${started.host}) as ${who}.`);
+        }
+      }
+    }
+    case 'list':
+    case undefined: {
+      const { remotes } = await daemonCall<{ remotes: RemoteStatus[] }>('remotes');
+      if (!remotes.length) return out('No remotes. Add one: open-artifact remote add <name> <https://host>');
+      // The default remote ends with a `default` column.
+      return out(
+        remotes
+          .map((r) => `${r.name}\t${r.host}\t${r.signedIn ? (r.user?.email ?? r.user?.name ?? 'signed in') : 'not signed in'}\t${r.artifacts.length} published${r.default ? '\tdefault' : ''}`)
+          .join('\n'),
+      );
+    }
+    case 'status': {
+      // `--json`: the daemon's answer, `{remotes: [...], cloud: {...}}`.
+      const answer = await daemonCall<{ remotes: RemoteStatus[]; cloud?: CloudStatus; presetProblem?: string }>('remotes');
+      return out(argv.includes('--json') ? answer : remoteStatusText(answer.remotes, answer.cloud, answer.presetProblem));
+    }
+    case 'default': {
+      const clear = argv.includes('--clear');
+      const name = argv.find((a) => a !== '--clear');
+      if (!clear && !name) die('remote default <name> | --clear');
+      personOnly('remote-default', `open-artifact remote default ${clear ? '--clear' : name}`);
+      const { cloud } = await daemonCall<{ cloud: CloudStatus }>('cloud.settings', { default: clear ? null : name });
+      if (cloud.default) return out(`The default remote is ${cloud.default}.`);
+      return out(
+        `No default remote: publish asks which one (--remote <name>)${cloud.publish === 'auto' ? ', and automatic publishing has nowhere to go until you choose one (open-artifact remote default <name>)' : ''}.`,
+      );
+    }
+    case 'auto': {
+      const [mode] = argv;
+      if (mode !== 'on' && mode !== 'off') die('remote auto on|off');
+      personOnly('remote-auto', `open-artifact remote auto ${mode}`);
+      const { cloud } = await daemonCall<{ cloud: CloudStatus }>('cloud.settings', { publish: mode === 'on' ? 'auto' : 'manual' });
+      if (cloud.publish === 'manual') return out('New artifacts are published only when you publish them.');
+      return out(
+        cloud.default
+          ? `New artifacts are now published to ${cloud.default} by themselves (artifacts made before are left as they are).`
+          : 'Automatic publishing is on, but there is no default remote yet: add one (open-artifact remote add) or choose one (open-artifact remote default <name>).',
+      );
+    }
+    case 'remove': {
+      const force = argv.includes('--force');
+      const name = argv.find((a) => a !== '--force' && a !== '--json');
+      if (!name) die('remote remove <name> [--force] [--json]');
+      personOnly('remote-remove', `open-artifact remote remove ${name}${force ? ' --force' : ''}`);
+      const removed = await daemonCall<{ removed: string; unlinked: string[]; autoPublishOff?: boolean; default?: string | null }>('remotes.remove', { name, force });
+      return out(argv.includes('--json') ? removed : remoteRemovedText(removed));
+    }
+    default:
+      die('remote add <name> <https://host> [--insecure-http] [--no-browser] | list | status [--json] | remove <name> [--force] [--json] | default <name>|--clear | auto on|off');
+  }
+}
+
+/** Asks a question at the terminal and resolves with the answer. */
+function ask(question: string): Promise<string> {
+  return new Promise((done) => {
+    const lines = createInterface({ input: process.stdin, output: process.stdout });
+    lines.question(question, (answer) => {
+      lines.close();
+      done(answer);
+    });
+    lines.on('close', () => done(''));
+  });
+}
+
+/**
+ * `open-artifact publish <id|folder> [--remote <name>]`. Inside an agent session it is refused unless the person let
+ * agents publish to that remote (`agent-session.ts`). A dashboard with live queries goes up without its rows unless the
+ * person says yes at the terminal (the Share panel's question); an agent session never says it.
+ */
+async function publish(target: string | undefined): Promise<void> {
+  const name = flag('remote');
+  if (!target) die('publish <artifact id | folder> [--remote <name>]');
+  const isId = /^(open-artifact:\/\/artifact\/)?art_[0-9a-z]+$/.test(target);
+  const command = `open-artifact publish ${target}${name ? ` --remote ${name}` : ''}`;
+  if (AGENT) {
+    // Which site it would go to decides whether the person allowed it: the one named, else the default.
+    const remote = name ?? (await daemonCall<{ cloud?: CloudStatus }>('remotes')).cloud?.default ?? null;
+    personOnly('publish', command, remote);
+  }
+  // A folder that holds an artifact the daemon does not know yet is added first (adopt), and says so.
+  const answer = await daemonCall<{
+    url: string;
+    id: string;
+    view_url: string;
+    remote: string;
+    adopted?: { type: string; title: string; root: string };
+    data?: { live: boolean; publish: boolean };
+  }>('artifacts.publish', {
+    ...(isId ? { id: target } : { folder: resolvePath(target), adopt: true }),
+    ...(name ? { remote: name } : {}),
+  });
+  if (answer.adopted) out(`Added ${answer.adopted.root} as ${answer.url} (${answer.adopted.type}, "${answer.adopted.title}").`);
+  out(`Published to ${answer.remote}: ${answer.view_url}`);
+  const choice = dataChoice({
+    live: answer.data?.live === true,
+    confirmed: answer.data?.publish === true,
+    agent: AGENT,
+    interactive: !!process.stdin.isTTY && !!process.stdout.isTTY,
+  });
+  if (choice === 'none') return;
+  if (choice === 'ask') {
+    if (saidYes(await ask(DATA_QUESTION))) {
+      await daemonCall<unknown>('artifacts.data', { id: answer.id, publish: true });
+      return out('Its data is published too: this computer runs its live queries and puts the rows on the site.');
+    }
+    return out(`Its data stays on this computer: the page there shows no figures. Publish it later from the dashboard's Share panel, or run open-artifact publish ${answer.id} again.`);
+  }
+  out(dataLeftOut(answer.id, choice));
+}
+
 function types(): void {
   const registry = new TypeRegistry(loadSettings);
   const workspace = flag('workspace') ?? process.cwd();
@@ -529,6 +723,20 @@ async function main(): Promise<void> {
       return chatgpt();
     case 'home':
       return out(openArtifactHome());
+    case 'remote':
+      return remote(sub);
+    case 'publish':
+      return publish(sub);
+    case 'unpublish': {
+      if (!sub) die('unpublish <artifact id>');
+      if (AGENT) {
+        // The site it is on decides whether the person allowed it.
+        const record = await api<{ remote?: { name?: string } | null }>(await ensureDaemon(), 'artifact', undefined, { query: { id: sub } }).catch(() => null);
+        personOnly('unpublish', `open-artifact unpublish ${sub}`, record?.remote?.name ?? null);
+      }
+      const answer = await daemonCall<{ url: string; view_url: string }>('artifacts.unpublish', { id: sub });
+      return out(`Unpublished ${answer.url}; it opens at ${answer.view_url} again.`);
+    }
     case undefined:
     case 'help':
     case '--help':

@@ -20,6 +20,8 @@ import {
   agentPrompt,
   artifactUrl,
   errorBody,
+  parseTitleFrom,
+  titleInJson,
   typeIdOf,
   typeUrl,
   type ArtifactArgs,
@@ -87,6 +89,12 @@ const OPEN_EARLY_YOURSELF = `Nothing opens by itself here: show the page right a
 const AFTER_CREATE_OPEN = 'Ask first whatever the instructions say to ask before a first build, then write the files they describe into root. The page is open: it shows your writes as they land.';
 
 /** The reminder when people changed files the agent has not read since (the paths go in `changed_files`, never here). */
+/** A cloud summary's `note` while the artifact's host cannot be reached (edits are queued on this computer). */
+function offlineOf(link: LinkTools | undefined, record: ArtifactRecord): { note?: string } {
+  const note = link?.offlineNote(record);
+  return note ? { note } : {};
+}
+
 const changedNote = (count: number): string =>
   `The person changed ${count === 1 ? 'a file' : `${count} files`} (changed_files) since you last read this artifact: read ${count === 1 ? 'it' : 'them'} before changing ${count === 1 ? 'it' : 'them'}.`;
 
@@ -203,6 +211,45 @@ export interface ShareAccess {
   update(change: Omit<ShareRequest, 'id'>): Promise<ShareView>;
 }
 
+/** What the tools need of Link (`link.ts`) for artifacts published to a cloud host. */
+export interface LinkTools {
+  /** Whether an action on this artifact runs on its host instead of the local type server. */
+  forwards(record: ArtifactRecord, type: TypeInfo | null, action: string): boolean;
+  /** Whether an action on a published artifact renders its working copy here (`snapshot`, Docs `export`). */
+  renders(record: ArtifactRecord, type: TypeInfo | null, action: string): boolean;
+  /**
+   * Syncs a published artifact before a render here. `note`: null when current, else that it may be behind.
+   * `reload`: its store is its server's, kept in memory by the local type server, which must read the pull anew.
+   */
+  freshen(record: ArtifactRecord, type: TypeInfo | null): Promise<{ note: string | null; reload: boolean }>;
+  /** Runs an action on the artifact's host; a `write` brings its result home before it answers. */
+  call(record: ArtifactRecord, action: string, args: Record<string, unknown>, effect?: 'read' | 'write'): Promise<unknown>;
+  /** Whether the person lets the agent publish to this remote. */
+  agentMayPublish(name: string): boolean;
+  /** Publishes an artifact to a remote. */
+  publish(record: ArtifactRecord, name: string): Promise<ArtifactRecord>;
+  /** A tool wrote files into the artifact's folder. */
+  wrote(record: ArtifactRecord): void;
+  /** While the artifact's host cannot be reached: a note saying its edits are queued on this computer. */
+  offlineNote(record: ArtifactRecord): string | null;
+  /**
+   * A new artifact was made (create, adopt of a folder): with automatic publishing on, it is published in the
+   * background (never waited for, never failing the tool); `true` then.
+   */
+  created?(record: ArtifactRecord): boolean;
+  /** The artifact waits to be published by itself (its `view_url` is still the local address). */
+  autoPending?(record: ArtifactRecord): boolean;
+  /** Where automatic publishing sends artifacts (the default remote's host), or `null` when there is none. */
+  autoTarget?(): string | null;
+  /** One-time notes for the agent's next tool result, whatever its session (a site waiting for the person's approval). */
+  notices?(): string[];
+}
+
+/** The note on a tool result while the artifact is being published by itself. */
+function autoNote(host: string | null): string {
+  return `This artifact is being published to ${host ?? 'the default site'} by itself, in the background: view_url is this computer's address until that finishes, then its web address (a later result's view_url, or Artifact {action: "read"}). Nothing for you to do.`;
+}
+
 /** Options of {@link Tools}. */
 export interface ToolsOptions {
   types: TypeRegistry;
@@ -214,6 +261,8 @@ export interface ToolsOptions {
   viewUrl: (id: string) => string;
   /** Opens (resolves) the artifact's page, starting its type server when needed. */
   openPage: (record: ArtifactRecord) => Promise<unknown>;
+  /** Closes the artifact in its type server and opens it again, so it reads its folder anew. */
+  reopenPage?: (record: ArtifactRecord) => Promise<unknown>;
   /** Calls `POST /__open-artifact/actions/<name>` on the type's server. */
   typeAction: (type: TypeInfo, record: ArtifactRecord, name: string, args: Record<string, unknown>) => Promise<unknown>;
   /** The type's actions (`GET /__open-artifact/actions`, kept); `start: false` does not start a stopped server. `null`: not known. */
@@ -238,6 +287,8 @@ export interface ToolsOptions {
   openAfterFirstWrite?: (record: ArtifactRecord, caller: SessionRef) => boolean;
   /** Drops a pending {@link openAfterFirstWrite} (the page was opened another way). */
   cancelOpenAfterFirstWrite?: (id: string) => void;
+  /** Cloud publishing (off when there is no remote: no artifact has a `remote`). */
+  link?: LinkTools;
 }
 
 /** One file in a listing. */
@@ -252,6 +303,21 @@ const now = (): string => new Date().toISOString();
 
 /** How the page of a new artifact opens: `open` as granted. */
 type Opening = 'after_first_write' | 'now';
+
+
+/**
+ * The title an artifact's own files declare at its type's `titleFrom` (`<file>#<JSON pointer>`), at most 200
+ * characters, or undefined (no `titleFrom`, no such file, no string there).
+ */
+export function contentTitle(root: string, titleFrom: string | null): string | undefined {
+  const parsed = titleFrom ? parseTitleFrom(titleFrom) : null;
+  if (!parsed) return undefined;
+  try {
+    return titleInJson(readFileSync(join(root, parsed.file), 'utf8'), parsed.pointer)?.slice(0, 200);
+  } catch {
+    return undefined;
+  }
+}
 
 /** The tools. */
 export class Tools {
@@ -295,8 +361,8 @@ export class Tools {
     // What waited for this session goes along, except to a wait, which returns it itself.
     if (!(name === 'ArtifactComments' && input.action === 'wait')) {
       const key = sessionKeyOf(who);
-      const pending = key ? this.o.inbox.take(key) : [];
-      if (pending.length) result = { ...result, messages: pending.map((m) => m.text) };
+      const pending = [...(key ? this.o.inbox.take(key).map((m) => m.text) : []), ...(this.o.link?.notices?.() ?? [])];
+      if (pending.length) result = { ...result, messages: pending };
     }
     return result;
   }
@@ -542,6 +608,7 @@ export class Tools {
     const owner = caller.session || caller.workspace ? caller : null;
     const record = this.o.store.create({ root, type: typeId, typeSource: type.scope, typeRelease: type.version, owner, title });
     this.o.log(`created ${record.id} (${typeId}) at ${root} for ${sessionKeyOf(caller) ?? 'nobody'}`);
+    const auto = this.o.link?.created?.(record) === true;
     const actions = await this.knownActions(type, false);
     const check = this.hasCheck(type, actions);
     // open: "after_first_write" (the default) shows the page once the content lands; "now" at once; "never" not at
@@ -581,6 +648,7 @@ export class Tools {
               : check
                 ? AFTER_CREATE_CHECK
                 : AFTER_CREATE,
+      ...(auto ? { notes: [autoNote(this.o.link?.autoTarget?.() ?? null)] } : {}),
     };
   }
 
@@ -652,11 +720,16 @@ export class Tools {
     }
     const changed = changedFiles(record);
     this.o.store.update(record.id, { agentSeenAt: now() });
+    if (record.remote || record.autoPublish === 'pending') this.o.link?.wrote(record);
+    const offline = this.o.link?.offlineNote(record) ?? null;
+    const auto = this.o.link?.autoPending?.(record) === true ? autoNote(this.o.link?.autoTarget?.() ?? null) : null;
+    const notes = [...(changed.length ? [changedNote(changed.length)] : []), ...(offline ? [offline] : []), ...(auto ? [auto] : [])];
     const result: ToolCallResult = {
       url: artifactUrl(record.id),
       written,
       view_url: this.o.viewUrl(record.id),
-      ...(changed.length ? { changed_files: changed, notes: [changedNote(changed.length)] } : {}),
+      ...(changed.length ? { changed_files: changed } : {}),
+      ...(notes.length ? { notes } : {}),
     };
     if (args.check) result.check = await this.runCheck(record);
     return result;
@@ -757,7 +830,7 @@ export class Tools {
       return { url: artifactUrl(record.id), files, ...seen };
     }
     if (args.path) return { ...this.readOne(record, args.path, MAX_READ), ...seen };
-    const { owner, userEdits: _edits, ...shown } = record;
+    const { owner, userEdits: _edits, remote, ...shown } = record;
     const type = this.o.types.get(record.type, owner?.workspace ?? undefined);
     const actions = type ? await this.knownActions(type, false) : null;
     return {
@@ -765,6 +838,7 @@ export class Tools {
       url: artifactUrl(record.id),
       owner: owner ? sessionKeyOf(owner) : null,
       view_url: this.o.viewUrl(record.id),
+      ...(remote ? { cloud: { remote: remote.name, host: remote.host, view_url: remote.url, syncedAt: remote.syncedAt, ...offlineOf(this.o.link, record) } } : {}),
       type_url: typeUrl(record.type),
       ...(type ? { type_title: type.title } : {}),
       files: this.listFiles(record.root, true),
@@ -830,11 +904,32 @@ export class Tools {
    * never the agent (`lan` and `links` are refused).
    */
   private async share(args: ArtifactArgs): Promise<ToolCallResult> {
-    const record = this.o.store.require(args.url);
+    let record = this.o.store.require(args.url);
     if (args.lan !== undefined || args.links !== undefined) {
       throw new OpenArtifactError('not_granted', "Only the person changes how an artifact is shared, in the Share panel of its page.", {
         fix: 'Artifact {action: "open", url, panel: "share"} opens the panel for them.',
       });
+    }
+    if (args.cloud !== undefined && !(record.remote && record.remote.name === args.cloud)) {
+      const name = String(args.cloud);
+      if (!this.o.link || !this.o.link.agentMayPublish(name)) {
+        throw new OpenArtifactError('not_granted', `Only the person publishes an artifact to the cloud${this.o.link ? ` (the remote ${name} does not let agents publish)` : ''}.`, {
+          fix: `Ask the person to publish it from the Share panel (Artifact {action: "open", url, panel: "share"}) or with \`open-artifact publish ${record.id} --remote ${name}\`.`,
+        });
+      }
+      record = await this.o.link.publish(record, name);
+      this.o.log(`audit: published ${record.id} to ${name}, asked by the agent's Artifact share (remotes.${name}.agentMayPublish is on)`);
+    }
+    if (record.remote) {
+      return {
+        url: artifactUrl(record.id),
+        view_url: record.remote.url,
+        cloud: { remote: record.remote.name, host: record.remote.host, view_url: record.remote.url, syncedAt: record.remote.syncedAt },
+        note: `Published to ${record.remote.host}: people open it at view_url, as its owner shares it there. Keep writing files in the folder: they sync to the host, and what people change there comes back. The person changes sharing in the Share panel.${(() => {
+          const offline = this.o.link?.offlineNote(record);
+          return offline ? ` ${offline}` : '';
+        })()}`,
+      };
     }
     const access = await this.o.shareOf(record);
     const view = await access.view();
@@ -860,7 +955,13 @@ export class Tools {
     const type = this.o.types.get(record.type, record.owner?.workspace ?? undefined);
     if (!type) throw new OpenArtifactError('type_missing', `The type ${record.type} is not installed.`);
     if (!type.entry || type.entry.kind === 'static' || !type.entry.actions) throw missing ?? new OpenArtifactError('unsupported', `${type.id} has no actions.`);
-    await this.o.openPage(record);
+    // A published artifact's comments, db, Docs and Sheets live on its host: those actions run there.
+    const forward = !!this.o.link?.forwards(record, type, name);
+    // A render (snapshot, Docs export) runs here on the working copy, brought up to date with the host first.
+    const fresh = !forward && this.o.link?.renders(record, type, name) ? await this.o.link.freshen(record, type) : null;
+    const behind = fresh?.note ?? null;
+    if (fresh?.reload && this.o.reopenPage) await this.o.reopenPage(record);
+    else if (!forward) await this.o.openPage(record);
     // The type's own actions are checked against its list; the reserved open-artifact.* ones are not listed.
     const own = !name.startsWith('open-artifact.');
     const actions = own ? await this.knownActions(type, true) : null;
@@ -882,8 +983,9 @@ export class Tools {
     const acting = effect === 'write' && this.o.agentActing ? this.o.agentActing : null;
     acting?.(record.id, 'start');
     try {
-      const out = await this.o.typeAction(type, record, name, args);
+      const out = forward ? await this.o.link!.call(record, name, args, effect) : await this.o.typeAction(type, record, name, args);
       const result: ToolCallResult = out && typeof out === 'object' && !Array.isArray(out) ? (out as ToolCallResult) : { result: out };
+      if (behind) result.notes = [...(Array.isArray(result.notes) ? (result.notes as string[]) : []), behind];
       if (own && caller && typeof result.task === 'string' && result.pending === true) {
         this.o.taskStarted?.({ record, type, task: result.task, action: name, effect, caller });
       }
@@ -941,7 +1043,10 @@ export class Tools {
     }
     if (!typeId) throw new OpenArtifactError('invalid_argument', `Which type is ${root}? Give type_url.`);
     const type = this.o.types.get(typeId, caller.workspace);
-    const record = this.o.store.create({ root, type: typeId, typeSource: type?.scope ?? null, typeRelease: type?.version ?? null, owner: caller, title: args.title || basename(root) });
+    // The title its content declares (the type's `titleFrom`, e.g. a doc's name), else the folder's name.
+    const title = args.title || contentTitle(root, type?.titleFrom ?? null) || basename(root);
+    const record = this.o.store.create({ root, type: typeId, typeSource: type?.scope ?? null, typeRelease: type?.version ?? null, owner: caller, title });
+    const auto = this.o.link?.created?.(record) === true;
     const actions = type ? await this.knownActions(type, false) : null;
     return {
       url: artifactUrl(record.id),
@@ -949,6 +1054,7 @@ export class Tools {
       view_url: this.o.viewUrl(record.id),
       ...(actions?.length ? { actions } : {}),
       ...(type ? { instructions: this.instructionsFor(type, record, actions) } : {}),
+      ...(auto ? { notes: [autoNote(this.o.link?.autoTarget?.() ?? null)] } : {}),
     };
   }
 
@@ -1111,6 +1217,7 @@ export class Tools {
       if (record && !touched.has(record.id)) {
         touched.add(record.id);
         this.o.store.update(record.id, { agentSeenAt: now() });
+        if (record.remote || record.autoPublish === 'pending') this.o.link?.wrote(record);
       }
     }
     return { artifacts: [...touched].map(artifactUrl) };

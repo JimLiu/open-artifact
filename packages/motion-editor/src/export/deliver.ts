@@ -16,13 +16,18 @@ const LARGE_FILE_KEEP_MS = 10 * 60_000;
 
 export type Delivery = { to: 'host'; savedTo: string | null } | { to: 'browser' };
 
-/** Where a file of this size goes. */
-export const deliveryRoute = (bytes: number, hostSaves: boolean): 'host' | 'browser' => (hostSaves && bytes <= HOST_SAVE_MAX_BYTES ? 'host' : 'browser');
+/**
+ * Where a file of this size goes. A host that saves in the browser (`inBrowser`, a cloud host) takes any size: the
+ * file reaches it as the same Blob and becomes the browser's own download there.
+ */
+export const deliveryRoute = (bytes: number, hostSaves: boolean, inBrowser = false): 'host' | 'browser' => (hostSaves && (inBrowser || bytes <= HOST_SAVE_MAX_BYTES) ? 'host' : 'browser');
 
 /** Saves the file; rejects when the host refuses it (the caller may then offer the browser download). */
 export async function deliverFile(file: ExportedFile, downloads: DownloadsCapability | null): Promise<Delivery> {
-  if (deliveryRoute(file.blob.size, downloads !== null) === 'host' && downloads !== null) {
+  if (deliveryRoute(file.blob.size, downloads !== null, downloads?.browser === true) === 'host' && downloads !== null) {
     const saved = await saveFile(downloads, file.filename, file.blob);
+    // A host that saves in the browser put it in the browser's downloads: say so, as for a download of the page's own.
+    if (downloads.browser === true) return { to: 'browser' };
     return saved.to === 'host' ? { to: 'host', savedTo: saved.savedTo ?? null } : { to: 'browser' };
   }
   browserDownload(file.filename, file.blob, LARGE_FILE_KEEP_MS);

@@ -113,6 +113,20 @@ node artifact-types/design/scripts/cli.mjs wait ./my-design                 # bl
 Other commands: `check`, `generate`, `upload`, `context`, `comments`, `history`, `share`, `status`, `stop`, … Run the
 CLI with no arguments for the full list.
 
+## Deploy to your own server
+
+A site gives your artifacts a web address that works when your computer is off: people sign in, open what is shared
+with them, edit and comment together, and your agents publish to it. The guides are in [docs/](docs/README.md):
+
+- [Putting artifacts on a site](docs/hosting.md): how a site works and which kind to run. Start here.
+- [On your home or office network](docs/hosting-lan.md): no domain, plain http.
+- [On your own server, with a domain](docs/hosting-server.md): Docker Compose with Caddy, sign-in providers, AWS.
+- [On Cloudflare](docs/hosting-cloudflare.md): a Worker with D1 and Durable Objects.
+- [Connecting your computers and agents](docs/connecting-agents.md): `open-artifact remote add`, publishing,
+  publishing new artifacts by themselves, install-time presets, remote MCP, dashboards' data.
+- [Plugins](docs/plugins.md): your company's sign-in, permissions from your own service, rules, events and
+  invitation e-mails; using plugins and writing one.
+
 ## Development
 
 ### Build from source

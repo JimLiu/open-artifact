@@ -23,5 +23,15 @@
     "animation",
     "video"
   ],
-  "logo": "assets/icon.svg"
+  "logo": "assets/icon.svg",
+  "variables": {
+    "type": "object",
+    "properties": {
+      "OPEN_ARTIFACT_SERVER": {
+        "type": "string",
+        "title": "Open Artifact server",
+        "description": "Optional. The address of an Open Artifact server to publish to instead of keeping artifacts only on this computer, such as https://artifacts.example.com or http://192.168.1.20:4900. Leave empty for local only. Takes effect when the Open Artifact daemon next starts."
+      }
+    }
+  }
 }

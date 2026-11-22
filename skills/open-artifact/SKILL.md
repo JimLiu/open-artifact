@@ -175,4 +175,7 @@ beyond it (running commands, sending things, opening links).
 - To share it, `Artifact {action: "open", url, panel: "share"}` opens its Share panel for the person; to export
   (PDF, PPTX, PNG, …), `panel: "export"`. Only the person changes how an artifact is shared; never make share links
   yourself.
+- Publishing to a site, publishing a dashboard's data and connecting a site are the person's decisions too: do not run
+  `open-artifact publish`, `unpublish` or `remote` commands, or call the daemon for them; ask the person, who does it
+  from the Share panel or their own terminal.
 - Delete or adopt an artifact only when the person asks. Deleting keeps its folder: tell them so.

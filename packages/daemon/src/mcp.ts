@@ -4,12 +4,11 @@
  */
 
 import type { IncomingMessage } from 'node:http';
-import { RPC_ERRORS, type SessionRef, type ToolCallResult, type ToolDefinition } from '@open-artifact/protocol';
+import { serveMcp, type McpMessage, type McpMeta, type McpReply, type SessionRef, type ToolCallResult, type ToolDefinition } from '@open-artifact/protocol';
 import { MCP_APP_NOTE, SHOW_TOOL, VIEW_URI, clientShowsApps, viewContents, viewListing } from './mcp-app.ts';
 import { samePath } from './paths.ts';
 
-/** MCP protocol version answered when the client names none. */
-export const MCP_PROTOCOL = '2025-06-18';
+export { MCP_PROTOCOL, type McpMessage, type McpMeta, type McpReply } from '@open-artifact/protocol';
 
 /** Headers the `open-artifact mcp` bridge sets. */
 export const MCP_HEADERS = {
@@ -21,15 +20,6 @@ export const MCP_HEADERS = {
   /** `1`: the client shows MCP Apps (it declared the extension in `initialize`). */
   ui: 'x-open-artifact-ui',
 } as const;
-
-/** `_meta` fields an MCP client may pass to name its session. */
-export interface McpMeta {
-  harness?: string;
-  sessionId?: string;
-  threadId?: string;
-  conversationId?: string;
-  workspace?: string;
-}
 
 /** Finds a session from process ids or recent hooks, and a session's folder (the Harness hub). */
 export interface PidLookup {
@@ -81,22 +71,6 @@ export interface McpTools {
   call(name: string, args: Record<string, unknown>, caller: SessionRef): Promise<ToolCallResult>;
 }
 
-/** A JSON-RPC message from an MCP client. */
-export interface McpMessage {
-  jsonrpc?: '2.0';
-  id?: string | number | null;
-  method?: string;
-  params?: Record<string, unknown> & { _meta?: McpMeta; name?: string; arguments?: Record<string, unknown>; protocolVersion?: string; capabilities?: unknown; uri?: string };
-}
-
-/** A JSON-RPC answer. */
-export interface McpReply {
-  jsonrpc: '2.0';
-  id: string | number | null;
-  result?: unknown;
-  error?: { code: number; message: string };
-}
-
 /** Whether a request comes from a client that shows MCP Apps: the bridge's header. */
 export function uiFromRequest(request: IncomingMessage): boolean {
   return header(request, MCP_HEADERS.ui) === '1';
@@ -116,54 +90,29 @@ export async function handleMcp(
     origin?: string;
   },
 ): Promise<McpReply | null> {
-  const { id, method, params } = message ?? {};
-  const reply = (result: unknown): McpReply | null => (id === undefined ? null : { jsonrpc: '2.0', id, result });
-  const fail = (code: number, text: string): McpReply | null => (id === undefined ? null : { jsonrpc: '2.0', id, error: { code, message: text } });
-  const { tools, caller, version } = context;
-  const ui = !!context.ui && !!context.origin;
-  switch (method) {
-    case 'initialize': {
-      const apps = !!context.origin && (ui || clientShowsApps(params?.capabilities));
+  const { tools, caller, version, origin } = context;
+  const ui = !!context.ui && !!origin;
+  return serveMcp(message, {
+    version,
+    // initialize also reads the client's capabilities; tools/list goes by the bridge's header alone.
+    apps: (method, capabilities) => !!origin && (ui || (method === 'initialize' && clientShowsApps(capabilities))),
+    instructions: (apps) => {
       const instructions = tools.instructions(caller.workspace);
-      return reply({
-        protocolVersion: params?.protocolVersion ?? MCP_PROTOCOL,
-        capabilities: { tools: { listChanged: false }, ...(apps ? { resources: {} } : {}) },
-        serverInfo: { name: 'open-artifact', version },
-        instructions: apps ? `${instructions}\n\n${MCP_APP_NOTE}`.trim() : instructions,
-      });
-    }
-    case 'notifications/initialized':
-    case 'notifications/cancelled':
-      return null;
-    case 'ping':
-      return reply({});
-    case 'tools/list':
-      return reply({ tools: ui ? [...tools.definitions(), SHOW_TOOL] : tools.definitions() });
-    case 'resources/list':
-      return reply({ resources: context.origin ? [viewListing(context.origin)] : [] });
-    case 'resources/templates/list':
-      return reply({ resourceTemplates: [] });
-    case 'resources/read':
-      if (!context.origin || params?.uri !== VIEW_URI) return fail(RPC_ERRORS.invalidParams, `No resource ${String(params?.uri)}.`);
-      return reply({ contents: [viewContents(context.origin, version)] });
-    case 'tools/call': {
-      const meta = params?._meta ?? {};
+      return apps ? `${instructions}\n\n${MCP_APP_NOTE}`.trim() : instructions;
+    },
+    tools: (apps) => (apps ? [...tools.definitions(), SHOW_TOOL] : tools.definitions()),
+    call: (name, args, meta) => {
       const metaSession = meta.sessionId ?? meta.threadId ?? meta.conversationId;
       const who: SessionRef = { ...caller, ...(metaSession ? { session: metaSession } : {}) };
       // A bridge started in a plugin's folder names no folder: the session's own, when the daemon knows it.
       if (!who.workspace) who.workspace = context.workspaceOf?.(who) ?? null;
-      const result = await tools.call(String(params?.name ?? ''), params?.arguments ?? {}, who);
-      const isError = !!result?.error && Object.keys(result).filter((k) => k !== 'messages').length === 1;
-      const { messages, ...rest } = result ?? {};
-      const content = [{ type: 'text', text: JSON.stringify(rest, null, 2) }];
-      // Messages that waited for this session: plain text after the result, as a person's message would read.
-      for (const text of messages ?? []) content.push({ type: 'text', text });
-      // The view reads what to show from structuredContent.
-      const shown = params?.name === SHOW_TOOL.name && !isError ? { structuredContent: rest } : {};
-      return reply({ content, isError, ...shown });
-    }
-    default:
-      if (id === undefined) return null;
-      return fail(RPC_ERRORS.methodNotFound, `Method not found: ${method}`);
-  }
+      return tools.call(name, args, who);
+    },
+    // The view reads what to show from structuredContent.
+    structured: (name) => name === SHOW_TOOL.name,
+    resources: {
+      list: () => (origin ? [viewListing(origin)] : []),
+      read: (uri) => (origin && uri === VIEW_URI ? viewContents(origin, version) : null),
+    },
+  });
 }

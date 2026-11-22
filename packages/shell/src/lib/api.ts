@@ -19,6 +19,7 @@ import {
   type UpdateArtifactRequest,
 } from '@open-artifact/protocol';
 import { BOOT_TIMEOUT_MS } from '../shell/preboot.ts';
+import type { CloudInfo, ConnectStart, ConnectWait, PublishResult, RemoteInfo, RemotesAnswer } from './publish.ts';
 import { browserEnv, sharedStream, type SharedStreamEnv } from './shared-events.ts';
 
 /** A failed Library API call: the daemon's `{ code, message, fix? }` and the HTTP status. */
@@ -87,8 +88,12 @@ export interface LibraryApi {
   duplicate(id: string, name?: string): Promise<ArtifactView>;
   /** `POST artifacts.delete`: drops the record, keeps the folder. */
   remove(id: string): Promise<DeleteResult>;
-  /** `POST artifacts.restore`: brings back a record just deleted. */
+  /** `POST artifacts.restore`: brings back a record just deleted (on a cloud host: takes it out of the trash). */
   restore(id: string): Promise<ArtifactView>;
+  /** `GET artifacts?trashed=1` (a cloud host): the person's artifacts in the trash. */
+  trashed(): Promise<ArtifactView[]>;
+  /** `POST artifacts.purge` (a cloud host): deletes a trashed artifact for good; 501 where the host cannot. */
+  purge(id: string): Promise<{ purged: string }>;
   /** `POST artifacts.ask`: a message to the owner agent. */
   ask(request: AskRequest): Promise<AskResult>;
   /** `POST artifacts.open`: starts the page without telling a harness. */
@@ -98,12 +103,51 @@ export interface LibraryApi {
    * {@link BOOT_TIMEOUT_MS}). `fresh` opens the page again instead of taking the open the Shell's page started.
    */
   boot(id: string, options?: { fresh?: boolean }): Promise<ShellBoot>;
+  /** `GET remotes`: the sites this computer publishes to, what each keeps in sync, and publishing by itself (`cloud`). */
+  remotes(): Promise<RemotesAnswer>;
+  /** `POST cloud.settings`: the default site and whether new artifacts are published by themselves (a person's choice). */
+  cloudSettings(patch: { default?: string | null; publish?: 'auto' | 'manual' }): Promise<{ cloud: CloudInfo }>;
+  /** `POST remotes.add`: starts connecting a site (a code to approve there). The panel shows the approval link, so the daemon opens no browser window. */
+  connect(name: string, host: string): Promise<ConnectStart>;
+  /** `POST remotes.add.cancel`: stops a connect waiting for approval (the daemon stops asking the site). */
+  connectCancel(name: string): Promise<{ name: string; cancelled: boolean }>;
+  /** `POST remotes.add.wait`: waits up to `ms` for the approval; a refusal or a code that ran out is thrown. */
+  connectWait(name: string, ms: number): Promise<ConnectWait>;
+  /**
+   * `POST artifacts.publish`: publishes an artifact to a site. `data: true` is the person's word that a dashboard's
+   * live data goes with it (the panel says so beside Publish); without it the daemon publishes no rows.
+   */
+  publish(id: string, remote: string, options?: { data?: boolean }): Promise<PublishResult>;
+  /** `POST artifacts.unpublish`: takes it off its site (the folder stays). */
+  unpublish(id: string): Promise<{ url: string; id: string; view_url: string }>;
+  /**
+   * `POST artifacts.data`: a Data dashboard's live data on its site: how it stands; `publish` confirms (or takes back)
+   * that its data is published with it, `refresh` runs its queries on this computer now.
+   */
+  dataPublish(id: string, patch?: { publish?: boolean; refresh?: boolean }): Promise<DataPublishInfo>;
   /** The URL of the event stream. */
   readonly eventsUrl: string;
   /** `GET artifact.archive?id=`: the artifact's folder as a .zip (`HEAD` checks it can be zipped). */
   archiveUrl(id: string): string;
   /** The URL of a type's icon. */
   typeIconUrl(id: string): string;
+}
+
+/** `artifacts.data`'s answer: a dashboard's live data and its site (the daemon's `DataPublishStatus`). */
+export interface DataPublishInfo {
+  id: string;
+  /** It has live queries (their rows would be published with it). */
+  live: boolean;
+  queries: string[];
+  /** The person confirmed that its data is published with it. */
+  publish: boolean;
+  published: boolean;
+  /** When the published rows were taken (ISO), or `null`. */
+  at: string | null;
+  lastError: string | null;
+  running: boolean;
+  /** Minutes between refreshes while linked (`0`: only when published or asked). */
+  every: number;
 }
 
 /** Options of {@link createLibraryApi}. */
@@ -180,9 +224,26 @@ export function createLibraryApi(options: LibraryApiOptions = {}): LibraryApi {
     duplicate: (id, name) => call<ArtifactView>(LIBRARY_ROUTES.duplicate, { body: { id, ...(name && { name }) } }),
     remove: (id) => call<DeleteResult>(LIBRARY_ROUTES.delete, { body: { id } }),
     restore: (id) => call<ArtifactView>(LIBRARY_ROUTES.restore, { body: { id } }),
+    async trashed() {
+      const out = await call<{ artifacts?: ArtifactView[] }>(LIBRARY_ROUTES.artifacts, { query: { trashed: '1' } });
+      return Array.isArray(out.artifacts) ? out.artifacts : [];
+    },
+    purge: (id) => call<{ purged: string }>('artifacts.purge', { body: { id } }),
     ask: (request) => call<AskResult>(LIBRARY_ROUTES.ask, { body: request }),
     open: (id) => call<OpenResult>(LIBRARY_ROUTES.open, { body: { id, host: false } }),
     boot: (id, options) => call<ShellBoot>(LIBRARY_ROUTES.boot, { query: options?.fresh ? { id, fresh: '1' } : { id }, timeoutMs: BOOT_TIMEOUT_MS }),
+    async remotes() {
+      const out = await call<{ remotes?: RemoteInfo[]; cloud?: CloudInfo }>('remotes');
+      const cloud = out.cloud && typeof out.cloud === 'object' && Array.isArray(out.cloud.pending) ? out.cloud : null;
+      return { remotes: Array.isArray(out.remotes) ? out.remotes : [], cloud };
+    },
+    cloudSettings: (patch) => call<{ cloud: CloudInfo }>('cloud.settings', { body: patch }),
+    connect: (name, host) => call<ConnectStart>('remotes.add', { body: { name, host, browse: false } }),
+    connectCancel: (name) => call<{ name: string; cancelled: boolean }>('remotes.add.cancel', { body: { name } }),
+    connectWait: (name, ms) => call<ConnectWait>('remotes.add.wait', { body: { name, ms } }),
+    publish: (id, remote, options = {}) => call<PublishResult>('artifacts.publish', { body: { id, remote, ...(options.data ? { data: true } : {}) } }),
+    unpublish: (id) => call<{ url: string; id: string; view_url: string }>('artifacts.unpublish', { body: { id } }),
+    dataPublish: (id, patch = {}) => call<DataPublishInfo>('artifacts.data', { body: { id, ...patch } }),
     eventsUrl: url(LIBRARY_ROUTES.events),
     archiveUrl: (id) => url(LIBRARY_ROUTES.archive, { id }),
     typeIconUrl: (id) => url('type.icon', { id }),

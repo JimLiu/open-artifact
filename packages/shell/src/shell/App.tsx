@@ -5,7 +5,9 @@ import { LoaderCircle, TriangleAlert } from 'lucide-react';
 import { useEffect } from 'react';
 import { EmptyState } from '@open-artifact/ui';
 import { t } from '../lib/i18n.ts';
-import { loadLibrary, refreshArtifact, restoreSent, startEvents } from './actions.ts';
+import { isCloud } from '../lib/cloud.ts';
+import { cloudMayExport, loadLibrary, refreshArtifact, restoreSent, startEvents } from './actions.ts';
+import { setCloudPolicy } from './broker.ts';
 import { embedded, startBridge } from './bridge.ts';
 import { AskPane } from './components/AskPane.tsx';
 import { Stage } from './components/Stage.tsx';
@@ -30,10 +32,13 @@ function Shell() {
       const rest = addressWithout(location.href, SHELL_PARAMS.panel);
       if (rest) history.replaceState(history.state, '', rest);
     }
+    // A cloud host: the page's downloads save in the browser, and no connectors (before the page asks for anything).
+    if (isCloud(store.boot)) setCloudPolicy({ mayExport: cloudMayExport });
     const stopBridge = startBridge();
     if (store.boot?.typeServer) return stopBridge;
     restoreSent();
     const stopEvents = startEvents();
+    // The artifact says whether it is published to the web (`remote`); the sync state is the Share panel's to load.
     void refreshArtifact();
     void loadLibrary();
     return () => {

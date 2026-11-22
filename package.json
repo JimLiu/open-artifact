@@ -14,7 +14,7 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "typecheck": "tsc -p tsconfig.json",
-    "test": "node --test \"packages/*/test/*.test.ts\" \"plugins/dsh/test/*.test.ts\"",
+    "test": "node --test \"packages/*/test/*.test.ts\" \"plugins/dsh/test/*.test.ts\" \"examples/host-plugins/*.test.mjs\"",
     "check": "npm run typecheck && npm test",
     "e2e": "node e2e/run.mjs",
     "test-artifacts": "node test-artifacts/home.mjs"

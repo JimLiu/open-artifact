@@ -8,7 +8,15 @@
  */
 
 import { isShellMessage, type HostCaps, type ShellToHost } from '@open-artifact/protocol';
+import { HOME_BOOT_GLOBAL, homeBootOf, type HomeBootRead } from '../lib/cloud.ts';
 import { useHome } from './store.ts';
+
+/**
+ * What the server inlined into the page: a cloud host replaces `HOME_BOOT_PLACEHOLDER` in `index.html` with a
+ * {@link HomeBoot} as JSON (`{"cloud": {...}}`); the local daemon serves the file as it is, so it stays `null` and the
+ * page is the local one.
+ */
+export const homeBoot: HomeBootRead = homeBootOf((window as unknown as Record<string, unknown>)[HOME_BOOT_GLOBAL]);
 
 /** The host that embeds the home page. */
 export interface HomeHost {
