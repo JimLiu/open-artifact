@@ -148,9 +148,10 @@ test('the person links the daemon and publishes the dashboard; only the confirma
   const status = await waitFor(() => onHost('db/data/live.json'));
   assert.equal(status.owner, 'Ada');
   assert.ok(typeof status.at === 'string');
-  base = Number(hostRevenueText());
+  // The answers are files of their own and arrive one after another: the status can be there a moment before them.
+  base = Number(await waitFor(() => hostRevenueText()));
   assert.ok(base > 0);
-  assert.ok(onHost('db/data/live/answers/tickets.json'));
+  assert.ok(await waitFor(() => onHost('db/data/live/answers/tickets.json')));
   // The broken query failed by itself: its reason is recorded, the others came through.
   assert.match(String((status.failed as { reason?: string } | undefined)?.reason), /broken.*offline for maintenance/);
   const after = await api<DataPublishStatus>(state, 'artifacts.data', { id: dash });
