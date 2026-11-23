@@ -39,7 +39,9 @@ dsh plugin --profile web add dsh-open-artifact
 
 DSH installs no dependencies of a plugin, so the build puts what the daemon needs into `vendor/`: the daemon as one
 file (`vendor/open-artifact.mjs`), the Shell and home pages, the type server and the built-in types, and the harness
-profiles (`src/server/vendor.ts`).
+profiles (`src/server/vendor.ts`). It also writes `scripts/open-artifact.mjs` (the open-artifact skill's launcher) and
+`vendor/runtime.json`, so the plugin folder is a runtime folder like the skill's: the plugin names it in `hello`, the
+daemon records it, and another app on this computer can start it.
 
 When no daemon runs, the kit chooses among this vendored runtime, the runtimes other apps registered and the shared
 ones under `<home>/runtime/<version>/`, and starts the newest compatible one. A newer runtime already on the computer
@@ -60,7 +62,7 @@ for which DSH has no API. `open-artifact doctor --harness dsh` shows the policy 
 ## Build and test
 
 ```bash
-node plugins/dsh/scripts/build.mjs     # lib/, vendor/ and skills/open-artifact/SKILL.md (run by npm run build)
+node plugins/dsh/scripts/build.mjs     # lib/, vendor/, scripts/open-artifact.mjs and skills/open-artifact/SKILL.md (run by npm run build)
 node --test plugins/dsh/test/*.test.ts # part of npm test
 ```
 

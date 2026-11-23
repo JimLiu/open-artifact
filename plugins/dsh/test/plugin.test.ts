@@ -11,6 +11,7 @@ import { AGENT_PROMPT, TOOL_DEFINITIONS, TOOL_SCHEMAS, WAKE_SOURCE_KIND, type To
 import type { DshAgent, DshContext, DshEvents, DshQuestionWait, DshRoute, DshSkillProvider, DshToolDefinition, DshUserMessage } from '../src/server/dsh.ts';
 import { HostOpens } from '../src/server/host-open.ts';
 import { dshParameters, setup, ToolError, wakeMessage, type Plugin } from '../src/server/index.ts';
+import { packageRoot } from '../src/server/vendor.ts';
 import { PATHS, type HostOpenRequest } from '../src/shared/routes.ts';
 
 // ---------------------------------------------------------------- fakes
@@ -214,7 +215,8 @@ describe('setup', () => {
     // The Browser tab is a general-purpose browser: a remote type's page is shown like any other.
     assert.equal(open.remote, 'allow');
     assert.equal(hello.kit?.name, '@open-artifact/harness-kit');
-    assert.match(hello.runtime?.dir ?? '', /[\\/]vendor$/);
+    // The runtime is the plugin folder itself (scripts/open-artifact.mjs beside vendor/), which the daemon can record.
+    assert.equal(hello.runtime?.dir, packageRoot());
     assert.equal(hello.runtime?.update, 'bundled');
     assert.ok(hello.runtime?.version);
     dispose();

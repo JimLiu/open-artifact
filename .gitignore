@@ -7,6 +7,7 @@ artifact-types/*/scripts/
 # DSH plugin build output (plugins/dsh/scripts/build.mjs)
 plugins/dsh/lib/
 plugins/dsh/vendor/
+plugins/dsh/scripts/open-artifact.mjs
 plugins/dsh/LICENSE
 plugins/dsh/NOTICE
 plugins/dsh/CHANGELOG.md

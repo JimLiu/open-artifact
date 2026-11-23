@@ -20,6 +20,9 @@
 //      be claimed twice.
 //  (d) Remote type: `host.open` for a farstub artifact carries `remote` {type, origins}; the `deny` host's `open` is
 //      never called for it.
+//  (e) The DSH plugin's runtime: a host saying in `hello` the runtime the plugin declares (`runtimeOf()` of
+//      plugins/dsh, the built plugin folder) is recorded by the daemon in `runtimes.json` and listed by
+//      `runtime status` as a registered runtime; nothing is logged as "not recorded". Skipped when plugins/dsh is not built.
 //
 // With --no-browser the Chrome cases are skipped (each says so) and the rest runs. The run against the two previous
 // minor versions of @open-artifact/harness-kit from npm has a place of its own at the end, skipped: the kit is not
@@ -32,7 +35,7 @@ import { createServer } from 'node:http';
 import { createServer as createNetServer } from 'node:net';
 import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
-import { api, readDaemon } from '@open-artifact/harness-kit';
+import { api, createHarness, readDaemon } from '@open-artifact/harness-kit';
 import { ScriptedAgent } from '../examples/harness-node/agent.mjs';
 import { callerOf, connectHarness } from '../examples/harness-node/harness.mjs';
 import { registerTools } from '../examples/harness-node/tools.mjs';
@@ -53,6 +56,9 @@ function noBrowser() {
   return false;
 }
 const browserSkip = noBrowser();
+const DSH_PLUGIN = path.join(repoRoot, 'plugins', 'dsh');
+const dshSkip = fs.existsSync(path.join(DSH_PLUGIN, 'vendor', 'open-artifact.mjs')) ? false : 'plugins/dsh is not built (npm run build): no vendor/open-artifact.mjs';
+if (dshSkip) console.log(`# harness-compat: the DSH runtime case skipped: ${dshSkip}`);
 if (browserSkip) console.log(`# harness-compat: Chrome cases skipped: ${browserSkip}`);
 
 /** A TCP port nobody listens on now. */
@@ -306,6 +312,29 @@ describe('harness compatibility: the reference host against a real daemon', () =
     const request = ctx.opened.view.find(r => r.url === mine.url);
     assert.ok(request, 'the allow host was asked to open it');
     assert.deepEqual(request.remote, { type: 'farstub', origins: [`http://0.0.0.0:${ctx.stubPort}`] });
+  });
+
+  it('(e) the runtime the DSH plugin declares in hello is recorded and listed as registered', { ...T, skip: dshSkip }, async () => {
+    const { runtimeOf } = await import('../plugins/dsh/src/server/vendor.ts');
+    const runtime = runtimeOf();
+    assert.equal(runtime.dir, DSH_PLUGIN);
+    const host = await createHarness({ harness: 'compat-dsh', agentName: 'Agent', home: ctx.home, autoStart: false, runtime, caps: { tools: 'native', library: 'own' }, wake: () => 'queued' });
+    try {
+      await host.ready();
+      const recorded = () => JSON.parse(fs.readFileSync(path.join(ctx.home, 'runtimes.json'), 'utf8')).runtimes.find(r => r.harness === 'compat-dsh');
+      assert.ok(await until(() => fs.existsSync(path.join(ctx.home, 'runtimes.json')) && recorded(), 15000), `not recorded:\n${ctx.daemonLog}`);
+      assert.deepEqual({ dir: recorded().dir, version: recorded().version, update: recorded().update }, { dir: DSH_PLUGIN, version: runtime.version, update: 'bundled' });
+      const log = fs.readFileSync(path.join(ctx.home, 'logs', 'daemon.log'), 'utf8');
+      assert.match(log, /adapter compat-dsh connected/);
+      assert.doesNotMatch(log, /compat-dsh.*not recorded/);
+      const status = await cli(['runtime', 'status', '--json'], ctx.env, ctx.workspace);
+      const listed = JSON.parse(status.stdout).runtimes.find(r => r.source === 'registered' && r.dir === DSH_PLUGIN);
+      assert.ok(listed, status.stdout);
+      assert.equal(listed.version, runtime.version);
+      assert.equal(listed.harness, 'compat-dsh');
+    } finally {
+      host.close();
+    }
   });
 
   it('(c) a top-level view without a browser: the ticket is claimed once, commands and events pass', T, async () => {

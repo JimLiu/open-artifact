@@ -4,13 +4,13 @@
  * stand-in daemon that says in `daemon.json` which one it is and which Shell folder it was given.
  */
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, it } from 'node:test';
-import { daemonStartPlan, ensureDaemon } from '@open-artifact/harness-kit';
+import { daemonStartPlan, ensureDaemon, runtimeInfo } from '@open-artifact/harness-kit';
 import { PROTOCOL_MAX, PROTOCOL_MIN } from '@open-artifact/protocol';
-import { daemonOptions, runtimeOf } from '../src/server/vendor.ts';
+import { daemonOptions, packageRoot, runtimeOf, vendorPaths } from '../src/server/vendor.ts';
 
 /** A daemon that answers health and writes daemon.json naming itself, then stays until killed. */
 const fakeDaemon = (name: string, version: string) => `
@@ -73,8 +73,29 @@ describe('the daemon the plugin starts', () => {
     const { root, home } = setUp();
     const options = daemonOptions({}, root, { OPEN_ARTIFACT_HOME: home });
     assert.equal(options.bin, undefined);
-    assert.deepEqual(options.own, { dir: runtimeOf(root).dir, bin: join(root, 'vendor', 'open-artifact.mjs'), version: '0.13.0', protocols: { min: PROTOCOL_MIN, max: PROTOCOL_MAX } });
+    // The runtime is the plugin folder (scripts/open-artifact.mjs beside vendor/), not vendor/ itself.
+    assert.deepEqual(runtimeOf(root), { dir: root, version: '0.13.0', update: 'bundled' });
+    assert.deepEqual(options.own, { dir: root, bin: join(root, 'vendor', 'open-artifact.mjs'), version: '0.13.0', protocols: { min: PROTOCOL_MIN, max: PROTOCOL_MAX } });
     assert.equal(daemonStartPlan({ ...options, home }).override, false);
+  });
+
+  it('names a folder the daemon takes for a runtime once it has the launcher, at the version it says', () => {
+    const { root } = setUp('0.13.0');
+    // Without scripts/open-artifact.mjs the folder is no runtime: the daemon would not record it from hello.
+    assert.equal(runtimeInfo(runtimeOf(root).dir), null);
+    mkdirSync(join(root, 'scripts'));
+    writeFileSync(join(root, 'scripts', 'open-artifact.mjs'), '');
+    writeFileSync(join(root, 'vendor', 'runtime.json'), JSON.stringify({ version: '0.13.0', protocols: { min: PROTOCOL_MIN, max: PROTOCOL_MAX } }));
+    assert.deepEqual(runtimeInfo(runtimeOf(root).dir), { bin: join(root, 'scripts', 'open-artifact.mjs'), version: '0.13.0', protocols: { min: PROTOCOL_MIN, max: PROTOCOL_MAX } });
+  });
+
+  it('the built plugin folder is that runtime folder', { skip: existsSync(vendorPaths().bin) ? false : 'plugins/dsh is not built (npm run build)' }, () => {
+    const root = packageRoot();
+    const { version } = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as { version: string };
+    assert.deepEqual(runtimeInfo(runtimeOf().dir), { bin: join(root, 'scripts', 'open-artifact.mjs'), version, protocols: { min: PROTOCOL_MIN, max: PROTOCOL_MAX } });
+    // What npm publishes carries the launcher too.
+    const { files } = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as { files: string[] };
+    assert.ok(files.includes('scripts/open-artifact.mjs'));
   });
 
   it('starts the vendored daemon when it is the newest, with its own Shell', async () => {

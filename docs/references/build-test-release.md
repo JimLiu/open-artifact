@@ -25,7 +25,7 @@ node scripts/build-plugins.mjs # Build unified skill + dist/plugins/<name>/ + ma
   - `types` — copies `dist/server/` into every `artifact-types/<type>/scripts/`
   - `shell` — builds `dist/daemon/shell/` and `dist/daemon/home/`
   - `frame` — builds `dist/daemon/frame-host/`
-  - `dsh` — builds `plugins/dsh/` (`lib/` and vendored daemon in `vendor/`)
+  - `dsh` — builds `plugins/dsh/` (`lib/`, the vendored daemon in `vendor/`, and the launcher `scripts/open-artifact.mjs` that makes the folder a runtime folder)
   - `sea` — the single executable `dist/sea/open-artifact-<platform>-<arch>` for this platform (`scripts/build-sea.mjs`; `--node <file>` or `OPEN_ARTIFACT_SEA_NODE` picks the Node to embed, an official build of Node 25.5+). Never part of the full build; needs `npm run build` and `node scripts/build-skill.mjs` first.
 - `node scripts/build-plugins.mjs --only <app>` — builds one plugin (`claude-code`, `codex`, `cursor`, `copilot`, `antigravity`, `zcode`, `chatgpt`). Pass `--no-skill` to reuse an already-built skill.
 - `node scripts/build-wasm.mjs` — compiles Rust crates under `crates/` and updates committed output under `packages/wasm-*/generated/`.

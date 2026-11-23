@@ -160,7 +160,7 @@ shows `host` as `healthy` and `caddy` as `running`, then:
 curl -s https://artifacts.example.com/__open-artifact/health
 ```
 
-**Expect:** `{"openArtifact":1,"version":"0.13.0"}` (that answer was seen from the same program run without Docker).
+**Expect:** `{"openArtifact":1,"version":"0.14.0"}` (that answer was seen from the same program run without Docker).
 
 **If it fails:** `docker compose logs host` shows an `open-artifact-host: OA_…` line naming a wrong setting;
 `docker compose logs caddy` shows certificate errors (DNS not pointing here yet, port 80 closed, or the ask endpoint

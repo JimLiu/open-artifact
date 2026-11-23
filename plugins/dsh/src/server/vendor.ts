@@ -10,6 +10,11 @@
  *   vendor/artifact-types            the built-in types (data, design, design-system, docs, motion, sheets, slides, whiteboard),
  *                                    each scripts/cli.mjs running vendor/type-server (scripts/vendor-types.mjs)
  *
+ * and `scripts/open-artifact.mjs`, the open-artifact skill's launcher, with `vendor/runtime.json` (the version and the
+ * protocols the daemon speaks). With those two the plugin folder is a runtime folder like the skill's
+ * (`scripts/open-artifact.mjs` beside `vendor/`), which is what the daemon records from `hello` and what another
+ * harness on this computer may start.
+ *
  * Every harness on this computer shares one daemon: whichever starts it first decides these folders.
  */
 import { existsSync, readFileSync } from 'node:fs';
@@ -77,14 +82,15 @@ export function daemonOptions(config: { daemonBin?: string } = {}, root: string 
   if (config.daemonBin) return { env: daemonEnv, bin: config.daemonBin };
   if (!existsSync(paths.bin)) return { env: daemonEnv };
   const { dir, version } = runtimeOf(root);
-  // The vendored entry is `vendor/open-artifact.mjs`, not a runtime folder's `scripts/open-artifact.mjs`: named as
-  // `bin`. It is built from this release, so it speaks this protocol range.
+  // The plugin starts the vendored daemon itself (`bin`), with the folders set above, not through the folder's
+  // launcher. It is built from this release, so it speaks this protocol range.
   return { env: daemonEnv, own: { dir, bin: paths.bin, version, protocols: { min: PROTOCOL_MIN, max: PROTOCOL_MAX } } };
 }
 
 /**
- * The runtime this plugin carries, as `hello` declares it: the vendor folder and the plugin's version (the daemon it
- * vendors is built from the same release). DSH's plugin manager updates the plugin, and the runtime with it: `bundled`.
+ * The runtime this plugin carries, as `hello` declares it: the plugin folder (a runtime folder, `scripts/open-artifact.mjs`
+ * beside `vendor/`) and the plugin's version (the daemon it vendors is built from the same release). DSH's plugin
+ * manager updates the plugin, and the runtime with it: `bundled`.
  */
 export function runtimeOf(root: string = packageRoot()): HarnessRuntime {
   let version = '0.0.0';
@@ -93,5 +99,5 @@ export function runtimeOf(root: string = packageRoot()): HarnessRuntime {
   } catch {
     // no package.json: an unbuilt checkout
   }
-  return { dir: join(root, 'vendor'), version, update: 'bundled' };
+  return { dir: root, version, update: 'bundled' };
 }

@@ -18,7 +18,7 @@ Ship the runtime folder with your app and name it when you connect:
 ```js
 const oa = await createHarness({
   harness: 'my-agent',
-  runtime: { dir: '/Applications/MyAgent.app/Contents/Resources/open-artifact', version: '0.13.0', update: 'prompt' },
+  runtime: { dir: '/Applications/MyAgent.app/Contents/Resources/open-artifact', version: '0.14.0', update: 'prompt' },
 });
 ```
 

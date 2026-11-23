@@ -6,6 +6,50 @@ agent plugins. Since 0.9.0 they all share one version; before that `dsh-open-art
 Each entry is written from the commits since the previous tag (`node scripts/changelog.mjs` lists them); see
 [Releasing](README.md#releasing).
 
+## [0.14.0] - 2026-11-22
+
+Build Open Artifact into your own agent product: an SDK for agent apps, pages shown inside the app, comments delivered to the right session, and a runtime that keeps itself current.
+
+### Added
+
+- `@open-artifact/harness-kit`, an SDK for agent apps. It finds or starts the daemon, reconnects, hands the app's agent the three tools, routes comments and requests sent from a page to the session that owns the artifact, and installs the skill under the app's own command name. It comes with a stand-in daemon for an app's own tests.
+- Artifact pages inside an agent app, in a frame or as a top-level view: the app gets the list of origins to allow, a handshake with the page's toolbar, the app's colour scheme, export destinations, thumbnails, and what the person is looking at as context for the next message.
+- An agent app can describe itself in a profile file (`open-artifact harness add | list | remove`) instead of needing code in the daemon: its agent's name, how its hooks answer, how an idle session is woken, and rules for what its agent may make.
+- Types served from another computer are marked wherever a type is described, with the domain their page and content are on. An app chooses whether to show such pages (`allow`, `ask`, `deny`), and creating an artifact of a type that cannot be reached says which address failed and why.
+- `open-artifact runtime status | update | pin | policy`. The runtime on a computer is the newest compatible one any app brought or the person installed; a check for a newer one runs at most once a day and downloads nothing until asked, unless the policy is `auto`. A download is checked against the registry's sha512 integrity; provenance attestations are recorded but not verified.
+- `open-artifact doctor` checks a computer's setup; with `--harness <name> --session <id>` it runs a conformance script against a running agent app, and it checks that types on other computers answer.
+- `open-artifact harness --stdio`, the same API over a process's stdin and stdout, for apps not written in JavaScript, with a Python example.
+- A single-file executable of the runtime can be built from source (`npm run build -- --only sea`) for computers without Node.js. It was built and tested on macOS arm64 only and is not attached to releases yet.
+- `open-artifact skill render | install` and `open-artifact --version`.
+- A guide to integrating an agent product, topic pages and reference specifications under `docs/integrating` and `docs/spec`, in English and Chinese, with runnable examples in `examples/harness-node`, `examples/harness-electron` and `examples/harness-stdio`.
+- User and agent guides and a guide for each artifact type, in English and Chinese, under `docs/`.
+
+### Changed
+
+- An artifact last written by a newer release of its type than the one installed opens read-only, with a line saying how to update; agents' writes to it are refused rather than risk dropping what the newer release stored.
+- When a session other than the one that made an artifact changes it, the artifact's comments go to that session from then on, and the earlier session is told.
+- A message sent from a page says when the app put it in the conversation for the person to send, instead of saying it was sent to the agent.
+- Agents include the artifact's link in their reply whether or not the page opened by itself.
+- The DeepSeek Harness and ZCode plugins run on the SDK. The DeepSeek Harness plugin starts the newest compatible runtime on the computer rather than always its own copy, shows who sent a comment, and delivers a collaborator's comment or a finished task as a notice rather than as the person's own message.
+- Deleting a document with `ArtifactData` counts as an edit of the artifact, not as removing it.
+
+### Fixed
+
+- A type served from another computer is no longer sent the artifact's folder path on this computer, and the daemon no longer follows that server's redirects or reads answers of unbounded size from it.
+- On Windows, waking an idle session no longer tries to run a `.cmd` file, which Node.js refuses; an `.exe` is looked for first.
+
+### Integrators
+
+- The Harness API is still protocol 1 and every change is an addition. `hello` answers a list of feature names; test for a feature before calling a method added in this release (`skill.get`, `commands.list`, `embed.origins`, `shell.command`, `view.context`, `runtime.status`, `runtime.update`).
+- A wake's `source` always carries `reason` and `from`. Treat only the owner's words as the person's message; `@open-artifact/protocol` types them as required, and `wakeSourceOf` fills them in for a wake from an older daemon.
+- JSON-RPC error numbers are the same on the WebSocket and the stdio bridge: `invalid_argument` is now -32602 on the WebSocket (it was -32000). Switch on `error.data.code`, which did not change.
+- The Shell takes `host_hello` only from an origin a connected adapter declared in `caps.open.origins`. While no adapter declares any, a page that frames the Shell is still taken as its host but gets no prompt or comment text, links or saved files. A page loaded from `file://` has no origin to declare: use a custom scheme or the top-level view.
+- What an adapter reports about its harness is data: `nudge`, `mcp`, `skillsDir` and `sessionWorkspace` are read only from a profile file on disk. Profiles now name their hook format (`hookDialect`) and wake command (`nudge`, a program and arguments run without a shell).
+- Tool definitions list each action's kind (`read`, `write`, `ui`, `remove`, `person`) and the actions that reach another computer for a remote type; over MCP both are under `_meta`, and `openWorldHint` is true once a remote type is installed.
+- `dsh-open-artifact` is built on `@open-artifact/harness-kit` and no longer ships `skills/open-artifact/SKILL.md` in the repository; the file is written at build time.
+- `dsh-open-artifact` ships `scripts/open-artifact.mjs` and `vendor/runtime.json`, so its folder is a runtime folder: the daemon records the runtime the plugin carries, and other apps on the computer can start it.
+- From this release on, `node scripts/changelog.mjs --check` requires this section whenever the protocol, the SDK, the shipped profiles or the stdio bridge changed.
+
 ## [0.13.0] - 2026-11-22
 
 Publish artifacts to a site of your own: a cloud host for a server, a LAN machine or Cloudflare, with sign-in, sharing, plugins and a remote MCP endpoint.
@@ -396,6 +440,7 @@ One version for every package, with Docs and Sheets in every plugin.
 - Plugins for Claude Code, Codex, Cursor, Copilot, ChatGPT and DeepSeek Harness.
 - English and Chinese READMEs, under Apache-2.0.
 
+[0.14.0]: https://github.com/JimLiu/open-artifact/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/JimLiu/open-artifact/compare/v0.12.5...v0.13.0
 [0.12.5]: https://github.com/JimLiu/open-artifact/compare/v0.12.4...v0.12.5
 [0.12.4]: https://github.com/JimLiu/open-artifact/compare/v0.12.3...v0.12.4
