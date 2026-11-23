@@ -6,6 +6,7 @@
  * against the page base, and pushed changes arrive over one EventSource.
  */
 
+import { getDbWriteBaseMeta, setDbChangeDeletes, setDbDocMeta, type DbDocMeta } from '@open-artifact/protocol';
 import {
   ArtifactError,
   canEdit,
@@ -33,7 +34,7 @@ import {
   type RoomMessage,
   type UserCapability,
 } from './capabilities.ts';
-import type { CapabilityProvider } from './client.ts';
+import { canRetryCapability, type CapabilityProvider } from './client.ts';
 import {
   API,
   type AgentSendRequest,
@@ -50,7 +51,9 @@ import {
   type CommentThreadResponse,
   type DbGetResponse,
   type DbListResponse,
+  type DbWatermark,
   type DbWriteRequest,
+  type DbWriteResponse,
   type ErrorResponse,
   type FilesResponse,
   type HistoryDiffResponse,
@@ -124,7 +127,7 @@ async function toError(response: Response): Promise<ArtifactError> {
     /* not JSON: fall through to a status-based code */
   }
   const fallback: ArtifactErrorCode =
-    response.status === 409 ? 'conflict' : response.status === 403 ? 'not_writer' : response.status === 404 ? 'not_found' : 'unavailable';
+    response.status === 409 ? 'conflict' : response.status === 401 ? 'not_granted' : response.status === 403 ? 'not_writer' : response.status === 404 ? 'not_found' : 'unavailable';
   return new ArtifactError(body.code ?? fallback, body.message ?? `HTTP ${response.status}`, body.paths, body.retryable === true);
 }
 
@@ -136,11 +139,11 @@ function makeClientId(): string {
 }
 
 /**
- * Creates the provider. Capabilities are built lazily on first `use()` and the
- * session (`GET _api/session`) is fetched once and shared.
+ * Builds capabilities on first use and shares the session returned by GET _api/session.
+ * A timeout or transient failure allows a fresh request. An explicit denial stays cached.
  */
 export function createLocalProvider(options: LocalProviderOptions = {}): CapabilityProvider {
-  const base = new URL(options.base ?? './', location.href);
+  const base = new URL(options.base ?? './', globalThis.location?.href);
   const client = makeClientId();
   const url = (path: string, query?: Record<string, string>): string => {
     const target = new URL(path, base);
@@ -235,7 +238,7 @@ export function createLocalProvider(options: LocalProviderOptions = {}): Capabil
     if (!session || checking) return false;
     checking = true;
     try {
-      const was = (await session.catch(() => null))?.viewer;
+      const was = (await session.request.catch(() => null))?.viewer;
       if (!was) return false;
       let response: Response;
       try {
@@ -286,12 +289,30 @@ export function createLocalProvider(options: LocalProviderOptions = {}): Capabil
     };
   }
 
-  let session: Promise<SessionResponse> | null = null;
-  const getSession = (): Promise<SessionResponse> => (session ??= json<SessionResponse>(API.session));
+  let session: { request: Promise<SessionResponse>; controller: AbortController } | undefined;
+  const getSession = (signal?: AbortSignal): Promise<SessionResponse> => {
+    signal?.throwIfAborted();
+    if (!session) {
+      const controller = new AbortController();
+      const request = json<SessionResponse>(API.session, { signal: controller.signal }).catch((error: unknown) => {
+        if (session?.controller === controller && canRetryCapability(error)) session = undefined;
+        throw error;
+      });
+      session = { request, controller };
+    }
+    const current = session;
+    if (!signal) return current.request;
+    const expire = () => {
+      if (session === current) session = undefined;
+      current.controller.abort();
+    };
+    signal.addEventListener('abort', expire, { once: true });
+    return current.request.finally(() => signal.removeEventListener('abort', expire));
+  };
 
-  const builders: { [K in CapabilityName]: () => Promise<CapabilityMap[K] | null> } = {
-    async artifact() {
-      const { artifact, stores } = await getSession();
+  const builders: { [K in CapabilityName]: (signal?: AbortSignal) => Promise<CapabilityMap[K] | null> } = {
+    async artifact(signal) {
+      const { artifact, stores } = await getSession(signal);
       const capability: ArtifactCapability = {
         id: artifact.id,
         ...(stores?.systemCopy ? {
@@ -315,8 +336,8 @@ export function createLocalProvider(options: LocalProviderOptions = {}): Capabil
       return capability;
     },
 
-    async assets() {
-      const { viewer } = await getSession();
+    async assets(signal) {
+      const { viewer } = await getSession(signal);
       if (!canEdit(viewer.role)) return null;
       const capability: AssetsCapability = {
         upload: async (data, opts) =>
@@ -329,8 +350,8 @@ export function createLocalProvider(options: LocalProviderOptions = {}): Capabil
       return capability;
     },
 
-    async user() {
-      const { viewer } = await getSession();
+    async user(signal) {
+      const { viewer } = await getSession(signal);
       const capability: UserCapability = { me: async () => viewer };
       return capability;
     },
@@ -373,23 +394,81 @@ export function createLocalProvider(options: LocalProviderOptions = {}): Capabil
       return capability;
     },
 
-    async db() {
-      const { stores } = await getSession();
+    async db(signal) {
+      const { stores } = await getSession(signal);
       if (!stores?.db) return null;
+      let streamEpoch: string | undefined;
+      const retiredEpochs = new Set<string>();
+      const acceptEpoch = ({ epoch, seq }: DbWatermark): boolean => {
+        if (typeof epoch !== 'string' || typeof seq !== 'number' || epoch === streamEpoch) return true;
+        if (retiredEpochs.has(epoch)) return false;
+        if (streamEpoch !== undefined) retiredEpochs.add(streamEpoch);
+        streamEpoch = epoch;
+        return true;
+      };
+      const attach = (value: unknown, { epoch, seq }: DbWatermark, deletedSeq?: number): void => {
+        if (typeof epoch === 'string' && typeof seq === 'number') {
+          setDbDocMeta(value, { epoch, seq, ...(typeof deletedSeq === 'number' ? { deletedSeq } : {}) });
+        }
+      };
+      const callbacks = new Set<(event: DbChangeEvent) => void>();
+      let unsubscribe: (() => void) | undefined;
+      const receive = (raw: ServerEvents['db']): void => {
+        if (!acceptEpoch(raw)) return;
+        const { changes } = raw;
+        if (typeof raw.epoch === 'string' && typeof raw.seq === 'number') {
+          let deleted: Record<string, DbDocMeta> | undefined;
+          for (const [path, data] of Object.entries(changes)) {
+            if (data === null) (deleted ??= {})[path] = { epoch: raw.epoch, seq: raw.seq };
+            else attach(data, raw, raw.deletedSeqs?.[path]);
+          }
+          if (deleted) setDbChangeDeletes(changes, deleted);
+        }
+        const event = { changes, ...(raw.author !== undefined ? { author: raw.author } : {}) };
+        for (const callback of callbacks) callback(event);
+      };
       const capability: DbCapability = {
-        get: async (path) => (await json<DbGetResponse>(API.dbGet, { cache: 'no-store' }, { path })).data,
-        list: async (collection) => (await json<DbListResponse>(API.dbList, { cache: 'no-store' }, { collection })).documents,
+        get: async (path) => {
+          const res = await json<DbGetResponse>(API.dbGet, { cache: 'no-store' }, { path });
+          acceptEpoch(res);
+          attach(res.data, res, res.deletedSeq);
+          return res.data;
+        },
+        list: async (collection) => {
+          const res = await json<DbListResponse>(API.dbList, { cache: 'no-store' }, { collection });
+          acceptEpoch(res);
+          attach(res.documents, res);
+          for (const doc of res.documents) attach(doc.data, res, res.deletedSeqs?.[doc.path]);
+          return res.documents;
+        },
         write: async (writes) => {
           const body: DbWriteRequest = { writes, client };
-          await post<{ ok: true }>(API.dbWrite, body);
+          const guards = writes.map(write => {
+            const base = typeof write.ifMatch === 'string' ? getDbWriteBaseMeta(write) : undefined;
+            return base ? { epoch: base.epoch, seq: base.seq } : null;
+          });
+          if (guards.some(Boolean)) body.guards = guards;
+          const res = await post<DbWriteResponse>(API.dbWrite, body);
+          acceptEpoch(res);
+          for (const write of writes) attach(write, res, res.deletedSeqs?.[write.path]);
         },
-        onChange: (listener: (event: DbChangeEvent) => void) => subscribe('db', listener),
+        onChange: listener => {
+          callbacks.add(listener);
+          unsubscribe ??= subscribe('db', receive);
+          return () => {
+            callbacks.delete(listener);
+            if (callbacks.size === 0) {
+              unsubscribe?.();
+              unsubscribe = undefined;
+            }
+          };
+        },
       };
       return capability;
     },
 
-    async comments() {
-      const { stores } = await getSession();
+    async comments(signal) {
+      const { stores } = await getSession(signal);
       if (!stores?.comments) return null;
       const thread = async (path: string, body: unknown): Promise<CommentThread> => (await post<CommentThreadResponse>(path, body)).thread;
       const capability: CommentsCapability = {
@@ -410,8 +489,8 @@ export function createLocalProvider(options: LocalProviderOptions = {}): Capabil
       return capability;
     },
 
-    async doc() {
-      const { stores } = await getSession();
+    async doc(signal) {
+      const { stores } = await getSession(signal);
       if (!stores?.doc) return null;
       const capability: DocCapability = {
         session: () => post(DOC_API.session, { client } satisfies DocSessionRequest),
@@ -449,8 +528,8 @@ export function createLocalProvider(options: LocalProviderOptions = {}): Capabil
       return capability;
     },
 
-    async history() {
-      const { stores } = await getSession();
+    async history(signal) {
+      const { stores } = await getSession(signal);
       if (!stores?.history) return null;
       const at = (n: number, path?: string): Record<string, string> => ({ n: String(n), ...(path === undefined ? {} : { path }) });
       const capability: HistoryCapability = {
@@ -468,8 +547,8 @@ export function createLocalProvider(options: LocalProviderOptions = {}): Capabil
       return capability;
     },
 
-    async mcp() {
-      const { viewer } = await getSession();
+    async mcp(signal) {
+      const { viewer } = await getSession(signal);
       if (viewer.role !== 'owner') return null;
       const capability: McpCapability = {
         callTool: async (server, tool, args, opts) => {
@@ -494,8 +573,8 @@ export function createLocalProvider(options: LocalProviderOptions = {}): Capabil
       return capability;
     },
 
-    async sheet() {
-      const { stores } = await getSession();
+    async sheet(signal) {
+      const { stores } = await getSession(signal);
       if (!stores?.sheet) return null;
       // Sends go one at a time, each once the one before it is answered: the server takes them, and the page hears
       // their answers, in the order the page made them, though each request is a fetch of its own.
@@ -549,9 +628,9 @@ export function createLocalProvider(options: LocalProviderOptions = {}): Capabil
   }
 
   return {
-    get(name) {
-      const build = builders[name] as (() => Promise<CapabilityMap[typeof name] | null>) | undefined;
-      return build ? build() : null;
+    get(name, signal) {
+      const build = builders[name] as ((signal?: AbortSignal) => Promise<CapabilityMap[typeof name] | null>) | undefined;
+      return build ? build(signal) : null;
     },
   };
 }
