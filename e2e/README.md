@@ -104,6 +104,11 @@ The harness asks its questions (`waitFor`, `evaluateAll`, `load`'s `ready`) in a
   - an empty system's Welcome page offers "From code", and its request reaches `wait`;
   - an image dropped on an asset group is uploaded into `design-system.json`.
 
+**Slides: polygon clipping** (`slides.test.mjs`, on the shared deck's second slide)
+
+- `deck.css` gives a `--cut` token to a `clip-path:polygon(…)` with `calc(100% - var(--cut))`; the presenter shows the photo with that clip.
+- The editable PowerPoint export draws two plain panels of different widths as custom shapes with the same 12px cut, a triangle and a concave arrow as custom shapes with their exact vertices, the clipped photo as a cropped picture cut to the polygon, and a clipped panel holding text as one picture (its text is not exported as text).
+
 **Sheets** (`sheets.test.mjs`)
 
 - `read` on a folder with no Sheet is refused; a first `update` makes the Sheet (one blank `Sheet1`) and applies its edits.

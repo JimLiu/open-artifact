@@ -87,7 +87,8 @@ it):
   one.
 - Clipping uses `clip-path:polygon(...)` on a `<div>`, `<img>` or `<x-shape>`. Coordinates accept px,
   percentages and `calc(N% ± Npx)`. Shared `var()` values can supply px cuts (`images.md`).
-  `mask` and other `clip-path` functions are dropped. Use `overflow:hidden` on a `<div>` for box overflow.
+  `mask`, and `inset()`, `circle()`, `ellipse()` or any other `clip-path` shape → `border-radius`, or an
+  `<svg>`. Use `overflow:hidden` on a `<div>` for box overflow.
 - Fills: `url()` backgrounds, `background-size`, `background-position` → an `<img>` (a `url()` fills
   only text, with `background-clip:text`). `conic-gradient` or a second gradient layer → one
   gradient, or an `<svg>`. `object-position`.

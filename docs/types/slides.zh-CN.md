@@ -45,7 +45,7 @@
 
 ### 多边形形状与图片框
 
-可在行内样式或共享的 `deck.css` 中为 `<div>`、`<img>` 或 `<x-shape>` 设置 `clip-path: polygon(...)`。百分比坐标可定义三角形、六边形、箭头和凹多边形。`calc(100% - 12px)` 等混合坐标可在框尺寸变化时保持距边缘的固定距离。将照片的裁剪路径设在 `<img>` 上，导出到 PowerPoint 时可编辑裁剪和自定义轮廓。含子元素的裁剪容器会导出为图片。[多边形裁剪参考](../../artifact-types/slides/reference/images.md#polygon-clipping)
+可在行内样式或共享的 `deck.css` 中为 `<div>`、`<img>` 或 `<x-shape>` 设置 `clip-path: polygon(...)`。百分比坐标可定义三角形、六边形、箭头和凹多边形。`calc(100% - 12px)` 等混合坐标可在框尺寸变化时保持距边缘的固定距离。将照片的裁剪路径设在 `<img>` 上，导出到 PowerPoint 时可编辑裁剪和自定义轮廓。含子元素的裁剪容器，以及同时带边框、阴影、滤镜或圆角的裁剪，导出到 PowerPoint 时会变成图片。只支持 `polygon()`：圆角或圆形的框请用 `border-radius`。行内 `style` 属性不支持 `var()`，要直接写 px 值。[多边形裁剪参考](../../artifact-types/slides/reference/images.md#polygon-clipping)
 
 ### 常用工作流与命令
 

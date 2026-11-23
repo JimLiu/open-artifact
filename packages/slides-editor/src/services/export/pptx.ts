@@ -354,9 +354,10 @@ class SlideReader {
   /** Reads every drawn element, in paint (document) order. */
   async read(): Promise<void> {
     const slide = this.entry.slide;
-    let clipped: Element | undefined;
+    // The last element drawn with its polygon clip: whatever it holds was drawn with it.
+    let clipRoot: Element | undefined;
     for (const el of Array.from(this.root.querySelectorAll('[data-open-artifact-kind]'))) {
-      if (clipped?.contains(el)) continue;
+      if (clipRoot?.contains(el)) continue;
       const kind = el.getAttribute('data-open-artifact-kind') as SlideNode['kind'];
       const node = nodeAt(slide, parsePathKey(el.getAttribute('data-open-artifact-path') ?? ''));
       if (el.getClientRects().length === 0 || this.style(el).visibility !== 'visible') continue;
@@ -368,8 +369,8 @@ class SlideReader {
       if (node && clipPath && clipPath !== 'none') {
         const clip = parseClipPath(clipPath);
         if (clip.ok && clip.value) {
-          await this.clipped(el, node, frame, alpha, clipPathPoints(clip.value, frame.w, frame.h));
-          clipped = el;
+          await this.clippedElement(el, node, frame, alpha, clipPathPoints(clip.value, frame.w, frame.h));
+          clipRoot = el;
           continue;
         }
       }
@@ -413,7 +414,13 @@ class SlideReader {
     }
   }
 
-  private async clipped(el: Element, node: SlideNode, frame: Frame, alpha: number, points: [number, number][]): Promise<void> {
+  /**
+   * An element with a polygon `clip-path` (points in px of its border box):
+   * a plain panel as a custom shape, a picture cut to the polygon, and
+   * anything an office shape cannot carry (children, borders, effects,
+   * rounded corners, a crossing outline) as a picture of what shows.
+   */
+  private async clippedElement(el: Element, node: SlideNode, frame: Frame, alpha: number, points: [number, number][]): Promise<void> {
     const style = this.style(el);
     const borders = this.borders(style, alpha);
     const effects = [style.boxShadow, style.filter, style.backdropFilter].some((value) => value && value !== 'none');
@@ -429,6 +436,7 @@ class SlideReader {
     }
   }
 
+  /** A clipped element as a picture of what its polygon shows, noted as such. */
   private async clippedPicture(el: Element, node: SlideNode, frame: Frame, points: [number, number][]): Promise<void> {
     const placed = points.map(([x, y]) => frame.toSlide(x, y));
     const xs = placed.map(([x]) => x);
@@ -802,15 +810,15 @@ class SlideReader {
       const natural = { w: img.naturalWidth || picture?.width || imgBox.w, h: img.naturalHeight || picture?.height || imgBox.h };
       const content = objectContentRect(own.objectFit, own.objectPosition, imgBox, natural);
       const visible = intersect(content, intersect(imgBox, clip));
-      const clipped = mask ? polygonOutline(mask, visible) : undefined;
-      if (clipped === null && node && mask) {
+      const cut = mask ? polygonOutline(mask, visible) : undefined;
+      if (cut === null && node && mask) {
         await this.clippedPicture(el, node, frame, mask);
         return;
       }
       const whole = Math.abs(visible.x - clip.x) < 1 && Math.abs(visible.y - clip.y) < 1 && Math.abs(visible.w - clip.w) < 1 && Math.abs(visible.h - clip.h) < 1;
       // The frame's shadow goes on the picture when the picture fills it.
       await this.panel(el, frame, alpha, this.name('Shape'), { shadow: !(whole && plain), outline: mask });
-      if (visible.w >= 0.5 && visible.h >= 0.5 && content.w > 0 && content.h > 0 && (!clipped || clipped.length > 0)) {
+      if (visible.w >= 0.5 && visible.h >= 0.5 && content.w > 0 && content.h > 0 && (!cut || cut.length > 0)) {
         const key = known ?? this.media.add(picture!.data, picture!.type, this.job.capture.assets.url(src));
         const crop = {
           l: (visible.x - content.x) / content.w,
@@ -825,7 +833,7 @@ class SlideReader {
         const radiusValue = style.borderTopLeftRadius;
         const radius = whole ? cornerRadius(radiusValue, frame.w, frame.h) * frame.sx : 0;
         const oval = whole && /%$/.test(radiusValue.trim()) && parseFloat(radiusValue) >= 50;
-        const outline = clipped ?? (whole ? undefined : this.roundedCut(el, style, visible, clip));
+        const outline = cut ?? (whole ? undefined : this.roundedCut(el, style, visible, clip));
         this.elements.push({
           type: 'picture',
           name: this.name(node?.video ? 'Video' : 'Picture'),

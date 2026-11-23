@@ -44,4 +44,24 @@ describe('polygon clip paths', () => {
       assert.equal(parseClipPath(source).ok, false, source);
     }
   });
+
+  it('takes the border box on either side of the polygon', () => {
+    for (const source of ['border-box polygon(50% 0, 100% 100%, 0 100%)', 'polygon(50% 0, 100% 100%, 0 100%) border-box']) {
+      const polygon = parseClipPath(source);
+      assert.ok(polygon.ok, source);
+      assert.equal(formatClipPath(polygon.value), 'polygon(50% 0, 100% 100%, 0 100%)');
+    }
+  });
+
+  it('says what to write instead of a shape or box it does not take', () => {
+    const reason = (source: string): string => {
+      const result = parseClipPath(source);
+      assert.equal(result.ok, false, source);
+      return result.ok ? '' : result.reason;
+    };
+    assert.match(reason('padding-box polygon(0 0, 100% 0, 50% 100%)'), /border box; drop padding-box/);
+    assert.match(reason('polygon(0 0, 100% 0, 50% 100%) content-box'), /drop content-box/);
+    for (const shape of ['inset(0 round 12px)', 'circle(50%)', 'ellipse(40% 50%)']) assert.match(reason(shape), /use border-radius, or write the outline as polygon/);
+    assert.match(reason('path("M0 0 L10 10")'), /<svg>/);
+  });
 });

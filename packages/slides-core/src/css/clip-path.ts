@@ -31,12 +31,24 @@ function coordinate(text: string): Coordinate | undefined {
   return calc[2] === '%' ? { percent: first, px: second } : { percent: second, px: first };
 }
 
+/** Why a clip-path other than a border-box polygon is refused, and what to write instead. */
+function refusal(value: string): string {
+  const box = /(?:^|\s)((?:padding|content|margin|fill|stroke|view)-box)(?:\s|$)/.exec(value)?.[1];
+  if (box) return `clip-path polygons are relative to the border box; drop ${box}`;
+  const shape = /^(?:border-box\s+)?([a-z-]+)\(/.exec(value)?.[1];
+  if (shape === 'inset' || shape === 'circle' || shape === 'ellipse') {
+    return `clip-path ${shape}() is not supported; use border-radius, or write the outline as polygon(...)`;
+  }
+  return 'clip-path takes none or polygon(...); draw other outlines in an <svg>';
+}
+
 /** The supported clip path grammar, relative to the element's border box. */
 export function parseClipPath(raw: string): ParseResult<ClipPolygon | null> {
   const value = raw.trim().toLowerCase();
   if (value === 'none') return ok(null);
-  const match = /^polygon\(([\s\S]*)\)(?:\s+border-box)?$/.exec(value);
-  if (!match) return reject('clip-path takes none or polygon(...)');
+  // The reference box may stand on either side of the shape; border-box is the default.
+  const match = /^polygon\(([\s\S]*)\)(?:\s+border-box)?$/.exec(value) ?? /^border-box\s+polygon\(([\s\S]*)\)$/.exec(value);
+  if (!match) return reject(refusal(value));
   const parts = splitTopLevel(match[1]!, ',');
   const rule = parts[0] === 'evenodd' ? 'evenodd' : 'nonzero';
   if (parts[0] === 'evenodd' || parts[0] === 'nonzero') parts.shift();

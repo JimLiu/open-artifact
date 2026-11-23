@@ -45,7 +45,7 @@
 
 ### Polygon shapes and picture frames
 
-Set `clip-path: polygon(...)` on a `<div>`, `<img>` or `<x-shape>` in inline styles or shared `deck.css`. Percentage coordinates support triangles, hexagons, arrows and concave outlines. Mixed coordinates such as `calc(100% - 12px)` keep a fixed distance from an edge as the frame changes size. Put a photo's clip on its `<img>` for an editable crop and custom outline in PowerPoint. Clipped containers with children export as pictures. [Polygon clipping reference](../../artifact-types/slides/reference/images.md#polygon-clipping)
+Set `clip-path: polygon(...)` on a `<div>`, `<img>` or `<x-shape>` in inline styles or shared `deck.css`. Percentage coordinates support triangles, hexagons, arrows and concave outlines. Mixed coordinates such as `calc(100% - 12px)` keep a fixed distance from an edge as the frame changes size. Put a photo's clip on its `<img>` for an editable crop and custom outline in PowerPoint. Clipped containers with children, and clips combined with a border, shadow, filter or rounded corners, export to PowerPoint as pictures. Only `polygon()` is supported: use `border-radius` for rounded or round frames. Inline `style` attributes take no `var()`, so write the px value there. [Polygon clipping reference](../../artifact-types/slides/reference/images.md#polygon-clipping)
 
 ### Workflow & commands
 

@@ -137,7 +137,7 @@ reference. Percentage coordinates can describe triangles, hexagons, arrows and c
 Mix percentages and px with `calc()` to keep a fixed distance from an edge.
 
 ```css
-:root { --cut: 15.12px; }
+:root { --cut: 12px; }
 .hexagon {
   clip-path: polygon(25% 0, 75% 0, 100% 50%, 75% 100%, 25% 100%, 0 50%);
 }
@@ -150,16 +150,20 @@ Mix percentages and px with `calc()` to keep a fixed distance from an edge.
 <img class="chamfer" src="/_blob/<id>" alt="The office" style="width:640px;height:400px;object-fit:cover">
 ```
 
-The chamfer cuts the upper-right corner by 15.12 px along each edge at any frame size. The same rule
-can clip a panel or its contents on a `<div>`. In an inline deck, put the polygon in
-the `style` attribute and use `15.12px` in place of the variable. Percentages move with the box.
-Pixel distances stay fixed when the box is resized in Slides.
+The chamfer cuts the upper-right corner by 12px along each edge at any frame size. The same rule
+can clip a panel or its contents on a `<div>`. Percentages move with the box; px distances stay
+fixed when the box is resized in Slides. A `style` attribute takes no `var()`: in an inline deck,
+write the polygon there with `12px` in place of the variable.
 
-Standalone HTML retains the CSS clip. Editable PowerPoint exports simple filled panels as custom
-shapes and directly clipped photos as pictures with an editable crop and outline. Clipped groups,
-intersecting paths and combinations that need a browser render, such as a clipped border, export
-as pictures and appear in the export notes. Resizing an exported custom shape in PowerPoint scales
-its outline with it.
+Only `polygon()` is read, with the border box as its reference (`border-box` may be written, no other
+box). For a rounded or round frame use `border-radius`; `inset()`, `circle()` and `ellipse()` are
+dropped. Draw any other outline in an `<svg>`.
+
+Standalone HTML, PDF and PNG keep the CSS clip. Editable PowerPoint draws a plain filled panel as a
+custom shape and a clipped `<img>` as a picture with an editable crop, cut to the polygon. A clipped
+`<div>` that holds children (its text included), a polygon that crosses itself, and a clip together
+with a border, a shadow, a filter or rounded corners become one picture, listed in the export notes.
+Resizing an exported custom shape in PowerPoint scales its outline with it.
 
 ## On the page
 
