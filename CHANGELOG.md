@@ -6,6 +6,32 @@ agent plugins. Since 0.9.0 they all share one version; before that `dsh-open-art
 Each entry is written from the commits since the previous tag (`node scripts/changelog.mjs` lists them); see
 [Releasing](README.md#releasing).
 
+## [0.14.4] - 2026-11-23
+
+Artifacts load inside Electron apps whose windows use `file://`, agents can write long formulas to Sheets, and Motion films can play captioned cuts of a video's own sound.
+
+### Added
+
+- A Motion narration line can name a video asset and a `from` time to play a cut of the clip's own sound with captions. Cuts use the same loudness target, ducking, live player and export mix as recorded narration; the clip is decoded once for all its cuts. Video playback adjusts its speed slightly to keep the picture with its sound.
+- A Japanese README links from the English and Simplified Chinese READMEs.
+
+### Changed
+
+- Every MCP tool argument has a description, including its enum values where applicable, for apps that show agents descriptions without the schema's enum list.
+
+### Fixed
+
+- A ticketed Shell view works inside an app's iframe, including a window loaded from `file://`: it sends commands and events through the daemon without greeting or listening to its parent frame. Local built-in type pages no longer send a `frame-ancestors` directive that refuses a `file://` or custom-scheme ancestor.
+- Original types served by frame-host also load under a `file://` app. They check incoming frame requests instead of sending a `frame-ancestors` list that cannot name the app, and the daemon lists each local type server's per-artifact frame origins.
+- An agent's Sheets `writeCells` accepts formulas containing long Chinese or English text, including batches of more than 50 different long texts, without asking the agent to show them to the person first. The editor's own paste checks are unchanged. Fixes #17.
+- Quickstart with the intent `other` recommends no type and lists all types, instead of accidentally recommending Design System from words in its description.
+
+### Integrators
+
+- For a window loaded from `file://`, use `mode: 'view'`, load the ticketed `embedUrl` in your iframe, and give `embedArtifact` a transport rather than the iframe. The Shell uses the daemon channel even when framed; the host protocol remains 1.
+- `embed.origins` now includes a `kind: 'frame'` pattern (`http://*.frame.localhost:<port>`) for each local type server, with its `type`. Allow these patterns when enforcing the daemon's origin list so original types can load.
+- Tool argument descriptions now state their accepted enum values. The Harness API methods, harness kit, wake messages, stdio bridge and shipped profiles are unchanged.
+
 ## [0.14.3] - 2026-11-23
 
 A whiteboard fits and zooms out fully in a narrow pane, live boards, dashboards and films stay in step when answers and changes cross or a connection drops, the daemon says when it stops, and an Electron app is shown how to stop its daemon on quit.
@@ -519,6 +545,7 @@ One version for every package, with Docs and Sheets in every plugin.
 - Plugins for Claude Code, Codex, Cursor, Copilot, ChatGPT and DeepSeek Harness.
 - English and Chinese READMEs, under Apache-2.0.
 
+[0.14.4]: https://github.com/JimLiu/open-artifact/compare/v0.14.3...v0.14.4
 [0.14.3]: https://github.com/JimLiu/open-artifact/compare/v0.14.2...v0.14.3
 [0.14.2]: https://github.com/JimLiu/open-artifact/compare/v0.14.1...v0.14.2
 [0.14.1]: https://github.com/JimLiu/open-artifact/compare/v0.14.0...v0.14.1

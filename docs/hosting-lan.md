@@ -177,7 +177,7 @@ npm run build
 node packages/host/src/node/main.ts version
 ```
 
-prints the version, for example `0.14.3`.
+prints the version, for example `0.14.4`.
 
 **If it fails:** `node --version` must be 22.18 or later. A build error names the package; run `npm ci` again after
 `git pull`.
@@ -257,7 +257,7 @@ OA_BIND=192.168.1.20 OA_PORT=4900 node packages/host/src/node/main.ts serve
 **Expect:**
 
 ```
-Open Artifact host 0.14.3 listening on http://192.168.1.20:4900
+Open Artifact host 0.14.4 listening on http://192.168.1.20:4900
   app:     http://192.168.1.20:4900
   content: http://{id}.192-168-1-20.nip.io:4900
   data:   /Users/you/.open-artifact-host
@@ -269,7 +269,7 @@ Open Artifact host 0.14.3 listening on http://192.168.1.20:4900
 curl -s http://192.168.1.20:4900/__open-artifact/health
 ```
 
-**Expect:** `{"openArtifact":1,"version":"0.14.3"}`. (The health address answers on any name, for load balancers and
+**Expect:** `{"openArtifact":1,"version":"0.14.4"}`. (The health address answers on any name, for load balancers and
 container checks; everything else answers only on the site's own names.) Then from **another computer** on the network,
 open `http://192.168.1.20:4900/`: it goes to the sign-in page.
 
@@ -279,7 +279,7 @@ the router). It works here but not from another computer: see [step 5](#5-open-t
 Run here with `OA_BIND=127.0.0.1 OA_PORT=4977` and `OA_APP_ORIGIN=http://127.0.0.1:4977`. The start-up lines were:
 
 ```
-Open Artifact host 0.14.3 listening on http://127.0.0.1:4977
+Open Artifact host 0.14.4 listening on http://127.0.0.1:4977
   app:     http://127.0.0.1:4977
   content: http://{id}.127-0-0-1.nip.io:4977
   data:   /private/tmp/…/run8/host

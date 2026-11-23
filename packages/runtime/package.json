@@ -1,6 +1,6 @@
 {
   "name": "@open-artifact/runtime",
-  "version": "0.14.3",
+  "version": "0.14.4",
   "private": true,
   "type": "module",
   "description": "The window.openartifact page runtime: capability contracts, the local provider and the Shell protocol.",
@@ -14,7 +14,7 @@
     "./roles": "./src/roles.ts"
   },
   "dependencies": {
-    "@open-artifact/protocol": "0.14.3"
+    "@open-artifact/protocol": "0.14.4"
   },
   "license": "Apache-2.0"
 }
