@@ -11,6 +11,7 @@
  * most every two minutes (`REGION_HINT_GAP_MS`), and not once F6 has been used.
  */
 
+import { useBoard } from '../state/board.ts';
 import {
   BOARD_REGION_ORDER,
   REGION_HINT,
@@ -98,6 +99,7 @@ export function installRegions(): () => void {
   };
 
   const onKeyDown = (event: KeyboardEvent): void => {
+    if (!useBoard.getState().revealed) return;
     const step = regionKeyStep(event);
     if (step === undefined || behindOverlay(doc)) return;
     const roots = regionRoots(doc);

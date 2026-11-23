@@ -17,6 +17,7 @@ import { useShellDraws } from '../services/shell.ts';
 import { fitBoard, fitSelection } from '../services/navigation.ts';
 import { readOnlyLabel } from '@open-artifact/editor-kit';
 import { maybeSession } from '../services/session.ts';
+import { retrySync } from '../services/sync.ts';
 import { zoomStep, zoomTo } from '../services/viewport.ts';
 import { useBoard } from '../state/board.ts';
 import { useCamera, zoomRange } from '../state/camera.ts';
@@ -37,10 +38,11 @@ export function BoardPill() {
   const readOnly = !(session?.canEdit ?? false);
   const corner = useShellDraws((state) => state.framed && state.draws.size > 0);
   const lockLabel = readOnlyLabel(session?.viewer.role ?? 'viewer');
+  const loadError = useBoard(state => !!state.error);
   return (
     <>
       <Card role="toolbar" aria-label="Board view" data-wb-region={corner ? 'document' : 'zoom'} className="wb-pill h-9 px-1">
-        {readOnly ? null : <SaveStatus />}
+        {(!readOnly || loadError) && <SaveStatus />}
         <BoardTimer />
         {corner ? null : <ZoomMenu readOnly={readOnly} />}
         {lockLabel && !corner ? <ReadOnlyBadge commenter={lockLabel === 'Comment only'} /> : null}
@@ -249,23 +251,17 @@ function PeerFace({ color, name }: { color: string; name: string }) {
 /** Save status, only when there is something to say and the Shell does not draw it. */
 function SaveStatus() {
   const status = useBoard((state) => state.status);
-  const pending = useBoard((state) => state.pending);
+  const pending = useBoard((state) => state.pending > 0);
   const refusal = useBoard((state) => state.refusal);
   const shellDraws = useShellDraws((state) => state.draws.has('saved'));
-  // Saving shows only after a moment, so quick saves do not flicker.
-  const [slow, setSlow] = useState(false);
-  useEffect(() => {
-    if (pending === 0) {
-      setSlow(false);
-      return;
-    }
-    const timer = setTimeout(() => setSlow(true), 800);
-    return () => clearTimeout(timer);
-  }, [pending]);
+  const slow = useBoard(state => state.slowSaving);
+  const error = useBoard(state => state.error);
+  const retryable = useBoard(state => state.retryableLoad);
+  if (error) return <span role="status" className="flex items-center gap-1 px-1.5 text-xs">Could not load the board{retryable && <button type="button" onClick={retrySync}>Retry</button>}</span>;
 
   let shown: { label: string; icon: ReactNode } | null = null;
   if (refusal) shown = { label: refusal, icon: <TriangleAlert className="size-3.5 text-danger" aria-hidden="true" /> };
-  else if (status === 'cached') shown = { label: pending > 0 ? LIVE_MESSAGES.cachedEdits : LIVE_MESSAGES.cached, icon: <CloudOff className="size-3.5" aria-hidden="true" /> };
+  else if (status === 'cached') shown = { label: pending ? LIVE_MESSAGES.cachedEdits : LIVE_MESSAGES.cached, icon: <CloudOff className="size-3.5" aria-hidden="true" /> };
   else if (status === 'offline') shown = { label: 'Offline: changes will save when you reconnect', icon: <CloudOff className="size-3.5" aria-hidden="true" /> };
   else if (status === 'error') shown = { label: 'Could not save', icon: <TriangleAlert className="size-3.5 text-danger" aria-hidden="true" /> };
   else if (slow && !shellDraws) shown = { label: 'Saving…', icon: <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> };

@@ -276,6 +276,13 @@ export function pageOriginOf(page: string | null, shellHref: string): string {
   }
 }
 
+/** A detached pagehide sender can prove it owned the currently bound document. */
+export function handlePageLeaving(frameWindow: Window | null, source: MessageEventSource | null,
+  expectedToken: string | undefined, receivedToken: unknown, beginNavigation: () => void): void {
+  const detached = source === null && expectedToken !== undefined && receivedToken === expectedToken;
+  if ((frameWindow !== null && source === frameWindow) || detached) beginNavigation();
+}
+
 /**
  * The Share button shows "shared": from the share state when loaded (on a cloud host: anyone named, or access past
  * them), else the page or the library.
@@ -432,7 +439,7 @@ export function devBoot(
 
 // ---- the page's report (chrome protocol) --------------------------------------------------------------------------
 
-const SAVED: readonly ChromeSaved[] = ['saved', 'saving', 'unsaved', 'reconnecting', 'readonly'];
+const SAVED: readonly ChromeSaved[] = ['loading', 'syncing', 'loadError', 'saved', 'saving', 'unsaved', 'reconnecting', 'readonly'];
 const WHY: readonly ChromeWhy[] = ['older_version', 'agent_working', 'draft_open', 'comments_on', 'needs_agent', 'unsaved', 'other'];
 const ACTION_ID = /^[a-z][a-z0-9_-]{0,31}$/;
 /** Formats a page may list, and variants per format (Design's PNG has nine). */
@@ -465,7 +472,7 @@ export function normalizeReport(raw: unknown): ChromeReport {
   const out: ChromeReport = {};
   if (typeof raw.title === 'string') out.title = raw.title.trim().slice(0, 256);
   for (const key of ['comments', 'agent'] as const) if (isRecord(raw[key])) (out as Record<string, unknown>)[key] = raw[key];
-  for (const key of ['history', 'share', 'shareOn', 'exports', 'leaveLosesWork', 'hasContent'] as const) {
+  for (const key of ['ready', 'history', 'share', 'shareOn', 'exports', 'leaveLosesWork', 'hasContent'] as const) {
     if (typeof raw[key] === 'boolean') out[key] = raw[key];
   }
   if (SAVED.includes(raw.saved as ChromeSaved)) out.saved = raw.saved as ChromeSaved;
@@ -618,7 +625,7 @@ export function menuActions(report: ChromeReport): ChromeAction[] {
 }
 
 /** What the save indicator shows. */
-export type SaveIndicator = 'none' | 'saving' | 'reconnecting' | 'unsaved' | 'retry' | 'readonly';
+export type SaveIndicator = 'none' | 'loading' | 'syncing' | 'loadError' | 'retryLoad' | 'saving' | 'reconnecting' | 'unsaved' | 'retry' | 'readonly';
 
 /**
  * The save indicator: Read-only always; Saving…
@@ -629,8 +636,12 @@ export type SaveIndicator = 'none' | 'saving' | 'reconnecting' | 'unsaved' | 're
 export function saveIndicator(report: ChromeReport): SaveIndicator {
   const save = actionOf(report, 'save_now');
   switch (report.saved) {
+    case 'loading':
+    case 'syncing':
     case 'readonly':
-      return 'readonly';
+      return report.saved;
+    case 'loadError':
+      return save && !save.disabled ? 'retryLoad' : 'loadError';
     case 'unsaved':
       return save && !save.disabled ? 'retry' : 'unsaved';
     case 'saving':

@@ -5,14 +5,14 @@
 
 import { SHELL_FRAME_NAME } from '@open-artifact/protocol';
 import { Copy, LoaderCircle, MessageSquare, Play, RotateCw, TriangleAlert } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button, cn } from '@open-artifact/ui';
 import { copyText } from '../../lib/format.ts';
 import { t } from '../../lib/i18n.ts';
 import { attachFrame, embedded, frameLoaded } from '../bridge.ts';
 import { ask, frameShown, markPhase, newSession, retryBoot } from '../actions.ts';
 import { useAgentName, useCloud, useMayAsk } from '../hooks.ts';
-import { COVER_FADE_MS, FRAME_READY_FALLBACK_MS, addressWithoutThread, pageAddress, pageOriginOf, readyOnLoad } from '../model.ts';
+import { COVER_FADE_MS, addressWithoutThread, pageAddress, pageOriginOf } from '../model.ts';
 import { alignSpin } from '../preboot.ts';
 import { useBoot, useShell } from '../store.ts';
 
@@ -24,6 +24,7 @@ export function PageLoading({ hiding = false }: { hiding?: boolean }) {
   return (
     <div
       role="status"
+      data-shell-loading={hiding ? undefined : ''}
       aria-label={t('loading')}
       aria-hidden={hiding || undefined}
       className={cn(
@@ -47,38 +48,35 @@ const reducedMotion = (): boolean => {
 
 /**
  * The artifact page, in the frame named `open-artifact-shell` with `open_artifact_shell` and `open_artifact_id` on its
- * address. The frame loads at once under a cover that fades once the page is ready ({@link readyOnLoad}).
+ * address. The frame loads at once under a cover that fades when the page is ready.
  */
 export function PageFrame() {
   const boot = useBoot();
   const ready = useShell((state) => state.pageReady);
   const [covered, setCovered] = useState(true);
-  const fallback = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Computed once: the `comment` thread moves from the Shell's address to the page's.
   const src = useMemo(() => pageAddress(boot, location.href, embedded), [boot]);
   useEffect(() => {
     const rest = addressWithoutThread(location.href);
     if (rest) history.replaceState(history.state, '', rest);
-    return () => {
-      if (fallback.current) clearTimeout(fallback.current);
-    };
   }, []);
   useEffect(() => {
-    if (!ready) return;
+    if (!ready) {
+      setCovered(true);
+      return;
+    }
     frameShown();
     const timer = setTimeout(() => setCovered(false), reducedMotion() ? 0 : COVER_FADE_MS);
     return () => clearTimeout(timer);
   }, [ready]);
-  const ref = (element: HTMLIFrameElement | null): void => {
-    attachFrame(element, pageOriginOf(boot.page, location.href));
+  const origin = pageOriginOf(boot.page, location.href);
+  const ref = useCallback((element: HTMLIFrameElement | null): void => {
+    attachFrame(element, origin);
     if (element) markPhase('oa:frame-src');
-  };
+  }, [origin]);
   const onLoad = (): void => {
     frameLoaded();
     markPhase('oa:frame-load');
-    if (useShell.getState().pageReady) return;
-    if (readyOnLoad(boot.pageKind)) useShell.getState().setPageReady(true);
-    else fallback.current ??= setTimeout(() => useShell.getState().setPageReady(true), FRAME_READY_FALLBACK_MS);
   };
   if (!src) return null;
   return (
@@ -90,9 +88,10 @@ export function PageFrame() {
         title={boot.title}
         allow="clipboard-read; clipboard-write; fullscreen"
         onLoad={onLoad}
+        inert={!ready}
         className="absolute inset-0 size-full border-0 bg-surface"
       />
-      {covered ? <PageLoading hiding={ready} /> : null}
+      {(!ready || covered) && <PageLoading hiding={ready} />}
     </>
   );
 }

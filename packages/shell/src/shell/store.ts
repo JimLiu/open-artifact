@@ -8,10 +8,34 @@ import { create } from 'zustand';
 import type { ArtifactDetail, ArtifactView, ChromeExportItem, ChromeReport, ShareView, ShellBoot } from '@open-artifact/protocol';
 import type { DataPublishInfo } from '../lib/api.ts';
 import type { CloudInfo, ConnectStart, RemoteInfo } from '../lib/publish.ts';
-import { hasExportTab, type HostInfo, type SentMessage } from './model.ts';
+import { hasExportTab, normalizeReport, type HostInfo, type SentMessage } from './model.ts';
 
 /** Which tab of the Share panel shows. */
 export type ShareTab = 'share' | 'export';
+
+type RememberedChrome = Pick<ChromeReport, 'history' | 'comments'>;
+
+function rememberSlots(report: ChromeReport, previous: RememberedChrome): RememberedChrome {
+  const waiting = report.ready === false;
+  const history = (report.history ?? (waiting && previous.history)) || undefined;
+  const comments = report.comments;
+  let slot = waiting && !comments ? previous.comments : undefined;
+  if (comments?.available === true && comments.pageButton === false) {
+    const count = Number.isFinite(comments.count) ? Math.max(0, Math.floor(comments.count)) : 0;
+    slot = previous.comments?.count === count ? previous.comments
+      : { available: true, pageButton: false, count, on: false, open: false };
+  }
+  if (history === previous.history && slot === previous.comments) return previous;
+  return { ...(history && { history }), ...(slot && { comments: slot }) };
+}
+
+function restoreSlots(id: string): RememberedChrome {
+  try {
+    return rememberSlots(normalizeReport(JSON.parse(sessionStorage.getItem(`oa-shell-chrome:${id}`) ?? 'null')), {});
+  } catch {
+    return {};
+  }
+}
 
 /** The Share panel's data. */
 export interface ShareState {
@@ -69,6 +93,7 @@ export interface ShellState {
   artifact: ArtifactDetail | null;
   /** What the page reports (chrome protocol). */
   report: ChromeReport;
+  rememberedChrome: RememberedChrome;
   /** The embedding host, once it said hello. */
   host: HostInfo | null;
   /** Every artifact, for Switch artifact; `null` until loaded or after a change. */
@@ -108,6 +133,7 @@ export interface ShellActions {
   /** Merges a library answer (e.g. after `artifacts.update`) into the artifact. */
   mergeArtifact(patch: Partial<ArtifactDetail>): void;
   setReport(report: ChromeReport): void;
+  setFrameLoading(): void;
   setHost(host: HostInfo): void;
   setLibrary(library: ArtifactView[] | null): void;
   setBarHidden(hidden: boolean): void;
@@ -144,6 +170,7 @@ export const useShell = create<ShellState & ShellActions>()((set, get) => ({
   pageReady: false,
   artifact: null,
   report: {},
+  rememberedChrome: {},
   host: null,
   library: null,
   barHidden: false,
@@ -159,15 +186,32 @@ export const useShell = create<ShellState & ShellActions>()((set, get) => ({
   renaming: false,
   confirmingDelete: false,
 
-  setBoot: (boot, error = null, canRetry = false) => set((state) => ({ boot, bootError: error, canRetry, bootGen: state.bootGen + 1, pageReady: false })),
+  setBoot: (boot, error = null, canRetry = false) => set((state) => ({
+    boot, bootError: error, canRetry, bootGen: state.bootGen + 1,
+    pageReady: !boot?.pending && (!boot?.page || !!boot.empty || !!boot.problem),
+    report: {}, rememberedChrome: boot && (boot.pending || (boot.page && !boot.empty && !boot.problem)) ? restoreSlots(boot.id) : {},
+  })),
+  setFrameLoading: () => set({ report: {}, pageReady: false }),
   setPageReady: (pageReady) => set({ pageReady }),
   setArtifact: (artifact) => set({ artifact }),
   mergeArtifact: (patch) => {
     const current = get().artifact;
     if (current) set({ artifact: { ...current, ...patch } });
   },
-  setReport: (report) =>
-    set((state) => (state.exportWanted && state.shareOpen && hasExportTab(report) ? { report, shareTab: 'export', exportWanted: false } : { report })),
+  setReport: (report) => set((state) => {
+    const rememberedChrome = rememberSlots(report, state.rememberedChrome);
+    if (state.boot && rememberedChrome !== state.rememberedChrome) {
+      try {
+        const key = `oa-shell-chrome:${state.boot.id}`;
+        if (rememberedChrome.history || rememberedChrome.comments) sessionStorage.setItem(key, JSON.stringify(rememberedChrome));
+        else sessionStorage.removeItem(key);
+      } catch { /* Storage-restricted tabs keep these slots in memory. */ }
+    }
+    return {
+      report, rememberedChrome,
+      ...(state.exportWanted && state.shareOpen && hasExportTab(report) && { shareTab: 'export', exportWanted: false }),
+    };
+  }),
   setHost: (host) => set({ host }),
   setLibrary: (library) => set({ library }),
   setBarHidden: (barHidden) => set({ barHidden }),

@@ -4,9 +4,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { findChrome, launch } from './lib/browser.mjs';
+import { freePort, zipFolder } from './lib/cloudflare.mjs';
+import { clickOn, inFrame, writeNote } from './lib/host-page.mjs';
+import { observeRefresh, refreshTrace, savedBoardCopy } from './lib/whiteboard-refresh.mjs';
+import { whiteboardLifecycle } from './lib/whiteboard-lifecycle.mjs';
 import { cli, run as runCli } from './lib/cli.mjs';
-import { png, until } from './lib/http.mjs';
-import { browserOff, fixtures, install, removeTmp, skipFor, tmpDir, typePath } from './lib/target.mjs';
+import { expectStatus, png, postJson, until } from './lib/http.mjs';
+import { browserOff, fixtures, install, removeTmp, repoRoot, skipFor, tmpDir, typePath } from './lib/target.mjs';
 
 const noBrowser = browserOff || !findChrome();
 const pictureId = '0123456789abcdef0123456789abcdef';
@@ -16,9 +20,13 @@ const cell = '[data-wb-row="r2"][data-wb-col="c2"]';
 const ready = 'document.querySelector(\'[aria-label="Board tools"]\')';
 const webCardHref = 'https://example.org/diagram';
 const localArtifactHref = 'open-artifact://artifact/art_0123456789';
+const latency = (urlPattern, ms) => ({ urlPattern, latency: ms, downloadThroughput: -1, uploadThroughput: -1 });
+const delayRequests = (page, rules) => page.cdp('Network.emulateNetworkConditionsByRule', { offline: false, matchedNetworkConditions: rules });
+const remoteWrite = async (url, writes) => expectStatus(await postJson(new URL('_api/db/write', url), { client: 'remote-editor', writes }), 200);
 
 describe('whiteboard', { skip: skipFor('whiteboard') }, () => {
   let run, root, url, browser;
+  whiteboardLifecycle(() => browser, noBrowser);
 
   before(async () => {
     const { dir } = install(typePath('whiteboard'));
@@ -52,6 +60,81 @@ describe('whiteboard', { skip: skipFor('whiteboard') }, () => {
     await browser?.close();
     await run?.run(['stop', root]);
     removeTmp();
+  });
+
+  it('keeps the owner viewport and revalidates one saved copy when a Node cloud host rotates the page token', { skip: noBrowser }, async t => {
+    const { parseConfig } = await import('../packages/host/src/core/config.ts');
+    const { parseNodeEnv, startHost } = await import('../packages/host/src/node/index.ts');
+    const port = await freePort();
+    const app = `http://localhost:${port}`;
+    const env = {
+      OA_APP_ORIGIN: app, OA_CONTENT_ORIGIN: `http://{id}.content.localhost:${port}`,
+      OA_DATA_DIR: tmpDir('whiteboard-cloud'), OA_BIND: '127.0.0.1', OA_PORT: String(port),
+      OA_OWNER_KEY: crypto.randomUUID(), OA_SIGNING_KEYS: crypto.randomUUID(),
+    };
+    const host = await startHost({ config: parseConfig(env), env: parseNodeEnv(env), uiDir: path.join(repoRoot, 'dist/daemon') });
+    t.after(() => host.stop());
+    const p = await browser.load(app + '/auth/sign-in#key=' + env.OA_OWNER_KEY, {
+      ready: "document.getElementById('key')?.value.length > 0", ignore: [/favicon\.ico/],
+    });
+    try {
+      await clickOn(p, "document.querySelector('form[action=\"/auth/owner-key\"] button[type=submit]')");
+      assert.ok(await p.waitFor("location.pathname === '/'"));
+      const zip = await zipFolder(path.join(repoRoot, 'test-artifacts/whiteboard/elements'));
+      const { status, artifact } = await p.evaluate(`(async () => {
+        const response = await fetch('/api/open-artifact.artifacts.import', {
+          method: 'POST', headers: { 'content-type': 'application/zip' },
+          body: Uint8Array.fromBase64(${JSON.stringify(zip.toString('base64'))}),
+        });
+        return { status: response.status, artifact: await response.json() };
+      })()`);
+      assert.equal(status, 201);
+      assert.equal(artifact.role, 'owner');
+      await p.cdp('Page.navigate', { url: app + '/a/' + artifact.id });
+      assert.ok(await p.waitFor(`window.parent !== window && ${ready} && !document.querySelector('[data-wb-veil]')`));
+      const viewer = await inFrame(p, "async base => (await (await fetch(base + '_api/session')).json()).viewer");
+      assert.equal(viewer.role, 'owner');
+      const scope = 'artifact:' + encodeURIComponent(artifact.id);
+      const cameraKey = JSON.stringify('wb-camera:' + scope);
+      const copyKey = 'wb-saved-copy:' + scope + ':' + encodeURIComponent(viewer.id) + ':' + viewer.role;
+      const boardState = `() => ({
+        origin: location.origin, path: location.pathname, camera: JSON.parse(sessionStorage.getItem(${cameraKey})),
+        zoom: new DOMMatrixReadOnly(getComputedStyle(document.querySelector('.wb-layer')).transform).a,
+        copies: Object.keys(localStorage).filter(key => key.startsWith('wb-saved-copy:')),
+      })`;
+      assert.notEqual((await inFrame(p, boardState)).zoom, 0.5, 'the sample auto-fits at a different scale');
+      await inFrame(p, `() => document.querySelector('button[aria-label^=Zoom]').click()`);
+      const half = "[...document.querySelectorAll('[role^=menuitem]')].find(el => el.textContent.trim() === '50%')";
+      assert.ok(await p.waitFor(half));
+      await inFrame(p, `() => (${half}).click()`);
+      assert.ok(await p.waitFor(`JSON.parse(sessionStorage.getItem(${cameraKey}))?.zoom === 0.5`));
+      assert.ok(await p.waitFor(savedBoardCopy));
+      const before = await inFrame(p, boardState);
+      assert.equal(before.zoom, 0.5);
+      assert.deepEqual(before.copies, [copyKey]);
+
+      await p.cdp('Page.addScriptToEvaluateOnNewDocument', { source: `(${observeRefresh})()` });
+      await delayRequests(p, [latency(before.origin + '/whiteboard/*/_api/db/list', 1800)]);
+      await new Promise(resolve => setTimeout(resolve, 1200));
+      await p.cdp('Page.reload');
+      assert.ok(await p.waitFor(`window.parent !== window && location.pathname !== ${JSON.stringify(before.path)}
+        && new URLSearchParams(location.search).get('open_artifact_id') === ${JSON.stringify(artifact.id)}
+        && document.querySelector('.wb-layer') && !document.querySelector('[data-wb-veil]')`));
+      assert.ok(await p.waitFor("window.refreshTrace?.reports.includes('saved')"));
+      const trace = await p.evaluate('window.refreshTrace');
+      assert.equal(trace.firstReadySaved, 'syncing', JSON.stringify(trace.reports));
+      assert.deepEqual(trace.reports, ['loading', 'syncing', 'saved']);
+      const after = await inFrame(p, boardState);
+      assert.notEqual(after.path, before.path, 'the real host must issue a new editor URL');
+      assert.equal(after.zoom, 0.5);
+      assert.deepEqual(after.camera, before.camera);
+
+      // Observe a fresh persisted write before counting copies, so the delayed cache writer has run.
+      assert.equal(await writeNote(p, 'refresh-check', 'Revalidated copy'), 200);
+      assert.ok(await p.waitFor(`JSON.parse((${savedBoardCopy}) || '[]').some(doc => doc.path === 'elements/refresh-check')`));
+      assert.deepEqual((await inFrame(p, boardState)).copies, [copyKey]);
+      t.diagnostic('Editor path changed; zoom 50% → 50%; first ready report syncing → saved; persisted copies 1 → 1.');
+    } finally { await p.close(); }
   });
 
   it('checks the board and serves the original image bytes, MIME and ranges', async () => {
@@ -291,8 +374,125 @@ describe('whiteboard', { skip: skipFor('whiteboard') }, () => {
     } finally { await p.close(); }
   });
 
+  it('decodes a server-added viewport image before the first revealed frame', { skip: noBrowser }, async t => {
+    const dir = tmpDir('refresh-images');
+    const second = 'a'.repeat(32);
+    fs.mkdirSync(path.join(dir, '_blobs'));
+    for (const id of [pictureId, second]) {
+      fs.copyFileSync(path.join(root, '_blobs', pictureId), path.join(dir, '_blobs', id));
+      fs.copyFileSync(path.join(root, '_blobs', pictureId + '.json'), path.join(dir, '_blobs', id + '.json'));
+    }
+    const { url: address } = await run.json(['open', dir, '--type', 'whiteboard', '--json']);
+    const picture = (id, x) => ({ type: 'image', src: '_blob/' + id, x, y: 0, w: 140, h: 100 });
+    await remoteWrite(address, [{ op: 'set', path: 'board/meta', data: { v: 1, title: 'Viewport', order: ['a'] } },
+      { op: 'set', path: 'elements/a', data: picture(pictureId, 0) }]);
+    const p = await browser.load(address, { ready });
+    try {
+      assert.ok(await p.waitFor(savedBoardCopy));
+      const firstSrc = await p.evaluate("document.querySelector('#wb-a img').src");
+      const listUrl = new URL([...p.urls].find(url => new URL(url).pathname.endsWith('/_api/db/list')));
+      await p.cdp('Page.navigate', { url: 'about:blank' });
+      assert.ok(await p.waitFor("location.href === 'about:blank'"));
+      await remoteWrite(address, [{ op: 'set', path: 'elements/b', data: picture(second, 150) }]);
+      await p.cdp('Page.addScriptToEvaluateOnNewDocument', { source: `(${observeRefresh})()` });
+      await p.cdp('Network.setCacheDisabled', { cacheDisabled: true });
+      await delayRequests(p, [latency(listUrl.origin + listUrl.pathname, 300),
+        latency(firstSrc, 650), latency(firstSrc.replace(pictureId, second), 850)]);
+      await p.cdp('Page.navigate', { url: address });
+      assert.ok(await p.waitFor('window.refreshTrace?.firstFrame'));
+      const first = await p.evaluate('refreshTrace.firstFrame');
+      const timings = await p.evaluate("performance.getEntriesByType('resource').filter(r => /db\\/list|_blob/.test(r.name)).map(r => [r.name,r.startTime,r.responseEnd])");
+      assert.deepEqual(first.imageStates.map(item => item.id).sort(), ['a', 'b'], JSON.stringify(timings));
+      assert.ok(first.imageStates.every(item => item.complete && item.width > 0));
+      assert.equal(first.decoded, 2);
+      for (const [suffix, ms] of [[pictureId, 650], [second, 850]]) {
+        const request = timings.find(([name]) => name.endsWith(suffix));
+        assert.ok(request && request[2] - request[1] >= ms - 30 && request[2] <= first.at, JSON.stringify(timings));
+      }
+      await remoteWrite(address, [{ op: 'set', path: 'elements/c', data: picture(second, 300) }]);
+      assert.ok(await p.waitFor("document.querySelector('#wb-c img')?.naturalWidth"));
+      assert.deepEqual(await p.evaluate('refreshTrace.veil'), [true, false]);
+
+      assert.ok(await p.waitFor(`JSON.parse((${savedBoardCopy}) || '[]').some(doc => doc.path === 'elements/c')`));
+      await p.cdp('Page.navigate', { url: 'about:blank' });
+      assert.ok(await p.waitFor("location.href === 'about:blank'"));
+      await remoteWrite(address, [{ op: 'set', path: 'elements/late', data: picture(second, 450) }]);
+      await delayRequests(p, [latency(listUrl.origin + listUrl.pathname, 720)]);
+      await p.cdp('Page.navigate', { url: address });
+      assert.ok(await p.waitFor("window.refreshTrace?.firstFrame && document.querySelector('#wb-late img')?.naturalWidth"));
+      const cached = await p.evaluate('refreshTrace.firstFrame');
+      const listed = await p.evaluate("performance.getEntriesByType('resource').filter(r => new URL(r.name).pathname.endsWith('/_api/db/list')).map(r => r.responseEnd)");
+      assert.deepEqual(cached.imageStates.map(item => item.id).sort(), ['a', 'b', 'c']);
+      assert.equal(cached.decoded, 3);
+      assert.ok(listed.length === 2 && listed.every(at => at > cached.at), JSON.stringify({ cached: cached.at, listed }));
+      assert.deepEqual(await p.evaluate('refreshTrace.veil'), [true, false]);
+      t.diagnostic(`cached images decoded at ${Math.round(cached.at)} ms, first list response at ${Math.round(Math.min(...listed))} ms`);
+    } finally { await p.close(); }
+  });
+
+  it('reveals visible fallback text within the font budget and upgrades to the actual Inter font', { skip: noBrowser }, async t => {
+    const dir = tmpDir('slow-font');
+    const { url: address } = await run.json(['open', dir, '--type', 'whiteboard', '--json']);
+    await remoteWrite(address, [
+      { op: 'set', path: 'board/meta', data: { v: 1, title: 'Font timing', order: ['fontbudget'] } },
+      { op: 'set', path: 'elements/fontbudget', data: { type: 'text', x: 0, y: 0, size: 'large', text: '**Visible board text**' } },
+    ]);
+    const assets = path.join(typePath('whiteboard'), 'scripts/editors/whiteboard/assets');
+    const file = fs.readdirSync(assets).find(name => /^inter-latin-wght-normal-.*\.woff2$/.test(name));
+    assert.ok(file);
+    const fontUrl = new URL('assets/' + file + '?font-budget', address).href;
+    const p = await browser.load('about:blank', { settle: 0 });
+    try {
+      await p.cdp('DOM.enable');
+      await p.cdp('CSS.enable');
+      await p.cdp('Network.setCacheDisabled', { cacheDisabled: true });
+      await delayRequests(p, [latency(fontUrl, 1150)]);
+      await p.cdp('Page.addScriptToEvaluateOnNewDocument', { source: `
+        (${observeRefresh})();
+        addEventListener('DOMContentLoaded', () => {
+          const style = document.createElement('style');
+          style.textContent = '#wb-fontbudget, #wb-fontbudget * {font-family: "Board Inter", monospace !important}';
+          document.head.append(style);
+          const face = new FontFace('Board Inter', 'url(' + ${JSON.stringify(fontUrl)} + ')', { display: 'swap', weight: '100 900' });
+          document.fonts.add(face);
+          const timing = window.fontTiming = {};
+          document.fonts.load('bold 24px "Board Inter"').then(() => { timing.loaded = performance.now(); });
+          new MutationObserver(() => {
+            if (document.querySelector('#wb-fontbudget strong')) timing.text ??= performance.now();
+            if (refreshTrace.firstFrame && !timing.first) {
+              const camera = new DOMMatrixReadOnly(getComputedStyle(document.querySelector('.wb-layer')).transform);
+              timing.first = { status: face.status, at: refreshTrace.firstFrame.at,
+                translation: [camera.e * devicePixelRatio, camera.f * devicePixelRatio] };
+            }
+          }).observe(document, {subtree:true, childList:true, attributes:true});
+        }, {once:true});
+      ` });
+      await p.cdp('Page.navigate', { url: address });
+      assert.ok(await p.waitFor('window.fontTiming?.first'));
+      const fontsUsed = async () => {
+        const { root: documentNode } = await p.cdp('DOM.getDocument');
+        const { nodeId } = await p.cdp('DOM.querySelector', { nodeId: documentNode.nodeId, selector: '#wb-fontbudget strong' });
+        return (await p.cdp('CSS.getPlatformFontsForNode', { nodeId })).fonts.filter(font => font.glyphCount > 0);
+      };
+      const first = await p.evaluate('({ ...fontTiming, layout: refreshTrace.firstFrame.laidOutText })');
+      assert.equal(first.first.status, 'loading', JSON.stringify(first));
+      assert.equal(first.layout, 1);
+      assert.ok(first.first.translation.every(n => Math.abs(n - Math.round(n)) < 0.01), JSON.stringify(first));
+      assert.ok(first.first.at - first.text >= 430 && first.first.at < 900, JSON.stringify(first));
+      const fallback = await fontsUsed();
+      assert.ok(fallback.length && fallback.every(font => !font.isCustomFont), JSON.stringify(fallback));
+      assert.ok(await p.waitFor('window.fontTiming?.loaded'));
+      const final = await p.evaluate(`({ ...fontTiming, duration: performance.getEntriesByName(${JSON.stringify(fontUrl)})[0].duration, veil: refreshTrace.veil })`);
+      assert.ok(final.duration >= 1100 && final.first.at < final.loaded, JSON.stringify(final));
+      assert.deepEqual(final.veil, [true, false]);
+      const inter = await fontsUsed();
+      assert.ok(inter.some(font => font.isCustomFont && /Inter/i.test(font.familyName)), JSON.stringify(inter));
+      t.diagnostic(`fallback ${fallback[0].familyName} at ${Math.round(first.first.at)} ms, font wait ${Math.round(first.first.at - first.text)} ms, Inter loaded at ${Math.round(final.loaded)} ms`);
+    } finally { await p.close(); }
+  });
+
   describe('global frame shell', { skip: noBrowser }, () => {
-    let daemon, shellUrl, downloads, shellRoot, previous;
+    let daemon, shellBoard, shellUrl, downloads, shellRoot, previous;
 
     before(async () => {
       const home = tmpDir('whiteboard-shell-home');
@@ -305,12 +505,20 @@ describe('whiteboard', { skip: skipFor('whiteboard') }, () => {
       };
       previous = Object.fromEntries(Object.keys(env).map(key => [key, process.env[key]]));
       Object.assign(process.env, env);
+      const staticType = path.join(env.OPEN_ARTIFACT_USER_TYPES, 'refresh-static');
+      fs.mkdirSync(staticType, { recursive: true });
+      fs.copyFileSync(path.join(fixtures, 'design-system/project/components/Button/preview.html'), path.join(staticType, 'index.html'));
       const { startDaemon } = await import('../packages/daemon/src/daemon.ts');
-      daemon = await startDaemon({ port: 0, idleMs: 0, quiet: true, browse: null, builtinTypesDir: path.dirname(typePath('whiteboard')) });
+      const installed = install(typePath('whiteboard'), 'shell-whiteboard');
+      const editorAssets = path.join(installed.dir, 'scripts/editors/whiteboard');
+      fs.copyFileSync(path.join(staticType, 'index.html'), path.join(editorAssets, 'navigation.html'));
+      fs.copyFileSync(path.join(fixtures, 'whiteboard-lifecycle/slow-static.html'), path.join(editorAssets, 'slow-static.html'));
+      fs.writeFileSync(path.join(editorAssets, 'navigation.png'), bytes);
+      daemon = await startDaemon({ port: 0, idleMs: 0, quiet: true, browse: null, builtinTypesDir: installed.work });
       shellRoot = tmpDir('whiteboard-shell-board');
       for (const folder of ['db', '_blobs']) fs.cpSync(path.join(root, folder), path.join(shellRoot, folder), { recursive: true });
-      const board = daemon.store.create({ root: shellRoot, type: 'whiteboard', title: 'Editable diagram' });
-      shellUrl = daemon.viewUrl(board.id);
+      shellBoard = daemon.store.create({ root: shellRoot, type: 'whiteboard', title: 'Editable diagram' });
+      shellUrl = daemon.viewUrl(shellBoard.id);
     });
     after(async () => {
       try { await daemon?.close(); } finally {
@@ -447,6 +655,308 @@ describe('whiteboard', { skip: skipFor('whiteboard') }, () => {
         assert.ok(await p.waitFor(layout('c.bottom <= f.top - 6 && c.right <= 400'), 3000), 'zoom follows the available toolbar space');
       } finally { await p.close(); }
     });
+
+    it('reveals a static HTML page just after its frame loads without a chrome report', async () => {
+      const entry = daemon.store.create({ root: tmpDir('static-artifact'), type: 'refresh-static', title: 'Static page' });
+      const p = await browser.load('about:blank', { settle: 0 });
+      try {
+        await p.cdp('Page.addScriptToEvaluateOnNewDocument', { source: `if (window === top) {
+          const timing = window.staticTiming = { covered: false, reports: 0 };
+          document.addEventListener('load', event => {
+            if (event.target.matches?.('iframe')) timing.load = performance.now();
+          }, true);
+          addEventListener('message', e => { if (e.data?.openArtifact === 'chrome_report') timing.reports++; });
+          new MutationObserver(() => {
+            if (document.querySelector('[data-shell-loading]')) timing.covered = true;
+            else if (timing.covered) timing.reveal ??= performance.now();
+          }).observe(document, { childList: true, subtree: true });
+        }` });
+        await p.cdp('Page.navigate', { url: daemon.viewUrl(entry.id) });
+        assert.ok(await p.waitFor('window.staticTiming?.reveal'));
+        const { load, reveal, reports } = await p.evaluate('window.staticTiming');
+        assert.equal(reports, 0);
+        assert.ok(reveal >= load && reveal - load < 250, `revealed ${reveal - load} ms after load`);
+        assert.ok(await p.waitFor("document.querySelector('button')?.textContent === 'Smoke button'"));
+        assert.deepEqual(p.problems, []);
+      } finally { await p.close(); }
+    });
+
+    it('clears ready tools on an internal static navigation and restores them on return in the same iframe', { timeout: 20000 }, async () => {
+      const p = await browser.load(shellUrl, { ready });
+      try {
+        const history = 'document.querySelector(\'header button[aria-label="Version history"]\')';
+        assert.ok(await p.waitFor(history + '?.disabled === false'));
+        const editor = await p.evaluate(`(() => {
+          const frame = window.originalFrame = document.querySelector('iframe');
+          const timing = window.internalNavigation = {};
+          frame.addEventListener('load', () => { timing.load = performance.now(); }, {once:true, capture:true});
+          const observer = new MutationObserver(() => {
+            if (timing.load && !${history} && !document.querySelector('[data-shell-loading]')) {
+              timing.clear = performance.now(); observer.disconnect();
+            }
+          });
+          observer.observe(document.body, {subtree:true, childList:true, attributes:true});
+          return frame.src;
+        })()`);
+        const dest = new URL('navigation.html', editor).href;
+        const link = (from, to) => p.evaluateAll(`(() => {
+          if (window === top || !document.querySelector(${JSON.stringify(from)})) return;
+          const a = document.createElement('a'); a.href = ${JSON.stringify(to)};
+          a.textContent = 'Open page'; document.body.append(a); setTimeout(() => a.click(), 50);
+        })()`);
+        await link('.wb-root', dest);
+        assert.ok(await p.waitFor("document.querySelector('button')?.textContent === 'Smoke button'"));
+        assert.ok(await p.waitFor(`window === top && !${history} && !document.querySelector('[data-shell-loading]')`, 1000));
+        const nav = await p.evaluate('internalNavigation');
+        assert.ok(nav.clear >= nav.load && nav.clear - nav.load < 250, JSON.stringify(nav));
+        assert.deepEqual(await p.evaluate("Object.keys(sessionStorage).filter(k => k.startsWith('oa-shell-chrome:'))"), []);
+        await link('button', editor);
+        assert.ok(await p.waitFor(history + '?.disabled === false'));
+        assert.equal(await p.evaluate("document.querySelector('iframe') === originalFrame"), true);
+      } finally { await p.close(); }
+    });
+
+    it('clears cross-origin editor commands before a slow static image finishes loading', async t => {
+      const p = await browser.load(shellUrl, { ready });
+      const history = 'document.querySelector(\'header button[aria-label="Version history"]\')';
+      try {
+        assert.ok(await p.waitFor(history + '?.disabled === false'));
+        const editor = await p.evaluate(`(() => {
+          const frame = document.querySelector('iframe');
+          const timing = window.slowNavigation = { loads: 0 };
+          const now = () => performance.timeOrigin + performance.now();
+          frame.addEventListener('load', () => timing.loads++);
+          addEventListener('message', e => {
+            if (e.origin === new URL(frame.src).origin && e.data?.openArtifact === 'chrome_leaving') {
+              timing.leaving = now(); timing.id = e.data.documentId;
+              timing.source = e.source === null ? 'detached' : e.source === frame.contentWindow ? 'frame' : 'other';
+            }
+          });
+          new MutationObserver(() => {
+            if (${history}?.disabled !== false) timing.disabled ??= now();
+          }).observe(document.body, {subtree:true, attributes:true, childList:true});
+          return frame.src;
+        })()`);
+        assert.notEqual(new URL(editor).origin, new URL(shellUrl).origin);
+        const [documentId] = (await p.evaluateAll("window !== top && document.querySelector('.wb-root') && performance.timeOrigin")).filter(Boolean);
+        const follow = href => p.evaluateAll(`(() => {
+          if (window === top || !document.querySelector('.wb-root')) return;
+          const link = document.createElement('a'); link.href = ${JSON.stringify(href)}; link.textContent = 'Open'; document.body.append(link);
+          link.click();
+        })()`);
+        await follow('#current-board');
+        assert.ok(await p.waitFor("window !== top && location.hash === '#current-board'"));
+        assert.deepEqual(await p.evaluate(`[slowNavigation.loads, !!slowNavigation.leaving, ${history}?.disabled]`), [0, false, false]);
+        const pngUrl = new URL('navigation.png', editor).href;
+        await delayRequests(p, [latency(pngUrl, 1150)]);
+        await follow(new URL('slow-static.html', editor).href);
+        assert.ok(await p.waitFor("document.querySelector('#static-body') && document.readyState === 'interactive' && !document.querySelector('img').complete"));
+        const [bodyAt] = (await p.evaluateAll("document.querySelector('#static-body') && performance.timeOrigin + performance.getEntriesByType('navigation')[0].domContentLoadedEventStart")).filter(Boolean);
+        const state = await p.evaluate(`({ ...slowNavigation, enabled: ${history}?.disabled === false })`);
+        assert.equal(state.id, documentId, JSON.stringify({ state, bodyAt, shellUrl, editor }));
+        assert.equal(state.loads, 0);
+        assert.equal(state.enabled, false, JSON.stringify({ bodyAt, state }));
+        assert.ok(state.disabled <= bodyAt + 100 && Math.abs(state.disabled - state.leaving) < 150, JSON.stringify({ bodyAt, state }));
+        assert.ok(await p.waitFor("document.querySelector('#static-body') && document.querySelector('img').naturalWidth > 0"));
+        const [duration] = (await p.evaluateAll(`performance.getEntriesByName(${JSON.stringify(pngUrl)})[0]?.duration`)).filter(Boolean);
+        assert.ok(duration >= 1100, String(duration));
+        assert.ok(await p.waitFor(`window === top && !${history} && !document.querySelector('[data-shell-loading]')`));
+        t.diagnostic(`history disabled ${Math.round(state.disabled - state.leaving)} ms after leaving, document source ${state.source}, static image ${Math.round(duration)} ms`);
+      } finally { await p.close(); }
+    });
+
+    for (const mode of ['direct', 'toolbar=0', 'toolbar=1']) {
+      it('announces a slow board and guards focus and editing until reveal in ' + mode, async () => {
+        const dir = tmpDir('slow-input');
+        fs.mkdirSync(path.join(dir, 'db/elements'), { recursive: true });
+        fs.mkdirSync(path.join(dir, 'db/board'), { recursive: true });
+        fs.writeFileSync(path.join(dir, 'db/board/meta.json'), JSON.stringify({ v: 1, title: 'Slow board', order: ['only'] }));
+        fs.writeFileSync(path.join(dir, 'db/elements/only.json'), JSON.stringify({ type: 'note', text: 'Select me', x: 0, y: 0, w: 120, h: 90 }));
+        const entry = daemon.store.create({ root: dir, type: 'whiteboard', title: 'Slow board' });
+        const address = mode === 'direct' ? (await run.json(['open', dir, '--type', 'whiteboard', '--json'])).url : daemon.viewUrl(entry.id) + '?' + mode;
+        const pageAddress = mode === 'direct' ? address : (await daemon.openPage(entry)).page_url;
+        const p = await browser.load('about:blank', { settle: 0 });
+        const focusRegion = "document.activeElement?.closest('[data-wb-region]')?.dataset.wbRegion";
+        const count = () => fs.readdirSync(path.join(dir, 'db/elements')).length;
+        const keys = async () => {
+          await p.press('a', { meta: true });
+          await p.press('d', { meta: true });
+          for (const type of ['rawKeyDown', 'keyUp']) await p.cdp('Input.dispatchKeyEvent', { type, key: 'F6', code: 'F6', windowsVirtualKeyCode: 117 });
+        };
+        try {
+          await delayRequests(p, [latency(new URL('_api/db/list', pageAddress).href, 4800)]);
+          await p.cdp('Page.navigate', { url: address });
+          const announced = `document.querySelector('.wb-veil[role=status]')?.checkVisibility() &&
+            document.querySelector('.wb-veil').textContent.trim() && document.querySelector('.wb-surface')?.closest('[inert]') &&
+            !document.querySelector('.wb-veil').closest('[inert]')`;
+          assert.ok(await p.waitFor(announced, 5000), JSON.stringify([p.problems, [...p.urls].filter(u => u.includes('/_api/')), await p.evaluateAll('document.body.innerText.slice(0,140)')]));
+          if (mode !== 'direct') {
+            assert.ok(await p.waitFor("window === top && performance.now() >= 2600 && document.querySelector('iframe')?.inert && document.querySelector('[data-shell-loading]')"));
+            assert.equal(await p.evaluate("!!document.querySelector('header')"), mode === 'toolbar=1');
+          }
+          assert.ok(await p.waitFor(announced, 500));
+          await p.click(500, 350);
+          await keys();
+          assert.ok(!(await p.evaluateAll(focusRegion)).some(Boolean));
+          assert.ok(!(await p.evaluateAll("!!document.querySelector('.wb-sel-frame')")).includes(true));
+          assert.equal(count(), 1);
+          assert.ok(await p.waitFor("document.querySelector('#wb-only') && !document.querySelector('.wb-veil')"));
+          if (mode !== 'direct') assert.ok(await p.waitFor("window === top && !document.querySelector('iframe').inert && !document.querySelector('[data-shell-loading]')"));
+          await p.evaluateAll("document.querySelector('.wb-surface')?.focus()");
+          await keys();
+          assert.ok(await until(() => count() === 2));
+          assert.ok((await p.evaluateAll(focusRegion)).some(region => region && region !== 'canvas'));
+        } finally { await p.close(); }
+      });
+    }
+
+    for (const mode of ['direct', 'shell']) {
+      it('keeps the remembered Ask button in place while refreshing the agent status in ' + mode, async () => {
+        const address = mode === 'shell' ? shellUrl : (await daemon.openPage(shellBoard)).page_url;
+        const p = await browser.load(address, { ready });
+        try {
+          const cached = "JSON.parse(sessionStorage.getItem('wb-agent:' + location.pathname))";
+          assert.ok(await p.waitFor(cached + '?.available'));
+          const [agent] = (await p.evaluateAll(cached)).filter(Boolean);
+          assert.equal(Object.hasOwn(agent, 'busy'), false);
+          const [session] = (await p.evaluateAll(`${ready} && new URL('_api/session', location.href).href`)).filter(Boolean);
+          assert.ok(p.urls.has(session));
+          await p.cdp('Network.emulateNetworkConditionsByRule', { offline: false, matchedNetworkConditions: [
+            { urlPattern: session, latency: 700, downloadThroughput: -1, uploadThroughput: -1 },
+          ] });
+          await p.cdp('Page.addScriptToEvaluateOnNewDocument', { source: `{
+            const trace = window.agentToolbar = { positions: [] };
+            const sample = () => {
+              const toolbar = document.querySelector('[aria-label="Board tools"]');
+              if (toolbar) {
+                const ask = [...toolbar.querySelectorAll('button')].find(b => b.textContent.trim() === ${JSON.stringify('Ask ' + agent.name)});
+                const x = ask?.getBoundingClientRect().left ?? null;
+                if (trace.positions.at(-1) !== x) trace.positions.push(x);
+                trace.last = performance.timeOrigin + performance.now();
+                trace.first ??= trace.last;
+              }
+              requestAnimationFrame(sample);
+            };
+            requestAnimationFrame(sample);
+          }` });
+          await p.cdp('Page.reload');
+          const timing = `(() => {
+            const trace = window.agentToolbar;
+            if (!trace) return;
+            const responses = performance.getEntriesByName(${JSON.stringify(session)});
+            const end = responses.at(-1)?.responseEnd;
+            const statusAt = responses.length >= 2 && end > 0 ? performance.timeOrigin + end : null;
+            return { top: window === top, toolbar: ${ready} ? trace : null, statusAt };
+          })()`;
+          let trace, statusAt;
+          assert.ok(await until(async () => {
+            const frames = (await p.evaluateAll(timing)).filter(Boolean);
+            const board = frames.find(frame => frame.toolbar?.first);
+            trace = board?.toolbar;
+            // In a brokered page, the Shell can own the board's HTTP requests.
+            statusAt = board?.statusAt ?? (mode === 'shell' ? frames.find(frame => frame.top)?.statusAt : null);
+            return Number.isFinite(statusAt) && trace?.last >= statusAt;
+          }, 10_000), 'the toolbar must be sampled after the reloaded session response');
+          assert.ok(Number.isFinite(statusAt));
+          assert.ok(trace.first < statusAt, 'the button is already present before the refreshed status arrives');
+          assert.equal(trace.positions.length, 1, JSON.stringify(trace));
+          assert.equal(typeof trace.positions[0], 'number');
+          assert.deepEqual(p.problems, []);
+        } finally { await p.close(); }
+      });
+    }
+
+    it('keeps the camera, decoded pictures and toolbar slots on immediate reload and drag', async () => {
+      const p = await browser.load(shellUrl, { ready });
+      try {
+        assert.ok(await p.waitFor(savedBoardCopy));
+        await p.cdp('Page.addScriptToEvaluateOnNewDocument', { source: `(${observeRefresh})()` });
+        const listUrl = new URL([...p.urls].find(url => new URL(url).pathname.endsWith('/_api/db/list')));
+        const delayRoute = (urlPattern, latency) => ({ urlPattern, latency, downloadThroughput: -1, uploadThroughput: -1 });
+        const listDelay = delayRoute(listUrl.origin + listUrl.pathname, 550);
+        await p.cdp('Network.emulateNetworkConditionsByRule', { offline: false, matchedNetworkConditions: [listDelay] });
+        for (const zoom of [50, 34]) {
+          await p.evaluateAll(`(() => {
+            const layer = document.querySelector('.wb-layer');
+            if (!layer) return;
+            let changed;
+            window.zoomApplied = new Promise(resolve => {
+              const observer = new MutationObserver(() => {
+                if (Math.round(new DOMMatrixReadOnly(getComputedStyle(layer).transform).a * 100) !== ${zoom}) return;
+                changed = performance.now();
+                observer.disconnect();
+                resolve(true);
+              });
+              observer.observe(layer, { attributes: true, attributeFilter: ['style'] });
+            });
+            addEventListener('pagehide', () => sessionStorage.setItem('zoom-to-reload', performance.now() - changed), { once: true });
+          })()`);
+          if (zoom === 50) {
+            await p.evaluateAll("document.querySelector('button[aria-label^=Zoom]')?.click()");
+            const option = "[...document.querySelectorAll('[role^=menuitem]')].find(el => el.textContent.trim() === '50%')";
+            assert.ok(await p.waitFor(option));
+            await p.evaluateAll(option + '?.click()');
+          } else {
+            // A real attachment holds iframe.onload past the editor's initial reports.
+            const image = new URL('/_blob/' + pictureId + '?load-order', listUrl).href;
+            await p.cdp('Network.emulateNetworkConditionsByRule', { offline: false, matchedNetworkConditions: [
+              listDelay, delayRoute(image, 1100),
+            ] });
+            await p.cdp('Page.addScriptToEvaluateOnNewDocument', { source: `if (window !== top) {
+              document.addEventListener('DOMContentLoaded', () => {
+                const image = new Image(); image.hidden = true; image.src = ${JSON.stringify(image)}; document.body.append(image);
+              }, { once: true });
+            }` });
+            for (const deltaY of [20, -100 * Math.log(0.34 / 0.5) - 20]) {
+              await p.cdp('Input.dispatchMouseEvent', { type: 'mouseWheel', x: 600, y: 400, deltaX: 0, deltaY, modifiers: 2 });
+            }
+          }
+          assert.ok((await p.evaluateAll('window.zoomApplied')).includes(true));
+          await p.cdp('Page.reload');
+          assert.ok(await p.waitFor(`window.refreshTrace?.firstFrame && Math.round(window.refreshTrace.firstFrame.zoom * 100) === ${zoom}`, 10000));
+          assert.ok(await p.waitFor("window.refreshTrace?.reports.includes('saved')"));
+          assert.ok(await p.waitFor("window.refreshTrace?.frameLoaded"));
+          const { board, shell } = await refreshTrace(p);
+          assert.deepEqual(shell.readiness, [false, true]);
+          const [elapsed] = (await p.evaluateAll("sessionStorage.getItem('zoom-to-reload')")).filter(Boolean);
+          assert.ok(elapsed != null && Number(elapsed) >= 0 && Number(elapsed) < 250, `reload after ${elapsed} ms`);
+          assert.ok(board.images > 0);
+          assert.equal(board.decoded, board.images);
+          assert.ok(board.text > 0);
+          assert.equal(board.laidOutText, board.text);
+          assert.ok(shell.states.includes('loading') && shell.states.includes('syncing'), JSON.stringify(shell.states));
+          if (zoom === 34) {
+            assert.ok(shell.beforeLoad.includes('loading') && shell.beforeLoad.includes('saved'), JSON.stringify(shell.beforeLoad));
+          }
+          const [first] = shell.slots;
+          assert.deepEqual(first.slice(2), [true, true, true]);
+          assert.deepEqual(shell.slots.at(-1).slice(2), [false, false, false]);
+          assert.ok(shell.slots.every(slot => slot[0] === first[0] && slot[1] === first[1]), JSON.stringify(shell.slots));
+          assert.deepEqual(shell.slots.map(slot => slot.slice(2)), [[true, true, true], [false, false, false]]);
+          assert.equal(shell.reports.slice(shell.reports.indexOf('syncing')).includes('loading'), false);
+        }
+        const [point] = (await p.evaluateAll(`(() => {
+          const r = document.querySelector('#wb-resizeCard')?.getBoundingClientRect();
+          return r && [r.x + r.width / 2, r.y + r.height / 2];
+        })()`)).filter(Boolean);
+        const frame = await p.evaluate("document.querySelector('iframe').getBoundingClientRect().toJSON()");
+        const [x, y] = [frame.x + point[0], frame.y + point[1]];
+        const file = path.join(shellRoot, 'db/elements/resizeCard.json');
+        const initial = JSON.parse(fs.readFileSync(file)).x;
+        await p.dragMouse([x, y], [x + 74, y + 32]);
+        assert.ok(await until(() => JSON.parse(fs.readFileSync(file)).x !== initial));
+        const { reports, states } = await p.evaluate('window.refreshTrace');
+        assert.ok(!reports.includes('unsaved') && !states.includes('unsaved'));
+        // A real, slower write should show Saving… and then clear.
+        const writeUrl = new URL('write', listUrl);
+        await p.cdp('Network.emulateNetworkConditionsByRule', { offline: false, matchedNetworkConditions: [delayRoute(writeUrl.href, 1150)] });
+        await p.dragMouse([x + 74, y + 32], [x + 105, y + 56]);
+        assert.ok(await p.waitFor("document.querySelector('[data-shell-save-state=saving]')"));
+        assert.ok(await p.waitFor("window.refreshTrace?.reports.at(-1) === 'saved' && !document.querySelector('[data-shell-save-state]')"));
+        assert.ok(!(await p.evaluate('window.refreshTrace.reports')).includes('unsaved'));
+        assert.deepEqual(p.problems, []);
+      } finally { await p.close(); }
+    });
   });
 
   // 2026-11-20: a board opened while its pane was still narrow kept that zoom once the pane widened, most of it off screen.
@@ -484,6 +994,42 @@ describe('whiteboard', { skip: skipFor('whiteboard') }, () => {
       assert.equal(await p.evaluate("Boolean(document.querySelector('.wb-recovery'))"), false);
       assert.equal(await p.evaluate('window.recoveredInPlace'), true);
     } finally { await p.close(); }
+  });
+
+  it('resumes media after a renderer crash without covering the revealed board again', { skip: noBrowser }, async () => {
+    const recoveryRoot = tmpDir('whiteboard-recovery');
+    fs.cpSync(root, recoveryRoot, { recursive: true });
+    const { url: recoveryUrl } = await run.json(['open', recoveryRoot, '--type', 'whiteboard', '--json']);
+    const marker = "localStorage.getItem('wb-load:' + location.pathname)";
+    let interrupted, recovered;
+    try {
+      interrupted = await browser.load(recoveryUrl, { ready, settle: 0 });
+      await interrupted.cdp('Page.bringToFront');
+      assert.equal(await interrupted.evaluate(marker), '1');
+      assert.ok(await interrupted.waitFor('!' + marker, 30000), 'a healthy visible load releases its marker');
+      await interrupted.cdp('Page.reload');
+      assert.ok(await interrupted.waitFor(marker));
+      await assert.rejects(interrupted.cdp('Page.crash'), /the tab went away|target crashed/i);
+      recovered = await browser.load(recoveryUrl, { ready });
+      assert.ok(await recovered.waitFor("document.querySelector('#wb-picture.wb-paused-media') && !document.querySelector('[data-wb-veil]')"));
+      assert.equal(await recovered.evaluate("document.querySelector('#wb-picture img')"), null);
+      await recovered.evaluate(`(() => {
+        window.recoveryCovers = 0;
+        new MutationObserver(records => {
+          for (const record of records) for (const node of record.addedNodes) {
+            if (node.matches?.('[data-wb-veil]') || node.querySelector?.('[data-wb-veil]')) window.recoveryCovers++;
+          }
+        }).observe(document.body, { childList: true, subtree: true });
+        document.querySelector('.wb-recovery button').click();
+      })()`);
+      assert.ok(await recovered.waitFor("document.querySelector('#wb-picture img')?.naturalWidth === 2"));
+      assert.equal(await recovered.evaluate("Boolean(document.querySelector('.wb-recovery'))"), false);
+      assert.equal(await recovered.evaluate('window.recoveryCovers'), 0);
+      assert.deepEqual(recovered.problems, []);
+    } finally {
+      await recovered?.close();
+      await interrupted?.close();
+    }
   });
   it('pastes a local artifact link as a card and syncs undo and redo to another tab', { skip: noBrowser }, async () => {
     const writer = await browser.load(url, { ready });
@@ -804,6 +1350,8 @@ describe('whiteboard', { skip: skipFor('whiteboard') }, () => {
     const src = 'data:image/svg+xml;base64,' + Buffer.from(svg).toString('base64');
     const elements = {
       wash: { type: 'image', x: 0, y: 0, w: 300, h: 180, src, style: 'watercolor' },
+      small: { type: 'image', x: 0, y: 205, w: 90, h: 54, src, style: 'watercolor' },
+      medium: { type: 'image', x: 130, y: 205, w: 150, h: 90, src, style: 'watercolor' },
       sketch: { type: 'image', x: 340, y: 0, w: 300, h: 180, src, style: 'draft' },
       clean: { type: 'image', x: 680, y: 0, w: 300, h: 180, src, style: 'plain' },
     };
@@ -817,6 +1365,39 @@ describe('whiteboard', { skip: skipFor('whiteboard') }, () => {
       assert.ok(await p.waitFor(`${img('wash')}?.src.startsWith('blob:') && ${img('wash')}.naturalWidth > 0`, 15000), 'the watercolor look is painted');
       assert.ok(await p.waitFor(`${img('sketch')}?.complete && ${img('clean')}?.complete`, 5000));
       assert.ok(await p.evaluate(`${img('sketch')}.src.startsWith('data:image/svg+xml') && ${img('sketch')}.src !== ${img('clean')}.src`), 'draft and plain differ');
+      await p.cdp('Page.addScriptToEvaluateOnNewDocument', { source: `(${observeRefresh})()` });
+      await p.cdp('Page.reload');
+      assert.ok(await p.waitFor('window.refreshTrace?.firstFrame'));
+      const frame = await p.evaluate('window.refreshTrace.firstFrame');
+      assert.equal(frame.paintedLooks, 3);
+      assert.equal(frame.decoded, frame.images);
+      const idleChanges = await p.evaluate(`(async () => {
+        let changes = 0;
+        const observer = new MutationObserver(records => { changes += records.length; });
+        for (const id of ['wash', 'medium', 'small']) observer.observe(document.querySelector('#wb-' + id + ' img'),
+          { attributes: true, attributeFilter: ['src'] });
+        await new Promise(resolve => setTimeout(resolve, 800));
+        observer.disconnect(); return changes;
+      })()`);
+      assert.equal(idleChanges, 0);
+      const point = await p.evaluate(`(() => {
+        const image = ${img('wash')};
+        window.lookSources = [image.src];
+        new MutationObserver(records => {
+          for (const rec of records) lookSources.push(rec.oldValue);
+          lookSources.push(image.src);
+        }).observe(image, { attributes: true, attributeFilter: ['src'], attributeOldValue: true });
+        const r = image.getBoundingClientRect();
+        return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+      })()`);
+      for (let i = 0; i < 4; i++) {
+        await p.cdp('Input.dispatchMouseEvent', { type: 'mouseWheel', ...point, deltaX: 0, deltaY: -20, modifiers: 2 });
+      }
+      assert.ok(await p.waitFor("new Set(window.lookSources).size > 1"));
+      assert.ok(await p.evaluate("window.lookSources.every(src => src.startsWith('blob:'))"));
+      await p.evaluate('window.lookSources.length = 0');
+      await remoteWrite(boardUrl, [{ op: 'update', path: 'elements/wash', patch: { w: 140, h: 280 } }]);
+      assert.ok(await p.waitFor("window.lookSources.some(src => src.startsWith('data:image/svg+xml')) && window.lookSources.at(-1)?.startsWith('blob:')"));
       assert.deepEqual(p.problems, []);
     } finally { await p.close(); await run.run(['stop', board]); }
   });

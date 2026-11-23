@@ -540,6 +540,7 @@ export function installKeyboard(): () => void {
   };
 
   const onKeyDown = (event: KeyboardEvent): void => {
+    if (!useBoard.getState().revealed) return;
     if (event.defaultPrevented || event.isComposing) return;
     const target = event.target;
     const selection = useSelection.getState();
@@ -715,6 +716,7 @@ export function installKeyboard(): () => void {
   };
 
   const onKeyUp = (event: KeyboardEvent): void => {
+    if (!useBoard.getState().revealed) return;
     if (event.key === ' ') releaseHand();
     if (arrowKeyDirection(event.key)) panner.release(event.code);
   };

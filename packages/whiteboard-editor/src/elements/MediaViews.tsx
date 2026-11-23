@@ -15,7 +15,7 @@ import { ArrowUpRight, Play } from 'lucide-react';
 import { FACE_STICKER_ART, IMAGE_FRAME_PADDING, imageCropCss, imageDrawingLook, isSvgBase64DataUrl, stickerLabel, type ColorScheme, type ElementId, type ImageElement, type StickerElement } from '@open-artifact/whiteboard-core';
 import { drawnImagePen, drawnImageSrc } from '../export/drawn-svg.ts';
 import { isRasterLook } from '../lib/drawing-looks.ts';
-import { lookRequestKey, requestDrawingLook, type LookRequest } from '../services/drawing-looks.ts';
+import { lookRequestKey, requestDrawingLook, retainDrawingLook, type LookRequest } from '../services/drawing-looks.ts';
 import { announce, notify } from '../services/announce.ts';
 import { maybeSession } from '../services/session.ts';
 import { useCamera } from '../state/camera.ts';
@@ -64,6 +64,15 @@ function textureRequest(element: ImageElement, scheme: ColorScheme, scale: numbe
 function usePaintedLook(request: LookRequest | undefined, view: RefObject<HTMLDivElement | null>): string | undefined {
   const key = request === undefined ? undefined : lookRequestKey(request).key;
   const painted = useDrawingLooks((state) => (key === undefined ? undefined : state.painted.get(key)));
+  const last = useRef<(LookRequest & { key: string }) | undefined>(undefined);
+  const previous = last.current;
+  const previousKey = request && previous?.src === request.src && previous.look === request.look && previous.scheme === request.scheme &&
+    previous.w === request.w && previous.h === request.h ? previous.key : undefined;
+  const fallback = useDrawingLooks(state => previousKey ? state.painted.get(previousKey) : undefined);
+  useLayoutEffect(() => {
+    if (painted && key && request) last.current = { ...request, key };
+    else if (!previousKey) last.current = undefined;
+  }, [key, painted, previousKey]);
   const [inView, setInView] = useState(false);
   useEffect(() => {
     const node = view.current;
@@ -76,10 +85,16 @@ function usePaintedLook(request: LookRequest | undefined, view: RefObject<HTMLDi
     observer.observe(node);
     return () => observer.disconnect();
   }, [request === undefined, view]);
+  useLayoutEffect(() => {
+    if (inView && previousKey && !painted) return retainDrawingLook(previousKey);
+  }, [inView, previousKey, painted]);
   useEffect(() => {
-    if (request !== undefined && inView && painted === undefined) void requestDrawingLook(request);
-  }, [key, inView, painted]);
-  return painted;
+    if (!inView || !request || !key) return;
+    const release = retainDrawingLook(key);
+    void requestDrawingLook(request);
+    return release;
+  }, [key, inView]);
+  return painted ?? fallback;
 }
 
 /* ------------------------------------------------------------------------ */

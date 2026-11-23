@@ -15,6 +15,7 @@ import {
   CHROME_PEER_KEY,
   CHROME_PROTOCOL,
   MAX_CHROME_PEERS,
+  SHELL_PARAMS,
   type ChromeCommand,
   type ChromeDraw,
   type ChromeExportItem,
@@ -30,6 +31,8 @@ export { CHROME_PEER_KEY, MAX_CHROME_PEERS };
 export interface ShellConnection {
   /** The Shell's origin. */
   readonly origin: string;
+  /** The artifact's stable id, when supplied by the Shell. */
+  readonly artifactId?: string | null;
   /**
    * What the Shell draws for the page (its last `chrome_hello`). While it
    * has `saved`, the page leaves its own save badge out. Empty until the
@@ -93,8 +96,10 @@ export function shellOrigin(href: string = location.href): string | null {
 export function connectShell(): ShellConnection | null {
   const origin = shellOrigin();
   if (!origin) return null;
+  const artifactId = new URLSearchParams(window.location.search).get(SHELL_PARAMS.id)?.trim() || null;
 
   let lastReport: ChromeReport = {};
+  const identity = { documentId: performance.timeOrigin, leavingToken: crypto.getRandomValues(new Uint32Array(4)).join('-') };
   let draws: ReadonlySet<ChromeDraw> = new Set();
   let writesClipboard = false;
   let clipboardSeq = 0;
@@ -107,6 +112,7 @@ export function connectShell(): ShellConnection | null {
   const post = (message: Record<string, unknown>): void => {
     window.parent.postMessage({ openArtifact: message.openArtifact, ...message }, origin);
   };
+  const sendReport = () => post({ openArtifact: 'chrome_report', protocol: SHELL_PROTOCOL, ...identity, report: lastReport });
 
   const onMessage = (event: MessageEvent): void => {
     if (event.origin !== origin || event.source !== window.parent) return;
@@ -129,7 +135,7 @@ export function connectShell(): ShellConnection | null {
           }
         }
         for (const handler of helloHandlers) handler(draws);
-        post({ openArtifact: 'chrome_report', protocol: SHELL_PROTOCOL, report: lastReport });
+        sendReport();
         break;
       }
       case 'chrome_cmd': {
@@ -162,10 +168,13 @@ export function connectShell(): ShellConnection | null {
         break;
     }
   };
+  const onPageHide = () => post({ openArtifact: 'chrome_leaving', ...identity });
   window.addEventListener('message', onMessage);
+  window.addEventListener('pagehide', onPageHide);
 
   return {
     origin,
+    artifactId,
     get draws() {
       return draws;
     },
@@ -218,7 +227,7 @@ export function connectShell(): ShellConnection | null {
     },
     report(report) {
       lastReport = report;
-      post({ openArtifact: 'chrome_report', protocol: SHELL_PROTOCOL, report });
+      sendReport();
     },
     onCommand(handler) {
       commandHandlers.add(handler);
@@ -230,6 +239,7 @@ export function connectShell(): ShellConnection | null {
     },
     dispose() {
       window.removeEventListener('message', onMessage);
+      window.removeEventListener('pagehide', onPageHide);
       for (const waiting of clipboardWaiting.values()) waiting.reject(new Error('The Shell connection closed.'));
       clipboardWaiting.clear();
       commandHandlers.clear();
