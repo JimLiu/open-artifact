@@ -52,6 +52,22 @@ close button. `caps.artifacts` (home page only): a click on an artifact sends `o
 | `open_artifact` | `url`, `id`, `title`, `type` |
 | `open_session`, `new_session` | as from the Shell |
 
+## Artifact page → Shell: initial view and saving
+
+The page's `connectShell()` connection from `@open-artifact/runtime` sends `ChromeReport` with
+`report(...)` (chrome protocol 1). These reports are between the artifact page and the Shell, separately from the
+host messages above.
+
+- `ready: false` keeps the Shell's loading cover over the initial view. Send it before the frame loads, then
+  `ready: true` once the view is restored. Omitting `ready` also shows the page. Once a document is shown, later
+  `false` reports cannot cover it again; the Shell lifts the cover after `CHROME_READY_TIMEOUT_MS` (10 seconds)
+  even if the page never becomes ready.
+- `saved: 'saving'` includes edits waiting for a debounced write. The Shell shows “Saving…” only after 500 ms.
+  Use `saved: 'unsaved'` for a failed save, and leave `saved` out when there is no save state to report.
+- `shellArtifactId()` and `ShellConnection.artifactId` read the stable `open_artifact_id` from the framed page's
+  URL, or return `null` outside the Shell or without an id. Use it to key remembered page state instead of a
+  cloud-host page path whose token changes on each reload; it is not an authorization credential.
+
 ## Who is a declared host
 
 The Shell reads `GET /api/open-artifact.embed` (`hosts`: the origins connected adapters declared in

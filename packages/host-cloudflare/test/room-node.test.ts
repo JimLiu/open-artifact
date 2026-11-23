@@ -172,8 +172,9 @@ describe('the room in Node, on the SQLite file system', () => {
     const made = makeRoom(undefined, 'slides1');
     live.push(made);
     const { room, storage } = made;
-    const seeded = await room.seed('slides1', folderFiles(SLIDES));
-    assert.ok(seeded.files > 5);
+    const files = folderFiles(SLIDES);
+    const seeded = await room.seed('slides1', files);
+    assert.equal(seeded.files, Object.keys(files).length);
     await assert.rejects(room.seed('slides1', { 'a.txt': 'x' }), /has a folder already/);
     await assert.rejects(room.ready('other'), /holds slides1/);
 
@@ -336,7 +337,7 @@ describe('the room in Node, on the SQLite file system', () => {
     const two = makeRoom(storage, 'slides5');
     const session = await two.room.fetch(page('slides5', 'slides/owner/_api/session'));
     assert.equal(session.status, 200);
-    assert.ok(Object.keys(await two.room.manifest()).length > 5);
+    assert.deepEqual(Object.keys(await two.room.manifest()).sort(), Object.keys(folderFiles(SLIDES)).sort());
     await two.room.destroy();
     const tables = storage.sql.exec<{ name: string }>("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'oa_%'").toArray();
     assert.deepEqual(tables, []);

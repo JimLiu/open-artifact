@@ -6,6 +6,28 @@ agent plugins. Since 0.9.0 they all share one version; before that `dsh-open-art
 Each entry is written from the commits since the previous tag (`node scripts/changelog.mjs` lists them); see
 [Releasing](README.md#releasing).
 
+## [0.14.2] - 2026-11-23
+
+Whiteboards restore their view before appearing, keep it across hosted-page reloads, and show pending saves without false failure warnings.
+
+### Changed
+
+- The Shell keeps its loading cover over a whiteboard while it restores its camera, loads fonts and pictures, and paints drawings. History and Comments keep their toolbar slots during reloads, and a brief save no longer flashes “Saving…”.
+- Editors report edits waiting for a debounced write as `saving`; `unsaved` is reserved for a failed save.
+
+### Fixed
+
+- A whiteboard on a cloud host keeps its camera across reloads even though its page token changes. Camera, recovery copies and remembered agent status use a stable artifact identity; recovery copies are also scoped to the viewer and role, and obsolete token-based copies are removed.
+- Refreshing while the old page finishes a save no longer uncovers the new page before it is ready. A page that stops reporting readiness cannot keep the Shell covered for more than ten seconds, and static-page links appear promptly again.
+- Whiteboards save their camera when leaving the page, keep drawings painted while they remain in view, and preserve the view's centre when restoring a zoom outside the compact range.
+- A whiteboard that fails to load without pending edits no longer reports unsaved work. A failure while starting its services reveals the page and stops the services already started.
+
+### Integrators
+
+- Chrome protocol 1 adds optional `ChromeReport.ready`: send `false` before the frame loads to keep the loading cover up, then `true` when the initial view is restored. Once shown, the document ignores later `false` reports; the cover is capped by `CHROME_READY_TIMEOUT_MS` (10 seconds). Pages that omit it keep the existing behaviour.
+- `@open-artifact/runtime` exports `shellArtifactId()` and exposes the same stable id as `ShellConnection.artifactId`, for page state that must survive cloud-host token changes. They return `null` outside the Shell or when no id was supplied.
+- `ChromeSaved` keeps the same values: report `saving` for pending writes, including the write debounce, and `unsaved` only for a save failure. The Shell waits 500 ms before showing “Saving…”. The Harness API, host messages, harness kit, stdio bridge and shipped profiles are unchanged.
+
 ## [0.14.1] - 2026-11-22
 
 Open Artifact runs inside an Electron app whose `RunAsNode` fuse is off: the app starts the daemon itself, and type servers run in worker threads.
@@ -473,6 +495,7 @@ One version for every package, with Docs and Sheets in every plugin.
 - Plugins for Claude Code, Codex, Cursor, Copilot, ChatGPT and DeepSeek Harness.
 - English and Chinese READMEs, under Apache-2.0.
 
+[0.14.2]: https://github.com/JimLiu/open-artifact/compare/v0.14.1...v0.14.2
 [0.14.1]: https://github.com/JimLiu/open-artifact/compare/v0.14.0...v0.14.1
 [0.14.0]: https://github.com/JimLiu/open-artifact/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/JimLiu/open-artifact/compare/v0.12.5...v0.13.0

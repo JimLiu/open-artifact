@@ -76,7 +76,7 @@ cd deploy/cloudflare && npm ci && npm run build
 build: dist/site/worker.js 4.2 MB from 458 files; built-ins left to workerd: ./sheets.wasm node:buffer …
 build: dist/rooms/worker.js 3.4 MB from 386 files; …
 build: host plugins from plugins.mjs
-build: sheets.wasm 7.8 MB; 8 types (data, design, design-system, docs, motion, sheets, slides, whiteboard); version 0.14.1
+build: sheets.wasm 7.8 MB; 8 types (data, design, design-system, docs, motion, sheets, slides, whiteboard); version 0.14.2
 ```
 
 `deploy/cloudflare` 有自己的 `package.json`（wrangler 4.166.0、esbuild），不属于根目录的安装。
@@ -306,7 +306,7 @@ dig +short anything.example.com
 curl -s https://open-artifact.<your-subdomain>.workers.dev/__open-artifact/health
 ```
 
-**预期：** `{"openArtifact":1,"version":"0.14.1"}`。另外：
+**预期：** `{"openArtifact":1,"version":"0.14.2"}`。另外：
 
 | 请求 | 应答 |
 | --- | --- |
@@ -542,7 +542,7 @@ PORT=8797 PERSIST_TO=/tmp/oa-cf-state npm run dev -- --ip 127.0.0.1 --env-file ~
 
 **预期：** `Using secrets defined in …/dev.env`（或 `.dev.vars`）、绑定列表，然后是
 `[wrangler:info] Ready on http://127.0.0.1:8797`（两种写法都在这里运行过）。
-`curl -s http://localhost:8797/__open-artifact/health` 回 `{"openArtifact":1,"version":"0.14.1"}`；在
+`curl -s http://localhost:8797/__open-artifact/health` 回 `{"openArtifact":1,"version":"0.14.2"}`；在
 `http://localhost:8797/auth/sign-in` 用 owner key 登录。作品在 `http://{id}.content.localhost:8797`。用 Ctrl-C 停止；删掉
 `PERSIST_TO` 指向的文件夹就能从头开始。
 

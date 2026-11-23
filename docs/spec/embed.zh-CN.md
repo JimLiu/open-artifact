@@ -47,6 +47,14 @@
 | `open_artifact` | `url`、`id`、`title`、`type` |
 | `open_session`、`new_session` | 与 Shell 发的相同 |
 
+## 作品页面 → Shell：初始视图与保存
+
+页面通过 `@open-artifact/runtime` 的 `connectShell()` 连接调用 `report(...)`，发送 `ChromeReport`（chrome 协议 1）。这些报告在作品页面与 Shell 之间传递，与上面的宿主消息分开。
+
+- `ready: false` 让 Shell 在初始视图上保留加载遮罩。在框架加载前发送，视图恢复后再发送 `ready: true`。省略 `ready` 也会显示页面。文档一旦显示，后续的 `false` 报告不能再次遮住它；即使页面始终没有就绪，Shell 也会在 `CHROME_READY_TIMEOUT_MS`（10 秒）后移除遮罩。
+- `saved: 'saving'` 包括仍在等待防抖写入的编辑。Shell 只在持续 500 毫秒后显示“Saving…”。保存失败才使用 `saved: 'unsaved'`；没有保存状态可报告时省略 `saved`。
+- `shellArtifactId()` 和 `ShellConnection.artifactId` 读取框架页面 URL 中稳定的 `open_artifact_id`；不在 Shell 内或没有 id 时返回 `null`。用它作为页面记忆状态的键，避免使用每次刷新都会更换令牌的云端页面路径；它不是授权凭据。
+
 ## 谁是已声明宿主
 
 Shell 读取 `GET /api/open-artifact.embed`（`hosts`：已连接适配器在 `caps.open.origins` 里声明的源），并判断发送 `host_hello` 的源：

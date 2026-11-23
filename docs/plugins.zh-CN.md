@@ -384,7 +384,7 @@ Docker 镜像跑的是同一个 Node 站点，但只包含站点需要的文件�
    站点**预期**输出：
 
    ```
-   Open Artifact host 0.14.1 listening on http://127.0.0.1:4911
+   Open Artifact host 0.14.2 listening on http://127.0.0.1:4911
      app:     http://localhost:4912
      content: http://{id}.content.localhost:4912
      data:    /Users/you/oa-plugins-demo/site

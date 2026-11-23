@@ -54,7 +54,7 @@ keeps running.
 ```text
 → {"jsonrpc":"2.0","id":1,"method":"hello","params":{"harness":"my-agent","caps":{"agentName":"My Agent","tools":"native","wake":{}}}}
 ← {"jsonrpc":"2.0","method":"bridge.state","params":{"state":"connected"}}
-← {"jsonrpc":"2.0","id":1,"result":{"protocol":1,"daemon":"0.14.1","connection":"…","features":[…]}}
+← {"jsonrpc":"2.0","id":1,"result":{"protocol":1,"daemon":"0.14.2","connection":"…","features":[…]}}
 → {"jsonrpc":"2.0","id":2,"method":"session.attach","params":{"session":"chat-1","workspace":"/home/me/project"}}
 ← {"jsonrpc":"2.0","id":2,"result":{"key":"…","inbox":[]}}
 ← {"jsonrpc":"2.0","id":"d1","method":"wake.deliver","params":{"session":"chat-1","text":"[Artifact comment sent to agent]…","source":{…}}}

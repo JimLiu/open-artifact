@@ -93,7 +93,7 @@ Waiting for the approval...
 
 页面上写着（带你自己的代码）：
 
-> **Link a computer**：Open Artifact daemon 请求关联到你的账号，自称 open-artifact 0.14.1，代码 HRHX-MHGN，你当前以
+> **Link a computer**：Open Artifact daemon 请求关联到你的账号，自称 open-artifact 0.14.2，代码 HRHX-MHGN，你当前以
 > Owner 身份登录。关联后，它可以把作品发布到这个站点，读取和修改你在这里拥有的作品，并收到发给你的 Agent 的评论和请求。
 > 页面提醒：只批准你自己发起的代码。
 
@@ -463,7 +463,7 @@ HTTP 的 MCP）。它以批准它的那个人的身份、带着那个人的角�
 
 **检查：** 让 Agent 列出你的作品（`Artifact {action: "list"}`）；它会显示作品和你的角色。
 
-在这里用 curl 当客户端运行过：注册、授权、令牌、`initialize`（服务器 `open-artifact 0.14.1`）、工具列表、`list` 和
+在这里用 curl 当客户端运行过：注册、授权、令牌、`initialize`（服务器 `open-artifact 0.14.2`）、工具列表、`list` 和
 `snapshot`。没有用真实的 Agent 应用运行过；各个应用添加带 OAuth 的 MCP 服务器的方式不同（比如“自定义连接器”或
 `mcp add --transport http`），见应用自己的文档。
 
