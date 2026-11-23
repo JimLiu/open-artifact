@@ -11,7 +11,8 @@
 //  (d) The Docs type changes: its server is stopped (it ends by its own shutdown, exit 0) and the next call starts a
 //      new one in another thread.
 //  (e) The daemon stops (SIGTERM): it waits for its threads to finish (each server log ends with `--- exit 0`), exits
-//      0, removes daemon.json and its lock, and nothing listens on the servers' ports or runs from the home.
+//      0, removes daemon.json and its lock, says in its log that it stopped and why, and nothing listens on the
+//      servers' ports or runs from the home.
 //
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
@@ -191,6 +192,8 @@ describe('type servers in worker threads of a real daemon', { skip }, () => {
     const { code, signal } = await Promise.race([ctx.exited, new Promise(r => setTimeout(() => r({ code: 'timeout' }), 15000))]);
     assert.deepEqual({ code, signal }, { code: 0, signal: null }, ctx.daemonOut);
     for (const type of ['slides', 'docs']) assert.match(serverLog(type), /--- exit 0\n$/, `${type}: ${serverLog(type).slice(-500)}`);
+    // The daemon log says it stopped and why, once.
+    assert.equal(log().match(/^\[[^\]]+\] daemon \S+ stopped \(SIGTERM\)$/gm)?.length, 1, log().slice(-600));
     assert.equal(fs.existsSync(path.join(ctx.home, 'daemon.json')), false);
     assert.equal(fs.existsSync(path.join(ctx.home, 'daemon.lock')), false);
     for (const port of [ctx.port, ctx.slidesPort, ctx.docsPort]) assert.equal(await listening(port), false, `port ${port} still listens`);

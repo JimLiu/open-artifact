@@ -6,7 +6,7 @@
  * camera never auto-fits, and neither does one following someone.
  *
  * A fit happens only when the content outgrows the box last fitted or the
- * view changed its size or zoom range since, so a board that only changes
+ * view changed its size since, so a board that only changes
  * inside its bounds keeps a steady view, and a page that opened in a pane
  * still settling its size ends up fitted to the size it settles on.
  */
@@ -20,11 +20,10 @@ import { usePresence } from '../state/presence.ts';
 import { contentBounds } from './navigation.ts';
 import { fitTo } from './viewport.ts';
 
-/** A view's size and layout. */
+/** A view's size. */
 interface ViewShape {
   width: number;
   height: number;
-  compact: boolean;
 }
 
 /** Whether `inner` lies within `outer`. */
@@ -32,9 +31,9 @@ function contains(outer: Box, inner: Box): boolean {
   return inner.x >= outer.x && inner.y >= outer.y && inner.x + inner.w <= outer.x + outer.w && inner.y + inner.h <= outer.y + outer.h;
 }
 
-/** Whether the view's size or its zoom range (the compact layout) differs. */
+/** Whether the view's size differs. */
 function viewChanged(a: ViewShape, b: ViewShape): boolean {
-  return a.width !== b.width || a.height !== b.height || a.compact !== b.compact;
+  return a.width !== b.width || a.height !== b.height;
 }
 
 /** The box that holds everything on the board, the agent's claimed areas included. */
@@ -52,8 +51,8 @@ function boardBox(): Box | undefined {
 export function startAutoFit({ ownView }: { ownView: boolean }): () => void {
   /** The box last fitted; undefined until the first fit. */
   let fitted: Box | undefined;
-  /** The view's size and layout at the last fit. */
-  let fittedView = { width: 0, height: 0, compact: false };
+  /** The view's size at the last fit. */
+  let fittedView = { width: 0, height: 0 };
   /** A fit has been made with elements on the board (not only claims). */
   let fittedElements = false;
   /** The viewer pressed, typed or scrolled, or the view was moved: it is theirs from now on. */
@@ -74,7 +73,7 @@ export function startAutoFit({ ownView }: { ownView: boolean }): () => void {
     fittedElements ||= hasElements;
     if (fitted !== undefined && contains(fitted, box) && !viewChanged(camera, fittedView)) return;
     fitted = box;
-    fittedView = { width: camera.width, height: camera.height, compact: camera.compact };
+    fittedView = { width: camera.width, height: camera.height };
     fitting = true;
     try {
       fitTo(box);

@@ -92,8 +92,7 @@ function CornerZoom({ readOnly, badge }: { readOnly: boolean; badge: ReactNode }
 /** "54% ⌄": the zoom readout and its menu. */
 function ZoomMenu({ readOnly, corner = false }: { readOnly: boolean; corner?: boolean }) {
   const zoom = useCamera((state) => state.camera.zoom);
-  const compact = useCamera((state) => state.compact);
-  const range = zoomRange({ compact });
+  const range = zoomRange();
   const hasSelection = useSelection((state) => state.ids.length > 0);
   const empty = useBoard((state) => state.board.content.elements.length === 0);
   const canUndo = useHistory((state) => state.canUndo);

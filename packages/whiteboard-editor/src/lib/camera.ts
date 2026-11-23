@@ -42,10 +42,8 @@ export type { Point, Rect };
 /** A camera: the board point at the viewport's top-left and the zoom. */
 export type Camera = CameraState;
 
-/** Smallest zoom (5%). */
+/** Smallest zoom (5%), whatever the viewport's width or the pointer. */
 export const MIN_ZOOM = 0.05;
-/** Smallest zoom of the compact (narrow or touch) layout. */
-export const MIN_COMPACT_ZOOM = 0.6;
 /** Largest zoom (800%). */
 export const MAX_ZOOM = 8;
 /** "Fit" never zooms in past 100%. */

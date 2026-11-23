@@ -37,23 +37,20 @@ export function BoardSurface({ elements, children, overlay }: BoardSurfaceProps)
   const layer = useRef<HTMLDivElement>(null);
   const tool = useTool((state) => effectiveTool(state));
   const commenting = useTool((state) => state.commentMode);
-  // Size and pointer coarseness.
+  // Size.
   useEffect(() => {
     const element = surface.current;
     if (!element) return;
     surfaceRef.current = element;
-    const coarse = matchMedia('(pointer: coarse)');
     const measure = (): void => {
       const bounds = element.getBoundingClientRect();
-      useCamera.getState().setViewport(bounds.width, bounds.height, coarse.matches);
+      useCamera.getState().setViewport(bounds.width, bounds.height);
     };
     const observer = new ResizeObserver(measure);
     observer.observe(element);
-    coarse.addEventListener('change', measure);
     measure();
     return () => {
       observer.disconnect();
-      coarse.removeEventListener('change', measure);
       if (surfaceRef.current === element) surfaceRef.current = null;
     };
   }, []);

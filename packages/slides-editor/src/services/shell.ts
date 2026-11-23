@@ -10,7 +10,7 @@ import type { ChromeReport } from '@open-artifact/runtime';
 import { slideHistory } from './history.ts';
 import { agentChrome, chromeReporter, mayExportHere, openMessageCount } from '@open-artifact/editor-kit';
 import { create } from 'zustand';
-import { isDirty, useDeck, type SaveState } from '../state/deck.ts';
+import { isDirty, useDeck } from '../state/deck.ts';
 import { useView } from '../state/view.ts';
 import { useAgent } from './agent.ts';
 import { currentSlide, redo, undo } from './commands.ts';
@@ -18,12 +18,12 @@ import { canComment, elementAnchor, parseAnchor, useComments } from './comments.
 import { writingShortfall, type WritingProgress } from './creation.ts';
 import { exportBusy, runExport, type ExportRequest } from './exports.ts';
 import { playableSlides } from './present.ts';
+import { shellSaved } from './save-state.ts';
 import { session } from './session.ts';
 import { flush, retryNow } from './sync.ts';
 
 type ChromeAction = NonNullable<ChromeReport['actions']>[number];
 type ChromeFormat = NonNullable<ChromeReport['formats']>[number];
-type ChromeSaved = NonNullable<ChromeReport['saved']>;
 
 /** Format-specific options for exports requested by the Shell. */
 interface ExportUi {
@@ -80,23 +80,6 @@ export const useExportUi = create<ExportUi>()((set) => ({
     set({ notes });
   },
 }));
-
-/** The Shell's save state of ours. */
-function savedOf(save: SaveState): ChromeSaved {
-  switch (save) {
-    case 'saved':
-      return 'saved';
-    case 'saving':
-      return 'saving';
-    // Edits waiting out the save debounce: on their way, not failed (a failed save is `offline`).
-    case 'dirty':
-      return 'saving';
-    case 'offline':
-      return 'reconnecting';
-    case 'readonly':
-      return 'readonly';
-  }
-}
 
 /** The export formats offered. */
 export function exportFormats(): ChromeFormat[] {
@@ -186,7 +169,7 @@ export function startShellBridge(): void {
       agent: agentChrome(useAgent.getState().status),
       exports: false,
       history: slideHistory.store.getState().available,
-      ...(deck.status === 'ready' ? { saved: savedOf(deck.save) } : {}),
+      ...(deck.status === 'ready' ? { saved: shellSaved(deck.save) } : {}),
       leaveLosesWork: isDirty(deck) && deck.save !== 'saved',
       actions: actions(),
       formats: exportFormats(),

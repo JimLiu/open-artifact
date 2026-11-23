@@ -6,6 +6,26 @@ agent plugins. Since 0.9.0 they all share one version; before that `dsh-open-art
 Each entry is written from the commits since the previous tag (`node scripts/changelog.mjs` lists them); see
 [Releasing](README.md#releasing).
 
+## [0.14.3] - 2026-11-23
+
+A whiteboard fits and zooms out fully in a narrow pane, the daemon says when it stops, and an Electron app is shown how to stop its daemon on quit.
+
+### Changed
+
+- A whiteboard zooms from 5% to 800% in a view of any width. Views up to 900 px wide, and touch devices, had a minimum of 60%: there "Fit the board" stopped at 60% with part of the board out of view, "Zoom out" was disabled, and ctrl/⌘ + wheel did not zoom out.
+- `daemon.log` gets `daemon <version> stopped (<why>)` when the daemon stops by itself: `SIGTERM` (`open-artifact daemon stop`), `SIGINT`, `SIGHUP`, `idle` (in place of `idle: exiting`), or `leaving for runtime <version>`. A log without it ends with a daemon that was killed.
+- `@open-artifact/motion-export/build` exports `RASTER_FRAME_ENTRY` and `STANDALONE_AUDIO_ENTRY` without a file extension (`./raster/frame-entry`, `./standalone/audio-entry`); the helper adds its own (`.js` from npm, `.ts` in the repository). The declarations used to name `.ts` files the npm package does not ship. The builds themselves already worked from the installed package and are unchanged.
+
+### Fixed
+
+- A `SIGTERM`, `SIGINT` or `SIGHUP` that reaches `open-artifact daemon run` while it starts no longer ends the process with `daemon.json` and `daemon.lock` left behind. The handlers are in place before the daemon takes its lock, and a signal that comes early is acted on once the daemon has started.
+- The end-to-end harness no longer stops Chrome's renderer on a page that starts a module worker. It asked its questions in workers too, and Chrome 157 fails a check of its own when `location` is read in a module worker whose script has not all arrived; that was the intermittent `renderer crashed: iframe …/whiteboard/…` of the Cloudflare suites (`cloudflare-link` on a first run). Workers are now watched for errors and never asked.
+
+### Integrators
+
+- An Electron app that forks the daemon in a utility process should ask it to stop before it quits: `child.kill()` (`SIGTERM` on macOS and Linux), then a bounded wait for `exit` (the daemon waits up to 6 s for its type servers; the example waits 8 s). Electron otherwise ends the process without a signal, and `daemon.json` and `daemon.lock` stay behind with the type servers cut off. `docs/integrating/runtime.md` says how, and `examples/harness-electron` does it (`stopDaemonUtilityProcess` in `src/daemon-spawn.mjs`, called from `before-quit`).
+- The Harness API, the Shell and wake messages, `@open-artifact/harness-kit`, the stdio bridge and the shipped profiles are unchanged.
+
 ## [0.14.2] - 2026-11-23
 
 Whiteboards restore their view before appearing, keep it across hosted-page reloads, and show pending saves without false failure warnings.
@@ -495,6 +515,7 @@ One version for every package, with Docs and Sheets in every plugin.
 - Plugins for Claude Code, Codex, Cursor, Copilot, ChatGPT and DeepSeek Harness.
 - English and Chinese READMEs, under Apache-2.0.
 
+[0.14.3]: https://github.com/JimLiu/open-artifact/compare/v0.14.2...v0.14.3
 [0.14.2]: https://github.com/JimLiu/open-artifact/compare/v0.14.1...v0.14.2
 [0.14.1]: https://github.com/JimLiu/open-artifact/compare/v0.14.0...v0.14.1
 [0.14.0]: https://github.com/JimLiu/open-artifact/compare/v0.13.0...v0.14.0

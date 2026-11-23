@@ -38,10 +38,20 @@ OA_EXAMPLE_DAEMON=utility npx electron@latest .
 Only one daemon runs per home: when one already runs, neither way starts anything. Type servers then run in worker
 threads of the daemon ([runtime](../../docs/integrating/runtime.md#electron-apps-with-the-runasnode-fuse-off)).
 
+Electron ends a utility process with the app without asking it, so on quit the example asks the daemon it forked to
+stop (`child.kill()`, `SIGTERM` on macOS and Linux) and waits up to 8 s for it to end before it quits
+(`stopDaemonUtilityProcess`, from `before-quit` in `src/main.mjs`). The daemon then removes `daemon.json` and its
+lock, lets its type servers finish, and writes `daemon <version> stopped (SIGTERM)` to `<home>/logs/daemon.log`. A
+daemon another app started is left running.
+
 > In Electron 42.11.12 with the `RunAsNode` fuse off this option started the daemon (type servers in threads) and
 > stopped it, and nothing more. The same `spawn` was checked further by hand outside this repository, in Electron
 > 42.11.12 and 45.2.2 with the fuse off: the daemon ran the Docs type server in a worker thread, created and served a
 > doc, and exited cleanly on `SIGTERM`.
+>
+> The stop on quit was checked in Electron 42.11.12 on macOS with a windowless app that forks the daemon with this
+> file's functions and quits: with the stop, `daemon.json` and the lock were gone and the log ended with the stopped
+> line; without it, both files stayed and the log had no such line.
 
 Type `make My first note` to have the scripted agent create an artifact; it opens on the right. Comment on it or use
 **Ask**, and the message arrives in the chat as the owner's turn. A card per artifact appears under the transcript.
@@ -51,7 +61,7 @@ Type `make My first note` to have the scripted agent create an artifact; it open
 | File | What it does |
 | --- | --- |
 | `src/main.mjs` | The app: connects with `connectHarness` (view mode, `embed.remote: 'ask'` with a dialog), attaches the session, registers tools, installs the skill, follows cards, runs the scripted turns, and adds page context to each typed message. |
-| `src/daemon-spawn.mjs` | `daemon.spawn` for an app with its `RunAsNode` fuse off: forks the daemon with `utilityProcess.fork`, asks for type servers in threads, and appends its output to the log file. Used when `OA_EXAMPLE_DAEMON=utility`. |
+| `src/daemon-spawn.mjs` | `daemon.spawn` for an app with its `RunAsNode` fuse off: forks the daemon with `utilityProcess.fork`, asks for type servers in threads, and appends its output to the log file; `stopDaemonUtilityProcess` asks that daemon to stop when the app quits. Used when `OA_EXAMPLE_DAEMON=utility`. |
 | `src/pane.mjs` | `ArtifactPane`: one `WebContentsView` per artifact, driven by `embedArtifact` with a transport through the daemon (`shellCommand` / `on('shell')`). |
 | `src/preload.cjs` | The chat window's only bridge (artifact pages get none). |
 | `renderer/` | The chat column: transcript, cards, input with the command menu. |

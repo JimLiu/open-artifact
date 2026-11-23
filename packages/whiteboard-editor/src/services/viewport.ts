@@ -100,7 +100,7 @@ export function glideCamera(target: Camera): void {
 /** Zooms around a screen point (default: the viewport center). */
 export function zoomTo(zoom: number, anchor?: Point): void {
   const state = useCamera.getState();
-  const { min, max } = zoomRange(state);
+  const { min, max } = zoomRange();
   const clamped = Math.min(max, Math.max(min, zoom));
   setCamera(zoomAround(state.camera, clamped, anchor ?? { x: state.width / 2, y: state.height / 2 }));
 }
@@ -108,7 +108,7 @@ export function zoomTo(zoom: number, anchor?: Point): void {
 /** Zooms one step in or out around the viewport center. */
 export function zoomStep(direction: 1 | -1): void {
   const state = useCamera.getState();
-  const { min, max } = zoomRange(state);
+  const { min, max } = zoomRange();
   zoomTo(nextZoomStep(state.camera.zoom, direction, min, max));
 }
 
@@ -119,7 +119,7 @@ export function fitTo(rect: Rect | null, options: { maxZoom?: number } = {}): vo
     setCamera(centerOn({ x: 0, y: 0 }, 1, state.width, state.height));
     return;
   }
-  const { min } = zoomRange(state);
+  const { min } = zoomRange();
   setCamera(fitRect(rect, state.width, state.height, { insets: state.insets, minZoom: min, ...(options.maxZoom !== undefined ? { maxZoom: options.maxZoom } : {}) }));
 }
 
@@ -131,7 +131,7 @@ export function panToPoint(point: Point): void {
 
 /**
  * Restores this tab's last camera on a board; `false` when there is none. It can run before the
- * viewport is measured: `setCamera` clamps the zoom to the layout now, `setViewport` to the one measured.
+ * viewport is measured: the zoom range is the same at every size, so the camera is kept as it was left.
  */
 export function restoreCamera(key: string): boolean {
   const camera = recallCamera(key);
@@ -194,7 +194,7 @@ export function attachViewportGestures(options: ViewportGestureOptions): () => v
     const lineX = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? window.innerWidth : 1;
     const state = useCamera.getState();
     if (decision === 'zoom') {
-      const { min, max } = zoomRange(state);
+      const { min, max } = zoomRange();
       const zoom = Math.min(max, Math.max(min, state.camera.zoom * wheelZoomFactor(event.deltaY * lineY)));
       setCamera(zoomAround(state.camera, zoom, local(event.clientX, event.clientY)));
     } else {

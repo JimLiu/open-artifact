@@ -27,6 +27,8 @@ Each test file runs its own server, with its own `OPEN_ARTIFACT_TYPE_SERVER_HOME
 
 When Chrome stops a frame's renderer (Chrome shows the frame as gone and the page around it carries on), the harness says so: the page gets a `renderer crashed: <frame>` problem, and a `waitFor` that times out or an `inFrame` that finds no framed page fails with that line, not with a plain timeout. Nothing is retried. Chrome keeps the crash's minidump in its own Crashpad folder (`~/Library/Application Support/Google/Chrome/Crashpad/completed` on a Mac).
 
+The harness asks its questions (`waitFor`, `evaluateAll`, `load`'s `ready`) in a tab's page and frames only, never in a worker: workers are attached so their errors and exits are seen, and that is all. Chrome 157 stops the renderer when `location` is read in a module worker whose script has not all arrived, and the suites' questions start with `location.hostname…`. That was the `renderer crashed: iframe …/whiteboard/…` the Cloudflare suites showed on about one first load in four (the whiteboard starts its `whiteboard-looks` worker while the test waits for the board). `browser-lib.test.mjs` holds the case.
+
 ## What is covered
 
 `lib/editor.mjs` holds the path both types share. Each `*.test.mjs` file adds what only its type has.
@@ -169,8 +171,28 @@ When Chrome stops a frame's renderer (Chrome shows the frame as gone and the pag
 - (b) Slides: create, open (the server is ready in a thread: `(thread N)` in the log, no pid), publish a slide, the `view_url` answers 200 and `check` works.
 - (c) Docs: created through the `create` call and read back.
 - (d) A type change (the manifest touched, `builtin/.changed` written) stops the docs server through its `SIGTERM` handler (`--- exit 0` in its log); the next call starts a new thread.
-- (e) `SIGTERM` to the daemon: it waits for its threads and exits 0, every server log ends with `--- exit 0`, `daemon.json` and the lock are gone, the ports refuse connections and no process is left.
-- Not covered here: a real Electron utility process (it was checked by hand, see `docs/integrating/runtime.md`) and the other six built-in types in threads.
+- (e) `SIGTERM` to the daemon: it waits for its threads and exits 0, `daemon.log` has `daemon <version> stopped (SIGTERM)` once, every server log ends with `--- exit 0`, `daemon.json` and the lock are gone, the ports refuse connections and no process is left.
+- Not covered here: a real Electron utility process (it was checked by hand, see `docs/integrating/runtime.md` and `examples/harness-electron/README.md`, the stop on quit included) and the other six built-in types in threads.
+
+**Saving while a person edits** (`shell-save.test.mjs`, Chrome only)
+
+- A real daemon from source in a temporary `OPEN_ARTIFACT_HOME` on a free port, once with `OPEN_ARTIFACT_NODE_CHILDREN=threads` and once with `process`; a host connects with `createHarness` and opens the artifacts in the Shell.
+- Slides: the title of a slide is retyped at a person's pace. The Shell's save state (`header [data-shell-save-state]`), sampled all the while, is never `unsaved` ("Couldn't save — retry"), and the slide's file holds the new title.
+- Whiteboard: an element is dragged with the real mouse and a note is added from the canvas menu ("Add a note here"). The save state is never `unsaved`, and the store on disk changes.
+- The type servers' logs (`<home>/logs/servers/`) hold no error, no refused request and no 4xx or 5xx.
+
+**The whiteboard in a narrow pane** (`whiteboard.test.mjs`, one case, Chrome only)
+
+- In a 660 px wide view the board opens fitted whole, below 60%, with every element in view. "Zoom out" in the zoom menu is enabled and zooms out, ctrl + wheel zooms out and back in, and "Fit the board" fits it whole again.
+
+**A whiteboard that missed events** (`whiteboard.test.mjs`, one case, Chrome only)
+
+- A board of its own. The page's event stream (a WebSocket, wrapped before the page's scripts run) is closed, and its reconnects are sent to a port nobody listens on. Meanwhile the agent edits one element's file and deletes another's, and the page still shows the old board.
+- Once reconnects are let through, the page shows the edit and drops the deleted element with no reload: the stream's first event says where the store stands, and the page reads the board again because it missed something.
+
+**The Chrome harness itself** (`browser-lib.test.mjs`, Chrome only)
+
+- A page of its own on a local server starts a module worker; the server sends the start of the worker's script and holds the rest. While it is held, the suites' usual question (`location.hostname…`) is asked forty times: only the page answers, no renderer crashes and no problem is recorded. Once the script arrives the worker runs, and is still not asked.
 
 **Exports on a cloud host** (`host-exports.test.mjs`, Chrome only)
 

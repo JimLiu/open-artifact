@@ -441,18 +441,28 @@ async function daemon(sub: string | undefined): Promise<void> {
     case 'run': {
       const { startDaemon } = await import('../daemon.ts');
       const port = flag('port');
-      const running = await startDaemon(port !== undefined ? { port: Number(port) } : {});
+      // The signal handlers are in place before the daemon writes `daemon.json`: a signal that comes while it starts
+      // is kept and acted on once it has started, so the daemon still closes and removes its files.
+      let running: Awaited<ReturnType<typeof startDaemon>> | undefined;
+      let asked: NodeJS.Signals | undefined;
       // Type servers in worker threads (node-children.ts) finish their clean-up before the process ends.
-      const exit = (): void => void running.drained().finally(() => process.exit(0));
-      running.on('exit', exit);
-      const stop = (): void => {
-        running.close();
+      const exit = (): void => void running?.drained().finally(() => process.exit(0));
+      const stop = (signal: NodeJS.Signals): void => {
+        if (!running) {
+          asked ??= signal;
+          return;
+        }
+        running.close(signal);
         exit();
       };
       for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) process.on(signal, stop);
-      process.on('uncaughtException', (error) => running.log(`uncaught: ${error?.stack ?? error}`));
-      process.on('unhandledRejection', (error) => running.log(`unhandled: ${(error as Error)?.stack ?? error}`));
-      process.stderr.write(`open-artifact daemon at ${running.origin}\n`);
+      const started = await startDaemon(port !== undefined ? { port: Number(port) } : {});
+      running = started;
+      started.on('exit', exit);
+      if (asked) return stop(asked);
+      process.on('uncaughtException', (error) => started.log(`uncaught: ${error?.stack ?? error}`));
+      process.on('unhandledRejection', (error) => started.log(`unhandled: ${(error as Error)?.stack ?? error}`));
+      process.stderr.write(`open-artifact daemon at ${started.origin}\n`);
       return;
     }
     case 'ensure': {

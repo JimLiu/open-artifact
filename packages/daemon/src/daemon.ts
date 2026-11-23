@@ -560,7 +560,7 @@ export class Daemon extends EventEmitter<{ exit: [] }> {
       idle: () => this.idleForSwitch(),
       connected: () => [...new Set([...this.harnesses.connections].filter((c) => c.authed && c.harness).map((c) => c.harness!))],
       switchTo: (candidate, env) => {
-        this.close();
+        this.close(`leaving for runtime ${candidate.version}`);
         // A daemon inside an Electron process (Node children in threads) leaves the new runtime to the app that started
         // this one: its harness reconnects and the kit starts the newest. Spawning its executable here would start the
         // app, not a daemon.
@@ -931,8 +931,7 @@ export class Daemon extends EventEmitter<{ exit: [] }> {
     const busy = this.harnesses.connections.size > 0 || this.pages.size > 0 || this.eventClients.size > 0 || this.typeEventClients.size > 0 || this.link.busy();
     if (busy) this.lastActivity = Date.now();
     else if (Date.now() - this.lastActivity > this.idleMs) {
-      this.log('idle: exiting');
-      this.close();
+      this.close('idle');
       this.emit('exit');
     }
   }
@@ -945,8 +944,11 @@ export class Daemon extends EventEmitter<{ exit: [] }> {
     return this.servers.drained();
   }
 
-  /** Stops everything and removes `daemon.json` and the lock. */
-  close(): void {
+  /**
+   * Stops everything, removes `daemon.json` and the lock, and says so in the log with `reason` (a signal's name,
+   * `idle`, …): the log's last word of this daemon, but for the lines of type servers still ending.
+   */
+  close(reason = 'closed'): void {
     if (this.closed) return;
     this.closed = true;
     clearInterval(this.timer);
@@ -969,6 +971,7 @@ export class Daemon extends EventEmitter<{ exit: [] }> {
     } catch {
       /* no lock */
     }
+    this.log(`daemon ${VERSION} stopped (${reason})`);
   }
 
   /** Sends an event to the Library event streams, subscribed adapters and type servers. */

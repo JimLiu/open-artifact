@@ -18,7 +18,7 @@ import { PlaceMemory } from '../../harness-node/places.mjs';
 import { installSkill } from '../../harness-node/skill.mjs';
 import { registerTools } from '../../harness-node/tools.mjs';
 import { describeWake, wakeHandler } from '../../harness-node/wakes.mjs';
-import { spawnDaemonInUtilityProcess } from './daemon-spawn.mjs';
+import { spawnDaemonInUtilityProcess, stopDaemonUtilityProcess } from './daemon-spawn.mjs';
 import { ArtifactPane } from './pane.mjs';
 
 // The bundle sits in `out/`, beside `preload.cjs`; the renderer is in `../renderer`.
@@ -126,9 +126,16 @@ async function start() {
   ipcMain.handle('chat:open', (event, url) => (fromChat(event) && typeof url === 'string' ? oa.open(url, callerOf(agent)) : undefined));
 
   window.on('closed', () => app.quit());
-  app.on('before-quit', () => {
+  // Quitting waits for the daemon this app forked (if any) to stop by itself: a utility process is otherwise ended
+  // with the app, before the daemon has removed `daemon.json` or its type servers have finished.
+  let leaving = false;
+  app.on('before-quit', (event) => {
+    if (leaving) return;
+    leaving = true;
+    event.preventDefault();
     pane.close();
     void oa.detach(callerOf(agent)).catch(() => undefined);
     oa.close();
+    void stopDaemonUtilityProcess().finally(() => app.quit());
   });
 }

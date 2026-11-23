@@ -9,12 +9,13 @@ export interface BuiltScript {
 }
 
 const here = fileURLToPath(new URL('.', import.meta.url));
+/** This file's own extension: `.ts` in the workspace, `.js` in the published package, where the entries are compiled too. */
 const entryExtension = extname(fileURLToPath(import.meta.url));
 
 /** Both scripts run as classic scripts: the raster frame from a srcdoc, the audio in a page saved to disk. */
 async function bundle(entry: string): Promise<BuiltScript> {
   const result = await build({
-    entryPoints: [resolve(here, entry.replace(/\.ts$/, entryExtension))],
+    entryPoints: [resolve(here, entry + entryExtension)],
     bundle: true,
     format: 'iife',
     platform: 'browser',
@@ -35,8 +36,12 @@ async function bundle(entry: string): Promise<BuiltScript> {
   return { script: output.text, inputs };
 }
 
-export const RASTER_FRAME_ENTRY = './raster/frame-entry.ts';
-export const STANDALONE_AUDIO_ENTRY = './standalone/audio-entry.ts';
+/**
+ * The two scripts, named by their module beside this file with no extension: the build adds its own, so the same name
+ * finds `frame-entry.ts` in the workspace and `frame-entry.js` in the published package.
+ */
+export const RASTER_FRAME_ENTRY = './raster/frame-entry';
+export const STANDALONE_AUDIO_ENTRY = './standalone/audio-entry';
 
 /** A script built afresh, with its inputs: for a dev server, which builds it again when one changes. */
 export const buildExportScriptFresh = (entry: typeof RASTER_FRAME_ENTRY | typeof STANDALONE_AUDIO_ENTRY): Promise<BuiltScript> => bundle(entry);

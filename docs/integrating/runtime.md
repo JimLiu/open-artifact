@@ -84,6 +84,36 @@ otherwise the kit waits until its timeout. With no `spawn` nothing changes.
 Inside a utility process `process.argv` is `[<Electron Helper>, <bin>, ...args]`, the same shape as Node's, so the
 daemon reads its arguments without a wrapper (checked with Electron 42, 44 and 45).
 
+**Stop the daemon when your app quits.** Electron ends a utility process with the app, without a signal the daemon
+could act on: `daemon.json` and `daemon.lock` stay in the home, the type servers are cut off wherever they were, and
+`daemon.log` says nothing. Ask the daemon to stop first and wait a bounded time for it to end:
+
+```js
+let daemon = null; // in `spawn`: daemon = child; child.once('exit', () => { daemon = null; });
+let leaving = false;
+
+app.on('before-quit', (event) => {
+  if (leaving || !daemon) return; // this app forked no daemon: another app's was already running
+  leaving = true;
+  event.preventDefault();
+  const timer = setTimeout(() => app.quit(), 8000); // the daemon waits up to 6 s for its type servers
+  daemon.once('exit', () => {
+    clearTimeout(timer);
+    app.quit();
+  });
+  daemon.kill(); // SIGTERM on macOS and Linux
+});
+```
+
+On `SIGTERM` the daemon stops its type servers through their own handlers, waits for them, removes `daemon.json` and
+`daemon.lock`, and writes `daemon <version> stopped (SIGTERM)` to `<home>/logs/daemon.log`; it usually ends within
+milliseconds, and takes up to 6 s when a type server is slow to finish. Stop only a daemon your app forked: when
+another app's daemon already ran, `spawn` was never called and there is nothing to stop. On Windows `kill()` ends the
+process at once, as quitting does. Files left behind are replaced by the next daemon that starts, unless the process
+id written in `daemon.lock` now belongs to another running process: then that daemon refuses to start until the lock
+is removed. [`examples/harness-electron`](../../examples/harness-electron/src/daemon-spawn.mjs) does this
+(`stopDaemonUtilityProcess`; checked with Electron 42 on macOS, with and without the stop).
+
 **Type servers.** The daemon starts the built-in types' servers as child processes of its own executable. When the
 daemon runs inside an Electron process, that executable is an Electron helper or your app and must not be started as
 Node, so the daemon runs them in worker threads of its own process instead. It decides from how it runs itself, without
@@ -105,8 +135,8 @@ Limits of threads mode:
 
 - A type server shares the daemon's memory: no memory isolation, and a server that runs out of memory takes the daemon
   with it. Each thread loads its own WebAssembly, so the daemon uses more memory than one process would.
-- The daemon ends with your app, since a utility process does not outlive it. The next app that connects starts it
-  again.
+- The daemon ends with your app, since a utility process does not outlive it; ask it to stop before you quit (above),
+  or its state files stay behind. The next app that connects starts it again.
 - When a newer runtime should replace the running daemon, the daemon stops and leaves the start to your app's kit,
   which does it on the next connection; it does not start a copy of your app.
 - A stop asks a server to end (its `SIGTERM` handler runs); one that does not end in time is terminated, and its

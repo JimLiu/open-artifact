@@ -32,8 +32,10 @@
 
 **一台电脑的 Open Artifact 都放在一个文件夹里**，即 `OPEN_ARTIFACT_HOME`（默认 `~/.agents/open-artifact`）：设置、站点、
 它认识的作品，还有日志 `<OPEN_ARTIFACT_HOME>/logs/daemon.log`。这个文件夹没有 daemon 在运行时，任何 `open-artifact` 命令都
-会启动一个，端口取自它的 `settings.json`（`serverPort`，默认 4800，被占用时用下一个空闲端口）。想**不碰你自己的
-Open Artifact** 试一个站点，就在第一条命令之前，给这次试用单独的文件夹和端口：
+会启动一个，端口取自它的 `settings.json`（`serverPort`，默认 4800，被占用时用下一个空闲端口）。daemon 启动时日志里有
+`daemon <version> listening at …`，自己停下时有 `daemon <version> stopped (<原因>)`：`SIGTERM`（`open-artifact daemon stop`
+发的就是它）、`SIGINT`、`SIGHUP`、`idle`，或 `leaving for runtime <version>`。日志结尾没有这一行，说明那个 daemon 是被
+强行结束的。想**不碰你自己的 Open Artifact** 试一个站点，就在第一条命令之前，给这次试用单独的文件夹和端口：
 
 ```bash
 export OPEN_ARTIFACT_HOME=/tmp/oa-try

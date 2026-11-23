@@ -37,7 +37,10 @@ An alias saves typing: `alias open-artifact='node /path/to/skills/open-artifact/
 **A computer's Open Artifact lives in one folder**, `OPEN_ARTIFACT_HOME` (default `~/.agents/open-artifact`): its
 settings, sites, artifacts it knows and its log, `<OPEN_ARTIFACT_HOME>/logs/daemon.log`. Any `open-artifact` command
 starts the daemon when none runs for that folder, on the port in its `settings.json` (`serverPort`, default 4800, the
-next free one when taken). To try a site **without touching your own Open Artifact**, give the trial a folder and a
+next free one when taken). The log has `daemon <version> listening at …` when the daemon starts and
+`daemon <version> stopped (<why>)` when it stops by itself: `SIGTERM` (which `open-artifact daemon stop` sends),
+`SIGINT`, `SIGHUP`, `idle`, or `leaving for runtime <version>`. A log that ends without that line belongs to a daemon
+that was killed. To try a site **without touching your own Open Artifact**, give the trial a folder and a
 port of its own, before the first command:
 
 ```bash

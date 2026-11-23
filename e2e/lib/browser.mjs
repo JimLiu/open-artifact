@@ -2,7 +2,8 @@
 //
 // findChrome() → the Chrome to run (E2E_CHROME, else the usual places), or null when there is none.
 // launch() → a browser; browser.load(url, {ready}) opens a tab and returns once `ready` (an expression) is truthy in
-// the page or in any of its frames, sandboxed and out-of-process ones too. `page.problems` is what went wrong on the
+// the page or in any of its frames, sandboxed and out-of-process ones too (never in a worker: workers are watched for
+// problems, not asked). `page.problems` is what went wrong on the
 // way, in the page and its frames: uncaught exceptions, console errors, failed requests and HTTP errors; `page.urls`
 // every URL it requested. Both keep filling while the page stays open.
 // An editor that shows its crash card, or whose React root went empty after it had drawn something (what React
@@ -318,7 +319,8 @@ export async function launch({ chrome = findChrome(), width = 1440, height = 900
     const targets = new Map(); // target id → its session
     targets.set(targetId, top);
     labels.set(top, `tab ${url.slice(0, 100)}`);
-    const contexts = new Map(); // `${session} ${contextId}` → {session, id}
+    const contexts = new Map(); // `${session} ${contextId}` → {session, id}: the frames' contexts, never a worker's
+    const kinds = new Map(); // an attached session → its target's type ('iframe', 'worker', …)
     const requests = new Map();
     const urls = new Set();
     const problems = [];
@@ -388,6 +390,18 @@ export async function launch({ chrome = findChrome(), width = 1440, height = 900
     const endChildSessions = why => {
       for (const session of [...sessions]) if (session !== top) endSession(session, why);
     };
+    /**
+     * Whether a session's contexts are asked by evaluateFrames, evaluateAll, waitFor and `ready`: the tab's and its
+     * frames', not a worker's or a worklet's. Those calls ask "every frame", and what they ask is written for a page.
+     * 2026-11-23: asking a worker also crashed the renderer. Chrome 157.0.8103.80 stops it at a CHECK of its own when
+     * `location` is read in a module worker whose script has not all arrived (`WorkerGlobalScope.location`, in every
+     * minidump: Google Chrome Framework +0x12622ac), and the suites' usual question starts with `location.hostname`.
+     * The whiteboard starts a module worker (`whiteboard-looks`) while a test still waits for the board, so its content
+     * frame went, about one first load in four on the Cloudflare suites, where the script takes longest to arrive
+     * (`renderer crashed: iframe …/whiteboard/…` in `cloudflare-link`). `e2e/browser-lib.test.mjs` holds a worker's
+     * script back and asks.
+     */
+    const askable = session => session === top || ['page', 'iframe'].includes(kinds.get(session));
     const enable = session => Promise.all([
       // Before Runtime.enable, so the frames' contexts have it by the time CRASH_WATCH goes into them.
       call('Runtime.addBinding', { name: CRASH_BINDING }, session),
@@ -433,6 +447,7 @@ export async function launch({ chrome = findChrome(), width = 1440, height = 900
           // A frame in a process of its own (a sandboxed iframe, a worker): watch it like the page.
           sessions.add(p.sessionId);
           parents.set(p.sessionId, session);
+          kinds.set(p.sessionId, p.targetInfo.type);
           targets.set(p.targetInfo.targetId, p.sessionId);
           labels.set(p.sessionId, `${p.targetInfo.type} ${p.targetInfo.url.slice(0, 100)}`);
           enable(p.sessionId);
@@ -450,6 +465,8 @@ export async function launch({ chrome = findChrome(), width = 1440, height = 900
           if (session === top && !p.frame.parentId) endChildSessions(`${FRAME_GONE} (the tab loaded ${p.frame.url.slice(0, 100)})`);
           break;
         case 'Runtime.executionContextCreated':
+          // A worker is watched (its errors, its requests, its crash) and never asked: see askable.
+          if (!askable(session)) break;
           contexts.set(`${session} ${p.context.id}`, { session, id: p.context.id });
           // A frame's own world (not an isolated one): watch it for a crash from now on.
           if (p.context.auxData?.isDefault) call('Runtime.evaluate', { expression: CRASH_WATCH, contextId: p.context.id }, session).catch(() => {});
@@ -526,6 +543,7 @@ export async function launch({ chrome = findChrome(), width = 1440, height = 900
     /**
      * Evaluate in every frame's main world: `values`, one per frame that answered, and `detached`, why a frame went
      * away (removed, navigated, crashed) before it answered (FRAME_GONE: the caller may look for the frame again).
+     * Frames only: a worker is never asked (see askable).
      * `timeout`: ms each frame may take to answer (the browser's call bound by default).
      */
     async function evaluateFrames(expression, { timeout } = {}) {

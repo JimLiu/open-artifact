@@ -5,6 +5,7 @@ import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { findChrome, launch } from './lib/browser.mjs';
 import { cli, run as runCli } from './lib/cli.mjs';
+import { clickOn } from './lib/editor.mjs';
 import { png, until } from './lib/http.mjs';
 import { browserOff, fixtures, install, removeTmp, skipFor, tmpDir, typePath } from './lib/target.mjs';
 
@@ -469,6 +470,51 @@ describe('whiteboard', { skip: skipFor('whiteboard') }, () => {
     } finally { await p.close(); }
   });
 
+  // 2026-11-23: in a pane about 660 px wide (an agent app's side pane) the zoom stopped at 60%: "Fit the board" left part
+  // of the board cut off, "Zoom out" was disabled and ⌘/ctrl + wheel did not zoom out. Narrow views had a larger minimum.
+  it('fits the whole board in a narrow pane and zooms out past 60% from the menu and the wheel', { skip: noBrowser }, async () => {
+    const p = await browser.load('about:blank', { ready: 'true' });
+    try {
+      await p.cdp('Emulation.setDeviceMetricsOverride', { width: 660, height: 400, deviceScaleFactor: 1, mobile: false });
+      await p.cdp('Page.navigate', { url: url + '?open_artifact_bench=1' });
+      const zoom = 'window.__openArtifactWhiteboard?.state().camera.zoom';
+      // Every element wholly inside the view.
+      const allInView = `(() => {
+        const boxes = [...document.querySelectorAll('.wb-elements [data-wb-id]')].map(e => e.getBoundingClientRect());
+        return boxes.length > 0 && boxes.every(r => r.left >= 0 && r.top >= 0 && r.right <= innerWidth && r.bottom <= innerHeight);
+      })()`;
+      assert.ok(await p.waitFor(`innerWidth === 660 && ${zoom} > 0 && ${zoom} < 0.6 && ${allInView}`, 10000), `the board was not fitted whole on open: zoom ${await p.evaluate(zoom)}`);
+      const fitted = await p.evaluate(zoom);
+
+      // The zoom menu: "Zoom out" is there to use, and zooms out.
+      const item = name => `[...document.querySelectorAll('[role=menuitem]')].find(e => e.textContent.trim().startsWith(${JSON.stringify(name)}))`;
+      const enabled = name => `(() => { const e = ${item(name)}; return !!e && e.getAttribute('aria-disabled') !== 'true' && !e.hasAttribute('data-disabled'); })()`;
+      const openMenu = async () => {
+        await clickOn(p, "document.querySelector('button[aria-label^=\"Zoom \"]')", 'the zoom readout');
+        assert.ok(await p.waitFor(item('Zoom out'), 3000), 'the zoom menu did not open');
+      };
+      await openMenu();
+      assert.ok(await p.evaluate(enabled('Zoom out')), '"Zoom out" is disabled');
+      await clickOn(p, item('Zoom out'), 'Zoom out');
+      assert.ok(await p.waitFor(`${zoom} < ${fitted} - 0.01`, 3000), `"Zoom out" left the zoom at ${await p.evaluate(zoom)}`);
+      const stepped = await p.evaluate(zoom);
+      await p.press('Escape');
+
+      // ⌘/ctrl + wheel over the board zooms out further, and back in.
+      const wheel = deltaY => p.cdp('Input.dispatchMouseEvent', { type: 'mouseWheel', x: 330, y: 200, deltaX: 0, deltaY, modifiers: 2 });
+      await wheel(200);
+      assert.ok(await p.waitFor(`${zoom} < ${stepped} - 0.01`, 3000), `the wheel did not zoom out: ${await p.evaluate(zoom)}`);
+      const wheeled = await p.evaluate(zoom);
+      await wheel(-200);
+      assert.ok(await p.waitFor(`${zoom} > ${wheeled} + 0.01`, 3000), `the wheel did not zoom in: ${await p.evaluate(zoom)}`);
+
+      // "Fit the board" brings the whole board back.
+      await openMenu();
+      await clickOn(p, item('Fit the board'), 'Fit the board');
+      assert.ok(await p.waitFor(`Math.abs(${zoom} - ${fitted}) < 0.005 && ${allInView}`, 3000), `"Fit the board" left zoom ${await p.evaluate(zoom)}, fitted was ${fitted}`);
+    } finally { await p.close(); }
+  });
+
   it('recovers after an interrupted load and restores pictures on request', { skip: noBrowser }, async () => {
     const p = await browser.load(url, { ready });
     try {
@@ -817,6 +863,48 @@ describe('whiteboard', { skip: skipFor('whiteboard') }, () => {
       assert.ok(await p.waitFor(`${img('wash')}?.src.startsWith('blob:') && ${img('wash')}.naturalWidth > 0`, 15000), 'the watercolor look is painted');
       assert.ok(await p.waitFor(`${img('sketch')}?.complete && ${img('clean')}?.complete`, 5000));
       assert.ok(await p.evaluate(`${img('sketch')}.src.startsWith('data:image/svg+xml') && ${img('sketch')}.src !== ${img('clean')}.src`), 'draft and plain differ');
+      assert.deepEqual(p.problems, []);
+    } finally { await p.close(); await run.run(['stop', board]); }
+  });
+
+  it('shows what changed on disk while its event stream was down, without a reload', { skip: noBrowser }, async () => {
+    const board = tmpDir('whiteboard-gap');
+    const elements = {
+      note: { type: 'shape', kind: 'rect', x: 0, y: 0, w: 200, h: 100, color: 'yellow', text: 'Before' },
+      gone: { type: 'shape', kind: 'rect', x: 260, y: 0, w: 200, h: 100, color: 'blue', text: 'Leaving' },
+    };
+    for (const sub of ['db/elements', 'db/board']) fs.mkdirSync(path.join(board, sub), { recursive: true });
+    fs.writeFileSync(path.join(board, 'db/board/meta.json'), JSON.stringify({ v: 1, title: 'Gap', order: Object.keys(elements) }));
+    for (const [id, el] of Object.entries(elements)) fs.writeFileSync(path.join(board, 'db/elements', id + '.json'), JSON.stringify(el));
+    const { url: boardUrl } = await run.json(['open', board, '--type', 'whiteboard', '--json']);
+    // The page's event stream is a WebSocket. Keep each one, and while `__holdStream` is set send new ones to a port
+    // nobody listens on, so the page keeps trying to reconnect (every 2 s) and hears nothing.
+    const watch = `(() => {
+      const Native = window.WebSocket;
+      window.__streams = [];
+      window.__holdStream = false;
+      window.WebSocket = class extends Native {
+        constructor(url, protocols) {
+          super(window.__holdStream ? 'ws://127.0.0.1:9/' : url, protocols);
+          window.__streams.push(this);
+        }
+      };
+    })()`;
+    const p = await browser.load(boardUrl, { ready, ignore: [/WebSocket connection to 'ws:\/\/127\.0\.0\.1:9\/' failed/] });
+    try {
+      await p.cdp('Page.addScriptToEvaluateOnNewDocument', { source: watch });
+      await p.cdp('Page.reload', {});
+      assert.ok(await p.waitFor(`window.__streams?.some(s => s.readyState === 1) && ${ready} && document.querySelector('#wb-note')?.textContent.includes('Before')`, 15000));
+      await p.evaluate('window.__holdStream = true; for (const s of window.__streams) s.close()');
+      assert.ok(await p.waitFor('window.__streams.every(s => s.readyState === 3)', 5000));
+      // The agent edits one element and removes another while the page hears nothing.
+      fs.writeFileSync(path.join(board, 'db/elements/note.json'), JSON.stringify({ ...elements.note, text: 'After' }));
+      fs.rmSync(path.join(board, 'db/elements/gone.json'));
+      await new Promise(resolve => setTimeout(resolve, 1500)); // the server's watcher has sent its event to no one
+      assert.ok(await p.evaluate("document.querySelector('#wb-note').textContent.includes('Before')"), 'nothing heard yet');
+      await p.evaluate('window.__holdStream = false');
+      assert.ok(await p.waitFor("document.querySelector('#wb-note')?.textContent.includes('After') && !document.querySelector('#wb-gone')", 15000),
+        'the reconnected page reads again what it missed');
       assert.deepEqual(p.problems, []);
     } finally { await p.close(); await run.run(['stop', board]); }
   });

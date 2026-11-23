@@ -62,6 +62,27 @@ kit 交给 `spawn` 的是入口文件（`bin`）、`['daemon', 'run']`、带 `OP
 
 在 utility process 里，`process.argv` 是 `[<Electron Helper>, <bin>, ...args]`，和 Node 的形状相同，所以 daemon 不需要包装脚本就能读到参数（在 Electron 42、44 和 45 上验证过）。
 
+**应用退出时先让 daemon 停下。** Electron 会随应用结束 utility process，而且不发 daemon 能处理的信号：`daemon.json` 和 `daemon.lock` 留在 home 里，类型服务器做到哪儿就断在哪儿，`daemon.log` 里也没有任何记录。所以退出前先请 daemon 停止，并在有限的时间内等它结束：
+
+```js
+let daemon = null; // 在 `spawn` 里：daemon = child; child.once('exit', () => { daemon = null; });
+let leaving = false;
+
+app.on('before-quit', (event) => {
+  if (leaving || !daemon) return; // 这个应用没有 fork daemon：别的应用的 daemon 已经在运行
+  leaving = true;
+  event.preventDefault();
+  const timer = setTimeout(() => app.quit(), 8000); // daemon 最多等它的类型服务器 6 秒
+  daemon.once('exit', () => {
+    clearTimeout(timer);
+    app.quit();
+  });
+  daemon.kill(); // 在 macOS 和 Linux 上是 SIGTERM
+});
+```
+
+收到 `SIGTERM` 后，daemon 通过类型服务器自己的处理函数让它们停止并等它们结束，删除 `daemon.json` 和 `daemon.lock`，并在 `<home>/logs/daemon.log` 里写下 `daemon <version> stopped (SIGTERM)`；通常几毫秒内就结束，类型服务器收尾慢时最多 6 秒。只停止你的应用自己 fork 的 daemon：别的应用的 daemon 已经在运行时，`spawn` 根本不会被调用，也就没有要停的东西。在 Windows 上 `kill()` 会立刻结束进程，和直接退出一样。留下的文件会被下一个启动的 daemon 替换，除非 `daemon.lock` 里写的进程号现在属于另一个正在运行的进程：这时那个 daemon 会拒绝启动，直到锁文件被删除。[`examples/harness-electron`](../../examples/harness-electron/src/daemon-spawn.mjs) 就是这样做的（`stopDaemonUtilityProcess`；在 macOS 的 Electron 42 上分别验证过有、没有这一步的情况）。
+
 **类型服务器。** daemon 以子进程方式、用它自己的可执行文件启动内置类型的服务器。daemon 运行在 Electron 进程里时，这个可执行文件是 Electron helper 或你的应用，不能当作 Node 启动，所以 daemon 改为在自己进程的 worker thread 里运行它们。它根据自己是怎样运行的来决定，不启动任何东西：
 
 - daemon 环境里的 `OPEN_ARTIFACT_NODE_CHILDREN=process|threads` 优先（上面的示例在传给 `fork` 的 `env` 里设为 `threads`，明确说出来）；
@@ -76,7 +97,7 @@ kit 交给 `spawn` 的是入口文件（`bin`）、`['daemon', 'run']`、带 `OP
 thread 模式的限制：
 
 - 类型服务器和 daemon 共用内存：没有内存隔离，一个服务器内存耗尽会连带 daemon。每个 thread 各自加载 WebAssembly，所以 daemon 比单个进程占用更多内存。
-- daemon 随你的应用结束，因为 utility process 不会比应用活得更久。下一个连接的应用会再启动它。
+- daemon 随你的应用结束，因为 utility process 不会比应用活得更久；退出前先请它停止（见上文），否则它的状态文件会留下。下一个连接的应用会再启动它。
 - 需要用更新的运行时替换正在运行的 daemon 时，daemon 会停下，把启动交给你应用里的 kit，由它在下次连接时启动；daemon 不会去启动你应用的另一个副本。
 - 停止时会请服务器结束（运行它的 `SIGTERM` 处理函数）；到时没有结束的会被强制终止，它的 `exit` 处理函数不会运行。
 - thread 里的服务器自己启动的进程（比如连接器的 stdio MCP 服务器）由该服务器的 `exit` 处理函数停止。服务器被强制终止或 daemon 进程意外死掉时，这个处理函数不会运行：这些进程收不到信号，要等它们的 stdin 关闭才结束，stdio MCP 服务器就是这样做的。

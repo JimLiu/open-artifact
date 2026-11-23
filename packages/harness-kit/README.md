@@ -43,7 +43,8 @@ harness.on('artifact', ({ session, artifact, change }) => myApp.card(session, ar
   `ELECTRON_RUN_AS_NODE` in `env`) and still chooses the runtime, waits for the daemon, checks its version and tries
   the next runtime; return the process (anything with `once('exit')`) so a failed one is left at once. An Electron app
   with its `RunAsNode` fuse off uses `utilityProcess.fork(bin, args, { env, stdio: 'pipe' })`; type servers then run
-  in worker threads of the daemon
+  in worker threads of the daemon, and the app asks the daemon to stop (`child.kill()`, then a bounded wait for
+  `exit`) before it quits, so `daemon.json` and the lock do not stay behind
   ([runtime guide](../../docs/integrating/runtime.md#electron-apps-with-the-runasnode-fuse-off)).
 
 ## The `Harness` object
