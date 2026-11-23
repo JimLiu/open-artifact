@@ -493,6 +493,8 @@ export function createLiveStore<T, C = unknown>(options: LiveStoreOptions<T, C>)
   let orderEpoch: string | undefined;
   let lastEventSeq = 0;
   const listedAt = new Map<string, number>();
+  /** False once `listing` failed where `list` answered (see {@link listCollection}). */
+  let listingWorks = true;
   /** Reading every document again while live: running, wanted again after it, retries. */
   let relistRunning = false;
   let relistWanted = false;
@@ -767,10 +769,26 @@ export function createLiveStore<T, C = unknown>(options: LiveStoreOptions<T, C>)
     return relistRunning || awaitingStore();
   }
 
-  /** Reads one collection, with the store's order when it keeps one. */
+  /**
+   * Reads one collection, with the store's order when it keeps one. A Shell
+   * older than `listing` (left open while the daemon was upgraded) refuses it
+   * as `invalid` or `not_granted`: the collection is asked again as `list`,
+   * and once `list` answers, the engine keeps to `list`.
+   */
   function listCollection(collection: string): Promise<SyncListing> {
-    if (transport.listing !== undefined) return transport.listing(collection);
-    return transport.list(collection).then((documents) => ({ documents }));
+    const list = (): Promise<SyncListing> => transport.list(collection).then((documents) => ({ documents }));
+    if (transport.listing === undefined || !listingWorks) return list();
+    return transport.listing(collection).catch((listingError: unknown) => {
+      const code = syncErrorCode(listingError);
+      if (code !== 'invalid' && code !== 'not_granted') throw listingError;
+      return list().then(
+        (listed) => {
+          listingWorks = false;
+          return listed;
+        },
+        () => Promise.reject(listingError),
+      );
+    });
   }
 
   /**

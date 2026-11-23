@@ -343,6 +343,50 @@ describe('live sync with an ordered store', () => {
     assert.equal(noteOf(a, 'n1')?.text, 'after the restart');
     assert.equal(noteOf(a, 'n2')?.x, 5);
   });
+
+  it('loads through a Shell that does not know `listing` (one left open while the daemon was upgraded)', async () => {
+    const store = new Store(seed(note('n1', 'a')));
+    const timers = new FakeTimers();
+    const page = store.page();
+    let refused = 0;
+    let listed = 0;
+    // What the old broker answers for a method it does not broker.
+    page.listing = async () => {
+      refused += 1;
+      throw Object.assign(new Error('unknown method db.listing'), { code: 'invalid' });
+    };
+    page.list = async (collection) => {
+      listed += 1;
+      return [...store.docs].filter(([path]) => collectionOfPath(path) === collection).map(([path, data]) => ({ path, data: structuredClone(data) }));
+    };
+    const doc = createLiveBoardDocument({ transport: page, timers });
+    await timers.advance(0);
+    assert.equal(doc.getSnapshot().status, 'ready');
+    assert.equal(noteOf(doc, 'n1')?.text, 'a');
+    const refusedOnce = refused;
+    assert.ok(refusedOnce > 0 && listed > 0);
+    page.reconnect(); // without an order, a restarted stream reads everything again: by `list` alone now
+    await timers.advance(LIVE_EDIT_DEBOUNCE_MS);
+    assert.equal(refused, refusedOnce, '`listing` is not asked again');
+  });
+
+  it('does not fall back to `list` when `listing` fails for want of the store', async () => {
+    const store = new Store(seed(note('n1', 'a')));
+    const timers = new FakeTimers();
+    const page = store.page();
+    let listed = 0;
+    page.listing = async () => {
+      throw Object.assign(new Error('offline'), { code: 'unavailable' });
+    };
+    page.list = async () => {
+      listed += 1;
+      return [];
+    };
+    const doc = createLiveBoardDocument({ transport: page, timers });
+    await timers.advance(0);
+    assert.notEqual(doc.getSnapshot().status, 'live');
+    assert.equal(listed, 0);
+  });
 });
 
 describe('custom inks', () => {

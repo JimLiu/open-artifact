@@ -179,6 +179,7 @@ The harness asks its questions (`waitFor`, `evaluateAll`, `load`'s `ready`) in a
 - A real daemon from source in a temporary `OPEN_ARTIFACT_HOME` on a free port, once with `OPEN_ARTIFACT_NODE_CHILDREN=threads` and once with `process`; a host connects with `createHarness` and opens the artifacts in the Shell.
 - Slides: the title of a slide is retyped at a person's pace. The Shell's save state (`header [data-shell-save-state]`), sampled all the while, is never `unsaved` ("Couldn't save — retry"), and the slide's file holds the new title.
 - Whiteboard: an element is dragged with the real mouse and a note is added from the canvas menu ("Add a note here"). The save state is never `unsaved`, and the store on disk changes.
+- Whiteboard through a Shell older than `db.listing` (one left open while the daemon was upgraded): a script added before the Shell's own refuses every `db.listing` call from the page as `invalid` ("unknown method"), as the 0.14.2 broker did. The board still shows (the page asked for `listing` and fell back to `list`), a dragged element reaches the store on disk, and the save state settles.
 - The type servers' logs (`<home>/logs/servers/`) hold no error, no refused request and no 4xx or 5xx.
 
 **The whiteboard in a narrow pane** (`whiteboard.test.mjs`, one case, Chrome only)

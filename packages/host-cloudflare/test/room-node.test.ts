@@ -35,13 +35,18 @@ registerHooks({
 type RoomModule = typeof import('../src/room.ts');
 let rooms: RoomModule;
 
-/** An artifact folder on disk as path → bytes (what the export would carry: no `.gitignore`). */
+/**
+ * An artifact folder on disk as path → bytes (what the export would carry: no `.gitignore`, and no `_agent/`, the
+ * machine-local state an editor opened on the fixture leaves behind).
+ */
 function folderFiles(dir: string): Record<string, Uint8Array> {
   const out: Record<string, Uint8Array> = {};
   const walk = (at: string): void => {
     for (const name of readdirSync(at)) {
       const path = join(at, name);
-      if (statSync(path).isDirectory()) walk(path);
+      if (statSync(path).isDirectory()) {
+        if (at !== dir || name !== '_agent') walk(path);
+      }
       else if (name !== '.gitignore') out[relative(dir, path)] = readFileSync(path);
     }
   };

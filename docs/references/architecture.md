@@ -97,6 +97,9 @@ what the page shows is the server's documents with the page's own unsaved and un
   restart) the engine lists the collections again in the background, with editing still open.
 - A store without an order (a plain `DbCapability` with no `epoch`/`seq`) still works: write answers are then held
   over later events for a few seconds, as before.
+- A Shell can outlive a daemon upgrade (it frames the page across reconnects), so a new page may talk to an older
+  broker that does not know `db.listing` and refuses it as `invalid`. The engine then asks `list` instead and keeps to
+  it (`listCollection` in `engine.ts`; `e2e/shell-save.test.mjs` (c)).
 - Whiteboard inks are ordered by `at`; `addInk` stamps one past the newest so a page with a slow clock still lands last.
 
 ## Harness API & agent-product integration

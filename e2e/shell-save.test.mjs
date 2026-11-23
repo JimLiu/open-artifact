@@ -9,7 +9,10 @@
 //  (a) Slides: retyping a slide's title never shows a failed save; the new title is in the slide's file.
 //  (b) Whiteboard: dragging an element and adding a sticky note never shows a failed save; both are in the board's
 //      store on disk.
-//  (c) Neither type server logged a failed request.
+//  (c) Whiteboard through a Shell older than `db.listing` (one left open while the daemon was upgraded to 0.14.3):
+//      the Shell refuses the call as 0.14.2's broker did, and the board still loads and saves (0.14.3 before this fix
+//      kept retrying the load and never showed the board).
+//  (d) Neither type server logged a failed request.
 //
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
@@ -226,7 +229,59 @@ for (const mode of ['threads', 'process']) {
       }
     });
 
-    it('(c) neither type server logged a failed request', T, async () => {
+    it('(c) Whiteboard: a Shell older than `db.listing` (left open across an upgrade) still loads the board and saves', T, async () => {
+      const made = await call({ action: 'publish', type_url: 'open-artifact://type/whiteboard', title: 'Old Shell board', open: 'never' });
+      fs.cpSync(path.join(SAMPLE, 'db'), path.join(made.root, 'db'), { recursive: true });
+      const opened = await call({ action: 'open', url: made.url });
+      // The Shell answers `db.listing` as 0.14.2's broker did (a method it does not broker), before its own broker sees it.
+      const oldBroker = `(() => {
+        if (window !== window.top) return;
+        window.__refusedListing = 0;
+        window.addEventListener('message', (event) => {
+          const data = event.data;
+          if (!data || data.openArtifact !== 'cap' || data.cap !== 'db' || data.method !== 'listing') return;
+          event.stopImmediatePropagation();
+          window.__refusedListing += 1;
+          event.source.postMessage({ openArtifact: 'cap_r', id: data.id, error: { code: 'invalid', message: 'unknown method db.listing' } }, event.origin);
+        }, true);
+      })()`;
+      const page = await ctx.browser.load('about:blank', { ready: 'true' });
+      try {
+        await page.cdp('Page.addScriptToEvaluateOnNewDocument', { source: oldBroker });
+        await page.cdp('Page.navigate', { url: opened.view_url });
+        const count = () => framed(page, "document.querySelector('.wb-elements') ? document.querySelectorAll('.wb-elements [data-wb-id]').length : undefined");
+        assert.ok(await until(async () => (await count()) > 0 && (await framed(page, "document.querySelector('.wb-elements') ? !document.querySelector('[data-wb-veil]') : undefined")), 30000),
+          'the board did not show through a Shell that refuses db.listing');
+        assert.ok((await page.evaluate('window.__refusedListing')) > 0, 'the page did not ask for db.listing');
+        const target = await framed(page, `(() => {
+          if (!document.querySelector('.wb-elements')) return undefined;
+          const all = [...document.querySelectorAll('.wb-elements [data-wb-id]')].map(e => [e, e.getBoundingClientRect()])
+            .filter(([e, r]) => r.width > 8 && r.height > 8 && r.left >= 0 && r.top >= 0 && r.right <= innerWidth && r.bottom <= innerHeight
+              && e.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)));
+          all.sort((a, b) => b[1].width * b[1].height - a[1].width * a[1].height);
+          const [, r] = all[0] ?? [];
+          return r ? [r.x + r.width / 2, r.y + r.height / 2] : null;
+        })()`);
+        assert.ok(target, 'no element to move');
+        const [fx, fy] = await frameOrigin(page);
+        const [x, y] = [fx + target[0], fy + target[1]];
+        const stored = () => JSON.stringify(readStore(path.join(made.root, 'db')));
+        const start = stored();
+        await page.cdp('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 });
+        for (let i = 1; i <= 10; i++) {
+          await page.cdp('Input.dispatchMouseEvent', { type: 'mouseMoved', x: x + i * 5, y, button: 'left', buttons: 1 });
+          await sleep(30);
+        }
+        await page.cdp('Input.dispatchMouseEvent', { type: 'mouseReleased', x: x + 50, y, button: 'left', clickCount: 1 });
+        assert.ok(await until(() => stored() !== start, 10000), 'the move was not written to the store');
+        assert.ok(await page.waitFor(`${SAVE_STATE} === ''`, 10000), 'the save indicator did not settle');
+        assert.deepEqual(page.problems, []);
+      } finally {
+        await page.close();
+      }
+    });
+
+    it('(d) neither type server logged a failed request', T, async () => {
       for (const type of ['slides', 'whiteboard']) {
         const log = fs.readFileSync(path.join(ctx.home, 'logs', 'servers', `${type}.log`), 'utf8');
         assert.doesNotMatch(log, /error|failed|refused| [45]\d\d /i, `${type}.log:\n${log}`);
