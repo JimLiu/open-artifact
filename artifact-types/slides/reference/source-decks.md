@@ -85,8 +85,9 @@ it):
 - Grid: `grid-template-areas`, `grid-area`, `grid-auto-*`, named lines, line numbers, `minmax()`,
   `auto-fill` → tracks of px, `fr`, `auto` or `repeat(N, …)`, cells in source order, `span N` to widen
   one.
-- Clipping: `clip-path`, `mask` → `border-radius` with `overflow:hidden`, or an `<svg>`. `overflow:auto`
-  or `scroll` → `hidden`, on a `<div>`.
+- Clipping uses `clip-path:polygon(...)` on a `<div>`, `<img>` or `<x-shape>`. Coordinates accept px,
+  percentages and `calc(N% ± Npx)`. Shared `var()` values can supply px cuts (`images.md`).
+  `mask` and other `clip-path` functions are dropped. Use `overflow:hidden` on a `<div>` for box overflow.
 - Fills: `url()` backgrounds, `background-size`, `background-position` → an `<img>` (a `url()` fills
   only text, with `background-clip:text`). `conic-gradient` or a second gradient layer → one
   gradient, or an `<svg>`. `object-position`.

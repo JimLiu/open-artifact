@@ -4,6 +4,7 @@ import { describe, it } from 'node:test';
 import {
   SLIDE_WIDTH,
   checkSlidesProject,
+  clipPathPoints,
   compileSlide,
   createSourceDeck,
   deckFormatKind,
@@ -12,6 +13,7 @@ import {
   matchesMedia,
   newDeckIndex,
   normalizeDeckIndex,
+  parseClipPath,
   parseSelectorList,
   parseStylesheet,
   patchSourceSlide,
@@ -30,6 +32,24 @@ const FIXTURE = new URL('./fixtures/source-deck/project/', import.meta.url);
 const read = (path: string): string => readFileSync(new URL(path, FIXTURE), 'utf8');
 const deck = createSourceDeck(read('deck.css'));
 const slide = (id: string, index: number) => readSourceSlide(read(`slides/${id}.html`), deck, { id, index, lints: false });
+
+it('resolves a shared cut token on boxes and pictures without scaling the cut', () => {
+  const css = createSourceDeck(`:root { --cut: 15.12px; }
+    .cut { clip-path: polygon(0 0, calc(100% - var(--cut)) 0, 100% var(--cut), 100% 100%, 0 100%); }`);
+  const html = '<section id="cut"><div class="cut"></div><img class="cut"></section>';
+  const read = readSourceSlide(html, css, { id: 'cut', lints: false });
+  const canonical = 'polygon(0 0, calc(100% - 15.12px) 0, 100% 15.12px, 100% 100%, 0 100%)';
+  assert.deepEqual(read.slide.children.map((node) => node.style['clip-path']), [canonical, canonical]);
+  const flat = compileSlide(flattenSlide(read.slide), { id: 'cut', lints: false });
+  assert.deepEqual(flat.slide.children.map((node) => node.style['clip-path']), [canonical, canonical]);
+  const polygon = parseClipPath(canonical);
+  assert.ok(polygon.ok && polygon.value);
+  for (const width of [240, 800]) {
+    assert.deepEqual(clipPathPoints(polygon.value, width, 180).slice(1, 3), [[width - 15.12, 0], [width, 15.12]]);
+  }
+  assert.equal(parseClipPath('url(#external)').ok, false);
+  assert.equal(parseClipPath('polygon(0 0, 100% 0, 50% 100%,)').ok, false);
+});
 
 describe('deck.json format and size', () => {
   it('keeps format, size and v5 in key order', () => {

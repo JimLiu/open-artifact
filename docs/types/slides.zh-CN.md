@@ -14,6 +14,7 @@
 - **全屏演示模式**：直接在浏览器全屏放映，支持键盘翻页和演讲者备注视图。
 - **安装设计系统**：支持安装 [Design System](design-system.zh-CN.md)，把品牌颜色、字号样式与字体文件接入编辑器的颜色/样式选择器，保持视觉统一。
 - **自定义字体与多媒体**：支持 Google Fonts 或本地上传字体（`.woff2`/`.woff`/`.ttf`/`.otf`），以及上传图片与视频片段（`.mp4`/`.webm`）。
+- **多边形裁剪**支持在面板和照片上使用任意多边形，坐标可采用 px、百分比或混合 `calc()`。简单面板和照片会导出为可编辑的 PowerPoint 形状与图片。
 - **评论协作与历史版本**：在具体页面上锚定评论并发送给 Agent，支持随时查看和恢复历史版本。
 - **多格式导出**：在 **Share → Export** 中导出 **PDF**、**PowerPoint（`.pptx`）**、独立 **HTML** 或 **PNG** 图片。
 
@@ -41,6 +42,10 @@
   - `project/slides/<id>.html` — 每页一个文件，只包含单个 `<section id="<id>">...</section>`（演讲者备注作为最后一个 `<aside>` 子节点；不含 `<html>`/`<head>`/`<body>`）。
   - `project/ds/<folder>/` — 安装设计系统时复制过来的 `tokens.json`、字体和素材。
 - **限制**：最多 500 页；单页不超过 1 MB；最多 4 个自定义字体族；单个上传媒体不超过 25 MB。
+
+### 多边形形状与图片框
+
+可在行内样式或共享的 `deck.css` 中为 `<div>`、`<img>` 或 `<x-shape>` 设置 `clip-path: polygon(...)`。百分比坐标可定义三角形、六边形、箭头和凹多边形。`calc(100% - 12px)` 等混合坐标可在框尺寸变化时保持距边缘的固定距离。将照片的裁剪路径设在 `<img>` 上，导出到 PowerPoint 时可编辑裁剪和自定义轮廓。含子元素的裁剪容器会导出为图片。[多边形裁剪参考](../../artifact-types/slides/reference/images.md#polygon-clipping)
 
 ### 常用工作流与命令
 

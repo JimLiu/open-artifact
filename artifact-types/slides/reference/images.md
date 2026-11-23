@@ -130,6 +130,37 @@ by PowerPoint's own approximations: `dashed` and `dotted` map to its dash styles
 the notes shown with the download: a `double` border (drawn single), a shadow's spread, an `inset` or layered
 shadow, a blend mode, a `filter`.
 
+## Polygon clipping
+
+Give a panel or picture frame a `clip-path:polygon(...)`. The points use the border box as their
+reference. Percentage coordinates can describe triangles, hexagons, arrows and concave outlines.
+Mix percentages and px with `calc()` to keep a fixed distance from an edge.
+
+```css
+:root { --cut: 15.12px; }
+.hexagon {
+  clip-path: polygon(25% 0, 75% 0, 100% 50%, 75% 100%, 25% 100%, 0 50%);
+}
+.chamfer {
+  clip-path: polygon(0 0, calc(100% - var(--cut)) 0, 100% var(--cut), 100% 100%, 0 100%);
+}
+```
+
+```html
+<img class="chamfer" src="/_blob/<id>" alt="The office" style="width:640px;height:400px;object-fit:cover">
+```
+
+The chamfer cuts the upper-right corner by 15.12 px along each edge at any frame size. The same rule
+can clip a panel or its contents on a `<div>`. In an inline deck, put the polygon in
+the `style` attribute and use `15.12px` in place of the variable. Percentages move with the box.
+Pixel distances stay fixed when the box is resized in Slides.
+
+Standalone HTML retains the CSS clip. Editable PowerPoint exports simple filled panels as custom
+shapes and directly clipped photos as pictures with an editable crop and outline. Clipped groups,
+intersecting paths and combinations that need a browser render, such as a clipped border, export
+as pictures and appear in the export notes. Resizing an exported custom shape in PowerPoint scales
+its outline with it.
+
 ## On the page
 
 The Insert menu's **Image or video…** and dropping a file onto a slide both upload the file and place
