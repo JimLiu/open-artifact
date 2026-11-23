@@ -2,7 +2,8 @@
  * Embedding Shell pages in a harness's own UI.
  *
  * - `embed.origins` (and `GET /api/open-artifact.embed`): where artifact pages are served from, for the host's allow
- *   list: the daemon (the Shell), the per-artifact origins of static types (one pattern), local type servers and the
+ *   list: the daemon (the Shell), the per-artifact origins of static types (one pattern), local type servers (each
+ *   with the pattern of the per-artifact origins on its port) and the
  *   addresses of URL-entry types, which may be anywhere on the web (`remote`). The two layers stay two origins: the
  *   page in the Shell's frame runs the type's and the agent's code and must not reach the Shell or the daemon.
  *   Subscribed adapters get `embed/origins` when the answer changes.
@@ -132,7 +133,11 @@ export function embedOrigins(input: EmbedOriginsInput): EmbedOriginsResult {
   }
   for (const server of input.running) {
     const origin = originOfTemplate(server.base);
-    if (origin) add({ origin, kind: 'server', type: server.type, remote: !isLoopbackOrigin(origin) });
+    if (!origin) continue;
+    add({ origin, kind: 'server', type: server.type, remote: !isLoopbackOrigin(origin) });
+    // A local server may give each artifact an origin of its own on its port (frame-host does for original types).
+    const port = new URL(origin).port;
+    if (isLoopbackOrigin(origin) && port) add({ pattern: `http://*.frame.localhost:${port}`, kind: 'frame', type: server.type, remote: false });
   }
   return { origins: entries.map((e) => (e.origin ?? e.pattern)!), entries };
 }

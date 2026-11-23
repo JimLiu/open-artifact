@@ -85,9 +85,10 @@ be empty.
 The ticket works in a frame too. A page that cannot be declared (an app loaded from `file://`) may load the ticketed
 `embedUrl` in its own iframe: the Shell still talks through the daemon, and it neither greets nor hears its parent frame.
 Give `embedArtifact` the transport above, not the iframe, and set the iframe's `src` yourself. Every ancestor counts
-for a frame's `frame-ancestors`, your page included, so the built-in types' pages on this computer send none: CSP's `*`
-matches only network schemes and would refuse a `file://` or `app://` page around the Shell. Your app still has to let
-its frame load the daemon's origins (`embed.origins`).
+for a frame's `frame-ancestors`, your page included, so the type pages on this computer send none: CSP's `*` matches
+only network schemes and would refuse a `file://` or `app://` page around the Shell. The page of a type that
+frame-host serves (an `index.html` with an inline `// artifact.json` block) is instead refused to any frame but the
+one its own shell put up. Your app still has to let its frame load the daemon's origins (`embed.origins`).
 
 The ticket's rules: it is used once, belongs to the adapter connection it was issued to, expires unclaimed after two
 minutes, and ends with that connection. Commands sent before the Shell connects wait, up to 32. A Shell that reloads may
@@ -106,7 +107,7 @@ oa.on('event', (event) => { if (event.type === 'embed/origins') update(event); }
 | Entry `kind` | Origin |
 | --- | --- |
 | `daemon` | the daemon itself, `http://127.0.0.1:<port>` (the Shell) |
-| `frame` | the per-artifact origins of static types, a pattern: `http://*.frame.localhost:<port>` |
+| `frame` | the per-artifact origins of static types, a pattern: `http://*.frame.localhost:<port>`; and one per local type server, on its port (frame-host serves each artifact from an origin of its own) |
 | `server` | a local type server |
 | `url` | a URL-entry type's address, which may be anywhere (`remote: true` when it is not loopback) |
 

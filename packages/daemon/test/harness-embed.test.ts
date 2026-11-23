@@ -60,7 +60,7 @@ function sink(): ViewSink & { got: unknown[]; ended: boolean } {
 
 const SHELL = 'http://127.0.0.1:4800/a/art_one';
 
-test('embedOrigins: daemon, one frame pattern, local servers, URL entries with remote marked', () => {
+test('embedOrigins: daemon, one frame pattern, local servers with theirs, URL entries with remote marked', () => {
   const out = embedOrigins({
     daemon: 'http://127.0.0.1:4800',
     port: 4800,
@@ -71,13 +71,27 @@ test('embedOrigins: daemon, one frame pattern, local servers, URL entries with r
       { id: 'near', entry: { kind: 'url', url: 'http://127.0.0.1:9000/near/{id}' } },
       { id: 'served', entry: { kind: 'server', url: null } },
     ],
-    running: [{ type: 'served', base: 'http://127.0.0.1:5123/' }],
+    running: [
+      { type: 'served', base: 'http://127.0.0.1:5123/' },
+      { type: 'faraway', base: 'https://types.example.net:8443/' },
+    ],
   });
-  assert.deepEqual(out.origins, ['http://127.0.0.1:4800', 'http://*.frame.localhost:4800', 'https://types.example.com', 'http://127.0.0.1:9000', 'http://127.0.0.1:5123']);
+  assert.deepEqual(out.origins, [
+    'http://127.0.0.1:4800',
+    'http://*.frame.localhost:4800',
+    'https://types.example.com',
+    'http://127.0.0.1:9000',
+    'http://127.0.0.1:5123',
+    'http://*.frame.localhost:5123',
+    'https://types.example.net:8443',
+  ]);
   assert.deepEqual(out.entries[1], { pattern: 'http://*.frame.localhost:4800', kind: 'frame', remote: false });
   assert.deepEqual(out.entries[2], { origin: 'https://types.example.com', kind: 'url', type: 'far', remote: true });
   assert.deepEqual(out.entries[3], { origin: 'http://127.0.0.1:9000', kind: 'url', type: 'near', remote: false });
   assert.deepEqual(out.entries[4], { origin: 'http://127.0.0.1:5123', kind: 'server', type: 'served', remote: false });
+  // A local server's per-artifact origins (frame-host gives each original artifact one); none for a server elsewhere.
+  assert.deepEqual(out.entries[5], { pattern: 'http://*.frame.localhost:5123', kind: 'frame', type: 'served', remote: false });
+  assert.deepEqual(out.entries[6], { origin: 'https://types.example.net:8443', kind: 'server', type: 'faraway', remote: true });
 });
 
 test('EmbedViews: origins change is broadcast once, host origins come from connected adapters', () => {

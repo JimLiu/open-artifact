@@ -765,7 +765,10 @@ export class FrameSite implements Site {
     } catch {
       return deny(req, res, 400, 'Bad path');
     }
-    if (rel === '' || rel === 'index.html') return this.sendIndex(req, res);
+    if (rel === '' || rel === 'index.html') {
+      if (!this.loadedByShell(req)) return deny(req, res, 403, 'This page opens inside its Open Artifact page.');
+      return this.sendIndex(req, res);
+    }
     if (rel === '_files.json') {
       const manifest = this.files.manifest();
       // An artifact with no files yet has no listing: the original pages read that 404 as "start empty".
@@ -787,6 +790,26 @@ export class FrameSite implements Site {
 
   contentUpgrade(_req: IncomingMessage, socket: Duplex): void {
     socket.end('HTTP/1.1 404 Not Found\r\n\r\n');
+  }
+
+  /**
+   * Who may load the page: the inner shell's frame (it sends its origin as the Referer), the page itself, a visit
+   * typed into the address bar, or a client with no fetch metadata (a script, an old browser). A frame put up by
+   * anyone else is refused here, not by CSP `frame-ancestors`: that directive checks every ancestor, and the app
+   * around the Open Artifact Shell may be a `file://` page or a scheme of its own (`app://`), which no source list
+   * written on this computer can name.
+   */
+  private loadedByShell(req: IncomingMessage): boolean {
+    const dest = req.headers['sec-fetch-dest'];
+    const site = req.headers['sec-fetch-site'];
+    if (dest === 'document' || site === 'same-origin') return true;
+    const referer = req.headers.referer;
+    if (!referer) return dest === undefined && site === undefined;
+    try {
+      return this.shellOrigins.has(new URL(referer).origin);
+    } catch {
+      return false;
+    }
   }
 
   /** The type's index.html with the Frame Runtime first in its <head>. */
@@ -817,8 +840,7 @@ export class FrameSite implements Site {
       'Content-Type': 'text/html; charset=utf-8',
       'Content-Length': body.length,
       'Cache-Control': 'no-store',
-      // Every ancestor counts: the inner shell and the Open Artifact Shell around it, both on this computer.
-      'Content-Security-Policy': 'frame-ancestors http://127.0.0.1:* http://localhost:*',
+      // No frame-ancestors: who framed it is checked when it is asked for (loadedByShell).
       'X-Content-Type-Options': 'nosniff',
       'Referrer-Policy': 'no-referrer',
     });

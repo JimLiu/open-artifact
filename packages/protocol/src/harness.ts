@@ -460,7 +460,7 @@ export interface EmbedOriginEntry {
   /** A wildcard origin, CSP style (`http://*.frame.localhost:4123`), for origins made per artifact. */
   pattern?: string;
   kind: 'daemon' | 'frame' | 'server' | 'url';
-  /** The type it serves, for `server` and `url`. */
+  /** The type it serves, for `server`, `url`, and the `frame` pattern of a local type server. */
   type?: string;
   /** Not a loopback address: a host that only lets local pages in by default decides (or asks) before allowing it. */
   remote: boolean;
