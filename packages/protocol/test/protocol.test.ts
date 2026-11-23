@@ -76,6 +76,17 @@ test('tool definitions cover the three tools', () => {
   );
 });
 
+test('every tool argument has a description that names its enum values', () => {
+  // Some apps show agents the descriptions but not the enums.
+  for (const tool of TOOL_DEFINITIONS) {
+    for (const [field, prop] of Object.entries(tool.inputSchema.properties)) {
+      const text = prop.description ?? '';
+      assert.ok(text.length > 0, `${tool.name}.${field} has no description`);
+      for (const value of prop.enum ?? []) assert.ok(text.includes(String(value)), `${tool.name}.${field} does not name ${String(value)}`);
+    }
+  }
+});
+
 test('the Artifact description has one line per action', () => {
   const lines = TOOL_DESCRIPTIONS.Artifact.split('\n');
   for (const action of ARTIFACT_ACTIONS) assert.ok(lines.some((line) => line.startsWith(`- ${action} {`)), action);

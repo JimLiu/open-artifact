@@ -278,7 +278,7 @@ const ARTIFACT_SCHEMA: ToolInputSchema = {
     action: {
       type: 'string',
       enum: ARTIFACT_ACTIONS,
-      description: 'What to do. Omitted: publish.',
+      description: 'What to do: quickstart, list, publish, read, open, call, adopt, delete or share. Omitted: publish.',
     },
     intent: {
       type: 'string',
@@ -287,7 +287,7 @@ const ARTIFACT_SCHEMA: ToolInputSchema = {
     scope: {
       type: 'string',
       enum: ['types', 'mine', 'all'],
-      description: "list: the installed types, this session's and this workspace's artifacts (default), or every artifact.",
+      description: "list: types (the installed types), mine (this session's and this workspace's artifacts; the default) or all (every artifact).",
     },
     type: {
       type: 'string',
@@ -344,10 +344,10 @@ const ARTIFACT_SCHEMA: ToolInputSchema = {
 const DATA_SCHEMA: ToolInputSchema = {
   type: 'object',
   properties: {
-    action: { type: 'string', enum: DATA_ACTIONS },
+    action: { type: 'string', enum: DATA_ACTIONS, description: 'What to do: get, list, query, set, update, delete, str_replace or batch.' },
     url: { type: 'string', description: 'The artifact (open-artifact://artifact/<id>).' },
-    collection: { type: 'string' },
-    doc_id: { type: 'string' },
+    collection: { type: 'string', description: 'The collection: alone for list / query (query needs it), with doc_id for one document.' },
+    doc_id: { type: 'string', description: 'With collection: the document to get / set / update / delete / str_replace.' },
     path: { type: 'string', description: 'collection/doc_id, instead of the two.' },
     data: { type: 'object', additionalProperties: true, description: "set / update: the document's fields." },
     file_path: { type: 'string', description: 'set / update: a JSON file holding the fields, instead of data.' },
@@ -379,7 +379,7 @@ const DATA_SCHEMA: ToolInputSchema = {
 const COMMENTS_SCHEMA: ToolInputSchema = {
   type: 'object',
   properties: {
-    action: { type: 'string', enum: COMMENTS_ACTIONS },
+    action: { type: 'string', enum: COMMENTS_ACTIONS, description: 'What to do: read, reply, resolve, reopen or wait.' },
     url: { type: 'string', description: 'The artifact (open-artifact://artifact/<id>). wait: optional.' },
     thread_id: { type: 'string', description: 'reply / resolve / reopen: the thread (after ";thread=" in the message).' },
     text: { type: 'string', description: 'reply: the answer.' },
