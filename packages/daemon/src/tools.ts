@@ -126,7 +126,9 @@ const MAY_FIX: Record<keyof SessionMay, string> = {
 const EXISTING_MAX = 5;
 
 /** Words of a quickstart intent that say nothing about the type. */
-const STOP_WORDS = new Set(['the', 'and', 'for', 'with', 'that', 'this', 'from', 'into', 'about', 'make', 'want', 'need', 'some', 'our', 'your', 'new', 'can', 'its', 'are']);
+const STOP_WORDS = new Set(['the', 'and', 'for', 'with', 'that', 'this', 'from', 'into', 'about', 'make', 'want', 'need', 'some', 'our', 'your', 'new', 'can', 'its', 'are', 'other']);
+/** quickstart's `intent: "other"`: none of the kinds the intent list names, so it matches no type. */
+const OTHER_INTENT = 'other';
 
 /** Lower case, words split by single spaces, padded: `" pitch deck "`. */
 const words = (text: string): string => ` ${text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim()} `;
@@ -563,7 +565,8 @@ export class Tools {
     const wanted = words(want);
     const terms = wanted.trim().split(' ').filter((w) => w.length > 2 && !STOP_WORDS.has(w));
     const score = (t: ListedType): number => {
-      if (!want) return 0;
+      // "other" is in many types' descriptions ("for other work", "other writing"): it must not pick one of them.
+      if (!want || want === OTHER_INTENT) return 0;
       let s = 0;
       const intents = t.intents.map((i) => i.toLowerCase());
       if (intents.includes(want)) s += 10;
