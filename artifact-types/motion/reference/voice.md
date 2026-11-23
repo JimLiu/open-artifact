@@ -226,8 +226,8 @@ of its own, `at` in the film's seconds as a number: `window.CUT.narration = { li
 
 ### The close
 
-When a film first speaks, this in place of SKILL.md's close, with the film's url after its first sentence where
-SKILL.md's close gives one:
+When a film first speaks, this in place of SKILL.md's close, always including the film's `view_url` (or `url`) right
+after its first sentence:
 
 > Here's your animation. It has captions and a voiceover. Tell me if a line sounds wrong, or what else to change.
 

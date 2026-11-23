@@ -150,7 +150,7 @@ export function showArtifactTool(agent: string): Record<string, unknown> {
   return {
     name: 'ShowArtifact',
     title: 'Show artifact',
-    description: `Show an Open Artifact as a card in the conversation, with an Open button for its page and a button that sends the comments people left on it back to ${agent}. Call it once an artifact is filled and checked.`,
+    description: `Show an Open Artifact as a card in the conversation, with an Open button for its page and a button that sends the comments people left on it back to ${agent}. Call it once an artifact is filled and checked. Always include view_url in your reply too.`,
     inputSchema: {
       type: 'object',
       properties: { url: { type: 'string', description: 'The artifact: open-artifact://artifact/<id>.' } },

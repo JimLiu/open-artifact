@@ -96,7 +96,7 @@ const MAKING_ARTIFACTS = `<making_artifacts>
 - Create the artifact once you have the material: its folder starts empty. By default (open: "after_first_write"), the page opens for the person after your first write and shows the rest as it lands, when your app shows pages by itself; open: "never" keeps it closed.
 - The create result carries the type's instructions. Read them before writing and follow them: they are the type's own guide to its files.
 - Write the files into root with your own file tools. Then run the type's check (Artifact {action: "call", url, name: "check"}) and fix what it reports.
-- When the create result has no open, show the page once the content is written, never while it is empty: open view_url in your app's built-in browser (its browser panel or tab) if you have one; only when you have none, Artifact {action: "open", url} opens it in the computer's browser. In your reply, say in one line what you made; give its view_url when the page did not open for the person.
+- When the create result has no open, show the page once the content is written, never while it is empty: open view_url in your app's built-in browser (its browser panel or tab) if you have one; only when you have none (or cannot confirm the page visibly opened), Artifact {action: "open", url} opens it in the computer's browser. In your reply, say in one line what you made and always include its view_url.
 - An action that answers {task, pending: true} runs in the background. Its result comes later as a message that starts with "${TASK_HEADER}"; do not run it again meanwhile.
 - Before changing an artifact, read its files again: the person may have edited them in the page.
 </making_artifacts>`;

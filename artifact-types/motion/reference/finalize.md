@@ -129,4 +129,4 @@ Last, ONE `batch`, so that the film loads once. If they asked for silence: no sc
 
 ## 6. Stop
 
-Then run `open-artifact check <root>` (under a host, `Artifact {action: "call", url, name: "check"}`) and fix each error it names. `check` reads the documents, not the picture, so take one last look at stills of frame 0, of each scene's first second and of the film's last second. That ends the work. Close as SKILL.md says, with the film's url where the page did not open for them and its one sentence more if there is one, and end the turn. Say nothing of artifact types or how it was made, and don't name the music.
+Then run `open-artifact check <root>` (under a host, `Artifact {action: "call", url, name: "check"}`) and fix each error it names. `check` reads the documents, not the picture, so take one last look at stills of frame 0, of each scene's first second and of the film's last second. That ends the work. Close as SKILL.md says, always including the film's url and its one sentence more if there is one, and end the turn. Say nothing of artifact types or how it was made, and don't name the music.

@@ -68,10 +68,10 @@ node <skill>/scripts/open-artifact.mjs wait --timeout 600000
    - Where visual inspection is helpful and supported, call `Artifact {action: "call", url, name: "snapshot"}` (or `stills` for Motion).
 6. **Show the page**
    - If the create result already set `open: "after_first_write"`, the host opens it automatically once you write.
-   - If your app has `ShowArtifact`, call `ShowArtifact {url}` once filled (or right after the first playable batch for streaming types like `motion` and `docs`).
+   - If your app renders MCP Apps inline, call `ShowArtifact {url}` once filled (or right after the first playable batch for streaming types like `motion` and `docs`). Because `ShowArtifact` does not open a browser tab by itself (and an early card can scroll out of view in long builds), call `Artifact {action: "open", url}` if you have no built-in browser or cannot confirm the page visibly opened.
    - Otherwise, open `view_url` in your app's built-in browser if available; only call `Artifact {action: "open", url}` when no built-in browser exists.
 7. **Summarize briefly**
-   - Tell the user in 1–2 sentences what you built and note that they can edit directly, leave comments, and click **Send to agent**. Include `view_url` if the page did not open automatically.
+   - Tell the user in 1–2 sentences what you built and note that they can edit directly, leave comments, and click **Send to agent**. Always include `view_url` in your final reply so the user can open or return to the page anytime.
 
 ## 4. Revising existing artifacts & preventing overwrites
 

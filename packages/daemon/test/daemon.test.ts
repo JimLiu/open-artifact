@@ -107,7 +107,11 @@ test('MCP Apps: a client that shows them gets ShowArtifact and the view of the l
   const id = await createDesign('Shown inline', 'apps-1');
   const called = (await rpc('tools/call', { name: 'ShowArtifact', arguments: { url: `open-artifact://artifact/${id}` } }, ui)).result;
   assert.equal(called.isError, false);
-  assert.deepEqual(called.structuredContent, { url: `open-artifact://artifact/${id}`, title: 'Shown inline', type: 'design', view_url: `${state.url}/a/${id}` });
+  assert.equal(called.structuredContent.url, `open-artifact://artifact/${id}`);
+  assert.equal(called.structuredContent.title, 'Shown inline');
+  assert.equal(called.structuredContent.type, 'design');
+  assert.equal(called.structuredContent.view_url, `${state.url}/a/${id}`);
+  assert.match(called.structuredContent.note, /view_url/);
   const missing = (await rpc('tools/call', { name: 'ShowArtifact', arguments: { url: 'open-artifact://artifact/art_missing' } }, ui)).result;
   assert.equal(missing.isError, true);
   assert.equal(missing.structuredContent, undefined);

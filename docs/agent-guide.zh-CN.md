@@ -68,10 +68,10 @@ node <skill>/scripts/open-artifact.mjs wait --timeout 600000
    - 需要视觉检查且环境支持看图时，可调用 `Artifact {action: "call", url, name: "snapshot"}`（Motion 支持 `stills`）。
 6. **向用户展示页面**
    - 若创建结果已返回 `open: "after_first_write"`，写入后宿主会自动打开页面。
-   - 若当前应用提供 `ShowArtifact`，在内容就绪后调用 `ShowArtifact {url}`（对于 `motion` 粗剪或 `docs` 骨架等支持实时观看进度的类型，在第一批可播放/可预览内容写入后立即展示）。
+   - 若当前应用支持内联渲染 MCP Apps，在内容就绪后调用 `ShowArtifact {url}`（对于 `motion` 粗剪或 `docs` 骨架等支持实时观看进度的类型，在第一批可播放/可预览内容写入后立即展示）。由于 `ShowArtifact` 本身不会打开浏览器标签页（且长任务中过早弹出的卡片容易被后续步骤淹没），若没有内置浏览器或无法确认页面已可见展示，请同时调用一次 `Artifact {action: "open", url}`。
    - 否则，如果应用自带内置浏览器面板，在其中打开 `view_url`；仅在没有内置浏览器时调用 `Artifact {action: "open", url}` 打开系统浏览器。
 7. **简短汇报**
-   - 用一两句话说明做了什么，并提醒用户可以直接在页面编辑、留评论并点 **Send to agent**。如果页面未自动打开，一并给出 `view_url`。
+   - 用一两句话说明做了什么，并提醒用户可以直接在页面编辑、留评论并点 **Send to agent**。无论页面是否已自动打开，最终回复中都应附上 `view_url` 链接，方便用户随时打开或回到页面。
 
 ## 4. 修改已有作品与防止覆盖
 

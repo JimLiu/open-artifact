@@ -28,7 +28,8 @@ exists, and a `delete`, take `if_match`, the sha256 you read (or `"*"`). There, 
 `open-artifact asking` is `Artifact {action: "call", url, name: "asking"}` (`args: {done: true}` for `--done`). The page
 is shown right after the first playable batch (step 3 below), not at the end: if `publish` did not return
 `open: "after_first_write"`, open `view_url` in your app's built-in browser (or call `ShowArtifact {url}` when your app
-offers it; else `Artifact {action: "open", url}`). Comments are **ArtifactComments**. Never run `open-artifact open`, `serve`, `wait` or `stop`
+renders MCP Apps inline; if you have no built-in browser or cannot confirm the page visibly opened, call
+`Artifact {action: "open", url}` once), and always include `view_url` in your final close. Comments are **ArtifactComments**. Never run `open-artifact open`, `serve`, `wait` or `stop`
 under a host.
 
 **Standalone**, the same documents through the CLI:
@@ -159,12 +160,13 @@ a host, the `publish` above, with the film's own name as `title` (never "Motion"
    rough cut play and sees each scene arrive live. Under a host: if the `publish` result returned
    `open: "after_first_write"`, the page opens by itself on this write; **otherwise (when `publish` has no `open` or
    says nothing opens by itself), show it right now:** open `view_url` in your app's built-in browser or preview pane
-   if you have one (or call `ShowArtifact {url}` when your app offers it), and only when you have neither, call
-   `Artifact {action: "open", url}` once. Standalone, open the `url` that `open-artifact open` printed in your app's
-   built-in browser or preview pane, if you have one; if you have none, give the person the `url` in one line and go on
-   in the same turn. Never show it before this batch (the page would be empty), and never open or reload it again: it
-   updates by itself at every write. That pane is the person's view, so look at the film through stills, not by driving
-   their page.
+   if you have one; if your app renders MCP Apps inline you may call `ShowArtifact {url}` (note: `ShowArtifact` alone
+   does not open a browser tab and an early card can get buried in a long build), and when you have no built-in browser
+   or cannot confirm the page visibly opened, call `Artifact {action: "open", url}` once. Standalone, open the `url`
+   that `open-artifact open` printed in your app's built-in browser or preview pane, if you have one; if you have none,
+   give the person the `url` in one line and go on in the same turn. Never show it before this batch (the page would be
+   empty), and never open or reload a browser tab again: it updates by itself at every write. That pane is the person's
+   view, so look at the film through stills, not by driving their page.
 4. **The world** (`finalize.md`): uploads first, each with its `assets` document; then one batch with the whole
    `base.css` and `shared.js`, which starts `window.W`.
 5. **The scenes**, in film order, one write per scene (`modules/scene-<id>.js`), finished the first time. A scene
@@ -183,8 +185,8 @@ a host, the `publish` above, with the film's own name as `title` (never "Motion"
 
    > Here's your animation. Tell me if the music doesn't fit, or what else to change.
 
-   With no score: "Here's your animation. Tell me what to change." Where the page did not open in a built-in browser,
-   the film's `url` follows the first sentence, once. At most one short sentence more, holding what you
+   With no score: "Here's your animation. Tell me what to change." Always include the film's `view_url` (or `url`)
+   after the first sentence, once, so the person can open or return to the page anytime. At most one short sentence more, holding what you
    couldn't do as asked (a font, a length, a refusal) and what you made up that something of theirs would replace (a
    logo, screenshots); `reference/later.md` has the font sentences. It may say, where it bears on the ask, that the
    film works best with their images, logo, colors, font files or UI code, that clips play as muted picture, and that

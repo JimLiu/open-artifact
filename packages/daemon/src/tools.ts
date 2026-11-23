@@ -896,7 +896,13 @@ export class Tools {
       // The Shell says what is wrong with the page; the view still shows it.
       this.o.log(`ShowArtifact ${record.id}: ${(error as Error)?.message ?? error}`);
     }
-    return { url: artifactUrl(record.id), title: record.title, type: record.type, view_url: this.o.viewUrl(record.id) };
+    return {
+      url: artifactUrl(record.id),
+      title: record.title,
+      type: record.type,
+      view_url: this.o.viewUrl(record.id),
+      note: 'Always include view_url in your final reply too. ShowArtifact does not open a browser tab by itself; if your app does not render MCP Apps cards inline, call Artifact {action: "open", url}.',
+    };
   }
 
   /**
