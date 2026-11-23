@@ -404,6 +404,43 @@ export interface DbChangeEvent {
   changes: Record<DbPath, JsonRecord | null>;
   /** Who made the change, when the host knows (`agent`, `owner`, a peer id). */
   author?: string;
+  /**
+   * The change's place in the host's order ({@link DbOrder}), when the host
+   * keeps one. Events reach a page in this order; write receipts may not.
+   */
+  epoch?: string;
+  seq?: number;
+  /**
+   * The first event of every event stream (each connect and reconnect), with
+   * empty `changes`: `epoch` and `seq` say where the host stood as the stream
+   * started. Changes up to it were sent before this stream, so a page that
+   * heard and read less (its stream was down) reads its documents again.
+   */
+  resync?: boolean;
+}
+
+/**
+ * Where a host's documents stand: `seq` counts the host's db change events
+ * since `epoch` began (a new epoch, such as after a restart, starts over).
+ * A write's receipt says the written documents are as of `seq`.
+ */
+export interface DbOrder {
+  epoch: string;
+  seq: number;
+}
+
+/**
+ * A write's receipt: the host's order after the batch, and each written
+ * document as stored (`null`: absent), so a page shows what the host holds
+ * even when the host merged in a change it had not reported yet.
+ */
+export interface DbReceipt extends DbOrder {
+  documents: Record<DbPath, JsonRecord | null>;
+}
+
+/** One collection's documents and, when the host keeps an order, where it stood when they were read. */
+export interface DbListing extends Partial<DbOrder> {
+  documents: DbDocument[];
 }
 
 /** Limits every host enforces on the document store. */
@@ -422,12 +459,14 @@ export interface DbCapability {
   get(path: DbPath): Promise<JsonRecord | null>;
   /** Every document of one collection (`elements`, `data/users/u1/ideas`), sorted by path. */
   list(collection: string): Promise<DbDocument[]>;
+  /** {@link list} with the host's {@link DbOrder} at the read, for pages that keep documents in sync. */
+  listing?(collection: string): Promise<DbListing>;
   /**
    * Applies a batch in order, all or nothing. Rejects with `invalid` (bad
    * path, too large), `conflict` (an `ifMatch` no longer holds) or `not_writer`. The host never echoes the batch back
-   * through {@link onChange}.
+   * through {@link onChange}. Resolves with a {@link DbReceipt}, when the host keeps an order.
    */
-  write(writes: DbWrite[]): Promise<void>;
+  write(writes: DbWrite[]): Promise<DbReceipt | void>;
   /** Subscribes to changes made by anyone else. Returns an unsubscribe function. */
   onChange(listener: (event: DbChangeEvent) => void): () => void;
 }

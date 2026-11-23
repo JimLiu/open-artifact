@@ -819,6 +819,9 @@ export function createTypeServer(options: TypeServerOptions): TypeServer {
     };
     artifact.clients.get(id)?.end();
     artifact.clients.set(id, client);
+    // Where the documents stand as the stream starts: a page that heard less (its stream was down, or it read
+    // before this stream opened) may have missed changes, and reads them again.
+    if (artifact.db?.documents) client.send('db', { changes: {}, resync: true, ...artifact.db.order() });
     stopIdle(artifact);
     artifact.usedAt.set(id, Date.now());
     // A hosted snapshot page hears nothing once its token has ended.

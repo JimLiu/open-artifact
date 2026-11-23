@@ -37,7 +37,8 @@ function call(port: number, method: string, path: string, headers: Record<string
 }
 
 /** A WebSocket handshake: the open socket and the first text frame, or the refusal's status. */
-function socketTo(port: number, path: string, headers: Record<string, string>): Promise<{ status: number; socket?: Socket; first?: { event: string; data: unknown } }> {
+/** A WebSocket to the event stream: `start`, the stream's opening `db` frame (where the store stands, when the artifact has one), and the first frame after it. */
+function socketTo(port: number, path: string, headers: Record<string, string>): Promise<{ status: number; socket?: Socket; start?: { event: string; data: unknown }; first?: { event: string; data: unknown } }> {
   return new Promise((resolvePromise, reject) => {
     const req = request({
       host: '127.0.0.1',
@@ -47,19 +48,29 @@ function socketTo(port: number, path: string, headers: Record<string, string>): 
     });
     req.on('upgrade', (res: IncomingMessage, socket: Socket, head: Buffer) => {
       let buffered = head;
+      let start: { event: string; data: unknown } | undefined;
       const read = (chunk?: Buffer): void => {
         if (chunk) buffered = Buffer.concat([buffered, chunk]);
-        if (buffered.length < 2) return;
-        let length = buffered[1]! & 0x7f;
-        let at = 2;
-        if (length === 126) {
-          if (buffered.length < 4) return;
-          length = buffered.readUInt16BE(2);
-          at = 4;
+        for (;;) {
+          if (buffered.length < 2) return;
+          let length = buffered[1]! & 0x7f;
+          let at = 2;
+          if (length === 126) {
+            if (buffered.length < 4) return;
+            length = buffered.readUInt16BE(2);
+            at = 4;
+          }
+          if (buffered.length < at + length) return;
+          const frame = JSON.parse(buffered.subarray(at, at + length).toString('utf8')) as { event: string; data: unknown };
+          buffered = buffered.subarray(at + length);
+          if (!start && frame.event === 'db' && (frame.data as { resync?: boolean }).resync) {
+            start = frame;
+            continue;
+          }
+          socket.off('data', read);
+          resolvePromise({ status: res.statusCode ?? 101, socket, ...(start ? { start } : {}), first: frame });
+          return;
         }
-        if (buffered.length < at + length) return;
-        socket.off('data', read);
-        resolvePromise({ status: res.statusCode ?? 101, socket, first: JSON.parse(buffered.subarray(at, at + length).toString('utf8')) as { event: string; data: unknown } });
       };
       socket.on('data', read);
       read();
@@ -403,6 +414,8 @@ describe('hosted mode', () => {
   it("carries the host's WebSocket through `upgrade`, as the viewer resolve gave", async () => {
     const ws = await socketTo(port, '/whiteboard/v1.viewer-a/_api/events?client=ws-2', { host: hostOf('art_a'), origin: 'https://app.test' });
     assert.equal(ws.status, 101);
+    // The stream opens with where the board's documents stand.
+    assert.equal((ws.start?.data as { resync?: boolean } | undefined)?.resync, true);
     assert.equal(ws.first?.event, 'agent');
     // Only the owner's page hears of an available agent.
     assert.equal((ws.first?.data as { available: boolean }).available, false);

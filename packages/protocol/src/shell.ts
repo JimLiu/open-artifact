@@ -291,60 +291,6 @@ export interface CapError {
   retryable?: boolean;
 }
 
-/** Position of a document and its last deletion within one document host's lifetime. */
-export interface DbDocMeta {
-  epoch: string;
-  seq: number;
-  deletedSeq?: number;
-}
-
-// The protocol and standalone live store share this table within each JavaScript realm.
-const docMetaKey = Symbol.for('open-artifact.db.docMeta');
-const docMetaGlobal = globalThis as typeof globalThis & { [docMetaKey]?: WeakMap<object, DbDocMeta> };
-const docMeta = docMetaGlobal[docMetaKey] ??= new WeakMap<object, DbDocMeta>();
-
-export function getDbDocMeta(value: unknown): DbDocMeta | undefined {
-  return typeof value === 'object' && value !== null ? docMeta.get(value) : undefined;
-}
-
-export function setDbDocMeta(value: unknown, meta: DbDocMeta): void {
-  if (typeof value === 'object' && value !== null) docMeta.set(value, meta);
-}
-
-// A deleted document is null. Its position belongs to the change map that delivered it.
-const changeDeletesKey = Symbol.for('open-artifact.db.changeDeletes');
-type ChangeDeletes = Record<string, DbDocMeta>;
-const changeDeletesGlobal = globalThis as typeof globalThis & { [changeDeletesKey]?: WeakMap<object, ChangeDeletes> };
-const changeDeletes = changeDeletesGlobal[changeDeletesKey] ??= new WeakMap<object, ChangeDeletes>();
-
-export function getDbChangeDeleteMeta(changes: unknown, path: string): DbDocMeta | undefined {
-  const deletes = typeof changes === 'object' && changes !== null ? changeDeletes.get(changes) : undefined;
-  return deletes && Object.hasOwn(deletes, path) ? deletes[path] : undefined;
-}
-
-export function setDbChangeDeletes(changes: unknown, deletes: ChangeDeletes): void {
-  if (typeof changes === 'object' && changes !== null) changeDeletes.set(changes, deletes);
-}
-
-// The snapshot a conditional write used is independent of its eventual receipt.
-const writeBaseKey = Symbol.for('open-artifact.db.writeBaseMeta');
-const writeBaseGlobal = globalThis as typeof globalThis & { [writeBaseKey]?: WeakMap<object, DbDocMeta> };
-const writeBases = writeBaseGlobal[writeBaseKey] ??= new WeakMap<object, DbDocMeta>();
-
-export function getDbWriteBaseMeta(value: unknown): DbDocMeta | undefined {
-  return typeof value === 'object' && value !== null ? writeBases.get(value) : undefined;
-}
-
-export function setDbWriteBaseMeta(value: unknown, meta: DbDocMeta): void {
-  if (typeof value === 'object' && value !== null) writeBases.set(value, meta);
-}
-
-export function copyDbDocMeta<T>(from: unknown, to: T): T {
-  const meta = getDbDocMeta(from);
-  if (meta) setDbDocMeta(to, meta);
-  return to;
-}
-
 /** Capability messages, Shell → page. */
 export type CapToPage =
   /**
@@ -354,11 +300,11 @@ export type CapToPage =
    */
   | { openArtifact: 'cap_grant'; cap: string; ok: boolean; gen: number; config?: Record<string, unknown> }
   /** The answer to `cap`: a result or an error. */
-  | { openArtifact: 'cap_r'; id: string; result?: unknown; error?: CapError; dbMeta?: DbDocMeta | Array<DbDocMeta | undefined>; dbListMeta?: DbDocMeta }
+  | { openArtifact: 'cap_r'; id: string; result?: unknown; error?: CapError }
   /** The call is alive but slow (consent, a large upload): suspend its timeout. */
   | { openArtifact: 'cap_ack'; id: string }
   /** An event of a granted capability (`artifact`/`files`, `agent`/`status`, `room`/`peers`). */
-  | { openArtifact: 'cap_ev'; cap: string; event: string; data: unknown; dbMeta?: Record<string, DbDocMeta> }
+  | { openArtifact: 'cap_ev'; cap: string; event: string; data: unknown }
   /**
    * The broker was rewired (a new backend, a new page base): calls sent
    * under another `gen` will not be answered and reject with
@@ -378,7 +324,7 @@ export type CapToShell =
    * A call. Sent with `includeUserActivation` where the browser supports it,
    * so the Shell can tell a click from a script (agent turns need a click).
    */
-  | { openArtifact: 'cap'; id: string; cap: string; method: string; args: unknown[]; gen: number; dbGuards?: Array<DbDocMeta | undefined> };
+  | { openArtifact: 'cap'; id: string; cap: string; method: string; args: unknown[]; gen: number };
 
 /** Shell → page. */
 export type ShellToPage =

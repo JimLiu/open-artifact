@@ -8,7 +8,7 @@ Each entry is written from the commits since the previous tag (`node scripts/cha
 
 ## [0.14.3] - 2026-11-23
 
-A whiteboard fits and zooms out fully in a narrow pane, the daemon says when it stops, and an Electron app is shown how to stop its daemon on quit.
+A whiteboard fits and zooms out fully in a narrow pane, live boards, dashboards and films stay in step when answers and changes cross or a connection drops, the daemon says when it stops, and an Electron app is shown how to stop its daemon on quit.
 
 ### Changed
 
@@ -19,11 +19,15 @@ A whiteboard fits and zooms out fully in a narrow pane, the daemon says when it 
 ### Fixed
 
 - A `SIGTERM`, `SIGINT` or `SIGHUP` that reaches `open-artifact daemon run` while it starts no longer ends the process with `daemon.json` and `daemon.lock` left behind. The handlers are in place before the daemon takes its lock, and a signal that comes early is acted on once the daemon has started.
+- Whiteboards, Data dashboards and Motion films no longer lose or undo changes when the answer to a page's save and someone else's change arrive out of order. A deleted element could come back, an older change could replace a newer one, and an agent's edit to a file merged into a page's save showed only after the next change. The type server now numbers its changes (`epoch` and `seq` on each `db` event, write answer and listing), and a page keeps, per document, only what is newer than what it has. (Replaces the approach of PR #15, which kept a deletion history per document; thanks to dunature for finding the races.)
+- A page whose event stream dropped (sleep, a network change, a restarted type server) shows what changed while it was away, without a reload. Every stream starts with a `db` event saying where the store stands; a page that heard less reads the documents again in the background, and editing stays open.
+- A whiteboard ink added on a computer whose clock is behind lands after the inks already saved, instead of sorting before them and being the first to go when the palette is full.
 - The end-to-end harness no longer stops Chrome's renderer on a page that starts a module worker. It asked its questions in workers too, and Chrome 157 fails a check of its own when `location` is read in a module worker whose script has not all arrived; that was the intermittent `renderer crashed: iframe …/whiteboard/…` of the Cloudflare suites (`cloudflare-link` on a first run). Workers are now watched for errors and never asked.
 
 ### Integrators
 
 - An Electron app that forks the daemon in a utility process should ask it to stop before it quits: `child.kill()` (`SIGTERM` on macOS and Linux), then a bounded wait for `exit` (the daemon waits up to 6 s for its type servers; the example waits 8 s). Electron otherwise ends the process without a signal, and `daemon.json` and `daemon.lock` stay behind with the type servers cut off. `docs/integrating/runtime.md` says how, and `examples/harness-electron` does it (`stopDaemonUtilityProcess` in `src/daemon-spawn.mjs`, called from `before-quit`).
+- `@open-artifact/runtime`'s `db` capability gains an optional `listing(collection)` (`{documents, epoch?, seq?}`), and `write` may resolve with a receipt (`{epoch, seq, documents}`). `DbChangeEvent` gains optional `epoch`, `seq` and `resync`; an event stream now opens with `{changes: {}, resync: true, epoch, seq}`. A host or test double that sends none of these still works: pages fall back to the previous behavior.
 - The Harness API, the Shell and wake messages, `@open-artifact/harness-kit`, the stdio bridge and the shipped profiles are unchanged.
 
 ## [0.14.2] - 2026-11-23

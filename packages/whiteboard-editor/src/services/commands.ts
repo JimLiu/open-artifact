@@ -6,7 +6,7 @@
  * import these before the board has loaded.
  */
 
-import { MAX_BOARD_INKS, nextTimestampAfter, type BoardInk, type HexColor } from '@open-artifact/whiteboard-core';
+import { addInk, type HexColor } from '@open-artifact/whiteboard-core';
 import { changeBoard } from '../state/board.ts';
 
 /** What undo needs from the history service. */
@@ -41,11 +41,9 @@ export function addBoardInk(color: HexColor): void {
   changeBoard(
     (board) => {
       const inks = board.content.inks ?? [];
-      if (inks.some((ink) => ink.color === value)) return board;
-      const latestAt = inks.reduce((max, ink) => (ink.at > max ? ink.at : max), -Infinity);
-      const at = nextTimestampAfter(latestAt);
-      const next: BoardInk[] = [...inks, { color: value, at }].slice(-MAX_BOARD_INKS);
-      return { ...board, content: { ...board.content, inks: next } };
+      const next = addInk(inks, value);
+      if (next === inks) return board;
+      return { ...board, content: { ...board.content, inks: [...next] } };
     },
     { label: 'Add color' },
   );

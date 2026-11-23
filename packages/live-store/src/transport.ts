@@ -6,60 +6,6 @@
  * engine never imports the runtime.
  */
 
-/** Position of a document and its last deletion within one document host's lifetime. */
-export interface DbDocMeta {
-  epoch: string;
-  seq: number;
-  deletedSeq?: number;
-}
-
-// The protocol and standalone live store share this table within each JavaScript realm.
-const docMetaKey = Symbol.for('open-artifact.db.docMeta');
-const docMetaGlobal = globalThis as typeof globalThis & { [docMetaKey]?: WeakMap<object, DbDocMeta> };
-const docMeta = docMetaGlobal[docMetaKey] ??= new WeakMap<object, DbDocMeta>();
-
-export function getDbDocMeta(value: unknown): DbDocMeta | undefined {
-  return typeof value === 'object' && value !== null ? docMeta.get(value) : undefined;
-}
-
-export function setDbDocMeta(value: unknown, meta: DbDocMeta): void {
-  if (typeof value === 'object' && value !== null) docMeta.set(value, meta);
-}
-
-// A deleted document is null. Its position belongs to the change map that delivered it.
-const changeDeletesKey = Symbol.for('open-artifact.db.changeDeletes');
-type ChangeDeletes = Record<string, DbDocMeta>;
-const changeDeletesGlobal = globalThis as typeof globalThis & { [changeDeletesKey]?: WeakMap<object, ChangeDeletes> };
-const changeDeletes = changeDeletesGlobal[changeDeletesKey] ??= new WeakMap<object, ChangeDeletes>();
-
-export function getDbChangeDeleteMeta(changes: unknown, path: string): DbDocMeta | undefined {
-  const deletes = typeof changes === 'object' && changes !== null ? changeDeletes.get(changes) : undefined;
-  return deletes && Object.hasOwn(deletes, path) ? deletes[path] : undefined;
-}
-
-export function setDbChangeDeletes(changes: unknown, deletes: ChangeDeletes): void {
-  if (typeof changes === 'object' && changes !== null) changeDeletes.set(changes, deletes);
-}
-
-// The snapshot a conditional write used is independent of its eventual receipt.
-const writeBaseKey = Symbol.for('open-artifact.db.writeBaseMeta');
-const writeBaseGlobal = globalThis as typeof globalThis & { [writeBaseKey]?: WeakMap<object, DbDocMeta> };
-const writeBases = writeBaseGlobal[writeBaseKey] ??= new WeakMap<object, DbDocMeta>();
-
-export function getDbWriteBaseMeta(value: unknown): DbDocMeta | undefined {
-  return typeof value === 'object' && value !== null ? writeBases.get(value) : undefined;
-}
-
-export function setDbWriteBaseMeta(value: unknown, meta: DbDocMeta): void {
-  if (typeof value === 'object' && value !== null) writeBases.set(value, meta);
-}
-
-export function copyDbDocMeta<T>(from: unknown, to: T): T {
-  const meta = getDbDocMeta(from);
-  if (meta) setDbDocMeta(to, meta);
-  return to;
-}
-
 /** One stored document. */
 export interface SyncDocument {
   /** Even segment count: `elements/<id>`, `board/meta`. */
@@ -91,6 +37,35 @@ export interface SyncChangeEvent {
   changes: Record<string, Record<string, unknown> | null>;
   /** Who made the change, when the host knows. */
   author?: string;
+  /** The change's place in the store's order, when it keeps one ({@link SyncOrder}). */
+  epoch?: string;
+  seq?: number;
+  /**
+   * The event stream (re)started: changes up to `seq` were sent before it.
+   * Without an order, or when neither the events heard nor the listings
+   * reach `seq`, some may have been missed: the engine reads everything again.
+   */
+  resync?: boolean;
+}
+
+/**
+ * Where a store's documents stand: `seq` counts its change events since
+ * `epoch` began. Events arrive in `seq` order; write answers and listings
+ * may arrive before or after events about older or newer changes.
+ */
+export interface SyncOrder {
+  epoch: string;
+  seq: number;
+}
+
+/** A write's answer: the store's order after it and each written document as stored (`null`: absent). */
+export interface SyncReceipt extends SyncOrder {
+  documents: Record<string, Record<string, unknown> | null>;
+}
+
+/** One collection's documents and, when the store keeps an order, where it stood when they were read. */
+export interface SyncListing extends Partial<SyncOrder> {
+  documents: SyncDocument[];
 }
 
 /**
@@ -102,8 +77,10 @@ export interface SyncTransport {
   get(path: string): Promise<Record<string, unknown> | null>;
   /** Every document of one collection. */
   list(collection: string): Promise<SyncDocument[]>;
-  /** Applies a batch in order, all or nothing. */
-  write(writes: SyncWrite[]): Promise<void>;
+  /** {@link list} with the store's order at the read, when it keeps one (preferred over `list`). */
+  listing?(collection: string): Promise<SyncListing>;
+  /** Applies a batch in order, all or nothing; resolves with a {@link SyncReceipt} when the store keeps an order. */
+  write(writes: SyncWrite[]): Promise<SyncReceipt | void>;
   /** Subscribes to changes made by anyone else; returns an unsubscribe function. */
   onChange(listener: (event: SyncChangeEvent) => void): () => void;
 }
@@ -120,7 +97,6 @@ const SYNC_ERROR_CODES: readonly SyncErrorCode[] = ['conflict', 'not_writer', 'n
 /** The code of a store failure (`unavailable` for anything unrecognized). */
 export function syncErrorCode(error: unknown): SyncErrorCode {
   const code = typeof error === 'object' && error !== null ? (error as { code?: unknown }).code : undefined;
-  if (code === 'refused') return 'not_granted';
   return typeof code === 'string' && (SYNC_ERROR_CODES as readonly string[]).includes(code) ? (code as SyncErrorCode) : 'unavailable';
 }
 

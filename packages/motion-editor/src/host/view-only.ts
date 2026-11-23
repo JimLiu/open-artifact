@@ -12,6 +12,7 @@ function readOnlyDb(db: DbCapability): DbCapability {
   return {
     get: (path) => db.get(path),
     list: (collection) => db.list(collection),
+    ...(db.listing ? { listing: (collection: string) => db.listing!(collection) } : {}),
     write: async () => {
       throw new ArtifactError('not_granted', EMBEDDED_VIEW_ONLY);
     },

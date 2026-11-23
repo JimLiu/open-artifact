@@ -14,6 +14,12 @@
  * Echoes: a page's write updates {@link DbHost}'s picture of the disk before
  * the watcher fires, so the watcher never reports it again, and the event for
  * it skips the writing client.
+ *
+ * Order: every `db` event carries the host's {@link DbOrder} (one `seq` per
+ * event, a new `epoch` per host). A listing says the `seq` it was read at, and
+ * a page's write is answered with the `seq` after it and the documents as
+ * stored ({@link DbReceipt}), so a page keeps, per document, whichever of
+ * them is newest, however their answers and the events interleave.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -25,7 +31,10 @@ import {
   type CommentAuthor,
   type CommentReaction,
   type CommentThread,
+  type DbChangeEvent,
   type DbDocument,
+  type DbOrder,
+  type DbReceipt,
   type DbWrite,
   type JsonRecord,
   type Role,
@@ -44,7 +53,6 @@ import {
   type CommentThreadResponse,
   type DbGetResponse,
   type DbListResponse,
-  type DbWatermark,
   type DbWriteRequest,
   type DbWriteResponse,
   type ServerEvents,
@@ -266,9 +274,9 @@ export function threadRequestText(thread: Thread, how: SendHow = {}): string {
 
 /** The db store and comments of one open (or acted-on) artifact. */
 export class DbHost {
+  /** This host's order: a new epoch per instance, one `seq` per db event. */
   private readonly epoch = randomUUID();
   private seq = 0;
-  private readonly lastDeletedSeq = new Map<string, number>();
   readonly root: string;
   readonly db: DbStore;
   readonly comments: CommentStore;
@@ -425,7 +433,7 @@ export class DbHost {
     }
     const changed = Object.keys(changes);
     if (changed.length) {
-      this.emitChanges(changes, 'agent');
+      this.emitDb(changes, 'agent');
       this.options.onExternal?.(changed);
     }
     if (this.commentsDirty) {
@@ -441,23 +449,15 @@ export class DbHost {
 
   /* ---- documents --------------------------------------------------------- */
 
-  private deletionWatermarks(paths: Iterable<string>): { deletedSeqs?: Record<string, number> } {
-    let deletedSeqs: Record<string, number> | undefined;
-    for (const path of paths) {
-      const seq = this.lastDeletedSeq.get(path);
-      if (seq !== undefined) (deletedSeqs ??= {})[path] = seq;
-    }
-    return deletedSeqs ? { deletedSeqs } : {};
+  /** Where the documents stand now. */
+  order(): DbOrder {
+    return { epoch: this.epoch, seq: this.seq };
   }
 
-  private emitChanges(changes: ServerEvents['db']['changes'], author: string, except?: string, deletedPaths?: ReadonlySet<string>): void {
-    const seq = ++this.seq;
-    for (const path of deletedPaths ?? []) this.lastDeletedSeq.set(path, seq);
-    const paths = Object.keys(changes);
-    for (const path of paths) if (changes[path] === null) this.lastDeletedSeq.set(path, seq);
-    if (paths.length) this.options.emit('db', {
-      changes, author, epoch: this.epoch, seq, ...this.deletionWatermarks(paths.filter(path => changes[path] !== null)),
-    }, except);
+  /** Reports changes to the pages (`except` skips one client), as the next change in this host's order. */
+  private emitDb(changes: Record<string, JsonRecord | null>, author: string, except?: string): void {
+    this.seq += 1;
+    this.options.emit('db', { changes, author, epoch: this.epoch, seq: this.seq } satisfies DbChangeEvent, except);
   }
 
   /** One document, or `null`. */
@@ -478,14 +478,18 @@ export class DbHost {
    * stored, a write's `ifMatch` too (any that fails refuses the batch with
    * `conflict`). Returns the changed paths (an event goes to every other client).
    */
-  write(writes: unknown, author: string, except?: string, guards?: Array<DbWatermark | null>): string[] {
+  write(writes: unknown, author: string, except?: string): string[] {
+    return this.commit(writes, author, except).changed;
+  }
+
+  /** {@link write}, with the batch's {@link DbReceipt}: the order after it and every written document as stored. */
+  commit(writes: unknown, author: string, except?: string): { changed: string[]; receipt: DbReceipt } {
     if (!Array.isArray(writes) || writes.length === 0) throw new HttpError(400, 'invalid', 'writes is a non-empty array.');
     if (writes.length > DB_LIMITS.maxWrites) throw new HttpError(400, 'invalid', `At most ${DB_LIMITS.maxWrites} writes in one batch.`);
     const staged = new Map<string, JsonRecord | null>();
-    const deletedPaths = new Set<string>();
     const current = (path: string): JsonRecord | null => (staged.has(path) ? staged.get(path)! : (this.db.readDoc(path) as JsonRecord | null));
     const conflicts: { path: string; expected: string | null; actual: string | null }[] = [];
-    for (const [i, raw] of (writes as Array<Partial<DbWrite> & { data?: unknown; patch?: unknown }>).entries()) {
+    for (const raw of writes as Array<Partial<DbWrite> & { data?: unknown; patch?: unknown }>) {
       const op = raw?.op;
       const path = guarded(() => splitPath(raw?.path, 'doc')).join('/');
       // `ifMatch`: only while the document is still the one the page read (checked as the batch leaves it so far).
@@ -496,16 +500,8 @@ export class DbHost {
         const have = current(path);
         const actual = have ? docSha256(have) : null;
         if (actual !== raw.ifMatch) conflicts.push({ path, expected: raw.ifMatch, actual });
-        else if (typeof raw.ifMatch === 'string' && !staged.has(path)) {
-          const guard = guards?.[i];
-          const deletedSeq = this.lastDeletedSeq.get(path);
-          if (guard?.epoch === this.epoch && typeof guard.seq === 'number' && deletedSeq !== undefined && deletedSeq > guard.seq) {
-            conflicts.push({ path, expected: raw.ifMatch, actual: null });
-          }
-        }
       }
       if (op === 'delete') {
-        deletedPaths.add(path);
         staged.set(path, null);
       } else if (op === 'set') {
         if (!isPlain(raw.data)) throw new HttpError(400, 'invalid', `set ${path}: data is a JSON object.`);
@@ -526,7 +522,9 @@ export class DbHost {
       throw new HttpError(409, 'conflict', `${what} since it was read: nothing was written.`, { paths: conflicts });
     }
     const changes: Record<string, JsonRecord | null> = {};
+    const documents: Record<string, JsonRecord | null> = {};
     for (const [path, data] of staged) {
+      documents[path] = data;
       // Always store (the picture may lag the disk); report only real changes.
       const text = data === null ? null : JSON.stringify(data);
       const before = this.known.get(path) ?? null;
@@ -537,13 +535,13 @@ export class DbHost {
         guarded(() => this.db.set(path, data));
         this.known.set(path, text!);
       }
-      if (text !== before || (data !== null && deletedPaths.has(path))) changes[path] = data;
+      if (text !== before) changes[path] = data;
     }
     const changed = Object.keys(changes);
-    if (changed.length || deletedPaths.size) this.emitChanges(changes, author, except, deletedPaths);
+    if (changed.length) this.emitDb(changes, author, except);
     // People's edits of the content since the agent last read it (the view context's `edits`).
     countEdits(this.root, changed.filter(isContentPath).length);
-    return changed;
+    return { changed, receipt: { ...this.order(), documents } };
   }
 
   /* ---- comments ---------------------------------------------------------- */
@@ -616,16 +614,13 @@ export class DbHost {
     if (!this.documents && (route === API.dbGet || route === API.dbList || route === API.dbWrite)) return false;
     switch (route) {
       case API.dbGet: {
-        const path = url.searchParams.get('path') ?? '';
-        const body: DbGetResponse = { data: this.get(path), epoch: this.epoch, seq: this.seq };
-        const deletedSeq = this.lastDeletedSeq.get(path);
-        if (body.data !== null && deletedSeq !== undefined) body.deletedSeq = deletedSeq;
+        const body: DbGetResponse = { data: this.get(url.searchParams.get('path') ?? '') };
         sendJson(res, 200, body);
         return true;
       }
       case API.dbList: {
-        const documents = this.list(url.searchParams.get('collection') ?? '');
-        const body: DbListResponse = { documents, epoch: this.epoch, seq: this.seq, ...this.deletionWatermarks(documents.map(doc => doc.path)) };
+        // Read synchronously after taking the order: the documents are as of `seq`.
+        const body: DbListResponse = { ...this.order(), documents: this.list(url.searchParams.get('collection') ?? '') };
         sendJson(res, 200, body);
         return true;
       }
@@ -634,11 +629,9 @@ export class DbHost {
         const body = await readJson<Partial<DbWriteRequest>>(req, MAX_WRITE_BODY);
         if (as?.role === 'commenter') this.assertCommenterWrites(body.writes, as.id ?? '');
         const client = typeof body.client === 'string' ? body.client : '';
-        const changed = this.write(body.writes, client || as?.client || 'owner', client || undefined, Array.isArray(body.guards) ? body.guards : undefined);
+        const { changed, receipt } = this.commit(body.writes, client || as?.client || 'owner', client || undefined);
         if (changed.length) this.options.onWrite?.(changed, client);
-        sendJson(res, 200, {
-          ok: true, epoch: this.epoch, seq: this.seq, ...this.deletionWatermarks(body.writes!.map(write => write.path)),
-        } satisfies DbWriteResponse);
+        sendJson(res, 200, { ok: true, ...receipt } satisfies DbWriteResponse);
         return true;
       }
       case API.comments: {
@@ -757,7 +750,7 @@ export class DbHost {
           changes[path] = text === null ? null : (JSON.parse(text) as JsonRecord);
         }
         if (Object.keys(changes).length) {
-          this.emitChanges(changes, 'agent');
+          this.emitDb(changes, 'agent');
           this.options.onExternal?.(Object.keys(changes));
         }
         return { writes: results };

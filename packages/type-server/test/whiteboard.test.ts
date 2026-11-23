@@ -13,7 +13,6 @@ import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { createLocalProvider } from '@open-artifact/runtime';
 import type { DbChangeEvent, RoomMessage } from '@open-artifact/runtime/capabilities';
-import type { DbWatermark, DbWriteResponse, ServerEvents } from '@open-artifact/runtime/http-api';
 import { docSha256 } from '@open-artifact/server-sdk/db';
 import { createTypeServer, detectType, main, pending, type TypeServer } from '../src/index.ts';
 
@@ -69,17 +68,11 @@ async function openEvents(page: string, client: string): Promise<EventStream> {
   return stream;
 }
 
-async function expectDbEvent(stream: EventStream, expected: DbChangeEvent, previous?: Required<DbWatermark>): Promise<Required<DbWatermark>> {
-  const frame = await stream.next((name) => name === 'db');
-  const { epoch, seq, ...change } = frame.data as ServerEvents['db'];
-  assert.deepEqual(change, expected);
-  assert.ok(typeof epoch === 'string' && epoch.length > 0, 'db event epoch must be a nonempty string');
-  assert.ok(typeof seq === 'number' && Number.isInteger(seq) && seq >= 1, 'db event seq must be a positive integer');
-  if (previous) {
-    assert.equal(epoch, previous.epoch);
-    assert.ok(seq > previous.seq, `expected db event seq ${seq} to exceed ${previous.seq}`);
-  }
-  return { epoch, seq };
+interface DbEvent {
+  changes: Record<string, Record<string, unknown> | null>;
+  author?: string;
+  epoch?: string;
+  seq?: number;
 }
 
 interface PageThread {
@@ -174,36 +167,6 @@ describe('whiteboard type server', () => {
     assert.equal(existsSync(join(root, 'db', 'elements', 'tmp.json')), false);
   });
 
-  it('rejects a stale batch after an identical recreation and accepts the new base', async (t) => {
-    const path = 'elements/lineage', sibling = 'elements/lineage-sibling';
-    const data = { type: 'note', x: 0, y: 0, text: 'Original' };
-    const create = { op: 'set', path, data };
-    const remove = { op: 'delete', path };
-    t.after(async () => { await write('writer', [remove, { op: 'delete', path: sibling }]); });
-    const first = await write('writer', [create]);
-    assert.equal(first.status, 200);
-    const original = await first.json() as DbWriteResponse;
-    const rebuilt = await write('peer', [remove, create]);
-    assert.equal(rebuilt.status, 200);
-    const current = await rebuilt.json() as DbWriteResponse;
-    assert.ok(original.epoch && original.epoch === current.epoch);
-    assert.ok(typeof original.seq === 'number' && typeof current.seq === 'number' && current.seq > original.seq);
-    assert.equal(current.deletedSeqs?.[path], current.seq);
-    const writes = [
-      { op: 'set', path: sibling, data },
-      { op: 'update', path, patch: { text: 'Updated' }, ifMatch: docSha256(data) },
-    ];
-    const guarded = (base: DbWatermark) => post('_api/db/write', { client: 'writer', writes, guards: [null, { epoch: base.epoch, seq: base.seq }] });
-    const refused = await guarded(original);
-    assert.equal(refused.status, 409);
-    assert.equal((await refused.json()).code, 'conflict');
-    assert.equal(await get(sibling), null);
-    assert.deepEqual(await get(path), data);
-    assert.equal((await guarded(current)).status, 200);
-    assert.deepEqual(await get(path), { ...data, text: 'Updated' });
-    assert.deepEqual(await get(sibling), data);
-  });
-
   it('refuses a bad batch whole', async () => {
     const many = Array.from({ length: 501 }, (_, i) => ({ op: 'set', path: `elements/m${i}`, data: { type: 'note', x: i, y: 0, text: '' } }));
     assert.equal((await write('a', many)).status, 400);
@@ -231,17 +194,25 @@ describe('whiteboard type server', () => {
     try {
       const data = { type: 'note', x: 1, y: 2, text: 'From a' };
       await write('a', [{ op: 'set', path: 'elements/e1', data }]);
-      const written = await expectDbEvent(b, { changes: { 'elements/e1': data }, author: 'a' });
+      const seen = (await b.next((name) => name === 'db')).data as DbEvent;
+      // Each event carries its place in the store's order.
+      const { epoch, seq, ...rest } = seen;
+      assert.deepEqual(rest, { changes: { 'elements/e1': data }, author: 'a' });
+      assert.equal(typeof epoch, 'string');
+      assert.equal(typeof seq, 'number');
 
       // An edit straight to disk (the agent's file tools).
       await writeFile(join(root, 'db', 'elements', 'e2.json'), JSON.stringify({ type: 'note', x: 5, y: 5, text: 'From disk' }));
       // a's first db event is the agent's: its own write was never echoed, nor re-reported by the watcher.
-      const diskEvent = { changes: { 'elements/e2': { type: 'note', x: 5, y: 5, text: 'From disk' } }, author: 'agent' };
-      const edited = await expectDbEvent(a, diskEvent, written);
-      assert.deepEqual(await expectDbEvent(b, diskEvent, written), edited);
+      const agent = (await a.next((name) => name === 'db')).data as DbEvent;
+      assert.equal(agent.author, 'agent');
+      assert.equal(agent.epoch, epoch);
+      assert.equal(agent.seq, seq! + 1, 'the next change in the order');
+      assert.deepEqual(agent.changes, { 'elements/e2': { type: 'note', x: 5, y: 5, text: 'From disk' } });
+      assert.deepEqual(((await b.next((name) => name === 'db')).data as DbEvent).changes, agent.changes);
 
       await unlink(join(root, 'db', 'elements', 'e2.json'));
-      await expectDbEvent(a, { changes: { 'elements/e2': null }, author: 'agent' }, edited);
+      assert.deepEqual(((await a.next((name) => name === 'db')).data as DbEvent).changes, { 'elements/e2': null });
     } finally {
       await a.close();
       await b.close();
@@ -357,7 +328,8 @@ describe('whiteboard type server', () => {
         await action('open-artifact.db.write', { writes: [{ op: 'set', path: 'elements/a1', data: { type: 'note', x: 0, y: 0, text: 'Agent', color: 'blue' } }] })
       ).json()) as { writes: { op: string; path: string; created?: boolean }[] };
       assert.deepEqual(ok.writes.map((w) => [w.op, w.path, w.created]), [['set', 'elements/a1', true]]);
-      const created = await expectDbEvent(events, { changes: { 'elements/a1': { type: 'note', x: 0, y: 0, text: 'Agent', color: 'blue' } }, author: 'agent' });
+      const heard = (await events.next((name) => name === 'db')).data as DbEvent;
+      assert.deepEqual({ changes: heard.changes, author: heard.author }, { changes: { 'elements/a1': { type: 'note', x: 0, y: 0, text: 'Agent', color: 'blue' } }, author: 'agent' });
 
       // A set over an existing document without if_match is refused when the daemon asks; a stale one conflicts.
       const unguarded = await action('open-artifact.db.write', { writes: [{ op: 'set', path: 'elements/a1', data: { type: 'note', x: 0, y: 0, text: 'X' } }], require_if_match: true });
@@ -371,12 +343,12 @@ describe('whiteboard type server', () => {
       const a1 = (await (await action('open-artifact.db.read', { path: 'elements/a1' })).json()) as { sha256: string };
       assert.match(a1.sha256, /^[0-9a-f]{64}$/);
       await action('open-artifact.db.write', { writes: [{ op: 'update', path: 'elements/a1', data: { color: { __delete__: true } }, if_match: a1.sha256 }] });
-      const updated = await expectDbEvent(events, { changes: { 'elements/a1': { type: 'note', x: 0, y: 0, text: 'Agent' } }, author: 'agent' }, created);
+      assert.deepEqual(((await events.next((name) => name === 'db')).data as DbEvent).changes, { 'elements/a1': { type: 'note', x: 0, y: 0, text: 'Agent' } });
       assert.deepEqual(await get('elements/a1'), { type: 'note', x: 0, y: 0, text: 'Agent' });
 
       // The watcher does not report the action's writes a second time: the next db event is this disk edit.
       await writeFile(join(root, 'db', 'elements', 'a2.json'), JSON.stringify({ type: 'note', x: 1, y: 1, text: 'Next' }));
-      await expectDbEvent(events, { changes: { 'elements/a2': { type: 'note', x: 1, y: 1, text: 'Next' } }, author: 'agent' }, updated);
+      assert.deepEqual(Object.keys(((await events.next((name) => name === 'db')).data as DbEvent).changes), ['elements/a2']);
 
       const made = ((await (await post('_api/comments/create', { input: { anchor: '{}', label: 'The board', text: 'Add a title' } })).json()) as { thread: PageThread })
         .thread;
@@ -528,12 +500,26 @@ describe('whiteboard type server', () => {
       room2.onMessage((message) => heard2.push(message));
       await until(() => sockets.length === 2 && sockets.every((socket) => socket.readyState === Native.OPEN));
 
+      // Every stream starts with where the documents stand.
+      await until(() => changes1.length > 0 && changes2.length > 0);
+      const start = changes2.shift()!;
+      assert.deepEqual(changes1.shift(), start);
+      assert.equal(start.resync, true);
+      assert.deepEqual(start.changes, {});
+      assert.equal(typeof start.epoch, 'string');
+      assert.equal(typeof start.seq, 'number');
+
+      // A write is answered with its place in the order and the documents as stored; the event carries the same place.
       const data = { type: 'note', x: 7, y: 7, text: 'Provider' };
-      await db1.write([{ op: 'set', path: 'elements/lp', data }]);
+      const receipt = await db1.write([{ op: 'set', path: 'elements/lp', data }]);
+      assert.deepEqual(receipt, { epoch: start.epoch, seq: start.seq! + 1, documents: { 'elements/lp': data } });
       await until(() => changes2.length > 0);
-      assert.deepEqual(changes2[0], { changes: { 'elements/lp': data }, author: await room1.self() });
+      assert.deepEqual(changes2[0], { changes: { 'elements/lp': data }, author: await room1.self(), epoch: start.epoch, seq: start.seq! + 1 });
       assert.deepEqual(await db2.get('elements/lp'), data);
       assert.ok((await db2.list('elements')).some((d) => d.path === 'elements/lp'));
+      const listing = await db2.listing!('elements');
+      assert.deepEqual({ epoch: listing.epoch, seq: listing.seq }, { epoch: start.epoch, seq: start.seq! + 1 });
+      assert.ok(listing.documents.some((d) => d.path === 'elements/lp'));
 
       // Room messages reach the other page; the writer heard no echo of its write before it.
       await room2.emit('cursor', { x: 1 });

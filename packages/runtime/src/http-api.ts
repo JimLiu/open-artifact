@@ -7,7 +7,6 @@
  * import these names and shapes, so the two sides cannot drift apart.
  */
 
-import type { DbDocMeta } from '@open-artifact/protocol';
 import type {
   AgentDelivery,
   AgentRequest,
@@ -19,6 +18,8 @@ import type {
   ConflictPath,
   DbChangeEvent,
   DbDocument,
+  DbOrder,
+  DbReceipt,
   DbWrite,
   FileListing,
   FilesChangedEvent,
@@ -157,34 +158,26 @@ export interface RoomEmitRequest {
   data: JsonValue;
 }
 
-/** Position in one document host's ordered change stream. Older hosts omit it. */
-export type DbWatermark = Partial<Pick<DbDocMeta, 'epoch' | 'seq'>>;
-
 /** `GET _api/db/get?path=` 200 body. */
-export interface DbGetResponse extends DbWatermark {
+export interface DbGetResponse {
   data: JsonRecord | null;
-  deletedSeq?: number;
 }
 
-/** `GET _api/db/list?collection=` 200 body. */
-export interface DbListResponse extends DbWatermark {
+/** `GET _api/db/list?collection=` 200 body: `epoch` and `seq` say where the host stood when it read them (older hosts omit them). */
+export interface DbListResponse extends Partial<DbOrder> {
   documents: DbDocument[];
-  deletedSeqs?: Record<string, number>;
 }
 
 /** `POST _api/db/write` request body. */
 export interface DbWriteRequest {
   writes: DbWrite[];
-  /** Snapshots for hash preconditions, indexed by write. */
-  guards?: Array<DbWatermark | null>;
   /** The writing page's client id, so the change is not echoed back to it. */
   client: string;
 }
 
-/** `POST _api/db/write` 200 body. */
-export interface DbWriteResponse extends DbWatermark {
+/** `POST _api/db/write` 200 body: the {@link DbReceipt} (older hosts omit its fields). */
+export interface DbWriteResponse extends Partial<DbReceipt> {
   ok: true;
-  deletedSeqs?: Record<string, number>;
 }
 
 /** `GET _api/comments` 200 body, and the body of `POST _api/comments/remove`. */
@@ -313,7 +306,7 @@ export interface ServerEvents {
   /** The set of present peers changed. */
   peers: Peer[];
   /** Documents changed by someone other than the subscribing client (db-backed types). */
-  db: DbChangeEvent & DbWatermark & { deletedSeqs?: Record<string, number> };
+  db: DbChangeEvent;
   /** The full comment thread list, after any change (types with comments). */
   comments: CommentThread[];
   /** An ephemeral message from another client. */

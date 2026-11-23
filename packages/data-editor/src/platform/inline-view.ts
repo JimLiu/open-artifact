@@ -48,6 +48,7 @@ export function readOnlyDb(db: DbCapability): DbCapability {
   return {
     get: (path) => db.get(path),
     list: (collection) => db.list(collection),
+    ...(db.listing ? { listing: (collection: string) => db.listing!(collection) } : {}),
     write: () => Promise.reject(new ArtifactError('not_writer', INLINE_READ_ONLY_MESSAGE)),
     onChange: (listener) => db.onChange(listener),
   };

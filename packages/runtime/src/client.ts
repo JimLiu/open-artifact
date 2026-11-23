@@ -10,7 +10,6 @@
 
 import {
   CONTRACT_VERSION,
-  isArtifactError,
   type CapabilityMap,
   type CapabilityName,
   type OpenArtifactRuntime,
@@ -19,21 +18,13 @@ import {
 /** Something that can produce capability namespaces. */
 export interface CapabilityProvider {
   /** Returns the namespace, or `null` when this view may not use it. */
-  get<K extends CapabilityName>(name: K, signal?: AbortSignal): Promise<CapabilityMap[K] | null> | CapabilityMap[K] | null;
+  get<K extends CapabilityName>(name: K): Promise<CapabilityMap[K] | null> | CapabilityMap[K] | null;
 }
 
 /** Options of {@link createRuntime}. */
 export interface RuntimeOptions {
   /** Milliseconds before an unanswered `use()` resolves to `null`. Default 10 000. */
   timeoutMs?: number;
-}
-
-/** A failed lookup can be repeated. An explicit host decision stays cached. */
-export function canRetryCapability(error: unknown): boolean {
-  if (error && typeof error === 'object' && 'code' in error &&
-      (error.code === 'refused' || error.code === 'not_granted' || error.code === 'not_writer')) return false;
-  if (!isArtifactError(error)) return true;
-  return error.code === 'unavailable' || error.retryable === true;
 }
 
 /** Builds a runtime object without installing it globally. */
@@ -46,23 +37,16 @@ export function createRuntime(provider: CapabilityProvider, options: RuntimeOpti
     if (cached) return cached as Promise<CapabilityMap[K] | null>;
 
     const pending = new Promise<CapabilityMap[K] | null>((resolve) => {
-      const forget = () => { if (cache.get(name) === pending) cache.delete(name); };
-      const controller = new AbortController();
-      const timer = setTimeout(() => {
-        forget();
-        controller.abort();
-        resolve(null);
-      }, timeoutMs);
+      const timer = setTimeout(() => resolve(null), timeoutMs);
       Promise.resolve()
-        .then(() => provider.get(name, controller.signal))
+        .then(() => provider.get(name))
         .then(
           (namespace) => {
             clearTimeout(timer);
             resolve(namespace ? (Object.freeze(namespace) as CapabilityMap[K]) : null);
           },
-          (error: unknown) => {
+          () => {
             clearTimeout(timer);
-            if (canRetryCapability(error)) forget();
             resolve(null);
           },
         );

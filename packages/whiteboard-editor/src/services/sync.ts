@@ -216,6 +216,7 @@ export function startSync(options: SyncOptions = {}): () => void {
   const transport: SyncTransport = {
     get: (path) => db.get(path),
     list: (collection) => db.list(collection),
+    listing: async (collection) => (db.listing ? db.listing(collection) : { documents: await db.list(collection) }),
     // Paths come from the board codec, which only writes well-formed document paths.
     write: (writes) => db.write(writes as Parameters<typeof db.write>[0]),
     onChange: (listener) =>

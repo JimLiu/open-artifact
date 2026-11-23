@@ -80,6 +80,25 @@ packages/daemon (local open-artifact daemon, one per machine)
 - **CLI parity**: `skills/open-artifact/scripts/open-artifact.mjs` invokes the exact same daemon tool handlers over local HTTP (`artifact`, `data`, `comments`, `open`, `wait`, `mcp`, `hook`). `open-artifact --version` / `-v` prints the runtime's version.
 - **Wake routing**: When a user clicks **Send to agent** in the Shell, comments go to the session that owns the artifact: live to a connected Harness API adapter of its harness (`wake.deliver`), else into the daemon inbox, delivered via app-specific hooks (`packages/daemon/harnesses/<name>.json`), background monitors/extensions, the `messages` array in tool responses, or `ArtifactComments {action: "wait"}`.
 
+## Live document sync (`db`)
+
+`whiteboard`, `data` and `motion` pages edit `<root>/db/` through the runtime's `db` capability
+(`packages/runtime/src/capabilities.ts`), synced by `@open-artifact/live-store` (`packages/live-store/src/engine.ts`):
+what the page shows is the server's documents with the page's own unsaved and unanswered writes on top.
+
+- **Order**: the type server's `DbHost` (`packages/type-server/src/db-host.ts`) keeps `{epoch, seq}`: a random epoch per
+  instance, and `seq` counts its change events. Events carry it; so do write answers (`{epoch, seq, documents}`, each
+  written document as stored, `null` when absent) and listings (`db.listing(collection)`: `{epoch, seq, documents}`).
+  The engine keeps, per document, the newest `seq` it has taken and ignores anything older. Events arrive in order on
+  one stream; a write answer or a listing can arrive before or after events about older or newer changes, and the
+  `seq` sorts them out (a deleted document is not brought back, an agent's edit merged into a write shows at once).
+- **Reconnects**: every event stream starts with a `db` event `{changes: {}, resync: true, epoch, seq}`. When the
+  events heard or the listings already reach that `seq`, nothing was missed; otherwise (or on a new epoch, after a
+  restart) the engine lists the collections again in the background, with editing still open.
+- A store without an order (a plain `DbCapability` with no `epoch`/`seq`) still works: write answers are then held
+  over later events for a few seconds, as before.
+- Whiteboard inks are ordered by `at`; `addInk` stamps one past the newest so a page with a slow clock still lands last.
+
 ## Harness API & agent-product integration
 
 Agent apps integrate through the Harness API, JSON-RPC 2.0 over the WebSocket `/__harness` (subprotocol
