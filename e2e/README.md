@@ -86,6 +86,7 @@ The harness asks its questions (`waitFor`, `evaluateAll`, `load`'s `ready`) in a
 - In Chrome:
   - Send to agent: the composer's request reaches `wait`;
   - a board that throws shows its error, and "Ask agent to fix" sends it (`wait` receives the title and the error);
+  - "1 error" at the top right lists the artboards with errors and its "Ask agent to fix" sends them all; closing an artboard's error notice leaves a mark in its name strip that brings it back;
   - a pasted image is uploaded and becomes an image note in `canvas.json`;
   - PNG and PDF exports draw an artboard in the web font its own `@font-face` loads, a Flow artboard's paper pages too;
   - zoomed out below 30 %, an artboard shows a snapshot at its own size and in its web font, and zooming back in shows the same frame without booting it again;

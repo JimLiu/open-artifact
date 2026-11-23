@@ -594,12 +594,13 @@ editorSuite({
       }
     });
 
+    const throwing = (ctx_, root) => {
+      copyFixture('design', root);
+      const board = path.join(root, BOARD);
+      fs.writeFileSync(board, fs.readFileSync(board, 'utf8').replace("return { accent: this.props.accent ?? '#666666' };", "throw new Error('e2e board error');"));
+    };
+
     it('a board that throws shows its error, and "Ask agent to fix" sends it', { timeout: 120000 }, async () => {
-      const throwing = (ctx_, root) => {
-        copyFixture('design', root);
-        const board = path.join(root, BOARD);
-        fs.writeFileSync(board, fs.readFileSync(board, 'utf8').replace("return { accent: this.props.accent ?? '#666666' };", "throw new Error('e2e board error');"));
-      };
       const { root, url } = await ctx.openNew('throwing', throwing);
       const w = await startWait(ctx, root, 90);
       // A board that throws draws nothing: the page is ready once it shows the board's error.
@@ -615,6 +616,40 @@ editorSuite({
         assert.deepEqual(page.problems, []);
       } finally {
         w.child.kill('SIGTERM');
+        await page.close();
+      }
+    });
+
+    it('"1 error" lists the artboards with errors and asks for all of them; a closed notice leaves a mark that brings it back', { timeout: 120000 }, async () => {
+      const { root, url } = await ctx.openNew('throwing-list', throwing);
+      const notice = `document.querySelector('[data-error-notice="Main.dc.html"]')`;
+      const mark = `document.querySelector('[data-error-mark="Main.dc.html"]')`;
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: `Boolean(${notice})`, settle: 1000, ignore: [/e2e board error/] });
+      let w = null;
+      try {
+        // The notice under the artboard, and the count at the top right.
+        assert.match(await page.evaluate(`${notice}.textContent`), /1 error/);
+        assert.ok(await page.evaluate(`Boolean(${buttonNamed('1 error on 1 artboard')})`), 'no "1 error" at the top right');
+
+        // Closing the notice leaves a mark in the artboard's name strip; the mark brings it back.
+        await clickOn(page, buttonNamed('Dismiss error notice on artboard Main'));
+        assert.ok(await page.waitFor(`!${notice} && Boolean(${mark})`, 5000), 'the notice did not close into a mark');
+        await clickOn(page, mark);
+        assert.ok(await page.waitFor(`Boolean(${notice}) && !${mark}`, 5000), 'the mark did not bring the notice back');
+
+        // The list names the artboard and its message, and asks for all of them.
+        await clickOn(page, buttonNamed('1 error on 1 artboard'));
+        assert.ok(await page.waitFor(`${textIn('Artboards with errors')} && [...document.querySelectorAll('[role="menu"]')].some(m => m.textContent.includes('e2e board error'))`, 5000), 'the list shows no error');
+        w = await startWait(ctx, root, 90);
+        await clickOn(page, `[...document.querySelectorAll('[role="menu"] [role="menuitem"]')].find(b => b.textContent.trim() === 'Ask agent to fix')`, 'the list\'s "Ask agent to fix"');
+        const { code, stdout } = await w.done;
+        assert.equal(code, 0, stdout);
+        assert.match(stdout, /^\[Artifact edit request sent to agent\] Ask agent to fix$/m);
+        assert.match(stdout, /Fix the errors in Main\.dc\.html\./);
+        assert.match(stdout, /\[\w+\] e2e board error/, 'each message goes with its kind in brackets');
+        assert.deepEqual(page.problems, []);
+      } finally {
+        w?.child.kill('SIGTERM');
         await page.close();
       }
     });

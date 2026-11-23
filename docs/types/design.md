@@ -32,6 +32,7 @@
 - **Pan, zoom & edit**: Navigate the infinite canvas, move frames, click text to edit directly, or switch pages in the sidebar.
 - **Test prototypes**: Click the **Play** button in the toolbar to run interactive artboards and test responsive screen widths.
 - **Collaborate with your agent**: Pin comments directly onto an artboard and click **Send to agent**.
+- **Fix errors**: An artboard that fails to run shows a notice underneath it with **Ask agent to fix**, and **N errors** at the top right lists every artboard with errors on the page and asks the agent to fix them all. Close a notice with **×**; the warning mark it leaves next to the artboard's name brings it back. If the agent can't be reached, the list keeps the request for you to copy into its conversation.
 - **Deep links**: Append `#artboard-<name>`, `#play-<name>`, or `#page-<id>` to the artifact URL to jump straight to a board or page.
 - **Export**: Use **Share → Export** for PNG, JPEG, PDF, Figma-ready HTML, or a full-canvas ZIP.
 

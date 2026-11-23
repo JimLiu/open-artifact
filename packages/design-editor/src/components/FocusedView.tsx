@@ -11,7 +11,7 @@
  */
 
 import { ChevronDown, ChevronLeft, Download } from 'lucide-react';
-import { Fragment, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { boardsOnPage, pageOf } from '@open-artifact/design-core';
 import { cn, toast } from '@open-artifact/ui';
 import { useDocument } from '../state/document.ts';
@@ -22,6 +22,8 @@ import { exportScene } from '../services/shell.ts';
 import { session } from '../services/session.ts';
 import { focusedFit, storedFit, storeFit } from '../lib/focused-fit.ts';
 import { BoardFrame } from './BoardFrame.tsx';
+import { ErrorNotice, useBoardProblems, useCanAskAgent } from './BoardErrors.tsx';
+import { noticeClosed } from '../lib/board-errors.ts';
 import { ChromeButton, ChromeMenu, ChromeMenuItem, ChromeMenuLabel, ChromeMenuSeparator, Tip, TipGroup, useShellDraw } from '@open-artifact/editor-kit/react';
 import { isTextField } from '@open-artifact/editor-kit';
 
@@ -40,6 +42,10 @@ export function FocusedView({ path }: { path: string }) {
   const focus = useView((s) => s.focus);
   // A Shell lists the exports in its Share panel; without one, this view has its own Export menu.
   const shellExports = useShellDraw(session().shell, 'formats');
+  const only = useMemo(() => [path], [path]);
+  const problem = useBoardProblems(only)[0];
+  const closedNotices = useView((s) => s.closedNotices);
+  const canAsk = useCanAskAgent();
   // Fill or Fit: the kept choice (null until one is made), across artboards and visits.
   const [preferred, setPreferred] = useState<boolean | null>(() => storedFit());
   // The width Fill lays the page out at (null: the window's); kept across artboards.
@@ -146,6 +152,7 @@ export function FocusedView({ path }: { path: string }) {
             <BoardFrame key={path} path={path} mode="play" width={frame.width} height={frame.height} interactive onNavigate={navigate} />
           </div>
         ) : null}
+        {problem && !noticeClosed(closedNotices, problem) ? <ErrorNotice problem={problem} canAsk={canAsk} className="absolute inset-x-3 bottom-3" /> : null}
       </div>
     </div>
   );
