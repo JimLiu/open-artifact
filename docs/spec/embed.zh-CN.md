@@ -9,7 +9,7 @@
 | 方式 | 消息怎么传递 |
 | --- | --- |
 | 框架 | 在你的页面和 Shell 的 iframe 之间用 `window.postMessage`。Shell 把 `shell_hello` 发给 `*`；之后的每条消息都只发给宿主的源。 |
-| 顶层视图 | 经由 daemon。以 `?oa_view=<ticket>` 加载的 Shell 认领票据；它说的话以 `shell.event` 到达你的适配器；你用 `shell.command` 回答。 |
+| 顶层视图 | 经由 daemon。以 `?oa_view=<ticket>` 加载的 Shell 认领票据；它说的话以 `shell.event` 到达你的适配器；你用 `shell.command` 回答。源无法声明的宿主（`file://` 页面）可以在自己的 iframe 里加载带票据的地址：这个 Shell 同样经由 daemon 通信，不向父框架打招呼，也不听父框架的消息。 |
 
 每条消息都是一个对象，用键 `openArtifact` 给出它的名字。宿主协议版本：`1`（`HOST_PROTOCOL`）。文本字段截断到 8000 个字符（`MAX_HOST_TEXT`）。
 
@@ -61,7 +61,7 @@ Shell 读取 `GET /api/open-artifact.embed`（`hosts`：已连接适配器在 `c
 
 | 判定 | 条件 | 效果 |
 | --- | --- | --- |
-| declared（已声明） | 某个已连接适配器声明了这个源，或 Shell 运行在用票据打开的顶层视图里 | 全部可用 |
+| declared（已声明） | 某个已连接适配器声明了这个源，或 Shell 运行在用票据打开的视图里（顶层或框架内） | 全部可用 |
 | refused（拒绝） | 适配器声明了源，但不是这个 | `host_hello` 被忽略 |
 | undeclared（未声明） | 没有适配器声明任何源，或读不到列表 | `prompt` 和 `text` 为空；没有 `open_external`、`saved_file` 和目的地 |
 
@@ -80,7 +80,7 @@ Shell 读取 `GET /api/open-artifact.embed`（`hosts`：已连接适配器在 `c
 
 ## `embedArtifact(target, options)`
 
-`target` 是一个 iframe（框架方式）或一个传输对象 `{ send(command), onEvent(listener) }`（顶层视图）。
+`target` 是一个 iframe（框架方式）或一个传输对象 `{ send(command), onEvent(listener) }`（用票据打开的视图，你的 iframe 显示它时也一样）。
 
 | 选项 | |
 | --- | --- |

@@ -11,7 +11,7 @@ This page lists the messages between an artifact's Shell (or the home page) and 
 | Mode | How messages travel |
 | --- | --- |
 | Frame | `window.postMessage` between your page and the Shell's iframe. The Shell sends `shell_hello` to `*`; every later message goes to the host's origin only. |
-| Top-level view | Through the daemon. The Shell, loaded with `?oa_view=<ticket>`, claims the ticket; what it says reaches your adapter as `shell.event`; you answer with `shell.command`. |
+| Top-level view | Through the daemon. The Shell, loaded with `?oa_view=<ticket>`, claims the ticket; what it says reaches your adapter as `shell.event`; you answer with `shell.command`. A host whose origin cannot be declared (a `file://` page) may load the ticketed address in its own iframe: that Shell also talks through the daemon, and neither greets nor hears its parent frame. |
 
 Every message is an object with the key `openArtifact` naming it. Host protocol version: `1` (`HOST_PROTOCOL`). Text
 fields are cut to 8000 characters (`MAX_HOST_TEXT`).
@@ -75,7 +75,7 @@ The Shell reads `GET /api/open-artifact.embed` (`hosts`: the origins connected a
 
 | Verdict | When | Effect |
 | --- | --- | --- |
-| declared | a connected adapter declared the origin, or the Shell runs in a top-level view opened with a ticket | everything |
+| declared | a connected adapter declared the origin, or the Shell runs in a view opened with a ticket (top-level or framed) | everything |
 | refused | adapters declared origins, but not this one | `host_hello` is ignored |
 | undeclared | no adapter declared any origin, or the list could not be read | empty `prompt` and `text`; no `open_external`, `saved_file` or destinations |
 
@@ -94,7 +94,7 @@ A ticket ends with its adapter connection.
 
 ## `embedArtifact(target, options)`
 
-`target` is an iframe (frame mode) or a transport `{ send(command), onEvent(listener) }` (top-level view).
+`target` is an iframe (frame mode) or a transport `{ send(command), onEvent(listener) }` (a view opened with a ticket, also when your iframe shows it).
 
 | Option | |
 | --- | --- |

@@ -53,7 +53,7 @@ kit 用 `host_hello` 回答 Shell 的 `shell_hello`，只发给 Shell 的源，�
 | refused（拒绝） | 适配器声明了别的源 | 什么都没有：它的 `host_hello` 被忽略 |
 | undeclared（未声明） | 没有适配器声明任何源，或读不到列表 | 会话和位置，但 `new_session` 的 `prompt` 为空，`comment_summon` 的 `text` 为空，没有 `open_external`、没有 `saved_file`、没有目的地 |
 
-源的形式是 `scheme://host[:port]`。从 `file://` 加载的页面源是 `null`，**无法声明**：请用自定义协议（`app://my-agent`）提供界面，或改用顶层视图。
+源的形式是 `scheme://host[:port]`。从 `file://` 加载的页面源是 `null`，**无法声明**：请用自定义协议（`app://my-agent`）提供界面，或改用视图（`mode: 'view'`），在框架里加载带票据的 `embedUrl`（见下文）。
 
 ### 顶层视图
 
@@ -69,6 +69,8 @@ transport(ticket) {
 ```
 
 用票据打开的视图算已声明的宿主；这里你自己的源无关紧要，`embed.origins` 可以为空。
+
+票据在框架里也能用。无法声明的页面（从 `file://` 加载的应用）可以在自己的 iframe 里加载带票据的 `embedUrl`：Shell 仍然经由 daemon 通信，不向父框架打招呼，也不听父框架的消息。给 `embedArtifact` 传上面的传输对象而不是 iframe，iframe 的 `src` 由你自己设置。
 
 票据的规则：只能用一次，属于签发它的那个适配器连接，两分钟内没被认领就过期，连接断开它也随之失效。Shell 连上之前发出的命令会排队，最多 32 条。重新加载的 Shell 可以在 30 秒内回来。一个连接最多持有 64 个视图。
 
@@ -145,7 +147,7 @@ Electron 示例（`examples/harness-electron/src/pane.mjs`）逐条照做了；�
 - [ ] 新窗口和列表外的导航在系统浏览器里打开；视图本身永远不跳走。
 - [ ] 隐藏视图而不是销毁；用 `goto` 发回保存的位置。
 - [ ] 主题变化时再发一次 `host_hello`。
-- [ ] 绝不把从 `file://` 加载的页面当作框架宿主。
+- [ ] 绝不把从 `file://` 加载的页面当作框架宿主；它可以在框架里加载视图带票据的 `embedUrl`。
 
 ## 尚未支持
 

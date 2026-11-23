@@ -86,6 +86,12 @@ const clipboard = clipboardEnv
 
 /** The Shell runs inside another window. */
 export const embedded = window.parent !== window;
+/**
+ * This Shell holds a view ticket (or its key): its host is the adapter, through the daemon, even inside a frame (a
+ * host page whose origin cannot be declared, such as a `file://` app, frames the ticketed `embed_url`). The parent
+ * frame is then no host: it is neither greeted nor heard.
+ */
+let viaView = false;
 
 function clearReadyTimers(): void {
   clearTimeout(readyTimer);
@@ -416,7 +422,7 @@ function onMessage(event: MessageEvent): void {
     if (event.origin === pageOrigin) onPageMessage(message as PageToShell, event);
     return;
   }
-  if (event.source !== window.parent || !embedded) return;
+  if (event.source !== window.parent || !embedded || viaView) return;
   if (message.openArtifact === 'goto') {
     const host = useShell.getState().host;
     if (!host || host.via !== 'frame' || event.origin !== host.origin) return;
@@ -478,13 +484,16 @@ export function startBridge(): () => void {
   window.addEventListener('beforeunload', onBeforeUnload);
   const boot = useShell.getState().boot;
   const hello: ShellToHost | null = boot ? { openArtifact: 'shell_hello', version: boot.version, protocol: HOST_PROTOCOL, artifact: boot.url, id: boot.id, title: boot.title, type: boot.type } : null;
-  if (embedded && hello) window.parent.postMessage(hello, '*');
-  // A top-level view the adapter opened: the same protocol through the daemon.
-  const stopView = !embedded && boot && hello ? startViewChannel(boot.id, { onCommand: onViewCommand, onOpen: () => viewSend(hello) }) : null;
+  // A view the adapter opened (top-level, or framed by a host that cannot be declared): the same protocol through the
+  // daemon. Only a Shell with a ticket or its key has one; any other framed Shell greets its parent.
+  const stopView = boot && hello ? startViewChannel(boot.id, { onCommand: onViewCommand, onOpen: () => viewSend(hello) }) : null;
+  viaView = stopView !== null;
+  if (embedded && hello && !viaView) window.parent.postMessage(hello, '*');
   // Exports the page's server saved: the declared host hears where.
   setSavedFileListener((path) => void toHost({ openArtifact: 'saved_file', path }));
   return () => {
     stopView?.();
+    viaView = false;
     setSavedFileListener(null);
     window.removeEventListener('hashchange', followPage);
     window.removeEventListener('message', onMessage);

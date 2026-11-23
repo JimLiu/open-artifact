@@ -392,6 +392,21 @@ describe('harness compatibility: the reference host against a real daemon', () =
     await page.close();
   });
 
+  it('(c) a ticketed Shell in another page\'s frame talks through the daemon, not to its parent', { ...T, skip: browserSkip }, async () => {
+    ctx.browser ??= await launch();
+    const made = await ctx.make(ctx.viewAgent, 'note', 'A framed view note');
+    await ctx.view.open(made.url, callerOf(ctx.viewAgent));
+    const request = ctx.opened.view.find(r => r.url === made.url);
+    assert.ok(request?.view && request.embedUrl.includes('oa_view='), JSON.stringify(request));
+    // A host whose origin cannot be declared (a file:// app) frames the ticketed address.
+    const page = await ctx.browser.load(`${ctx.originB}/?shell=${encodeURIComponent(request.embedUrl)}`, { ready: 'Array.isArray(window.got)' });
+    assert.ok(await until(() => ctx.shellEvents.some(e => e.view === request.view && e.event.openArtifact === 'shell_hello'), 15000), 'the framed Shell said shell_hello through the view channel');
+    await ctx.view.shellCommand(request.view, { openArtifact: 'host_hello', caps: {}, agentName: 'Viewer' });
+    assert.ok(await until(() => ctx.shellEvents.some(e => e.view === request.view && e.event.openArtifact === 'shell_ready'), 15000), 'the command reached the framed Shell and its answer the adapter');
+    assert.deepEqual(await heard(page), [], 'the parent page is not the host: it hears nothing');
+    await page.close();
+  });
+
   it('(b) a page on the declared origin frames the Shell, is taken, and gets the prompt text', { ...T, skip: browserSkip }, async () => {
     ctx.browser ??= await launch();
     ctx.framed = await ctx.make(ctx.frameAgent, 'note', 'A framed note');

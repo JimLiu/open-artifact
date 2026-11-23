@@ -60,7 +60,8 @@ origins connected adapters declared (`GET /api/open-artifact.embed`, field `host
 | undeclared | no adapter declared any origin, or the list could not be read | sessions and places, but `new_session` with an empty `prompt`, `comment_summon` with empty `text`, no `open_external`, no `saved_file`, no destinations |
 
 An origin is `scheme://host[:port]`. A page loaded from `file://` has the origin `null` and **cannot be declared**: serve
-your UI from a custom scheme (`app://my-agent`) or use a top-level view.
+your UI from a custom scheme (`app://my-agent`), or use views (`mode: 'view'`) and frame the ticketed `embedUrl` (see
+below).
 
 ### Top-level view
 
@@ -80,6 +81,10 @@ transport(ticket) {
 
 A view opened with its ticket counts as a declared host; your own origin does not matter here, and `embed.origins` may
 be empty.
+
+The ticket works in a frame too. A page that cannot be declared (an app loaded from `file://`) may load the ticketed
+`embedUrl` in its own iframe: the Shell still talks through the daemon, and it neither greets nor hears its parent frame.
+Give `embedArtifact` the transport above, not the iframe, and set the iframe's `src` yourself.
 
 The ticket's rules: it is used once, belongs to the adapter connection it was issued to, expires unclaimed after two
 minutes, and ends with that connection. Commands sent before the Shell connects wait, up to 32. A Shell that reloads may
@@ -173,7 +178,7 @@ The Electron example (`examples/harness-electron/src/pane.mjs`) follows each ite
 - [ ] Open new windows and navigations outside the list in the system browser; the view never navigates away.
 - [ ] Hide views instead of destroying them; send the kept place back with `goto`.
 - [ ] Send `host_hello` again on a theme change.
-- [ ] Never load a page from `file://` as a frame host.
+- [ ] Never make a page loaded from `file://` a frame host; it may frame a view's ticketed `embedUrl`.
 
 ## Not yet
 
