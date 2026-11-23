@@ -40,7 +40,7 @@
 
 | 类型 | 你得到什么 | 标识文件 | 导出格式 | 指南 |
 |---|---|---|---|---|
-| **Slides** | 1920×1080（或 4:3）的演示文稿：幻灯片栏、总览、演讲者备注、逐项动画、转场、演示模式 | `project/deck.json` | PDF、PPTX、HTML、PNG | [指南](docs/types/slides.zh-CN.md) · [SKILL](artifact-types/slides/SKILL.md) |
+| **Slides** | 1920×1080（或 4:3）的演示文稿：幻灯片栏、总览、演讲者备注、逐项动画、转场、演示模式、多边形相框 | `project/deck.json` | PDF、PPTX、HTML、PNG | [指南](docs/types/slides.zh-CN.md) · [SKILL](artifact-types/slides/SKILL.md) |
 | **Design** | 由实时 `.dc.html` 画板组成的无限画布：界面、组件、可点击原型、便签、多页面 | `project/canvas.json` | PNG、JPEG、PDF、HTML | [指南](docs/types/design.zh-CN.md) · [SKILL](artifact-types/design/SKILL.md) |
 | **Design System** | 品牌手册：设计令牌（tokens）、带对比度检查的颜色、字体样张、实时组件预览、素材。Design、Slides、Data 和 Motion 都可以安装它 | `project/design-system.json` | — | [指南](docs/types/design-system.zh-CN.md) · [SKILL](artifact-types/design-system/SKILL.md) |
 | **Whiteboard** | 多人共享的无限白板：便利贴、形状、箭头、手绘、图片、表格、嵌入网页、实时光标、计时器 | `db/board/meta.json` | PNG | [指南](docs/types/whiteboard.zh-CN.md) · [SKILL](artifact-types/whiteboard/SKILL.md) |
