@@ -10,7 +10,7 @@
 
 - **Deterministic time-driven scenes**: Each scene (`modules/scene-<id>.js`) renders cleanly from time `t`, ensuring smooth interactive scrubbing in the browser and frame-accurate video export.
 - **Rough cut → live finalize workflow**: Opens immediately after the rough cut (`stage: "rough"`), so you watch the storyboard play while the agent builds out scenes, drawings, music, and polish live.
-- **Procedural score & captioned voiceover**: Synthesize background music and sound effects in code (`modules/score.js`), and attach recorded voiceover clips with synced captions (`modules/narration.js`).
+- **Procedural score & captioned voiceover**: Synthesize background music and sound effects in code (`modules/score.js`), attach recorded voiceover clips with synced captions (`modules/narration.js`), or play a video clip's own sound (an interview, a talk) sentence by sentence under captions, with no audio file cut by hand.
 - **Direct by-hand editing without code**: Right inside the player, you can **retype** text, **recolor** palettes, **refont** typography, **recut** scene lengths, and **retouch** individual element styles—stored in separate non-destructive records that the agent respects on future turns.
 - **Design System & real UI assets**: Install a [Design System](design-system.md) or upload your product's real logos, icons, fonts, screenshots, and clips.
 - **Flash-safety & visual verification**: Built-in Rust/WASM flash analysis enforces safe motion (no flashing/cutting > 3 times/sec), and agents can render headless Chromium `stills` at exact timestamps to inspect every scene visually.
