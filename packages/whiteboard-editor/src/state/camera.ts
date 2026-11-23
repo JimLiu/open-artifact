@@ -6,7 +6,7 @@
  */
 
 import { create } from 'zustand';
-import { DEFAULT_CAMERA, MAX_ZOOM, MIN_COMPACT_ZOOM, MIN_ZOOM, clampZoom, sameCamera, type Camera, type Point } from '../lib/camera.ts';
+import { DEFAULT_CAMERA, MAX_ZOOM, MIN_COMPACT_ZOOM, MIN_ZOOM, centerOn, clampZoom, sameCamera, type Camera, type Point } from '../lib/camera.ts';
 
 /** Viewport width at or under which the compact layout applies. */
 export const COMPACT_MAX_WIDTH = 900;
@@ -61,7 +61,14 @@ export const useCamera = create<CameraState>()((set, get) => ({
     const camera = get().camera;
     const { min, max } = zoomRange({ compact });
     const zoom = clampZoom(camera.zoom, min, max);
-    set({ width, height, compact, camera: zoom === camera.zoom ? camera : { ...camera, zoom } });
+    if (zoom === camera.zoom) {
+      set({ width, height, compact });
+      return;
+    }
+    // The layout's zoom range moved past the camera (a camera kept from a wider window): zoom about the middle of
+    // the viewport, so what was in view stays in the middle.
+    const middle = { x: camera.x + width / 2 / camera.zoom, y: camera.y + height / 2 / camera.zoom };
+    set({ width, height, compact, camera: centerOn(middle, zoom, width, height) });
   },
   setInsets(insets) {
     set({ insets });

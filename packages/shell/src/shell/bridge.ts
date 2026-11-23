@@ -63,6 +63,11 @@ let readyTimer: ReturnType<typeof setTimeout> | undefined;
 let coverTimer: ReturnType<typeof setTimeout> | undefined;
 /** The frame's current document has been shown: a later `ready: false` no longer covers it. */
 let shown = false;
+/**
+ * The Shell reloaded the frame and its next `load` has not come: the old document is still there (it may report once
+ * more as it unloads, flushing its edits), so reports are left for the new one's answer to `chrome_hello`.
+ */
+let leaving = false;
 /** Export requests waiting for `chrome_exports`, by id. */
 const exportsWaiting = new Map<string, (items: ChromeExportItem[]) => void>();
 let exportSeq = 0;
@@ -88,17 +93,27 @@ function clearReadyTimers(): void {
   readyTimer = coverTimer = undefined;
 }
 
-/** A new document is coming into the frame: cover it and forget the old one's report. */
-function beginNavigation(): void {
+/** A new document is coming into the frame: forget the old one's report and, unless `cover` is false, cover it. */
+function beginNavigation(cover = true): void {
   clearReadyTimers();
-  hasReport = loaded = shown = false;
-  useShell.getState().setFrameLoading();
+  hasReport = loaded = shown = leaving = false;
+  if (cover) useShell.getState().setFrameLoading();
+  else useShell.getState().setReport({});
+}
+
+/** Shows the frame's document: the cover goes, and stays gone until a new document comes. */
+function showPage(): void {
+  clearReadyTimers();
+  shown = true;
+  leaving = false;
+  useShell.getState().setPageReady(true);
 }
 
 /** Registers the page's frame (or `null` when it unmounts) and the origin it is served from. */
 export function attachFrame(element: HTMLIFrameElement | null, origin: string): void {
   if (frame === element && origin === pageOrigin) return;
   clearReadyTimers();
+  leaving = false;
   frame = element;
   pageOrigin = origin;
   if (element) beginNavigation();
@@ -108,27 +123,27 @@ export function attachFrame(element: HTMLIFrameElement | null, origin: string): 
  * The frame loaded. A later `load` is a new document (the page navigated or reloaded itself): cover it again and say
  * hello, which the new document answers with its whole report (what it sent before this `load` cannot be told from
  * the old document's, so it waits for that answer). A report can come before the first `load`; a page that sent none
- * shows on `load` ({@link readyOnLoad}) or a moment after it.
+ * shows on `load` ({@link readyOnLoad}) or a moment after it. A page that shows on `load` never reports, so its new
+ * documents show at once, without a cover between.
  */
 export function frameLoaded(): void {
   if (!frame) return;
-  const renavigated = loaded;
-  if (renavigated) beginNavigation();
+  const store = useShell.getState();
+  const showsOnLoad = readyOnLoad(store.boot?.pageKind ?? null);
+  if (loaded) beginNavigation(!showsOnLoad);
   loaded = true;
+  leaving = false;
   formatsWaiting.clear();
   clipboard?.clear();
   helloOnFirstReport = true;
   sendChromeHello();
   if (hasReport) return;
-  const store = useShell.getState();
-  const revealUnreportedPage = (): void => {
-    readyTimer = undefined;
-    shown = true;
+  const showUnreportedPage = (): void => {
     store.setReport({});
-    store.setPageReady(true);
+    showPage();
   };
-  if (readyOnLoad(store.boot?.pageKind ?? null) && !renavigated) revealUnreportedPage();
-  else readyTimer = setTimeout(revealUnreportedPage, FRAME_READY_FALLBACK_MS);
+  if (showsOnLoad) showUnreportedPage();
+  else readyTimer = setTimeout(showUnreportedPage, FRAME_READY_FALLBACK_MS);
 }
 
 function sendChromeHello(): void {
@@ -205,6 +220,9 @@ function exportState(request: unknown, state: unknown, reason: unknown): void {
 export function reloadPage(): void {
   if (!frame) return;
   beginNavigation();
+  leaving = true;
+  // The page can stay (its unload was held back, or the reload failed): the cover still goes at the cap.
+  coverTimer = setTimeout(showPage, CHROME_READY_TIMEOUT_MS);
   try {
     frame.contentWindow?.location.reload();
   } catch {
@@ -356,6 +374,8 @@ function onPageMessage(message: PageToShell, event: MessageEvent): void {
       break;
     }
     case 'chrome_report':
+      // From the document the Shell is reloading away from: the new one answers the next `chrome_hello`.
+      if (leaving) break;
       if (message.report && typeof message.report === 'object') {
         clearTimeout(readyTimer);
         readyTimer = undefined;
@@ -363,18 +383,10 @@ function onPageMessage(message: PageToShell, event: MessageEvent): void {
         store.setReport(normalizeReport(message.report));
         // The page draws itself: the cover goes, unless it asks for a moment more before it is first shown
         // (`ready: false`, capped at CHROME_READY_TIMEOUT_MS).
-        if (message.report.ready !== false || shown) {
-          clearTimeout(coverTimer);
-          coverTimer = undefined;
-          shown = true;
-          store.setPageReady(true);
-        } else {
+        if (message.report.ready !== false || shown) showPage();
+        else {
           store.setPageReady(false);
-          coverTimer ??= setTimeout(() => {
-            coverTimer = undefined;
-            shown = true;
-            useShell.getState().setPageReady(true);
-          }, CHROME_READY_TIMEOUT_MS);
+          coverTimer ??= setTimeout(showPage, CHROME_READY_TIMEOUT_MS);
         }
         if (helloOnFirstReport) {
           helloOnFirstReport = false;

@@ -66,12 +66,19 @@ export async function startBoard(): Promise<() => void> {
   stops.push(startTextMetrics());
   try {
     await startSession(shell);
+    startServices(stops, cameraKey, ownView);
   } catch (error) {
     // The page shows why it could not open.
     shell?.report({ ready: true });
     stopAll();
     throw error;
   }
+  await whenAgentSettled();
+  return stopAll;
+}
+
+/** Starts the board's services once the session is up, adding how to stop each to `stops`. */
+function startServices(stops: Array<() => void>, cameraKey: string, ownView: boolean): void {
   stops.push(keepCameraRemembered(cameraKey));
   setShellReport({ ready: useBoard.getState().revealed });
   stops.push(useBoard.subscribe((state, previous) => {
@@ -98,6 +105,4 @@ export async function startBoard(): Promise<() => void> {
     stops.push(installHover(surface));
     stops.push(installDrop(surface));
   }
-  await whenAgentSettled();
-  return stopAll;
 }

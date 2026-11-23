@@ -128,7 +128,14 @@ When Chrome stops a frame's renderer (Chrome shows the frame as gone and the pag
 - On first open and on reload, the Shell's cover is never lifted while the board is empty or under its "Opening the board…" veil, and the Share button stays where it first showed.
 - The owner zooms out with ctrl + wheel. Two reloads open at that zoom. Storage then holds one camera (`wb-camera:artifact:<id>`) and one saved copy (`wb-copy:…`). A whole-board copy and a camera that an older page filed under its own token (`wb-saved-copy:/whiteboard/v1.…`) are gone.
 - Dragging an element with the real mouse while writes are slow never shows "Couldn't save". "Saving…" shows, then goes once the write lands.
+- The owner drags an element and at once picks Refresh in the artifact options. The page's own address is held for 2.5 s and writes for 0.4 s, so the old page hears its move was saved and reports it before the new page comes. The cover stays until the new page's board shows: never over the old page's report, never on the new page's veil.
 - With `_api/db` held past the Shell's cap, the cover goes about `CHROME_READY_TIMEOUT_MS` (10 s) after the reload. A page that reports `ready: false` cannot keep it up for longer.
+
+**The Shell over a static page** (`shell-frame.test.mjs`, Chrome only)
+
+- A real daemon, started in the test's own process from source in a temporary home, with a user type `linked`: a static page of two files (`index.html`, `two.html`) that link to each other.
+- Following the link inside the page, with the real mouse, both ways: the new page shows and the Shell never covers it (a static page never reports, so nothing would lift a cover before `FRAME_READY_FALLBACK_MS`).
+- Refresh in the artifact options covers the page, and the cover goes on the page's `load`, well before the 1.5 s fallback.
 
 **Cloud host on a LAN, set up in advance** (`host-auto.test.mjs`, Chrome only)
 

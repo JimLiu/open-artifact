@@ -107,9 +107,12 @@ of `packages/protocol/src/shell.ts`.
 
 Between the Shell and its framed page, `bridge.ts` speaks the chrome messages of the same file (`chrome_hello`,
 `chrome_report`, `chrome_cmd`). The Shell covers the frame while its document loads and lifts the cover on the page's
-first report, on `load` for a static page, or `FRAME_READY_FALLBACK_MS` after `load`. A page that reports
-`ready: false` keeps the cover until it reports otherwise, for at most `CHROME_READY_TIMEOUT_MS`; once the page has
-been shown, `ready: false` is ignored until the frame loads another document. `saved: 'saving'` covers edits waiting
+first report, on `load` for a static page, or `FRAME_READY_FALLBACK_MS` after `load`. A static page never reports, so
+a document it navigates to shows at once, with no cover. A page that reports `ready: false` keeps the cover until it
+reports otherwise, for at most `CHROME_READY_TIMEOUT_MS`; once the page has been shown, `ready: false` is ignored until
+the frame loads another document. When the Shell itself reloads the frame (Refresh, or files changed under a static
+page), reports that come before the next `load` are the old document's and are ignored: the new one answers that
+`load`'s `chrome_hello`. `saved: 'saving'` covers edits waiting
 out a write debounce (the Shell shows it after `SAVING_SHOWN_AFTER_MS`); `unsaved` means a save failed. The runtime's
 `shellArtifactId()` (also `ShellConnection.artifactId`) reads the artifact id the Shell puts on the page address: on a
 cloud host the page path carries a page token that changes on every load, so per-artifact memory in the page's browser

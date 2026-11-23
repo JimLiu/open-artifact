@@ -17,7 +17,7 @@ import net from 'node:net';
 import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { findChrome, launch } from './lib/browser.mjs';
-import { FRAMED_PAGE } from './lib/host-page.mjs';
+import { FRAMED_PAGE, byText, clickOn } from './lib/host-page.mjs';
 import { until } from './lib/http.mjs';
 import { browserOff, removeTmp, repoRoot, tmpDir } from './lib/target.mjs';
 
@@ -51,8 +51,8 @@ function freePort() {
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 /**
- * A proxy on `port` to the host on `hostPort` that holds requests matching `slow.pattern` for `slow.ms` (both can
- * change between steps). WebSocket upgrades pass straight through.
+ * A proxy on `port` to the host on `hostPort` that holds requests matching `slow.pattern` for `slow.ms`, or for what
+ * `slow.delay(url)` says when it is set (all can change between steps). WebSocket upgrades pass straight through.
  */
 function startSlowProxy(port, hostPort, slow) {
   const server = http.createServer((req, res) => {
@@ -64,7 +64,8 @@ function startSlowProxy(port, hostPort, slow) {
       upstream.on('error', () => res.destroy());
       req.pipe(upstream);
     };
-    if (slow.ms && slow.pattern.test(req.url)) setTimeout(forward, slow.ms);
+    const ms = slow.delay ? slow.delay(req.url) : slow.ms && slow.pattern.test(req.url) ? slow.ms : 0;
+    if (ms) setTimeout(forward, ms);
     else forward();
   });
   server.on('upgrade', (req, socket, head) => {
@@ -92,6 +93,7 @@ const BOARD_STATE = `${FRAMED_PAGE} ? (() => {
   const layer = document.querySelector('.wb-layer');
   const keys = s => Object.keys(s).filter(k => k.startsWith('wb-'));
   return {
+    page: performance.timeOrigin,
     elements: document.querySelectorAll('.wb-elements [data-wb-id]').length,
     zoom: layer ? +new DOMMatrixReadOnly(getComputedStyle(layer).transform).a.toFixed(4) : null,
     veil: !!document.querySelector('[data-wb-veil]'),
@@ -117,6 +119,41 @@ async function watch(page, ms, action) {
     await sleep(10);
   }
   return rows;
+}
+
+/** Where the largest element in view is, under nothing else, in the Shell's page. */
+async function elementToMove(page) {
+  const at = (await page.evaluateAll(`${FRAMED_PAGE} ? (() => {
+    const all = [...document.querySelectorAll('.wb-elements [data-wb-id]')].map(e => [e, e.getBoundingClientRect()])
+      .filter(([e, r]) => r.width > 8 && r.height > 8 && r.left >= 0 && r.top >= 0 && r.right <= innerWidth && r.bottom <= innerHeight
+        && e.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)));
+    all.sort((a, b) => b[1].width * b[1].height - a[1].width * a[1].height);
+    const r = all[0]?.[1];
+    return r ? [r.x + r.width / 2, r.y + r.height / 2] : null;
+  })() : undefined`)).find(v => v !== undefined);
+  assert.ok(at, 'no element to move');
+  const frame = await page.evaluate("(() => { const r = document.querySelector('iframe').getBoundingClientRect(); return [r.x, r.y]; })()");
+  return [frame[0] + at[0], frame[1] + at[1]];
+}
+
+/** Drags with the real mouse from (`x`, `y`) 50 px to the right. */
+async function dragRight(page, x, y) {
+  await page.cdp('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 });
+  for (let i = 1; i <= 5; i++) {
+    await page.cdp('Input.dispatchMouseEvent', { type: 'mouseMoved', x: x + i * 10, y, button: 'left', buttons: 1 });
+    await sleep(20);
+  }
+  await page.cdp('Input.dispatchMouseEvent', { type: 'mouseReleased', x: x + 50, y, button: 'left', clickCount: 1 });
+}
+
+/** The rows as a timeline of what changed: `<ms> cover|shown <page> <elements> veil`. */
+function timeline(rows, before) {
+  const out = [];
+  for (const r of rows) {
+    const what = `${r.shell?.cover ? 'cover' : 'shown'} ${!r.board ? 'no page' : r.board.page === before ? 'old page' : 'new page'} ${r.board?.elements ?? '-'}${r.board?.veil ? ' veil' : ''} ${r.shell?.save ?? ''}`;
+    if (out.at(-1)?.what !== what) out.push({ t: r.t, what });
+  }
+  return out.map(o => `${o.t}ms ${o.what}`).join('\n');
 }
 
 /** The rows sampled once the Shell's cover was gone (from the new page on: the old one had none). */
@@ -225,31 +262,38 @@ describe('a whiteboard reloads on a slow cloud host', { skip: skip() }, () => {
   it('shows no failure while a moved element waits to be written', T, async () => {
     const { page } = ctx;
     ctx.slow.ms = 0;
-    // The largest element in view, under nothing else.
-    const at = (await page.evaluateAll(`${FRAMED_PAGE} ? (() => {
-      const all = [...document.querySelectorAll('.wb-elements [data-wb-id]')].map(e => [e, e.getBoundingClientRect()])
-        .filter(([e, r]) => r.width > 8 && r.height > 8 && r.left >= 0 && r.top >= 0 && r.right <= innerWidth && r.bottom <= innerHeight
-          && e.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)));
-      all.sort((a, b) => b[1].width * b[1].height - a[1].width * a[1].height);
-      const r = all[0]?.[1];
-      return r ? [r.x + r.width / 2, r.y + r.height / 2] : null;
-    })() : undefined`)).find(v => v !== undefined);
-    assert.ok(at, 'no element to move');
-    const frame = await page.evaluate("(() => { const r = document.querySelector('iframe').getBoundingClientRect(); return [r.x, r.y]; })()");
-    const [x, y] = [frame[0] + at[0], frame[1] + at[1]];
+    const [x, y] = await elementToMove(page);
     ctx.slow.ms = SLOW_MS;
-    const rows = await watch(page, 3000, async () => {
-      await page.cdp('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 });
-      for (let i = 1; i <= 5; i++) {
-        await page.cdp('Input.dispatchMouseEvent', { type: 'mouseMoved', x: x + i * 10, y, button: 'left', buttons: 1 });
-        await sleep(20);
-      }
-      await page.cdp('Input.dispatchMouseEvent', { type: 'mouseReleased', x: x + 50, y, button: 'left', clickCount: 1 });
-    });
+    const rows = await watch(page, 3000, () => dragRight(page, x, y));
     const states = rows.map(r => r.shell?.save ?? '');
     assert.ok(!states.some(s => s.includes('unsaved')), `a failure showed: ${[...new Set(states)]}`);
     assert.ok(states.some(s => s.includes('saving')), `"Saving…" never showed for a slow write: ${[...new Set(states)]}`);
     assert.ok(await page.waitFor("!document.querySelector('header [data-shell-save-state]')", 10000), 'the move was not saved');
+  });
+
+  it('keeps the cover when the Shell reloads a page whose move is still being written', T, async () => {
+    const { page } = ctx;
+    ctx.slow.ms = 0;
+    const [x, y] = await elementToMove(page);
+    const before = (await snapshot(page)).board?.page;
+    assert.ok(before, 'the board is not open');
+    // The move's write lands while the old page is still there: the new page takes longer to come.
+    ctx.slow.delay = url => (/\/_api\/db\//.test(url) ? 400 : /^\/whiteboard\/v1\.[^/?]+\/(\?|$)/.test(url) ? 2500 : 0);
+    try {
+      await dragRight(page, x, y);
+      await clickOn(page, "document.querySelector('header [aria-label=\"Artifact options\"]')", 'the artifact options');
+      const refresh = byText('Refresh');
+      assert.ok(await page.waitFor(refresh, 5000), 'no Refresh in the artifact options');
+      const rows = await watch(page, 9000, () => clickOn(page, refresh, 'Refresh'));
+      const shown = uncovered(rows);
+      assert.ok(shown.length, `the cover never went:\n${timeline(rows, before)}`);
+      // The old page saying its move was saved does not lift the cover: only the new page, once its board shows.
+      const early = shown.filter(r => !r.board || r.board.page === before || r.board.veil || r.board.elements === 0);
+      assert.ok(!early.length, `the cover went before the new board showed:\n${timeline(rows, before)}`);
+    } finally {
+      delete ctx.slow.delay;
+    }
+    assert.ok(await page.waitFor("!document.querySelector('header [data-shell-save-state]')", 10000), 'the reloaded page did not settle');
   });
 
   it('shows the page after the cap when its board does not load', { timeout: 60000 }, async () => {

@@ -24,7 +24,7 @@
  */
 
 import { toast } from '@open-artifact/ui';
-import type { ChromeCommand, ChromeReport } from '@open-artifact/runtime';
+import type { ChromeCommand } from '@open-artifact/runtime';
 import {
   AGENT_STEP_LABEL,
   applyBoardDiff,
@@ -51,6 +51,7 @@ import {
   type SyncTransport,
 } from '@open-artifact/whiteboard-core';
 import { onBoardFontsLoaded } from '../lib/fonts.ts';
+import { shellSaved } from './save-state.ts';
 import { setBoardSink, setBoardSnapshot, tellRemoteChange, useBoard, type ChangeOptions, type SyncStatus } from '../state/board.ts';
 import { useHistory } from '../state/history.ts';
 import { currentMeasures } from '../state/measures.ts';
@@ -114,27 +115,6 @@ function storeStatus(snapshot: LiveSnapshot<Board>): SyncStatus {
       return 'error';
     default:
       return 'ready';
-  }
-}
-
-/** The Shell's save badge for an engine status (`undefined` while loading). */
-function shellSaved(snapshot: LiveSnapshot<Board>): ChromeReport['saved'] {
-  switch (snapshot.status) {
-    case 'ready':
-      return 'saved';
-    // Edits waiting out the write debounce: on their way, not failed.
-    case 'dirty':
-    case 'saving':
-      return 'saving';
-    case 'error':
-      return 'unsaved';
-    case 'offline':
-    case 'cached':
-      return 'reconnecting';
-    case 'readonly':
-      return 'readonly';
-    default:
-      return undefined;
   }
 }
 
