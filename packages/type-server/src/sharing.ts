@@ -587,9 +587,9 @@ export class LanSharing {
   /**
    * A request nobody may make: a page for a browser's navigation, JSON for anything else. An artifact's page
    * (`page`) loading in a frame tells the Shell framing it instead (`frame_denied`), which a static page cannot;
-   * `ancestors` is who may frame that answer.
+   * `ancestors` is who may frame that answer (none: anyone).
    */
-  denied(req: IncomingMessage, res: ServerResponse, page = false, ancestors = '*'): void {
+  denied(req: IncomingMessage, res: ServerResponse, page = false, ancestors?: string): void {
     req.resume();
     const w = words(req);
     if (page && isFramedNavigation(req)) return sendFrameDenied(res, 403, 'not_granted', w.noAccessTitle, w.noAccess, ancestors);

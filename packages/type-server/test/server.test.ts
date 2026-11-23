@@ -554,7 +554,7 @@ describe('type server: top-level visits, stale frames and cached editor files', 
     assert.equal(framedDenied.status, 403);
     assert.match(framedDenied.body, /openArtifact: 'frame_denied', reason: "not_granted"/);
     assert.match(framedDenied.body, /not shared with you/);
-    assert.equal(framedDenied.headers['content-security-policy'], "default-src 'none'; script-src 'unsafe-inline'; frame-ancestors *");
+    assert.equal(framedDenied.headers['content-security-policy'], "default-src 'none'; script-src 'unsafe-inline'");
     const api = await raw(new URL('_api/session', board), { 'sec-fetch-dest': 'iframe', ...guest });
     assert.equal(api.status, 403);
     assert.equal((JSON.parse(api.body) as { code: string }).code, 'not_granted');
@@ -636,7 +636,7 @@ describe('type server: top-level visits, stale frames and cached editor files', 
         assert.equal(res.status, 404);
         assert.match(String(res.headers['content-type']), /^text\/html/);
         assert.equal(res.headers['cache-control'], 'no-store');
-        assert.equal(res.headers['content-security-policy'], "default-src 'none'; script-src 'unsafe-inline'; frame-ancestors *");
+        assert.equal(res.headers['content-security-policy'], "default-src 'none'; script-src 'unsafe-inline'");
         assert.match(res.body, /This artifact is not open here\. Open it again\./);
         assert.match(res.body, /<script>parent\.postMessage\(\{ openArtifact: 'frame_denied', reason: "not_open" \}, '\*'\);<\/script>/);
       }
@@ -694,7 +694,7 @@ describe('type server: top-level visits, stale frames and cached editor files', 
     const res = await raw(new URL('index.html', design));
     assert.equal(res.status, 200);
     assert.equal(res.headers['cache-control'], 'no-store');
-    assert.equal(res.headers['content-security-policy'], "frame-ancestors *; object-src 'none'");
+    assert.equal(res.headers['content-security-policy'], "object-src 'none'");
     assert.match(res.body, /<script type="module" crossorigin src="\/_open-artifact\/editors\/design\/assets\/index-AbCd_123\.js"><\/script>/);
     assert.match(res.body, /<link rel="stylesheet" crossorigin href="\/_open-artifact\/editors\/design\/assets\/index-XyZw-567\.css">/);
     assert.doesNotMatch(res.body, /\.\/assets\//);

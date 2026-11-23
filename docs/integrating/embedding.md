@@ -84,7 +84,10 @@ be empty.
 
 The ticket works in a frame too. A page that cannot be declared (an app loaded from `file://`) may load the ticketed
 `embedUrl` in its own iframe: the Shell still talks through the daemon, and it neither greets nor hears its parent frame.
-Give `embedArtifact` the transport above, not the iframe, and set the iframe's `src` yourself.
+Give `embedArtifact` the transport above, not the iframe, and set the iframe's `src` yourself. Every ancestor counts
+for a frame's `frame-ancestors`, your page included, so the built-in types' pages on this computer send none: CSP's `*`
+matches only network schemes and would refuse a `file://` or `app://` page around the Shell. Your app still has to let
+its frame load the daemon's origins (`embed.origins`).
 
 The ticket's rules: it is used once, belongs to the adapter connection it was issued to, expires unclaimed after two
 minutes, and ends with that connection. Commands sent before the Shell connects wait, up to 32. A Shell that reloads may

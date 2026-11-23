@@ -70,7 +70,7 @@ transport(ticket) {
 
 用票据打开的视图算已声明的宿主；这里你自己的源无关紧要，`embed.origins` 可以为空。
 
-票据在框架里也能用。无法声明的页面（从 `file://` 加载的应用）可以在自己的 iframe 里加载带票据的 `embedUrl`：Shell 仍然经由 daemon 通信，不向父框架打招呼，也不听父框架的消息。给 `embedArtifact` 传上面的传输对象而不是 iframe，iframe 的 `src` 由你自己设置。
+票据在框架里也能用。无法声明的页面（从 `file://` 加载的应用）可以在自己的 iframe 里加载带票据的 `embedUrl`：Shell 仍然经由 daemon 通信，不向父框架打招呼，也不听父框架的消息。给 `embedArtifact` 传上面的传输对象而不是 iframe，iframe 的 `src` 由你自己设置。框架的 `frame-ancestors` 要看每一层祖先，你的页面也算在内，所以本机内置类型的页面不发这个指令：CSP 的 `*` 只匹配网络协议，会拒掉 Shell 外面那层 `file://` 或 `app://` 页面。你的应用仍要允许它的框架加载 daemon 的来源（`embed.origins`）。
 
 票据的规则：只能用一次，属于签发它的那个适配器连接，两分钟内没被认领就过期，连接断开它也随之失效。Shell 连上之前发出的命令会排队，最多 32 条。重新加载的 Shell 可以在 30 秒内回来。一个连接最多持有 64 个视图。
 

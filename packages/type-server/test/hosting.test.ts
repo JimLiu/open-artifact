@@ -446,10 +446,11 @@ describe('without hosting', () => {
       assert.equal(session.status, 200);
       assert.deepEqual((JSON.parse(session.body) as { viewer: Viewer }).viewer, { id: 'owner', name: 'Ada', role: 'owner' });
       assert.equal(session.headers['referrer-policy'], 'no-referrer');
-      // Locally any page may frame it (the daemon's Shell, a LAN guest's browser).
+      // Locally any page may frame it (the daemon's Shell, a LAN guest's browser, an app whose page is file://):
+      // no frame-ancestors at all, since `*` leaves out file:// and an app's own scheme.
       const page = await call(port, 'GET', `${path}index.html`, { host: `127.0.0.1:${port}` });
       assert.equal(page.status, 200);
-      assert.match(String(page.headers['content-security-policy']), /frame-ancestors \*/);
+      assert.doesNotMatch(String(page.headers['content-security-policy']), /frame-ancestors/);
       const slash = await call(port, 'GET', path.slice(0, -1), { host: `127.0.0.1:${port}` });
       assert.equal(slash.status, 308);
       assert.equal(slash.headers.location, path);

@@ -621,11 +621,13 @@ export function createTypeServer(options: TypeServerOptions): TypeServer {
   const senderOf = (who: Viewer): WakeSender | undefined => (who.role === 'owner' ? undefined : { name: who.name, role: who.role });
   /**
    * Who may frame this server's pages (CSP `frame-ancestors`): anyone locally (the daemon's Shell, a LAN guest's
-   * browser); on a host only the app origin's Shell, and the content host itself (a type's own frame Shell frames
-   * its editor page, and every ancestor must be allowed).
+   * browser, an app that frames the Shell); on a host only the app origin's Shell, and the content host itself (a
+   * type's own frame Shell frames its editor page, and every ancestor must be allowed). Locally there is no
+   * directive at all: `*` matches only network schemes, so it would refuse an app whose own page is `file://` or a
+   * scheme of its own (`app://`), which frames the Shell around these pages and counts as an ancestor too.
    */
   const appOrigin = hosting ? (hosting.appOrigin ?? new URL(hosting.shellUrl('art_0')).origin) : undefined;
-  const frameAncestors = appOrigin ? `'self' ${appOrigin}` : '*';
+  const frameAncestors: string | undefined = appOrigin ? `'self' ${appOrigin}` : undefined;
   const viewer: Viewer = { id: 'owner', name: options.viewerName ?? 'You', role: 'owner' };
   /**
    * The owner as artifact `id`'s pages and stores know them. Several owners' artifacts share a hosted server, so there
@@ -2284,7 +2286,7 @@ export function createTypeServer(options: TypeServerOptions): TypeServer {
       const html = await readFile(inside(dir, file), 'utf8').catch(() => null);
       if (html === null) throw new HttpError(404, 'not_found', 'Not found.');
       const page = withStableAssets(html, artifact.type);
-      const pageHeaders: Record<string, string> = { 'content-security-policy': `frame-ancestors ${pageAncestors}; object-src 'none'` };
+      const pageHeaders: Record<string, string> = { 'content-security-policy': `${pageAncestors ? `frame-ancestors ${pageAncestors}; ` : ''}object-src 'none'` };
       // A guest's page is plain http at a LAN address: not a secure context (see `withShim`).
       if (who.role !== 'owner') return send(res, 200, withShim(page), mimeOf(file), { ...pageHeaders, 'cache-control': 'private, no-store', vary: 'Cookie' });
       return send(res, 200, page, mimeOf(file), pageHeaders);
