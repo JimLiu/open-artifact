@@ -15,7 +15,8 @@
 //!
 //! A paste whose formulas have many words of their own is first shown to the person (`typing/unseen.rs`): the
 //! answer is `toBeShownFirst` with those texts until the edit is queued with exactly them as `shownToThePerson`
-//! (`paste_texts_shown`), and refuses a paste with more than 50 of them (`tooMuchThatNoCellShows`). A formula some
+//! (`paste_texts_shown`), and refuses a paste with more than 50 of them (`tooMuchThatNoCellShows`). Queued with no
+//! `shownToThePerson` (null or left out), a paste shows nothing first and is not refused for them. A formula some
 //! cell holds already is not shown, by its text between references as kept: in any sheet, deleted rows, columns and
 //! sheets too, whoever put it there (`=sum(` is not `=SUM(`); nor is a formula with the text between references of
 //! one shown before it in the paste.
@@ -256,11 +257,13 @@ fn paste_cells(
     for reading in &readings {
         check_reading_length(workbook, s, reading, locale)?;
     }
-    let to_show = texts_to_show(workbook, s, texts.iter().map(|&(place, ..)| place).zip(&readings), locale);
-    if to_show.len() > unseen::MOST_TEXTS {
-        return Err(Refusal::TooMuchThatNoCellShows);
-    }
+    // Only a paste the page shows the person first (`shownToThePerson` given) counts the texts no cell shows: with
+    // none (an agent's write), however many there are, nothing is asked or refused.
     if let Some(shown) = shown {
+        let to_show = texts_to_show(workbook, s, texts.iter().map(|&(place, ..)| place).zip(&readings), locale);
+        if to_show.len() > unseen::MOST_TEXTS {
+            return Err(Refusal::TooMuchThatNoCellShows);
+        }
         if !to_show.is_empty() && !were_shown(before, &to_show, shown) {
             return Ok(Pasted::ToBeShownFirst(to_show));
         }

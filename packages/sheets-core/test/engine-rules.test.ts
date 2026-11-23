@@ -226,6 +226,40 @@ test('rows deleted in many runs are written as lists of runs, and their undo too
   }
 });
 
+test('formulas with many words of their own are shown first only when the page says what it showed', () => {
+  // Each weighs more than 40 (16 CJK characters of its own) and says something else, so none of them was seen.
+  const formula = (i: number) => `=IF(A${i + 1}>=0,"第${i + 1}组高毛利核心产品线","常规需优化产品线")`;
+  const paste = (book: Workbook, count: number): Edit => ({
+    kind: 'pasteTexts',
+    sheetId: book.sheetId,
+    cells: Array.from({ length: count }, (_, i) => ({ ...book.at(i, 1), text: formula(i) })),
+    pastedTextIs: 'asTyped',
+    localeOfTexts: 'en-US',
+  });
+  const answer = (count: number, more: Partial<QueueEditRequest>) => {
+    const book = new Workbook();
+    try {
+      return book.client.request({ kind: 'queueEdit', opId: 'paste', newIdCode: 'pasteaaaaa', edit: paste(book, count), ...more });
+    } finally {
+      book.free();
+    }
+  };
+  // The page sends what the person was shown: none yet, so the texts are to be shown first, and more than 50 refuse.
+  const asked = answer(50, { shownToThePerson: [] });
+  assert.equal(asked.kind, 'toBeShownFirst');
+  assert.equal(asked.kind === 'toBeShownFirst' && asked.textThatNoCellShows.length, 50);
+  assert.deepEqual(answer(51, { shownToThePerson: [] }), { kind: 'refused', refusal: 'tooMuchThatNoCellShows' });
+  // Null or left out (the agent's writes): nothing is shown first, however many there are.
+  assert.equal(answer(51, { shownToThePerson: null }).kind, 'editQueued');
+  const book = new Workbook();
+  try {
+    book.edit(paste(book, 60));
+    assert.deepEqual(book.value(59, 1), { kind: 'text', value: '第60组高毛利核心产品线' });
+  } finally {
+    book.free();
+  }
+});
+
 test('a fraction pattern shows a number as a fraction', () => {
   const book = new Workbook();
   try {

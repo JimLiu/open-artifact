@@ -77,6 +77,31 @@ describe(TYPE, { skip: skip() }, () => {
     assert.deepEqual(cells.rows['4'], ['Total', { formula: '=SUM(B2:B3)', value: 1500 }]);
   });
 
+  // JimLiu/open-artifact#17: the page shows a formula with many words of its own to the person before pasting it
+  // (toBeShownFirst, and more than 50 such texts refuse); an agent's writeCells shows nothing first.
+  it('writeCells takes formulas with many words of their own, in any script, and more than 50 of them at once', T, async () => {
+    const root = path.join(tmpDir('sheets-long-texts'), 'orders');
+    fs.mkdirSync(root, { recursive: true });
+    const summary = '="数据区间 "&TEXT(MIN(A:A),"yyyy-mm-dd")&" 至 "&TEXT(MAX(A:A),"yyyy-mm-dd")&" · 共 "&C1&" 笔订单"';
+    const cjk = '=IF(C1>=40,"高毛利核心产品线","常规需优化产品线")';
+    const ascii = '=IF(C1>=40,"a high margin core product line","a regular line to optimize")';
+    const many = Array.from({ length: 60 }, (_, i) => [`=IF(C1>=40,"第${i + 1}组高毛利核心产品线","常规需优化产品线")`]);
+    const out = await ctx.cli.run(['update', root, edits(1, [
+      { kind: 'writeCells', sheet: 'Sheet1', topLeft: 'A1', rows: [[{ date: '2026-01-05' }, summary, 42], [{ date: '2026-03-31' }, cjk, null], [null, ascii, null]] },
+      { kind: 'writeCells', sheet: 'Sheet1', topLeft: 'E1', rows: many },
+    ])]);
+    assert.equal(out.code, 0, out.stderr);
+    assert.equal(JSON.parse(out.stdout).revision, 2);
+    const cells = await ctx.cli.json(['read', root, JSON.stringify({ kind: 'readCells', sheet: 'Sheet1', range: 'B1:B3' })]);
+    assert.deepEqual(cells.rows, {
+      1: [{ formula: summary, value: '数据区间 2026-01-05 至 2026-03-31 · 共 42 笔订单' }],
+      2: [{ formula: cjk, value: '高毛利核心产品线' }],
+      3: [{ formula: ascii, value: 'a high margin core product line' }],
+    });
+    const last = await ctx.cli.json(['read', root, JSON.stringify({ kind: 'readCells', sheet: 'Sheet1', range: 'E60' })]);
+    assert.deepEqual(last.rows, { 60: [{ formula: many[59][0], value: '第60组高毛利核心产品线' }] });
+  });
+
   it('formats go in and read back as formatCells takes them', T, async () => {
     await ctx.cli.json(['update', ctx.root, edits(2, [{ kind: 'formatCells', sheet: 'Budget', ranges: ['B2:B4'], format: { numberFormat: { pattern: '$#,##0.00' } } }])]);
     const read = await ctx.cli.json(['read', ctx.root, JSON.stringify({ kind: 'readCellFormats', sheet: 'Budget', range: 'B2:B4' })]);
