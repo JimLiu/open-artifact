@@ -1,6 +1,6 @@
 {
   "name": "@open-artifact/wasm-canvas",
-  "version": "0.14.2",
+  "version": "0.14.3",
   "private": true,
   "type": "module",
   "description": "crates/open-artifact-canvas compiled to WebAssembly (generated/, built by scripts/build-wasm.mjs).",

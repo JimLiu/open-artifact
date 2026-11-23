@@ -454,7 +454,7 @@ export interface PluginKv {
 export interface PluginHost {
   /** The plugin API version the host runs this plugin with. */
   apiVersion: number;
-  /** The host's version (`0.14.2`). */
+  /** The host's version (`0.14.3`). */
   version: string;
   /** The site's address, e.g. `https://artifacts.example.com`. */
   appOrigin: string;

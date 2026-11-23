@@ -163,7 +163,7 @@ npm run build
 node packages/host/src/node/main.ts version
 ```
 
-打印版本号，比如 `0.14.2`。
+打印版本号，比如 `0.14.3`。
 
 **失败时：** `node --version` 必须是 22.18 或更高。构建出错会指出是哪个包；`git pull` 之后再运行一次 `npm ci`。
 
@@ -240,7 +240,7 @@ OA_BIND=192.168.1.20 OA_PORT=4900 node packages/host/src/node/main.ts serve
 **预期：**
 
 ```
-Open Artifact host 0.14.2 listening on http://192.168.1.20:4900
+Open Artifact host 0.14.3 listening on http://192.168.1.20:4900
   app:     http://192.168.1.20:4900
   content: http://{id}.192-168-1-20.nip.io:4900
   data:   /Users/you/.open-artifact-host
@@ -252,7 +252,7 @@ Open Artifact host 0.14.2 listening on http://192.168.1.20:4900
 curl -s http://192.168.1.20:4900/__open-artifact/health
 ```
 
-**预期：** `{"openArtifact":1,"version":"0.14.2"}`。（健康检查地址在任何名字上都应答，方便负载均衡和容器检查；其他一切
+**预期：** `{"openArtifact":1,"version":"0.14.3"}`。（健康检查地址在任何名字上都应答，方便负载均衡和容器检查；其他一切
 只在站点自己的名字上应答。）然后在网络里**另一台电脑**上打开 `http://192.168.1.20:4900/`，会跳到登录页。
 
 **失败时：** `EADDRNOTAVAIL` 表示 `OA_BIND` 不是这台电脑的地址（地址变了：去路由器里保留它）。本机能连、别的电脑连不上：
@@ -261,7 +261,7 @@ curl -s http://192.168.1.20:4900/__open-artifact/health
 写指南时用 `OA_BIND=127.0.0.1 OA_PORT=4977` 和 `OA_APP_ORIGIN=http://127.0.0.1:4977` 运行过。启动输出是：
 
 ```
-Open Artifact host 0.14.2 listening on http://127.0.0.1:4977
+Open Artifact host 0.14.3 listening on http://127.0.0.1:4977
   app:     http://127.0.0.1:4977
   content: http://{id}.127-0-0-1.nip.io:4977
   data:   /private/tmp/…/run8/host

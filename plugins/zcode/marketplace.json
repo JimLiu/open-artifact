@@ -10,7 +10,7 @@
     {
       "name": "open-artifact",
       "source": ".",
-      "version": "0.14.2",
+      "version": "0.14.3",
       "description": "Decks, design canvases, whiteboards, spreadsheets, dashboards, docs and animated films you view, edit and comment on in one local page, with comments sent back to the agent.",
       "icon": "https://raw.githubusercontent.com/JimLiu/open-artifact/main/plugins/zcode/assets/icon.png"
     }
