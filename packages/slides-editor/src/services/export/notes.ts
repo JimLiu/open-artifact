@@ -25,6 +25,7 @@ export const NOTE_MESSAGES = {
   listStart: 'Lists that start below 1 were numbered from 1',
   listInside: 'List markers set inside the text were hung in the margin',
   backgroundPicture: 'Backgrounds PowerPoint cannot draw (pictures, patterns, radial or see-through gradients) became pictures',
+  polygonPicture: 'Some clipped elements became pictures because their clipping could not be exported as editable geometry',
   textGradient: 'Gradient-filled text took the gradient\u2019s first color (PowerPoint text here takes one color)',
   shadowInset: 'Inner shadows were left out (PowerPoint shapes carry outer shadows only)',
   shadowLayers: 'Only the first of several shadows on a shape was kept',

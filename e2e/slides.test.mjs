@@ -40,6 +40,9 @@ describe('slides', { skip: skipFor('slides') }, () => {
     root = tmpDir('slides-deck');
     const project = path.join(root, 'project');
     fs.mkdirSync(path.join(project, 'slides'), { recursive: true });
+    const brand = 'project/ds/fixture';
+    fs.mkdirSync(path.join(root, brand), { recursive: true });
+    fs.writeFileSync(path.join(root, brand, 'photo.svg'), '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="200"><rect width="400" height="200" fill="#1870e0"/></svg>');
     fs.writeFileSync(path.join(project, 'deck.json'), JSON.stringify({
       v: 5, lists: 'css', size: '4:3', title: 'Quarterly review', order: fileNames, cover: 'cover',
       format: { v: 1, shared: ['project/deck.css'] }, createdOnFiles: { v: 1, at: '2026-11-15T00:00:00Z' },
@@ -47,11 +50,18 @@ describe('slides', { skip: skipFor('slides') }, () => {
     }));
     fs.writeFileSync(path.join(project, 'deck.css'), 'section { background: #ffffff; padding: 128px; } h1 { color: #123456; } ' +
       '@property --total { syntax: "<number>"; inherits: false; initial-value: 0; } ' +
-      '@keyframes count { from { --total: 0; } to { --total: 100; } } .metric { animation: count 2s ease-out both; } .gaps li { margin: 12px 0; }');
+      '@keyframes count { from { --total: 0; } to { --total: 100; } } .metric { animation: count 2s ease-out both; } .gaps li { margin: 12px 0; } ' +
+      ':root { --cut: 15.12px; } .chamfer { position:absolute; top:650px; height:160px; clip-path:polygon(0 0, calc(100% - var(--cut)) 0, 100% var(--cut), 100% 100%, 0 100%); } ' +
+      '.polygon { position:absolute; top:850px; width:160px; height:160px; background:#2670a0; }');
     const contents = [
       '<h1>季度回顾</h1><div><p class="fragment">Details after a click</p></div><aside>Opening notes</aside>' +
         '<x-embed style="position:absolute;left:800px;top:600px;width:400px;height:200px"><canvas width="40" height="40"></canvas><script>document.body.style.background="#18aa44";const ctx=document.querySelector("canvas").getContext("2d");ctx.fillStyle="#1122ee";ctx.fillRect(0,0,40,40)</script></x-embed>',
-      '<h1>Plan</h1><p class="metric">100%</p><p>Read through the shared sheet.</p>',
+      '<h1>Plan</h1><p class="metric">100%</p><p>Read through the shared sheet.</p>' +
+        '<div class="chamfer" style="left:128px;width:160px;background:#2670a0"></div><div class="chamfer" style="left:320px;width:280px;background:#2670a0"></div>' +
+        `<img class="chamfer" src="${brand}/photo.svg" alt="Clipped photo" style="left:632px;width:160px;object-fit:cover">` +
+        '<div class="chamfer" style="left:824px;width:240px;background:#f3f1eb"><p style="font-size:24px">Clipped group</p></div>' +
+        '<div class="polygon" style="left:128px;clip-path:polygon(50% 0, 100% 100%, 0 100%)"></div>' +
+        '<div class="polygon" style="left:320px;clip-path:polygon(0 25%, 65% 25%, 65% 0, 100% 50%, 65% 100%, 65% 75%, 0 75%)"></div>',
       '<h1>Close</h1><ul class="gaps"><li>First step</li><li>Second step</li></ul>',
     ];
     for (const [i, id] of fileNames.entries()) fs.writeFileSync(path.join(project, 'slides', id + '.html'), `<section id="${id}">${contents[i]}</section>`);
@@ -205,6 +215,7 @@ describe('slides', { skip: skipFor('slides') }, () => {
       assert.equal(await player.evaluate('location.hash'), '#2');
       assert.ok(await player.waitFor("Number.parseFloat(document.querySelector('[data-count]')?.textContent) < 100"));
       assert.ok(await player.waitFor("document.querySelector('[data-count]')?.textContent === '100%'"));
+      assert.match(await player.evaluate(`getComputedStyle(document.querySelector('[aria-label="Clipped photo"]')).clipPath`), /calc\(100% - 15\.12px\)/);
       await player.cdp('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: false });
       assert.ok(await player.waitFor("document.documentElement.classList.contains('open-artifact-reader')"));
       assert.equal(await player.evaluate(visible), 'visible');
@@ -244,6 +255,23 @@ describe('slides', { skip: skipFor('slides') }, () => {
         const list = [1, 2, 3].map(n => xml(file, `ppt/slides/slide${n}.xml`)).join('').match(/<p:sp>(?:(?!<\/p:sp>)[^])*?<a:t>Second step<\/a:t>[^]*?<\/p:sp>/)?.[0] ?? '';
         assert.match(list, /tIns="76200"[^>]*bIns="76200"/);
         assert.match(list, /<a:spcAft><a:spcPts val="600"\/><\/a:spcAft>[^]*?<a:t>First step/);
+        const plan = xml(file, 'ppt/slides/slide2.xml');
+        const shapes = [...plan.matchAll(/<p:sp>[^]*?<\/p:sp>/g)].map(([shape]) => shape).filter(shape => shape.includes('<a:custGeom>'));
+        assert.equal(shapes.length, 4);
+        const cut = 15.12 * 6350;
+        for (const shape of shapes.slice(0, 2)) {
+          const width = Number(/<a:path w="(\d+)"/.exec(shape)[1]);
+          assert.ok(shape.includes(`<a:lnTo><a:pt x="${width - cut}" y="0"/></a:lnTo>`));
+        }
+        const vertices = shape => [...shape.matchAll(/<a:pt x="(-?\d+)" y="(-?\d+)"\/>/g)].map(([, x, y]) => [Number(x), Number(y)]);
+        assert.deepEqual(vertices(shapes[2]), [[508000, 0], [1016000, 1016000], [0, 1016000]]);
+        assert.deepEqual(vertices(shapes[3]), [[0, 254000], [660400, 254000], [660400, 0], [1016000, 508000], [660400, 1016000], [660400, 762000], [0, 762000]]);
+        const pictures = [...plan.matchAll(/<p:pic>[^]*?<\/p:pic>/g)].map(([picture]) => picture);
+        const photo = pictures.find(picture => picture.includes('descr="Clipped photo"')) ?? '';
+        assert.match(photo, /<a:srcRect l="25000" t="0" r="25000" b="0"\/>/);
+        assert.match(photo, /<a:custGeom>[^]*?<a:pt x="1016000" y="96012"/);
+        assert.ok(pictures.some(picture => picture.includes('name="Clipped element 1"')));
+        assert.doesNotMatch(plan, /<a:t>Clipped group<\/a:t>/);
       }
       assert.match(xml(file, 'ppt/notesSlides/notesSlide1.xml'), /Opening notes/);
       const size = /<p:sldSz cx="(\d+)" cy="(\d+)"/.exec(xml(file, 'ppt/presentation.xml'));

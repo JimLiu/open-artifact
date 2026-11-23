@@ -16,7 +16,7 @@
  * backgrounds. Anything that cannot carry over is recorded as an export note.
  */
 
-import { nodeAt, parsePathKey, SLIDE_HEIGHT, SLIDE_WIDTH, type ConnectorNode, type HeadKind, type ImageNode, type ShapeNode, type SlideNode } from '@open-artifact/slides-core';
+import { clipPathPoints, nodeAt, parseClipPath, parsePathKey, SLIDE_HEIGHT, SLIDE_WIDTH, type ConnectorNode, type HeadKind, type ImageNode, type ShapeNode, type SlideNode } from '@open-artifact/slides-core';
 import { connectorGeometry, connectorStroke, parseStroke, SHAPE_POLYGONS, type Point } from '../../render/geometry.ts';
 import { mountSlide, slidePicture, type MountedSlide } from '../capture.ts';
 import {
@@ -30,6 +30,7 @@ import {
   parseColor,
   parseLinearGradient,
   pictureOutline,
+  polygonOutline,
   pptxFont,
   px,
   splitTop,
@@ -353,7 +354,9 @@ class SlideReader {
   /** Reads every drawn element, in paint (document) order. */
   async read(): Promise<void> {
     const slide = this.entry.slide;
+    let clipped: Element | undefined;
     for (const el of Array.from(this.root.querySelectorAll('[data-open-artifact-kind]'))) {
+      if (clipped?.contains(el)) continue;
       const kind = el.getAttribute('data-open-artifact-kind') as SlideNode['kind'];
       const node = nodeAt(slide, parsePathKey(el.getAttribute('data-open-artifact-path') ?? ''));
       if (el.getClientRects().length === 0 || this.style(el).visibility !== 'visible') continue;
@@ -361,6 +364,15 @@ class SlideReader {
       if (alpha <= 0.001) continue;
       const frame = this.frame(el);
       if (frame.box.w < 0.5 && frame.box.h < 0.5 && kind !== 'rule' && kind !== 'connector') continue;
+      const clipPath = node?.style['clip-path'];
+      if (node && clipPath && clipPath !== 'none') {
+        const clip = parseClipPath(clipPath);
+        if (clip.ok && clip.value) {
+          await this.clipped(el, node, frame, alpha, clipPathPoints(clip.value, frame.w, frame.h));
+          clipped = el;
+          continue;
+        }
+      }
       switch (kind) {
         case 'text':
         case 'list':
@@ -401,15 +413,46 @@ class SlideReader {
     }
   }
 
+  private async clipped(el: Element, node: SlideNode, frame: Frame, alpha: number, points: [number, number][]): Promise<void> {
+    const style = this.style(el);
+    const borders = this.borders(style, alpha);
+    const effects = [style.boxShadow, style.filter, style.backdropFilter].some((value) => value && value !== 'none');
+    const rounded = [style.borderTopLeftRadius, style.borderTopRightRadius, style.borderBottomRightRadius, style.borderBottomLeftRadius].some((value) => parseFloat(value) > 0);
+    const composition = node.kind === 'textbox' || (node.kind === 'box' && node.children.length > 0);
+    const outline = polygonOutline(points, { x: 0, y: 0, w: frame.w, h: frame.h });
+    if (outline === null || !(el instanceof HTMLElement) || composition || effects || rounded || Object.values(borders).some(Boolean)) {
+      await this.clippedPicture(el, node, frame, points);
+    } else if (outline.length && node.kind === 'image') {
+      await this.image(el, frame, alpha, node, outline);
+    } else if (outline.length) {
+      await this.panel(el, frame, alpha, this.name('Shape'), { outline });
+    }
+  }
+
+  private async clippedPicture(el: Element, node: SlideNode, frame: Frame, points: [number, number][]): Promise<void> {
+    const placed = points.map(([x, y]) => frame.toSlide(x, y));
+    const xs = placed.map(([x]) => x);
+    const ys = placed.map(([, y]) => y);
+    const x = Math.min(...xs);
+    const y = Math.min(...ys);
+    this.job.notes.add('polygonPicture', this.entry.number);
+    if (node.kind === 'image' && node.video) this.job.notes.add(node.src ? 'video' : 'videoMissing', this.entry.number);
+    await this.raster(el, this.name('Clipped element'), {
+      bounds: { x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y },
+      description: node.kind === 'image' ? node.alt || undefined : undefined,
+    });
+  }
+
   /** A picture of just this element (or of its own background and border, `bare`). */
-  private async raster(el: Element, name: string, options: { bare?: boolean; fonts?: boolean; description?: string }): Promise<void> {
+  private async raster(el: Element, name: string, options: { bare?: boolean; fonts?: boolean; description?: string; bounds?: Rect }): Promise<void> {
     const rect = el.getBoundingClientRect();
+    const bounds = options.bounds ?? { x: rect.left - this.origin.left, y: rect.top - this.origin.top, w: rect.width, h: rect.height };
     const style = this.style(el);
     const pad = (style.filter && style.filter !== 'none') || (style.boxShadow && style.boxShadow !== 'none') ? EFFECT_PAD : 2;
-    const left = Math.floor(rect.left - this.origin.left - pad);
-    const top = Math.floor(rect.top - this.origin.top - pad);
+    const left = Math.floor(bounds.x - pad);
+    const top = Math.floor(bounds.y - pad);
     const area = intersect(
-      { x: left, y: top, w: Math.ceil(rect.right - this.origin.left + pad) - left, h: Math.ceil(rect.bottom - this.origin.top + pad) - top },
+      { x: left, y: top, w: Math.ceil(bounds.x + bounds.w + pad) - left, h: Math.ceil(bounds.y + bounds.h + pad) - top },
       { x: 0, y: 0, w: SLIDE_WIDTH, h: SLIDE_HEIGHT },
     );
     if (area.w < 1 || area.h < 1) return;
@@ -441,7 +484,7 @@ class SlideReader {
    * An element's own painting: background, border and shadow, as one
    * shape. Picture and patterned backgrounds are drawn as a picture.
    */
-  private async panel(el: HTMLElement, frame: Frame, alpha: number, name: string, options: { shadow?: boolean } = {}): Promise<void> {
+  private async panel(el: HTMLElement, frame: Frame, alpha: number, name: string, options: { shadow?: boolean; outline?: Point[] } = {}): Promise<void> {
     const style = this.style(el);
     const image = style.backgroundImage;
     let fill: Fill = { type: 'none' };
@@ -470,7 +513,8 @@ class SlideReader {
       const radiusValue = style.borderTopLeftRadius;
       const radius = cornerRadius(radiusValue, frame.w, frame.h) * frame.sx - inset;
       let geometry: Geometry = { preset: 'rect' };
-      if (/%$/.test(radiusValue.trim()) && parseFloat(radiusValue) >= 50) geometry = { preset: 'ellipse' };
+      if (options.outline) geometry = { path: options.outline.map(([x, y]) => [x * frame.sx, y * frame.sy]), closed: true };
+      else if (/%$/.test(radiusValue.trim()) && parseFloat(radiusValue) >= 50) geometry = { preset: 'ellipse' };
       else if (radius > 0.5) geometry = { preset: 'roundRect', radius };
       this.elements.push({ type: 'shape', name, box, geometry, fill, line, shadow });
     }
@@ -742,7 +786,7 @@ class SlideReader {
   }
 
   /** A picture frame: its panel, then the picture, cropped to what shows. */
-  private async image(el: HTMLElement, frame: Frame, alpha: number, node: ImageNode | undefined): Promise<void> {
+  private async image(el: HTMLElement, frame: Frame, alpha: number, node: ImageNode | undefined, mask?: [number, number][]): Promise<void> {
     const style = this.style(el);
     const img = Array.from(el.children).find((child): child is HTMLImageElement => child instanceof HTMLImageElement) ?? null;
     const src = img ? img.currentSrc || img.getAttribute('src') || '' : '';
@@ -758,10 +802,15 @@ class SlideReader {
       const natural = { w: img.naturalWidth || picture?.width || imgBox.w, h: img.naturalHeight || picture?.height || imgBox.h };
       const content = objectContentRect(own.objectFit, own.objectPosition, imgBox, natural);
       const visible = intersect(content, intersect(imgBox, clip));
+      const clipped = mask ? polygonOutline(mask, visible) : undefined;
+      if (clipped === null && node && mask) {
+        await this.clippedPicture(el, node, frame, mask);
+        return;
+      }
       const whole = Math.abs(visible.x - clip.x) < 1 && Math.abs(visible.y - clip.y) < 1 && Math.abs(visible.w - clip.w) < 1 && Math.abs(visible.h - clip.h) < 1;
       // The frame's shadow goes on the picture when the picture fills it.
-      await this.panel(el, frame, alpha, this.name('Shape'), { shadow: !(whole && plain) });
-      if (visible.w >= 0.5 && visible.h >= 0.5 && content.w > 0 && content.h > 0) {
+      await this.panel(el, frame, alpha, this.name('Shape'), { shadow: !(whole && plain), outline: mask });
+      if (visible.w >= 0.5 && visible.h >= 0.5 && content.w > 0 && content.h > 0 && (!clipped || clipped.length > 0)) {
         const key = known ?? this.media.add(picture!.data, picture!.type, this.job.capture.assets.url(src));
         const crop = {
           l: (visible.x - content.x) / content.w,
@@ -776,7 +825,7 @@ class SlideReader {
         const radiusValue = style.borderTopLeftRadius;
         const radius = whole ? cornerRadius(radiusValue, frame.w, frame.h) * frame.sx : 0;
         const oval = whole && /%$/.test(radiusValue.trim()) && parseFloat(radiusValue) >= 50;
-        const outline = whole ? undefined : this.roundedCut(el, style, visible, clip);
+        const outline = clipped ?? (whole ? undefined : this.roundedCut(el, style, visible, clip));
         this.elements.push({
           type: 'picture',
           name: this.name(node?.video ? 'Video' : 'Picture'),
@@ -793,8 +842,11 @@ class SlideReader {
       }
       placed = true;
       if (node?.video) this.job.notes.add('video', this.entry.number);
+    } else if (mask && node?.video) {
+      await this.clippedPicture(el, node, frame, mask);
+      return;
     } else {
-      await this.panel(el, frame, alpha, this.name('Shape'));
+      await this.panel(el, frame, alpha, this.name('Shape'), { outline: mask });
     }
     if (placed) return;
     if (node?.video) {

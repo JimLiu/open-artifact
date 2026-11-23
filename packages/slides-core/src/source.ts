@@ -1245,7 +1245,7 @@ export function flattenSlide(slide: Slide): string {
 
 /** What a removed property is reset to inline, so the sheet's value stops applying. */
 function resetValue(property: string): string {
-  if (/^(?:background|border(?:-(?:top|right|bottom|left))?|box-shadow|text-shadow|filter|backdrop-filter|transform|max-width|max-height|text-transform|text-decoration|-webkit-text-stroke)$/.test(property)) return 'none';
+  if (/^(?:background|border(?:-(?:top|right|bottom|left))?|clip-path|box-shadow|text-shadow|filter|backdrop-filter|transform|max-width|max-height|text-transform|text-decoration|-webkit-text-stroke)$/.test(property)) return 'none';
   if (/^(?:padding|margin|gap|border-width|border-radius|letter-spacing)$/.test(property)) return '0';
   if (/^(?:width|height|min-width|min-height|left|top|right|bottom|flex-basis|aspect-ratio|grid-column|grid-row)$/.test(property)) return 'auto';
   if (property === 'opacity' || property === 'flex-grow') return '1';

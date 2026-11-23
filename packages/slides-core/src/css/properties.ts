@@ -7,6 +7,7 @@
  */
 
 import type { ItemMargin, ShapeKind } from '../model.ts';
+import { formatClipPath, parseClipPath } from './clip-path.ts';
 import { formatNumber } from './color.ts';
 import {
   formatBackground,
@@ -95,6 +96,7 @@ export const CSS_PROPERTIES = [
   'border-width',
   'border-style',
   'border-radius',
+  'clip-path',
   'box-shadow',
   'opacity',
   'transform',
@@ -683,6 +685,11 @@ export function parseDeclaration(name: string, raw: string, ctx: StyleContext): 
       if (ctx.element === 'shape' && ctx.shape !== 'rect' && ctx.shape !== 'rounded') return fail('border-radius applies to rect shapes only');
       if (!(isDiv(ctx) || text || ['img', 'table', 'shape'].includes(ctx.element))) return notHere();
       return from(property, parseRadius(value));
+    case 'clip-path': {
+      if (!(isDiv(ctx) || ctx.element === 'img' || ctx.element === 'shape')) return notHere();
+      const clip = parseClipPath(value);
+      return clip.ok ? done(property, formatClipPath(clip.value)) : fail(clip.reason);
+    }
     case 'box-shadow': {
       if (!(isDiv(ctx) || text || ['img', 'table', 'icon', 'shape'].includes(ctx.element))) return notHere();
       const s = parseShadows(value);

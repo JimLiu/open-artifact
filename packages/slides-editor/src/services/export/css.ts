@@ -443,6 +443,53 @@ function clipToRect(polygon: Array<[number, number]>, rect: Rect): Array<[number
   return points;
 }
 
+type Vertex = [number, number];
+
+function distinctVertices(points: Vertex[]): Vertex[] {
+  return points.filter(([x, y], i) => {
+    const [nextX, nextY] = points[(i + 1) % points.length]!;
+    return Math.abs(x - nextX) > 1e-6 || Math.abs(y - nextY) > 1e-6;
+  });
+}
+
+function cross([ax, ay]: Vertex, [bx, by]: Vertex, [cx, cy]: Vertex): number {
+  return (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+}
+
+function overlaps(a: number, b: number, c: number, d: number): boolean {
+  return Math.max(a, b) >= Math.min(c, d) && Math.max(c, d) >= Math.min(a, b);
+}
+
+/** A single contour that does not cross or double back on itself. */
+function simplePolygon(points: Vertex[]): boolean {
+  for (const [i, a] of points.entries()) {
+    const b = points[(i + 1) % points.length]!;
+    for (let j = i + 2; j < (i === 0 ? points.length - 1 : points.length); j++) {
+      const c = points[j]!;
+      const d = points[(j + 1) % points.length]!;
+      if (!overlaps(a[0], b[0], c[0], d[0]) || !overlaps(a[1], b[1], c[1], d[1])) continue;
+      if (cross(a, b, c) * cross(a, b, d) <= 0 && cross(c, d, a) * cross(c, d, b) <= 0) return false;
+    }
+  }
+  return true;
+}
+
+/** A clip path inside a panel or picture, in px relative to that rectangle.
+ * Null means the clipped region needs a picture. An empty path paints nothing. */
+export function polygonOutline(points: Vertex[], rect: Rect): Vertex[] | null {
+  const polygon = distinctVertices(points);
+  if (polygon.length < 3 || rect.w <= 0 || rect.h <= 0) return [];
+  if (!simplePolygon(polygon)) return null;
+  const outline = distinctVertices(clipToRect(polygon, rect));
+  if (outline.length < 3) return [];
+  if (!simplePolygon(outline)) return null;
+  const area = outline.reduce((sum, [x, y], i) => {
+    const [nextX, nextY] = outline[(i + 1) % outline.length]!;
+    return sum + (x - rect.x) * (nextY - rect.y) - (nextX - rect.x) * (y - rect.y);
+  }, 0);
+  return Math.abs(area) > 1e-6 ? outline.map(([x, y]) => [x - rect.x, y - rect.y]) : [];
+}
+
 /**
  * The outline a picture is cut to inside a rounded frame, in px relative to
  * the picture, or nothing when every corner of the picture lies within the
@@ -458,10 +505,7 @@ export function pictureOutline(picture: Rect, frame: Rect, radii: readonly Corne
   if (picture.w <= 0 || picture.h <= 0 || corners.every((corner) => insideRounded(frame, radii, corner))) return undefined;
   const outline = clipToRect(roundedPolygon(frame, radii), picture);
   if (outline.length < 3) return undefined;
-  return outline.filter((p, i) => {
-    const next = outline[(i + 1) % outline.length]!;
-    return Math.abs(p[0] - next[0]) > 1e-6 || Math.abs(p[1] - next[1]) > 1e-6;
-  }).map(([x, y]) => [x - picture.x, y - picture.y]);
+  return distinctVertices(outline).map(([x, y]) => [x - picture.x, y - picture.y]);
 }
 
 /** The overlap of two rectangles (zero size when they do not meet). */

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import zlib from 'node:zlib';
-import { emptySlide, type Slide } from '@open-artifact/slides-core';
+import { clipPathPoints, emptySlide, parseClipPath, type Slide } from '@open-artifact/slides-core';
 import {
   cornerRadii,
   cornerRadius,
@@ -12,6 +12,7 @@ import {
   parseColor,
   parseLinearGradient,
   pictureOutline,
+  polygonOutline,
   pptxFont,
   splitTop,
 } from '../src/services/export/css.ts';
@@ -110,6 +111,31 @@ describe('css readers', () => {
     assert.equal(pptxFont('system-ui, sans-serif', 'current'), 'Arial');
     assert.equal(pptxFont('"Playfair Display", serif', 'basic'), 'Georgia');
     assert.equal(pptxFont('"JetBrains Mono", monospace', 'basic'), 'Courier New');
+  });
+
+  it('cuts a polygon to a picture’s visible region', () => {
+    const mask: [number, number][] = [[0, 0], [84.88, 0], [100, 15.12], [100, 100], [0, 100]];
+    const outline = polygonOutline(mask, { x: 0, y: 5, w: 100, h: 80 });
+    assert.ok(outline);
+    assert.ok(outline.some(([x, y]) => Math.abs(x - 89.88) < 1e-6 && y === 0));
+    assert.ok(outline.some(([x, y]) => x === 100 && Math.abs(y - 10.12) < 1e-6));
+    assert.equal(polygonOutline([[0, 0], [100, 100], [0, 100], [100, 0]], { x: 0, y: 0, w: 100, h: 100 }), null);
+    assert.deepEqual(polygonOutline(mask, { x: 150, y: 100, w: 20, h: 20 }), []);
+  });
+
+  it('keeps percentage and concave polygons as native shape outlines', () => {
+    for (const css of [
+      'polygon(50% 0, 100% 100%, 0 100%)',
+      'polygon(25% 0, 75% 0, 100% 50%, 75% 100%, 25% 100%, 0 50%)',
+      'polygon(0 25%, 65% 25%, 65% 0, 100% 50%, 65% 100%, 65% 75%, 0 75%)',
+    ]) {
+      const parsed = parseClipPath(css);
+      assert.ok(parsed.ok && parsed.value);
+      const points = clipPathPoints(parsed.value, 400, 200);
+      const outline = polygonOutline(points, { x: 0, y: 0, w: 400, h: 200 });
+      assert.deepEqual(outline, points);
+      assert.match(geometryXml({ path: outline!, closed: true }, { x: 0, y: 0, w: 400, h: 200 }), /<a:custGeom>[^]*<a:close\/>/);
+    }
   });
 });
 

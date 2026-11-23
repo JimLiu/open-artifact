@@ -86,6 +86,8 @@ export const LIMITS = {
   group: 24,
   /** Stops in one gradient. */
   gradientStops: 8,
+  /** Vertices in one clip-path polygon. */
+  polygonVertices: 128,
   /** Layers of one box-shadow / text-shadow. */
   shadows: 8,
   /** Tracks of one grid template. */

@@ -84,6 +84,7 @@ border: [LEN 0–16, else 1] solid | dashed | dotted | double | none [COLOR] —
 border-top -right -bottom -left: as border · div, text, img, table, x-icon; hr: border-top = its stroke
 border-width, border-style: alone on x-connector only (elsewhere write border)
 border-radius: LEN | PCT (≤50%) ×1–4 (TL TR BR BL; no / form) · div, text, img, table; x-shape rect/rounded
+clip-path: none | polygon([nonzero|evenodd,] X Y, …) · div, img, x-shape; 3–128 points in px, %, or calc(N% ± Npx), relative to the border box
 box-shadow: [inset] LEN LEN [LEN [LEN]] COLOR, … ≤8 (x y ±64, blur ≤160, spread ±32) · div, text, img, table, x-icon, x-shape
 opacity: N 0–1 | PCT · any but span, cells, tr
 transform: translate(LEN[, LEN]) | translateX|Y(LEN | -50%), rotate(ANGLE), scale(N 0.5–2), skew[X|Y](ANGLE ±60) — any subset, in that order, each once · any but section, span, cells, tr, x-connector; x-shape: rotate only

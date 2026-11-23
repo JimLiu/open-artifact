@@ -14,6 +14,7 @@
 - **Full-screen presenter mode**: Present directly from the browser with keyboard navigation and speaker notes.
 - **Design System integration**: Install a [Design System](design-system.md) artifact so its brand colors, text styles, and font files appear in the editor pickers and slides stay on-brand.
 - **Custom fonts & media**: Load Google Fonts or uploaded font files (`.woff2`, `.woff`, `.ttf`, `.otf`), plus uploaded images and video clips (`.mp4`/`.webm`).
+- **Polygon clipping** supports arbitrary polygons on panels and photos with px, percentage and mixed `calc()` coordinates. Simple panels and photos export as editable PowerPoint shapes and pictures.
 - **Collaboration & history**: Pin comments directly onto slides, send threads back to your agent, and browse/restore version history.
 - **Exports**: Export to **PDF**, **PowerPoint (`.pptx`)**, standalone **HTML**, or **PNG** images from **Share → Export**.
 
@@ -41,6 +42,10 @@
   - `project/slides/<id>.html` — one file per slide containing exactly one `<section id="<id>">...</section>` (optional `<aside>` last child for speaker notes; no `<html>`/`<head>`/`<body>`).
   - `project/ds/<folder>/` — copied design system `tokens.json`, fonts, and assets when a design system is installed.
 - **Limits**: Up to 500 slides; up to 1 MB per slide; up to 4 custom font faces; uploaded media up to 25 MB each.
+
+### Polygon shapes and picture frames
+
+Set `clip-path: polygon(...)` on a `<div>`, `<img>` or `<x-shape>` in inline styles or shared `deck.css`. Percentage coordinates support triangles, hexagons, arrows and concave outlines. Mixed coordinates such as `calc(100% - 12px)` keep a fixed distance from an edge as the frame changes size. Put a photo's clip on its `<img>` for an editable crop and custom outline in PowerPoint. Clipped containers with children export as pictures. [Polygon clipping reference](../../artifact-types/slides/reference/images.md#polygon-clipping)
 
 ### Workflow & commands
 
