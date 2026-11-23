@@ -1,6 +1,6 @@
 # Open Artifact
 
-[English](README.md) · 简体中文
+[English](README.md) · 简体中文 · [日本語](README.ja.md)
 
 > **前身是 `baoyu-design`。** 本项目由 [baoyu-design](https://github.com/JimLiu/baoyu-design)（旧地址会自动跳转到这里）
 > 演变而来。baoyu-design 把 claude.ai 风格的 Artifact 类型带到了本地编码 Agent 上，每种类型一个 skill。Open Artifact

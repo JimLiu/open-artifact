@@ -1,6 +1,6 @@
 # Open Artifact
 
-English · [简体中文](README.zh-CN.md)
+English · [简体中文](README.zh-CN.md) · [日本語](README.ja.md)
 
 > **Formerly `baoyu-design`.** This project started as
 > [baoyu-design](https://github.com/JimLiu/baoyu-design) (the old URL redirects here), which brought claude.ai-style
