@@ -25,8 +25,6 @@ export interface BoardState {
   refusal: string | null;
   /** Local changes not yet acknowledged by the store. */
   pending: number;
-  slowSaving: boolean;
-  retryableLoad: boolean;
   /** A fatal load error. */
   error: string | null;
   /** The initial camera, visible elements and toolbar can be shown. */
@@ -52,18 +50,17 @@ export const useBoard = create<BoardState>()(() => ({
   status: 'loading',
   refusal: null,
   pending: 0,
-  slowSaving: false,
-  retryableLoad: false,
   error: null,
   revealed: false,
 }));
 
+/** Shows or hides the board behind its opening veil (see services/reveal.ts). */
 export function setBoardRevealed(revealed: boolean): void {
   if (useBoard.getState().revealed !== revealed) useBoard.setState({ revealed });
 }
 
 /** Replaces the board (from the sync engine). Keeps identity when nothing changed. */
-export function setBoardSnapshot(board: Board, status?: Partial<Pick<BoardState, 'status' | 'refusal' | 'pending' | 'error' | 'slowSaving' | 'retryableLoad'>>): void {
+export function setBoardSnapshot(board: Board, status?: Partial<Pick<BoardState, 'status' | 'refusal' | 'pending' | 'error'>>): void {
   const current = useBoard.getState();
   const next: Partial<BoardState> = { ...status };
   if (board !== current.board) Object.assign(next, { board }, indexBoard(board));

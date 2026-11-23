@@ -10,10 +10,11 @@
  *       overlay (screen units)       SelectionOverlay, CollabOverlay
  *   TimerEndGlow, BoardPill, BoardFoot, SelectionBar, LinkCard, CollabChrome, FindBar,
  *   VersionHistory                   the history panel and a past version's preview
+ * .wb-veil                           over the board until its first view settles
  * ```
  */
 
-import { useEffect, useLayoutEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { EmptyState } from '@open-artifact/ui';
 import { LoaderCircle, TriangleAlert } from 'lucide-react';
 import { BoardSurface } from './canvas/BoardSurface.tsx';
@@ -24,7 +25,7 @@ import { NextItemOffer } from './selection/NextItemOffer.tsx';
 import { SelectionOverlay } from './selection/SelectionOverlay.tsx';
 import { useBoardRecovery, showBoardMedia } from './services/load-recovery.ts';
 import { startBoard } from './services/boot.ts';
-import { hasPendingDrawingLooks } from './services/drawing-looks.ts';
+import { waitForViewportReady } from './services/reveal.ts';
 import { setBoardRevealed, useBoard } from './state/board.ts';
 import { BoardPill } from './ui/BoardPill.tsx';
 import { BoardContextMenu } from './ui/ContextMenu.tsx';
@@ -37,88 +38,17 @@ import './tools/index.ts';
 
 type Phase = { kind: 'starting' } | { kind: 'ready' } | { kind: 'failed'; message: string };
 
-const VIEWPORT_REVEAL_BUDGET_MS = 1500;
-const FONTS_BUDGET_MS = 500;
-function nextFrame(signal: AbortSignal, deadline: number): Promise<void> {
-  return new Promise(resolve => {
-    const frame = requestAnimationFrame(finish);
-    const timer = setTimeout(finish, Math.max(0, deadline - performance.now()));
-    signal.addEventListener('abort', finish, { once: true });
-    function finish() {
-      cancelAnimationFrame(frame);
-      clearTimeout(timer);
-      signal.removeEventListener('abort', finish);
-      resolve();
-    }
-  });
-}
-
-async function decodeImage(img: HTMLImageElement, signal: AbortSignal): Promise<void> {
-  if (typeof img.decode === 'function') {
-    try { await img.decode(); return; } catch { /* The source may have changed while decoding. */ }
-  }
-  if (img.complete || signal.aborted) return;
-  await new Promise<void>(resolve => {
-    img.addEventListener('load', () => resolve(), { once: true, signal });
-    img.addEventListener('error', () => resolve(), { once: true, signal });
-    signal.addEventListener('abort', () => resolve(), { once: true });
-  });
-}
-
-async function waitForViewportReady(signal: AbortSignal): Promise<void> {
-  const start = performance.now();
-  const deadline = start + VIEWPORT_REVEAL_BUDGET_MS;
-  const fontsDeadline = start + FONTS_BUDGET_MS;
-  const decodes = new WeakMap<HTMLImageElement, { src: string; current: string; done: boolean }>();
-  let previousImages: HTMLImageElement[] = [];
-  let previousBoard: ReturnType<typeof useBoard.getState>['board'] | undefined;
-  let stableFrames = 0;
-  while (!signal.aborted && performance.now() < deadline) {
-    await nextFrame(signal, deadline);
-    if (signal.aborted) return;
-    const board = useBoard.getState().board;
-    const images = Array.from(document.querySelectorAll<HTMLImageElement>('.wb-elements img')).filter(img => {
-      const r = img.getBoundingClientRect();
-      return r.width > 0 && r.height > 0 && r.right > 0 && r.bottom > 0 && r.left < innerWidth && r.top < innerHeight;
-    });
-    let stable = board === previousBoard && images.length === previousImages.length &&
-      images.every((image, index) => image === previousImages[index]);
-    for (const img of images) {
-      let decoded = decodes.get(img);
-      if (!decoded || decoded.src !== img.src || decoded.current !== img.currentSrc) {
-        const job = { src: img.src, current: img.currentSrc, done: false };
-        decodes.set(img, job);
-        void decodeImage(img, signal).then(() => { job.done = true; });
-        decoded = job;
-      }
-      if (!decoded.done) stable = false;
-    }
-    const fontsPending = performance.now() < fontsDeadline && document.fonts?.status === 'loading';
-    stableFrames = stable && !fontsPending && !hasPendingDrawingLooks() ? stableFrames + 1 : 0;
-    // Reveal a stable cached viewport even while its list is in flight. Images added
-    // by a server response that has already rendered participate in the same deadline.
-    if (stableFrames >= 2) return;
-    previousImages = images;
-    previousBoard = board;
-  }
-}
-
 /**
  * The running board. Starting it wires page-wide singletons (the session,
  * the sync engine, input listeners), so it starts once per page: React's
  * development double mount (unmount, then mount again at once) keeps the
  * same run instead of tearing it down under the second mount.
  */
-let run: { ready: ReturnType<typeof startBoard>; controller: AbortController; holders: number; stopTimer?: ReturnType<typeof setTimeout> } | null = null;
-let shutdown: Promise<void> | undefined;
+let run: { ready: Promise<() => void>; holders: number; stopTimer: ReturnType<typeof setTimeout> | undefined } | null = null;
 
 /** Starts the board, or joins the run already started. */
 function holdBoard(): Promise<unknown> {
-  if (!run) {
-    const controller = new AbortController();
-    const start = () => startBoard(controller.signal);
-    run = { ready: shutdown ? shutdown.then(start, start) : start(), controller, holders: 0 };
-  }
+  run ??= { ready: startBoard(), holders: 0, stopTimer: undefined };
   clearTimeout(run.stopTimer);
   run.stopTimer = undefined;
   run.holders += 1;
@@ -134,22 +64,21 @@ function releaseBoard(): void {
   current.stopTimer = setTimeout(() => {
     if (run !== current || current.holders > 0) return;
     run = null;
-    current.controller.abort();
-    const done = current.ready.then(stop => stop(), () => {});
-    shutdown = done;
-    const forget = () => { if (shutdown === done) shutdown = undefined; };
-    void done.then(forget, error => { forget(); reportError(error); });
+    current.ready.then(
+      (stop) => stop(),
+      () => {},
+    );
   }, 0);
 }
 
 /** The editor root. */
 export function App() {
   const paused = useBoardRecovery((state) => state.paused);
-  const loaded = useBoard(state => state.status !== 'loading');
-  const revealed = useBoard(state => state.revealed);
+  const loaded = useBoard((state) => state.status !== 'loading');
+  const revealed = useBoard((state) => state.revealed);
   const [phase, setPhase] = useState<Phase>({ kind: 'starting' });
 
-  useLayoutEffect(() => {
+  useEffect(() => {
     let cancelled = false;
     holdBoard()
       .then(() => {
@@ -164,6 +93,7 @@ export function App() {
     };
   }, []);
 
+  // The board is shown once loaded and its first view has settled (see services/reveal.ts).
   useEffect(() => {
     if (phase.kind !== 'ready' || !loaded || revealed) return;
     const controller = new AbortController();

@@ -104,3 +104,13 @@ The kit (`packages/harness-kit/src/`) mirrors this from the app side: `harness.t
 the process itself, as an Electron app does with `utilityProcess.fork`), `skill.ts`, `context.ts`, `embed/` and `testing.ts`.
 Shell-side, `packages/shell/src/shell/bridge.ts`, `view-channel.ts` and `lib/host-origins.ts` speak the host messages
 of `packages/protocol/src/shell.ts`.
+
+Between the Shell and its framed page, `bridge.ts` speaks the chrome messages of the same file (`chrome_hello`,
+`chrome_report`, `chrome_cmd`). The Shell covers the frame while its document loads and lifts the cover on the page's
+first report, on `load` for a static page, or `FRAME_READY_FALLBACK_MS` after `load`. A page that reports
+`ready: false` keeps the cover until it reports otherwise, for at most `CHROME_READY_TIMEOUT_MS`; once the page has
+been shown, `ready: false` is ignored until the frame loads another document. `saved: 'saving'` covers edits waiting
+out a write debounce (the Shell shows it after `SAVING_SHOWN_AFTER_MS`); `unsaved` means a save failed. The runtime's
+`shellArtifactId()` (also `ShellConnection.artifactId`) reads the artifact id the Shell puts on the page address: on a
+cloud host the page path carries a page token that changes on every load, so per-artifact memory in the page's browser
+storage is keyed by that id (the whiteboard keeps its camera, saved copy, load marker and agent status this way).

@@ -103,7 +103,7 @@ function publish(): void {
   useDrawingLooks.setState({ painted: new Map([...paintings].map(([key, painting]) => [key, painting.url])) });
 }
 
-/** Remove retired URLs from the store before releasing them. */
+/** Frees paintings: out of the store first, so no view draws a URL after it is revoked. */
 function publishWithout(keys: Iterable<string>): void {
   const retired: string[] = [];
   for (const key of keys) {
@@ -115,12 +115,16 @@ function publishWithout(keys: Iterable<string>): void {
   for (const url of retired) URL.revokeObjectURL(url);
 }
 
-/** Keeps a new painting, letting go of the oldest of its source past {@link PAINTINGS_PER_SOURCE}. */
+/** A source's paintings to let go: its oldest ones not in view, past {@link PAINTINGS_PER_SOURCE}. */
 function expired(group: string): string[] {
   return [...paintings].filter(([key, painting]) => painting.group === group && !consumers.has(key))
     .map(([key]) => key).slice(0, -PAINTINGS_PER_SOURCE);
 }
 
+/**
+ * Marks a painting as in view, so it is not let go as one of its source's older paintings while it shows (a view keeps
+ * drawing its previous painting until the new one is ready). Returns a function that releases it.
+ */
 export function retainDrawingLook(key: string): () => void {
   const owner = generation;
   consumers.set(key, (consumers.get(key) ?? 0) + 1);
@@ -175,6 +179,7 @@ export function requestDrawingLook(request: LookRequest): Promise<string | undef
   return painting;
 }
 
+/** A painting is being made (the board's reveal waits for it, within its budget). */
 export function hasPendingDrawingLooks(): boolean {
   return pending.size > 0;
 }

@@ -31,7 +31,7 @@ export { CHROME_PEER_KEY, MAX_CHROME_PEERS };
 export interface ShellConnection {
   /** The Shell's origin. */
   readonly origin: string;
-  /** The artifact's stable id, when supplied by the Shell. */
+  /** The artifact's id from the Shell, `null` when it gave none (see {@link shellArtifactId}). */
   readonly artifactId?: string | null;
   /**
    * What the Shell draws for the page (its last `chrome_hello`). While it
@@ -92,14 +92,22 @@ export function shellOrigin(href: string = location.href): string | null {
   }
 }
 
+/**
+ * The artifact id the Shell put on the page URL (`open_artifact_id`), or `null` when not inside a Shell or it gave none.
+ * Unlike the page's path, it stays the same across reloads on a cloud host, whose path carries a new token each time.
+ */
+export function shellArtifactId(href: string = location.href): string | null {
+  if (!shellOrigin(href)) return null;
+  return new URL(href).searchParams.get(SHELL_PARAMS.id)?.trim() || null;
+}
+
 /** Connects to the Shell, or returns `null` when the page is standalone. */
 export function connectShell(): ShellConnection | null {
   const origin = shellOrigin();
   if (!origin) return null;
-  const artifactId = new URLSearchParams(window.location.search).get(SHELL_PARAMS.id)?.trim() || null;
+  const artifactId = shellArtifactId();
 
   let lastReport: ChromeReport = {};
-  const identity = { documentId: performance.timeOrigin, leavingToken: crypto.getRandomValues(new Uint32Array(4)).join('-') };
   let draws: ReadonlySet<ChromeDraw> = new Set();
   let writesClipboard = false;
   let clipboardSeq = 0;
@@ -112,7 +120,7 @@ export function connectShell(): ShellConnection | null {
   const post = (message: Record<string, unknown>): void => {
     window.parent.postMessage({ openArtifact: message.openArtifact, ...message }, origin);
   };
-  const sendReport = () => post({ openArtifact: 'chrome_report', protocol: SHELL_PROTOCOL, ...identity, report: lastReport });
+  const sendReport = () => post({ openArtifact: 'chrome_report', protocol: SHELL_PROTOCOL, report: lastReport });
 
   const onMessage = (event: MessageEvent): void => {
     if (event.origin !== origin || event.source !== window.parent) return;
@@ -168,9 +176,7 @@ export function connectShell(): ShellConnection | null {
         break;
     }
   };
-  const onPageHide = () => post({ openArtifact: 'chrome_leaving', ...identity });
   window.addEventListener('message', onMessage);
-  window.addEventListener('pagehide', onPageHide);
 
   return {
     origin,
@@ -239,7 +245,6 @@ export function connectShell(): ShellConnection | null {
     },
     dispose() {
       window.removeEventListener('message', onMessage);
-      window.removeEventListener('pagehide', onPageHide);
       for (const waiting of clipboardWaiting.values()) waiting.reject(new Error('The Shell connection closed.'));
       clipboardWaiting.clear();
       commandHandlers.clear();

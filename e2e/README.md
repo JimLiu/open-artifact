@@ -122,6 +122,14 @@ When Chrome stops a frame's renderer (Chrome shows the frame as gone and the pag
 - On the cloud page, the owner comments with "Send to <agent>" on. `open-artifact wait` in the agent's session gets the comment.
 - A file written in the local folder shows on the open cloud page without a reload. The daemon's folder watcher pushes it (the periodic rescan is off), the host's type server sees an outside change, and the page hears it over its event stream.
 
+**A whiteboard reloads on a slow cloud host** (`host-refresh.test.mjs`, Chrome only)
+
+- The same host with an imported whiteboard, behind a small proxy that holds `_api/db` and `_api/session` requests for 800 ms. Every load gets a new page token in its path (`/whiteboard/v1.<token>/`).
+- On first open and on reload, the Shell's cover is never lifted while the board is empty or under its "Opening the board…" veil, and the Share button stays where it first showed.
+- The owner zooms out with ctrl + wheel. Two reloads open at that zoom. Storage then holds one camera (`wb-camera:artifact:<id>`) and one saved copy (`wb-copy:…`). A whole-board copy and a camera that an older page filed under its own token (`wb-saved-copy:/whiteboard/v1.…`) are gone.
+- Dragging an element with the real mouse while writes are slow never shows "Couldn't save". "Saving…" shows, then goes once the write lands.
+- With `_api/db` held past the Shell's cap, the cover goes about `CHROME_READY_TIMEOUT_MS` (10 s) after the reload. A page that reports `ready: false` cannot keep it up for longer.
+
 **Cloud host on a LAN, set up in advance** (`host-auto.test.mjs`, Chrome only)
 
 - The real host on plain http under made-up private names: the app at `http://oa.lan:<port>`, each artifact at `http://<id>.oa-content.lan:<port>`. Without `OA_ALLOW_HTTP` and without a signing key: a private name is allowed both. Nothing resolves `.lan` here, so the daemon gets a `dns.lookup` preload (via `NODE_OPTIONS`) and Chrome `--host-resolver-rules`, both mapping `*.lan` to 127.0.0.1; the names are what decide whether http is allowed.

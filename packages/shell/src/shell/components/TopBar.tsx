@@ -5,6 +5,7 @@
  */
 
 import { PanelLeft, CloudAlert, History, LoaderCircle, Lock, MessageSquare, RotateCw, X } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { Button, IconButton, cn } from '@open-artifact/ui';
 import { StatusDot } from '../../components/OwnerBadge.tsx';
 import { t } from '../../lib/i18n.ts';
@@ -14,7 +15,7 @@ import { Account } from '../../components/Account.tsx';
 import { SiteBrand } from '../../components/SiteBrand.tsx';
 import { mayComment } from '../../lib/cloud.ts';
 import { useAgentName, useCanOpenSession, useCloud, useMayAsk, useOwner, useOwnerState, useRole, useWorking } from '../hooks.ts';
-import { saveIndicator } from '../model.ts';
+import { SAVING_SHOWN_AFTER_MS, saveIndicator } from '../model.ts';
 import { useShell } from '../store.ts';
 import { Peers } from './Peers.tsx';
 import { SharePanel } from './SharePanel.tsx';
@@ -33,14 +34,28 @@ function Working() {
   );
 }
 
+/** `active` has held for `ms` (false again as soon as it stops). */
+function useLasting(active: boolean, ms: number): boolean {
+  const [lasting, setLasting] = useState(false);
+  useEffect(() => {
+    if (!active) {
+      setLasting(false);
+      return;
+    }
+    const timer = setTimeout(() => setLasting(true), ms);
+    return () => clearTimeout(timer);
+  }, [active, ms]);
+  return active && lasting;
+}
+
 /** The page's save state (the header indicator): Saving…, a retry after a failed save, Read-only. */
 function SaveState() {
-  const state = useShell(s => !s.pageReady ? 'loading'
-    : s.boot?.type === 'docs' && s.report.saved === 'reconnecting' ? 'reconnecting' : saveIndicator(s.report));
+  const indicated = useShell(s => s.boot?.type === 'docs' && s.report.saved === 'reconnecting' ? 'reconnecting' : saveIndicator(s.report));
+  // Saving… only once a save lasts, so the bar does not flicker on every edit.
+  const lasting = useLasting(indicated === 'saving', SAVING_SHOWN_AFTER_MS);
+  const state = indicated === 'saving' && !lasting ? 'none' : indicated;
   const quiet = 'inline-flex min-w-0 items-center gap-1.5 whitespace-nowrap text-xs text-fg-muted';
   switch (state) {
-    case 'loading':
-    case 'syncing':
     case 'saving':
     case 'reconnecting':
       return (
@@ -49,10 +64,6 @@ function SaveState() {
           <span className="max-sm:hidden">{t(state)}</span>
         </span>
       );
-    case 'loadError':
-      return <span role="status" data-shell-save-state={state} className={quiet}>{t('loadError')}</span>;
-    case 'retryLoad':
-      return <Button data-shell-save-state="loadError" size="sm" variant="ghost" icon={<RotateCw className="size-3.5" />} onClick={() => runAction('save_now')}>{t('retryLoad')}</Button>;
     case 'unsaved':
       return (
         <span role="status" data-shell-save-state="unsaved" title={t('notSavedTitle')} className={cn(quiet, 'text-danger')}>

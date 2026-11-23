@@ -129,18 +129,12 @@ export function panToPoint(point: Point): void {
   setCamera(centerOn(point, state.camera.zoom, state.width, state.height));
 }
 
-/** The Shell's artifact id survives page-token rotation. Standalone boards keep their path. */
-export function boardStorageKey(shell: { artifactId?: string | null } | null | undefined): string {
-  return shell?.artifactId ? `artifact:${encodeURIComponent(shell.artifactId)}` : location.pathname;
-}
-
-/** Restores this tab's last camera, migrating a path-keyed camera the first time a Shell supplies an id. */
-export function restoreCamera(key: string, fallbackKey?: string): boolean {
-  let camera = recallCamera(key);
-  if (!camera && fallbackKey && fallbackKey !== key) {
-    camera = recallCamera(fallbackKey);
-    if (camera) rememberCamera(key, camera);
-  }
+/**
+ * Restores this tab's last camera on a board; `false` when there is none. It can run before the
+ * viewport is measured: `setCamera` clamps the zoom to the layout now, `setViewport` to the one measured.
+ */
+export function restoreCamera(key: string): boolean {
+  const camera = recallCamera(key);
   if (!camera) return false;
   setCamera(camera);
   return true;

@@ -276,13 +276,6 @@ export function pageOriginOf(page: string | null, shellHref: string): string {
   }
 }
 
-/** A detached pagehide sender can prove it owned the currently bound document. */
-export function handlePageLeaving(frameWindow: Window | null, source: MessageEventSource | null,
-  expectedToken: string | undefined, receivedToken: unknown, beginNavigation: () => void): void {
-  const detached = source === null && expectedToken !== undefined && receivedToken === expectedToken;
-  if ((frameWindow !== null && source === frameWindow) || detached) beginNavigation();
-}
-
 /**
  * The Share button shows "shared": from the share state when loaded (on a cloud host: anyone named, or access past
  * them), else the page or the library.
@@ -439,7 +432,7 @@ export function devBoot(
 
 // ---- the page's report (chrome protocol) --------------------------------------------------------------------------
 
-const SAVED: readonly ChromeSaved[] = ['loading', 'syncing', 'loadError', 'saved', 'saving', 'unsaved', 'reconnecting', 'readonly'];
+const SAVED: readonly ChromeSaved[] = ['saved', 'saving', 'unsaved', 'reconnecting', 'readonly'];
 const WHY: readonly ChromeWhy[] = ['older_version', 'agent_working', 'draft_open', 'comments_on', 'needs_agent', 'unsaved', 'other'];
 const ACTION_ID = /^[a-z][a-z0-9_-]{0,31}$/;
 /** Formats a page may list, and variants per format (Design's PNG has nine). */
@@ -624,8 +617,14 @@ export function menuActions(report: ChromeReport): ChromeAction[] {
   return (report.actions ?? []).filter((action) => !DRAWN_ELSEWHERE.has(action.id));
 }
 
+/**
+ * How long a page must keep saving before the bar says "Saving…", ms. Pages report `saving` for every edit (it covers
+ * the write debounce too), so a quick save never shows.
+ */
+export const SAVING_SHOWN_AFTER_MS = 500;
+
 /** What the save indicator shows. */
-export type SaveIndicator = 'none' | 'loading' | 'syncing' | 'loadError' | 'retryLoad' | 'saving' | 'reconnecting' | 'unsaved' | 'retry' | 'readonly';
+export type SaveIndicator = 'none' | 'saving' | 'reconnecting' | 'unsaved' | 'retry' | 'readonly';
 
 /**
  * The save indicator: Read-only always; Saving…
@@ -636,12 +635,8 @@ export type SaveIndicator = 'none' | 'loading' | 'syncing' | 'loadError' | 'retr
 export function saveIndicator(report: ChromeReport): SaveIndicator {
   const save = actionOf(report, 'save_now');
   switch (report.saved) {
-    case 'loading':
-    case 'syncing':
     case 'readonly':
-      return report.saved;
-    case 'loadError':
-      return save && !save.disabled ? 'retryLoad' : 'loadError';
+      return 'readonly';
     case 'unsaved':
       return save && !save.disabled ? 'retry' : 'unsaved';
     case 'saving':

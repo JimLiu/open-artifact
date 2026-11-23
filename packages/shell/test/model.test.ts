@@ -10,7 +10,6 @@ import {
   countText,
   deliveryOf,
   devBoot,
-  handlePageLeaving,
   isShared,
   isWorking,
   leastRole,
@@ -53,19 +52,6 @@ const artifact = (id: string, patch: Partial<ArtifactView> = {}): ArtifactView =
 });
 
 describe('shell model', () => {
-  it('accepts a detached pagehide only with the token of the active document', () => {
-    let navigations = 0;
-    const leave = (expected?: string, received?: string) =>
-      handlePageLeaving(null, null, expected, received, () => { navigations++; });
-    leave();
-    leave(undefined, 'unbound');
-    leave('current');
-    leave('current', 'previous');
-    assert.equal(navigations, 0);
-    leave('current', 'current');
-    assert.equal(navigations, 1);
-  });
-
   it('keeps inactive toolbar slots during restoration and clears the old frame report on every boot', t => {
     t.after(() => useShell.setState(useShell.getInitialState(), true));
     const store = useShell.getState();
@@ -76,10 +62,10 @@ describe('shell model', () => {
     store.setReport({ ready: true, saved: 'saved', history: true, comments });
     store.setPageReady(true);
     store.setFrameLoading();
-    store.setReport({ ready: false, saved: 'loading' });
+    store.setReport({ ready: false });
     assert.equal(useShell.getState().pageReady, false);
     assert.deepEqual(useShell.getState().rememberedChrome, { history: true, comments: { ...comments, on: false, open: false } });
-    store.setReport({ ready: true, saved: 'syncing', comments: { ...comments, pageButton: true } });
+    store.setReport({ ready: true, saved: 'saved', comments: { ...comments, pageButton: true } });
     assert.deepEqual(useShell.getState().rememberedChrome, {});
     store.setBoot(boot);
     assert.equal(useShell.getState().bootGen, gen + 1);
@@ -276,12 +262,9 @@ describe('the page report (chrome protocol)', async () => {
 
   it('shows save state: read-only always, saving only with save_now, a retry when save_now runs', () => {
     assert.equal(saveIndicator({ saved: 'readonly' }), 'readonly');
-    for (const saved of ['loading', 'syncing', 'loadError'] as const) {
-      assert.deepEqual(normalizeReport({ ready: false, saved }), { ready: false, saved });
-      assert.equal(saveIndicator({ saved }), saved);
-    }
+    assert.deepEqual(normalizeReport({ ready: false, saved: 'saved' }), { ready: false, saved: 'saved' });
     assert.equal(normalizeReport({ ready: 'later' }).ready, undefined);
-    assert.equal(saveIndicator({ saved: 'loadError', actions: [{ id: 'save_now' }] }), 'retryLoad');
+    assert.equal(normalizeReport({ saved: 'loading' }).saved, undefined);
     assert.equal(saveIndicator({ saved: 'saving' }), 'none');
     assert.equal(saveIndicator({ saved: 'saving', actions: [{ id: 'save_now' }] }), 'saving');
     assert.equal(saveIndicator({ saved: 'unsaved' }), 'unsaved');

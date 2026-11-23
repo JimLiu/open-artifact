@@ -1,10 +1,11 @@
 import { create } from 'zustand';
 import { useBoard } from '../state/board.ts';
+import { boardScope } from './storage-scope.ts';
 
 export const useBoardRecovery = create(() => ({ paused: false }));
 const SETTLE_MS = 5000;
 let finishGuard: (() => void) | undefined;
-const marker = () => 'wb-load:' + location.pathname;
+const marker = () => 'wb-load:' + boardScope();
 
 /** Hold a per-board marker until the document is loaded and the renderer has delivered five seconds of frames. */
 function guard(storage: Storage, key: string, retry: boolean, release: () => void): void {

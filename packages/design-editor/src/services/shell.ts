@@ -43,7 +43,9 @@ function savedOf(save: SaveState): NonNullable<ChromeReport['saved']> {
       return 'saved';
     case 'saving':
       return 'saving';
+    // Edits waiting out the save debounce: on their way, not failed (a failed save is `offline` or `error`).
     case 'dirty':
+      return 'saving';
     case 'error':
       return 'unsaved';
     case 'offline':

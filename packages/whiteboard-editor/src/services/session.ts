@@ -9,7 +9,6 @@
  * (`roleAbilities`, `@open-artifact/editor-kit`): guests never get the owner's agent or host downloads.
  */
 
-import { ArtifactError, createLocalProvider, installRuntime } from '@open-artifact/runtime';
 import type {
   AgentCapability,
   AssetsCapability,
@@ -49,34 +48,15 @@ export const session = slot.session;
 /** The session, or `null` before it started (for code that may run early). */
 export const maybeSession = slot.maybeSession;
 
-let localStartup: Promise<void> | undefined;
-
-/** Bind the standalone page's runtime once its local session answers. The provider reuses that session for its capabilities. */
-async function openLocalSession(): Promise<void> {
-  const provider = createLocalProvider();
-  let timer = 0;
-  try {
-    await Promise.race([
-      provider.get('user'),
-      new Promise<never>((_, reject) => {
-        timer = window.setTimeout(() => reject(new ArtifactError('unavailable', 'The board session timed out.')), 10_000);
-      }),
-    ]);
-    installRuntime(provider);
-  } catch (error) {
-    if (error instanceof ArtifactError && (error.code === 'unavailable' || error.retryable)) localStartup = undefined;
-    throw error;
-  } finally {
-    window.clearTimeout(timer);
-  }
-}
-
-/** Connects to the host. Rejects when the document store is unavailable. */
-export async function startSession(connection?: ShellConnection | null): Promise<Session> {
-  if (connection === null && !window.openartifact) await (localStartup ??= openLocalSession());
-  const { caps, viewer, abilities, shell } = await connectHost(['db', 'comments', 'assets', 'agent', 'room', 'downloads', 'history'], connection);
+/**
+ * Connects to the host. Rejects when the document store is unavailable. `shell`: the Shell connection the boot
+ * already opened (`null` outside a Shell), so the page keeps one connection; omitted, the session opens its own.
+ */
+export async function startSession(shell?: ShellConnection | null): Promise<Session> {
+  const connected = await connectHost(['db', 'comments', 'assets', 'agent', 'room', 'downloads', 'history'], shell);
+  const { caps, viewer, abilities } = connected;
   const { db, comments, assets, agent, room, downloads, history } = caps;
   if (!db) throw new Error('This page could not reach its board. Open it again from your agent.');
   const peerId = (await room?.self().catch(() => null)) ?? viewer.id;
-  return slot.set({ db, comments, assets, agent, room, downloads: abilities.canSaveToHost ? downloads : null, history, viewer, peerId, ...abilities, shell });
+  return slot.set({ db, comments, assets, agent, room, downloads: abilities.canSaveToHost ? downloads : null, history, viewer, peerId, ...abilities, shell: connected.shell });
 }

@@ -169,8 +169,6 @@ export interface LiveNotice {
 export interface LiveSnapshot<T> {
   readonly value: T;
   readonly loadState: LiveLoadState;
-  /** The saved copy is visible during the first, still-responsive list request. */
-  readonly revalidating?: boolean;
   readonly status: LiveStatus;
   /** Status text in English (the UI may localize from `status` and the counts). */
   readonly message: string;
@@ -209,8 +207,6 @@ export interface LiveCache {
   read(): SyncDocument[] | undefined;
   /** Replaces the saved copy. */
   write(documents: SyncDocument[]): void;
-  /** Invalidates saved documents and older writers sharing this cache. */
-  clear?(): void;
 }
 
 /** Options of {@link createLiveStore}. */
@@ -218,8 +214,6 @@ export interface LiveStoreOptions<T, C = unknown> {
   transport: SyncTransport;
   /** Keeps a saved copy to show when the store is out of reach. */
   cache?: LiveCache;
-  /** Read the confirmed copy synchronously while requesting the current documents. */
-  eagerCache?: boolean;
   codec: LiveCodec<T, C>;
   /** The value shown until the first snapshot arrives. */
   initial: T;
@@ -447,8 +441,6 @@ export function createLiveStore<T, C = unknown>(options: LiveStoreOptions<T, C>)
 
   let value = options.initial;
   let unmaterialized = false;
-  let editBase: { value: T } | undefined;
-  let lastSplit: DocumentMap | undefined;
   let materializeTimer: TimerHandle | undefined;
 
   let loadState: LiveLoadState = 'loading';
@@ -573,7 +565,6 @@ export function createLiveStore<T, C = unknown>(options: LiveStoreOptions<T, C>)
     if (!canEdit()) return false;
     if (next === value) return true;
     const previous = value;
-    if (!unmaterialized && (options.eagerCache || loadState === 'cached')) editBase = { value: previous };
     value = next;
     unmaterialized = true;
     if (materializeTimer === undefined) materializeTimer = timers.setTimeout(materialize, MIN_SYNC_TIMER_DELAY_MS);
@@ -590,30 +581,25 @@ export function createLiveStore<T, C = unknown>(options: LiveStoreOptions<T, C>)
     if (!unmaterialized) return;
     unmaterialized = false;
     const now = timers.now();
-    // A saved copy or list may omit fields supplied by the codec. Compare the two editor values, then apply
-    // only their differences to the raw documents. Reuse the split until a new remote value is composed.
-    const before = editBase ? lastSplit ?? codec.decompose(editBase.value, local, carry) : local;
-    const next = codec.decompose(value, before, carry);
-    lastSplit = editBase ? next : undefined;
-    editBase = undefined;
-    let changed = false;
+    const next = codec.decompose(value, local, carry);
+    const touched: string[] = [];
     for (const [path, doc] of next) {
-      const previous = before.get(path);
-      if (previous === doc || (previous && canonicalValuesEqual(previous, doc))) continue;
-      const raw = local.get(path);
-      const edit = previous && previous !== raw && !codec.replaceOnly(path) ? changeBetween(previous, doc, false) : undefined;
-      const target = edit ? applyChange(raw ?? previous, edit, false)! : doc;
-      stage(path, target, now);
-      local.set(path, target);
-      changed = true;
+      const previous = local.get(path);
+      if (previous === doc) continue;
+      if (previous !== undefined && canonicalValuesEqual(previous, doc)) {
+        next.set(path, previous);
+        continue;
+      }
+      stage(path, doc, now);
+      touched.push(path);
     }
-    for (const path of before.keys()) {
+    for (const path of local.keys()) {
       if (next.has(path)) continue;
       stage(path, undefined, now);
-      local.delete(path);
-      changed = true;
+      touched.push(path);
     }
-    if (changed) schedule();
+    local = next;
+    if (touched.length > 0) schedule();
     emitStatus();
   }
 
@@ -647,7 +633,7 @@ export function createLiveStore<T, C = unknown>(options: LiveStoreOptions<T, C>)
   /* ----------------------------------------------------------- remote edits */
 
   function onRemote(event: SyncChangeEvent): void {
-    if (disposed || stopped) return;
+    if (disposed) return;
     if (buffered !== undefined) {
       buffered.push(event);
       return;
@@ -707,7 +693,6 @@ export function createLiveStore<T, C = unknown>(options: LiveStoreOptions<T, C>)
   }
 
   function recompose(remote: boolean): void {
-    lastSplit = undefined;
     const previous = value;
     const composed = codec.compose(local);
     carry = composed.carry;
@@ -735,21 +720,17 @@ export function createLiveStore<T, C = unknown>(options: LiveStoreOptions<T, C>)
     slowTimer = timers.setTimeout(() => {
       if (attempt !== loadAttempt || !awaitingStore()) return;
       loadSlow = true;
-      showSavedCopy();
-      emitStatus();
+      if (!showSavedCopy()) emitStatus();
     }, LIVE_SNAPSHOT_TIMEOUT_MS);
     loadTimer = timers.setTimeout(() => {
       if (attempt !== loadAttempt || !awaitingStore()) return;
       loadFailed(attempt, { code: 'unavailable', message: 'timed out' });
     }, LIVE_EXTENDED_LOAD_TIMEOUT_MS);
-    if (options.eagerCache && loadState === 'loading') showSavedCopy();
     emitStatus();
     Promise.all(codec.collections.map((collection) => transport.list(collection))).then(
       (lists) => {
         if (attempt !== loadAttempt || disposed) return;
         clearLoadTimers();
-        // Stage edits against the saved records before replacing those records with the authoritative list.
-        materialize();
         const seen = new Set<string>();
         for (const list of lists) {
           for (const document of list) {
@@ -782,14 +763,22 @@ export function createLiveStore<T, C = unknown>(options: LiveStoreOptions<T, C>)
             entry.removedSeen = data === null;
           }
         }
-        rebuildLocal();
+        local = new Map();
+        bytes.clear();
+        totalBytes = 0;
+        for (const entry of entries.values()) {
+          const doc = viewOf(entry, true);
+          if (doc === undefined) continue;
+          local.set(entry.path, doc);
+          setBytes(entry.path, doc);
+        }
+        recompose(true);
         schedule();
         saveCopySoon();
       },
       (error: unknown) => {
         if (attempt !== loadAttempt || disposed) return;
-        const code = typeof error === 'object' && error !== null && 'code' in error && error.code === 'refused' ? 'refused' : syncErrorCode(error);
-        loadFailed(attempt, { code, message: syncErrorMessage(error) });
+        loadFailed(attempt, { code: syncErrorCode(error), message: syncErrorMessage(error) });
       },
     );
   }
@@ -801,32 +790,17 @@ export function createLiveStore<T, C = unknown>(options: LiveStoreOptions<T, C>)
     buffered = [];
     lastError = error;
     const code = error.code;
-    if (code === 'refused' || isAccessError(code)) {
-      loadState = 'failed';
-      stopAccess();
-      const previous = value;
-      if (materializeTimer !== undefined) timers.clearTimeout(materializeTimer);
-      materializeTimer = undefined;
-      unmaterialized = false;
-      editBase = undefined;
-      lastSplit = undefined;
-      entries.clear();
-      local.clear();
-      bytes.clear();
-      totalBytes = 0;
-      carry = undefined;
-      value = options.initial;
-      emit({ remote: true, valueChanged: value !== previous, previous });
-      resolveFlushWaiters();
-      return;
+    const retrying = code !== 'refused' && !isAccessError(code);
+    // Out of reach (not refused): show the saved copy, if there is one, while retrying.
+    if (!retrying || !showSavedCopy()) loadState = 'failed';
+    if (retrying) {
+      const delay = LIVE_RECONNECT_BACKOFF_MS[Math.min(loadFailures, LIVE_RECONNECT_BACKOFF_MS.length - 1)] ?? 60_000;
+      loadFailures += 1;
+      retryLoadTimer = timers.setTimeout(() => {
+        retryLoadTimer = undefined;
+        if (loadState === 'failed' || loadState === 'cached') load();
+      }, delay);
     }
-    const delay = LIVE_RECONNECT_BACKOFF_MS[Math.min(loadFailures, LIVE_RECONNECT_BACKOFF_MS.length - 1)] ?? 60_000;
-    loadFailures += 1;
-    if (!showSavedCopy()) loadState = 'failed';
-    retryLoadTimer = timers.setTimeout(() => {
-      retryLoadTimer = undefined;
-      load();
-    }, delay);
     emitStatus();
   }
 
@@ -846,11 +820,6 @@ export function createLiveStore<T, C = unknown>(options: LiveStoreOptions<T, C>)
       entry.server = document.data;
       entry.removedSeen = false;
     }
-    rebuildLocal();
-    return true;
-  }
-
-  function rebuildLocal(): void {
     local = new Map();
     bytes.clear();
     totalBytes = 0;
@@ -861,12 +830,12 @@ export function createLiveStore<T, C = unknown>(options: LiveStoreOptions<T, C>)
       setBytes(entry.path, doc);
     }
     recompose(true);
+    return true;
   }
 
   function readSavedCopy(): SyncDocument[] | undefined {
     try {
-      const saved = options.cache?.read();
-      return saved?.length ? saved : undefined;
+      return options.cache?.read();
     } catch {
       return undefined;
     }
@@ -885,7 +854,7 @@ export function createLiveStore<T, C = unknown>(options: LiveStoreOptions<T, C>)
 
   /** Updates the saved copy after {@link LIVE_CACHE_WRITE_DELAY_MS} (live only). */
   function saveCopySoon(): void {
-    if (options.cache === undefined || stopped || loadState !== 'live' || disposed || cacheTimer !== undefined) return;
+    if (options.cache === undefined || loadState !== 'live' || disposed || cacheTimer !== undefined) return;
     cacheTimer = timers.setTimeout(() => {
       cacheTimer = undefined;
       saveCopyNow();
@@ -893,7 +862,7 @@ export function createLiveStore<T, C = unknown>(options: LiveStoreOptions<T, C>)
   }
 
   function saveCopyNow(): void {
-    if (options.cache === undefined || stopped || loadState !== 'live') return;
+    if (options.cache === undefined || loadState !== 'live') return;
     try {
       options.cache.write(confirmedDocuments());
     } catch {
@@ -904,18 +873,6 @@ export function createLiveStore<T, C = unknown>(options: LiveStoreOptions<T, C>)
   function clearLoadTimers(): void {
     for (const handle of [loadTimer, slowTimer, retryLoadTimer]) if (handle !== undefined) timers.clearTimeout(handle);
     loadTimer = slowTimer = retryLoadTimer = undefined;
-  }
-
-  function stopAccess(): void {
-    if (stopped) return;
-    stopped = true;
-    buffered = undefined;
-    if (cacheTimer !== undefined) timers.clearTimeout(cacheTimer);
-    cacheTimer = undefined;
-    try {
-      if (options.cache?.clear) options.cache.clear();
-      else options.cache?.write([]);
-    } catch { /* An unavailable cache cannot be written again by this store. */ }
   }
 
   /* ---------------------------------------------------------------- writes */
@@ -1083,12 +1040,6 @@ export function createLiveStore<T, C = unknown>(options: LiveStoreOptions<T, C>)
     flights.delete(flight);
     if (disposed) return;
     const now = timers.now();
-    if (stopped) {
-      for (const entry of flight.entries) restorePending(entry, now);
-      emitStatus();
-      resolveFlushWaiters();
-      return;
-    }
     if (failure === undefined) {
       backpressureSince = undefined;
       lastSyncedAt = now;
@@ -1130,7 +1081,7 @@ export function createLiveStore<T, C = unknown>(options: LiveStoreOptions<T, C>)
     lastError = { code, message: why, path: flight.entries.length === 1 ? flight.entries[0]!.path : undefined };
     if (isAccessError(code)) {
       for (const entry of flight.entries) restorePending(entry, now);
-      stopAccess();
+      stopped = true;
       return;
     }
     if (code === 'invalid' || code === 'not_found') {
@@ -1199,13 +1150,9 @@ export function createLiveStore<T, C = unknown>(options: LiveStoreOptions<T, C>)
   }
 
   function retry(): void {
-    if (disposed || stopped) return;
-    if (loadState === 'cached' && !loadSlow && loadFailures === 0) {
-      urgent = true;
-      return;
-    }
+    if (disposed) return;
     if (loadState === 'failed' || loadState === 'cached') {
-      loadFailures = loadState === 'cached' ? 1 : 0;
+      loadFailures = 0;
       load();
       return;
     }
@@ -1287,9 +1234,9 @@ export function createLiveStore<T, C = unknown>(options: LiveStoreOptions<T, C>)
       });
     } catch (error) {
       const code = syncErrorCode(error);
-      if (!disposed && !stopped) {
+      if (!disposed) {
         lastError = { code, message: syncErrorMessage(error), ...(paths.length === 1 ? { path: paths[0] } : {}) };
-        if (isAccessError(code)) stopAccess();
+        if (isAccessError(code)) stopped = true;
       }
       throw new LiveWriteError(code, syncErrorMessage(error), paths.length === 1 ? paths[0] : undefined);
     } finally {
@@ -1306,7 +1253,7 @@ export function createLiveStore<T, C = unknown>(options: LiveStoreOptions<T, C>)
         resolveFlushWaiters();
       }
     }
-    if (disposed || stopped) return;
+    if (disposed) return;
     const now = timers.now();
     materialize();
     lastSyncedAt = now;
@@ -1356,11 +1303,10 @@ export function createLiveStore<T, C = unknown>(options: LiveStoreOptions<T, C>)
       ...(lastError !== undefined ? { lastError } : {}),
     };
     if (loadState === 'loading') return { ...base, status: 'loading', message: loadSlow ? LIVE_MESSAGES.loadingSlow : LIVE_MESSAGES.loading, retryable: false };
-    if (loadState === 'failed') return { ...base, status: 'error', message: LIVE_MESSAGES.loadFailed, retryable: !stopped };
+    if (loadState === 'failed') return { ...base, status: 'error', message: LIVE_MESSAGES.loadFailed, retryable: lastError === undefined || !isAccessError(lastError.code as SyncErrorCode) };
     if (loadState === 'cached') {
       const message = readOnly || stopped ? LIVE_MESSAGES.cachedReadOnly : pending > 0 ? LIVE_MESSAGES.cachedEdits : LIVE_MESSAGES.cached;
-      const revalidating = !loadSlow && loadFailures === 0;
-      return { ...base, ...(revalidating && { revalidating: true }), status: readOnly || stopped ? 'readonly' : 'cached', message, retryable: true };
+      return { ...base, status: readOnly || stopped ? 'readonly' : 'cached', message, retryable: true };
     }
     if (stopped) return { ...base, status: 'error', message: LIVE_MESSAGES.accessEnded, retryable: false };
     if (readOnly) return { ...base, status: 'readonly', message: LIVE_MESSAGES.readOnly, retryable: false };
@@ -1399,7 +1345,6 @@ export function createLiveStore<T, C = unknown>(options: LiveStoreOptions<T, C>)
     return (
       a.value === b.value &&
       a.loadState === b.loadState &&
-      a.revalidating === b.revalidating &&
       a.status === b.status &&
       a.message === b.message &&
       a.hint === b.hint &&
@@ -1468,11 +1413,6 @@ export function createLiveStore<T, C = unknown>(options: LiveStoreOptions<T, C>)
       for (const flight of flights) if (flight.timer !== undefined) timers.clearTimeout(flight.timer);
       flights = new Set();
       listeners.clear();
-      if (stopped && loadState === 'live') {
-        for (const entry of entries.values()) entry.pending = entry.inflight = undefined;
-        unmaterialized = false;
-        rebuildLocal();
-      }
       const waiters = flushWaiters;
       flushWaiters = [];
       for (const resolve of waiters) resolve();

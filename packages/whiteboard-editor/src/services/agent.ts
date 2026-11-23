@@ -8,6 +8,7 @@ import { create } from 'zustand';
 import { watchAgentStatus } from '@open-artifact/editor-kit';
 import type { AgentRequest, AgentSendResult } from '@open-artifact/runtime';
 import { maybeSession } from './session.ts';
+import { boardScope } from './storage-scope.ts';
 
 export interface AgentState {
   /** An agent can receive requests. */
@@ -22,10 +23,14 @@ export interface AgentState {
 
 export const useAgent = create<AgentState>()(() => ({ available: false, busy: false, name: 'Agent' }));
 
-const agentKey = () => `wb-agent:${location.pathname}`;
+const agentKey = () => `wb-agent:${boardScope()}`;
 let settled = false;
 const waiters = new Set<() => void>();
 
+/**
+ * Shows the agent as this tab last saw it on this board (kept in session storage), so on a reload the toolbar opens
+ * with its agent buttons in place instead of adding them once the host answers.
+ */
 export function primeAgentState(): void {
   try {
     const saved = JSON.parse(sessionStorage.getItem(agentKey()) ?? 'null') as Partial<AgentState> | null;
@@ -41,7 +46,7 @@ function settleAgent(): void {
   for (const finish of waiters) finish();
 }
 
-/** Wait briefly for the toolbar's agent slot on first open. */
+/** Waits briefly (at most `timeoutMs`) for the agent's status, so the toolbar opens with its agent slot settled. */
 export function whenAgentSettled(timeoutMs = 100): Promise<void> {
   if (settled) return Promise.resolve();
   return new Promise(resolve => {

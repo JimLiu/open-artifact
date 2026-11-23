@@ -72,10 +72,17 @@ export type FrameDeniedReason = (typeof FRAME_DENIED_REASONS)[number];
 /** Version of the chrome protocol. */
 export const CHROME_PROTOCOL = 1;
 
+/** The longest the Shell keeps its cover up for a page that reported `ready: false`, ms. */
+export const CHROME_READY_TIMEOUT_MS = 10_000;
+
 // ---- chrome: Shell ⇄ page ----------------------------------------------------------------------------------------
 
-/** The page's save state. */
-export type ChromeSaved = 'loading' | 'syncing' | 'loadError' | 'saved' | 'saving' | 'unsaved' | 'reconnecting' | 'readonly';
+/**
+ * The page's save state. `saving`: edits are on their way, including edits still waiting out the page's write debounce
+ * (the Shell shows "Saving…" only when it lasts). `unsaved`: the page could not save them (the Shell shows a failure,
+ * with a retry when the page offers `save_now`); never send it for edits that are merely waiting.
+ */
+export type ChromeSaved = 'saved' | 'saving' | 'unsaved' | 'reconnecting' | 'readonly';
 
 /** Why a page action or export format is disabled. */
 export type ChromeWhy = 'older_version' | 'agent_working' | 'draft_open' | 'comments_on' | 'needs_agent' | 'unsaved' | 'other';
@@ -177,7 +184,12 @@ export const MAX_CLIPBOARD_BYTES = 64 * 1024 * 1024;
 
 /** What the page reports to the Shell. Every part is optional. */
 export interface ChromeReport {
-  /** Keep the frame covered while restoring the viewport. Omitted by pages that reveal on their first report. */
+  /**
+   * `false`: keep the Shell's loading cover over the page while it opens (it is still restoring its view); `true` or
+   * left out: show it. Only a document not shown yet stays covered: once shown, `false` is ignored until the frame
+   * loads a new document. A page that never sends `false` shows on its first report, as before. The Shell shows the
+   * page anyway after {@link CHROME_READY_TIMEOUT_MS}, so a page that stops answering cannot keep it covered.
+   */
   ready?: boolean;
   /** Current document title in a type-server shell. */
   title?: string;

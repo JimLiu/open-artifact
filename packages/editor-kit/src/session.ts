@@ -26,9 +26,12 @@ export interface HostConnection<N extends CapabilityName> {
   shell: ShellConnection | null;
 }
 
-/** Connects to the host and resolves `names` (plus `user`, for the viewer). */
+/**
+ * Connects to the host and resolves `names` (plus `user`, for the viewer). `shell`: a Shell connection the page already
+ * opened (`null` when it knows there is none); omitted, this connects to the Shell itself.
+ */
 export async function connectHost<const N extends Exclude<CapabilityName, 'user'>>(names: readonly N[], shell?: ShellConnection | null): Promise<HostConnection<N>> {
-  const runtime = window.openartifact ?? installRuntime(createPageProvider());
+  const runtime = installRuntime(createPageProvider());
   const [user, ...granted] = await Promise.all([runtime.use('user'), ...names.map((name) => runtime.use(name))]);
   const caps = Object.fromEntries(names.map((name, i) => [name, granted[i] ?? null])) as HostCapabilities<N>;
   const viewer: Viewer = (await user?.me()) ?? { ...GUEST_VIEWER };

@@ -93,8 +93,9 @@ function shellSaved(snapshot: LiveSnapshot<FilmDocuments>): ChromeReport['saved'
   switch (snapshot.status) {
     case 'ready':
       return 'saved';
+    // Edits waiting out the write debounce: on their way, not failed.
     case 'dirty':
-      return 'unsaved';
+      return 'saving';
     case 'error':
       return snapshot.loadState === 'failed' && snapshot.pending === 0 ? undefined : 'unsaved';
     case 'saving':

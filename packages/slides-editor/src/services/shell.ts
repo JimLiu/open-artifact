@@ -88,8 +88,9 @@ function savedOf(save: SaveState): ChromeSaved {
       return 'saved';
     case 'saving':
       return 'saving';
+    // Edits waiting out the save debounce: on their way, not failed (a failed save is `offline`).
     case 'dirty':
-      return 'unsaved';
+      return 'saving';
     case 'offline':
       return 'reconnecting';
     case 'readonly':

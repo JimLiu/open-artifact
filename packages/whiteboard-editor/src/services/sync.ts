@@ -24,7 +24,7 @@
  */
 
 import { toast } from '@open-artifact/ui';
-import type { ChromeCommand, ChromeReport, DbCapability } from '@open-artifact/runtime';
+import type { ChromeCommand, ChromeReport } from '@open-artifact/runtime';
 import {
   AGENT_STEP_LABEL,
   applyBoardDiff,
@@ -44,13 +44,14 @@ import {
   type HistoryStep,
   type LiveBoardDocument,
   type LiveSnapshot,
+  type LiveCache,
   localStorageCache,
   type StepDocument,
   type SyncChangeEvent,
   type SyncTransport,
 } from '@open-artifact/whiteboard-core';
-import { setBoardSink, setBoardSnapshot, tellRemoteChange, useBoard, type ChangeOptions, type SyncStatus } from '../state/board.ts';
 import { onBoardFontsLoaded } from '../lib/fonts.ts';
+import { setBoardSink, setBoardSnapshot, tellRemoteChange, useBoard, type ChangeOptions, type SyncStatus } from '../state/board.ts';
 import { useHistory } from '../state/history.ts';
 import { currentMeasures } from '../state/measures.ts';
 import { useSelection } from '../state/selection.ts';
@@ -59,8 +60,8 @@ import { askedRecently, useAgent } from './agent.ts';
 import { installUndoHandler, redo, undo } from './commands.ts';
 import { session } from './session.ts';
 import { onShellCommand, setShellReport, useShellDraws } from './shell.ts';
+import { boardScope } from './storage-scope.ts';
 import { flushTableCell, setTableEditor } from './table-edits.ts';
-import { boardStorageKey } from './viewport.ts';
 
 /** Longest pause between keyboard edits or follow-up corrections that still merge. */
 export const COALESCE_WINDOW_MS = 1500;
@@ -83,74 +84,21 @@ export function liveBoard(): LiveBoardDocument | null {
   return live;
 }
 
-function boardScope(): string {
-  const { viewer, shell } = session();
-  return `wb-saved-copy:${boardStorageKey(shell)}:${encodeURIComponent(viewer.id)}:${viewer.role}`;
+/**
+ * The saved copy of this page's board in local storage, filed by the board's
+ * {@link boardScope} and the viewer (another account on this browser, or the
+ * same one with another role, never opens someone else's copy). Too large a
+ * copy is dropped rather than kept stale; storage that is unavailable
+ * (private windows, blocked site data) just means no copy.
+ */
+export function savedCopyCache(key = savedCopyKey()): LiveCache {
+  return localStorageCache(key);
 }
 
-/** Saved documents for this viewer and board. Only verified owners may adopt a path-only copy. */
-export function savedCopyCache() {
-  const legacy = session().viewer.role === 'owner' ? 'wb-saved-copy:' + location.pathname : undefined;
-  return localStorageCache(boardScope(), undefined, legacy);
-}
-
-interface BoardConnection {
-  doc: LiveBoardDocument;
-  db: DbCapability;
-  scope: string;
-  cache: ReturnType<typeof savedCopyCache>;
-  events: { onAgentChange?: (event: SyncChangeEvent) => void };
-}
-
-// Only this page can reclaim the engine that owns its unconfirmed patches.
-let detached: { connection: BoardConnection; unsubscribe: () => void } | undefined;
-
-function connectBoard(): BoardConnection {
-  const { db, canEdit } = session();
-  const scope = boardScope();
-  if (detached) {
-    const { connection, unsubscribe } = detached;
-    detached = undefined;
-    unsubscribe();
-    if (connection.scope === scope && connection.db === db && canEdit && connection.doc.canEdit() && connection.cache.isCurrent()) return connection;
-    connection.doc.dispose();
-  }
-  const events: BoardConnection['events'] = {};
-  const transport: SyncTransport = {
-    get: path => db.get(path),
-    list: collection => db.list(collection),
-    write: writes => db.write(writes as Parameters<typeof db.write>[0]),
-    onChange: listener => db.onChange(event => {
-      if (event.author === 'agent') events.onAgentChange?.(event);
-      listener(event);
-    }),
-  };
-  const cache = savedCopyCache();
-  const doc = createLiveBoardDocument({
-    transport, cache, eagerCache: true, readOnly: !canEdit, measures: currentMeasures,
-    formatTime: epochMs => new Date(epochMs).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }),
-  });
-  return { doc, db, scope, cache, events };
-}
-
-async function releaseBoardConnection(connection: BoardConnection): Promise<void> {
-  const { doc, cache, events } = connection;
-  events.onAgentChange = undefined;
-  await doc.flush();
-  const hasDraft = () => doc.canEdit() && doc.getSnapshot().pending > 0 && cache.isCurrent();
-  if (!hasDraft()) {
-    doc.dispose();
-    return;
-  }
-  // flush() can return while the server is unreachable. Keep the live patches and
-  // their original bases until remount, acknowledgement, or an access refusal.
-  const unsubscribe = doc.subscribe(() => {
-    if (detached?.connection !== connection || hasDraft()) return;
-    detached = undefined;
-    unsubscribe();
-    doc.dispose();
-  });
-  detached = { connection, unsubscribe };
+/** The key of this viewer's saved copy of this board. */
+export function savedCopyKey(scope = boardScope()): string {
+  const { viewer } = session();
+  return `wb-copy:${scope}:${encodeURIComponent(viewer.id)}:${viewer.role}`;
 }
 
 /** Board store status for an engine status. */
@@ -159,7 +107,7 @@ function storeStatus(snapshot: LiveSnapshot<Board>): SyncStatus {
     case 'loading':
       return 'loading';
     case 'cached':
-      return snapshot.revalidating ? 'ready' : 'cached';
+      return 'cached';
     case 'offline':
       return 'offline';
     case 'error':
@@ -169,24 +117,24 @@ function storeStatus(snapshot: LiveSnapshot<Board>): SyncStatus {
   }
 }
 
-export const SLOW_SAVE_MS = 800;
-
-function shellSaved(snapshot: LiveSnapshot<Board>, revealed: boolean, slowSaving: boolean): ChromeReport['saved'] {
-  if (!revealed || snapshot.status === 'loading') return 'loading';
-  if (snapshot.loadState === 'failed' && !snapshot.pending) return 'loadError';
-  if (snapshot.status === 'readonly') return 'readonly';
-  if (snapshot.revalidating) return 'syncing';
+/** The Shell's save badge for an engine status (`undefined` while loading). */
+function shellSaved(snapshot: LiveSnapshot<Board>): ChromeReport['saved'] {
   switch (snapshot.status) {
     case 'ready':
       return 'saved';
+    // Edits waiting out the write debounce: on their way, not failed.
     case 'dirty':
     case 'saving':
-      return slowSaving ? 'saving' : 'saved';
+      return 'saving';
     case 'error':
       return 'unsaved';
     case 'offline':
     case 'cached':
       return 'reconnecting';
+    case 'readonly':
+      return 'readonly';
+    default:
+      return undefined;
   }
 }
 
@@ -222,8 +170,8 @@ interface AgentAnswer {
  * undo. Resolves nothing; the board store shows `loading` until the first
  * snapshot is in. Returns a function that flushes and stops.
  */
-export function startSync(options: SyncOptions = {}): () => Promise<void> {
-  const { canEdit } = session();
+export function startSync(options: SyncOptions = {}): () => void {
+  const { db, canEdit } = session();
   const announce = options.announce ?? (() => {});
   const stops: Array<() => void> = [];
 
@@ -232,7 +180,7 @@ export function startSync(options: SyncOptions = {}): () => Promise<void> {
   // ---- the board as shown (fitted to the loaded fonts) -----------------------------------------------------------
 
   let fitContent = createFontFitContent();
-  let fontsReady = typeof document !== 'undefined' && document.fonts?.status === 'loaded';
+  let fontsReady = document.fonts?.status === 'loaded';
   let lastRaw: Board | undefined;
   let lastShown: Board | undefined;
   /** The document's board, fitted to the fonts once they have loaded. */
@@ -285,9 +233,25 @@ export function startSync(options: SyncOptions = {}): () => Promise<void> {
 
   // ---- the document -----------------------------------------------------------------------------------------------
 
-  const connection = connectBoard();
-  connection.events.onAgentChange = noteAgentChange;
-  const { doc } = connection;
+  const transport: SyncTransport = {
+    get: (path) => db.get(path),
+    list: (collection) => db.list(collection),
+    // Paths come from the board codec, which only writes well-formed document paths.
+    write: (writes) => db.write(writes as Parameters<typeof db.write>[0]),
+    onChange: (listener) =>
+      db.onChange((event) => {
+        if (event.author === 'agent') noteAgentChange(event);
+        listener(event);
+      }),
+  };
+  const doc = createLiveBoardDocument({
+    transport,
+    cache: savedCopyCache(),
+    readOnly: !canEdit,
+    measures: currentMeasures,
+    initial: useBoard.getState().board,
+    formatTime: (epochMs) => new Date(epochMs).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }),
+  });
   live = doc;
 
   // ---- history ----------------------------------------------------------------------------------------------------
@@ -396,13 +360,12 @@ export function startSync(options: SyncOptions = {}): () => Promise<void> {
   };
 
   const publishHistory = (): void => {
-    const snapshot = doc.getSnapshot();
     useHistory.setState({ canUndo: raw.canUndo(), canRedo: raw.canRedo(), undoLabel: undefined, redoLabel: raw.waiting().at(-1)?.label });
     setShellReport({
       actions: [
         { id: 'undo', disabled: !raw.canUndo() },
         { id: 'redo', disabled: !raw.canRedo() },
-        { id: 'save_now', disabled: snapshot.pending === 0 && !snapshot.retryable },
+        { id: 'save_now', disabled: doc.getSnapshot().pending === 0 },
       ],
     });
   };
@@ -426,34 +389,12 @@ export function startSync(options: SyncOptions = {}): () => Promise<void> {
   // ---- board store ⇄ document -------------------------------------------------------------------------------------
 
   let lastNotice = 0;
-  let slowSaving = false;
-  let slowSaveTimer: ReturnType<typeof setTimeout> | undefined;
-  const saved = () => shellSaved(doc.getSnapshot(), useBoard.getState().revealed, slowSaving);
-  stops.push(() => clearTimeout(slowSaveTimer));
-  stops.push(useBoard.subscribe((state, previous) => {
-    if (state.revealed !== previous.revealed) setShellReport({ ready: state.revealed, saved: saved() });
-  }));
   const publish = (): void => {
     const snapshot = doc.getSnapshot();
-    const hasWork = snapshot.pending > 0 || snapshot.flights > 0;
-    if (!hasWork) {
-      clearTimeout(slowSaveTimer);
-      slowSaveTimer = undefined;
-      slowSaving = false;
-    } else if (!slowSaving && slowSaveTimer === undefined) {
-      slowSaveTimer = setTimeout(() => {
-        slowSaveTimer = undefined;
-        slowSaving = true;
-        useBoard.setState({ slowSaving: true });
-        setShellReport({ saved: saved() });
-      }, SLOW_SAVE_MS);
-    }
     setBoardSnapshot(shown(), {
       status: storeStatus(snapshot),
       refusal: snapshot.refusal ?? null,
       pending: snapshot.pending,
-      slowSaving,
-      retryableLoad: snapshot.loadState === 'failed' && snapshot.retryable,
       error: snapshot.loadState === 'failed' ? snapshot.message : null,
     });
     if (snapshot.notice && snapshot.notice.id !== lastNotice) {
@@ -461,9 +402,8 @@ export function startSync(options: SyncOptions = {}): () => Promise<void> {
       toast.add({ title: snapshot.notice.message });
     }
     setShellReport({
-      ready: useBoard.getState().revealed,
-      saved: saved(),
-      leaveLosesWork: hasWork,
+      saved: shellSaved(snapshot),
+      leaveLosesWork: snapshot.pending > 0,
       hasContent: snapshot.value.content.elements.length > 0,
     });
     publishHistory();
@@ -480,6 +420,7 @@ export function startSync(options: SyncOptions = {}): () => Promise<void> {
     }),
   );
 
+  // Fonts that arrive later (a board font first used by a remote edit) refit too.
   stops.push(onBoardFontsLoaded(() => {
     fontsReady = true;
     lastRaw = undefined;
@@ -514,8 +455,7 @@ export function startSync(options: SyncOptions = {}): () => Promise<void> {
   );
 
   const onBeforeUnload = (event: BeforeUnloadEvent): void => {
-    const { pending, flights } = doc.getSnapshot();
-    if (!pending && !flights) return;
+    if (doc.getSnapshot().pending === 0) return;
     void doc.flush();
     // A Shell asks before closing on its own (it has `leaveLosesWork`).
     if (!useShellDraws.getState().framed) event.preventDefault();
@@ -533,8 +473,8 @@ export function startSync(options: SyncOptions = {}): () => Promise<void> {
   return () => {
     closeAnswer();
     for (const stop of stops.reverse()) stop();
+    void doc.flush().finally(() => doc.dispose());
     if (live === doc) live = null;
-    return releaseBoardConnection(connection);
   };
 }
 
