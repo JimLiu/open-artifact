@@ -6,6 +6,8 @@
 
 安装到各 Agent 应用中的完整运行时 skill 提示词见 [skills/open-artifact/SKILL.md](../skills/open-artifact/SKILL.md)。
 
+如果你在开发一个 Agent 应用，想把 Open Artifact 放进去（你自己的工具、你界面里的页面、送进你会话的评论），请改读[把 Open Artifact 接入 Agent 产品](integrating.zh-CN.md)。
+
 ## 1. 先判断：做 Artifact、直接回复，还是写普通文件？
 
 | 用户意图 | 应该如何输出 |
@@ -39,6 +41,8 @@ node <skill>/scripts/open-artifact.mjs comments '{"action":"read","url":"open-ar
 node <skill>/scripts/open-artifact.mjs open open-artifact://artifact/art_... --browser
 node <skill>/scripts/open-artifact.mjs wait --timeout 600000
 ```
+
+`node <skill>/scripts/open-artifact.mjs --version`（或 `-v`）打印运行时的版本。
 
 > **重要：** 在 Open Artifact daemon/宿主管理下运行时，**切勿**直接调用单个类型目录里的 `artifact-types/<type>/scripts/cli.mjs open | serve | share | wait | stop`。页面服务、打开方式与唤醒路由均由 daemon 统一接管。
 

@@ -77,8 +77,12 @@ export interface TypeServerHealth {
 /** `POST /__open-artifact/open`: open (or find) the page of one artifact. */
 export interface OpenRequest {
   id: string;
-  /** Absolute path of the artifact folder. */
-  root: string;
+  /**
+   * Absolute path of the artifact folder. Left out for a type whose address is not loopback (a remote type, see
+   * `entryLocation`): a path on this computer is not sent to another one.
+   */
+  root?: string;
+  /** The artifact's title (also sent to a remote type: its page shows it). */
   title?: string;
   /** Preferred UI language, e.g. `en` or `zh-CN`. */
   lang?: string;
@@ -223,7 +227,8 @@ export type ReservedAction = (typeof RESERVED_ACTIONS)[number];
 /** `POST /__open-artifact/actions/<name>` body. */
 export interface ActionRequest {
   id: string;
-  root: string;
+  /** Absolute path of the artifact folder; left out for a remote type, as in {@link OpenRequest.root}. */
+  root?: string;
   args: Record<string, unknown>;
 }
 
@@ -242,6 +247,8 @@ export const TYPE_API_ROUTES = {
   events: 'events',
   touch: 'touch',
   task: 'task',
+  /** `POST { id, at }`: the owner's view context of the artifact changed (the daemon tells adapters, throttled). */
+  context: 'context',
 } as const;
 
 /** `GET /api/open-artifact.type.artifact?id=`. */
@@ -253,6 +260,13 @@ export interface TypeApiArtifact {
   owner: { label: string; harness: string } | null;
   agentName: string;
   view_url: string;
+  /**
+   * A newer release of the type wrote the artifact than the one installed here: its pages open it view-only (every
+   * role becomes `viewer`) until Open Artifact is updated. Left out by an older daemon (read as writable).
+   */
+  read_only?: boolean;
+  type_release?: string | null;
+  type_version?: string | null;
 }
 
 /** `POST /api/open-artifact.type.wake`. */
@@ -266,6 +280,11 @@ export interface TypeApiWakeRequest {
 export interface TypeApiWakeResult {
   status: WakeStatus;
   via: WakeVia;
+  /**
+   * With `status: "delivered"`: the harness put the message in the session's conversation for the person to send
+   * there (its adapter answered `drafted`). A page that does not know the field still shows a valid state.
+   */
+  drafted?: true;
 }
 
 /** Whether an agent is there to receive. `GET /api/open-artifact.type.presence?id=`. */

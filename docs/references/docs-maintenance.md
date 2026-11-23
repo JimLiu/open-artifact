@@ -30,13 +30,18 @@ Load this reference whenever adding, modifying, or removing features, artifact t
   - `docs/hosting-cloudflare.md` / `.zh-CN.md`
   - `docs/connecting-agents.md` / `.zh-CN.md`
   - `docs/plugins.md` / `.zh-CN.md`
+- **Integrating Open Artifact into an agent product**
+  - `docs/integrating.md` / `.zh-CN.md` — The integrator guide: levels 0–4, from the skill and the command line to the kit, embedded pages and the library.
+  - `docs/integrating/{tools,wake,embedding,remote-types,runtime,non-node,security,testing,limits}.md` / `.zh-CN.md` — One topic each.
+  - `docs/spec/{harness-api,embed,profile}.md` / `.zh-CN.md` — References: every Harness API method, feature, event and error; the Shell embed messages and `harness-kit/embed`; harness profile fields.
 
 ### Authoritative runtime skills & package docs
 
 - `skills/open-artifact/SKILL.md` — Primary `/open-artifact` skill prompt loaded by agent apps.
 - `artifact-types/<type>/SKILL.md`, `artifact-types/<type>/reference/*`, `artifact-types/<type>/artifact-type.json` — Authoritative type instructions and metadata.
 - `plugins/README.md` and `plugins/<app>/README.md` — Per-agent-app plugin behavior, hooks, and install guides.
-- `packages/host/README.md`, `packages/host-plugin/README.md`, `packages/editor-kit/README.md`, `deploy/*/README.md`, `e2e/README.md`.
+- `packages/host/README.md`, `packages/host-plugin/README.md`, `packages/editor-kit/README.md`, `packages/harness-kit/README.md`, `deploy/*/README.md`, `e2e/README.md`.
+- `examples/README.md` and `examples/*/README.md` (English only).
 
 ## Detailed sync checklist by change type
 
@@ -64,6 +69,12 @@ Load this reference whenever adding, modifying, or removing features, artifact t
 5. **Self-hosting, remote linking, or host plugin API changed**:
    - Update the matching `docs/hosting*.md`, `docs/connecting-agents*.md`, or `docs/plugins*.md` (both EN and zh-CN).
    - Update `packages/host/README.md`, `packages/host-plugin/README.md`, or `deploy/*/README.md`.
+
+6. **Harness API, `harness-kit`, Shell embed protocol, harness profiles, the stdio bridge, `doctor`, or the runtime and its updates changed**:
+   - Update the matching page under `docs/integrating/` and `docs/integrating.md` (both EN and zh-CN).
+   - Update `docs/spec/harness-api.md`, `docs/spec/embed.md` or `docs/spec/profile.md` (both EN and zh-CN). A new feature name goes in the features table of `harness-api.md`.
+   - Update `packages/harness-kit/README.md` and the README of any `examples/harness-*` that shows it.
+   - Move an item out of `docs/integrating/limits.md` & `.zh-CN.md` when it ships; add one when something is known not to work.
 
 ## Writing conventions
 

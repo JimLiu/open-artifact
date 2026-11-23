@@ -28,6 +28,7 @@ const REPOSITORY = 'https://github.com/JimLiu/open-artifact';
 /** The workspace packages published as libraries (folders under packages/). Apps and the daemon stay private. */
 const LIBRARIES = [
   'protocol',
+  'harness-kit',
   'host-plugin',
   'runtime',
   'server-sdk',
@@ -276,6 +277,8 @@ function stageCli() {
     engines: rootPkg.engines,
     keywords: ['artifacts', 'slides', 'design', 'design-system', 'whiteboard', 'sheets', 'spreadsheet', 'data', 'docs', 'motion', 'animation', 'dashboard', 'mcp', 'agent'],
     ...common(daemon, 'skills/open-artifact'),
+    // The Harness API versions this runtime speaks: runtime updates install only versions every adapter here speaks.
+    ...(existsSync(join(skill, 'vendor', 'runtime.json')) ? { openArtifact: { protocols: readJson(join(skill, 'vendor', 'runtime.json')).protocols } } : {}),
   };
   writeJson(join(out, 'package.json'), published);
   copyLegal(out);

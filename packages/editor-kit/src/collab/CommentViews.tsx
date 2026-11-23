@@ -23,6 +23,7 @@ import { commentMarkdown } from './cds/markdown.tsx';
 import { commentTime } from './cds/time.ts';
 import { openMessageCount, queuedNote, WAIT_FOR_STATUS_CHANGE, type CommentsController } from './comments.ts';
 import { ALL_COMMENTS_RIGHT } from './CommentList.tsx';
+import { draftedText } from '../agent.ts';
 import { screenBox, toScreenPoint, toWorldPoint, type AnchorState, type Box, type Camera, type PinPlace, type Point } from './pins.ts';
 
 /** Pixels the pointer must travel before a press becomes a drag. */
@@ -839,7 +840,7 @@ function ThreadCardBody<A>({ comments, agent, thread, state, maxHeight, onClose 
               {commentMarkdown(message.text)}
             </Comment>
           ))}
-          {working ? <Comment authorName={agent.name} agent working={working} footnote={working === 'queued' ? queuedNote(agent) : 'Working…'} /> : null}
+          {working ? <Comment authorName={agent.name} agent working={working} footnote={working === 'queued' ? queuedNote(agent) : thread.agent?.drafted ? draftedText(agent.name).label : 'Working…'} /> : null}
         </Replies>
       ) : null}
     </CommentCard>

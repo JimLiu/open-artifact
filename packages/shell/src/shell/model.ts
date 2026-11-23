@@ -3,7 +3,7 @@
  * store, so it runs under `node --test`.
  */
 
-import { INLINE_VIEW_FRAGMENT, SLIDE_FRAGMENT } from '@open-artifact/protocol';
+import { INLINE_VIEW_FRAGMENT, SLIDE_FRAGMENT, hostToShellOf } from '@open-artifact/protocol';
 import {
   CHROME_PEER_KEY,
   FRAME_DENIED_REASONS,
@@ -18,6 +18,10 @@ import {
   type ChromeWhy,
   type FrameDeniedReason,
   type HostCaps,
+  type HostDestination,
+  type HostTheme,
+  type HostToShell,
+  type ShellToHost,
   type ShareGuest,
   type ShareRole,
   type ShareView,
@@ -30,12 +34,91 @@ export type Owner = NonNullable<ArtifactView['owner']>;
 
 /** The host that embeds the Shell, once it said `host_hello`. */
 export interface HostInfo {
-  /** The host's origin: host messages go only there. */
+  /** The host's origin: host messages go only there (`view`: the daemon's view channel). */
   origin: string;
   caps: HostCaps;
   /** What the host calls its agent, when it said. */
   agentName: string | null;
+  /**
+   * A connected adapter declared this origin (`caps.open.origins`), or the host is the adapter's own top-level view:
+   * it gets prompts, comment text, links and saved files. An undeclared host (no adapter declared any origin) gets
+   * what it got before, with no prompt or comment text.
+   */
+  declared: boolean;
+  /** How host messages travel: to the parent frame, or through the daemon to the adapter that opened the view. */
+  via: 'frame' | 'view';
+  /** The host's colour scheme, when it gave one. */
+  theme: HostTheme | null;
+  /** Where the host can send an export (a declared host's only, at most `MAX_HOST_DESTINATIONS`). */
+  destinations: HostDestination[];
 }
+
+/**
+ * Whether a `host_hello` from `origin` is taken: `declared` when a connected adapter declared the origin, `refused`
+ * when adapters declared others, `undeclared` when none declared any (or the list could not be read: `null`).
+ */
+export function hostVerdict(origin: string, hosts: readonly string[] | null): 'declared' | 'undeclared' | 'refused' {
+  if (!hosts || !hosts.length) return 'undeclared';
+  return hosts.includes(origin) ? 'declared' : 'refused';
+}
+
+/** The host a `host_hello` makes, reduced to its fields; `null` for anything else. */
+export function hostOf(message: unknown, origin: string, declared: boolean, via: HostInfo['via'] = 'frame'): HostInfo | null {
+  const hello = hostToShellOf(message);
+  if (!hello || hello.openArtifact !== 'host_hello') return null;
+  return {
+    origin,
+    caps: hello.caps,
+    agentName: hello.agentName ?? null,
+    declared,
+    via,
+    theme: hello.theme ?? null,
+    destinations: declared ? (hello.destinations ?? []) : [],
+  };
+}
+
+/**
+ * What a Shell message to `host` carries: an undeclared host gets no prompt or comment text, and neither links nor
+ * saved files (`null`: not sent).
+ */
+export function toHostMessage(host: HostInfo, message: ShellToHost): ShellToHost | null {
+  if (host.declared) return message;
+  switch (message.openArtifact) {
+    case 'new_session':
+      return { ...message, prompt: '' };
+    case 'comment_summon':
+      return { ...message, text: '' };
+    case 'open_external':
+    case 'saved_file':
+      return null;
+    default:
+      return message;
+  }
+}
+
+/** The page request a destination's pick sends the agent (data: the host's label and id, quoted). */
+export function destinationRequest(destination: HostDestination, artifactTitle: string): string {
+  return `Export "${artifactTitle}" and send it to the destination the person picked in the Export tab: "${destination.label}" (destination id: ${destination.id}). The host app that embeds the Shell offered this destination.`;
+}
+
+/**
+ * The CSS variables a host's accent sets (`--open-artifact-accent`, its text colour and soft tint); none for no accent
+ * or one that is not `#rrggbb`.
+ */
+export function accentVars(accent: string | null): Record<string, string> {
+  if (!accent || !/^#[0-9a-f]{6}$/i.test(accent)) return {};
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(accent.slice(i, i + 2), 16) / 255);
+  const lin = (c: number): number => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+  const luminance = 0.2126 * lin(r!) + 0.7152 * lin(g!) + 0.0722 * lin(b!);
+  return {
+    '--open-artifact-accent': accent.toLowerCase(),
+    '--open-artifact-accent-fg': luminance > 0.4 ? '#0b1220' : '#ffffff',
+    '--open-artifact-accent-soft': `${accent.toLowerCase()}1f`,
+  };
+}
+
+/** A goto or host_hello for the Shell; the parsed form of a host's message. */
+export type HostMessage = HostToShell;
 
 /** Share roles, most rights first. */
 export const ROLES: readonly ShareRole[] = ['editor', 'commenter', 'viewer'];
@@ -221,10 +304,12 @@ export function leastRole(view: ShareView): ShareRole | null {
 }
 
 /** How a message reached the owner session, from `artifacts.ask`'s `via`. */
-export type Delivery = 'delivered' | 'inbox' | 'failed';
+export type Delivery = 'delivered' | 'drafted' | 'inbox' | 'failed';
 
 /** The {@link Delivery} of an `artifacts.ask` answer. */
 export function deliveryOf(via: string | undefined, status?: string): Delivery {
+  // The harness put it in the conversation for the person to send there: delivered, but not yet to the agent.
+  if (via === 'live' && status === 'drafted') return 'drafted';
   if (via === 'live' || via === 'wait') return 'delivered';
   // A cloud host whose owner's computer is connected: it has it now.
   if (via === 'link' && status === 'delivered') return 'delivered';
@@ -255,7 +340,7 @@ export function parseSent(raw: string | null): SentMessage[] {
     return value.filter(
       (m): m is SentMessage =>
         !!m && typeof m === 'object' && typeof (m as SentMessage).text === 'string' && typeof (m as SentMessage).at === 'string',
-    ).map((m) => ({ text: m.text, at: m.at, delivery: m.delivery === 'inbox' || m.delivery === 'failed' ? m.delivery : 'delivered' }));
+    ).map((m) => ({ text: m.text, at: m.at, delivery: m.delivery === 'inbox' || m.delivery === 'failed' || m.delivery === 'drafted' ? m.delivery : 'delivered' }));
   } catch {
     return [];
   }

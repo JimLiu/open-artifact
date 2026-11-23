@@ -14,7 +14,7 @@
 
 import { Menu as BaseMenu } from '@base-ui/react/menu';
 import { Popover as BasePopover } from '@base-ui/react/popover';
-import type { CloudMember, GeneralAccess, ShareCloudView, ShareGuest, ShareRole, ShareView } from '@open-artifact/protocol';
+import type { CloudMember, GeneralAccess, HostDestination, ShareCloudView, ShareGuest, ShareRole, ShareView } from '@open-artifact/protocol';
 import {
   Check,
   ChevronDown,
@@ -69,13 +69,14 @@ import {
 } from '../../lib/publish.ts';
 import { t, type MessageKey } from '../../lib/i18n.ts';
 import { networkStatus, shareLayout } from '../../lib/share-layout.ts';
-import { command, exportFormat, requestExports } from '../bridge.ts';
+import { command, exportFormat, openExternal, requestExports } from '../bridge.ts';
 import {
   changeCloudShare,
   closeConnect,
   connectSite,
   copyShareLink,
   downloadArchive,
+  sendToDestination,
   openConnect,
   publishPanelClosed,
   publishTo,
@@ -440,10 +441,8 @@ const REMOTE_STATE: Record<RemoteState, MessageKey> = {
   signed_out: 'pubStateSignedOut',
 };
 
-/** Opens an address in a new tab. */
-const openTab = (url: string): void => {
-  window.open(url, '_blank', 'noopener');
-};
+/** Opens an address outside the Shell (the declared host's way, else a new tab). */
+const openTab = (url: string): void => openExternal(url);
 
 /** The connect form: the site's address and a name for it (suggested from the address until typed over). */
 function ConnectForm({ host, name, error, taken }: { host: string; name: string; error: string; taken: string[] }) {
@@ -714,7 +713,16 @@ function Published({ remote, artifact }: { remote: RemoteInfo; artifact: RemoteA
       </div>
       <p className="mb-0 mt-2.5 text-xs text-fg-muted">
         {t('pubManage')}{' '}
-        <a href={artifact.view_url} target="_blank" rel="noopener" className="text-accent hover:underline">
+        <a
+          href={artifact.view_url}
+          target="_blank"
+          rel="noopener"
+          className="text-accent hover:underline"
+          onClick={(event) => {
+            event.preventDefault();
+            openExternal(artifact.view_url);
+          }}
+        >
           {t('pubManageLink')}
         </a>
       </p>
@@ -1261,7 +1269,9 @@ function ExportRow({
   );
 }
 
-/** The page's rows, then the folder's zip. */
+const NO_DESTINATIONS: HostDestination[] = [];
+
+/** The page's rows, then the folder's zip, then the host's destinations. */
 function ExportRows() {
   const standalone = useShell(state => state.boot?.typeServer);
   const report = useShell((state) => state.report);
@@ -1272,6 +1282,8 @@ function ExportRows() {
   const v1 = !entries.length && !!report.exports;
   // A cloud host: the folder's zip only for those who may export.
   const exportable = useShell((state) => !state.boot?.cloud || mayExport(roleOf(state.boot), state.share.view?.cloud?.settings));
+  // A declared host's own places to send an export to (never on a cloud host or a type server's own Shell).
+  const destinations = useShell((state) => (state.host?.declared && !state.boot?.cloud && !standalone ? state.host.destinations : NO_DESTINATIONS));
   return (
     <div className="-mx-2 mt-2.5">
       {report.hasContent === false ? <div className="px-2 py-2 text-xs text-fg-muted">{t('nothingToExport')}</div> : null}
@@ -1313,6 +1325,15 @@ function ExportRows() {
       {!standalone && exportable && offersArchive(report) ? (
         <ExportRow kind="folder" label={t('archiveLabel')} description={t('archiveDescription')} onPick={() => void downloadArchive()} />
       ) : null}
+      {destinations.map((destination) => (
+        <ExportRow
+          key={`destination:${destination.id}`}
+          kind="file"
+          label={destination.label}
+          description={t('destinationDescription', { agent })}
+          onPick={() => void sendToDestination(destination, agent)}
+        />
+      ))}
     </div>
   );
 }

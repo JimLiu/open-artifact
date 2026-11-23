@@ -137,6 +137,11 @@ export class TypeApi {
     return this.call(TYPE_API_ROUTES.touch, { body });
   }
 
+  /** Reports that the owner's view context of an artifact changed (`at`: when, ISO); the daemon tells adapters. */
+  context(id: string, at: string): Promise<unknown> {
+    return this.call(TYPE_API_ROUTES.context, { body: { id, at } });
+  }
+
   /** Reports progress or the end of a long action. */
   task(task: string, report: Omit<TypeApiTask, 'task'> = {}): Promise<unknown> {
     const body: TypeApiTask = { task, ...report };

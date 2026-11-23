@@ -42,6 +42,24 @@
 
 每篇部署指南同时写给人和替人操作的 Agent：步骤均有编号，给出确切命令、预期输出、检查方法和排错提示，并在开头列出 Agent 必须先问人、不能自行猜测的问题。
 
+## 把 Open Artifact 接入 Agent 产品
+
+写给发布 Agent 应用（桌面应用、IDE 扩展、命令行 Agent、带本地助手的网页应用）的工程师：让应用里的 Agent 能做作品，作品页面显示在应用里，人在页面上写的评论能回到 Agent：
+
+| 指南 | 什么时候看 |
+| --- | --- |
+| [接入 Open Artifact](integrating.zh-CN.md) | 从这里开始：从一个 skill 文件到在你的界面里显示页面的各个层级，附示例代码和上线前检查清单。 |
+| [Agent 工具](integrating/tools.zh-CN.md) | 调用方、用于审批提示的操作类别、哪些数据会离开电脑、会话权限、归属。 |
+| [唤醒](integrating/wake.zh-CN.md) | 评论和页面请求怎么到达正确的会话；所有者与协作者的区别。 |
+| [在你的界面里显示页面](integrating/embedding.zh-CN.md) | 框架与顶层视图、允许的源、Shell 的请求、缩略图。 |
+| [远程类型](integrating/remote-types.zh-CN.md) | 页面在另一台电脑上的类型。 |
+| [运行时与更新](integrating/runtime.zh-CN.md) | 随应用附带运行时、哪一份会启动、更新策略。 |
+| [非 JavaScript 应用](integrating/non-node.zh-CN.md) | stdio 桥，附 Python 示例。 |
+| [安全](integrating/security.zh-CN.md)、[测试](integrating/testing.zh-CN.md)、[已知限制](integrating/limits.zh-CN.md) | 信任边界、假 daemon 与 `doctor`、目前还不能用的部分。 |
+| [Harness API](spec/harness-api.zh-CN.md)、[Embed](spec/embed.zh-CN.md)、[Profile](spec/profile.zh-CN.md) 参考 | 每个方法、消息和字段。 |
+
+可运行的代码：[examples/](../examples/README.md)。
+
 ## 给运维与贡献者的更多参考（英文）
 
 - [AGENTS.md](../AGENTS.md) 与 `docs/references/` — 编码 Agent 指南、系统架构、构建测试发布流程与文档同步规则。

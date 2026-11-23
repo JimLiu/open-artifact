@@ -51,6 +51,13 @@ const SLOW = new Set(['artifact.publish', 'assets.upload', 'downloads.save', 'ag
 
 let gen = 0;
 let backend: Backend | null = null;
+/** Told where `downloads.save` put a file, when the page's server said (`savedTo`). */
+let onSavedFile: ((path: string) => void) | null = null;
+
+/** Listens for files the page's server saved (`downloads.save` → `savedTo`); `null` stops. */
+export function setSavedFileListener(listener: ((path: string) => void) | null): void {
+  onSavedFile = listener;
+}
 /** Creates the backend for a page base; replaced in tests. */
 let makeProvider = (base: string): CapabilityProvider => createLocalProvider({ base });
 /** Set when a cloud host serves the Shell: each backend is wrapped by {@link cloudProvider}. */
@@ -207,6 +214,13 @@ export async function call(message: Extract<CapToShell, { openArtifact: 'cap' }>
     if (backend !== target || message.gen !== gen) return fail({ code: 'unavailable', message: STALE_MESSAGE });
     const transfer = result instanceof Uint8Array && result.byteOffset === 0 && result.byteLength === result.buffer.byteLength && result.buffer instanceof ArrayBuffer ? [result.buffer] : undefined;
     post({ openArtifact: 'cap_r', id, result }, transfer);
+    if (cap === 'downloads' && method === 'save' && result && typeof (result as { savedTo?: unknown }).savedTo === 'string') {
+      try {
+        onSavedFile?.((result as { savedTo: string }).savedTo);
+      } catch {
+        // The listener's error is its own.
+      }
+    }
   } catch (error) {
     fail(toCapError(error));
   }

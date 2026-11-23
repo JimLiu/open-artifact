@@ -30,6 +30,7 @@ packages/daemon (local open-artifact daemon, one per machine)
 | `packages/type-server` | Local per-type HTTP/WebSocket server and `cli.mjs` entrypoint copied into `artifact-types/<type>/scripts/`. |
 | `packages/server-sdk` | Shared server primitives and frame-host support used by `type-server` and hosts. |
 | `packages/live-store` | Real-time JSON document sync store shared by `whiteboard`, `data`, and `motion`. |
+| `packages/harness-kit` | The SDK an agent app builds its adapter on: `createHarness` (connect, start the newest compatible runtime, reconnect, sessions, tools, wakes, pages, `runtime.status()`/`runtime.update()`), `./embed` (Shell embedding in a renderer, no Node), `./testing` (a fake daemon that lists the real daemon's features). See `packages/harness-kit/README.md`. |
 
 ### Artifact type packages
 
@@ -67,6 +68,7 @@ packages/daemon (local open-artifact daemon, one per machine)
 | `packages/host-cloudflare` | Cloudflare Workers + D1 + Durable Objects site (`deploy/cloudflare/README.md`). |
 | `packages/host-plugin` | Plugin contract for custom auth, permissions, policy rules, webhooks, and invite emails (`packages/host-plugin/README.md`). |
 | `plugins/` | Per-agent-app bundles (MCP stdio bridge, hooks, monitors/extensions, skill). See `plugins/README.md`. |
+| `examples/` | Runnable agent-app integrations (`harness-node`, `harness-electron`, `harness-stdio`) and host plugins. See `examples/README.md`. |
 
 ## Agent tools & wake loop
 
@@ -75,5 +77,28 @@ packages/daemon (local open-artifact daemon, one per machine)
   - `ArtifactData`: `get`, `list`, `query`, `set`, `update`, `delete`, `str_replace`, `batch`.
   - `ArtifactComments`: `read`, `reply`, `resolve`, `reopen`, `wait`.
   - `ShowArtifact` (`packages/daemon/src/mcp-app.ts`): exposed only to MCP clients declaring the `io.modelcontextprotocol/ui` extension.
-- **CLI parity**: `skills/open-artifact/scripts/open-artifact.mjs` invokes the exact same daemon tool handlers over local HTTP (`artifact`, `data`, `comments`, `open`, `wait`, `mcp`, `hook`).
-- **Wake routing**: When a user clicks **Send to agent** in the Shell, comments enter the daemon inbox and are delivered back to the active session via app-specific hooks (`packages/daemon/harnesses/<name>.json`), background monitors/extensions, the `messages` array in tool responses, or `ArtifactComments {action: "wait"}`.
+- **CLI parity**: `skills/open-artifact/scripts/open-artifact.mjs` invokes the exact same daemon tool handlers over local HTTP (`artifact`, `data`, `comments`, `open`, `wait`, `mcp`, `hook`). `open-artifact --version` / `-v` prints the runtime's version.
+- **Wake routing**: When a user clicks **Send to agent** in the Shell, comments go to the session that owns the artifact: live to a connected Harness API adapter of its harness (`wake.deliver`), else into the daemon inbox, delivered via app-specific hooks (`packages/daemon/harnesses/<name>.json`), background monitors/extensions, the `messages` array in tool responses, or `ArtifactComments {action: "wait"}`.
+
+## Harness API & agent-product integration
+
+Agent apps integrate through the Harness API, JSON-RPC 2.0 over the WebSocket `/__harness` (subprotocol
+`open-artifact-harness`), over HTTP long polling, or over `open-artifact harness --stdio`. The user-facing guide is
+`docs/integrating.md`; the references are `docs/spec/harness-api.md`, `docs/spec/embed.md` and `docs/spec/profile.md`.
+
+| Module (`packages/daemon/src/`) | Responsibility |
+| --- | --- |
+| `harness.ts` | The WebSocket and polling endpoints, `hello`, sessions, tool calls, `host.open`, `wake.deliver`, events. |
+| `harness-features.ts` | The feature names `hello` lists and the protocol versions (`PROTOCOL_MIN`/`PROTOCOL_MAX`). Within a version, only additions. |
+| `stdio-bridge.ts` | `harness --stdio`: JSON lines on stdin/stdout; starts the daemon, says `hello` with the token, reconnects and attaches sessions again. |
+| `harness-profiles.ts`, `hook-dialects.ts`, `nudge.ts` | Shipped (`packages/daemon/harnesses/*.json`), adapter-reported and person-added profiles; hook input/output formats; waking idle sessions. |
+| `harness-skill.ts` | `skill.get` and `commands.list`: the skill and the per-type commands rendered for a harness. |
+| `harness-embed.ts`, `harness-view.ts` | Declared host origins and view tickets for top-level views; `view.context` for the owner session. |
+| `ownership.ts`, `release-guard.ts` | Which session owns an artifact (and when that moves); artifacts written by a newer type release are read-only. |
+| `runtime.ts`, `cli-runtime.ts`, `sea.ts` | Runtimes on this computer, update policy and checked updates, `open-artifact runtime …`; the single executable's entry (`scripts/build-sea.mjs`). |
+| `doctor.ts`, `doctor-checks.ts`, `doctor-remote.ts`, `doctor-conformance.ts` | `open-artifact doctor`: setup checks, remote-type probes, and with `--session` the conformance run of a running app. |
+
+The kit (`packages/harness-kit/src/`) mirrors this from the app side: `harness.ts` (`createHarness`), `client.ts`
+(the JSON-RPC client), `runtimes.ts` (which runtime to start), `skill.ts`, `context.ts`, `embed/` and `testing.ts`.
+Shell-side, `packages/shell/src/shell/bridge.ts`, `view-channel.ts` and `lib/host-origins.ts` speak the host messages
+of `packages/protocol/src/shell.ts`.

@@ -35,6 +35,15 @@ Start in [docs/](docs/README.md) for full bilingual (English / 中文) guides fo
 - [Artifact types overview](docs/artifact-types.md) — Compare all 8 types, how to choose, and storage models.
 - [How agents use Open Artifact](docs/agent-guide.md) — MCP tools, CLI fallback, workflow lifecycle, comments, and safety rules.
 
+### Building an agent product?
+
+If you ship an agent app (desktop, IDE extension, command line, or a web app with a local helper), you can make Open
+Artifact part of it: your agent makes artifacts through its own tools, the pages show in your UI, and the comments
+people send from a page arrive in the right session. Start at
+[Integrating Open Artifact into an agent product](docs/integrating.md); the Node SDK is
+[`@open-artifact/harness-kit`](packages/harness-kit/README.md), and [examples/](examples/README.md) has runnable
+adapters. Apps not written in JavaScript use the stdio bridge (`open-artifact harness --stdio`).
+
 ## Artifact types
 
 | Type | What you get | Folder marker | Exports | Guides |
@@ -191,6 +200,7 @@ A package npm doesn't have yet is claimed once from a computer before its first 
 | `packages/daemon` | The `open-artifact` daemon: type registry, artifact library, agent tools, MCP, wake routing, the Harness API. |
 | `packages/shell` | The daemon's pages: the Shell frame around every artifact, and the home page. |
 | `packages/protocol` | Typed contracts shared by the daemon, harness adapters, type servers, the Shell and pages. |
+| `packages/harness-kit` | The SDK an agent app uses to connect to the daemon, show pages and receive wakes ([README](packages/harness-kit/README.md)). |
 | `packages/runtime` | `window.openartifact`, the capability API pages use (files, uploads, user, agent, presence, downloads). |
 | `packages/type-server`, `packages/server-sdk` | The per-type local server and `cli.mjs`; shared server code. |
 | **Types** | |
@@ -206,6 +216,7 @@ A package npm doesn't have yet is claimed once from a computer before its first 
 | `packages/live-store` | Live document sync shared by Whiteboard, Data and Motion. |
 | `packages/ui`, `editor-kit`, `export-kit` | UI kit (Base UI + Tailwind), what editors share (comments, history, presence…), browser-side exports. |
 | `packages/canvas-engine`, `wasm-*`, `crates/` | WebGL2 canvas engine and the Rust/WebAssembly crates behind it, exports, whiteboard geometry, data rules, the sheets formula engine and motion (GIF/MOV encoding, flash analysis). |
+| `examples/` | Runnable integrations of an agent app ([README](examples/README.md)). |
 | `e2e/` | End-to-end tests. |
 | `scripts/` | `build.mjs`, `build-plugins.mjs`, `build-skill.mjs`, `build-wasm.mjs`. |
 

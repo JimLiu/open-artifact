@@ -12,6 +12,7 @@
     "./client": "./src/client.ts"
   },
   "dependencies": {
+    "@open-artifact/harness-kit": "0.13.0",
     "@open-artifact/protocol": "0.13.0"
   },
   "license": "Apache-2.0"

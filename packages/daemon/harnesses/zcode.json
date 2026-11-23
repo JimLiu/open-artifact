@@ -19,5 +19,15 @@
     "inbox"
   ],
   "open": "browser",
-  "wakesIdle": false
+  "wakesIdle": false,
+  "hookDialect": "claude-code",
+  "caps": {
+    "tools": "mcp",
+    "commands": {
+      "names": [
+        "open-artifact"
+      ]
+    },
+    "wake": {}
+  }
 }

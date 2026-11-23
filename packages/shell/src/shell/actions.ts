@@ -3,7 +3,7 @@
  * their results written to the store and failures shown as toasts.
  */
 
-import { DOC_FRAGMENT, SLIDE_FRAGMENT, artifactIdOf, type FrameDeniedReason, type ShareView, type ShareRequest, type ShellBoot } from '@open-artifact/protocol';
+import { DOC_FRAGMENT, SLIDE_FRAGMENT, artifactIdOf, type FrameDeniedReason, type HostDestination, type ShareView, type ShareRequest, type ShellBoot } from '@open-artifact/protocol';
 import { toast } from '@open-artifact/ui';
 import { ApiError, answerOf, api, errorText, subscribeLibraryEvents } from '../lib/api.ts';
 import { copyText, fileNameOf } from '../lib/format.ts';
@@ -13,6 +13,7 @@ import {
   appendSent,
   deliveryOf,
   designPageFragment,
+  destinationRequest,
   devBoot,
   finishedBoot,
   parseSent,
@@ -232,6 +233,22 @@ export function openSession(): void {
 /** Asks the host to start a session with this prompt. */
 export function newSession(prompt: string): void {
   toHost({ openArtifact: 'new_session', prompt, artifact: bootOf().url });
+}
+
+/**
+ * Sends the export to one of the declared host's destinations: a page request to the owner's agent that names it
+ * (the agent exports and hands the file to the host's destination its own way).
+ */
+export async function sendToDestination(destination: HostDestination, agent: string): Promise<void> {
+  const host = useShell.getState().host;
+  if (!host?.declared || !host.destinations.some((d) => d.id === destination.id)) return;
+  const title = useShell.getState().artifact?.title || bootOf().title;
+  try {
+    await api.ask({ id: bootOf().id, text: destinationRequest(destination, title), label: t('destinationRequestLabel', { label: destination.label }) });
+    notify(t('destinationSent', { label: destination.label, agent }));
+  } catch (error) {
+    notify(t('notSent', { error: errorText(error) }));
+  }
 }
 
 /** Copies the Shell's link. */
@@ -629,7 +646,7 @@ export async function ask(text: string, agent: string): Promise<boolean> {
     if (cloudAgent && delivery !== 'failed') {
       const said = cloudSentLine(out.status, cloudAgent);
       store.setAskStatus(t(said.key, said.vars));
-    } else store.setAskStatus(delivery === 'inbox' ? t('sentInbox', { agent }) : delivery === 'delivered' ? t('sent') : t('notDelivered'));
+    } else store.setAskStatus(delivery === 'inbox' ? t('sentInbox', { agent }) : delivery === 'drafted' ? t('sentDrafted', { agent }) : delivery === 'delivered' ? t('sent') : t('notDelivered'));
     toHost({ openArtifact: 'comment_summon', text: body });
     return true;
   } catch (error) {

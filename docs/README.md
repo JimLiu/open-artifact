@@ -42,6 +42,25 @@ Guides for putting artifacts on a **site** (a server that gives them a web addre
 
 Each hosting guide works for a person reading it and for an agent doing it on someone's behalf: the steps are numbered, each with the exact command, the output to expect, a check and what to do if it fails, and each guide starts with the questions an agent must ask rather than guess.
 
+## Integrating Open Artifact into an agent product
+
+For engineers who ship an agent app (desktop, IDE extension, command-line agent, web app with a local helper) and want
+its agent to make artifacts, show their pages in the app, and get people's comments back:
+
+| Guide | Read it when |
+| --- | --- |
+| [Integrating Open Artifact](integrating.md) | Start here: the levels from a skill file to pages in your UI, with code from the examples and a checklist. |
+| [The agent tools](integrating/tools.md) | Callers, action kinds for approval prompts, what leaves the computer, session permissions, ownership. |
+| [Wake](integrating/wake.md) | Comments and page requests reaching the right session; owner versus collaborator. |
+| [Showing pages in your UI](integrating/embedding.md) | Frames and top-level views, allowed origins, the Shell's requests, thumbnails. |
+| [Remote types](integrating/remote-types.md) | Types whose pages live on another computer. |
+| [Runtime and updates](integrating/runtime.md) | Shipping the runtime with your app, which copy starts, update policy. |
+| [Apps not written in JavaScript](integrating/non-node.md) | The stdio bridge, with a Python sketch. |
+| [Security](integrating/security.md), [Testing](integrating/testing.md), [Known limits](integrating/limits.md) | Trust boundaries, the fake daemon and `doctor`, what does not work yet. |
+| [Harness API](spec/harness-api.md), [Embed](spec/embed.md), [Profile](spec/profile.md) references | Every method, message and field. |
+
+Runnable code: [examples/](../examples/README.md).
+
 ## More detail for operators & contributors
 
 - [AGENTS.md](../AGENTS.md) and `docs/references/` — Coding-agent guide, architecture, build/test/release, and documentation sync rules.

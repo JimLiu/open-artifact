@@ -48,7 +48,8 @@ export interface PageRoom {
   presence(patch: Record<string, unknown>): Promise<void>;
   onPeers(listener: (event: RoomPeersEvent) => void, onGone?: () => void): () => void;
   canSendToAgentSession(): Promise<AgentSendState>;
-  sendToAgentSession(payload: unknown, options?: AgentSendOptions): Promise<void>;
+  /** `{ drafted: true }`: put in the agent's conversation for the person to send there. */
+  sendToAgentSession(payload: unknown, options?: AgentSendOptions): Promise<void | { drafted: true }>;
 }
 
 export interface PersonProfile {
@@ -199,6 +200,7 @@ function createPageRoom(room: RoomCapability, agent: AgentCapability | null, meA
       const sent = await agent.send(request);
       if (sent.status === 'failed')
         throw Object.assign(new Error('The agent could not take the request.'), { code: 'agent_unavailable' });
+      return sent.status === 'delivered' && sent.drafted ? { drafted: true } : undefined;
     },
   };
 }

@@ -258,6 +258,8 @@ export interface AgentSendResult {
   status: 'delivered' | 'queued' | 'staged' | 'failed';
   /** Human-readable reason when `failed`. */
   reason?: string;
+  /** With `delivered`: it was put in the agent's conversation for the person to send there. */
+  drafted?: true;
 }
 
 /** Whether an agent is reachable and working. */
@@ -480,6 +482,8 @@ export interface CommentReplyOptions {
 export interface CommentAgentState {
   /** `pending`: sent, not yet read; `delivered`: the agent has it; `replied`: it answered. */
   status: 'pending' | 'delivered' | 'replied';
+  /** With `delivered`: it was put in the agent's conversation for the person to send there. */
+  drafted?: true;
 }
 
 /** A comment thread. */

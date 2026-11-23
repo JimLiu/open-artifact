@@ -35,7 +35,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ConfirmDialog, Menu, MenuItem, MenuLabel, MenuSeparator, MenuSubmenu, TextInput, cn } from '@open-artifact/ui';
 import { ago, bytesText } from '../../lib/format.ts';
 import { t } from '../../lib/i18n.ts';
-import { command, reloadPage, runAction } from '../bridge.ts';
+import { command, openExternal, reloadPage, runAction } from '../bridge.ts';
 import {
   copyPath,
   copyShellLink,
@@ -306,7 +306,7 @@ export function TitleMenu() {
         {hasPage ? (
           <MenuItem
             icon={<ExternalLink className="size-3.5" />}
-            onSelect={() => window.open(boot.pageUrl || new URL(boot.page!, location.href).href, '_blank', 'noopener')}
+            onSelect={() => openExternal(boot.pageUrl || new URL(boot.page!, location.href).href)}
           >
             {t('openInNewTab')}
           </MenuItem>

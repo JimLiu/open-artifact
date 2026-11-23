@@ -185,6 +185,18 @@ export function ProblemState() {
   );
 }
 
+/** A newer type release wrote the artifact: the page is view-only here, and how to update. */
+function ReadOnlyNotice() {
+  const boot = useBoot();
+  const unknown = '?';
+  return (
+    <p role="status" className="m-0 flex shrink-0 items-center gap-2 border-b border-line bg-surface-2 px-4 py-2 text-xs text-fg-muted">
+      <TriangleAlert className="size-3.5 shrink-0 text-warning" />
+      {t('readOnlyNewer', { type: boot.typeTitle, release: boot.type_release ?? unknown, version: boot.type_version ?? unknown })}
+    </p>
+  );
+}
+
 /** The page (or the spinner while it is being opened), or the empty or problem state. */
 export function Stage() {
   const boot = useBoot();
@@ -198,5 +210,13 @@ export function Stage() {
   ) : (
     <PageFrame key={gen} />
   );
+  if (boot.read_only && !boot.pending) {
+    return (
+      <main className="relative flex min-w-0 flex-1 flex-col">
+        <ReadOnlyNotice />
+        <div className="relative min-h-0 flex-1 overflow-auto">{content}</div>
+      </main>
+    );
+  }
   return <main className="relative min-w-0 flex-1 overflow-auto">{content}</main>;
 }

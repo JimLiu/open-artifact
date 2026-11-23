@@ -15,8 +15,8 @@
   "files": [
     "lib",
     "vendor",
-    "locale",
     "skills",
+    "locale",
     "icon.svg",
     "cordis.patch.yml",
     "NOTICE",
@@ -49,7 +49,7 @@
   },
   "license": "Apache-2.0",
   "devDependencies": {
-    "@open-artifact/daemon": "0.13.0",
+    "@open-artifact/harness-kit": "0.13.0",
     "@open-artifact/protocol": "0.13.0",
     "@open-artifact/ui": "0.13.0"
   }

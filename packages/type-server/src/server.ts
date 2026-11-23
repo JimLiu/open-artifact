@@ -465,6 +465,11 @@ class OpenArtifact {
   doc: DocHost | null = null;
   /** Requests being answered for it now (hosted idle close waits for them). */
   inFlight = 0;
+  /**
+   * A newer release of the type wrote it than the one installed here (the daemon says so at each open, see
+   * `releaseView` in the daemon's `release-guard.ts`): every page is served as a share-link viewer's, so it cannot write.
+   */
+  readOnly = false;
   /** Hosted idle close: when it closes, unless a page or a request comes first. */
   idleTimer: NodeJS.Timeout | null = null;
 
@@ -700,7 +705,9 @@ export function createTypeServer(options: TypeServerOptions): TypeServer {
           'send',
         );
         const result = await sendToAgent({ root: artifact.root, artifactId: artifact.id, request, daemon, ...(how?.from ? { from: how.from } : {}) });
-        return result.status === 'delivered' ? 'delivered' : result.status === 'failed' ? 'failed' : 'queued';
+        // Put in the conversation for the person to send there: delivered, and the page says so.
+        if (result.status === 'delivered') return 'drafted' in result && result.drafted ? 'drafted' : 'delivered';
+        return result.status === 'failed' ? 'failed' : 'queued';
       },
       log,
     });
@@ -1018,12 +1025,35 @@ export function createTypeServer(options: TypeServerOptions): TypeServer {
     }
     // A later open without an address (the CLI's `--shell`) keeps the one the Shell gave.
     if (shell) artifact.shells.set(shell, viewerAddress(request.viewer, shell) ?? artifact.shells.get(shell) ?? null);
+    // Written by a newer type release: its pages are a viewer's (the daemon's word; a host's API has no such call).
+    if (!hosting) await refreshReadOnly(artifact);
     // Shared before (`.sharing.json`): back on the network, so the links handed out work again. Not hosted: the host
     // keeps its own links.
     if (!hosting) await sharing.attach(artifact).catch((error: unknown) => log(`sharing ${id}: ${error instanceof Error ? error.message : String(error)}`));
     // Opened by the host or for an action, with nobody on it yet: it closes again unless someone comes.
     considerIdle(artifact);
     return { id, type, url: pageUrl(artifact, shell), pageUrl: pageUrl(artifact) };
+  };
+
+  /** Asks the daemon whether the artifact is read-only here; a page already open with a writer's role reconnects. */
+  const refreshReadOnly = async (artifact: OpenArtifact): Promise<void> => {
+    const api = daemon as { artifact?: (id: string) => Promise<{ read_only?: boolean }> } | null;
+    if (!api?.artifact) return;
+    const was = artifact.readOnly;
+    try {
+      artifact.readOnly = (await api.artifact(artifact.id)).read_only === true;
+    } catch (error) {
+      // Not the daemon's (opened by the CLI): nothing to say. Anything else: kept as it was.
+      if ((error as { code?: unknown })?.code !== 'not_found') log(`release ${artifact.id}: ${error instanceof Error ? error.message : String(error)}`);
+      return;
+    }
+    if (artifact.readOnly && !was) for (const client of [...artifact.clients.values()]) if (client.viewer.role !== 'viewer') client.end();
+  };
+
+  /** Who a local request is: the owner over loopback or a guest by their cookie; a read-only artifact's are viewers. */
+  const localViewerOf = (artifact: OpenArtifact, req: IncomingMessage): Viewer | null => {
+    const holder = sharing.viewerOf(artifact, req, viewer);
+    return holder && artifact.readOnly && holder.role !== 'viewer' ? { ...holder, role: 'viewer' } : holder;
   };
 
   const close = (id: string): boolean => {
@@ -1420,10 +1450,13 @@ export function createTypeServer(options: TypeServerOptions): TypeServer {
           if (context === null) delete state.viewContext;
           else state.viewContext = context;
           // The agent's `context` is what the owner has on screen, not a guest.
-          if (who.role === 'owner') await writeAtomic(
-            agentPaths(artifact.root).viewContext,
-            `${JSON.stringify({ at: new Date().toISOString(), client: body.client, context }, null, 2)}\n`,
-          );
+          if (who.role === 'owner') {
+            const at = new Date().toISOString();
+            await writeAtomic(agentPaths(artifact.root).viewContext, `${JSON.stringify({ at, client: body.client, context }, null, 2)}\n`);
+            // Adapters hear of it (throttled by the daemon); best effort, and only a daemon's API has it.
+            const reporter = daemon as { context?: (id: string, at: string) => Promise<unknown> } | null;
+            if (typeof reporter?.context === 'function') void reporter.context(artifact.id, at).catch(() => undefined);
+          }
         }
         artifact.peers.set(body.client, { ...peer, state });
         emit(artifact, 'peers', peerList(artifact));
@@ -2130,8 +2163,8 @@ export function createTypeServer(options: TypeServerOptions): TypeServer {
       if (!isTypeName(type) || !known || known.type !== type) return notOpen(req, res, url, isTypeName(type) && pageDocument);
       artifact = known;
       snapshot = snapshotTokens.has(token!);
-      // The owner over loopback, a guest by their share cookie, or nobody.
-      const holder = snapshot ? viewer : sharing.viewerOf(artifact, req, viewer);
+      // The owner over loopback, a guest by their share cookie, or nobody (a viewer, whoever, when read-only).
+      const holder = snapshot ? viewer : localViewerOf(artifact, req);
       if (!holder) return sharing.denied(req, res, pageDocument, frameAncestors);
       who = holder;
     }
@@ -2358,8 +2391,8 @@ export function createTypeServer(options: TypeServerOptions): TypeServer {
     const artifact = token ? byToken.get(token) : undefined;
     if (!isTypeName(type) || !artifact || artifact.type !== type || rest.join('/') !== API.events) return 404;
     if (!originAllowed(artifact)) return 403;
-    // The owner over loopback, or a guest by their share cookie.
-    const who = sharing.viewerOf(artifact, req, viewer);
+    // The owner over loopback, or a guest by their share cookie (a viewer, whoever, when read-only).
+    const who = localViewerOf(artifact, req);
     if (!who) return 403;
     return { artifact, who, client };
   }

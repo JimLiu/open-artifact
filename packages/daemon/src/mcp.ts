@@ -66,8 +66,8 @@ export function callerFromRequest(request: IncomingMessage, pids: PidLookup, met
 
 /** What {@link handleMcp} needs from the tools. */
 export interface McpTools {
-  definitions(): ToolDefinition[];
-  instructions(workspace?: string | null): string;
+  definitions(workspace?: string | null): ToolDefinition[];
+  instructions(workspace?: string | null, harness?: string | null): string;
   call(name: string, args: Record<string, unknown>, caller: SessionRef): Promise<ToolCallResult>;
 }
 
@@ -97,10 +97,10 @@ export async function handleMcp(
     // initialize also reads the client's capabilities; tools/list goes by the bridge's header alone.
     apps: (method, capabilities) => !!origin && (ui || (method === 'initialize' && clientShowsApps(capabilities))),
     instructions: (apps) => {
-      const instructions = tools.instructions(caller.workspace);
+      const instructions = tools.instructions(caller.workspace, caller.harness);
       return apps ? `${instructions}\n\n${MCP_APP_NOTE}`.trim() : instructions;
     },
-    tools: (apps) => (apps ? [...tools.definitions(), SHOW_TOOL] : tools.definitions()),
+    tools: (apps) => (apps ? [...tools.definitions(caller.workspace), SHOW_TOOL] : tools.definitions(caller.workspace)),
     call: (name, args, meta) => {
       const metaSession = meta.sessionId ?? meta.threadId ?? meta.conversationId;
       const who: SessionRef = { ...caller, ...(metaSession ? { session: metaSession } : {}) };

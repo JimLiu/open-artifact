@@ -32,6 +32,10 @@
 - [Artifact 类型总览](docs/artifact-types.zh-CN.md) — 对比全部 8 种类型、选型建议与存储模型。
 - [Agent 使用指南](docs/agent-guide.zh-CN.md) — MCP 工具、CLI 回退、生命周期、评论处理与安全边界。
 
+### 在做 Agent 产品？
+
+如果你发布的是一个 Agent 应用（桌面应用、IDE 扩展、命令行，或带本地助手的网页应用），可以把 Open Artifact 做进去：你的 Agent 通过它自己的工具创建作品，页面显示在你的界面里，人从页面发出的评论送到正确的会话。从[把 Open Artifact 接入 Agent 产品](docs/integrating.zh-CN.md)开始；Node SDK 是 [`@open-artifact/harness-kit`](packages/harness-kit/README.md)，[examples/](examples/README.md) 里有可以运行的适配器。不是用 JavaScript 写的应用用 stdio 桥（`open-artifact harness --stdio`）。
+
 ## Artifact 类型
 
 | 类型 | 你得到什么 | 标识文件 | 导出格式 | 指南 |
@@ -180,6 +184,7 @@ node scripts/build-wasm.mjs   # 需要 cargo + wasm32-unknown-unknown、wasm-bin
 | `packages/daemon` | `open-artifact` daemon：类型注册、artifact 库、Agent 工具、MCP、唤醒路由、Harness API。 |
 | `packages/shell` | daemon 的页面：包住每个 artifact 的 Shell 框架，以及首页。 |
 | `packages/protocol` | daemon、harness 适配器、类型服务、Shell 和页面之间共享的类型化协议。 |
+| `packages/harness-kit` | Agent 应用用来连接 daemon、显示页面和接收唤醒的 SDK（[README](packages/harness-kit/README.md)）。 |
 | `packages/runtime` | `window.openartifact`，页面使用的能力 API（文件、上传、用户、Agent、在线状态、下载）。 |
 | `packages/type-server`、`packages/server-sdk` | 每种类型的本地服务和 `cli.mjs`；服务端共享代码。 |
 | **类型** | |
@@ -195,6 +200,7 @@ node scripts/build-wasm.mjs   # 需要 cargo + wasm32-unknown-unknown、wasm-bin
 | `packages/live-store` | Whiteboard、Data 与 Motion 共用的实时文档同步库。 |
 | `packages/ui`、`editor-kit`、`export-kit` | UI 组件库（Base UI + Tailwind）、各编辑器共用的部分（评论、历史、在线状态……）、浏览器端导出。 |
 | `packages/canvas-engine`、`wasm-*`、`crates/` | WebGL2 画布引擎，以及背后的 Rust/WebAssembly crate（画布、导出、白板几何、数据规则、表格公式引擎与动效编码/频闪分析）。 |
+| `examples/` | 可以运行的 Agent 应用接入示例（[README](examples/README.md)）。 |
 | `e2e/` | 端到端测试。 |
 | `scripts/` | `build.mjs`、`build-plugins.mjs`、`build-skill.mjs`、`build-wasm.mjs`。 |
 

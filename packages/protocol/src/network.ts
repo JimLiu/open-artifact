@@ -196,7 +196,14 @@ export function httpAllowance(hostname: string): HttpAllowance {
   return spelled?.length && spelled.every((address) => ipv4Allowance(address) !== 'refused') ? 'private' : 'refused';
 }
 
-/** Whether a host name is this computer: `localhost`, a `*.localhost` name, 127/8, `::1` or `::ffff:127.x.x.x`. */
+/**
+ * Whether a host name is this computer: `localhost`, a `*.localhost` name, 127/8, `::1` or `::ffff:127.x.x.x`, in any
+ * spelling {@link httpAllowance} parses. For where plain `http` may go.
+ *
+ * It differs on purpose from `isLoopbackHost` (`manifest.ts`), which decides whether a type is remote: that one takes
+ * only the plain spellings (`localhost`, `*.localhost`, dotted 127/8, `[::1]`) and treats any other, IPv4-mapped
+ * loopback and `0.0.0.0` included, as another computer, so trust errs on the cautious side.
+ */
 export function isLoopbackHostName(hostname: string): boolean {
   return httpAllowance(hostname) === 'loopback';
 }

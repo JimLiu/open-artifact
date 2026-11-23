@@ -17,22 +17,31 @@
  *   backend and answered with `cap_grant`/`cap_r`/`cap_ack`/`cap_ev`;
  * - **host**, with the app that embeds the Shell: `shell_hello` to `*` on
  *   load, `host_hello` back, then `shell_ready`, `new_session`,
- *   `open_session`, `close`, `comment_summon` and `place` to the host's
- *   origin; the host may send `goto` with a place.
+ *   `open_session`, `close`, `comment_summon`, `place`, `open_external`
+ *   and `saved_file` to the host's origin; the host may send `goto` with a
+ *   place, and `host_hello` again when its theme changes. `host_hello` is
+ *   taken only from an origin a connected adapter declared
+ *   (`caps.open.origins`, read from `/api/open-artifact.embed` each time);
+ *   while no adapter declared any, any parent is taken as before but gets no
+ *   prompt or comment text, links or saved files (`toHostMessage`). A Shell
+ *   opened as a top-level view (`?oa_view=<ticket>`, no parent) speaks the
+ *   same protocol through the daemon instead (`view-channel.ts`).
  */
 
 import { copyShellLink, frameDenied } from './actions.ts';
-import { DOC_FRAGMENT, SLIDE_FRAGMENT } from '@open-artifact/protocol';
+import { DOC_FRAGMENT, HOST_PROTOCOL, SLIDE_FRAGMENT } from '@open-artifact/protocol';
 import type { ChromeCommand, ChromeExportItem, ChromeExportState, PageToShell, ShellToHost, ShellToPage } from '@open-artifact/protocol';
 import { CHROME_DRAWS, isShellMessage } from '@open-artifact/protocol';
 import { toast } from '@open-artifact/ui';
 import { mayComment, roleOf } from '../lib/cloud.ts';
+import { declaredHosts } from '../lib/host-origins.ts';
 import { t } from '../lib/i18n.ts';
-import { call as brokerCall, want as brokerWant, type PagePost } from './broker.ts';
+import { call as brokerCall, setSavedFileListener, want as brokerWant, type PagePost } from './broker.ts';
 import { browserClipboard, createClipboardRelay } from './clipboard.ts';
-import { actionOf, exportRequestId, frameDeniedReason, showsComments, normalizeReport, type ExportEntry, sheetPageFragment, inlineView } from './model.ts';
+import { actionOf, accentVars, exportRequestId, frameDeniedReason, hostOf, hostVerdict, showsComments, normalizeReport, toHostMessage, type ExportEntry, type HostInfo, sheetPageFragment, inlineView } from './model.ts';
 import { gotoCommand, placeOf } from './place.ts';
 import { useShell } from './store.ts';
+import { startViewChannel, viewSend } from './view-channel.ts';
 
 /** The page's frame, while mounted. */
 let frame: HTMLIFrameElement | null = null;
@@ -77,7 +86,8 @@ export function frameLoaded(): void {
 function sendChromeHello(): void {
   const boot = useShell.getState().boot;
   const standaloneDesign = boot?.type === 'design' && boot.typeServer;
-  toPage({ openArtifact: 'chrome_hello', draws: CHROME_DRAWS.filter(draw => draw !== 'actions' || !standaloneDesign), ...(clipboard ? { clipboard: true } : {}) });
+  const theme = useShell.getState().host?.theme;
+  toPage({ openArtifact: 'chrome_hello', draws: CHROME_DRAWS.filter(draw => draw !== 'actions' || !standaloneDesign), ...(clipboard ? { clipboard: true } : {}), ...(theme ? { theme } : {}) });
 }
 
 /** Sends a chrome message to the page. */
@@ -166,11 +176,55 @@ export function filesChanged(paths: string[]): void {
   }, 1000);
 }
 
-/** Sends a host message to the host's origin, with the artifact's URL. Does nothing without a host. */
-export function toHost(message: ShellToHost): void {
+/**
+ * Sends a host message to the host (its origin, or the daemon's view channel), with the artifact's URL, as much of it
+ * as the host may have (`toHostMessage`). False when nothing was sent: no host, or not for this one.
+ */
+export function toHost(message: ShellToHost): boolean {
   const { host, boot } = useShell.getState();
-  if (!host || !boot) return;
-  window.parent.postMessage({ artifact: boot.url, ...message }, host.origin);
+  if (!host || !boot) return false;
+  const out = toHostMessage(host, message);
+  if (!out) return false;
+  if (host.via === 'view') viewSend({ artifact: boot.url, ...out });
+  else window.parent.postMessage({ artifact: boot.url, ...out }, host.origin);
+  return true;
+}
+
+/** Opens an address outside the Shell: the declared host opens it by its own rules, else a new browser tab. */
+export function openExternal(url: string): void {
+  if (/^https?:\/\//i.test(url) && toHost({ openArtifact: 'open_external', url })) return;
+  window.open(url, '_blank', 'noopener');
+}
+
+/** Follows the host's colour scheme and accent: the Shell's root, and the page through `chrome_hello`. */
+function applyTheme(host: HostInfo): void {
+  const root = document.documentElement;
+  if (!host.theme) return;
+  root.dataset.theme = host.theme.scheme;
+  for (const [name, value] of Object.entries(accentVars(host.theme.accent ?? null))) root.style.setProperty(name, value);
+}
+
+/** A `host_hello` was taken: the Shell answers `shell_ready` and its place. */
+function acceptHost(host: HostInfo): void {
+  const store = useShell.getState();
+  store.setHost(host);
+  applyTheme(host);
+  if (host.theme) sendChromeHello();
+  const boot = store.boot;
+  if (!boot) return;
+  const ready: ShellToHost = { openArtifact: 'shell_ready', artifact: boot.url };
+  if (host.via === 'view') viewSend(ready);
+  else window.parent.postMessage(ready, host.origin);
+  tellPlace();
+}
+
+/** A host's `goto`: the page shows that place, or the Shell says where it is. */
+function hostGoto(hash: unknown): void {
+  const boot = useShell.getState().boot;
+  if (!boot || typeof hash !== 'string') return;
+  const cmd = gotoCommand(boot.type, hash);
+  if (cmd) command(cmd);
+  else tellPlace();
 }
 
 function tellPlace(): void {
@@ -287,20 +341,31 @@ function onMessage(event: MessageEvent): void {
   }
   if (event.source !== window.parent || !embedded) return;
   if (message.openArtifact === 'goto') {
-    const { host, boot } = useShell.getState();
-    if (!host || !boot || event.origin !== host.origin) return;
-    const cmd = gotoCommand(boot.type, message.hash);
-    if (cmd) command(cmd);
-    else tellPlace();
+    const host = useShell.getState().host;
+    if (!host || host.via !== 'frame' || event.origin !== host.origin) return;
+    hostGoto(message.hash);
     return;
   }
   if (message.openArtifact !== 'host_hello') return;
-  const caps = message.caps && typeof message.caps === 'object' ? message.caps : {};
-  const agentName = typeof message.agentName === 'string' && message.agentName.trim() ? message.agentName.trim() : null;
-  useShell.getState().setHost({ origin: event.origin, caps, agentName });
-  const boot = useShell.getState().boot;
-  if (boot) window.parent.postMessage({ openArtifact: 'shell_ready', artifact: boot.url } satisfies ShellToHost, event.origin);
-  tellPlace();
+  const origin = event.origin;
+  // Only from an origin a connected adapter declared; while none declared any, as before but without texts.
+  void declaredHosts().then((hosts) => {
+    const verdict = hostVerdict(origin, hosts);
+    if (verdict === 'refused') return;
+    const host = hostOf(message, origin, verdict === 'declared');
+    if (host) acceptHost(host);
+  });
+}
+
+/** A command from the adapter of this top-level view (through the daemon): its host, declared by its connection. */
+function onViewCommand(message: unknown): void {
+  if (!isShellMessage(message)) return;
+  if (message.openArtifact === 'goto') {
+    if (useShell.getState().host?.via === 'view') hostGoto(message.hash);
+    return;
+  }
+  const host = hostOf(message, 'view', true, 'view');
+  if (host) acceptHost(host);
 }
 
 /**
@@ -335,11 +400,15 @@ export function startBridge(): () => void {
   window.addEventListener('blur', onBlur);
   window.addEventListener('beforeunload', onBeforeUnload);
   const boot = useShell.getState().boot;
-  if (embedded && boot) {
-    const hello: ShellToHost = { openArtifact: 'shell_hello', version: boot.version, artifact: boot.url, id: boot.id, title: boot.title, type: boot.type };
-    window.parent.postMessage(hello, '*');
-  }
+  const hello: ShellToHost | null = boot ? { openArtifact: 'shell_hello', version: boot.version, protocol: HOST_PROTOCOL, artifact: boot.url, id: boot.id, title: boot.title, type: boot.type } : null;
+  if (embedded && hello) window.parent.postMessage(hello, '*');
+  // A top-level view the adapter opened: the same protocol through the daemon.
+  const stopView = !embedded && boot && hello ? startViewChannel(boot.id, { onCommand: onViewCommand, onOpen: () => viewSend(hello) }) : null;
+  // Exports the page's server saved: the declared host hears where.
+  setSavedFileListener((path) => void toHost({ openArtifact: 'saved_file', path }));
   return () => {
+    stopView?.();
+    setSavedFileListener(null);
     window.removeEventListener('hashchange', followPage);
     window.removeEventListener('message', onMessage);
     window.removeEventListener('blur', onBlur);

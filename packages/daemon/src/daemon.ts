@@ -53,6 +53,7 @@ import {
   type TypeApiWakeRequest,
   type TypeApiWakeResult,
   type TypesResponse,
+  type EmbedResponse,
   type TypeView,
   type UpdateArtifactRequest,
   type WakeRequestItem,
@@ -61,17 +62,24 @@ import {
 } from '@open-artifact/protocol';
 import { DATA_TYPE, DataRefresher } from './data-refresh.ts';
 import { HarnessHub, systemBrowse, type PollParams } from './harness.ts';
+import { embedOrigins, remoteOf, type ViewSink } from './harness-embed.ts';
 import { Inbox } from './inbox.ts';
 import { LinkHub } from './link.ts';
 import { callerFromRequest, handleMcp, uiFromRequest, type McpMessage, type McpReply } from './mcp.ts';
 import { nudgeSession } from './nudge.ts';
+import { Ownership } from './ownership.ts';
 import { ensureDir, expandHome, files, inside, openArtifactHome, readJson, writeJson } from './paths.ts';
 import { ACTION_CALL_MS, TypeServers } from './servers.ts';
 import { readPreset, type CloudPreset } from './preset.ts';
+import { ReleaseGuard, releaseView, writeMarkerRelease } from './release-guard.ts';
+import { RuntimeManager } from './runtime.ts';
+import { remoteArchiveBytes, remoteErrorBody } from './remote-archive.ts';
+import { ownRuntime } from './client.ts';
+import { startDaemonProcess } from '@open-artifact/harness-kit';
 import { loadSettings, saveCloudSettings } from './settings.ts';
 import { ArtifactStore, sessionKeyOf, userEditsAfter, type StoreChange } from './store.ts';
 import { Tools, type ShareAccess } from './tools.ts';
-import { TypeRegistry, type ListedType, type TypeInfo } from './types.ts';
+import { TypeRegistry, typeLocation, type ListedType, type TypeInfo } from './types.ts';
 import { WakeRouter, type WakeResult } from './wake.ts';
 import { acceptWebSocket } from './ws.ts';
 import pkg from '../package.json' with { type: 'json' };
@@ -424,6 +432,10 @@ export class Daemon extends EventEmitter<{ exit: [] }> {
   readonly link: LinkHub;
   /** Live data of published dashboards: the snapshots this computer takes for their hosts. */
   readonly data: DataRefresher;
+  /** The runtimes on this computer and updates (`runtime.ts`). */
+  readonly runtime: RuntimeManager;
+  /** Tool calls running now (a runtime switch waits for none). */
+  private toolCalls = 0;
   readonly shellDir: string;
   readonly homeDir: string;
   readonly server: Server;
@@ -465,7 +477,7 @@ export class Daemon extends EventEmitter<{ exit: [] }> {
     this.quiet = options.quiet ?? false;
     this.shellDir = resolve(options.shellDir ?? defaultUiDir('shell'));
     this.homeDir = resolve(options.homeDir ?? defaultUiDir('home'));
-    this.logFile = join(files.logs(), 'daemon.log');
+    this.logFile = files.daemonLog();
     const log = (line: string): void => this.log(line);
     this.types = new TypeRegistry(() => this.settings, options.builtinTypesDir !== undefined ? { builtinDir: options.builtinTypesDir } : {});
     this.store = new ArtifactStore();
@@ -479,7 +491,7 @@ export class Daemon extends EventEmitter<{ exit: [] }> {
       emit: (event) => this.broadcast(event),
       nudge: (target, payload) => void nudgeSession(target, payload.artifact, { log }),
     });
-    this.servers = new TypeServers({ daemonUrl: () => this.origin, tokenFor: (typeId) => this.typeToken(typeId), log });
+    this.servers = new TypeServers({ daemonUrl: () => this.origin, tokenFor: (typeId) => this.typeToken(typeId), log, changed: () => this.harnesses?.embed.originsChanged() });
     const browse = options.browse === undefined ? systemBrowse : options.browse;
     this.link = new LinkHub({
       store: this.store,
@@ -522,6 +534,7 @@ export class Daemon extends EventEmitter<{ exit: [] }> {
       viewUrl: (id) => this.viewUrl(id),
       openPage: (record) => this.openPage(record),
       reopenPage: (record) => this.reopenPage(record),
+      reach: (type) => this.servers.reach(type),
       typeAction: (type, record, name, args) =>
         this.servers.call(type, 'POST', `${TYPE_SERVER_ROUTES.actions}${encodeURIComponent(name)}`, { id: record.id, root: record.root, args }, undefined, ACTION_CALL_MS),
       typeActions: (type, options) => this.servers.actions(type, options),
@@ -532,8 +545,28 @@ export class Daemon extends EventEmitter<{ exit: [] }> {
       openAfterFirstWrite: (record, caller) => this.openAfterFirstWrite(record, caller),
       cancelOpenAfterFirstWrite: (id) => this.pendingOpens.get(id)?.(),
       link: this.link,
+      ownership: new Ownership({ store: this.store, hub: () => this.harnesses ?? null, log }),
+    });
+    this.guardToolCalls();
+    this.runtime = new RuntimeManager({
+      version: VERSION,
+      own: ownRuntime(),
+      log,
+      // Not to an adapter that said `bundled`: it updates its own runtime.
+      broadcast: (event, skip) => {
+        for (const conn of this.harnesses?.connections ?? []) if (conn.authed && conn.subscribed && !(conn.harness && skip.has(conn.harness))) conn.notify('event', event);
+      },
+      idle: () => this.idleForSwitch(),
+      connected: () => [...new Set([...this.harnesses.connections].filter((c) => c.authed && c.harness).map((c) => c.harness!))],
+      switchTo: (candidate, env) => {
+        this.close();
+        startDaemonProcess(candidate.bin, { env });
+        this.emit('exit');
+      },
+      ...(process.env.OPEN_ARTIFACT_RUNTIME_CHECK_DELAY_MS ? { checkDelayMs: Number(process.env.OPEN_ARTIFACT_RUNTIME_CHECK_DELAY_MS) } : {}),
     });
     this.harnesses = new HarnessHub({
+      runtime: this.runtime,
       token: this.token,
       version: VERSION,
       tools: this.tools,
@@ -547,6 +580,7 @@ export class Daemon extends EventEmitter<{ exit: [] }> {
       },
     });
     this.harnesses.on('changed', () => this.broadcast({ type: 'harness/changed' }));
+    this.configureEmbedding();
     this.store.on('changed', (record: StoreChange) => {
       if (record.removed) this.closePage(record);
       this.broadcast({ type: 'artifacts/changed', id: record.id, ...(record.removed ? { removed: true } : {}) });
@@ -554,6 +588,7 @@ export class Daemon extends EventEmitter<{ exit: [] }> {
     this.types.on('changed', () => {
       this.servers.typesChanged((id, old) => this.types.scanRoot({ root: old.root, scope: old.scope, trusted: old.trusted }).find((t) => t.id === id) ?? null);
       this.broadcast({ type: 'types/changed' });
+      this.harnesses.embed.originsChanged();
     });
     this.server = createServer((req, res) => {
       this.onRequest(req, res).catch((error: unknown) => {
@@ -584,6 +619,79 @@ export class Daemon extends EventEmitter<{ exit: [] }> {
   /** The Shell address of an artifact: its cloud address once it is published. */
   viewUrl(id: string): string {
     return this.store.get(id)?.remote?.url ?? `${this.origin}/a/${id}`;
+  }
+
+  /** Embedding and view context (`harness-embed.ts`, `harness-view.ts`): where their answers come from. */
+  private configureEmbedding(): void {
+    this.harnesses.embed.setOrigins(() =>
+      embedOrigins({
+        daemon: this.origin,
+        port: this.port,
+        // Every installed, enabled type (any workspace's are not known here: the global and built-in ones).
+        types: this.types.list().filter((t) => t.enabled).map((t) => ({ id: t.id, entry: t.entry })),
+        running: this.servers.running(),
+      }),
+    );
+    // A view loads the local Shell, also for a published artifact.
+    this.harnesses.embed.setShellUrl((id) => `${this.origin}/a/${id}`);
+    // An artifact of a remote type: host.open says where its page comes from, for the host to decide.
+    this.harnesses.embed.setRemoteOf((id) => {
+      const record = this.store.get(id);
+      return record ? remoteOf(this.typeOf(record), this.pages.get(id)?.page) : null;
+    });
+    this.harnesses.contexts.configure({
+      record: (url) => this.store.require(url),
+      // The agent's way to the type's `context` action: its host for a published artifact, else its server.
+      context: async (view) => {
+        const record = this.store.require(view.id);
+        const type = this.typeOf(record);
+        if (!type?.entry || type.entry.kind === 'static' || !type.entry.actions) return null;
+        if (this.link.forwards(record, type, 'context')) return this.link.call(record, 'context', {}, 'read');
+        const actions = await this.servers.actions(type, { start: true });
+        if (!actions?.some((a) => a.name === 'context')) return null;
+        await this.openPage(record);
+        return this.servers.call(type, 'POST', `${TYPE_SERVER_ROUTES.actions}context`, { id: record.id, root: record.root, args: {} }, undefined, ACTION_CALL_MS);
+      },
+    });
+  }
+
+  /**
+   * `GET /api/open-artifact.view?view=&id=[&key=]`: the Shell of a top-level view claims its ticket (or comes back with
+   * its key) and gets the host's commands as an event stream, the first event (`view`) carrying its key. `POST {view,
+   * key, event}`: what the Shell says to its host, on to the adapter. Only pages of this origin.
+   */
+  private async viewChannel(req: IncomingMessage, res: ServerResponse, url: URL, get: boolean): Promise<void> {
+    const site = req.headers['sec-fetch-site'];
+    if (!this.originOk(req) || (site !== undefined && site !== 'same-origin')) throw new OpenArtifactError('not_granted', 'Only the Shell of this daemon opens a view.', { status: 403 });
+    if (!get) {
+      const body = await readJsonBody<{ view?: unknown; key?: unknown; event?: unknown }>(req);
+      return sendJson(res, 200, this.harnesses.embed.event(String(body.view ?? ''), String(body.key ?? ''), body.event));
+    }
+    const id = artifactIdOf(String(url.searchParams.get('id') ?? ''));
+    const view = String(url.searchParams.get('view') ?? '');
+    // Commands the claim hands over at once wait for the stream's head.
+    let started = false;
+    const early: string[] = [];
+    const write = (chunk: string): void => {
+      if (started) res.write(chunk);
+      else early.push(chunk);
+    };
+    const sink: ViewSink = {
+      send: (command) => write(`event: command\ndata: ${JSON.stringify(command)}\n\n`),
+      end: () => res.end(),
+    };
+    // Throws not_found (an unknown, used or expired ticket, another artifact's, a wrong key) before the stream starts.
+    const claimed = this.harnesses.embed.claim(view, id ?? '', url.searchParams.get('key') || null, sink);
+    res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', Connection: 'keep-alive' });
+    res.write(`event: view\ndata: ${JSON.stringify({ view, key: claimed.key, session: claimed.session })}\n\n`);
+    started = true;
+    for (const chunk of early.splice(0)) res.write(chunk);
+    const ping = setInterval(() => res.write(': ping\n\n'), 25_000);
+    ping.unref?.();
+    res.on('close', () => {
+      clearInterval(ping);
+      this.harnesses.embed.detach(view, sink);
+    });
   }
 
   private typeOf(record: ArtifactRecord): ListedType | null {
@@ -634,6 +742,11 @@ export class Daemon extends EventEmitter<{ exit: [] }> {
     this.timer = setInterval(() => this.tick(), 30_000);
     this.timer.unref?.();
     this.log(`daemon ${VERSION} listening at ${this.origin} (home ${openArtifactHome()})`);
+    try {
+      this.runtime.start();
+    } catch (error) {
+      this.log(`runtime: registering this runtime failed: ${(error as Error)?.message ?? error}`);
+    }
     // Links handed out before a restart keep working: open what is shared again.
     void this.remountShared();
     // Published artifacts sync again, and each remote's events come in (nothing without a remote).
@@ -698,6 +811,43 @@ export class Daemon extends EventEmitter<{ exit: [] }> {
       entry.until = now + ACTING_GRACE_MS;
     }
     this.acting.set(id, entry);
+  }
+
+  /**
+   * Every tool call (MCP, the Harness API, the Library API) goes through the release check (`release-guard.ts`) and is
+   * counted while it runs, so a runtime switch never cuts one off.
+   */
+  private guardToolCalls(): void {
+    const call = this.tools.call.bind(this.tools);
+    const guard = new ReleaseGuard({
+      record: (urlOrId) => {
+        try {
+          return this.store.require(urlOrId);
+        } catch {
+          return null;
+        }
+      },
+      typeVersion: (record) => this.typeOf(record)?.version ?? null,
+      setRelease: (record, release) => {
+        this.store.update(record.id, { typeRelease: release, updatedAt: record.updatedAt });
+        writeMarkerRelease(record, release);
+      },
+    });
+    this.tools.call = async (name, args, caller) => {
+      this.toolCalls += 1;
+      try {
+        return await guard.call(name, args, caller, call);
+      } finally {
+        this.toolCalls -= 1;
+      }
+    };
+  }
+
+  /** Nothing a runtime switch would cut off: no open page, no tool call, long action or agent write running. */
+  private idleForSwitch(): boolean {
+    if (this.closed || this.pages.size > 0 || this.toolCalls > 0 || this.tasks.size > 0) return false;
+    for (const entry of this.acting.values()) if (entry.running > 0) return false;
+    return !this.link.busy();
   }
 
   /** Whether page writes on the artifact now come from the agent's action. */
@@ -766,6 +916,9 @@ export class Daemon extends EventEmitter<{ exit: [] }> {
         this.unwatch(id);
       }
     }
+    // Update checks as the policy says, and the switch to a newer runtime once idle.
+    this.runtime.tick(now);
+    if (this.closed) return;
     if (!this.idleMs) return;
     const busy = this.harnesses.connections.size > 0 || this.pages.size > 0 || this.eventClients.size > 0 || this.typeEventClients.size > 0 || this.link.busy();
     if (busy) this.lastActivity = Date.now();
@@ -781,6 +934,7 @@ export class Daemon extends EventEmitter<{ exit: [] }> {
     if (this.closed) return;
     this.closed = true;
     clearInterval(this.timer);
+    this.runtime.close();
     this.servers.closeAll();
     for (const id of [...this.watchers.keys()]) this.unwatch(id);
     for (const stop of [...this.pendingOpens.values()]) stop();
@@ -1019,6 +1173,8 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
       agentName: this.agentNameOf(record),
       userName: safeUserName(),
       version: VERSION,
+      // Written by a newer type release: the page opens view-only and the Shell says how to update.
+      ...releaseView(record, type?.version ?? null),
     };
   }
 
@@ -1252,6 +1408,7 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
       shared: sharedOnLan(record.root),
       open: this.pages.has(record.id),
       remote: record.remote ? { name: record.remote.name, host: record.remote.host, url: record.remote.url, syncedAt: record.remote.syncedAt } : null,
+      ...releaseView(record, type?.version ?? null),
     };
   }
 
@@ -1271,6 +1428,7 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
       version: type.version,
       problems: type.problems,
       icon: !!type.icon,
+      ...typeLocation(type),
     };
   }
 
@@ -1428,7 +1586,8 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
     await this.openPage(record);
     const answer = await this.servers.fetchRaw(type, method, TYPE_SERVER_ROUTES.archive, { id: record.id }, timeoutMs);
     if (!answer.ok) {
-      const body = (await answer.json().catch(() => null)) as { code?: unknown; message?: unknown } | null;
+      // A remote type's error body is read up to a cap (remote-archive.ts); a local one's as before.
+      const body = typeLocation(type).remote ? await remoteErrorBody(type, answer) : ((await answer.json().catch(() => null)) as { code?: unknown; message?: unknown } | null);
       if (answer.status === 404 || answer.status === 405) throw unsupported();
       const code = typeof body?.code === 'string' ? body.code : answer.status === 413 ? 'too_large' : 'server_failed';
       throw new OpenArtifactError(code, typeof body?.message === 'string' ? body.message : `${type.id}: the zip answered ${answer.status}.`, { status: answer.status });
@@ -1439,6 +1598,9 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
   /** The artifact's folder as a zip, made by its type server with the export's rules (what Link publishes). */
   private async archiveBytes(record: ArtifactRecord): Promise<Uint8Array> {
     const answer = await this.archiveAnswer(record, 'GET', 300_000);
+    const type = this.typeOf(record);
+    // Held in memory whole: capped for a type on another computer (remote-archive.ts).
+    if (type && typeLocation(type).remote) return remoteArchiveBytes(type, answer);
     return new Uint8Array(await answer.arrayBuffer());
   }
 
@@ -1529,6 +1691,8 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
           owner: record.owner ? { label: `${record.owner.harness}${record.owner.session ? ` · ${record.owner.session}` : ''}`, harness: record.owner.harness } : null,
           agentName: this.agentNameOf(record),
           view_url: this.viewUrl(record.id),
+          // The type server serves a read-only artifact's pages as a viewer's (release-guard.ts).
+          ...releaseView(record, this.typeOf(record)?.version ?? null),
         };
         return sendJson(res, 200, answer);
       }
@@ -1545,7 +1709,8 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
         const result = (await Promise.all(waits)).at(-1)!;
         const status: WakeStatus =
           result.via === 'live' ? (result.status === 'resumed' ? 'resumed' : result.status === 'failed' ? 'failed' : 'delivered') : result.via === 'wait' ? 'delivered' : result.via === 'inbox' ? 'inbox' : 'failed';
-        const answer: TypeApiWakeResult = { status, via: result.via };
+        // Drafted stays `delivered` for pages older than the field; `drafted` lets a newer one say so.
+        const answer: TypeApiWakeResult = { status, via: result.via, ...(result.via === 'live' && result.status === 'drafted' ? { drafted: true as const } : {}) };
         return sendJson(res, 200, answer);
       }
       case TYPE_API_ROUTES.presence:
@@ -1585,6 +1750,12 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
         }
         if (Object.keys(patch).length) this.store.update(record.id, patch);
         this.broadcast({ type: 'artifacts/changed', id: record.id, author, paths });
+        return sendJson(res, 200, { ok: true });
+      }
+      case TYPE_API_ROUTES.context: {
+        // The owner's view context changed: adapters hear of it (throttled), and read it with view.context.
+        const record = theirs(body.id);
+        this.harnesses.contexts.noted(record.id, typeof body.at === 'string' ? body.at : new Date().toISOString());
         return sendJson(res, 200, { ok: true });
       }
       case TYPE_API_ROUTES.task: {
@@ -1662,6 +1833,13 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
       }
       case R.harnesses:
         return sendJson(res, 200, this.harnesses.info());
+      case R.embed: {
+        // Where pages are served from, and the origins hosts embed the Shell from (the Shell answers only those).
+        const answer: EmbedResponse = { ...this.harnesses.embed.origins(), hosts: this.harnesses.embed.hostOrigins() };
+        return sendJson(res, 200, answer);
+      }
+      case R.view:
+        return this.viewChannel(req, res, url, get);
       case R.events: {
         res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', Connection: 'keep-alive' });
         res.write(': hello\n\n');
@@ -1790,7 +1968,7 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
       case R.tools: {
         // For an adapter without a WebSocket: the tools' schemas and the always-on note.
         const workspace = url.searchParams.get('workspace') || undefined;
-        return sendJson(res, 200, { tools: this.tools.definitions(), instructions: this.tools.instructions(workspace) });
+        return sendJson(res, 200, { tools: this.tools.definitions(workspace), instructions: this.tools.instructions(workspace) });
       }
       case 'tools.call': {
         const body = await readJsonBody<{ name: string; arguments: Record<string, unknown>; caller: Partial<SessionRef> }>(req);

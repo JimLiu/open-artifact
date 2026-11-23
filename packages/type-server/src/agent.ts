@@ -229,7 +229,7 @@ export async function sendToAgent(options: {
         ...(from ? { from } : {}),
       },
     ]);
-    if (result.status === 'delivered' || result.status === 'resumed') return { status: 'delivered' };
+    if (result.status === 'delivered' || result.status === 'resumed') return { status: 'delivered', ...('drafted' in result && result.drafted ? { drafted: true as const } : {}) };
     if (result.status === 'inbox') return { status: 'queued' };
     // The daemon could not take it: keep it locally so `wait` still finds it.
   }

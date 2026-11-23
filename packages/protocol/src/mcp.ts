@@ -80,6 +80,23 @@ export function toolCallContent(result: ToolCallResult | null | undefined, struc
   return { content, isError, ...(structured && !isError ? { structuredContent: rest } : {}) };
 }
 
+/** Where MCP `tools/list` puts each tool's action kinds (`ToolDefinition.actions`): MCP has no field of its own for them. */
+export const MCP_ACTIONS_META = 'open-artifact/actions';
+
+/** Where MCP `tools/list` puts the actions that leave this computer for a remote type (`ToolDefinition.remoteActions`). */
+export const MCP_REMOTE_ACTIONS_META = 'open-artifact/remote-actions';
+
+/**
+ * A tool definition as MCP lists it: its `actions` and `remoteActions` move under `_meta`, so a strict client sees
+ * only MCP's fields.
+ */
+export function mcpTool(tool: ToolDefinition | Record<string, unknown>): Record<string, unknown> {
+  const { actions, remoteActions, ...rest } = tool as Record<string, unknown>;
+  if (!actions && !remoteActions) return rest;
+  const meta = rest._meta && typeof rest._meta === 'object' ? (rest._meta as Record<string, unknown>) : {};
+  return { ...rest, _meta: { ...meta, ...(actions ? { [MCP_ACTIONS_META]: actions } : {}), ...(remoteActions ? { [MCP_REMOTE_ACTIONS_META]: remoteActions } : {}) } };
+}
+
 /** What {@link serveMcp} needs from a server. */
 export interface McpEndpoint {
   /** The server's version, for `serverInfo`. */
@@ -119,7 +136,7 @@ export async function serveMcp(message: McpMessage, endpoint: McpEndpoint): Prom
     case 'ping':
       return reply({});
     case 'tools/list':
-      return reply({ tools: endpoint.tools(endpoint.apps(method, undefined)) });
+      return reply({ tools: endpoint.tools(endpoint.apps(method, undefined)).map(mcpTool) });
     case 'resources/list':
       return reply({ resources: endpoint.resources?.list() ?? [] });
     case 'resources/templates/list':

@@ -9,7 +9,7 @@
  * that has a shell can run this command line too, and the daemon takes whoever holds its token for the person.
  *
  * So the command line looks for the variables the agent apps set in the commands their agents run (each harness
- * profile's `sessionEnv`, and the markers below) and refuses those commands there, with one sentence telling the
+ * profile's `markers` and `sessionEnv`, the union over every profile file) and refuses those commands there, with one sentence telling the
  * agent what to do instead: ask the person. A person's own terminal has none of these variables, so nothing changes
  * for them. The one override is the person's setting `remotes.<name>.agentMayPublish` (publish and unpublish on that
  * site only); connecting, removing, the default site, automatic publishing and a dashboard's data have none: they
@@ -26,20 +26,6 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { OpenArtifactSettings } from '@open-artifact/protocol';
 
-/**
- * Variables that mark an agent's command beyond the profiles' `sessionEnv`, by harness: Claude Code sets `CLAUDECODE`
- * (and `CLAUDE_CODE_SESSION_ID`), Codex `CODEX_THREAD_ID`, Antigravity `ANTIGRAVITY_AGENT` (and
- * `ANTIGRAVITY_CONVERSATION_ID`). The same markers the skill's launcher (`skills/open-artifact/scripts/open-artifact.mjs`)
- * tells the harness by.
- */
-export const AGENT_MARKERS: Readonly<Record<string, string>> = {
-  CLAUDECODE: 'claude-code',
-  CLAUDE_CODE_SESSION_ID: 'claude-code',
-  CODEX_THREAD_ID: 'codex',
-  ANTIGRAVITY_AGENT: 'antigravity',
-  ANTIGRAVITY_CONVERSATION_ID: 'antigravity',
-};
-
 /** An agent session a command runs in. */
 export interface AgentSession {
   /** The harness, e.g. `claude-code`. */
@@ -50,9 +36,25 @@ export interface AgentSession {
   session: string | null;
 }
 
-/** The harness profiles' session variables (`sessionEnv`), by variable -> harness, from these profile folders. */
-function profileVariables(profileDirs: readonly string[]): Map<string, { harness: string }> {
-  const found = new Map<string, { harness: string }>();
+const VARIABLE = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
+const NAME = /^[a-z0-9][a-z0-9._-]{0,63}$/i;
+
+/** What the profiles say about one harness's variables. */
+interface HarnessVariables {
+  /** Variables that mark its agent's commands (`markers`, then `sessionEnv`). */
+  markers: string[];
+  /** Variables that hold its session id (`sessionEnv`). */
+  session: string[];
+}
+
+/**
+ * Every harness's variables in these profile folders, in order (the folders in the order given, the files in each by
+ * name). A harness with a file in more than one folder gets the union of them: whatever a later file says, it never
+ * takes away a variable an earlier one named. Files of every source count, shipped, adapter-reported and the person's,
+ * so no profile can switch off the guard for an agent another one recognises.
+ */
+function harnessVariables(profileDirs: readonly string[]): Map<string, HarnessVariables> {
+  const found = new Map<string, HarnessVariables>();
   for (const dir of profileDirs) {
     let names: string[];
     try {
@@ -60,45 +62,67 @@ function profileVariables(profileDirs: readonly string[]): Map<string, { harness
     } catch {
       continue;
     }
-    for (const name of names.sort()) {
-      if (!name.endsWith('.json')) continue;
+    for (const file of names.sort()) {
+      if (!file.endsWith('.json')) continue;
+      const harness = file.slice(0, -'.json'.length);
+      if (!NAME.test(harness)) continue;
+      let profile: { markers?: unknown; sessionEnv?: unknown };
       try {
-        const profile = JSON.parse(readFileSync(join(dir, name), 'utf8')) as { sessionEnv?: unknown };
-        const variable = profile?.sessionEnv;
-        if (typeof variable === 'string' && /^[A-Z_][A-Z0-9_]*$/.test(variable) && !found.has(variable)) found.set(variable, { harness: name.slice(0, -5) });
+        profile = JSON.parse(readFileSync(join(dir, file), 'utf8')) as typeof profile;
       } catch {
-        // not a profile: skip it
+        continue; // not a profile: skip it
       }
+      if (!profile || typeof profile !== 'object') continue;
+      let entry = found.get(harness);
+      if (!entry) found.set(harness, (entry = { markers: [], session: [] }));
+      const markers = Array.isArray(profile.markers) ? profile.markers.filter((m): m is string => typeof m === 'string' && VARIABLE.test(m)) : [];
+      const sessionEnv = typeof profile.sessionEnv === 'string' && VARIABLE.test(profile.sessionEnv) ? profile.sessionEnv : null;
+      for (const marker of [...markers, ...(sessionEnv ? [sessionEnv] : [])]) if (!entry.markers.includes(marker)) entry.markers.push(marker);
+      if (sessionEnv && !entry.session.includes(sessionEnv)) entry.session.push(sessionEnv);
     }
   }
   return found;
 }
 
 /**
- * Every variable that marks an agent's command: {@link AGENT_MARKERS} and each profile's `sessionEnv` in
- * `profileDirs` (the person's `<home>/harnesses`, then the shipped ones). Tests and the e2e runner remove these from
- * their own environment, since they may themselves run inside an agent's session.
+ * Every variable that marks an agent's command, by variable -> harness: each profile's `markers` and `sessionEnv` in
+ * `profileDirs` (the shipped profiles, then the person's `<home>/harnesses`, which also holds what adapters reported).
+ * A variable two harnesses name goes to the first. Tests and the e2e runner remove these from their own environment,
+ * since they may themselves run inside an agent's session.
  */
 export function agentVariables(profileDirs: readonly string[] = []): Map<string, string> {
-  const all = new Map<string, string>(Object.entries(AGENT_MARKERS));
-  for (const [variable, { harness }] of profileVariables(profileDirs)) if (!all.has(variable)) all.set(variable, harness);
+  const all = new Map<string, string>();
+  for (const [harness, { markers }] of harnessVariables(profileDirs)) for (const variable of markers) if (!all.has(variable)) all.set(variable, harness);
   return all;
 }
 
 /** The agent session this process runs in, from its environment, or `null` (a person's own terminal). */
 export function agentSessionOf(env: Readonly<Record<string, string | undefined>>, profileDirs: readonly string[] = []): AgentSession | null {
-  const variables = agentVariables(profileDirs);
-  for (const [variable, harness] of variables) {
+  const harnesses = harnessVariables(profileDirs);
+  for (const [variable, harness] of agentVariables(profileDirs)) {
     if (!env[variable]) continue;
-    // The session id is the harness's own session variable when it is set (CLAUDECODE says only "in Claude Code").
-    const sessionVariable = [...variables].find(([name, of]) => of === harness && name !== 'CLAUDECODE' && name !== 'ANTIGRAVITY_AGENT' && env[name])?.[0];
+    // The session id is the harness's own session variable when it is set (a marker such as CLAUDECODE says only
+    // "in Claude Code").
+    const sessionVariable = harnesses.get(harness)?.session.find((name) => env[name]);
     return { harness, variable, session: sessionVariable ? env[sessionVariable]! : null };
   }
   return null;
 }
 
 /** One of the person's own decisions the command line refuses inside an agent session. */
-export type PersonAct = 'publish' | 'unpublish' | 'data' | 'remote-add' | 'remote-remove' | 'remote-default' | 'remote-auto';
+export type PersonAct =
+  | 'publish'
+  | 'unpublish'
+  | 'data'
+  | 'remote-add'
+  | 'remote-remove'
+  | 'remote-default'
+  | 'remote-auto'
+  | 'harness-add'
+  | 'harness-remove'
+  | 'runtime-update'
+  | 'runtime-pin'
+  | 'runtime-policy';
 
 /** What each act is, in the refusal. */
 const ACT_TEXT: Record<PersonAct, { what: string; panel: string }> = {
@@ -109,6 +133,13 @@ const ACT_TEXT: Record<PersonAct, { what: string; panel: string }> = {
   'remote-remove': { what: 'Removing a site', panel: 'remove it' },
   'remote-default': { what: 'Choosing the default site', panel: 'choose it in an artifact’s Share panel' },
   'remote-auto': { what: 'Turning automatic publishing on or off', panel: 'switch it in an artifact’s Share panel' },
+  // A profile is standing configuration, and the person's own may carry a command the daemon runs (`nudge`).
+  'harness-add': { what: 'Adding a harness profile', panel: 'read the profile and add it' },
+  'harness-remove': { what: 'Removing a harness profile', panel: 'remove it' },
+  // Code from the registry that the daemon will run: the person's call, like the profile.
+  'runtime-update': { what: 'Updating the Open Artifact runtime', panel: 'run the update' },
+  'runtime-pin': { what: 'Pinning the Open Artifact runtime to a version range', panel: 'set the pin' },
+  'runtime-policy': { what: 'Changing the Open Artifact runtime update policy', panel: 'set the policy' },
 };
 
 /**

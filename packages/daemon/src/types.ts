@@ -14,6 +14,8 @@ import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   TYPE_ID,
+  entryLocation,
+  isLoopbackHost,
   isServerEntry,
   isUrlEntry,
   type ArtifactTypeManifest,
@@ -22,6 +24,7 @@ import {
   type ManifestTemplate,
   type OpenArtifactSettings,
   type ResolvedEntry,
+  type TypeLocation,
   type TypeRuntime,
   type TypeScope,
 } from '@open-artifact/protocol';
@@ -124,17 +127,26 @@ export function readFrontmatter(text: string): Record<string, string> {
 
 const stripFrontmatter = (text: string): string => text.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, '');
 
-const LOOPBACK = new Set(['127.0.0.1', 'localhost', '[::1]', '::1']);
-
 /** True for a loopback http(s) URL (templates allowed): only those may carry `{root}` or be a server's address. */
 export function isLoopbackUrl(value: string): boolean {
   try {
     const url = new URL(value.replace(/\{[a-z]+\}/g, 'x'));
-    return (url.protocol === 'http:' || url.protocol === 'https:') && (LOOPBACK.has(url.hostname) || url.hostname.endsWith('.localhost'));
+    return (url.protocol === 'http:' || url.protocol === 'https:') && isLoopbackHost(url.hostname);
   } catch {
     return false;
   }
 }
+
+/**
+ * Whether a type lives on another computer, and where: a URL entry that is not loopback (`entryLocation`). What is
+ * sent to such a type leaves this computer, whatever `effect` its actions declare.
+ */
+export function typeLocation(type: Pick<TypeInfo, 'entry'> | null | undefined): TypeLocation {
+  return entryLocation(type?.entry);
+}
+
+/** True when the type lives on another computer ({@link typeLocation}). */
+export const isRemoteType = (type: Pick<TypeInfo, 'entry'> | null | undefined): boolean => typeLocation(type).remote;
 
 /** Resolves a manifest's `entry`: static, url or server. */
 export function entryOf(

@@ -6,6 +6,9 @@ This guide is a fast, practical reference for **AI agents** (and people wiring u
 
 For the authoritative runtime skill prompt installed into agent apps, see [skills/open-artifact/SKILL.md](../skills/open-artifact/SKILL.md).
 
+If you are building an agent app and want Open Artifact inside it (your own tools, pages in your UI, comments into your
+sessions), read [Integrating Open Artifact into an agent product](integrating.md) instead.
+
 ## 1. Decide: artifact, chat reply, or plain file?
 
 | User intent | Output |
@@ -39,6 +42,8 @@ node <skill>/scripts/open-artifact.mjs comments '{"action":"read","url":"open-ar
 node <skill>/scripts/open-artifact.mjs open open-artifact://artifact/art_... --browser
 node <skill>/scripts/open-artifact.mjs wait --timeout 600000
 ```
+
+`node <skill>/scripts/open-artifact.mjs --version` (or `-v`) prints the runtime's version.
 
 > **Important:** When running under the Open Artifact daemon/host, **never** run a type's standalone `artifact-types/<type>/scripts/cli.mjs open | serve | share | wait | stop`. The daemon owns serving, opening, and wake routing.
 

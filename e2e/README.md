@@ -19,6 +19,8 @@ Options:
 | `--keep` | Keep the temporary folders and print their paths (`E2E_KEEP=1`). |
 | `--dir <path>` | Test another copy of `artifact-types/` (`E2E_DIR`). |
 
+`e2e/sea/sea.test.mjs` is not one of these suites: `npm run test:sea` builds the single executable and runs it with no `node` on `PATH` (the daemon, a static and a server type's artifact, `harness --stdio` and `doctor`). It needs an official Node.js build of 25.5 or later (`OPEN_ARTIFACT_SEA_NODE`), and `npm run build` and `node scripts/build-skill.mjs` first; otherwise it is skipped and says why.
+
 Chrome is found in its usual places, or set `E2E_CHROME` to its path. `E2E_HEADFUL=1` shows the window. Nothing has to be installed: the tests use `node:test`, and Chrome is driven over the DevTools protocol with Node's own WebSocket.
 
 Each test file runs its own server, with its own `OPEN_ARTIFACT_TYPE_SERVER_HOME` and `HOME`. It never meets the server you use yourself, or another test file's server.
@@ -127,6 +129,22 @@ When Chrome stops a frame's renderer (Chrome shows the frame as gone and the pag
 - A real daemon starts with only `OPEN_ARTIFACT_REMOTE`, `OPEN_ARTIFACT_REMOTE_TOKEN` and `OPEN_ARTIFACT_PUBLISH=auto`. With no `remote add` and no browser, `remote list` shows the remote named after the host, signed in as the person, as the default. `remote status` says the connection is plain http and that publishing is automatic.
 - An artifact created through the CLI's Artifact tool is answered with its local `view_url` and a note that it is being published by itself. A later `read` gives its web address on the LAN name. The token is not in the daemon's log.
 - In Chrome, the owner signs in with the printed key and opens that web address: the Shell frames the page on its `*.oa-content.lan` origin, and it draws.
+
+**Harness compatibility** (`harness-compat.test.mjs`; the Chrome cases are skipped, and say so, with `--no-browser`)
+
+- A real daemon (`open-artifact daemon run` from source, in a temporary `OPEN_ARTIFACT_HOME`) with two user types: `note`, a static page, and `farstub`, a URL type at `http://0.0.0.0:<port>/far/{id}`. It counts as remote because 0.0.0.0 is not a loopback name, but a stub on this computer answers it.
+- Two hosts are built in-process from the reference host's modules (`examples/harness-node`: `connectHarness`, `ScriptedAgent`, `wakeHandler`, `registerTools`):
+  - `compat-frame` frames the Shell from host page origin A, with `embed.remote: deny`, rules and a `policy.roles` entry;
+  - `compat-view` shows top-level views, with `embed.remote: allow`.
+- (a) `open-artifact doctor --harness compat-frame --session compat-1 --json`, run as its own process, passes every conformance step in order. Each step's verdict is `ok`, and what needs a person or a browser is `n/a`. The host gets exactly one `host.open` and one wake from the owner, and doctor removes its test artifact. The remote-type check finds the stub answering and warns that `compat-frame` denies it, naming the fallback. The stub is never sent a token.
+- (d) `host.open` for a `farstub` artifact carries `remote` `{type, origins}` to the allow host. The deny host's `open` is never called, and the artifact is not reported as shown.
+- (c) Without a browser, a top-level view's `host.open` carries a ticket and `embed_url` (`/a/<id>?oa_view=<ticket>`). The ticket is claimed from Node as the Shell would claim it, and a second claim gets 404. `shell.command` comes down the stream, and a posted event reaches the adapter as `shell.event`.
+- (c) In Chrome, the Shell loaded at `embed_url` claims the ticket, says `shell_hello` through the daemon, and takes the ticket out of the address bar. A `host_hello` sent with `shell.command` gets `shell_ready` back as `shell.event`, and a second claim gets 404.
+- (b) In Chrome, a host page on each of two 127.0.0.1 ports frames the Shell and answers `shell_hello` with `host_hello`. The Ask goes through the real mouse and keys.
+  - On origin A, which is declared, the Shell says `shell_ready`, and the Ask sends `comment_summon` with the text and wakes the owner session.
+  - On origin B while A is declared, the page hears nothing after `shell_hello`, even though the Ask is sent and wakes the session.
+  - On origin B once `compat-frame` has gone and no origin is declared at all, the page is taken (`shell_ready`), but `comment_summon` comes with empty text.
+- The same cases against the two previous minor versions of `@open-artifact/harness-kit` from npm have a place at the end of the file. That place is skipped, and says why: the kit is not published yet. To run it, install each version into a temporary folder and build the hosts with its `createHarness`.
 
 **Exports on a cloud host** (`host-exports.test.mjs`, Chrome only)
 

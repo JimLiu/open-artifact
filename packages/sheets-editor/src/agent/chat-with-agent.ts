@@ -1,6 +1,6 @@
 import { isNonNullObject } from '../utils/objects.ts';
 import { isViewId } from './view-context.ts';
-import type { AskSentToChat } from '../messages/charts.ts';
+import { isAskTaken, type AskSentToChat } from '../messages/charts.ts';
 import type { ChartKindOrAny } from '../charts/chart-words.ts';
 import type { RuleNumber } from '../format/conditional/ask-agent-about-rule.tsx';
 import type { SelectionForAgent } from '../state/initial-state.ts';
@@ -262,7 +262,14 @@ export function createChatWithAgent(
             attachPresence: false,
           };
       let sent: unknown = sendToAgentSession.call(room, payload, sendOptions);
-      return (await withAnswerTimeout(Promise.resolve(sent).then(() => true))) ? 'taken' : 'failed';
+      let drafted = false;
+      let taken = await withAnswerTimeout(
+        Promise.resolve(sent).then((answer) => {
+          drafted = isNonNullObject(answer) && answer.drafted === true;
+          return true;
+        }),
+      );
+      return taken ? (drafted ? 'drafted' : 'taken') : 'failed';
     } catch (fault) {
       let code = isNonNullObject(fault) ? fault.code : null;
       if (code === 'rate_limited') return 'tooSoon';
@@ -319,7 +326,7 @@ export function createChatWithAgent(
     };
     chartSendInFlight = inFlight;
     became
-      .then((outcome) => (outcome === 'taken' ? sleep(CHART_SEND_SETTLE_MS) : undefined))
+      .then((outcome) => (isAskTaken(outcome) ? sleep(CHART_SEND_SETTLE_MS) : undefined))
       .then(() => {
         if (chartSendInFlight === inFlight) chartSendInFlight = null;
         return;

@@ -1,10 +1,17 @@
 import type { ChartFrameFault } from '../charts/frame-messages.ts';
 import type { ChartEditOutcome } from '../state/controller.ts';
 import type { PlacedViewDeletedOffer, PlacedViewDone } from '../state/initial-state.ts';
+import { draftedText } from '@open-artifact/editor-kit';
 import { translateMessage } from '../i18n/messages.ts';
 
-/** What came of sending words to the chat with the agent. */
-export type AskSentToChat = 'taken' | 'tooSoon' | 'failed' | 'notListening';
+/**
+ * What came of sending words to the chat with the agent. `drafted`: taken, but put in the conversation for the person
+ * to send there (the page says so instead of closing).
+ */
+export type AskSentToChat = 'taken' | 'drafted' | 'tooSoon' | 'failed' | 'notListening';
+
+/** Whether the agent's chat took the words (`taken`, or `drafted` for the person to send). */
+export const isAskTaken = (outcome: AskSentToChat | null): boolean => outcome === 'taken' || outcome === 'drafted';
 
 /** Why a chart is not shown. */
 export type ChartProblem = 'cantBeShown' | 'cantBeShownBeforeReload' | 'tooMuchData' | 'notLoaded' | 'paused';
@@ -25,6 +32,9 @@ export function askSentToChatWords(outcome: AskSentToChat): string {
         defaultMessage: 'Continue in your chat with Agent.',
         id: 'vWypqhnbz9',
       });
+    case 'drafted':
+      // The Shell's words (English, or Simplified Chinese on a Chinese page), as every editor says them.
+      return draftedText().sent;
     case 'tooSoon':
       return translateMessage({
         defaultMessage: 'Not sent. Try again in a few seconds.',

@@ -32,6 +32,11 @@ Shared folder conventions across all types:
 
 Types declaring `"uses": ["design-system"]` in `artifact-type.json` (`slides`, `design`, `data`, `motion`) can install a `design-system` artifact so their editors expose brand tokens, colors, fonts, and (for `design`) mounted component bundles.
 
+## `version` and `entry`: what integrators see
+
+- **`version`** in `artifact-type.json` is recorded as the release that last wrote each artifact (`typeRelease`, and `release` in `.artifact.json`). On a computer whose installed type is older, that artifact is read-only: the agent's writes are refused with `newer_release`, the Shell says how to update, and the type server serves every visitor as a viewer (`packages/daemon/src/release-guard.ts`). Raise `version` when a change of format must not be written over by an older release.
+- **`entry`** as a URL on a host other than loopback makes the type **remote**: its page and actions run on another computer, every place that lists the type says so (`remote`, `origin`), and agent apps gate its pages (`docs/integrating/remote-types.md`). No secret and no local path (`root`, `{root}`) is sent to a remote type.
+
 ## Checklist for adding a new artifact type
 
 1. **Core & Editor packages**:

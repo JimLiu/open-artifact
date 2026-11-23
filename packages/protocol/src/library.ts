@@ -104,7 +104,11 @@ export interface ArtifactView {
   view_url: string;
   /** The page without the Shell. */
   page_url: string;
-  owner: (SessionRef & { live: boolean; status: OwnerStatus }) | null;
+  /**
+   * The owner session and its live state. `wakeMode: 'draft'`: its harness puts what is sent into the conversation for
+   * the person to send there, instead of giving it to the agent.
+   */
+  owner: (SessionRef & { live: boolean; status: OwnerStatus; wakeMode?: 'draft' }) | null;
   pinned: boolean;
   createdAt: string;
   updatedAt: string;
@@ -128,6 +132,14 @@ export interface ArtifactView {
   trashedAt?: string | null;
   /** Set by a cloud host on one artifact (`artifact?id=`): the owner's agent, for the Ask pane. */
   agent?: CloudAgentView;
+  /**
+   * Set by the daemon: a newer release of the type wrote the artifact (`type_release`) than the one installed here
+   * (`type_version`), so it is read-only on this computer until Open Artifact is updated. Either version is `null`
+   * when unknown. A cloud host leaves these out.
+   */
+  read_only?: boolean;
+  type_release?: string | null;
+  type_version?: string | null;
 }
 
 /**
@@ -187,6 +199,9 @@ export interface TypeView {
   problems: string[];
   /** The type has an icon (`GET /api/open-artifact.type.icon?id=`). */
   icon: boolean;
+  /** Its page and actions are on another computer (a URL entry that is not loopback); `origin` says where. */
+  remote?: boolean;
+  origin?: string;
 }
 
 /** `GET /api/open-artifact.types`. */
@@ -209,7 +224,9 @@ export type LibraryEvent =
   | { type: 'artifacts/changed'; id: string; author?: string; paths?: string[]; removed?: boolean }
   | { type: 'types/changed' }
   | { type: 'harness/changed' }
-  | { type: 'wake/state'; artifactId: string; via: string; status?: string };
+  | { type: 'wake/state'; artifactId: string; via: string; status?: string }
+  /** What the person selected on an artifact's page changed (throttled); read it with the Harness API's `view.context`. */
+  | { type: 'view/context'; id: string; at: string };
 
 /** `POST /api/open-artifact.artifacts.create`. */
 export interface CreateArtifactRequest {
@@ -258,7 +275,26 @@ export const LIBRARY_ROUTES = {
   ask: 'artifacts.ask',
   adopt: 'artifacts.adopt',
   tools: 'tools',
+  /**
+   * `GET`: where artifact pages are served from (`EmbedOriginsResult`) and the origins connected adapters embed the
+   * Shell from (`hosts`, their `caps.open.origins`): {@link EmbedResponse}.
+   */
+  embed: 'embed',
+  /**
+   * The Shell of a top-level view (`host.open`'s `view` ticket): `GET ?view=&id=[&key=]` is its event stream (the
+   * host's messages; the first event, `view`, carries the key), `POST { view, key, event }` sends the host a message.
+   */
+  view: 'view',
 } as const;
+
+/** `GET /api/open-artifact.embed`. */
+export interface EmbedResponse {
+  /** Every origin and pattern pages are served from (`EmbedOriginsResult.origins`). */
+  origins: string[];
+  entries: Array<{ origin?: string; pattern?: string; kind: 'daemon' | 'frame' | 'server' | 'url'; type?: string; remote: boolean }>;
+  /** The origins connected adapters said they embed the Shell from; empty when none said. */
+  hosts: string[];
+}
 
 /**
  * What the daemon injects into the Shell page (`/a/<id>`) as its boot
@@ -298,6 +334,10 @@ export interface ShellBoot {
   version: string;
   /** Set when a cloud host serves the Shell: who is looking and how to sign in or out. `root` is `''` there. */
   cloud?: ShellCloud;
+  /** As {@link ArtifactView.read_only}: the page is opened view-only, and the Shell says how to update. */
+  read_only?: boolean;
+  type_release?: string | null;
+  type_version?: string | null;
 }
 
 /** {@link ShellBoot.cloud}: the Shell as a cloud host serves it. */

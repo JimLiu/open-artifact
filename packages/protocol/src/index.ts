@@ -12,6 +12,7 @@
  * - `shell.ts`: the Shell's chrome and host `postMessage` protocols.
  * - `tools.ts`: the agent tools' schemas.
  * - `prompt.ts`: the agent's system prompt.
+ * - `skill.ts`: the `/open-artifact` skill as a template (`SKILL.md` is its default rendering).
  * - `settings.ts`: `settings.json`.
  * - `mcp.ts`: MCP versions, messages and one message's answer, shared by the daemon's and the host's `/mcp`.
  * - `network.ts`: which host names plain `http` is allowed for (this computer, a private network).
@@ -32,6 +33,7 @@ export * from './archive-paths.ts';
 export * from './shell.ts';
 export * from './tools.ts';
 export * from './prompt.ts';
+export * from './skill.ts';
 export * from './settings.ts';
 export * from './mcp.ts';
 export * from './network.ts';

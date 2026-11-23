@@ -22,6 +22,7 @@
  *   plugins/dsh/lib, vendor/                the DSH plugin and its vendored daemon
  *
  * Usage: node scripts/build.mjs [--only cli|support|editors|types|shell|frame|dsh]
+ *        node scripts/build.mjs --only sea [--node <file>]   the single executable (scripts/build-sea.mjs), never by default
  */
 
 import { build as esbuild } from 'esbuild';
@@ -221,4 +222,11 @@ if (only === 'shell') {
 }
 if (wants('frame')) await buildFrame();
 if (wants('dsh')) await buildDsh();
+// The single executable (scripts/build-sea.mjs): only when asked, never part of the whole build; `--node <file>` passes on.
+if (only === 'sea') {
+  const { spawnSync } = await import('node:child_process');
+  const node = process.argv.indexOf('--node');
+  const result = spawnSync(process.execPath, [join(ROOT, 'scripts/build-sea.mjs'), ...(node > 0 ? ['--node', process.argv[node + 1]] : [])], { stdio: 'inherit' });
+  if (result.status !== 0) process.exit(result.status ?? 1);
+}
 console.log(`built ${only ?? 'everything'} in ${((Date.now() - started) / 1000).toFixed(1)}s`);

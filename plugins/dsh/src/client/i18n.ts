@@ -119,6 +119,9 @@ export const zh = {
   'card.more': '显示位置',
   'card.less': '收起位置',
   'card.requestLabel': '请求',
+  'card.from': '来自 {name}（{role}，不是所有者）',
+  'card.task': '“{title}”上的 {action} 已完成，结果已发给 Agent',
+  'card.taskFailed': '“{title}”上的 {action} 失败，结果已发给 Agent',
 };
 
 /** A key of the dictionaries. */
@@ -243,6 +246,9 @@ export const en: Record<Key, string> = {
   'card.more': 'Show where',
   'card.less': 'Hide where',
   'card.requestLabel': 'Request',
+  'card.from': 'From {name} ({role}, not the owner)',
+  'card.task': '{action} on “{title}” finished; result sent to agent',
+  'card.taskFailed': '{action} on “{title}” failed; result sent to agent',
 };
 
 /** Words with `{name}` placeholders filled. */

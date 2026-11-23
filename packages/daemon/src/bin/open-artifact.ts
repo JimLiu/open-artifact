@@ -12,10 +12,16 @@
  *   open-artifact watch [--harness <name>]               print a line whenever comments wait for this session (a harness monitor)
  *   open-artifact chatgpt [--port <n>] [--workspace <dir>] [--rotate]   the tools over HTTP for ChatGPT on the web (behind an HTTPS tunnel)
  *   open-artifact home                                   print the Open Artifact home folder
+ *   open-artifact skill render [--command X] [--harness H] [--form entry|full] | install --command X --dir D [...]   the skill for a harness
+ *   open-artifact harness add <profile.json> | list [--json] | remove <name>   harness profiles of your own
+ *   open-artifact harness --stdio --harness <name>       the Harness API as JSON-RPC lines on stdin/stdout (stdio-bridge.ts)
+ *   open-artifact runtime status [--json] [--check] | update [--version <v>] | pin <range>|--clear | policy [<word>]   the runtime (cli-runtime.ts)
+ *   open-artifact doctor [--harness <name> [--session <id>]] [--json]   check the setup (doctor.ts); with --session, the host's conformance steps (doctor-conformance.ts)
  *   open-artifact remote add <name> <https://host> [--insecure-http] [--no-browser] | list | remove <name> [--force] [--json] | status [--json]    cloud remotes
  *   open-artifact remote default <name> | --clear       the remote used when none is named
  *   open-artifact remote auto on|off                     publish new artifacts to the default remote by themselves
  *   open-artifact publish <id|folder> [--remote <name>]  publish an artifact (a folder not added yet is added first); unpublish <id> takes it off
+ *   open-artifact --version | -v                         print this runtime's version (as the single-file executable does)
  */
 
 import { execFileSync } from 'node:child_process';
@@ -26,12 +32,20 @@ import type { DaemonState, SessionRef, ToolCallResult } from '@open-artifact/pro
 import { agentSessionOf, dataChoice, dataLeftOut, DATA_QUESTION, personOnlyRefusal, saidYes, type PersonAct } from '../agent-session.ts';
 import { api, ensureDaemon, readDaemon } from '../client.ts';
 import { harnessProfile, shippedProfilesDir } from '../harness.ts';
+import { addUserProfile, listProfiles, removeProfile } from '../harness-profiles.ts';
+import { hookDialectOf } from '../hook-dialects.ts';
 import { clientShowsApps } from '../mcp-app.ts';
 import { files, openArtifactHome } from '../paths.ts';
 import { remoteRemovedText, remoteStatusText } from '../remote-status.ts';
 import type { CloudStatus, RemoteStatus } from '../link.ts';
 import { loadSettings } from '../settings.ts';
 import { TypeRegistry } from '../types.ts';
+import { skillCommand } from '../cli-skill.ts';
+import { runtimeCommand } from '../cli-runtime.ts';
+import { doctorText, runDoctor } from '../doctor.ts';
+import { DOCTOR_CHECKS } from '../doctor-checks.ts';
+import { runStdioBridge } from '../stdio-bridge.ts';
+import pkg from '../../package.json' with { type: 'json' };
 
 const argv = process.argv.slice(2);
 
@@ -45,6 +59,24 @@ open-artifact hook <event> [--harness <name>]        harness hooks: SessionStart
 open-artifact watch [--harness <name>]               print a line whenever comments wait for this session (a harness monitor)
 open-artifact chatgpt [--port <n>] [--workspace <dir>] [--rotate]   the tools over HTTP for ChatGPT on the web (behind an HTTPS tunnel)
 open-artifact home                                   print the Open Artifact home folder
+open-artifact skill render [--command <name>] [--harness <name>] [--form entry|full] [--workspace <dir>] [--json]
+                                                     the /open-artifact skill as that harness gets it (its command, rules…)
+open-artifact skill install --command <name> --dir <skills folder> [--harness <name>] [--form entry|full] [--force]
+                                                     write <dir>/<name>/SKILL.md, only when it changed
+open-artifact harness add <profile.json>             add your own profile of a harness (it wins over the shipped one
+                                                     and over what the harness's adapter reports)
+open-artifact harness list [--json]                  the harness profiles in effect, and where each comes from
+open-artifact harness remove <name>                  remove a profile from <home>/harnesses (a shipped one stays)
+open-artifact harness --stdio --harness <name>       the Harness API for a host, as JSON-RPC 2.0 lines on stdin/stdout
+                                                     (starts the daemon, says hello, reconnects; logs on stderr)
+open-artifact runtime status [--json] [--check]      the runtimes here, which one starts, updates (--check asks now)
+open-artifact runtime update [--version <x.y.z>]     install the newest compatible runtime from npm (checked by sha512)
+open-artifact runtime pin <range> | --clear          keep the runtime within a version range, e.g. ^0.14
+open-artifact runtime policy [auto|prompt|bundled|default]   the update policy in effect and where it comes from; a word
+                                                     sets yours (default removes it)
+open-artifact doctor [--harness <name>] [--json]     check this computer's setup; exits non-zero when a check fails
+open-artifact doctor --harness <name> --session <id> [--json]   also run the host's conformance steps as that session
+                                                     (makes and removes a test artifact, asks the session once)
 open-artifact remote add <name> <https://host> [--insecure-http] [--no-browser]   link this computer to a cloud host (signs
                                                      in in the browser; --no-browser prints the address and code instead;
                                                      http only on a private network, unless --insecure-http)
@@ -54,8 +86,9 @@ open-artifact remote auto on|off                     publish every new artifact 
 open-artifact publish <id|folder> [--remote <name>]  publish an artifact to a cloud remote (its folder keeps syncing;
                                                      a folder not added yet is added first)
 open-artifact unpublish <id>                         take it off the host; it is local only again
+open-artifact --version | -v                         print this runtime's version
 publish, unpublish and remote add / remove / default / auto are the person's decisions: run inside an agent's session,
-they are refused, and the agent asks the person instead.`;
+they are refused, and the agent asks the person instead (so are harness add / remove and runtime update / pin / policy).`;
 
 /** Takes `--name <value>` out of the arguments. */
 function flag(name: string): string | undefined;
@@ -351,74 +384,22 @@ async function hook(event: string | undefined): Promise<void> {
     input = {};
   }
   const harness = flag('harness', process.env.OPEN_ARTIFACT_HARNESS ?? 'mcp');
-  const session = (input.session_id ?? input.sessionId ?? input.conversation_id ?? input.conversationId ?? sessionFromEnv(harness) ?? null) as
-    | string
-    | null;
-  // Cursor `workspace_roots`; Antigravity `workspacePaths` (its hooks run in the plugin's folder, not the workspace).
-  const roots = [input.workspace_roots, input.workspacePaths].flatMap((list) => (Array.isArray(list) ? (list as unknown[]) : []));
-  const named = input.cwd ?? roots[0];
-  const workspace = typeof named === 'string' && named ? named : ownWorkspace();
-  const canonical = HOOK_EVENTS[event] ?? event;
+  // The harness's hook format (its profile's `hookDialect`, see hook-dialects.ts): event names, input and answer.
+  const dialect = hookDialectOf(harnessProfile(harness));
+  const session = dialect.session(input) ?? sessionFromEnv(harness) ?? null;
+  const workspace = dialect.workspace(input) ?? ownWorkspace();
+  const canonical = dialect.event(event);
   const running = await readDaemon();
   if (!running && canonical !== 'SessionStart') return;
   const state = running ?? (await ensureDaemon());
-  const take = !leavesForPrompt(event, input);
+  const take = !dialect.leaves(event, input);
   const body = await api<{ messages?: string[] }>(state, 'hook', { event: canonical, harness, session, workspace, pids: ancestors(process.ppid, 4), take }).catch(
     () => ({ messages: [] }),
   );
   const messages = body.messages ?? [];
   if (!messages.length) return;
-  const answer = hookAnswer(event, messages.join('\n\n'), input, harness);
+  const answer = dialect.answer(event, messages.join('\n\n'), input);
   if (answer) out(answer);
-}
-
-/**
- * Each harness's own hook event names, as the daemon's (Claude Code's and Codex's names are the daemon's own):
- * Cursor `sessionStart` `postToolUse` `stop`; GitHub Copilot `sessionStart` `userPromptTransformed` `postToolUse`
- * `agentStop`; Antigravity `SessionStart` `PreInvocation` `Stop`. Not Cursor's `beforeSubmitPrompt` or Copilot's
- * `userPromptSubmitted`: their output never reaches the model, and the daemon hands a hook the messages it waits
- * with, so a plugin must not install them.
- */
-const HOOK_EVENTS: Record<string, string> = {
-  sessionStart: 'SessionStart',
-  userPromptTransformed: 'UserPromptSubmit',
-  postToolUse: 'UserPromptSubmit',
-  PreInvocation: 'UserPromptSubmit',
-  stop: 'Stop',
-  agentStop: 'Stop',
-};
-
-/**
- * GitHub Copilot's `sessionStart` with a prompt to follow (`initialPrompt`, in the CLI) only registers the session:
- * its `additionalContext` lasts for that run alone (a resumed session no longer has it), while `userPromptTransformed`,
- * which runs next, puts the messages into the prompt, which the session keeps.
- */
-function leavesForPrompt(event: string, input: Record<string, unknown>): boolean {
-  return event === 'sessionStart' && typeof input.initialPrompt === 'string' && input.initialPrompt.trim() !== '';
-}
-
-/** What a hook prints so its harness gives the model the waiting messages, in that harness's own shape. */
-function hookAnswer(event: string, text: string, input: Record<string, unknown>, harness = ''): unknown {
-  if (harness === 'antigravity') {
-    // Antigravity shares Claude Code's event names but not its output: steps to add to the conversation, and
-    // `decision: "continue"` on Stop, whose reason it adds as a system message.
-    if (event === 'Stop') return { decision: 'continue', reason: text };
-    return { injectSteps: [{ systemMessage: { systemMessage: text } }] };
-  }
-  switch (event) {
-    case 'Stop': // Claude Code, Codex
-    case 'agentStop': // GitHub Copilot: another turn, with the reason as its prompt
-      return { decision: 'block', reason: text };
-    case 'stop': // Cursor: sent as the next message
-      return { followup_message: text };
-    case 'sessionStart': // Cursor reads additional_context, GitHub Copilot additionalContext
-    case 'postToolUse':
-      return { additional_context: text, additionalContext: text };
-    case 'userPromptTransformed': // GitHub Copilot: what the model sees of the prompt
-      return { modifiedTransformedPrompt: `${String(input.transformedPrompt ?? input.prompt ?? '')}\n\n${text}` };
-    default: // Claude Code and Codex: SessionStart, UserPromptSubmit, PostToolUse
-      return { hookSpecificOutput: { hookEventName: event, additionalContext: text } };
-  }
 }
 
 /** `open-artifact chatgpt`: the ChatGPT connector, until stopped. */
@@ -497,7 +478,8 @@ async function daemon(sub: string | undefined): Promise<void> {
  * The agent session this command runs in (`agent-session.ts`: the variables agent apps set in their agents' commands),
  * or `null` in a person's own terminal.
  */
-const AGENT = agentSessionOf(process.env, [files.harnesses(), shippedProfilesDir()]);
+// The shipped profiles first, so a harness they name keeps its name; every profile's markers count (the union).
+const AGENT = agentSessionOf(process.env, [shippedProfilesDir(), files.harnesses()]);
 
 /**
  * Who this command line is, for the daemon's log of publishing and site changes: the CLI, and the agent session it
@@ -688,6 +670,44 @@ function types(): void {
   registry.close();
 }
 
+/** `open-artifact harness …`: the harness profiles in `<home>/harnesses/`. */
+function harnessCommand(sub: string | undefined): void {
+  switch (sub) {
+    case 'add': {
+      const [file] = argv;
+      if (!file) die('harness add <profile.json>');
+      // Standing configuration, which may carry a command the daemon runs (`nudge`): the person's to add.
+      personOnly('harness-add', `open-artifact harness add ${resolvePath(file)}`);
+      let raw: unknown;
+      try {
+        raw = JSON.parse(readFileSync(resolvePath(file), 'utf8'));
+      } catch (error) {
+        die(`harness add: cannot read ${file} as JSON (${(error as Error).message})`);
+      }
+      const added = addUserProfile(raw);
+      const replaced = added.replaced === 'adapter' ? ' (in place of the one its adapter reported)' : added.replaced === 'user' ? ' (in place of your earlier one)' : '';
+      return out(`Added the profile of ${added.name}: ${added.file}${replaced}`);
+    }
+    case 'list': {
+      const json = argv.includes('--json');
+      const list = listProfiles();
+      if (json) return out(list);
+      if (!list.length) return out('No harness profiles.');
+      const width = Math.max(...list.map((p) => p.name.length));
+      return out(list.map((p) => `${p.name.padEnd(width)}  ${p.source.padEnd(7)}  ${p.title}${p.source !== 'shipped' ? `  ${p.file}` : ''}`).join('\n'));
+    }
+    case 'remove': {
+      const [name] = argv;
+      if (!name) die('harness remove <name>');
+      personOnly('harness-remove', `open-artifact harness remove ${name}`);
+      const removed = removeProfile(name);
+      return out(`Removed ${removed.file}${harnessProfile(name).source === 'shipped' ? '; the shipped profile is in effect again' : ''}.`);
+    }
+    default:
+      die('harness add <profile.json> | list [--json] | remove <name>');
+  }
+}
+
 async function main(): Promise<void> {
   const [command, sub] = argv.splice(0, 2);
   switch (command) {
@@ -723,6 +743,37 @@ async function main(): Promise<void> {
       return chatgpt();
     case 'home':
       return out(openArtifactHome());
+    case 'skill':
+      return out(
+        skillCommand(sub, (name) => flag(name), (name) => {
+          const i = argv.indexOf(`--${name}`);
+          if (i >= 0) argv.splice(i, 1);
+          return i >= 0;
+        }),
+      );
+    case 'harness':
+      if (sub === '--stdio' || argv.includes('--stdio')) {
+        if (sub && sub !== '--stdio') argv.unshift(sub);
+        argv.splice(argv.indexOf('--stdio'), argv.includes('--stdio') ? 1 : 0);
+        const name = flag('harness');
+        if (!name) die('harness --stdio --harness <name>');
+        return runStdioBridge({ harness: name, input: process.stdin, output: process.stdout, log: (line) => void process.stderr.write(`${line}\n`) }).then(() => process.exit(0));
+      }
+      return harnessCommand(sub);
+    case 'runtime':
+      // An error prints its fix line too.
+      return runtimeCommand(sub, { args: argv, out, personOnly: (act, command) => personOnly(act, command) }).catch((error: unknown) => {
+        const { message, fix } = error as { message?: string; fix?: string };
+        die(`${message ?? String(error)}${fix ? `\n  ${fix}` : ''}`);
+      });
+    case 'doctor': {
+      if (sub) argv.unshift(sub);
+      const json = argv.includes('--json');
+      const report = await runDoctor({ checks: DOCTOR_CHECKS, harness: flag('harness') ?? null, session: flag('session') ?? null });
+      out(json ? report : doctorText(report));
+      if (!report.ok) process.exitCode = 1;
+      return;
+    }
     case 'remote':
       return remote(sub);
     case 'publish':
@@ -737,6 +788,9 @@ async function main(): Promise<void> {
       const answer = await daemonCall<{ url: string; view_url: string }>('artifacts.unpublish', { id: sub });
       return out(`Unpublished ${answer.url}; it opens at ${answer.view_url} again.`);
     }
+    case '--version':
+    case '-v':
+      return out(pkg.version);
     case undefined:
     case 'help':
     case '--help':

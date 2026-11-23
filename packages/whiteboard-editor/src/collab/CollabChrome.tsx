@@ -36,7 +36,7 @@ function AskRow({ ask }: { ask: LocalAsk }) {
     <li className={cn('wb-ask-row', ask.fading && 'wb-ask-row-leaving')} data-status={ask.status}>
       {pending ? <LoaderCircle aria-hidden="true" className="size-3.5 shrink-0 animate-spin" /> : <span className="wb-ask-dot" aria-hidden="true" />}
       <span className="min-w-0 flex-1 truncate">{clip(ask.text, ASK_ROW_CHARS)}</span>
-      <span className="shrink-0 text-chrome-muted">{askStatusLabel(ask.status, wakesIdle)}</span>
+      <span className="shrink-0 text-chrome-muted">{askStatusLabel(ask.status, wakesIdle, ask.drafted)}</span>
     </li>
   );
 }

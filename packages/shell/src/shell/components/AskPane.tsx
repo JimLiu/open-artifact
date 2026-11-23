@@ -19,7 +19,7 @@ import { useAgentName, useCloudAgent, useOwner, useOwnerState, useRole } from '.
 import type { Delivery } from '../model.ts';
 import { useShell } from '../store.ts';
 
-const DELIVERY: Record<Delivery, MessageKey> = { delivered: 'viaDelivered', inbox: 'viaInbox', failed: 'viaFailed' };
+const DELIVERY: Record<Delivery, MessageKey> = { delivered: 'viaDelivered', drafted: 'viaDrafted', inbox: 'viaInbox', failed: 'viaFailed' };
 
 /** The pane's heading lines for the owner's state. */
 function useStateLines(agent: string): { state: string; note: string } {
@@ -45,6 +45,7 @@ export function AskPane() {
   const status = useShell((state) => state.askStatus);
   const ownerStatus = useOwnerState();
   const cloudAgent = useCloudAgent();
+  const owner = useOwner();
   const { state, note } = useStateLines(agent);
   // A cloud host's agent: its own words for the dot, and "waiting for the agent" (there is no session to wait for).
   const badgeLabel = cloudAgent && ownerStatus !== 'working' ? t(cloudAgent.state === 'online' ? 'statusConnected' : cloudAgent.state === 'none' ? 'statusNoAgent' : 'statusOffline') : undefined;
@@ -116,7 +117,7 @@ export function AskPane() {
             {status}
           </span>
           <Button type="submit" size="lg" variant="primary" disabled={busy || !text.trim()} icon={<Send className="size-3.5" />}>
-            {t('sendToAgent', { agent })}
+            {t(owner?.wakeMode === 'draft' ? 'sendToConversation' : 'sendToAgent', { agent })}
           </Button>
         </div>
       </form>

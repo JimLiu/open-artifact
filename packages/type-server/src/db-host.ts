@@ -81,7 +81,7 @@ export interface DbHostOptions {
   /** A page wrote these document paths. */
   onWrite?(paths: string[], client: string): void;
   /** Hands a thread to the agent (`unasked`: a reply that does not ask it); resolves whether it was delivered now. */
-  sendThread?(thread: Thread, how?: SendHow): Promise<'delivered' | 'queued' | 'failed'>;
+  sendThread?(thread: Thread, how?: SendHow): Promise<'delivered' | 'drafted' | 'queued' | 'failed'>;
   log?(message: string): void;
   /**
    * False for a type that keeps comments but no document store (its files
@@ -213,7 +213,7 @@ export function pageThread(thread: Thread): CommentThread {
     ...(thread.detail ? { detail: thread.detail } : {}),
     location: (isPlain(thread.location) ? thread.location : {}) as JsonRecord,
     status: thread.status === 'resolved' ? 'resolved' : 'open',
-    ...(thread.agent ? { agent: { status: thread.agent.status } } : {}),
+    ...(thread.agent ? { agent: { status: thread.agent.status, ...(thread.agent.status === 'delivered' && thread.agent.via === 'drafted' ? { drafted: true as const } : {}) } } : {}),
     ...(thread.status === 'resolved' && thread.resolvedBy ? { resolvedBy: pageAuthor(thread.resolvedBy) } : {}),
     messages: thread.messages.map((message) => ({
       id: message.id,
@@ -544,8 +544,9 @@ export class DbHost {
     this.commentsChanged();
     const outcome = this.options.sendThread ? await this.options.sendThread(thread, { ...(unasked ? { unasked } : {}), ...(how.from ? { from: how.from } : {}) }) : 'queued';
     if (outcome === 'failed') throw new HttpError(503, 'unavailable', 'The agent could not be reached; the thread stays marked for it.');
-    if (outcome === 'delivered' && !unasked) {
-      thread = guarded(() => this.comments.markDelivered(thread.id, 'hook'));
+    if ((outcome === 'delivered' || outcome === 'drafted') && !unasked) {
+      // `drafted`: in the agent's conversation, waiting for the person to send it there.
+      thread = guarded(() => this.comments.markDelivered(thread.id, outcome === 'drafted' ? 'drafted' : 'hook'));
       this.commentsChanged();
     }
     return thread;

@@ -10,6 +10,7 @@ import {
   chartProblemOfFault,
   chartChangeRefusalWords,
   askSentToChatWords,
+  isAskTaken,
   chartMessages,
   type AskSentToChat,
   type ChartChangeOutcome,
@@ -620,7 +621,7 @@ export function PlacedView({
       let isSameAsk = latestAskRef.current.act === actThatOpenedCard && latestAskRef.current.words === words;
       onAskChanged(viewId, (current) => askAfterSent(current, words, became));
       let hasCaret = isSameAsk && viewRef.current?.ownerDocument.hasFocus() === true;
-      if (became !== 'taken' && !isInView && hasCaret) onCaret(placementId, 'come', 'onNothing');
+      if (!isAskTaken(became) && !isInView && hasCaret) onCaret(placementId, 'come', 'onNothing');
       return became === 'taken' && isSameAsk ? closeCard() : undefined;
     });
   };
@@ -1259,7 +1260,7 @@ export const whereCaretGoesAfterCard = (caret: CaretAtCardClose) =>
 export const becameAfterCardChange = (became: AskSentToChat | null, isOpening: boolean) =>
   (became === 'taken') === isOpening ? null : became;
 export const askAfterSent = ({ words }: Pick<ChartAsk, 'words'>, sentWords: string, became: AskSentToChat) => ({
-  words: became === 'taken' && words === sentWords ? '' : words,
+  words: isAskTaken(became) && words === sentWords ? '' : words,
   isOnItsWay: false,
   became,
 });

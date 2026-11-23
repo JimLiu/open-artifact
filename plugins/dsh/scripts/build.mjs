@@ -3,13 +3,14 @@
  * Builds dsh-open-artifact. DSH links a plugin folder in place and installs none of its dependencies, so everything
  * the plugin runs is in these files:
  *
- *   lib/index.js   the server half (src/server/index.ts), one Node ESM file with the protocol and the daemon client in it
+ *   lib/index.js   the server half (src/server/index.ts), one Node ESM file with the protocol and @open-artifact/harness-kit in it
  *   lib/client.js  the browser half (src/client/index.tsx), CommonJS in the app's `window.__ModuleLoader__.load`
  *                  wrapper, with React and the app's platform modules left to the loader
  *   vendor/        the daemon (`open-artifact.mjs`), the built Shell and home pages, frame-host (the type server from dist/daemon/frame-host), the harness profiles, the type server (type-server/) and the built-in types that run it;
  *                  a piece that is not there is skipped with a warning
  *   LICENSE, NOTICE the repository's license files, copied here so the npm package carries them
  *   CHANGELOG.md   the repository's release notes: the page's "What's new" and changelog (src/server/changelog.ts)
+ *   skills/open-artifact/SKILL.md  the skill from the protocol's template, the file the skill candidate's `path` names
  *
  * The page's CSS is plain CSS in src/client/styles.ts, on the app's own design tokens, with every class prefixed.
  *
@@ -138,6 +139,21 @@ function buildVendor() {
 
 // ---------------------------------------------------------------- main
 
+/**
+ * skills/open-artifact/SKILL.md: the protocol's template as the kit renders it without a daemon (no installed types),
+ * so the skill candidate's `path` names a real file. DSH's registry reads the skill through the provider's `get`,
+ * which renders it fresh each time (src/server/skill.ts).
+ */
+export async function writeSkill(into = root) {
+  const { localSkill } = await import('../../../packages/harness-kit/src/skill.ts');
+  const { renderedSkillFile } = await import('../../../packages/protocol/src/skill.ts');
+  const { SKILL_RENDER, skillFile } = await import('../src/server/skill.ts');
+  const file = skillFile(into);
+  mkdirSync(dirname(file), { recursive: true });
+  writeFileSync(file, renderedSkillFile(localSkill({ ...SKILL_RENDER, agentName: 'Agent' })));
+  return file;
+}
+
 /** The whole build; `--no-vendor` leaves vendor/ as it is. */
 async function main() {
   mkdirSync(join(root, 'lib'), { recursive: true });
@@ -146,6 +162,8 @@ async function main() {
   log('lib/index.js');
   buildClient();
   log('lib/client.js');
+  await writeSkill();
+  log('skills/open-artifact/SKILL.md');
   if (process.argv.includes('--no-vendor')) log('vendor/ skipped (--no-vendor)');
   else {
     buildVendor();

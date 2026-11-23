@@ -21,6 +21,13 @@ process.env.OPEN_ARTIFACT_USER_TYPES = tempDir('open-artifact-user-types-');
 process.env.OPEN_ARTIFACT_WAKE_MERGE_MS = '40';
 process.env.OPEN_ARTIFACT_IDLE_MS = '0';
 process.env.OPEN_ARTIFACT_BROWSER = 'none';
+// Runtime updates (runtime.ts) never reach the network or this computer's policy: a registry nothing listens on
+// (tests that update start their own), no machine policy file, no user .npmrc.
+process.env.OPEN_ARTIFACT_REGISTRY = 'http://127.0.0.1:9/';
+process.env.OPEN_ARTIFACT_MACHINE_POLICY = join(TEST_HOME, 'no-machine-policy.json');
+process.env.NPM_CONFIG_USERCONFIG = join(TEST_HOME, 'no-npmrc');
+delete process.env.OPEN_ARTIFACT_RUNTIME_UPDATE;
+delete process.env.OPEN_ARTIFACT_DAEMON_BIN;
 delete process.env.OPEN_ARTIFACT_EXTRA_TYPES;
 delete process.env.OPEN_ARTIFACT_BUILTIN_TYPES;
 delete process.env.OPEN_ARTIFACT_SHELL_DIR;

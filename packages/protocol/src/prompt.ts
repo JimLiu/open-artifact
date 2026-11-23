@@ -33,6 +33,8 @@ export interface AgentPromptOptions {
   types?: readonly TypeSummary[];
   /** The tools' names in this harness, when it renamed them (e.g. `mcp__open-artifact__Artifact`). */
   toolNames?: Partial<Record<ToolName, string>>;
+  /** false: leave out `<offers>` (the harness's `policy.offer` is `asked`: artifacts only when the person asks). */
+  offer?: boolean;
 }
 
 /** Longest type line, in characters, before it is cut. */
@@ -43,7 +45,7 @@ const MAX_FULL_TYPES = 12;
 const TOOL_NAMES: readonly ToolName[] = ['Artifact', 'ArtifactData', 'ArtifactComments'];
 
 /** Author text on one line, without tags, cut to `max`. */
-function oneLine(text: string | null | undefined, max = MAX_TYPE_TEXT): string {
+export function oneLine(text: string | null | undefined, max = MAX_TYPE_TEXT): string {
   const flat = String(text ?? '')
     .replace(/[<>]/g, '')
     .replace(/\s+/g, ' ')
@@ -155,7 +157,7 @@ function offers(types: readonly TypeSummary[]): string | null {
  * artifacts, comments, boundaries and, given `types`, the installed types.
  */
 export function agentPrompt(options: AgentPromptOptions = {}): string {
-  const offered = options.types ? offers(options.types) : null;
+  const offered = options.types && options.offer !== false ? offers(options.types) : null;
   const parts = [
     '<open_artifact>',
     [INTRO, toolNamesLine(options.toolNames)].filter(Boolean).join('\n'),

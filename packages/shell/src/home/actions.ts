@@ -18,6 +18,13 @@ const notify = (title: string): void => {
 /** The Shell's address of an artifact. */
 export const shellHref = (id: string): string => `/a/${encodeURIComponent(id)}`;
 
+/** Opens an artifact: a host that shows artifacts itself (`caps.artifacts`) gets it, else its Shell here. */
+export function openArtifact(artifact: Pick<ArtifactView, 'id' | 'url' | 'title' | 'type'>): void {
+  const host = useHome.getState().host;
+  if (host?.caps.artifacts) toHost({ openArtifact: 'open_artifact', url: artifact.url, id: artifact.id, title: artifact.title, type: artifact.type });
+  else location.href = shellHref(artifact.id);
+}
+
 /** Loads the artifact list (locally, each says where it is published to the web). */
 export async function loadArtifacts(): Promise<void> {
   try {

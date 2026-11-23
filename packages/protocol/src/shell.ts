@@ -2,7 +2,7 @@
  * The Shell: the daemon's page at `/a/<id>` that frames an artifact page
  * and draws the shared top bar (title, comments, share, export, ask agent).
  *
- * Two `postMessage` protocols meet in it, each keyed by an `open-artifact` field:
+ * Three `postMessage` protocols meet in it, each message keyed by its `openArtifact` field:
  *
  * - **chrome** (Shell ⇄ artifact page, in the iframe named
  *   {@link SHELL_FRAME_NAME}): the page reports what it can do and answers
@@ -19,7 +19,8 @@
  *   backend, so older Shells keep working.
  * - **host** (Shell ⇄ the host app that embeds the Shell, e.g. a harness's
  *   own artifact pane): the host offers sessions and a toolbar; the Shell
- *   asks it to start or open sessions.
+ *   asks it to start or open sessions. The daemon's home page speaks the
+ *   same protocol with `home_hello` and `home_ready` ({@link HomeToHost}).
  *
  * Messages only go to, and are only accepted from, the origin each side
  * named.
@@ -316,8 +317,9 @@ export type ShellToPage =
   /**
    * `draws`: what this Shell draws for the page (absent from older Shells).
    * `clipboard`: the Shell takes `clipboard_write` (absent from older Shells).
+   * `theme`: the embedding host's colour scheme, when it gave one: the page follows it (`data-theme` on its root).
    */
-  | { openArtifact: 'chrome_hello'; draws?: ChromeDraw[]; clipboard?: boolean }
+  | { openArtifact: 'chrome_hello'; draws?: ChromeDraw[]; clipboard?: boolean; theme?: HostTheme }
   | ({ openArtifact: 'chrome_cmd' } & ChromeCommand)
   /** Files of the artifact changed on disk (agent writes). */
   | { openArtifact: 'files_changed'; paths: string[] }
@@ -357,27 +359,86 @@ export type PageToShell =
 
 // ---- host: Shell ⇄ embedding host --------------------------------------------------------------------------------
 
+/** Version of the host protocol, sent in `shell_hello`; a host may answer the version it speaks in `host_hello`. */
+export const HOST_PROTOCOL = 1;
+
+/** Most destinations a host offers in `host_hello`. */
+export const MAX_HOST_DESTINATIONS = 8;
+
+/** The host's colour scheme, for the Shell and the page to follow. */
+export interface HostTheme {
+  scheme: 'light' | 'dark';
+  /** An accent colour (`#rrggbb`). */
+  accent?: string;
+}
+
+/**
+ * A place the host can send an export to ("Save to project files", "Send to Google Slides"). The Shell lists them in
+ * its Export tab; picking one sends the agent a page request that names the destination.
+ */
+export interface HostDestination {
+  id: string;
+  label: string;
+}
+
 /** What the host can do for the Shell. */
 export interface HostCaps {
   /** The host can start and open agent sessions. */
   sessions?: boolean;
   /** The host draws its own toolbar: the Shell hides its close button. */
   toolbar?: boolean;
+  /** The home page only: the host shows artifacts itself, so a click on one sends `open_artifact` instead of navigating. */
+  artifacts?: boolean;
 }
+
+/** What the home page lists when a host asks for less than the whole library (`host_hello`'s `library`). */
+export interface HostLibraryFilter {
+  /** Only artifacts whose owner session is of this harness. */
+  harness?: string;
+  /** Only artifacts whose owner session works in this folder (or whose folder is under it). */
+  workspace?: string;
+}
+
+/** Longest text a host message field carries (a prompt, a comment, a path, a link). */
+export const MAX_HOST_TEXT = 8000;
+
+/** URL parameter of a top-level view's one-time ticket on the Shell's address (`host.open`'s `embed_url`). */
+export const VIEW_TICKET_PARAM = 'oa_view';
 
 /** Host → Shell. */
 export type HostToShell =
-  | { openArtifact: 'host_hello'; caps: HostCaps; agentName?: string }
+  /**
+   * The host's answer to `shell_hello` (or `home_hello`); sent again when its theme changes. `harness`: the harness
+   * the host belongs to, whose sessions it can open (the home page reads it). `protocol`: the host protocol version
+   * it speaks. `destinations`: at most {@link MAX_HOST_DESTINATIONS}.
+   */
+  | {
+      openArtifact: 'host_hello';
+      caps: HostCaps;
+      agentName?: string;
+      harness?: string;
+      protocol?: number;
+      theme?: HostTheme;
+      destinations?: HostDestination[];
+      /** The home page only: list just these artifacts. */
+      library?: HostLibraryFilter;
+    }
   /** Show this place of the artifact (a fragment from `place`, or a link's own); the Shell answers with `place`. */
   | { openArtifact: 'goto'; hash: string };
 
 /** Shell → host. */
 export type ShellToHost =
-  /** Sent to `*` on load when the Shell is framed; the host answers with `host_hello`. */
-  | { openArtifact: 'shell_hello'; version: string; artifact: string; id: string; title: string; type: string }
+  /**
+   * Sent to `*` on load when the Shell is framed; the host answers with `host_hello`. `protocol`: the host protocol
+   * version ({@link HOST_PROTOCOL}).
+   */
+  | { openArtifact: 'shell_hello'; version: string; protocol: number; artifact: string; id: string; title: string; type: string }
   /** The Shell took `host_hello` (sent to the host's origin). */
   | { openArtifact: 'shell_ready'; artifact: string }
-  /** Start a new agent session with this prompt about the artifact. */
+  /**
+   * Start a new agent session with this prompt about the artifact. To a host whose origin no adapter declared
+   * (`caps.open.origins`), `prompt` is empty.
+   */
   | { openArtifact: 'new_session'; prompt: string; artifact: string }
   /** Show the session that owns the artifact. */
   | { openArtifact: 'open_session'; session: string | null; harness: string }
@@ -389,11 +450,115 @@ export type ShellToHost =
    * `shell_ready`, whenever the place changes, and in answer to `goto`.
    */
   | { openArtifact: 'place'; artifact: string; hash: string }
-  /** A comment was sent to the agent; the host may show the session. */
-  | { openArtifact: 'comment_summon'; text: string };
+  /** A comment was sent to the agent; the host may show the session. To an undeclared host's origin `text` is empty. */
+  | { openArtifact: 'comment_summon'; text: string }
+  /**
+   * The person followed a link out of the Shell (an `http(s)` address): the host opens it by its own rules (a browser,
+   * its own tab, or not). Only to a declared host; a page inside the Shell that opens a window is the host's view's
+   * own new-window request.
+   */
+  | { openArtifact: 'open_external'; url: string }
+  /**
+   * An export was saved to this file (absolute path, by the page's server on the computer that runs it). Only to a
+   * declared host. Exports that are browser downloads (the folder's zip, a page with no server) are not reported:
+   * the host's view handles them as downloads.
+   */
+  | { openArtifact: 'saved_file'; path: string };
+
+/**
+ * Home page → host. The home page sends `home_hello` to `*` on load when it is framed; the host answers with
+ * `host_hello` (with `sessions`, it can show an artifact's owner session), and the home page confirms with
+ * `home_ready` to the host's origin. Then it may ask for sessions as the Shell does.
+ */
+export type HomeToHost =
+  | { openArtifact: 'home_hello' }
+  | { openArtifact: 'home_ready' }
+  /** Show this artifact (sent instead of navigating when the host's caps have `artifacts`). */
+  | { openArtifact: 'open_artifact'; url: string; id: string; title: string; type: string }
+  | Extract<ShellToHost, { openArtifact: 'open_session' | 'new_session' }>;
+
+const hostText = (value: unknown, max = MAX_HOST_TEXT): string => (typeof value === 'string' ? value.slice(0, max) : '');
+const isRecord = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
+
+/** A Shell's message to its host, reduced to its fields; `null` when it is none. */
+export function shellToHostOf(value: unknown): ShellToHost | null {
+  if (!isRecord(value)) return null;
+  switch (value.openArtifact) {
+    case 'shell_hello':
+      return {
+        openArtifact: 'shell_hello',
+        version: hostText(value.version, 64),
+        protocol: Number.isInteger(value.protocol) ? (value.protocol as number) : 1,
+        artifact: hostText(value.artifact, 200),
+        id: hostText(value.id, 100),
+        title: hostText(value.title, 500),
+        type: hostText(value.type, 100),
+      };
+    case 'shell_ready':
+      return { openArtifact: 'shell_ready', artifact: hostText(value.artifact, 200) };
+    case 'new_session':
+      return { openArtifact: 'new_session', prompt: hostText(value.prompt), artifact: hostText(value.artifact, 200) };
+    case 'open_session':
+      return { openArtifact: 'open_session', session: typeof value.session === 'string' ? value.session.slice(0, 200) : null, harness: hostText(value.harness, 64) };
+    case 'close':
+      return { openArtifact: 'close' };
+    case 'place':
+      return { openArtifact: 'place', artifact: hostText(value.artifact, 200), hash: hostText(value.hash, 2000) };
+    case 'comment_summon':
+      return { openArtifact: 'comment_summon', text: hostText(value.text) };
+    case 'open_external': {
+      const url = hostText(value.url, 4000);
+      return /^https?:\/\//i.test(url) ? { openArtifact: 'open_external', url } : null;
+    }
+    case 'saved_file': {
+      const path = hostText(value.path, 4096);
+      return path ? { openArtifact: 'saved_file', path } : null;
+    }
+    default:
+      return null;
+  }
+}
+
+/** A host's message to the Shell, reduced to its fields; `null` when it is none. */
+export function hostToShellOf(value: unknown): HostToShell | null {
+  if (!isRecord(value)) return null;
+  if (value.openArtifact === 'goto') {
+    const hash = hostText(value.hash, 2000);
+    return hash ? { openArtifact: 'goto', hash } : null;
+  }
+  if (value.openArtifact !== 'host_hello') return null;
+  const caps = isRecord(value.caps) ? value.caps : {};
+  const hello: Extract<HostToShell, { openArtifact: 'host_hello' }> = {
+    openArtifact: 'host_hello',
+    caps: {
+      ...(caps.sessions === true ? { sessions: true } : {}),
+      ...(caps.toolbar === true ? { toolbar: true } : {}),
+      ...(caps.artifacts === true ? { artifacts: true } : {}),
+    },
+  };
+  if (typeof value.agentName === 'string' && value.agentName.trim()) hello.agentName = value.agentName.trim().slice(0, 80);
+  if (typeof value.harness === 'string' && value.harness) hello.harness = value.harness.slice(0, 64);
+  if (Number.isInteger(value.protocol)) hello.protocol = value.protocol as number;
+  if (isRecord(value.theme) && (value.theme.scheme === 'light' || value.theme.scheme === 'dark')) {
+    hello.theme = { scheme: value.theme.scheme, ...(typeof value.theme.accent === 'string' && /^#[0-9a-f]{6}$/i.test(value.theme.accent) ? { accent: value.theme.accent } : {}) };
+  }
+  if (Array.isArray(value.destinations)) {
+    hello.destinations = value.destinations
+      .filter((d): d is Record<string, unknown> => isRecord(d) && typeof d.id === 'string' && !!d.id && typeof d.label === 'string' && !!d.label.trim())
+      .slice(0, MAX_HOST_DESTINATIONS)
+      .map((d) => ({ id: (d.id as string).slice(0, 64), label: (d.label as string).trim().slice(0, 80) }));
+  }
+  if (isRecord(value.library)) {
+    const library: HostLibraryFilter = {};
+    if (typeof value.library.harness === 'string' && value.library.harness) library.harness = value.library.harness.slice(0, 64);
+    if (typeof value.library.workspace === 'string' && value.library.workspace) library.workspace = value.library.workspace.slice(0, 4096);
+    if (library.harness || library.workspace) hello.library = library;
+  }
+  return hello;
+}
 
 /** Any message of either Shell protocol. */
-export type ShellMessage = ShellToPage | PageToShell | HostToShell | ShellToHost;
+export type ShellMessage = ShellToPage | PageToShell | HostToShell | ShellToHost | HomeToHost;
 
 /** True for an object with a string `open-artifact` field. */
 export function isShellMessage(value: unknown): value is ShellMessage {

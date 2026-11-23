@@ -5,7 +5,7 @@
 
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { copyFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, cpSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { after, test } from 'node:test';
@@ -30,9 +30,16 @@ mkdirSync(join(pluginSkill, 'vendor'));
 copyFileSync(launcher, join(pluginSkill, 'scripts', 'open-artifact.mjs'));
 writeFileSync(join(pluginSkill, 'vendor', 'open-artifact.mjs'), STUB);
 writeFileSync(join(plugin, 'plugin.json'), '{}');
+// Both carry the shipped harness profiles, as a built skill does (vendor/harnesses).
+const shipped = resolve(import.meta.dirname, '..', 'harnesses');
+cpSync(shipped, join(skill, 'vendor', 'harnesses'), { recursive: true });
+cpSync(shipped, join(pluginSkill, 'vendor', 'harnesses'), { recursive: true });
+// The Open Artifact home the launcher reads the person's profiles from: never the real one.
+const home = mkdtempSync(join(tmpdir(), 'oa-launcher-home-'));
 after(() => {
   rmSync(skill, { recursive: true, force: true });
   rmSync(plugin, { recursive: true, force: true });
+  rmSync(home, { recursive: true, force: true });
 });
 
 /** The launcher's caller for `args`, with only `vars` (and PATH) in its environment. */
@@ -44,7 +51,7 @@ function caller(args: string[], vars: Record<string, string>): { harness: string
 /** What the launcher in `dir` hands the daemon. */
 function run(dir: string, args: string[], vars: Record<string, string> = {}): { harness: string | null; session: string | null; plugin: string | null } {
   const out = execFileSync(process.execPath, [join(dir, 'scripts', 'open-artifact.mjs'), ...args], {
-    env: { PATH: process.env.PATH ?? '', ...vars },
+    env: { PATH: process.env.PATH ?? '', OPEN_ARTIFACT_HOME: home, ...vars },
     encoding: 'utf8',
   });
   return JSON.parse(out) as { harness: string | null; session: string | null; plugin: string | null };
@@ -90,4 +97,20 @@ test('launcher: without --harness it goes by the variables', () => {
 test('launcher: names the plugin it came in, whose folder is never the workspace', () => {
   assert.equal(run(pluginSkill, ['mcp', '--harness', 'codex']).plugin, plugin);
   assert.equal(run(skill, ['mcp', '--harness', 'codex']).plugin, null, 'a skill folder on its own is no plugin');
+});
+
+test('launcher: a harness of the person\'s own is told by the markers its profile names', () => {
+  mkdirSync(join(home, 'harnesses'), { recursive: true });
+  writeFileSync(join(home, 'harnesses', 'myagent.json'), JSON.stringify({ name: 'myagent', markers: ['MYAGENT'], sessionEnv: 'MYAGENT_SESSION', source: 'user' }));
+  // An adapter-reported profile of a shipped harness adds a marker and never takes one away.
+  writeFileSync(join(home, 'harnesses', 'codex.json'), JSON.stringify({ name: 'codex', source: 'adapter', markers: ['CODEX_EXTRA'] }));
+  try {
+    assert.deepEqual(caller(['artifact', '{}'], { MYAGENT: '1', MYAGENT_SESSION: 'm-1' }), { harness: 'myagent', session: 'm-1' });
+    assert.deepEqual(caller(['artifact', '{}'], { MYAGENT_SESSION: 'm-2' }), { harness: 'myagent', session: 'm-2' });
+    assert.deepEqual(caller(['mcp', '--harness', 'myagent'], { ...claudeCode, MYAGENT_SESSION: 'm-3' }), { harness: 'myagent', session: 'm-3' });
+    assert.deepEqual(caller(['artifact', '{}'], codex), { harness: 'codex', session: 'codex-thread' });
+    assert.deepEqual(caller(['artifact', '{}'], { CODEX_EXTRA: '1' }), { harness: 'codex', session: null });
+  } finally {
+    rmSync(join(home, 'harnesses'), { recursive: true, force: true });
+  }
 });

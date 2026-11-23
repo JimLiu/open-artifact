@@ -80,7 +80,7 @@ describe('shell model', () => {
     assert.equal(pageOf('#page=sht_a.0'), 'sht_a.0');
   });
   it('names the agent: host, then boot, then fallback', () => {
-    assert.equal(agentNameOf({ origin: 'x', caps: {}, agentName: 'Helper' }, { agentName: 'Boot' }, 'Agent'), 'Helper');
+    assert.equal(agentNameOf({ origin: 'x', caps: {}, agentName: 'Helper', declared: false, via: 'frame', theme: null, destinations: [] }, { agentName: 'Boot' }, 'Agent'), 'Helper');
     assert.equal(agentNameOf(null, { agentName: 'Boot' }, 'Agent'), 'Boot');
     assert.equal(agentNameOf(null, { agentName: '' }, 'Agent'), 'Agent');
   });
@@ -97,7 +97,7 @@ describe('shell model', () => {
   });
 
   it('opens sessions only with a sessions host and an owner session', () => {
-    const host = { origin: 'x', caps: { sessions: true }, agentName: null };
+    const host = { origin: 'x', caps: { sessions: true }, agentName: null, declared: false, via: 'frame' as const, theme: null, destinations: [] };
     assert.equal(canOpenSession(host, owner()), true);
     assert.equal(canOpenSession(host, owner({ session: null })), false);
     assert.equal(canOpenSession({ ...host, caps: {} }, owner()), false);

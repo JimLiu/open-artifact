@@ -13,7 +13,7 @@ every type, with each type's own editor and comments inside. `/open-artifact sli
 | [`copilot/`](copilot/README.md) | GitHub Copilot CLI, VS Code agent mode (Copilot harness) | MCP tools, skill, hooks | at session start, with the next message (CLI), at the end of a turn |
 | [`antigravity/`](antigravity/README.md) | Google Antigravity (`agy` CLI, app) | MCP tools, skill, hooks | at session start, before each model call, at the end of a turn (the turn goes on); an idle conversation is started with `agentapi send-message` |
 | [`zcode/`](zcode/README.md) | ZCode | MCP tools, skill, hooks, extension | at session start, with the person's next message, at the end of a turn (the turn goes on), and while the session idles (the extension starts a turn the moment they are sent) |
-| [`dsh/`](dsh/package.json) | DeepSeek Harness | native tools, the Open Artifact sidebar page, comment cards, `/open-artifact` | right away: a new turn when the session idles, added to the running turn otherwise (a full adapter, L3) |
+| [`dsh/`](dsh/README.md) | DeepSeek Harness | native tools, the Open Artifact sidebar page, comment cards, `/open-artifact` | right away: a new turn when the session idles, added to the running turn otherwise (a full adapter, L3) |
 | [`chatgpt/`](chatgpt/README.md) | ChatGPT on the web | MCP tools over HTTPS, a card | in the next tool result, or when the person presses "Send comments to ChatGPT" on the card |
 | [`../skills/open-artifact/`](../skills/open-artifact/SKILL.md) | any other agent that reads skills | the command line | in the result of any call, or by `wait` |
 
@@ -24,6 +24,10 @@ Pages open where the person already is: in the app itself when its adapter can s
 in the agent app's built-in browser (Codex, Cursor, Claude, Antigravity, VS Code), which the agent opens with the page's
 `view_url`. The daemon opens the computer's browser only when the agent asks it to (`Artifact {action: "open"}`), which
 it does when it has no browser of its own.
+
+Building your own agent app rather than using one of these? Read
+[Integrating Open Artifact into an agent product](../docs/integrating.md): the same tools, pages in your UI, and
+comments into your sessions, on `@open-artifact/harness-kit` or over `open-artifact harness --stdio`.
 
 ## Install and upgrade
 
@@ -53,7 +57,7 @@ that folder; `build-plugins.mjs` leaves it alone.
 
 Each plugin can link the daemon to an Open Artifact server, so artifacts are published there. The daemon reads
 `OPEN_ARTIFACT_REMOTE`, `OPEN_ARTIFACT_REMOTE_NAME`, `OPEN_ARTIFACT_REMOTE_TOKEN`, `OPEN_ARTIFACT_PUBLISH` and
-`OPEN_ARTIFACT_REMOTE_INSECURE_HTTP` once, when it starts ([README](../README.md#use-a-server-instead-of-this-computer)).
+`OPEN_ARTIFACT_REMOTE_INSECURE_HTTP` once, when it starts ([README](../docs/connecting-agents.md#set-computers-up-in-advance)).
 It takes them from the process that started it, usually a plugin's MCP bridge, and the bridge gets only what its app
 gives it: Claude Code and the Copilot CLI pass their own environment on, Codex and Cursor do not (see the table). One
 daemon serves every app on the computer, so whichever app starts it first decides its environment; a daemon that is
@@ -113,6 +117,7 @@ auto off`, `open-artifact remote default <name>`, or the Share panel). No agent 
   Codex `hookSpecificOutput.additionalContext` and Stop `decision: "block"`; Cursor `additional_context` and stop
   `followup_message`; Copilot `additionalContext`, `userPromptTransformed` → `modifiedTransformedPrompt`, and
   `agentStop` `decision: "block"`; Antigravity `injectSteps` system messages and Stop `decision: "continue"`.
+- **Version:** `… open-artifact.mjs --version` (or `-v`) prints the version of the runtime a plugin carries.
 - **Harness profiles** (`packages/daemon/harnesses/<name>.json`) give the page the agent's name ("Ask Claude",
   "Ask Codex", …) and the session variable.
 
