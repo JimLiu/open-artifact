@@ -100,3 +100,33 @@ test('installSkill: without skill.get the kit renders the template; a file it di
   assert.equal(forced.written, true);
   await assert.rejects(installSkill(null, { dir, command: '/Bad' }), /command/);
 });
+
+test('Harness.installSkill: an open handler makes the kit’s own rendering say the app shows pages; opens given wins', async () => {
+  // A daemon without skill.get: the kit renders the skill itself.
+  const daemon = await startFakeDaemon({ features: [] });
+  const made: Harness[] = [];
+  try {
+    const harnessOf = async (open: boolean): Promise<Harness> => {
+      const h = await createHarness({ harness: 'opens-app', home: daemon.home, autoStart: false, reconnect: { minMs: 20, maxMs: 100 }, ...(open ? { open: () => true } : {}) });
+      made.push(h);
+      await h.ready();
+      return h;
+    };
+    const host = /Your app shows the page by itself/;
+    const link = /Your app cannot show pages, and nothing opens by itself/;
+    const withOpen = await harnessOf(true);
+    const defaulted = await withOpen.installSkill({ dir: skillsDir(), command: 'oa' });
+    assert.equal(defaulted.source, 'kit');
+    assert.match(readFileSync(defaulted.file, 'utf8'), host);
+    const explicit = await withOpen.installSkill({ dir: skillsDir(), command: 'oa', opens: 'link' });
+    assert.match(readFileSync(explicit.file, 'utf8'), link);
+    assert.doesNotMatch(readFileSync(explicit.file, 'utf8'), host);
+    const withoutOpen = await harnessOf(false);
+    const plain = await withoutOpen.installSkill({ dir: skillsDir(), command: 'oa' });
+    assert.equal(readFileSync(plain.file, 'utf8'), readFileSync((await installSkill(null, { dir: skillsDir(), command: 'oa' })).file, 'utf8'));
+    assert.doesNotMatch(readFileSync(plain.file, 'utf8'), host);
+  } finally {
+    for (const h of made) h.close();
+    await daemon.close();
+  }
+});

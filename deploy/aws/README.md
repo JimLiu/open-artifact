@@ -83,7 +83,7 @@ Upgrade in place on the instance (**not run here**):
 sudo -i
 cd /srv/open-artifact
 BACKUP_DIR=/srv/backups deploy/backup.sh
-git fetch --depth 1 origin v0.14.0 && git checkout FETCH_HEAD    # or: git pull, to follow a branch
+git fetch --depth 1 origin v0.14.1 && git checkout FETCH_HEAD    # or: git pull, to follow a branch
 cd deploy/docker && docker compose up -d --build
 ```
 

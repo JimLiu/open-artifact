@@ -11,7 +11,6 @@
  * is given up on after `MAX_RESTARTS` failed starts (with back-off between).
  */
 
-import { spawn, type ChildProcess } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { createWriteStream, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -31,6 +30,7 @@ import {
   type TypeServerEnv,
   type TypeServerStatus,
 } from '@open-artifact/protocol';
+import { nodeChildren, startChild, type NodeChild, type NodeChildrenMode } from './node-children.ts';
 import { ensureDir, files, readJson, writeJson } from './paths.ts';
 import { isLoopbackUrl, typeLocation, type TypeInfo } from './types.ts';
 
@@ -91,8 +91,11 @@ export function parseActions(raw: unknown): TypeAction[] {
 /** What {@link serverFiles.actions} holds. */
 interface ActionCache {
   stamp: string;
-  /** The process that gave the list (`null`: a URL entry or a server the daemon did not start). */
-  pid: number | null;
+  /**
+   * The server that gave the list: its pid, or `<daemon pid>:<thread id>` for one in a worker thread (`null`: a URL
+   * entry or a server the daemon did not start).
+   */
+  pid: number | string | null;
   actions: TypeAction[];
 }
 
@@ -196,7 +199,7 @@ type ServerState = 'stopped' | 'starting' | 'ready';
 interface Running {
   type: TypeInfo;
   stamp: string;
-  child: ChildProcess | null;
+  child: NodeChild | null;
   base: string | null;
   secret: string | null;
   state: ServerState;
@@ -233,13 +236,16 @@ export class TypeServers {
   private readonly byType = new Map<string, Running>();
   private readonly timer: ReturnType<typeof setInterval>;
   private readonly onExit: () => void;
+  /** Servers in threads asked to stop and not ended yet ({@link drained}). */
+  private readonly stopping = new Set<NodeChild>();
+  private saidThreads = false;
 
   constructor(options: TypeServersOptions) {
     this.options = options;
     this.timer = setInterval(() => void this.checkHealth(), HEALTH_INTERVAL_MS);
     this.timer.unref?.();
     // A daemon that exits without closeAll() (a crash) does not leave its servers behind.
-    this.onExit = () => this.killAll('SIGTERM');
+    this.onExit = () => this.killAll();
     process.on('exit', this.onExit);
   }
 
@@ -370,7 +376,7 @@ export class TypeServers {
     const stamp = stampOf(type);
     const kept = readJson<ActionCache | null>(serverFiles.actions(type.id), null);
     const cached = kept && kept.stamp === stamp && Array.isArray(kept.actions) ? kept : null;
-    const pid = (): number | null => this.byType.get(type.id)?.child?.pid ?? null;
+    const pid = (): number | string | null => this.byType.get(type.id)?.child?.instance ?? null;
     const ready = entry.kind === 'url' || this.isReady(type.id);
     if (cached && (!ready || cached.pid === pid())) return cached.actions;
     if (!ready && options.start === false) return null;
@@ -471,20 +477,29 @@ export class TypeServers {
     }
   }
 
-  private spawn(s: Running): Promise<string> {
+  /** How a `node` server runs (`node-children.ts`); said once in the log when it is worker threads. */
+  private nodeMode(): NodeChildrenMode {
+    const choice = nodeChildren();
+    if (choice.mode === 'threads' && !this.saidThreads) {
+      this.saidThreads = true;
+      this.options.log(`type servers run in worker threads of the daemon (${choice.detail})`);
+    }
+    return choice.mode;
+  }
+
+  private async spawn(s: Running): Promise<string> {
     const { type } = s;
     const entry = type.entry;
-    if (entry?.kind !== 'server') return Promise.reject(new Error('not a server entry'));
+    if (entry?.kind !== 'server') throw new Error('not a server entry');
     const { start } = entry;
+    const isNode = start.command === 'node';
+    const mode = isNode ? this.nodeMode() : 'process';
     const last = readJson<{ port?: number } | null>(serverFiles.state(type.id), null);
     const secret = randomBytes(24).toString('base64url');
     ensureDir(dirname(serverFiles.log(type.id)));
     const stateDir = ensureDir(serverFiles.stateDir(type.id));
     const log = createWriteStream(serverFiles.log(type.id), { flags: 'a' });
     log.write(`\n--- ${new Date().toISOString()} start ${start.command} ${start.args.join(' ')}\n`);
-    // `node` is this process's own runtime (in an Electron host, the app run as Node), so no node is needed on PATH.
-    const isNode = start.command === 'node';
-    const command = isNode ? process.execPath : start.command;
     const openArtifactEnv: TypeServerEnv = {
       OPEN_ARTIFACT_PROTOCOL: String(OPEN_ARTIFACT_PROTOCOL),
       OPEN_ARTIFACT_TYPE: type.id,
@@ -495,12 +510,13 @@ export class TypeServers {
       OPEN_ARTIFACT_TYPE_TOKEN: this.options.tokenFor(type.id),
       OPEN_ARTIFACT_STATE_DIR: stateDir,
     };
-    const env: NodeJS.ProcessEnv = { ...process.env, ...(isNode ? { ELECTRON_RUN_AS_NODE: '1' } : {}), ...start.env, ...openArtifactEnv };
+    // `node` is this process's own runtime (startChild): a child process, or a worker thread with its own copy of `env`.
+    const env: NodeJS.ProcessEnv = { ...process.env, ...start.env, ...openArtifactEnv };
     const readyMs = Number(process.env.OPEN_ARTIFACT_SERVER_READY_MS) || READY_TIMEOUT_MS;
     return new Promise((resolveReady, rejectReady) => {
-      let child: ChildProcess;
+      let child: NodeChild;
       try {
-        child = spawn(command, start.args, { cwd: type.dir, env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+        child = startChild({ command: start.command, args: start.args, cwd: type.dir, env, mode, name: `open-artifact type server ${type.id}` });
       } catch (error) {
         log.end();
         rejectReady(error);
@@ -515,7 +531,7 @@ export class TypeServers {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
-        this.kill(child, 'SIGTERM');
+        child.stop(KILL_MS);
         rejectReady(new Error(message));
       };
       const timer = setTimeout(() => fail(`no ready line within ${readyMs / 1000} s`), readyMs);
@@ -545,18 +561,18 @@ export class TypeServers {
           const base = withSlash(message.url);
           Object.assign(s, { base, state: 'ready', error: null, misses: 0 });
           try {
-            writeJson(serverFiles.state(type.id), { port: Number(new URL(base).port) || null, url: base, pid: child.pid, at: new Date().toISOString() });
+            writeJson(serverFiles.state(type.id), { port: Number(new URL(base).port) || null, url: base, ...(child.pid ? { pid: child.pid } : { thread: child.instance }), at: new Date().toISOString() });
           } catch {
             /* the port is a suggestion */
           }
-          this.options.log(`server ${type.id}: ready at ${base} (pid ${child.pid})`);
+          this.options.log(`server ${type.id}: ready at ${base} (${child.label})`);
           this.options.changed?.();
           resolveReady(base);
           return;
         }
       });
-      child.on('error', (error) => fail(`could not run ${start.command}: ${error.message}`));
-      child.on('exit', (code, signal) => {
+      child.on('error', (error: Error) => fail(`could not run ${start.command}: ${error.message}`));
+      child.on('exit', (code: number | null, signal: string | null) => {
         log.write(`--- exit ${code ?? signal}\n`);
         log.end();
         if (s.child === child) {
@@ -618,27 +634,35 @@ export class TypeServers {
     const s = this.byType.get(typeId);
     if (!s) return;
     this.byType.delete(typeId);
-    if (s.child) this.kill(s.child, 'SIGTERM');
+    if (s.child) this.stopChild(s.child);
     if (s.state === 'ready') this.options.changed?.();
   }
 
-  private kill(child: ChildProcess, signal: NodeJS.Signals): void {
-    if (child.exitCode !== null || child.signalCode !== null) return;
-    try {
-      child.kill(signal);
-    } catch {
-      return;
-    }
-    if (signal === 'SIGTERM') {
-      const timer = setTimeout(() => {
-        if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
-      }, KILL_MS);
-      timer.unref?.();
-    }
+  /** Asks a server to stop (SIGTERM, or the same delivered to its thread), forced after `KILL_MS`. */
+  private stopChild(child: NodeChild): void {
+    if (child.ended) return;
+    if (child.mode === 'threads') this.stopping.add(child);
+    child.once('exit', () => this.stopping.delete(child));
+    child.stop(KILL_MS);
   }
 
-  private killAll(signal: NodeJS.Signals): void {
-    for (const s of this.byType.values()) if (s.child) this.kill(s.child, signal);
+  /** This process is exiting: what still runs is asked to stop (a thread ends with the process anyway). */
+  private killAll(): void {
+    for (const s of this.byType.values()) if (s.child && !s.child.ended) s.child.stop(KILL_MS);
+  }
+
+  /**
+   * Resolves once the servers that run in this process's threads have ended (after {@link closeAll}), or after
+   * `timeoutMs`: the daemon waits for them before it exits, so each finishes its own clean-up as a process would. Child
+   * processes are not waited for: they finish by themselves.
+   */
+  async drained(timeoutMs = KILL_MS + 1000): Promise<void> {
+    const left = [...this.stopping].filter((child) => !child.ended);
+    if (!left.length) return;
+    await Promise.race([
+      Promise.all(left.map((child) => new Promise((done) => (child.ended ? done(null) : child.once('exit', done))))),
+      new Promise((done) => setTimeout(done, timeoutMs)),
+    ]);
   }
 
   /** Stops every server. */

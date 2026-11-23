@@ -6,6 +6,39 @@ agent plugins. Since 0.9.0 they all share one version; before that `dsh-open-art
 Each entry is written from the commits since the previous tag (`node scripts/changelog.mjs` lists them); see
 [Releasing](README.md#releasing).
 
+## [0.14.1] - 2026-11-22
+
+Open Artifact runs inside an Electron app whose `RunAsNode` fuse is off: the app starts the daemon itself, and type servers run in worker threads.
+
+### Added
+
+- An agent app can start the daemon process itself: `createHarness({ daemon: { spawn } })` (and `ensureDaemon({ spawn })`) hands it the runtime's entry, the arguments, the environment and the log file. The kit still chooses the runtime, waits for the daemon, checks its version and tries the next runtime, and its `daemon_failed` error says what the app's start threw. An Electron app with its `RunAsNode` fuse off forks the daemon with `utilityProcess.fork`.
+- When the daemon runs inside an Electron process (`process.type` is set, as in a utility process), it runs the type servers whose command is `node` in worker threads of its own process instead of child processes, since its executable must not be started as Node. Under plain Node, or Electron running as Node, it keeps child processes; it starts nothing to decide. `OPEN_ARTIFACT_NODE_CHILDREN=process|threads` decides instead. Starting, restarting on a type change, stopping when idle, crashes and logs behave as with processes.
+- `open-artifact doctor` says how type servers run ("Type server processes"), the daemon's `/__open-artifact/health` answers it as `nodeChildren`, and the daemon log says it once.
+- `examples/harness-electron` shows the utility-process start beside the default one (`OA_EXAMPLE_DAEMON=utility`).
+
+### Changed
+
+- `harness.installSkill` passes `opens: 'host'` when the app gave `createHarness` an `open` callback and did not pass `opens`, so the skill the kit renders itself (no daemon, or one without `skill.get`) says the app shows pages, as the daemon's rendering does.
+- When the daemon stops, it waits for type servers running in threads to end before it exits.
+- A type server's state file (`.artifact-server.json`) also records its thread when it runs in one, and is removed only by the server that wrote it.
+
+### Fixed
+
+- A daemon started by an Electron app with its `RunAsNode` fuse off no longer starts a copy of the app when it leaves for a newer runtime; it stops and the app's kit starts the newer one on its next connection.
+- `examples/harness-electron` no longer hangs at start: it awaited `app.whenReady()` at the top level of its main module, which Electron resolves only after that module has finished.
+- The type declarations in the published libraries (`@open-artifact/harness-kit`, `@open-artifact/protocol` and the rest) import `./x.js` instead of `./x.ts`, a file the package does not have. `scripts/build-npm.mjs` rewrites them and fails when one is left.
+- The Shell names the harness that owns an artifact by its profile `title` instead of its id: the Ask pane ("Messages go to the Cindy session…" rather than "the cindy session"), its offline note, the open-session button and menu item, and the owner badge on the home page. A harness whose profile has no title still shows its id as it is.
+- The integrator guide and the Harness API reference document the skill helpers' `opens` option (its values and its default) and what `caps.library` does: it is only recorded and shown, and can be left out by an app with no list of artifacts.
+
+### Integrators
+
+- New kit option `daemon.spawn` (types `DaemonSpawn`, `DaemonStart`, `DaemonExitSource`). Without it nothing changes. The Harness API, the protocol (still 1), the Shell messages, the stdio bridge and the shipped profiles did not change, so there is no new `hello` feature.
+- `env` given to `spawn` has no `ELECTRON_RUN_AS_NODE`; in a utility process `process.argv` already has the shape the daemon reads, so fork the entry as it is. Pass `OPEN_ARTIFACT_NODE_CHILDREN=threads` in that `env` to say so explicitly; an app with the fuse on that forks the daemon in a utility process and wants child processes passes `process`. A daemon in a utility process ends with the app. Details and limits in `docs/integrating/runtime.md`.
+- The `.d.ts` files of the npm packages now name `.js` files in their relative imports, so a project on `moduleResolution: node16`/`nodenext`, or a tool that reads the specifiers as written, finds them. Nothing else in the declarations changed.
+- An artifact's `owner` (in `GET /api/open-artifact.artifact` and the library list) has a new optional `harnessTitle`: the profile's `title`, left out when the profile has none. To have the Shell show your app's name, report it as the profile title: `createHarness({ profile: { title: 'My App' } })` (an existing option; no new `hello` feature).
+- Pass `opens` to `installSkill` (and `renderSkill`, `localSkill`, `keepSkillInstalled`) so the skill tells your agent how pages open in your app: `host`, `agent-browser`, `system` or `link`. Left out, `harness.installSkill` and the daemon pick `host` when you pass `open` (an `opens` you pass wins); the standalone `installSkill(client, …)`, `renderSkill` and `localSkill` use only what you pass.
+
 ## [0.14.0] - 2026-11-22
 
 Build Open Artifact into your own agent product: an SDK for agent apps, pages shown inside the app, comments delivered to the right session, and a runtime that keeps itself current.
@@ -440,6 +473,7 @@ One version for every package, with Docs and Sheets in every plugin.
 - Plugins for Claude Code, Codex, Cursor, Copilot, ChatGPT and DeepSeek Harness.
 - English and Chinese READMEs, under Apache-2.0.
 
+[0.14.1]: https://github.com/JimLiu/open-artifact/compare/v0.14.0...v0.14.1
 [0.14.0]: https://github.com/JimLiu/open-artifact/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/JimLiu/open-artifact/compare/v0.12.5...v0.13.0
 [0.12.5]: https://github.com/JimLiu/open-artifact/compare/v0.12.4...v0.12.5

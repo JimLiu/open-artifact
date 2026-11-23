@@ -80,7 +80,7 @@ const answer = await api(state, 'artifacts.ask', { id, text: 'Make the title big
 open-artifact doctor --harness my-agent
 ```
 
-它检查 Node、主目录、`settings.json`、daemon（以及 `daemon.json` 只有本人能读）、运行时、类型、该 harness 的 profile、该 harness 是否有适配器已连接、工具，以及每个启用的远程类型。有检查失败时它以非零状态退出；`--json` 把结果交给脚本。
+它检查 Node、主目录、`settings.json`、daemon（以及 `daemon.json` 只有本人能读）、类型服务器以进程还是 worker thread 运行、运行时、类型、该 harness 的 profile、该 harness 是否有适配器已连接、工具，以及每个启用的远程类型。有检查失败时它以非零状态退出；`--json` 把结果交给脚本。
 
 `GET /api/open-artifact.harnesses`（带令牌）列出已连接的适配器、它们的 caps 和会话。
 

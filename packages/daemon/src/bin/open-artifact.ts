@@ -442,10 +442,12 @@ async function daemon(sub: string | undefined): Promise<void> {
       const { startDaemon } = await import('../daemon.ts');
       const port = flag('port');
       const running = await startDaemon(port !== undefined ? { port: Number(port) } : {});
-      running.on('exit', () => process.exit(0));
+      // Type servers in worker threads (node-children.ts) finish their clean-up before the process ends.
+      const exit = (): void => void running.drained().finally(() => process.exit(0));
+      running.on('exit', exit);
       const stop = (): void => {
         running.close();
-        process.exit(0);
+        exit();
       };
       for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) process.on(signal, stop);
       process.on('uncaughtException', (error) => running.log(`uncaught: ${error?.stack ?? error}`));

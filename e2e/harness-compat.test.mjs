@@ -220,6 +220,8 @@ describe('harness compatibility: the reference host against a real daemon', () =
       agentName: AGENT,
       home: ctx.home,
       autoStart: false,
+      // The display name the Shell's Ask pane uses for the owner session, in place of the id `compat-frame`.
+      profile: { title: 'Compat Frame' },
       rules: 'Ask the person before publishing anything in this app.',
       policy: { roles: { subagent: { create: false } } },
       embed: { origins: [ctx.originA], mode: 'frame', remote: 'deny' },
@@ -399,6 +401,10 @@ describe('harness compatibility: the reference host against a real daemon', () =
     assert.ok(await page.waitFor("window.got.some(m => m.data && m.data.openArtifact === 'shell_ready')", 15000), `taken: ${JSON.stringify(await heard(page))}`);
     const wakes = ctx.frameWakes.length;
     await askFromPage(page, 'Make the heading blue');
+    // The pane names the owner session by the harness's title from its profile, not by its id.
+    const paneText = async () => (await page.evaluateAll("location.pathname.startsWith('/a/') ? document.querySelector('aside')?.innerText ?? '' : undefined")).find(text => typeof text === 'string') ?? '';
+    assert.ok(await until(async () => (await paneText()).includes('Compat Frame'), 10000, 200), `the Ask pane does not name the harness by its title: ${JSON.stringify(await paneText())}`);
+    assert.ok(!(await paneText()).includes('compat-frame'), 'the Ask pane shows the harness id');
     assert.ok(await page.waitFor("window.got.some(m => m.data && m.data.openArtifact === 'comment_summon')", 15000), `no comment_summon: ${JSON.stringify(await heard(page))} ${JSON.stringify(await page.evaluateAll("location.pathname.startsWith('/a/') ? [document.activeElement?.tagName, (document.querySelector('textarea')||{}).value, document.querySelector('aside [role=status]')?.textContent, document.querySelector('aside')?.innerText.slice(0,300)] : undefined"))} ${JSON.stringify(page.problems)}`);
     const summon = await page.evaluate("window.got.find(m => m.data.openArtifact === 'comment_summon').data");
     assert.equal(summon.text, 'Make the heading blue');

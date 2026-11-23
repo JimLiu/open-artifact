@@ -72,7 +72,9 @@
 | `agentName` | string | 你的应用怎么称呼它的 Agent |
 | `tools` | `'cli' \| 'mcp' \| 'native'` | 你的 Agent 怎么调用工具 |
 | `commands` | `{ names, menu? }` | 你的命令名；`menu`：你为每个类型列一个条目 |
-| `library` | `'home' \| 'cards' \| 'own'` | 人在哪里找到作品 |
+| `library` | `'home' \| 'cards' \| 'own'` | 人在哪里找到作品；只是声明（见下文） |
+
+`library` 不改变 daemon 或 Shell 的任何行为：daemon 检查这个值、记下它、写进日志和 `GET /api/open-artifact.harnesses`，`doctor --session` 会把它打印出来（不写时显示 `library (not said)`）。不管写哪个值或不写，作品事件、首页和 `embedLibrary` 都一样工作。你的应用没有列出作品的地方时就不写它；没有专门表示这种情况的值。
 
 ## 适配器 → daemon
 
@@ -96,6 +98,8 @@
 | `view.context` | `url`、`session?`、`workspace?` | `{ at, context, changed }`；只限所有者会话 |
 | `runtime.status` | — | `RuntimeStatus` |
 | `runtime.update` | `version?` | `{ installed, pending, message }` |
+
+`skill.get` 的 `opens` 决定 skill 里“展示给人”那一步怎么写：`host`（你的应用自己显示页面）、`agent-browser`（Agent 在它自己的浏览器面板里打开 `view_url`）、`system`（电脑的浏览器）、`link`（Agent 把 `view_url` 给人）。不传时，你的 caps（来自 `hello` 或 profile）有 `open` 就用 `host`，否则用一段兼顾内置浏览器和电脑浏览器的通用说明。
 
 `session` 和 `workspace` 指调用方 harness 的一个会话。没有 id 的会话以它的工作目录为键。`may` 是 `{ create?, modify?, remove?, reply? }`（[Agent 工具](../integrating/tools.zh-CN.md#会话权限)）。
 

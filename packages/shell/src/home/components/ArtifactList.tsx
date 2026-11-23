@@ -66,7 +66,7 @@ function ArtifactCard({ artifact }: { artifact: ArtifactView }) {
           <Chip>{artifact.typeTitle}</Chip>
           {local ? (
             <Chip>
-              <OwnerBadge state={ownerBadge(artifact.owner)} prefix={artifact.owner?.harness} />
+              <OwnerBadge state={ownerBadge(artifact.owner)} prefix={artifact.owner ? (artifact.owner.harnessTitle ?? artifact.owner.harness) : undefined} />
             </Chip>
           ) : null}
           {local && artifact.open ? <Chip>{t('pageOpen')}</Chip> : null}

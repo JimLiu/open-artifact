@@ -115,7 +115,12 @@ export interface AdapterCaps {
   tools?: 'cli' | 'mcp' | 'native';
   /** The harness's command names (`artifact` for `/artifact`); `menu`: it lists one entry per type (`commands.list`). */
   commands?: { names: string[]; menu?: boolean };
-  /** Where the person finds artifacts in the harness: the embedded home page, cards under messages, or its own library. */
+  /**
+   * Where the person finds artifacts in the harness: the embedded home page, cards under messages, or its own library.
+   * A declaration only: the daemon records it and shows it (its log, `GET /api/open-artifact.harnesses`, `doctor`), and
+   * nothing the daemon or the Shell does depends on it. Leave it out when the harness has no place that lists
+   * artifacts (there is no value for that); artifact events and the home page work the same either way.
+   */
   library?: 'home' | 'cards' | 'own';
 }
 
@@ -302,7 +307,7 @@ export interface HelloParams {
   token: string;
   /** The Harness API versions the adapter speaks. */
   protocols?: ProtocolRange;
-  /** The SDK the adapter is built on, e.g. `{ name: '@open-artifact/harness-kit', version: '0.14.0' }`. */
+  /** The SDK the adapter is built on, e.g. `{ name: '@open-artifact/harness-kit', version: '0.14.1' }`. */
   kit?: { name: string; version: string };
   /**
    * The harness's profile, so the daemon knows it while no adapter is connected. The daemon keeps it as
@@ -401,7 +406,10 @@ export interface SkillParams {
   tools?: 'native' | 'mcp' | 'cli';
   /** The names the harness gave the tools. */
   toolNames?: Partial<Record<ToolName, string>>;
-  /** How the "show it to the person" step reads: the harness opens it, the agent's browser, the system browser, a link. */
+  /**
+   * How the "show it to the person" step reads: the harness opens it, the agent's browser, the system browser, a link.
+   * Left out: `host` when the harness's caps have `open`, else a general step (a built-in browser, else the computer's).
+   */
   opens?: 'host' | 'agent-browser' | 'system' | 'link';
   locale?: string;
 }

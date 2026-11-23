@@ -134,7 +134,7 @@ When Chrome stops a frame's renderer (Chrome shows the frame as gone and the pag
 
 - A real daemon (`open-artifact daemon run` from source, in a temporary `OPEN_ARTIFACT_HOME`) with two user types: `note`, a static page, and `farstub`, a URL type at `http://0.0.0.0:<port>/far/{id}`. It counts as remote because 0.0.0.0 is not a loopback name, but a stub on this computer answers it.
 - Two hosts are built in-process from the reference host's modules (`examples/harness-node`: `connectHarness`, `ScriptedAgent`, `wakeHandler`, `registerTools`):
-  - `compat-frame` frames the Shell from host page origin A, with `embed.remote: deny`, rules and a `policy.roles` entry;
+  - `compat-frame` frames the Shell from host page origin A, with `embed.remote: deny`, rules, a `policy.roles` entry and a profile `title` (`Compat Frame`);
   - `compat-view` shows top-level views, with `embed.remote: allow`.
 - (a) `open-artifact doctor --harness compat-frame --session compat-1 --json`, run as its own process, passes every conformance step in order. Each step's verdict is `ok`, and what needs a person or a browser is `n/a`. The host gets exactly one `host.open` and one wake from the owner, and doctor removes its test artifact. The remote-type check finds the stub answering and warns that `compat-frame` denies it, naming the fallback. The stub is never sent a token.
 - (d) `host.open` for a `farstub` artifact carries `remote` `{type, origins}` to the allow host. The deny host's `open` is never called, and the artifact is not reported as shown.
@@ -142,10 +142,20 @@ When Chrome stops a frame's renderer (Chrome shows the frame as gone and the pag
 - (c) Without a browser, a top-level view's `host.open` carries a ticket and `embed_url` (`/a/<id>?oa_view=<ticket>`). The ticket is claimed from Node as the Shell would claim it, and a second claim gets 404. `shell.command` comes down the stream, and a posted event reaches the adapter as `shell.event`.
 - (c) In Chrome, the Shell loaded at `embed_url` claims the ticket, says `shell_hello` through the daemon, and takes the ticket out of the address bar. A `host_hello` sent with `shell.command` gets `shell_ready` back as `shell.event`, and a second claim gets 404.
 - (b) In Chrome, a host page on each of two 127.0.0.1 ports frames the Shell and answers `shell_hello` with `host_hello`. The Ask goes through the real mouse and keys.
-  - On origin A, which is declared, the Shell says `shell_ready`, and the Ask sends `comment_summon` with the text and wakes the owner session.
+  - On origin A, which is declared, the Shell says `shell_ready`, and the Ask sends `comment_summon` with the text and wakes the owner session. The Ask pane names the owner session by the profile title (`Compat Frame`), never by the id `compat-frame`.
   - On origin B while A is declared, the page hears nothing after `shell_hello`, even though the Ask is sent and wakes the session.
   - On origin B once `compat-frame` has gone and no origin is declared at all, the page is taken (`shell_ready`), but `comment_summon` comes with empty text.
 - The same cases against the two previous minor versions of `@open-artifact/harness-kit` from npm have a place at the end of the file. That place is skipped, and says why: the kit is not published yet. To run it, install each version into a temporary folder and build the hosts with its `createHarness`.
+
+**Type servers in worker threads** (`node-threads.test.mjs`, no browser)
+
+- A real daemon (`open-artifact daemon run` from source, in a temporary `OPEN_ARTIFACT_HOME` on a free port) with `OPEN_ARTIFACT_NODE_CHILDREN=threads`, the mode an Electron app with its `RunAsNode` fuse off ends up in. Its built-in types are copies of `slides` and `docs`; a host connects with `createHarness`.
+- (a) `/__open-artifact/health` reports `nodeChildren` `{mode: threads, reason: env}`; `open-artifact doctor --json` has the `node-children` check saying worker threads; the daemon log says the mode once.
+- (b) Slides: create, open (the server is ready in a thread: `(thread N)` in the log, no pid), publish a slide, the `view_url` answers 200 and `check` works.
+- (c) Docs: created through the `create` call and read back.
+- (d) A type change (the manifest touched, `builtin/.changed` written) stops the docs server through its `SIGTERM` handler (`--- exit 0` in its log); the next call starts a new thread.
+- (e) `SIGTERM` to the daemon: it waits for its threads and exits 0, every server log ends with `--- exit 0`, `daemon.json` and the lock are gone, the ports refuse connections and no process is left.
+- Not covered here: a real Electron utility process (it was checked by hand, see `docs/integrating/runtime.md`) and the other six built-in types in threads.
 
 **Exports on a cloud host** (`host-exports.test.mjs`, Chrome only)
 

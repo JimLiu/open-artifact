@@ -79,7 +79,12 @@ Result: `{ protocol, daemon, connection, features }`.
 | `agentName` | string | what your app calls its agent |
 | `tools` | `'cli' \| 'mcp' \| 'native'` | how your agent reaches the tools |
 | `commands` | `{ names, menu? }` | your command names; `menu`: you list one entry per type |
-| `library` | `'home' \| 'cards' \| 'own'` | where the person finds artifacts |
+| `library` | `'home' \| 'cards' \| 'own'` | where the person finds artifacts; informational only (see below) |
+
+`library` changes nothing the daemon or the Shell does: the daemon checks the value, records it, writes it in its log
+and in `GET /api/open-artifact.harnesses`, and `doctor --session` prints it (`library (not said)` when it is left out).
+Artifact events, the home page and `embedLibrary` work the same with any value or none. Leave it out when your app has
+no place that lists artifacts; there is no separate value for that.
 
 ## Adapter → daemon
 
@@ -103,6 +108,11 @@ Result: `{ protocol, daemon, connection, features }`.
 | `view.context` | `url`, `session?`, `workspace?` | `{ at, context, changed }`; owner session only |
 | `runtime.status` | — | `RuntimeStatus` |
 | `runtime.update` | `version?` | `{ installed, pending, message }` |
+
+`skill.get` `opens` picks the skill's "show it" step: `host` (your app shows the page by itself), `agent-browser` (the
+agent opens `view_url` in its own browser panel), `system` (the computer's browser), `link` (the agent gives the person
+`view_url`). Left out, the daemon uses `host` when your caps (from `hello` or the profile) have `open`, else a general
+step that covers a built-in browser and the computer's browser.
 
 `session` and `workspace` name a session of the calling harness. A session with no id is keyed by its workspace.
 `may` is `{ create?, modify?, remove?, reply? }` ([tools](../integrating/tools.md#session-permissions)).

@@ -580,12 +580,21 @@ export class HarnessHub extends EventEmitter<{ changed: [] }> {
   }
 
   /** Live state of a session. */
-  statusOf(ref: SessionRef | null | undefined): { live: boolean; status: OwnerStatus; wakeMode?: 'draft' } {
+  statusOf(ref: SessionRef | null | undefined): { live: boolean; status: OwnerStatus; wakeMode?: 'draft'; harnessTitle?: string } {
     const session = ref ? this.sessions.get(sessionKeyOf(ref) ?? '') : undefined;
     // A harness that drafts what it is sent: the Shell's Send button says so up front.
     const draft = ref && this.wakeModeOf(ref.harness) === 'draft' ? { wakeMode: 'draft' as const } : {};
-    if (!session?.conn) return { live: false, status: 'offline', ...draft };
-    return { live: true, status: session.status === 'running' ? 'running' : 'idle', ...draft };
+    // The name the Shell shows a person; none when the profile gives no title of its own.
+    const harnessTitle = ref ? this.titleOf(ref.harness) : undefined;
+    const named = { ...draft, ...(harnessTitle ? { harnessTitle } : {}) };
+    if (!session?.conn) return { live: false, status: 'offline', ...named };
+    return { live: true, status: session.status === 'running' ? 'running' : 'idle', ...named };
+  }
+
+  /** A harness's display name from its profile, or `undefined` when the profile gives none (its title is its id). */
+  titleOf(harness: string): string | undefined {
+    const title = harnessProfile(harness).title;
+    return title && title !== harness ? title : undefined;
   }
 
   /** `GET /api/open-artifact.harnesses`. */

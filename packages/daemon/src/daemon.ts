@@ -70,6 +70,7 @@ import { nudgeSession } from './nudge.ts';
 import { Ownership } from './ownership.ts';
 import { ensureDir, expandHome, files, inside, openArtifactHome, readJson, writeJson } from './paths.ts';
 import { ACTION_CALL_MS, TypeServers } from './servers.ts';
+import { badModeVariable, nodeChildren } from './node-children.ts';
 import { readPreset, type CloudPreset } from './preset.ts';
 import { ReleaseGuard, releaseView, writeMarkerRelease } from './release-guard.ts';
 import { RuntimeManager } from './runtime.ts';
@@ -560,7 +561,12 @@ export class Daemon extends EventEmitter<{ exit: [] }> {
       connected: () => [...new Set([...this.harnesses.connections].filter((c) => c.authed && c.harness).map((c) => c.harness!))],
       switchTo: (candidate, env) => {
         this.close();
-        startDaemonProcess(candidate.bin, { env });
+        // A daemon inside an Electron process (Node children in threads) leaves the new runtime to the app that started
+        // this one: its harness reconnects and the kit starts the newest. Spawning its executable here would start the
+        // app, not a daemon.
+        const choice = nodeChildren();
+        if (choice.mode === 'threads' && process.versions.electron) this.log(`runtime: leaving for ${candidate.version}; the app that started this daemon starts it (${choice.detail})`);
+        else startDaemonProcess(candidate.bin, { env });
         this.emit('exit');
       },
       ...(process.env.OPEN_ARTIFACT_RUNTIME_CHECK_DELAY_MS ? { checkDelayMs: Number(process.env.OPEN_ARTIFACT_RUNTIME_CHECK_DELAY_MS) } : {}),
@@ -742,6 +748,8 @@ export class Daemon extends EventEmitter<{ exit: [] }> {
     this.timer = setInterval(() => this.tick(), 30_000);
     this.timer.unref?.();
     this.log(`daemon ${VERSION} listening at ${this.origin} (home ${openArtifactHome()})`);
+    const badChildren = badModeVariable();
+    if (badChildren) this.log(badChildren);
     try {
       this.runtime.start();
     } catch (error) {
@@ -929,6 +937,14 @@ export class Daemon extends EventEmitter<{ exit: [] }> {
     }
   }
 
+  /**
+   * After {@link close}: resolves once the type servers in this process's worker threads have ended (bounded), so the
+   * process can exit without cutting their clean-up short. At once when they are child processes.
+   */
+  drained(): Promise<void> {
+    return this.servers.drained();
+  }
+
   /** Stops everything and removes `daemon.json` and the lock. */
   close(): void {
     if (this.closed) return;
@@ -1043,7 +1059,7 @@ export class Daemon extends EventEmitter<{ exit: [] }> {
     // The daemon is for this computer; shared pages are the type servers'.
     if (!isLoopback(req.socket.remoteAddress)) return this.notFound(req, res);
     if (p === '/__open-artifact/health') {
-      const health: DaemonHealth = { openArtifact: 1, version: VERSION };
+      const health: DaemonHealth = { openArtifact: 1, version: VERSION, nodeChildren: nodeChildren() };
       return sendJson(res, 200, health);
     }
     if (p === '/favicon.ico') {

@@ -271,7 +271,7 @@ export function TitleMenu() {
           {t('export')}
         </MenuItem>
         {canOpen && owner ? (
-          <MenuItem icon={<MessageSquare className="size-3.5" />} shortcut={owner.live ? owner.harness : `${owner.harness} · ${t('offline')}`} onSelect={openSession}>
+          <MenuItem icon={<MessageSquare className="size-3.5" />} shortcut={owner.live ? (owner.harnessTitle ?? owner.harness) : `${owner.harnessTitle ?? owner.harness} · ${t('offline')}`} onSelect={openSession}>
             {t('openSession')}
           </MenuItem>
         ) : null}

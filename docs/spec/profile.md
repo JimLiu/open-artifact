@@ -28,7 +28,7 @@ profiles that ship. The type is `HarnessProfile` in `packages/protocol/src/harne
 | Field | Type | Adapter may set | Means |
 | --- | --- | --- | --- |
 | `name` | string | no (it is `hello.harness`) | the harness name |
-| `title` | string | yes | shown to people |
+| `title` | string | yes | shown to people: the Shell's Ask pane, open-session button and menu, and the home page's owner badge (left out, the harness name is shown as it is) |
 | `agentName` | string | yes | what the harness calls its agent |
 | `level` | `L1` \| `L2` \| `L3` | yes | a short name: MCP only, MCP and hooks, a full adapter |
 | `entry` | `harness-api` \| `mcp` \| `mod` | yes | how the harness reaches the daemon |

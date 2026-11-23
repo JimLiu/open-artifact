@@ -136,7 +136,7 @@ export interface HarnessOptions {
   home?: string;
   /** Start the daemon when none runs (default `true`). */
   autoStart?: boolean;
-  /** More options for starting the daemon (`env`, `bin`, `timeoutMs`). */
+  /** More options for starting the daemon (`env`, `bin`, `timeoutMs`, and `spawn` for a host that starts the process itself). */
   daemon?: EnsureDaemonOptions;
   /** Gives a message to a session (`wake.deliver`); see {@link createHarness}. */
   wake?: (params: WakeDeliverParams) => WakeAnswer | Promise<WakeAnswer>;
@@ -619,7 +619,9 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
       };
     },
     async installSkill(opts) {
-      return (await keepSkillInstalled(client, opts, (listener) => harness.on('state', listener), log)).result;
+      // With an `open` handler the app shows pages itself: the kit's own rendering says so, as the daemon's does.
+      const withOpens = options.open && opts.opens === undefined ? { ...opts, opens: 'host' as const } : opts;
+      return (await keepSkillInstalled(client, withOpens, (listener) => harness.on('state', listener), log)).result;
     },
     commands: (opts) => commands(client, opts),
     runtime: {

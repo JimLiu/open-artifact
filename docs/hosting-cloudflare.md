@@ -82,7 +82,7 @@ cd deploy/cloudflare && npm ci && npm run build
 build: dist/site/worker.js 4.2 MB from 458 files; built-ins left to workerd: ./sheets.wasm node:buffer …
 build: dist/rooms/worker.js 3.4 MB from 386 files; …
 build: host plugins from plugins.mjs
-build: sheets.wasm 7.8 MB; 8 types (data, design, design-system, docs, motion, sheets, slides, whiteboard); version 0.14.0
+build: sheets.wasm 7.8 MB; 8 types (data, design, design-system, docs, motion, sheets, slides, whiteboard); version 0.14.1
 ```
 
 `deploy/cloudflare` has its own `package.json` (wrangler 4.166.0, esbuild); it is not part of the root install.
@@ -323,7 +323,7 @@ dig +short anything.example.com
 curl -s https://open-artifact.<your-subdomain>.workers.dev/__open-artifact/health
 ```
 
-**Expect:** `{"openArtifact":1,"version":"0.14.0"}`. Also:
+**Expect:** `{"openArtifact":1,"version":"0.14.1"}`. Also:
 
 | Request | Answer |
 | --- | --- |
@@ -576,7 +576,7 @@ PORT=8797 PERSIST_TO=/tmp/oa-cf-state npm run dev -- --ip 127.0.0.1 --env-file ~
 
 **Expect:** `Using secrets defined in …/dev.env` (or `.dev.vars`), the bindings, then
 `[wrangler:info] Ready on http://127.0.0.1:8797` (both forms run here). `curl -s http://localhost:8797/__open-artifact/health`
-answers `{"openArtifact":1,"version":"0.14.0"}`; sign in at `http://localhost:8797/auth/sign-in` with the owner key.
+answers `{"openArtifact":1,"version":"0.14.1"}`; sign in at `http://localhost:8797/auth/sign-in` with the owner key.
 Artifacts are at `http://{id}.content.localhost:8797`. Stop it with Ctrl-C; delete the `PERSIST_TO` folder to start
 over.
 

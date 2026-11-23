@@ -3,10 +3,12 @@
 An Electron agent app on `@open-artifact/harness-kit`: a chat column on the left, the artifact's page on the right in a
 top-level `WebContentsView`.
 
-> **Not run in this change.** Electron is not a dependency of this repository, and this example was written and
-> bundled (`node build.mjs`) but never started in Electron. Everything that is not Electron comes from
+> **Barely run.** Electron is not a dependency of this repository. The example has been started only far enough to
+> connect: in Electron 45.2.2 (fuse on, default start) and 42.11.12 (`RunAsNode` fuse off, `OA_EXAMPLE_DAEMON=utility`),
+> each time with a throwaway home, reading the daemon's health and stopping it; the chat and the artifact pane were not
+> used. Everything that is not Electron comes from
 > [`../harness-node`](../harness-node), whose test runs it against a real daemon; the Electron parts (`src/main.mjs`,
-> `src/pane.mjs`, `src/preload.cjs`, `renderer/`) are unchecked.
+> `src/pane.mjs`, `src/preload.cjs`, `renderer/`) are otherwise unchecked.
 
 ## Run
 
@@ -23,6 +25,24 @@ installed `@open-artifact/cli`, or the repository's built `skills/open-artifact`
 `node scripts/build-plugins.mjs` at the root first). A shipped app passes the runtime folder it carries inside its
 bundle ([runtime](../../docs/integrating/runtime.md)).
 
+### Starting the daemon in a utility process
+
+By default the kit starts the daemon with this app's executable and `ELECTRON_RUN_AS_NODE=1`. An app whose `RunAsNode`
+fuse is off cannot do that; it passes `daemon.spawn` and forks the daemon with `utilityProcess.fork`
+(`src/daemon-spawn.mjs`). Run the example that way with:
+
+```bash
+OA_EXAMPLE_DAEMON=utility npx electron@latest .
+```
+
+Only one daemon runs per home: when one already runs, neither way starts anything. Type servers then run in worker
+threads of the daemon ([runtime](../../docs/integrating/runtime.md#electron-apps-with-the-runasnode-fuse-off)).
+
+> In Electron 42.11.12 with the `RunAsNode` fuse off this option started the daemon (type servers in threads) and
+> stopped it, and nothing more. The same `spawn` was checked further by hand outside this repository, in Electron
+> 42.11.12 and 45.2.2 with the fuse off: the daemon ran the Docs type server in a worker thread, created and served a
+> doc, and exited cleanly on `SIGTERM`.
+
 Type `make My first note` to have the scripted agent create an artifact; it opens on the right. Comment on it or use
 **Ask**, and the message arrives in the chat as the owner's turn. A card per artifact appears under the transcript.
 
@@ -31,6 +51,7 @@ Type `make My first note` to have the scripted agent create an artifact; it open
 | File | What it does |
 | --- | --- |
 | `src/main.mjs` | The app: connects with `connectHarness` (view mode, `embed.remote: 'ask'` with a dialog), attaches the session, registers tools, installs the skill, follows cards, runs the scripted turns, and adds page context to each typed message. |
+| `src/daemon-spawn.mjs` | `daemon.spawn` for an app with its `RunAsNode` fuse off: forks the daemon with `utilityProcess.fork`, asks for type servers in threads, and appends its output to the log file. Used when `OA_EXAMPLE_DAEMON=utility`. |
 | `src/pane.mjs` | `ArtifactPane`: one `WebContentsView` per artifact, driven by `embedArtifact` with a transport through the daemon (`shellCommand` / `on('shell')`). |
 | `src/preload.cjs` | The chat window's only bridge (artifact pages get none). |
 | `renderer/` | The chat column: transcript, cards, input with the command menu. |

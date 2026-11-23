@@ -19,6 +19,7 @@ import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statS
 import { builtinModules } from 'node:module';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { relativeTsSpecifiers, rewriteDeclarationSpecifiers } from './declaration-specifiers.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const OUT = join(ROOT, 'dist', 'npm');
@@ -199,6 +200,16 @@ function stageLibrary(dir) {
     const text = readFileSync(path, 'utf8');
     const fixed = text.replace(/new URL\((['"])(\.\.?\/[^'"]+)\.tsx?\1/g, 'new URL($1$2.js$1');
     if (fixed !== text) writeFileSync(path, fixed);
+  }
+  // Declarations, compiled or authored: tsc rewrites `./x.ts` to `./x.js` in the JavaScript only, so a consumer that
+  // reads the specifiers as they are (node16/nodenext without allowImportingTsExtensions) would look for a missing file.
+  for (const file of walk(out).filter((f) => /\.d\.[cm]?ts$/.test(f))) {
+    const path = join(out, file);
+    const text = readFileSync(path, 'utf8');
+    const fixed = rewriteDeclarationSpecifiers(text);
+    if (fixed !== text) writeFileSync(path, fixed);
+    const left = relativeTsSpecifiers(fixed);
+    if (left.length) fail(`dist/npm/${dir}/${file} still imports ${left.join(', ')}`);
   }
 
   const own = { ...pkg.dependencies, ...pkg.peerDependencies };

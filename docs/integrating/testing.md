@@ -90,6 +90,7 @@ open-artifact doctor --harness my-agent
 ```
 
 It checks Node, the home folder, `settings.json`, the daemon (and that `daemon.json` is readable only by the person),
+whether type servers run as processes or in worker threads,
 the runtime, the types, the harness's profile, whether an adapter of the harness is connected, the tools, and each enabled remote type. It exits
 non-zero when a check fails; `--json` gives the findings to a script.
 

@@ -33,9 +33,11 @@ function useStateLines(agent: string): { state: string; note: string } {
   }
   if (cloudAgent) return { state: t('working', { agent: cloudAgent.name }), note: '' };
   if (!owner) return { state: t('noOwner'), note: t('noOwnerNote') };
-  if (status === 'working') return { state: t('working', { agent }), note: t('ownerNote', { harness: owner.harness }) };
-  if (owner.live) return { state: t('agentIdle', { agent }), note: t('ownerNote', { harness: owner.harness }) };
-  return { state: t('sessionOffline'), note: t('offlineNote', { agent, harness: owner.harness }) };
+  // The harness's display name when its profile gives one, else its id as it is.
+  const harness = owner.harnessTitle ?? owner.harness;
+  if (status === 'working') return { state: t('working', { agent }), note: t('ownerNote', { harness }) };
+  if (owner.live) return { state: t('agentIdle', { agent }), note: t('ownerNote', { harness }) };
+  return { state: t('sessionOffline'), note: t('offlineNote', { agent, harness }) };
 }
 
 /** The ask pane. */

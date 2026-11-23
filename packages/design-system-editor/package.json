@@ -1,6 +1,6 @@
 {
   "name": "@open-artifact/design-system-editor",
-  "version": "0.14.0",
+  "version": "0.14.1",
   "private": true,
   "type": "module",
   "description": "The Design System artifact page: browse and edit a brand's README, tokens, components and assets, with live previews and agent requests.",
@@ -9,10 +9,10 @@
     "dev": "vite"
   },
   "dependencies": {
-    "@open-artifact/design-system-core": "0.14.0",
-    "@open-artifact/editor-kit": "0.14.0",
-    "@open-artifact/runtime": "0.14.0",
-    "@open-artifact/ui": "0.14.0"
+    "@open-artifact/design-system-core": "0.14.1",
+    "@open-artifact/editor-kit": "0.14.1",
+    "@open-artifact/runtime": "0.14.1",
+    "@open-artifact/ui": "0.14.1"
   },
   "license": "Apache-2.0"
 }

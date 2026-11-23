@@ -16,7 +16,7 @@ const harness = await createHarness({
   harness: 'my-app',                  // ^[a-z0-9][a-z0-9._-]{0,40}$
   agentName: 'Assistant',
   commands: ['artifact'],
-  runtime: { dir: '/path/to/@open-artifact/cli', version: '0.14.0' }, // starts the daemon when none runs
+  runtime: { dir: '/path/to/@open-artifact/cli', version: '0.14.1' }, // starts the daemon when none runs
   // Give a message to a session: 'delivered' | 'resumed' | 'drafted' | 'queued' | 'failed' (the daemon keeps it),
   // or { status, session }. Only the owner's words (source.from.kind === 'owner') should become a user turn.
   wake: async ({ session, text, source }) => ((await myApp.deliver(session, text, source)) ? 'delivered' : 'failed'),
@@ -39,6 +39,12 @@ harness.on('artifact', ({ session, artifact, change }) => myApp.card(session, ar
   (`{ embed, origins, remote }` with `embed`). `options.caps` adds `tools`, `library`, `wake.resume`, `wake.mode`.
 - Under `embed.remote: 'ask'` (the default) a remote type's page reaches `open` only after `allowRemote` said yes.
 - Check `harness.features` by name before using anything newer than the base protocol.
+- `daemon: { spawn }` starts the daemon process yourself. The kit passes `{ bin, args, env, logFile }` (no
+  `ELECTRON_RUN_AS_NODE` in `env`) and still chooses the runtime, waits for the daemon, checks its version and tries
+  the next runtime; return the process (anything with `once('exit')`) so a failed one is left at once. An Electron app
+  with its `RunAsNode` fuse off uses `utilityProcess.fork(bin, args, { env, stdio: 'pipe' })`; type servers then run
+  in worker threads of the daemon
+  ([runtime guide](../../docs/integrating/runtime.md#electron-apps-with-the-runasnode-fuse-off)).
 
 ## The `Harness` object
 
@@ -56,7 +62,7 @@ harness.on('artifact', ({ session, artifact, change }) => myApp.card(session, ar
 | `shellCommand(view, command)` | a host message to a top-level view's Shell (feature `shell.command`) |
 | `context(url, caller)`, `contextBlock(context)` | what the person selected on the page, as prompt text (feature `view.context`) |
 | `saveThumbnail(url, jpeg)` | a thumbnail for the library |
-| `installSkill({ dir, … })`, `commands()` | the skill file and the command menu (features `skill.get`, `commands.list`; rendered by the kit without them) |
+| `installSkill({ dir, … })`, `commands()` | the skill file and the command menu (features `skill.get`, `commands.list`; rendered by the kit without them). `opens` (`host` \| `agent-browser` \| `system` \| `link`) sets how the skill tells the agent to show a page; left out, `host` when you pass `open` (the daemon's rendering and, through `harness.installSkill`, the kit's own), else a general step; the standalone helpers take it only as given ([commands and the skill](../../docs/integrating.md#commands-and-the-skill)) |
 | `runtime.status()`, `runtime.update(version?)` | the runtimes on this computer and which starts; the person's yes to an update (feature `runtime.update`; `update` is `not_granted` when updates are off) |
 | `on('artifact' \| 'shell' \| 'event' \| 'state', listener)` | artifact reports, Shell messages, every daemon event, the connection state |
 | `close()` | closes the connection for good |

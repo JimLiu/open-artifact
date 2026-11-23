@@ -290,6 +290,10 @@ Your app can show the person's artifacts its own way. Three choices, said as `ca
 - `cards`: a card under the message that made or changed an artifact.
 - `own`: your own list, kept from artifact events.
 
+The value is a declaration: the daemon records it and shows it (its log, `GET /api/open-artifact.harnesses`, `doctor
+--session`), and nothing it or the Shell does depends on it. Leave `library` out when your app has no place that lists
+artifacts; there is no value for that, and artifact events and the home page work the same either way.
+
 From [`examples/harness-node/artifacts.mjs`](../examples/harness-node/artifacts.mjs), a card per artifact and session,
 keyed by the `open-artifact://` link:
 
@@ -314,6 +318,22 @@ its own name, given in `commands` (`createHarness({ commands: ['artifact'] })`) 
 - `installSkill({ dir, agentName, tools, opens })` writes the skill rendered for your harness, as `skill install` does,
   and writes it again after a runtime update changes it. See
   [`examples/harness-node/skill.mjs`](../examples/harness-node/skill.mjs).
+- `opens` says how the page reaches the person, and so how the skill's "show it" step reads. Pass it to
+  `installSkill`, `renderSkill`, `localSkill` and `keepSkillInstalled`:
+
+  | `opens` | The skill tells the agent | Use it when |
+  | --- | --- | --- |
+  | `host` | your app shows the page by itself after the first write; with `open: "never"`, call `Artifact open` and the app shows it | you pass an `open` callback (`caps.open`) |
+  | `agent-browser` | open `view_url` in its own browser panel or tab | your agent has a browser tool and you show no pages yourself |
+  | `system` | the page opens in the computer's browser after the first write; otherwise `Artifact open` opens it there | the computer's browser is where the person looks |
+  | `link` | nothing opens by itself; give the person `view_url` as a link | neither of the above |
+
+  Left out, the daemon's rendering (`skill.get`) uses `host` when your caps have `open` (from `hello` or your profile),
+  else a general step: the agent's built-in browser if it has one, otherwise `Artifact open` in the computer's browser.
+  `Harness.installSkill` does the same for the kit's own rendering (used when the daemon is not connected or lacks
+  `skill.get`): it passes `opens: 'host'` when you gave `createHarness` an `open` callback. An `opens` you pass always
+  wins. The standalone helpers (`installSkill(client, …)`, `renderSkill`, `localSkill`) know nothing of your callbacks:
+  pass `opens` to them yourself.
 - `commands()` (`commands.list`) gives one entry per installed type for your command menu: the text to insert
   (`/artifact slides `), a title, a description and starting prompts.
 - The skill and `quickstart` read the same options: your command, agent name, how the agent calls tools, how pages open,
@@ -340,6 +360,11 @@ Your adapter may report almost everything about itself. It may never set `nudge`
 `sessionWorkspace`, `source` or `name`: `nudge` and `sessionWorkspace` make the daemon run a program or read files, so
 only a file on disk that ships with Open Artifact or that the person added may say them. A reported profile never
 overwrites the person's own file. [Profile reference](spec/profile.md) lists every field.
+
+Give your app's display name as the profile `title`; with the kit, `createHarness({ profile: { title: 'My App' } })`
+reports it in `hello`. The Shell uses it wherever it names the harness to a person: the Ask pane ("Messages go to the
+My App session…"), the open-session button and menu item, and the owner badge on the home page. Without a title the
+Shell shows your harness name as it is.
 
 ## Before you ship
 

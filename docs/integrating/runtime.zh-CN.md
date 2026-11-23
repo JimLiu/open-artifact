@@ -15,7 +15,7 @@
 ```js
 const oa = await createHarness({
   harness: 'my-agent',
-  runtime: { dir: '/Applications/MyAgent.app/Contents/Resources/open-artifact', version: '0.14.0', update: 'prompt' },
+  runtime: { dir: '/Applications/MyAgent.app/Contents/Resources/open-artifact', version: '0.14.1', update: 'prompt' },
 });
 ```
 
@@ -29,7 +29,58 @@ const oa = await createHarness({
 
 没有 daemon 在运行时，kit 会在你自己的、已登记的和共享的运行时中，启动 Harness API 版本与你兼容的**最新**一份；人设置了版本锁定时（`open-artifact runtime pin ^0.14`），只在锁定范围内选。版本相同时优先你自己的。正在运行的 daemon 比你自己的运行时旧时，会被替换。
 
-kit 以 `<你的 Node 或 Electron> <runtime>/scripts/open-artifact.mjs daemon run` 的方式、在后台、带 `ELECTRON_RUN_AS_NODE=1` 启动它，所以 Electron 应用不需要另外的 Node。它的输出写到 `<home>/logs/daemon.out`；启动失败时抛出 `daemon_failed`，写明这个文件。
+kit 以 `<你的 Node 或 Electron> <runtime>/scripts/open-artifact.mjs daemon run` 的方式、在后台、带 `ELECTRON_RUN_AS_NODE=1` 启动它，所以 Electron 应用不需要另外的 Node。它的输出写到 `<home>/logs/daemon.out`；启动失败时抛出 `daemon_failed`，写明这个文件。关掉了 `RunAsNode` fuse 的 Electron 应用要自己启动它（[见下文](#关掉-runasnode-fuse-的-electron-应用)）。
+
+## 关掉 RunAsNode fuse 的 Electron 应用
+
+`RunAsNode` fuse 关掉后，Electron 应用不能用 `ELECTRON_RUN_AS_NODE=1` 运行脚本，kit 自己的启动方式会失败。这时把 `daemon.spawn` 交给 kit，用 [`utilityProcess.fork`](https://www.electronjs.org/docs/latest/api/utility-process) 启动 daemon：
+
+```js
+const { utilityProcess } = require('electron');
+const { createWriteStream } = require('node:fs');
+
+const oa = await createHarness({
+  harness: 'my-agent',
+  runtime: { dir: runtimeDir, version: '0.14.1' },
+  daemon: {
+    spawn: ({ bin, args, env, logFile }) => {
+      const child = utilityProcess.fork(bin, args, {
+        env: { ...env, OPEN_ARTIFACT_NODE_CHILDREN: 'threads' },
+        stdio: 'pipe',
+        serviceName: 'Open Artifact',
+      });
+      const log = createWriteStream(logFile, { flags: 'a' });
+      child.stdout?.pipe(log);
+      child.stderr?.pipe(log);
+      return child; // 可选：这一份结束时，kit 立刻去试下一份运行时
+    },
+  },
+});
+```
+
+kit 交给 `spawn` 的是入口文件（`bin`）、`['daemon', 'run']`、带 `OPEN_ARTIFACT_HOME` 且不带 `ELECTRON_RUN_AS_NODE` 的环境变量，以及日志文件（`<home>/logs/daemon.out`，所在目录已建好）。选择运行时、等待 daemon、检查版本、一份启动不了就试下一份，这些仍由 kit 做；启动时抛出的错误会写进 `daemon_failed` 的消息。返回进程（任何有 `once('exit')` 的对象）可以让 kit 在它结束时立刻往下走；不返回时 kit 一直等到超时。不传 `spawn` 时行为不变。
+
+在 utility process 里，`process.argv` 是 `[<Electron Helper>, <bin>, ...args]`，和 Node 的形状相同，所以 daemon 不需要包装脚本就能读到参数（在 Electron 42、44 和 45 上验证过）。
+
+**类型服务器。** daemon 以子进程方式、用它自己的可执行文件启动内置类型的服务器。daemon 运行在 Electron 进程里时，这个可执行文件是 Electron helper 或你的应用，不能当作 Node 启动，所以 daemon 改为在自己进程的 worker thread 里运行它们。它根据自己是怎样运行的来决定，不启动任何东西：
+
+- daemon 环境里的 `OPEN_ARTIFACT_NODE_CHILDREN=process|threads` 优先（上面的示例在传给 `fork` 的 `env` 里设为 `threads`，明确说出来）；
+- 在普通 Node 下用子进程；
+- 在以 Node 方式运行的 Electron 下（`ELECTRON_RUN_AS_NODE` 生效，没有 `process.type`）用子进程；
+- 在 Electron 进程里（设置了 `process.type`，比如 utility process）用 thread。fuse 打开、在 utility process 里启动 daemon、又想要子进程的应用，设置 `OPEN_ARTIFACT_NODE_CHILDREN=process`。
+
+环境里有没有 `ELECTRON_RUN_AS_NODE` 不起决定作用：关了 fuse 的应用可能设了它，但它不生效。
+
+`open-artifact doctor` 会显示这个选择（“Type server processes”），`GET /__open-artifact/health` 以 `nodeChildren` 返回它，daemon 日志里也会写一次。服务器命令不是 `node` 的第三方类型仍以子进程运行。
+
+thread 模式的限制：
+
+- 类型服务器和 daemon 共用内存：没有内存隔离，一个服务器内存耗尽会连带 daemon。每个 thread 各自加载 WebAssembly，所以 daemon 比单个进程占用更多内存。
+- daemon 随你的应用结束，因为 utility process 不会比应用活得更久。下一个连接的应用会再启动它。
+- 需要用更新的运行时替换正在运行的 daemon 时，daemon 会停下，把启动交给你应用里的 kit，由它在下次连接时启动；daemon 不会去启动你应用的另一个副本。
+- 停止时会请服务器结束（运行它的 `SIGTERM` 处理函数）；到时没有结束的会被强制终止，它的 `exit` 处理函数不会运行。
+- thread 里的服务器自己启动的进程（比如连接器的 stdio MCP 服务器）由该服务器的 `exit` 处理函数停止。服务器被强制终止或 daemon 进程意外死掉时，这个处理函数不会运行：这些进程收不到信号，要等它们的 stdin 关闭才结束，stdio MCP 服务器就是这样做的。
+- 服务器里的 `process.cwd()` 返回它的类型目录，但操作系统的工作目录仍是 daemon 的，所以直接交给原生代码的相对路径会相对 daemon 的目录解析。
 
 ## 更新
 

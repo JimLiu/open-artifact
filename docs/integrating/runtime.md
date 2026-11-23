@@ -18,7 +18,7 @@ Ship the runtime folder with your app and name it when you connect:
 ```js
 const oa = await createHarness({
   harness: 'my-agent',
-  runtime: { dir: '/Applications/MyAgent.app/Contents/Resources/open-artifact', version: '0.14.0', update: 'prompt' },
+  runtime: { dir: '/Applications/MyAgent.app/Contents/Resources/open-artifact', version: '0.14.1', update: 'prompt' },
 });
 ```
 
@@ -43,7 +43,79 @@ to your own. A running daemon older than your own runtime is replaced.
 
 The kit starts it as `<your Node or Electron> <runtime>/scripts/open-artifact.mjs daemon run`, detached, with
 `ELECTRON_RUN_AS_NODE=1`, so an Electron app needs no separate Node. Its output goes to `<home>/logs/daemon.out`; a
-start that fails throws `daemon_failed` naming that file.
+start that fails throws `daemon_failed` naming that file. An Electron app with its `RunAsNode` fuse off starts it itself
+([below](#electron-apps-with-the-runasnode-fuse-off)).
+
+## Electron apps with the RunAsNode fuse off
+
+An Electron app whose `RunAsNode` fuse is off cannot run a script with `ELECTRON_RUN_AS_NODE=1`, so the kit's own start
+fails. Give the kit `daemon.spawn` and start the daemon with
+[`utilityProcess.fork`](https://www.electronjs.org/docs/latest/api/utility-process) instead:
+
+```js
+const { utilityProcess } = require('electron');
+const { createWriteStream } = require('node:fs');
+
+const oa = await createHarness({
+  harness: 'my-agent',
+  runtime: { dir: runtimeDir, version: '0.14.1' },
+  daemon: {
+    spawn: ({ bin, args, env, logFile }) => {
+      const child = utilityProcess.fork(bin, args, {
+        env: { ...env, OPEN_ARTIFACT_NODE_CHILDREN: 'threads' },
+        stdio: 'pipe',
+        serviceName: 'Open Artifact',
+      });
+      const log = createWriteStream(logFile, { flags: 'a' });
+      child.stdout?.pipe(log);
+      child.stderr?.pipe(log);
+      return child; // optional: lets the kit try the next runtime as soon as this one ends
+    },
+  },
+});
+```
+
+The kit hands `spawn` the entry (`bin`), `['daemon', 'run']`, the environment with `OPEN_ARTIFACT_HOME` and without
+`ELECTRON_RUN_AS_NODE`, and the log file (`<home>/logs/daemon.out`, whose folder exists). It still chooses the runtime,
+waits for the daemon, checks its version, and tries the next runtime when one does not start; a start that throws is
+named in the `daemon_failed` message. Return the process (anything with `once('exit')`) to move on as soon as it ends;
+otherwise the kit waits until its timeout. With no `spawn` nothing changes.
+
+Inside a utility process `process.argv` is `[<Electron Helper>, <bin>, ...args]`, the same shape as Node's, so the
+daemon reads its arguments without a wrapper (checked with Electron 42, 44 and 45).
+
+**Type servers.** The daemon starts the built-in types' servers as child processes of its own executable. When the
+daemon runs inside an Electron process, that executable is an Electron helper or your app and must not be started as
+Node, so the daemon runs them in worker threads of its own process instead. It decides from how it runs itself, without
+starting anything:
+
+- `OPEN_ARTIFACT_NODE_CHILDREN=process|threads` in the daemon's environment wins (the snippet above sets `threads` in
+  the `env` it passes to `fork`, to say so explicitly);
+- under plain Node it uses child processes;
+- under Electron running as Node (`ELECTRON_RUN_AS_NODE` honoured, no `process.type`) it uses child processes;
+- inside an Electron process (`process.type` is set, as in a utility process) it uses threads. An app whose fuse is on
+  that forks the daemon in a utility process and wants child processes sets `OPEN_ARTIFACT_NODE_CHILDREN=process`.
+
+`ELECTRON_RUN_AS_NODE` in the environment does not decide it: an app with the fuse off may have it set and ignore it.
+
+`open-artifact doctor` shows the choice ("Type server processes"), `GET /__open-artifact/health` returns it as `nodeChildren`, and
+the daemon log says it once. A third-party type whose server command is not `node` still runs as a child process.
+
+Limits of threads mode:
+
+- A type server shares the daemon's memory: no memory isolation, and a server that runs out of memory takes the daemon
+  with it. Each thread loads its own WebAssembly, so the daemon uses more memory than one process would.
+- The daemon ends with your app, since a utility process does not outlive it. The next app that connects starts it
+  again.
+- When a newer runtime should replace the running daemon, the daemon stops and leaves the start to your app's kit,
+  which does it on the next connection; it does not start a copy of your app.
+- A stop asks a server to end (its `SIGTERM` handler runs); one that does not end in time is terminated, and its
+  `exit` handlers do not run.
+- Processes a threaded server started itself, such as a connector's stdio MCP server, are stopped by that server's
+  `exit` handler. When the server is terminated or the daemon process dies abruptly, that handler does not run: those
+  processes are not signalled and end when their stdin closes, as a stdio MCP server does.
+- `process.cwd()` in a server returns its type folder, but the operating system's working directory is still the
+  daemon's, so relative file paths passed straight to native code resolve against the daemon's folder.
 
 ## Updates
 

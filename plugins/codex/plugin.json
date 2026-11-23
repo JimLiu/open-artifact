@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "open-artifact",
-  "version": "0.14.0",
+  "version": "0.14.1",
   "description": "Make slide decks, design canvases, whiteboards, spreadsheets, data dashboards, docs, animated films and design systems as folders of files that open in one local page where the person views, edits, comments and exports; comments sent from the page come back to the agent. Runs locally on Node.js 22 or later.",
   "author": {
     "name": "Jim Liu 宝玉",

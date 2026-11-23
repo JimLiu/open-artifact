@@ -106,9 +106,10 @@ export interface ArtifactView {
   page_url: string;
   /**
    * The owner session and its live state. `wakeMode: 'draft'`: its harness puts what is sent into the conversation for
-   * the person to send there, instead of giving it to the agent.
+   * the person to send there, instead of giving it to the agent. `harnessTitle`: the harness's display name from its
+   * profile (shipped, the person's, or reported in `hello`), left out when the profile has none.
    */
-  owner: (SessionRef & { live: boolean; status: OwnerStatus; wakeMode?: 'draft' }) | null;
+  owner: (SessionRef & { live: boolean; status: OwnerStatus; wakeMode?: 'draft'; harnessTitle?: string }) | null;
   pinned: boolean;
   createdAt: string;
   updatedAt: string;
@@ -400,4 +401,10 @@ export interface DaemonState {
 export interface DaemonHealth {
   openArtifact: 1;
   version: string;
+  /**
+   * How the daemon runs its Node.js type servers: child processes, or worker threads in its own process (a daemon that
+   * runs inside an Electron process, such as a utility process). `reason`: `env` (`OPEN_ARTIFACT_NODE_CHILDREN`), `node`
+   * (plain Node.js) or `electron` (how Electron runs the daemon). Since 0.14.1: an older daemon leaves it out.
+   */
+  nodeChildren?: { mode: 'process' | 'threads'; reason: 'env' | 'node' | 'electron'; detail: string };
 }

@@ -9,7 +9,7 @@
 import { accessSync, constants, existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { api } from '@open-artifact/harness-kit';
-import { HARNESS_NAME, type HarnessesResponse, type ToolDefinition } from '@open-artifact/protocol';
+import { HARNESS_NAME, type DaemonHealth, type HarnessesResponse, type ToolDefinition } from '@open-artifact/protocol';
 import type { DoctorCheck } from './doctor.ts';
 import { CONFORMANCE_CHECKS } from './doctor-conformance.ts';
 import { REMOTE_CHECKS } from './doctor-remote.ts';
@@ -68,6 +68,32 @@ const daemon: DoctorCheck = {
       }
     }
     return found;
+  },
+};
+
+/** How the running daemon runs its Node.js type servers (`node-children.ts`), as its health answer says. */
+const nodeChildren: DoctorCheck = {
+  id: 'node-children',
+  title: 'Type server processes',
+  run: async ({ daemon }) => {
+    const state = await daemon();
+    if (!state) return { status: 'n/a', message: 'The daemon is not running' };
+    let health: DaemonHealth | null = null;
+    try {
+      health = (await (await fetch(`${state.url}/__open-artifact/health`, { signal: AbortSignal.timeout(3000) })).json()) as DaemonHealth;
+    } catch {
+      return { status: 'warn', message: 'The daemon did not answer its health check', fix: 'Run open-artifact doctor again; if it persists, restart the daemon (open-artifact daemon stop).' };
+    }
+    const choice = health?.nodeChildren;
+    if (!choice) return { status: 'n/a', message: `Daemon ${health?.version ?? '?'} does not say how it runs type servers (older than 0.14.1)` };
+    const why = choice.reason === 'env' ? 'set by OPEN_ARTIFACT_NODE_CHILDREN' : choice.reason === 'node' ? 'plain Node.js' : choice.detail;
+    return {
+      status: 'ok',
+      message:
+        choice.mode === 'threads'
+          ? `Type servers run in worker threads of the daemon (${why}); no memory isolation from the daemon`
+          : `Type servers run as child processes (${why})`,
+    };
   },
 };
 
@@ -168,4 +194,4 @@ const settings: DoctorCheck = {
 };
 
 /** Every check, in the order they run. Append another module's checks here. */
-export const DOCTOR_CHECKS: readonly DoctorCheck[] = [node, home, settings, daemon, runtime, types, harnessProfileCheck, harnessAdapter, tools, ...REMOTE_CHECKS, ...CONFORMANCE_CHECKS];
+export const DOCTOR_CHECKS: readonly DoctorCheck[] = [node, home, settings, daemon, nodeChildren, runtime, types, harnessProfileCheck, harnessAdapter, tools, ...REMOTE_CHECKS, ...CONFORMANCE_CHECKS];

@@ -236,6 +236,8 @@ const embed = embedArtifact(this.transport(request.view), {
 - `cards`：在创建或修改了作品的那条消息下面放一张卡片。
 - `own`：你自己的列表，根据作品事件维护。
 
+这个值只是声明：daemon 记下它并显示出来（日志、`GET /api/open-artifact.harnesses`、`doctor --session`），daemon 和 Shell 的行为都不依赖它。你的应用没有列出作品的地方时就不写 `library`；没有表示这种情况的值，写不写作品事件和首页都一样工作。
+
 来自 [`examples/harness-node/artifacts.mjs`](../examples/harness-node/artifacts.mjs)，每个作品和会话一张卡片，以 `open-artifact://` 链接为键：
 
 ```js
@@ -253,6 +255,16 @@ export function cardOf(report) {
 人通过输入命令来要一个作品。默认是 `/open-artifact <type> <要做什么>`；你的应用可以用自己的命令名，写在 `commands`（`createHarness({ commands: ['artifact'] })`）或 profile 里。
 
 - `installSkill({ dir, agentName, tools, opens })` 写出按你的 harness 渲染的 skill，和 `skill install` 一样，并在运行时更新改变它之后重写。见 [`examples/harness-node/skill.mjs`](../examples/harness-node/skill.mjs)。
+- `opens` 说明页面怎样到达人面前，因此决定 skill 里“展示给人”那一步怎么写。`installSkill`、`renderSkill`、`localSkill` 和 `keepSkillInstalled` 都接受它：
+
+  | `opens` | skill 告诉 Agent | 适用于 |
+  | --- | --- | --- |
+  | `host` | 第一次写入后你的应用自己显示页面；用 `open: "never"` 创建时，调用 `Artifact open`，由应用显示 | 你传了 `open` 回调（`caps.open`） |
+  | `agent-browser` | 在它自己的浏览器面板或标签页里打开 `view_url` | 你的 Agent 有浏览器工具，而你自己不显示页面 |
+  | `system` | 第一次写入后页面在电脑的浏览器里打开；否则用 `Artifact open` 在那里打开 | 人看的是电脑的浏览器 |
+  | `link` | 什么都不会自己打开；把 `view_url` 作为链接给人 | 以上都不是 |
+
+  不传时，daemon 的渲染（`skill.get`）在你的 caps 有 `open`（来自 `hello` 或 profile）时用 `host`，否则用一段通用说明：Agent 有内置浏览器就用它，否则用 `Artifact open` 在电脑的浏览器里打开。`Harness.installSkill` 对 kit 自己的渲染（daemon 没连上或没有 `skill.get` 时使用）也这样做：你给 `createHarness` 传了 `open` 回调时，它传 `opens: 'host'`。你自己传的 `opens` 总是优先。独立的辅助函数（`installSkill(client, …)`、`renderSkill`、`localSkill`）不知道你的回调，要自己传 `opens`。
 - `commands()`（`commands.list`）为命令菜单给出每个已安装类型的一项：要插入的文本（`/artifact slides `）、标题、说明和起始提示。
 - skill 和 `quickstart` 读同一组选项：你的命令、Agent 名字、Agent 怎么调用工具、页面怎么打开、你的规则、要人确认的操作类别。
 
@@ -269,6 +281,8 @@ daemon 通过 profile 认识每个 harness：标题、Agent 名字、层级、�
 | `shipped` | 运行时里的 `packages/daemon/harnesses/<name>.json` | Open Artifact 的发布版本 | 默认值 |
 
 适配器几乎可以报告关于自己的一切，但永远不能设置 `nudge`、`mcp`、`skillsDir`、`sessionWorkspace`、`source` 或 `name`：`nudge` 和 `sessionWorkspace` 会让 daemon 运行程序或读取文件，所以只有随 Open Artifact 发布的文件或人自己添加的文件才能写它们。报告的 profile 永远不会覆盖人自己的文件。[Profile 参考](spec/profile.zh-CN.md) 列出每个字段。
+
+把应用给人看的名字写在 profile 的 `title` 里；用 kit 时，`createHarness({ profile: { title: 'My App' } })` 会在 `hello` 里报告它。Shell 在所有给人看 harness 名字的地方都用它：提问面板（“消息会发给做这个作品的 My App 会话”）、打开会话的按钮和菜单项，以及首页上的所有者标记。没有标题时，Shell 原样显示你的 harness 名字。
 
 ## 上线前检查
 

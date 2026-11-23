@@ -17,6 +17,7 @@ import type { AddressInfo } from 'node:net';
 import { hostname } from 'node:os';
 import { basename, isAbsolute, join, resolve } from 'node:path';
 import type { Duplex } from 'node:stream';
+import { threadId } from 'node:worker_threads';
 import {
   OPEN_ARTIFACT_PROTOCOL,
   OpenArtifactError,
@@ -204,6 +205,11 @@ export const LONG_ACTION_NOTE = 'This action runs in the background: its result 
 /** The record {@link STATE_FILE} holds. */
 export interface ServerStateRecord {
   pid: number;
+  /**
+   * The worker thread the server runs in, when the daemon runs it in one (an Electron host without `RunAsNode`): the
+   * servers in one process share its pid.
+   */
+  thread?: number;
   /** The site's page URL. */
   url: string;
   port: number;
@@ -718,6 +724,7 @@ export class TypeServer {
     try {
       const record: ServerStateRecord = {
         pid: process.pid,
+        ...(threadId ? { thread: threadId } : {}),
         url: `${this.origin}${site.page}`,
         port: this.port,
         root,
@@ -743,7 +750,7 @@ export class TypeServer {
     try {
       const file = join(entry.root, STATE_FILE);
       const state = JSON.parse(readFileSync(file, 'utf8')) as Partial<ServerStateRecord>;
-      if (state.pid === process.pid) rmSync(file, { force: true });
+      if (state.pid === process.pid && (state.thread ?? 0) === threadId) rmSync(file, { force: true });
     } catch {
       // Nothing written, or someone else's.
     }
@@ -1022,6 +1029,6 @@ export async function serve(options: TypeServerOptions): Promise<TypeServer> {
   process.once('SIGTERM', stop);
   process.once('SIGINT', stop);
   server.ready();
-  server.log(`${server.type} type server at ${server.origin}/ (pid ${process.pid}, ${hostname()})`);
+  server.log(`${server.type} type server at ${server.origin}/ (pid ${process.pid}${threadId ? `, thread ${threadId}` : ''}, ${hostname()})`);
   return server;
 }

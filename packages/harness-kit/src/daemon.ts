@@ -101,6 +101,40 @@ export interface EnsureDaemonOptions {
    * harness its own daemon and library.
    */
   home?: string;
+  /**
+   * Starts the daemon process instead of the kit, for a host that cannot run a script with its own executable (an
+   * Electron app whose `RunAsNode` fuse is off: `utilityProcess.fork(start.bin, start.args, { env: start.env })`).
+   * Called once per runtime tried; the kit still waits for the daemon to answer, checks its version, and tries the next
+   * runtime when this one throws or ends without a daemon. See {@link DaemonSpawn}.
+   */
+  spawn?: DaemonSpawn;
+}
+
+/** What {@link EnsureDaemonOptions.spawn} is given: one daemon to start. */
+export interface DaemonStart {
+  /** The `open-artifact` entry script to run (`scripts/open-artifact.mjs` of a runtime). */
+  bin: string;
+  /** What follows the entry on the command line: `['daemon', 'run']`. */
+  args: string[];
+  /**
+   * The environment to start it with: the kit's choice for this runtime (`OPEN_ARTIFACT_HOME` included when a home was
+   * given). `ELECTRON_RUN_AS_NODE` is not in it: a host that runs `bin` with Node by other means does not need it.
+   */
+  env: NodeJS.ProcessEnv;
+  /** `<home>/logs/daemon.out`, where the kit's own start appends the daemon's output (the host may do the same). */
+  logFile: string;
+}
+
+/**
+ * Starts one daemon (see {@link EnsureDaemonOptions.spawn}). It may return the started process (anything with
+ * `once('exit', …)`, such as Electron's `UtilityProcess` or a `ChildProcess`): then a runtime that ends without
+ * starting is given up at once and the next one tried; otherwise the kit waits for it until its timeout.
+ */
+export type DaemonSpawn = (start: DaemonStart) => void | DaemonExitSource | Promise<void | DaemonExitSource>;
+
+/** A started daemon process, as far as the kit watches it: its end. */
+export interface DaemonExitSource {
+  once(event: 'exit', listener: (...args: unknown[]) => void): unknown;
 }
 
 /** What {@link ensureDaemon} would start, in order of preference. */
@@ -199,12 +233,27 @@ export async function ensureDaemon(options: EnsureDaemonOptions = {}): Promise<D
   if (running) await replaceDaemon(running, 5_000);
   const logFile = join(openArtifactHome(home), 'logs', 'daemon.out');
   const deadline = Date.now() + timeoutMs;
+  // What the host's own start threw, per runtime: the error names them when no daemon came up.
+  const thrown: string[] = [];
   for (const attempt of plan.tries) {
-    const child = startDaemonProcess(attempt.bin, { env: attempt.env, ...(home ? { home } : {}) });
     let exited = false;
-    child.once('exit', () => {
+    const onExit = (): void => {
       exited = true;
-    });
+    };
+    if (options.spawn) {
+      const start: DaemonStart = { bin: attempt.bin, args: ['daemon', 'run'], env: { ...attempt.env, ...(home ? { OPEN_ARTIFACT_HOME: home } : {}) }, logFile };
+      delete start.env.ELECTRON_RUN_AS_NODE;
+      try {
+        mkdirSync(join(openArtifactHome(home), 'logs'), { recursive: true });
+        const started = await options.spawn(start);
+        if (started && typeof started.once === 'function') started.once('exit', onExit);
+      } catch (error) {
+        thrown.push(`${attempt.bin}: ${(error as Error)?.message ?? String(error)}`);
+        continue;
+      }
+    } else {
+      startDaemonProcess(attempt.bin, { env: attempt.env, ...(home ? { home } : {}) }).once('exit', onExit);
+    }
     while (Date.now() < deadline) {
       await new Promise((done) => setTimeout(done, 150));
       const state = await readDaemon(home);
@@ -216,7 +265,8 @@ export async function ensureDaemon(options: EnsureDaemonOptions = {}): Promise<D
   }
   const state = await readDaemon(home);
   if (state) return state;
-  throw new OpenArtifactError('daemon_failed', `The open-artifact daemon did not start; see ${logFile}`);
+  const why = thrown.length ? ` The host's start failed: ${thrown.join('; ')}.` : '';
+  throw new OpenArtifactError('daemon_failed', `The open-artifact daemon did not start; see ${logFile}.${why}`);
 }
 
 /** Options of {@link api}. */

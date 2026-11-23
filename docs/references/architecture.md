@@ -96,9 +96,11 @@ Agent apps integrate through the Harness API, JSON-RPC 2.0 over the WebSocket `/
 | `harness-embed.ts`, `harness-view.ts` | Declared host origins and view tickets for top-level views; `view.context` for the owner session. |
 | `ownership.ts`, `release-guard.ts` | Which session owns an artifact (and when that moves); artifacts written by a newer type release are read-only. |
 | `runtime.ts`, `cli-runtime.ts`, `sea.ts` | Runtimes on this computer, update policy and checked updates, `open-artifact runtime …`; the single executable's entry (`scripts/build-sea.mjs`). |
-| `doctor.ts`, `doctor-checks.ts`, `doctor-remote.ts`, `doctor-conformance.ts` | `open-artifact doctor`: setup checks, remote-type probes, and with `--session` the conformance run of a running app. |
+| `doctor.ts`, `doctor-checks.ts`, `doctor-remote.ts`, `doctor-conformance.ts` | `open-artifact doctor`: setup checks (including `node-children`, how type servers run), remote-type probes, and with `--session` the conformance run of a running app. |
+| `servers.ts`, `node-children.ts` | Type servers: start, ready, restart on a type change, idle stop. A server whose command is `node` runs as a child process (the daemon's executable with `ELECTRON_RUN_AS_NODE=1`) or, when the daemon runs inside an Electron process (`process.type` set, as in a utility process, which an app with the `RunAsNode` fuse off uses), in a worker thread of the daemon; decided from how the daemon runs, nothing is started to find out. `OPEN_ARTIFACT_NODE_CHILDREN=process\|threads` forces one; the choice is in `/__open-artifact/health` as `nodeChildren`. |
 
 The kit (`packages/harness-kit/src/`) mirrors this from the app side: `harness.ts` (`createHarness`), `client.ts`
-(the JSON-RPC client), `runtimes.ts` (which runtime to start), `skill.ts`, `context.ts`, `embed/` and `testing.ts`.
+(the JSON-RPC client), `runtimes.ts` (which runtime to start), `daemon.ts` (`ensureDaemon`; a host's `daemon.spawn` starts
+the process itself, as an Electron app does with `utilityProcess.fork`), `skill.ts`, `context.ts`, `embed/` and `testing.ts`.
 Shell-side, `packages/shell/src/shell/bridge.ts`, `view-channel.ts` and `lib/host-origins.ts` speak the host messages
 of `packages/protocol/src/shell.ts`.

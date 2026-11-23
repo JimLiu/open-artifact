@@ -9,7 +9,7 @@
  * puts a Shell page or the home page into the app's own UI: `embedArtifact`, `embedLibrary`).
  */
 
-export { api, daemonStartPlan, defaultDaemonBin, ensureDaemon, isOlderVersion, openArtifactHome, readDaemon, startDaemonProcess, type ApiOptions, type DaemonStartPlan, type EnsureDaemonOptions } from './daemon.ts';
+export { api, daemonStartPlan, defaultDaemonBin, ensureDaemon, isOlderVersion, openArtifactHome, readDaemon, startDaemonProcess, type ApiOptions, type DaemonExitSource, type DaemonSpawn, type DaemonStart, type DaemonStartPlan, type EnsureDaemonOptions } from './daemon.ts';
 export {
   LEGACY_PROTOCOLS,
   RUNTIME_ENTRY,

@@ -60,7 +60,8 @@ test('daemon.json and health', async () => {
   assert.equal(written.port, daemon.port);
   assert.ok(files.daemon().startsWith(TEST_HOME));
   const health = await (await fetch(`${state.url}/__open-artifact/health`)).json();
-  assert.deepEqual(health, { openArtifact: 1, version: written.version });
+  // nodeChildren: how type servers run; plain Node runs child processes.
+  assert.deepEqual(health, { openArtifact: 1, version: written.version, nodeChildren: { mode: 'process', reason: 'node', detail: 'plain Node.js runs child processes' } });
 });
 
 test('MCP: tools/list needs the token and lists the tools', async () => {

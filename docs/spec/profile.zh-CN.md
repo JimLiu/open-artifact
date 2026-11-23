@@ -24,7 +24,7 @@ harness profile 是 daemon 在适配器开口之前（以及之外）对一个 A
 | 字段 | 类型 | 适配器可设置 | 含义 |
 | --- | --- | --- | --- |
 | `name` | string | 否（就是 `hello.harness`） | harness 名 |
-| `title` | string | 是 | 给人看的名字 |
+| `title` | string | 是 | 给人看的名字：Shell 的提问面板、打开会话的按钮和菜单、首页的所有者标记都用它（没有时原样显示 harness 名字） |
 | `agentName` | string | 是 | harness 怎么称呼它的 Agent |
 | `level` | `L1` \| `L2` \| `L3` | 是 | 简称：只有 MCP、MCP 加 hook、完整适配器 |
 | `entry` | `harness-api` \| `mcp` \| `mod` | 是 | harness 怎么连到 daemon |

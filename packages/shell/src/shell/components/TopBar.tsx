@@ -86,7 +86,7 @@ function AskButton() {
   const canOpen = useCanOpenSession();
   const owner = useOwner();
   const status = useOwnerState();
-  const title = canOpen && owner ? t('openHarnessSession', { harness: owner.harness }) : open ? t('hideAsk') : t('messageAgent', { agent });
+  const title = canOpen && owner ? t('openHarnessSession', { harness: owner.harnessTitle ?? owner.harness }) : open ? t('hideAsk') : t('messageAgent', { agent });
   return (
     <Button
       size="lg"
