@@ -12,7 +12,8 @@
  * - `untrusted.ts`: fencing untrusted text before it reaches a model.
  */
 export * from './capabilities.ts';
-export * from './client.ts';
+export type { DbDocMeta } from '@open-artifact/protocol';
+export { createRuntime, installRuntime, useCapability, type CapabilityProvider, type RuntimeOptions } from './client.ts';
 export * from './local-provider.ts';
 export * from './broker.ts';
 export * from './http-api.ts';

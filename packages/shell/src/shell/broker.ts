@@ -21,7 +21,7 @@
  *   from the old generation (`STALE_MESSAGE`).
  */
 
-import { CAP_NAME, CAP_PROTOCOL, STALE_MESSAGE, type CapError, type CapToPage, type CapToShell } from '@open-artifact/protocol';
+import { CAP_NAME, CAP_PROTOCOL, STALE_MESSAGE, getDbChangeDeleteMeta, getDbDocMeta, setDbWriteBaseMeta, type CapError, type CapToPage, type CapToShell, type DbDocMeta } from '@open-artifact/protocol';
 import {
   BROKERED_EVENTS,
   BROKERED_METHODS,
@@ -139,7 +139,16 @@ function follow(target: Backend, cap: CapabilityName, ns: Record<string, unknown
     const subscribe = ns[method];
     if (typeof subscribe !== 'function') continue;
     const stop = (subscribe as (listener: (data: unknown) => void) => () => void).call(ns, (data) => {
-      if (backend === target) post({ openArtifact: 'cap_ev', cap, event, data });
+      if (backend !== target) return;
+      const message: Extract<CapToPage, { openArtifact: 'cap_ev' }> = { openArtifact: 'cap_ev', cap, event, data };
+      if (cap === 'db' && event === 'change') {
+        const changes = (data as { changes?: Record<string, unknown> } | null)?.changes;
+        for (const [path, doc] of Object.entries(changes ?? {})) {
+          const meta = doc === null ? getDbChangeDeleteMeta(changes, path) : getDbDocMeta(doc);
+          if (meta) (message.dbMeta ??= {})[path] = meta;
+        }
+      }
+      post(message);
     });
     target.stops.push(stop);
   }
@@ -203,6 +212,10 @@ export async function call(message: Extract<CapToShell, { openArtifact: 'cap' }>
   const fn = ns?.[method];
   if (typeof fn !== 'function') return fail({ code: 'not_granted', message: `${cap} is not available here.` });
   let args = Array.isArray(message.args) ? [...message.args] : [];
+  if (cap === 'db' && method === 'write' && Array.isArray(args[0]) && Array.isArray(message.dbGuards)) {
+    const writes = args[0];
+    message.dbGuards.forEach((meta, i) => { if (meta) setDbWriteBaseMeta(writes[i], meta); });
+  }
   if (cap === 'agent' && method === 'send' && withoutActivation(event)) {
     // No click behind it: put the request in the composer, never start a turn.
     const opts = (args[1] && typeof args[1] === 'object' ? args[1] : {}) as { deliver?: AgentDelivery };
@@ -213,7 +226,17 @@ export async function call(message: Extract<CapToShell, { openArtifact: 'cap' }>
     const result: unknown = await (fn as (...a: unknown[]) => unknown).apply(ns, args);
     if (backend !== target || message.gen !== gen) return fail({ code: 'unavailable', message: STALE_MESSAGE });
     const transfer = result instanceof Uint8Array && result.byteOffset === 0 && result.byteLength === result.buffer.byteLength && result.buffer instanceof ArrayBuffer ? [result.buffer] : undefined;
-    post({ openArtifact: 'cap_r', id, result }, transfer);
+    let dbMeta: DbDocMeta | Array<DbDocMeta | undefined> | undefined;
+    let dbListMeta: DbDocMeta | undefined;
+    if (cap === 'db') {
+      if (method === 'write' && Array.isArray(args[0])) dbMeta = args[0].map(getDbDocMeta);
+      else if (method === 'list' && Array.isArray(result)) {
+        dbListMeta = getDbDocMeta(result);
+        dbMeta = result.map(doc => getDbDocMeta(doc?.data));
+      } else dbMeta = getDbDocMeta(result);
+      if (Array.isArray(dbMeta) && !dbMeta.some(Boolean)) dbMeta = undefined;
+    }
+    post({ openArtifact: 'cap_r', id, result, ...(dbMeta ? { dbMeta } : {}), ...(dbListMeta ? { dbListMeta } : {}) }, transfer);
     if (cap === 'downloads' && method === 'save' && result && typeof (result as { savedTo?: unknown }).savedTo === 'string') {
       try {
         onSavedFile?.((result as { savedTo: string }).savedTo);

@@ -24,9 +24,13 @@ import {
   CAP_NAME,
   CAP_PROTOCOL,
   REWIRED_MESSAGE,
+  getDbWriteBaseMeta,
+  setDbChangeDeletes,
+  setDbDocMeta,
   type CapError,
   type CapToPage,
   type CapToShell,
+  type DbDocMeta,
 } from '@open-artifact/protocol';
 import {
   ArtifactError,
@@ -113,6 +117,7 @@ export interface ShellProviderOptions {
 
 interface Pending {
   cap: string;
+  writes?: unknown[];
   gen: number;
   resolve(value: unknown): void;
   reject(error: unknown): void;
@@ -193,7 +198,18 @@ export function createShellProvider(options: ShellProviderOptions = {}): Capabil
         pending.delete(data.id);
         if (entry.timer) clearTimeout(entry.timer);
         if (data.error) entry.reject(toArtifactError(data.error));
-        else entry.resolve(data.result);
+        else {
+          const { result, dbMeta } = data;
+          if (entry.cap === 'db' && data.dbListMeta && Array.isArray(result)) setDbDocMeta(result, data.dbListMeta);
+          if (entry.cap === 'db' && dbMeta) {
+            if (Array.isArray(dbMeta)) {
+              dbMeta.forEach((meta, i) => {
+                if (meta) setDbDocMeta(entry.writes ? entry.writes[i] : Array.isArray(result) ? result[i]?.data : undefined, meta);
+              });
+            } else setDbDocMeta(result, dbMeta);
+          }
+          entry.resolve(result);
+        }
         break;
       }
       case 'cap_ack': {
@@ -203,6 +219,15 @@ export function createShellProvider(options: ShellProviderOptions = {}): Capabil
         break;
       }
       case 'cap_ev':
+        if (data.cap === 'db' && data.event === 'change' && data.dbMeta) {
+          const changes = (data.data as { changes?: Record<string, unknown> } | null)?.changes;
+          let deleted: Record<string, DbDocMeta> | undefined;
+          for (const [path, meta] of Object.entries(data.dbMeta)) {
+            if (changes?.[path] === null) (deleted ??= {})[path] = meta;
+            else setDbDocMeta(changes?.[path], meta);
+          }
+          if (deleted) setDbChangeDeletes(changes, deleted);
+        }
         for (const listener of listeners.get(`${data.cap}:${data.event}`) ?? []) {
           try {
             listener(data.data);
@@ -250,6 +275,7 @@ export function createShellProvider(options: ShellProviderOptions = {}): Capabil
     new Promise((resolve, reject) => {
       const id = nextId();
       const entry: Pending = { cap, gen, resolve, reject, timer: null };
+      if (cap === 'db' && method === 'write' && Array.isArray(args[0])) entry.writes = args[0];
       pending.set(id, entry);
       armTimer(id, entry, timeoutMs ?? CALL_TIMEOUT[cap] ?? DEFAULT_CALL_TIMEOUT);
       if (signal) {
@@ -263,7 +289,8 @@ export function createShellProvider(options: ShellProviderOptions = {}): Capabil
         if (signal.aborted) return abort();
         signal.addEventListener('abort', abort, { once: true });
       }
-      post({ openArtifact: 'cap', id, cap, method, args, gen }, gesture);
+      const dbGuards = entry.writes?.map(getDbWriteBaseMeta);
+      post({ openArtifact: 'cap', id, cap, method, args, gen, ...(dbGuards?.some(Boolean) ? { dbGuards } : {}) }, gesture);
     });
 
   const listen = (cap: CapabilityName, event: string, listener: (data: never) => void): (() => void) => {
@@ -407,11 +434,11 @@ export function createShellProvider(options: ShellProviderOptions = {}): Capabil
   };
 
   return {
-    async get(name) {
+    async get(name, signal) {
       if (!CAP_NAME.test(name) || !(name in BROKERED_METHODS)) return null;
-      if (brokered === false) return fallback.get(name);
+      if (brokered === false) return fallback.get(name, signal);
       const grant = await want(name);
-      if (!grant) return brokered ? null : fallback.get(name);
+      if (!grant) return brokered ? null : fallback.get(name, signal);
       if (!grant.ok) return null;
       return build(name, grant.config ?? {}) as CapabilityMap[typeof name] | null;
     },

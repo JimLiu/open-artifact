@@ -3,12 +3,12 @@
  * read and change the board's content and title.
  */
 
-import { BOARD_RECORD_CODEC, type OrderCarry } from '../codec.ts';
+import { BOARD_INKS_PATH, BOARD_RECORD_CODEC, inksToRecord, type DocumentValue, type OrderCarry } from '../codec.ts';
 import { persistedElementByDerived } from '../derived.ts';
 import type { ElementMeasures } from '../geometry.ts';
-import { canonicalValuesEqual } from '../json.ts';
-import { parseBoardContent } from '../normalize.ts';
-import type { Board, BoardContent, BoardElement } from '../schema.ts';
+import { canonicalValuesEqual, isPlainRecord } from '../json.ts';
+import { normalizeBoardInks, parseBoardContent } from '../normalize.ts';
+import { MAX_BOARD_INKS, type Board, type BoardContent, type BoardElement, type BoardInk, type HexColor } from '../schema.ts';
 import { followStickerHosts, rebindStickersToHosts, unmarkFollowedStickers } from '../sticker-hosts.ts';
 import { createLiveStore, type LiveCache, type LiveCodec, type LiveStore } from './engine.ts';
 import { SYSTEM_TIMERS, type SyncTimers, type SyncTransport } from './transport.ts';
@@ -60,12 +60,29 @@ export function shareUnchangedBoard(previous: Board, next: Board): Board {
   return content === previous.content && next.title === previous.title ? previous : { title: next.title, content };
 }
 
+function normalizedInks(doc: DocumentValue): BoardInk[] {
+  const { content } = BOARD_RECORD_CODEC.compose(new Map([[BOARD_INKS_PATH, doc]]));
+  return normalizeBoardInks(content.inks ?? []);
+}
+
+const compareInks = (a: BoardInk, b: BoardInk) => a.at - b.at || (a.color < b.color ? -1 : a.color > b.color ? 1 : 0);
+
+/** The first later editor time reachable with a whole-millisecond increment. */
+export function nextTimestampAfter(latestAt: number, now = Date.now()): number {
+  if (!Number.isFinite(latestAt) || now > latestAt) return now;
+  let step = 1;
+  while (Number.isFinite(latestAt + step) && latestAt + step <= latestAt) step *= 2;
+  const next = latestAt + step;
+  return Number.isFinite(next) ? next : Number.MAX_VALUE;
+}
+
 /**
  * The board codec as the engine needs it. `parseContent` normalizes the
  * composed content (the editor may add steps, such as moving stickers with
  * their hosts).
  */
 export function createBoardLiveCodec(parseContent: (raw: unknown) => BoardContent = parseBoardContent): LiveCodec<Board, OrderCarry> {
+  const explicitInkRemovals = new Map<HexColor, number>();
   return {
     collections: BOARD_RECORD_CODEC.collections,
     metaPath: BOARD_RECORD_CODEC.metaPath,
@@ -75,6 +92,109 @@ export function createBoardLiveCodec(parseContent: (raw: unknown) => BoardConten
       return { value: { title: composed.title, content: parseContent(composed.content) }, carry: composed.carry };
     },
     replaceOnly: BOARD_RECORD_CODEC.replaceOnly,
+    mergeOnCreate: path => path === BOARD_INKS_PATH,
+    noteServer(path, server, hasLocalEdits) {
+      if (path !== BOARD_INKS_PATH || explicitInkRemovals.size === 0) return;
+      if (!hasLocalEdits || !server) {
+        explicitInkRemovals.clear();
+        return;
+      }
+      const present = new Map(normalizedInks(server).map(ink => [ink.color, ink.at]));
+      for (const [color, at] of explicitInkRemovals) {
+        if (present.get(color) !== at) explicitInkRemovals.delete(color);
+      }
+    },
+    noteCommit(path, previous, next) {
+      if (path !== BOARD_INKS_PATH) return;
+      if (!next) { explicitInkRemovals.clear(); return; }
+      const prevInks = previous ? normalizedInks(previous) : [], nextInks = normalizedInks(next);
+      const prevColors = new Set(prevInks.map(ink => ink.color));
+      const nextColors = new Set(nextInks.map(ink => ink.color));
+      for (const color of nextColors) explicitInkRemovals.delete(color);
+      const added = nextInks.filter(ink => !prevColors.has(ink.color)).length;
+      const evicted = nextInks.length < MAX_BOARD_INKS ? 0 : Math.max(0, prevInks.length + added - MAX_BOARD_INKS);
+      for (const ink of prevInks.slice(evicted)) {
+        if (!nextColors.has(ink.color)) explicitInkRemovals.set(ink.color, ink.at);
+      }
+    },
+    normalizeDocument(path, doc) {
+      if (path !== BOARD_INKS_PATH) return doc;
+      return { ...inksToRecord(normalizedInks(doc)) };
+    },
+    rebaseDocument(path, previousBase, nextBase, patch) {
+      if (path !== BOARD_INKS_PATH) return undefined;
+      const currInks = normalizedInks(nextBase);
+      if (!isPlainRecord(patch.colors)) return { ...inksToRecord(currInks) };
+      const prevInks = previousBase ? normalizedInks(previousBase) : [];
+      const prevMap = new Map(prevInks.map(ink => [ink.color, ink.at]));
+      const currMap = new Map(currInks.map(ink => [ink.color, ink.at]));
+      const additions = normalizedInks({ colors: patch.colors }).filter(ink => prevMap.get(ink.color) !== ink.at);
+      const addedUnique = additions.filter(ink => !prevMap.has(ink.color)).length;
+      const autoEvictedCount = Math.max(0, prevInks.length + addedUnique - MAX_BOARD_INKS);
+      const autoEvicted = new Set(prevInks.slice(0, autoEvictedCount).map(ink => ink.color));
+      const explicitRemovals = new Set<HexColor>();
+      for (const [hex, value] of Object.entries(patch.colors)) {
+        const color: HexColor = `#${hex}`;
+        const at = prevMap.get(color);
+        if (value === null && at !== undefined && currMap.get(color) === at &&
+            (!autoEvicted.has(color) || explicitInkRemovals.get(color) === at)) {
+          explicitRemovals.add(color);
+        }
+      }
+
+      const ownMap = new Map(additions.map(ink => [ink.color, ink.at]));
+      const merged = currInks.filter(ink => !explicitRemovals.has(ink.color)).map(ink => {
+        const ownAt = ownMap.get(ink.color);
+        return ownAt === undefined ? ink : { ...ink, at: Math.max(ink.at, ownAt) };
+      });
+      merged.push(...additions.filter(ink => !currMap.has(ink.color)));
+      const excess = merged.length - MAX_BOARD_INKS;
+      if (excess <= 0) return { ...inksToRecord(normalizeBoardInks(merged)) };
+
+      // Evict unchanged inks from the original palette before either editor's additions.
+      const oldSurvivors: BoardInk[] = [], peerPostBase: BoardInk[] = [], ownInks: BoardInk[] = [];
+      for (const ink of merged.sort(compareInks)) {
+        if (ownMap.has(ink.color)) ownInks.push(ink);
+        else if (prevMap.get(ink.color) === ink.at) oldSurvivors.push(ink);
+        else peerPostBase.push(ink);
+      }
+      const peerEvict = peerPostBase.length + ownInks.length - MAX_BOARD_INKS;
+      if (peerEvict > 0 && peerEvict <= peerPostBase.length && ownInks.length > 0 && compareInks(ownInks[0]!, peerPostBase[peerEvict - 1]!) <= 0) {
+        // After full turnover, keep a slow clock from making this retry evict its own additions.
+        let cursor = peerPostBase[peerPostBase.length - 1]!.at;
+        for (const [i, ink] of ownInks.entries()) {
+          cursor = nextTimestampAfter(cursor, ink.at);
+          ownInks[i] = { ...ink, at: cursor };
+        }
+      }
+      return { ...inksToRecord(normalizeBoardInks([...oldSurvivors.slice(excess), ...peerPostBase, ...ownInks])) };
+    },
+    sameDocument(previous, current, pendingPush) {
+      const prevInks = normalizedInks(previous), currInks = normalizedInks(current);
+      if (!prevInks.length) return true;
+      if (!currInks.length) return false;
+      const currMap = new Map(currInks.map(ink => [ink.color, ink.at]));
+      const sameInk = (ink: BoardInk) => currMap.get(ink.color) === ink.at;
+      const firstKept = prevInks.findIndex(sameInk);
+      if (firstKept < 0) {
+        return pendingPush === true && prevInks.length === 1 && currInks.length === 1 && prevInks[0]!.color === currInks[0]!.color;
+      }
+      if (pendingPush) {
+        let kept = 0;
+        for (const ink of prevInks) if (sameInk(ink)) kept++;
+        const dropped = prevInks.length - kept;
+        const added = currInks.length - kept;
+        return dropped === 0 || (dropped === 1 && added <= 1);
+      }
+      if (!prevInks.slice(firstKept).every(sameInk)) return false;
+      if (firstKept === 0) return true;
+      if (currInks.length < MAX_BOARD_INKS) return false;
+      if (prevInks.length >= MAX_BOARD_INKS) {
+        const prevColors = new Set(prevInks.map(ink => ink.color));
+        if (!currInks.some(ink => !prevColors.has(ink.color))) return false;
+      }
+      return compareInks(prevInks[firstKept - 1]!, currInks[0]!) < 0;
+    },
     refuse: BOARD_RECORD_CODEC.refuse,
     share: shareUnchangedBoard,
   };
