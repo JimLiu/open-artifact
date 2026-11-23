@@ -75,7 +75,7 @@ export const CHROME_PROTOCOL = 1;
 // ---- chrome: Shell ⇄ page ----------------------------------------------------------------------------------------
 
 /** The page's save state. */
-export type ChromeSaved = 'saved' | 'saving' | 'unsaved' | 'reconnecting' | 'readonly';
+export type ChromeSaved = 'loading' | 'syncing' | 'loadError' | 'saved' | 'saving' | 'unsaved' | 'reconnecting' | 'readonly';
 
 /** Why a page action or export format is disabled. */
 export type ChromeWhy = 'older_version' | 'agent_working' | 'draft_open' | 'comments_on' | 'needs_agent' | 'unsaved' | 'other';
@@ -177,6 +177,8 @@ export const MAX_CLIPBOARD_BYTES = 64 * 1024 * 1024;
 
 /** What the page reports to the Shell. Every part is optional. */
 export interface ChromeReport {
+  /** Keep the frame covered while restoring the viewport. Omitted by pages that reveal on their first report. */
+  ready?: boolean;
   /** Current document title in a type-server shell. */
   title?: string;
   comments?: { available: boolean; on: boolean; open: boolean; count: number; pageButton: boolean };

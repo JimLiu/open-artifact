@@ -66,16 +66,19 @@ export function sendFailure(error: unknown): AgentSendResult {
 }
 
 /** Follows the agent's status (none without an agent); returns a function that stops. */
-export function watchAgentStatus(agent: AgentCapability | null | undefined, onStatus: (status: AgentStatus) => void): () => void {
+export function watchAgentStatus(agent: AgentCapability | null | undefined, onStatus: (status: AgentStatus) => void, onUnavailable?: () => void): () => void {
   if (!agent) return () => {};
   let stopped = false;
+  let received = false;
   agent.status().then(
     (status) => {
-      if (!stopped) onStatus(status);
+      if (!stopped && !received) onStatus(status);
     },
-    () => undefined,
+    () => { if (!stopped && !received) onUnavailable?.(); },
   );
-  const off = agent.onStatus(onStatus);
+  const off = agent.onStatus(status => {
+    if (!stopped) { received = true; onStatus(status); }
+  });
   return () => {
     stopped = true;
     off();

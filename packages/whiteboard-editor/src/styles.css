@@ -861,3 +861,15 @@ html[data-frame-capture] :is(.wb-history-panel, .wb-history-preview) {
 .wb-paused-media { display: grid; place-items: center; border: 1px dashed currentColor; opacity: .7; }
 .wb-corner-zoom { position: absolute; z-index: 30; right: 12px; bottom: 12px; padding: 4px; }
 .wb-pill:empty { display: none; }
+.wb-veil {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: var(--wb-paper);
+  color: var(--wbc-muted);
+  font-size: 12px;
+}

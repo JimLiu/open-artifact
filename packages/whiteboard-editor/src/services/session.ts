@@ -9,6 +9,7 @@
  * (`roleAbilities`, `@open-artifact/editor-kit`): guests never get the owner's agent or host downloads.
  */
 
+import { ArtifactError, createLocalProvider, installRuntime } from '@open-artifact/runtime';
 import type {
   AgentCapability,
   AssetsCapability,
@@ -48,9 +49,32 @@ export const session = slot.session;
 /** The session, or `null` before it started (for code that may run early). */
 export const maybeSession = slot.maybeSession;
 
+let localStartup: Promise<void> | undefined;
+
+/** Bind the standalone page's runtime once its local session answers. The provider reuses that session for its capabilities. */
+async function openLocalSession(): Promise<void> {
+  const provider = createLocalProvider();
+  let timer = 0;
+  try {
+    await Promise.race([
+      provider.get('user'),
+      new Promise<never>((_, reject) => {
+        timer = window.setTimeout(() => reject(new ArtifactError('unavailable', 'The board session timed out.')), 10_000);
+      }),
+    ]);
+    installRuntime(provider);
+  } catch (error) {
+    if (error instanceof ArtifactError && (error.code === 'unavailable' || error.retryable)) localStartup = undefined;
+    throw error;
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
 /** Connects to the host. Rejects when the document store is unavailable. */
-export async function startSession(): Promise<Session> {
-  const { caps, viewer, abilities, shell } = await connectHost(['db', 'comments', 'assets', 'agent', 'room', 'downloads', 'history']);
+export async function startSession(connection?: ShellConnection | null): Promise<Session> {
+  if (connection === null && !window.openartifact) await (localStartup ??= openLocalSession());
+  const { caps, viewer, abilities, shell } = await connectHost(['db', 'comments', 'assets', 'agent', 'room', 'downloads', 'history'], connection);
   const { db, comments, assets, agent, room, downloads, history } = caps;
   if (!db) throw new Error('This page could not reach its board. Open it again from your agent.');
   const peerId = (await room?.self().catch(() => null)) ?? viewer.id;

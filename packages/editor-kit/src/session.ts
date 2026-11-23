@@ -27,12 +27,13 @@ export interface HostConnection<N extends CapabilityName> {
 }
 
 /** Connects to the host and resolves `names` (plus `user`, for the viewer). */
-export async function connectHost<const N extends Exclude<CapabilityName, 'user'>>(names: readonly N[]): Promise<HostConnection<N>> {
-  const runtime = installRuntime(createPageProvider());
+export async function connectHost<const N extends Exclude<CapabilityName, 'user'>>(names: readonly N[], shell?: ShellConnection | null): Promise<HostConnection<N>> {
+  const runtime = window.openartifact ?? installRuntime(createPageProvider());
   const [user, ...granted] = await Promise.all([runtime.use('user'), ...names.map((name) => runtime.use(name))]);
   const caps = Object.fromEntries(names.map((name, i) => [name, granted[i] ?? null])) as HostCapabilities<N>;
   const viewer: Viewer = (await user?.me()) ?? { ...GUEST_VIEWER };
-  return { caps, viewer, abilities: hostAbilities(viewer.role, (caps as Partial<Record<CapabilityName, unknown>>).downloads as CapabilityMap['downloads'] | null | undefined), shell: connectShell() };
+  const abilities = hostAbilities(viewer.role, (caps as Partial<Record<CapabilityName, unknown>>).downloads as CapabilityMap['downloads'] | null | undefined);
+  return { caps, viewer, abilities, shell: shell === undefined ? connectShell() : shell };
 }
 
 /**

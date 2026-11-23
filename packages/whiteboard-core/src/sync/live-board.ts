@@ -85,6 +85,8 @@ export interface LiveBoardOptions {
   transport: SyncTransport;
   /** Keeps a saved copy on the device, shown while the store is out of reach. */
   cache?: LiveCache;
+  /** Show the saved board while its first list request is in flight. */
+  eagerCache?: boolean;
   /** Viewers never write. */
   readOnly?: boolean;
   timers?: SyncTimers;
@@ -136,6 +138,7 @@ export function createLiveBoardDocument(options: LiveBoardOptions): LiveBoardDoc
     }),
     initial: options.initial ?? EMPTY_BOARD,
     ...(options.cache !== undefined ? { cache: options.cache } : {}),
+    ...(options.eagerCache !== undefined ? { eagerCache: options.eagerCache } : {}),
     ...(options.readOnly !== undefined ? { readOnly: options.readOnly } : {}),
     ...(options.timers !== undefined ? { timers: options.timers } : {}),
     ...(options.formatTime !== undefined ? { formatTime: options.formatTime } : {}),

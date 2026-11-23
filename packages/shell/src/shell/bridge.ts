@@ -38,7 +38,11 @@ import { declaredHosts } from '../lib/host-origins.ts';
 import { t } from '../lib/i18n.ts';
 import { call as brokerCall, setSavedFileListener, want as brokerWant, type PagePost } from './broker.ts';
 import { browserClipboard, createClipboardRelay } from './clipboard.ts';
-import { actionOf, accentVars, exportRequestId, frameDeniedReason, hostOf, hostVerdict, showsComments, normalizeReport, toHostMessage, type ExportEntry, type HostInfo, sheetPageFragment, inlineView } from './model.ts';
+import {
+  FRAME_READY_FALLBACK_MS, accentVars, actionOf, exportRequestId, frameDeniedReason, handlePageLeaving,
+  hostOf, hostVerdict, inlineView, normalizeReport, readyOnLoad, sheetPageFragment, showsComments,
+  toHostMessage, type ExportEntry, type HostInfo,
+} from './model.ts';
 import { gotoCommand, placeOf } from './place.ts';
 import { useShell } from './store.ts';
 import { startViewChannel, viewSend } from './view-channel.ts';
@@ -49,6 +53,13 @@ let frame: HTMLIFrameElement | null = null;
 let pageOrigin = location.origin;
 // An async editor can attach its message listener after the iframe's load event.
 let helloOnFirstReport = false;
+let loaded = false;
+let hasReport = false;
+let documentId: number | undefined;
+let retiredDocument: number | undefined;
+let leavingToken: string | undefined;
+let leaving: AbortController | undefined;
+let readyTimer: ReturnType<typeof setTimeout> | undefined;
 /** Export requests waiting for `chrome_exports`, by id. */
 const exportsWaiting = new Map<string, (items: ChromeExportItem[]) => void>();
 let exportSeq = 0;
@@ -68,19 +79,51 @@ const clipboard = clipboardEnv
 /** The Shell runs inside another window. */
 export const embedded = window.parent !== window;
 
-/** Registers the page's frame (or `null` when it unmounts) and the origin it is served from. */
-export function attachFrame(element: HTMLIFrameElement | null, origin: string): void {
-  frame = element;
-  pageOrigin = origin;
+function beginNavigation(): void {
+  clearTimeout(readyTimer);
+  leaving?.abort();
+  if (documentId !== undefined) retiredDocument = documentId;
+  documentId = undefined;
+  leavingToken = undefined;
+  hasReport = loaded = false;
+  useShell.getState().setFrameLoading();
 }
 
-/** The frame loaded (again): forget the old report and ask the page for a new one. */
+/** Registers the page's frame (or `null` when it unmounts) and the origin it is served from. */
+export function attachFrame(element: HTMLIFrameElement | null, origin: string): void {
+  if (frame === element && origin === pageOrigin) return;
+  clearTimeout(readyTimer);
+  leaving?.abort();
+  frame = element;
+  pageOrigin = origin;
+  documentId = retiredDocument = undefined;
+  if (element) beginNavigation();
+}
+
+/** A report can arrive before load. Only pages that never reported use the load deadline. */
 export function frameLoaded(): void {
-  useShell.getState().setReport({});
+  if (!frame) return;
+  if (loaded) beginNavigation();
+  loaded = true;
+  leaving = new AbortController();
+  try {
+    frame.contentWindow?.addEventListener('pagehide', beginNavigation, { once: true, signal: leaving.signal });
+  } catch { /* Cross-origin editors send chrome_leaving on pagehide. */ }
   formatsWaiting.clear();
   clipboard?.clear();
   helloOnFirstReport = true;
   sendChromeHello();
+  if (hasReport) return;
+  const store = useShell.getState();
+  const revealUnreportedPage = () => {
+    store.setReport({});
+    store.setPageReady(true);
+  };
+  if (readyOnLoad(store.boot?.pageKind ?? null)) revealUnreportedPage();
+  else {
+    // An editor can navigate its own frame to ordinary HTML. Give that document a turn to answer hello.
+    readyTimer = setTimeout(revealUnreportedPage, retiredDocument === undefined ? FRAME_READY_FALLBACK_MS : 60);
+  }
 }
 
 function sendChromeHello(): void {
@@ -156,6 +199,7 @@ function exportState(request: unknown, state: unknown, reason: unknown): void {
 /** Reloads the page's frame. */
 export function reloadPage(): void {
   if (!frame) return;
+  beginNavigation();
   try {
     frame.contentWindow?.location.reload();
   } catch {
@@ -232,7 +276,7 @@ function tellPlace(): void {
   if (boot && place) toHost({ openArtifact: 'place', artifact: boot.url, hash: place });
 }
 
-function onPageMessage(message: PageToShell, event: MessageEvent): void {
+function onPageMessage(message: PageToShell & { documentId?: unknown; leavingToken?: unknown }, event: MessageEvent): void {
   const store = useShell.getState();
   const reported = store.boot ? placeOf(store.boot.type, message) : null;
   if (reported) {
@@ -308,9 +352,20 @@ function onPageMessage(message: PageToShell, event: MessageEvent): void {
     }
     case 'chrome_report':
       if (message.report && typeof message.report === 'object') {
-        // The page draws itself: the cover over the frame goes.
-        if (!store.pageReady) store.setPageReady(true);
+        if (typeof message.documentId === 'number') {
+          if (retiredDocument !== undefined && message.documentId <= retiredDocument) break;
+          if (documentId !== undefined && message.documentId !== documentId) {
+            if (message.documentId < documentId) break;
+            beginNavigation();
+          }
+          documentId = message.documentId;
+          leavingToken = typeof message.leavingToken === 'string' ? message.leavingToken : undefined;
+        } else if (documentId !== undefined) break;
+        clearTimeout(readyTimer);
+        hasReport = true;
         store.setReport(normalizeReport(message.report));
+        if (message.report.ready !== false) store.setPageReady(true);
+        else store.setPageReady(false);
         if (helloOnFirstReport) {
           helloOnFirstReport = false;
           sendChromeHello();
@@ -332,8 +387,18 @@ function onPageMessage(message: PageToShell, event: MessageEvent): void {
   }
 }
 
+/** A navigation notice from the runtime that identifies the document leaving this frame. */
+function isFrameLeaving(message: unknown): message is { openArtifact: 'chrome_leaving'; documentId?: unknown; leavingToken?: unknown } {
+  return typeof message === 'object' && message !== null && 'openArtifact' in message && message.openArtifact === 'chrome_leaving';
+}
+
 function onMessage(event: MessageEvent): void {
   const message: unknown = event.data;
+  if (isFrameLeaving(message)) {
+    if (!frame || event.origin !== pageOrigin || documentId === undefined || message.documentId !== documentId) return;
+    handlePageLeaving(frame.contentWindow, event.source, leavingToken, message.leavingToken, beginNavigation);
+    return;
+  }
   if (!isShellMessage(message)) return;
   if (frame && event.source === frame.contentWindow) {
     if (event.origin === pageOrigin) onPageMessage(message as PageToShell, event);

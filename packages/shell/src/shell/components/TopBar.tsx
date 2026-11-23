@@ -35,27 +35,34 @@ function Working() {
 
 /** The page's save state (the header indicator): Saving…, a retry after a failed save, Read-only. */
 function SaveState() {
-  const state = useShell(s => s.boot?.type === 'docs' && s.report.saved === 'reconnecting' ? 'reconnecting' : saveIndicator(s.report));
+  const state = useShell(s => !s.pageReady ? 'loading'
+    : s.boot?.type === 'docs' && s.report.saved === 'reconnecting' ? 'reconnecting' : saveIndicator(s.report));
   const quiet = 'inline-flex min-w-0 items-center gap-1.5 whitespace-nowrap text-xs text-fg-muted';
   switch (state) {
+    case 'loading':
+    case 'syncing':
     case 'saving':
     case 'reconnecting':
       return (
-        <span role="status" className={quiet}>
+        <span role="status" data-shell-save-state={state} className={quiet}>
           <LoaderCircle className="size-3.5 shrink-0 animate-spin motion-reduce:animate-none" />
           <span className="max-sm:hidden">{t(state)}</span>
         </span>
       );
+    case 'loadError':
+      return <span role="status" data-shell-save-state={state} className={quiet}>{t('loadError')}</span>;
+    case 'retryLoad':
+      return <Button data-shell-save-state="loadError" size="sm" variant="ghost" icon={<RotateCw className="size-3.5" />} onClick={() => runAction('save_now')}>{t('retryLoad')}</Button>;
     case 'unsaved':
       return (
-        <span role="status" title={t('notSavedTitle')} className={cn(quiet, 'text-danger')}>
+        <span role="status" data-shell-save-state="unsaved" title={t('notSavedTitle')} className={cn(quiet, 'text-danger')}>
           <CloudAlert className="size-3.5 shrink-0" />
           <span className="max-sm:hidden">{t('notSaved')}</span>
         </span>
       );
     case 'retry':
       return (
-        <Button size="sm" variant="ghost" className="text-danger" title={t('notSavedTitle')} icon={<RotateCw className="size-3.5" />} onClick={() => runAction('save_now')}>
+        <Button data-shell-save-state="unsaved" size="sm" variant="ghost" className="text-danger" title={t('notSavedTitle')} icon={<RotateCw className="size-3.5" />} onClick={() => runAction('save_now')}>
           <span className="max-sm:hidden">{t('saveRetry')}</span>
         </Button>
       );
@@ -73,9 +80,10 @@ function SaveState() {
 
 /** Version history (`report.history`): the page opens its own panel. */
 function HistoryButton() {
-  const history = useShell((state) => !!state.report.history);
+  const history = useShell(s => s.report.history ?? (!s.pageReady && s.rememberedChrome.history));
+  const enabled = useShell(s => s.pageReady && !!s.report.history);
   if (!history) return null;
-  return <IconButton label={t('versionHistory')} icon={<History className="size-4" />} size="lg" onClick={() => command({ cmd: 'history' })} />;
+  return <IconButton label={t('versionHistory')} icon={<History className="size-4" />} size="lg" disabled={!enabled} onClick={() => command({ cmd: 'history' })} />;
 }
 
 
@@ -109,7 +117,8 @@ function AskButton() {
 
 /** The bar. */
 export function TopBar() {
-  const comments = useShell(s => s.report.comments);
+  const comments = useShell(s => s.report.comments ?? (s.pageReady ? undefined : s.rememberedChrome.comments));
+  const commentsReady = useShell(s => s.pageReady && !!s.report.comments);
   const standalone = useShell(state => state.boot?.typeServer);
   const docs = useShell(state => state.boot?.type === 'docs');
   const title = useShell(state => state.boot?.type === 'docs' ? state.report.title || state.boot.title : state.boot?.title);
@@ -136,7 +145,7 @@ export function TopBar() {
         {!docs && <HistoryButton />}
         <SharePanel />
         {docs && <HistoryButton />}
-        <CommentsButton comments={comments} command={command} readOnly={!mayComment(role)} />
+        <CommentsButton comments={comments} command={command} disabled={!commentsReady} readOnly={!mayComment(role)} />
         {askable ? <AskButton /> : null}
         {cloud ? <Account cloud={cloud} /> : null}
         {hostToolbar || standalone ? null : <IconButton label={t('close')} icon={<X className="size-4" />} size="lg" onClick={closeShell} />}

@@ -129,10 +129,18 @@ export function panToPoint(point: Point): void {
   setCamera(centerOn(point, state.camera.zoom, state.width, state.height));
 }
 
-/** Restores this tab's last camera on a board; `false` when there is none. */
-export function restoreCamera(key: string): boolean {
-  const { min, max } = zoomRange();
-  const camera = recallCamera(key, min, max);
+/** The Shell's artifact id survives page-token rotation. Standalone boards keep their path. */
+export function boardStorageKey(shell: { artifactId?: string | null } | null | undefined): string {
+  return shell?.artifactId ? `artifact:${encodeURIComponent(shell.artifactId)}` : location.pathname;
+}
+
+/** Restores this tab's last camera, migrating a path-keyed camera the first time a Shell supplies an id. */
+export function restoreCamera(key: string, fallbackKey?: string): boolean {
+  let camera = recallCamera(key);
+  if (!camera && fallbackKey && fallbackKey !== key) {
+    camera = recallCamera(fallbackKey);
+    if (camera) rememberCamera(key, camera);
+  }
   if (!camera) return false;
   setCamera(camera);
   return true;
@@ -141,13 +149,23 @@ export function restoreCamera(key: string): boolean {
 /** Remembers the camera on every change (debounced); returns a stop function. */
 export function keepCameraRemembered(key: string): () => void {
   let timer: ReturnType<typeof setTimeout> | undefined;
+  const flush = (): void => {
+    if (timer === undefined) return;
+    clearTimeout(timer);
+    timer = undefined;
+    rememberCamera(key, useCamera.getState().camera);
+  };
   const unsubscribe = useCamera.subscribe((state, previous) => {
     if (state.camera === previous.camera) return;
     clearTimeout(timer);
-    timer = setTimeout(() => rememberCamera(key, state.camera), 250);
+    timer = setTimeout(flush, 250);
   });
+  window.addEventListener('pagehide', flush);
+  window.addEventListener('beforeunload', flush);
   return () => {
-    clearTimeout(timer);
+    flush();
+    window.removeEventListener('pagehide', flush);
+    window.removeEventListener('beforeunload', flush);
     unsubscribe();
   };
 }

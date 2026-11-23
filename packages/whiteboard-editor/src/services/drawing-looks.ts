@@ -7,7 +7,7 @@
  * scale follows the zoom in powers of two, and moves only once the view
  * has been still for {@link LOOK_SETTLE_MS}, so zooming never repaints frame
  * by frame. Each painting is an object URL kept by source, look, scheme and
- * pixel size; a source keeps its two latest paintings per look, and all of
+ * pixel size; a source keeps visible paintings and its two latest idle paintings per look. All of
  * them are freed when no drawing on the board uses that source in that
  * look. Until a painting is ready, views draw the plain drawing.
  */
@@ -30,7 +30,7 @@ export interface LookRequest {
   scale: number;
 }
 
-/** Most paintings kept per source and look. */
+/** Most idle paintings kept per source and look. */
 const PAINTINGS_PER_SOURCE = 2;
 /** How long an export waits for all painted looks, ms. */
 export const EXPORT_LOOKS_BUDGET_MS = 12_000;
@@ -46,6 +46,8 @@ interface Painting {
 }
 
 const paintings = new Map<string, Painting>();
+const consumers = new Map<string, number>();
+let generation = 0;
 const pending = new Map<string, Promise<string | undefined>>();
 /** Keys that could not be painted (they stay plain). */
 const unpaintable = new Set<string>();
@@ -101,20 +103,38 @@ function publish(): void {
   useDrawingLooks.setState({ painted: new Map([...paintings].map(([key, painting]) => [key, painting.url])) });
 }
 
-/** Frees a painting. */
-function free(key: string): void {
-  const painting = paintings.get(key);
-  if (painting === undefined) return;
-  paintings.delete(key);
-  URL.revokeObjectURL(painting.url);
+/** Remove retired URLs from the store before releasing them. */
+function publishWithout(keys: Iterable<string>): void {
+  const retired: string[] = [];
+  for (const key of keys) {
+    const painting = paintings.get(key);
+    if (painting) retired.push(painting.url);
+    paintings.delete(key);
+  }
+  publish();
+  for (const url of retired) URL.revokeObjectURL(url);
 }
 
 /** Keeps a new painting, letting go of the oldest of its source past {@link PAINTINGS_PER_SOURCE}. */
-function keep(key: string, painting: Painting): void {
-  paintings.set(key, painting);
-  const same = [...paintings].filter(([, other]) => other.group === painting.group).map(([other]) => other);
-  for (const old of same.slice(0, Math.max(0, same.length - PAINTINGS_PER_SOURCE))) free(old);
-  publish();
+function expired(group: string): string[] {
+  return [...paintings].filter(([key, painting]) => painting.group === group && !consumers.has(key))
+    .map(([key]) => key).slice(0, -PAINTINGS_PER_SOURCE);
+}
+
+export function retainDrawingLook(key: string): () => void {
+  const owner = generation;
+  consumers.set(key, (consumers.get(key) ?? 0) + 1);
+  return () => {
+    if (owner !== generation) return;
+    const remaining = (consumers.get(key) ?? 1) - 1;
+    if (remaining) consumers.set(key, remaining);
+    else {
+      consumers.delete(key);
+      const painting = paintings.get(key);
+      const retired = painting ? expired(painting.group) : [];
+      if (retired.length) publishWithout(retired);
+    }
+  };
 }
 
 /**
@@ -135,18 +155,28 @@ export function requestDrawingLook(request: LookRequest): Promise<string | undef
     return Promise.resolve(undefined);
   }
   const job: LookJob = { id: nextJobId++, svg, look: request.look, scheme: request.scheme, width, height };
+  const owner = generation;
   const painting = runJob(job).then((blob) => {
-    pending.delete(key);
     if (blob === null) {
-      unpaintable.add(key);
+      if (owner === generation) unpaintable.add(key);
       return undefined;
     }
     const url = URL.createObjectURL(blob);
-    keep(key, { url, blob, group: `${drawingSourceId(request.src)}|${request.look}` });
+    if (owner !== generation) {
+      URL.revokeObjectURL(url);
+      return undefined;
+    }
+    const group = `${drawingSourceId(request.src)}|${request.look}`;
+    paintings.set(key, { url, blob, group });
+    publishWithout(expired(group));
     return url;
-  });
+  }).finally(() => { if (owner === generation) pending.delete(key); });
   pending.set(key, painting);
   return painting;
+}
+
+export function hasPendingDrawingLooks(): boolean {
+  return pending.size > 0;
 }
 
 /** Source ids of image elements (elements are immutable, so this is per version). */
@@ -171,8 +201,7 @@ function freeUnused(elements: readonly BoardElement[]): void {
   const groups = groupsInUse(elements);
   const unused = [...paintings].filter(([, painting]) => !groups.has(painting.group)).map(([key]) => key);
   if (unused.length === 0) return;
-  for (const key of unused) free(key);
-  publish();
+  publishWithout(unused);
 }
 
 /**
@@ -199,9 +228,11 @@ export function startDrawingLooks(): () => void {
     clearTimeout(timer);
     offCamera();
     offBoard();
-    for (const key of [...paintings.keys()]) free(key);
+    generation++;
+    pending.clear();
+    consumers.clear();
+    publishWithout(paintings.keys());
     unpaintable.clear();
-    publish();
   };
 }
 

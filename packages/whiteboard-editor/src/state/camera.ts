@@ -58,7 +58,10 @@ export const useCamera = create<CameraState>()((set, get) => ({
   setViewport(width, height, coarse) {
     const compact = width <= COMPACT_MAX_WIDTH || coarse;
     if (width === get().width && height === get().height && compact === get().compact) return;
-    set({ width, height, compact });
+    const camera = get().camera;
+    const { min, max } = zoomRange({ compact });
+    const zoom = clampZoom(camera.zoom, min, max);
+    set({ width, height, compact, camera: zoom === camera.zoom ? camera : { ...camera, zoom } });
   },
   setInsets(insets) {
     set({ insets });

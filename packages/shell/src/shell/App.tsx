@@ -18,7 +18,7 @@ import { useShell } from './store.ts';
 
 /** The Shell once its boot is known: starts the protocols, the event stream and the first loads. */
 function Shell() {
-  const barHidden = useShell((state) => state.barHidden);
+  const barHidden = useShell(state => state.barHidden || (!!state.boot && inlineView(state.boot, location.href, embedded)));
   const askOpen = useShell((state) => state.askOpen);
   useEffect(() => {
     const params = new URLSearchParams(location.search);
