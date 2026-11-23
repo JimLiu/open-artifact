@@ -52,7 +52,7 @@ All types share `<root>/_blobs/` (content-addressed uploads via `upload`), `<roo
 
 ## Detailed guides by type
 
-- [Slides](types/slides.md) — 16:9 / 4:3 decks, speaker notes, builds, presenter mode, PDF/PPTX export
+- [Slides](types/slides.md) — 16:9 / 4:3 decks, speaker notes, builds, presenter mode, polygon clips on panels and photos, PDF/PPTX export
 - [Design](types/design.md) — Infinite canvas of live `.dc.html` artboards, prototypes, responsive & print export
 - [Design System](types/design-system.md) — Brand book, multi-theme tokens with contrast checks, live component previews, asset groups
 - [Whiteboard](types/whiteboard.md) — Shared infinite board with stickies, shapes, arrows, ink, tables, live embeds, cursors

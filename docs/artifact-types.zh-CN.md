@@ -52,7 +52,7 @@ Open Artifact 内部有三种存储模式，了解它们就能立刻知道 Agent
 
 ## 各类型详细指南
 
-- [Slides（幻灯片）](types/slides.zh-CN.md) — 16:9 / 4:3 演示文稿、演讲者备注、逐项动画、全屏演示、导出 PDF/PPTX
+- [Slides（幻灯片）](types/slides.zh-CN.md) — 16:9 / 4:3 演示文稿、演讲者备注、逐项动画、全屏演示、面板和照片的多边形裁剪、导出 PDF/PPTX
 - [Design（设计画布）](types/design.zh-CN.md) — 由实时 `.dc.html` 画板组成的无限画布、可点击原型、响应式与打印导出
 - [Design System（设计系统）](types/design-system.zh-CN.md) — 品牌手册、多主题令牌与对比度检查、实时组件预览、素材分组
 - [Whiteboard（白板）](types/whiteboard.zh-CN.md) — 多人共享无限白板、便利贴、图形、智能箭头、手绘、表格、交互网页嵌入

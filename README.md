@@ -48,7 +48,7 @@ adapters. Apps not written in JavaScript use the stdio bridge (`open-artifact ha
 
 | Type | What you get | Folder marker | Exports | Guides |
 |---|---|---|---|---|
-| **Slides** | A 1920×1080 (or 4:3) deck: slide rail, overview, speaker notes, builds, transitions, presenter mode | `project/deck.json` | PDF, PPTX, HTML, PNG | [Guide](docs/types/slides.md) · [SKILL](artifact-types/slides/SKILL.md) |
+| **Slides** | A 1920×1080 (or 4:3) deck: slide rail, overview, speaker notes, builds, transitions, presenter mode, polygon picture frames | `project/deck.json` | PDF, PPTX, HTML, PNG | [Guide](docs/types/slides.md) · [SKILL](artifact-types/slides/SKILL.md) |
 | **Design** | An infinite canvas of live `.dc.html` artboards: screens, components, click-through prototypes, notes, pages | `project/canvas.json` | PNG, JPEG, PDF, HTML | [Guide](docs/types/design.md) · [SKILL](artifact-types/design/SKILL.md) |
 | **Design System** | A brand book: tokens, colors with contrast checks, type specimens, live component previews, assets. Designs, decks, dashboards, and films can install it | `project/design-system.json` | — | [Guide](docs/types/design-system.md) · [SKILL](artifact-types/design-system/SKILL.md) |
 | **Whiteboard** | A shared infinite board: stickies, shapes, arrows, ink, images, tables, embeds, live cursors, timer | `db/board/meta.json` | PNG | [Guide](docs/types/whiteboard.md) · [SKILL](artifact-types/whiteboard/SKILL.md) |

@@ -1,6 +1,6 @@
 {
   "name": "@open-artifact/server-sdk",
-  "version": "0.14.4",
+  "version": "0.14.5",
   "private": true,
   "type": "module",
   "description": "Shared code for Open Artifact type servers: the server skeleton, the Type API client, LAN sharing and a minimal WebSocket server.",
@@ -18,12 +18,12 @@
     "./comments": "./src/frame/comments.ts"
   },
   "dependencies": {
-    "@open-artifact/protocol": "0.14.4"
+    "@open-artifact/protocol": "0.14.5"
   },
   "devDependencies": {
-    "@open-artifact/editor-kit": "0.14.4",
-    "@open-artifact/runtime": "0.14.4",
-    "@open-artifact/ui": "0.14.4"
+    "@open-artifact/editor-kit": "0.14.5",
+    "@open-artifact/runtime": "0.14.5",
+    "@open-artifact/ui": "0.14.5"
   },
   "engines": {
     "node": ">=22.18"

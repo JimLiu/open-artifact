@@ -6,6 +6,23 @@ agent plugins. Since 0.9.0 they all share one version; before that `dsh-open-art
 Each entry is written from the commits since the previous tag (`node scripts/changelog.mjs` lists them); see
 [Releasing](README.md#releasing).
 
+## [0.14.5] - 2026-11-23
+
+Slides preserves polygon clips on panels and photos in the editor and exports, including editable PowerPoint shapes and picture crops.
+
+### Added
+
+- Slides accepts `clip-path: polygon(...)` in inline styles and shared `deck.css`, with px, percentage and mixed `calc()` coordinates. Shared stylesheet tokens can set fixed corner cuts that stay the same size as a frame is resized.
+- Plain clipped panels export to PowerPoint as editable custom shapes, and clipped photos as pictures with editable crops and polygon outlines. HTML, PDF and PNG retain the CSS clip; clipped containers with children, crossing outlines, or clips combined with borders, shadows, filters or rounded corners become pictures in PowerPoint and are listed in the export notes. Thanks to @rodriguezst for PR #18.
+
+### Fixed
+
+- Unsupported clip paths now explain what to use instead: `border-radius` for rounded or round frames, `polygon(...)` or an SVG for other outlines, and the border box as the polygon reference.
+
+### Integrators
+
+- The Harness API, Shell and wake messages, harness kit, stdio bridge and shipped profiles are unchanged.
+
 ## [0.14.4] - 2026-11-23
 
 Artifacts load inside Electron apps whose windows use `file://`, agents can write long formulas to Sheets, and Motion films can play captioned cuts of a video's own sound.
@@ -545,6 +562,7 @@ One version for every package, with Docs and Sheets in every plugin.
 - Plugins for Claude Code, Codex, Cursor, Copilot, ChatGPT and DeepSeek Harness.
 - English and Chinese READMEs, under Apache-2.0.
 
+[0.14.5]: https://github.com/JimLiu/open-artifact/compare/v0.14.4...v0.14.5
 [0.14.4]: https://github.com/JimLiu/open-artifact/compare/v0.14.3...v0.14.4
 [0.14.3]: https://github.com/JimLiu/open-artifact/compare/v0.14.2...v0.14.3
 [0.14.2]: https://github.com/JimLiu/open-artifact/compare/v0.14.1...v0.14.2

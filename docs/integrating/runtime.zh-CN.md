@@ -15,7 +15,7 @@
 ```js
 const oa = await createHarness({
   harness: 'my-agent',
-  runtime: { dir: '/Applications/MyAgent.app/Contents/Resources/open-artifact', version: '0.14.4', update: 'prompt' },
+  runtime: { dir: '/Applications/MyAgent.app/Contents/Resources/open-artifact', version: '0.14.5', update: 'prompt' },
 });
 ```
 
@@ -41,7 +41,7 @@ const { createWriteStream } = require('node:fs');
 
 const oa = await createHarness({
   harness: 'my-agent',
-  runtime: { dir: runtimeDir, version: '0.14.4' },
+  runtime: { dir: runtimeDir, version: '0.14.5' },
   daemon: {
     spawn: ({ bin, args, env, logFile }) => {
       const child = utilityProcess.fork(bin, args, {
@@ -127,7 +127,7 @@ oa.on('event', (event) => {
   if (event.type === 'runtime/update' && event.available) offerUpdate(event.available);
 });
 // when the person agrees:
-const { installed, pending, message } = await oa.runtime.update();   // or update('0.14.4')
+const { installed, pending, message } = await oa.runtime.update();   // or update('0.14.5')
 const status = await oa.runtime.status();
 ```
 
