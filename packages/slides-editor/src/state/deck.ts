@@ -8,6 +8,7 @@
  * through `services/sync.ts`, which calls the bookkeeping actions here.
  */
 
+import { localize } from '@open-artifact/runtime';
 import { mergeLines } from '@open-artifact/editor-kit';
 import { create } from 'zustand';
 import {
@@ -217,12 +218,12 @@ export function readSlide(id: string, text: string, faces: Iterable<string>): Pi
   const bytes = new TextEncoder().encode(text).length;
   if (bytes > LIMITS.slideFileBytes) {
     const result = compileSlide(`<section id="${id}"></section>`, { id, lints: false });
-    return { slide: result.slide, held: `File is ${Math.round(bytes / 1024)} KB (max ${LIMITS.slideFileBytes / 1024} KB)`, diagnostics: [] };
+    return { slide: result.slide, held: localize(`File is ${Math.round(bytes / 1024)} KB (max ${LIMITS.slideFileBytes / 1024} KB)`, `文件大小为 ${Math.round(bytes / 1024)} KB（上限 ${LIMITS.slideFileBytes / 1024} KB）`), diagnostics: [] };
   }
   const result = sourceDeck && !isFlatSlideHtml(text)
     ? readSourceSlide(text, sourceDeck, { id, faces, lints: false, index: sourcePlaces.get(id) ?? 0 })
     : compileSlide(text, { id, faces, lints: false });
-  return { slide: result.slide, held: result.held ? heldReason(result.diagnostics) ?? 'The file has errors' : undefined, diagnostics: result.diagnostics };
+  return { slide: result.slide, held: result.held ? heldReason(result.diagnostics) ?? localize('The file has errors', '文件包含错误') : undefined, diagnostics: result.diagnostics };
 }
 
 /** Families the deck declares. */
@@ -535,7 +536,7 @@ export const useDeck = create<DeckState>()((set, get) => ({
     const state = get();
     const item = state.kept[position];
     if (!item || !state.slides[item.id]) return;
-    state.apply('Bring back your version', { slides: { [item.id]: { ...item.slide, id: item.id } } }, { focus: item.id });
+    state.apply(localize('Bring back your version', '恢复你的版本'), { slides: { [item.id]: { ...item.slide, id: item.id } } }, { focus: item.id });
     set({ kept: get().kept.filter((_, i) => i !== position) });
   },
 
@@ -580,7 +581,7 @@ export const useDeck = create<DeckState>()((set, get) => ({
     const order = deckOrder(state);
     const at = order.indexOf(item.id);
     const nextOrder = at < 0 ? [...order, newId] : [...order.slice(0, at + 1), newId, ...order.slice(at + 1)];
-    state.apply('Restore kept slide', { slides: { [newId]: { ...item.slide, id: newId } }, index: { ...state.index, order: nextOrder } }, { focus: newId });
+    state.apply(localize('Restore kept slide', '恢复保留的幻灯片'), { slides: { [newId]: { ...item.slide, id: newId } }, index: { ...state.index, order: nextOrder } }, { focus: newId });
     set({ kept: get().kept.filter((_, i) => i !== position) });
   },
 
@@ -604,8 +605,8 @@ function travel(get: () => DeckState, set: (partial: Partial<DeckState>) => void
   const orderChanged = step.index !== undefined && state.index !== (direction === 'undo' ? step.index.after : step.index.before);
   if ((changedSlides.length || orderChanged) && state.undoWarned !== step) {
     set({ undoWarned: step });
-    const what = orderChanged ? 'Someone else reordered or changed the deck since this edit.' : 'Someone else changed this slide since this edit.';
-    return { done: false, warning: `${what} ${direction === 'undo' ? 'Undo' : 'Redo'} again to apply it anyway.` };
+    const what = orderChanged ? localize('Someone else reordered or changed the deck since this edit.', '此编辑之后，其他人重新排序或修改了演示文稿。') : localize('Someone else changed this slide since this edit.', '此编辑之后，其他人修改了这张幻灯片。');
+    return { done: false, warning: localize(`${what} ${direction === 'undo' ? 'Undo' : 'Redo'} again to apply it anyway.`, `${what} 再次执行${direction === 'undo' ? '撤销' : '重做'}即可应用。`) };
   }
 
   const slides: Record<string, Slide | null> = {};

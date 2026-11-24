@@ -5,6 +5,7 @@
  * a press in the frame). Pure (no DOM until called).
  */
 
+import { localize } from '@open-artifact/runtime';
 import type { ShellConnection } from '@open-artifact/runtime';
 
 /** The browser itself writes clipboard formats (images, HTML) here. */
@@ -34,7 +35,7 @@ export async function writeClipboard(items: Record<string, Blob | PromiseLike<Bl
       if (!shell?.writesClipboard || !clipboardRefused(error)) throw error;
     }
   } else if (!shell?.writesClipboard) {
-    throw new Error('This browser cannot copy to the clipboard.');
+    throw new Error(localize('This browser cannot copy to the clipboard.', '此浏览器无法写入剪贴板。'));
   }
   await shell.writeClipboard(items);
 }

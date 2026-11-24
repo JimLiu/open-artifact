@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { ago, avatarColor, bytesText, fileNameOf, formatKind, initials } from '../src/lib/format.ts';
 import { fill, localeOf, translate } from '../src/lib/i18n.ts';
+import { localize, preferredLocale } from '@open-artifact/runtime';
 
 describe('format', () => {
   it('formats sizes', () => {
@@ -46,10 +47,23 @@ describe('i18n', () => {
     assert.equal(localeOf('zh-CN'), 'zh-CN');
     assert.equal(localeOf('zh-TW'), 'zh-CN');
     assert.equal(localeOf('en-US'), 'en');
+    assert.equal(localeOf('zh!'), 'en');
     assert.equal(localeOf(undefined), 'en');
   });
 
-  it('fills placeholders and falls back to English', () => {
+  it('uses the first browser language unless the URL overrides it', () => {
+    const browser = { language: 'en-US', languages: ['zh-Hant', 'en-US'] };
+    assert.equal(preferredLocale('', browser), 'zh-CN');
+    assert.equal(preferredLocale('?lang=en', browser), 'en');
+    assert.equal(preferredLocale('?lang=zh', { language: 'en-US', languages: [] }), 'zh-CN');
+    assert.equal(preferredLocale('?lang=fr', browser), 'zh-CN');
+    assert.equal(preferredLocale('?lang=', browser), 'zh-CN');
+    assert.equal(preferredLocale('', { language: 'zh-CN', languages: [] }), 'zh-CN');
+    assert.equal(preferredLocale('', { language: 'zh-CN', languages: ['fr-FR', 'zh-CN'] }), 'en');
+    assert.equal(localize('Slide', '幻灯片'), 'Slide');
+  });
+
+  it('fills placeholders in both languages', () => {
     assert.equal(fill('Hi {name}, {missing}', { name: 'A' }), 'Hi A, {missing}');
     assert.equal(translate('en', 'sendToAgent', { agent: 'Helper' }), 'Send to Helper');
     assert.equal(translate('zh-CN', 'sendToAgent', { agent: 'Helper' }), '发给 Helper');

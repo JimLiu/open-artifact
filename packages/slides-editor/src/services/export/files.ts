@@ -8,6 +8,7 @@
  * up to that 200 MB.
  */
 
+import { localize } from '@open-artifact/runtime';
 import { browserDownload } from '@open-artifact/editor-kit';
 
 /** Largest file the downloads capability takes. */
@@ -73,7 +74,7 @@ export interface FileSaver {
  */
 export async function saveExport(name: string, blob: Blob, saver: FileSaver | null): Promise<{ savedTo?: string; browser: boolean }> {
   if (saver?.browser === true && blob.size > BROWSER_LIMIT) {
-    throw new Error(`The file is ${formatBytes(blob.size)}, more than the ${formatBytes(BROWSER_LIMIT)} a download can hold. Try a lower quality or fewer slides.`);
+    throw new Error(localize(`The file is ${formatBytes(blob.size)}, more than the ${formatBytes(BROWSER_LIMIT)} a download can hold. Try a lower quality or fewer slides.`, `文件大小为 ${formatBytes(blob.size)}，超出单次下载上限 ${formatBytes(BROWSER_LIMIT)}。请降低画质或减少幻灯片数量后重试。`));
   }
   if (saver && (blob.size <= CAPABILITY_LIMIT || saver.browser === true)) {
     try {
@@ -81,17 +82,17 @@ export async function saveExport(name: string, blob: Blob, saver: FileSaver | nu
       return { ...result, browser: false };
     } catch (error) {
       const reason = error instanceof Error && error.message ? error.message : String(error);
-      throw new Error(`The file could not be saved: ${reason}`);
+      throw new Error(localize(`The file could not be saved: ${reason}`, `无法保存文件：${reason}`));
     }
   }
   if (blob.size > BROWSER_LIMIT) {
-    throw new Error(`The file is ${formatBytes(blob.size)}, more than the ${formatBytes(BROWSER_LIMIT)} a download can hold. Try a lower quality or fewer slides.`);
+    throw new Error(localize(`The file is ${formatBytes(blob.size)}, more than the ${formatBytes(BROWSER_LIMIT)} a download can hold. Try a lower quality or fewer slides.`, `文件大小为 ${formatBytes(blob.size)}，超出单次下载上限 ${formatBytes(BROWSER_LIMIT)}。请降低画质或减少幻灯片数量后重试。`));
   }
   try {
     browserDownload(name, blob);
   } catch (error) {
     const reason = error instanceof Error && error.message ? error.message : String(error);
-    throw new Error(`The download could not start: ${reason}`);
+    throw new Error(localize(`The download could not start: ${reason}`, `无法开始下载：${reason}`));
   }
   return { browser: true };
 }

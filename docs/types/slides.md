@@ -20,6 +20,8 @@
 
 ## How to use (for users)
 
+The editor follows your browser's preferred language. It uses Simplified Chinese for Chinese language tags and English by default. Add `?lang=zh` or `?lang=en` to the artifact URL to choose the interface language explicitly.
+
 ### Create a deck
 ```text
 /open-artifact slides a 6-slide investor pitch for our developer tool

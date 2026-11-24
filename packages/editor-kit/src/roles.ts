@@ -13,6 +13,7 @@
  * Pure.
  */
 
+import { localize } from '@open-artifact/runtime';
 import type { Role } from '@open-artifact/runtime';
 
 /** What a viewer may do. */
@@ -47,5 +48,5 @@ export function roleAbilities(role: Role | string): RoleAbilities {
 /** How the chrome names a read-only role (`null`: the viewer can edit). */
 export function readOnlyLabel(role: Role | string): string | null {
   if (roleAbilities(role).canEdit) return null;
-  return role === 'commenter' ? 'Comment only' : 'View only';
+  return role === 'commenter' ? localize('Comment only', '仅可评论') : localize('View only', '仅可查看');
 }

@@ -4,6 +4,7 @@
  * spelling (or refused with the compiler's reason).
  */
 
+import { localize } from '@open-artifact/runtime';
 import {
   isPinned,
   nodeAt,
@@ -79,7 +80,7 @@ export function checkDeclaration(slide: Slide, path: NodePath, property: CssProp
   const value = raw.trim();
   if (value === '') return { ok: true, patch: { [property]: undefined } };
   const result = parseDeclaration(property, value, styleContextOf(slide, path, faces));
-  if (!result.ok) return { ok: false, reason: result.noop ? `${property} has no effect here` : result.reason };
+  if (!result.ok) return { ok: false, reason: result.noop ? localize(`${property} has no effect here`, `${property} 在此处不起作用`) : result.reason };
   const patch: StylePatch = {};
   for (const [name, v] of result.set) patch[name] = v;
   // A border shorthand replaces its sides.

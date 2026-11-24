@@ -13,6 +13,7 @@
  * hit-testing the layout.
  */
 
+import { localize } from '@open-artifact/runtime';
 import { memo, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { useStore } from 'zustand';
 import { AlertTriangle, EyeOff, Maximize, MessageCircle, Minus, Plus } from 'lucide-react';
@@ -65,7 +66,7 @@ export function CanvasEngineBoard({ onFail }: CanvasEngineBoardProps): ReactNode
   return (
     // Always a menu (an empty one before the engine starts), so the trigger, and the canvas in it, never remount.
     <ContextMenu menu={board ? <BoardMenu board={board} /> : <></>} className="relative flex min-h-0 flex-1 bg-stage outline-none">
-      <div ref={surface} role="listbox" aria-label="Canvas" aria-multiselectable data-open-artifact-canvas-engine className="relative min-h-0 flex-1 touch-none overflow-hidden">
+      <div ref={surface} role="listbox" aria-label={localize('Canvas', '画布')} aria-multiselectable data-open-artifact-canvas-engine className="relative min-h-0 flex-1 touch-none overflow-hidden">
         {board ? <LiveLayer board={board} /> : null}
         <canvas ref={canvas} className="absolute inset-0 size-full" />
         {board ? <Overlay board={board} /> : null}
@@ -171,7 +172,7 @@ function Overlay({ board }: { board: EngineBoard }): ReactNode {
               )}
               style={{ left: row.empty.x, top: row.empty.y, width: row.empty.w, height: row.empty.h }}
             >
-              An empty section. Drop slides here.
+              {localize('An empty section. Drop slides here.', '这是一个空节，可将幻灯片拖到这里。')}
             </div>
           ) : null,
         )}
@@ -202,7 +203,7 @@ const Caption = memo(function Caption({ tile, slideH, comments, peers, dragging 
   const current = useView((s) => s.current === tile.id);
   const selected = useView((s) => s.slideSelection.includes(tile.id));
   if (!entry) return null;
-  const problem = entry.held ?? (entry.conflict ? 'Changed elsewhere at the same time' : null);
+  const problem = entry.held ?? (entry.conflict ? localize('Changed elsewhere at the same time', '其他位置同时修改了此幻灯片') : null);
   const title = slideTitle(entry.slide);
   return (
     <div
@@ -210,7 +211,7 @@ const Caption = memo(function Caption({ tile, slideH, comments, peers, dragging 
       data-slide-id={tile.id}
       role="option"
       aria-selected={selected || current}
-      aria-label={`Slide ${tile.index + 1}${title ? `: ${title}` : ''}`}
+      aria-label={localize(`Slide ${tile.index + 1}${title ? `: ${title}` : ''}`, `第 ${tile.index + 1} 张幻灯片${title ? `：${title}` : ''}`)}
       className={cn('absolute', dragging && 'opacity-40')}
       style={{ left: tile.x, top: tile.y, width: tile.w, height: slideH + CAPTION_H }}
     >
@@ -226,7 +227,7 @@ const Caption = memo(function Caption({ tile, slideH, comments, peers, dragging 
       <div className="absolute inset-x-0 flex items-center gap-1.5 pt-1.5 text-[11px] text-fg-muted" style={{ top: slideH }}>
         <span className={cn('tabular-nums', (selected || current) && 'font-semibold text-fg')}>{tile.index + 1}</span>
         <span className="min-w-0 flex-1 truncate">{title}</span>
-        {entry.slide.hidden ? <EyeOff className="size-3 shrink-0" aria-label="Skipped" /> : null}
+        {entry.slide.hidden ? <EyeOff className="size-3 shrink-0" aria-label={localize('Skipped', '已跳过')} /> : null}
         {problem ? <AlertTriangle className="size-3 shrink-0 text-warning" aria-label={problem} /> : null}
       </div>
     </div>
@@ -260,21 +261,21 @@ function Controls({ board }: { board: EngineBoard }): ReactNode {
   useLayoutEffect(() => board.attachZoomReadout(readout.current!), [board]);
   return (
     <Card data-canvas-controls className="absolute bottom-3 right-3 h-9 px-1 py-px" onPointerDown={(event) => event.stopPropagation()}>
-      <Tip label="Zoom out">
-        <ChromeButton square aria-label="Zoom out" onClick={() => board.zoomBy(1 / 1.25)}>
+      <Tip label={localize('Zoom out', '缩小')}>
+        <ChromeButton square aria-label={localize('Zoom out', '缩小')} onClick={() => board.zoomBy(1 / 1.25)}>
           <Minus className="size-4" strokeWidth={1.5} />
         </ChromeButton>
       </Tip>
       <span ref={readout} className="min-w-11 text-center text-[13px] tabular-nums text-chrome-secondary" />
-      <Tip label="Zoom in">
-        <ChromeButton square aria-label="Zoom in" onClick={() => board.zoomBy(1.25)}>
+      <Tip label={localize('Zoom in', '放大')}>
+        <ChromeButton square aria-label={localize('Zoom in', '放大')} onClick={() => board.zoomBy(1.25)}>
           <Plus className="size-4" strokeWidth={1.5} />
         </ChromeButton>
       </Tip>
       <ChromeDivider />
       <ChromeButton className="pl-1.5 pr-2" onClick={() => board.fit()}>
         <Maximize className="size-4" strokeWidth={1.5} />
-        Fit all slides
+        {localize('Fit all slides', '显示全部幻灯片')}
       </ChromeButton>
     </Card>
   );

@@ -5,6 +5,7 @@
  * gradient a fill starts from.
  */
 
+import { localize } from '@open-artifact/runtime';
 import { useState, type ReactNode } from 'react';
 import { formatBackground, toRgba, type Background, type Gradient } from '@open-artifact/slides-core';
 import { toast } from '@open-artifact/ui';
@@ -17,7 +18,7 @@ export type FillKind = 'color' | 'gradient' | 'image';
 
 /** The Type switch of a fill's Custom tab. */
 export function fillKindOptions(kinds: readonly FillKind[]): Option<FillKind>[] {
-  const labels: Record<FillKind, string> = { color: 'Color', gradient: 'Gradient', image: 'Image' };
+  const labels: Record<FillKind, string> = { color: localize('Color', '颜色'), gradient: localize('Gradient', '渐变'), image: localize('Image', '图片') };
   return kinds.map((value) => ({ value, label: labels[value] }));
 }
 
@@ -29,8 +30,8 @@ export function fillKindOf(background: Background | null): FillKind {
 /** The closed field's swatch and label for a gradient or picture fill. */
 export function fillPreview(background: Background | null): { swatch: string; label: string } | null {
   if (!background) return null;
-  if (background.image) return { swatch: `url("${background.image.url}") center / cover`, label: 'Image' };
-  if (background.gradient) return { swatch: formatBackground({ gradient: background.gradient }), label: background.gradient.type === 'radial' ? 'Radial' : 'Linear' };
+  if (background.image) return { swatch: `url("${background.image.url}") center / cover`, label: localize('Image', '图片') };
+  if (background.gradient) return { swatch: formatBackground({ gradient: background.gradient }), label: background.gradient.type === 'radial' ? localize('Radial', '径向') : localize('Linear', '线性') };
   return null;
 }
 
@@ -59,7 +60,7 @@ export function ImageFillEditor({ image, onImage }: { image: Background['image']
         const uploaded = await uploadImage(file);
         onImage({ url: uploaded.src, size: image?.size ?? 'cover' });
       } catch (error) {
-        toast.add({ title: "Couldn't add the image", description: error instanceof Error ? error.message : String(error) });
+        toast.add({ title: localize("Couldn't add the image", '无法添加图片'), description: error instanceof Error ? error.message : String(error) });
       } finally {
         setBusy(false);
       }
@@ -68,20 +69,20 @@ export function ImageFillEditor({ image, onImage }: { image: Background['image']
   return (
     <div className="flex flex-col gap-2">
       <div className="flex min-h-7 items-center gap-2">
-        <span className="w-12 shrink-0 text-[12px] text-chrome-muted">Image</span>
+        <span className="w-12 shrink-0 text-[12px] text-chrome-muted">{localize('Image', '图片')}</span>
         {image ? <span className="size-6 shrink-0 rounded-[4px] bg-cover bg-center shadow-[inset_0_0_0_1px_rgb(0_0_0/0.1)]" style={{ backgroundImage: `url("${image.url}")` }} /> : null}
         <Button size="sm" className="min-w-0 flex-1" disabled={busy} onClick={choose}>
-          {busy ? 'Uploading…' : image ? 'Replace…' : 'Choose image…'}
+          {busy ? localize('Uploading…', '正在上传…') : image ? localize('Replace…', '替换…') : localize('Choose image…', '选择图片…')}
         </Button>
       </div>
       <div className="flex min-h-7 items-center gap-2">
-        <span className="w-12 shrink-0 text-[12px] text-chrome-muted">Size</span>
+        <span className="w-12 shrink-0 text-[12px] text-chrome-muted">{localize('Size', '大小')}</span>
         <Segmented<'cover' | 'contain'>
-          aria-label="Image size"
+          aria-label={localize('Image size', '图片尺寸')}
           value={image?.size ?? 'cover'}
           options={[
-            { value: 'cover', label: 'Cover' },
-            { value: 'contain', label: 'Contain' },
+            { value: 'cover', label: localize('Cover', '填满') },
+            { value: 'contain', label: localize('Contain', '完整显示') },
           ]}
           onChange={(size) => image && onImage({ ...image, size })}
         />

@@ -6,8 +6,9 @@
  * download (what it could not carry over).
  */
 
+import { localize, uiLocale } from '@open-artifact/runtime';
 import { useMemo, useState, type ReactNode } from 'react';
-import { LAYOUT_IDS, LAYOUT_NAMES, LIMITS, makeLayout, parseVideoUrl, pinnedRectOf, VIDEO_PROVIDER_LABELS, type LayoutId, type VideoProvider } from '@open-artifact/slides-core';
+import { LAYOUT_IDS, LIMITS, VIDEO_PROVIDERS, layoutName, makeLayout, parseVideoUrl, pinnedRectOf, videoProviderLabel, type LayoutId } from '@open-artifact/slides-core';
 import { Button, Dialog, NumberInput, Segmented, SwitchInput, cn } from '@open-artifact/ui';
 import { useSelectedNodes } from '../state/selection.ts';
 import { useUi } from '../state/ui.ts';
@@ -55,8 +56,8 @@ function NewSlideDialog({ onClose }: { onClose: () => void }): ReactNode {
     addSlide(layout);
   };
   return (
-    <Dialog open onOpenChange={(open) => !open && onClose()} title="New slide" className="w-[min(34rem,calc(100vw-2rem))]">
-      <div role="listbox" aria-label="Layouts" className="mt-3 grid max-h-[60vh] grid-cols-2 gap-3 overflow-y-auto p-1">
+    <Dialog closeLabel={localize('Close', '关闭')} open onOpenChange={(open) => !open && onClose()} title={localize('New slide', '新建幻灯片')} className="w-[min(34rem,calc(100vw-2rem))]">
+      <div role="listbox" aria-label={localize('Layouts', '版式')} className="mt-3 grid max-h-[60vh] grid-cols-2 gap-3 overflow-y-auto p-1">
         {LAYOUT_IDS.map((layout, i) => (
           <button
             key={layout}
@@ -70,7 +71,7 @@ function NewSlideDialog({ onClose }: { onClose: () => void }): ReactNode {
             <span className="block overflow-hidden rounded-[4px] ring-1 ring-line group-hover:ring-line-strong">
               <LayoutPreview layout={layout} />
             </span>
-            <span className="px-0.5 text-[13px] text-fg">{LAYOUT_NAMES[layout]}</span>
+            <span className="px-0.5 text-[13px] text-fg">{layoutName(layout, uiLocale())}</span>
           </button>
         ))}
       </div>
@@ -111,27 +112,28 @@ function ScaleDialog({ onClose }: { onClose: () => void }): ReactNode {
   };
   return (
     <Dialog
+      closeLabel={localize('Close', '关闭')}
       open
       onOpenChange={(open) => !open && onClose()}
-      title="Scale"
+      title={localize('Scale', '缩放')}
       description={
         rects.length === 0
-          ? 'Select an element placed freely on the slide to scale it.'
-          : `Scales ${rects.length === 1 ? 'the element' : `${rects.length} elements`} from the top-left corner, text included.`
+          ? localize('Select an element placed freely on the slide to scale it.', '请选择幻灯片上可以自由摆放的元素进行缩放。')
+          : localize(`Scales ${rects.length === 1 ? 'the element' : `${rects.length} elements`} from the top-left corner, text included.`, `以左上角为基准缩放 ${rects.length} 个元素，文字也会一起缩放。`)
       }
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>
-            Cancel
+            {localize('Cancel', '取消')}
           </Button>
           <Button variant="primary" disabled={!valid || rects.length === 0} onClick={apply}>
-            Scale
+            {localize('Scale', '缩放')}
           </Button>
         </>
       }
     >
       <label className="flex flex-col gap-1 text-xs text-fg-muted">
-        Percent, multiple{width ? ' or width' : ''}
+        {width ? localize('Percent, multiple or width', '百分比、倍数或宽度') : localize('Percent, multiple', '百分比或倍数')}
         <input
           autoFocus
           value={text}
@@ -139,11 +141,11 @@ function ScaleDialog({ onClose }: { onClose: () => void }): ReactNode {
           onKeyDown={(event) => {
             if (event.key === 'Enter') apply();
           }}
-          placeholder={width ? `150%, 2x or ${Math.round(width)}px` : '150% or 2x'}
+          placeholder={width ? localize(`150%, 2x or ${Math.round(width)}px`, `150%、2 倍或 ${Math.round(width)} 像素`) : localize('150% or 2x', '150% 或 2 倍')}
           className={cn('h-8 rounded-control border bg-canvas px-2 text-[13px] text-fg outline-none focus:border-accent', valid || !text ? 'border-line' : 'border-danger')}
         />
       </label>
-      {valid && width ? <p className="mt-2 text-xs text-fg-muted">New width: {Math.round(width * factor)} px</p> : null}
+      {valid && width ? <p className="mt-2 text-xs text-fg-muted">{localize(`New width: ${Math.round(width * factor)} px`, `新宽度：${Math.round(width * factor)} 像素`)}</p> : null}
     </Dialog>
   );
 }
@@ -158,24 +160,26 @@ function VideoLinkDialog({ onClose }: { onClose: () => void }): ReactNode {
   const existing = target && nodes[0]!.kind === 'image' ? nodes[0]!.video?.link : undefined;
   const [text, setText] = useState('');
   const link = text.trim() ? parseVideoUrl(text.trim()) : null;
-  const providers = (Object.keys(VIDEO_PROVIDER_LABELS) as VideoProvider[]).map((p) => VIDEO_PROVIDER_LABELS[p]).join(', ');
+  const language = uiLocale();
+  const providers = VIDEO_PROVIDERS.map((p) => videoProviderLabel(p, language)).join(localize(', ', '、'));
   const apply = (): void => {
     if (!link) return;
     if (insertVideoLink(text, target)) onClose();
   };
   return (
     <Dialog
+      closeLabel={localize('Close', '关闭')}
       open
       onOpenChange={(open) => !open && onClose()}
-      title={existing ? 'Change video link' : 'Insert video link'}
-      description={`Paste a link from ${providers}. The video plays on the slide while presenting.`}
+      title={existing ? localize('Change video link', '更改视频链接') : localize('Insert video link', '插入视频链接')}
+      description={localize(`Paste a link from ${providers}. The video plays on the slide while presenting.`, `粘贴来自 ${providers} 的链接。放映时，视频将在幻灯片上播放。`)}
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>
-            Cancel
+            {localize('Cancel', '取消')}
           </Button>
           <Button variant="primary" disabled={!link} onClick={apply}>
-            {existing ? 'Change' : 'Insert'}
+            {existing ? localize('Change', '更改') : localize('Insert', '插入')}
           </Button>
         </>
       }
@@ -184,7 +188,7 @@ function VideoLinkDialog({ onClose }: { onClose: () => void }): ReactNode {
         autoFocus
         type="url"
         value={text}
-        aria-label="Video link"
+        aria-label={localize('Video link', '视频链接')}
         placeholder="https://"
         onChange={(event) => setText(event.target.value)}
         onKeyDown={(event) => {
@@ -193,7 +197,7 @@ function VideoLinkDialog({ onClose }: { onClose: () => void }): ReactNode {
         className={cn('h-8 w-full rounded-control border bg-canvas px-2 text-[13px] text-fg outline-none focus:border-accent', !text.trim() || link ? 'border-line' : 'border-danger')}
       />
       <p className="mt-2 min-h-4 text-xs text-fg-muted">
-        {!text.trim() ? '' : link ? `${VIDEO_PROVIDER_LABELS[link.provider]} video${link.start ? `, from ${link.start}s` : ''}` : "This link isn't a video this deck can play."}
+        {!text.trim() ? '' : link ? localize(`${videoProviderLabel(link.provider, language)} video${link.start ? `, from ${link.start}s` : ''}`, `${videoProviderLabel(link.provider, language)} 视频${link.start ? `，从 ${link.start} 秒开始播放` : ''}`) : localize("This link isn't a video this deck can play.", '此演示文稿无法播放链接中的视频。')}
       </p>
     </Dialog>
   );
@@ -217,22 +221,23 @@ function TableDialog({ onClose }: { onClose: () => void }): ReactNode {
   const [shownR, shownC] = hover ?? [rows, cols];
   return (
     <Dialog
+      closeLabel={localize('Close', '关闭')}
       open
       onOpenChange={(open) => !open && onClose()}
-      title="Insert table"
+      title={localize('Insert table', '插入表格')}
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>
-            Cancel
+            {localize('Cancel', '取消')}
           </Button>
           <Button variant="primary" onClick={() => insert(rows, cols)}>
-            Insert
+            {localize('Insert', '插入')}
           </Button>
         </>
       }
     >
       <div className="flex flex-col items-center gap-3">
-        <div role="grid" aria-label="Table size" className="grid gap-1" style={{ gridTemplateColumns: `repeat(${PICKER}, 1.25rem)` }} onPointerLeave={() => setHover(null)}>
+        <div role="grid" aria-label={localize('Table size', '表格大小')} className="grid gap-1" style={{ gridTemplateColumns: `repeat(${PICKER}, 1.25rem)` }} onPointerLeave={() => setHover(null)}>
           {Array.from({ length: PICKER * PICKER }, (_, i) => {
             const r = Math.floor(i / PICKER) + 1;
             const c = (i % PICKER) + 1;
@@ -253,9 +258,9 @@ function TableDialog({ onClose }: { onClose: () => void }): ReactNode {
           {shownR} × {shownC}
         </div>
         <div className="flex items-center gap-2">
-          <NumberInput label="Rows" value={rows} min={1} max={LIMITS.tableRows} step={1} onCommit={(v) => v !== null && setRows(Math.round(v))} className="w-24" />
+          <NumberInput label={localize('Rows', '行数')} value={rows} min={1} max={LIMITS.tableRows} step={1} onCommit={(v) => v !== null && setRows(Math.round(v))} className="w-24" />
           <span className="text-fg-subtle">×</span>
-          <NumberInput label="Columns" value={cols} min={1} max={LIMITS.tableColumns} step={1} onCommit={(v) => v !== null && setCols(Math.round(v))} className="w-24" />
+          <NumberInput label={localize('Columns', '列数')} value={cols} min={1} max={LIMITS.tableColumns} step={1} onCommit={(v) => v !== null && setCols(Math.round(v))} className="w-24" />
         </div>
       </div>
     </Dialog>
@@ -268,61 +273,61 @@ function TableDialog({ onClose }: { onClose: () => void }): ReactNode {
 
 const SHORTCUTS: ReadonlyArray<{ group: string; rows: ReadonlyArray<[string, string]> }> = [
   {
-    group: 'Slides',
+    group: localize('Slides', '幻灯片'),
     rows: [
-      [`${MOD}M`, 'New slide'],
-      [`${MOD}\\`, 'Show or hide the properties panel'],
-      [`${MOD}D`, 'Duplicate'],
-      ['⌫', 'Delete'],
-      ['PgUp / PgDn', 'Previous / next slide'],
-      [`⌥${MOD}L`, "Copy the slide's link"],
-      [`${MOD}Enter / ⇧${MOD}Enter`, 'Present from this slide / from the start'],
+      [`${MOD}M`, localize('New slide', '新建幻灯片')],
+      [`${MOD}\\`, localize('Show or hide the properties panel', '显示或隐藏属性面板')],
+      [`${MOD}D`, localize('Duplicate', '复制一份')],
+      ['⌫', localize('Delete', '删除')],
+      ['PgUp / PgDn', localize('Previous / next slide', '上一张／下一张幻灯片')],
+      [`⌥${MOD}L`, localize("Copy the slide's link", '复制幻灯片链接')],
+      [`${MOD}Enter / ⇧${MOD}Enter`, localize('Present from this slide / from the start', '从当前幻灯片／从头放映')],
     ],
   },
   {
-    group: 'Elements',
+    group: localize('Elements', '元素'),
     rows: [
-      [`${MOD}A`, 'Select all'],
-      ['Tab / ⇧Tab', 'Next / previous element'],
-      ['Enter / ⇧Enter', 'Into a group or text / back out'],
-      ['Arrows', 'Move 8 px (Shift: 1 px)'],
-      [`${MOD}G / ⇧${MOD}G`, 'Group / ungroup'],
-      ['] / [', 'Bring to front / send to back'],
-      ['⌥A ⌥H ⌥D', 'Align left, horizontal centers, right'],
-      ['⌥W ⌥V ⌥S', 'Align top, vertical centers, bottom'],
-      [`⌥${MOD}C / ⌥${MOD}V`, 'Copy / paste style'],
-      ['K', 'Scale…'],
-      ['T R ⇧R O D L ⇧L', 'Text, rectangle, rounded, ellipse, diamond, line, connector'],
-      ['Esc', 'Cancel tool, end editing, clear selection'],
+      [`${MOD}A`, localize('Select all', '全选')],
+      ['Tab / ⇧Tab', localize('Next / previous element', '下一个／上一个元素')],
+      ['Enter / ⇧Enter', localize('Into a group or text / back out', '进入组合或编辑文字／退出')],
+      [localize('Arrows', '方向键'), localize('Move 8 px (Shift: 1 px)', '移动 8 像素（按住 Shift 时移动 1 像素）')],
+      [`${MOD}G / ⇧${MOD}G`, localize('Group / ungroup', '组合／取消组合')],
+      ['] / [', localize('Bring to front / send to back', '置于顶层／置于底层')],
+      ['⌥A ⌥H ⌥D', localize('Align left, horizontal centers, right', '左对齐、水平居中、右对齐')],
+      ['⌥W ⌥V ⌥S', localize('Align top, vertical centers, bottom', '顶端对齐、垂直居中、底端对齐')],
+      [`⌥${MOD}C / ⌥${MOD}V`, localize('Copy / paste style', '复制／粘贴样式')],
+      ['K', localize('Scale…', '缩放…')],
+      ['T R ⇧R O D L ⇧L', localize('Text, rectangle, rounded, ellipse, diamond, line, connector', '文本、矩形、圆角矩形、椭圆、菱形、直线、连接线')],
+      ['Esc', localize('Cancel tool, end editing, clear selection', '取消工具、结束编辑、清除选区')],
     ],
   },
   {
-    group: 'View',
+    group: localize('View', '视图'),
     rows: [
-      [`${MOD}F, ${MOD}G, F3`, 'Find, next match'],
-      [`${MOD}= ${MOD}- ${MOD}0`, 'Zoom in / out / fit'],
-      ['C', 'Comment mode'],
-      ['F6', 'Focus the formatting toolbar'],
-      [`${MOD}Z / ⇧${MOD}Z`, 'Undo / redo'],
-      ['?', 'Keyboard shortcuts'],
+      [`${MOD}F, ${MOD}G, F3`, localize('Find, next match', '查找、下一处匹配')],
+      [`${MOD}= ${MOD}- ${MOD}0`, localize('Zoom in / out / fit', '放大／缩小／适应窗口')],
+      ['C', localize('Comment mode', '评论模式')],
+      ['F6', localize('Focus the formatting toolbar', '聚焦格式工具栏')],
+      [`${MOD}Z / ⇧${MOD}Z`, localize('Undo / redo', '撤销／重做')],
+      ['?', localize('Keyboard shortcuts', '键盘快捷键')],
     ],
   },
   {
-    group: 'Presenting',
+    group: localize('Presenting', '放映'),
     rows: [
-      ['→ ↓ Space', 'Next build or slide'],
-      ['← ↑', 'Previous'],
-      ['Home / End', 'First / last slide'],
-      ['1–9', 'Go to slide'],
-      ['F', 'Full screen'],
-      ['Esc', 'Stop presenting'],
+      [localize('→ ↓ Space', '→ ↓ 空格'), localize('Next build or slide', '下一个动画步骤或下一张幻灯片')],
+      ['← ↑', localize('Previous', '上一步')],
+      ['Home / End', localize('First / last slide', '第一张／最后一张幻灯片')],
+      ['1–9', localize('Go to slide', '跳转到幻灯片')],
+      ['F', localize('Full screen', '全屏')],
+      ['Esc', localize('Stop presenting', '结束放映')],
     ],
   },
 ];
 
 function ShortcutsDialog({ open, onClose }: { open: boolean; onClose: () => void }): ReactNode {
   return (
-    <Dialog open={open} onOpenChange={(next) => !next && onClose()} title="Keyboard shortcuts" className="w-[min(40rem,calc(100vw-2rem))]">
+    <Dialog closeLabel={localize('Close', '关闭')} open={open} onOpenChange={(next) => !next && onClose()} title={localize('Keyboard shortcuts', '键盘快捷键')} className="w-[min(40rem,calc(100vw-2rem))]">
       <div className="grid max-h-[65vh] gap-5 overflow-y-auto sm:grid-cols-2">
         {SHORTCUTS.map(({ group, rows }) => (
           <section key={group}>
@@ -357,14 +362,15 @@ function PdfDialog(): ReactNode {
   };
   return (
     <Dialog
+      closeLabel={localize('Close', '关闭')}
       open={pdf !== null}
       onOpenChange={(open) => !open && close()}
-      title="Download PDF"
-      description="Each slide becomes a page with selectable, searchable text and working links."
+      title={localize('Download PDF', '下载 PDF')}
+      description={localize('Each slide becomes a page with selectable, searchable text and working links.', '每张幻灯片导出为一页，文字可选择和搜索，链接可点击。')}
       footer={
         <>
           <Button variant="ghost" onClick={close}>
-            Cancel
+            {localize('Cancel', '取消')}
           </Button>
           <Button
             variant="primary"
@@ -375,28 +381,28 @@ function PdfDialog(): ReactNode {
               void startExport({ format: 'pdf', quality, notes }, request);
             }}
           >
-            Download
+            {localize('Download', '下载')}
           </Button>
         </>
       }
     >
       <div className="flex flex-col gap-3">
         <div className="flex flex-col gap-1.5">
-          <span className="text-xs text-fg-muted">Picture quality</span>
+          <span className="text-xs text-fg-muted">{localize('Picture quality', '图片质量')}</span>
           <Segmented<PdfQuality>
             value={quality}
             options={[
-              { value: 'good', label: 'Good' },
-              { value: 'better', label: 'Better' },
-              { value: 'best', label: 'Best' },
+              { value: 'good', label: localize('Good', '良好') },
+              { value: 'better', label: localize('Better', '较高') },
+              { value: 'best', label: localize('Best', '最佳') },
             ]}
             onChange={setQuality}
           />
-          <span className="text-[11px] text-fg-subtle">Higher quality makes a larger file.</span>
+          <span className="text-[11px] text-fg-subtle">{localize('Higher quality makes a larger file.', '画质越高，文件越大。')}</span>
         </div>
         <label className="flex items-center gap-2 text-[13px]">
-          <SwitchInput checked={notes} onChange={setNotes} aria-label="Include speaker notes" />
-          Include speaker notes
+          <SwitchInput checked={notes} onChange={setNotes} aria-label={localize('Include speaker notes', '包含演讲者备注')} />
+          {localize('Include speaker notes', '包含演讲者备注')}
         </label>
       </div>
     </Dialog>
@@ -413,14 +419,15 @@ function HtmlDialog(): ReactNode {
   };
   return (
     <Dialog
+      closeLabel={localize('Close', '关闭')}
       open={html !== null}
       onOpenChange={(open) => !open && close()}
-      title="Download web page"
-      description="One file that presents the deck in any browser, with builds, transitions and videos."
+      title={localize('Download web page', '下载网页')}
+      description={localize('One file that presents the deck in any browser, with builds, transitions and videos.', '导出为单个网页，可在浏览器中放映，支持动画步骤、切换效果和视频。')}
       footer={
         <>
           <Button variant="ghost" onClick={close}>
-            Cancel
+            {localize('Cancel', '取消')}
           </Button>
           <Button
             variant="primary"
@@ -431,23 +438,23 @@ function HtmlDialog(): ReactNode {
               void startExport({ format: 'html', quality }, request);
             }}
           >
-            Download
+            {localize('Download', '下载')}
           </Button>
         </>
       }
     >
       <div className="flex flex-col gap-1.5">
-        <span className="text-xs text-fg-muted">Picture quality</span>
+        <span className="text-xs text-fg-muted">{localize('Picture quality', '图片质量')}</span>
         <Segmented<HtmlQuality>
           value={quality}
           options={[
-            { value: 'good', label: 'Good' },
-            { value: 'better', label: 'Better' },
-            { value: 'best', label: 'Best' },
+            { value: 'good', label: localize('Good', '良好') },
+            { value: 'better', label: localize('Better', '较高') },
+            { value: 'best', label: localize('Best', '最佳') },
           ]}
           onChange={setQuality}
         />
-        <span className="text-[11px] text-fg-subtle">Best keeps images as they are. Better and Good shrink large images to make a smaller file.</span>
+        <span className="text-[11px] text-fg-subtle">{localize('Best keeps images as they are. Better and Good shrink large images to make a smaller file.', '最佳画质保留原图。较高和良好画质会缩小大图，以减小文件体积。')}</span>
       </div>
     </Dialog>
   );
@@ -460,22 +467,23 @@ function PartialExportDialog(): ReactNode {
   const planned = partial?.progress.planned ?? 0;
   return (
     <Dialog
+      closeLabel={localize('Close', '关闭')}
       open={partial !== null}
       onOpenChange={(open) => !open && answerPartialExport(false)}
-      title="The deck is still being written"
-      description={`Only ${written} of ${planned} slides are written so far. The download will have just those.`}
+      title={localize('The deck is still being written', '演示文稿仍在制作中')}
+      description={localize(`Only ${written} of ${planned} slides are written so far. The download will have just those.`, `计划制作 ${planned} 张幻灯片，已完成 ${written} 张。本次仅下载已完成的幻灯片。`)}
       footer={
         <>
           <Button variant="ghost" onClick={() => answerPartialExport(false)}>
-            Cancel
+            {localize('Cancel', '取消')}
           </Button>
           <Button variant="primary" onClick={() => answerPartialExport(true)}>
-            Download anyway
+            {localize('Download anyway', '仍然下载')}
           </Button>
         </>
       }
     >
-      <p className="text-xs text-fg-muted">Wait for the agent to finish to get every slide.</p>
+      <p className="text-xs text-fg-muted">{localize('Wait for the agent to finish to get every slide.', '等待 Agent 完成后，即可下载全部幻灯片。')}</p>
     </Dialog>
   );
 }
@@ -486,13 +494,14 @@ function ExportNotesDialog(): ReactNode {
   const close = (): void => useExportUi.getState().setNotes(null);
   return (
     <Dialog
+      closeLabel={localize('Close', '关闭')}
       open={result !== null}
       onOpenChange={(open) => !open && close()}
       title={result?.name ?? ''}
-      description={result && result.name !== 'Download failed' ? 'Downloaded. A few things were adjusted on the way:' : undefined}
+      description={result && !result.failed ? localize('Downloaded. A few things were adjusted on the way:', '下载完成。导出时做了以下调整：') : undefined}
       footer={
         <Button variant="primary" onClick={close}>
-          OK
+          {localize('OK', '确定')}
         </Button>
       }
     >

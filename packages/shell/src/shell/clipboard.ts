@@ -11,6 +11,7 @@
  */
 
 import { CLIPBOARD_ID, CLIPBOARD_TYPES, MAX_CLIPBOARD_BYTES } from '@open-artifact/protocol';
+import { t } from '../lib/i18n.ts';
 
 /** The browser's clipboard. */
 export interface ClipboardEnv {
@@ -41,8 +42,8 @@ export function createClipboardRelay(env: ClipboardEnv, answer: (id: string, err
     if (typeof id !== 'string' || !CLIPBOARD_ID.test(id) || pending.has(id)) return;
     const asked = Array.isArray(types) ? types.filter((type): type is string => typeof type === 'string') : [];
     const wanted = [...new Set(asked)].filter((type) => CLIPBOARD_TYPES.includes(type) && env.supports(type));
-    if (!wanted.length) return answer(id, 'This browser cannot copy that to the clipboard.');
-    if (pending.size >= MAX_PENDING) return answer(id, 'Still copying…');
+    if (!wanted.length) return answer(id, t('clipboardUnsupported'));
+    if (pending.size >= MAX_PENDING) return answer(id, t('clipboardPending'));
 
     let settle!: (items: Record<string, Blob> | null, error?: string) => void;
     const content = new Promise<Record<string, Blob>>((resolve, reject) => {
@@ -50,10 +51,10 @@ export function createClipboardRelay(env: ClipboardEnv, answer: (id: string, err
         clearTimeout(timer);
         pending.delete(id);
         if (items) resolve(items);
-        else reject(new Error(error || 'Nothing to copy.'));
+        else reject(new Error(error || t('clipboardEmpty')));
       };
     });
-    const timer = setTimeout(() => settle(null, 'The page did not send what to copy.'), timeoutMs);
+    const timer = setTimeout(() => settle(null, t('clipboardNoData')), timeoutMs);
     pending.set(id, { types: wanted, settle });
 
     const items = Object.fromEntries(wanted.map((type) => {
@@ -65,7 +66,7 @@ export function createClipboardRelay(env: ClipboardEnv, answer: (id: string, err
     env.write(items).then(
       () => answer(id),
       (error: unknown) => {
-        pending.get(id)?.settle(null, 'The clipboard was not written.');
+        pending.get(id)?.settle(null, t('clipboardFailed'));
         answer(id, error instanceof Error ? error.message : String(error));
       },
     );
@@ -75,22 +76,22 @@ export function createClipboardRelay(env: ClipboardEnv, answer: (id: string, err
     const write = typeof id === 'string' ? pending.get(id) : undefined;
     if (!write) return;
     if (typeof error === 'string') return write.settle(null, error);
-    if (!items || typeof items !== 'object') return write.settle(null, 'Nothing to copy.');
+    if (!items || typeof items !== 'object') return write.settle(null, t('clipboardEmpty'));
     const blobs: Record<string, Blob> = {};
     let size = 0;
     for (const type of write.types) {
       const blob = (items as Record<string, unknown>)[type];
-      if (!(blob instanceof Blob)) return write.settle(null, `No ${type} to copy.`);
+      if (!(blob instanceof Blob)) return write.settle(null, t('clipboardNoType', { type }));
       size += blob.size;
       // The type the browser checks is the one the item is filed under.
       blobs[type] = blob.type === type ? blob : new Blob([blob], { type });
     }
-    if (size > MAX_CLIPBOARD_BYTES) return write.settle(null, 'Too large to copy.');
+    if (size > MAX_CLIPBOARD_BYTES) return write.settle(null, t('clipboardTooLarge'));
     write.settle(blobs);
   }
 
   function clear(): void {
-    for (const write of [...pending.values()]) write.settle(null, 'The page went away.');
+    for (const write of [...pending.values()]) write.settle(null, t('clipboardPageGone'));
   }
 
   return { start, data, clear };

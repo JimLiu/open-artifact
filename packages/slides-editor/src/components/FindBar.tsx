@@ -5,6 +5,7 @@
  * `@open-artifact/editor-kit`.
  */
 
+import { localize } from '@open-artifact/runtime';
 import type { ReactNode } from 'react';
 import { FindBar as KitFindBar } from '@open-artifact/editor-kit/react';
 import { useFind } from '../services/find.ts';
@@ -20,7 +21,7 @@ export function FindBar(): ReactNode {
   const find = useFind.getState();
   return (
     <KitFindBar
-      label="Find in presentation"
+      label={localize('Find in presentation', '在演示文稿中查找')}
       // ⌘F while open focuses the field again.
       focusEvent="open-artifact-slides:focus-find"
       liveStatus

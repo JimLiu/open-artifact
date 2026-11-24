@@ -4,6 +4,7 @@
  * undo and redo) and the sync dot.
  */
 
+import { localize } from '@open-artifact/runtime';
 import { type ReactNode } from 'react';
 import { BookText, ChevronDown, History, Play, SlidersHorizontal } from 'lucide-react';
 import { ZOOM_PRESETS } from '@open-artifact/canvas-engine/camera';
@@ -27,26 +28,26 @@ function PresentMenu(): ReactNode {
   return (
     <ChromeMenu
       align="end"
-      tip={{ label: 'Present', shortcut: `${MOD}↵` }}
+      tip={{ label: localize('Present', '放映'), shortcut: `${MOD}↵` }}
       trigger={
-        <ChromeButton size="lg" square aria-label="Present" disabled={!hasSlides}>
+        <ChromeButton size="lg" square aria-label={localize('Present', '放映')} disabled={!hasSlides}>
           <Play {...ICON} />
         </ChromeButton>
       }
     >
       <ChromeMenuItem icon={<Play {...SMALL} />} shortcut={`${MOD}↵`} onSelect={() => present('current')}>
-        Present
+        {localize('Present', '放映')}
       </ChromeMenuItem>
       <ChromeMenuItem shortcut={`${SHIFT}${MOD}↵`} onSelect={() => present('start')}>
-        From the start
+        {localize('From the start', '从头放映')}
       </ChromeMenuItem>
       <ChromeMenuItem
         icon={<BookText {...SMALL} />}
         disabled={!hasNotes}
-        title={hasNotes ? undefined : 'No slide has speaker notes. Add some under View › Speaker notes.'}
+        title={hasNotes ? undefined : localize('No slide has speaker notes. Add some under View › Speaker notes.', '所有幻灯片均无演讲者备注。可在「视图 › 演讲者备注」中添加。')}
         onSelect={() => present('current', true)}
       >
-        Present with speaker notes
+        {localize('Present with speaker notes', '使用演讲者备注放映')}
       </ChromeMenuItem>
     </ChromeMenu>
   );
@@ -65,25 +66,25 @@ function ZoomMenu(): ReactNode {
   return (
     <ChromeMenu
       align="end"
-      tip={{ label: 'Zoom', shortcut: `${MOD}+ / ${MOD}− / ${MOD}0` }}
+      tip={{ label: localize('Zoom', '缩放'), shortcut: `${MOD}+ / ${MOD}− / ${MOD}0` }}
       trigger={
-        <ChromeButton aria-label="Zoom" size="lg" className="min-w-[68px] justify-between gap-0.5 pl-2 pr-1 tabular-nums">
+        <ChromeButton aria-label={localize('Zoom', '缩放')} size="lg" className="min-w-[68px] justify-between gap-0.5 pl-2 pr-1 tabular-nums">
           {percent}%
           <ChevronDown className="size-4 text-chrome-muted" strokeWidth={1.5} />
         </ChromeButton>
       }
     >
       <ChromeMenuItem shortcut={`${MOD}+`} closeOnClick={false} onSelect={() => zoomStep(1)}>
-        Zoom in
+        {localize('Zoom in', '放大')}
       </ChromeMenuItem>
       <ChromeMenuItem shortcut={`${MOD}−`} closeOnClick={false} onSelect={() => zoomStep(-1)}>
-        Zoom out
+        {localize('Zoom out', '缩小')}
       </ChromeMenuItem>
       <ChromeMenuItem checked={zoom === 'fit'} shortcut={`${MOD}0`} onSelect={() => setZoom('fit')}>
-        Fit the slide
+        {localize('Fit the slide', '适应幻灯片')}
       </ChromeMenuItem>
       <ChromeMenuSeparator />
-      {zoom !== 'fit' && preset === undefined ? <ChromeMenuLabel>Now {percent}%</ChromeMenuLabel> : null}
+      {zoom !== 'fit' && preset === undefined ? <ChromeMenuLabel>{localize('Now', '当前')} {percent}%</ChromeMenuLabel> : null}
       {ZOOM_PRESETS.map((z) => (
         <ChromeMenuItem key={z} checked={zoom === z} onSelect={() => setZoom(z)}>
           {z * 100}%
@@ -91,10 +92,10 @@ function ZoomMenu(): ReactNode {
       ))}
       <ChromeMenuSeparator />
       <ChromeMenuItem shortcut={`${MOD}Z`} disabled={!canUndo} closeOnClick={false} onSelect={undo}>
-        Undo
+        {localize('Undo', '撤销')}
       </ChromeMenuItem>
       <ChromeMenuItem shortcut={`${SHIFT}${MOD}Z`} disabled={!canRedo} closeOnClick={false} onSelect={redo}>
-        Redo
+        {localize('Redo', '重做')}
       </ChromeMenuItem>
     </ChromeMenu>
   );
@@ -106,7 +107,7 @@ function SyncDot(): ReactNode {
   if (save === 'readonly') return null;
   const offline = save === 'offline';
   const busy = save === 'saving' || save === 'dirty';
-  const label = offline ? 'Couldn’t sync — click to retry' : busy ? 'Syncing…' : 'All changes synced';
+  const label = offline ? localize('Couldn’t sync — click to retry', '同步失败，点击重试') : busy ? localize('Syncing…', '正在同步…') : localize('All changes synced', '所有更改均已同步');
   return (
     <Tip label={label}>
       <button
@@ -138,20 +139,20 @@ export function EndCard({ onStage }: EndCardProps): ReactNode {
   const showProperties = useView((s) => s.showProperties);
   const readOnly = useDeck((s) => s.readOnly);
   const historyAvailable = slideHistory.store(s => s.available);
-  const label = showProperties ? 'Hide the properties panel' : 'Show the properties panel';
+  const label = showProperties ? localize('Hide the properties panel', '隐藏属性面板') : localize('Show the properties panel', '显示属性面板');
   // In a Shell its Share panel's Export tab lists the formats and its bar shows the save state.
   const shellSaved = useShellDraw(session().shell, 'saved');
   return (
     <Card className="h-10 gap-1 px-1 py-px">
-      {!session().shell && historyAvailable ? <Tip label="Version history">
-        <ChromeButton size="lg" square aria-label="Version history" onClick={() => slideHistory.toggle(true)}><History {...ICON} /></ChromeButton>
+      {!session().shell && historyAvailable ? <Tip label={localize('Version history', '版本历史')}>
+        <ChromeButton size="lg" square aria-label={localize('Version history', '版本历史')} onClick={() => slideHistory.toggle(true)}><History {...ICON} /></ChromeButton>
       </Tip> : null}
       <PresentMenu />
       {!readOnly ? (
         <>
           <ChromeDivider />
-          <Tip label={onStage ? label : 'Open a slide to edit its properties'} shortcut={onStage ? `${MOD}\\` : undefined}>
-            <ChromeButton size="lg" square pressed={showProperties && onStage} disabled={!onStage} aria-label="Properties" onClick={() => useView.getState().toggle('showProperties')}>
+          <Tip label={onStage ? label : localize('Open a slide to edit its properties', '打开一张幻灯片以编辑属性')} shortcut={onStage ? `${MOD}\\` : undefined}>
+            <ChromeButton size="lg" square pressed={showProperties && onStage} disabled={!onStage} aria-label={localize('Properties', '属性')} onClick={() => useView.getState().toggle('showProperties')}>
               <SlidersHorizontal {...ICON} />
             </ChromeButton>
           </Tip>

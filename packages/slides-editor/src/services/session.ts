@@ -3,6 +3,7 @@
  * a host already did) and resolves the capabilities the editor uses.
  */
 
+import { localize } from '@open-artifact/runtime';
 import type { AgentCapability, ArtifactCapability, AssetsCapability, CommentsCapability, DownloadsCapability, RoomCapability, ShellConnection, Viewer } from '@open-artifact/runtime';
 import { connectHost, sessionSlot } from '@open-artifact/editor-kit';
 
@@ -34,7 +35,7 @@ export const maybeSession = slot.maybeSession;
 export async function startSession(): Promise<Session> {
   const { caps, viewer, abilities, shell } = await connectHost(['artifact', 'assets', 'agent', 'room', 'downloads', 'comments']);
   const { artifact, assets, agent, room, downloads, comments } = caps;
-  if (!artifact) throw new Error('This page could not reach its artifact. Open it again from your agent.');
+  if (!artifact) throw new Error(localize('This page could not reach its artifact. Open it again from your agent.', '此页面无法连接到演示文稿。请从 Agent 会话中重新打开。'));
   return slot.set({ artifact, assets, agent, room, downloads, comments, viewer, canEdit: abilities.canEdit, shell });
 }
 

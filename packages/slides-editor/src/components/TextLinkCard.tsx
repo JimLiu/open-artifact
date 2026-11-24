@@ -5,6 +5,7 @@
  * editing as it would from the text.
  */
 
+import { localize } from '@open-artifact/runtime';
 import { useEffect, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { LinkCard, toast } from '@open-artifact/ui';
@@ -58,9 +59,9 @@ function onLink(anchor: HTMLAnchorElement, command: 'createLink' | 'unlink', val
 async function copy(target: string): Promise<void> {
   try {
     await writeClipboardText(target, maybeSession()?.shell);
-    toast.add({ title: 'Copied link' });
+    toast.add({ title: localize('Copied link', '链接已复制') });
   } catch {
-    toast.add({ title: 'Could not copy link', description: target });
+    toast.add({ title: localize('Could not copy link', '无法复制链接'), description: target });
   }
 }
 

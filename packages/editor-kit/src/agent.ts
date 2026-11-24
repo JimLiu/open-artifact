@@ -4,6 +4,7 @@
  * Pure; the editor shows the message (a toast).
  */
 
+import { localize, uiLocale } from '@open-artifact/runtime';
 import type { AgentCapability, AgentSendResult, AgentStatus } from '@open-artifact/runtime';
 
 /** A message for the person. */
@@ -25,26 +26,17 @@ export function agentResultMessage(
 ): AgentResultMessage {
   switch (result.status) {
     case 'delivered':
-      return result.drafted ? { title: draftedText(agent?.name).sent } : { title: 'Sent to the agent' };
+      return result.drafted ? { title: draftedText(agent?.name).sent } : { title: localize('Sent to the agent', '已发送给 Agent') };
     case 'queued':
       if (agent?.wakesIdle === false) {
-        const name = agent.name || 'The agent';
-        return { title: `Queued for ${name}`, description: `${name} gets it on its next turn. If it is idle, send it a message there to start one.` };
+        const name = agent.name || localize('The agent', 'Agent');
+        return { title: localize(`Queued for ${name}`, `已加入 ${name} 的待处理队列`), description: localize(`${name} gets it on its next turn. If it is idle, send it a message there to start one.`, `${name} 会在下一轮处理。若它正空闲，可在对话中发送消息启动新一轮。`) };
       }
-      return { title: 'Queued for the agent', description: `It will see the request the next time it checks ${subject}.` };
+      return { title: localize('Queued for the agent', '已加入 Agent 的待处理队列'), description: localize(`It will see the request the next time it checks ${subject}.`, 'Agent 下次查看作品时会看到此请求。') };
     case 'staged':
-      return { title: 'Request prepared', description: 'Your agent will ask before acting on it.' };
+      return { title: localize('Request prepared', '请求已准备好'), description: localize('Your agent will ask before acting on it.', 'Agent 会在处理前向你确认。') };
     default:
-      return { title: 'Could not reach the agent', description: result.reason ?? 'Try again, or copy your request into the conversation.' };
-  }
-}
-
-/** Whether the page's language is Chinese (the Shell's rule: `zh*` → Simplified Chinese). */
-function chinese(): boolean {
-  try {
-    return /^zh\b/i.test(globalThis.navigator?.language ?? '');
-  } catch {
-    return false;
+      return { title: localize('Could not reach the agent', '无法联系 Agent'), description: result.reason ?? localize('Try again, or copy your request into the conversation.', '请重试，或将请求复制到对话中。') };
   }
 }
 
@@ -53,10 +45,10 @@ function chinese(): boolean {
  * says them: `sent` after sending, `via` for a thread or request that went that way (`label`: the same, as a label
  * of its own). English, or Simplified Chinese when the page's language is Chinese.
  */
-export function draftedText(agentName?: string | null, zh = chinese()): { sent: string; via: string; label: string } {
+export function draftedText(agentName?: string | null, zh = uiLocale() === 'zh-CN'): { sent: string; via: string; label: string } {
   const name = String(agentName ?? '').trim();
   return zh
-    ? { sent: `已放进 ${name || '智能体'} 的对话：到那里发出去。`, via: '在对话里，等你发出', label: '在对话里，等你发出' }
+    ? { sent: `已放进 ${name || 'Agent'} 的对话：到那里发出去。`, via: '在对话里，等你发出', label: '在对话里，等你发出' }
     : { sent: `It is in the ${name || 'agent'} conversation now: send it there.`, via: 'in the conversation, for you to send', label: 'In the conversation, for you to send' };
 }
 

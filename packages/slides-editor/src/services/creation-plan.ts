@@ -6,6 +6,8 @@
  */
 
 /** Tip timing, ms. */
+import { localize } from '@open-artifact/runtime';
+
 export interface TipTiming {
   tipInitialDelay: number;
   tipRotation: number;
@@ -29,14 +31,14 @@ export const CREATION_TIMING = {
 
 /** Tips shown while the agent writes (`{agent}` is the agent's name). */
 export const CREATION_TIPS: readonly string[] = [
-  'Double-click any text to edit it.',
-  'Comment on any slide, and {agent} can revise it.',
-  'Use @ in a comment to mention someone.',
-  'Drag an image from your computer onto a slide.',
-  'Every edit saves automatically.',
-  'People you share with see your changes live.',
-  'Drag a slide thumbnail to change the order.',
-  'Select anything on a slide to comment on it.',
+  localize('Double-click any text to edit it.', '双击任意文字即可编辑。'),
+  localize('Comment on any slide, and {agent} can revise it.', '在幻灯片上发表评论，{agent} 可以根据评论修改。'),
+  localize('Use @ in a comment to mention someone.', '在评论中输入 @ 可以提及他人。'),
+  localize('Drag an image from your computer onto a slide.', '可以将本机图片拖到幻灯片上。'),
+  localize('Every edit saves automatically.', '所有编辑都会自动保存。'),
+  localize('People you share with see your changes live.', '共享对象可以实时看到你的更改。'),
+  localize('Drag a slide thumbnail to change the order.', '拖动幻灯片缩略图可以调整顺序。'),
+  localize('Select anything on a slide to comment on it.', '选中幻灯片上的元素即可发表评论。'),
 ];
 
 /** Ids listed in the index order with no file yet (planned, not written), each once. */
@@ -64,7 +66,7 @@ export function nextTipDelay(elapsed: number, timing: TipTiming = CREATION_TIMIN
 
 /** The text of tip `index` (-1: the "writing" line). */
 export function tipText(index: number, agent: string): string {
-  if (index < 0 || CREATION_TIPS.length === 0) return `${agent} is writing…`;
+  if (index < 0 || CREATION_TIPS.length === 0) return localize(`${agent} is writing…`, `${agent} 正在制作幻灯片…`);
   return CREATION_TIPS[index % CREATION_TIPS.length]!.replace('{agent}', agent);
 }
 
@@ -88,11 +90,11 @@ export interface TurnSummary {
 export function turnAnnouncement(summary: TurnSummary): string | null {
   const plural = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`;
   if (summary.creating && summary.after > 0 && (summary.touched > 0 || summary.after !== summary.before)) {
-    return `Presentation ready, ${plural(summary.after, 'slide', 'slides')}`;
+    return localize(`Presentation ready, ${plural(summary.after, 'slide', 'slides')}`, `演示文稿已就绪，共 ${summary.after} 张幻灯片`);
   }
-  if (summary.touched > 0) return `${plural(summary.touched, 'slide', 'slides')} updated`;
+  if (summary.touched > 0) return localize(`${plural(summary.touched, 'slide', 'slides')} updated`, `已更新 ${summary.touched} 张幻灯片`);
   if (summary.after !== summary.before) {
-    return summary.after === 0 ? 'Presentation updated, no slides left' : `Presentation updated, ${plural(summary.after, 'slide', 'slides')} in all`;
+    return summary.after === 0 ? localize('Presentation updated, no slides left', '演示文稿已更新，当前没有幻灯片') : localize(`Presentation updated, ${plural(summary.after, 'slide', 'slides')} in all`, `演示文稿已更新，共 ${summary.after} 张幻灯片`);
   }
   return null;
 }

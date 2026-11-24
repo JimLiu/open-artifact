@@ -27,6 +27,23 @@ export const LAYOUT_NAMES: Record<LayoutId, string> = {
   closing: 'Closing',
 };
 
+const LAYOUT_NAMES_ZH: Record<LayoutId, string> = {
+  blank: '空白',
+  title: '标题页',
+  section: '节标题',
+  'title-body': '标题和正文',
+  bullets: '项目符号列表',
+  'two-col': '双栏',
+  table: '表格',
+  quote: '引用',
+  'image-caption': '图片和说明',
+  closing: '结束页',
+};
+
+export function layoutName(id: LayoutId, locale: string): string {
+  return (locale === 'zh-CN' ? LAYOUT_NAMES_ZH : LAYOUT_NAMES)[id];
+}
+
 /** The text style presets of the Text style menu. */
 export const TEXT_STYLE_IDS = ['display', 'h1', 'h2', 'h3', 'lead', 'eyebrow', 'body', 'caption'] as const;
 export type TextStyleId = (typeof TEXT_STYLE_IDS)[number];
@@ -42,6 +59,21 @@ export const TEXT_STYLE_NAMES: Record<TextStyleId, string> = {
   body: 'Body',
   caption: 'Caption',
 };
+
+const TEXT_STYLE_NAMES_ZH: Record<TextStyleId, string> = {
+  display: '大标题',
+  h1: '一级标题',
+  h2: '二级标题',
+  h3: '三级标题',
+  lead: '导语',
+  eyebrow: '眉题',
+  body: '正文',
+  caption: '说明文字',
+};
+
+export function textStyleName(id: TextStyleId, locale: string): string {
+  return (locale === 'zh-CN' ? TEXT_STYLE_NAMES_ZH : TEXT_STYLE_NAMES)[id];
+}
 
 /** One text style: the tag it writes and its type settings. */
 export interface TextStyle {

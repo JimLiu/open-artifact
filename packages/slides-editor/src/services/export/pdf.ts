@@ -5,6 +5,7 @@
  * notes, when asked for, follow each slide on pages of their own.
  */
 
+import { localize } from '@open-artifact/runtime';
 import { SLIDE_HEIGHT, SLIDE_WIDTH, slideTitle } from '@open-artifact/slides-core';
 import { buildPdf, type PdfPage, type PdfTextRun } from '@open-artifact/wasm-export';
 import { linkAreas, mountSlide, slidePicture, textLines } from '../capture.ts';
@@ -53,7 +54,7 @@ export interface PdfOptions {
 /** A canvas as a JPEG. */
 async function jpegOf(canvas: HTMLCanvasElement, quality: number): Promise<Blob> {
   const blob = await canvasBlob(canvas, 'image/jpeg', quality);
-  if (!blob) throw new Error('The browser would not draw the notes page.');
+  if (!blob) throw new Error(localize('The browser would not draw the notes page.', '浏览器无法绘制备注页。'));
   return blob;
 }
 
@@ -182,7 +183,7 @@ export async function exportPdf(job: ExportJob, options: PdfOptions): Promise<Bl
     job.progress(index + 1);
     await breathe();
   }
-  if (pages.length === 0) throw new Error('There are no slides to export.');
+  if (pages.length === 0) throw new Error(localize('There are no slides to export.', '没有可导出的幻灯片。'));
   // Assembled in the export Worker: the pictures travel there as Blobs.
   const pdf = await buildPdf(pages, { title: job.title });
   return new Blob([pdf as BlobPart], { type: 'application/pdf' });

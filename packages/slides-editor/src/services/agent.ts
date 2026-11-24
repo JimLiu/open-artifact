@@ -25,7 +25,7 @@ import {
   validateViewContext,
   type SlidesViewContext,
 } from '@open-artifact/slides-core';
-import { fenceUntrusted, type AgentSendResult, type AgentStatus, type Peer } from '@open-artifact/runtime';
+import { localize, fenceUntrusted, type AgentSendResult, type AgentStatus, type Peer } from '@open-artifact/runtime';
 import { agentResultMessage, createPresence, sendFailure, watchAgentStatus, type PeerView as KitPeerView } from '@open-artifact/editor-kit';
 import { toast } from '@open-artifact/ui';
 import { create } from 'zustand';
@@ -186,7 +186,7 @@ function followOnRoom(peers: readonly Peer[], self: string | null): void {
   useAgent.setState({ followers: outcome.followers, following, followingLead, leading, dismissedLead });
   // Someone asked everyone to follow them.
   const leader = outcome.joinedLeader ? views.find((p) => p.id === outcome.joinedLeader) : undefined;
-  if (leader) toast.add({ title: `Following ${leader.name}`, description: 'They asked everyone to follow them. Press Esc to stop.' });
+  if (leader) toast.add({ title: localize(`Following ${leader.name}`, `正在跟随 ${leader.name}`), description: localize('They asked everyone to follow them. Press Esc to stop.', '对方邀请所有成员跟随。按 Esc 停止跟随。') });
   const target = following && following !== FOLLOW_AGENT ? views.find((p) => p.id === following) : undefined;
   if (target) followTo(target);
 }
@@ -248,7 +248,7 @@ export async function sendToAgent(message: string): Promise<AgentSendResult | nu
     parts.push(`Current slide: ${context.slideId} (${context.slideIndex} of ${context.slideCount})`);
   }
   try {
-    const result = await agent.send({ title: 'Ask agent', text: parts.join('\n\n'), context: { view: context as unknown as Record<string, unknown> } });
+    const result = await agent.send({ title: localize('Ask agent', '询问 Agent'), text: parts.join('\n\n'), context: { view: context as unknown as Record<string, unknown> } });
     reportResult(result);
     return result;
   } catch (error) {
@@ -273,7 +273,7 @@ export async function askAgentToFix(slideIds: readonly string[]): Promise<void> 
   const files = errors.map((e) => `project/slides/${e.slide}.html`).join(', ');
   const text = [`Fix the errors that hold ${files} read-only.`, fenceUntrusted(buildFixRequest(errors), { label: 'slide errors' })].join('\n\n');
   try {
-    reportResult(await agent.send({ title: 'Ask agent to fix', text, context: { slides: errors.map((e) => e.slide) } }));
+    reportResult(await agent.send({ title: localize('Ask agent to fix', '请 Agent 修复'), text, context: { slides: errors.map((e) => e.slide) } }));
   } catch (error) {
     reportResult(sendFailure(error));
   }

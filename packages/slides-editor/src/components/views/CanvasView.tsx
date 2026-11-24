@@ -14,6 +14,7 @@
  * (or Escape) returns to the canvas where it was.
  */
 
+import { localize } from '@open-artifact/runtime';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { ArrowLeft, Maximize, Minus, Plus } from 'lucide-react';
 import { SLIDE_HEIGHT, SLIDE_WIDTH, slideTitle } from '@open-artifact/slides-core';
@@ -208,7 +209,7 @@ function DomBoard(): ReactNode {
     <div
       ref={viewport}
       role="listbox"
-      aria-label="Canvas"
+      aria-label={localize('Canvas', '画布')}
       aria-multiselectable
       data-open-artifact-thumbs
       className={cn('relative min-h-0 flex-1 touch-none overflow-hidden bg-stage', !drag && 'cursor-grab active:cursor-grabbing')}
@@ -216,10 +217,10 @@ function DomBoard(): ReactNode {
     >
       {order.length === 0 ? (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-sm text-chrome-muted">
-          <p>No slides yet.</p>
+          <p>{localize('No slides yet.', '还没有幻灯片。')}</p>
           {editable ? (
             <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => addSlide('blank', null)}>
-              Add slide
+              {localize('Add slide', '添加幻灯片')}
             </Button>
           ) : null}
         </div>
@@ -231,7 +232,7 @@ function DomBoard(): ReactNode {
             return (
               <section
                 key={group.section?.key ?? '-'}
-                aria-label={group.section?.description || `Section ${row + 1}`}
+                aria-label={group.section?.description || localize(`Section ${row + 1}`, `第 ${row + 1} 节`)}
                 className={cn(group.section && sectionDrag?.keys.includes(group.section.key) && 'opacity-40')}
               >
                 {/* The row's extent, for section drags (its children are placed absolutely). */}
@@ -258,7 +259,7 @@ function DomBoard(): ReactNode {
                     )}
                     style={{ left: LABEL_W, top, width: TILE_W, height: TILE_H - CAPTION_H }}
                   >
-                    An empty section. Drop slides here.
+                    {localize('An empty section. Drop slides here.', '这是一个空节，可将幻灯片拖到这里。')}
                   </div>
                 ) : (
                   group.ids.map((id, i) => {
@@ -293,21 +294,21 @@ function DomBoard(): ReactNode {
       ) : null}
 
       <Card data-canvas-controls className="absolute bottom-3 right-3 h-9 px-1 py-px" onPointerDown={(event) => event.stopPropagation()}>
-        <Tip label="Zoom out">
-          <ChromeButton square aria-label="Zoom out" onClick={() => zoomAt(1 / 1.25, center().x, center().y)}>
+        <Tip label={localize('Zoom out', '缩小')}>
+          <ChromeButton square aria-label={localize('Zoom out', '缩小')} onClick={() => zoomAt(1 / 1.25, center().x, center().y)}>
             <Minus className="size-4" strokeWidth={1.5} />
           </ChromeButton>
         </Tip>
         <span className="min-w-11 text-center text-[13px] tabular-nums text-chrome-secondary">{camera ? `${Math.round(camera.scale * 100)}%` : ''}</span>
-        <Tip label="Zoom in">
-          <ChromeButton square aria-label="Zoom in" onClick={() => zoomAt(1.25, center().x, center().y)}>
+        <Tip label={localize('Zoom in', '放大')}>
+          <ChromeButton square aria-label={localize('Zoom in', '放大')} onClick={() => zoomAt(1.25, center().x, center().y)}>
             <Plus className="size-4" strokeWidth={1.5} />
           </ChromeButton>
         </Tip>
         <ChromeDivider />
         <ChromeButton className="pl-1.5 pr-2" onClick={fit}>
           <Maximize className="size-4" strokeWidth={1.5} />
-          Fit all slides
+          {localize('Fit all slides', '显示全部幻灯片')}
         </ChromeButton>
       </Card>
     </div>
@@ -328,7 +329,7 @@ function Neighbour({ id, n }: { id: string; n: number }): ReactNode {
   return (
     <button
       type="button"
-      aria-label={`Edit slide ${n}`}
+      aria-label={localize(`Edit slide ${n}`, `编辑第 ${n} 张幻灯片`)}
       className="group w-full text-left"
       onClick={() => useView.getState().showSlide(id)}
     >
@@ -371,15 +372,15 @@ function CanvasEdit(): ReactNode {
         <Stage />
         <div className="pointer-events-none absolute inset-x-0 top-3 z-10 flex justify-center">
           <Card className="h-9 px-1 py-px">
-            <Tip label="Back to canvas" shortcut="Esc">
+            <Tip label={localize('Back to canvas', '返回画布')} shortcut="Esc">
               <ChromeButton className="pl-1.5 pr-2" onClick={() => useView.getState().editOnCanvas(null)}>
                 <ArrowLeft className="size-4" strokeWidth={1.5} />
-                Canvas
+                {localize('Canvas', '画布')}
               </ChromeButton>
             </Tip>
             <ChromeDivider />
             <span className="px-2 text-[13px] tabular-nums text-chrome-secondary">
-              Slide {at + 1} of {order.length}
+              {localize(`Slide ${at + 1} of ${order.length}`, `第 ${at + 1} 张幻灯片，共 ${order.length} 张`)}
             </span>
           </Card>
         </div>

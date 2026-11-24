@@ -7,6 +7,7 @@
  * What a type supplies is only its threads and anchors (the controller); the panel is the same everywhere.
  */
 
+import { localize } from '@open-artifact/runtime';
 import { Menu as BaseMenu } from '@base-ui/react/menu';
 import { useId, useState, type ReactNode } from 'react';
 import type { CommentThread } from '@open-artifact/runtime';
@@ -59,7 +60,7 @@ function Panel<A>({ comments, agent, top, hint }: Required<Omit<AllCommentsProps
 
   return (
     <section
-      aria-label="All comments"
+      aria-label={localize('All comments', '全部评论')}
       data-comments-panel=""
       className={cn(panelClass(true), 'fixed flex flex-col text-body text-primary')}
       style={{
@@ -83,27 +84,27 @@ function Panel<A>({ comments, agent, top, hint }: Required<Omit<AllCommentsProps
       }}
     >
       <div className="flex shrink-0 items-center gap-xs" style={{ padding: '10px 10px 6px 16px' }}>
-        <span className="min-w-0 flex-1 truncate font-medium">All comments</span>
+        <span className="min-w-0 flex-1 truncate font-medium">{localize('All comments', '全部评论')}</span>
         <FilterMenu showResolved={showResolved} onShowResolved={(next) => comments.store.getState().setShowResolved(next)} />
-        <Button variant="ghost" iconOnly aria-label="Close" icon={<Icon name="X" size="sm" />} onClick={close} />
+        <Button variant="ghost" iconOnly aria-label={localize('Close', '关闭')} icon={<Icon name="X" size="sm" />} onClick={close} />
       </div>
       <SendAll comments={comments} agent={agent} threads={all} />
       <div className="flex min-h-0 flex-col gap-xs overflow-y-auto [--cds-comment-card-bg:var(--cds-surface-2)]" style={{ padding: '0 12px 12px' }}>
         {all.length === 0 ? (
           <div data-comments-empty="" className="flex flex-1 flex-col items-center justify-center gap-xs px-lg text-center" style={{ paddingBlock: 'var(--cds-pad-xl)' }}>
-            <span className="text-body font-medium text-secondary">No comments yet</span>
+            <span className="text-body font-medium text-secondary">{localize('No comments yet', '还没有评论')}</span>
             <span className="text-caption text-muted">
-              {comments.canComment() ? (hint ?? 'Press the comment button, then click anywhere on the artifact to add one.') : 'Only people with comment access can add one.'}
+              {comments.canComment() ? (hint ?? localize('Press the comment button, then click anywhere on the artifact to add one.', '点击评论按钮，再点击作品中要评论的位置。')) : localize('Only people with comment access can add one.', '拥有评论权限的成员可以发表评论。')}
             </span>
           </div>
         ) : shown.length === 0 ? (
           <span data-comments-filtered-empty="" className="px-lg text-center text-caption text-muted" style={{ paddingBlock: 'var(--cds-pad-xl)' }}>
-            No open comments.
+            {localize('No open comments.', '没有待解决的评论。')}
             {resolved > 0 ? (
               <>
                 {' '}
                 <button type="button" className="cds-text-link cds-text-link-underline inline text-inherit" onClick={() => comments.store.getState().setShowResolved(true)}>
-                  {`Show ${resolved} resolved`}
+                  {localize(`Show ${resolved} resolved`, `显示 ${resolved} 条已解决的评论`)}
                 </button>
               </>
             ) : null}
@@ -131,7 +132,7 @@ function FilterMenu({ showResolved, onShowResolved }: { showResolved: boolean; o
   return (
     <Menu.Root open={open} onOpenChange={setOpen} modal={false}>
       <Tooltip content="Filter" disabled={open}>
-        <Menu.Trigger render={<Button variant="ghost" iconOnly tooltip={false} aria-label="Filter" icon={<FilterGlyph />} />} />
+        <Menu.Trigger render={<Button variant="ghost" iconOnly tooltip={false} aria-label={localize('Filter', '筛选')} icon={<FilterGlyph />} />} />
       </Tooltip>
       <MenuPopup align="end">
         <BaseMenu.CheckboxItem
@@ -141,7 +142,7 @@ function FilterMenu({ showResolved, onShowResolved }: { showResolved: boolean; o
           className={cn(MENU_ITEM, 'group/cb text-primary data-[highlighted]:bg-fill-ghost-hover')}
         >
           <CheckboxMark />
-          <span className="min-w-0 flex-1 truncate">Show resolved</span>
+          <span className="min-w-0 flex-1 truncate">{localize('Show resolved', '显示已解决的评论')}</span>
         </BaseMenu.CheckboxItem>
       </MenuPopup>
     </Menu.Root>
@@ -159,7 +160,7 @@ function SendAll<A>({ comments, agent, threads }: { comments: CommentsController
   const open = threads.filter((t) => t.status === 'open' && t.messages.some((m) => m.author.kind === 'person'));
   if (!comments.canSendToAgent() || !agent.available || open.length === 0) return null;
   const nothingNew = !open.some((t) => comments.canSendThread(t));
-  const reason = nothingNew ? (justSent ? `These comments were just sent to ${agent.name}.` : `${agent.name} has every comment.`) : undefined;
+  const reason = nothingNew ? (justSent ? localize(`These comments were just sent to ${agent.name}.`, `这些评论刚刚发送给了 ${agent.name}。`) : localize(`${agent.name} has every comment.`, `${agent.name} 已收到全部评论。`)) : undefined;
   return (
     <div className="flex shrink-0 flex-col items-end gap-sm" style={{ padding: '0 12px 8px' }}>
       <Tooltip content={reason} side="bottom">
@@ -179,7 +180,7 @@ function SendAll<A>({ comments, agent, threads }: { comments: CommentsController
               .finally(() => setSending(false));
           }}
         >
-          {`Send all to ${agent.name}`}
+          {localize(`Send all to ${agent.name}`, `全部发送给 ${agent.name}`)}
         </Button>
       </Tooltip>
     </div>
@@ -200,10 +201,10 @@ function PanelThread<A>({ comments, agent, thread, current }: { comments: Commen
   const replies = thread.messages.length - 1;
   const resolved = thread.status === 'resolved';
   const commenting = comments.canComment();
-  const author = first.author.kind === 'agent' ? first.author.name || agent.name : first.author.name || 'Someone';
+  const author = first.author.kind === 'agent' ? first.author.name || agent.name : first.author.name || localize('Someone', '某位成员');
   const items: MenuItemSpec[] = [
-    ...(resolved && commenting ? [{ label: 'Reopen', icon: 'Comment' as const, onSelect: () => void comments.resolve(thread.id, false) }] : []),
-    ...(comments.canRemove() ? [{ label: 'Delete thread', icon: 'Trash' as const, variant: 'danger' as const, onSelect: () => setConfirming(true) }] : []),
+    ...(resolved && commenting ? [{ label: localize('Reopen', '重新打开'), icon: 'Comment' as const, onSelect: () => void comments.resolve(thread.id, false) }] : []),
+    ...(comments.canRemove() ? [{ label: localize('Delete thread', '删除评论串'), icon: 'Trash' as const, variant: 'danger' as const, onSelect: () => setConfirming(true) }] : []),
   ];
 
   return (
@@ -215,11 +216,11 @@ function PanelThread<A>({ comments, agent, thread, current }: { comments: Commen
         timestamp={
           <>
             {commentAgo(first.at)}
-            {resolved && ' · Resolved'}
+            {resolved && localize(' · Resolved', '· 已解决')}
             {thread.agent ? (
               <span
                 role="img"
-                aria-label={`Sent to ${agent.name}`}
+                aria-label={localize(`Sent to ${agent.name}`, `已发送给 ${agent.name}`)}
                 className="inline-flex"
                 style={{ width: 18, height: 18, marginInlineStart: 4, verticalAlign: 'middle', color: 'var(--cds-fill-brand)' }}
               >

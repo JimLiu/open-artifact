@@ -6,6 +6,7 @@
  * a label moves the section (or the selected sections) between rows.
  */
 
+import { localize } from '@open-artifact/runtime';
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { Plus } from 'lucide-react';
 import { Button, cn } from '@open-artifact/ui';
@@ -65,10 +66,10 @@ export function GridView(): ReactNode {
     if (writing) return <CreationView />;
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-3 bg-stage text-sm text-chrome-muted">
-        <p>No slides yet.</p>
+        <p>{localize('No slides yet.', '还没有幻灯片。')}</p>
         {editable ? (
           <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => addSlide('blank', null)}>
-            Add slide
+            {localize('Add slide', '添加幻灯片')}
           </Button>
         ) : null}
       </div>
@@ -86,7 +87,7 @@ export function GridView(): ReactNode {
     <div
       ref={scroller}
       role="listbox"
-      aria-label="Slides"
+      aria-label={localize('Slides', '幻灯片')}
       aria-multiselectable
       data-open-artifact-grid-columns={columns}
       data-section-rows
@@ -124,7 +125,7 @@ export function GridView(): ReactNode {
             data-section-row={row}
             data-section-key={group.section?.key ?? ''}
             className={cn('relative mb-8', lifted && 'opacity-40')}
-            aria-label={group.section?.description || `Section ${row + 1}`}
+            aria-label={group.section?.description || localize(`Section ${row + 1}`, `第 ${row + 1} 节`)}
           >
             {sectionDrag?.gap === row ? <RowDropLine /> : null}
             {showLabel ? (
@@ -138,7 +139,7 @@ export function GridView(): ReactNode {
                   drag?.section === group.section?.key && 'border-accent bg-accent-soft text-accent',
                 )}
               >
-                An empty section. Drop slides here.
+                {localize('An empty section. Drop slides here.', '这是一个空节，可将幻灯片拖到这里。')}
               </div>
             ) : (
               <div className="grid" style={{ gridTemplateColumns: `repeat(${columns}, ${tile}px)`, columnGap: GAP, rowGap: GAP }}>
@@ -180,7 +181,7 @@ export function GridView(): ReactNode {
       ) : null}
       {editable ? (
         <Button variant="ghost" icon={<Plus className="size-4" />} onClick={() => addSlide('blank', order.at(-1) ?? null)}>
-          Add slide
+          {localize('Add slide', '添加幻灯片')}
         </Button>
       ) : null}
     </div>

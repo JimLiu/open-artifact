@@ -8,6 +8,7 @@
 
 
 
+import { localize } from '@open-artifact/runtime';
 import type { NormalizedTokens } from '@open-artifact/design-system-core';
 import { familyList, parseColor } from '@open-artifact/slides-core';
 import { contrast, hexOf, isChromatic, isDark, lightness, statusBand, type StatusMeaning } from './color.ts';
@@ -52,23 +53,23 @@ export const COLOR_ROLES: readonly ColorRole[] = [
 
 /** Human names of the roles. */
 export const ROLE_LABELS: Record<ColorRole, string> = {
-  background: 'Background',
-  surface: 'Surface',
-  text: 'Text',
-  muted: 'Secondary text',
-  border: 'Lines',
-  accent: 'Accent',
-  'accent-soft': 'Accent tint',
-  'on-accent': 'Text on accent',
-  inverse: 'Inverse ground',
-  'on-inverse': 'Text on inverse',
-  'on-inverse-muted': 'Secondary on inverse',
-  'inverse-accent': 'Accent on inverse',
-  success: 'Success',
-  warning: 'Warning',
-  danger: 'Error',
-  info: 'Info',
-  other: 'Other',
+  background: localize('Background', '背景'),
+  surface: localize('Surface', '表面'),
+  text: localize('Text', '文本'),
+  muted: localize('Secondary text', '次要文字'),
+  border: localize('Lines', '线条'),
+  accent: localize('Accent', '强调色'),
+  'accent-soft': localize('Accent tint', '浅强调色'),
+  'on-accent': localize('Text on accent', '强调色上的文字'),
+  inverse: localize('Inverse ground', '反色背景'),
+  'on-inverse': localize('Text on inverse', '反色背景上的文字'),
+  'on-inverse-muted': localize('Secondary on inverse', '反色背景上的次要文字'),
+  'inverse-accent': localize('Accent on inverse', '反色背景上的强调色'),
+  success: localize('Success', '成功'),
+  warning: localize('Warning', '警告'),
+  danger: localize('Error', '错误'),
+  info: localize('Info', '信息'),
+  other: localize('Other', '其他'),
 };
 
 /** A theme colour with its role and how good a fit it is (0 best). */
@@ -232,7 +233,7 @@ function systemFamilies(tokens: NormalizedTokens): { heading?: LookFamily; body?
 
 /** Analyses a system's tokens: its themes (up to {@link MAX_THEMES}) with colour roles, and its typefaces. */
 export function analyzeSystem(key: string, title: string, tokens: NormalizedTokens): AnalyzedSystem {
-  const ids = tokens.themes.length ? tokens.themes.slice(0, MAX_THEMES) : [{ id: '', name: 'Default' }];
+  const ids = tokens.themes.length ? tokens.themes.slice(0, MAX_THEMES) : [{ id: '', name: localize('Default', '默认') }];
   const themes: SystemTheme[] = [];
   for (const theme of ids) {
     const list = tokens.colors

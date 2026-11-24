@@ -7,11 +7,11 @@
  * {@link connectHost}. Pure (no DOM until called).
  */
 
-import { connectShell, createPageProvider, installRuntime, type CapabilityMap, type CapabilityName, type ShellConnection, type Viewer } from '@open-artifact/runtime';
+import { localize, connectShell, createPageProvider, installRuntime, type CapabilityMap, type CapabilityName, type ShellConnection, type Viewer } from '@open-artifact/runtime';
 import { roleAbilities, type RoleAbilities } from './roles.ts';
 
 /** The viewer a host that names no one gets: reads only. */
-export const GUEST_VIEWER: Readonly<Viewer> = Object.freeze({ id: 'viewer', name: 'Viewer', role: 'viewer' });
+export const GUEST_VIEWER: Readonly<Viewer> = Object.freeze({ id: 'viewer', name: localize('Viewer', '查看者'), role: 'viewer' });
 
 /** The named capabilities; a missing one is `null`. */
 export type HostCapabilities<N extends CapabilityName> = { [K in N]: CapabilityMap[K] | null };
@@ -72,7 +72,7 @@ export function sessionSlot<S>(): SessionSlot<S> {
   let current: S | null = null;
   return {
     session() {
-      if (current === null) throw new Error('The session has not started.');
+      if (current === null) throw new Error(localize('The session has not started.', '会话尚未开始。'));
       return current;
     },
     maybeSession: () => current,

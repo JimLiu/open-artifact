@@ -13,6 +13,7 @@
  * left edge; the width and the tab are remembered per browser.
  */
 
+import { localize } from '@open-artifact/runtime';
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react';
 import { isTextual, setTransition, TRANSITIONS, type SlideNode, type Transition } from '@open-artifact/slides-core';
 import { Note, Row, Section, Segmented, SelectInput } from './kit.tsx';
@@ -103,12 +104,12 @@ function usePanelWidth(): { width: number; handle: ReactNode } {
     <div
       role="separator"
       aria-orientation="vertical"
-      aria-label="Resize the properties panel"
+      aria-label={localize('Resize the properties panel', '调整属性面板大小')}
       aria-valuenow={width}
       aria-valuemin={MIN_WIDTH}
       aria-valuemax={maxWidth()}
       tabIndex={0}
-      title="Drag to resize. Double-click to reset."
+      title={localize('Drag to resize. Double-click to reset.', '拖动调整大小，双击恢复默认值。')}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
@@ -127,12 +128,12 @@ function usePanelWidth(): { width: number; handle: ReactNode } {
 /* Panel                                                                       */
 /* -------------------------------------------------------------------------- */
 
-const TRANSITION_LABELS: Record<Transition | 'none', string> = { none: 'None', fade: 'Fade', push: 'Push', magic: 'Magic move' };
+const TRANSITION_LABELS: Record<Transition | 'none', string> = { none: localize('None', '无'), fade: localize('Fade', '淡入淡出'), push: localize('Push', '推入'), magic: localize('Magic move', '神奇移动') };
 
-const TRANSITION_TIP = 'How this slide leaves for the next one in Present';
+const TRANSITION_TIP = localize('How this slide leaves for the next one in Present', '放映时从此幻灯片切换到下一张的效果');
 
 const MAGIC_MOVE_NOTE =
-  'Magic move animates elements this slide shares with the next one into their new place. Duplicate the slide, then move or resize — duplicates keep the element identity that pairs them up.';
+  localize('Magic move animates elements this slide shares with the next one into their new place. Duplicate the slide, then move or resize — duplicates keep the element identity that pairs them up.', '「神奇移动」会把两张幻灯片中相同的元素平滑过渡到新位置。先复制此幻灯片，再移动元素或调整其大小。副本会保留用于匹配的元素标识。');
 
 /* -------------------------------------------------------------------------- */
 /* Tab                                                                         */
@@ -173,7 +174,7 @@ export function PropertiesPanel(): ReactNode {
 
   let body: ReactNode = null;
   if (readOnly) {
-    body = <Note className="py-4">This presentation is read-only here, so its properties can’t be edited.</Note>;
+    body = <Note className="py-4">{localize('This presentation is read-only here, so its properties can’t be edited.', '此演示文稿为只读，无法编辑属性。')}</Note>;
   } else if (slide && target && slideId) {
     body =
       nodes.length === 0 ? (
@@ -189,18 +190,18 @@ export function PropertiesPanel(): ReactNode {
   return (
     <aside
       data-open-artifact-properties
-      aria-label="Properties"
+      aria-label={localize('Properties', '属性')}
       style={{ width }}
       className="relative flex h-full shrink-0 flex-col border-l border-chrome-sep bg-chrome text-chrome-fg"
     >
       {handle}
       <div className="shrink-0 border-b border-chrome-sep px-3 py-2">
         <Segmented<PanelTab>
-          aria-label="Panel"
+          aria-label={localize('Panel', '面板')}
           value={tab}
           options={[
-            { value: 'properties', label: 'Properties' },
-            { value: 'theme', label: 'Theme' },
+            { value: 'properties', label: localize('Properties', '属性') },
+            { value: 'theme', label: localize('Theme', '主题') },
           ]}
           onChange={setTab}
         />
@@ -215,18 +216,18 @@ function SlideSections({ target }: { target: Target }): ReactNode {
   const { slide } = target;
   return (
     <>
-      <Section title="Slide">
-        <Row label="Transition" tip={TRANSITION_TIP}>
+      <Section title={localize('Slide', '幻灯片')}>
+        <Row label={localize('Transition', '切换效果')} tip={TRANSITION_TIP}>
           <SelectInput<Transition | 'none'>
-            aria-label="Transition"
+            aria-label={localize('Transition', '切换效果')}
             title={TRANSITION_TIP}
             value={slide.transition ?? 'none'}
             options={(['none', ...TRANSITIONS] as const).map((t) => ({ value: t, label: TRANSITION_LABELS[t] }))}
-            onChange={(value) => changeCurrent('Transition', (s) => setTransition(s, value === 'none' ? undefined : value))}
+            onChange={(value) => changeCurrent(localize('Transition', '切换效果'), (s) => setTransition(s, value === 'none' ? undefined : value))}
           />
         </Row>
       </Section>
-      <AppearanceSection target={target} fillLabel="Background" opacity={false} radius={false} border={false} />
+      <AppearanceSection target={target} fillLabel={localize('Background', '背景')} opacity={false} radius={false} border={false} />
       <Note className="pt-3">{MAGIC_MOVE_NOTE}</Note>
     </>
   );

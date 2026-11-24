@@ -4,6 +4,7 @@
  * editor renders it while find is open and passes its find store's state.
  */
 
+import { localize } from '@open-artifact/runtime';
 import { ChevronDown, ChevronUp, Search, X } from 'lucide-react';
 import { useEffect, useRef, type ReactNode } from 'react';
 import { Card, ChromeButton, Tip } from './chrome.tsx';
@@ -33,7 +34,7 @@ export interface FindBarProps {
   liveStatus?: boolean;
 }
 
-export function FindBar({ label, query, count, index, onQuery, onStep, onClose, focusEvent, className, closeLabel = 'Close', f3, stopEscape, liveStatus }: FindBarProps): ReactNode {
+export function FindBar({ label, query, count, index, onQuery, onStep, onClose, focusEvent, className, closeLabel = localize('Close', '关闭'), f3, stopEscape, liveStatus }: FindBarProps): ReactNode {
   const input = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -46,7 +47,7 @@ export function FindBar({ label, query, count, index, onQuery, onStep, onClose, 
     return () => window.removeEventListener(focusEvent, focus);
   }, [focusEvent]);
 
-  const status = !query.trim() ? '' : count === 0 ? 'No results' : `${index + 1} of ${count}`;
+  const status = !query.trim() ? '' : count === 0 ? localize('No results', '没有结果') : localize(`${index + 1} of ${count}`, `第 ${index + 1} 个，共 ${count} 个`);
 
   return (
     <Card role="search" className={className}>
@@ -72,17 +73,17 @@ export function FindBar({ label, query, count, index, onQuery, onStep, onClose, 
       <span aria-live={liveStatus ? 'polite' : undefined} className="min-w-14 text-right text-[12px] tabular-nums text-chrome-muted">
         {status}
       </span>
-      <Tip label="Previous match" shortcut="⇧↵">
-        <ChromeButton square aria-label="Previous match" disabled={count === 0} onClick={() => onStep(-1)}>
+      <Tip label={localize('Previous match', '上一处匹配')} shortcut="⇧↵">
+        <ChromeButton square aria-label={localize('Previous match', '上一处匹配')} disabled={count === 0} onClick={() => onStep(-1)}>
           <ChevronUp className="size-4" strokeWidth={1.5} />
         </ChromeButton>
       </Tip>
-      <Tip label="Next match" shortcut="↵">
-        <ChromeButton square aria-label="Next match" disabled={count === 0} onClick={() => onStep(1)}>
+      <Tip label={localize('Next match', '下一处匹配')} shortcut="↵">
+        <ChromeButton square aria-label={localize('Next match', '下一处匹配')} disabled={count === 0} onClick={() => onStep(1)}>
           <ChevronDown className="size-4" strokeWidth={1.5} />
         </ChromeButton>
       </Tip>
-      <Tip label="Close" shortcut="Esc">
+      <Tip label={localize('Close', '关闭')} shortcut="Esc">
         <ChromeButton square aria-label={closeLabel} onClick={onClose}>
           <X className="size-4" strokeWidth={1.5} />
         </ChromeButton>

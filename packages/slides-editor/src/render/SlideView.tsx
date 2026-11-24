@@ -11,6 +11,7 @@
  * and export captures; `RenderOptions` says which.
  */
 
+import { localize } from '@open-artifact/runtime';
 import {
   createContext,
   memo,
@@ -495,7 +496,7 @@ function ClipView({ node, clipKey, poster }: { node: ImageNode; clipKey: string;
           <button
             type="button"
             className="open-artifact-clip-start"
-            aria-label="Play video"
+            aria-label={localize('Play video', '播放视频')}
             onClick={(e) => {
               e.stopPropagation();
               options.onStartClip?.(clipKey);
@@ -525,7 +526,7 @@ function ClipView({ node, clipKey, poster }: { node: ImageNode; clipKey: string;
   return (
     <iframe
       src={url}
-      title={node.alt || 'Video'}
+      title={node.alt || localize('Video', '视频')}
       allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
       sandbox="allow-scripts allow-same-origin allow-presentation allow-popups"
       style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', border: 0 }}
@@ -685,7 +686,7 @@ function EmbedView({ node, path }: NodeProps<EmbedNode>): ReactNode {
   return (
     <iframe
       {...frame}
-      title="Embedded page"
+      title={localize('Embedded page', '嵌入网页')}
       sandbox="allow-scripts"
       srcDoc={embedDocument(node.html)}
       style={{ ...style, pointerEvents: 'none' }}

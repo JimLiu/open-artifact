@@ -3,6 +3,7 @@
  * corner cards at the top right.
  */
 
+import { localize } from '@open-artifact/runtime';
 import type { ReactNode } from 'react';
 import { AllComments } from '@open-artifact/editor-kit/react';
 import { useAgent } from '../../services/agent.ts';
@@ -19,7 +20,7 @@ export function CommentList(): ReactNode {
       comments={slidesComments}
       agent={{ available: agent.available, name: agent.name, wakesIdle: agent.wakesIdle }}
       top={PANEL_TOP}
-      hint="Press C, then click the slide where you want to comment."
+      hint={localize('Press C, then click the slide where you want to comment.', '按 C 键，再点击幻灯片上要评论的位置。')}
     />
   );
 }

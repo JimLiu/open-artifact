@@ -9,6 +9,7 @@
  * below it and a line of notes.
  */
 
+import { localize } from '@open-artifact/runtime';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { EyeOff } from 'lucide-react';
 import { isAncestorPath, isTextual, nodeAt, pathKey, rotationOf, samePath, SLIDE_HEIGHT, SLIDE_WIDTH, type NodePath, type SlideNode } from '@open-artifact/slides-core';
@@ -198,7 +199,7 @@ export function Stage(): ReactNode {
           if (files[0]) void replaceImage(path, files[0]);
         });
       } else if (rotationOf(node)) {
-        toast.add({ title: 'Straighten the picture to crop it' });
+        toast.add({ title: localize('Straighten the picture to crop it', '将图片旋转角度归零后即可裁剪') });
       } else {
         view.select([path]);
         view.setCropping(path);
@@ -236,7 +237,7 @@ export function Stage(): ReactNode {
     event.preventDefault();
     const files = Array.from(event.dataTransfer.files).filter(isPlaceable);
     if (files.length === 0) {
-      toast.add({ title: 'Only pictures and video clips can be dropped here' });
+      toast.add({ title: localize('Only pictures and video clips can be dropped here', '此处仅支持拖放图片和视频') });
       return;
     }
     const stored = useDeck.getState().slides[ctx.slideId]?.slide;
@@ -285,7 +286,7 @@ export function Stage(): ReactNode {
             ) : null}
             {slide.hidden ? (
               <div className="pointer-events-none absolute left-2 top-2 flex items-center gap-1 rounded-full bg-chrome/90 px-2 py-0.5 text-[11px] text-chrome-secondary shadow-chrome">
-                <EyeOff className="size-3" /> Skipped when presenting
+                <EyeOff className="size-3" /> {localize('Skipped when presenting', '放映时跳过')}
               </div>
             ) : null}
             {showNotes ? (

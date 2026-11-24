@@ -10,6 +10,7 @@
  * Pin stack: pins that would overlap in a row (two comments on the same spot) are laid out side by side, 6px over each
  * other, leftwards when the row would run past the window's right edge.
  */
+import { localize } from '@open-artifact/runtime';
 import type { CSSProperties } from 'react';
 import { cn, Icon } from './cds.tsx';
 
@@ -160,7 +161,12 @@ const SHAPE_STYLE: Record<PileSide | 'floating', CSSProperties> = {
 };
 /** The caret points at the edge. */
 const CARET_TURN: Record<PileSide, string | undefined> = { above: 'rotate(180deg)', below: undefined, left: 'rotate(90deg)', right: 'rotate(-90deg)' };
-const WHERE: Record<PileSide, string> = { above: 'above', below: 'below', left: 'to the left', right: 'to the right' };
+const WHERE: Record<PileSide, string> = {
+  above: localize('above', '上方'),
+  below: localize('below', '下方'),
+  left: localize('to the left', '左侧'),
+  right: localize('to the right', '右侧'),
+};
 
 function Pile({ side, ids, style, floating, onOpen }: { side: PileSide; ids: readonly string[]; style: CSSProperties; floating: boolean; onOpen: (id: string) => void }) {
   const count = ids.length;
@@ -178,7 +184,7 @@ function Pile({ side, ids, style, floating, onOpen }: { side: PileSide; ids: rea
       className="flex min-h-0 min-w-0 items-baseline gap-1 overflow-hidden whitespace-nowrap text-caption leading-none"
       style={vertical ? { writingMode: 'vertical-rl', transform: side === 'left' ? 'rotate(180deg)' : undefined } : undefined}
     >
-      More comments
+      {localize('More comments', '更多评论')}
       <span dir="ltr" className="text-muted tabular-nums">
         {count > 99 ? '99+' : count}
       </span>
@@ -190,7 +196,7 @@ function Pile({ side, ids, style, floating, onOpen }: { side: PileSide; ids: rea
         type="button"
         data-comment-edge-pile={side}
         data-comment-edge-pile-threads={ids.join(' ')}
-        aria-label={`More comments: jump to ${count === 1 ? '1 comment' : `${count} comments`} ${WHERE[side]}`}
+        aria-label={localize(`More comments: jump to ${count === 1 ? '1 comment' : `${count} comments`} ${WHERE[side]}`, `更多评论：跳至${WHERE[side]}的 ${count} 条评论`)}
         className={cn(PILE_CLASS, SHAPE_CLASS[shape])}
         style={SHAPE_STYLE[shape]}
         onClick={() => ids[0] && onOpen(ids[0])}

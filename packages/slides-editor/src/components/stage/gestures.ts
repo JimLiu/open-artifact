@@ -9,6 +9,7 @@
  * on pointer-up and leaves nothing behind on Escape.
  */
 
+import { localize } from '@open-artifact/runtime';
 import {
   comparePaths,
   duplicateNodes,
@@ -275,7 +276,7 @@ export function startMove(ctx: StageContext, event: PointerEvent | React.Pointer
 /** Writes a finished move (or Alt-drag copy). */
 function commitMove(ctx: StageContext, paths: NodePath[], boxes: Box[], dx: number, dy: number, copy: boolean): void {
   let selected: NodePath[] = [];
-  const ok = changeSlide(ctx.slideId, copy ? 'Duplicate' : 'Move', (slide) => {
+  const ok = changeSlide(ctx.slideId, copy ? localize('Duplicate', '复制一份') : localize('Move', '移动'), (slide) => {
     let next = slide;
     let targets = paths;
     if (copy) {
@@ -308,7 +309,7 @@ function commitMove(ctx: StageContext, paths: NodePath[], boxes: Box[], dx: numb
     if (flow.length) {
       const count = next.children.filter(isPinned).length;
       if (count + flow.length > LIMITS.pinnedPerHost) {
-        toast.add({ title: `A slide holds at most ${LIMITS.pinnedPerHost} pinned elements`, description: 'Group some of them first.' });
+        toast.add({ title: localize(`A slide holds at most ${LIMITS.pinnedPerHost} pinned elements`, `一张幻灯片最多可包含 ${LIMITS.pinnedPerHost} 个自由摆放的元素`), description: localize('Group some of them first.', '请先将部分元素组合起来。') });
         return null;
       }
       const result = pinAt(
@@ -472,7 +473,7 @@ export function startResize(ctx: StageContext, event: PointerEvent | React.Point
       const out = applyFlowBreakout(base, target, { x: box.x, y: box.y, w: box.w, h: box.h }, breakout);
       breakout = null;
       if (!out) {
-        toast.add({ title: `A slide holds at most ${LIMITS.pinnedPerHost} pinned elements`, description: 'Group some of them first.' });
+        toast.add({ title: localize(`A slide holds at most ${LIMITS.pinnedPerHost} pinned elements`, `一张幻灯片最多可包含 ${LIMITS.pinnedPerHost} 个自由摆放的元素`), description: localize('Group some of them first.', '请先将部分元素组合起来。') });
         return;
       }
       // From here on this is a pinned resize, relative to the slide.
@@ -489,7 +490,7 @@ export function startResize(ctx: StageContext, event: PointerEvent | React.Point
         useStageGesture.getState().reset();
         return;
       }
-      commitDraft(ctx, 'Resize');
+      commitDraft(ctx, localize('Resize', '调整大小'));
     },
     cancel() {
       useStageGesture.getState().reset();
@@ -526,7 +527,7 @@ export function startRotate(ctx: StageContext, event: PointerEvent | React.Point
       useStageGesture.getState().set({ draft: { slideId: ctx.slideId, slide: setRotation(slide, path, angle) } });
     },
     up() {
-      if (changed) commitDraft(ctx, 'Rotate');
+      if (changed) commitDraft(ctx, localize('Rotate', '旋转'));
       else useStageGesture.getState().reset();
     },
     cancel() {
@@ -572,7 +573,7 @@ export function startConnectorEnd(ctx: StageContext, event: PointerEvent | React
       useStageGesture.getState().set({ draft: { slideId: ctx.slideId, slide: draft }, guides: lines });
     },
     up() {
-      if (changed) commitDraft(ctx, 'Move connector end');
+      if (changed) commitDraft(ctx, localize('Move connector end', '移动连接线端点'));
       else useStageGesture.getState().reset();
     },
     cancel() {
@@ -690,7 +691,7 @@ function finishDraw(tool: Exclude<Tool, 'select'>, from: { x: number; y: number 
   if (tool === 'connector') {
     const end = to ?? { x: from.x + size.w, y: from.y };
     const node = newShape('connector', rectFromPoints(from, end)) as ConnectorNode;
-    insertPinned('Add connector', [withConnectorEnds(node, from, end)]);
+    insertPinned(localize('Add connector', '添加连接线'), [withConnectorEnds(node, from, end)]);
     return;
   }
   if (tool === 'line') {
@@ -702,7 +703,7 @@ function finishDraw(tool: Exclude<Tool, 'select'>, from: { x: number; y: number 
     const angle = (Math.atan2(end.y - start.y, end.x - start.x) * 180) / Math.PI;
     const node = newShape('line', { x: cx - length / 2, y: cy - size.h / 2, w: length, h: size.h });
     const rounded = Math.round(angle * 100) / 100;
-    insertPinned('Add line', [rounded ? { ...node, style: { ...node.style, transform: `rotate(${rounded}deg)` } } : node]);
+    insertPinned(localize('Add line', '添加直线'), [rounded ? { ...node, style: { ...node.style, transform: `rotate(${rounded}deg)` } } : node]);
     return;
   }
   const rect = to ? rectFromPoints(from, to) : { x: from.x - size.w / 2, y: from.y - size.h / 2, w: size.w, h: size.h };
@@ -773,7 +774,7 @@ export function startCropPan(ctx: StageContext, event: PointerEvent | React.Poin
       useStageGesture.getState().set({ draft: { slideId: ctx.slideId, slide: draft } });
     },
     up() {
-      if (changed) commitDraft(ctx, 'Crop');
+      if (changed) commitDraft(ctx, localize('Crop', '裁剪'));
       else useStageGesture.getState().reset();
     },
     cancel() {
@@ -786,7 +787,7 @@ export function startCropPan(ctx: StageContext, event: PointerEvent | React.Poin
 export type CropHandlesOff = Partial<Record<CropEdge, string>>;
 
 /** The message on handles the layout places. */
-const CROP_LAYOUT_REASON = 'The layout places this picture, so only its right and bottom sides crop.';
+const CROP_LAYOUT_REASON = localize('The layout places this picture, so only its right and bottom sides crop.', '图片位置由布局确定，只能从右侧和底部裁剪。');
 
 /**
  * Which crop handles a picture offers. A pinned picture crops from every
@@ -835,7 +836,7 @@ export function startCropEdge(ctx: StageContext, event: PointerEvent | React.Poi
       useStageGesture.getState().set({ draft: { slideId: ctx.slideId, slide: draft } });
     },
     up() {
-      if (changed) commitDraft(ctx, 'Crop');
+      if (changed) commitDraft(ctx, localize('Crop', '裁剪'));
       else useStageGesture.getState().reset();
     },
     cancel() {
@@ -848,7 +849,7 @@ export function startCropEdge(ctx: StageContext, event: PointerEvent | React.Poi
 export function setCropZoom(slideId: string, path: NodePath, zoom: number): void {
   changeSlide(
     slideId,
-    'Crop',
+    localize('Crop', '裁剪'),
     (slide) => {
       const node = nodeAt(slide, path);
       if (node?.kind !== 'image') return null;
@@ -865,7 +866,7 @@ export function setCropZoom(slideId: string, path: NodePath, zoom: number): void
 export function nudgeCrop(slideId: string, path: NodePath, dx: number, dy: number, zoomBy = 1): void {
   changeSlide(
     slideId,
-    'Crop',
+    localize('Crop', '裁剪'),
     (slide) => {
       const node = nodeAt(slide, path);
       if (node?.kind !== 'image') return null;
@@ -879,7 +880,7 @@ export function nudgeCrop(slideId: string, path: NodePath, dx: number, dy: numbe
 
 /** Removes a picture's crop. */
 export function resetCrop(slideId: string, path: NodePath): void {
-  changeSlide(slideId, 'Reset crop', (slide) => {
+  changeSlide(slideId, localize('Reset crop', '重置裁剪'), (slide) => {
     const node = nodeAt(slide, path);
     if (node?.kind !== 'image' || !node.crop) return null;
     return updateNodeAt(slide, path, (n) => setImageCrop(n as ImageNode, undefined));

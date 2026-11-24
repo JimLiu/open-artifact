@@ -39,6 +39,7 @@ export function Popover({ trigger, children, side = 'bottom', align = 'center', 
 export interface DialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  closeLabel?: string;
   title: ReactNode;
   description?: ReactNode;
   children?: ReactNode;
@@ -48,7 +49,7 @@ export interface DialogProps {
 }
 
 /** A modal dialog. */
-export function Dialog({ open, onOpenChange, title, description, children, footer, className }: DialogProps) {
+export function Dialog({ open, onOpenChange, closeLabel = 'Close', title, description, children, footer, className }: DialogProps) {
   return (
     <BaseDialog.Root open={open} onOpenChange={(next) => onOpenChange(next)}>
       <BaseDialog.Portal>
@@ -65,7 +66,7 @@ export function Dialog({ open, onOpenChange, title, description, children, foote
               <BaseDialog.Title className="text-[15px] font-semibold">{title}</BaseDialog.Title>
               {description ? <BaseDialog.Description className="mt-1 text-fg-muted">{description}</BaseDialog.Description> : null}
             </div>
-            <BaseDialog.Close aria-label="Close" className="rounded-md p-1 text-fg-muted hover:bg-hover">
+            <BaseDialog.Close aria-label={closeLabel} className="rounded-md p-1 text-fg-muted hover:bg-hover">
               <X className="size-4" />
             </BaseDialog.Close>
           </div>

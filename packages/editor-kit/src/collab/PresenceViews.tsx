@@ -7,6 +7,7 @@
  * its peers' state into world boxes ({@link PeerBox}); these draw them.
  */
 
+import { localize } from '@open-artifact/runtime';
 import type { ComponentType, ReactElement, ReactNode } from 'react';
 import { Bot } from 'lucide-react';
 import { Tooltip, cn } from '@open-artifact/ui';
@@ -121,7 +122,7 @@ export function PresenceAvatars<S>({ peers, agentWrote, status, noun = 'document
   const shown = people.slice(0, MAX_AVATARS);
   const more = people.length - shown.length;
   return (
-    <div className="flex items-center pl-1 pr-0.5" aria-label="Here now">
+    <div className="flex items-center pl-1 pr-0.5" aria-label={localize('Here now', '在线成员')}>
       <div className="flex -space-x-1.5">
         {shown.map((peer) => {
           const extra = status?.(peer);
@@ -139,7 +140,7 @@ export function PresenceAvatars<S>({ peers, agentWrote, status, noun = 'document
           </Tip>
         ) : null}
         {agent ? (
-          <Tip label={agentWrote ? `${agent.name} just changed this ${noun}` : agent.name}>
+          <Tip label={agentWrote ? localize(`${agent.name} just changed this ${noun}`, `${agent.name} 刚修改了此${noun}`) : agent.name}>
             <span className="inline-flex">
               <Avatar peer={agent} pulse={agentWrote} />
             </span>

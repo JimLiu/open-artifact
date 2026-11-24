@@ -14,6 +14,7 @@
  * a small output, and caches that outlive one capture.
  */
 
+import { localize } from '@open-artifact/runtime';
 import { createElement, createRef } from 'react';
 import { flushSync } from 'react-dom';
 import { createRoot, type Root } from 'react-dom/client';
@@ -131,7 +132,7 @@ function pictureData(url: string): Promise<string | null> {
         return await blobToDataUrl(blob);
       }
       const canvas = drawScaled(bitmap, bitmap.width, bitmap.height, scale);
-      if (!canvas) throw new Error('No canvas.');
+      if (!canvas) throw new Error(localize('No canvas.', '无法创建绘图画布。'));
       bitmap.close();
       // WebP keeps transparency; JPEG where the browser cannot write WebP would lose it, so PNG then.
       const type = snapshotType() === 'image/webp' ? 'image/webp' : 'image/png';
@@ -279,7 +280,7 @@ export async function snapshotSlide(slide: Slide, context: SnapshotContext): Pro
     const ref = createRef<HTMLDivElement>();
     flushSync(() => host.root.render(createElement(SlideView, { slide, options: thumbOptions(context.resolveSrc), rootRef: ref })));
     const root = ref.current;
-    if (!root) throw new Error('The slide could not be drawn.');
+    if (!root) throw new Error(localize('The slide could not be drawn.', '无法绘制幻灯片。'));
     await embedStillsReady(root);
     await picturesReady(root, IMAGE_TIMEOUT);
     await fontsReady(document, FONT_TIMEOUT);
@@ -292,18 +293,18 @@ export async function snapshotSlide(slide: Slide, context: SnapshotContext): Pro
     const { w, h } = snapshotSize(SLIDE_WIDTH, SLIDE_HEIGHT, context.scale);
     const css = `${fonts}\n${PAGE_RESET}\n${slideStylesheet()}`;
     const svg = foreignObjectSvg(markup, css, { width: SLIDE_WIDTH, height: SLIDE_HEIGHT, outerWidth: w, outerHeight: h });
-    const image = await loadSvgImage(svg, { error: 'The slide could not be drawn.' });
+    const image = await loadSvgImage(svg, { error: localize('The slide could not be drawn.', '无法绘制幻灯片。') });
     const canvas = document.createElement('canvas');
     canvas.width = w;
     canvas.height = h;
     const g = canvas.getContext('2d');
-    if (!g) throw new Error('No canvas.');
+    if (!g) throw new Error(localize('No canvas.', '无法创建绘图画布。'));
     // JPEG has no transparency: white under the slide, as thumbnails show it.
     g.fillStyle = '#fff';
     g.fillRect(0, 0, w, h);
     g.drawImage(image, 0, 0, w, h);
     const blob = await canvasBlob(canvas, snapshotType(), 0.82);
-    if (!blob) throw new Error('The browser would not draw this slide.');
+    if (!blob) throw new Error(localize('The browser would not draw this slide.', '浏览器无法绘制此幻灯片。'));
     return blob;
   } finally {
     release();

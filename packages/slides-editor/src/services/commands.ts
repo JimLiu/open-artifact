@@ -12,6 +12,7 @@
  *   entered (Enter, or a double click), like a single element.
  */
 
+import { localize } from '@open-artifact/runtime';
 import { maybeSession } from './session.ts';
 import { slideHash } from './location.ts';
 import {
@@ -170,7 +171,7 @@ export function addSlide(layout: LayoutId = 'blank', after: string | null = useV
   const state = useDeck.getState();
   const ids = deckOrder(state);
   if (ids.length >= LIMITS.slides) {
-    toast.add({ title: `A deck holds at most ${LIMITS.slides} slides` });
+    toast.add({ title: localize(`A deck holds at most ${LIMITS.slides} slides`, `一份演示文稿最多包含 ${LIMITS.slides} 张幻灯片`) });
     return null;
   }
   const taken = new Set([...Object.keys(state.slides), ...Object.keys(state.trash)]);
@@ -178,7 +179,7 @@ export function addSlide(layout: LayoutId = 'blank', after: string | null = useV
   const slide = makeLayout(layout, id);
   const at = after ? ids.indexOf(after) + 1 : ids.length;
   const nextOrder = [...ids.slice(0, at), id, ...ids.slice(at)];
-  state.apply('Add slide', { slides: { [id]: slide }, index: { ...state.index, order: nextOrder } }, { focus: id });
+  state.apply(localize('Add slide', '添加幻灯片'), { slides: { [id]: slide }, index: { ...state.index, order: nextOrder } }, { focus: id });
   useView.getState().showSlide(id);
   return id;
 }
@@ -189,7 +190,7 @@ export function duplicateSlides(ids: readonly string[] = targetSlides()): string
   const state = useDeck.getState();
   const all = deckOrder(state);
   if (all.length + ids.length > LIMITS.slides) {
-    toast.add({ title: `A deck holds at most ${LIMITS.slides} slides` });
+    toast.add({ title: localize(`A deck holds at most ${LIMITS.slides} slides`, `一份演示文稿最多包含 ${LIMITS.slides} 张幻灯片`) });
     return [];
   }
   const taken = new Set([...Object.keys(state.slides), ...Object.keys(state.trash)]);
@@ -206,7 +207,7 @@ export function duplicateSlides(ids: readonly string[] = targetSlides()): string
   if (copies.length === 0) return [];
   const last = Math.max(...ids.map((id) => all.indexOf(id)));
   const nextOrder = [...all.slice(0, last + 1), ...copies, ...all.slice(last + 1)];
-  state.apply(copies.length === 1 ? 'Duplicate slide' : `Duplicate ${copies.length} slides`, { slides, index: { ...state.index, order: nextOrder } });
+  state.apply(copies.length === 1 ? localize('Duplicate slide', '复制幻灯片') : localize(`Duplicate ${copies.length} slides`, `复制 ${copies.length} 张幻灯片`), { slides, index: { ...state.index, order: nextOrder } });
   useView.getState().showSlide(copies[0]!);
   if (copies.length > 1) useView.getState().selectSlides(copies);
   return copies;
@@ -219,7 +220,7 @@ export function insertSlides(slides: readonly Slide[], after: string | null, lab
   const all = deckOrder(state);
   const room = LIMITS.slides - all.length;
   if (room <= 0) {
-    toast.add({ title: `A deck holds at most ${LIMITS.slides} slides` });
+    toast.add({ title: localize(`A deck holds at most ${LIMITS.slides} slides`, `一份演示文稿最多包含 ${LIMITS.slides} 张幻灯片`) });
     return [];
   }
   const taken = new Set([...Object.keys(state.slides), ...Object.keys(state.trash)]);
@@ -245,7 +246,7 @@ export function deleteSlides(ids: readonly string[] = targetSlides()): void {
   const all = deckOrder(state);
   const doomed = ids.filter((id) => state.slides[id]);
   if (doomed.length >= all.length) {
-    toast.add({ title: 'A deck keeps at least one slide' });
+    toast.add({ title: localize('A deck keeps at least one slide', '演示文稿至少保留一张幻灯片') });
     return;
   }
   let sections = sectionsOf(state.index);
@@ -260,10 +261,10 @@ export function deleteSlides(ids: readonly string[] = targetSlides()): void {
   if (index.cover && doomed.includes(index.cover)) delete index.cover;
   const view = useView.getState();
   const firstAt = Math.min(...doomed.map((id) => all.indexOf(id)));
-  state.apply(doomed.length === 1 ? 'Delete slide' : `Delete ${doomed.length} slides`, { slides, index });
+  state.apply(doomed.length === 1 ? localize('Delete slide', '删除幻灯片') : localize(`Delete ${doomed.length} slides`, `删除 ${doomed.length} 张幻灯片`), { slides, index });
   if (view.current && doomed.includes(view.current)) view.showSlide(remaining[Math.min(firstAt, remaining.length - 1)] ?? null);
   else view.selectSlides(view.current ? [view.current] : []);
-  if (doomed.length > 1) toast.add({ title: `Deleted ${doomed.length} slides` });
+  if (doomed.length > 1) toast.add({ title: localize(`Deleted ${doomed.length} slides`, `已删除 ${doomed.length} 张幻灯片`) });
 }
 
 /** Skips (hides) or shows slides when presenting and exporting. */
@@ -277,7 +278,7 @@ export function setSlidesHidden(ids: readonly string[], hidden: boolean): void {
   }
   const count = Object.keys(slides).length;
   if (count === 0) return;
-  state.apply(hidden ? (count === 1 ? 'Skip slide' : `Skip ${count} slides`) : count === 1 ? 'Unskip slide' : `Unskip ${count} slides`, { slides });
+  state.apply(hidden ? (count === 1 ? localize('Skip slide', '跳过幻灯片') : localize(`Skip ${count} slides`, `跳过 ${count} 张幻灯片`)) : count === 1 ? localize('Unskip slide', '取消跳过幻灯片') : localize(`Unskip ${count} slides`, `取消跳过 ${count} 张幻灯片`), { slides });
 }
 
 /** Makes a slide the deck's cover thumbnail. */
@@ -285,8 +286,8 @@ export function setCoverSlide(id: string): void {
   if (!canChange()) return;
   const state = useDeck.getState();
   if (state.index.cover === id) return;
-  state.apply('Set cover slide', { index: { ...state.index, cover: id } });
-  toast.add({ title: 'Cover thumbnail set' });
+  state.apply(localize('Set cover slide', '设置封面幻灯片'), { index: { ...state.index, cover: id } });
+  toast.add({ title: localize('Cover thumbnail set', '已设置封面缩略图') });
 }
 
 /** Moves slides to outline gap `gap` (a slide index in the full order, before the move). */
@@ -298,15 +299,15 @@ export function moveSlidesToGap(ids: readonly string[], gap: number): void {
   let next = moveSlidesToSection(deck, moving, destination.sectionKey, destination.index);
   if (!next) next = { ...deck, order: moveIdsToIndex(deck.order, moving, gap) };
   if (next.order.join() === deck.order.join() && next.sections === deck.sections) return;
-  if (applySections(moving.length === 1 ? 'Move slide' : `Move ${moving.length} slides`, next) && moving.length > 1) {
-    toast.add({ title: `Moved ${moving.length} slides` });
+  if (applySections(moving.length === 1 ? localize('Move slide', '移动幻灯片') : localize(`Move ${moving.length} slides`, `移动 ${moving.length} 张幻灯片`), next) && moving.length > 1) {
+    toast.add({ title: localize(`Moved ${moving.length} slides`, `已移动 ${moving.length} 张幻灯片`) });
   }
 }
 
 /** Moves slides into an existing section (null: the opening run) at `index` within it. */
 export function moveSlidesIntoSection(ids: readonly string[], sectionKey: string | null, index: number): void {
   const deck = sectioned();
-  applySections(ids.length === 1 ? 'Move slide' : `Move ${ids.length} slides`, moveSlidesToSection(deck, deck.order.filter((id) => ids.includes(id)), sectionKey, index));
+  applySections(ids.length === 1 ? localize('Move slide', '移动幻灯片') : localize(`Move ${ids.length} slides`, `移动 ${ids.length} 张幻灯片`), moveSlidesToSection(deck, deck.order.filter((id) => ids.includes(id)), sectionKey, index));
 }
 
 /** Moves the selected slides one place up (-1) or down (+1). */
@@ -327,29 +328,29 @@ export function slidesToNewSection(ids: readonly string[] = targetSlides()): voi
   const moving = deck.order.filter((id) => ids.includes(id));
   if (moving.length === 0) return;
   const gap = deck.order.indexOf(moving[0]!);
-  if (!applySections('Move to new section', moveSlidesIntoNewSection(deck, moving, gap))) {
-    toast.add({ title: `A deck holds at most ${LIMITS.sections} sections` });
+  if (!applySections(localize('Move to new section', '移到新节'), moveSlidesIntoNewSection(deck, moving, gap))) {
+    toast.add({ title: localize(`A deck holds at most ${LIMITS.sections} sections`, `一份演示文稿最多包含 ${LIMITS.sections} 个节`) });
   }
 }
 
 /** Starts a section at a slide. */
 export function startSectionAt(slideId: string): void {
-  if (!applySections('Add section', addSectionAtSlide(sectioned(), slideId))) toast.add({ title: 'A section already starts here' });
+  if (!applySections(localize('Add section', '添加节'), addSectionAtSlide(sectioned(), slideId))) toast.add({ title: localize('A section already starts here', '此处已有节的起始位置') });
 }
 
 /** Adds an empty section at an outline gap. */
 export function addSectionAt(gap: number): void {
-  if (!applySections('Add section', addSectionAtGap(sectioned(), gap))) toast.add({ title: `A deck holds at most ${LIMITS.sections} sections` });
+  if (!applySections(localize('Add section', '添加节'), addSectionAtGap(sectioned(), gap))) toast.add({ title: localize(`A deck holds at most ${LIMITS.sections} sections`, `一份演示文稿最多包含 ${LIMITS.sections} 个节`) });
 }
 
 /** Deletes a section (its slides stay where they are). */
 export function removeSection(key: string): void {
-  applySections('Delete section', deleteSection(sectioned(), key));
+  applySections(localize('Delete section', '删除节'), deleteSection(sectioned(), key));
 }
 
 /** Writes a section's one-sentence description. */
 export function setSectionDescription(key: string, text: string): void {
-  applySections('Describe section', describeSection(sectioned(), key, text));
+  applySections(localize('Describe section', '编辑节说明'), describeSection(sectioned(), key, text));
 }
 
 /**
@@ -358,17 +359,17 @@ export function setSectionDescription(key: string, text: string): void {
  */
 export function describeOpeningRun(firstSlideId: string, text: string): void {
   if (!text) return;
-  applySections('Describe section', addSectionAtSlide(sectioned(), firstSlideId, text));
+  applySections(localize('Describe section', '编辑节说明'), addSectionAtSlide(sectioned(), firstSlideId, text));
 }
 
 /** Moves a section and its slides to an outline gap (a gap between rows). */
 export function moveSection(key: string, gap: number): void {
-  applySections('Move section', moveSectionToGap(sectioned(), key, gap));
+  applySections(localize('Move section', '移动节'), moveSectionToGap(sectioned(), key, gap));
 }
 
 /** Moves several sections, in their order, to an outline gap. */
 export function moveSections(keys: readonly string[], gap: number): void {
-  applySections(keys.length > 1 ? 'Move sections' : 'Move section', moveSectionsToGap(sectioned(), keys, gap));
+  applySections(keys.length > 1 ? localize('Move sections', '移动多个节') : localize('Move section', '移动节'), moveSectionsToGap(sectioned(), keys, gap));
 }
 
 /** Shows the slide `delta` places away from the current one. */
@@ -516,7 +517,7 @@ function topmost(paths: readonly NodePath[]): NodePath[] {
 export function deleteSelection(): void {
   const paths = topmost(selectedPaths());
   if (paths.length === 0) return;
-  if (changeCurrent(paths.length === 1 ? 'Delete' : `Delete ${paths.length} elements`, (slide) => removeNodes(slide, paths))) {
+  if (changeCurrent(paths.length === 1 ? localize('Delete', '删除') : localize(`Delete ${paths.length} elements`, `删除 ${paths.length} 个元素`), (slide) => removeNodes(slide, paths))) {
     useView.getState().select([]);
   }
 }
@@ -529,7 +530,7 @@ export function duplicateSelection(): void {
   const siblings = paths.filter((p) => samePath(p.slice(0, -1), parent));
   let copies: NodePath[] = [];
   if (
-    changeCurrent('Duplicate', (slide) => {
+    changeCurrent(localize('Duplicate', '复制一份'), (slide) => {
       const result = duplicateNodes(slide, siblings);
       copies = result.paths;
       return result.slide;
@@ -587,7 +588,7 @@ export function nudgeSelection(dx: number, dy: number): void {
       const parent = path.slice(0, -1);
       let moved: NodePath | null = null;
       changeCurrent(
-        'Move',
+        localize('Move', '移动'),
         (s) => {
           const siblings = parent.length ? (nodeAt(s, parent) as Extract<SlideNode, { kind: 'box' }> | undefined)?.children : s.children;
           if (!siblings || index < 0 || index >= siblings.length) return null;
@@ -602,7 +603,7 @@ export function nudgeSelection(dx: number, dy: number): void {
     return;
   }
   changeCurrent(
-    'Move',
+    localize('Move', '移动'),
     (s) => {
       let next = s;
       for (const path of pinned) {
@@ -623,7 +624,7 @@ export function reorderSelection(move: ZMove): void {
   if (paths.length === 0) return;
   const ordered = move === 'front' || move === 'backward' ? paths : [...paths].reverse();
   let next: NodePath[] = [];
-  changeCurrent(move === 'front' ? 'Bring to front' : move === 'back' ? 'Send to back' : move === 'forward' ? 'Bring forward' : 'Send backward', (slide) => {
+  changeCurrent(move === 'front' ? localize('Bring to front', '置于顶层') : move === 'back' ? localize('Send to back', '置于底层') : move === 'forward' ? localize('Bring forward', '上移一层') : localize('Send backward', '下移一层'), (slide) => {
     let s = slide;
     next = [];
     for (const path of ordered) {
@@ -641,16 +642,16 @@ export function groupSelection(): void {
   const paths = topmost(selectedPaths());
   if (paths.length < 2) return;
   if (paths.length > LIMITS.group) {
-    toast.add({ title: `A group holds at most ${LIMITS.group} elements` });
+    toast.add({ title: localize(`A group holds at most ${LIMITS.group} elements`, `一个组合最多包含 ${LIMITS.group} 个元素`) });
     return;
   }
   const parent = paths[0]!.slice(0, -1);
   if (!paths.every((p) => samePath(p.slice(0, -1), parent))) {
-    toast.add({ title: 'Only elements side by side in one container can be grouped' });
+    toast.add({ title: localize('Only elements side by side in one container can be grouped', '只有同一容器中的同级元素可以组合') });
     return;
   }
   let path: NodePath | null = null;
-  changeCurrent('Group', (slide) => {
+  changeCurrent(localize('Group', '组合'), (slide) => {
     const result = groupNodes(slide, paths, { group: true });
     if (!result) return null;
     path = result.path;
@@ -670,7 +671,7 @@ export function ungroupSelection(): void {
     .sort((a, b) => comparePaths(b, a));
   if (!slide || paths.length === 0) return;
   let selected: NodePath[] = [];
-  changeCurrent('Ungroup', (s) => {
+  changeCurrent(localize('Ungroup', '取消组合'), (s) => {
     let next = s;
     selected = [];
     for (const path of paths) {
@@ -691,14 +692,14 @@ export function copyStyle(): void {
   if (!node) return;
   const { position: _p, left: _l, top: _t, right: _r, bottom: _b, width: _w, height: _h, ...style } = node.style;
   useView.getState().setStyleClipboard({ style, kind: node.kind });
-  toast.add({ title: 'Style copied' });
+  toast.add({ title: localize('Style copied', '已复制样式') });
 }
 
 /** ⌥⌘V: pastes the copied style onto the selection (position and size stay). */
 export function pasteStyle(): void {
   const copied = useView.getState().styleClipboard;
   if (!copied) return;
-  updateSelection('Paste style', (node) => {
+  updateSelection(localize('Paste style', '粘贴样式'), (node) => {
     const keep = { position: node.style.position, left: node.style.left, top: node.style.top, right: node.style.right, bottom: node.style.bottom, width: node.style.width, height: node.style.height };
     const style = { ...copied.style };
     for (const [key, value] of Object.entries(keep)) if (value !== undefined) (style as Record<string, string>)[key] = value;
@@ -709,7 +710,7 @@ export function pasteStyle(): void {
 /** K: scales pinned selected elements about their top-left corner. */
 export function scaleSelection(factor: number): void {
   if (!(factor > 0) || factor === 1) return;
-  updateSelection('Scale', (node) => {
+  updateSelection(localize('Scale', '缩放'), (node) => {
     const r = pinnedRectOf(node);
     if (!r) return node;
     let next = pinNode(node, { x: r.x, y: r.y, w: r.w * factor, h: r.h * factor });
@@ -735,8 +736,8 @@ export function alignEdgeForKey(event: { key: string; code: string; altKey: bool
 
 /** Why the selection cannot be aligned, or undefined when it can. */
 export function alignRefusal(nodes: readonly SlideNode[]): string | undefined {
-  if (nodes.length === 0) return 'Select something first';
-  return nodes.every((node) => pinnedRectOf(node)) ? undefined : 'Only pinned elements can be aligned';
+  if (nodes.length === 0) return localize('Select something first', '请先选择元素');
+  return nodes.every((node) => pinnedRectOf(node)) ? undefined : localize('Only pinned elements can be aligned', '只有自由摆放的元素可以对齐');
 }
 
 /** Aligns pinned selected elements to the slide or to each other. */
@@ -749,7 +750,7 @@ export function alignSelection(edge: AlignEdge): void {
     return node ? pinnedRectOf(node) : null;
   });
   if (rects.some((r) => !r)) {
-    toast.add({ title: 'Only pinned elements can be aligned' });
+    toast.add({ title: localize('Only pinned elements can be aligned', '只有自由摆放的元素可以对齐') });
     return;
   }
   const list = rects as Rect[];
@@ -761,7 +762,7 @@ export function alignSelection(edge: AlignEdge): void {
           const y = Math.min(...list.map((r) => r.y));
           return { x, y, w: Math.max(...list.map((r) => r.x + r.w)) - x, h: Math.max(...list.map((r) => r.y + r.h)) - y };
         })();
-  changeCurrent('Align', (s) => {
+  changeCurrent(localize('Align', '对齐'), (s) => {
     let next = s;
     paths.forEach((path, i) => {
       const r = list[i]!;
@@ -779,18 +780,18 @@ export function alignSelection(edge: AlignEdge): void {
 
 /** Why a row or column cannot be added to a table on the current slide, or null. */
 export function tableAddRefusal(table: TableNode, what: 'row' | 'column'): string | null {
-  if (what === 'row' && table.rows.length >= LIMITS.tableRows) return `A table holds at most ${LIMITS.tableRows} rows`;
-  if (what === 'column' && tableColumns(table) >= LIMITS.tableColumns) return `A table holds at most ${LIMITS.tableColumns} columns`;
+  if (what === 'row' && table.rows.length >= LIMITS.tableRows) return localize(`A table holds at most ${LIMITS.tableRows} rows`, `表格最多包含 ${LIMITS.tableRows} 行`);
+  if (what === 'column' && tableColumns(table) >= LIMITS.tableColumns) return localize(`A table holds at most ${LIMITS.tableColumns} columns`, `表格最多包含 ${LIMITS.tableColumns} 列`);
   const slide = currentSlide();
   const added = what === 'row' ? Math.max(1, tableColumns(table)) : table.rows.length;
-  if (slide && countSlideCells(slide) + added > LIMITS.slideCells) return `A slide holds at most ${LIMITS.slideCells} table cells`;
+  if (slide && countSlideCells(slide) + added > LIMITS.slideCells) return localize(`A slide holds at most ${LIMITS.slideCells} table cells`, `一张幻灯片最多包含 ${LIMITS.slideCells} 个表格单元格`);
   return null;
 }
 
 /** Why a row or column cannot be removed from a table, or null (the last one stays). */
 export function tableRemoveRefusal(table: TableNode, what: 'row' | 'column'): string | null {
-  if (what === 'row') return table.rows.length <= 1 ? 'A table keeps at least one row' : null;
-  return tableColumns(table) <= 1 ? 'A table keeps at least one column' : null;
+  if (what === 'row') return table.rows.length <= 1 ? localize('A table keeps at least one row', '表格至少保留一行') : null;
+  return tableColumns(table) <= 1 ? localize('A table keeps at least one column', '表格至少保留一列') : null;
 }
 
 /**
@@ -813,7 +814,7 @@ export function editTable(path: NodePath, change: 'addRow' | 'addColumn' | 'remo
 function changeTable(path: NodePath, change: 'addRow' | 'addColumn' | 'removeRow' | 'removeColumn', at?: number, opened?: TableTarget): boolean {
   const slide = currentSlide();
   if (opened && !targetTable(useView.getState().current, slide, opened)) {
-    toast.add({ title: 'The table changed while the menu was open, so it was left as it is' });
+    toast.add({ title: localize('The table changed while the menu was open, so it was left as it is', '菜单打开期间表格已发生变化，本次操作未应用') });
     return false;
   }
   const node = slide ? nodeAt(slide, path) : undefined;
@@ -827,7 +828,7 @@ function changeTable(path: NodePath, change: 'addRow' | 'addColumn' | 'removeRow
   }
   const rows = node.rows.length;
   const cols = tableColumns(node);
-  const label = adding ? (what === 'row' ? 'Add row' : 'Add column') : what === 'row' ? 'Remove row' : 'Remove column';
+  const label = adding ? (what === 'row' ? localize('Add row', '添加行') : localize('Add column', '添加列')) : what === 'row' ? localize('Remove row', '移除行') : localize('Remove column', '移除列');
   return changeCurrent(label, (s) =>
     updateNodeAt(s, path, (n) => {
       if (n.kind !== 'table') return n;
@@ -863,7 +864,7 @@ export function insertPinned(label: string, nodes: readonly SlideNode[], options
   if (!slide || nodes.length === 0) return [];
   const pinnedCount = slide.children.filter(isPinned).length;
   if (pinnedCount + nodes.length > LIMITS.pinnedPerHost) {
-    toast.add({ title: `A slide holds at most ${LIMITS.pinnedPerHost} pinned elements`, description: 'Group some of them first.' });
+    toast.add({ title: localize(`A slide holds at most ${LIMITS.pinnedPerHost} pinned elements`, `一张幻灯片最多可包含 ${LIMITS.pinnedPerHost} 个自由摆放的元素`), description: localize('Group some of them first.', '请先将部分元素组合起来。') });
     return [];
   }
   const taken = slideElementIds(slide);
@@ -878,14 +879,14 @@ export function insertPinned(label: string, nodes: readonly SlideNode[], options
 /** Adds a text box at `rect` and starts typing in it. */
 export function insertTextBox(rect: Rect = centeredRect(800, 120)): void {
   const id = useView.getState().current;
-  const [path] = insertPinned('Add text', [newTextBox(rect, DEFAULT_TEXT, { 'font-size': '48px' })]);
+  const [path] = insertPinned(localize('Add text', '添加文本'), [newTextBox(rect, DEFAULT_TEXT, { 'font-size': '48px' })]);
   if (path && id) useView.getState().startTextEdit({ slideId: id, path });
 }
 
 /** Adds a table. */
 export function insertTable(rows = 3, cols = 3, rect?: Rect): void {
   const height = rows * 72;
-  insertPinned('Add table', [newTable(rect ?? centeredRect(Math.min(1664, cols * 320), height), rows, cols, 'Column')]);
+  insertPinned(localize('Add table', '添加表格'), [newTable(rect ?? centeredRect(Math.min(1664, cols * 320), height), rows, cols, 'Column')]);
 }
 
 /** Shapes the Insert menu and the drawing tools add. */
@@ -953,12 +954,12 @@ export function newShape(kind: InsertShapeKind, rect: Rect): SlideNode {
 export function insertShape(kind: InsertShapeKind, rect?: Rect): void {
   const line = kind === 'line' || kind === 'connector';
   const box = rect ?? centeredRect(line ? 480 : 300, line ? 16 : 300);
-  insertPinned(kind === 'connector' ? 'Add connector' : 'Add shape', [newShape(kind, box)]);
+  insertPinned(kind === 'connector' ? localize('Add connector', '添加连接线') : localize('Add shape', '添加形状'), [newShape(kind, box)]);
 }
 
 /** Adds an icon. */
 export function insertIcon(name: IconName = 'Lightbulb', rect: Rect = centeredRect(160, 160)): void {
-  insertPinned('Add icon', [pinNode({ kind: 'icon', name, style: { color: deckAccent() } }, rect)]);
+  insertPinned(localize('Add icon', '添加图标'), [pinNode({ kind: 'icon', name, style: { color: deckAccent() } }, rect)]);
 }
 
 /** Wraps flow elements into pinned ones at measured rects (dragging out of the flow). */

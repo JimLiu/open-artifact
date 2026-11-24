@@ -7,6 +7,7 @@ import { ExternalLink } from 'lucide-react';
 import { useState } from 'react';
 import type { CloudSiteUi } from '@open-artifact/protocol';
 import { leavesSite, siteLinks, siteUiOf } from '../lib/cloud.ts';
+import { t } from '../lib/i18n.ts';
 
 /** The site's logo (when it loads) and name; `compact` for the Shell's bar. Null without a brand. */
 export function SiteBrand({ site, compact = false }: { site: CloudSiteUi | undefined; compact?: boolean }) {
@@ -29,7 +30,7 @@ export function SiteHomeLinks({ site }: { site: CloudSiteUi | undefined }) {
   const links = siteLinks(site, 'home');
   if (links.length === 0) return null;
   return (
-    <nav aria-label="Site links" className="mb-4 flex flex-wrap gap-x-4 gap-y-1 text-[13px]">
+    <nav aria-label={t('siteLinks')} className="mb-4 flex flex-wrap gap-x-4 gap-y-1 text-[13px]">
       {links.map((link) => {
         const away = leavesSite(link.href, location.origin);
         return (

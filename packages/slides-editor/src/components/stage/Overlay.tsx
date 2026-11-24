@@ -8,6 +8,7 @@
  * handles (and the crop pan area) take them.
  */
 
+import { localize } from '@open-artifact/runtime';
 import { useLayoutEffect, useMemo, useState, type ReactNode } from 'react';
 import { Check, Plus, RotateCcw, RotateCw } from 'lucide-react';
 import { isAncestorPath, nodeAt, pathKey, resolveContextId, rotationOf, samePath, type ImageNode, type NodePath, type Slide, type TableNode } from '@open-artifact/slides-core';
@@ -207,7 +208,7 @@ function ResizeHandles({ ctx, path }: { ctx: StageContext; path: NodePath }): Re
       <div className="absolute left-1/2 top-0 h-5 w-px -translate-y-full bg-accent" />
       <div
         role="presentation"
-        title="Rotate (Shift snaps to 15°)"
+        title={localize('Rotate (Shift snaps to 15°)', '旋转（按住 Shift 以 15° 为步长）')}
         className="pointer-events-auto absolute left-1/2 top-0 flex size-4 -translate-x-1/2 -translate-y-[calc(100%+18px)] cursor-grab items-center justify-center rounded-full border border-accent bg-surface text-accent shadow-sm"
         onPointerDown={(event) => {
           if (event.button !== 0) return;
@@ -225,8 +226,8 @@ function ResizeHandles({ ctx, path }: { ctx: StageContext; path: NodePath }): Re
 /** "+" buttons past a selected table's right and bottom edges: add a column, add a row. */
 function TableAddButtons({ table, path }: { table: TableNode; path: NodePath }): ReactNode {
   const buttons = [
-    { what: 'column' as const, label: 'Add a column', style: { left: 'calc(100% + 14px)', top: '50%', transform: 'translateY(-50%)' } },
-    { what: 'row' as const, label: 'Add a row', style: { top: 'calc(100% + 14px)', left: '50%', transform: 'translateX(-50%)' } },
+    { what: 'column' as const, label: localize('Add a column', '添加一列'), style: { left: 'calc(100% + 14px)', top: '50%', transform: 'translateY(-50%)' } },
+    { what: 'row' as const, label: localize('Add a row', '添加一行'), style: { top: 'calc(100% + 14px)', left: '50%', transform: 'translateX(-50%)' } },
   ];
   return (
     <>
@@ -275,7 +276,7 @@ function ConnectorHandles({ ctx, slide, path }: { ctx: StageContext; slide: Slid
         <div
           key={i}
           role="presentation"
-          title={i === 0 ? 'Start' : 'End'}
+          title={i === 0 ? localize('Start', '起点') : localize('End', '终点')}
           className="pointer-events-auto absolute size-3 cursor-move rounded-full border-2 border-accent bg-surface shadow-sm"
           style={{ left: (host.x + end.x) * ctx.scale - 6, top: (host.y + end.y) * ctx.scale - 6 }}
           onPointerDown={(event) => {
@@ -364,14 +365,14 @@ const CROP_CURSORS: Record<CropEdge, string> = {
 
 /** Names of the crop handles. */
 const CROP_LABELS: Record<CropEdge, string> = {
-  n: 'top edge',
-  s: 'bottom edge',
-  e: 'right edge',
-  w: 'left edge',
-  ne: 'top right',
-  nw: 'top left',
-  se: 'bottom right',
-  sw: 'bottom left',
+  n: localize('top edge', '上边缘'),
+  s: localize('bottom edge', '下边缘'),
+  e: localize('right edge', '右边缘'),
+  w: localize('left edge', '左边缘'),
+  ne: localize('top right', '右上角'),
+  nw: localize('top left', '左上角'),
+  se: localize('bottom right', '右下角'),
+  sw: localize('bottom left', '左下角'),
 };
 
 /**
@@ -414,7 +415,7 @@ function CropLayer({ ctx, slide, path }: { ctx: StageContext; slide: Slide; path
       />
       <div
         role="presentation"
-        title="Drag to move the picture; drag a side to crop"
+        title={localize('Drag to move the picture; drag a side to crop', '拖动图片可以移动，拖动边缘可以裁剪')}
         className="pointer-events-auto absolute cursor-move outline outline-2 outline-accent"
         style={{ left: frame.x * s, top: frame.y * s, width: frame.w * s, height: frame.h * s }}
         onPointerDown={(event) => {
@@ -443,8 +444,8 @@ function CropLayer({ ctx, slide, path }: { ctx: StageContext; slide: Slide; path
               <div
                 key={edge}
                 role="presentation"
-                aria-label={`Crop handle, ${CROP_LABELS[edge]}`}
-                title={reason ?? `Crop from the ${CROP_LABELS[edge]}`}
+                aria-label={localize(`Crop handle, ${CROP_LABELS[edge]}`, `裁剪手柄：${CROP_LABELS[edge]}`)}
+                title={reason ?? localize(`Crop from the ${CROP_LABELS[edge]}`, `从${CROP_LABELS[edge]}裁剪`)}
                 className={cn(
                   'pointer-events-auto absolute -translate-x-1/2 -translate-y-1/2 border border-accent bg-surface shadow-sm',
                   corner ? 'size-3' : edge === 'n' || edge === 's' ? 'h-1.5 w-6 rounded-full' : 'h-6 w-1.5 rounded-full',
@@ -466,10 +467,10 @@ function CropLayer({ ctx, slide, path }: { ctx: StageContext; slide: Slide; path
         style={{ left: frame.x * s + (frame.w * s) / 2 - 144, top: (frame.y + frame.h) * s + 12 }}
         onPointerDown={(event) => event.stopPropagation()}
       >
-        <span className="text-xs text-fg-muted">Zoom</span>
+        <span className="text-xs text-fg-muted">{localize('Zoom', '缩放')}</span>
         <div className="min-w-0 flex-1">
           <SliderInput
-            aria-label="Crop zoom"
+            aria-label={localize('Crop zoom', '裁剪缩放')}
             value={current}
             min={1}
             max={Math.max(5, current)}
@@ -481,9 +482,9 @@ function CropLayer({ ctx, slide, path }: { ctx: StageContext; slide: Slide; path
             onCommit={() => setZoom(null)}
           />
         </div>
-        <Button size="sm" variant="ghost" icon={<RotateCcw className="size-3.5" />} onClick={() => resetCrop(ctx.slideId, path)} aria-label="Reset crop" />
+        <Button size="sm" variant="ghost" icon={<RotateCcw className="size-3.5" />} onClick={() => resetCrop(ctx.slideId, path)} aria-label={localize('Reset crop', '重置裁剪')} />
         <Button size="sm" variant="primary" icon={<Check className="size-3.5" />} onClick={done}>
-          Done
+          {localize('Done', '完成')}
         </Button>
       </div>
     </>

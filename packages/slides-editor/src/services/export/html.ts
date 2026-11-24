@@ -10,6 +10,7 @@
  * slide shows. The built-in player (player.ts) scales and plays the deck.
  */
 
+import { localize } from '@open-artifact/runtime';
 import { nodeAt, parsePathKey, SLIDE_HEIGHT, SLIDE_WIDTH, videoEmbedUrl, type ImageNode } from '@open-artifact/slides-core';
 import type { HtmlQuality } from '../exports.ts';
 import { BUILD_MS, slideStylesheet } from '../../render/css.ts';
@@ -158,7 +159,7 @@ async function videoFrame(frame: HTMLElement, node: ImageNode, entry: ExportSlid
     const button = frame.ownerDocument.createElement('button');
     button.type = 'button';
     button.className = 'open-artifact-play';
-    button.setAttribute('aria-label', 'Play video');
+    button.setAttribute('aria-label', localize('Play video', '播放视频'));
     button.innerHTML = PLAY_ICON;
     frame.appendChild(button);
   }
@@ -210,7 +211,7 @@ async function slideMarkup(entry: ExportSlide, job: ExportJob, inliner: Inliner,
         if (value !== null) frame.setAttribute(name, value);
       }
       frame.className = still.className.replace(/\bopen-artifact-embed-still\b/, '').trim();
-      frame.setAttribute('title', 'Embedded page');
+      frame.setAttribute('title', localize('Embedded page', '嵌入网页'));
       frame.setAttribute('sandbox', 'allow-scripts');
       frame.setAttribute('loading', 'lazy');
       frame.setAttribute('tabindex', '-1');
@@ -275,7 +276,7 @@ async function pageFonts(job: ExportJob): Promise<string> {
   for (const face of Object.values(faces)) {
     if (!face.src || !bundle.missing.includes(face.family)) continue;
     rules.push(fontFaceRule(face, job.capture.assets.url(face.src)));
-    job.notes.text('Some uploaded fonts load from the deck online.');
+    job.notes.text(localize('Some uploaded fonts load from the deck online.', '部分上传的字体需要联网从演示文稿加载。'));
   }
   parts.push(`<style>${rules.join('\n').replace(/<\/style/gi, '<\\/style')}</style>`);
   return parts.join('\n');
@@ -293,17 +294,19 @@ export async function exportHtml(job: ExportJob, options: { quality: HtmlQuality
     job.begin(entry.number);
     const { html, plan, keyframes } = await slideMarkup(entry, job, inliner, rules);
     if (keyframes) motionCss.push(keyframes);
-    frames.push(`<section class="open-artifact-frame${index === 0 ? ' open-artifact-on' : ''}" aria-roledescription="slide" aria-label="Slide ${index + 1}">${html}</section>`);
+    const slideRole = localize('slide', '幻灯片');
+    const slideLabel = localize(`Slide ${index + 1}`, `第 ${index + 1} 张幻灯片`);
+    frames.push(`<section class="open-artifact-frame${index === 0 ? ' open-artifact-on' : ''}" aria-roledescription="${slideRole}" aria-label="${slideLabel}">${html}</section>`);
     plans.push(plan);
     job.progress(index + 1);
     await breathe();
   }
-  if (frames.length === 0) throw new Error('There are no slides to export.');
+  if (frames.length === 0) throw new Error(localize('There are no slides to export.', '没有可导出的幻灯片。'));
   const plan = JSON.stringify({ buildMs: BUILD_MS, durations: TRANSITION_MS, slides: plans }).replace(/</g, '\\u003c');
   const readerStyle = `:root{--slide-aspect:${SLIDE_WIDTH}/${SLIDE_HEIGHT};--page-scale:calc(100vw / ${SLIDE_WIDTH}px)}
 ${READER_CSS}`;
   const page =
-    '<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n' +
+    `<!doctype html>\n<html lang="${localize('en', 'zh-CN')}">\n<head>\n<meta charset="utf-8">\n` +
     '<meta name="viewport" content="width=device-width, initial-scale=1">\n' +
     '<meta name="generator" content="Open Artifact">\n' +
     `<title>${escapeHtml(job.title)}</title>\n` +
@@ -311,7 +314,7 @@ ${READER_CSS}`;
     `<style>${PAGE_RESET}\n${slideStylesheet()}\n${PLAYER_CSS.replaceAll('1920px', `${SLIDE_WIDTH}px`)}\n${readerStyle}\n${motionCss.join('\n').replace(/<\/style/gi, '<\\/style')}</style>\n` +
     `<noscript><style>${readerStyle.replaceAll('html.open-artifact-reader', 'html').replaceAll('.open-artifact-reader ', '')}</style></noscript>\n` +
     '</head>\n<body>\n' +
-    `<main class="open-artifact-deck" aria-roledescription="slide deck" aria-label="${escapeHtml(job.title)}">\n${frames.join('\n')}\n</main>\n` +
+    `<main class="open-artifact-deck" aria-roledescription="${localize('slide deck', '演示文稿')}" aria-label="${escapeHtml(job.title)}">\n${frames.join('\n')}\n</main>\n` +
     '<div class="open-artifact-hud" aria-hidden="true"></div>\n' +
     `<script type="application/json" id="open-artifact-plan">${plan}</script>\n` +
     `<script>${PLAYER_SCRIPT.replace('var W = 1920', `var W = ${SLIDE_WIDTH}`)}</script>\n` +

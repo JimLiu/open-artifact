@@ -3,6 +3,7 @@
  * their results written to the store and failures shown as toasts.
  */
 
+import { withUiLanguage } from '../lib/navigation.ts';
 import { DOC_FRAGMENT, SLIDE_FRAGMENT, artifactIdOf, type FrameDeniedReason, type HostDestination, type ShareView, type ShareRequest, type ShellBoot } from '@open-artifact/protocol';
 import { toast } from '@open-artifact/ui';
 import { ApiError, answerOf, api, errorText, subscribeLibraryEvents } from '../lib/api.ts';
@@ -210,7 +211,7 @@ export function closeShell(): void {
     // The host removes the Shell without unloading it: ask here (standalone, `beforeunload` asks).
     if (report.leaveLosesWork && !window.confirm(t('leaveLosesWork'))) return;
     toHost({ openArtifact: 'close' });
-  } else location.href = '/';
+  } else location.href = withUiLanguage('/');
 }
 
 /** Deletes the artifact's record (the folder stays) and closes the Shell. */

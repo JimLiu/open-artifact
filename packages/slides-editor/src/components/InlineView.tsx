@@ -5,6 +5,7 @@
  * Skipped slides are left out unless every slide is skipped.
  */
 
+import { localize } from '@open-artifact/runtime';
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { ChevronLeft, ChevronRight, Loader2, Presentation, TriangleAlert } from 'lucide-react';
@@ -50,12 +51,12 @@ function Pager({ index, count, title, go }: { index: number; count: number; titl
     event.preventDefault();
   };
   return (
-    <nav aria-label="Slides" className="flex h-11 shrink-0 items-center justify-center gap-2 border-t border-chrome-sep bg-chrome text-chrome-fg" onKeyDown={onKeyDown}>
-      <IconButton label="Previous slide" icon={<ChevronLeft className="size-4" />} disabled={index === 0} onClick={() => go(index - 1)} />
+    <nav aria-label={localize('Slides', '幻灯片')} className="flex h-11 shrink-0 items-center justify-center gap-2 border-t border-chrome-sep bg-chrome text-chrome-fg" onKeyDown={onKeyDown}>
+      <IconButton label={localize('Previous slide', '上一张幻灯片')} icon={<ChevronLeft className="size-4" />} disabled={index === 0} onClick={() => go(index - 1)} />
       <span className="min-w-14 text-center text-xs tabular-nums text-chrome-muted" aria-hidden="true">
         {counter}
       </span>
-      <IconButton label="Next slide" icon={<ChevronRight className="size-4" />} disabled={index >= count - 1} onClick={() => go(index + 1)} />
+      <IconButton label={localize('Next slide', '下一张幻灯片')} icon={<ChevronRight className="size-4" />} disabled={index >= count - 1} onClick={() => go(index + 1)} />
       <span className="sr-only" role="status" aria-live="polite">
         {announcement}
       </span>
@@ -101,14 +102,14 @@ export function InlineView(): ReactNode {
   if (status === 'loading') {
     return (
       <div className="flex h-full items-center justify-center bg-canvas">
-        <Loader2 className="size-5 animate-spin text-fg-subtle" aria-label="Loading" />
+        <Loader2 className="size-5 animate-spin text-fg-subtle" aria-label={localize('Loading', '加载中')} />
       </div>
     );
   }
   if (status === 'error') {
     return (
       <div className="h-full bg-canvas">
-        <EmptyState icon={<TriangleAlert className="size-6" />} title="This presentation could not be opened">
+        <EmptyState icon={<TriangleAlert className="size-6" />} title={localize('This presentation could not be opened', '无法打开此演示文稿')}>
           {error}
         </EmptyState>
       </div>
@@ -117,8 +118,8 @@ export function InlineView(): ReactNode {
   if (slides.length === 0) {
     return (
       <div className="h-full bg-canvas">
-        <EmptyState icon={<Presentation className="size-6" />} title="This presentation has no slides yet">
-          <p>Slides will show here once they are added.</p>
+        <EmptyState icon={<Presentation className="size-6" />} title={localize('This presentation has no slides yet', '此演示文稿还没有幻灯片')}>
+          <p>{localize('Slides will show here once they are added.', '添加幻灯片后，它们会显示在这里。')}</p>
         </EmptyState>
       </div>
     );
@@ -135,7 +136,7 @@ export function InlineView(): ReactNode {
         {held ? (
           <p role="note" className="flex shrink-0 items-center gap-1.5 border-t border-chrome-sep bg-chrome px-3 py-1.5 text-xs text-chrome-muted">
             <TriangleAlert className="size-3.5 shrink-0" />
-            This slide's file has errors, so it may not show as written: {held}
+            {localize('This slide\'s file has errors, so it may not show as written:', '此幻灯片文件包含错误，显示效果可能与预期不同：')} {held}
           </p>
         ) : null}
         {slides.length > 1 ? <Pager index={index} count={slides.length} title={current ? viewedTitle(current) : undefined} go={go} /> : null}

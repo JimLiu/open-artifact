@@ -5,6 +5,7 @@
  * a tile. Presence.tsx feeds it the slides editor's state.
  */
 
+import { localize } from '@open-artifact/runtime';
 import type { ReactNode } from 'react';
 import { Eye, MousePointer2, Radio, Sparkles, X } from 'lucide-react';
 import { cn } from '@open-artifact/ui';
@@ -55,9 +56,9 @@ export function PresenceMenu({ peers, following, leading, followers, agent, onFo
     <Card className="pointer-events-auto flex items-center p-1">
       <ChromeMenu
         align="end"
-        tip={{ label: followers ? `${followers} following you` : 'People here' }}
+        tip={{ label: followers ? localize(`${followers} following you`, `${followers} 人正在跟随你`) : localize('People here', '在线成员') }}
         trigger={
-          <ChromeButton size="lg" aria-label="People here and following" className="gap-1.5 px-1.5">
+          <ChromeButton size="lg" aria-label={localize('People here and following', '在线成员及跟随状态')} className="gap-1.5 px-1.5">
             {shown.length ? (
               <span className="flex -space-x-1.5">
                 {shown.map((peer) => (
@@ -80,26 +81,26 @@ export function PresenceMenu({ peers, following, leading, followers, agent, onFo
         <ChromeMenuItem
           checked={leading}
           icon={<Radio className="size-4" strokeWidth={1.5} />}
-          description={leading ? (followers ? `${followers} ${followers === 1 ? 'person is' : 'people are'} following you` : 'No one is following yet') : 'Everyone here sees what you are looking at'}
+          description={leading ? (followers ? localize(`${followers} ${followers === 1 ? 'person is' : 'people are'} following you`, `${followers} 人正在跟随你`) : localize('No one is following yet', '暂时无人跟随')) : localize('Everyone here sees what you are looking at', '在线成员可以看到你正在查看的内容')}
           onSelect={() => onLead(!leading)}
           disabled={people.length === 0 && !leading}
         >
-          Follow me
+          {localize('Follow me', '跟随我')}
         </ChromeMenuItem>
         {agent ? (
           <ChromeMenuItem
             checked={agent.following}
             icon={<Sparkles className="size-4" strokeWidth={1.5} />}
-            description="Your view follows what it changes"
+            description={localize('Your view follows what it changes', '你的视图会随它的操作切换')}
             onSelect={() => onFollowAgent(!agent.following)}
           >
-            Follow {agent.name}
+            {localize('Follow', '跟随')} {agent.name}
           </ChromeMenuItem>
         ) : null}
         {people.length ? (
           <>
             <ChromeMenuSeparator />
-            <ChromeMenuLabel>People here</ChromeMenuLabel>
+            <ChromeMenuLabel>{localize('People here', '在线成员')}</ChromeMenuLabel>
             {people.map((peer) => (
               <ChromeMenuItem
                 key={peer.id}
@@ -108,7 +109,7 @@ export function PresenceMenu({ peers, following, leading, followers, agent, onFo
                 description={peer.where}
                 onSelect={() => onFollow(following === peer.id ? null : peer.id)}
               >
-                {following === peer.id ? `Following ${peer.name}` : `Follow ${peer.name}`}
+                {following === peer.id ? localize(`Following ${peer.name}`, `正在跟随 ${peer.name}`) : localize(`Follow ${peer.name}`, `跟随 ${peer.name}`)}
               </ChromeMenuItem>
             ))}
           </>
@@ -124,9 +125,9 @@ export function FollowingBanner({ name, leading, followers, onStop }: { name: st
   return (
     <div className="pointer-events-none absolute inset-x-0 top-[60px] z-20 flex justify-center">
       <div role="status" className="pointer-events-auto flex items-center gap-2 rounded-full bg-chrome-accent py-1 pl-3 pr-1 text-xs font-medium text-white shadow-chrome">
-        <span>{name ? `Following ${name}` : `Others follow you · ${followers} following`}</span>
-        <span className="text-white/70">{name ? 'Esc to stop' : ''}</span>
-        <button type="button" aria-label={name ? 'Stop following' : 'Stop leading'} className="flex size-5 items-center justify-center rounded-full hover:bg-white/20" onClick={onStop}>
+        <span>{name ? localize(`Following ${name}`, `正在跟随 ${name}`) : localize(`Others follow you · ${followers} following`, `正在带看 · ${followers} 人跟随`)}</span>
+        <span className="text-white/70">{name ? localize('Esc to stop', '按 Esc 停止') : ''}</span>
+        <button type="button" aria-label={name ? localize('Stop following', '停止跟随') : localize('Stop leading', '结束带看')} className="flex size-5 items-center justify-center rounded-full hover:bg-white/20" onClick={onStop}>
           <X className="size-3.5" />
         </button>
       </div>

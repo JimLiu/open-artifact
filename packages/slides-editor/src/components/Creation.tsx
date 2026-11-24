@@ -6,6 +6,7 @@
  * slides" or "N slides updated" when the agent stops.
  */
 
+import { localize } from '@open-artifact/runtime';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Sparkles } from 'lucide-react';
 import { SLIDE_HEIGHT, SLIDE_WIDTH } from '@open-artifact/slides-core';
@@ -49,7 +50,7 @@ export function PlannedCell({ n, next, stagger = 0, compact = false, className }
   return (
     <div
       role="presentation"
-      aria-label={`Slide ${n}, not written yet`}
+      aria-label={localize(`Slide ${n}, not written yet`, `第 ${n} 张幻灯片，尚未完成`)}
       className={cn('oa-cell-in relative overflow-hidden rounded-[4px] bg-surface-2 ring-1 ring-line', className)}
       style={{ aspectRatio: `${SLIDE_WIDTH} / ${SLIDE_HEIGHT}`, animationDelay: `${stagger}ms` }}
     >
@@ -86,7 +87,7 @@ export function GridPlanned({ first, columns, tile, gap }: { first: number; colu
   const planned = usePlanned();
   if (!planned.length) return null;
   return (
-    <div className="mb-8 grid" style={{ gridTemplateColumns: `repeat(${columns}, ${tile}px)`, columnGap: gap, rowGap: gap }} aria-label="Slides still being written">
+    <div className="mb-8 grid" style={{ gridTemplateColumns: `repeat(${columns}, ${tile}px)`, columnGap: gap, rowGap: gap }} aria-label={localize('Slides still being written', '正在制作的幻灯片')}>
       {planned.map((id, i) => (
         <div key={id}>
           <PlannedCell n={first + i + 1} next={i === 0} stagger={i * CREATION_TIMING.cellStagger} className="rounded-md" />
@@ -108,8 +109,8 @@ export function CreationView(): ReactNode {
   return (
     <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-6 overflow-y-auto bg-stage px-8 py-12" aria-busy="true">
       <div className="flex flex-col items-center gap-1 text-center">
-        <h2 className="text-base font-medium text-fg">{title || 'New presentation'}</h2>
-        <p className="text-xs text-fg-muted">{planned.length ? `${planned.length} ${planned.length === 1 ? 'slide' : 'slides'} planned` : 'Planning the outline…'}</p>
+        <h2 className="text-base font-medium text-fg">{title || localize('New presentation', '新建演示文稿')}</h2>
+        <p className="text-xs text-fg-muted">{planned.length ? localize(`${planned.length} ${planned.length === 1 ? 'slide' : 'slides'} planned`, `计划制作 ${planned.length} 张幻灯片`) : localize('Planning the outline…', '正在规划大纲…')}</p>
       </div>
       <div className="grid w-full max-w-3xl grid-cols-[repeat(auto-fill,minmax(160px,1fr))] gap-4">
         {cells.map((id, i) => (
@@ -136,7 +137,7 @@ export function CreationStatus(): ReactNode {
     <div className="pointer-events-none absolute inset-x-0 bottom-[72px] z-20 flex justify-center">
       <div className="flex max-w-[min(32rem,calc(100%-2rem))] items-center gap-2 rounded-full bg-chrome px-3 py-1.5 text-xs text-chrome-fg shadow-chrome">
         <Sparkles className="size-3.5 shrink-0 text-chrome-accent" aria-hidden />
-        {planned.length ? <span className="shrink-0 tabular-nums font-medium">{`${written} of ${total}`}</span> : null}
+        {planned.length ? <span className="shrink-0 tabular-nums font-medium">{localize(`${written} of ${total}`, `已完成 ${written}/${total} 张`)}</span> : null}
         <span key={tip} className="oa-tip-in truncate text-chrome-secondary">
           {tip}
         </span>

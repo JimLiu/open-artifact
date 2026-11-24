@@ -9,6 +9,7 @@
  * {@link CommentsController.start}.
  */
 
+import { localize } from '@open-artifact/runtime';
 import type { CommentsCapability, CommentThread, JsonRecord } from '@open-artifact/runtime';
 import { create, type StoreApi, type UseBoundStore } from 'zustand';
 import type { AnchorState } from './pins.ts';
@@ -113,7 +114,7 @@ export interface StatusChange {
 }
 
 /** What a menu says while a status change is on its way. */
-export const WAIT_FOR_STATUS_CHANGE = 'Wait for the current change to finish.';
+export const WAIT_FOR_STATUS_CHANGE = localize('Wait for the current change to finish.', '请等待当前更改完成。');
 
 /** The threads as shown: the stored ones, with an unconfirmed status change already applied. */
 export function withStatusChange(threads: CommentThread[], change: StatusChange | null): CommentThread[] {
@@ -170,14 +171,14 @@ export interface CommentsController<A> {
 /** Open (unresolved) thread count. */
 /** Under a thread sent to the agent that has not taken it yet; one that is not woken while it idles needs a message. */
 export function queuedNote(agent: { name: string; wakesIdle?: boolean }): string {
-  return agent.wakesIdle === false ? `${agent.name} gets this on its next turn: send it a message to start one` : 'Waiting for the agent';
+  return agent.wakesIdle === false ? localize(`${agent.name} gets this on its next turn: send it a message to start one`, `${agent.name} 会在下一轮处理。发送消息即可启动新一轮。`) : localize('Waiting for the agent', '正在等待 Agent 处理');
 }
 
 /** The toast after a thread goes to the agent; one that is not woken while it idles needs a message from the person. */
 export function sentNotice(name: string, wakesIdle: boolean | undefined): { title: string; description?: string } {
   return wakesIdle === false
-    ? { title: `Sent to ${name}`, description: `${name} gets it on its next turn. If it is idle, send it a message there to start one.` }
-    : { title: `Sent to ${name}` };
+    ? { title: localize(`Sent to ${name}`, `已发送给 ${name}`), description: localize(`${name} gets it on its next turn. If it is idle, send it a message there to start one.`, `${name} 会在下一轮处理。若它正空闲，可在对话中发送消息启动新一轮。`) }
+    : { title: localize(`Sent to ${name}`, `已发送给 ${name}`) };
 }
 
 export function openCount(threads: readonly CommentThread[]): number {
@@ -190,8 +191,8 @@ export function openMessageCount(threads: readonly CommentThread[]): number {
 
 /** The default note of a card whose anchor moved away. */
 function defaultStateNote(state: AnchorState | undefined): string | null {
-  if (state === 'detached') return 'What this was on is gone; shown on what held it.';
-  if (state === 'orphaned') return 'What this was on has been deleted.';
+  if (state === 'detached') return localize('What this was on is gone; shown on what held it.', '原评论对象已移除，评论现在显示在其容器上。');
+  if (state === 'orphaned') return localize('What this was on has been deleted.', '评论对象已删除。');
   return null;
 }
 
@@ -266,7 +267,7 @@ export function createComments<A>(adapter: CommentsAdapter<A>): CommentsControll
   };
 
   const failed = (error: unknown): void => {
-    notify({ title: 'The comment could not be saved', description: error instanceof Error ? error.message : String(error) });
+    notify({ title: localize('The comment could not be saved', '无法保存评论'), description: error instanceof Error ? error.message : String(error) });
   };
   const put = (thread: CommentThread): void => {
     keep(stored.map((t) => (t.id === thread.id ? thread : t)));
@@ -323,7 +324,7 @@ export function createComments<A>(adapter: CommentsAdapter<A>): CommentsControll
       const body = checkText(text);
       if (!body) return false;
       if (store.getState().threads.length >= maxThreads) {
-        notify({ title: `This ${noun} already has ${maxThreads} comments` });
+        notify({ title: localize(`This ${noun} already has ${maxThreads} comments`, `此${noun}已有 ${maxThreads} 条评论`) });
         return false;
       }
       try {
@@ -416,7 +417,7 @@ export function createComments<A>(adapter: CommentsAdapter<A>): CommentsControll
       if (adapter.sendToAgent) return thread ? adapter.sendToAgent(thread, anchorOf(thread)) : false;
       try {
         put(await capability.sendToAgent(id));
-        notify(sentNotice(adapter.agentName?.() || 'the agent', adapter.agentWakesIdle?.()));
+        notify(sentNotice(adapter.agentName?.() || localize('the agent', 'Agent'), adapter.agentWakesIdle?.()));
         return true;
       } catch (error) {
         failed(error);
@@ -442,7 +443,7 @@ export function createComments<A>(adapter: CommentsAdapter<A>): CommentsControll
           sent++;
         }
       }
-      if (sent) notify(sentNotice(adapter.agentName?.() || 'the agent', adapter.agentWakesIdle?.()));
+      if (sent) notify(sentNotice(adapter.agentName?.() || localize('the agent', 'Agent'), adapter.agentWakesIdle?.()));
       const failure = results.find((result): result is PromiseRejectedResult => result.status === 'rejected');
       if (failure) failed(failure.reason);
     },
@@ -463,7 +464,7 @@ export function createComments<A>(adapter: CommentsAdapter<A>): CommentsControll
       if (thread.status === 'resolved' && !store.getState().showResolved) store.getState().setShowResolved(true);
       controller.reveal(thread);
     },
-    viewerName: () => adapter.viewerName?.() || 'You',
+    viewerName: () => adapter.viewerName?.() || localize('You', '你'),
   };
   return controller;
 }

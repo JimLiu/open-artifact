@@ -5,6 +5,7 @@
  * offers to bring them back. Copies older than three days are dropped.
  */
 
+import { localize } from '@open-artifact/runtime';
 import { STASH_KEEP_MS, storedJson } from '@open-artifact/editor-kit';
 import { parseDeckIndex, serializeDeckIndex, serializeSlide, type Slide } from '@open-artifact/slides-core';
 import { isDirty, readSlide, deckFaces, useDeck } from '../state/deck.ts';
@@ -103,6 +104,6 @@ export function restoreRecovery(record: Recovery): void {
     const parsed = parseDeckIndex(record.index);
     if (!parsed.error) index = parsed.index;
   }
-  state.apply('Restore unsaved changes', { slides, index });
+  state.apply(localize('Restore unsaved changes', '恢复未保存的更改'), { slides, index });
   clearRecovery();
 }

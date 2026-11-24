@@ -11,6 +11,7 @@
  * every ink legible on the ground it sits on. Pure: no store, no DOM.
  */
 
+import { localize } from '@open-artifact/runtime';
 import { familyList, formatFamilies, parseFontFamily, type DeckFace, type DeckIndex, type Slide, type SlideNode, type StyleMap } from '@open-artifact/slides-core';
 import { contrast, isChromatic, legibleOn, mix, withAlphaOf } from './color.ts';
 import { familyKeyOf, isHeadingNode, slotRole, useKey, type PaletteSlot } from './analysis.ts';
@@ -109,7 +110,7 @@ export function originalEntry(slots: readonly PaletteSlot[], heading?: string, b
     colors[slot.id] = slot.value;
     if (slot.on) on[slot.id] = slot.on;
   }
-  return { look: ORIGINAL_LOOK, title: 'Original look', colors, on, ...(heading !== undefined ? { heading } : {}), ...(body !== undefined ? { body } : {}) };
+  return { look: ORIGINAL_LOOK, title: localize('Original look', '原始外观'), colors, on, ...(heading !== undefined ? { heading } : {}), ...(body !== undefined ? { body } : {}) };
 }
 
 /* -------------------------------------------------------------------------- */

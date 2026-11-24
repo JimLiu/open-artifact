@@ -14,6 +14,7 @@
  */
 
 import type { ShellBoot } from '@open-artifact/protocol';
+import { preferredLocale } from '@open-artifact/runtime';
 
 /** Where the daemon (or a type server) puts the boot object. */
 export const BOOT_GLOBAL = '__OPEN_ARTIFACT_BOOT__';
@@ -164,7 +165,7 @@ function isAppAsset(target: EventTarget | null): boolean {
 
 const ERROR_TEXT = {
   en: { message: 'This page could not load.', retry: 'Try again' },
-  zh: { message: '页面没能加载。', retry: '重试' },
+  'zh-CN': { message: '页面没能加载。', retry: '重试' },
 };
 
 /** Shows the static error block in place of the skeleton. */
@@ -173,7 +174,7 @@ function showError(win: Window): void {
   const skeleton = doc.getElementById(PREBOOT_IDS.skeleton);
   const block = doc.getElementById(PREBOOT_IDS.error);
   if (!block) return;
-  const text = /^zh\b/i.test(String(win.navigator?.language ?? '')) ? ERROR_TEXT.zh : ERROR_TEXT.en;
+  const text = ERROR_TEXT[preferredLocale(win.location.search ?? '', win.navigator)];
   const message = block.querySelector('p');
   const button = block.querySelector('button');
   if (message) message.textContent = text.message;

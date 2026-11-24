@@ -4,6 +4,7 @@
  * description, and the "+" between tiles that adds a slide or a section.
  */
 
+import { localize } from '@open-artifact/runtime';
 import { memo, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { AlertTriangle, EyeOff, ListPlus, MessageCircle, MoreHorizontal, Plus, Trash2 } from 'lucide-react';
 import { LIMITS, normalizeDescription, slideTitle, type SectionEntry } from '@open-artifact/slides-core';
@@ -46,7 +47,7 @@ export const SlideTile = memo(function SlideTile({ id, index, comments, peers, d
   const selected = useView((s) => s.slideSelection.includes(id));
   const arriving = useArriving(id);
   if (!entry) return null;
-  const problem = entry.held ?? (entry.conflict ? 'Changed elsewhere at the same time' : null);
+  const problem = entry.held ?? (entry.conflict ? localize('Changed elsewhere at the same time', '其他位置同时修改了此幻灯片') : null);
   const title = slideTitle(entry.slide);
   return (
     <ContextMenu
@@ -64,7 +65,7 @@ export const SlideTile = memo(function SlideTile({ id, index, comments, peers, d
         data-slide-id={id}
         role="option"
         aria-selected={selected || current}
-        aria-label={`Slide ${index + 1}${title ? `: ${title}` : ''}`}
+        aria-label={localize(`Slide ${index + 1}${title ? `: ${title}` : ''}`, `第 ${index + 1} 张幻灯片${title ? `：${title}` : ''}`)}
         onPointerDown={(event) => onPointerDown(event, id)}
         onDoubleClick={() => onOpen(id)}
         className={cn('group cursor-default', dragging && 'opacity-40', arriving && 'oa-arrive')}
@@ -90,7 +91,7 @@ export const SlideTile = memo(function SlideTile({ id, index, comments, peers, d
         <div className="flex items-center gap-1.5 pt-1.5 text-[11px] text-fg-muted">
           <span className={cn('tabular-nums', (selected || current) && 'font-semibold text-fg')}>{index + 1}</span>
           <span className="min-w-0 flex-1 truncate">{title}</span>
-          {entry.slide.hidden ? <EyeOff className="size-3 shrink-0" aria-label="Skipped" /> : null}
+          {entry.slide.hidden ? <EyeOff className="size-3 shrink-0" aria-label={localize('Skipped', '已跳过')} /> : null}
           {problem ? <AlertTriangle className="size-3 shrink-0 text-warning" aria-label={problem} /> : null}
         </div>
       </div>
@@ -120,7 +121,7 @@ export function SectionLabel({ section, n, ids, previousGap, nextGap, className 
   const selected = useView((s) => s.sectionSelection.includes(key));
   const editable = useDeck((s) => !s.readOnly && !s.indexError) && canChange();
   const description = section?.description ?? '';
-  const title = `Section ${n + 1}`;
+  const title = localize(`Section ${n + 1}`, `第 ${n + 1} 节`);
   // The opening run can be described only once it has slides to start at.
   const describable = editable && (section !== null || ids.length > 0);
 
@@ -158,7 +159,7 @@ export function SectionLabel({ section, n, ids, previousGap, nextGap, className 
             type="button"
             data-section-describe
             disabled={!describable}
-            aria-label={description || (describable ? `${title}, Describe this section` : title)}
+            aria-label={description || (describable ? localize(`${title}, Describe this section`, `${title}，添加节说明`) : title)}
             className={cn(
               'block max-w-full truncate text-left text-sm',
               description ? 'text-fg' : 'text-fg-subtle',
@@ -166,7 +167,7 @@ export function SectionLabel({ section, n, ids, previousGap, nextGap, className 
             )}
             onClick={() => describable && useView.getState().setEditingSection(key)}
           >
-            {description || (describable ? 'Describe this section' : '')}
+            {description || (describable ? localize('Describe this section', '添加节说明') : '')}
           </button>
         )}
       </div>
@@ -176,25 +177,25 @@ export function SectionLabel({ section, n, ids, previousGap, nextGap, className 
             <IconButton
               size="sm"
               noTooltip
-              label={`Actions for ${title}`}
+              label={localize(`Actions for ${title}`, `「${title}」的操作`)}
               icon={<MoreHorizontal className="size-3.5" />}
               className="opacity-0 group-hover/label:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100"
             />
           }
           align="end"
         >
-          <MenuItem onSelect={() => useView.getState().setEditingSection(key)}>Describe {title}</MenuItem>
+          <MenuItem onSelect={() => useView.getState().setEditingSection(key)}>{localize('Describe', '添加说明')} {title}</MenuItem>
           <MenuItem disabled={previousGap === null} onSelect={() => previousGap !== null && moveSection(section.key, previousGap)}>
-            Move section earlier
+            {localize('Move section earlier', '向前移动此节')}
           </MenuItem>
           <MenuItem disabled={nextGap === null} onSelect={() => nextGap !== null && moveSection(section.key, nextGap)}>
-            Move section later
+            {localize('Move section later', '向后移动此节')}
           </MenuItem>
           <MenuItem icon={<Plus className="size-4" />} disabled={ids.length === 0} onSelect={() => void addSlide('blank', ids.at(-1) ?? null)}>
-            Add a slide to this section
+            {localize('Add a slide to this section', '向此节添加幻灯片')}
           </MenuItem>
           <MenuItem icon={<Trash2 className="size-4" />} danger onSelect={() => removeSection(section.key)}>
-            Remove section
+            {localize('Remove section', '移除此节')}
           </MenuItem>
         </Menu>
       ) : null}
@@ -217,8 +218,8 @@ function DescriptionInput({ initial, onCommit, onCancel }: { initial: string; on
       rows={2}
       value={value}
       maxLength={LIMITS.sectionDescription}
-      placeholder="Describe this section"
-      aria-label="Section description"
+      placeholder={localize('Describe this section', '添加节说明')}
+      aria-label={localize('Section description', '节说明')}
       className="mt-0.5 block w-full resize-none rounded border border-accent bg-canvas px-1.5 py-1 text-sm text-fg outline-none"
       onChange={(event) => setValue(event.target.value.replace(/\n/g, ' '))}
       onBlur={() => {
@@ -253,7 +254,7 @@ export function GapAdd({ gap, after, className }: { gap: number; after: string; 
       trigger={
         <button
           type="button"
-          aria-label="Add a slide or section here"
+          aria-label={localize('Add a slide or section here', '在此添加幻灯片或节')}
           className={cn(
             'flex size-6 items-center justify-center rounded-full border border-line bg-surface text-fg-muted opacity-0 shadow-popup transition-opacity hover:text-fg focus-visible:opacity-100 group-hover/gap:opacity-100 pointer-coarse:opacity-100',
             className,
@@ -265,10 +266,10 @@ export function GapAdd({ gap, after, className }: { gap: number; after: string; 
       align="center"
     >
       <MenuItem icon={<Plus className="size-4" />} onSelect={() => void addSlide('blank', after)}>
-        New slide here
+        {localize('New slide here', '在此新建幻灯片')}
       </MenuItem>
       <MenuItem icon={<ListPlus className="size-4" />} onSelect={() => addSectionAt(gap)}>
-        New section here
+        {localize('New section here', '在此新建节')}
       </MenuItem>
     </Menu>
   );

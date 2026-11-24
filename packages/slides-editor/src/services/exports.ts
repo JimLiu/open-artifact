@@ -9,6 +9,7 @@
  * capability when it fits, else as an ordinary browser download.
  */
 
+import { localize } from '@open-artifact/runtime';
 import { mayExportHere } from '@open-artifact/editor-kit';
 import { displayTitle } from '@open-artifact/slides-core';
 import { deckOrder, useDeck } from '../state/deck.ts';
@@ -60,7 +61,7 @@ export function exportBusy(): boolean {
 
 /** The note of an export made while the agent was still writing the deck. */
 export function writingNote(written: number, planned: number): string {
-  return `The deck was still being written: only ${written} of ${planned} planned slides were included.`;
+  return localize(`The deck was still being written: only ${written} of ${planned} planned slides were included.`, `演示文稿仍在制作中。计划制作 ${planned} 张幻灯片，本次导出了其中 ${written} 张。`);
 }
 
 /** The deck's title for file names and documents. */
@@ -77,8 +78,8 @@ function selectSlides(request: ExportRequest, notes: ExportNotes): ExportSlide[]
   if (request.format === 'png') {
     const at = order.indexOf(request.slideId);
     const entry = state.slides[request.slideId];
-    if (at < 0 || !entry) throw new Error('That slide is no longer in the deck.');
-    if (entry.held) throw new Error('This slide has errors, so it cannot be exported. Fix the file first.');
+    if (at < 0 || !entry) throw new Error(localize('That slide is no longer in the deck.', '该幻灯片已不在演示文稿中。'));
+    if (entry.held) throw new Error(localize('This slide has errors, so it cannot be exported. Fix the file first.', '此幻灯片有错误，无法导出。请先修复文件。'));
     return [{ slide: entry.slide, number: at + 1 }];
   }
   const out: ExportSlide[] = [];
@@ -113,16 +114,16 @@ async function render(request: ExportRequest, job: ExportJob): Promise<Blob> {
  */
 export async function runExport(request: ExportRequest, progress?: (done: number, total: number) => void, options: { writing?: { written: number; planned: number } } = {}): Promise<ExportResult> {
   const current = maybeSession();
-  if (!current || !mayExportHere(current.viewer.role, current.downloads)) throw new Error('Only the owner can download the deck.');
-  if (busy) throw new Error('Another export is still running.');
+  if (!current || !mayExportHere(current.viewer.role, current.downloads)) throw new Error(localize('Only the owner can download the deck.', '仅所有者可以下载此演示文稿。'));
+  if (busy) throw new Error(localize('Another export is still running.', '另一项导出任务仍在运行。'));
   const state = useDeck.getState();
-  if (state.status !== 'ready') throw new Error('The deck has not finished loading.');
+  if (state.status !== 'ready') throw new Error(localize('The deck has not finished loading.', '演示文稿还未加载完成。'));
   busy = true;
   try {
     const notes = new ExportNotes();
     if (options.writing) notes.text(writingNote(options.writing.written, options.writing.planned));
     const slides = selectSlides(request, notes);
-    if (slides.length === 0) throw new Error('There are no slides to export: every slide is hidden or has errors.');
+    if (slides.length === 0) throw new Error(localize('There are no slides to export: every slide is hidden or has errors.', '没有可导出的幻灯片。所有幻灯片都已隐藏或包含错误。'));
     const title = deckTitle();
     const assets = new AssetCache(resolveSrc);
     const faces = state.index.faces;
@@ -162,7 +163,7 @@ export async function runExport(request: ExportRequest, progress?: (done: number
     return { name, notes: notes.list(), savedTo: saved.savedTo };
   } catch (error) {
     if (error instanceof Error && error.message) throw error;
-    throw new Error(`The export failed: ${String(error)}`);
+    throw new Error(localize(`The export failed: ${String(error)}`, `导出失败：${String(error)}`));
   } finally {
     busy = false;
   }

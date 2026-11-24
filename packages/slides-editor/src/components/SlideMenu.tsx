@@ -3,6 +3,7 @@
  * clipboard, duplicate, delete, skip, cover, sections, moves and links.
  */
 
+import { localize } from '@open-artifact/runtime';
 import type { ReactNode } from 'react';
 import { ArrowDown, ArrowUp, ClipboardPaste, Copy, CopyPlus, Eye, EyeOff, Image, Link, ListPlus, Plus, Scissors, Sparkles, Trash2 } from 'lucide-react';
 import { MenuItem, MenuSeparator } from '@open-artifact/ui';
@@ -34,11 +35,11 @@ export function SlideMenuItems({ ids }: { ids: readonly string[] }): ReactNode {
   const allHidden = ids.every((id) => deck.slides[id]?.slide.hidden);
   const held = ids.filter((id) => deck.slides[id]?.held);
   const startsSection = single ? Object.values(deck.index.sections).some((s) => s.start === single) : false;
-  const many = ids.length > 1 ? ` ${ids.length} slides` : '';
+  const many = ids.length > 1 ? localize(` ${ids.length} slides`, ` ${ids.length} 张幻灯片`) : '';
   return (
     <>
       <MenuItem icon={<Copy className="size-4" />} shortcut={`${MOD}C`} onSelect={() => copySlidesToMemory(ids)}>
-        Copy{many}
+        {localize('Copy', '复制')}{many}
       </MenuItem>
       {editing ? (
         <>
@@ -50,42 +51,42 @@ export function SlideMenuItems({ ids }: { ids: readonly string[] }): ReactNode {
               deleteSlides(ids);
             }}
           >
-            Cut{many}
+            {localize('Cut', '剪切')}{many}
           </MenuItem>
           <MenuItem icon={<ClipboardPaste className="size-4" />} shortcut={`${MOD}V`} disabled={!hasMemory()} onSelect={() => pasteFromMemory()}>
-            Paste
+            {localize('Paste', '粘贴')}
           </MenuItem>
           <MenuItem icon={<CopyPlus className="size-4" />} shortcut={`${MOD}D`} onSelect={() => duplicateSlides(ids)}>
-            Duplicate{many}
+            {localize('Duplicate', '复制一份')}{many}
           </MenuItem>
           <MenuItem icon={<Trash2 className="size-4" />} shortcut="⌫" danger onSelect={() => deleteSlides(ids)}>
-            Delete{many}
+            {localize('Delete', '删除')}{many}
           </MenuItem>
           <MenuSeparator />
           <MenuItem icon={allHidden ? <Eye className="size-4" /> : <EyeOff className="size-4" />} onSelect={() => setSlidesHidden(ids, !allHidden)}>
-            {allHidden ? 'Don’t skip' : 'Skip when presenting'}
+            {allHidden ? localize('Don’t skip', '取消跳过') : localize('Skip when presenting', '放映时跳过')}
           </MenuItem>
           {single ? (
             <MenuItem icon={<Image className="size-4" />} disabled={deck.index.cover === single} onSelect={() => setCoverSlide(single)}>
-              Use as cover thumbnail
+              {localize('Use as cover thumbnail', '设为封面缩略图')}
             </MenuItem>
           ) : null}
           <MenuItem icon={<ListPlus className="size-4" />} onSelect={() => slidesToNewSection(ids)}>
-            Move to new section
+            {localize('Move to new section', '移到新节')}
           </MenuItem>
           {single && !startsSection ? (
             <MenuItem icon={<ListPlus className="size-4" />} onSelect={() => startSectionAt(single)}>
-              Start a section here
+              {localize('Start a section here', '在此创建节')}
             </MenuItem>
           ) : null}
           <MenuItem icon={<Plus className="size-4" />} onSelect={() => addSlide('blank', ids[ids.length - 1]!)}>
-            Add slide after
+            {localize('Add slide after', '在后面添加幻灯片')}
           </MenuItem>
           <MenuItem icon={<ArrowUp className="size-4" />} onSelect={() => nudgeSlides(-1, ids)}>
-            Move up
+            {localize('Move up', '上移')}
           </MenuItem>
           <MenuItem icon={<ArrowDown className="size-4" />} onSelect={() => nudgeSlides(1, ids)}>
-            Move down
+            {localize('Move down', '下移')}
           </MenuItem>
         </>
       ) : null}
@@ -93,13 +94,13 @@ export function SlideMenuItems({ ids }: { ids: readonly string[] }): ReactNode {
         <>
           <MenuSeparator />
           <MenuItem icon={<Link className="size-4" />} shortcut={`⌥${MOD}L`} onSelect={() => void copySlideLink(single)}>
-            Copy link to slide
+            {localize('Copy link to slide', '复制幻灯片链接')}
           </MenuItem>
         </>
       ) : null}
       {held.length && agent && editing ? (
         <MenuItem icon={<Sparkles className="size-4" />} onSelect={() => void askAgentToFix(held)}>
-          Ask agent to fix
+          {localize('Ask agent to fix', '请 Agent 修复')}
         </MenuItem>
       ) : null}
     </>

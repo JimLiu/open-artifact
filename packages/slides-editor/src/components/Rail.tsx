@@ -6,6 +6,7 @@
  * Sections show in the grid and canvas views, not here.
  */
 
+import { localize } from '@open-artifact/runtime';
 import { memo, useRef, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { AlertTriangle, EyeOff, MessageCircle } from 'lucide-react';
 import { cn } from '@open-artifact/ui';
@@ -61,7 +62,7 @@ const RailThumb = memo(function RailThumb({ id, index, comments, peers, dragging
   const arriving = useArriving(id);
   if (!entry) return null;
   const n = index + 1;
-  const problem = entry.held ?? (entry.conflict ? 'Changed elsewhere at the same time' : null);
+  const problem = entry.held ?? (entry.conflict ? localize('Changed elsewhere at the same time', '其他位置同时修改了此幻灯片') : null);
   return (
     <ContextMenu
       menu={<SlideMenuItems ids={useView.getState().slideSelection.includes(id) ? targetSlides() : [id]} />}
@@ -74,13 +75,13 @@ const RailThumb = memo(function RailThumb({ id, index, comments, peers, dragging
         data-slide-index={index}
         role="option"
         aria-selected={current || selected}
-        aria-label={`Slide ${n}`}
+        aria-label={localize(`Slide ${n}`, `第 ${n} 张幻灯片`)}
         onPointerDown={(event) => onPointerDown(event, id)}
         className={cn('group relative cursor-default rounded-[6px] p-1', !current && 'hover:bg-chrome-hover', dragging && 'opacity-40', arriving && 'oa-arrive')}
       >
         <div className="absolute inset-y-0 right-full flex w-5 flex-col items-end gap-1 pr-2 pt-1 text-[13px] leading-5 tabular-nums">
           <span className={current ? 'font-medium text-chrome-accent' : 'text-chrome-muted'}>{n}</span>
-          {entry.slide.hidden ? <EyeOff className="size-3 text-chrome-muted" aria-label="Skipped" /> : null}
+          {entry.slide.hidden ? <EyeOff className="size-3 text-chrome-muted" aria-label={localize('Skipped', '已跳过')} /> : null}
           {problem ? <AlertTriangle className="size-3 text-warning" aria-label={problem} /> : null}
         </div>
         <div
@@ -121,7 +122,7 @@ export function Rail(): ReactNode {
     drag && dropGap === gap ? <div className="-mt-0.5 mb-0.5 h-0.5 w-[143px] shrink-0 rounded bg-chrome-accent" aria-hidden /> : null;
 
   return (
-    <aside className="relative flex h-full shrink-0 flex-col border-r border-chrome-sep bg-chrome text-chrome-fg" style={{ width: RAIL_WIDTH }} aria-label="Slides">
+    <aside className="relative flex h-full shrink-0 flex-col border-r border-chrome-sep bg-chrome text-chrome-fg" style={{ width: RAIL_WIDTH }} aria-label={localize('Slides', '幻灯片')}>
       <div className="shrink-0 border-b border-chrome-sep">
         <StartControls className="flex-wrap justify-between gap-y-1 px-2 py-4" />
       </div>

@@ -20,3 +20,4 @@ export * from './sheet-api.ts';
 export * from './doc-api.ts';
 export * from './shell.ts';
 export * from './untrusted.ts';
+export * from './locale.ts';

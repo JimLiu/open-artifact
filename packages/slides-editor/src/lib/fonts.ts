@@ -8,6 +8,7 @@
  * offers, and how a weight is named.
  */
 
+import { localize } from '@open-artifact/runtime';
 import { familyList, formatFamilies, type DeckFace } from '@open-artifact/slides-core';
 
 /** The generic family a face falls back to. */
@@ -62,9 +63,9 @@ export const GOOGLE_FONTS: readonly GoogleFont[] = [
 
 /** Generic entries of the Font menu: their label and the stack they write. */
 export const GENERIC_CHOICES: ReadonlyArray<{ key: string; label: string; css: string }> = [
-  { key: 'sans-serif', label: 'Sans-serif', css: 'sans-serif' },
-  { key: 'serif', label: 'Serif', css: 'serif' },
-  { key: 'monospace', label: 'Monospace', css: 'monospace' },
+  { key: 'sans-serif', label: localize('Sans-serif', '无衬线'), css: 'sans-serif' },
+  { key: 'serif', label: localize('Serif', '衬线'), css: 'serif' },
+  { key: 'monospace', label: localize('Monospace', '等宽'), css: 'monospace' },
   { key: 'helvetica', label: 'Helvetica', css: formatFamilies(['Helvetica', 'Arial', 'sans-serif']) },
 ];
 
@@ -124,15 +125,15 @@ export interface FontVariant {
 
 const WEIGHTS = [100, 200, 300, 400, 500, 600, 700, 800, 900];
 const NAMES: Record<number, string> = {
-  100: 'Thin',
-  200: 'Extra light',
-  300: 'Light',
-  400: 'Regular',
-  500: 'Medium',
-  600: 'Semibold',
-  700: 'Bold',
-  800: 'Extra bold',
-  900: 'Black',
+  100: localize('Thin', '极细'),
+  200: localize('Extra light', '特细'),
+  300: localize('Light', '细体'),
+  400: localize('Regular', '常规'),
+  500: localize('Medium', '中等'),
+  600: localize('Semibold', '半粗'),
+  700: localize('Bold', '加粗'),
+  800: localize('Extra bold', '特粗'),
+  900: localize('Black', '极粗'),
 };
 
 /** A weight rounded to the nearest hundred, 100–900. */
@@ -144,7 +145,7 @@ export function normalizeWeight(weight: number): number {
 export function variantLabel({ weight, italic }: FontVariant): string {
   const name = NAMES[normalizeWeight(weight)] ?? String(weight);
   if (!italic) return name;
-  return normalizeWeight(weight) === 400 ? 'Italic' : `${name} italic`;
+  return normalizeWeight(weight) === 400 ? localize('Italic', '斜体') : localize(`${name} italic`, `${name}斜体`);
 }
 
 /** The menu key of a variant: `600`, `600i`. */

@@ -4,6 +4,7 @@
  * that hands a request to the agent with what this viewer is looking at.
  */
 
+import { localize } from '@open-artifact/runtime';
 import { useState, type KeyboardEvent, type ReactNode } from 'react';
 import { ArrowUp, ChevronDown, Circle, Diamond, Film, Image, Loader2, Minus, MoveRight, RectangleHorizontal, Shapes, Spline, Square, Table, Type } from 'lucide-react';
 import { cn, isComposingKey } from '@open-artifact/ui';
@@ -20,16 +21,16 @@ const SMALL = { className: 'size-4', strokeWidth: 1.5 } as const;
 
 /** Shape tools of the Shapes menu: [tool, label, icon, shortcut]. */
 const SHAPES: [Tool, string, ReactNode, string][] = [
-  ['rect', 'Rectangle', <Square key="r" {...SMALL} />, 'R'],
-  ['rounded', 'Rounded rectangle', <RectangleHorizontal key="rr" {...SMALL} />, `${SHIFT}R`],
-  ['ellipse', 'Ellipse', <Circle key="e" {...SMALL} />, 'O'],
-  ['diamond', 'Diamond (decision)', <Diamond key="d" {...SMALL} />, 'D'],
+  ['rect', localize('Rectangle', '矩形'), <Square key="r" {...SMALL} />, 'R'],
+  ['rounded', localize('Rounded rectangle', '圆角矩形'), <RectangleHorizontal key="rr" {...SMALL} />, `${SHIFT}R`],
+  ['ellipse', localize('Ellipse', '椭圆'), <Circle key="e" {...SMALL} />, 'O'],
+  ['diamond', localize('Diamond (decision)', '菱形（判断）'), <Diamond key="d" {...SMALL} />, 'D'],
 ];
 
 /** Line tools, drawn from point to point. */
 const LINES: [Tool, string, ReactNode, string][] = [
-  ['line', 'Line', <Minus key="l" {...SMALL} />, 'L'],
-  ['connector', 'Connector', <Spline key="c" {...SMALL} />, `${SHIFT}L`],
+  ['line', localize('Line', '直线'), <Minus key="l" {...SMALL} />, 'L'],
+  ['connector', localize('Connector', '连接线'), <Spline key="c" {...SMALL} />, `${SHIFT}L`],
 ];
 
 /** Every drawing tool. */
@@ -37,10 +38,10 @@ const DRAW = [...SHAPES, ...LINES];
 
 /** Arrows placed at once (no drawing tool): [kind, label, icon]. */
 const ARROWS: [InsertShapeKind, string, ReactNode][] = [
-  ['arrow-right', 'Arrow right', <MoveRight key="ar" {...SMALL} />],
-  ['arrow-left', 'Arrow left', <MoveRight key="al" {...SMALL} className="size-4 rotate-180" />],
-  ['arrow-up', 'Arrow up', <MoveRight key="au" {...SMALL} className="size-4 -rotate-90" />],
-  ['arrow-down', 'Arrow down', <MoveRight key="ad" {...SMALL} className="size-4 rotate-90" />],
+  ['arrow-right', localize('Arrow right', '右箭头'), <MoveRight key="ar" {...SMALL} />],
+  ['arrow-left', localize('Arrow left', '左箭头'), <MoveRight key="al" {...SMALL} className="size-4 rotate-180" />],
+  ['arrow-up', localize('Arrow up', '上箭头'), <MoveRight key="au" {...SMALL} className="size-4 -rotate-90" />],
+  ['arrow-down', localize('Arrow down', '下箭头'), <MoveRight key="ad" {...SMALL} className="size-4 rotate-90" />],
 ];
 
 /** Picks pictures or clips and places them on the slide. */
@@ -58,9 +59,9 @@ function ShapesMenu(): ReactNode {
     <ChromeMenu
       side="top"
       align="center"
-      tip={{ label: drawing ? drawing[1] : 'Shapes', side: 'top' }}
+      tip={{ label: drawing ? drawing[1] : localize('Shapes', '形状'), side: 'top' }}
       trigger={
-        <ChromeButton size="lg" pressed={Boolean(drawing)} aria-label="Shapes" className="gap-0 pl-1.5 pr-0.5">
+        <ChromeButton size="lg" pressed={Boolean(drawing)} aria-label={localize('Shapes', '形状')} className="gap-0 pl-1.5 pr-0.5">
           {drawing ? <span className="flex size-5 items-center justify-center [&>svg]:size-5">{drawing[2]}</span> : <Shapes {...ICON} />}
           <ChevronDown className="size-3.5 text-chrome-muted" strokeWidth={1.5} />
         </ChromeButton>
@@ -92,18 +93,18 @@ function MediaMenu(): ReactNode {
     <ChromeMenu
       side="top"
       align="center"
-      tip={{ label: 'Image or video', side: 'top' }}
+      tip={{ label: localize('Image or video', '图片或视频'), side: 'top' }}
       trigger={
-        <ChromeButton size="lg" square aria-label="Image or video">
+        <ChromeButton size="lg" square aria-label={localize('Image or video', '图片或视频')}>
           <Image {...ICON} />
         </ChromeButton>
       }
     >
       <ChromeMenuItem icon={<Image {...SMALL} />} onSelect={pickMedia}>
-        Image or video from this computer…
+        {localize('Image or video from this computer…', '本机图片或视频…')}
       </ChromeMenuItem>
       <ChromeMenuItem icon={<Film {...SMALL} />} onSelect={() => useUi.getState().open('videoLink')}>
-        Video link…
+        {localize('Video link…', '视频链接…')}
       </ChromeMenuItem>
     </ChromeMenu>
   );
@@ -138,12 +139,12 @@ function AskField(): ReactNode {
         void send();
       }}
     >
-      {busy ? <Loader2 className="size-4 shrink-0 animate-spin text-chrome-muted" aria-label={`${name} is working`} /> : null}
+      {busy ? <Loader2 className="size-4 shrink-0 animate-spin text-chrome-muted" aria-label={localize(`${name} is working`, `${name} 正在工作`)} /> : null}
       <input
         value={text}
-        aria-label={`Ask ${name}`}
+        aria-label={localize(`Ask ${name}`, `询问 ${name}`)}
         maxLength={4000}
-        placeholder={open ? (selected ? `Ask ${name} about the selection…` : `Ask ${name} to change this slide…`) : `Ask ${name}`}
+        placeholder={open ? (selected ? localize(`Ask ${name} about the selection…`, `询问 ${name} 有关所选内容的问题…`) : localize(`Ask ${name} to change this slide…`, `请 ${name} 修改此幻灯片…`)) : localize(`Ask ${name}`, `询问 ${name}`)}
         className="h-full min-w-0 flex-1 bg-transparent text-[14px] text-chrome-fg outline-none placeholder:text-chrome-muted"
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}
@@ -158,7 +159,7 @@ function AskField(): ReactNode {
       {open ? (
         <button
           type="submit"
-          aria-label="Send"
+          aria-label={localize('Send', '发送')}
           disabled={!text.trim() || sending}
           className="flex size-6 shrink-0 items-center justify-center rounded-full bg-chrome-fg text-chrome outline-none disabled:opacity-30"
         >
@@ -199,17 +200,17 @@ export function FootToolbar({ editing, ask }: FootToolbarProps): ReactNode {
   };
 
   return (
-    <Card role="toolbar" aria-label={editing ? 'Insert' : 'Ask'} className="max-w-full gap-1 p-1" onKeyDown={onKeyDown}>
+    <Card role="toolbar" aria-label={editing ? localize('Insert', '插入') : localize('Ask', '询问')} className="max-w-full gap-1 p-1" onKeyDown={onKeyDown}>
       {editing ? (
         <>
-          <Tip label="Text" shortcut="T" side="top">
-            <ChromeButton size="lg" square pressed={tool === 'text'} aria-label="Text" onClick={() => view().setTool(tool === 'text' ? 'select' : 'text')}>
+          <Tip label={localize('Text', '文本')} shortcut="T" side="top">
+            <ChromeButton size="lg" square pressed={tool === 'text'} aria-label={localize('Text', '文本')} onClick={() => view().setTool(tool === 'text' ? 'select' : 'text')}>
               <Type {...ICON} />
             </ChromeButton>
           </Tip>
           <MediaMenu />
-          <Tip label="Table" side="top">
-            <ChromeButton size="lg" square aria-label="Table" onClick={() => useUi.getState().open('table')}>
+          <Tip label={localize('Table', '表格')} side="top">
+            <ChromeButton size="lg" square aria-label={localize('Table', '表格')} onClick={() => useUi.getState().open('table')}>
               <Table {...ICON} />
             </ChromeButton>
           </Tip>

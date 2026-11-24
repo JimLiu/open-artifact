@@ -12,6 +12,7 @@
 
 
 
+import { localize } from '@open-artifact/runtime';
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject, type UIEvent, type WheelEvent } from 'react';
 import type { CommentMessage, CommentThread } from '@open-artifact/runtime';
 import { Avatar, Button, cn, Icon, Menu, MenuItems, MenuPopup, Tooltip, type MenuItemSpec } from './cds/cds.tsx';
@@ -56,9 +57,9 @@ const stop = (event: { stopPropagation(): void }): void => event.stopPropagation
 export function timeAgo(iso: string, now = Date.now()): string {
   const seconds = Math.max(0, (now - Date.parse(iso)) / 1000);
   if (!Number.isFinite(seconds)) return '';
-  if (seconds < 60) return 'just now';
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
-  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+  if (seconds < 60) return localize('just now', '刚刚');
+  if (seconds < 3600) return localize(`${Math.floor(seconds / 60)}m ago`, `${Math.floor(seconds / 60)} 分钟前`);
+  if (seconds < 86400) return localize(`${Math.floor(seconds / 3600)}h ago`, `${Math.floor(seconds / 3600)} 小时前`);
   return new Date(iso).toLocaleDateString();
 }
 
@@ -211,7 +212,7 @@ export function CommentCapture<A>({ comments, enabled, panning = false, camera, 
     <div
       ref={element}
       data-comment-capture=""
-      aria-label="Comment mode: click to comment, drag to comment on an area"
+      aria-label={localize('Comment mode: click to comment, drag to comment on an area', '评论模式：点击可评论单点，拖动可评论区域')}
       className="absolute inset-0 z-[2]"
       style={{ cursor: panning ? 'grab' : COMMENT_CURSOR }}
       onPointerDown={onDown}
@@ -418,7 +419,7 @@ function PinButton({
 /** A message's author as the cards name them. */
 function authorName(message: CommentMessage, agent: AgentBadge): string {
   if (message.author.kind === 'agent') return message.author.name || agent.name;
-  return message.author.name || 'Someone';
+  return message.author.name || localize('Someone', '某位成员');
 }
 
 function threadAvatar(thread: CommentThread, agent: AgentBadge): ReactNode {
@@ -590,7 +591,7 @@ export function CommentPins<A>({ comments, camera, viewport, place, highlight, a
         ) : null}
         {focus && !focus.thread && draft !== null ? (
           <>
-            <PinButton pin={pinBox(focus.screen, viewport)} draft label="New comment" avatar={<Avatar name={comments.viewerName()} size="sm" />} />
+            <PinButton pin={pinBox(focus.screen, viewport)} draft label={localize('New comment', '新建评论')} avatar={<Avatar name={comments.viewerName()} size="sm" />} />
             <CommentPopover pin={pinBox(focus.screen, viewport)} viewport={viewport} onEscape={() => comments.store.getState().setDraft(null)}>
               {() => <CommentComposer comments={comments} agent={agent} anchor={draft} />}
             </CommentPopover>
@@ -634,8 +635,8 @@ function ThreadPin<A>({
       avatar={avatar}
       expanded={expanded}
       faded={detached}
-      label={`Comment: ${thread.label}${resolved ? ' (resolved)' : ''}`}
-      title={detached ? 'What this comment was on is gone' : thread.label}
+      label={localize(`Comment: ${thread.label}${resolved ? ' (resolved)' : ''}`, `评论：${thread.label}${resolved ? '（已解决）' : ''}`)}
+      title={detached ? localize('What this comment was on is gone', '评论对象已移除') : thread.label}
       onPointerDown={(event) => {
         if (event.button !== 0) return;
         press.current = { x: event.clientX, y: event.clientY, moved: false };
@@ -755,9 +756,9 @@ function ThreadCardBody<A>({ comments, agent, thread, state, maxHeight, onClose 
   if (!top) return null;
   const close = onClose ?? (() => comments.store.getState().setActive(null));
   const note = comments.stateNote(state ?? comments.stateOf(comments.anchorOf(thread)));
-  const sendLabel = `Send to ${agent.name}`;
+  const sendLabel = localize(`Send to ${agent.name}`, `发送给 ${agent.name}`);
   const topItems: MenuItemSpec[] = comments.canRemove()
-    ? [{ label: 'Delete thread', icon: 'Trash', variant: 'danger', onSelect: () => setConfirming(true) }]
+    ? [{ label: localize('Delete thread', '删除评论串'), icon: 'Trash', variant: 'danger', onSelect: () => setConfirming(true) }]
     : [];
   const status = thread.status === 'open' ? thread.agent?.status : undefined;
   const working: WorkingState | undefined = status === 'pending' ? 'queued' : status === 'delivered' ? 'working' : undefined;
@@ -777,8 +778,8 @@ function ThreadCardBody<A>({ comments, agent, thread, state, maxHeight, onClose 
         commenting && (
           <ReplyField>
             <CdsComposer
-              label="Reply"
-              placeholder={thread.status === 'resolved' ? 'Reply to reopen…' : sendable && draft.send ? 'What do you want to edit?' : undefined}
+              label={localize('Reply', '回复')}
+              placeholder={thread.status === 'resolved' ? localize('Reply to reopen…', '回复以重新打开…') : sendable && draft.send ? localize('What do you want to edit?', '你想修改什么？') : undefined}
               value={draft.text}
               onChange={(text) => setDraft({ ...draft, text })}
               sendBox={sendable ? { label: sendLabel, checked: draft.send, onCheckedChange: (send) => setDraft({ ...draft, send }) } : undefined}
@@ -840,7 +841,7 @@ function ThreadCardBody<A>({ comments, agent, thread, state, maxHeight, onClose 
               {commentMarkdown(message.text)}
             </Comment>
           ))}
-          {working ? <Comment authorName={agent.name} agent working={working} footnote={working === 'queued' ? queuedNote(agent) : thread.agent?.drafted ? draftedText(agent.name).label : 'Working…'} /> : null}
+          {working ? <Comment authorName={agent.name} agent working={working} footnote={working === 'queued' ? queuedNote(agent) : thread.agent?.drafted ? draftedText(agent.name).label : localize('Working…', '处理中…')} /> : null}
         </Replies>
       ) : null}
     </CommentCard>
@@ -885,7 +886,7 @@ function ComposerBody<A>({ comments, agent, anchor, onCancel }: CommentComposerP
       context={comments.labelOf(anchor)}
       value={text}
       onChange={(next) => comments.store.getState().setDraftText(next)}
-      sendBox={sendable ? { label: `Send to ${agent.name}`, checked: send, onCheckedChange: (on) => comments.store.getState().setSendNew(on) } : undefined}
+      sendBox={sendable ? { label: localize(`Send to ${agent.name}`, `发送给 ${agent.name}`), checked: send, onCheckedChange: (on) => comments.store.getState().setSendNew(on) } : undefined}
       busy={busy}
       onSubmit={(body, how) => {
         if (busy) return;
@@ -925,12 +926,12 @@ function ButtonBody<A>({ comments, shortcut, side }: Required<CommentsButtonProp
   const on = comments.store((s) => s.on);
   const panelOpen = comments.store((s) => s.listOpen);
   const waiting = !on && count > 0;
-  const tip = on ? 'Done commenting' : count > 0 ? `${count} open ${count === 1 ? 'comment' : 'comments'}` : 'Comments';
+  const tip = on ? localize('Done commenting', '结束评论') : count > 0 ? localize(`${count} open ${count === 1 ? 'comment' : 'comments'}`, `${count} 条未解决的评论`) : localize('Comments', '评论');
   const setPanel = (open: boolean): void => {
     setMenuOpen(false);
     comments.store.getState().setListOpen(open);
   };
-  const item: MenuItemSpec = panelOpen ? { label: 'Hide comments', onSelect: () => setPanel(false) } : { label: 'Show all comments', trailing: count, onSelect: () => setPanel(true) };
+  const item: MenuItemSpec = panelOpen ? { label: localize('Hide comments', '隐藏评论'), onSelect: () => setPanel(false) } : { label: localize('Show all comments', '显示全部评论'), trailing: count, onSelect: () => setPanel(true) };
   return (
     <span className="flex shrink-0 items-center">
       {comments.canComment() ? (
@@ -939,7 +940,7 @@ function ButtonBody<A>({ comments, shortcut, side }: Required<CommentsButtonProp
             variant="ghost"
             iconOnly
             tooltip={false}
-            aria-label="Comments"
+            aria-label={localize('Comments', '评论')}
             aria-pressed={on}
             icon={
               <span className="relative inline-flex">
@@ -957,7 +958,7 @@ function ButtonBody<A>({ comments, shortcut, side }: Required<CommentsButtonProp
         <Tooltip content="Comment options" disabled={menuOpen} side={side}>
           <Menu.Trigger
             render={
-              <Button variant="ghost" aria-label="Comment options" style={{ paddingInline: 2 }}>
+              <Button variant="ghost" aria-label={localize('Comment options', '评论选项')} style={{ paddingInline: 2 }}>
                 <Icon name="CaretDown" size="xs" />
               </Button>
             }

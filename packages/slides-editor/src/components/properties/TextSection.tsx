@@ -10,6 +10,7 @@
  * element's own value.
  */
 
+import { localize } from '@open-artifact/runtime';
 import { Popover as BasePopover } from '@base-ui/react/popover';
 import { AlignCenter, AlignJustify, AlignLeft, AlignRight, Check, ChevronDown, Plus, Strikethrough, Underline } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
@@ -51,26 +52,26 @@ import { useResolvedText, type ResolvedText } from './resolve.ts';
 import { canCarryFace, commitCss, commitFontFamily, contrastFor, FACE_LIMIT_REASON, patchTarget, pxOf, sharedStyle, useTextStyleMenu, type Target } from './shared.tsx';
 
 const ALIGNS = [
-  ['left', 'Left', AlignLeft],
-  ['center', 'Center', AlignCenter],
-  ['right', 'Right', AlignRight],
-  ['justify', 'Justify', AlignJustify],
+  ['left', localize('Left', '左'), AlignLeft],
+  ['center', localize('Center', '居中'), AlignCenter],
+  ['right', localize('Right', '右'), AlignRight],
+  ['justify', localize('Justify', '两端对齐'), AlignJustify],
 ] as const;
 
 const CASES: Option<string>[] = [
-  { value: 'none', label: 'None' },
-  { value: 'uppercase', label: 'Uppercase' },
-  { value: 'lowercase', label: 'Lowercase' },
-  { value: 'capitalize', label: 'Capitalize' },
+  { value: 'none', label: localize('None', '无') },
+  { value: 'uppercase', label: localize('Uppercase', '大写') },
+  { value: 'lowercase', label: localize('Lowercase', '小写') },
+  { value: 'capitalize', label: localize('Capitalize', '首字母大写') },
 ];
 
 const FITS: Option<FitMode>[] = [
-  { value: 'shrink', label: 'Shrink text to fit' },
-  { value: 'none', label: 'Don’t resize text' },
-  { value: 'grow', label: 'Grow box to fit text' },
+  { value: 'shrink', label: localize('Shrink text to fit', '缩小文字以适应文本框') },
+  { value: 'none', label: localize('Don’t resize text', '保持文字大小') },
+  { value: 'grow', label: localize('Grow box to fit text', '扩大文本框以容纳文字') },
 ];
 
-const RESIZE_TIP = 'What happens when the text outgrows its box: shrink the text, leave it as it is, or grow the box.';
+const RESIZE_TIP = localize('What happens when the text outgrows its box: shrink the text, leave it as it is, or grow the box.', '设置文字超出文本框时的处理方式：缩小文字、保持原样或扩大文本框。');
 
 /** Rows the "+" adds. */
 type Extra = 'emphasis' | 'list' | 'case';
@@ -118,29 +119,29 @@ export function TextSection({ target }: { target: Target }): ReactNode {
   const add = (extra: Extra): void => setExtras(new Set([...extras, extra]));
 
   const n = target.nodes.length;
-  const title = n > 1 ? `${n} Text` : 'Text';
+  const title = n > 1 ? localize(`${n} Text`, `${n} 个文本元素`) : localize('Text', '文本');
   const menu = (
     <ChromeMenu
       align="end"
-      tip={{ label: 'Add to Text' }}
+      tip={{ label: localize('Add to Text', '添加文本设置') }}
       trigger={
-        <button type="button" aria-label="Add to Text" className="flex size-6 items-center justify-center rounded-[6px] text-chrome-secondary outline-none hover:bg-chrome-hover hover:text-chrome-fg focus-visible:ring-2 focus-visible:ring-chrome-accent">
+        <button type="button" aria-label={localize('Add to Text', '添加文本设置')} className="flex size-6 items-center justify-center rounded-[6px] text-chrome-secondary outline-none hover:bg-chrome-hover hover:text-chrome-fg focus-visible:ring-2 focus-visible:ring-chrome-accent">
           <Plus className="size-4" strokeWidth={1.5} />
         </button>
       }
     >
       {!isSlide ? (
         <ChromeMenuItem disabled={showEmphasis} onSelect={() => add('emphasis')}>
-          Emphasis
+          {localize('Emphasis', '强调')}
         </ChromeMenuItem>
       ) : null}
       {canList ? (
         <ChromeMenuItem disabled={showList} onSelect={() => add('list')}>
-          List
+          {localize('List', '列表')}
         </ChromeMenuItem>
       ) : null}
       <ChromeMenuItem disabled={showCase} onSelect={() => add('case')}>
-        Case
+        {localize('Case', '大小写')}
       </ChromeMenuItem>
     </ChromeMenu>
   );
@@ -151,12 +152,12 @@ export function TextSection({ target }: { target: Target }): ReactNode {
   return (
     <Section title={title} actions={menu}>
       {allText ? (
-        <Row label="Text style">
+        <Row label={localize('Text style', '文本样式')}>
           <SelectInput
-            aria-label="Text style"
+            aria-label={localize('Text style', '文本样式')}
             icon={<TypeScaleIcon />}
             value={styleMenu.value}
-            placeholder={styleMenu.mixed ? 'Mixed' : 'Custom'}
+            placeholder={styleMenu.mixed ? localize('Mixed', '混合值') : localize('Custom', '自定义')}
             options={styleMenu.options.map((o) => ({ value: o.value, label: o.label, hint: o.hint, group: o.group, style: o.style }))}
             valueStyle={{}}
             onChange={styleMenu.apply}
@@ -165,103 +166,103 @@ export function TextSection({ target }: { target: Target }): ReactNode {
       ) : null}
       <FontRow target={target} resolved={resolved} isSlide={isSlide} />
       <WeightRow target={target} resolved={resolved} />
-      <Row label="Size" onReset={size.value && !size.mixed ? () => commitCss(target, 'font-size', '', 'Font size') : undefined}>
+      <Row label={localize('Size', '大小')} onReset={size.value && !size.mixed ? () => commitCss(target, 'font-size', '', localize('Font size', '字号')) : undefined}>
         <NumberInput
-          aria-label="Font size"
+          aria-label={localize('Font size', '字号')}
           value={size.mixed ? null : pxOf(size.value)}
           unit="px"
           min={8}
           max={400}
-          placeholder={size.mixed ? 'Mixed' : resolved ? String(resolved.size) : 'Auto'}
+          placeholder={size.mixed ? localize('Mixed', '混合值') : resolved ? String(resolved.size) : localize('Auto', '自动')}
           inherited={!size.mixed}
-          onCommit={(v) => commitCss(target, 'font-size', v === null ? '' : `${v}px`, 'Font size')}
+          onCommit={(v) => commitCss(target, 'font-size', v === null ? '' : `${v}px`, localize('Font size', '字号'))}
         />
       </Row>
       <Row
-        label="Spacing"
-        tip="Line height · Letter spacing"
-        resetLabel="Reset Spacing"
-        onReset={spacingSet ? () => patchTarget(target, 'Spacing', { 'line-height': undefined, 'letter-spacing': undefined }) : undefined}
+        label={localize('Spacing', '间距')}
+        tip={localize('Line height · Letter spacing', '行高 · 字间距')}
+        resetLabel={localize('Reset Spacing', '重置间距')}
+        onReset={spacingSet ? () => patchTarget(target, localize('Spacing', '间距'), { 'line-height': undefined, 'letter-spacing': undefined }) : undefined}
       >
         <div className="grid min-w-0 flex-1 grid-cols-2 gap-1.5">
           <NumberInput
-            aria-label="Line height"
-            title="Line height"
+            aria-label={localize('Line height', '行高')}
+            title={localize('Line height', '行高')}
             label={<LineHeightIcon />}
             value={lineHeight.mixed || !lineHeight.value ? null : Number.parseFloat(lineHeight.value)}
             step={0.05}
             min={0.5}
             max={4}
             steppers={false}
-            placeholder={lineHeight.mixed ? 'Mixed' : resolved?.lineHeight != null ? String(resolved.lineHeight) : 'Auto'}
+            placeholder={lineHeight.mixed ? localize('Mixed', '混合值') : resolved?.lineHeight != null ? String(resolved.lineHeight) : localize('Auto', '自动')}
             inherited={!lineHeight.mixed}
-            onCommit={(v) => commitCss(target, 'line-height', v === null ? '' : String(v), 'Line height')}
+            onCommit={(v) => commitCss(target, 'line-height', v === null ? '' : String(v), localize('Line height', '行高'))}
           />
           <NumberInput
-            aria-label="Letter spacing"
-            title="Letter spacing (px)"
+            aria-label={localize('Letter spacing', '字间距')}
+            title={localize('Letter spacing (px)', '字间距（像素）')}
             label={<LetterSpacingIcon />}
             value={letterValue}
             step={0.5}
             min={-24}
             max={32}
             steppers={false}
-            placeholder={spacing.mixed ? 'Mixed' : String(resolved?.letterSpacing ?? 0)}
+            placeholder={spacing.mixed ? localize('Mixed', '混合值') : String(resolved?.letterSpacing ?? 0)}
             inherited={!spacing.mixed}
-            onCommit={(v) => commitCss(target, 'letter-spacing', v === null || v === 0 ? '' : `${v}px`, 'Letter spacing')}
+            onCommit={(v) => commitCss(target, 'letter-spacing', v === null || v === 0 ? '' : `${v}px`, localize('Letter spacing', '字间距'))}
           />
         </div>
       </Row>
       <TextColorRow target={target} resolved={resolved} />
       {showEmphasis ? (
-        <Row label="Emphasis" onReset={line ? () => commitCss(target, 'text-decoration', '', 'Emphasis') : undefined}>
-          <IconButton label="Underline" icon={<Underline />} active={line === 'underline'} onClick={() => commitCss(target, 'text-decoration', line === 'underline' ? '' : 'underline', 'Underline')} />
-          <IconButton label="Strikethrough" icon={<Strikethrough />} active={line === 'line-through'} onClick={() => commitCss(target, 'text-decoration', line === 'line-through' ? '' : 'line-through', 'Strikethrough')} />
+        <Row label={localize('Emphasis', '强调')} onReset={line ? () => commitCss(target, 'text-decoration', '', localize('Emphasis', '强调')) : undefined}>
+          <IconButton label={localize('Underline', '下划线')} icon={<Underline />} active={line === 'underline'} onClick={() => commitCss(target, 'text-decoration', line === 'underline' ? '' : 'underline', localize('Underline', '下划线'))} />
+          <IconButton label={localize('Strikethrough', '删除线')} icon={<Strikethrough />} active={line === 'line-through'} onClick={() => commitCss(target, 'text-decoration', line === 'line-through' ? '' : 'line-through', localize('Strikethrough', '删除线'))} />
         </Row>
       ) : null}
       {showList ? (
-        <Row label="List">
+        <Row label={localize('List', '列表')}>
           <Segmented<'none' | 'ul' | 'ol'>
-            aria-label="List"
+            aria-label={localize('List', '列表')}
             value={listKind}
             options={[
-              { value: 'none', label: 'None' },
-              { value: 'ul', label: 'Bulleted' },
-              { value: 'ol', label: 'Numbered' },
+              { value: 'none', label: localize('None', '无') },
+              { value: 'ul', label: localize('Bulleted', '项目符号') },
+              { value: 'ol', label: localize('Numbered', '编号') },
             ]}
-            onChange={(kind) => updateSelection('List', (node) => (node.kind === 'text' || node.kind === 'list' ? setListKind(node, kind === 'none' ? null : kind) : node))}
+            onChange={(kind) => updateSelection(localize('List', '列表'), (node) => (node.kind === 'text' || node.kind === 'list' ? setListKind(node, kind === 'none' ? null : kind) : node))}
           />
         </Row>
       ) : null}
-      <Row label="Align" onReset={align.value && !align.mixed ? () => commitCss(target, 'text-align', '', 'Align') : undefined}>
+      <Row label={localize('Align', '对齐')} onReset={align.value && !align.mixed ? () => commitCss(target, 'text-align', '', localize('Align', '对齐')) : undefined}>
         <Segmented
-          aria-label="Text alignment"
+          aria-label={localize('Text alignment', '文本对齐')}
           value={align.mixed ? null : (align.value ?? resolved?.align ?? 'left')}
           options={ALIGNS.map(([value, title, Icon]) => ({ value, title, label: <Icon className="size-4" strokeWidth={1.5} /> }))}
-          onChange={(value) => commitCss(target, 'text-align', value, 'Align')}
+          onChange={(value) => commitCss(target, 'text-align', value, localize('Align', '对齐'))}
         />
       </Row>
       {showCase ? (
-        <Row label="Case" onReset={transform.value && !transform.mixed ? () => commitCss(target, 'text-transform', '', 'Text case') : undefined}>
+        <Row label={localize('Case', '大小写')} onReset={transform.value && !transform.mixed ? () => commitCss(target, 'text-transform', '', localize('Text case', '字母大小写')) : undefined}>
           <SelectInput
-            aria-label="Text case"
+            aria-label={localize('Text case', '字母大小写')}
             value={transform.mixed ? null : (transform.value ?? 'none')}
-            placeholder="Mixed"
+            placeholder={localize('Mixed', '混合值')}
             options={CASES}
-            onChange={(value) => commitCss(target, 'text-transform', value === 'none' ? '' : value, 'Text case')}
+            onChange={(value) => commitCss(target, 'text-transform', value === 'none' ? '' : value, localize('Text case', '字母大小写'))}
           />
         </Row>
       ) : null}
       {canFit ? (
-        <Row label="Resize" tip={RESIZE_TIP}>
+        <Row label={localize('Resize', '调整大小')} tip={RESIZE_TIP}>
           <SelectInput<FitMode>
-            aria-label="Resize"
+            aria-label={localize('Resize', '调整大小')}
             title={RESIZE_TIP}
             value={fit}
-            placeholder="Mixed"
+            placeholder={localize('Mixed', '混合值')}
             options={FITS}
             onChange={(mode) =>
-              updateSelection('Resize', (node) => {
+              updateSelection(localize('Resize', '调整大小'), (node) => {
                 const { fit: _old, ...rest } = node;
                 return (mode === 'shrink' ? rest : { ...rest, fit: mode }) as SlideNode;
               })
@@ -312,7 +313,7 @@ function FontRow({ target, resolved, isSlide }: { target: Target; resolved: Reso
   const choices = useMemo((): FontChoice[] => {
     const carried = Object.values(deckFaces).map((f) => f.family);
     const carriedLower = new Set(carried.map((f) => f.toLowerCase()));
-    const out: FontChoice[] = [{ key: '', label: isSlide ? 'System font' : 'Style default', css: '' }];
+    const out: FontChoice[] = [{ key: '', label: isSlide ? localize('System font', '系统字体') : localize('Style default', '样式默认字体'), css: '' }];
     for (const family of carried) out.push({ key: `face:${family.toLowerCase()}`, label: family, css: faceStack(family), preview: faceStack(family) });
     const own = shared.mixed ? null : firstFamily(shared.value);
     const known = (name: string): boolean =>
@@ -331,8 +332,8 @@ function FontRow({ target, resolved, isSlide }: { target: Target; resolved: Reso
   const q = query.trim().toLowerCase();
   const shown = q ? choices.filter((c) => c.label.toLowerCase().includes(q)) : choices;
   const selected = choices.find((c) => c.key === current);
-  const rendered = resolved?.family && !/^(?:system-ui|-apple-system|blinkmacsystemfont)$/i.test(resolved.family) ? resolved.family : 'System font';
-  const label = shared.mixed ? 'Mixed' : current ? (selected?.label ?? firstFamily(shared.value) ?? '') : resolved ? rendered : isSlide ? 'System font' : 'Style default';
+  const rendered = resolved?.family && !/^(?:system-ui|-apple-system|blinkmacsystemfont)$/i.test(resolved.family) ? resolved.family : localize('System font', '系统字体');
+  const label = shared.mixed ? localize('Mixed', '混合值') : current ? (selected?.label ?? firstFamily(shared.value) ?? '') : resolved ? rendered : isSlide ? localize('System font', '系统字体') : localize('Style default', '样式默认字体');
 
   const choose = (choice: FontChoice): void => {
     setOpen(false);
@@ -344,7 +345,7 @@ function FontRow({ target, resolved, isSlide }: { target: Target; resolved: Reso
   };
 
   return (
-    <Row label="Font" onReset={shared.value && !shared.mixed ? () => commitCss(target, 'font-family', '', 'Font') : undefined}>
+    <Row label={localize('Font', '字体')} onReset={shared.value && !shared.mixed ? () => commitCss(target, 'font-family', '', localize('Font', '字体')) : undefined}>
       <BasePopover.Root
         open={open}
         onOpenChange={(next) => {
@@ -353,7 +354,7 @@ function FontRow({ target, resolved, isSlide }: { target: Target; resolved: Reso
           else setQuery('');
         }}
       >
-        <BasePopover.Trigger aria-label={`Font: ${label}`} className={cn(FIELD, 'flex w-full min-w-0 cursor-default items-center gap-1.5 pl-2 pr-[5px] text-left data-[popup-open]:shadow-[inset_0_0_0_1px_var(--color-chrome-accent)]')}>
+        <BasePopover.Trigger aria-label={localize(`Font: ${label}`, `字体：${label}`)} className={cn(FIELD, 'flex w-full min-w-0 cursor-default items-center gap-1.5 pl-2 pr-[5px] text-left data-[popup-open]:shadow-[inset_0_0_0_1px_var(--color-chrome-accent)]')}>
           <span className={cn('min-w-0 flex-1 truncate', shared.mixed ? 'text-chrome-muted' : !current && 'text-chrome-secondary')}>{label}</span>
           <ChevronDown className="size-4 shrink-0 text-chrome-muted" strokeWidth={1.5} />
         </BasePopover.Trigger>
@@ -361,9 +362,9 @@ function FontRow({ target, resolved, isSlide }: { target: Target; resolved: Reso
           <BasePopover.Positioner side="bottom" align="end" sideOffset={4} collisionPadding={8} className="z-[1000]">
             <BasePopover.Popup className="flex w-64 flex-col overflow-hidden rounded-[14px] bg-chrome text-chrome-fg shadow-chrome-popup outline-none">
               <div className="p-2 pb-1">
-                <TextInput autoFocus aria-label="Search fonts" placeholder="Search fonts" value={query} onChange={(event) => setQuery(event.target.value)} />
+                <TextInput autoFocus aria-label={localize('Search fonts', '搜索字体')} placeholder={localize('Search fonts', '搜索字体')} value={query} onChange={(event) => setQuery(event.target.value)} />
               </div>
-              <div role="listbox" aria-label="Fonts" className="max-h-80 overflow-y-auto p-1.5 pt-1">
+              <div role="listbox" aria-label={localize('Fonts', '字体')} className="max-h-80 overflow-y-auto p-1.5 pt-1">
                 {shown.map((choice) => (
                   <button
                     key={choice.key || 'default'}
@@ -381,7 +382,7 @@ function FontRow({ target, resolved, isSlide }: { target: Target; resolved: Reso
                     </span>
                   </button>
                 ))}
-                {shown.length === 0 ? <p className="px-2 py-2 text-[12px] text-chrome-muted">No matches</p> : null}
+                {shown.length === 0 ? <p className="px-2 py-2 text-[12px] text-chrome-muted">{localize('No matches', '没有匹配项')}</p> : null}
               </div>
             </BasePopover.Popup>
           </BasePopover.Positioner>
@@ -403,16 +404,16 @@ function WeightRow({ target, resolved }: { target: Target; resolved: ResolvedTex
   const familyName = (family.mixed ? null : firstFamily(family.value)) ?? resolved?.family ?? null;
   const options = variantChoices(familyName, own ?? effective).map((v) => ({ value: variantKey(v), label: variantLabel(v) }));
   return (
-    <Row label="Weight" onReset={set && !mixed ? () => patchTarget(target, 'Font weight', { 'font-weight': undefined, 'font-style': undefined }) : undefined}>
+    <Row label={localize('Weight', '字重')} onReset={set && !mixed ? () => patchTarget(target, localize('Font weight', '字重'), { 'font-weight': undefined, 'font-style': undefined }) : undefined}>
       <SelectInput
-        aria-label="Weight"
+        aria-label={localize('Weight', '字重')}
         value={mixed || !own ? null : variantKey(own)}
-        placeholder={mixed ? 'Mixed' : effective ? variantLabel(effective) : 'Regular'}
+        placeholder={mixed ? localize('Mixed', '混合值') : effective ? variantLabel(effective) : localize('Regular', '常规')}
         inherited={!mixed}
         options={options}
         onChange={(key) => {
           const v = parseVariantKey(key);
-          if (v) patchTarget(target, 'Font weight', { 'font-weight': String(v.weight), 'font-style': v.italic ? 'italic' : undefined });
+          if (v) patchTarget(target, localize('Font weight', '字重'), { 'font-weight': String(v.weight), 'font-style': v.italic ? 'italic' : undefined });
         }}
       />
     </Row>
@@ -450,19 +451,19 @@ function TextColorRow({ target, resolved }: { target: Target; resolved: Resolved
   const setKind = (next: FillKind): void => {
     if (next === 'color') {
       setPending(null);
-      if (clipped) patchTarget(target, 'Text fill', CLIP_OFF);
+      if (clipped) patchTarget(target, localize('Text fill', '文字填充'), CLIP_OFF);
     } else if (next === 'gradient') {
       setPending(null);
-      setFill({ gradient: background?.gradient ?? startGradient(color.value ?? resolved?.color) }, 'Gradient text');
+      setFill({ gradient: background?.gradient ?? startGradient(color.value ?? resolved?.color) }, localize('Gradient text', '渐变文字'));
     } else setPending('image');
   };
   const content =
     kind === 'gradient' && background?.gradient ? (
-      <GradientEditor gradient={background.gradient} onChange={(gradient) => setFill({ gradient }, 'Text gradient', 'text-gradient')} />
+      <GradientEditor gradient={background.gradient} onChange={(gradient) => setFill({ gradient }, localize('Text gradient', '文字渐变'), 'text-gradient')} />
     ) : kind === 'image' ? (
-      <ImageFillEditor image={background?.image ?? null} onImage={(image) => setFill({ image }, 'Picture text')} />
+      <ImageFillEditor image={background?.image ?? null} onImage={(image) => setFill({ image }, localize('Picture text', '图片填充文字'))} />
     ) : null;
-  const preview = kind === 'color' ? null : (fillPreview(background) ?? { swatch: CHECKER, label: kind === 'image' ? 'Image' : 'Linear' });
+  const preview = kind === 'color' ? null : (fillPreview(background) ?? { swatch: CHECKER, label: kind === 'image' ? localize('Image', '图片') : localize('Linear', '线性') });
   const value = color.mixed ? null : (color.value ?? null);
   const contrast =
     kind === 'color' && !color.mixed
@@ -471,19 +472,19 @@ function TextColorRow({ target, resolved }: { target: Target; resolved: Resolved
 
   return (
     <ColorRow
-      label="Color"
-      aria-label="Text color"
+      label={localize('Color', '颜色')}
+      aria-label={localize('Text color', '文字颜色')}
       value={value}
       mixed={color.mixed}
       effective={resolved?.color ?? null}
-      emptyLabel="Theme default"
+      emptyLabel={localize('Theme default', '主题默认')}
       groups={groups}
       preview={preview}
       contrast={contrast}
-      onReset={value ? () => commitCss(target, 'color', '', 'Text color') : undefined}
+      onReset={value ? () => commitCss(target, 'color', '', localize('Text color', '文字颜色')) : undefined}
       onCommit={(next) => {
         setPending(null);
-        patchTarget(target, 'Text color', { color: next ?? undefined, ...(clipped ? CLIP_OFF : {}) }, 'text-color');
+        patchTarget(target, localize('Text color', '文字颜色'), { color: next ?? undefined, ...(clipped ? CLIP_OFF : {}) }, 'text-color');
       }}
       {...(canFill ? { kinds: { value: kind, options: fillKindOptions(['color', 'gradient', 'image']), onChange: (v: string) => setKind(v as FillKind), content } } : {})}
     />

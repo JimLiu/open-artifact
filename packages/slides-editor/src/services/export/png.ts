@@ -3,6 +3,7 @@
  * the export Worker.
  */
 
+import { localize } from '@open-artifact/runtime';
 import { optimizePng } from '@open-artifact/wasm-export';
 import { mountSlide, slidePicture } from '../capture.ts';
 import { noteStills, type ExportJob } from './job.ts';
@@ -10,7 +11,7 @@ import { noteStills, type ExportJob } from './job.ts';
 /** Draws the job's (single) slide as a PNG. */
 export async function exportPng(job: ExportJob): Promise<Blob> {
   const entry = job.slides[0];
-  if (!entry) throw new Error('There is no slide to export.');
+  if (!entry) throw new Error(localize('There is no slide to export.', '没有可导出的幻灯片。'));
   job.begin(entry.number);
   noteStills(job, entry);
   const mounted = await mountSlide(entry.slide, job.capture);

@@ -7,6 +7,7 @@
  * errors in its file.
  */
 
+import { localize } from '@open-artifact/runtime';
 import { useState, type ReactNode } from 'react';
 import { create } from 'zustand';
 import { AlertTriangle, Bot, Columns2, History, Lock, RotateCcw, Undo2 } from 'lucide-react';
@@ -33,31 +34,32 @@ function CompareDialog({ position, onClose }: { position: number; onClose: () =>
   };
   return (
     <Dialog
+      closeLabel={localize('Close', '关闭')}
       open
       onOpenChange={(open) => !open && onClose()}
-      title="Compare versions"
-      description="Your version was replaced by a save made at the same moment."
+      title={localize('Compare versions', '比较版本')}
+      description={localize('Your version was replaced by a save made at the same moment.', '同时发生的另一次保存覆盖了你的版本。')}
       className="w-[min(52rem,calc(100vw-2rem))]"
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>
-            Keep current
+            {localize('Keep current', '保留当前版本')}
           </Button>
           <Button variant="primary" icon={<RotateCcw className="size-3.5" />} onClick={bringBack} disabled={!now}>
-            Bring back yours
+            {localize('Bring back yours', '恢复你的版本')}
           </Button>
         </>
       }
     >
       <div className="grid grid-cols-2 gap-4">
         <figure className="flex flex-col gap-1.5">
-          <figcaption className="text-xs text-fg-muted">Yours</figcaption>
+          <figcaption className="text-xs text-fg-muted">{localize('Yours', '你的版本')}</figcaption>
           <div className="overflow-hidden rounded-[4px] shadow-[0_0_0_1px_var(--chrome-line)]">
             <SlideThumb slide={item.slide} />
           </div>
         </figure>
         <figure className="flex flex-col gap-1.5">
-          <figcaption className="text-xs text-fg-muted">Current</figcaption>
+          <figcaption className="text-xs text-fg-muted">{localize('Current', '当前版本')}</figcaption>
           <div className="overflow-hidden rounded-[4px] shadow-[0_0_0_1px_var(--chrome-line)]">{now ? <SlideThumb slide={now} /> : <div className="aspect-video bg-surface-2" />}</div>
         </figure>
       </div>
@@ -95,19 +97,19 @@ function Banner({ tone, icon, children, actions }: { tone: 'info' | 'warning' | 
 /** "about 5 minutes ago" for a timestamp. */
 function minutesAgo(at: number): string {
   const minutes = Math.round((Date.now() - at) / 60000);
-  if (minutes < 1) return 'moments ago';
-  if (minutes < 60) return `about ${minutes} minute${minutes === 1 ? '' : 's'} ago`;
+  if (minutes < 1) return localize('moments ago', '刚刚');
+  if (minutes < 60) return localize(`about ${minutes} minute${minutes === 1 ? '' : 's'} ago`, `约 ${minutes} 分钟前`);
   const hours = Math.round(minutes / 60);
-  if (hours < 48) return `about ${hours} hour${hours === 1 ? '' : 's'} ago`;
-  return `${Math.round(hours / 24)} days ago`;
+  if (hours < 48) return localize(`about ${hours} hour${hours === 1 ? '' : 's'} ago`, `约 ${hours} 小时前`);
+  return localize(`${Math.round(hours / 24)} days ago`, `${Math.round(hours / 24)} 天前`);
 }
 
 /** Slide numbers as "slide 3" / "slides 2, 5 and 7". */
 function slideList(ids: readonly string[], order: readonly string[]): string {
   const numbers = ids.map((id) => order.indexOf(id) + 1).filter((n) => n > 0).sort((a, b) => a - b);
-  if (numbers.length === 0) return 'the outline';
-  if (numbers.length === 1) return `slide ${numbers[0]}`;
-  return `slides ${numbers.slice(0, -1).join(', ')} and ${numbers.at(-1)}`;
+  if (numbers.length === 0) return localize('the outline', '大纲');
+  if (numbers.length === 1) return localize(`slide ${numbers[0]}`, `第 ${numbers[0]} 张幻灯片`);
+  return localize(`slides ${numbers.slice(0, -1).join(', ')} and ${numbers.at(-1)}`, `第 ${numbers.join('、')} 张幻灯片`);
 }
 
 /** The banners. */
@@ -131,13 +133,13 @@ export function Banners(): ReactNode {
   if (readOnly) {
     out.push(
       <Banner key="ro" tone="info" icon={<Lock className="size-3.5" />}>
-        {indexError && /newer/i.test(indexError) ? 'This presentation was saved by a newer version of Slides and opens read-only here.' : "View only. You don't have permission to edit this presentation."}
+        {indexError && /newer/i.test(indexError) ? localize('This presentation was saved by a newer version of Slides and opens read-only here.', '此演示文稿由较新版本的幻灯片编辑器保存，当前以只读方式打开。') : localize("View only. You don't have permission to edit this presentation.", '仅供查看。你没有编辑此演示文稿的权限。')}
       </Banner>,
     );
   } else if (indexError) {
     out.push(
       <Banner key="index" tone="warning" icon={<AlertTriangle className="size-3.5" />}>
-        The outline file can't be read ({indexError}). Slides can still be edited; the slide order and sections are read-only.
+        {localize(`The outline file can't be read (${indexError}). Slides can still be edited; the slide order and sections are read-only.`, `无法读取大纲文件（${indexError}）。仍可编辑幻灯片，顺序和分节为只读。`)}
       </Banner>,
     );
   }
@@ -160,7 +162,7 @@ export function Banners(): ReactNode {
                 schedule(0);
               }}
             >
-              Restore
+              {localize('Restore', '恢复')}
             </Button>
             <Button
               size="sm"
@@ -170,12 +172,12 @@ export function Banners(): ReactNode {
                 useRecoveryOffer.getState().set(null);
               }}
             >
-              Discard
+              {localize('Discard', '丢弃')}
             </Button>
           </>
         }
       >
-        Found unsaved changes to {slideList(ids, order)} from {minutesAgo(offer.at)}. Restore them?
+        {localize(`Found unsaved changes to ${slideList(ids, order)} from ${minutesAgo(offer.at)}. Restore them?`, `发现${minutesAgo(offer.at)}对${slideList(ids, order)}所做的未保存更改。要恢复吗？`)}
       </Banner>,
     );
   }
@@ -199,33 +201,33 @@ export function Banners(): ReactNode {
           conflict.reason === 'deleted' ? (
             <>
               <Button size="sm" variant="primary" onClick={() => resolve('mine')}>
-                Keep my version
+                {localize('Keep my version', '保留我的版本')}
               </Button>
               <Button size="sm" variant="ghost" onClick={() => resolve('theirs')}>
-                Delete it
+                {localize('Delete it', '删除这张幻灯片')}
               </Button>
             </>
           ) : (
             <>
               <Button size="sm" variant="primary" onClick={() => resolve('mine')}>
-                Use mine
+                {localize('Use mine', '使用我的版本')}
               </Button>
               <Button size="sm" variant="ghost" onClick={() => resolve('theirs')}>
-                Use theirs
+                {localize('Use theirs', '使用对方的版本')}
               </Button>
               <Button size="sm" variant="ghost" onClick={() => resolve('copy')}>
-                Save mine as a copy
+                {localize('Save mine as a copy', '将我的版本另存为副本')}
               </Button>
             </>
           )
         }
       >
         {conflict.reason === 'deleted'
-          ? `Slide ${n} was deleted elsewhere while you were editing it.`
-          : `Slide ${n} was changed elsewhere at the same time as you. Choose which version to keep.`}
+          ? localize(`Slide ${n} was deleted elsewhere while you were editing it.`, `你编辑时，其他人删除了第 ${n} 张幻灯片。`)
+          : localize(`Slide ${n} was changed elsewhere at the same time as you. Choose which version to keep.`, `你编辑第 ${n} 张幻灯片时，其他人也修改了它。请选择要保留的版本。`)}
         {id !== current ? (
           <button type="button" className="ml-1 text-accent hover:underline" onClick={() => useView.getState().showSlide(id)}>
-            Show it
+            {localize('Show it', '查看幻灯片')}
           </button>
         ) : null}
       </Banner>,
@@ -243,7 +245,7 @@ export function Banners(): ReactNode {
           actions={
             <>
               <Button size="sm" variant="ghost" icon={<Columns2 className="size-3.5" />} onClick={() => setComparing(position)}>
-                Compare
+                {localize('Compare', '比较')}
               </Button>
               <Button
                 size="sm"
@@ -256,19 +258,21 @@ export function Banners(): ReactNode {
                   schedule(0);
                 }}
               >
-                Bring back
+                {localize('Bring back', '恢复')}
               </Button>
               <Button size="sm" variant="ghost" onClick={() => useDeck.getState().dismissKept(position)}>
-                Dismiss
+                {localize('Dismiss', '关闭')}
               </Button>
             </>
           }
         >
-          A save made at the same moment replaced your changes to slide {n}.
+          {localize(`A save made at the same moment replaced your changes to slide ${n}.`, `同时发生的另一次保存覆盖了你对第 ${n} 张幻灯片的更改。`)}
         </Banner>,
       );
       return;
     }
+    const number = Math.max(1, deckOrder(useDeck.getState()).indexOf(item.id) + 1);
+    const version = item.reason === 'mine-chosen' ? localize('The other version', '对方的版本') : localize('Your version', '你的版本');
     out.push(
       <Banner
         key={`kept-${item.at}-${item.id}`}
@@ -288,15 +292,15 @@ export function Banners(): ReactNode {
                 schedule(0);
               }}
             >
-              Restore as new slide
+              {localize('Restore as new slide', '恢复为新幻灯片')}
             </Button>
             <Button size="sm" variant="ghost" onClick={() => useDeck.getState().dismissKept(position)}>
-              Dismiss
+              {localize('Dismiss', '关闭')}
             </Button>
           </>
         }
       >
-        {item.reason === 'mine-chosen' ? 'The other version' : 'Your version'} of slide {Math.max(1, deckOrder(useDeck.getState()).indexOf(item.id) + 1)} was set aside.
+        {localize(`${version} of slide ${number} was set aside.`, `已暂存第 ${number} 张幻灯片的另一版本（${version}）。`)}
       </Banner>,
     );
   });
@@ -310,12 +314,12 @@ export function Banners(): ReactNode {
         actions={
           agent.available && !readOnly ? (
             <Button size="sm" variant="ghost" icon={<Bot className="size-3.5" />} onClick={() => void askAgentToFix([current!])}>
-              Ask {agent.name} to fix
+              {localize(`Ask ${agent.name} to fix`, `请 ${agent.name} 修复`)}
             </Button>
           ) : null
         }
       >
-        This slide's file has errors, so it's read-only here: {entry.held}
+        {localize('This slide\'s file has errors, so it\'s read-only here:', '此幻灯片文件包含错误，当前以只读方式打开：')} {entry.held}
       </Banner>,
     );
   }

@@ -5,6 +5,7 @@
  * on it is editable.
  */
 
+import { localize } from '@open-artifact/runtime';
 import { SLIDE_HEIGHT, SLIDE_WIDTH } from '@open-artifact/slides-core';
 import { mountSlide, slidePicture, textLines } from '../capture.ts';
 import { breathe, hasBuilds, noteStills, type ExportJob } from './job.ts';
@@ -62,7 +63,7 @@ export async function exportPicturePptx(job: ExportJob): Promise<Blob> {
     job.progress(index + 1);
     await breathe();
   }
-  if (slides.length === 0) throw new Error('There are no slides to export.');
+  if (slides.length === 0) throw new Error(localize('There are no slides to export.', '没有可导出的幻灯片。'));
   const bytes = await writePptx({ title: job.title, slides, media, created: new Date(), width: SLIDE_WIDTH, height: SLIDE_HEIGHT });
   return new Blob([bytes as BlobPart], { type: PPTX_TYPE });
 }

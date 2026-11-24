@@ -17,6 +17,7 @@
  *   no full screen; Escape returns to the editor at that slide.
  */
 
+import { localize } from '@open-artifact/runtime';
 import { reportSlide } from '../../services/location.ts';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useShallow } from 'zustand/react/shallow';
@@ -348,7 +349,7 @@ function Show({ start, speaker, only }: { start: string; speaker: boolean; only:
     const popup = openSpeakerPopup();
     if (!popup) {
       setPopupBlocked(true);
-      toast.add({ title: 'The speaker window was blocked', description: 'Speaker notes show under the slide instead. Allow pop-ups for this site to open them in their own window.' });
+      toast.add({ title: localize('The speaker window was blocked', '演讲者窗口被浏览器拦截'), description: localize('Speaker notes show under the slide instead. Allow pop-ups for this site to open them in their own window.', '演讲者备注会显示在幻灯片下方。允许本站弹出窗口后，可在独立窗口中查看备注。') });
       return;
     }
     setPopupBlocked(false);
@@ -374,7 +375,7 @@ function Show({ start, speaker, only }: { start: string; speaker: boolean; only:
       ref={root}
       role={only ? 'group' : 'dialog'}
       aria-modal={only ? undefined : true}
-      aria-label={only ? pagerText(index, playable.length, slideTitle(slide)).announcement : 'Presentation'}
+      aria-label={only ? pagerText(index, playable.length, slideTitle(slide)).announcement : localize('Presentation', '演示文稿')}
       tabIndex={only ? 0 : undefined}
       data-presenter-only={only ? '' : undefined}
       className={cn(
@@ -427,7 +428,7 @@ function Show({ start, speaker, only }: { start: string; speaker: boolean; only:
       {notesUnder ? (
         <div data-presenter-notes className="absolute inset-x-0 bottom-0 flex flex-col border-t border-white/15 bg-neutral-950 text-white" style={{ height: size.h - stageH }}>
           <div className="px-4 pt-2 text-[11px] uppercase tracking-wide text-white/50">
-            Speaker notes · Slide {index + 1} of {playable.length}
+            {localize(`Speaker notes · Slide ${index + 1} of ${playable.length}`, `演讲者备注 · 第 ${index + 1} 张幻灯片，共 ${playable.length} 张`)}
           </div>
           <NotesEditor key={position.id} slideId={position.id} className="h-full w-full resize-none bg-transparent px-4 py-2 text-lg leading-relaxed text-white outline-none placeholder:text-white/40" />
         </div>
@@ -441,12 +442,12 @@ function Show({ start, speaker, only }: { start: string; speaker: boolean; only:
         )}
         style={notesUnder ? { bottom: size.h - stageH + 16 } : undefined}
       >
-        <IconButton label="Previous" shortcut="←" icon={<ChevronLeft className="size-4" />} className="text-white hover:bg-white/15 hover:text-white" disabled={index === 0 && position.done === 0} onClick={previous} />
+        <IconButton label={localize('Previous', '上一步')} shortcut="←" icon={<ChevronLeft className="size-4" />} className="text-white hover:bg-white/15 hover:text-white" disabled={index === 0 && position.done === 0} onClick={previous} />
         <span className="min-w-16 text-center text-xs tabular-nums text-white/80">
           {index + 1} / {playable.length}
         </span>
         <IconButton
-          label="Next"
+          label={localize('Next', '下一步')}
           shortcut="→"
           icon={<ChevronRight className="size-4" />}
           className="text-white hover:bg-white/15 hover:text-white"
@@ -454,15 +455,15 @@ function Show({ start, speaker, only }: { start: string; speaker: boolean; only:
           onClick={next}
         />
         <span className="mx-1 h-4 w-px bg-white/20" />
-        <IconButton label="Speaker notes" icon={<StickyNote className="size-4" />} className="text-white hover:bg-white/15 hover:text-white" onClick={openSpeaker} />
+        <IconButton label={localize('Speaker notes', '演讲者备注')} icon={<StickyNote className="size-4" />} className="text-white hover:bg-white/15 hover:text-white" onClick={openSpeaker} />
         <IconButton
-          label={fullscreen ? 'Exit full screen' : 'Full screen'}
+          label={fullscreen ? localize('Exit full screen', '退出全屏') : localize('Full screen', '全屏')}
           shortcut="F"
           icon={fullscreen ? <Minimize className="size-4" /> : <Maximize className="size-4" />}
           className="text-white hover:bg-white/15 hover:text-white"
           onClick={() => toggleFullscreen(root.current)}
         />
-        <IconButton label="Stop presenting" shortcut="Esc" icon={<X className="size-4" />} className="text-white hover:bg-white/15 hover:text-white" onClick={exit} />
+        <IconButton label={localize('Stop presenting', '结束放映')} shortcut="Esc" icon={<X className="size-4" />} className="text-white hover:bg-white/15 hover:text-white" onClick={exit} />
       </div>}
 
       {speakerWindow ? (

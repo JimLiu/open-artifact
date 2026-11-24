@@ -11,6 +11,7 @@
  *   padding (one value or per side).
  */
 
+import { localize } from '@open-artifact/runtime';
 import { useEffect, useState, type ReactNode } from 'react';
 import {
   AlignCenterHorizontal,
@@ -72,46 +73,46 @@ function PinnedSize({ target }: { target: Target }): ReactNode {
 
   const setRect = (patch: Partial<{ x: number; y: number; w: number; h: number }>): void => {
     if (!rect) return;
-    changeCurrent('Move', (slide) => setNodeRect(slide, path, { ...rect, ...patch }));
+    changeCurrent(localize('Move', '移动'), (slide) => setNodeRect(slide, path, { ...rect, ...patch }));
   };
   const align = (
     [
-      ['left', 'Align left', AlignStartVertical],
-      ['center', 'Align centers', AlignCenterVertical],
-      ['right', 'Align right', AlignEndVertical],
-      ['top', 'Align top', AlignStartHorizontal],
-      ['middle', 'Align middles', AlignCenterHorizontal],
-      ['bottom', 'Align bottom', AlignEndHorizontal],
+      ['left', localize('Align left', '左对齐'), AlignStartVertical],
+      ['center', localize('Align centers', '水平居中'), AlignCenterVertical],
+      ['right', localize('Align right', '右对齐'), AlignEndVertical],
+      ['top', localize('Align top', '顶端对齐'), AlignStartHorizontal],
+      ['middle', localize('Align middles', '垂直居中'), AlignCenterHorizontal],
+      ['bottom', localize('Align bottom', '底端对齐'), AlignEndHorizontal],
     ] as const
-  ).map(([edge, label, Icon]) => <IconButton key={edge} size="sm" label={`${target.nodes.length > 1 ? label : `${label} to slide`} (${ALT}${ALIGN_KEYS[edge]})`} icon={<Icon className="size-3.5" />} onClick={() => alignSelection(edge)} />);
+  ).map(([edge, label, Icon]) => <IconButton key={edge} size="sm" label={`${target.nodes.length > 1 ? label : localize(`${label} to slide`, `相对幻灯片${label}`)} (${ALT}${ALIGN_KEYS[edge]})`} icon={<Icon className="size-3.5" />} onClick={() => alignSelection(edge)} />);
 
   return (
-    <Section title="Size">
+    <Section title={localize('Size', '大小')}>
       {rect && single ? (
         <>
-          <Row label="Width">
-            <NumberInput aria-label="Width" value={rect.w} min={1} unit="px" onCommit={(v) => v !== null && setRect({ w: v })} />
+          <Row label={localize('Width', '宽度')}>
+            <NumberInput aria-label={localize('Width', '宽度')} value={rect.w} min={1} unit="px" onCommit={(v) => v !== null && setRect({ w: v })} />
           </Row>
-          <Row label="Height">
-            <NumberInput aria-label="Height" value={rect.h} min={1} unit="px" onCommit={(v) => v !== null && setRect({ h: v })} />
+          <Row label={localize('Height', '高度')}>
+            <NumberInput aria-label={localize('Height', '高度')} value={rect.h} min={1} unit="px" onCommit={(v) => v !== null && setRect({ h: v })} />
           </Row>
-          <Row label="Position">
+          <Row label={localize('Position', '位置')}>
             <NumberInput aria-label="X" label="X" value={rect.x} onCommit={(v) => v !== null && setRect({ x: v })} />
             <NumberInput aria-label="Y" label="Y" value={rect.y} onCommit={(v) => v !== null && setRect({ y: v })} />
           </Row>
-          <Row label="Rotation">
+          <Row label={localize('Rotation', '旋转角度')}>
             <NumberInput
-              aria-label="Rotation"
+              aria-label={localize('Rotation', '旋转角度')}
               value={rotationOf(single)}
               unit="°"
               min={-180}
               max={180}
-              onCommit={(v) => changeCurrent('Rotate', (slide) => setRotation(slide, path, v ?? 0))}
+              onCommit={(v) => changeCurrent(localize('Rotate', '旋转'), (slide) => setRotation(slide, path, v ?? 0))}
             />
           </Row>
         </>
       ) : null}
-      <Row label="Align">
+      <Row label={localize('Align', '对齐')}>
         <div className="flex flex-wrap items-center gap-0.5">{align}</div>
       </Row>
     </Section>
@@ -247,15 +248,15 @@ function useMeasured(path: NodePath | null): { w: number; h: number } | null {
   return size;
 }
 
-const SIZE_TIP = (label: string): string => `${label}: Hug sizes to the content, Fixed is an exact size, Fill takes the space the group gives it.`;
+const SIZE_TIP = (label: string): string => localize(`${label}: Hug sizes to the content, Fixed is an exact size, Fill takes the space the group gives it.`, `${label}：适应内容会随内容调整，固定大小使用指定数值，填充会占用组合分配的空间。`);
 
 /** The limits "+" can add to Size. */
 type Limit = 'min-width' | 'max-width' | 'min-height' | 'max-height';
 const LIMITS: ReadonlyArray<{ key: Limit; label: string }> = [
-  { key: 'min-width', label: 'Min width' },
-  { key: 'max-width', label: 'Max width' },
-  { key: 'min-height', label: 'Min height' },
-  { key: 'max-height', label: 'Max height' },
+  { key: 'min-width', label: localize('Min width', '最小宽度') },
+  { key: 'max-width', label: localize('Max width', '最大宽度') },
+  { key: 'min-height', label: localize('Min height', '最小高度') },
+  { key: 'max-height', label: localize('Max height', '最大高度') },
 ];
 
 /**
@@ -278,7 +279,7 @@ export function SizeSection({ target }: { target: Target }): ReactNode {
   const shown = (key: Limit): boolean => revealed.has(key) || target.nodes.some((n) => n.style[key] !== undefined);
 
   const setMode = (dimension: Dimension, mode: SizeMode, px?: number): void => {
-    changeCurrent('Size', (slide) => {
+    changeCurrent(localize('Size', '大小'), (slide) => {
       let next = slide;
       for (const p of target.paths) {
         const n = nodeAt(next, p);
@@ -294,7 +295,7 @@ export function SizeSection({ target }: { target: Target }): ReactNode {
   const dimensionRow = (dimension: Dimension): ReactNode => {
     const mode = sizeModeOf(node, parent, dimension);
     const property = dimension === 'w' ? 'width' : 'height';
-    const label = dimension === 'w' ? 'Width' : 'Height';
+    const label = dimension === 'w' ? localize('Width', '宽度') : localize('Height', '高度');
     const fixed = mode === 'fixed' ? pxOf(node.style[property]) : null;
     const value = fixed ?? (measured ? Math.round(dimension === 'w' ? measured.w : measured.h) : null);
     return (
@@ -302,21 +303,21 @@ export function SizeSection({ target }: { target: Target }): ReactNode {
         <NumberInput
           aria-label={label}
           value={target.nodes.length === 1 ? value : null}
-          placeholder={target.nodes.length === 1 ? 'Auto' : 'Mixed'}
+          placeholder={target.nodes.length === 1 ? localize('Auto', '自动') : localize('Mixed', '混合值')}
           min={1}
           max={4096}
           step={8}
           onCommit={(v) => v !== null && setMode(dimension, 'fixed', v)}
         />
         <SelectInput<SizeMode>
-          aria-label={`${label} sizing`}
+          aria-label={localize(`${label} sizing`, `${label}的尺寸方式`)}
           className="w-[76px] shrink-0"
           value={target.nodes.every((n, i) => sizeModeOf(n, parentLayout(target.slide, target.paths[i]!), dimension) === mode) ? mode : null}
-          placeholder="Mixed"
+          placeholder={localize('Mixed', '混合值')}
           options={[
-            { value: 'hug', label: 'Hug' },
-            { value: 'fixed', label: 'Fixed' },
-            { value: 'fill', label: 'Fill' },
+            { value: 'hug', label: localize('Hug', '适应内容') },
+            { value: 'fixed', label: localize('Fixed', '固定大小') },
+            { value: 'fill', label: localize('Fill', '填充') },
           ]}
           onChange={(value) => setMode(dimension, value)}
         />
@@ -327,9 +328,9 @@ export function SizeSection({ target }: { target: Target }): ReactNode {
   const add = (
     <ChromeMenu
       align="end"
-      tip={{ label: 'Add to Size' }}
+      tip={{ label: localize('Add to Size', '添加尺寸设置') }}
       trigger={
-        <button type="button" aria-label="Add to Size" className="flex size-6 items-center justify-center rounded-[6px] text-chrome-secondary outline-none hover:bg-chrome-hover hover:text-chrome-fg focus-visible:ring-2 focus-visible:ring-chrome-accent">
+        <button type="button" aria-label={localize('Add to Size', '添加尺寸设置')} className="flex size-6 items-center justify-center rounded-[6px] text-chrome-secondary outline-none hover:bg-chrome-hover hover:text-chrome-fg focus-visible:ring-2 focus-visible:ring-chrome-accent">
           <Plus className="size-4" strokeWidth={1.5} />
         </button>
       }
@@ -344,7 +345,7 @@ export function SizeSection({ target }: { target: Target }): ReactNode {
 
   const columns = parent.kind === 'grid' ? gridColumnCount(target.slide, path) : 0;
   return (
-    <Section title="Size" actions={add}>
+    <Section title={localize('Size', '大小')} actions={add}>
       {dimensionRow('w')}
       {dimensionRow('h')}
       {LIMITS.filter(({ key }) => shown(key)).map(({ key, label }) => {
@@ -359,12 +360,12 @@ export function SizeSection({ target }: { target: Target }): ReactNode {
               next.delete(key);
               setRevealed(next);
             }}
-            resetLabel={`Remove ${label.toLowerCase()}`}
+            resetLabel={localize(`Remove ${label.toLowerCase()}`, `移除${label}`)}
           >
             <NumberInput
               aria-label={label}
               value={shared.mixed ? null : pxOf(shared.value)}
-              placeholder={shared.mixed ? 'Mixed' : key.startsWith('min') ? '0' : '—'}
+              placeholder={shared.mixed ? localize('Mixed', '混合值') : key.startsWith('min') ? '0' : '—'}
               unit="px"
               min={key.startsWith('min') ? 0 : 1}
               max={4096}
@@ -376,11 +377,11 @@ export function SizeSection({ target }: { target: Target }): ReactNode {
       })}
       {parent.kind === 'grid' ? (
         <>
-          <Row label="Column span" tip="Grid cells this child spans across (row-major auto-flow).">
-            <NumberInput aria-label="Column span" value={spanOf(node.style['grid-column'])} placeholder="1" min={1} max={Math.max(1, columns)} onCommit={(v) => commitCss(target, 'grid-column', !v || v <= 1 ? '' : `span ${Math.round(v)}`, 'Column span')} />
+          <Row label={localize('Column span', '跨列数')} tip={localize('Grid cells this child spans across (row-major auto-flow).', '子元素横跨的网格列数（按行自动排列）。')}>
+            <NumberInput aria-label={localize('Column span', '跨列数')} value={spanOf(node.style['grid-column'])} placeholder="1" min={1} max={Math.max(1, columns)} onCommit={(v) => commitCss(target, 'grid-column', !v || v <= 1 ? '' : `span ${Math.round(v)}`, localize('Column span', '跨列数'))} />
           </Row>
-          <Row label="Row span">
-            <NumberInput aria-label="Row span" value={spanOf(node.style['grid-row'])} placeholder="1" min={1} max={12} onCommit={(v) => commitCss(target, 'grid-row', !v || v <= 1 ? '' : `span ${Math.round(v)}`, 'Row span')} />
+          <Row label={localize('Row span', '跨行数')}>
+            <NumberInput aria-label={localize('Row span', '跨行数')} value={spanOf(node.style['grid-row'])} placeholder="1" min={1} max={12} onCommit={(v) => commitCss(target, 'grid-row', !v || v <= 1 ? '' : `span ${Math.round(v)}`, localize('Row span', '跨行数'))} />
           </Row>
         </>
       ) : null}
@@ -408,19 +409,19 @@ function MarginRow({ target }: { target: Target }): ReactNode {
   const shown: Quad | null = sides ? [sideNumber(sides[0]), sideNumber(sides[1]), sideNumber(sides[2]), sideNumber(sides[3])] : null;
   const commit = (next: Quad): void => {
     const written = next.map((v, i) => (sides?.[i] === 'auto' && v === shown?.[i] ? 'auto' : `${v}px`));
-    commitCss(target, 'margin', written.every((v) => v === '0px') ? '' : written.join(' '), 'Margin', 'margin');
+    commitCss(target, 'margin', written.every((v) => v === '0px') ? '' : written.join(' '), localize('Margin', '外边距'), 'margin');
   };
   return (
     <QuadRow
-      label="Margin"
+      label={localize('Margin', '外边距')}
       kind="sides"
       values={shown}
       unit="px"
       min={-1920}
       max={1920}
-      title="Space outside the element, between it and its neighbours."
+      title={localize('Space outside the element, between it and its neighbours.', '元素与相邻元素之间的外部留白。')}
       onCommit={commit}
-      onReset={shared.value && !shared.mixed ? () => commitCss(target, 'margin', '', 'Margin') : undefined}
+      onReset={shared.value && !shared.mixed ? () => commitCss(target, 'margin', '', localize('Margin', '外边距')) : undefined}
     />
   );
 }
@@ -449,10 +450,10 @@ type ContainerKind = 'stack' | 'grid' | 'layered';
 type Edge = 'start' | 'center' | 'end';
 
 const GRID_ALIGN_OPTIONS = [
-  { value: 'stretch', label: 'Stretch' },
-  { value: 'start', label: 'Start' },
-  { value: 'center', label: 'Center' },
-  { value: 'end', label: 'End' },
+  { value: 'stretch', label: localize('Stretch', '拉伸') },
+  { value: 'start', label: localize('Start', '起点') },
+  { value: 'center', label: localize('Center', '居中') },
+  { value: 'end', label: localize('End', '终点') },
 ] as const;
 
 /** A justify / align keyword as start, center or end (null for stretch, baseline, a distribution). */
@@ -479,7 +480,7 @@ function cycleTrack(track: Track): Track {
 }
 
 function trackLabel(track: Track): string {
-  return track.unit === 'auto' ? 'Auto' : `${track.value}${track.unit}`;
+  return track.unit === 'auto' ? localize('Auto', '自动') : `${track.value}${track.unit}`;
 }
 
 /** Justify and align icons along the stack's main and cross axes. */
@@ -499,7 +500,7 @@ export function LayoutSection({ target }: { target: Target }): ReactNode {
   const isSlide = target.nodes.length === 0;
   if (!isSlide && target.nodes.every((n) => n.kind === 'text' || n.kind === 'list' || n.kind === 'textbox')) {
     return (
-      <Section title="Layout">
+      <Section title={localize('Layout', '布局')}>
         <PaddingRow target={target} />
       </Section>
     );
@@ -509,31 +510,31 @@ export function LayoutSection({ target }: { target: Target }): ReactNode {
   const style = isSlide ? target.slide.style : node!.style;
   const kind: ContainerKind = style.display === 'grid' ? 'grid' : style.position === 'relative' ? 'layered' : 'stack';
   return (
-    <Section title="Layout">
+    <Section title={localize('Layout', '布局')}>
       <Row>
         <Segmented<ContainerKind>
-          aria-label="Layout"
+          aria-label={localize('Layout', '布局')}
           value={kind}
           options={[
-            { value: 'stack', label: 'Stack', title: 'Children follow one another' },
-            { value: 'grid', label: 'Grid', title: 'Children fill a grid of columns' },
-            ...(isSlide ? [] : [{ value: 'layered' as const, label: 'Layered', title: 'Children are placed freely on top of each other' }]),
+            { value: 'stack', label: localize('Stack', '堆叠'), title: localize('Children follow one another', '子元素依次排列') },
+            { value: 'grid', label: localize('Grid', '网格'), title: localize('Children fill a grid of columns', '子元素按网格列排列') },
+            ...(isSlide ? [] : [{ value: 'layered' as const, label: localize('Layered', '层叠'), title: localize('Children are placed freely on top of each other', '子元素可自由摆放和重叠') }]),
           ]}
           onChange={(next) => setContainerKind(target, style, kind, next, isSlide)}
         />
       </Row>
       {kind === 'stack' ? <StackRows target={target} style={style} /> : null}
       {kind === 'grid' ? <GridRows target={target} style={style} /> : null}
-      {kind === 'layered' ? <Note>Children are placed freely. Drag them on the slide to arrange them.</Note> : null}
+      {kind === 'layered' ? <Note>{localize('Children are placed freely. Drag them on the slide to arrange them.', '子元素可以自由摆放。拖动幻灯片上的元素即可排列。')}</Note> : null}
       {kind !== 'layered' ? (
-        <Row label="Gap">
+        <Row label={localize('Gap', '间距')}>
           <NumberInput
-            aria-label="Gap"
+            aria-label={localize('Gap', '间距')}
             value={sharedStyle(target, 'gap').mixed ? null : (pxOf(style.gap?.split(/\s+/)[0]) ?? 0)}
-            placeholder="Mixed"
+            placeholder={localize('Mixed', '混合值')}
             min={0}
             max={512}
-            onCommit={(v) => commitCss(target, 'gap', v ? `${v}px` : '', 'Gap', 'gap')}
+            onCommit={(v) => commitCss(target, 'gap', v ? `${v}px` : '', localize('Gap', '间距'), 'gap')}
           />
         </Row>
       ) : null}
@@ -545,7 +546,7 @@ export function LayoutSection({ target }: { target: Target }): ReactNode {
 function setContainerKind(target: Target, style: StyleMap, kind: ContainerKind, next: ContainerKind, isSlide: boolean): void {
   if (next === kind) return;
   if (next === 'grid') {
-    patchTarget(target, 'Grid layout', {
+    patchTarget(target, localize('Grid layout', '网格布局'), {
       display: 'grid',
       'grid-template-columns': formatTracks([{ unit: 'fr', value: 1 }, { unit: 'fr', value: 1 }]),
       'flex-direction': undefined,
@@ -554,9 +555,9 @@ function setContainerKind(target: Target, style: StyleMap, kind: ContainerKind, 
       position: isSlide ? undefined : style.position === 'relative' ? undefined : style.position,
     });
   } else if (next === 'stack') {
-    patchTarget(target, 'Stack layout', { display: undefined, 'grid-template-columns': undefined, 'grid-template-rows': undefined, 'justify-items': undefined, position: style.position === 'relative' ? undefined : style.position });
+    patchTarget(target, localize('Stack layout', '堆叠布局'), { display: undefined, 'grid-template-columns': undefined, 'grid-template-rows': undefined, 'justify-items': undefined, position: style.position === 'relative' ? undefined : style.position });
   } else {
-    patchTarget(target, 'Layered layout', { position: 'relative', display: undefined, 'grid-template-columns': undefined, 'grid-template-rows': undefined });
+    patchTarget(target, localize('Layered layout', '层叠布局'), { position: 'relative', display: undefined, 'grid-template-columns': undefined, 'grid-template-rows': undefined });
   }
 }
 
@@ -571,43 +572,43 @@ function StackRows({ target, style }: { target: Target; style: StyleMap }): Reac
   const edges = (which: 'justify' | 'align', prefix: string) =>
     (['start', 'center', 'end'] as const).map((edge) => {
       const Icon = icons[which][edge];
-      return { value: edge, label: `${prefix} ${edge}`, title: `${prefix} ${edge}`, icon: <Icon strokeWidth={1.5} />, disabled: which === 'justify' && distributed, reason: 'Distribute decides this axis' };
+      return { value: edge, label: `${prefix} ${edge}`, title: `${prefix} ${edge}`, icon: <Icon strokeWidth={1.5} />, disabled: which === 'justify' && distributed, reason: localize('Distribute decides this axis', '此轴由分布方式控制') };
     });
   const DistributeIcon = row ? AlignHorizontalSpaceBetween : AlignVerticalSpaceBetween;
   return (
     <>
-      <Row label="Direction">
+      <Row label={localize('Direction', '方向')}>
         <Segmented<'h' | 'v'>
-          aria-label="Direction"
+          aria-label={localize('Direction', '方向')}
           value={row ? 'h' : 'v'}
           options={[
-            { value: 'h', label: 'Horizontal', title: 'Horizontal', icon: <ArrowRight strokeWidth={1.5} /> },
-            { value: 'v', label: 'Vertical', title: 'Vertical', icon: <ArrowDown strokeWidth={1.5} /> },
+            { value: 'h', label: localize('Horizontal', '水平'), title: localize('Horizontal', '水平'), icon: <ArrowRight strokeWidth={1.5} /> },
+            { value: 'v', label: localize('Vertical', '垂直'), title: localize('Vertical', '垂直'), icon: <ArrowDown strokeWidth={1.5} /> },
           ]}
-          onChange={(dir) => patchTarget(target, 'Direction', dir === 'h' ? { 'flex-direction': 'row' } : { 'flex-direction': undefined, 'flex-wrap': undefined })}
+          onChange={(dir) => patchTarget(target, localize('Direction', '方向'), dir === 'h' ? { 'flex-direction': 'row' } : { 'flex-direction': undefined, 'flex-wrap': undefined })}
         />
         <IconButton
-          label={wrap ? 'Children wrap onto more rows — click for one row' : 'Wrap children onto more rows'}
+          label={wrap ? localize('Children wrap onto more rows — click for one row', '子元素自动换行。点击改为单行。') : localize('Wrap children onto more rows', '允许子元素自动换行')}
           icon={<CornerDownLeft strokeWidth={1.5} />}
           active={wrap}
           disabled={!row}
-          reason={!row ? 'Wrap applies to a horizontal stack' : undefined}
-          onClick={() => commitCss(target, 'flex-wrap', wrap ? '' : 'wrap', 'Wrap')}
+          reason={!row ? localize('Wrap applies to a horizontal stack', '自动换行适用于水平堆叠布局') : undefined}
+          onClick={() => commitCss(target, 'flex-wrap', wrap ? '' : 'wrap', localize('Wrap', '换行'))}
         />
       </Row>
       <Row
-        label="Align"
-        onReset={style['justify-content'] || style['align-items'] ? () => patchTarget(target, 'Align', { 'justify-content': undefined, 'align-items': undefined }) : undefined}
+        label={localize('Align', '对齐')}
+        onReset={style['justify-content'] || style['align-items'] ? () => patchTarget(target, localize('Align', '对齐'), { 'justify-content': undefined, 'align-items': undefined }) : undefined}
       >
         <div className={cn('flex min-w-0 flex-1 gap-2', row ? 'items-center' : 'items-start')}>
-          <Segmented<Edge> aria-label="Justify" vertical={!row} className={row ? 'min-w-0 flex-1' : undefined} value={justify} options={edges('justify', 'Justify')} onChange={(edge) => commitCss(target, 'justify-content', edge === 'start' ? '' : edge, 'Justify')} />
-          <Segmented<Edge> aria-label="Align" vertical={!row} className={row ? 'min-w-0 flex-1' : undefined} value={align} options={edges('align', 'Align')} onChange={(edge) => commitCss(target, 'align-items', edge, 'Align')} />
+          <Segmented<Edge> aria-label={localize('Justify', '两端对齐')} vertical={!row} className={row ? 'min-w-0 flex-1' : undefined} value={justify} options={edges('justify', localize('Justify', '两端对齐'))} onChange={(edge) => commitCss(target, 'justify-content', edge === 'start' ? '' : edge, localize('Justify', '两端对齐'))} />
+          <Segmented<Edge> aria-label={localize('Align', '对齐')} vertical={!row} className={row ? 'min-w-0 flex-1' : undefined} value={align} options={edges('align', localize('Align', '对齐'))} onChange={(edge) => commitCss(target, 'align-items', edge, localize('Align', '对齐'))} />
         </div>
         <IconButton
-          label={distributed ? 'Distribute: space between — click to pack' : 'Distribute (space between); needs main-axis room to show'}
+          label={distributed ? localize('Distribute: space between — click to pack', '当前均匀分布。点击切换为紧凑排列。') : localize('Distribute (space between); needs main-axis room to show', '均匀分布（主轴上需要有剩余空间）')}
           icon={<DistributeIcon strokeWidth={1.5} />}
           active={distributed}
-          onClick={() => commitCss(target, 'justify-content', distributed ? '' : 'space-between', 'Distribute')}
+          onClick={() => commitCss(target, 'justify-content', distributed ? '' : 'space-between', localize('Distribute', '均匀分布'))}
         />
       </Row>
     </>
@@ -619,33 +620,33 @@ function GridRows({ target, style }: { target: Target; style: StyleMap }): React
   const parsed = style['grid-template-columns'] ? parseTracks(style['grid-template-columns']) : null;
   const tracks: Track[] = parsed?.ok ? parsed.value : [];
   const setTracks = (next: Track[]): void => {
-    if (next.length > 0) commitCss(target, 'grid-template-columns', formatTracks(next), 'Grid columns');
+    if (next.length > 0) commitCss(target, 'grid-template-columns', formatTracks(next), localize('Grid columns', '网格列'));
   };
   return (
     <>
-      <Row label="Columns">
+      <Row label={localize('Columns', '列数')}>
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
           {tracks.map((track, i) => (
             <button
               key={i}
               type="button"
-              title="Click to switch between a share, a fixed 240px and the content's size"
+              title={localize('Click to switch between a share, a fixed 240px and the content\'s size', '点击切换为按比例分配、固定 240 像素或适应内容。')}
               className="h-6 rounded-[6px] bg-chrome-field px-1.5 text-[12px] tabular-nums text-chrome-fg shadow-[inset_0_0_0_1px_var(--chrome-field-ring)] hover:shadow-[inset_0_0_0_1px_var(--chrome-field-ring-strong)]"
               onClick={() => setTracks(tracks.map((t, j) => (j === i ? cycleTrack(t) : t)))}
             >
               {trackLabel(track)}
             </button>
           ))}
-          <IconButton label="Add column" icon={<Plus strokeWidth={1.5} />} disabled={tracks.length >= 12} reason={tracks.length >= 12 ? '12 columns at most' : undefined} onClick={() => setTracks([...tracks, { unit: 'fr', value: 1 }])} />
-          <IconButton label="Remove column" icon={<Minus strokeWidth={1.5} />} disabled={tracks.length <= 1} reason={tracks.length <= 1 ? 'A grid keeps one column' : undefined} onClick={() => setTracks(tracks.slice(0, -1))} />
+          <IconButton label={localize('Add column', '添加列')} icon={<Plus strokeWidth={1.5} />} disabled={tracks.length >= 12} reason={tracks.length >= 12 ? localize('12 columns at most', '最多 12 列') : undefined} onClick={() => setTracks([...tracks, { unit: 'fr', value: 1 }])} />
+          <IconButton label={localize('Remove column', '移除列')} icon={<Minus strokeWidth={1.5} />} disabled={tracks.length <= 1} reason={tracks.length <= 1 ? localize('A grid keeps one column', '网格至少保留一列') : undefined} onClick={() => setTracks(tracks.slice(0, -1))} />
         </div>
       </Row>
-      <Row label="Rows">
-        <CssField target={target} property="grid-template-rows" label="Grid rows" placeholder="auto" />
+      <Row label={localize('Rows', '行数')}>
+        <CssField target={target} property="grid-template-rows" label={localize('Grid rows', '网格行数')} placeholder="auto" />
       </Row>
-      <Row label="Align">
-        <SelectInput aria-label="Justify items" value={style['justify-items'] ?? 'stretch'} options={GRID_ALIGN_OPTIONS.map((o) => ({ ...o }))} onChange={(value) => commitCss(target, 'justify-items', value === 'stretch' ? '' : value, 'Align columns')} />
-        <SelectInput aria-label="Align items" value={edgeOf(style['align-items']) ?? 'stretch'} options={GRID_ALIGN_OPTIONS.map((o) => ({ ...o }))} onChange={(value) => commitCss(target, 'align-items', value === 'stretch' ? '' : value, 'Align rows')} />
+      <Row label={localize('Align', '对齐')}>
+        <SelectInput aria-label={localize('Justify items', '子元素主轴对齐')} value={style['justify-items'] ?? 'stretch'} options={GRID_ALIGN_OPTIONS.map((o) => ({ ...o }))} onChange={(value) => commitCss(target, 'justify-items', value === 'stretch' ? '' : value, localize('Align columns', '列对齐'))} />
+        <SelectInput aria-label={localize('Align items', '对齐元素')} value={edgeOf(style['align-items']) ?? 'stretch'} options={GRID_ALIGN_OPTIONS.map((o) => ({ ...o }))} onChange={(value) => commitCss(target, 'align-items', value === 'stretch' ? '' : value, localize('Align rows', '行对齐'))} />
       </Row>
     </>
   );
@@ -656,18 +657,18 @@ function PaddingRow({ target }: { target: Target }): ReactNode {
   const shared = sharedStyle(target, 'padding');
   const commit = (next: Quad): void => {
     const all = next.every((v) => v === next[0]);
-    commitCss(target, 'padding', all ? (next[0] ? `${next[0]}px` : '') : next.map((v) => `${v}px`).join(' '), 'Padding', 'padding');
+    commitCss(target, 'padding', all ? (next[0] ? `${next[0]}px` : '') : next.map((v) => `${v}px`).join(' '), localize('Padding', '内边距'), 'padding');
   };
   return (
     <QuadRow
-      label="Padding"
+      label={localize('Padding', '内边距')}
       kind="sides"
       values={shared.mixed ? null : paddingSides(shared.value)}
       unit="px"
       min={0}
       max={1920}
       onCommit={commit}
-      onReset={shared.value && !shared.mixed ? () => commitCss(target, 'padding', '', 'Padding') : undefined}
+      onReset={shared.value && !shared.mixed ? () => commitCss(target, 'padding', '', localize('Padding', '内边距')) : undefined}
     />
   );
 }

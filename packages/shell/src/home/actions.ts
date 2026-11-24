@@ -5,6 +5,7 @@ import { toast } from '@open-artifact/ui';
 import { api, ApiError, errorText, subscribeLibraryEvents } from '../lib/api.ts';
 import { copyText } from '../lib/format.ts';
 import { t } from '../lib/i18n.ts';
+import { shellHref } from '../lib/navigation.ts';
 import { homeBoot, toHost } from './host.ts';
 import { replaceArtifact, withoutArtifact } from './model.ts';
 import { useHome } from './store.ts';
@@ -15,8 +16,7 @@ const notify = (title: string): void => {
   toast.add({ title });
 };
 
-/** The Shell's address of an artifact. */
-export const shellHref = (id: string): string => `/a/${encodeURIComponent(id)}`;
+export { shellHref } from '../lib/navigation.ts';
 
 /** Opens an artifact: a host that shows artifacts itself (`caps.artifacts`) gets it, else its Shell here. */
 export function openArtifact(artifact: Pick<ArtifactView, 'id' | 'url' | 'title' | 'type'>): void {

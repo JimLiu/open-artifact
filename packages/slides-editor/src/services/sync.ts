@@ -13,6 +13,7 @@
  * file says what a deck writes and how its files merge.
  */
 
+import { localize } from '@open-artifact/runtime';
 import { createProjectSync, readProject, type RemoteFile } from '@open-artifact/editor-kit';
 import type { PublishBatch } from '@open-artifact/runtime';
 import { DECK_PATH, DECK_STYLESHEET_PATH, parseDeckIndex, slideIdFromPath, slidePath } from '@open-artifact/slides-core';
@@ -68,7 +69,7 @@ const sync = createProjectSync<SentBatch, RemoteRun>({
   saved: () => clearRecovery(),
   lostWriteAccess() {
     useDeck.setState({ readOnly: true, save: 'readonly' });
-    toast.add({ title: 'You can no longer edit this deck', description: 'Your changes since the last save are kept in this browser for 3 days.' });
+    toast.add({ title: localize('You can no longer edit this deck', '你已失去此演示文稿的编辑权限'), description: localize('Your changes since the last save are kept in this browser for 3 days.', '上次保存后的更改将在此浏览器中保留 3 天。') });
     saveRecovery(true);
   },
   remote: {
@@ -219,17 +220,17 @@ function remoteDone({ conflicts, mergedSlides, changedSlides, merged }: RemoteRu
   }
   if (conflicts.length) {
     toast.add({
-      title: conflicts.length === 1 ? 'This slide was changed by someone else' : `${conflicts.length} slides were changed by someone else`,
-      description: 'Choose which version to keep in the banner above the slide.',
+      title: conflicts.length === 1 ? localize('This slide was changed by someone else', '其他人修改了此幻灯片') : localize(`${conflicts.length} slides were changed by someone else`, `其他人修改了 ${conflicts.length} 张幻灯片`),
+      description: localize('Choose which version to keep in the banner above the slide.', '请在幻灯片上方的提示条中选择要保留的版本。'),
     });
   } else if (mergedSlides.length) {
     const order = deckOrder(useDeck.getState());
     const numbers = mergedSlides.map((id) => order.indexOf(id) + 1).filter((n) => n > 0).sort((a, b) => a - b);
     toast.add({
-      title: numbers.length === 1 ? `Merged changes made elsewhere into slide ${numbers[0]}` : `Merged changes made elsewhere into ${numbers.length} slides`,
-      description: 'You and someone else changed different lines, so both changes were kept.',
+      title: numbers.length === 1 ? localize(`Merged changes made elsewhere into slide ${numbers[0]}`, `已将其他位置的更改合并到第 ${numbers[0]} 张幻灯片`) : localize(`Merged changes made elsewhere into ${numbers.length} slides`, `已将其他位置的更改合并到 ${numbers.length} 张幻灯片`),
+      description: localize('You and someone else changed different lines, so both changes were kept.', '双方修改了不同的行，两处更改均已保留。'),
     });
   } else if (merged) {
-    toast.add({ title: 'Merged with a newer version of the deck' });
+    toast.add({ title: localize('Merged with a newer version of the deck', '已与较新版本的演示文稿合并') });
   }
 }

@@ -6,6 +6,7 @@
  * and the show on top of everything.
  */
 
+import { localize } from '@open-artifact/runtime';
 import { useEffect, useRef, type ReactNode } from 'react';
 import { Loader2, Plus, Presentation, TriangleAlert } from 'lucide-react';
 import { Button, CrashBoundary, EmptyState } from '@open-artifact/ui';
@@ -76,7 +77,7 @@ async function boot(): Promise<void> {
   startDesignSystems();
   // Unsaved changes from an earlier visit wait for the person's choice.
   if (!deck.readOnly) useRecoveryOffer.getState().set(pendingRecovery());
-  document.title = deck.title || 'Slides';
+  document.title = deck.title || localize('Slides', '幻灯片');
 }
 
 let booted = false;
@@ -89,11 +90,11 @@ function EmptyDeck(): ReactNode {
   // The agent is writing this deck: its outline as skeleton cells.
   if (writing) return <CreationView />;
   return (
-    <EmptyState icon={<Presentation className="size-6" />} title="This presentation has no slides yet">
-      <p>{editable ? (agent.available ? `Add one, or ask ${agent.name} to add some.` : 'Add one to get started.') : 'Slides will show here once they are added.'}</p>
+    <EmptyState icon={<Presentation className="size-6" />} title={localize('This presentation has no slides yet', '此演示文稿还没有幻灯片')}>
+      <p>{editable ? (agent.available ? localize(`Add one, or ask ${agent.name} to add some.`, `可自行添加幻灯片，也可请 ${agent.name} 添加。`) : localize('Add one to get started.', '添加一张幻灯片即可开始。')) : localize('Slides will show here once they are added.', '添加幻灯片后，它们会显示在这里。')}</p>
       {editable ? (
         <Button className="mt-2" variant="primary" icon={<Plus className="size-4" />} onClick={() => addSlide('blank', null)}>
-          Add slide
+          {localize('Add slide', '添加幻灯片')}
         </Button>
       ) : null}
     </EmptyState>
@@ -152,14 +153,14 @@ export function App(): ReactNode {
   if (status === 'loading') {
     return (
       <div className="flex h-full items-center justify-center bg-canvas">
-        <Loader2 className="size-5 animate-spin text-fg-subtle" aria-label="Loading" />
+        <Loader2 className="size-5 animate-spin text-fg-subtle" aria-label={localize('Loading', '加载中')} />
       </div>
     );
   }
   if (status === 'error') {
     return (
       <div className="h-full bg-canvas">
-        <EmptyState icon={<TriangleAlert className="size-6" />} title="This presentation could not be opened">
+        <EmptyState icon={<TriangleAlert className="size-6" />} title={localize('This presentation could not be opened', '无法打开此演示文稿')}>
           {error}
         </EmptyState>
       </div>

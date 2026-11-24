@@ -10,6 +10,7 @@
  * other change.
  */
 
+import { localize } from '@open-artifact/runtime';
 import type { HistoryCapability } from '@open-artifact/runtime';
 import { create, type StoreApi, type UseBoundStore } from 'zustand';
 
@@ -112,10 +113,10 @@ export function createHistory<P>(adapter: HistoryAdapter<P>): HistoryController<
       if (!capability) return;
       try {
         const result = await capability.restore(n);
-        notify({ title: result.changed.length ? `Restored version ${n}` : `The ${noun} already matches version ${n}` });
+        notify({ title: result.changed.length ? localize(`Restored version ${n}`, `已恢复版本 ${n}`) : localize(`The ${noun} already matches version ${n}`, `当前${noun}已与版本 ${n} 一致`) });
         await controller.preview(null);
       } catch (error) {
-        notify({ title: 'The version could not be restored', description: message(error) });
+        notify({ title: localize('The version could not be restored', '无法恢复该版本'), description: message(error) });
       }
     },
     async restorePaths(n, paths, what) {
@@ -123,7 +124,7 @@ export function createHistory<P>(adapter: HistoryAdapter<P>): HistoryController<
       try {
         return (await capability.restore(n, paths)).changed;
       } catch (error) {
-        notify({ title: `${what} could not be restored`, description: message(error) });
+        notify({ title: localize(`${what} could not be restored`, `无法恢复${what}`), description: message(error) });
         return null;
       }
     },

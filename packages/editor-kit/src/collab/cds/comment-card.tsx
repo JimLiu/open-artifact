@@ -3,6 +3,7 @@
  * strings, the raised card and the flat one (a row in a list, `onExpand` on a click away from its controls). Left out:
  * reactions, "show more" clamping, the toolbar's arrow-key roving, touch sizing at runtime.
  */
+import { localize } from '@open-artifact/runtime';
 import {
   createContext,
   useContext,
@@ -96,7 +97,7 @@ export function CommentCard({
   labelledBy,
   reply,
   maxHeight,
-  scrollRegionLabel = 'Comment thread',
+  scrollRegionLabel = localize('Comment thread', '评论串'),
   scrollRef,
   scrollProps,
   className,
@@ -294,7 +295,7 @@ export function Actions({ placement: forced, children }: { placement?: 'pinned' 
       <Button
         variant="ghost"
         iconOnly
-        aria-label={close.closeLabel ?? 'Close'}
+        aria-label={close.closeLabel ?? localize('Close', '关闭')}
         icon={<Icon name="X" size="sm" />}
         onClick={close.onClose}
         className={ACTION}
@@ -304,7 +305,7 @@ export function Actions({ placement: forced, children }: { placement?: 'pinned' 
   return (
     <span
       role="toolbar"
-      aria-label="Comment actions"
+      aria-label={localize('Comment actions', '评论操作')}
       tabIndex={-1}
       data-cds-part="actions"
       data-placement={placement}
@@ -354,7 +355,7 @@ export function useLayerMenu(): [boolean, (open: boolean) => void] {
 
 export function MoreMenu({
   items,
-  label = 'More options',
+  label = localize('More options', '更多选项'),
   disabled = false,
   waitReason,
 }: {
@@ -414,8 +415,8 @@ export function ResolveAction({
 }) {
   if (resolved) {
     return (
-      <Tooltip content="Resolved" side="top">
-        <span role="img" aria-label="Resolved" data-cds-part="resolved-mark" className="inline-flex size-control items-center justify-center">
+      <Tooltip content={localize('Resolved', '已解决')} side="top">
+        <span role="img" aria-label={localize('Resolved', '已解决')} data-cds-part="resolved-mark" className="inline-flex size-control items-center justify-center">
           <Icon name="CheckCircleFilled" size="sm" className="text-accent" />
         </span>
       </Tooltip>
@@ -427,7 +428,7 @@ export function ResolveAction({
       <Button
         variant="ghost"
         iconOnly
-        aria-label="Resolve"
+        aria-label={localize('Resolve', '标记为已解决')}
         {...(busy ? { 'aria-busy': true, 'aria-disabled': true } : disabled ? { 'aria-disabled': true } : {})}
         data-cds-part="resolve"
         data-resolving={busy ? 'true' : undefined}
@@ -516,7 +517,7 @@ export function EditField({
       <div ref={box} className={FIELD_CLASS}>
         <PlainEditor
           ref={editor}
-          aria-label="Edit comment"
+          aria-label={localize('Edit comment', '编辑评论')}
           value={value}
           onChange={setValue}
           onSubmit={save}
@@ -535,10 +536,10 @@ export function EditField({
         {sendBox && <SendBox box={sendBox} disabled={busy} />}
         <div className="ms-auto flex items-center gap-sm">
           <Button variant="secondary" aria-disabled={busy || undefined} onClick={busy ? undefined : onCancel}>
-            Cancel
+            {localize('Cancel', '取消')}
           </Button>
           <Button variant="primary" busy={busy} onClick={save}>
-            Save
+            {localize('Save', '保存')}
           </Button>
         </div>
       </div>
@@ -554,14 +555,14 @@ export function DeleteConfirm({ onDelete, onCancel, busy = false, label }: { onD
   return (
     <div ref={part} role="group" aria-labelledby={id} data-cds-part="delete-confirm" className="flex flex-col gap-sm border-t pt-sm">
       <span id={id} className="text-body font-normal text-primary">
-        {label ?? 'Delete this comment?'}
+        {label ?? localize('Delete this comment?', '删除这条评论？')}
       </span>
       <div className="flex justify-end gap-sm">
         <Button ref={cancel} variant="secondary" aria-disabled={busy || undefined} onClick={busy ? undefined : onCancel}>
-          Cancel
+          {localize('Cancel', '取消')}
         </Button>
         <Button variant="danger" busy={busy} onClick={onDelete}>
-          Delete
+          {localize('Delete', '删除')}
         </Button>
       </div>
     </div>

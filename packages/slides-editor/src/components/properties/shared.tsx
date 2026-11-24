@@ -8,6 +8,7 @@
  * a value the slide compiler accepts, spelled the canonical way.
  */
 
+import { localize, uiLocale } from '@open-artifact/runtime';
 import { useMemo, type CSSProperties, type ReactNode } from 'react';
 import {
   composite,
@@ -26,7 +27,7 @@ import {
   toRgba,
   walkNodes,
   TEXT_STYLE_IDS,
-  TEXT_STYLE_NAMES,
+  textStyleName,
   TEXT_STYLES,
   type CssProperty,
   type NodePath,
@@ -100,7 +101,7 @@ export function commitCss(target: Target, property: CssProperty, raw: string, la
   for (const path of target.paths) {
     const checked = checkDeclaration(target.slide, path, property, raw, faces);
     if (!checked.ok) {
-      toast.add({ title: `Can't set ${property}`, description: checked.reason });
+      toast.add({ title: localize(`Can't set ${property}`, `无法设置 ${property}`), description: checked.reason });
       return false;
     }
     if (checked.note) toast.add({ title: checked.note });
@@ -138,7 +139,7 @@ function applyPatches(label: string, patches: ReadonlyArray<readonly [NodePath, 
 /* -------------------------------------------------------------------------- */
 
 /** Why a web font cannot be added: the deck carries as many as it may. */
-export const FACE_LIMIT_REASON = `A presentation carries up to ${LIMITS.faces} typefaces, and every one is in use`;
+export const FACE_LIMIT_REASON = localize(`A presentation carries up to ${LIMITS.faces} typefaces, and every one is in use`, `演示文稿最多可内置 ${LIMITS.faces} 种字体，且当前都在使用中`);
 
 /** Families any slide of the deck names, lower-cased. */
 function usedFamilies(): Set<string> {
@@ -182,10 +183,10 @@ export function commitFontFamily(target: Target, css: string, face: DeckFace | n
   const state = useDeck.getState();
   const faces = face ? carryFace(state.index.faces, face) : state.index.faces;
   if (!faces) {
-    toast.add({ title: `Can't add ${face!.family}`, description: FACE_LIMIT_REASON });
+    toast.add({ title: localize(`Can't add ${face!.family}`, `无法添加 ${face!.family}`), description: FACE_LIMIT_REASON });
     return false;
   }
-  if (faces === state.index.faces) return commitCss(target, 'font-family', css, 'Font');
+  if (faces === state.index.faces) return commitCss(target, 'font-family', css, localize('Font', '字体'));
   const id = useView.getState().current;
   const entry = editableEntry(id);
   if (!id || !entry) return false;
@@ -194,13 +195,13 @@ export function commitFontFamily(target: Target, css: string, face: DeckFace | n
   for (const path of target.paths) {
     const checked = checkDeclaration(slide, path, 'font-family', css, declared);
     if (!checked.ok) {
-      toast.add({ title: "Can't set font-family", description: checked.reason });
+      toast.add({ title: localize("Can't set font-family", '无法设置字体'), description: checked.reason });
       return false;
     }
     if (path.length && !nodeAt(slide, path)) continue;
     slide = patchNodeStyle(slide, path, checked.patch);
   }
-  state.apply('Font', { slides: { [id]: slide }, index: { ...state.index, faces } }, { focus: id });
+  state.apply(localize('Font', '字体'), { slides: { [id]: slide }, index: { ...state.index, faces } }, { focus: id });
   return true;
 }
 
@@ -212,7 +213,7 @@ export function CssField({ target, property, label, placeholder, className }: { 
       aria-label={label ?? property}
       className={cn('min-w-0 flex-1 font-mono text-xs', className)}
       value={shared.mixed ? '' : (shared.value ?? '')}
-      placeholder={shared.mixed ? 'Mixed' : (placeholder ?? '—')}
+      placeholder={shared.mixed ? localize('Mixed', '混合值') : (placeholder ?? '—')}
       onCommit={(value) => commitCss(target, property, value, label ?? property)}
     />
   );
@@ -248,7 +249,7 @@ export function PxField({
       {...(min !== undefined ? { min } : {})}
       {...(max !== undefined ? { max } : {})}
       {...(step !== undefined ? { step } : {})}
-      placeholder={shared.mixed ? 'Mixed' : (placeholder ?? (shared.value && pxOf(shared.value) === null ? shared.value : 'Auto'))}
+      placeholder={shared.mixed ? localize('Mixed', '混合值') : (placeholder ?? (shared.value && pxOf(shared.value) === null ? shared.value : localize('Auto', '自动')))}
       onCommit={(value) => commitCss(target, property, value === null ? '' : `${value}px`, label)}
     />
   );
@@ -298,10 +299,10 @@ export function useTextStyleMenu(nodes: TextNode | readonly TextNode[] | null): 
       const preset = TEXT_STYLES[id];
       return {
         value: id as string,
-        label: TEXT_STYLE_NAMES[id],
+        label: textStyleName(id, uiLocale()),
         hint: String(preset.fontSize),
         style: { fontWeight: preset.fontWeight, textTransform: preset.uppercase ? 'uppercase' : undefined },
-        ...(systems.length ? { group: 'Built-in' } : {}),
+        ...(systems.length ? { group: localize('Built-in', '内置') } : {}),
       };
     });
     const installed: TextStyleOption[] = systems.flatMap((system) =>
@@ -323,12 +324,12 @@ export function useTextStyleMenu(nodes: TextNode | readonly TextNode[] | null): 
     const system = systemStyleById(id);
     if (system) {
       const declarations = systemStyleDeclarations(system, faces);
-      updateSelection('Text style', (n) => (n.kind === 'text' ? setTextTag(n, system.tag, declarations) : n));
+      updateSelection(localize('Text style', '文本样式'), (n) => (n.kind === 'text' ? setTextTag(n, system.tag, declarations) : n));
       return;
     }
     if (!(TEXT_STYLE_IDS as readonly string[]).includes(id)) return;
     const builtIn = id as TextStyleId;
-    updateSelection('Text style', (n) => (n.kind === 'text' ? setTextTag(n, TEXT_STYLES[builtIn].tag, textStyleDeclarations(builtIn)) : n));
+    updateSelection(localize('Text style', '文本样式'), (n) => (n.kind === 'text' ? setTextTag(n, TEXT_STYLES[builtIn].tag, textStyleDeclarations(builtIn)) : n));
   };
   return { options, value, mixed, apply };
 }
@@ -352,14 +353,14 @@ function paintOf(background: string | undefined): Rgba | 'unknown' | null {
 
 /** What is behind the element at `path`, and what it is called; null when it is not one flat color. */
 function groundAt(slide: Slide, path: NodePath, self: boolean): { color: Rgba; where: string } | null {
-  const chain: Array<{ style: { background?: string }; where: string }> = [{ style: slide.style, where: 'the slide background' }];
+  const chain: Array<{ style: { background?: string }; where: string }> = [{ style: slide.style, where: localize('the slide background', '幻灯片背景') }];
   const last = self ? path.length : path.length - 1;
   for (let i = 1; i <= last; i++) {
     const node = nodeAt(slide, path.slice(0, i));
-    if (node) chain.push({ style: node.style, where: i === path.length ? 'its fill' : 'the group fill' });
+    if (node) chain.push({ style: node.style, where: i === path.length ? localize('its fill', '当前填充') : localize('the group fill', '组合填充') });
   }
   let color = WHITE;
-  let where = 'white';
+  let where = localize('white', '白色');
   for (const link of chain) {
     const paint = paintOf(link.style.background);
     if (paint === 'unknown') return null;

@@ -5,6 +5,7 @@
  * comments, history or saving.
  */
 
+import { localize } from '@open-artifact/runtime';
 import { slideTitle } from '@open-artifact/slides-core';
 import { deckOrder, useDeck } from '../state/deck.ts';
 import { useInlineView } from '../state/inline.ts';
@@ -36,7 +37,7 @@ export async function startInlineView(): Promise<void> {
   await loadDeck({ readOnly: true });
   const deck = useDeck.getState();
   if (deck.status !== 'ready') return;
-  document.title = deck.title || 'Slides';
+  document.title = deck.title || localize('Slides', '幻灯片');
   const view = useInlineView.getState();
   view.show(viewedSlides()[0] ?? null);
 

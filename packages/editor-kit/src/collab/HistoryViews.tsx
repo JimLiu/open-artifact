@@ -10,6 +10,7 @@
  * follows it on screen (`renderOverlay`).
  */
 
+import { localize } from '@open-artifact/runtime';
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { History, Loader2, RotateCcw, X } from 'lucide-react';
 import { Button, ConfirmDialog, HistoryPanel } from '@open-artifact/ui';
@@ -22,7 +23,7 @@ export function HistoryAside<P>({ history, viewerId }: { history: HistoryControl
   const capability = history.capability();
   if (!capability) return null;
   return (
-    <aside className="flex w-80 shrink-0 flex-col border-l border-line bg-surface" aria-label="Version history">
+    <aside className="flex w-80 shrink-0 flex-col border-l border-line bg-surface" aria-label={localize('Version history', '版本历史')}>
       <HistoryPanel
         className="min-h-0 flex-1"
         history={capability}
@@ -120,19 +121,19 @@ export function VersionPreview<P>({ history, readOnly, bounds, renderWorld, rend
   const restorable = canRestore && !readOnly;
 
   return (
-    <div className="absolute inset-0 z-[30] flex flex-col bg-canvas" aria-label={`Version ${previewing}, read-only`}>
+    <div className="absolute inset-0 z-[30] flex flex-col bg-canvas" aria-label={localize(`Version ${previewing}, read-only`, `版本 ${previewing}，只读`)}>
       <div role="status" className="flex h-11 shrink-0 items-center gap-2 border-b border-line bg-surface px-3 text-[13px] text-fg">
         <History className="size-4 text-fg-muted" />
-        <span className="font-medium">Version {previewing}</span>
-        <span className="text-fg-muted">Read-only preview{readOnly ? '' : ' · go back to the latest version to edit'}</span>
+        <span className="font-medium">{localize('Version', '版本')} {previewing}</span>
+        <span className="text-fg-muted">{localize('Read-only preview', '只读预览')}{readOnly ? '' : localize(' · go back to the latest version to edit', ' · 返回最新版本即可编辑')}</span>
         <span className="flex-1" />
         {restorable ? (
           <Button size="sm" variant="secondary" icon={<RotateCcw className="size-3.5" />} onClick={() => setConfirm(true)}>
-            Restore this version
+            {localize('Restore this version', '恢复此版本')}
           </Button>
         ) : null}
         <Button size="sm" variant="primary" icon={<X className="size-3.5" />} onClick={() => void history.preview(null)}>
-          Back to latest
+          {localize('Back to latest', '返回最新版本')}
         </Button>
       </div>
       <div
@@ -153,7 +154,7 @@ export function VersionPreview<P>({ history, readOnly, bounds, renderWorld, rend
       >
         {loading || !preview ? (
           <div className="absolute inset-0 flex items-center justify-center text-[13px] text-fg-muted">
-            {error ? `Version ${previewing} could not be read: ${error}` : <Loader2 className="size-5 animate-spin" aria-label="Loading the version" />}
+            {error ? localize(`Version ${previewing} could not be read: ${error}`, `无法读取版本 ${previewing}：${error}`) : <Loader2 className="size-5 animate-spin" aria-label={localize('Loading the version', '正在加载版本')} />}
           </div>
         ) : (
           <>
@@ -162,7 +163,7 @@ export function VersionPreview<P>({ history, readOnly, bounds, renderWorld, rend
             </div>
             {renderOverlay?.(preview, camera, previewing, restorable)}
             {!fitted ? (
-              <div className="absolute inset-0 flex items-center justify-center text-[13px] text-fg-subtle">{emptyText?.(previewing) ?? `Nothing here in version ${previewing}.`}</div>
+              <div className="absolute inset-0 flex items-center justify-center text-[13px] text-fg-subtle">{emptyText?.(previewing) ?? localize(`Nothing here in version ${previewing}.`, `版本 ${previewing} 没有可预览的内容。`)}</div>
             ) : null}
           </>
         )}
@@ -170,8 +171,8 @@ export function VersionPreview<P>({ history, readOnly, bounds, renderWorld, rend
       <ConfirmDialog
         open={confirm}
         onOpenChange={setConfirm}
-        title={`Restore version ${previewing}?`}
-        description="Every file goes back to how this version left it. The current state stays in the history, so this can be undone by restoring it."
+        title={localize(`Restore version ${previewing}?`, `恢复版本 ${previewing}？`)}
+        description={localize('Every file goes back to how this version left it. The current state stays in the history, so this can be undone by restoring it.', '所有文件都会恢复为此版本的状态。当前状态会保留在版本历史中，也可以恢复。')}
         confirmLabel="Restore"
         onConfirm={() => void history.restore(previewing)}
       />

@@ -17,6 +17,7 @@
  *   (HTML).
  */
 
+import { localize } from '@open-artifact/runtime';
 import { createElement, createRef } from 'react';
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
@@ -140,7 +141,7 @@ export async function mountSlide(slide: Slide, context: Pick<CaptureContext, 're
   const root = ref.current;
   if (!root) {
     dispose();
-    throw new Error('The slide could not be drawn.');
+    throw new Error(localize('The slide could not be drawn.', '无法绘制幻灯片。'));
   }
   if (captureEmbeds) {
     if ((await embedStillsReady(root)).includes(false)) context.onMissingEmbed?.();
@@ -232,7 +233,7 @@ async function plainSvg(mounted: MountedSlide, context: CaptureContext, options:
 }
 
 /** Loads an SVG document as an image. */
-const loadSvg = (svg: string): Promise<HTMLImageElement> => loadSvgImage(svg, { error: 'The slide could not be drawn.', decoding: 'sync' });
+const loadSvg = (svg: string): Promise<HTMLImageElement> => loadSvgImage(svg, { error: localize('The slide could not be drawn.', '无法绘制幻灯片。'), decoding: 'sync' });
 
 /** Draws a loaded slide image onto a canvas; null when the browser refuses to read it back. */
 async function draw(image: HTMLImageElement, area: SlideRect, scale: number, options: PictureOptions): Promise<Picture | null> {
@@ -262,7 +263,7 @@ export async function slidePicture(mounted: MountedSlide, context: CaptureContex
   }
   context.onFallback?.();
   const picture = await draw(await loadSvg(await plainSvg(mounted, context, options)), area, scale, options);
-  if (!picture) throw new Error('The browser would not draw this slide.');
+  if (!picture) throw new Error(localize('The browser would not draw this slide.', '浏览器无法绘制此幻灯片。'));
   return picture;
 }
 

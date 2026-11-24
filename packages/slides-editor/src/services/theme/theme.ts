@@ -7,6 +7,7 @@
  * model is involved.
  */
 
+import { localize } from '@open-artifact/runtime';
 import { DS_DIR, faceKey, formatFamilies, LIMITS, familyList, type DeckFace, type Slide } from '@open-artifact/slides-core';
 import { toast } from '@open-artifact/ui';
 import { deckOrder, useDeck } from '../../state/deck.ts';
@@ -177,12 +178,12 @@ export function familyChoices(faces: Record<string, DeckFace>, systems: readonly
     seen.add(family.toLowerCase());
     out.push({ family, group });
   };
-  for (const face of Object.values(faces)) add(face.family, 'In this deck');
+  for (const face of Object.values(faces)) add(face.family, localize('In this deck', '演示文稿内置'));
   for (const system of systems) {
     add(system.look.heading?.family, system.title);
     add(system.look.body?.family, system.title);
   }
-  for (const font of [...WEB_SAFE_FONTS, ...GOOGLE_FONTS].sort((a, b) => a.family.localeCompare(b.family))) add(font.family, 'More fonts');
+  for (const font of [...WEB_SAFE_FONTS, ...GOOGLE_FONTS].sort((a, b) => a.family.localeCompare(b.family))) add(font.family, localize('More fonts', '更多字体'));
   return out;
 }
 
@@ -254,8 +255,8 @@ function restyle(
 }
 
 function reportFonts(plan: FontPlan, dropped: boolean): void {
-  if (dropped) toast.add({ title: 'Fonts unchanged', description: `A presentation carries up to ${LIMITS.faces} typefaces, and the new ones would not fit.` });
-  else if (plan.missing.length) toast.add({ title: 'Some fonts were kept', description: `${plan.missing.join(', ')} can't be carried by this deck, so the current fonts stay.` });
+  if (dropped) toast.add({ title: localize('Fonts unchanged', '字体未更改'), description: localize(`A presentation carries up to ${LIMITS.faces} typefaces, and the new ones would not fit.`, `一份演示文稿最多可内置 ${LIMITS.faces} 种字体，无法容纳新字体。`) });
+  else if (plan.missing.length) toast.add({ title: localize('Some fonts were kept', '已保留部分原有字体'), description: localize(`${plan.missing.join(', ')} can't be carried by this deck, so the current fonts stay.`, `此演示文稿无法内置以下字体，已保留当前字体：${plan.missing.join('、')}。`) });
 }
 
 /** The look option of an id, from the installed systems. */
@@ -282,7 +283,7 @@ export function applyLook(id: string): boolean {
   const { analysis } = view;
   let memory = view.memory;
   if (!memory && analysis.over) {
-    toast.add({ title: "This deck can't be restyled automatically", description: `It uses ${analysis.distinct} colors (at most ${MAX_RESTYLE_COLORS}). Ask the agent to redo its look instead.` });
+    toast.add({ title: localize("This deck can't be restyled automatically", '无法自动调整此演示文稿的外观'), description: localize(`It uses ${analysis.distinct} colors (at most ${MAX_RESTYLE_COLORS}). Ask the agent to redo its look instead.`, `此演示文稿使用了 ${analysis.distinct} 种颜色，超出自动调整的 ${MAX_RESTYLE_COLORS} 色上限。可请 Agent 重新设计其外观。`) });
     return false;
   }
   const slides = entries.map((e) => e.slide);
@@ -318,7 +319,7 @@ export function applyLook(id: string): boolean {
   const { on: _on, ...originalLook } = original;
   memory = nextMemory(memory, original, id === ORIGINAL_LOOK ? originalLook : applied);
   const index = withThemeMemory({ ...state.index, faces: result.faces ?? state.index.faces }, memory);
-  state.apply(`Theme: ${title}`, { slides: result.slides, index });
+  state.apply(localize(`Theme: ${title}`, `主题：${title}`), { slides: result.slides, index });
   reportFonts(fontPlan, result.fontsDropped);
   return true;
 }
@@ -333,7 +334,7 @@ export function applyCurrentLookToAll(): void {
   const looks = [current, ...memory.recent.slice(1), memory.original];
   const result = restyle(editableSlides(), { from: looks, to: current.colors, ...(memory.original.on ? { on: memory.original.on } : {}) }, { wanted: [], missing: [] });
   if (!Object.keys(result.slides).length) return;
-  state.apply(`Theme: ${current.title ?? 'look'} on all slides`, { slides: result.slides });
+  state.apply(localize(`Theme: ${current.title ?? 'look'} on all slides`, `将「${current.title ?? '当前外观'}」应用到所有幻灯片`), { slides: result.slides });
 }
 
 /** Sets the heading or body typeface across the deck (one undo step); '' for the default face. */
@@ -351,6 +352,6 @@ export function setDeckFamily(which: 'heading' | 'body', family: string): void {
   }
   const result = restyle(entries, null, plan);
   const index = result.faces && result.faces !== state.index.faces ? { ...state.index, faces: result.faces } : undefined;
-  state.apply(which === 'heading' ? 'Heading font' : 'Body font', { slides: result.slides, ...(index ? { index } : {}) });
+  state.apply(which === 'heading' ? localize('Heading font', '标题字体') : localize('Body font', '正文字体'), { slides: result.slides, ...(index ? { index } : {}) });
   reportFonts(plan, result.fontsDropped);
 }

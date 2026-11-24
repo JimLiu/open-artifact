@@ -3,6 +3,7 @@
  * which slides it pages through and where it stays when the deck changes.
  */
 
+import { localize } from '@open-artifact/runtime';
 import { INLINE_VIEW_FRAGMENT } from '@open-artifact/protocol';
 
 /** The page is framed by another and was opened at the inline fragment. */
@@ -29,6 +30,6 @@ export function slideAfterChange(slides: readonly string[], current: string | nu
 /** What the pager says, and what screen readers hear when the slide changes. */
 export function pagerText(index: number, count: number, title: string | undefined): { counter: string; announcement: string } {
   const counter = `${index + 1} / ${count}`;
-  const place = `Slide ${index + 1} of ${count}`;
+  const place = localize(`Slide ${index + 1} of ${count}`, `第 ${index + 1} 张幻灯片，共 ${count} 张`);
   return { counter, announcement: title ? `${place}: ${title}` : place };
 }

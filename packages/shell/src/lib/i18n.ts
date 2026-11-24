@@ -3,6 +3,9 @@
  * prefers Chinese. `t('key', { name: value })` fills `{name}` placeholders.
  */
 
+import { uiLocale, type UiLocale } from '@open-artifact/runtime';
+export { localeOf } from '@open-artifact/runtime';
+
 const EN = {
   // ---- shared
   cancel: 'Cancel',
@@ -32,6 +35,15 @@ const EN = {
   couldNotRename: 'Could not rename: {error}',
   couldNotDuplicate: 'Could not duplicate: {error}',
   couldNotDelete: 'Could not delete: {error}',
+  siteLinks: 'Site links',
+  clipboardUnsupported: 'This browser cannot copy that to the clipboard.',
+  clipboardPending: 'Still copying…',
+  clipboardEmpty: 'Nothing to copy.',
+  clipboardNoData: 'The page did not send what to copy.',
+  clipboardFailed: 'The clipboard was not written.',
+  clipboardNoType: 'No {type} to copy.',
+  clipboardTooLarge: 'Too large to copy.',
+  clipboardPageGone: 'The page went away.',
 
   // ---- owner status
   statusNone: 'No session',
@@ -455,7 +467,7 @@ const EN = {
 /** A message key. */
 export type MessageKey = keyof typeof EN;
 
-const ZH: Partial<Record<MessageKey, string>> = {
+const ZH: Record<MessageKey, string> = {
   cancel: '取消',
   close: '关闭',
   copy: '复制',
@@ -483,6 +495,15 @@ const ZH: Partial<Record<MessageKey, string>> = {
   couldNotRename: '没能重命名：{error}',
   couldNotDuplicate: '没能复制：{error}',
   couldNotDelete: '没能删除：{error}',
+  siteLinks: '站点链接',
+  clipboardUnsupported: '此浏览器无法将该内容复制到剪贴板。',
+  clipboardPending: '正在复制…',
+  clipboardEmpty: '没有可复制的内容。',
+  clipboardNoData: '页面未提供要复制的内容。',
+  clipboardFailed: '无法写入剪贴板。',
+  clipboardNoType: '没有可复制的 {type}。',
+  clipboardTooLarge: '内容过大，无法复制。',
+  clipboardPageGone: '页面已关闭。',
   statusNone: '无会话',
   statusWorking: '工作中',
   statusIdle: '空闲',
@@ -515,6 +536,7 @@ const ZH: Partial<Record<MessageKey, string>> = {
   versionHistory: '版本历史',
   peopleHere: '正在查看',
   peopleHereNames: '正在查看：{names}',
+  peopleMore: '+{count}',
   youOtherTab: '你（另一个标签页）',
   yourOtherTab: '你的另一个标签页',
   follow: '跟随',
@@ -628,7 +650,7 @@ const ZH: Partial<Record<MessageKey, string>> = {
   whyAgentWorking: '{agent} 正在工作',
   whyDraftOpen: '请先关闭打开的草稿',
   whyCommentsOn: '请先退出评论模式',
-  whyNeedsAgent: '需要一个智能体会话',
+  whyNeedsAgent: '需要一个 Agent 会话',
   whyUnsaved: '请先保存',
   whyOther: '暂时不可用',
   noOwner: '没有会话拥有这个作品',
@@ -876,15 +898,10 @@ const ZH: Partial<Record<MessageKey, string>> = {
 };
 
 /** A supported locale. */
-export type Locale = 'en' | 'zh-CN';
+export type Locale = UiLocale;
 
-/** The locale for a browser language tag: Chinese → `zh-CN`, anything else → `en`. */
-export function localeOf(language: string | undefined): Locale {
-  return language && /^zh\b/i.test(language) ? 'zh-CN' : 'en';
-}
-
-/** The pages' locale, from `navigator.language`. */
-export const locale: Locale = localeOf(typeof navigator === 'undefined' ? undefined : navigator.language);
+/** The pages' locale, from the URL override or browser preference. */
+export const locale: Locale = uiLocale();
 
 /** Fills `{name}` placeholders. */
 export function fill(template: string, vars?: Record<string, string | number>): string {
@@ -892,9 +909,9 @@ export function fill(template: string, vars?: Record<string, string | number>): 
   return template.replace(/\{(\w+)\}/g, (whole, name: string) => (name in vars ? String(vars[name]) : whole));
 }
 
-/** The message for `key` in `lang` (English when there is no translation), filled with `vars`. */
+/** The message for `key` in `lang`, filled with `vars`. */
 export function translate(lang: Locale, key: MessageKey, vars?: Record<string, string | number>): string {
-  return fill((lang === 'zh-CN' ? ZH[key] : undefined) ?? EN[key], vars);
+  return fill((lang === 'zh-CN' ? ZH : EN)[key], vars);
 }
 
 /** The message for `key` in the pages' locale. */

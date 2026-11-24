@@ -13,6 +13,7 @@
  * what the slide compiler reads.
  */
 
+import { localize } from '@open-artifact/runtime';
 import { Ban, Minus, Plus } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import {
@@ -43,13 +44,13 @@ import { IconButton, NumberInput, PanelField, QuadRow, Row, Section, Segmented, 
 import { commitCss, patchTarget, sharedStyle, type Target } from './shared.tsx';
 
 /** Why a control is unavailable. */
-export const BUILD_OPACITY_REASON = 'A selected object’s opacity is set by an animation. Ask the agent to change the animation.';
-const BORDER_REQUIRED_REASON = 'Add a border first';
-const SHAPE_SIDES_REASON = 'A shape draws one stroke all round';
-const LINE_DASH_REASON = 'A line is solid (a connector can dash)';
-const SILHOUETTE_REASON = 'Not on diamond or arrow shapes';
-const INNER_TEXT_REASON = 'Inner shadow needs a fill or border on this text';
-const MAX_EFFECTS_REASON = `At most ${LIMITS.shadows} per element`;
+export const BUILD_OPACITY_REASON = localize('A selected object’s opacity is set by an animation. Ask the agent to change the animation.', '所选对象的不透明度由动画控制。请让 Agent 修改动画。');
+const BORDER_REQUIRED_REASON = localize('Add a border first', '请先添加边框');
+const SHAPE_SIDES_REASON = localize('A shape draws one stroke all round', '形状四周使用同一种描边');
+const LINE_DASH_REASON = localize('A line is solid (a connector can dash)', '直线使用实线，连接线可以使用虚线');
+const SILHOUETTE_REASON = localize('Not on diamond or arrow shapes', '菱形和箭头形状不支持此设置');
+const INNER_TEXT_REASON = localize('Inner shadow needs a fill or border on this text', '请先给文本添加填充或边框，再设置内阴影');
+const MAX_EFFECTS_REASON = localize(`At most ${LIMITS.shadows} per element`, `每个元素最多可添加 ${LIMITS.shadows} 个阴影`);
 
 /** The color a new border starts with. */
 export const DEFAULT_STROKE = '#141413';
@@ -81,7 +82,7 @@ export interface FillRowProps {
  * and, where gradients are allowed, a Color / Gradient switch. A shape
  * without a border can't lose its fill (it would vanish).
  */
-export function FillRow({ target, label = 'Fill', gradients = false, removable = true }: FillRowProps): ReactNode {
+export function FillRow({ target, label = localize('Fill', '填充'), gradients = false, removable = true }: FillRowProps): ReactNode {
   const groups = useColorGroups();
   const shared = sharedStyle(target, 'background');
   const parsed = shared.value ? parseBackground(shared.value) : null;
@@ -100,7 +101,7 @@ export function FillRow({ target, label = 'Fill', gradients = false, removable =
   if (clipped) {
     return (
       <Row label={label}>
-        <ColorField aria-label={label} value={null} groups={groups} preview={fillPreview(background) ?? { swatch: color ?? 'transparent', label: 'Text fill' }} disabled title="This fill paints the letters — change it under Text › Color" onCommit={() => undefined} />
+        <ColorField aria-label={label} value={null} groups={groups} preview={fillPreview(background) ?? { swatch: color ?? 'transparent', label: localize('Text fill', '文字填充') }} disabled title={localize('This fill paints the letters — change it under Text › Color', '此填充应用于文字。可在「文本 › 颜色」中更改。')} onCommit={() => undefined} />
       </Row>
     );
   }
@@ -123,17 +124,17 @@ export function FillRow({ target, label = 'Fill', gradients = false, removable =
                 value: kind,
                 options: fillKindOptions(kinds),
                 onChange: (next) => {
-                  if (next === 'gradient' && kind !== 'gradient') commit({ gradient: startGradient(color) }, 'Gradient');
+                  if (next === 'gradient' && kind !== 'gradient') commit({ gradient: startGradient(color) }, localize('Gradient', '渐变'));
                   else if (next === 'color' && kind === 'gradient') commit({ color: background?.gradient?.stops[0]?.color ?? DEFAULT_STROKE });
                 },
-                content: background?.gradient ? <GradientEditor gradient={background.gradient} onChange={(gradient) => commit({ gradient }, 'Gradient')} /> : null,
+                content: background?.gradient ? <GradientEditor gradient={background.gradient} onChange={(gradient) => commit({ gradient }, localize('Gradient', '渐变'))} /> : null,
               }
             : undefined
         }
       />
       {removable && set ? (
         <IconButton
-          label={label === 'Background' ? 'Remove background' : `Remove ${label.toLowerCase()}`}
+          label={label === 'Background' ? localize('Remove background', '移除背景') : localize(`Remove ${label.toLowerCase()}`, `移除${label}`)}
           icon={<Minus />}
           disabled={needsFill}
           reason={needsFill ? BORDER_REQUIRED_REASON : undefined}
@@ -154,13 +155,13 @@ export function OpacityRow({ target, lockedReason }: { target: Target; lockedRea
   const [draft, setDraft] = useState<number | null>(null);
   const now = draft ?? Math.round((opacity.value === undefined ? 1 : Number(opacity.value)) * 100);
   const commit = (v: number): void => {
-    commitCss(target, 'opacity', v >= 100 ? '' : String(Math.max(0, v) / 100), 'Opacity', 'opacity');
+    commitCss(target, 'opacity', v >= 100 ? '' : String(Math.max(0, v) / 100), localize('Opacity', '不透明度'), 'opacity');
   };
   return (
-    <Row label="Opacity" tip={lockedReason}>
-      <NumberInput aria-label="Opacity" className="w-[72px] shrink-0" value={opacity.mixed ? null : now} placeholder="Mixed" unit="%" min={0} max={100} disabled={Boolean(lockedReason)} title={lockedReason} onCommit={(v) => v !== null && commit(v)} />
+    <Row label={localize('Opacity', '不透明度')} tip={lockedReason}>
+      <NumberInput aria-label={localize('Opacity', '不透明度')} className="w-[72px] shrink-0" value={opacity.mixed ? null : now} placeholder={localize('Mixed', '混合值')} unit="%" min={0} max={100} disabled={Boolean(lockedReason)} title={lockedReason} onCommit={(v) => v !== null && commit(v)} />
       <SliderInput
-        aria-label="Opacity slider"
+        aria-label={localize('Opacity slider', '不透明度滑块')}
         value={now}
         min={0}
         max={100}
@@ -192,18 +193,18 @@ export function RadiusRow({ target }: { target: Target }): ReactNode {
   const unit = percent ? '%' : 'px';
   const commit = (next: Quad): void => {
     const value = next.every((c) => c === next[0]) ? (next[0] ? `${next[0]}${unit}` : '') : next.map((c) => `${c}${unit}`).join(' ');
-    commitCss(target, 'border-radius', value, 'Corner radius', 'radius');
+    commitCss(target, 'border-radius', value, localize('Corner radius', '圆角半径'), 'radius');
   };
   return (
     <QuadRow
-      label="Radius"
+      label={localize('Radius', '半径')}
       kind="corners"
       values={shared.mixed ? null : cornersOf(shared.value)}
       unit={unit}
       min={0}
       max={percent ? 50 : 256}
       onCommit={commit}
-      onReset={shared.value && !shared.mixed ? () => commitCss(target, 'border-radius', '', 'Corner radius') : undefined}
+      onReset={shared.value && !shared.mixed ? () => commitCss(target, 'border-radius', '', localize('Corner radius', '圆角半径')) : undefined}
     />
   );
 }
@@ -280,22 +281,22 @@ export function BorderRows({ target }: { target: Target }): ReactNode {
     patchTarget(target, label, (node) => writeBorder(fn(readBorder(node?.style ?? target.slide.style)), node ? strokesAllRound(node) : false), coalesce);
   };
   const setStroke = (next: Stroke): void => {
-    if (next === 'none') update('Remove border', () => null);
-    else update('Border style', (s) => ({ widths: s?.widths ?? [1, 1, 1, 1], style: next, color: s?.color ?? DEFAULT_STROKE }));
+    if (next === 'none') update(localize('Remove border', '移除边框'), () => null);
+    else update(localize('Border style', '边框样式'), (s) => ({ widths: s?.widths ?? [1, 1, 1, 1], style: next, color: s?.color ?? DEFAULT_STROKE }));
   };
   const max = allRound ? 32 : 16;
 
   return (
     <>
-      <Row label="Border" onReset={anyBorder ? () => setStroke('none') : undefined} resetLabel="Remove border">
+      <Row label={localize('Border', '边框')} onReset={anyBorder ? () => setStroke('none') : undefined} resetLabel={localize('Remove border', '移除边框')}>
         <Segmented<Stroke>
-          aria-label="Border"
+          aria-label={localize('Border', '边框')}
           value={stroke}
           options={[
-            { value: 'none', label: 'None', title: 'No border', icon: <Ban strokeWidth={1.5} /> },
-            { value: 'solid', label: 'Solid', title: 'Solid', icon: <StrokeSolidIcon /> },
-            { value: 'dashed', label: 'Dashed', title: 'Dashed', icon: <StrokeDashedIcon />, disabled: lines, reason: LINE_DASH_REASON },
-            { value: 'dotted', label: 'Dotted', title: 'Dotted', icon: <StrokeDottedIcon />, disabled: lines, reason: LINE_DASH_REASON },
+            { value: 'none', label: localize('None', '无'), title: localize('No border', '无边框'), icon: <Ban strokeWidth={1.5} /> },
+            { value: 'solid', label: localize('Solid', '实线'), title: localize('Solid', '实线'), icon: <StrokeSolidIcon /> },
+            { value: 'dashed', label: localize('Dashed', '虚线'), title: localize('Dashed', '虚线'), icon: <StrokeDashedIcon />, disabled: lines, reason: LINE_DASH_REASON },
+            { value: 'dotted', label: localize('Dotted', '点线'), title: localize('Dotted', '点线'), icon: <StrokeDottedIcon />, disabled: lines, reason: LINE_DASH_REASON },
           ]}
           onChange={setStroke}
         />
@@ -303,16 +304,16 @@ export function BorderRows({ target }: { target: Target }): ReactNode {
       {anyBorder ? (
         <>
           <ColorRow
-            label="Color"
-            aria-label="Border color"
+            label={localize('Color', '颜色')}
+            aria-label={localize('Border color', '边框颜色')}
             value={color}
             mixed={color === null}
             groups={groups}
-            onCommit={(next) => next && update('Border color', (s) => (s ? { ...s, color: next } : s), 'border-color')}
-            onReset={color && color.toLowerCase() !== DEFAULT_STROKE ? () => update('Border color', (s) => (s ? { ...s, color: DEFAULT_STROKE } : s)) : undefined}
+            onCommit={(next) => next && update(localize('Border color', '边框颜色'), (s) => (s ? { ...s, color: next } : s), 'border-color')}
+            onReset={color && color.toLowerCase() !== DEFAULT_STROKE ? () => update(localize('Border color', '边框颜色'), (s) => (s ? { ...s, color: DEFAULT_STROKE } : s)) : undefined}
           />
           <QuadRow
-            label="Width"
+            label={localize('Width', '宽度')}
             kind="sides"
             values={widths}
             unit="px"
@@ -321,7 +322,7 @@ export function BorderRows({ target }: { target: Target }): ReactNode {
             toggleDisabledReason={allRound ? SHAPE_SIDES_REASON : undefined}
             onCommit={(next) =>
               update(
-                'Border width',
+                localize('Border width', '边框宽度'),
                 (s) => {
                   if (!s) return { widths: next, style: 'solid', color: DEFAULT_STROKE };
                   // Zero everywhere would drop the border; keep the thinnest stroke instead.
@@ -360,10 +361,10 @@ export interface AppearanceSectionProps {
 }
 
 /** Fill, opacity, corner radius and border. */
-export function AppearanceSection({ target, fill = true, fillLabel = 'Fill', gradients = false, opacity = true, radius = true, border = true, buildControlled = false }: AppearanceSectionProps): ReactNode {
+export function AppearanceSection({ target, fill = true, fillLabel = localize('Fill', '填充'), gradients = false, opacity = true, radius = true, border = true, buildControlled = false }: AppearanceSectionProps): ReactNode {
   if (!fill && !opacity && !radius && !border) return null;
   return (
-    <Section title="Appearance">
+    <Section title={localize('Appearance', '外观')}>
       {fill ? <FillRow target={target} label={fillLabel} gradients={gradients} removable={target.nodes.length > 0} /> : null}
       {opacity ? <OpacityRow target={target} lockedReason={buildControlled ? BUILD_OPACITY_REASON : undefined} /> : null}
       {radius ? <RadiusRow target={target} /> : null}
@@ -464,9 +465,9 @@ function Effects({ target, support }: { target: Target; support: EffectSupport }
   const add = (
     <ChromeMenu
       align="end"
-      tip={{ label: 'Add to Effects' }}
+      tip={{ label: localize('Add to Effects', '添加效果') }}
       trigger={
-        <button type="button" aria-label="Add to Effects" className="flex size-6 items-center justify-center rounded-[6px] text-chrome-secondary outline-none hover:bg-chrome-hover hover:text-chrome-fg focus-visible:ring-2 focus-visible:ring-chrome-accent">
+        <button type="button" aria-label={localize('Add to Effects', '添加效果')} className="flex size-6 items-center justify-center rounded-[6px] text-chrome-secondary outline-none hover:bg-chrome-hover hover:text-chrome-fg focus-visible:ring-2 focus-visible:ring-chrome-accent">
           <Plus className="size-4" strokeWidth={1.5} />
         </button>
       }
@@ -476,12 +477,12 @@ function Effects({ target, support }: { target: Target; support: EffectSupport }
           disabled={dropReason !== ''}
           title={dropReason || undefined}
           onSelect={() => {
-            if (support.text) commitShadows('text-shadow', [...textShadows, TEXT_SHADOW], 'Drop shadow');
-            else commitShadows('box-shadow', [...boxShadows, DROP_SHADOW], 'Drop shadow');
+            if (support.text) commitShadows('text-shadow', [...textShadows, TEXT_SHADOW], localize('Drop shadow', '外阴影'));
+            else commitShadows('box-shadow', [...boxShadows, DROP_SHADOW], localize('Drop shadow', '外阴影'));
             setOpened(`${support.text ? 'text' : 'box'}-${dropList.length}`);
           }}
         >
-          Drop shadow
+          {localize('Drop shadow', '外阴影')}
         </ChromeMenuItem>
       ) : null}
       {innerReason !== null ? (
@@ -489,20 +490,20 @@ function Effects({ target, support }: { target: Target; support: EffectSupport }
           disabled={innerReason !== ''}
           title={innerReason || undefined}
           onSelect={() => {
-            commitShadows('box-shadow', [...boxShadows, INNER_SHADOW], 'Inner shadow');
+            commitShadows('box-shadow', [...boxShadows, INNER_SHADOW], localize('Inner shadow', '内阴影'));
             setOpened(`box-${boxShadows.length}`);
           }}
         >
-          Inner shadow
+          {localize('Inner shadow', '内阴影')}
         </ChromeMenuItem>
       ) : null}
       {support.filter ? (
         <>
-          <ChromeMenuItem disabled={filters.blur !== undefined} onSelect={() => setBlur('filter', BLUR_START, 'Layer blur')}>
-            Layer blur
+          <ChromeMenuItem disabled={filters.blur !== undefined} onSelect={() => setBlur('filter', BLUR_START, localize('Layer blur', '图层模糊'))}>
+            {localize('Layer blur', '图层模糊')}
           </ChromeMenuItem>
-          <ChromeMenuItem disabled={backdrop.blur !== undefined || support.backdrop !== ''} title={support.backdrop || undefined} onSelect={() => setBlur('backdrop-filter', BLUR_START, 'Background blur')}>
-            Background blur
+          <ChromeMenuItem disabled={backdrop.blur !== undefined || support.backdrop !== ''} title={support.backdrop || undefined} onSelect={() => setBlur('backdrop-filter', BLUR_START, localize('Background blur', '背景模糊'))}>
+            {localize('Background blur', '背景模糊')}
           </ChromeMenuItem>
         </>
       ) : null}
@@ -512,7 +513,7 @@ function Effects({ target, support }: { target: Target; support: EffectSupport }
   const shadowRows = (property: 'box-shadow' | 'text-shadow', list: Shadow[]): ReactNode =>
     list.map((shadow, i) => {
       const key = `${property === 'text-shadow' ? 'text' : 'box'}-${i}`;
-      const label = property === 'text-shadow' ? 'Drop shadow' : shadow.inset ? 'Inner shadow' : support.text ? 'Box shadow' : 'Drop shadow';
+      const label = property === 'text-shadow' ? localize('Drop shadow', '外阴影') : shadow.inset ? localize('Inner shadow', '内阴影') : support.text ? localize('Box shadow', '盒阴影') : localize('Drop shadow', '外阴影');
       const replace = (next: Shadow | null): Shadow[] => (next ? list.map((s, j) => (j === i ? next : s)) : list.filter((_, j) => j !== i));
       return (
         <Row key={key} label={label}>
@@ -524,17 +525,17 @@ function Effects({ target, support }: { target: Target; support: EffectSupport }
             onOpenChange={(open) => setOpened(open ? key : null)}
             onChange={(next) => commitShadows(property, replace(next), label)}
           />
-          <IconButton label={`Remove ${label.toLowerCase()}`} icon={<Minus />} onClick={() => commitShadows(property, replace(null), `Remove ${label.toLowerCase()}`)} />
+          <IconButton label={localize(`Remove ${label.toLowerCase()}`, `移除${label}`)} icon={<Minus />} onClick={() => commitShadows(property, replace(null), localize(`Remove ${label.toLowerCase()}`, `移除${label}`))} />
         </Row>
       );
     });
 
   return (
-    <Section title="Effects" actions={add}>
+    <Section title={localize('Effects', '效果')} actions={add}>
       {support.text ? shadowRows('text-shadow', textShadows) : null}
       {support.box !== null ? shadowRows('box-shadow', boxShadows) : null}
-      {filters.blur !== undefined ? <BlurRow label="Layer blur" value={filters.blur} onCommit={(v) => setBlur('filter', v, 'Layer blur')} /> : null}
-      {backdrop.blur !== undefined ? <BlurRow label="Background blur" value={backdrop.blur} onCommit={(v) => setBlur('backdrop-filter', v, 'Background blur')} /> : null}
+      {filters.blur !== undefined ? <BlurRow label={localize('Layer blur', '图层模糊')} value={filters.blur} onCommit={(v) => setBlur('filter', v, localize('Layer blur', '图层模糊'))} /> : null}
+      {backdrop.blur !== undefined ? <BlurRow label={localize('Background blur', '背景模糊')} value={backdrop.blur} onCommit={(v) => setBlur('backdrop-filter', v, localize('Background blur', '背景模糊'))} /> : null}
     </Section>
   );
 }
@@ -544,7 +545,7 @@ function BlurRow({ label, value, onCommit }: { label: string; value: number; onC
   return (
     <Row label={label}>
       <NumberInput aria-label={label} value={value} placeholder="0" unit="px" min={0} max={20} step={0.5} onCommit={(v) => v !== null && onCommit(v)} />
-      <IconButton label={`Remove ${label.toLowerCase()}`} icon={<Minus />} onClick={() => onCommit(null)} />
+      <IconButton label={localize(`Remove ${label.toLowerCase()}`, `移除${label}`)} icon={<Minus />} onClick={() => onCommit(null)} />
     </Row>
   );
 }
@@ -566,20 +567,20 @@ function ShadowField({ title, shadow, spread, open, onOpenChange, onChange }: Sh
   const patch = (next: Partial<Shadow>): void => onChange({ ...shadow, ...next });
   return (
     <PanelField title={title} text={shadowSummary(shadow)} swatch={shadow.color} open={open} onOpenChange={onOpenChange}>
-      <Row label="Offset">
-        <NumberInput aria-label="Horizontal offset" label="X" value={shadow.x} min={-64} max={64} steppers={false} onCommit={(v) => v !== null && patch({ x: v })} />
-        <NumberInput aria-label="Vertical offset" label="Y" value={shadow.y} min={-64} max={64} steppers={false} onCommit={(v) => v !== null && patch({ y: v })} />
+      <Row label={localize('Offset', '偏移')}>
+        <NumberInput aria-label={localize('Horizontal offset', '水平偏移')} label="X" value={shadow.x} min={-64} max={64} steppers={false} onCommit={(v) => v !== null && patch({ x: v })} />
+        <NumberInput aria-label={localize('Vertical offset', '垂直偏移')} label="Y" value={shadow.y} min={-64} max={64} steppers={false} onCommit={(v) => v !== null && patch({ y: v })} />
       </Row>
-      <Row label="Blur">
-        <NumberInput aria-label="Blur" value={shadow.blur} unit="px" min={0} max={spread ? 160 : 64} onCommit={(v) => v !== null && patch({ blur: v })} />
+      <Row label={localize('Blur', '模糊')}>
+        <NumberInput aria-label={localize('Blur', '模糊')} value={shadow.blur} unit="px" min={0} max={spread ? 160 : 64} onCommit={(v) => v !== null && patch({ blur: v })} />
       </Row>
       {spread ? (
-        <Row label="Spread">
-          <NumberInput aria-label="Spread" value={shadow.spread} unit="px" min={-32} max={32} onCommit={(v) => v !== null && patch({ spread: v })} />
+        <Row label={localize('Spread', '扩展范围')}>
+          <NumberInput aria-label={localize('Spread', '扩展范围')} value={shadow.spread} unit="px" min={-32} max={32} onCommit={(v) => v !== null && patch({ spread: v })} />
         </Row>
       ) : null}
-      <Row label="Color">
-        <ColorField aria-label="Shadow color" value={shadow.color} groups={groups} onCommit={(color) => color && patch({ color })} />
+      <Row label={localize('Color', '颜色')}>
+        <ColorField aria-label={localize('Shadow color', '阴影颜色')} value={shadow.color} groups={groups} onCommit={(color) => color && patch({ color })} />
       </Row>
     </PanelField>
   );

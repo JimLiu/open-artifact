@@ -9,6 +9,7 @@
  * the clip; other text becomes a text box.
  */
 
+import { localize } from '@open-artifact/runtime';
 import {
   compileSlide,
   isPinned,
@@ -122,8 +123,8 @@ function pastePayload(payload: Payload): void {
     const slides = compileSlides(payload.slides);
     if (slides.length === 0) return;
     const after = targetSlides().slice(-1)[0] ?? useView.getState().current;
-    const ids = insertSlides(slides, after, slides.length === 1 ? 'Paste slide' : `Paste ${slides.length} slides`);
-    if (ids.length > 1) toast.add({ title: `Pasted ${ids.length} slides` });
+    const ids = insertSlides(slides, after, slides.length === 1 ? localize('Paste slide', '粘贴幻灯片') : localize(`Paste ${slides.length} slides`, `粘贴 ${slides.length} 张幻灯片`));
+    if (ids.length > 1) toast.add({ title: localize(`Pasted ${ids.length} slides`, `已粘贴 ${ids.length} 张幻灯片`) });
     return;
   }
   const slide = currentSlide();
@@ -138,7 +139,7 @@ function pastePayload(payload: Payload): void {
     const rect = centeredRect(Number.parseFloat(node.style.width ?? '') || 800, Number.parseFloat(node.style.height ?? '') || 200);
     return { ...node, style: { ...node.style, position: 'absolute', left: pxValue(rect.x), top: pxValue(rect.y), width: pxValue(rect.w), height: pxValue(rect.h) } } as SlideNode;
   });
-  insertPinned(nodes.length === 1 ? 'Paste' : `Paste ${nodes.length} elements`, nodes);
+  insertPinned(nodes.length === 1 ? localize('Paste', '粘贴') : localize(`Paste ${nodes.length} elements`, `粘贴 ${nodes.length} 个元素`), nodes);
 }
 
 /** Pastes plain text: a video link becomes a clip, anything else a text box. */
@@ -149,7 +150,7 @@ function pasteText(text: string): void {
   const lines = trimmed.split(/\r?\n/).length;
   const box = newTextBox(centeredRect(1100, Math.min(800, 80 + lines * 56)), '', { 'font-size': '40px' });
   const node = { ...box, blocks: [{ kind: 'text' as const, tag: 'p' as const, style: {}, runs: plainRuns(trimmed.slice(0, 20000)) }] };
-  insertPinned('Paste text', [node]);
+  insertPinned(localize('Paste text', '粘贴文本'), [node]);
 }
 
 /** Installs the document copy / cut / paste handlers. Returns the uninstaller. */
@@ -224,7 +225,7 @@ export function copySlidesToMemory(ids: readonly string[]): void {
   const slides = ids.map((id) => deck.slides[id]).filter((e) => e && !e.held).map((e) => e!.slide);
   if (slides.length === 0) return;
   memory = { openArtifact: 'slides', v: 1, kind: 'slides', slides: slides.map((s) => serializeSlide(s)) };
-  toast.add({ title: slides.length === 1 ? 'Slide copied' : `${slides.length} slides copied` });
+  toast.add({ title: slides.length === 1 ? localize('Slide copied', '已复制幻灯片') : localize(`${slides.length} slides copied`, `已复制 ${slides.length} 张幻灯片`) });
 }
 
 /** Inserts a text box (the T tool's click without a drag). */

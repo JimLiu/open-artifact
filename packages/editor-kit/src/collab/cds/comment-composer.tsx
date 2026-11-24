@@ -5,6 +5,7 @@
  *
  * Added here: `context`, the line above a new comment that says what it is about (the anchor's label).
  */
+import { localize } from '@open-artifact/runtime';
 import { useContext, useLayoutEffect, useRef, type KeyboardEvent, type MouseEvent, type Ref } from 'react';
 import { Badge, Button, cn, mergeRefs, panelClass, panelVars, PlainEditor, useCdsRoot } from './cds.tsx';
 import { ReplyFieldContext, SendBox, type SendBoxSpec } from './comment-card.tsx';
@@ -50,12 +51,12 @@ export function CommentComposer({
   onChange,
   onSubmit,
   onCancel,
-  placeholder = 'Add your comment',
+  placeholder = localize('Add your comment', '输入评论'),
   sendBox,
   busy = false,
   form,
   context,
-  label = 'Comment',
+  label = localize('Comment', '评论'),
   textareaRef,
 }: CommentComposerProps) {
   const { dark } = useCdsRoot();
@@ -134,7 +135,7 @@ export function CommentComposer({
       variant="ghost"
       iconOnly
       icon="ArrowUp"
-      aria-label="Send"
+      aria-label={localize('Send', '发送')}
       shortcut="enter"
       disabled={empty && !busy}
       busy={busy}

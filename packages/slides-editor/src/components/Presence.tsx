@@ -4,6 +4,7 @@
  * (follow state) and the grid cursors.
  */
 
+import { localize } from '@open-artifact/runtime';
 import { useMemo, type ReactNode } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { followAgent, followedName, FOLLOW_AGENT, useAgent, usePresence, type PeerView } from '../services/agent.ts';
@@ -11,7 +12,7 @@ import { useCursors } from '../services/cursors.ts';
 import { FollowingBanner, PeerCursorLayer, PresenceMenu, type PresencePeer } from './PresenceView.tsx';
 
 function presencePeer(peer: PeerView): PresencePeer {
-  const where = peer.state?.slideIndex ? `On slide ${peer.state.slideIndex}` : undefined;
+  const where = peer.state?.slideIndex ? localize(`On slide ${peer.state.slideIndex}`, `正在查看第 ${peer.state.slideIndex} 张幻灯片`) : undefined;
   const drawn = { id: peer.id, name: peer.name, kind: peer.kind, color: peer.color };
   return where ? { ...drawn, where } : drawn;
 }

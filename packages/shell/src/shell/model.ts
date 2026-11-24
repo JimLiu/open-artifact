@@ -27,6 +27,7 @@ import {
   type ShareView,
   type ShellBoot,
 } from '@open-artifact/protocol';
+import { localeOverride } from '@open-artifact/runtime';
 import { isCloudShared } from '../lib/cloud.ts';
 
 /** The owner session as the library reports it. */
@@ -224,7 +225,11 @@ export function pageAddress(boot: Pick<ShellBoot, 'page' | 'id'> & Partial<Pick<
     const at = new URL(boot.page, shell.href);
     at.searchParams.set(SHELL_PARAMS.shell, shell.origin);
     at.searchParams.set(SHELL_PARAMS.id, boot.id);
-    if (boot.type === 'slides' && SLIDE_FRAGMENT.test(shell.hash)) at.hash = shell.hash;
+    if (boot.type === 'slides') {
+      if (SLIDE_FRAGMENT.test(shell.hash)) at.hash = shell.hash;
+      const language = localeOverride(shell.searchParams);
+      if (language) at.searchParams.set('lang', language);
+    }
     if (boot.type !== undefined && inlineView({ type: boot.type }, shell.href, embedded)) at.hash = shell.hash;
     if (boot.type === 'docs') {
       at.searchParams.set('doc_link_base', boot.typeServer?.invite || shell.origin + shell.pathname);

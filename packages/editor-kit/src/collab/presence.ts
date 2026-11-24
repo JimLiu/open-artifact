@@ -10,6 +10,7 @@
  * adapter's `parse` must check and clip them.
  */
 
+import { localize } from '@open-artifact/runtime';
 import type { ArtifactCapability, Peer, RoomCapability } from '@open-artifact/runtime';
 import { create, type StoreApi, type UseBoundStore } from 'zustand';
 import type { Point } from './pins.ts';
@@ -108,7 +109,7 @@ export function peerViews<S>(peers: readonly Peer[], self: string | null, key: s
       const value = raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : null;
       return {
         id: p.id,
-        name: (p.name || (p.kind === 'agent' ? 'Agent' : 'Guest')).slice(0, 60),
+        name: (p.name || (p.kind === 'agent' ? 'Agent' : localize('Guest', '访客'))).slice(0, 60),
         kind: p.kind,
         color: p.kind === 'agent' ? AGENT_COLOR : peerColor(p.id),
         cursor: value ? peerValue.point(value.cursor) : null,

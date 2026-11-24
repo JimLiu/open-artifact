@@ -18,6 +18,7 @@
  * the picker commits as it goes (callers coalesce those into one undo step).
  */
 
+import { localize } from '@open-artifact/runtime';
 import { Popover as BasePopover } from '@base-ui/react/popover';
 import { Tabs } from '@base-ui/react/tabs';
 import { Check, Pipette, X } from 'lucide-react';
@@ -131,7 +132,7 @@ export function useColorGroups(): ColorGroup[] {
     const tokens = new Set(systems.flatMap((s) => s.colors.map((c) => colorLabel(c.value))));
     const slide = current ? slides[current]?.slide : undefined;
     const here = slide ? mostUsed([slide], tokens) : [];
-    if (here.length) groups.push({ title: 'In this slide', choices: here });
+    if (here.length) groups.push({ title: localize('In this slide', '此幻灯片中的颜色'), choices: here });
     for (const system of systems) {
       if (system.colors.length) groups.push({ title: system.title, choices: system.colors.map((c) => ({ label: c.name, value: c.value })) });
     }
@@ -169,12 +170,13 @@ export interface ContrastInfo {
 /** "Good contrast" / "Poor contrast" with a chip in the colors themselves. */
 export function ContrastLockup({ info }: { info: ContrastInfo }): ReactNode {
   const good = info.ratio >= info.target;
+  const ratio = info.ratio.toFixed(1);
   return (
-    <span className="flex min-w-0 items-center gap-1.5" title={`${info.ratio.toFixed(1)}:1 on ${info.where}`}>
+    <span className="flex min-w-0 items-center gap-1.5" title={localize(`${ratio}:1 on ${info.where}`, `${ratio}:1，背景为${info.where}`)}>
       <span aria-hidden className="flex size-4 shrink-0 items-center justify-center rounded-[4px] shadow-[inset_0_0_0_1px_rgb(0_0_0/0.12)]" style={{ background: info.ground, color: info.text }}>
         <TypeScaleIcon className="size-3" />
       </span>
-      <span className={cn('truncate text-[12px]', good ? 'text-chrome-fg' : 'text-warning')}>{good ? 'Good contrast' : 'Poor contrast'}</span>
+      <span className={cn('truncate text-[12px]', good ? 'text-chrome-fg' : 'text-warning')}>{good ? localize('Good contrast', '对比度充足') : localize('Poor contrast', '对比度不足')}</span>
     </span>
   );
 }
@@ -231,11 +233,11 @@ export interface ColorFieldProps {
 
 /** A color field that opens the Theme / Custom panel. */
 export function ColorField(props: ColorFieldProps): ReactNode {
-  const { value, mixed = false, effective, emptyLabel = 'None', groups, preview, disabled, title } = props;
+  const { value, mixed = false, effective, emptyLabel = localize('None', '无'), groups, preview, disabled, title } = props;
   const [open, setOpen] = useState(false);
   const rgba = value ? toRgba(value) : null;
   const choice = choiceFor(groups, value);
-  const text = mixed ? 'Mixed' : preview ? preview.label : value === null ? emptyLabel : (choice?.label ?? colorLabel(value));
+  const text = mixed ? localize('Mixed', '混合值') : preview ? preview.label : value === null ? emptyLabel : (choice?.label ?? colorLabel(value));
   const color = value ?? effective ?? null;
   const swatchBackground = mixed ? MIXED_SWATCH : preview ? preview.swatch : color ? `linear-gradient(${color}, ${color}), ${CHECKER}` : CHECKER;
   const alpha = !mixed && !preview && rgba && rgba.a < 1 ? `${Math.round(rgba.a * 100)}%` : null;
@@ -314,7 +316,7 @@ export function ColorPanel({ value, fallback, groups, allowNone, opaque, contras
   const isColor = !kinds || kinds.value === 'color';
   const [source, setSource] = useState<Source>(hasChoices && isColor ? 'system' : 'custom');
   const close = (
-    <button type="button" aria-label="Close" title="Close" onClick={onClose} className="ml-auto flex size-7 shrink-0 items-center justify-center rounded-[8px] text-chrome-secondary outline-none hover:bg-chrome-hover hover:text-chrome-fg focus-visible:outline-2 focus-visible:outline-chrome-accent">
+    <button type="button" aria-label={localize('Close', '关闭')} title={localize('Close', '关闭')} onClick={onClose} className="ml-auto flex size-7 shrink-0 items-center justify-center rounded-[8px] text-chrome-secondary outline-none hover:bg-chrome-hover hover:text-chrome-fg focus-visible:outline-2 focus-visible:outline-chrome-accent">
       <X className="size-4" strokeWidth={1.5} />
     </button>
   );
@@ -322,8 +324,8 @@ export function ColorPanel({ value, fallback, groups, allowNone, opaque, contras
     <div className="flex flex-col gap-3">
       {kinds ? (
         <div className="flex items-center gap-2">
-          <span className="w-10 shrink-0 text-[12px] text-chrome-muted">Type</span>
-          <Segmented aria-label="Fill type" value={kinds.value} options={kinds.options} onChange={kinds.onChange} />
+          <span className="w-10 shrink-0 text-[12px] text-chrome-muted">{localize('Type', '类型')}</span>
+          <Segmented aria-label={localize('Fill type', '填充类型')} value={kinds.value} options={kinds.options} onChange={kinds.onChange} />
         </div>
       ) : null}
       {isColor ? <Picker value={value} fallback={fallback ?? null} opaque={opaque} contrast={contrast ?? null} onPick={onPick} /> : kinds?.content}
@@ -334,7 +336,7 @@ export function ColorPanel({ value, fallback, groups, allowNone, opaque, contras
     return (
       <div className="flex flex-col gap-3">
         <div className="-mt-1 flex items-center">
-          <span className="text-[13px] font-[520]">Color</span>
+          <span className="text-[13px] font-[520]">{localize('Color', '颜色')}</span>
           {close}
         </div>
         {custom}
@@ -344,14 +346,14 @@ export function ColorPanel({ value, fallback, groups, allowNone, opaque, contras
   return (
     <Tabs.Root value={source} onValueChange={(next) => setSource(next as Source)} className="flex flex-col gap-3">
       <div className="-mt-1 flex items-center gap-1">
-        <Tabs.List aria-label="Source" className="flex items-center gap-1">
+        <Tabs.List aria-label={localize('Source', '来源')} className="flex items-center gap-1">
           {(['system', 'custom'] as const).map((tab) => (
             <Tabs.Tab
               key={tab}
               value={tab}
               className="h-7 rounded-[8px] px-2.5 text-[13px] text-chrome-secondary outline-none hover:bg-chrome-hover hover:text-chrome-fg data-[selected]:text-chrome-fg focus-visible:outline-2 focus-visible:outline-chrome-accent data-[selected]:bg-chrome-selected"
             >
-              {tab === 'system' ? 'Theme' : 'Custom'}
+              {tab === 'system' ? localize('Theme', '主题') : localize('Custom', '自定义')}
             </Tabs.Tab>
           ))}
         </Tabs.List>
@@ -402,11 +404,11 @@ function ThemeList({ value, groups, allowNone, onPick }: { value: string | null;
     <div className="-mx-2 flex flex-col gap-1">
       {searchable ? (
         <div className="px-2 pb-1">
-          <TextInput aria-label="Search colors" placeholder="Search colors" value={query} onChange={(event) => setQuery(event.target.value)} />
+          <TextInput aria-label={localize('Search colors', '搜索颜色')} placeholder={localize('Search colors', '搜索颜色')} value={query} onChange={(event) => setQuery(event.target.value)} />
         </div>
       ) : null}
       <div className="max-h-72 overflow-y-auto" onKeyDown={onKeyDown}>
-        {allowNone && !q ? row('none', 'None', <span className="size-4 shrink-0 rounded-[4px] border border-dashed border-chrome-muted" />, value === null, () => onPick(null)) : null}
+        {allowNone && !q ? row('none', localize('None', '无'), <span className="size-4 shrink-0 rounded-[4px] border border-dashed border-chrome-muted" />, value === null, () => onPick(null)) : null}
         {shown.map((group, i) => (
           <div key={group.title ?? i}>
             {group.title ? <div className="px-2 pb-1 pt-2 text-[11px] font-[520] text-chrome-muted">{group.title}</div> : null}
@@ -421,7 +423,7 @@ function ThemeList({ value, groups, allowNone, onPick }: { value: string | null;
             )}
           </div>
         ))}
-        {q && shown.length === 0 ? <p className="px-2 py-2 text-[12px] text-chrome-muted">No matches</p> : null}
+        {q && shown.length === 0 ? <p className="px-2 py-2 text-[12px] text-chrome-muted">{localize('No matches', '没有匹配项')}</p> : null}
       </div>
     </div>
   );
@@ -476,10 +478,10 @@ function Picker({ value, fallback, opaque, contrast, onPick }: { value: string |
   return (
     <div className="flex flex-col gap-3">
       <SaturationSquare hsva={hsva} onChange={change} />
-      <Track label="Hue" value={hsva.h / 360} background="linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00)" thumb={`hsl(${hsva.h} 100% 50%)`} valueText={`${Math.round(hsva.h)}°`} onChange={(t) => change({ ...hsva, h: t * 360 })} />
+      <Track label={localize('Hue', '色相')} value={hsva.h / 360} background="linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00)" thumb={`hsl(${hsva.h} 100% 50%)`} valueText={`${Math.round(hsva.h)}°`} onChange={(t) => change({ ...hsva, h: t * 360 })} />
       {!opaque ? (
         <Track
-          label="Opacity"
+          label={localize('Opacity', '不透明度')}
           value={hsva.a}
           background={`linear-gradient(to right, transparent, ${solid}), ${CHECKER}`}
           thumb={formatPicked({ ...rgb, a: hsva.a })}
@@ -491,8 +493,8 @@ function Picker({ value, fallback, opaque, contrast, onPick }: { value: string |
         {canDrop ? (
           <button
             type="button"
-            aria-label="Pick color from screen"
-            title="Pick color from screen"
+            aria-label={localize('Pick color from screen', '从屏幕取色')}
+            title={localize('Pick color from screen', '从屏幕取色')}
             className="flex size-6 shrink-0 items-center justify-center rounded-[6px] text-chrome-secondary outline-none hover:bg-chrome-hover hover:text-chrome-fg focus-visible:outline-2 focus-visible:outline-chrome-accent"
             onClick={() => {
               const Dropper = (window as unknown as { EyeDropper: new () => { open(): Promise<{ sRGBHex: string }> } }).EyeDropper;
@@ -509,7 +511,7 @@ function Picker({ value, fallback, opaque, contrast, onPick }: { value: string |
           </button>
         ) : null}
         <CommitInput
-          aria-label="Hex color"
+          aria-label={localize('Hex color', '十六进制颜色')}
           value={hex}
           className="min-w-0 flex-1 font-mono text-[12px] uppercase"
           onCommit={(text) => {
@@ -520,7 +522,7 @@ function Picker({ value, fallback, opaque, contrast, onPick }: { value: string |
         />
         {!opaque ? (
           <NumberInput
-            aria-label="Opacity percent"
+            aria-label={localize('Opacity percent', '不透明度百分比')}
             className="w-[64px] shrink-0"
             value={Math.round(hsva.a * 100)}
             unit="%"
@@ -536,7 +538,7 @@ function Picker({ value, fallback, opaque, contrast, onPick }: { value: string |
           <ContrastLockup info={contrast} />
           {contrast.ratio < contrast.target && contrast.fix ? (
             <Button size="sm" className="self-start" onClick={() => contrast.fix && onPick(contrast.fix)}>
-              Use a readable shade
+              {localize('Use a readable shade', '使用对比度更高的颜色')}
             </Button>
           ) : null}
         </div>
@@ -577,8 +579,8 @@ function SaturationSquare({ hsva, onChange }: { hsva: Hsva; onChange: (next: Hsv
     <div
       role="slider"
       tabIndex={0}
-      aria-label="Saturation and brightness"
-      aria-valuetext={`Saturation ${Math.round(hsva.s * 100)}%, brightness ${Math.round(hsva.v * 100)}%`}
+      aria-label={localize('Saturation and brightness', '饱和度与亮度')}
+      aria-valuetext={localize(`Saturation ${Math.round(hsva.s * 100)}%, brightness ${Math.round(hsva.v * 100)}%`, `饱和度 ${Math.round(hsva.s * 100)}%，亮度 ${Math.round(hsva.v * 100)}%`)}
       className="relative aspect-[3/2] w-full cursor-crosshair touch-none rounded-[8px] outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-chrome-accent"
       style={{ background: `linear-gradient(to top, #000, transparent), linear-gradient(to right, #fff, transparent), hsl(${hsva.h} 100% 50%)` }}
       onPointerDown={(event) => {

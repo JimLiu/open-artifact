@@ -16,6 +16,10 @@ export const VIDEO_PROVIDER_LABELS: Record<VideoProvider, string> = {
   drive: 'Google Drive',
 };
 
+export function videoProviderLabel(provider: VideoProvider, locale: string): string {
+  return provider === 'drive' && locale === 'zh-CN' ? '谷歌云端硬盘' : VIDEO_PROVIDER_LABELS[provider];
+}
+
 /** Longest start offset a link keeps (one day). */
 export const MAX_VIDEO_START = 86400;
 

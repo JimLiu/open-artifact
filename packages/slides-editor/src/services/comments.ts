@@ -14,6 +14,7 @@
  * slide thumbnails.
  */
 
+import { localize, uiLocale } from '@open-artifact/runtime';
 import { contextId, nodeAt, nodeLabel, resolveContextId, type NodePath, type Slide } from '@open-artifact/slides-core';
 import type { CommentThread, JsonRecord } from '@open-artifact/runtime';
 import { createComments } from '@open-artifact/editor-kit';
@@ -54,7 +55,7 @@ export const slidesComments = createComments<SlideAnchor>({
   onModeChange(on) {
     if (on) useView.getState().endTextEdit();
   },
-  noun: 'deck',
+  noun: localize('deck', '演示文稿'),
   maxThreads: 200,
   notify: (message) => toast.add(message),
 });
@@ -108,16 +109,16 @@ export function anchorPath(slide: Slide, anchor: SlideAnchor): NodePath | null {
 
 /** A short label of an anchor: `Slide 3 › Text "Q3 revenue"`. */
 export function anchorLabel(anchor: SlideAnchor): string {
-  if (!anchor.slide) return 'Whole deck';
+  if (!anchor.slide) return localize('Whole deck', '整个演示文稿');
   const deck = useDeck.getState();
   const n = deckOrder(deck).indexOf(anchor.slide) + 1;
   const slide = deck.slides[anchor.slide]?.slide;
-  const head = n > 0 ? `Slide ${n}` : 'Deleted slide';
+  const head = n > 0 ? localize(`Slide ${n}`, `第 ${n} 张幻灯片`) : localize('Deleted slide', '已删除的幻灯片');
   if (!slide) return head;
   const path = anchorPath(slide, anchor);
   const node = path ? nodeAt(slide, path) : undefined;
-  if (node) return `${head} › ${nodeLabel(node, 40)}`;
-  if (anchor.w !== undefined) return `${head} › Area`;
+  if (node) return `${head} › ${nodeLabel(node, 40, uiLocale())}`;
+  if (anchor.w !== undefined) return localize(`${head} › Area`, `${head} › 区域`);
   return head;
 }
 

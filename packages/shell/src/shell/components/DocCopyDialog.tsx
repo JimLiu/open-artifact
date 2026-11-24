@@ -1,3 +1,4 @@
+import { shellHref, withUiLanguage } from '../../lib/navigation.ts';
 import { useState } from 'react';
 import { Button, Dialog, TextInput } from '@open-artifact/ui';
 import { t } from '../../lib/i18n.ts';
@@ -17,10 +18,10 @@ export function DocCopyDialog({ title, close }: { title: string; close(): void }
         const response = await fetch('_api/frame/duplicate', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name }) });
         const result = await response.json();
         if (!response.ok) throw new Error(result.message || response.statusText);
-        location.assign(result.url);
+        location.assign(withUiLanguage(result.url));
       } else {
         const result = await api.duplicate(boot.id, name);
-        location.assign('/a/' + encodeURIComponent(result.id));
+        location.assign(shellHref(result.id));
       }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));

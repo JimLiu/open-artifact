@@ -6,6 +6,7 @@
  * reloads the frame under the viewer.
  */
 
+import { localize } from '@open-artifact/runtime';
 import type { ChromeReport } from '@open-artifact/runtime';
 import { slideHistory } from './history.ts';
 import { agentChrome, chromeReporter, mayExportHere, openMessageCount } from '@open-artifact/editor-kit';
@@ -32,7 +33,7 @@ interface ExportUi {
   /** A pending web page request, the same way. */
   html: { request: string } | null;
   /** The last run: what the export could not do. */
-  notes: { name: string; notes: string[] } | null;
+  notes: { name: string; notes: string[]; failed?: boolean } | null;
   /** An export asked for while the agent is still writing the deck, waiting for "Download anyway". */
   partial: { request: ExportRequest; shellRequest: string; progress: WritingProgress } | null;
   running: boolean;
@@ -88,20 +89,20 @@ export function exportFormats(): ChromeFormat[] {
   const empty = deck.status !== 'ready' || playableSlides().length === 0;
   const disabled = empty || exportBusy();
   return [
-    { format: 'pdf', label: 'PDF', description: 'One page per slide, with selectable text', interactive: true, disabled },
+    { format: 'pdf', label: 'PDF', description: localize('One page per slide, with selectable text', '每张幻灯片导出为一页，文字可选中'), interactive: true, disabled },
     {
       format: 'pptx',
       label: 'PowerPoint',
-      description: 'Editable slides',
+      description: localize('Editable slides', '可编辑的幻灯片'),
       disabled,
       variants: [
-        { id: 'current', label: 'PowerPoint, current fonts' },
-        { id: 'basic', label: 'PowerPoint, basic fonts' },
-        { id: 'pictures', label: 'PowerPoint, slides as pictures' },
+        { id: 'current', label: localize('PowerPoint, current fonts', 'PowerPoint（当前字体）') },
+        { id: 'basic', label: localize('PowerPoint, basic fonts', 'PowerPoint（基础字体）') },
+        { id: 'pictures', label: localize('PowerPoint, slides as pictures', 'PowerPoint（幻灯片转图片）') },
       ],
     },
-    { format: 'html', label: 'Web page (.html)', interactive: true, description: 'A self-contained page that presents the deck', disabled },
-    { format: 'png', label: 'Current slide as image (.png)', disabled: disabled || !useView.getState().current },
+    { format: 'html', label: localize('Web page (.html)', '网页（.html）'), interactive: true, description: localize('A self-contained page that presents the deck', '可独立播放演示文稿的网页'), disabled },
+    { format: 'png', label: localize('Current slide as image (.png)', '当前幻灯片转图片（.png）'), disabled: disabled || !useView.getState().current },
   ];
 }
 
@@ -114,7 +115,7 @@ function actions(): ChromeAction[] {
     { id: 'open_find' },
     ...(canComment() && currentSlide() ? [{ id: 'comment_selection' }] : []),
     { id: 'save_now', disabled: !isDirty(deck) || deck.readOnly },
-    { id: 'present', label: 'Present', disabled: playableSlides().length === 0 },
+    { id: 'present', label: localize('Present', '放映'), disabled: playableSlides().length === 0 },
   ];
 }
 
@@ -143,7 +144,7 @@ export async function startExport(request: ExportRequest, shellRequest: string, 
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     shell?.exportState(shellRequest, 'failed', reason);
-    useExportUi.getState().setNotes({ name: 'Download failed', notes: [reason] });
+    useExportUi.getState().setNotes({ name: localize('Download failed', '下载失败'), notes: [reason], failed: true });
   } finally {
     useExportUi.setState({ running: false });
   }
@@ -155,7 +156,7 @@ export function answerPartialExport(download: boolean): void {
   if (!waiting) return;
   useExportUi.setState({ partial: null });
   if (download) void startExport(waiting.request, waiting.shellRequest, true);
-  else session().shell?.exportState(waiting.shellRequest, 'declined', 'The deck is still being written.');
+  else session().shell?.exportState(waiting.shellRequest, 'declined', localize('The deck is still being written.', '演示文稿仍在制作中。'));
 }
 
 /** Starts reporting to the Shell, if there is one. */

@@ -4,6 +4,7 @@
  * history, Storage, Delete…), or the rename field in its place.
  */
 
+import { withUiLanguage } from '../../lib/navigation.ts';
 import {
   Check,
   ChevronDown,
@@ -145,7 +146,7 @@ function SwitchItems() {
         </MenuItem>
       ))}
       <MenuSeparator />
-      <MenuItem icon={<LayoutGrid className="size-3.5" />} shortcut={library ? String(library.length) : undefined} onSelect={() => (location.href = '/')}>
+      <MenuItem icon={<LayoutGrid className="size-3.5" />} shortcut={library ? String(library.length) : undefined} onSelect={() => (location.href = withUiLanguage('/'))}>
         {t('allArtifacts')}
       </MenuItem>
     </>

@@ -15,6 +15,7 @@
  * resized or drawn over. F6 moves the focus into it.
  */
 
+import { localize } from '@open-artifact/runtime';
 import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react';
 import {
   AlignCenter,
@@ -64,10 +65,10 @@ const HANDLE_CLEARANCE = 16;
 const ICON = { className: 'size-4', strokeWidth: 1.75 } as const;
 
 const ALIGNS = [
-  ['left', 'Align left', AlignLeft],
-  ['center', 'Center', AlignCenter],
-  ['right', 'Align right', AlignRight],
-  ['justify', 'Justify', AlignJustify],
+  ['left', localize('Align left', '左对齐'), AlignLeft],
+  ['center', localize('Center', '居中'), AlignCenter],
+  ['right', localize('Align right', '右对齐'), AlignRight],
+  ['justify', localize('Justify', '两端对齐'), AlignJustify],
 ] as const;
 
 type Align = (typeof ALIGNS)[number][0];
@@ -75,14 +76,14 @@ type Align = (typeof ALIGNS)[number][0];
 /** Aligning several elements to each other, in two rows: across, then down. */
 const ITEM_ALIGNS = [
   [
-    ['left', 'Align left', AlignStartVertical],
-    ['center', 'Align horizontal centers', AlignCenterVertical],
-    ['right', 'Align right', AlignEndVertical],
+    ['left', localize('Align left', '左对齐'), AlignStartVertical],
+    ['center', localize('Align horizontal centers', '水平居中'), AlignCenterVertical],
+    ['right', localize('Align right', '右对齐'), AlignEndVertical],
   ],
   [
-    ['top', 'Align top', AlignStartHorizontal],
-    ['middle', 'Align vertical centers', AlignCenterHorizontal],
-    ['bottom', 'Align bottom', AlignEndHorizontal],
+    ['top', localize('Align top', '顶端对齐'), AlignStartHorizontal],
+    ['middle', localize('Align vertical centers', '垂直居中'), AlignCenterHorizontal],
+    ['bottom', localize('Align bottom', '底端对齐'), AlignEndHorizontal],
   ],
 ] as const satisfies readonly (readonly (readonly [AlignEdge, string, unknown])[])[];
 
@@ -270,24 +271,24 @@ function Strip({ nodes }: { nodes: SlideNode[] }): ReactNode {
 
   const mark = (key: 'b' | 'i' | 'u'): void => {
     if (onSelectedText()) formatEditor(key === 'b' ? 'bold' : key === 'i' ? 'italic' : 'underline');
-    else updateSelection(key === 'b' ? 'Bold' : key === 'i' ? 'Italic' : 'Underline', (node) => toggleNodeMark(node, key));
+    else updateSelection(key === 'b' ? localize('Bold', '加粗') : key === 'i' ? localize('Italic', '斜体') : localize('Underline', '下划线'), (node) => toggleNodeMark(node, key));
   };
   const markOn = (key: 'b' | 'i' | 'u'): boolean =>
     editing && activeEditor() ? editorHasMark(key === 'b' ? 'bold' : key === 'i' ? 'italic' : 'underline') : nodes.every((n) => nodeHasMark(n, key));
   const setList = (kind: 'ul' | 'ol' | null): void => {
-    updateSelection('List', (node) => (node.kind === 'text' || node.kind === 'list' ? setListKind(node, kind) : node));
+    updateSelection(localize('List', '列表'), (node) => (node.kind === 'text' || node.kind === 'list' ? setListKind(node, kind) : node));
     refocusEditor();
   };
 
   return (
-    <Card role="toolbar" aria-label="Text format" className="h-10 min-w-0 gap-0.5 overflow-x-auto px-1 [scrollbar-width:none]" onMouseDown={keepTextFocus}>
+    <Card role="toolbar" aria-label={localize('Text format', '文本格式')} className="h-10 min-w-0 gap-0.5 overflow-x-auto px-1 [scrollbar-width:none]" onMouseDown={keepTextFocus}>
       {textNode ? (
         <>
           <ChromeMenu
-            tip={{ label: 'Text style' }}
+            tip={{ label: localize('Text style', '文本样式') }}
             trigger={
-              <ChromeButton aria-label="Text style" className="max-w-[148px] gap-0.5 pl-2 pr-1">
-                <span className="min-w-0 truncate">{styleMenu.options.find((o) => o.value === styleMenu.value)?.label ?? 'Custom'}</span>
+              <ChromeButton aria-label={localize('Text style', '文本样式')} className="max-w-[148px] gap-0.5 pl-2 pr-1">
+                <span className="min-w-0 truncate">{styleMenu.options.find((o) => o.value === styleMenu.value)?.label ?? localize('Custom', '自定义')}</span>
                 <ChevronDown className="size-4 shrink-0 text-chrome-muted" strokeWidth={1.5} />
               </ChromeButton>
             }
@@ -309,27 +310,27 @@ function Strip({ nodes }: { nodes: SlideNode[] }): ReactNode {
         </>
       ) : null}
       <TextColor value={first.style.color ?? null} />
-      <Tip label="Bold" shortcut={`${MOD}B`}>
-        <ChromeButton square aria-label="Bold" pressed={markOn('b')} onClick={() => mark('b')}>
+      <Tip label={localize('Bold', '加粗')} shortcut={`${MOD}B`}>
+        <ChromeButton square aria-label={localize('Bold', '加粗')} pressed={markOn('b')} onClick={() => mark('b')}>
           <Bold {...ICON} />
         </ChromeButton>
       </Tip>
-      <Tip label="Italic" shortcut={`${MOD}I`}>
-        <ChromeButton square aria-label="Italic" pressed={markOn('i')} onClick={() => mark('i')}>
+      <Tip label={localize('Italic', '斜体')} shortcut={`${MOD}I`}>
+        <ChromeButton square aria-label={localize('Italic', '斜体')} pressed={markOn('i')} onClick={() => mark('i')}>
           <Italic {...ICON} />
         </ChromeButton>
       </Tip>
-      <Tip label="Underline" shortcut={`${MOD}U`}>
-        <ChromeButton square aria-label="Underline" pressed={markOn('u')} onClick={() => mark('u')}>
+      <Tip label={localize('Underline', '下划线')} shortcut={`${MOD}U`}>
+        <ChromeButton square aria-label={localize('Underline', '下划线')} pressed={markOn('u')} onClick={() => mark('u')}>
           <Underline {...ICON} />
         </ChromeButton>
       </Tip>
       <LinkButton node={single} />
       <ChromeDivider />
       <ChromeMenu
-        tip={{ label: 'Alignment' }}
+        tip={{ label: localize('Alignment', '对齐方式') }}
         trigger={
-          <ChromeButton aria-label="Alignment" className="gap-0 pl-1.5 pr-0.5">
+          <ChromeButton aria-label={localize('Alignment', '对齐方式')} className="gap-0 pl-1.5 pr-0.5">
             <AlignIcon {...ICON} />
             <ChevronDown className="size-3.5 text-chrome-muted" strokeWidth={1.5} />
           </ChromeButton>
@@ -341,7 +342,7 @@ function Strip({ nodes }: { nodes: SlideNode[] }): ReactNode {
             checked={alignSame && align === value}
             icon={<Icon className="size-4" />}
             onSelect={() => {
-              patchSelectionStyle('Align', { 'text-align': value === 'left' ? undefined : value });
+              patchSelectionStyle(localize('Align', '对齐'), { 'text-align': value === 'left' ? undefined : value });
               refocusEditor();
             }}
           >
@@ -352,22 +353,22 @@ function Strip({ nodes }: { nodes: SlideNode[] }): ReactNode {
       {nodes.length > 1 ? <AlignItems nodes={nodes} /> : null}
       {single && (single.kind === 'text' || single.kind === 'list') ? (
         <ChromeMenu
-          tip={{ label: 'List' }}
+          tip={{ label: localize('List', '列表') }}
           trigger={
-            <ChromeButton aria-label="List" pressed={listKind !== null} className="gap-0 pl-1.5 pr-0.5">
+            <ChromeButton aria-label={localize('List', '列表')} pressed={listKind !== null} className="gap-0 pl-1.5 pr-0.5">
               {listKind === 'ol' ? <ListOrdered {...ICON} /> : <List {...ICON} />}
               <ChevronDown className="size-3.5 text-chrome-muted" strokeWidth={1.5} />
             </ChromeButton>
           }
         >
           <ChromeMenuItem checked={listKind === null} onSelect={() => setList(null)}>
-            No list
+            {localize('No list', '无列表')}
           </ChromeMenuItem>
           <ChromeMenuItem checked={listKind === 'ul'} icon={<List className="size-4" />} onSelect={() => setList('ul')}>
-            Bulleted list
+            {localize('Bulleted list', '项目符号列表')}
           </ChromeMenuItem>
           <ChromeMenuItem checked={listKind === 'ol'} icon={<ListOrdered className="size-4" />} onSelect={() => setList('ol')}>
-            Numbered list
+            {localize('Numbered list', '编号列表')}
           </ChromeMenuItem>
         </ChromeMenu>
       ) : null}
@@ -380,8 +381,8 @@ function Strip({ nodes }: { nodes: SlideNode[] }): ReactNode {
 /** The strip shows while the properties panel is closed. */
 function PropertiesButton(): ReactNode {
   return (
-    <Tip label="Open the Properties panel" shortcut={`${MOD}\\`}>
-      <ChromeButton square aria-label="Properties" onClick={() => useView.getState().toggle('showProperties', true)}>
+    <Tip label={localize('Open the Properties panel', '打开属性面板')} shortcut={`${MOD}\\`}>
+      <ChromeButton square aria-label={localize('Properties', '属性')} onClick={() => useView.getState().toggle('showProperties', true)}>
         <Ellipsis {...ICON} />
       </ChromeButton>
     </Tip>
@@ -411,26 +412,26 @@ function TableStrip({ table, path }: { table: TableNode; path: NodePath }): Reac
   const rows = table.rows.length;
   const cols = tableColumns(table);
   return (
-    <Card role="toolbar" aria-label="Table" className="h-10 min-w-0 gap-1 overflow-x-auto px-1 [scrollbar-width:none]">
+    <Card role="toolbar" aria-label={localize('Table', '表格')} className="h-10 min-w-0 gap-1 overflow-x-auto px-1 [scrollbar-width:none]">
       <NumberInput
-        aria-label="Rows"
-        title="Rows. Fewer rows drop the bottom rows’ text (undoable)"
+        aria-label={localize('Rows', '行数')}
+        title={localize('Rows. Fewer rows drop the bottom rows’ text (undoable)', '减少行数会删除底部行的文本（可撤销）')}
         label={<RowsIcon />}
         value={rows}
         min={1}
         max={LIMITS.tableRows}
         className="w-[76px] shrink-0"
-        onCommit={(v) => v && v !== rows && updateTable(path, 'Table rows', (t) => resizeTable(t, v, tableColumns(t)))}
+        onCommit={(v) => v && v !== rows && updateTable(path, localize('Table rows', '表格行数'), (t) => resizeTable(t, v, tableColumns(t)))}
       />
       <NumberInput
-        aria-label="Columns"
-        title="Columns. Fewer columns drop the rightmost columns’ text (undoable)"
+        aria-label={localize('Columns', '列数')}
+        title={localize('Columns. Fewer columns drop the rightmost columns’ text (undoable)', '减少列数会删除右侧列的文本（可撤销）')}
         label={<ColumnsIcon />}
         value={cols}
         min={1}
         max={LIMITS.tableColumns}
         className="w-[76px] shrink-0"
-        onCommit={(v) => v && v !== cols && updateTable(path, 'Table columns', (t) => resizeTable(t, t.rows.length, v))}
+        onCommit={(v) => v && v !== cols && updateTable(path, localize('Table columns', '表格列数'), (t) => resizeTable(t, t.rows.length, v))}
       />
       <ChromeDivider />
       <PropertiesButton />
@@ -443,8 +444,8 @@ function AlignItems({ nodes }: { nodes: SlideNode[] }): ReactNode {
   const refused = alignRefusal(nodes);
   if (refused) {
     return (
-      <Tip label={`Align items. ${refused}`}>
-        <ChromeButton square aria-label="Align items" disabled>
+      <Tip label={localize(`Align items. ${refused}`, `对齐元素。${refused}`)}>
+        <ChromeButton square aria-label={localize('Align items', '对齐元素')} disabled>
           <AlignStartVertical {...ICON} />
         </ChromeButton>
       </Tip>
@@ -452,9 +453,9 @@ function AlignItems({ nodes }: { nodes: SlideNode[] }): ReactNode {
   }
   return (
     <ChromeMenu
-      tip={{ label: 'Align items' }}
+      tip={{ label: localize('Align items', '对齐元素') }}
       trigger={
-        <ChromeButton aria-label="Align items" className="gap-0 pl-1.5 pr-0.5">
+        <ChromeButton aria-label={localize('Align items', '对齐元素')} className="gap-0 pl-1.5 pr-0.5">
           <AlignStartVertical {...ICON} />
           <ChevronDown className="size-3.5 text-chrome-muted" strokeWidth={1.5} />
         </ChromeButton>
@@ -486,7 +487,7 @@ function TextColor({ value }: { value: string | null }): ReactNode {
         if (!next) refocusEditor();
       }}
       trigger={
-        <ChromeButton square aria-label="Text color" title="Text color" className="flex-col gap-0">
+        <ChromeButton square aria-label={localize('Text color', '文字颜色')} title={localize('Text color', '文字颜色')} className="flex-col gap-0">
           <span className="text-[14px] font-semibold leading-none">A</span>
           <span className="mt-0.5 h-[3px] w-4 rounded-full shadow-[inset_0_0_0_1px_rgb(0_0_0/0.12)]" style={{ background: value ?? 'currentColor' }} />
         </ChromeButton>
@@ -507,7 +508,7 @@ function TextColor({ value }: { value: string | null }): ReactNode {
               // closes with it: otherwise Escape would end the edit under it.
               formatEditor('foreColor', color);
               setOpen(false);
-            } else patchSelectionStyle('Text color', { color }, { coalesce: 'text-color' });
+            } else patchSelectionStyle(localize('Text color', '文字颜色'), { color }, { coalesce: 'text-color' });
           }}
         />
       </div>
@@ -525,12 +526,12 @@ function LinkButton({ node }: { node: SlideNode | null }): ReactNode {
     const href = url.trim();
     if (!isSafeHref(href)) return;
     if (onSelectedText()) formatEditor('createLink', href);
-    else updateSelection('Link', (n) => setNodeMark(n, 'href', href));
+    else updateSelection(localize('Link', '链接'), (n) => setNodeMark(n, 'href', href));
     setOpen(false);
   };
   const remove = (): void => {
     if (activeEditor()) formatEditor('unlink');
-    else updateSelection('Remove link', (n) => setNodeMark(n, 'href', undefined));
+    else updateSelection(localize('Remove link', '移除链接'), (n) => setNodeMark(n, 'href', undefined));
     setOpen(false);
   };
   return (
@@ -544,7 +545,7 @@ function LinkButton({ node }: { node: SlideNode | null }): ReactNode {
         else refocusEditor();
       }}
       trigger={
-        <ChromeButton square aria-label="Link" title={`Link (${MOD}K)`} pressed={Boolean(current)}>
+        <ChromeButton square aria-label={localize('Link', '链接')} title={localize(`Link (${MOD}K)`, `链接（${MOD}K）`)} pressed={Boolean(current)}>
           <Link2 {...ICON} />
         </ChromeButton>
       }
@@ -552,7 +553,7 @@ function LinkButton({ node }: { node: SlideNode | null }): ReactNode {
       <div data-open-artifact-format-bar className="flex w-72 flex-col gap-2">
         <TextInput
           autoFocus
-          aria-label="Link address"
+          aria-label={localize('Link address', '链接地址')}
           placeholder="https://"
           value={url}
           onChange={(event) => setUrl(event.target.value)}
@@ -563,15 +564,15 @@ function LinkButton({ node }: { node: SlideNode | null }): ReactNode {
             }
           }}
         />
-        {url.trim() && !valid ? <p className="text-[12px] text-danger">Links must start with http:// or https://</p> : null}
+        {url.trim() && !valid ? <p className="text-[12px] text-danger">{localize('Links must start with http:// or https://', '链接必须以 http:// 或 https:// 开头')}</p> : null}
         <div className="flex justify-end gap-1">
           {current ? (
             <Button size="sm" variant="ghost" icon={<Unlink className="size-3.5" />} onClick={remove}>
-              Remove
+              {localize('Remove', '移除')}
             </Button>
           ) : null}
           <Button size="sm" variant="primary" disabled={!valid} onClick={apply}>
-            Apply
+            {localize('Apply', '应用')}
           </Button>
         </div>
       </div>

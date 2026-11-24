@@ -82,6 +82,14 @@ describe('shell model', () => {
     assert.equal(new URL(pageAddress({ ...boot, type: 'design' }, address + '#slide-1')!).hash, '');
   });
 
+  it('passes a supported interface language through to the slides frame', () => {
+    const boot = { id: 'deck', page: 'http://localhost:8000/', type: 'slides' };
+    const address = 'http://localhost:8100/a/deck';
+    assert.equal(new URL(pageAddress(boot, address + '?lang=zh#slide-2')!).searchParams.get('lang'), 'zh-CN');
+    assert.equal(new URL(pageAddress(boot, address + '?lang=en')!).searchParams.get('lang'), 'en');
+    assert.equal(new URL(pageAddress(boot, address + '?lang=fr')!).searchParams.has('lang'), false);
+  });
+
   it('hands a design its page or a readable place link, and nothing else', () => {
     const boot = { id: 'canvas', page: 'http://localhost:8000/', type: 'design' };
     const address = 'http://localhost:8100/a/canvas';

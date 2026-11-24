@@ -3,6 +3,7 @@
  * selected, otherwise paste, select all and the slide's own commands.
  */
 
+import { localize } from '@open-artifact/runtime';
 import { useState, type ReactNode } from 'react';
 import {
   BringToFront,
@@ -52,7 +53,7 @@ const SHIFT = MOD === '⌘' ? '⇧' : 'Shift+';
 /** Runs the browser's copy / cut so the document clipboard handlers write the payload. */
 function clipboardCommand(command: 'copy' | 'cut'): void {
   // A menu click is a user gesture: the browser fires the copy / cut event.
-  if (!document.execCommand(command)) toast.add({ title: `Use ${MOD}${command === 'copy' ? 'C' : 'X'} to ${command}` });
+  if (!document.execCommand(command)) toast.add({ title: localize(`Use ${MOD}${command === 'copy' ? 'C' : 'X'} to ${command}`, `按 ${MOD}${command === 'copy' ? 'C' : 'X'} ${command === 'copy' ? '复制' : '剪切'}`) });
 }
 
 /** Items of the stage menu. */
@@ -68,15 +69,15 @@ export function StageMenuItems(): ReactNode {
       <>
         {editable ? (
           <MenuItem icon={<ClipboardPaste className="size-4" />} shortcut={`${MOD}V`} disabled={!hasMemory()} onSelect={() => pasteFromMemory()}>
-            Paste
+            {localize('Paste', '粘贴')}
           </MenuItem>
         ) : null}
         <MenuItem shortcut={`${MOD}A`} onSelect={selectAll}>
-          Select all
+          {localize('Select all', '全选')}
         </MenuItem>
         {canComment() ? (
           <MenuItem icon={<MessageCircle className="size-4" />} onSelect={() => requestAnchoredComment(elementAnchor(slide, null))}>
-            Comment on slide
+            {localize('Comment on slide', '评论此幻灯片')}
           </MenuItem>
         ) : null}
         <MenuSeparator />
@@ -92,38 +93,38 @@ export function StageMenuItems(): ReactNode {
     <>
       {editable ? (
         <MenuItem icon={<Scissors className="size-4" />} shortcut={`${MOD}X`} onSelect={() => clipboardCommand('cut')}>
-          Cut
+          {localize('Cut', '剪切')}
         </MenuItem>
       ) : null}
       <MenuItem icon={<Copy className="size-4" />} shortcut={`${MOD}C`} onSelect={() => clipboardCommand('copy')}>
-        Copy
+        {localize('Copy', '复制')}
       </MenuItem>
       {editable ? (
         <>
           <MenuItem icon={<ClipboardPaste className="size-4" />} shortcut={`${MOD}V`} disabled={!hasMemory()} onSelect={() => pasteFromMemory()}>
-            Paste
+            {localize('Paste', '粘贴')}
           </MenuItem>
           <MenuItem shortcut={`${MOD}D`} onSelect={duplicateSelection}>
-            Duplicate
+            {localize('Duplicate', '复制一份')}
           </MenuItem>
           <MenuItem icon={<Trash2 className="size-4" />} shortcut="⌫" danger onSelect={deleteSelection}>
-            Delete
+            {localize('Delete', '删除')}
           </MenuItem>
           <MenuSeparator />
           {node && isTextual(node) ? (
             <MenuItem icon={<Type className="size-4" />} shortcut="↵" onSelect={enterSelection}>
-              Edit text
+              {localize('Edit text', '编辑文本')}
             </MenuItem>
           ) : null}
           {node?.kind === 'image' && node.src ? (
             <MenuItem
               icon={<Crop className="size-4" />}
               onSelect={() => {
-                if (rotationOf(node)) toast.add({ title: 'Straighten the picture to crop it' });
+                if (rotationOf(node)) toast.add({ title: localize('Straighten the picture to crop it', '将图片旋转角度归零后即可裁剪') });
                 else useView.getState().setCropping(single);
               }}
             >
-              Crop
+              {localize('Crop', '裁剪')}
             </MenuItem>
           ) : null}
           {node?.kind === 'image' && single ? (
@@ -135,38 +136,38 @@ export function StageMenuItems(): ReactNode {
                 });
               }}
             >
-              Replace picture…
+              {localize('Replace picture…', '替换图片…')}
             </MenuItem>
           ) : null}
           {node?.kind === 'table' && single ? <TableMenuItems table={node} path={single} /> : null}
           <MenuItem icon={<BringToFront className="size-4" />} shortcut="]" onSelect={() => reorderSelection('front')}>
-            Bring to front
+            {localize('Bring to front', '置于顶层')}
           </MenuItem>
           <MenuItem shortcut={`${MOD}]`} onSelect={() => reorderSelection('forward')}>
-            Bring forward
+            {localize('Bring forward', '上移一层')}
           </MenuItem>
           <MenuItem shortcut={`${MOD}[`} onSelect={() => reorderSelection('backward')}>
-            Send backward
+            {localize('Send backward', '下移一层')}
           </MenuItem>
           <MenuItem icon={<SendToBack className="size-4" />} shortcut="[" onSelect={() => reorderSelection('back')}>
-            Send to back
+            {localize('Send to back', '置于底层')}
           </MenuItem>
           <MenuSeparator />
           {paths.length > 1 ? (
             <MenuItem icon={<Group className="size-4" />} shortcut={`${MOD}G`} onSelect={groupSelection}>
-              Group
+              {localize('Group', '组合')}
             </MenuItem>
           ) : null}
           {isGroup ? (
             <MenuItem icon={<Ungroup className="size-4" />} shortcut={`${SHIFT}${MOD}G`} onSelect={ungroupSelection}>
-              Ungroup
+              {localize('Ungroup', '取消组合')}
             </MenuItem>
           ) : null}
           <MenuItem icon={<Paintbrush className="size-4" />} shortcut={`${ALT}${MOD}C`} onSelect={copyStyle}>
-            Copy style
+            {localize('Copy style', '复制样式')}
           </MenuItem>
           <MenuItem shortcut={`${ALT}${MOD}V`} disabled={!view.styleClipboard} onSelect={pasteStyle}>
-            Paste style
+            {localize('Paste style', '粘贴样式')}
           </MenuItem>
         </>
       ) : null}
@@ -174,7 +175,7 @@ export function StageMenuItems(): ReactNode {
         <>
           <MenuSeparator />
           <MenuItem icon={<MessageCircle className="size-4" />} onSelect={() => requestAnchoredComment(elementAnchor(slide, single))}>
-            Comment
+            {localize('Comment', '评论')}
           </MenuItem>
         </>
       ) : null}
@@ -202,37 +203,37 @@ function TableMenuItems({ table, path }: { table: TableNode; path: NodePath }): 
       {cell ? (
         <>
           <MenuItem disabled={addRow !== null} onSelect={() => editTable(opened.path, 'addRow', cell[0], opened)}>
-            Insert row above
+            {localize('Insert row above', '在上方插入行')}
           </MenuItem>
           <MenuItem disabled={addRow !== null} onSelect={() => editTable(opened.path, 'addRow', cell[0] + 1, opened)}>
-            Insert row below
+            {localize('Insert row below', '在下方插入行')}
           </MenuItem>
           <MenuItem disabled={addColumn !== null} onSelect={() => editTable(opened.path, 'addColumn', cell[1], opened)}>
-            Insert column left
+            {localize('Insert column left', '在左侧插入列')}
           </MenuItem>
           <MenuItem disabled={addColumn !== null} onSelect={() => editTable(opened.path, 'addColumn', cell[1] + 1, opened)}>
-            Insert column right
+            {localize('Insert column right', '在右侧插入列')}
           </MenuItem>
           <MenuItem disabled={removeRow !== null} onSelect={() => editTable(opened.path, 'removeRow', cell[0], opened)}>
-            Delete row
+            {localize('Delete row', '删除行')}
           </MenuItem>
           <MenuItem disabled={removeColumn !== null} onSelect={() => editTable(opened.path, 'removeColumn', cell[1], opened)}>
-            Delete column
+            {localize('Delete column', '删除列')}
           </MenuItem>
         </>
       ) : (
         <>
           <MenuItem disabled={addRow !== null} onSelect={() => editTable(opened.path, 'addRow', undefined, opened)}>
-            Add a row
+            {localize('Add a row', '添加一行')}
           </MenuItem>
           <MenuItem disabled={addColumn !== null} onSelect={() => editTable(opened.path, 'addColumn', undefined, opened)}>
-            Add a column
+            {localize('Add a column', '添加一列')}
           </MenuItem>
           <MenuItem disabled={removeRow !== null} onSelect={() => editTable(opened.path, 'removeRow', undefined, opened)}>
-            Remove the last row
+            {localize('Remove the last row', '移除最后一行')}
           </MenuItem>
           <MenuItem disabled={removeColumn !== null} onSelect={() => editTable(opened.path, 'removeColumn', undefined, opened)}>
-            Remove the last column
+            {localize('Remove the last column', '移除最后一列')}
           </MenuItem>
         </>
       )}

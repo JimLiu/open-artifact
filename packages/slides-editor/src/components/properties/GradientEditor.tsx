@@ -4,6 +4,7 @@
  * the stop list (position, color, remove). Up to eight stops, at least two.
  */
 
+import { localize } from '@open-artifact/runtime';
 import { Minus, Plus, RotateCw } from 'lucide-react';
 import { useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react';
 import { formatBackground, type Gradient } from '@open-artifact/slides-core';
@@ -92,18 +93,18 @@ export function GradientEditor({ gradient, onChange, linearOnly = false }: Gradi
 
   return (
     <div className="flex flex-col gap-2">
-      <Line label="Style">
+      <Line label={localize('Style', '样式')}>
         <SelectInput<'linear' | 'radial'>
-          aria-label="Gradient style"
+          aria-label={localize('Gradient style', '渐变样式')}
           value={radial ? 'radial' : 'linear'}
           options={[
-            { value: 'linear', label: 'Linear' },
-            { value: 'radial', label: 'Radial', disabled: linearOnly, reason: 'Linear gradients only here.' },
+            { value: 'linear', label: localize('Linear', '线性') },
+            { value: 'radial', label: localize('Radial', '径向'), disabled: linearOnly, reason: localize('Linear gradients only here.', '此处仅支持线性渐变。') },
           ]}
           onChange={(type) => onChange(type === 'radial' ? { type, shape: 'ellipse', stops: gradient.stops } : { type, angle: gradient.angle ?? 180, stops: gradient.stops })}
         />
         <NumberInput
-          aria-label="Angle"
+          aria-label={localize('Angle', '角度')}
           className="w-[76px] shrink-0"
           label={<RotateCw />}
           value={radial ? null : (gradient.angle ?? 180)}
@@ -113,7 +114,7 @@ export function GradientEditor({ gradient, onChange, linearOnly = false }: Gradi
           max={360}
           steppers={false}
           disabled={radial}
-          title={radial ? 'A radial gradient has no angle.' : undefined}
+          title={radial ? localize('A radial gradient has no angle.', '径向渐变无需设置角度。') : undefined}
           onCommit={(v) => onChange({ ...gradient, angle: v ?? 180 })}
         />
       </Line>
@@ -125,7 +126,7 @@ export function GradientEditor({ gradient, onChange, linearOnly = false }: Gradi
               key={i}
               type="button"
               role="slider"
-              aria-label={`Stop ${i + 1} position`}
+              aria-label={localize(`Stop ${i + 1} position`, `第 ${i + 1} 个色标的位置`)}
               aria-valuemin={0}
               aria-valuemax={100}
               aria-valuenow={Math.round(positions[i]!)}
@@ -146,17 +147,17 @@ export function GradientEditor({ gradient, onChange, linearOnly = false }: Gradi
           ))}
         </div>
       </div>
-      <Line label="Stops">
+      <Line label={localize('Stops', '色标')}>
         <span className="flex-1" />
-        <IconButton size="sm" label="Add stop" icon={<Plus className="size-4" strokeWidth={1.5} />} disabled={gradient.stops.length >= MAX_STOPS} title={gradient.stops.length >= MAX_STOPS ? `${MAX_STOPS} stops at most.` : undefined} onClick={addStop} />
+        <IconButton size="sm" label={localize('Add stop', '添加色标')} icon={<Plus className="size-4" strokeWidth={1.5} />} disabled={gradient.stops.length >= MAX_STOPS} title={gradient.stops.length >= MAX_STOPS ? localize(`${MAX_STOPS} stops at most.`, `最多 ${MAX_STOPS} 个色标。`) : undefined} onClick={addStop} />
       </Line>
-      <div role="list" aria-label="Stops" className="flex flex-col gap-1.5">
+      <div role="list" aria-label={localize('Stops', '色标')} className="flex flex-col gap-1.5">
         {gradient.stops.map((stop, i) => (
           <div key={i} role="listitem" className={cn('flex min-w-0 items-center gap-1.5 rounded-[8px]', i === selected && 'bg-chrome-hover')} onFocus={() => setSelected(i)}>
-            <NumberInput aria-label={`Stop ${i + 1} position`} className="w-[60px] shrink-0" value={Math.round(positions[i]!)} unit="%" min={0} max={100} steppers={false} onCommit={(v) => onChange(moveStop(gradient, i, v ?? positions[i]!))} />
+            <NumberInput aria-label={localize(`Stop ${i + 1} position`, `第 ${i + 1} 个色标的位置`)} className="w-[60px] shrink-0" value={Math.round(positions[i]!)} unit="%" min={0} max={100} steppers={false} onCommit={(v) => onChange(moveStop(gradient, i, v ?? positions[i]!))} />
             <div className="min-w-0 flex-1">
               <ColorField
-                aria-label={`Stop ${i + 1} color`}
+                aria-label={localize(`Stop ${i + 1} color`, `第 ${i + 1} 个色标的颜色`)}
                 value={stop.color}
                 groups={groups}
                 onCommit={(color) => color && onChange({ ...gradient, stops: gradient.stops.map((s, j) => (j === i ? { ...s, color } : s)) })}
@@ -164,10 +165,10 @@ export function GradientEditor({ gradient, onChange, linearOnly = false }: Gradi
             </div>
             <IconButton
               size="sm"
-              label={`Remove stop ${i + 1}`}
+              label={localize(`Remove stop ${i + 1}`, `移除第 ${i + 1} 个色标`)}
               icon={<Minus className="size-4" strokeWidth={1.5} />}
               disabled={gradient.stops.length <= MIN_STOPS}
-              title={gradient.stops.length <= MIN_STOPS ? `A gradient needs ${MIN_STOPS} color stops.` : undefined}
+              title={gradient.stops.length <= MIN_STOPS ? localize(`A gradient needs ${MIN_STOPS} color stops.`, `渐变至少需要 ${MIN_STOPS} 个色标。`) : undefined}
               onClick={() => removeStop(i)}
             />
           </div>

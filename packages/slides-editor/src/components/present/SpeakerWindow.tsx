@@ -8,6 +8,7 @@
  * and the deck's typefaces are copied into it.
  */
 
+import { localize, uiLocale } from '@open-artifact/runtime';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronLeft, ChevronRight, Pause, Play, RotateCcw } from 'lucide-react';
@@ -42,9 +43,10 @@ export function openSpeakerPopup(): Window | null {
   const popup = window.open('', POPUP_NAME, 'popup,width=1100,height=720');
   if (!popup) return null;
   const doc = popup.document;
-  doc.title = 'Speaker notes';
   // Start from a clean document (a reused popup keeps its old content).
   doc.head.replaceChildren();
+  doc.title = localize('Speaker notes', '演讲者备注');
+  doc.documentElement.lang = uiLocale();
   doc.body.replaceChildren();
   const meta = doc.createElement('meta');
   meta.setAttribute('charset', 'utf-8');
@@ -161,7 +163,7 @@ function SpeakerView({ popup, position, index, count, steps, nextId, clock, onCl
   const paused = clock.pausedAt !== null;
   const elapsed = (clock.pausedAt ?? now) - clock.startedAt;
   const moreBuilds = position.done < steps;
-  const nextLabel = moreBuilds ? `Next: build ${position.done + 1} of ${steps}` : nextSlide ? `Next: slide ${index + 2}` : 'End of presentation';
+  const nextLabel = moreBuilds ? localize(`Next: build ${position.done + 1} of ${steps}`, `下一步：第 ${position.done + 1} 个动画，共 ${steps} 个`) : nextSlide ? localize(`Next: slide ${index + 2}`, `下一步：第 ${index + 2} 张幻灯片`) : localize('End of presentation', '放映结束');
   const currentW = Math.max(240, Math.floor(width * 0.56) - 32);
   const nextW = Math.max(160, width - currentW - 72);
 
@@ -169,22 +171,22 @@ function SpeakerView({ popup, position, index, count, steps, nextId, clock, onCl
     <div className="flex h-full flex-col gap-3 p-4">
       <header className="flex items-center gap-3">
         <span className="text-sm font-medium tabular-nums">
-          Slide {index + 1} of {count}
+          {localize(`Slide ${index + 1} of ${count}`, `第 ${index + 1} 张幻灯片，共 ${count} 张`)}
         </span>
         <span className="flex-1" />
-        <span className={cn('font-mono text-2xl tabular-nums', paused && 'text-fg-muted')} aria-label="Elapsed time">
+        <span className={cn('font-mono text-2xl tabular-nums', paused && 'text-fg-muted')} aria-label={localize('Elapsed time', '已用时间')}>
           {formatElapsed(elapsed)}
         </span>
         {/* Tooltips would open in the main window: the popup's buttons go without. */}
         <IconButton
           noTooltip
-          label={paused ? 'Resume timer' : 'Pause timer'}
+          label={paused ? localize('Resume timer', '继续计时') : localize('Pause timer', '暂停计时')}
           icon={paused ? <Play className="size-4" /> : <Pause className="size-4" />}
           onClick={() =>
             onClock(paused ? { startedAt: clock.startedAt + (Date.now() - clock.pausedAt!), pausedAt: null } : { startedAt: clock.startedAt, pausedAt: Date.now() })
           }
         />
-        <IconButton noTooltip label="Reset timer" icon={<RotateCcw className="size-4" />} onClick={() => onClock({ startedAt: Date.now(), pausedAt: paused ? Date.now() : null })} />
+        <IconButton noTooltip label={localize('Reset timer', '重置计时')} icon={<RotateCcw className="size-4" />} onClick={() => onClock({ startedAt: Date.now(), pausedAt: paused ? Date.now() : null })} />
       </header>
 
       <div className="flex min-h-0 flex-1 gap-6">
@@ -192,11 +194,11 @@ function SpeakerView({ popup, position, index, count, steps, nextId, clock, onCl
           <Preview slide={slide} done={position.done} width={currentW} />
           <div className="flex min-h-0 flex-1 flex-col rounded-md border border-line bg-surface">
             <div className="flex items-center gap-1 border-b border-line px-3 py-1 text-xs text-fg-muted">
-              <span className="flex-1">Speaker notes</span>
-              <Button size="sm" variant="ghost" aria-label="Smaller notes" onClick={() => setNotesSize((n) => Math.max(12, n - 2))}>
+              <span className="flex-1">{localize('Speaker notes', '演讲者备注')}</span>
+              <Button size="sm" variant="ghost" aria-label={localize('Smaller notes', '缩小备注文字')} onClick={() => setNotesSize((n) => Math.max(12, n - 2))}>
                 A−
               </Button>
-              <Button size="sm" variant="ghost" aria-label="Larger notes" onClick={() => setNotesSize((n) => Math.min(48, n + 2))}>
+              <Button size="sm" variant="ghost" aria-label={localize('Larger notes', '放大备注文字')} onClick={() => setNotesSize((n) => Math.min(48, n + 2))}>
                 A+
               </Button>
             </div>
@@ -213,15 +215,15 @@ function SpeakerView({ popup, position, index, count, steps, nextId, clock, onCl
             <Preview slide={nextSlide} done={0} width={nextW} />
           ) : (
             <div className="flex items-center justify-center rounded-md border border-dashed border-line text-xs text-fg-subtle" style={{ width: nextW, height: (nextW * 9) / 16 }}>
-              End of presentation
+              {localize('End of presentation', '放映结束')}
             </div>
           )}
           <div className="mt-2 flex gap-2">
             <Button icon={<ChevronLeft className="size-4" />} disabled={index === 0 && position.done === 0} onClick={onPrevious}>
-              Previous
+              {localize('Previous', '上一步')}
             </Button>
             <Button variant="primary" disabled={!moreBuilds && !nextSlide} onClick={onNext}>
-              Next
+              {localize('Next', '下一步')}
               <ChevronRight className="size-4" />
             </Button>
           </div>

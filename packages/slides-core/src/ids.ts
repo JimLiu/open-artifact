@@ -275,6 +275,18 @@ export const SHAPE_LABELS = {
   line: 'Line',
 } as const;
 
+const SHAPE_LABELS_ZH: Record<keyof typeof SHAPE_LABELS, string> = {
+  rect: '矩形',
+  rounded: '圆角矩形',
+  ellipse: '椭圆',
+  diamond: '菱形（判断）',
+  'arrow-right': '右箭头',
+  'arrow-left': '左箭头',
+  'arrow-up': '上箭头',
+  'arrow-down': '下箭头',
+  line: '直线',
+};
+
 /** The context kind of a node. */
 export function contextKind(node: SlideNode): ContextKind {
   switch (node.kind) {
@@ -333,38 +345,39 @@ function firstText(node: SlideNode): string | undefined {
 }
 
 /** The context label of a node: its first words, or a short name. */
-export function nodeLabel(node: SlideNode, max = 60): string {
+export function nodeLabel(node: SlideNode, max = 60, locale = 'en'): string {
+  const zh = locale === 'zh-CN';
   switch (node.kind) {
     case 'text':
     case 'list':
     case 'textbox': {
       const text = squash(nodeText(node));
-      return text ? truncate(text, max) : 'Empty text';
+      return text ? truncate(text, max) : zh ? '空文本' : 'Empty text';
     }
     case 'image': {
       const alt = squash(node.alt ?? '');
-      return alt ? truncate(`Image — ${alt}`, max) : 'Image';
+      return alt ? truncate(zh ? `图片：${alt}` : `Image — ${alt}`, max) : zh ? '图片' : 'Image';
     }
     case 'svg':
-      return 'Image';
+      return zh ? '图片' : 'Image';
     case 'icon':
-      return truncate(`Icon — ${node.name}`, max);
+      return truncate(zh ? `图标：${node.name}` : `Icon — ${node.name}`, max);
     case 'shape':
-      return SHAPE_LABELS[node.shape];
+      return (zh ? SHAPE_LABELS_ZH : SHAPE_LABELS)[node.shape];
     case 'connector':
-      return 'Connector';
+      return zh ? '连接线' : 'Connector';
     case 'rule':
-      return 'Line';
+      return zh ? '直线' : 'Line';
     case 'embed':
-      return 'Web embed';
+      return zh ? '嵌入网页' : 'Web embed';
     case 'table':
-      return `Table ${node.rows.length}×${Math.max(0, ...node.rows.map((r) => r.cells.length))}`;
+      return `${zh ? '表格' : 'Table'} ${node.rows.length}×${Math.max(0, ...node.rows.map((r) => r.cells.length))}`;
     case 'box': {
       const kind = contextKind(node);
-      if (kind === 'spacer') return 'Spacer';
-      const name = kind === 'grid' ? 'Grid' : kind === 'overlay' ? 'Overlay' : 'Group';
+      if (kind === 'spacer') return zh ? '占位间距' : 'Spacer';
+      const name = kind === 'grid' ? (zh ? '网格' : 'Grid') : kind === 'overlay' ? (zh ? '层叠布局' : 'Overlay') : (zh ? '组合' : 'Group');
       const text = firstText(node);
-      return text ? truncate(`${name} — ${text}`, max) : name;
+      return text ? truncate(zh ? `${name}：${text}` : `${name} — ${text}`, max) : name;
     }
   }
 }

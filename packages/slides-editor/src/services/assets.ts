@@ -4,6 +4,7 @@
  * to six files on the current slide at once.
  */
 
+import { localize } from '@open-artifact/runtime';
 import { LIMITS, newImage, parseVideoUrl, pinNode, round2, setImageSource, setVideo, SLIDE_HEIGHT, SLIDE_WIDTH, type ImageNode, type NodePath, type Rect, type SlideNode } from '@open-artifact/slides-core';
 import { drawScaled } from '@open-artifact/export-kit';
 import { toast } from '@open-artifact/ui';
@@ -40,7 +41,7 @@ function loadImage(url: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const image = new Image();
     image.onload = () => resolve(image);
-    image.onerror = () => reject(new Error('The picture could not be read.'));
+    image.onerror = () => reject(new Error(localize('The picture could not be read.', '无法读取图片。')));
     image.src = url;
   });
 }
@@ -56,7 +57,7 @@ async function downscale(file: File): Promise<{ blob: Blob; width: number; heigh
     // SVG and GIF stay as they are (vector / animation).
     if (edge <= LIMITS.imageEdge || /svg|gif/.test(file.type)) return { blob: file, width, height };
     const canvas = drawScaled(image, width, height, LIMITS.imageEdge / edge, { minSide: 0 });
-    if (!canvas) throw new Error('The picture could not be drawn.');
+    if (!canvas) throw new Error(localize('The picture could not be drawn.', '无法绘制图片。'));
     const type = file.type === 'image/png' || file.type === 'image/webp' ? file.type : 'image/jpeg';
     const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, type, 0.9));
     return { blob: blob ?? file, width: canvas.width, height: canvas.height };
@@ -68,7 +69,7 @@ async function downscale(file: File): Promise<{ blob: Blob; width: number; heigh
 /** Uploads a picture. */
 export async function uploadImage(file: File): Promise<Uploaded> {
   const assets = session().assets;
-  if (!assets) throw new Error('Uploads are not available here.');
+  if (!assets) throw new Error(localize('Uploads are not available here.', '此处无法上传文件。'));
   const { blob, width, height } = await downscale(file);
   const record = await assets.upload(blob, { name: file.name });
   return { src: record.url, width, height };
@@ -84,7 +85,7 @@ async function probeVideo(blob: Blob): Promise<{ width: number; height: number; 
     video.src = url;
     await new Promise<void>((resolve, reject) => {
       video.onloadeddata = () => resolve();
-      video.onerror = () => reject(new Error('The clip could not be read.'));
+      video.onerror = () => reject(new Error(localize('The clip could not be read.', '无法读取视频。')));
     });
     const width = video.videoWidth || 1280;
     const height = video.videoHeight || 720;
@@ -115,7 +116,7 @@ async function probeVideo(blob: Blob): Promise<{ width: number; height: number; 
  * MediaRecorder at a bitrate chosen from its length. Runs in real time.
  */
 async function shrinkVideo(file: File, duration: number, onProgress: (fraction: number) => void): Promise<Blob> {
-  if (typeof MediaRecorder === 'undefined') throw new Error('This browser cannot compress clips. Compress it to under 20 MB first.');
+  if (typeof MediaRecorder === 'undefined') throw new Error(localize('This browser cannot compress clips. Compress it to under 20 MB first.', '此浏览器无法压缩视频。请先将视频压缩至 20 MB 以下。'));
   const url = URL.createObjectURL(file);
   try {
     const video = document.createElement('video');
@@ -124,10 +125,10 @@ async function shrinkVideo(file: File, duration: number, onProgress: (fraction: 
     video.playsInline = true;
     await new Promise<void>((resolve, reject) => {
       video.onloadedmetadata = () => resolve();
-      video.onerror = () => reject(new Error('The clip could not be read.'));
+      video.onerror = () => reject(new Error(localize('The clip could not be read.', '无法读取视频。')));
     });
     const capture = (video as HTMLVideoElement & { captureStream?: () => MediaStream }).captureStream;
-    if (!capture) throw new Error('This browser cannot compress clips. Compress it to under 20 MB first.');
+    if (!capture) throw new Error(localize('This browser cannot compress clips. Compress it to under 20 MB first.', '此浏览器无法压缩视频。请先将视频压缩至 20 MB 以下。'));
     const stream = capture.call(video);
     const seconds = Math.max(1, duration || video.duration || 60);
     // 90% of the limit, leaving room for the container.
@@ -147,7 +148,7 @@ async function shrinkVideo(file: File, duration: number, onProgress: (fraction: 
     await video.play();
     await done;
     const blob = new Blob(chunks, { type: 'video/webm' });
-    if (blob.size > LIMITS.videoBytes) throw new Error('The clip is still over 20 MB after compressing. Trim it first.');
+    if (blob.size > LIMITS.videoBytes) throw new Error(localize('The clip is still over 20 MB after compressing. Trim it first.', '压缩后的视频仍超过 20 MB。请先截短视频。'));
     return blob;
   } finally {
     URL.revokeObjectURL(url);
@@ -157,14 +158,14 @@ async function shrinkVideo(file: File, duration: number, onProgress: (fraction: 
 /** Uploads a clip (compressing it first when it is over the limit) and its poster frame. */
 export async function uploadVideo(file: File): Promise<Uploaded> {
   const assets = session().assets;
-  if (!assets) throw new Error('Uploads are not available here.');
+  if (!assets) throw new Error(localize('Uploads are not available here.', '此处无法上传文件。'));
   const probe = await probeVideo(file);
   let data: Blob = file;
   if (file.size > LIMITS.videoBytes) {
-    const id = toast.add({ title: 'Compressing…', description: 'Keep this tab open until the clip is placed.', timeout: 0 });
+    const id = toast.add({ title: localize('Compressing…', '正在压缩…'), description: localize('Keep this tab open until the clip is placed.', '请保持此标签页打开，直到视频插入完成。'), timeout: 0 });
     try {
       data = await shrinkVideo(file, probe.duration, (fraction) =>
-        toast.update(id, { title: `Compressing… ${Math.round(fraction * 100)}%`, description: 'Keep this tab open until the clip is placed.' }),
+        toast.update(id, { title: localize(`Compressing… ${Math.round(fraction * 100)}%`, `正在压缩… ${Math.round(fraction * 100)}%`), description: localize('Keep this tab open until the clip is placed.', '请保持此标签页打开，直到视频插入完成。') }),
       );
     } finally {
       toast.close(id);
@@ -202,11 +203,11 @@ function nodeFor(upload: Uploaded, video: boolean, at: { x: number; y: number },
 export async function placeFiles(files: readonly File[], at: { x: number; y: number } = { x: SLIDE_WIDTH / 2, y: SLIDE_HEIGHT / 2 }): Promise<void> {
   if (!currentSlide()) return;
   const placeable = files.filter(isPlaceable);
-  if (placeable.length < files.length) toast.add({ title: 'Some files were skipped', description: 'Pictures (PNG, JPEG, GIF, WebP, SVG) and clips (MP4, MOV, WebM) can be placed.' });
-  if (placeable.length > LIMITS.insertImages) toast.add({ title: `Placing the first ${LIMITS.insertImages} files` });
+  if (placeable.length < files.length) toast.add({ title: localize('Some files were skipped', '已跳过部分文件'), description: localize('Pictures (PNG, JPEG, GIF, WebP, SVG) and clips (MP4, MOV, WebM) can be placed.', '可插入图片（PNG、JPEG、GIF、WebP、SVG）和视频（MP4、MOV、WebM）。') });
+  if (placeable.length > LIMITS.insertImages) toast.add({ title: localize(`Placing the first ${LIMITS.insertImages} files`, `正在插入前 ${LIMITS.insertImages} 个文件`) });
   const chosen = placeable.slice(0, LIMITS.insertImages);
   if (chosen.length === 0) return;
-  const pending = toast.add({ title: chosen.length === 1 ? 'Uploading…' : `Uploading ${chosen.length} files…`, timeout: 0 });
+  const pending = toast.add({ title: chosen.length === 1 ? localize('Uploading…', '正在上传…') : localize(`Uploading ${chosen.length} files…`, `正在上传 ${chosen.length} 个文件…`), timeout: 0 });
   const nodes: SlideNode[] = [];
   try {
     for (const [i, file] of chosen.entries()) {
@@ -215,13 +216,13 @@ export async function placeFiles(files: readonly File[], at: { x: number; y: num
         const upload = video ? await uploadVideo(file) : await uploadImage(file);
         nodes.push(nodeFor(upload, video, at, i));
       } catch (error) {
-        toast.add({ title: `${file.name} could not be added`, description: error instanceof Error ? error.message : String(error) });
+        toast.add({ title: localize(`${file.name} could not be added`, `无法添加 ${file.name}`), description: error instanceof Error ? error.message : String(error) });
       }
     }
   } finally {
     toast.close(pending);
   }
-  insertPinned(nodes.length === 1 ? 'Add picture' : `Add ${nodes.length} pictures`, nodes);
+  insertPinned(nodes.length === 1 ? localize('Add picture', '添加图片') : localize(`Add ${nodes.length} pictures`, `添加 ${nodes.length} 张图片`), nodes);
 }
 
 /** Replaces the picture of the image at `path` (keeps its frame). */
@@ -229,7 +230,7 @@ export async function replaceImage(path: NodePath, file: File): Promise<void> {
   try {
     const video = isVideoFile(file);
     const upload = video ? await uploadVideo(file) : await uploadImage(file);
-    changeCurrent(video ? 'Replace clip' : 'Replace picture', (slide) =>
+    changeCurrent(video ? localize('Replace clip', '替换视频') : localize('Replace picture', '替换图片'), (slide) =>
       updateNodeAt(slide, path, (node) => {
         if (node.kind !== 'image') return node;
         if (!video) return setImageSource(setVideo(node, null), upload.src, node.alt);
@@ -237,7 +238,7 @@ export async function replaceImage(path: NodePath, file: File): Promise<void> {
       }),
     );
   } catch (error) {
-    toast.add({ title: `${file.name} could not be added`, description: error instanceof Error ? error.message : String(error) });
+    toast.add({ title: localize(`${file.name} could not be added`, `无法添加 ${file.name}`), description: error instanceof Error ? error.message : String(error) });
   }
 }
 
@@ -245,11 +246,11 @@ export async function replaceImage(path: NodePath, file: File): Promise<void> {
 export async function replacePoster(path: NodePath, file: File): Promise<void> {
   try {
     const upload = await uploadImage(file);
-    changeCurrent('Set clip cover', (slide) =>
+    changeCurrent(localize('Set clip cover', '设置视频封面'), (slide) =>
       updateNodeAt(slide, path, (node) => (node.kind === 'image' ? setVideo(setImageSource(node, upload.src, node.alt), { still: 'custom' }) : node)),
     );
   } catch (error) {
-    toast.add({ title: 'The cover could not be set', description: error instanceof Error ? error.message : String(error) });
+    toast.add({ title: localize('The cover could not be set', '无法设置封面'), description: error instanceof Error ? error.message : String(error) });
   }
 }
 
@@ -270,7 +271,7 @@ export async function posterFromClip(path: NodePath, seconds = 0.5): Promise<voi
   if (!src) return;
   try {
     const response = await fetch(resolveSrc(src));
-    if (!response.ok) throw new Error(`The clip could not be read (${response.status}).`);
+    if (!response.ok) throw new Error(localize(`The clip could not be read (${response.status}).`, `无法读取视频（${response.status}）。`));
     const blob = await response.blob();
     const url = URL.createObjectURL(blob);
     try {
@@ -280,7 +281,7 @@ export async function posterFromClip(path: NodePath, seconds = 0.5): Promise<voi
       video.src = url;
       await new Promise<void>((resolve, reject) => {
         video.onloadeddata = () => resolve();
-        video.onerror = () => reject(new Error('The clip could not be read.'));
+        video.onerror = () => reject(new Error(localize('The clip could not be read.', '无法读取视频。')));
       });
       video.currentTime = Math.max(0, Math.min(seconds, (video.duration || 1) - 0.05));
       await new Promise<void>((resolve) => {
@@ -295,13 +296,13 @@ export async function posterFromClip(path: NodePath, seconds = 0.5): Promise<voi
       canvas.height = Math.round(height * scale);
       canvas.getContext('2d')!.drawImage(video, 0, 0, canvas.width, canvas.height);
       const poster = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.85));
-      if (!poster) throw new Error('The frame could not be captured.');
-      await setPosterBlob(path, poster, 'clip', 'Use clip frame as cover');
+      if (!poster) throw new Error(localize('The frame could not be captured.', '无法截取视频帧。'));
+      await setPosterBlob(path, poster, 'clip', localize('Use clip frame as cover', '将视频帧设为封面'));
     } finally {
       URL.revokeObjectURL(url);
     }
   } catch (error) {
-    toast.add({ title: 'The cover could not be set', description: error instanceof Error ? error.message : String(error) });
+    toast.add({ title: localize('The cover could not be set', '无法设置封面'), description: error instanceof Error ? error.message : String(error) });
   }
 }
 
@@ -312,15 +313,15 @@ export async function posterFromSite(path: NodePath): Promise<void> {
   const link = node?.kind === 'image' ? node.video?.link : undefined;
   const url = link ? videoThumbnailUrl(link) : null;
   if (!url) {
-    toast.add({ title: "This site doesn't offer a thumbnail", description: 'Choose a picture for the cover instead.' });
+    toast.add({ title: localize("This site doesn't offer a thumbnail", '此站点未提供缩略图'), description: localize('Choose a picture for the cover instead.', '请选择一张图片作为封面。') });
     return;
   }
   try {
     const response = await fetch(url, { mode: 'cors' });
-    if (!response.ok) throw new Error(`The thumbnail could not be loaded (${response.status}).`);
-    await setPosterBlob(path, await response.blob(), 'site', "Use site's thumbnail as cover");
+    if (!response.ok) throw new Error(localize(`The thumbnail could not be loaded (${response.status}).`, `无法加载缩略图（${response.status}）。`));
+    await setPosterBlob(path, await response.blob(), 'site', localize("Use site's thumbnail as cover", '将站点缩略图设为封面'));
   } catch (error) {
-    toast.add({ title: 'The thumbnail could not be loaded', description: error instanceof Error ? error.message : 'Choose a picture for the cover instead.' });
+    toast.add({ title: localize('The thumbnail could not be loaded', '无法加载缩略图'), description: error instanceof Error ? error.message : localize('Choose a picture for the cover instead.', '请选择一张图片作为封面。') });
   }
 }
 
@@ -335,12 +336,12 @@ export function insertVideoLink(url: string, path?: NodePath): boolean {
     const slide = currentSlide();
     const node = slide ? nodeAt(slide, path) : undefined;
     if (node?.kind === 'image') {
-      changeCurrent('Set video link', (s) => updateNodeAt(s, path, (n) => (n.kind === 'image' ? setVideo(n, { link, src: undefined }) : n)));
+      changeCurrent(localize('Set video link', '设置视频链接'), (s) => updateNodeAt(s, path, (n) => (n.kind === 'image' ? setVideo(n, { link, src: undefined }) : n)));
       return true;
     }
   }
   const node = setVideo(pinNode({ kind: 'image', style: { 'object-fit': 'cover' } }, centeredRect(1120, 630)) as ImageNode, { link });
-  insertPinned('Add video', [node]);
+  insertPinned(localize('Add video', '添加视频'), [node]);
   return true;
 }
 

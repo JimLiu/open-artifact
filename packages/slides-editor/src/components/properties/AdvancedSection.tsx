@@ -13,6 +13,7 @@
  *   compiler's property table).
  */
 
+import { localize } from '@open-artifact/runtime';
 import { Plus, X } from 'lucide-react';
 import { useMemo, useState, type ReactNode } from 'react';
 import {
@@ -46,7 +47,7 @@ function Subsection({ title, children }: { title: string; children: ReactNode })
 /** Every Advanced subsection the selection has. */
 export function AdvancedSection({ target }: { target: Target }): ReactNode {
   return (
-    <Section title="Advanced" collapsible>
+    <Section title={localize('Advanced', '高级')} collapsible>
       <SizingRows target={target} />
       <EffectRows target={target} />
       <CssRows target={target} />
@@ -59,11 +60,11 @@ export function AdvancedSection({ target }: { target: Target }): ReactNode {
 /* -------------------------------------------------------------------------- */
 
 const SELF_OPTIONS = [
-  { value: 'auto', label: 'Auto' },
-  { value: 'start', label: 'Start' },
-  { value: 'center', label: 'Center' },
-  { value: 'end', label: 'End' },
-  { value: 'stretch', label: 'Stretch' },
+  { value: 'auto', label: localize('Auto', '自动') },
+  { value: 'start', label: localize('Start', '起点') },
+  { value: 'center', label: localize('Center', '居中') },
+  { value: 'end', label: localize('End', '终点') },
+  { value: 'stretch', label: localize('Stretch', '拉伸') },
 ] as const;
 
 /** grow, shrink and basis of a flow child, from `flex` or its longhands. */
@@ -109,29 +110,29 @@ function SizingRows({ target }: { target: Target }): ReactNode {
   const basisPx = /^([\d.]+)px$/.exec(flex.basis);
   const selfValue = (shared: { value: string | undefined; mixed: boolean }): string | null => (shared.mixed ? null : (shared.value?.replace(/^flex-/, '') ?? 'auto'));
   return (
-    <Subsection title="Sizing">
-      <Row label="Align self">
-        <SelectInput aria-label="Align self" value={selfValue(alignSelf)} placeholder="Mixed" options={SELF_OPTIONS.map((o) => ({ ...o }))} onChange={(v) => commitCss(target, 'align-self', v === 'auto' ? '' : v, 'Align self')} />
+    <Subsection title={localize('Sizing', '尺寸调整')}>
+      <Row label={localize('Align self', '自身对齐')}>
+        <SelectInput aria-label={localize('Align self', '自身对齐')} value={selfValue(alignSelf)} placeholder={localize('Mixed', '混合值')} options={SELF_OPTIONS.map((o) => ({ ...o }))} onChange={(v) => commitCss(target, 'align-self', v === 'auto' ? '' : v, localize('Align self', '自身对齐'))} />
       </Row>
       {grid ? (
-        <Row label="Justify self">
-          <SelectInput aria-label="Justify self" value={selfValue(justifySelf)} placeholder="Mixed" options={SELF_OPTIONS.map((o) => ({ ...o }))} onChange={(v) => commitCss(target, 'justify-self', v === 'auto' ? '' : v, 'Justify self')} />
+        <Row label={localize('Justify self', '自身主轴对齐')}>
+          <SelectInput aria-label={localize('Justify self', '自身主轴对齐')} value={selfValue(justifySelf)} placeholder={localize('Mixed', '混合值')} options={SELF_OPTIONS.map((o) => ({ ...o }))} onChange={(v) => commitCss(target, 'justify-self', v === 'auto' ? '' : v, localize('Justify self', '自身主轴对齐'))} />
         </Row>
       ) : (
         <>
-          <Row label="Grow" tip="How much of the group's spare room this child takes">
-            <NumberInput aria-label="Grow" value={flex.grow} min={0} max={1000} onCommit={(v) => writeFlex(target, 'Grow', (f) => ({ ...f, grow: v ?? 0 }))} />
+          <Row label={localize('Grow', '扩展')} tip={localize("How much of the group's spare room this child takes", '子元素占用组合剩余空间的比例')}>
+            <NumberInput aria-label={localize('Grow', '扩展')} value={flex.grow} min={0} max={1000} onCommit={(v) => writeFlex(target, localize('Grow', '扩展'), (f) => ({ ...f, grow: v ?? 0 }))} />
           </Row>
-          <Row label="Shrink" tip="How much this child gives up when the group runs out of room">
-            <NumberInput aria-label="Shrink" value={flex.shrink} min={0} max={1000} onCommit={(v) => writeFlex(target, 'Shrink', (f) => ({ ...f, shrink: v ?? 1 }))} />
+          <Row label={localize('Shrink', '收缩')} tip={localize('How much this child gives up when the group runs out of room', '空间不足时子元素收缩的比例')}>
+            <NumberInput aria-label={localize('Shrink', '收缩')} value={flex.shrink} min={0} max={1000} onCommit={(v) => writeFlex(target, localize('Shrink', '收缩'), (f) => ({ ...f, shrink: v ?? 1 }))} />
           </Row>
-          <Row label="Basis" tip="The size this child starts from before growing or shrinking">
-            <NumberInput aria-label="Basis" value={basisPx ? Number(basisPx[1]) : null} placeholder={flex.basis === '0%' ? '0' : 'Auto'} unit="px" min={0} max={4096} step={8} onCommit={(v) => writeFlex(target, 'Basis', (f) => ({ ...f, basis: v === null ? 'auto' : `${v}px` }))} />
+          <Row label={localize('Basis', '基准尺寸')} tip={localize('The size this child starts from before growing or shrinking', '子元素扩展或收缩前的初始尺寸')}>
+            <NumberInput aria-label={localize('Basis', '基准尺寸')} value={basisPx ? Number(basisPx[1]) : null} placeholder={flex.basis === '0%' ? '0' : localize('Auto', '自动')} unit="px" min={0} max={4096} step={8} onCommit={(v) => writeFlex(target, localize('Basis', '基准尺寸'), (f) => ({ ...f, basis: v === null ? 'auto' : `${v}px` }))} />
           </Row>
         </>
       )}
-      <Row label="Aspect">
-        <CssField target={target} property="aspect-ratio" label="Aspect ratio" placeholder="Auto" />
+      <Row label={localize('Aspect', '宽高比')}>
+        <CssField target={target} property="aspect-ratio" label={localize('Aspect ratio', '宽高比')} placeholder={localize('Auto', '自动')} />
       </Row>
     </Subsection>
   );
@@ -142,14 +143,14 @@ function SizingRows({ target }: { target: Target }): ReactNode {
 /* -------------------------------------------------------------------------- */
 
 const FILTER_LABELS: Record<FilterFunction, string> = {
-  blur: 'Blur',
-  brightness: 'Brightness',
-  contrast: 'Contrast',
-  saturate: 'Saturate',
-  grayscale: 'Grayscale',
-  sepia: 'Sepia',
-  invert: 'Invert',
-  'hue-rotate': 'Hue',
+  blur: localize('Blur', '模糊'),
+  brightness: localize('Brightness', '亮度'),
+  contrast: localize('Contrast', '对比度'),
+  saturate: localize('Saturate', '饱和度'),
+  grayscale: localize('Grayscale', '灰度'),
+  sepia: localize('Sepia', '棕褐色'),
+  invert: localize('Invert', '反色'),
+  'hue-rotate': localize('Hue', '色相'),
 };
 
 /** Amounts with no effect (a field at this value removes the function). */
@@ -170,17 +171,17 @@ function unitOf(fn: FilterFunction): string {
 /** "Blur 4px · Brightness 120%", or "None". */
 function filterSummary(filters: Filters): string {
   const parts = FILTER_KEYS.filter((fn) => filters[fn] !== undefined).map((fn) => `${FILTER_LABELS[fn]} ${shownAmount(fn, filters[fn]!)}${unitOf(fn)}`);
-  return parts.length ? parts.join(' · ') : 'None';
+  return parts.length ? parts.join(' · ') : localize('None', '无');
 }
 
 const BLEND_OPTIONS = [
-  { value: 'default', label: 'Default' },
-  { value: 'normal', label: 'Normal' },
-  { value: 'multiply', label: 'Multiply' },
-  { value: 'screen', label: 'Screen' },
-  { value: 'overlay', label: 'Overlay' },
-  { value: 'darken', label: 'Darken' },
-  { value: 'lighten', label: 'Lighten' },
+  { value: 'default', label: localize('Default', '默认') },
+  { value: 'normal', label: localize('Normal', '正常') },
+  { value: 'multiply', label: localize('Multiply', '正片叠底') },
+  { value: 'screen', label: localize('Screen', '滤色') },
+  { value: 'overlay', label: localize('Overlay', '叠加') },
+  { value: 'darken', label: localize('Darken', '变暗') },
+  { value: 'lighten', label: localize('Lighten', '变亮') },
 ] as const;
 
 const FILTER_KINDS = new Set(['box', 'text', 'list', 'textbox', 'image', 'shape']);
@@ -194,13 +195,13 @@ function EffectRows({ target }: { target: Target }): ReactNode {
   if (!filterable && !transformable) return null;
   const blend = sharedStyle(target, 'mix-blend-mode');
   return (
-    <Subsection title="Effects">
-      {filterable ? <FilterRow target={target} property="filter" label="Filter" /> : null}
-      {filterable ? <FilterRow target={target} property="backdrop-filter" label="Backdrop" /> : null}
+    <Subsection title={localize('Effects', '效果')}>
+      {filterable ? <FilterRow target={target} property="filter" label={localize('Filter', '滤镜')} /> : null}
+      {filterable ? <FilterRow target={target} property="backdrop-filter" label={localize('Backdrop', '背景滤镜')} /> : null}
       {transformable ? <TransformRow target={target} /> : null}
       {filterable ? (
-        <Row label="Blend">
-          <SelectInput aria-label="Blend mode" value={blend.mixed ? null : (blend.value ?? 'default')} placeholder="Mixed" options={BLEND_OPTIONS.map((o) => ({ ...o }))} onChange={(v) => commitCss(target, 'mix-blend-mode', v === 'default' ? '' : v, 'Blend mode')} />
+        <Row label={localize('Blend', '混合')}>
+          <SelectInput aria-label={localize('Blend mode', '混合模式')} value={blend.mixed ? null : (blend.value ?? 'default')} placeholder={localize('Mixed', '混合值')} options={BLEND_OPTIONS.map((o) => ({ ...o }))} onChange={(v) => commitCss(target, 'mix-blend-mode', v === 'default' ? '' : v, localize('Blend mode', '混合模式'))} />
         </Row>
       ) : null}
     </Subsection>
@@ -212,7 +213,7 @@ function FilterRow({ target, property, label }: { target: Target; property: 'fil
   const shared = sharedStyle(target, property);
   const parsed = shared.value && !shared.mixed ? parseFilters(shared.value) : null;
   const filters: Filters = parsed?.ok ? parsed.value : {};
-  const title = property === 'filter' ? 'Filter' : 'Background filter';
+  const title = property === 'filter' ? localize('Filter', '滤镜') : localize('Background filter', '背景滤镜');
   const set = (fn: FilterFunction, shown: number | null): void => {
     const next: Filters = { ...filters };
     const amount = shown === null ? null : FILTER_FUNCTIONS[fn].unit === '' ? shown / 100 : shown;
@@ -221,8 +222,8 @@ function FilterRow({ target, property, label }: { target: Target; property: 'fil
     commitCss(target, property, formatFilters(next), title, `${property}-${fn}`);
   };
   return (
-    <Row label={label} onReset={shared.value ? () => commitCss(target, property, '', title) : undefined} resetLabel={`Remove ${title.toLowerCase()}`}>
-      <PanelField title={title} text={shared.mixed ? 'Mixed' : filterSummary(filters)}>
+    <Row label={label} onReset={shared.value ? () => commitCss(target, property, '', title) : undefined} resetLabel={localize(`Remove ${title.toLowerCase()}`, `移除${title}`)}>
+      <PanelField title={title} text={shared.mixed ? localize('Mixed', '混合值') : filterSummary(filters)}>
         {FILTER_KEYS.map((fn) => {
           const spec = FILTER_FUNCTIONS[fn];
           const ratio = spec.unit === '' ? 100 : 1;
@@ -249,11 +250,11 @@ function FilterRow({ target, property, label }: { target: Target; property: 'fil
 /** "Move 10, 0 · Rotate 15°", or "None". */
 function transformSummary(t: Transform): string {
   const parts: string[] = [];
-  if (t.translateX !== undefined || t.translateY !== undefined) parts.push(`Move ${t.translateX ?? 0}, ${t.translateY ?? 0}`);
-  if (t.scale !== undefined) parts.push(`Scale ${Math.round(t.scale * 100)}%`);
-  if (t.rotate !== undefined) parts.push(`Rotate ${t.rotate}°`);
-  if (t.skewX !== undefined || t.skewY !== undefined) parts.push(`Skew ${t.skewX ?? 0}°, ${t.skewY ?? 0}°`);
-  return parts.length ? parts.join(' · ') : 'None';
+  if (t.translateX !== undefined || t.translateY !== undefined) parts.push(localize(`Move ${t.translateX ?? 0}, ${t.translateY ?? 0}`, `位移 ${t.translateX ?? 0}，${t.translateY ?? 0}`));
+  if (t.scale !== undefined) parts.push(localize(`Scale ${Math.round(t.scale * 100)}%`, `缩放 ${Math.round(t.scale * 100)}%`));
+  if (t.rotate !== undefined) parts.push(localize(`Rotate ${t.rotate}°`, `旋转 ${t.rotate}°`));
+  if (t.skewX !== undefined || t.skewY !== undefined) parts.push(localize(`Skew ${t.skewX ?? 0}°, ${t.skewY ?? 0}°`, `倾斜 ${t.skewX ?? 0}°，${t.skewY ?? 0}°`));
+  return parts.length ? parts.join(' · ') : localize('None', '无');
 }
 
 /** The transform as a field; its panel moves, scales, rotates and skews. */
@@ -267,25 +268,25 @@ function TransformRow({ target }: { target: Target }): ReactNode {
       const neutral = key === 'scale' ? 1 : 0;
       if (next[key] === undefined || next[key] === neutral) delete next[key];
     }
-    commitCss(target, 'transform', formatTransform(next), 'Transform', 'transform');
+    commitCss(target, 'transform', formatTransform(next), localize('Transform', '变换'), 'transform');
   };
   const px = (v: number | '-50%' | undefined): number | null => (typeof v === 'number' ? v : null);
   return (
-    <Row label="Transform" onReset={shared.value ? () => commitCss(target, 'transform', '', 'Transform') : undefined} resetLabel="Remove transform">
-      <PanelField title="Transform" text={shared.mixed ? 'Mixed' : transformSummary(transform)}>
-        <Row label="Move">
-          <NumberInput aria-label="Move x" label="X" value={px(transform.translateX)} placeholder={transform.translateX === '-50%' ? '−50%' : '0'} steppers={false} min={-4000} max={4000} onCommit={(v) => set({ translateX: v ?? 0 })} />
-          <NumberInput aria-label="Move y" label="Y" value={px(transform.translateY)} placeholder={transform.translateY === '-50%' ? '−50%' : '0'} steppers={false} min={-4000} max={4000} onCommit={(v) => set({ translateY: v ?? 0 })} />
+    <Row label={localize('Transform', '变换')} onReset={shared.value ? () => commitCss(target, 'transform', '', localize('Transform', '变换')) : undefined} resetLabel={localize('Remove transform', '移除变换')}>
+      <PanelField title={localize('Transform', '变换')} text={shared.mixed ? localize('Mixed', '混合值') : transformSummary(transform)}>
+        <Row label={localize('Move', '移动')}>
+          <NumberInput aria-label={localize('Move x', '水平位移')} label="X" value={px(transform.translateX)} placeholder={transform.translateX === '-50%' ? '−50%' : '0'} steppers={false} min={-4000} max={4000} onCommit={(v) => set({ translateX: v ?? 0 })} />
+          <NumberInput aria-label={localize('Move y', '垂直位移')} label="Y" value={px(transform.translateY)} placeholder={transform.translateY === '-50%' ? '−50%' : '0'} steppers={false} min={-4000} max={4000} onCommit={(v) => set({ translateY: v ?? 0 })} />
         </Row>
-        <Row label="Scale">
-          <NumberInput aria-label="Scale" value={transform.scale === undefined ? null : Math.round(transform.scale * 100)} placeholder="100" unit="%" min={50} max={200} onCommit={(v) => set({ scale: (v ?? 100) / 100 })} />
+        <Row label={localize('Scale', '缩放')}>
+          <NumberInput aria-label={localize('Scale', '缩放')} value={transform.scale === undefined ? null : Math.round(transform.scale * 100)} placeholder="100" unit="%" min={50} max={200} onCommit={(v) => set({ scale: (v ?? 100) / 100 })} />
         </Row>
-        <Row label="Rotate">
-          <NumberInput aria-label="Rotate" value={transform.rotate ?? null} placeholder="0" unit="°" min={-360} max={360} onCommit={(v) => set({ rotate: v ?? 0 })} />
+        <Row label={localize('Rotate', '旋转')}>
+          <NumberInput aria-label={localize('Rotate', '旋转')} value={transform.rotate ?? null} placeholder="0" unit="°" min={-360} max={360} onCommit={(v) => set({ rotate: v ?? 0 })} />
         </Row>
-        <Row label="Skew">
-          <NumberInput aria-label="Skew x" label="X" value={transform.skewX ?? null} placeholder="0" unit="°" steppers={false} min={-60} max={60} onCommit={(v) => set({ skewX: v ?? 0 })} />
-          <NumberInput aria-label="Skew y" label="Y" value={transform.skewY ?? null} placeholder="0" unit="°" steppers={false} min={-60} max={60} onCommit={(v) => set({ skewY: v ?? 0 })} />
+        <Row label={localize('Skew', '倾斜')}>
+          <NumberInput aria-label={localize('Skew x', '水平倾斜')} label="X" value={transform.skewX ?? null} placeholder="0" unit="°" steppers={false} min={-60} max={60} onCommit={(v) => set({ skewX: v ?? 0 })} />
+          <NumberInput aria-label={localize('Skew y', '垂直倾斜')} label="Y" value={transform.skewY ?? null} placeholder="0" unit="°" steppers={false} min={-60} max={60} onCommit={(v) => set({ skewY: v ?? 0 })} />
         </Row>
       </PanelField>
     </Row>
@@ -309,7 +310,7 @@ function CssRows({ target }: { target: Target }): ReactNode {
 
   return (
     <Subsection title="CSS">
-      {declared.length === 0 ? <p className="px-4 text-[12px] text-chrome-muted">No declarations.</p> : null}
+      {declared.length === 0 ? <p className="px-4 text-[12px] text-chrome-muted">{localize('No declarations.', '暂无 CSS 声明。')}</p> : null}
       <div className="flex flex-col gap-1 px-4">
         {declared.map((property) => (
           <div key={property} className="flex min-w-0 items-center gap-1">
@@ -317,21 +318,21 @@ function CssRows({ target }: { target: Target }): ReactNode {
               {property}
             </span>
             <CssField target={target} property={property} />
-            <IconButton label={`Remove ${property}`} icon={<X className="size-3" />} onClick={() => commitCss(target, property, '', `Remove ${property}`)} />
+            <IconButton label={localize(`Remove ${property}`, `移除 ${property}`)} icon={<X className="size-3" />} onClick={() => commitCss(target, property, '', localize(`Remove ${property}`, `移除 ${property}`))} />
           </div>
         ))}
       </div>
       <div className="flex min-w-0 items-center gap-1 px-4 pt-2">
         <div className="w-28 shrink-0">
-          <SelectInput<CssProperty> aria-label="Property to add" value={adding} placeholder="Add…" options={available.map((p) => ({ value: p, label: p }))} onChange={setAdding} />
+          <SelectInput<CssProperty> aria-label={localize('Property to add', '要添加的属性')} value={adding} placeholder={localize('Add…', '添加…')} options={available.map((p) => ({ value: p, label: p }))} onChange={setAdding} />
         </div>
         {adding ? (
           <CommitInput
             autoFocus
-            aria-label={`${adding} value`}
+            aria-label={localize(`${adding} value`, `${adding}的属性值`)}
             className="min-w-0 flex-1 font-mono text-xs"
             value=""
-            placeholder="value"
+            placeholder={localize('value', '值')}
             onCommit={(value) => {
               if (value.trim() && commitCss(target, adding, value, adding)) setAdding(null);
             }}

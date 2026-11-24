@@ -16,6 +16,7 @@
  * backgrounds. Anything that cannot carry over is recorded as an export note.
  */
 
+import { localize } from '@open-artifact/runtime';
 import { clipPathPoints, nodeAt, parseClipPath, parsePathKey, SLIDE_HEIGHT, SLIDE_WIDTH, type ConnectorNode, type HeadKind, type ImageNode, type ShapeNode, type SlideNode } from '@open-artifact/slides-core';
 import { connectorGeometry, connectorStroke, parseStroke, SHAPE_POLYGONS, type Point } from '../../render/geometry.ts';
 import { mountSlide, slidePicture, type MountedSlide } from '../capture.ts';
@@ -1050,7 +1051,7 @@ export async function exportPptx(job: ExportJob, options: PptxOptions): Promise<
     job.progress(index + 1);
     await breathe();
   }
-  if (slides.length === 0) throw new Error('There are no slides to export.');
+  if (slides.length === 0) throw new Error(localize('There are no slides to export.', '没有可导出的幻灯片。'));
   let fonts: EmbeddedFont[] | undefined;
   let description: string | undefined;
   if (options.fonts !== 'basic') {

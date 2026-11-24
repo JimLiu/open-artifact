@@ -5,6 +5,7 @@
  * into one undo step per pause, like other text edits.
  */
 
+import { localize } from '@open-artifact/runtime';
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { LIMITS, setNotes } from '@open-artifact/slides-core';
 import { useDeck } from '../state/deck.ts';
@@ -49,12 +50,12 @@ export function NotesEditor({ slideId, className, autoFocus, autoGrow = false }:
     <textarea
       ref={ref}
       rows={autoGrow ? 1 : undefined}
-      aria-label="Speaker notes"
+      aria-label={localize('Speaker notes', '演讲者备注')}
       autoFocus={autoFocus}
       readOnly={!editable}
       value={draft}
       maxLength={LIMITS.notes}
-      placeholder={editable ? 'Speaker notes. Never shown on the slide.' : 'No speaker notes on this slide.'}
+      placeholder={editable ? localize('Speaker notes. Never shown on the slide.', '在此添加演讲者备注。备注仅在演讲者视图中显示。') : localize('No speaker notes on this slide.', '此幻灯片没有演讲者备注。')}
       className={className ?? 'h-full w-full resize-none bg-transparent px-4 py-2 text-[13px] leading-relaxed text-fg outline-none placeholder:text-fg-subtle'}
       onFocus={() => {
         focused.current = true;
@@ -66,7 +67,7 @@ export function NotesEditor({ slideId, className, autoFocus, autoGrow = false }:
       onChange={(event) => {
         const text = event.target.value.slice(0, LIMITS.notes);
         setDraft(text);
-        changeSlide(slideId, 'Edit notes', (slide) => (slide.notes === text ? null : setNotes(slide, text)), { coalesce: `notes:${slideId}` });
+        changeSlide(slideId, localize('Edit notes', '编辑备注'), (slide) => (slide.notes === text ? null : setNotes(slide, text)), { coalesce: `notes:${slideId}` });
       }}
       onKeyDown={(event) => {
         // Escape hands focus back to the stage.

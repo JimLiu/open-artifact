@@ -14,6 +14,7 @@
  * - Palette: the colour roles the deck's colours were read as.
  */
 
+import { localize } from '@open-artifact/runtime';
 import { useMemo, useRef, type KeyboardEvent, type ReactNode } from 'react';
 import { Bot, Check, Paintbrush } from 'lucide-react';
 import { cn } from '@open-artifact/ui';
@@ -96,15 +97,15 @@ export function ThemePanel(): ReactNode {
     const pick = (...ids: string[]): string => ids.map((id) => colors[id]).find(Boolean) ?? '#ffffff';
     return {
       id: ORIGINAL_LOOK,
-      title: 'Original look',
-      subtitle: 'How the deck looked before',
+      title: localize('Original look', '原始外观'),
+      subtitle: localize('How the deck looked before', '演示文稿原先的外观'),
       swatches: [pick('background', 'surface'), pick('text', 'muted', 'on-inverse'), pick('accent', 'text'), pick('surface', 'background'), pick('muted', 'text')],
     };
   }, [memory, analysis]);
   const options = useMemo(() => lookOptions(systems, original), [systems, original]);
   const titleOf = (id: string): string => {
     const found = options.find((o) => o.id === id);
-    return found ? lookTitle(found) : (memory?.recent.find((r) => r.look === id)?.title ?? 'an earlier look');
+    return found ? lookTitle(found) : (memory?.recent.find((r) => r.look === id)?.title ?? localize('an earlier look', '之前的外观'));
   };
 
   const pick = (id: string): void => {
@@ -115,7 +116,7 @@ export function ThemePanel(): ReactNode {
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
-    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+    if (!['ArrowDown', 'ArrowUp', 'Home', localize('End', '终点')].includes(event.key)) return;
     const buttons = [...(list.current?.querySelectorAll<HTMLButtonElement>('[data-look]') ?? [])];
     const at = buttons.indexOf(document.activeElement as HTMLButtonElement);
     const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : Math.max(0, Math.min(buttons.length - 1, (at < 0 ? 0 : at) + (event.key === 'ArrowDown' ? 1 : -1)));
@@ -130,14 +131,14 @@ export function ThemePanel(): ReactNode {
   const choices = useMemo(() => familyChoices(index.faces, systems), [index.faces, systems]);
   const fontOptions = useMemo(
     () => [
-      { value: DEFAULT_FACE, label: 'Default (system font)', group: 'Default' },
+      { value: DEFAULT_FACE, label: localize('Default (system font)', '默认（系统字体）'), group: localize('Default', '默认') },
       ...choices.map((c) => ({ value: c.family.toLowerCase(), label: c.family, group: c.group, style: { fontFamily: `"${c.family}"` } })),
     ],
     [choices],
   );
   const fontValue = (key: string): string => (key === '' ? DEFAULT_FACE : key);
   const withCurrent = (key: string): typeof fontOptions =>
-    key && !fontOptions.some((o) => o.value === key) ? [{ value: key, label: key, group: 'In this deck', style: { fontFamily: `"${key}"` } }, ...fontOptions] : fontOptions;
+    key && !fontOptions.some((o) => o.value === key) ? [{ value: key, label: key, group: localize('In this deck', '演示文稿内置'), style: { fontFamily: `"${key}"` } }, ...fontOptions] : fontOptions;
   const familyOf = (value: string): string => (value === DEFAULT_FACE ? '' : (choices.find((c) => c.family.toLowerCase() === value)?.family ?? value));
 
   const recent = memory?.recent.slice(1).filter((r) => r.look !== current) ?? [];
@@ -145,10 +146,10 @@ export function ThemePanel(): ReactNode {
 
   return (
     <div className="flex min-w-0 flex-col">
-      <Section title="Look">
+      <Section title={localize('Look', '外观')}>
         {systems.length === 0 ? (
           <>
-            <Note>Install a design system in this deck to restyle every slide from its colors and fonts.</Note>
+            <Note>{localize('Install a design system in this deck to restyle every slide from its colors and fonts.', '为此演示文稿安装设计系统，即可将其中的颜色和字体应用到全部幻灯片。')}</Note>
             {agent.available && !readOnly ? (
               <div className="px-4 py-1">
                 <Button
@@ -156,7 +157,7 @@ export function ThemePanel(): ReactNode {
                   icon={<Bot />}
                   onClick={() => void sendToAgent('Install a design system in this deck (copy it under project/ds/ and list it in deck.json designSystems) so I can restyle the slides from the Theme panel.')}
                 >
-                  Ask {agent.name} to add one
+                  {localize(`Ask ${agent.name} to add one`, `请 ${agent.name} 添加设计系统`)}
                 </Button>
               </div>
             ) : null}
@@ -164,21 +165,21 @@ export function ThemePanel(): ReactNode {
         ) : null}
         {!memory && analysis.over ? (
           <Note>
-            This deck uses {analysis.distinct} colors (at most {MAX_RESTYLE_COLORS} can be restyled automatically). Ask {agent.name} to redo its look instead.
+            {localize(`This deck uses ${analysis.distinct} colors (at most ${MAX_RESTYLE_COLORS} can be restyled automatically). Ask ${agent.name} to redo its look instead.`, `此演示文稿使用了 ${analysis.distinct} 种颜色，超出自动调整的 ${MAX_RESTYLE_COLORS} 色上限。可请 ${agent.name} 重新设计其外观。`)}
           </Note>
         ) : null}
-        <div ref={list} role="listbox" aria-label="Looks" aria-disabled={disabled || undefined} onKeyDown={onKeyDown} className={cn('flex flex-col gap-0.5 px-2.5', disabled && 'pointer-events-none opacity-50')}>
+        <div ref={list} role="listbox" aria-label={localize('Looks', '外观方案')} aria-disabled={disabled || undefined} onKeyDown={onKeyDown} className={cn('flex flex-col gap-0.5 px-2.5', disabled && 'pointer-events-none opacity-50')}>
           {options
             .filter((o) => o.id !== ORIGINAL_LOOK || memory)
             .map((option) => (
               <LookTile key={option.id || 'original'} option={option} current={option.id === current} tabStop={option.id === current || (!memory && option === options[1])} onPick={() => pick(option.id)} />
             ))}
-          {!memory && systems.length > 0 ? <Note className="px-1.5">The deck wears its own look. Pick one to restyle every slide; Original look brings it back.</Note> : null}
+          {!memory && systems.length > 0 ? <Note className="px-1.5">{localize('The deck wears its own look. Pick one to restyle every slide; Original look brings it back.', '选择一个外观方案可调整所有幻灯片。选择「原始外观」可恢复原样。')}</Note> : null}
         </div>
         {recent.length ? (
-          <Row label="Recent">
+          <Row label={localize('Recent', '最近使用')}>
             {recent.map((r) => (
-              <Button key={r.look || 'original'} variant="ghost" className="min-w-0 truncate px-1.5" disabled={disabled} onClick={() => pick(r.look)} title={`Switch back to ${titleOf(r.look)}`}>
+              <Button key={r.look || 'original'} variant="ghost" className="min-w-0 truncate px-1.5" disabled={disabled} onClick={() => pick(r.look)} title={localize(`Switch back to ${titleOf(r.look)}`, `切换回「${titleOf(r.look)}」`)}>
                 <Swatches className="h-3" colors={[r.colors.background, r.colors.text, r.colors.accent].filter((c): c is string => Boolean(c))} />
                 <span className="truncate">{titleOf(r.look)}</span>
               </Button>
@@ -188,37 +189,37 @@ export function ThemePanel(): ReactNode {
         {strays.length && memory?.recent[0] ? (
           <div className="mx-4 mt-1 flex flex-col gap-1.5 rounded-[8px] bg-chrome-field p-2.5">
             <span className="text-[12px] leading-[1.45] text-chrome-fg">
-              {strays.length === 1 ? '1 slide still uses' : `${strays.length} slides still use`} colors from an earlier look. Make {strays.length === 1 ? 'it' : 'them'} {titleOf(current)} too?
+              {localize(`${strays.length === 1 ? '1 slide still uses' : `${strays.length} slides still use`} colors from an earlier look. Make ${strays.length === 1 ? 'it' : 'them'} ${titleOf(current)} too?`, `还有 ${strays.length} 张幻灯片使用旧配色。也将它们切换到「${titleOf(current)}」吗？`)}
             </span>
             <Button variant="secondary" icon={<Paintbrush />} disabled={disabled} onClick={applyCurrentLookToAll} className="self-start">
-              Apply to all slides
+              {localize('Apply to all slides', '应用到所有幻灯片')}
             </Button>
           </div>
         ) : null}
       </Section>
-      <Section title="Fonts">
-        <Row label="Headings" tip="The typeface of every heading in the deck">
+      <Section title={localize('Fonts', '字体')}>
+        <Row label={localize('Headings', '标题')} tip={localize('The typeface of every heading in the deck', '应用于演示文稿中的所有标题')}>
           <SelectInput<string>
-            aria-label="Heading font"
+            aria-label={localize('Heading font', '标题字体')}
             value={fontValue(analysis.heading)}
             options={withCurrent(analysis.heading)}
             disabled={disabled}
             onChange={(value) => setDeckFamily('heading', familyOf(value))}
           />
         </Row>
-        <Row label="Body" tip="The typeface of body text across the deck">
+        <Row label={localize('Body', '正文')} tip={localize('The typeface of body text across the deck', '应用于演示文稿中的正文')}>
           <SelectInput<string>
-            aria-label="Body font"
+            aria-label={localize('Body font', '正文字体')}
             value={fontValue(analysis.body)}
             options={withCurrent(analysis.body)}
             disabled={disabled}
             onChange={(value) => setDeckFamily('body', familyOf(value))}
           />
         </Row>
-        <Note>A presentation carries up to four typefaces; changing a font is one undo step.</Note>
+        <Note>{localize('A presentation carries up to four typefaces; changing a font is one undo step.', '一份演示文稿最多可内置四种字体。更改字体可一步撤销。')}</Note>
       </Section>
       {analysis.slots.length ? (
-        <Section title="Palette" collapsible>
+        <Section title={localize('Palette', '配色')} collapsible>
           <div className="flex flex-col gap-0.5 px-4">
             {analysis.slots.slice(0, 24).map((slot) => (
               <div key={slot.id} className="flex min-h-6 items-center gap-2 text-[12px]">
@@ -231,7 +232,7 @@ export function ThemePanel(): ReactNode {
               </div>
             ))}
           </div>
-          <Note>How the deck’s colors were read. A look maps each role to the design system’s matching color.</Note>
+          <Note>{localize('How the deck’s colors were read. A look maps each role to the design system’s matching color.', '这里按用途列出演示文稿的颜色。应用外观方案时，每种用途会匹配设计系统中的对应颜色。')}</Note>
         </Section>
       ) : null}
     </div>

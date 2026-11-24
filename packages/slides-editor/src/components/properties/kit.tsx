@@ -8,6 +8,7 @@
  * section reads the same whichever look it is drawn with.
  */
 
+import { localize } from '@open-artifact/runtime';
 import { Collapsible } from '@base-ui/react/collapsible';
 import { NumberField as BaseNumberField } from '@base-ui/react/number-field';
 import { Popover as BasePopover } from '@base-ui/react/popover';
@@ -83,8 +84,8 @@ export function Row({ label, children, className, tip, onReset, resetLabel }: Ro
         {onReset ? (
           <button
             type="button"
-            aria-label={resetLabel ?? `Reset ${typeof label === 'string' ? label : ''}`.trim()}
-            title={resetLabel ?? `Reset ${typeof label === 'string' ? label : ''}`.trim()}
+            aria-label={resetLabel ?? localize(`Reset ${typeof label === 'string' ? label : ''}`, `重置${typeof label === 'string' ? label : ''}`).trim()}
+            title={resetLabel ?? localize(`Reset ${typeof label === 'string' ? label : ''}`, `重置${typeof label === 'string' ? label : ''}`).trim()}
             onClick={onReset}
             className="flex size-4 shrink-0 items-center justify-center rounded-[4px] text-chrome-muted opacity-0 outline-none hover:bg-chrome-hover hover:text-chrome-fg focus-visible:opacity-100 group-hover/row:opacity-100 group-focus-within/row:opacity-100"
           >
@@ -262,10 +263,10 @@ export function NumberInput({ value, onChange, onCommit, label, unit, min, max, 
       {unit ? <span className="shrink-0 pr-2 text-[12px] text-chrome-muted group-focus-within/num:hidden">{unit}</span> : null}
       {steppers ? (
         <span className="hidden h-full shrink-0 flex-col justify-center pr-0.5 group-focus-within/num:flex [@media(pointer:coarse)]:!hidden">
-          <BaseNumberField.Increment tabIndex={-1} aria-label="Increase" className="flex h-2.5 w-4 items-center justify-center rounded-[3px] text-chrome-muted hover:bg-chrome-hover hover:text-chrome-fg">
+          <BaseNumberField.Increment tabIndex={-1} aria-label={localize('Increase', '增大')} className="flex h-2.5 w-4 items-center justify-center rounded-[3px] text-chrome-muted hover:bg-chrome-hover hover:text-chrome-fg">
             <ChevronUp className="size-3" strokeWidth={2} />
           </BaseNumberField.Increment>
-          <BaseNumberField.Decrement tabIndex={-1} aria-label="Decrease" className="flex h-2.5 w-4 items-center justify-center rounded-[3px] text-chrome-muted hover:bg-chrome-hover hover:text-chrome-fg">
+          <BaseNumberField.Decrement tabIndex={-1} aria-label={localize('Decrease', '减小')} className="flex h-2.5 w-4 items-center justify-center rounded-[3px] text-chrome-muted hover:bg-chrome-hover hover:text-chrome-fg">
             <ChevronDown className="size-3" strokeWidth={2} />
           </BaseNumberField.Decrement>
         </span>
@@ -557,13 +558,13 @@ export type Quad = [number, number, number, number];
 
 const SIDE_NAMES: readonly SideName[] = ['top', 'right', 'bottom', 'left'];
 const CORNER_NAMES: readonly CornerName[] = ['top-left', 'top-right', 'bottom-right', 'bottom-left'];
-const SIDE_LABELS = ['Top', 'Right', 'Bottom', 'Left'];
-const CORNER_LABELS = ['Top left', 'Top right', 'Bottom right', 'Bottom left'];
+const SIDE_LABELS = [localize('Top', '上'), localize('Right', '右'), localize('Bottom', '下'), localize('Left', '左')];
+const CORNER_LABELS = [localize('Top left', '左上'), localize('Top right', '右上'), localize('Bottom right', '右下'), localize('Bottom left', '左下')];
 /** Where each part sits in the 2 × 2 grid: sides T R / B L, corners TL TR / BL BR. */
 const GRID_ORDER = { sides: [0, 1, 2, 3], corners: [0, 1, 3, 2] } as const;
 
 /** Why the per-part toggle can't fold the fields back into one. */
-export const PARTS_DIFFER_REASON = 'The values differ — make them equal to use one field';
+export const PARTS_DIFFER_REASON = localize('The values differ — make them equal to use one field', '当前值各不相同。统一数值后即可用一个字段编辑。');
 
 /** Props of {@link QuadRow}. */
 export interface QuadRowProps {
@@ -596,8 +597,11 @@ export function QuadRow({ label, kind, values, unit, min, max, step, placeholder
   useEffect(() => {
     if (differ) setOpen(true);
   }, [differ]);
-  const per = kind === 'sides' ? 'Per side' : 'Per corner';
   const lower = label.toLowerCase();
+  const detailsLabel = kind === 'sides'
+    ? localize(`${open ? 'Hide' : 'Edit'} ${lower} per side`, `${open ? '隐藏' : '编辑'}各边${label}`)
+    : localize(`${open ? 'Hide' : 'Edit'} ${lower} per corner`, `${open ? '隐藏' : '编辑'}各角${label}`);
+  const per = kind === 'sides' ? localize('Per side', '分别设置各边') : localize('Per corner', '分别设置各角');
   const reason = toggleDisabledReason ?? (open && differ ? PARTS_DIFFER_REASON : undefined);
   const labels = kind === 'sides' ? SIDE_LABELS : CORNER_LABELS;
   const single = values === null || differ ? null : values[0];
@@ -607,7 +611,7 @@ export function QuadRow({ label, kind, values, unit, min, max, step, placeholder
         <NumberInput
           aria-label={label}
           value={single}
-          placeholder={values === null ? 'Mixed' : differ ? per : placeholder}
+          placeholder={values === null ? localize('Mixed', '混合值') : differ ? per : placeholder}
           unit={unit}
           min={min}
           max={max}
@@ -616,7 +620,7 @@ export function QuadRow({ label, kind, values, unit, min, max, step, placeholder
           onCommit={(v) => v !== null && onCommit([v, v, v, v])}
         />
         <IconButton
-          label={`${open ? 'Hide' : 'Edit'} ${lower} per ${kind === 'sides' ? 'side' : 'corner'}`}
+          label={detailsLabel}
           icon={kind === 'sides' ? <SidesIcon /> : <CornersIcon />}
           active={open}
           disabled={disabled || reason !== undefined}
@@ -633,7 +637,7 @@ export function QuadRow({ label, kind, values, unit, min, max, step, placeholder
               title={labels[i]}
               label={kind === 'sides' ? <SideIcon side={SIDE_NAMES[i]!} /> : <CornerIcon corner={CORNER_NAMES[i]!} />}
               value={values === null ? null : values[i]!}
-              placeholder={values === null ? 'Mixed' : placeholder}
+              placeholder={values === null ? localize('Mixed', '混合值') : placeholder}
               unit={unit}
               min={min}
               max={max}
@@ -695,7 +699,7 @@ export function PanelField({ title, text, swatch, children, disabled, open: cont
           <BasePopover.Popup className="w-64 rounded-[14px] bg-chrome pb-2 text-chrome-fg shadow-chrome-popup outline-none origin-[var(--transform-origin)] transition-[opacity,transform] duration-100 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0">
             <div className="flex h-11 items-center gap-2 pl-4 pr-2">
               <BasePopover.Title className="min-w-0 flex-1 truncate text-[13px] font-[520]">{title}</BasePopover.Title>
-              <BasePopover.Close aria-label="Close" title="Close" className="flex size-7 shrink-0 items-center justify-center rounded-[8px] text-chrome-secondary outline-none hover:bg-chrome-hover hover:text-chrome-fg focus-visible:outline-2 focus-visible:outline-chrome-accent">
+              <BasePopover.Close aria-label={localize('Close', '关闭')} title={localize('Close', '关闭')} className="flex size-7 shrink-0 items-center justify-center rounded-[8px] text-chrome-secondary outline-none hover:bg-chrome-hover hover:text-chrome-fg focus-visible:outline-2 focus-visible:outline-chrome-accent">
                 <X className="size-4" strokeWidth={1.5} />
               </BasePopover.Close>
             </div>

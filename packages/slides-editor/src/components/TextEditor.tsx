@@ -6,6 +6,7 @@
  * runs and saved as one coalesced undo step per editing session.
  */
 
+import { localize } from '@open-artifact/runtime';
 import { useLayoutEffect, useRef, type CSSProperties, type ReactNode, type RefObject } from 'react';
 import {
   DEFAULT_TEXT,
@@ -140,7 +141,7 @@ function readNode(node: SlideNode, el: HTMLElement, cell?: readonly [number, num
 function commit(slideId: string, path: NodePath, el: HTMLElement, cell: readonly [number, number] | undefined, session: string): void {
   changeSlide(
     slideId,
-    'Edit text',
+    localize('Edit text', '编辑文本'),
     (slide) => {
       let changed = false;
       const next = updateNodeAt(slide, path, (node) => {
