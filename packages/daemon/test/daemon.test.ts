@@ -19,6 +19,7 @@ import {
 import { HarnessClient, api, readDaemon } from '../src/client.ts';
 import { BOOT_PLACEHOLDER, startDaemon, type Daemon } from '../src/daemon.ts';
 import { harnessProfile } from '../src/harness.ts';
+import { networkPermission } from '../src/mcp-app.ts';
 import { files } from '../src/paths.ts';
 import { sessionKeyOf } from '../src/store.ts';
 
@@ -75,6 +76,16 @@ test('MCP: tools/list needs the token and lists the tools', async () => {
   assert.ok(!names.includes('ShowArtifact'), 'ShowArtifact is only for clients that show MCP Apps');
 });
 
+test('MCP Apps: the view asks for the network permission its frame needs', () => {
+  for (const origin of ['http://127.0.0.1:4800', 'http://127.1.2.3:80', 'http://localhost:4800', 'http://a.frame.localhost:4800', 'http://[::1]:4800']) {
+    assert.equal(networkPermission(origin), 'loopbackNetwork', origin);
+  }
+  for (const origin of ['http://192.168.1.5:4800', 'http://10.0.0.2', 'http://172.20.0.1', 'http://169.254.1.1', 'http://studio.local:4800', 'http://[fd00::1]:4800']) {
+    assert.equal(networkPermission(origin), 'localNetwork', origin);
+  }
+  for (const origin of ['https://example.com', 'http://172.32.0.1', 'http://8.8.8.8', 'not a url']) assert.equal(networkPermission(origin), null, origin);
+});
+
 test('MCP Apps: a client that shows them gets ShowArtifact and the view of the live page', async () => {
   type Rpc = { result: Record<string, any>; error?: { message: string } };
   const rpc = async (method: string, params: Record<string, unknown> = {}, headers: Record<string, string> = {}): Promise<Rpc> =>
@@ -100,6 +111,11 @@ test('MCP Apps: a client that shows them gets ShowArtifact and the view of the l
   const view = (await rpc('resources/read', { uri: 'ui://open-artifact/view.html' }, ui)).result.contents[0];
   assert.equal(view.mimeType, 'text/html;profile=mcp-app');
   assert.deepEqual(view._meta.ui.csp.frameDomains, [state.url], 'the view frames the daemon origin, nothing else');
+  assert.deepEqual(view._meta['openai/ui'], { permissions: { loopbackNetwork: {} } }, 'a host on a public origin may frame this computer');
+  const listedMeta = (listed[0] as { _meta?: Record<string, unknown> })._meta;
+  assert.deepEqual(listedMeta?.['openai/ui'], view._meta['openai/ui'], 'the listing declares it too');
+  assert.match(view.text, /shell_hello/, 'the view knows the page showed when the Shell greets it');
+  assert.match(view.text, /securitypolicyviolation/, 'the view knows when the host refuses to frame the page');
   assert.match(view.text, /ui\/initialize/);
   assert.match(view.text, /ui\/notifications\/tool-result/);
   assert.doesNotMatch(view.text, /__OPEN_ARTIFACT_VERSION__/);

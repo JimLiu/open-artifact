@@ -19,6 +19,15 @@ carries when no daemon answers. Run them with `call(name, args, caller)` (`tools
 An MCP client also gets `ShowArtifact` when it declares MCP Apps (`io.modelcontextprotocol/ui`). A native-tools adapter
 does not need it: it shows pages itself ([embedding](embedding.md)).
 
+The view `ShowArtifact` shows frames the page from the daemon's address on this computer. Its `_meta.ui.csp.frameDomains`
+names that origin, and `_meta["openai/ui"].permissions.loopbackNetwork` asks a host that keeps MCP Apps on a public
+origin to let the frame through, since Chromium's Local Network Access blocks it otherwise. A host must also keep that
+http origin in the view's `frame-src`: Codex keeps only https frame domains, so its cards refuse the page. The view knows
+the page showed when the Shell sends `shell_hello` to its parent. When the view's CSP refuses the frame
+(`securitypolicyviolation`), it says so at once, with Open in browser and the address to copy. When no `shell_hello`
+comes in time, it says the page did not show, with Retry as well. When `ui/open-link` fails, returns `isError` or gets
+no answer within 3 seconds, it points to the address to copy.
+
 Each call returns a result object. Besides what the action returns, it may carry `error` (`code`, `message`, `fix`),
 `next` and `note` (what to do next), `notes` (lines such as an ownership change), `current` (the newer content on a
 conflict), and `messages` (what waited in the caller's inbox: comments arrive this way too).

@@ -16,6 +16,8 @@ daemon 有三个工具。用 `tools()`（`tools.list`）拿到它们的定义；
 
 MCP 客户端声明支持 MCP Apps（`io.modelcontextprotocol/ui`）时，还会拿到 `ShowArtifact`。原生工具的适配器不需要它：页面由适配器自己显示（[在你的界面里显示页面](embedding.zh-CN.md)）。
 
+`ShowArtifact` 的视图从 daemon 在本机的地址框入页面。它的 `_meta.ui.csp.frameDomains` 写明这个源，`_meta["openai/ui"].permissions.loopbackNetwork` 则请把 MCP Apps 放在公网源上的宿主放行这个框架，不然 Chromium 的本地网络访问（Local Network Access）会拦下它。宿主还得把这个 http 源留在视图的 `frame-src` 里：Codex 只保留 https 的框架域名，所以它的卡片会拒绝这个页面。Shell 向父页面发出 `shell_hello`，视图就知道页面显示出来了。视图的 CSP 拒绝框架时（`securitypolicyviolation`），视图会立刻说明，并给出“在浏览器中打开”（Open in browser）和可复制的地址；迟迟没收到 `shell_hello` 时，视图会说页面没显示出来，另外再给一个“重试”（Retry）。`ui/open-link` 失败、返回 `isError` 或 3 秒内没有回应时，视图会提示复制地址。
+
 每次调用返回一个结果对象。除了操作本身的返回内容，它还可能带 `error`（`code`、`message`、`fix`）、`next` 和 `note`（下一步做什么）、`notes`（例如归属变化之类的提示）、`current`（冲突时较新的内容），以及 `messages`（调用方收件箱里等着的消息：评论也会这样送到）。
 
 ## 调用方

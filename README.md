@@ -107,7 +107,8 @@ page comments back into the session. How each app gets comments back, and what w
 In an app that shows [MCP Apps](https://modelcontextprotocol.io/docs/extensions/apps), the agent also gets a
 `ShowArtifact` tool: it puts the artifact's live page in the conversation, where you can edit and comment without
 leaving the chat, go full screen, open it in a browser or send your comments to the agent. Apps that don't show
-MCP Apps never see the tool.
+MCP Apps never see the tool. Codex shows only https pages in these cards, so there the card offers Open in browser and
+the page's address instead.
 
 ### 2. As a skill for any other agent
 

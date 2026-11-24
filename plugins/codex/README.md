@@ -56,3 +56,10 @@ command line (`codex exec`) gets it the next time it is resumed.
 
 The page opens in the app's built-in browser, which the agent opens with the page's `view_url`, not in the
 computer's browser.
+
+## The card in the conversation
+
+Codex shows MCP Apps, so the agent also gets `ShowArtifact`. Codex frames only https pages inside these cards, and the
+daemon serves the page over http on this computer, so the card cannot show the page itself: it says so at once and
+offers Open in browser (Codex opens the address where its *Local URL open destination* setting says) and the page's
+address to copy. The agent's reply still carries `view_url`.

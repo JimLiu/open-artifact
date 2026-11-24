@@ -28,7 +28,7 @@
 | `Artifact` | `quickstart`、`list`、`publish`、`read`、`open`、`call`、`adopt`、`delete`、`share` | 发现类型和已有作品、创建/更新项目文件、调用类型专属动作（`check`、`upload`、`context`、`snapshot`、`read`、`update`、`export`、`import`、`asking` 等）、打开页面或面板。 |
 | `ArtifactData` | `get`、`list`、`query`、`set`、`update`、`delete`、`str_replace`、`batch` | 读写 `db` 文档库类型（`whiteboard`、`data`、`motion`）的 JSON 文档，支持原子批处理。 |
 | `ArtifactComments` | `read`、`reply`、`resolve`、`reopen`、`wait` | 读取评论线程、以 Agent 身份回复、标记已解决/重新打开，或阻塞等待页面发来的评论。 |
-| `ShowArtifact` | `{url}` | *仅在支持 MCP Apps（`io.modelcontextprotocol/ui`）的应用中可见。* 将作品实时页面直接嵌入对话窗口中。 |
+| `ShowArtifact` | `{url}` | *仅在支持 MCP Apps（`io.modelcontextprotocol/ui`）的应用中可见。* 将作品实时页面直接嵌入对话窗口中。应用不让页面在卡片里显示时（Codex 的卡片只显示 https 页面，本机页面会被拒绝），卡片会立刻说明情况，并给出“在浏览器中打开”（Open in browser）和可复制的页面地址。 |
 
 ### B. 命令行回退（未接入 MCP 的任意 Agent）
 

@@ -29,7 +29,7 @@ Check available types silently with `Artifact {action: "list", scope: "types"}` 
 | `Artifact` | `quickstart`, `list`, `publish`, `read`, `open`, `call`, `adopt`, `delete`, `share` | Discover types/artifacts, create/update project files, invoke type actions (`check`, `upload`, `context`, `snapshot`, `read`, `update`, `export`, `import`, `asking`, …), open pages/panels. |
 | `ArtifactData` | `get`, `list`, `query`, `set`, `update`, `delete`, `str_replace`, `batch` | Read and atomically write JSON documents for `db`-backed types (`whiteboard`, `data`, `motion`). |
 | `ArtifactComments` | `read`, `reply`, `resolve`, `reopen`, `wait` | Read comment threads, reply as the agent, resolve/reopen threads, or block waiting for user comments. |
-| `ShowArtifact` | `{url}` | *Shown only in apps supporting MCP Apps (`io.modelcontextprotocol/ui`).* Embeds the live artifact page directly inside the chat conversation. |
+| `ShowArtifact` | `{url}` | *Shown only in apps supporting MCP Apps (`io.modelcontextprotocol/ui`).* Embeds the live artifact page directly inside the chat conversation. When the app keeps the page out of the card (Codex shows only https pages in its cards, so it refuses the local page), the card says so at once and offers Open in browser and the page's address to copy. |
 
 ### B. CLI fallback (any agent without MCP tools)
 

@@ -95,7 +95,7 @@ hooks。每个应用怎样收到评论、各自测过什么，见 [plugins/READM
 
 如果应用能显示 [MCP Apps](https://modelcontextprotocol.io/docs/extensions/apps)，Agent 还会多一个 `ShowArtifact`
 工具：它把 Artifact 的实时页面直接放进对话里，你不用离开聊天就能编辑、评论，也能全屏、在浏览器里打开，或把评论发回给
-Agent。不支持 MCP Apps 的应用看不到这个工具。
+Agent。不支持 MCP Apps 的应用看不到这个工具。Codex 的卡片只显示 https 页面，所以在 Codex 里卡片会改为提供“在浏览器中打开”（Open in browser）按钮和页面地址。
 
 ### 2. 作为 skill 给其他 Agent 用
 
