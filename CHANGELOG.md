@@ -6,6 +6,29 @@ agent plugins. Since 0.9.0 they all share one version; before that `dsh-open-art
 Each entry is written from the commits since the previous tag (`node scripts/changelog.mjs` lists them); see
 [Releasing](README.md#releasing).
 
+## [0.14.6] - 2026-11-23
+
+Design lists the errors of its artboards where you can see them and asks the agent to fix them, and the MCP App card says when the app keeps the artifact's page out of the conversation, as Codex does, and always leaves a way to open the page.
+
+### Added
+
+- Design shows "N errors" at the top right when artboards on the page have errors. It opens a list with each artboard's messages and "Ask agent to fix" for all of them, and closes itself once no artboard has errors.
+- Each artboard with errors has a notice underneath with the count, "Ask agent to fix" and ×. Closing it leaves a warning mark in the artboard's name strip that brings it back, and a closed notice comes back by itself when the artboard's errors change. The request names the files under `project/` and lists each message (deduplicated, at most 10 per artboard); when the agent can't be reached, it waits in the list with "Copy the request".
+
+### Fixed
+
+- In Codex, the `ShowArtifact` card showed only the browser's "This content is blocked" page, and Open in browser seemed to do nothing (#19). Codex shows only https pages inside MCP App cards, so it refuses the page the daemon serves on this computer. The card now says so at once, hides the browser's error page, and offers Open in browser and the page's address to copy.
+- When the page does not show for another reason (the app may first ask the person to allow it), the card says so after a few seconds, with Retry, Open in browser and the address.
+- When the app does not open the link (it answers with an error, offers no link opening, or does not answer within 3 seconds), the card points to the address to copy.
+
+### Changed
+
+- The card's view declares the network permission its frame needs in `_meta["openai/ui"].permissions` (`loopbackNetwork` for a daemon on this computer, `localNetwork` for one on the local network), which apps that keep MCP Apps on a public origin need before Chromium lets the frame through.
+
+### Integrators
+
+- The Harness API, Shell and wake messages, harness kit, stdio bridge and shipped profiles are unchanged. For MCP Apps hosts, [docs/integrating/tools.md](docs/integrating/tools.md) describes what the `ShowArtifact` view needs: its frame origin in `frame-src`, and the network permission it declares.
+
 ## [0.14.5] - 2026-11-23
 
 Slides preserves polygon clips on panels and photos in the editor and exports, including editable PowerPoint shapes and picture crops.
@@ -562,6 +585,7 @@ One version for every package, with Docs and Sheets in every plugin.
 - Plugins for Claude Code, Codex, Cursor, Copilot, ChatGPT and DeepSeek Harness.
 - English and Chinese READMEs, under Apache-2.0.
 
+[0.14.6]: https://github.com/JimLiu/open-artifact/compare/v0.14.5...v0.14.6
 [0.14.5]: https://github.com/JimLiu/open-artifact/compare/v0.14.4...v0.14.5
 [0.14.4]: https://github.com/JimLiu/open-artifact/compare/v0.14.3...v0.14.4
 [0.14.3]: https://github.com/JimLiu/open-artifact/compare/v0.14.2...v0.14.3

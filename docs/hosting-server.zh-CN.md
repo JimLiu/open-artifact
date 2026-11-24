@@ -149,7 +149,7 @@ docker compose ps
 curl -s https://artifacts.example.com/__open-artifact/health
 ```
 
-**预期：** `{"openArtifact":1,"version":"0.14.5"}`（这个应答是在不用 Docker 运行同一个程序时看到的）。
+**预期：** `{"openArtifact":1,"version":"0.14.6"}`（这个应答是在不用 Docker 运行同一个程序时看到的）。
 
 **失败时：** `docker compose logs host` 里有 `open-artifact-host: OA_…` 一行，指出哪个设置不对；`docker compose logs caddy`
 里是证书错误（DNS 还没指过来、80 端口没开，或者 ask 接口拒绝了某个名字）。Caddy 会一直重试，之后把 DNS 改好就行。
