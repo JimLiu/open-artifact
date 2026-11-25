@@ -34,6 +34,13 @@ async function post<T>(name: string, body: unknown): Promise<{ status: number; b
   return { status: response.status, body: (await response.json()) as T };
 }
 
+/** A GET of the Library API with the daemon's token. */
+async function get<T>(name: string): Promise<T> {
+  const response = await fetch(`${state.url}/api/open-artifact.${name}`, { headers: { authorization: `Bearer ${state.token}` } });
+  assert.equal(response.status, 200, name);
+  return (await response.json()) as T;
+}
+
 async function boot(id: string): Promise<ShellBoot> {
   const response = await fetch(`${state.url}/api/open-artifact.artifacts.boot?id=${id}`);
   assert.equal(response.status, 200);
@@ -186,6 +193,12 @@ test('artifacts.relocate: the moved folder with the same id is taken; another ar
   const moved = join(home, 'moved-here');
   renameSync(made.body.root, moved);
 
+  // The list and the artifact say its folder is gone; the other's is there.
+  const listed = (await get<{ artifacts: ArtifactView[] }>('artifacts')).artifacts;
+  assert.equal(listed.find((a) => a.id === made.body.id)?.folderMissing, true);
+  assert.equal(listed.find((a) => a.id === other.body.id)?.folderMissing, false);
+  assert.equal((await get<ArtifactView>(`artifact?id=${made.body.id}`)).folderMissing, true);
+
   // Adding the moved folder points at relocate instead.
   const add = await post<{ code: string; fix?: string }>('artifacts.add', { folder: moved });
   assert.equal(add.body.code, 'conflict');
@@ -204,6 +217,7 @@ test('artifacts.relocate: the moved folder with the same id is taken; another ar
   assert.equal(ok.status, 200, JSON.stringify(ok.body));
   assert.equal(ok.body.root, moved);
   assert.equal(daemon.store.require(made.body.id).root, moved);
+  assert.equal(ok.body.folderMissing, false);
   const booted = await boot(made.body.id);
   assert.equal(booted.empty, false);
   assert.equal(booted.root, moved);

@@ -1544,6 +1544,8 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
       typeTitle: type?.title ?? record.type,
       typeMissing: !type,
       root: record.root,
+      // Moved or renamed outside Open Artifact (or deleted): the record still names the old place.
+      folderMissing: !existsSync(record.root),
       view_url: this.viewUrl(record.id),
       page_url: this.pages.get(record.id)?.page_url ?? this.viewUrl(record.id),
       owner: record.owner ? { harness: record.owner.harness, session: record.owner.session, workspace: record.owner.workspace, ...live } : null,

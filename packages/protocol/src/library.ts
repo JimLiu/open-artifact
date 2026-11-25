@@ -128,6 +128,13 @@ export interface ArtifactView {
   /** The type is not installed any more. */
   typeMissing: boolean;
   root: string;
+  /**
+   * Set by the daemon: no folder is at `root` any more (it was moved, renamed or deleted outside Open Artifact). The
+   * record is kept; `artifacts.relocate` points it at the folder's new place, `artifacts.delete` forgets it. Opening it
+   * meanwhile shows an empty artifact (`ShellBoot.empty`): a host should offer those two instead. A cloud host leaves it
+   * out.
+   */
+  folderMissing?: boolean;
   /** The Shell page: `<daemon>/a/<id>`. */
   view_url: string;
   /** The page without the Shell. */
