@@ -1,6 +1,6 @@
 /**
  * Test setup, imported first by every test file: a temporary `OPEN_ARTIFACT_HOME`, no
- * user types, a short wake merge window and no idle exit.
+ * user or installed types, a short wake merge window and no idle exit.
  */
 
 import { mkdtempSync, realpathSync } from 'node:fs';
@@ -18,6 +18,7 @@ export const TEST_HOME = tempDir('open-artifact-home-');
 
 process.env.OPEN_ARTIFACT_HOME = TEST_HOME;
 process.env.OPEN_ARTIFACT_USER_TYPES = tempDir('open-artifact-user-types-');
+process.env.OPEN_ARTIFACT_INSTALLED_TYPES = tempDir('open-artifact-installed-types-');
 process.env.OPEN_ARTIFACT_WAKE_MERGE_MS = '40';
 process.env.OPEN_ARTIFACT_IDLE_MS = '0';
 process.env.OPEN_ARTIFACT_BROWSER = 'none';

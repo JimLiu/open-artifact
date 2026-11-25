@@ -87,6 +87,12 @@ export const LINK_ROUTES = {
   /** `GET` → {@link LinkHello}. */
   hello: 'hello',
   /**
+   * `POST` {@link LinkCapabilitiesRequest} → `{}`: a page artifact's declared runtime capabilities (its
+   * `.artifact.json` `capabilities`, which no file push carries), set on the host. Only on a host whose `hello` says
+   * `features.pages`; other artifacts are refused with 400 `invalid_argument`.
+   */
+  capabilities: 'capabilities',
+  /**
    * `GET` → {@link LinkArtifactsResult}: the person's own artifacts, without their files (one catalog read however
    * many there are). `GET ?files=1` adds each one's `files` (a manifest per artifact: slow for a long list; prefer
    * `manifest` for the one you need).
@@ -119,7 +125,82 @@ export const LINK_ROUTES = {
   call: 'call',
   /** `POST` {@link LinkUnpublishRequest} → `{}`. */
   unpublish: 'unpublish',
+  /**
+   * `POST` a type package (`<id>-<version>.oatype`, `application/zip`) with query `visibility` (`private`, `site` or
+   * `link`; a new type defaults to `private`, a new version keeps the type's) → {@link LinkTypeImportResult}. Only on
+   * a host whose `hello` says `features.types`; who may publish is the site's `OA_TYPES_PUBLISH`
+   * ({@link LinkHello.typesPublish}). The package is checked as `types install` checks one before anything is kept.
+   */
+  typesImport: 'types.import',
+  /** `GET` → {@link LinkTypesResult}: the site's types this person may see, and their own (unpublished ones too). */
+  typesList: 'types.list',
+  /** `GET ?id=` → the current version's package (`application/zip`) of a type this person may see. */
+  typesArchive: 'types.archive',
+  /**
+   * `POST` {@link LinkTypeUnpublishRequest} → {@link LinkTypeUnpublishResult}: by its publisher or a site admin. A type
+   * artifacts still use is only delisted (they keep opening); one nothing uses is removed.
+   */
+  typesUnpublish: 'types.unpublish',
 } as const;
+
+/** Who may publish types to a site (`OA_TYPES_PUBLISH`): nobody, site admins, or any signed-in member. */
+export type TypesPublishPolicy = 'off' | 'admins' | 'members';
+export const TYPES_PUBLISH_POLICIES: readonly TypesPublishPolicy[] = Object.freeze(['off', 'admins', 'members']);
+
+/**
+ * Who a site-published type is shown to (D2c lists it; opening an artifact of it never depends on this): `private`,
+ * its publisher (and site admins); `site`, every member; `link`, anyone who has its address.
+ */
+export type SiteTypeVisibility = 'private' | 'site' | 'link';
+export const SITE_TYPE_VISIBILITIES: readonly SiteTypeVisibility[] = Object.freeze(['private', 'site', 'link']);
+
+/** A type in a site's catalog, as the Link lists it. */
+export interface LinkSiteType {
+  id: string;
+  uid: string;
+  name: string;
+  version: string;
+  description: string;
+  visibility: SiteTypeVisibility;
+  /** The user who published it (first version), and whether that is the token's user. */
+  publisher: { id: string; name: string | null };
+  mine: boolean;
+  /** Delisted: not listed or creatable, its artifacts still open. */
+  unpublished: boolean;
+  sha256: string;
+  bytes: number;
+  /** The capabilities its declaration names, and the https origins its pages may reach. */
+  capabilities: string[];
+  network: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** `GET link.types.list`. */
+export interface LinkTypesResult {
+  types: LinkSiteType[];
+}
+
+/** `POST link.types.import`: the type as kept, and what changed (`new`, `version`, or `unchanged`: the same bytes). */
+export interface LinkTypeImportResult {
+  type: LinkSiteType;
+  change: 'new' | 'version' | 'unchanged';
+  /** The version it replaced, for `version`. */
+  previous?: string;
+}
+
+/** `POST link.types.unpublish`. */
+export interface LinkTypeUnpublishRequest {
+  id: string;
+}
+
+/** `POST link.types.unpublish`: `removed` when nothing used it, else delisted with how many artifacts still do. */
+export interface LinkTypeUnpublishResult {
+  id: string;
+  uid: string;
+  removed: boolean;
+  artifacts: number;
+}
 
 /** A Link route name. */
 export type LinkRoute = (typeof LINK_ROUTES)[keyof typeof LINK_ROUTES];
@@ -191,6 +272,21 @@ export interface LinkHello {
     /** Largest single file the host takes, bytes. */
     maxFileBytes: number;
   };
+  /**
+   * What the host runs besides the built-in types. `pages: 1`: page artifacts (their import, sync and
+   * {@link LINK_ROUTES.capabilities}); absent on a host that runs none (an older one, one whose two origins share one
+   * site, Cloudflare for now), where a daemon keeps a page local. `types: 1`: a type catalog
+   * ({@link LINK_ROUTES.typesImport} and the other `types.*` routes): artifacts of a type published there run on it.
+   */
+  features?: { pages?: 1; types?: 1 };
+  /** With `features.types`: who may publish a type ({@link TypesPublishPolicy}). */
+  typesPublish?: TypesPublishPolicy;
+}
+
+/** `POST link.capabilities`: a page artifact's capabilities as its `.artifact.json` declares them. */
+export interface LinkCapabilitiesRequest {
+  id: string;
+  capabilities: Record<string, unknown>;
 }
 
 /** One file as the host has it. */
@@ -269,8 +365,11 @@ export type LinkEvent =
   | { id: string; type: 'wake'; artifact: string; threads?: WakeThread[]; requests?: Array<Omit<WakeRequestItem, 'id'> & { id?: string }>; from?: { name: string; role: ArtifactRole } }
   /** Files changed on the host by a person through a page (`author` is who changed them; never the Link itself). */
   | { id: string; type: 'files'; artifact: string; author: string; paths: string[]; title?: string }
-  /** An artifact was renamed, or removed from the host. */
-  | { id: string; type: 'artifact'; artifact: string; title?: string; removed?: boolean }
+  /**
+   * An artifact was renamed, or removed from the host, or (a page artifact) its owner changed its declared runtime
+   * capabilities on the host (`capabilities`, the whole `.artifact.json` block).
+   */
+  | { id: string; type: 'artifact'; artifact: string; title?: string; removed?: boolean; capabilities?: Record<string, unknown> }
   /** Someone asked for the dashboard's live data to be run again on the owner's computer. */
   | LinkDataRefreshEvent;
 

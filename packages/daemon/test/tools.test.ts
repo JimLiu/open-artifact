@@ -184,8 +184,8 @@ test('quickstart recommends a type and hands back the create call', async () => 
   assert.match(String(none.next), /No installed type fits/);
 
   const other = await tool('Artifact', { action: 'quickstart', intent: 'other' });
-  assert.equal(other.recommended, null, '"other" names no kind, though types say "other" in their descriptions');
-  assert.match(String(other.next), /No installed type fits/);
+  assert.equal((other.recommended as { id: string }).id, 'page', '"other" is the free page, the one type that lists it as an intent');
+  assert.deepEqual(other.alternatives, [], 'not the types that only say "other" in their descriptions');
   assert.ok(Array.isArray(other.types) && (other.types as unknown[]).length >= 4, 'every type is still listed to choose from');
 });
 

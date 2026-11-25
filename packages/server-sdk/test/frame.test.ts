@@ -339,12 +339,14 @@ describe('frame-host', () => {
     );
     assert.deepEqual((await capCall('comments', 'list', {})).result.threads[0].anchor, { slide: 's1', x: 0.5, y: 0.5 });
 
-    const sent = await capCall('comments', 'sendToAgent', { threadId, text: 'Also the title' });
+    const sent = await capCall('comments', 'sendToAgent', { threadId, text: 'Also the title', handoffNote: 'The selected item is the header' });
     assert.equal(sent.result.status, 'delivered');
     assert.equal(wakes.length, 1);
     assert.equal(wakes[0].id, ID);
     assert.equal(wakes[0].threads[0].id, threadId);
     assert.equal(wakes[0].threads[0].messages.at(-1).text, 'Also the title');
+    assert.equal(wakes[0].threads[0].pageContext, 'The selected item is the header');
+    assert.ok(!readFileSync(join(root, 'comments.json'), 'utf8').includes('The selected item is the header'));
     assert.equal((await action('open-artifact.comments.read', {})).threads[0].agent.status, 'delivered');
 
     const resolved = await action('open-artifact.comments.resolve', { thread_id: threadId, reopen: false });

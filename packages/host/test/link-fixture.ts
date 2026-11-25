@@ -51,7 +51,7 @@ export interface LinkHost {
   close(): Promise<void>;
 }
 
-export async function makeLinkHost(options: { action?: LinkServices['action']; deviceRate?: { limit: number; windowMs: number } } = {}): Promise<LinkHost> {
+export async function makeLinkHost(options: { action?: LinkServices['action']; deviceRate?: { limit: number; windowMs: number }; pages?: LinkServices['pages'] } = {}): Promise<LinkHost> {
   const dir = await mkdtemp(join(tmpdir(), 'open-artifact-host-link-'));
   const dataDir = join(dir, 'data');
   await mkdir(join(dataDir, 'artifacts'), { recursive: true });
@@ -111,6 +111,7 @@ export async function makeLinkHost(options: { action?: LinkServices['action']; d
     presence,
     events,
     version: '0.0.0-test',
+    ...(options.pages ? { pages: options.pages } : {}),
   };
   const stopFeed = startLinkFeed({ catalog, events, log: (line) => logs.push(line) });
   const ctx: BaseCtx = { config, catalog, now, log: (line) => logs.push(line) };

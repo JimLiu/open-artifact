@@ -1,7 +1,7 @@
 import { TEST_HOME, tempDir, until } from './helpers.ts';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, utimesSync, writeFileSync } from 'node:fs';
 import { request } from 'node:http';
 import { join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
@@ -148,7 +148,7 @@ test('Artifact quickstart and publish make a design artifact from the built-in r
   const types = quick.types as Array<{ id: string; scope: string; type_url: string }>;
   assert.deepEqual(
     types.map((t) => t.id),
-    ['design', 'design-system', 'slides', 'data', 'docs', 'motion', 'sheets', 'whiteboard'],
+    ['design', 'design-system', 'slides', 'data', 'docs', 'motion', 'page', 'sheets', 'whiteboard'],
     'only allow-listed built-in types',
   );
   assert.equal(types[0]!.scope, 'builtin');
@@ -486,6 +486,32 @@ test('Type API: presence says when an idle agent is not woken (Cursor), so the p
   assert.equal(cursor.agentName, 'Cursor');
   assert.equal(cursor.wakesIdle, false);
   assert.equal((await presenceOf(await createDesign('Codex deck', 'codex-1', 'codex'))).wakesIdle, true);
+});
+
+test('Library API: a duplicate leaves out _agent/ (the agent channel: snapshots)', async () => {
+  const id = await createDesign('Copy me', 'dup-1');
+  const root = daemon.store.require(id).root;
+  mkdirSync(join(root, '_agent', 'snapshots'), { recursive: true });
+  writeFileSync(join(root, '_agent', 'snapshots', 'snapshot-2026-01-01T00-00-00-000Z.png'), 'png');
+  const copy = await api<{ id: string }>(state, LIBRARY_ROUTES.duplicate, { id });
+  const copied = daemon.store.require(copy.id).root;
+  assert.notEqual(copied, root);
+  assert.equal(existsSync(join(copied, '_agent')), false);
+  assert.ok(existsSync(join(root, '_agent', 'snapshots')), 'the original keeps its own');
+});
+
+test('Library API: a new file under _agent/ (a snapshot) does not make the artifact look updated', async () => {
+  const id = await createDesign('Stamp me', 'stamp-1');
+  const record = daemon.store.require(id);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const stamp = (): string => { (daemon as any).contentStamps.delete(record.root); return (daemon as any).contentAt(record); };
+  const was = stamp();
+  const file = join(record.root, '_agent', 'snapshots', 'snapshot-2099-01-01T00-00-00-000Z.png');
+  mkdirSync(join(record.root, '_agent', 'snapshots'), { recursive: true });
+  writeFileSync(file, 'png');
+  const later = new Date(Date.parse(was) + 3_600_000);
+  utimesSync(file, later, later);
+  assert.equal(stamp(), was);
 });
 
 test('Library API: writes need the token or the same origin', async () => {

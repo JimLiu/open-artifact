@@ -1,6 +1,6 @@
 /**
  * A type's `titleFrom` (`<file>#<JSON pointer>`, as `artifact-type.json` declares it): where an artifact's title lives
- * in its own files. Shared by the type server (and so the hosts) and the daemon, which read the file themselves.
+ * in its own files (an `.html` file with no pointer: its `<title>`). Shared by the type server (and so the hosts) and the daemon, which read the file themselves.
  */
 
 /** A `titleFrom` split into its file (relative to the artifact root) and JSON pointer, or null when it is not one. */
@@ -39,4 +39,29 @@ export function titleInJson(text: string, pointer: string): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+const ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' };
+
+/**
+ * The text of an HTML document's first `<title>`: entities decoded, white space folded, trimmed; undefined when there
+ * is none or it is empty. A `titleFrom` naming an `.html` file (no pointer) reads it this way.
+ */
+export function titleInHtml(text: string): string | undefined {
+  const m = /<title\b[^>]*>([\s\S]*?)<\/title\s*>/i.exec(text);
+  if (!m) return undefined;
+  const decoded = m[1]!.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (all, name: string) => {
+    if (name[0] === '#') {
+      const code = name[1] === 'x' || name[1] === 'X' ? parseInt(name.slice(2), 16) : parseInt(name.slice(1), 10);
+      return Number.isFinite(code) && code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : all;
+    }
+    return ENTITIES[name.toLowerCase()] ?? all;
+  });
+  const clean = decoded.replace(/\s+/g, ' ').trim();
+  return clean || undefined;
+}
+
+/** The title in an artifact file's text, read the way its `titleFrom` says: JSON at a pointer, or an HTML `<title>`. */
+export function titleInFile(file: string, text: string, pointer: string): string | undefined {
+  return /\.html?$/i.test(file) && pointer === '' ? titleInHtml(text) : titleInJson(text, pointer);
 }

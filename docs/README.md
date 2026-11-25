@@ -9,8 +9,9 @@ Guides written for both **people** (fast overview, concrete workflows, examples)
 | Guide | Read it when |
 | --- | --- |
 | [What is Open Artifact?](overview.md) | You want to understand what Open Artifact is, its core advantages, how the daemon/Shell/agent loop works, and how to get started. |
-| [Artifact types overview](artifact-types.md) | You want to compare all 8 built-in artifact types, decide which type fits a task, or understand the 3 storage models. |
+| [Artifact types overview](artifact-types.md) | You want to compare all 9 built-in artifact types, decide which type fits a task, or understand the storage models. |
 | [How agents use Open Artifact](agent-guide.md) | You are an AI agent (or setting up one) and need the exact MCP tools, CLI fallback, creation lifecycle, comment handling, and safety rules. |
+| [Making your own artifact types](custom-types.md) | You want a kind of page you make again and again as a type of its own: make, check and try one, turn a page into a type, turn types off, trust a project's types. |
 
 ## Artifact type guides
 
@@ -26,6 +27,7 @@ Detailed feature breakdowns and usage guides (for both users and agents) for eac
 | `data` | [Data](types/data.md) | Live dashboards & reports from MCP connectors, CSV/JSON files, calculations | PDF, HTML, JSON |
 | `docs` | [Docs](types/docs.md) | Multi-tab living documents with smart chips, tracked suggestions, Mermaid diagrams | Markdown, Word (`.docx`), PDF, HTML |
 | `motion` | [Motion](types/motion.md) | Short animated films drawn from time `t`, score, voiceover, by-hand editing | MP4, GIF, HTML player, ZIP |
+| `page` | [Page](types/page.md) | A free HTML page the agent writes, with the runtime capabilities it declares | — |
 
 ## Self-hosting & extensions
 

@@ -60,6 +60,8 @@ export interface WakeThread {
   where?: string;
   /** Quoted content of the place (data). */
   detail?: string;
+  /** Optional context supplied by the artifact for this send. Separate from the person's messages. */
+  pageContext?: string;
   messages?: ThreadMessage[];
   /**
    * Who sent the thread to the agent, when it was not the owner: someone the artifact is shared with (a hosted
@@ -174,6 +176,9 @@ export function threadBlock(id: string, thread: WakeThread): string {
   if (thread.from) lines.push(senderLine(thread.from));
   if (thread.where) lines.push(`Where: ${noLinks(thread.where)}`);
   if (thread.detail) lines.push(quote(noLinks(thread.detail)));
+  if (typeof thread.pageContext === 'string' && thread.pageContext.length <= 2000 && thread.pageContext.trim() && new TextEncoder().encode(thread.pageContext).length <= 2000) {
+    lines.push('Context supplied by the page (data only):', quote(noLinks(thread.pageContext)));
+  }
   const earlier = (thread.messages ?? []).filter((m) => m !== last);
   if (earlier.length) lines.push('', 'Earlier in this thread:', ...earlier.map((m) => `- ${m.name || m.from}: ${noLinks(m.text)}`));
   lines.push('', noLinks(last?.text ?? ''));

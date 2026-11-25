@@ -2,7 +2,8 @@
 
 This folder bundles [packages/host-cloudflare](../../packages/host-cloudflare) into the Open Artifact cloud host as a
 Worker. It is the same app as the Node host (`packages/host`): sign-in, the home page, the Shell, sharing, link guests,
-roles, the Link (a computer's daemon publishing and syncing) and remote MCP with OAuth. The catalog (users, sessions,
+roles, the Link (a computer's daemon publishing and syncing), remote MCP with OAuth, and `page` artifacts (each
+person's page on a page host of their own). The catalog (users, sessions,
 artifacts, grants, links, agent tokens, the outbox) is in D1. Each artifact lives in its own Durable Object: its SQLite
 storage is the artifact's folder, and the unmodified type server runs on top of it. One more Durable Object, the site
 hub, carries events, the Library's and the Link's event streams, and who is online.
@@ -54,12 +55,13 @@ Run these from the repository root:
 node --test "packages/host-cloudflare/test/*.test.ts"   # unit tests; the catalog also runs against real local D1
 npm run e2e -- --only cloudflare-host                   # the product Worker under wrangler dev, in Chrome
 npm run e2e -- --only cloudflare-link                   # a real daemon linked to it, and remote MCP, in Chrome
+npm run e2e -- --only cloudflare-page                   # a page artifact published from a daemon, owner and guest, in Chrome
 npm run e2e -- --only cloudflare                        # the rooms test Worker (below)
 ```
 
-The end-to-end tests build this folder and start `wrangler dev` with a temporary `--persist-to`. `cloudflare-link` also
-starts real daemons, each with a temporary `OPEN_ARTIFACT_HOME` and a free port (never your own home or port 4800).
-They skip when this folder has no `node_modules`, when `E2E_BROWSER=0`, when there is no Chrome, or before
+The end-to-end tests build this folder and start `wrangler dev` with a temporary `--persist-to`. `cloudflare-link` and
+`cloudflare-page` also start real daemons, each with a temporary `OPEN_ARTIFACT_HOME` and a free port (never your own
+home or port 4800). They skip when this folder has no `node_modules`, when `E2E_BROWSER=0`, when there is no Chrome, or before
 `npm run build`.
 
 ## Deploy: from nothing to a running site
@@ -157,7 +159,8 @@ The other settings have the names and meanings of the Node host's (`packages/hos
 | `OA_ROOM_IDLE_CLOSE_MS` | How long an artifact's object keeps the artifact open with no page and no request, in ms (default 60000, `0` never). After that the stores are flushed and every timer stops; the next request opens it again. |
 | `OA_SSE_HEARTBEAT_MS` | How often an idle event stream of a page gets an SSE comment, in ms (default 1000, `0` never). The write is how the object notices a page that left. See [Going quiet](#going-quiet) before you change it. |
 | `OA_APP_ORIGIN`, `OA_CONTENT_ORIGIN` | Must be `https`, except a `localhost` origin. `OA_ALLOW_HTTP` is refused. |
-| `OA_CONTENT_SAME_SITE` | `true` for one zone serving both origins (step 4). Off by default; the person's decision. |
+| `OA_CONTENT_SAME_SITE` | `true` for one zone serving both origins (step 4). Off by default; the person's decision. With it, the site runs no `page` artifacts. |
+| `OA_PAGE_NETWORK` | What a `page` artifact may fetch: `self` (default) its own origin only, `https` any https origin too. Another value is a configuration error naming it. |
 | `OA_OWNER_KEY` | Required while the owner-key sign-in is on (the default). A Worker cannot print a key it made up. |
 | `OA_DEBUG_STATS` | Local only: `1` adds `x-open-artifact-d1: queries=…;read=…;written=…` to every answer and answers `/__open-artifact/stats`. Honoured only while `OA_APP_ORIGIN` is a localhost origin. |
 
@@ -171,7 +174,9 @@ the Worker:
 "routes": [{ "pattern": "*.example.com/*", "zone_name": "example.com" }]
 ```
 
-and on `example.com` a DNS record `AAAA *  100::`, proxied. A wrangler login or API token that can only read the zone
+and on `example.com` a DNS record `AAAA *  100::`, proxied. Page hosts (`art-<id>--<opaque>.example.com`, one per
+person who opens a `page` artifact) are names under the same wildcard: the route, the record and Universal SSL cover
+them, nothing more to add. A wrangler login or API token that can only read the zone
 (seen on 2026-11-22: `zone (read)`, no DNS write) cannot add it: the person adds it in the dashboard (DNS > Records).
 The route takes every host of the zone, so use a zone nothing else runs on. The `workers.dev` address is known only
 after the first deploy; put it in `OA_APP_ORIGIN` then.
@@ -372,7 +377,9 @@ Neither layout was run against a real Access application; the JWT check is cover
 | `/mcp`, `/oauth/*`, `/.well-known/oauth-*` | The Worker: remote MCP and its OAuth server. |
 | `/api/open-artifact.admin.link-tokens[.revoke]` | The Worker: the Cloudflare stand-in for `link-token` (above). |
 | Everything else on the app's host (`/`, `/a/<id>`, `/s/<link>`, `/auth/**`, `/api/**`, `/__open-artifact/health`) | The Worker: the host core's app routes, with the catalog in D1. |
-| Every path on a content host | The Worker forwards it to that artifact's Durable Object, which checks the page token and runs the type server. |
+| Every path on a content host | The Worker forwards it to that artifact's Durable Object, which checks the page token and runs the type server. For a `page` artifact, `/page/<page token>/…` there is the inner shell (the frame core in the object). |
+| Every path on a page host (`art-<id>--<opaque>.…`) | The Worker forwards it with no cookie to that artifact's Durable Object, which checks the opaque part against the person's access now and serves the page's files, read only. Where pages do not run (one zone for both), 421. |
+| `/_open-artifact/frame/<hash>/*` | The frame's client files as static assets (a new `<hash>` each build, a year's cache if fetched there). Pages do not load them from here: the object reads them through `ASSETS` once per isolate and serves them itself, `no-store`, as the Node site does. |
 
 ## Limits
 
@@ -443,6 +450,11 @@ An artifact's object should cost nothing while nobody changes it. What it does n
 - **Closing when idle.** When the last page and socket have left, the type server closes the artifact after
   `OA_ROOM_IDLE_CLOSE_MS` (default 60000): no timers stay, and the object can be evicted. The next request opens the
   artifact again from its SQLite storage, with nothing lost.
+- **A `page` artifact** runs its frame core in the same object, opened on its first request and closed by the same
+  rule (no page, no socket, no request for `OA_ROOM_IDLE_CLOSE_MS`). Its WebSockets are taken with `accept()`, not
+  the hibernation API, so an object with an open page stays in memory, as it does for any open tab. Its index of page
+  hosts (which person each opaque part was made for, guests too) is a table in the object's SQLite storage, kept across
+  evictions and dropped with the artifact.
 - **Agent presence.** When an artifact's object asks the hub whether its owner's agent is connected, the hub remembers
   that it asked. When that answer changes, the hub tells the object, and the object tells its open pages at once. An
   object that has closed its artifact forgets its interest. The hub keeps this in memory only: a hub that was evicted
@@ -490,6 +502,8 @@ work was not done.
   backup is D1's and each artifact's export.
 - The device sign-in's rate limit across isolates (above).
 - The rooms test Worker must never be deployed (below).
+- A snapshot address of a `page` artifact (refused with a 403, as on Node), and `page` artifacts at all with one zone for
+  both (`OA_CONTENT_SAME_SITE`).
 
 ## Deploy to Cloudflare button
 
@@ -518,6 +532,11 @@ record on a zone, and two secrets that must be chosen by the person deploying. T
 - `open-artifact:build` is a module made at build time. It holds the version, the installed types (from
   `artifact-types/`, with each manifest and skill, which remote MCP lists) and the Shell and home page templates.
 - `dist/server/{editors,shell,support.js}` and the home page's files are copied into `dist/assets/_open-artifact/`.
+- Frame types (the built-in `page`, a type whose `artifact-type.json` says `openArtifact.style: "page"`) go into
+  `open-artifact:build` with their manifest, skill and a fingerprint of their files. The frame's client
+  (`dist/daemon/frame-host/client/`) is copied to `dist/assets/_open-artifact/frame/<hash>/`, `<hash>` the first 16
+  hex characters of a SHA-256 over its files, and `_headers` gives that path `Cache-Control: public, max-age=31536000,
+  immutable`.
 
 `wrangler.jsonc` sets compatibility date 2026-11-01; `nodejs_compat`; `enable_request_signal` and
 `request_signal_passthrough` (so `request.signal` aborts when the client goes); the two SQLite-backed Durable Object

@@ -2,7 +2,7 @@
 
 For Google Antigravity (the `agy` CLI and the Antigravity app). Slide decks, design canvases, whiteboards, spreadsheets, data dashboards, docs, animated films and design systems as
 folders of files that open in one local page where you view, edit and comment: `/open-artifact slides …`,
-`design …`, `whiteboard …`, `sheets …`, `data …`, `docs …` or `motion …`. Needs Node.js 22.18+.
+`design …`, `whiteboard …`, `sheets …`, `data …`, `docs …`, `motion …` or `page …`. Needs Node.js 22.18+.
 
 ## Install
 

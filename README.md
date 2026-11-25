@@ -32,7 +32,7 @@ Everything runs on your machine. No account, no upload, no specific model or ven
 Start in [docs/](docs/README.md) for full bilingual (English / 中文) guides for both users and AI agents:
 
 - [What is Open Artifact?](docs/overview.md) — Core concept, key advantages, and quick start.
-- [Artifact types overview](docs/artifact-types.md) — Compare all 8 types, how to choose, and storage models.
+- [Artifact types overview](docs/artifact-types.md) — Compare all 9 types, how to choose, and storage models.
 - [How agents use Open Artifact](docs/agent-guide.md) — MCP tools, CLI fallback, workflow lifecycle, comments, and safety rules.
 
 ### Building an agent product?
@@ -56,6 +56,7 @@ adapters. Apps not written in JavaScript use the stdio bridge (`open-artifact ha
 | **Data** | A live dashboard or report: datasets from CSV/JSON/text uploads, live MCP connector queries or calculations, drawn by a plain HTML/CSS/d3 page; Sources shows where each number comes from; filters, hand edits, remix drafts | `db/dash/meta.json` | PDF, HTML, JSON | [Guide](docs/types/data.md) · [SKILL](artifact-types/data/SKILL.md) |
 | **Docs** | A living document in tabs: headings, lists, tables, pictures, dates, mentions and dropdowns; suggested edits to accept or reject, comments, a version history per tab; imports Markdown, Word and PDF | `doc/doc.json` | Markdown, Word, PDF, HTML | [Guide](docs/types/docs.md) · [SKILL](artifact-types/docs/SKILL.md) |
 | **Motion** | A short animated film: scenes in HTML/CSS/JS drawn from time, a generated score, rough cut then final, captions and voiceover; retype, recolor, refont, recut and restyle by hand; comments pinned to a moment or a spot in the frame | `db/film/meta.json` | MP4, GIF, HTML, ZIP | [Guide](docs/types/motion.md) · [SKILL](artifact-types/motion/SKILL.md) |
+| **Page** | A free HTML page the agent writes whole: a widget, tool, mini game or explainer page, with the runtime capabilities it declares (a shared database, uploads, comments, live messages); publishes to a self-hosted Node or Cloudflare site | `index.html` | — | [Guide](docs/types/page.md) · [SKILL](artifact-types/page/SKILL.md) |
 
 Each type folder is a self-contained skill: `SKILL.md` tells the agent how to write it, `reference/` documents the
 file format, `artifact-type.json` describes it to hosts, and `scripts/` (built) holds the CLI and editors.
@@ -98,6 +99,7 @@ In a new session, try one of these prompts.
 /open-artifact data a dashboard of signups by month from signups.csv
 /open-artifact docs a hiring plan for 2027 with roles, budget and timeline
 /open-artifact motion a 20-second launch animation for this app
+/open-artifact page a team lunch poll that remembers every vote
 ```
 
 The plugin adds the `Artifact`, `ArtifactData` and `ArtifactComments` MCP tools, the skill, and hooks that bring
@@ -194,7 +196,7 @@ A package npm doesn't have yet is claimed once from a computer before its first 
 
 | Path | Contents |
 |---|---|
-| `artifact-types/` | The eight types as skills: `SKILL.md`, `reference/`, `artifact-type.json`. |
+| `artifact-types/` | The nine types as skills: `SKILL.md`, `reference/`, `artifact-type.json` (`page` has no editor or CLI of its own). |
 | `skills/open-artifact/` | The one `/open-artifact <type>` skill; `vendor/` (built) carries the daemon. |
 | `plugins/` | The skill packaged per agent app, with hooks and MCP config ([README](plugins/README.md)). |
 | **Platform** | |

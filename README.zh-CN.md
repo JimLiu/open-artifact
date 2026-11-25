@@ -29,7 +29,7 @@
 完整的双语（中/英）用户与 Agent 文档在 [docs/](docs/README.zh-CN.md)：
 
 - [什么是 Open Artifact？](docs/overview.zh-CN.md) — 核心概念、核心优势与快速上手。
-- [Artifact 类型总览](docs/artifact-types.zh-CN.md) — 对比全部 8 种类型、选型建议与存储模型。
+- [Artifact 类型总览](docs/artifact-types.zh-CN.md) — 对比全部 9 种类型、选型建议与存储模型。
 - [Agent 使用指南](docs/agent-guide.zh-CN.md) — MCP 工具、CLI 回退、生命周期、评论处理与安全边界。
 
 ### 在做 Agent 产品？
@@ -48,6 +48,7 @@
 | **Data** | 实时数据看板或报告：支持 CSV/JSON/文本上传、实时 MCP 连接器查询或脚本计算，由原生 HTML/CSS/d3 渲染；Sources 展示每个数字的来源；支持筛选、手改文字与 Remix 草稿 | `db/dash/meta.json` | PDF、HTML、JSON | [指南](docs/types/data.zh-CN.md) · [SKILL](artifact-types/data/SKILL.md) |
 | **Docs** | 分标签页的在线文档：标题、列表、表格、图片、日期、提及和下拉选项；可接受或拒绝的修改建议、评论、每个标签页各自的版本历史；可导入 Markdown、Word 和 PDF | `doc/doc.json` | Markdown、Word、PDF、HTML | [指南](docs/types/docs.zh-CN.md) · [SKILL](artifact-types/docs/SKILL.md) |
 | **Motion** | 短动画影片：场景是按时间绘制的 HTML/CSS/JS，自动生成配乐，先粗剪再定稿，字幕和旁白；可以手改文字、配色、字体、场景长度和单个元素的样式；评论可以钉在某一时刻或画面上的某一点 | `db/film/meta.json` | MP4、GIF、HTML、ZIP | [指南](docs/types/motion.zh-CN.md) · [SKILL](artifact-types/motion/SKILL.md) |
+| **Page** | Agent 整张写好的自由 HTML 页面：小部件、小工具、小游戏或解释页，按声明开放运行时能力（共享数据库、上传、评论、实时消息）；可发布到自建的 Node 站点或 Cloudflare 站点 | `index.html` | — | [指南](docs/types/page.zh-CN.md) · [SKILL](artifact-types/page/SKILL.md) |
 
 每个类型文件夹都是一个独立的 skill：`SKILL.md` 告诉 Agent 怎么写，`reference/` 说明文件格式，`artifact-type.json`
 向宿主描述这个类型，`scripts/`（构建产物）里是命令行工具和编辑器。
@@ -88,6 +89,7 @@ DeepSeek Harness 有新版时，可以在 Open Artifact 页面点击「更新」
 /open-artifact data 基于 signups.csv 制作按月注册看板
 /open-artifact docs 一份 2027 年的招聘计划，包括岗位、预算和时间线
 /open-artifact motion a 20-second launch animation for this app
+/open-artifact page a team lunch poll that remembers every vote
 ```
 
 插件会添加 `Artifact`、`ArtifactData` 和 `ArtifactComments` 三个 MCP 工具、这个 skill，以及把页面评论带回会话的
@@ -177,7 +179,7 @@ node scripts/build-wasm.mjs   # 需要 cargo + wasm32-unknown-unknown、wasm-bin
 
 | 路径 | 内容 |
 |---|---|
-| `artifact-types/` | 八种类型，各自是一个 skill：`SKILL.md`、`reference/`、`artifact-type.json`。 |
+| `artifact-types/` | 九种类型，各自是一个 skill：`SKILL.md`、`reference/`、`artifact-type.json`（`page` 没有自己的编辑器和 CLI）。 |
 | `skills/open-artifact/` | 统一的 `/open-artifact <type>` skill；`vendor/`（构建产物）里是 daemon。 |
 | `plugins/` | 为各个 Agent 应用打包的 skill，带 hooks 和 MCP 配置（[README](plugins/README.md)）。 |
 | **平台** | |

@@ -544,15 +544,17 @@ export async function launch({ chrome = findChrome(), width = 1440, height = 900
      * Evaluate in every frame's main world: `values`, one per frame that answered, and `detached`, why a frame went
      * away (removed, navigated, crashed) before it answered (FRAME_GONE: the caller may look for the frame again).
      * Frames only: a worker is never asked (see askable).
-     * `timeout`: ms each frame may take to answer (the browser's call bound by default).
+     * `timeout`: ms each frame may take to answer (the browser's call bound by default). `userGesture`: run as if from
+     * a click.
      */
-    async function evaluateFrames(expression, { timeout } = {}) {
+    async function evaluateFrames(expression, { timeout, userGesture = false } = {}) {
       const values = [];
       const detached = [];
       const what = expression.slice(0, 80);
       for (const { session, id } of [...contexts.values()]) {
         try {
-          const params = { expression, contextId: id, returnByValue: true, awaitPromise: true };
+          // userGesture: the frame gets transient activation, as from a click (a popup or a top navigation may need it).
+          const params = { expression, contextId: id, returnByValue: true, awaitPromise: true, ...(userGesture ? { userGesture: true } : {}) };
           const r = await (session === top ? onTop('Runtime.evaluate', params, what, { timeout }) : call('Runtime.evaluate', params, session, what, { timeout }));
           if (!r.exceptionDetails) values.push(r.result?.value);
         } catch (e) {

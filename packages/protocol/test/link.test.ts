@@ -22,7 +22,7 @@ test('a content host label reads back as its artifact id', () => {
 
 test('Link routes are named after the prefix and exported from the package', () => {
   assert.equal(LINK_API_PREFIX, '/api/open-artifact.link.');
-  assert.deepEqual(Object.values(LINK_ROUTES).sort(), ['ack', 'artifacts', 'call', 'device', 'events', 'export', 'files', 'hello', 'import', 'manifest', 'token', 'unpublish']);
+  assert.deepEqual(Object.values(LINK_ROUTES).sort(), ['ack', 'artifacts', 'call', 'capabilities', 'device', 'events', 'export', 'files', 'hello', 'import', 'manifest', 'token', 'types.archive', 'types.import', 'types.list', 'types.unpublish', 'unpublish']);
   assert.equal(protocol.LINK_ROUTES, LINK_ROUTES);
   assert.equal(protocol.contentHostLabel, contentHostLabel);
 });

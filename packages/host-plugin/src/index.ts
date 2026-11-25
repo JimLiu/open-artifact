@@ -291,6 +291,12 @@ export interface GuardDetails {
   'link.connect': { client: { name: string; harness?: string; version?: string } };
   /** A linked computer publishes or replaces an artifact. */
   'link.publish': { type: string; bytes: number; replaces: boolean };
+  /**
+   * A person publishes an artifact type to the site (`open-artifact types publish`), asked once the package is read and
+   * before anything of it is kept: its `id`, `uid` and `version`, the package's size, who may list it, and whether it
+   * replaces a version already there.
+   */
+  'type.publish': { id: string; uid: string; version: string; bytes: number; visibility: 'private' | 'site' | 'link'; replaces: boolean };
   /** An MCP client (an agent app) is given access to the person's artifacts. */
   'mcp.connect': { client: { id: string; name: string } };
   /** A request to the owner's agent from the Ask pane. */

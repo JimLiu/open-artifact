@@ -1024,6 +1024,7 @@ groups?, siteRole}`、`{kind: 'guest', …}`、`{kind: 'agent', label, user}` �
 | `share.change` | `{changes}`（同 `share.changed`） | 任何对“谁能打开”的修改 |
 | `link.connect` | `{client {name, harness?, version?}}` | 批准一台电脑连接 |
 | `link.publish` | `{type, bytes, replaces}` | 电脑发布或替换一个作品 |
+| `type.publish` | `{id, uid, version, bytes, visibility, replaces}`（`visibility`：`private`、`site`、`link`） | 一个类型发布到站点的类型目录（`open-artifact types publish`）时，在包检查完之后、保存任何东西之前；已有的类型发布新版本（或同一版本再发一次）时 `replaces` 为真。谁能发布由 `OA_TYPES_PUBLISH` 决定，先于它判断。 |
 | `mcp.connect` | `{client {id, name}}` | 批准一个远程 MCP 客户端 |
 | `agent.ask` | `{text, label?}` | 在 Ask 面板向所有者的 Agent 提需求 |
 

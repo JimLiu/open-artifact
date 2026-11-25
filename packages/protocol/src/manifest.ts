@@ -88,6 +88,11 @@ export interface ManifestHostHints {
    * progress live as later writes land, rather than waiting until everything is written and checked.
    */
   openEarly?: boolean;
+  /**
+   * The `https://` origins an installed type's page may reach (`["https://api.example.com"]`); without it, an
+   * installed type's page reaches only its own origin. Types of the other scopes are not limited by it.
+   */
+  network?: string[];
   [key: string]: unknown;
 }
 
@@ -95,6 +100,12 @@ export interface ManifestHostHints {
 export interface ArtifactTypeManifest {
   /** Stable id; defaults to the folder name. */
   slug?: string;
+  /**
+   * A random id (a UUID) written once when the type is made (`open-artifact types new`): it tells two types of the
+   * same slug apart. An artifact records the uid of the type it was made with (`typeUid`), and is opened and written
+   * only by a type of that uid.
+   */
+  uid?: string;
   /** Display name, e.g. `Design`. */
   name?: string;
   /** Longer display title. */
@@ -145,8 +156,11 @@ export type ResolvedEntry =
  */
 export type TypeRuntime = 'static' | 'url' | 'server' | 'frame';
 
-/** Where a type was found. */
-export type TypeScope = 'project' | 'user' | 'extra' | 'builtin';
+/**
+ * Where a type was found. `installed`: a type package the person installed (`open-artifact types install`), kept in
+ * `<OPEN_ARTIFACT_HOME>/types/`: never trusted to run its own server.
+ */
+export type TypeScope = 'project' | 'user' | 'extra' | 'installed' | 'builtin';
 
 /** True for a {@link ServerEntry}. */
 export function isServerEntry(entry: ManifestEntry | undefined): entry is ServerEntry {

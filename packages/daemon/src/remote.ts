@@ -24,8 +24,12 @@ import {
   type LinkTokenError,
   type LinkTokenRequest,
   type LinkUser,
+  type LinkTypeImportResult,
+  type LinkTypesResult,
+  type LinkTypeUnpublishResult,
   type LinkWrite,
   type RemoteErrorCode,
+  type SiteTypeVisibility,
   httpAllowance,
   PRIVATE_NETWORK_HTTP_RULE,
 } from '@open-artifact/protocol';
@@ -594,6 +598,11 @@ export class LinkClient {
     return { bytes: new Uint8Array(await response.arrayBuffer()), etag: etag ? etag.replace(/^W\//, '').replace(/"/g, '') : null };
   }
 
+  /** `link.capabilities`: a page artifact's declared capabilities, on a host whose `hello` says `features.pages`. */
+  setCapabilities(id: string, capabilities: Record<string, unknown>): Promise<Record<string, never>> {
+    return this.json<Record<string, never>>(LINK_ROUTES.capabilities, { method: 'POST', json: { id, capabilities } });
+  }
+
   writeFiles(id: string, writes: LinkWrite[]): Promise<LinkFilesResult> {
     return this.json<LinkFilesResult>(LINK_ROUTES.files, { method: 'POST', json: { id, writes }, timeoutMs: 300_000 });
   }
@@ -615,6 +624,21 @@ export class LinkClient {
 
   async unpublish(id: string): Promise<void> {
     await this.json<unknown>(LINK_ROUTES.unpublish, { method: 'POST', json: { id } });
+  }
+
+  /** `link.types.import`: a type package to the site's catalog (`visibility` only for a new one, or to change it). */
+  typesImport(bytes: Uint8Array, visibility?: SiteTypeVisibility): Promise<LinkTypeImportResult> {
+    return this.json<LinkTypeImportResult>(LINK_ROUTES.typesImport, { method: 'POST', query: visibility ? { visibility } : {}, body: { bytes, type: 'application/zip' }, timeoutMs: 300_000 });
+  }
+
+  /** `link.types.list`: the site's types this person may see. */
+  typesList(): Promise<LinkTypesResult> {
+    return this.json<LinkTypesResult>(LINK_ROUTES.typesList);
+  }
+
+  /** `link.types.unpublish`: delisted while artifacts use it, else removed. */
+  typesUnpublish(id: string): Promise<LinkTypeUnpublishResult> {
+    return this.json<LinkTypeUnpublishResult>(LINK_ROUTES.typesUnpublish, { method: 'POST', json: { id } });
   }
 }
 

@@ -5,6 +5,7 @@
  * - `http.ts`: handlers on Fetch `Request`/`Response`, a router, JSON and error answers, cookies, the same-origin check.
  * - `crypto.ts`: random ids and tokens, SHA-256, HMAC with key rotation, AES-GCM for small strings (WebCrypto).
  * - `page-token.ts`: signed page tokens and content host names.
+ * - `page-host.ts`: a page artifact's page hosts (`<idlabel>--<opaque>`), for both sites' frame engines.
  * - `config.ts`: the configuration from environment variables.
  * - `catalog/`: the schema, its migrations and the `Catalog` over a `SqlDriver`.
  * - `authz/`: a principal's role on an artifact (`roles.ts`) and its live lookup (`access.ts`).
@@ -22,6 +23,7 @@ export * from './types.ts';
 export * from './http.ts';
 export * from './crypto.ts';
 export * from './page-token.ts';
+export * from './page-host.ts';
 export * from './config.ts';
 export * from './catalog/schema.ts';
 export * from './catalog/catalog.ts';

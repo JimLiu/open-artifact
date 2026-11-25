@@ -44,6 +44,10 @@ import { artifactOfContentHost, checkPageToken, contentOriginOf, pageTokenClaims
 import type { ArtifactRole, ArtifactRow, HostConfig, Principal } from '../core/types.ts';
 import { emitEvent, offerWake, type Plugins } from '../core/plugins/index.ts';
 import { artifactRef } from '../core/plugins/registry.ts';
+import { titleInHtml } from '@open-artifact/protocol';
+import { readFile } from 'node:fs/promises';
+import { createFrameEngine, PAGE_TYPE, type FrameEngine, type PageNetwork, type SiteFrameTypes } from './frames.ts';
+import type { NodeSiteTypes } from './site-types.ts';
 
 /** Whether a user's agent is connected over Link right now. The Link layer implements it; the default says never. */
 export interface LinkPresence {
@@ -71,6 +75,11 @@ export interface RoomsOptions {
   plugins?: Plugins;
   /** Closes an artifact with no page and no request for this long, ms (default {@link ROOM_IDLE_CLOSE_MS}; 0: never). */
   idleCloseMs?: number;
+  /**
+   * The frame engine's types and the pages' network (`frames.ts`): `page` artifacts run on the frame core. Absent or
+   * null: no page artifact runs here (one domain for both origins, `OA_CONTENT_SAME_SITE`, or a test without them).
+   */
+  frames?: { types: SiteFrameTypes; network: PageNetwork; siteTypes?: NodeSiteTypes | null } | null;
 }
 
 /** How long an artifact nobody uses stays open on the Node host: ten minutes. */
@@ -103,6 +112,10 @@ export interface HostRooms {
   readonly typeApi: TypeApiLike;
   /** The loopback address of the type server's own listener. */
   readonly internalUrl: string;
+  /** The frame engine that runs page artifacts, or null when this site runs none. */
+  readonly frames: FrameEngine | null;
+  /** The types published to this site (they run on the frame engine), or null. */
+  readonly siteTypes: NodeSiteTypes | null;
   stop(): Promise<void>;
 }
 
@@ -265,8 +278,15 @@ export async function createRooms(options: RoomsOptions): Promise<HostRooms> {
   /** The title in an artifact's own files when it differs from the catalog's, else undefined. */
   const contentTitle = async (id: string): Promise<string | undefined> => {
     const artifact = await catalog.getArtifact(id);
-    if (!artifact || !isTypeName(artifact.type)) return undefined;
-    const title = (await readArtifactTitle(rootOf(id), artifact.type))?.slice(0, 200);
+    if (!artifact) return undefined;
+    // A page's title is its index.html's <title> (the type's `titleFrom`).
+    const title = (
+      artifact.type === PAGE_TYPE
+        ? titleInHtml(await readFile(join(rootOf(id), 'index.html'), 'utf8').catch(() => ''))
+        : isTypeName(artifact.type)
+          ? await readArtifactTitle(rootOf(id), artifact.type)
+          : await options.frames?.siteTypes?.contentTitle(artifact.type, rootOf(id))
+    )?.slice(0, 200);
     return title && title !== artifact.title ? title : undefined;
   };
 
@@ -334,6 +354,36 @@ export async function createRooms(options: RoomsOptions): Promise<HostRooms> {
   });
   const internalUrl = await typeServer.listen(0, '127.0.0.1');
 
+  const frames: FrameEngine | null = options.frames
+    ? createFrameEngine({
+        config,
+        catalog,
+        cache,
+        typeApi,
+        rootOf,
+        dataDir: options.dataDir,
+        types: options.frames.types,
+        network: options.frames.network,
+        log,
+        now,
+        idleCloseMs: options.idleCloseMs ?? ROOM_IDLE_CLOSE_MS,
+      })
+    : null;
+  /** The frame engine's answer to a request it took, or a 500 when it failed. */
+  const framed = (res: ServerResponse, run: Promise<void>): void => {
+    run.catch((error: unknown) => {
+      log(`page: ${error instanceof Error ? error.message : String(error)}`);
+      if (!res.headersSent) res.writeHead(500, { 'content-type': 'text/plain; charset=utf-8' });
+      res.end();
+    });
+  };
+  /** Whether a content-host request is the frame engine's: a page host, or `/page/…` on an artifact's content host. */
+  const forFrames = (req: IncomingMessage): 'content' | 'shell' | null => {
+    if (!frames) return null;
+    if (frames.isPageHost(req.headers.host)) return 'content';
+    return (req.url ?? '').startsWith(`/${PAGE_TYPE}/`) || req.url === `/${PAGE_TYPE}` ? 'shell' : null;
+  };
+
   const internal = async (route: string, init: { method?: string; query?: Record<string, string>; body?: unknown } = {}): Promise<Response> => {
     const url = new URL(`__open-artifact/${route}`, internalUrl);
     for (const [key, value] of Object.entries(init.query ?? {})) url.searchParams.set(key, value);
@@ -349,30 +399,43 @@ export async function createRooms(options: RoomsOptions): Promise<HostRooms> {
     rootOf,
     typeApi,
     internalUrl,
+    frames,
+    siteTypes: options.frames?.siteTypes ?? null,
 
     async pageFor(artifact, principal, role) {
       await rememberOwner(artifact);
       opened.add(artifact.id);
       const claims = pageTokenClaims({ artifact: artifact.id, principal, role, grantsVersion: artifact.grantsVersion, epoch: await catalog.siteEpoch(), now: now() });
       const token = await signPageToken(claims, config.signingKeys);
-      const pageUrl = new URL(`${artifact.type}/${encodeURIComponent(token)}/`, `${contentOriginOf(config, artifact.id)}/`).href;
+      // The frame engine serves every type it runs under `/page/` (a published type's id may be anything).
+      const segment = frames?.runs(artifact.type) ? PAGE_TYPE : artifact.type;
+      const pageUrl = new URL(`${segment}/${encodeURIComponent(token)}/`, `${contentOriginOf(config, artifact.id)}/`).href;
       const framed = new URL(pageUrl);
       framed.searchParams.set(SHELL_PARAMS.shell, appOrigin);
       return { url: framed.href, pageUrl, token };
     },
 
     handle(req, res) {
+      const route = forFrames(req);
+      if (route === 'content') return framed(res, frames!.content(req, res));
+      if (route === 'shell') return framed(res, frames!.shell(req, res));
       typeServer.handle(req, res);
     },
     upgrade(req, socket, head) {
+      const route = forFrames(req);
+      if (route) {
+        frames!.upgrade(req, socket, head).catch(() => socket.destroy());
+        return;
+      }
       typeServer.upgrade(req, socket, head);
     },
-    isContentHost: (host) => artifactOfContentHost(config, host) !== null,
+    isContentHost: (host) => artifactOfContentHost(config, host) !== null || !!frames?.isPageHost(host),
 
     async refresh(id) {
       // A sharing change was made: work every holder's role out again.
       cache.invalidate(id);
       const artifact = await catalog.getArtifact(id);
+      await frames?.refresh(id);
       if (!artifact || artifact.trashedAt !== null) {
         typeServer.disconnect(id);
         return;
@@ -417,12 +480,14 @@ export async function createRooms(options: RoomsOptions): Promise<HostRooms> {
         if (ref) refs.set(refKey(ref), ref);
         return true;
       });
+      for (const ref of frames?.connected(id) ?? []) refs.set(refKey(ref), ref);
       return [...refs.values()];
     },
 
     async action(id, name, args) {
       const artifact = await catalog.getArtifact(id);
       if (!artifact) throw httpError('not_found', `No artifact ${id}.`);
+      if (frames?.runs(artifact.type)) return frames.action(id, name, args);
       await rememberOwner(artifact);
       const answer = await internal(`actions/${encodeURIComponent(name)}`, { method: 'POST', body: { id, root: rootOf(id), args } });
       const body = (await answer.json().catch(() => null)) as { code?: unknown; message?: unknown } | null;
@@ -437,6 +502,7 @@ export async function createRooms(options: RoomsOptions): Promise<HostRooms> {
     internal,
 
     async stop() {
+      await frames?.stop();
       await typeServer.stop();
     },
   };

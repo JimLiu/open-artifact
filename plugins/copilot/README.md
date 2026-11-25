@@ -2,7 +2,7 @@
 
 For the Copilot CLI and VS Code agent mode (the Copilot harness). Slide decks, design canvases, whiteboards, spreadsheets, data dashboards, docs, animated films and design systems as
 folders of files that open in one local page where you view, edit and comment: `/open-artifact slides …`,
-`design …`, `whiteboard …`, `sheets …`, `data …`, `docs …` or `motion …`.
+`design …`, `whiteboard …`, `sheets …`, `data …`, `docs …`, `motion …` or `page …`.
 
 ## Install
 

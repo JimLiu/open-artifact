@@ -597,6 +597,15 @@ export class HarnessHub extends EventEmitter<{ changed: [] }> {
     return title && title !== harness ? title : undefined;
   }
 
+  /** The folders known sessions worked in (`sessions.json`), the most recently seen first. */
+  workspaces(limit = 20): string[] {
+    const seen = Object.values(this.known)
+      .filter((s) => !!s.workspace)
+      .sort((a, b) => (Date.parse(b.seenAt) || 0) - (Date.parse(a.seenAt) || 0))
+      .map((s) => s.workspace!);
+    return [...new Set(seen)].slice(0, limit);
+  }
+
   /** `GET /api/open-artifact.harnesses`. */
   info(): HarnessesResponse {
     const adapters: AdapterInfo[] = [...this.connections]

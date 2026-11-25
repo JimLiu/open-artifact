@@ -32,7 +32,7 @@ https://github.com/user-attachments/assets/9f34dc69-2e90-4118-92fd-63f36d7bc5f9
 ユーザーと AI エージェントの両方に向けた、英語と中国語の完全なガイドは [docs/](docs/README.md) から始まります。
 
 - [Open Artifact とは](docs/overview.md) — 基本的な考え方、主な利点、クイックスタート。
-- [Artifact タイプの概要](docs/artifact-types.md) — 8 つのタイプの比較、選び方、保存モデル。
+- [Artifact タイプの概要](docs/artifact-types.md) — 9 つのタイプの比較、選び方、保存モデル。
 - [エージェントによる Open Artifact の使い方](docs/agent-guide.md) — MCP ツール、CLI でのフォールバック、ワークフローのライフサイクル、コメント、安全上のルール。
 
 ### エージェント製品を作っていますか？
@@ -56,6 +56,7 @@ Artifact をその一部にできます。エージェントは自身のツー�
 | **Data** | ライブなダッシュボードやレポート：CSV/JSON/テキストのアップロード、ライブな MCP コネクターのクエリ、計算から作るデータセットを、プレーンな HTML/CSS/d3 のページで描画します。Sources で各数値の出どころを確認でき、フィルター、手動での編集、リミックスの下書きにも対応しています | `db/dash/meta.json` | PDF, HTML, JSON | [ガイド](docs/types/data.md) · [SKILL](artifact-types/data/SKILL.md) |
 | **Docs** | タブで構成されるリビングドキュメント：見出し、リスト、表、画像、日付、メンション、ドロップダウン。承認または却下できる編集の提案、コメント、タブごとのバージョン履歴。Markdown、Word、PDF をインポートできます | `doc/doc.json` | Markdown, Word, PDF, HTML | [ガイド](docs/types/docs.md) · [SKILL](artifact-types/docs/SKILL.md) |
 | **Motion** | 短いアニメーション映像：時間から描画される HTML/CSS/JS のシーン、生成された音楽、粗編集から完成版まで、字幕とナレーション。文字、色、フォント、カット、スタイルを手で変更でき、コメントは特定の瞬間やフレーム内の位置に固定できます | `db/film/meta.json` | MP4, GIF, HTML, ZIP | [ガイド](docs/types/motion.md) · [SKILL](artifact-types/motion/SKILL.md) |
+| **Page** | エージェントがまるごと書く自由な HTML ページ：ウィジェット、ツール、ミニゲーム、解説ページ。宣言したランタイム機能（共有データベース、アップロード、コメント、ライブメッセージ）を使えます。セルフホストの Node サイトや Cloudflare サイトにも公開できます | `index.html` | — | [ガイド](docs/types/page.md) · [SKILL](artifact-types/page/SKILL.md) |
 
 各タイプのフォルダーは自己完結した skill です。`SKILL.md` はエージェントにその書き方を伝え、`reference/` は
 ファイル形式を説明し、`artifact-type.json` はホストに向けてタイプを記述し、`scripts/`（ビルド後）には CLI とエディターが入っています。
@@ -98,6 +99,7 @@ DeepSeek Harness では、新しいバージョンが提供されたら、Open A
 /open-artifact data a dashboard of signups by month from signups.csv
 /open-artifact docs a hiring plan for 2027 with roles, budget and timeline
 /open-artifact motion a 20-second launch animation for this app
+/open-artifact page a team lunch poll that remembers every vote
 ```
 
 プラグインは、`Artifact`、`ArtifactData`、`ArtifactComments` の MCP ツール、skill、そして
@@ -192,7 +194,7 @@ npm にまだ存在しないパッケージは、最初のリリースの前に�
 
 | パス | 内容 |
 |---|---|
-| `artifact-types/` | skill としての 8 つのタイプ: `SKILL.md`、`reference/`、`artifact-type.json`。 |
+| `artifact-types/` | skill としての 9 つのタイプ: `SKILL.md`、`reference/`、`artifact-type.json`（`page` には専用のエディターと CLI がありません）。 |
 | `skills/open-artifact/` | 1 つの `/open-artifact <type>` skill。`vendor/`（ビルド後）にはデーモンが入っています。 |
 | `plugins/` | エージェントアプリごとにパッケージした skill。フックと MCP の設定付き（[README](plugins/README.md)）。 |
 | **プラットフォーム** | |

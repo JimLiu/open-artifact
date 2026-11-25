@@ -203,6 +203,61 @@ noticing. On a LAN, prefer two names: `nip.io` for the artifacts needs nothing b
 (`keys.json`), in either mode. Same-site mode changes nothing there: the key signs page addresses and share links,
 which no neighbour host can read.
 
+## Page artifacts
+
+A `page` artifact (a free HTML page an agent wrote, with the capabilities it declares) runs on a site (Node or
+Cloudflare) on one more host name per person, under the same wildcard as the content origin:
+
+| | Example | Serves |
+| --- | --- | --- |
+| The artifact's content host | `art-0mwr….oa-content.example.net/page/<page token>/` | the inner shell, the frame around the page, and the API every write goes through |
+| A page host | `art-0mwr…--k3vq…7x.oa-content.example.net` | that person's view of the page and its files, read only |
+
+- The part after `--` is 24 characters made with the site's signing key from the artifact, the person and the site
+  epoch. It is never a page token and is never taken as one. It stays the same while the person keeps access, so the
+  page keeps its origin (and what the browser stores for it) across reloads and restarts. It stops working when they
+  lose access, and when everyone is signed out (a new epoch).
+- **DNS** needs nothing new: the content origin's wildcard covers page hosts.
+- **Certificates: page artifacts need a wildcard certificate for the content domain** (`*.oa-content.example.net`).
+  Every certificate a public authority issues is written to the Certificate Transparency logs, which anyone can
+  search. A certificate made for one page host would publish that host's name, and with it that someone opened that
+  page and when. So the on-demand ask endpoint (`/tls-ask`) refuses page hosts by default and only answers for the
+  app host and content hosts. **`OA_PAGE_HOST_ON_DEMAND_TLS=true`** makes it also say yes to a page host while it
+  names someone with access; use it only where those logs are not a concern (a private authority, a test site). The
+  start-up line `tls-ask:` says which mode is on.
+- **`OA_PAGE_NETWORK`**: `self` (default), a page reaches only its own origin; `https`, it may also fetch any https
+  origin, and `network.origins()` then answers `["https:"]`.
+- **One domain for both** (`OA_CONTENT_SAME_SITE=true`): the site runs no pages. Publishing one is refused, and the
+  start-up lines say `pages: off`. The Cloudflare host runs pages too ([Page artifacts](hosting-cloudflare.md#page-artifacts)).
+
+What each role may do on a page, and what syncs with the computer it was published from:
+[Page on a site](types/page.md#on-a-site).
+
+## Published types
+
+A **Node** site that runs pages also keeps the types people publish to it (`open-artifact types publish`, see
+[Publish to a site](custom-types.md#publish-to-a-site)), and runs the artifacts made with them.
+
+- **`OA_TYPES_PUBLISH`**: who may publish a type. `admins` (default: the site admins), `members` (anyone with an
+  account) or `off` (nobody; what is published keeps running). With one domain for both (`OA_CONTENT_SAME_SITE=true`)
+  it is always `off`, since such a site runs no pages. The start-up line `types:` says which is in effect and where
+  they are kept.
+- **Where they are kept**: `<OA_DATA_DIR>/types/<uid>/<version>/`, holding the package as published
+  (`package.oatype`) and its files unpacked (`files/`, plain `0644` files), one version per type: a new version
+  replaces the old one's folder. The catalog (id, uid, version, publisher, visibility, sha256) is the `types` table of
+  the site's database. Back them up together with the rest of the data folder.
+- **What a type can do there**: nothing runs on the server. A package is checked as `types install` checks one before
+  anything is kept (one folder, plain files, no `..` or links, the size limits, a literal declaration), and only a type
+  whose page is served as it is goes in: no `entry`, not a page type. Its page runs on the artifact's page host in a
+  sandboxed frame, under a Content-Security-Policy made from its manifest's `openArtifact.network` list
+  (`OA_PAGE_NETWORK` does not widen it). An agent on the site is told that the type's text is its publisher's.
+- **What admins should know**: an admin may publish a new version of anyone's type and unpublish it. Unpublishing a
+  type that artifacts use only delists it (they keep opening); with none left it is deleted. A published id belongs to
+  the first `uid` that took it; a built-in id is never taken. Every publish and unpublish is in the audit log
+  (`type.publish`, `type.unpublish`), and a plugin can refuse a publish with the `type.publish` guard
+  ([Plugins](plugins.md)).
+- The Cloudflare host keeps no published types yet.
+
 ## Roles and sharing
 
 - Each artifact has one **owner**. The owner and the site's admins decide who can open it, in the Share panel on the

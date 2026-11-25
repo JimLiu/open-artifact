@@ -76,6 +76,12 @@ export const files = {
   remotes: (): string => join(openArtifactHome(), 'remotes.json'),
   /** Install-time cloud presets for machines that cannot set environment variables (`preset.json`, read at start). */
   preset: (): string => join(openArtifactHome(), 'preset.json'),
+  /** The installed types (`types install`): `$OPEN_ARTIFACT_INSTALLED_TYPES`, else `<home>/types`. */
+  installedTypes: (): string => resolve(expandHome(process.env.OPEN_ARTIFACT_INSTALLED_TYPES || join(openArtifactHome(), 'types'))),
+  /** Where each installed type came from (`types.json`, {@link InstalledTypesIndex}). */
+  typesIndex: (): string => join(openArtifactHome(), 'types.json'),
+  /** Packages read for an install the person has not confirmed yet (the home page's preview), by sha256. */
+  typesStaging: (): string => join(openArtifactHome(), 'types-staging'),
 };
 
 /** Creates a folder (and its parents) and returns it. */
@@ -118,6 +124,17 @@ export function samePath(a: string, b: string): boolean {
     return process.platform === 'win32' ? full.toLowerCase() : full;
   };
   return normalize(a) === normalize(b);
+}
+
+/** Whether the file at `full` (it exists) is still under `root` once links are followed. */
+export function realInside(root: string, full: string): boolean {
+  try {
+    const real = realpathSync(full);
+    const realRoot = realpathSync(root);
+    return real === realRoot || real.startsWith(realRoot + sep);
+  } catch {
+    return false;
+  }
 }
 
 /** A path under `root` that does not leave it. Throws `bad_path` on `..` and absolute paths. */

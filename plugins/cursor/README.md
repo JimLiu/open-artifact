@@ -1,7 +1,7 @@
 # Open Artifact for Cursor
 
 Slide decks, design canvases, whiteboards, spreadsheets, data dashboards, docs, animated films and design systems as folders of files that open in one local page where you view, edit
-and comment. Type `/open-artifact slides …`, `design …`, `whiteboard …`, `sheets …`, `data …`, `docs …` or `motion …` in the agent chat.
+and comment. Type `/open-artifact slides …`, `design …`, `whiteboard …`, `sheets …`, `data …`, `docs …`, `motion …` or `page …` in the agent chat.
 
 ## Install
 

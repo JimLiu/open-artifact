@@ -51,8 +51,11 @@ export function mcpActionsOf(type: TypeName): McpTypeAction[] {
     .map((action) => ({ name: action.name, title: action.title, effect: action.effect, schema: action.schema }));
 }
 
-/** The types installed in `typesDir` that the embedded type server runs, with their actions. */
-export function readMcpTypes(typesDir: string): McpTypeService {
+/**
+ * The types installed in `typesDir` that the embedded type server runs, with their actions; with `pages`, the `page`
+ * type too (the frame engine runs it: its only action here is `info`).
+ */
+export function readMcpTypes(typesDir: string, options: { pages?: boolean } = {}): McpTypeService {
   const types = new Map<string, { info: McpTypeInfo; skill: string | null }>();
   const folders = existsSync(typesDir) ? readdirSync(typesDir, { withFileTypes: true }).filter((d) => d.isDirectory()) : [];
   for (const folder of folders) {
@@ -65,8 +68,12 @@ export function readMcpTypes(typesDir: string): McpTypeService {
     }
     if (!isRecord(manifest)) continue;
     const id = typeof manifest.slug === 'string' ? manifest.slug : folder.name;
-    if (!isTypeName(id)) continue;
     const oa = isRecord(manifest.openArtifact) ? manifest.openArtifact : {};
+    if (id === 'page' && options.pages && oa.style === 'page') {
+      types.set(id, { skill: readSkill(dir, manifest), info: pageTypeInfo(manifest) });
+      continue;
+    }
+    if (!isTypeName(id)) continue;
     const store = TYPES[id].store ?? null;
     let skill: string | null = null;
     try {
@@ -100,8 +107,40 @@ export function readMcpTypes(typesDir: string): McpTypeService {
   };
 }
 
+function readSkill(dir: string, manifest: Record<string, unknown>): string | null {
+  try {
+    return skillBody(readFileSync(join(dir, typeof manifest.skill === 'string' ? manifest.skill : 'SKILL.md'), 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+/** The page type as the site's MCP lists it: a free page with a db, comments, and `info` as its only action. */
+function pageTypeInfo(manifest: Record<string, unknown>): McpTypeInfo {
+  return {
+    id: 'page',
+    title: typeof manifest.title === 'string' ? manifest.title : 'Page',
+    description: typeof manifest.description === 'string' ? manifest.description : '',
+    intents: strings(manifest.intents),
+    ...(typeof manifest.when === 'string' ? { when: manifest.when } : {}),
+    exports: [],
+    uses: [],
+    store: 'db',
+    comments: true,
+    ...(typeof manifest.artifactTitle === 'string' ? { artifactTitle: manifest.artifactTitle } : {}),
+    openEarly: false,
+    actions: [{ name: 'info', title: 'What the artifact holds', effect: 'read', schema: { type: 'object', properties: {} } }],
+  };
+}
+
 /** Makes a new artifact's folder as the type server would: `.artifact.json` and the type's empty content. */
 export async function scaffoldArtifact(root: string, input: { id: string; type: string; title: string }): Promise<void> {
+  if (input.type === 'page') {
+    // A page starts empty: the core shows its empty page until index.html is written.
+    await mkdir(root, { recursive: true, mode: 0o700 });
+    await writeFile(join(root, '.artifact.json'), `${JSON.stringify({ type: 'page', id: input.id, title: input.title, release: null, capabilities: {} }, null, 2)}\n`, { flag: 'wx' });
+    return;
+  }
   if (!isTypeName(input.type)) throw new Error(`Unknown type ${input.type}.`);
   await mkdir(root, { recursive: true, mode: 0o700 });
   await writeFile(join(root, '.artifact.json'), `${JSON.stringify({ type: input.type, id: input.id, title: input.title, release: null }, null, 2)}\n`, { flag: 'wx' });
@@ -120,8 +159,10 @@ async function resolveAll(hostname: string): Promise<string[]> {
 
 /** The remote MCP services over the rooms. */
 export async function nodeMcpServices(input: {
-  rooms: Pick<HostRooms, 'rootOf' | 'action' | 'refresh'>;
+  rooms: Pick<HostRooms, 'rootOf' | 'action' | 'refresh'> & { frames?: HostRooms['frames']; siteTypes?: HostRooms['siteTypes'] };
   events: HostEvents;
+  /** Page artifacts' capabilities (`nodeLinkServices(…).pages`), on a site that runs pages. */
+  pages?: McpServices['pages'];
   access: AccessCache;
   /** The title an artifact's content gives (`nodeLinkServices(…).contentTitle`). */
   contentTitle: McpServices['contentTitle'];
@@ -132,11 +173,13 @@ export async function nodeMcpServices(input: {
   cimd?: McpServices['cimd'];
 }): Promise<McpServices> {
   const { rooms } = input;
-  const types = readMcpTypes(input.typesDir ?? DEFAULT_TYPES_DIR);
+  const types = readMcpTypes(input.typesDir ?? DEFAULT_TYPES_DIR, { pages: !!rooms.frames });
   return {
     types,
     create: (artifact) => scaffoldArtifact(rooms.rootOf(artifact.id), artifact),
-    files: createArtifactFiles((id) => rooms.rootOf(id)),
+    ...(input.pages ? { pages: input.pages } : {}),
+    ...(rooms.siteTypes ? { publishedType: (type: string) => ((row) => (row ? { name: row.name, description: row.description } : null))(rooms.siteTypes!.row(type)) } : {}),
+    files: createArtifactFiles((id) => rooms.rootOf(id), { afterWrite: (id, paths) => rooms.frames?.noteChanges(id, paths) }),
     action: (id, name, args) => rooms.action(id, name, args),
     contentTitle: input.contentTitle,
     refreshAccess: (id) => rooms.refresh(id),

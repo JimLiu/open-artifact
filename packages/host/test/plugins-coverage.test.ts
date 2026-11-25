@@ -21,6 +21,7 @@ import { parseMcpConfig } from '../src/core/mcp/config.ts';
 import { GUARD_PATHS } from '../src/core/plugins/hooks.ts';
 import { parseNodeEnv } from '../src/node/env.ts';
 import { startHost } from '../src/node/host.ts';
+import { packageOf } from './site-type-fixture.ts';
 
 const SAMPLE = fileURLToPath(new URL('../../../test-artifacts/whiteboard/elements', import.meta.url));
 const REDIRECT = 'http://127.0.0.1:9/callback';
@@ -42,6 +43,7 @@ const GUARD: Record<keyof typeof GUARD_PATHS, Shape> = {
   'share.change': { changes: 'object' },
   'link.connect': { client: 'object' },
   'link.publish': { type: 'string', bytes: 'number', replaces: 'boolean' },
+  'type.publish': { id: 'string', uid: 'string', version: 'string', bytes: 'number', visibility: ['private', 'site', 'link'], replaces: 'boolean' },
   'mcp.connect': { client: 'object' },
   'agent.ask': { text: 'string', label: 'string?' },
 };
@@ -128,7 +130,7 @@ test('every guarded action is asked, and every event sent, on each promised path
   await mkdir(join(uiDir, 'home'), { recursive: true });
   const port = await freePort();
   const app = `http://127.0.0.1:${port}`;
-  const config = parseConfig({ OA_APP_ORIGIN: app, OA_CONTENT_ORIGIN: `http://{id}.content.localhost:${port}`, OA_SIGNING_KEYS: 'e'.repeat(40), OA_OWNER_KEY: 'o'.repeat(30), OA_SIGNUP: 'open' });
+  const config = parseConfig({ OA_APP_ORIGIN: app, OA_CONTENT_ORIGIN: `http://{id}.content.localhost:${port}`, OA_SIGNING_KEYS: 'e'.repeat(40), OA_OWNER_KEY: 'o'.repeat(30), OA_SIGNUP: 'open', OA_TYPES_PUBLISH: 'members' });
   const env = { ...parseNodeEnv({ OA_DATA_DIR: join(dir, 'data'), OA_PORT: String(port), OA_BIND: '127.0.0.1' }), assetsDir: assets };
   const host = await startHost({
     config,
@@ -184,6 +186,9 @@ test('every guarded action is asked, and every event sent, on each promised path
     await ok(fetch(link('export', `?id=${linkId}`), { headers: bearer }));
     await ok(fetch(link('unpublish'), { method: 'POST', headers: { ...bearer, 'content-type': 'application/json' }, body: JSON.stringify({ id: linkId }) }));
     await ok(fetch(link('import', `?id=${linkId}&type=whiteboard`), { method: 'POST', headers: { ...bearer, 'content-type': 'application/zip' }, body: zip }), 201);
+    // A type published to the site (type.publish), then a new version of it (replaces).
+    await ok(fetch(link('types.import', '?visibility=site'), { method: 'POST', headers: { ...bearer, 'content-type': 'application/zip' }, body: packageOf() as Uint8Array<ArrayBuffer> }), 201);
+    await ok(fetch(link('types.import'), { method: 'POST', headers: { ...bearer, 'content-type': 'application/zip' }, body: packageOf({ version: '1.1.0' }) as Uint8Array<ArrayBuffer> }));
 
     // An agent app: the OAuth consent (mcp.connect), create (artifact.create via mcp), a write (artifact.changed),
     // delete (artifact.delete).
@@ -224,6 +229,7 @@ test('every guarded action is asked, and every event sent, on each promised path
     assert.equal(asked.filter((a) => a.action === 'artifact.delete').length, 5, 'trash (twice), purge, unpublish, MCP delete');
     assert.equal(asked.filter((a) => a.action === 'artifact.export').length, 2, 'the archive and the link export');
     assert.deepEqual(new Set(asked.filter((a) => a.action === 'link.publish').map((a) => a.detail.replaces)), new Set([false, true]));
+    assert.deepEqual(asked.filter((a) => a.action === 'type.publish').map((a) => [a.detail.version, a.detail.replaces, a.detail.visibility]), [['1.0.0', false, 'site'], ['1.1.0', true, 'site']]);
     for (const action of Object.keys(GUARD_PATHS)) assert.ok(asked.some((a) => a.action === action), `guard ${action} was asked`);
 
     // Every event was sent, each with the fields PluginEventMap declares.

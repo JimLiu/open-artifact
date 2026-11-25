@@ -28,6 +28,8 @@ export type OpenArtifactErrorCode =
   | 'unsupported_protocol'
   | 'unknown_session'
   | 'type_missing'
+  /** The artifact was made with another type of the same id (its `typeUid` differs from the type's `uid`). */
+  | 'type_mismatch'
   | 'type_not_runnable'
   | 'server_failed'
   | 'unavailable'

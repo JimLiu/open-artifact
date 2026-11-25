@@ -4,8 +4,18 @@ import { hostToShellOf, type ArtifactView, type HostLibraryFilter, type TypeView
 import type { HomeHost } from './host.ts';
 import type { BadgeState } from '../components/OwnerBadge.tsx';
 
-/** Types the home page can create artifacts of, in this first batch. */
-export const CREATABLE_TYPES: readonly string[] = ['design'];
+/**
+ * Built-in types the home page can create artifacts of. It began with Design alone (no reason is recorded); `page`
+ * joins it, and the other built-ins stay as they were.
+ */
+export const CREATABLE_TYPES: readonly string[] = ['design', 'page'];
+
+/**
+ * Roots whose frame types (the types people make) the home page offers "New" for. A project's types are made from a
+ * session in that project: the home page creates in its own workspace. A server type in these roots (a copy of a
+ * built-in, say) is not offered.
+ */
+const CREATABLE_SCOPES: readonly string[] = ['user', 'extra'];
 
 /** When an artifact's content last changed, for ordering. */
 export function contentTime(a: Pick<ArtifactView, 'contentAt' | 'updatedAt' | 'createdAt'>): number {
@@ -40,12 +50,14 @@ export function isUsable(type: TypeView): boolean {
 
 /** The home page offers "New" for this type. */
 export function isCreatable(type: TypeView): boolean {
-  return isUsable(type) && CREATABLE_TYPES.includes(type.id);
+  if (!isUsable(type) || type.trusted === false) return false;
+  if (CREATABLE_TYPES.includes(type.id)) return true;
+  return type.scope !== 'builtin' && CREATABLE_SCOPES.includes(type.scope) && type.runtime === 'frame';
 }
 
-/** The type "New artifact" creates, or `null` when none is installed and usable. */
+/** The type "New artifact" creates (Design first), or `null` when none is installed and usable. */
 export function defaultCreatable(types: readonly TypeView[]): TypeView | null {
-  return types.find(isCreatable) ?? null;
+  return types.find((type) => type.id === 'design' && isCreatable(type)) ?? types.find(isCreatable) ?? null;
 }
 
 /** The badge state of an artifact's owner session. */

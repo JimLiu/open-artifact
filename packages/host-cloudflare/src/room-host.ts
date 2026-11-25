@@ -20,6 +20,10 @@
  *   owner's outbox with the core's `queueDataRefresh` and tells the hub, as `wake` does; no connector runs here.
  * - `refresh` (after a sharing change) ends only the connections whose holder's role moved, and editors' when whether
  *   they may ask the agent moved.
+ * - `pages` (when the site runs page artifacts): who a page artifact's request is, as the Node site's frame engine
+ *   decides it (`node/frames.ts`): a page token on the content host (`placeShell`, the live role, the epoch, never a
+ *   snapshot), or a page host's opaque part (`placeReader`: the principal it was made for, from the object's index or
+ *   worked out for the owner and the user grants, with their live role and the live epoch).
  */
 
 import type { TypeApiPresence, TypeApiWakeResult } from '@open-artifact/protocol';
@@ -28,6 +32,12 @@ import {
   AccessCache,
   checkPageToken,
   contentOriginOf,
+  pageHostFits,
+  pageHostMatches,
+  pageHostOf,
+  pageHostOpaque,
+  pageHostSource,
+  pageOriginOf,
   httpError,
   MCP_HARNESS,
   MCP_PRESENT_MS,
@@ -50,6 +60,8 @@ import {
 import { isTypeName, readArtifactTitle, type TypeApiLike } from '@open-artifact/type-server';
 import { shellPath } from '@open-artifact/protocol';
 import type { RoomHost } from './room.ts';
+import { colorOf, frameLevelOf, PAGE_TYPE, pageNetworkPolicy, pageTitleOf, type PageNetwork, type PlacedPage, type RoomFrameTypes, type RoomPages } from './frames.ts';
+import type { FramePerson, FrameViewer } from '@open-artifact/server-sdk/frame/env';
 
 /** Longest a role answer is kept in an object, ms. */
 export const ACCESS_MAX_AGE_MS = 2_000;
@@ -95,6 +107,8 @@ export interface ProductRoomHostOptions {
   accessMaxAgeMs?: number;
   /** The site's plugins in this object (absent: none): `authz.role`, `wake.deliver`, `artifact.changed`. */
   plugins?: Plugins;
+  /** Page artifacts (the frame engine's types, `OA_PAGE_NETWORK`); absent: the site runs none. */
+  pages?: { types: RoomFrameTypes; network: PageNetwork };
 }
 
 export interface ProductRoomHost {
@@ -179,9 +193,16 @@ export function createProductRoomHost(options: ProductRoomHostOptions): ProductR
     return recent[0];
   };
   const contentTitle = async (artifact: ArtifactRow): Promise<string | undefined> => {
-    if (!isTypeName(artifact.type)) return undefined;
-    const title = (await readArtifactTitle(options.rootOf(artifact.id), artifact.type).catch(() => undefined))?.slice(0, 200);
+    let title: string | undefined;
+    if (isTypeName(artifact.type)) title = (await readArtifactTitle(options.rootOf(artifact.id), artifact.type).catch(() => undefined))?.slice(0, 200);
+    else if (options.pages && artifact.type === PAGE_TYPE) title = pageTitleOf(options.rootOf(artifact.id));
     return title && title !== artifact.title ? title : undefined;
+  };
+  const tellAwake = (id: string): void => {
+    if (plugins?.hasRoleHook && !told.has(id) && hub.awake) {
+      told.add(id);
+      void hub.awake(id).catch(() => told.delete(id));
+    }
   };
 
   const typeApi: TypeApiLike = {
@@ -231,6 +252,102 @@ export function createProductRoomHost(options: ProductRoomHostOptions): ProductR
     },
   };
 
+  /** A frame viewer for a principal's current access (as the Node site's `viewerOf`). */
+  const viewerOf = (found: CachedAccess, ref: PrincipalRef): FrameViewer => {
+    const { principal, role } = found;
+    const person = principal.kind === 'agent' ? principal.user : principal;
+    const { level, canComment } = frameLevelOf(role);
+    return {
+      id: ref.id,
+      name: person.kind === 'anonymous' ? 'Anonymous' : person.name,
+      email: person.kind === 'user' ? (person.email ?? null) : null,
+      avatarUrl: person.kind === 'user' ? (person.avatar ?? null) : null,
+      color: colorOf(ref.id),
+      level,
+      guest: person.kind === 'guest' || person.kind === 'anonymous',
+      canComment,
+    };
+  };
+
+  /** The page artifacts' side: see the module comment. */
+  function pageHost(types: RoomFrameTypes, network: PageNetwork): RoomPages {
+    const policy = pageNetworkPolicy(network);
+    /** A principal's current access to a page artifact, or null (no access, trashed, not a frame type here). */
+    const accessOf = async (id: string, ref: PrincipalRef): Promise<CachedAccess | null> => {
+      const found = await lookUp(id, ref);
+      if (!found || found.artifact.trashedAt !== null || !(await types.typeOf(found.artifact.type))) return null;
+      tellAwake(id);
+      return found;
+    };
+    const placed = (found: CachedAccess, ref: PrincipalRef, opaque: string): PlacedPage => ({
+      viewer: viewerOf(found, ref),
+      ref,
+      role: found.role,
+      opaque,
+      artifact: { title: found.artifact.title, type: found.artifact.type },
+    });
+    return {
+      types,
+      policy,
+      pageHostOf: (host) => pageHostOf(config, host),
+      origins: (id) => ({ shell: contentOriginOf(config, id), template: pageOriginOf(config, id, 'a'.repeat(24)), frameSrc: pageHostSource(config), app: appOrigin }),
+      pageOrigin: (id, opaque) => pageOriginOf(config, id, opaque),
+      async artifact(id) {
+        const artifact = await catalog.getArtifact(id);
+        return artifact && artifact.trashedAt === null ? { title: artifact.title, type: artifact.type } : null;
+      },
+      async placeShell(id, token, use, index) {
+        const claims = await verifyPageToken(token, config.signingKeys);
+        // A snapshot token: no snapshot of a page here (as on Node).
+        if (!claims || claims.s === 1) return null;
+        if (!checkPageToken(claims, { artifact: id, grantsVersion: claims.gv, epoch: claims.ep, now: now(), use }).ok) return null;
+        if (!pageHostFits(id)) throw Object.assign(new Error(`The artifact id ${id} is too long for a page host name.`), { code: 'unsupported', status: 400 });
+        const ref: PrincipalRef = { kind: claims.k, id: claims.p };
+        const found = await accessOf(id, ref);
+        if (!found || found.epoch !== claims.ep) return null;
+        const opaque = await pageHostOpaque(config.signingKeys, id, ref, found.epoch);
+        index.set(opaque, ref);
+        return placed(found, ref, opaque);
+      },
+      async placeReader(id, host, index) {
+        const named = pageHostOf(config, host);
+        if (!named || named.id !== id) return null;
+        let ref = index.get(named.opaque);
+        if (!ref) {
+          // Not made in this object (a lost index): the owner's and the user grants' are worked out.
+          const artifact = await catalog.getArtifact(id);
+          if (!artifact) return null;
+          const epoch = await catalog.siteEpoch();
+          const candidates: PrincipalRef[] = [{ kind: 'user', id: artifact.ownerUser }];
+          for (const g of await catalog.listGrants(id)) if (g.subjectKind === 'user') candidates.push({ kind: 'user', id: g.subject });
+          for (const c of candidates) if (await pageHostMatches(config.signingKeys, named.opaque, id, c, epoch)) ref = c;
+          if (!ref) return null;
+        }
+        const found = await accessOf(id, ref);
+        if (!found) return null;
+        // The epoch moved (every session signed out): the old host names nobody.
+        if (!(await pageHostMatches(config.signingKeys, named.opaque, id, ref, found.epoch))) return null;
+        return placed(found, ref, named.opaque);
+      },
+      async people(id) {
+        const artifact = await catalog.getArtifact(id);
+        if (!artifact) return [];
+        const at = now().getTime();
+        const grants = (await catalog.listGrants(id)).filter((g) => g.subjectKind === 'user' && (g.expiresAt === null || Date.parse(g.expiresAt) > at));
+        const users = await catalog.getUsers([artifact.ownerUser, ...grants.map((g) => g.subject)]);
+        const out: FramePerson[] = [];
+        const add = (userId: string, role: ArtifactRole): void => {
+          const user = users.get(userId);
+          if (!user || out.some((p) => p.id === userId)) return;
+          out.push({ id: userId, name: user.name, email: user.email ?? null, avatarUrl: user.avatar ?? null, color: colorOf(userId), level: frameLevelOf(role).level });
+        };
+        add(artifact.ownerUser, 'owner');
+        for (const g of grants) add(g.subject, g.role as ArtifactRole);
+        return out;
+      },
+    };
+  }
+
   const host: RoomHost = {
     async resolve(id, token, use) {
       const claims = await verifyPageToken(token, config.signingKeys);
@@ -239,10 +356,7 @@ export function createProductRoomHost(options: ProductRoomHostOptions): ProductR
       const ref: PrincipalRef = { kind: claims.k, id: claims.p };
       const found = await lookUp(id, ref);
       if (!found || found.epoch !== claims.ep) return null;
-      if (plugins?.hasRoleHook && !told.has(id) && hub.awake) {
-        told.add(id);
-        void hub.awake(id).catch(() => told.delete(id));
-      }
+      tellAwake(id);
       const { artifact, principal, role } = found;
       if (artifact.trashedAt !== null) return null;
       rememberSettings(artifact);
@@ -284,6 +398,7 @@ export function createProductRoomHost(options: ProductRoomHostOptions): ProductR
       return { online: await isOnline(owner, id) };
     },
     typeApi,
+    ...(options.pages ? { pages: pageHost(options.pages.types, options.pages.network) } : {}),
     // One artifact per object: what is kept here is that artifact's owner's.
     presenceChanged: () => presence.clear(),
     idle: (id) => {

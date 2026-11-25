@@ -183,3 +183,17 @@ test('prompt: offer: false leaves out the offers', () => {
   assert.ok(agentPrompt({ types }).includes('<offers>'));
   assert.ok(!agentPrompt({ types, offer: false }).includes('<offers>'));
 });
+
+test('skill: /open-artifact new-type points to the guide and the types commands', () => {
+  const full = renderSkillBody();
+  assert.ok(full.includes('## A new type: `/open-artifact new-type`'));
+  assert.ok(full.includes('reference/new-type.md'));
+  assert.ok(full.includes('`node <skill>/scripts/open-artifact.mjs types check <id>`'));
+  const native = renderSkillBody({ tools: 'native', command: 'artifact' });
+  assert.ok(native.includes('## A new type: `/artifact new-type`'));
+  assert.ok(native.includes('`open-artifact types new <id>'), 'tools only: the open-artifact command, said as such');
+  assert.ok(!native.includes('scripts/open-artifact.mjs'));
+  const entry = renderSkillBody({ tools: 'cli', cli: 'oa' }, 'entry');
+  assert.ok(entry.includes('`oa types new <id>`') && entry.includes('`oa types check <id>`'));
+  assert.ok(!/<oa>/.test(full + native + entry));
+});

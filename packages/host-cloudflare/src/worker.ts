@@ -26,6 +26,7 @@ import { createProductRoomHost, type ProductRoomHost } from './room-host.ts';
 import { ArtifactRoom, type RoomState } from './room.ts';
 import { Site } from './site.ts';
 import { startCloudflarePlugins } from './plugins.ts';
+import { bundledFrameTypes, sitePagesOf } from './frames.ts';
 
 /** Most an uploaded archive may unpack to in an object (the whole folder), bytes. (Not exported: an entry module exports only handlers.) */
 const ROOM_IMPORT_MAX_BYTES = 256 * 1024 * 1024;
@@ -90,7 +91,16 @@ export class ArtifactObject {
       this.#error = error instanceof Error ? error : new Error(String(error));
       return;
     }
-    host = createProductRoomHost({ config: parsed.config, catalog, hub, rootOf: (id) => room!.rootOf(id), ...(plugins ? { plugins } : {}) });
+    // Page artifacts, unless one origin serves both (the build's `page` type; its browser files from static assets).
+    const pages = sitePagesOf(parsed.config, vars, BUILD.frames);
+    host = createProductRoomHost({
+      config: parsed.config,
+      catalog,
+      hub,
+      rootOf: (id) => room!.rootOf(id),
+      ...(plugins ? { plugins } : {}),
+      ...(pages ? { pages: { types: bundledFrameTypes(pages.build, (request) => env.ASSETS.fetch(request)), network: pages.network } } : {}),
+    });
     this.#host = host;
     room = new ArtifactRoom(state, env, { host: this.#host.host, ...parseRoomTimings(vars), trackTimers: vars.OA_DEBUG_STATS === '1' });
     this.#room = room;

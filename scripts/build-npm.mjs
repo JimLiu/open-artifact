@@ -281,12 +281,12 @@ function stageCli() {
     name: '@open-artifact/cli',
     version: daemon.version,
     description:
-      'The open-artifact command: the local Open Artifact daemon with its Shell and the built-in types (slides, design, design system, whiteboard, sheets, data, docs, motion), an MCP server for agent apps, and the hooks that bring page comments back to the agent.',
+      'The open-artifact command: the local Open Artifact daemon with its Shell and the built-in types (slides, design, design system, whiteboard, sheets, data, docs, motion, page), an MCP server for agent apps, and the hooks that bring page comments back to the agent.',
     type: 'module',
     bin: { 'open-artifact': 'scripts/open-artifact.mjs' },
-    files: ['scripts', 'vendor', 'SKILL.md', 'LICENSE', 'NOTICE'],
+    files: ['scripts', 'vendor', 'reference', 'SKILL.md', 'LICENSE', 'NOTICE'],
     engines: rootPkg.engines,
-    keywords: ['artifacts', 'slides', 'design', 'design-system', 'whiteboard', 'sheets', 'spreadsheet', 'data', 'docs', 'motion', 'animation', 'dashboard', 'mcp', 'agent'],
+    keywords: ['artifacts', 'slides', 'design', 'design-system', 'whiteboard', 'sheets', 'spreadsheet', 'data', 'docs', 'motion', 'animation', 'dashboard', 'page', 'mcp', 'agent'],
     ...common(daemon, 'skills/open-artifact'),
     // The Harness API versions this runtime speaks: runtime updates install only versions every adapter here speaks.
     ...(existsSync(join(skill, 'vendor', 'runtime.json')) ? { openArtifact: { protocols: readJson(join(skill, 'vendor', 'runtime.json')).protocols } } : {}),

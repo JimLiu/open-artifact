@@ -122,7 +122,16 @@ export type PersonAct =
   | 'harness-remove'
   | 'runtime-update'
   | 'runtime-pin'
-  | 'runtime-policy';
+  | 'runtime-policy'
+  | 'type-enable'
+  | 'type-disable'
+  | 'type-trust'
+  | 'type-untrust'
+  | 'type-install'
+  | 'type-update'
+  | 'type-uninstall'
+  | 'type-publish'
+  | 'type-unpublish';
 
 /** What each act is, in the refusal. */
 const ACT_TEXT: Record<PersonAct, { what: string; panel: string }> = {
@@ -140,6 +149,18 @@ const ACT_TEXT: Record<PersonAct, { what: string; panel: string }> = {
   'runtime-update': { what: 'Updating the Open Artifact runtime', panel: 'run the update' },
   'runtime-pin': { what: 'Pinning the Open Artifact runtime to a version range', panel: 'set the pin' },
   'runtime-policy': { what: 'Changing the Open Artifact runtime update policy', panel: 'set the policy' },
+  // Which types run on this computer: a project's types run code from that project once it is trusted.
+  'type-enable': { what: 'Turning a type on', panel: 'switch it on in the Types tab of the home page' },
+  'type-disable': { what: 'Turning a type off', panel: 'switch it off in the Types tab of the home page' },
+  'type-trust': { what: "Trusting a project's types", panel: 'trust the project in the Types tab of the home page' },
+  'type-untrust': { what: "Taking back the trust in a project's types", panel: 'run the command' },
+  // Another publisher's type, whose instructions agents will be given: the person reads it and decides.
+  'type-install': { what: 'Installing a type', panel: 'install it from the Types tab of the home page, where they read it first' },
+  'type-update': { what: 'Updating an installed type', panel: 'update it from the Types tab of the home page' },
+  'type-uninstall': { what: 'Uninstalling a type', panel: 'uninstall it from the Types tab of the home page' },
+  // A type's pages and instructions go to everyone who opens its artifacts on the site: never an agent's to send.
+  'type-publish': { what: 'Publishing a type to a site', panel: 'run the command' },
+  'type-unpublish': { what: 'Taking a type off a site', panel: 'run the command' },
 };
 
 /**

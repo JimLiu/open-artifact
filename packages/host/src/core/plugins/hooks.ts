@@ -33,6 +33,7 @@ export const GUARD_PATHS: Readonly<Record<keyof GuardDetails, readonly string[]>
   'share.change': ['POST /api/open-artifact.artifact.share'],
   'link.connect': ['POST /link/device (approve)'],
   'link.publish': ['POST /api/open-artifact.link.import'],
+  'type.publish': ['POST /api/open-artifact.link.types.import'],
   'mcp.connect': ['POST /oauth/authorize (approve)'],
   'agent.ask': ['POST /api/open-artifact.artifacts.ask'],
 };
@@ -52,6 +53,7 @@ export const guards = {
   share: (ctx: GuardCtx, principal: Principal, artifact: ArtifactRow, detail: GuardDetails['share.change']) => ask(ctx, 'share.change', principal, artifact, detail),
   linkConnect: (ctx: GuardCtx, principal: Principal, detail: GuardDetails['link.connect']) => ask(ctx, 'link.connect', principal, undefined, detail),
   linkPublish: (ctx: GuardCtx, principal: Principal, artifact: ArtifactRow | undefined, detail: GuardDetails['link.publish']) => ask(ctx, 'link.publish', principal, artifact, detail),
+  typePublish: (ctx: GuardCtx, principal: Principal, detail: GuardDetails['type.publish']) => ask(ctx, 'type.publish', principal, undefined, detail),
   mcpConnect: (ctx: GuardCtx, principal: Principal, detail: GuardDetails['mcp.connect']) => ask(ctx, 'mcp.connect', principal, undefined, detail),
   ask: (ctx: GuardCtx, principal: Principal, artifact: ArtifactRow, detail: GuardDetails['agent.ask']) => ask(ctx, 'agent.ask', principal, artifact, detail),
 };

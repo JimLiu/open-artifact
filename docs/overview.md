@@ -33,7 +33,7 @@ When you ask your AI agent for a slide deck, a UI design, a design system, a whi
 
 1. **One local daemon**: A single background `open-artifact` process on your machine manages your artifact library, starts type servers on demand, exposes MCP tools to agent apps, and routes comments back to agent sessions.
 2. **One unified Shell**: Every artifact opens at `http://127.0.0.1:<port>/a/<id>` (or inline inside apps that support [MCP Apps](https://modelcontextprotocol.io/docs/extensions/apps) via `ShowArtifact`). The Shell provides the title bar, version history, **Share**, **Export**, and **Send to agent**, while hosting each type's specialized editor inside.
-3. **Eight built-in artifact types**: `slides`, `design`, `design-system`, `whiteboard`, `sheets`, `data`, `docs`, and `motion`. See [Artifact types overview](artifact-types.md) to compare them all.
+3. **Nine built-in artifact types**: `slides`, `design`, `design-system`, `whiteboard`, `sheets`, `data`, `docs`, `motion`, and `page` (a free HTML page). See [Artifact types overview](artifact-types.md) to compare them all.
 4. **Optional site hosting**: Connect your computer to a self-hosted site with `open-artifact remote add` to get shareable web URLs and real-time team editing. See [Putting artifacts on a site](hosting.md).
 
 ## Quick start for users
@@ -62,6 +62,6 @@ If you are an AI agent creating or editing an Open Artifact:
 
 ## Next steps
 
-- [Artifact types overview](artifact-types.md) — Compare all 8 types and learn when to use each one.
+- [Artifact types overview](artifact-types.md) — Compare all 9 types and learn when to use each one.
 - [How agents use Open Artifact](agent-guide.md) — Exact workflows, tools, and rules for AI agents.
 - [Putting artifacts on a site](hosting.md) — Share artifacts on your LAN, own server, or Cloudflare.

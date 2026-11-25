@@ -8,6 +8,7 @@
  */
 
 import type { ResolvedEntry, TypeRuntime, TypeScope } from './manifest.ts';
+import type { TypeSourceKind } from './type-package.ts';
 import type { SessionRef } from './refs.ts';
 import type { ArtifactRole, ShareCloudView } from './type-server.ts';
 
@@ -22,6 +23,12 @@ export interface ArtifactRecord {
   typeSource: string | null;
   /** Type version the artifact was made with. */
   typeRelease: string | null;
+  /**
+   * The `uid` of the type it was made with (the manifest's), when that type has one; also in `.artifact.json`. The
+   * artifact is then opened and written only by a type of the same id and uid (`type_mismatch` otherwise). Absent:
+   * made before types had uids, or with a type without one; nothing is checked.
+   */
+  typeUid?: string | null;
   /** The session that owns it: comments wake this session. */
   owner: SessionRef | null;
   createdBy: Pick<SessionRef, 'harness' | 'session'> | null;
@@ -53,6 +60,12 @@ export interface ArtifactRecord {
    * runs its queries for the host, so an automatic publish carries no rows. Absent for every other type.
    */
   dataPublish?: boolean | null;
+  /**
+   * A `page` artifact's declared runtime capabilities (`{name: true | config}`), as the agent gave them to `Artifact`
+   * publish; also in `.artifact.json`. Absent: none declared (the page has only `artifact` and `permissions`). Absent
+   * for every other type.
+   */
+  capabilities?: Record<string, unknown> | null;
 }
 
 /** Where an artifact is published on a cloud host, as {@link ArtifactRecord.remote}. */
@@ -67,10 +80,15 @@ export interface ArtifactRemote {
   base: Record<string, string>;
   /** ISO time of the last sync, or `null` before the first. */
   syncedAt: string | null;
+  /**
+   * A page artifact's declared capabilities as the host and this computer last agreed on them (`link.capabilities`
+   * and the `artifact` event carry them: no file push does); absent before the first agreement and for other types.
+   */
+  capabilities?: Record<string, unknown>;
 }
 
-/** Where an artifact is published, as lists show it: {@link ArtifactRemote} without the sync bookkeeping (`base`). */
-export type ArtifactRemoteView = Omit<ArtifactRemote, 'base'>;
+/** Where an artifact is published, as lists show it: {@link ArtifactRemote} without the sync bookkeeping (`base`, `capabilities`). */
+export type ArtifactRemoteView = Omit<ArtifactRemote, 'base' | 'capabilities'>;
 
 /**
  * Why a remote or a published artifact's last sync failed, as a stable code beside its English `lastError`: the host
@@ -85,6 +103,15 @@ export interface ArtifactMarker {
   type: string;
   id: string;
   release: string | null;
+  /** {@link ArtifactRecord.typeUid}. */
+  typeUid?: string;
+  /**
+   * Where the type came from, with {@link typeUid}: `builtin`, `local`, or the address an installed type was installed
+   * from. `import` names it when no type of that uid is here (`type_missing`).
+   */
+  typeSource?: string;
+  /** A `page` artifact's declared capabilities ({@link ArtifactRecord.capabilities}): what its frame host grants. */
+  capabilities?: Record<string, unknown>;
 }
 
 /** Live state of the owner session. */
@@ -203,11 +230,48 @@ export interface TypeView {
   /** Its page and actions are on another computer (a URL entry that is not loopback); `origin` says where. */
   remote?: boolean;
   origin?: string;
+  /** The manifest's `uid`, when it has one. */
+  uid?: string;
+  /** The type's folder. */
+  dir?: string;
+  /**
+   * A project type only: whether its project root is trusted (`trustedProjects`). An untrusted one's static and frame
+   * pages are served; a server of its own (`entry.start`) does not start.
+   */
+  trusted?: boolean;
+  /**
+   * Where it comes from: one of the built-in types, a folder on this computer (`local`: user, project and extra
+   * roots), or a package installed with `types install` (`installed`, with {@link installedFrom}).
+   */
+  source?: TypeSourceKind;
+  /** An installed type: the file or `https://` address it was installed from. */
+  installedFrom?: string;
+  /** The capability names its page declares (`// artifact.json`), when it declares any. */
+  capabilities?: string[];
+  /** An installed type: the `https://` origins its page may reach (`openArtifact.network`); empty: none. */
+  network?: string[];
+  /** An installed type: the fixed note that its title, description and instructions are the publisher's. */
+  notice?: string;
 }
 
 /** `GET /api/open-artifact.types`. */
 export interface TypesResponse {
   roots: Array<{ scope: TypeScope; dir: string }>;
+  types: TypeView[];
+  /**
+   * The project types of other folders this computer knows (where agent sessions worked, the trusted projects, the
+   * home workspace), each with whether its project is trusted: the home page lists them so the person can trust one.
+   */
+  projects?: TypesProject[];
+}
+
+/** One project folder's types, as {@link TypesResponse.projects} lists them. */
+export interface TypesProject {
+  /** The project folder (what `types.trust` takes). */
+  dir: string;
+  /** Its type root, e.g. `<dir>/.agents/artifact-types`. */
+  root: string;
+  trusted: boolean;
   types: TypeView[];
 }
 
@@ -286,6 +350,41 @@ export const LIBRARY_ROUTES = {
    * host's messages; the first event, `view`, carries the key), `POST { view, key, event }` sends the host a message.
    */
   view: 'view',
+  /**
+   * Making and managing types (`open-artifact types …`). Every one is a `POST` from this computer: from the CLI (token)
+   * or the daemon's own Shell, never from a page or another origin. `types.enable` / `types.disable` / `types.trust`
+   * are refused inside an agent's session as well: the person decides them. Names start `types.`, not `type.` (that
+   * prefix is the Type API's).
+   */
+  typesNew: 'types.new',
+  typesCheck: 'types.check',
+  typesFrom: 'types.from',
+  typesEnable: 'types.enable',
+  typesDisable: 'types.disable',
+  typesTrust: 'types.trust',
+  /**
+   * Type packages (`type-package.ts`). `types.preview`: a package's bytes (`Content-Type: application/octet-stream`,
+   * `?name=`) or `{ url }`, read and checked and kept by sha256: {@link TypePackagePreview}. `types.install`:
+   * `{ sha256, as? }`, the bytes the preview kept, never fetched again. `types.uninstall`: `{ id }`. `types.update`:
+   * `{ id }` previews the recorded source again; `{ id, sha256 }` installs that preview. Install, uninstall and update
+   * are the person's: refused inside an agent's session.
+   */
+  typesPreview: 'types.preview',
+  typesInstall: 'types.install',
+  typesUninstall: 'types.uninstall',
+  typesUpdate: 'types.update',
+  /**
+   * A type of this computer published to a site's catalog, and taken off it ({@link TypesPublishRequest},
+   * `{ id, remote? }`). The person's: refused inside an agent's session.
+   */
+  typesPublish: 'types.publish',
+  typesUnpublish: 'types.unpublish',
+  /**
+   * `POST` a zip (`Content-Type: application/zip`, `?folder=` optional): an artifact archive made into a local artifact,
+   * opened only by a type of the uid its `.artifact.json` names (`type_missing` otherwise). From the CLI or the home
+   * page, never from a page.
+   */
+  import: 'artifacts.import',
 } as const;
 
 /** `GET /api/open-artifact.embed`. */
@@ -339,6 +438,11 @@ export interface ShellBoot {
   read_only?: boolean;
   type_release?: string | null;
   type_version?: string | null;
+  /**
+   * The `sandbox` of the Shell's frame, for the page of a restricted static type (installed, or in a project not
+   * trusted yet): no popups, no top navigation. Absent: no sandbox.
+   */
+  sandbox?: string;
 }
 
 /** {@link ShellBoot.cloud}: the Shell as a cloud host serves it. */

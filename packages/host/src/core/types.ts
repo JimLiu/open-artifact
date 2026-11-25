@@ -6,7 +6,7 @@
  * Platform neutral: no Node or DOM-only APIs.
  */
 
-import type { ArtifactRole, ShareRole } from '@open-artifact/protocol';
+import type { ArtifactRole, ShareRole, TypesPublishPolicy } from '@open-artifact/protocol';
 
 export type { ArtifactRole, ShareRole };
 
@@ -120,6 +120,11 @@ export interface HostConfig {
    * Absent means two sites, which `parseConfig` enforces. What it weakens is in `docs/hosting.md`.
    */
   contentSameSite?: boolean;
+  /**
+   * `OA_TYPES_PUBLISH`: who may publish artifact types to the site (`off`, `admins`, `members`). Absent reads as
+   * `admins`; `parseConfig` always sets it, and to `off` with `contentSameSite`.
+   */
+  typesPublish?: TypesPublishPolicy;
 }
 
 // ---------------------------------------------------------------------------

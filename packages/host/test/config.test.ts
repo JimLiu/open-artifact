@@ -21,6 +21,7 @@ test('defaults', () => {
     signup: 'invite',
     linkMaxRole: 'editor',
     publicAccess: true,
+    typesPublish: 'admins',
   });
 });
 

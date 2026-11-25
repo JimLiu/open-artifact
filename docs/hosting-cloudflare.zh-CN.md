@@ -475,6 +475,33 @@ await (await fetch('/api/open-artifact.admin.link-tokens.revoke', { method: 'POS
 | 每个作品的存储 | 10 GB（Paid），1 GB（Free） | 磁盘大小 |
 | 目录库 | D1：10 GB（Paid），500 MB（Free） | 磁盘大小 |
 
+## Page 作品
+
+`page` 作品（Agent 写的自由 HTML 页面，见 [Page](types/page.zh-CN.md)）在 Worker 上的运行方式和 Node 站点一样（见
+[页面类作品](hosting.zh-CN.md#页面类作品)）：作品的内容主机提供内层外壳（`art-<id>.example.com/page/<页面令牌>/`），每个人在
+自己的页面主机 `art-<id>--<24 个字符>.example.com` 上看到页面，这个主机只提供页面的文件。两者都在作品的 Durable Object 里
+运行，和它的文件、数据库在一起。
+
+- **路由和 DNS 不用改。** 页面主机只是内容源通配符下的又一个名字：路由 `*.example.com/*` 把它送到 Worker，第 8 步的
+  `AAAA * 100::` 记录解析它，Universal SSL 也覆盖它（它在 zone 下一级）。内容源更深（`{id}.content.example.com`）时，页面
+  主机一样深，需要同样的付费证书。
+- Worker 把页面主机的请求不带 cookie 地交给作品的对象，对象按这个人当前的权限检查 `--` 后面的部分：这个人失去权限，或者
+  所有人被登出时，它就失效。
+- **`OA_PAGE_NETWORK`**（`vars` 里的一项）：`self`（默认），页面只能访问自己的源；`https`，还能访问任意 https 源。其他值会
+  让站点报配置错误，并写出这个变量名。
+- **只有一个域名**（`OA_CONTENT_SAME_SITE=true`）：站点不运行页面。`link.hello` 不带 `features.pages`，发布页面会以
+  `unsupported` 被拒绝，页面主机会像不认识的名字一样得到 421。
+- **不支持页面的快照地址**：站点会拒绝（403），和 Node 站点一样。请改为分享页面。
+- 框架自己的脚本作为 Worker 静态资源存在 `/_open-artifact/frame/<hash>/`，每次构建都换新路径。对象在每个 isolate 里从那里
+  读一次，再自己提供给页面，不缓存，和 Node 站点一样。
+- 打开的页面和它的对象之间有一条 WebSocket，对象用 `accept()` 接受它（不休眠），所以页面开着时对象一直在内存里，和作品的
+  任何一个打开的标签页一样（见[费用](#费用)）；最后一个关掉后大约一分钟对象关闭（`OA_ROOM_IDLE_CLOSE_MS`）。
+
+**这里只在 `wrangler dev` 下运行过**（`e2e/cloudflare-page.test.mjs`，页面主机在 `*.content.localhost` 上）：从电脑发布一个
+页面，所有者打开它；另一个人用 viewer 链接加入，之后被改成 commenter；页面上的写入回到电脑上的文件夹，本地的修改出现在打开
+的页面上；`link.hello` 带 `features.pages`；通过远程 MCP 改的能力声明回到电脑上的
+`.artifact.json`；上传的 page zip。没有部署过。
+
 ## 这里不支持的
 
 - `open-artifact-host` 命令：`link-token` 由上面的管理 API 代替；备份用 D1 Time Travel 加上每个作品的导出。
@@ -482,6 +509,7 @@ await (await fetch('/api/open-artifact.admin.link-tokens.revoke', { method: 'POS
 - 在站点上生成图片和 PDF：和所有站点一样，在各人自己的电脑上生成。
 - 仪表盘的实时连接器：它的数字来自所有者的电脑，截至最后一次刷新（默认每 6 小时），并且要所有者确认数据可以发布之后才有。
 - `OA_ALLOW_HTTP`，以及除 `wrangler dev` 下的 `localhost` 之外的任何 http。
+- page 作品的快照地址；[只有一个域名](#只有一个域名)模式下的所有页面。
 
 ## 更新
 

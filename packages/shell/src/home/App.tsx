@@ -8,6 +8,8 @@ import { loadArtifacts, loadTypes, startEvents } from './actions.ts';
 import { ArtifactList } from './components/ArtifactList.tsx';
 import { CloudLibrary, PurgeDialog, UploadButton } from './components/CloudHome.tsx';
 import { CreateDialog, RenameDialog, UndoBar } from './components/Dialogs.tsx';
+import { InstallTypeDialog } from './components/InstallTypeDialog.tsx';
+import { NewTypeDialog } from './components/NewTypeDialog.tsx';
 import { TypeList } from './components/TypeList.tsx';
 import { Account } from '../components/Account.tsx';
 import { SiteBrand, SiteHomeLinks } from '../components/SiteBrand.tsx';
@@ -94,6 +96,8 @@ export function App() {
         )}
       </div>
       <CreateDialog />
+      {cloud ? null : <NewTypeDialog />}
+      {cloud ? null : <InstallTypeDialog />}
       <RenameDialog />
       <UndoBar />
       {cloud ? <PurgeDialog /> : null}

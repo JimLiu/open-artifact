@@ -13,7 +13,7 @@ import { EventEmitter } from 'node:events';
 import { appendFileSync, cpSync, createReadStream, existsSync, openSync, readFileSync, readdirSync, rmSync, statSync, watch, writeFileSync, writeSync, closeSync, type Dirent, type FSWatcher } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { userInfo } from 'node:os';
-import { dirname, extname, isAbsolute, join, resolve, sep } from 'node:path';
+import { basename, dirname, extname, isAbsolute, join, resolve, sep } from 'node:path';
 import { Readable, type Duplex } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import {
@@ -25,8 +25,11 @@ import {
   SHELL_FRAME_NAME,
   SHELL_PARAMS,
   TYPE_API_ROUTES,
+  RESTRICTED_FRAME_SANDBOX,
   TYPE_SERVER_ROUTES,
   artifactIdOf,
+  installedTypeCsp,
+  restrictedTypeNotice,
   artifactUrl,
   errorBody,
   shellPath,
@@ -52,6 +55,7 @@ import {
   type TypeApiTask,
   type TypeApiWakeRequest,
   type TypeApiWakeResult,
+  type TypesProject,
   type TypesResponse,
   type EmbedResponse,
   type TypeView,
@@ -59,7 +63,11 @@ import {
   type WakeRequestItem,
   type WakeStatus,
   type WakeThread,
+  type TypePackagePreview,
+  type SiteTypeVisibility,
+  SITE_TYPE_VISIBILITIES,
 } from '@open-artifact/protocol';
+import { archiveEntries, sendArchive as sendFolderArchive, zipBytes } from '@open-artifact/server-sdk/zip';
 import { DATA_TYPE, DataRefresher } from './data-refresh.ts';
 import { HarnessHub, systemBrowse, type PollParams } from './harness.ts';
 import { embedOrigins, remoteOf, type ViewSink } from './harness-embed.ts';
@@ -68,11 +76,29 @@ import { LinkHub } from './link.ts';
 import { callerFromRequest, handleMcp, uiFromRequest, type McpMessage, type McpReply } from './mcp.ts';
 import { nudgeSession } from './nudge.ts';
 import { Ownership } from './ownership.ts';
-import { ensureDir, expandHome, files, inside, openArtifactHome, readJson, writeJson } from './paths.ts';
+import { ensureDir, expandHome, files, inside, openArtifactHome, readJson, realInside, writeJson } from './paths.ts';
 import { ACTION_CALL_MS, TypeServers } from './servers.ts';
 import { badModeVariable, nodeChildren } from './node-children.ts';
 import { readPreset, type CloudPreset } from './preset.ts';
 import { ReleaseGuard, releaseView, writeMarkerRelease } from './release-guard.ts';
+import { ARTIFACT_IMPORT_LIMITS, readArtifactArchive, unpackArtifactArchive } from './artifact-import.ts';
+import {
+  PACKAGE_DOWNLOAD_MAX,
+  fetchTypePackage,
+  installTypePackage,
+  isAddress,
+  loadTypePackage,
+  readTypePackage,
+  stagePackage,
+  stagedPackage,
+  typeCapabilities,
+  typeMismatch,
+  typeSourceOf,
+  uninstallType,
+  unstagePackage,
+  updateSource,
+  packTypeBytes,
+} from './type-packages.ts';
 import { RuntimeManager } from './runtime.ts';
 import { remoteArchiveBytes, remoteErrorBody } from './remote-archive.ts';
 import { ownRuntime } from './client.ts';
@@ -80,7 +106,8 @@ import { startDaemonProcess } from '@open-artifact/harness-kit';
 import { loadSettings, saveCloudSettings } from './settings.ts';
 import { ArtifactStore, sessionKeyOf, userEditsAfter, type StoreChange } from './store.ts';
 import { Tools, type ShareAccess } from './tools.ts';
-import { TypeRegistry, typeLocation, type ListedType, type TypeInfo } from './types.ts';
+import { BUILTIN_TYPE_IDS, TypeRegistry, isBuiltinPage, isSiteKindType, siteRefusal, typeLocation, type ListedType, type TypeInfo } from './types.ts';
+import { checkType, newType, setProjectTrusted, setTypeEnabled, typeFromPage, typeFromSaved } from './type-authoring.ts';
 import { WakeRouter, type WakeResult } from './wake.ts';
 import { acceptWebSocket } from './ws.ts';
 import pkg from '../package.json' with { type: 'json' };
@@ -193,6 +220,9 @@ const CONTENT_TYPES: Record<string, string> = {
 /** A static entry's own origin: `http://<artifact id>.frame.localhost:<port>`. */
 const FRAME_HOST = /^(art_[0-9a-z]+)\.frame\.localhost:(\d+)$/;
 
+/** `GET /api/open-artifact.type.icon?id=`: a type's icon, for the home page (not the Type API, despite its prefix). */
+const TYPE_ICON_ROUTE = 'type.icon';
+
 const contentType = (file: string): string => CONTENT_TYPES[extname(file).toLowerCase()] ?? 'application/octet-stream';
 
 function sendJson(res: ServerResponse, status: number, body: unknown, headers: Record<string, string> = {}): void {
@@ -206,9 +236,19 @@ function sendJson(res: ServerResponse, status: number, body: unknown, headers: R
   res.end(text);
 }
 
-function sendHtml(res: ServerResponse, html: string): void {
-  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' }).end(html);
+function sendHtml(res: ServerResponse, html: string, contentSecurityPolicy: string | null = null): void {
+  res
+    .writeHead(200, {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'no-store',
+      'X-Content-Type-Options': 'nosniff',
+      ...(contentSecurityPolicy ? { 'Content-Security-Policy': contentSecurityPolicy } : {}),
+    })
+    .end(html);
 }
+
+/** A static type of an untrusted root (installed, or a project not trusted yet): its page is framed by the Shell. */
+const restrictedStatic = (type: { trusted: boolean; entry: { kind: string } | null } | null | undefined): boolean => !!type && !type.trusted && type.entry?.kind === 'static';
 
 function readBody(req: IncomingMessage, limit = 4 << 20): Promise<Buffer> {
   return new Promise((resolveBody, rejectBody) => {
@@ -339,6 +379,8 @@ const FALLBACK_SHELL = `<!doctype html>
     const frame = document.createElement('iframe');
     frame.name = ${JSON.stringify(SHELL_FRAME_NAME)};
     frame.allow = 'clipboard-read; clipboard-write; fullscreen';
+    // A restricted static type's page (installed, or a project not trusted yet): no popups, no top navigation.
+    if (boot.pageKind === 'static' && boot.sandbox) frame.setAttribute('sandbox', boot.sandbox);
     frame.src = at.href;
     document.body.append(frame);
     return;
@@ -508,6 +550,13 @@ export class Daemon extends EventEmitter<{ exit: [] }> {
         this.settings = loadSettings(this.preset);
       },
       insecureHttp: () => this.preset.insecureHttp === true,
+      localOnly: (record) => siteRefusal(this.types.get(record.type, record.owner?.workspace ?? undefined)),
+      needsPages: (record) => isBuiltinPage(this.types.get(record.type, record.owner?.workspace ?? undefined)),
+      siteType: (record) => {
+        const type = this.types.get(record.type, record.owner?.workspace ?? undefined);
+        return type && isSiteKindType(type) ? type : null;
+      },
+      packType: (type, workspace) => packTypeBytes(type.dir, { settings: this.settings, registry: this.types, workspace: workspace ?? this.settings.homeWorkspace }),
       data: {
         published: (id) => this.data.published(id),
         requested: (id, queries) => void this.data.refresh(id, { ...(queries ? { queries } : {}), reason: 'asked from the host' }),
@@ -592,7 +641,10 @@ export class Daemon extends EventEmitter<{ exit: [] }> {
       this.broadcast({ type: 'artifacts/changed', id: record.id, ...(record.removed ? { removed: true } : {}) });
     });
     this.types.on('changed', () => {
-      this.servers.typesChanged((id, old) => this.types.scanRoot({ root: old.root, scope: old.scope, trusted: old.trusted }).find((t) => t.id === id) ?? null);
+      this.servers.typesChanged(
+        (id, old) =>
+          this.types.scanRoot({ root: old.root, scope: old.scope, trusted: old.trusted, ...(old.scope === 'installed' ? { deny: BUILTIN_TYPE_IDS } : {}) }).find((t) => t.id === id) ?? null,
+      );
       this.broadcast({ type: 'types/changed' });
       this.harnesses.embed.originsChanged();
     });
@@ -839,6 +891,10 @@ export class Daemon extends EventEmitter<{ exit: [] }> {
       setRelease: (record, release) => {
         this.store.update(record.id, { typeRelease: release, updatedAt: record.updatedAt });
         writeMarkerRelease(record, release);
+      },
+      typeMismatch: (record) => {
+        const refusal = typeMismatch(record, this.typeOf(record));
+        return refusal ? { code: refusal.code, message: refusal.message, ...(refusal.fix ? { fix: refusal.fix } : {}) } : null;
       },
     });
     this.tools.call = async (name, args, caller) => {
@@ -1194,6 +1250,9 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
       version: VERSION,
       // Written by a newer type release: the page opens view-only and the Shell says how to update.
       ...releaseView(record, type?.version ?? null),
+      // A restricted static type's page is framed by the Shell itself: the Shell sandboxes it (frame-host does that
+      // for a frame type's page, inside its own page).
+      ...(restrictedStatic(type) ? { sandbox: RESTRICTED_FRAME_SANDBOX } : {}),
     };
   }
 
@@ -1278,7 +1337,10 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
         boot = { ...boot, pending: true };
       }
     }
-    sendHtml(res, (template ?? FALLBACK_SHELL).replace(BOOT_PLACEHOLDER, () => scriptJson(boot)));
+    // A restricted static type's page stays on a page origin of this daemon: frame-src holds every navigation of the
+    // Shell's frame, the page's own too (CSP host sources cannot spell an id with '_': any page origin on this port).
+    const policy = restrictedStatic(this.typeOf(record)) ? `frame-src http://*.frame.localhost:${this.port}` : null;
+    sendHtml(res, (template ?? FALLBACK_SHELL).replace(BOOT_PLACEHOLDER, () => scriptJson(boot)), policy);
   }
 
   // ---- library helpers ---------------------------------------------------------------------------------------------
@@ -1308,8 +1370,9 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
       }
       for (const entry of entries) {
         if (seen++ > 4000) return;
-        // Bookkeeping is not content.
+        // Bookkeeping is not content, nor is the agent's own channel (`_agent/`: snapshots, kept conflicts).
         if (entry.name.startsWith('.') || entry.name === 'node_modules' || entry.name === 'exports') continue;
+        if (depth === 0 && entry.name === '_agent') continue;
         const full = join(dir, entry.name);
         if (entry.isDirectory()) {
           if (depth < 5) walk(full, depth + 1);
@@ -1379,19 +1442,20 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
       if (!type) throw new OpenArtifactError('unsupported', 'The Docs type is unavailable.');
       const copy = await this.servers.call<{ root: string; name: string }>(type, 'POST', TYPE_SERVER_ROUTES.actions + 'duplicate',
         { root: record.root, id: record.id, args: { name: name ?? (record.title.slice(0, 249) + ' (copy)') } }, undefined, ACTION_CALL_MS);
-      return this.store.create({ root: copy.root, title: copy.name, type: record.type, typeSource: record.typeSource, typeRelease: record.typeRelease, owner: record.owner });
+      return this.store.create({ root: copy.root, title: copy.name, type: record.type, typeSource: record.typeSource, typeRelease: record.typeRelease, typeUid: record.typeUid ?? null, owner: record.owner });
     }
     const parent = dirname(record.root);
     const base = record.root.slice(parent.length + 1);
     let root = join(parent, `${base}-copy`);
     for (let n = 2; existsSync(root); n++) root = join(parent, `${base}-copy-${n}`);
-    const skip = (name: string): boolean => name.startsWith('.') || name === 'history' || name === 'exports' || name === 'node_modules';
+    // `_agent/` is this computer's agent channel (snapshots): never part of the artifact, so not of its copy.
+    const skip = (name: string): boolean => name.startsWith('.') || name === 'history' || name === 'exports' || name === 'node_modules' || name === '_agent';
     ensureDir(root);
     for (const name of readdirSync(record.root)) {
       if (skip(name)) continue;
       cpSync(join(record.root, name), join(root, name), { recursive: true, errorOnExist: false });
     }
-    return this.store.create({ root, type: record.type, typeSource: record.typeSource, typeRelease: record.typeRelease, owner: record.owner, title: `Copy of ${record.title}`.slice(0, 200) });
+    return this.store.create({ root, type: record.type, typeSource: record.typeSource, typeRelease: record.typeRelease, typeUid: record.typeUid ?? null, owner: record.owner, title: `Copy of ${record.title}`.slice(0, 200) });
   }
 
   private thumbnailFile(id: string): string {
@@ -1448,7 +1512,249 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
       problems: type.problems,
       icon: !!type.icon,
       ...typeLocation(type),
+      ...(type.uid ? { uid: type.uid } : {}),
+      dir: type.dir,
+      ...(type.scope === 'project' ? { trusted: type.trusted } : {}),
+      ...typeSourceOf(type),
+      capabilities: type.runtime === 'frame' || type.runtime === 'static' ? typeCapabilities(type.dir) : [],
+      network: type.network,
+      // A type of an untrusted root (installed, or a project not trusted yet): who wrote its text.
+      ...((notice) => (notice ? { notice } : {}))(restrictedTypeNotice(type)),
     };
+  }
+
+  /** The project types of the folders this computer knows, but `skip` (whose types the answer lists already). */
+  private projectTypes(skip?: string): TypesProject[] {
+    const known = [...this.harnesses.workspaces(), ...(this.settings.trustedProjects ?? []), this.settings.homeWorkspace, ...this.typeProjects];
+    const folders = new Set(known.map((d) => resolve(d)));
+    const out: TypesProject[] = [];
+    for (const dir of folders) {
+      if (skip && resolve(skip) === dir) continue;
+      const root = this.types.roots(dir).find((r) => r.scope === 'project');
+      if (!root || !existsSync(root.root)) continue;
+      const types = this.types.list(dir, { includeShadowed: true }).filter((t) => t.scope === 'project');
+      if (types.length) out.push({ dir, root: root.root, trusted: root.trusted, types: types.map((t) => this.typeView(t)) });
+    }
+    return out;
+  }
+
+  /** Projects a type was made in since the daemon started (`types new|from --scope project`): the home page lists them. */
+  private readonly typeProjects = new Set<string>();
+
+  /**
+   * Why a `types.*` call is refused, or null. These change what this computer runs, so they come only from the CLI (the
+   * token) or this daemon's own Shell and home page: a call that carries any other `Origin` (an artifact's page on
+   * `*.frame.localhost`, a type server's page on its own port, another site) is refused even with the token, and so is
+   * a browser's cross-site request. `types.enable`, `types.disable` and `types.trust` are the person's to decide: a
+   * call that says it comes from inside an agent's session (`X-Open-Artifact-Agent`, which the CLI sends there) is
+   * refused too. That header is the caller's word, as in {@link askedBy}: a guard rail, not a boundary.
+   */
+  private typesRefusal(req: IncomingMessage, name: string): string | null {
+    const origin = req.headers.origin;
+    if (origin !== undefined && !this.ownOrigin(origin)) return `${name} comes from the open-artifact command line or this daemon's own page, not from ${origin}.`;
+    const site = req.headers['sec-fetch-site'];
+    if (site !== undefined && site !== 'same-origin' && site !== 'none') return `${name} comes from the open-artifact command line or this daemon's own page, not from another site.`;
+    const personOnly: string[] = [LIBRARY_ROUTES.typesEnable, LIBRARY_ROUTES.typesDisable, LIBRARY_ROUTES.typesTrust];
+    if (personOnly.includes(name) && req.headers['x-open-artifact-agent']) {
+      return 'Turning a type on or off and trusting a project are for the person to decide: they run it in their own terminal, or use the Types tab of the home page.';
+    }
+    const sites: string[] = [LIBRARY_ROUTES.typesPublish, LIBRARY_ROUTES.typesUnpublish];
+    if (sites.includes(name) && req.headers['x-open-artifact-agent']) {
+      return 'Publishing a type to a site and taking it off are for the person to decide: they run open-artifact types publish | unpublish in their own terminal.';
+    }
+    const installs: string[] = [LIBRARY_ROUTES.typesInstall, LIBRARY_ROUTES.typesUninstall, LIBRARY_ROUTES.typesUpdate];
+    if (installs.includes(name) && req.headers['x-open-artifact-agent']) {
+      return "Installing, updating and uninstalling a type are for the person to decide: they run open-artifact types install | update | uninstall in their own terminal, or use the Types tab of the home page.";
+    }
+    return null;
+  }
+
+  /** An origin of this daemon's own pages (the Shell, the home page): `http://<one of its hosts>`. */
+  private ownOrigin(origin: string): boolean {
+    try {
+      const u = new URL(origin);
+      return u.protocol === 'http:' && `${u.protocol}//${u.host}` === origin && this.hosts.has(u.host);
+    } catch {
+      return false;
+    }
+  }
+
+  /** `types.new`, `types.check`, `types.from`, `types.enable`, `types.disable`, `types.trust` (all `POST`). */
+  private async typesCall(req: IncomingMessage, res: ServerResponse, name: string, get: boolean): Promise<void> {
+    if (get) throw new OpenArtifactError('invalid_argument', `${name} is a POST.`, { status: 405 });
+    const refusal = this.typesRefusal(req, name);
+    if (refusal) {
+      req.resume();
+      return sendJson(res, 403, { code: 'not_granted', message: refusal });
+    }
+    if (name === LIBRARY_ROUTES.typesPreview || name === LIBRARY_ROUTES.import) return this.packageCall(req, res, name);
+    const body = await readJsonBody<Record<string, unknown>>(req);
+    const workspace = typeof body.workspace === 'string' && isAbsolute(body.workspace) ? resolve(body.workspace) : null;
+    const project = typeof body.project === 'string' && body.project ? body.project : null;
+    if (project !== null && !isAbsolute(project)) throw new OpenArtifactError('invalid_argument', 'project: the project folder, as an absolute path.');
+    const o = { settings: this.settings, registry: this.types, workspace: workspace ?? (body.scope === 'project' ? project : null) ?? this.settings.homeWorkspace };
+    const changed = (): void => {
+      this.settings = loadSettings(this.preset);
+      this.broadcast({ type: 'types/changed' });
+    };
+    const R = LIBRARY_ROUTES;
+    switch (name) {
+      case R.typesNew: {
+        const made = newType({ id: body.id, scope: body.scope, template: body.template, name: body.name, project }, o);
+        this.log(`audit: made the type ${made.id} (${made.scope}, ${String(body.template ?? 'page')}) at ${made.dir}, asked by ${this.askedBy(req, name)}`);
+        if (made.scope === 'project' && project) this.typeProjects.add(resolve(project));
+        changed();
+        return sendJson(res, 200, made);
+      }
+      case R.typesFrom: {
+        if (body.path !== undefined) {
+          // A folder or file by path: the command line's (it holds the token), never a page's, this daemon's included.
+          if (!this.hasToken(req)) throw new OpenArtifactError('not_granted', `${R.typesFrom} with a path is for the command line: open-artifact types from <path> --id <id>.`, { status: 403 });
+          if (typeof body.path !== 'string' || !isAbsolute(body.path)) throw new OpenArtifactError('invalid_argument', 'path: the saved page (a folder or an .html file), as an absolute path.');
+          const made = typeFromSaved(body.path, { id: body.id, scope: body.scope, name: body.name, project }, o);
+          this.log(`audit: made the type ${made.id} from the saved page ${made.source} at ${made.dir}, asked by ${this.askedBy(req, name)}`);
+          if (made.scope === 'project' && project) this.typeProjects.add(resolve(project));
+          changed();
+          return sendJson(res, 200, made);
+        }
+        const record = this.store.require(body.artifact);
+        const made = typeFromPage(record, this.typeOf(record), { id: body.id, scope: body.scope, name: body.name, project }, o);
+        this.log(`audit: made the type ${made.id} from ${record.id} at ${made.dir}, asked by ${this.askedBy(req, name)}`);
+        if (made.scope === 'project' && project) this.typeProjects.add(resolve(project));
+        changed();
+        return sendJson(res, 200, made);
+      }
+      case R.typesCheck: {
+        // By id only: a page of this daemon has no business reading folders by path.
+        const id = String(body.id ?? '');
+        const type = this.types.list(o.workspace ?? undefined).find((t) => t.id === id);
+        if (!type) throw new OpenArtifactError('not_found', `No type ${id}.`);
+        return sendJson(res, 200, checkType(type.dir, { ...o, forShare: body.forShare === true }));
+      }
+      case R.typesEnable:
+      case R.typesDisable: {
+        const enabled = name === R.typesEnable;
+        const out = setTypeEnabled(body.id, enabled);
+        this.log(`audit: turned the type ${String(body.id)} ${enabled ? 'on' : 'off'}, asked by ${this.askedBy(req, name)}`);
+        changed();
+        return sendJson(res, 200, out);
+      }
+      case R.typesTrust: {
+        const trusted = body.trusted !== false;
+        const out = setProjectTrusted(body.dir, trusted);
+        this.log(`audit: ${trusted ? 'trusted' : 'stopped trusting'} the project ${String(body.dir)}, asked by ${this.askedBy(req, name)}`);
+        changed();
+        return sendJson(res, 200, out);
+      }
+      case R.typesInstall:
+      case R.typesUpdate: {
+        const id = typeof body.id === 'string' ? body.id : null;
+        if (name === R.typesUpdate && !id) throw new OpenArtifactError('invalid_argument', 'id: the installed type to update.');
+        // types.update {id} without sha256: a preview of what its recorded source holds now.
+        if (name === R.typesUpdate && typeof body.sha256 !== 'string') {
+          const recorded = updateSource(id!);
+          const loaded = await loadTypePackage(recorded.source);
+          return sendJson(res, 200, await this.stagedPreview(loaded.bytes, loaded.source, id));
+        }
+        const hash = String(body.sha256 ?? '');
+        const staged = stagedPackage(hash);
+        const as = name === R.typesUpdate ? id : typeof body.as === 'string' && body.as ? body.as : null;
+        const expectUid = name === R.typesUpdate ? updateSource(id!).uid : undefined;
+        const pkg = await readTypePackage(staged.bytes, staged.source, { as, registry: this.types });
+        if (name === R.typesUpdate && pkg.preview.id !== id) throw new OpenArtifactError('invalid_argument', `That package installs ${pkg.preview.id}, not ${id}.`);
+        const installed = await installTypePackage(pkg, expectUid ? { expectUid } : {});
+        unstagePackage(hash);
+        this.log(`audit: ${name === R.typesUpdate ? 'updated' : installed.replaced ? 'installed again' : 'installed'} the type ${installed.id} ${installed.version} (uid ${installed.uid}, sha256 ${installed.sha256}) from ${installed.source} at ${installed.dir}, asked by ${this.askedBy(req, name)}`);
+        changed();
+        return sendJson(res, 200, installed);
+      }
+      case R.typesPublish:
+      case R.typesUnpublish: {
+        const id = typeof body.id === 'string' ? body.id : '';
+        if (!id) throw new OpenArtifactError('invalid_argument', 'id: the type.');
+        const remote = typeof body.remote === 'string' && body.remote ? body.remote : this.link.defaultRemote();
+        if (!remote) throw new OpenArtifactError('invalid_argument', 'Which site? Pass --remote <name>.', { fix: 'open-artifact remote list shows them; add one with open-artifact remote add <name> <https://host>.' });
+        if (name === R.typesUnpublish) {
+          const out = await this.link.unpublishType(id, remote);
+          this.log(`audit: unpublished the type ${id} from ${remote} (${out.removed ? 'removed' : `delisted, ${out.artifacts} artifact(s) use it`}), asked by ${this.askedBy(req, name)}`);
+          return sendJson(res, 200, out);
+        }
+        const visibility = body.visibility === undefined ? undefined : String(body.visibility);
+        if (visibility !== undefined && !(SITE_TYPE_VISIBILITIES as readonly string[]).includes(visibility)) throw new OpenArtifactError('invalid_argument', 'visibility is private, site or link.');
+        const type = this.types.get(id, workspace ?? undefined);
+        if (!type) throw new OpenArtifactError('not_found', `No type ${id} on this computer.`, { fix: 'open-artifact types lists them.' });
+        const out = await this.link.publishType(type, remote, visibility as SiteTypeVisibility | undefined, workspace);
+        this.log(`audit: published the type ${type.id} ${out.type.version} (uid ${out.type.uid}, sha256 ${out.type.sha256}, ${out.change}, visibility ${out.type.visibility}) from ${type.dir} to ${remote}, asked by ${this.askedBy(req, name)}`);
+        return sendJson(res, 200, out);
+      }
+      case R.typesUninstall: {
+        const out = uninstallType(String(body.id ?? ''));
+        this.log(`audit: uninstalled the type ${out.id} (${out.dir}), asked by ${this.askedBy(req, name)}`);
+        changed();
+        return sendJson(res, 200, out);
+      }
+    }
+  }
+
+  /** A package read and checked, its bytes kept for the install the person confirms: the preview, with its sha256. */
+  private async stagedPreview(bytes: Uint8Array, source: string, as: string | null): Promise<TypePackagePreview> {
+    const pkg = await readTypePackage(bytes, source, { as, registry: this.types });
+    stagePackage(bytes, source);
+    return pkg.preview;
+  }
+
+  /**
+   * `types.preview` and `artifacts.import`, whose body is a file: the bytes themselves (`application/octet-stream` or
+   * `application/zip`, which only a caller with the daemon token sends, `?name=` for its name), or JSON `{ name, data }`
+   * with the bytes in base64 (the home page), or for a preview `{ url }`, an address the daemon fetches once.
+   */
+  private async packageCall(req: IncomingMessage, res: ServerResponse, name: string): Promise<void> {
+    const preview = name === LIBRARY_ROUTES.typesPreview;
+    const max = preview ? PACKAGE_DOWNLOAD_MAX : ARTIFACT_IMPORT_LIMITS.zipBytes;
+    const json = String(req.headers['content-type'] ?? '').startsWith('application/json');
+    const url = new URL(req.url ?? '/', 'http://localhost');
+    const raw = await readBody(req, json ? Math.ceil((max * 4) / 3) + (1 << 20) : max);
+    let body: Record<string, unknown> = {};
+    let bytes: Uint8Array | null = null;
+    if (json) {
+      try {
+        const parsed = JSON.parse(raw.toString('utf8')) as unknown;
+        if (parsed && typeof parsed === 'object') body = parsed as Record<string, unknown>;
+      } catch {
+        throw new OpenArtifactError('invalid_argument', 'The body is not JSON.');
+      }
+      if (typeof body.data === 'string') bytes = Buffer.from(body.data, 'base64');
+    } else {
+      bytes = raw;
+      body = { name: url.searchParams.get('name') ?? undefined, as: url.searchParams.get('as') ?? undefined, folder: url.searchParams.get('folder') ?? undefined };
+    }
+    // A file the command line read keeps its path (where `types update` reads it again); a page's file, its name.
+    const label = typeof body.name === 'string' && body.name ? (json ? basename(body.name) : body.name).slice(0, 1000) : preview ? 'the package' : 'the archive';
+    if (preview) {
+      const as = typeof body.as === 'string' && body.as ? body.as : null;
+      if (!bytes) {
+        // Only an address: a page of this daemon has no business reading files by path.
+        if (typeof body.url !== 'string' || !isAddress(body.url)) throw new OpenArtifactError('invalid_argument', 'Send the package (its bytes, or { name, data } in base64), or { url } with its https:// address.');
+        return sendJson(res, 200, await this.stagedPreview(await fetchTypePackage(body.url), body.url, as));
+      }
+      return sendJson(res, 200, await this.stagedPreview(bytes, label, as));
+    }
+    if (!bytes || !bytes.byteLength) throw new OpenArtifactError('invalid_argument', 'Send the zip: its bytes, or { name, data } in base64.');
+    const workspace = this.settings.homeWorkspace ?? null;
+    const read = await readArtifactArchive(bytes, label, { registry: this.types, workspace });
+    const folder = typeof body.folder === 'string' && body.folder ? body.folder : undefined;
+    if (folder && !isAbsolute(folder)) throw new OpenArtifactError('invalid_argument', 'folder: where to put it, as an absolute path.');
+    const base = folder ? resolve(folder) : this.tools.resolveFolder(undefined, { harness: 'home', session: null, workspace }, read.top);
+    let dest = base;
+    if (!folder) for (let n = 2; existsSync(dest); n++) dest = `${base}-${n}`;
+    const unpacked = await unpackArtifactArchive(bytes, read, dest);
+    const record = await this.adoptFolder(unpacked.root);
+    if (!record) {
+      rmSync(unpacked.root, { recursive: true, force: true });
+      throw new OpenArtifactError('bad_archive', `${label} could not be added as an artifact.`);
+    }
+    this.log(`audit: imported ${label} as ${record.id} (${read.type.id}${read.marker.typeUid ? `, uid ${read.marker.typeUid}` : ''}) at ${record.root}, asked by ${this.askedBy(req, name)}`);
+    return sendJson(res, 201, { ...this.artifactView(record), files: unpacked.files, bytes: unpacked.bytes });
   }
 
   /**
@@ -1458,6 +1764,8 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
   async openPage(record: ArtifactRecord, context: { lang?: string | undefined; shell?: string } = {}): Promise<Omit<OpenPage, 'lastUsed'>> {
     const type = this.typeOf(record);
     if (!type) throw new OpenArtifactError('type_missing', `The type ${record.type} is not installed.`);
+    const mismatch = typeMismatch(record, type);
+    if (mismatch) throw mismatch;
     if (!type.runnable || !type.entry) throw new OpenArtifactError('type_not_runnable', type.problems.join(' ') || `${type.id} cannot open.`);
     const kind = type.entry.kind;
     let out: Omit<OpenPage, 'lastUsed'>;
@@ -1538,6 +1846,8 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
     const record = this.store.get(id);
     const type = record ? this.typeOf(record) : null;
     if (!record || type?.entry?.kind !== 'static') return this.notFound(req, res);
+    // Made with another type of the same id (typeUid): not served by this one's page.
+    if (typeMismatch(record, type)) return this.notFound(req, res);
     // The Shell's frame address visited as a page of its own (copied, opened from history): the Shell shows it. The
     // bare address (`page_url`, "Open in new tab") stays the page without the Shell.
     if (req.method === 'GET' && req.headers['sec-fetch-dest'] === 'document' && url.searchParams.has(SHELL_PARAMS.shell)) {
@@ -1567,16 +1877,27 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
     } catch {
       return this.notFound(req, res);
     }
+    // A link in the type's folder or the artifact's to a file outside it is nobody's page either.
+    if (existsSync(file) && !realInside(base, file)) return this.notFound(req, res);
+    // A restricted type's page (installed, or a project not trusted yet) reaches its own origin and the origins its
+    // manifest lists, nothing else.
+    if (!type.trusted) res.setHeader('Content-Security-Policy', installedTypeCsp(type.network));
     this.sendFile(req, res, file, 'no-cache');
   }
 
   /**
    * `artifact.archive`: the artifact's folder as a zip, passed on from its
    * type server's `/__open-artifact/archive` as it streams (`HEAD`: the
-   * headers, or 413 for a folder too large to zip). A type without a server,
-   * or whose server has no such route, answers `unsupported`.
+   * headers, or 413 for a folder too large to zip). A static type's folder is
+   * zipped here. A type without a server, or whose server has no such route,
+   * answers `unsupported`.
    */
   private async sendArchive(req: IncomingMessage, res: ServerResponse, record: ArtifactRecord): Promise<void> {
+    // A static type has no server: the daemon zips the folder itself, with the same rules.
+    if (this.typeOf(record)?.entry?.kind === 'static') {
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      return sendFolderArchive(req, res, record.root);
+    }
     const head = req.method === 'HEAD';
     const answer = await this.archiveAnswer(record, head ? 'HEAD' : 'GET');
     const headers: Record<string, string> = { 'Content-Type': 'application/zip', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' };
@@ -1616,6 +1937,7 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
 
   /** The artifact's folder as a zip, made by its type server with the export's rules (what Link publishes). */
   private async archiveBytes(record: ArtifactRecord): Promise<Uint8Array> {
+    if (this.typeOf(record)?.entry?.kind === 'static') return zipBytes(await archiveEntries(record.root));
     const answer = await this.archiveAnswer(record, 'GET', 300_000);
     const type = this.typeOf(record);
     // Held in memory whole: capped for a type on another computer (remote-archive.ts).
@@ -1795,7 +2117,8 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
   // ---- Library API ------------------------------------------------------------------------------------------------
 
   private async api(req: IncomingMessage, res: ServerResponse, name: string, url: URL): Promise<void> {
-    if (name.startsWith('type.')) {
+    // `type.*` is the Type API (a type server's token), except `type.icon`: a Library read the home page makes.
+    if (name.startsWith('type.') && name !== TYPE_ICON_ROUTE) {
       try {
         return await this.typeApi(req, res, name.slice('type.'.length), url);
       } catch (error) {
@@ -1842,14 +2165,29 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
         const answer: TypesResponse = {
           roots: this.types.roots(workspace).map((r) => ({ scope: r.scope, dir: r.root })),
           types: this.types.list(workspace, { includeShadowed: true }).map((t) => this.typeView(t)),
+          projects: this.projectTypes(workspace),
         };
         return sendJson(res, 200, answer);
       }
-      case 'type.icon': {
+      case TYPE_ICON_ROUTE: {
         const type = this.types.get(String(url.searchParams.get('id') ?? ''), url.searchParams.get('workspace') || undefined);
         if (!type?.icon) throw new OpenArtifactError('not_found', 'No icon.');
         return this.sendFile(req, res, inside(type.dir, type.icon), 'no-cache');
       }
+      case R.typesNew:
+      case R.typesCheck:
+      case R.typesFrom:
+      case R.typesEnable:
+      case R.typesDisable:
+      case R.typesTrust:
+      case R.typesPreview:
+      case R.typesInstall:
+      case R.typesUninstall:
+      case R.typesUpdate:
+      case R.typesPublish:
+      case R.typesUnpublish:
+      case R.import:
+        return this.typesCall(req, res, name, get);
       case R.harnesses:
         return sendJson(res, 200, this.harnesses.info());
       case R.embed: {
@@ -2059,7 +2397,7 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
         // A person's act (the CLI or the Share panel): publishes to a remote. `data: true` is the person's word that a
         // dashboard's rows go with it (the Share panel says so before its Publish); without it a dashboard whose data
         // was not confirmed goes up without rows, and the answer's `data` says so (the CLI then asks at a terminal).
-        const body = await readJsonBody<{ id: string; url: string; folder: string; remote: string; adopt: boolean; data: boolean }>(req);
+        const body = await readJsonBody<{ id: string; url: string; folder: string; remote: string; adopt: boolean; data: boolean; withType: boolean }>(req);
         const folder = typeof body.folder === 'string' && body.folder ? resolve(expandHome(body.folder)) : null;
         let record = folder ? this.store.byRoot(folder) : this.store.require(body.id ?? body.url);
         // `adopt` (the CLI's publish <folder>): a folder that holds an artifact this daemon does not know yet is added
@@ -2089,7 +2427,11 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
           remote = chosen;
         }
         const already = record.remote?.name === remote;
-        const next = await this.link.publish(record, remote);
+        // `withType` (the CLI's --with-type): the artifact's own type goes to the site's catalog first.
+        if (body.withType === true && req.headers['x-open-artifact-agent']) {
+          throw new OpenArtifactError('not_granted', 'Publishing a type to a site is for the person to decide: they run open-artifact publish <id> --with-type in their own terminal.', { status: 403 });
+        }
+        const next = await this.link.publish(record, remote, { withType: body.withType === true });
         const confirmsData = next.type === DATA_TYPE && body.data === true && next.dataPublish !== true;
         if (!already || confirmsData) {
           this.log(`audit: ${already ? 'confirmed the data of' : 'published'} ${next.id} to ${remote}${!already && confirmsData ? ' with its data' : ''}, asked by ${this.askedBy(req, name)}`);

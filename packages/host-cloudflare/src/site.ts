@@ -7,6 +7,9 @@
  * - A content host (`<label>.content…`): the artifact's object (`ROOMS.idFromName(id)`), with the artifact named in
  *   `ARTIFACT_HEADER`. No cookie goes in and none comes out (decision 6). An id the catalog does not know is answered
  *   404 here, so a made-up host name creates no object.
+ * - A page host (`<label>--<opaque>.content…`, a page artifact's page): the artifact's object too, as a content host
+ *   (no cookie either way), which checks the opaque part against the live role. Only while the site runs pages
+ *   ({@link Site.pages}); otherwise refused as a stray name.
  * - The app origin's own host (exactly, `hostKindOf`): the core's `createAppHandler` over {@link AppServices} built
  *   from the room and the hub. The Library stream is forwarded to the hub (`hub.ts`).
  * - Any other host (a wildcard route sends every name of the zone here, `login.example.com` too; a `workers.dev` name
@@ -74,6 +77,7 @@ import { EVENTS_PATH, ForwardingEvents, HUB_CALL_HEADER, HubClient } from './hub
 import { ROOM_CALL_HEADER, RoomClient } from './room-calls.ts';
 import { ARTIFACT_HEADER } from './room.ts';
 import { startCloudflarePlugins, type PluginModules } from './plugins.ts';
+import { PAGE_TITLE, PAGE_TYPE, sitePagesOf, type FrameBuild, type PageNetwork } from './frames.ts';
 
 /** The health check's path (as the Node host). */
 export const HEALTH_PATH = '/__open-artifact/health';
@@ -104,6 +108,8 @@ export interface SiteBuild {
   homeHtml: string;
   /** The file bundled as `open-artifact:plugins` (`OA_PLUGINS_MODULE`, or `deploy/cloudflare/plugins.mjs`). */
   pluginsModule?: string;
+  /** The frame engine's types (`page`) and where its browser files are in the static assets; none: no page runs. */
+  frames?: FrameBuild;
 }
 
 /** CF3's seam: routes mounted on the app origin, and a handler asked first (e.g. `/mcp`, outside the app's rules). */
@@ -173,6 +179,8 @@ export class Site {
   readonly access!: AccessCache;
   readonly hub: HubClient;
   readonly #types: Map<string, TypeEntry>;
+  /** Page artifacts: whether this site runs them, and what they may reach (`OA_PAGE_NETWORK`); null: none. */
+  readonly pages: { network: PageNetwork; build: FrameBuild } | null = null;
   readonly #known = new Map<string, number>();
   #handler: Handler<AppCtx> | null = null;
   #mcp: ((request: Request, ctx: AppCtx) => Promise<Response>) | null = null;
@@ -188,6 +196,7 @@ export class Site {
     this.#types = new Map(build.types.map((type) => [type.id, type]));
     try {
       this.config = parseCloudflareConfig(env);
+      this.pages = sitePagesOf(this.config, stringVars(env), build.frames);
       this.catalog = new Catalog(this.driver, { signingKeys: this.config.signingKeys, now: this.#now });
       const started = startCloudflarePlugins({
         vars: stringVars(env),
@@ -228,7 +237,8 @@ export class Site {
   /** The type of a known type id. */
   typeInfo(type: string): { title: string } | null {
     const entry = this.#types.get(type);
-    return entry ? { title: entry.title } : null;
+    if (entry) return { title: entry.title };
+    return this.pages && type === PAGE_TYPE ? { title: PAGE_TITLE } : null;
   }
 
   /** The app's platform services for one request (events go to the hub after the answer). */
@@ -311,6 +321,8 @@ export class Site {
     // origin's is no better. A content host goes to its room; anything else is refused before any handler.
     const host = hostKindOf(this.config, url.host, url.protocol.slice(0, -1));
     if (host.kind === 'content') response = await this.#content(request, host.id);
+    // A page host: the page artifact's object, which checks the opaque part; a name this site does not answer without pages.
+    else if (host.kind === 'page') response = this.pages ? await this.#content(request, host.id) : wrongHostResponse({ kind: 'stray', host: url.host });
     else if (host.kind !== 'app') response = wrongHostResponse(host);
     else if (url.pathname === STATS_PATH && this.#statsOn()) response = await this.#stats(url);
     else response = await this.#app(request, exec);

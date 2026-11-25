@@ -87,7 +87,7 @@ The ticket works in a frame too. A page that cannot be declared (an app loaded f
 Give `embedArtifact` the transport above, not the iframe, and set the iframe's `src` yourself. Every ancestor counts
 for a frame's `frame-ancestors`, your page included, so the type pages on this computer send none: CSP's `*` matches
 only network schemes and would refuse a `file://` or `app://` page around the Shell. The page of a type that
-frame-host serves (an `index.html` with an inline `// artifact.json` block) is instead refused to any frame but the
+frame-host serves (an `index.html` with an inline `// artifact.json` block, or a `page` artifact's own `index.html`) is instead refused to any frame but the
 one its own shell put up. Your app still has to let its frame load the daemon's origins (`embed.origins`).
 
 The ticket's rules: it is used once, belongs to the adapter connection it was issued to, expires unclaimed after two

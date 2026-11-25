@@ -57,6 +57,7 @@ export function linkEventOf(row: OutboxRecord): LinkEvent | null {
         artifact: row.artifactId,
         ...(typeof payload.title === 'string' ? { title: payload.title } : {}),
         ...(payload.removed === true ? { removed: true } : {}),
+        ...(isRecord(payload.capabilities) ? { capabilities: payload.capabilities } : {}),
       };
     case DATA_REFRESH_EVENT: {
       const from = isRecord(payload.from) && typeof payload.from.name === 'string' && typeof payload.from.role === 'string' ? { name: payload.from.name, role: payload.from.role as ArtifactRole } : undefined;
@@ -122,9 +123,9 @@ export function startLinkFeed(input: { catalog: Catalog; events: HostEvents; log
     if (author === LINK_AUTHOR || paths.length === 0) return;
     enqueue(() => append(id, 'files', () => ({ author, paths, ...(title ? { title } : {}) })));
   });
-  const offChanged = events.on('artifact-changed', ({ id, author }) => {
+  const offChanged = events.on('artifact-changed', ({ id, author, capabilities }) => {
     if (author === LINK_AUTHOR) return;
-    enqueue(() => append(id, 'artifact', (artifact) => (artifact.trashedAt !== null ? { removed: true } : { title: artifact.title })));
+    enqueue(() => append(id, 'artifact', (artifact) => (artifact.trashedAt !== null ? { removed: true } : { title: artifact.title, ...(capabilities ? { capabilities } : {}) })));
   });
   return () => {
     offTouched();

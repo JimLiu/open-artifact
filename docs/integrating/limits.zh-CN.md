@@ -49,3 +49,9 @@ DSH 插件是 L3 接入。由于缺少 DSH 的 API，有三件事没有接上：
 ## 安全
 
 会话权限和仅限本人的命令让诚实的 Agent 走在正路上；它们拦不住以人的身份运行的代码（[安全](security.zh-CN.md#它不做什么)）。
+
+受限类型（安装的，或者还没信任的项目里的）的页面从自己的框架里到不了别的源，但它仍然能通过每个页面都有的途径把
+文字送到 Agent 面前：发给 Agent 的评论（`comments.sendToAgent`）、发给 Agent 会话的消息
+（`room.sendToAgentSession`、`/api/frame/agent`）和它建议的标题（`proposeTitle`）。这些交给 Agent 时都是页面的话，
+不是人的话；Agent 从这种作品读回来的内容带着页面内容的 `third_party_notice`（[安全](security.zh-CN.md#类型包)）。
+单独在标签页里打开页面地址时，有页面的策略，但没有框架的沙盒。

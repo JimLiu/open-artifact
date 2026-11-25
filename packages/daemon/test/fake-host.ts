@@ -113,6 +113,10 @@ export class FakeHost {
   /** Acknowledgements refused while {@link failAck} was set. */
   failedAcks = 0;
   onCall: CallHandler = (_id, action) => ({ ok: true, action });
+  /** Runs page artifacts: `hello` says `features.pages`, and `link.capabilities` answers. */
+  pages = false;
+  /** Every `link.capabilities` body, in order. */
+  readonly capabilityLog: Array<{ id: string; capabilities: Record<string, unknown> }> = [];
   private serial = 0;
 
   /** Listens on a free port of 127.0.0.1. */
@@ -271,7 +275,14 @@ export class FakeHost {
 
     switch (route) {
       case 'hello':
-        return json(200, { openArtifact: 1, version: '0.12.3', user: this.user, limits: { maxBodyBytes: 50 << 20, maxFileBytes: 20 << 20 } });
+        return json(200, { openArtifact: 1, version: '0.12.3', user: this.user, limits: { maxBodyBytes: 50 << 20, maxFileBytes: 20 << 20 }, ...(this.pages ? { features: { pages: 1 } } : {}) });
+      case 'capabilities': {
+        if (!this.pages) return fail(404, 'not_found', `${route}: no such route`);
+        const ask = body() as { id: string; capabilities: Record<string, unknown> };
+        if (!this.artifacts.has(ask.id)) return fail(404, 'not_found', 'No such artifact.');
+        this.capabilityLog.push(ask);
+        return json(200, {});
+      }
       case 'import': {
         const id = url.searchParams.get('id') ?? '';
         if (this.artifacts.has(id)) return fail(409, 'conflict', `${id} is here already.`);

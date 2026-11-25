@@ -18,6 +18,7 @@
  * | `OA_OWNER_NAME` | none: the name the owner-key user starts with (`Owner`) |
  * | `OA_ALLOW_HTTP` | `false`: `true` allows plain http for any host name, not only this computer and a private network |
  * | `OA_CONTENT_SAME_SITE` | `false`: `true` lets the content origin be on the app origin's registrable domain (one domain for both) |
+ * | `OA_TYPES_PUBLISH` | `admins` (`off`, `admins`, `members`): who may publish artifact types to the site; always `off` with `OA_CONTENT_SAME_SITE` |
  *
  * The content origin is on another site than the app origin (another registrable domain) unless
  * `OA_CONTENT_SAME_SITE` is on. That mode is weaker, and how is written down in `docs/hosting.md` ("One domain for
@@ -30,7 +31,7 @@
  * Over http the session cookie drops its `__Host-` prefix and `Secure` flag, which browsers only keep over https.
  */
 
-import { isPrivateNetworkHostName, PRIVATE_NETWORK_HTTP_RULE } from '@open-artifact/protocol';
+import { isPrivateNetworkHostName, PRIVATE_NETWORK_HTTP_RULE, TYPES_PUBLISH_POLICIES, type TypesPublishPolicy } from '@open-artifact/protocol';
 import type { AuthConfig, HostConfig, ShareRole, SignupPolicy } from './types.ts';
 
 export const DEFAULT_APP_ORIGIN = 'http://localhost:4900';
@@ -89,6 +90,7 @@ export function parseConfig(env: Record<string, string | undefined>): HostConfig
   const ownerKey = value('OA_OWNER_KEY');
   if (ownerKey !== undefined && ownerKey.length < MIN_OWNER_KEY_LENGTH) throw new ConfigError('OA_OWNER_KEY', `must be at least ${MIN_OWNER_KEY_LENGTH} characters (leave it unset and the host generates one).`);
   const ownerName = value('OA_OWNER_NAME');
+  const typesPublish = parseTypesPublish(value('OA_TYPES_PUBLISH'), contentSameSite);
 
   return {
     appOrigin,
@@ -99,6 +101,7 @@ export function parseConfig(env: Record<string, string | undefined>): HostConfig
     signup,
     linkMaxRole,
     publicAccess,
+    typesPublish,
     ...(ownerKey !== undefined ? { ownerKey } : {}),
     ...(ownerName !== undefined ? { ownerName } : {}),
     ...(contentSameSite ? { contentSameSite: true } : {}),
@@ -280,4 +283,18 @@ function parseAuth(text: string | undefined): AuthConfig[] {
     ids.add(key);
     return out;
   });
+}
+
+/**
+ * `OA_TYPES_PUBLISH`: who may publish artifact types to the site. A published type's pages run on the content origin,
+ * and with one domain for both (`OA_CONTENT_SAME_SITE`) page artifacts do not run at all, so publishing is `off`
+ * there whatever the variable says (the `types.import` route says why).
+ */
+function parseTypesPublish(raw: string | undefined, sameSite: boolean): TypesPublishPolicy {
+  const v = raw?.toLowerCase();
+  if (v !== undefined && !(TYPES_PUBLISH_POLICIES as readonly string[]).includes(v)) {
+    throw new ConfigError('OA_TYPES_PUBLISH', `must be off, admins or members, not "${raw}".`);
+  }
+  if (sameSite) return 'off';
+  return (v as TypesPublishPolicy | undefined) ?? 'admins';
 }

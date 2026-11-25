@@ -24,6 +24,7 @@ import type { AgentPrincipal, ArtifactRow } from '../types.ts';
 import { emitEvent, eventBase, guards } from '../plugins/hooks.ts';
 import { linkDeviceRoutes, linkUserOf, type DeviceRateLimit } from './device.ts';
 import { LINK_AUTHOR, linkEventOf } from './outbox.ts';
+import { linkTypeRoutes } from './types-routes.ts';
 import { LINK_JSON_BYTES, LINK_MAX_BODY_BYTES, LINK_MAX_FILE_BYTES, LINK_MAX_WRITES, LINK_SCOPE, type LinkServices } from './services.ts';
 
 /** How often a comment keeps an event stream open through proxies, ms. */
@@ -108,8 +109,19 @@ export function linkApiRoutes<C extends BaseCtx>(router: Router<C>, services: Li
 
   router.get(
     route(LINK_ROUTES.hello),
-    withAgent<C>(async (_request, _ctx, agent) => {
-      const hello: LinkHello = { openArtifact: 1, version: services.version, user: linkUserOf(agent.user), limits: { maxBodyBytes: LINK_MAX_BODY_BYTES, maxFileBytes: LINK_MAX_FILE_BYTES } };
+    withAgent<C>(async (_request, ctx, agent) => {
+      const features: NonNullable<LinkHello['features']> = {
+        ...(services.pages ? { pages: 1 as const } : {}),
+        ...(services.siteTypes ? { types: 1 as const } : {}),
+      };
+      const hello: LinkHello = {
+        openArtifact: 1,
+        version: services.version,
+        user: linkUserOf(agent.user),
+        limits: { maxBodyBytes: LINK_MAX_BODY_BYTES, maxFileBytes: LINK_MAX_FILE_BYTES },
+        ...(Object.keys(features).length ? { features } : {}),
+        ...(services.siteTypes ? { typesPublish: ctx.config.typesPublish ?? 'admins' } : {}),
+      };
       return json(hello);
     }),
   );
@@ -245,6 +257,19 @@ export function linkApiRoutes<C extends BaseCtx>(router: Router<C>, services: Li
     }),
   );
 
+  // A page artifact's declared capabilities: `.artifact.json` never travels in a file push, so they have their own route.
+  router.post(
+    route(LINK_ROUTES.capabilities),
+    withAgent<C>(async (request, ctx, agent) => {
+      const body = await bodyWithId(request);
+      const artifact = await ownedArtifact(ctx, agent, body.id);
+      if (!services.pages) throw httpError('unsupported', 'This host runs no page artifacts.', { status: 400 });
+      if (!isRecord(body.capabilities)) throw invalid('capabilities is an object (the `.artifact.json` block).');
+      await services.pages.setCapabilities(artifact.id, body.capabilities, LINK_AUTHOR);
+      return json({});
+    }),
+  );
+
   router.post(
     route(LINK_ROUTES.call),
     withAgent<C>(async (request, ctx, agent) => {
@@ -274,6 +299,8 @@ export function linkApiRoutes<C extends BaseCtx>(router: Router<C>, services: Li
       return json({});
     }),
   );
+
+  linkTypeRoutes(router, services.siteTypes, withAgent<C>);
 
   router.post(
     route(LINK_ROUTES.ack),

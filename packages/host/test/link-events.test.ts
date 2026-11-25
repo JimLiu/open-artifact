@@ -103,6 +103,20 @@ test('events: a person\'s edit is sent, the Link\'s own push is not; renames and
   await reader.cancel();
 });
 
+test('events: a page\'s capabilities changed on the site reach the Link in an artifact event', async (t) => {
+  const host = await makeLinkHost();
+  t.after(() => host.close());
+  const { user: ada } = await host.person('Ada');
+  const token = await host.token(ada);
+  const art = await host.artifact(ada, undefined, { type: 'page' });
+  const { reader } = await open(host, token.access);
+  host.events.emit('artifact-changed', { id: art.id, author: 'mcp', capabilities: { db: true } });
+  const event = await reader.next();
+  assert.equal(event.type, 'artifact');
+  assert.deepEqual((event as { capabilities?: unknown }).capabilities, { db: true });
+  await reader.cancel();
+});
+
 test('events: no outbox rows for a user who never linked', async (t) => {
   const host = await makeLinkHost();
   t.after(() => host.close());

@@ -14,7 +14,8 @@ import type { Catalog } from '../src/core/catalog/catalog.ts';
 import { parseConfig } from '../src/core/config.ts';
 import { openCatalog } from '../src/node/host.ts';
 import type { SqliteDriver } from '../src/node/sqlite.ts';
-import { parseInternalEnv, startTlsAsk, tlsAllowed, type InternalListener } from '../src/node/tls-ask.ts';
+import { pageHostLabel } from '../src/core/page-host.ts';
+import { parseInternalEnv, parsePageHostOnDemand, startTlsAsk, tlsAllowed, type InternalListener } from '../src/node/tls-ask.ts';
 
 const config = parseConfig({
   OA_APP_ORIGIN: 'https://artifacts.example.com',
@@ -105,6 +106,32 @@ describe('tls-ask', () => {
     assert.deepEqual(parseInternalEnv({ OA_INTERNAL_PORT: '4901' }), { port: 4901, bind: '127.0.0.1' });
     assert.deepEqual(parseInternalEnv({ OA_INTERNAL_PORT: '4901', OA_INTERNAL_BIND: '0.0.0.0' }), { port: 4901, bind: '0.0.0.0' });
     assert.throws(() => parseInternalEnv({ OA_INTERNAL_PORT: 'many' }), /OA_INTERNAL_PORT/);
+  });
+
+  it('refuses page hosts unless OA_PAGE_HOST_ON_DEMAND_TLS allows them', async () => {
+    const page = `${pageHostLabel(live, 'a'.repeat(24))}.oa-content.example.net`;
+    const asked: string[] = [];
+    const pageHost = async (name: string): Promise<boolean> => {
+      asked.push(name);
+      return true;
+    };
+    const refusing = tlsAllowed({ config, catalog, pageHost });
+    assert.equal(await refusing(page), false, 'by default: a page host name would reach the public CT logs');
+    assert.deepEqual(asked, [], 'the engine is not even asked');
+    assert.equal(await refusing(host(live)), true, 'content hosts still get theirs');
+    const allowing = tlsAllowed({ config, catalog, pageHost, pageHostsOnDemand: true });
+    assert.equal(await allowing(page), true);
+    assert.deepEqual(asked, [page]);
+    const placing = tlsAllowed({ config, catalog, pageHost: async () => false, pageHostsOnDemand: true });
+    assert.equal(await placing(page), false, 'allowed, but only for a name the engine can place');
+  });
+
+  it('reads OA_PAGE_HOST_ON_DEMAND_TLS', () => {
+    assert.equal(parsePageHostOnDemand({}), false);
+    assert.equal(parsePageHostOnDemand({ OA_PAGE_HOST_ON_DEMAND_TLS: 'false' }), false);
+    assert.equal(parsePageHostOnDemand({ OA_PAGE_HOST_ON_DEMAND_TLS: 'true' }), true);
+    assert.equal(parsePageHostOnDemand({ OA_PAGE_HOST_ON_DEMAND_TLS: 'TRUE' }), true);
+    assert.throws(() => parsePageHostOnDemand({ OA_PAGE_HOST_ON_DEMAND_TLS: 'sometimes' }), /OA_PAGE_HOST_ON_DEMAND_TLS/);
   });
 
   describe('over HTTP', () => {

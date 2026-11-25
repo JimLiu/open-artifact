@@ -8,6 +8,7 @@
 
 import type { LinkFile, LinkWrite, LinkWriteResult } from '@open-artifact/protocol';
 import type { HostEvents } from '../events.ts';
+import type { SiteTypeCandidate, SiteTypeRow } from '../catalog/site-types.ts';
 
 /** The files of an artifact by archive path (the paths `archiveKeeps` allows), with sha256 etags. */
 export interface ArtifactFiles {
@@ -61,6 +62,49 @@ export interface LinkServices {
   events: HostEvents;
   /** The host's version (`link.hello`). */
   version: string;
+  /**
+   * Page artifacts, when this host runs them (`link.hello` says `features.pages`; the import takes them, and
+   * `link.capabilities` sets what they declare). Absent: a page archive is refused as any unknown type is.
+   */
+  pages?: PageServices;
+  /**
+   * The site's type catalog, when this host runs published types (`link.hello` says `features.types`; the `types.*`
+   * routes). Absent: those routes answer `unsupported`.
+   */
+  siteTypes?: SiteTypeServices;
+}
+
+/**
+ * What a host keeps of a published type (`core/catalog/site-types.ts` keeps the rows): reading a package, its files
+ * by uid and version, and running it. Nothing of a package runs on the host: its pages run on the content origin.
+ */
+export interface SiteTypeServices {
+  /**
+   * Reads and checks a package (what `types install` checks, and that it is a type a site runs: a page type, with
+   * an `index.html` declaration and no server of its own); nothing is kept. Refuses with an `OpenArtifactError`.
+   */
+  read(bytes: Uint8Array): Promise<SiteTypeCandidate>;
+  /** Keeps a checked package's bytes and unpacked files as `uid`'s `version` (replacing what that version had). */
+  store(candidate: SiteTypeCandidate, bytes: Uint8Array): Promise<void>;
+  /** The kept package of `uid`'s `version`, or null. */
+  package(uid: string, version: string): Promise<Uint8Array | null>;
+  /** Deletes the files of one version of `uid`, or all of them without `version`. */
+  removeFiles(uid: string, version?: string): Promise<void>;
+  /** The row changed (a new type, a new version, delisted or listed again): artifacts of it run what it says now. */
+  activated(row: SiteTypeRow): Promise<void>;
+  /** The row is gone (nothing used it). */
+  removed(row: SiteTypeRow): Promise<void>;
+}
+
+/** What a host that runs page artifacts adds to the Link (and the site's MCP). */
+export interface PageServices {
+  /** A page artifact's declared capabilities (its `.artifact.json` block), or null when it is not a page here. */
+  capabilities(artifactId: string): Promise<Record<string, unknown> | null>;
+  /**
+   * Replaces them (the whole block) and tells the open pages (they rewire); `author` other than the Link's sends the
+   * change to the owner's Link (an `artifact` event with `capabilities`). Refuses a non-page with `invalid_argument`.
+   */
+  setCapabilities(artifactId: string, capabilities: Record<string, unknown>, author: string): Promise<void>;
 }
 
 /** The scope a Link token carries; every Link route requires it. */

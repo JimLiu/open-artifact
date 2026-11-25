@@ -6,7 +6,7 @@
 
 import type { AccessCache } from '../authz/access.ts';
 import type { HostEvents } from '../events.ts';
-import type { ArtifactFiles } from '../link/services.ts';
+import type { ArtifactFiles, PageServices } from '../link/services.ts';
 import type { CimdDeps } from './cimd.ts';
 
 /** One of a type's actions, as `Artifact call` runs it. */
@@ -50,6 +50,13 @@ export interface McpServices {
   types: McpTypeService;
   /** Makes a new artifact's folder: its `.artifact.json` and the type's empty content. The catalog row is the caller's. */
   create(input: { id: string; type: string; title: string }): Promise<void>;
+  /** Page artifacts' declared capabilities, on a site that runs pages (the Link's `pages`); absent: none. */
+  pages?: PageServices;
+  /**
+   * A type published to the site (`types publish`), by id: its name and description, which its publisher wrote; null
+   * for any other type. Absent: the site runs none.
+   */
+  publishedType?(type: string): { name: string; description: string } | null;
   files: ArtifactFiles;
   /** Runs an action of the embedded type server on an artifact (reserved `open-artifact.*` ones too). */
   action(artifactId: string, name: string, args: Record<string, unknown>): Promise<unknown>;

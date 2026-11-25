@@ -14,8 +14,15 @@
     "./lan": "./src/lan.ts",
     "./ws": "./src/ws.ts",
     "./frame": "./src/frame/index.ts",
+    "./frame/imports": "./src/frame/page-imports.ts",
+    "./frame/page-api": "./src/frame/page-api.ts",
+    "./frame/core": "./src/frame/core.ts",
+    "./frame/env": "./src/frame/env.ts",
     "./db": "./src/frame/db.ts",
-    "./comments": "./src/frame/comments.ts"
+    "./comments": "./src/frame/comments.ts",
+    "./zip": "./src/zip.ts",
+    "./type-package": "./src/type-package.ts",
+    "./snapshot": "./src/snapshot.ts"
   },
   "dependencies": {
     "@open-artifact/protocol": "0.14.6"

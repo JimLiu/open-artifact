@@ -17,6 +17,10 @@
  * - `mcp.ts`: MCP versions, messages and one message's answer, shared by the daemon's and the host's `/mcp`.
  * - `network.ts`: which host names plain `http` is allowed for (this computer, a private network).
  * - `title-from.ts`: reading a type's `titleFrom` (where an artifact's title lives in its files).
+ * - `page-capabilities.ts`: the runtime capabilities of a frame page, and a `page` artifact's declaration of them.
+ * - `declaration.ts`: a frame type's inline `// artifact.json` declaration, read statically (never run).
+ * - `type-authoring.ts`: what `open-artifact types check` asks of a type folder, and of one to share.
+ * - `type-package.ts`: type packages (`types pack`, `types install`): the share rules, the installed index, the notice.
  * - `errors.ts`: errors on the wire.
  *
  * Everything here is platform neutral: no Node or DOM APIs.
@@ -38,3 +42,7 @@ export * from './settings.ts';
 export * from './mcp.ts';
 export * from './network.ts';
 export * from './title-from.ts';
+export * from './page-capabilities.ts';
+export * from './declaration.ts';
+export * from './type-authoring.ts';
+export * from './type-package.ts';

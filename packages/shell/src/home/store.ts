@@ -31,6 +31,10 @@ export interface HomeState {
   host: HomeHost | null;
   /** The type the create dialog makes, while it is open. */
   creating: TypeView | null;
+  /** The "New type" dialog is open. */
+  makingType: boolean;
+  /** The "Install type" dialog, while it is open: `update` names the installed type it updates. */
+  installing: { update?: string } | null;
   /** The artifact the rename dialog renames, while it is open. */
   renaming: ArtifactView | null;
   /** The artifact just deleted, while its undo shows (`trash`: on a cloud host, moved to the trash). */
@@ -55,6 +59,8 @@ export interface HomeActions {
   setError(error: string | null): void;
   setHost(host: HomeHost): void;
   setCreating(type: TypeView | null): void;
+  setMakingType(open: boolean): void;
+  setInstalling(installing: HomeState['installing']): void;
   setRenaming(artifact: ArtifactView | null): void;
   setUndo(undo: HomeState['undo']): void;
   setCloudTab(tab: CloudTab): void;
@@ -82,6 +88,8 @@ export const useHome = create<HomeState & HomeActions>()((set) => ({
   error: null,
   host: null,
   creating: null,
+  makingType: false,
+  installing: null,
   renaming: null,
   undo: null,
   cloudTab: initialCloudTab(),
@@ -103,6 +111,8 @@ export const useHome = create<HomeState & HomeActions>()((set) => ({
   setError: (error) => set({ error }),
   setHost: (host) => set({ host }),
   setCreating: (creating) => set({ creating }),
+  setMakingType: (makingType) => set({ makingType }),
+  setInstalling: (installing) => set({ installing }),
   setRenaming: (renaming) => set({ renaming }),
   setUndo: (undo) => set({ undo }),
   setCloudTab: (cloudTab) => set({ cloudTab }),

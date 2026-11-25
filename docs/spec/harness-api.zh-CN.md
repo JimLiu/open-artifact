@@ -46,6 +46,7 @@
 | `types.remote` | 用 `remote` 和 `origin` 描述类型，给出 `remoteActions`，并在 `host.open` 里放入 `remote` |
 | `hello.runtime` | 记录 `hello` 的 `runtime`，并启动最新的兼容运行时 |
 | `runtime.update` | 回答 `runtime.status` 和 `runtime.update`，并发送 `runtime/update` 事件 |
+| `types.source` | 在列出类型的地方、读取作品时，用 `source`（`builtin`、`local`、`installed`）描述类型，安装的类型还带 `installed_from` 和 `third_party_notice`；新建或接管作品时，把 `third_party_notice` 放在 `instructions` 旁边；还没信任的项目里的类型带它自己的 `third_party_notice`，读取这两种类型的作品时（`Artifact`、`ArtifactData`、`ArtifactComments`）再加一句页面内容的说明 |
 
 `session.*`、`tools.list`、`tools.call`、`agent.wrote`、`artifact.open`、`inbox.take`、`inbox.wait` 和 `subscribe` 是基础协议，不需要功能名。
 
@@ -161,12 +162,13 @@ WebSocket 和 stdio 桥用同一套数字回答（`@open-artifact/protocol` 里�
 | `rate_limited` | 调用太多；稍后再试 |
 | `unsupported` | 守护进程或类型不做这件事（例如它没列出的功能） |
 | `unknown_action`、`unknown_tool` | 类型没有这个动作；没有这个工具 |
-| `type_missing`、`type_not_runnable` | 类型没安装；装了但无法运行 |
+| `type_missing`、`type_not_runnable` | 类型没安装（导入时写明它的 id、uid 和来源）；装了但无法运行 |
+| `type_mismatch` | 作品是同 id 的另一个类型做的（`typeUid` 不同）：不打开也不写入 |
 | `server_failed` | 类型服务器或远程类型失败 |
 | `unavailable` | 需要的服务现在不在 |
 | `newer_release` | 作品是更新的 Open Artifact 写的；先更新 |
 | `redirected` | 链接主机回了重定向；什么都没有转发 |
-| `download_failed`、`integrity_failed`、`bad_archive` | 运行时更新下载失败、与 integrity 不符，或无法安全解包 |
+| `download_failed`、`integrity_failed`、`bad_archive` | 运行时更新或类型包下载失败、与 integrity 不符，或无法安全解包（要导入的压缩包不是作品压缩包也是它） |
 | `connect_failed`、`disconnected`、`timeout` | 连不上、连接断了，或太久没回 |
 | `no_daemon`、`daemon_failed` | kit 或 CLI 找不到守护进程，或无法启动它 |
 | `error` | 其他 |

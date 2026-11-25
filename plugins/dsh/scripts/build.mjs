@@ -34,9 +34,9 @@ const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
 const PLATFORM_MODULES = ['react', 'react/jsx-runtime', 'react-dom', '@deepseek-ai/dsh-client-ui-primitives'];
 
 const warn = (message) => console.warn(`dsh-open-artifact build: ${message}`);
-// The built-in types: the daemon's own list (BUILTIN_TYPE_IDS).
+// The built-in types: the protocol's list (BUILTIN_TYPE_IDS), which the daemon and a site share.
 const BUILTIN_TYPES = JSON.parse(
-  /BUILTIN_TYPE_IDS[^=]*=\s*(\[[^\]]*\])/.exec(readFileSync(join(repo, 'packages', 'daemon', 'src', 'types.ts'), 'utf8'))[1].replace(/'/g, '"'),
+  /BUILTIN_TYPE_IDS[^=]*=\s*(?:Object\.freeze\()?(\[[^\]]*\])/.exec(readFileSync(join(repo, 'packages', 'protocol', 'src', 'type-authoring.ts'), 'utf8'))[1].replace(/'/g, '"'),
 );
 const log = (message) => console.log(`dsh-open-artifact build: ${message}`);
 

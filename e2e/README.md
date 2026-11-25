@@ -220,3 +220,17 @@ The harness asks its questions (`waitFor`, `evaluateAll`, `load`'s `ready`) in a
 - MP4 is skipped, and said so, where this Chrome has no H.264 encoder.
 - With "Viewers can download and export" off, a viewer who joined by link is refused with a readable message and gets no file; turned on, the same export downloads.
 - A to-do case: a Docs file keeps the doc's name (it needs the type server to expose `content-disposition` to the Shell).
+
+**A page artifact on a cloud host** (`host-page.test.mjs`, Chrome only)
+
+- A daemon linked to a Node host publishes a synthetic poll `page` (database, comments, who is viewing) and a second page. The owner's page runs on a page host of its own (`<id>--<opaque>`), with no page token in its address; its logo loads; a vote, a comment and a note reach the computer's folder, and a database file written there shows on the page.
+- With a `Host` header: the page host answers no API, a page host made up for the other artifact is refused, and the page cannot reach the shell's API.
+- Shared by link as viewer, then commenter, then editor: each role can do what it may and no more, on the same page host while it keeps access. Once the guest is removed, their page host is refused and the owner's still answers.
+
+**A person's own type on a cloud host** (`host-types.test.mjs`, Chrome only)
+
+- Two daemons on a Node host: the owner's (an admin, linked in Chrome) and a member's (a token from `open-artifact-host link-token`). The type is synthetic (`fixtures/site-type/team-poll`).
+- Publishing an artifact of a type the site lacks is refused, naming the type, `types publish` and `--with-type`; `types publish` inside an agent session is refused; `types publish` keeps the package under the site's data folder, then the artifact publishes.
+- The artifact runs on a page host with no page token in its address, which answers no API; viewer, commenter and editor by share links can do what the type's db rules let them.
+- A new version reaches the open page and the old version's files go; `types unpublish` delists it (the artifact still opens, a new one is refused); `publish --with-type` sends a fresh type first.
+- `OA_TYPES_PUBLISH`, the host restarted each time: `admins` refuses the member, `members` lets them publish, `off` refuses the admin while what is published keeps opening.

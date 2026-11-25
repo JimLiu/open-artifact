@@ -542,6 +542,7 @@ test('GUARD_PATHS: every guarded action has its helper, and the code calls each 
     'share.change': 'share',
     'link.connect': 'linkConnect',
     'link.publish': 'linkPublish',
+    'type.publish': 'typePublish',
     'mcp.connect': 'mcpConnect',
     'agent.ask': 'ask',
   };

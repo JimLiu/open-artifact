@@ -352,3 +352,36 @@ test('call forwards actions and refuses the ones a host cannot run; unpublish tr
   const listed = (await (await host.fetch(url('artifacts'), { token: token.access })).json()) as LinkArtifactsResult;
   assert.equal(listed.artifacts.length, 0);
 });
+
+test('capabilities: only on a site that runs pages (its hello says so), for the owner\'s own artifact', async (t) => {
+  const set: Array<{ id: string; capabilities: Record<string, unknown>; author: string }> = [];
+  const pages = {
+    capabilities: async () => ({}),
+    setCapabilities: async (id: string, capabilities: Record<string, unknown>, author: string) => void set.push({ id, capabilities, author }),
+  };
+  const host = await makeLinkHost({ pages });
+  const plain = await makeLinkHost();
+  t.after(async () => {
+    await host.close();
+    await plain.close();
+  });
+  const { user: ada } = await host.person('Ada');
+  const { user: bob } = await host.person('Bob');
+  const token = await host.token(ada);
+  const mine = await host.artifact(ada, undefined, { type: 'page' });
+  const bobs = await host.artifact(bob, undefined, { type: 'page' });
+  const hello = (await (await host.fetch(url('hello'), { token: token.access })).json()) as { features?: unknown };
+  assert.deepEqual(hello.features, { pages: 1 });
+  assert.equal((await host.call('capabilities', token.access, { id: mine.id, capabilities: { db: true } })).status, 200);
+  assert.deepEqual(set, [{ id: mine.id, capabilities: { db: true }, author: 'agent' }]);
+  assert.equal((await host.call('capabilities', token.access, { id: bobs.id, capabilities: {} })).status, 404, 'not the token user\'s');
+  assert.equal((await host.call('capabilities', token.access, { id: mine.id, capabilities: [1] })).status, 400);
+  assert.equal(set.length, 1);
+
+  const { user: cy } = await plain.person('Cy');
+  const plainToken = await plain.token(cy);
+  const old = await plain.artifact(cy);
+  const plainHello = (await (await plain.fetch(url('hello'), { token: plainToken.access })).json()) as { features?: unknown };
+  assert.equal(plainHello.features, undefined, 'a site without pages does not offer them');
+  assert.ok((await plain.call('capabilities', plainToken.access, { id: old.id, capabilities: {} })).status >= 400);
+});

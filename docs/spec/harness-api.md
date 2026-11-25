@@ -52,6 +52,7 @@ an `### Integrators` section in [CHANGELOG.md](../../CHANGELOG.md) saying what c
 | `types.remote` | describes types with `remote` and `origin`, gives `remoteActions`, and puts `remote` in `host.open` |
 | `hello.runtime` | records `hello`'s `runtime` and starts the newest compatible runtime |
 | `runtime.update` | answers `runtime.status` and `runtime.update`, and sends `runtime/update` events |
+| `types.source` | describes types with `source` (`builtin`, `local`, `installed`) and, for an installed one, `installed_from` and `third_party_notice`, wherever types are listed and when an artifact is read; puts `third_party_notice` next to `instructions` when one is created or adopted; a project type not trusted yet gets its own `third_party_notice`, and reads of an artifact of either (`Artifact`, `ArtifactData`, `ArtifactComments`) add a page-content one |
 
 `session.*`, `tools.list`, `tools.call`, `agent.wrote`, `artifact.open`, `inbox.take`, `inbox.wait` and `subscribe` are
 the base protocol and need no feature.
@@ -179,12 +180,13 @@ polling answers with an HTTP status and the same `{ code, message, fix? }` body.
 | `rate_limited` | too many calls; try later |
 | `unsupported` | the daemon or type does not do this (for example a feature it does not list) |
 | `unknown_action`, `unknown_tool` | the type has no such action; no such tool |
-| `type_missing`, `type_not_runnable` | the type is not installed; it is installed but cannot run |
+| `type_missing`, `type_not_runnable` | the type is not installed (an import names its id, uid and source); it is installed but cannot run |
+| `type_mismatch` | the artifact was made with another type of the same id (its `typeUid` differs): not opened or written |
 | `server_failed` | a type server or remote type failed |
 | `unavailable` | the service needed is not there right now |
 | `newer_release` | the artifact was written by a newer Open Artifact; update first |
 | `redirected` | a link host answered with a redirect; nothing was sent on |
-| `download_failed`, `integrity_failed`, `bad_archive` | a runtime update could not be fetched, did not match its integrity, or did not unpack safely |
+| `download_failed`, `integrity_failed`, `bad_archive` | a runtime update or type package could not be fetched, did not match its integrity, or did not unpack safely (also an archive to import that is not one) |
 | `connect_failed`, `disconnected`, `timeout` | a connection could not be made, closed, or took too long |
 | `no_daemon`, `daemon_failed` | the kit or CLI found no daemon, or could not start one |
 | `error` | anything else |

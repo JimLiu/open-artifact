@@ -165,12 +165,12 @@ async function buildFrame() {
     logLevel: 'warning',
   });
   await chmod(join(out, 'frame-host.mjs'), 0o755);
-  for (const name of ['runtime', 'shell']) {
+  for (const name of ['runtime', 'shell', 'imports']) {
     await esbuild({
       entryPoints: [join(src, `src/frame/client/${name}.ts`)],
       outfile: join(out, 'client', `${name}.js`),
       bundle: true,
-      format: 'iife',
+      format: name === 'imports' ? 'esm' : 'iife',
       platform: 'browser',
       target: 'es2022',
       charset: 'utf8',

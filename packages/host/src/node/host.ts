@@ -11,7 +11,7 @@ import { chmod, mkdir, readFile } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
-import { LINK_API_PREFIX, OpenArtifactError, type DaemonHealth, type OpenArtifactErrorCode } from '@open-artifact/protocol';
+import { LINK_API_PREFIX, OpenArtifactError, titleInHtml, type DaemonHealth, type OpenArtifactErrorCode } from '@open-artifact/protocol';
 import { archiveEntries, ArchiveTooLarge, attachmentHeader, HttpError, importArchive, isTypeName, readArtifactTitle, TYPES, writeZip } from '@open-artifact/type-server';
 import { APP_MAX_BODY_BYTES, appRouter, createAppHandler, guardAppOrigin, IMPORT_MAX_BYTES, isPotentiallyTrustworthyOrigin, type AppCtx, type AppServices } from '../core/app/index.ts';
 import { ensureOwnerKey } from '../core/auth/owner-key.ts';
@@ -35,8 +35,10 @@ import { nodeHandler, sendResponse } from './adapter.ts';
 import { dispatchByHost } from './content.ts';
 import type { NodeHostEnv } from './env.ts';
 import { createLinkPresence, nodeLinkServices, removeArtifactFolder } from './link.ts';
-import { mcpRoutes, nodeMcpServices } from './mcp.ts';
+import { DEFAULT_TYPES_DIR, mcpRoutes, nodeMcpServices } from './mcp.ts';
+import { nodeFrameTypes, PAGE_TITLE, PAGE_TYPE, parsePageNetwork, type PageNetwork } from './frames.ts';
 import { createRooms, type HostRooms } from './rooms.ts';
+import { nodeSiteTypes, siteTypeImport, withSiteTypes, type NodeSiteTypes } from './site-types.ts';
 import { openSqlite, type SqliteDriver } from './sqlite.ts';
 import { uiFiles } from './static.ts';
 
@@ -49,8 +51,15 @@ export const UPKEEP_MS = 60 * 60_000;
 export interface StartHostOptions {
   config: HostConfig;
   env: NodeHostEnv;
-  /** A built `dist/daemon` (the Shell and home page). */
+  /** A built `dist/daemon` (the Shell and home page, and the frame client under `frame-host/client`). */
   uiDir: string;
+  /**
+   * Page artifacts on the frame engine (`frames.ts`): the pages' network (default `OA_PAGE_NETWORK`), the types
+   * folder (default the MCP's), the frame client (default `<uiDir>/frame-host/client`). `false`: none. Always none
+   * when both origins share one site (`OA_CONTENT_SAME_SITE`): a page needs a host name of its own the app is not
+   * same-site with.
+   */
+  pages?: { network?: PageNetwork; typesDir?: string; clientDir?: string } | false;
   /** Read `X-Forwarded-Host` / `X-Forwarded-Proto` (only behind a proxy that sets them: `OA_TRUST_PROXY=1`). */
   trustProxy?: boolean;
   log?: (line: string) => void;
@@ -114,6 +123,10 @@ async function titleOf(root: string, type: string, bytes: Uint8Array): Promise<s
     const title = await readArtifactTitle(root, type);
     if (title) return title;
   }
+  if (type === PAGE_TYPE) {
+    const title = titleInHtml(await readFile(join(root, 'index.html'), 'utf8').catch(() => ''))?.trim().slice(0, 200);
+    if (title) return title;
+  }
   try {
     const meta = JSON.parse(await readFile(join(root, '.artifact.json'), 'utf8')) as { title?: unknown };
     if (typeof meta.title === 'string' && meta.title.trim()) return meta.title.trim();
@@ -135,13 +148,34 @@ async function titleOf(root: string, type: string, bytes: Uint8Array): Promise<s
  * Unpacks an uploaded artifact archive into `root` (which must not exist) as artifact `id`: its type and a title.
  * Refusals are the host's errors (400 `invalid_archive`/`not_artifact`, 409, 413).
  */
-export async function importArtifactArchive(root: string, id: string, bytes: Uint8Array): Promise<{ type: string; title: string }> {
+export async function importArtifactArchive(
+  root: string,
+  id: string,
+  bytes: Uint8Array,
+  markerTypes: readonly string[] = [],
+  options: { inspectMarker?: (marker: Record<string, unknown> | null) => void; titleOf?: (type: string, root: string) => Promise<string | undefined> } = {},
+): Promise<{ type: string; title: string }> {
   try {
-    const imported = await importArchive(bytes, root, { id });
-    return { type: imported.type, title: await titleOf(root, imported.type, bytes) };
+    const imported = await importArchive(bytes, root, { id, markerTypes, ...(options.inspectMarker ? { inspectMarker: options.inspectMarker } : {}) });
+    const own = await options.titleOf?.(imported.type, root);
+    return { type: imported.type, title: own || (await titleOf(root, imported.type, bytes)) };
   } catch (error) {
     throw asHostError(error);
   }
+}
+
+/**
+ * Unpacks an artifact archive into its folder on this site: the built-in types, and where pages run the `page` type
+ * and the published types (`siteTypeImport`: by `.artifact.json` type and `typeUid`).
+ */
+export function importInto(root: string, id: string, bytes: Uint8Array, site: { pages: boolean; siteTypes: NodeSiteTypes | null }): Promise<{ type: string; title: string }> {
+  if (!site.pages) return importArtifactArchive(root, id, bytes, []);
+  const types = site.siteTypes;
+  const { markerTypes, inspect } = siteTypeImport(types, (type) => isTypeName(type) || type === PAGE_TYPE);
+  return importArtifactArchive(root, id, bytes, [PAGE_TYPE, ...markerTypes], {
+    inspectMarker: inspect,
+    ...(types ? { titleOf: (type: string, dir: string) => types.contentTitle(type, dir) } : {}),
+  });
 }
 
 /** A file name for a zip from a title: no path or control characters. */
@@ -164,7 +198,7 @@ export function nodeServices(input: { catalog: Catalog; config: HostConfig; room
       return { url, pageUrl };
     },
     refreshAccess: (id) => rooms.refresh(id),
-    typeInfo: (type) => (isTypeName(type) ? { title: TYPES[type].title } : null),
+    typeInfo: (type) => (isTypeName(type) ? { title: TYPES[type].title } : type === PAGE_TYPE && rooms.frames?.runs(type) ? { title: PAGE_TITLE } : rooms.frames?.runs(type) ? { title: rooms.siteTypes?.row(type)?.name ?? type } : null),
     async archive(id, method) {
       const artifact = await catalog.getArtifact(id);
       if (!artifact) throw httpError('not_found', `No artifact ${id}.`, { status: 404 });
@@ -201,7 +235,7 @@ export function nodeServices(input: { catalog: Catalog; config: HostConfig; room
       });
       return new Response(body, { headers });
     },
-    importArchive: (id, bytes) => importArtifactArchive(rooms.rootOf(id), id, bytes),
+    importArchive: (id, bytes) => importInto(rooms.rootOf(id), id, bytes, { pages: !!rooms.frames, siteTypes: rooms.siteTypes }),
     shellHtml: () => ui.shellHtml(),
     homeHtml: () => ui.homeHtml(),
     uiFile: (pathname, request) => ui.file(pathname, request),
@@ -273,11 +307,28 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     throw error;
   }
   const { registry: pluginRegistry, active: plugins } = started;
+  const pages = options.pages === false || config.contentSameSite ? null : (options.pages ?? {});
+  // The published types run where pages run (they are pages of a type someone published).
+  const siteTypes = pages ? nodeSiteTypes({ dataDir: env.dataDir, driver: catalog.driver, log }) : null;
+  await siteTypes?.load();
   const rooms = await createRooms({
     config,
     catalog,
     dataDir: env.dataDir,
     assetsDir: env.assetsDir,
+    frames: pages
+      ? {
+          types: withSiteTypes(
+            nodeFrameTypes({
+              typesDir: pages.typesDir ?? options.mcp?.typesDir ?? (process.env.OA_TYPES_DIR?.trim() || DEFAULT_TYPES_DIR),
+              clientDir: pages.clientDir ?? join(options.uiDir, 'frame-host', 'client'),
+            }),
+            siteTypes!,
+          ),
+          siteTypes,
+          network: pages.network ?? parsePageNetwork(process.env),
+        }
+      : null,
     events,
     log,
     access: { groupsOf: (id) => catalog.userGroups(id) },
@@ -292,6 +343,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     else await rooms.refreshAll();
   };
   const link = nodeLinkServices({ rooms, catalog, events, presence: linkPresence, archive: services.archive, version: HOST_VERSION, log });
+  if (pages) log(`types: published types ${config.typesPublish === 'off' ? 'off (OA_TYPES_PUBLISH=off)' : `by ${config.typesPublish ?? 'admins'} (OA_TYPES_PUBLISH)`}; kept under ${join(env.dataDir, 'types')}`);
 
   // The app origin's routes: the app's own, then the Link API.
   const router = appRouter(options.providers ? { providers: options.providers } : {});
@@ -304,6 +356,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     events,
     access: services.access,
     contentTitle: link.contentTitle,
+    ...(link.pages ? { pages: link.pages } : {}),
     version: HOST_VERSION,
     typesDir: options.mcp?.typesDir ?? (process.env.OA_TYPES_DIR?.trim() || undefined),
     ...(options.mcp?.cimd ? { cimd: options.mcp.cimd } : {}),

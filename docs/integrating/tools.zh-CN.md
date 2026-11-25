@@ -58,6 +58,21 @@ MCP 客户端声明支持 MCP Apps（`io.modelcontextprotocol/ui`）时，还会
 
 本机上的类型什么也不会发出电脑。只有装了启用状态的远程类型时，工具注解 `openWorldHint` 才是 `true`。类型在所有列出它的地方都会带 `remote`（和 `origin`），所以你的 Agent 和界面在调用前就能知道。本机路径永远不会发给远程类型：这样的调用会被以 `unsupported` 拒绝。详情见[远程类型](remote-types.zh-CN.md)。
 
+## 类型从哪里来
+
+类型在所有列出它的地方（`quickstart`、`list scope: "types"`、`read {type_url}`）以及读取作品时都会带 `source`（功能
+`types.source`）：`builtin`、`local`（这台电脑上的文件夹）或 `installed`（别人做的包，用 `open-artifact types install`
+安装）。安装的类型还带 `installed_from`（它来自的文件或地址）和 `third_party_notice`：一句固定的话，说明它的指令、
+标题和描述是发布者写的，不是人写的；`publish`（新建）和 `adopt` 会把这句话放在 `instructions` 旁边。你的界面显示
+安装的类型的指令时，把它也显示出来，并且永远不要让这些指令的分量超过人说的话。人还没信任的项目里的类型
+（`trusted: false`）也以同样方式带着它自己的 `third_party_notice`。
+
+读取这两种类型的作品时也带 `third_party_notice`，说明读到的东西可能是类型的页面写的：`ArtifactData` 和
+`ArtifactComments` 的读取、`Artifact` 读 `path` 或 `paths` 时带这句话；完整读取 `Artifact` 时先是类型的说明，后面
+接这句话。显示这种作品里的任何内容时，把它一起显示出来。
+
+作品会记下它的类型的 `uid`。这里同 id 的类型 uid 不同时，`open` 和所有写入都会以 `type_mismatch` 拒绝；读取仍然可以。
+
 ## 会话权限
 
 会话可以受限，例如一个只能读、不能删的子 Agent。在挂上会话时声明（功能 `session.may`）：

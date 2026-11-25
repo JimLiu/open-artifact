@@ -191,7 +191,8 @@ function stampOf(type: TypeInfo): string {
   } catch {
     /* no manifest */
   }
-  return JSON.stringify([type.dir, type.version, mtime, type.entry]);
+  // Trust is in it: trusting a project (or no longer) starts its frame-host again, with or without the restrictions.
+  return JSON.stringify([type.dir, type.version, mtime, type.entry, type.trusted]);
 }
 
 type ServerState = 'stopped' | 'starting' | 'ready';
@@ -452,7 +453,15 @@ export class TypeServers {
 
   private async launch(s: Running): Promise<string> {
     const { type } = s;
-    if (!type.trusted) throw new OpenArtifactError('not_granted', `${type.id} is in a project folder that is not trusted yet; trust it to start its server.`);
+    // Trust is about the type's own program: frame-host (runtime `frame`) is the daemon's, and runs for any root.
+    if (type.ownCode && !type.trusted) {
+      throw new OpenArtifactError(
+        'not_granted',
+        type.scope === 'installed'
+          ? `${type.id} is an installed type, and an installed type never starts a program of its own ("entry.start").`
+          : `${type.id} is in a project folder that is not trusted yet; trust it to start its server.`,
+      );
+    }
     const entry = remoteEntry(type);
     // `url` with `start`: a server already running there (a developer's own) is used as it is.
     if (entry.url) {
@@ -509,6 +518,10 @@ export class TypeServers {
       OPEN_ARTIFACT_DAEMON_URL: this.options.daemonUrl(),
       OPEN_ARTIFACT_TYPE_TOKEN: this.options.tokenFor(type.id),
       OPEN_ARTIFACT_STATE_DIR: stateDir,
+      OPEN_ARTIFACT_TYPE_SCOPE: type.scope,
+      // Set by the daemon, after start.env (so neither the type nor the daemon's own environment decides it): frame-host
+      // limits the page of a type of an untrusted root (installed, or a project not trusted yet) to its declared origins.
+      OPEN_ARTIFACT_TYPE_RESTRICTED: type.trusted ? '0' : '1',
     };
     // `node` is this process's own runtime (startChild): a child process, or a worker thread with its own copy of `env`.
     const env: NodeJS.ProcessEnv = { ...process.env, ...start.env, ...openArtifactEnv };

@@ -15,7 +15,10 @@ through the remote MCP endpoint, or through a computer's local daemon that is li
 **What it is not:**
 
 - It is not a cluster. Each artifact's live room is in memory, so you run one process per host.
-- It does not install types at run time. The types are the ones built into the checkout or the image.
+- It installs no type package from elsewhere, and runs no code from one. The built-in types are the ones in the
+  checkout or the image; besides them it keeps the page-kind types people publish to it (`open-artifact types
+  publish`, `OA_TYPES_PUBLISH`), as plain files under `<OA_DATA_DIR>/types/` whose pages run restricted on page hosts
+  (see [Published types](../../docs/hosting.md#published-types)).
 - It never runs a browser (see [Rendering happens on people's computers](#rendering-happens-on-peoples-computers)).
 
 Every command in this guide was run while writing it, except the ones marked **not run here**. Docker, Caddy and AWS
@@ -116,6 +119,12 @@ artifacts.example.com.          A     203.0.113.10
 ```
 
 Add AAAA records as well if the server has IPv6.
+
+A `page` artifact uses one more name per person under the same wildcard: the artifact's content host serves the inner
+shell at `/page/<page token>/`, and the page itself runs on `art-<id>--<opaque>.oa-content.example.net`, read only. The
+opaque part is an HMAC of the signing key over the artifact, the person and the site epoch; it lasts while the person
+keeps access. `docs/hosting.md` ("Page artifacts") has the details; `OA_PAGE_NETWORK` sets what pages may fetch. With
+`OA_CONTENT_SAME_SITE=true` the host runs no pages and refuses to take one.
 
 ## On a home or office network
 
@@ -287,7 +296,9 @@ made with it is still needed.
 | `OA_INTERNAL_BIND` | `127.0.0.1` | Where the internal listener listens. Compose sets `0.0.0.0` inside its private network. |
 | `OA_ASSETS_DIR` | the checkout's `dist/server` | The built editors, Shell and `support.js`. |
 | `OA_UI_DIR` | the checkout's `dist/daemon` | The built Shell and home pages. |
-| `OA_TYPES_DIR` | the checkout's `artifact-types` | Each type's `artifact-type.json` and `SKILL.md`, which the MCP tools describe to agents. |
+| `OA_TYPES_DIR` | the checkout's `artifact-types` | Each type's `artifact-type.json` and `SKILL.md`, which the MCP tools describe to agents; its `page` folder is the page type the host runs. |
+| `OA_PAGE_NETWORK` | `self` | What a `page` artifact may fetch: `self` (its own origin only) or `https` (any https origin too). |
+| `OA_TYPES_PUBLISH` | `admins` | Who may publish a type to the site: `admins`, `members` or `off`. Always `off` with `OA_CONTENT_SAME_SITE=true`. Published types live in `<OA_DATA_DIR>/types/<uid>/<version>/`; their pages fetch only what their manifest's `openArtifact.network` lists. |
 
 ### Remote MCP
 

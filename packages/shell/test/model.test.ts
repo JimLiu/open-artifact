@@ -196,12 +196,12 @@ describe('home model', () => {
     assert.deepEqual(sorted.map((a) => a.id), ['pinned', 'new', 'old']);
   });
 
-  it('creates only usable design types', () => {
+  it('creates usable design and page built-ins and custom types, not the other built-ins', () => {
     const type = (patch: Partial<TypeView>): TypeView => ({
       id: 'design',
       title: 'Design',
       description: '',
-      scope: 'user',
+      scope: 'builtin',
       root: '/types',
       runtime: 'server',
       entry: null,
@@ -220,6 +220,18 @@ describe('home model', () => {
     assert.equal(isCreatable(type({ shadowedBy: 'project' })), false);
     assert.equal(defaultCreatable([type({ id: 'slides' }), type({})])?.id, 'design');
     assert.equal(defaultCreatable([]), null);
+    assert.equal(isCreatable(type({ id: 'page' })), true);
+    assert.equal(isCreatable(type({ id: 'notes', scope: 'user', runtime: 'frame' })), true);
+    assert.equal(isCreatable(type({ id: 'slides', scope: 'extra', runtime: 'server' })), false, 'a server type outside the built-ins is not offered');
+    assert.equal(isCreatable(type({ id: 'notes', scope: 'extra', runtime: 'frame' })), true);
+    assert.equal(isCreatable(type({ id: 'notes', scope: 'user', runtime: 'frame', runnable: false })), false);
+    assert.equal(isCreatable(type({ id: 'notes', scope: 'user', runtime: 'frame', enabled: false })), false);
+    // A project's type is made from a session in that project, and only once the project is trusted.
+    assert.equal(isCreatable(type({ id: 'notes', scope: 'project', runtime: 'frame' })), false);
+    assert.equal(isCreatable(type({ id: 'page', scope: 'project', trusted: false })), false);
+    // "New artifact" is Design while there is one, else the first that can be made.
+    assert.equal(defaultCreatable([type({ id: 'page' }), type({})])?.id, 'design');
+    assert.equal(defaultCreatable([type({ id: 'slides' }), type({ id: 'notes', scope: 'user', runtime: 'frame' })])?.id, 'notes');
   });
 
   it('draws owner badges', () => {

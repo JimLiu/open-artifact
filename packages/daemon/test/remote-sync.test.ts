@@ -223,6 +223,42 @@ test('publish imports the folder; tools then give the cloud address', async () =
   host.artifacts.delete(other);
 });
 
+test('a page goes only to a site whose hello says it runs pages; its capabilities then travel both ways', async () => {
+  const made = await tool('Artifact', { action: 'publish', type_url: 'open-artifact://type/page', title: 'Linked page', open: 'never', capabilities: { db: true } });
+  assert.equal(made.error, undefined, JSON.stringify(made.error));
+  const id = artifactIdOf(String(made.url))!;
+  await tool('Artifact', { action: 'publish', url: made.url, files: { 'index.html': '<!doctype html><title>Linked page</title><p>hi</p>' } });
+  // An older site: refused with the reason, nothing imported.
+  host.pages = false;
+  const old = await publish(id);
+  assert.equal(old.code, 'unsupported');
+  assert.match(String(old.message), /does not run page artifacts/);
+  assert.equal(host.artifacts.has(id), false);
+  // A site that runs pages takes it, `.artifact.json` (with the capabilities) inside the zip.
+  host.pages = true;
+  try {
+    const out = await publish(id);
+    assert.equal(out.view_url, `${host.url}/a/${id}`);
+    assert.equal(host.artifacts.get(id)?.type, 'page');
+    assert.deepEqual(daemon.store.require(id).remote?.capabilities, { db: true }, 'the agreed capabilities are the published ones');
+    assert.equal(host.capabilityLog.length, 0, 'nothing to send: the zip carried them');
+    // The agent changes them here: they go to the site.
+    const changed = await tool('Artifact', { action: 'publish', url: made.url, capabilities: { db: true, network: { origins: ['https://api.example.com'] } } });
+    assert.equal(changed.error, undefined, JSON.stringify(changed.error));
+    await waitFor(() => host.capabilityLog.find((c) => c.id === id && 'network' in c.capabilities));
+    await waitFor(() => (daemon.store.require(id).remote?.capabilities as { network?: unknown } | undefined)?.network);
+    // The owner changes them on the site: they come home into the record and the marker, and are not sent back.
+    const sent = host.capabilityLog.length;
+    host.emit({ type: 'artifact', artifact: id, capabilities: { identity: true } } as never);
+    await waitFor(() => (daemon.store.require(id).capabilities as { identity?: unknown } | undefined)?.identity);
+    assert.deepEqual(JSON.parse(local(id, '.artifact.json')!).capabilities, { identity: true });
+    await new Promise((done) => setTimeout(done, 600));
+    assert.equal(host.capabilityLog.length, sent, 'a change from the site is not echoed back');
+  } finally {
+    host.pages = false;
+  }
+});
+
 test('the agent’s writes are pushed; a person’s edit on the host is pulled and shows in changed_files', async () => {
   const id = await create('Synced card');
   await publish(id);
@@ -261,6 +297,19 @@ test('deletions travel both ways', async () => {
   host.edit(id, 'b.txt', null);
   await waitFor(() => !existsSync(join(rootOf(id), 'b.txt')));
   assert.equal(host.text(id, 'index.html'), '<h1>D</h1>');
+});
+
+test('uploads under _blobs/ travel both ways', async () => {
+  const id = await create('Blob card');
+  await publish(id);
+  const here = `_blobs/${'a'.repeat(32)}`;
+  mkdirSync(join(rootOf(id), '_blobs'), { recursive: true });
+  writeFileSync(join(rootOf(id), here), 'uploaded here');
+  await waitFor(() => host.text(id, here) === 'uploaded here');
+  const there = `_blobs/${'b'.repeat(32)}`;
+  host.edit(id, there, 'uploaded on the site');
+  await waitFor(() => local(id, there) === 'uploaded on the site');
+  assert.equal(host.writes.some((w) => w.path === there), false, 'the pull is not pushed back');
 });
 
 test('a write made while the watch is armed is pushed by the catch-up sync, with no rescan timer', async () => {

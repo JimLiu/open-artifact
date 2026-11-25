@@ -20,6 +20,7 @@
 
 import { artifactIdOfLabel, contentHostLabel } from '@open-artifact/protocol';
 import { base64urlDecode, base64urlEncode, hmacSign, hmacVerify } from './crypto.ts';
+import { pageHostOf } from './page-host.ts';
 import type { ArtifactRole, HostConfig, Principal } from './types.ts';
 
 /** A page token's lifetime: 12 hours. */
@@ -189,6 +190,8 @@ export function artifactOfContentHost(config: Pick<HostConfig, 'contentOrigin'>,
  * - `app`: exactly the app origin's host (and port, where the origin has one; a default port written out counts as
  *   none, case does not matter, an IPv6 literal is compared in its canonical form);
  * - `content`: one of the artifacts' content hosts (`id` is the artifact's; it may not exist);
+ * - `page`: one of the page hosts a `page` artifact's page runs on (`<idlabel>--<opaque>`, `page-host.ts`): never a
+ *   content host, so nothing that takes a page token answers it;
  * - `stray`: a well-formed name that is neither (another name the DNS or a wildcard route sends here, a name with a
  *   trailing dot, which a browser treats as another origin). The app never answers it: a sign-in page under a name of
  *   someone else's choosing, maybe same-site with every artifact, is what the two origins exist to prevent;
@@ -196,7 +199,7 @@ export function artifactOfContentHost(config: Pick<HostConfig, 'contentOrigin'>,
  *
  * `scheme` is the request's (`http` or `https`); a default port is dropped for it.
  */
-export type HostKind = { kind: 'app' } | { kind: 'content'; id: string } | { kind: 'stray'; host: string } | { kind: 'malformed' };
+export type HostKind = { kind: 'app' } | { kind: 'content'; id: string } | { kind: 'page'; id: string; opaque: string } | { kind: 'stray'; host: string } | { kind: 'malformed' };
 
 /** The longest `Host` value looked at (a DNS name is at most 253 characters, plus a port). */
 const MAX_HOST_LENGTH = 300;
@@ -217,6 +220,8 @@ export function hostKindOf(config: Pick<HostConfig, 'appOrigin' | 'contentOrigin
   if (parsed.username || parsed.password || parsed.pathname !== '/' || parsed.search || parsed.hash) return { kind: 'malformed' };
   const id = artifactOfContentHost(config, parsed.host);
   if (id) return { kind: 'content', id };
+  const page = pageHostOf(config, parsed.host);
+  if (page) return { kind: 'page', ...page };
   if (parsed.host === app.host) return { kind: 'app' };
   return { kind: 'stray', host: parsed.host };
 }

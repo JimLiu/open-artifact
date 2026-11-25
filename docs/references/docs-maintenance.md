@@ -19,10 +19,10 @@ Load this reference whenever adding, modifying, or removing features, artifact t
 - **Core concepts & usage**
   - `docs/README.md` / `.zh-CN.md` — Documentation hub.
   - `docs/overview.md` / `.zh-CN.md` — What Open Artifact is, core advantages, workflow, quick start for users & agents.
-  - `docs/artifact-types.md` / `.zh-CN.md` — Overview & comparison of all 8 artifact types, decision guide, storage models, cross-type workflows.
+  - `docs/artifact-types.md` / `.zh-CN.md` — Overview & comparison of all 9 artifact types, decision guide, storage models, cross-type workflows.
   - `docs/agent-guide.md` / `.zh-CN.md` — How AI agents use Open Artifact (decision rules, MCP tools, CLI fallback, lifecycle, comments & wake loop, safety rules).
 - **Per-type guides (`docs/types/`)**
-  - `slides`, `design`, `design-system`, `whiteboard`, `sheets`, `data`, `docs`, `motion` — Each has `<type>.md` and `<type>.zh-CN.md` covering purpose, key features, user workflow, and agent workflow.
+  - `slides`, `design`, `design-system`, `whiteboard`, `sheets`, `data`, `docs`, `motion`, `page` — Each has `<type>.md` and `<type>.zh-CN.md` covering purpose, key features, user workflow, and agent workflow.
 - **Hosting & extensions**
   - `docs/hosting.md` / `.zh-CN.md`
   - `docs/hosting-lan.md` / `.zh-CN.md`
@@ -37,7 +37,9 @@ Load this reference whenever adding, modifying, or removing features, artifact t
 
 ### Authoritative runtime skills & package docs
 
-- `skills/open-artifact/SKILL.md` — Primary `/open-artifact` skill prompt loaded by agent apps.
+- `skills/open-artifact/SKILL.md` — Primary `/open-artifact` skill prompt loaded by agent apps (rendered from `packages/protocol/src/skill.ts`; never edit it by hand).
+- `skills/open-artifact/reference/new-type.md` — The `/open-artifact new-type` guide to making an artifact type (English only, like the skill).
+- `docs/custom-types.md` / `.zh-CN.md` — Making, checking, trying, turning off and trusting your own types.
 - `artifact-types/<type>/SKILL.md`, `artifact-types/<type>/reference/*`, `artifact-types/<type>/artifact-type.json` — Authoritative type instructions and metadata.
 - `plugins/README.md` and `plugins/<app>/README.md` — Per-agent-app plugin behavior, hooks, and install guides.
 - `packages/host/README.md`, `packages/host-plugin/README.md`, `packages/editor-kit/README.md`, `packages/harness-kit/README.md`, `deploy/*/README.md`, `e2e/README.md`.

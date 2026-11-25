@@ -613,4 +613,4 @@ node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'
 - 图片和 PDF 在各人自己的电脑上生成，从不在站点上生成。
 - 站点上仪表盘的数字来自所有者的电脑：截至最后一次刷新（默认每 6 小时），而且要所有者确认数据可以发布之后才有。
 - 其他设置见 `packages/host/README.md`（英文）：登录方式、`OA_SIGNUP`、`OA_LINK_MAX_ROLE`、`OA_PUBLIC_ACCESS`、
-  `OA_TRASH_DAYS`。
+  `OA_TRASH_DAYS`、`OA_PAGE_NETWORK`。

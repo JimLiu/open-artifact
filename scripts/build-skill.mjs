@@ -33,10 +33,10 @@ import { vendorTypes } from './vendor-types.mjs';
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const skill = join(repo, 'skills', 'open-artifact');
 const vendor = join(skill, 'vendor');
-// The built-in types: the daemon's own list (BUILTIN_TYPE_IDS), as it lists no other type from the built-in root.
+// The built-in types: the protocol's list (BUILTIN_TYPE_IDS), as the daemon lists no other type from the built-in root.
 const TYPES = JSON.parse(
-  /BUILTIN_TYPE_IDS[^=]*=\s*(\[[^\]]*\])/
-    .exec(readFileSync(join(repo, 'packages', 'daemon', 'src', 'types.ts'), 'utf8'))[1]
+  /BUILTIN_TYPE_IDS[^=]*=\s*(?:Object\.freeze\()?(\[[^\]]*\])/
+    .exec(readFileSync(join(repo, 'packages', 'protocol', 'src', 'type-authoring.ts'), 'utf8'))[1]
     .replace(/'/g, '"'),
 );
 

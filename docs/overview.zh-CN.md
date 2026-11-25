@@ -33,7 +33,7 @@
 
 1. **一个本地 daemon**：本机只运行一个后台 `open-artifact` 进程，负责管理作品库、按需启动各类型服务、向 Agent 应用暴露 MCP 工具，并把页面评论路由回对应的 Agent 会话。
 2. **一个统一 Shell 框架**：所有作品都通过 `http://127.0.0.1:<port>/a/<id>` 打开（支持 [MCP Apps](https://modelcontextprotocol.io/docs/extensions/apps) 的应用还会通过 `ShowArtifact` 直接嵌在对话里）。Shell 提供标题栏、版本历史、**Share（分享）**、**Export（导出）** 和 **Send to agent**，内部嵌入对应类型的专属编辑器。
-3. **八种内置 Artifact 类型**：`slides`、`design`、`design-system`、`whiteboard`、`sheets`、`data`、`docs`、`motion`。详见 [Artifact 类型总览](artifact-types.zh-CN.md)。
+3. **九种内置 Artifact 类型**：`slides`、`design`、`design-system`、`whiteboard`、`sheets`、`data`、`docs`、`motion`、`page`（自由 HTML 页面）。详见 [Artifact 类型总览](artifact-types.zh-CN.md)。
 4. **可选的站点自托管**：通过 `open-artifact remote add` 把本机连到自己的站点，即可获得长期有效的分享链接和多人实时编辑能力。详见[把作品放到站点上](hosting.zh-CN.md)。
 
 ## 用户快速上手
@@ -62,6 +62,6 @@
 
 ## 下一步
 
-- [Artifact 类型总览](artifact-types.zh-CN.md) — 对比全部 8 种类型，快速选型。
+- [Artifact 类型总览](artifact-types.zh-CN.md) — 对比全部 9 种类型，快速选型。
 - [Agent 使用指南](agent-guide.zh-CN.md) — 面向 AI Agent 的调用流程、工具参考与协作规则。
 - [把作品放到站点上](hosting.zh-CN.md) — 在内网、自有服务器或 Cloudflare 上部署协作站点。

@@ -34,6 +34,11 @@ export interface ReleaseGuardOptions {
   typeVersion: (record: ArtifactRecord) => string | null;
   /** Records a newer release on the artifact (keeping its `updatedAt`). */
   setRelease: (record: ArtifactRecord, release: string) => void;
+  /**
+   * The refusal to open or write the artifact with the type installed here (`type_mismatch`: it recorded another type
+   * uid, `type-packages.ts`), or `null`. Writes and opens are refused with it; reads carry it as a note.
+   */
+  typeMismatch?: (record: ArtifactRecord) => NonNullable<ToolCallResult['error']> | null;
 }
 
 /** The release that last wrote the artifact: the newer of its record's and its folder marker's. */
@@ -103,6 +108,13 @@ export class ReleaseGuard {
     const kind = name === 'Artifact' || name === 'ArtifactData' ? actionKindOf(name as ToolName, typeof input.action === 'string' ? input.action : undefined) : null;
     const record = kind === 'write' || kind === 'read' || kind === 'ui' ? this.recordOf(input) : null;
     if (!record) return next(name, args, caller);
+    const mismatch = this.options.typeMismatch?.(record) ?? null;
+    if (mismatch) {
+      if (kind === 'write' || kind === 'ui') return { error: mismatch };
+      const result = await next(name, args, caller);
+      if (result.error) return result;
+      return { ...result, notes: [...(Array.isArray(result.notes) ? result.notes : []), `${mismatch.message} Do not try to change it.`] };
+    }
     const installed = this.options.typeVersion(record);
     const written = writtenRelease(record);
     if (isNewerRelease(written, installed)) {

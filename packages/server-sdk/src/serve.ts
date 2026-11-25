@@ -40,6 +40,7 @@ import {
 import { TypeApi } from './daemon.ts';
 import { LanNetwork, type SiteNetwork } from './lan.ts';
 import { acceptWebSocket, type WebSocketConnection } from './ws.ts';
+import { sendArchive } from './zip.ts';
 
 /** Protocol version this SDK speaks. */
 export const PROTOCOL = OPEN_ARTIFACT_PROTOCOL;
@@ -492,6 +493,11 @@ export interface TypeServerOptions {
    * `*.localhost` to loopback by themselves.
    */
   contentHosts?: boolean;
+  /**
+   * Answers `GET|HEAD /__open-artifact/archive?id=`: the open artifact's folder as a zip, in the shape and with the
+   * path rules of the type server's (`zip.ts`, `sendArchive`). frame-host turns it on.
+   */
+  archive?: boolean;
 }
 
 /** One mounted artifact. */
@@ -857,6 +863,15 @@ export class TypeServer {
       return sendJson(res, 401, { code: 'unauthorized', message: "The /__open-artifact/* routes are the Open Artifact daemon's." });
     }
     const path = url.pathname;
+    if (path === TYPE_SERVER_ROUTES.archive && this.options.archive) {
+      const entry = this.byId.get(url.searchParams.get('id') ?? '');
+      if (!entry) {
+        req.resume();
+        return sendJson(res, 404, { code: 'not_found', message: `${url.searchParams.get('id')} is not open here.`, fix: 'Open it first (/__open-artifact/open).' });
+      }
+      entry.lastUsed = Date.now();
+      return sendArchive(req, res, entry.root);
+    }
     const get = req.method === 'GET';
     const body = get ? {} : await readJsonBody(req);
     const artifact = (id: unknown): Mounted => {

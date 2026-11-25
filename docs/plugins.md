@@ -1080,6 +1080,7 @@ Every event also carries `event` (its name) and `at` (an ISO time). `artifact` i
 | `share.change` | `{changes}` (as in `share.changed`) | any change to who may open it |
 | `link.connect` | `{client {name, harness?, version?}}` | approving a computer's connection |
 | `link.publish` | `{type, bytes, replaces}` | a computer publishing or replacing an artifact |
+| `type.publish` | `{id, uid, version, bytes, visibility, replaces}` (`visibility`: `private`, `site`, `link`) | a type published to the site's catalog (`open-artifact types publish`), after the package is checked and before anything of it is kept; `replaces` for a new version (or the same one again) of a type already there. Who may publish at all is `OA_TYPES_PUBLISH`, asked first. |
 | `mcp.connect` | `{client {id, name}}` | approving a remote MCP client |
 | `agent.ask` | `{text, label?}` | a request to the owner's agent from the Ask pane |
 

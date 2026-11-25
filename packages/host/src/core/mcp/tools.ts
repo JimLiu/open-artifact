@@ -28,17 +28,20 @@
 
 import {
   agentPrompt,
+  capabilitiesProblem,
   artifactIdOf,
   artifactUrl,
   COMMENTS_ACTIONS,
   DATA_ACTIONS,
   errorBody,
+  PAGE_CONTENT_NOTICE,
   requestBlock,
   RESERVED_ACTIONS,
   shellPath,
   SHELL_PARAMS,
   showArtifactTool,
   threadBlock,
+  THIRD_PARTY_NOTICE,
   TOOL_DEFINITIONS,
   typeIdOf,
   typeUrl,
@@ -270,6 +273,8 @@ export class HostTools {
   readonly #s: McpServices;
   readonly #config: McpConfig;
   readonly #agent: AgentPrincipal;
+  /** The type of the artifact this call reached (`#reach`), or null. */
+  #reached: string | null = null;
   readonly #store: McpStore;
   readonly #waitCap: number;
 
@@ -296,6 +301,7 @@ export class HostTools {
   /** Runs a tool. Failures come back as `{error}`; the named artifact's waiting wakes come along as `messages`. */
   async call(name: string, args: Record<string, unknown>): Promise<ToolCallResult> {
     const input = isRecord(args) ? args : {};
+    this.#reached = null;
     let result: ToolCallResult;
     try {
       if (name === 'Artifact') result = await this.#artifact(input as unknown as ArtifactArgs);
@@ -309,6 +315,10 @@ export class HostTools {
       const { current, ...body } = known ? errorBody(error) : { code: 'error', message: 'The host failed to run this call.', current: undefined };
       result = { error: body, ...(current !== undefined ? { current } : {}) };
     }
+    // An artifact of a type someone published to the site: its name and description are the publisher's words, and
+    // what is read back may have been written by its page, the publisher's code. The agent is told so.
+    const published = this.#reached ? this.#s.publishedType?.(this.#reached) : null;
+    if (published && !('error' in result)) result = { ...result, third_party_notice: `${THIRD_PARTY_NOTICE} ${PAGE_CONTENT_NOTICE}` };
     if (!(name === 'ArtifactComments' && input.action === 'wait')) {
       const id = typeof input.url === 'string' ? this.#idOf(input.url) : null;
       if (id) {
@@ -353,6 +363,7 @@ export class HostTools {
     if (!id) throw invalid('url: the artifact, open-artifact://artifact/<id>.', 'Artifact {action: "list"} lists the artifacts you can open.');
     const access = await this.#s.access.role(id, { kind: 'agent', id: this.#agent.id });
     if (!access || access.artifact.trashedAt !== null) throw httpError('not_found', 'No such artifact, or it is not shared with you.');
+    this.#reached = access.artifact.type;
     this.#scope(scope, what);
     if (!roleAtLeast(access.role, floor)) {
       throw httpError('not_granted', `The person is ${access.role === 'owner' ? 'the owner' : `a ${access.role}`} of this artifact; to ${what} they must be ${floor === 'owner' ? 'its owner' : `an ${floor} or more`}.`, {
@@ -579,6 +590,7 @@ export class HostTools {
       throw invalid('open: "after_first_write", "now" or "never".');
     }
     const title = (String(args.title ?? '').trim() || type.artifactTitle || type.title).slice(0, 200);
+    const capabilities = this.#capabilitiesArg(args.capabilities, typeId);
     await guards.create(this.#ctx, this.#agent, { type: typeId, title, via: 'mcp' });
     const id = newArtifactId(this.#ctx.now());
     await this.#s.create({ id, type: typeId, title });
@@ -586,6 +598,7 @@ export class HostTools {
     emitEvent(this.#ctx, 'artifact.created', { ...eventBase(row, this.#agent), via: 'mcp' });
     await this.#ctx.catalog.appendAudit({ actorKind: 'agent', actorId: this.#agent.id, artifactId: id, action: 'artifact.create', detail: { type: typeId, via: 'mcp' } });
     this.#s.events.emit('artifact-changed', { id, author: MCP_AUTHOR });
+    if (capabilities) await this.#s.pages!.setCapabilities(id, capabilities, MCP_AUTHOR);
     const check = type.actions.some((a) => a.name === 'check');
     return {
       url: artifactUrl(id),
@@ -613,9 +626,27 @@ export class HostTools {
     return { etags, changed: changed.sort() };
   }
 
+  /**
+   * A publish's `capabilities`, checked: a page artifact's alone, on a site that runs pages (`pages`); undefined when
+   * none was given.
+   */
+  #capabilitiesArg(value: unknown, type: string): Record<string, unknown> | undefined {
+    if (value === undefined) return undefined;
+    if (type !== 'page' || !this.#s.pages) throw invalid(`capabilities is for page artifacts only; the ${type} type decides what its page may use.`, 'Leave capabilities out.');
+    const problem = capabilitiesProblem(value);
+    if (problem) throw invalid(problem);
+    return value as Record<string, unknown>;
+  }
+
   async #write(args: ArtifactArgs): Promise<ToolCallResult> {
-    const { artifact } = await this.#reach(args.url, 'editor', 'artifacts.write', 'change it');
+    // A page's capabilities are its owner's to change: an editor writes its files, never what it may reach.
+    const { artifact } = await this.#reach(args.url, args.capabilities === undefined ? 'editor' : 'owner', 'artifacts.write', args.capabilities === undefined ? 'change it' : "change a page's capabilities");
     const id = artifact.id;
+    const capabilities = this.#capabilitiesArg(args.capabilities, artifact.type);
+    if (capabilities) {
+      await this.#s.pages!.setCapabilities(id, capabilities, MCP_AUTHOR);
+      if (args.files === undefined) return { url: artifactUrl(id), view_url: this.#viewUrl(id), capabilities };
+    }
     const given = args.files as unknown;
     if (!given || typeof given !== 'object') throw invalid('publish with url needs files: {"rel/path": "text" | {content, encoding} | null}.');
     const entries: Array<[string, unknown]> = Array.isArray(given)
@@ -775,7 +806,7 @@ export class HostTools {
       title: artifact.title,
       type: artifact.type,
       type_url: typeUrl(artifact.type),
-      ...(type ? { type_title: type.title } : {}),
+      ...(type ? { type_title: type.title } : ((p) => (p ? { type_title: p.name } : {}))(this.#s.publishedType?.(artifact.type))),
       role,
       mine: artifact.ownerUser === this.#agent.user.id,
       view_url: this.#viewUrl(id),

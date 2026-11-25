@@ -504,6 +504,38 @@ Not measured on a bill. From Cloudflare's pricing pages as read on 2026-11-22 (U
 | Storage per artifact | 10 GB (Paid), 1 GB (Free) | the disk |
 | Catalog | D1: 10 GB (Paid), 500 MB (Free) | the disk |
 
+## Page artifacts
+
+A `page` artifact (a free HTML page an agent wrote, [Page](types/page.md)) runs on the Worker as it does on a Node site
+([Page artifacts](hosting.md#page-artifacts)): the artifact's content host frames the inner shell
+(`art-<id>.example.com/page/<page token>/`), and each person sees the page on a page host of their own,
+`art-<id>--<24 characters>.example.com`, which serves its files and nothing else. Both run in the artifact's Durable
+Object, next to its files and database.
+
+- **Routes and DNS need nothing new.** A page host is one more name under the content origin's wildcard: the route
+  `*.example.com/*` sends it to the Worker, the `AAAA * 100::` record of step 8 resolves it, and Universal SSL covers
+  it (it is one level under the zone). With a deeper content origin (`{id}.content.example.com`), page hosts are as
+  deep, and need the same paid certificate.
+- The Worker sends a page host to the artifact's object with no cookie, and the object checks the part after `--`
+  against the person's access now: it stops working when they lose access and when everyone is signed out.
+- **`OA_PAGE_NETWORK`** (a `vars` entry): `self` (default), a page reaches only its own origin; `https`, it may also
+  fetch any https origin. Another value stops the site with a configuration error naming it.
+- **One domain for both** (`OA_CONTENT_SAME_SITE=true`): the site runs no pages. `link.hello` does not say
+  `features.pages`, publishing a page is refused with `unsupported`, and a page host gets the 421 of a stray name.
+- **A snapshot address of a page is not supported**: the site refuses it (403), as the Node site does. Share the page
+  instead.
+- The frame's own scripts are kept as Worker assets at `/_open-artifact/frame/<hash>/`, a new path each build. The
+  object reads them from there once per isolate and serves them to the page itself, uncached, as the Node site does.
+- An open page holds a WebSocket to its object, and the object takes it with `accept()` (no hibernation), so the
+  object stays in memory while the page is open, like any open tab of an artifact ([Costs](#costs)); it closes about
+  a minute after the last one goes (`OA_ROOM_IDLE_CLOSE_MS`).
+
+**Run here** only under `wrangler dev` (`e2e/cloudflare-page.test.mjs`, page hosts on `*.content.localhost`): a page
+published from a computer, opened by the owner and by a person who joined by the viewer link and was then made a
+commenter, writes from the page reaching the computer's folder and a local edit reaching the open page, `link.hello`
+saying `features.pages`, a capabilities change over remote MCP reaching the computer's `.artifact.json`, and an
+uploaded page zip. Not deployed.
+
 ## Not supported here
 
 - `open-artifact-host` commands: `link-token` is the admin API above; backup is D1 Time Travel plus each artifact's
@@ -513,6 +545,7 @@ Not measured on a bill. From Cloudflare's pricing pages as read on 2026-11-22 (U
 - A dashboard's live connectors: its figures come from the owner's computer as of the last refresh (every 6 hours by
   default), once the owner confirmed its data may be published.
 - `OA_ALLOW_HTTP`, and plain http except `localhost` under `wrangler dev`.
+- A snapshot address of a page artifact, and pages at all in [one domain for both](#one-domain-for-both) mode.
 
 ## Updates
 

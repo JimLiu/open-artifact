@@ -52,3 +52,10 @@ made, the person's selection on the page as context, and `agent.wrote` for files
 
 Session permissions and person-only commands keep an honest agent on its path; they do not stop code that runs as the
 person ([security](security.md#what-it-does-not-do)).
+
+A restricted type's page (installed, or in a project not trusted yet) cannot reach another origin from its frame, but
+it can still put text before the agent through the paths every page has: a comment sent to the agent
+(`comments.sendToAgent`), a message to the agent's session (`room.sendToAgentSession`, `/api/frame/agent`) and a
+title it proposes (`proposeTitle`). Those reach the agent as the page's, never as the person's words, and what the
+agent reads back from such an artifact carries a page-content `third_party_notice` ([security](security.md#type-packages)).
+The page's address opened on its own in a tab has the page's policy but not its frame's sandbox.

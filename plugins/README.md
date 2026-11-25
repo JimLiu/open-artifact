@@ -3,7 +3,7 @@
 One skill, `open-artifact`, and a plugin for each agent app that carries it. Every plugin runs the same local
 Open Artifact daemon: one artifact server and one page frame (the Shell at `http://127.0.0.1:<port>/a/<id>`) for
 every type, with each type's own editor and comments inside. `/open-artifact slides …` makes a deck,
-`/open-artifact design …` a design canvas, `/open-artifact whiteboard …` a board, `/open-artifact sheets …` a spreadsheet, `/open-artifact data …` a dashboard, `/open-artifact docs …` a doc, `/open-artifact motion …` an animated film.
+`/open-artifact design …` a design canvas, `/open-artifact whiteboard …` a board, `/open-artifact sheets …` a spreadsheet, `/open-artifact data …` a dashboard, `/open-artifact docs …` a doc, `/open-artifact motion …` an animated film, `/open-artifact page …` a free HTML page (a tool, mini game or explainer).
 
 | Folder | For | Gives the agent | Comments sent from the page reach the agent |
 |---|---|---|---|
@@ -19,6 +19,15 @@ every type, with each type's own editor and comments inside. `/open-artifact sli
 
 Whatever the app, comments also come back in the `messages` of any Open Artifact tool result, and an agent can
 wait for them (`ArtifactComments {action: "wait"}`).
+
+`/open-artifact new-type` asks the agent to make a type of its own rather than an artifact, with the skill's
+`reference/new-type.md` and the `open-artifact types new | check | from | list | pack` commands
+([Making your own artifact types](../docs/custom-types.md)); `types from` takes a page artifact or a page saved from
+claude.ai (a folder or `.html`). `types enable`, `types disable`, `types trust`,
+`types untrust`, `types install`, `types update`, `types uninstall`, `types publish`, `types unpublish` and
+`publish --with-type` are the person's: like `cloud` and `remote`, they refuse to run inside an agent's session
+(`types publish` puts a type of this computer in a site's catalog, so artifacts of it publish there). `open-artifact import <zip>` brings an artifact's archive in from
+another computer.
 
 Pages open where the person already is: in the app itself when its adapter can show them (DeepSeek Harness), else
 in the agent app's built-in browser (Codex, Cursor, Claude, Antigravity, VS Code), which the agent opens with the page's

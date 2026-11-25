@@ -648,4 +648,4 @@ node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'
 - A dashboard's figures on the site come from the owner's computer: as of the last refresh (every 6 hours by
   default), and only after the owner confirms that its data may be published.
 - Several settings are described in `packages/host/README.md`: sign-in providers, `OA_SIGNUP`, `OA_LINK_MAX_ROLE`,
-  `OA_PUBLIC_ACCESS`, `OA_TRASH_DAYS`.
+  `OA_PUBLIC_ACCESS`, `OA_TRASH_DAYS`, `OA_PAGE_NETWORK`.

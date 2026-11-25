@@ -68,8 +68,11 @@ function decodeBase64(text: string): Buffer | null {
   return Buffer.from(text, 'base64');
 }
 
-/** The files of artifacts kept at `rootOf(id)`. */
-export function createArtifactFiles(rootOf: (artifactId: string) => string): ArtifactFiles & { clearCache(): void } {
+/**
+ * The files of artifacts kept at `rootOf(id)`. `afterWrite` hears the paths each write request changed (a page
+ * artifact's frame core is told of them: `FrameCore.noteChanges`, as a watcher would on a computer).
+ */
+export function createArtifactFiles(rootOf: (artifactId: string) => string, options: { afterWrite?: (artifactId: string, paths: string[]) => void } = {}): ArtifactFiles & { clearCache(): void } {
   const cache = new Map<string, Cached>();
   const queues = new Map<string, Promise<unknown>>();
 
@@ -234,6 +237,8 @@ export function createArtifactFiles(rootOf: (artifactId: string) => string): Art
           }
           results.push({ path: write.path, etag });
         }
+        const changed = results.filter((r) => !('conflict' in r)).map((r) => r.path);
+        if (changed.length) options.afterWrite?.(artifactId, changed);
         return results;
       });
     },

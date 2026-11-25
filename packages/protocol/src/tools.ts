@@ -8,6 +8,7 @@
  */
 
 import type { ActionKind } from './harness.ts';
+import type { TypeSourceKind } from './type-package.ts';
 
 /** A JSON Schema property, the subset the tool schemas use. */
 export interface JsonSchemaProperty {
@@ -102,6 +103,12 @@ export interface ArtifactArgs {
   if_match?: Record<string, string | null>;
   /** publish with url: run the type's `check` action after writing. */
   check?: boolean;
+  /**
+   * publish, `page` artifacts only: the runtime capabilities the page may use, as `{name: true | config}`. Omitted: kept
+   * as they are; `{}`: none (only `artifact` and `permissions` remain); otherwise the whole set. Kept in the record and in
+   * `.artifact.json`, never in the page, so a page cannot grant itself more.
+   */
+  capabilities?: Record<string, unknown>;
   /** publish without url: open the page after the first write (`after_first_write`, the default), right away (`now`) or not (`never`). */
   open?: 'after_first_write' | 'now' | 'never';
   /** quickstart: list existing artifacts the recommended type can use (default true). */
@@ -236,6 +243,22 @@ export interface QuickstartType {
   remote?: boolean;
   /** With `remote`: where (`https://slides.example.com`). */
   origin?: string;
+  /**
+   * Where the type comes from: `builtin`, `local` (a folder on this computer) or `installed` (a package installed with
+   * `types install`). Left out by daemons without the `types.source` feature.
+   */
+  source?: TypeSourceKind;
+  /** An installed type: the file or `https://` address it was installed from. */
+  installed_from?: string;
+  /**
+   * A type of an untrusted root: `THIRD_PARTY_NOTICE` (installed) or `UNTRUSTED_PROJECT_NOTICE` (a project not trusted
+   * yet), a fixed note that its title, description and instructions were written by its publisher, apply only to the
+   * artifact's own content, and grant nothing. The same field sits next to `instructions` in the results of `publish`
+   * (create), `adopt` and `read {type_url}`. On reads of such an artifact it is `PAGE_CONTENT_NOTICE` (an `Artifact`
+   * `path`/`paths` read, `ArtifactData` and `ArtifactComments` reads: the type's page may have written what is read),
+   * or both sentences joined on a full `Artifact` read.
+   */
+  third_party_notice?: string;
 }
 
 /** An artifact `quickstart` names: one the new one can build on (`related`), or one that may be the same (`existing`). */
@@ -282,7 +305,7 @@ const ARTIFACT_SCHEMA: ToolInputSchema = {
     },
     intent: {
       type: 'string',
-      description: 'quickstart: what is being made (design, design-system, slides, whiteboard, document, data, sheets, motion, other), or a few words about it.',
+      description: 'quickstart: what is being made (design, design-system, slides, whiteboard, document, data, sheets, motion, page, other), or a few words about it.',
     },
     scope: {
       type: 'string',
@@ -318,6 +341,12 @@ const ARTIFACT_SCHEMA: ToolInputSchema = {
         'publish with url: {"rel/path": sha256 | null | "*"}. Write only while the file still has the sha256 you read, does not exist (null), or anyway ("*"). One mismatch writes nothing and returns the current versions.',
     },
     check: { type: 'boolean', description: "publish with url: run the type's check action after writing; its result comes back as check." },
+    capabilities: {
+      type: 'object',
+      additionalProperties: true,
+      description:
+        'publish, page artifacts only: the runtime capabilities the page may use, as {"db": true, "assets": true, ...}. Omitted: kept; {}: none; otherwise the whole set. With url it may be given without files.',
+    },
     open: {
       type: 'string',
       enum: ['after_first_write', 'now', 'never'],
@@ -405,7 +434,7 @@ export const TOOL_DESCRIPTIONS: Record<ToolName, string> = {
     'Make and change artifacts: typed folders of files that open as live pages the person can view, edit, comment on and export. Actions:',
     '- quickstart {intent, type?}: call first for a new artifact; recommends a type (or takes the one given) and returns the call that creates it, the steps for this app and similar artifacts that already exist.',
     '- list {scope: "mine" | "all" | "types", type?, query?}: find existing artifacts, or the installed types.',
-    "- publish {type_url, title, folder?, open?}: create an artifact; the result carries its root folder and the type's instructions. publish {url, files, if_match?, check?}: write files when you have no file tools of your own.",
+    "- publish {type_url, title, folder?, open?}: create an artifact; the result carries its root folder and the type's instructions. publish {url, files, if_match?, check?}: write files when you have no file tools of your own. A page artifact also takes capabilities (on create or write): the runtime capabilities its page may use.",
     "- read {url, path? | paths?}: the artifact's record, files and actions, or some of its files with their sha256. read {type_url}: a type's instructions, before creating.",
     '- open {url, panel?}: show it to the person in the computer\'s browser (or the app, when it shows pages), once its content is written. When your app has a built-in browser, open view_url there instead. panel "share" or "export" opens its Share panel or Export tab for them.',
     "- call {url, name, args?}: run one of the type's actions (check, upload, ...). A long one answers {task, pending: true}; its result comes later as a message.",

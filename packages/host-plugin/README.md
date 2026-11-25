@@ -36,7 +36,7 @@ Every hook is `(input, ctx)` and optional.
 - `auth.signOutUrl`: where to send someone after signing out.
 - `authz.role`: a person's role on an artifact, after the host's own shares; `authz.cacheSeconds` how long it may be reused (default 30); fails closed (no access).
 - `authz.artifacts`: more artifact ids to list on someone's home page.
-- `guard`: `{deny: sentence}` before an action (create, import, delete, export, share, link, MCP, agent ask); fails closed.
+- `guard`: `{deny: sentence}` before an action (create, import, delete, export, share, link, type publish, MCP, agent ask); fails closed.
 - `on[event]`: after the fact, in the background (`user.created`, `artifact.created`, `share.invited`, `audit`, …); fails open.
 - `wake.deliver`: deliver a request for the owner's agent elsewhere; fails open (it goes to the outbox).
 - `routes`: HTTP routes at `/plugins/<id>/<path>`; `public: true` for webhooks from other servers.

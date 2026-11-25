@@ -9,8 +9,9 @@
 | 文档 | 什么时候看 |
 | --- | --- |
 | [什么是 Open Artifact？](overview.zh-CN.md) | 想快速了解 Open Artifact 是什么、有什么核心优势、本地 daemon/Shell/Agent 如何闭环协作，以及如何上手。 |
-| [Artifact 类型总览](artifact-types.zh-CN.md) | 想对比全部 8 种内置 Artifact 类型、判断某个需求该选哪种类型，或了解 3 种存储模型。 |
+| [Artifact 类型总览](artifact-types.zh-CN.md) | 想对比全部 9 种内置 Artifact 类型、判断某个需求该选哪种类型，或了解各种存储模型。 |
 | [Agent 使用指南](agent-guide.zh-CN.md) | 你是 AI Agent（或正在为 Agent 配置工作流），需要快速掌握 MCP 工具、CLI 回退、创建流程、评论处理与安全规则。 |
+| [自己做作品类型](custom-types.zh-CN.md) | 想把反复要做的一种页面做成自己的类型：新建、检查、试用，把页面变成类型，停用类型，信任项目里的类型。 |
 
 ## 各 Artifact 类型详细指南
 
@@ -26,6 +27,7 @@
 | `data` | [Data（数据看板）](types/data.zh-CN.md) | 直连 MCP 数据源、本地 CSV/JSON 或实时计算的交互看板与报表 | PDF、HTML、JSON |
 | `docs` | [Docs（协作文档）](types/docs.zh-CN.md) | 多标签页活文档、智能芯片、修订建议、Mermaid 图表 | Markdown、Word（`.docx`）、PDF、HTML |
 | `motion` | [Motion（短动画）](types/motion.zh-CN.md) | 按时间 `t` 绘制的短动画、合成配乐、旁白字幕、手改微调 | MP4、GIF、独立 HTML 播放器、ZIP |
+| `page` | [Page（自由页面）](types/page.zh-CN.md) | Agent 自己写的 HTML 页面，按声明开放运行时能力 | — |
 
 ## 自托管站点与扩展
 

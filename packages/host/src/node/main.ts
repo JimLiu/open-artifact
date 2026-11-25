@@ -47,9 +47,12 @@ import { parseTrashDays } from '../core/catalog/trash.ts';
 import { LINK_ACCESS_TTL_MS, LINK_REFRESH_TTL_MS, LINK_SCOPE } from '../core/link/services.ts';
 import type { HostConfig } from '../core/types.ts';
 import { dataDirOf, parseNodeEnv } from './env.ts';
-import { HOST_VERSION, importArtifactArchive, openCatalog, startHost } from './host.ts';
+import { HOST_VERSION, importInto, openCatalog, startHost } from './host.ts';
+import { nodeSiteTypes } from './site-types.ts';
 import { uiDirOf } from './static.ts';
-import { parseInternalEnv, startTlsAsk } from './tls-ask.ts';
+import { pageHostSource } from '../core/page-host.ts';
+import { PAGE_TYPE, parsePageNetwork } from './frames.ts';
+import { parseInternalEnv, parsePageHostOnDemand, startTlsAsk } from './tls-ask.ts';
 import { PluginConfigError } from '../core/plugins/config.ts';
 import { createPlugins, type PluginDescription } from '../core/plugins/registry.ts';
 import { pluginServices } from '../core/plugins/site.ts';
@@ -122,12 +125,25 @@ async function serve(env: Env): Promise<void> {
   const internal = parseInternalEnv(filled);
   const { loaded, source } = await loadSitePlugins(filled, node.dataDir);
   const host = await startHost({ config, env: node, uiDir: uiDirOf(filled), trustProxy: filled.OA_TRUST_PROXY === '1', trashDays: parseTrashDays(filled), log, plugins: loaded, pluginEnv: filled });
-  const ask = internal ? await startTlsAsk({ config, catalog: host.catalog, ...internal, log }) : null;
+  const frames = host.rooms.frames;
+  const pageHostsOnDemand = parsePageHostOnDemand(filled);
+  const ask = internal ? await startTlsAsk({ config, catalog: host.catalog, ...internal, log, pageHostsOnDemand, ...(frames ? { pageHost: (name: string) => frames.pageHostAllowed(name) } : {}) }) : null;
   log(`Open Artifact host ${HOST_VERSION} listening on ${host.listening}`);
   log(`  app:     ${config.appOrigin}`);
   log(`  content: ${config.contentOrigin}${config.contentSameSite ? ' (same site as the app: OA_CONTENT_SAME_SITE)' : ''}`);
   log(`  data:   ${node.dataDir}`);
-  if (ask) log(`  tls-ask: ${ask.listening}/tls-ask (internal)`);
+  log(
+    frames
+      ? `  pages:   on (each page on its own host, ${pageHostSource(config).replace('*', '<id>--<opaque>')}; network: ${parsePageNetwork(filled)})`
+      : '  pages:   off: page artifacts need an artifact domain of their own (OA_CONTENT_SAME_SITE puts both on one), so publishing one here is refused',
+  );
+  if (ask) {
+    log(
+      `  tls-ask: ${ask.listening}/tls-ask (internal; page hosts ${
+        pageHostsOnDemand ? 'allowed (OA_PAGE_HOST_ON_DEMAND_TLS=true: their names reach the public Certificate Transparency logs)' : 'refused: serve page artifacts with a wildcard certificate for the content domain'
+      })`,
+    );
+  }
   if (host.plugins) {
     const all = host.plugins.describe();
     log(`  plugins: ${all.filter((p) => p.enabled).map((p) => p.id).join(', ') || 'none running'} (from ${source.source})`);
@@ -204,8 +220,13 @@ async function importCommand(env: Env, args: string[]): Promise<void> {
     const root = join(node.dataDir, 'artifacts', id);
     let imported: { type: string; title: string };
     try {
-      imported = await importArtifactArchive(root, id, bytes);
-      if (!isTypeName(imported.type)) throw new ConfigError('import', `the ${imported.type} type is not installed on this host.`);
+      // A page artifact (told by its .artifact.json) only where pages run: an artifact domain of their own.
+      const pages = !config.contentSameSite;
+      // A published type's artifact too (by its .artifact.json type and typeUid), where pages run.
+      const siteTypes = pages ? nodeSiteTypes({ dataDir: node.dataDir, driver }) : null;
+      await siteTypes?.load();
+      imported = await importInto(root, id, bytes, { pages, siteTypes });
+      if (!isTypeName(imported.type) && !(pages && (imported.type === PAGE_TYPE || siteTypes?.row(imported.type)))) throw new ConfigError('import', `the ${imported.type} type is not installed on this host.`);
     } catch (error) {
       await rm(root, { recursive: true, force: true });
       throw error;

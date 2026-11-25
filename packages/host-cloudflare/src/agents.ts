@@ -11,7 +11,11 @@
  * - Request bodies are capped lower than the core's (the Worker holds a body whole in a 128 MB isolate, and the object
  *   holds it again): {@link CLOUDFLARE_LINK_LIMITS}, which `link.hello` advertises instead of the core's constants.
  * - The installed types (`McpTypeService`) come from the build's table (each type's manifest and skill text), with
- *   the type server's own definitions for what it adds (store, comments, actions), as `readMcpTypes` reads them.
+ *   the type server's own definitions for what it adds (store, comments, actions), as `readMcpTypes` reads them; the
+ *   free-page type `page` is listed only while the site runs pages (as on Node).
+ * - Page artifacts (`pages`, while the site runs them): `link.hello` says `features.pages`, `link.capabilities` and
+ *   MCP set what a page declares through its object, and a change not made by the Link reaches the owner's Link as
+ *   an `artifact` event with `capabilities`.
  * - The client metadata fetcher uses the Workers `fetch` and has no DNS lookup (Workers has no resolver to ask): the
  *   core still refuses literal private and loopback addresses and local names, any scheme but https, a redirect to
  *   another host, slow and large answers. A public name that resolves to a private address is not caught here; the
@@ -24,6 +28,7 @@ import { actionsOfType, isTypeName, TYPES } from '@open-artifact/type-server';
 import {
   httpError,
   json,
+  LINK_AUTHOR,
   LINK_REFUSED_ACTIONS,
   linkApiRoutes,
   mcpHandler,
@@ -37,7 +42,9 @@ import {
   type McpTypeAction,
   type McpTypeInfo,
   type McpTypeService,
+  type PageServices,
 } from '@open-artifact/host';
+import { PAGE_TITLE, PAGE_TYPE, type FrameBuild } from './frames.ts';
 import { LINK_EVENTS_PATH } from './hub.ts';
 import type { TypeEntry } from './site.ts';
 import type { RoomClient } from './room-calls.ts';
@@ -70,7 +77,9 @@ const strings = (value: unknown): string[] => (Array.isArray(value) ? value.filt
 
 /** What the agent services need of the site (the `Site`, or a test's stand-in). */
 export interface AgentSite {
-  readonly build: { version: string; types: readonly TypeEntry[] };
+  readonly build: { version: string; types: readonly TypeEntry[]; frames?: FrameBuild };
+  /** Whether the site runs page artifacts (null: not). */
+  readonly pages?: { build: FrameBuild } | null;
   room(id: string): RoomClient;
   /** Permanently deletes an artifact's object. */
   removeArtifact(id: string): Promise<void>;
@@ -104,9 +113,21 @@ export function roomFiles(site: Pick<AgentSite, 'room'>): ArtifactFiles {
   };
 }
 
+/** Page artifacts' declared capabilities through their object (the Node site's `pageServices`). */
+export function roomPageServices(site: Pick<AgentSite, 'room'>, events: Pick<AppCtx['events'], 'emit'>): PageServices {
+  return {
+    capabilities: (id) => site.room(id).capabilities(),
+    async setCapabilities(id, capabilities, author) {
+      const changed = await site.room(id).setCapabilities(capabilities);
+      if (changed && author !== LINK_AUTHOR) events.emit('artifact-changed', { id, author, capabilities });
+    },
+  };
+}
+
 /** The Link services for one request. */
 export function cloudflareLinkServices(site: AgentSite, ctx: AppCtx): LinkServices {
   return {
+    ...(site.pages ? { pages: roomPageServices(site, ctx.events) } : {}),
     files: roomFiles(site),
     importArchive: (id, bytes) => ctx.importArchive(id, bytes),
     removeArtifact: (id) => site.removeArtifact(id),
@@ -173,9 +194,33 @@ export function mcpActionsOf(type: string): McpTypeAction[] {
     .map((action) => ({ name: action.name, title: action.title, effect: action.effect, schema: action.schema }));
 }
 
-/** The installed types from the build's table, as the Node host's `readMcpTypes` reads them from `artifact-types`. */
-export function mcpTypesOf(entries: readonly TypeEntry[]): McpTypeService {
+/** The free-page type as the agent tools describe it (the Node host's `pageTypeInfo`). */
+export function pageTypeInfo(manifest: Record<string, unknown>): McpTypeInfo {
+  return {
+    id: PAGE_TYPE,
+    title: typeof manifest.title === 'string' ? manifest.title : PAGE_TITLE,
+    description: typeof manifest.description === 'string' ? manifest.description : '',
+    intents: strings(manifest.intents),
+    ...(typeof manifest.when === 'string' ? { when: manifest.when } : {}),
+    exports: [],
+    uses: [],
+    store: 'db',
+    comments: true,
+    ...(typeof manifest.artifactTitle === 'string' ? { artifactTitle: manifest.artifactTitle } : {}),
+    openEarly: false,
+    actions: [{ name: 'info', title: 'What the artifact holds', effect: 'read', schema: { type: 'object', properties: {} } }],
+  };
+}
+
+/**
+ * The installed types from the build's table, as the Node host's `readMcpTypes` reads them from `artifact-types`;
+ * with `frames` (the site runs pages), the free-page type too.
+ */
+export function mcpTypesOf(entries: readonly TypeEntry[], frames?: FrameBuild | null): McpTypeService {
   const types = new Map<string, { info: McpTypeInfo; skill: string | null }>();
+  for (const frame of frames?.types ?? []) {
+    if (frame.id === PAGE_TYPE && frame.page) types.set(PAGE_TYPE, { skill: frame.skill, info: pageTypeInfo(frame.manifest) });
+  }
   for (const entry of entries) {
     const id = entry.id;
     if (!isTypeName(id)) continue;
@@ -211,6 +256,7 @@ export function mcpTypesOf(entries: readonly TypeEntry[]): McpTypeService {
 export function cloudflareMcpServices(site: AgentSite, ctx: AppCtx, types: McpTypeService, fetcher: McpServices['cimd']['fetch'] = (url, init) => fetch(url, init)): McpServices {
   return {
     types,
+    ...(site.pages ? { pages: roomPageServices(site, ctx.events) } : {}),
     create: (artifact) => site.room(artifact.id).create(artifact.type, artifact.title),
     files: roomFiles(site),
     action: (id, name, args) => site.room(id).action(name, args),
@@ -227,7 +273,7 @@ export function cloudflareMcpServices(site: AgentSite, ctx: AppCtx, types: McpTy
 /** Answers `/mcp`, the discovery documents and `/oauth/*` (the paths `isMcpPath` names), over this request's services. */
 export function mcpDispatch(site: AgentSite, env: Record<string, string | undefined>, appOrigin: string, options: { fetch?: McpServices['cimd']['fetch'] } = {}): (request: Request, ctx: AppCtx) => Promise<Response> {
   const config: McpConfig = parseMcpConfig(env, { appOrigin });
-  const types = mcpTypesOf(site.build.types);
+  const types = mcpTypesOf(site.build.types, site.pages?.build);
   return async (request, ctx) => {
     const handler = mcpHandler({ config, services: cloudflareMcpServices(site, ctx, types, options.fetch), waitCapMs: CLOUDFLARE_MCP_WAIT_CAP_MS });
     if (request.method === 'POST') request = cappedRequest(request, CLOUDFLARE_MCP_MAX_BODY_BYTES);

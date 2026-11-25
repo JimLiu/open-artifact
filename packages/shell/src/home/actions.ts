@@ -1,6 +1,6 @@
 /** What the home page's controls do: Library API calls, with results in the store and failures as toasts. */
 
-import { ARCHIVE_CONTENT_TYPE, type ArtifactView, type TypeView } from '@open-artifact/protocol';
+import { ARCHIVE_CONTENT_TYPE, type ArtifactView, type TypePackagePreview, type TypesNewRequest, type TypesNewResponse, type TypeView } from '@open-artifact/protocol';
 import { toast } from '@open-artifact/ui';
 import { api, ApiError, errorText, subscribeLibraryEvents } from '../lib/api.ts';
 import { copyText } from '../lib/format.ts';
@@ -53,6 +53,88 @@ export async function loadTypes(): Promise<void> {
     useHome.getState().setTypes(await api.types());
   } catch (error) {
     useHome.getState().setError(t('couldNotLoad', { error: errorText(error) }));
+  }
+}
+
+/** Makes a type (`types.new`): the answer, or the failure to show in the dialog. */
+export async function makeType(request: TypesNewRequest): Promise<{ made: TypesNewResponse } | { error: string }> {
+  if (!request.id.trim()) return { error: t('needTypeId') };
+  try {
+    const made = await api.typesNew({ ...request, id: request.id.trim() });
+    await loadTypes();
+    return { made };
+  } catch (error) {
+    return { error: t('couldNotMakeType', { error: errorText(error) }) };
+  }
+}
+
+/** Turns a type on or off (`types.enable` / `types.disable`), for every root it is in. */
+export async function setTypeEnabled(type: TypeView, enabled: boolean): Promise<void> {
+  try {
+    await api.typesEnable(type.id, enabled);
+    await loadTypes();
+  } catch (error) {
+    notify(t('couldNotToggleType', { error: errorText(error) }));
+  }
+}
+
+/** A file's bytes in base64, as `types.preview` takes them from a page. */
+async function base64Of(file: Blob): Promise<string> {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let text = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) text += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(text);
+}
+
+/**
+ * Reads a type package (`types.preview`): a file the person chose, or an https address the daemon fetches once. The
+ * preview, or the failure to show in the dialog. `update`: the installed type's recorded source, read again.
+ */
+export async function previewPackage(from: { file: File } | { url: string } | { update: string }, as?: string): Promise<{ preview: TypePackagePreview } | { error: string }> {
+  try {
+    const extra = as?.trim() ? { as: as.trim() } : {};
+    if ('update' in from) return { preview: await api.typesUpdate(from.update) };
+    if ('url' in from) {
+      if (!from.url.trim()) return { error: t('needPackage') };
+      return { preview: await api.typesPreview({ url: from.url.trim(), ...extra }) };
+    }
+    return { preview: await api.typesPreview({ name: from.file.name, data: await base64Of(from.file), ...extra }) };
+  } catch (error) {
+    return { error: t('couldNotReadPackage', { error: errorText(error) }) };
+  }
+}
+
+/** Installs (or updates) the package a preview read, then lists the types again. */
+export async function installPackage(preview: TypePackagePreview, o: { as?: string; update?: string } = {}): Promise<{ ok: true } | { error: string }> {
+  try {
+    if (o.update) await api.typesUpdate(o.update, preview.sha256);
+    else await api.typesInstall(preview.sha256, o.as?.trim() || undefined);
+    await loadTypes();
+    notify(t(o.update ? 'typeUpdated' : 'typeInstalled', { type: preview.name, version: preview.version }));
+    return { ok: true };
+  } catch (error) {
+    return { error: t('couldNotInstall', { error: errorText(error) }) };
+  }
+}
+
+/** Uninstalls an installed type (`types.uninstall`); its artifacts stay in their folders. */
+export async function uninstallType(type: TypeView): Promise<void> {
+  try {
+    await api.typesUninstall(type.id);
+    await loadTypes();
+    notify(t('typeUninstalled', { type: type.title }));
+  } catch (error) {
+    notify(t('couldNotUninstall', { error: errorText(error) }));
+  }
+}
+
+/** Trusts a project's types, or stops trusting them (`types.trust`). */
+export async function setProjectTrusted(dir: string, trusted: boolean): Promise<void> {
+  try {
+    await api.typesTrust(dir, trusted);
+    await loadTypes();
+  } catch (error) {
+    notify(t('couldNotTrust', { error: errorText(error) }));
   }
 }
 

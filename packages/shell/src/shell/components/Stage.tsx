@@ -87,6 +87,8 @@ export function PageFrame() {
         src={src}
         title={boot.title}
         allow="clipboard-read; clipboard-write; fullscreen"
+        // A restricted static type's page (installed, or a project not trusted yet): no popups, no top navigation.
+        sandbox={boot.pageKind === 'static' && boot.sandbox ? boot.sandbox : undefined}
         onLoad={onLoad}
         inert={!ready}
         className="absolute inset-0 size-full border-0 bg-surface"

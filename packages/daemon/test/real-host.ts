@@ -59,8 +59,8 @@ export interface RealHost {
   stop(): Promise<void>;
 }
 
-/** Starts the real host on a free port with a temporary data folder. */
-export async function startRealHost(): Promise<RealHost> {
+/** Starts the real host on a free port with a temporary data folder; `extra` adds settings (`OA_TYPES_PUBLISH`, …). */
+export async function startRealHost(extra: Record<string, string> = {}): Promise<RealHost> {
   const hostDir = tempDir('open-artifact-host-');
   const assets = join(hostDir, 'assets');
   for (const type of ['whiteboard', 'docs']) {
@@ -77,7 +77,7 @@ export async function startRealHost(): Promise<RealHost> {
 
   const port = await freePort();
   const app = `http://localhost:${port}`;
-  const config = parseConfig({ OA_APP_ORIGIN: app, OA_CONTENT_ORIGIN: `http://{id}.content.localhost:${port}`, OA_SIGNING_KEYS: 'k'.repeat(40), OA_OWNER_KEY: 'owner-key-for-the-remote-host-test-0123' });
+  const config = parseConfig({ OA_APP_ORIGIN: app, OA_CONTENT_ORIGIN: `http://{id}.content.localhost:${port}`, OA_SIGNING_KEYS: 'k'.repeat(40), OA_OWNER_KEY: 'owner-key-for-the-remote-host-test-0123', ...extra });
   const env = parseNodeEnv({ OA_DATA_DIR: join(hostDir, 'data'), OA_PORT: String(port), OA_BIND: '127.0.0.1', OA_ASSETS_DIR: assets });
   const host = await startHost({ config, env, uiDir, log: () => undefined });
   return {

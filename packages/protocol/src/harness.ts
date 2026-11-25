@@ -54,6 +54,10 @@ export const PROTOCOL_MAX = 1;
  *   each tool's `remoteActions`, and `host.open` carries `remote` for an artifact of a remote type.
  * - `hello.runtime`: the daemon records `hello`'s `runtime` (`runtimes.json`) and starts the newest compatible one.
  * - `runtime.update`: `runtime.status` and `runtime.update` answer, and subscribed adapters get `runtime/update`.
+ * - `types.source`: types are described with `source` (`builtin`, `local`, `installed`) and, for installed ones,
+ *   `installed_from` and `third_party_notice`, wherever they are listed (`quickstart`, `list scope: "types"`,
+ *   `read {type_url}`) and in `read {url}`; `publish` (create) and `adopt` put `third_party_notice` next to
+ *   `instructions`.
  */
 export type HarnessFeature =
   | 'hello.profile'
@@ -71,14 +75,15 @@ export type HarnessFeature =
   | 'quickstart.steps'
   | 'types.remote'
   | 'hello.runtime'
-  | 'runtime.update';
+  | 'runtime.update'
+  | 'types.source';
 
 /**
  * The features this release's daemon implements, the `features` its `hello` answers. Kept here, not in the daemon, so
  * the kit's fake daemon (`@open-artifact/harness-kit/testing`) answers the same list. A name goes in when the code
  * that answers it lands, never before, so an adapter can trust every name it reads.
  */
-export const HARNESS_FEATURES: readonly HarnessFeature[] = Object.freeze(['hello.profile', 'embed.origins', 'shell.command', 'shell.event', 'view.context', 'wake.from', 'wake.drafted', 'wake.session', 'skill.get', 'commands.list', 'session.may', 'tools.actions', 'quickstart.steps', 'types.remote', 'hello.runtime', 'runtime.update'] as const);
+export const HARNESS_FEATURES: readonly HarnessFeature[] = Object.freeze(['hello.profile', 'embed.origins', 'shell.command', 'shell.event', 'view.context', 'wake.from', 'wake.drafted', 'wake.session', 'skill.get', 'commands.list', 'session.may', 'tools.actions', 'quickstart.steps', 'types.remote', 'hello.runtime', 'runtime.update', 'types.source'] as const);
 
 /** How a harness shows pages in its own UI: in a frame of its page, or in a top-level view (a webview). */
 export interface AdapterOpenCaps {

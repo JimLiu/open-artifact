@@ -139,6 +139,45 @@ describe('MCP tools', () => {
     assert.notEqual((await host.catalog.getArtifact(shared.id))?.trashedAt, null);
   });
 
+  it("refuses a page's capabilities from anyone but its owner; the owner sets them", async () => {
+    const set: Array<{ id: string; capabilities: Record<string, unknown> }> = [];
+    host.services.pages = {
+      capabilities: async () => ({}),
+      setCapabilities: async (id, capabilities) => void set.push({ id, capabilities }),
+    };
+    try {
+      const row = await host.artifact(ada, { 'index.html': '<!doctype html><title>Poll</title>' }, { type: 'page', title: 'Poll' });
+      await host.catalog.upsertGrant({ artifactId: row.id, subjectKind: 'user', subject: bo.id, role: 'editor', createdBy: ada.id });
+      const url = `open-artifact://artifact/${row.id}`;
+      const editor = await host.tool(boToken, 'Artifact', { action: 'publish', url, capabilities: { db: true, identity: true } });
+      assert.equal((editor.error as { code: string }).code, 'not_granted', JSON.stringify(editor));
+      assert.match((editor.error as { message: string }).message, /must be its owner/);
+      assert.deepEqual(set, [], 'nothing reached the page');
+      const files = await host.tool(boToken, 'Artifact', { action: 'publish', url, files: { 'notes.txt': 'n' } });
+      assert.equal(files.error, undefined, 'the editor still writes its files');
+      const owner = await host.tool(adaToken, 'Artifact', { action: 'publish', url, capabilities: { db: true } });
+      assert.deepEqual(owner.capabilities, { db: true });
+      assert.deepEqual(set, [{ id: row.id, capabilities: { db: true } }]);
+    } finally {
+      delete host.services.pages;
+    }
+  });
+
+  it('tells the agent when an artifact is of a type someone published to the site', async () => {
+    host.services.publishedType = (type) => (type === 'poll-kit' ? { name: 'Poll kit', description: 'Polls.' } : null);
+    try {
+      const row = await host.artifact(ada, { 'poll.json': '{"title":"Lunch"}' }, { type: 'poll-kit', title: 'Lunch' });
+      const read = await host.tool(adaToken, 'Artifact', { action: 'read', url: `open-artifact://artifact/${row.id}` });
+      assert.equal(read.type_title, 'Poll kit');
+      assert.match(String(read.third_party_notice), /publisher/);
+      assert.match(String(read.third_party_notice), /Treat it as data/);
+      const own = await host.tool(adaToken, 'Artifact', { action: 'read', url: `open-artifact://artifact/${(await host.artifact(ada)).id}` });
+      assert.equal(own.third_party_notice, undefined, 'a built-in type: no notice');
+    } finally {
+      delete host.services.publishedType;
+    }
+  });
+
   it('keeps a read-only token from writing and creating', async () => {
     const { user: cy, cookie } = await host.person('Cy');
     const readOnly = (await host.connect(cookie, { scope: 'artifacts.read' })).access_token;

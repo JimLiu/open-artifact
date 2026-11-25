@@ -15,7 +15,11 @@ import {
   type ShareRequest,
   type ShareView,
   type ShellBoot,
+  type TypesNewRequest,
+  type TypesNewResponse,
   type TypesResponse,
+  type TypePackagePreview,
+  type TypesSettingResponse,
   type UpdateArtifactRequest,
 } from '@open-artifact/protocol';
 import { BOOT_TIMEOUT_MS } from '../shell/preboot.ts';
@@ -76,6 +80,20 @@ export interface LibraryApi {
   artifact(id: string): Promise<ArtifactDetail>;
   /** `GET types`: the installed types and their roots. */
   types(): Promise<TypesResponse>;
+  /** `POST types.new`: makes a starter type (the person's own, from the home page's "New type"). */
+  typesNew(request: TypesNewRequest): Promise<TypesNewResponse>;
+  /** `POST types.enable` / `types.disable`: turns a type on or off. */
+  typesEnable(id: string, enabled: boolean): Promise<TypesSettingResponse>;
+  /** `POST types.trust`: trusts a project folder's types (or stops). */
+  typesTrust(dir: string, trusted: boolean): Promise<TypesSettingResponse>;
+  /** `POST types.preview`: a package read and checked (a file's bytes, or an https address), kept for the install. */
+  typesPreview(request: { url: string; as?: string } | { name: string; data: string; as?: string }): Promise<TypePackagePreview>;
+  /** `POST types.install`: installs the package the preview of `sha256` kept. */
+  typesInstall(sha256: string, as?: string): Promise<{ id: string; version: string }>;
+  /** `POST types.uninstall`: removes an installed type (its artifacts stay). */
+  typesUninstall(id: string): Promise<{ id: string; removed: true }>;
+  /** `POST types.update`: without `sha256`, the preview of what its source holds now; with it, installs that preview. */
+  typesUpdate(id: string, sha256?: string): Promise<TypePackagePreview & { id: string }>;
   /** `GET artifact.share?id=`: sharing state; throws `unsupported` for a type that cannot share. */
   share(id: string): Promise<ShareView>;
   /** `POST artifact.share`: changes sharing and answers the new state. */
@@ -215,8 +233,15 @@ export function createLibraryApi(options: LibraryApiOptions = {}): LibraryApi {
     artifact: (id) => call<ArtifactDetail>(LIBRARY_ROUTES.artifact, { query: { id } }),
     async types() {
       const out = await call<Partial<TypesResponse>>(LIBRARY_ROUTES.types);
-      return { roots: Array.isArray(out.roots) ? out.roots : [], types: Array.isArray(out.types) ? out.types : [] };
+      return { roots: Array.isArray(out.roots) ? out.roots : [], types: Array.isArray(out.types) ? out.types : [], ...(Array.isArray(out.projects) ? { projects: out.projects } : {}) };
     },
+    typesNew: (request) => call<TypesNewResponse>(LIBRARY_ROUTES.typesNew, { body: request }),
+    typesEnable: (id, enabled) => call<TypesSettingResponse>(enabled ? LIBRARY_ROUTES.typesEnable : LIBRARY_ROUTES.typesDisable, { body: { id } }),
+    typesTrust: (dir, trusted) => call<TypesSettingResponse>(LIBRARY_ROUTES.typesTrust, { body: { dir, trusted } }),
+    typesPreview: (request) => call<TypePackagePreview>(LIBRARY_ROUTES.typesPreview, { body: request }),
+    typesInstall: (sha256, as) => call<{ id: string; version: string }>(LIBRARY_ROUTES.typesInstall, { body: { sha256, ...(as ? { as } : {}) } }),
+    typesUninstall: (id) => call<{ id: string; removed: true }>(LIBRARY_ROUTES.typesUninstall, { body: { id } }),
+    typesUpdate: (id, sha256) => call<TypePackagePreview & { id: string }>(LIBRARY_ROUTES.typesUpdate, { body: { id, ...(sha256 ? { sha256 } : {}) } }),
     share: (id) => call<ShareView>(LIBRARY_ROUTES.share, { query: { id } }),
     setShare: (request) => call<ShareView>(LIBRARY_ROUTES.share, { body: request }),
     create: (request) => call<ArtifactView>(LIBRARY_ROUTES.create, { body: request }),

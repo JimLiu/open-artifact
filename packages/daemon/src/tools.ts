@@ -24,7 +24,11 @@ import {
   artifactUrl,
   errorBody,
   parseTitleFrom,
-  titleInJson,
+  titleInFile,
+  capabilitiesProblem,
+  declaredCapabilities,
+  FRAME_BACKED_CAPABILITIES,
+  FRAME_STUBBED_CAPABILITIES,
   typeIdOf,
   typeUrl,
   type ArtifactArgs,
@@ -43,6 +47,9 @@ import {
   type ToolCallResult,
   type ToolDefinition,
   type TypeSummary,
+  RESERVED_TYPE_IDS,
+  PAGE_CONTENT_NOTICE,
+  restrictedTypeNotice,
 } from '@open-artifact/protocol';
 import type { HarnessHub } from './harness.ts';
 import { harnessProfile } from './harness-profiles.ts';
@@ -52,7 +59,8 @@ import type { Ownership } from './ownership.ts';
 import { inside, scriptRunner, shellWord } from './paths.ts';
 import { ACTION_NAME, type TypeAction } from './servers.ts';
 import { changedFiles, sessionKeyOf, slugify, type ArtifactStore } from './store.ts';
-import { skillBody, typeLocation, type ListedType, type TypeInfo, type TypeRegistry } from './types.ts';
+import { markerSourceOf, typeSourceOf } from './type-packages.ts';
+import { isPageType, siteRefusal, skillBody, typeLocation, type ListedType, type TypeInfo, type TypeRegistry } from './types.ts';
 
 /** Characters of one file a read returns. */
 const MAX_READ = 256 * 1024;
@@ -127,8 +135,10 @@ const EXISTING_MAX = 5;
 
 /** Words of a quickstart intent that say nothing about the type. */
 const STOP_WORDS = new Set(['the', 'and', 'for', 'with', 'that', 'this', 'from', 'into', 'about', 'make', 'want', 'need', 'some', 'our', 'your', 'new', 'can', 'its', 'are', 'other']);
-/** quickstart's `intent: "other"`: none of the kinds the intent list names, so it matches no type. */
+/** quickstart's `intent: "other"`: none of the kinds the intent list names, so it matches only a type listing it (page). */
 const OTHER_INTENT = 'other';
+/** Han script: such an intent is found anywhere in the request ("做个小游戏"), as Chinese has no spaces between words. */
+const CJK = /\p{Script=Han}/u;
 
 /** Lower case, words split by single spaces, padded: `" pitch deck "`. */
 const words = (text: string): string => ` ${text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim()} `;
@@ -380,6 +390,53 @@ type Opening = 'after_first_write' | 'now';
 
 
 /**
+ * A `capabilities` argument, checked: only a page artifact takes one (any other type's page declares its own, in its
+ * type's index.html), and it is an object of `{name: true | {options}}`. Throws `invalid_argument` otherwise.
+ */
+export function capabilitiesOf(value: unknown, type: Pick<TypeInfo, 'id' | 'openArtifact'> | null | undefined): Record<string, unknown> {
+  if (!isPageType(type)) {
+    throw new OpenArtifactError('invalid_argument', `capabilities is for page artifacts only; ${type ? `the ${type.id} type` : 'this type'} decides what its page may use.`, {
+      fix: 'Leave capabilities out.',
+    });
+  }
+  const problem = capabilitiesProblem(value);
+  if (problem) throw new OpenArtifactError('invalid_argument', problem);
+  return JSON.parse(JSON.stringify(value)) as Record<string, unknown>;
+}
+
+/** The type uid (and where that type came from) a folder's `.artifact.json` records, when it records one. */
+export function markerTypeUid(root: string): { typeUid: string | null; typeSource: string | null } {
+  try {
+    const marker = JSON.parse(readFileSync(join(root, '.artifact.json'), 'utf8')) as { typeUid?: unknown; typeSource?: unknown };
+    const typeUid = typeof marker.typeUid === 'string' && marker.typeUid ? marker.typeUid : null;
+    return { typeUid, typeSource: typeUid && typeof marker.typeSource === 'string' ? marker.typeSource : null };
+  } catch {
+    return { typeUid: null, typeSource: null };
+  }
+}
+
+/** The capabilities a folder's `.artifact.json` declares, when they are well formed and not empty. */
+function markerCapabilities(root: string): Record<string, unknown> | undefined {
+  try {
+    const value = (JSON.parse(readFileSync(join(root, '.artifact.json'), 'utf8')) as { capabilities?: unknown }).capabilities;
+    return value !== undefined && !capabilitiesProblem(value) && Object.keys(value as object).length ? (value as Record<string, unknown>) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** What publish says of a page's declared capabilities that do nothing here, or only answer with an error. */
+export function capabilityNotes(capabilities: Record<string, unknown> | null | undefined): string[] {
+  const names = Object.keys(declaredCapabilities(capabilities));
+  const stubbed = names.filter((n) => FRAME_STUBBED_CAPABILITIES[n]);
+  const unknown = names.filter((n) => !FRAME_STUBBED_CAPABILITIES[n] && !FRAME_BACKED_CAPABILITIES.includes(n));
+  return [
+    ...(stubbed.length ? [`${stubbed.join(', ')}: declared, but on this computer ${stubbed.length === 1 ? 'it answers' : 'they answer'} only with an error (${stubbed.map((n) => `${n}: ${FRAME_STUBBED_CAPABILITIES[n]}`).join(', ')}); the page should handle that.`] : []),
+    ...(unknown.length ? [`${unknown.join(', ')}: no such capability here; use() gives the page null for ${unknown.length === 1 ? 'it' : 'them'}.`] : []),
+  ];
+}
+
+/**
  * The title an artifact's own files declare at its type's `titleFrom` (`<file>#<JSON pointer>`), at most 200
  * characters, or undefined (no `titleFrom`, no such file, no string there).
  */
@@ -387,7 +444,7 @@ export function contentTitle(root: string, titleFrom: string | null): string | u
   const parsed = titleFrom ? parseTitleFrom(titleFrom) : null;
   if (!parsed) return undefined;
   try {
-    return titleInJson(readFileSync(join(root, parsed.file), 'utf8'), parsed.pointer)?.slice(0, 200);
+    return titleInFile(parsed.file, readFileSync(join(root, parsed.file), 'utf8'), parsed.pointer)?.slice(0, 200);
   } catch {
     return undefined;
   }
@@ -535,7 +592,33 @@ export class Tools {
       ...(t.problems.length ? { problems: t.problems } : {}),
       // Where its page is: a remote type's artifacts send their content to `origin`.
       ...typeLocation(t),
+      ...this.sourceFields(t),
     };
+  }
+
+  /**
+   * `source` (builtin, local or installed), `installed_from`, and for a restricted type (an installed one, or one in
+   * a project not trusted yet) the fixed `third_party_notice`: its title, description and instructions are its
+   * publisher's (feature `types.source`).
+   */
+  private sourceFields(t: TypeInfo): { source: string; installed_from?: string; third_party_notice?: string } {
+    const { source, installedFrom } = typeSourceOf(t);
+    return { source, ...(installedFrom ? { installed_from: installedFrom } : {}), ...this.noticeFields(t) };
+  }
+
+  /**
+   * `third_party_notice` on what is read back from an artifact of a restricted type (its files, comments and
+   * documents): {@link PAGE_CONTENT_NOTICE}, since the type's page, its publisher's code, may have written them.
+   */
+  private pageContentFields(record: ArtifactRecord): { third_party_notice?: string } {
+    const type = this.o.types.get(record.type, record.owner?.workspace ?? undefined);
+    return type && !type.trusted ? { third_party_notice: PAGE_CONTENT_NOTICE } : {};
+  }
+
+  /** The notice beside a restricted type's instructions (create, adopt, read), or nothing. */
+  private noticeFields(t: TypeInfo): { third_party_notice?: string } {
+    const notice = restrictedTypeNotice(t);
+    return notice ? { third_party_notice: notice } : {};
   }
 
   private quickstart(args: ArtifactArgs, caller: SessionRef): ToolCallResult {
@@ -544,6 +627,12 @@ export class Tools {
       const typeId = typeIdOf(String(args.type));
       if (!typeId) throw new OpenArtifactError('invalid_argument', 'type: a type id (slides) or open-artifact://type/<id>.');
       const type = this.o.types.get(typeId, caller.workspace);
+      if (!type && RESERVED_TYPE_IDS.includes(typeId)) {
+        // `/open-artifact new-type`: making a type, not an artifact.
+        throw new OpenArtifactError('type_missing', 'new-type is not a type: it asks you to make a new artifact type.', {
+          fix: 'Read reference/new-type.md in the open-artifact skill folder when it is there; then run `open-artifact types new <id> --template page|data` and `open-artifact types check <id>`.',
+        });
+      }
       if (!type) throw new OpenArtifactError('type_missing', `No type ${typeId} is installed.`, { fix: 'Artifact {action: "list", scope: "types"} lists what is; or leave type out and quickstart recommends one.' });
       if (!type.enabled) throw new OpenArtifactError('unsupported', `The type ${typeId} is turned off in settings.`);
       if (!type.runnable) throw new OpenArtifactError('type_not_runnable', type.problems.join(' ') || `${typeId} cannot run.`);
@@ -565,12 +654,14 @@ export class Tools {
     const wanted = words(want);
     const terms = wanted.trim().split(' ').filter((w) => w.length > 2 && !STOP_WORDS.has(w));
     const score = (t: ListedType): number => {
-      // "other" is in many types' descriptions ("for other work", "other writing"): it must not pick one of them.
-      if (!want || want === OTHER_INTENT) return 0;
-      let s = 0;
+      if (!want) return 0;
       const intents = t.intents.map((i) => i.toLowerCase());
+      // "other" is in many types' descriptions ("for other work", "other writing"): it picks only a type that lists it
+      // as an intent (the free page), never one whose text merely says it.
+      if (want === OTHER_INTENT) return intents.includes(OTHER_INTENT) ? 10 : 0;
+      let s = 0;
       if (intents.includes(want)) s += 10;
-      else if (intents.some((i) => i.length > 2 && wanted.includes(words(i)))) s += 6;
+      else if (intents.some((i) => (CJK.test(i) ? i.length > 1 && want.includes(i) : i.length > 2 && wanted.includes(words(i))))) s += 6;
       const id = t.id.toLowerCase();
       if (id.includes(want) || wanted.includes(words(id))) s += 5;
       const text = `${t.title} ${t.description} ${t.when ?? ''}`.toLowerCase();
@@ -763,15 +854,22 @@ export class Tools {
     }
   }
 
-  /** Whether the type has a `check` action (assumed, while its list is not known, when it declares actions). */
+  /**
+   * Whether the type has a `check` action (assumed, while its list is not known, when it declares actions). A type
+   * frame-host serves (a page-kind type) has none: its actions are `info` and `snapshot`.
+   */
   private hasCheck(type: TypeInfo, actions: TypeAction[] | null): boolean {
     if (actions) return actions.some((a) => a.name === 'check');
+    if (type.runtime === 'frame') return false;
     return !!(type.entry && type.entry.kind !== 'static' && type.entry.actions);
   }
 
   /** The note put before the type's own instructions: this artifact, and how the type's commands map to the tools. */
   private hostNote(type: TypeInfo, record: ArtifactRecord, actions: TypeAction[] | null, opening?: Opening): string {
-    const script = ['cli.mjs', 'artifact.mjs'].map((name) => join(type.dir, 'scripts', name)).find((file) => existsSync(file));
+    // A restricted type's files (an installed package's, or an untrusted project's): nothing of it is run outside its
+    // page, by Open Artifact or by the agent.
+    const restricted = !type.trusted;
+    const script = restricted ? undefined : ['cli.mjs', 'artifact.mjs'].map((name) => join(type.dir, 'scripts', name)).find((file) => existsSync(file));
     const declares = !!(type.entry && type.entry.kind !== 'static' && type.entry.actions);
     const check = this.hasCheck(type, actions);
     const lines = [
@@ -781,14 +879,16 @@ export class Tools {
       `- view it: ${this.o.viewUrl(record.id)}`,
       '',
       "# Running the type's commands here",
-      `The instructions below were written for the type's own script. Its folder is ${type.dir}: "scripts/..." means ${join(type.dir, 'scripts')}/....`,
+      restricted
+        ? `${type.scope === 'installed' ? 'This type was installed from a package' : 'This type is in a project folder the person has not trusted yet'} (its folder is ${type.dir}). Do not run any of its files, its scripts included, with node or a shell: its page runs in the browser, and its actions run with Artifact call.`
+        : `The instructions below were written for the type's own script. Its folder is ${type.dir}: "scripts/..." means ${join(type.dir, 'scripts')}/....`,
       actions?.length ? "- The type's actions, run with Artifact call:" : null,
       ...(actions ?? []).map((a) => `  - ${a.name}: ${a.title} — Artifact {action: "call", url, name: "${a.name}"${argsShape(a.schema)}} (${a.effect ?? 'write'})`),
       !actions && declares
-        ? '- The type\'s actions (such as check) run with Artifact {action: "call", url, name, args?}; Artifact {action: "read", url} lists them once its page has opened.'
+        ? `- The type's actions (such as ${type.runtime === 'frame' ? 'snapshot, a picture of the page' : 'check'}) run with Artifact {action: "call", url, name, args?}; Artifact {action: "read", url} lists them once its page has opened.`
         : null,
       script && check ? `- Running \`${scriptRunner()} ${shellWord(script)} check ${shellWord(record.root)}\` as written works too.` : null,
-      scriptRunner() !== 'node' ? `- Where they say \`node\`, run \`${scriptRunner()}\` instead: Open Artifact runs here with that program, and there may be no \`node\`.` : null,
+      !restricted && scriptRunner() !== 'node' ? `- Where they say \`node\`, run \`${scriptRunner()}\` instead: Open Artifact runs here with that program, and there may be no \`node\`.` : null,
       "- Do not run the script's open, serve, share or wait commands: Open Artifact serves the page. The person shares it from the page's Share panel (Artifact {action: \"open\", url, panel: \"share\"}).",
       `- Comments and requests sent from the page come to you as "${COMMENT_HEADER}" / "${REQUEST_HEADER}" messages; read them with ArtifactComments {action: "read", url} and answer with {action: "reply", url, thread_id, text}.`,
       type.store === 'db' ? `- The document store: ArtifactData (${DATA_ACTIONS.join(', ')}).` : null,
@@ -830,6 +930,7 @@ export class Tools {
     if (args.open !== undefined && args.open !== 'after_first_write' && args.open !== 'now' && args.open !== 'never') {
       throw new OpenArtifactError('invalid_argument', 'open: "after_first_write" (the default: the page opens once you write its content), "now" or "never".');
     }
+    const capabilities = args.capabilities === undefined ? undefined : capabilitiesOf(args.capabilities, type);
     // A type on another computer that cannot be reached now: nothing is created, and the error says where and why.
     if (typeLocation(type).remote) await this.o.reach?.(type);
     const title = String(args.title ?? '').trim() || type.artifactTitle || type.title;
@@ -839,7 +940,7 @@ export class Tools {
       if (known) throw new OpenArtifactError('conflict', `${root} is already the artifact ${artifactUrl(known.id)}.`, { fix: 'Use that url, or give another folder.' });
     }
     const owner = caller.session || caller.workspace ? caller : null;
-    const record = this.o.store.create({ root, type: typeId, typeSource: type.scope, typeRelease: type.version, owner, title });
+    const record = this.o.store.create({ root, type: typeId, typeSource: type.scope, typeRelease: type.version, typeUid: type.uid, typeFrom: markerSourceOf(type), owner, title, capabilities });
     this.o.log(`created ${record.id} (${typeId}) at ${root} for ${sessionKeyOf(caller) ?? 'nobody'}`);
     const auto = this.o.link?.created?.(record) === true;
     const actions = await this.knownActions(type, false);
@@ -865,6 +966,8 @@ export class Tools {
       ...(opening ? { open: opening } : args.open && args.open !== 'never' ? { note: this.o.harnesses().canShow(caller) ? (openEarly ? OPEN_EARLY_YOURSELF : OPEN_YOURSELF) : OPEN_NOT_AVAILABLE } : {}),
       ...(actions?.length ? { actions } : {}),
       instructions: this.instructionsFor(type, record, actions, opening),
+      ...this.noticeFields(type),
+      source: typeSourceOf(type).source,
       next:
         opening === 'after_first_write'
           ? check
@@ -881,7 +984,10 @@ export class Tools {
               : check
                 ? AFTER_CREATE_CHECK
                 : AFTER_CREATE,
-      ...(auto ? { notes: [autoNote(this.o.link?.autoTarget?.() ?? null)] } : {}),
+      ...(isPageType(type) ? { capabilities: record.capabilities ?? {} } : {}),
+      ...(auto || capabilityNotes(record.capabilities).length
+        ? { notes: [...(auto ? [autoNote(this.o.link?.autoTarget?.() ?? null)] : []), ...capabilityNotes(record.capabilities)] }
+        : {}),
     };
   }
 
@@ -895,8 +1001,12 @@ export class Tools {
   }
 
   private async write(args: ArtifactArgs): Promise<ToolCallResult> {
-    const record = this.o.store.require(args.url);
-    const given = args.files as unknown;
+    let record = this.o.store.require(args.url);
+    // The type matters to a write only for a page (its capabilities, its title); a registry may be left out in tests.
+    const type = this.o.types?.get(record.type, record.owner?.workspace ?? undefined) ?? null;
+    const capabilities = args.capabilities === undefined ? undefined : capabilitiesOf(args.capabilities, type);
+    // A page's capabilities may change alone, with no files.
+    const given = (args.files === undefined && capabilities !== undefined ? {} : args.files) as unknown;
     if (!given || typeof given !== 'object') {
       throw new OpenArtifactError('invalid_argument', 'publish with url needs files: {"rel/path": "text" | {content, encoding} | null}.');
     }
@@ -951,8 +1061,12 @@ export class Tools {
       writeFileSync(file, bytes);
       written.push({ path: clean, bytes: bytes.length, sha256: sha256(bytes) });
     }
+    // Capabilities go after the files, so a page that reloads for them already finds its new index.html.
+    if (capabilities !== undefined) record = this.o.store.setCapabilities(record.id, Object.keys(capabilities).length ? capabilities : null);
     const changed = changedFiles(record);
-    this.o.store.update(record.id, { agentSeenAt: now() });
+    // A page's title is its index.html's <title> (the type's titleFrom): an agent's write of it renames the artifact.
+    const titled = type?.titleFrom && isPageType(type) && plan.some(({ clean }) => clean === parseTitleFrom(type.titleFrom!)?.file) ? contentTitle(record.root, type.titleFrom) : undefined;
+    this.o.store.update(record.id, { agentSeenAt: now(), ...(titled && titled !== record.title ? { title: titled } : {}) });
     if (record.remote || record.autoPublish === 'pending') this.o.link?.wrote(record);
     const offline = this.o.link?.offlineNote(record) ?? null;
     const auto = this.o.link?.autoPending?.(record) === true ? autoNote(this.o.link?.autoTarget?.() ?? null) : null;
@@ -962,8 +1076,10 @@ export class Tools {
       written,
       view_url: this.o.viewUrl(record.id),
       ...(changed.length ? { changed_files: changed } : {}),
-      ...(notes.length ? { notes } : {}),
+      ...(capabilities !== undefined ? { capabilities: record.capabilities ?? {} } : {}),
+      ...(notes.length || capabilities !== undefined ? { notes: [...notes, ...(capabilities !== undefined ? capabilityNotes(record.capabilities) : [])] } : {}),
     };
+    if (!(result.notes as string[] | undefined)?.length) delete result.notes;
     if (args.check) result.check = await this.runCheck(record);
     return result;
   }
@@ -1060,9 +1176,9 @@ export class Tools {
           return { path, error: errorBody(error) };
         }
       });
-      return { url: artifactUrl(record.id), files, ...seen };
+      return { url: artifactUrl(record.id), files, ...seen, ...this.pageContentFields(record) };
     }
-    if (args.path) return { ...this.readOne(record, args.path, MAX_READ), ...seen };
+    if (args.path) return { ...this.readOne(record, args.path, MAX_READ), ...seen, ...this.pageContentFields(record) };
     const { owner, userEdits: _edits, remote, ...shown } = record;
     const type = this.o.types.get(record.type, owner?.workspace ?? undefined);
     const actions = type ? await this.knownActions(type, false) : null;
@@ -1073,7 +1189,10 @@ export class Tools {
       view_url: this.o.viewUrl(record.id),
       ...(remote ? { cloud: { remote: remote.name, host: remote.host, view_url: remote.url, syncedAt: remote.syncedAt, ...offlineOf(this.o.link, record) } } : {}),
       type_url: typeUrl(record.type),
-      ...(type ? { type_title: type.title, ...typeLocationFields(type) } : {}),
+      // Where the type comes from; a restricted one's title is its publisher's, and so may be what its page wrote (the
+      // notice: the type's, then the page content's, in the one field).
+      ...(type ? { type_title: type.title, ...typeLocationFields(type), ...this.sourceFields(type) } : {}),
+      ...(type && !type.trusted ? { third_party_notice: `${restrictedTypeNotice(type)} ${PAGE_CONTENT_NOTICE}` } : {}),
       files: this.listFiles(record.root, true),
       ...(actions ? { actions } : {}),
       ...seen,
@@ -1150,6 +1269,10 @@ export class Tools {
       });
     }
     if (args.cloud !== undefined && !(record.remote && record.remote.name === args.cloud)) {
+      // A type no site runs (a custom one): say so first, rather than that only the person may publish it. A page
+      // goes to a site that runs pages; the publish asks the site.
+      const refusal = siteRefusal(this.o.types?.get(record.type, record.owner?.workspace ?? undefined));
+      if (refusal) throw new OpenArtifactError('unsupported', refusal, { fix: 'Keep it on this computer for now.' });
       const name = String(args.cloud);
       if (!this.o.link || !this.o.link.agentMayPublish(name)) {
         throw new OpenArtifactError('not_granted', `Only the person publishes an artifact to the cloud${this.o.link ? ` (the remote ${name} does not let agents publish)` : ''}.`, {
@@ -1282,7 +1405,7 @@ export class Tools {
         owner: sessionKeyOf(caller),
         view_url: this.o.viewUrl(next.id),
         ...(actions?.length ? { actions } : {}),
-        ...(type ? { instructions: this.instructionsFor(type, next, actions) } : {}),
+        ...(type ? { instructions: this.instructionsFor(type, next, actions), ...this.noticeFields(type) } : {}),
       };
     }
     if (!args.folder) throw new OpenArtifactError('invalid_argument', 'adopt takes url (an artifact) or folder (one to add).');
@@ -1304,7 +1427,22 @@ export class Tools {
     const type = this.o.types.get(typeId, caller.workspace);
     // The title its content declares (the type's `titleFrom`, e.g. a doc's name), else the folder's name.
     const title = args.title || contentTitle(root, type?.titleFrom ?? null) || basename(root);
-    const record = this.o.store.create({ root, type: typeId, typeSource: type?.scope ?? null, typeRelease: type?.version ?? null, owner: caller, title });
+    // A page folder keeps the capabilities its marker declares (the record is new, the declaration is the folder's).
+    const capabilities = isPageType(type) ? markerCapabilities(root) : undefined;
+    // The uid the folder's marker recorded is kept as it is (none recorded: none is added); the type here is checked
+    // against it when the artifact is opened or written.
+    const marked = markerTypeUid(root);
+    const record = this.o.store.create({
+      root,
+      type: typeId,
+      typeSource: type?.scope ?? null,
+      typeRelease: type?.version ?? null,
+      typeUid: marked.typeUid,
+      typeFrom: marked.typeSource,
+      owner: caller,
+      title,
+      capabilities,
+    });
     const auto = this.o.link?.created?.(record) === true;
     const actions = type ? await this.knownActions(type, false) : null;
     return {
@@ -1312,7 +1450,7 @@ export class Tools {
       root,
       view_url: this.o.viewUrl(record.id),
       ...(actions?.length ? { actions } : {}),
-      ...(type ? { instructions: this.instructionsFor(type, record, actions) } : {}),
+      ...(type ? { instructions: this.instructionsFor(type, record, actions), ...this.noticeFields(type) } : {}),
       ...(auto ? { notes: [autoNote(this.o.link?.autoTarget?.() ?? null)] } : {}),
     };
   }
@@ -1359,7 +1497,7 @@ export class Tools {
         const docs = Array.isArray(out.docs) ? (out.docs as Record<string, unknown>[]) : null;
         if (args.action === 'query' && docs && out.query !== true) notes.push(DATA_QUERY_IGNORED_NOTE);
         if ((docs && docs.some((d) => typeof d.sha256 !== 'string')) || (out.exists === true && typeof out.sha256 !== 'string')) notes.push(DATA_NO_SHA_NOTE);
-        const result: ToolCallResult = { url: artifactUrl(record.id), ...out, ...(notes.length ? { notes } : {}) };
+        const result: ToolCallResult = { url: artifactUrl(record.id), ...out, ...(notes.length ? { notes } : {}), ...this.pageContentFields(record) };
         return args.out_file ? this.dataToFile(record, result, args.out_file, base) : result;
       }
       case 'set':
@@ -1383,7 +1521,7 @@ export class Tools {
     const file = resolve(base, outFile);
     if (file === record.root || file.startsWith(record.root + sep)) throw new OpenArtifactError('bad_path', 'out_file goes outside the artifact folder: a file there would become part of the artifact.');
     mkdirSync(dirname(file), { recursive: true });
-    const { notes, url: _url, ...data } = result;
+    const { notes, url: _url, third_party_notice: notice, ...data } = result;
     const text = `${JSON.stringify(data, null, 2)}\n`;
     writeFileSync(file, text);
     const count = Array.isArray(data.docs) ? data.docs.length : Array.isArray(data.documents) ? data.documents.length : data.exists === true ? 1 : 0;
@@ -1395,6 +1533,7 @@ export class Tools {
       ...(typeof data.total === 'number' ? { total: data.total } : {}),
       ...(typeof data.next_cursor === 'string' ? { next_cursor: data.next_cursor } : {}),
       ...(notes ? { notes } : {}),
+      ...(notice ? { third_party_notice: notice } : {}),
     };
   }
 
@@ -1425,10 +1564,12 @@ export class Tools {
     const notSent = (thread: AgentThread | null): boolean => !!thread && tracked && !thread.agent;
     switch (args.action) {
       case 'read': {
+        // A restricted type's page may have written the threads (its publisher's code): the notice says so.
+        const labelled = async (p: Promise<ToolCallResult>): Promise<ToolCallResult> => ({ ...(await p), ...this.pageContentFields(record) });
         const since = args.since !== undefined && args.since !== '' ? sinceOf(args.since) : null;
-        if (!args.thread_id && since === null) return comments('open-artifact.comments.read', { all: !!args.all });
+        if (!args.thread_id && since === null) return labelled(comments('open-artifact.comments.read', { all: !!args.all }));
         const all = await allThreads();
-        if (!all) return comments('open-artifact.comments.read', { all: !!args.all });
+        if (!all) return labelled(comments('open-artifact.comments.read', { all: !!args.all }));
         let threads = all;
         if (args.thread_id) {
           threads = threads.filter((t) => t.id === args.thread_id);
@@ -1437,7 +1578,7 @@ export class Tools {
           threads = threads.filter((t) => (t as { status?: unknown }).status !== 'resolved');
         }
         if (since !== null) threads = threads.filter((t) => lastActivity(t) >= since);
-        return { url, threads };
+        return { url, threads, ...this.pageContentFields(record) };
       }
       case 'reply': {
         if (!args.thread_id || !args.text) throw new OpenArtifactError('invalid_argument', 'reply needs thread_id and text.');

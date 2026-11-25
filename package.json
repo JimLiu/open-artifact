@@ -2,7 +2,7 @@
   "name": "open-artifact-workspace",
   "private": true,
   "type": "module",
-  "description": "Open, agent- and model-agnostic artifacts, all saved locally as plain files — edit, comment on, and export slides, UI designs, design systems, whiteboards, sheets, dashboards, docs, and motion.",
+  "description": "Open, agent- and model-agnostic artifacts, all saved locally as plain files — edit, comment on, and export slides, UI designs, design systems, whiteboards, sheets, dashboards, docs, motion, and free HTML pages.",
   "license": "Apache-2.0",
   "workspaces": [
     "packages/*",

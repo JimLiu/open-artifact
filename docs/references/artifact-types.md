@@ -4,13 +4,14 @@ Load this reference when modifying an existing artifact type, adding a new type,
 
 ## Built-in artifact types & storage styles
 
-Open Artifact supports three storage architectures across its 8 built-in types:
+Open Artifact supports three storage architectures across its 8 editor-backed built-in types, plus the free page (`page`), the ninth:
 
 | Style | Types | On-disk layout | How agents write |
 | --- | --- | --- | --- |
 | **Project files (`project`)** | `slides`, `design`, `design-system` | Index JSON + content files under `<root>/project/` (e.g., `project/deck.json`, `project/canvas.json`, `project/design-system.json`) | Direct file writes under `<root>/project/` (or `Artifact publish`), plus `check` / `upload` actions. |
 | **Live document store (`db`)** | `whiteboard`, `data`, `motion` | Small JSON documents under `<root>/db/<collection>/<id>.json`, synced via `@open-artifact/live-store` | `ArtifactData` (`get`/`list`/`query`/`set`/`update`/`delete`/`str_replace`/`batch`) or standalone `open-artifact write-db`. |
 | **Operational log / structured store (`sheet` / `doc`)** | `sheets`, `docs` | `sheet/sheet.json` + `sheet/edits.jsonl` (Sheets); `doc/doc.json` + character/block-ID tabs (Docs) | Structured `Artifact {action: "call", name: "read" \| "update" \| "batch" \| ...}` or standalone CLI commands; never hand-edit raw store files. |
+| **Free page** | `page` | The folder itself: `<root>/index.html` written whole by the agent, files beside it; data through the runtime capabilities it declares (`db/`, `_blobs/`, `comments.json`) | File writes (or `Artifact publish`), capabilities through `publish`'s `capabilities` argument. |
 
 Shared folder conventions across all types:
 - `<root>/_blobs/` — Content-addressed uploads (`/_blob/<sha256-prefix>`). Managed via `upload` / `delete-asset`; agents never write here directly.
@@ -27,6 +28,44 @@ Shared folder conventions across all types:
 | `SKILL.md` | Yes | Authoritative instructions returned to agents when creating/editing an artifact of this type. |
 | `reference/` | Yes | Progressive-loading format/craft/workflow docs referenced by `SKILL.md`. |
 | `scripts/` | No (gitignored) | Built output copied from `dist/server/` by `npm run build` (`cli.mjs`, `support.js`, `editors/`, `sheets.wasm`, etc.) so the type folder can run standalone. |
+
+## Page types (`openArtifact.style: "page"`)
+
+`artifact-types/page/` has no `index.html`, no `scripts/` and no `*-core` / `*-editor` pair. Its manifest sets
+`openArtifact.style: "page"`, which `entryOf` (`packages/daemon/src/types.ts`) resolves to frame-host (runtime `frame`).
+frame-host then runs in page mode (`ctx.page` in `packages/server-sdk/src/frame/local.ts`, `FrameEnv.page` in `core.ts`):
+
+- The page is the artifact's own root `index.html` (an empty state while it is missing), and `index.html` is the
+  artifact's file, so the page's `artifact.publish(html)` may replace it (compare-and-set on the view's `ver`).
+- The declaration is `{key: "page", capabilities}`, the capabilities read only from `<root>/.artifact.json`
+  (`pageDeclaration`); a change of the marker rewires the site. A `// artifact.json` block in the page is ignored.
+- The page's `<title>` becomes the artifact's title (frame `touch`, and `titleFrom: "index.html"` in the daemon).
+- The daemon keeps the declaration in the record and the marker (`ArtifactStore.setCapabilities`); only page types take
+  the `capabilities` argument. `LinkHub` publishes a page only to a site whose `hello` says `features.pages` (`PAGE_NO_SITE` otherwise), and keeps its declaration in step by `link.capabilities` and the `artifact` event; a Node site runs it in `packages/host/src/node/frames.ts`.
+- `page` is in `BUILTIN_TYPE_IDS`, but not in type-server `TYPES` nor `EDITORS` in `scripts/build.mjs`;
+  `scripts/vendor-types.mjs` skips the `scripts/cli.mjs` shim for it.
+
+## Custom types (frame types people make)
+
+A folder in a user, extra or trusted project root with an `index.html` whose first 64 KB hold a `// artifact.json`
+block (`hasInlineDeclaration`) runs on frame-host in type mode: the page and `artifact-type/` are the type's
+(read-only to the page, `typePath` in `packages/server-sdk/src/frame/files.ts`), every other relative URL is the
+artifact's folder, and `artifact.publish(html)` is refused.
+
+- **Authoring** (`packages/daemon/src/type-authoring.ts`, shapes in `packages/protocol/src/type-authoring.ts`):
+  `newType` (the `page` and `data` starters, `starterFiles`), `typeFromPage` (a `page` artifact's `index.html` and
+  `artifact-type/`, its record's capabilities as the inline declaration), `checkType` (errors and warnings by stable
+  `code`, plus `--for-share` limits `TYPE_SHARE_LIMITS`), `setTypeEnabled` (`disabledTypes`) and `setProjectTrusted`
+  (`trustedProjects`). The CLI is `open-artifact types new | check | from | enable | disable | trust | untrust | list`;
+  the Library routes are `types.new`, `types.check`, `types.from`, `types.enable`, `types.disable`, `types.trust`.
+- **The declaration, statically** (`packages/protocol/src/declaration.ts`): `declarationSource` finds the block (to
+  the next full-line `//` comment, or 64 KB) and `readStaticDeclaration` parses it as literal data without running it.
+  frame-host still evaluates the block in a V8 context (`packages/server-sdk/src/frame/declaration.ts`), which sees
+  only `var`; `types check` reports `let`/`const` (`declaration_lexical`). `packages/server-sdk/test/declaration-parity.test.ts`
+  keeps the two in step.
+- `manifest.uid` names a type apart from others of the same id (`types new` and `types from` write one).
+- The guide for agents is `skills/open-artifact/reference/new-type.md` (`/open-artifact new-type`, the `NEW_TYPE_TEXT`
+  section of `packages/protocol/src/skill.ts`). People's guide: `docs/custom-types.md`.
 
 ## Cross-type composition (`uses`)
 

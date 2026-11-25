@@ -33,6 +33,12 @@
  * The agent's presence: the host keeps the hub's word briefly; when the hub says the owner's Link came or went
  * ({@link ArtifactRoom.agentChanged}) the host forgets it and the open pages are told at once. A room whose artifact is
  * closed has nothing to tell and boots nothing for it.
+ *
+ * Page artifacts (`type: page`, when the host offers {@link RoomHost.pages}): the frame core runs them instead of the
+ * type server ({@link RoomFrames}, `frames.ts`), on the same mounted folder. What reaches it: `/page/<token>/…` on the
+ * content host, and every request of the artifact's page hosts (`<idlabel>--<opaque>`). The Worker's calls take them
+ * too: a page's actions are the frame core's, writes are handed to its open pages, its connections are counted with
+ * the type server's, and its page-host index ({@link PAGE_HOSTS_TABLE}) is dropped with the rest by `destroy`.
  */
 import { Buffer } from 'node:buffer';
 import { randomBytes } from 'node:crypto';
@@ -68,6 +74,7 @@ import type { SqlBackend, SyncStorage } from './fs/sql.ts';
 import { openDescriptors } from './fs/sync.ts';
 import { watcherCount } from './fs/watch.ts';
 import { liveTimers, trackTimers, type LiveTimer } from './timers.ts';
+import { PAGE_HOSTS_TABLE, PAGE_TYPE, pageScaffold, pageTitleOf, RoomFrames, sqlPageHostIndex, type PageHostIndex, type RoomPages } from './frames.ts';
 
 /** Where the editors are mounted (read-only, fetched from the assets binding). */
 export const ASSETS_ROOT = '/_assets';
@@ -116,6 +123,8 @@ export interface RoomHost {
   presenceChanged?(artifactId: string): void;
   /** The artifact was closed for being idle (nothing open in the room): stop telling the room of anything. */
   idle?(artifactId: string): void;
+  /** Page artifacts (the frame engine): who their requests are, their types and policy. Absent: none run here. */
+  pages?: RoomPages;
 }
 
 /** A Durable Object's state, as far as a room uses it. */
@@ -138,8 +147,11 @@ export interface RoomOptions {
   host: RoomHost;
   /** Makes a WebSocket pair (Workers: `() => Object.values(new WebSocketPair())`); default the global one. */
   pair?: WebSocketPairFactory;
-  /** The handshake's answer for the client end (Workers: `new Response(null, { status: 101, webSocket })`). */
-  upgraded?: (client: unknown) => Response;
+  /**
+   * The handshake's answer for the client end (Workers: `new Response(null, { status: 101, webSocket })`), with the
+   * headers it must carry (a page's inner shell asks for a subprotocol, which the answer names).
+   */
+  upgraded?: (client: unknown, headers?: Record<string, string>) => Response;
   /** Diagnostic log (default `console.log`). */
   log?: (line: string) => void;
   /** Closes the artifact after this long with no page and no request, ms; 0 never. Default {@link ROOM_IDLE_CLOSE_MS}. */
@@ -164,7 +176,7 @@ export interface RoomStats {
   databaseBytes: number | null;
   /** Page connections now (event streams and sockets). */
   connections: number;
-  /** Artifacts open in the type server (0 or 1; 0 once closed for being idle). */
+  /** Artifacts open in the type server or the frame core (0 or 1; 0 once closed for being idle). */
   open: number;
   /**
    * In the isolate (shared with other objects in it): timers (null unless `trackTimers`), `fs.watch` watchers, open
@@ -194,7 +206,7 @@ export class ArtifactRoom {
   readonly env: RoomEnv;
   private readonly host: RoomHost;
   private readonly pair: WebSocketPairFactory;
-  private readonly upgraded: (client: unknown) => Response;
+  private readonly upgraded: (client: unknown, headers?: Record<string, string>) => Response;
   private readonly log: (line: string) => void;
   private readonly idleCloseMs: number;
   private readonly sseHeartbeatMs: number;
@@ -206,6 +218,9 @@ export class ArtifactRoom {
   private folder: (Unmount & { readonly backend: SqlBackend }) | null = null;
   private typeServer: TypeServer | null = null;
   private files: ReturnType<typeof createArtifactFiles> | null = null;
+  /** A page artifact's frame core, once a page request or call needed it (it opens its core lazily itself). */
+  private frames: RoomFrames | null = null;
+  private pageIndex: PageHostIndex | null = null;
   private booting: Promise<void> | null = null;
   /** The owner's name and the title, as last read (the type server asks synchronously). */
   private ownerName = 'Owner';
@@ -219,7 +234,7 @@ export class ArtifactRoom {
     this.host = options.host;
     this.log = options.log ?? ((line) => console.log(line));
     this.pair = options.pair ?? defaultPair;
-    this.upgraded = options.upgraded ?? ((client) => new Response(null, { status: 101, webSocket: client } as ResponseInit));
+    this.upgraded = options.upgraded ?? ((client, headers) => new Response(null, { status: 101, webSocket: client, ...(headers ? { headers } : {}) } as ResponseInit));
     this.idleCloseMs = Math.max(0, options.idleCloseMs ?? ROOM_IDLE_CLOSE_MS);
     this.sseHeartbeatMs = Math.max(0, options.sseHeartbeatMs ?? HEARTBEAT_MS);
     this.tracking = options.trackTimers === true;
@@ -243,6 +258,13 @@ export class ArtifactRoom {
     try {
       this.claim(request.headers.get(ARTIFACT_HEADER));
       const server = await this.boot();
+      const pages = this.host.pages;
+      if (pages) {
+        const url = new URL(request.url);
+        // A page host is a page artifact's only: never the type server's.
+        if (pages.pageHostOf(url.host)) return await this.framesOf(pages).fetch(request);
+        if (url.pathname === `/${PAGE_TYPE}` || url.pathname.startsWith(`/${PAGE_TYPE}/`)) return await this.framesOf(pages).fetch(request);
+      }
       const { req, res, response } = bridgeRequest(request, { heartbeatMs: this.sseHeartbeatMs });
       this.requests.set(req, request);
       if (request.headers.get('upgrade')?.toLowerCase() === 'websocket') {
@@ -307,7 +329,9 @@ export class ArtifactRoom {
   async importArchive(bytes: Uint8Array, options: { id: string; limits?: ImportLimits }): Promise<ImportedArchive> {
     this.claim(options.id);
     await this.boot();
-    return unpackArchive(bytes, this.rootOf(options.id), { id: options.id, ...(options.limits ? { limits: options.limits } : {}) });
+    // A page archive is known by its marker alone (it has no content of its own to detect), when pages run here.
+    const markerTypes = this.host.pages ? [PAGE_TYPE] : undefined;
+    return unpackArchive(bytes, this.rootOf(options.id), { id: options.id, ...(options.limits ? { limits: options.limits } : {}), ...(markerTypes ? { markerTypes } : {}) });
   }
 
   /**
@@ -319,6 +343,8 @@ export class ArtifactRoom {
     const root = this.rootOf(options.id);
     let title: string | undefined;
     if (isTypeName(imported.type)) title = (await readArtifactTitle(root, imported.type).catch(() => undefined)) ?? undefined;
+    // A page's title is its <title> (as on Node).
+    else if (this.host.pages && imported.type === PAGE_TYPE) title = pageTitleOf(root);
     if (!title) {
       try {
         const meta = JSON.parse(readFileSync(join(root, '.artifact.json'), 'utf8')) as { title?: unknown };
@@ -335,6 +361,10 @@ export class ArtifactRoom {
    * the type's empty content, written beside the folder and renamed in. `exists` (409) when it has one.
    */
   async create(input: { id: string; type: string; title: string }): Promise<void> {
+    if (this.host.pages && input.type === PAGE_TYPE) {
+      await this.seed(input.id, pageScaffold(input.id, input.title));
+      return;
+    }
     if (!isTypeName(input.type)) throw roomError('invalid_argument', `Unknown type ${input.type}.`);
     const type = input.type;
     const dir = contentDirOf(type);
@@ -351,6 +381,7 @@ export class ArtifactRoom {
   async contentTitle(type: string): Promise<string | null> {
     const id = this.requireId();
     await this.boot();
+    if (this.host.pages && type === PAGE_TYPE) return pageTitleOf(this.rootOf(id)) ?? null;
     if (!isTypeName(type)) return null;
     const title = (await readArtifactTitle(this.rootOf(id), type).catch(() => undefined))?.trim().slice(0, 200);
     return title || null;
@@ -396,16 +427,36 @@ export class ArtifactRoom {
     return this.artifactFiles().read(this.requireId(), path);
   }
 
+  /** A page artifact's declared capabilities, or null when it is not a page here. */
+  async capabilities(): Promise<Record<string, unknown> | null> {
+    await this.boot();
+    const pages = this.host.pages;
+    if (!pages || !(await this.isPage(pages))) return null;
+    return this.framesOf(pages).capabilities();
+  }
+
+  /** Replaces a page artifact's declared capabilities; false when they were the same. `invalid_argument` for another type. */
+  async setCapabilities(capabilities: Record<string, unknown>): Promise<boolean> {
+    const id = this.requireId();
+    await this.boot();
+    const pages = this.host.pages;
+    if (!pages || !(await this.isPage(pages))) throw roomError('invalid_argument', `${id} is not a page artifact: only a page declares its capabilities.`);
+    if (!isDirectory(this.rootOf(id))) throw roomError('not_found', `Artifact ${id} has no folder.`, 404);
+    return this.framesOf(pages).setCapabilities(capabilities);
+  }
+
   /** Writes and deletes files with the Link's checks (`ArtifactFiles.write`). */
   async writeFiles(writes: LinkWrite[], author: string): Promise<LinkWriteResult[]> {
     await this.boot();
     return this.artifactFiles().write(this.requireId(), writes, author);
   }
 
-  /** Runs an action of the type server (`/__open-artifact/actions/<name>`); its JSON answer. */
+  /** Runs an action of the type server (`/__open-artifact/actions/<name>`), or a page's frame action; its JSON answer. */
   async action(name: string, args: Record<string, unknown> = {}): Promise<unknown> {
     const id = this.requireId();
     const server = await this.boot();
+    const pages = this.host.pages;
+    if (pages && (await this.isPage(pages))) return this.framesOf(pages).action(name, args);
     this.ownerName = await this.host.ownerName(id);
     const request = new Request(`http://127.0.0.1/__open-artifact/actions/${encodeURIComponent(name)}`, {
       method: 'POST',
@@ -436,12 +487,13 @@ export class ArtifactRoom {
       const ref = refOfViewer(viewer);
       if (ref) refs.set(`${ref.kind}:${ref.id}`, ref);
     }
+    for (const ref of this.frames?.connected() ?? []) refs.set(`${ref.kind}:${ref.id}`, ref);
     return [...refs.values()];
   }
 
   /** Every page connection's principal (null for a snapshot or a viewer the host did not tag) and role. */
   holders(): Array<{ ref: PrincipalRef | null; role: Viewer['role'] }> {
-    return this.viewers().map((viewer) => ({ ref: refOfViewer(viewer), role: viewer.role }));
+    return [...this.viewers().map((viewer) => ({ ref: refOfViewer(viewer), role: viewer.role })), ...(this.frames?.holders() ?? [])];
   }
 
   /**
@@ -457,14 +509,16 @@ export class ArtifactRoom {
 
   /** Ends the page connections `keep` answers false for (it is asked synchronously, once per connection). */
   disconnectWhere(keep: (ref: PrincipalRef | null, role: Viewer['role']) => boolean): void {
+    this.frames?.disconnectWhere(keep);
     if (!this.typeServer || !this.artifactId) return;
     this.typeServer.disconnect(this.artifactId, (viewer) => keep(refOfViewer(viewer), viewer.role));
   }
 
   /** Ends the page connections of everyone not in `keep` (principal ids); everyone's when omitted. */
   disconnect(keep?: string[]): void {
-    if (!this.typeServer || !this.artifactId) return;
     const kept = new Set(keep ?? []);
+    this.frames?.disconnectWhere((ref) => kept.has(ref.id));
+    if (!this.typeServer || !this.artifactId) return;
     this.typeServer.disconnect(this.artifactId, (viewer) => {
       const ref = refOfViewer(viewer);
       return ref !== null && kept.has(ref.id);
@@ -485,8 +539,8 @@ export class ArtifactRoom {
       storage: backend?.counters() ?? { statements: 0, rowsRead: 0, rowsWritten: 0, chunkRowsRead: 0, chunkRowsWritten: 0, commits: 0, rollbacks: 0 },
       usage: backend?.usage() ?? { files: 0, dirs: 0, bytes: 0 },
       databaseBytes: this.state.storage.sql.databaseSize ?? null,
-      connections: this.viewers().length,
-      open,
+      connections: this.viewers().length + (this.frames?.connections ?? 0),
+      open: open + (this.frames?.open ? 1 : 0),
       isolate: { timers: this.tracking ? liveTimers() : null, watchers: watcherCount(), descriptors: openDescriptors() },
     };
   }
@@ -500,6 +554,8 @@ export class ArtifactRoom {
     backend?.drop();
     this.folder = null;
     this.state.storage.sql.exec(`DROP TABLE IF EXISTS ${META_TABLE}`);
+    this.state.storage.sql.exec(`DROP TABLE IF EXISTS ${PAGE_HOSTS_TABLE}`);
+    this.pageIndex = null;
     await this.state.storage.deleteAll?.();
     this.artifactId = null;
   }
@@ -529,11 +585,42 @@ export class ArtifactRoom {
   }
 
   private artifactFiles(): ReturnType<typeof createArtifactFiles> {
-    this.files ??= createArtifactFiles((id) => {
-      if (id !== this.artifactId) throw roomError('not_found', `This object does not hold ${id}.`, 404);
-      return this.rootOf(id);
-    });
+    this.files ??= createArtifactFiles(
+      (id) => {
+        if (id !== this.artifactId) throw roomError('not_found', `This object does not hold ${id}.`, 404);
+        return this.rootOf(id);
+      },
+      // A write the host made itself reaches a page's open core (it has no watcher); nothing while none is open.
+      { afterWrite: (_, paths) => this.frames?.noteChanges(paths) },
+    );
     return this.files;
+  }
+
+  /** Whether this object's artifact is a page here (the catalog's type, through the host). */
+  private async isPage(pages: RoomPages): Promise<boolean> {
+    const artifact = await pages.artifact(this.requireId());
+    return !!artifact && (await pages.types.typeOf(artifact.type))?.page === true;
+  }
+
+  /** The page artifact's frame engine (made once; it opens its core on the first request that needs it). */
+  private framesOf(pages: RoomPages): RoomFrames {
+    const id = this.requireId();
+    if (this.frames) return this.frames;
+    this.pageIndex ??= sqlPageHostIndex(this.state.storage.sql);
+    this.frames = new RoomFrames({
+      id,
+      root: this.rootOf(id),
+      pages,
+      typeApi: this.host.typeApi,
+      index: this.pageIndex,
+      pair: this.pair,
+      upgraded: (client, headers) => this.upgraded(client, headers),
+      log: (line) => this.log(`[room ${id}] ${line}`),
+      idleCloseMs: this.idleCloseMs,
+      sseHeartbeatMs: this.sseHeartbeatMs,
+      onIdle: () => this.host.idle?.(id),
+    });
+    return this.frames;
   }
 
   /** Mounts the folder and starts the type server, once. */
@@ -621,6 +708,8 @@ export class ArtifactRoom {
 
   /** Stops the type server and unmounts the folder (the storage stays). */
   private async teardown(): Promise<void> {
+    this.frames?.close();
+    this.frames = null;
     const server = this.typeServer;
     this.typeServer = null;
     this.booting = null;

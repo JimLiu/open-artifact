@@ -45,6 +45,14 @@ export interface TypeServerEnv {
   OPEN_ARTIFACT_TYPE_TOKEN: string;
   /** Folder the server may keep state in. */
   OPEN_ARTIFACT_STATE_DIR: string;
+  /** The scope the type was found in (`TypeScope`). */
+  OPEN_ARTIFACT_TYPE_SCOPE?: string;
+  /**
+   * `1` for a type whose root is not trusted (installed, or a project not trusted yet), else `0`. frame-host serves a
+   * restricted type's page with a Content-Security-Policy that keeps it to its own origin and the manifest's
+   * `openArtifact.network`, and frames it with a `sandbox` (no popups, no top navigation).
+   */
+  OPEN_ARTIFACT_TYPE_RESTRICTED?: string;
 }
 
 /** The line a type server prints to stdout once it listens. */

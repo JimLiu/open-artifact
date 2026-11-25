@@ -5,6 +5,8 @@
  *   open-artifact daemon run [--port <n>] | ensure | status | stop
  *   open-artifact mcp [--harness <name>] [--channel]     stdio MCP server, bridged to the daemon (--channel: push comment notices, claude/channel)
  *   open-artifact types [list] [--workspace <dir>]
+ *   open-artifact types new <id> [--scope user|project] [--template page|data] [--name <name>] | check <id|dir> [--for-share]
+ *   open-artifact types from <page artifact | saved page folder|.html> --id <id> [--scope user|project] | enable|disable <id> | trust|untrust [<dir>]
  *   open-artifact artifact '<json args>'                 the Artifact tool; also: open-artifact data '<json>', open-artifact comments '<json>'
  *   open-artifact open <url|id>                          print the view url (and ask the owner's harness to show it)
  *   open-artifact wait [--timeout <ms>]                  wait for this session's next messages (OPEN_ARTIFACT_SESSION / --session)
@@ -25,10 +27,10 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { readFileSync, realpathSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { resolve as resolvePath, sep } from 'node:path';
 import { createInterface } from 'node:readline';
-import type { DaemonState, SessionRef, ToolCallResult } from '@open-artifact/protocol';
+import { LIBRARY_ROUTES, type DaemonState, type SessionRef, type ToolCallResult, type TypesFromResponse, type TypesNewResponse, type TypePackagePreview, type TypesSettingResponse, type TypesPublishResponse, type TypesUnpublishResponse } from '@open-artifact/protocol';
 import { agentSessionOf, dataChoice, dataLeftOut, DATA_QUESTION, personOnlyRefusal, saidYes, type PersonAct } from '../agent-session.ts';
 import { api, ensureDaemon, readDaemon } from '../client.ts';
 import { harnessProfile, shippedProfilesDir } from '../harness.ts';
@@ -40,6 +42,8 @@ import { remoteRemovedText, remoteStatusText } from '../remote-status.ts';
 import type { CloudStatus, RemoteStatus } from '../link.ts';
 import { loadSettings } from '../settings.ts';
 import { TypeRegistry } from '../types.ts';
+import { checkType, typeDirOf } from '../type-authoring.ts';
+import { isAddress, loadTypePackage, packType, previewText, typeSourceOf } from '../type-packages.ts';
 import { skillCommand } from '../cli-skill.ts';
 import { runtimeCommand } from '../cli-runtime.ts';
 import { doctorText, runDoctor } from '../doctor.ts';
@@ -51,7 +55,22 @@ const argv = process.argv.slice(2);
 
 const USAGE = `open-artifact daemon run [--port <n>] | ensure | status | stop
 open-artifact mcp [--harness <name>] [--channel]     stdio MCP server, bridged to the daemon (--channel: push comment notices, claude/channel)
-open-artifact types [list] [--workspace <dir>]
+open-artifact types [list] [--workspace <dir>]   the types here (JSON): scope, source (builtin | local | installed), version, uid…
+open-artifact types new <id> [--scope user|project] [--template page|data] [--name <name>]
+                                                     make a starter type (default: in the user root, the page template)
+open-artifact types check <id|folder> [--for-share]  what is wrong with a type (JSON); exits 1 when there are errors
+open-artifact types from <page artifact | saved page> --id <id> [--scope user|project] [--name <name>]
+                                                     make a type from a page artifact, or from a page saved
+                                                     from claude.ai (a folder with index.html, or an .html file)
+open-artifact types enable <id> | disable <id>       turn a type on or off (settings.json disabledTypes)
+open-artifact types trust [<dir>] | untrust [<dir>]  trust a project folder's types (default: this folder) or stop
+open-artifact types pack <id|folder> [--out <file|dir>]   check a type for sharing and write <id>-<version>.oatype
+                                                     (prints its path, sha256 and size)
+open-artifact types install <file.oatype|https://…> [--as <id>] [--yes]   show what the package is (name, version,
+                                                     source, capabilities, network, its SKILL.md), ask, then install it
+open-artifact types update <id> [--yes] | uninstall <id>   fetch an installed type again from its source, or remove it
+open-artifact import <artifact.zip> [--folder <dir>] an artifact's archive (its Download zip) as an artifact here; its
+                                                     type (the same uid) must be here
 open-artifact artifact '<json args>'                 the Artifact tool; also: open-artifact data '<json>', open-artifact comments '<json>'
 open-artifact open <url|id>                          print the view url (and ask the owner's harness to show it)
 open-artifact wait [--timeout <ms>]                  wait for this session's next messages (OPEN_ARTIFACT_SESSION / --session)
@@ -88,7 +107,8 @@ open-artifact publish <id|folder> [--remote <name>]  publish an artifact to a cl
 open-artifact unpublish <id>                         take it off the host; it is local only again
 open-artifact --version | -v                         print this runtime's version
 publish, unpublish and remote add / remove / default / auto are the person's decisions: run inside an agent's session,
-they are refused, and the agent asks the person instead (so are harness add / remove and runtime update / pin / policy).`;
+they are refused, and the agent asks the person instead (so are harness add / remove, runtime update / pin / policy and
+types enable / disable / trust / untrust / install / update / uninstall).`;
 
 /** Takes `--name <value>` out of the arguments. */
 function flag(name: string): string | undefined;
@@ -513,6 +533,44 @@ function personOnly(act: PersonAct, command: string, remote?: string | null): vo
   if (refusal) die(refusal);
 }
 
+/** An error's message, with its fix when it has one. */
+function errorText(error: unknown): string {
+  const e = error as { message?: unknown; fix?: unknown };
+  return `${String(e?.message ?? error)}${typeof e?.fix === 'string' ? `\n  ${e.fix}` : ''}`;
+}
+
+/** A Library API call whose body is a file's bytes (`types.preview`, `artifacts.import`); a failure ends the command. */
+async function daemonUpload<T>(name: string, bytes: Uint8Array, query: Record<string, string>): Promise<T> {
+  const state = await ensureDaemon();
+  const url = new URL(`/api/open-artifact.${name}`, state.url);
+  for (const [key, value] of Object.entries(query)) url.searchParams.set(key, value);
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { ...whoHeaders(), Authorization: `Bearer ${state.token}`, 'Content-Type': 'application/octet-stream' },
+    body: Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength) as unknown as BodyInit,
+  });
+  const answer = (await response.json().catch(() => ({ code: 'error', message: `The daemon answered ${response.status}.` }))) as T & { code?: unknown; message?: unknown; fix?: unknown };
+  if (answer && typeof answer === 'object' && typeof answer.code === 'string' && typeof answer.message === 'string') {
+    die(`${answer.message}${typeof answer.fix === 'string' ? `\n  ${answer.fix}` : ''}`);
+  }
+  return answer;
+}
+
+/** `open-artifact import <zip> [--folder <dir>]`: an artifact's archive made into an artifact of this computer. */
+async function importCommand(file: string | undefined): Promise<void> {
+  const folder = flag('folder');
+  if (!file) die('import <artifact.zip> [--folder <dir>]');
+  let bytes: Buffer;
+  const path = resolvePath(file);
+  try {
+    bytes = readFileSync(path);
+  } catch (error) {
+    die(`import: cannot read ${path} (${(error as Error).message})`);
+  }
+  const answer = await daemonUpload<{ id: string; url?: string; root?: string; type?: string }>(LIBRARY_ROUTES.import, bytes, { name: path, ...(folder ? { folder: resolvePath(folder) } : {}) });
+  out(answer);
+}
+
 /** A Library API call whose failure (`{code, message}`) ends the command. */
 async function daemonCall<T>(name: string, body?: unknown): Promise<T> {
   const state = await ensureDaemon();
@@ -624,10 +682,13 @@ function ask(question: string): Promise<string> {
  */
 async function publish(target: string | undefined): Promise<void> {
   const name = flag('remote');
-  if (!target) die('publish <artifact id | folder> [--remote <name>]');
+  const withType = argv.includes('--with-type');
+  if (!target) die('publish <artifact id | folder> [--remote <name>] [--with-type]');
   const isId = /^(open-artifact:\/\/artifact\/)?art_[0-9a-z]+$/.test(target);
-  const command = `open-artifact publish ${target}${name ? ` --remote ${name}` : ''}`;
+  const command = `open-artifact publish ${target}${name ? ` --remote ${name}` : ''}${withType ? ' --with-type' : ''}`;
   if (AGENT) {
+    // Publishing its type is never an agent's, whatever the site allows.
+    if (withType) personOnly('type-publish', command);
     // Which site it would go to decides whether the person allowed it: the one named, else the default.
     const remote = name ?? (await daemonCall<{ cloud?: CloudStatus }>('remotes')).cloud?.default ?? null;
     personOnly('publish', command, remote);
@@ -643,6 +704,7 @@ async function publish(target: string | undefined): Promise<void> {
   }>('artifacts.publish', {
     ...(isId ? { id: target } : { folder: resolvePath(target), adopt: true }),
     ...(name ? { remote: name } : {}),
+    ...(withType ? { withType: true } : {}),
   });
   if (answer.adopted) out(`Added ${answer.adopted.root} as ${answer.url} (${answer.adopted.type}, "${answer.adopted.title}").`);
   out(`Published to ${answer.remote}: ${answer.view_url}`);
@@ -663,23 +725,153 @@ async function publish(target: string | undefined): Promise<void> {
   out(dataLeftOut(answer.id, choice));
 }
 
-function types(): void {
-  const registry = new TypeRegistry(loadSettings);
-  const workspace = flag('workspace') ?? process.cwd();
-  out(
-    registry.list(workspace, { includeShadowed: true }).map((t) => ({
-      id: t.id,
-      title: t.title,
-      scope: t.scope,
-      runtime: t.runtime,
-      runnable: t.runnable,
-      enabled: t.enabled,
-      shadowedBy: t.shadowedBy,
-      dir: t.dir,
-      problems: t.problems,
-    })),
-  );
-  registry.close();
+/** `open-artifact types …`: list, make, check and manage types (`type-authoring.ts`). */
+async function types(sub: string | undefined): Promise<void> {
+  switch (sub ?? 'list') {
+    case 'list': {
+      const registry = new TypeRegistry(loadSettings);
+      const workspace = flag('workspace') ?? process.cwd();
+      out(
+        registry.list(workspace, { includeShadowed: true }).map((t) => ({
+          id: t.id,
+          title: t.title,
+          scope: t.scope,
+          // Where it came from: shipped with Open Artifact, a folder on this computer, or installed (and from where).
+          ...typeSourceOf(t),
+          version: t.version,
+          uid: t.uid,
+          runtime: t.runtime,
+          runnable: t.runnable,
+          enabled: t.enabled,
+          shadowedBy: t.shadowedBy,
+          ...(t.scope === 'project' ? { trusted: t.trusted } : {}),
+          dir: t.dir,
+          problems: t.problems,
+        })),
+      );
+      registry.close();
+      return;
+    }
+    case 'new': {
+      const scope = flag('scope');
+      const template = flag('template');
+      const name = flag('name');
+      const [id] = argv;
+      if (!id) die('types new <id> [--scope user|project] [--template page|data] [--name <name>]');
+      const cwd = process.cwd();
+      return out(await daemonCall<TypesNewResponse>(LIBRARY_ROUTES.typesNew, { id, scope, template, name, project: cwd, workspace: cwd }));
+    }
+    case 'check': {
+      const workspace = flag('workspace') ?? process.cwd();
+      const forShare = argv.includes('--for-share');
+      const [target] = argv.filter((a) => a !== '--for-share');
+      if (!target) die('types check <id|folder> [--for-share]');
+      const settings = loadSettings();
+      const registry = new TypeRegistry(() => settings);
+      try {
+        const result = checkType(typeDirOf(target, registry, workspace), { settings, registry, workspace, forShare });
+        out(result);
+        if (!result.ok) process.exitCode = 1;
+      } catch (error) {
+        die((error as Error).message);
+      } finally {
+        registry.close();
+      }
+      return;
+    }
+    case 'from': {
+      const id = flag('id');
+      const scope = flag('scope');
+      const name = flag('name');
+      const [target] = argv;
+      if (!target || !id) die('types from <page artifact url|id | saved page folder|.html> --id <id> [--scope user|project] [--name <name>]');
+      const cwd = process.cwd();
+      // A path that is there is a saved page (a folder, or an .html file); anything else names a page artifact.
+      const saved = !/^(art_|open-artifact:\/\/)/.test(target) && existsSync(resolvePath(target));
+      const from = saved ? { path: resolvePath(target) } : { artifact: target };
+      return out(await daemonCall<TypesFromResponse>(LIBRARY_ROUTES.typesFrom, { ...from, id, scope, name, project: cwd, workspace: cwd }));
+    }
+    case 'enable':
+    case 'disable': {
+      const [id] = argv;
+      if (!id) die(`types ${sub} <id>`);
+      personOnly(sub === 'enable' ? 'type-enable' : 'type-disable', `open-artifact types ${sub} ${id}`);
+      return out(await daemonCall<TypesSettingResponse>(sub === 'enable' ? LIBRARY_ROUTES.typesEnable : LIBRARY_ROUTES.typesDisable, { id }));
+    }
+    case 'trust':
+    case 'untrust': {
+      const dir = resolvePath(argv[0] ?? process.cwd());
+      personOnly(sub === 'trust' ? 'type-trust' : 'type-untrust', `open-artifact types ${sub} ${dir}`);
+      return out(await daemonCall<TypesSettingResponse>(LIBRARY_ROUTES.typesTrust, { dir, trusted: sub === 'trust' }));
+    }
+    case 'pack': {
+      const outFile = flag('out');
+      const workspace = flag('workspace') ?? process.cwd();
+      const [target] = argv;
+      if (!target) die('types pack <id|folder> [--out <file|folder>]');
+      const settings = loadSettings();
+      const registry = new TypeRegistry(() => settings);
+      try {
+        const packed = await packType(typeDirOf(target, registry, workspace), { settings, registry, workspace, ...(outFile ? { out: outFile } : {}) });
+        out({ file: packed.file, sha256: packed.sha256, bytes: packed.bytes, id: packed.id, version: packed.version, files: packed.files });
+      } catch (error) {
+        die(errorText(error));
+      } finally {
+        registry.close();
+      }
+      return;
+    }
+    case 'install':
+    case 'update': {
+      const as = flag('as');
+      const yes = argv.includes('--yes');
+      const [target] = argv.filter((a) => a !== '--yes');
+      if (!target) die(sub === 'install' ? 'types install <file.oatype|https://…> [--as <id>] [--yes]' : 'types update <id> [--yes]');
+      const command = sub === 'install' ? `open-artifact types install ${target}${as ? ` --as ${as}` : ''}` : `open-artifact types update ${target}`;
+      personOnly(sub === 'install' ? 'type-install' : 'type-update', command);
+      let preview: TypePackagePreview;
+      if (sub === 'update') preview = await daemonCall<TypePackagePreview>(LIBRARY_ROUTES.typesUpdate, { id: target });
+      else if (isAddress(target)) preview = await daemonCall<TypePackagePreview>(LIBRARY_ROUTES.typesPreview, { url: target, ...(as ? { as } : {}) });
+      else {
+        let loaded: { bytes: Uint8Array; source: string };
+        try {
+          loaded = await loadTypePackage(target);
+        } catch (error) {
+          die(errorText(error));
+        }
+        preview = await daemonUpload<TypePackagePreview>(LIBRARY_ROUTES.typesPreview, loaded.bytes, { name: loaded.source, ...(as ? { as } : {}) });
+      }
+      process.stderr.write(`${previewText(preview)}\n`);
+      if (!yes) {
+        if (!process.stdin.isTTY || !process.stdout.isTTY) die(`Nothing was ${sub === 'install' ? 'installed' : 'updated'}: there is no terminal to ask at. Read the above, then run ${command} --yes.`);
+        if (!saidYes(await ask(`${sub === 'install' ? 'Install' : 'Update'} ${preview.name} ${preview.version} as ${preview.id}? [y/N] `))) return out('Nothing was changed.');
+      }
+      const done = await daemonCall<object>(sub === 'install' ? LIBRARY_ROUTES.typesInstall : LIBRARY_ROUTES.typesUpdate, { sha256: preview.sha256, ...(sub === 'install' ? (as ? { as } : {}) : { id: target }) });
+      return out(done);
+    }
+    case 'publish':
+    case 'unpublish': {
+      const remote = flag('remote');
+      const visibility = sub === 'publish' ? flag('visibility') : undefined;
+      const [id] = argv;
+      if (!id) die(sub === 'publish' ? 'types publish <id> [--remote <site>] [--visibility private|site|link]' : 'types unpublish <id> [--remote <site>]');
+      if (visibility !== undefined && visibility !== null && !['private', 'site', 'link'].includes(visibility)) die('--visibility is private, site or link.');
+      const command = `open-artifact types ${sub} ${id}${remote ? ` --remote ${remote}` : ''}${visibility ? ` --visibility ${visibility}` : ''}`;
+      personOnly(sub === 'publish' ? 'type-publish' : 'type-unpublish', command);
+      if (sub === 'unpublish') return out(await daemonCall<TypesUnpublishResponse>(LIBRARY_ROUTES.typesUnpublish, { id, ...(remote ? { remote } : {}) }));
+      const done = await daemonCall<TypesPublishResponse>(LIBRARY_ROUTES.typesPublish, { id, workspace: flag('workspace') ?? process.cwd(), ...(remote ? { remote } : {}), ...(visibility ? { visibility } : {}) });
+      process.stderr.write(`${done.change === 'unchanged' ? 'Already on' : done.change === 'new' ? 'Published to' : `Published version ${done.type.version} (was ${done.previous}) to`} ${done.remote} (${done.host}): ${done.type.id} ${done.type.version}, visibility ${done.type.visibility}.\n`);
+      return out(done);
+    }
+    case 'uninstall': {
+      const [id] = argv;
+      if (!id) die('types uninstall <id>');
+      personOnly('type-uninstall', `open-artifact types uninstall ${id}`);
+      return out(await daemonCall<object>(LIBRARY_ROUTES.typesUninstall, { id }));
+    }
+    default:
+      die('types [list] | new <id> | check <id|folder> [--for-share] | from <page> --id <id> | enable <id> | disable <id> | trust [<dir>] | untrust [<dir>] | pack <id|folder> [--out <file>] | install <file|https://…> [--as <id>] [--yes] | update <id> [--yes] | uninstall <id> | publish <id> [--remote <site>] [--visibility private|site|link] | unpublish <id> [--remote <site>]');
+  }
 }
 
 /** `open-artifact harness …`: the harness profiles in `<home>/harnesses/`. */
@@ -729,8 +921,12 @@ async function main(): Promise<void> {
       if (sub) argv.unshift(sub);
       return mcpBridge();
     case 'types':
-      if (sub && sub !== 'list') argv.unshift(sub);
-      return types();
+      // `types --workspace <dir>` lists, as `types list` does.
+      if (sub?.startsWith('--')) {
+        argv.unshift(sub);
+        return types('list');
+      }
+      return types(sub);
     case 'artifact':
       return tool('Artifact', sub);
     case 'data':
@@ -790,6 +986,8 @@ async function main(): Promise<void> {
       return remote(sub);
     case 'publish':
       return publish(sub);
+    case 'import':
+      return importCommand(sub);
     case 'unpublish': {
       if (!sub) die('unpublish <artifact id>');
       if (AGENT) {

@@ -47,6 +47,9 @@ import {
   type WakeRequestItem,
   type WakeSender,
   type WakeThread,
+  type SiteTypeVisibility,
+  type TypesPublishResponse,
+  type TypesUnpublishResponse,
 } from '@open-artifact/protocol';
 import type { Inbox } from './inbox.ts';
 import { inside, writeFileAtomic } from './paths.ts';
@@ -69,7 +72,8 @@ import {
   type StoredRemote,
 } from './remote.ts';
 import { sessionKeyOf, userEditsAfter, type ArtifactStore } from './store.ts';
-import type { TypeInfo } from './types.ts';
+import { PAGE_NO_SITE, typePublishRefusal, type TypeInfo } from './types.ts';
+import type { PackedType } from './type-packages.ts';
 import { UNOWNED_KEY, type WakeItem, type WakeResult } from './wake.ts';
 
 /**
@@ -308,7 +312,28 @@ export interface LinkHubOptions {
   insecureHttp?: () => boolean;
   /** Live data of published dashboards (`data-refresh.ts`): told of publishes, unpublishes and refresh requests. */
   data?: LinkDataHooks;
+  /**
+   * Why an artifact cannot go to a site at all (its type has no site support yet: a `page`), or `null`. Such an
+   * artifact is never published, by hand or by itself.
+   */
+  localOnly?: (record: ArtifactRecord) => string | null;
+  /**
+   * Whether the artifact is a page (the built-in `page` type): it goes only to a site whose `hello` says
+   * `features.pages`, and its declared capabilities travel by `link.capabilities` and the `artifact` event.
+   */
+  needsPages?: (record: ArtifactRecord) => boolean;
+  /**
+   * The artifact's type when it is a custom type a site runs once it is published there (`isSiteKindType`), else
+   * null: such an artifact goes only to a site whose catalog has its type (the same uid). Automatic publishing leaves
+   * it alone: its type goes to a site by the person's hand.
+   */
+  siteType?: (record: ArtifactRecord) => TypeInfo | null;
+  /** Packs a type folder for a site (`packTypeBytes`: the `--for-share` checks first). */
+  packType?: (type: TypeInfo, workspace: string | null) => Promise<PackedType>;
 }
+
+/** Why a site takes no published types: older, or its app and pages share one domain. */
+const TYPES_NO_SITE = 'This site keeps no published types (it is older than this Open Artifact, or it serves everything on one domain).';
 
 /** {@link LinkHubOptions.data}. */
 export interface LinkDataHooks {
@@ -318,6 +343,22 @@ export interface LinkDataHooks {
   requested(id: string, queries?: string[]): void;
   /** An artifact is no longer published (unpublished here, or removed on the host). */
   unpublished(record: ArtifactRecord): void;
+}
+
+/** A page record's declared capabilities, `{}` when it declares none. */
+function capabilitiesOfRecord(record: ArtifactRecord): Record<string, unknown> {
+  return record.capabilities && typeof record.capabilities === 'object' ? record.capabilities : {};
+}
+
+function isRecordValue(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+/** Whether two JSON values are the same, keys in any order. */
+function sameJson(a: unknown, b: unknown): boolean {
+  const norm = (v: unknown): unknown =>
+    Array.isArray(v) ? v.map(norm) : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, norm((v as Record<string, unknown>)[k])])) : v;
+  return JSON.stringify(norm(a)) === JSON.stringify(norm(b));
 }
 
 /** How long after a create the first automatic publish is tried, ms (the tool's answer goes out first). */
@@ -567,7 +608,7 @@ export class LinkHub {
    * marked to be published and the publish starts in the background; `true` then (the tool says so). Never throws.
    */
   created(record: ArtifactRecord): boolean {
-    if (!this.autoMode() || record.remote || record.autoPublish) return false;
+    if (!this.autoMode() || record.remote || record.autoPublish || this.o.localOnly?.(record) || this.o.siteType?.(record)) return false;
     try {
       this.o.store.update(record.id, { autoPublish: 'pending', updatedAt: record.updatedAt });
     } catch {
@@ -605,7 +646,7 @@ export class LinkHub {
     const state = this.autos.get(id);
     if (!state || state.running || this.closed) return;
     const record = this.o.store.get(id);
-    if (!record || record.remote || record.autoPublish !== 'pending' || !this.autoMode()) {
+    if (!record || record.remote || record.autoPublish !== 'pending' || !this.autoMode() || this.o.localOnly?.(record) || this.o.siteType?.(record)) {
       this.autos.delete(id);
       return;
     }
@@ -631,6 +672,12 @@ export class LinkHub {
             fresh,
             `[Open Artifact] "${fresh.title}" (${artifactUrl(id)}) could not be published to ${where} yet: ${state.lastError} It stays on this computer (view_url is the local address) and is tried again by itself; open-artifact remote status shows how it stands. Nothing for you to do unless the person asks.`,
           );
+        }
+        // A site that does not run this artifact (a page on an older site) refuses it every time: no retry until the
+        // daemon starts again (the site may be updated by then).
+        if ((error as OpenArtifactError).code === 'unsupported') {
+          if (this.autos.get(id) === state) this.autos.delete(id);
+          return;
         }
         if (!this.closed && this.autos.get(id) === state) {
           const wait = this.backoff(state.attempts - 1);
@@ -878,18 +925,46 @@ export class LinkHub {
    * Publishes an artifact to a remote: its zip goes to `link.import` under its own id, and the record remembers where
    * it went (`remote`), with `base` from what the host took. The working copy syncs from then on.
    */
-  async publish(record: ArtifactRecord, name: string): Promise<ArtifactRecord> {
+  async publish(record: ArtifactRecord, name: string, o: { withType?: boolean } = {}): Promise<ArtifactRecord> {
+    const localOnly = this.o.localOnly?.(record);
+    if (localOnly) throw new OpenArtifactError('unsupported', localOnly, { fix: 'Keep it on this computer for now; open it here with Artifact {action: "open"}.' });
     if (record.remote) {
       if (record.remote.name === name) return record;
       throw new OpenArtifactError('conflict', `${artifactUrl(record.id)} is published to ${record.remote.name} already.`, { fix: 'Unpublish it first (open-artifact unpublish <id>).' });
     }
     const client = this.client(name);
     if (!client.signedIn()) throw new OpenArtifactError('unauthorized', `not signed in to ${name}`, { fix: `Sign in again: open-artifact remote add ${name} ${client.host}` });
+    const page = this.o.needsPages?.(record) === true;
+    // A site that does not run pages (older, or single-origin) would refuse the type: say why here instead.
+    if (page && (await client.hello()).features?.pages !== 1) {
+      throw new OpenArtifactError('unsupported', PAGE_NO_SITE, { fix: `Keep it on this computer for now; it can go to ${client.host} once that site is updated.` });
+    }
+    // A custom type: the site's catalog must have it (the same uid); `withType` publishes it there first.
+    const custom = this.o.siteType?.(record) ?? null;
+    let typeError: OpenArtifactError | null = null;
+    if (custom) {
+      if ((await client.hello()).features?.types !== 1) {
+        throw new OpenArtifactError('unsupported', `${TYPES_NO_SITE} An artifact of the type ${custom.id} stays on this computer.`, { fix: `Keep it on this computer for now; it can go to ${client.host} once that site takes published types.` });
+      }
+      const uid = record.typeUid ?? custom.uid;
+      if (custom.uid && record.typeUid && record.typeUid !== custom.uid) {
+        throw new OpenArtifactError('type_mismatch', `${artifactUrl(record.id)} was made with another type ${custom.id} (uid ${record.typeUid}) than the one on this computer (uid ${custom.uid}).`);
+      }
+      if (o.withType) typeError = await this.withType(client, custom, uid, name, record.owner?.workspace ?? null);
+    }
     const zip = await this.o.archive(record);
     let imported;
     try {
       imported = await client.import(zip, { id: record.id, type: record.type, title: record.title });
     } catch (error) {
+      const code = (error as OpenArtifactError).code;
+      if (custom && typeError && (code === 'type_missing' || code === 'not_granted' || code === 'type_mismatch')) throw typeError;
+      if (custom && (code === 'type_missing' || (code === 'not_granted' && /unpublished/.test((error as Error).message)))) {
+        throw new OpenArtifactError(code, `${(error as Error).message} The artifact was not published.`, {
+          fix: `Publish the type first: open-artifact types publish ${custom.id} --remote ${name}; or publish both at once: open-artifact publish ${record.id} --remote ${name} --with-type.`,
+        });
+      }
+      if (code === 'type_missing' || code === 'type_mismatch') throw error;
       if ((error as OpenArtifactError).code === 'conflict' || (error as OpenArtifactError).status === 409) {
         // An artifact this person unpublished there (in their trash) is replaced: what is left is one still published
         // (from another computer) or someone else's.
@@ -901,6 +976,8 @@ export class LinkHub {
     }
     const base = Object.fromEntries(Object.entries(imported.files ?? {}).map(([path, file]) => [path, file.etag]));
     const remote: ArtifactRemote = { name, host: client.host, url: imported.url || `${client.host}/a/${record.id}`, base, syncedAt: new Date().toISOString() };
+    // A page's capabilities are in its `.artifact.json`, which the zip carries: the host took them as they are.
+    if (page) remote.capabilities = capabilitiesOfRecord(record);
     // The host titles it from its content (a doc's name) when the content has a title: the record follows.
     const hostTitle = typeof imported.title === 'string' ? imported.title.trim().slice(0, 200) : '';
     const next = this.o.store.update(record.id, { remote, updatedAt: record.updatedAt, ...(hostTitle && hostTitle !== record.title ? { title: hostTitle } : {}) });
@@ -909,6 +986,51 @@ export class LinkHub {
     if (!this.streams.has(name)) this.connect(name);
     this.o.data?.published(record.id);
     return next;
+  }
+
+  /**
+   * `publish --with-type`: the type goes to the site first, unless the site has it already (the same uid, listed, and
+   * the same version or someone else's). A new one is published with `link` visibility: it is not listed to the
+   * site's members, and the artifact runs it. Answers the refusal of the type's publish when there was one (the
+   * artifact's import is still tried: a site may have the type where this person cannot list it), else null.
+   */
+  private async withType(client: LinkClient, type: TypeInfo, uid: string | null, name: string, workspace: string | null): Promise<OpenArtifactError | null> {
+    const listed = (await client.typesList()).types.find((t) => t.id === type.id);
+    if (listed && listed.uid === uid && !listed.unpublished && (listed.version === type.version || !listed.mine)) return null;
+    try {
+      await this.publishType(type, name, listed ? undefined : 'link', workspace);
+      return null;
+    } catch (error) {
+      if (error instanceof OpenArtifactError && (error.code === 'not_granted' || error.code === 'conflict')) return error;
+      throw error;
+    }
+  }
+
+  /**
+   * `open-artifact types publish`: a type of this computer packed (the `--for-share` checks) and sent to a site's
+   * catalog (`link.types.import`). `visibility` is for a new type (default `private`) or to change it.
+   */
+  async publishType(type: TypeInfo, name: string, visibility?: SiteTypeVisibility, workspace: string | null = null): Promise<TypesPublishResponse> {
+    const refusal = typePublishRefusal(type);
+    if (refusal) throw new OpenArtifactError('invalid_argument', refusal);
+    if (!this.o.packType) throw new OpenArtifactError('unsupported', 'This daemon cannot pack types.');
+    const client = this.client(name);
+    if (!client.signedIn()) throw new OpenArtifactError('unauthorized', `not signed in to ${name}`, { fix: `Sign in again: open-artifact remote add ${name} ${client.host}` });
+    if ((await client.hello()).features?.types !== 1) throw new OpenArtifactError('unsupported', TYPES_NO_SITE, { fix: `Keep the type on this computer; ${client.host} takes it once that site is updated.` });
+    const packed = await this.o.packType(type, workspace);
+    const result = await client.typesImport(packed.bytes, visibility);
+    this.o.log(`link: published the type ${type.id} ${result.type.version} to ${name} (${result.change}, visibility ${result.type.visibility}, sha256 ${result.type.sha256})`);
+    return { ...result, remote: name, host: client.host };
+  }
+
+  /** `open-artifact types unpublish`: delisted on the site while artifacts use it, else removed. */
+  async unpublishType(id: string, name: string): Promise<TypesUnpublishResponse> {
+    const client = this.client(name);
+    if (!client.signedIn()) throw new OpenArtifactError('unauthorized', `not signed in to ${name}`, { fix: `Sign in again: open-artifact remote add ${name} ${client.host}` });
+    if ((await client.hello()).features?.types !== 1) throw new OpenArtifactError('unsupported', TYPES_NO_SITE);
+    const result = await client.typesUnpublish(id);
+    this.o.log(`link: unpublished the type ${id} from ${name} (${result.removed ? 'removed' : `delisted: ${result.artifacts} artifact(s) use it`})`);
+    return { ...result, remote: name, host: client.host };
   }
 
   /** Takes an artifact off its host: a last sync brings the host's version home, then the record is local only. */
@@ -1047,7 +1169,8 @@ export class LinkHub {
     try {
       state.watcher = watch(record.root, { recursive: true, persistent: false }, (_event, name) => {
         const rel = String(name ?? '').split(sep).join('/');
-        if (rel && !linkSynced(rel)) return;
+        // `.artifact.json` never travels as a file, but a page's capabilities in it do (`link.capabilities`).
+        if (rel && !linkSynced(rel) && rel !== '.artifact.json') return;
         this.schedule(id, 200);
       });
       state.watcher.on('error', () => {
@@ -1181,6 +1304,7 @@ export class LinkHub {
     const pushable = (path: string): boolean => !serverWrittenPath(path);
     state.pending = [...new Set([...local.keys(), ...Object.keys(base)])].filter((p) => pushable(p) && (local.get(p) ?? null) !== (base[p] ?? null)).sort();
 
+    await this.pushCapabilities(record, client);
     const manifest = await client.manifest(id);
     const host = new Map<string, string>();
     for (const [path, file] of Object.entries(manifest.files ?? {})) {
@@ -1319,6 +1443,21 @@ export class LinkHub {
     }
   }
 
+  /**
+   * Sends a page's declared capabilities to its host when they differ from the last agreed ones
+   * (`ArtifactRemote.capabilities`): an agent changed them here. The host does not echo a Link write back.
+   */
+  private async pushCapabilities(record: ArtifactRecord, client: LinkClient): Promise<void> {
+    if (!record.remote || this.o.needsPages?.(record) !== true) return;
+    const mine = capabilitiesOfRecord(record);
+    if (record.remote.capabilities && sameJson(mine, record.remote.capabilities)) return;
+    await client.setCapabilities(record.id, mine);
+    const fresh = this.o.store.get(record.id);
+    if (fresh?.remote && fresh.remote.name === record.remote.name) {
+      this.o.store.update(record.id, { remote: { ...fresh.remote, capabilities: mine }, updatedAt: fresh.updatedAt });
+    }
+  }
+
   /** A message for the artifact's owning session, given with its next tool result. */
   private tell(record: ArtifactRecord, text: string): void {
     const key = (record.owner && sessionKeyOf(record.owner)) || UNOWNED_KEY;
@@ -1454,6 +1593,13 @@ export class LinkHub {
           return;
         }
         if (event.title && event.title !== record.title) this.o.store.update(record.id, { title: event.title.slice(0, 200), updatedAt: record.updatedAt });
+        // The owner changed a page's capabilities on the host (its MCP): they come home, and are the agreed ones.
+        if (isRecordValue(event.capabilities) && this.o.needsPages?.(record) === true) {
+          const caps = event.capabilities;
+          const fresh = this.o.store.setCapabilities(record.id, Object.keys(caps).length ? caps : null);
+          if (fresh.remote) this.o.store.update(record.id, { remote: { ...fresh.remote, capabilities: caps }, updatedAt: fresh.updatedAt });
+          this.o.log(`link: ${record.id}: capabilities set on ${name}`);
+        }
         return;
       }
       case 'data-refresh': {

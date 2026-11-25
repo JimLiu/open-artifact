@@ -56,6 +56,7 @@ export const GUARD_ACTIONS: readonly GuardAction[] = [
   'share.change',
   'link.connect',
   'link.publish',
+  'type.publish',
   'mcp.connect',
   'agent.ask',
 ];

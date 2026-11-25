@@ -274,6 +274,33 @@ export const MIGRATIONS: readonly Migration[] = [
       "DELETE FROM sessions WHERE user_id IN (SELECT user_id FROM identities WHERE provider LIKE 'plugin:%')",
     ],
   },
+  {
+    version: 10,
+    name: 'site-types',
+    // Artifact types published to the site (`site-types.ts`). `uid` is the package's own uid and stays with the type
+    // across versions; `id` is what artifacts name in their `type`, one per site. `visibility` is `private`, `site` or
+    // `link` (who may list and download it; anyone who can open an artifact of it runs it). `unpublished` 1 is a
+    // delisted type whose artifacts still run. `capabilities` and `network` are JSON arrays read from the package.
+    statements: [
+      `CREATE TABLE types (
+        uid TEXT PRIMARY KEY,
+        id TEXT NOT NULL UNIQUE,
+        name TEXT NOT NULL,
+        version TEXT NOT NULL,
+        description TEXT NOT NULL,
+        publisher_user TEXT NOT NULL,
+        visibility TEXT NOT NULL,
+        sha256 TEXT NOT NULL,
+        bytes INTEGER NOT NULL,
+        capabilities TEXT NOT NULL,
+        network TEXT NOT NULL,
+        unpublished INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )`,
+      'CREATE INDEX types_publisher ON types (publisher_user)',
+    ],
+  },
 ];
 
 /** Applies the migrations not yet applied; returns the versions it applied. */

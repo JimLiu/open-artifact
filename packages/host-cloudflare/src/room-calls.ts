@@ -15,6 +15,7 @@
  * | `POST create` (`{ type, title }`) | a new artifact's folder, scaffolded (remote MCP) |
  * | `GET title?type=` | the title the artifact's own files hold (`{ title }`, null when none) |
  * | `GET stats` | rows, bytes, connections, whether the artifact is open |
+ * | `GET capabilities`, `POST capabilities` (`{ capabilities }`) | a page artifact's declared capabilities (`{ capabilities }`, null: not a page here); set: `{ changed }` |
  * | `POST agent-changed` | the owner's agent came or went (from the hub): pages are told; boots nothing |
  * | `POST destroy` | deletes everything the object stored (permanent deletion) |
  */
@@ -104,6 +105,16 @@ export async function handleRoomCall(room: ArtifactRoom, host: RoomCallHost, req
       case 'stats':
         await room.ready(id);
         return Response.json({ ...(await room.stats()), ...(host.extraStats?.() ?? {}) });
+      case 'capabilities': {
+        await room.ready(id);
+        if (request.method === 'POST') {
+          const body = (await request.json()) as { capabilities?: unknown };
+          const caps = body.capabilities;
+          if (!caps || typeof caps !== 'object' || Array.isArray(caps)) return Response.json({ code: 'invalid_argument', message: 'capabilities must be an object.' }, { status: 400 });
+          return Response.json({ changed: await room.setCapabilities(caps as Record<string, unknown>) });
+        }
+        return Response.json({ capabilities: await room.capabilities() });
+      }
       case 'agent-changed':
         // Not `ready`: a room with nothing open has no page to tell, and is not booted for it.
         room.agentChanged();
@@ -212,6 +223,16 @@ export class RoomClient {
 
   async destroy(): Promise<void> {
     await this.call('destroy', { method: 'POST' });
+  }
+
+  /** A page artifact's declared capabilities, or null when it is not a page here. */
+  async capabilities(): Promise<Record<string, unknown> | null> {
+    return ((await (await this.call('capabilities')).json()) as { capabilities: Record<string, unknown> | null }).capabilities;
+  }
+
+  /** Replaces a page artifact's declared capabilities (`invalid_argument` for another type); whether they changed. */
+  async setCapabilities(capabilities: Record<string, unknown>): Promise<boolean> {
+    return ((await (await this.call('capabilities', { method: 'POST', json: { capabilities } })).json()) as { changed: boolean }).changed;
   }
 
   /** The owner's agent came or went (the hub's call). */

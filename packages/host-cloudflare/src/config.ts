@@ -11,12 +11,14 @@
  * Everything else is the core's (`OA_APP_ORIGIN`, `OA_CONTENT_ORIGIN`, `OA_SIGNING_KEYS`, `OA_AUTH`, `OA_OWNERS`,
  * `OA_SIGNUP`, `OA_LINK_MAX_ROLE`, `OA_PUBLIC_ACCESS`, `OA_OWNER_NAME`, `OA_CONTENT_SAME_SITE` for one zone serving
  * both origins, where `site.ts` then refuses hosts that are neither), `OA_TRASH_DAYS` (checked here, read by the
- * hourly upkeep), and the rooms' timings `OA_ROOM_IDLE_CLOSE_MS` and `OA_SSE_HEARTBEAT_MS` ({@link parseRoomTimings}).
+ * hourly upkeep), the rooms' timings `OA_ROOM_IDLE_CLOSE_MS` and `OA_SSE_HEARTBEAT_MS` ({@link parseRoomTimings}), and
+ * `OA_PAGE_NETWORK` (what a page artifact may reach: `self` or `https`, `frames.ts`).
  * A mistake is a {@link ConfigError} naming the
  * variable; the Worker answers every request with it (see `site.ts`) until it is fixed.
  */
 
 import { ConfigError, parseConfig, parseTrashDays, type HostConfig } from '@open-artifact/host';
+import { parsePageNetwork } from './frames.ts';
 
 /** Whether a host name is this computer's (the only plain-http origins a Worker takes, for `wrangler dev`). */
 export function isLocalHostName(hostname: string): boolean {
@@ -55,6 +57,7 @@ export function parseCloudflareConfig(env: object): HostConfig {
   }
   parseTrashDays(vars);
   parseRoomTimings(vars);
+  parsePageNetwork(vars);
   return config;
 }
 

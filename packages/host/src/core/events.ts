@@ -12,7 +12,7 @@ export interface HostEventMap {
   /** People wrote through a page: `author` is the type server's (`owner`, `guest:<name>`, …), `paths` what changed. */
   'artifact-touched': { id: string; author: string; paths: string[]; title?: string };
   /** The artifact's record changed (title, trash, owner, …); `author` is `agent` when a Link made the change. */
-  'artifact-changed': { id: string; author?: string };
+  'artifact-changed': { id: string; author?: string; capabilities?: Record<string, unknown> };
   /** Who may open the artifact changed (grants, links, general access). */
   'access-changed': { id: string };
   /** A user's outbox has a new entry for their agent. */
