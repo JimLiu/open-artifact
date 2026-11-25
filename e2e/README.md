@@ -256,3 +256,9 @@ The harness asks its questions (`waitFor`, `evaluateAll`, `load`'s `ready`) in a
 - The artifact runs on a page host with no page token in its address, which answers no API; viewer, commenter and editor by share links can do what the type's db rules let them.
 - A new version reaches the open page and the old version's files go; `types unpublish` delists it (the artifact still opens, a new one is refused); `publish --with-type` sends a fresh type first.
 - `OA_TYPES_PUBLISH`, the host restarted each time: `admins` refuses the member, `members` lets them publish, `off` refuses the admin while what is published keeps opening.
+
+**A connected site's types on the local home page** (`host-site-types.test.mjs`, Chrome only)
+
+- Three daemons on a Node host that holds the synthetic `team-poll`: its publisher's, a member's, and a third whose own type has the same id.
+- The member's Types tab shows the site's section with the type, its publisher and a link to its page; Install opens the consent dialog on the page's address, nothing is installed before the confirm, and the row then says installed.
+- After the publisher publishes 1.1.0 the member's row offers the update; the third home's row is a clash and installs under another id; the publisher's own home shows the type as published from this computer.
