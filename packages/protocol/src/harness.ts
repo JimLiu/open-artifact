@@ -58,6 +58,8 @@ export const PROTOCOL_MAX = 1;
  *   `installed_from` and `third_party_notice`, wherever they are listed (`quickstart`, `list scope: "types"`,
  *   `read {type_url}`) and in `read {url}`; `publish` (create) and `adopt` put `third_party_notice` next to
  *   `instructions`.
+ * - `view.open`: `view.open` hands the adapter a view of one of this daemon's artifacts, with no tool call and no
+ *   session (a host's own window for an artifact the person picked).
  */
 export type HarnessFeature =
   | 'hello.profile'
@@ -76,14 +78,15 @@ export type HarnessFeature =
   | 'types.remote'
   | 'hello.runtime'
   | 'runtime.update'
-  | 'types.source';
+  | 'types.source'
+  | 'view.open';
 
 /**
  * The features this release's daemon implements, the `features` its `hello` answers. Kept here, not in the daemon, so
  * the kit's fake daemon (`@open-artifact/harness-kit/testing`) answers the same list. A name goes in when the code
  * that answers it lands, never before, so an adapter can trust every name it reads.
  */
-export const HARNESS_FEATURES: readonly HarnessFeature[] = Object.freeze(['hello.profile', 'embed.origins', 'shell.command', 'shell.event', 'view.context', 'wake.from', 'wake.drafted', 'wake.session', 'skill.get', 'commands.list', 'session.may', 'tools.actions', 'quickstart.steps', 'types.remote', 'hello.runtime', 'runtime.update', 'types.source'] as const);
+export const HARNESS_FEATURES: readonly HarnessFeature[] = Object.freeze(['hello.profile', 'embed.origins', 'shell.command', 'shell.event', 'view.context', 'wake.from', 'wake.drafted', 'wake.session', 'skill.get', 'commands.list', 'session.may', 'tools.actions', 'quickstart.steps', 'types.remote', 'hello.runtime', 'runtime.update', 'types.source', 'view.open'] as const);
 
 /** How a harness shows pages in its own UI: in a frame of its page, or in a top-level view (a webview). */
 export interface AdapterOpenCaps {
@@ -397,7 +400,19 @@ export interface AdapterToDaemon {
    * daemon switches once idle (feature `runtime.update`). Refused when updates are off for the whole computer.
    */
   'runtime.update': { params: { version?: string }; result: RuntimeUpdateResult };
+  /**
+   * A view of one of this daemon's artifacts, for the host to show on its own: no tool call, no session (feature
+   * `view.open`). `url`: `open-artifact://artifact/<id>` or the daemon's own `/a/<id>` address; any other address is
+   * refused. The result is what `host.open` carries, with `session: null`.
+   */
+  'view.open': { params: { url: string }; result: ViewOpenResult };
 }
+
+/**
+ * `view.open` result: the fields of {@link HostOpenParams} but `session`. `view` and the ticket on `embed_url` come
+ * only to an adapter whose `caps.open.embed` is `'view'`; a frame host gets `embed_url` as `view_url`.
+ */
+export type ViewOpenResult = Omit<HostOpenParams, 'session'>;
 
 /** `skill.get` params. */
 export interface SkillParams {

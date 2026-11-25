@@ -75,6 +75,7 @@ node <skill>/scripts/open-artifact.mjs wait --timeout 600000
    - 若创建结果已返回 `open: "after_first_write"`，写入后宿主会自动打开页面。
    - 若当前应用支持内联渲染 MCP Apps，在内容就绪后调用 `ShowArtifact {url}`（对于 `motion` 粗剪或 `docs` 骨架等支持实时观看进度的类型，在第一批可播放/可预览内容写入后立即展示）。由于 `ShowArtifact` 本身不会打开浏览器标签页（且长任务中过早弹出的卡片容易被后续步骤淹没），若没有内置浏览器或无法确认页面已可见展示，请同时调用一次 `Artifact {action: "open", url}`。
    - 否则，如果应用自带内置浏览器面板，在其中打开 `view_url`；仅在没有内置浏览器时调用 `Artifact {action: "open", url}` 打开系统浏览器。
+   - 人在 Open Artifact Desktop 的设置里打开了 **agent 做的作品在这个 App 里打开**（默认关）时，`Artifact {action: "open"}` 原本打开浏览器的那一步改交给这个 App：在 App 里开一个标签页（App 没在运行时，用作品的 `open-artifact://` 链接启动它；启动失败就回到浏览器）。这时结果里是 `opened_in: "desktop"`。自己显示页面的应用不受影响。这个设置只有人能改：在 agent 的会话里，daemon 会拒绝。
 7. **简短汇报**
    - 用一两句话说明做了什么，并提醒用户可以直接在页面编辑、留评论并点 **Send to agent**。无论页面是否已自动打开，最终回复中都应附上 `view_url` 链接，方便用户随时打开或回到页面。
 
@@ -93,6 +94,8 @@ node <skill>/scripts/open-artifact.mjs wait --timeout 600000
 ## 5. 处理评论与 “Send to agent”
 
 用户在页面点击 **Send to agent** 后，消息会以 `[Artifact comment sent to agent]` 或 `[Artifact edit request sent to agent]` 开头送达 Agent（通过插件 hooks、后台 monitor、工具返回中的 `messages` 字段，或 `ArtifactComments {action: "wait", timeout_ms: 600000}`）。
+
+评论发给拥有这份作品的会话。没有会话拥有的作品（用户在主页新建或从文件夹打开的）发出的消息会一直等着，直到有会话成为它的归属，然后只交给这个会话、只交一次，开头有一句说明原因：这是用户新建的作品、用户在页面的 Ask 面板里选了这个会话，或者做它的那个会话已经不是归属了。这句还会写明消息是什么时候发的（不知道时也会直说）：旧请求先确认仍然有效再动手。会话成为归属的方式有三种：调 `Artifact {action: "adopt", url}`；通过工具写这份作品（结果的 `notes` 会说它现在归你）；用户选中它。
 
 标准处理步骤：
 1. 读取评论线程：`ArtifactComments {action: "read", url}`。
@@ -157,6 +160,7 @@ open-artifact types pack <id|文件夹> [--out <文件|文件夹>]              
 - **分享、发布与删除由用户决定**：
   - 绝不自行开启分享或生成分享链接；需要分享或导出时，打开对应 UI 面板交给用户操作（`Artifact {action: "open", url, panel: "share"}` 或 `panel: "export"`）。
   - 未经用户明确要求和授权，不要执行 `open-artifact publish`、`unpublish` 或 `remote` 命令。
-  - 仅在用户明确要求时调用 `delete` 或 `adopt`（注意：`delete` 仅移出列表，磁盘上的文件夹仍会保留，需告知用户）。
-  - 停用或启用类型（`open-artifact types enable | disable`）、信任项目里的类型（`types trust | untrust`），以及安装、更新、卸载类型（`types install | update | uninstall`）由用户决定：在 agent 会话里运行这些命令会被拒绝。请用户在自己的终端或主页的类型标签页里操作。
+  - 仅在用户明确要求时才 `delete` 作品，或 `adopt` 别的会话拥有的作品（注意：`delete` 仅移出列表，磁盘上的文件夹仍会保留，需告知用户）。
+  - 用户在主页新建或从文件夹添加的作品不属于任何会话（`owner` 为空），直到有会话 adopt 它、通过工具写它（文件、数据行、会写入的类型动作；只读不算），或者用户在页面的 Ask 面板里把它交给某个会话。消息说这是用户新建的或用户选了你时，先调 `Artifact {action: "adopt", url}` 取类型说明，刚调过就不用。从空白开始的作品（在主页新建时，或在 Shell 里点「从空白开始」，后者不改变归属）已经有该类型的初始文件，可能还有用户自己写的内容：改之前先读，在原有内容上修改，不要整体替换。
+  - 停用或启用类型（`open-artifact types enable | disable`）、信任项目里的类型（`types trust | untrust`），以及安装、更新、卸载类型（`types install | update | uninstall`）由用户决定：在 agent 会话里运行这些命令会被拒绝。请用户在自己的终端或主页的类型标签页里操作。重启 daemon（`open-artifact daemon restart`）也一样，重启后每个已连接的应用和打开的页面都要重新连接。
 - **拒绝冒充与欺诈**：不得制作冒充真实个人或机构的页面、伪造真实收据/评论/记录，或伪装收集密码与支付信息的表单。

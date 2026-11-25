@@ -24,6 +24,9 @@
 /open-artifact design-system create a brand book for Acme from these logo files and guidelines
 ```
 
+Without an agent: **New** on the home page starts a Design System blank and opens it. On its welcome page, **Start by
+hand** goes to its sections, where you add colors, type, spacing and assets yourself.
+
 ### Browse, edit & apply across artifacts
 - **Edit tokens live**: Adjust hex/oklch colors, check contrast ratios across Light/Dark themes, tweak type scale/spacing, or drop brand media into asset groups.
 - **Reuse in other artifacts**: When creating a deck, UI design, dashboard, or film, tell your agent *"use our Acme design system"*.

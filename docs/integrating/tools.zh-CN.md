@@ -111,6 +111,8 @@ await oa.wrote(['/path/to/artifact/project/slide-1.html'], { session: 'chat-1', 
 
 归属不会自己跨 harness 或跨工作目录转移。
 
+**没有所有者**的作品（用户在主页新建的，或用户打开的文件夹）归第一个用上面任一种写入方式写它的会话；那次写入的 `notes` 会说它现在归你。只算带会话 id 的调用方：只知道工作目录的调用方（用户手动跑的命令行）不算。用户也可以在 Ask 面板里把它交给当前在线的会话（`artifacts.assign`，只允许用户调用）。不管会话怎么成为所有者（包括 `adopt`），都会收到这期间从作品发出的消息，且只收到一次（见[唤醒](wake.zh-CN.md#唤醒送到哪里)）。
+
 ## 新版本写过的作品
 
 如果一个作品最后是被比本机已装版本更新的类型版本写的，工具会把它当成只读：读取和打开的结果带 `read_only: true` 和一条提示；写入（带 `url` 的 `Artifact publish`、`Artifact call`、`ArtifactData` 的写操作）会以 `newer_release` 拒绝，修复提示让人去更新。旧格式永远不会覆盖新格式。评论仍然开放：`ArtifactComments` 仍可回复、解决和重新打开，这样在作品等更新期间，Agent 仍能回答人。

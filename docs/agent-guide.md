@@ -76,6 +76,7 @@ node <skill>/scripts/open-artifact.mjs wait --timeout 600000
    - If the create result already set `open: "after_first_write"`, the host opens it automatically once you write.
    - If your app renders MCP Apps inline, call `ShowArtifact {url}` once filled (or right after the first playable batch for streaming types like `motion` and `docs`). Because `ShowArtifact` does not open a browser tab by itself (and an early card can scroll out of view in long builds), call `Artifact {action: "open", url}` if you have no built-in browser or cannot confirm the page visibly opened.
    - Otherwise, open `view_url` in your app's built-in browser if available; only call `Artifact {action: "open", url}` when no built-in browser exists.
+   - When the person has turned on **Open agents' artifacts in this app** in Open Artifact Desktop's settings (off by default), the browser step of `Artifact {action: "open"}` goes to that app: a tab there (or the app is started with the artifact's `open-artifact://` link when it is not running; the browser when that fails). The result then says `opened_in: "desktop"`. Apps that show pages themselves are not affected. Only the person changes this setting: the daemon refuses it from inside an agent's session.
 7. **Summarize briefly**
    - Tell the user in 1–2 sentences what you built and note that they can edit directly, leave comments, and click **Send to agent**. Always include `view_url` in your final reply so the user can open or return to the page anytime.
 
@@ -94,6 +95,8 @@ Users actively edit artifacts in the live browser page between turns. Always gua
 ## 5. Handling comments & "Send to agent"
 
 Comments sent from the page arrive prefixed with `[Artifact comment sent to agent]` or `[Artifact edit request sent to agent]` via plugin hooks, background monitors, tool result `messages`, or `ArtifactComments {action: "wait", timeout_ms: 600000}`.
+
+Comments go to the session that owns the artifact. What is sent from an artifact no session owns (one the person made on the home page or opened from a folder) waits until a session becomes its owner, and then goes to that session only, once, with a first line that says why: the person made it, the person picked this session for it in the page's Ask pane, or the session that made it is no longer its owner. That line also says when it was sent (or that this is not known): check that an old request still stands before acting on it. A session becomes the owner by `Artifact {action: "adopt", url}`, by writing the artifact through the tools (the result's `notes` say it is yours now), or when the person picks it.
 
 Standard loop:
 1. Read threads: `ArtifactComments {action: "read", url}`.
@@ -165,6 +168,7 @@ same id is here.
 - **User owns sharing, publishing, and deletion**:
   - Never create share links or change share permissions yourself; open the UI panel for the user instead (`Artifact {action: "open", url, panel: "share"}` or `panel: "export"`).
   - Never run `open-artifact publish`, `unpublish`, or `remote` commands unless the user explicitly asks and has authorized it.
-  - Only `delete` or `adopt` an artifact when explicitly asked (note: `delete` removes the registry entry and keeps the folder on disk).
-  - Turning a type on or off (`open-artifact types enable | disable`), trusting a project's types (`types trust | untrust`) and installing, updating or uninstalling a type (`types install | update | uninstall`) are the person's: the commands refuse to run inside an agent's session. Ask them to do it in their terminal or the home page's Types tab.
+  - Only `delete` an artifact, or `adopt` one another session owns, when explicitly asked (note: `delete` removes the registry entry and keeps the folder on disk).
+  - An artifact the person made on the home page or added from a folder belongs to no session (`owner` is empty) until one adopts it, writes it through the tools (files, rows, a type action that writes; reads do not count), or the person hands it to one from the page's Ask pane. When a message says the person made it or picked you for it, call `Artifact {action: "adopt", url}` first for its type's instructions, unless you just did. One started blank (on the home page, or with **Start blank** in the Shell, which keeps its owner) already holds its type's starting files and maybe the person's own writing: read it before you change it, and revise rather than replace.
+  - Turning a type on or off (`open-artifact types enable | disable`), trusting a project's types (`types trust | untrust`) and installing, updating or uninstalling a type (`types install | update | uninstall`) are the person's: the commands refuse to run inside an agent's session. Ask them to do it in their terminal or the home page's Types tab. So is restarting the daemon (`open-artifact daemon restart`), which every connected app and open page has to reconnect after.
 - **Never impersonate or deceive**: Refuse artifacts that impersonate real organizations/people, forge genuine-looking receipts/reviews/records, or harvest passwords/payment details.

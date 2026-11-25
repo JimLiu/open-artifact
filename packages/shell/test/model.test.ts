@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import type { ArtifactView, ShareView, TypeView } from '@open-artifact/protocol';
+import { BUILTIN_START, type ArtifactView, type ShareView, type TypeView } from '@open-artifact/protocol';
 import {
   addressWithout,
   addressWithoutThread,
   agentNameOf,
   appendSent,
+  assignableSessions,
   canOpenSession,
   countText,
   deliveryOf,
@@ -16,6 +17,7 @@ import {
   leastRole,
   shownAddresses,
   sortedGuests,
+  takeOverText,
   ownerState,
   pageAddress,
   pageOriginOf,
@@ -25,7 +27,7 @@ import {
   switchPool,
   type Owner,
 } from '../src/shell/model.ts';
-import { defaultCreatable, isCreatable, ownerBadge, sortArtifacts } from '../src/home/model.ts';
+import { createGroupOf, createGroups, defaultCreatable, isCreatable, ownerBadge, sortArtifacts } from '../src/home/model.ts';
 import { useShell } from '../src/shell/store.ts';
 
 const owner = (patch: Partial<Owner> = {}): Owner => ({ harness: 'dsh', session: 's1', workspace: null, live: true, status: 'idle', ...patch });
@@ -234,7 +236,7 @@ describe('home model', () => {
       ...patch,
     } as TypeView);
     assert.equal(isCreatable(type({})), true);
-    assert.equal(isCreatable(type({ id: 'slides' })), false);
+    assert.equal(isCreatable(type({ id: 'slides' })), true, 'every built-in can be made');
     assert.equal(isCreatable(type({ enabled: false })), false);
     assert.equal(isCreatable(type({ shadowedBy: 'project' })), false);
     assert.equal(defaultCreatable([type({ id: 'slides' }), type({})])?.id, 'design');
@@ -250,7 +252,27 @@ describe('home model', () => {
     assert.equal(isCreatable(type({ id: 'page', scope: 'project', trusted: false })), false);
     // "New artifact" is Design while there is one, else the first that can be made.
     assert.equal(defaultCreatable([type({ id: 'page' }), type({})])?.id, 'design');
-    assert.equal(defaultCreatable([type({ id: 'slides' }), type({ id: 'notes', scope: 'user', runtime: 'frame' })])?.id, 'notes');
+    assert.equal(defaultCreatable([type({ id: 'slides' }), type({ id: 'notes', scope: 'user', runtime: 'frame' })])?.id, 'slides');
+    assert.equal(defaultCreatable([type({ id: 'slides', enabled: false }), type({ id: 'notes', scope: 'user', runtime: 'frame' })])?.id, 'notes');
+  });
+
+  it('groups the types "New" offers: start blank, make with an agent, and the types people made', () => {
+    const type = (patch: Partial<TypeView>): TypeView => ({
+      id: 'design', title: 'Design', description: '', scope: 'builtin', root: '/types', runtime: 'server', entry: null, server: null,
+      runnable: true, enabled: true, shadowedBy: null, version: null, problems: [], icon: false, ...patch,
+    } as TypeView);
+    for (const id of BUILTIN_START.blank) assert.equal(createGroupOf(type({ id })), 'blank', id);
+    for (const id of BUILTIN_START.agent) assert.equal(createGroupOf(type({ id })), 'agent', id);
+    assert.deepEqual([...BUILTIN_START.blank], ['docs', 'sheets', 'whiteboard', 'slides', 'design-system']);
+    assert.deepEqual([...BUILTIN_START.agent], ['design', 'data', 'motion', 'page']);
+    assert.equal(createGroupOf(type({ id: 'notes', scope: 'user', runtime: 'frame' })), 'custom');
+    assert.equal(createGroupOf(type({ id: 'docs', scope: 'extra', runtime: 'server' })), null, 'a server copy of a built-in elsewhere is not offered');
+    assert.equal(createGroupOf(type({ id: 'docs', enabled: false })), null);
+    assert.equal(createGroupOf(type({ id: 'unknown-builtin' })), null);
+    const groups = createGroups([type({ id: 'design' }), type({ id: 'docs' }), type({ id: 'notes', scope: 'user', runtime: 'frame' }), type({ id: 'sheets' }), type({ id: 'motion', runnable: false })]);
+    assert.deepEqual(groups.blank.map((t) => t.id), ['docs', 'sheets']);
+    assert.deepEqual(groups.agent.map((t) => t.id), ['design']);
+    assert.deepEqual(groups.custom.map((t) => t.id), ['notes']);
   });
 
   it('draws owner badges', () => {
@@ -485,5 +507,46 @@ describe('peers and following', async () => {
     assert.equal(peerColorOf({ key: 'x' }), peerColorOf({ key: 'x' }));
     assert.equal(inkOnColor('#fbb315'), '#0b0b0b');
     assert.equal(inkOnColor('#257de0'), '#ffffff');
+  });
+});
+
+describe('the Ask pane for an artifact no session owns', () => {
+  it('lists the sessions online now, busy first, then by name; not offline ones or ones with no session id', () => {
+    const at = (key: string, harness: string, session: string | null, live: boolean, status: 'running' | 'idle' | 'offline', title?: string) => ({
+      key,
+      harness,
+      session,
+      workspace: '/w',
+      live,
+      status,
+      ...(title ? { title } : {}),
+    });
+    const listed = assignableSessions({
+      harnesses: [
+        { name: 'claude-code', title: 'Claude Code', agentName: 'Claude', connected: true, sessions: [] },
+        { name: 'myide', title: 'myide', agentName: 'Agent', connected: true, sessions: [] },
+      ],
+      sessions: [
+        at('myide:b', 'myide', 'b', true, 'idle'),
+        at('claude-code:a', 'claude-code', 'a', true, 'idle', 'Landing page'),
+        at('claude-code:off', 'claude-code', 'off', false, 'offline'),
+        at('claude-code:busy', 'claude-code', 'busy', true, 'running'),
+        at('myide:ws:x', 'myide', null, true, 'idle'),
+      ],
+    });
+    assert.deepEqual(listed, [
+      { key: 'claude-code:busy', label: 'Claude Code · busy', running: true },
+      { key: 'claude-code:a', label: 'Claude Code · Landing page', running: false },
+      { key: 'myide:b', label: 'myide · b', running: false },
+    ]);
+    assert.deepEqual(assignableSessions(null), []);
+    assert.deepEqual(assignableSessions({ harnesses: [], sessions: [] }), []);
+  });
+
+  it('the take-over prompt names the artifact and says to adopt it first', () => {
+    const text = takeOverText({ url: 'open-artifact://artifact/art_1', title: 'Notes', typeTitle: 'Docs', root: '/w/notes' });
+    assert.ok(text.includes('Artifact {action: "adopt", url: "open-artifact://artifact/art_1"}'));
+    assert.match(text, /Docs "Notes", folder \/w\/notes/);
+    assert.match(text, /read it before you change it/);
   });
 });

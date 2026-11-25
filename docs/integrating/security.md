@@ -15,7 +15,7 @@ person; it defends against **web pages** and **other people's words**.
 | --- | --- |
 | a web page calling the daemon | the token in `<home>/daemon.json` (mode `600`; `doctor` fails when others can read it) and loopback only |
 | an artifact's page reading another's | each static artifact on its own origin (`<id>.frame.localhost`), never the daemon's |
-| a page in your app speaking for it | declared origins, view tickets ([embedding](embedding.md)) |
+| a page in your app speaking for it | declared origins, view tickets ([embedding](embedding.md)); a ticket your app asks for itself (`view.open`) is issued only for this daemon's own artifacts |
 | a collaborator's comment acting as the owner | `source.from` ([wake](wake.md#who-sent-it-sourcefrom)) |
 | data leaving the computer | remote types only, listed and gated ([remote types](remote-types.md)); the page of an installed type, or of a project not trusted yet, reaches only its own origin and the `https://` origins it declares |
 | a type package from someone else | checked whole before a byte is written, never run in Node, served by frame-host or as files ([below](#type-packages)) |

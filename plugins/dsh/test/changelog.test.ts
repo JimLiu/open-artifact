@@ -1,15 +1,13 @@
 /**
- * The release notes: reading CHANGELOG.md (src/shared/changelog.ts), the changelog route's answer with an offered
- * release's notes (src/server/changelog.ts), and which notes "What's new" shows (src/client/changelog-state.ts).
+ * The release notes: the changelog route's answer with an offered release's notes (src/server/changelog.ts). Reading
+ * CHANGELOG.md, and which notes "What's new" shows, are `@open-artifact/library-page`'s (its test/library.test.ts).
  */
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
-import { inlinePieces, parseChangelog, releasesBetween } from '../src/shared/changelog.ts';
 import { changelogReader, changelogSources } from '../src/server/changelog.ts';
-import { whatsNew } from '../src/client/changelog-state.ts';
 
 const NAME = 'dsh-open-artifact';
 
@@ -44,65 +42,6 @@ One version for every package.
 `;
 
 const AHEAD = `## [0.9.3] - 2026-11-21\n\nThree.\n\n### Fixed\n\n- c\n\n## [0.9.2] - 2026-11-20\n\nTwo.\n\n### Added\n\n- b\n\n${CHANGELOG.split('## [0.9.1]')[1] ? `## [0.9.1]${CHANGELOG.split('## [0.9.1]')[1]}` : ''}`;
-
-describe('parseChangelog', () => {
-  it('reads each release: version, date, summary, sections, items over several lines', () => {
-    const releases = parseChangelog(CHANGELOG);
-    assert.deepEqual(
-      releases.map((r) => r.version),
-      ['0.9.1', '0.9.0'],
-    );
-    assert.deepEqual(releases[0], {
-      version: '0.9.1',
-      date: '2026-11-19',
-      summary: ['Smaller installs.'],
-      sections: [{ title: 'Changed', items: ['The type server is shared, in `vendor/type-server/`.', '**Docs** opens faster.'] }],
-    });
-    assert.deepEqual(
-      releases[1]!.sections.map((s) => s.title),
-      ['Added', 'Fixed'],
-    );
-  });
-
-  it('reads the repository CHANGELOG.md', () => {
-    const releases = parseChangelog(readFileSync(new URL('../../../CHANGELOG.md', import.meta.url), 'utf8'));
-    assert.ok(releases.length > 0);
-    for (const r of releases) {
-      assert.match(r.version, /^\d+\.\d+\.\d+/);
-      assert.ok(r.sections.every((s) => s.items.length > 0), `${r.version} has an empty section`);
-    }
-  });
-});
-
-describe('releasesBetween', () => {
-  it('keeps the releases after one version up to another, newest first', () => {
-    const releases = parseChangelog(AHEAD);
-    assert.deepEqual(
-      releasesBetween(releases, '0.9.1', '0.9.3').map((r) => r.version),
-      ['0.9.3', '0.9.2'],
-    );
-    assert.deepEqual(
-      releasesBetween(releases, '', '0.9.1').map((r) => r.version),
-      ['0.9.1', '0.9.0'],
-    );
-  });
-});
-
-describe('inlinePieces', () => {
-  it('splits code, bold and web links, and keeps a local link as text', () => {
-    assert.deepEqual(inlinePieces('A `x` and **y** [z](https://e.com) [w](README.md).'), [
-      { kind: 'text', text: 'A ' },
-      { kind: 'code', text: 'x' },
-      { kind: 'text', text: ' and ' },
-      { kind: 'strong', text: 'y' },
-      { kind: 'text', text: ' ' },
-      { kind: 'link', text: 'z', href: 'https://e.com' },
-      { kind: 'text', text: ' ' },
-      { kind: 'text', text: 'w' },
-      { kind: 'text', text: '.' },
-    ]);
-  });
-});
 
 /** A plugin folder at `version`, with CHANGELOG. */
 function plugin(version: string): string {
@@ -155,17 +94,3 @@ describe('changelogReader', () => {
   });
 });
 
-describe('whatsNew', () => {
-  const releases = releasesBetween(parseChangelog(AHEAD), '', '0.9.3');
-  const versions = (seen: string | null, version = '0.9.3') => whatsNew({ version, releases, seen }).map((r) => r.version);
-  it('shows the releases since the one last seen', () => {
-    assert.deepEqual(versions('0.9.1'), ['0.9.3', '0.9.2']);
-  });
-  it('shows only the installed one when none was ever seen, and nothing once it is', () => {
-    assert.deepEqual(versions(null), ['0.9.3']);
-    assert.deepEqual(versions('0.9.3'), []);
-  });
-  it('shows nothing after going back to an older version', () => {
-    assert.deepEqual(versions('0.9.3', '0.9.2'), []);
-  });
-});

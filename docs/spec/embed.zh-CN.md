@@ -17,10 +17,10 @@
 
 | 消息 | 字段 | |
 | --- | --- | --- |
-| `host_hello` | `caps`（`sessions?`、`toolbar?`、`artifacts?`）、`agentName?`、`harness?`、`protocol?`、`theme?`（`scheme`、`accent?`）、`destinations?`（`id`、`label`；最多 8 个）、`library?`（`harness?`、`workspace?`） | 对 `shell_hello` 或 `home_hello` 的回答；主题变化时再发一次 |
+| `host_hello` | `caps`（`sessions?`、`toolbar?`、`artifacts?`、`switcher?`）、`agentName?`、`harness?`、`protocol?`、`theme?`（`scheme`、`accent?`）、`destinations?`（`id`、`label`；最多 8 个）、`library?`（`harness?`、`workspace?`） | 对 `shell_hello` 或 `home_hello` 的回答；主题变化时再发一次 |
 | `goto` | `hash` | 显示这个位置；Shell 用 `place` 回答 |
 
-`caps.sessions`：你能新建和打开会话。`caps.toolbar`：你画自己的工具栏，所以 Shell 隐藏它的关闭按钮。`caps.artifacts`（仅首页）：点击作品发送 `open_artifact`，而不是跳转。`library`（仅首页）：只列出该 harness 或该目录的作品。
+`caps.sessions`：你能新建和打开会话。`caps.toolbar`：你画自己的工具栏，所以 Shell 隐藏它的关闭按钮。`caps.switcher`：你的应用自己列出和切换作品，所以 Shell 的标题菜单里没有“Switch artifact”（连同“All artifacts”）。`caps.artifacts`（仅首页）：点击作品发送 `open_artifact`，而不是跳转。`library`（仅首页）：只列出该 harness 或该目录的作品。
 
 ## Shell → 宿主
 
@@ -35,8 +35,9 @@
 | `comment_summon` | `text` | 对未声明宿主 `text` 为空 |
 | `open_external` | `url`（只限 `http(s)`） | 是 |
 | `saved_file` | `path`（绝对路径） | 是 |
+| `saved` | `state`（`saved`、`saving`、`unsaved`、`reconnecting`、`readonly` 或 `null`）、`leaveLosesWork` | |
 
-`place` 在 `shell_ready` 之后、位置每次变化时、以及作为对 `goto` 的回答发送。
+`place` 在 `shell_ready` 之后、位置每次变化时、以及作为对 `goto` 的回答发送。`saved` 在 `host_hello` 之后、页面的保存状态或 `leaveLosesWork` 每次变化时发送；页面还没报告、或正在加载另一个页面时 `state` 是 `null`。`leaveLosesWork: true` 表示现在关闭会丢失工作：关闭视图前先问人。旧版 Shell 不发 `saved`。
 
 ## 首页 → 宿主
 
@@ -75,6 +76,7 @@ Shell 读取 `GET /api/open-artifact.embed`（`hosts`：已连接适配器在 `c
 | 重新加载的 Shell 可回来的时限 | 30 秒 |
 | Shell 连接前排队的命令 | 32 条 |
 | 每个适配器连接的视图数 | 64 个 |
+| `shell.event` 的顺序 | 与 Shell 说出的顺序一致：一次发一条，daemon 收下上一条后才发下一条 |
 
 适配器连接结束时票据随之结束。
 
@@ -85,7 +87,7 @@ Shell 读取 `GET /api/open-artifact.embed`（`hosts`：已连接适配器在 `c
 | 选项 | |
 | --- | --- |
 | `url` | `viewUrl`（框架）或 `embed_url`（视图）；与 iframe 当前的 `src` 不同时设为它 |
-| `agentName`、`harness`、`toolbar`、`theme`、`destinations` | `host_hello` 里说的内容 |
+| `agentName`、`harness`、`toolbar`、`switcher`、`theme`、`destinations` | `host_hello` 里说的内容 |
 | `onReady(info)` | `info`：`artifact`、`id`、`title`、`type`、`version`、`protocol` |
 | `onOpenSession({ session, harness, artifact })` | 设置 `caps.sessions` |
 | `onNewSession({ prompt, artifact })` | 设置 `caps.sessions` |
@@ -94,11 +96,12 @@ Shell 读取 `GET /api/open-artifact.embed`（`hosts`：已连接适配器在 `c
 | `onClose()` | |
 | `onOpenExternal(url)` | 默认：`window.open` |
 | `onSavedFile(path)` | |
+| `onSaved({ state, leaveLosesWork })` | `saved` 消息 |
 | `capture()`、`saveThumbnail(jpeg, artifact)` | 缩略图：就绪 2 秒后一次，之后位置变化时最多每分钟一次 |
 | `onError(error)` | 某个回调或缩略图失败 |
 | `window` | 监听的窗口 |
 
-返回 `{ artifact, place, ready, goto(hash), setTheme(theme), url(), destroy() }`。`url()` 是带最后位置、不带票据的 Shell 地址。
+返回 `{ artifact, place, ready, saved, goto(hash), setTheme(theme), url(), destroy() }`。`url()` 是带最后位置、不带票据的 Shell 地址。
 
 ## `embedLibrary(iframe, options)`
 

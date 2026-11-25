@@ -13,12 +13,21 @@
  *    session and that `adopt` takes it over.
  *
  * Never across harnesses or workspaces: an artifact made in one harness stays with its session there until an agent
- * adopts it. An artifact with no owner stays so (its wakes go to whichever session takes the shared inbox).
+ * adopts it.
+ *
+ * An artifact with no owner (the person made it on the home page or opened its folder) goes to the first session that
+ * writes it through the tools (the same writes as above), with a line in that write's result; there is no other
+ * session to take it from. A caller that is not a session (no session id: the home page, a command line run by hand)
+ * never becomes its owner this way. Whoever becomes its owner, by this, by `adopt` or by the person's
+ * `artifacts.assign`, gets what was sent from it meanwhile (`WakeRouter.handOff`).
  */
 
 import { actionKindOf, artifactIdOf, artifactUrl, type SessionRef, type ToolCallResult } from '@open-artifact/protocol';
 import { samePath } from './paths.ts';
 import { sessionKeyOf, type ArtifactStore } from './store.ts';
+
+/** The caller id of the daemon's own pages (the home page): never a session, never an owner. */
+export const HOME_HARNESS = 'open-artifact-home';
 
 /** How long a session not seen counts as gone, ms: `$OPEN_ARTIFACT_OWNER_GONE_MS`, else two hours. */
 export function ownerGoneMs(): number {
@@ -39,6 +48,11 @@ export interface OwnershipOptions {
   store: ArtifactStore;
   hub: () => OwnershipHub | null;
   log: (line: string) => void;
+  /**
+   * A session became the owner of an artifact no session owned (it wrote it): hands it what waited meanwhile.
+   * `seen`: an adapter saw the write (`agent.wrote`), so no tool result carries those messages.
+   */
+  claimed?: (id: string, owner: SessionRef, seen: boolean) => void;
 }
 
 /**
@@ -91,20 +105,30 @@ export class Ownership {
    * The session `writer` wrote artifact `id`: moves it to the writer when its owner is gone, else says (once) whose it
    * is. The line waits for the writer's next tool result ({@link afterTool}).
    */
-  wrote(id: string, writer: SessionRef): WriteOutcome {
-    const outcome = this.judge(id, writer);
+  wrote(id: string, writer: SessionRef, seen = false): WriteOutcome {
+    const outcome = this.judge(id, writer, seen);
     const key = sessionKeyOf(writer);
     if (outcome.note && key) this.notes.set(key, [...(this.notes.get(key) ?? []), outcome.note]);
     return outcome;
   }
 
-  private judge(id: string, writer: SessionRef): WriteOutcome {
+  private judge(id: string, writer: SessionRef, seen: boolean): WriteOutcome {
     const none: WriteOutcome = { moved: false, note: null };
     const record = this.options.store.get(id);
     const owner = record?.owner;
     const writerKey = sessionKeyOf(writer);
-    if (!record || !owner || !writerKey || sessionKeyOf(owner) === writerKey) return none;
+    if (!record || !writerKey) return none;
     const hub = this.options.hub();
+    if (!owner || !sessionKeyOf(owner)) {
+      // Nobody's: the writing session takes it. Not a caller that is no session.
+      if (!writer.session || writer.harness === HOME_HARNESS) return none;
+      const next: SessionRef = { harness: writer.harness, session: writer.session, workspace: writer.workspace ?? hub?.workspaceOf(writer) ?? null };
+      this.options.store.update(id, { owner: next });
+      this.options.log(`owner of ${id}: nobody -> ${writerKey} (it wrote it)`);
+      this.options.claimed?.(id, next, seen);
+      return { moved: true, note: `${artifactUrl(id)} had no owner session, so it is yours now: comments on it come to this session.` };
+    }
+    if (sessionKeyOf(owner) === writerKey) return none;
     const ownerWorkspace = owner.workspace ?? hub?.workspaceOf(owner) ?? null;
     const writerWorkspace = writer.workspace ?? hub?.workspaceOf(writer) ?? null;
     const sameHarness = writer.harness === owner.harness;

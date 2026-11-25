@@ -1,0 +1,25 @@
+{
+  "name": "@open-artifact/library-page",
+  "version": "0.14.6",
+  "private": true,
+  "type": "module",
+  "description": "The Open Artifact library page, for an agent app to mount as its own: the artifact list, the type tiles, search and filters, the menus and dialogs, the update panel and release notes, on neutral --oa-page-* tokens. The host hands it its routes, how it opens and starts sessions, and how it takes thumbnails.",
+  "exports": {
+    ".": "./src/index.ts",
+    "./library": "./src/library/index.ts",
+    "./styles": "./src/styles.ts",
+    "./words": "./src/i18n.ts"
+  },
+  "dependencies": {
+    "@open-artifact/protocol": "0.14.6",
+    "zustand": "5.0.10"
+  },
+  "peerDependencies": {
+    "react": ">=19"
+  },
+  "sideEffects": false,
+  "engines": {
+    "node": ">=22.18"
+  },
+  "license": "Apache-2.0"
+}

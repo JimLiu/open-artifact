@@ -391,7 +391,8 @@ the environment, then `preset.json`, then the defaults. A preset adds its site o
 added back, and a used token is never sent again. An address, its name and its token travel together: a token in
 `preset.json` is not paired with an address from the environment. A value still written as `${…}` (an app that did not
 fill it in) counts as unset. A daemon that is already running keeps what it started with:
-`open-artifact daemon stop`, and the next tool call starts it again.
+`open-artifact daemon stop`, and the next tool call starts it again (or `open-artifact daemon restart` in your own
+terminal).
 
 ### Make a Link token
 

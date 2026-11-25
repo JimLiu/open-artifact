@@ -6,7 +6,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { MAX_HOST_DESTINATIONS, MAX_HOST_TEXT, type ArtifactView } from '@open-artifact/protocol';
-import { accentVars, destinationRequest, hostOf, hostVerdict, toHostMessage } from '../src/shell/model.ts';
+import { accentVars, destinationRequest, hostOf, hostVerdict, offersSwitch, savedMessage, toHostMessage } from '../src/shell/model.ts';
 import { forHost, homeHostOf } from '../src/home/model.ts';
 
 const hello = (extra: Record<string, unknown> = {}) => ({ openArtifact: 'host_hello', caps: { sessions: true, toolbar: true }, agentName: 'Helper', ...extra });
@@ -46,6 +46,23 @@ describe('host handshake', () => {
     assert.equal(toHostMessage(undeclared, { openArtifact: 'saved_file', path: '/Users/me/Downloads/a.pdf' }), null);
     assert.deepEqual(toHostMessage(declared, { openArtifact: 'saved_file', path: '/Users/me/Downloads/a.pdf' }), { openArtifact: 'saved_file', path: '/Users/me/Downloads/a.pdf' });
     assert.deepEqual(toHostMessage(undeclared, { openArtifact: 'place', artifact: 'x', hash: '#2' }), { openArtifact: 'place', artifact: 'x', hash: '#2' });
+  });
+
+  it('saved: the page\'s save state and leaveLosesWork, to every host, declared or not', () => {
+    assert.deepEqual(savedMessage({}), { openArtifact: 'saved', state: null, leaveLosesWork: false }, 'nothing reported yet');
+    assert.deepEqual(savedMessage({ saved: 'saving', leaveLosesWork: true }), { openArtifact: 'saved', state: 'saving', leaveLosesWork: true });
+    const undeclared = hostOf(hello(), 'https://evil.example', false)!;
+    const message = savedMessage({ saved: 'unsaved', leaveLosesWork: true });
+    assert.deepEqual(toHostMessage(undeclared, message), message);
+  });
+
+  it('switcher: a host with its own way between artifacts hides Switch artifact; others keep it', () => {
+    const switching = hostOf(hello({ caps: { toolbar: true, switcher: true } }), 'app://host', true)!;
+    assert.deepEqual(switching.caps, { toolbar: true, switcher: true });
+    assert.equal(offersSwitch(switching), false);
+    assert.equal(offersSwitch(hostOf(hello(), 'app://host', true)), true, 'a host that does not say it: as before');
+    assert.equal(offersSwitch(hostOf(hello({ caps: { switcher: 'yes' } }), 'app://host', true)), true, 'only true');
+    assert.equal(offersSwitch(null), true, 'no host: as before');
   });
 
   it('a top-level view host is the adapter itself: declared', () => {

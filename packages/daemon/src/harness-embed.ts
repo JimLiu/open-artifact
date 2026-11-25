@@ -15,6 +15,10 @@
  *   connection it was issued to, expires unclaimed after {@link TICKET_MS}, and ends with that connection. Commands
  *   sent before the Shell connects wait (at most {@link MAX_QUEUED}). A Shell that reloads may come back with its key
  *   within {@link GRACE_MS}.
+ * - `view.open`: the host asks for a view of one of this daemon's artifacts itself (the person picked it in the host's
+ *   own library), with no tool call and no session. The answer is what `host.open` would carry, `session: null`. Only
+ *   this daemon's artifacts: `open-artifact://artifact/<id>` or the daemon's own `/a/<id>` address, never another
+ *   address, so a host cannot be made to frame some other page with a ticket.
  *
  * What the Shell and the host send each other is data: both directions are reduced to the fields of their message
  * type, with text cut to `MAX_HOST_TEXT`.
@@ -27,6 +31,7 @@ import {
   OpenArtifactError,
   VIEW_TICKET_PARAM,
   artifactIdOf,
+  artifactUrl,
   entryLocation,
   hostToShellOf,
   isLoopbackHost,
@@ -41,6 +46,7 @@ import {
   type SessionRef,
   type ShellEventParams,
   type ShellToHost,
+  type ViewOpenResult,
 } from '@open-artifact/protocol';
 import type { AdapterConnection } from './harness.ts';
 
@@ -48,7 +54,7 @@ import type { AdapterConnection } from './harness.ts';
 export type HostOpenRemote = NonNullable<HostOpenParams['remote']>;
 
 /** The methods this module answers. */
-export const EMBED_METHODS = ['embed.origins', 'shell.command'] as const satisfies ReadonlyArray<keyof AdapterToDaemon>;
+export const EMBED_METHODS = ['embed.origins', 'shell.command', 'view.open'] as const satisfies ReadonlyArray<keyof AdapterToDaemon>;
 
 /** How long an issued ticket waits for its Shell, ms. */
 export const TICKET_MS = 2 * 60_000;
@@ -68,9 +74,10 @@ export interface EmbedCallContext {
   views: EmbedViews;
 }
 
-/** Answers `embed.origins` and `shell.command`. */
+/** Answers `embed.origins`, `shell.command` and `view.open`. */
 export async function handleEmbedCall(method: (typeof EMBED_METHODS)[number], params: Record<string, unknown>, context: EmbedCallContext): Promise<unknown> {
   if (method === 'embed.origins') return context.views.origins();
+  if (method === 'view.open') return context.views.open(context.conn, params);
   return context.views.command(context.conn, params);
 }
 
@@ -153,6 +160,27 @@ export function remoteOf(type: { id: string; entry: ResolvedEntry | null | undef
   const pageOrigin = page ? originOfTemplate(page) : null;
   if (pageOrigin && !origins.includes(pageOrigin) && !isLoopbackOrigin(pageOrigin)) origins.push(pageOrigin);
   return { type: type.id, origins };
+}
+
+/**
+ * The artifact id of an address that is this daemon's: `open-artifact://artifact/<id>` (or a bare id), or
+ * `http://<host>/a/<id>` where `<host>` is one of `hosts` (the daemon's own `host:port`s) and the path is exactly the
+ * Shell's (`/a/<id>`, a trailing slash allowed; no `/page`, no other path). Query and fragment are ignored. `null` for
+ * any other address, a cloud address included.
+ */
+export function localArtifactIdOf(url: unknown, hosts: Iterable<string>): string | null {
+  if (typeof url !== 'string' || !url.trim() || url.length > 4096) return null;
+  const text = url.trim();
+  if (!/^[a-z][a-z0-9+.-]*:/i.test(text) || /^open-artifact:/i.test(text)) return artifactIdOf(text);
+  let at: URL;
+  try {
+    at = new URL(text);
+  } catch {
+    return null;
+  }
+  if (at.protocol !== 'http:' || at.username || at.password || !new Set(hosts).has(at.host)) return null;
+  const match = /^\/a\/([^/]+)\/?$/.exec(at.pathname);
+  return match ? artifactIdOf(decodeURIComponent(match[1]!)) : null;
 }
 
 // ---- messages ----------------------------------------------------------------------------------------------------
@@ -239,6 +267,31 @@ export class EmbedViews {
   }
 
   private remoteOf: ((id: string) => HostOpenRemote | null) | null = null;
+
+  /**
+   * What `view.open` checks an address against (the daemon sets it): the daemon's own `host:port`s, and the title and
+   * `view_url` (its cloud address once published, as `host.open` says it) of an artifact it keeps (`null`: none).
+   */
+  setArtifacts(source: { hosts: () => Iterable<string>; artifact: (id: string) => { title: string; view_url: string } | null }): void {
+    this.artifacts = source;
+  }
+
+  private artifacts: { hosts: () => Iterable<string>; artifact: (id: string) => { title: string; view_url: string } | null } | null = null;
+
+  /**
+   * `view.open`: a view of one of this daemon's artifacts, for the host to show on its own (no session). Throws
+   * `invalid_argument` for an address that is not this daemon's (another host, a cloud address, `/a/<id>/page`) and
+   * `not_found` for an artifact it does not keep.
+   */
+  open(conn: AdapterConnection, params: Record<string, unknown>): ViewOpenResult {
+    if (!this.artifacts || !this.shellUrl) throw new OpenArtifactError('unavailable', 'The daemon is still starting.');
+    const id = localArtifactIdOf(params.url, this.artifacts.hosts());
+    if (!id) throw new OpenArtifactError('invalid_argument', 'url: one of this daemon\'s artifacts (open-artifact://artifact/<id> or its /a/<id> address).');
+    const artifact = this.artifacts.artifact(id);
+    if (!artifact) throw new OpenArtifactError('not_found', `No artifact ${id}.`);
+    const url = artifactUrl(id);
+    return { url, view_url: artifact.view_url, ...(artifact.title ? { title: artifact.title } : {}), ...this.openExtras(conn, null, url) };
+  }
 
   /**
    * What `host.open` carries for this connection beyond `url`/`view_url`: for a top-level-view adapter a ticket and

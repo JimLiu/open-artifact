@@ -204,8 +204,68 @@ export function requestBlock(id: string, request: WakeRequestItem): string {
 export interface WakeMessageOptions {
   /** Where the person views the artifact. */
   viewUrl: string;
-  /** The artifact has no owner session; another session was picked. */
-  noOwner?: boolean;
+}
+
+/**
+ * Why a session gets messages that waited for an artifact no session owned (the daemon's unowned inbox), when it
+ * becomes the owner:
+ *
+ * - `made`: the person made the artifact without an agent (the home page, a folder they opened) and this session took
+ *   it, by `adopt` or by writing it;
+ * - `assigned`: the person picked this session for it (`artifacts.assign`, the Ask pane);
+ * - `gone`: an agent's session made it and is no longer its owner.
+ */
+export type WakeHandOff = 'made' | 'assigned' | 'gone';
+
+/** What every {@link wakeHandOffLine} starts with: a message carrying one is not given another. */
+export const WAKE_HANDOFF_PREFIX = '[Open Artifact] ';
+
+/**
+ * The opening line put before a message that waited while no session owned the artifact, when it is handed to the
+ * session that now owns it. Messages are stored without it, since who gets them and why is known only then.
+ * `adopted`: the session has the type's instructions already (it called `adopt`), so it is not told to.
+ *
+ * The line ends with when the message was sent ({@link wakeSentLine}): an artifact may have waited a long time for a
+ * session (one imported or opened from a folder), and what was asked then may no longer stand. Pass `sentAt` (the
+ * inbox entry's `at`, ISO) and `now`; with `sentAt` left out the line says the time is not known.
+ */
+export function wakeHandOffLine(how: WakeHandOff, url: string, options: { adopted?: boolean; sentAt?: string | null; now?: number } = {}): string {
+  const adopt = options.adopted ? '' : ` If you have not, call Artifact {action: "adopt", url: "${url}"} first for its type's instructions.`;
+  const sent = ` ${wakeSentLine(options.sentAt, options.now)}`;
+  switch (how) {
+    case 'assigned':
+      return `${WAKE_HANDOFF_PREFIX}The person picked this session for ${url} and it is yours now: comments on it come to this session.${adopt} It may already hold what the person wrote: read it before you change it.${sent}`;
+    case 'made':
+      return `${WAKE_HANDOFF_PREFIX}The person made ${url} without an agent, and it is yours now: comments on it come to this session. This came while no session had it.${adopt} It may already hold what the person wrote: read it before you change it.${sent}`;
+    default:
+      return `${WAKE_HANDOFF_PREFIX}The session that made ${url} is no longer its owner; it is yours now, and this came while no session had it.${adopt} Read the artifact before acting.${sent}`;
+  }
+}
+
+/**
+ * The sentence of a {@link wakeHandOffLine} that says when the message was sent: the time (UTC, to the minute), and
+ * how long before `now` when that is an hour or more; for a time that is missing or unreadable, that it is not known
+ * and may be long ago.
+ */
+export function wakeSentLine(sentAt: string | null | undefined, now = Date.now()): string {
+  const at = typeof sentAt === 'string' ? Date.parse(sentAt) : NaN;
+  if (!Number.isFinite(at)) return 'When it was sent is not known: it may be from long ago, so check that it still stands before acting on it.';
+  const when = `${new Date(at).toISOString().slice(0, 16).replace('T', ' ')} UTC`;
+  const hours = Math.floor((now - at) / 3_600_000);
+  const ago = hours >= 48 ? `${Math.floor(hours / 24)} days ago` : hours >= 2 ? `${hours} hours ago` : hours === 1 ? 'an hour ago' : '';
+  return ago ? `It was sent at ${when}, ${ago}: check that it still stands before acting on it.` : `It was sent at ${when}.`;
+}
+
+/** The opening an older daemon stored on every unowned message, true or not; {@link withHandOffLine} replaces it. */
+const OLD_NO_OWNER_LINE = /^This artifact's original session is gone; you were picked to handle it\. Read the artifact before acting\.\n+/;
+
+/**
+ * `text` with {@link wakeHandOffLine} before it, unless it starts with such a line already. The opening an older
+ * daemon stored ("the original session is gone", said of artifacts the person made too) gives way to `line`.
+ */
+export function withHandOffLine(text: string, line: string): string {
+  if (text.startsWith(WAKE_HANDOFF_PREFIX)) return text;
+  return `${line}\n\n${text.replace(OLD_NO_OWNER_LINE, '')}`;
 }
 
 /** Renders merged threads and requests as one message and its structured copy. */
@@ -225,12 +285,7 @@ export function wakeMessage(
       : null,
     'Read the files again before changing them: the person may have edited them.',
   ].filter((line): line is string => line !== null);
-  const parts = [
-    options.noOwner ? "This artifact's original session is gone; you were picked to handle it. Read the artifact before acting.\n" : null,
-    blocks.join('\n\n'),
-    '',
-    footer.join('\n'),
-  ].filter((part): part is string => part !== null);
+  const parts = [blocks.join('\n\n'), '', footer.join('\n')];
 
   const first = threads[0];
   const firstRequest = requests[0];

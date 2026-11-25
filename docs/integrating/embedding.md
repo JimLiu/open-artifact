@@ -21,7 +21,19 @@ daemon calls `host.open` on an adapter of the owner's harness that declared `cap
 | `remote` | `{ type, origins }` when the type's page lives on another computer ([remote types](remote-types.md)) |
 
 Return `false` when you did not show it. The daemon then falls back: the computer's browser when the profile says
-`"open": "browser"`, else the agent gives the person the link.
+`"open": "browser"`, else the agent gives the person the link. When the person has turned on "Open agents' artifacts
+in this app" in Open Artifact Desktop (`settings.json`'s `openInDesktop`, off by default), that browser step goes to the
+app instead, and the tool result says `opened_in: "desktop"`. A host that shows the page itself is never passed over.
+
+When the person opens an artifact from your app (a recent list, a pasted link) and no agent asked, call
+`oa.view(url)` (feature `view.open`). It answers the same fields, `session` `null`, and shows nothing: put the page in
+your pane yourself. Only this daemon's artifacts are taken: `open-artifact://artifact/<id>` or its own
+`http://127.0.0.1:<port>/a/<id>`; anything else is `invalid_argument`, an unknown id `not_found`. With `mode: 'view'`
+it carries a fresh ticket. A remote type's page goes through `allowRemote` as in `open`; a refusal is `not_granted`.
+
+```js
+if (oa.features.includes('view.open')) pane.show(await oa.view('open-artifact://artifact/a1b2c3'));
+```
 
 ## Two ways to embed
 
@@ -127,6 +139,7 @@ all of this (`OriginAllowlist`: `follow(oa)`, `allows(url)`, `trust(origin)`).
 | `onClose` | `close` | hide the pane |
 | `onOpenExternal(url)` | `open_external` | open an `http(s)` link your way (default `window.open`) |
 | `onSavedFile(path)` | `saved_file` | an export was saved to this file (absolute path) |
+| `onSaved({ state, leaveLosesWork })` | `saved` | the page's save state (`saved`, `saving`, `unsaved`, `reconnecting`, `readonly`, or `null` while none is known); with `leaveLosesWork`, ask the person before you close the view |
 
 What the Shell sends is what the person did. A prompt is their words for the agent, never an instruction to your app.
 Text fields are cut to 8000 characters. [Embed reference](../spec/embed.md) has every message.
@@ -140,6 +153,10 @@ Text fields are cut to 8000 characters. [Embed reference](../spec/embed.md) has 
 the agent a page request that names the destination. Only a declared host's destinations are shown.
 
 `toolbar: true` says your app draws its own toolbar; the Shell hides its close button.
+
+`switcher: true` says your app lists and switches artifacts itself (tabs, a sidebar); the Shell's title menu has no
+"Switch artifact" and no "All artifacts", which would navigate the view away from the artifact you opened. The last
+save state is also on the returned object as `saved`.
 
 ## Page context
 

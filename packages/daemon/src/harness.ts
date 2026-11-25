@@ -96,6 +96,28 @@ export function systemBrowse(url: string): boolean {
   }
 }
 
+/** The harness the Open Artifact Desktop app connects as: the app {@link HarnessHubOptions.openInDesktop} hands pages to. */
+export const DESKTOP_HARNESS = 'open-artifact-desktop';
+
+/**
+ * Starts the Open Artifact Desktop app with an `open-artifact://artifact/<id>` link, for when it is not connected:
+ * `open <link>` on macOS, true when it exited 0 (the system has an app for the link). False elsewhere, and where
+ * `$OPEN_ARTIFACT_DESKTOP_LAUNCH` is `off`, `none`, `0` or `false` (tests).
+ */
+export function systemLaunchDesktop(url: string): Promise<boolean> {
+  if (/^(none|off|0|false)$/i.test(process.env.OPEN_ARTIFACT_DESKTOP_LAUNCH ?? '')) return Promise.resolve(false);
+  if (process.platform !== 'darwin' || !/^open-artifact:\/\/artifact\/[A-Za-z0-9_-]+$/.test(url)) return Promise.resolve(false);
+  return new Promise((done) => {
+    try {
+      const child = spawn('open', [url], { stdio: 'ignore' });
+      child.on('error', () => done(false));
+      child.on('exit', (code) => done(code === 0));
+    } catch {
+      done(false);
+    }
+  });
+}
+
 // ---- connections -------------------------------------------------------------------------------------------------
 
 /** `session.attach`'s `may`, kept when it is an object of booleans. */
@@ -332,6 +354,13 @@ export interface HarnessHubOptions {
   openArtifact: (url: string, caller: SessionRef) => Promise<{ opened: boolean; view_url?: string }>;
   /** Opens a link in this computer's browser (for harnesses whose profile says `open: "browser"`); `null`: never. */
   browse?: ((url: string) => boolean) | null;
+  /**
+   * Whether the person has pages that would open in the browser handed to the Open Artifact Desktop app instead
+   * (`settings.json`'s `openInDesktop`). Unset or false: the browser step is as it was.
+   */
+  openInDesktop?: () => boolean;
+  /** Starts the app with an `open-artifact://` link when it is not connected ({@link systemLaunchDesktop}); `null`: never. */
+  launchDesktop?: ((url: string) => Promise<boolean>) | null;
   /** The runtime registry and updates (`runtime.ts`): `hello`'s `runtime`, and `runtime.status` / `runtime.update`. */
   runtime?: { hello(harness: string, params: Pick<HelloParams, 'protocols' | 'runtime'>): void; call(method: string, raw: Record<string, unknown>): Promise<unknown> };
 }
@@ -696,10 +725,42 @@ export class HarnessHub extends EventEmitter<{ changed: [] }> {
    * the harness's profile says `open: "browser"`. Not for the person's own clicks, whose page is already in front of
    * them. `null` when it was shown nowhere.
    */
-  async show(ref: SessionRef | null, params: { url: string; view_url: string; title?: string }): Promise<'app' | 'browser' | null> {
+  async show(ref: SessionRef | null, params: { url: string; view_url: string; title?: string }): Promise<'app' | 'desktop' | 'browser' | null> {
     if (await this.hostOpen(ref, params)) return 'app';
-    if (this.browserFor(ref) && this.options.browse?.(params.view_url)) return 'browser';
+    if (!this.browserFor(ref)) return null;
+    // The person's setting: the step that would open the browser goes to the Open Artifact Desktop app.
+    if (this.options.openInDesktop?.() && (await this.desktopOpen(params))) return 'desktop';
+    if (this.options.browse?.(params.view_url)) return 'browser';
     return null;
+  }
+
+  /**
+   * Hands a page to the Open Artifact Desktop app: through its adapter when it is connected (`host.open`, no session),
+   * else (not running) by starting it with the artifact's `open-artifact://` link. False when neither showed it, or
+   * the running app declined it (the browser then).
+   */
+  private async desktopOpen(params: { url: string; view_url: string; title?: string }): Promise<boolean> {
+    let asked = false;
+    for (const conn of this.connections) {
+      if (!conn.authed || conn.harness !== DESKTOP_HARNESS || !conn.caps.open) continue;
+      asked = true;
+      const extras = this.embed.openExtras(conn, null, params.url);
+      const result = await conn.call('host.open', { session: null, ...params, ...extras }).catch(() => null);
+      if (result?.opened) {
+        this.options.log(`open ${params.url}: shown in Open Artifact Desktop`);
+        return true;
+      }
+    }
+    // The app is running and declined (it could not show this page): starting it again would not help; the browser.
+    if (asked) {
+      this.options.log(`open ${params.url}: Open Artifact Desktop did not show it; the browser instead`);
+      return false;
+    }
+    const launch = this.options.launchDesktop;
+    if (!launch || !/^open-artifact:\/\/artifact\//.test(params.url)) return false;
+    const launched = await launch(params.url).catch(() => false);
+    this.options.log(`open ${params.url}: ${launched ? 'started Open Artifact Desktop with the link' : 'Open Artifact Desktop could not be started; the browser instead'}`);
+    return launched;
   }
 
   /** Asks the caller's harness to show an artifact (`host.open`), when it can. */
@@ -822,6 +883,7 @@ export class HarnessHub extends EventEmitter<{ changed: [] }> {
         return handleSkillCall(method as (typeof SKILL_METHODS)[number], raw, { harness, caller: this.callerOf(conn, raw), caps: conn.caps, version: this.options.version, tools: this.options.tools });
       case 'embed.origins':
       case 'shell.command':
+      case 'view.open':
         return handleEmbedCall(method as (typeof EMBED_METHODS)[number], raw, { harness, caller: this.callerOf(conn, raw), conn, views: this.embed });
       case 'view.context':
         return handleViewCall(method as (typeof VIEW_METHODS)[number], raw, { harness, caller: this.callerOf(conn, raw), contexts: this.contexts });

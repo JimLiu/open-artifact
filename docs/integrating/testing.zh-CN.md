@@ -32,7 +32,7 @@ await fake.close();
 | `request(method, params)` | 发送任意 daemon 到适配器的调用 |
 | `emit(event)` | 向已订阅的适配器发送事件 |
 | `queueInbox(session, message)` | 下一次 `session.attach` 或 `inbox.take` 会返回它 |
-| `setArtifact`、`removeArtifact` | Library API 对某个 id 的回答（这样 `on('artifact')` 能报告它） |
+| `setArtifact`、`removeArtifact` | Library API 对某个 id 的回答（这样 `on('artifact')` 能报告它），也是 `view.open` 接受的作品：`open-artifact://artifact/<id>` 或假 daemon 的 `/a/<id>`，声明了 `mode: 'view'` 时带票据 |
 | `setContext(id, context)` | `view.context` 的回答 |
 | `runtimeUpdate(available, installed)` | 发送 `runtime/update` |
 | `calls`、`hellos`、`sessions`、`shellCommands`、`thumbnails`、`connected` | 你的适配器做了什么 |
@@ -58,6 +58,7 @@ await fake.close();
 | `OPEN_ARTIFACT_DAEMON_BIN` | 要启动的 `open-artifact` 入口（或给 `createHarness` 传 `runtime`） |
 | `OPEN_ARTIFACT_PORT` | `0`：任意空闲端口 |
 | `OPEN_ARTIFACT_BROWSER` | `none` |
+| `OPEN_ARTIFACT_DESKTOP_LAUNCH` | `off`：永远不用 `open-artifact://` 链接启动 Open Artifact Desktop |
 | `OPEN_ARTIFACT_USER_TYPES` | 放着你自己一个小类型的目录，这样测试不需要构建好的类型 |
 | `OPEN_ARTIFACT_BUILTIN_TYPES` | 一个空目录 |
 | `OPEN_ARTIFACT_WAKE_MERGE_MS` | 一个短的合并窗口，例如 `20` |

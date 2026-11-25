@@ -14,6 +14,12 @@
  * to send) too, so it never also goes to the inbox. When the answer names another session that took it (a thread that
  * ended handed it to its coordinator), that session of the same harness becomes the artifact's owner (`handOver` in
  * `ownership.ts`), and later wakes go straight to it.
+ *
+ * An artifact no session owns (the person made it on the home page, or opened its folder) has its wakes in the unowned
+ * inbox, each with its `artifactId`. They follow the artifact: when a session becomes its owner (`adopt`, a write
+ * through the tools, or the person's `artifacts.assign`), {@link WakeRouter.handOff} moves that artifact's messages to
+ * the session's inbox, with a first line that says why it has them ({@link wakeHandOffLine}); from there they go the
+ * usual ways. Nothing else reads the unowned inbox.
  */
 
 import {
@@ -21,7 +27,10 @@ import {
   WAKE_MERGE_MS,
   WAKE_PER_MINUTE,
   artifactUrl,
+  wakeHandOffLine,
   wakeMessage,
+  withHandOffLine,
+  type InboxMessage,
   type LibraryEvent,
   type SessionRef,
   type WakeDeliverResult,
@@ -31,7 +40,7 @@ import {
   type WakeThread,
   type WakeVia,
 } from '@open-artifact/protocol';
-import type { Inbox } from './inbox.ts';
+import type { Inbox, InboxItem } from './inbox.ts';
 import { handOver } from './ownership.ts';
 import { sessionKeyOf, type ArtifactStore } from './store.ts';
 
@@ -160,7 +169,8 @@ export class WakeRouter {
     const record = this.options.store.get(id);
     if (!record) return { via: 'dropped' };
     const owner = record.owner;
-    const message = wakeMessage(record, threads, requests, { viewUrl: this.options.viewUrl(id), noOwner: !owner });
+    // Stored without a word on who gets it: that is known when a session takes the artifact (handOff).
+    const message = wakeMessage(record, threads, requests, { viewUrl: this.options.viewUrl(id) });
     const payload: WakePayload = { artifact: artifactUrl(id), artifactId: id, text: message.text, source: message.source };
     const result = await this.send(owner, payload);
     // The adapter handed it to another session of the harness: that one owns the artifact from now on.
@@ -175,27 +185,39 @@ export class WakeRouter {
    * started it.
    */
   async send(target: SessionRef | null, payload: WakePayload): Promise<WakeResult> {
-    const { inbox, log, emit } = this.options;
+    return (await this.live(target, payload)) ?? this.inboxed(target, { kind: 'wake', ...payload }, payload);
+  }
+
+  /** Delivers a message live when `target`'s adapter takes it (any answer but `failed`); `null` when none did. */
+  private async live(target: SessionRef | null, payload: WakePayload): Promise<WakeResult | null> {
+    const { log, emit } = this.options;
     const id = payload.artifactId;
     const live = this.options.live();
-    if (target && live) {
-      const answer = deliverAnswer(
-        await live.deliver(target, payload).catch((error: unknown) => {
-          log(`wake.deliver to ${sessionKeyOf(target)}: ${(error as Error)?.message ?? error}`);
-          return null;
-        }),
-      );
-      const status = answer?.status;
-      if (status && status !== 'failed') {
-        const session = answer.session && answer.session !== target.session ? answer.session : undefined;
-        log(`wake ${id} -> ${sessionKeyOf(target)} (${status}${session ? `, taken by ${session}` : ''})`);
-        emit?.({ type: 'wake/state', artifactId: id, via: 'live', status });
-        return { via: 'live', status, ...(session ? { session } : {}) };
-      }
-    }
+    if (!target || !live) return null;
+    const answer = deliverAnswer(
+      await live.deliver(target, payload).catch((error: unknown) => {
+        log(`wake.deliver to ${sessionKeyOf(target)}: ${(error as Error)?.message ?? error}`);
+        return null;
+      }),
+    );
+    const status = answer?.status;
+    if (!status || status === 'failed') return null;
+    const session = answer.session && answer.session !== target.session ? answer.session : undefined;
+    log(`wake ${id} -> ${sessionKeyOf(target)} (${status}${session ? `, taken by ${session}` : ''})`);
+    emit?.({ type: 'wake/state', artifactId: id, via: 'live', status });
+    return { via: 'live', status, ...(session ? { session } : {}) };
+  }
+
+  /**
+   * Puts a message in `target`'s inbox (the unowned inbox when `target` is `null`), where an open wait takes it at
+   * once, and nudges the session when its harness needs that. `item` keeps its `at` when it has one.
+   */
+  private inboxed(target: SessionRef | null, item: InboxItem, payload: WakePayload): WakeResult {
+    const { inbox, log, emit } = this.options;
+    const id = payload.artifactId;
     const key = (target && sessionKeyOf(target)) || UNOWNED_KEY;
     const waiting = inbox.count(key) > 0;
-    const { taken } = inbox.append(key, { kind: 'wake', ...payload });
+    const { taken } = inbox.append(key, item);
     log(`wake ${id} -> inbox ${key}${taken ? ' (taken by a wait)' : ''}`);
     if (!taken && target && this.options.nudge) {
       // A nudge still on its way starts a turn that takes this message too; a second one would only queue an empty turn.
@@ -210,5 +232,70 @@ export class WakeRouter {
     const via: WakeVia = taken ? 'wait' : 'inbox';
     emit?.({ type: 'wake/state', artifactId: id, via });
     return { via };
+  }
+
+  /**
+   * `owner` became the owner of artifact `id` (`how`: by `adopt`, by writing it, or the person assigned it): the
+   * artifact's messages in the unowned inbox move to `owner`'s inbox, each wake with its first line. They are written
+   * there first and taken out of the unowned inbox after, in one synchronous step, so each is handed over once; a
+   * process killed between the two writes leaves a copy in both rather than losing one. Each wake's first line says
+   * when it was sent (its `at`), which may be long ago: an imported artifact may wait for a session for weeks. All of
+   * them move, however many: nothing here counts against the per-minute limit, which is on what the page sends.
+   * Returns what moved.
+   */
+  handOff(id: string, owner: SessionRef, how: 'adopt' | 'wrote' | 'assign'): InboxMessage[] {
+    const { inbox, store, log, emit } = this.options;
+    const key = sessionKeyOf(owner);
+    if (!key || key === UNOWNED_KEY) return [];
+    const mine = (message: InboxMessage): boolean => message.artifactId === id;
+    const waiting = inbox.peek(UNOWNED_KEY).filter(mine);
+    if (!waiting.length) return [];
+    const why = how === 'assign' ? 'assigned' : store.get(id)?.createdBy ? 'gone' : 'made';
+    const now = Date.now();
+    const moved = waiting.map((message) =>
+      message.kind === 'wake'
+        ? { ...message, text: withHandOffLine(message.text, wakeHandOffLine(why, artifactUrl(id), { adopted: how === 'adopt', sentAt: message.at, now })) }
+        : message,
+    );
+    for (const message of moved) inbox.append(key, message);
+    inbox.takeWhere(UNOWNED_KEY, mine);
+    log(`wake ${id}: ${moved.length} waiting message(s) from the unowned inbox -> ${key} (${how})`);
+    emit?.({ type: 'wake/state', artifactId: id, via: 'inbox' });
+    return moved;
+  }
+
+  /**
+   * Delivers the wakes of artifact `id` waiting in `owner`'s inbox now, as a new wake would go (live, else they stay in
+   * the inbox and the session is nudged): after the person assigned the artifact, or after an adapter saw the session
+   * write it. One per `wake.deliver`, however many waited: the per-minute limit and the merge window are on what the
+   * page sends ({@link queue}), not on these.
+   *
+   * Each is taken out of the inbox just before it is sent, and put back (with its `at`) when no adapter took it live.
+   * So a session that takes its inbox meanwhile (a tool call, a hook, an attach while a `wake.deliver` is awaited) has
+   * every message once, from one place or the other, and a process killed while one is sent loses that one only (the
+   * others are still on disk). Not all taken first: that kept them only in memory for as long as every delivery took.
+   */
+  async deliverWaiting(id: string, owner: SessionRef): Promise<WakeResult[]> {
+    const key = sessionKeyOf(owner);
+    if (!key) return [];
+    const { inbox, log } = this.options;
+    const mine = (message: InboxMessage): boolean => message.artifactId === id && message.kind === 'wake' && !!message.source;
+    const results: WakeResult[] = [];
+    for (const waiting of inbox.peek(key).filter(mine)) {
+      const message = inbox.takeFirst(key, (m) => mine(m) && m.at === waiting.at && m.text === waiting.text);
+      // The session took its inbox meanwhile: it has this one.
+      if (!message) continue;
+      const payload: WakePayload = { artifact: message.artifact ?? artifactUrl(id), artifactId: id, text: message.text, source: message.source! };
+      let result: WakeResult | null = null;
+      try {
+        result = await this.live(owner, payload);
+      } finally {
+        // Not taken live (or the delivery threw): back in the inbox as it was.
+        if (!result) result = this.inboxed(owner, message, payload);
+      }
+      results.push(result);
+    }
+    if (results.length) log(`wake ${id}: ${results.length} waiting message(s) delivered to ${key}: ${results.map((r) => r.status ?? r.via).join(', ')}`);
+    return results;
   }
 }

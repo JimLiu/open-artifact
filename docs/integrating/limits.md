@@ -11,6 +11,7 @@ it shows.
 | --- | --- |
 | A Shell served by a site (a published artifact opened at its site address) cannot read the daemon's declared origins, so it treats every host as undeclared: `new_session` comes with an empty prompt, `comment_summon` with empty text, and there is no `open_external`, `saved_file` or destinations. | Embed the local view URL (`viewUrl`), not the site address. |
 | A page loaded from `file://` has the origin `null` and cannot be declared. | Serve your UI from a custom scheme, or use a top-level view. |
+| `caps.switcher` hides only the title menu's Switch artifact and All artifacts. Duplicate still opens the copy in the same view, and the view then shows the copy's place and `saved`. | Watch `onPlace`'s `artifact` and treat a change as the view moving to another artifact. |
 | An artifact a newer type release wrote is read-only on this computer, including the page's comment box. | The page and the tools' `newer_release` error tell the person to update; the agent's tools may still reply to comments. |
 
 ## Examples
@@ -34,7 +35,7 @@ it shows.
 | --- | --- |
 | On Windows a nudge runs only an `.exe`; a `.cmd` or `.bat` is skipped and logged, because Node runs those only through a shell. | Point the nudge at the `.exe`, or rely on the inbox and hooks. |
 | HTTP polling adapters get no events and cannot show pages. | Use the WebSocket or the stdio bridge. |
-| An artifact with no owner (made by a call with no caller) has its wakes in a shared inbox. | Always pass a caller. |
+| An artifact with no owner (made by a call with no caller, or by the person on the home page) keeps its wakes until a session owns it. | Always pass a caller; the session that adopts or writes it, or the one the person picks, gets them. |
 
 ## Checking
 

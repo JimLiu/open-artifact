@@ -23,6 +23,8 @@
 /open-artifact whiteboard a mind map of Q4 growth experiments
 ```
 
+Or start with no agent: on the home page, click **New artifact**, pick **Whiteboard**, and name it. A blank board opens in its editor and you add notes yourself (right-click the board, **Add a note here**). A board made empty some other way opens on its empty state; its **Start blank** opens the same editor. What you **Send to agent** waits until a session takes the board.
+
 ### Collaborate & export
 - **Draw & rearrange**: Drag stickies, group ideas into sections, draw arrows or ink sketches, drop stickers to vote, and start a countdown timer.
 - **Ask your agent in context**: Select a cluster of stickies or pin a comment (e.g. *"cluster these by theme and summarize top 3 risks"*), then click **Send to agent**.

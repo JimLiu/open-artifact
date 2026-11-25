@@ -269,6 +269,59 @@ export async function ensureDaemon(options: EnsureDaemonOptions = {}): Promise<D
   throw new OpenArtifactError('daemon_failed', `The open-artifact daemon did not start; see ${logFile}.${why}`);
 }
 
+/** Options of {@link stopDaemon}. */
+export interface StopDaemonOptions {
+  /** The Open Artifact home (default `$OPEN_ARTIFACT_HOME` of `env`, then of this process). */
+  home?: string;
+  env?: NodeJS.ProcessEnv;
+  /** How long to wait for the running daemon to exit, ms. Default 10 s. */
+  stopTimeoutMs?: number;
+}
+
+/**
+ * Stops the home's daemon (`SIGTERM`, as `open-artifact daemon stop`) and waits until its process has exited.
+ * Resolves with the daemon it stopped, or `null` when none ran. Only a daemon that answers health is stopped; one that
+ * runs in this very process is refused (`invalid_argument`), and one that does not exit in time fails
+ * (`daemon_failed`). Starts nothing: whoever needs a daemon next (any app's kit, a command line) starts one.
+ */
+export async function stopDaemon(options: StopDaemonOptions = {}): Promise<DaemonState | null> {
+  const env = options.env ?? process.env;
+  const home = options.home ?? env.OPEN_ARTIFACT_HOME ?? undefined;
+  const running = await readDaemon(home);
+  if (!running) return null;
+  if (running.pid === process.pid) throw new OpenArtifactError('invalid_argument', 'The daemon runs in this process: it cannot be stopped from here.');
+  await replaceDaemon(running, options.stopTimeoutMs ?? 10_000);
+  if (alive(running.pid)) {
+    throw new OpenArtifactError('daemon_failed', `The open-artifact daemon (pid ${running.pid}) did not exit in time.`, { fix: 'Run `open-artifact daemon status`, then try again.' });
+  }
+  return running;
+}
+
+/** Options of {@link restartDaemon}. */
+export interface RestartDaemonOptions extends EnsureDaemonOptions {
+  /** How long to wait for the running daemon to exit, ms. Default 10 s. */
+  stopTimeoutMs?: number;
+}
+
+/** What {@link restartDaemon} did: the daemon it stopped (`null`: none ran) and the one running now. */
+export interface RestartDaemonResult {
+  stopped: DaemonState | null;
+  daemon: DaemonState;
+}
+
+/**
+ * Restarts the home's daemon: stops the running one (`SIGTERM`, as `open-artifact daemon stop`), waits until its
+ * process has exited, then starts one as {@link ensureDaemon} does (the newest compatible runtime). With no daemon
+ * running it only starts one. The harnesses connected to the old one reconnect to the new one. Only a daemon that
+ * answers health is stopped; one that runs in this very process is refused (`invalid_argument`), and one that does not
+ * exit in time fails (`daemon_failed`) without starting another.
+ */
+export async function restartDaemon(options: RestartDaemonOptions = {}): Promise<RestartDaemonResult> {
+  const { stopTimeoutMs, ...ensure } = options;
+  const stopped = await stopDaemon({ ...(options.home ? { home: options.home } : {}), ...(options.env ? { env: options.env } : {}), ...(stopTimeoutMs ? { stopTimeoutMs } : {}) });
+  return { stopped, daemon: await ensureDaemon(ensure) };
+}
+
 /** Options of {@link api}. */
 export interface ApiOptions {
   /** Defaults to `GET` without a body and `POST` with one. */

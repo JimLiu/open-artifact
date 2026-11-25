@@ -26,6 +26,8 @@
 /open-artifact slides a 10-slide Q3 engineering review in 4:3 using our Acme design system
 ```
 
+Or start with no agent: on the home page, click **New artifact**, pick **Slides**, and name it. A deck with no slides opens in its editor; click **Add slide** and edit it yourself. What you **Send to agent** waits until a session takes the deck.
+
 ### Edit, review & export
 - **Direct edits**: Click text to edit inline, rearrange slides in the left rail or section overview, and open speaker notes at the bottom.
 - **Present**: Use the presenter button in the toolbar for full-screen delivery.

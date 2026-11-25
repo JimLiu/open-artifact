@@ -22,6 +22,7 @@ process.env.OPEN_ARTIFACT_INSTALLED_TYPES = tempDir('open-artifact-installed-typ
 process.env.OPEN_ARTIFACT_WAKE_MERGE_MS = '40';
 process.env.OPEN_ARTIFACT_IDLE_MS = '0';
 process.env.OPEN_ARTIFACT_BROWSER = 'none';
+process.env.OPEN_ARTIFACT_DESKTOP_LAUNCH = 'off';
 // Runtime updates (runtime.ts) never reach the network or this computer's policy: a registry nothing listens on
 // (tests that update start their own), no machine policy file, no user .npmrc.
 process.env.OPEN_ARTIFACT_REGISTRY = 'http://127.0.0.1:9/';

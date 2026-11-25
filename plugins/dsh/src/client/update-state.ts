@@ -1,8 +1,10 @@
 /**
- * The state of updating dsh-open-artifact, and the run that installs a release: what updates.tsx draws. Here, without
- * React, so the tests can run it.
+ * The state of updating dsh-open-artifact, and the run that installs a release: what updates.tsx and the page's update
+ * panel ({@link pageUpdates}) draw. Here, without React, so the tests can run it.
  */
-import { isNewer, PATHS, type PluginUpdate, type UpdateCheck } from '../shared/routes.ts';
+import type { PageUpdates } from '@open-artifact/library-page';
+import { latestOf } from '@open-artifact/library-page/library';
+import { PATHS, type PluginUpdate, type UpdateCheck } from '../shared/routes.ts';
 import { routeUrl } from './api.ts';
 
 export const NS = 'open-artifact-updates';
@@ -69,10 +71,6 @@ export const subscribe = (listener: () => void) => {
 };
 /** The state now (tests read it). */
 export const updateState = (): UpdateState => hub().state;
-
-
-export const latestOf = (updates: readonly PluginUpdate[]): string =>
-  updates.reduce((best, u) => (best === '' || isNewer(u.latest, best) ? u.latest : best), '');
 
 // ---------- looking, and installing ----------
 
@@ -225,6 +223,8 @@ export const zh = {
   'failed.unknown': '到插件页看一下它现在是哪个版本。',
   retry: '重试',
   close: '关闭',
+  // The page's "restart now" (shown only by a host that restarts; DSH does not).
+  restart: '现在重启',
   tag: '有新版本 {version}',
   show: '查看',
   'mark.update': '更新',
@@ -249,6 +249,7 @@ export const en: Record<keyof typeof zh, string> = {
   'failed.unknown': 'Check which version it is on, on the Plugins page.',
   retry: 'Try again',
   close: 'Close',
+  restart: 'Restart now',
   tag: 'New version {version}',
   show: 'Show',
   'mark.update': 'Update',
@@ -284,3 +285,6 @@ export function markOf({ phase, updates, restart, dismissed }: UpdateState): Key
 export function setPluginManager(manager: PluginManagerRemote | undefined): void {
   pluginManager = manager;
 }
+
+/** The update, as the page's panel (`UpdatePanel` of `@open-artifact/library-page`) draws and starts it. */
+export const pageUpdates: PageUpdates = { getSnapshot: updateState, subscribe, start, later, close, reopen, t: translate };

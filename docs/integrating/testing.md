@@ -34,7 +34,7 @@ await fake.close();
 | `request(method, params)` | sends any daemon-to-adapter call |
 | `emit(event)` | sends an event to subscribed adapters |
 | `queueInbox(session, message)` | the next `session.attach` or `inbox.take` returns it |
-| `setArtifact`, `removeArtifact` | what the Library API answers for an id (so `on('artifact')` can report it) |
+| `setArtifact`, `removeArtifact` | what the Library API answers for an id (so `on('artifact')` can report it), and what `view.open` takes: `open-artifact://artifact/<id>` or the fake's `/a/<id>`, with a ticket when you declared `mode: 'view'` |
 | `setContext(id, context)` | what `view.context` answers |
 | `runtimeUpdate(available, installed)` | sends `runtime/update` |
 | `calls`, `hellos`, `sessions`, `shellCommands`, `thumbnails`, `connected` | what your adapter did |
@@ -67,6 +67,7 @@ Run the real daemon in a temporary home, with the browser off, as
 | `OPEN_ARTIFACT_DAEMON_BIN` | the `open-artifact` entry to start (or pass `runtime` to `createHarness`) |
 | `OPEN_ARTIFACT_PORT` | `0`: any free port |
 | `OPEN_ARTIFACT_BROWSER` | `none` |
+| `OPEN_ARTIFACT_DESKTOP_LAUNCH` | `off`: never starts Open Artifact Desktop with an `open-artifact://` link |
 | `OPEN_ARTIFACT_USER_TYPES` | a folder with a small type of your own, so the test needs no built types |
 | `OPEN_ARTIFACT_BUILTIN_TYPES` | an empty folder |
 | `OPEN_ARTIFACT_WAKE_MERGE_MS` | a short merge window, e.g. `20` |

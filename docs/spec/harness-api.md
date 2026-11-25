@@ -53,6 +53,7 @@ an `### Integrators` section in [CHANGELOG.md](../../CHANGELOG.md) saying what c
 | `hello.runtime` | records `hello`'s `runtime` and starts the newest compatible runtime |
 | `runtime.update` | answers `runtime.status` and `runtime.update`, and sends `runtime/update` events |
 | `types.source` | describes types with `source` (`builtin`, `local`, `installed`) and, for an installed one, `installed_from` and `third_party_notice`, wherever types are listed and when an artifact is read; puts `third_party_notice` next to `instructions` when one is created or adopted; a project type not trusted yet gets its own `third_party_notice`, and reads of an artifact of either (`Artifact`, `ArtifactData`, `ArtifactComments`) add a page-content one |
+| `view.open` | answers `view.open`: the addresses to show one of its own artifacts in your app, with no session |
 
 `session.*`, `tools.list`, `tools.call`, `agent.wrote`, `artifact.open`, `inbox.take`, `inbox.wait` and `subscribe` are
 the base protocol and need no feature.
@@ -109,11 +110,17 @@ no place that lists artifacts; there is no separate value for that.
 | `view.context` | `url`, `session?`, `workspace?` | `{ at, context, changed }`; owner session only |
 | `runtime.status` | — | `RuntimeStatus` |
 | `runtime.update` | `version?` | `{ installed, pending, message }` |
+| `view.open` | `url` (`open-artifact://artifact/<id>`, or this daemon's `http://<host>:<port>/a/<id>`) | `{ url, view_url, title?, view?, embed_url?, remote? }`: what `host.open` carries, without `session` |
 
 `skill.get` `opens` picks the skill's "show it" step: `host` (your app shows the page by itself), `agent-browser` (the
 agent opens `view_url` in its own browser panel), `system` (the computer's browser), `link` (the agent gives the person
 `view_url`). Left out, the daemon uses `host` when your caps (from `hello` or the profile) have `open`, else a general
 step that covers a built-in browser and the computer's browser.
+
+`view.open` is for the person opening an artifact from your app (a recent list, a link), when no agent asked. It
+takes only this daemon's artifacts: another daemon's address, a published page or a `/page/` address is
+`invalid_argument`, and an unknown id `not_found`. An adapter with `caps.open.embed: 'view'` gets a `view` and a
+ticketed `embed_url`; any other gets `embed_url` without a ticket. The daemon shows nothing by itself.
 
 `session` and `workspace` name a session of the calling harness. A session with no id is keyed by its workspace.
 `may` is `{ create?, modify?, remove?, reply? }` ([tools](../integrating/tools.md#session-permissions)).
@@ -187,7 +194,7 @@ polling answers with an HTTP status and the same `{ code, message, fix? }` body.
 | `newer_release` | the artifact was written by a newer Open Artifact; update first |
 | `redirected` | a link host answered with a redirect; nothing was sent on |
 | `download_failed`, `integrity_failed`, `bad_archive` | a runtime update or type package could not be fetched, did not match its integrity, or did not unpack safely (also an archive to import that is not one) |
-| `connect_failed`, `disconnected`, `timeout` | a connection could not be made, closed, or took too long |
+| `connect_failed`, `disconnected`, `timeout` | a connection could not be made, closed, or took too long; from the kit also: the app stopped the daemon (`harness.daemon.stop()`) and has not started it again |
 | `no_daemon`, `daemon_failed` | the kit or CLI found no daemon, or could not start one |
 | `error` | anything else |
 

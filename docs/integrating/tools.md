@@ -148,6 +148,12 @@ An artifact has one owner session. It moves without `adopt` in two cases:
 
 Ownership never moves across harnesses or workspaces by itself.
 
+An artifact with **no owner** (the person made it on the home page, or opened its folder) goes to the first session
+that writes it in one of the ways above; that write's `notes` say it is yours now. Only a caller with a session id
+counts: one known by its folder alone (a command line run by hand) does not. The person can also hand it to a session
+online now from the Ask pane (`artifacts.assign`, the person's call only). Whichever way a session becomes the owner,
+`adopt` included, it gets what was sent from the artifact meanwhile, once ([wake](wake.md#where-a-wake-goes)).
+
 ## Artifacts written by a newer release
 
 When an artifact was last written by a newer release of its type than the one installed here, the tools treat it as

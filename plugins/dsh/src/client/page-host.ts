@@ -1,13 +1,23 @@
 /**
- * The store's {@link PageHost} over the DSH app: sessions are opened and started with the app's own navigation, an
- * artifact shows in its session's right sidebar Browser (the desktop app's), and thumbnails come from the desktop
- * app's Browser guests.
+ * The page's {@link PageHost} over the DSH app: sessions are opened and started with the app's own navigation (a new
+ * one to make an artifact gets `/open-artifact <type> …` in its input), an artifact shows in its session's right
+ * sidebar Browser (the desktop app's), and thumbnails come from the desktop app's Browser guests.
  */
+import type { PageHost } from '@open-artifact/library-page';
 import type { OpenAnswer } from '../shared/routes.ts';
 import { isStore, linkState, openInSidebar, service, sidebarBrowser, type ClientContext, type SessionsSnapshot, type UiWorkspace, type WorkspacesSnapshot } from './host.ts';
 import { onAnotherDevice, pendingWindow, type PendingWindow } from './remote.ts';
-import type { PageHost } from './store.ts';
 import { captureThumbnail, desktopBrowser } from './thumbnails.ts';
+import { isDshKey, type DshTranslate } from './words.ts';
+
+/**
+ * What the input of a new session holds: the `/open-artifact` skill word with the type, which makes the app load the
+ * skill (src/server/skill.ts), then the start of a sentence for the person to finish.
+ */
+export function promptFor(typeId: string, title: string, t: DshTranslate): string {
+  const key = `prompt.${typeId}`;
+  return `/open-artifact ${typeId} ${isDshKey(key) ? t(key) : t('prompt.generic', { type: title })}`;
+}
 
 /** Copies text, with the old way when the page is not focused or the app refuses the clipboard. */
 export async function copyText(text: string): Promise<void> {
@@ -38,7 +48,7 @@ function showInWindow(url: string, pending: PendingWindow | null): void {
 }
 
 /** The page's host over a DSH client context. */
-export function pageHost(ctx: Pick<ClientContext, 'get'>): PageHost {
+export function pageHost(ctx: Pick<ClientContext, 'get'>, t: DshTranslate): PageHost {
   const nav = () => service<UiWorkspace>(ctx, 'uiWorkspace');
   const browser = desktopBrowser();
   let storage: Storage | null = null;
@@ -49,12 +59,12 @@ export function pageHost(ctx: Pick<ClientContext, 'get'>): PageHost {
   }
   return {
     canCreate: () => typeof nav()?.startSession === 'function',
-    startSession(prompt) {
+    create(type) {
       const workspace = nav();
       if (typeof workspace?.startSession !== 'function') return;
       // Added after anything already typed in the new session's input, as the app's own prompts are.
-      if (prompt === undefined) workspace.startSession();
-      else workspace.startSession(undefined, { prompt, whenDraftExists: 'append' });
+      if (type === undefined) workspace.startSession();
+      else workspace.startSession(undefined, { prompt: promptFor(type.id, type.title, t), whenDraftExists: 'append' });
     },
     away: onAnotherDevice,
     pendingWindow,

@@ -51,7 +51,7 @@ import {
 import { mayEdit } from '../../lib/cloud.ts';
 import { useAgentName, useCanOpenSession, useCloud, useOwner, useRole, useTitle } from '../hooks.ts';
 import { actionLabel, whyText } from '../labels.ts';
-import { actionOf, hasExportTab, menuActions, switchPool } from '../model.ts';
+import { actionOf, hasExportTab, menuActions, offersSwitch, switchPool } from '../model.ts';
 import { useBoot, useShell } from '../store.ts';
 
 import { DocCopyDialog } from './DocCopyDialog.tsx';
@@ -164,6 +164,8 @@ export function TitleMenu() {
   const artifact = useShell((state) => state.artifact);
   const report = useShell((state) => state.report);
   const library = useShell((state) => state.library);
+  // A host with its own way between artifacts (`caps.switcher`): no Switch artifact, which would navigate its view.
+  const switches = useShell((state) => offersSwitch(state.host));
   const owner = useOwner();
   const canOpen = useCanOpenSession();
   const agent = useAgentName();
@@ -248,17 +250,19 @@ export function TitleMenu() {
           </button>
         }
       >
-        <MenuSubmenu
-          icon={<LayoutGrid className="size-3.5" />}
-          label={
-            <span className="flex items-center justify-between gap-4">
-              {t('switchArtifact')}
-              {library ? <span className="text-xs text-fg-subtle">{switchCount}</span> : null}
-            </span>
-          }
-        >
-          <SwitchItems />
-        </MenuSubmenu>
+        {switches ? (
+          <MenuSubmenu
+            icon={<LayoutGrid className="size-3.5" />}
+            label={
+              <span className="flex items-center justify-between gap-4">
+                {t('switchArtifact')}
+                {library ? <span className="text-xs text-fg-subtle">{switchCount}</span> : null}
+              </span>
+            }
+          >
+            <SwitchItems />
+          </MenuSubmenu>
+        ) : null}
         <MenuLabel>
           <span className="flex items-center gap-2">
             <Clock className="size-3.5" />

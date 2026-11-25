@@ -20,6 +20,11 @@ every type, with each type's own editor and comments inside. `/open-artifact sli
 Whatever the app, comments also come back in the `messages` of any Open Artifact tool result, and an agent can
 wait for them (`ArtifactComments {action: "wait"}`).
 
+Comments go to the session that owns the artifact. One the person made on the home page or opened from a folder has
+no owner session: what is sent from it waits, and goes once to the session that becomes its owner, by `adopt`, by
+writing it through the tools, or because the person picked that session in the page's Ask pane (which lists the
+sessions online now; with none, it offers a prompt to paste into one).
+
 `/open-artifact new-type` asks the agent to make a type of its own rather than an artifact, with the skill's
 `reference/new-type.md` and the `open-artifact types new | check | from | list | pack` commands
 ([Making your own artifact types](../docs/custom-types.md)); `types from` takes a page artifact or a page saved from
@@ -34,7 +39,8 @@ another computer.
 Pages open where the person already is: in the app itself when its adapter can show them (DeepSeek Harness), else
 in the agent app's built-in browser (Codex, Cursor, Claude, Antigravity, VS Code), which the agent opens with the page's
 `view_url`. The daemon opens the computer's browser only when the agent asks it to (`Artifact {action: "open"}`), which
-it does when it has no browser of its own.
+it does when it has no browser of its own. When the person has turned on "Open agents' artifacts in this app" in Open
+Artifact Desktop (off by default), that browser step goes to the app instead (`opened_in: "desktop"`).
 
 Building your own agent app rather than using one of these? Read
 [Integrating Open Artifact into an agent product](../docs/integrating.md): the same tools, pages in your UI, and
@@ -72,7 +78,8 @@ Each plugin can link the daemon to an Open Artifact server, so artifacts are pub
 It takes them from the process that started it, usually a plugin's MCP bridge, and the bridge gets only what its app
 gives it: Claude Code and the Copilot CLI pass their own environment on, Codex and Cursor do not (see the table). One
 daemon serves every app on the computer, so whichever app starts it first decides its environment; a daemon that is
-already running keeps what it started with (`open-artifact daemon stop`, and the next tool call starts it again).
+already running keeps what it started with (`open-artifact daemon stop`, and the next tool call starts it again; or
+`open-artifact daemon restart` in your own terminal, which agents' sessions are refused).
 
 `preset.json` in the Open Artifact folder takes the same keys and works for every app, however it was started:
 

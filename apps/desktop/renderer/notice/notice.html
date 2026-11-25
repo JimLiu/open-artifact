@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'" />
+    <title>Open Artifact notice</title>
+    <link rel="stylesheet" href="notice.css" />
+  </head>
+  <body>
+    <div class="notice" role="status" aria-live="polite" data-testid="notice" hidden>
+      <div class="notice-icon" aria-hidden="true">
+        <svg viewBox="0 0 16 16" width="16" height="16"><path d="m3 8.5 3.25 3.25L13 4.75" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg>
+      </div>
+      <div class="notice-text">
+        <div class="notice-name" data-testid="notice-name"></div>
+        <div class="notice-where" data-testid="notice-where"></div>
+      </div>
+      <button type="button" class="notice-reveal" data-testid="notice-reveal"></button>
+      <button type="button" class="notice-close" data-testid="notice-close">
+        <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="m4.5 4.5 7 7m0-7-7 7" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" /></svg>
+      </button>
+    </div>
+    <script src="notice.js"></script>
+  </body>
+</html>

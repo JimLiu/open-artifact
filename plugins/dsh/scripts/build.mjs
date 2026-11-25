@@ -15,7 +15,8 @@
  *   CHANGELOG.md   the repository's release notes: the page's "What's new" and changelog (src/server/changelog.ts)
  *   skills/open-artifact/SKILL.md  the skill from the protocol's template, the file the skill candidate's `path` names
  *
- * The page's CSS is plain CSS in src/client/styles.ts, on the app's own design tokens, with every class prefixed.
+ * The page is @open-artifact/library-page, bundled into lib/client.js. Its CSS is plain CSS on the page's own
+ * `--oa-page-*` tokens, with every class prefixed; src/client/styles.ts maps those tokens onto the app's design tokens.
  *
  *   node plugins/dsh/scripts/build.mjs
  */

@@ -1,8 +1,9 @@
-import { Code2, FolderUp, Layers, Upload, X } from 'lucide-react';
+import { Code2, FolderUp, Layers, PenLine, Upload, X } from 'lucide-react';
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import { Button, IconButton, cn, toast } from '@open-artifact/ui';
 import { isDirty, useFiles } from '../state/files.ts';
 import { useModel } from '../state/model.ts';
+import { useView } from '../state/view.ts';
 import { REQUESTS, sendPrepared } from '../services/agent.ts';
 import { importBrandFiles, removeImportedFile, type ImportedFile } from '../services/edit.ts';
 import { flush } from '../services/sync.ts';
@@ -129,6 +130,10 @@ export function Welcome({ setIntake, intakeDrop }: { setIntake(active: boolean):
             ))}
             <button type="button" disabled={readOnly || busy} onClick={() => setPanel(true)} className="flex items-center gap-3 rounded-lg border border-line p-3 text-left hover:bg-hover disabled:opacity-50">
               <Upload className="size-5 text-accent" /><span><strong className="block text-sm">Upload brand files</strong><span className="text-sm text-fg-muted">Start with your logos, fonts and imagery.</span></span>
+            </button>
+            {/* By hand, no agent: the sections below take colors, type, spacing and assets as they are. */}
+            <button type="button" data-testid="ds-start-by-hand" disabled={readOnly} onClick={() => useView.getState().go('colors')} className="flex items-center gap-3 rounded-lg border border-line p-3 text-left hover:bg-hover disabled:opacity-50">
+              <PenLine className="size-5 text-accent" /><span><strong className="block text-sm">Start by hand</strong><span className="text-sm text-fg-muted">Add colors, type, spacing and assets yourself, section by section.</span></span>
             </button>
           </div>
         </>

@@ -1,0 +1,137 @@
+/* The "saved" notice: a small card at the window's bottom right, over the artifact's view. Its page is transparent;
+   the card follows the system's light or dark look (the app's nativeTheme). */
+:root {
+  --notice-bg: #ffffff;
+  --notice-text: #1a1a1a;
+  --notice-caption: #5c5c5c;
+  --notice-border: rgba(0, 0, 0, 0.14);
+  --notice-accent: #2f5fe0;
+  --notice-ok: #1f8a4c;
+  --notice-hover: #f1f1f1;
+  --notice-shadow: 0 6px 24px rgba(0, 0, 0, 0.14), 0 1px 3px rgba(0, 0, 0, 0.08);
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --notice-bg: #2a2a2c;
+    --notice-text: #ececea;
+    --notice-caption: #a8a8a4;
+    --notice-border: rgba(255, 255, 255, 0.14);
+    --notice-accent: #7c9cf5;
+    --notice-ok: #4cc27f;
+    --notice-hover: #38383a;
+    --notice-shadow: 0 6px 24px rgba(0, 0, 0, 0.5), 0 1px 3px rgba(0, 0, 0, 0.3);
+  }
+}
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+  font: 13px/1.35 -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+body {
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  padding: 0 12px 12px 12px;
+  box-sizing: border-box;
+}
+.notice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 8px 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--notice-border);
+  background: var(--notice-bg);
+  color: var(--notice-text);
+  box-shadow: var(--notice-shadow);
+  animation: notice-in 160ms ease-out;
+}
+.notice[hidden] {
+  display: none;
+}
+@keyframes notice-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .notice {
+    animation: none;
+  }
+}
+.notice-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  color: var(--notice-ok);
+  background: color-mix(in srgb, var(--notice-ok) 14%, transparent);
+}
+.notice-text {
+  flex: 1;
+  min-width: 0;
+}
+.notice-name {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.notice-where {
+  color: var(--notice-caption);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+button {
+  font: inherit;
+  border: 0;
+  background: none;
+  color: inherit;
+  cursor: default;
+}
+.notice-reveal {
+  flex: none;
+  padding: 5px 9px;
+  border-radius: 6px;
+  color: var(--notice-accent);
+  font-weight: 500;
+}
+.notice-reveal:hover,
+.notice-close:hover {
+  background: var(--notice-hover);
+}
+.notice-close {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  color: var(--notice-caption);
+}
+button:focus-visible {
+  outline: 2px solid var(--notice-accent);
+  outline-offset: 1px;
+}
+
+/* A message of how something went (Move To…, Open Folder…, Import…): no file to show; a failure in red. */
+.notice-where[hidden],
+.notice-reveal[hidden] {
+  display: none;
+}
+.notice[data-kind='error'] .notice-icon {
+  color: #c0362c;
+  background: color-mix(in srgb, #c0362c 14%, transparent);
+}

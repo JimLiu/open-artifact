@@ -34,7 +34,7 @@ harness profile 是 daemon 在适配器开口之前（以及之外）对一个 A
 | `skillsDir` | 路径 | **否** | harness 在哪里找 skill |
 | `wake` | `("live" \| "inbox")[]` | 是 | 唤醒路径，按顺序 |
 | `wakesIdle` | boolean | 是 | `false`：没有任何办法在空闲会话里开启回合；消息等人的下一个回合 |
-| `open` | `"browser"` | 是 | 没有适配器显示时页面去哪里；省略：由 Agent 给出链接 |
+| `open` | `"browser"` | 是 | 没有适配器显示时页面去哪里；省略：由 Agent 给出链接。人打开了“agent 做的作品在这个 App 里打开”（`settings.json` 的 `openInDesktop`）时，浏览器这一步先交给 Open Artifact Desktop |
 | `markers` | string[] | 是 | harness 在其 Agent 的命令里设置的环境变量（设置了它们的地方，仅限本人的命令会被拒绝） |
 | `hookDialect` | 名字或映射 | 是 | hook 格式（[见下文](#hook-方言)） |
 | `nudge` | `{ command, args, env?, envFile? }` | **否** | 在空闲会话里开启回合的命令 |

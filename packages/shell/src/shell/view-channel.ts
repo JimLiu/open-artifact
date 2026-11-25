@@ -110,13 +110,26 @@ export function startViewChannel(id: string, handlers: { onCommand: (message: un
   };
 }
 
-/** Sends a host message through the view channel; nothing before the view is claimed. */
+/** Longest wait for the daemon to take one message before the next is sent anyway, ms. */
+const SEND_TIMEOUT_MS = 10_000;
+
+/** The last message on its way: the next one is sent once it was taken. */
+let sending: Promise<void> = Promise.resolve();
+
+/**
+ * Sends a host message through the view channel; nothing before the view is claimed. Messages go one at a time, in
+ * the order said: each is its own POST, and two in flight at once may be taken in either order (a `saving` taken
+ * after the `saved` that followed it would leave the host showing `saving` for good).
+ */
 export function viewSend(message: ShellToHost | (ShellToHost & { artifact: string })): void {
   const claimed = current;
   if (!claimed) return;
-  void fetch(ROUTE, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ view: claimed.view, key: claimed.key, event: message }),
-  }).catch(() => undefined);
+  const body = JSON.stringify({ view: claimed.view, key: claimed.key, event: message });
+  sending = sending.then(() => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), SEND_TIMEOUT_MS);
+    return fetch(ROUTE, { method: 'POST', headers: { 'content-type': 'application/json' }, body, signal: controller.signal })
+      .then(() => undefined, () => undefined)
+      .finally(() => clearTimeout(timer));
+  });
 }

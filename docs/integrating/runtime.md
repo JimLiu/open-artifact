@@ -207,8 +207,31 @@ Open Artifact runtime this computer runs.`) when the daemon does not list the fe
 | `open-artifact runtime update [--version <x.y.z>]` | installs the newest compatible runtime, or that version |
 | `open-artifact runtime pin <range> \| --clear` | keeps the runtime within a range |
 | `open-artifact runtime policy [auto\|prompt\|bundled\|default] [--json]` | prints or sets the person's policy |
+| `open-artifact daemon restart` | stops the running daemon, waits for its process to exit, and starts another (a start when none runs) |
 
-`update`, `pin` and `policy` are the person's decisions: run inside an agent's session they are refused.
+`update`, `pin`, `policy` and `daemon restart` are the person's decisions: run inside an agent's session they are
+refused.
+
+From your app, `harness.daemon.restart()` does the same for the person (a "Restart" button) and connects to the new
+daemon; the kit's `restartDaemon(options)` is the call without a connection. Only a daemon that answers its health
+check is stopped, so a process that merely reuses an old pid is never signalled. Every open page and connected app
+reconnects; a top-level view's ticket ends with the old connection, so open the view again (`oa.view(url)`).
+
+`harness.daemon.stop()` is the person's "Stop": it stops the daemon the same way and waits for its process to exit,
+and from then on your harness does not start it again by itself: it does not reconnect, and calls that would connect
+fail with `disconnected` instead of starting a daemon. `on('state')` gets `stopped` (a drop is `disconnected`, and the
+kit reconnects from it), `harness.connected` is false and `harness.daemon.stopped` is true, so a services panel can say
+"Stopped" rather than "Reconnecting". `harness.daemon.start()` starts one (also under `autoStart: false`) and
+connects, attaching your sessions again; `harness.daemon.restart()` and `harness.ready()` also end the stop. The kit's
+`stopDaemon(options)` is the call without a connection.
+
+The daemon is shared, and a stop holds only while nothing else wants it: another app's kit reconnects by itself and,
+with `autoStart` (the default), starts the daemon again within its reconnect delay (measured: under half a second with
+a 200 ms delay); so does any `open-artifact` command line, MCP bridge or hook that runs. `stop()` answers
+`{ stopped, others }`: `others` lists the other apps' connections the daemon had (`connection`, `harness`, `title`,
+`polling`, `sessions`; your own left out), or is `null` when that could not be read, so you can tell the person that
+those apps may start it again. Your harness stays stopped even when another app has started a daemon; `readDaemon(home)`
+says whether one runs, and `start()` connects to it without starting another.
 
 ## Artifacts from a newer release
 

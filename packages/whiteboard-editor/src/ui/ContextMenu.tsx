@@ -124,7 +124,8 @@ export function openContextMenuAt(client: Point, target: Element | null): void {
 function listenForMenu(root: HTMLElement): () => void {
   /** A touch press that may become a long press; `held` once it lasted long enough. */
   let press: { id: number; at: Point; target: Element | null; held: boolean; timer: ReturnType<typeof setTimeout> } | null = null;
-  let longPressAt = 0;
+  // When a long press last opened the menu; never yet (0 would swallow right-clicks in the page's first second).
+  let longPressAt = Number.NEGATIVE_INFINITY;
   const cancel = (): void => {
     if (press) clearTimeout(press.timer);
     press = null;

@@ -32,7 +32,8 @@ and how to check it.
 - **Your adapter** is the code you write. It connects to the daemon as your harness (a name such as `my-agent`), tells
   it which sessions exist, gives your agent the tools, takes wakes, and shows pages.
 - **The kit** (`@open-artifact/harness-kit`, Node 22.18+ or Electron's Node) does the connection for a JavaScript
-  adapter: it finds or starts the daemon, reconnects, attaches sessions again, and wraps every call. A program in another
+  adapter: it finds or starts the daemon, reconnects (not after the person stopped the daemon from your app:
+  [restart and stop](integrating/runtime.md#commands)), attaches sessions again, and wraps every call. A program in another
   language runs `open-artifact harness --stdio` instead ([non-node](integrating/non-node.md)).
 
 ## Pick a level
@@ -103,7 +104,8 @@ open-artifact harness list
 ```
 
 - **What the person sees:** a link, or your app's built-in browser if the agent opens the `view_url` there. A profile with
-  `"open": "browser"` has the daemon open the computer's browser when the agent asks it to show a page.
+  `"open": "browser"` has the daemon open the computer's browser when the agent asks it to show a page (or, when the
+  person turned on "Open agents' artifacts in this app", hand it to Open Artifact Desktop: `opened_in: "desktop"`).
 - **Check:** `open-artifact doctor --harness my-agent` reports the profile, and once your app runs, its connection.
 
 ## Level 2: the kit — native tools, sessions, wake
@@ -274,7 +276,10 @@ Three rules decide whether this works safely:
   only for a host whose pane is already a general browser ([remote types](integrating/remote-types.md)).
 
 The page tells you where the person is (`onPlace`), what they selected (`context()`, feature `view.context`), and asks
-you to start or open sessions (`onNewSession`, `onOpenSession`). [Embedding](integrating/embedding.md) has the whole
+you to start or open sessions (`onNewSession`, `onOpenSession`). It also says its save state (`onSaved`), so your app
+can ask before closing a view that would lose work; `switcher: true` hides the Shell's own artifact switcher when your
+app has tabs. To show an artifact the person picked in your app, with no agent asking, call `oa.view(url)` (feature
+`view.open`). [Embedding](integrating/embedding.md) has the whole
 list and a webview checklist; [embed reference](spec/embed.md) has every message.
 
 - **What the person sees:** the page opens beside the chat; **Ask** goes to your session; thumbnails appear in the

@@ -25,7 +25,7 @@
 - **daemon**（`open-artifact daemon`）每台电脑、每个 Open Artifact 主目录（`~/.agents/open-artifact`，或 `$OPEN_ARTIFACT_HOME`）只跑一个。作品库、三个 Agent 工具、类型服务器、给各个 Agent 会话的收件箱都归它管。电脑上所有 Agent 应用共用它。
 - **Shell** 是 daemon 的页面，地址是 `http://127.0.0.1:<port>/a/<id>`。它把作品的编辑器放进框架，画出标题栏、评论、分享和导出，并和嵌入它的一方通信。
 - **你的适配器**（adapter）是你写的代码。它以你的 harness 身份（一个名字，比如 `my-agent`）连到 daemon，告诉 daemon 有哪些会话，把工具交给你的 Agent，接收唤醒，显示页面。
-- **kit**（`@open-artifact/harness-kit`，Node 22.18+ 或 Electron 自带的 Node）替 JavaScript 适配器处理连接：找到或启动 daemon、断线重连、重新挂上会话，并封装每个调用。用其他语言写的程序改为运行 `open-artifact harness --stdio`（[非 JavaScript 应用](integrating/non-node.zh-CN.md)）。
+- **kit**（`@open-artifact/harness-kit`，Node 22.18+ 或 Electron 自带的 Node）替 JavaScript 适配器处理连接：找到或启动 daemon、断线重连（用户在你的应用里停掉 daemon 之后不重连：[重启和停止](integrating/runtime.zh-CN.md#命令)）、重新挂上会话，并封装每个调用。用其他语言写的程序改为运行 `open-artifact harness --stdio`（[非 JavaScript 应用](integrating/non-node.zh-CN.md)）。
 
 ## 选一个层级
 
@@ -81,7 +81,7 @@ open-artifact harness add my-agent.json
 open-artifact harness list
 ```
 
-- **人看到什么：** 一个链接；如果 Agent 在应用内置浏览器里打开 `view_url`，就是那个浏览器。profile 里写了 `"open": "browser"` 时，Agent 要显示页面，daemon 会打开电脑的浏览器。
+- **人看到什么：** 一个链接；如果 Agent 在应用内置浏览器里打开 `view_url`，就是那个浏览器。profile 里写了 `"open": "browser"` 时，Agent 要显示页面，daemon 会打开电脑的浏览器（人打开了“agent 做的作品在这个 App 里打开”时，则交给 Open Artifact Desktop：`opened_in: "desktop"`）。
 - **检查：** `open-artifact doctor --harness my-agent` 报告 profile；应用运行起来后，也会报告它的连接。
 
 ## 第 2 层：kit —— 原生工具、会话、唤醒
@@ -223,7 +223,7 @@ const embed = embedArtifact(this.transport(request.view), {
 - **框架方式要声明你自己的源。** `embed: { origins: ['https://app.example.com'], mode: 'frame' }`。对未声明的宿主，Shell 不给提示文本、不给评论文本、不给外链、不报告保存的文件、不显示目的地。从 `file://` 加载的页面源是 `null`，永远无法声明：请用自定义协议提供界面，或改用顶层视图。
 - **远程类型的页面先问。** 页面在另一台电脑上的类型会带着 `remote` 到来；kit 会先问你的 `allowRemote` 再显示（`embed.remote: 'ask'`，默认），或者永不显示（`deny`）。`allow` 只给面板本来就是通用浏览器的宿主用（[远程类型](integrating/remote-types.zh-CN.md)）。
 
-页面会告诉你人在哪里（`onPlace`）、选中了什么（`context()`，功能 `view.context`），并请你新建或打开会话（`onNewSession`、`onOpenSession`）。[在你的界面里显示页面](integrating/embedding.zh-CN.md) 有完整列表和 webview 检查清单；[Embed 参考](spec/embed.zh-CN.md) 列出每条消息。
+页面会告诉你人在哪里（`onPlace`）、选中了什么（`context()`，功能 `view.context`），并请你新建或打开会话（`onNewSession`、`onOpenSession`）。它也会说自己的保存状态（`onSaved`），这样关闭会丢失工作的视图前你的应用可以先问人；你的应用有标签页时，`switcher: true` 隐藏 Shell 自己的作品切换。要显示人在你的应用里挑的作品、没有 Agent 发起时，调用 `oa.view(url)`（功能 `view.open`）。[在你的界面里显示页面](integrating/embedding.zh-CN.md) 有完整列表和 webview 检查清单；[Embed 参考](spec/embed.zh-CN.md) 列出每条消息。
 
 - **人看到什么：** 页面在聊天旁边打开；**Ask** 进入你的会话；作品库里出现缩略图。
 - **检查：** 你的 `open` 回调接下页面时，`main.mjs` 打印 `opened in-host`；你的视图只加载允许列表里的源。

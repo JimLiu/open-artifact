@@ -128,6 +128,13 @@ export interface ArtifactView {
   /** The type is not installed any more. */
   typeMissing: boolean;
   root: string;
+  /**
+   * Set by the daemon: no folder is at `root` any more (it was moved, renamed or deleted outside Open Artifact). The
+   * record is kept; `artifacts.relocate` points it at the folder's new place, `artifacts.delete` forgets it. Opening it
+   * meanwhile shows an empty artifact (`ShellBoot.empty`): a host should offer those two instead. A cloud host leaves it
+   * out.
+   */
+  folderMissing?: boolean;
   /** The Shell page: `<daemon>/a/<id>`. */
   view_url: string;
   /** The page without the Shell. */
@@ -355,6 +362,83 @@ export interface CreateArtifactRequest {
   folder?: string;
   /** Hand the new artifact to an agent with this prompt. */
   prompt?: string;
+  /**
+   * Start it blank: once made, its page is opened so its type server writes the type's starting files, and the answer
+   * comes back not empty (owned by nobody, as without it). A type with marker files (`detect`) whose server writes none
+   * is refused (`unsupported`, nothing kept); one without marker files (Page, most types people make) is never empty,
+   * and is made as without it.
+   */
+  blank?: boolean;
+}
+
+/** `POST /api/open-artifact.artifacts.blank`: an empty artifact (made, nothing written) started blank. */
+export interface BlankArtifactRequest {
+  id: string;
+}
+
+/** `POST /api/open-artifact.artifacts.add`: a folder already on this computer added to the library. */
+export interface AddArtifactRequest {
+  /** The folder (absolute or `~/...`). Its `.artifact.json` says the type, else a type's marker files. */
+  folder: string;
+}
+
+/** `POST /api/open-artifact.artifacts.relocate`: an artifact's folder was moved; where it is now. */
+export interface RelocateArtifactRequest {
+  id: string;
+  /** The folder (absolute or `~/...`). Its `.artifact.json` must name this artifact's id. */
+  folder: string;
+}
+
+/**
+ * `POST /api/open-artifact.artifacts.assign`: the person hands an artifact no session owns to one of the sessions
+ * online now (the Ask pane). The person's call only: from the daemon's own pages or the command line, never from
+ * inside an agent's session.
+ */
+export interface AssignArtifactRequest {
+  id: string;
+  /** The session's key, as `GET harnesses` lists it in `sessions[].key`; it must be online (`live`). */
+  session: string;
+}
+
+/** `GET /api/open-artifact.types.servers`: the local type servers that run now. */
+export interface TypeServersResponse {
+  servers: Array<{ type: string } & TypeServerStatus>;
+}
+
+/** `POST /api/open-artifact.types.restart`: stop this type's local server; the next page that needs it starts it again. */
+export interface TypeServerRestartRequest {
+  id: string;
+}
+
+/** {@link TypeServerRestartRequest}'s answer: whether a server was running (or starting) and was stopped. */
+export interface TypeServerRestartResult {
+  id: string;
+  stopped: boolean;
+}
+
+/** {@link AssignArtifactRequest}'s answer: the artifact, and how each message that waited for it went. */
+export interface AssignArtifactResult {
+  artifact: ArtifactView;
+  /** One entry per message handed over: `live` (the session has it now), else `inbox` or `wait`. */
+  delivered: Array<{ via: string; status?: string }>;
+}
+
+/**
+ * How the home page offers the built-in types for "New", and whether an empty artifact of one can be started blank.
+ * `blank`: the person starts it by hand (created with `blank: true`, it opens in its editor). `agent`: an agent
+ * builds it (made as before: Design, Data and Motion open empty, on the prompt that hands it to one; a Page has no
+ * marker files and opens as its page). The one list the home page and the Shell both read.
+ */
+export const BUILTIN_START = {
+  blank: ['docs', 'sheets', 'whiteboard', 'slides', 'design-system'],
+  agent: ['design', 'data', 'motion', 'page'],
+} as const satisfies Record<string, readonly string[]>;
+
+/** The group a built-in type's id is in ({@link BUILTIN_START}), or `null` for any other id. */
+export function builtinStartOf(typeId: string): keyof typeof BUILTIN_START | null {
+  if ((BUILTIN_START.blank as readonly string[]).includes(typeId)) return 'blank';
+  if ((BUILTIN_START.agent as readonly string[]).includes(typeId)) return 'agent';
+  return null;
 }
 
 /** `POST /api/open-artifact.artifacts.update`. */
@@ -377,6 +461,12 @@ export const LIBRARY_ROUTES = {
   artifact: 'artifact',
   types: 'types',
   harnesses: 'harnesses',
+  /**
+   * The Open Artifact Desktop app's settings this daemon acts on ({@link DesktopSettings}). `GET` reads them; `POST
+   * { openInDesktop }` is the person's (the app's settings dialog): refused from another origin and inside an agent's
+   * session, as `cloud.settings` is the person's.
+   */
+  desktopSettings: 'desktop.settings',
   events: 'events',
   share: 'artifact.share',
   /** `GET`/`HEAD ?id=`: the artifact's folder as a .zip (the type server's `/__open-artifact/archive`). */
@@ -388,6 +478,20 @@ export const LIBRARY_ROUTES = {
   boot: 'artifacts.boot',
   preview: 'artifacts.preview',
   create: 'artifacts.create',
+  /** `POST { id }` ({@link BlankArtifactRequest}): an empty artifact's type server writes its starting files. */
+  blank: 'artifacts.blank',
+  /**
+   * `POST { folder }` ({@link AddArtifactRequest}): a folder on this computer added to the library, owned by nobody.
+   * A folder the library has already answers its artifact as it is.
+   */
+  add: 'artifacts.add',
+  /** `POST { id, folder }` ({@link RelocateArtifactRequest}): the artifact's folder is now there. */
+  relocate: 'artifacts.relocate',
+  /**
+   * `POST { id, session }` ({@link AssignArtifactRequest}): an artifact no session owns goes to that online session,
+   * which gets what was sent from it meanwhile. The person's call only.
+   */
+  assign: 'artifacts.assign',
   update: 'artifacts.update',
   duplicate: 'artifacts.duplicate',
   delete: 'artifacts.delete',
@@ -442,12 +546,31 @@ export const LIBRARY_ROUTES = {
    */
   typesSites: 'types.sites',
   /**
+   * Local type servers. `types.servers` (`GET`): the ones that run now, with their address, pid and restarts
+   * ({@link TypeServersResponse}). `types.restart` (`POST { id }`, {@link TypeServerRestartRequest}): stops that type's
+   * server, which the next page that needs it starts again; the person's (a host's "restart" button), so from the
+   * command line or this daemon's own page only, and refused inside an agent's session.
+   */
+  typesServers: 'types.servers',
+  typesRestart: 'types.restart',
+  /**
    * `POST` a zip (`Content-Type: application/zip`, `?folder=` optional): an artifact archive made into a local artifact,
    * opened only by a type of the uid its `.artifact.json` names (`type_missing` otherwise). From the CLI or the home
    * page, never from a page.
    */
   import: 'artifacts.import',
 } as const;
+
+/** `GET`/`POST /api/open-artifact.desktop.settings`. */
+export interface DesktopSettings {
+  /**
+   * When an agent opens an artifact and its app cannot show it, the page goes to the Open Artifact Desktop app instead
+   * of this computer's browser (the app's adapter when it is connected, else the app started with the artifact's
+   * `open-artifact://` link; the browser when neither works). Off by default. Hosts that show pages themselves are
+   * not affected.
+   */
+  openInDesktop: boolean;
+}
 
 /** `GET /api/open-artifact.embed`. */
 export interface EmbedResponse {

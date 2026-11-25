@@ -24,6 +24,8 @@
 /open-artifact sheets a hiring tracker with status dropdowns, checkboxes, and conditional formatting
 ```
 
+Or start with no agent: on the home page, click **New artifact**, pick **Sheets**, and name it. A blank sheet opens in its editor and you type in the cells yourself. What you **Send to agent** waits until a session takes the sheet.
+
 ### Edit, analyze & export
 - **Direct cell editing**: Type values and formulas (`=SUM(...)`, `=IF(...)`, etc.), filter tables, add worksheets, or format cells right in the browser.
 - **Comment on specific cells**: Select a cell or range (e.g. `B4:C6`), leave a comment (e.g. *"add a YoY growth column and chart it"*), and click **Send to agent**.

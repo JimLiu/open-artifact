@@ -33,7 +33,7 @@ test('each harness profile that names a session variable marks an agent session,
 
 test('inside an agent session every one of the person\'s decisions is refused, with the sentence to act on', () => {
   const agent = agentSessionOf({ CODEX_THREAD_ID: 't-1' }, SHIPPED);
-  const acts: PersonAct[] = ['publish', 'unpublish', 'data', 'remote-add', 'remote-remove', 'remote-default', 'remote-auto', 'harness-add', 'harness-remove'];
+  const acts: PersonAct[] = ['publish', 'unpublish', 'data', 'remote-add', 'remote-remove', 'remote-default', 'remote-auto', 'harness-add', 'harness-remove', 'daemon-restart'];
   for (const act of acts) {
     const refusal = personOnlyRefusal(act, agent, { remote: 'work', settings: {}, command: 'open-artifact something' });
     assert.ok(refusal, act);

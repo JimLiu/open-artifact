@@ -37,8 +37,16 @@ import {
   type ArtifactDetail,
   type ArtifactRecord,
   type ArtifactView,
+  type AddArtifactRequest,
+  type AssignArtifactRequest,
+  type AssignArtifactResult,
+  type TypeServerRestartRequest,
+  type TypeServerRestartResult,
+  type TypeServersResponse,
   type AskRequest,
+  type BlankArtifactRequest,
   type CreateArtifactRequest,
+  type RelocateArtifactRequest,
   type DaemonHealth,
   type DataRefreshResult,
   type DaemonState,
@@ -59,6 +67,7 @@ import {
   type TypesResponse,
   type TypesSitesResponse,
   THIRD_PARTY_NOTICE,
+  type DesktopSettings,
   type EmbedResponse,
   type TypeView,
   type UpdateArtifactRequest,
@@ -73,13 +82,13 @@ import {
 } from '@open-artifact/protocol';
 import { archiveEntries, sendArchive as sendFolderArchive, zipBytes } from '@open-artifact/server-sdk/zip';
 import { DATA_TYPE, DataRefresher } from './data-refresh.ts';
-import { HarnessHub, systemBrowse, type PollParams } from './harness.ts';
+import { HarnessHub, systemBrowse, systemLaunchDesktop, type PollParams } from './harness.ts';
 import { embedOrigins, remoteOf, type ViewSink } from './harness-embed.ts';
 import { Inbox } from './inbox.ts';
 import { LinkHub } from './link.ts';
 import { callerFromRequest, handleMcp, uiFromRequest, type McpMessage, type McpReply } from './mcp.ts';
 import { nudgeSession } from './nudge.ts';
-import { Ownership } from './ownership.ts';
+import { HOME_HARNESS, Ownership } from './ownership.ts';
 import { ensureDir, expandHome, files, inside, openArtifactHome, readJson, realInside, writeJson } from './paths.ts';
 import { ACTION_CALL_MS, TypeServers } from './servers.ts';
 import { badModeVariable, nodeChildren } from './node-children.ts';
@@ -109,7 +118,7 @@ import { RuntimeManager } from './runtime.ts';
 import { remoteArchiveBytes, remoteErrorBody } from './remote-archive.ts';
 import { ownRuntime } from './client.ts';
 import { startDaemonProcess } from '@open-artifact/harness-kit';
-import { loadSettings, saveCloudSettings } from './settings.ts';
+import { loadSettings, saveCloudSettings, saveSettings } from './settings.ts';
 import { ArtifactStore, sessionKeyOf, userEditsAfter, type StoreChange } from './store.ts';
 import { Tools, type ShareAccess } from './tools.ts';
 import { BUILTIN_TYPE_IDS, TypeRegistry, isBuiltinPage, isSiteKindType, siteRefusal, typeLocation, type ListedType, type TypeInfo } from './types.ts';
@@ -430,6 +439,11 @@ export interface DaemonOptions {
    * Default {@link systemBrowse}.
    */
   browse?: ((url: string) => boolean) | null;
+  /**
+   * Starts the Open Artifact Desktop app with an `open-artifact://artifact/<id>` link (`openInDesktop` on, the app not
+   * connected): true when it was started. `null` never does. Default {@link systemLaunchDesktop}.
+   */
+  launchDesktop?: ((url: string) => Promise<boolean>) | null;
 }
 
 /** A resolved artifact page. */
@@ -601,7 +615,18 @@ export class Daemon extends EventEmitter<{ exit: [] }> {
       openAfterFirstWrite: (record, caller) => this.openAfterFirstWrite(record, caller),
       cancelOpenAfterFirstWrite: (id) => this.pendingOpens.get(id)?.(),
       link: this.link,
-      ownership: new Ownership({ store: this.store, hub: () => this.harnesses ?? null, log }),
+      ownership: new Ownership({
+        store: this.store,
+        hub: () => this.harnesses ?? null,
+        log,
+        // Its first writer took an artifact nobody owned: what was sent from it goes with this call's result, or, for a
+        // write an adapter saw, to the session now.
+        claimed: (id, owner, seen) => {
+          this.wake.handOff(id, owner, 'wrote');
+          if (seen) this.wake.deliverWaiting(id, owner).catch((error: unknown) => log(`wake ${id}: delivering what waited failed: ${(error as Error)?.message ?? error}`));
+        },
+      }),
+      handOff: (id, owner, how) => this.wake.handOff(id, owner, how),
     });
     this.guardToolCalls();
     this.runtime = new RuntimeManager({
@@ -634,6 +659,8 @@ export class Daemon extends EventEmitter<{ exit: [] }> {
       inbox: this.inbox,
       log,
       browse,
+      openInDesktop: () => this.settings.openInDesktop === true,
+      launchDesktop: options.launchDesktop === undefined ? systemLaunchDesktop : options.launchDesktop,
       openArtifact: async (url, caller) => {
         const result = await this.tools.call('Artifact', { action: 'open', url }, caller);
         if (result.error) throw new OpenArtifactError(result.error.code, result.error.message);
@@ -699,6 +726,14 @@ export class Daemon extends EventEmitter<{ exit: [] }> {
     // A view loads the local Shell, also for a published artifact.
     this.harnesses.embed.setShellUrl((id) => `${this.origin}/a/${id}`);
     // An artifact of a remote type: host.open says where its page comes from, for the host to decide.
+    // `view.open`: only this daemon's own artifacts, by its own addresses.
+    this.harnesses.embed.setArtifacts({
+      hosts: () => this.hosts,
+      artifact: (id) => {
+        const record = this.store.get(id);
+        return record ? { title: record.title, view_url: this.viewUrl(id) } : null;
+      },
+    });
     this.harnesses.embed.setRemoteOf((id) => {
       const record = this.store.get(id);
       return record ? remoteOf(this.typeOf(record), this.pages.get(id)?.page) : null;
@@ -964,7 +999,7 @@ export class Daemon extends EventEmitter<{ exit: [] }> {
     try {
       await this.openPage(record);
       const shown = await this.harnesses.show(caller, { url: artifactUrl(id), view_url: this.viewUrl(id), title: record.title });
-      this.log(`opened ${id} after the first write${shown === 'browser' ? ' in the browser' : shown ? '' : ': the app did not show it'}`);
+      this.log(`opened ${id} after the first write${shown === 'browser' ? ' in the browser' : shown === 'desktop' ? ' in Open Artifact Desktop' : shown ? '' : ': the app did not show it'}`);
     } catch (error) {
       this.log(`opening ${id} after the first write failed: ${(error as Error)?.message ?? error}`);
     }
@@ -1367,7 +1402,7 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
     if (have && now - have.at < 5000) return have.value;
     let newest = 0;
     let seen = 0;
-    const walk = (dir: string, depth: number): void => {
+    const walk = (dir: string, rel: string, depth: number): void => {
       let entries;
       try {
         entries = readdirSync(dir, { withFileTypes: true });
@@ -1376,12 +1411,12 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
       }
       for (const entry of entries) {
         if (seen++ > 4000) return;
-        // Bookkeeping is not content, nor is the agent's own channel (`_agent/`: snapshots, kept conflicts).
-        if (entry.name.startsWith('.') || entry.name === 'node_modules' || entry.name === 'exports') continue;
-        if (depth === 0 && entry.name === '_agent') continue;
+        const path = rel ? `${rel}/${entry.name}` : entry.name;
+        // Bookkeeping (markers, agent state, blobs, history) is not content, nor are exports and dependencies.
+        if (!isContentPath(path) || entry.name === 'node_modules' || entry.name === 'exports') continue;
         const full = join(dir, entry.name);
         if (entry.isDirectory()) {
-          if (depth < 5) walk(full, depth + 1);
+          if (depth < 5) walk(full, path, depth + 1);
         } else {
           try {
             newest = Math.max(newest, statSync(full).mtimeMs);
@@ -1391,7 +1426,7 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
         }
       }
     };
-    walk(record.root, 0);
+    walk(record.root, '', 0);
     const value = newest ? new Date(Math.floor(newest)).toISOString() : record.updatedAt;
     this.contentStamps.set(record.root, { at: now, value });
     return value;
@@ -1442,6 +1477,38 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
     return id ? this.store.update(id, { owner: null, createdBy: null }) : null;
   }
 
+  /**
+   * Starts an empty artifact blank: opening its page has its type server write the type's starting files (what the
+   * server's open does when the marker file is missing). One that is not empty is left as it is. Throws `unsupported`
+   * when the type wrote none (a type without a server, or whose server writes no starting files).
+   */
+  private async startBlank(record: ArtifactRecord, req?: IncomingMessage): Promise<ArtifactRecord> {
+    if (!this.bootOf(record).empty) return record;
+    await this.openPage(record, { lang: langOf(req) });
+    if (this.bootOf(record).empty) {
+      const title = this.typeOf(record)?.title ?? record.type;
+      throw new OpenArtifactError('unsupported', `${title} writes no starting files: an agent writes this artifact.`);
+    }
+    this.contentStamps.delete(record.root);
+    this.broadcast({ type: 'artifacts/changed', id: record.id });
+    return this.store.get(record.id) ?? record;
+  }
+
+  /** A folder a Library call names (absolute or `~/...`), resolved; it must exist and be a folder. */
+  private folderArg(value: unknown): string {
+    const given = typeof value === 'string' ? value.trim() : '';
+    if (!given || (!isAbsolute(given) && !given.startsWith('~'))) throw new OpenArtifactError('invalid_argument', 'folder: an absolute path (or ~/...).');
+    const root = resolve(expandHome(given));
+    let dir = false;
+    try {
+      dir = statSync(root).isDirectory();
+    } catch {
+      /* missing */
+    }
+    if (!dir) throw new OpenArtifactError('not_found', `No folder ${root}.`);
+    return root;
+  }
+
   private async duplicate(record: ArtifactRecord, name?: string): Promise<ArtifactRecord> {
     if (record.type === 'docs') {
       const type = this.typeOf(record);
@@ -1485,6 +1552,8 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
       typeTitle: type?.title ?? record.type,
       typeMissing: !type,
       root: record.root,
+      // Moved or renamed outside Open Artifact (or deleted): the record still names the old place.
+      folderMissing: !existsSync(record.root),
       view_url: this.viewUrl(record.id),
       page_url: this.pages.get(record.id)?.page_url ?? this.viewUrl(record.id),
       owner: record.owner ? { harness: record.owner.harness, session: record.owner.session, workspace: record.owner.workspace, ...live } : null,
@@ -1556,10 +1625,8 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
    * refused too. That header is the caller's word, as in {@link askedBy}: a guard rail, not a boundary.
    */
   private typesRefusal(req: IncomingMessage, name: string): string | null {
-    const origin = req.headers.origin;
-    if (origin !== undefined && !this.ownOrigin(origin)) return `${name} comes from the open-artifact command line or this daemon's own page, not from ${origin}.`;
-    const site = req.headers['sec-fetch-site'];
-    if (site !== undefined && site !== 'same-origin' && site !== 'none') return `${name} comes from the open-artifact command line or this daemon's own page, not from another site.`;
+    const from = this.originRefusal(req, name);
+    if (from) return from;
     const personOnly: string[] = [LIBRARY_ROUTES.typesEnable, LIBRARY_ROUTES.typesDisable, LIBRARY_ROUTES.typesTrust];
     if (personOnly.includes(name) && req.headers['x-open-artifact-agent']) {
       return 'Turning a type on or off and trusting a project are for the person to decide: they run it in their own terminal, or use the Types tab of the home page.';
@@ -1572,6 +1639,18 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
     if (installs.includes(name) && req.headers['x-open-artifact-agent']) {
       return "Installing, updating and uninstalling a type are for the person to decide: they run open-artifact types install | update | uninstall in their own terminal, or use the Types tab of the home page.";
     }
+    return null;
+  }
+
+  /**
+   * Why a call that only the command line or this daemon's own pages may make is refused, or null: it carries another
+   * `Origin` (an artifact's page, a type server's page, another site), or is a browser's cross-site request.
+   */
+  private originRefusal(req: IncomingMessage, name: string): string | null {
+    const origin = req.headers.origin;
+    if (origin !== undefined && !this.ownOrigin(origin)) return `${name} comes from the open-artifact command line or this daemon's own page, not from ${origin}.`;
+    const site = req.headers['sec-fetch-site'];
+    if (site !== undefined && site !== 'same-origin' && site !== 'none') return `${name} comes from the open-artifact command line or this daemon's own page, not from another site.`;
     return null;
   }
 
@@ -2215,6 +2294,31 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
         if (!type?.icon) throw new OpenArtifactError('not_found', 'No icon.');
         return this.sendFile(req, res, inside(type.dir, type.icon), 'no-cache');
       }
+      case R.typesServers: {
+        const answer: TypeServersResponse = { servers: this.servers.running().map((s) => ({ type: s.type, ...(this.servers.status(s.type) ?? { state: 'running' as const, url: s.base }) })) };
+        return sendJson(res, 200, answer);
+      }
+      case R.typesRestart: {
+        // The person restarts a type's server (a host's button): as artifacts.assign, not from another origin, not from
+        // inside a session. Open pages of the type reconnect; the next one that needs the server starts it again.
+        if (get) throw new OpenArtifactError('invalid_argument', `${name} is a POST.`, { status: 405 });
+        const refusal =
+          this.originRefusal(req, name) ??
+          (req.headers['x-open-artifact-agent'] ? 'Restarting a type server is for the person to decide: they restart it from their own app or terminal.' : null);
+        if (refusal) {
+          req.resume();
+          return sendJson(res, 403, { code: 'not_granted', message: refusal });
+        }
+        const body = await readJsonBody<Partial<TypeServerRestartRequest>>(req);
+        const id = typeof body.id === 'string' ? body.id : '';
+        if (!id) throw new OpenArtifactError('invalid_argument', 'id: the type whose server to restart.');
+        const was = this.servers.status(id);
+        const stopped = !!was && (was.state === 'running' || was.state === 'starting');
+        this.servers.stop(id);
+        this.log(`audit: ${stopped ? 'restarted' : 'asked to restart (not running)'} the server of type ${id}, asked by ${this.askedBy(req, name)}`);
+        const answer: TypeServerRestartResult = { id, stopped };
+        return sendJson(res, 200, answer);
+      }
       case R.typesNew:
       case R.typesCheck:
       case R.typesFrom:
@@ -2231,6 +2335,28 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
         return this.typesCall(req, res, name, get);
       case R.harnesses:
         return sendJson(res, 200, this.harnesses.info());
+      case R.desktopSettings: {
+        // The Open Artifact Desktop app's settings this daemon acts on: GET reads them; POST is the person's (the app's
+        // settings dialog), so not from another origin and not from inside an agent's session, as cloud.settings.
+        if (get) {
+          const answer: DesktopSettings = { openInDesktop: this.settings.openInDesktop === true };
+          return sendJson(res, 200, answer);
+        }
+        const refusal =
+          this.originRefusal(req, name) ??
+          (req.headers['x-open-artifact-agent'] ? 'Opening agents\' artifacts in Open Artifact Desktop is for the person to decide: they turn it on or off in the app\'s settings.' : null);
+        if (refusal) {
+          req.resume();
+          return sendJson(res, 403, { code: 'not_granted', message: refusal });
+        }
+        const body = await readJsonBody<Partial<DesktopSettings>>(req);
+        if (typeof body.openInDesktop !== 'boolean') throw new OpenArtifactError('invalid_argument', 'openInDesktop: true or false.');
+        saveSettings({ openInDesktop: body.openInDesktop });
+        this.settings = loadSettings(this.preset);
+        this.log(`audit: agents' artifacts open ${body.openInDesktop ? 'in Open Artifact Desktop' : 'as their app says'}, asked by ${this.askedBy(req, name)}`);
+        const answer: DesktopSettings = { openInDesktop: this.settings.openInDesktop === true };
+        return sendJson(res, 200, answer);
+      }
       case R.embed: {
         // Where pages are served from, and the origins hosts embed the Shell from (the Shell answers only those).
         const answer: EmbedResponse = { ...this.harnesses.embed.origins(), hosts: this.harnesses.embed.hostOrigins() };
@@ -2321,16 +2447,125 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
         if (!typeId) throw new OpenArtifactError('invalid_argument', 'type: the type id (or open-artifact://type/<id>) to create from.');
         const folder = typeof body.folder === 'string' && body.folder.trim() ? body.folder.trim() : undefined;
         if (folder && !isAbsolute(folder) && !folder.startsWith('~')) throw new OpenArtifactError('invalid_argument', 'folder: an absolute path (or ~/...).');
-        const caller: SessionRef = { harness: 'open-artifact-home', session: null, workspace: this.settings.homeWorkspace };
+        const caller: SessionRef = { harness: HOME_HARNESS, session: null, workspace: this.settings.homeWorkspace };
+        const blank = body.blank === true;
         const made = await this.tools.call(
           'Artifact',
-          { action: 'publish', type_url: `open-artifact://type/${typeId}`, title: String(body.title ?? '').slice(0, 200), ...(folder ? { folder: expandHome(folder) } : {}) },
+          {
+            action: 'publish',
+            type_url: `open-artifact://type/${typeId}`,
+            title: String(body.title ?? '').slice(0, 200),
+            ...(folder ? { folder: expandHome(folder) } : {}),
+            ...(blank ? { open: 'never' } : {}),
+          },
           caller,
         );
         if (made.error) return sendJson(res, statusOf(new OpenArtifactError(made.error.code, made.error.message)), made.error);
-        const record = this.store.update(artifactIdOf(made.url)!, { owner: null, createdBy: null });
+        let record = this.store.update(artifactIdOf(made.url)!, { owner: null, createdBy: null });
+        if (blank) {
+          try {
+            record = await this.startBlank(record, req);
+          } catch (error) {
+            // Made blank or not made: nothing half-made is kept (the folder only when it holds no more than its marker).
+            this.closePage(record);
+            this.store.remove(record.id);
+            rmSync(join(files.trash(), `${record.id}.json`), { force: true });
+            try {
+              if (readdirSync(record.root).every((name) => name === '.artifact.json')) rmSync(record.root, { recursive: true, force: true });
+            } catch {
+              /* gone already */
+            }
+            throw error;
+          }
+          this.log(`audit: made ${record.id} (${record.type}) blank at ${record.root}, asked by ${this.askedBy(req, name)}`);
+          return sendJson(res, 201, { ...this.artifactView(record), prompt: null });
+        }
         const view = this.artifactView(record);
         return sendJson(res, 201, { ...view, prompt: body.prompt ? `${body.prompt}\n\n${takeOverPrompt(record, view.typeTitle)}` : takeOverPrompt(record, view.typeTitle) });
+      }
+      case R.blank: {
+        // The Shell's "Start blank" on an empty artifact: its type server writes the starting files. Its owner stays.
+        const body = await readJsonBody<BlankArtifactRequest & { url?: string }>(req);
+        const record = this.store.require(body.id ?? body.url);
+        const was = this.bootOf(record).empty;
+        const next = await this.startBlank(record, req);
+        if (was) this.log(`audit: started ${record.id} (${record.type}) blank at ${record.root}, asked by ${this.askedBy(req, name)}`);
+        return sendJson(res, 200, this.artifactView(next));
+      }
+      case R.add: {
+        // "Open folder": an artifact folder on this computer joins the library, owned by nobody (not artifacts.adopt,
+        // which records its caller as the owner).
+        const body = await readJsonBody<AddArtifactRequest>(req);
+        const root = this.folderArg(body.folder);
+        const known = this.store.byRoot(root);
+        if (known) return sendJson(res, 200, this.artifactView(known));
+        // A moved folder of an artifact the library has: that one is relocated, never added a second time.
+        const marked = readJson<{ id?: unknown } | null>(join(root, '.artifact.json'), null);
+        const of = typeof marked?.id === 'string' ? this.store.get(marked.id) : null;
+        if (of && !existsSync(of.root)) {
+          throw new OpenArtifactError('conflict', `${root} is the folder of ${of.id} ("${of.title}"), which the library has at ${of.root}, a folder that is gone.`, {
+            fix: `Relocate that artifact instead: ${LIBRARY_ROUTES.relocate} { id: "${of.id}", folder: "${root}" }.`,
+          });
+        }
+        const record = await this.adoptFolder(root);
+        if (!record) {
+          throw new OpenArtifactError('invalid_argument', `${root} holds no artifact of a type this computer knows: no .artifact.json, and no type's marker files.`);
+        }
+        this.log(`audit: added the folder ${root} as ${record.id} (${record.type}), asked by ${this.askedBy(req, name)}`);
+        return sendJson(res, 201, this.artifactView(record));
+      }
+      case R.relocate: {
+        const body = await readJsonBody<RelocateArtifactRequest & { url?: string }>(req);
+        const record = this.store.require(body.id ?? body.url);
+        const root = this.folderArg(body.folder);
+        const marked = readJson<{ id?: unknown } | null>(join(root, '.artifact.json'), null);
+        if (!marked) throw new OpenArtifactError('invalid_argument', `${root} has no .artifact.json: it is not an artifact's folder.`);
+        if (marked.id !== record.id) {
+          throw new OpenArtifactError('conflict', `${root} is not the folder of ${record.id}: its .artifact.json names ${typeof marked.id === 'string' ? marked.id : 'no id'}.`, {
+            fix: `Choose the folder ${record.id} was moved to, or add this one as an artifact of its own (${LIBRARY_ROUTES.add}).`,
+          });
+        }
+        const other = this.store.byRoot(root);
+        if (other && other.id !== record.id) throw new OpenArtifactError('conflict', `${root} is already the folder of ${other.id}.`);
+        if (resolve(record.root) === root) return sendJson(res, 200, this.artifactView(record));
+        // Its page, watcher and stamps were the old folder's.
+        this.closePage(record);
+        this.shellOpens.delete(record.id);
+        this.contentStamps.delete(record.root);
+        const next = this.store.update(record.id, { root, updatedAt: record.updatedAt });
+        this.log(`audit: relocated ${record.id} from ${record.root} to ${root}, asked by ${this.askedBy(req, name)}`);
+        this.broadcast({ type: 'artifacts/changed', id: record.id });
+        return sendJson(res, 200, this.artifactView(next));
+      }
+      case R.assign: {
+        // The person hands an artifact nobody owns to a session online now (the Ask pane). Which agent may work on
+        // which artifact is theirs to decide: as types.enable, not from another origin, not from inside a session.
+        const refusal =
+          this.originRefusal(req, name) ??
+          (req.headers['x-open-artifact-agent'] ? 'Handing an artifact to a session is for the person to decide: they pick the session in the Ask pane of its page.' : null);
+        if (refusal) {
+          req.resume();
+          return sendJson(res, 403, { code: 'not_granted', message: refusal });
+        }
+        const body = await readJsonBody<AssignArtifactRequest & { url?: string }>(req);
+        const record = this.store.require(body.id ?? body.url);
+        if (record.owner && sessionKeyOf(record.owner)) {
+          throw new OpenArtifactError('conflict', `${record.id} belongs to the session ${sessionKeyOf(record.owner)} already.`, {
+            fix: 'Only an artifact no session owns is assigned. To move it, ask the session you want to call Artifact {action: "adopt", url}.',
+          });
+        }
+        const key = typeof body.session === 'string' ? body.session : '';
+        const live = key ? this.harnesses.sessions.get(key) : undefined;
+        if (!live?.conn || !live.ref.session) {
+          throw new OpenArtifactError('not_found', `No session ${key || '(none given)'} is online now.`, { fix: `Pick one of the sessions ${R.harnesses} lists with live: true (its key).` });
+        }
+        const owner: SessionRef = { harness: live.ref.harness, session: live.ref.session, workspace: live.ref.workspace ?? this.harnesses.workspaceOf(live.ref) };
+        const next = this.store.update(record.id, { owner });
+        this.log(`audit: assigned ${record.id} to the session ${key}, asked by ${this.askedBy(req, name)}`);
+        this.wake.handOff(record.id, owner, 'assign');
+        const delivered = (await this.wake.deliverWaiting(record.id, owner)).map((r) => ({ via: r.via, ...(r.status ? { status: r.status } : {}) }));
+        const answer: AssignArtifactResult = { artifact: this.artifactView(next), delivered };
+        return sendJson(res, 200, answer);
       }
       case R.update: {
         const body = await readJsonBody<UpdateArtifactRequest & { url: string }>(req);
