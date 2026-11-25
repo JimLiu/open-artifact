@@ -17,6 +17,7 @@
  * | `GET stats` | rows, bytes, connections, whether the artifact is open |
  * | `GET capabilities`, `POST capabilities` (`{ capabilities }`) | a page artifact's declared capabilities (`{ capabilities }`, null: not a page here); set: `{ changed }` |
  * | `POST agent-changed` | the owner's agent came or went (from the hub): pages are told; boots nothing |
+ * | `POST type-changed?type=` | a published type's row changed (from the hub): an open page of it moves to the new version, or closes when the type is gone; boots nothing |
  * | `POST destroy` | deletes everything the object stored (permanent deletion) |
  */
 
@@ -118,6 +119,11 @@ export async function handleRoomCall(room: ArtifactRoom, host: RoomCallHost, req
       case 'agent-changed':
         // Not `ready`: a room with nothing open has no page to tell, and is not booted for it.
         room.agentChanged();
+        return Response.json({ ok: true });
+      case 'type-changed':
+        // Not `ready` either: only an open core has pages to move. Answered at once (the hub tells many rooms); the
+        // object stays up while its pages are connected, so the move runs on.
+        room.typeChanged(url.searchParams.get('type') ?? '').catch((error: unknown) => console.log(`type-changed: ${error instanceof Error ? error.message : String(error)}`));
         return Response.json({ ok: true });
       case 'destroy':
         await room.ready(id);
@@ -238,5 +244,10 @@ export class RoomClient {
   /** The owner's agent came or went (the hub's call). */
   async agentChanged(): Promise<void> {
     await (await this.call('agent-changed', { method: 'POST' })).body?.cancel();
+  }
+
+  /** A published type's row changed (the hub's call). */
+  async typeChanged(type: string): Promise<void> {
+    await (await this.call('type-changed', { method: 'POST', query: { type } })).body?.cancel();
   }
 }

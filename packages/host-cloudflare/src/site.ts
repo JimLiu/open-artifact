@@ -78,6 +78,8 @@ import { ROOM_CALL_HEADER, RoomClient } from './room-calls.ts';
 import { ARTIFACT_HEADER } from './room.ts';
 import { startCloudflarePlugins, type PluginModules } from './plugins.ts';
 import { PAGE_TITLE, PAGE_TYPE, sitePagesOf, type FrameBuild, type PageNetwork } from './frames.ts';
+import { cloudflareSiteTypeServices, siteTypeRow, siteTypeRows, type SiteTypeRow } from './site-types.ts';
+import type { SiteTypeServices } from '@open-artifact/host';
 
 /** The health check's path (as the Node host). */
 export const HEALTH_PATH = '/__open-artifact/health';
@@ -89,6 +91,8 @@ export const CLOUDFLARE_IMPORT_MAX_BYTES = 32 * 1024 * 1024;
 export const IMPORT_PATH = '/api/open-artifact.artifacts.import';
 /** How long an artifact id found in the catalog is remembered by an isolate (for content-host routing), ms. */
 const KNOWN_MS = 60_000;
+/** How long an isolate keeps a published type's row (the Library's type title, the site's MCP), ms. */
+const TYPE_ROW_MS = 5_000;
 
 /** A type the build found (`artifact-types/*`): its id and the title the Library shows, plus its manifest for CF3. */
 export interface TypeEntry {
@@ -182,6 +186,9 @@ export class Site {
   /** Page artifacts: whether this site runs them, and what they may reach (`OA_PAGE_NETWORK`); null: none. */
   readonly pages: { network: PageNetwork; build: FrameBuild } | null = null;
   readonly #known = new Map<string, number>();
+  /** Published types' rows read lately (`typeInfo` is synchronous): id → row (null: none), and when. */
+  readonly #typeRows = new Map<string, { row: SiteTypeRow | null; at: number }>();
+  #typeRowsAt = 0;
   #handler: Handler<AppCtx> | null = null;
   #mcp: ((request: Request, ctx: AppCtx) => Promise<Response>) | null = null;
 
@@ -234,11 +241,67 @@ export class Site {
     return new RoomClient(this.env.ROOMS.get(this.env.ROOMS.idFromName(id)), id);
   }
 
-  /** The type of a known type id. */
+  /**
+   * The type of a known type id: a built-in one, `page`, or a type published to the site whose row this isolate read
+   * lately ({@link publishedType}; the open and import paths read it first, a Library list may show the id).
+   */
   typeInfo(type: string): { title: string } | null {
     const entry = this.#types.get(type);
     if (entry) return { title: entry.title };
-    return this.pages && type === PAGE_TYPE ? { title: PAGE_TITLE } : null;
+    if (!this.pages) return null;
+    if (type === PAGE_TYPE) return { title: PAGE_TITLE };
+    const row = this.#typeRows.get(type)?.row;
+    return row ? { title: row.name || type } : null;
+  }
+
+  /** Whether `type` is one this site runs without a catalog row (built in, or `page`). */
+  #builtIn(type: string): boolean {
+    return this.#types.has(type) || type === PAGE_TYPE;
+  }
+
+  /** A published type's row (kept {@link TYPE_ROW_MS}; `fresh`: read now), or null. Never read for a built-in type. */
+  async publishedType(type: string, fresh = false): Promise<SiteTypeRow | null> {
+    if (!this.pages || this.#builtIn(type)) return null;
+    const have = this.#typeRows.get(type);
+    const at = Date.now();
+    if (have && !fresh && at - have.at < TYPE_ROW_MS) return have.row;
+    const row = await siteTypeRow(this.driver, type);
+    this.#typeRows.set(type, { row, at });
+    return row;
+  }
+
+  /** Reads every published type's row, unless that was done lately (the site's MCP names them synchronously). */
+  async publishedTypes(): Promise<void> {
+    if (!this.pages) return;
+    const at = Date.now();
+    if (at - this.#typeRowsAt < TYPE_ROW_MS) return;
+    const rows = await siteTypeRows(this.driver);
+    for (const [id, kept] of this.#typeRows) if (!kept.row) this.#typeRows.delete(id);
+    for (const row of rows) this.#typeRows.set(row.id, { row, at });
+    this.#typeRowsAt = at;
+  }
+
+  /** A published type's row as this isolate has it now (no read), or null. */
+  cachedType(type: string): SiteTypeRow | null {
+    return this.#typeRows.get(type)?.row ?? null;
+  }
+
+  /**
+   * The Link's type catalog (while the site runs pages): packages in D1 (`site-types.ts`); a changed row reaches the
+   * rooms running it through the hub.
+   */
+  siteTypes(): SiteTypeServices | undefined {
+    if (!this.pages) return undefined;
+    return cloudflareSiteTypeServices({
+      driver: this.driver,
+      now: this.#now,
+      log: this.#log,
+      changed: async (type) => {
+        this.#typeRows.delete(type);
+        this.#typeRowsAt = 0;
+        await this.hub.typeChanged(type);
+      },
+    });
   }
 
   /** The app's platform services for one request (events go to the hub after the answer). */
@@ -249,9 +312,12 @@ export class Site {
       events: new ForwardingEvents(this.hub, (promise) => exec.waitUntil(promise), this.#log),
       access: this.access,
       pageFor: async (artifact: ArtifactRow, principal, role) => {
+        // A published type's artifact runs on the frame engine, at `page/` as `page`'s (its row read for `typeInfo`).
+        const segment = this.pages && !this.#types.has(artifact.type) ? PAGE_TYPE : artifact.type;
+        if (segment === PAGE_TYPE && artifact.type !== PAGE_TYPE) await this.publishedType(artifact.type);
         const claims = pageTokenClaims({ artifact: artifact.id, principal, role, grantsVersion: artifact.grantsVersion, epoch: await catalog.siteEpoch(), now: this.#now() });
         const token = await signPageToken(claims, config.signingKeys);
-        const pageUrl = new URL(`${artifact.type}/${encodeURIComponent(token)}/`, `${contentOriginOf(config, artifact.id)}/`).href;
+        const pageUrl = new URL(`${segment}/${encodeURIComponent(token)}/`, `${contentOriginOf(config, artifact.id)}/`).href;
         const framed = new URL(pageUrl);
         framed.searchParams.set(SHELL_PARAMS.shell, appOrigin);
         return { url: framed.href, pageUrl };
@@ -272,6 +338,8 @@ export class Site {
       importArchive: async (id, bytes) => {
         const imported = await this.room(id).importArtifact(bytes);
         this.#known.set(id, Date.now());
+        // A published type's: its row read now, so the Library's check (`typeInfo`) knows it.
+        if (!this.#builtIn(imported.type)) await this.publishedType(imported.type, true);
         return imported;
       },
       shellHtml: async () => this.build.shellHtml,

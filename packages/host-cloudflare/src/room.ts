@@ -329,9 +329,17 @@ export class ArtifactRoom {
   async importArchive(bytes: Uint8Array, options: { id: string; limits?: ImportLimits }): Promise<ImportedArchive> {
     this.claim(options.id);
     await this.boot();
-    // A page archive is known by its marker alone (it has no content of its own to detect), when pages run here.
-    const markerTypes = this.host.pages ? [PAGE_TYPE] : undefined;
-    return unpackArchive(bytes, this.rootOf(options.id), { id: options.id, ...(options.limits ? { limits: options.limits } : {}), ...(markerTypes ? { markerTypes } : {}) });
+    // A page archive is known by its marker alone (it has no content of its own to detect), when pages run here; so is
+    // an archive of a type published to the site, by its id and uid (`siteTypeImportRules`, as on Node).
+    const pages = this.host.pages;
+    const rules = pages?.types.catalog ? await pages.types.catalog.imports((type) => isTypeName(type) || type === PAGE_TYPE) : null;
+    const markerTypes = pages ? [PAGE_TYPE, ...(rules?.markerTypes ?? [])] : undefined;
+    return unpackArchive(bytes, this.rootOf(options.id), {
+      id: options.id,
+      ...(options.limits ? { limits: options.limits } : {}),
+      ...(markerTypes ? { markerTypes } : {}),
+      ...(rules ? { inspectMarker: rules.inspect } : {}),
+    });
   }
 
   /**
@@ -345,6 +353,8 @@ export class ArtifactRoom {
     if (isTypeName(imported.type)) title = (await readArtifactTitle(root, imported.type).catch(() => undefined)) ?? undefined;
     // A page's title is its <title> (as on Node).
     else if (this.host.pages && imported.type === PAGE_TYPE) title = pageTitleOf(root);
+    // A published type's: where its manifest's `titleFrom` says.
+    else if (this.host.pages?.types.catalog) title = await this.host.pages.types.catalog.contentTitle(imported.type, root);
     if (!title) {
       try {
         const meta = JSON.parse(readFileSync(join(root, '.artifact.json'), 'utf8')) as { title?: unknown };
@@ -382,7 +392,7 @@ export class ArtifactRoom {
     const id = this.requireId();
     await this.boot();
     if (this.host.pages && type === PAGE_TYPE) return pageTitleOf(this.rootOf(id)) ?? null;
-    if (!isTypeName(type)) return null;
+    if (!isTypeName(type)) return (await this.host.pages?.types.catalog?.contentTitle(type, this.rootOf(id))) ?? null;
     const title = (await readArtifactTitle(this.rootOf(id), type).catch(() => undefined))?.trim().slice(0, 200);
     return title || null;
   }
@@ -456,7 +466,7 @@ export class ArtifactRoom {
     const id = this.requireId();
     const server = await this.boot();
     const pages = this.host.pages;
-    if (pages && (await this.isPage(pages))) return this.framesOf(pages).action(name, args);
+    if (pages && (await this.runsFrames(pages))) return this.framesOf(pages).action(name, args);
     this.ownerName = await this.host.ownerName(id);
     const request = new Request(`http://127.0.0.1/__open-artifact/actions/${encodeURIComponent(name)}`, {
       method: 'POST',
@@ -507,6 +517,14 @@ export class ArtifactRoom {
     this.typeServer?.agentChanged(id);
   }
 
+  /**
+   * A published type's row changed (the hub says so): an open page of it moves to the new version, or closes when the
+   * type is gone. Boots nothing; false when no page of that type is open here.
+   */
+  async typeChanged(type: string): Promise<boolean> {
+    return (await this.frames?.typeChanged(type)) ?? false;
+  }
+
   /** Ends the page connections `keep` answers false for (it is asked synchronously, once per connection). */
   disconnectWhere(keep: (ref: PrincipalRef | null, role: Viewer['role']) => boolean): void {
     this.frames?.disconnectWhere(keep);
@@ -555,6 +573,7 @@ export class ArtifactRoom {
     this.folder = null;
     this.state.storage.sql.exec(`DROP TABLE IF EXISTS ${META_TABLE}`);
     this.state.storage.sql.exec(`DROP TABLE IF EXISTS ${PAGE_HOSTS_TABLE}`);
+    this.host.pages?.types.catalog?.drop();
     this.pageIndex = null;
     await this.state.storage.deleteAll?.();
     this.artifactId = null;
@@ -600,6 +619,12 @@ export class ArtifactRoom {
   private async isPage(pages: RoomPages): Promise<boolean> {
     const artifact = await pages.artifact(this.requireId());
     return !!artifact && (await pages.types.typeOf(artifact.type))?.page === true;
+  }
+
+  /** Whether this object's artifact runs on the frame engine here (a page, or a type published to the site). */
+  private async runsFrames(pages: RoomPages): Promise<boolean> {
+    const artifact = await pages.artifact(this.requireId());
+    return !!artifact && !isTypeName(artifact.type) && (await pages.types.typeOf(artifact.type)) !== null;
   }
 
   /** The page artifact's frame engine (made once; it opens its core on the first request that needs it). */

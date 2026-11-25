@@ -210,8 +210,8 @@ artifacts made with the type where they are; they open again once it is installe
 
 ## Publish to a site
 
-A Node site you publish to (see [Hosting](hosting.md)) can keep your types too, so the artifacts you make with them
-open there for the people you share them with.
+A site you publish to, Node or Cloudflare (see [Hosting](hosting.md)), can keep your types too, so the artifacts you
+make with them open there for the people you share them with.
 
 ```bash
 open-artifact types publish trip-planner                       # to the default site; private
@@ -255,7 +255,8 @@ site with one domain for both, `OA_CONTENT_SAME_SITE=true`, which runs no pages)
 
 ## A type's page on a site
 
-Every type on a site has a page, `https://<site>/t/<id>`, and the site's home page has a **Types** tab listing the
+Every type on a Node site (a Cloudflare site keeps types without these pages for now) has a page,
+`https://<site>/t/<id>`, and the site's home page has a **Types** tab listing the
 ones you may see (the `site` ones, your own, and every one for a site admin), each a link to its page. The page shows
 its name, version, who published it, when it changed, what its page may use and which sites it may reach (the words
 the install shows), its `SKILL.md` as plain text, the command that installs it, and a download of its package.

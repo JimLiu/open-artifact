@@ -27,6 +27,10 @@
  * - A registry of awake rooms whose roles a plugin decides (`POST /rooms/awake`, dropped by `/presence/forget`): when a
  *   plugin forgets every cached role (`ctx.host.access.invalidate()`), `POST /rooms/refresh` asks each of them, and
  *   each room that asked about presence, to work its pages' roles out again ({@link SiteHubOptions.refreshRoom}).
+ * - A registry of rooms running a published type's artifact (`POST /types/watch`, dropped by `/presence/forget`): when
+ *   a type's row changes (a new version, delisted, removed), `POST /types/changed` calls each room of that type
+ *   (`type-changed`, {@link SiteHubOptions.notifyType}) so its open pages move to the new version at once. In memory
+ *   too: a hub evicted forgets it, and the rooms fall back to their own check (`site-types.ts`).
  *
  * Eviction or a redeploy ends the hub's instance: its streams close, and browsers' `EventSource` reconnects (the
  * Library then reads its list again, as after any reconnect). Nothing is lost that matters: wakes are in the D1 outbox,
@@ -81,6 +85,8 @@ export interface SiteHubOptions {
   notifyRoom?: (artifactId: string) => Promise<void>;
   /** Asks an artifact's room to drop the pages whose role moved (the product: the room's `refresh` call). */
   refreshRoom?: (artifactId: string) => Promise<unknown>;
+  /** Tells an artifact's room that its published type changed (the product: the room's `type-changed` call). */
+  notifyType?: (artifactId: string, type: string) => Promise<unknown>;
 }
 
 /** What the hub reports. */
@@ -97,6 +103,8 @@ export interface HubStats {
   notified: number;
   /** Rooms whose roles a plugin decides that said they are awake. */
   awakeRooms: number;
+  /** Rooms running a published type's artifact that said so. */
+  typeRooms: number;
 }
 
 export class SiteHub {
@@ -113,6 +121,9 @@ export class SiteHub {
   readonly #roomUser = new Map<string, string>();
   /** Rooms with pages open whose roles a plugin decides (see the module comment). */
   readonly #awake = new Set<string>();
+  /** type id → the rooms running an artifact of it, and room → its type. */
+  readonly #typeRooms = new Map<string, Set<string>>();
+  readonly #roomType = new Map<string, string>();
   #notified = 0;
   /** Settles once the outbox feed listens: an `emit` call waits for it, so no edit is missed while the hub starts. */
   readonly #feed: Promise<void>;
@@ -210,6 +221,7 @@ export class SiteHub {
   /** Room `room` no longer wants presence changes (its artifact closed). */
   forget(room: string): void {
     this.#awake.delete(room);
+    this.#unwatchType(room);
     const userId = this.#roomUser.get(room);
     if (userId === undefined) return;
     this.#roomUser.delete(room);
@@ -240,6 +252,37 @@ export class SiteHub {
     if (this.#awake.size > 100_000) this.#awake.delete(this.#awake.values().next().value!);
   }
 
+  /** Room `room` runs an artifact of the published type `type`: it is told when that type changes. */
+  watchType(room: string, type: string): void {
+    if (this.#roomType.get(room) === type) return;
+    this.#unwatchType(room);
+    this.#roomType.set(room, type);
+    let rooms = this.#typeRooms.get(type);
+    if (!rooms) this.#typeRooms.set(type, (rooms = new Set()));
+    rooms.add(room);
+    if (this.#roomType.size > 100_000) this.#unwatchType(this.#roomType.keys().next().value!);
+  }
+
+  #unwatchType(room: string): void {
+    const type = this.#roomType.get(room);
+    if (type === undefined) return;
+    this.#roomType.delete(room);
+    const rooms = this.#typeRooms.get(type);
+    rooms?.delete(room);
+    if (rooms?.size === 0) this.#typeRooms.delete(type);
+  }
+
+  /** Tells every room running an artifact of `type` that its row changed; how many were told. One failing stops none. */
+  async typeChanged(type: string): Promise<number> {
+    const notify = this.#options.notifyType;
+    const rooms = [...(this.#typeRooms.get(type) ?? [])];
+    if (!notify) return 0;
+    await Promise.allSettled(
+      rooms.map((room) => notify(room, type).catch((error: unknown) => this.#options.log?.(`hub: telling ${room} that ${type} changed failed: ${error instanceof Error ? error.message : String(error)}`))),
+    );
+    return rooms.length;
+  }
+
   /** Asks every awake room (and every room that asked about presence) to work its pages' roles out again. */
   async refreshRooms(): Promise<number> {
     const refresh = this.#options.refreshRoom;
@@ -259,7 +302,7 @@ export class SiteHub {
   stats(): HubStats {
     const listeners = {} as Record<HostEventName, number>;
     for (const name of EVENT_NAMES) listeners[name as HostEventName] = this.events.listenerCount(name as HostEventName);
-    return { streams: this.#streams, listeners, online: this.#online.size, links: this.#linkStreams, emitted: this.#emitted, watchingRooms: this.#roomUser.size, notified: this.#notified, awakeRooms: this.#awake.size };
+    return { streams: this.#streams, listeners, online: this.#online.size, links: this.#linkStreams, emitted: this.#emitted, watchingRooms: this.#roomUser.size, notified: this.#notified, awakeRooms: this.#awake.size, typeRooms: this.#roomType.size };
   }
 
   /** The hub's `fetch`: its calls (with {@link HUB_CALL_HEADER}) and the Library stream. */
@@ -305,6 +348,15 @@ export class SiteHub {
       }
       case '/rooms/refresh':
         return Response.json({ rooms: await this.refreshRooms() });
+      case '/types/watch': {
+        const body = (await request.json()) as { room?: unknown; type?: unknown };
+        if (typeof body.room === 'string' && typeof body.type === 'string') this.watchType(body.room, body.type);
+        return Response.json({ ok: true });
+      }
+      case '/types/changed': {
+        const body = (await request.json()) as { type?: unknown };
+        return Response.json({ rooms: typeof body.type === 'string' ? await this.typeChanged(body.type) : 0 });
+      }
       case '/stats':
         return Response.json(this.stats());
       default:
@@ -423,6 +475,16 @@ export class HubClient implements HubLink {
 
   async awake(room: string): Promise<void> {
     await (await this.#call('rooms/awake', { json: { room } })).body?.cancel();
+  }
+
+  /** Room `room` runs an artifact of the published type `type` (told of its changes until it forgets). */
+  async watchType(room: string, type: string): Promise<void> {
+    await (await this.#call('types/watch', { json: { room, type } })).body?.cancel();
+  }
+
+  /** A published type's row changed: the rooms running it are told. */
+  async typeChanged(type: string): Promise<void> {
+    await (await this.#call('types/changed', { json: { type } })).body?.cancel();
   }
 
   /** Asks every awake room to drop the pages whose role moved (a plugin forgot every role). */

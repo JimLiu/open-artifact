@@ -461,7 +461,8 @@ await (await fetch('/api/open-artifact.admin.link-tokens.revoke', { method: 'POS
 - **Workers Paid，每月最低 5 美元**，是实际可用的套餐：包含 1000 万次请求和 3000 万 CPU 毫秒。Workers Free 每个请求只允许
   10 毫秒 CPU，打开和导入作品经常会超过。
 - **Durable Objects：** 按对象在内存里的时间计费。一个作品的对象在它最后一个页面关闭大约一分钟后离开内存
-  （`OA_ROOM_IDLE_CLOSE_MS`，默认 60000）。**什么会让 room 保持唤醒：** 只有打开着这个作品的标签页，没有别的；没有轮询。
+  （`OA_ROOM_IDLE_CLOSE_MS`，默认 60000）。**什么会让 room 保持唤醒：** 只有打开着这个作品的标签页，没有别的。唯一的轮询：发布的类型的作品有页面打开时，它的对象每 30 秒从 D1
+  读一次这个类型的目录行（见[发布的类型](#发布的类型)），每次一个 D1 查询。
   **什么会让站点中枢保持唤醒：** 任何打开着的 Shell 标签页，以及每台连接着的电脑（中枢为它保持事件流）。一台一直开着并
   连接着的电脑，会让中枢一直留在内存里。
 - **D1：** 按读写的行数计费。本地计数：首页 3 次查询，作品列表 10 次查询，和列表长短无关。
@@ -474,6 +475,7 @@ await (await fetch('/api/open-artifact.admin.link-tokens.revoke', { method: 'POS
 | 一次 Link 推送 | 32 MiB，单个文件最大 16 MiB | 100 MiB，单个文件最大 64 MiB |
 | 每个作品的存储 | 10 GB（Paid），1 GB（Free） | 磁盘大小 |
 | 目录库 | D1：10 GB（Paid），500 MB（Free） | 磁盘大小 |
+| 发布的类型的包（`.oatype`） | 16 MiB | 包的上限（解开后 64 MiB） |
 
 ## Page 作品
 
@@ -502,10 +504,55 @@ await (await fetch('/api/open-artifact.admin.link-tokens.revoke', { method: 'POS
 的页面上；`link.hello` 带 `features.pages`；通过远程 MCP 改的能力声明回到电脑上的
 `.artifact.json`；上传的 page zip。没有部署过。
 
+## 发布的类型
+
+站点保存人们发布给它的类型（`open-artifact types publish`，见[发布到网站](custom-types.zh-CN.md#发布到网站)），并运行用这些类型做的
+作品，和 Node 站点一样（见[发布的类型](hosting.zh-CN.md#发布的类型)）：对包做同样的检查（一个文件夹、普通文件、单个文件和文件数
+的上限、字面量声明、没有 `entry`、不是页面类型），id 归谁的规则相同，作品通过 Link 导入或上传进来时的拒绝也相同
+（`type_missing`、`type_mismatch`，已下架类型的新作品是 `not_granted`）。导出、复制、回收站和标题（清单里的 `titleFrom`）和
+其他作品一样可用；站点 MCP 上的 Agent 会被告知这个类型的文字来自它的发布者。
+
+- **`OA_TYPES_PUBLISH`**（`vars` 里的一项）：`admins`（默认）、`members` 或 `off`，和 Node 一样；其他值会让站点报配置错误，
+  并写出这个变量名。只有一个域名（`OA_CONTENT_SAME_SITE=true`）时总是 `off`。`link.hello` 带 `features.types` 和
+  `typesPublish`，电脑在发送包之前就知道。
+- **保存在哪里：只在 D1 里。** 不需要也不使用对象存储。目录行在 `types` 表里，和 Node 一样。发布的包本身在
+  `type_package_chunks` 里，每行存包的 768 KiB（base64 文本 1 MiB，大约是 D1 每行 2,000,000 字节上限的一半），`type_packages`
+  里有一行头信息（sha256、大小、块数、是否完整）。这两张表在第一次发布时建立，不需要迁移步骤。新版本先在它自己的版本号下完整
+  写入并标记为完整，目录行才切到它，之后再删除旧版本的行：发布中途失败时，站点继续提供上一个版本，下一次重试会替换掉留下的
+  部分。D1 Time Travel 和目录库的其余部分一起恢复它们。
+- **每个包 16 MiB**（`.oatype` 文件）。更大的包会以 `too_large`（413）被拒绝，消息写明这个上限，并说明 Node 站点能收更大的，
+  而且在整个请求体读进来之前就拒绝。包里面的上限和 Node 站点一样：最多 2000 个文件，单个文件 16 MiB，解开后共 64 MiB。
+- **作品的对象怎么读它们。** 这个类型的作品第一次打开时，它的对象从 D1 读一次包，再检查 sha256 和包本身，把 `index.html`、
+  `artifact-type.json` 和 `artifact-type/` 下的文件复制到自己的 SQLite 里（每行最多 1 MiB），以指纹 `<uid>@<version>:<sha>`
+  为键。之后从这里提供类型的文件，`no-cache` 加一个随版本变化的 ETag；对象下次启动不必再读 D1。复制新版本时删除上一个版本的
+  副本。
+- **新版本多快到达打开着的页面。** 发布会通知站点中枢，中枢通知每个打开着这个类型的作品对象，对象复制新版本、换上新的
+  Content-Security-Policy，并让打开的页面重新加载框架（数据保留）。在 `wrangler dev` 下，`types publish` 返回后大约 0.1 秒，
+  打开的页面就显示了新版本。如果对象登记之后中枢离开过内存（这时它不再记得哪些对象运行哪个类型），有打开页面的对象仍然每
+  30 秒检查一次目录行，距上次检查超过 2 秒的任何请求也会再检查一次：**最坏大约 30 秒**，再加上复制的时间。别处新打开的页面在
+  5 秒内看到新版本（Worker isolate 记住一个类型的行的时间）。
+- **下架和删除。** 有作品在用的类型被 `types unpublish` 时只是下架：它们的对象继续运行它，打开的页面不会重新加载，新作品会被
+  拒绝。没有作品在用的类型被取消发布时会被删除：还打开着它的对象会关闭它（页面的连接断开），之后它的任何东西都打不开，它在
+  D1 里的行被删除。
+- **类型能做什么**：服务器上什么都不运行。它的页面在每个人的页面主机上的沙箱框架里运行，Content-Security-Policy 来自清单里的
+  `openArtifact.network` 列表（`OA_PAGE_NETWORK` 不会放宽它）。
+- **CPU 和内存，在本地用 Node 测的（不是在 Cloudflare 上）：** 一个由 16 个不可压缩文件组成的 16 MiB 包，检查大约用 10 毫秒
+  CPU；保存（每个文件解压一次做检查，再分 6 批、每批 4 行写入 D1）大约 50 毫秒，多用大约 16 MiB 内存；读回大约 30 毫秒，峰值
+  大约 53 MiB；对象第一次复制大约 40 毫秒。一个解开后有 64 MiB 的小包，保存用了大约 190 毫秒。这远在 Workers Paid（默认 30 秒
+  CPU）和每个 isolate 128 MB 之内，但**超过了 Workers Free 每个请求 10 毫秒的上限**：在 Free 上，除了很小的类型，发布类型和它的
+  作品第一次打开都可能因为 CPU 被中止。
+- **还没有的**（Node 站点有）：站点上类型自己的页面（`/t/<id>` 和主页的类型标签页）、应用 API 里的已发布类型、通过站点 MCP
+  列出它们或用它们做作品（`Artifact list scope types` 只列内置类型）。已登录这个站点的电脑仍然可以凭这个地址安装它的类型
+  （`open-artifact types install https://<站点>/t/<id>`）：包经 Link 取回。在 Worker isolate 读到类型的行之前，作品库可能显示发布的类型的 id 而不是名字。
+
+**这里只在 `wrangler dev` 下运行过**（`e2e/cloudflare-types.test.mjs`，用合成的类型 `e2e/fixtures/site-type/team-poll`）：从电脑
+发布一个类型，发布它的一个作品，由所有者和一个用 viewer 链接加入的人打开；1.1.0 版到达两个打开着的页面，旧版本的行离开 D1；
+在作品还在用时取消发布它。没有部署过。
+
 ## 这里不支持的
 
 - `open-artifact-host` 命令：`link-token` 由上面的管理 API 代替；备份用 D1 Time Travel 加上每个作品的导出。
-- 构建之后新加的类型：类型是构建进去的；要加一个就重新构建并部署。
+- 构建之后新加的内置类型：它们是构建进去的；要加一个就重新构建并部署。个人自己的类型则发布到运行中的站点（见[发布的类型](#发布的类型)）。
 - 在站点上生成图片和 PDF：和所有站点一样，在各人自己的电脑上生成。
 - 仪表盘的实时连接器：它的数字来自所有者的电脑，截至最后一次刷新（默认每 6 小时），并且要所有者确认数据可以发布之后才有。
 - `OA_ALLOW_HTTP`，以及除 `wrangler dev` 下的 `localhost` 之外的任何 http。

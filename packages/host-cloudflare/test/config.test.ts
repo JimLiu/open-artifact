@@ -75,3 +75,12 @@ test("the rooms' idle close and event-stream heartbeat: whole milliseconds, 0 fo
     assert.throws(() => parseRoomTimings({ OA_SSE_HEARTBEAT_MS: bad }), (error: unknown) => error instanceof ConfigError && /OA_SSE_HEARTBEAT_MS/.test(error.message), bad);
   }
 });
+
+test('OA_TYPES_PUBLISH: admins by default, off, admins or members; refused otherwise, naming it; off with one domain for both', () => {
+  assert.equal(parseCloudflareConfig(BASE).typesPublish, 'admins');
+  assert.equal(parseCloudflareConfig({ ...BASE, OA_TYPES_PUBLISH: 'members' }).typesPublish, 'members');
+  assert.equal(parseCloudflareConfig({ ...BASE, OA_TYPES_PUBLISH: 'off' }).typesPublish, 'off');
+  refused({ ...BASE, OA_TYPES_PUBLISH: 'everyone' }, 'OA_TYPES_PUBLISH');
+  const same = { ...BASE, OA_CONTENT_ORIGIN: 'https://{id}.content.artifacts.example.com', OA_CONTENT_SAME_SITE: 'true' };
+  assert.equal(parseCloudflareConfig({ ...same, OA_TYPES_PUBLISH: 'members' }).typesPublish, 'off');
+});

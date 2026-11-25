@@ -266,7 +266,9 @@ A **Node** site that runs pages also keeps the types people publish to it (`open
 - **Agents on the site**: the site's MCP lists the published types a person may list beside the built-in ones, marked
   as their publisher's (`third_party_notice`), and makes artifacts of them; a delisted one takes no new artifacts, and
   no MCP tool publishes, changes or unpublishes a type.
-- The Cloudflare host keeps no published types yet.
+- The Cloudflare host keeps published types too, in D1, with a 16 MiB limit per package
+  ([Published types on Cloudflare](hosting-cloudflare.md#published-types)). Type pages, the Types tab and published
+  types in the site's MCP are on a Node site only for now.
 
 ## Roles and sharing
 

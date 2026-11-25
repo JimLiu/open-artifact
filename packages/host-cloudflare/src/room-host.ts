@@ -88,6 +88,8 @@ export interface HubLink {
    * reaches it (`refreshRooms`), until {@link forget}.
    */
   awake?(room: string): Promise<void>;
+  /** The room runs an artifact of a type published to the site: the hub tells it when the type changes, until {@link forget}. */
+  watchType?(room: string, type: string): Promise<void>;
 }
 
 /** The part of a room the refresh needs. */
@@ -196,6 +198,7 @@ export function createProductRoomHost(options: ProductRoomHostOptions): ProductR
     let title: string | undefined;
     if (isTypeName(artifact.type)) title = (await readArtifactTitle(options.rootOf(artifact.id), artifact.type).catch(() => undefined))?.slice(0, 200);
     else if (options.pages && artifact.type === PAGE_TYPE) title = pageTitleOf(options.rootOf(artifact.id));
+    else if (options.pages?.types.catalog) title = await options.pages.types.catalog.contentTitle(artifact.type, options.rootOf(artifact.id));
     return title && title !== artifact.title ? title : undefined;
   };
   const tellAwake = (id: string): void => {
@@ -292,6 +295,9 @@ export function createProductRoomHost(options: ProductRoomHostOptions): ProductR
       pageHostOf: (host) => pageHostOf(config, host),
       origins: (id) => ({ shell: contentOriginOf(config, id), template: pageOriginOf(config, id, 'a'.repeat(24)), frameSrc: pageHostSource(config), app: appOrigin }),
       pageOrigin: (id, opaque) => pageOriginOf(config, id, opaque),
+      watchType: (id, type) => {
+        void hub.watchType?.(id, type).catch(() => undefined);
+      },
       async artifact(id) {
         const artifact = await catalog.getArtifact(id);
         return artifact && artifact.trashedAt === null ? { title: artifact.title, type: artifact.type } : null;

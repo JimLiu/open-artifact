@@ -262,7 +262,7 @@ describe('cloudflare: a page artifact on the product Worker under wrangler dev, 
     const link = (name, body) =>
       fetch(`${app}/api/open-artifact.link.${name}`, { method: body === undefined ? 'GET' : 'POST', headers: { authorization: `Bearer ${linkToken}`, ...(body === undefined ? {} : { 'content-type': 'application/json' }) }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
     const hello = await (await link('hello')).json();
-    assert.deepEqual(hello.features, { pages: 1 }, JSON.stringify(hello));
+    assert.deepEqual(hello.features, { pages: 1, types: 1 }, JSON.stringify(hello));
     const declared = () => JSON.parse(local('.artifact.json') ?? '{}').capabilities;
     const now = declared();
     assert.equal((await link('capabilities', { id, capabilities: now })).status, 200);

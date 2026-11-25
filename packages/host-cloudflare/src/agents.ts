@@ -16,6 +16,10 @@
  * - Page artifacts (`pages`, while the site runs them): `link.hello` says `features.pages`, `link.capabilities` and
  *   MCP set what a page declares through its object, and a change not made by the Link reaches the owner's Link as
  *   an `artifact` event with `capabilities`.
+ * - Types published to the site (`siteTypes`, while the site runs pages): the `types.*` routes, with packages kept in
+ *   D1 (`site-types.ts`); `link.hello` says `features.types` and `typesPublish`. A package is capped at 16 MiB here
+ *   ({@link CLOUDFLARE_TYPE_MAX_BYTES}), refused past it with a message that names the limit. The site's MCP names a
+ *   published type as the Node site's does (`publishedType`: its name, and the notice that it is third-party).
  * - The client metadata fetcher uses the Workers `fetch` and has no DNS lookup (Workers has no resolver to ask): the
  *   core still refuses literal private and loopback addresses and local names, any scheme but https, a redirect to
  *   another host, slow and large answers. A public name that resolves to a private address is not caught here; the
@@ -43,7 +47,9 @@ import {
   type McpTypeInfo,
   type McpTypeService,
   type PageServices,
+  type SiteTypeServices,
 } from '@open-artifact/host';
+import { CLOUDFLARE_TYPE_MAX_BYTES, tooLargePackage } from './site-types.ts';
 import { PAGE_TITLE, PAGE_TYPE, type FrameBuild } from './frames.ts';
 import { LINK_EVENTS_PATH } from './hub.ts';
 import type { TypeEntry } from './site.ts';
@@ -85,11 +91,17 @@ export interface AgentSite {
   removeArtifact(id: string): Promise<void>;
   /** Forwards a stream request to the hub. */
   readonly hub: { stream(request: Request): Promise<Response> };
+  /** The type catalog's services (absent or undefined: the site keeps no published types). */
+  siteTypes?(): SiteTypeServices | undefined;
+  /** Reads the published types' rows (unless done lately), for {@link cachedType}. */
+  publishedTypes?(): Promise<void>;
+  /** A published type's row as last read, or null. */
+  cachedType?(type: string): { name: string; description: string } | null;
 }
 
-/** A request whose body errors past `max` bytes (a declared length past it is refused at once). */
-export function cappedRequest(request: Request, max: number, what = 'The request body'): Request {
-  const tooLarge = (): Error => httpError('too_large', `${what} is larger than ${max} bytes, the most this host takes.`, { status: 413 });
+/** A request whose body errors past `max` bytes (a declared length past it is refused at once); `refusal` makes the error. */
+export function cappedRequest(request: Request, max: number, what = 'The request body', refusal?: () => Error): Request {
+  const tooLarge = refusal ?? ((): Error => httpError('too_large', `${what} is larger than ${max} bytes, the most this host takes.`, { status: 413 }));
   const declared = Number(request.headers.get('content-length'));
   if (Number.isFinite(declared) && declared > max) throw tooLarge();
   if (!request.body) return request;
@@ -126,8 +138,10 @@ export function roomPageServices(site: Pick<AgentSite, 'room'>, events: Pick<App
 
 /** The Link services for one request. */
 export function cloudflareLinkServices(site: AgentSite, ctx: AppCtx): LinkServices {
+  const siteTypes = site.siteTypes?.();
   return {
     ...(site.pages ? { pages: roomPageServices(site, ctx.events) } : {}),
+    ...(siteTypes ? { siteTypes } : {}),
     files: roomFiles(site),
     importArchive: (id, bytes) => ctx.importArchive(id, bytes),
     removeArtifact: (id) => site.removeArtifact(id),
@@ -163,6 +177,8 @@ export function linkDispatch(site: AgentSite): (request: Request, ctx: AppCtx) =
       return json({ ...hello, limits: CLOUDFLARE_LINK_LIMITS } satisfies LinkHello);
     }
     if (request.method === 'POST' && LARGE_BODIES.has(path)) request = cappedRequest(request, CLOUDFLARE_LINK_LIMITS.maxBodyBytes);
+    // A type package: 16 MiB here, refused past it in words that name the limit.
+    if (request.method === 'POST' && path === `${LINK_API_PREFIX}${LINK_ROUTES.typesImport}`) request = cappedRequest(request, CLOUDFLARE_TYPE_MAX_BYTES, 'The package', () => tooLargePackage());
     return router.handle(request, ctx);
   };
 }
@@ -264,6 +280,7 @@ export function cloudflareMcpServices(site: AgentSite, ctx: AppCtx, types: McpTy
     refreshAccess: (id) => ctx.refreshAccess(id),
     events: ctx.events,
     access: ctx.access,
+    ...(site.cachedType ? { publishedType: (type: string) => ((row) => (row ? { name: row.name, description: row.description } : null))(site.cachedType!(type)) } : {}),
     // No `lookup`: see the module comment.
     cimd: { fetch: fetcher },
     version: site.build.version,
@@ -275,6 +292,8 @@ export function mcpDispatch(site: AgentSite, env: Record<string, string | undefi
   const config: McpConfig = parseMcpConfig(env, { appOrigin });
   const types = mcpTypesOf(site.build.types, site.pages?.build);
   return async (request, ctx) => {
+    // The published types' rows, for `publishedType` (synchronous in the tools): read unless read lately.
+    if (site.pages) await site.publishedTypes?.();
     const handler = mcpHandler({ config, services: cloudflareMcpServices(site, ctx, types, options.fetch), waitCapMs: CLOUDFLARE_MCP_WAIT_CAP_MS });
     if (request.method === 'POST') request = cappedRequest(request, CLOUDFLARE_MCP_MAX_BODY_BYTES);
     return handler(request, ctx);

@@ -188,7 +188,7 @@ open-artifact types uninstall trip-planner
 
 ## 发布到网站
 
-你发布作品的 Node 网站（见[托管](hosting.zh-CN.md)）也可以保存你的类型，这样用它们做的作品在那里也能给你分享的人打开。
+你发布作品的网站，Node 或 Cloudflare（见[托管](hosting.zh-CN.md)），也可以保存你的类型，这样用它们做的作品在那里也能给你分享的人打开。
 
 ```bash
 open-artifact types publish trip-planner                       # 发到默认网站；私有
@@ -223,7 +223,7 @@ open-artifact types unpublish trip-planner --remote work
 
 ## 网站上类型的页面
 
-网站上的每个类型都有一个页面 `https://<网站>/t/<id>`，网站主页有一个 **类型** 标签页，列出你能看到的类型（`site`
+Node 网站上的每个类型都有一个页面 `https://<网站>/t/<id>`（Cloudflare 网站目前保存类型但还没有这些页面），网站主页有一个 **类型** 标签页，列出你能看到的类型（`site`
 类型、你自己的，网站管理员能看到全部），每一项都链接到它的页面。页面上有：名字、版本、发布者、更新时间、它的页面
 要用的能力和能访问的网站（和安装时显示的说法一样）、纯文本显示的 `SKILL.md`、安装它的命令，以及安装包的下载。
 

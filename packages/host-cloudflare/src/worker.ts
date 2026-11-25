@@ -27,6 +27,7 @@ import { ArtifactRoom, type RoomState } from './room.ts';
 import { Site } from './site.ts';
 import { startCloudflarePlugins } from './plugins.ts';
 import { bundledFrameTypes, sitePagesOf } from './frames.ts';
+import { catalogFrameTypes, withCatalogTypes } from './site-types.ts';
 
 /** Most an uploaded archive may unpack to in an object (the whole folder), bytes. (Not exported: an entry module exports only handlers.) */
 const ROOM_IMPORT_MAX_BYTES = 256 * 1024 * 1024;
@@ -91,15 +92,19 @@ export class ArtifactObject {
       this.#error = error instanceof Error ? error : new Error(String(error));
       return;
     }
-    // Page artifacts, unless one origin serves both (the build's `page` type; its browser files from static assets).
+    // Page artifacts, unless one origin serves both (the build's `page` type; its browser files from static assets),
+    // and the types published to the site (their files copied from D1 into this object's SQLite: `site-types.ts`).
     const pages = sitePagesOf(parsed.config, vars, BUILD.frames);
+    const frameTypes = pages
+      ? withCatalogTypes(bundledFrameTypes(pages.build, (request) => env.ASSETS.fetch(request)), catalogFrameTypes({ driver: this.#driver, storage: state.storage, log: (line) => console.log(line) }))
+      : null;
     host = createProductRoomHost({
       config: parsed.config,
       catalog,
       hub,
       rootOf: (id) => room!.rootOf(id),
       ...(plugins ? { plugins } : {}),
-      ...(pages ? { pages: { types: bundledFrameTypes(pages.build, (request) => env.ASSETS.fetch(request)), network: pages.network } } : {}),
+      ...(pages && frameTypes ? { pages: { types: frameTypes, network: pages.network } } : {}),
     });
     this.#host = host;
     room = new ArtifactRoom(state, env, { host: this.#host.host, ...parseRoomTimings(vars), trackTimers: vars.OA_DEBUG_STATS === '1' });
@@ -144,6 +149,8 @@ export class SiteHubObject {
       notifyRoom: (id) => new RoomClient(env.ROOMS.get(env.ROOMS.idFromName(id)), id).agentChanged(),
       // A plugin forgot every role: the awake rooms work their pages' roles out again.
       refreshRoom: (id) => new RoomClient(env.ROOMS.get(env.ROOMS.idFromName(id)), id).refresh(),
+      // A published type changed: the rooms that run an artifact of it move to what its row says now.
+      notifyType: (id, type) => new RoomClient(env.ROOMS.get(env.ROOMS.idFromName(id)), id).typeChanged(type),
     });
   }
 

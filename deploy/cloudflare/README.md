@@ -56,11 +56,12 @@ node --test "packages/host-cloudflare/test/*.test.ts"   # unit tests; the catalo
 npm run e2e -- --only cloudflare-host                   # the product Worker under wrangler dev, in Chrome
 npm run e2e -- --only cloudflare-link                   # a real daemon linked to it, and remote MCP, in Chrome
 npm run e2e -- --only cloudflare-page                   # a page artifact published from a daemon, owner and guest, in Chrome
+npm run e2e -- --only cloudflare-types                  # a person's own type published from a daemon, a new version, unpublish
 npm run e2e -- --only cloudflare                        # the rooms test Worker (below)
 ```
 
-The end-to-end tests build this folder and start `wrangler dev` with a temporary `--persist-to`. `cloudflare-link` and
-`cloudflare-page` also start real daemons, each with a temporary `OPEN_ARTIFACT_HOME` and a free port (never your own
+The end-to-end tests build this folder and start `wrangler dev` with a temporary `--persist-to`. `cloudflare-link`,
+`cloudflare-page` and `cloudflare-types` also start real daemons, each with a temporary `OPEN_ARTIFACT_HOME` and a free port (never your own
 home or port 4800). They skip when this folder has no `node_modules`, when `E2E_BROWSER=0`, when there is no Chrome, or before
 `npm run build`.
 
@@ -161,6 +162,7 @@ The other settings have the names and meanings of the Node host's (`packages/hos
 | `OA_APP_ORIGIN`, `OA_CONTENT_ORIGIN` | Must be `https`, except a `localhost` origin. `OA_ALLOW_HTTP` is refused. |
 | `OA_CONTENT_SAME_SITE` | `true` for one zone serving both origins (step 4). Off by default; the person's decision. With it, the site runs no `page` artifacts. |
 | `OA_PAGE_NETWORK` | What a `page` artifact may fetch: `self` (default) its own origin only, `https` any https origin too. Another value is a configuration error naming it. |
+| `OA_TYPES_PUBLISH` | Who may publish a type to the site: `admins` (default), `members` or `off`, as on Node; always `off` with `OA_CONTENT_SAME_SITE`. Another value is a configuration error naming it. See [Published types](#published-types). |
 | `OA_OWNER_KEY` | Required while the owner-key sign-in is on (the default). A Worker cannot print a key it made up. |
 | `OA_DEBUG_STATS` | Local only: `1` adds `x-open-artifact-d1: queries=…;read=…;written=…` to every answer and answers `/__open-artifact/stats`. Honoured only while `OA_APP_ORIGIN` is a localhost origin. |
 
@@ -328,6 +330,23 @@ Two layouts:
 Neither layout was run against a real Access application; the JWT check is covered by unit tests
 (`packages/host/test/auth-cloudflare-access.test.ts`) with locally made keys.
 
+## Published types
+
+The site keeps the types people publish (`open-artifact types publish`) and runs their artifacts as the Node host does
+(`docs/hosting-cloudflare.md`, "Published types", has the whole account). What a deployment needs to know:
+
+- **Nothing to add**: no binding, bucket or migration step. The package goes into D1 (`type_packages` and
+  `type_package_chunks`, made on the first publish), written whole under its version before the catalog row moves to
+  it; the old version's rows are deleted after. `OA_TYPES_PUBLISH` (above) says who may publish.
+- **16 MiB per package**, refused larger with `too_large` naming the limit and that a Node site takes more.
+- **Each artifact's object copies the type's files** (`index.html`, `artifact-type.json`, `artifact-type/`) from D1
+  into its own SQLite on first use, keyed by `<uid>@<version>:<sha>`, and serves them `no-cache` with an ETag.
+- **A new version** reaches open pages through the site hub at once (about 0.1 s under `wrangler dev`); if the hub
+  left memory in between, an object with open pages finds it within 30 s. A delisted type keeps running; a removed
+  one's open objects close it.
+- **CPU**: keeping a 16 MiB package took about 50 ms of CPU locally (Node), its first copy into an object about
+  40 ms: fine on Workers Paid, past the 10 ms of Workers Free.
+
 ## Upgrades and migrations
 
 - Pull the new version, `npm run build` at the root and here, then `wrangler deploy` **(not run)**. The catalog's
@@ -393,6 +412,7 @@ Open Artifact's own limits on this host:
 | A `/mcp` request body | 32 MiB | 32 MiB |
 | `ArtifactComments wait` | 25 s | 25 s |
 | An archive unpacked inside an artifact's object | 256 MiB, 20000 files | (the type server's caps) |
+| A published type's package (`types.import`) | 16 MiB | 100 MiB request; inside, both: 2000 files, 16 MiB a file, 64 MiB unpacked |
 
 - Why lower: the Worker holds a body whole in a 128 MB isolate, and the artifact's object parses it again in its own;
   a 16 MiB file is 21.4 MiB as base64 in a push. Measured under `wrangler dev`: pushes of 1, 8 and 16 MiB files
@@ -403,6 +423,10 @@ Open Artifact's own limits on this host:
   10 ms per request on Workers Free, up to 5 minutes on Workers Paid (same page); 10 GB of SQLite storage per Durable
   Object on Workers Paid, 1 GB on Free, and at most 8 MB in one SQLite value or row ("Durable Objects limits"); a D1
   database up to 10 GB (Paid) or 500 MB (Free) ("D1 limits").
+- D1 (read 2026-11-25, "D1 limits"): a row, string or BLOB of at most 2,000,000 bytes; a statement of at most 100 KB
+  with at most 100 bound parameters; 1000 queries per Worker invocation on Paid, 50 on Free, a batch counting as one.
+  A published type's package is kept in rows of 768 KiB of the package (1 MiB of base64), so a 16 MiB package is 22
+  rows written in 6 batches.
 - The device sign-in's rate limit is kept per Worker isolate, not across the deployment (the Node host keeps one per
   process). A Durable Object for it would make it exact; it was not needed for the tests.
 
@@ -446,7 +470,9 @@ An artifact's object should cost nothing while nobody changes it. What it does n
 - **No polling.** The type server watches the artifact's files by the writes it makes itself (`watch: 'events'`), so
   there is no folder or catalog poll; agent status comes from the site hub when the owner's Link connects or leaves,
   instead of a 3-second check. While pages are open, only two timers run: the type server's 25-second keep-alive and
-  the event stream's heartbeat (`OA_SSE_HEARTBEAT_MS`).
+  the event stream's heartbeat (`OA_SSE_HEARTBEAT_MS`). An artifact of a published type adds a third: its object reads
+  the type's catalog row from D1 every 30 seconds while pages are open (one query), in case the site hub forgot to tell
+  it of a new version ([Published types](#published-types)).
 - **Closing when idle.** When the last page and socket have left, the type server closes the artifact after
   `OA_ROOM_IDLE_CLOSE_MS` (default 60000): no timers stay, and the object can be evicted. The next request opens the
   artifact again from its SQLite storage, with nothing lost.
@@ -497,7 +523,10 @@ work was not done.
 ## What is not supported here
 
 - Rendering (PNG, PDF, video exports) runs on people's computers, as on the Node host in hosted mode.
-- A type added after the build: types come from `artifact-types/` at build time.
+- A built-in type added after the build: those come from `artifact-types/` at build time. A person's own type is
+  published to the running site ([Published types](#published-types)).
+- The site's own pages for published types, the app API's list of them and the MCP listing (being built on the Node
+  host first).
 - `open-artifact-host` commands (`link-token`, backup, restore): the admin API above stands in for `link-token`;
   backup is D1's and each artifact's export.
 - The device sign-in's rate limit across isolates (above).

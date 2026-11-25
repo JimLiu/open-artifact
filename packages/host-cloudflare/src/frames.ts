@@ -25,7 +25,12 @@
  *   host is told, as the type server's idle close does. The next request opens it again from the folder.
  * - The type's files: `page` is bundled into the Worker (`open-artifact:build`: its manifest and `artifact-type/`
  *   files, a few KiB, needed synchronously); the frame client's browser files (about 950 KiB) are static assets under
- *   a content-hashed path, fetched once per isolate before a core is made ({@link assetFrameClient}).
+ *   a content-hashed path, fetched once per isolate before a core is made ({@link assetFrameClient}). The types
+ *   published to the site are the second source (`site-types.ts`): copied into the object's SQLite, read from there.
+ * - A published type's new version: the core is told when the hub says the type changed ({@link
+ *   RoomFrames.typeChanged}), on a request after the room's short memo of the row ran out, and every `ROOM_CHECK_MS`
+ *   while pages are connected; its open pages reload (`FrameCore.typeChanged`), with the new version's CSP. A type
+ *   gone from the site closes the core (its connections end); a delisted one keeps running.
  */
 
 import { AsyncLocalStorage } from 'node:async_hooks';
@@ -38,6 +43,7 @@ import { FrameCore, frameActions, pageDeclaration, replyBytes } from '@open-arti
 import type { FrameClientFiles, FrameEnv, FrameFile, FrameLevel, FramePerson, FrameReply, FrameRequest, FrameTypeSource, FrameViewer } from '@open-artifact/server-sdk/frame/env';
 import type { TypeApiLike } from '@open-artifact/type-server';
 import type { WebSocketPairFactory } from './bridge/ws.ts';
+import { ROOM_CHECK_MS, type CatalogFrameTypes } from './site-types.ts';
 
 /** The type a page artifact names in its `.artifact.json`. */
 export const PAGE_TYPE = 'page';
@@ -160,6 +166,10 @@ export interface FrameBuild {
 export interface SiteFrameType {
   source: FrameTypeSource;
   page: boolean;
+  /** Its own CSP and `network` capability (a published type's, from its manifest); absent: the site's page policy. */
+  policy?: { contentSecurityPolicy: string; allowedNetworkOrigins: string[] };
+  /** A type published to the site (its versions change while artifacts of it are open). */
+  published?: boolean;
 }
 
 /**
@@ -167,10 +177,15 @@ export interface SiteFrameType {
  * D1 or elsewhere, a later step) can be put beside the bundled `page` without changing the room.
  */
 export interface RoomFrameTypes {
-  /** The frame type of an artifact's catalog type, or null when this site runs it some other way (or not at all). */
-  typeOf(type: string): Promise<SiteFrameType | null>;
+  /**
+   * The frame type of an artifact's catalog type, or null when this site runs it some other way (or not at all).
+   * `fresh`: read a published type's row again now.
+   */
+  typeOf(type: string, options?: { fresh?: boolean }): Promise<SiteFrameType | null>;
   /** The browser files, loaded (the core reads them synchronously). */
   client(): Promise<FrameClientFiles>;
+  /** The types published to the site (import, titles), when the site keeps any. */
+  catalog?: CatalogFrameTypes;
 }
 
 /** A bundled type as the core reads one. */
@@ -274,6 +289,8 @@ export interface RoomPages {
   placeReader(artifactId: string, host: string | null, index: PageHostIndex): Promise<PlacedPage | null>;
   /** The people who can reach the artifact (`user.profiles`, `user.search`). */
   people(artifactId: string): Promise<FramePerson[]>;
+  /** A core of a published type opened: the hub is to tell this room when the type changes. */
+  watchType?(artifactId: string, type: string): void;
 }
 
 // ---- the object's side: one artifact's core -------------------------------------------------------------------------
@@ -290,6 +307,11 @@ class SiteFrameCore extends FrameCore {
   override commentsChanged(): void {
     super.commentsChanged();
     if (!this.quiet) this.onComments?.();
+  }
+
+  /** A published type's new version brought another CSP. */
+  setPolicy(contentSecurityPolicy: string): void {
+    (this as unknown as { contentSecurityPolicy: string | null }).contentSecurityPolicy = contentSecurityPolicy || null;
   }
 
   override noteChanges(paths: string[]): void {
@@ -436,6 +458,10 @@ interface Connection {
 export class RoomFrames {
   readonly #o: RoomFramesOptions;
   #core: SiteFrameCore | null = null;
+  /** The open core's environment and type (a published type's new version changes its policy). */
+  #env: FrameEnv | null = null;
+  #type: { id: string; published: boolean } | null = null;
+  #checkTimer: ReturnType<typeof setInterval> | null = null;
   #opening: Promise<SiteFrameCore> | null = null;
   #title = '';
   readonly #connections = new Set<Connection>();
@@ -642,6 +668,8 @@ export class RoomFrames {
   /** The core, made once (the browser files are fetched first: the core reads them synchronously). */
   async #open(placed: { artifact: { title: string; type: string } }): Promise<SiteFrameCore> {
     this.#title = placed.artifact.title;
+    // A published type: its row may have moved on since the core opened (the hub's word may not have come).
+    if (this.#core && this.#type?.published) await this.#recheck(false);
     if (this.#core) return this.#core;
     this.#opening ??= (async () => {
       try {
@@ -651,9 +679,19 @@ export class RoomFrames {
         const agentName = (await this.#o.typeApi.presence(this.#o.id).catch(() => null))?.agentName ?? 'Agent';
         const declaration = type.page ? pageDeclaration(this.#o.root) : type.source.declaration();
         if (!declaration) throw Object.assign(new Error(`${type.source.label}/index.html has no // artifact.json declaration.`), { status: 500 });
-        const core = new SiteFrameCore(this.#o.root, declaration, this.#env(type, client, agentName));
+        const env = this.#envOf(type, client, agentName);
+        const core = new SiteFrameCore(this.#o.root, declaration, env);
         core.onComments = () => this.#touchComments();
         this.#core = core;
+        this.#env = env;
+        this.#type = { id: placed.artifact.type, published: type.published === true };
+        if (type.published) {
+          this.#o.pages.watchType?.(this.#o.id, placed.artifact.type);
+          // In case the hub forgot this room (evicted): the row is read again while pages are connected.
+          this.#checkTimer = setInterval(() => {
+            if (this.#connections.size > 0) this.#recheck(true).catch((error: unknown) => this.#o.log(`type check: ${error instanceof Error ? error.message : String(error)}`));
+          }, ROOM_CHECK_MS);
+        }
         return core;
       } finally {
         this.#opening = null;
@@ -662,7 +700,39 @@ export class RoomFrames {
     return this.#opening;
   }
 
-  #env(type: SiteFrameType, client: FrameClientFiles, agentName: string): FrameEnv {
+  /**
+   * A published type's row changed (the hub says so): the open core moves to what it says now. False when no core
+   * of that type is open here.
+   */
+  async typeChanged(type: string): Promise<boolean> {
+    if (!this.#core || this.#type?.id !== type) return false;
+    await this.#recheck(true);
+    return true;
+  }
+
+  /** Reads the open core's type again: gone, the core closes; another version, its pages reload with its policy. */
+  async #recheck(fresh: boolean): Promise<void> {
+    const core = this.#core;
+    const env = this.#env;
+    const id = this.#type?.id;
+    if (!core || !env || !id) return;
+    const type = await this.#o.pages.types.typeOf(id, { fresh });
+    if (this.#core !== core) return;
+    if (!type) {
+      this.#o.log(`the type ${id} is no longer on this site: the page closes`);
+      this.close();
+      this.#o.onIdle();
+      return;
+    }
+    const next = type.policy ?? this.#o.pages.policy;
+    if (next.contentSecurityPolicy !== core.contentSecurityPolicy) {
+      core.setPolicy(next.contentSecurityPolicy);
+      (env as { allowedNetworkOrigins?: readonly string[] }).allowedNetworkOrigins = [...next.allowedNetworkOrigins];
+    }
+    core.typeChanged();
+  }
+
+  #envOf(type: SiteFrameType, client: FrameClientFiles, agentName: string): FrameEnv {
     const { id, pages, typeApi } = this.#o;
     const origins = pages.origins(id);
     const viewerOf = (req: FrameRequest): FrameViewer | null => (req.peer as PlacedPage | null)?.viewer ?? null;
@@ -702,8 +772,8 @@ export class RoomFrames {
       client,
       watch: null,
       restricted: true,
-      contentSecurityPolicy: pages.policy.contentSecurityPolicy,
-      allowedNetworkOrigins: pages.policy.allowedNetworkOrigins,
+      contentSecurityPolicy: (type.policy ?? pages.policy).contentSecurityPolicy,
+      allowedNetworkOrigins: [...(type.policy ?? pages.policy).allowedNetworkOrigins],
       page: type.page,
       guard: PLAIN,
       debug: () => false,
@@ -815,10 +885,14 @@ export class RoomFrames {
       this.#commentsBy.clear();
       for (const author of authors) this.#o.typeApi.touch(this.#o.id, { author, paths: ['comments.json'] }).catch(() => undefined);
     }
+    if (this.#checkTimer) clearInterval(this.#checkTimer);
+    this.#checkTimer = null;
     for (const c of [...this.#connections]) c.end();
     this.#connections.clear();
     const core = this.#core;
     this.#core = null;
+    this.#env = null;
+    this.#type = null;
     core?.close();
   }
 }

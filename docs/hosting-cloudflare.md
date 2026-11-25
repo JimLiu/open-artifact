@@ -489,7 +489,8 @@ Not measured on a bill. From Cloudflare's pricing pages as read on 2026-11-22 (U
   Workers Free allows 10 ms of CPU per request, which opening and importing artifacts will often pass.
 - **Durable Objects:** an object is billed for time in memory. An artifact's object leaves memory about a minute after
   its last page closes (`OA_ROOM_IDLE_CLOSE_MS`, default 60000). **What keeps a room awake:** an open tab of that
-  artifact, and nothing else; there is no polling. **What keeps the site hub awake:** any open Shell tab, and every
+  artifact, and nothing else. The one poll: while an artifact of a published type has pages open, its object reads
+  that type's catalog row from D1 every 30 seconds ([Published types](#published-types)), one D1 query each time. **What keeps the site hub awake:** any open Shell tab, and every
   connected computer (it holds the computer's event stream). A computer left on and connected keeps the hub in memory
   all the time.
 - **D1:** rows read and written. Local counts: the home page 3 queries, the artifact list 10 queries whatever its
@@ -503,6 +504,7 @@ Not measured on a bill. From Cloudflare's pricing pages as read on 2026-11-22 (U
 | A Link push | 32 MiB, one file up to 16 MiB | 100 MiB, one file up to 64 MiB |
 | Storage per artifact | 10 GB (Paid), 1 GB (Free) | the disk |
 | Catalog | D1: 10 GB (Paid), 500 MB (Free) | the disk |
+| A published type's package (`.oatype`) | 16 MiB | the package limits (64 MiB unpacked) |
 
 ## Page artifacts
 
@@ -536,11 +538,72 @@ commenter, writes from the page reaching the computer's folder and a local edit 
 saying `features.pages`, a capabilities change over remote MCP reaching the computer's `.artifact.json`, and an
 uploaded page zip. Not deployed.
 
+## Published types
+
+The site keeps the types people publish to it (`open-artifact types publish`, see
+[Publish to a site](custom-types.md#publish-to-a-site)) and runs the artifacts made with them, as a Node site does
+([Published types](hosting.md#published-types)): the same checks on a package (one folder, plain files, the per-file and
+file-count limits, a literal declaration, no `entry`, not a page type), the same rules on who owns an id, and the same
+refusals when an artifact comes in by Link import or upload (`type_missing`, `type_mismatch`, and `not_granted` for a
+new artifact of a delisted type). Export, duplicate, trash and the title (the manifest's `titleFrom`) work as for any
+artifact, and an agent on the site's MCP is told that the type's text is its publisher's.
+
+- **`OA_TYPES_PUBLISH`** (a `vars` entry): `admins` (default), `members` or `off`, as on Node; another value stops
+  the site with a configuration error naming it. With one domain for both (`OA_CONTENT_SAME_SITE=true`) it is always
+  `off`. `link.hello` says `features.types` and `typesPublish`, so a computer knows before it sends a package.
+- **Where they are kept: in D1 only.** No object storage is needed or used. The catalog row is in the `types` table,
+  as on Node. The package as published is in `type_package_chunks`, 768 KiB of the package per row (1 MiB as base64
+  text, about half of D1's 2,000,000-byte row limit), with a head row in `type_packages` (its sha256, size, number of
+  chunks and whether it is complete). The two tables are made on the first publish; there is no migration step. A new
+  version is written whole under its own version and marked complete before the catalog row moves to it, and the old
+  version's rows are deleted after that: a publish that fails half way leaves the previous version served, and the
+  next try replaces what it left. D1 Time Travel restores them with the rest of the catalog.
+- **16 MiB per package** (the `.oatype` file). A larger one is refused with `too_large` (413), naming the limit and
+  that a Node site takes more, before the body is read whole. Inside it the limits are the Node site's: at most 2000
+  files, 16 MiB per file, 64 MiB unpacked.
+- **How an artifact's object reads them.** The first time an artifact of the type opens, its object reads the package
+  from D1 once, checks its sha256 and the package again, and copies `index.html`, `artifact-type.json` and the
+  `artifact-type/` files into its own SQLite (rows of at most 1 MiB), under the fingerprint `<uid>@<version>:<sha>`.
+  It serves the type's files from there, `no-cache` with an ETag that changes with every version, and the next start
+  of the object needs no D1 read. The previous version's copy is deleted when a new one is copied.
+- **How fast a new version reaches open pages.** The publish tells the site hub, the hub tells each artifact object
+  that has the type open, and the object copies the new version, sets the new Content-Security-Policy and has its open
+  pages load the frame again (the data stays). Under `wrangler dev` an open page showed the new version about 0.1 s
+  after `types publish` returned. If the hub has left memory since the object registered (it then forgets which
+  objects run which type), an object with open pages still checks the catalog row every 30 seconds, and any request to
+  it more than 2 seconds after the last check checks again: **at worst about 30 seconds**, plus the copy. A new page
+  opened elsewhere sees a new version within 5 seconds (how long a Worker isolate keeps a type's row).
+- **Delisted and removed.** `types unpublish` of a type that artifacts use delists it: their objects keep running it,
+  open pages are not reloaded, and a new artifact of it is refused. Unpublishing a type no artifact uses removes it:
+  an object that still had it open closes it (its pages' connections end), nothing of it opens again, and its D1 rows
+  are deleted.
+- **What a type can do**: nothing runs on the server. Its page runs on each person's page host in a sandboxed frame,
+  under a Content-Security-Policy made from its manifest's `openArtifact.network` list (`OA_PAGE_NETWORK` does not
+  widen it).
+- **CPU and memory, measured locally in Node (not on Cloudflare):** for a 16 MiB package of 16 files that do not
+  compress, the checks took about 10 ms of CPU, keeping it (every file inflated once to check it, then written in 6 D1
+  batches of 4 rows) about 50 ms with about 16 MiB more memory, reading it back about 30 ms with a peak of about
+  53 MiB, and an object's first copy about 40 ms. A small package that unpacks to 64 MiB took about 190 ms to keep.
+  That is far inside Workers Paid (30 s of CPU by default) and 128 MB per isolate, but **past Workers Free's 10 ms per
+  request**: on Free, publishing a type and the first open of its artifacts can be stopped for CPU except for very
+  small types.
+- **Not there yet** (a Node site has them): the site's own pages for types (`/t/<id>` and the home page's Types tab),
+  the published types in the app's API, and listing or making artifacts of them over the site's MCP (`Artifact list
+  scope types` shows the built-in ones). A computer signed in to the site still installs one of its types by that
+  address (`open-artifact types install https://<site>/t/<id>`): the package comes through the Link. The library may
+  show a published type's id instead of its name until the Worker isolate has read its row.
+
+**Run here** only under `wrangler dev` (`e2e/cloudflare-types.test.mjs`, with the synthetic type
+`e2e/fixtures/site-type/team-poll`): a type published from a computer, an artifact of it published and opened by the
+owner and by a person who joined by the viewer link, version 1.1.0 reaching both open pages and the old version's rows
+leaving D1, and unpublishing it while the artifact uses it. Not deployed.
+
 ## Not supported here
 
 - `open-artifact-host` commands: `link-token` is the admin API above; backup is D1 Time Travel plus each artifact's
   export.
-- A type added after the build: the types are built in; rebuild and deploy to add one.
+- A built-in type added after the build: those are built in; rebuild and deploy to add one. A type of a person's
+  own is published to the running site instead ([Published types](#published-types)).
 - Pictures and PDFs on the site: made on people's computers, as on every site.
 - A dashboard's live connectors: its figures come from the owner's computer as of the last refresh (every 6 hours by
   default), once the owner confirmed its data may be published.
