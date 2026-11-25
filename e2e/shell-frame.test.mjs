@@ -114,12 +114,28 @@ describe('the Shell over a static page', { skip: skip() }, () => {
     const { page } = ctx;
     await clickOn(page, "document.querySelector('header [aria-label=\"Artifact options\"]')", 'the artifact options');
     const refresh = byText('Refresh');
+    // A quick local reload's cover can come and go between two samples of `watch`: the Shell's own page records each
+    // change of the cover as it happens.
+    await page.evaluate(`(() => {
+      const on = () => !!document.querySelector('[data-shell-loading]');
+      const log = (window.__coverChanges = []);
+      const t0 = performance.now();
+      let last = on();
+      new MutationObserver(() => {
+        const now = on();
+        if (now === last) return;
+        last = now;
+        log.push({ t: Math.round(performance.now() - t0), cover: now });
+      }).observe(document.documentElement, { subtree: true, childList: true, attributes: true, attributeFilter: ['data-shell-loading'] });
+    })()`);
     const rows = await watch(page, FALLBACK_MS + 1000, () => clickOn(page, refresh, 'Refresh'));
-    const first = rows.findIndex(r => r.cover);
-    assert.ok(first >= 0, 'Refresh did not cover the page');
-    const shown = rows.slice(first).find(r => !r.cover);
+    const changes = await page.evaluate('window.__coverChanges');
+    const first = changes.findIndex(c => c.cover);
+    assert.ok(first >= 0, `Refresh did not cover the page (changes: ${JSON.stringify(changes)})`);
+    const shown = changes.slice(first).find(c => !c.cover);
     assert.ok(shown, 'the cover stayed');
     assert.ok(shown.t < FALLBACK_MS - 300, `the page showed at ${shown.t}ms, at the fallback rather than on its load`);
-    assert.equal(shown.file, 'index.html');
+    assert.equal(rows.at(-1).cover, false, 'the cover came back');
+    assert.equal(rows.at(-1).file, 'index.html');
   });
 });
