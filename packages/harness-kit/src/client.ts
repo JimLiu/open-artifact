@@ -30,8 +30,12 @@ import {
 } from '@open-artifact/protocol';
 import { ensureDaemon, readDaemon, type EnsureDaemonOptions } from './daemon.ts';
 
-/** Connection state reported to {@link HarnessClientOptions.onState}. */
-export type HarnessConnectionState = 'connected' | 'disconnected';
+/**
+ * Connection state reported to {@link HarnessClientOptions.onState}: `disconnected` when the connection dropped (the
+ * client reconnects by itself), `stopped` when the host stopped the daemon on purpose ({@link HarnessClient.halt}: no
+ * reconnecting until it asks again).
+ */
+export type HarnessConnectionState = 'connected' | 'disconnected' | 'stopped';
 
 /** What else `hello` says besides the harness, its caps and the token. `protocols` defaults to what this kit speaks. */
 export type HelloExtras = Omit<HelloParams, 'harness' | 'token' | 'caps'>;
@@ -101,6 +105,8 @@ export class HarnessClient {
   private failures = 0;
   /** While above 0 (a daemon restart), the client does not reconnect by itself. */
   private holding = 0;
+  /** The host stopped the daemon ({@link halt}): nothing connects, so nothing starts it, until {@link resume}. */
+  private halted = false;
 
   constructor(options: HarnessClientOptions) {
     this.options = options;
@@ -118,9 +124,20 @@ export class HarnessClient {
     return this.hello?.features ?? [];
   }
 
-  /** Connects (once); later calls share the same attempt. */
+  /** Whether the host stopped the daemon ({@link halt}) and has not asked for it again ({@link resume}). */
+  get stopped(): boolean {
+    return this.halted;
+  }
+
+  /**
+   * Connects (once); later calls share the same attempt. While {@link stopped} it fails (`disconnected`) without
+   * starting the daemon: {@link resume} first.
+   */
   connect(): Promise<HelloResult> {
     if (this.closed) return Promise.reject(new OpenArtifactError('disconnected', 'The open-artifact client is closed.'));
+    if (this.halted) {
+      return Promise.reject(new OpenArtifactError('disconnected', 'The open-artifact daemon was stopped by this app.', { fix: 'Start it again (harness.daemon.start()).' }));
+    }
     if (this.ready) return this.ready;
     this.ready = this.open().catch((error: unknown) => {
       this.ready = null;
@@ -191,7 +208,7 @@ export class HarnessClient {
     this.ready = null;
     this.ws = null;
     this.hello = null;
-    if (wasUp) this.options.onState?.('disconnected');
+    if (wasUp) this.options.onState?.(this.halted ? 'stopped' : 'disconnected');
     this.reconnect();
   }
 
@@ -200,13 +217,13 @@ export class HarnessClient {
    * by itself after a drop; call it after a first {@link connect} failed to keep trying in the background.
    */
   reconnect(): void {
-    if (this.closed || this.holding > 0 || this.retry !== undefined || this.connected) return;
+    if (this.closed || this.halted || this.holding > 0 || this.retry !== undefined || this.connected) return;
     const min = this.options.reconnect?.minMs ?? RECONNECT_MS;
     const max = Math.max(min, this.options.reconnect?.maxMs ?? RECONNECT_MS);
     const delay = Math.min(max, min * 2 ** Math.min(this.failures, 16));
     this.retry = setTimeout(() => {
       this.retry = undefined;
-      if (this.closed || this.holding > 0 || this.connected) return;
+      if (this.closed || this.halted || this.holding > 0 || this.connected) return;
       this.connect().catch((error: unknown) => {
         this.failures++;
         this.options.log?.(`open-artifact reconnect: ${(error as Error).message}`);
@@ -331,6 +348,8 @@ export class HarnessClient {
    */
   async across<T>(work: () => Promise<T>): Promise<{ result: T; hello: HelloResult }> {
     if (this.closed) throw new OpenArtifactError('disconnected', 'The open-artifact client is closed.');
+    // Asked for a daemon again: a stopped client connects once the work is done.
+    this.halted = false;
     this.holding++;
     clearTimeout(this.retry);
     this.retry = undefined;
@@ -360,6 +379,47 @@ export class HarnessClient {
       this.reconnect();
       throw error;
     }
+  }
+
+  /**
+   * Runs `work` (which stops the daemon) and stays off afterwards: no reconnecting, and no call connects (so none starts
+   * a daemon), until {@link resume}, {@link across} or a closed client. The connection's end is reported as `stopped`
+   * (also when it was already down). A connection attempt under way is waited for first, so it cannot start a daemon
+   * after `work`. When `work` fails the client goes back to reconnecting by itself.
+   */
+  async halt<T>(work: () => Promise<T>): Promise<T> {
+    if (this.closed) throw new OpenArtifactError('disconnected', 'The open-artifact client is closed.');
+    const was = this.halted;
+    this.halted = true;
+    clearTimeout(this.retry);
+    this.retry = undefined;
+    await this.ready?.catch(() => undefined);
+    const up = !!this.hello;
+    let result: T;
+    try {
+      result = await work();
+    } catch (error) {
+      this.halted = was;
+      this.reconnect();
+      throw error;
+    }
+    const ws = this.ws;
+    if (ws) {
+      try {
+        ws.close();
+      } catch {
+        /* already closed */
+      }
+      this.onClose(ws);
+    }
+    // Down before (reconnecting, or never connected): nothing reported the end, so it is said here.
+    if (!up && !was) this.options.onState?.('stopped');
+    return result;
+  }
+
+  /** Ends {@link halt}: calls may connect (and start the daemon) again. Connects nothing by itself. */
+  resume(): void {
+    this.halted = false;
   }
 
   /** Closes the connection for good. */

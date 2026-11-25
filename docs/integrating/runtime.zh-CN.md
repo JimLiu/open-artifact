@@ -155,6 +155,10 @@ const status = await oa.runtime.status();
 
 在你的应用里，`harness.daemon.restart()` 替人做同样的事（一个“重启”按钮），并连接到新的 daemon；kit 的 `restartDaemon(options)` 是不带连接的版本。只有能回答健康检查的 daemon 才会被停下，所以只是复用了旧 pid 的进程永远不会收到信号。每个打开的页面和已连接的应用都会重新连接；顶层视图的票据随旧连接结束，所以要重新打开视图（`oa.view(url)`）。
 
+`harness.daemon.stop()` 是人点的“停止”：用同样的办法停下 daemon，等它的进程退出；此后你的 harness 不会自己再把它启动起来：不重连，本来会去连接的调用直接以 `disconnected` 失败，而不是启动一个 daemon。`on('state')` 收到的是 `stopped`（掉线是 `disconnected`，kit 会自己重连），`harness.connected` 为假，`harness.daemon.stopped` 为真，服务面板据此显示“已停止”而不是“正在重连”。`harness.daemon.start()` 启动一个（`autoStart: false` 时也启动）并连上，重新挂上你的会话；`harness.daemon.restart()` 和 `harness.ready()` 也会结束停止状态。kit 的 `stopDaemon(options)` 是不带连接的版本。
+
+daemon 是共用的，停止只在没有别人要用它时才停得住：别的应用的 kit 会自己重连，开着 `autoStart`（默认）时会在它的重连间隔内把 daemon 再启动起来（实测：重连间隔 200 毫秒时不到半秒），任何一次运行的 `open-artifact` 命令行、MCP 桥或 hook 也一样。`stop()` 返回 `{ stopped, others }`：`others` 列出 daemon 当时连着的别的应用的连接（`connection`、`harness`、`title`、`polling`、`sessions`，不含你自己的），读不到时为 `null`，这样你可以告诉用户这些应用可能会把它再启动。即使别的应用已经启动了 daemon，你的 harness 也保持停止状态；`readDaemon(home)` 告诉你有没有在运行的，`start()` 会连上它而不另起一个。
+
 ## 新版本写过的作品
 
 两个应用可能带着不同的运行时，人可能在旧运行时上打开一个被新版本类型写过的作品。这时工具会把它当作只读（[Agent 工具](tools.zh-CN.md#新版本写过的作品)）。

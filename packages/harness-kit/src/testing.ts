@@ -391,6 +391,11 @@ export async function startFakeDaemon(options: FakeDaemonOptions = {}): Promise<
     req.resume();
     if (url.pathname === '/__open-artifact/health') return sendJson(res, 200, { openArtifact: 1, version, pid: process.pid });
     if (req.headers.authorization !== `Bearer ${token}`) return sendJson(res, 401, { code: 'not_granted', message: 'Token required.' });
+    if (url.pathname === `/api/open-artifact.${LIBRARY_ROUTES.harnesses}`) {
+      // The one adapter it serves (a new connection replaces the old one), as the daemon lists connections.
+      const adapters = socket && said && harness ? [{ id: `c${connections}`, harness, caps: {}, sessions: [...sessions.keys()], polling: false }] : [];
+      return sendJson(res, 200, { harnesses: adapters.map((a) => ({ name: a.harness, title: a.harness, agentName: a.harness, connected: true, sessions: [] })), adapters, sessions: [] });
+    }
     if (url.pathname === `/api/open-artifact.${LIBRARY_ROUTES.artifact}`) {
       const found = artifacts.get(url.searchParams.get('id') ?? '');
       return found ? sendJson(res, 200, found) : sendJson(res, 404, { code: 'not_found', message: 'No such artifact.' });

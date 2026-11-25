@@ -25,7 +25,7 @@
 - **daemon**（`open-artifact daemon`）每台电脑、每个 Open Artifact 主目录（`~/.agents/open-artifact`，或 `$OPEN_ARTIFACT_HOME`）只跑一个。作品库、三个 Agent 工具、类型服务器、给各个 Agent 会话的收件箱都归它管。电脑上所有 Agent 应用共用它。
 - **Shell** 是 daemon 的页面，地址是 `http://127.0.0.1:<port>/a/<id>`。它把作品的编辑器放进框架，画出标题栏、评论、分享和导出，并和嵌入它的一方通信。
 - **你的适配器**（adapter）是你写的代码。它以你的 harness 身份（一个名字，比如 `my-agent`）连到 daemon，告诉 daemon 有哪些会话，把工具交给你的 Agent，接收唤醒，显示页面。
-- **kit**（`@open-artifact/harness-kit`，Node 22.18+ 或 Electron 自带的 Node）替 JavaScript 适配器处理连接：找到或启动 daemon、断线重连、重新挂上会话，并封装每个调用。用其他语言写的程序改为运行 `open-artifact harness --stdio`（[非 JavaScript 应用](integrating/non-node.zh-CN.md)）。
+- **kit**（`@open-artifact/harness-kit`，Node 22.18+ 或 Electron 自带的 Node）替 JavaScript 适配器处理连接：找到或启动 daemon、断线重连（用户在你的应用里停掉 daemon 之后不重连：[重启和停止](integrating/runtime.zh-CN.md#命令)）、重新挂上会话，并封装每个调用。用其他语言写的程序改为运行 `open-artifact harness --stdio`（[非 JavaScript 应用](integrating/non-node.zh-CN.md)）。
 
 ## 选一个层级
 

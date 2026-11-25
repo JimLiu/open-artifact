@@ -20,6 +20,7 @@ import {
   type EmbedOriginsResult,
   type DaemonState,
   type HarnessEvent,
+  type HarnessesResponse,
   type HostToShell,
   type ShellEventParams,
   type HarnessPolicy,
@@ -41,7 +42,7 @@ import {
   wakeSourceOf,
 } from '@open-artifact/protocol';
 import { HarnessClient, type HarnessConnectionState } from './client.ts';
-import { api, restartDaemon, type EnsureDaemonOptions } from './daemon.ts';
+import { api, ensureDaemon, readDaemon, restartDaemon, stopDaemon, type EnsureDaemonOptions } from './daemon.ts';
 import { commands, keepSkillInstalled, type InstallSkillOptions, type InstallSkillResult } from './skill.ts';
 import { contextBlock, readContext, type ArtifactContext } from './context.ts';
 import { remoteGate, remotePolicyOf, type AllowRemote, type RemotePage, type RemotePagePolicy } from './embed/remote.ts';
@@ -165,6 +166,33 @@ export interface HarnessRuntimeCalls {
   update(version?: string): Promise<RuntimeUpdateResult>;
 }
 
+/** Another app's connection to the daemon, as {@link HarnessDaemonCalls.stop} found it (the daemon's `harnesses`). */
+export interface HarnessDaemonPeer {
+  /** The daemon's id of the connection. */
+  connection: string;
+  /** The harness name it said in `hello`. */
+  harness: string;
+  /** Its display name (the harness profile's title, else the name). */
+  title: string;
+  /** An HTTP polling adapter rather than a WebSocket. */
+  polling: boolean;
+  /** How many sessions were attached through it. */
+  sessions: number;
+}
+
+/** What {@link HarnessDaemonCalls.stop} did. */
+export interface HarnessDaemonStopResult {
+  /** The daemon it stopped (`pid`, `url`, `version`; not its token), or `null` when none ran. */
+  stopped: Omit<DaemonState, 'token'> | null;
+  /**
+   * The other connections the daemon had when it was stopped (this harness's own left out), or `null` when that could
+   * not be read (no daemon ran, or an older daemon). They reconnect, and one with `autoStart` (the default) starts the
+   * daemon again: the person's "stop" holds only while no other app wants it. Not listed: command lines, MCP bridges
+   * and hooks, which start a daemon whenever they run.
+   */
+  others: HarnessDaemonPeer[] | null;
+}
+
 /** The daemon itself, as the harness reaches it (`Harness.daemon`). */
 export interface HarnessDaemonCalls {
   /**
@@ -174,6 +202,23 @@ export interface HarnessDaemonCalls {
    * token) once the harness has said hello to it. Not inside an agent's own command: it is the person's to ask for.
    */
   restart(): Promise<Omit<DaemonState, 'token'>>;
+  /**
+   * The person's stop: stops the daemon of the harness's home and waits for its process to exit; from then on this
+   * harness does not start it again by itself (no reconnecting, and calls that would connect fail with `disconnected`),
+   * until {@link start}, {@link restart} or `Harness.ready()`. `on('state')` gets `stopped` (not `disconnected`), and
+   * {@link stopped} is true. Resolves with the daemon it stopped (`null`: none ran) and the other apps connected to it.
+   * Refused (`invalid_argument`) for a daemon in this process; one that does not exit in time fails (`daemon_failed`) and
+   * the harness goes back to reconnecting. Not inside an agent's own command: it is the person's to ask for.
+   */
+  stop(): Promise<HarnessDaemonStopResult>;
+  /**
+   * Starts the daemon of the harness's home (the newest compatible runtime, also under `autoStart: false`) when none
+   * runs, and connects to it, attaching the sessions again: the second half of {@link restart}. Ends a {@link stop}.
+   * Resolves with the daemon (`pid`, `url`, `version`; not its token) once the harness has said hello to it.
+   */
+  start(): Promise<Omit<DaemonState, 'token'>>;
+  /** Whether this harness stopped the daemon ({@link stop}) and has not started it again (another app may have). */
+  readonly stopped: boolean;
 }
 
 /** The connection to the daemon, as {@link createHarness} returns it. */
@@ -184,7 +229,10 @@ export interface Harness {
   readonly connected: boolean;
   /** The daemon's features (see `HarnessFeature`); empty while not connected. */
   readonly features: readonly string[];
-  /** Connects now if it is not connected (starting the daemon unless `autoStart` is false). */
+  /**
+   * Connects now if it is not connected (starting the daemon unless `autoStart` is false). After `daemon.stop()` it is
+   * the person's ask for the daemon again: it ends the stop.
+   */
   ready(): Promise<HelloResult>;
   /**
    * Attaches a session; a reconnect attaches it again. What waited in its inbox goes to the `wake` callback; the
@@ -242,7 +290,10 @@ export interface Harness {
   on(event: 'artifact', listener: (report: ArtifactReport) => void): () => void;
   /** Every event the daemon sends. Returns a function that stops. */
   on(event: 'event', listener: (event: HarnessEvent) => void): () => void;
-  /** The connection went up or down. Returns a function that stops. */
+  /**
+   * The connection went up (`connected`), dropped (`disconnected`: it reconnects by itself) or ended with the person's
+   * `daemon.stop()` (`stopped`). Returns a function that stops.
+   */
   on(event: 'state', listener: (state: HarnessConnectionState) => void): () => void;
   /**
    * Writes the skill for this harness into `<dir>/<command>/SKILL.md` (rendered by the daemon, `skill.get`, else by
@@ -253,7 +304,7 @@ export interface Harness {
   commands(options?: { command?: string; locale?: string }): Promise<CommandEntry[]>;
   /** The runtime's status and updates (feature `runtime.update`); `on('event')` gets `runtime/update` when one exists. */
   readonly runtime: HarnessRuntimeCalls;
-  /** The daemon process: restart it. */
+  /** The daemon process: restart, stop or start it. */
   readonly daemon: HarnessDaemonCalls;
   /** Closes the connection for good. */
   close(): void;
@@ -558,9 +609,34 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
     client.reconnect();
   }
 
-  /** Connects if needed, then throws `unsupported` unless the daemon lists `feature`. */
   /** A restart under way: a second call waits for the same one. */
   let restarting: Promise<Omit<DaemonState, 'token'>> | null = null;
+  /** Restart, stop and start run one after another. */
+  let lifecycle: Promise<unknown> = Promise.resolve();
+  const inTurn = <T>(run: () => Promise<T>): Promise<T> => {
+    const next = lifecycle.then(run, run);
+    lifecycle = next.catch(() => undefined);
+    return next;
+  };
+  const homeOf = (): string | undefined => daemon.home ?? daemon.env?.OPEN_ARTIFACT_HOME ?? undefined;
+  const withoutToken = ({ token: _token, ...state }: DaemonState): Omit<DaemonState, 'token'> => state;
+  /** The other connections of a running daemon (`harnesses`), this harness's own left out; `null` when unreadable. */
+  const peersOf = async (state: DaemonState): Promise<HarnessDaemonPeer[] | null> => {
+    try {
+      const answer = await api<Partial<HarnessesResponse>>(state, LIBRARY_ROUTES.harnesses, undefined, { signal: AbortSignal.timeout(3000) });
+      if (!Array.isArray(answer?.adapters)) return null;
+      const own = client.hello?.connection;
+      const titles = new Map((Array.isArray(answer.harnesses) ? answer.harnesses : []).map((h) => [h.name, h.title]));
+      return answer.adapters
+        .filter((a) => a && typeof a.id === 'string' && a.id !== own)
+        .map((a) => ({ connection: a.id, harness: a.harness, title: titles.get(a.harness) || a.harness, polling: a.polling === true, sessions: Array.isArray(a.sessions) ? a.sessions.length : 0 }));
+    } catch (error) {
+      log(`open-artifact harnesses: ${(error as Error)?.message ?? error}`);
+      return null;
+    }
+  };
+
+  /** Connects if needed, then throws `unsupported` unless the daemon lists `feature`. */
 
   const needs = async (feature: string, method: string): Promise<void> => {
     if (!client.connected) await client.connect();
@@ -577,7 +653,10 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
     get features() {
       return client.features;
     },
-    ready: () => client.connect(),
+    ready: () => {
+      client.resume();
+      return client.connect();
+    },
     async attach(params) {
       const result = await client.attach(params);
       const key = sessionKey(params);
@@ -682,15 +761,27 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
     daemon: {
       async restart() {
         if (!restarting) {
-          restarting = client
-            .across(() => restartDaemon(daemon))
-            .then(({ result }) => {
-              const { token: _token, ...state } = result.daemon;
-              return state;
-            })
+          restarting = inTurn(() => client.across(() => restartDaemon(daemon)))
+            .then(({ result }) => withoutToken(result.daemon))
             .finally(() => (restarting = null));
         }
         return restarting;
+      },
+      stop: () =>
+        inTurn(async () => {
+          const running = await readDaemon(homeOf());
+          const others = running ? await peersOf(running) : null;
+          const stopped = await client.halt(() => stopDaemon({ home: homeOf(), ...(daemon.env ? { env: daemon.env } : {}) }));
+          return { stopped: stopped ? withoutToken(stopped) : null, others };
+        }),
+      start: () =>
+        inTurn(async () => {
+          if (client.connected && !client.stopped && client.state) return withoutToken(client.state);
+          const { result } = await client.across(() => ensureDaemon(daemon));
+          return withoutToken(client.state ?? result);
+        }),
+      get stopped() {
+        return client.stopped;
       },
     },
     close: () => client.close(),

@@ -173,7 +173,7 @@ WebSocket 和 stdio 桥用同一套数字回答（`@open-artifact/protocol` 里�
 | `newer_release` | 作品是更新的 Open Artifact 写的；先更新 |
 | `redirected` | 链接主机回了重定向；什么都没有转发 |
 | `download_failed`、`integrity_failed`、`bad_archive` | 运行时更新或类型包下载失败、与 integrity 不符，或无法安全解包（要导入的压缩包不是作品压缩包也是它） |
-| `connect_failed`、`disconnected`、`timeout` | 连不上、连接断了，或太久没回 |
+| `connect_failed`、`disconnected`、`timeout` | 连不上、连接断了，或太久没回；kit 还会在应用停掉 daemon（`harness.daemon.stop()`）且没有再启动时返回 `disconnected` |
 | `no_daemon`、`daemon_failed` | kit 或 CLI 找不到守护进程，或无法启动它 |
 | `error` | 其他 |
 

@@ -75,12 +75,94 @@ describe('restarting the daemon', () => {
     }
   });
 
+  it('Harness.daemon.stop(): the daemon exits and is not started again until start()', async () => {
+    const { home, bin, env } = setup();
+    const harness = await createHarness({ harness: 'stop-app', home, daemon: { bin, env, timeoutMs: 15_000 }, reconnect: { minMs: 50, maxMs: 100 } });
+    const states: string[] = [];
+    harness.on('state', (state) => states.push(state));
+    try {
+      await harness.ready();
+      const before = harness.client.state!;
+      await harness.attach({ session: 's1', workspace: '/w' });
+      const stopped = await harness.daemon.stop();
+      assert.equal(stopped.stopped?.pid, before.pid);
+      assert.equal('token' in (stopped.stopped ?? {}), false, 'the token stays with the harness');
+      assert.deepEqual(stopped.others, [], 'no other app was connected (its own connection is left out)');
+      assert.throws(() => process.kill(before.pid, 0), 'the process has exited');
+      assert.equal(harness.connected, false);
+      assert.equal(harness.daemon.stopped, true);
+      assert.deepEqual(states, ['stopped'], 'the end is a stop, not a drop');
+
+      // Well past the reconnect delay, and calls that would connect: no daemon comes back.
+      await new Promise((done) => setTimeout(done, 600));
+      await assert.rejects(harness.call('Artifact', { action: 'read', url: 'open-artifact://artifact/x' }), (error: Error & { code?: string }) => error.code === 'disconnected');
+      await assert.rejects(harness.view('open-artifact://artifact/x'), (error: Error & { code?: string }) => error.code === 'disconnected');
+      assert.ok((await harness.tools()).length > 0, "the kit's own tool definitions");
+      assert.equal(await readDaemon(home), null, 'nothing started the daemon again');
+      assert.deepEqual(states, ['stopped']);
+
+      // A second stop with none running: nothing stopped, nothing reported again.
+      const again = await harness.daemon.stop();
+      assert.equal(again.stopped, null);
+      assert.equal(again.others, null, 'no daemon to ask');
+      assert.deepEqual(states, ['stopped']);
+
+      const started = await harness.daemon.start();
+      assert.notEqual(started.pid, before.pid);
+      assert.equal('token' in started, false);
+      assert.equal(harness.connected, true);
+      assert.equal(harness.daemon.stopped, false);
+      assert.equal((await readDaemon(home))?.pid, started.pid);
+      assert.deepEqual(states, ['stopped', 'connected']);
+      // Started while connected: the same daemon, no new connection.
+      assert.equal((await harness.daemon.start()).pid, started.pid);
+      assert.deepEqual(states, ['stopped', 'connected']);
+    } finally {
+      harness.close();
+    }
+  });
+
+  it('after stop(), ready() and restart() start the daemon again; a drop still reconnects', async () => {
+    const { home, bin, env } = setup();
+    const harness = await createHarness({ harness: 'stop-ready', home, daemon: { bin, env, timeoutMs: 15_000 }, reconnect: { minMs: 50, maxMs: 100 } });
+    const states: string[] = [];
+    harness.on('state', (state) => states.push(state));
+    try {
+      await harness.ready();
+      await harness.daemon.stop();
+      await harness.ready();
+      assert.equal(harness.connected, true);
+      assert.equal(harness.daemon.stopped, false);
+      await harness.daemon.stop();
+      const restarted = await harness.daemon.restart();
+      assert.equal(harness.connected, true);
+      assert.equal(harness.daemon.stopped, false);
+      assert.deepEqual(states, ['stopped', 'connected', 'stopped', 'connected']);
+      // Not stopped by the harness (killed from outside): a drop, and the kit starts it again by itself.
+      process.kill(restarted.pid, 'SIGTERM');
+      const back = await (async () => {
+        for (let i = 0; i < 150; i++) {
+          const state = await readDaemon(home);
+          if (state && state.pid !== restarted.pid && harness.connected) return state;
+          await new Promise((done) => setTimeout(done, 100));
+        }
+        return null;
+      })();
+      assert.ok(back, 'the kit started the daemon again after a drop');
+      assert.deepEqual(states, ['stopped', 'connected', 'stopped', 'connected', 'disconnected', 'connected']);
+    } finally {
+      harness.close();
+    }
+  });
+
   it('refuses a daemon that runs in this process (the in-process fake)', async () => {
     const fake = await startFakeDaemon();
     const harness = await createHarness({ harness: 'restart-fake', home: fake.home, autoStart: false });
     try {
       await harness.ready();
       await assert.rejects(harness.daemon.restart(), (error: Error & { code?: string }) => error.code === 'invalid_argument');
+      await assert.rejects(harness.daemon.stop(), (error: Error & { code?: string }) => error.code === 'invalid_argument');
+      assert.equal(harness.daemon.stopped, false, 'a refused stop leaves the harness as it was');
       // Not left without a connection.
       await harness.ready();
       assert.equal(harness.connected, true);

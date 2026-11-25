@@ -32,7 +32,8 @@ const result = await harness.call('Artifact', args, { session: 's1', workspace: 
 harness.on('artifact', ({ session, artifact, change }) => myApp.card(session, artifact, change));
 ```
 
-- The connection reconnects with backoff (1 s doubling to 30 s), says hello again and attaches every session again.
+- The connection reconnects with backoff (1 s doubling to 30 s), says hello again and attaches every session again;
+  not after the person's `daemon.stop()`, until they ask for the daemon again.
 - What waited in a session's inbox goes to `wake` on attach; `attach()` returns what `wake` did not take.
 - A `wake` callback that throws or takes longer than `wakeTimeoutMs` (25 s) answers `failed`.
 - `caps` in `hello` follow from the callbacks: `wake` only with a `wake` callback, `open` only with an `open` callback
@@ -67,7 +68,8 @@ harness.on('artifact', ({ session, artifact, change }) => myApp.card(session, ar
 | `installSkill({ dir, … })`, `commands()` | the skill file and the command menu (features `skill.get`, `commands.list`; rendered by the kit without them). `opens` (`host` \| `agent-browser` \| `system` \| `link`) sets how the skill tells the agent to show a page; left out, `host` when you pass `open` (the daemon's rendering and, through `harness.installSkill`, the kit's own), else a general step; the standalone helpers take it only as given ([commands and the skill](../../docs/integrating.md#commands-and-the-skill)) |
 | `runtime.status()`, `runtime.update(version?)` | the runtimes on this computer and which starts; the person's yes to an update (feature `runtime.update`; `update` is `not_granted` when updates are off) |
 | `daemon.restart()` | the person's restart of the daemon: stops it, waits for its process, starts another and connects to it; a second call waits for the same restart; answers the new `daemon.json` without its token. Refused (`invalid_argument`) for a daemon in this process |
-| `on('artifact' \| 'shell' \| 'event' \| 'state', listener)` | artifact reports, Shell messages, every daemon event, the connection state |
+| `daemon.stop()`, `daemon.start()`, `daemon.stopped` | the person's stop: stops the daemon and waits for its process, then does not start it again by itself (no reconnecting; calls that would connect fail with `disconnected`) until `daemon.start()`, `daemon.restart()` or `ready()`; `on('state')` gets `stopped`. Answers `{ stopped, others }`: the daemon it stopped (`null`: none ran) and the other apps connected to it (`null`: unknown), which may start it again ([runtime](../../docs/integrating/runtime.md)). `start()` starts one when none runs and connects; restart, stop and start run one after another |
+| `on('artifact' \| 'shell' \| 'event' \| 'state', listener)` | artifact reports, Shell messages, every daemon event, the connection state (`connected`, `disconnected`: dropped, it reconnects; `stopped`: `daemon.stop()`) |
 | `close()` | closes the connection for good |
 
 A call that needs a feature the daemon does not list throws `unsupported`, fix line `Update the Open Artifact runtime
@@ -98,7 +100,7 @@ It answers `skill.get` (the protocol's template for your caps) and `commands.lis
 
 ## Entry points
 
-- `.`: `createHarness`, `HarnessClient`, `ensureDaemon`, `readDaemon`, `restartDaemon`, `api`, `isOlderVersion`, `openArtifactHome`,
+- `.`: `createHarness`, `HarnessClient`, `ensureDaemon`, `readDaemon`, `restartDaemon`, `stopDaemon`, `api`, `isOlderVersion`, `openArtifactHome`,
   the runtime choice (`selectRuntime`, `rankRuntimes`, `runtimeCandidates`, …), `remoteGate`, `contextBlock`,
   `installSkill`, `renderSkill`, `commands`.
 - `./testing`: `startFakeDaemon`.

@@ -32,7 +32,8 @@ and how to check it.
 - **Your adapter** is the code you write. It connects to the daemon as your harness (a name such as `my-agent`), tells
   it which sessions exist, gives your agent the tools, takes wakes, and shows pages.
 - **The kit** (`@open-artifact/harness-kit`, Node 22.18+ or Electron's Node) does the connection for a JavaScript
-  adapter: it finds or starts the daemon, reconnects, attaches sessions again, and wraps every call. A program in another
+  adapter: it finds or starts the daemon, reconnects (not after the person stopped the daemon from your app:
+  [restart and stop](integrating/runtime.md#commands)), attaches sessions again, and wraps every call. A program in another
   language runs `open-artifact harness --stdio` instead ([non-node](integrating/non-node.md)).
 
 ## Pick a level

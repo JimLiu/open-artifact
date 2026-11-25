@@ -194,7 +194,7 @@ polling answers with an HTTP status and the same `{ code, message, fix? }` body.
 | `newer_release` | the artifact was written by a newer Open Artifact; update first |
 | `redirected` | a link host answered with a redirect; nothing was sent on |
 | `download_failed`, `integrity_failed`, `bad_archive` | a runtime update or type package could not be fetched, did not match its integrity, or did not unpack safely (also an archive to import that is not one) |
-| `connect_failed`, `disconnected`, `timeout` | a connection could not be made, closed, or took too long |
+| `connect_failed`, `disconnected`, `timeout` | a connection could not be made, closed, or took too long; from the kit also: the app stopped the daemon (`harness.daemon.stop()`) and has not started it again |
 | `no_daemon`, `daemon_failed` | the kit or CLI found no daemon, or could not start one |
 | `error` | anything else |
 
