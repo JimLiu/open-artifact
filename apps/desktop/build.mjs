@@ -6,7 +6,8 @@
 //
 // The page's React is this app's own (node_modules/react, the version the workspace uses): every import of react and
 // react-dom, the shared page package's and zustand's too, is pointed at it, so the page has exactly one React.
-// The page's CSS is a file (its Content-Security-Policy allows no inline style), written from the package's PAGE_CSS.
+// The page's CSS is a file (its Content-Security-Policy allows no inline style), written from the package's PAGE_CSS
+// and UPDATE_CSS (the runtime's update panel at the top of the library).
 //
 //   node build.mjs        (from apps/desktop; `npm run build` also builds the runtime it carries)
 import { copyFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -53,8 +54,8 @@ buildSync({
   legalComments: 'none',
   logLevel: 'warning',
 });
-const { PAGE_CSS } = await import(pathToFileURL(join(here, '..', '..', 'packages', 'library-page', 'src', 'styles.ts')).href);
-writeFileSync(join(out, 'renderer', 'page.css'), `/* @open-artifact/library-page PAGE_CSS, written by build.mjs */\n${PAGE_CSS.trim()}\n`);
+const { PAGE_CSS, UPDATE_CSS } = await import(pathToFileURL(join(here, '..', '..', 'packages', 'library-page', 'src', 'styles.ts')).href);
+writeFileSync(join(out, 'renderer', 'page.css'), `/* @open-artifact/library-page PAGE_CSS and UPDATE_CSS, written by build.mjs */\n${PAGE_CSS.trim()}\n${UPDATE_CSS.trim()}\n`);
 copyFileSync(join(here, 'renderer', 'src', 'app.css'), join(out, 'renderer', 'app.css'));
 copyFileSync(join(here, 'renderer', 'index.html'), join(out, 'renderer', 'index.html'));
 buildSync({ ...common, entryPoints: [join(here, 'test', 'probe', 'chain-probe.mjs')], outfile: join(out, 'test', 'chain-probe.mjs') });

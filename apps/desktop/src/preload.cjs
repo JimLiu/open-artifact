@@ -31,6 +31,31 @@ contextBridge.exposeInMainWorld('desktop', {
   settings: {
     get: () => ipcRenderer.invoke('desktop:settings'),
     set: (name, value) => ipcRenderer.invoke('desktop:setting', String(name), String(value)),
+    /** Where new artifacts go: the system's folder dialog (`set('artifactsFolder', '')` goes back to the default). */
+    chooseFolder: () => ipcRenderer.invoke('desktop:choose-folder'),
+    /** Shows the profile folder in the Finder. */
+    revealHome: () => ipcRenderer.invoke('desktop:reveal-home'),
+  },
+  /** Opens the app again, with the arguments it was started with (a changed language takes effect then). */
+  relaunch: () => ipcRenderer.invoke('desktop:relaunch'),
+  /**
+   * The service (the daemon): `get(refresh)` its state, the apps connected and the type servers; `do(act, arg)` runs
+   * `restart`, `stop`, `start`, `restart-type` (a type id), `logs`, `reveal-home`, `doctor` or `others`, answering
+   * `{ ok, value }` or `{ ok: false, error }`. Display data only: never the daemon's token.
+   */
+  service: {
+    get: (refresh) => ipcRenderer.invoke('desktop:service', refresh === true),
+    do: (act, arg) => ipcRenderer.invoke('desktop:service-do', String(act), arg === undefined ? undefined : String(arg)),
+    onChange: listen('desktop:service'),
+  },
+  /**
+   * The runtime's updates: `get(refresh)`; `do(act, arg)` runs `check`, `update`, `later`, `close` or `checking`
+   * (arg true or false: the "check for updates" setting).
+   */
+  runtime: {
+    get: (refresh) => ipcRenderer.invoke('desktop:runtime', refresh === true),
+    do: (act, arg) => ipcRenderer.invoke('desktop:runtime-do', String(act), arg === true ? true : arg === false ? false : undefined),
+    onChange: listen('desktop:runtime'),
   },
   /** Keyboard focus back to this page. */
   focus: () => ipcRenderer.invoke('desktop:focus'),

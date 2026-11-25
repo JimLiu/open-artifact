@@ -2,7 +2,7 @@
 // an agent builds (made empty, then opened: the Shell says how to hand it to an agent), and a name. A create that did
 // not work says why here, and the dialog stays.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { typeStyle, usePage } from '@open-artifact/library-page';
+import { TypeIcon, typeStyle, usePage } from '@open-artifact/library-page';
 import { BUILTIN_START, builtinStartOf } from '@open-artifact/protocol';
 import { createArtifact } from './host.js';
 import { typeName } from './words.js';
@@ -24,7 +24,9 @@ function TypeButton({ tile, group, selected, onPick, onConfirm, t }) {
       onClick={() => onPick(tile.id)}
       onDoubleClick={() => onConfirm(tile.id)}
     >
-      <span className="new-swatch" aria-hidden="true" style={typeStyle(tile.id)} />
+      <span className="new-swatch" aria-hidden="true" style={typeStyle(tile.id)}>
+        <TypeIcon type={tile.id} size={20} />
+      </span>
       <span className="new-type-name">{typeName(t, tile.id, tile.title)}</span>
     </button>
   );

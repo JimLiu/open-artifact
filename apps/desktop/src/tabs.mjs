@@ -12,7 +12,7 @@
  * (`navigation.mjs`). The Shell's `close` closes the tab; its `saved` marks the tab while something is not saved.
  *
  * When the daemon goes away (stopped, restarted, replaced) the views stay as they are and the tabs say they are
- * reconnecting. Once the kit is connected again, each tab whose page had nothing unsaved is loaded again with a new
+ * reconnecting (or, when the person stopped the service here, that it is stopped). Once the kit is connected again, each tab whose page had nothing unsaved is loaded again with a new
  * view (the old ticket and the type server's port died with the old daemon), at the place it showed; a tab that had
  * unsaved work is left as it is, marked, for the person to reload when they choose (`reload`).
  */
@@ -93,7 +93,7 @@ export class Tabs {
       this.select(id);
       return id;
     }
-    const tab = { id, title: '', type: '', saved: null, status: 'opening', view: null, embed: null, ticket: null, place: null };
+    const tab = { id, title: '', type: '', saved: null, status: 'opening', view: null, embed: null, ticket: null, place: null, discard: false };
     this.tabs.set(id, tab);
     this.current = id;
     this.changed();
@@ -211,6 +211,12 @@ export class Tabs {
       return { action: 'deny' };
     });
     contents.on('will-attach-webview', (event) => event.preventDefault());
+    // A page with unsaved work asks to stay (`beforeunload`): it stays, unless the person asked to load it again.
+    contents.on('will-prevent-unload', (event) => {
+      if (!tab.discard) return this.log(`tab ${tab.id}: the page kept itself (unsaved work)`);
+      event.preventDefault();
+      this.log(`tab ${tab.id}: unsaved work let go for the reload asked for`);
+    });
     contents.on('did-finish-load', () => {
       const title = contents.getTitle();
       if (title && !tab.title) tab.title = title;
@@ -292,12 +298,15 @@ export class Tabs {
     return placed;
   }
 
-  /** The connection went down or came back. */
-  setConnected(connected) {
+  /**
+   * The connection went down or came back. `stopped`: the person stopped the service, so the tabs wait for it to be
+   * started rather than say they are reconnecting.
+   */
+  setConnected(connected, { stopped = false } = {}) {
     const was = this.connected;
     this.connected = connected;
     if (!connected) {
-      for (const tab of this.tabs.values()) if (tab.status !== 'crashed') tab.status = 'reconnecting';
+      for (const tab of this.tabs.values()) if (tab.status !== 'crashed') tab.status = stopped ? 'stopped' : 'reconnecting';
       this.changed();
       return;
     }
@@ -315,10 +324,15 @@ export class Tabs {
     this.changed();
   }
 
-  /** Loads a tab's artifact again with a new view (after the daemon came back). */
-  async reload(id) {
+  /**
+   * Loads a tab's artifact again with a new view (after the daemon came back). `discard`: the person asked for it (the
+   * tab's Reload), so a page that holds unsaved work (its Shell's `beforeunload`) is let go: that work could not be
+   * saved any more, its view's channel went with the old daemon.
+   */
+  async reload(id, { discard = false } = {}) {
     const tab = this.tabs.get(id);
     if (!tab) return false;
+    tab.discard = discard;
     try {
       await this.load(tab);
       this.log(`tab ${id}: loaded again`);
@@ -328,6 +342,8 @@ export class Tabs {
       this.log(`tab ${id}: could not load again: ${error?.message ?? error}`);
       this.changed();
       return false;
+    } finally {
+      tab.discard = false;
     }
   }
 

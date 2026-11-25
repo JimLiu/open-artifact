@@ -74,7 +74,7 @@ packages/daemon (local open-artifact daemon, one per machine)
 ### Desktop app
 
 `apps/desktop/` is Open Artifact Desktop, an Electron app with no agent: a sidebar, a tab bar, the library page as
-its home tab, and one view per artifact tab (no server switcher, service status, update banner or settings yet).
+its home tab, one view per artifact tab, a service panel, runtime updates and a settings dialog (no server switcher yet).
 It is a Harness API host like the examples, built on `@open-artifact/harness-kit`:
 
 - **Runtime**: it carries the built `skills/open-artifact` as `resources/runtime` (`apps/desktop/scripts/build-runtime.mjs`)
@@ -91,9 +91,19 @@ It is a Harness API host like the examples, built on `@open-artifact/harness-kit
 - **Reconnect**: when the daemon goes away the views stay and the bar says it is reconnecting; the kit's reconnect
   runs `ensureDaemon`, so a daemon that was stopped (not only restarted) is started again while the app runs. Once
   connected, each tab without unsaved work is loaded again with a new view (the view's key and the type servers' ports
-  belong to the old daemon); a tab with unsaved work is kept as it was and marked for the person to reload.
+  belong to the old daemon); a tab with unsaved work is kept as it was and marked for the person to reload (their
+  Reload lets the page's `beforeunload` go: that work can no longer be saved).
+- **Service and updates** (`apps/desktop/src/service.mjs`, `runtime.mjs`): the person's restart, stop and start are
+  the kit's `daemon.restart()`, `daemon.stop()` (no reconnecting until `daemon.start()`; `daemon.json` is read every
+  1.5 s so a daemon another app started is shown, with Connect) and `daemon.start()`; the apps and editors come from
+  the Library API's `harnesses` and `types.servers`, an editor's restart is `types.restart`. Runtime status and Update
+  are `harness.runtime.status()`/`update()`; Check, the "check for updates" setting (`runtime policy prompt|bundled`)
+  and `doctor` run the carried runtime's command line with the app's executable as Node. Every one runs in the main
+  process; the page is sent display data picked field by field, never the token. The library's update offer is the
+  shared `UpdatePanel` (`PageUpdates.restart` opens the service panel's restart question).
 - **Window page**: `apps/desktop/renderer/` is a React app (bundled by `apps/desktop/build.mjs` into
-  `out/renderer/`, with `PAGE_CSS` written to `page.css`) that draws the sidebar, the tab bar, the new dialog and the
+  `out/renderer/`, with `PAGE_CSS` and `UPDATE_CSS` written to `page.css`) that draws the sidebar, the tab bar, the
+  new dialog, the service panel, the settings dialog and the
   shared `ArtifactsPage` of `packages/library-page`. It talks to the main process only through the preload bridge
   (`window.desktop`); every `ipcMain` handler checks the sender is the window's own page. The page's `PageApi` calls
   go to the main process, which calls the Library API with the daemon's token (`apps/desktop/src/library.mjs`, which
@@ -102,8 +112,9 @@ It is a Harness API host like the examples, built on `@open-artifact/harness-kit
   (the Shell's hand-over prompt). Thumbnails: the main process loads the type's preview page in a hidden offscreen
   window with its own partition and no permissions, takes the `captureRecipe` area as a JPEG, and the page saves it
   at its version; the page shows them through the `oa-thumbnail:` scheme, which the main process answers from the
-  daemon. `<userData>/settings.json` keeps the sidebar's fold state, the look (`theme`: system/light/dark) and the
-  language (`locale`: system/en/zh-CN), set over IPC (`desktop:setting`). The look is `nativeTheme.themeSource`, so
+  daemon. `<userData>/settings.json` keeps the sidebar's fold state, the look (`theme`: system/light/dark), the
+  language (`locale`: system/en/zh-CN) and the folder for new artifacts (`artifactsFolder`), set over IPC
+  (`desktop:setting`; a folder through the system's dialog). The look is `nativeTheme.themeSource`, so
   `prefers-color-scheme` switches at once in the app's page, every Shell page and every editor frame (the Shell's
   `host_hello.theme` follows `nativeTheme`). The language is Chromium's `--lang`, set before `ready`, so
   `navigator.language` (which the Shell and the editors read) is that language; a changed one takes effect when the

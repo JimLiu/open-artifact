@@ -6,7 +6,7 @@ import { ArtifactsIcon, typeStyle, usePage } from '@open-artifact/library-page';
 import { CloseIcon, PlusIcon } from './icons.jsx';
 import { WindowControls } from './Sidebar.jsx';
 
-const STATUS_WORD = { opening: 'tabs.opening', reconnecting: 'tabs.reconnecting', stale: 'tabs.stale', crashed: 'tabs.crashed' };
+const STATUS_WORD = { opening: 'tabs.opening', reconnecting: 'tabs.reconnecting', stopped: 'tabs.stopped', stale: 'tabs.stale', crashed: 'tabs.crashed' };
 
 function ArtifactTab({ tab, selected, title, type, t }) {
   const desktop = window.desktop;
@@ -98,7 +98,7 @@ export function TabBar({ t, state, platform, onNew }) {
         </button>
       </div>
       <span id="connection" role="status" aria-live="polite" data-connected={String(!!state.connected)}>
-        {state.connected ? '' : t('connection.lost')}
+        {state.connected ? '' : state.service === 'elsewhere' ? t('service.elsewhere') : state.service === 'stopped' ? t('connection.stopped') : t('connection.lost')}
       </span>
     </header>
   );

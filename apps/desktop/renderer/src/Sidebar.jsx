@@ -3,7 +3,7 @@
 // change the page sees (made, renamed, pinned, deleted), at once.
 import { useMemo, useState } from 'react';
 import { ArtifactsIcon, TypeIcon, typeStyle, usePage } from '@open-artifact/library-page';
-import { BackIcon, ChevronIcon, ForwardIcon, PlusIcon, SearchIcon, SidebarIcon } from './icons.jsx';
+import { BackIcon, ChevronIcon, ForwardIcon, PlusIcon, SearchIcon, SettingsIcon, SidebarIcon } from './icons.jsx';
 
 /** How many of the artifacts changed last the sidebar lists. */
 export const RECENT_MAX = 8;
@@ -60,7 +60,7 @@ function ArtifactRow({ artifact, current, t }) {
   );
 }
 
-export function Sidebar({ t, state, platform, onNew, onSearch }) {
+export function Sidebar({ t, state, platform, onNew, onSearch, onSettings }) {
   const artifacts = usePage((s) => s.artifacts);
   const [pinnedOpen, setPinnedOpen] = useState(true);
   const pinned = useMemo(() => artifacts.filter((a) => a.pinned).sort(latest('openedAt')), [artifacts]);
@@ -109,6 +109,12 @@ export function Sidebar({ t, state, platform, onNew, onSearch }) {
             </ul>
           </section>
         )}
+      </div>
+      <div className="sidebar-bottom">
+        <button type="button" className="nav-row" data-testid="nav-settings" onClick={onSettings}>
+          <SettingsIcon />
+          {t('nav.settings')}
+        </button>
       </div>
     </nav>
   );

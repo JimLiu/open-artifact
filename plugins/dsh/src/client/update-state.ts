@@ -223,6 +223,8 @@ export const zh = {
   'failed.unknown': '到插件页看一下它现在是哪个版本。',
   retry: '重试',
   close: '关闭',
+  // The page's "restart now" (shown only by a host that restarts; DSH does not).
+  restart: '现在重启',
   tag: '有新版本 {version}',
   show: '查看',
   'mark.update': '更新',
@@ -247,6 +249,7 @@ export const en: Record<keyof typeof zh, string> = {
   'failed.unknown': 'Check which version it is on, on the Plugins page.',
   retry: 'Try again',
   close: 'Close',
+  restart: 'Restart now',
   tag: 'New version {version}',
   show: 'Show',
   'mark.update': 'Update',

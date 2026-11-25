@@ -45,7 +45,7 @@ const store = createPageStore({ api, host, t });
 | `PageHost` | `createPageStore({ host })` | The app: `canCreate`, `create(type?)` (start a session, empty or to make one of `type`; the host decides what it says to the agent), `away`, `pendingWindow`, `show(answer, pending)` (show an opened artifact), `copy`, `visible`, and optionally `capture` (take a thumbnail of a page) and `storage` (where the layout choice is kept). |
 | `Translate` | `createPageStore({ t })`, `PageEnv.t` | The page's words. `translator(lookup)` wraps the host's locale lookup and falls back to the page's own words for a key it does not know. |
 | `ExternalStore<SessionsSnapshot>` | `PageEnv.sessions` | The host's conversation list (`ids`, `byId[id].title`), for the session titles a card and the search show. `EMPTY_SESSIONS` is none. |
-| `PageUpdates` | `PageEnv.updates`, optional | An update offer and its run: an `ExternalStore<UpdateState>` plus `start`, `later`, `close`, `reopen` and the panel's words `t`. Without it the page draws no update panel. |
+| `PageUpdates` | `PageEnv.updates`, optional | An update offer and its run: an `ExternalStore<UpdateState>` plus `start`, `later`, `close`, `reopen` and the panel's words `t`, and optionally `restart()`: a host that can finish an update itself (a runtime that takes effect when a service restarts) gives it, and the finished panel of a `restart: true` state then has a primary button with the word `restart` beside Close. Without `restart` the panel only says what to do (`done.restart`), as before. Without `updates` the page draws no update panel. |
 | `ChangelogReader` | `PageEnv.changelog`, optional | `(upcoming) => Promise<ChangelogAnswer \| null>`: the release notes, for "What's new", the offer's notes and the changelog. Without it the page shows none. |
 
 `ArtifactsPage` takes these props:
@@ -58,6 +58,7 @@ const store = createPageStore({ api, host, t });
 | `searchButton` | `true` | The search button in the heading. With `false` the search box shows only after the host calls the store's `focusSearch()`, or while there is a query. |
 | `createButton` | `true` | The New button in the heading (with `canCreate`). The type tiles stay either way. |
 | `tileGroups` | one row | `TileGroup[]` (`{ id, title, types }`): the type tiles in groups, each under its own heading, in the order `types` lists; a group's element carries `data-group="<id>"`. A type no group names goes at the end of the last group; a group with no installed type is left out. |
+| `headingTools` | none | A node the host puts first among the heading's tools (before filter and layout), such as a status button of its own. |
 
 The store's `focusSearch()` (in `PageActions`) asks the page to show its search box and put the keyboard in it; each
 call counts up `searchFocus` in `PageState`, so the page focuses it again even when the box is already showing.

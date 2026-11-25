@@ -102,7 +102,7 @@ describe('the look and the language in the artifact views', () => {
     const refused = await app.chrome.evaluate(`desktop.settings.set('theme', 'sepia').then(() => 'kept', (e) => 'refused')`);
     assert.equal(refused, 'refused');
     await app.chrome.evaluate(`desktop.settings.set('theme', 'light')`);
-    assert.deepEqual(JSON.parse(readFileSync(settingsFile(), 'utf8')), { sidebarCollapsed: false, theme: 'light', locale: 'en' });
+    assert.deepEqual(JSON.parse(readFileSync(settingsFile(), 'utf8')), { sidebarCollapsed: false, theme: 'light', locale: 'en', artifactsFolder: '' });
     await app.quit();
     app = null;
   });

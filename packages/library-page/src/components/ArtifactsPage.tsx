@@ -634,10 +634,12 @@ export interface ArtifactsPageProps {
   theme?: 'light' | 'dark';
   /** The host's platform, on the page's root as `data-platform`: `darwin` leaves room for a macOS title bar. */
   platform?: string;
+  /** The host's own controls at the start of the heading's tools (e.g. a status button); none by default. */
+  headingTools?: ReactNode;
 }
 
 /** The page. */
-export function ArtifactsPage({ canCreate, theme, platform, searchButton = true, createButton = true, tileGroups }: ArtifactsPageProps) {
+export function ArtifactsPage({ canCreate, theme, platform, searchButton = true, createButton = true, tileGroups, headingTools }: ArtifactsPageProps) {
   const { t } = usePageEnv();
   const sessionTitle = useSessionTitle();
   const status = usePage((s) => s.status);
@@ -785,6 +787,7 @@ export function ArtifactsPage({ canCreate, theme, platform, searchButton = true,
           <div className="oa-heading">
             <h1>{t('title')}</h1>
             <div className="oa-tools">
+              {headingTools}
               {searching || query ? (
                 <label className="oa-search">
                   <Icon d={ICON.search} size={14} />

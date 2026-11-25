@@ -15,8 +15,19 @@ async function unwrap(answer) {
 /** What the page's store reads as a preview "address": only the artifact's id; the page itself stays in the main process. */
 const PREVIEW = 'oa-preview:';
 
+/** The app's words for a type's name (`typeName`), for the types the shared page has no word of its own for. */
+let typeWords = null;
+export const setTypeWords = (words) => {
+  typeWords = words;
+};
+
 export const pageApi = {
-  list: () => unwrap(bridge().library.list()),
+  async list() {
+    const value = await unwrap(bridge().library.list());
+    // A type the page has no word for (the Page type) is shown with the app's word for it, not the daemon's title.
+    if (!typeWords || !Array.isArray(value?.types)) return value;
+    return { ...value, types: value.types.map((type) => ({ ...type, title: typeWords(type.id, type.title) })) };
+  },
   async open(id) {
     const opened = await bridge().open(id);
     if (!opened?.ok) throw new Error(opened?.error || 'could not open it');

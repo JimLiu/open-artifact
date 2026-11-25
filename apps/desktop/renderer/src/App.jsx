@@ -6,18 +6,34 @@ import { ArtifactsPage, EMPTY_SESSIONS, EnvProvider, StoreProvider, createPageSt
 import { Sidebar } from './Sidebar.jsx';
 import { TabBar } from './TabBar.jsx';
 import { NewDialog } from './NewDialog.jsx';
-import { pageApi, pageHost, tileGroups } from './host.js';
-import { wordsFor } from './words.js';
+import { ServicePanel, ServiceStatus } from './ServicePanel.jsx';
+import { SettingsDialog } from './SettingsDialog.jsx';
+import { pageApi, pageHost, setTypeWords, tileGroups } from './host.js';
+import { runtimeUpdates, useRuntime, useService } from './service.js';
+import { typeName, wordsFor } from './words.js';
 
 export function App({ initial }) {
   const [state, setState] = useState(initial);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [searchWanted, setSearchWanted] = useState(0);
+  // The service panel (`{ ask }`: opened with a question asked) and the settings dialog.
+  const [servicePanel, setServicePanel] = useState(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const service = useService();
+  const runtime = useRuntime();
+  const runtimeRef = useRef(runtime);
+  runtimeRef.current = runtime;
+  const runtimeListeners = useRef(new Set());
+  useEffect(() => {
+    for (const listener of runtimeListeners.current) listener();
+  }, [runtime]);
   const stateRef = useRef(initial);
   stateRef.current = state;
   const { locale, theme, platform } = state.look;
 
   const t = useMemo(() => wordsFor(locale), [locale]);
+  // Before the store's first list: the type names the shared page has no word for are the app's.
+  setTypeWords((id, title) => typeName(t, id, title));
   const store = useMemo(
     () =>
       createPageStore({
@@ -33,7 +49,22 @@ export function App({ initial }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
-  const env = useMemo(() => ({ t, api: pageApi, sessions: EMPTY_SESSIONS }), [t]);
+  // The runtime's offer at the top of the library (the shared page's update panel); "Restart now" is the service's
+  // restart, asked first as in the service panel.
+  const updates = useMemo(
+    () =>
+      runtimeUpdates({
+        get: () => runtimeRef.current,
+        subscribe: (listener) => {
+          runtimeListeners.current.add(listener);
+          return () => runtimeListeners.current.delete(listener);
+        },
+        t,
+        restart: () => setServicePanel({ ask: 'restart' }),
+      }),
+    [t],
+  );
+  const env = useMemo(() => ({ t, api: pageApi, sessions: EMPTY_SESSIONS, updates }), [t, updates]);
 
   useEffect(() => window.desktop.onState(setState), []);
 
@@ -58,10 +89,11 @@ export function App({ initial }) {
     if (thumbnails) void store.getState().reload();
   }, [thumbnails, store]);
 
-  // A dialog is drawn over the artifact's view: the view is hidden while it is open.
+  // A dialog is drawn over the artifact's view: the view is hidden while one is open.
+  const overlay = dialogOpen || !!servicePanel || settingsOpen;
   useEffect(() => {
-    void window.desktop.setOverlay(dialogOpen);
-  }, [dialogOpen]);
+    void window.desktop.setOverlay(overlay);
+  }, [overlay]);
 
   // Search: the library comes to the front, the keyboard comes back to this page, then the search field takes it.
   const onSearch = useCallback(() => {
@@ -82,15 +114,27 @@ export function App({ initial }) {
     <EnvProvider env={env}>
       <StoreProvider store={store}>
         <div className="window" data-sidebar={collapsed ? 'collapsed' : 'open'}>
-          {!collapsed && <Sidebar t={t} state={state} platform={platform} onNew={openDialog} onSearch={onSearch} />}
+          {!collapsed && <Sidebar t={t} state={state} platform={platform} onNew={openDialog} onSearch={onSearch} onSettings={() => setSettingsOpen(true)} />}
           <div className="main">
             <TabBar t={t} state={state} platform={platform} onNew={openDialog} />
             <main className="content" data-testid="home" hidden={state.current !== 'home'}>
-              <ArtifactsPage canCreate theme={theme} platform={platform} searchButton={false} createButton={false} tileGroups={groups} />
+              <ArtifactsPage
+                canCreate
+                theme={theme}
+                platform={platform}
+                searchButton={false}
+                createButton={false}
+                tileGroups={groups}
+                headingTools={<ServiceStatus t={t} service={service} onOpen={() => setServicePanel({ ask: null })} />}
+              />
             </main>
           </div>
         </div>
         {dialogOpen && <NewDialog t={t} onClose={() => setDialogOpen(false)} />}
+        {settingsOpen && !servicePanel && (
+          <SettingsDialog t={t} settings={state.settings} service={service} runtime={runtime} onService={() => setServicePanel({ ask: null })} onClose={() => setSettingsOpen(false)} />
+        )}
+        {servicePanel && <ServicePanel t={t} service={service} runtime={runtime} ask={servicePanel.ask} onClose={() => setServicePanel(null)} />}
       </StoreProvider>
     </EnvProvider>
   );

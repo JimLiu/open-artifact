@@ -44,3 +44,11 @@ export const CloseIcon = () => (
     <path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
   </svg>
 );
+
+export const SettingsIcon = () => (
+  <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" style={glyph(16)}>
+    <path d="M3 6h8M15.5 6H17M3 14h1.5M9 14h8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    <circle cx="13.2" cy="6" r="2" stroke="currentColor" strokeWidth="1.5" />
+    <circle cx="6.8" cy="14" r="2" stroke="currentColor" strokeWidth="1.5" />
+  </svg>
+);

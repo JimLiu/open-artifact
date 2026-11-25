@@ -85,7 +85,8 @@ export type UpdateWord =
   | 'failed.unknown'
   | 'retry'
   | 'close'
-  | 'show';
+  | 'show'
+  | 'restart';
 
 /** A host's update offer and its run: what the panel at the top of the page draws and starts. */
 export interface PageUpdates extends ExternalStore<UpdateState> {
@@ -97,5 +98,10 @@ export interface PageUpdates extends ExternalStore<UpdateState> {
   close(): void;
   /** Unfolds what Later folded. */
   reopen(): void;
+  /**
+   * Makes an install that waits for a restart take effect (a host that can restart what runs it): with it, the done
+   * panel of such an install has a button for it (`restart` word). Without it (the default) the panel only says so.
+   */
+  restart?(): void;
   t(key: UpdateWord, params?: Record<string, string>): string;
 }

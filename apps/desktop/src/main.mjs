@@ -24,18 +24,21 @@
  *   electron . --home <dir> --port <n> [--open <artifact id>]…
  *              [--test-mode --devtools-port <n> [--locale en|zh] [--theme light|dark] [--thumbnails]]
  */
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { app, BrowserWindow, clipboard, ipcMain, nativeTheme, session, shell } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeTheme, session, shell } from 'electron';
 import { createHarness, readDaemon, runtimeInfo } from '@open-artifact/harness-kit';
 import { thumbnailStamp } from '@open-artifact/library-page/library';
 import { daemonEnv, daemonOnDefaultPort, resolveProfile } from './profile.mjs';
 import { OriginAllowlist } from './navigation.mjs';
 import { HOME_TAB, Tabs } from './tabs.mjs';
 import { TabHistory } from './history.mjs';
-import { CHOICES, Settings, chromiumLang } from './settings.mjs';
+import { CHOICES, Settings, chromiumLang, validSetting } from './settings.mjs';
 import { createArg, idArg, libraryClient, patchArg } from './library.mjs';
 import { Photographer, registerThumbnailScheme, serveThumbnails } from './thumbnails.mjs';
+import { Service } from './service.mjs';
+import { RuntimeUpdates } from './runtime.mjs';
+import { libraryDefaultFolder, newArtifactFolder } from './folders.mjs';
 
 // The bundle is out/main.mjs: the window's page is out/renderer/, the resources are beside out/.
 const here = import.meta.dirname;
@@ -86,6 +89,20 @@ const openExternal = (url) => {
   if (!profile.testMode) void shell.openExternal(url);
 };
 
+/** What reaches the system (a folder opened, a file shown in the Finder): in test mode only logged. */
+const system = {
+  openPath(path) {
+    log(`open folder ${path}${profile.testMode ? ' (test mode: not opened)' : ''}`);
+    if (!profile.testMode) void shell.openPath(path);
+    return true;
+  },
+  reveal(path) {
+    log(`reveal ${path}${profile.testMode ? ' (test mode: not shown)' : ''}`);
+    if (!profile.testMode) shell.showItemInFolder(path);
+    return true;
+  },
+};
+
 /**
  * The window's language, as the page has words for it (`zh` or `en`): the one Chromium runs with, so the app's own
  * words, the Shell's (`navigator.language`) and the editors' agree.
@@ -107,7 +124,30 @@ function settingsView() {
     forced: { theme: profile.theme ?? null, locale: profile.locale ? startLocale : null },
     running: { theme: nativeTheme.shouldUseDarkColors ? 'dark' : 'light', locale: startLocale, language: app.getLocale() },
     restartNeeded: !profile.locale && settings.get('locale') !== startLocale,
+    /** Where new artifacts go: the folder chosen here (empty: the library's own default, `libraryFolder`). */
+    artifactsFolder: settings.get('artifactsFolder'),
+    libraryFolder: libraryDefaultFolder(profile.home),
+    /** The profile folder (the Open Artifact home) and the versions, for the Advanced section. */
+    home: profile.home,
+    versions: { app: app.getVersion(), electron: process.versions.electron, chrome: process.versions.chrome, runtime: carriedVersion },
   };
+}
+
+/** The version of the runtime this app carries (read at start). */
+let carriedVersion = null;
+
+/** A folder the page may set as where new artifacts go: an absolute folder that exists. */
+function folderArg(value) {
+  if (value === '') return '';
+  if (typeof value !== 'string' || !validSetting('artifactsFolder', value)) throw new Error('not an absolute folder');
+  let isDir = false;
+  try {
+    isDir = statSync(value).isDirectory();
+  } catch {
+    // Not there.
+  }
+  if (!isDir) throw new Error(`not a folder: ${value}`);
+  return value;
 }
 
 app.on('window-all-closed', () => app.quit());
@@ -127,6 +167,7 @@ async function start() {
 
   const info = runtimeInfo(runtimeDir);
   if (!info?.version) throw new Error(`No Open Artifact runtime in ${runtimeDir}: run npm run build in apps/desktop.`);
+  carriedVersion = info.version;
 
   // A daemon already runs for this home: a development build must not connect to one on 4800.
   if (!profile.packaged && daemonOnDefaultPort(await readDaemon(profile.home))) {
@@ -192,6 +233,30 @@ async function start() {
     log: (line) => log(`kit: ${line}`),
   });
   const photographer = new Photographer({ allowlist, log });
+  // The service panel and the runtime's updates: every call here, the page gets display data only.
+  const service = new Service({
+    harness,
+    library,
+    profile,
+    runtimeDir,
+    carried: info.version,
+    log,
+    actions: system,
+    onChange: (view) => {
+      if (!window.isDestroyed()) window.webContents.send('desktop:service', view);
+      if (tabs) send();
+    },
+  });
+  const runtime = new RuntimeUpdates({
+    harness,
+    runtimeDir,
+    profile,
+    carried: info.version,
+    log,
+    onChange: (view) => {
+      if (!window.isDestroyed()) window.webContents.send('desktop:runtime', view);
+    },
+  });
 
   /** The daemon's origin and the page origins it lists; refused when a development build reached a daemon on 4800. */
   const refreshOrigins = async () => {
@@ -222,6 +287,8 @@ async function start() {
     sidebarCollapsed: settings.get('sidebarCollapsed'),
     look: look(),
     settings: settingsView(),
+    /** The service's state word (the status button's): running, reconnecting, stopped, elsewhere, failed. */
+    service: service.state(),
     /** Thumbnails are taken only while the window is on screen (or a test asks for them). */
     thumbnails: profile.thumbnails || (window.isVisible() && !window.isMinimized()),
   });
@@ -284,19 +351,25 @@ async function start() {
       libraryEvent({ type: event.type, id: event.id, removed: !!event.removed });
     } else if (event.type === 'types/changed') {
       libraryEvent({ type: event.type });
+    } else if (event.type === 'runtime/update') {
+      log(`runtime/update ${JSON.stringify({ current: event.current, available: event.available, installed: event.installed })}`);
+      runtime.event();
     }
   });
   harness.on('state', (state) => {
     log(`connection ${state}`);
+    service.connection(state);
     if (state === 'connected') {
       void refreshOrigins().then((ok) => {
         if (!ok) return;
         tabs.setConnected(true);
         libraryEvent({ type: 'connected' });
       });
+      void runtime.refresh();
     } else {
-      tabs.setConnected(false);
+      tabs.setConnected(false, { stopped: state === 'stopped' });
       libraryEvent({ type: 'disconnected' });
+      void runtime.refresh();
     }
   });
   for (const name of ['show', 'hide', 'minimize', 'restore']) window.on(name, send);
@@ -338,7 +411,9 @@ async function start() {
   });
   handle('desktop:select', (id) => tabs.select(String(id)));
   handle('desktop:close', (id) => (id === HOME_TAB ? false : tabs.close(String(id))));
-  handle('desktop:reload', (id) => tabs.reload(String(id)));
+  // The person's Reload of a tab kept as it was (`stale`): its unsaved work, which can no longer be saved, is let go.
+  // Any other reload leaves a page that holds unsaved work as it is.
+  handle('desktop:reload', (id) => tabs.reload(String(id), { discard: tabs.tabs.get(String(id))?.status === 'stale' }));
   handle('desktop:back', () => travel(history.back()));
   handle('desktop:forward', () => travel(history.forward()));
   handle('desktop:sidebar', (collapsed) => {
@@ -356,12 +431,95 @@ async function start() {
   // starts again (`restartNeeded`). The answer is the settings as `desktop:settings` gives them.
   handle('desktop:settings', () => settingsView());
   handle('desktop:setting', (name, value) => {
-    if (name !== 'theme' && name !== 'locale') throw new Error(`not a setting: ${name}`);
+    if (name === 'artifactsFolder') {
+      // The page may put it back to the library's default; a folder is chosen with the system's dialog
+      // (`desktop:choose-folder`), or, in test mode only, given here.
+      if (value !== '' && !profile.testMode) throw new Error('a folder is chosen with the dialog');
+      value = folderArg(value);
+    } else if (name !== 'theme' && name !== 'locale') throw new Error(`not a setting: ${name}`);
     settings.set(name, value);
     log(`setting ${name} = ${value}`);
     if (name === 'theme') nativeTheme.themeSource = themeSource();
     send();
     return settingsView();
+  });
+  // Where new artifacts go, chosen with the system's folder dialog (never in test mode: no dialog is shown there).
+  handle('desktop:choose-folder', async () => {
+    if (profile.testMode) {
+      log('choose folder (test mode: no dialog)');
+      return settingsView();
+    }
+    const current = settings.get('artifactsFolder') || libraryDefaultFolder(profile.home);
+    const picked = await dialog.showOpenDialog(window, { defaultPath: current, properties: ['openDirectory', 'createDirectory'] });
+    if (!picked.canceled && picked.filePaths[0]) {
+      settings.set('artifactsFolder', folderArg(picked.filePaths[0]));
+      log(`setting artifactsFolder = ${settings.get('artifactsFolder')}`);
+      send();
+    }
+    return settingsView();
+  });
+  // Opens the app again (a changed language takes effect then), with the arguments it was started with.
+  handle('desktop:relaunch', () => {
+    if (profile.testMode) {
+      log(`relaunch ${JSON.stringify(process.argv.slice(1))} (test mode: not done)`);
+      return false;
+    }
+    log('relaunch');
+    app.relaunch({ args: process.argv.slice(1) });
+    app.quit();
+    return true;
+  });
+  handle('desktop:reveal-home', () => system.reveal(profile.home));
+
+  // ---- the service panel and the runtime's updates ----
+  handle('desktop:service', async (refresh) => {
+    if (refresh === true) await service.refresh();
+    return service.view();
+  });
+  answer('desktop:service-do', async (act, arg) => {
+    switch (act) {
+      case 'restart':
+        return service.restart();
+      case 'stop':
+        return service.stop();
+      case 'start':
+        return service.start();
+      case 'restart-type':
+        return service.restartType(arg);
+      case 'logs':
+        return service.openLogs();
+      case 'reveal-home':
+        return service.revealHome();
+      case 'doctor':
+        return service.runDoctor();
+      case 'others':
+        await service.refresh();
+        return service.others();
+      default:
+        throw new Error(`not a service action: ${act}`);
+    }
+  });
+  handle('desktop:runtime', async (refresh) => {
+    if (refresh === true) await runtime.refresh();
+    return runtime.view();
+  });
+  answer('desktop:runtime-do', async (act, arg) => {
+    switch (act) {
+      case 'check':
+        return runtime.check();
+      case 'update':
+        return runtime.update();
+      case 'later':
+        return runtime.later();
+      case 'reopen':
+        return runtime.reopen();
+      case 'close':
+        return runtime.closeDone();
+      case 'checking':
+        return runtime.setChecking(arg === true);
+      default:
+        throw new Error(`not a runtime action: ${act}`);
+    }
   });
   // Keyboard focus back to the window's own page (from an artifact's view), for the search field.
   handle('desktop:focus', () => {
@@ -378,7 +536,10 @@ async function start() {
   });
   answer('library:restore', (trash) => library.restore(trash));
   answer('library:create', async (request) => {
-    const made = await library.create(createArg(request));
+    const asked = createArg(request);
+    // Under the folder chosen in Settings, named as the daemon would name it; else where the daemon puts new ones.
+    const base = settings.get('artifactsFolder');
+    const made = await library.create({ ...asked, ...(base ? { folder: newArtifactFolder(base, asked.title || asked.type) } : {}) });
     await openTab(made.id);
     return { id: made.id, title: made.title ?? '' };
   });
@@ -400,11 +561,15 @@ async function start() {
 
   if (harness.connected && !(await refreshOrigins())) return;
   tabs.setConnected(harness.connected);
+  if (harness.connected) void service.refresh();
+  void runtime.refresh();
   // The page asked before the connection was there: now it can list the library.
   if (harness.connected) libraryEvent({ type: 'connected' });
 
   window.on('closed', () => app.quit());
   app.on('before-quit', () => {
+    service.close();
+    runtime.close();
     photographer.closeAll();
     tabs.closeAll();
     harness.close();

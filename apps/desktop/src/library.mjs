@@ -104,9 +104,12 @@ export function libraryClient({ state, fetchImpl = fetch }) {
       if (typeof trash !== 'string' || !TRASH_NAME.test(trash)) throw new LibraryError('not a trash entry');
       return pageView(await call(LIBRARY_ROUTES.restore, { body: { id: trash } }), HARNESS);
     },
-    /** A new artifact of `type`: started blank when the type is one that goes straight to its editor. */
-    async create({ type, title }) {
-      const made = await call(LIBRARY_ROUTES.create, { body: { type, ...(title ? { title } : {}), ...(startsBlank(type) ? { blank: true } : {}) } });
+    /**
+     * A new artifact of `type`: started blank when the type is one that goes straight to its editor; in `folder`
+     * (absolute) when given, else where the daemon puts new artifacts.
+     */
+    async create({ type, title, folder }) {
+      const made = await call(LIBRARY_ROUTES.create, { body: { type, ...(title ? { title } : {}), ...(folder ? { folder } : {}), ...(startsBlank(type) ? { blank: true } : {}) } });
       if (typeof made?.id !== 'string' || !made.id) throw new LibraryError('the daemon made no artifact');
       return made;
     },

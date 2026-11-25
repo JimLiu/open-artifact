@@ -4,7 +4,7 @@
  * (settings.mjs), and what the home page may ask of the Library API (library.mjs).
  */
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
@@ -187,7 +187,7 @@ describe('settings', () => {
       const first = new Settings(dir);
       assert.equal(first.get('sidebarCollapsed'), false);
       first.set('sidebarCollapsed', true);
-      assert.deepEqual(JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8')), { sidebarCollapsed: true, theme: 'system', locale: 'system' });
+      assert.deepEqual(JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8')), { sidebarCollapsed: true, theme: 'system', locale: 'system', artifactsFolder: '' });
       assert.equal(new Settings(dir).get('sidebarCollapsed'), true);
       assert.throws(() => first.set('sidebarCollapsed', 'yes'), /not a setting/);
       assert.throws(() => first.set('token', 'x'), /not a setting/);
@@ -255,5 +255,75 @@ describe('what the home page may ask', () => {
     const offline = libraryClient({ state: () => null, fetchImpl });
     await assert.rejects(offline.list(), /not connected/);
     assert.equal(sent.length, 1);
+  });
+});
+
+describe('the service panel and the runtime, as the page is sent them', async () => {
+  const { appsView, daemonView, doctorView, serversView } = await import('../src/service.mjs');
+  const { newer, statusView } = await import('../src/runtime.mjs');
+  const { newArtifactFolder, slugify } = await import('../src/folders.mjs');
+  const { validSetting } = await import('../src/settings.mjs');
+
+  it('the daemon is picked field by field: never its token', () => {
+    const state = { url: 'http://127.0.0.1:4891', port: 4891, pid: 12, token: 'secret-token', version: '0.14.6', startedAt: '2026-11-25T00:00:00Z', extra: 'x' };
+    const view = daemonView(state);
+    assert.deepEqual(view, { version: '0.14.6', address: '127.0.0.1:4891', port: 4891, pid: 12, startedAt: '2026-11-25T00:00:00Z' });
+    assert.equal(JSON.stringify(view).includes('secret-token'), false);
+    assert.equal(daemonView(null), null);
+  });
+
+  it('the apps connected: one row per connection, this one marked, sessions counted', () => {
+    const answer = {
+      harnesses: [{ name: 'claude-code', title: 'Claude Code', token: 'no' }],
+      adapters: [
+        { id: 'c1', harness: 'open-artifact-desktop', sessions: [] },
+        { id: 'c2', harness: 'claude-code', sessions: [{ id: 's1' }, { id: 's2' }], polling: true, token: 'no' },
+        { harness: 'broken' },
+      ],
+    };
+    assert.deepEqual(appsView(answer, 'c1'), [
+      { connection: 'c1', harness: 'open-artifact-desktop', title: 'open-artifact-desktop', sessions: 0, polling: false, self: true },
+      { connection: 'c2', harness: 'claude-code', title: 'Claude Code', sessions: 2, polling: true, self: false },
+    ]);
+    assert.deepEqual(serversView({ servers: [{ type: 'docs', state: 'running', pid: 7, restarts: 1, port: 1, secret: 'x' }] }), [{ type: 'docs', state: 'running', pid: 7, restarts: 1, error: null }]);
+    assert.deepEqual(doctorView({ ok: true, counts: { ok: 1 }, findings: [{ id: 'a', status: 'ok', message: 'fine', env: 'x' }] }), {
+      ok: true,
+      findings: [{ id: 'a', status: 'ok', message: 'fine' }],
+      counts: { ok: 1, warn: 0, fail: 0, 'n/a': 0 },
+    });
+  });
+
+  it('runtime versions compare as x.y.z, a pre-release before its release; the status is picked', () => {
+    assert.equal(newer('0.15.0', '0.14.6'), true);
+    assert.equal(newer('0.14.6', '0.14.6'), false);
+    assert.equal(newer('0.14.10', '0.14.9'), true);
+    assert.equal(newer('0.15.0-rc.1', '0.15.0'), false);
+    assert.equal(newer('0.15.0', '0.15.0-rc.1'), true);
+    const view = statusView({ running: '0.14.6', policy: { update: 'prompt', source: 'adapter' }, check: { at: 't', available: 'not a version' }, pending: '0.15.0', token: 'x' });
+    assert.deepEqual(view, { running: '0.14.6', selected: null, policy: { update: 'prompt', source: 'adapter' }, pin: null, check: { at: 't', available: null, error: null }, pending: '0.15.0' });
+  });
+
+  it('the folder for new artifacts: an absolute folder or the default; names as the daemon makes them', () => {
+    assert.equal(validSetting('artifactsFolder', ''), true);
+    assert.equal(validSetting('artifactsFolder', '/Users/someone/Work'), true);
+    assert.equal(validSetting('artifactsFolder', 'relative/path'), false);
+    assert.equal(validSetting('artifactsFolder', '/a/../b'), false);
+    assert.equal(validSetting('artifactsFolder', '/a\0b'), false);
+    assert.equal(validSetting('artifactsFolder', 7), false);
+    assert.equal(slugify('Tide Tables, 2027!'), 'tide-tables-2027');
+    assert.equal(slugify('渡轮笔记'), '渡轮笔记');
+    assert.equal(slugify('Café'), 'cafe');
+    assert.equal(slugify('!!!'), 'artifact');
+    const base = mkdtempSync(join(tmpdir(), 'oa-unit-folders-'));
+    try {
+      assert.equal(newArtifactFolder(base, 'Ferry'), join(base, 'ferry'));
+      // An empty folder of that name is used; one with something in it is not.
+      mkdirSync(join(base, 'ferry'));
+      assert.equal(newArtifactFolder(base, 'Ferry'), join(base, 'ferry'));
+      writeFileSync(join(base, 'ferry', 'x'), '');
+      assert.equal(newArtifactFolder(base, 'Ferry'), join(base, 'ferry-2'));
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
   });
 });

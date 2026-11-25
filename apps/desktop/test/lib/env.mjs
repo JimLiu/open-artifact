@@ -72,6 +72,10 @@ export function cleanEnv(profile, port, extra = {}) {
     OPEN_ARTIFACT_PORT: String(port),
     // No update checks against the registry from a test.
     OPEN_ARTIFACT_RUNTIME_UPDATE: 'off',
+    // Never the real registry: a test that checks passes its own fake registry; anything else reaches nothing.
+    OPEN_ARTIFACT_REGISTRY: 'http://127.0.0.1:9',
+    // Never the computer's policy file.
+    OPEN_ARTIFACT_MACHINE_POLICY: join(profile.tmp, 'no-machine-policy.json'),
     ...extra,
   };
 }

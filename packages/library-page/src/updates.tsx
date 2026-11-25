@@ -43,7 +43,16 @@ export function UpdatePanel() {
   } else if (phase === 'done') {
     title = t('done', { version: to });
     text = t(restart ? 'done.restart' : 'done.session');
-    actions = <Action onClick={close}>{t('close')}</Action>;
+    actions = (
+      <>
+        <Action onClick={close}>{t('close')}</Action>
+        {restart && offer.restart && (
+          <Action primary onClick={() => offer.restart?.()}>
+            {t('restart')}
+          </Action>
+        )}
+      </>
+    );
   } else if (phase === 'failed' && failure) {
     title = t('failed');
     text = `${failure.message} ${t(failure.left === 'unknown' ? 'failed.unknown' : 'failed.kept')}`;
