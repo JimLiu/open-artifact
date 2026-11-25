@@ -10,9 +10,44 @@
 import { spawn } from 'node:child_process';
 import { closeSync, existsSync, mkdtempSync, openSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, win32 } from 'node:path';
 
-export const CANDIDATES = [
+/** Chromium browsers on Windows, each as its folder under a Program Files root (or under LOCALAPPDATA) and its program. */
+const WINDOWS_BROWSERS = [
+  ['Google\\Chrome\\Application', 'chrome.exe'],
+  ['Microsoft\\Edge\\Application', 'msedge.exe'],
+];
+
+/**
+ * Where those browsers install on Windows, in order of preference: Chrome before Edge, and for each, the machine-wide
+ * install under both Program Files roots (64-bit, as Edge's own installer and every ARM64 Windows put it, and (x86)),
+ * then the per-user one under LOCALAPPDATA (Chrome's installer when the user is no administrator). The roots come
+ * from the environment, so Windows on another drive is found too; C:\ stands in only when a variable is unset.
+ */
+export function windowsCandidates(env: NodeJS.ProcessEnv = process.env): string[] {
+  const roots = [
+    env.ProgramW6432,
+    env.ProgramFiles,
+    env['ProgramFiles(x86)'],
+    'C:\\Program Files',
+    'C:\\Program Files (x86)',
+    env.LOCALAPPDATA,
+  ].filter((root): root is string => !!root);
+  const seen = new Set<string>();
+  const paths: string[] = [];
+  for (const [folder, program] of WINDOWS_BROWSERS) {
+    for (const root of roots) {
+      const path = win32.join(root, folder, program);
+      // Windows paths ignore case, and ProgramW6432 is ProgramFiles in a 64-bit process.
+      if (seen.has(path.toLowerCase())) continue;
+      seen.add(path.toLowerCase());
+      paths.push(path);
+    }
+  }
+  return paths;
+}
+
+export const CANDIDATES: readonly string[] = [
   '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
   '/Applications/Chromium.app/Contents/MacOS/Chromium',
   '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
@@ -22,13 +57,7 @@ export const CANDIDATES = [
   '/usr/bin/chromium',
   '/usr/bin/chromium-browser',
   '/usr/bin/microsoft-edge',
-  'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
-  'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
-  // Edge installs 64-bit too (its own machine-wide installer, and every ARM64
-  // Windows), the same as Chrome just above: both Program Files paths, not
-  // only the (x86) one.
-  'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
-  'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+  ...windowsCandidates(),
 ];
 
 /** The Chrome to run: `$OPEN_ARTIFACT_CHROME` when set, else the first one found; `null` when there is none. */
