@@ -1,10 +1,27 @@
 # Changelog
 
-Every release of Open Artifact: the `@open-artifact/*` libraries, `@open-artifact/cli`, `dsh-open-artifact` and the
-agent plugins. Since 0.9.0 they all share one version; before that `dsh-open-artifact` had its own (noted per release).
+Every release of Open Artifact: the `@open-artifact/*` libraries, `@open-artifact/cli`, `dsh-open-artifact`,
+`pi-open-artifact` and the agent plugins. Since 0.9.0 they all share one version; before that `dsh-open-artifact` had its own (noted per release).
 
 Each entry is written from the commits since the previous tag (`node scripts/changelog.mjs` lists them); see
 [Releasing](README.md#releasing).
+
+## [0.16.0] - 2026-11-25
+
+Make artifacts from Pi, and install an artifact as an app of its own from Open Artifact Desktop.
+
+### Added
+
+- Pi support: `pi install npm:pi-open-artifact` gives Pi the Artifact, ArtifactData and ArtifactComments tools, the `open-artifact` skill and `/open-artifact <type> <what to make>`. Comments and requests from a page reach the Pi session that made the artifact: your own words as a message from you, a collaborator's comment or a background task's result as a separate note the model reads. Pages show whether Pi is working, and follow the files Pi's own write and edit tools change.
+- Open Artifact Desktop can install an artifact as an app of its own, from a card, a sidebar row, a tab's menu or the File menu. The app opens that one artifact in its own window and hands everything else to the desktop app. Installed apps can be uninstalled, repaired, and are refreshed when the desktop app changes.
+
+### Fixed
+
+- Desktop restarts a daemon running from an installed app before that app is moved or removed, and at start restarts only a daemon whose installed app is gone.
+
+### Integrators
+
+- A shipped harness profile for Pi (`pi`, L3 over the Harness API, session variable `PI_SESSION_ID`, markers `PI_CODING_AGENT` and `PI_SESSION_ID`). `plugins/pi` is a second full adapter on `@open-artifact/harness-kit`, alongside DeepSeek Harness, and reports its profile in `hello` so a daemon without the shipped file knows it too. Nothing in the Harness API, the kit or the Shell changed.
 
 ## [0.15.0] - 2026-11-25
 
@@ -625,6 +642,7 @@ One version for every package, with Docs and Sheets in every plugin.
 - Plugins for Claude Code, Codex, Cursor, Copilot, ChatGPT and DeepSeek Harness.
 - English and Chinese READMEs, under Apache-2.0.
 
+[0.16.0]: https://github.com/JimLiu/open-artifact/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/JimLiu/open-artifact/compare/v0.14.7...v0.15.0
 [0.14.7]: https://github.com/JimLiu/open-artifact/compare/v0.14.6...v0.14.7
 [0.14.6]: https://github.com/JimLiu/open-artifact/compare/v0.14.5...v0.14.6

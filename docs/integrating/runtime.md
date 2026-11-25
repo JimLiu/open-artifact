@@ -18,7 +18,7 @@ Ship the runtime folder with your app and name it when you connect:
 ```js
 const oa = await createHarness({
   harness: 'my-agent',
-  runtime: { dir: '/Applications/MyAgent.app/Contents/Resources/open-artifact', version: '0.15.0', update: 'prompt' },
+  runtime: { dir: '/Applications/MyAgent.app/Contents/Resources/open-artifact', version: '0.16.0', update: 'prompt' },
 });
 ```
 
@@ -58,7 +58,7 @@ const { createWriteStream } = require('node:fs');
 
 const oa = await createHarness({
   harness: 'my-agent',
-  runtime: { dir: runtimeDir, version: '0.15.0' },
+  runtime: { dir: runtimeDir, version: '0.16.0' },
   daemon: {
     spawn: ({ bin, args, env, logFile }) => {
       const child = utilityProcess.fork(bin, args, {
@@ -175,7 +175,7 @@ oa.on('event', (event) => {
   if (event.type === 'runtime/update' && event.available) offerUpdate(event.available);
 });
 // when the person agrees:
-const { installed, pending, message } = await oa.runtime.update();   // or update('0.15.0')
+const { installed, pending, message } = await oa.runtime.update();   // or update('0.16.0')
 const status = await oa.runtime.status();
 ```
 
