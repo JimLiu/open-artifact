@@ -16,6 +16,7 @@ import {
   destinationRequest,
   devBoot,
   finishedBoot,
+  givenLink,
   parseSent,
   pendingBoot,
   problemBoot,
@@ -257,6 +258,36 @@ export async function copyShellLink(fragment?: string): Promise<void> {
   notify(t('linkCopied'));
 }
 
+/**
+ * Copy link (the title menu's, a slide's, a sheet's): the link the Export tab copies, so it opens for someone else,
+ * with `fragment` (the page's own place, the address bar's by default). For the owner of an artifact that shares,
+ * that is the invite link of its least role at the network address (copying it opens sharing on the network, as
+ * there, and the note says so), or a cloud host's own address. For anyone else, a type that cannot share, or with
+ * every link off, the Shell's own address.
+ */
+export async function copyGivenLink(fragment = location.hash): Promise<void> {
+  const shares = await loadGivenLink();
+  const view = shares ? useShell.getState().share.view : null;
+  const given = view ? givenLink(view) : null;
+  if (!view || !given) return copyShellLink(fragment);
+  const opens = !view.lan && !view.cloud;
+  if (!(await copyShareLink(given.which, given.url, fragment))) return notify(useShell.getState().share.error || t('linkCopied'));
+  notify(t(opens ? 'linkCopiedNetwork' : 'linkCopied'));
+}
+
+/**
+ * Loads the sharing state {@link copyGivenLink} picks from, when this viewer gives out invite links and it is not
+ * loaded yet. The title menu calls it as it opens, so Copy link then copies at once, in the click (Safari copies
+ * nothing after a wait). Resolves whether this viewer gives out invite links.
+ */
+export async function loadGivenLink(): Promise<boolean> {
+  const boot = useShell.getState().boot;
+  const shares = !!boot && roleOf(boot) === 'owner' && (!boot.typeServer || !!boot.typeServer.sharePath);
+  const { view, unsupported } = useShell.getState().share;
+  if (shares && !view && !unsupported) await refreshShare();
+  return shares;
+}
+
 /** Copies the artifact's folder path. */
 export async function copyPath(): Promise<void> {
   await copyText(bootOf().root);
@@ -265,14 +296,18 @@ export async function copyPath(): Promise<void> {
 
 // ---- sharing -----------------------------------------------------------------------------------------------------
 
-let shareReading = false;
+let shareRead: Promise<boolean> | null = null;
 
 /** Loads the sharing state, or changes it first when `change` is given. Resolves `false` when that failed. */
-export async function refreshShare(change?: Omit<ShareRequest, 'id'>): Promise<boolean> {
-  // The panel polls every 4 s: while a read is still out, the next one waits its turn instead of piling up.
-  if (!change && shareReading) return true;
+export function refreshShare(change?: Omit<ShareRequest, 'id'>): Promise<boolean> {
+  if (change) return readShare(change);
+  // The panel polls every 4 s: while a read is still out, the next one shares it instead of piling up.
+  shareRead ??= readShare().finally(() => (shareRead = null));
+  return shareRead;
+}
+
+async function readShare(change?: Omit<ShareRequest, 'id'>): Promise<boolean> {
   const store = useShell.getState();
-  if (!change) shareReading = true;
   try {
     const boot = bootOf();
     let view: ShareView;
@@ -292,8 +327,6 @@ export async function refreshShare(change?: Omit<ShareRequest, 'id'>): Promise<b
     else if (error instanceof ApiError && error.status === 0) store.patchShare({ error: t('shareNoAnswer') });
     else store.patchShare({ error: t('shareError', { error: errorText(error) }) });
     return false;
-  } finally {
-    if (!change) shareReading = false;
   }
 }
 
@@ -302,11 +335,13 @@ let copiedTimer: ReturnType<typeof setTimeout> | null = null;
 /**
  * Copies a link and shows "Copied" on its button for a moment. A role's
  * link answers only once the artifact is shared on the network, so copying
- * one turns that on.
+ * one turns that on. A role's link carries `fragment` (the slide, the
+ * sheet, the design page) as far as the type shares it. Resolves `false`
+ * when turning it on failed.
  */
-export async function copyShareLink(which: string, url: string): Promise<void> {
+export async function copyShareLink(which: string, url: string, fragment = location.hash): Promise<boolean> {
   const store = useShell.getState();
-  const page = which === 'page' ? '' : shareFragment(store.boot, location.hash);
+  const page = which === 'page' ? '' : shareFragment(store.boot, fragment);
   await copyText(url + page);
   store.patchShare({ copied: which });
   if (copiedTimer) clearTimeout(copiedTimer);
@@ -316,7 +351,8 @@ export async function copyShareLink(which: string, url: string): Promise<void> {
   const view = store.share.view;
   // A cloud host's links work wherever its general access lets them: there is no network to open. Neither does the
   // web address of a published artifact.
-  if (which !== 'page' && which !== 'web' && view && !view.lan && !view.cloud) await refreshShare({ lan: true });
+  if (which !== 'page' && which !== 'web' && view && !view.lan && !view.cloud) return refreshShare({ lan: true });
+  return true;
 }
 
 /**

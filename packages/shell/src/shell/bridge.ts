@@ -28,7 +28,7 @@
  *   same protocol through the daemon instead (`view-channel.ts`).
  */
 
-import { copyShellLink, frameDenied } from './actions.ts';
+import { copyGivenLink, frameDenied } from './actions.ts';
 import { DOC_FRAGMENT, HOST_PROTOCOL, SLIDE_FRAGMENT } from '@open-artifact/protocol';
 import type { ChromeCommand, ChromeExportItem, ChromeExportState, PageToShell, ShellToHost, ShellToPage } from '@open-artifact/protocol';
 import { CHROME_DRAWS, CHROME_READY_TIMEOUT_MS, isShellMessage } from '@open-artifact/protocol';
@@ -321,12 +321,12 @@ function onPageMessage(message: PageToShell, event: MessageEvent): void {
       break;
     case 'copy_slide_link':
       if (store.boot?.type === 'slides' && typeof message.hash === 'string' && SLIDE_FRAGMENT.test(message.hash)) {
-        void copyShellLink(message.hash);
+        void copyGivenLink(message.hash);
       }
       break;
     case 'copy_sheet_link':
       if (store.boot?.type === 'sheets' && typeof message.page === 'string') {
-        void copyShellLink('#' + new URLSearchParams({ page: message.page }).toString());
+        void copyGivenLink('#' + new URLSearchParams({ page: message.page }).toString());
       }
       break;
     case 'sheet_page':

@@ -556,10 +556,30 @@ describe('slides', { skip: skipFor('slides') }, () => {
       assert.ok(await shell.waitFor(stage('cover')));
       assert.equal(await shell.evaluate('location.hash'), '#slide-~cover');
       await shell.evaluate(`Object.defineProperty(navigator.clipboard, 'writeText', { configurable: true, value: async text => { window.copied = text } })`);
+      // Copy link to slide (⌘⌥L) gives the Export tab's link with the slide: an invite link at the network address, not
+      // this computer's 127.0.0.1 page, and copying it shares the deck on the network (the note says so).
       await shell.evaluateAll(`document.querySelector('${rail}')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'l', code: 'KeyL', metaKey: true, altKey: true, bubbles: true }))`);
-      assert.ok(await shell.waitFor(`window.copied === location.href`));
+      assert.ok(await shell.waitFor(`window.copied?.includes('/s/') && document.body.innerText.includes('shared on your network now')`, 8000), 'the slide link is ' + await shell.evaluate('window.copied'));
+      const slideLink = await shell.evaluate('window.copied');
+      assert.ok(!slideLink.includes('/a/'), slideLink);
+      assert.equal(new URL(slideLink).hash, '#slide-~cover');
+      // The title menu's Copy link gives the same link.
+      await shell.evaluate(`window.copied = ''; document.querySelector('header button[aria-label="Artifact options"]').click()`);
+      const menuCopy = `[...document.querySelectorAll('[role="menuitem"]')].find(el => el.textContent.trim() === 'Copy link')`;
+      assert.ok(await shell.waitFor(menuCopy));
+      await shell.evaluate(menuCopy + '.click()');
+      assert.ok(await shell.waitFor('window.copied', 8000));
+      const fromMenu = await shell.evaluate('window.copied');
+      assert.equal(fromMenu, slideLink);
       await shell.evaluate(`document.querySelector('header button[aria-label="Share"]').click()`);
       assert.ok(await shell.waitFor(`[...document.querySelectorAll('[role="dialog"] button')].some(b => b.textContent.trim() === 'Export')`));
+      await shell.evaluate(`window.copied = ''; [...document.querySelectorAll('[role="dialog"] [role="tab"], [role="dialog"] button')].find(b => b.textContent.trim() === 'Export').click()`);
+      const exportCopy = `[...document.querySelectorAll('[role="dialog"] button')].find(b => b.textContent.trim() === 'Copy link')`;
+      assert.ok(await shell.waitFor(exportCopy));
+      await shell.evaluate(exportCopy + '.click()');
+      assert.ok(await shell.waitFor('window.copied'));
+      assert.equal(await shell.evaluate('window.copied'), fromMenu);
+      await shell.evaluate(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`);
       assert.deepEqual(shell.problems, []);
       // Framed by another page at #view-inline: no bar, the read-only view, and slide links the framing page follows.
       const host = await framing(`${state.url}/a/${id}#view-inline`);

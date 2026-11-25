@@ -91,7 +91,7 @@ import {
 } from '../actions.ts';
 import { useAgentName, useTitle } from '../hooks.ts';
 import { whyText } from '../labels.ts';
-import { ROLES, exportEntries, hasExportTab, isShared, leastRole, offersArchive, shownAddresses, sortedGuests } from '../model.ts';
+import { ROLES, exportEntries, givenLink, hasExportTab, isShared, leastRole, offersArchive, shownAddresses, sortedGuests } from '../model.ts';
 import { useBoot, useShell } from '../store.ts';
 
 const ROLE_NAME: Record<ShareRole, MessageKey> = { editor: 'roleEditor', commenter: 'roleCommenter', viewer: 'roleViewer' };
@@ -1377,6 +1377,8 @@ function ExportTab() {
     );
   }
   const role = view ? leastRole(view) : null;
+  // The same link as the title menu's Copy link.
+  const given = view ? givenLink(view) : null;
   const note = view
     ? !role
       ? t('allLinksOff')
@@ -1399,7 +1401,7 @@ function ExportTab() {
                 {t('invitePeople')}
               </Button>
             ) : null}
-            {view && role ? <CopyButton which={role} url={view.links[role]?.url ?? ''} /> : null}
+            {given ? <CopyButton which={given.which} url={given.url} /> : null}
             {!view ? <CopyButton which="page" url={shellLink()} /> : null}
           </div>
           {note ? <p className="mb-0 mt-2.5 text-xs text-fg-muted">{note}</p> : null}

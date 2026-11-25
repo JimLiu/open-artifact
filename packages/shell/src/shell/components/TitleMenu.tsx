@@ -37,10 +37,11 @@ import { ago, bytesText } from '../../lib/format.ts';
 import { t } from '../../lib/i18n.ts';
 import { command, openExternal, reloadPage, runAction } from '../bridge.ts';
 import {
+  copyGivenLink,
   copyPath,
-  copyShellLink,
   deleteArtifact,
   duplicate,
+  loadGivenLink,
   loadLibrary,
   openSession,
   refreshArtifact,
@@ -188,6 +189,7 @@ export function TitleMenu() {
       // Open at once on what is known; refresh behind it.
       if (useShell.getState().library === null) void loadLibrary();
       void refreshArtifact();
+      void loadGivenLink();
     }
   };
 
@@ -311,7 +313,7 @@ export function TitleMenu() {
             {t('openInNewTab')}
           </MenuItem>
         ) : null}
-        <MenuItem icon={<Link className="size-3.5" />} onSelect={() => void copyShellLink()}>
+        <MenuItem icon={<Link className="size-3.5" />} onSelect={() => void copyGivenLink()}>
           {t('copyLink')}
         </MenuItem>
         {hasPage ? (

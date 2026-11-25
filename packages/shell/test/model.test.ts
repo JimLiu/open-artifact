@@ -10,6 +10,7 @@ import {
   countText,
   deliveryOf,
   devBoot,
+  givenLink,
   isShared,
   isWorking,
   leastRole,
@@ -169,6 +170,24 @@ describe('shell model', () => {
     assert.equal(isShared(view, {}, null), true);
     assert.equal(isShared(null, { shareOn: true }, null), true);
     assert.equal(isShared(null, {}, { shared: false }), false);
+  });
+
+  it("gives out the least role's network link, not 127.0.0.1, for the title menu's Copy link as for the Export tab's", () => {
+    const off: ShareView = {
+      lan: false,
+      links: {
+        editor: { on: true, url: 'http://192.168.1.5:4800/s/e' },
+        commenter: { on: true, url: 'http://192.168.1.5:4800/s/c' },
+        viewer: { on: false, url: 'http://192.168.1.5:4800/s/v' },
+      },
+    };
+    assert.deepEqual(givenLink(off), { which: 'commenter', url: 'http://192.168.1.5:4800/s/c' });
+    // Every link off: none to give, the Shell's own address is left.
+    assert.equal(givenLink({ lan: true, links: { editor: { on: false, url: 'http://x/s/e' } } }), null);
+    // A link that is on but has no address yet gives nothing either.
+    assert.equal(givenLink({ lan: true, links: { viewer: { on: true } } }), null);
+    const cloud = { url: 'https://oa.example/a/art_1', access: 'restricted', owner: { id: 'u', name: 'Ada' }, members: [], canManage: true, settings: { viewersCanExport: true, editorsCanAskAgent: true } } as unknown as NonNullable<ShareView['cloud']>;
+    assert.deepEqual(givenLink({ lan: false, links: off.links, cloud }), { which: 'cloud', url: 'https://oa.example/a/art_1' });
   });
 
   it('tracks sent messages', () => {

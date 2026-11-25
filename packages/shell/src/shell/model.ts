@@ -303,6 +303,18 @@ export function leastRole(view: ShareView): ShareRole | null {
   return [...ROLES].reverse().find((role) => view.links[role]?.on) ?? null;
 }
 
+/**
+ * The link to give someone else, as the Export tab's Copy link and the title menu's give it: a cloud host's own
+ * address, or the invite link of the least role that is on (at the network address, not 127.0.0.1). `null` when every
+ * link is off: then only the Shell's own address is left.
+ */
+export function givenLink(view: ShareView): { which: string; url: string } | null {
+  if (view.cloud) return view.cloud.url ? { which: 'cloud', url: view.cloud.url } : null;
+  const role = leastRole(view);
+  const url = role ? view.links[role]?.url : undefined;
+  return role && url ? { which: role, url } : null;
+}
+
 /** How a message reached the owner session, from `artifacts.ask`'s `via`. */
 export type Delivery = 'delivered' | 'drafted' | 'inbox' | 'failed';
 
