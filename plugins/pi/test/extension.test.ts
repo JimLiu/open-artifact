@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import { afterEach, describe, it } from 'node:test';
 import { startFakeDaemon, type FakeDaemon } from '@open-artifact/harness-kit/testing';
 import { AGENT_PROMPT, TOOL_DEFINITIONS, type HelloParams, type ToolCallResult } from '@open-artifact/protocol';
-import { absolutePath, openArtifact, promptSection, PROMPT_SECTION } from '../src/extension.ts';
+import { absolutePath, openArtifact, PROFILE, promptSection, PROMPT_SECTION } from '../src/extension.ts';
 import type { PiCommand, PiContext, PiCustomMessage, PiExtensionAPI, PiTool } from '../src/pi.ts';
 
 const SESSION = 'pi-session-1';
@@ -114,6 +114,10 @@ describe('pi-open-artifact', () => {
     assert.equal(hello.harness, 'pi');
     assert.equal(hello.caps?.tools, 'native');
     assert.deepEqual(hello.caps?.wake, { resume: true });
+    // The daemon's own profile, sent too, so an older daemon without harnesses/pi.json knows Pi the same way.
+    const shipped = JSON.parse(readFileSync(new URL('../../../packages/daemon/harnesses/pi.json', import.meta.url), 'utf8'));
+    for (const [key, value] of Object.entries(PROFILE)) assert.deepEqual(shipped[key], value, key);
+    assert.deepEqual(hello.profile && { ...hello.profile, caps: undefined, agentName: undefined, commands: undefined }, { ...PROFILE, caps: undefined, agentName: undefined, commands: undefined });
     const attach = [...daemon.sessions.values()][0];
     assert.equal(attach.session, SESSION);
     assert.equal(attach.workspace, cwd);

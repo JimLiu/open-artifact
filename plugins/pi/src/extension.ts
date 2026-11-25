@@ -37,6 +37,21 @@ export const PROMPT_SECTION = 'open_artifact';
 /** How the skill reads for Pi: native tools, and pages shown in the computer's browser (Pi has no page view). */
 const SKILL: Omit<InstallSkillOptions, 'dir' | 'force'> = { command: COMMAND, agentName: AGENT_NAME, tools: 'native', opens: 'system' };
 
+/**
+ * Pi's profile, also reported in `hello`: a daemon that does not ship `harnesses/pi.json` (an older one already running)
+ * keeps it, so it still knows Pi's commands by their variables and refuses the person's commands there.
+ */
+export const PROFILE = {
+  title: 'Pi',
+  level: 'L3',
+  entry: 'harness-api',
+  plugin: 'pi-open-artifact',
+  sessionEnv: 'PI_SESSION_ID',
+  markers: ['PI_CODING_AGENT', 'PI_SESSION_ID'],
+  wake: ['live', 'inbox'],
+  open: 'browser',
+} as const;
+
 /** Options of {@link openArtifact}, for tests and hosts that embed Pi. */
 export interface OpenArtifactPiOptions {
   /** The Open Artifact home (default `$OPEN_ARTIFACT_HOME`, else `~/.open-artifact`). */
@@ -198,6 +213,7 @@ function setup(pi: PiExtensionAPI, options: OpenArtifactPiOptions): void {
       agentName: AGENT_NAME,
       commands: [COMMAND],
       caps: { tools: 'native', wake: { resume: true } },
+      profile: { ...PROFILE, markers: [...PROFILE.markers], wake: [...PROFILE.wake] },
       wake,
       log,
       ...(options.home ? { home: options.home } : {}),
