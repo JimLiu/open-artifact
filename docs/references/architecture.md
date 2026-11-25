@@ -77,7 +77,7 @@ packages/daemon (local open-artifact daemon, one per machine)
 its home tab, one view per artifact tab, a service panel, runtime updates, a settings dialog and a servers switcher.
 It is a Harness API host like the examples, built on `@open-artifact/harness-kit`:
 
-- **Runtime**: it carries the built `skills/open-artifact` as `resources/runtime` (`apps/desktop/scripts/build-runtime.mjs`)
+- **Runtime**: it carries the built `skills/open-artifact` as `resources/runtime` (`apps/desktop/scripts/build-runtime.ts`)
   and registers it with the kit (`runtime: { dir, version, update: 'prompt' }`); the kit starts the daemon with the
   app's executable and `ELECTRON_RUN_AS_NODE=1`, detached, so no Node.js is installed and the daemon outlives the app.
   Under Electron the daemon runs type servers as processes (`nodeChildren` mode `process`, reason `electron`).
@@ -93,19 +93,19 @@ It is a Harness API host like the examples, built on `@open-artifact/harness-kit
   connected, each tab without unsaved work is loaded again with a new view (the view's key and the type servers' ports
   belong to the old daemon); a tab with unsaved work is kept as it was and marked for the person to reload (their
   Reload asks first, then lets the page's `beforeunload` go: that work can no longer be saved).
-- **Unsaved work** (`apps/desktop/src/main.mjs`, on the Shell's `saved` report through `embedArtifact`'s `onSaved`):
+- **Unsaved work** (`apps/desktop/src/main.ts`, on the Shell's `saved` report through `embedArtifact`'s `onSaved`):
   a tab's close (the bar, ⌘W, the Shell's `close`) and the quit (⌘Q, the window's close: `close` and `before-quit` are
   held) wait up to 3 s for the save, then ask in the window's page (`state.ask`, answered over `desktop:answer`; the
   view is hidden meanwhile). A tab with `saved` null is never asked about.
-- **Single instance and links** (`apps/desktop/src/links.mjs`): `app.requestSingleInstanceLock` on the userData folder
+- **Single instance and links** (`apps/desktop/src/links.ts`): `app.requestSingleInstanceLock` on the userData folder
   (so per home in development and test runs); a second start's arguments come as `second-instance`'s
   `additionalData`. `open-artifact://artifact/<id>` is the only link taken (start arguments, `open-url` queued before
   ready, second starts). The app never registers the scheme; a package declares it in `Info.plist` only with
-  `OA_DESKTOP_URL_SCHEME=1` (`apps/desktop/scripts/info-plist.mjs`).
+  `OA_DESKTOP_URL_SCHEME=1` (`apps/desktop/scripts/info-plist.ts`).
 - **Missing folders**: the Library API's `ArtifactView.folderMissing` (true when the record's `root` is not on disk;
   additive, optional) marks an artifact whose folder went away outside the app. Its tab loads no Shell and offers
   Relocate… (`artifacts.relocate`) and Remove from Library (`artifacts.delete`, which forgets the record only).
-- **Service and updates** (`apps/desktop/src/service.mjs`, `runtime.mjs`): the person's restart, stop and start are
+- **Service and updates** (`apps/desktop/src/service.ts`, `runtime.ts`): the person's restart, stop and start are
   the kit's `daemon.restart()`, `daemon.stop()` (no reconnecting until `daemon.start()`; `daemon.json` is read every
   1.5 s so a daemon another app started is shown, with Connect) and `daemon.start()`; the apps and editors come from
   the Library API's `harnesses` and `types.servers`, an editor's restart is `types.restart`. Runtime status and Update
@@ -113,12 +113,12 @@ It is a Harness API host like the examples, built on `@open-artifact/harness-kit
   and `doctor` run the carried runtime's command line with the app's executable as Node. Every one runs in the main
   process; the page is sent display data picked field by field, never the token. The library's update offer is the
   shared `UpdatePanel` (`PageUpdates.restart` opens the service panel's restart question).
-- **Window page**: `apps/desktop/renderer/` is a React app (bundled by `apps/desktop/build.mjs` into
+- **Window page**: `apps/desktop/renderer/` is a React app (bundled by `apps/desktop/build.ts` into
   `out/renderer/`, with `PAGE_CSS` and `UPDATE_CSS` written to `page.css`) that draws the sidebar, the tab bar, the
   new dialog, the service panel, the settings dialog and the
   shared `ArtifactsPage` of `packages/library-page`. It talks to the main process only through the preload bridge
   (`window.desktop`); every `ipcMain` handler checks the sender is the window's own page. The page's `PageApi` calls
-  go to the main process, which calls the Library API with the daemon's token (`apps/desktop/src/library.mjs`, which
+  go to the main process, which calls the Library API with the daemon's token (`apps/desktop/src/library.ts`, which
   checks ids, the fields of an update, and type ids) and forwards the kit's library events. A new artifact of a
   `BUILTIN_START.blank` type is created with `blank: true` (its editor opens); one of an agent type is created empty
   (the Shell's hand-over prompt). Thumbnails: the main process loads the type's preview page in a hidden offscreen
@@ -131,18 +131,18 @@ It is a Harness API host like the examples, built on `@open-artifact/harness-kit
   `host_hello.theme` follows `nativeTheme`). The language is Chromium's `--lang`, set before `ready`, so
   `navigator.language` (which the Shell and the editors read) is that language; a changed one takes effect when the
   app is opened again (`restartNeeded`). Sheets' own View-menu theme still comes before the app's look.
-- **Menu bar** (`apps/desktop/src/menu.mjs`): the macOS application menu, built from a template of named commands
+- **Menu bar** (`apps/desktop/src/menu.ts`): the macOS application menu, built from a template of named commands
   (New by type, Open Folder… as `artifacts.add`, Import… as `artifacts.import`, Show in Finder, Move To…, Close Tab,
   the Edit items sent to the view in front, Reload, the sidebar, zoom, full screen, previous and next tab, the logs,
   doctor) and built again when the language, the types or the tab in front change. The card's More menu
   (`cardActions` of the library page) and a sidebar row's right-click menu reach the same Show in Finder and Move To…
-  (`apps/desktop/src/move.mjs`: the app moves the folder, then `artifacts.relocate`; the folder goes back when the
+  (`apps/desktop/src/move.ts`: the app moves the folder, then `artifacts.relocate`; the folder goes back when the
   daemon refuses).
-- **Downloads** (`apps/desktop/src/downloads.mjs`, `notice.mjs`): the views' partition saves to `~/Downloads` with no
+- **Downloads** (`apps/desktop/src/downloads.ts`, `notice.ts`): the views' partition saves to `~/Downloads` with no
   dialog (` (2)` when the name is taken), and cancels a download from anywhere the views may not show; an editor's
   export reaches the app as the Shell's `saved_file`. Both show a notice, a transparent `WebContentsView` of its own
   page above the tab's view, with Show in Finder.
-- **Servers** (`apps/desktop/src/servers.mjs`, `renderer/src/ServerSwitcher.jsx`): the switcher in the home tab's
+- **Servers** (`apps/desktop/src/servers.ts`, `renderer/src/ServerSwitcher.tsx`): the switcher in the home tab's
   heading (and in Settings, Service and updates) shows the daemon's `remotes` (name, address, account, reachable) and
   `cloud` settings; the app keeps no copy. Adding one is `remotes.add` with `browse: false`, then `remotes.add.wait`
   in a loop (the code and the site's approval page shown in the app, Cancel as `remotes.add.cancel`); an `http://`
@@ -170,10 +170,10 @@ It is a Harness API host like the examples, built on `@open-artifact/harness-kit
 - **Profile**: a development build refuses the default home and port 4800 and keeps Electron's folders under
   `<home>/desktop/`; so does a test-mode run of the packaged app. Test mode only: `--locale`, `--theme` (both before
   the settings), `--thumbnails`, `--offline` (every session's requests past this computer refused and listed).
-- **Packaging** (`apps/desktop/scripts/package.mjs`): a folder-form arm64 `.app`, the code in `app.asar`, the runtime
+- **Packaging** (`apps/desktop/scripts/package.ts`): a folder-form arm64 `.app`, the code in `app.asar`, the runtime
   in `Contents/Resources/runtime` (found through `process.resourcesPath`), `RunAsNode` left on, signed ad hoc.
-- **Artifacts installed as apps** (`apps/desktop/src/installed-apps.mjs`, `installed-apps-macos.mjs`,
-  `artifact-app.mjs`, `renderer/src/InstallAppDialog.jsx`): **Install as App…** in a card's More menu (the library
+- **Artifacts installed as apps** (`apps/desktop/src/installed-apps.ts`, `installed-apps-macos.ts`,
+  `artifact-app.ts`, `renderer/src/InstallAppDialog.tsx`): **Install as App…** in a card's More menu (the library
   page's `cardActions`), a sidebar row's and a tab's right-click menu and the File menu opens one dialog (unavailable,
   available, installing, installed, needs repair). An APFS clone of the packaged app in
   `~/Applications/Open Artifact Apps/`, with its own display name, bundle id and type icon and
@@ -184,11 +184,11 @@ It is a Harness API host like the examples, built on `@open-artifact/harness-kit
   the same; in test mode only inside the test's own `HOME`). Refresh and repair rebuild beside the old package and swap
   it in with the same install id, bundle id and path; the apps made by another desktop version are refreshed after the
   check at start. A package renamed inside the install folder is claimed (by the desktop app and by the app itself);
-  one moved out is not. The build's entry is `src/start.mjs`, which runs the single-artifact window when that file is
+  one moved out is not. The build's entry is `src/start.ts`, which runs the single-artifact window when that file is
   there. That app connects as harness `open-artifact-app`, starts the daemon with a desktop app's executable and
   runtime (the record's `templatePath`, another record's, then `/Applications` and `~/Applications`, never those two in
   test mode; its own when none is found), and hands other artifacts and the library to the desktop app; agents' opens
-  go to the desktop app only. **The daemon in a package** (`apps/desktop/src/daemon-host.mjs`): an app that started the
+  go to the desktop app only. **The daemon in a package** (`apps/desktop/src/daemon-host.ts`): an app that started the
   daemon from its own package writes `<home>/desktop/daemon-host.json` (valid only while `daemon.json` names that live
   pid); with it, the daemon's entry in `runtimes.json` and its `runtime.status`, the desktop app restarts the daemon
   from its own runtime before an uninstall, refresh or repair moves that package (never while a tab holds unsaved work;
@@ -196,6 +196,12 @@ It is a Harness API host like the examples, built on `@open-artifact/harness-kit
   (`daemon-in-use`). Both apps restart at start a daemon that lives in an
   installed app's package that is gone (never one whose files are gone anywhere else).
   See `apps/desktop/README.md`.
+
+Desktop sources, preloads, renderer pages, build scripts and tests are TypeScript, checked by the desktop’s own
+strict `tsconfig.json`. `src/contracts.ts` defines the page bridges and IPC channel signatures; `src/ipc.ts` and
+`src/ipc-client.ts` share them between handlers and preloads. Electron’s untyped transport is confined to those
+adapters; sender checks and runtime input validation still run in the main process. Installed-app journals and
+states have concrete interfaces and discriminated unions in `src/installed-app-types.ts`.
 
 ## Agent tools & wake loop
 

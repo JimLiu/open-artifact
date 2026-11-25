@@ -54,7 +54,7 @@ E2E tests copy built `artifact-types/` folders into isolated temporary directori
 ### Desktop app
 
 `apps/desktop/` has its own `package.json` and lock file (Electron, esbuild, React and React DOM pinned); it is not a
-workspace and not part of `npm test` or `npm run check`. `build.mjs` bundles the main process (`src/` → `out/main.mjs`,
+workspace and not part of `npm test` or `npm run check`. `build.ts` bundles the main process (`src/` → `out/main.mjs`,
 `out/preload.cjs`) and the window's page (`renderer/` → `out/renderer/app.js`, with the library page's `PAGE_CSS` as
 `page.css`, `app.css` and `index.html`); React comes from `apps/desktop/node_modules`, one copy.
 
@@ -62,13 +62,14 @@ workspace and not part of `npm test` or `npm run check`. `build.mjs` bundles the
 npm run build && node scripts/build-skill.mjs   # at the root: the runtime the app carries
 cd apps/desktop
 npm run setup                                   # npm install + install-electron (Electron 45 fetches its binary here)
-npm run build                                   # scripts/build-runtime.mjs → resources/runtime, then build.mjs → out/ (main + renderer)
-npm test                                        # build, then test/*.test.mjs one file at a time
-npm run package                                 # build, then scripts/package.mjs → dist/Open Artifact-darwin-arm64/Open Artifact.app
+npm run build                                   # scripts/build-runtime.ts → resources/runtime, then build.ts → out/ (main + renderer)
+npm run typecheck                               # strict TypeScript: app, renderer, build scripts and all tests
+npm test                                        # build, then test/*.test.ts one file at a time
+npm run package                                 # build, then scripts/package.ts → dist/Open Artifact-darwin-arm64/Open Artifact.app
 npm run test:packaged                           # test/packaged/: the packaged app's checks (package first)
 ```
 
-`scripts/build-runtime.mjs` copies `skills/open-artifact` (`scripts/`, `vendor/`, `reference/`, `SKILL.md`) into
+`scripts/build-runtime.ts` copies `skills/open-artifact` (`scripts/`, `vendor/`, `reference/`, `SKILL.md`) into
 `resources/runtime` with a `package.json` naming the CLI version, and refuses a skill that is not built or whose version
 differs from `packages/daemon`. The tests run with no `node` on PATH, a throwaway `HOME`/`OPEN_ARTIFACT_HOME`, a free
 port other than 4800, the window hidden (`--test-mode`), and drive the app over its DevTools port; each stops the
@@ -85,9 +86,9 @@ are (`RunAsNode` on), signed ad hoc on this computer. No DMG, notarization or au
 with no arguments uses the person's own home and port, so `test/packaged/` only starts it with `--home`, a port other
 than 4800, `--test-mode` and a throwaway `HOME`, and checks first that it then uses those folders only. A package
 declares no URL scheme; `OA_DESKTOP_URL_SCHEME=1 npm run package` adds `open-artifact://` to its `Info.plist`
-(`scripts/info-plist.mjs`; checked by the unit tests, never built by them), and nothing registers it.
-`test/packaged/installed-apps.test.mjs`, `installed-apps-names.test.mjs`, `installed-apps-manage.test.mjs` and
-`installed-apps-daemon.test.mjs` install artifacts as apps from that package into the throwaway `HOME`'s
+(`scripts/info-plist.ts`; checked by the unit tests, never built by them), and nothing registers it.
+`test/packaged/installed-apps.test.ts`, `installed-apps-names.test.ts`, `installed-apps-manage.test.ts` and
+`installed-apps-daemon.test.ts` install artifacts as apps from that package into the throwaway `HOME`'s
 `Applications/` and start them only by their executable, with `--test-mode` and a port other than 4800
 (`launchArtifactApp`). Test mode never opens a package and never uses the Trash (an uninstalled test package, checked
 to be the record's, is removed). macOS keeps each started app's preferences in the account's own
@@ -96,6 +97,13 @@ to be the record's, is removed). macOS keeps each started app's preferences in t
 `<bundle id>.plist` is still left there for each generated app a run started. An uninstall in test mode removes a
 preferences file only inside the test's own `HOME` (the manage test plants one there and starts its desktop app with
 `CFFIXED_USER_HOME` set to that `HOME`); a file in the account's own folder is left and logged. Run `npm run package` before `npm run test:packaged`, never at the same time.
+
+Desktop owns its TypeScript 5.9 compiler and Electron, Node, React and Chrome DevTools Protocol types. Its strict
+`tsconfig.json` covers `src/`, `renderer/`, `scripts/`, `test/` (including packaged tests) and `build.ts`; root
+`npm run typecheck` does not include it. Run `npm run check` in `apps/desktop` for its typecheck and development
+tests. Node 22.18+ runs the erasable TypeScript scripts/tests directly; esbuild emits Electron’s ESM main process,
+CommonJS sandbox preloads and browser JavaScript into `out/`. See the bilingual
+`apps/desktop/DEVELOPMENT.md` / `DEVELOPMENT.zh-CN.md` for the shared bridge and IPC contracts.
 
 ## Releasing
 

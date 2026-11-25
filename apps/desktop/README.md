@@ -18,7 +18,7 @@ switcher for the Open Artifact sites (servers) the daemon knows.
   development or test run, so two homes run side by side). A second start in the same home hands its arguments to the
   app running (`--open <id>` and `open-artifact://` links open there; the window comes to the front, only logged in
   test mode) and exits 0.
-- `open-artifact://artifact/<id>` is the only link the app takes (`src/links.mjs`, the id checked as every id is):
+- `open-artifact://artifact/<id>` is the only link the app takes (`src/links.ts`, the id checked as every id is):
   from a start's arguments, from macOS's `open-url` (which may come before `ready`; it is queued) and from a second
   start's arguments. Any other form is refused and logged, and nothing opens. The app never registers itself for the
   scheme: a development or test run calls no `setAsDefaultProtocolClient` and no `lsregister`, and a package declares
@@ -57,10 +57,10 @@ The window's page (`renderer/`, a React app bundled into `out/renderer/app.js`) 
 - **New dialog**: the two groups (each type with its icon), a title field, Create and open; a failed create says the
   daemon's reason in the dialog, which stays open. With a folder chosen in Settings, the app names the new artifact's
   folder itself, as the daemon would: `<folder>/<slug of the title>`, `-2`, `-3`… past one that exists and is not
-  empty (`src/folders.mjs`); without one the daemon decides (`<homeWorkspace>/<artifactsDir>/<slug>`).
+  empty (`src/folders.ts`); without one the daemon decides (`<homeWorkspace>/<artifactsDir>/<slug>`).
 - **Service status** (the first of the home page's heading tools, `headingTools`): a dot and the state (running,
   reconnecting, stopped, started elsewhere, failed) with how many apps are connected; it opens the service panel.
-- **Servers switcher** (next to the service status; `src/servers.mjs`, `renderer/src/ServerSwitcher.jsx`): "This
+- **Servers switcher** (next to the service status; `src/servers.ts`, `renderer/src/ServerSwitcher.tsx`): "This
   Mac" and each site of the daemon's `remotes` with its name, address, signed-in account and whether it can be
   reached. Everything is the daemon's (`remotes`, `cloud.settings`); the app keeps no copy, and reads them again every
   3 s while connected (there is no daemon event), when the panel opens and when a site's page fails, so changes made
@@ -108,7 +108,7 @@ The window's page (`renderer/`, a React app bundled into `out/renderer/app.js`) 
   `open-artifact://artifact/<id>` link when it is not running; that start has unit tests only, no run on a real
   machine). Service and updates shows the default server, with the switcher.
 
-- **Menu bar** (`src/menu.mjs`, built again when the language, the types or the tab in front change): the app menu
+- **Menu bar** (`src/menu.ts`, built again when the language, the types or the tab in front change): the app menu
   (About, Settings… `⌘,`, Services, Hide, Quit); File (New ▸ each type in the new dialog's two groups, New… `⌘N`,
   Open Folder… `⌘O` adds a folder that holds an artifact (`artifacts.add`), Import… `⇧⌘O` a `.zip` of one
   (`artifacts.import`), Show in Finder `⌥⌘R`, Move To…, Close Tab `⌘W`); Edit (the standard items, sent to the tab in
@@ -121,7 +121,7 @@ The window's page (`renderer/`, a React app bundled into `out/renderer/app.js`) 
   row's right-click menu. Move To… asks for a folder, closes the artifact's tab once its work is saved, moves the
   folder there (`<name> (2)` when the name is taken; across volumes, copied then removed), tells the daemon
   (`artifacts.relocate`) and opens the tab again; when the daemon refuses, the folder is put back.
-- **Downloads** (`src/downloads.mjs`, `src/notice.mjs`): what an artifact's view saves goes to `~/Downloads` with no
+- **Downloads** (`src/downloads.ts`, `src/notice.ts`): what an artifact's view saves goes to `~/Downloads` with no
   dialog: an editor's export (the Shell's `saved_file`, written by the type server) and the view's own downloads (the
   folder's zip, a page's `blob:` file; ` (2)`, ` (3)`… when the name is taken). A download from anywhere the views may
   not show is cancelled and logged. A notice at the window's bottom right names the file and the folder, with Show in
@@ -168,8 +168,11 @@ Then in `apps/desktop`:
 
 ```bash
 npm run setup    # npm install, then install-electron (Electron 45 downloads its binary only on this step)
+npm run typecheck # strict types for sources, pages, scripts and all tests
 npm run build    # copies the runtime into resources/runtime, bundles src/ and renderer/ into out/
 ```
+
+TypeScript development and validation: [English](DEVELOPMENT.md) · [简体中文](DEVELOPMENT.zh-CN.md).
 
 ## Running it in development
 
@@ -195,10 +198,10 @@ the app makes past this computer (the window's, the views', the thumbnails'), lo
 
 ## Artifacts installed as apps
 
-An artifact can be installed as a macOS app of its own (`src/installed-apps.mjs`, `src/installed-apps-macos.mjs`).
+An artifact can be installed as a macOS app of its own (`src/installed-apps.ts`, `src/installed-apps-macos.ts`).
 **Install as App…** is in a card's More menu (through the library page's `cardActions`), a sidebar row's right-click
 menu, a tab's right-click menu and the File menu (for the tab in front). Each opens one dialog
-(`renderer/src/InstallAppDialog.jsx`), which asks `desktop.apps.state(id)` when it opens and shows:
+(`renderer/src/InstallAppDialog.tsx`), which asks `desktop.apps.state(id)` when it opens and shows:
 
 - **unavailable**: why (a development run, an artifact of a site, the artifact or its folder missing). A development
   build shows the entries, but the dialog says only the packaged Open Artifact can install;
@@ -247,7 +250,7 @@ The bridge: `desktop.apps.state(id)`, `install(id, { confirmedName, allowCopy })
   check at start, the apps made by another version are refreshed; the dialog's Update does it for one; Repair rebuilds
   one that needs repair when its place holds its own package or nothing. The check at start also points the records at
   the desktop app where it is now (`templatePath`).
-- **The daemon running from an app's package** (`src/daemon-host.mjs`): an app that started the home's daemon with its
+- **The daemon running from an app's package** (`src/daemon-host.ts`): an app that started the home's daemon with its
   own executable or runtime writes `<home>/desktop/daemon-host.json` (`{ pid, startedAt, exe, bin, bundlePath,
   installId }`; it counts only while `daemon.json` names that pid and it is alive). With it, the daemon's runtime
   folder in `<home>/runtimes.json` and the daemon's own `runtime.status`, the desktop app knows when the daemon lives
@@ -259,8 +262,8 @@ The bridge: `desktop.apps.state(id)`, `install(id, { confirmedName, allowCopy })
   artifact opens) restart a daemon that lives in an installed app's package that is gone (renamed, moved or
   removed: a file its marker names, or a path of it inside the install folder); a daemon whose files are gone anywhere
   else is left to itself.
-- **The app**: `src/start.mjs` reads `artifact-app.json` first; with it, `src/artifact-app.mjs` runs one window for one
-  artifact (`src/artifact-window.mjs`, its views made as tabs make theirs by `src/artifact-view.mjs`), with the
+- **The app**: `src/start.ts` reads `artifact-app.json` first; with it, `src/artifact-app.ts` runs one window for one
+  artifact (`src/artifact-window.ts`, its views made as tabs make theirs by `src/artifact-view.ts`), with the
   standard title bar, its own Electron folder (`<home>/desktop/apps/<installId>/`, one instance), the desktop app's
   look and language, and a short menu (File: Show in Finder, Close). The daemon is started with a desktop app's
   executable and runtime: the record's `templatePath`, else another record's, else `/Applications/Open Artifact.app`
@@ -268,7 +271,7 @@ The bridge: `desktop.apps.state(id)`, `install(id, { confirmedName, allowCopy })
   own only when none is found. Links to the desktop app go to the first of those. Links to other
   artifacts, "All artifacts" and Duplicate go to the desktop app. An agent's open is never shown here (the daemon gives
   those to the desktop app only). Without its record, moved out of its folder, or with the artifact gone from the
-  library, it shows why on its own page (`renderer/artifact-app/`). Its pages are checked by `src/page-url.mjs`
+  library, it shows why on its own page (`renderer/artifact-app/`). Its pages are checked by `src/page-url.ts`
   (`pathToFileURL`), so a name with `#`, `?` or `%` works.
 - In test mode, opening a package (`open`) is only logged (an install answers `launch: 'skipped'`), and the Trash is
   not used: the package (checked to be the record's, inside the install folder) is removed and that is logged.
@@ -280,20 +283,20 @@ The bridge: `desktop.apps.state(id)`, `install(id, { confirmedName, allowCopy })
 ## Packaging
 
 ```bash
-npm run package        # npm run build, then scripts/package.mjs
+npm run package        # npm run build, then scripts/package.ts
 npm run test:packaged  # the packaged app's checks (test/packaged/); package first
 ```
 
-`scripts/package.mjs` makes `dist/Open Artifact-darwin-arm64/Open Artifact.app` (`dist/` is ignored by git): macOS
+`scripts/package.ts` makes `dist/Open Artifact-darwin-arm64/Open Artifact.app` (`dist/` is ignored by git): macOS
 arm64, a folder (no DMG, no notarization, no automatic updates), signed ad hoc on this computer
 (`codesign --force --deep --sign -`, the package only). It carries `out/` (the main process, the preloads, the
 pages) in `Contents/Resources/app.asar` (Electron checks it against `ElectronAsarIntegrity` in `Info.plist`) and the
 runtime in `Contents/Resources/runtime`, and the icons of installed artifact apps in
-`Contents/Resources/app-icons/`. The icon is a placeholder drawn by `scripts/placeholder-icon.mjs`, and the
+`Contents/Resources/app-icons/`. The icon is a placeholder drawn by `scripts/placeholder-icon.ts`, and the
 bundle id `dev.openartifact.desktop` is a placeholder too. Electron's fuses are left as they are: `RunAsNode` stays
 on, the daemon and the type servers run on the app's own executable. No URL scheme is declared by default, and
 nothing is installed or registered. `OA_DESKTOP_URL_SCHEME=1 npm run package` declares `open-artifact://` in the
-package's `Info.plist` (`CFBundleURLTypes`, from `scripts/info-plist.mjs`); macOS then sends such links to the app once
+package's `Info.plist` (`CFBundleURLTypes`, from `scripts/info-plist.ts`); macOS then sends such links to the app once
 it has been run from where it is installed. Nothing is registered by the app or the script either way. Electron's zip
 comes from `@electron/get`'s cache when it is there.
 
@@ -304,94 +307,95 @@ test only through the test code (`launchApp(…, { binary })`), which always pas
 ## Tests
 
 ```bash
-npm test         # builds, then runs test/*.test.mjs one file at a time
+npm run check    # strict typecheck, then builds and runs development tests
+npm test         # builds, then runs test/*.test.ts one file at a time
 ```
 
-- `unit.test.mjs`: the profile guards and test-mode flags, the navigation rules, back and forward over tabs, the
+- `unit.test.ts`: the profile guards and test-mode flags, the navigation rules, back and forward over tabs, the
   window's settings file (and the choices of the look and the language), what the page may ask of the Library API,
   the links the app takes (`open-artifact://artifact/<id>` only) and the arguments that ask to open, what a package
   adds to its `Info.plist` (nothing, or the URL type with `OA_DESKTOP_URL_SCHEME=1`), that no source registers the
   scheme, the sites' navigation rules and the servers switcher's model against a fake daemon; no Electron.
-- `no-node.test.mjs`: with no `node` on PATH, Electron as Node starts a detached daemon on a free port and the blank
-  Docs, Sheets, Slides and Whiteboard artifacts it creates open with their editors (`test/probe/chain-probe.mjs`).
-- `smoke.test.mjs`: the app in test mode: a blank doc in a tab, typing reaches the artifact's folder, no Node or
+- `no-node.test.ts`: with no `node` on PATH, Electron as Node starts a detached daemon on a free port and the blank
+  Docs, Sheets, Slides and Whiteboard artifacts it creates open with their editors (`test/probe/chain-probe.ts`).
+- `smoke.test.ts`: the app in test mode: a blank doc in a tab, typing reaches the artifact's folder, no Node or
   bridge in the view, the tab comes back after `open-artifact daemon restart` and after the daemon is stopped (the bar
   says it is reconnecting meanwhile), the daemon outlives the app.
-- `navigation.test.mjs`: the navigation guards and the permission handler in the running app, `--open`, and the
+- `navigation.test.ts`: the navigation guards and the permission handler in the running app, `--open`, and the
   refusal of port 4800 and the default home.
-- `home.test.mjs`: the sidebar, the tab bar and the home page in the running app: the list and its live updates,
+- `home.test.ts`: the sidebar, the tab bar and the home page in the running app: the list and its live updates,
   opening a card, pin and fold, rename, delete and undo, the new dialog (a blank doc whose typing reaches its folder,
   an empty design with the Shell's prompt, a failed create that says why), back and forward, folding the sidebar,
   search, and that the page never sees the token or reaches the daemon itself.
-- `look.test.mjs`: Chinese words and the dark look (`--locale zh --theme dark`), a new artifact's thumbnail taken,
+- `look.test.ts`: Chinese words and the dark look (`--locale zh --theme dark`), a new artifact's thumbnail taken,
   saved at its version and shown through `oa-thumbnail:` (`--thumbnails`), and the scheme refusing what is not an id.
-- `service.test.mjs`: the service panel against the real daemon (version, address, pid, the apps, the editors),
+- `service.test.ts`: the service panel against the real daemon (version, address, pid, the apps, the editors),
   an editor's restart, `doctor` with no `node` on PATH, Restart (the pid changes, the tab comes back), Stop (it stays
   stopped) and Start, a stop while a second kit harness is connected (it starts the daemon again; the panel says so
   and connects), and that the daemon's token is in no answer, pushed view or error the page gets.
-- `update.test.mjs`: runtime updates against a fake registry on `127.0.0.1` serving a newer runtime that runs:
+- `update.test.ts`: runtime updates against a fake registry on `127.0.0.1` serving a newer runtime that runs:
   Check, the offer, Update and Restart now (asked first; the daemon then runs the newer one), a failed check, the
   "check for updates" switch (`bundled` and back), and updates off for the computer (nothing offered, no buttons).
-- `settings-dialog.test.mjs`: the settings dialog: the look at once, a changed language with Reopen (only logged),
+- `settings-dialog.test.ts`: the settings dialog: the look at once, a changed language with Reopen (only logged),
   the folder for new artifacts and the names made in it, Show in Finder (only logged), the service row; the
   defaults with no switches and no settings file; `--locale` and `--theme` making those controls read-only.
-- `stale-tab.test.mjs`: a tab with unsaved work (its folder read-only) is kept as it was across a service restart
+- `stale-tab.test.ts`: a tab with unsaved work (its folder read-only) is kept as it was across a service restart
   (whose question names it) and shows Reload; Reload asks first: Cancel keeps the tab, Reload lets the work go and
   brings it back.
-- `unsaved.test.mjs`: a tab's close waits for the save (saved in time: it closes, no question), else asks: Cancel and
+- `unsaved.test.ts`: a tab's close waits for the save (saved in time: it closes, no question), else asks: Cancel and
   Escape keep it, Close anyway closes it, through the ×, Close Tab and `desktop.close`; a tab with no saved state
   closes at once; a real unsaved edit (a read-only folder) is asked about; the quit and the window's close wait, name
   every tab with unsaved work, and Cancel keeps the app while Quit anyway quits it. The saved states are set by the
   test (`desktop.test.saved`), so nothing waits on timing.
-- `instance.test.mjs`: a second start in the same home exits 0 at once and its `--open` and link open in the first;
+- `instance.test.ts`: a second start in the same home exits 0 at once and its `--open` and link open in the first;
   links of other forms are refused (a second start's, `open-url`'s, the `open-url` command's, a start's arguments);
   two homes run side by side; a link as a start's argument opens.
-- `relocate.test.mjs`: an artifact whose folder was moved: its tab says so with the old path and loads no Shell;
+- `relocate.test.ts`: an artifact whose folder was moved: its tab says so with the old path and loads no Shell;
   Relocate… to a wrong folder shows the daemon's answer, to the right one opens it; Remove from Library forgets it and
   leaves the folder. The folder dialog is never shown (`desktop.test.pickNext`).
-- `acceptance.test.mjs`: beside a fake agent app (harness-kit's `createHarness`): Open Folder… on the folder of an
+- `acceptance.test.ts`: beside a fake agent app (harness-kit's `createHarness`): Open Folder… on the folder of an
   agent's artifact gives one owned by nobody; an agent's artifact edited in the app keeps its owner; an agent's
   `update` to a doc open in the app shows in its tab without a reload.
-- `settings.test.mjs`: the look and language settings in an artifact's view: `navigator.language`,
+- `settings.test.ts`: the look and language settings in an artifact's view: `navigator.language`,
   `prefers-color-scheme` and `data-theme` in the Shell page and in its editor's frame, the Shell's words, the look
   switched at once in an open view, a changed language waiting for the app to open again (`restartNeeded`) and then
   taking effect, and test mode's `--locale` and `--theme` coming before the settings.
-- `downloads.test.mjs`: a Docs export (Markdown) and a Sheets export (CSV, twice: ` (2)`), the folder's zip twice and
+- `downloads.test.ts`: a Docs export (Markdown) and a Sheets export (CSV, twice: ` (2)`), the folder's zip twice and
   a page's `blob:` file twice, each in the throwaway HOME's Downloads with no dialog and named in the notice (its Show
   in Finder and Close); a download from another loopback server cancelled.
-- `menu.test.mjs`: the menu bar's structure, shortcuts and greyed-out items, and each command by name: New by type,
+- `menu.test.ts`: the menu bar's structure, shortcuts and greyed-out items, and each command by name: New by type,
   the Edit items, previous and next tab, Close Tab, Reload, the sidebar, zoom, Show in Finder, Move To… (the folder
   moved, the artifact opening from there), Open Folder…, Import…, the logs, doctor, About, Settings, and the card's
   and the sidebar row's menus.
-- `offline.test.mjs`: with `--offline`, and the daemon and the type servers sent to a proxy of the test's that
+- `offline.test.ts`: with `--offline`, and the daemon and the type servers sent to a proxy of the test's that
   refuses everything: Docs, Sheets, Slides and Whiteboard each made new, edited, quit, opened again with the edit,
   and exported once; the daemon and at least one type server are checked to run with the proxy variables
   (`HTTP_PROXY`, `HTTPS_PROXY`, `NODE_USE_ENV_PROXY=1`); Slides is also exported as PowerPoint with its current fonts,
   whose outcome is reported, not asserted; what was refused is listed (`OA_DESKTOP_OFFLINE_REPORT=<file>` writes it as
   JSON).
-- `servers.test.mjs`: against two real sites (`packages/host`, `test/lib/host.mjs`) on loopback ports, data in the
+- `servers.test.ts`: against two real sites (`packages/host`, `test/lib/host.ts`) on loopback ports, data in the
   profile, approved through the site's own forms (no browser): adding from the switcher (an `http://` address asked
   first, the code, the wait); Settings naming the default server and opening the switcher; choosing sets only the
   default; automatic publishing on (the app's and an agent's new
   artifacts go up and open there) and off; changes made on the command line (default, automatic publishing) shown;
   a site that stops (the tab shows the editable working copy); a site's home tab in the servers' partition (no
   preload, no token, no ticket) that closes without asking; removing asked first.
-- `open-in-app.test.mjs`: a fake agent app (harness-kit, no `open` of its own): with "Open agents' artifacts in this
+- `open-in-app.test.ts`: a fake agent app (harness-kit, no `open` of its own): with "Open agents' artifacts in this
   app" off, its `Artifact open` opens no tab; turned on in Settings, it opens a tab here and the browser is not used
   (`opened_in: "desktop"`); the setting refused from an agent's session.
-- `packaged/packaged.test.mjs` (`npm run test:packaged`, not in `npm test`): the packaged app uses the throwaway
+- `packaged/packaged.test.ts` (`npm run test:packaged`, not in `npm test`): the packaged app uses the throwaway
   folders when given them; with no `node` on PATH the four types open and the daemon and the type servers run the
   package's executable; an edit kept across quitting; doctor; a copy of the package in another folder starts; the
   default package's `Info.plist` declares no URL scheme.
-- `installed-apps.test.mjs` (in `npm test`): the installer with a fake package and signing: names, records, the steps
+- `installed-apps.test.ts` (in `npm test`): the installer with a fake package and signing: names, records, the steps
   cut at each point and put right at the next start, the path guards, clashes, `needsCopy`; renamed and moved
   packages; uninstall (not running, running, given up after the timeout, a Trash that fails); refresh and repair cut at
   each step; a package that is not the record's never moved; the daemon running from a package (restarted first, or
   refused with `daemonInUse` and nothing moved; skipped by the refresh at start; a stale `daemon-host.json` ignored);
   the preferences file's removal and its test-mode guard.
-- `install-app-ui.test.mjs`: a development run: the four ways in open the dialog, which says only the packaged app
+- `install-app-ui.test.ts`: a development run: the four ways in open the dialog, which says only the packaged app
   installs; nothing written to the install folder.
-- `packaged/installed-apps.test.mjs` (`npm run test:packaged`): installed through the bridge (signature, bundle id,
+- `packaged/installed-apps.test.ts` (`npm run test:packaged`): installed through the bridge (signature, bundle id,
   name, manifest, record; `df -k` shows a clone); two artifacts of one title; a cold start with no `node` and no
   daemon (the daemon runs the desktop app's executable, an edit is saved and the desktop app shows it); one instance,
   and side by side with the desktop app; an agent's open never shown in it; a broken manifest, a removed record, an
@@ -399,14 +403,14 @@ npm test         # builds, then runs test/*.test.mjs one file at a time
   `--test-mode`, a port other than 4800), and the preferences macOS keeps for them are forgotten after the run
   (`defaults delete` of their exact bundle ids clears the keys; macOS still leaves an empty `<bundle id>.plist` in the
   account's `~/Library/Preferences`, which a test never removes).
-- `packaged/installed-apps-names.test.mjs`: a title with Chinese, `#`, `?` and `%`: installed, a cold start, the
+- `packaged/installed-apps-names.test.ts`: a title with Chinese, `#`, `?` and `%`: installed, a cold start, the
   unsaved question's Yes, the "needs repair" page's button.
-- `packaged/installed-apps-manage.test.mjs`: the dialog state by state (installing held at a step, busy, Update,
+- `packaged/installed-apps-manage.test.ts`: the dialog state by state (installing held at a step, busy, Update,
   Repair, Remove Record only); the desktop app moved (the app's own executable runs the daemon); "Open in App" off;
   renamed and moved out in the Finder; refresh at start; uninstall running (quits by itself), with unsaved work kept
   (given up after the timeout) and not running, its preferences file removed (a planted one: that desktop app runs
   with `CFFIXED_USER_HOME` set to the test's `HOME`); installed again with a new install id.
-- `packaged/installed-apps-daemon.test.mjs`: the daemon started by an app's own package (no desktop app), then: the
+- `packaged/installed-apps-daemon.test.ts`: the daemon started by an app's own package (no desktop app), then: the
   package renamed and the app started again, its Update, another app's uninstall, and its own uninstall (refused first
   while a tab holds unsaved work). Each time the artifact opens, the daemon's log never says "is not installed", and
   the daemon has a new pid when the package it ran from moved (the same pid for the other app's uninstall).

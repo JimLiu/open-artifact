@@ -1,0 +1,23 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "baseUrl": "../..",
+    "paths": {
+      "@open-artifact/harness-kit": ["packages/harness-kit/src/index.ts"],
+      "@open-artifact/harness-kit/*": ["packages/harness-kit/src/*.ts"],
+      "@open-artifact/protocol": ["packages/protocol/src/index.ts"],
+      "@open-artifact/library-page": ["packages/library-page/src/index.ts"],
+      "@open-artifact/library-page/library": ["packages/library-page/src/library/index.ts"],
+      "react": ["apps/desktop/node_modules/@types/react"],
+      "react/*": ["apps/desktop/node_modules/@types/react/*"],
+      "react-dom/*": ["apps/desktop/node_modules/@types/react-dom/*"],
+      "csstype": ["apps/desktop/node_modules/csstype/index.d.ts"]
+    },
+    "types": ["node", "react", "react-dom", "electron"],
+    "erasableSyntaxOnly": true
+  },
+  "include": ["src", "renderer", "scripts", "test", "build.ts"],
+  "exclude": ["node_modules", "out", "dist", "resources"]
+}

@@ -7,21 +7,28 @@
   "main": "out/main.mjs",
   "scripts": {
     "setup": "npm install && install-electron",
-    "build": "node scripts/build-runtime.mjs && node build.mjs",
-    "start": "node build.mjs && electron .",
-    "test": "npm run build && node --test --test-concurrency=1 test/*.test.mjs",
-    "package": "npm run build && node scripts/package.mjs",
-    "test:packaged": "node --test --test-concurrency=1 test/packaged/*.test.mjs"
+    "build": "node scripts/build-runtime.ts && node build.ts",
+    "start": "node build.ts && electron .",
+    "test": "npm run build && node --test --test-concurrency=1 test/*.test.ts",
+    "package": "npm run build && node scripts/package.ts",
+    "test:packaged": "node --test --test-concurrency=1 test/packaged/*.test.ts",
+    "typecheck": "tsc -p tsconfig.json",
+    "check": "npm run typecheck && npm test"
   },
   "engines": {
     "node": ">=22.18"
   },
   "devDependencies": {
     "@electron/packager": "20.3.0",
+    "@types/node": "24.19.1",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "devtools-protocol": "0.0.1754134",
     "electron": "45.2.2",
     "esbuild": "0.25.12",
     "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "react-dom": "19.2.4",
+    "typescript": "5.9.3"
   },
   "license": "Apache-2.0"
 }
