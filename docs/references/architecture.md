@@ -51,7 +51,7 @@ packages/daemon (local open-artifact daemon, one per machine)
 | --- | --- |
 | `packages/ui` | Shared UI primitives (Base UI + Tailwind CSS). |
 | `packages/editor-kit` | Shared editor controllers & React views (comments, version history, presence, find, merge, Shell bridge). See `packages/editor-kit/README.md`. |
-| `packages/export-kit` | Browser-side export helpers (PDF, PNG, HTML, etc.). |
+| `packages/export-kit` | Browser-side export helpers shared by the Slides, Design, Whiteboard and Data editors: DOM capture to pictures and SVG, a rendered document's pages as pictures, measuring and paginating a long document for a PDF, its text layer, font embedding. |
 | `packages/canvas-engine` | Shared WebGL2 infinite canvas rendering engine. |
 | `crates/open-artifact-canvas` → `packages/wasm-canvas` | Rust/WASM canvas engine core. |
 | `crates/open-artifact-export` → `packages/wasm-export` | Rust/WASM binary exporters (e.g., PPTX/XLSX/PDF helpers). |

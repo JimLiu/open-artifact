@@ -11,9 +11,11 @@
   "dependencies": {
     "@open-artifact/data-core": "0.14.6",
     "@open-artifact/editor-kit": "0.14.6",
+    "@open-artifact/export-kit": "0.14.6",
     "@open-artifact/live-store": "0.14.6",
     "@open-artifact/runtime": "0.14.6",
     "@open-artifact/ui": "0.14.6",
+    "@open-artifact/wasm-export": "0.14.6",
     "d3-array": "3.2.4",
     "d3-axis": "3.0.0",
     "d3-brush": "3.0.0",

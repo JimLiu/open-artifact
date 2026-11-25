@@ -1,9 +1,10 @@
 // End-to-end tests of the data type's command line: the fixture dashboard (fixtures/data) is written through write-db
-// and passes check; a broken copy of each kind fails it with the finding the page would show; write-db refuses what
-// the page would drop and writes nothing; history leaves out dash/settings; upload, read-db --text and delete-asset;
-// open, wait and stop. In a browser: what a guest's page may save (a commenter only their own folder), the
-// read-only embedded view of a dashboard another page frames through the Shell, and the empty dashboard's format
-// picker and file import.
+// and passes check, also with the token names of claude.ai's dashboards; a broken copy of each kind fails it with the
+// finding the page would show; write-db refuses what the page would drop and writes nothing; history leaves out
+// dash/settings; upload, read-db --text and delete-asset; open, wait and stop. In a browser: what a guest's page may
+// save (a commenter only their own folder), the read-only embedded view of a dashboard another page frames through the
+// Shell, the empty dashboard's format picker and file import, and claude.ai's token names drawing as the dashboard's
+// own tokens in light, dark and under a look.
 //
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -71,6 +72,16 @@ describe(TYPE, { skip: skip() }, () => {
     assert.deepEqual(findingsOf(out), ['warning datasets/unused nothing on the page names it; Sources labels it "Unused".']);
   });
 
+  it('check passes a page written with the token names of the dashboards on claude.ai', T, async () => {
+    const root = copy('claude-tokens');
+    const css = readDoc(root, 'files/app.css');
+    css.text += '\n.claude { padding: var(--cds-pad-lg); gap: var(--cds-gap-md); border-radius: var(--cds-radius); font-family: var(--font-anthropic-serif); color: var(--cds-chart-status-critical); }';
+    writeDoc(root, 'files/app.css', css);
+    const out = await ctx.cli.run(['check', root, '--json']);
+    assert.equal(out.code, 0, out.stdout);
+    assert.deepEqual(findingsOf(out), ['warning datasets/unused nothing on the page names it; Sources labels it "Unused".']);
+  });
+
   it('check says when a live query names a connector the owner has not set up', T, async () => {
     const out = await ctx.cli.run(['check', ctx.root, '--json'], { env: { OPEN_ARTIFACT_CONNECTORS: path.join(path.dirname(ctx.connectors), 'none.json') } });
     assert.equal(out.code, 0, out.stdout);
@@ -89,6 +100,7 @@ describe(TYPE, { skip: skip() }, () => {
     'a mark of no dataset': [root => { const d = readDoc(root, 'files/index.html'); d.text += '\n<b data-source="nosuch" data-field="x">1</b>'; writeDoc(root, 'files/index.html', d); }, 'error files/index.html <b>: data-source="nosuch" names no dataset or dash.calc'],
     'a dataset read but not marked': [root => { const d = readDoc(root, 'files/app.js'); d.text += '\ndash.data("unused");'; writeDoc(root, 'files/app.js', d); }, 'error datasets/unused files/app.js reads it, but no element is marked'],
     'a token that does not exist': [root => { const d = readDoc(root, 'files/app.css'); d.text += '\n.x { color: var(--dash-nope); }'; writeDoc(root, 'files/app.css', d); }, 'error files/index.html var(--dash-nope) is no token of the dashboard'],
+    'a claude.ai token with nothing behind it here': [root => { const d = readDoc(root, 'files/app.css'); d.text += '\n.x { color: var(--cds-text-accent); }'; writeDoc(root, 'files/app.css', d); }, 'error files/index.html var(--cds-text-accent) is no token of the dashboard: of the claude.ai names'],
     'no dash/meta': [root => fs.rmSync(docPath(root, 'dash/meta')), 'error dash/meta is missing'],
     'saved rows kept outside data/': [root => writeDoc(root, 'datasets/notes', { title: 'Notes', source: { kind: 'store', path: 'notes/all' } }), 'error datasets/notes source.path "notes/all" isn’t under data/'],
     'saved rows in a person’s own reports': [root => writeDoc(root, 'datasets/notes', { title: 'Notes', source: { kind: 'store', path: 'data/users/me/check' } }), 'error datasets/notes source.path "data/users/me/check" is one of the page’s own reports'],
@@ -420,6 +432,61 @@ describe(`${TYPE} in a browser`, { skip: skip() || browserSkip }, () => {
     }
   });
 
+  it('gives a page the token names of the dashboards on claude.ai, as its own tokens in light, dark and under a look', T, async () => {
+    // A page brought over from claude.ai writes --cds-* and --font-anthropic-* (its spacing, sizes, chart and popover
+    // colors, fonts). Before the aliases, most of them were set nowhere here and silently fell back to nothing.
+    const { DASH_CLAUDE_TOKEN_ALIASES } = await import('../packages/data-core/src/look.ts');
+    const { dir } = install(typePath(TYPE), 'data-claude-type');
+    const serving = cli(dir, { OPEN_ARTIFACT_TYPE_SERVER_HOME: path.join(tmpDir('data-claude-state'), 'state'), OPEN_ARTIFACT_USER: 'E2E' });
+    const root = path.join(tmpDir('data-claude'), 'dashboard');
+    let page;
+    try {
+      const load = await run(path.join(fixtures, 'data', 'load.mjs'), [serving.script, root], { env: serving.env() });
+      assert.equal(load.code, 0, `the fixture did not load: ${load.stderr}`);
+      writeDoc(root, 'dash/look', { light: { ground: '#f3f5f9', card: '#ffffff', text: '#0d1b33', muted: '#5a6780', border: '#d6dce8' }, corners: '4px' });
+      const opened = await serving.json(['open', root, '--json']);
+      page = await browser.load(opened.url, { ready: "document.querySelector('#dash-root [data-source]')", timeout: 60000, settle: 1000, ignore: [/\/favicon\.ico$/] });
+      // Each probe draws with the claude.ai names; its twin with the tokens they stand for.
+      const read = mode => `(() => {
+        document.documentElement.setAttribute('data-mode', ${JSON.stringify(mode)});
+        const place = document.querySelector('#dash-root [data-source]').parentElement;
+        const draw = (pad, radius, serif, critical) => {
+          const probe = document.createElement('div');
+          probe.style.cssText = 'padding:var(' + pad + ');border-radius:var(' + radius + ');font-family:var(' + serif + ');color:var(' + critical + ');background:var(' + (pad.startsWith('--cds') ? '--cds-surface-popover' : '--dash-surface-popover') + ')';
+          place.append(probe);
+          const style = getComputedStyle(probe);
+          return { probe, style, drawn: [style.paddingTop, style.borderTopLeftRadius, style.fontFamily, style.color, style.backgroundColor] };
+        };
+        const claude = draw('--cds-pad-lg', '--cds-radius', '--font-anthropic-serif', '--cds-chart-status-critical');
+        const own = draw('--dash-pad-lg', '--dash-radius', '--font-serif', '--dash-chart-critical');
+        const value = name => claude.style.getPropertyValue(name).trim();
+        const aliases = ${JSON.stringify(DASH_CLAUDE_TOKEN_ALIASES)};
+        const shown = {
+          differ: Object.entries(aliases).filter(([alias, token]) => !value(token) || value(alias) !== value(token)).map(([alias, token]) => alias + '=' + value(alias) + ' ' + token + '=' + value(token)),
+          claude: claude.drawn, own: own.drawn,
+        };
+        claude.probe.remove();
+        own.probe.remove();
+        return shown;
+      })()`;
+      const light = await page.evaluate(read('light'));
+      assert.deepEqual(light.differ, [], 'a claude.ai name is not its token in light');
+      assert.deepEqual(light.claude, light.own, 'the claude.ai names draw unlike the tokens in light');
+      const [padding, radius, font, , popover] = light.claude;
+      assert.equal(padding, '16px');
+      assert.equal(radius, '4px', 'the look’s corners did not reach --cds-radius');
+      assert.match(font, /Georgia/);
+      assert.equal(popover, 'rgb(255, 255, 255)', 'the look’s card did not reach --cds-surface-popover');
+      const dark = await page.evaluate(read('dark'));
+      assert.deepEqual(dark.differ, [], 'a claude.ai name is not its token in dark');
+      assert.deepEqual(dark.claude, dark.own, 'the claude.ai names draw unlike the tokens in dark');
+      assert.equal(dark.claude[4], 'rgb(32, 32, 31)', 'the popover color did not follow the dark theme');
+    } finally {
+      await page?.close();
+      await serving.run(['stop']).catch(() => {});
+    }
+  });
+
   it('prints the dashboard itself, not a blank sheet, beside nothing of the editor', T, async () => {
     // Issue #24: #dash-root carries the print path's mark too, and the rule hiding every unmarked child of a marked
     // element hid the dashboard's own content. The PDF button and the browser's Print both mark the path; `beforeprint`
@@ -454,6 +521,117 @@ describe(`${TYPE} in a browser`, { skip: skip() || browserSkip }, () => {
     } finally {
       await page?.close();
       await printing.run(['stop']).catch(() => {});
+    }
+  });
+
+  it('exports the dashboard as a PDF file made in the page, and keeps Print as its own entry', { timeout: 150000 }, async () => {
+    // Export → PDF used to open the print dialog. It now saves a file: a copy of the dashboard laid out as it prints,
+    // one paper wide, each page a picture under its selectable words. Print… stays, for the dialog.
+    const { dir } = install(typePath(TYPE), 'data-pdf-type');
+    // The server saves exports into the user's Downloads folder: a home of the test's own.
+    const home = tmpDir('data-pdf-home');
+    const downloads = path.join(home, 'Downloads');
+    fs.mkdirSync(downloads, { recursive: true });
+    const exporting = cli(dir, { OPEN_ARTIFACT_TYPE_SERVER_HOME: path.join(tmpDir('data-pdf-state'), 'state'), HOME: home, OPEN_ARTIFACT_USER: 'E2E' });
+    const root = path.join(tmpDir('data-pdf'), 'dashboard');
+    let page;
+    try {
+      const load = await run(path.join(fixtures, 'data', 'load.mjs'), [exporting.script, root], { env: exporting.env() });
+      assert.equal(load.code, 0, `the fixture did not load: ${load.stderr}`);
+      const origin = new URL((await exporting.json(['open', root, '--json'])).url).origin;
+      const opened = await exporting.json(['open', root, '--shell', origin, '--json']);
+      // The server's own root (plain text, no CSP) stands in for the Shell's page, on the same origin.
+      page = await browser.load(origin + '/', { ready: 'document.readyState === "complete"', ignore: [/\/favicon\.ico$/] });
+      await page.evaluate(`(() => {
+        window.__messages = [];
+        addEventListener('message', e => window.__messages.push(e.data));
+        document.body.innerHTML = '';
+        const f = document.createElement('iframe');
+        f.src = ${JSON.stringify(opened.url)};
+        f.style.cssText = 'border:0;width:1200px;height:800px';
+        document.body.append(f);
+      })()`);
+      const formats = `(window.__messages.filter(m => m?.openArtifact === 'chrome_report' && m.report?.formats).at(-1)?.report.formats ?? [])`;
+      assert.ok(
+        await page.waitFor(`${formats}.some(f => f.format === 'pdf' && !f.disabled)`, 60000),
+        `the page never offered its PDF: ${JSON.stringify(await page.evaluate(formats))}`,
+      );
+      const offered = await page.evaluate(formats);
+      assert.deepEqual(offered.map(f => f.format), ['pdf', 'print', 'html', 'json']);
+      assert.equal(offered.find(f => f.format === 'pdf').more, undefined, 'the PDF row still says it opens something first');
+      assert.equal(offered.find(f => f.format === 'print').more, true, 'Print… does not say it opens a dialog');
+
+      const frame = `document.querySelector('iframe').contentDocument`;
+      // The Signups tab draws a bar chart from the uploaded file. A print rule of the page's own sends the note under
+      // it to a second sheet: only a copy laid out as it prints has two pages.
+      await page.evaluate(`(() => {
+        const doc = ${frame};
+        doc.getElementById('tab-signups').click();
+        const style = doc.createElement('style');
+        style.textContent = '@media print { #signups .fx-note { break-before: page } } @media screen { #signups .fx-note { break-before: auto } }';
+        doc.head.append(style);
+        // A box that scrolls on screen (a long table in a short card): paper doesn't scroll, so the copy shows all of it.
+        const scroller = doc.createElement('div');
+        scroller.id = 'e2e-scroller';
+        scroller.style.cssText = 'max-height:80px;overflow-y:auto';
+        scroller.innerHTML = Array.from({ length: 60 }, (_, row) => '<div style="height:20px;line-height:20px">Scrolled row ' + (row + 1) + '</div>').join('');
+        doc.querySelector('#signups .fx-note').after(scroller);
+      })()`);
+      assert.ok(await page.waitFor(`${frame}.querySelectorAll('#signups-chart svg rect').length > 0`, 30000), 'the signups chart drew no bars');
+      const drawn = await page.evaluate(`${frame}.getElementById('dash-root').innerText`);
+      assert.match(drawn, /Sales and signups/, 'the fixture drew no title');
+      await page.evaluate(`document.querySelector('iframe').contentWindow.postMessage({ openArtifact: 'chrome_cmd', cmd: 'export_format', request: 'e2eDashboardPdf000001', format: 'pdf' }, location.origin)`);
+      const answers = `window.__messages.filter(m => m?.openArtifact === 'chrome_export' && m.request === 'e2eDashboardPdf000001')`;
+      assert.ok(await page.waitFor(`${answers}.some(m => m.state === 'done' || m.state === 'failed')`, 90000), 'the PDF export never finished');
+      assert.deepEqual((await page.evaluate(answers)).map(m => m.state), ['started', 'done'], JSON.stringify(await page.evaluate(answers)));
+      const saved = path.join(downloads, 'Sales and signups.pdf');
+      assert.ok(await until(() => fs.existsSync(saved) && fs.statSync(saved).size > 0, 30000), `no PDF was saved: ${fs.readdirSync(downloads)}`);
+      const file = { path: saved, bytes: fs.readFileSync(saved) };
+      const pdf = file.bytes.toString('latin1');
+      assert.ok(pdf.startsWith('%PDF-'), 'the download is not a PDF');
+      // Headless Chrome speaks en-US: US Letter. The dashboard shows wider than the paper here, so the sheet lies on
+      // its side and the copy keeps the dashboard's width (the chart's bars were sized for it by script).
+      const shownWidth = await page.evaluate(`Math.ceil(${frame}.getElementById('dash-root').getBoundingClientRect().width)`);
+      assert.ok(shownWidth > 980 && shownWidth <= 1200, `the fixture shows at an unexpected width: ${shownWidth}`);
+      assert.match(pdf, /\/MediaBox ?\[ ?0 0 792 612 ?\]/, 'the pages are not Letter paper on its side');
+      assert.ok(pdf.includes('/DCTDecode'), 'the pages carry no picture');
+      // Two sheets from the page's own print rule, and a third for the rows the box scrolled out of sight on screen
+      // (1,200 px of them: more than the second sheet has left).
+      assert.match(pdf, /\/Type \/Pages[^>]*\/Count 3\b/, 'the print rule did not start a second sheet, or the scrolling box was not printed whole');
+      assert.equal(await page.evaluate(`${frame}.getElementById('e2e-scroller').clientHeight`), 80, 'the export changed the scrolling box on the page');
+
+      // The first page's picture shows the dashboard (ink on a light page), not a blank or dark sheet.
+      const at = file.bytes.indexOf('/DCTDecode');
+      const length = Number(/\/Length (\d+)/.exec(file.bytes.subarray(at, at + 200).toString('latin1'))?.[1]);
+      const start = file.bytes.indexOf('stream\n', at) + 'stream\n'.length;
+      const picture = `data:image/jpeg;base64,${file.bytes.subarray(start, start + length).toString('base64')}`;
+      const seenInk = await page.evaluate(`(async () => {
+        const image = new Image();
+        image.src = ${JSON.stringify(picture)};
+        await image.decode();
+        const canvas = Object.assign(document.createElement('canvas'), { width: image.naturalWidth, height: image.naturalHeight });
+        const context = canvas.getContext('2d');
+        context.drawImage(image, 0, 0);
+        const { data } = context.getImageData(0, 0, canvas.width, canvas.height);
+        let dark = 0, light = 0;
+        for (let i = 0; i < data.length; i += 4) {
+          const luma = (data[i] * 299 + data[i + 1] * 587 + data[i + 2] * 114) / 1000;
+          if (luma < 96) dark += 1;
+          else if (luma > 224) light += 1;
+        }
+        return { width: canvas.width, height: canvas.height, dark: dark / (data.length / 4), light: light / (data.length / 4) };
+      })()`);
+      assert.equal(seenInk.width, shownWidth * 2, `the page picture is not the dashboard's width at two pixels a CSS pixel: ${JSON.stringify(seenInk)}`);
+      assert.ok(Math.abs(seenInk.width / seenInk.height - 792 / 612) < 0.01, `the page picture is not the sheet's shape: ${JSON.stringify(seenInk)}`);
+      assert.ok(seenInk.dark > 0.002, `the PDF page is blank: ${JSON.stringify(seenInk)}`);
+      assert.ok(seenInk.light > 0.5, `the PDF page is not in the light look: ${JSON.stringify(seenInk)}`);
+
+      // The live page is as it was: no frame left behind, nothing marked for print.
+      assert.equal(await page.evaluate(`${frame}.querySelectorAll('[data-dash-print-copy], [data-dash-print-path]').length`), 0, 'the export left its frame or its print marks behind');
+      assert.equal(await page.evaluate(`${frame}.getElementById('dash-root').innerText`), drawn, 'the export changed the page');
+    } finally {
+      await page?.close();
+      await exporting.run(['stop']).catch(() => {});
     }
   });
 });

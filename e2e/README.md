@@ -126,9 +126,21 @@ The harness asks its questions (`waitFor`, `evaluateAll`, `load`'s `ready`) in a
 - `open` serves the page and reuses the address. In Chrome, the grid shows the sheet, and an `update` sent while it is open reaches the formula bar at once.
 - `comments` lists no threads on a new Sheet; `stop` stops the server.
 
+**Data: claude.ai token names** (`data.test.mjs`, a check case each way and one case in Chrome)
+
+- A page whose CSS writes the names of the dashboards on claude.ai (`--cds-pad-lg`, `--cds-gap-md`, `--cds-radius`, `--font-anthropic-serif`, `--cds-chart-status-critical`) passes `check`; a claude.ai name with nothing behind it here (`--cds-text-accent`) fails it with an error saying only the names in `reference/design-defaults.md` are set.
+- In Chrome, the fixture dashboard opens under a `dash/look` with its own light colors and 4px corners. In light and in dark mode, every claude.ai name computes to the value of the token it stands for, and a probe drawn with the claude.ai names draws as its twin drawn with the tokens: 16px padding, the look's corners, the serif font, the critical chart color and the popover surface, which is the look's card in light and the dark theme's own in dark. Before, most of those names were set nowhere and fell back to nothing.
+
 **Data: printing** (`data.test.mjs`, one case, Chrome only)
 
-- The fixture dashboard, opened by `open`, is laid out for print (`Emulation.setEmulatedMedia`) and sent `beforeprint`, as the PDF button and the browser's Print both mark the dashboard's path. The dashboard prints at its full length with its title, the data note prints under it, and nothing of the editor around it shows; `afterprint` clears the marks. Before the fix for issue #24, the sheet held only the data note.
+- The fixture dashboard, opened by `open`, is laid out for print (`Emulation.setEmulatedMedia`) and sent `beforeprint`, as Print… and the browser's Print both mark the dashboard's path. The dashboard prints at its full length with its title, the data note prints under it, and nothing of the editor around it shows; `afterprint` clears the marks. Before the fix for issue #24, the sheet held only the data note.
+
+**Data: the PDF file** (`data.test.mjs`, one case, Chrome only)
+
+- The fixture dashboard is framed by a stand-in Shell page, as `open --shell` serves it. Its report lists `pdf`, `print`, `html` and `json`; only `print` says it opens something first.
+- The Signups tab is opened (a bar chart drawn by script at the dashboard's width), and the page is given a print rule of its own that sends the note under the chart to a new sheet, with a screen rule that says the opposite.
+- `export_format pdf` answers `started` then `done` and saves `Sales and signups.pdf` into the test's own Downloads folder, with no print dialog. The file is a PDF of three US Letter sheets on their side (the print rule applied, the screen one did not; a box that scrolls on screen is printed whole, its 60 rows running onto the third sheet; the dashboard is wider than the paper), and the first sheet's picture is the dashboard's width at two pixels a CSS pixel, mostly light, with ink on it.
+- Afterwards the live page holds neither the export's hidden frame nor a print mark, and reads as it did before.
 
 **Cloud host** (`host.test.mjs`, Chrome only)
 
@@ -226,7 +238,7 @@ The harness asks its questions (`waitFor`, `evaluateAll`, `load`'s `ready`) in a
 
 - The same host, with one sample of each of the 8 types imported. The owner signs in and opens each.
 - Every export the page offers is started with the real mouse (the Export tab, Motion's Export dialog, the design system's Download button) and must arrive as a browser download (`Browser.setDownloadBehavior`) with the right name, size and first bytes: `%PDF`, PNG, `PK` with the Office parts for .pptx/.docx/.xlsx, `ftyp` for MP4, `GIF8`, HTML, JSON. The host never renders.
-- A Docs PDF opens the print view and calls its `print()` (stubbed before the click), with a toast that says to choose "Save as PDF"; no file is downloaded. A Data PDF prints the dashboard the same way.
+- A Docs PDF opens the print view and calls its `print()` (stubbed before the click), with a toast that says to choose "Save as PDF"; no file is downloaded. Data's Print… prints the dashboard the same way, while its PDF is a file the page makes and downloads like the others. A viewer the owner does not let export gets neither.
 - MP4 is skipped, and said so, where this Chrome has no H.264 encoder.
 - With "Viewers can download and export" off, a viewer who joined by link is refused with a readable message and gets no file; turned on, the same export downloads.
 - A to-do case: a Docs file keeps the doc's name (it needs the type server to expose `content-disposition` to the Shell).

@@ -1,4 +1,4 @@
-import { DASH_ROOT_SELECTOR, dashChartToken } from '@open-artifact/data-core';
+import { DASH_CLAUDE_TOKEN_ALIASES, DASH_ROOT_SELECTOR, dashChartToken } from '@open-artifact/data-core';
 
 type TokenTheme = Readonly<Record<string, string>>;
 
@@ -97,6 +97,14 @@ export const PAGE_DARK_TOKENS: TokenTheme = {
   ...chartTokens(DARK_CHARTS),
 };
 
+/**
+ * The claude.ai names of the tokens, each set to its token here. Written once on the root: `var()` resolves there,
+ * after the theme and `dash/look` have set the token, so an alias follows both.
+ */
+export const PAGE_ALIAS_TOKENS: TokenTheme = Object.fromEntries(
+  Object.entries(DASH_CLAUDE_TOKEN_ALIASES).map(([alias, token]) => [alias, `var(${token})`]),
+);
+
 const declarations = (tokens: TokenTheme): string =>
   Object.entries(tokens)
     .map(([name, value]) => `${name}:${value}`)
@@ -112,7 +120,7 @@ export function getDefaultTokenCss(): string {
   const root = DASH_ROOT_SELECTOR;
   const dark = declarations(PAGE_DARK_TOKENS);
   return (
-    rule(root, `${declarations(PAGE_BASE_TOKENS)};${declarations(PAGE_LIGHT_TOKENS)};color-scheme:light`) +
+    rule(root, `${declarations(PAGE_BASE_TOKENS)};${declarations(PAGE_LIGHT_TOKENS)};${declarations(PAGE_ALIAS_TOKENS)};color-scheme:light`) +
     `@media screen{${rule(`html[data-mode="dark"] ${root}`, `${dark};color-scheme:dark`)}}` +
     `@media screen and (prefers-color-scheme:dark){${rule(`html:not([data-mode]) ${root}`, `${dark};color-scheme:dark`)}}`
   );

@@ -16,7 +16,7 @@ import {
   type DashboardReadyState,
 } from '../src/page/runtime.ts';
 import { getSelectionLabelText, type ElementSelection } from '../src/page/selection.ts';
-import { PAGE_BASE_TOKENS, PAGE_DARK_TOKENS, PAGE_LIGHT_TOKENS, getDefaultTokenCss, getPageStyleCss } from '../src/page/tokens.ts';
+import { PAGE_ALIAS_TOKENS, PAGE_BASE_TOKENS, PAGE_DARK_TOKENS, PAGE_LIGHT_TOKENS, getDefaultTokenCss, getPageStyleCss } from '../src/page/tokens.ts';
 
 const AT = Date.UTC(2026, 0, 1);
 const fileDataset = (id: string): Dataset => ({
@@ -106,12 +106,30 @@ describe('page tokens and chart colors', () => {
   });
 
   it('defines exactly the tokens the page check knows', () => {
-    const light = new Set([...Object.keys(PAGE_BASE_TOKENS), ...Object.keys(PAGE_LIGHT_TOKENS)]);
-    const dark = new Set([...Object.keys(PAGE_BASE_TOKENS), ...Object.keys(PAGE_DARK_TOKENS)]);
+    const aliases = Object.keys(PAGE_ALIAS_TOKENS);
+    const light = new Set([...Object.keys(PAGE_BASE_TOKENS), ...Object.keys(PAGE_LIGHT_TOKENS), ...aliases]);
+    const dark = new Set([...Object.keys(PAGE_BASE_TOKENS), ...Object.keys(PAGE_DARK_TOKENS), ...aliases]);
     const known = [...DASH_DEFINED_TOKENS].filter((token) => token !== '--dash-gutter');
     assert.deepEqual([...light].filter((token) => !DASH_DEFINED_TOKENS.has(token)), []);
     assert.deepEqual(known.filter((token) => !light.has(token)), []);
     assert.deepEqual(known.filter((token) => !dark.has(token)), []);
+  });
+
+  it('sets each claude.ai token name on the root to a token the theme defines', () => {
+    const css = getDefaultTokenCss();
+    const rootRule = css.slice(0, css.indexOf('}'));
+    const themed = new Set([...Object.keys(PAGE_BASE_TOKENS), ...Object.keys(PAGE_LIGHT_TOKENS)]);
+    for (const [alias, value] of Object.entries(PAGE_ALIAS_TOKENS)) {
+      const token = /^var\((--[\w-]+)\)$/.exec(value)?.[1] ?? '';
+      assert.ok(themed.has(token), `${alias} stands for ${value}, which the root does not set`);
+      assert.ok(Object.hasOwn(PAGE_DARK_TOKENS, token) || Object.hasOwn(PAGE_BASE_TOKENS, token), `${token} has no dark value`);
+      assert.ok(rootRule.includes(`${alias}:${value}`), `the root rule does not set ${alias}`);
+    }
+    assert.equal(PAGE_ALIAS_TOKENS['--cds-gap-md'], 'var(--dash-gap-md)');
+    assert.equal(PAGE_ALIAS_TOKENS['--cds-chart-status-critical'], 'var(--dash-chart-critical)');
+    assert.equal(PAGE_ALIAS_TOKENS['--cds-chart-categorical-1'], 'var(--dash-chart-1)');
+    assert.equal(PAGE_ALIAS_TOKENS['--font-anthropic-serif'], 'var(--font-serif)');
+    assert.ok(!/html\[data-mode="dark"\] #dash-root\{[^}]*--cds-/.test(css), 'the dark rule repeats the aliases');
   });
 });
 

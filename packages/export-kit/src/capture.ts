@@ -178,15 +178,23 @@ export interface ForeignObjectSize {
   /** The SVG's own size (default: the layout size). */
   outerWidth?: number;
   outerHeight?: number;
+  /**
+   * The device pixels per CSS px the markup was laid out at (its window's `devicePixelRatio`). An SVG image is laid
+   * out at 1, and some text is as wide as its size in device pixels says (the system font's Han glyphs on macOS), so
+   * lines measured on a 2× screen would wrap elsewhere in the drawing. With it, the drawing lays out zoomed by as
+   * much and is scaled back, and its text is as wide as it was measured.
+   */
+  zoom?: number;
 }
 
 /** An SVG document drawing serialized XHTML `markup`, styled by `css`, through a `<foreignObject>`. */
 export function foreignObjectSvg(markup: string, css: string, size: ForeignObjectSize): string {
   const { width, height } = size;
+  const zoom = size.zoom !== undefined && Number.isFinite(size.zoom) && size.zoom > 0 && size.zoom !== 1 ? size.zoom : 1;
   return (
-    `<svg xmlns="${SVG_NS}" width="${size.outerWidth ?? width}" height="${size.outerHeight ?? height}" viewBox="0 0 ${width} ${height}">` +
-    `<foreignObject x="0" y="0" width="${width}" height="${height}">` +
-    `<div xmlns="${XHTML_NS}" style="width:${width}px;height:${height}px;margin:0;overflow:hidden"><style>${xmlText(css)}</style>${markup}</div>` +
+    `<svg xmlns="${SVG_NS}" width="${size.outerWidth ?? width}" height="${size.outerHeight ?? height}" viewBox="0 0 ${width * zoom} ${height * zoom}">` +
+    `<foreignObject x="0" y="0" width="${width * zoom}" height="${height * zoom}">` +
+    `<div xmlns="${XHTML_NS}" style="width:${width}px;height:${height}px;margin:0;overflow:hidden${zoom === 1 ? '' : `;zoom:${zoom}`}"><style>${xmlText(css)}</style>${markup}</div>` +
     '</foreignObject></svg>'
   );
 }

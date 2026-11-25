@@ -2,12 +2,17 @@ import type { ChromeReport } from '@open-artifact/runtime';
 
 export type ChromeFormat = NonNullable<ChromeReport['formats']>[number];
 
-export type DashboardExportFormat = 'pdf' | 'html' | 'json';
+/** `print` opens the browser's print dialog; the others make a file. */
+export type DashboardExportFormat = 'pdf' | 'print' | 'html' | 'json';
 
-export const DASHBOARD_EXPORT_FORMATS: readonly DashboardExportFormat[] = ['pdf', 'html', 'json'];
+/** The formats that make a file. */
+export type DashboardFileFormat = Exclude<DashboardExportFormat, 'print'>;
+
+export const DASHBOARD_EXPORT_FORMATS: readonly DashboardExportFormat[] = ['pdf', 'print', 'html', 'json'];
 
 export const DASHBOARD_EXPORT_LABELS: Readonly<Record<DashboardExportFormat, { label: string; description: string }>> = {
-  pdf: { label: 'PDF', description: 'Print the dashboard, or save it as a PDF, in the light look.' },
+  pdf: { label: 'PDF', description: 'The dashboard on paper-size pages, in the light look, with text you can select.' },
+  print: { label: 'Print…', description: 'Open the print dialog, to print the dashboard or choose the paper and margins yourself.' },
   html: { label: 'Web page (HTML)', description: 'A copy of the page as it shows now. Its numbers do not update.' },
   json: { label: 'Sources and page (JSON)', description: 'Where each number comes from, the filters in effect, and a copy of the page.' },
 };
@@ -37,7 +42,7 @@ export function dashboardChromeFormats(
   return offered.map((format) => ({
     format,
     ...DASHBOARD_EXPORT_LABELS[format],
-    ...(format === 'pdf' ? { more: true } : {}),
+    ...(format === 'print' ? { more: true } : {}),
     ...state,
   }));
 }

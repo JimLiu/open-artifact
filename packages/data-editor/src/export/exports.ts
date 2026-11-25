@@ -1,8 +1,8 @@
 /**
- * Exports of the whole dashboard, offered to the Shell once the page has settled: a PDF (printed, in the light
- * look), a static HTML copy, and the JSON manifest of the sources with that copy. Files are saved through the host's
- * `downloads` capability when it has one, else as a browser download. Outside a Shell the same exports run from the
- * page's own controls through {@link downloadDashboardExport}.
+ * Exports of the whole dashboard, offered to the Shell once the page has settled: a PDF file made in the page (pdf.ts,
+ * in the light look), the browser's print dialog, a static HTML copy, and the JSON manifest of the sources with that
+ * copy. Files are saved through the host's `downloads` capability when it has one, else as a browser download. Outside
+ * a Shell the same exports run from the page's own controls through {@link downloadDashboardExport}.
  */
 
 import { DEFAULT_DASHBOARD_TITLE, type Dataset } from '@open-artifact/data-core';
@@ -22,8 +22,10 @@ import {
   isDashboardExportFormat,
   type DashboardExportAvailability,
   type DashboardExportFormat,
+  type DashboardFileFormat,
 } from './formats.ts';
 import { canAskAgent, sendPageRequest } from '../drafts/request.ts';
+import { buildDashboardPdf } from './pdf.ts';
 import { installDashboardPrint, hasPagePrintLayout, printDashboard } from './print.ts';
 import { buildStaticHtmlCopy, canCopyStaticPage } from './static-html.ts';
 
@@ -50,9 +52,9 @@ export function getDashboardExportAvailability(): DashboardExportAvailability {
   return isPageSettled(maybeDataEngine()) ? { ready: true } : { ready: false, why: 'other', reason: NOT_SETTLED_REASON };
 }
 
-/** The formats this page offers here (the copies need `checkVisibility`). */
+/** The formats this page offers here (the HTML and JSON copies need `checkVisibility`). */
 export function offeredDashboardExportFormats(): DashboardExportFormat[] {
-  return canCopyStaticPage() ? [...DASHBOARD_EXPORT_FORMATS] : ['pdf'];
+  return canCopyStaticPage() ? [...DASHBOARD_EXPORT_FORMATS] : ['pdf', 'print'];
 }
 
 function exportContext(engine: DataEngine): DashboardExportContext {
@@ -81,13 +83,14 @@ function waitForRedraw(page: PageHandle | null): Promise<void> {
   });
 }
 
-/** Makes a copy format's file from the page as it shows now. */
-export async function produceDashboardFile(format: 'html' | 'json'): Promise<ExportFile> {
+/** Makes a format's file from the page as it shows now. */
+export async function produceDashboardFile(format: DashboardFileFormat): Promise<ExportFile> {
   const engine = maybeDataEngine();
   await waitForRedraw(usePageRuntime.getState().page);
   const page = pageExportSnapshot();
   if (engine === null || page === null) throw new Error('The dashboard isn’t showing yet.');
   const context = exportContext(engine);
+  if (format === 'pdf') return { filename: exportFilename(context.title, 'pdf'), data: await buildDashboardPdf({ root: page.root, title: context.title }) };
   const at = Date.now();
   const copy = buildStaticHtmlCopy({ root: page.root, title: context.title, at });
   if (format === 'html')
@@ -99,19 +102,21 @@ export async function produceDashboardFile(format: 'html' | 'json'): Promise<Exp
 }
 
 /** What an export did: printed, or saved a file (through the host or as a browser download). */
-export type DashboardExportOutcome = { format: 'pdf'; printed: true } | { format: 'html' | 'json'; filename: string; saved: SavedFile };
+export type DashboardExportOutcome = { format: 'print'; printed: true } | { format: DashboardFileFormat; filename: string; saved: SavedFile };
 
 let busy = false;
 
-/** Runs an export: opens the print dialog for `pdf`, else makes the file and saves it. */
+/** Runs an export: opens the print dialog for `print`, else makes the file and saves it. */
 export async function exportDashboard(format: DashboardExportFormat): Promise<DashboardExportOutcome> {
-  if (format === 'pdf') {
-    // A print is no download, but the PDF button follows the owner's export switch like the others (a viewer refused
+  if (format === 'print') {
+    // A print is no download, but the Print button follows the owner's export switch like the others (a viewer refused
     // on a host). Only the product's own button: the browser's print and a screenshot stay open to anyone who sees it.
     await assertMayExport(maybeSession()?.downloads);
     await printDashboard();
     return { format, printed: true };
   }
+  // Drawing the PDF's pages takes a while: a viewer the owner refuses hears so before it starts, not after.
+  if (format === 'pdf') await assertMayExport(maybeSession()?.downloads);
   const file = await produceDashboardFile(format);
   const saved = await saveFile(maybeSession()?.downloads, file.filename, file.data);
   return { format, filename: file.filename, saved };
@@ -137,7 +142,7 @@ export async function downloadDashboardExport(format: DashboardExportFormat): Pr
   busy = true;
   try {
     const outcome = await exportDashboard(format);
-    if (outcome.format !== 'pdf')
+    if (outcome.format !== 'print')
       toast.add({ title: outcome.saved.to === 'host' ? `Saved ${outcome.filename}` : `Downloaded ${outcome.filename}` });
   } catch (error) {
     if (isRefused(error)) toast.add({ title: errorText(error), type: 'error' });
@@ -160,13 +165,19 @@ async function runShellExport(request: string, format: string, variant: string |
   }
   busy = true;
   shell.exportState(request, 'started');
+  // The Shell closes its panel on the click and says nothing more unless the export fails. Drawing the PDF's pages
+  // takes seconds, so the page says it is at work; and a file the host saved shows no download in the browser, so
+  // the page says where it went.
+  const progress = format === 'pdf' ? toast.add({ title: 'Exporting PDF…', timeout: 0 }) : undefined;
   try {
-    await exportDashboard(format);
+    const outcome = await exportDashboard(format);
     shell.exportState(request, 'done');
+    if (outcome.format !== 'print' && outcome.saved.to === 'host') toast.add({ title: `Exported ${outcome.filename}`, description: outcome.saved.savedTo });
   } catch (error) {
     if (isDeclined(error)) shell.exportState(request, 'declined');
     else shell.exportState(request, 'failed', errorText(error));
   } finally {
+    if (progress !== undefined) toast.close(progress);
     busy = false;
   }
 }
