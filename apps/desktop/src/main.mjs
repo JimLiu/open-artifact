@@ -1283,11 +1283,12 @@ async function start() {
     commands['open-url'] = (url) => takeLink(String(url ?? ''), 'command');
   }
 
-  // A daemon living in files that are gone (an app's package it ran from, renamed, moved or removed since) can no
-  // longer load a type it has not loaded yet: restarted now, from this app's own runtime.
+  // A daemon living in an installed app's package that is gone (renamed, moved or removed since) can no longer load a
+  // type it has not loaded yet: restarted now, from this app's own runtime. A daemon whose files are gone anywhere
+  // else is left to itself.
   if (harness.connected) {
     const host = await daemonHostLive(profile.home, harness).catch(() => null);
-    if (daemonHostGone(host)) {
+    if (daemonHostGone(host, installDir)) {
       log(`daemon ${host.pid} runs from files that are gone (${host.paths.join(', ')}): restarted`);
       await service.restart().catch((error) => log(`daemon restart: ${error?.message ?? error}`));
     }

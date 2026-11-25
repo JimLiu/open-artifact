@@ -256,7 +256,9 @@ The bridge: `desktop.apps.state(id)`, `install(id, { confirmedName, allowCopy })
   when it still runs from there, nothing is moved, the record stays as it was, and the answer says `daemonInUse` (the
   dialog says so in words). The refresh after the check at start never restarts the shared daemon: such an app is left
   (`daemon-in-use`) for the dialog's Update. At start, the desktop app and the app (after it connects, before its
-  artifact opens) restart a daemon whose files are gone (its package renamed, rebuilt or removed).
+  artifact opens) restart a daemon that lives in an installed app's package that is gone (renamed, moved or
+  removed: a file its marker names, or a path of it inside the install folder); a daemon whose files are gone anywhere
+  else is left to itself.
 - **The app**: `src/start.mjs` reads `artifact-app.json` first; with it, `src/artifact-app.mjs` runs one window for one
   artifact (`src/artifact-window.mjs`, its views made as tabs make theirs by `src/artifact-view.mjs`), with the
   standard title bar, its own Electron folder (`<home>/desktop/apps/<installId>/`, one instance), the desktop app's

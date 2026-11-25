@@ -193,7 +193,8 @@ It is a Harness API host like the examples, built on `@open-artifact/harness-kit
   pid); with it, the daemon's entry in `runtimes.json` and its `runtime.status`, the desktop app restarts the daemon
   from its own runtime before an uninstall, refresh or repair moves that package (never while a tab holds unsaved work;
   otherwise nothing is moved and the answer says `daemonInUse`); the refresh at start skips such an app
-  (`daemon-in-use`). Both apps restart at start a daemon whose files are gone.
+  (`daemon-in-use`). Both apps restart at start a daemon that lives in an
+  installed app's package that is gone (never one whose files are gone anywhere else).
   See `apps/desktop/README.md`.
 
 ## Agent tools & wake loop

@@ -1006,6 +1006,12 @@ describe('install as app: the daemon running from an app\'s package', () => {
     const host = daemonHost(w.home, { alive });
     assert.deepEqual([host.pid, host.paths, host.marker?.installId], [1001, [exe, join(runtime, 'scripts', 'open-artifact.mjs'), runtime], 'x']);
     assert.equal(daemonHostGone(host), true, 'those files are not there');
+    // Only an installed app's package: files gone anywhere else (an agent's plugin updated under the daemon), with no
+    // marker, are not a reason to restart the shared daemon.
+    assert.equal(daemonHostGone({ pid: 1, paths: ['/agent/plugin/runtime-that-is-gone'], marker: null }, w.installDir), false);
+    assert.equal(daemonHostGone({ pid: 1, paths: [runtime], marker: null }, w.installDir), true, 'gone, inside the install folder');
+    assert.equal(daemonHostGone({ pid: 1, paths: [runtime], marker: null }), false, 'no install folder given');
+    assert.equal(daemonHostGone({ pid: 1, paths: [w.home], marker: null }, w.installDir), false, 'there');
     // Another daemon since (another pid): the marker does not count.
     write(join(w.home, 'daemon.json'), { pid: 1002, startedAt: '2026-11-25T11:00:00.000Z' });
     assert.deepEqual(daemonHost(w.home, { alive }), { pid: 1002, paths: [], marker: null });

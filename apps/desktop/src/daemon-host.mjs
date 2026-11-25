@@ -23,7 +23,7 @@
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { processAlive, writeJsonAtomicSync } from './installed-apps.mjs';
+import { pathWithin, processAlive, writeJsonAtomicSync } from './installed-apps.mjs';
 
 /** `<home>/desktop/daemon-host.json`. */
 export const daemonHostFileOf = (home) => join(home, 'desktop', 'daemon-host.json');
@@ -96,7 +96,15 @@ export function writeDaemonHost(home, marker) {
   writeJsonAtomicSync(daemonHostFileOf(home), marker);
 }
 
-/** Whether a path the daemon lives at is gone (its package renamed, moved or removed): it then needs a restart. */
-export function daemonHostGone(host) {
-  return !!host && host.paths.some((path) => !existsSync(path));
+/**
+ * Whether the daemon lives in an app's package that is gone (renamed, moved or removed since it started), so that it
+ * needs a restart: a file its marker names is gone, or a path it lives at that is gone is (as written) inside the
+ * install folder `installDir`. A daemon whose files are gone anywhere else (an agent's plugin updated under it) is not
+ * this module's to restart: the daemon switches runtimes by itself, once idle.
+ */
+export function daemonHostGone(host, installDir = null) {
+  if (!host) return false;
+  const gone = (path) => typeof path === 'string' && !!path && !existsSync(path);
+  if (host.marker && (gone(host.marker.exe) || gone(host.marker.bin))) return true;
+  return !!installDir && host.paths.some((path) => gone(path) && pathWithin(path, installDir));
 }

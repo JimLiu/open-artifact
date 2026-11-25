@@ -314,7 +314,7 @@ async function start({ manifest, profile, settings, startLocale, settingsDir, se
     (healing ??= (async () => {
       try {
         const host = await daemonHostLive(profile.home, harness);
-        if (!daemonHostGone(host) || typeof harness?.daemon?.restart !== 'function') return false;
+        if (!daemonHostGone(host, installDir) || typeof harness?.daemon?.restart !== 'function') return false;
         log(`daemon ${host.pid} runs from files that are gone (${host.paths.join(', ')}): restarted`);
         const now = await harness.daemon.restart();
         log(`daemon restarted: ${now?.pid}`);
