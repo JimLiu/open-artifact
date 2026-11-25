@@ -21,7 +21,9 @@ daemon calls `host.open` on an adapter of the owner's harness that declared `cap
 | `remote` | `{ type, origins }` when the type's page lives on another computer ([remote types](remote-types.md)) |
 
 Return `false` when you did not show it. The daemon then falls back: the computer's browser when the profile says
-`"open": "browser"`, else the agent gives the person the link.
+`"open": "browser"`, else the agent gives the person the link. When the person has turned on "Open agents' artifacts
+in this app" in Open Artifact Desktop (`settings.json`'s `openInDesktop`, off by default), that browser step goes to the
+app instead, and the tool result says `opened_in: "desktop"`. A host that shows the page itself is never passed over.
 
 When the person opens an artifact from your app (a recent list, a pasted link) and no agent asked, call
 `oa.view(url)` (feature `view.open`). It answers the same fields, `session` `null`, and shows nothing: put the page in

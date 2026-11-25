@@ -104,7 +104,8 @@ open-artifact harness list
 ```
 
 - **What the person sees:** a link, or your app's built-in browser if the agent opens the `view_url` there. A profile with
-  `"open": "browser"` has the daemon open the computer's browser when the agent asks it to show a page.
+  `"open": "browser"` has the daemon open the computer's browser when the agent asks it to show a page (or, when the
+  person turned on "Open agents' artifacts in this app", hand it to Open Artifact Desktop: `opened_in: "desktop"`).
 - **Check:** `open-artifact doctor --harness my-agent` reports the profile, and once your app runs, its connection.
 
 ## Level 2: the kit — native tools, sessions, wake

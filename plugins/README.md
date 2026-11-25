@@ -39,7 +39,8 @@ another computer.
 Pages open where the person already is: in the app itself when its adapter can show them (DeepSeek Harness), else
 in the agent app's built-in browser (Codex, Cursor, Claude, Antigravity, VS Code), which the agent opens with the page's
 `view_url`. The daemon opens the computer's browser only when the agent asks it to (`Artifact {action: "open"}`), which
-it does when it has no browser of its own.
+it does when it has no browser of its own. When the person has turned on "Open agents' artifacts in this app" in Open
+Artifact Desktop (off by default), that browser step goes to the app instead (`opened_in: "desktop"`).
 
 Building your own agent app rather than using one of these? Read
 [Integrating Open Artifact into an agent product](../docs/integrating.md): the same tools, pages in your UI, and

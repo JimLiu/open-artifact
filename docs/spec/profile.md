@@ -38,7 +38,7 @@ profiles that ship. The type is `HarnessProfile` in `packages/protocol/src/harne
 | `skillsDir` | path | **no** | where the harness looks for skills |
 | `wake` | `("live" \| "inbox")[]` | yes | wake routes, in order |
 | `wakesIdle` | boolean | yes | `false`: nothing can start a turn in an idle session; messages wait for the person's next turn |
-| `open` | `"browser"` | yes | where a page goes when no adapter shows it; left out: the agent gives the link |
+| `open` | `"browser"` | yes | where a page goes when no adapter shows it; left out: the agent gives the link. With the person's "Open agents' artifacts in this app" on (`settings.json`'s `openInDesktop`), the browser step goes to Open Artifact Desktop first |
 | `markers` | string[] | yes | environment variables the harness sets in its agent's commands (person-only commands are refused where they are set) |
 | `hookDialect` | name or mapping | yes | the hook format ([below](#hook-dialects)) |
 | `nudge` | `{ command, args, env?, envFile? }` | **no** | the command that starts a turn in an idle session |

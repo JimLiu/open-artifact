@@ -81,7 +81,7 @@ open-artifact harness add my-agent.json
 open-artifact harness list
 ```
 
-- **人看到什么：** 一个链接；如果 Agent 在应用内置浏览器里打开 `view_url`，就是那个浏览器。profile 里写了 `"open": "browser"` 时，Agent 要显示页面，daemon 会打开电脑的浏览器。
+- **人看到什么：** 一个链接；如果 Agent 在应用内置浏览器里打开 `view_url`，就是那个浏览器。profile 里写了 `"open": "browser"` 时，Agent 要显示页面，daemon 会打开电脑的浏览器（人打开了“agent 做的作品在这个 App 里打开”时，则交给 Open Artifact Desktop：`opened_in: "desktop"`）。
 - **检查：** `open-artifact doctor --harness my-agent` 报告 profile；应用运行起来后，也会报告它的连接。
 
 ## 第 2 层：kit —— 原生工具、会话、唤醒

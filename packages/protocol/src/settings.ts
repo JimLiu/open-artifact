@@ -43,6 +43,11 @@ export interface OpenArtifactSettings {
    * `remote default` / `remote auto`, or the Share panel), never an agent's tool.
    */
   cloud?: CloudSettings;
+  /**
+   * The person's "open agents' artifacts in the app" (Open Artifact Desktop's settings, `desktop.settings`): a page an
+   * agent opens that would go to this computer's browser goes to the app instead. Off when unset.
+   */
+  openInDesktop?: boolean;
 }
 
 /** {@link OpenArtifactSettings.cloud}. */

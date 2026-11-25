@@ -1232,7 +1232,7 @@ export class Tools {
     // Shown now: a page still waiting for the first write would open it a second time.
     if (shown) this.o.cancelOpenAfterFirstWrite?.(record.id);
     const result: ToolCallResult = shown
-      ? { opened: true, view_url: view, ...(shown === 'browser' ? { opened_in: 'browser' } : {}) }
+      ? { opened: true, view_url: view, ...(shown === 'browser' || shown === 'desktop' ? { opened_in: shown } : {}) }
       : { opened: false, view_url: view, next: 'Give the person this link to open it in a browser.' };
     if (panel === 'export') {
       const type = this.o.types.get(record.type, record.owner?.workspace ?? undefined);

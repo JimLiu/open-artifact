@@ -461,6 +461,12 @@ export const LIBRARY_ROUTES = {
   artifact: 'artifact',
   types: 'types',
   harnesses: 'harnesses',
+  /**
+   * The Open Artifact Desktop app's settings this daemon acts on ({@link DesktopSettings}). `GET` reads them; `POST
+   * { openInDesktop }` is the person's (the app's settings dialog): refused from another origin and inside an agent's
+   * session, as `cloud.settings` is the person's.
+   */
+  desktopSettings: 'desktop.settings',
   events: 'events',
   share: 'artifact.share',
   /** `GET`/`HEAD ?id=`: the artifact's folder as a .zip (the type server's `/__open-artifact/archive`). */
@@ -554,6 +560,17 @@ export const LIBRARY_ROUTES = {
    */
   import: 'artifacts.import',
 } as const;
+
+/** `GET`/`POST /api/open-artifact.desktop.settings`. */
+export interface DesktopSettings {
+  /**
+   * When an agent opens an artifact and its app cannot show it, the page goes to the Open Artifact Desktop app instead
+   * of this computer's browser (the app's adapter when it is connected, else the app started with the artifact's
+   * `open-artifact://` link; the browser when neither works). Off by default. Hosts that show pages themselves are
+   * not affected.
+   */
+  openInDesktop: boolean;
+}
 
 /** `GET /api/open-artifact.embed`. */
 export interface EmbedResponse {

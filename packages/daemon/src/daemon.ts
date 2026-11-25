@@ -67,6 +67,7 @@ import {
   type TypesResponse,
   type TypesSitesResponse,
   THIRD_PARTY_NOTICE,
+  type DesktopSettings,
   type EmbedResponse,
   type TypeView,
   type UpdateArtifactRequest,
@@ -81,7 +82,7 @@ import {
 } from '@open-artifact/protocol';
 import { archiveEntries, sendArchive as sendFolderArchive, zipBytes } from '@open-artifact/server-sdk/zip';
 import { DATA_TYPE, DataRefresher } from './data-refresh.ts';
-import { HarnessHub, systemBrowse, type PollParams } from './harness.ts';
+import { HarnessHub, systemBrowse, systemLaunchDesktop, type PollParams } from './harness.ts';
 import { embedOrigins, remoteOf, type ViewSink } from './harness-embed.ts';
 import { Inbox } from './inbox.ts';
 import { LinkHub } from './link.ts';
@@ -117,7 +118,7 @@ import { RuntimeManager } from './runtime.ts';
 import { remoteArchiveBytes, remoteErrorBody } from './remote-archive.ts';
 import { ownRuntime } from './client.ts';
 import { startDaemonProcess } from '@open-artifact/harness-kit';
-import { loadSettings, saveCloudSettings } from './settings.ts';
+import { loadSettings, saveCloudSettings, saveSettings } from './settings.ts';
 import { ArtifactStore, sessionKeyOf, userEditsAfter, type StoreChange } from './store.ts';
 import { Tools, type ShareAccess } from './tools.ts';
 import { BUILTIN_TYPE_IDS, TypeRegistry, isBuiltinPage, isSiteKindType, siteRefusal, typeLocation, type ListedType, type TypeInfo } from './types.ts';
@@ -438,6 +439,11 @@ export interface DaemonOptions {
    * Default {@link systemBrowse}.
    */
   browse?: ((url: string) => boolean) | null;
+  /**
+   * Starts the Open Artifact Desktop app with an `open-artifact://artifact/<id>` link (`openInDesktop` on, the app not
+   * connected): true when it was started. `null` never does. Default {@link systemLaunchDesktop}.
+   */
+  launchDesktop?: ((url: string) => Promise<boolean>) | null;
 }
 
 /** A resolved artifact page. */
@@ -653,6 +659,8 @@ export class Daemon extends EventEmitter<{ exit: [] }> {
       inbox: this.inbox,
       log,
       browse,
+      openInDesktop: () => this.settings.openInDesktop === true,
+      launchDesktop: options.launchDesktop === undefined ? systemLaunchDesktop : options.launchDesktop,
       openArtifact: async (url, caller) => {
         const result = await this.tools.call('Artifact', { action: 'open', url }, caller);
         if (result.error) throw new OpenArtifactError(result.error.code, result.error.message);
@@ -991,7 +999,7 @@ export class Daemon extends EventEmitter<{ exit: [] }> {
     try {
       await this.openPage(record);
       const shown = await this.harnesses.show(caller, { url: artifactUrl(id), view_url: this.viewUrl(id), title: record.title });
-      this.log(`opened ${id} after the first write${shown === 'browser' ? ' in the browser' : shown ? '' : ': the app did not show it'}`);
+      this.log(`opened ${id} after the first write${shown === 'browser' ? ' in the browser' : shown === 'desktop' ? ' in Open Artifact Desktop' : shown ? '' : ': the app did not show it'}`);
     } catch (error) {
       this.log(`opening ${id} after the first write failed: ${(error as Error)?.message ?? error}`);
     }
@@ -2327,6 +2335,28 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
         return this.typesCall(req, res, name, get);
       case R.harnesses:
         return sendJson(res, 200, this.harnesses.info());
+      case R.desktopSettings: {
+        // The Open Artifact Desktop app's settings this daemon acts on: GET reads them; POST is the person's (the app's
+        // settings dialog), so not from another origin and not from inside an agent's session, as cloud.settings.
+        if (get) {
+          const answer: DesktopSettings = { openInDesktop: this.settings.openInDesktop === true };
+          return sendJson(res, 200, answer);
+        }
+        const refusal =
+          this.originRefusal(req, name) ??
+          (req.headers['x-open-artifact-agent'] ? 'Opening agents\' artifacts in Open Artifact Desktop is for the person to decide: they turn it on or off in the app\'s settings.' : null);
+        if (refusal) {
+          req.resume();
+          return sendJson(res, 403, { code: 'not_granted', message: refusal });
+        }
+        const body = await readJsonBody<Partial<DesktopSettings>>(req);
+        if (typeof body.openInDesktop !== 'boolean') throw new OpenArtifactError('invalid_argument', 'openInDesktop: true or false.');
+        saveSettings({ openInDesktop: body.openInDesktop });
+        this.settings = loadSettings(this.preset);
+        this.log(`audit: agents' artifacts open ${body.openInDesktop ? 'in Open Artifact Desktop' : 'as their app says'}, asked by ${this.askedBy(req, name)}`);
+        const answer: DesktopSettings = { openInDesktop: this.settings.openInDesktop === true };
+        return sendJson(res, 200, answer);
+      }
       case R.embed: {
         // Where pages are served from, and the origins hosts embed the Shell from (the Shell answers only those).
         const answer: EmbedResponse = { ...this.harnesses.embed.origins(), hosts: this.harnesses.embed.hostOrigins() };

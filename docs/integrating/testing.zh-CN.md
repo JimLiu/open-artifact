@@ -58,6 +58,7 @@ await fake.close();
 | `OPEN_ARTIFACT_DAEMON_BIN` | 要启动的 `open-artifact` 入口（或给 `createHarness` 传 `runtime`） |
 | `OPEN_ARTIFACT_PORT` | `0`：任意空闲端口 |
 | `OPEN_ARTIFACT_BROWSER` | `none` |
+| `OPEN_ARTIFACT_DESKTOP_LAUNCH` | `off`：永远不用 `open-artifact://` 链接启动 Open Artifact Desktop |
 | `OPEN_ARTIFACT_USER_TYPES` | 放着你自己一个小类型的目录，这样测试不需要构建好的类型 |
 | `OPEN_ARTIFACT_BUILTIN_TYPES` | 一个空目录 |
 | `OPEN_ARTIFACT_WAKE_MERGE_MS` | 一个短的合并窗口，例如 `20` |

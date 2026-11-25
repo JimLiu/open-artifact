@@ -76,6 +76,7 @@ node <skill>/scripts/open-artifact.mjs wait --timeout 600000
    - If the create result already set `open: "after_first_write"`, the host opens it automatically once you write.
    - If your app renders MCP Apps inline, call `ShowArtifact {url}` once filled (or right after the first playable batch for streaming types like `motion` and `docs`). Because `ShowArtifact` does not open a browser tab by itself (and an early card can scroll out of view in long builds), call `Artifact {action: "open", url}` if you have no built-in browser or cannot confirm the page visibly opened.
    - Otherwise, open `view_url` in your app's built-in browser if available; only call `Artifact {action: "open", url}` when no built-in browser exists.
+   - When the person has turned on **Open agents' artifacts in this app** in Open Artifact Desktop's settings (off by default), the browser step of `Artifact {action: "open"}` goes to that app: a tab there (or the app is started with the artifact's `open-artifact://` link when it is not running; the browser when that fails). The result then says `opened_in: "desktop"`. Apps that show pages themselves are not affected. Only the person changes this setting: the daemon refuses it from inside an agent's session.
 7. **Summarize briefly**
    - Tell the user in 1–2 sentences what you built and note that they can edit directly, leave comments, and click **Send to agent**. Always include `view_url` in your final reply so the user can open or return to the page anytime.
 

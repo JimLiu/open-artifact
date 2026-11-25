@@ -18,7 +18,7 @@ Agent 显示一个作品时（`Artifact {action: "open"}`、带 `open` 的 `publ
 | `title` | 作品标题 |
 | `remote` | 类型页面在另一台电脑上时为 `{ type, origins }`（[远程类型](remote-types.zh-CN.md)） |
 
-没有显示时返回 `false`。daemon 会退而求其次：profile 写了 `"open": "browser"` 就用电脑的浏览器，否则由 Agent 把链接给人。
+没有显示时返回 `false`。daemon 会退而求其次：profile 写了 `"open": "browser"` 就用电脑的浏览器，否则由 Agent 把链接给人。人在 Open Artifact Desktop 里打开了“agent 做的作品在这个 App 里打开”（`settings.json` 的 `openInDesktop`，默认关）时，浏览器这一步改交给这个 App，工具结果里是 `opened_in: "desktop"`。自己显示页面的宿主永远不会被跳过。
 
 人在你的应用里打开作品（最近列表、粘贴的链接）、没有 Agent 发起时，调用 `oa.view(url)`（功能 `view.open`）。它回答同样的字段，`session` 为 `null`，自己不显示任何东西：由你把页面放进面板。只接受这个 daemon 自己的作品：`open-artifact://artifact/<id>` 或它自己的 `http://127.0.0.1:<port>/a/<id>`；其他地址是 `invalid_argument`，未知的 id 是 `not_found`。用 `mode: 'view'` 时它带一张新票据。远程类型的页面和 `open` 一样要经过 `allowRemote`；被拒绝时是 `not_granted`。
 

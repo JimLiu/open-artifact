@@ -349,9 +349,9 @@ const openStep: DoctorCheck = {
     try {
       const result = await within(HOST_MS, 'Artifact open', call(run, context, 'Artifact', { action: 'open', url: run.artifact.url }));
       const ms = Date.now() - started;
-      if (result.opened && result.opened_in !== 'browser') found.push({ status: 'ok', message: `Conformance open: host.open answered opened in ${ms} ms` });
+      if (result.opened && !result.opened_in) found.push({ status: 'ok', message: `Conformance open: host.open answered opened in ${ms} ms` });
       else if (ms >= 29_000) found.push({ status: 'fail', message: `Conformance open: host.open did not answer within the daemon's 30 s`, fix: 'Answer host.open at once ({opened: true} once the page is shown, or {opened: false}); show the page after answering.' });
-      else found.push({ status: 'warn', message: `Conformance open: host.open answered not opened in ${ms} ms${result.opened_in === 'browser' ? ' (the daemon opened the browser instead)' : ''}`, fix: 'Answer {opened: true} when the host shows the page; not opened is right only when the person declined.' });
+      else found.push({ status: 'warn', message: `Conformance open: host.open answered not opened in ${ms} ms${result.opened_in === 'browser' ? ' (the daemon opened the browser instead)' : result.opened_in === 'desktop' ? ' (the daemon handed it to Open Artifact Desktop instead)' : ''}`, fix: 'Answer {opened: true} when the host shows the page; not opened is right only when the person declined.' });
     } catch (error) {
       found.push({ status: 'fail', message: `Conformance open: ${message(error)}`, fix: 'Answer host.open within 30 s.' });
     }
