@@ -369,6 +369,56 @@ describe(TYPE, { skip: skip() }, () => {
     } finally { await browser.close(); }
   });
 
+  // GitHub issue #25: every tab's sync counted its calls from 1 under the page's one session, so the first writes in a
+  // second tab went out under the opIds of the first tab's writes; the server answered them as replays, landed nothing,
+  // and the page read the tab back over what was typed.
+  it('edits typed in a second tab after edits in the first land on disk and stay in the editor', { ...T, skip: chromeSkip() }, async () => {
+    const root = path.join(tmpDir('docs-two-tabs'), 'two-tabs');
+    const born = await ctx.cli.json(['create', root, JSON.stringify({
+      name: 'Two tabs',
+      doc: { markdown: 'Alpha words' },
+      batch: [
+        { $lid: 'second', verb: 'create', object: 'file', payload: { name: 'Second' } },
+        { verb: 'create', object: 'node', payload: { parent: { object: 'file', id: '$lid:second' }, markdown: 'Bravo words' } },
+      ],
+    })]);
+    const { f: first, second } = born.lids;
+    const onDisk = async tab => (await ctx.cli.run(['export', root, '--tab', tab])).stdout;
+    const { url } = await ctx.cli.json(['open', root, '--json']);
+    const editorHas = text => `document.querySelector('iframe[name="open-artifact-shell"]').contentDocument.querySelector('.doc-text')?.innerText.includes(${JSON.stringify(text)})`;
+    const typeAndLand = async (page, tab, line, key) => {
+      await page.type(key);
+      const want = line + key;
+      assert.ok(await until(async () => (await onDisk(tab)).includes(want), 10000), `"${want}" reaches the disk: ${await onDisk(tab)}`);
+      return want;
+    };
+    const browser = await launch();
+    try {
+      const page = await browser.load(url + '#' + first, { ready: textIn('Alpha words'), ignore: [/\/favicon\.ico$/] });
+      await clickInEditor(page, "document.querySelector('.doc-text p')");
+      await page.press('End');
+      let line = 'Alpha words';
+      for (const key of ['1', '2', '3']) line = await typeAndLand(page, first, line, key);
+
+      await clickInEditor(page, `document.querySelector('button[title="Document tabs"]')`);
+      await clickInEditor(page, `document.querySelector('[role=tree] [data-tab-row="${second}"]')`);
+      assert.ok(await page.waitFor(textIn('Bravo words')));
+      await clickInEditor(page, "document.querySelector('.doc-text p')");
+      await page.press('End');
+      line = 'Bravo words';
+      for (const key of ['x', 'y', 'z', 'w']) {
+        line = await typeAndLand(page, second, line, key);
+        // The editor is not read back over what was typed (that came ~150 ms after a replayed answer).
+        await new Promise(resolve => setTimeout(resolve, 400));
+        assert.ok(await page.evaluate(editorHas(line)), `the editor still shows "${line}"`);
+      }
+      assert.match(await onDisk(first), /Alpha words123/);
+      assert.deepEqual(page.problems, []);
+    } finally {
+      await browser.close();
+    }
+  });
+
   it('archive zips the folder beside it', T, async () => {
     const out = await ctx.cli.json(['archive', ctx.root, '--json']);
     assert.ok(fs.existsSync(out.file), JSON.stringify(out));

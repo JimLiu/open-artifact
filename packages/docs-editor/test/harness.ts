@@ -16,6 +16,8 @@ export const texts = (doc: DocState | DiskDoc) =>
 
 export interface Page {
   name: string;
+  /** The page's writing session, shared by every tab it keeps (see {@link PageOptions.alongside}). */
+  session: { sess: string; next: number };
   sync: TabSync;
   causes: ShadowCause[];
   /** Closes the event stream (the server lets the session go) and opens it again. */
@@ -24,6 +26,10 @@ export interface Page {
 }
 
 export interface PageOptions {
+  /** The tab to keep (default the first). */
+  tab?: string;
+  /** Another tab of this page: the sync shares its session and client, as a page's open tabs do. */
+  alongside?: Page;
   /** Hand the page the frames of others' writes (default true). */
   frames?: boolean;
   transport?: (base: DocTransport) => DocTransport;
@@ -37,6 +43,10 @@ export interface PageOptions {
 export interface DocServer {
   tab: string;
   node: string;
+  /** Every tab, in order, with its node (the first is {@link tab}). */
+  tabs: Array<{ tab: string; node: string }>;
+  /** The texts of a tab as the server holds it. */
+  textsOf(tab: string): Promise<string[]>;
   post<T>(route: string, body: unknown): Promise<T>;
   action(name: string, args: Json): Promise<Json>;
   serverTexts(): Promise<string[]>;
@@ -48,7 +58,8 @@ export interface DocServer {
 
 const SECRET = 'test-secret';
 
-export async function startDocServer(markdown: string): Promise<DocServer> {
+/** `more` is the markdown of tabs after the first. */
+export async function startDocServer(markdown: string, more: string[] = []): Promise<DocServer> {
   const dir = await mkdtemp(join(tmpdir(), 'open-artifact-docs-editor-'));
   const root = join(dir, 'Notes');
   const server: TypeServer = createTypeServer({ assetsDir: join(dir, 'assets'), secret: SECRET, idleMs: 0, downloadsDir: join(dir, 'downloads') });
@@ -70,12 +81,15 @@ export async function startDocServer(markdown: string): Promise<DocServer> {
     return (await response.json()) as Json;
   };
 
-  const made = await action('create', { call: { name: 'Notes', doc: { markdown } } });
+  const batch = more.flatMap((words, n) => [
+    { $lid: `t${n}`, verb: 'create', object: 'file', payload: { name: `Tab ${n + 2}` } },
+    { verb: 'create', object: 'node', payload: { parent: { object: 'file', id: `$lid:t${n}` }, markdown: words } },
+  ]);
+  const made = await action('create', { call: { name: 'Notes', doc: { markdown }, ...(batch.length ? { batch } : {}) } });
   assert.equal(made.ok, true, JSON.stringify(made));
   const first = await post<DocSessionResponse>('_api/doc/session', { client: 'setup' });
-  const file = first.project.files[0]!;
-  const tab = file.id;
-  const node = file.content.id;
+  const tabs = first.project.files.map(file => ({ tab: file.id, node: file.content.id }));
+  const { tab, node } = tabs[0]!;
 
   async function listen(name: string, onFrame: (frame: DocTabFrame) => void): Promise<{ close(): Promise<void> }> {
     const events = await fetch(new URL(`_api/events?client=${name}`, base));
@@ -109,32 +123,39 @@ export async function startDocServer(markdown: string): Promise<DocServer> {
 
   let pages = 0;
   async function open(label: string, options: PageOptions = {}): Promise<Page> {
-    const name = `${label}-${++pages}`;
-    const session = await post<DocSessionResponse>('_api/doc/session', { client: name });
-    assert.ok(session.sess);
-    const shared = { sess: session.sess, next: session.next };
+    const alongside = options.alongside;
+    const name = alongside ? alongside.name : `${label}-${++pages}`;
+    let shared = alongside?.session;
+    if (!shared) {
+      const session = await post<DocSessionResponse>('_api/doc/session', { client: name });
+      assert.ok(session.sess);
+      shared = { sess: session.sess, next: session.next };
+    }
+    const session = shared;
+    const keeps = tabs.find(one => one.tab === (options.tab ?? tab));
+    assert.ok(keeps, `no tab ${options.tab}`);
     const plain: DocTransport = {
       call: request => post<DocCallAnswer>('_api/doc/call', { client: name, ...request }),
       read: tabId => post<DocTabResponse>('_api/doc/read', { tab: tabId }),
       renew: async () => {
         const renewed = await post<DocSessionResponse>('_api/doc/session', { client: name });
         if (!renewed.sess) return false;
-        shared.sess = renewed.sess;
-        shared.next = renewed.next;
+        session.sess = renewed.sess;
+        session.next = renewed.next;
         return true;
       },
     };
     const transport = options.transport ? options.transport(plain) : plain;
-    const read = await plain.read(tab);
-    const page = { name, causes: [] as ShadowCause[] } as Page;
+    const read = await plain.read(keeps.tab);
+    const page = { name, session, causes: [] as ShadowCause[] } as Page;
     page.sync = new TabSync(
       {
-        tab,
-        node,
-        session: shared,
+        tab: keeps.tab,
+        node: keeps.node,
+        session,
         transport,
         retryMs: 20,
-        wal: options.wal ? options.wal(shared.sess) : null,
+        wal: options.wal ? options.wal(session.sess) : null,
         events: {
           ...(options.onUnsaved ? { unsaved: options.onUnsaved } : {}),
           shadow: (doc, cause) => {
@@ -148,6 +169,12 @@ export async function startDocServer(markdown: string): Promise<DocServer> {
     const hear = (frame: DocTabFrame) => {
       if (options.frames !== false) page.sync.heard(frame);
     };
+    if (alongside) {
+      // The page's one stream is the first tab's; this sync hears nothing of its own.
+      page.reconnect = async () => page.sync.reconnected();
+      page.stop = async () => page.sync.stop();
+      return page;
+    }
     let stream = await listen(name, hear);
     page.reconnect = async () => {
       await stream.close();
@@ -163,12 +190,15 @@ export async function startDocServer(markdown: string): Promise<DocServer> {
     return page;
   }
 
+  const textsOf = async (of: string) => texts((await post<DocTabResponse>('_api/doc/read', { tab: of })).doc as unknown as DiskDoc);
   return {
     tab,
     node,
+    tabs,
+    textsOf,
     post,
     action,
-    serverTexts: async () => texts((await post<DocTabResponse>('_api/doc/read', { tab })).doc as unknown as DiskDoc),
+    serverTexts: () => textsOf(tab),
     open,
     settle: async (...open: Page[]) => {
       for (let round = 0; round < 3; round++) {
