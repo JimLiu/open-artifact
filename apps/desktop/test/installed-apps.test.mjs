@@ -885,3 +885,181 @@ describe('install as app: the page address check (page-url.mjs)', () => {
     assert.equal(isPageAt(pageUrlOf('/other/index.html'), path), false);
   });
 });
+
+describe('install as app: the daemon running from an app\'s package', () => {
+  const docs = { a1: { title: 'Plan', type: 'docs' }, a2: { title: 'Two', type: 'docs' } };
+  const v2 = (w, extra = {}) => w.make({ template: { bundlePath: w.template, executable: 'x', version: () => '2.0.0+0.15.0' }, ...extra });
+  /** A daemon that lives in `bundle` until released (`release` true), then in the desktop app's own runtime. */
+  const daemonIn = (w, bundle, { release = true, stays = false } = {}) => {
+    const calls = { released: 0 };
+    let inside = true;
+    return {
+      calls,
+      daemonHost: () => ({ pid: 777, paths: inside ? [join(bundle, 'Contents', 'MacOS', 'Open Artifact'), join(bundle, 'Contents', 'Resources', 'runtime')] : [join(w.template, 'Contents', 'Resources', 'runtime')] }),
+      releaseDaemon: async () => {
+        calls.released++;
+        if (release && !stays) inside = false;
+        return release;
+      },
+    };
+  };
+
+  it('uninstall: the daemon is restarted from elsewhere first, then the package goes', async () => {
+    const w = world({ artifacts: docs });
+    const { state } = await w.apps.install('a1');
+    const daemon = daemonIn(w, state.bundlePath);
+    const out = await w.make(daemon).uninstall('a1', state.installId);
+    assert.equal(out.removed, true, JSON.stringify(out));
+    assert.equal(daemon.calls.released, 1);
+    assert.deepEqual(appsIn(w.installDir), []);
+    assert.equal(readRecords(w.home).length, 0);
+  });
+
+  it('uninstall: the restart refused (unsaved work), or the daemon still in the package after it: nothing moved, daemonInUse', async () => {
+    for (const how of [{ release: false }, { stays: true }]) {
+      const w = world({ artifacts: docs });
+      const { state } = await w.apps.install('a1');
+      const before = readFileSync(recordPathOf(w.home, state.installId), 'utf8');
+      const daemon = daemonIn(w, state.bundlePath, how);
+      const out = await w.make(daemon).uninstall('a1', state.installId);
+      assert.deepEqual([out.removed, out.daemonInUse, out.state.state], [false, true, 'installed'], JSON.stringify(out));
+      assert.equal(daemon.calls.released, 1);
+      assert.deepEqual(appsIn(w.installDir), ['Plan.app']);
+      assert.equal(readFileSync(recordPathOf(w.home, state.installId), 'utf8'), before);
+      assert.deepEqual(w.forgotten, []);
+    }
+  });
+
+  it('uninstall of another app: the daemon in the first one is not restarted', async () => {
+    const w = world({ artifacts: docs });
+    const one = (await w.apps.install('a1')).state;
+    const two = (await w.apps.install('a2')).state;
+    const daemon = daemonIn(w, one.bundlePath);
+    const out = await w.make(daemon).uninstall('a2', two.installId);
+    assert.equal(out.removed, true);
+    assert.equal(daemon.calls.released, 0);
+    assert.deepEqual(appsIn(w.installDir), ['Plan.app']);
+  });
+
+  it('refresh and repair: restarted first, then rebuilt; refused: the package and the record as they were, daemonInUse', async () => {
+    const w = world({ artifacts: docs });
+    const { state } = await w.apps.install('a1');
+    const ok = daemonIn(w, state.bundlePath);
+    const done = await v2(w, ok).refresh('a1', state.installId);
+    assert.equal(done.rebuilt, true, JSON.stringify(done));
+    assert.equal(ok.calls.released, 1);
+    assert.equal(readRecords(w.home)[0].record.templateVersion, '2.0.0+0.15.0');
+
+    const w2 = world({ artifacts: docs });
+    const two = (await w2.apps.install('a1')).state;
+    const before = readFileSync(recordPathOf(w2.home, two.installId), 'utf8');
+    const manifest = readFileSync(join(two.bundlePath, 'Contents', 'Resources', 'artifact-app.json'), 'utf8');
+    const no = daemonIn(w2, two.bundlePath, { release: false });
+    const out = await v2(w2, no).refresh('a1', two.installId);
+    assert.deepEqual([out.rebuilt, out.daemonInUse, out.state.state], [false, true, 'installed'], JSON.stringify(out));
+    assert.equal(readFileSync(recordPathOf(w2.home, two.installId), 'utf8'), before);
+    assert.equal(readFileSync(join(two.bundlePath, 'Contents', 'Resources', 'artifact-app.json'), 'utf8'), manifest);
+    assert.deepEqual(readdirSync(join(w2.installDir, '.staging')), []);
+
+    // Repair of a package gone from its place, the daemon still running from where it was: refused the same way.
+    renameSync(two.bundlePath, join(w2.root, 'away.app'));
+    assert.equal((await w2.apps.state('a1')).reason, 'missing');
+    const repair = await w2.make(daemonIn(w2, two.bundlePath, { release: false })).repair('a1', two.installId);
+    assert.deepEqual([repair.rebuilt, repair.daemonInUse, repair.state.reason], [false, true, 'missing'], JSON.stringify(repair));
+    assert.ok(!existsSync(two.bundlePath));
+    assert.equal(readRecords(w2.home)[0].record.phase, 'installed');
+    assert.deepEqual(readdirSync(join(w2.installDir, '.staging')), []);
+  });
+
+  it('refreshStale never restarts the daemon: an app it runs from is left, daemon-in-use', async () => {
+    const w = world({ artifacts: docs });
+    const one = (await w.apps.install('a1')).state;
+    const two = (await w.apps.install('a2')).state;
+    const daemon = daemonIn(w, one.bundlePath);
+    const out = await v2(w, daemon).refreshStale();
+    assert.deepEqual(out, { [one.installId]: 'daemon-in-use', [two.installId]: 'refreshed' });
+    assert.equal(daemon.calls.released, 0);
+    assert.equal(readRecords(w.home).find(({ record }) => record.installId === one.installId).record.templateVersion, '1.0.0+0.14.6');
+  });
+
+  it('daemonHost: a marker counts only for the running daemon (its pid, its start); runtimes.json\'s entry since it started', async () => {
+    const { daemonHost, daemonHostFileOf, daemonHostGone } = await import('../src/daemon-host.mjs');
+    const w = world();
+    const write = (path, value) => {
+      mkdirSync(join(path, '..'), { recursive: true });
+      writeFileSync(path, JSON.stringify(value));
+    };
+    const startedAt = '2026-11-25T10:00:00.000Z';
+    const alive = (pid) => pid === 1001 || pid === 1002;
+    assert.equal(daemonHost(w.home, { alive }), null, 'no daemon.json');
+    write(join(w.home, 'daemon.json'), { pid: 1001, startedAt });
+    const exe = join(w.installDir, 'Plan.app', 'Contents', 'MacOS', 'Open Artifact');
+    const runtime = join(w.installDir, 'Plan.app', 'Contents', 'Resources', 'runtime');
+    write(daemonHostFileOf(w.home), { pid: 1001, startedAt, exe, bin: join(runtime, 'scripts', 'open-artifact.mjs'), installId: 'x' });
+    write(join(w.home, 'runtimes.json'), {
+      runtimes: [
+        { dir: '/old/runtime', version: '1.0.0', harness: 'daemon', seenAt: '2026-11-25T09:00:00.000Z' },
+        { dir: runtime, version: '1.0.0', harness: 'daemon', seenAt: '2026-11-25T10:00:01.000Z' },
+        { dir: '/agent/runtime', version: '1.0.0', harness: 'claude-code', seenAt: '2026-11-25T10:00:02.000Z' },
+      ],
+    });
+    const host = daemonHost(w.home, { alive });
+    assert.deepEqual([host.pid, host.paths, host.marker?.installId], [1001, [exe, join(runtime, 'scripts', 'open-artifact.mjs'), runtime], 'x']);
+    assert.equal(daemonHostGone(host), true, 'those files are not there');
+    // Another daemon since (another pid): the marker does not count.
+    write(join(w.home, 'daemon.json'), { pid: 1002, startedAt: '2026-11-25T11:00:00.000Z' });
+    assert.deepEqual(daemonHost(w.home, { alive }), { pid: 1002, paths: [], marker: null });
+    // The marker's pid, but another start (a pid used again): not counted either.
+    write(join(w.home, 'daemon.json'), { pid: 1001, startedAt: '2026-11-25T12:00:00.000Z' });
+    assert.equal(daemonHost(w.home, { alive }).marker, null);
+    // Its process gone: no daemon at all.
+    write(join(w.home, 'daemon.json'), { pid: 1003, startedAt });
+    assert.equal(daemonHost(w.home, { alive }), null);
+  });
+
+  it('daemonInside: a path inside the package (also one gone from there), or the marker naming the install', async () => {
+    const w = world({ artifacts: docs });
+    const { state } = await w.apps.install('a1');
+    const record = readRecords(w.home)[0].record;
+    const at = (paths, marker = null) => w.make({ daemonHost: () => ({ pid: 1, paths, marker }) });
+    assert.equal(await at([join(state.bundlePath, 'Contents', 'Resources', 'runtime')]).daemonInside(state.bundlePath), true);
+    assert.equal(await at([join(state.bundlePath, 'Contents', 'gone', 'x')]).daemonInside(state.bundlePath), true);
+    assert.equal(await at([`${state.bundlePath}-other/Contents/x`]).daemonInside(state.bundlePath), false);
+    assert.equal(await at([join(w.template, 'Contents', 'Resources', 'runtime')]).daemonInside(state.bundlePath), false);
+    assert.equal(await at([], { installId: record.installId }).daemonInside(state.bundlePath, record.installId), true);
+    assert.equal(await w.apps.daemonInside(state.bundlePath), false, 'no daemon');
+  });
+});
+
+describe('install as app: an uninstalled app\'s preferences file', () => {
+  const id = `${BUNDLE_ID_PREFIX}00000000-0000-4000-8000-000000000001`;
+  it('removed in the test\'s own HOME (only that exact file); never in the account\'s own home; an id of another form refused', async () => {
+    const { forgetPreferencesFile, preferencesDirOf } = await import('../src/installed-apps-macos.mjs');
+    const w = world();
+    const prefs = join(w.userHome, 'Library', 'Preferences');
+    mkdirSync(prefs, { recursive: true });
+    writeFileSync(join(prefs, `${id}.plist`), 'x');
+    writeFileSync(join(prefs, `${id}.plist.lockfile`), 'keep');
+    writeFileSync(join(prefs, 'other.plist'), 'keep');
+    const options = { dir: prefs, testMode: true, userHome: w.userHome, accountHome: join(w.root, 'someone') };
+    assert.equal(forgetPreferencesFile(id, options), 'removed');
+    assert.deepEqual(readdirSync(prefs).sort(), [`${id}.plist.lockfile`, 'other.plist']);
+    assert.equal(forgetPreferencesFile(id, options), 'none');
+    // The test's HOME is the account's: refused, the file kept.
+    writeFileSync(join(prefs, `${id}.plist`), 'x');
+    assert.equal(forgetPreferencesFile(id, { ...options, accountHome: w.userHome }), 'skipped');
+    // A folder outside the test's HOME: refused.
+    const outside = join(w.root, 'elsewhere', 'Library', 'Preferences');
+    mkdirSync(outside, { recursive: true });
+    writeFileSync(join(outside, `${id}.plist`), 'x');
+    assert.equal(forgetPreferencesFile(id, { ...options, dir: outside }), 'skipped');
+    assert.ok(existsSync(join(outside, `${id}.plist`)));
+    // Not an id of the apps' own form.
+    assert.equal(forgetPreferencesFile('com.apple.finder', options), 'skipped');
+    assert.equal(forgetPreferencesFile('dev.openartifact.app.*', options), 'skipped');
+    assert.ok(existsSync(join(prefs, `${id}.plist`)));
+    // Where macOS keeps them: CFFIXED_USER_HOME, else the account's home.
+    assert.equal(preferencesDirOf({ env: { CFFIXED_USER_HOME: '/x' }, accountHome: '/a' }), '/x/Library/Preferences');
+    assert.equal(preferencesDirOf({ env: {}, accountHome: '/a' }), '/a/Library/Preferences');
+  });
+});

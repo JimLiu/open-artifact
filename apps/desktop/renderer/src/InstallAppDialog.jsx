@@ -81,6 +81,7 @@ export function InstallAppDialog({ t, artifact, onClose }) {
   const rebuilt = (done) => (value) => {
     if (value.rebuilt) setMessage({ kind: 'info', text: t(done) });
     else if (value.stillRunning) setMessage({ kind: 'error', text: t('installApp.stillRunning') });
+    else if (value.daemonInUse) setMessage({ kind: 'error', text: t('installApp.daemonInUse') });
     else if (value.needsCopy) setMessage({ kind: 'error', text: t('installApp.rebuildNeedsCopy') });
     else if (value.notOurs) setMessage({ kind: 'error', text: t('installApp.repair.replaced') });
     else if (value.error) setMessage({ kind: 'error', text: t('installApp.error', { message: value.error }) });
@@ -89,6 +90,7 @@ export function InstallAppDialog({ t, artifact, onClose }) {
     setAsking(false);
     return call('uninstalling', () => apps.uninstall(artifact.id, state.installId), (value) => {
       if (value.stillRunning) setMessage({ kind: 'error', text: t('installApp.stillRunning') });
+      else if (value.daemonInUse) setMessage({ kind: 'error', text: t('installApp.daemonInUse') });
       else if (value.error) setMessage({ kind: 'error', text: t('installApp.error', { message: value.error }) });
       else if (value.removed) setMessage({ kind: 'info', text: value.left === 'not-ours' ? `${t('installApp.uninstalled')} ${t('installApp.leftNotOurs')}` : t('installApp.uninstalled') });
     });

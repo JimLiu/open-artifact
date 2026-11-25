@@ -3,8 +3,9 @@
  * arguments as a list (no shell): `/bin/cp -Rc` (an APFS clone), `/usr/bin/ditto` (a plain copy, only when asked),
  * `/usr/bin/xattr`, `/usr/bin/plutil`, `/usr/bin/codesign`.
  *
- * Nothing is written or removed outside the install folder, and the install folder must be inside the account's home
- * (`os.homedir()`, which reads HOME): both are checked on real paths before every write. In test mode the home must
+ * Nothing is written or removed outside the install folder (but an uninstalled app's own preferences file,
+ * `<preferences>/<its bundle id>.plist`: `forgetPreferencesFile`), and the install folder must be inside the account's
+ * home (`os.homedir()`, which reads HOME): both are checked on real paths before every write. In test mode the home must
  * not be the account's own (a test runs with a HOME of its own), and nothing is opened: `launch` answers `skipped` and
  * only logs. The desktop app never registers itself or its copies with Launch Services from here; the system does,
  * when the Finder or `open` first sees a package.
@@ -13,7 +14,7 @@
  * keep the desktop app's signatures, which the copy leaves as they were; then `codesign --verify --strict`.
  */
 import { execFile, execFileSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { homedir, userInfo } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, sep } from 'node:path';
 import { ARTIFACT_APP_FILE } from './profile.mjs';
@@ -21,6 +22,50 @@ import { ARTIFACT_APP_FILE } from './profile.mjs';
 const resources = (bundle) => join(bundle, 'Contents', 'Resources');
 /** The bundle id of an app made by "install as app": the prefix and an install id (a UUID), nothing else. */
 const APP_BUNDLE_ID = /^dev\.openartifact\.app\.[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/**
+ * Where macOS keeps an account's preferences files: `<CFFIXED_USER_HOME, else the account's home>/Library/Preferences`
+ * (cfprefsd writes there whatever HOME says).
+ */
+export const preferencesDirOf = ({ env = process.env, accountHome = userInfo().homedir } = {}) => join(env.CFFIXED_USER_HOME || accountHome, 'Library', 'Preferences');
+
+/**
+ * Removes the preferences file of an app's bundle id (`<dir>/<bundleId>.plist`, a plain file: `defaults delete` leaves
+ * it there, empty): only an id of the apps' own form, only that exact file. In test mode only when `dir` is inside the
+ * test's own HOME (`userHome`) and that HOME is not the account's (`accountHome`): never the person's own Library.
+ * Answers `removed`, `none` (no such file), or `skipped` (refused; logged).
+ */
+export function forgetPreferencesFile(bundleId, { dir, testMode = false, userHome = homedir(), accountHome = userInfo().homedir, log = () => {} }) {
+  if (!APP_BUNDLE_ID.test(String(bundleId))) {
+    log(`installed apps: preferences file: refused ${bundleId}`);
+    return 'skipped';
+  }
+  if (testMode) {
+    const home = nearestReal(userHome);
+    const at = realish(dir);
+    if (!home || !at || (accountHome && home === nearestReal(accountHome)) || !within(home, at)) {
+      log(`installed apps: preferences file ${join(dir, `${bundleId}.plist`)} left (test mode: not in the test's own HOME)`);
+      return 'skipped';
+    }
+  }
+  const file = join(dir, `${bundleId}.plist`);
+  try {
+    if (!lstatSync(file).isFile()) {
+      log(`installed apps: preferences file ${file} is not a plain file; left`);
+      return 'skipped';
+    }
+  } catch {
+    return 'none';
+  }
+  try {
+    unlinkSync(file);
+    log(`installed apps: preferences file ${file} removed`);
+    return 'removed';
+  } catch (error) {
+    log(`installed apps: preferences file ${file}: ${error?.message ?? error}`);
+    return 'skipped';
+  }
+}
 
 /** The nearest folder of `path` (itself included) that exists, as a real path. */
 function nearestReal(path) {
@@ -59,7 +104,7 @@ const within = (outer, inner) => {
  * The ops for `installDir`. `iconsDir`: the type icons the desktop app carries (`<type>.icns`, `default.icns`);
  * `testMode`; `log`; `userHome` (default `os.homedir()`); `accountHome` (default `userInfo().homedir`).
  */
-export function macosOps({ installDir, iconsDir, testMode = false, log = () => {}, userHome = homedir(), accountHome = userInfo().homedir, trashItem = null }) {
+export function macosOps({ installDir, iconsDir, testMode = false, log = () => {}, userHome = homedir(), accountHome = userInfo().homedir, trashItem = null, env = process.env }) {
   /** Throws unless `path` (to be written or removed) is inside the install folder, inside the home. */
   const guard = (path, what) => {
     const home = nearestReal(userHome);
@@ -254,22 +299,26 @@ export function macosOps({ installDir, iconsDir, testMode = false, log = () => {
     },
 
     /**
-     * Forgets the preferences macOS keeps for an app's bundle id (`/usr/bin/defaults delete <id>`): only an id of the
-     * apps' own form (the prefix and a UUID), never a pattern; a domain that is not there is not an error. cfprefsd
-     * keeps them in the account's own `~/Library/Preferences` whatever HOME says, so this runs in test mode too, for
-     * the exact ids of the test's own apps.
+     * Forgets the preferences macOS keeps for an app's bundle id: `/usr/bin/defaults delete <id>` (its keys; only an id
+     * of the apps' own form, the prefix and a UUID, never a pattern; a domain that is not there is not an error), then
+     * the file it leaves, empty (`forgetPreferencesFile`, in {@link preferencesDirOf}). cfprefsd keeps them in the
+     * account's own `~/Library/Preferences` whatever HOME says, so `defaults delete` runs in test mode too, for the exact
+     * ids of the test's own apps; the file is removed in test mode only from inside the test's own HOME.
      */
     forgetDefaults(bundleId) {
       if (!APP_BUNDLE_ID.test(String(bundleId))) {
         log(`installed apps: defaults: refused ${bundleId}`);
         return false;
       }
+      let deleted = false;
       try {
         execFileSync('/usr/bin/defaults', ['delete', bundleId], { stdio: 'ignore' });
-        return true;
+        deleted = true;
       } catch {
-        return false;
+        // No such domain.
       }
+      forgetPreferencesFile(bundleId, { dir: preferencesDirOf({ env, accountHome }), testMode, userHome, accountHome, log });
+      return deleted;
     },
 
     /** The size of a package on disk, in bytes (`du -sk`), or null. */

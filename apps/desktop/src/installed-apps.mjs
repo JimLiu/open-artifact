@@ -76,11 +76,20 @@
  * 260 MB), and is done only when asked again with `allowCopy`. `stale`: the desktop app changed since (its
  * `templateVersion`): `refresh` rebuilds it, and the desktop app does so by itself at start for the apps that do not
  * run (`refreshStale`).
+ *
+ * **The daemon in a package** (`daemonHost()`, `releaseDaemon()`, given): the home's daemon may run from an app's own
+ * package (its executable and runtime: the app started it while the desktop app was not where its record says, or
+ * another caller started it from the runtime that app registered). Moving or removing that package leaves a daemon
+ * that cannot load a type it has not loaded yet. So before an uninstall's Trash and a rebuild's swap, when the daemon
+ * lives in that package (`daemonInside`), it is restarted from elsewhere first (`releaseDaemon()`: the desktop app's
+ * own runtime); when that cannot be done (unsaved work in the desktop app's tabs, or the daemon is still in the
+ * package after it), nothing is moved, the record is as it was, and the answer says `daemonInUse`. The refresh at start
+ * (`refreshStale`) never restarts the shared daemon: such an app is left (`daemon-in-use`) for the dialog's Update.
  */
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { basename, dirname, join } from 'node:path';
+import { basename, dirname, join, resolve, sep } from 'node:path';
 import { ARTIFACT_APP_SCHEMA, artifactAppDir } from './profile.mjs';
 
 /** The version of a record this code writes. */
@@ -270,6 +279,17 @@ export function inInstallDir(path, installDir) {
   return !!dir && !!here && dirname(here) === dir;
 }
 
+/** Whether `path` is `dir` or inside it: as real paths when they are there, else as written (NFC). */
+export function pathWithin(path, dir) {
+  if (!path || !dir) return false;
+  const written = (p) => resolve(p).normalize('NFC').replace(/[\\/]+$/, '');
+  const pairs = [
+    [realOf(path) ?? written(path), realOf(dir) ?? written(dir)],
+    [written(path), written(dir)],
+  ];
+  return pairs.some(([p, d]) => p === d || p.startsWith(`${d}${sep}`));
+}
+
 /** Whether a process is alive (`kill(pid, 0)`: EPERM is another user's, alive too). */
 export function processAlive(pid) {
   if (!Number.isInteger(pid) || pid <= 0) return false;
@@ -359,7 +379,8 @@ const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
  * `signed`, `placed`, `committing`; an uninstall's `uninstall-recorded`, `uninstall-quit`, `uninstall-trashed`; a
  * rebuild's `rebuild-recorded`, `rebuild-built`, `rebuild-aside`, `rebuild-placed`, `rebuild-removed`,
  * `rebuild-committing`), for tests that cut one short there; `isRunning(record)`: the pid of its running app, or null
- * (default: its `running.json`); `alive(pid)`; `quitTimeoutMs`; `pollMs`; `log`; `randomId`; `now`.
+ * (default: its `running.json`); `alive(pid)`; `quitTimeoutMs`; `pollMs`; `log`; `randomId`; `now`; `daemonHost()`: where the home's daemon lives (`{ pid, paths }`, or null; may be async; `daemon-host.mjs`);
+ * `releaseDaemon()`: restarts it from elsewhere, true once done (may refuse: false).
  */
 export class InstalledApps {
   constructor({
@@ -378,8 +399,10 @@ export class InstalledApps {
     log = () => {},
     randomId = randomUUID,
     now = () => new Date(),
+    daemonHost = () => null,
+    releaseDaemon = async () => false,
   }) {
-    Object.assign(this, { home, installDir, template, packaged, platform, library, ops, checkpoint, alive, quitTimeoutMs, pollMs, log, randomId, now });
+    Object.assign(this, { home, installDir, template, packaged, platform, library, ops, checkpoint, alive, quitTimeoutMs, pollMs, log, randomId, now, daemonHost, releaseDaemon });
     this.isRunning = isRunning ?? ((record) => runningPid(this.home, record.installId, this.alive));
     /** artifactId → the call of it under way (calls of one artifact run one after the other). */
     this.chains = new Map();
@@ -450,6 +473,43 @@ export class InstalledApps {
   isOurs(path, record) {
     if (!path || !this.ops.exists(path)) return false;
     return manifestNames(this.ops.readManifest(path), record);
+  }
+
+  /**
+   * Whether the home's daemon lives in the package at `bundlePath`: any path it runs from (`daemonHost().paths`) is
+   * inside it (compared as real paths when they are there, else as written: a package gone from there still counts),
+   * or the app that started it says it is that install (`installId`, its marker's).
+   */
+  async daemonInside(bundlePath, installId = null) {
+    if (!bundlePath) return false;
+    let host = null;
+    try {
+      host = await this.daemonHost();
+    } catch (error) {
+      this.log(`installed apps: where the daemon lives: ${error?.message ?? error}`);
+    }
+    if (!host) return false;
+    if (installId && host.marker?.installId === installId) return true;
+    return (host.paths ?? []).some((path) => pathWithin(path, bundlePath));
+  }
+
+  /**
+   * Before `record`'s package is moved or removed: true when the daemon does not live in it, or it was restarted from
+   * elsewhere (`releaseDaemon`) and lives in it no more; false otherwise (`release: false`: never restarted).
+   */
+  async freeOfDaemon(record, { release = true } = {}) {
+    if (!(await this.daemonInside(record.bundlePath, record.installId))) return true;
+    if (!release) return false;
+    this.log(`installed apps: ${record.artifactId} ${record.installId}: the daemon runs from ${record.bundlePath}; restarted from elsewhere first`);
+    let released = false;
+    try {
+      released = (await this.releaseDaemon()) === true;
+    } catch (error) {
+      this.log(`installed apps: ${record.artifactId} ${record.installId}: restarting the daemon: ${error?.message ?? error}`);
+    }
+    if (released && !(await this.daemonInside(record.bundlePath, record.installId))) return true;
+    this.log(`installed apps: ${record.artifactId} ${record.installId}: the daemon still runs from ${record.bundlePath}${released ? ' after its restart' : ' (not restarted)'}; left as it is`);
+    return false;
   }
 
   /** Removes the rebuild's packages of `record` left in the staging folder (only those that are its own). */
@@ -906,7 +966,12 @@ export class InstalledApps {
       }
     }
     await this.checkpoint('uninstall-quit');
-    // (3) The package to the Trash, only when it is the record's. A Trash that fails: the record as it was.
+    // (3) The daemon running from this package is restarted from elsewhere first; when it cannot be, the record as it was.
+    if (this.isOurs(record.bundlePath, record) && !(await this.freeOfDaemon(record))) {
+      this.writeRecordSync(record);
+      return { removed: false, daemonInUse: true };
+    }
+    // (4) The package to the Trash, only when it is the record's. A Trash that fails: the record as it was.
     let left = null;
     try {
       if (this.isOurs(record.bundlePath, record)) {
@@ -922,7 +987,7 @@ export class InstalledApps {
     }
     this.removeStaged(record);
     await this.checkpoint('uninstall-trashed');
-    // (4, 5) Its preferences, its record and its own folder.
+    // (5, 6) Its preferences, its record and its own folder.
     this.forget(record, { data: true, defaults: true });
     this.log(`installed apps: ${artifactId} ${installId}: uninstalled${left ? ` (${left})` : ''}`);
     return { removed: true, ...(left ? { left } : {}) };
@@ -945,12 +1010,12 @@ export class InstalledApps {
   }
 
   /** Rebuilds the installed app of `artifactId` that is `installId` with this desktop app (see the module comment). */
-  refresh(artifactId, installId, { allowCopy = false } = {}) {
+  refresh(artifactId, installId, { allowCopy = false, releaseDaemon = true } = {}) {
     return this.serial(artifactId, async () => {
       const now = await this.stateNow(artifactId);
       const record = this.recordsOf(artifactId).find((entry) => entry.installId === installId);
       if (!record || record.phase !== 'installed' || now.state !== 'installed') return { state: now, rebuilt: false };
-      return this.rebuildThen(artifactId, record, { allowCopy });
+      return this.rebuildThen(artifactId, record, { allowCopy, releaseDaemon });
     });
   }
 
@@ -972,10 +1037,11 @@ export class InstalledApps {
   }
 
   /**
-   * The rebuild itself (see the module comment). Answers `{ rebuilt, stillRunning?, needsCopy?, error? }`; whatever
-   * happens, the record ends `installed` (the package that was there, or the new one) or as reconcile leaves it.
+   * The rebuild itself (see the module comment). Answers `{ rebuilt, stillRunning?, needsCopy?, daemonInUse?, error? }`;
+   * whatever happens, the record ends `installed` (the package that was there, or the new one) or as reconcile leaves
+   * it. `releaseDaemon: false`: a daemon running from the package is never restarted (the rebuild is given up).
    */
-  async rebuild(record, { allowCopy = false } = {}) {
+  async rebuild(record, { allowCopy = false, releaseDaemon = true } = {}) {
     const { artifactId, installId } = record;
     if (this.isRunning(record)) return { rebuilt: false, stillRunning: true };
     const staging = stagingDirOf(this.installDir);
@@ -1010,6 +1076,12 @@ export class InstalledApps {
         this.log(`installed apps: ${artifactId} ${installId}: ${record.bundlePath} is not this app's package; not rebuilt`);
         return { rebuilt: false, notOurs: true };
       }
+      // The daemon running from the package in place is restarted from elsewhere first; when it cannot be, as it was.
+      if (!(await this.freeOfDaemon(record, { release: releaseDaemon }))) {
+        this.ops.remove(fresh);
+        this.writeRecordSync(this.unrebuilt(working));
+        return { rebuilt: false, daemonInUse: true };
+      }
       if (this.ops.exists(record.bundlePath)) {
         this.ops.moveAside(record.bundlePath, old);
         await this.checkpoint('rebuild-aside');
@@ -1042,7 +1114,8 @@ export class InstalledApps {
   /**
    * Refreshes, one after the other, every installed app of this home whose desktop app changed since (`stale`) and
    * that does not run now (at start, after `reconcileAll`). A running one is left for the next start (or its dialog's
-   * Update). Answers `{ [installId]: outcome }`.
+   * Update); so is one the home's daemon runs from (`daemon-in-use`: the shared daemon is never restarted by itself,
+   * the agents' pages may hold unsaved work). Answers `{ [installId]: outcome }`.
    */
   async refreshStale() {
     const out = {};
@@ -1054,8 +1127,13 @@ export class InstalledApps {
         this.log(`installed apps: ${record.artifactId} ${record.installId}: stale, but it runs: refreshed later`);
         continue;
       }
-      const result = await this.refresh(record.artifactId, record.installId).catch((error) => ({ error: String(error?.message ?? error) }));
-      out[record.installId] = result.rebuilt ? 'refreshed' : result.stillRunning ? 'running' : result.needsCopy ? 'needs-copy' : (result.error ?? 'not refreshed');
+      if (await this.daemonInside(record.bundlePath, record.installId)) {
+        out[record.installId] = 'daemon-in-use';
+        this.log(`installed apps: ${record.artifactId} ${record.installId}: stale, but the daemon runs from it: left for its Update`);
+        continue;
+      }
+      const result = await this.refresh(record.artifactId, record.installId, { releaseDaemon: false }).catch((error) => ({ error: String(error?.message ?? error) }));
+      out[record.installId] = result.rebuilt ? 'refreshed' : result.stillRunning ? 'running' : result.needsCopy ? 'needs-copy' : result.daemonInUse ? 'daemon-in-use' : (result.error ?? 'not refreshed');
     }
     return out;
   }

@@ -21,9 +21,15 @@
  *   single-instance lock, removed when its process exits): how the desktop app knows it runs (never `ps`). It reads
  *   its record every second: when that says `uninstalling`, it quits as ⌘Q would (unsaved work waited for, then asked
  *   about; kept if the person says so, and the desktop app then gives the uninstall up).
- * - **The daemon** is the home's, shared with the desktop app and the agents. When none runs, it is started with the
- *   desktop app's own executable and runtime (the package the record names, `templatePath`), else this package's own:
- *   `ELECTRON_RUN_AS_NODE=1`, detached, its output appended to `<home>/logs/daemon.out`, as the kit itself would.
+ * - **The daemon** is the home's, shared with the desktop app and the agents. When none runs, it is started with a
+ *   desktop app's own executable and runtime: the package the record names (`templatePath`), else the one another
+ *   record of this home names, else `/Applications/Open Artifact.app` or `~/Applications/Open Artifact.app` (never in
+ *   test mode: a test never runs an app installed on the computer), each only with a runtime it carries; else this
+ *   package's own: `ELECTRON_RUN_AS_NODE=1`, detached, its output appended to `<home>/logs/daemon.out`, as the kit
+ *   itself would. A daemon started from this package is said in `<home>/desktop/daemon-host.json`
+ *   (`daemon-host.mjs`), so the desktop app restarts it from its own before it moves or removes this package. Once
+ *   connected, a daemon that lives in files that are gone (a package renamed, moved or removed since it started: it
+ *   can no longer load a type it has not loaded yet) is restarted before the artifact opens.
  * - **The harness** is `open-artifact-app`: the daemon gives it views (`embed: 'view'`, an `open` that never shows
  *   anything), and never hands it an agent's open (the daemon hands those only to `open-artifact-desktop`).
  * - **Leaving the artifact** (another artifact's link, Duplicate's new artifact, the library, the menu's "Open Library")
@@ -50,7 +56,8 @@ import { Downloads } from './downloads.mjs';
 import { Notice } from './notice.mjs';
 import { artifactMenuTemplate, describeMenu, templateCommands } from './menu.mjs';
 import { ARTIFACT_APP_FILE } from './profile.mjs';
-import { checkLaunch, claimPackage, clearRunning, inInstallDir, installDirOf, markRunning, packagesOf, readRecord, readRecords } from './installed-apps.mjs';
+import { checkLaunch, claimPackage, clearRunning, inInstallDir, installDirOf, markRunning, packagesOf, pathWithin, readRecord, readRecords } from './installed-apps.mjs';
+import { daemonHostGone, daemonHostLive, writeDaemonHost } from './daemon-host.mjs';
 import { isPageAt, pageUrlOf } from './page-url.mjs';
 import { wordsFor } from '../renderer/src/words.js';
 
@@ -186,18 +193,24 @@ async function start({ manifest, profile, settings, startLocale, settingsDir, se
   const exeName = basename(process.execPath);
   const exeOf = (bundle) => (bundle && existsSync(join(bundle, 'Contents', 'MacOS', exeName)) ? join(bundle, 'Contents', 'MacOS', exeName) : null);
   const templateExe = exeOf(record?.templatePath);
-  // What leaves this artifact goes to that desktop app; with none (no record, or its package moved): the one another
-  // record of this home names, else one in /Applications or ~/Applications (only whether it is there is looked at).
-  const handOffExe =
-    templateExe ??
-    [...readRecords(profile.home).map(({ record: other }) => other.templatePath), '/Applications/Open Artifact.app', join(homedir(), 'Applications', 'Open Artifact.app')]
-      .map(exeOf)
-      .find(Boolean) ??
-    null;
-  const templateRuntime = record?.templatePath ? join(record.templatePath, 'Contents', 'Resources', 'runtime') : null;
-  const ownRuntime = join(process.resourcesPath, 'runtime');
-  const runtimeDir = templateRuntime && runtimeInfo(templateRuntime)?.version ? templateRuntime : ownRuntime;
-  const daemonExe = templateExe ?? process.execPath;
+  // The desktop apps that may be on this computer, best first: the record's, the ones other records of this home name,
+  // then the usual places (never in test mode: a test never runs an app installed on the computer). This package and
+  // the other apps made by "install as app" are not desktop apps (they carry artifact-app.json).
+  const isDesktop = (bundle) => !!bundle && !existsSync(join(bundle, 'Contents', 'Resources', ARTIFACT_APP_FILE)) && !(bundlePath && pathWithin(bundle, bundlePath));
+  const desktops = [
+    ...new Set([
+      record?.templatePath,
+      ...readRecords(profile.home).map(({ record: other }) => other.templatePath),
+      ...(profile.testMode ? [] : ['/Applications/Open Artifact.app', join(homedir(), 'Applications', 'Open Artifact.app')]),
+    ]),
+  ].filter(isDesktop);
+  // What leaves this artifact goes to the first of them that is there (only whether it is there is looked at).
+  const handOffExe = desktops.map(exeOf).find(Boolean) ?? null;
+  // The daemon starts with the first of them that carries a runtime, else with this package's own executable and runtime.
+  const runtimeOf = (bundle) => join(bundle, 'Contents', 'Resources', 'runtime');
+  const desktopForDaemon = desktops.find((bundle) => exeOf(bundle) && runtimeInfo(runtimeOf(bundle))?.version) ?? null;
+  const runtimeDir = desktopForDaemon ? runtimeOf(desktopForDaemon) : join(process.resourcesPath, 'runtime');
+  const daemonExe = desktopForDaemon ? exeOf(desktopForDaemon) : process.execPath;
 
   const openExternal = (url) => {
     log(`external ${url}`);
@@ -273,6 +286,45 @@ async function start({ manifest, profile, settings, startLocale, settingsDir, se
   setHandOff(handOff);
 
   let harness = null;
+  /** This app's last start of the daemon (`{ pid, exe, bin }`), until it is known whether it is the daemon that runs. */
+  let started = null;
+  /** The daemon this app started runs: when from this package, `daemon-host.json` says so (the desktop app reads it). */
+  const noteDaemonHost = async () => {
+    const mine = started;
+    if (!mine) return;
+    const state = await readDaemon(profile.home).catch(() => null);
+    if (!state) return;
+    started = null;
+    if (state.pid !== mine.pid) return log(`daemon ${state.pid} runs, not the one this app started (${mine.pid})`);
+    const inside = !!bundlePath && (pathWithin(mine.exe, bundlePath) || pathWithin(mine.bin, bundlePath));
+    if (!inside) return;
+    try {
+      writeDaemonHost(profile.home, { pid: state.pid, startedAt: state.startedAt ?? null, exe: mine.exe, bin: mine.bin, bundlePath, installId: profile.installId });
+      log(`daemon-host.json: daemon ${state.pid} runs from this package`);
+    } catch (error) {
+      log(`daemon-host.json: ${error?.message ?? error}`);
+    }
+  };
+  /**
+   * Once connected: a daemon that lives in files that are gone (its package renamed, moved or removed since it started)
+   * is restarted (the kit's restart: this app's start, or the newest runtime).
+   */
+  let healing = null;
+  const healDaemon = () =>
+    (healing ??= (async () => {
+      try {
+        const host = await daemonHostLive(profile.home, harness);
+        if (!daemonHostGone(host) || typeof harness?.daemon?.restart !== 'function') return false;
+        log(`daemon ${host.pid} runs from files that are gone (${host.paths.join(', ')}): restarted`);
+        const now = await harness.daemon.restart();
+        log(`daemon restarted: ${now?.pid}`);
+        await noteDaemonHost();
+        return true;
+      } catch (error) {
+        log(`daemon restart: ${error?.message ?? error}`);
+        return false;
+      }
+    })().finally(() => (healing = null)));
   /** The "saved" notice and the downloads (made once the record checked). */
   let notice = null;
   let downloads = null;
@@ -545,6 +597,7 @@ async function start({ manifest, profile, settings, startLocale, settingsDir, se
             const child = spawnChild(daemonExe, [startIt.bin, ...startIt.args], { detached: true, stdio: ['ignore', fd, fd], env: { ...startIt.env, ELECTRON_RUN_AS_NODE: '1' } });
             child.on('error', (error) => log(`daemon start: ${error?.message ?? error}`));
             child.unref();
+            if (child.pid) started = { pid: child.pid, exe: daemonExe, bin: startIt.bin };
             return child;
           } finally {
             closeSync(fd);
@@ -568,6 +621,8 @@ async function start({ manifest, profile, settings, startLocale, settingsDir, se
     return;
   }
   aw.harness = harness;
+  /** Until the start's own connection is done (the daemon checked, the artifact opened), the state listener waits. */
+  let startDone = false;
 
   harness.on('event', (event) => {
     if (event.type === 'embed/origins') allowlist.fromDaemon(event);
@@ -579,6 +634,9 @@ async function start({ manifest, profile, settings, startLocale, settingsDir, se
   harness.on('state', (state) => {
     log(`connection ${state}`);
     if (state === 'connected') {
+      // The first connection is the start's own (below); later ones: the daemon this app started may be the one now.
+      if (!startDone) return;
+      void noteDaemonHost();
       void refreshOrigins().then((ok) => {
         if (!ok) return;
         if (!opened && !aw.problem) void openArtifact();
@@ -590,6 +648,12 @@ async function start({ manifest, profile, settings, startLocale, settingsDir, se
     if (!window.isDestroyed()) window.setBackgroundColor(nativeTheme.shouldUseDarkColors ? '#1c1c1e' : '#ffffff');
   });
 
+  if (harness.connected) {
+    await noteDaemonHost();
+    // A daemon living in files that are gone is restarted before the artifact opens (it could not load the type).
+    await healDaemon();
+  }
+  startDone = true;
   if (harness.connected && !(await refreshOrigins())) return;
   aw.connected = harness.connected;
   if (harness.connected) await openArtifact();

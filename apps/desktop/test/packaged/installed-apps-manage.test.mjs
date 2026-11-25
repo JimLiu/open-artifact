@@ -8,7 +8,10 @@
  * HOME), the desktop app and the generated app started only by their executables with `--test-mode` and a port that is
  * not 4800. Test mode never opens a package, never calls the Trash (the test's own package is removed, and that is
  * logged), and the one thing done in the account's own Library is `defaults delete` of the exact bundle ids of the apps
- * this file started. One install id is started throughout (macOS keeps one preferences file per bundle id started).
+ * this file started (macOS keeps one preferences file per bundle id started there, whatever HOME says, and leaves it
+ * empty after `defaults delete`: one install id is started throughout). The desktop app is started with
+ * `CFFIXED_USER_HOME` set to the test's HOME, so an uninstall's removal of the app's preferences file looks there (a
+ * file the test put there), never in the account's own Library.
  */
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -50,7 +53,7 @@ describe('install as app: the dialog, moves in the Finder, refresh, repair, unin
   const record = () => JSON.parse(readFileSync(recordPath(one.installId), 'utf8'));
   const patchRecord = (patch) => writeFileSync(recordPath(one.installId), `${js({ ...record(), ...patch })}\n`);
   const startDesktop = async () => {
-    desktop = await launchApp(profile, port, { binary: binaryOf(BUNDLE) });
+    desktop = await launchApp(profile, port, { binary: binaryOf(BUNDLE), env: { CFFIXED_USER_HOME: profile.home } });
     await desktop.line(/\[desktop\] ready /, 90_000);
     await desktop.connect();
     return desktop;
@@ -187,10 +190,11 @@ describe('install as app: the dialog, moves in the Finder, refresh, repair, unin
     assert.match(app.lines.join('\n'), /daemon start: this app/);
     await app.connect();
     assert.ok(await until(async () => (await app.info()).status === 'ready', 30_000), js(await app.info()));
+    // The daemon runs from this app's package, and says so for the desktop app.
+    const marker = JSON.parse(readFileSync(join(profile.oaHome, 'desktop', 'daemon-host.json'), 'utf8'));
+    assert.deepEqual([marker.pid, marker.installId, marker.exe], [daemonState(profile).pid, one.installId, binaryOf(one.bundle)], js(marker));
     await stopApp(app);
-    // That daemon runs the types inside this app's package, which the next tests rename and move: stopped, so the
-    // desktop app starts its own.
-    await stopAll();
+    // That daemon keeps running (from this app's package, which the next tests rename, move, rebuild and remove).
     await startDesktop();
     assert.ok(await until(() => record().templatePath === BUNDLE, 20_000), `the record still names ${record().templatePath}`);
   });
@@ -217,10 +221,14 @@ describe('install as app: the dialog, moves in the Finder, refresh, repair, unin
     const renamed = join(installDir(), 'Harbour (mine).app');
     renameSync(one.bundle, renamed);
     one.bundle = renamed;
+    const daemonBefore = daemonState(profile)?.pid;
     const app = await startApp();
     const ready = await app.ready();
     assert.equal(ready.problem, null, js(ready));
     assert.match(app.lines.join('\n'), /claimed its record: .* is now .*Harbour \(mine\)\.app/);
+    // The daemon ran from the package under its old name: restarted before the artifact opened.
+    assert.match(app.lines.join('\n'), /runs from files that are gone/);
+    assert.notEqual(ready.daemon?.pid, daemonBefore, js(ready));
     assert.equal(record().bundlePath, renamed);
     assert.equal(record().displayName, 'Harbour (mine)');
     await stopApp(app, { force: true });
@@ -359,7 +367,11 @@ describe('install as app: the dialog, moves in the Finder, refresh, repair, unin
     assert.equal(record().phase, 'installed');
     checkPackage(one.bundle, one.installId);
 
-    // Saved now: the dialog's Uninstall… (asked first), and the app quits by itself.
+    // Saved now: the dialog's Uninstall… (asked first), and the app quits by itself. Its preferences file, where the
+    // desktop app looks for it (CFFIXED_USER_HOME: the test's HOME), goes with it.
+    const prefsFile = join(profile.home, 'Library', 'Preferences', `dev.openartifact.app.${one.installId}.plist`);
+    mkdirSync(join(profile.home, 'Library', 'Preferences'), { recursive: true });
+    writeFileSync(prefsFile, '');
     await app.page.evaluate(`artifactApp.test.saved({ state: 'saved', leaveLosesWork: false })`);
     await openDialog();
     await waitDialog('installed');
@@ -373,6 +385,8 @@ describe('install as app: the dialog, moves in the Finder, refresh, repair, unin
     await waitDialog('available', 30_000);
     assert.equal(await text('install-app-message'), 'Uninstalled.');
     await closeDialog();
+    assert.equal(existsSync(prefsFile), false, 'the preferences file in the test\'s HOME is still there');
+    assert.match(desktop.lines.join('\n'), /preferences file .* removed/);
     assert.equal(existsSync(one.bundle), false);
     assert.equal(existsSync(recordPath(one.installId)), false);
     assert.equal(existsSync(join(profile.oaHome, 'desktop', 'apps', one.installId)), false, 'the app\'s own folder is still there');

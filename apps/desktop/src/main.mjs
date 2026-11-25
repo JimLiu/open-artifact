@@ -56,6 +56,7 @@ import { libraryDefaultFolder, newArtifactFolder } from './folders.mjs';
 import { linkedArtifact, opensOf } from './links.mjs';
 import { InstalledApps, installDirOf } from './installed-apps.mjs';
 import { macosOps } from './installed-apps-macos.mjs';
+import { daemonHostGone, daemonHostLive } from './daemon-host.mjs';
 import { isPageAt, pageUrlOf } from './page-url.mjs';
 
 // The bundle is out/main.mjs: the window's page is out/renderer/, the resources are beside out/.
@@ -1166,6 +1167,23 @@ async function start() {
       await appsHold.released;
     },
     log,
+    // Where the home's daemon lives (`daemon-host.mjs`), and its restart from this app's own runtime before a package
+    // it runs from is moved or removed: the service panel's restart, never while a tab holds unsaved work.
+    daemonHost: () => daemonHostLive(profile.home, harness),
+    releaseDaemon: async () => {
+      const unsaved = unsavedTabs().length;
+      if (unsaved) {
+        log(`installed apps: the daemon is not restarted: ${unsaved} tab(s) hold unsaved work`);
+        return false;
+      }
+      try {
+        await service.restart();
+        return harness.connected;
+      } catch (error) {
+        log(`installed apps: the daemon's restart: ${error?.message ?? error}`);
+        return false;
+      }
+    },
   });
   const installArg = (value) => ({
     ...(typeof value?.confirmedName === 'string' ? { confirmedName: value.confirmedName } : {}),
@@ -1265,6 +1283,15 @@ async function start() {
     commands['open-url'] = (url) => takeLink(String(url ?? ''), 'command');
   }
 
+  // A daemon living in files that are gone (an app's package it ran from, renamed, moved or removed since) can no
+  // longer load a type it has not loaded yet: restarted now, from this app's own runtime.
+  if (harness.connected) {
+    const host = await daemonHostLive(profile.home, harness).catch(() => null);
+    if (daemonHostGone(host)) {
+      log(`daemon ${host.pid} runs from files that are gone (${host.paths.join(', ')}): restarted`);
+      await service.restart().catch((error) => log(`daemon restart: ${error?.message ?? error}`));
+    }
+  }
   if (harness.connected && !(await refreshOrigins())) return;
   tabs.setConnected(harness.connected);
   if (harness.connected) void service.refresh();
