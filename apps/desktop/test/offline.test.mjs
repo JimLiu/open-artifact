@@ -108,9 +108,8 @@ describe('offline: each type works with no network', () => {
         const saved = await until(async () => {
           tab = (await app.state()).tabs.find((x) => x.id === id);
           return tab?.saved === 'saved' && !tab.unsaved;
-        }, how.savedMayStick ? 5000 : 20_000);
-        if (!saved && how.savedMayStick) t.diagnostic(`${type}: on disk, but the tab still says ${tab?.saved} (Slides' save state stuck)`);
-        else assert.ok(saved, `the tab does not say saved: ${JSON.stringify(tab)}`);
+        }, 20_000);
+        assert.ok(saved, `the tab does not say saved: ${JSON.stringify(tab)}`);
       } finally {
         report[type] = { first: await app.chrome?.evaluate('desktop.test.blocked()').catch(() => null) };
         await app.quit();

@@ -94,6 +94,7 @@ The Shell reads `GET /api/open-artifact.embed` (`hosts`: the origins connected a
 | A Shell that reloads may come back within | 30 seconds |
 | Commands queued before the Shell connects | 32 |
 | Views per adapter connection | 64 |
+| `shell.event` order | as the Shell said them: it sends one at a time, the next once the daemon took the last |
 
 A ticket ends with its adapter connection.
 

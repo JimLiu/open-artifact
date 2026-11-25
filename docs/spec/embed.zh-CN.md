@@ -76,6 +76,7 @@ Shell 读取 `GET /api/open-artifact.embed`（`hosts`：已连接适配器在 `c
 | 重新加载的 Shell 可回来的时限 | 30 秒 |
 | Shell 连接前排队的命令 | 32 条 |
 | 每个适配器连接的视图数 | 64 个 |
+| `shell.event` 的顺序 | 与 Shell 说出的顺序一致：一次发一条，daemon 收下上一条后才发下一条 |
 
 适配器连接结束时票据随之结束。
 

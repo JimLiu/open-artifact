@@ -67,9 +67,6 @@ export const TYPES = {
       }
     },
     shown: `document.querySelectorAll('[data-open-artifact-thumbs] [data-slide-index]').length === 1`,
-    // Slides' save state now and then stays "saving" after Add slide, though the slide is written and nothing more is
-    // sent (it happens with the network too, in about one add of five to ten): the files on disk are what is waited for.
-    savedMayStick: true,
     export: { row: 'PowerPoint · PowerPoint, basic fonts', ext: '.pptx', check: (bytes) => bytes.subarray(0, 2).toString() === 'PK' },
   },
   whiteboard: {
