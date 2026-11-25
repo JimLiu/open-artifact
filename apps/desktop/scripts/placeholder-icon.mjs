@@ -52,10 +52,92 @@ const inRounded = (x, y, x0, y0, x1, y1, r) => {
   return (x - cx) ** 2 + (y - cy) ** 2 <= r * r;
 };
 
-/** The icon at `size` pixels: 4×4 samples a pixel, so the edges are smooth. */
-export function drawIcon(size) {
+/** `#rrggbb` as `[r, g, b]`. */
+const rgb = (hex) => [0, 2, 4].map((at) => parseInt(hex.slice(1 + at, 3 + at), 16));
+const mix = (c, to, t) => c.map((v, i) => Math.round(v + (to[i] - v) * t));
+
+/**
+ * The icons of artifacts installed as apps (`installed-apps.mjs`): one per type, in the type's colour on the library
+ * page (`packages/library-page/src/look.tsx`) with a white mark of its own; `default` for a type with none. Placeholders
+ * too, like the app's.
+ */
+export const TYPE_ICONS = {
+  docs: { tint: '#3f8ef0', glyph: 'sheet' },
+  slides: { tint: '#e8703a', glyph: 'slide' },
+  sheets: { tint: '#3d9e3a', glyph: 'grid' },
+  design: { tint: '#7a5cf0', glyph: 'diamond' },
+  'design-system': { tint: '#c79a1b', glyph: 'swatches' },
+  data: { tint: '#e5484d', glyph: 'bars' },
+  whiteboard: { tint: '#d6409f', glyph: 'ring' },
+  motion: { tint: '#14a38b', glyph: 'play' },
+  page: { tint: '#5b6b82', glyph: 'window' },
+  default: { tint: '#8a8a8a', glyph: 'sheet' },
+};
+
+const WHITE = [255, 255, 255];
+/** The colour of a type's mark at (x, y), or null off it. `ink`: the lines drawn on the white. */
+function glyphAt(glyph, x, y, ink, sheet = { fold: mix(WHITE, ink, 0.25), line: ink }) {
+  const inBox = (x0, y0, x1, y1) => x >= x0 && x <= x1 && y >= y0 && y <= y1;
+  switch (glyph) {
+    case 'slide': {
+      if (!inBox(0.24, 0.3, 0.76, 0.66)) return x >= 0.47 && x <= 0.53 && y > 0.66 && y <= 0.76 ? WHITE : null;
+      return inBox(0.31, 0.38, 0.6, 0.43) || inBox(0.31, 0.49, 0.52, 0.53) ? ink : WHITE;
+    }
+    case 'grid': {
+      if (!inBox(0.26, 0.28, 0.74, 0.72)) return null;
+      const line = [0.28, 0.43, 0.57, 0.72].some((v) => Math.abs(y - v) < 0.016) || [0.26, 0.42, 0.58, 0.74].some((v) => Math.abs(x - v) < 0.016);
+      return line ? WHITE : y < 0.43 ? mix(WHITE, ink, 0.35) : null;
+    }
+    case 'diamond':
+      return Math.abs(x - 0.5) + Math.abs(y - 0.5) <= 0.24 ? (Math.abs(x - 0.5) + Math.abs(y - 0.5) <= 0.1 ? ink : WHITE) : null;
+    case 'swatches': {
+      const cells = [[0.27, 0.27], [0.52, 0.27], [0.27, 0.52], [0.52, 0.52]];
+      const shade = [0, 0.25, 0.5, 0.75];
+      for (let k = 0; k < 4; k++) if (inRounded(x, y, cells[k][0], cells[k][1], cells[k][0] + 0.21, cells[k][1] + 0.21, 0.04)) return mix(WHITE, ink, shade[k]);
+      return null;
+    }
+    case 'bars': {
+      const bars = [[0.27, 0.52], [0.42, 0.38], [0.57, 0.46], [0.72, 0.28]];
+      for (const [x0, top] of bars) if (x >= x0 - 0.05 && x <= x0 + 0.05 && y >= top && y <= 0.72) return WHITE;
+      return y > 0.735 && y < 0.765 && x > 0.2 && x < 0.8 ? WHITE : null;
+    }
+    case 'ring': {
+      // Shapes on a board: a ring and a square over it.
+      if (inRounded(x, y, 0.46, 0.46, 0.74, 0.74, 0.03)) return WHITE;
+      const d = Math.hypot(x - 0.4, y - 0.4);
+      return d <= 0.15 && d >= 0.1 ? WHITE : null;
+    }
+    case 'play':
+      return x >= 0.36 && x <= 0.7 && Math.abs(y - 0.5) <= (0.7 - x) * 0.72 ? WHITE : null;
+    case 'window': {
+      if (!inRounded(x, y, 0.24, 0.28, 0.76, 0.72, 0.04)) return null;
+      if (y < 0.37) return [0.3, 0.35, 0.4].some((cx) => Math.hypot(x - cx, y - 0.325) < 0.017) ? ink : WHITE;
+      return y < 0.395 ? ink : inBox(0.3, 0.45, 0.7, 0.66) ? mix(WHITE, ink, 0.2) : WHITE;
+    }
+    default: {
+      // The sheet, with its top-right corner folded (the app's own mark).
+      const fold = 0.14;
+      const onSheet = x >= 0.3 && x <= 0.7 && y >= 0.24 && y <= 0.76 && !(x > 0.7 - fold && y < 0.24 + fold && x - (0.7 - fold) > y - 0.24);
+      const onFold = x >= 0.7 - fold && x <= 0.7 && y >= 0.24 && y <= 0.24 + fold && x - (0.7 - fold) <= y - 0.24;
+      const line = x >= 0.37 && x <= 0.63 && [0.46, 0.55, 0.64].some((ly) => Math.abs(y - ly) < 0.018) && !(y > 0.6 && x > 0.55);
+      if (onFold) return sheet.fold;
+      if (onSheet) return line ? sheet.line : WHITE;
+      return null;
+    }
+  }
+}
+
+/**
+ * The icon at `size` pixels: 4×4 samples a pixel, so the edges are smooth. With no `look`, the app's own (blue, the
+ * folded sheet); `look`: `{ tint, glyph }` (see {@link TYPE_ICONS}).
+ */
+export function drawIcon(size, look) {
   const out = Buffer.alloc(size * size * 4);
   const S = 4;
+  const top = look ? mix(rgb(look.tint), WHITE, 0.12) : [70, 120, 255];
+  const bottom = look ? mix(rgb(look.tint), [0, 0, 0], 0.18) : [40, 80, 230];
+  const ink = look ? mix(rgb(look.tint), [0, 0, 0], 0.1) : [120, 150, 235];
+  const glyph = look?.glyph ?? 'sheet';
   for (let py = 0; py < size; py++) {
     for (let px = 0; px < size; px++) {
       let r = 0, g = 0, b = 0, a = 0;
@@ -65,18 +147,11 @@ export function drawIcon(size) {
           const y = (py + (sy + 0.5) / S) / size;
           // macOS icons sit in a 10% margin.
           if (!inRounded(x, y, 0.1, 0.1, 0.9, 0.9, 0.18)) continue;
-          // The sheet, with its top-right corner folded.
-          const fold = 0.14;
-          const onSheet = x >= 0.3 && x <= 0.7 && y >= 0.24 && y <= 0.76 && !(x > 0.7 - fold && y < 0.24 + fold && x - (0.7 - fold) > y - 0.24);
-          const onFold = x >= 0.7 - fold && x <= 0.7 && y >= 0.24 && y <= 0.24 + fold && x - (0.7 - fold) <= y - 0.24;
-          const line = x >= 0.37 && x <= 0.63 && [0.46, 0.55, 0.64].some((ly) => Math.abs(y - ly) < 0.018) && !(y > 0.6 && x > 0.55);
-          let c;
-          if (onFold) c = [200, 216, 255];
-          else if (onSheet) c = line ? [120, 150, 235] : [255, 255, 255];
-          else {
-            // The square: blue, a little lighter at the top.
+          let c = look ? glyphAt(glyph, x, y, ink) : glyphAt('sheet', x, y, ink, { fold: [200, 216, 255], line: [120, 150, 235] });
+          if (!c) {
+            // The square: a little lighter at the top.
             const t = (y - 0.1) / 0.8;
-            c = [Math.round(70 - 30 * t), Math.round(120 - 40 * t), Math.round(255 - 25 * t)];
+            c = mix(top, bottom, t);
           }
           r += c[0];
           g += c[1];
@@ -96,21 +171,28 @@ export function drawIcon(size) {
   return png(size, size, out);
 }
 
-/** Writes the placeholder `.icns` to `file`. */
-export function writeIcns(file) {
+/** Writes the placeholder `.icns` to `file` (the app's, or with `look` a type's). */
+export function writeIcns(file, look) {
   const dir = mkdtempSync(join(tmpdir(), 'oa-icon-'));
   try {
     const set = join(dir, 'icon.iconset');
     mkdirSync(set);
     for (const base of [16, 32, 128, 256, 512]) {
-      writeFileSync(join(set, `icon_${base}x${base}.png`), drawIcon(base));
-      writeFileSync(join(set, `icon_${base}x${base}@2x.png`), drawIcon(base * 2));
+      writeFileSync(join(set, `icon_${base}x${base}.png`), drawIcon(base, look));
+      writeFileSync(join(set, `icon_${base}x${base}@2x.png`), drawIcon(base * 2, look));
     }
     execFileSync('/usr/bin/iconutil', ['-c', 'icns', set, '-o', file]);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
   return file;
+}
+
+/** Writes every type's icon into `dir` (`<type>.icns`, and `default.icns`). */
+export function writeTypeIcons(dir) {
+  mkdirSync(dir, { recursive: true });
+  for (const [type, look] of Object.entries(TYPE_ICONS)) writeIcns(join(dir, `${type}.icns`), look);
+  return dir;
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

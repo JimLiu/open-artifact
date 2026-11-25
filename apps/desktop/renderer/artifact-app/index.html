@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'" />
+    <title>Open Artifact</title>
+    <link rel="stylesheet" href="status.css" />
+  </head>
+  <body>
+    <main class="status" data-testid="status" data-status="opening">
+      <div class="spinner" aria-hidden="true" data-testid="spinner"></div>
+      <h1 class="title" data-testid="status-title"></h1>
+      <p class="body" data-testid="status-body"></p>
+      <div class="actions" data-testid="status-actions"></div>
+    </main>
+    <div class="ask" data-testid="ask" role="alertdialog" aria-modal="true" hidden>
+      <div class="ask-card">
+        <h2 class="ask-title" data-testid="ask-title"></h2>
+        <p class="ask-body" data-testid="ask-body"></p>
+        <div class="ask-buttons">
+          <button type="button" data-testid="ask-cancel"></button>
+          <button type="button" class="danger" data-testid="ask-yes"></button>
+        </div>
+      </div>
+    </div>
+    <script src="status.js"></script>
+  </body>
+</html>

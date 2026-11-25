@@ -14,8 +14,9 @@
  *
  * Pure functions: `main.mjs` passes `process.argv`, `process.env` and `app.isPackaged`; the tests pass their own.
  */
+import { existsSync, readFileSync } from 'node:fs';
 import { homedir, userInfo } from 'node:os';
-import { join, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, normalize, resolve } from 'node:path';
 
 /** The home the person's own agents use. */
 export const DEFAULT_HOME = '~/.agents/open-artifact';
@@ -160,3 +161,108 @@ export function daemonEnv(env, profile) {
   if (profile.port) out.OPEN_ARTIFACT_PORT = String(profile.port);
   return out;
 }
+
+// ---- the single-artifact app: an artifact installed as an app of its own ----
+
+/**
+ * The file an artifact's app carries in its package (`Contents/Resources/artifact-app.json`, inside the package's
+ * seal): `{ schemaVersion, installId, artifactId, home, templateVersion }`. The desktop app's own package has none.
+ * Its presence alone decides the mode: present, this run is the single-artifact app whatever it holds (a file that
+ * does not parse or lacks a field is that app's problem, never a desktop app); absent, the desktop app as always.
+ * Only a packaged app reads it (a development run is always the desktop app).
+ */
+export const ARTIFACT_APP_FILE = 'artifact-app.json';
+/** The version of `artifact-app.json` this code writes and reads. */
+export const ARTIFACT_APP_SCHEMA = 1;
+const INSTALL_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const ARTIFACT_ID = /^[A-Za-z0-9_-]{1,80}$/;
+
+/**
+ * The single-artifact app's file, or null when there is none (the desktop app). `{ manifest, problems }`: `manifest`
+ * is the file's fields once they are all there and well formed (else null), `problems` why this app cannot start
+ * (none: it may). `exists(path)`: whether the home folder is there (a test's own).
+ */
+export function readArtifactApp(resourcesPath, { packaged = true, read = (path) => readFileSync(path, 'utf8'), exists = (path) => existsSync(path) } = {}) {
+  if (!packaged || typeof resourcesPath !== 'string' || !resourcesPath) return null;
+  const file = join(resourcesPath, ARTIFACT_APP_FILE);
+  let text;
+  try {
+    text = read(file);
+  } catch (error) {
+    if (error?.code === 'ENOENT') return null;
+    return { file, manifest: null, problems: [`${ARTIFACT_APP_FILE} cannot be read: ${error?.message ?? error}`] };
+  }
+  return { file, ...checkArtifactApp(text, { exists }) };
+}
+
+/** `artifact-app.json`'s text, checked: `{ manifest, problems }` (see {@link readArtifactApp}). Pure but for `exists`. */
+export function checkArtifactApp(text, { exists = (path) => existsSync(path) } = {}) {
+  let raw;
+  try {
+    raw = JSON.parse(text);
+  } catch {
+    return { manifest: null, problems: [`${ARTIFACT_APP_FILE} is not JSON.`] };
+  }
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { manifest: null, problems: [`${ARTIFACT_APP_FILE} is not an object.`] };
+  const problems = [];
+  if (raw.schemaVersion !== ARTIFACT_APP_SCHEMA) problems.push(`${ARTIFACT_APP_FILE}: schemaVersion ${JSON.stringify(raw.schemaVersion)} is not ${ARTIFACT_APP_SCHEMA}.`);
+  if (typeof raw.installId !== 'string' || !INSTALL_ID.test(raw.installId)) problems.push(`${ARTIFACT_APP_FILE}: installId is missing or not an install id.`);
+  if (typeof raw.artifactId !== 'string' || !ARTIFACT_ID.test(raw.artifactId)) problems.push(`${ARTIFACT_APP_FILE}: artifactId is missing or not an artifact id.`);
+  if (typeof raw.home !== 'string' || !isAbsolute(raw.home) || normalize(raw.home) !== raw.home || raw.home.includes('\0')) problems.push(`${ARTIFACT_APP_FILE}: home is missing or not an absolute folder.`);
+  else if (!exists(raw.home)) problems.push(`The Open Artifact home of this app is not there: ${raw.home}`);
+  if (typeof raw.templateVersion !== 'string' || !raw.templateVersion) problems.push(`${ARTIFACT_APP_FILE}: templateVersion is missing.`);
+  if (problems.length) return { manifest: null, problems };
+  return { manifest: { schemaVersion: raw.schemaVersion, installId: raw.installId, artifactId: raw.artifactId, home: raw.home, templateVersion: raw.templateVersion }, problems };
+}
+
+/** `argv` without any `--name <value>` or `--name=value`. */
+function withoutArg(argv, name) {
+  const out = [];
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === `--${name}`) i++;
+    else if (!argv[i].startsWith(`--${name}=`)) out.push(argv[i]);
+  }
+  return out;
+}
+
+/**
+ * The profile of a single-artifact app's run (see {@link resolveProfile}): the same switches and the same guards, but
+ * the home is the one its own `artifact-app.json` names, never `--home`, never `$OPEN_ARTIFACT_HOME`, never the
+ * default (`ignoredHome` says what was given and not used). Electron's folders are this app's own,
+ * `<home>/desktop/apps/<installId>/`, in every run (the person's too): Electron's single-instance lock is on that
+ * folder, so the app never meets the desktop app's lock (which would make it a second desktop app) or another
+ * artifact's. `--open` and links are not taken: this app shows its one artifact.
+ */
+export function resolveArtifactAppProfile({ manifest, argv = [], env = {}, packaged = true, userHome = homedir(), accountHome = accountHomeDir() } = {}) {
+  const ignoredHome = argValue(argv, 'home') ?? env.OPEN_ARTIFACT_HOME ?? null;
+  const ownEnv = { ...env };
+  delete ownEnv.OPEN_ARTIFACT_HOME;
+  const base = resolveProfile({ argv: [...withoutArg(withoutArg(argv, 'home'), 'open'), '--home', manifest.home], env: ownEnv, packaged, userHome, accountHome });
+  const appDir = artifactAppDir(manifest.home, manifest.installId);
+  return {
+    ...base,
+    mode: 'artifact-app',
+    installId: manifest.installId,
+    artifactId: manifest.artifactId,
+    ignoredHome: ignoredHome && ignoredHome !== manifest.home ? ignoredHome : null,
+    open: [],
+    paths: { userData: appDir, sessionData: join(appDir, 'session'), logs: join(appDir, 'logs'), crashDumps: join(appDir, 'crash-dumps') },
+  };
+}
+
+/** An installed artifact app's own Electron folder: `<home>/desktop/apps/<installId>/`. */
+export const artifactAppDir = (home, installId) => join(home, 'desktop', 'apps', installId);
+
+/** The `.app` package an executable runs from (`<x>.app/Contents/MacOS/<exe>`), or null. */
+export function bundleOfExecutable(execPath) {
+  const contents = dirname(dirname(String(execPath ?? '')));
+  const bundle = dirname(contents);
+  return basename(contents) === 'Contents' && bundle.endsWith('.app') ? bundle : null;
+}
+
+/**
+ * Where the desktop app keeps its settings (`settings.json`: the look and the language the artifact apps follow too):
+ * its Electron `userData`. A guarded run (test mode) keeps it in the home (`<home>/desktop/user-data`); the person's
+ * packaged run in Electron's default for the app's name (`defaultUserData`, read before the artifact app moves its own).
+ */
+export const desktopSettingsDir = ({ home, guarded, defaultUserData }) => (guarded ? join(home, 'desktop', 'user-data') : defaultUserData);

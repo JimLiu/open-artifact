@@ -30,11 +30,13 @@
  *              [--test-mode --devtools-port <n> [--locale en|zh] [--theme light|dark] [--thumbnails] [--offline]]
  */
 import { mkdirSync, readFileSync, statSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { basename, isAbsolute, join } from 'node:path';
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, session, shell } from 'electron';
 import { createHarness, readDaemon, runtimeInfo } from '@open-artifact/harness-kit';
 import { thumbnailStamp } from '@open-artifact/library-page/library';
-import { daemonEnv, daemonOnDefaultPort, resolveProfile } from './profile.mjs';
+import { LIBRARY_ROUTES } from '@open-artifact/protocol';
+import { bundleOfExecutable, daemonEnv, daemonOnDefaultPort, resolveProfile } from './profile.mjs';
 import { OriginAllowlist } from './navigation.mjs';
 import { HOME_TAB, PARTITION, SERVER_PARTITION, SITE_TAB, Tabs, unsavedOf } from './tabs.mjs';
 import { Servers } from './servers.mjs';
@@ -52,6 +54,8 @@ import { Service } from './service.mjs';
 import { RuntimeUpdates } from './runtime.mjs';
 import { libraryDefaultFolder, newArtifactFolder } from './folders.mjs';
 import { linkedArtifact, opensOf } from './links.mjs';
+import { InstalledApps, installDirOf } from './installed-apps.mjs';
+import { macosOps } from './installed-apps-macos.mjs';
 
 // The bundle is out/main.mjs: the window's page is out/renderer/, the resources are beside out/.
 const here = import.meta.dirname;
@@ -1136,6 +1140,38 @@ async function start() {
   refreshMenu(true);
 
   // The cards' and the sidebar's menus: Show in Finder and Move To… of one artifact.
+  // ---- "install as app": an artifact as an app of its own (`installed-apps.mjs`); the window's entry points are the
+  // next stage's, the calls are here (and in test mode's bridge) ----
+  const installDir = installDirOf(homedir());
+  const installedApps = new InstalledApps({
+    home: profile.home,
+    installDir,
+    template: {
+      bundlePath: app.isPackaged ? bundleOfExecutable(process.execPath) : null,
+      executable: process.execPath,
+      // What a copy is "stale" against: this app and the runtime it carries.
+      version: () => `${app.getVersion()}+${carriedVersion}`,
+    },
+    packaged: app.isPackaged,
+    library: { record: (id) => library.record(id), types: () => library.call(LIBRARY_ROUTES.types) },
+    ops: macosOps({ installDir, iconsDir: join(process.resourcesPath ?? appRoot, 'app-icons'), testMode: profile.testMode, log }),
+    log,
+  });
+  const installArg = (value) => ({
+    ...(typeof value?.confirmedName === 'string' ? { confirmedName: value.confirmedName } : {}),
+    allowCopy: value?.allowCopy === true,
+  });
+  const installIdArg = (value) => {
+    if (typeof value !== 'string' || !/^[0-9a-f-]{36}$/.test(value)) throw new Error('not an install id');
+    return value;
+  };
+  answer('desktop:apps.state', (id) => installedApps.state(idArg(id)));
+  answer('desktop:apps.install', (id, options) => installedApps.install(idArg(id), installArg(options)));
+  answer('desktop:apps.open', (id, installId) => installedApps.open(idArg(id), installIdArg(installId)));
+  answer('desktop:apps.reveal', async (id, installId) => system.reveal(await installedApps.revealPath(idArg(id), installIdArg(installId))));
+  // What an install cut short left (a quit, a crash) is put right at start; nothing here waits on it.
+  void installedApps.reconcileAll().catch((error) => log(`installed apps: ${error?.message ?? error}`));
+
   answer('desktop:artifact-do', (act, id) => {
     if (act !== 'reveal' && act !== 'move' && act !== 'relocate') throw new Error(`not an artifact action: ${act}`);
     return runCommand(act, { id: idArg(id) }, { named: true });

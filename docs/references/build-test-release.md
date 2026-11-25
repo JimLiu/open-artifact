@@ -79,12 +79,15 @@ with `app.quit({ force: true })` (the app would otherwise ask).
 
 `npm run package` makes a folder-form macOS arm64 `.app` in `apps/desktop/dist/` (ignored by git) with
 `@electron/packager`: the build's `out/` in `app.asar` (with `ElectronAsarIntegrity`), the runtime in
-`Contents/Resources/runtime`, a placeholder icon and bundle id (`dev.openartifact.desktop`), Electron's fuses as they
+`Contents/Resources/runtime`, the type icons of installed artifact apps in `Contents/Resources/app-icons/`, a
+placeholder icon and bundle id (`dev.openartifact.desktop`), Electron's fuses as they
 are (`RunAsNode` on), signed ad hoc on this computer. No DMG, notarization or automatic updates yet. Packaged, the app
 with no arguments uses the person's own home and port, so `test/packaged/` only starts it with `--home`, a port other
 than 4800, `--test-mode` and a throwaway `HOME`, and checks first that it then uses those folders only. A package
 declares no URL scheme; `OA_DESKTOP_URL_SCHEME=1 npm run package` adds `open-artifact://` to its `Info.plist`
 (`scripts/info-plist.mjs`; checked by the unit tests, never built by them), and nothing registers it.
+`test/packaged/installed-apps.test.mjs` installs artifacts as apps from that package into the throwaway `HOME`'s
+`Applications/` and starts them only by their executable, with `--test-mode` and a port other than 4800.
 
 ## Releasing
 

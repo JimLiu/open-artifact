@@ -75,6 +75,17 @@ contextBridge.exposeInMainWorld('desktop', {
    */
   onCommand: listen('desktop:command'),
   /**
+   * "Install as app" (an artifact as an app of its own in ~/Applications/Open Artifact Apps): `state(id)`,
+   * `install(id, { confirmedName, allowCopy })`, `open(id, installId)`, `reveal(id, installId)`, each answering
+   * `{ ok, value }` or `{ ok: false, error }`. The window's menus and dialog for them are the next stage's.
+   */
+  apps: {
+    state: (id) => ipcRenderer.invoke('desktop:apps.state', String(id)),
+    install: (id, options) => ipcRenderer.invoke('desktop:apps.install', String(id), options && typeof options === 'object' ? { confirmedName: options.confirmedName, allowCopy: options.allowCopy === true } : {}),
+    open: (id, installId) => ipcRenderer.invoke('desktop:apps.open', String(id), String(installId)),
+    reveal: (id, installId) => ipcRenderer.invoke('desktop:apps.reveal', String(id), String(installId)),
+  },
+  /**
    * An artifact's Show in Finder (`reveal`), Move To… (`move`) or Relocate… (`relocate`, a tab whose folder is gone):
    * `{ ok, value }` or `{ ok: false, error }` (the daemon's words).
    */

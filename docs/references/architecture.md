@@ -172,6 +172,13 @@ It is a Harness API host like the examples, built on `@open-artifact/harness-kit
   the settings), `--thumbnails`, `--offline` (every session's requests past this computer refused and listed).
 - **Packaging** (`apps/desktop/scripts/package.mjs`): a folder-form arm64 `.app`, the code in `app.asar`, the runtime
   in `Contents/Resources/runtime` (found through `process.resourcesPath`), `RunAsNode` left on, signed ad hoc.
+- **Artifacts installed as apps** (`apps/desktop/src/installed-apps.mjs`, `installed-apps-macos.mjs`,
+  `artifact-app.mjs`; no entry point in the UI yet): an APFS clone of the packaged app in
+  `~/Applications/Open Artifact Apps/`, with its own display name, bundle id and type icon and
+  `Contents/Resources/artifact-app.json`, signed ad hoc on the outer package; records in `<home>/desktop/apps/`. The
+  build's entry is `src/start.mjs`, which runs the single-artifact window when that file is there. That app connects as
+  harness `open-artifact-app`, starts the daemon with the desktop app's executable, and hands other artifacts and the
+  library to the desktop app; agents' opens go to the desktop app only. See `apps/desktop/README.md`.
 
 ## Agent tools & wake loop
 

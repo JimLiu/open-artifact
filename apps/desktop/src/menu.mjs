@@ -26,20 +26,39 @@ export function newGroups(types) {
   };
 }
 
+/** A named command's item: `run(name, arg)` on click, `enabled(name)` now. */
+const commandMaker = (run, enabled) => (name, label, extra = {}) => ({
+  id: name,
+  label,
+  enabled: enabled(name),
+  click: () => run(name, extra.arg),
+  ...(extra.accelerator ? { accelerator: extra.accelerator } : {}),
+  ...(extra.submenu ? { submenu: extra.submenu } : {}),
+});
+const sep = { type: 'separator' };
+
+/** The Edit menu, the same in both windows: every item a command on the page in front. */
+const editMenu = (t, command) => ({
+  label: t('menu.edit'),
+  submenu: [
+    command('edit:undo', t('menu.undo'), { accelerator: 'CmdOrCtrl+Z' }),
+    command('edit:redo', t('menu.redo'), { accelerator: 'Shift+CmdOrCtrl+Z' }),
+    sep,
+    command('edit:cut', t('menu.cut'), { accelerator: 'CmdOrCtrl+X' }),
+    command('edit:copy', t('menu.copy'), { accelerator: 'CmdOrCtrl+C' }),
+    command('edit:paste', t('menu.paste'), { accelerator: 'CmdOrCtrl+V' }),
+    command('edit:paste-plain', t('menu.pastePlain'), { accelerator: 'Shift+Alt+CmdOrCtrl+V' }),
+    command('edit:delete', t('menu.delete')),
+    command('edit:select-all', t('menu.selectAll'), { accelerator: 'CmdOrCtrl+A' }),
+  ],
+});
+
 /**
  * The menu's template. `t`: the words; `types`: the library's types (`{ id, title }`); `run(name, arg)`: runs a
  * command; `enabled(name)`: whether it can run now; `appName`; `platform`.
  */
 export function menuTemplate({ t, types = [], run, enabled = () => true, appName = 'Open Artifact', platform = process.platform }) {
-  const command = (name, label, extra = {}) => ({
-    id: name,
-    label,
-    enabled: enabled(name),
-    click: () => run(name, extra.arg),
-    ...(extra.accelerator ? { accelerator: extra.accelerator } : {}),
-    ...(extra.submenu ? { submenu: extra.submenu } : {}),
-  });
-  const sep = { type: 'separator' };
+  const command = commandMaker(run, enabled);
   const groups = newGroups(types);
   const typeItem = (type) => command(`new:${type.id}`, typeName(t, type.id, type.title), { arg: type.id });
   const newMenu = [
@@ -85,20 +104,7 @@ export function menuTemplate({ t, types = [], run, enabled = () => true, appName
         ...(mac ? [] : [sep, { role: 'quit', label: t('menu.quit', { app: appName }) }]),
       ],
     },
-    {
-      label: t('menu.edit'),
-      submenu: [
-        command('edit:undo', t('menu.undo'), { accelerator: 'CmdOrCtrl+Z' }),
-        command('edit:redo', t('menu.redo'), { accelerator: 'Shift+CmdOrCtrl+Z' }),
-        sep,
-        command('edit:cut', t('menu.cut'), { accelerator: 'CmdOrCtrl+X' }),
-        command('edit:copy', t('menu.copy'), { accelerator: 'CmdOrCtrl+C' }),
-        command('edit:paste', t('menu.paste'), { accelerator: 'CmdOrCtrl+V' }),
-        command('edit:paste-plain', t('menu.pastePlain'), { accelerator: 'Shift+Alt+CmdOrCtrl+V' }),
-        command('edit:delete', t('menu.delete')),
-        command('edit:select-all', t('menu.selectAll'), { accelerator: 'CmdOrCtrl+A' }),
-      ],
-    },
+    editMenu(t, command),
     {
       label: t('menu.view'),
       submenu: [
@@ -128,6 +134,66 @@ export function menuTemplate({ t, types = [], run, enabled = () => true, appName
       label: t('menu.help'),
       role: 'help',
       submenu: [command('logs', t('menu.logs')), command('doctor', t('menu.doctor'))],
+    },
+  ];
+}
+
+/**
+ * The menu bar of an artifact installed as an app (`artifact-app.mjs`): the app menu (About, the library in the desktop
+ * app, Hide, Quit), File (Show Artifact Folder in Finder, Close Window), Edit, View (Reload, zoom, full screen) and
+ * Window. `appName`: the app's name (the artifact's); macOS itself shows the package's `CFBundleName` ("Open
+ * Artifact") as the bold name of the first menu, whatever its label here.
+ */
+export function artifactMenuTemplate({ t, run, enabled = () => true, appName, platform = process.platform }) {
+  const command = commandMaker(run, enabled);
+  const mac = platform === 'darwin';
+  return [
+    ...(mac
+      ? [
+          {
+            label: appName,
+            submenu: [
+              command('about', t('menu.about', { app: appName })),
+              sep,
+              command('library', t('menu.openLibrary')),
+              sep,
+              { role: 'services', label: t('menu.services') },
+              sep,
+              { role: 'hide', label: t('menu.hide', { app: appName }) },
+              { role: 'hideOthers', label: t('menu.hideOthers') },
+              { role: 'unhide', label: t('menu.showAll') },
+              sep,
+              { role: 'quit', label: t('menu.quit', { app: appName }) },
+            ],
+          },
+        ]
+      : []),
+    {
+      label: t('menu.file'),
+      submenu: [
+        command('reveal', t('menu.reveal'), { accelerator: 'CmdOrCtrl+Alt+R' }),
+        sep,
+        command('close-window', t('menu.closeWindow'), { accelerator: 'CmdOrCtrl+W' }),
+        ...(mac ? [] : [sep, { role: 'quit', label: t('menu.quit', { app: appName }) }]),
+      ],
+    },
+    editMenu(t, command),
+    {
+      label: t('menu.view'),
+      submenu: [
+        command('reload', t('menu.reload'), { accelerator: 'CmdOrCtrl+R' }),
+        sep,
+        command('zoom-reset', t('menu.actualSize'), { accelerator: 'CmdOrCtrl+0' }),
+        command('zoom-in', t('menu.zoomIn'), { accelerator: 'CmdOrCtrl+=' }),
+        command('zoom-out', t('menu.zoomOut'), { accelerator: 'CmdOrCtrl+-' }),
+        sep,
+        command('fullscreen', t('menu.fullscreen'), { accelerator: mac ? 'Ctrl+Cmd+F' : 'F11' }),
+      ],
+    },
+    {
+      label: t('menu.window'),
+      role: 'windowMenu',
+      submenu: [{ role: 'minimize', label: t('menu.minimize') }, { role: 'zoom', label: t('menu.zoom') }, ...(mac ? [sep, { role: 'front', label: t('menu.front') }] : [])],
     },
   ];
 }

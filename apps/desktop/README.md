@@ -193,6 +193,34 @@ mode: `--locale en|zh` and `--theme light|dark` set the language and the look, b
 `--thumbnails` takes thumbnails although the window is never shown, and `--offline` refuses every request a page of
 the app makes past this computer (the window's, the views', the thumbnails'), logged as `offline: blocked …`.
 
+## Artifacts installed as apps (no menu item or button yet)
+
+An artifact can be installed as a macOS app of its own (`src/installed-apps.mjs`, `src/installed-apps-macos.mjs`).
+There is no entry point in the app yet; the main process answers `desktop.apps.state(id)`, `install(id, { confirmedName,
+allowCopy })`, `open(id, installId)` and `reveal(id, installId)` on the preload bridge.
+
+- **The package**: an APFS clone (`cp -Rc`) of the packaged desktop app in
+  `~/Applications/Open Artifact Apps/<title>.app`. Only `CFBundleDisplayName`, `CFBundleIdentifier`
+  (`dev.openartifact.app.<installId>`) and the icon (`AppIcon.icns`, one per type from `Contents/Resources/app-icons/`)
+  change, and `CFBundleURLTypes` is removed; `CFBundleName`, `CFBundleExecutable` and the helpers stay the desktop
+  app's (the bold name in the menu bar stays "Open Artifact"). It gets `Contents/Resources/artifact-app.json` (home,
+  artifact, install id) and is signed ad hoc on the outer package only, then checked with `codesign --verify --strict`.
+  Where the folder is not on the same APFS volume as the desktop app, the answer is `needsCopy`; `allowCopy` copies it
+  with `ditto`. Two artifacts of one title get `<title>` and `<title> (2)`.
+- **The records**: `<home>/desktop/apps/<installId>.json` (`installing`, `installed`; `uninstalling` is kept for
+  uninstall), written atomically, one operation per artifact at a time. The steps (record, clone, edit, sign, place
+  without overwriting, commit) are checked again at every start (`reconcileAll`): a finished one is committed, an
+  unfinished one cleaned up, anything else answers `needsRepair`. Every path written is checked to be inside the
+  install folder, inside `HOME`.
+- **The app**: `src/start.mjs` reads `artifact-app.json` first; with it, `src/artifact-app.mjs` runs one window for one
+  artifact (`src/artifact-window.mjs`, its views made as tabs make theirs by `src/artifact-view.mjs`), with the
+  standard title bar, its own Electron folder (`<home>/desktop/apps/<installId>/`, one instance), the desktop app's
+  look and language, and a short menu (File: Show in Finder, Close). The daemon is started with the desktop app's
+  executable (the record's `templatePath`). Links to other artifacts, "All artifacts" and Duplicate go to the desktop
+  app. An agent's open is never shown here (the daemon gives those to the desktop app only). Without its record, or
+  with the artifact gone from the library, it shows why on its own page (`renderer/artifact-app/`).
+- In test mode, opening a package (`open`) is only logged: an install answers `launch: 'skipped'`.
+
 ## Packaging
 
 ```bash
@@ -204,7 +232,8 @@ npm run test:packaged  # the packaged app's checks (test/packaged/); package fir
 arm64, a folder (no DMG, no notarization, no automatic updates), signed ad hoc on this computer
 (`codesign --force --deep --sign -`, the package only). It carries `out/` (the main process, the preloads, the
 pages) in `Contents/Resources/app.asar` (Electron checks it against `ElectronAsarIntegrity` in `Info.plist`) and the
-runtime in `Contents/Resources/runtime`. The icon is a placeholder drawn by `scripts/placeholder-icon.mjs`, and the
+runtime in `Contents/Resources/runtime`, and the icons of installed artifact apps in
+`Contents/Resources/app-icons/`. The icon is a placeholder drawn by `scripts/placeholder-icon.mjs`, and the
 bundle id `dev.openartifact.desktop` is a placeholder too. Electron's fuses are left as they are: `RunAsNode` stays
 on, the daemon and the type servers run on the app's own executable. No URL scheme is declared by default, and
 nothing is installed or registered. `OA_DESKTOP_URL_SCHEME=1 npm run package` declares `open-artifact://` in the
@@ -298,6 +327,14 @@ npm test         # builds, then runs test/*.test.mjs one file at a time
   folders when given them; with no `node` on PATH the four types open and the daemon and the type servers run the
   package's executable; an edit kept across quitting; doctor; a copy of the package in another folder starts; the
   default package's `Info.plist` declares no URL scheme.
+- `installed-apps.test.mjs` (in `npm test`): the installer with a fake package and signing: names, records, the steps
+  cut at each point and put right at the next start, the path guards, clashes, `needsCopy`.
+- `packaged/installed-apps.test.mjs` (`npm run test:packaged`): installed through the bridge (signature, bundle id,
+  name, manifest, record; `df -k` shows a clone); two artifacts of one title; a cold start with no `node` and no
+  daemon (the daemon runs the desktop app's executable, an edit is saved and the desktop app shows it); one instance,
+  and side by side with the desktop app; an agent's open never shown in it; a broken manifest, a removed record, an
+  artifact removed from the library. Its apps are started only through `launchArtifactApp` (their executable,
+  `--test-mode`, a port other than 4800).
 
 Every test uses a throwaway profile (`HOME`, `OPEN_ARTIFACT_HOME`, `TMPDIR`) and a free port other than 4800, with a
 whitelisted environment (`OPEN_ARTIFACT_BROWSER=none`, `OPEN_ARTIFACT_DESKTOP_LAUNCH=off`,
