@@ -419,4 +419,41 @@ describe(`${TYPE} in a browser`, { skip: skip() || browserSkip }, () => {
       }
     }
   });
+
+  it('prints the dashboard itself, not a blank sheet, beside nothing of the editor', T, async () => {
+    // Issue #24: #dash-root carries the print path's mark too, and the rule hiding every unmarked child of a marked
+    // element hid the dashboard's own content. The PDF button and the browser's Print both mark the path; `beforeprint`
+    // does it here, under print media, as the dialog would lay the page out.
+    const { dir } = install(typePath(TYPE), 'data-print-type');
+    const printing = cli(dir, { OPEN_ARTIFACT_TYPE_SERVER_HOME: path.join(tmpDir('data-print-state'), 'state'), OPEN_ARTIFACT_USER: 'E2E' });
+    const root = path.join(tmpDir('data-print'), 'dashboard');
+    let page;
+    try {
+      const load = await run(path.join(fixtures, 'data', 'load.mjs'), [printing.script, root], { env: printing.env() });
+      assert.equal(load.code, 0, `the fixture did not load: ${load.stderr}`);
+      const opened = await printing.json(['open', root, '--json']);
+      page = await browser.load(opened.url, { ready: "document.querySelector('#dash-root [data-source]')", timeout: 60000, settle: 1500, ignore: [/\/favicon\.ico$/] });
+      await page.cdp('Emulation.setEmulatedMedia', { media: 'print' });
+      const shown = `(() => {
+        const root = document.getElementById('dash-root');
+        const note = document.querySelector('[data-dash-print-note]');
+        const beside = [...document.body.querySelectorAll('*')].filter(e => !e.contains(root) && !root.contains(e) && !e.closest('[data-dash-print-note]') && e.getClientRects().length > 0);
+        return { height: Math.round(root.getBoundingClientRect().height), text: root.innerText.trim(), note: note?.getClientRects().length > 0 ? note.innerText.trim() : '', beside: beside.length };
+      })()`;
+      const before = await page.evaluate(shown);
+      assert.match(before.text, /Sales and signups/, 'the fixture drew no title');
+      await page.evaluate("window.dispatchEvent(new Event('beforeprint'))");
+      assert.ok(await page.evaluate("document.getElementById('dash-root').hasAttribute('data-dash-print-path')"), 'beforeprint marked no path');
+      const printed = await page.evaluate(shown);
+      assert.match(printed.text, /Sales and signups/, `the printed dashboard is blank: ${JSON.stringify(printed)}`);
+      assert.equal(printed.height, before.height, 'the dashboard printed at another length');
+      assert.match(printed.note, /^Data as of /, 'the data note did not print under the dashboard');
+      assert.equal(printed.beside, 0, 'the editor around the dashboard printed');
+      await page.evaluate("window.dispatchEvent(new Event('afterprint'))");
+      assert.equal(await page.evaluate("document.querySelectorAll('[data-dash-print-path]').length"), 0, 'afterprint left the path marked');
+    } finally {
+      await page?.close();
+      await printing.run(['stop']).catch(() => {});
+    }
+  });
 });
