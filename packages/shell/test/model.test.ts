@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import type { ArtifactView, ShareView, TypeView } from '@open-artifact/protocol';
+import { BUILTIN_START, type ArtifactView, type ShareView, type TypeView } from '@open-artifact/protocol';
 import {
   addressWithout,
   addressWithoutThread,
@@ -25,7 +25,7 @@ import {
   switchPool,
   type Owner,
 } from '../src/shell/model.ts';
-import { defaultCreatable, isCreatable, ownerBadge, sortArtifacts } from '../src/home/model.ts';
+import { createGroupOf, createGroups, defaultCreatable, isCreatable, ownerBadge, sortArtifacts } from '../src/home/model.ts';
 import { useShell } from '../src/shell/store.ts';
 
 const owner = (patch: Partial<Owner> = {}): Owner => ({ harness: 'dsh', session: 's1', workspace: null, live: true, status: 'idle', ...patch });
@@ -234,7 +234,7 @@ describe('home model', () => {
       ...patch,
     } as TypeView);
     assert.equal(isCreatable(type({})), true);
-    assert.equal(isCreatable(type({ id: 'slides' })), false);
+    assert.equal(isCreatable(type({ id: 'slides' })), true, 'every built-in can be made');
     assert.equal(isCreatable(type({ enabled: false })), false);
     assert.equal(isCreatable(type({ shadowedBy: 'project' })), false);
     assert.equal(defaultCreatable([type({ id: 'slides' }), type({})])?.id, 'design');
@@ -250,7 +250,27 @@ describe('home model', () => {
     assert.equal(isCreatable(type({ id: 'page', scope: 'project', trusted: false })), false);
     // "New artifact" is Design while there is one, else the first that can be made.
     assert.equal(defaultCreatable([type({ id: 'page' }), type({})])?.id, 'design');
-    assert.equal(defaultCreatable([type({ id: 'slides' }), type({ id: 'notes', scope: 'user', runtime: 'frame' })])?.id, 'notes');
+    assert.equal(defaultCreatable([type({ id: 'slides' }), type({ id: 'notes', scope: 'user', runtime: 'frame' })])?.id, 'slides');
+    assert.equal(defaultCreatable([type({ id: 'slides', enabled: false }), type({ id: 'notes', scope: 'user', runtime: 'frame' })])?.id, 'notes');
+  });
+
+  it('groups the types "New" offers: start blank, make with an agent, and the types people made', () => {
+    const type = (patch: Partial<TypeView>): TypeView => ({
+      id: 'design', title: 'Design', description: '', scope: 'builtin', root: '/types', runtime: 'server', entry: null, server: null,
+      runnable: true, enabled: true, shadowedBy: null, version: null, problems: [], icon: false, ...patch,
+    } as TypeView);
+    for (const id of BUILTIN_START.blank) assert.equal(createGroupOf(type({ id })), 'blank', id);
+    for (const id of BUILTIN_START.agent) assert.equal(createGroupOf(type({ id })), 'agent', id);
+    assert.deepEqual([...BUILTIN_START.blank], ['docs', 'sheets', 'whiteboard', 'slides', 'design-system']);
+    assert.deepEqual([...BUILTIN_START.agent], ['design', 'data', 'motion', 'page']);
+    assert.equal(createGroupOf(type({ id: 'notes', scope: 'user', runtime: 'frame' })), 'custom');
+    assert.equal(createGroupOf(type({ id: 'docs', scope: 'extra', runtime: 'server' })), null, 'a server copy of a built-in elsewhere is not offered');
+    assert.equal(createGroupOf(type({ id: 'docs', enabled: false })), null);
+    assert.equal(createGroupOf(type({ id: 'unknown-builtin' })), null);
+    const groups = createGroups([type({ id: 'design' }), type({ id: 'docs' }), type({ id: 'notes', scope: 'user', runtime: 'frame' }), type({ id: 'sheets' }), type({ id: 'motion', runnable: false })]);
+    assert.deepEqual(groups.blank.map((t) => t.id), ['docs', 'sheets']);
+    assert.deepEqual(groups.agent.map((t) => t.id), ['design']);
+    assert.deepEqual(groups.custom.map((t) => t.id), ['notes']);
   });
 
   it('draws owner badges', () => {

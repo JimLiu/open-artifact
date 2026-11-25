@@ -23,7 +23,7 @@ function NewButton() {
   const types = useHome((state) => state.types);
   const type = types ? defaultCreatable(types.types) : null;
   const button = (
-    <Button size="lg" variant="primary" icon={<Plus className="size-3.5" />} disabled={!type} onClick={() => type && useHome.getState().setCreating(type)}>
+    <Button size="lg" variant="primary" data-testid="new-artifact" icon={<Plus className="size-3.5" />} disabled={!type} onClick={() => type && useHome.getState().setCreating(type)}>
       {t('newArtifact')}
     </Button>
   );

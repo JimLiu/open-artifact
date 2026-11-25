@@ -158,5 +158,6 @@ open-artifact types pack <id|文件夹> [--out <文件|文件夹>]              
   - 绝不自行开启分享或生成分享链接；需要分享或导出时，打开对应 UI 面板交给用户操作（`Artifact {action: "open", url, panel: "share"}` 或 `panel: "export"`）。
   - 未经用户明确要求和授权，不要执行 `open-artifact publish`、`unpublish` 或 `remote` 命令。
   - 仅在用户明确要求时调用 `delete` 或 `adopt`（注意：`delete` 仅移出列表，磁盘上的文件夹仍会保留，需告知用户）。
+  - 用户在主页新建或从文件夹添加的作品不属于任何会话（`owner` 为空），直到有会话接手。从空白开始的作品（在主页新建时，或在 Shell 里点「从空白开始」，后者不改变归属）已经有该类型的初始文件，可能还有用户自己写的内容：改之前先读，在原有内容上修改，不要整体替换。
   - 停用或启用类型（`open-artifact types enable | disable`）、信任项目里的类型（`types trust | untrust`），以及安装、更新、卸载类型（`types install | update | uninstall`）由用户决定：在 agent 会话里运行这些命令会被拒绝。请用户在自己的终端或主页的类型标签页里操作。
 - **拒绝冒充与欺诈**：不得制作冒充真实个人或机构的页面、伪造真实收据/评论/记录，或伪装收集密码与支付信息的表单。

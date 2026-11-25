@@ -37,8 +37,11 @@ import {
   type ArtifactDetail,
   type ArtifactRecord,
   type ArtifactView,
+  type AddArtifactRequest,
   type AskRequest,
+  type BlankArtifactRequest,
   type CreateArtifactRequest,
+  type RelocateArtifactRequest,
   type DaemonHealth,
   type DataRefreshResult,
   type DaemonState,
@@ -1442,6 +1445,38 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
     return id ? this.store.update(id, { owner: null, createdBy: null }) : null;
   }
 
+  /**
+   * Starts an empty artifact blank: opening its page has its type server write the type's starting files (what the
+   * server's open does when the marker file is missing). One that is not empty is left as it is. Throws `unsupported`
+   * when the type wrote none (a type without a server, or whose server writes no starting files).
+   */
+  private async startBlank(record: ArtifactRecord, req?: IncomingMessage): Promise<ArtifactRecord> {
+    if (!this.bootOf(record).empty) return record;
+    await this.openPage(record, { lang: langOf(req) });
+    if (this.bootOf(record).empty) {
+      const title = this.typeOf(record)?.title ?? record.type;
+      throw new OpenArtifactError('unsupported', `${title} writes no starting files: an agent writes this artifact.`);
+    }
+    this.contentStamps.delete(record.root);
+    this.broadcast({ type: 'artifacts/changed', id: record.id });
+    return this.store.get(record.id) ?? record;
+  }
+
+  /** A folder a Library call names (absolute or `~/...`), resolved; it must exist and be a folder. */
+  private folderArg(value: unknown): string {
+    const given = typeof value === 'string' ? value.trim() : '';
+    if (!given || (!isAbsolute(given) && !given.startsWith('~'))) throw new OpenArtifactError('invalid_argument', 'folder: an absolute path (or ~/...).');
+    const root = resolve(expandHome(given));
+    let dir = false;
+    try {
+      dir = statSync(root).isDirectory();
+    } catch {
+      /* missing */
+    }
+    if (!dir) throw new OpenArtifactError('not_found', `No folder ${root}.`);
+    return root;
+  }
+
   private async duplicate(record: ArtifactRecord, name?: string): Promise<ArtifactRecord> {
     if (record.type === 'docs') {
       const type = this.typeOf(record);
@@ -2322,15 +2357,94 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
         const folder = typeof body.folder === 'string' && body.folder.trim() ? body.folder.trim() : undefined;
         if (folder && !isAbsolute(folder) && !folder.startsWith('~')) throw new OpenArtifactError('invalid_argument', 'folder: an absolute path (or ~/...).');
         const caller: SessionRef = { harness: 'open-artifact-home', session: null, workspace: this.settings.homeWorkspace };
+        const blank = body.blank === true;
         const made = await this.tools.call(
           'Artifact',
-          { action: 'publish', type_url: `open-artifact://type/${typeId}`, title: String(body.title ?? '').slice(0, 200), ...(folder ? { folder: expandHome(folder) } : {}) },
+          {
+            action: 'publish',
+            type_url: `open-artifact://type/${typeId}`,
+            title: String(body.title ?? '').slice(0, 200),
+            ...(folder ? { folder: expandHome(folder) } : {}),
+            ...(blank ? { open: 'never' } : {}),
+          },
           caller,
         );
         if (made.error) return sendJson(res, statusOf(new OpenArtifactError(made.error.code, made.error.message)), made.error);
-        const record = this.store.update(artifactIdOf(made.url)!, { owner: null, createdBy: null });
+        let record = this.store.update(artifactIdOf(made.url)!, { owner: null, createdBy: null });
+        if (blank) {
+          try {
+            record = await this.startBlank(record, req);
+          } catch (error) {
+            // Made blank or not made: nothing half-made is kept (the folder only when it holds no more than its marker).
+            this.closePage(record);
+            this.store.remove(record.id);
+            rmSync(join(files.trash(), `${record.id}.json`), { force: true });
+            try {
+              if (readdirSync(record.root).every((name) => name === '.artifact.json')) rmSync(record.root, { recursive: true, force: true });
+            } catch {
+              /* gone already */
+            }
+            throw error;
+          }
+          this.log(`audit: made ${record.id} (${record.type}) blank at ${record.root}, asked by ${this.askedBy(req, name)}`);
+          return sendJson(res, 201, { ...this.artifactView(record), prompt: null });
+        }
         const view = this.artifactView(record);
         return sendJson(res, 201, { ...view, prompt: body.prompt ? `${body.prompt}\n\n${takeOverPrompt(record, view.typeTitle)}` : takeOverPrompt(record, view.typeTitle) });
+      }
+      case R.blank: {
+        // The Shell's "Start blank" on an empty artifact: its type server writes the starting files. Its owner stays.
+        const body = await readJsonBody<BlankArtifactRequest & { url?: string }>(req);
+        const record = this.store.require(body.id ?? body.url);
+        const was = this.bootOf(record).empty;
+        const next = await this.startBlank(record, req);
+        if (was) this.log(`audit: started ${record.id} (${record.type}) blank at ${record.root}, asked by ${this.askedBy(req, name)}`);
+        return sendJson(res, 200, this.artifactView(next));
+      }
+      case R.add: {
+        // "Open folder": an artifact folder on this computer joins the library, owned by nobody (not artifacts.adopt,
+        // which records its caller as the owner).
+        const body = await readJsonBody<AddArtifactRequest>(req);
+        const root = this.folderArg(body.folder);
+        const known = this.store.byRoot(root);
+        if (known) return sendJson(res, 200, this.artifactView(known));
+        // A moved folder of an artifact the library has: that one is relocated, never added a second time.
+        const marked = readJson<{ id?: unknown } | null>(join(root, '.artifact.json'), null);
+        const of = typeof marked?.id === 'string' ? this.store.get(marked.id) : null;
+        if (of && !existsSync(of.root)) {
+          throw new OpenArtifactError('conflict', `${root} is the folder of ${of.id} ("${of.title}"), which the library has at ${of.root}, a folder that is gone.`, {
+            fix: `Relocate that artifact instead: ${LIBRARY_ROUTES.relocate} { id: "${of.id}", folder: "${root}" }.`,
+          });
+        }
+        const record = await this.adoptFolder(root);
+        if (!record) {
+          throw new OpenArtifactError('invalid_argument', `${root} holds no artifact of a type this computer knows: no .artifact.json, and no type's marker files.`);
+        }
+        this.log(`audit: added the folder ${root} as ${record.id} (${record.type}), asked by ${this.askedBy(req, name)}`);
+        return sendJson(res, 201, this.artifactView(record));
+      }
+      case R.relocate: {
+        const body = await readJsonBody<RelocateArtifactRequest & { url?: string }>(req);
+        const record = this.store.require(body.id ?? body.url);
+        const root = this.folderArg(body.folder);
+        const marked = readJson<{ id?: unknown } | null>(join(root, '.artifact.json'), null);
+        if (!marked) throw new OpenArtifactError('invalid_argument', `${root} has no .artifact.json: it is not an artifact's folder.`);
+        if (marked.id !== record.id) {
+          throw new OpenArtifactError('conflict', `${root} is not the folder of ${record.id}: its .artifact.json names ${typeof marked.id === 'string' ? marked.id : 'no id'}.`, {
+            fix: `Choose the folder ${record.id} was moved to, or add this one as an artifact of its own (${LIBRARY_ROUTES.add}).`,
+          });
+        }
+        const other = this.store.byRoot(root);
+        if (other && other.id !== record.id) throw new OpenArtifactError('conflict', `${root} is already the folder of ${other.id}.`);
+        if (resolve(record.root) === root) return sendJson(res, 200, this.artifactView(record));
+        // Its page, watcher and stamps were the old folder's.
+        this.closePage(record);
+        this.shellOpens.delete(record.id);
+        this.contentStamps.delete(record.root);
+        const next = this.store.update(record.id, { root, updatedAt: record.updatedAt });
+        this.log(`audit: relocated ${record.id} from ${record.root} to ${root}, asked by ${this.askedBy(req, name)}`);
+        this.broadcast({ type: 'artifacts/changed', id: record.id });
+        return sendJson(res, 200, this.artifactView(next));
       }
       case R.update: {
         const body = await readJsonBody<UpdateArtifactRequest & { url: string }>(req);

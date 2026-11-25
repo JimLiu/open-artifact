@@ -18,6 +18,17 @@ Open Artifact ships with **9 built-in artifact types**. Each type combines a pla
 | `motion` | [Motion](types/motion.md) | Product promos, explainers, launch clips, walkthroughs, title cards, animated GIFs | Live doc store (`db/film/meta.json`) | Images, fonts, video/audio clips | MP4, GIF, standalone HTML player, source ZIP | Yes |
 | `page` | [Page](types/page.md) | Small interactive pages no other type fits: widgets, tools, calculators, mini games, explainer pages, polls and checklists | The folder itself (`index.html`, capabilities in `.artifact.json`) | Any files the page loads | — (publishes to a Node or Cloudflare site) | No |
 
+### Making one without an agent
+
+The home page's **New** offers every built-in type, in two groups. **Start right away** (Docs, Sheets, Whiteboard,
+Slides, Design System) makes the artifact with its type's starting files and opens it in its editor, so you can write
+it yourself; on a Design System's welcome page, **Start by hand** goes to its sections to add colors, type and
+spacing. **Make with an agent** (Design, Data, Motion, Page) makes the artifact for an agent to build, because
+building these by hand is not there yet: Design, Data and Motion open empty, with the prompt to hand them to an agent.
+An empty artifact of a "start right away" type also shows **Start blank** in the Shell, which keeps the artifact's
+owner. Types made on this computer are listed after these, as before. Whatever you make on the home page belongs to
+no agent session until one takes it over.
+
 ## Which type should I choose?
 
 Both users and agents can use these rules to pick the right type quickly:

@@ -125,6 +125,22 @@ export async function retryBoot(): Promise<void> {
   await finishBoot(pending, true);
 }
 
+/**
+ * The empty state's Start blank: the type server writes the type's starting files (`artifacts.blank`), then the
+ * finished boot is asked for again and the editor opens. Resolves with an error message, or `null`.
+ */
+export async function startBlank(): Promise<string | null> {
+  const boot = useShell.getState().boot;
+  if (!boot) return null;
+  try {
+    await api.blank(boot.id);
+  } catch (error) {
+    return t('couldNotStartBlank', { error: errorText(error) });
+  }
+  await retryBoot();
+  return null;
+}
+
 /** The frame was refused once already and has not shown its page since. */
 let deniedAgain = false;
 

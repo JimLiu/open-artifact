@@ -332,11 +332,14 @@ export function uploadFiles(files: readonly File[]): void {
   xhr.send(file);
 }
 
-/** Creates an artifact of a type and opens it in the Shell. Resolves with an error message, or `null`. */
-export async function createArtifact(type: TypeView, title: string, folder: string): Promise<string | null> {
+/**
+ * Creates an artifact of a type and opens it in the Shell: blank (`blank`, its editor opens) or empty (the Shell hands
+ * it to an agent). Resolves with an error message, or `null`.
+ */
+export async function createArtifact(type: TypeView, title: string, folder: string, blank = false): Promise<string | null> {
   if (!title.trim()) return t('needTitle');
   try {
-    const made = await api.create({ type: type.id, title: title.trim(), ...(folder.trim() ? { folder: folder.trim() } : {}) });
+    const made = await api.create({ type: type.id, title: title.trim(), ...(folder.trim() ? { folder: folder.trim() } : {}), ...(blank ? { blank: true } : {}) });
     location.href = shellHref(made.id);
     return null;
   } catch (error) {

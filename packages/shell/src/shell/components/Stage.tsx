@@ -3,14 +3,14 @@
  * empty state (hand the artifact to an agent), or the problem state.
  */
 
-import { SHELL_FRAME_NAME } from '@open-artifact/protocol';
-import { Copy, LoaderCircle, MessageSquare, Play, RotateCw, TriangleAlert } from 'lucide-react';
+import { SHELL_FRAME_NAME, builtinStartOf } from '@open-artifact/protocol';
+import { Copy, FilePlus, LoaderCircle, MessageSquare, Play, RotateCw, TriangleAlert } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button, cn } from '@open-artifact/ui';
 import { copyText } from '../../lib/format.ts';
 import { t } from '../../lib/i18n.ts';
 import { attachFrame, embedded, frameLoaded } from '../bridge.ts';
-import { ask, frameShown, markPhase, newSession, retryBoot } from '../actions.ts';
+import { ask, frameShown, markPhase, newSession, retryBoot, startBlank } from '../actions.ts';
 import { useAgentName, useCloud, useMayAsk } from '../hooks.ts';
 import { COVER_FADE_MS, addressWithoutThread, pageAddress, pageOriginOf } from '../model.ts';
 import { alignSpin } from '../preboot.ts';
@@ -98,17 +98,22 @@ export function PageFrame() {
   );
 }
 
-/** Made but not written yet: hand it to an agent (a new session through the host, or by copying the prompt). */
+/**
+ * Made but not written yet: hand it to an agent (a new session through the host, or by copying the prompt), or, for a
+ * type people start by hand (`BUILTIN_START.blank`), start it blank and open its editor.
+ */
 export function EmptyArtifact() {
   const boot = useBoot();
   const agent = useAgentName();
   // A cloud host has no folder to name and no session to start here.
   const cloud = !!useCloud();
   const sessions = useShell((state) => !!state.host?.caps.sessions) && !cloud;
+  const blank = !cloud && !boot.read_only && builtinStartOf(boot.type) === 'blank';
   const [status, setStatus] = useState('');
+  const [starting, setStarting] = useState(false);
   const prompt = boot.prompt ?? '';
   return (
-    <div className="max-w-2xl px-8 py-10">
+    <div data-testid="empty-artifact" className="max-w-2xl px-8 py-10">
       <h2 className="mb-2 mt-0 text-base font-semibold">{t('emptyTitle')}</h2>
       <p className="mb-3 mt-0 text-fg-muted">{cloud ? t('emptyBodyCloud', { type: boot.typeTitle }) : t('emptyBody', { type: boot.typeTitle, root: boot.root })}</p>
       <textarea
@@ -141,7 +146,25 @@ export function EmptyArtifact() {
         >
           {t('copy')}
         </Button>
+        {blank ? (
+          <Button
+            size="lg"
+            data-testid="start-blank"
+            icon={<FilePlus className="size-3.5" />}
+            disabled={starting}
+            onClick={async () => {
+              setStarting(true);
+              setStatus(t('startingBlank'));
+              const failure = await startBlank();
+              setStarting(false);
+              setStatus(failure ?? '');
+            }}
+          >
+            {t('startBlank')}
+          </Button>
+        ) : null}
       </div>
+      {blank ? <p className="mb-0 mt-2 text-xs text-fg-muted">{t('emptyOrBlank')}</p> : null}
       <p role="status" className="mt-2 text-xs text-fg-muted">
         {status}
       </p>

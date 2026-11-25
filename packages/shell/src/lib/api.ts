@@ -103,8 +103,10 @@ export interface LibraryApi {
   share(id: string): Promise<ShareView>;
   /** `POST artifact.share`: changes sharing and answers the new state. */
   setShare(request: ShareRequest): Promise<ShareView>;
-  /** `POST artifacts.create`. */
+  /** `POST artifacts.create` (`blank: true`: it comes back with its type's starting files, not empty). */
   create(request: CreateArtifactRequest): Promise<ArtifactView>;
+  /** `POST artifacts.blank`: an empty artifact's type server writes its starting files. */
+  blank(id: string): Promise<ArtifactView>;
   /** `POST artifacts.update`: rename or pin. */
   update(request: UpdateArtifactRequest): Promise<ArtifactView>;
   /** `POST artifacts.duplicate`: the copy. */
@@ -251,6 +253,7 @@ export function createLibraryApi(options: LibraryApiOptions = {}): LibraryApi {
     share: (id) => call<ShareView>(LIBRARY_ROUTES.share, { query: { id } }),
     setShare: (request) => call<ShareView>(LIBRARY_ROUTES.share, { body: request }),
     create: (request) => call<ArtifactView>(LIBRARY_ROUTES.create, { body: request }),
+    blank: (id) => call<ArtifactView>(LIBRARY_ROUTES.blank, { body: { id } }),
     update: (request) => call<ArtifactView>(LIBRARY_ROUTES.update, { body: request }),
     duplicate: (id, name) => call<ArtifactView>(LIBRARY_ROUTES.duplicate, { body: { id, ...(name && { name }) } }),
     remove: (id) => call<DeleteResult>(LIBRARY_ROUTES.delete, { body: { id } }),

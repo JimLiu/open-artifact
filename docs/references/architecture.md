@@ -80,6 +80,27 @@ packages/daemon (local open-artifact daemon, one per machine)
 - **CLI parity**: `skills/open-artifact/scripts/open-artifact.mjs` invokes the exact same daemon tool handlers over local HTTP (`artifact`, `data`, `comments`, `open`, `wait`, `mcp`, `hook`). `open-artifact --version` / `-v` prints the runtime's version.
 - **Wake routing**: When a user clicks **Send to agent** in the Shell, comments go to the session that owns the artifact: live to a connected Harness API adapter of its harness (`wake.deliver`), else into the daemon inbox, delivered via app-specific hooks (`packages/daemon/harnesses/<name>.json`), background monitors/extensions, the `messages` array in tool responses, or `ArtifactComments {action: "wait"}`.
 
+- **Starting without an agent** (`libraryCall` in `packages/daemon/src/daemon.ts`): `artifacts.create` makes an
+  artifact as `open-artifact-home`, then clears `owner` and `createdBy`; it writes only `.artifact.json`, so `bootOf`
+  says `empty` (no `detect` file) and `shellBoot` returns before opening the page, and the Shell shows `EmptyArtifact`
+  with the hand-over prompt. The type server's `open` writes its type's starting files when the marker is missing
+  (`TYPES[type].scaffold` in `packages/type-server/src/server.ts`): `startBlank` opens the page (`openPage`) for that
+  and refuses with `unsupported` when the artifact is still empty after it. `artifacts.create { blank: true }` uses it
+  (a refused one leaves no record, and no folder that holds only its marker), and so does `artifacts.blank { id }`, the
+  Shell's **Start blank** on an empty artifact (its owner stays as it was). `artifacts.open`, `artifacts.preview` and
+  `Artifact open` open the page without looking at `empty`, so they write the starting files too. `BUILTIN_START`
+  (`packages/protocol/src/library.ts`) is the one list of which built-ins the home page's **New** starts blank
+  (`docs`, `sheets`, `whiteboard`, `slides`, `design-system`) and which it makes as before for an agent (`design`, `data`,
+  `motion`, `page`; a Page is never empty); the home page (`createGroupOf` in `packages/shell/src/home/model.ts`) and the Shell's
+  `EmptyArtifact` read it, and types people make keep their own group. `artifacts.add { folder }` adds an artifact
+  folder on this computer through `adoptFolder` (its `.artifact.json`, else a type's marker files; owned by nobody),
+  answers a folder the library has already as it is (its owner kept), and refuses with `conflict` a moved folder whose
+  `.artifact.json` id is a record whose folder is gone (that one is relocated instead); it does not go through
+  `artifacts.adopt`, which records its caller as the owner. `artifacts.relocate { id, folder }` sets a record's `root`
+  only when the folder's `.artifact.json` names the same id and no other record has that folder (`conflict`
+  otherwise), after closing its page in the old folder. These routes take writes as `artifacts.create` does
+  (`writeAllowed`: a JSON `POST` from the daemon's own origin, or the daemon token) and log an `audit:` line.
+
 - **Types people make**: `open-artifact types new | check | from | enable | disable | trust | untrust | list` and the
   Library routes `types.new`, `types.check`, `types.from`, `types.enable`, `types.disable`, `types.trust`
   (`packages/daemon/src/type-authoring.ts`). The routes refuse any `Origin` but the daemon's own (`http://<one of its

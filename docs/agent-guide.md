@@ -166,5 +166,6 @@ same id is here.
   - Never create share links or change share permissions yourself; open the UI panel for the user instead (`Artifact {action: "open", url, panel: "share"}` or `panel: "export"`).
   - Never run `open-artifact publish`, `unpublish`, or `remote` commands unless the user explicitly asks and has authorized it.
   - Only `delete` or `adopt` an artifact when explicitly asked (note: `delete` removes the registry entry and keeps the folder on disk).
+  - An artifact the person made on the home page or added from a folder belongs to no session (`owner` is empty) until one adopts it. One started blank (on the home page, or with **Start blank** in the Shell, which keeps its owner) already holds its type's starting files and maybe the person's own writing: read it before you change it, and revise rather than replace.
   - Turning a type on or off (`open-artifact types enable | disable`), trusting a project's types (`types trust | untrust`) and installing, updating or uninstalling a type (`types install | update | uninstall`) are the person's: the commands refuse to run inside an agent's session. Ask them to do it in their terminal or the home page's Types tab.
 - **Never impersonate or deceive**: Refuse artifacts that impersonate real organizations/people, forge genuine-looking receipts/reviews/records, or harvest passwords/payment details.

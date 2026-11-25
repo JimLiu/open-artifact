@@ -355,6 +355,49 @@ export interface CreateArtifactRequest {
   folder?: string;
   /** Hand the new artifact to an agent with this prompt. */
   prompt?: string;
+  /**
+   * Start it blank: once made, its page is opened so its type server writes the type's starting files, and the answer
+   * comes back not empty (owned by nobody, as without it). A type with marker files (`detect`) whose server writes none
+   * is refused (`unsupported`, nothing kept); one without marker files (Page, most types people make) is never empty,
+   * and is made as without it.
+   */
+  blank?: boolean;
+}
+
+/** `POST /api/open-artifact.artifacts.blank`: an empty artifact (made, nothing written) started blank. */
+export interface BlankArtifactRequest {
+  id: string;
+}
+
+/** `POST /api/open-artifact.artifacts.add`: a folder already on this computer added to the library. */
+export interface AddArtifactRequest {
+  /** The folder (absolute or `~/...`). Its `.artifact.json` says the type, else a type's marker files. */
+  folder: string;
+}
+
+/** `POST /api/open-artifact.artifacts.relocate`: an artifact's folder was moved; where it is now. */
+export interface RelocateArtifactRequest {
+  id: string;
+  /** The folder (absolute or `~/...`). Its `.artifact.json` must name this artifact's id. */
+  folder: string;
+}
+
+/**
+ * How the home page offers the built-in types for "New", and whether an empty artifact of one can be started blank.
+ * `blank`: the person starts it by hand (created with `blank: true`, it opens in its editor). `agent`: an agent
+ * builds it (made as before: Design, Data and Motion open empty, on the prompt that hands it to one; a Page has no
+ * marker files and opens as its page). The one list the home page and the Shell both read.
+ */
+export const BUILTIN_START = {
+  blank: ['docs', 'sheets', 'whiteboard', 'slides', 'design-system'],
+  agent: ['design', 'data', 'motion', 'page'],
+} as const satisfies Record<string, readonly string[]>;
+
+/** The group a built-in type's id is in ({@link BUILTIN_START}), or `null` for any other id. */
+export function builtinStartOf(typeId: string): keyof typeof BUILTIN_START | null {
+  if ((BUILTIN_START.blank as readonly string[]).includes(typeId)) return 'blank';
+  if ((BUILTIN_START.agent as readonly string[]).includes(typeId)) return 'agent';
+  return null;
 }
 
 /** `POST /api/open-artifact.artifacts.update`. */
@@ -388,6 +431,15 @@ export const LIBRARY_ROUTES = {
   boot: 'artifacts.boot',
   preview: 'artifacts.preview',
   create: 'artifacts.create',
+  /** `POST { id }` ({@link BlankArtifactRequest}): an empty artifact's type server writes its starting files. */
+  blank: 'artifacts.blank',
+  /**
+   * `POST { folder }` ({@link AddArtifactRequest}): a folder on this computer added to the library, owned by nobody.
+   * A folder the library has already answers its artifact as it is.
+   */
+  add: 'artifacts.add',
+  /** `POST { id, folder }` ({@link RelocateArtifactRequest}): the artifact's folder is now there. */
+  relocate: 'artifacts.relocate',
   update: 'artifacts.update',
   duplicate: 'artifacts.duplicate',
   delete: 'artifacts.delete',

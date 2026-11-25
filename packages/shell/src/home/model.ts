@@ -1,14 +1,8 @@
 /** The home page's pure logic: ordering, what can be created, owner badges. No DOM. */
 
-import { hostToShellOf, type ArtifactView, type HostLibraryFilter, type TypeView } from '@open-artifact/protocol';
+import { builtinStartOf, hostToShellOf, type ArtifactView, type HostLibraryFilter, type TypeView } from '@open-artifact/protocol';
 import type { HomeHost } from './host.ts';
 import type { BadgeState } from '../components/OwnerBadge.tsx';
-
-/**
- * Built-in types the home page can create artifacts of. It began with Design alone (no reason is recorded); `page`
- * joins it, and the other built-ins stay as they were.
- */
-export const CREATABLE_TYPES: readonly string[] = ['design', 'page'];
 
 /**
  * Roots whose frame types (the types people make) the home page offers "New" for. A project's types are made from a
@@ -16,6 +10,9 @@ export const CREATABLE_TYPES: readonly string[] = ['design', 'page'];
  * built-in, say) is not offered.
  */
 const CREATABLE_SCOPES: readonly string[] = ['user', 'extra'];
+
+/** The ids "New" offered in any root before the built-ins were grouped (it began with Design, then Page). */
+const LEGACY_CREATABLE: readonly string[] = ['design', 'page'];
 
 /** When an artifact's content last changed, for ordering. */
 export function contentTime(a: Pick<ArtifactView, 'contentAt' | 'updatedAt' | 'createdAt'>): number {
@@ -48,11 +45,35 @@ export function isUsable(type: TypeView): boolean {
   return type.enabled && type.runnable && !type.shadowedBy;
 }
 
+/**
+ * How "New" makes an artifact of a type: `blank` opens it in its editor at once (`artifacts.create` with `blank: true`),
+ * `agent` makes it as before for an agent to build (empty with the hand-over prompt, or a Page's page), `custom` (a type people made) as it always did.
+ * The built-ins' groups are {@link BUILTIN_START}'s (protocol), which the Shell reads too.
+ */
+export type CreateGroup = 'blank' | 'agent' | 'custom';
+
+/** The group "New" puts a type in, or `null` when the home page does not offer it. */
+export function createGroupOf(type: TypeView): CreateGroup | null {
+  if (!isUsable(type) || type.trusted === false) return null;
+  if (type.scope === 'builtin') return builtinStartOf(type.id);
+  // Offered before the groups, in any root: a Design or Page of that id stays as it was.
+  if (LEGACY_CREATABLE.includes(type.id)) return 'agent';
+  return CREATABLE_SCOPES.includes(type.scope) && type.runtime === 'frame' ? 'custom' : null;
+}
+
 /** The home page offers "New" for this type. */
 export function isCreatable(type: TypeView): boolean {
-  if (!isUsable(type) || type.trusted === false) return false;
-  if (CREATABLE_TYPES.includes(type.id)) return true;
-  return type.scope !== 'builtin' && CREATABLE_SCOPES.includes(type.scope) && type.runtime === 'frame';
+  return createGroupOf(type) !== null;
+}
+
+/** The types "New" offers, by group, each in the order given. */
+export function createGroups(types: readonly TypeView[]): Record<CreateGroup, TypeView[]> {
+  const out: Record<CreateGroup, TypeView[]> = { blank: [], agent: [], custom: [] };
+  for (const type of types) {
+    const group = createGroupOf(type);
+    if (group) out[group].push(type);
+  }
+  return out;
 }
 
 /** The type "New artifact" creates (Design first), or `null` when none is installed and usable. */
