@@ -117,7 +117,8 @@ describe('export manifest', () => {
 
   it('lists the formats for the Shell, disabled with a reason until the page can be exported', () => {
     const ready = dashboardChromeFormats({ ready: true });
-    assert.ok(ready.some((format) => format.format === 'pdf' && format.more === true && format.disabled === undefined));
+    assert.ok(ready.some((format) => format.format === 'pdf' && format.more === undefined && format.disabled === undefined));
+    assert.ok(ready.some((format) => format.format === 'print' && format.more === true && format.disabled === undefined));
     const waiting = dashboardChromeFormats({ ready: false, why: 'other', reason: 'Wait.' });
     assert.ok(waiting.every((format) => format.disabled === true && format.why === 'other' && format.disabledReason === 'Wait.'));
     assert.ok(dashboardChromeFormats({ ready: false, why: 'older_version' }).every((format) => format.why === 'older_version' && format.disabledReason === undefined));

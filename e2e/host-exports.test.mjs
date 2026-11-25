@@ -6,12 +6,13 @@
 // the design system's own buttons) is started with the real mouse, and the file must arrive as this browser's own
 // download (Browser.setDownloadBehavior into a temporary folder): the right name, a plausible size, and the right
 // first bytes (`%PDF`, the PNG signature, `PK` with the Office parts for .pptx/.docx/.xlsx, `ftyp` for MP4, `GIF8`).
-// A PDF the page prints (Docs, Data) opens the print view and calls `print()`, stubbed in the page before the click:
-// the native dialog is not driven.
+// A PDF the page prints (Docs) and Data's Print… open the print view and call `print()`, stubbed in the page before
+// the click: the native dialog is not driven. Data's own PDF is a file the page makes, and downloads like the rest.
 //
 // Then sharing: with "Viewers can download and export" off, a viewer who joined by link is refused with a readable
 // message and gets no file; once the owner turns it on, the same export downloads. A Doc's editor and commenter export
-// whatever the switch says; a viewer's Docs PDF and Data PDF (prints, not downloads) follow the switch too.
+// whatever the switch says; a viewer's Docs PDF and Data's Print… (prints, not downloads) follow the switch too, as
+// does Data's PDF file.
 //
 // Last, the remote agent's snapshot: an MCP client (the OAuth code flow over plain HTTP, with a client configured by
 // OA_OAUTH_CLIENTS and the owner's session cookie read from Chrome) calls Artifact {action: "call", name: "snapshot"};
@@ -330,12 +331,15 @@ describe('exports on a cloud host, made in the browser', { skip: skip() }, () =>
     await page.close();
   });
 
-  it('Data: the PDF prints the dashboard; the web page, the JSON and the folder download', T, async () => {
+  it('Data: the PDF, the web page, the JSON and the folder download; Print… prints the dashboard', T, async () => {
     const page = await open(ctx.owner, 'data');
     await exportTab(page, 'Web page (HTML)');
     await page.press('Escape');
-    assert.ok(await stubPrint(page));
+    // The PDF is a file the page makes itself (before `print` is stubbed, which also wraps every frame's window).
     await pickExport(page, 'PDF');
+    await expectFile(page, 'Data PDF', { ext: 'pdf', kind: 'pdf', min: 1000 });
+    assert.ok(await stubPrint(page));
+    await pickExport(page, 'Print…');
     assert.ok(await page.waitFor(`${IN_PAGE} && window.__e2ePrinted`, 30000), `the dashboard did not print; the page said: ${await toasts(page)}`);
     // The stubbed print sends no `afterprint`, so the page counts its dialog open for one more second (`PRINT_SETTLE_MS`)
     // and answers an export asked meanwhile with "Another export is running" (a toast long gone by the timeout below).
@@ -503,7 +507,8 @@ describe('exports on a cloud host, made in the browser', { skip: skip() }, () =>
       await pickExport(viewer.page, 'PDF (.pdf) · Whole document · A4');
       assert.ok(await viewer.page.waitFor(`${IN_PAGE} && window.__e2ePrinted`, 30000), `the viewer's PDF did not print: ${await toasts(viewer.page)}`);
 
-      // The Data PDF (a print too) follows the same switch (last: it needs the dashboard settled, see the Data case).
+      // Data's PDF file and its Print… (no download) follow the same switch (last: it needs the dashboard settled, see
+      // the Data case).
       const data = await shareByLinks('data', 'document.body.childElementCount > 0', ['viewer']);
       await viewersMayExport(data.page, false);
       await data.page.press('Escape');
@@ -516,9 +521,11 @@ describe('exports on a cloud host, made in the browser', { skip: skip() }, () =>
       assert.ok(await dataViewer.waitFor(`${IN_PAGE} && document.body.childElementCount > 0`, 60000), "the viewer's dashboard did not draw");
       await exportTab(dataViewer, 'PDF');
       await dataViewer.press('Escape');
-      assert.ok(await stubPrint(dataViewer));
       await pickExport(dataViewer, 'PDF');
       assert.ok(await until(async () => /not let viewers download or export/.test(await toasts(dataViewer)), 20000), `no readable Data PDF refusal: ${await toasts(dataViewer)}`);
+      assert.ok(await stubPrint(dataViewer));
+      await pickExport(dataViewer, 'Print…');
+      assert.equal(await noDownload(viewer.dl, viewer.seen, 3000), true, 'a viewer got the Data PDF while the owner says no');
       assert.equal(await inPage(dataViewer, 'window.__e2ePrinted'), null, 'the dashboard printed for a viewer while the owner says no');
       await dataViewer.close();
       await viewersMayExport(data.page, true);

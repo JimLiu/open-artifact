@@ -16,7 +16,7 @@
 - **Interactive filters & safe rules**: Bind page filters (`{{name}}`) directly into dataset parameters, validated by Rust/WASM filter rules (`open-artifact-data-rules`).
 - **Hand editing, looks & Design Systems**: Users can edit words directly on the page, switch ready-made visual looks, or install a [Design System](design-system.md).
 - **Remix & Read-aloud**: Remix a dashboard into a narrative scroll story or a short visual draft, and listen via built-in read-aloud support.
-- **Exports**: Export to **PDF**, standalone **HTML**, or **JSON** from **Share → Export**, plus portable `.zip` archives.
+- **Exports**: Export to **PDF**, standalone **HTML**, or **JSON** from **Share → Export**, plus portable `.zip` archives. The PDF is a file made right in the page (paper-size sheets, the light look, selectable text, clickable links); **Print…** opens the browser's print dialog when you want to print or choose the paper and margins yourself.
 
 ## How to use (for users)
 
@@ -31,7 +31,7 @@
 - **Inspect provenance**: Open the **Sources** side panel to verify queries, attached files, and refresh timestamps.
 - **Filter & edit copy**: Use interactive filters on the page, click text to hand-edit copy, or click **Import a file** on an empty dashboard to upload CSV/TSV/JSON/Excel files.
 - **Remix or refine with your agent**: Pin comments on charts or numbers and click **Send to agent**, or remix a dashboard into a story/visual short.
-- **Export**: Open **Share → Export** to download PDF, HTML, or JSON.
+- **Export**: Open **Share → Export** to download PDF, HTML, or JSON, or pick **Print…** for the browser's print dialog. The PDF shows the dashboard as it is now (the open tab, the filters in effect) at the width you see it: upright sheets for a narrow dashboard, sheets on their side for a wide one, US Letter or A4 by your browser's language. A box that scrolls on screen (a long table) is printed whole, and a card stays on one sheet when it fits.
 
 ## How to use (for agents)
 

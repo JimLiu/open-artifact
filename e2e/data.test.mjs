@@ -457,3 +457,114 @@ describe(`${TYPE} in a browser`, { skip: skip() || browserSkip }, () => {
     }
   });
 });
+
+  it('exports the dashboard as a PDF file made in the page, and keeps Print as its own entry', { timeout: 150000 }, async () => {
+    // Export → PDF used to open the print dialog. It now saves a file: a copy of the dashboard laid out as it prints,
+    // one paper wide, each page a picture under its selectable words. Print… stays, for the dialog.
+    const { dir } = install(typePath(TYPE), 'data-pdf-type');
+    // The server saves exports into the user's Downloads folder: a home of the test's own.
+    const home = tmpDir('data-pdf-home');
+    const downloads = path.join(home, 'Downloads');
+    fs.mkdirSync(downloads, { recursive: true });
+    const exporting = cli(dir, { OPEN_ARTIFACT_TYPE_SERVER_HOME: path.join(tmpDir('data-pdf-state'), 'state'), HOME: home, OPEN_ARTIFACT_USER: 'E2E' });
+    const root = path.join(tmpDir('data-pdf'), 'dashboard');
+    let page;
+    try {
+      const load = await run(path.join(fixtures, 'data', 'load.mjs'), [exporting.script, root], { env: exporting.env() });
+      assert.equal(load.code, 0, `the fixture did not load: ${load.stderr}`);
+      const origin = new URL((await exporting.json(['open', root, '--json'])).url).origin;
+      const opened = await exporting.json(['open', root, '--shell', origin, '--json']);
+      // The server's own root (plain text, no CSP) stands in for the Shell's page, on the same origin.
+      page = await browser.load(origin + '/', { ready: 'document.readyState === "complete"', ignore: [/\/favicon\.ico$/] });
+      await page.evaluate(`(() => {
+        window.__messages = [];
+        addEventListener('message', e => window.__messages.push(e.data));
+        document.body.innerHTML = '';
+        const f = document.createElement('iframe');
+        f.src = ${JSON.stringify(opened.url)};
+        f.style.cssText = 'border:0;width:1200px;height:800px';
+        document.body.append(f);
+      })()`);
+      const formats = `(window.__messages.filter(m => m?.openArtifact === 'chrome_report' && m.report?.formats).at(-1)?.report.formats ?? [])`;
+      assert.ok(
+        await page.waitFor(`${formats}.some(f => f.format === 'pdf' && !f.disabled)`, 60000),
+        `the page never offered its PDF: ${JSON.stringify(await page.evaluate(formats))}`,
+      );
+      const offered = await page.evaluate(formats);
+      assert.deepEqual(offered.map(f => f.format), ['pdf', 'print', 'html', 'json']);
+      assert.equal(offered.find(f => f.format === 'pdf').more, undefined, 'the PDF row still says it opens something first');
+      assert.equal(offered.find(f => f.format === 'print').more, true, 'Print… does not say it opens a dialog');
+
+      const frame = `document.querySelector('iframe').contentDocument`;
+      // The Signups tab draws a bar chart from the uploaded file. A print rule of the page's own sends the note under
+      // it to a second sheet: only a copy laid out as it prints has two pages.
+      await page.evaluate(`(() => {
+        const doc = ${frame};
+        doc.getElementById('tab-signups').click();
+        const style = doc.createElement('style');
+        style.textContent = '@media print { #signups .fx-note { break-before: page } } @media screen { #signups .fx-note { break-before: auto } }';
+        doc.head.append(style);
+        // A box that scrolls on screen (a long table in a short card): paper doesn't scroll, so the copy shows all of it.
+        const scroller = doc.createElement('div');
+        scroller.id = 'e2e-scroller';
+        scroller.style.cssText = 'max-height:80px;overflow-y:auto';
+        scroller.innerHTML = Array.from({ length: 60 }, (_, row) => '<div style="height:20px;line-height:20px">Scrolled row ' + (row + 1) + '</div>').join('');
+        doc.querySelector('#signups .fx-note').after(scroller);
+      })()`);
+      assert.ok(await page.waitFor(`${frame}.querySelectorAll('#signups-chart svg rect').length > 0`, 30000), 'the signups chart drew no bars');
+      const drawn = await page.evaluate(`${frame}.getElementById('dash-root').innerText`);
+      assert.match(drawn, /Sales and signups/, 'the fixture drew no title');
+      await page.evaluate(`document.querySelector('iframe').contentWindow.postMessage({ openArtifact: 'chrome_cmd', cmd: 'export_format', request: 'e2eDashboardPdf000001', format: 'pdf' }, location.origin)`);
+      const answers = `window.__messages.filter(m => m?.openArtifact === 'chrome_export' && m.request === 'e2eDashboardPdf000001')`;
+      assert.ok(await page.waitFor(`${answers}.some(m => m.state === 'done' || m.state === 'failed')`, 90000), 'the PDF export never finished');
+      assert.deepEqual((await page.evaluate(answers)).map(m => m.state), ['started', 'done'], JSON.stringify(await page.evaluate(answers)));
+      const saved = path.join(downloads, 'Sales and signups.pdf');
+      assert.ok(await until(() => fs.existsSync(saved) && fs.statSync(saved).size > 0, 30000), `no PDF was saved: ${fs.readdirSync(downloads)}`);
+      const file = { path: saved, bytes: fs.readFileSync(saved) };
+      const pdf = file.bytes.toString('latin1');
+      assert.ok(pdf.startsWith('%PDF-'), 'the download is not a PDF');
+      // Headless Chrome speaks en-US: US Letter. The dashboard shows wider than the paper here, so the sheet lies on
+      // its side and the copy keeps the dashboard's width (the chart's bars were sized for it by script).
+      const shownWidth = await page.evaluate(`Math.ceil(${frame}.getElementById('dash-root').getBoundingClientRect().width)`);
+      assert.ok(shownWidth > 980 && shownWidth <= 1200, `the fixture shows at an unexpected width: ${shownWidth}`);
+      assert.match(pdf, /\/MediaBox ?\[ ?0 0 792 612 ?\]/, 'the pages are not Letter paper on its side');
+      assert.ok(pdf.includes('/DCTDecode'), 'the pages carry no picture');
+      // Two sheets from the page's own print rule, and a third for the rows the box scrolled out of sight on screen
+      // (1,200 px of them: more than the second sheet has left).
+      assert.match(pdf, /\/Type \/Pages[^>]*\/Count 3\b/, 'the print rule did not start a second sheet, or the scrolling box was not printed whole');
+      assert.equal(await page.evaluate(`${frame}.getElementById('e2e-scroller').clientHeight`), 80, 'the export changed the scrolling box on the page');
+
+      // The first page's picture shows the dashboard (ink on a light page), not a blank or dark sheet.
+      const at = file.bytes.indexOf('/DCTDecode');
+      const length = Number(/\/Length (\d+)/.exec(file.bytes.subarray(at, at + 200).toString('latin1'))?.[1]);
+      const start = file.bytes.indexOf('stream\n', at) + 'stream\n'.length;
+      const picture = `data:image/jpeg;base64,${file.bytes.subarray(start, start + length).toString('base64')}`;
+      const seenInk = await page.evaluate(`(async () => {
+        const image = new Image();
+        image.src = ${JSON.stringify(picture)};
+        await image.decode();
+        const canvas = Object.assign(document.createElement('canvas'), { width: image.naturalWidth, height: image.naturalHeight });
+        const context = canvas.getContext('2d');
+        context.drawImage(image, 0, 0);
+        const { data } = context.getImageData(0, 0, canvas.width, canvas.height);
+        let dark = 0, light = 0;
+        for (let i = 0; i < data.length; i += 4) {
+          const luma = (data[i] * 299 + data[i + 1] * 587 + data[i + 2] * 114) / 1000;
+          if (luma < 96) dark += 1;
+          else if (luma > 224) light += 1;
+        }
+        return { width: canvas.width, height: canvas.height, dark: dark / (data.length / 4), light: light / (data.length / 4) };
+      })()`);
+      assert.equal(seenInk.width, shownWidth * 2, `the page picture is not the dashboard's width at two pixels a CSS pixel: ${JSON.stringify(seenInk)}`);
+      assert.ok(Math.abs(seenInk.width / seenInk.height - 792 / 612) < 0.01, `the page picture is not the sheet's shape: ${JSON.stringify(seenInk)}`);
+      assert.ok(seenInk.dark > 0.002, `the PDF page is blank: ${JSON.stringify(seenInk)}`);
+      assert.ok(seenInk.light > 0.5, `the PDF page is not in the light look: ${JSON.stringify(seenInk)}`);
+
+      // The live page is as it was: no frame left behind, nothing marked for print.
+      assert.equal(await page.evaluate(`${frame}.querySelectorAll('[data-dash-print-copy], [data-dash-print-path]').length`), 0, 'the export left its frame or its print marks behind');
+      assert.equal(await page.evaluate(`${frame}.getElementById('dash-root').innerText`), drawn, 'the export changed the page');
+    } finally {
+      await page?.close();
+      await exporting.run(['stop']).catch(() => {});
+    }
+  });
