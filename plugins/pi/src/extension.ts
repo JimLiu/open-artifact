@@ -238,7 +238,7 @@ function setup(pi: PiExtensionAPI, options: OpenArtifactPiOptions): void {
     // Only a daemon that already runs: the session takes the comments made while it was away, and new ones.
     void readDaemon(options.home)
       .then((state) => (state && !closed ? connect() : null))
-      .catch((error: unknown) => log(`open-artifact connect: ${messageOf(error)}`));
+      .catch((error: unknown) => closed || log(`open-artifact connect: ${messageOf(error)}`));
   });
 
   pi.on('session_shutdown', () => {
@@ -269,9 +269,14 @@ function setup(pi: PiExtensionAPI, options: OpenArtifactPiOptions): void {
     options.sections[PROMPT_SECTION] = prompt;
   });
 
-  /** Runs `work` on the connection once it is made, if one is made or being made; never starts one. */
+  /**
+   * Runs `work` on the connection once it is made, if one is made or being made; never starts one. A call that the
+   * session's own shutdown cut off (Pi's last `idle` as it exits) is not an error.
+   */
   const onceConnected = (what: string, work: (h: Harness) => Promise<unknown>): void => {
-    void pending?.then(work, () => undefined).catch((error: unknown) => log(`open-artifact ${what}: ${messageOf(error)}`));
+    void pending
+      ?.then(work, () => undefined)
+      .catch((error: unknown) => closed || log(`open-artifact ${what}: ${messageOf(error)}`));
   };
 
   const status = (state: 'running' | 'idle'): void => {

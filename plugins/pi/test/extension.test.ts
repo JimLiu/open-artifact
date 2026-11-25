@@ -220,6 +220,20 @@ describe('pi-open-artifact', () => {
     assert.deepEqual((await daemon.waitFor('session.status')).params, { session: SESSION, workspace: pi.ctx.cwd, status: 'idle' });
   });
 
+  it('does not log the last idle that Pi’s exit cuts off as an error', async () => {
+    const daemon = await startFakeDaemon();
+    cleanup.push(() => daemon.close());
+    const lines: string[] = [];
+    const pi = fakePi(tmpdir());
+    openArtifact({ home: daemon.home, runtime: null, log: (line) => lines.push(line) })(pi.api);
+    await pi.emit('session_start', { reason: 'startup' });
+    await daemon.waitFor('session.attach');
+    await pi.emit('agent_settled');
+    await pi.emit('session_shutdown', { reason: 'quit' });
+    await new Promise((done) => setTimeout(done, 100));
+    assert.deepEqual(lines.filter((line) => line.startsWith('open-artifact status')), []);
+  });
+
   it('reports the files Pi’s own write and edit tools wrote, not failed ones or other tools', async () => {
     const { daemon, pi, cwd } = await started();
     await pi.emit('tool_result', { toolName: 'read', input: { path: 'a.md' }, isError: false });
