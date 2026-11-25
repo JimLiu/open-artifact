@@ -130,6 +130,11 @@ The harness asks its questions (`waitFor`, `evaluateAll`, `load`'s `ready`) in a
 
 - A doc with two tabs is opened on the first. Three characters are typed there, one at a time, and each reaches the disk (`export --tab`). The second tab is chosen from the tab list in the page bar, and four characters are typed at the end of its line: each reaches the disk, and 400 ms later the editor still shows it. Before the fix for issue #25, every tab's sync counted its calls from 1 under the page's one session, so the second tab's first three writes went out under the first tab's opIds; the server answered them as replays, landed nothing, and the page read the tab back over the typing.
 
+**Docs: wide tables** (`docs.test.mjs`, two cases in the "wide tables and folded sections" group, Chrome only)
+
+- A tall 16-column table docks a scrollbar at the foot of the window, from its wrapper's left edge; the bar and the table scroll together, and at the right end the table is no longer cut off on its right.
+- A 26-column table starts at the text's left edge, and its wrapper reaches to 24 px from the page's left edge. Scrolled by the width of the space left of the text, it is drawn there (a cell is under a point 40 px from the page's edge) and is cut off on both sides (`data-clip="left right"`, with the left edge drawn); at its right end only on the left. An 8-column table wider than the text that fits the room beside it starts at the text and does not scroll. Before the fix for issue #26, the wrapper stopped 48 px left of the text, so a scrolled table was cut off there and the space left of the centred text stayed empty.
+
 **Data: claude.ai token names** (`data.test.mjs`, a check case each way and one case in Chrome)
 
 - A page whose CSS writes the names of the dashboards on claude.ai (`--cds-pad-lg`, `--cds-gap-md`, `--cds-radius`, `--font-anthropic-serif`, `--cds-chart-status-critical`) passes `check`; a claude.ai name with nothing behind it here (`--cds-text-accent`) fails it with an error saying only the names in `reference/design-defaults.md` are set.

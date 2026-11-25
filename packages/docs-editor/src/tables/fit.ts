@@ -136,6 +136,19 @@ export function tableRoom(text: { left: number; width: number }, scroller: { lef
   return Math.max(text.width, Math.floor(right - text.left));
 }
 
+/** Room kept at the page's left edge for a table scrolled to the left. */
+export const LEFT_GUTTER = 24;
+/** The least a table of its own reaches left of the text: the room its row handles are drawn in. */
+export const TABLE_LEAD = 48;
+
+/**
+ * How far left of the text a table of its own may be scrolled into: to the left edge of the page's scrolling box, less
+ * {@link LEFT_GUTTER}; never less than {@link TABLE_LEAD}. The table starts at the text's left edge all the same.
+ */
+export function tableLead(text: { left: number }, scroller: { left: number }): number {
+  return Math.max(TABLE_LEAD, Math.floor(text.left - scroller.left - LEFT_GUTTER));
+}
+
 /**
  * The width each column has as drawn, for keeping them while the caret is in the table: a cell over one column gives
  * it; a cell over several shares what the others leave. Null when a column can't be measured.

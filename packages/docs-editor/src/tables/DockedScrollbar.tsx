@@ -15,13 +15,18 @@ interface Docked {
   top: number;
 }
 
+/**
+ * A table's wrapper as the bar sees it. A table of its own shows from its wrapper's left edge, as it may be scrolled into
+ * the space left of the text; one in another block shows inside its wrapper's padding.
+ */
 function scrollingTable(wrapper: HTMLElement): ScrollingTable {
   const box = wrapper.getBoundingClientRect();
   const style = getComputedStyle(wrapper);
   const inner = box.left + wrapper.clientLeft;
+  const ownBlock = wrapper.parentElement?.classList.contains('doc-text') ?? false;
   return {
     box,
-    shownLeft: inner + (Number.parseFloat(style.paddingLeft) || 0),
+    shownLeft: inner + (ownBlock ? 0 : Number.parseFloat(style.paddingLeft) || 0),
     shownRight: inner + wrapper.clientWidth - (Number.parseFloat(style.paddingRight) || 0),
     overflow: wrapper.scrollWidth - wrapper.clientWidth,
   };
