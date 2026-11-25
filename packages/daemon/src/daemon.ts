@@ -66,6 +66,8 @@ import {
   type TypePackagePreview,
   type SiteTypeVisibility,
   SITE_TYPE_VISIBILITIES,
+  siteTypePageOf,
+  siteTypePagePath,
 } from '@open-artifact/protocol';
 import { archiveEntries, sendArchive as sendFolderArchive, zipBytes } from '@open-artifact/server-sdk/zip';
 import { DATA_TYPE, DataRefresher } from './data-refresh.ts';
@@ -1653,6 +1655,9 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
         // types.update {id} without sha256: a preview of what its recorded source holds now.
         if (name === R.typesUpdate && typeof body.sha256 !== 'string') {
           const recorded = updateSource(id!);
+          // A type installed from a site's type page is read again from there, as it was installed.
+          const fromSite = await this.sitePackage(recorded.source);
+          if (fromSite) return sendJson(res, 200, await this.stagedPreview(fromSite.bytes, fromSite.source, id, fromSite.site));
           const loaded = await loadTypePackage(recorded.source);
           return sendJson(res, 200, await this.stagedPreview(loaded.bytes, loaded.source, id));
         }
@@ -1697,10 +1702,22 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
   }
 
   /** A package read and checked, its bytes kept for the install the person confirms: the preview, with its sha256. */
-  private async stagedPreview(bytes: Uint8Array, source: string, as: string | null): Promise<TypePackagePreview> {
+  private async stagedPreview(bytes: Uint8Array, source: string, as: string | null, site?: TypePackagePreview['site']): Promise<TypePackagePreview> {
     const pkg = await readTypePackage(bytes, source, { as, registry: this.types });
     stagePackage(bytes, source);
-    return pkg.preview;
+    return site ? { ...pkg.preview, site } : pkg.preview;
+  }
+
+  /**
+   * A site's type page address (`https://<site>/t/<id>`): its package, through the remote of that site or its public
+   * address ({@link LinkManager.siteTypePackage}), recorded under the page's address (where `types update` reads it
+   * again). Any other address or file: null.
+   */
+  private async sitePackage(address: string): Promise<{ bytes: Uint8Array; source: string; site: NonNullable<TypePackagePreview['site']> } | null> {
+    const page = isAddress(address) ? siteTypePageOf(address) : null;
+    if (!page) return null;
+    const got = await this.link.siteTypePackage(page.origin, page.id, PACKAGE_DOWNLOAD_MAX);
+    return { bytes: got.bytes, source: page.origin + siteTypePagePath(page.id), site: { origin: page.origin, publisher: got.publisher, remote: got.remote } };
   }
 
   /**
@@ -1735,6 +1752,8 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
       if (!bytes) {
         // Only an address: a page of this daemon has no business reading files by path.
         if (typeof body.url !== 'string' || !isAddress(body.url)) throw new OpenArtifactError('invalid_argument', 'Send the package (its bytes, or { name, data } in base64), or { url } with its https:// address.');
+        const fromSite = await this.sitePackage(body.url);
+        if (fromSite) return sendJson(res, 200, await this.stagedPreview(fromSite.bytes, fromSite.source, as, fromSite.site));
         return sendJson(res, 200, await this.stagedPreview(await fetchTypePackage(body.url), body.url, as));
       }
       return sendJson(res, 200, await this.stagedPreview(bytes, label, as));

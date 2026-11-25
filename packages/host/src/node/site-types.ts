@@ -23,7 +23,7 @@ import { localTypeSource, type FrameTypeSource } from '@open-artifact/server-sdk
 import { checkTypePackage } from '@open-artifact/server-sdk/type-package';
 import { moveIntoPlace, unpackZip, ZipRefusal } from '@open-artifact/server-sdk/zip';
 import { SITE_TYPE_UID, SITE_TYPE_VERSION, SiteTypes, type SiteTypeCandidate, type SiteTypeRow } from '../core/catalog/site-types.ts';
-import type { SiteTypeServices } from '../core/link/services.ts';
+import { SITE_TYPE_SKILL_MAX, type SiteTypeServices } from '../core/link/services.ts';
 import type { SqlDriver } from '../core/catalog/driver.ts';
 import type { SiteFrameType, SiteFrameTypes } from './frames.ts';
 
@@ -178,6 +178,17 @@ export function nodeSiteTypes(input: { dataDir: string; driver: SqlDriver; log?:
           rows.delete(row.id);
           sources.delete(row.id);
           changed(row.id);
+        },
+
+        async skill(uid, version) {
+          if (!SITE_TYPE_UID.test(uid) || !SITE_TYPE_VERSION.test(version)) return null;
+          const files = join(siteTypeDir(input.dataDir, uid, version), 'files');
+          const manifest = await readFile(join(files, 'artifact-type.json'), 'utf8').then((text) => JSON.parse(text) as { skill?: unknown }).catch(() => null);
+          // The package check kept the manifest's `skill` a plain relative path; read it as one all the same.
+          const named = typeof manifest?.skill === 'string' ? manifest.skill : 'SKILL.md';
+          if (named.startsWith('/') || named.includes('\\') || named.split('/').some((part) => part === '..' || part === '')) return null;
+          const text = await readFile(join(files, ...named.split('/')), 'utf8').catch(() => null);
+          return text === null ? null : text.slice(0, SITE_TYPE_SKILL_MAX);
         },
       };
     },

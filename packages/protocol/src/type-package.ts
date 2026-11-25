@@ -101,6 +101,11 @@ export interface TypePackagePreview {
   replaces: { version: string; source: string; sha256: string } | null;
   /** Things worth knowing that do not stop the install (a local type of the same id that will hide it). */
   warnings: string[];
+  /**
+   * For a package from a site's type page (`https://<site>/t/<id>`): the site's origin, the publisher's name there (null
+   * when the site did not say) and the remote it came through (null: the public package address). Absent otherwise.
+   */
+  site?: { origin: string; publisher: string | null; remote: string | null };
 }
 
 /** One entry of a package, or one file found in a folder to pack: its path relative to the type folder. */

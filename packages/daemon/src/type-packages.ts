@@ -187,6 +187,9 @@ export async function readTypePackage(bytes: Uint8Array, source: string, o: { as
   };
 }
 
+/** Someone else's words on one terminal line: no control characters (no escapes, no line breaks), at most 200 characters. */
+const plainLine = (text: string): string => text.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069]/g, ' ').slice(0, 200);
+
 /** The text of a preview for a terminal: everything the person decides on, the full SKILL.md left to its path. */
 export function previewText(p: TypePackagePreview): string {
   const lines = [
@@ -197,6 +200,12 @@ export function previewText(p: TypePackagePreview): string {
     `  capabilities: ${p.capabilities.length ? p.capabilities.join(', ') : 'none declared'}`,
     `  network:      ${p.network.length ? p.network.join(', ') : 'does not reach the network'}`,
     `  SKILL.md:     ${p.skill ? `${p.skill.path}, ${p.skill.chars} characters, ${p.skill.lines} lines: what agents are told when they make one` : 'none'}`,
+    ...(p.site
+      ? [
+          `  published by: ${p.site.publisher ? plainLine(p.site.publisher) : 'not named'} (their account on ${p.site.origin})`,
+          `  site:         ${p.site.origin}${p.site.remote ? `, through your remote ${p.site.remote}` : ', its public address, without signing in'}`,
+        ]
+      : []),
     ...(p.replaces ? [`  replaces:     ${p.replaces.version} from ${p.replaces.source}`] : []),
     ...p.warnings.map((w) => `  note:         ${w}`),
     '  Its page runs in your browser, limited to the network above; nothing of it runs on this computer outside the page.',
@@ -213,6 +222,11 @@ export function previewText(p: TypePackagePreview): string {
  * {@link PACKAGE_DOWNLOAD_MAX} bytes, and {@link PACKAGE_DOWNLOAD_MS} for all of it, the body included.
  */
 export async function fetchTypePackage(address: string, o: { timeoutMs?: number; maxBytes?: number } = {}): Promise<Uint8Array> {
+  return (await fetchTypePackageAnswer(address, o)).bytes;
+}
+
+/** {@link fetchTypePackage}, with the answer's headers (a site's package names its publisher). A refusal keeps its status. */
+export async function fetchTypePackageAnswer(address: string, o: { timeoutMs?: number; maxBytes?: number } = {}): Promise<{ bytes: Uint8Array; headers: Headers }> {
   const max = o.maxBytes ?? PACKAGE_DOWNLOAD_MAX;
   const signal = AbortSignal.timeout(o.timeoutMs ?? PACKAGE_DOWNLOAD_MS);
   let url = allowedUrl(address);
@@ -231,14 +245,14 @@ export async function fetchTypePackage(address: string, o: { timeoutMs?: number;
       }
       if (!response.ok) {
         void response.body?.cancel().catch(() => undefined);
-        throw new OpenArtifactError('download_failed', `${address} answered ${response.status}.`);
+        throw new OpenArtifactError('download_failed', `${address} answered ${response.status}.`, { status: response.status });
       }
       const declared = Number(response.headers.get('content-length'));
       if (Number.isFinite(declared) && declared > max) {
         void response.body?.cancel().catch(() => undefined);
         throw new OpenArtifactError('too_large', `${address} is ${declared} bytes, more than a type package may be (${max}).`);
       }
-      if (!response.body) return new Uint8Array();
+      if (!response.body) return { bytes: new Uint8Array(), headers: response.headers };
       const reader = response.body.getReader();
       const chunks: Uint8Array[] = [];
       let size = 0;
@@ -252,7 +266,7 @@ export async function fetchTypePackage(address: string, o: { timeoutMs?: number;
         }
         chunks.push(value);
       }
-      return Buffer.concat(chunks);
+      return { bytes: Buffer.concat(chunks), headers: response.headers };
     }
   } catch (error) {
     if (error instanceof OpenArtifactError) throw error;

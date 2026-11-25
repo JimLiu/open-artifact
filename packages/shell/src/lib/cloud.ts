@@ -11,6 +11,7 @@
 
 import type { ArtifactRole, CloudAgentView, CloudSiteUi, GeneralAccess, HomeBoot, ShareCloudView, ShareRequest, ShareRole, ShareView, ShellBoot } from '@open-artifact/protocol';
 import type { MessageKey } from './i18n.ts';
+import { typePageOf } from './site-types.ts';
 
 export type { HomeBoot };
 
@@ -24,6 +25,8 @@ export type HomeCloud = NonNullable<HomeBoot['cloud']>;
 /** The home page's boot as the page reads it ({@link homeBootOf}). */
 export interface HomeBootRead {
   cloud?: HomeCloud;
+  /** On a type's page (`/t/<id>`): that type ({@link typePageOf}). */
+  typePage?: HomeBoot['typePage'];
 }
 
 /** The global a cloud host fills in the home page's `index.html`, replacing {@link HOME_BOOT_PLACEHOLDER}. */
@@ -48,7 +51,9 @@ export function homeBootOf(value: unknown): HomeBootRead {
   const importBytes = c.limits && typeof c.limits === 'object' ? c.limits.importBytes : undefined;
   const limits = typeof importBytes === 'number' && Number.isInteger(importBytes) && importBytes > 0 ? { importBytes } : undefined;
   const site = siteUiOf(c.site);
+  const typePage = typePageOf(value);
   return {
+    ...(typePage ? { typePage } : {}),
     cloud: {
       user,
       appOrigin: c.appOrigin,
@@ -57,6 +62,7 @@ export function homeBootOf(value: unknown): HomeBootRead {
       ...(trashDays !== undefined ? { trashDays } : {}),
       ...(limits ? { limits } : {}),
       ...(site ? { site } : {}),
+      ...(c.siteTypes === true ? { siteTypes: true } : {}),
     },
   };
 }

@@ -8,6 +8,7 @@
  */
 
 import type { ResolvedEntry, TypeRuntime, TypeScope } from './manifest.ts';
+import type { SiteTypeDetail } from './link.ts';
 import type { TypeSourceKind } from './type-package.ts';
 import type { SessionRef } from './refs.ts';
 import type { ArtifactRole, ShareCloudView } from './type-server.ts';
@@ -486,7 +487,14 @@ export interface HomeBoot {
     trashDays?: number;
     /** What the host accepts: `importBytes`, the largest archive (zip) an upload may be. */
     limits?: { importBytes: number };
+    /** The site keeps published types: the home page has a Types tab (absent: it keeps none). */
+    siteTypes?: boolean;
   };
+  /**
+   * The page is a type's page (`/t/<id>`), not the home page: the type as the asker may see it. Every string in it but
+   * the addresses is its publisher's, shown as text.
+   */
+  typePage?: SiteTypeDetail;
 }
 
 /** `~/.agents/open-artifact/daemon.json`: how clients find the running daemon. */

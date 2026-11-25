@@ -13,6 +13,7 @@ import {
   LINK_API_PREFIX,
   LINK_ROUTES,
   OpenArtifactError,
+  TYPE_PUBLISHER_HEADER,
   type LinkArtifact,
   type LinkDeviceRequest,
   type LinkDeviceStart,
@@ -224,6 +225,16 @@ function refuseRedirect(response: Response, host: string): void {
     status: response.status,
     fix: 'If the site moved, remove this remote and add it again with its new https address.',
   });
+}
+
+/** A percent-encoded header's text, or null when it is absent or not valid. */
+export function decodedHeader(value: string | null): string | null {
+  if (!value) return null;
+  try {
+    return decodeURIComponent(value) || null;
+  } catch {
+    return null;
+  }
 }
 
 /** A failure a host answered, as an error with the host's code (its body is `{code, message, fix?}`). */
@@ -634,6 +645,23 @@ export class LinkClient {
   /** `link.types.list`: the site's types this person may see. */
   typesList(): Promise<LinkTypesResult> {
     return this.json<LinkTypesResult>(LINK_ROUTES.typesList);
+  }
+
+  /**
+   * `link.types.archive`: the current package of a type this person may see, with its publisher's name (the
+   * {@link TYPE_PUBLISHER_HEADER}). A refusal is thrown with the host's code and status.
+   */
+  async typesArchive(id: string, maxBytes: number): Promise<{ bytes: Uint8Array; publisher: string | null }> {
+    const response = await this.request(LINK_ROUTES.typesArchive, { query: { id }, timeoutMs: 300_000 });
+    if (!response.ok) throw await hostError(response, `${this.name} types.archive`);
+    const declared = Number(response.headers.get('content-length'));
+    if (Number.isFinite(declared) && declared > maxBytes) {
+      void response.body?.cancel().catch(() => undefined);
+      throw new OpenArtifactError('too_large', `${this.name} sent a package of ${declared} bytes, more than a type package may be (${maxBytes}).`);
+    }
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (bytes.byteLength > maxBytes) throw new OpenArtifactError('too_large', `${this.name} sent more than a type package may be (${maxBytes} bytes).`);
+    return { bytes, publisher: decodedHeader(response.headers.get(TYPE_PUBLISHER_HEADER)) };
   }
 
   /** `link.types.unpublish`: delisted while artifacts use it, else removed. */

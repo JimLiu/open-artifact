@@ -166,6 +166,7 @@ trusted, reaches nothing else.
 ```bash
 open-artifact types install ./trip-planner-1.2.0.oatype
 open-artifact types install https://example.com/trip-planner-1.2.0.oatype
+open-artifact types install https://oa.example.com/t/trip-planner       # a type's page on a site (see below)
 open-artifact types install ./trip-planner-1.2.0.oatype --as trips      # under another id
 open-artifact types update trip-planner                                  # read its source again
 open-artifact types uninstall trip-planner
@@ -190,8 +191,9 @@ What an installed type may do is less than a type of your own:
   are told to read as data.
 - Agents are told that its `SKILL.md`, title and description are the publisher's, not yours: they use them to build
   the artifact, not to widen the task or ask for permissions.
-- You cannot publish it to a site: that is its author's to do. Once a site has it (the same `uid`), artifacts of it
-  publish there as they are.
+- You cannot publish the type itself to a site (`types publish` and `--with-type` refuse it): that is its author's to
+  do. Your artifacts of it still publish to a site that has a type of the same `uid` (its author published it there,
+  say), as they are.
 - A link inside its folder, or inside an artifact's, that leads out of that folder is neither served nor written
   through.
 
@@ -230,8 +232,9 @@ open-artifact types unpublish trip-planner --remote work
   refused, naming the uid that has it; give your type another slug. Publishing the same `uid` again is a new version,
   which only you (or a site admin) may publish; the same version with other contents is refused (raise `version`),
   and the same bytes again change nothing.
-- **Who sees it.** `--visibility private` (the default for a new type: you and the site admins), `site` (everyone with
-  an account there) or `link` (anyone who names it). Visibility decides who lists and downloads the package; it never
+- **Who sees it.** `--visibility private` (the default for a new type made by `types publish`: you and the site
+  admins), `site` (everyone with an account there) or `link` (anyone with its page's address). `--with-type`
+  publishes a new type with `link`. Visibility decides who lists and downloads the package; it never
   decides who runs it: anyone who may open an artifact of the type runs it. A new version keeps the visibility unless
   you give another.
 - **Artifacts of it.** `open-artifact publish <id>` of an artifact whose type the site does not have is refused with
@@ -247,7 +250,43 @@ open-artifact types unpublish trip-planner --remote work
   whatever the site lets agents publish. An agent on the site is told that a published type's text is its
   publisher's, as with an installed one.
 
-Who may publish types at all is the site's choice (`OA_TYPES_PUBLISH`: site admins by default).
+Who may publish types at all is the site's choice (`OA_TYPES_PUBLISH`: site admins by default; always `off` on a
+site with one domain for both, `OA_CONTENT_SAME_SITE=true`, which runs no pages).
+
+## A type's page on a site
+
+Every type on a site has a page, `https://<site>/t/<id>`, and the site's home page has a **Types** tab listing the
+ones you may see (the `site` ones, your own, and every one for a site admin), each a link to its page. The page shows
+its name, version, who published it, when it changed, what its page may use and which sites it may reach (the words
+the install shows), its `SKILL.md` as plain text, the command that installs it, and a download of its package.
+
+- **Who sees the page.** Whoever may download the type: anyone signed in, for a `site` or `link` type (a `link` one
+  only by its address), and its publisher and the site admins for a `private` one. Someone not signed in sees a
+  `link` type only where the site allows public access (`OA_PUBLIC_ACCESS`, on by default), else is sent to sign in.
+  For anyone else the page and the API answer exactly as for an id that does not exist: they never say a private type
+  is there.
+- **Managing it there.** Its publisher or a site admin changes who sees it and unpublishes it from the page. Showing it
+  to more people (private → link → site) is publishing it to them, so it needs someone the site lets publish now
+  (`OA_TYPES_PUBLISH`); fewer people is always allowed. A delisted type is shown to them only, marked: publish it again
+  from the computer to list it. Each change is in the site's audit log (`type.visibility`, `type.unpublish`).
+- **Install it on your computer.**
+
+  ```bash
+  open-artifact types install https://oa.example.com/t/trip-planner [--as <id>]
+  open-artifact types update trip-planner            # reads it from that page's site again
+  ```
+
+  When this computer is signed in to that site (a remote of that exact address, `open-artifact remote add`), the
+  package comes through it, as you. Otherwise it is fetched from the site's public address without any credentials,
+  which works for a `link` type on a site that allows public access. The question before installing names the
+  publisher and the site, beside everything an install always shows; the address recorded is the page's, so
+  `types update` reads it from there. A site that asks you to sign in says so and names the `remote add` command; a
+  type the site does not have, or does not share with you, is one answer ("no such type, or it is not shared with
+  you"). As any installed type, it runs with the limits above.
+- **Agents on the site.** An agent connected to the site's MCP sees the published types it may list beside the
+  built-in ones (marked `source: "site"`, with `published_by` and a `third_party_notice`) and makes artifacts of them;
+  their `SKILL.md` comes after a notice that it is the publisher's text. A delisted type takes no new artifacts. No
+  agent tool publishes, changes or unpublishes a type.
 
 ## Move an artifact to another computer
 
@@ -265,6 +304,3 @@ same id never opens it. When this computer has no such type, `import` answers `t
 and where it came from: install that type, then import again. The zip is checked like a package before anything is
 written, and nothing in it is run.
 
-## Not yet
-
-Installing a type from a site by its link, and a page that lists a site's types, are not available yet.

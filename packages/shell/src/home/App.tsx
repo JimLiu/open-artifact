@@ -11,6 +11,7 @@ import { CreateDialog, RenameDialog, UndoBar } from './components/Dialogs.tsx';
 import { InstallTypeDialog } from './components/InstallTypeDialog.tsx';
 import { NewTypeDialog } from './components/NewTypeDialog.tsx';
 import { TypeList } from './components/TypeList.tsx';
+import { TypePage } from './components/SiteTypes.tsx';
 import { Account } from '../components/Account.tsx';
 import { SiteBrand, SiteHomeLinks } from '../components/SiteBrand.tsx';
 import { homeBoot, startHost } from './host.ts';
@@ -80,7 +81,9 @@ export function App() {
             {error}
           </p>
         ) : null}
-        {cloud ? (
+        {cloud && homeBoot.typePage ? (
+          <TypePage detail={homeBoot.typePage} />
+        ) : cloud ? (
           cloud.user ? <CloudLibrary /> : <ArtifactList />
         ) : (
           <Tabs<HomeTab>

@@ -13,7 +13,7 @@ import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import { LINK_API_PREFIX, OpenArtifactError, titleInHtml, type DaemonHealth, type OpenArtifactErrorCode } from '@open-artifact/protocol';
 import { archiveEntries, ArchiveTooLarge, attachmentHeader, HttpError, importArchive, isTypeName, readArtifactTitle, TYPES, writeZip } from '@open-artifact/type-server';
-import { APP_MAX_BODY_BYTES, appRouter, createAppHandler, guardAppOrigin, IMPORT_MAX_BYTES, isPotentiallyTrustworthyOrigin, type AppCtx, type AppServices } from '../core/app/index.ts';
+import { APP_MAX_BODY_BYTES, appRouter, createAppHandler, siteTypeRoutes, guardAppOrigin, IMPORT_MAX_BYTES, isPotentiallyTrustworthyOrigin, type AppCtx, type AppServices } from '../core/app/index.ts';
 import { ensureOwnerKey } from '../core/auth/owner-key.ts';
 import type { ProviderDeps } from '../core/auth/provider.ts';
 import { AccessCache } from '../core/authz/access.ts';
@@ -342,13 +342,15 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     if (artifactId) await rooms.refresh(artifactId);
     else await rooms.refreshAll();
   };
-  const link = nodeLinkServices({ rooms, catalog, events, presence: linkPresence, archive: services.archive, version: HOST_VERSION, log });
+  const link = nodeLinkServices({ rooms, catalog, events, presence: linkPresence, archive: services.archive, version: HOST_VERSION, log, siteOrigin: config.appOrigin });
   if (pages) log(`types: published types ${config.typesPublish === 'off' ? 'off (OA_TYPES_PUBLISH=off)' : `by ${config.typesPublish ?? 'admins'} (OA_TYPES_PUBLISH)`}; kept under ${join(env.dataDir, 'types')}`);
 
   // The app origin's routes: the app's own, then the Link API.
   const router = appRouter(options.providers ? { providers: options.providers } : {});
   linkApiRoutes(router, link);
   connectedAppRoutes(router);
+  // The published types' page and app routes (`core/app/site-types.ts`), on a site that keeps them.
+  if (link.siteTypes) siteTypeRoutes(router);
   const appHandler = createAppHandler({ router });
   // Remote MCP and its OAuth are machine routes, outside the app's same-origin rule for writes.
   const mcp = await nodeMcpServices({
@@ -357,6 +359,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     access: services.access,
     contentTitle: link.contentTitle,
     ...(link.pages ? { pages: link.pages } : {}),
+    ...(link.siteTypes ? { siteTypes: link.siteTypes } : {}),
     version: HOST_VERSION,
     typesDir: options.mcp?.typesDir ?? (process.env.OA_TYPES_DIR?.trim() || undefined),
     ...(options.mcp?.cimd ? { cimd: options.mcp.cimd } : {}),
@@ -364,7 +367,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   // The OAuth authorization page reads the session cookie: the same duplicate-cookie guard as the app's routes.
   const handleMcp = guardAppOrigin<AppCtx>(mcpRoutes({ config: options.mcp?.config ?? parseMcpConfig(process.env, config), services: mcp, ...(options.mcp?.waitCapMs ? { waitCapMs: options.mcp.waitCapMs } : {}) }));
   const handler: Handler<AppCtx> = (request, ctx) => (isMcpPath(new URL(request.url).pathname) ? handleMcp(request, ctx) : appHandler(request, ctx));
-  const ctx: AppCtx = { config, catalog, now: () => new Date(), log, ...services, ...(plugins ? { plugins } : {}) };
+  const ctx: AppCtx = { config, catalog, now: () => new Date(), log, ...services, ...(link.siteTypes ? { siteTypes: link.siteTypes } : {}), ...(plugins ? { plugins } : {}) };
   const appOrigin = new URL(config.appOrigin);
 
   const app = nodeHandler(handler, () => ctx, {

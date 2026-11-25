@@ -6,7 +6,7 @@
 
 import type { AccessCache } from '../authz/access.ts';
 import type { HostEvents } from '../events.ts';
-import type { ArtifactFiles, PageServices } from '../link/services.ts';
+import type { ArtifactFiles, PageServices, SiteTypeServices } from '../link/services.ts';
 import type { CimdDeps } from './cimd.ts';
 
 /** One of a type's actions, as `Artifact call` runs it. */
@@ -57,6 +57,13 @@ export interface McpServices {
    * for any other type. Absent: the site runs none.
    */
   publishedType?(type: string): { name: string; description: string } | null;
+  /**
+   * The types published to the site (the Link's {@link SiteTypeServices}): their SKILL.md, and a new artifact's folder
+   * of one. With both, the agent tools list the published types the person may list beside the installed ones, and
+   * make artifacts of them (never publish, change or unpublish one: that is the person's, from their computer or the
+   * type's page). Absent: no published type is offered.
+   */
+  siteTypes?: Pick<SiteTypeServices, 'skill' | 'scaffold'>;
   files: ArtifactFiles;
   /** Runs an action of the embedded type server on an artifact (reserved `open-artifact.*` ones too). */
   action(artifactId: string, name: string, args: Record<string, unknown>): Promise<unknown>;

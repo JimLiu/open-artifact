@@ -26,7 +26,9 @@ wait for them (`ArtifactComments {action: "wait"}`).
 claude.ai (a folder or `.html`). `types enable`, `types disable`, `types trust`,
 `types untrust`, `types install`, `types update`, `types uninstall`, `types publish`, `types unpublish` and
 `publish --with-type` are the person's: like `cloud` and `remote`, they refuse to run inside an agent's session
-(`types publish` puts a type of this computer in a site's catalog, so artifacts of it publish there). `open-artifact import <zip>` brings an artifact's archive in from
+(`types publish` puts a type of this computer in a site's catalog, so artifacts of it publish there; `types install
+https://<site>/t/<id>` installs one from its page on a site, through that site's remote when there is one). An agent
+on a site's MCP lists and makes artifacts of the types published there, never publishes or changes one. `open-artifact import <zip>` brings an artifact's archive in from
 another computer.
 
 Pages open where the person already is: in the app itself when its adapter can show them (DeepSeek Harness), else

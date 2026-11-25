@@ -254,8 +254,18 @@ A **Node** site that runs pages also keeps the types people publish to it (`open
 - **What admins should know**: an admin may publish a new version of anyone's type and unpublish it. Unpublishing a
   type that artifacts use only delists it (they keep opening); with none left it is deleted. A published id belongs to
   the first `uid` that took it; a built-in id is never taken. Every publish and unpublish is in the audit log
-  (`type.publish`, `type.unpublish`), and a plugin can refuse a publish with the `type.publish` guard
-  ([Plugins](plugins.md)).
+  (`type.publish`, `type.unpublish`), and so is a change of who sees one (`type.visibility`); a plugin can refuse a
+  publish with the `type.publish` guard ([Plugins](plugins.md)).
+- **Type pages**: each type has a page at `/t/<id>`, and the home page a **Types** tab
+  ([A type's page on a site](custom-types.md#a-types-page-on-a-site)). The page and the routes behind it
+  (`/api/open-artifact.types`, `.type`, `.types.package`, `.types.update`, `.types.unpublish`) show a type to whoever
+  may download it and answer anyone else as for an unknown id. Someone not signed in gets a `link` type only with
+  `OA_PUBLIC_ACCESS=true`. Its publisher or an admin changes who sees it or unpublishes it there; showing it to more
+  people needs someone `OA_TYPES_PUBLISH` lets publish now. A computer installs one by its page's address
+  (`open-artifact types install https://<site>/t/<id>`).
+- **Agents on the site**: the site's MCP lists the published types a person may list beside the built-in ones, marked
+  as their publisher's (`third_party_notice`), and makes artifacts of them; a delisted one takes no new artifacts, and
+  no MCP tool publishes, changes or unpublishes a type.
 - The Cloudflare host keeps no published types yet.
 
 ## Roles and sharing

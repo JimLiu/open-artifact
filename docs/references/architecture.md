@@ -161,8 +161,26 @@ packages/daemon (local open-artifact daemon, one per machine)
   (user, extra and trusted-project types only), `packTypeBytes`, `LinkHub.publishType` / `unpublishType` and
   `publish(…, {withType})` (the type first with `link` visibility when the site lacks it), the Library routes
   `types.publish` / `types.unpublish` (refused with `X-Open-Artifact-Agent` in `typesRefusal`, as is
-  `artifacts.publish {withType}`); automatic publishing skips custom site-kind types. Cloudflare has no
-  `siteTypes` yet: it needs a `SiteTypeServices` over object storage and a frame engine.
+  `artifacts.publish {withType}`); automatic publishing skips custom site-kind types.
+  On the app origin (`core/app/site-types.ts`; `siteTypeRoutes(router)` is mounted by the platform beside the Link API, the Node host's only with `link.siteTypes`, and reads `AppServices.siteTypes`): `GET types` / `type` /
+  `types.package` and `POST types.update` / `types.unpublish` (`SITE_TYPE_ROUTES`), and the type page `GET /t/:id`
+  (the home bundle with `HomeBoot.typePage`; `isPagePath` covers `/t`). `seeSiteType` is the one gate: download rules,
+  anonymous only for `link` with `publicAccess`, else `noSiteType` (401 signed out, the same 404 body otherwise; the
+  page turns the 401 into a sign-in redirect). Widening visibility needs `typesPublishRefusal === null`; audited
+  `type.visibility`. `unpublishSiteType` and `siteTypePackageResponse` (zip, attachment, nosniff, no-store,
+  `TYPE_PUBLISHER_HEADER`) are shared with the Link routes. `SiteTypeServices.skill` reads the SKILL.md the manifest
+  names (`SITE_TYPE_SKILL_MAX`). The site MCP (`core/mcp/tools.ts`, `McpServices.siteTypes`: `skill`, `scaffold`)
+  lists the listable, non-delisted catalog types that do not shadow a built-in one (`source: "site"`,
+  `published_by`, `third_party_notice`), creates them (`scaffold` writes `.artifact.json` with `typeUid` and
+  `typeSource`; instructions = notice + SKILL.md) and refuses a delisted one (`not_granted` to managers,
+  `type_missing` otherwise); its initialize prompt names built-in types only. The Shell home (`lib/site-types.ts`,
+  `home/components/SiteTypes.tsx`) draws the Types tab (`cloud.siteTypes`) and the type page as text. The daemon
+  installs from `https://<site>/t/<id>` (`siteTypePageOf`): `LinkHub.siteTypePackage` uses the remote of that exact
+  origin (`LinkClient.typesArchive`), else the public `types.package` address without credentials
+  (`fetchTypePackageAnswer`); 401/403/404 become `unauthorized` / `not_granted` / `not_found` with the fix, the
+  preview carries `site {origin, publisher, remote}`, and the page's address is the recorded source that
+  `types.update` reads again. Cloudflare has no `siteTypes` yet: it needs a `SiteTypeServices` (with `skill` and
+  `scaffold`) over object storage and a frame engine; the `core/` routes, page and MCP code are platform-neutral.
 
 - **The frame core** (`packages/server-sdk/src/frame/`): `core.ts` (`FrameCore`, `mountFrameCore`) serves one
   artifact to any number of viewers from plain data (`FrameRequest` → `FrameReply`; `connect` for an event

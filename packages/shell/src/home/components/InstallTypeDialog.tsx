@@ -36,6 +36,16 @@ function Preview({ preview }: { preview: TypePackagePreview }) {
       <Fact label={t('packageSource')} testId="type-preview-source">
         {preview.source}
       </Fact>
+      {preview.site ? (
+        <>
+          <Fact label={t('packagePublisher')} testId="type-preview-publisher">
+            {t('packagePublisherText', { name: preview.site.publisher ?? t('siteTypeUnnamedPublisher'), site: preview.site.origin })}
+          </Fact>
+          <Fact label={t('packageSite')} testId="type-preview-site">
+            {preview.site.remote ? t('packageSiteRemote', { site: preview.site.origin, remote: preview.site.remote }) : t('packageSitePublic', { site: preview.site.origin })}
+          </Fact>
+        </>
+      ) : null}
       <Fact label="sha256">
         <span className="font-mono">{preview.sha256}</span>
       </Fact>

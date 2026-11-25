@@ -176,9 +176,82 @@ export interface LinkSiteType {
   updatedAt: string;
 }
 
+/**
+ * On a type package's download (`link.types.archive`, the app origin's `types.package`): the publisher's account name,
+ * percent-encoded, which `types install` names in the consent it shows. Their own words: shown as text, never trusted.
+ */
+export const TYPE_PUBLISHER_HEADER = 'x-open-artifact-type-publisher';
+
 /** `GET link.types.list`. */
 export interface LinkTypesResult {
   types: LinkSiteType[];
+}
+
+/**
+ * The site's own type routes on its app origin (`/api/open-artifact.<route>`, a signed-in browser, never a Bearer
+ * token; writes from the app origin only), beside the type page {@link siteTypePagePath}:
+ *
+ * - `types` (`GET`) → {@link SiteTypesResult}: the types the person may list (`site` ones and their own; a site admin
+ *   every one), each as the Link lists it.
+ * - `type` (`GET ?id=`) → {@link SiteTypeDetail}: one type the asker may download (listed, or `link`), with its
+ *   SKILL.md. An anonymous visitor gets a `link` type only where the site allows public access (`OA_PUBLIC_ACCESS`).
+ * - `types.package` (`GET ?id=`) → the current version's package (`application/zip`, an attachment), by the same rule.
+ * - `types.update` (`POST {id, visibility}`) and `types.unpublish` (`POST {id}`): its publisher or a site admin.
+ *
+ * A type the asker may not see is answered as an unknown id: 404 to a signed-in person, 401 to anyone else.
+ */
+export const SITE_TYPE_ROUTES = {
+  list: 'types',
+  detail: 'type',
+  package: 'types.package',
+  update: 'types.update',
+  unpublish: 'types.unpublish',
+} as const;
+
+/** The path of a type's page on a site: `/t/<id>`. */
+export const siteTypePagePath = (id: string): string => `/t/${encodeURIComponent(id)}`;
+
+/** A site type page's address (`https://<site>/t/<id>`, an optional trailing slash): its origin and the type id, or null. */
+export function siteTypePageOf(address: string): { origin: string; id: string } | null {
+  let url: URL;
+  try {
+    url = new URL(address);
+  } catch {
+    return null;
+  }
+  if ((url.protocol !== 'https:' && url.protocol !== 'http:') || url.username || url.password || url.search || url.hash) return null;
+  const match = /^\/t\/([A-Za-z0-9][A-Za-z0-9._-]{0,63})\/?$/.exec(url.pathname);
+  // A package's own address (`…/t/trip-planner-1.2.0.oatype`) is a file to fetch, not a type page.
+  if (!match || /\.(oatype|zip)$/i.test(match[1]!)) return null;
+  return { origin: url.origin, id: match[1]! };
+}
+
+/** `GET types` on a site's app origin. */
+export interface SiteTypesResult {
+  types: LinkSiteType[];
+  /** The names and descriptions are their publishers' words. */
+  notice: string;
+  /** Whether this person may publish types here (`OA_TYPES_PUBLISH`), and why not when they may not. */
+  publish: { allowed: boolean; refusal: string | null };
+}
+
+/** `GET type?id=` on a site's app origin: what the type page shows. */
+export interface SiteTypeDetail extends LinkSiteType {
+  /** Its SKILL.md as the publisher wrote it (plain text, never rendered), or null when the site cannot read it. */
+  skill: string | null;
+  /** Whether the asker may change its visibility and unpublish it (its publisher or a site admin). */
+  manages: boolean;
+  /** Its page (`https://<site>/t/<id>`), its package's address, and the command that installs it on a computer. */
+  pageUrl: string;
+  packageUrl: string;
+  install: string;
+  notice: string;
+}
+
+/** `POST types.update` on a site's app origin. */
+export interface SiteTypeUpdateRequest {
+  id: string;
+  visibility: SiteTypeVisibility;
 }
 
 /** `POST link.types.import`: the type as kept, and what changed (`new`, `version`, or `unchanged`: the same bytes). */

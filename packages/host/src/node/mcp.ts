@@ -133,8 +133,18 @@ function pageTypeInfo(manifest: Record<string, unknown>): McpTypeInfo {
   };
 }
 
-/** Makes a new artifact's folder as the type server would: `.artifact.json` and the type's empty content. */
-export async function scaffoldArtifact(root: string, input: { id: string; type: string; title: string }): Promise<void> {
+/**
+ * Makes a new artifact's folder as the type server would: `.artifact.json` and the type's empty content. With
+ * `typeUid` (a type published to the site), only `.artifact.json`, naming that uid and that it came from this site: the
+ * type's page opens with no content and the agent writes it.
+ */
+export async function scaffoldArtifact(root: string, input: { id: string; type: string; title: string; typeUid?: string; typeSource?: string }): Promise<void> {
+  if (input.typeUid) {
+    await mkdir(root, { recursive: true, mode: 0o700 });
+    const marker = { type: input.type, id: input.id, title: input.title, release: null, typeUid: input.typeUid, ...(input.typeSource ? { typeSource: input.typeSource } : {}) };
+    await writeFile(join(root, '.artifact.json'), `${JSON.stringify(marker, null, 2)}\n`, { flag: 'wx' });
+    return;
+  }
   if (input.type === 'page') {
     // A page starts empty: the core shows its empty page until index.html is written.
     await mkdir(root, { recursive: true, mode: 0o700 });
@@ -169,6 +179,8 @@ export async function nodeMcpServices(input: {
   version: string;
   /** Where the installed types are (`OA_TYPES_DIR`; default this checkout's `artifact-types`). */
   typesDir?: string;
+  /** The published types' SKILL.md and scaffold (`nodeLinkServices(…).siteTypes`), on a site that keeps them. */
+  siteTypes?: McpServices['siteTypes'];
   /** The metadata-document fetcher's `fetch` and lookup (tests stub them). */
   cimd?: McpServices['cimd'];
 }): Promise<McpServices> {
@@ -178,6 +190,7 @@ export async function nodeMcpServices(input: {
     types,
     create: (artifact) => scaffoldArtifact(rooms.rootOf(artifact.id), artifact),
     ...(input.pages ? { pages: input.pages } : {}),
+    ...(input.siteTypes ? { siteTypes: input.siteTypes } : {}),
     ...(rooms.siteTypes ? { publishedType: (type: string) => ((row) => (row ? { name: row.name, description: row.description } : null))(rooms.siteTypes!.row(type)) } : {}),
     files: createArtifactFiles((id) => rooms.rootOf(id), { afterWrite: (id, paths) => rooms.frames?.noteChanges(id, paths) }),
     action: (id, name, args) => rooms.action(id, name, args),

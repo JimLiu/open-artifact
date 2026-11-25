@@ -13,6 +13,9 @@
 // - A new version reaches the open page. `types unpublish` delists it (one artifact uses it): the artifact still opens.
 // - `publish --with-type` sends a fresh type first. Who may publish under OA_TYPES_PUBLISH: admins (the default: the
 //   member is refused), members (the member publishes), off (nobody), the host restarted on the same data each time.
+// - The type's page (`/t/<id>`): its publisher's name, its SKILL.md as text, the install command; the home page's Types
+//   tab. Its publisher changes who sees it there; the member's computer installs it from the page's address (through
+//   its remote of the site) only while it is shared, then makes an artifact of it; a delisted one is "not shared".
 //
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
@@ -332,6 +335,8 @@ describe('a person\'s own type on the site in Chrome', { skip: skip() }, () => {
     // 10. Who may publish. admins (the default): the member is refused.
     const member = await daemon('member', { OPEN_ARTIFACT_REMOTE: app, OPEN_ARTIFACT_REMOTE_TOKEN: ctx.memberToken, OPEN_ARTIFACT_REMOTE_NAME: 'cloud' });
     ctx.member = member.child;
+    ctx.memberCli = member.cli;
+    ctx.memberTool = member.artifactTool;
     placeType(member.types, 'ben-poll', { uid: '9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d' });
     assert.ok(await until(async () => /"signedIn": true/.test((await member.cli(['remote', 'status', '--json'])).stdout), 30000), 'the member\'s daemon did not sign in');
     const memberRefused = await member.cli(['types', 'publish', 'ben-poll']);
@@ -354,5 +359,72 @@ describe('a person\'s own type on the site in Chrome', { skip: skip() }, () => {
     const stillThere = await owner.load(`${app}/a/${id}`, { ready: 'true', ignore: IGNORE });
     assert.ok(await ready(stillThere), 'an artifact of a published type stopped opening under off');
     await stillThere.close();
+  });
+
+  it('shows a type\'s page and the Types tab, changes who sees it there, and installs it on another computer from its address', T, async () => {
+    // Builds on the test above: its host, its two computers (ctx.memberCli, ctx.memberTool) and the types it published.
+    assert.ok(ctx.memberCli && ctx.memberTool, 'runs after the test above');
+    const { owner, app } = ctx;
+    const member = { cli: (args, o) => ctx.memberCli(args, o), artifactTool: args => ctx.memberTool(args) };
+    // team-tally: the owner's, visibility link (--with-type). team-poll: delisted (one artifact uses it).
+    const pageUrl = `${app}/t/team-tally`;
+    const tp = await owner.load(pageUrl, { ready: "document.querySelector('[data-type-page=team-tally]')", ignore: IGNORE });
+    assert.equal(await tp.evaluate("document.querySelector('[data-testid=type-page-publisher]').textContent"), 'Owner');
+    assert.match(await tp.evaluate("document.querySelector('[data-testid=type-page-install]').textContent"), new RegExp(`^open-artifact types install ${pageUrl.replace(/[.]/g, '\\.')}$`));
+    assert.match(await tp.evaluate("document.querySelector('[data-testid=type-page-skill]').textContent"), /team-tally/, 'its SKILL.md, as text');
+    assert.equal(await tp.evaluate("document.querySelector('[data-testid=type-page-skill]').children.length"), 0, 'drawn as text, not HTML');
+    assert.ok(await tp.evaluate("!!document.querySelector('[data-site-type-manage]')"), 'its publisher manages it here');
+    const csp = (await fetch(pageUrl, { redirect: 'manual' })).headers;
+    assert.equal(csp.get('x-frame-options'), 'DENY');
+    assert.match(csp.get('content-security-policy') ?? '', /script-src 'self' 'sha256-/);
+
+    // Not signed in: a link type is shown where the site allows public access (the default); its package too.
+    assert.equal((await fetch(pageUrl, { redirect: 'manual' })).status, 200);
+    const anonymousPackage = await fetch(`${app}/api/open-artifact.types.package?id=team-tally`, { redirect: 'manual' });
+    assert.equal(anonymousPackage.status, 200);
+    assert.equal(anonymousPackage.headers.get('content-type'), 'application/zip');
+
+    // The member's computer installs it from the page's address, through its remote of the site.
+    const install = await member.cli(['types', 'install', pageUrl, '--as', 'tally-from-site', '--yes']);
+    assert.equal(install.code, 0, install.stdout + install.stderr);
+    assert.match(install.stderr, /published by: Owner \(their account on http:\/\/localhost:\d+\)/);
+    assert.match(install.stderr, /through your remote cloud/);
+    assert.equal(JSON.parse(install.stdout).source, pageUrl);
+    const art = await member.artifactTool({ action: 'publish', type_url: 'open-artifact://type/tally-from-site', title: 'Ben tally', open: 'never' });
+    assert.match(art.url, /^open-artifact:\/\/artifact\/art_/, JSON.stringify(art));
+    const update = await member.cli(['types', 'update', 'tally-from-site', '--yes']);
+    assert.equal(update.code, 0, update.stdout + update.stderr);
+    assert.match(update.stderr, new RegExp(`from: +${pageUrl.replace(/[.]/g, '\\.')}`), 'update reads it from the page\'s site again');
+
+    // The owner makes it private on its page: the member is told it is not shared; anonymous is sent to sign in.
+    await clickOn(tp, "[...document.querySelectorAll('[data-site-type-manage] button')].find(b => b.textContent === 'Private')", 'Private');
+    assert.ok(await until(async () => (await fetch(pageUrl, { redirect: 'manual' })).status === 303, 15000), 'private, and still shown to anyone');
+    const hidden = await member.cli(['types', 'install', pageUrl, '--yes']);
+    assert.notEqual(hidden.code, 0);
+    assert.match(hidden.stderr, /no type team-tally on http:\/\/localhost:\d+, or it is not shared with you/);
+    // Showing it to more people is publishing it: refused while the site takes no published types (OA_TYPES_PUBLISH=off).
+    const everyone = "[...document.querySelectorAll('[data-site-type-manage] button')].find(b => b.textContent === 'Everyone on this site')";
+    await clickOn(tp, everyone, 'Everyone on this site');
+    assert.ok(await tp.waitFor("document.body.innerText.includes('Could not do that')", 15000), 'the refusal is shown');
+    assert.equal((await fetch(pageUrl, { redirect: 'manual' })).status, 303, 'still private');
+    await tp.close();
+    // With the default (admins), the owner, a site admin, shows it to everyone on the site: the member installs it.
+    await stop(ctx.host);
+    await startHost(null);
+    const tp2 = await owner.load(pageUrl, { ready: "document.querySelector('[data-site-type-manage] button')", ignore: IGNORE });
+    await clickOn(tp2, everyone, 'Everyone on this site');
+    assert.ok(await until(async () => /"tally-two"/.test((await member.cli(['types', 'install', pageUrl, '--as', 'tally-two', '--yes'])).stdout), 30000), 'site: the member installs it');
+    await tp2.close();
+
+    // A delisted type: not shared, to the member.
+    const delisted = await member.cli(['types', 'install', `${app}/t/team-poll`, '--yes']);
+    assert.notEqual(delisted.code, 0);
+    assert.match(delisted.stderr, /or it is not shared with you/);
+
+    // The home page's Types tab lists the owner's types, each a link to its page.
+    const tab = await owner.load(`${app}/#types`, { ready: "document.querySelector('[data-home-site-types]')", ignore: IGNORE });
+    assert.ok(await tab.waitFor("document.querySelector('[data-site-type=team-tally]')?.getAttribute('href') === '/t/team-tally'", 15000), 'the Types tab lists team-tally');
+    assert.ok(await tab.evaluate("!!document.querySelector('[data-site-type=team-poll]')"), 'its publisher sees a delisted one, marked');
+    await tab.close();
   });
 });

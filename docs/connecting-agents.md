@@ -184,6 +184,12 @@ open-artifact: 1 artifact is published to work: art_0mwrwt1jtf8c269e185698c2e.
   Unpublish it first (open-artifact unpublish <id>), or pass --force to keep it local only.
 ```
 
+A computer signed in to a site also installs the types published there by their page's address:
+`open-artifact types install https://artifacts.example.com/t/<id>` fetches the package through that remote, as you, and
+`types update <id>` reads it from there again. Without a remote of that exact address it is fetched from the site's
+public address, which only a `link` type on a site with public access answers
+([A type's page on a site](custom-types.md#a-types-page-on-a-site)).
+
 ## Publish an artifact
 
 ### Your first artifact: a folder
@@ -506,6 +512,13 @@ What it can and cannot do: there is no picture made on the site. `Artifact {acti
 with a read-only page address valid for 5 minutes (`page_url`, 1440×900) for a client that can open pages itself.
 Exports and PDFs need a person's browser or a connected computer. A browser-based client must call from the app origin
 or an origin listed in `OA_MCP_ORIGINS`.
+
+Types people published to the site: `Artifact {action: "list", scope: "types"}` and `quickstart` show the ones the
+person may list beside the built-in types, each with `source: "site"`, `published_by`, its `version` and a
+`third_party_notice`; `publish` with its `type_url` makes an artifact of one, with its `SKILL.md` as instructions after
+that notice. A delisted type is refused (`not_granted` to its publisher, an unknown type to others). No tool publishes,
+changes or unpublishes a type: the person does that from their computer or the type's page
+([A type's page on a site](custom-types.md#a-types-page-on-a-site)).
 
 ## Dashboards and their data
 

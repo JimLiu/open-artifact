@@ -13,9 +13,9 @@ export function isNavigation(request: Request): boolean {
   return (request.headers.get('accept') ?? '').includes('text/html');
 }
 
-/** Whether a path is one of the app origin's pages: `/`, `/a/*`, `/s/*`, `/auth/*`. */
+/** Whether a path is one of the app origin's pages: `/`, `/a/*`, `/s/*`, `/t/*` (a type's page), `/auth/*`. */
 export function isPagePath(pathname: string): boolean {
-  return pathname === '/' || /^\/(a|s|auth)(\/|$)/.test(pathname);
+  return pathname === '/' || /^\/(a|s|t|auth)(\/|$)/.test(pathname);
 }
 
 const WORDS: Record<PageLanguage, { titles: Record<string, string>; generic: string; detail: string; home: string }> = {

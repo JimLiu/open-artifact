@@ -16,6 +16,7 @@
 
 import { lstat, rm, unlink } from 'node:fs/promises';
 import { basename, dirname } from 'node:path';
+import { siteTypePagePath } from '@open-artifact/protocol';
 import { isTypeName, readArtifactTitle } from '@open-artifact/type-server';
 
 import type { Catalog } from '../core/catalog/catalog.ts';
@@ -24,6 +25,7 @@ import { startLinkFeed } from '../core/link/outbox.ts';
 import { LinkPresenceCounter } from '../core/link/presence.ts';
 import type { LinkServices } from '../core/link/services.ts';
 import { createArtifactFiles } from './files.ts';
+import { scaffoldArtifact } from './mcp.ts';
 import { importInto } from './host.ts';
 import type { HostRooms } from './rooms.ts';
 import { PAGE_TYPE, pageServices, pageTitleOf, type FrameEngine } from './frames.ts';
@@ -65,6 +67,8 @@ export function nodeLinkServices(input: {
   archive: LinkServices['archive'];
   version: string;
   log?: (line: string) => void;
+  /** The site's app origin: an artifact made here of a published type records its type page as where the type came from. */
+  siteOrigin?: string;
 }): LinkServices & { stop(): void } {
   const { rooms, catalog, events } = input;
   const stopFeed = startLinkFeed({ catalog, events, ...(input.log ? { log: input.log } : {}) });
@@ -81,7 +85,14 @@ export function nodeLinkServices(input: {
           ? await pageTitleOf(rooms.rootOf(id))
           : await rooms.siteTypes?.contentTitle(type, rooms.rootOf(id)),
     ...(rooms.frames ? { pages: pageServices(rooms as Pick<HostRooms, 'rootOf'> & { frames: FrameEngine }, events, catalog) } : {}),
-    ...(rooms.frames && rooms.siteTypes ? { siteTypes: rooms.siteTypes.services((type) => rooms.frames?.typeChanged(type)) } : {}),
+    ...(rooms.frames && rooms.siteTypes
+      ? {
+          siteTypes: {
+            ...rooms.siteTypes.services((type) => rooms.frames?.typeChanged(type)),
+            scaffold: (artifact) => scaffoldArtifact(rooms.rootOf(artifact.id), { ...artifact, ...(input.siteOrigin ? { typeSource: input.siteOrigin + siteTypePagePath(artifact.type) } : {}) }),
+          },
+        }
+      : {}),
     refreshAccess: (id) => rooms.refresh(id),
     presence: input.presence,
     events,

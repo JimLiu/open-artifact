@@ -15,10 +15,11 @@ through the remote MCP endpoint, or through a computer's local daemon that is li
 **What it is not:**
 
 - It is not a cluster. Each artifact's live room is in memory, so you run one process per host.
-- It installs no type package from elsewhere, and runs no code from one. The built-in types are the ones in the
-  checkout or the image; besides them it keeps the page-kind types people publish to it (`open-artifact types
-  publish`, `OA_TYPES_PUBLISH`), as plain files under `<OA_DATA_DIR>/types/` whose pages run restricted on page hosts
-  (see [Published types](../../docs/hosting.md#published-types)).
+- It runs no code from a type package on the server. The built-in types are the ones in the checkout or the image;
+  besides them, while it runs, it takes the page-kind types its people publish to it (`open-artifact types publish`,
+  `OA_TYPES_PUBLISH`; it never fetches one from elsewhere), kept as plain files under `<OA_DATA_DIR>/types/` whose pages
+  run restricted on page hosts. Each has a page at `/t/<id>` that a computer installs it from, and the site's MCP makes
+  artifacts of them (see [Published types](../../docs/hosting.md#published-types)).
 - It never runs a browser (see [Rendering happens on people's computers](#rendering-happens-on-peoples-computers)).
 
 Every command in this guide was run while writing it, except the ones marked **not run here**. Docker, Caddy and AWS

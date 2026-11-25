@@ -858,7 +858,15 @@ async function types(sub: string | undefined): Promise<void> {
       if (visibility !== undefined && visibility !== null && !['private', 'site', 'link'].includes(visibility)) die('--visibility is private, site or link.');
       const command = `open-artifact types ${sub} ${id}${remote ? ` --remote ${remote}` : ''}${visibility ? ` --visibility ${visibility}` : ''}`;
       personOnly(sub === 'publish' ? 'type-publish' : 'type-unpublish', command);
-      if (sub === 'unpublish') return out(await daemonCall<TypesUnpublishResponse>(LIBRARY_ROUTES.typesUnpublish, { id, ...(remote ? { remote } : {}) }));
+      if (sub === 'unpublish') {
+        const gone = await daemonCall<TypesUnpublishResponse>(LIBRARY_ROUTES.typesUnpublish, { id, ...(remote ? { remote } : {}) });
+        process.stderr.write(
+          gone.removed
+            ? `Removed ${gone.id} from ${gone.remote} (${gone.host}): no artifact there used it.\n`
+            : `Unpublished ${gone.id} on ${gone.remote} (${gone.host}): no longer listed and no new artifacts of it; the ${gone.artifacts} artifact(s) of it there keep opening.\n`,
+        );
+        return out(gone);
+      }
       const done = await daemonCall<TypesPublishResponse>(LIBRARY_ROUTES.typesPublish, { id, workspace: flag('workspace') ?? process.cwd(), ...(remote ? { remote } : {}), ...(visibility ? { visibility } : {}) });
       process.stderr.write(`${done.change === 'unchanged' ? 'Already on' : done.change === 'new' ? 'Published to' : `Published version ${done.type.version} (was ${done.previous}) to`} ${done.remote} (${done.host}): ${done.type.id} ${done.type.version}, visibility ${done.type.visibility}.\n`);
       return out(done);

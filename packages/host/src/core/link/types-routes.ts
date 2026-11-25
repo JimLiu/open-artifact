@@ -8,7 +8,7 @@
  * artifacts told, the old version's files deleted, and an audit entry.
  */
 
-import { ARCHIVE_CONTENT_TYPE, LINK_API_PREFIX, LINK_ROUTES, SITE_TYPE_VISIBILITIES, THIRD_PARTY_NOTICE, TYPE_ID, type LinkSiteType, type LinkTypeImportResult, type LinkTypeUnpublishResult, type LinkTypesResult, type SiteTypeVisibility } from '@open-artifact/protocol';
+import { ARCHIVE_CONTENT_TYPE, LINK_API_PREFIX, LINK_ROUTES, SITE_TYPE_VISIBILITIES, THIRD_PARTY_NOTICE, TYPE_ID, TYPE_PUBLISHER_HEADER, type LinkSiteType, type LinkTypeImportResult, type LinkTypeUnpublishResult, type LinkTypesResult, type SiteTypeVisibility } from '@open-artifact/protocol';
 import { httpError, json, readBody, readJson, type BaseCtx, type Router } from '../http.ts';
 import type { AgentPrincipal } from '../types.ts';
 import { guards } from '../plugins/hooks.ts';
@@ -39,6 +39,41 @@ export async function linkSiteTypes(ctx: BaseCtx, rows: SiteTypeRow[], me: strin
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   }));
+}
+
+/**
+ * Unpublishes a type (the Link's `types.unpublish` and the site's own `types.unpublish`): delisted while artifacts use
+ * it (trashed ones count; they keep running), else its row and files go. Audited as `type.unpublish`. Who may is the
+ * caller's check ({@link managesSiteType}).
+ */
+export async function unpublishSiteType(ctx: BaseCtx, site: SiteTypeServices, row: SiteTypeRow, by: { actorKind: 'agent' | 'user'; actorId: string; user: string }): Promise<LinkTypeUnpublishResult> {
+  const catalog = new SiteTypes(ctx.catalog.driver, () => ctx.now());
+  const artifacts = await catalog.artifactCount(row.id);
+  if (artifacts > 0) {
+    await catalog.delist(row.uid);
+    await site.activated((await catalog.get(row.uid))!);
+  } else {
+    await catalog.remove(row.uid);
+    await site.removed(row);
+    await site.removeFiles(row.uid).catch((error: unknown) => ctx.log(`types: removing ${row.id}: ${error instanceof Error ? error.message : String(error)}`));
+  }
+  await ctx.catalog.appendAudit({ actorKind: by.actorKind, actorId: by.actorId, action: 'type.unpublish', detail: { id: row.id, uid: row.uid, version: row.version, removed: artifacts === 0, artifacts, user: by.user } });
+  return { id: row.id, uid: row.uid, removed: artifacts === 0, artifacts };
+}
+
+/** The package download's answer: never run or rendered (`attachment`, `nosniff`), never cached. */
+export function siteTypePackageResponse(row: SiteTypeRow, bytes: Uint8Array, method: string, publisher: string | null = null): Response {
+  return new Response(method === 'HEAD' ? null : (bytes as Uint8Array<ArrayBuffer>), {
+    headers: {
+      // Who published it (their account name, percent-encoded), for the consent `types install` shows.
+      ...(publisher ? { [TYPE_PUBLISHER_HEADER]: encodeURIComponent(publisher) } : {}),
+      'content-type': ARCHIVE_CONTENT_TYPE,
+      'content-length': String(bytes.byteLength),
+      'content-disposition': `attachment; filename="${row.id}-${row.version}.oatype"`,
+      'cache-control': 'no-store',
+      'x-content-type-options': 'nosniff',
+    },
+  });
 }
 
 function visibilityOf(value: string | null): SiteTypeVisibility | undefined {
@@ -111,15 +146,8 @@ export function linkTypeRoutes<C extends BaseCtx>(router: Router<C>, services: S
       if (!row || !mayDownloadSiteType(row, actorOf(agent))) throw httpError('not_found', `No type ${id} you may see on this site.`, { status: 404 });
       const bytes = await site.package(row.uid, row.version);
       if (!bytes) throw httpError('not_found', `The package of ${id} ${row.version} is missing on this site.`, { status: 404 });
-      return new Response(request.method === 'HEAD' ? null : (bytes as Uint8Array<ArrayBuffer>), {
-        headers: {
-          'content-type': ARCHIVE_CONTENT_TYPE,
-          'content-length': String(bytes.byteLength),
-          'content-disposition': `attachment; filename="${row.id}-${row.version}.oatype"`,
-          'cache-control': 'no-store',
-          'x-content-type-options': 'nosniff',
-        },
-      });
+      const [view] = await linkSiteTypes(ctx, [row], agent.user.id);
+      return siteTypePackageResponse(row, bytes, request.method, view!.publisher.name);
     }),
   );
 
@@ -130,22 +158,10 @@ export function linkTypeRoutes<C extends BaseCtx>(router: Router<C>, services: S
       const body = await readJson<unknown>(request, LINK_JSON_BYTES);
       const id = body && typeof body === 'object' && typeof (body as { id?: unknown }).id === 'string' ? (body as { id: string }).id : '';
       if (!TYPE_ID.test(id)) throw httpError('invalid_argument', 'The body is {id: "<type id>"}.', { status: 400 });
-      const catalog = new SiteTypes(ctx.catalog.driver, () => ctx.now());
-      const row = await catalog.byId(id);
+      const row = await new SiteTypes(ctx.catalog.driver, () => ctx.now()).byId(id);
       if (!row || !mayListSiteType(row, actorOf(agent))) throw httpError('not_found', `No type ${id} you may see on this site.`, { status: 404 });
       if (!managesSiteType(row, actorOf(agent))) throw httpError('not_granted', `${id} was published by someone else: only its publisher or a site admin may unpublish it.`, { status: 403 });
-      const artifacts = await catalog.artifactCount(id);
-      if (artifacts > 0) {
-        await catalog.delist(row.uid);
-        await site.activated((await catalog.get(row.uid))!);
-      } else {
-        await catalog.remove(row.uid);
-        await site.removed(row);
-        await site.removeFiles(row.uid).catch((error: unknown) => ctx.log(`types: removing ${row.id}: ${error instanceof Error ? error.message : String(error)}`));
-      }
-      await ctx.catalog.appendAudit({ actorKind: 'agent', actorId: agent.id, action: 'type.unpublish', detail: { id, uid: row.uid, version: row.version, removed: artifacts === 0, artifacts, user: agent.user.id } });
-      const answer: LinkTypeUnpublishResult = { id, uid: row.uid, removed: artifacts === 0, artifacts };
-      return json(answer);
+      return json(await unpublishSiteType(ctx, site, row, { actorKind: 'agent', actorId: agent.id, user: agent.user.id }));
     }),
   );
 }

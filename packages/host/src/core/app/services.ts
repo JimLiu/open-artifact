@@ -9,6 +9,7 @@
 import type { PrincipalRef } from '../authz/access.ts';
 import type { AccessCache } from '../authz/access.ts';
 import type { HostEvents } from '../events.ts';
+import type { SiteTypeServices } from '../link/services.ts';
 import type { PluginDescription } from '../plugins/registry.ts';
 import type { Ctx } from '../http.ts';
 import type { ArtifactRole, ArtifactRow, Principal } from '../types.ts';
@@ -71,6 +72,11 @@ export interface AppServices {
   pluginDescriptions?(): PluginDescription[];
   /** The largest uploaded archive the platform takes, for the home page to refuse a bigger one before uploading it. Default {@link IMPORT_MAX_BYTES}. */
   importMaxBytes?: number;
+  /**
+   * The published types' packages and files (the Link's {@link SiteTypeServices}), for the type pages and the site's
+   * type routes (`site-types.ts`). Left out: the site keeps no published types, and those routes answer 404.
+   */
+  siteTypes?: SiteTypeServices;
 }
 
 /** The context of an app-origin request. */

@@ -5,7 +5,7 @@
  * - every write (not `GET`/`HEAD`/`OPTIONS`) must come from the app origin itself (`assertSameOrigin`, decision 22);
  * - an agent's `Authorization: Bearer` token is taken only by the Link API ({@link takesAgentToken}); on every other
  *   route (the browser's: a session or guest cookie) it is refused with a 401, never read as an anonymous visit;
- * - an error a browser navigates to on a page path (`/`, `/a/*`, `/s/*`, `/auth/*`) is a page, not JSON;
+ * - an error a browser navigates to on a page path (`/`, `/a/*`, `/s/*`, `/t/*`, `/auth/*`) is a page, not JSON;
  * - every answer carries `nosniff`, `X-Frame-Options: DENY`, `frame-ancestors 'none'` and a Referrer-Policy, and a
  *   CSP that loads nothing unless the route set its own (the Shell and home pages, the sign-in pages);
  * - request bodies are capped per route (JSON writes 64 KiB, an uploaded archive {@link IMPORT_MAX_BYTES});

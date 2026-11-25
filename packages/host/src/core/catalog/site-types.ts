@@ -225,6 +225,12 @@ export class SiteTypes {
     return (await this.get(candidate.uid))!;
   }
 
+  /** Changes who may list and download a type (its publisher's or a site admin's call); answers the row. */
+  async setVisibility(uid: string, visibility: SiteTypeVisibility): Promise<SiteTypeRow | undefined> {
+    await this.#driver.run('UPDATE types SET visibility = ?, updated_at = ? WHERE uid = ?', [visibility, this.#now().toISOString(), uid]);
+    return this.get(uid);
+  }
+
   /** Delists a type: kept for the artifacts of it, no longer listed or used by new ones. */
   async delist(uid: string): Promise<void> {
     await this.#driver.run('UPDATE types SET unpublished = 1, updated_at = ? WHERE uid = ?', [this.#now().toISOString(), uid]);

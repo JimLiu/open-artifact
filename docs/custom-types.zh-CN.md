@@ -151,6 +151,7 @@ open-artifact types pack ./path/to/folder --out ~/Desktop
 ```bash
 open-artifact types install ./trip-planner-1.2.0.oatype
 open-artifact types install https://example.com/trip-planner-1.2.0.oatype
+open-artifact types install https://oa.example.com/t/trip-planner       # 网站上一个类型的页面（见下文）
 open-artifact types install ./trip-planner-1.2.0.oatype --as trips      # 换一个 id 安装
 open-artifact types update trip-planner                                  # 从记录的来源重新读取
 open-artifact types uninstall trip-planner
@@ -172,7 +173,8 @@ open-artifact types uninstall trip-planner
   页面也仍然可以把文字送到你的 agent 面前（发给 agent 的评论，或它建议的标题），agent 会被告知把这些当作数据读。
 - agent 会被告知：它的 `SKILL.md`、标题和描述是发布者写的，不是你写的；只能用来做这个作品，不能借此扩大任务
   或者索要权限。
-- 你不能把它发布到网站上：那是它作者的事。网站上有了它（同一个 `uid`）之后，用它做的作品可以照常发布到那里。
+- 你不能把这个类型本身发布到网站上（`types publish` 和 `--with-type` 都会拒绝）：那是它作者的事。网站上有同一个
+  `uid` 的类型时（比如作者已经发到那里），你用它做的作品照常可以发布到那里。
 - 它的文件夹或作品文件夹里，指向文件夹外面的链接既不会被提供，也不能借它写入。
 
 安装时先解压到一个临时文件夹，所有检查都通过后才移到位：包里有路径跑出自己的文件夹、有链接、有重名、文件数或
@@ -204,8 +206,8 @@ open-artifact types unpublish trip-planner --remote work
 - **id 归网站。** 一个网站上一个 id 只对应一个类型。别人已占用的 id 下、`uid` 不同的包会被拒绝，并写明占用它的 uid；
   请给你的类型换个 slug。再次发布同一个 `uid` 就是新版本，只有你（或网站管理员）能发；同一版本内容不同会被拒绝
   （请提高 `version`），同样的字节再发一次什么都不改变。
-- **谁能看到。** `--visibility private`（新类型的默认值：你和网站管理员）、`site`（网站上所有有账号的人）或 `link`
-  （任何说得出它名字的人）。可见性决定谁能列出和下载这个包，从不决定谁能运行它：能打开这种作品的人都会运行它。
+- **谁能看到。** `--visibility private`（`types publish` 新建类型时的默认值：你和网站管理员）、`site`（网站上所有
+  有账号的人）或 `link`（拿到它页面地址的人）。`--with-type` 新建的类型是 `link`。可见性决定谁能列出和下载这个包，从不决定谁能运行它：能打开这种作品的人都会运行它。
   新版本沿用原来的可见性，除非你另外指定。
 - **它的作品。** 网站上没有某个类型时，`open-artifact publish <id>` 发布这种作品会被拒绝，并写明类型 id 和该运行的两条
   命令。`--with-type` 先以 `link` 可见性发布类型，再发布作品。网站只接受做作品时那个 `uid` 的类型（否则返回
@@ -216,7 +218,38 @@ open-artifact types unpublish trip-planner --remote work
 - **由你来做。** 发布、取消发布类型，以及 `--with-type`，在 agent 的会话里都会被拒绝，不管网站是否允许 agent 发布作品。
   网站上的 agent 会被告知：发布的类型里的文字出自它的发布者，和安装的类型一样。
 
-到底谁能发布类型由网站决定（`OA_TYPES_PUBLISH`：默认只有网站管理员）。
+到底谁能发布类型由网站决定（`OA_TYPES_PUBLISH`：默认只有网站管理员；一个域名同时用作两者的网站，即
+`OA_CONTENT_SAME_SITE=true`，不运行页面，这一项总是 `off`）。
+
+## 网站上类型的页面
+
+网站上的每个类型都有一个页面 `https://<网站>/t/<id>`，网站主页有一个 **类型** 标签页，列出你能看到的类型（`site`
+类型、你自己的，网站管理员能看到全部），每一项都链接到它的页面。页面上有：名字、版本、发布者、更新时间、它的页面
+要用的能力和能访问的网站（和安装时显示的说法一样）、纯文本显示的 `SKILL.md`、安装它的命令，以及安装包的下载。
+
+- **谁能看到这个页面。** 能下载这个类型的人：`site` 或 `link` 类型对所有登录的人可见（`link` 类型只能凭地址打开），
+  `private` 类型只有发布者和网站管理员能看到。没登录的人只有在网站允许公开访问时（`OA_PUBLIC_ACCESS`，默认开启）
+  才能看到 `link` 类型，否则会被带去登录。对其他人，页面和接口的回答与一个不存在的 id 完全一样：从不透露有某个
+  私有类型。
+- **在页面上管理。** 发布者或网站管理员可以在页面上改变谁能看到它，或者取消发布。让更多人看到（private → link →
+  site）等于把它发布给这些人，所以需要网站此刻允许发布的人（`OA_TYPES_PUBLISH`）；让更少人看到总是可以。已下架的
+  类型只显示给他们，并标明已下架：要重新列出，就从电脑上再发布一次。每次改动都记在网站的审计日志里
+  （`type.visibility`、`type.unpublish`）。
+- **安装到你的电脑。**
+
+  ```bash
+  open-artifact types install https://oa.example.com/t/trip-planner [--as <id>]
+  open-artifact types update trip-planner            # 再从那个页面所在的网站读取
+  ```
+
+  这台电脑登录了那个网站时（地址完全相同的远端，`open-artifact remote add`），安装包以你的身份通过它取得。否则就从
+  网站的公开地址下载，不带任何凭据；网站允许公开访问时，这对 `link` 类型可行。安装前的确认除了平时显示的全部内容，
+  还会写明发布者和网站；记录的来源是这个页面的地址，所以 `types update` 会从那里读取。网站要求登录时会直接说明，
+  并给出 `remote add` 命令；网站上没有的类型和不分享给你的类型是同一个回答（“没有这个类型，或者没有分享给你”）。
+  和所有安装的类型一样，它受上面那些限制。
+- **网站上的 agent。** 连到网站 MCP 的 agent 会在内置类型旁边看到它能列出的已发布类型（标着 `source: "site"`，带
+  `published_by` 和 `third_party_notice`），并能用它们做作品；它们的 `SKILL.md` 前面有一段说明，指出那是发布者写的
+  文字。已下架的类型不能再做新作品。agent 的工具都不能发布、修改或取消发布类型。
 
 ## 把作品搬到另一台电脑
 
@@ -232,6 +265,3 @@ uid 的类型能打开它，所以碰巧同名的另一个类型不会打开它�
 `type_missing`，写明类型的 id、uid 和来源：先安装那个类型，再导入一次。压缩包在写入任何东西之前会像类型包一样
 先检查，里面的东西都不会被运行。
 
-## 暂时还不行
-
-凭链接从网站安装类型，以及列出网站上类型的页面，暂时还不支持。

@@ -14,6 +14,7 @@ import { useHome, type CloudTab } from '../store.ts';
 import { keepNote, offersPurge, trashRows, type TrashRow } from '../trash.ts';
 import { dragHasFiles, uploadBusy, uploadPercent } from '../upload.ts';
 import { ArtifactList, Chip } from './ArtifactList.tsx';
+import { SiteTypeList } from './SiteTypes.tsx';
 
 /** "Upload": picks a .zip and sends it. */
 export function UploadButton() {
@@ -210,9 +211,11 @@ export function PurgeDialog() {
   );
 }
 
-/** The cloud home page's body: Artifacts (a drop target for a .zip) and Trash. */
+/** The cloud home page's body: Artifacts (a drop target for a .zip), the site's Types (where it keeps them) and Trash. */
 export function CloudLibrary() {
-  const tab = useHome((state) => state.cloudTab);
+  const chosen = useHome((state) => state.cloudTab);
+  // `/#types` on a site that keeps no types: its artifacts.
+  const tab = chosen === 'types' && !homeBoot.cloud?.siteTypes ? 'artifacts' : chosen;
   return (
     <Tabs<CloudTab>
       value={tab}
@@ -230,6 +233,7 @@ export function CloudLibrary() {
             </DropZone>
           ),
         },
+        ...(homeBoot.cloud?.siteTypes ? [{ value: 'types' as const, label: t('types'), content: <SiteTypeList /> }] : []),
         { value: 'trash', label: t('trash'), content: <TrashList /> },
       ]}
     />

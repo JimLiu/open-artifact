@@ -237,3 +237,19 @@ person's to run, after they have read what it asks for: do not run them yourself
 program (no `entry.start`), its page reaches only the origins it lists from a sandboxed frame, its files install as
 plain files (`0644`), and agents get its `SKILL.md` with a note (`third_party_notice`) that it is the publisher's
 text.
+
+To share it through a site instead, the person publishes it there (`open-artifact types publish <id> [--remote <site>]
+[--visibility private|site|link]`, `private` by default; `open-artifact publish <artifact> --with-type` sends a type the
+site lacks first, with `link`). Only a type of their own goes: not a built-in one, and not one they installed (its
+author publishes that; their artifacts of it still publish to a site that has the same `uid`). A site with
+`OA_CONTENT_SAME_SITE=true` takes no types (`OA_TYPES_PUBLISH` is `off` there). On the site the type then has a page,
+`https://<site>/t/<id>`, which shows who published it, what its page may use and reach, and its `SKILL.md`, and lets its
+publisher change who sees it or unpublish it. Someone else installs it from that address:
+
+```bash
+open-artifact types install https://<site>/t/<id>
+```
+
+through their remote of that site when they have one, else from its public address (a `link` type on a site with
+public access). The question before the install names the publisher and the site. Publishing, unpublishing and
+installing are all the person's to run: give them the command, never run it yourself.

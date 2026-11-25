@@ -172,6 +172,10 @@ open-artifact: 1 artifact is published to work: art_0mwrwt1jtf8c269e185698c2e.
   Unpublish it first (open-artifact unpublish <id>), or pass --force to keep it local only.
 ```
 
+登录了某个站点的电脑，也可以凭页面地址安装发布在那里的类型：`open-artifact types install https://artifacts.example.com/t/<id>`
+以你的身份通过那个远端取得安装包，`types update <id>` 会再从那里读取。没有地址完全相同的远端时，就从站点的公开地址下载，
+只有允许公开访问的站点上的 `link` 类型才会回应（见[网站上类型的页面](custom-types.zh-CN.md#网站上类型的页面)）。
+
 ## 发布作品
 
 ### 第一个作品：一个文件夹
@@ -472,6 +476,12 @@ HTTP 的 MCP）。它以批准它的那个人的身份、带着那个人的角�
 能做和不能做的：站点上不生成图片。`Artifact {action: "call", name: "snapshot"}` 返回一个 5 分钟内有效的只读页面地址
 （`page_url`，1440×900），给能自己打开页面的客户端用。导出和 PDF 需要某个人的浏览器或一台连接着的电脑。浏览器里的客户端
 必须从应用源，或 `OA_MCP_ORIGINS` 里列出的源发起调用。
+
+人们发布到站点的类型：`Artifact {action: "list", scope: "types"}` 和 `quickstart` 会在内置类型旁边列出这个人能列出的
+已发布类型，每个都带 `source: "site"`、`published_by`、`version` 和 `third_party_notice`；用它的 `type_url` 调 `publish`
+就能做一个这种作品，指令是那段说明之后的 `SKILL.md`。已下架的类型会被拒绝（对发布者是 `not_granted`，对其他人就像不存在
+的类型）。没有工具能发布、修改或取消发布类型：这些由人在自己的电脑上或类型的页面上做
+（见[网站上类型的页面](custom-types.zh-CN.md#网站上类型的页面)）。
 
 ## 仪表盘和它的数据
 

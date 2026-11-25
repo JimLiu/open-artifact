@@ -11,11 +11,14 @@ import { uploadStep } from './upload.ts';
 export type HomeTab = 'artifacts' | 'types';
 
 /** The cloud home page's tabs. */
-export type CloudTab = 'artifacts' | 'trash';
+export type CloudTab = 'artifacts' | 'types' | 'trash';
 
-/** The tab the cloud home page opens on: the Trash for `/#trash` (where a trashed artifact's address sends its owner). */
+/**
+ * The tab the cloud home page opens on: the Trash for `/#trash` (where a trashed artifact's address sends its owner),
+ * the site's types for `/#types` (where a type's page links back to).
+ */
 export function initialCloudTab(hash: string = typeof location === 'undefined' ? '' : location.hash): CloudTab {
-  return hash === '#trash' ? 'trash' : 'artifacts';
+  return hash === '#trash' ? 'trash' : hash === '#types' ? 'types' : 'artifacts';
 }
 
 /** State of the home page. */

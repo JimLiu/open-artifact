@@ -132,13 +132,14 @@ function cloudAccount(ctx: AppCtx, principal: Principal, returnTo: string): Omit
   };
 }
 
-/** The home page's boot. */
-export function homeBoot(ctx: AppCtx, principal: Principal): HomeBoot {
+/** The home page's boot (`returnTo`: where signing in comes back to; a type's page passes its own path). */
+export function homeBoot(ctx: AppCtx, principal: Principal, returnTo = '/'): HomeBoot {
   return {
     cloud: {
-      ...cloudAccount(ctx, principal, '/'),
+      ...cloudAccount(ctx, principal, returnTo),
       ...(ctx.trashDays !== undefined ? { trashDays: ctx.trashDays } : {}),
       limits: { importBytes: ctx.importMaxBytes ?? IMPORT_MAX_BYTES },
+      ...(ctx.siteTypes ? { siteTypes: true } : {}),
     },
   };
 }

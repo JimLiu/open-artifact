@@ -218,7 +218,16 @@ open-artifact-host: OA_CONTENT_ORIGIN: must be a different site from OA_APP_ORIG
   放宽它）。站点上的 agent 会被告知：类型里的文字出自它的发布者。
 - **管理员需要知道的**：管理员可以为任何人的类型发布新版本，也可以取消发布。还有作品在用的类型取消发布时只会下架（作品照常
   打开）；没有作品再用时才会删除。一个 id 归第一个占用它的 `uid`；内置类型的 id 永远不会被占用。每次发布和取消发布都记入审计
-  日志（`type.publish`、`type.unpublish`），插件可以用 `type.publish` 守卫拒绝一次发布（见[插件](plugins.zh-CN.md)）。
+  日志（`type.publish`、`type.unpublish`），改变谁能看到也会记入（`type.visibility`）；插件可以用 `type.publish` 守卫
+  拒绝一次发布（见[插件](plugins.zh-CN.md)）。
+- **类型页面**：每个类型在 `/t/<id>` 有一个页面，主页有一个 **类型** 标签页（见
+  [网站上类型的页面](custom-types.zh-CN.md#网站上类型的页面)）。页面和背后的接口（`/api/open-artifact.types`、`.type`、
+  `.types.package`、`.types.update`、`.types.unpublish`）只把类型显示给能下载它的人，对其他人的回答和不存在的 id 一样。
+  没登录的人只有在 `OA_PUBLIC_ACCESS=true` 时才能看到 `link` 类型。发布者或管理员可以在页面上改变谁能看到它或取消发布；
+  让更多人看到需要 `OA_TYPES_PUBLISH` 此刻允许发布的人。电脑凭页面地址安装
+  （`open-artifact types install https://<站点>/t/<id>`）。
+- **站点上的 agent**：站点的 MCP 在内置类型旁边列出这个人能列出的已发布类型，标明出自发布者（`third_party_notice`），
+  并能用它们做作品；已下架的类型不能再做新作品，MCP 的工具都不能发布、修改或取消发布类型。
 - Cloudflare 站点暂时不保存发布的类型。
 
 ## 角色和分享

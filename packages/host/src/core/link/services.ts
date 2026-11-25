@@ -94,7 +94,22 @@ export interface SiteTypeServices {
   activated(row: SiteTypeRow): Promise<void>;
   /** The row is gone (nothing used it). */
   removed(row: SiteTypeRow): Promise<void>;
+  /**
+   * The SKILL.md of `uid`'s `version` as its publisher wrote it (the file its manifest's `skill` names, else
+   * `SKILL.md`), at most {@link SITE_TYPE_SKILL_MAX} characters; null when it has none. For the type page, the site's
+   * API and the site's MCP (which tells the agent it is the publisher's). Absent: the site shows none and its MCP
+   * offers no published type for new artifacts.
+   */
+  skill?(uid: string, version: string): Promise<string | null>;
+  /**
+   * Makes a new artifact's folder of a published type: its `.artifact.json` (`type`, `typeUid`, `title`) and nothing
+   * else (the type's page opens with no content). Absent: the site's MCP makes no artifact of a published type.
+   */
+  scaffold?(input: { id: string; type: string; typeUid: string; title: string }): Promise<void>;
 }
+
+/** The most of a published type's SKILL.md a site hands out (the package limits keep it far below this anyway). */
+export const SITE_TYPE_SKILL_MAX = 256 * 1024;
 
 /** What a host that runs page artifacts adds to the Link (and the site's MCP). */
 export interface PageServices {

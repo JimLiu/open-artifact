@@ -50,6 +50,7 @@ import {
   type SiteTypeVisibility,
   type TypesPublishResponse,
   type TypesUnpublishResponse,
+  TYPE_PUBLISHER_HEADER,
 } from '@open-artifact/protocol';
 import type { Inbox } from './inbox.ts';
 import { inside, writeFileAtomic } from './paths.ts';
@@ -59,6 +60,7 @@ import {
   REMOTE_NAME,
   RemotesFile,
   checkHost,
+  decodedHeader,
   insecureOrigin,
   insecureWarning,
   linkDevice,
@@ -72,6 +74,7 @@ import {
   type StoredRemote,
 } from './remote.ts';
 import { sessionKeyOf, userEditsAfter, type ArtifactStore } from './store.ts';
+import { fetchTypePackageAnswer } from './type-packages.ts';
 import { PAGE_NO_SITE, typePublishRefusal, type TypeInfo } from './types.ts';
 import type { PackedType } from './type-packages.ts';
 import { UNOWNED_KEY, type WakeItem, type WakeResult } from './wake.ts';
@@ -363,6 +366,15 @@ function sameJson(a: unknown, b: unknown): boolean {
 
 /** How long after a create the first automatic publish is tried, ms (the tool's answer goes out first). */
 const AUTO_FIRST_MS = 200;
+
+/** Whether a remote's host is the origin `origin` (scheme, host and port). */
+function sameOrigin(host: string, origin: string): boolean {
+  try {
+    return new URL(host).origin === new URL(origin).origin;
+  } catch {
+    return false;
+  }
+}
 
 /** Links the daemon to its cloud remotes. */
 export class LinkHub {
@@ -1021,6 +1033,40 @@ export class LinkHub {
     const result = await client.typesImport(packed.bytes, visibility);
     this.o.log(`link: published the type ${type.id} ${result.type.version} to ${name} (${result.change}, visibility ${result.type.visibility}, sha256 ${result.type.sha256})`);
     return { ...result, remote: name, host: client.host };
+  }
+
+  /**
+   * `types install https://<site>/t/<id>`: the type's package from that site. Through the remote of that exact origin
+   * when this computer is signed in to one (the Link's `types.archive`, as that person), else from the site's public
+   * address without credentials (a `link` type on a site that allows public access). Refusals say what to do; a 404 is
+   * "no such type, or not shared with you" (the site answers both the same).
+   */
+  async siteTypePackage(origin: string, id: string, maxBytes: number): Promise<{ bytes: Uint8Array; publisher: string | null; remote: string | null }> {
+    const name = Object.entries(this.remotes.list()).find(([, remote]) => sameOrigin(remote.host, origin) && !!remote.refreshToken)?.[0] ?? null;
+    const shared = `There is no type ${id} on ${origin}, or it is not shared with you.`;
+    if (name) {
+      try {
+        const got = await this.client(name).typesArchive(id, maxBytes);
+        return { ...got, remote: name };
+      } catch (error) {
+        const status = (error as OpenArtifactError).status;
+        if (status === 404) throw new OpenArtifactError('not_found', shared, { status, fix: `Check the address, or ask its publisher to share it with you (visibility site or link).` });
+        if (status === 403) throw new OpenArtifactError('not_granted', `${origin} does not let you download ${id}.`, { status, fix: 'Ask a site admin or the type\'s publisher.' });
+        throw error;
+      }
+    }
+    const address = `${origin}/api/open-artifact.types.package?${new URLSearchParams({ id })}`;
+    const signIn = `open-artifact remote add <name> ${origin}`;
+    try {
+      const got = await fetchTypePackageAnswer(address, { maxBytes });
+      return { bytes: got.bytes, publisher: decodedHeader(got.headers.get(TYPE_PUBLISHER_HEADER)), remote: null };
+    } catch (error) {
+      const status = (error as OpenArtifactError).status;
+      if (status === 401) throw new OpenArtifactError('unauthorized', `${origin} asks you to sign in to download ${id}.`, { status, fix: `Sign in to that site from this computer (${signIn}), then install again.` });
+      if (status === 403) throw new OpenArtifactError('not_granted', `${origin} does not let you download ${id}.`, { status, fix: 'Ask a site admin or the type\'s publisher.' });
+      if (status === 404) throw new OpenArtifactError('not_found', shared, { status, fix: `If it is shared with you, sign in to that site from this computer (${signIn}) and install again.` });
+      throw error;
+    }
   }
 
   /** `open-artifact types unpublish`: delisted on the site while artifacts use it, else removed. */
