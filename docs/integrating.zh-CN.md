@@ -316,3 +316,4 @@ daemon 通过 profile 认识每个 harness：标题、Agent 名字、层级、�
 | 宿主与 Shell 之间的每条消息 | [spec/embed.zh-CN.md](spec/embed.zh-CN.md) |
 | profile 的每个字段 | [spec/profile.zh-CN.md](spec/profile.zh-CN.md) |
 | 可运行的示例 | [examples/README.md](../examples/README.md) |
+| Pi 扩展 | [examples/harness-pi](../examples/harness-pi/README.zh-CN.md) |

@@ -404,3 +404,4 @@ Shell shows your harness name as it is.
 | Every host ↔ Shell message | [spec/embed.md](spec/embed.md) |
 | Every profile field | [spec/profile.md](spec/profile.md) |
 | Runnable examples | [examples/README.md](../examples/README.md) |
+| Pi extension | [examples/harness-pi](../examples/harness-pi/README.md) |
