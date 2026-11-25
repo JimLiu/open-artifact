@@ -285,6 +285,15 @@ the install shows), its `SKILL.md` as plain text, the command that installs it, 
   `types update` reads it from there. A site that asks you to sign in says so and names the `remote add` command; a
   type the site does not have, or does not share with you, is one answer ("no such type, or it is not shared with
   you"). As any installed type, it runs with the limits above.
+- **The types on your sites, at home.** Under your own types, the local home page's Types tab has a section for each
+  site this computer is connected to (`open-artifact remote add`), read each time the tab opens: the types that site
+  lists for you, each with who published it, its version and a link to its page there, and how it stands here.
+  **Install** opens the same Install dialog on its page address (nothing is installed until you confirm it there);
+  **Update to <version>** is shown when your installed copy of it differs; **Install under another id** when a
+  different type already has its id here; **Installed** and **Published from this computer** need nothing. Each site
+  answers on its own: one that cannot be reached, is too slow, is signed out or does not support types yet says so on
+  its own line with **Retry**, and the others still show. Delisted types are not listed. With no site connected, the
+  tab says where to connect one (**Publish to the web**, then **Connect a site…**, on an artifact).
 - **Agents on the site.** An agent connected to the site's MCP sees the published types it may list beside the
   built-in ones (marked `source: "site"`, with `published_by` and a `third_party_notice`) and makes artifacts of them;
   their `SKILL.md` comes after a notice that it is the publisher's text. A delisted type takes no new artifacts. No

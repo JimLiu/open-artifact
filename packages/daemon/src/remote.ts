@@ -642,9 +642,9 @@ export class LinkClient {
     return this.json<LinkTypeImportResult>(LINK_ROUTES.typesImport, { method: 'POST', query: visibility ? { visibility } : {}, body: { bytes, type: 'application/zip' }, timeoutMs: 300_000 });
   }
 
-  /** `link.types.list`: the site's types this person may see. */
-  typesList(): Promise<LinkTypesResult> {
-    return this.json<LinkTypesResult>(LINK_ROUTES.typesList);
+  /** `link.types.list`: the site's types this person may see (`init`: a signal and time limit of the caller's). */
+  typesList(init: Pick<LinkRequest, 'signal' | 'timeoutMs'> = {}): Promise<LinkTypesResult> {
+    return this.json<LinkTypesResult>(LINK_ROUTES.typesList, init);
   }
 
   /**

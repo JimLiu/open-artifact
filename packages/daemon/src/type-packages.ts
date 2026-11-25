@@ -32,6 +32,8 @@ import {
   type TypePackagePreview,
   type TypeSourceKind,
   type ArtifactRecord,
+  type SiteTypeStanding,
+  type TypesSiteType,
 } from '@open-artifact/protocol';
 import { checkTypePackage } from '@open-artifact/server-sdk/type-package';
 import { moveIntoPlace, unpackZip, zipBytes, ZipRefusal, type ArchiveEntry, type CheckedZipFile } from '@open-artifact/server-sdk/zip';
@@ -507,4 +509,27 @@ export function typeMismatch(record: Pick<ArtifactRecord, 'id' | 'title' | 'type
     `${record.title || record.id} was made with another type named ${record.type} (uid ${record.typeUid}); the ${type.scope} type ${type.id} here ${type.uid ? `is uid ${type.uid}` : 'has no uid'} (${type.dir}), so it is not opened or changed with it.`,
     { fix: `Install the type it was made with (open-artifact types install <its package>), or make the artifact again with this type.` },
   );
+}
+
+/**
+ * How a type a connected site lists stands on this computer (`types.sites`), in this order: a type of this computer's
+ * own folders with its uid (`published-here`); installed with its uid and the same package (`installed`) or another
+ * (`update`); another type holding its id, of another uid or none (`clash`); else `new`. `locals` are the types this
+ * computer lists (every root, shadowed ones too); `installed` is `types.json`, which keeps each install's sha256.
+ */
+export function siteTypeStanding(
+  site: { id: string; uid: string; sha256: string },
+  locals: ReadonlyArray<Pick<TypeInfo, 'id' | 'uid' | 'scope' | 'version'>>,
+  installed: Readonly<Record<string, InstalledTypeEntry>> = installedIndex().types,
+): { standing: SiteTypeStanding; local: TypesSiteType['local'] } {
+  const own = locals.find((t) => t.uid === site.uid && t.scope !== 'installed' && t.scope !== 'builtin');
+  if (own) return { standing: 'published-here', local: { id: own.id, version: own.version, scope: own.scope } };
+  const installs = Object.values(installed).filter((e) => e.uid === site.uid);
+  const same = installs.find((e) => !!site.sha256 && e.sha256 === site.sha256);
+  const match = same ?? installs[0];
+  if (match) return { standing: same ? 'installed' : 'update', local: { id: match.id, version: match.version, scope: 'installed', sha256: match.sha256, installedFrom: match.source } };
+  const held = Object.hasOwn(installed, site.id) ? installed[site.id]! : null;
+  const holder = locals.find((t) => t.id === site.id && t.uid !== site.uid) ?? (held && held.uid !== site.uid ? { id: site.id, version: held.version, scope: 'installed' as const } : null);
+  if (holder) return { standing: 'clash', local: { id: holder.id, version: holder.version, scope: holder.scope } };
+  return { standing: 'new', local: null };
 }

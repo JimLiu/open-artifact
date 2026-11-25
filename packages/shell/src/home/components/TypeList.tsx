@@ -2,7 +2,8 @@
  * The installed types, with "New" on the ones the home page can create, a switch to turn each on or off, "New type",
  * "Install type", and each known project's types with "Trust this project". Each card says where the type comes from
  * (built in, a folder here, or installed from a package), its version, what its page may use and, for an installed
- * one, which hosts it may reach; an installed one has Update and Uninstall.
+ * one, which hosts it may reach; an installed one has Update and Uninstall. Under them, the types on each site this
+ * computer is connected to (`ConnectedSiteTypes`).
  */
 
 import type { TypesProject, TypeView } from '@open-artifact/protocol';
@@ -15,6 +16,7 @@ import { setProjectTrusted, setTypeEnabled, uninstallType } from '../actions.ts'
 import { isCreatable } from '../model.ts';
 import { useHome } from '../store.ts';
 import { Chip } from './ArtifactList.tsx';
+import { ConnectedSiteTypes } from './ConnectedSiteTypes.tsx';
 
 /** The type's icon, or a generic one when it has none or it fails to load. */
 function TypeIcon({ type }: { type: TypeView }) {
@@ -157,6 +159,7 @@ export function TypeList() {
       {(types.projects ?? []).map((project) => (
         <ProjectTypes key={project.dir} project={project} />
       ))}
+      <ConnectedSiteTypes />
     </>
   );
 }

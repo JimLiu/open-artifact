@@ -82,9 +82,10 @@
 - **下载。** `types install <url>` 只接受 `https://`（纯 `http://` 只限回环地址），不发送 cookie 或凭据，拒绝带用户名
   或密码的地址，最多跟随五次重定向且只能是同一种协议，读取时到大小上限就停，超时也停。字节的 sha256 和来源记在
   `<home>/types.json` 里；主页安装的就是它预览过的那份字节。
-- **谁能请求。** `types.preview`、`types.install`、`types.update`、`types.uninstall` 和 `artifacts.import`
-  从任何页面的源（作品的、类型服务的、别的网站的）发来，或者是跨站请求，不管带不带令牌都拒绝；安装、更新和卸载在
-  Agent 会话里也会被拒绝。
+- **谁能请求。** `types.preview`、`types.sites`、`types.install`、`types.update`、`types.uninstall` 和
+  `artifacts.import` 从任何页面的源（作品的、类型服务的、别的网站的）发来，或者是跨站请求，不管带不带令牌都拒绝；
+  安装、更新和卸载在 Agent 会话里也会被拒绝。`types.sites`（给主页用的、已连接网站上的类型）只是读取，回答里总是带着
+  `third_party_notice`。
 - **文字。** 安装的类型的 `SKILL.md`、标题和描述交给 Agent 时带着 `source: "installed"` 和固定的
   `third_party_notice`：它们是发布者写的，不能扩大任务。还没信任的项目里的类型有自己的一句说明，点明是项目文件夹。
   这类类型的页面可能写过的东西交给 Agent 时也带一句页面内容的 `third_party_notice`：`Artifact` 读 `path` 或 `paths`

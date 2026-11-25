@@ -1,7 +1,7 @@
 /** The home page's store: the library, the types, the host and the open dialogs. */
 
 import { create } from 'zustand';
-import type { ArtifactView, TypeView, TypesResponse } from '@open-artifact/protocol';
+import type { ArtifactView, TypeView, TypesResponse, TypesSitesResponse } from '@open-artifact/protocol';
 import type { HomeHost } from './host.ts';
 import type { TrashedView } from './trash.ts';
 import type { UploadEvent, UploadState } from './upload.ts';
@@ -36,8 +36,17 @@ export interface HomeState {
   creating: TypeView | null;
   /** The "New type" dialog is open. */
   makingType: boolean;
-  /** The "Install type" dialog, while it is open: `update` names the installed type it updates. */
-  installing: { update?: string } | null;
+  /**
+   * The "Install type" dialog, while it is open: `update` names the installed type it updates; `url` is a site type's
+   * page it reads at once (`auto`) or fills in for the person (`as`: the id to install it under).
+   */
+  installing: { update?: string; url?: string; as?: string; auto?: boolean } | null;
+  /** The types on the connected sites (`types.sites`), read when the Types tab opens; `null` while the first read runs. */
+  sites: TypesSitesResponse | null;
+  /** The remote whose types are being read again (its Retry), or `*` for all of them. */
+  sitesLoading: string | null;
+  /** The read of the sites' types failed as a whole (the daemon did not answer), before any site was listed. */
+  sitesError: string | null;
   /** The artifact the rename dialog renames, while it is open. */
   renaming: ArtifactView | null;
   /** The artifact just deleted, while its undo shows (`trash`: on a cloud host, moved to the trash). */
@@ -64,6 +73,8 @@ export interface HomeActions {
   setCreating(type: TypeView | null): void;
   setMakingType(open: boolean): void;
   setInstalling(installing: HomeState['installing']): void;
+  setSites(sites: TypesSitesResponse | null, loading?: string | null, error?: string | null): void;
+  setSitesLoading(loading: string | null): void;
   setRenaming(artifact: ArtifactView | null): void;
   setUndo(undo: HomeState['undo']): void;
   setCloudTab(tab: CloudTab): void;
@@ -93,6 +104,9 @@ export const useHome = create<HomeState & HomeActions>()((set) => ({
   creating: null,
   makingType: false,
   installing: null,
+  sites: null,
+  sitesLoading: null,
+  sitesError: null,
   renaming: null,
   undo: null,
   cloudTab: initialCloudTab(),
@@ -116,6 +130,8 @@ export const useHome = create<HomeState & HomeActions>()((set) => ({
   setCreating: (creating) => set({ creating }),
   setMakingType: (makingType) => set({ makingType }),
   setInstalling: (installing) => set({ installing }),
+  setSites: (sites, loading = null, error = null) => set({ sites, sitesLoading: loading, sitesError: error }),
+  setSitesLoading: (sitesLoading) => set({ sitesLoading }),
   setRenaming: (renaming) => set({ renaming }),
   setUndo: (undo) => set({ undo }),
   setCloudTab: (cloudTab) => set({ cloudTab }),

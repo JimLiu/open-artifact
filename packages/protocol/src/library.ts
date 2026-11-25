@@ -8,7 +8,7 @@
  */
 
 import type { ResolvedEntry, TypeRuntime, TypeScope } from './manifest.ts';
-import type { SiteTypeDetail } from './link.ts';
+import type { LinkSiteType, SiteTypeDetail } from './link.ts';
 import type { TypeSourceKind } from './type-package.ts';
 import type { SessionRef } from './refs.ts';
 import type { ArtifactRole, ShareCloudView } from './type-server.ts';
@@ -276,6 +276,59 @@ export interface TypesProject {
   types: TypeView[];
 }
 
+/**
+ * How a type on a connected site stands on this computer ({@link TypesSitesResponse}), checked in this order:
+ * - `published-here`: a type of this computer's own folders (not installed) has its `uid`: the person published it
+ *   from here;
+ * - `installed`: installed here with its `uid` and the same package (`sha256`);
+ * - `update`: installed here with its `uid` and another package (another version, or other bytes);
+ * - `clash`: another type here has its id with another `uid` (or none): installing it needs another id (`--as`);
+ * - `new`: none of those.
+ */
+export type SiteTypeStanding = 'new' | 'installed' | 'update' | 'published-here' | 'clash';
+export const SITE_TYPE_STANDINGS: readonly SiteTypeStanding[] = Object.freeze(['new', 'installed', 'update', 'published-here', 'clash']);
+
+/** One type a connected site lists, and how it stands on this computer. */
+export interface TypesSiteType extends LinkSiteType {
+  /** Its page on the site (`<site origin>/t/<id>`), made by the daemon from the remote's address: what `types.preview { url }` takes. */
+  page: string;
+  standing: SiteTypeStanding;
+  /**
+   * The type of this computer it was matched with: the one of its `uid` (`installed`, `update`, `published-here`), or
+   * the one holding its id (`clash`); null for `new`. `sha256` is the installed package's; `installedFrom` where it was
+   * installed from (an installed type only).
+   */
+  local: { id: string; version: string | null; scope: TypeScope; sha256?: string; installedFrom?: string } | null;
+}
+
+/** One connected site in {@link TypesSitesResponse}: its types, or why there are none. */
+export interface TypesSite {
+  /** The remote's name and its host's app origin. */
+  remote: string;
+  host: string;
+  /** The types it lists to this person, delisted ones left out; empty with an error. */
+  types: TypesSiteType[];
+  /** Why this site's types could not be read, in plain words; null when they were. */
+  error: string | null;
+  /**
+   * {@link error} as a stable code: the site could not be reached in time (`unreachable`, `timeout`), this computer is
+   * not signed in to it (`signed_out`), it keeps no published types (`unsupported`: an older site), or it refused or
+   * failed (`refused`, `error`). Null with no error.
+   */
+  code: 'unreachable' | 'timeout' | 'signed_out' | 'unsupported' | 'refused' | 'error' | null;
+}
+
+/**
+ * `GET /api/open-artifact.types.sites` (the home page's Types tab): for each remote this computer is connected to, the
+ * types it lists and how each stands here. Each site answers on its own (asked in parallel, each with a time limit): one
+ * that fails is its own entry with an error. Names and descriptions are their publishers' words: shown as text,
+ * {@link notice} says so to an agent that reads them.
+ */
+export interface TypesSitesResponse {
+  sites: TypesSite[];
+  notice: string;
+}
+
 /** One connected adapter (`GET /api/open-artifact.harnesses`). */
 export interface HarnessInfo {
   name: string;
@@ -352,7 +405,7 @@ export const LIBRARY_ROUTES = {
    */
   view: 'view',
   /**
-   * Making and managing types (`open-artifact types …`). Every one is a `POST` from this computer: from the CLI (token)
+   * Making and managing types (`open-artifact types …`). Every one but `types.sites` is a `POST` from this computer: from the CLI (token)
    * or the daemon's own Shell, never from a page or another origin. `types.enable` / `types.disable` / `types.trust`
    * are refused inside an agent's session as well: the person decides them. Names start `types.`, not `type.` (that
    * prefix is the Type API's).
@@ -380,6 +433,14 @@ export const LIBRARY_ROUTES = {
    */
   typesPublish: 'types.publish',
   typesUnpublish: 'types.unpublish',
+  /**
+   * `GET [?remote=<name>]` → {@link TypesSitesResponse}: the types on each site this computer is connected to (or that
+   * one), and how each stands here.
+   * The one `types.*` read: the home page's Types tab asks it, from this daemon's own origin or with the token (any other
+   * origin is refused, as for the other `types.*` routes). An agent's request is answered too, as `types.preview` is,
+   * with the third-party notice; it installs nothing.
+   */
+  typesSites: 'types.sites',
   /**
    * `POST` a zip (`Content-Type: application/zip`, `?folder=` optional): an artifact archive made into a local artifact,
    * opened only by a type of the uid its `.artifact.json` names (`type_missing` otherwise). From the CLI or the home

@@ -94,6 +94,11 @@ export interface LibraryApi {
   typesUninstall(id: string): Promise<{ id: string; removed: true }>;
   /** `POST types.update`: without `sha256`, the preview of what its source holds now; with it, installs that preview. */
   typesUpdate(id: string, sha256?: string): Promise<TypePackagePreview & { id: string }>;
+  /**
+   * `GET types.sites[?remote=]`: the types on each connected site (or that one) and how each stands here, as the daemon
+   * sent it: read it with `typesSitesOf` (`connected-site-types.ts`). It waits for the slowest site (each has a limit).
+   */
+  typesSites(remote?: string): Promise<unknown>;
   /** `GET artifact.share?id=`: sharing state; throws `unsupported` for a type that cannot share. */
   share(id: string): Promise<ShareView>;
   /** `POST artifact.share`: changes sharing and answers the new state. */
@@ -242,6 +247,7 @@ export function createLibraryApi(options: LibraryApiOptions = {}): LibraryApi {
     typesInstall: (sha256, as) => call<{ id: string; version: string }>(LIBRARY_ROUTES.typesInstall, { body: { sha256, ...(as ? { as } : {}) } }),
     typesUninstall: (id) => call<{ id: string; removed: true }>(LIBRARY_ROUTES.typesUninstall, { body: { id } }),
     typesUpdate: (id, sha256) => call<TypePackagePreview & { id: string }>(LIBRARY_ROUTES.typesUpdate, { body: { id, ...(sha256 ? { sha256 } : {}) } }),
+    typesSites: (remote) => call<unknown>(LIBRARY_ROUTES.typesSites, remote ? { query: { remote } } : {}),
     share: (id) => call<ShareView>(LIBRARY_ROUTES.share, { query: { id } }),
     setShare: (request) => call<ShareView>(LIBRARY_ROUTES.share, { body: request }),
     create: (request) => call<ArtifactView>(LIBRARY_ROUTES.create, { body: request }),

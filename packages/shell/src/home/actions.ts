@@ -6,6 +6,7 @@ import { api, ApiError, errorText, subscribeLibraryEvents } from '../lib/api.ts'
 import { copyText } from '../lib/format.ts';
 import { t } from '../lib/i18n.ts';
 import { homeBoot, toHost } from './host.ts';
+import { typesSitesOf, type TypesSite } from '../lib/connected-site-types.ts';
 import { replaceArtifact, withoutArtifact } from './model.ts';
 import { useHome } from './store.ts';
 import { purgeOutcome } from './trash.ts';
@@ -53,6 +54,33 @@ export async function loadTypes(): Promise<void> {
     useHome.getState().setTypes(await api.types());
   } catch (error) {
     useHome.getState().setError(t('couldNotLoad', { error: errorText(error) }));
+  }
+}
+
+let sitesAsked = 0;
+
+/**
+ * Reads the types on the connected sites (`types.sites`), or one site's again (its Retry). The answer of an older
+ * read that comes after a newer one is dropped. A failure of the whole read (the daemon's) is shown on each site, or
+ * on its own line when none is listed yet.
+ */
+export async function loadSites(remote?: string): Promise<void> {
+  const asked = ++sitesAsked;
+  useHome.getState().setSitesLoading(remote ?? '*');
+  try {
+    const answer = typesSitesOf(await api.typesSites(remote));
+    if (asked !== sitesAsked) return;
+    const before = useHome.getState().sites;
+    if (remote && before) {
+      const fresh = answer.sites.find((s) => s.remote === remote);
+      useHome.getState().setSites({ ...before, sites: before.sites.map((s) => (s.remote === remote && fresh ? fresh : s)) });
+    } else useHome.getState().setSites(answer);
+  } catch (error) {
+    if (asked !== sitesAsked) return;
+    const before = useHome.getState().sites;
+    const failed = (s: TypesSite): TypesSite => (!remote || s.remote === remote ? { ...s, types: [], error: errorText(error), code: 'error' } : s);
+    if (before && before.sites.length) useHome.getState().setSites({ ...before, sites: before.sites.map(failed) });
+    else useHome.getState().setSites({ sites: [], notice: '' }, null, errorText(error));
   }
 }
 
@@ -110,6 +138,8 @@ export async function installPackage(preview: TypePackagePreview, o: { as?: stri
     if (o.update) await api.typesUpdate(o.update, preview.sha256);
     else await api.typesInstall(preview.sha256, o.as?.trim() || undefined);
     await loadTypes();
+    // The sites' types say how each stands here: read them again when they are shown.
+    if (useHome.getState().sites) void loadSites();
     notify(t(o.update ? 'typeUpdated' : 'typeInstalled', { type: preview.name, version: preview.version }));
     return { ok: true };
   } catch (error) {
@@ -329,7 +359,11 @@ export function startEvents(): () => void {
     if (timer) clearTimeout(timer);
     timer = setTimeout(() => {
       void loadArtifacts();
-      if (types && !homeBoot.cloud) void loadTypes();
+      if (types && !homeBoot.cloud) {
+        void loadTypes();
+        // How the sites' types stand here may have changed: read them again, only while the Types tab shows them.
+        if (useHome.getState().tab === 'types' && useHome.getState().sites) void loadSites();
+      }
       if (homeBoot.cloud && useHome.getState().cloudTab === 'trash') void loadTrash();
       types = false;
     }, 200);

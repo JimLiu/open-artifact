@@ -57,6 +57,8 @@ import {
   type TypeApiWakeResult,
   type TypesProject,
   type TypesResponse,
+  type TypesSitesResponse,
+  THIRD_PARTY_NOTICE,
   type EmbedResponse,
   type TypeView,
   type UpdateArtifactRequest,
@@ -100,6 +102,8 @@ import {
   unstagePackage,
   updateSource,
   packTypeBytes,
+  installedIndex,
+  siteTypeStanding,
 } from './type-packages.ts';
 import { RuntimeManager } from './runtime.ts';
 import { remoteArchiveBytes, remoteErrorBody } from './remote-archive.ts';
@@ -2185,6 +2189,24 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
           roots: this.types.roots(workspace).map((r) => ({ scope: r.scope, dir: r.root })),
           types: this.types.list(workspace, { includeShadowed: true }).map((t) => this.typeView(t)),
           projects: this.projectTypes(workspace),
+        };
+        return sendJson(res, 200, answer);
+      }
+      case R.typesSites: {
+        // A read, but it asks the connected sites as the person: from the CLI or this daemon's own pages only. Not refused
+        // to an agent (like types.preview): it changes nothing, and the answer carries the third-party notice.
+        if (!get) throw new OpenArtifactError('invalid_argument', `${R.typesSites} is a read (GET).`, { status: 405 });
+        const refusal = this.typesRefusal(req, name);
+        if (refusal) return sendJson(res, 403, { code: 'not_granted', message: refusal });
+        const lists = await this.link.siteTypeLists({ only: url.searchParams.get('remote') || null });
+        const locals = [
+          ...this.types.list(undefined, { includeShadowed: true }),
+          ...this.projectTypes().flatMap((p) => p.types.map((t) => ({ id: t.id, uid: t.uid ?? null, scope: t.scope, version: t.version }))),
+        ];
+        const installed = installedIndex().types;
+        const answer: TypesSitesResponse = {
+          sites: lists.map((site) => ({ ...site, types: site.types.map((type) => ({ ...type, ...siteTypeStanding(type, locals, installed) })) })),
+          notice: THIRD_PARTY_NOTICE,
         };
         return sendJson(res, 200, answer);
       }

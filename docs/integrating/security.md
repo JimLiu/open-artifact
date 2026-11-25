@@ -104,9 +104,10 @@ A type package (`.oatype`, `types install`) and an artifact archive (`open-artif
   credentials and refuses an address with a user or password, follows at most five redirects and only to the same
   scheme, stops at the size cap while reading and after a timeout. The sha256 of the bytes and their source are
   recorded in `<home>/types.json`; the home page installs exactly the bytes it previewed.
-- **Who may ask.** `types.preview`, `types.install`, `types.update`, `types.uninstall` and `artifacts.import` are
-  refused from any page origin (an artifact's, a type server's, another site's) and for a cross-site request, with the
-  token or without; install, update and uninstall are refused inside an agent session too.
+- **Who may ask.** `types.preview`, `types.sites`, `types.install`, `types.update`, `types.uninstall` and
+  `artifacts.import` are refused from any page origin (an artifact's, a type server's, another site's) and for a
+  cross-site request, with the token or without; install, update and uninstall are refused inside an agent session too.
+  `types.sites` (the types on the connected sites, for the home page) is a read, always with the `third_party_notice`.
 - **The words.** An installed type's `SKILL.md`, title and description reach the agent with `source: "installed"` and
   a fixed `third_party_notice`: they are the publisher's and cannot widen the task. A project type not trusted yet gets
   a notice of its own, naming the project folder. What such a type's page may have written reaches the agent with a

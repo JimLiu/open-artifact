@@ -181,6 +181,17 @@ packages/daemon (local open-artifact daemon, one per machine)
   preview carries `site {origin, publisher, remote}`, and the page's address is the recorded source that
   `types.update` reads again. To someone signed out, a publisher named by an email address is not named
   (`publisherNameFor`).
+  `GET types.sites [?remote=]` (daemon Library only; no MCP tool or CLI command) lists each signed-in remote's
+  `types.list` through `LinkHub.siteTypeLists`: remotes in parallel, each with its own deadline
+  (`OPEN_ARTIFACT_SITE_TYPES_MS`, default 5 s) and its own `error` + `code` (`unreachable`, `timeout`, `signed_out`,
+  `unsupported`, `refused`, `error`), delisted types dropped, fields capped and made plain text (`siteTypeListed`), the
+  page built from the remote's origin (`<origin>/t/<id>`), nothing cached. `siteTypeStanding` matches by uid:
+  `published-here` (a non-installed local with that uid), `installed` (an install with that uid and the listed
+  sha256), `update` (an install with that uid, other bytes), `clash` (a different uid holds the id), else `new`. Agents
+  may read it as they may `types.preview` (`typesRefusal`: origin and cross-site checks); the answer always carries
+  `THIRD_PARTY_NOTICE`. The Shell home (`lib/connected-site-types.ts`, `home/components/ConnectedSiteTypes.tsx`)
+  reads it when the Types tab mounts and installs through `InstallTypeDialog` (`types.preview {url}`, then
+  `types.install`).
   The Cloudflare host keeps the catalog too (`packages/host-cloudflare/src/site-types.ts`): `SiteTypeServices` over D1
   (`type_packages`, `type_package_chunks`: 768 KiB chunks, 16 MiB a package, a version served only once `complete`),
   made on first use; an artifact's object copies its type's served files into its own SQLite (`catalogFrameTypes`,

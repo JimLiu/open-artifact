@@ -47,7 +47,12 @@ import {
   type WakeRequestItem,
   type WakeSender,
   type WakeThread,
+  type LinkSiteType,
   type SiteTypeVisibility,
+  SITE_TYPE_VISIBILITIES,
+  TYPE_ID,
+  siteTypePageOf,
+  siteTypePagePath,
   type TypesPublishResponse,
   type TypesUnpublishResponse,
   TYPE_PUBLISHER_HEADER,
@@ -337,6 +342,66 @@ export interface LinkHubOptions {
 
 /** Why a site takes no published types: older, or its app and pages share one domain. */
 const TYPES_NO_SITE = 'This site keeps no published types (it is older than this Open Artifact, or it serves everything on one domain).';
+
+/** How long `types.sites` waits for each site's list, ms (`OPEN_ARTIFACT_SITE_TYPES_MS`: tests set a short one). */
+const siteTypesMs = (): number => ((v) => (Number.isFinite(v) && v > 0 ? v : 5000))(Number(process.env.OPEN_ARTIFACT_SITE_TYPES_MS));
+/** The most types read from one site's list. */
+const SITE_TYPES_MAX = 500;
+
+/** One type a site listed, as read here ({@link siteTypeListed}), with its page on that site. */
+export type SiteTypeListed = LinkSiteType & { page: string };
+
+/** One remote's answer to {@link LinkHub.siteTypeLists}. */
+export interface SiteTypeList {
+  remote: string;
+  host: string;
+  types: SiteTypeListed[];
+  error: string | null;
+  code: 'unreachable' | 'timeout' | 'signed_out' | 'unsupported' | 'refused' | 'error' | null;
+}
+
+/** Someone else's words on one line: no control or direction characters, at most `max` characters. */
+const plainText = (text: string, max: number): string => text.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069]/g, ' ').slice(0, max);
+
+/**
+ * One entry of a site's `link.types.list`, read defensively (it is the site's, and its strings its publishers'): null
+ * when its id is not a type id or its uid, name or version is missing. Strings are cut to a length a card can show;
+ * the page address is made here from the remote's own address (`<origin>/t/<id>`), never taken from the site.
+ */
+export function siteTypeListed(value: unknown, host: string): SiteTypeListed | null {
+  if (!value || typeof value !== 'object') return null;
+  const v = value as Record<string, unknown>;
+  const str = (x: unknown, max: number): string => (typeof x === 'string' ? plainText(x, max) : '');
+  const strings = (x: unknown): string[] => (Array.isArray(x) ? x.filter((s): s is string => typeof s === 'string').slice(0, 50).map((s) => plainText(s, 200)) : []);
+  if (typeof v.id !== 'string' || !TYPE_ID.test(v.id) || typeof v.uid !== 'string' || !v.uid || typeof v.name !== 'string' || typeof v.version !== 'string') return null;
+  let origin: string;
+  try {
+    origin = new URL(host).origin;
+  } catch {
+    return null;
+  }
+  const page = origin + siteTypePagePath(v.id);
+  if (!siteTypePageOf(page)) return null;
+  const publisher = v.publisher && typeof v.publisher === 'object' ? (v.publisher as Record<string, unknown>) : {};
+  return {
+    id: v.id,
+    uid: str(v.uid, 128),
+    name: str(v.name, 200) || v.id,
+    version: str(v.version, 64),
+    description: str(v.description, 2000),
+    visibility: (SITE_TYPE_VISIBILITIES as readonly unknown[]).includes(v.visibility) ? (v.visibility as SiteTypeVisibility) : 'private',
+    publisher: { id: str(publisher.id, 100), name: typeof publisher.name === 'string' ? plainText(publisher.name, 200) : null },
+    mine: v.mine === true,
+    unpublished: v.unpublished === true,
+    sha256: /^[0-9a-f]{64}$/.test(String(v.sha256)) ? String(v.sha256) : '',
+    bytes: typeof v.bytes === 'number' && Number.isFinite(v.bytes) ? v.bytes : 0,
+    capabilities: strings(v.capabilities),
+    network: strings(v.network),
+    createdAt: str(v.createdAt, 40),
+    updatedAt: str(v.updatedAt, 40),
+    page,
+  };
+}
 
 /** {@link LinkHubOptions.data}. */
 export interface LinkDataHooks {
@@ -1067,6 +1132,57 @@ export class LinkHub {
       if (status === 404) throw new OpenArtifactError('not_found', shared, { status, fix: `If it is shared with you, sign in to that site from this computer (${signIn}) and install again.` });
       throw error;
     }
+  }
+
+  /**
+   * The home page's `types.sites`: the types each remote lists to this person (`link.types.list`), asked of every remote
+   * at once, each within `timeoutMs`. Each answers on its own: a remote this computer is not signed in to, one that
+   * cannot be reached, is older (no `types.list`), refuses or is too slow is its own entry with the reason in plain
+   * words and no types. What a site sends is read defensively ({@link siteTypeListed}); delisted types are left out.
+   * `only`: that one remote (the home page's Retry of one site).
+   */
+  async siteTypeLists(o: { only?: string | null; timeoutMs?: number } = {}): Promise<SiteTypeList[]> {
+    const timeoutMs = o.timeoutMs ?? siteTypesMs();
+    return Promise.all(
+      Object.entries(this.remotes.list())
+        .filter(([name]) => !o.only || name === o.only)
+        .map(async ([name, remote]): Promise<SiteTypeList> => {
+        const entry = (types: SiteTypeListed[], error: string | null, code: SiteTypeList['code']): SiteTypeList => ({ remote: name, host: remote.host, types, error, code });
+        if (!remote.refreshToken) return entry([], `This computer is not signed in to ${remote.host}: open-artifact remote add ${name} ${remote.host} signs in again.`, 'signed_out');
+        const abort = new AbortController();
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const late = new Promise<'late'>((done) => {
+          timer = setTimeout(() => {
+            abort.abort();
+            done('late');
+          }, timeoutMs);
+        });
+        try {
+          // The request's own limit is a little longer: this one decides. The losing promise is caught, not thrown.
+          const asked = this.client(name).typesList({ signal: abort.signal, timeoutMs: timeoutMs + 1000 });
+          asked.catch(() => undefined);
+          const got = await Promise.race([asked, late]);
+          if (got === 'late') return entry([], `${remote.host} did not answer within ${Math.round(timeoutMs / 1000)} seconds. Try again later.`, 'timeout');
+          const listed = Array.isArray((got as { types?: unknown } | null)?.types) ? (got as { types: unknown[] }).types : [];
+          const types: SiteTypeListed[] = [];
+          for (const value of listed.slice(0, SITE_TYPES_MAX)) {
+            const type = siteTypeListed(value, remote.host);
+            if (type && !type.unpublished) types.push(type);
+          }
+          return entry(types, null, null);
+        } catch (error) {
+          if (abort.signal.aborted) return entry([], `${remote.host} did not answer within ${Math.round(timeoutMs / 1000)} seconds. Try again later.`, 'timeout');
+          const e = error as OpenArtifactError;
+          if (e?.status === 404 || e?.code === 'not_found' || e?.code === 'unsupported') return entry([], `${remote.host}: ${TYPES_NO_SITE}`, 'unsupported');
+          const code = remoteErrorCode(error);
+          if (code === 'unreachable') return entry([], `${remote.host} cannot be reached now. Try again later.`, 'unreachable');
+          if (code === 'signed_out') return entry([], `This computer is not signed in to ${remote.host} any more: open-artifact remote add ${name} ${remote.host} signs in again.`, 'signed_out');
+          return entry([], `${remote.host} did not list its types: ${plainText(e?.message ?? String(error), 300)}`, code === 'refused' ? 'refused' : 'error');
+        } finally {
+          clearTimeout(timer);
+        }
+      }),
+    );
   }
 
   /** `open-artifact types unpublish`: delisted on the site while artifacts use it, else removed. */

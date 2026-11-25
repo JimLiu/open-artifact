@@ -79,6 +79,11 @@ export function InstallTypeDialog() {
   const installing = useHome((state) => state.installing);
   const open = installing !== null;
   const update = installing?.update;
+  // A site type's page (the Types tab's Install or Update of a type on a connected site): read at once (`auto`), or
+  // filled in for the person to choose the id (`as`) first.
+  const pageUrl = installing?.url;
+  const pageAs = installing?.as;
+  const auto = installing?.auto === true;
   const [url, setUrl] = useState('');
   const [as, setAs] = useState('');
   const [error, setError] = useState('');
@@ -87,11 +92,19 @@ export function InstallTypeDialog() {
   const input = useRef<HTMLInputElement>(null);
   useEffect(() => {
     if (!open) return;
-    setUrl('');
-    setAs('');
+    setUrl(pageUrl ?? '');
+    setAs(pageAs ?? '');
     setError('');
     setPreview(null);
     setBusy(false);
+    if (!update && pageUrl && auto) {
+      setBusy(true);
+      void previewPackage({ url: pageUrl }, pageAs).then((answer) => {
+        setBusy(false);
+        if ('error' in answer) setError(answer.error);
+        else setPreview(answer.preview);
+      });
+    }
     if (update) {
       setBusy(true);
       void previewPackage({ update }).then((answer) => {
@@ -100,7 +113,7 @@ export function InstallTypeDialog() {
         else setPreview(answer.preview);
       });
     }
-  }, [open, update]);
+  }, [open, update, pageUrl, pageAs, auto]);
   const close = (): void => useHome.getState().setInstalling(null);
   const read = async (from: { file: File } | { url: string }): Promise<void> => {
     if (busy) return;
@@ -186,6 +199,11 @@ export function InstallTypeDialog() {
                 </Button>
               </div>
             </div>
+            {pageUrl && !auto ? (
+              <p data-testid="install-type-clash" className="m-0 text-xs text-warning">
+                {t('siteTypeClashHint')}
+              </p>
+            ) : null}
             <div>
               <span className="mb-1 block text-xs text-fg-muted">{t('installAs')}</span>
               <TextInput name="as" value={as} maxLength={64} spellCheck={false} aria-label={t('installAs')} onChange={(event) => setAs(event.target.value.toLowerCase())} className="h-8" />
