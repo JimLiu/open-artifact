@@ -2,7 +2,7 @@
 
 An Electron app that shows the local library's artifacts, with no agent attached: one window with a sidebar, a tab bar
 and the library page (the home tab), and one sandboxed `WebContentsView` per artifact tab showing its Shell. There is
-no server switcher, service status, update banner or settings yet.
+no server switcher, service status, update banner or settings dialog yet.
 
 - It carries its own Open Artifact runtime (`resources/runtime`, a copy of the built `skills/open-artifact`) and starts
   the daemon with its own executable as Node (`ELECTRON_RUN_AS_NODE=1`), detached, so no Node.js has to be installed
@@ -36,8 +36,28 @@ The window's page (`renderer/`, a React app bundled into `out/renderer/app.js`) 
 The page reaches the main process through a small preload bridge (`window.desktop`); every call checks that it came
 from the window's own page. The Library API calls (list, update title or pinned, delete, restore, create, thumbnails)
 are made by the main process with the daemon's token, which the page never sees; the page gets the library's events
-forwarded. The look follows the system (`nativeTheme`, light or dark), the words follow the system language (Chinese
-or English).
+forwarded.
+
+## Look and language
+
+Two settings in `<userData>/settings.json`, beside the sidebar's fold state: the look (`theme`: `system`, `light`,
+`dark`) and the language (`locale`: `system`, `en`, `zh-CN`). There is no settings dialog yet; the page reads and sets
+them through `window.desktop.settings` (`get()`, `set(name, value)`, both answering the settings, what this run uses
+and `restartNeeded`), and every state the page is sent carries them (`settings`). A value that is not one of a
+setting's choices is refused, and one read from the file is the default.
+
+They reach every page the app shows, the artifacts' Shells and their editors' frames too, through Chromium, with no
+message to the Shell for it:
+
+- **Look**: `nativeTheme.themeSource`, so `prefers-color-scheme` is the chosen one in every view and frame; the Shell
+  is also told it in `host_hello` (it pins `data-theme` on its root and passes it on to the editor). It changes at once,
+  in the open views as well.
+- **Language**: Chromium's `--lang` (`zh-CN` or `en-US`; none for `system`), which sets `navigator.language`, what the
+  Shell and the editors read, and the `Accept-Language` the pages send. It can only be given when the app starts, so a
+  changed language takes effect when the app is opened again: until then the settings say `restartNeeded`. The app's
+  own words follow the language Chromium runs with (`app.getLocale()`), so they always match the Shell's.
+
+The Sheets editor's own View menu choice of a look (kept in that page's storage) still comes before the app's.
 
 ## Setup and build
 
@@ -70,7 +90,7 @@ a daemon again when its daemon goes away).
 
 Test mode (`--test-mode`, with `--devtools-port <n>`) keeps the window hidden, keeps the app out of the Dock, only
 logs links that would go to the system browser, and opens DevTools on that port for the tests to drive. Only in test
-mode: `--locale en|zh` and `--theme light|dark` set the language and the look instead of the system's, and
+mode: `--locale en|zh` and `--theme light|dark` set the language and the look, before the settings, and
 `--thumbnails` takes thumbnails although the window is never shown.
 
 ## Tests
@@ -80,7 +100,8 @@ npm test         # builds, then runs test/*.test.mjs one file at a time
 ```
 
 - `unit.test.mjs`: the profile guards and test-mode flags, the navigation rules, back and forward over tabs, the
-  window's settings file, and what the page may ask of the Library API; no Electron.
+  window's settings file (and the choices of the look and the language), and what the page may ask of the Library API;
+  no Electron.
 - `no-node.test.mjs`: with no `node` on PATH, Electron as Node starts a detached daemon on a free port and the blank
   Docs, Sheets, Slides and Whiteboard artifacts it creates open with their editors (`test/probe/chain-probe.mjs`).
 - `smoke.test.mjs`: the app in test mode: a blank doc in a tab, typing reaches the artifact's folder, no Node or
@@ -94,6 +115,10 @@ npm test         # builds, then runs test/*.test.mjs one file at a time
   search, and that the page never sees the token or reaches the daemon itself.
 - `look.test.mjs`: Chinese words and the dark look (`--locale zh --theme dark`), a new artifact's thumbnail taken,
   saved at its version and shown through `oa-thumbnail:` (`--thumbnails`), and the scheme refusing what is not an id.
+- `settings.test.mjs`: the look and language settings in an artifact's view: `navigator.language`,
+  `prefers-color-scheme` and `data-theme` in the Shell page and in its editor's frame, the Shell's words, the look
+  switched at once in an open view, a changed language waiting for the app to open again (`restartNeeded`) and then
+  taking effect, and test mode's `--locale` and `--theme` coming before the settings.
 
 Every test uses a throwaway profile (`HOME`, `OPEN_ARTIFACT_HOME`, `TMPDIR`) and a free port other than 4800, with a
 whitelisted environment, and stops the daemons it started by the pid in their `daemon.json`. Set `OA_DESKTOP_KEEP=1`

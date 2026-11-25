@@ -102,10 +102,14 @@ It is a Harness API host like the examples, built on `@open-artifact/harness-kit
   (the Shell's hand-over prompt). Thumbnails: the main process loads the type's preview page in a hidden offscreen
   window with its own partition and no permissions, takes the `captureRecipe` area as a JPEG, and the page saves it
   at its version; the page shows them through the `oa-thumbnail:` scheme, which the main process answers from the
-  daemon. The sidebar's fold state is kept in `<userData>/settings.json`. The look follows `nativeTheme`, the words
-  the system language.
+  daemon. `<userData>/settings.json` keeps the sidebar's fold state, the look (`theme`: system/light/dark) and the
+  language (`locale`: system/en/zh-CN), set over IPC (`desktop:setting`). The look is `nativeTheme.themeSource`, so
+  `prefers-color-scheme` switches at once in the app's page, every Shell page and every editor frame (the Shell's
+  `host_hello.theme` follows `nativeTheme`). The language is Chromium's `--lang`, set before `ready`, so
+  `navigator.language` (which the Shell and the editors read) is that language; a changed one takes effect when the
+  app is opened again (`restartNeeded`). Sheets' own View-menu theme still comes before the app's look.
 - **Profile**: a development build refuses the default home and port 4800 and keeps Electron's folders under
-  `<home>/desktop/`. Test mode only: `--locale`, `--theme`, `--thumbnails`.
+  `<home>/desktop/`. Test mode only: `--locale`, `--theme` (both before the settings), `--thumbnails`.
 
 ## Agent tools & wake loop
 
@@ -179,6 +183,10 @@ It is a Harness API host like the examples, built on `@open-artifact/harness-kit
 - **Restarts**: `open-artifact daemon restart` (refused in an agent's session, `personOnly` `daemon-restart`) and the
   kit's `restartDaemon` / `Harness.daemon.restart()` stop a daemon that answers its health check (`replaceDaemon`),
   wait for its process and start another (`ensureDaemon`); `HarnessClient.across` holds the kit's reconnects meanwhile.
+  `Harness.daemon.stop()` (the kit's `stopDaemon`, also under `restartDaemon`) stops it the same way and then
+  `HarnessClient.halt` keeps that harness from starting it again (no reconnect; a call that would connect fails with
+  `disconnected`; the state is `stopped`) until `daemon.start()`, `daemon.restart()` or `ready()`; its answer lists the
+  other connections (`harnesses` adapters) because their kits, with `autoStart`, start the daemon again.
   The Library routes `types.servers` (the running type servers and their state) and `types.restart` (`{id}`: stop one;
   the next page open starts it again) are for the person's app: `types.restart` takes a JSON `POST` from the daemon's
   own origin or the token, refuses another origin and `X-Open-Artifact-Agent` with 403 `not_granted`, and logs an

@@ -1,13 +1,33 @@
 /**
  * The app's own settings: one JSON file in Electron's `userData` folder (`settings.json`), not in the Open Artifact
- * home (they are this app's, not the library's). Only what the window remembers between runs: whether the sidebar is
- * collapsed. A file that is missing or does not parse is the defaults; a write that fails is logged and the setting
- * lasts the run.
+ * home (they are this app's, not the library's). What the window remembers between runs: whether the sidebar is
+ * collapsed, the look (`theme`: `system`, `light` or `dark`) and the language (`locale`: `system`, `en` or `zh-CN`). A
+ * file that is missing or does not parse is the defaults, and a value it holds that is not one of a setting's choices
+ * is that setting's default; a write that fails is logged and the setting lasts the run.
  */
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
-export const DEFAULTS = Object.freeze({ sidebarCollapsed: false });
+export const DEFAULTS = Object.freeze({ sidebarCollapsed: false, theme: 'system', locale: 'system' });
+
+/** The values a setting may take (a setting not listed takes any value of its default's type). */
+export const CHOICES = Object.freeze({
+  theme: Object.freeze(['system', 'light', 'dark']),
+  locale: Object.freeze(['system', 'en', 'zh-CN']),
+});
+
+/** Whether `value` is one `name` may take. */
+export function validSetting(name, value) {
+  if (!(name in DEFAULTS) || typeof value !== typeof DEFAULTS[name]) return false;
+  return !(name in CHOICES) || CHOICES[name].includes(value);
+}
+
+/** Chromium's `--lang` for a language setting (`zh-CN`, `en`; also test mode's `zh`), or `null` for the system's. */
+export function chromiumLang(locale) {
+  if (locale === 'zh-CN' || locale === 'zh') return 'zh-CN';
+  if (locale === 'en') return 'en-US';
+  return null;
+}
 
 /** The settings in `dir/settings.json`: read once, written on every change. */
 export class Settings {
@@ -17,7 +37,7 @@ export class Settings {
     this.values = { ...DEFAULTS };
     try {
       const read = JSON.parse(readFileSync(this.file, 'utf8'));
-      if (typeof read?.sidebarCollapsed === 'boolean') this.values.sidebarCollapsed = read.sidebarCollapsed;
+      for (const name of Object.keys(DEFAULTS)) if (validSetting(name, read?.[name])) this.values[name] = read[name];
     } catch {
       // None yet, or not ours to read: the defaults.
     }
@@ -28,7 +48,7 @@ export class Settings {
   }
 
   set(name, value) {
-    if (!(name in DEFAULTS) || typeof value !== typeof DEFAULTS[name]) throw new Error(`not a setting: ${name}`);
+    if (!validSetting(name, value)) throw new Error(`not a setting: ${name} = ${JSON.stringify(value)}`);
     if (this.values[name] === value) return;
     this.values[name] = value;
     try {

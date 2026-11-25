@@ -9,10 +9,14 @@ import { connectCdp } from './cdp.mjs';
 /** The artifact's Shell page in a view: `/a/<id>` on the daemon. */
 export const isShellOf = (id) => (info) => info.type === 'page' && new URL(info.url || 'about:blank').pathname === `/a/${id}`;
 
-export async function launchApp(profile, port, { args = [], env = {} } = {}) {
+/**
+ * `defaultLocale: false` leaves out the `--locale en` every other launch gets, for a test of the language setting
+ * (test mode's `--locale` comes before it).
+ */
+export async function launchApp(profile, port, { args = [], env = {}, defaultLocale = true } = {}) {
   const debugPort = await freePort();
   // English unless a test asks for another language: the tests read the app's words.
-  const locale = args.includes('--locale') ? [] : ['--locale', 'en'];
+  const locale = args.includes('--locale') || !defaultLocale ? [] : ['--locale', 'en'];
   const child = spawn(electronBinary(), [APP, '--home', profile.oaHome, '--port', String(port), '--test-mode', '--devtools-port', String(debugPort), ...locale, ...args], {
     env: cleanEnv(profile, port, env),
     stdio: ['ignore', 'pipe', 'pipe'],

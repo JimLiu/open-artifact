@@ -9,8 +9,14 @@
  * the home page's library calls come here over the preload's bridge and are answered with it (`library.mjs`).
  *
  * This process holds what the window shows: the tabs and the current one, back and forward over them
- * (`history.mjs`), whether the sidebar is collapsed (the app's settings, `settings.mjs`), the look (light or dark,
- * following the system) and the language (the system's: Chinese or English). The page draws what it is sent.
+ * (`history.mjs`), and the app's settings (`settings.mjs`): whether the sidebar is collapsed, the look and the
+ * language. The page draws what it is sent.
+ *
+ * The look and the language reach every page the app shows, the artifacts' Shells and their editors' frames included,
+ * through Chromium rather than any message: the look is `nativeTheme.themeSource` (`prefers-color-scheme` everywhere,
+ * at once; the Shell is also told it in `host_hello`), the language is Chromium's `--lang` (`navigator.language`, the
+ * `Accept-Language` the pages send), which only takes effect when the app starts: a changed language setting says
+ * `restartNeeded` until the app is opened again. Test mode's `--locale` and `--theme` come before the settings.
  *
  * Order of things: the profile (home, port, Electron's folders) is decided and checked first (`profile.mjs`), before
  * Electron is ready and before anything connects; then the window, then the connection, then the tabs.
@@ -27,7 +33,7 @@ import { daemonEnv, daemonOnDefaultPort, resolveProfile } from './profile.mjs';
 import { OriginAllowlist } from './navigation.mjs';
 import { HOME_TAB, Tabs } from './tabs.mjs';
 import { TabHistory } from './history.mjs';
-import { Settings } from './settings.mjs';
+import { CHOICES, Settings, chromiumLang } from './settings.mjs';
 import { createArg, idArg, libraryClient, patchArg } from './library.mjs';
 import { Photographer, registerThumbnailScheme, serveThumbnails } from './thumbnails.mjs';
 
@@ -65,6 +71,13 @@ if (profile.testMode) {
 }
 registerThumbnailScheme();
 
+// The settings before Chromium starts: the language is a command-line switch.
+const settings = new Settings(app.getPath('userData'), { log });
+/** The language this run speaks (`system`, `en` or `zh-CN`): the test switch, else the setting as the app started. */
+const startLocale = profile.locale ? (profile.locale === 'zh' ? 'zh-CN' : 'en') : settings.get('locale');
+const startLang = chromiumLang(startLocale);
+if (startLang) app.commandLine.appendSwitch('lang', startLang);
+
 const runtimeDir = app.isPackaged ? join(process.resourcesPath, 'runtime') : join(appRoot, 'resources', 'runtime');
 
 /** Links out: the system browser; in test mode only logged. */
@@ -73,11 +86,28 @@ const openExternal = (url) => {
   if (!profile.testMode) void shell.openExternal(url);
 };
 
-/** The system's language, as the page has words for it: Chinese or English. */
-function systemLocale() {
-  if (profile.locale) return profile.locale;
-  const preferred = app.getPreferredSystemLanguages?.()[0] ?? app.getLocale();
-  return /^zh\b/i.test(preferred ?? '') ? 'zh' : 'en';
+/**
+ * The window's language, as the page has words for it (`zh` or `en`): the one Chromium runs with, so the app's own
+ * words, the Shell's (`navigator.language`) and the editors' agree.
+ */
+function runningLocale() {
+  return /^zh\b/i.test(app.getLocale() ?? '') ? 'zh' : 'en';
+}
+
+/** The look Chromium draws with: the test switch, else the setting (`system` follows the system). */
+const themeSource = () => profile.theme ?? settings.get('theme');
+
+/** The look and language settings, what this run uses, and whether a changed language waits for the app to reopen. */
+function settingsView() {
+  return {
+    theme: settings.get('theme'),
+    locale: settings.get('locale'),
+    choices: { theme: [...CHOICES.theme], locale: [...CHOICES.locale] },
+    /** Test mode's switches, which come before the settings (null: none given). */
+    forced: { theme: profile.theme ?? null, locale: profile.locale ? startLocale : null },
+    running: { theme: nativeTheme.shouldUseDarkColors ? 'dark' : 'light', locale: startLocale, language: app.getLocale() },
+    restartNeeded: !profile.locale && settings.get('locale') !== startLocale,
+  };
 }
 
 app.on('window-all-closed', () => app.quit());
@@ -92,8 +122,8 @@ function fail(error) {
 async function start() {
   log(`profile ${JSON.stringify({ home: profile.home, port: profile.port, packaged: profile.packaged, testMode: profile.testMode, paths: profile.paths })}`);
   if (profile.testMode && process.platform === 'darwin') app.dock?.hide();
-  // A test run may ask for a look; otherwise the system's, and the views follow the same.
-  if (profile.theme) nativeTheme.themeSource = profile.theme;
+  // The look of every page (the window's, the views', their frames'): a test run's switch, else the setting.
+  nativeTheme.themeSource = themeSource();
 
   const info = runtimeInfo(runtimeDir);
   if (!info?.version) throw new Error(`No Open Artifact runtime in ${runtimeDir}: run npm run build in apps/desktop.`);
@@ -107,8 +137,8 @@ async function start() {
   session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
   session.defaultSession.setPermissionCheckHandler(() => false);
 
-  const settings = new Settings(app.getPath('userData'), { log });
-  const locale = systemLocale();
+  const locale = runningLocale();
+  log(`look ${JSON.stringify({ theme: themeSource(), locale: startLocale, language: app.getLocale() })}`);
   const look = () => ({ theme: nativeTheme.shouldUseDarkColors ? 'dark' : 'light', platform: process.platform, locale });
 
   const window = new BrowserWindow({
@@ -191,6 +221,7 @@ async function start() {
     canForward: history.canForward,
     sidebarCollapsed: settings.get('sidebarCollapsed'),
     look: look(),
+    settings: settingsView(),
     /** Thumbnails are taken only while the window is on screen (or a test asks for them). */
     thumbnails: profile.thumbnails || (window.isVisible() && !window.isMinimized()),
   });
@@ -269,7 +300,10 @@ async function start() {
     }
   });
   for (const name of ['show', 'hide', 'minimize', 'restore']) window.on(name, send);
-  nativeTheme.on('updated', send);
+  nativeTheme.on('updated', () => {
+    if (!window.isDestroyed()) window.setBackgroundColor(nativeTheme.shouldUseDarkColors ? '#1c1c1e' : '#ffffff');
+    send();
+  });
 
   // ---- the window's calls: only from its own page ----
   const fromChrome = (event) => event.sender === window.webContents && event.senderFrame === window.webContents.mainFrame && event.senderFrame?.url === chromeUrl;
@@ -317,6 +351,17 @@ async function start() {
   handle('desktop:overlay', (on) => {
     tabs.setOverlay(on === true);
     return true;
+  });
+  // The look and the language: the look applies at once (every view follows `nativeTheme`), the language when the app
+  // starts again (`restartNeeded`). The answer is the settings as `desktop:settings` gives them.
+  handle('desktop:settings', () => settingsView());
+  handle('desktop:setting', (name, value) => {
+    if (name !== 'theme' && name !== 'locale') throw new Error(`not a setting: ${name}`);
+    settings.set(name, value);
+    log(`setting ${name} = ${value}`);
+    if (name === 'theme') nativeTheme.themeSource = themeSource();
+    send();
+    return settingsView();
   });
   // Keyboard focus back to the window's own page (from an artifact's view), for the search field.
   handle('desktop:focus', () => {

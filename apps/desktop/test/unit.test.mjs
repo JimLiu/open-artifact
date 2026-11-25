@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { TabHistory } from '../src/history.mjs';
 import { LibraryError, createArg, idArg, libraryClient, patchArg, startsBlank } from '../src/library.mjs';
-import { Settings } from '../src/settings.mjs';
+import { Settings, chromiumLang } from '../src/settings.mjs';
 import { daemonEnv, daemonOnDefaultPort, resolveProfile } from '../src/profile.mjs';
 import { OriginAllowlist, decide, shellArtifactId, subframeAllowed } from '../src/navigation.mjs';
 
@@ -187,12 +187,33 @@ describe('settings', () => {
       const first = new Settings(dir);
       assert.equal(first.get('sidebarCollapsed'), false);
       first.set('sidebarCollapsed', true);
-      assert.deepEqual(JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8')), { sidebarCollapsed: true });
+      assert.deepEqual(JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8')), { sidebarCollapsed: true, theme: 'system', locale: 'system' });
       assert.equal(new Settings(dir).get('sidebarCollapsed'), true);
       assert.throws(() => first.set('sidebarCollapsed', 'yes'), /not a setting/);
       assert.throws(() => first.set('token', 'x'), /not a setting/);
       writeFileSync(join(dir, 'settings.json'), '{ not json');
       assert.equal(new Settings(dir).get('sidebarCollapsed'), false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('the look and the language: only their choices, kept, and a stored value that is not one is the default', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'oa-desktop-settings-'));
+    try {
+      const first = new Settings(dir);
+      assert.deepEqual([first.get('theme'), first.get('locale')], ['system', 'system']);
+      first.set('theme', 'dark');
+      first.set('locale', 'zh-CN');
+      assert.deepEqual([new Settings(dir).get('theme'), new Settings(dir).get('locale')], ['dark', 'zh-CN']);
+      for (const [name, value] of [['theme', 'blue'], ['theme', true], ['locale', 'zh'], ['locale', 'fr'], ['locale', '']]) {
+        assert.throws(() => first.set(name, value), /not a setting/, `${name} = ${value}`);
+      }
+      writeFileSync(join(dir, 'settings.json'), JSON.stringify({ sidebarCollapsed: true, theme: 'sepia', locale: 'de' }));
+      const read = new Settings(dir);
+      assert.deepEqual([read.get('sidebarCollapsed'), read.get('theme'), read.get('locale')], [true, 'system', 'system']);
+      // Chromium's --lang: none for the system's language.
+      assert.deepEqual(['system', 'en', 'zh-CN', 'zh'].map(chromiumLang), [null, 'en-US', 'zh-CN', 'zh-CN']);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

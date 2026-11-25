@@ -23,6 +23,15 @@ contextBridge.exposeInMainWorld('desktop', {
   setSidebarCollapsed: (collapsed) => ipcRenderer.invoke('desktop:sidebar', collapsed === true),
   /** The page draws over the artifact views (a dialog is open), or stops. */
   setOverlay: (on) => ipcRenderer.invoke('desktop:overlay', on === true),
+  /**
+   * The look (`theme`: system, light, dark) and the language (`locale`: system, en, zh-CN): `get()` answers the
+   * settings, what this run uses and `restartNeeded` (a changed language takes effect when the app is opened again);
+   * `set(name, value)` keeps one and answers the same (the look changes at once).
+   */
+  settings: {
+    get: () => ipcRenderer.invoke('desktop:settings'),
+    set: (name, value) => ipcRenderer.invoke('desktop:setting', String(name), String(value)),
+  },
   /** Keyboard focus back to this page. */
   focus: () => ipcRenderer.invoke('desktop:focus'),
   /** The tabs, the connection, back and forward, the sidebar and the look, now and on every change. */
