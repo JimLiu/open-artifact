@@ -12,7 +12,7 @@ import { closeSync, existsSync, mkdtempSync, openSync, readFileSync, rmSync } fr
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-const CANDIDATES = [
+export const CANDIDATES = [
   '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
   '/Applications/Chromium.app/Contents/MacOS/Chromium',
   '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
@@ -24,6 +24,10 @@ const CANDIDATES = [
   '/usr/bin/microsoft-edge',
   'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
   'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+  // Edge installs 64-bit too (its own machine-wide installer, and every ARM64
+  // Windows), the same as Chrome just above: both Program Files paths, not
+  // only the (x86) one.
+  'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
   'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
 ];
 
