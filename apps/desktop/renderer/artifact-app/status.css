@@ -1,0 +1,131 @@
+/* The status page of an artifact installed as an app: under the artifact's view, shown while there is none. */
+:root {
+  color-scheme: light dark;
+  --bg: #ffffff;
+  --fg: #1d1d1f;
+  --muted: #6e6e73;
+  --line: #d2d2d7;
+  --card: #ffffff;
+  --accent: #3f8ef0;
+  --danger: #d93025;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1c1c1e;
+    --fg: #f5f5f7;
+    --muted: #a1a1a6;
+    --line: #3a3a3c;
+    --card: #2c2c2e;
+    --accent: #5ea2f5;
+    --danger: #ff6961;
+  }
+}
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--fg);
+  font: 13px/1.5 -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.status {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 32px;
+  text-align: center;
+}
+.title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+}
+.title:empty,
+.body:empty {
+  display: none;
+}
+.body {
+  margin: 0;
+  max-width: 460px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}
+button {
+  font: inherit;
+  padding: 5px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--fg);
+  cursor: default;
+}
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+button.danger {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+}
+.spinner {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid var(--line);
+  border-top-color: var(--accent);
+  animation: spin 0.9s linear infinite;
+}
+.status:not([data-busy]) .spinner {
+  display: none;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.ask {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgb(0 0 0 / 0.25);
+}
+.ask[hidden] {
+  display: none;
+}
+.ask-card {
+  width: min(420px, calc(100% - 32px));
+  padding: 20px;
+  border-radius: 12px;
+  background: var(--card);
+  box-shadow: 0 10px 40px rgb(0 0 0 / 0.25);
+}
+.ask-title {
+  margin: 0 0 6px;
+  font-size: 15px;
+}
+.ask-body {
+  margin: 0 0 16px;
+  color: var(--muted);
+}
+.ask-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}

@@ -79,12 +79,23 @@ with `app.quit({ force: true })` (the app would otherwise ask).
 
 `npm run package` makes a folder-form macOS arm64 `.app` in `apps/desktop/dist/` (ignored by git) with
 `@electron/packager`: the build's `out/` in `app.asar` (with `ElectronAsarIntegrity`), the runtime in
-`Contents/Resources/runtime`, a placeholder icon and bundle id (`dev.openartifact.desktop`), Electron's fuses as they
+`Contents/Resources/runtime`, the type icons of installed artifact apps in `Contents/Resources/app-icons/`, a
+placeholder icon and bundle id (`dev.openartifact.desktop`), Electron's fuses as they
 are (`RunAsNode` on), signed ad hoc on this computer. No DMG, notarization or automatic updates yet. Packaged, the app
 with no arguments uses the person's own home and port, so `test/packaged/` only starts it with `--home`, a port other
 than 4800, `--test-mode` and a throwaway `HOME`, and checks first that it then uses those folders only. A package
 declares no URL scheme; `OA_DESKTOP_URL_SCHEME=1 npm run package` adds `open-artifact://` to its `Info.plist`
 (`scripts/info-plist.mjs`; checked by the unit tests, never built by them), and nothing registers it.
+`test/packaged/installed-apps.test.mjs`, `installed-apps-names.test.mjs`, `installed-apps-manage.test.mjs` and
+`installed-apps-daemon.test.mjs` install artifacts as apps from that package into the throwaway `HOME`'s
+`Applications/` and start them only by their executable, with `--test-mode` and a port other than 4800
+(`launchArtifactApp`). Test mode never opens a package and never uses the Trash (an uninstalled test package, checked
+to be the record's, is removed). macOS keeps each started app's preferences in the account's own
+`~/Library/Preferences` whatever `HOME` or `CFFIXED_USER_HOME` say (`cfprefsd` writes them), so the tests run
+`defaults delete <bundle id>` for the exact ids they started (an uninstall does too), which clears the keys; an empty
+`<bundle id>.plist` is still left there for each generated app a run started. An uninstall in test mode removes a
+preferences file only inside the test's own `HOME` (the manage test plants one there and starts its desktop app with
+`CFFIXED_USER_HOME` set to that `HOME`); a file in the account's own folder is left and logged. Run `npm run package` before `npm run test:packaged`, never at the same time.
 
 ## Releasing
 

@@ -41,8 +41,11 @@ export function WindowControls({ t, state, platform }) {
 /** The width of the sidebar's right-click menu (CSS `.row-menu`); it stays inside the sidebar, off the artifact's view. */
 const MENU_WIDTH = 200;
 
-/** A row's right-click menu: Open, Show in Finder, Move To… (an artifact's view would be drawn over a menu past the sidebar). */
-function RowMenu({ t, menu, onClose, artifactDo }) {
+/**
+ * A row's right-click menu: Open, Show in Finder, Move To…, Install as App… (an artifact's view would be drawn over a
+ * menu past the sidebar).
+ */
+function RowMenu({ t, menu, onClose, artifactDo, onInstallApp }) {
   const box = useRef(null);
   useEffect(() => {
     box.current?.querySelector('button')?.focus();
@@ -77,13 +80,15 @@ function RowMenu({ t, menu, onClose, artifactDo }) {
   );
   const sidebar = box.current?.parentElement?.getBoundingClientRect();
   const left = Math.max(4, Math.min(menu.x, (sidebar?.width ?? 240) - MENU_WIDTH - 4));
-  const top = Math.max(4, Math.min(menu.y, window.innerHeight - 120));
+  const top = Math.max(4, Math.min(menu.y, window.innerHeight - 160));
   return (
     <div ref={box} className="row-menu" role="menu" aria-label={t('row.menu', { title: menu.title })} data-testid="row-menu" data-artifact={menu.id} style={{ left, top }}>
       {item('row-open', t('row.open'), () => void window.desktop.open(menu.id))}
       <div className="row-menu-rule" role="separator" />
       {item('row-reveal', t('card.reveal'), () => artifactDo('reveal', menu.id))}
       {item('row-move', t('card.move'), () => artifactDo('move', menu.id))}
+      <div className="row-menu-rule" role="separator" />
+      {item('row-install-app', t('menu.installApp'), () => onInstallApp(menu.id, menu.title))}
     </div>
   );
 }
@@ -114,7 +119,7 @@ function ArtifactRow({ artifact, current, t, onMenu }) {
   );
 }
 
-export function Sidebar({ t, state, platform, onNew, onSearch, onSettings, artifactDo }) {
+export function Sidebar({ t, state, platform, onNew, onSearch, onSettings, artifactDo, onInstallApp }) {
   const artifacts = usePage((s) => s.artifacts);
   const [pinnedOpen, setPinnedOpen] = useState(true);
   const [menu, setMenu] = useState(null);
@@ -172,7 +177,7 @@ export function Sidebar({ t, state, platform, onNew, onSearch, onSettings, artif
           {t('nav.settings')}
         </button>
       </div>
-      {menu && <RowMenu t={t} menu={menu} onClose={closeMenu} artifactDo={artifactDo} />}
+      {menu && <RowMenu t={t} menu={menu} onClose={closeMenu} artifactDo={artifactDo} onInstallApp={onInstallApp} />}
     </nav>
   );
 }

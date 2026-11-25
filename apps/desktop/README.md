@@ -193,6 +193,90 @@ mode: `--locale en|zh` and `--theme light|dark` set the language and the look, b
 `--thumbnails` takes thumbnails although the window is never shown, and `--offline` refuses every request a page of
 the app makes past this computer (the window's, the views', the thumbnails'), logged as `offline: blocked …`.
 
+## Artifacts installed as apps
+
+An artifact can be installed as a macOS app of its own (`src/installed-apps.mjs`, `src/installed-apps-macos.mjs`).
+**Install as App…** is in a card's More menu (through the library page's `cardActions`), a sidebar row's right-click
+menu, a tab's right-click menu and the File menu (for the tab in front). Each opens one dialog
+(`renderer/src/InstallAppDialog.jsx`), which asks `desktop.apps.state(id)` when it opens and shows:
+
+- **unavailable**: why (a development run, an artifact of a site, the artifact or its folder missing). A development
+  build shows the entries, but the dialog says only the packaged Open Artifact can install;
+- **available**: the name and the install folder; where the package cannot be cloned, the room a copy takes and a box
+  to say yes to it (`allowCopy`); a name taken meanwhile, a clash or an error in words;
+- **installing** / **busy** (another call works on it: asked again every second);
+- **installed**: Open, Show in Finder, Uninstall… (asked first), and Update when the desktop app changed since;
+- **needsRepair**: why; Repair when its place holds its own package or nothing, Remove Record always (only Remove
+  Record when its place holds something else).
+
+The bridge: `desktop.apps.state(id)`, `install(id, { confirmedName, allowCopy })`, `open(id, installId)`,
+`reveal(id, installId)`, `uninstall(id, installId)`, `refresh(id, installId, { allowCopy })`,
+`repair(id, installId, { allowCopy })` and `forget(id, installId)`.
+
+- **The package**: an APFS clone (`cp -Rc`) of the packaged desktop app in
+  `~/Applications/Open Artifact Apps/<title>.app`, the title as it is (Chinese, `#`, `?`, `%` included; `/` and `:`
+  become `-`, tabs and line breaks spaces, other control characters are dropped). Only `CFBundleDisplayName`, `CFBundleIdentifier` (`dev.openartifact.app.<installId>`) and the icon
+  (`AppIcon.icns`, one per type from `Contents/Resources/app-icons/`) change, and `CFBundleURLTypes` is removed;
+  `CFBundleName`, `CFBundleExecutable` and the helpers stay the desktop app's. The menu bar's bold name stays
+  "Open Artifact"; the Finder shows the artifact's name; what the Dock and ⌘Tab show has not been checked. It gets
+  `Contents/Resources/artifact-app.json` (home, artifact, install id, the desktop app's version) and is signed ad hoc
+  on the outer package only, then checked with `codesign --verify --strict`. Where the folder is not on the same APFS
+  volume as the desktop app, the answer is `needsCopy`; `allowCopy` copies it with `ditto`. Two artifacts of one title
+  get `<title>` and `<title> (2)`.
+- **The records**: `<home>/desktop/apps/<installId>.json`, written atomically, one operation per artifact at a time;
+  phases `installing`, `installed`, `uninstalling` and `refreshing`. The steps are checked again at every start
+  (`reconcileAll`): a finished one is committed, an unfinished one cleaned up or put back, anything else answers
+  `needsRepair`. Every path written is checked to be inside the install folder, inside `HOME`, and a package is touched
+  only when its `artifact-app.json` names the record's install id.
+- **Renamed or moved in the Finder**: renamed inside the install folder, the package is claimed (the record's
+  `bundlePath` and `displayName` follow it) by the desktop app's next check and by the app's own start. Moved out of
+  the folder, it is not: the record answers `needsRepair` (`missing`, repairable), and the app's own page says where it
+  belongs (move it back, or install it again) with a button that opens the artifact in the desktop app. Moved back, it
+  is installed again, with the same install id.
+- **Uninstall**: the record says `uninstalling` (with the time it was asked); a running app (its pid in
+  `<home>/desktop/apps/<installId>/running.json`) sees it within a second and quits as ⌘Q would (unsaved work asked
+  about). After 15 s without it quitting, the record is put back and the person is asked to close the app. Then the
+  package goes to the Trash (`shell.trashItem`), its preferences are forgotten (`defaults delete <bundle id>` clears
+  its keys; then its file `<bundle id>.plist` in `<CFFIXED_USER_HOME, else the account's home>/Library/Preferences`
+  is removed, for a bundle id of the app's own form only), and the record and the app's own folder are removed.
+  Remove Record forgets the preferences the same way. A package that is not the record's is left where it is. Installed
+  again, an artifact gets a new install id, so an old uninstall never touches the new app.
+- **Refresh and repair** (one rebuild): a new package is built beside the old one (`<installId>.app` in
+  `<home>/desktop/apps/`), with the same install id, bundle id and name, then swapped in (`refreshing`, the old one kept
+  as `<installId>.old.app` until the swap is committed). Only while the app does not run. After the desktop app's
+  check at start, the apps made by another version are refreshed; the dialog's Update does it for one; Repair rebuilds
+  one that needs repair when its place holds its own package or nothing. The check at start also points the records at
+  the desktop app where it is now (`templatePath`).
+- **The daemon running from an app's package** (`src/daemon-host.mjs`): an app that started the home's daemon with its
+  own executable or runtime writes `<home>/desktop/daemon-host.json` (`{ pid, startedAt, exe, bin, bundlePath,
+  installId }`; it counts only while `daemon.json` names that pid and it is alive). With it, the daemon's runtime
+  folder in `<home>/runtimes.json` and the daemon's own `runtime.status`, the desktop app knows when the daemon lives
+  inside a package. Before an uninstall, refresh or repair moves or removes that package, the daemon is restarted from
+  the desktop app's own runtime (the service panel's restart; never while a tab holds unsaved work) and checked again;
+  when it still runs from there, nothing is moved, the record stays as it was, and the answer says `daemonInUse` (the
+  dialog says so in words). The refresh after the check at start never restarts the shared daemon: such an app is left
+  (`daemon-in-use`) for the dialog's Update. At start, the desktop app and the app (after it connects, before its
+  artifact opens) restart a daemon that lives in an installed app's package that is gone (renamed, moved or
+  removed: a file its marker names, or a path of it inside the install folder); a daemon whose files are gone anywhere
+  else is left to itself.
+- **The app**: `src/start.mjs` reads `artifact-app.json` first; with it, `src/artifact-app.mjs` runs one window for one
+  artifact (`src/artifact-window.mjs`, its views made as tabs make theirs by `src/artifact-view.mjs`), with the
+  standard title bar, its own Electron folder (`<home>/desktop/apps/<installId>/`, one instance), the desktop app's
+  look and language, and a short menu (File: Show in Finder, Close). The daemon is started with a desktop app's
+  executable and runtime: the record's `templatePath`, else another record's, else `/Applications/Open Artifact.app`
+  or `~/Applications/Open Artifact.app` (never these two in test mode), the first with a runtime it can use; the app's
+  own only when none is found. Links to the desktop app go to the first of those. Links to other
+  artifacts, "All artifacts" and Duplicate go to the desktop app. An agent's open is never shown here (the daemon gives
+  those to the desktop app only). Without its record, moved out of its folder, or with the artifact gone from the
+  library, it shows why on its own page (`renderer/artifact-app/`). Its pages are checked by `src/page-url.mjs`
+  (`pathToFileURL`), so a name with `#`, `?` or `%` works.
+- In test mode, opening a package (`open`) is only logged (an install answers `launch: 'skipped'`), and the Trash is
+  not used: the package (checked to be the record's, inside the install folder) is removed and that is logged.
+  `defaults delete` of the exact bundle id runs in test mode too; the preferences file is removed in test mode only
+  when its folder is inside the test's own `HOME` (and that `HOME` is not the account's), else it is left and that is
+  logged. macOS writes it in the account's own `~/Library/Preferences` whatever `HOME` or `CFFIXED_USER_HOME` say, so
+  a test run leaves an empty `<bundle id>.plist` there for each generated app it started.
+
 ## Packaging
 
 ```bash
@@ -204,7 +288,8 @@ npm run test:packaged  # the packaged app's checks (test/packaged/); package fir
 arm64, a folder (no DMG, no notarization, no automatic updates), signed ad hoc on this computer
 (`codesign --force --deep --sign -`, the package only). It carries `out/` (the main process, the preloads, the
 pages) in `Contents/Resources/app.asar` (Electron checks it against `ElectronAsarIntegrity` in `Info.plist`) and the
-runtime in `Contents/Resources/runtime`. The icon is a placeholder drawn by `scripts/placeholder-icon.mjs`, and the
+runtime in `Contents/Resources/runtime`, and the icons of installed artifact apps in
+`Contents/Resources/app-icons/`. The icon is a placeholder drawn by `scripts/placeholder-icon.mjs`, and the
 bundle id `dev.openartifact.desktop` is a placeholder too. Electron's fuses are left as they are: `RunAsNode` stays
 on, the daemon and the type servers run on the app's own executable. No URL scheme is declared by default, and
 nothing is installed or registered. `OA_DESKTOP_URL_SCHEME=1 npm run package` declares `open-artifact://` in the
@@ -298,6 +383,33 @@ npm test         # builds, then runs test/*.test.mjs one file at a time
   folders when given them; with no `node` on PATH the four types open and the daemon and the type servers run the
   package's executable; an edit kept across quitting; doctor; a copy of the package in another folder starts; the
   default package's `Info.plist` declares no URL scheme.
+- `installed-apps.test.mjs` (in `npm test`): the installer with a fake package and signing: names, records, the steps
+  cut at each point and put right at the next start, the path guards, clashes, `needsCopy`; renamed and moved
+  packages; uninstall (not running, running, given up after the timeout, a Trash that fails); refresh and repair cut at
+  each step; a package that is not the record's never moved; the daemon running from a package (restarted first, or
+  refused with `daemonInUse` and nothing moved; skipped by the refresh at start; a stale `daemon-host.json` ignored);
+  the preferences file's removal and its test-mode guard.
+- `install-app-ui.test.mjs`: a development run: the four ways in open the dialog, which says only the packaged app
+  installs; nothing written to the install folder.
+- `packaged/installed-apps.test.mjs` (`npm run test:packaged`): installed through the bridge (signature, bundle id,
+  name, manifest, record; `df -k` shows a clone); two artifacts of one title; a cold start with no `node` and no
+  daemon (the daemon runs the desktop app's executable, an edit is saved and the desktop app shows it); one instance,
+  and side by side with the desktop app; an agent's open never shown in it; a broken manifest, a removed record, an
+  artifact removed from the library. Its apps are started only through `launchArtifactApp` (their executable,
+  `--test-mode`, a port other than 4800), and the preferences macOS keeps for them are forgotten after the run
+  (`defaults delete` of their exact bundle ids clears the keys; macOS still leaves an empty `<bundle id>.plist` in the
+  account's `~/Library/Preferences`, which a test never removes).
+- `packaged/installed-apps-names.test.mjs`: a title with Chinese, `#`, `?` and `%`: installed, a cold start, the
+  unsaved question's Yes, the "needs repair" page's button.
+- `packaged/installed-apps-manage.test.mjs`: the dialog state by state (installing held at a step, busy, Update,
+  Repair, Remove Record only); the desktop app moved (the app's own executable runs the daemon); "Open in App" off;
+  renamed and moved out in the Finder; refresh at start; uninstall running (quits by itself), with unsaved work kept
+  (given up after the timeout) and not running, its preferences file removed (a planted one: that desktop app runs
+  with `CFFIXED_USER_HOME` set to the test's `HOME`); installed again with a new install id.
+- `packaged/installed-apps-daemon.test.mjs`: the daemon started by an app's own package (no desktop app), then: the
+  package renamed and the app started again, its Update, another app's uninstall, and its own uninstall (refused first
+  while a tab holds unsaved work). Each time the artifact opens, the daemon's log never says "is not installed", and
+  the daemon has a new pid when the package it ran from moved (the same pid for the other app's uninstall).
 
 Every test uses a throwaway profile (`HOME`, `OPEN_ARTIFACT_HOME`, `TMPDIR`) and a free port other than 4800, with a
 whitelisted environment (`OPEN_ARTIFACT_BROWSER=none`, `OPEN_ARTIFACT_DESKTOP_LAUNCH=off`,

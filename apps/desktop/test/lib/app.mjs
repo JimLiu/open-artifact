@@ -2,7 +2,8 @@
  * Starts the built app in test mode (no shown window, no Dock icon, links out only logged, DevTools on a port), with
  * no `node` on PATH and the throwaway profile's environment, and drives it over DevTools.
  */
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
+import { dirname, join } from 'node:path';
 import { APP, alive, cleanEnv, electronBinary, freePort, sleep, until } from './env.mjs';
 import { connectCdp } from './cdp.mjs';
 
@@ -121,4 +122,139 @@ export async function library(state, name, body) {
     ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
   });
   return response.json();
+}
+
+/** The status page of an artifact installed as an app: `renderer/artifact-app/index.html`. */
+const isArtifactAppPage = (t) => t.type === 'page' && t.url.startsWith('file://') && t.url.endsWith('/renderer/artifact-app/index.html');
+
+/** The bundle id an "install as app" package has: the prefix and an install id (a UUID), nothing else. */
+const APP_BUNDLE_ID = /^dev\.openartifact\.app\.[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+/** The bundle ids of the apps this test process started (`launchArtifactApp`), to forget their preferences. */
+const launchedBundleIds = new Set();
+
+/** The bundle id in the `Info.plist` of the package an executable runs from (`<x>.app/Contents/MacOS/<exe>`). */
+export function bundleIdOfExecutable(binary) {
+  const plist = join(dirname(dirname(binary)), 'Info.plist');
+  return JSON.parse(execFileSync('/usr/bin/plutil', ['-convert', 'json', '-o', '-', plist], { encoding: 'utf8' })).CFBundleIdentifier;
+}
+
+/**
+ * Forgets the preferences macOS keeps for each app this test process started (`launchArtifactApp`): every start of
+ * one leaves `~/Library/Preferences/<bundle id>.plist` in the person's own Library (cfprefsd keeps it there whatever
+ * HOME says). Only those exact bundle ids, each with `/usr/bin/defaults delete <id>` (no pattern, no file removed by
+ * hand); a domain that is not there is not an error. Call it once every app has exited (`after`); it also runs when the
+ * test process exits, for a run cut short.
+ */
+export function forgetLaunchedDefaults() {
+  const done = [];
+  for (const id of launchedBundleIds) {
+    if (!APP_BUNDLE_ID.test(id)) continue;
+    try {
+      execFileSync('/usr/bin/defaults', ['delete', id], { stdio: 'ignore' });
+      done.push(id);
+    } catch {
+      // No such domain (the app never wrote one, or it was forgotten already).
+    }
+    launchedBundleIds.delete(id);
+  }
+  // Said, so a run's leftovers can be named exactly (macOS keeps an empty `<id>.plist` after `defaults delete`).
+  for (const id of done) console.log(`# defaults delete ${id}`);
+  return done;
+}
+process.on('exit', () => forgetLaunchedDefaults());
+
+/**
+ * Starts an app made by "install as app" (`binary`: its `Contents/MacOS/Open Artifact`), the way a test may: its
+ * executable directly, with `--port` (not 4800), `--test-mode`, `--devtools-port` and the throwaway profile's
+ * environment (and `--locale en` unless `defaultLocale: false`). Its home is the one its `artifact-app.json` names (the test made that the throwaway one); `--home` is
+ * not passed. Drives it over DevTools through `window.artifactApp.test`.
+ */
+export async function launchArtifactApp(profile, port, { binary, args = [], defaultLocale = true } = {}) {
+  if (!binary) throw new Error('launchArtifactApp needs the generated app\'s executable');
+  if (!profile?.oaHome || !profile.root || !binary.startsWith(`${profile.root}/`)) throw new Error(`launchArtifactApp starts only an app inside the throwaway profile, not ${binary}`);
+  if (!port || port === 4800) throw new Error('launchArtifactApp needs a port that is not 4800');
+  // Its preferences are forgotten after the test (`forgetLaunchedDefaults`): only an id of the app's own form.
+  const bundleId = bundleIdOfExecutable(binary);
+  if (!APP_BUNDLE_ID.test(bundleId)) throw new Error(`launchArtifactApp starts only an app made by "install as app", not ${bundleId}`);
+  launchedBundleIds.add(bundleId);
+  const debugPort = await freePort();
+  // English unless the test reads the language from the desktop app's settings (`defaultLocale: false`).
+  const locale = defaultLocale ? ['--locale', 'en'] : [];
+  const child = spawn(binary, ['--port', String(port), '--test-mode', '--devtools-port', String(debugPort), ...locale, ...args], {
+    env: cleanEnv(profile, port),
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  const lines = [];
+  const take = (chunk) => {
+    for (const line of String(chunk).split('\n')) if (line.trim()) lines.push(line);
+    if (process.env.OA_DESKTOP_VERBOSE) process.stdout.write(`  artifact-app| ${chunk}`);
+  };
+  child.stdout.on('data', take);
+  child.stderr.on('data', take);
+  let exited = null;
+  child.on('exit', (code, signal) => (exited = { code, signal }));
+  const it = {
+    child,
+    lines,
+    get exited() {
+      return exited;
+    },
+    async line(pattern, timeoutMs = 60_000) {
+      const found = await until(() => lines.find((line) => pattern.test(line)) ?? (exited ? 'exited' : null), timeoutMs);
+      if (!found || found === 'exited') throw new Error(`no line ${pattern} (${exited ? `the app exited ${JSON.stringify(exited)}` : 'timed out'}):\n${lines.join('\n')}`);
+      return found;
+    },
+    /** The `[artifact-app] ready {…}` line, parsed. */
+    async ready(timeoutMs = 90_000) {
+      const line = await it.line(/\[artifact-app\] ready \{/, timeoutMs);
+      return JSON.parse(line.slice(line.indexOf('{')));
+    },
+    async connect() {
+      it.cdp = await connectCdp(debugPort);
+      const page = await it.cdp.waitTarget(isArtifactAppPage);
+      it.page = await it.cdp.attach(page.targetId);
+      await it.page.send('Runtime.enable');
+      return it;
+    },
+    /** What the app says of itself (`artifactApp.test.info()`). */
+    info() {
+      return it.page.evaluate('artifactApp.test.info()');
+    },
+    /** The status page's `data-status` (what it says while there is no view). */
+    status() {
+      return it.page.evaluate(`document.querySelector('[data-testid=status]')?.dataset.status ?? null`);
+    },
+    async view(id) {
+      const target = await it.cdp.waitTarget(isShellOf(id));
+      const page = await it.cdp.attach(target.targetId);
+      await page.send('Runtime.enable');
+      await page.send('Page.enable');
+      return page;
+    },
+    /** Quits through the test-only bridge (`force`: unsaved work let go), then SIGTERM, then SIGKILL, by its own pid. */
+    async quit({ force = false, timeoutMs = 15_000 } = {}) {
+      if (!exited) {
+        try {
+          await it.page?.evaluate(`artifactApp.test.quit(${force ? 'true' : 'false'})`);
+        } catch {
+          /* gone first */
+        }
+        await until(() => exited, timeoutMs);
+      }
+      if (!exited && alive(child.pid)) {
+        child.kill('SIGTERM');
+        await until(() => exited, 5000);
+      }
+      if (!exited && alive(child.pid)) {
+        child.kill('SIGKILL');
+        await until(() => exited, 5000);
+      }
+      it.cdp?.close();
+      child.stdout?.destroy();
+      child.stderr?.destroy();
+      await sleep(100);
+      return exited;
+    },
+  };
+  return it;
 }

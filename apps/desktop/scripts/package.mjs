@@ -4,12 +4,13 @@
  * notarization, no automatic updates), signed ad hoc on this computer. Run `npm run build` first (`npm run package`
  * does both).
  *
- * - The app's code is the build's `out/main.mjs`, `out/preload.cjs`, `out/notice-preload.cjs` and `out/renderer/` with a package.json naming the
- *   app, staged in `dist/stage/` and packed into `Contents/Resources/app.asar`. Nothing from node_modules goes in: the
+ * - The app's code is the build's `out/main.mjs`, `out/preload.cjs`, `out/notice-preload.cjs`,
+ *   `out/artifact-preload.cjs` and `out/renderer/` with a package.json naming the app, staged in `dist/stage/` and packed into `Contents/Resources/app.asar`. Nothing from node_modules goes in: the
  *   main process is one bundle (only `electron` is left out of it, which Electron provides).
  * - The runtime it carries (`resources/runtime`) is copied to `Contents/Resources/runtime`, where `main.mjs` looks
  *   for it when packaged (`process.resourcesPath`).
- * - The icon is a placeholder (`scripts/placeholder-icon.mjs`); the bundle id `dev.openartifact.desktop` is a
+ * - The icon is a placeholder (`scripts/placeholder-icon.mjs`), and so are the icons of artifacts installed as apps
+ *   (one per type, `Contents/Resources/app-icons/<type>.icns`, copied into each app); the bundle id `dev.openartifact.desktop` is a
  *   placeholder too.
  * - Electron's fuses are left as they are: `RunAsNode` stays on, the daemon and the type servers run on the app's own
  *   executable as Node.
@@ -27,7 +28,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { packager } from '@electron/packager';
 import { infoPlistAdditions, urlSchemeFromEnv } from './info-plist.mjs';
-import { writeIcns } from './placeholder-icon.mjs';
+import { writeIcns, writeTypeIcons } from './placeholder-icon.mjs';
 
 const here = join(import.meta.dirname, '..');
 const dist = join(here, 'dist');
@@ -51,12 +52,16 @@ const electronVersion = readJson(join(here, 'node_modules', 'electron', 'package
 // ---- the staged app: package.json and the build's output, nothing else ----
 rmSync(stage, { recursive: true, force: true });
 mkdirSync(join(stage, 'out'), { recursive: true });
-for (const entry of ['main.mjs', 'preload.cjs', 'notice-preload.cjs', 'renderer']) cpSync(join(here, 'out', entry), join(stage, 'out', entry), { recursive: true });
+for (const entry of ['main.mjs', 'preload.cjs', 'notice-preload.cjs', 'artifact-preload.cjs', 'renderer']) cpSync(join(here, 'out', entry), join(stage, 'out', entry), { recursive: true });
 writeFileSync(
   join(stage, 'package.json'),
   `${JSON.stringify({ name: pkg.name, productName: NAME, version: pkg.version, description: pkg.description, type: 'module', main: 'out/main.mjs', license: pkg.license }, null, 2)}\n`,
 );
 const icon = writeIcns(join(dist, 'icon.icns'));
+// The icons of artifacts installed as apps, one per type (`Contents/Resources/app-icons/<type>.icns`).
+const appIcons = join(dist, 'app-icons');
+rmSync(appIcons, { recursive: true, force: true });
+writeTypeIcons(appIcons);
 
 /** The folder in @electron/get's cache that holds this version's zip, or undefined. */
 function cachedZipDir() {
@@ -90,7 +95,7 @@ const [appDir] = await packager({
   extendInfo,
   icon,
   asar: true,
-  extraResource: [join(here, 'resources', 'runtime')],
+  extraResource: [join(here, 'resources', 'runtime'), appIcons],
   overwrite: true,
   prune: false,
   junk: true,

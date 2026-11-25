@@ -30,11 +30,13 @@
  *              [--test-mode --devtools-port <n> [--locale en|zh] [--theme light|dark] [--thumbnails] [--offline]]
  */
 import { mkdirSync, readFileSync, statSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { basename, isAbsolute, join } from 'node:path';
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, session, shell } from 'electron';
 import { createHarness, readDaemon, runtimeInfo } from '@open-artifact/harness-kit';
 import { thumbnailStamp } from '@open-artifact/library-page/library';
-import { daemonEnv, daemonOnDefaultPort, resolveProfile } from './profile.mjs';
+import { LIBRARY_ROUTES } from '@open-artifact/protocol';
+import { bundleOfExecutable, daemonEnv, daemonOnDefaultPort, resolveProfile } from './profile.mjs';
 import { OriginAllowlist } from './navigation.mjs';
 import { HOME_TAB, PARTITION, SERVER_PARTITION, SITE_TAB, Tabs, unsavedOf } from './tabs.mjs';
 import { Servers } from './servers.mjs';
@@ -52,6 +54,10 @@ import { Service } from './service.mjs';
 import { RuntimeUpdates } from './runtime.mjs';
 import { libraryDefaultFolder, newArtifactFolder } from './folders.mjs';
 import { linkedArtifact, opensOf } from './links.mjs';
+import { InstalledApps, installDirOf } from './installed-apps.mjs';
+import { macosOps } from './installed-apps-macos.mjs';
+import { daemonHostGone, daemonHostLive } from './daemon-host.mjs';
+import { isPageAt, pageUrlOf } from './page-url.mjs';
 
 // The bundle is out/main.mjs: the window's page is out/renderer/, the resources are beside out/.
 const here = import.meta.dirname;
@@ -286,7 +292,6 @@ async function start() {
     },
   });
   const pagePath = join(here, 'renderer', 'index.html');
-  const chromeUrl = new URL(`file://${pagePath}`).href;
   window.webContents.on('will-navigate', (event) => event.preventDefault());
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   window.webContents.on('will-attach-webview', (event) => event.preventDefault());
@@ -296,11 +301,11 @@ async function start() {
   serveThumbnails(library, log);
   // Until the connection is made, the page's question for the state is answered "not yet" (null), so it asks again.
   ipcMain.handle('desktop:state', (event) => {
-    if (event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame || event.senderFrame?.url !== chromeUrl) throw new Error('not allowed');
+    if (event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame || !isPageAt(event.senderFrame?.url, pagePath)) throw new Error('not allowed');
     return null;
   });
   // The page first (it waits for this process's answers), so the window is not empty while the daemon starts.
-  await window.loadFile(pagePath);
+  await window.loadURL(pageUrlOf(pagePath));
 
   const allowlist = new OriginAllowlist();
   const t = wordsFor(locale);
@@ -678,7 +683,7 @@ async function start() {
   });
 
   // ---- the window's calls: only from its own page ----
-  const fromChrome = (event) => event.sender === window.webContents && event.senderFrame === window.webContents.mainFrame && event.senderFrame?.url === chromeUrl;
+  const fromChrome = (event) => event.sender === window.webContents && event.senderFrame === window.webContents.mainFrame && isPageAt(event.senderFrame?.url, pagePath);
   const handle = (channel, run) =>
     ipcMain.handle(channel, async (event, ...args) => {
       if (!fromChrome(event)) {
@@ -986,6 +991,8 @@ async function start() {
       return true;
     },
     settings: () => (toPage('settings'), true),
+    // "Install as app" of an artifact (the one named, else the one in front): the window's dialog asks the rest.
+    'install-app': (arg) => (toPage('install-app', { id: artifactArg(arg) }), true),
     'new-dialog': () => (toPage('new-dialog'), true),
     'open-folder': async (arg) => {
       const folder = await pick(arg, { title: t('menu.openFolder') });
@@ -1094,7 +1101,7 @@ async function start() {
     'edit:select-all': edit('selectAll'),
   };
   /** Commands that need an artifact in front, and those that need the daemon. */
-  const NEEDS_ARTIFACT = new Set(['reveal', 'move', 'close-tab', 'reload']);
+  const NEEDS_ARTIFACT = new Set(['reveal', 'move', 'close-tab', 'reload', 'install-app']);
   const NEEDS_DAEMON = new Set(['new-dialog', 'open-folder', 'import', 'reveal', 'move', 'relocate', 'doctor']);
   const enabled = (name) => {
     if (NEEDS_ARTIFACT.has(name) && !currentArtifact()) return false;
@@ -1135,7 +1142,73 @@ async function start() {
   menuReady = true;
   refreshMenu(true);
 
-  // The cards' and the sidebar's menus: Show in Finder and Move To… of one artifact.
+  // ---- "install as app": an artifact as an app of its own (`installed-apps.mjs`). The window's dialog
+  // (`InstallAppDialog.jsx`, from a card's menu, a sidebar row's, a tab's, or File → Install as App…) asks the state
+  // when it opens and makes these calls. ----
+  const installDir = installDirOf(homedir());
+  /** Test mode: a step an install, uninstall or rebuild waits at until the test lets it go (`test.appsHold`). */
+  let appsHold = null;
+  const installedApps = new InstalledApps({
+    home: profile.home,
+    installDir,
+    template: {
+      bundlePath: app.isPackaged ? bundleOfExecutable(process.execPath) : null,
+      executable: process.execPath,
+      // What a copy is "stale" against: this app and the runtime it carries.
+      version: () => `${app.getVersion()}+${carriedVersion}`,
+    },
+    packaged: app.isPackaged,
+    library: { record: (id) => library.record(id), types: () => library.call(LIBRARY_ROUTES.types) },
+    // The Trash is the Finder's (`shell.trashItem`); test mode never calls it (`macosOps` removes the test's own package).
+    ops: macosOps({ installDir, iconsDir: join(process.resourcesPath ?? appRoot, 'app-icons'), testMode: profile.testMode, log, trashItem: profile.testMode ? null : (path) => shell.trashItem(path) }),
+    checkpoint: async (step) => {
+      if (!profile.testMode || appsHold?.step !== step) return;
+      log(`installed apps: held at ${step} (test mode)`);
+      await appsHold.released;
+    },
+    log,
+    // Where the home's daemon lives (`daemon-host.mjs`), and its restart from this app's own runtime before a package
+    // it runs from is moved or removed: the service panel's restart, never while a tab holds unsaved work.
+    daemonHost: () => daemonHostLive(profile.home, harness),
+    releaseDaemon: async () => {
+      const unsaved = unsavedTabs().length;
+      if (unsaved) {
+        log(`installed apps: the daemon is not restarted: ${unsaved} tab(s) hold unsaved work`);
+        return false;
+      }
+      try {
+        await service.restart();
+        return harness.connected;
+      } catch (error) {
+        log(`installed apps: the daemon's restart: ${error?.message ?? error}`);
+        return false;
+      }
+    },
+  });
+  const installArg = (value) => ({
+    ...(typeof value?.confirmedName === 'string' ? { confirmedName: value.confirmedName } : {}),
+    allowCopy: value?.allowCopy === true,
+  });
+  const installIdArg = (value) => {
+    if (typeof value !== 'string' || !/^[0-9a-f-]{36}$/.test(value)) throw new Error('not an install id');
+    return value;
+  };
+  answer('desktop:apps.state', (id) => installedApps.state(idArg(id)));
+  answer('desktop:apps.install', (id, options) => installedApps.install(idArg(id), installArg(options)));
+  answer('desktop:apps.open', (id, installId) => installedApps.open(idArg(id), installIdArg(installId)));
+  answer('desktop:apps.reveal', async (id, installId) => system.reveal(await installedApps.revealPath(idArg(id), installIdArg(installId))));
+  answer('desktop:apps.uninstall', (id, installId) => installedApps.uninstall(idArg(id), installIdArg(installId)));
+  answer('desktop:apps.refresh', (id, installId, options) => installedApps.refresh(idArg(id), installIdArg(installId), { allowCopy: options?.allowCopy === true }));
+  answer('desktop:apps.repair', (id, installId, options) => installedApps.repair(idArg(id), installIdArg(installId), { allowCopy: options?.allowCopy === true }));
+  answer('desktop:apps.forget', (id, installId) => installedApps.forgetRecord(idArg(id), installIdArg(installId)));
+  // What a call cut short left (a quit, a crash) is put right at start, then the apps the desktop app changed since
+  // are rebuilt (those that do not run), one after the other; nothing here waits on it.
+  void installedApps
+    .reconcileAll()
+    .then(() => installedApps.refreshStale())
+    .then((out) => Object.keys(out).length && log(`installed apps: refreshed at start ${JSON.stringify(out)}`))
+    .catch((error) => log(`installed apps: ${error?.message ?? error}`));
+
   answer('desktop:artifact-do', (act, id) => {
     if (act !== 'reveal' && act !== 'move' && act !== 'relocate') throw new Error(`not an artifact action: ${act}`);
     return runCommand(act, { id: idArg(id) }, { named: true });
@@ -1167,6 +1240,20 @@ async function start() {
       };
     });
     handle('test:servers', () => ({ view: servers.view(), servers: [...allowlist.servers] }));
+    // "Install as app": hold the next call at a step (`installing`'s state is then what the dialog shows), then let it go.
+    handle('test:apps-hold', (step) => {
+      appsHold?.release();
+      let release;
+      const released = new Promise((done) => (release = done));
+      appsHold = { step: String(step), released, release };
+      return true;
+    });
+    handle('test:apps-release', () => {
+      const held = appsHold;
+      appsHold = null;
+      held?.release();
+      return !!held;
+    });
     // What the Shell said of a tab's saving, set by a test (`{ state, leaveLosesWork }`), so a test does not wait on timing.
     handle('test:saved', (id, saved) => {
       // null: as a tab whose Shell never said anything of its saving.
@@ -1196,6 +1283,16 @@ async function start() {
     commands['open-url'] = (url) => takeLink(String(url ?? ''), 'command');
   }
 
+  // A daemon living in an installed app's package that is gone (renamed, moved or removed since) can no longer load a
+  // type it has not loaded yet: restarted now, from this app's own runtime. A daemon whose files are gone anywhere
+  // else is left to itself.
+  if (harness.connected) {
+    const host = await daemonHostLive(profile.home, harness).catch(() => null);
+    if (daemonHostGone(host, installDir)) {
+      log(`daemon ${host.pid} runs from files that are gone (${host.paths.join(', ')}): restarted`);
+      await service.restart().catch((error) => log(`daemon restart: ${error?.message ?? error}`));
+    }
+  }
   if (harness.connected && !(await refreshOrigins())) return;
   tabs.setConnected(harness.connected);
   if (harness.connected) void service.refresh();

@@ -1,7 +1,8 @@
 /**
  * The tabs: one `WebContentsView` per artifact under the window's tab bar and beside its sidebar, each loading the
  * artifact's Shell (`harness.view(url)`: the daemon's `/a/<id>` with a one-time view ticket) and talking to it through
- * the daemon (`embedArtifact` with a transport). The first tab is the app's own home page (the window's own page draws
+ * the daemon (`embedArtifact` with a transport; the view, its guards and its Shell's channel are `artifact-view.mjs`'s,
+ * shared with the single-artifact window). The first tab is the app's own home page (the window's own page draws
  * it); it has no view. While the window's page shows something over the views (the new-artifact dialog), the current
  * view is hidden (`setOverlay`): a view is drawn above the window's page, whatever the page draws.
  *
@@ -33,28 +34,28 @@
  * again (the working copy, editable); it stays there once the site is back, the daemon syncing what changed.
  * A site's own home page opens in a tab of that partition too (`openSite`, `kind: 'site'`, id `site:<name>`).
  */
-import { WebContentsView, nativeTheme, session as electronSession } from 'electron';
-import { embedArtifact } from '@open-artifact/harness-kit/embed';
-import { artifactIdOf, decide, decideServer, httpish, serverSubframeAllowed, subframeAllowed } from './navigation.mjs';
+import { nativeTheme, session as electronSession } from 'electron';
+import { artifactIdOf, httpish } from './navigation.mjs';
+import {
+  PARTITION,
+  SERVER_PARTITION,
+  connectShell,
+  guardArtifactNavigation,
+  guardSession,
+  guardSiteNavigation,
+  makeView,
+  requestView,
+  themeOf,
+  unsavedOf,
+  viewTarget,
+} from './artifact-view.mjs';
 
-export { artifactIdOf };
+export { artifactIdOf, PARTITION, SERVER_PARTITION, unsavedOf };
 
-/** The views' own storage: nothing the window keeps (or a page sets) is shared with it. */
-export const PARTITION = 'persist:open-artifact-pages';
-/** The sites' pages (published artifacts, a site's home page): a partition of their own, apart from the local pages'. */
-export const SERVER_PARTITION = 'persist:open-artifact-servers';
 /** A site's home page tab: `site:<remote name>`. */
 export const SITE_TAB = /^site:([a-z0-9][a-z0-9_-]{0,31})$/i;
-/** The only permission a page gets: writing to the clipboard (and only on an allowed origin). */
-const PERMISSIONS = new Set(['clipboard-sanitized-write']);
 /** The app's own first tab: the home page. */
 export const HOME_TAB = 'home';
-
-const themeOf = () => ({ scheme: nativeTheme.shouldUseDarkColors ? 'dark' : 'light' });
-
-/** Whether a tab holds work that is not saved, as its Shell said (`saved`: null when it said nothing: not counted). */
-export const unsavedOf = (tab) => !!tab?.saved && (tab.saved.leaveLosesWork === true || tab.saved.state === 'unsaved' || tab.saved.state === 'saving');
-const artifactLink = (id) => `open-artifact://artifact/${id}`;
 export class Tabs {
   /**
    * `window`: the BrowserWindow; `harness`: the kit's connection; `allowlist`: an `OriginAllowlist`; `topInset()`: the
@@ -83,14 +84,7 @@ export class Tabs {
 
   /** Permissions for every page in the partition: only clipboard writes, only from an allowed origin (`allows`). */
   guardSession(ses, allows = (origin) => this.allowlist.allows(origin)) {
-    const allowed = (permission, origin) => PERMISSIONS.has(permission) && !!origin && allows(origin);
-    ses.setPermissionRequestHandler((_contents, permission, callback, details) => {
-      const ok = allowed(permission, details?.requestingUrl);
-      if (!ok) this.log(`permission denied: ${permission} for ${details?.requestingUrl ?? '?'}`);
-      callback(ok);
-    });
-    ses.setPermissionCheckHandler((_contents, permission, origin) => allowed(permission, origin));
-    ses.setDevicePermissionHandler(() => false);
+    guardSession(ses, allows, (line) => this.log(line));
   }
 
   /** What the window's bar shows. */
@@ -155,9 +149,7 @@ export class Tabs {
   /** Asks the daemon for a view of the tab's artifact and loads it (into the tab's view, made on first use). */
   async load(tab) {
     if (tab.kind === 'site') return this.loadSite(tab);
-    const request = await this.harness.view(artifactLink(tab.id));
-    if (!request.view) throw new Error('the daemon gave no view ticket (caps.open.embed must be "view")');
-    if (!httpish(request.embedUrl) || !this.allowlist.allows(request.embedUrl)) throw new Error(`the page address is not allowed: ${request.embedUrl}`);
+    const request = await requestView(this.harness, this.allowlist, tab.id);
     tab.title = request.title ?? tab.title;
     tab.ticket = request.view;
     // A tab that showed the site's page: back to a local view (the daemon redirects again while the site is there).
@@ -170,12 +162,11 @@ export class Tabs {
       this.window.contentView.addChildView(tab.view);
     }
     tab.embed?.destroy();
-    tab.embed = embedArtifact(this.transport(request.view), {
+    tab.embed = connectShell({
+      harness: this.harness,
+      ticket: request.view,
       url: request.embedUrl,
-      harness: 'open-artifact-desktop',
-      toolbar: true,
-      switcher: true,
-      theme: themeOf(),
+      harnessName: 'open-artifact-desktop',
       onReady: () => {
         tab.status = 'ready';
         this.changed();
@@ -199,7 +190,7 @@ export class Tabs {
     tab.status = 'loading';
     this.layout();
     this.changed();
-    const target = tab.place ? `${request.embedUrl.replace(/#.*$/, '')}${tab.place.startsWith('#') ? tab.place : `#${tab.place}`}` : request.embedUrl;
+    const target = viewTarget(request.embedUrl, tab.place);
     const contents = tab.view.webContents;
     await contents.loadURL(target).catch((error) => {
       // The daemon redirected it to the artifact's site: the tab went to a view of the servers' partition.
@@ -210,19 +201,7 @@ export class Tabs {
 
   /** A sandboxed view with no Node and no preload, in `partition`. */
   makeView(partition) {
-    return new WebContentsView({
-      webPreferences: {
-        partition,
-        sandbox: true,
-        contextIsolation: true,
-        nodeIntegration: false,
-        nodeIntegrationInSubFrames: false,
-        nodeIntegrationInWorker: false,
-        webviewTag: false,
-        // A test window is never shown: keep its pages drawing and their timers running.
-        backgroundThrottling: !this.testMode,
-      },
-    });
+    return makeView(partition, { testMode: this.testMode });
   }
 
   /** Lets go of a tab's view (and its Shell's channel). */
@@ -291,56 +270,35 @@ export class Tabs {
   /** Navigation in a view of a site's page: see `navigation.mjs` (`decideServer`). New windows are never opened. */
   guardServerNavigation(tab) {
     const contents = tab.view.webContents;
-    const onTop = (event, legacyUrl) => {
-      const url = event.url ?? legacyUrl;
-      const verdict = decideServer(url, { allowlist: this.allowlist });
-      if (verdict.action === 'allow') return;
-      event.preventDefault();
-      if (verdict.action === 'open-tab') {
+    guardSiteNavigation(contents, {
+      allowlist: this.allowlist,
+      live: () => tab.view?.webContents === contents,
+      onLocal: (id) => {
         // The site's page went back to this computer's Shell: the site cannot be reached, or the artifact is local.
-        if (verdict.id === tab.id && tab.kind === 'server') return void this.toLocal(tab, 'the site sent it back here');
-        void this.open(verdict.id).catch((error) => this.log(`open ${verdict.id}: ${error?.message ?? error}`));
-      } else if (verdict.action === 'home') this.select(HOME_TAB);
-      else if (verdict.action === 'external') this.external(verdict.url);
-      else this.log(`blocked navigation to ${url}`);
-    };
-    contents.on('will-navigate', onTop);
-    contents.on('will-redirect', (event, legacyUrl) => {
-      if (event.isMainFrame === false) return;
-      onTop(event, legacyUrl);
-    });
-    contents.on('will-frame-navigate', (event) => {
-      if (event.isMainFrame) return;
-      if (serverSubframeAllowed(event.url, this.allowlist)) return;
-      event.preventDefault();
-      this.log(`blocked frame navigation to ${event.url}`);
-    });
-    contents.setWindowOpenHandler(({ url }) => {
-      if (httpish(url)) this.external(url);
-      else this.log(`blocked new window for ${url}`);
-      return { action: 'deny' };
-    });
-    contents.on('will-attach-webview', (event) => event.preventDefault());
-    contents.on('did-finish-load', () => {
-      if (tab.view?.webContents !== contents) return;
-      tab.status = 'ready';
-      tab.failed = false;
-      if (tab.kind === 'site' && !tab.title) tab.title = contents.getTitle();
-      this.changed();
-    });
-    contents.on('did-fail-load', (_event, code, description, address, isMainFrame) => {
-      // -3: aborted (a navigation this app stopped, or the next one started).
-      if (!isMainFrame || code === -3 || tab.view?.webContents !== contents) return;
-      this.log(`tab ${tab.id}: the site's page did not load (${description || code}) ${address}`);
-      tab.failed = true;
-      tab.status = 'offline';
-      this.changed();
-      this.onServerFailed?.(tab.server);
-    });
-    contents.on('render-process-gone', (_event, details) => {
-      tab.status = 'crashed';
-      this.log(`tab ${tab.id}: renderer gone (${details.reason})`);
-      this.changed();
+        if (id === tab.id && tab.kind === 'server') return void this.toLocal(tab, 'the site sent it back here');
+        void this.open(id).catch((error) => this.log(`open ${id}: ${error?.message ?? error}`));
+      },
+      onHome: () => this.select(HOME_TAB),
+      external: (url) => this.external(url),
+      onLoaded: () => {
+        tab.status = 'ready';
+        tab.failed = false;
+        if (tab.kind === 'site' && !tab.title) tab.title = contents.getTitle();
+        this.changed();
+      },
+      onFailed: (description, address) => {
+        this.log(`tab ${tab.id}: the site's page did not load (${description}) ${address}`);
+        tab.failed = true;
+        tab.status = 'offline';
+        this.changed();
+        this.onServerFailed?.(tab.server);
+      },
+      onGone: (reason) => {
+        tab.status = 'crashed';
+        this.log(`tab ${tab.id}: renderer gone (${reason})`);
+        this.changed();
+      },
+      log: (line) => this.log(line),
     });
   }
 
@@ -387,74 +345,36 @@ export class Tabs {
     return this.reload(id);
   }
 
-  /** Host messages to one view's Shell, through the daemon: the view's ticket names it. */
-  transport(ticket) {
-    return {
-      send: (command) => this.harness.shellCommand(ticket, command),
-      onEvent: (listener) => this.harness.on('shell', (event) => event.view === ticket && listener(event.event)),
-    };
-  }
-
   /** Navigation in a tab's view: see `navigation.mjs`. New windows are never opened. */
   guardNavigation(tab) {
     const contents = tab.view.webContents;
-    const onTop = (event, legacyUrl) => {
-      const url = event.url ?? legacyUrl;
-      const verdict = decide(url, { allowlist: this.allowlist, current: tab.id });
-      if (verdict.action === 'allow') return;
-      event.preventDefault();
-      if (verdict.action === 'open-tab') {
-        this.log(`navigation to ${verdict.id} opens a tab`);
-        void this.open(verdict.id).catch((error) => this.log(`open ${verdict.id}: ${error?.message ?? error}`));
-      } else if (verdict.action === 'home') {
+    guardArtifactNavigation(contents, {
+      allowlist: this.allowlist,
+      id: () => tab.id,
+      live: () => tab.view?.webContents === contents,
+      onOther: (id) => {
+        this.log(`navigation to ${id} opens a tab`);
+        void this.open(id).catch((error) => this.log(`open ${id}: ${error?.message ?? error}`));
+      },
+      onHome: () => {
         this.log('navigation to the home page goes to the first tab');
         this.select(HOME_TAB);
-      } else if (verdict.action === 'external') {
-        this.external(verdict.url);
-      } else {
-        this.log(`blocked navigation to ${url}`);
-      }
-    };
-    contents.on('will-navigate', onTop);
-    contents.on('will-redirect', (event, legacyUrl) => {
-      if (event.isMainFrame === false) return;
+      },
       // The daemon's redirect of a published artifact to its site: shown in a view of the servers' partition.
-      const url = event.url ?? legacyUrl;
-      const origin = this.allowlist.serverOf(url);
-      if (origin && tab.view?.webContents === contents) {
-        event.preventDefault();
-        void this.toServer(tab, url, origin);
-        return;
-      }
-      onTop(event, legacyUrl);
-    });
-    contents.on('will-frame-navigate', (event) => {
-      if (event.isMainFrame) return;
-      if (subframeAllowed(event.url, this.allowlist)) return;
-      event.preventDefault();
-      this.log(`blocked frame navigation to ${event.url}`);
-    });
-    contents.setWindowOpenHandler(({ url }) => {
-      if (httpish(url) && !this.allowlist.allows(url)) this.external(url);
-      else this.log(`blocked new window for ${url}`);
-      return { action: 'deny' };
-    });
-    contents.on('will-attach-webview', (event) => event.preventDefault());
-    // A page with unsaved work asks to stay (`beforeunload`): it stays, unless the person asked to load it again.
-    contents.on('will-prevent-unload', (event) => {
-      if (!tab.discard) return this.log(`tab ${tab.id}: the page kept itself (unsaved work)`);
-      event.preventDefault();
-      this.log(`tab ${tab.id}: unsaved work let go for the reload asked for`);
-    });
-    contents.on('did-finish-load', () => {
-      const title = contents.getTitle();
-      if (title && !tab.title) tab.title = title;
-      this.changed();
-    });
-    contents.on('render-process-gone', (_event, details) => {
-      tab.status = 'crashed';
-      this.log(`tab ${tab.id}: renderer gone (${details.reason})`);
-      this.changed();
+      onServer: (url, origin) => void this.toServer(tab, url, origin),
+      external: (url) => this.external(url),
+      discard: () => tab.discard,
+      label: () => `tab ${tab.id}`,
+      onLoaded: (title) => {
+        if (title && !tab.title) tab.title = title;
+        this.changed();
+      },
+      onGone: (reason) => {
+        tab.status = 'crashed';
+        this.log(`tab ${tab.id}: renderer gone (${reason})`);
+        this.changed();
+      },
+      log: (line) => this.log(line),
     });
   }
 

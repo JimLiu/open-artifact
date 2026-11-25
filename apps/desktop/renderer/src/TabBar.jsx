@@ -8,7 +8,7 @@ import { WindowControls } from './Sidebar.jsx';
 
 const STATUS_WORD = { opening: 'tabs.opening', reconnecting: 'tabs.reconnecting', stopped: 'tabs.stopped', stale: 'tabs.stale', crashed: 'tabs.crashed', missing: 'tabs.missing' };
 
-function ArtifactTab({ tab, selected, title, type, t }) {
+function ArtifactTab({ tab, selected, title, type, t, onMenu }) {
   const desktop = window.desktop;
   // While a close (or the app's quit) waits for the save: that word, before what the connection does.
   const status = tab.closing ? 'tabs.closing' : STATUS_WORD[tab.status];
@@ -26,6 +26,10 @@ function ArtifactTab({ tab, selected, title, type, t }) {
       onClick={() => void desktop.select(tab.id)}
       onKeyDown={(event) => (event.key === 'Enter' || event.key === ' ') && void desktop.select(tab.id)}
       onAuxClick={(event) => event.button === 1 && void desktop.close(tab.id)}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        onMenu?.({ id: tab.id, title, x: event.clientX, y: event.clientY });
+      }}
     >
       <span className="tab-swatch" aria-hidden="true" style={typeStyle(type)} />
       <span className="tab-title">{title}</span>
@@ -64,7 +68,7 @@ function ArtifactTab({ tab, selected, title, type, t }) {
   );
 }
 
-export function TabBar({ t, state, platform, onNew }) {
+export function TabBar({ t, state, platform, onNew, onMenu }) {
   const artifacts = usePage((s) => s.artifacts);
   const strip = useRef(null);
   const byId = new Map(artifacts.map((a) => [a.id, a]));
@@ -95,7 +99,7 @@ export function TabBar({ t, state, platform, onNew }) {
           const artifact = byId.get(tab.id);
           // The page's store has the newest title (a rename shows at once); the main process's is the fallback.
           const title = artifact?.title || tab.title || t('nav.untitled');
-          return <ArtifactTab key={tab.id} tab={tab} selected={state.current === tab.id} title={title} type={artifact?.type || tab.type} t={t} />;
+          return <ArtifactTab key={tab.id} tab={tab} selected={state.current === tab.id} title={title} type={artifact?.type || tab.type} t={t} onMenu={onMenu} />;
         })}
         <button type="button" className="icon-button tab-new" data-testid="tab-new" aria-label={t('tabs.new')} title={t('tabs.new')} onClick={onNew}>
           <PlusIcon size={14} />
@@ -105,5 +109,48 @@ export function TabBar({ t, state, platform, onNew }) {
         {state.connected ? '' : state.service === 'elsewhere' ? t('service.elsewhere') : state.service === 'stopped' ? t('connection.stopped') : t('connection.lost')}
       </span>
     </header>
+  );
+}
+
+/**
+ * A tab's right-click menu: Install as App…. Drawn by the window's page (not a menu of the system's), so the view of
+ * the tab in front is hidden while it is open (it drops below the tab bar, where the view is).
+ */
+export function TabMenu({ t, menu, onClose, onInstallApp }) {
+  const box = useRef(null);
+  useEffect(() => {
+    box.current?.querySelector('button')?.focus();
+    const away = (event) => {
+      if (!box.current?.contains(event.target)) onClose();
+    };
+    const key = (event) => {
+      if (event.key === 'Escape') onClose();
+    };
+    window.addEventListener('mousedown', away, true);
+    window.addEventListener('keydown', key, true);
+    window.addEventListener('blur', onClose);
+    return () => {
+      window.removeEventListener('mousedown', away, true);
+      window.removeEventListener('keydown', key, true);
+      window.removeEventListener('blur', onClose);
+    };
+  }, [onClose]);
+  const left = Math.max(4, Math.min(menu.x, window.innerWidth - 204));
+  const top = Math.max(4, Math.min(menu.y, window.innerHeight - 60));
+  return (
+    <div ref={box} className="row-menu" role="menu" aria-label={t('row.menu', { title: menu.title })} data-testid="tab-menu" data-artifact={menu.id} style={{ left, top }}>
+      <button
+        type="button"
+        role="menuitem"
+        className="row-menu-item"
+        data-testid="tab-install-app"
+        onClick={() => {
+          onClose();
+          onInstallApp(menu.id, menu.title);
+        }}
+      >
+        {t('menu.installApp')}
+      </button>
+    </div>
   );
 }

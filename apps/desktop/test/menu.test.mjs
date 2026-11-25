@@ -66,7 +66,7 @@ describe('the menu bar', () => {
     assert.deepEqual(menu.map((m) => m.label), ['Open Artifact', 'File', 'Edit', 'View', 'Window', 'Help']);
     const ids = (label) => menu.find((m) => m.label === label).submenu.filter((i) => i.type !== 'separator').map((i) => i.id ?? i.role);
     assert.deepEqual(ids('Open Artifact'), ['about', 'settings', 'services', 'hide', 'hideothers', 'unhide', 'quit']);
-    assert.deepEqual(ids('File'), ['new', 'new-dialog', 'open-folder', 'import', 'reveal', 'move', 'close-tab']);
+    assert.deepEqual(ids('File'), ['new', 'new-dialog', 'open-folder', 'import', 'reveal', 'move', 'install-app', 'close-tab']);
     assert.deepEqual(ids('Edit'), ['edit:undo', 'edit:redo', 'edit:cut', 'edit:copy', 'edit:paste', 'edit:paste-plain', 'edit:delete', 'edit:select-all']);
     assert.deepEqual(ids('View'), ['reload', 'toggle-sidebar', 'zoom-reset', 'zoom-in', 'zoom-out', 'fullscreen']);
     assert.deepEqual(ids('Window'), ['minimize', 'zoom', 'previous-tab', 'next-tab', 'front']);
@@ -85,7 +85,7 @@ describe('the menu bar', () => {
     assert.ok(types.includes('docs') && types.includes('sheets') && types.includes('slides') && types.includes('whiteboard'));
     assert.equal(by('new').submenu[0].enabled, false, 'the group heading is not an item');
     // Nothing in front: the artifact's items are greyed out.
-    for (const id of ['reveal', 'move', 'close-tab', 'reload']) assert.equal(by(id).enabled, false, id);
+    for (const id of ['reveal', 'move', 'install-app', 'close-tab', 'reload']) assert.equal(by(id).enabled, false, id);
     assert.equal(by('open-folder').enabled, true);
     const refused = await app.command('close-tab');
     assert.equal(refused.ok, false);
@@ -269,7 +269,7 @@ describe('the menu bar', () => {
     assert.ok(await app.chrome.waitFor("!!document.querySelector('[data-testid=row-menu]')", 5000), 'no right-click menu');
     const box = await app.chrome.evaluate("(() => { const m = document.querySelector('[data-testid=row-menu]').getBoundingClientRect(); const s = document.querySelector('[data-testid=sidebar]').getBoundingClientRect(); return { right: m.right, sidebar: s.right }; })()");
     assert.ok(box.right <= box.sidebar, `the menu goes past the sidebar: ${JSON.stringify(box)}`);
-    assert.deepEqual(await app.chrome.evaluate("[...document.querySelectorAll('[data-testid=row-menu] [role=menuitem]')].map((b) => b.textContent)"), ['Open', 'Show in Finder', 'Move To…']);
+    assert.deepEqual(await app.chrome.evaluate("[...document.querySelectorAll('[data-testid=row-menu] [role=menuitem]')].map((b) => b.textContent)"), ['Open', 'Show in Finder', 'Move To…', 'Install as App…']);
     was = reveals();
     await app.chrome.evaluate("document.querySelector('[data-testid=row-reveal]').click(), true");
     assert.ok(await until(() => reveals() > was, 5000), 'the row\'s Show in Finder did not show the folder');

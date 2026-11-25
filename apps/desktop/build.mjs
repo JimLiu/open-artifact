@@ -1,4 +1,4 @@
-// Bundles the app's main process into out/main.mjs (the workspace packages it uses, @open-artifact/harness-kit,
+// Bundles the app's main process (src/start.mjs) into out/main.mjs (the workspace packages it uses, @open-artifact/harness-kit,
 // @open-artifact/protocol and @open-artifact/library-page/library, are compiled in from their TypeScript sources;
 // `electron` is left to Electron), copies the window's preload beside it, builds the window's page into out/renderer/
 // (a React app: renderer/src/main.jsx → app.js, the home page's CSS → page.css, the window's own → app.css, and
@@ -33,8 +33,10 @@ const common = {
   banner: { js: "import { createRequire as __r } from 'node:module'; const require = __r(import.meta.url);" },
 };
 
-buildSync({ ...common, entryPoints: [join(here, 'src', 'main.mjs')], outfile: join(out, 'main.mjs'), external: ['electron'] });
+// The entry is start.mjs: the desktop app (main.mjs), or an artifact installed as an app (artifact-app.mjs).
+buildSync({ ...common, entryPoints: [join(here, 'src', 'start.mjs')], outfile: join(out, 'main.mjs'), external: ['electron'] });
 copyFileSync(join(here, 'src', 'preload.cjs'), join(out, 'preload.cjs'));
+copyFileSync(join(here, 'src', 'artifact-preload.cjs'), join(out, 'artifact-preload.cjs'));
 copyFileSync(join(here, 'src', 'notice-preload.cjs'), join(out, 'notice-preload.cjs'));
 
 // ---- the window's page ----
@@ -61,5 +63,7 @@ copyFileSync(join(here, 'renderer', 'src', 'app.css'), join(out, 'renderer', 'ap
 copyFileSync(join(here, 'renderer', 'index.html'), join(out, 'renderer', 'index.html'));
 // The "saved" notice's page (a view of its own over the artifact's): plain files, no React.
 cpSync(join(here, 'renderer', 'notice'), join(out, 'renderer', 'notice'), { recursive: true });
+// The status page of an artifact installed as an app: plain files, no React.
+cpSync(join(here, 'renderer', 'artifact-app'), join(out, 'renderer', 'artifact-app'), { recursive: true });
 buildSync({ ...common, entryPoints: [join(here, 'test', 'probe', 'chain-probe.mjs')], outfile: join(out, 'test', 'chain-probe.mjs') });
 console.log(`built ${out}`);

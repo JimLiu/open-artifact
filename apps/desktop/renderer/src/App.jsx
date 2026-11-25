@@ -6,16 +6,20 @@ import { ArtifactsPage, EMPTY_SESSIONS, EnvProvider, StoreProvider, createPageSt
 import { Sidebar } from './Sidebar.jsx';
 import { TabBar } from './TabBar.jsx';
 import { NewDialog } from './NewDialog.jsx';
+import { InstallAppDialog } from './InstallAppDialog.jsx';
 import { ServicePanel, ServiceStatus } from './ServicePanel.jsx';
 import { SettingsDialog } from './SettingsDialog.jsx';
 import { ServerButton, ServerPanel, useServers } from './ServerSwitcher.jsx';
 import { MissingFolder, UnsavedDialog } from './Unsaved.jsx';
+import { TabMenu } from './TabBar.jsx';
 import { pageApi, pageHost, setTypeWords, tileGroups } from './host.js';
 import { runtimeUpdates, useRuntime, useService } from './service.js';
 import { typeName, wordsFor } from './words.js';
 
 /** The cards' icons for Show in Finder (a folder) and Move To… (a folder with an arrow), 16×16 paths. */
 export const FOLDER_ICON = 'M2.5 4.5a1 1 0 0 1 1-1h3l1.5 1.5h4.5a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1v-7.5Z';
+/** The cards' icon for Install as App… (an app's square with an arrow into it), 16×16 paths. */
+export const APP_ICON = 'M3.5 3.5h9v9h-9zM8 5.5v4M6.25 7.75 8 9.5l1.75-1.75';
 export const MOVE_ICON = 'M2.5 4.5a1 1 0 0 1 1-1h3l1.5 1.5h4.5a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1v-7.5ZM6 9h4.5M9 7.5 10.5 9 9 10.5';
 
 export function App({ initial }) {
@@ -27,6 +31,9 @@ export function App({ initial }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   // The servers switcher (the sites this computer is connected to).
   const [serversOpen, setServersOpen] = useState(false);
+  // "Install as app" of one artifact (`{ id, title }`), and a tab's right-click menu (`{ id, title, x, y }`).
+  const [installFor, setInstallFor] = useState(null);
+  const [tabMenu, setTabMenu] = useState(null);
   const servers = useServers();
   const service = useService();
   const runtime = useRuntime();
@@ -76,6 +83,8 @@ export function App({ initial }) {
   const env = useMemo(() => ({ t, api: pageApi, sessions: EMPTY_SESSIONS, updates }), [t, updates]);
 
   useEffect(() => window.desktop.onState(setState), []);
+  /** An artifact's title, from the page's store (the newest), else its tab's. */
+  const titleOfId = (id) => store.getState().artifacts.find((a) => a.id === id)?.title || stateRef.current.tabs.find((tab) => tab.id === id)?.title || id;
 
   // What the menu bar asks of this page.
   useEffect(
@@ -85,6 +94,7 @@ export function App({ initial }) {
         else if (name === 'new-dialog') setDialogOpen(true);
         else if (name === 'service') setServicePanel({ ask: null });
         else if (name === 'servers') setServersOpen(true);
+        else if (name === 'install-app' && typeof arg?.id === 'string') setInstallFor({ id: arg.id, title: titleOfId(arg.id) });
         else if (name === 'toast' && typeof arg?.message === 'string') store.getState().showToast(arg.message, arg.kind === 'error' ? 'error' : 'info');
       }),
     [store],
@@ -102,6 +112,7 @@ export function App({ initial }) {
     () => [
       { id: 'reveal', label: t('card.reveal'), icon: FOLDER_ICON, run: (artifact) => artifactDo('reveal', artifact.id) },
       { id: 'move', label: t('card.move'), icon: MOVE_ICON, run: (artifact) => artifactDo('move', artifact.id) },
+      { id: 'install-app', label: t('menu.installApp'), icon: APP_ICON, run: (artifact) => setInstallFor({ id: artifact.id, title: artifact.title || artifact.id }) },
     ],
     [t, artifactDo],
   );
@@ -129,7 +140,8 @@ export function App({ initial }) {
 
   // A dialog is drawn over the artifact's view: the view is hidden while one is open (the main process's question
   // about unsaved work too).
-  const overlay = dialogOpen || !!servicePanel || settingsOpen || serversOpen || !!state.ask;
+  // A tab's menu too: it drops below the tab bar, where the view is.
+  const overlay = dialogOpen || !!servicePanel || settingsOpen || serversOpen || !!state.ask || !!installFor || !!tabMenu;
   useEffect(() => {
     void window.desktop.setOverlay(overlay);
   }, [overlay]);
@@ -147,6 +159,8 @@ export function App({ initial }) {
 
   const openDialog = useCallback(() => setDialogOpen(true), []);
   const titleOf = (tab) => store.getState().artifacts.find((a) => a.id === tab.id)?.title || tab.title || tab.id;
+  const installApp = useCallback((id, title) => setInstallFor({ id, title }), []);
+  const closeTabMenu = useCallback(() => setTabMenu(null), []);
   // The tabs with work not saved, named in the service panel's restart and stop questions.
   const unsavedNames = state.tabs.filter((tab) => tab.unsaved).map(titleOf);
   const front = state.tabs.find((tab) => tab.id === state.current);
@@ -158,9 +172,9 @@ export function App({ initial }) {
     <EnvProvider env={env}>
       <StoreProvider store={store}>
         <div className="window" data-sidebar={collapsed ? 'collapsed' : 'open'}>
-          {!collapsed && <Sidebar t={t} state={state} platform={platform} onNew={openDialog} onSearch={onSearch} onSettings={() => setSettingsOpen(true)} artifactDo={artifactDo} />}
+          {!collapsed && <Sidebar t={t} state={state} platform={platform} onNew={openDialog} onSearch={onSearch} onSettings={() => setSettingsOpen(true)} artifactDo={artifactDo} onInstallApp={installApp} />}
           <div className="main">
-            <TabBar t={t} state={state} platform={platform} onNew={openDialog} />
+            <TabBar t={t} state={state} platform={platform} onNew={openDialog} onMenu={setTabMenu} />
             <main className="content" data-testid="home" hidden={state.current !== 'home'}>
               <ArtifactsPage
                 canCreate
@@ -186,6 +200,8 @@ export function App({ initial }) {
           </div>
         </div>
         {dialogOpen && <NewDialog t={t} onClose={() => setDialogOpen(false)} />}
+        {tabMenu && <TabMenu t={t} menu={tabMenu} onClose={closeTabMenu} onInstallApp={installApp} />}
+        {installFor && <InstallAppDialog key={installFor.id} t={t} artifact={installFor} onClose={() => setInstallFor(null)} />}
         {settingsOpen && !servicePanel && !serversOpen && (
           <SettingsDialog
             t={t}

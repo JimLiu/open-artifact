@@ -172,6 +172,30 @@ It is a Harness API host like the examples, built on `@open-artifact/harness-kit
   the settings), `--thumbnails`, `--offline` (every session's requests past this computer refused and listed).
 - **Packaging** (`apps/desktop/scripts/package.mjs`): a folder-form arm64 `.app`, the code in `app.asar`, the runtime
   in `Contents/Resources/runtime` (found through `process.resourcesPath`), `RunAsNode` left on, signed ad hoc.
+- **Artifacts installed as apps** (`apps/desktop/src/installed-apps.mjs`, `installed-apps-macos.mjs`,
+  `artifact-app.mjs`, `renderer/src/InstallAppDialog.jsx`): **Install as App…** in a card's More menu (the library
+  page's `cardActions`), a sidebar row's and a tab's right-click menu and the File menu opens one dialog (unavailable,
+  available, installing, installed, needs repair). An APFS clone of the packaged app in
+  `~/Applications/Open Artifact Apps/`, with its own display name, bundle id and type icon and
+  `Contents/Resources/artifact-app.json`, signed ad hoc on the outer package; records in `<home>/desktop/apps/`
+  (`installing`, `installed`, `uninstalling`, `refreshing`), checked again at every start. Uninstall asks a running app
+  to quit through its record (its pid in `running.json`; 15 s, then given up), then the package goes to the Trash,
+  `defaults delete <bundle id>` clears its preferences' keys and its `<bundle id>.plist` is removed (Remove Record does
+  the same; in test mode only inside the test's own `HOME`). Refresh and repair rebuild beside the old package and swap
+  it in with the same install id, bundle id and path; the apps made by another desktop version are refreshed after the
+  check at start. A package renamed inside the install folder is claimed (by the desktop app and by the app itself);
+  one moved out is not. The build's entry is `src/start.mjs`, which runs the single-artifact window when that file is
+  there. That app connects as harness `open-artifact-app`, starts the daemon with a desktop app's executable and
+  runtime (the record's `templatePath`, another record's, then `/Applications` and `~/Applications`, never those two in
+  test mode; its own when none is found), and hands other artifacts and the library to the desktop app; agents' opens
+  go to the desktop app only. **The daemon in a package** (`apps/desktop/src/daemon-host.mjs`): an app that started the
+  daemon from its own package writes `<home>/desktop/daemon-host.json` (valid only while `daemon.json` names that live
+  pid); with it, the daemon's entry in `runtimes.json` and its `runtime.status`, the desktop app restarts the daemon
+  from its own runtime before an uninstall, refresh or repair moves that package (never while a tab holds unsaved work;
+  otherwise nothing is moved and the answer says `daemonInUse`); the refresh at start skips such an app
+  (`daemon-in-use`). Both apps restart at start a daemon that lives in an
+  installed app's package that is gone (never one whose files are gone anywhere else).
+  See `apps/desktop/README.md`.
 
 ## Agent tools & wake loop
 
