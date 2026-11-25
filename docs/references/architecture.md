@@ -92,7 +92,19 @@ It is a Harness API host like the examples, built on `@open-artifact/harness-kit
   runs `ensureDaemon`, so a daemon that was stopped (not only restarted) is started again while the app runs. Once
   connected, each tab without unsaved work is loaded again with a new view (the view's key and the type servers' ports
   belong to the old daemon); a tab with unsaved work is kept as it was and marked for the person to reload (their
-  Reload lets the page's `beforeunload` go: that work can no longer be saved).
+  Reload asks first, then lets the page's `beforeunload` go: that work can no longer be saved).
+- **Unsaved work** (`apps/desktop/src/main.mjs`, on the Shell's `saved` report through `embedArtifact`'s `onSaved`):
+  a tab's close (the bar, ⌘W, the Shell's `close`) and the quit (⌘Q, the window's close: `close` and `before-quit` are
+  held) wait up to 3 s for the save, then ask in the window's page (`state.ask`, answered over `desktop:answer`; the
+  view is hidden meanwhile). A tab with `saved` null is never asked about.
+- **Single instance and links** (`apps/desktop/src/links.mjs`): `app.requestSingleInstanceLock` on the userData folder
+  (so per home in development and test runs); a second start's arguments come as `second-instance`'s
+  `additionalData`. `open-artifact://artifact/<id>` is the only link taken (start arguments, `open-url` queued before
+  ready, second starts). The app never registers the scheme; a package declares it in `Info.plist` only with
+  `OA_DESKTOP_URL_SCHEME=1` (`apps/desktop/scripts/info-plist.mjs`).
+- **Missing folders**: the Library API's `ArtifactView.folderMissing` (true when the record's `root` is not on disk;
+  additive, optional) marks an artifact whose folder went away outside the app. Its tab loads no Shell and offers
+  Relocate… (`artifacts.relocate`) and Remove from Library (`artifacts.delete`, which forgets the record only).
 - **Service and updates** (`apps/desktop/src/service.mjs`, `runtime.mjs`): the person's restart, stop and start are
   the kit's `daemon.restart()`, `daemon.stop()` (no reconnecting until `daemon.start()`; `daemon.json` is read every
   1.5 s so a daemon another app started is shown, with Connect) and `daemon.start()`; the apps and editors come from

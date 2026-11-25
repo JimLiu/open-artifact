@@ -1,5 +1,6 @@
-// The "saved" notice's page: it draws what the main process sends (`{ id, name, folder, words }`) and sends back
-// Show in Finder (by the notice's id), Close, and whether the pointer rests on it (it stays while it does).
+// The notice's page: it draws what the main process sends (a saved file: `{ id, name, where, words }`; a message of
+// how something went: `{ id: null, name: <message>, where: '', kind }`) and sends back Show in Finder (by the
+// notice's id), Close, and whether the pointer rests on it (it stays while it does).
 (() => {
   const bridge = window.notice;
   const card = document.querySelector('.notice');
@@ -7,6 +8,8 @@
   const where = document.querySelector('.notice-where');
   const reveal = document.querySelector('.notice-reveal');
   const close = document.querySelector('.notice-close');
+  const mark = document.querySelector('.notice-icon path');
+  const MARKS = { ok: mark.getAttribute('d'), error: 'M8 4v5M8 11.6v.4' };
   let current = null;
   bridge.onShow((notice) => {
     current = notice;
@@ -18,6 +21,10 @@
     name.textContent = notice.name;
     name.title = notice.name;
     where.textContent = notice.where;
+    where.hidden = !notice.where;
+    card.dataset.kind = notice.kind || 'saved';
+    mark.setAttribute('d', notice.kind === 'error' ? MARKS.error : MARKS.ok);
+    reveal.hidden = !notice.id;
     reveal.textContent = notice.words.reveal;
     close.setAttribute('aria-label', notice.words.close);
     close.title = notice.words.close;

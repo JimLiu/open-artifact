@@ -72,14 +72,19 @@ npm run test:packaged                           # test/packaged/: the packaged a
 `resources/runtime` with a `package.json` naming the CLI version, and refuses a skill that is not built or whose version
 differs from `packages/daemon`. The tests run with no `node` on PATH, a throwaway `HOME`/`OPEN_ARTIFACT_HOME`, a free
 port other than 4800, the window hidden (`--test-mode`), and drive the app over its DevTools port; each stops the
-daemons it started by their `daemon.json` pid (see `apps/desktop/README.md`).
+daemons it started by their `daemon.json` pid (see `apps/desktop/README.md`). The runtime is copied, not linked: after
+a change to the daemon or the Shell, run the root build and `node scripts/build-skill.mjs` again before
+`npm run build` in `apps/desktop`, or the tests run the old daemon. A test that leaves a tab with unsaved work quits
+with `app.quit({ force: true })` (the app would otherwise ask).
 
 `npm run package` makes a folder-form macOS arm64 `.app` in `apps/desktop/dist/` (ignored by git) with
 `@electron/packager`: the build's `out/` in `app.asar` (with `ElectronAsarIntegrity`), the runtime in
 `Contents/Resources/runtime`, a placeholder icon and bundle id (`dev.openartifact.desktop`), Electron's fuses as they
 are (`RunAsNode` on), signed ad hoc on this computer. No DMG, notarization or automatic updates yet. Packaged, the app
 with no arguments uses the person's own home and port, so `test/packaged/` only starts it with `--home`, a port other
-than 4800, `--test-mode` and a throwaway `HOME`, and checks first that it then uses those folders only.
+than 4800, `--test-mode` and a throwaway `HOME`, and checks first that it then uses those folders only. A package
+declares no URL scheme; `OA_DESKTOP_URL_SCHEME=1 npm run package` adds `open-artifact://` to its `Info.plist`
+(`scripts/info-plist.mjs`; checked by the unit tests, never built by them), and nothing registers it.
 
 ## Releasing
 

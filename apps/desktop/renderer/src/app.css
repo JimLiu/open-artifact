@@ -989,3 +989,93 @@ button.section-head {
   margin: 4px 6px;
   background: var(--oa-page-border);
 }
+
+/* ---- unsaved work: the question before it is let go ---- */
+.unsaved-dialog {
+  width: min(380px, 100%);
+  padding: 6px;
+  border-radius: 14px;
+  background: var(--dialog-bg);
+  box-shadow: var(--dialog-shadow);
+}
+.unsaved-dialog .service-confirm {
+  background: transparent;
+  gap: 10px;
+}
+.unsaved-dialog .confirm-title {
+  font-size: 14px;
+  font-weight: 600;
+}
+.unsaved-dialog .confirm-body {
+  font-size: 13px;
+  color: var(--oa-page-text-secondary);
+}
+.unsaved-dialog .confirm-actions {
+  margin-top: 6px;
+}
+.tab[data-closing='true'] .tab-state {
+  color: var(--warn);
+}
+
+/* ---- a tab whose folder is gone ---- */
+.missing {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  place-items: center;
+  padding: 40px 16px;
+  background: var(--oa-page-bg);
+  color: var(--oa-page-text-primary);
+  overflow: auto;
+}
+.missing-card {
+  width: min(460px, 100%);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+}
+.missing-swatch {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  background: var(--oa-wash);
+  color: var(--oa-ink);
+}
+.missing-name {
+  margin: 4px 0 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--oa-page-text-tertiary);
+}
+.missing-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+}
+.missing-body {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--oa-page-text-secondary);
+}
+.missing-path {
+  margin: 0;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--oa-page-hover-bg);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  color: var(--oa-page-text-secondary);
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.missing-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+}

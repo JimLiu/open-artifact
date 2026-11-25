@@ -21,7 +21,12 @@
  * Order of things: the profile (home, port, Electron's folders) is decided and checked first (`profile.mjs`), before
  * Electron is ready and before anything connects; then the window, then the connection, then the tabs.
  *
- *   electron . --home <dir> --port <n> [--open <artifact id>]…
+ * One app runs per profile (Electron's single-instance lock, on its userData folder): a second start hands its
+ * arguments to it and exits 0; the one running comes to the front and opens what they ask (`--open`, links).
+ * `open-artifact://artifact/<id>` links (`links.mjs`) come from the start's arguments, macOS's `open-url` and a second
+ * start; the app never registers itself for the scheme.
+ *
+ *   electron . --home <dir> --port <n> [--open <artifact id>]… [open-artifact://artifact/<id>]…
  *              [--test-mode --devtools-port <n> [--locale en|zh] [--theme light|dark] [--thumbnails] [--offline]]
  */
 import { mkdirSync, readFileSync, statSync } from 'node:fs';
@@ -31,7 +36,7 @@ import { createHarness, readDaemon, runtimeInfo } from '@open-artifact/harness-k
 import { thumbnailStamp } from '@open-artifact/library-page/library';
 import { daemonEnv, daemonOnDefaultPort, resolveProfile } from './profile.mjs';
 import { OriginAllowlist } from './navigation.mjs';
-import { HOME_TAB, PARTITION, Tabs } from './tabs.mjs';
+import { HOME_TAB, PARTITION, Tabs, unsavedOf } from './tabs.mjs';
 import { TabHistory } from './history.mjs';
 import { CHOICES, Settings, chromiumLang, validSetting } from './settings.mjs';
 import { createArg, idArg, libraryClient, patchArg } from './library.mjs';
@@ -45,6 +50,7 @@ import { wordsFor } from '../renderer/src/words.js';
 import { Service } from './service.mjs';
 import { RuntimeUpdates } from './runtime.mjs';
 import { libraryDefaultFolder, newArtifactFolder } from './folders.mjs';
+import { linkedArtifact, opensOf } from './links.mjs';
 
 // The bundle is out/main.mjs: the window's page is out/renderer/, the resources are beside out/.
 const here = import.meta.dirname;
@@ -53,6 +59,8 @@ const appRoot = join(here, '..');
 const BAR_HEIGHT = 40;
 /** The sidebar's width when it is open (renderer `--sidebar-width`). */
 const SIDEBAR_WIDTH = 240;
+/** How long a close or a quit waits for unsaved work to be saved before it asks, ms. */
+const SAVE_WAIT_MS = 3000;
 /** The largest thumbnail the page may hand back to save (the daemon takes up to 4 MiB). */
 const JPEG_MAX = 4 << 20;
 
@@ -73,6 +81,52 @@ if (profile.paths) {
   app.setAppLogsPath(profile.paths.logs);
   app.setPath('crashDumps', profile.paths.crashDumps);
 }
+// One app per profile: Electron's lock is its userData folder's (`<home>/desktop/user-data` for a development or test
+// run, so two homes never meet). A second start hands its arguments to the one running and leaves.
+if (!app.requestSingleInstanceLock({ argv: process.argv.slice(1) })) {
+  console.log('[desktop] another instance runs for this profile: its arguments were handed to it');
+  app.exit(0);
+  process.exit(0);
+}
+
+// ---- what asks to open an artifact: the start's arguments, macOS's open-url, a second start ----
+
+/** What came before the window and the tabs were there, in order; `receive` takes them from then on. */
+const incoming = [];
+let receive = (ref, from) => incoming.push({ ref, from });
+/** The start's or a second start's arguments: each `--open` and each link (a link of another form is refused). */
+function takeArgs(argv, from) {
+  const { refs, refused } = opensOf(argv);
+  for (const link of refused) log(`link refused (${from}): ${link.slice(0, 200)}`);
+  for (const ref of refs) receive(ref, from);
+}
+/** A link from macOS (`open-url`), or test mode's command: `open-artifact://artifact/<id>` only. */
+function takeLink(url, from = 'open-url') {
+  const id = linkedArtifact(url);
+  if (!id) {
+    log(`link refused (${from}): ${String(url).slice(0, 200)}`);
+    return false;
+  }
+  log(`link (${from}): ${id}`);
+  receive(id, from);
+  return true;
+}
+// Before ready: macOS sends the link that started the app before the app is ready.
+app.on('open-url', (event, url) => {
+  event.preventDefault();
+  takeLink(url, 'open-url');
+});
+/** Brings the window to the front once it is there (test mode: only logged, the person's screen is left alone). */
+let toFront = () => {};
+app.on('second-instance', (_event, argv, _cwd, data) => {
+  // The arguments the second start sent (Chromium rewrites `argv`); its own `argv` only when it sent none.
+  const args = Array.isArray(data?.argv) && data.argv.every((arg) => typeof arg === 'string') ? data.argv : argv;
+  log(`second start: ${JSON.stringify(args.slice(0, 40)).slice(0, 600)}`);
+  toFront();
+  takeArgs(args, 'second start');
+});
+takeArgs(process.argv.slice(1), 'arguments');
+
 if (profile.testMode) {
   if (profile.debugPort) app.commandLine.appendSwitch('remote-debugging-port', String(profile.debugPort));
   // Never in the person's way: no Dock icon, no activation, no shown window.
@@ -338,6 +392,10 @@ async function start() {
     service: service.state(),
     /** Thumbnails are taken only while the window is on screen (or a test asks for them). */
     thumbnails: profile.thumbnails || (window.isVisible() && !window.isMinimized()),
+    /** The question asked about unsaved work (`{ id, kind, names }`), or null. */
+    ask: asking ? { id: asking.id, kind: asking.kind, names: asking.names } : null,
+    // The window's page draws over the views (a dialog or the question above): the view in front is hidden.
+    overlay: tabs.overlay === true,
   });
   const send = () => {
     if (window.isDestroyed()) return;
@@ -361,8 +419,137 @@ async function start() {
       log(`saved_file from ${id}`);
       downloads.fromShell(path);
     },
+    // The Shell's own close asks as the bar's close does.
+    requestClose: (id) => requestClose(id),
+    // A folder moved or renamed outside Open Artifact: the daemon's `folderMissing`.
+    folderGone: async (id) => {
+      try {
+        const record = await library.record(id);
+        return record?.folderMissing === true ? String(record.root ?? '') : null;
+      } catch (error) {
+        log(`artifact ${id}: ${error?.message ?? error}`);
+        return null;
+      }
+    },
     log,
     testMode: profile.testMode,
+  });
+
+  // ---- unsaved work: waited for, then asked about ----
+
+  /** The question asked now: `{ id, kind, names, done(yes) }` (one at a time). */
+  let asking = null;
+  let askCount = 0;
+  /**
+   * Asks the person in the window's page (`kind`: close, quit, reload; `names`: the artifacts' titles); resolves
+   * true for "close anyway", "quit anyway" or "reload", false for Cancel. While another question is up, it is
+   * answered false at once.
+   */
+  const ask = (kind, names) =>
+    new Promise((done) => {
+      if (window.isDestroyed()) return done(false);
+      if (asking) {
+        log(`ask ${kind}: another question (${asking.kind}) is up; not asked`);
+        return done(false);
+      }
+      asking = {
+        id: `ask-${++askCount}`,
+        kind,
+        names,
+        done: (yes) => {
+          asking = null;
+          send();
+          done(yes);
+        },
+      };
+      log(`ask ${kind}: ${JSON.stringify(names)}`);
+      send();
+    });
+  const titleOf = (id) => {
+    const tab = tabs.tabs.get(id);
+    return tab?.title || id;
+  };
+  /** The tabs with unsaved work. */
+  const unsavedTabs = () => [...tabs.tabs.values()].filter(unsavedOf);
+  /** Waits (up to `ms`) for every tab of `ids` to have nothing unsaved; true when none has. */
+  const settled = async (ids, ms) => {
+    const deadline = Date.now() + ms;
+    for (;;) {
+      if (!ids.some((id) => unsavedOf(tabs.tabs.get(id)))) return true;
+      if (Date.now() > deadline) return false;
+      await new Promise((done) => setTimeout(done, 100));
+    }
+  };
+  /** Closes of a tab under way (its unsaved work waited for, then asked about), by id. */
+  const closing = new Map();
+  /**
+   * The person's close of a tab (the bar's ×, ⌘W, Close Tab, the Shell's `close`): with unsaved work, waited for up
+   * to {@link SAVE_WAIT_MS} (the tab says so), then asked about. Resolves true when it closed.
+   */
+  function requestClose(id) {
+    if (closing.has(id)) return closing.get(id);
+    const run = (async () => {
+      if (!tabs.tabs.has(id)) return false;
+      if (!unsavedOf(tabs.tabs.get(id))) return tabs.close(id);
+      tabs.setClosing(id, true);
+      const saved = await settled([id], SAVE_WAIT_MS);
+      tabs.setClosing(id, false);
+      if (!tabs.tabs.has(id)) return false;
+      if (!saved) {
+        const yes = await ask('close', [titleOf(id)]);
+        if (!yes) {
+          log(`close ${id}: kept (it has unsaved work)`);
+          return false;
+        }
+        log(`close ${id}: closed with its unsaved work let go, as asked`);
+      } else log(`close ${id}: its work was saved`);
+      return tabs.close(id);
+    })().finally(() => closing.delete(id));
+    closing.set(id, run);
+    return run;
+  }
+  /** The person's reload of a tab: a tab kept as it was (`stale`) with unsaved work is asked about first. */
+  async function reloadTab(id) {
+    const tab = tabs.tabs.get(id);
+    if (!tab) return false;
+    const stale = tab.status === 'stale';
+    if (stale && unsavedOf(tab) && !(await ask('reload', [titleOf(id)]))) {
+      log(`reload ${id}: kept (cancelled)`);
+      return false;
+    }
+    return tabs.reload(id, { discard: stale });
+  }
+  /** The quit was asked about (or nothing was unsaved): the window may close and the app may quit. */
+  let quitAllowed = false;
+  let quitting = null;
+  /** ⌘Q or the window's close with unsaved work: waited for, then asked about with the tabs' names. */
+  const confirmQuit = () =>
+    (quitting ??= (async () => {
+      // The window is gone (its page closed it, which no close event can hold): there is nowhere to ask.
+      if (window.isDestroyed()) {
+        log('quit: the window is gone, nothing to ask in');
+        quitAllowed = true;
+        app.quit();
+        return true;
+      }
+      const ids = unsavedTabs().map((tab) => tab.id);
+      for (const id of ids) tabs.setClosing(id, true);
+      await settled(ids, SAVE_WAIT_MS);
+      for (const id of ids) tabs.setClosing(id, false);
+      const left = unsavedTabs();
+      if (left.length && !(await ask('quit', left.map((tab) => titleOf(tab.id))))) {
+        log('quit: cancelled (unsaved work)');
+        return false;
+      }
+      log(left.length ? `quit: with unsaved work let go in ${left.length} tab(s), as asked` : 'quit: the work was saved');
+      quitAllowed = true;
+      app.quit();
+      return true;
+    })().finally(() => (quitting = null)));
+  window.on('close', (event) => {
+    if (quitAllowed || !unsavedTabs().length) return;
+    event.preventDefault();
+    void confirmQuit();
   });
   const travel = (to) => {
     if (to === null) return false;
@@ -456,6 +643,14 @@ async function start() {
 
   ipcMain.removeHandler('desktop:state');
   handle('desktop:state', () => snapshot());
+  // The person's answer to the question about unsaved work.
+  handle('desktop:answer', (id, yes) => {
+    if (!asking || asking.id !== id) return false;
+    log(`answer ${asking.kind}: ${yes === true ? 'yes' : 'cancel'}`);
+    asking.done(yes === true);
+    return true;
+  });
+
   handle('desktop:open', async (ref) => {
     try {
       return { ok: true, id: await openTab(ref) };
@@ -465,10 +660,10 @@ async function start() {
     }
   });
   handle('desktop:select', (id) => tabs.select(String(id)));
-  handle('desktop:close', (id) => (id === HOME_TAB ? false : tabs.close(String(id))));
-  // The person's Reload of a tab kept as it was (`stale`): its unsaved work, which can no longer be saved, is let go.
-  // Any other reload leaves a page that holds unsaved work as it is.
-  handle('desktop:reload', (id) => tabs.reload(String(id), { discard: tabs.tabs.get(String(id))?.status === 'stale' }));
+  handle('desktop:close', (id) => (id === HOME_TAB ? false : requestClose(String(id))));
+  // The person's Reload of a tab kept as it was (`stale`): its unsaved work, which can no longer be saved, is let go
+  // once they said so. Any other reload leaves a page that holds unsaved work as it is.
+  handle('desktop:reload', (id) => reloadTab(String(id)));
   handle('desktop:back', () => travel(history.back()));
   handle('desktop:forward', () => travel(history.forward()));
   handle('desktop:sidebar', (collapsed) => {
@@ -616,11 +811,20 @@ async function start() {
 
   // ---- the commands: what the menu bar, the cards' and the sidebar's menus run, each by name ----
 
+  /** Test mode: the paths the next folder or file dialogs pick (`test.pickNext`). */
+  const picks = [];
   /** To the window's page: open a dialog or panel of its own, or say something (`toast`). */
   const toPage = (name, arg) => {
     if (!window.isDestroyed()) window.webContents.send('desktop:command', { name, ...(arg === undefined ? {} : { arg }) });
   };
-  const say = (message, kind = 'info') => toPage('toast', { message, kind });
+  /**
+   * Says how something went: the home page's toast while the library is in front, else the notice over the tab's view
+   * (which is drawn over the window's page, toast and all).
+   */
+  const say = (message, kind = 'info') => {
+    if (tabs.current === HOME_TAB) return toPage('toast', { message, kind });
+    void notice.say({ message, kind });
+  };
   /** The artifact in front (null on the home page). */
   const currentArtifact = () => (tabs.current === HOME_TAB ? null : tabs.current);
   /** The page the Edit and View items act on: the dialog's or the home page's (the window's own), else the tab's. */
@@ -632,6 +836,12 @@ async function start() {
   const pick = async (given, { file = false, title = '' } = {}) => {
     if (profile.testMode) {
       if (typeof given === 'string' && isAbsolute(given)) return given;
+      // A button of the page's (Relocate…) names no path: the test said beforehand what to pick (`test.pickNext`).
+      const next = picks.shift();
+      if (next) {
+        log(`choose ${file ? 'file' : 'folder'} (test mode: the test's ${next})`);
+        return next;
+      }
       log(`choose ${file ? 'file' : 'folder'} (test mode: no dialog)`);
       return null;
     }
@@ -646,9 +856,7 @@ async function start() {
   const savedNow = async (id, ms = 10_000) => {
     const deadline = Date.now() + ms;
     for (;;) {
-      const tab = tabs.tabs.get(id);
-      const unsaved = tab?.saved && (tab.saved.leaveLosesWork || tab.saved.state === 'unsaved' || tab.saved.state === 'saving');
-      if (!unsaved) return true;
+      if (!unsavedOf(tabs.tabs.get(id))) return true;
       if (Date.now() > deadline) return false;
       await new Promise((done) => setTimeout(done, 100));
     }
@@ -722,28 +930,43 @@ async function start() {
       const into = await pick(arg?.into, { title: t('menu.move') });
       if (!into) return null;
       const open = tabs.tabs.has(id);
+      // Said once the tab is back, so it is said over the tab when the tab is in front.
+      let said = null;
       try {
         if (open) {
           if (!(await savedNow(id))) throw new Error('it still has changes that are not saved');
           await tabs.close(id);
         }
         const moved = await moveArtifact({ library, id, into, log });
-        say(t('move.done', { folder: basename(into) }));
+        said = [t('move.done', { folder: basename(into) }), 'info'];
         return moved;
       } catch (error) {
-        say(t('move.failed', { message: error?.message ?? String(error) }), 'error');
+        said = [t('move.failed', { message: error?.message ?? String(error) }), 'error'];
         throw error;
       } finally {
         if (open) await openTab(id).catch((error) => log(`open ${id}: ${error?.message ?? error}`));
+        if (said) say(...said);
       }
     },
     'close-tab': () => {
       const id = currentArtifact();
-      return id ? tabs.close(id) : false;
+      return id ? requestClose(id) : false;
     },
     reload: () => {
       const id = currentArtifact();
-      return id ? tabs.reload(id, { discard: tabs.tabs.get(id)?.status === 'stale' }) : false;
+      return id ? reloadTab(id) : false;
+    },
+    // A tab whose folder is gone: the person picks where it went, the library is told, the tab opens from there.
+    relocate: async (arg) => {
+      const id = artifactArg(arg);
+      const folder = await pick(arg?.folder, { title: t('missing.relocate') });
+      if (!folder) return null;
+      const moved = await library.relocate(id, folder);
+      log(`relocate ${id}: ${moved?.root ?? folder}`);
+      if (tabs.tabs.get(id)?.status === 'missing') await tabs.found(id);
+      else if (!tabs.tabs.has(id)) await openTab(id);
+      void describe(id);
+      return { id, root: typeof moved?.root === 'string' ? moved.root : folder };
     },
     'toggle-sidebar': () => {
       settings.set('sidebarCollapsed', !settings.get('sidebarCollapsed'));
@@ -780,7 +1003,7 @@ async function start() {
   };
   /** Commands that need an artifact in front, and those that need the daemon. */
   const NEEDS_ARTIFACT = new Set(['reveal', 'move', 'close-tab', 'reload']);
-  const NEEDS_DAEMON = new Set(['new-dialog', 'open-folder', 'import', 'reveal', 'move', 'doctor']);
+  const NEEDS_DAEMON = new Set(['new-dialog', 'open-folder', 'import', 'reveal', 'move', 'relocate', 'doctor']);
   const enabled = (name) => {
     if (NEEDS_ARTIFACT.has(name) && !currentArtifact()) return false;
     if ((NEEDS_DAEMON.has(name) || name.startsWith('new:')) && !harness.connected) return false;
@@ -822,7 +1045,7 @@ async function start() {
 
   // The cards' and the sidebar's menus: Show in Finder and Move To… of one artifact.
   answer('desktop:artifact-do', (act, id) => {
-    if (act !== 'reveal' && act !== 'move') throw new Error(`not an artifact action: ${act}`);
+    if (act !== 'reveal' && act !== 'move' && act !== 'relocate') throw new Error(`not an artifact action: ${act}`);
     return runCommand(act, { id: idArg(id) }, { named: true });
   });
 
@@ -833,6 +1056,33 @@ async function start() {
     handle('test:notice', () => notice.state());
     handle('test:blocked', () => blocked.slice());
     handle('test:downloads', () => downloads.folder);
+    // What the Shell said of a tab's saving, set by a test (`{ state, leaveLosesWork }`), so a test does not wait on timing.
+    handle('test:saved', (id, saved) => {
+      // null: as a tab whose Shell never said anything of its saving.
+      if (saved === null) return tabs.setSaved(idArg(String(id)), null);
+      const state = saved?.state;
+      if (!['saved', 'saving', 'unsaved', 'error'].includes(state)) throw new Error('not a saved state');
+      return tabs.setSaved(idArg(String(id)), { state, leaveLosesWork: saved.leaveLosesWork === true });
+    });
+    handle('test:pick-next', (path) => {
+      if (typeof path !== 'string' || !isAbsolute(path)) throw new Error('not an absolute path');
+      picks.push(path);
+      return picks.length;
+    });
+    // macOS's open-url, called as the system would (no system involved).
+    handle('test:open-url', (url) => takeLink(String(url), 'open-url'));
+    // ⌘Q: asked about as the person's would be; `force`: let it go without asking (a test's cleanup).
+    // The window's close button, as the person's click would close it (the main process's close: it can be held).
+    handle('test:close-window', () => {
+      window.close();
+      return true;
+    });
+    handle('test:quit', (force) => {
+      if (force === true) quitAllowed = true;
+      app.quit();
+      return true;
+    });
+    commands['open-url'] = (url) => takeLink(String(url ?? ''), 'command');
   }
 
   if (harness.connected && !(await refreshOrigins())) return;
@@ -844,7 +1094,14 @@ async function start() {
   if (harness.connected) void refreshTypes();
 
   window.on('closed', () => app.quit());
-  app.on('before-quit', () => {
+  app.on('before-quit', (event) => {
+    // ⌘Q with unsaved work: waited for, then asked about; the app quits once that is settled.
+    if (!quitAllowed && unsavedTabs().length) {
+      event.preventDefault();
+      void confirmQuit();
+      return;
+    }
+    quitAllowed = true;
     service.close();
     runtime.close();
     photographer.closeAll();
@@ -855,7 +1112,17 @@ async function start() {
 
   const state = harness.client.state;
   log(`ready ${JSON.stringify({ daemon: state ? { pid: state.pid, url: state.url, version: state.version } : null, features: harness.features.includes('view.open') })}`);
-  for (const ref of profile.open) {
-    await openTab(ref).catch((error) => log(`open ${ref}: ${error?.message ?? error}`));
+  // What asked to be opened so far (the arguments, open-url, a second start), then what asks from now on.
+  toFront = () => {
+    if (window.isDestroyed()) return;
+    if (profile.testMode) return log('second start: the window would come to the front (test mode: not shown)');
+    if (window.isMinimized()) window.restore();
+    window.show();
+    window.focus();
+    app.focus({ steal: true });
+  };
+  receive = (ref, from) => void openTab(ref).catch((error) => log(`open ${ref} (${from}): ${error?.message ?? error}`));
+  for (const { ref, from } of incoming.splice(0)) {
+    await openTab(ref).catch((error) => log(`open ${ref} (${from}): ${error?.message ?? error}`));
   }
 }

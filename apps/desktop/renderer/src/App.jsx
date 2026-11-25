@@ -8,6 +8,7 @@ import { TabBar } from './TabBar.jsx';
 import { NewDialog } from './NewDialog.jsx';
 import { ServicePanel, ServiceStatus } from './ServicePanel.jsx';
 import { SettingsDialog } from './SettingsDialog.jsx';
+import { MissingFolder, UnsavedDialog } from './Unsaved.jsx';
 import { pageApi, pageHost, setTypeWords, tileGroups } from './host.js';
 import { runtimeUpdates, useRuntime, useService } from './service.js';
 import { typeName, wordsFor } from './words.js';
@@ -121,8 +122,9 @@ export function App({ initial }) {
     if (thumbnails) void store.getState().reload();
   }, [thumbnails, store]);
 
-  // A dialog is drawn over the artifact's view: the view is hidden while one is open.
-  const overlay = dialogOpen || !!servicePanel || settingsOpen;
+  // A dialog is drawn over the artifact's view: the view is hidden while one is open (the main process's question
+  // about unsaved work too).
+  const overlay = dialogOpen || !!servicePanel || settingsOpen || !!state.ask;
   useEffect(() => {
     void window.desktop.setOverlay(overlay);
   }, [overlay]);
@@ -139,6 +141,11 @@ export function App({ initial }) {
   }, [searchWanted, state.current, store]);
 
   const openDialog = useCallback(() => setDialogOpen(true), []);
+  const titleOf = (tab) => store.getState().artifacts.find((a) => a.id === tab.id)?.title || tab.title || tab.id;
+  // The tabs with work not saved, named in the service panel's restart and stop questions.
+  const unsavedNames = state.tabs.filter((tab) => tab.unsaved).map(titleOf);
+  const front = state.tabs.find((tab) => tab.id === state.current);
+  const frontArtifact = front ? store.getState().artifacts.find((a) => a.id === front.id) : null;
   const groups = useMemo(() => tileGroups(t), [t]);
   const collapsed = !!state.sidebarCollapsed;
 
@@ -161,13 +168,19 @@ export function App({ initial }) {
                 cardActions={cardActions}
               />
             </main>
+            {front?.status === 'missing' && (
+              <main className="content" data-testid="missing">
+                <MissingFolder t={t} tab={front} title={titleOf(front)} type={frontArtifact?.type ?? front.type} />
+              </main>
+            )}
           </div>
         </div>
         {dialogOpen && <NewDialog t={t} onClose={() => setDialogOpen(false)} />}
         {settingsOpen && !servicePanel && (
           <SettingsDialog t={t} settings={state.settings} service={service} runtime={runtime} onService={() => setServicePanel({ ask: null })} onClose={() => setSettingsOpen(false)} />
         )}
-        {servicePanel && <ServicePanel t={t} service={service} runtime={runtime} ask={servicePanel.ask} onClose={() => setServicePanel(null)} />}
+        {servicePanel && <ServicePanel t={t} service={service} runtime={runtime} ask={servicePanel.ask} unsaved={unsavedNames} onClose={() => setServicePanel(null)} />}
+        {state.ask && <UnsavedDialog key={state.ask.id} t={t} ask={state.ask} />}
       </StoreProvider>
     </EnvProvider>
   );

@@ -4,7 +4,7 @@
  * (settings.mjs), and what the home page may ask of the Library API (library.mjs).
  */
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
@@ -501,5 +501,68 @@ describe('Move To…', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('open-artifact:// links', async () => {
+  const { linkedArtifact, opensOf, isLink } = await import('../src/links.mjs');
+  const ID = 'docs-7f3a9c';
+
+  it('only open-artifact://artifact/<id> is taken, with an id idArg accepts', () => {
+    assert.equal(linkedArtifact(`open-artifact://artifact/${ID}`), ID);
+    assert.equal(linkedArtifact(`OPEN-ARTIFACT://artifact/${ID}`), ID);
+    for (const refused of [
+      'open-artifact://artifact/',
+      `open-artifact://artifact/${ID}/`,
+      `open-artifact://artifact/${ID}?x=1`,
+      `open-artifact://artifact/${ID}#top`,
+      `open-artifact://type/docs`,
+      `open-artifact://artifact/a/b`,
+      `open-artifact:artifact/${ID}`,
+      `open-artifact://artifact/..%2F..`,
+      'open-artifact://artifact/has space',
+      `https://example.com/artifact/${ID}`,
+      `open-artifact://artifact/${'x'.repeat(400)}`,
+      null,
+      42,
+    ]) {
+      assert.equal(linkedArtifact(refused), null, String(refused));
+    }
+  });
+
+  it('a start\'s arguments: --open <ref>, --open=<ref> and bare links, in order; bad links are refused', () => {
+    assert.ok(isLink('open-artifact://x') && !isLink('--open'));
+    const out = opensOf(['--home', '/h', '--open', ID, `open-artifact://artifact/b-1`, '--open=c-2', 'open-artifact://nope', '--open', 'open-artifact://artifact/d?x']);
+    assert.deepEqual(out.refs, [ID, 'b-1', 'c-2']);
+    assert.deepEqual(out.refused, ['open-artifact://nope', 'open-artifact://artifact/d?x']);
+    assert.deepEqual(opensOf(undefined), { refs: [], refused: [] });
+    assert.deepEqual(opensOf(['--open']).refs, []);
+  });
+
+  it('the app never registers the scheme: no setAsDefaultProtocolClient, no lsregister in its source', () => {
+    for (const dir of ['src', 'scripts']) {
+      for (const name of readdirSync(join(import.meta.dirname, '..', dir))) {
+        if (!/\.(m?js|cjs)$/.test(name)) continue;
+        const text = readFileSync(join(import.meta.dirname, '..', dir, name), 'utf8')
+          .split('\n')
+          .filter((line) => !/^\s*(\*|\/\/)/.test(line))
+          .join('\n');
+        assert.doesNotMatch(text, /setAsDefaultProtocolClient|lsregister/, `${dir}/${name}`);
+      }
+    }
+  });
+});
+
+describe('the package\'s Info.plist additions', async () => {
+  const { infoPlistAdditions, urlSchemeFromEnv } = await import('../scripts/info-plist.mjs');
+
+  it('nothing by default; the URL type of open-artifact:// only with OA_DESKTOP_URL_SCHEME=1', () => {
+    assert.deepEqual(infoPlistAdditions(), {});
+    assert.deepEqual(infoPlistAdditions({ urlScheme: urlSchemeFromEnv({}) }), {});
+    for (const value of ['', '0', 'true', 'yes', ' 1']) assert.equal(urlSchemeFromEnv({ OA_DESKTOP_URL_SCHEME: value }), false, JSON.stringify(value));
+    assert.equal(urlSchemeFromEnv({ OA_DESKTOP_URL_SCHEME: '1' }), true);
+    assert.deepEqual(infoPlistAdditions({ urlScheme: true, bundleId: 'dev.openartifact.desktop' }), {
+      CFBundleURLTypes: [{ CFBundleURLName: 'dev.openartifact.desktop.link', CFBundleURLSchemes: ['open-artifact'], CFBundleTypeRole: 'Viewer' }],
+    });
   });
 });

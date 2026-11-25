@@ -13,7 +13,8 @@
  *   placeholder too.
  * - Electron's fuses are left as they are: `RunAsNode` stays on, the daemon and the type servers run on the app's own
  *   executable as Node.
- * - No URL scheme is declared (`open-artifact://` is a later stage), and nothing is installed or registered.
+ * - No URL scheme is declared unless `OA_DESKTOP_URL_SCHEME=1` is set (`scripts/info-plist.mjs`: then `Info.plist`
+ *   declares `open-artifact://`); either way nothing is installed or registered (no `lsregister`).
  * - Electron's zip comes from the cache `@electron/get` keeps (`~/Library/Caches/electron`) when it is there, so a
  *   package needs no network then; otherwise `@electron/get` downloads it.
  * - Signing: `codesign --force --deep --sign -` on the packaged `.app` only.
@@ -25,6 +26,7 @@ import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, write
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { packager } from '@electron/packager';
+import { infoPlistAdditions, urlSchemeFromEnv } from './info-plist.mjs';
 import { writeIcns } from './placeholder-icon.mjs';
 
 const here = join(import.meta.dirname, '..');
@@ -65,6 +67,9 @@ function cachedZipDir() {
   return undefined;
 }
 const zipDir = cachedZipDir();
+const urlScheme = urlSchemeFromEnv();
+const extendInfo = infoPlistAdditions({ urlScheme, bundleId: BUNDLE_ID });
+if (urlScheme) console.log('package: OA_DESKTOP_URL_SCHEME=1: Info.plist declares open-artifact://');
 console.log(`package: Electron ${electronVersion} ${zipDir ? `from the cache (${zipDir})` : 'downloaded by @electron/get'}`);
 
 const [appDir] = await packager({
@@ -82,6 +87,7 @@ const [appDir] = await packager({
   appVersion: pkg.version,
   buildVersion: pkg.version,
   darwinDarkModeSupport: true,
+  extendInfo,
   icon,
   asar: true,
   extraResource: [join(here, 'resources', 'runtime')],

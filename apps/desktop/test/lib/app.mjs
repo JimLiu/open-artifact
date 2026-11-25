@@ -69,11 +69,14 @@ export async function launchApp(profile, port, { args = [], env = {}, defaultLoc
       await page.send('Page.enable');
       return page;
     },
-    /** Quits the app as the person would (its window closes), then waits for it to exit. */
-    async quit(timeoutMs = 15_000) {
+    /**
+     * Quits: the window closed as the person would (which asks first when a tab has unsaved work), then SIGTERM,
+     * then SIGKILL. `force`: the app's test-only quit that lets unsaved work go without asking (a test's cleanup).
+     */
+    async quit({ force = false, timeoutMs = 15_000 } = {}) {
       if (!exited) {
         try {
-          await app.chrome?.evaluate('window.close(), true');
+          await app.chrome?.evaluate(force ? 'desktop.test.quit(true)' : 'window.close(), true');
         } catch {
           /* the window went first */
         }

@@ -125,3 +125,13 @@ button:focus-visible {
   outline: 2px solid var(--notice-accent);
   outline-offset: 1px;
 }
+
+/* A message of how something went (Move To…, Open Folder…, Import…): no file to show; a failure in red. */
+.notice-where[hidden],
+.notice-reveal[hidden] {
+  display: none;
+}
+.notice[data-kind='error'] .notice-icon {
+  color: #c0362c;
+  background: color-mix(in srgb, #c0362c 14%, transparent);
+}

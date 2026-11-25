@@ -12,6 +12,8 @@
  * - New, edited, quit, opened again: the edit is still there.
  * - doctor runs.
  * - A copy of the package in another folder starts, and runs its daemon and type servers from there.
+ * - The default package declares no URL scheme: its Info.plist has no CFBundleURLTypes (`OA_DESKTOP_URL_SCHEME=1`
+ *   would add one; that path is checked on `scripts/info-plist.mjs` only, never by building such a package).
  */
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -58,6 +60,12 @@ describe('the packaged app', () => {
     if (moved) rmSync(moved, { recursive: true, force: true });
     if (!process.env.OA_DESKTOP_KEEP) rmSync(profile.root, { recursive: true, force: true });
     assert.deepEqual(left, [], 'processes of the test profile still run');
+  });
+
+  it('the default package declares no URL scheme (no CFBundleURLTypes in its Info.plist)', () => {
+    const plist = JSON.parse(execFileSync('/usr/bin/plutil', ['-convert', 'json', '-o', '-', join(BUNDLE, 'Contents', 'Info.plist')], { encoding: 'utf8' }));
+    assert.equal(plist.CFBundleIdentifier, 'dev.openartifact.desktop');
+    assert.equal('CFBundleURLTypes' in plist, false, JSON.stringify(plist.CFBundleURLTypes));
   });
 
   it('with --home, a port, --test-mode and a throwaway HOME it uses the throwaway folders only', T, async () => {

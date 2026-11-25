@@ -62,14 +62,30 @@ contextBridge.exposeInMainWorld('desktop', {
    * `toast` (`{ message, kind }`).
    */
   onCommand: listen('desktop:command'),
-  /** An artifact's Show in Finder (`reveal`) or Move To… (`move`): `{ ok, value }` or `{ ok: false, error }`. */
+  /**
+   * An artifact's Show in Finder (`reveal`), Move To… (`move`) or Relocate… (`relocate`, a tab whose folder is gone):
+   * `{ ok, value }` or `{ ok: false, error }` (the daemon's words).
+   */
   artifactDo: (act, id) => ipcRenderer.invoke('desktop:artifact-do', String(act), String(id)),
   /**
    * Test mode only (the main process answers these only then): a menu command by name, the menu as built, the
-   * notice showing, the addresses --offline refused, the downloads folder.
+   * notice showing, the addresses --offline refused, the downloads folder, a tab's saved state, the next pick, a link
+   * from open-url, and quitting.
    */
+  /** The person's answer to the question about unsaved work (`state.ask`): its id, and true for the action, false to cancel. */
+  answer: (id, yes) => ipcRenderer.invoke('desktop:answer', String(id), yes === true),
   test: {
     command: (name, arg) => ipcRenderer.invoke('test:command', String(name), arg ?? null),
+    /** What a tab's Shell said of its saving (`{ state, leaveLosesWork }`), set by the test. */
+    saved: (id, saved) => ipcRenderer.invoke('test:saved', String(id), saved ?? null),
+    /** The path the next folder or file dialog picks (a button of the page's names none). */
+    pickNext: (path) => ipcRenderer.invoke('test:pick-next', String(path)),
+    /** macOS's open-url, as the system would send it. */
+    openUrl: (url) => ipcRenderer.invoke('test:open-url', String(url)),
+    /** ⌘Q (asked about as the person's would be); `force`: without asking, for a test's cleanup. */
+    quit: (force) => ipcRenderer.invoke('test:quit', force === true),
+    /** The window's close button (closed by the main process, as the person's click would). */
+    closeWindow: () => ipcRenderer.invoke('test:close-window'),
     menu: () => ipcRenderer.invoke('test:menu'),
     notice: () => ipcRenderer.invoke('test:notice'),
     blocked: () => ipcRenderer.invoke('test:blocked'),

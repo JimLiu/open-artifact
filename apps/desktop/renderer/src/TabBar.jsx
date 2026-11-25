@@ -6,11 +6,12 @@ import { ArtifactsIcon, typeStyle, usePage } from '@open-artifact/library-page';
 import { CloseIcon, PlusIcon } from './icons.jsx';
 import { WindowControls } from './Sidebar.jsx';
 
-const STATUS_WORD = { opening: 'tabs.opening', reconnecting: 'tabs.reconnecting', stopped: 'tabs.stopped', stale: 'tabs.stale', crashed: 'tabs.crashed' };
+const STATUS_WORD = { opening: 'tabs.opening', reconnecting: 'tabs.reconnecting', stopped: 'tabs.stopped', stale: 'tabs.stale', crashed: 'tabs.crashed', missing: 'tabs.missing' };
 
 function ArtifactTab({ tab, selected, title, type, t }) {
   const desktop = window.desktop;
-  const status = STATUS_WORD[tab.status];
+  // While a close (or the app's quit) waits for the save: that word, before what the connection does.
+  const status = tab.closing ? 'tabs.closing' : STATUS_WORD[tab.status];
   return (
     <div
       className="tab"
@@ -20,6 +21,7 @@ function ArtifactTab({ tab, selected, title, type, t }) {
       data-tab={tab.id}
       data-unsaved={String(!!tab.unsaved)}
       data-status={tab.status || undefined}
+      data-closing={tab.closing ? 'true' : undefined}
       title={title}
       onClick={() => void desktop.select(tab.id)}
       onKeyDown={(event) => (event.key === 'Enter' || event.key === ' ') && void desktop.select(tab.id)}
@@ -29,7 +31,7 @@ function ArtifactTab({ tab, selected, title, type, t }) {
       <span className="tab-title">{title}</span>
       {tab.unsaved && <span className="tab-dot" data-testid="unsaved" title={t('tabs.unsaved')} aria-label={t('tabs.unsaved')} />}
       {status &&
-        (tab.status === 'stale' ? (
+        (tab.status === 'stale' && !tab.closing ? (
           <button
             type="button"
             className="tab-state tab-reload"
@@ -42,7 +44,9 @@ function ArtifactTab({ tab, selected, title, type, t }) {
             {t(status)}
           </button>
         ) : (
-          <span className="tab-state">{t(status)}</span>
+          <span className="tab-state" data-testid={tab.closing ? 'tab-closing' : undefined}>
+            {t(status)}
+          </span>
         ))}
       <button
         type="button"

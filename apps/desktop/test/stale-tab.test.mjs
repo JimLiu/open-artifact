@@ -1,7 +1,8 @@
 /**
  * A tab with work that is not saved is not reloaded when the daemon comes back: the doc's folder is made read-only, so
  * what is typed stays unsaved; the service is restarted from its panel; the tab keeps its page and shows Reload; once
- * the folder can be written again, Reload brings the tab back on the new daemon.
+ * the folder can be written again, Reload asks first (the tab's work is not saved): Cancel keeps it as it was, Reload
+ * brings it back on the new daemon. The restart's question names the tab with unsaved work.
  *
  * Throwaway profile, free port that is not 4800; the daemon is stopped by the pid its own daemon.json names.
  */
@@ -50,7 +51,7 @@ describe('a tab with unsaved work when the daemon comes back', () => {
     } catch {
       // Not made.
     }
-    await app?.quit();
+    await app?.quit({ force: true });
     await stopDaemon(profile);
     const left = leftovers(profile);
     if (!process.env.OA_DESKTOP_KEEP) rmSync(profile.root, { recursive: true, force: true });
@@ -88,6 +89,9 @@ describe('a tab with unsaved work when the daemon comes back', () => {
     assert.ok(await page.waitFor(`!!document.querySelector('[data-testid=service-restart]')`));
     await page.evaluate(`document.querySelector('[data-testid=service-restart]').click(), true`);
     assert.ok(await page.waitFor(`!!document.querySelector('[data-testid=confirm-restart-yes]')`));
+    // The question names the tab whose work is not saved.
+    const named = await page.evaluate(`[...document.querySelectorAll('[data-testid=confirm-restart-line]')].map((n) => n.textContent).join(' | ')`);
+    assert.match(named, /Ferry/, `the restart question does not name the unsaved tab: ${named}`);
     await page.evaluate(`document.querySelector('[data-testid=confirm-restart-yes]').click(), true`);
     assert.ok(await until(() => daemonState(profile)?.pid && daemonState(profile).pid !== was && alive(daemonState(profile).pid), 60_000), 'no new daemon');
     assert.ok(await page.waitFor(`document.querySelector('[data-testid=service-panel]')?.dataset.state === 'running'`, 30_000));
@@ -104,7 +108,20 @@ describe('a tab with unsaved work when the daemon comes back', () => {
 
     // The folder can be written again; Reload brings the tab back on the new daemon.
     chmodTree(folder, 0o644, 0o755);
+    // Reload asks first: Cancel keeps the tab as it was.
+    const dialog = `document.querySelector('[data-testid=unsaved-dialog]')`;
     await page.evaluate(`document.querySelector('[data-tab=${js(doc.id)}] .tab-reload').click(), true`);
+    assert.ok(await page.waitFor(`${dialog}?.dataset.kind === 'reload'`), 'Reload did not ask first');
+    assert.equal((await app.state()).ask?.kind, 'reload');
+    await page.evaluate(`document.querySelector('[data-testid=confirm-unsaved-cancel]').click(), true`);
+    await app.line(new RegExp(`reload ${doc.id}: kept \\(cancelled\\)`));
+    assert.ok(await page.waitFor(`!${dialog}`), 'the question stayed up');
+    assert.equal((await tab()).status, 'stale');
+    assert.equal(await view.evaluate('window.__marker'), 'kept', 'Cancel loaded the page again');
+    // Asked again, Reload.
+    await page.evaluate(`document.querySelector('[data-tab=${js(doc.id)}] .tab-reload').click(), true`);
+    assert.ok(await page.waitFor(`${dialog}?.dataset.kind === 'reload'`), 'Reload did not ask the second time');
+    await page.evaluate(`document.querySelector('[data-testid=confirm-unsaved-yes]').click(), true`);
     assert.ok(await until(async () => (await tab())?.status === 'ready', 30_000), js(await tab()));
     await app.line(new RegExp(`tab ${doc.id}: unsaved work let go for the reload asked for`));
     await app.line(new RegExp(`tab ${doc.id}: loaded again`));

@@ -10,6 +10,10 @@
  * `OA_DESKTOP_OFFLINE_REPORT` names, when set); none of it may be needed for the steps above to work.
  *
  * The edit is waited for on disk and in the tab's saved state before the app quits: no fixed waits.
+ *
+ * Then: `ps -E` shows the daemon and at least one type server under it running with `HTTP_PROXY`, `HTTPS_PROXY` and
+ * `NODE_USE_ENV_PROXY=1`; and Slides is exported as PowerPoint with its current fonts, whose outcome (a file, or what
+ * was shown) and what was refused are reported, not asserted: that export may need fonts from the network.
  */
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
@@ -17,7 +21,7 @@ import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'no
 import { createServer } from 'node:http';
 import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
-import { cleanEnv, daemonState, electronBinary, freePort, leftovers, makeProfile, stopDaemon, until } from './lib/env.mjs';
+import { cleanEnv, daemonState, electronBinary, freePort, leftovers, makeProfile, processes, stopDaemon, treeOf, until } from './lib/env.mjs';
 import { launchApp, library } from './lib/app.mjs';
 import { buttonNamed } from './lib/cdp.mjs';
 import { TYPES, editorFrame } from './lib/editing.mjs';
@@ -148,4 +152,61 @@ describe('offline: each type works with no network', () => {
       t.diagnostic(`${type} refused by the proxy (daemon, type servers): ${report[type].proxy.length ? report[type].proxy.join(' | ') : 'nothing'}`);
     });
   }
+
+  it('the daemon and the type servers run with the proxy variables; Slides as PowerPoint with its current fonts (reported)', T, async (t) => {
+    const asked = proxied.length;
+    const app = await launchApp(profile, port, { args: ['--offline'], env });
+    const outcome = {};
+    try {
+      await app.line(/\[desktop\] ready /);
+      await app.connect();
+      const made = await app.command('new:slides');
+      assert.equal(made.ok, true, JSON.stringify(made));
+      const id = made.value.id;
+      const view = await app.view(id);
+      const frame = editorFrame('slides');
+      assert.ok(await until(async () => (await app.state()).tabs.find((x) => x.id === id)?.status === 'ready', 30_000), 'the Shell never said it was ready');
+      assert.ok(await view.waitInFrame(frame, TYPES.slides.drawn, 30_000), 'the editor did not draw');
+      await TYPES.slides.edit(view, frame);
+      const root = (await library(daemonState(profile), `artifact?id=${id}`)).root;
+      assert.ok(await until(() => TYPES.slides.onDisk(root), 20_000), 'the slide did not reach the folder');
+
+      // ps -E: the daemon (started by the kit, detached) and its type servers, with their environment.
+      const daemon = daemonState(profile).pid;
+      let tree = [];
+      const hasProxy = (p) => p.command.includes(` HTTP_PROXY=${env.HTTP_PROXY}`) && p.command.includes(` HTTPS_PROXY=${env.HTTPS_PROXY}`) && / NODE_USE_ENV_PROXY=1( |$)/.test(p.command);
+      assert.ok(await until(() => (tree = treeOf(daemon, processes({ withEnv: true }))).length > 1, 20_000), 'the daemon runs no type server');
+      const [self, ...servers] = tree;
+      assert.equal(self.pid, daemon);
+      assert.ok(hasProxy(self), `the daemon runs without the proxy variables: ${self.command.slice(0, 200)}…`);
+      const withProxy = servers.filter(hasProxy);
+      assert.ok(withProxy.length >= 1, `no type server runs with the proxy variables: ${servers.map((p) => p.command.slice(0, 160)).join(' | ')}`);
+      t.diagnostic(`proxy variables on the daemon (${daemon}) and ${withProxy.length} of ${servers.length} processes under it`);
+
+      // Export with the current fonts: what it needs from the network is what this records; its outcome is reported.
+      const downloads = join(profile.home, 'Downloads');
+      const files = () => (existsSync(downloads) ? readdirSync(downloads) : []);
+      const before = files();
+      const row = 'PowerPoint · PowerPoint, current fonts';
+      await view.clickOn(buttonNamed('Artifact options'));
+      await view.clickOn(buttonNamed('Export'));
+      await view.clickOn(`document.querySelector('[data-export-row="${row}"]:not([disabled])')`, { timeoutMs: 15_000 });
+      let name = null;
+      await until(() => (name = files().find((f) => !before.includes(f) && f.endsWith('.pptx'))), 90_000);
+      if (name) {
+        const bytes = readFileSync(join(downloads, name));
+        outcome.export = { file: name, bytes: bytes.length, zip: bytes.subarray(0, 2).toString() === 'PK' };
+      } else {
+        outcome.export = { file: null, said: (await view.evaluate('document.body.innerText').catch(() => '')).slice(-600), log: app.lines.slice(-20) };
+      }
+    } finally {
+      outcome.blocked = await app.chrome?.evaluate('desktop.test.blocked()').catch(() => null);
+      outcome.proxy = proxied.slice(asked);
+      report.slidesCurrentFonts = outcome;
+      await app.quit({ force: true });
+    }
+    t.diagnostic(`slides, current fonts: ${JSON.stringify(outcome.export)}`);
+    t.diagnostic(`slides, current fonts, refused by --offline: ${(outcome.blocked ?? []).map((b) => `${b.session} ${b.type} ${b.url}`).join(' | ') || 'nothing'}`);
+    t.diagnostic(`slides, current fonts, refused by the proxy: ${outcome.proxy.join(' | ') || 'nothing'}`);
+  });
 });

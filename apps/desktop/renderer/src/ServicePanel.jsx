@@ -58,17 +58,28 @@ export function RuntimeRow({ t, runtime, compact }) {
   );
 }
 
-function Confirm({ t, title, body, extra, action, onCancel, onConfirm, testid }) {
+/**
+ * A question asked before something that cannot be taken back: its title, what it does, more lines (`extra`: one or
+ * a list; empty ones left out), Cancel and the action. The service panel's, and the unsaved-work dialog's.
+ */
+export function Confirm({ t, title, body, extra, action, cancel, onCancel, onConfirm, testid, focusCancel = false }) {
   const yes = useRef(null);
-  useEffect(() => yes.current?.focus(), []);
+  const no = useRef(null);
+  // The button Return presses: the action's, or (where it would let work go) Cancel.
+  useEffect(() => (focusCancel ? no : yes).current?.focus(), [focusCancel]);
+  const lines = (Array.isArray(extra) ? extra : [extra]).filter(Boolean);
   return (
     <div className="service-confirm" role="alertdialog" aria-label={title} data-testid={testid}>
       <span className="confirm-title">{title}</span>
       <span className="confirm-body">{body}</span>
-      {extra && <span className="confirm-body">{extra}</span>}
+      {lines.map((line, i) => (
+        <span className="confirm-body" key={i} data-testid={`${testid}-line`}>
+          {line}
+        </span>
+      ))}
       <div className="confirm-actions">
-        <button type="button" className="button-quiet" onClick={onCancel}>
-          {t('service.cancel')}
+        <button type="button" ref={no} className="button-quiet" data-testid={`${testid}-cancel`} onClick={onCancel}>
+          {cancel ?? t('service.cancel')}
         </button>
         <button type="button" ref={yes} className="button-dark" data-testid={`${testid}-yes`} onClick={onConfirm}>
           {action}
@@ -108,9 +119,10 @@ function Doctor({ t, doctor }) {
 
 /**
  * The panel. `service`, `runtime`: the views; `ask`: open with a question already asked (`restart`, from the update
- * offer's "Restart now"); `onClose()`.
+ * offer's "Restart now"); `unsaved`: the titles of the tabs with unsaved work, named in the restart and stop
+ * questions; `onClose()`.
  */
-export function ServicePanel({ t, service, runtime, ask: asked = null, onClose }) {
+export function ServicePanel({ t, service, runtime, ask: asked = null, unsaved = [], onClose }) {
   const [ask, setAsk] = useState(asked);
   const [error, setError] = useState('');
   const [stopOthers, setStopOthers] = useState(null);
@@ -129,6 +141,7 @@ export function ServicePanel({ t, service, runtime, ask: asked = null, onClose }
   const daemon = service?.daemon ?? null;
   const others = othersOf(service);
   const busy = service?.busy ?? null;
+  const unsavedLine = unsaved.length ? t('service.unsavedTabs', { names: listOf(t, unsaved), have: unsaved.length > 1 ? 'have' : 'has' }) : null;
 
   const act = async (name, arg) => {
     setError('');
@@ -267,6 +280,7 @@ export function ServicePanel({ t, service, runtime, ask: asked = null, onClose }
             testid="confirm-restart"
             title={others.length ? t('service.restartAsk', { apps: listOf(t, others) }) : t('service.restartAskAlone')}
             body={others.length ? t('service.restartBody') : t('service.restartBodyAlone')}
+            extra={unsavedLine}
             action={t('service.restart')}
             onCancel={() => setAsk(null)}
             onConfirm={() => void restart()}
@@ -278,7 +292,7 @@ export function ServicePanel({ t, service, runtime, ask: asked = null, onClose }
             testid="confirm-stop"
             title={t('service.stopAsk')}
             body={t('service.stopBody')}
-            extra={others.length ? t('service.stopOthers', { apps: listOf(t, others) }) : null}
+            extra={[others.length ? t('service.stopOthers', { apps: listOf(t, others) }) : null, unsavedLine]}
             action={t('service.stop')}
             onCancel={() => setAsk(null)}
             onConfirm={() => void stop()}

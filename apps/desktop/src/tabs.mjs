@@ -15,6 +15,13 @@
  * reconnecting (or, when the person stopped the service here, that it is stopped). Once the kit is connected again, each tab whose page had nothing unsaved is loaded again with a new
  * view (the old ticket and the type server's port died with the old daemon), at the place it showed; a tab that had
  * unsaved work is left as it is, marked, for the person to reload when they choose (`reload`).
+ *
+ * Closing a tab the person asks for (the bar's close, ⌘W, the Shell's `close`) goes to `requestClose`, which the main
+ * process gives: it waits for unsaved work to be saved and asks before letting it go. `close` itself closes at once.
+ *
+ * An artifact whose folder is gone (moved or renamed outside Open Artifact: the daemon's `folderMissing`) gets a tab
+ * with no view (`status: 'missing'`, `missing`: the folder the library still names); the window's page draws what to
+ * do about it. Its Shell is never loaded: the daemon would show it as an empty artifact to start again.
  */
 import { WebContentsView, nativeTheme, session as electronSession } from 'electron';
 import { embedArtifact } from '@open-artifact/harness-kit/embed';
@@ -30,16 +37,22 @@ const PERMISSIONS = new Set(['clipboard-sanitized-write']);
 export const HOME_TAB = 'home';
 
 const themeOf = () => ({ scheme: nativeTheme.shouldUseDarkColors ? 'dark' : 'light' });
+
+/** Whether a tab holds work that is not saved, as its Shell said (`saved`: null when it said nothing: not counted). */
+export const unsavedOf = (tab) => !!tab?.saved && (tab.saved.leaveLosesWork === true || tab.saved.state === 'unsaved' || tab.saved.state === 'saving');
 const artifactLink = (id) => `open-artifact://artifact/${id}`;
 export class Tabs {
   /**
    * `window`: the BrowserWindow; `harness`: the kit's connection; `allowlist`: an `OriginAllowlist`; `topInset()`: the
    * height of the window's own bar; `leftInset()`: the width of its sidebar (0 when collapsed); `onChange()`: the tabs
    * changed (the window redraws its bar); `openExternal(url)`; `onSavedFile(path, id)`: a page's server saved a file
-   * (the Shell's `saved_file`); `log(line)`; `testMode`.
+   * (the Shell's `saved_file`); `requestClose(id)`: the Shell asked to close its tab (default: closed at once);
+   * `folderGone(id)`: the folder the library names for an artifact whose folder is not there, else null; `log(line)`;
+   * `testMode`.
    */
-  constructor({ window, harness, allowlist, topInset, leftInset = () => 0, onChange, openExternal, onSavedFile = () => {}, log, testMode = false }) {
-    Object.assign(this, { window, harness, allowlist, topInset, leftInset, onChange, openExternal, onSavedFile, log, testMode });
+  constructor({ window, harness, allowlist, topInset, leftInset = () => 0, onChange, openExternal, onSavedFile = () => {}, requestClose = null, folderGone = async () => null, log, testMode = false }) {
+    Object.assign(this, { window, harness, allowlist, topInset, leftInset, onChange, openExternal, onSavedFile, folderGone, log, testMode });
+    this.requestClose = requestClose ?? ((id) => this.close(id));
     /** The window's page draws over the views: the current one is hidden. */
     this.overlay = false;
     /** Artifact id → tab. */
@@ -74,9 +87,13 @@ export class Tabs {
         id: tab.id,
         title: tab.title || tab.id,
         type: tab.type ?? '',
-        unsaved: tab.saved ? tab.saved.leaveLosesWork || tab.saved.state === 'unsaved' || tab.saved.state === 'saving' : false,
+        unsaved: unsavedOf(tab),
         saved: tab.saved?.state ?? null,
         status: tab.status,
+        /** Waiting for its work to be saved before it closes (or the app quits). */
+        closing: !!tab.closing,
+        /** Its folder is gone: the folder the library still names. */
+        missing: tab.missing ?? null,
       })),
     };
   }
@@ -94,11 +111,17 @@ export class Tabs {
       this.select(id);
       return id;
     }
-    const tab = { id, title: '', type: '', saved: null, status: 'opening', view: null, embed: null, ticket: null, place: null, discard: false };
+    const tab = { id, title: '', type: '', saved: null, status: 'opening', view: null, embed: null, ticket: null, place: null, discard: false, closing: false, missing: null };
     this.tabs.set(id, tab);
     this.current = id;
     this.changed();
     try {
+      const gone = await this.folderGone(id);
+      if (gone) {
+        if (this.tabs.get(id) !== tab) return id;
+        this.markMissing(tab, gone);
+        return id;
+      }
       await this.load(tab);
     } catch (error) {
       this.tabs.delete(id);
@@ -152,7 +175,7 @@ export class Tabs {
         tab.saved = saved;
         this.changed();
       },
-      onClose: () => void this.close(tab.id),
+      onClose: () => void Promise.resolve(this.requestClose(tab.id)).catch((error) => this.log(`close ${tab.id}: ${error?.message ?? error}`)),
       onOpenExternal: (url) => this.external(url),
       onSavedFile: (path) => this.onSavedFile(path, tab.id),
       // A window that is not on screen (test mode, minimized) has nothing to capture.
@@ -246,6 +269,59 @@ export class Tabs {
     return true;
   }
 
+  /** A tab's artifact has no folder (at `root`, where the library had it): no view, the window's page says so. */
+  markMissing(tab, root) {
+    tab.status = 'missing';
+    tab.missing = root;
+    tab.saved = null;
+    tab.embed?.destroy();
+    tab.embed = null;
+    if (tab.view) {
+      this.window.contentView.removeChildView(tab.view);
+      if (!tab.view.webContents.isDestroyed()) tab.view.webContents.close();
+      tab.view = null;
+    }
+    this.log(`tab ${tab.id}: its folder is gone (${root})`);
+    this.layout();
+    this.changed();
+  }
+
+  /** The folder of a tab marked missing is known again (relocated): its Shell is loaded. */
+  async found(id) {
+    const tab = this.tabs.get(id);
+    if (!tab) return false;
+    tab.missing = null;
+    tab.status = 'opening';
+    this.changed();
+    try {
+      await this.load(tab);
+      return true;
+    } catch (error) {
+      tab.status = 'stale';
+      this.log(`tab ${id}: could not load: ${error?.message ?? error}`);
+      this.changed();
+      return false;
+    }
+  }
+
+  /** Waiting for a tab's work to be saved before it closes: its bar says so. */
+  setClosing(id, on) {
+    const tab = this.tabs.get(id);
+    if (!tab || tab.closing === !!on) return;
+    tab.closing = !!on;
+    this.changed();
+  }
+
+  /** Test mode only: what the tab's Shell said of its saving, set by a test (`{ state, leaveLosesWork }`). */
+  setSaved(id, saved) {
+    const tab = this.tabs.get(id);
+    if (!tab) return false;
+    tab.saved = saved;
+    this.log(`tab ${id}: saved set by the test to ${JSON.stringify(saved)}`);
+    this.changed();
+    return true;
+  }
+
   /** The view of the tab in front (null on the home page). */
   currentView() {
     const tab = this.tabs.get(this.current);
@@ -321,15 +397,16 @@ export class Tabs {
     const was = this.connected;
     this.connected = connected;
     if (!connected) {
-      for (const tab of this.tabs.values()) if (tab.status !== 'crashed') tab.status = stopped ? 'stopped' : 'reconnecting';
+      for (const tab of this.tabs.values()) if (tab.status !== 'crashed' && tab.status !== 'missing') tab.status = stopped ? 'stopped' : 'reconnecting';
       this.changed();
       return;
     }
     if (was) return this.changed();
     for (const tab of this.tabs.values()) {
+      // No folder: nothing to load; the person relocates it (or removes it) from the tab.
+      if (tab.status === 'missing') continue;
       // Something was not saved when the daemon went away: leave the page as it is, for the person to decide.
-      const unsaved = tab.saved && (tab.saved.leaveLosesWork || tab.saved.state === 'unsaved' || tab.saved.state === 'saving');
-      if (unsaved) {
+      if (unsavedOf(tab)) {
         tab.status = 'stale';
         this.log(`tab ${tab.id}: kept as it was (it had unsaved work when the daemon went away)`);
         continue;
@@ -346,7 +423,7 @@ export class Tabs {
    */
   async reload(id, { discard = false } = {}) {
     const tab = this.tabs.get(id);
-    if (!tab) return false;
+    if (!tab || tab.status === 'missing') return false;
     tab.discard = discard;
     try {
       await this.load(tab);
