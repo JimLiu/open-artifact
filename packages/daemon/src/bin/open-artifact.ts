@@ -69,6 +69,8 @@ open-artifact types pack <id|folder> [--out <file|dir>]   check a type for shari
 open-artifact types install <file.oatype|https://…> [--as <id>] [--yes]   show what the package is (name, version,
                                                      source, capabilities, network, its SKILL.md), ask, then install it
 open-artifact types update <id> [--yes] | uninstall <id>   fetch an installed type again from its source, or remove it
+open-artifact types publish <id> [--remote <site>] [--visibility private|site|link] | unpublish <id> [--remote <site>]
+                                                     list a type of yours in a site's catalog, or take it off
 open-artifact import <artifact.zip> [--folder <dir>] an artifact's archive (its Download zip) as an artifact here; its
                                                      type (the same uid) must be here
 open-artifact artifact '<json args>'                 the Artifact tool; also: open-artifact data '<json>', open-artifact comments '<json>'
@@ -102,8 +104,9 @@ open-artifact remote add <name> <https://host> [--insecure-http] [--no-browser] 
 open-artifact remote list | status [--json] | remove <name> [--force] [--json]
 open-artifact remote default <name> | --clear        the remote publish uses when none is named (the first one added)
 open-artifact remote auto on|off                     publish every new artifact to the default remote by itself
-open-artifact publish <id|folder> [--remote <name>]  publish an artifact to a cloud remote (its folder keeps syncing;
-                                                     a folder not added yet is added first)
+open-artifact publish <id|folder> [--remote <name>] [--with-type]   publish an artifact to a cloud remote (its folder
+                                                     keeps syncing; a folder not added yet is added first; --with-type
+                                                     publishes its type to the site first)
 open-artifact unpublish <id>                         take it off the host; it is local only again
 open-artifact --version | -v                         print this runtime's version
 publish, unpublish and remote add / remove / default / auto are the person's decisions: run inside an agent's session,
@@ -737,6 +740,14 @@ async function publish(target: string | undefined): Promise<void> {
 }
 
 /** `open-artifact types …`: list, make, check and manage types (`type-authoring.ts`). */
+/** USAGE's `types` lines: each `open-artifact types …` line and the indented lines that go on from it. */
+function typesUsage(lines: string[], i: number): boolean {
+  for (let j = i; j >= 0; j--) {
+    if (!lines[j]!.startsWith(' ')) return lines[j]!.startsWith('open-artifact types ');
+  }
+  return false;
+}
+
 async function types(sub: string | undefined): Promise<void> {
   switch (sub ?? 'list') {
     case 'list': {
@@ -940,6 +951,7 @@ async function main(): Promise<void> {
       if (sub) argv.unshift(sub);
       return mcpBridge();
     case 'types':
+      if (sub === '--help' || sub === '-h' || sub === 'help') return out(USAGE.split('\n').filter((line, i, lines) => typesUsage(lines, i)).join('\n'));
       // `types --workspace <dir>` lists, as `types list` does.
       if (sub?.startsWith('--')) {
         argv.unshift(sub);

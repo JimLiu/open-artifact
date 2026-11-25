@@ -66,6 +66,8 @@ type Any = any;
   let revealHeld = false;
   let revealed = false;
   let connected = false;
+  /** The room's peers as the stream last gave them, for a page that connects (or reloads) after that event. */
+  let peers: unknown[] = [];
   const subs = new Map<string, { kind: 'doc' | 'query'; path: string; spec: unknown; gen: number }>();
   const rerun = new Set<string>();
   let rerunTimer: ReturnType<typeof setTimeout> | null = null;
@@ -133,8 +135,8 @@ type Any = any;
   function onEvent(m: FrameEvent): void {
     if (m.t === 'hello') {
       connected = true;
-      toPage({ __frame_room_ev: true, kind: 'connection', connected: true });
-      toPage({ __frame_room_ev: true, kind: 'peers', peers: m.peers || [] });
+      peers = m.peers || [];
+      sendRoomState();
       for (const id of subs.keys()) rerun.add(id);
       scheduleRerun();
       // The count is the open threads' messages, worked out from the list.
@@ -149,7 +151,8 @@ type Any = any;
     } else if (m.t === 'room') {
       toPage({ __frame_room_ev: true, kind: 'msg', topic: m.topic, data: m.data, from: m.from, by: m.by });
     } else if (m.t === 'peers') {
-      toPage({ __frame_room_ev: true, kind: 'peers', peers: m.peers || [] });
+      peers = m.peers || [];
+      toPage({ __frame_room_ev: true, kind: 'peers', peers });
     } else if (m.t === 'files') {
       if (m.from === client) {
         ver = m.ver;
@@ -217,6 +220,16 @@ type Any = any;
   }
 
   // ---- the page -----------------------------------------------------------------------------------------------------
+
+  /**
+   * The room as it is now. The stream's `hello` usually comes before the page has connected (it is opened first), and a
+   * page that reloads starts again from nothing: each gets this when it connects, so `room.connected()` and `peers()`
+   * do not wait for the next change.
+   */
+  function sendRoomState(): void {
+    toPage({ __frame_room_ev: true, kind: 'connection', connected });
+    toPage({ __frame_room_ev: true, kind: 'peers', peers });
+  }
 
   function toPage(msg: unknown): void {
     if (!pageWin || !contentOrigin) return;
@@ -360,6 +373,7 @@ type Any = any;
       toPage(initMessage());
       toPage(viewportMessage());
       toPage({ __frame_host_visible: { visible: hostVisible() } });
+      sendRoomState();
       sendCommentsState();
       // A page reloaded while commenting comes back into comment mode.
       if (comments.on) toPage({ __open_artifact_comments: true, op: 'mode', on: true });

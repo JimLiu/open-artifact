@@ -261,6 +261,14 @@ The harness asks its questions (`waitFor`, `evaluateAll`, `load`'s `ready`) in a
 **A person's own type on a cloud host** (`host-types.test.mjs`, Chrome only)
 
 - Two daemons on a Node host: the owner's (an admin, linked in Chrome) and a member's (a token from `open-artifact-host link-token`). The type is synthetic (`fixtures/site-type/team-poll`).
+**The page type** (`page.test.mjs`, Chrome only)
+
+- A daemon in the test's process creates a `page` declaring `db` and `network`: it shows its empty state until the agent writes `index.html` (`fixtures/page/`), then renders it, votes into `db/votes/` on disk, and the artifact takes the page's `<title>`.
+- Snapshots and their documents are frozen; `network.origins()` is `[]` for the built-in page; a module import of the database subscribes and writes.
+- `snapshot` draws a PNG at the size and scheme asked, by a read-only viewer: the page's write on load is refused, `db/` is unchanged and the open view does not reload. `_agent/` is not among the artifact's files.
+- `room` declared later: the open view reloads and says `connected()` true with itself as the one peer, without waiting for a change; a second view sees both, and the first view sees the second. (The shell opened its event stream before the page connected, and only the stream's hello carried this, so a view alone said `false` and `[]` for as long as it stayed open.)
+- With the declaration cleared (`{}`), the page reloads and `use('db')` is `null`.
+
 - Publishing an artifact of a type the site lacks is refused, naming the type, `types publish` and `--with-type`; `types publish` inside an agent session is refused; `types publish` keeps the package under the site's data folder, then the artifact publishes.
 - The artifact runs on a page host with no page token in its address, which answers no API; viewer, commenter and editor by share links can do what the type's db rules let them.
 - A new version reaches the open page and the old version's files go; `types unpublish` delists it (the artifact still opens, a new one is refused); `publish --with-type` sends a fresh type first.

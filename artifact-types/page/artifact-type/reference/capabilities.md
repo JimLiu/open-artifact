@@ -73,7 +73,9 @@ Always granted (also as `use('self')`).
 
 - `upload(blob)`: stores a file the person picked or dropped (images, PDFs, audio, video, text; at most 20 MB) and
   resolves to `{ id, url, sizeBytes, contentType, createdAt }`. Use `url` in the page (`<img src>`).
-- `list()`, `delete(idOrUrl)`.
+- `list()`: `{ assets, usage }`, the files stored so far (each as `upload` gave it) and how much of the room they
+  use (`files`, `bytes`, `maxFiles`, `maxBytes`).
+- `delete(idOrUrl)`.
 
 ### `downloads`: a file for the viewer to save
 
@@ -92,7 +94,8 @@ Messages are not stored; use `db` for anything that must last.
 
 - `emit(topic, data)` (at most 4 KB) and `on(topic, (data, from) => …)`.
 - `presence(patch)`, `peers()`, `onPeers(fn)`: who has the page open, and what they share about themselves.
-- `connected()`, `onConnection(fn)`, `join(name)`: a sub-room.
+- `connected()`, `onConnection(fn)`: whether this view reaches the others now (true once the page has loaded).
+- `join(name)`: a sub-room, with topics of its own.
 - `sendToAgentSession(data)`, `canSendToAgentSession()`: hand something to the agent's session.
 
 ### `comments`: threads on the page
