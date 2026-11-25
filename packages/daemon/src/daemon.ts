@@ -1394,7 +1394,7 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
     if (have && now - have.at < 5000) return have.value;
     let newest = 0;
     let seen = 0;
-    const walk = (dir: string, depth: number): void => {
+    const walk = (dir: string, rel: string, depth: number): void => {
       let entries;
       try {
         entries = readdirSync(dir, { withFileTypes: true });
@@ -1403,12 +1403,12 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
       }
       for (const entry of entries) {
         if (seen++ > 4000) return;
-        // Bookkeeping is not content, nor is the agent's own channel (`_agent/`: snapshots, kept conflicts).
-        if (entry.name.startsWith('.') || entry.name === 'node_modules' || entry.name === 'exports') continue;
-        if (depth === 0 && entry.name === '_agent') continue;
+        const path = rel ? `${rel}/${entry.name}` : entry.name;
+        // Bookkeeping (markers, agent state, blobs, history) is not content, nor are exports and dependencies.
+        if (!isContentPath(path) || entry.name === 'node_modules' || entry.name === 'exports') continue;
         const full = join(dir, entry.name);
         if (entry.isDirectory()) {
-          if (depth < 5) walk(full, depth + 1);
+          if (depth < 5) walk(full, path, depth + 1);
         } else {
           try {
             newest = Math.max(newest, statSync(full).mtimeMs);
@@ -1418,7 +1418,7 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
         }
       }
     };
-    walk(record.root, 0);
+    walk(record.root, '', 0);
     const value = newest ? new Date(Math.floor(newest)).toISOString() : record.updatedAt;
     this.contentStamps.set(record.root, { at: now, value });
     return value;
