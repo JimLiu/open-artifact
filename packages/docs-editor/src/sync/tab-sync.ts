@@ -193,6 +193,11 @@ export class TabSync {
   private dropped: Pending[] = [];
   private renewed = false;
   private renewing = false;
+  /**
+   * Names this sync's calls apart from every other sync's: the page's tabs share one session, and the server answers
+   * a call whose `opId` it has seen as a replay of the first, so a second tab counting from 1 again would land nothing.
+   */
+  private readonly opBase: string;
   private calls = 0;
   private localEdits = 0;
 
@@ -224,6 +229,7 @@ export class TabSync {
     this.tab = options.tab;
     this.node = options.node;
     this.session = options.session;
+    this.opBase = `${options.tab}.${nonce()}`;
     this.transport = options.transport;
     this.events = options.events;
     this.backoff = new Backoff(options.retryMs ?? BACKOFF_BASE_MS);
@@ -292,7 +298,7 @@ export class TabSync {
       return 'restored';
     };
     if (!ops.length) return finish(halted.rev);
-    const opId = `${this.session.sess}.r${++this.calls}`;
+    const opId = `${this.session.sess}.${this.opBase}.r${++this.calls}`;
     const member: DocMember = { verb: 'update', ref: { object: 'node', id: this.node }, payload: { ops, ifRev: halted.rev, strict: true } as DocMember['payload'] };
     let answer: DocCallAnswer & Json;
     try {
@@ -438,7 +444,7 @@ export class TabSync {
     let count = 1;
     while (count < this.queued.length && this.queued[count]!.opId === first.opId) count++;
     const items = this.queued.slice(0, count);
-    const opId = first.opId ?? `${this.session.sess}.w${++this.calls}`;
+    const opId = first.opId ?? `${this.session.sess}.${this.opBase}.w${++this.calls}`;
     this.wal?.sent(seqsOf(items), opId);
     this.sending = { opId, items, replay: first.opId !== undefined };
     this.refresh();
@@ -644,6 +650,13 @@ export class TabSync {
 }
 
 const seqsOf = (items: readonly Pending[]): number[] => items.flatMap(item => (item.seq === undefined ? [] : [item.seq]));
+
+/** Eight hex digits, new for each sync, so a tab opened again does not take up its earlier sync's names. */
+function nonce(): string {
+  const bytes = new Uint8Array(4);
+  globalThis.crypto.getRandomValues(bytes);
+  return [...bytes].map(byte => byte.toString(16).padStart(2, '0')).join('');
+}
 
 function safeWal(tab: string, sess: string): TabWal | null {
   try {

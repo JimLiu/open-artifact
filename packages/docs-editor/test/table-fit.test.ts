@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { schema } from '../src/editor/schema.ts';
-import { SIDE_GUTTER, cellFit, columnWidths, fitStyle, fitTable, longestLine, longestWord, measureColumns, tableRoom } from '../src/tables/fit.ts';
+import { LEFT_GUTTER, SIDE_GUTTER, TABLE_LEAD, cellFit, columnWidths, fitStyle, fitTable, longestLine, longestWord, measureColumns, tableLead, tableRoom } from '../src/tables/fit.ts';
 
 const cell = (text: string, attrs: Record<string, unknown> = {}) => schema.nodes.cell!.create(attrs, schema.nodes.paragraph!.create(null, text ? schema.text(text) : null));
 const row = (...cells: ReturnType<typeof cell>[]) => schema.nodes.tableRow!.create(null, cells);
@@ -73,6 +73,18 @@ describe('how far a table of its own may grow', () => {
 
   it('is never narrower than the text', () => {
     assert.equal(tableRoom({ left: 40, width: 680 }, { left: 0, contentWidth: 700, paddingRight: 0 }, 'none'), 680);
+  });
+});
+
+describe('how far left of the text a table of its own may scroll', () => {
+  it('reaches the left edge of the page\'s scrolling box, less a gutter', () => {
+    // Text from x 457 in a box that scrolls from x 0 (or from x 240, beside a column of tabs).
+    assert.equal(tableLead({ left: 457 }, { left: 0 }), 457 - LEFT_GUTTER);
+    assert.equal(tableLead({ left: 697.6 }, { left: 240 }), Math.floor(697.6 - 240 - LEFT_GUTTER));
+  });
+
+  it('keeps at least the room for the row handles in a narrow window', () => {
+    assert.equal(tableLead({ left: 52 }, { left: 0 }), TABLE_LEAD);
   });
 });
 

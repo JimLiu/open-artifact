@@ -369,6 +369,56 @@ describe(TYPE, { skip: skip() }, () => {
     } finally { await browser.close(); }
   });
 
+  // GitHub issue #25: every tab's sync counted its calls from 1 under the page's one session, so the first writes in a
+  // second tab went out under the opIds of the first tab's writes; the server answered them as replays, landed nothing,
+  // and the page read the tab back over what was typed.
+  it('edits typed in a second tab after edits in the first land on disk and stay in the editor', { ...T, skip: chromeSkip() }, async () => {
+    const root = path.join(tmpDir('docs-two-tabs'), 'two-tabs');
+    const born = await ctx.cli.json(['create', root, JSON.stringify({
+      name: 'Two tabs',
+      doc: { markdown: 'Alpha words' },
+      batch: [
+        { $lid: 'second', verb: 'create', object: 'file', payload: { name: 'Second' } },
+        { verb: 'create', object: 'node', payload: { parent: { object: 'file', id: '$lid:second' }, markdown: 'Bravo words' } },
+      ],
+    })]);
+    const { f: first, second } = born.lids;
+    const onDisk = async tab => (await ctx.cli.run(['export', root, '--tab', tab])).stdout;
+    const { url } = await ctx.cli.json(['open', root, '--json']);
+    const editorHas = text => `document.querySelector('iframe[name="open-artifact-shell"]').contentDocument.querySelector('.doc-text')?.innerText.includes(${JSON.stringify(text)})`;
+    const typeAndLand = async (page, tab, line, key) => {
+      await page.type(key);
+      const want = line + key;
+      assert.ok(await until(async () => (await onDisk(tab)).includes(want), 10000), `"${want}" reaches the disk: ${await onDisk(tab)}`);
+      return want;
+    };
+    const browser = await launch();
+    try {
+      const page = await browser.load(url + '#' + first, { ready: textIn('Alpha words'), ignore: [/\/favicon\.ico$/] });
+      await clickInEditor(page, "document.querySelector('.doc-text p')");
+      await page.press('End');
+      let line = 'Alpha words';
+      for (const key of ['1', '2', '3']) line = await typeAndLand(page, first, line, key);
+
+      await clickInEditor(page, `document.querySelector('button[title="Document tabs"]')`);
+      await clickInEditor(page, `document.querySelector('[role=tree] [data-tab-row="${second}"]')`);
+      assert.ok(await page.waitFor(textIn('Bravo words')));
+      await clickInEditor(page, "document.querySelector('.doc-text p')");
+      await page.press('End');
+      line = 'Bravo words';
+      for (const key of ['x', 'y', 'z', 'w']) {
+        line = await typeAndLand(page, second, line, key);
+        // The editor is not read back over what was typed (that came ~150 ms after a replayed answer).
+        await new Promise(resolve => setTimeout(resolve, 400));
+        assert.ok(await page.evaluate(editorHas(line)), `the editor still shows "${line}"`);
+      }
+      assert.match(await onDisk(first), /Alpha words123/);
+      assert.deepEqual(page.problems, []);
+    } finally {
+      await browser.close();
+    }
+  });
+
   it('archive zips the folder beside it', T, async () => {
     const out = await ctx.cli.json(['archive', ctx.root, '--json']);
     assert.ok(fs.existsSync(out.file), JSON.stringify(out));
@@ -505,9 +555,10 @@ describe(`${TYPE} in Chrome: wide tables and folded sections`, { skip: skip() ||
         const bar = document.querySelector('[data-table-dock]').getBoundingClientRect();
         const scroller = document.querySelector('[data-doc-scroll]').getBoundingClientRect();
         const wrapper = document.querySelector('.doc-text > .tableWrapper').getBoundingClientRect();
-        return { bottomGap: Math.round(scroller.bottom - bar.bottom), inside: bar.left >= wrapper.left - 1 && bar.right <= wrapper.right + 1 };
+        return { bottomGap: Math.round(scroller.bottom - bar.bottom), inside: bar.left >= wrapper.left - 1 && bar.right <= wrapper.right + 1, fromWrapperLeft: Math.abs(bar.left - wrapper.left) < 1.5 };
       })()`);
-      assert.deepEqual(placed, { bottomGap: 0, inside: true });
+      // The bar lies under all the table may be scrolled across: from its wrapper's left edge, left of the text.
+      assert.deepEqual(placed, { bottomGap: 0, inside: true, fromWrapperLeft: true });
 
       await inEditor(page, "(() => { document.querySelector('[data-table-dock]').scrollLeft = 150; return true; })()");
       assert.ok(await until(async () => {
@@ -516,16 +567,92 @@ describe(`${TYPE} in Chrome: wide tables and folded sections`, { skip: skip() ||
       }, 5000), `the docked scrollbar did not move the table: ${JSON.stringify(await inEditor(page, scrolls))}`);
 
       // The table scrolled by itself (as the caret or a trackpad does) takes the docked bar along, and at its right end
-      // nothing is cut off any more.
+      // nothing is cut off on the right any more.
       await inEditor(page, "(() => { const w = document.querySelector('.doc-text > .tableWrapper'); w.scrollLeft = w.scrollWidth; return true; })()");
       assert.ok(await until(async () => {
         const now = await inEditor(page, scrolls);
-        return now && now.table > 150 && now.bar === now.table && now.clip === null;
+        return now && now.table > 150 && now.bar === now.table && !(now.clip ?? '').includes('right');
       }, 5000), `the docked scrollbar did not follow the table: ${JSON.stringify(await inEditor(page, scrolls))}`);
 
       await inEditor(page, "(() => { [...document.querySelectorAll('.doc-text p')].find(p => p.textContent === 'After the table.').scrollIntoView({ block: 'center' }); return true; })()");
       assert.ok(await until(async () => !(await inEditor(page, "document.querySelector('[data-table-dock]') ? true : null")), 5000),
         'the docked scrollbar stayed once the foot of the table was in sight');
+      assert.deepEqual(page.problems, []);
+    } finally {
+      await Promise.all([browser.close(), ctx.cli.run(['stop', root])]);
+    }
+  });
+
+  // GitHub issue #26: a table too wide for the room beside the text was cut off 48 px left of the text when scrolled, so
+  // the space left of the centred text was never used. It starts at the text's left edge, and scrolls into that space.
+  it('a table wider than the page starts at the text and scrolls into the space left of it; one that fits does not move', T, async () => {
+    const root = path.join(tmpDir('docs-lead'), 'lead');
+    const row = cells => `| ${cells.join(' | ')} |`;
+    const letters = Array.from({ length: 26 }, (_, i) => String.fromCharCode(65 + i));
+    const fits = ['Owner', 'Area', 'Status', 'Due date', 'Budget', 'Risk level', 'Next review', 'Notes'];
+    const markdown = ['# Lead', '', 'Above the tables.', '',
+      row(fits), row(fits.map(() => '---')), row(['Ana', 'Platform work', 'In progress', '2026-12-01', '$12,000', 'Medium', 'Weekly sync', 'Watch closely']), '',
+      row(letters.map(l => `Column ${l}`)), row(letters.map(() => '---')), ...[1, 2, 3].map(r => row(letters.map(l => `Value ${r}${l}`))), '',
+      'After the tables.', ''].join('\n');
+    const source = path.join(tmpDir('docs-lead-src'), 'lead.md');
+    fs.writeFileSync(source, markdown);
+    await ctx.cli.json(['create', root, '--markdown', source, '--name', 'Lead']);
+    const { url } = await ctx.cli.json(['open', root, '--json']);
+    const browser = await launch();
+    // Where table `i` is, against the text's left edge and the left edge of the page's scrolling box.
+    const where = i => `(() => {
+      const wrapper = document.querySelectorAll('.doc-text > .tableWrapper')[${i}];
+      const text = document.querySelector('.doc-text');
+      const scroller = document.querySelector('[data-doc-scroll]');
+      if (!wrapper || !text || !scroller) return null;
+      const table = wrapper.querySelector(':scope > table').getBoundingClientRect();
+      const box = wrapper.getBoundingClientRect();
+      const textLeft = text.getBoundingClientRect().left + text.clientLeft;
+      const pageLeft = scroller.getBoundingClientRect().left + scroller.clientLeft;
+      const style = getComputedStyle(wrapper);
+      const hit = document.elementFromPoint(pageLeft + 40, table.top + table.height / 2);
+      return {
+        fromText: Math.round(table.left - textLeft),
+        wrapperFromPage: Math.round(box.left - pageLeft),
+        rightGap: Math.round(box.left + wrapper.clientLeft + wrapper.clientWidth - table.right),
+        textLeftOfPage: Math.round(textLeft - pageLeft),
+        overflow: wrapper.scrollWidth - wrapper.clientWidth,
+        scrollLeft: Math.round(wrapper.scrollLeft),
+        clip: wrapper.dataset.clip ?? null,
+        leftEdge: style.borderLeftWidth === '1px' && style.backgroundImage.includes('gradient'),
+        cellAtLeft: !!hit?.closest('td, th') && wrapper.contains(hit),
+      };
+    })()`;
+    const scrollTo = (i, x) => inEditor(page, `(() => { const w = document.querySelectorAll('.doc-text > .tableWrapper')[${i}]; w.scrollIntoView({ block: 'center' }); w.scrollLeft = ${x}; return true; })()`);
+    let page;
+    try {
+      page = await browser.load(url, { ready: "document.querySelectorAll('.doc-text > .tableWrapper').length === 2", settle: 1500, ignore: [/\/favicon\.ico$/] });
+      await scrollTo(1, 0);
+      assert.ok(await until(async () => (await inEditor(page, where(1)))?.clip === 'right', 5000), `the wide table is not cut off on the right: ${JSON.stringify(await inEditor(page, where(1)))}`);
+      const start = await inEditor(page, where(1));
+      // Unscrolled, it starts at the text's left edge, while its wrapper reaches to 24 px (rounded up to a whole pixel of
+      // the text's left edge) from the page's left edge.
+      assert.ok(start.textLeftOfPage > 200, `the window is too narrow to leave room left of the text: ${JSON.stringify(start)}`);
+      assert.deepEqual([start.fromText, start.leftEdge, start.cellAtLeft], [0, false, false], JSON.stringify(start));
+      assert.ok(start.wrapperFromPage >= 24 && start.wrapperFromPage <= 25, `the wrapper does not reach the page's gutter: ${JSON.stringify(start)}`);
+
+      // Part way: it is drawn left of the text, out to the page's gutter, and cut off on both sides.
+      await scrollTo(1, start.textLeftOfPage);
+      assert.ok(await until(async () => (await inEditor(page, where(1)))?.clip === 'left right', 5000), `not cut off on both sides: ${JSON.stringify(await inEditor(page, where(1)))}`);
+      const middle = await inEditor(page, where(1));
+      assert.ok(middle.fromText < -48, `the table did not move past 48 px left of the text: ${JSON.stringify(middle)}`);
+      assert.deepEqual([middle.leftEdge, middle.cellAtLeft], [true, true], `nothing drawn in the space left of the text: ${JSON.stringify(middle)}`);
+
+      // At its right end its last column meets the wrapper's right edge, and only its left side is cut off.
+      await scrollTo(1, 100000);
+      assert.ok(await until(async () => (await inEditor(page, where(1)))?.clip === 'left', 5000), `not cut off on the left only: ${JSON.stringify(await inEditor(page, where(1)))}`);
+      const end = await inEditor(page, where(1));
+      assert.equal(end.scrollLeft, end.overflow);
+      assert.ok(end.rightGap >= 0 && end.rightGap <= 3, JSON.stringify(end));
+
+      // A table wider than the text that fits the room beside it starts at the text and does not scroll.
+      const fitting = await inEditor(page, where(0));
+      assert.deepEqual([fitting.fromText, fitting.overflow, fitting.clip], [0, 0, null], JSON.stringify(fitting));
       assert.deepEqual(page.problems, []);
     } finally {
       await Promise.all([browser.close(), ctx.cli.run(['stop', root])]);

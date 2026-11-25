@@ -342,16 +342,27 @@
 
 /*
  * A table of its own starts at the text's left edge and may be as wide as the room beside the text, up to the comments
- * column or the page's gutter (`--table-room`, tables/fit.ts); its edge is drawn where it is cut off on the right.
+ * column or the page's gutter (`--table-room`, tables/fit.ts). Its wrapper reaches left to the page's gutter
+ * (`--table-left`), so a table too wide for that room scrolls into the space left of the text; its edge is drawn on
+ * each side where it is cut off.
  */
 .doc-text > .tableWrapper {
   box-sizing: content-box;
   width: var(--table-room, auto);
   max-width: none;
+  margin-left: calc(0px - var(--table-left, 48px));
+  padding-left: var(--table-left, 48px);
   margin-right: 0;
   padding-right: 2px;
   display: flex;
   align-items: flex-start;
+}
+
+@media print {
+  .doc-text > .tableWrapper {
+    margin-left: -48px;
+    padding-left: 48px;
+  }
 }
 
 .doc-text > .tableWrapper > table {
@@ -366,13 +377,28 @@
   pointer-events: none;
 }
 
-.doc-text > .tableWrapper[data-clip="right"]::after {
+.doc-text > .tableWrapper[data-clip~="right"]::after {
   position: sticky;
   right: -2px;
   align-self: stretch;
   margin-top: -16px;
   margin-bottom: -16px;
   background: linear-gradient(transparent, var(--doc-table-rule) 16px, var(--doc-table-rule) calc(100% - 16px), transparent) right / 1px 100% no-repeat;
+}
+
+/* The left edge sits in a border of its own, where the scrolled table is never drawn over it. */
+.doc-text > .tableWrapper[data-clip~="left"] {
+  border-left: 1px solid transparent;
+  padding-left: calc(var(--table-left, 48px) - 1px);
+  background: linear-gradient(transparent, var(--doc-table-rule) 16px, var(--doc-table-rule) calc(100% - 16px), transparent) left / 1px 100% no-repeat border-box;
+}
+
+@media print {
+  .doc-text > .tableWrapper[data-clip~="left"] {
+    border-left: 0;
+    padding-left: 48px;
+    background: none;
+  }
 }
 
 /*

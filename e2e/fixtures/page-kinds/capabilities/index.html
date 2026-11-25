@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Capability check</title>
+</head>
+<body>
+<p id="status">Loading…</p>
+<script>
+  // Every use() answer, and what a call on each declared-but-not-served capability rejects with.
+  (async () => {
+    const oa = window.openArtifact;
+    const code = (p) => Promise.resolve().then(p).then(() => 'resolved', (e) => e && e.code);
+    const report = {};
+    for (const name of ['db', 'assets', 'mcp', 'sample', 'tts', 'paste', 'bogus', 'user', 'room']) report[name] = (await oa.use(name)) === null ? null : 'namespace';
+    const [mcp, sample, tts, paste] = await Promise.all(['mcp', 'sample', 'tts', 'paste'].map((n) => oa.use(n)));
+    report.calls = {
+      mcp: await code(() => mcp.callTool('server', 'tool', {})),
+      sample: await code(() => sample.create({ messages: [] })),
+      tts: await code(() => tts.speak('hello')),
+      paste: await code(() => paste.read()),
+    };
+    const self = await oa.use('self');
+    report.selfIsArtifact = self === (await oa.use('artifact'));
+    report.permissions = await (await oa.use('permissions')).state();
+    const user = await oa.use('user');
+    report.me = await user.me();
+    window.report = report;
+    document.getElementById('status').textContent = 'ready';
+  })().catch((error) => { document.getElementById('status').textContent = `failed: ${error.code || error.message}`; });
+</script>
+</body>
+</html>

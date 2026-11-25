@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Editable note</title>
+<style>body { margin: 2rem; font: 15px/1.5 system-ui, sans-serif; background: #fff; color: #111; }</style>
+</head>
+<body>
+<h1 id="heading">First version</h1>
+<p id="status">Loading…</p>
+<script>
+  // A page that writes files beside itself and can replace itself.
+  (async () => {
+    const self = await window.openArtifact.use('artifact');
+    window.note = {
+      self,
+      save: (text, ifMatch) => self.publish({ 'notes/today.txt': text }, ifMatch ? { ifMatch } : undefined),
+      // outerHTML has no doctype: put it back, or the new page renders in quirks mode.
+      replace: (heading) => self.publish('<!doctype html>\n' + document.documentElement.outerHTML
+        .replace(/<h1 id="heading">[^<]*<\/h1>/, `<h1 id="heading">${heading}</h1>`)
+        .replace(/<p id="status">[^<]*<\/p>/, '<p id="status">Loading…</p>')),
+    };
+    document.getElementById('status').textContent = 'ready';
+  })().catch((error) => { document.getElementById('status').textContent = `failed: ${error.code || error.message}`; });
+</script>
+</body>
+</html>

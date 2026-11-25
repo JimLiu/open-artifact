@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Packing list</title>
+<style>
+  :root { --bg: #fafaf7; --fg: #1c1c1a; --line: #e3e2dc; --accent: #2f6f4f; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #151514; --fg: #ecebe6; --line: #2c2c29; --accent: #7cc19a; } }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.5 system-ui, sans-serif; }
+  main { max-width: 480px; margin: 0 auto; padding: 24px 16px; }
+  ul { list-style: none; padding: 0; }
+  li { display: flex; gap: 8px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); }
+  li input { width: 20px; height: 20px; margin: 0; }
+  form { display: flex; gap: 8px; }
+  #text { flex: 1; font: inherit; padding: 8px; }
+  #add { font: inherit; padding: 8px 16px; background: var(--accent); color: var(--bg); border: 0; }
+  li.done span { text-decoration: line-through; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Packing list</h1>
+  <form id="form"><input id="text" name="text" autocomplete="off" placeholder="Add an item"><button id="add">Add</button></form>
+  <ul id="items"></ul>
+  <p id="status">Loading…</p>
+</main>
+<script>
+  // A tool someone uses with the mouse and keyboard: items live in db, so every view and the agent see them.
+  (async () => {
+    const status = document.getElementById('status');
+    const db = await window.openArtifact.use('db');
+    if (!db) { status.textContent = 'cannot save here'; return; }
+    const items = db.collection('items');
+    items.orderBy('at').onSnapshot((snap) => {
+      const list = document.getElementById('items');
+      list.replaceChildren(...snap.docs.map((doc) => {
+        const li = document.createElement('li');
+        li.dataset.id = doc.id;
+        li.className = doc.data().done ? 'done' : '';
+        const box = document.createElement('input');
+        box.type = 'checkbox';
+        box.checked = !!doc.data().done;
+        box.addEventListener('change', () => doc.ref.update({ done: box.checked }));
+        const label = document.createElement('span');
+        label.textContent = doc.data().text;
+        li.append(box, label);
+        return li;
+      }));
+      status.textContent = `${snap.size} items`;
+    }, (error) => { status.textContent = `failed: ${error.code}`; });
+    document.getElementById('form').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const input = document.getElementById('text');
+      const text = input.value.trim();
+      if (!text) return;
+      input.value = '';
+      await items.add({ text, done: false, at: Date.now() });
+    });
+  })().catch((error) => { document.getElementById('status').textContent = `failed: ${error.code || error.message}`; });
+</script>
+</body>
+</html>

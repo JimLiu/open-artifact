@@ -1,6 +1,6 @@
 /**
  * Draws cell colours and fits tables to the page ({@link fitTable}), keeps a table's columns while the caret is in it,
- * marks a table cut off on its right, opens the cell menu on a right-click or the Menu key inside a table, and on
+ * marks a table cut off on its left or right, opens the cell menu on a right-click or the Menu key inside a table, and on
  * Mod-Y, with nothing to redo, inserts again the row or column last inserted.
  */
 import { announce } from '@open-artifact/editor-kit';
@@ -10,7 +10,7 @@ import type { Node as PMNode } from 'prosemirror-model';
 import { type EditorState, Plugin, PluginKey, TextSelection, type Transaction } from 'prosemirror-state';
 import { CellSelection, TableMap, cellAround, columnResizingPluginKey } from 'prosemirror-tables';
 import { Decoration, DecorationSet, type EditorView } from 'prosemirror-view';
-import { type DrawnCell, type PageSide, fitTable, measureColumns, tableRoom } from './fit.ts';
+import { type DrawnCell, type PageSide, fitTable, measureColumns, tableLead, tableRoom } from './fit.ts';
 import { caretIn, cellSelectionHas, refOf, repeatTableInsert, selectionCell, targetOf } from './table-menu.ts';
 import { isHexColor } from './table-ops.ts';
 import { openContextMenu, pagePoint } from './store.ts';
@@ -113,7 +113,10 @@ function cellAtPointer(view: EditorView, event: MouseEvent): number | null {
   return $cell.pos;
 }
 
-/** Keeps `--table-room` on the text's parent: how wide a table of its own may be ({@link tableRoom}). */
+/**
+ * Keeps `--table-room` and `--table-left` on the text's parent: how wide a table of its own may be ({@link tableRoom})
+ * and how far left of the text it may be scrolled into ({@link tableLead}).
+ */
 function roomTracker(view: EditorView): () => void {
   const scroller = view.dom.closest<HTMLElement>('[data-doc-scroll]');
   const holder = view.dom.parentElement;
@@ -128,8 +131,9 @@ function roomTracker(view: EditorView): () => void {
       { left: box.left + scroller.clientLeft, contentWidth: scroller.clientWidth, paddingRight: Number.parseFloat(getComputedStyle(scroller).paddingRight) || 0 },
       side,
     );
-    const value = `${room}px`;
-    if (holder.style.getPropertyValue('--table-room') !== value) holder.style.setProperty('--table-room', value);
+    const lead = tableLead({ left: text.left + view.dom.clientLeft }, { left: box.left + scroller.clientLeft });
+    for (const [name, value] of [['--table-room', `${room}px`], ['--table-left', `${lead}px`]] as const)
+      if (holder.style.getPropertyValue(name) !== value) holder.style.setProperty(name, value);
   };
   const resize = new ResizeObserver(measure);
   resize.observe(scroller);
@@ -141,17 +145,24 @@ function roomTracker(view: EditorView): () => void {
     resize.disconnect();
     column.disconnect();
     holder.style.removeProperty('--table-room');
+    holder.style.removeProperty('--table-left');
   };
 }
 
-/** Marks each table wrapper that hides some of its table on the right (`data-clip="right"`), where an edge is drawn. */
+/**
+ * Marks each table wrapper that hides some of its table: `data-clip` holds `left` when the table is scrolled past the
+ * wrapper's left edge and `right` when more of it lies beyond the right; an edge is drawn on each such side.
+ */
 function clipTracker(view: EditorView): { sync(): void; destroy(): void } {
   if (typeof ResizeObserver === 'undefined') return { sync() {}, destroy() {} };
   const watched = new Set<HTMLElement>();
   const check = (wrapper: HTMLElement) => {
-    const clipped = wrapper.scrollWidth - wrapper.clientWidth - wrapper.scrollLeft > 1;
-    if (clipped !== (wrapper.dataset.clip === 'right')) {
-      if (clipped) wrapper.dataset.clip = 'right';
+    const table = wrapper.querySelector(':scope > table');
+    const left = !!table && wrapper.scrollLeft > 0 && table.getBoundingClientRect().left < wrapper.getBoundingClientRect().left + wrapper.clientLeft - 0.5;
+    const right = wrapper.scrollWidth - wrapper.clientWidth - wrapper.scrollLeft > 1;
+    const clip = [left ? 'left' : '', right ? 'right' : ''].filter(Boolean).join(' ');
+    if (clip !== (wrapper.dataset.clip ?? '')) {
+      if (clip) wrapper.dataset.clip = clip;
       else delete wrapper.dataset.clip;
     }
   };

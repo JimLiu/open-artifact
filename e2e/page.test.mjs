@@ -139,6 +139,30 @@ describe('the page type', { skip: skip() }, () => {
     assert.deepEqual([readPng(fs.readFileSync(builtIn.image)).width, builtIn.height], [640, 480]);
   });
 
+  // The frame's shell opens its event stream before the page connects, and a page that reloads starts from nothing:
+  // the room's state came only with the stream's hello and later changes, so a view alone said connected() false and
+  // peers() [] for as long as it stayed open.
+  it('room: a view is connected and sees who has the page open from the start, after a reload too', T, async () => {
+    const out = await tool({ action: 'publish', url: ctx.url, capabilities: { db: true, network: true, room: true } });
+    assert.deepEqual(out.capabilities, { db: true, network: true, room: true });
+    const state = `window.openArtifact.use('room').then(r => r && { connected: r.connected(), peers: r.peers().length, me: r.peers().filter(p => p.isMe).length })`;
+    // The capability change reloads the open view: its shell's stream stays up, so no new hello comes.
+    let seen;
+    for (let i = 0; i < 100 && seen?.connected !== true; i++) {
+      await sleep(100);
+      seen = await inPage(state).catch(() => undefined);
+    }
+    assert.deepEqual(seen, { connected: true, peers: 1, me: 1 }, 'the reloaded view alone');
+    const second = await ctx.browser.load(`${ctx.daemon.origin}/a/${ctx.id}`, { ready: `${IN_PAGE} && document.getElementById('status')?.textContent === 'voted'`, ignore: [/favicon\.ico/] });
+    try {
+      const inSecond = async expression => (await second.evaluateAll(`${IN_PAGE} ? (${expression}) : undefined`).catch(() => [])).find(v => v !== undefined);
+      assert.deepEqual(await inSecond(state), { connected: true, peers: 2, me: 1 }, 'a second view, as it opens');
+      assert.ok(await ctx.page.waitFor(`${IN_PAGE} && window.openArtifact.room?.peers().length === 2`, 10000), 'the first view sees the second');
+    } finally {
+      await second.close();
+    }
+  });
+
   it('with the declaration cleared, the page reloads and gets no db', T, async () => {
     const out = await tool({ action: 'publish', url: ctx.url, capabilities: {} });
     assert.deepEqual(out.capabilities, {});

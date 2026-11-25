@@ -6,6 +6,46 @@ agent plugins. Since 0.9.0 they all share one version; before that `dsh-open-art
 Each entry is written from the commits since the previous tag (`node scripts/changelog.mjs` lists them); see
 [Releasing](README.md#releasing).
 
+## [0.15.0] - 2026-11-25
+
+Create free HTML pages and custom artifact types, publish them on sites, and work with artifacts in the new Open Artifact Desktop app.
+
+### Added
+
+- Page is a built-in artifact type for HTML experiences, with declared capabilities for data, files, comments, users, rooms and network access. Pages can update themselves and capture snapshots.
+- Create, check, package, install and update custom artifact types. Publish types to Node and Cloudflare sites, discover them on site type pages and install them with consent. Project and installed types run with restrictions appropriate to their trust.
+- Open Artifact Desktop provides a local library, artifact tabs, search, settings, downloads and service controls. Connect sites, open published artifacts, and choose to open agents' artifacts in the app.
+- Start built-in artifacts blank without an agent, add existing folders to the library and relocate moved artifacts. Messages for unowned artifacts wait for the session that takes ownership.
+
+### Changed
+
+- Data exports PDF directly with selectable text and links; Print remains available separately. Dashboards written with claude.ai's design tokens retain their appearance.
+- Copying a share link uses the same shareable address across the title menu, export panel and slide or sheet links, enabling network sharing when needed.
+
+### Fixed
+
+- Docs preserves edits made in a second tab and recovers pending edits from a closed page. Wide tables can scroll into the space beside the text.
+- Page views receive the current connection and peer state immediately, and pages that publish their own HTML can continue publishing without stale versions or duplicate runtime scripts.
+- Browser discovery finds Windows Chrome and Edge installations in configured system and per-user locations.
+
+### Integrators
+
+- Harness adapters can open a view without an agent session using `view.open`; Shell reports save state and can hide its artifact switcher for hosts with their own library. The harness kit adds view, daemon restart and stop controls, and embed save-state callbacks.
+- Wake messages for unowned artifacts are retained until ownership is assigned and delivered in order with their send times. Shell messages to a host also preserve their order.
+- Hosts can serve Page artifacts and published custom types; see the hosting and integration guides for capabilities, site configuration and trust restrictions.
+
+## [0.14.7] - 2026-11-25
+
+Data prints the dashboard again: Export → PDF and the browser's Print showed a blank sheet.
+
+### Fixed
+
+- In Data, Export → PDF and the browser's Print showed a blank page with only the data note under it (#24). The print rules that hide the editor around the dashboard also hid the dashboard's own content. The dashboard now prints at its full length, with the data note under it and nothing of the editor around it.
+
+### Integrators
+
+- The Harness API, Shell and wake messages, harness kit, stdio bridge and shipped profiles are unchanged.
+
 ## [0.14.6] - 2026-11-23
 
 Design lists the errors of its artboards where you can see them and asks the agent to fix them, and the MCP App card says when the app keeps the artifact's page out of the conversation, as Codex does, and always leaves a way to open the page.
@@ -585,6 +625,8 @@ One version for every package, with Docs and Sheets in every plugin.
 - Plugins for Claude Code, Codex, Cursor, Copilot, ChatGPT and DeepSeek Harness.
 - English and Chinese READMEs, under Apache-2.0.
 
+[0.15.0]: https://github.com/JimLiu/open-artifact/compare/v0.14.7...v0.15.0
+[0.14.7]: https://github.com/JimLiu/open-artifact/compare/v0.14.6...v0.14.7
 [0.14.6]: https://github.com/JimLiu/open-artifact/compare/v0.14.5...v0.14.6
 [0.14.5]: https://github.com/JimLiu/open-artifact/compare/v0.14.4...v0.14.5
 [0.14.4]: https://github.com/JimLiu/open-artifact/compare/v0.14.3...v0.14.4

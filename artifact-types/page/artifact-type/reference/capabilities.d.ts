@@ -86,7 +86,7 @@ export interface PublishResult {
 
 export interface ArtifactSelf {
   readonly id: string;
-  /** A whole new index.html; every open view reloads. */
+  /** A whole new index.html; every open view reloads. Sent from `outerHTML`, the runtime served in `<head>` is left out. */
   publish(html: string): Promise<PublishResult>;
   /** Files beside the page; `null` deletes one. */
   publish(
@@ -109,7 +109,7 @@ export interface Asset {
 
 export interface Assets {
   upload(blob: Blob, options?: { type?: string }): Promise<Asset>;
-  list(): Promise<unknown>;
+  list(): Promise<{ assets: Asset[]; usage: { files: number; bytes: number; maxFiles: number; maxBytes: number } }>;
   delete(idOrUrl: string | { id?: string; url?: string }): Promise<{ deleted: boolean }>;
 }
 
@@ -152,7 +152,7 @@ export interface User {
 
 export interface Peer {
   peer: string;
-  by: string;
+  by: string | null;
   name: string;
   presence: Record<string, Json>;
   isMe: boolean;
@@ -160,7 +160,7 @@ export interface Peer {
 
 export interface Room {
   emit(topic: string, data: Json): Promise<unknown>;
-  on(topic: string, handler: (data: Json, from: { peer: string; by: string; isMe: boolean }) => void): Unsubscribe;
+  on(topic: string, handler: (data: Json, from: { peer: string; by: string | null; isMe: boolean }) => void): Unsubscribe;
   presence(patch: Record<string, Json>): Promise<unknown>;
   peers(): Peer[];
   onPeers(fn: (peers: Peer[]) => void): Unsubscribe;

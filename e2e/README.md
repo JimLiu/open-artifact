@@ -126,6 +126,15 @@ The harness asks its questions (`waitFor`, `evaluateAll`, `load`'s `ready`) in a
 - `open` serves the page and reuses the address. In Chrome, the grid shows the sheet, and an `update` sent while it is open reaches the formula bar at once.
 - `comments` lists no threads on a new Sheet; `stop` stops the server.
 
+**Docs: writing in a second tab** (`docs.test.mjs`, one case, Chrome only)
+
+- A doc with two tabs is opened on the first. Three characters are typed there, one at a time, and each reaches the disk (`export --tab`). The second tab is chosen from the tab list in the page bar, and four characters are typed at the end of its line: each reaches the disk, and 400 ms later the editor still shows it. Before the fix for issue #25, every tab's sync counted its calls from 1 under the page's one session, so the second tab's first three writes went out under the first tab's opIds; the server answered them as replays, landed nothing, and the page read the tab back over the typing.
+
+**Docs: wide tables** (`docs.test.mjs`, two cases in the "wide tables and folded sections" group, Chrome only)
+
+- A tall 16-column table docks a scrollbar at the foot of the window, from its wrapper's left edge; the bar and the table scroll together, and at the right end the table is no longer cut off on its right.
+- A 26-column table starts at the text's left edge, and its wrapper reaches to 24 px from the page's left edge. Scrolled by the width of the space left of the text, it is drawn there (a cell is under a point 40 px from the page's edge) and is cut off on both sides (`data-clip="left right"`, with the left edge drawn); at its right end only on the left. An 8-column table wider than the text that fits the room beside it starts at the text and does not scroll. Before the fix for issue #26, the wrapper stopped 48 px left of the text, so a scrolled table was cut off there and the space left of the centred text stayed empty.
+
 **Data: claude.ai token names** (`data.test.mjs`, a check case each way and one case in Chrome)
 
 - A page whose CSS writes the names of the dashboards on claude.ai (`--cds-pad-lg`, `--cds-gap-md`, `--cds-radius`, `--font-anthropic-serif`, `--cds-chart-status-critical`) passes `check`; a claude.ai name with nothing behind it here (`--cds-text-accent`) fails it with an error saying only the names in `reference/design-defaults.md` are set.
@@ -251,6 +260,24 @@ The harness asks its questions (`waitFor`, `evaluateAll`, `load`'s `ready`) in a
 - MP4 is skipped, and said so, where this Chrome has no H.264 encoder.
 - With "Viewers can download and export" off, a viewer who joined by link is refused with a readable message and gets no file; turned on, the same export downloads.
 - A to-do case: a Docs file keeps the doc's name (it needs the type server to expose `content-disposition` to the Shell).
+
+**The page type** (`page.test.mjs`, Chrome only)
+
+- A daemon in the test's process creates a `page` declaring `db` and `network`: it shows its empty state until the agent writes `index.html` (`fixtures/page/`), then renders it, votes into `db/votes/` on disk, and the artifact takes the page's `<title>`.
+- Snapshots and their documents are frozen; `network.origins()` is `[]` for the built-in page; a module import of the database subscribes and writes.
+- `snapshot` draws a PNG at the size and scheme asked, by a read-only viewer: the page's write on load is refused, `db/` is unchanged and the open view does not reload. `_agent/` is not among the artifact's files.
+- `room` declared later: the open view reloads and says `connected()` true with itself as the one peer, without waiting for a change; a second view sees both, and the first view sees the second. (The shell opened its event stream before the page connected, and only the stream's hello carried this, so a view alone said `false` and `[]` for as long as it stayed open.)
+- With the declaration cleared (`{}`), the page reloads and `use('db')` is `null`.
+
+**Kinds of page** (`page-kinds.test.mjs`, Chrome only)
+
+- A daemon in the test's process makes six pages the way an agent does (`Artifact` publish with the capabilities each declares, then the files from `fixtures/page-kinds/`), each opened in the Shell.
+- Multi-file: a stylesheet, a module that imports another module, an SVG image and a JSON file fetched beside the page all load, with no problems in the page.
+- Checklist (`db`): two items typed and added and the first ticked with the real mouse and keyboard reach `db`, and `ArtifactData` `list` reads them as the person left them. An item the agent `set`s and an edit it `update`s show in the open page; an `update` with a stale `if_match` is refused as `conflict`.
+- Files (`assets`, `downloads`): an uploaded SVG is stored under `_blobs/` with its bytes and drawn from its `url`; `list()` gives it with `usage`, the same bytes again are the same asset, the page's Export button downloads a JSON file the browser saves, and `delete` takes it off the list, the page and the disk.
+- Feedback (`comments`): a thread the page places and sends reaches `ArtifactComments` `read` with its anchor and the agent's status, in `comments.json`; the agent's reply reaches the page as the agent's.
+- Self-edit (nothing declared): `artifact.publish` of a file beside the page writes it and keeps the view running; `ifMatch` with an old sha256 is refused as `conflict`. Then the page publishes itself (`outerHTML` with a new heading): it is not refused as stale after its own file writes, its answer is not an error, both open views reload with the new heading, and `index.html` is the page as written, without the runtime served in its `<head>`. (Before the fix, the view kept the version it loaded with, so its own file writes made its next publish a `conflict`; the reload that a page publish starts rejected that publish's own pending call; and the boot script and runtime tag were written into the file and ran twice on every later load.)
+- Capabilities: `mcp`, `sample`, `tts` and `paste` give a namespace whose calls reject with their codes (`server_not_connected`, `tools_unavailable`, `capability_disabled`); an unknown name and an undeclared `db` give `null`; `artifact` and `self` are the same; `user.me()` is the owner, with no email. In two views, a message on the `team` sub-room reaches only that sub-room, and one on the room itself only the room.
 
 **A page artifact on a cloud host** (`host-page.test.mjs`, Chrome only)
 
