@@ -19,7 +19,9 @@ export const PRINT_CSS =
   '@media print{' +
   'html,body{background:#fff!important;color-scheme:light!important}' +
   `[${PRINT_PATH_ATTRIBUTE}]{overflow:visible!important;block-size:auto!important;max-block-size:none!important;min-block-size:0!important;position:static!important;display:block!important;transform:none!important;margin:0!important;border:0!important;box-shadow:none!important}` +
-  `[${PRINT_PATH_ATTRIBUTE}]>:not([${PRINT_PATH_ATTRIBUTE}]){display:none!important}` +
+  // What sits beside the path is hidden, but not the page inside `#dash-root` (which carries the mark itself): hiding
+  // its children printed a blank sheet (issue #24). `:where` keeps the rule as weak as before, so the note still shows.
+  `[${PRINT_PATH_ATTRIBUTE}]:not(:where(#${DASHBOARD_ROOT_ID}))>:not([${PRINT_PATH_ATTRIBUTE}]){display:none!important}` +
   `#${DASHBOARD_ROOT_ID}{print-color-adjust:exact;-webkit-print-color-adjust:exact}` +
   PRINT_NOTE_CSS +
   '}';

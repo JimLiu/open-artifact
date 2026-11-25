@@ -120,6 +120,10 @@ The harness asks its questions (`waitFor`, `evaluateAll`, `load`'s `ready`) in a
 - `open` serves the page and reuses the address. In Chrome, the grid shows the sheet, and an `update` sent while it is open reaches the formula bar at once.
 - `comments` lists no threads on a new Sheet; `stop` stops the server.
 
+**Data: printing** (`data.test.mjs`, one case, Chrome only)
+
+- The fixture dashboard, opened by `open`, is laid out for print (`Emulation.setEmulatedMedia`) and sent `beforeprint`, as the PDF button and the browser's Print both mark the dashboard's path. The dashboard prints at its full length with its title, the data note prints under it, and nothing of the editor around it shows; `afterprint` clears the marks. Before the fix for issue #24, the sheet held only the data note.
+
 **Cloud host** (`host.test.mjs`, Chrome only)
 
 - The real host (`packages/host`) on a free port, with its own data folder and an imported whiteboard. The app is on `localhost`, and each artifact is on its own `*.content.localhost` origin.
