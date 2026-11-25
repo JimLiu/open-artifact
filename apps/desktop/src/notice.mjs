@@ -10,6 +10,7 @@
  */
 import { WebContentsView, ipcMain } from 'electron';
 import { join } from 'node:path';
+import { isPageAt, pageUrlOf } from './page-url.mjs';
 
 const WIDTH = 380;
 const HEIGHT = 84;
@@ -21,13 +22,12 @@ export class Notice {
   constructor({ window, dir, words, reveal, log, testMode = false }) {
     Object.assign(this, { window, words, revealId: reveal, log, testMode });
     this.page = join(dir, 'renderer', 'notice', 'notice.html');
-    this.url = new URL(`file://${this.page}`).href;
     this.view = null;
     this.loaded = null;
     this.current = null;
     this.timer = null;
     this.hovered = false;
-    const mine = (event) => this.view && event.sender === this.view.webContents && event.senderFrame?.url === this.url;
+    const mine = (event) => this.view && event.sender === this.view.webContents && isPageAt(event.senderFrame?.url, this.page);
     ipcMain.on('notice:ready', () => {});
     ipcMain.on('notice:reveal', (event, id) => {
       if (!mine(event)) return this.log(`refused notice:reveal from ${event.senderFrame?.url ?? '?'}`);
@@ -63,7 +63,7 @@ export class Notice {
     contents.setWindowOpenHandler(() => ({ action: 'deny' }));
     this.view.setVisible(false);
     this.window.contentView.addChildView(this.view);
-    this.loaded = contents.loadFile(this.page).catch((error) => this.log(`notice: ${error?.message ?? error}`));
+    this.loaded = contents.loadURL(pageUrlOf(this.page)).catch((error) => this.log(`notice: ${error?.message ?? error}`));
     return this.loaded;
   }
 

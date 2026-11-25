@@ -25,7 +25,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, unl
 import { join, resolve } from 'node:path';
 import { after, before, beforeEach, describe, it } from 'node:test';
 import { APP, NO_NODE_PATH, alive, daemonState, freePort, leftovers, makeProfile, processes, stopDaemon, treeOf, until } from '../lib/env.mjs';
-import { launchApp, launchArtifactApp, library } from '../lib/app.mjs';
+import { forgetLaunchedDefaults, launchApp, launchArtifactApp, library } from '../lib/app.mjs';
 import { TYPES, editorFrame } from '../lib/editing.mjs';
 
 const T = { timeout: 300_000 };
@@ -154,6 +154,8 @@ describe('install as app (the packaged app)', () => {
     } catch {}
     await desktop?.quit({ force: true }).catch(() => {});
     await stopDaemon(profile);
+    // The preferences macOS kept for the apps this file started (their exact bundle ids only).
+    forgetLaunchedDefaults();
     const left = leftovers(profile);
     rmSync(profile.root, { recursive: true, force: true });
     assert.deepEqual(left, [], 'processes of the test profile still run');

@@ -99,6 +99,7 @@ export function menuTemplate({ t, types = [], run, enabled = () => true, appName
         sep,
         command('reveal', t('menu.reveal'), { accelerator: 'CmdOrCtrl+Alt+R' }),
         command('move', t('menu.move')),
+        command('install-app', t('menu.installApp')),
         sep,
         command('close-tab', t('menu.closeTab'), { accelerator: 'CmdOrCtrl+W' }),
         ...(mac ? [] : [sep, { role: 'quit', label: t('menu.quit', { app: appName }) }]),

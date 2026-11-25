@@ -173,12 +173,20 @@ It is a Harness API host like the examples, built on `@open-artifact/harness-kit
 - **Packaging** (`apps/desktop/scripts/package.mjs`): a folder-form arm64 `.app`, the code in `app.asar`, the runtime
   in `Contents/Resources/runtime` (found through `process.resourcesPath`), `RunAsNode` left on, signed ad hoc.
 - **Artifacts installed as apps** (`apps/desktop/src/installed-apps.mjs`, `installed-apps-macos.mjs`,
-  `artifact-app.mjs`; no entry point in the UI yet): an APFS clone of the packaged app in
+  `artifact-app.mjs`, `renderer/src/InstallAppDialog.jsx`): **Install as App…** in a card's More menu (the library
+  page's `cardActions`), a sidebar row's and a tab's right-click menu and the File menu opens one dialog (unavailable,
+  available, installing, installed, needs repair). An APFS clone of the packaged app in
   `~/Applications/Open Artifact Apps/`, with its own display name, bundle id and type icon and
-  `Contents/Resources/artifact-app.json`, signed ad hoc on the outer package; records in `<home>/desktop/apps/`. The
-  build's entry is `src/start.mjs`, which runs the single-artifact window when that file is there. That app connects as
-  harness `open-artifact-app`, starts the daemon with the desktop app's executable, and hands other artifacts and the
-  library to the desktop app; agents' opens go to the desktop app only. See `apps/desktop/README.md`.
+  `Contents/Resources/artifact-app.json`, signed ad hoc on the outer package; records in `<home>/desktop/apps/`
+  (`installing`, `installed`, `uninstalling`, `refreshing`), checked again at every start. Uninstall asks a running app
+  to quit through its record (its pid in `running.json`; 15 s, then given up), then the package goes to the Trash and
+  `defaults delete <bundle id>` runs. Refresh and repair rebuild beside the old package and swap it in with the same
+  install id, bundle id and path; the apps made by another desktop version are refreshed after the check at start. A
+  package renamed inside the install folder is claimed (by the desktop app and by the app itself); one moved out is
+  not. The build's entry is `src/start.mjs`, which runs the single-artifact window when that file is there. That app
+  connects as harness `open-artifact-app`, starts the daemon with the desktop app's executable (its own when that cannot
+  be found), and hands other artifacts and the library to the desktop app; agents' opens go to the desktop app only.
+  See `apps/desktop/README.md`.
 
 ## Agent tools & wake loop
 

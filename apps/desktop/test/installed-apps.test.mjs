@@ -90,7 +90,13 @@ function world({ artifacts = {}, types = [{ id: 'docs' }, { id: 'remote-thing', 
       }
     },
     launch: real.launch,
+    // Never the person's preferences from a unit test: what would be forgotten is only noted.
+    forgetDefaults(bundleId) {
+      forgotten.push(bundleId);
+      return true;
+    },
   };
+  const forgotten = [];
   const library = {
     async record(id) {
       const found = artifacts[id];
@@ -116,7 +122,7 @@ function world({ artifacts = {}, types = [{ id: 'docs' }, { id: 'remote-thing', 
       randomId: randomId ?? (() => `00000000-0000-4000-8000-${String(++n).padStart(12, '0')}`),
       ...extra,
     });
-  return { root, userHome, home, template, icons, installDir, logs, ops, real, library, signed, apps: make(), make };
+  return { root, userHome, home, template, icons, installDir, logs, ops, real, library, signed, forgotten, apps: make(), make };
 }
 const appsIn = (dir) => (existsSync(dir) ? readdirSync(dir).filter((name) => name.endsWith('.app')).sort() : []);
 
@@ -237,7 +243,7 @@ describe('install as app: states and installs', () => {
 
   it('available, then installed: the package, its Info.plist, icon and artifact-app.json, the record', async () => {
     const w = world({ artifacts: docs });
-    assert.deepEqual(await w.apps.state('a1'), { state: 'available', suggestedName: '季度复盘', needsCopy: false });
+    assert.deepEqual(await w.apps.state('a1'), { state: 'available', suggestedName: '季度复盘', needsCopy: false, installDir: w.installDir });
     const out = await w.apps.install('a1', { confirmedName: '季度复盘' });
     assert.equal(out.launch, 'skipped');
     assert.equal(out.state.state, 'installed');
@@ -258,7 +264,7 @@ describe('install as app: states and installs', () => {
     assert.equal(record.templatePath, w.template);
     assert.equal(record.tempPath, undefined);
     assert.equal(record.cloned, true, 'the test folder is on APFS: cloned');
-    assert.deepEqual(await w.apps.state('a1'), { state: 'installed', installId: out.state.installId, displayName: '季度复盘', stale: false });
+    assert.deepEqual(await w.apps.state('a1'), { state: 'installed', installId: out.state.installId, displayName: '季度复盘', bundlePath: bundle, stale: false, running: false });
     assert.deepEqual(checkLaunch({ manifest: w.real.readManifest(bundle), bundlePath: bundle }), { ok: true, record });
   });
 
@@ -328,7 +334,9 @@ describe('install as app: states and installs', () => {
     const w = world({ artifacts: docs });
     const ops = { ...w.ops, sameVolume: () => false, canClone: () => false };
     const apps = w.make({ ops });
-    assert.deepEqual(await apps.state('a1'), { state: 'available', suggestedName: '季度复盘', needsCopy: true });
+    const asked = await apps.state('a1');
+    assert.deepEqual({ ...asked, copyBytes: undefined }, { state: 'available', suggestedName: '季度复盘', needsCopy: true, installDir: w.installDir, copyBytes: undefined });
+    assert.ok(asked.copyBytes > 0, 'the room a copy takes is said');
     const first = await apps.install('a1');
     assert.equal(first.needsCopy, true);
     assert.deepEqual(appsIn(w.installDir), []);
@@ -345,26 +353,48 @@ describe('install as app: states and installs', () => {
     assert.equal((await later.state('a1')).stale, true);
   });
 
-  it('a package removed in the Finder is forgotten: its record and its own folder', async () => {
+  it('a package removed in the Finder: needs repair (missing); Repair builds it again in its place, Remove Record forgets it', async () => {
     const w = world({ artifacts: docs });
     const { state } = await w.apps.install('a1');
     mkdirSync(artifactAppDir(w.home, state.installId), { recursive: true });
-    rmSync(join(w.installDir, '季度复盘.app'), { recursive: true });
-    assert.equal((await w.apps.state('a1')).state, 'available');
+    const bundle = join(w.installDir, '季度复盘.app');
+    rmSync(bundle, { recursive: true });
+    assert.deepEqual(await w.apps.state('a1'), { state: 'needsRepair', installId: state.installId, reason: 'missing', repairable: true });
+    const repaired = await w.apps.repair('a1', state.installId);
+    assert.equal(repaired.rebuilt, true, JSON.stringify(repaired));
+    assert.equal(repaired.state.installId, state.installId);
+    assert.equal(w.ops.verify(bundle), true);
+    rmSync(bundle, { recursive: true });
+    const forgotten = await w.apps.forgetRecord('a1', state.installId);
+    assert.equal(forgotten.state.state, 'available');
     assert.equal(readRecords(w.home).length, 0);
     assert.ok(!existsSync(artifactAppDir(w.home, state.installId)));
   });
 
-  it('a package in its place that is not the record\'s, or an uninstall cut short: needs repair, nothing removed', async () => {
+  it('a package in its place that is not the record\'s: needs repair, not repairable, nothing removed', async () => {
     const w = world({ artifacts: docs });
     const { state } = await w.apps.install('a1');
     const bundle = join(w.installDir, '季度复盘.app');
     writeFileSync(join(bundle, 'Contents', 'Resources', 'artifact-app.json'), JSON.stringify({ installId: 'other' }));
-    assert.deepEqual(await w.apps.state('a1'), { state: 'needsRepair', installId: state.installId, reason: 'replaced' });
+    assert.deepEqual(await w.apps.state('a1'), { state: 'needsRepair', installId: state.installId, reason: 'replaced', repairable: false });
     assert.ok(existsSync(bundle));
+  });
+
+  it('an uninstall cut short before its package went: installed again; after: the rest removed', async () => {
+    const w = world({ artifacts: docs });
+    const { state } = await w.apps.install('a1');
     const file = recordPathOf(w.home, state.installId);
-    writeFileSync(file, JSON.stringify({ ...JSON.parse(readFileSync(file, 'utf8')), phase: 'uninstalling' }));
-    assert.equal((await w.apps.state('a1')).reason, 'uninstall-interrupted');
+    const record = JSON.parse(readFileSync(file, 'utf8'));
+    writeFileSync(file, JSON.stringify({ ...record, phase: 'uninstalling', before: 'installed' }));
+    assert.equal((await w.apps.state('a1')).state, 'installed');
+    assert.equal(JSON.parse(readFileSync(file, 'utf8')).before, undefined);
+    mkdirSync(artifactAppDir(w.home, state.installId), { recursive: true });
+    writeFileSync(file, JSON.stringify({ ...record, phase: 'uninstalling', before: 'installed' }));
+    rmSync(record.bundlePath, { recursive: true });
+    assert.equal((await w.apps.state('a1')).state, 'available');
+    assert.equal(readRecords(w.home).length, 0);
+    assert.ok(!existsSync(artifactAppDir(w.home, state.installId)));
+    assert.deepEqual(w.forgotten, [record.bundleId]);
   });
 
   it('open and reveal only the package its record names', async () => {
@@ -422,7 +452,7 @@ describe('install as app: an install cut short, then put right', () => {
   it('at "placed" with a signature that does not check: needs repair, the package left', async () => {
     const { w, fresh } = await cutAt('placed');
     writeFileSync(join(w.installDir, 'Plan.app', 'Contents', 'signature'), 'broken');
-    assert.deepEqual(await fresh.state('a1'), { state: 'needsRepair', installId: readRecords(w.home)[0].record.installId, reason: 'signature' });
+    assert.deepEqual(await fresh.state('a1'), { state: 'needsRepair', installId: readRecords(w.home)[0].record.installId, reason: 'signature', repairable: true });
     assert.deepEqual(appsIn(w.installDir), ['Plan.app']);
   });
 
@@ -528,5 +558,330 @@ describe('the single-artifact app: its file and its profile', () => {
 
   it('the install folder is in HOME\'s Applications', () => {
     assert.equal(installDirOf('/Users/a'), '/Users/a/Applications/Open Artifact Apps');
+  });
+});
+
+describe('install as app: renamed or moved in the Finder', () => {
+  const docs = { a1: { title: 'Plan', type: 'docs' } };
+
+  it('renamed in the install folder: the record takes the package, its path and its name', async () => {
+    const w = world({ artifacts: docs });
+    const { state } = await w.apps.install('a1');
+    renameSync(join(w.installDir, 'Plan.app'), join(w.installDir, 'My Plan.app'));
+    const now = await w.apps.state('a1');
+    assert.equal(now.state, 'installed', JSON.stringify(now));
+    assert.equal(now.installId, state.installId);
+    assert.equal(now.displayName, 'My Plan');
+    assert.equal(now.bundlePath, join(w.installDir, 'My Plan.app'));
+    const [{ record }] = readRecords(w.home);
+    assert.equal(record.bundlePath, join(w.installDir, 'My Plan.app'));
+    assert.equal(record.bundleId, `${BUNDLE_ID_PREFIX}${state.installId}`, 'the bundle id stays');
+    const bundle = join(w.installDir, 'My Plan.app');
+    assert.equal(checkLaunch({ manifest: w.real.readManifest(bundle), bundlePath: bundle }).ok, true);
+  });
+
+  it('renamed, but its signature does not check: needs repair (repairable), the package left', async () => {
+    const w = world({ artifacts: docs });
+    await w.apps.install('a1');
+    renameSync(join(w.installDir, 'Plan.app'), join(w.installDir, 'Other.app'));
+    writeFileSync(join(w.installDir, 'Other.app', 'Contents', 'signature'), 'broken');
+    const now = await w.apps.state('a1');
+    assert.equal(now.reason, 'signature');
+    assert.equal(now.repairable, true);
+    assert.deepEqual(appsIn(w.installDir), ['Other.app']);
+  });
+
+  it('two packages of the record in the install folder: needs repair, neither claimed nor removed', async () => {
+    const w = world({ artifacts: docs });
+    await w.apps.install('a1');
+    cpSync(join(w.installDir, 'Plan.app'), join(w.installDir, 'Plan copy.app'), { recursive: true });
+    renameSync(join(w.installDir, 'Plan.app'), join(w.installDir, 'Plan 2.app'));
+    const now = await w.apps.state('a1');
+    assert.deepEqual([now.state, now.reason, now.repairable], ['needsRepair', 'duplicates', false]);
+    assert.deepEqual(appsIn(w.installDir), ['Plan 2.app', 'Plan copy.app']);
+  });
+
+  it('moved out of the install folder: not claimed; needs repair (missing), the record kept; moved back: installed', async () => {
+    const w = world({ artifacts: docs });
+    const { state } = await w.apps.install('a1');
+    mkdirSync(join(w.userHome, 'Desktop'));
+    renameSync(join(w.installDir, 'Plan.app'), join(w.userHome, 'Desktop', 'Plan.app'));
+    const now = await w.apps.state('a1');
+    assert.deepEqual([now.state, now.reason], ['needsRepair', 'missing']);
+    assert.equal(readRecords(w.home)[0].record.bundlePath, join(w.installDir, 'Plan.app'));
+    assert.ok(existsSync(join(w.userHome, 'Desktop', 'Plan.app')), 'the package moved out is left where it is');
+    renameSync(join(w.userHome, 'Desktop', 'Plan.app'), join(w.installDir, 'Plan.app'));
+    assert.equal((await w.apps.state('a1')).state, 'installed');
+    assert.equal((await w.apps.state('a1')).installId, state.installId);
+  });
+
+  it('a record follows the desktop app when it moved (templatePath)', async () => {
+    const w = world({ artifacts: docs });
+    await w.apps.install('a1');
+    const moved = join(w.root, 'elsewhere', 'Open Artifact.app');
+    const later = w.make({ template: { bundlePath: moved, executable: 'x', version: () => '1.0.0+0.14.6' } });
+    await later.reconcileAll();
+    assert.equal(readRecords(w.home)[0].record.templatePath, moved);
+  });
+});
+
+describe('install as app: uninstall', () => {
+  const docs = { a1: { title: 'Plan', type: 'docs' } };
+  /** A running app: `pid` alive until `quit()`; its `running.json` as the app writes it. */
+  const fakeApp = (w, installId) => {
+    let up = true;
+    const pid = 424242;
+    return {
+      pid,
+      quit: () => (up = false),
+      isRunning: () => (up ? pid : null),
+      alive: (p) => p === pid && up,
+    };
+  };
+
+  it('not running: the package goes (test mode: removed, logged), its preferences, record and folder too', async () => {
+    const w = world({ artifacts: docs });
+    const { state } = await w.apps.install('a1');
+    mkdirSync(artifactAppDir(w.home, state.installId), { recursive: true });
+    const out = await w.apps.uninstall('a1', state.installId);
+    assert.equal(out.removed, true, JSON.stringify(out));
+    assert.equal(out.state.state, 'available');
+    assert.deepEqual(appsIn(w.installDir), []);
+    assert.equal(readRecords(w.home).length, 0);
+    assert.ok(!existsSync(artifactAppDir(w.home, state.installId)));
+    assert.deepEqual(w.forgotten, [`${BUNDLE_ID_PREFIX}${state.installId}`]);
+    assert.ok(w.logs.some((line) => /test mode: removed, not moved to the Trash/.test(line)));
+    // Again: nothing to do.
+    assert.equal((await w.apps.uninstall('a1', state.installId)).removed, false);
+  });
+
+  it('running: the record says uninstalling, the app quits by itself, then it goes', async () => {
+    const w = world({ artifacts: docs });
+    const { state } = await w.apps.install('a1');
+    const app = fakeApp(w, state.installId);
+    const seen = [];
+    const apps = w.make({
+      isRunning: app.isRunning,
+      alive: app.alive,
+      pollMs: 20,
+      checkpoint: async (at) => {
+        if (at === 'uninstall-recorded') {
+          seen.push(readRecords(w.home)[0].record.phase);
+          setTimeout(app.quit, 150);
+        }
+      },
+    });
+    const out = await apps.uninstall('a1', state.installId);
+    assert.deepEqual(seen, ['uninstalling']);
+    assert.equal(out.removed, true);
+    assert.deepEqual(appsIn(w.installDir), []);
+  });
+
+  it('running and it does not quit (unsaved work kept): after the timeout the record is as it was, the package kept', async () => {
+    const w = world({ artifacts: docs });
+    const { state } = await w.apps.install('a1');
+    const app = fakeApp(w, state.installId);
+    const apps = w.make({ isRunning: app.isRunning, alive: app.alive, pollMs: 20, quitTimeoutMs: 300 });
+    const before = readFileSync(recordPathOf(w.home, state.installId), 'utf8');
+    const out = await apps.uninstall('a1', state.installId);
+    assert.equal(out.removed, false);
+    assert.equal(out.stillRunning, true);
+    assert.equal(out.state.state, 'installed');
+    assert.equal(readFileSync(recordPathOf(w.home, state.installId), 'utf8'), before);
+    assert.deepEqual(appsIn(w.installDir), ['Plan.app']);
+  });
+
+  it('a later install has a new installId, and an uninstall of the old one leaves it', async () => {
+    const w = world({ artifacts: docs });
+    const first = (await w.apps.install('a1')).state;
+    await w.apps.uninstall('a1', first.installId);
+    const second = (await w.apps.install('a1')).state;
+    assert.notEqual(second.installId, first.installId);
+    const out = await w.apps.uninstall('a1', first.installId);
+    assert.equal(out.removed, false);
+    assert.equal(out.state.installId, second.installId);
+    assert.deepEqual(appsIn(w.installDir), ['Plan.app']);
+  });
+
+  it('what is at its place is not its package: left there, the record removed', async () => {
+    const w = world({ artifacts: docs });
+    const { state } = await w.apps.install('a1');
+    writeFileSync(join(w.installDir, 'Plan.app', 'Contents', 'Resources', 'artifact-app.json'), JSON.stringify({ installId: 'other' }));
+    const out = await w.apps.forgetRecord('a1', state.installId);
+    assert.equal(out.removed, true);
+    assert.deepEqual(appsIn(w.installDir), ['Plan.app'], 'what is there is not ours to remove');
+    assert.equal(readRecords(w.home).length, 0);
+  });
+
+  it('cut short at each step, then put right: installed again before the package went, removed after', async () => {
+    for (const [step, expected] of [['uninstall-recorded', 'installed'], ['uninstall-quit', 'installed'], ['uninstall-trashed', 'available']]) {
+      const w = world({ artifacts: docs });
+      const { state } = await w.apps.install('a1');
+      const cut = w.make({ checkpoint: (at) => (at === step ? new Promise(() => {}) : undefined) });
+      void cut.uninstall('a1', state.installId);
+      await new Promise((done) => setTimeout(done, 200));
+      assert.equal(readRecords(w.home)[0].record.phase, 'uninstalling', step);
+      const fresh = w.make();
+      assert.equal((await fresh.state('a1')).state, expected, step);
+      if (expected === 'available') assert.equal(readRecords(w.home).length, 0, step);
+    }
+  });
+});
+
+describe('install as app: refresh and repair (a rebuild beside, then a swap)', () => {
+  const docs = { a1: { title: 'Plan', type: 'docs' } };
+  const v2 = (w, extra = {}) => w.make({ template: { bundlePath: w.template, executable: 'x', version: () => '2.0.0+0.15.0' }, ...extra });
+
+  it('stale: refreshed with the same installId, bundle id and path; the new version; the signature checks', async () => {
+    const w = world({ artifacts: docs });
+    const { state } = await w.apps.install('a1');
+    const bundle = join(w.installDir, 'Plan.app');
+    const apps = v2(w);
+    assert.equal((await apps.state('a1')).stale, true);
+    const out = await apps.refresh('a1', state.installId);
+    assert.equal(out.rebuilt, true, JSON.stringify(out));
+    assert.deepEqual([out.state.state, out.state.installId, out.state.bundlePath, out.state.stale], ['installed', state.installId, bundle, false]);
+    const [{ record }] = readRecords(w.home);
+    assert.equal(record.templateVersion, '2.0.0+0.15.0');
+    assert.equal(record.phase, 'installed');
+    assert.equal(plistJson(join(bundle, 'Contents', 'Info.plist')).CFBundleIdentifier, `${BUNDLE_ID_PREFIX}${state.installId}`);
+    assert.equal(w.real.readManifest(bundle).templateVersion, '2.0.0+0.15.0');
+    assert.equal(w.ops.verify(bundle), true);
+    assert.deepEqual(readdirSync(join(w.installDir, '.staging')), []);
+    assert.deepEqual(appsIn(w.installDir), ['Plan.app']);
+  });
+
+  it('repair never moves aside what is not its package (an unknown phase, a foreign package at its place)', async () => {
+    const w = world({ artifacts: docs });
+    const { state } = await w.apps.install('a1');
+    const bundle = join(w.installDir, 'Plan.app');
+    writeFileSync(recordPathOf(w.home, state.installId), JSON.stringify({ ...readRecords(w.home)[0].record, phase: 'odd' }));
+    writeFileSync(join(bundle, 'Contents', 'Resources', 'artifact-app.json'), JSON.stringify({ installId: 'someone-else' }));
+    writeFileSync(join(bundle, 'Contents', 'theirs'), 'keep');
+    const now = await w.apps.state('a1');
+    assert.deepEqual([now.reason, now.repairable], ['phase', true]);
+    const out = await w.apps.repair('a1', state.installId);
+    assert.equal(out.rebuilt, false, JSON.stringify(out));
+    assert.equal(out.notOurs, true);
+    assert.equal(readFileSync(join(bundle, 'Contents', 'theirs'), 'utf8'), 'keep');
+    assert.deepEqual(appsIn(w.installDir), ['Plan.app']);
+    assert.deepEqual(readdirSync(join(w.installDir, '.staging')), []);
+  });
+
+  it('a Trash that fails: not uninstalled, the record as it was', async () => {
+    const w = world({ artifacts: docs });
+    const { state } = await w.apps.install('a1');
+    const before = readFileSync(recordPathOf(w.home, state.installId), 'utf8');
+    const apps = w.make({ ops: { ...w.ops, trash: async () => { throw new Error('no Trash'); } } });
+    const out = await apps.uninstall('a1', state.installId);
+    assert.equal(out.removed, false);
+    assert.match(out.error, /no Trash/);
+    assert.equal(out.state.state, 'installed');
+    assert.equal(readFileSync(recordPathOf(w.home, state.installId), 'utf8'), before);
+  });
+
+  it('a renamed app is rebuilt under its new name', async () => {
+    const w = world({ artifacts: docs });
+    const { state } = await w.apps.install('a1');
+    renameSync(join(w.installDir, 'Plan.app'), join(w.installDir, 'Mine.app'));
+    const out = await v2(w).refresh('a1', state.installId);
+    assert.equal(out.rebuilt, true);
+    assert.equal(plistJson(join(w.installDir, 'Mine.app', 'Contents', 'Info.plist')).CFBundleDisplayName, 'Mine');
+  });
+
+  it('running: not rebuilt, nothing changed', async () => {
+    const w = world({ artifacts: docs });
+    const { state } = await w.apps.install('a1');
+    const out = await v2(w, { isRunning: () => 4242, alive: () => true }).refresh('a1', state.installId);
+    assert.equal(out.rebuilt, false);
+    assert.equal(out.stillRunning, true);
+    assert.equal(readRecords(w.home)[0].record.templateVersion, '1.0.0+0.14.6');
+  });
+
+  it('refreshStale rebuilds the stale apps that do not run', async () => {
+    const w = world({ artifacts: { a1: { title: 'Plan', type: 'docs' }, a2: { title: 'Two', type: 'docs' } } });
+    const one = (await w.apps.install('a1')).state;
+    const two = (await w.apps.install('a2')).state;
+    const out = await v2(w, { isRunning: (record) => (record.installId === two.installId ? 4242 : null), alive: () => true }).refreshStale();
+    assert.deepEqual(out, { [one.installId]: 'refreshed', [two.installId]: 'running' });
+  });
+
+  it('repair: a package whose signature does not check is rebuilt; a package not its own only offers removing the record', async () => {
+    const w = world({ artifacts: docs });
+    const { state } = await w.apps.install('a1');
+    const bundle = join(w.installDir, 'Plan.app');
+    writeFileSync(join(bundle, 'Contents', 'signature'), 'broken');
+    writeFileSync(recordPathOf(w.home, state.installId), JSON.stringify({ ...readRecords(w.home)[0].record, phase: 'installing', tempPath: join(w.installDir, '.staging', `${state.installId}.app`) }));
+    assert.equal((await w.apps.state('a1')).reason, 'signature');
+    const out = await w.apps.repair('a1', state.installId);
+    assert.equal(out.rebuilt, true, JSON.stringify(out));
+    assert.equal(out.state.state, 'installed');
+    assert.equal(w.ops.verify(bundle), true);
+
+    writeFileSync(join(bundle, 'Contents', 'Resources', 'artifact-app.json'), JSON.stringify({ installId: 'other' }));
+    const refused = await w.apps.repair('a1', state.installId);
+    assert.equal(refused.rebuilt, false);
+    assert.equal(refused.notOurs, true);
+    assert.equal(readFileSync(join(bundle, 'Contents', 'Resources', 'artifact-app.json'), 'utf8'), JSON.stringify({ installId: 'other' }));
+  });
+
+  for (const [step, expectVersion] of [
+    ['rebuild-recorded', '1.0.0+0.14.6'],
+    ['rebuild-built', '1.0.0+0.14.6'],
+    ['rebuild-aside', '1.0.0+0.14.6'],
+    ['rebuild-placed', '2.0.0+0.15.0'],
+    ['rebuild-removed', '2.0.0+0.15.0'],
+    ['rebuild-committing', '2.0.0+0.15.0'],
+  ]) {
+    it(`cut short at "${step}": put right from what is on disk (version ${expectVersion}), one package, same installId`, async () => {
+      const w = world({ artifacts: docs });
+      const { state } = await w.apps.install('a1');
+      const bundle = join(w.installDir, 'Plan.app');
+      const cut = v2(w, { checkpoint: (at) => (at === step ? new Promise(() => {}) : undefined) });
+      void cut.refresh('a1', state.installId);
+      await new Promise((done) => setTimeout(done, 300));
+      assert.equal(readRecords(w.home)[0].record.phase, 'refreshing', step);
+      const fresh = v2(w);
+      const verdicts = (await fresh.reconcileAll()).a1;
+      assert.equal(verdicts.length, 1);
+      const [{ record }] = readRecords(w.home);
+      assert.equal(record.phase, 'installed', JSON.stringify(verdicts));
+      assert.equal(record.installId, state.installId);
+      assert.equal(record.bundlePath, bundle);
+      assert.equal(record.templateVersion, expectVersion);
+      assert.equal(w.real.readManifest(bundle).templateVersion, expectVersion);
+      assert.equal(w.ops.verify(bundle), true);
+      assert.deepEqual(appsIn(w.installDir), ['Plan.app']);
+      assert.deepEqual(readdirSync(join(w.installDir, '.staging')), []);
+      assert.deepEqual(readdirSync(join(w.home, 'desktop', 'apps')).filter((name) => name.endsWith('.tmp')), []);
+    });
+  }
+
+  it('cut short between the two renames: the old package is put back', async () => {
+    const w = world({ artifacts: docs });
+    const { state } = await w.apps.install('a1');
+    const bundle = join(w.installDir, 'Plan.app');
+    // As the rebuild leaves it at "rebuild-aside": the old one in staging, the new one beside it, nothing in place.
+    const cut = v2(w, { checkpoint: (at) => (at === 'rebuild-aside' ? new Promise(() => {}) : undefined) });
+    void cut.refresh('a1', state.installId);
+    await new Promise((done) => setTimeout(done, 300));
+    assert.ok(!existsSync(bundle));
+    assert.ok(existsSync(join(w.installDir, '.staging', `${state.installId}.old.app`)));
+    const out = (await v2(w).reconcileAll()).a1[0];
+    assert.equal(out.action, 'restored');
+    assert.ok(existsSync(bundle));
+  });
+});
+
+describe('install as app: the page address check (page-url.mjs)', () => {
+  it('a path with Chinese, #, ? and % is its own page, however it is written', async () => {
+    const { isPageAt, pageUrlOf } = await import('../src/page-url.mjs');
+    const path = '/Users/x/Applications/Open Artifact Apps/计划 #2 50%?.app/Contents/Resources/app.asar/out/renderer/artifact-app/index.html';
+    assert.equal(isPageAt(pageUrlOf(path), path), true);
+    assert.equal(isPageAt(pageUrlOf(path).replace('%25', '%'), path), false, 'an unescaped % is not this address');
+    assert.equal(isPageAt(`${pageUrlOf(path)}?x=1`, path), false);
+    assert.equal(isPageAt(`${pageUrlOf(path)}#x`, path), false);
+    assert.equal(isPageAt('https://example.com/index.html', path), false);
+    assert.equal(isPageAt(pageUrlOf('/other/index.html'), path), false);
   });
 });

@@ -11,6 +11,16 @@
  * - **Before it connects**, its install record is checked (`checkLaunch`: there, `installed`, the same `installId` and
  *   `artifactId`, for this very package): otherwise the window says it needs repair and nothing is started. Once
  *   connected, the artifact must still be in the library with its folder: otherwise the window says which.
+ *   - Renamed in the Finder (still directly in `~/Applications/Open Artifact Apps/`, its record's package gone, and it
+ *     the only package there of its record, its signature checking): it claims its record (`claimPackage`: the record
+ *     takes its path and name) and starts as usual. The desktop app's reconcile does the same.
+ *   - Moved out of that folder: never claimed; the window says where it belongs (move it back, or install it again)
+ *     and its button hands the artifact to the desktop app.
+ *   - Its record says `uninstalling` (the desktop app uninstalls it) or `refreshing` (rebuilds it): it quits.
+ * - **While it runs** it keeps `<its folder>/running.json` (`{ pid, bundlePath, startedAt }`; written once it holds its
+ *   single-instance lock, removed when its process exits): how the desktop app knows it runs (never `ps`). It reads
+ *   its record every second: when that says `uninstalling`, it quits as ⌘Q would (unsaved work waited for, then asked
+ *   about; kept if the person says so, and the desktop app then gives the uninstall up).
  * - **The daemon** is the home's, shared with the desktop app and the agents. When none runs, it is started with the
  *   desktop app's own executable and runtime (the package the record names, `templatePath`), else this package's own:
  *   `ELECTRON_RUN_AS_NODE=1`, detached, its output appended to `<home>/logs/daemon.out`, as the kit itself would.
@@ -21,11 +31,12 @@
  *   (`hand-off {…}`) and keeps it for the test (`test.info().handoffs`).
  * - **The look and the language** are the desktop app's settings (its `settings.json`), read when the app starts.
  * - **The menu bar's bold name** stays "Open Artifact" (the package's `CFBundleName`, which Electron needs to find its
- *   helpers); the Dock, ⌘Tab and the Finder show the artifact's name (`CFBundleDisplayName`).
+ *   helpers). The Finder shows the artifact's name (`CFBundleDisplayName` and the package's file name); whether the
+ *   Dock and ⌘Tab show it too, or "Open Artifact", has not been checked (test mode shows no Dock icon).
  */
-import { spawn } from 'node:child_process';
-import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { execFileSync, spawn as spawnChild } from 'node:child_process';
+import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, realpathSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, session, shell } from 'electron';
 import { createHarness, readDaemon, runtimeInfo } from '@open-artifact/harness-kit';
@@ -38,7 +49,9 @@ import { libraryClient } from './library.mjs';
 import { Downloads } from './downloads.mjs';
 import { Notice } from './notice.mjs';
 import { artifactMenuTemplate, describeMenu, templateCommands } from './menu.mjs';
-import { checkLaunch } from './installed-apps.mjs';
+import { ARTIFACT_APP_FILE } from './profile.mjs';
+import { checkLaunch, claimPackage, clearRunning, inInstallDir, installDirOf, markRunning, packagesOf, readRecord, readRecords } from './installed-apps.mjs';
+import { isPageAt, pageUrlOf } from './page-url.mjs';
 import { wordsFor } from '../renderer/src/words.js';
 
 /** The harness an artifact's app is to the daemon (not the desktop app's: agents' opens never come here). */
@@ -87,6 +100,13 @@ export function run(found) {
     app.exit(0);
     process.exit(0);
   }
+  // Running, for the desktop app (an uninstall or a rebuild waits for it): this process's pid, until it exits.
+  try {
+    markRunning(profile.home, profile.installId, { bundlePath: bundleOfExecutable(process.execPath) });
+    process.on('exit', () => clearRunning(profile.home, profile.installId));
+  } catch (error) {
+    log(`running.json: ${error?.message ?? error}`);
+  }
   if (profile.ignoredHome) log(`--home / OPEN_ARTIFACT_HOME ${profile.ignoredHome} ignored: this app's home is ${profile.home}`);
 
   let toFront = () => {};
@@ -133,13 +153,47 @@ async function start({ manifest, profile, settings, startLocale, settingsDir, se
   nativeTheme.themeSource = profile.theme ?? settings.get('theme');
   const locale = /^zh\b/i.test(app.getLocale() ?? '') ? 'zh' : 'en';
   const t = wordsFor(locale);
+  /** A reason of "needs repair", in words (its code when there are none). */
+  const reasonWords = (code) => {
+    const key = `installApp.repair.${code}`;
+    const word = t(key);
+    return word === key ? `(${code}) ` : word;
+  };
 
   // ---- the install record: this very package, installed, of this artifact ----
-  const launch = checkLaunch({ manifest, bundlePath: bundlePath ?? '' });
+  const installDir = installDirOf(homedir());
+  let launch = checkLaunch({ manifest, bundlePath: bundlePath ?? '' });
+  if (!launch.ok && bundlePath && !inInstallDir(bundlePath, installDir)) {
+    // Moved out of the install folder: never claimed, whatever its record says.
+    launch = { ok: false, reason: 'moved-out', detail: `This app is at ${bundlePath}, not in ${installDir}.` };
+  } else if (!launch.ok && launch.reason === 'moved' && bundlePath) {
+    // Renamed in the install folder: its record's package gone, it the only package there of its record, signed.
+    const claimed = claimSelf(launch.record, bundlePath, installDir);
+    if (claimed) {
+      log(`claimed its record: ${launch.record.bundlePath} is now ${bundlePath}`);
+      launch = checkLaunch({ manifest, bundlePath });
+    }
+  }
+  if (!launch.ok && (launch.reason === 'uninstalling' || launch.reason === 'refreshing')) {
+    // The desktop app is uninstalling or rebuilding it: this start ends here.
+    log(`ready ${JSON.stringify({ problem: launch.reason })}`);
+    if (!profile.testMode && launch.reason === 'refreshing') dialog.showMessageBoxSync({ type: 'info', message: launch.record?.displayName ?? 'Open Artifact', detail: t('artifactApp.refreshingBody') });
+    app.exit(0);
+    return;
+  }
   const record = launch.ok ? launch.record : null;
   // The desktop app the record names (its executable starts the daemon and takes what leaves this artifact), else this one.
   const exeName = basename(process.execPath);
-  const templateExe = record?.templatePath && existsSync(join(record.templatePath, 'Contents', 'MacOS', exeName)) ? join(record.templatePath, 'Contents', 'MacOS', exeName) : null;
+  const exeOf = (bundle) => (bundle && existsSync(join(bundle, 'Contents', 'MacOS', exeName)) ? join(bundle, 'Contents', 'MacOS', exeName) : null);
+  const templateExe = exeOf(record?.templatePath);
+  // What leaves this artifact goes to that desktop app; with none (no record, or its package moved): the one another
+  // record of this home names, else one in /Applications or ~/Applications (only whether it is there is looked at).
+  const handOffExe =
+    templateExe ??
+    [...readRecords(profile.home).map(({ record: other }) => other.templatePath), '/Applications/Open Artifact.app', join(homedir(), 'Applications', 'Open Artifact.app')]
+      .map(exeOf)
+      .find(Boolean) ??
+    null;
   const templateRuntime = record?.templatePath ? join(record.templatePath, 'Contents', 'Resources', 'runtime') : null;
   const ownRuntime = join(process.resourcesPath, 'runtime');
   const runtimeDir = templateRuntime && runtimeInfo(templateRuntime)?.version ? templateRuntime : ownRuntime;
@@ -180,7 +234,6 @@ async function start({ manifest, profile, settings, startLocale, settingsDir, se
   // The title is the artifact's (the status page's own <title> never replaces it).
   window.on('page-title-updated', (event) => event.preventDefault());
   const pagePath = join(here, 'renderer', 'artifact-app', 'index.html');
-  const pageUrl = new URL(`file://${pagePath}`).href;
   window.webContents.on('will-navigate', (event) => event.preventDefault());
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   window.webContents.on('will-attach-webview', (event) => event.preventDefault());
@@ -196,12 +249,12 @@ async function start({ manifest, profile, settings, startLocale, settingsDir, se
   // ---- what leaves this artifact: the desktop app's ----
   const handoffs = [];
   const handOff = (what, id) => {
-    const entry = { to: 'desktop', what, id: id ?? null, home: profile.home, exe: templateExe };
+    const entry = { to: 'desktop', what, id: id ?? null, home: profile.home, exe: handOffExe };
     log(`hand-off ${JSON.stringify(entry)}${profile.testMode ? ' (test mode: not started)' : ''}`);
     handoffs.push(entry);
     if (profile.testMode) return true;
-    if (!templateExe) {
-      log('hand-off: no desktop app to hand to (its package is not where the record says)');
+    if (!handOffExe) {
+      log('hand-off: no desktop app to hand to (none where its record says, nor in Applications)');
       return false;
     }
     // The desktop app, started (or the running one asked: its single-instance lock takes the arguments).
@@ -209,7 +262,7 @@ async function start({ manifest, profile, settings, startLocale, settingsDir, se
     mkdirSync(logs, { recursive: true });
     const fd = openSync(join(logs, 'artifact-app-handoff.out'), 'a');
     try {
-      const child = spawn(templateExe, ['--home', profile.home, ...(what === 'artifact' && id ? ['--open', id] : [])], { detached: true, stdio: ['ignore', fd, fd], env: daemonEnv(process.env, { home: profile.home, port: null }) });
+      const child = spawnChild(handOffExe, ['--home', profile.home, ...(what === 'artifact' && id ? ['--open', id] : [])], { detached: true, stdio: ['ignore', fd, fd], env: daemonEnv(process.env, { home: profile.home, port: null }) });
       child.on('error', (error) => log(`hand-off: ${error?.message ?? error}`));
       child.unref();
     } finally {
@@ -234,6 +287,7 @@ async function start({ manifest, profile, settings, startLocale, settingsDir, se
     const snap = aw?.snapshot() ?? { status: 'connecting', problem: null, title: record?.displayName ?? '' };
     const out = { status: snap.status, busy: false, title: '', body: '', actions: [], ask: null, lang: locale === 'zh' ? 'zh-CN' : 'en' };
     const open = { id: 'open-desktop', label: t('artifactApp.openDesktop') };
+    const openArtifactInDesktop = { id: 'open-artifact', label: t('artifactApp.openInDesktop'), primary: true };
     switch (snap.status) {
       case 'connecting':
         Object.assign(out, { busy: true, body: t('artifactApp.connecting') });
@@ -259,7 +313,8 @@ async function start({ manifest, profile, settings, startLocale, settingsDir, se
         const { kind, detail } = snap.problem;
         if (kind === 'not-found') Object.assign(out, { title: t('artifactApp.notFoundTitle'), body: t('artifactApp.notFoundBody'), actions: [open] });
         else if (kind === 'folder-missing') Object.assign(out, { title: t('artifactApp.folderMissingTitle'), body: t('artifactApp.folderMissingBody', { folder: detail }), actions: [{ id: 'retry', label: t('artifactApp.retry') }, open] });
-        else if (kind === 'needs-repair') Object.assign(out, { title: t('artifactApp.needsRepairTitle'), body: t('artifactApp.needsRepairBody', { reason: detail }), actions: [open] });
+        else if (kind === 'needs-repair' && detail === 'moved-out') Object.assign(out, { title: t('artifactApp.movedOutTitle'), body: t('artifactApp.movedOutBody', { folder: installDir }), actions: [openArtifactInDesktop] });
+        else if (kind === 'needs-repair') Object.assign(out, { title: t('artifactApp.needsRepairTitle'), body: t('artifactApp.needsRepairBody', { reason: reasonWords(detail) }), actions: [openArtifactInDesktop] });
         else Object.assign(out, { title: t('artifactApp.failedTitle'), body: detail, actions: [{ id: 'retry', label: t('artifactApp.retry'), primary: true }, open] });
         out.problem = snap.problem.kind;
         break;
@@ -285,7 +340,7 @@ async function start({ manifest, profile, settings, startLocale, settingsDir, se
   };
 
   // ---- the window's own calls: only from its page ----
-  const fromPage = (event) => event.sender === window.webContents && event.senderFrame === window.webContents.mainFrame && event.senderFrame?.url === pageUrl;
+  const fromPage = (event) => event.sender === window.webContents && event.senderFrame === window.webContents.mainFrame && isPageAt(event.senderFrame?.url, pagePath);
   const handle = (channel, runIt) =>
     ipcMain.handle(channel, async (event, ...args) => {
       if (!fromPage(event)) {
@@ -295,7 +350,7 @@ async function start({ manifest, profile, settings, startLocale, settingsDir, se
       return runIt(...args);
     });
   handle('artifact-app:state', () => view());
-  await window.loadFile(pagePath);
+  await window.loadURL(pageUrlOf(pagePath));
 
   // ---- downloads and the "saved" notice, as in the desktop app ----
   notice = new Notice({
@@ -460,6 +515,7 @@ async function start({ manifest, profile, settings, startLocale, settingsDir, se
 
   if (!launch.ok) {
     aw = makeWindow();
+    if (launch.record?.displayName) aw.setTitle(launch.record.displayName);
     aw.setProblem('needs-repair', launch.reason);
     finishSetup();
     log(`ready ${JSON.stringify({ problem: 'needs-repair', reason: launch.reason, detail: launch.detail })}`);
@@ -486,7 +542,7 @@ async function start({ manifest, profile, settings, startLocale, settingsDir, se
           const fd = openSync(startIt.logFile, 'a');
           try {
             log(`daemon start: ${daemonExe === process.execPath ? 'this app' : 'the desktop app'} (${daemonExe})`);
-            const child = spawn(daemonExe, [startIt.bin, ...startIt.args], { detached: true, stdio: ['ignore', fd, fd], env: { ...startIt.env, ELECTRON_RUN_AS_NODE: '1' } });
+            const child = spawnChild(daemonExe, [startIt.bin, ...startIt.args], { detached: true, stdio: ['ignore', fd, fd], env: { ...startIt.env, ELECTRON_RUN_AS_NODE: '1' } });
             child.on('error', (error) => log(`daemon start: ${error?.message ?? error}`));
             child.unref();
             return child;
@@ -619,9 +675,26 @@ async function start({ manifest, profile, settings, startLocale, settingsDir, se
       refreshMenu();
     };
 
+    // The record, every second: `uninstalling` → quit as ⌘Q would, once for each ask (`uninstallAskedAt`: two asks a
+    // moment apart, the `installed` between them never seen, are still two).
+    const phaseOf = (entry) => (entry ? `${entry.phase}:${entry.phase === 'uninstalling' ? (entry.uninstallAskedAt ?? '') : ''}` : null);
+    let lastPhase = phaseOf(record);
+    const watch = setInterval(() => {
+      const read = readRecord(profile.home, manifest.installId);
+      const now = phaseOf(read);
+      if (now === lastPhase) return;
+      lastPhase = now;
+      if (read?.phase === 'uninstalling') {
+        log('the record says uninstalling: quitting');
+        void requestQuit('quit');
+      }
+    }, 1000);
+    watch.unref?.();
+
     handle('artifact-app:act', async (id) => {
       log(`act ${id}`);
       if (id === 'open-desktop') return handOff('library', null);
+      if (id === 'open-artifact') return handOff('artifact', manifest.artifactId);
       if (id === 'retry') return harness?.connected ? openArtifact() : false;
       if (id === 'reload') return reloadArtifact();
       throw new Error(`not an action: ${id}`);
@@ -667,6 +740,8 @@ async function start({ manifest, profile, settings, startLocale, settingsDir, se
           artifactId: profile.artifactId,
           harness: ARTIFACT_APP_HARNESS,
           handoffs: handoffs.slice(),
+          bundlePath,
+          launch: launch.ok ? 'ok' : launch.reason,
           view: view(),
           daemonExe,
           runtimeDir,
@@ -701,4 +776,37 @@ async function start({ manifest, profile, settings, startLocale, settingsDir, se
     }
     send();
   }
+}
+
+/**
+ * A package renamed in the install folder claims its record (see the module comment): the record says `installed`,
+ * the package it names is gone, this package is directly in `installDir` and the only one there of its record, and its
+ * signature checks (`codesign --verify --strict` of this very package). Answers the record as written, or null.
+ */
+function claimSelf(record, bundlePath, installDir) {
+  if (!record || record.phase !== 'installed' || existsSync(record.bundlePath) || !inInstallDir(bundlePath, installDir)) return null;
+  const readManifest = (path) => {
+    try {
+      return JSON.parse(readFileSync(join(path, 'Contents', 'Resources', ARTIFACT_APP_FILE), 'utf8'));
+    } catch {
+      return null;
+    }
+  };
+  const found = packagesOf(record, installDir, readManifest);
+  if (found.length !== 1) return null;
+  try {
+    execFileSync('/usr/bin/codesign', ['--verify', '--strict', bundlePath], { stdio: 'ignore' });
+  } catch {
+    return null;
+  }
+  // The one found is this package (by its real path: the Finder may show another Unicode form).
+  const real = (path) => {
+    try {
+      return realpathSync(path).normalize('NFC');
+    } catch {
+      return null;
+    }
+  };
+  if (!real(bundlePath) || real(found[0]) !== real(bundlePath)) return null;
+  return claimPackage(record, found[0]);
 }

@@ -1252,3 +1252,46 @@ button.section-head {
     transform: rotate(360deg);
   }
 }
+
+/* ---- "install as app": the dialog (the new-artifact dialog's frame) ---- */
+.install-dialog {
+  width: min(480px, 100%);
+  gap: 14px;
+}
+.install-note {
+  margin: 0;
+  font-size: 13px;
+  color: var(--oa-page-text-secondary);
+  user-select: text;
+}
+.install-hint {
+  color: var(--oa-page-text-tertiary);
+}
+.install-done {
+  color: var(--oa-page-text-primary);
+}
+.install-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.install-value {
+  font-size: 13px;
+  color: var(--oa-page-text-primary);
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.install-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--notice-bg);
+  font-size: 13px;
+}
+.install-copy label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}

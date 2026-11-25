@@ -2,7 +2,8 @@
  * Starts the built app in test mode (no shown window, no Dock icon, links out only logged, DevTools on a port), with
  * no `node` on PATH and the throwaway profile's environment, and drives it over DevTools.
  */
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
+import { dirname, join } from 'node:path';
 import { APP, alive, cleanEnv, electronBinary, freePort, sleep, until } from './env.mjs';
 import { connectCdp } from './cdp.mjs';
 
@@ -126,6 +127,42 @@ export async function library(state, name, body) {
 /** The status page of an artifact installed as an app: `renderer/artifact-app/index.html`. */
 const isArtifactAppPage = (t) => t.type === 'page' && t.url.startsWith('file://') && t.url.endsWith('/renderer/artifact-app/index.html');
 
+/** The bundle id an "install as app" package has: the prefix and an install id (a UUID), nothing else. */
+const APP_BUNDLE_ID = /^dev\.openartifact\.app\.[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+/** The bundle ids of the apps this test process started (`launchArtifactApp`), to forget their preferences. */
+const launchedBundleIds = new Set();
+
+/** The bundle id in the `Info.plist` of the package an executable runs from (`<x>.app/Contents/MacOS/<exe>`). */
+export function bundleIdOfExecutable(binary) {
+  const plist = join(dirname(dirname(binary)), 'Info.plist');
+  return JSON.parse(execFileSync('/usr/bin/plutil', ['-convert', 'json', '-o', '-', plist], { encoding: 'utf8' })).CFBundleIdentifier;
+}
+
+/**
+ * Forgets the preferences macOS keeps for each app this test process started (`launchArtifactApp`): every start of
+ * one leaves `~/Library/Preferences/<bundle id>.plist` in the person's own Library (cfprefsd keeps it there whatever
+ * HOME says). Only those exact bundle ids, each with `/usr/bin/defaults delete <id>` (no pattern, no file removed by
+ * hand); a domain that is not there is not an error. Call it once every app has exited (`after`); it also runs when the
+ * test process exits, for a run cut short.
+ */
+export function forgetLaunchedDefaults() {
+  const done = [];
+  for (const id of launchedBundleIds) {
+    if (!APP_BUNDLE_ID.test(id)) continue;
+    try {
+      execFileSync('/usr/bin/defaults', ['delete', id], { stdio: 'ignore' });
+      done.push(id);
+    } catch {
+      // No such domain (the app never wrote one, or it was forgotten already).
+    }
+    launchedBundleIds.delete(id);
+  }
+  // Said, so a run's leftovers can be named exactly (macOS keeps an empty `<id>.plist` after `defaults delete`).
+  for (const id of done) console.log(`# defaults delete ${id}`);
+  return done;
+}
+process.on('exit', () => forgetLaunchedDefaults());
+
 /**
  * Starts an app made by "install as app" (`binary`: its `Contents/MacOS/Open Artifact`), the way a test may: its
  * executable directly, with `--port` (not 4800), `--test-mode`, `--devtools-port` and the throwaway profile's
@@ -136,6 +173,10 @@ export async function launchArtifactApp(profile, port, { binary, args = [], defa
   if (!binary) throw new Error('launchArtifactApp needs the generated app\'s executable');
   if (!profile?.oaHome || !profile.root || !binary.startsWith(`${profile.root}/`)) throw new Error(`launchArtifactApp starts only an app inside the throwaway profile, not ${binary}`);
   if (!port || port === 4800) throw new Error('launchArtifactApp needs a port that is not 4800');
+  // Its preferences are forgotten after the test (`forgetLaunchedDefaults`): only an id of the app's own form.
+  const bundleId = bundleIdOfExecutable(binary);
+  if (!APP_BUNDLE_ID.test(bundleId)) throw new Error(`launchArtifactApp starts only an app made by "install as app", not ${bundleId}`);
+  launchedBundleIds.add(bundleId);
   const debugPort = await freePort();
   // English unless the test reads the language from the desktop app's settings (`defaultLocale: false`).
   const locale = defaultLocale ? ['--locale', 'en'] : [];

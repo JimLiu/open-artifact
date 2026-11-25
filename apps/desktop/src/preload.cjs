@@ -76,14 +76,19 @@ contextBridge.exposeInMainWorld('desktop', {
   onCommand: listen('desktop:command'),
   /**
    * "Install as app" (an artifact as an app of its own in ~/Applications/Open Artifact Apps): `state(id)`,
-   * `install(id, { confirmedName, allowCopy })`, `open(id, installId)`, `reveal(id, installId)`, each answering
-   * `{ ok, value }` or `{ ok: false, error }`. The window's menus and dialog for them are the next stage's.
+   * `install(id, { confirmedName, allowCopy })`, `open(id, installId)`, `reveal(id, installId)`,
+   * `uninstall(id, installId)`, `refresh(id, installId, { allowCopy })`, `repair(id, installId, { allowCopy })`,
+   * `forget(id, installId)` (Remove Record), each answering `{ ok, value }` or `{ ok: false, error }`.
    */
   apps: {
     state: (id) => ipcRenderer.invoke('desktop:apps.state', String(id)),
     install: (id, options) => ipcRenderer.invoke('desktop:apps.install', String(id), options && typeof options === 'object' ? { confirmedName: options.confirmedName, allowCopy: options.allowCopy === true } : {}),
     open: (id, installId) => ipcRenderer.invoke('desktop:apps.open', String(id), String(installId)),
     reveal: (id, installId) => ipcRenderer.invoke('desktop:apps.reveal', String(id), String(installId)),
+    uninstall: (id, installId) => ipcRenderer.invoke('desktop:apps.uninstall', String(id), String(installId)),
+    refresh: (id, installId, options) => ipcRenderer.invoke('desktop:apps.refresh', String(id), String(installId), { allowCopy: options?.allowCopy === true }),
+    repair: (id, installId, options) => ipcRenderer.invoke('desktop:apps.repair', String(id), String(installId), { allowCopy: options?.allowCopy === true }),
+    forget: (id, installId) => ipcRenderer.invoke('desktop:apps.forget', String(id), String(installId)),
   },
   /**
    * An artifact's Show in Finder (`reveal`), Move To… (`move`) or Relocate… (`relocate`, a tab whose folder is gone):
@@ -116,6 +121,9 @@ contextBridge.exposeInMainWorld('desktop', {
     /** A tab's view as Electron made it (its partition, its preload), and the servers this process lets in. */
     tabInfo: (id) => ipcRenderer.invoke('test:tab-info', String(id)),
     servers: () => ipcRenderer.invoke('test:servers'),
+    /** "Install as app": the next call waits at `step` (e.g. `recorded`) until `appsRelease()`. */
+    appsHold: (step) => ipcRenderer.invoke('test:apps-hold', String(step)),
+    appsRelease: () => ipcRenderer.invoke('test:apps-release'),
   },
   /** Keyboard focus back to this page. */
   focus: () => ipcRenderer.invoke('desktop:focus'),

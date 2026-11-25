@@ -86,8 +86,13 @@ with no arguments uses the person's own home and port, so `test/packaged/` only 
 than 4800, `--test-mode` and a throwaway `HOME`, and checks first that it then uses those folders only. A package
 declares no URL scheme; `OA_DESKTOP_URL_SCHEME=1 npm run package` adds `open-artifact://` to its `Info.plist`
 (`scripts/info-plist.mjs`; checked by the unit tests, never built by them), and nothing registers it.
-`test/packaged/installed-apps.test.mjs` installs artifacts as apps from that package into the throwaway `HOME`'s
-`Applications/` and starts them only by their executable, with `--test-mode` and a port other than 4800.
+`test/packaged/installed-apps.test.mjs`, `installed-apps-names.test.mjs` and `installed-apps-manage.test.mjs` install
+artifacts as apps from that package into the throwaway `HOME`'s `Applications/` and start them only by their
+executable, with `--test-mode` and a port other than 4800 (`launchArtifactApp`). Test mode never opens a package and
+never uses the Trash (an uninstalled test package, checked to be the record's, is removed). macOS keeps each started
+app's preferences in the account's own `~/Library/Preferences` whatever `HOME` says, so the tests run
+`defaults delete <bundle id>` for the exact ids they started (an uninstall does too); an empty `<bundle id>.plist` is
+still left there. Run `npm run package` before `npm run test:packaged`, never at the same time.
 
 ## Releasing
 

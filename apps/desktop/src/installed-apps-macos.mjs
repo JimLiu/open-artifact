@@ -19,6 +19,8 @@ import { basename, dirname, isAbsolute, join, relative, sep } from 'node:path';
 import { ARTIFACT_APP_FILE } from './profile.mjs';
 
 const resources = (bundle) => join(bundle, 'Contents', 'Resources');
+/** The bundle id of an app made by "install as app": the prefix and an install id (a UUID), nothing else. */
+const APP_BUNDLE_ID = /^dev\.openartifact\.app\.[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 /** The nearest folder of `path` (itself included) that exists, as a real path. */
 function nearestReal(path) {
@@ -57,7 +59,7 @@ const within = (outer, inner) => {
  * The ops for `installDir`. `iconsDir`: the type icons the desktop app carries (`<type>.icns`, `default.icns`);
  * `testMode`; `log`; `userHome` (default `os.homedir()`); `accountHome` (default `userInfo().homedir`).
  */
-export function macosOps({ installDir, iconsDir, testMode = false, log = () => {}, userHome = homedir(), accountHome = userInfo().homedir }) {
+export function macosOps({ installDir, iconsDir, testMode = false, log = () => {}, userHome = homedir(), accountHome = userInfo().homedir, trashItem = null }) {
   /** Throws unless `path` (to be written or removed) is inside the install folder, inside the home. */
   const guard = (path, what) => {
     const home = nearestReal(userHome);
@@ -221,6 +223,62 @@ export function macosOps({ installDir, iconsDir, testMode = false, log = () => {
     remove(path) {
       guard(path, 'remove');
       rmSync(path, { recursive: true, force: true });
+    },
+
+    /**
+     * Moves a package of ours aside (`from` to `to`, both inside the install folder; `to` must not exist): a rebuild's
+     * old package, into the staging folder, before the new one takes its place.
+     */
+    moveAside(from, to) {
+      guard(from, 'move aside');
+      guard(to, 'move aside');
+      if (existsSync(to)) throw Object.assign(new Error(`${to} exists`), { code: 'EEXIST' });
+      renameSync(from, to);
+    },
+
+    /**
+     * A package of ours to the Trash (an uninstall): `trashItem` (Electron's `shell.trashItem`, the Finder's own
+     * "Move to Trash": it can be put back). Test mode never calls it: the package, inside the test's own install
+     * folder, is removed, and that is logged.
+     */
+    async trash(path) {
+      guard(path, 'trash');
+      if (testMode || !trashItem) {
+        if (!testMode) throw new Error('trash: no trashItem');
+        log(`installed apps: trash ${path} (test mode: removed, not moved to the Trash)`);
+        rmSync(path, { recursive: true, force: true });
+        return 'removed';
+      }
+      await trashItem(path);
+      return 'trashed';
+    },
+
+    /**
+     * Forgets the preferences macOS keeps for an app's bundle id (`/usr/bin/defaults delete <id>`): only an id of the
+     * apps' own form (the prefix and a UUID), never a pattern; a domain that is not there is not an error. cfprefsd
+     * keeps them in the account's own `~/Library/Preferences` whatever HOME says, so this runs in test mode too, for
+     * the exact ids of the test's own apps.
+     */
+    forgetDefaults(bundleId) {
+      if (!APP_BUNDLE_ID.test(String(bundleId))) {
+        log(`installed apps: defaults: refused ${bundleId}`);
+        return false;
+      }
+      try {
+        execFileSync('/usr/bin/defaults', ['delete', bundleId], { stdio: 'ignore' });
+        return true;
+      } catch {
+        return false;
+      }
+    },
+
+    /** The size of a package on disk, in bytes (`du -sk`), or null. */
+    sizeOf(path) {
+      try {
+        return Number(String(execFileSync('/usr/bin/du', ['-sk', path], { encoding: 'utf8' })).split(/\s+/)[0]) * 1024 || null;
+      } catch {
+        return null;
+      }
     },
 
     /**
