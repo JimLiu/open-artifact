@@ -1,6 +1,6 @@
 {
   "name": "@open-artifact/slides-core",
-  "version": "0.14.6",
+  "version": "0.15.0",
   "private": true,
   "type": "module",
   "description": "The Slides artifact model: the slide HTML subset, its compiler and serializer, deck.json, merging, view context and project checks.",
@@ -8,7 +8,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@open-artifact/dc": "0.14.6"
+    "@open-artifact/dc": "0.15.0"
   },
   "license": "Apache-2.0"
 }

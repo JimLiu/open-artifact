@@ -103,7 +103,7 @@ The same line is printed when the browser could not be opened.
 
 The page says, with your own code:
 
-> **Link a computer** — Open Artifact daemon asks to be linked to your account. It says it is open-artifact 0.14.6.
+> **Link a computer** — Open Artifact daemon asks to be linked to your account. It says it is open-artifact 0.15.0.
 > Code: HRHX-MHGN. You are signed in as Owner. Once linked, it can publish artifacts to this site and read and change
 > the artifacts you own here, and it hears comments and requests sent to your agent. Only approve a code you started
 > yourself.
@@ -505,7 +505,7 @@ An agent that cannot run Open Artifact on its computer (a hosted agent, a phone 
 
 **Check:** ask the agent to list your artifacts (`Artifact {action: "list"}`); it shows them with your role.
 
-Run here with curl as the client: registration, consent, token, `initialize` (server `open-artifact 0.14.6`), the tool
+Run here with curl as the client: registration, consent, token, `initialize` (server `open-artifact 0.15.0`), the tool
 list, `list` and `snapshot`. Not run with a real agent app; how to add an MCP server with OAuth differs per app (for
 example a "custom connector" or `mcp add --transport http`), see the app's documentation.
 
