@@ -1,0 +1,90 @@
+/* The skeleton's bar: plain on purpose; the real look comes with the home page and the sidebar. */
+:root {
+  --bar-height: 40px;
+  --bg: #f4f4f5;
+  --fg: #18181b;
+  --muted: #71717a;
+  --tab: #e4e4e7;
+  --tab-active: #ffffff;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #18181b;
+    --fg: #f4f4f5;
+    --muted: #a1a1aa;
+    --tab: #27272a;
+    --tab-active: #3f3f46;
+  }
+}
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--fg);
+  font: 13px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+#bar {
+  height: var(--bar-height);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px 0 80px; /* room for the window buttons */
+  box-sizing: border-box;
+  -webkit-app-region: drag;
+}
+#tabs {
+  display: flex;
+  gap: 4px;
+  flex: 1;
+  overflow: hidden;
+}
+.tab {
+  -webkit-app-region: no-drag;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 220px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--tab);
+  color: inherit;
+  font: inherit;
+  cursor: default;
+}
+.tab[aria-selected='true'] {
+  background: var(--tab-active);
+}
+.tab .title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tab .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.tab .close {
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  padding: 0 2px;
+}
+.tab .state {
+  color: var(--muted);
+}
+#connection {
+  color: var(--muted);
+  -webkit-app-region: no-drag;
+}
+#placeholder {
+  padding: 48px;
+}
+#placeholder .hint {
+  color: var(--muted);
+}

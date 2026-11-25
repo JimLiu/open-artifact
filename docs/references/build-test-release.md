@@ -51,6 +51,25 @@ run an agent app can put in its own CI (`docs/integrating/testing.md`).
 
 E2E tests copy built `artifact-types/` folders into isolated temporary directories outside the repo and drive them with Node's WebSocket client over Chrome DevTools Protocol (see `e2e/README.md`).
 
+### Desktop app
+
+`apps/desktop/` has its own `package.json` and lock file (Electron and esbuild pinned); it is not a workspace and
+not part of `npm test` or `npm run check`.
+
+```bash
+npm run build && node scripts/build-skill.mjs   # at the root: the runtime the app carries
+cd apps/desktop
+npm run setup                                   # npm install + install-electron (Electron 45 fetches its binary here)
+npm run build                                   # scripts/build-runtime.mjs → resources/runtime, then build.mjs → out/
+npm test                                        # build, then test/*.test.mjs one file at a time
+```
+
+`scripts/build-runtime.mjs` copies `skills/open-artifact` (`scripts/`, `vendor/`, `reference/`, `SKILL.md`) into
+`resources/runtime` with a `package.json` naming the CLI version, and refuses a skill that is not built or whose version
+differs from `packages/daemon`. The tests run with no `node` on PATH, a throwaway `HOME`/`OPEN_ARTIFACT_HOME`, a free
+port other than 4800, the window hidden (`--test-mode`), and drive the app over its DevTools port; each stops the
+daemons it started by their `daemon.json` pid (see `apps/desktop/README.md`).
+
 ## Releasing
 
 `node scripts/build-npm.mjs` stages publishable packages into `dist/npm/`: the `@open-artifact/*` libraries, `@open-artifact/cli`, and `dsh-open-artifact`. `@open-artifact/library-page` is private and not staged: only the DSH plugin uses it, bundled into its `lib/client.js`; publish it when a host outside this repository needs it.

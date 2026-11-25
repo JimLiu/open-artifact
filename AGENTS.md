@@ -16,6 +16,7 @@ plain folders on disk.
 | `crates/` | Rust crates compiled to WebAssembly (`packages/wasm-*/generated/` is committed). |
 | `plugins/` | Per-app agent plugins (`claude-code`, `codex`, `cursor`, `copilot`, `antigravity`, `zcode`, `dsh`, `chatgpt`). |
 | `examples/` | Runnable agent-app integrations (`harness-node`, `harness-electron`, `harness-stdio`) and host plugins. |
+| `apps/desktop/` | Open Artifact Desktop (Electron, skeleton): tabs of artifacts, bundled runtime, no agent. Own `package.json`; not a workspace, not in `npm test`. |
 | `docs/` | Bilingual user & agent guides (`*.md` and `*.zh-CN.md`), `docs/types/`, the integrator guide (`docs/integrating*`, `docs/spec/`), and contributor `docs/references/`. |
 | `scripts/` | Build, plugin packaging, WASM, npm staging/publishing, and changelog scripts. |
 | `e2e/` | End-to-end tests driving built artifact types via CLI and Chrome DevTools Protocol. |
@@ -33,6 +34,7 @@ npm run e2e                    # Full E2E suite (supports: --only <suite>, --no-
 npm run test:sea               # Build and test the single executable (official Node 25.5+; not in npm test)
 open-artifact doctor --harness <name> [--session <id>]   # Check a setup; with --session, an app's conformance run
 node scripts/build-wasm.mjs    # Only needed when modifying Rust crates in crates/
+cd apps/desktop && npm run setup && npm test   # Desktop app: needs npm run build && node scripts/build-skill.mjs first
 ```
 
 Node.js **22.18+** is required.

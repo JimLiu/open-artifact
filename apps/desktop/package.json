@@ -1,0 +1,22 @@
+{
+  "name": "open-artifact-desktop",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Open Artifact Desktop: the Electron app that shows the local library's artifacts in tabs, with no agent.",
+  "main": "out/main.mjs",
+  "scripts": {
+    "setup": "npm install && install-electron",
+    "build": "node scripts/build-runtime.mjs && node build.mjs",
+    "start": "node build.mjs && electron .",
+    "test": "npm run build && node --test --test-concurrency=1 test/*.test.mjs"
+  },
+  "engines": {
+    "node": ">=22.18"
+  },
+  "devDependencies": {
+    "electron": "45.2.2",
+    "esbuild": "0.25.12"
+  },
+  "license": "Apache-2.0"
+}

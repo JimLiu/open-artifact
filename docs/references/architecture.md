@@ -71,6 +71,29 @@ packages/daemon (local open-artifact daemon, one per machine)
 | `plugins/` | Per-agent-app bundles (MCP stdio bridge, hooks, monitors/extensions, skill). See `plugins/README.md`. |
 | `examples/` | Runnable agent-app integrations (`harness-node`, `harness-electron`, `harness-stdio`) and host plugins. See `examples/README.md`. |
 
+### Desktop app
+
+`apps/desktop/` is Open Artifact Desktop, an Electron app with no agent (skeleton stage: tabs only, no home page yet).
+It is a Harness API host like the examples, built on `@open-artifact/harness-kit`:
+
+- **Runtime**: it carries the built `skills/open-artifact` as `resources/runtime` (`apps/desktop/scripts/build-runtime.mjs`)
+  and registers it with the kit (`runtime: { dir, version, update: 'prompt' }`); the kit starts the daemon with the
+  app's executable and `ELECTRON_RUN_AS_NODE=1`, detached, so no Node.js is installed and the daemon outlives the app.
+  Under Electron the daemon runs type servers as processes (`nodeChildren` mode `process`, reason `electron`).
+- **Connection**: `createHarness({ harness: 'open-artifact-desktop', embed: { mode: 'view', remote: 'deny' } })`, no
+  session and no wake. Each tab asks `harness.view(url)` for a one-time view ticket and loads the Shell's `/a/<id>` in a
+  sandboxed `WebContentsView` (no Node, no preload, its own partition); host messages go through the daemon
+  (`embedArtifact` with a transport over `shellCommand` and the `shell` events). The token stays in the main process.
+- **Navigation**: a view shows only the daemon's origin and the origins `embed.origins` lists (refreshed on
+  `embed/origins`); another artifact's `/a/<id>` (Duplicate, Copy as) opens a tab, `/` goes to the first tab, the web
+  goes to the system browser, new windows are denied. Permissions are denied except `clipboard-sanitized-write`.
+- **Reconnect**: when the daemon goes away the views stay and the bar says it is reconnecting; the kit's reconnect
+  runs `ensureDaemon`, so a daemon that was stopped (not only restarted) is started again while the app runs. Once
+  connected, each tab without unsaved work is loaded again with a new view (the view's key and the type servers' ports
+  belong to the old daemon); a tab with unsaved work is kept as it was and marked for the person to reload.
+- **Profile**: a development build refuses the default home and port 4800 and keeps Electron's folders under
+  `<home>/desktop/`.
+
 ## Agent tools & wake loop
 
 - **Tools** (defined in `packages/protocol/src/tools.ts`, implemented in `packages/daemon/src/tools.ts`):
