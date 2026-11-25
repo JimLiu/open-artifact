@@ -58,6 +58,24 @@ async function watch(page, ms, action) {
   return rows;
 }
 
+/**
+ * Where to click an element, once it has stopped moving and is what a click there would hit (a menu that is still
+ * opening has its items elsewhere, or under something).
+ */
+async function settledMiddleOf(page, element, what) {
+  const middle = () =>
+    page.evaluate(`(() => { const e = ${element}; if (!e) return null; const r = e.getBoundingClientRect(); const x = r.x + r.width / 2, y = r.y + r.height / 2; const hit = document.elementFromPoint(x, y); return hit && e.contains(hit) ? [x, y] : null; })()`);
+  const deadline = Date.now() + 10000;
+  let was = null;
+  for (;;) {
+    const at = await middle();
+    if (at && was && at[0] === was[0] && at[1] === was[1]) return at;
+    assert.ok(Date.now() < deadline, `nothing to click: ${what}`);
+    was = at;
+    await sleep(60);
+  }
+}
+
 /** Follows the page's only link, as the person would. */
 async function followLink(page) {
   const at = (await page.evaluateAll(`${IN_PAGE} ? (() => { const r = document.querySelector('a').getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; })() : undefined`)).find(v => v !== undefined);
@@ -113,7 +131,8 @@ describe('the Shell over a static page', { skip: skip() }, () => {
   it('covers the page on Refresh and shows it on its load, not at the fallback', T, async () => {
     const { page } = ctx;
     await clickOn(page, "document.querySelector('header [aria-label=\"Artifact options\"]')", 'the artifact options');
-    const refresh = byText('Refresh');
+    // The menu is still opening when its items first exist: Refresh is clicked where it comes to rest.
+    const at = await settledMiddleOf(page, byText('Refresh'), 'Refresh');
     // A quick local reload's cover can come and go between two samples of `watch`: the Shell's own page records each
     // change of the cover as it happens.
     await page.evaluate(`(() => {
@@ -128,7 +147,7 @@ describe('the Shell over a static page', { skip: skip() }, () => {
         log.push({ t: Math.round(performance.now() - t0), cover: now });
       }).observe(document.documentElement, { subtree: true, childList: true, attributes: true, attributeFilter: ['data-shell-loading'] });
     })()`);
-    const rows = await watch(page, FALLBACK_MS + 1000, () => clickOn(page, refresh, 'Refresh'));
+    const rows = await watch(page, FALLBACK_MS + 1000, () => page.click(...at));
     const changes = await page.evaluate('window.__coverChanges');
     const first = changes.findIndex(c => c.cover);
     assert.ok(first >= 0, `Refresh did not cover the page (changes: ${JSON.stringify(changes)})`);
