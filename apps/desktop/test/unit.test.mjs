@@ -1,9 +1,16 @@
 /**
  * The app's decisions that need no Electron: the profile and its guards (profile.mjs), the origin allowlist and what a
- * view's navigation does (navigation.mjs).
+ * view's navigation does (navigation.mjs), back and forward over tabs (history.mjs), the window's own settings
+ * (settings.mjs), and what the home page may ask of the Library API (library.mjs).
  */
 import assert from 'node:assert/strict';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, it } from 'node:test';
+import { TabHistory } from '../src/history.mjs';
+import { LibraryError, createArg, idArg, libraryClient, patchArg, startsBlank } from '../src/library.mjs';
+import { Settings } from '../src/settings.mjs';
 import { daemonEnv, daemonOnDefaultPort, resolveProfile } from '../src/profile.mjs';
 import { OriginAllowlist, decide, shellArtifactId, subframeAllowed } from '../src/navigation.mjs';
 
@@ -119,5 +126,113 @@ describe('navigation', () => {
   it('reads the artifact id of a Shell address', () => {
     assert.equal(shellArtifactId('http://127.0.0.1:4891/a/art_x%20y?z'), 'art_x y');
     assert.equal(shellArtifactId('http://127.0.0.1:4891/b/art_x'), null);
+  });
+});
+
+describe('profile: test-mode looks', () => {
+  const dev = (argv) => resolveProfile({ argv: ['--home', '/tmp/p', '--port', '4891', ...argv], env: {}, packaged: false, userHome: user, accountHome: user });
+
+  it('--locale, --theme and --thumbnails only in test mode, with known values', () => {
+    const test = dev(['--test-mode', '--locale', 'zh', '--theme', 'dark', '--thumbnails']);
+    assert.deepEqual(test.problems, []);
+    assert.deepEqual([test.locale, test.theme, test.thumbnails], ['zh', 'dark', true]);
+    const plain = dev(['--test-mode']);
+    assert.deepEqual([plain.locale, plain.theme, plain.thumbnails], [null, null, false]);
+    for (const flag of [['--locale', 'en'], ['--theme', 'light'], ['--thumbnails']]) {
+      assert.match(dev(flag).problems.join(' '), /test mode only/, flag.join(' '));
+    }
+    assert.match(dev(['--test-mode', '--locale', 'fr']).problems.join(' '), /en or zh/);
+    assert.match(dev(['--test-mode', '--theme', 'sepia']).problems.join(' '), /light or dark/);
+  });
+});
+
+describe('tab history', () => {
+  it('goes back and forward like a browser; a visit after going back drops what was ahead', () => {
+    const h = new TabHistory('home');
+    assert.equal(h.canBack, false);
+    h.visit('a');
+    h.visit('b');
+    h.visit('b');
+    assert.deepEqual(h.entries, ['home', 'a', 'b']);
+    assert.equal(h.back(), 'a');
+    assert.equal(h.back(), 'home');
+    assert.equal(h.back(), null);
+    assert.equal(h.forward(), 'a');
+    h.visit('c');
+    assert.deepEqual(h.entries, ['home', 'a', 'c']);
+    assert.equal(h.canForward, false);
+    assert.equal(h.forward(), null);
+  });
+
+  it('a closed tab\'s entries go, and two same entries that then meet become one', () => {
+    const h = new TabHistory('home');
+    for (const id of ['a', 'b', 'a', 'c']) h.visit(id);
+    h.remove('b');
+    assert.deepEqual(h.entries, ['home', 'a', 'c']);
+    assert.equal(h.current, 'c');
+    h.back();
+    h.remove('a');
+    assert.deepEqual(h.entries, ['home', 'c']);
+    assert.equal(h.current, 'home');
+    h.remove('home', 'home');
+    h.remove('c', 'home');
+    assert.deepEqual(h.entries, ['home']);
+  });
+});
+
+describe('settings', () => {
+  it('keeps the sidebar\'s state in settings.json, refuses what is not a setting, and starts from defaults', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'oa-desktop-settings-'));
+    try {
+      const first = new Settings(dir);
+      assert.equal(first.get('sidebarCollapsed'), false);
+      first.set('sidebarCollapsed', true);
+      assert.deepEqual(JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8')), { sidebarCollapsed: true });
+      assert.equal(new Settings(dir).get('sidebarCollapsed'), true);
+      assert.throws(() => first.set('sidebarCollapsed', 'yes'), /not a setting/);
+      assert.throws(() => first.set('token', 'x'), /not a setting/);
+      writeFileSync(join(dir, 'settings.json'), '{ not json');
+      assert.equal(new Settings(dir).get('sidebarCollapsed'), false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('what the home page may ask', () => {
+  it('ids are artifact ids, exactly', () => {
+    assert.equal(idArg('art_abc'), 'art_abc');
+    for (const bad of ['../daemon.json', 'open-artifact://artifact/art_a', '', 7, null, 'a b']) assert.throws(() => idArg(bad), LibraryError, String(bad));
+  });
+
+  it('a change is a title or pinned, nothing else', () => {
+    assert.deepEqual(patchArg({ title: '  Ferry  ', pinned: true }), { title: 'Ferry', pinned: true });
+    for (const bad of [{ owner: 'x' }, { title: '' }, { title: 'x'.repeat(301) }, { pinned: 'yes' }, {}, [], null]) {
+      assert.throws(() => patchArg(bad), LibraryError, JSON.stringify(bad));
+    }
+  });
+
+  it('a new artifact is a type id and a title; the built-in groups say which start blank', () => {
+    assert.deepEqual(createArg({ type: 'docs', title: '  Notes ' }), { type: 'docs', title: 'Notes' });
+    assert.deepEqual(createArg({ type: 'design' }), { type: 'design', title: '' });
+    for (const bad of [{ type: '../x' }, { type: '' }, { type: 3 }, null]) assert.throws(() => createArg(bad), LibraryError, JSON.stringify(bad));
+    assert.deepEqual(['docs', 'sheets', 'whiteboard', 'slides', 'design-system'].map(startsBlank), [true, true, true, true, true]);
+    assert.deepEqual(['design', 'data', 'motion', 'page', 'my-type'].map(startsBlank), [false, false, false, false, false]);
+  });
+
+  it('the client sends the token itself and throws with the daemon\'s words; without a connection it sends nothing', async () => {
+    const sent = [];
+    const fetchImpl = async (url, init) => {
+      sent.push({ url: String(url), auth: init.headers.Authorization, method: init.method, body: init.body });
+      return new Response(JSON.stringify({ code: 'not_found', message: 'no such artifact' }), { status: 404, headers: { 'content-type': 'application/json' } });
+    };
+    const client = libraryClient({ state: () => ({ url: 'http://127.0.0.1:4891', token: 'secret' }), fetchImpl });
+    await assert.rejects(client.update('art_a', { title: 'x' }), /no such artifact/);
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0].auth, 'Bearer secret');
+    assert.match(sent[0].url, /^http:\/\/127\.0\.0\.1:4891\/api\/open-artifact\./);
+    const offline = libraryClient({ state: () => null, fetchImpl });
+    await assert.rejects(offline.list(), /not connected/);
+    assert.equal(sent.length, 1);
   });
 });

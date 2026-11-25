@@ -2,8 +2,9 @@
 
 The Open Artifact library page as a React component: the list of artifacts (grid or list, search, filters by type
 and date), new artifacts from the type tiles, rename, pin, copy link, delete with undo, thumbnails, an update panel,
-"What's new" and the changelog. The DSH plugin (`plugins/dsh`) mounts it in DSH's sidebar. The package is private:
-only that plugin uses it, bundled into its `lib/client.js`.
+"What's new" and the changelog. Two hosts mount it: the DSH plugin (`plugins/dsh`) in DSH's sidebar, bundled into
+its `lib/client.js`, and Open Artifact Desktop (`apps/desktop`) as its home tab, bundled into the window's page. The
+package is private: hosts in this repository bundle it.
 
 The page knows nothing of the app around it. A host gives it its routes, its app and its words through the interfaces
 below, maps the page's `--oa-page-*` tokens onto its own design tokens, and sets two attributes on the page's root.
@@ -12,7 +13,7 @@ below, maps the page's `--oa-page-*` tokens onto its own design tokens, and sets
 
 | Import | What it has | DOM / React |
 | --- | --- | --- |
-| `@open-artifact/library-page` | `ArtifactsPage`, `EnvProvider`, `StoreProvider`, `createPageStore`, the update panel, the changelog views, the words, the CSS, and everything below | React (a peer dependency, `>=19`) |
+| `@open-artifact/library-page` | `ArtifactsPage` (and its `TileGroup`), `TypeIcon`, `EnvProvider`, `StoreProvider`, `createPageStore`, the update panel, the changelog views, the words, the CSS, and everything below | React (a peer dependency, `>=19`) |
 | `@open-artifact/library-page/library` | What a host's server needs too: the route answers' shapes (`PageArtifact`, `ArtifactList`, `OpenAnswer`, `DeleteAnswer`, `TypeTile`), the Library API answers in those shapes (`pageView`, `artifactList`, `openAnswer`, `deleteAnswer`, `typeTiles`, `thumbnailStamp`), `isNewer`, `latestOf`, the changelog parser (`parseChangelog`, `releasesBetween`, …) and `captureRecipe` | neither |
 | `@open-artifact/library-page/styles` | `PAGE_CSS`, `UPDATE_CSS`, `injectStyles` | DOM only |
 | `@open-artifact/library-page/words` | The page's words in Chinese and English (`zh`, `en`), `translator`, `fill`, `isKey` | neither |
@@ -47,7 +48,20 @@ const store = createPageStore({ api, host, t });
 | `PageUpdates` | `PageEnv.updates`, optional | An update offer and its run: an `ExternalStore<UpdateState>` plus `start`, `later`, `close`, `reopen` and the panel's words `t`. Without it the page draws no update panel. |
 | `ChangelogReader` | `PageEnv.changelog`, optional | `(upcoming) => Promise<ChangelogAnswer \| null>`: the release notes, for "What's new", the offer's notes and the changelog. Without it the page shows none. |
 
-`ArtifactsPage` takes `canCreate`, `theme` and `platform`.
+`ArtifactsPage` takes these props:
+
+| Prop | Default | What it does |
+| --- | --- | --- |
+| `canCreate` | (required) | The app can start something from here: the type tiles and the New button. |
+| `theme` | light | `dark` draws the dark look (see the root attributes). |
+| `platform` | none | `darwin` leaves room for a macOS title bar. |
+| `searchButton` | `true` | The search button in the heading. With `false` the search box shows only after the host calls the store's `focusSearch()`, or while there is a query. |
+| `createButton` | `true` | The New button in the heading (with `canCreate`). The type tiles stay either way. |
+| `tileGroups` | one row | `TileGroup[]` (`{ id, title, types }`): the type tiles in groups, each under its own heading, in the order `types` lists; a group's element carries `data-group="<id>"`. A type no group names goes at the end of the last group; a group with no installed type is left out. |
+
+The store's `focusSearch()` (in `PageActions`) asks the page to show its search box and put the keyboard in it; each
+call counts up `searchFocus` in `PageState`, so the page focuses it again even when the box is already showing.
+`TypeIcon` is the type glyph the page draws on cards and menus, for a host that lists artifacts around the page.
 
 ## Tokens
 

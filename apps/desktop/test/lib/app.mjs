@@ -11,7 +11,9 @@ export const isShellOf = (id) => (info) => info.type === 'page' && new URL(info.
 
 export async function launchApp(profile, port, { args = [], env = {} } = {}) {
   const debugPort = await freePort();
-  const child = spawn(electronBinary(), [APP, '--home', profile.oaHome, '--port', String(port), '--test-mode', '--devtools-port', String(debugPort), ...args], {
+  // English unless a test asks for another language: the tests read the app's words.
+  const locale = args.includes('--locale') ? [] : ['--locale', 'en'];
+  const child = spawn(electronBinary(), [APP, '--home', profile.oaHome, '--port', String(port), '--test-mode', '--devtools-port', String(debugPort), ...locale, ...args], {
     env: cleanEnv(profile, port, env),
     stdio: ['ignore', 'pipe', 'pipe'],
   });

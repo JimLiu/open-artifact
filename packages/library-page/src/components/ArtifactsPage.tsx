@@ -598,10 +598,38 @@ function TilePeek({ tile, anchor, t, onAct, onEnter, onLeave, onClose }: {
   );
 }
 
+/** A group of type tiles under a heading of its own ({@link ArtifactsPageProps.tileGroups}). */
+export interface TileGroup {
+  /** On the group's element as `data-group`, for the host's CSS. */
+  id: string;
+  /** The group's heading. */
+  title: string;
+  /** The type ids in the group, in the order the tiles show. Ones that are not installed are left out. */
+  types: readonly string[];
+}
+
+/** The installed tiles in their groups: what no group names goes at the end of the last one; empty groups are left out. */
+function groupTiles(tiles: readonly TypeTile[], groups: readonly TileGroup[]): { group: TileGroup; tiles: TypeTile[] }[] {
+  const placed = new Set(groups.flatMap((group) => group.types));
+  const rest = tiles.filter((tile) => !placed.has(tile.id));
+  return groups
+    .map((group, at) => ({
+      group,
+      tiles: [...group.types.map((id) => tiles.find((tile) => tile.id === id)).filter((tile): tile is TypeTile => tile !== undefined), ...(at === groups.length - 1 ? rest : [])],
+    }))
+    .filter((entry) => entry.tiles.length > 0);
+}
+
 /** Props of {@link ArtifactsPage}. */
 export interface ArtifactsPageProps {
-  /** The app can start a session from here. */
+  /** The app can start a session from here: the type tiles and the New button. */
   canCreate: boolean;
+  /** The search button in the heading (default `true`). Without it the search box shows only when the host asks for it (`focusSearch`) or while there is a query. */
+  searchButton?: boolean;
+  /** The New button in the heading, with `canCreate` (default `true`). The tiles stay either way. */
+  createButton?: boolean;
+  /** The type tiles in groups, each under its own heading, instead of one row under "Make something new" (default: one row). */
+  tileGroups?: readonly TileGroup[];
   /** The host's look, on the page's root as `data-theme`: `dark` draws the dark one. */
   theme?: 'light' | 'dark';
   /** The host's platform, on the page's root as `data-platform`: `darwin` leaves room for a macOS title bar. */
@@ -609,7 +637,7 @@ export interface ArtifactsPageProps {
 }
 
 /** The page. */
-export function ArtifactsPage({ canCreate, theme, platform }: ArtifactsPageProps) {
+export function ArtifactsPage({ canCreate, theme, platform, searchButton = true, createButton = true, tileGroups }: ArtifactsPageProps) {
   const { t } = usePageEnv();
   const sessionTitle = useSessionTitle();
   const status = usePage((s) => s.status);
@@ -621,6 +649,7 @@ export function ArtifactsPage({ canCreate, theme, platform }: ArtifactsPageProps
   const query = usePage((s) => s.query);
   const layout = usePage((s) => s.layout);
   const dialog = usePage((s) => s.dialog);
+  const searchFocus = usePage((s) => s.searchFocus);
   const { reload, watchEvents, watchThumbnails, setFilters, setQuery, setLayout, openDialog, closeDialog, open, create, pin, rename, copyLink, share, remove } = usePage((s) => s);
   // The card of the tile the pointer rests on, and the timer that shows or hides it.
   const [peek, setPeek] = useState<{ id: string; anchor: HTMLElement } | null>(null);
@@ -647,6 +676,13 @@ export function ArtifactsPage({ canCreate, theme, platform }: ArtifactsPageProps
   useEffect(() => {
     if (searching) searchBox.current?.focus();
   }, [searching]);
+  // The host's own search entry: the box shows (the effect above focuses it), or takes the keyboard when it shows already.
+  useEffect(() => {
+    if (searchFocus === 0) return;
+    setSearching(true);
+    searchBox.current?.focus();
+    searchBox.current?.select();
+  }, [searchFocus]);
 
   const counts = useMemo(() => countByType(artifacts), [artifacts]);
   
@@ -707,6 +743,39 @@ export function ArtifactsPage({ canCreate, theme, platform }: ArtifactsPageProps
     onMenu: (a, anchor) => setPopup((p) => (p?.kind === 'actions' && p.id === a.id ? null : { kind: 'actions', anchor, id: a.id })),
   });
 
+  /** One type tile, in the row or in a group. */
+  const tileItem = (tile: TypeTile) => {
+    const peeking = peek?.id === tile.id;
+    return (
+      <li key={tile.id} onPointerEnter={(event) => event.pointerType !== 'touch' && showPeek(tile.id, event.currentTarget.firstElementChild as HTMLElement)} onPointerLeave={hidePeek}>
+        <button
+          type="button"
+          className="oa-tile"
+          data-type={tile.id}
+          {...(peeking ? { 'data-peek': 'true', 'aria-describedby': PEEK_ABOUT_ID } : {})}
+          style={typeStyle(tile.id)}
+          onClick={() => tileAct(tile.id)}
+          onFocus={(event) => {
+            if (event.currentTarget.matches(':focus-visible')) showPeek(tile.id, event.currentTarget, true);
+          }}
+          onBlur={() => {
+            if (!overPeek.current) hidePeek();
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape' && peek !== null) closePeek();
+          }}
+        >
+          <span className="oa-tile-art">
+            <Doodle type={tile.id} />
+            <TypeIcon type={tile.id} size={42} />
+            {BETA.includes(tile.id) && <span className="oa-tile-beta">{t('tile.beta')}</span>}
+          </span>
+          <span className="oa-tile-label">{typeLabel(t, tile.id, tile.title)}</span>
+        </button>
+      </li>
+    );
+  };
+
   const toggle = (kind: 'filter' | 'create', anchor: HTMLElement) => setPopup((p) => (p?.kind === kind ? null : { kind, anchor }));
 
   return (
@@ -749,11 +818,11 @@ export function ArtifactsPage({ canCreate, theme, platform }: ArtifactsPageProps
                     </button>
                   )}
                 </label>
-              ) : (
+              ) : searchButton ? (
                 <button type="button" className="oa-tool" aria-label={t('search')} title={t('search')} onClick={() => setSearching(true)}>
                   <Icon d={ICON.search} size={18} />
                 </button>
-              )}
+              ) : null}
               <button type="button" className="oa-tool" aria-label={t('filter.button')} title={t('filter.button')} aria-haspopup="menu" aria-expanded={popup?.kind === 'filter'} data-active={isFiltered(filters)} onClick={(e) => toggle('filter', e.currentTarget)}>
                 <Icon d={ICON.filter} size={18} />
               </button>
@@ -766,7 +835,7 @@ export function ArtifactsPage({ canCreate, theme, platform }: ArtifactsPageProps
               >
                 <Icon d={layout === 'grid' ? ICON.list : ICON.grid} size={18} />
               </button>
-              {canCreate && (
+              {canCreate && createButton && (
                 <button type="button" className="oa-tool" aria-label={t('create.new')} title={t('create.new')} aria-haspopup="menu" aria-expanded={popup?.kind === 'create'} onClick={(e) => toggle('create', e.currentTarget)}>
                   <Icon d={ICON.plus} size={18} />
                 </button>
@@ -777,40 +846,21 @@ export function ArtifactsPage({ canCreate, theme, platform }: ArtifactsPageProps
           <WhatsNewPanel />
           {canCreate && tiles.length > 0 && (
             <>
-              <h2 className="oa-section-title">{t('create.heading')}</h2>
-              <ul className="oa-tiles">
-                {tiles.map((tile) => {
-                  const peeking = peek?.id === tile.id;
-                  return (
-                    <li key={tile.id} onPointerEnter={(event) => event.pointerType !== 'touch' && showPeek(tile.id, event.currentTarget.firstElementChild as HTMLElement)} onPointerLeave={hidePeek}>
-                      <button
-                        type="button"
-                        className="oa-tile"
-                        data-type={tile.id}
-                        {...(peeking ? { 'data-peek': 'true', 'aria-describedby': PEEK_ABOUT_ID } : {})}
-                        style={typeStyle(tile.id)}
-                        onClick={() => tileAct(tile.id)}
-                        onFocus={(event) => {
-                          if (event.currentTarget.matches(':focus-visible')) showPeek(tile.id, event.currentTarget, true);
-                        }}
-                        onBlur={() => {
-                          if (!overPeek.current) hidePeek();
-                        }}
-                        onKeyDown={(event) => {
-                          if (event.key === 'Escape' && peek !== null) closePeek();
-                        }}
-                      >
-                        <span className="oa-tile-art">
-                          <Doodle type={tile.id} />
-                          <TypeIcon type={tile.id} size={42} />
-                          {BETA.includes(tile.id) && <span className="oa-tile-beta">{t('tile.beta')}</span>}
-                        </span>
-                        <span className="oa-tile-label">{typeLabel(t, tile.id, tile.title)}</span>
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
+              {tileGroups === undefined ? (
+                <>
+                  <h2 className="oa-section-title">{t('create.heading')}</h2>
+                  <ul className="oa-tiles">{tiles.map(tileItem)}</ul>
+                </>
+              ) : (
+                <div className="oa-tile-groups">
+                  {groupTiles(tiles, tileGroups).map(({ group, tiles: grouped }) => (
+                    <section key={group.id} className="oa-tile-group" data-group={group.id} aria-label={group.title}>
+                      <h2 className="oa-section-title">{group.title}</h2>
+                      <ul className="oa-tiles">{grouped.map(tileItem)}</ul>
+                    </section>
+                  ))}
+                </div>
+              )}
               {peek !== null && peekTile !== undefined && popup === null && (
                 <TilePeek
                   tile={peekTile}

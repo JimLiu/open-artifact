@@ -2,19 +2,13 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: oa-thumbnail:" />
     <title>Open Artifact</title>
-    <link rel="stylesheet" href="chrome.css" />
+    <link rel="stylesheet" href="page.css" />
+    <link rel="stylesheet" href="app.css" />
   </head>
   <body>
-    <header id="bar">
-      <nav id="tabs" role="tablist" aria-label="Open artifacts"></nav>
-      <span id="connection" role="status" aria-live="polite"></span>
-    </header>
-    <main id="placeholder" data-testid="home-placeholder">
-      <p>Open Artifact</p>
-      <p class="hint">The home page comes in a later stage. Open an artifact with <code>--open &lt;id&gt;</code>.</p>
-    </main>
-    <script src="chrome.js"></script>
+    <div id="root"></div>
+    <script src="app.js"></script>
   </body>
 </html>

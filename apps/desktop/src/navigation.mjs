@@ -114,3 +114,13 @@ export function decide(address, { allowlist, current }) {
 export function subframeAllowed(address, allowlist) {
   return ownSubframe(address) || allowlist.allows(address);
 }
+
+/** `open-artifact://artifact/<id>`, `/a/<id>` or a bare id → the id. */
+export function artifactIdOf(ref) {
+  const text = String(ref ?? '').trim();
+  const link = /^open-artifact:\/\/artifact\/([^/?#]+)/.exec(text);
+  if (link) return decodeURIComponent(link[1]);
+  const shell = /\/a\/([^/?#]+)/.exec(text);
+  if (/^https?:\/\//.test(text) && shell) return decodeURIComponent(shell[1]);
+  return /^[A-Za-z0-9_-]{1,80}$/.test(text) ? text : null;
+}

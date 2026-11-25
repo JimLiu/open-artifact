@@ -97,6 +97,16 @@ export function resolveProfile({ argv = [], env = {}, packaged = false, userHome
   if (debugRaw && (!Number.isInteger(debugPort) || debugPort < 1 || debugPort > 65535)) problems.push(`--devtools-port ${debugRaw}: not a port number.`);
   if (debugPort && !testMode) problems.push('--devtools-port is for test mode only (--test-mode or OA_DESKTOP_TEST=1).');
 
+  // Test mode only: the language and the look a run uses instead of the system's, and thumbnails taken although the
+  // window is not shown. Outside test mode these are refused, so a person's run always follows the system.
+  const testOnly = { locale: argValue(argv, 'locale'), theme: argValue(argv, 'theme') };
+  if (testOnly.locale !== undefined && !/^(en|zh)$/.test(testOnly.locale)) problems.push(`--locale ${testOnly.locale}: en or zh.`);
+  if (testOnly.theme !== undefined && !/^(light|dark)$/.test(testOnly.theme)) problems.push(`--theme ${testOnly.theme}: light or dark.`);
+  const thumbnails = argv.includes('--thumbnails');
+  for (const [name, given] of [['locale', testOnly.locale !== undefined], ['theme', testOnly.theme !== undefined], ['thumbnails', thumbnails]]) {
+    if (given && !testMode) problems.push(`--${name} is for test mode only (--test-mode or OA_DESKTOP_TEST=1).`);
+  }
+
   return {
     packaged,
     home,
@@ -109,6 +119,12 @@ export function resolveProfile({ argv = [], env = {}, packaged = false, userHome
     debugPort: problems.length ? null : debugPort,
     /** Artifacts to open in tabs at start (`--open <id or open-artifact:// link>`, repeatable). */
     open: argValues(argv, 'open'),
+    /** Test mode: `--locale en|zh` (null: the system's language). */
+    locale: testMode ? (testOnly.locale ?? null) : null,
+    /** Test mode: `--theme light|dark` (null: the system's look). */
+    theme: testMode ? (testOnly.theme ?? null) : null,
+    /** Test mode: `--thumbnails` takes thumbnails although the window is never shown. */
+    thumbnails: testMode && thumbnails,
     problems,
   };
 }

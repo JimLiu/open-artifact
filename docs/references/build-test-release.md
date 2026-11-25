@@ -53,14 +53,16 @@ E2E tests copy built `artifact-types/` folders into isolated temporary directori
 
 ### Desktop app
 
-`apps/desktop/` has its own `package.json` and lock file (Electron and esbuild pinned); it is not a workspace and
-not part of `npm test` or `npm run check`.
+`apps/desktop/` has its own `package.json` and lock file (Electron, esbuild, React and React DOM pinned); it is not a
+workspace and not part of `npm test` or `npm run check`. `build.mjs` bundles the main process (`src/` → `out/main.mjs`,
+`out/preload.cjs`) and the window's page (`renderer/` → `out/renderer/app.js`, with the library page's `PAGE_CSS` as
+`page.css`, `app.css` and `index.html`); React comes from `apps/desktop/node_modules`, one copy.
 
 ```bash
 npm run build && node scripts/build-skill.mjs   # at the root: the runtime the app carries
 cd apps/desktop
 npm run setup                                   # npm install + install-electron (Electron 45 fetches its binary here)
-npm run build                                   # scripts/build-runtime.mjs → resources/runtime, then build.mjs → out/
+npm run build                                   # scripts/build-runtime.mjs → resources/runtime, then build.mjs → out/ (main + renderer)
 npm test                                        # build, then test/*.test.mjs one file at a time
 ```
 
@@ -72,7 +74,7 @@ daemons it started by their `daemon.json` pid (see `apps/desktop/README.md`).
 
 ## Releasing
 
-`node scripts/build-npm.mjs` stages publishable packages into `dist/npm/`: the `@open-artifact/*` libraries, `@open-artifact/cli`, and `dsh-open-artifact`. `@open-artifact/library-page` is private and not staged: only the DSH plugin uses it, bundled into its `lib/client.js`; publish it when a host outside this repository needs it.
+`node scripts/build-npm.mjs` stages publishable packages into `dist/npm/`: the `@open-artifact/*` libraries, `@open-artifact/cli`, and `dsh-open-artifact`. `@open-artifact/library-page` is private and not staged: the DSH plugin bundles it into its `lib/client.js` and Open Artifact Desktop into its window page; publish it when a host outside this repository needs it.
 `@open-artifact/cli` is the skill folder: its `files` are `scripts/`, `vendor/`, `reference/` (the skill's guides, such as `new-type.md`) and `SKILL.md`.
 The libraries are compiled with `tsc` (`rewriteRelativeImportExtensions`, which fixes `./x.ts` imports in the emitted JavaScript only); the script then rewrites relative `.ts`/`.tsx`/`.mts`/`.cts` specifiers in every staged `.d.ts` (compiled or authored) to `.js`/`.js`/`.mjs`/`.cjs` (`scripts/declaration-specifiers.mjs`, tested by `scripts/declaration-specifiers.test.mjs`) and fails the build if one is left.
 

@@ -1,7 +1,9 @@
 /**
- * The tabs: one `WebContentsView` per artifact under the window's tab bar, each loading the artifact's Shell
- * (`harness.view(url)`: the daemon's `/a/<id>` with a one-time view ticket) and talking to it through the daemon
- * (`embedArtifact` with a transport). The first tab is the app's own (the home page, later); it has no view.
+ * The tabs: one `WebContentsView` per artifact under the window's tab bar and beside its sidebar, each loading the
+ * artifact's Shell (`harness.view(url)`: the daemon's `/a/<id>` with a one-time view ticket) and talking to it through
+ * the daemon (`embedArtifact` with a transport). The first tab is the app's own home page (the window's own page draws
+ * it); it has no view. While the window's page shows something over the views (the new-artifact dialog), the current
+ * view is hidden (`setOverlay`): a view is drawn above the window's page, whatever the page draws.
  *
  * Each view: sandboxed, context-isolated, no Node, no preload, its own storage partition; hidden views are kept (not
  * destroyed), so switching back does not reload. The Shell is told the app has its own toolbar and its own way between
@@ -16,35 +18,29 @@
  */
 import { WebContentsView, nativeTheme, session as electronSession } from 'electron';
 import { embedArtifact } from '@open-artifact/harness-kit/embed';
-import { decide, httpish, subframeAllowed } from './navigation.mjs';
+import { artifactIdOf, decide, httpish, subframeAllowed } from './navigation.mjs';
+
+export { artifactIdOf };
 
 /** The views' own storage: nothing the window keeps (or a page sets) is shared with it. */
 export const PARTITION = 'persist:open-artifact-pages';
 /** The only permission a page gets: writing to the clipboard (and only on an allowed origin). */
 const PERMISSIONS = new Set(['clipboard-sanitized-write']);
-/** The app's own first tab (the home page, in a later stage). */
+/** The app's own first tab: the home page. */
 export const HOME_TAB = 'home';
 
 const themeOf = () => ({ scheme: nativeTheme.shouldUseDarkColors ? 'dark' : 'light' });
 const artifactLink = (id) => `open-artifact://artifact/${id}`;
-/** `open-artifact://artifact/<id>`, `/a/<id>` or a bare id → the id. */
-export function artifactIdOf(ref) {
-  const text = String(ref ?? '').trim();
-  const link = /^open-artifact:\/\/artifact\/([^/?#]+)/.exec(text);
-  if (link) return decodeURIComponent(link[1]);
-  const shell = /\/a\/([^/?#]+)/.exec(text);
-  if (/^https?:\/\//.test(text) && shell) return decodeURIComponent(shell[1]);
-  return /^[A-Za-z0-9_-]{1,80}$/.test(text) ? text : null;
-}
-
 export class Tabs {
   /**
    * `window`: the BrowserWindow; `harness`: the kit's connection; `allowlist`: an `OriginAllowlist`; `topInset()`: the
-   * height of the window's own bar; `onChange()`: the tabs changed (the window redraws its bar); `openExternal(url)`;
-   * `log(line)`; `testMode`.
+   * height of the window's own bar; `leftInset()`: the width of its sidebar (0 when collapsed); `onChange()`: the tabs
+   * changed (the window redraws its bar); `openExternal(url)`; `log(line)`; `testMode`.
    */
-  constructor({ window, harness, allowlist, topInset, onChange, openExternal, log, testMode = false }) {
-    Object.assign(this, { window, harness, allowlist, topInset, onChange, openExternal, log, testMode });
+  constructor({ window, harness, allowlist, topInset, leftInset = () => 0, onChange, openExternal, log, testMode = false }) {
+    Object.assign(this, { window, harness, allowlist, topInset, leftInset, onChange, openExternal, log, testMode });
+    /** The window's page draws over the views: the current one is hidden. */
+    this.overlay = false;
     /** Artifact id → tab. */
     this.tabs = new Map();
     this.current = HOME_TAB;
@@ -76,6 +72,7 @@ export class Tabs {
       tabs: [...this.tabs.values()].map((tab) => ({
         id: tab.id,
         title: tab.title || tab.id,
+        type: tab.type ?? '',
         unsaved: tab.saved ? tab.saved.leaveLosesWork || tab.saved.state === 'unsaved' || tab.saved.state === 'saving' : false,
         saved: tab.saved?.state ?? null,
         status: tab.status,
@@ -96,7 +93,7 @@ export class Tabs {
       this.select(id);
       return id;
     }
-    const tab = { id, title: '', saved: null, status: 'opening', view: null, embed: null, ticket: null, place: null };
+    const tab = { id, title: '', type: '', saved: null, status: 'opening', view: null, embed: null, ticket: null, place: null };
     this.tabs.set(id, tab);
     this.current = id;
     this.changed();
@@ -231,6 +228,22 @@ export class Tabs {
     this.openExternal(url);
   }
 
+  /** What the library says of an open tab's artifact now (renamed, its type). */
+  setInfo(id, { title, type } = {}) {
+    const tab = this.tabs.get(id);
+    if (!tab) return false;
+    if (typeof title === 'string' && title) tab.title = title;
+    if (typeof type === 'string' && type) tab.type = type;
+    this.changed();
+    return true;
+  }
+
+  /** The window's page draws over the views (a dialog), or stops. */
+  setOverlay(on) {
+    this.overlay = !!on;
+    this.layout();
+  }
+
   select(id) {
     if (id !== HOME_TAB && !this.tabs.has(id)) return false;
     this.current = id;
@@ -260,17 +273,23 @@ export class Tabs {
     return true;
   }
 
-  /** The visible tab's view under the bar; the others hidden (kept). */
+  /** The visible tab's view under the bar and beside the sidebar; the others hidden (kept). Returns its bounds (or null). */
   layout() {
-    if (this.window.isDestroyed()) return;
+    if (this.window.isDestroyed()) return null;
+    let placed = null;
     const { width, height } = this.window.getContentBounds();
     const top = this.topInset();
+    const left = Math.min(width, this.leftInset());
     for (const tab of this.tabs.values()) {
       if (!tab.view) continue;
-      const shown = tab.id === this.current;
+      const shown = tab.id === this.current && !this.overlay;
       tab.view.setVisible(shown);
-      if (shown) tab.view.setBounds({ x: 0, y: top, width, height: Math.max(0, height - top) });
+      if (shown) {
+        placed = { x: left, y: top, width: Math.max(0, width - left), height: Math.max(0, height - top) };
+        tab.view.setBounds(placed);
+      }
     }
+    return placed;
   }
 
   /** The connection went down or came back. */

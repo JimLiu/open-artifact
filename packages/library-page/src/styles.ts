@@ -26,6 +26,11 @@ export const PAGE_CSS = `
 .oa-search button:hover{background:var(--oa-page-hover-bg)}
 .oa-section-title{margin:0 0 12px;font-size:13px;font-weight:400;line-height:20px;color:var(--oa-page-text-tertiary)}
 .oa-tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:14px 10px;margin:0 0 36px;padding:0;list-style:none}
+.oa-tile-groups{display:flex;flex-wrap:wrap;gap:20px 28px;margin:0 0 36px}
+.oa-tile-group{display:flex;flex-direction:column;min-width:0}
+.oa-tile-group .oa-section-title{margin-bottom:10px}
+.oa-tile-group .oa-tiles{display:flex;flex-wrap:wrap;gap:10px;margin:0}
+.oa-tile-group .oa-tiles>li{width:112px}
 .oa-tile{display:flex;flex-direction:column;gap:8px;width:100%;padding:0;border:0;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer}
 .oa-tile-art{position:relative;display:flex;align-items:center;justify-content:center;aspect-ratio:10/7;border-radius:14px;overflow:hidden;background:var(--oa-wash);color:var(--oa-ink);transition:transform .2s cubic-bezier(.2,.7,.3,1),background-color .15s}
 .oa-tile:hover .oa-tile-art,.oa-tile[data-peek=true] .oa-tile-art{transform:scale(1.03)}

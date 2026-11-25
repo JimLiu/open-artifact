@@ -124,12 +124,14 @@ describe('navigation in a tab', () => {
 
   it('the Shell\'s close closes its tab', T, async () => {
     // What the Shell's own close sends over its view channel (the app gave it a toolbar, so it shows no close button).
-    const sent = await view.evaluate(`(async () => {
+    // The request is not awaited in the page: the app removes the view as soon as the close arrives, which can be
+    // before the page would answer, and an evaluate on a removed view never answers.
+    const claimed = await view.evaluate(`(() => {
       const claimed = JSON.parse(sessionStorage.getItem('open-artifact.view.${first.id}'));
-      const response = await fetch('/api/open-artifact.view', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ view: claimed.view, key: claimed.key, event: { openArtifact: 'close' } }) });
-      return response.status;
+      void fetch('/api/open-artifact.view', { method: 'POST', headers: { 'content-type': 'application/json' }, keepalive: true, body: JSON.stringify({ view: claimed.view, key: claimed.key, event: { openArtifact: 'close' } }) });
+      return !!(claimed.view && claimed.key);
     })()`);
-    assert.ok(sent >= 200 && sent < 300, `the view channel said ${sent}`);
+    assert.equal(claimed, true, 'the view had no claimed channel');
     assert.ok(await until(async () => (await app.state()).tabs.length === 1, 10_000), JSON.stringify(await app.state()));
     assert.deepEqual((await app.state()).tabs.map((t) => t.id), [second.id]);
     assert.equal((await app.cdp.targets()).some((t) => t.type === 'page' && t.url.includes(`/a/${first.id}`)), false, 'the closed view is gone');

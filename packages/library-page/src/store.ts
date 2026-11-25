@@ -52,6 +52,8 @@ export interface PageState {
   dialog: DialogState | null;
   /** The library's events are coming in. */
   live: boolean;
+  /** Counts the host's asks to put the keyboard in the search box ({@link PageActions.focusSearch}); 0 before any. */
+  searchFocus: number;
 }
 
 /** What the store does. */
@@ -60,6 +62,8 @@ export interface PageActions {
   setFilters(patch: Partial<Filters>): void;
   clearFilters(): void;
   setQuery(query: string): void;
+  /** Shows the search box and puts the keyboard in it: for a host's own search entry (the page draws it at once). */
+  focusSearch(): void;
   setLayout(layout: Layout): void;
   setMenuFor(id: string | null): void;
   openDialog(dialog: DialogState): void;
@@ -198,6 +202,7 @@ export function createPageStore({ api, host, t, eventDelayMs = 300 }: PageStoreO
       menuFor: null,
       dialog: null,
       live: false,
+      searchFocus: 0,
 
       reload() {
         if (loading) return loading;
@@ -219,6 +224,7 @@ export function createPageStore({ api, host, t, eventDelayMs = 300 }: PageStoreO
       setFilters: (change) => set({ filters: { ...get().filters, ...change } }),
       clearFilters: () => set({ filters: { ...NO_FILTERS, sort: get().filters.sort } }),
       setQuery: (query) => set({ query }),
+      focusSearch: () => set({ searchFocus: get().searchFocus + 1 }),
       setLayout(layout) {
         set({ layout });
         try {

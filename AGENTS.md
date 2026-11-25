@@ -16,7 +16,7 @@ plain folders on disk.
 | `crates/` | Rust crates compiled to WebAssembly (`packages/wasm-*/generated/` is committed). |
 | `plugins/` | Per-app agent plugins (`claude-code`, `codex`, `cursor`, `copilot`, `antigravity`, `zcode`, `dsh`, `chatgpt`). |
 | `examples/` | Runnable agent-app integrations (`harness-node`, `harness-electron`, `harness-stdio`) and host plugins. |
-| `apps/desktop/` | Open Artifact Desktop (Electron, skeleton): tabs of artifacts, bundled runtime, no agent. Own `package.json`; not a workspace, not in `npm test`. |
+| `apps/desktop/` | Open Artifact Desktop (Electron): sidebar, tabs of artifacts, the library page as home, bundled runtime, no agent. Own `package.json`; not a workspace, not in `npm test`. |
 | `docs/` | Bilingual user & agent guides (`*.md` and `*.zh-CN.md`), `docs/types/`, the integrator guide (`docs/integrating*`, `docs/spec/`), and contributor `docs/references/`. |
 | `scripts/` | Build, plugin packaging, WASM, npm staging/publishing, and changelog scripts. |
 | `e2e/` | End-to-end tests driving built artifact types via CLI and Chrome DevTools Protocol. |

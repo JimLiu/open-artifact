@@ -31,7 +31,7 @@ packages/daemon (local open-artifact daemon, one per machine)
 | `packages/server-sdk` | Shared server primitives and frame-host support used by `type-server` and hosts; `./zip` (`src/zip.ts`) is the one zip reader and writer (archives, type packages, imports: `checkZip`, `unpackZip`, `zipBytes`, `archiveEntries`), which the daemon uses too. |
 | `packages/live-store` | Real-time JSON document sync store shared by `whiteboard`, `data`, and `motion`. |
 | `packages/harness-kit` | The SDK an agent app builds its adapter on: `createHarness` (connect, start the newest compatible runtime, reconnect, sessions, tools, wakes, pages, `runtime.status()`/`runtime.update()`), `./embed` (Shell embedding in a renderer, no Node), `./testing` (a fake daemon that lists the real daemon's features). See `packages/harness-kit/README.md`. |
-| `packages/library-page` | The Open Artifact library page (list, filters, new, rename/pin/delete, update panel, release notes) as a React component a host mounts. Hosts give it their routes and app through interfaces (`PageApi`, `PageHost`, `PageEnv`), map its `--oa-page-*` tokens, and set `theme`/`platform` on its root. `./library` is the DOM-free half (route shapes, changelog parsing). Private, bundled into the DSH plugin's `lib/client.js`. See `packages/library-page/README.md`. |
+| `packages/library-page` | The Open Artifact library page (list, filters, new, rename/pin/delete, update panel, release notes) as a React component a host mounts. Hosts give it their routes and app through interfaces (`PageApi`, `PageHost`, `PageEnv`), map its `--oa-page-*` tokens, and set `theme`/`platform` on its root. `./library` is the DOM-free half (route shapes, changelog parsing). Private, bundled into the DSH plugin's `lib/client.js` and into Open Artifact Desktop's window page (its home tab, with `searchButton`/`createButton` off and `tileGroups` for the blank and agent groups). See `packages/library-page/README.md`. |
 
 ### Artifact type packages
 
@@ -73,7 +73,8 @@ packages/daemon (local open-artifact daemon, one per machine)
 
 ### Desktop app
 
-`apps/desktop/` is Open Artifact Desktop, an Electron app with no agent (skeleton stage: tabs only, no home page yet).
+`apps/desktop/` is Open Artifact Desktop, an Electron app with no agent: a sidebar, a tab bar, the library page as
+its home tab, and one view per artifact tab (no server switcher, service status, update banner or settings yet).
 It is a Harness API host like the examples, built on `@open-artifact/harness-kit`:
 
 - **Runtime**: it carries the built `skills/open-artifact` as `resources/runtime` (`apps/desktop/scripts/build-runtime.mjs`)
@@ -91,8 +92,20 @@ It is a Harness API host like the examples, built on `@open-artifact/harness-kit
   runs `ensureDaemon`, so a daemon that was stopped (not only restarted) is started again while the app runs. Once
   connected, each tab without unsaved work is loaded again with a new view (the view's key and the type servers' ports
   belong to the old daemon); a tab with unsaved work is kept as it was and marked for the person to reload.
+- **Window page**: `apps/desktop/renderer/` is a React app (bundled by `apps/desktop/build.mjs` into
+  `out/renderer/`, with `PAGE_CSS` written to `page.css`) that draws the sidebar, the tab bar, the new dialog and the
+  shared `ArtifactsPage` of `packages/library-page`. It talks to the main process only through the preload bridge
+  (`window.desktop`); every `ipcMain` handler checks the sender is the window's own page. The page's `PageApi` calls
+  go to the main process, which calls the Library API with the daemon's token (`apps/desktop/src/library.mjs`, which
+  checks ids, the fields of an update, and type ids) and forwards the kit's library events. A new artifact of a
+  `BUILTIN_START.blank` type is created with `blank: true` (its editor opens); one of an agent type is created empty
+  (the Shell's hand-over prompt). Thumbnails: the main process loads the type's preview page in a hidden offscreen
+  window with its own partition and no permissions, takes the `captureRecipe` area as a JPEG, and the page saves it
+  at its version; the page shows them through the `oa-thumbnail:` scheme, which the main process answers from the
+  daemon. The sidebar's fold state is kept in `<userData>/settings.json`. The look follows `nativeTheme`, the words
+  the system language.
 - **Profile**: a development build refuses the default home and port 4800 and keeps Electron's folders under
-  `<home>/desktop/`.
+  `<home>/desktop/`. Test mode only: `--locale`, `--theme`, `--thumbnails`.
 
 ## Agent tools & wake loop
 

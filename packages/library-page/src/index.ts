@@ -16,13 +16,13 @@ export {
   type UpdateState,
   type UpdateWord,
 } from './api.ts';
-export { ArtifactsPage, type ArtifactsPageProps } from './components/ArtifactsPage.tsx';
+export { ArtifactsPage, type ArtifactsPageProps, type TileGroup } from './components/ArtifactsPage.tsx';
 export { ReleaseNotesList, ChangelogFooter, ChangelogView, UpcomingNotes, WhatsNewPanel } from './changelog.tsx';
 export { changelogState, closeChangelog, loadChangelog, loadUpcoming, markSeen, openChangelog, subscribeChangelog, whatsNew, type ChangelogState } from './changelog-state.ts';
 export { EMPTY_SESSIONS, EnvProvider, usePageEnv, useSessionTitle, useUpdates, type PageEnv } from './env.tsx';
 export { countByType, inRange, isFiltered, NO_FILTERS, visibleArtifacts, type Filters } from './filters.ts';
 export { en, fallbackTranslate, fill, isKey, translator, zh, type Key, type Translate } from './i18n.ts';
-export { ArtifactsIcon, TYPE_ORDER, typeStyle } from './look.tsx';
+export { ArtifactsIcon, TYPE_ORDER, TypeIcon, typeStyle } from './look.tsx';
 export { createPageStore, StoreProvider, usePage, type DialogState, type Layout, type LoadStatus, type PageActions, type PageHost, type PageState, type PageStore, type PageStoreOptions, type Toast } from './store.ts';
 export { injectStyles, PAGE_CSS, UPDATE_CSS } from './styles.ts';
 export { ago, useNow } from './time.ts';
