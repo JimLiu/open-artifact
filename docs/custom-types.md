@@ -255,7 +255,7 @@ site with one domain for both, `OA_CONTENT_SAME_SITE=true`, which runs no pages)
 
 ## A type's page on a site
 
-Every type on a Node site (a Cloudflare site keeps types without these pages for now) has a page,
+Every type on a site (a Node site, or a Cloudflare site that runs pages) has a page,
 `https://<site>/t/<id>`, and the site's home page has a **Types** tab listing the
 ones you may see (the `site` ones, your own, and every one for a site admin), each a link to its page. The page shows
 its name, version, who published it, when it changed, what its page may use and which sites it may reach (the words

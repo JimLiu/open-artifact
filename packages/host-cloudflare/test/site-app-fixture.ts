@@ -6,7 +6,8 @@
  * - `HUB`: a stub over an in-process {@link SiteHub}, so the Library stream is served from the hub, and `events` is
  *   the hub's (what the tests emit reaches the streams; what the Worker emits is forwarded there);
  * - `ROOMS`: a stub per artifact answering the Worker's room calls as the core fixture's fake platform does (import
- *   reads `{type, title}` JSON, the archive is `PK-fake`, refresh is recorded, `connected` from {@link TestApp.online});
+ *   reads `{type, title}` JSON, the archive is `PK-fake`, refresh is recorded, `connected` from {@link TestApp.online};
+ *   `create` is recorded with its body, as `created`);
  * - `ASSETS`: the one Shell file the core fixture serves.
  *
  * `site-app-hooks.ts` puts it in place of `./app-fixture.ts` for the files in
@@ -22,8 +23,9 @@ import { HOME_HTML, SHELL_HTML, SIGNING_KEY, TYPES, bootOf, cookiesSet, type Req
 import type { ExecutionContext, ProductEnv } from '../src/bindings.ts';
 import { SiteHub } from '../src/hub.ts';
 import { ROOM_CALL_HEADER } from '../src/room-calls.ts';
+import type { FrameBuild } from '../src/frames.ts';
 import { Site } from '../src/site.ts';
-import { fakeD1 } from './d1-fake.ts';
+import { fakeD1, type FakeD1 } from './d1-fake.ts';
 
 export { HOME_HTML, SHELL_HTML, SIGNING_KEY, TYPES, bootOf, cookiesSet, type RequestOptions, type TestApp };
 
@@ -39,6 +41,8 @@ export interface FakeOptions {
   plugins?: Array<{ plugin: unknown; config?: Record<string, unknown>; use?: string; enabled?: boolean; timeoutMs?: number; cacheSeconds?: number }>;
   /** Not supported here: plugins use the global `fetch`. */
   pluginFetch?: typeof fetch;
+  /** The frame build: with one, the site runs pages (and so published types), as a deployed Worker does. */
+  frames?: FrameBuild;
 }
 
 async function fakeImport(_id: string, bytes: Uint8Array): Promise<{ type: string; title: string }> {
@@ -58,12 +62,16 @@ function errorJson(error: unknown): Response {
   return Response.json({ code, message: error instanceof Error ? error.message : String(error) }, { status });
 }
 
-export async function makeApp(options: FakeOptions = {}): Promise<TestApp> {
+/** The core's {@link TestApp}, plus the Worker and its D1 fake for the Worker's own tests. */
+export type SiteTestApp = TestApp & { site: Site; db: FakeD1; created: Array<{ id: string; body: Record<string, unknown> }> };
+
+export async function makeApp(options: FakeOptions = {}): Promise<SiteTestApp> {
   if (options.router) throw new Error('The Cloudflare fixture serves the Worker\'s own router.');
   const dir = await mkdtemp(join(tmpdir(), 'open-artifact-site-app-'));
   const db = fakeD1(join(dir, 'catalog.db'));
   const heard = { 'artifact-touched': [], 'artifact-changed': [], 'access-changed': [], outbox: [], 'agent-changed': [] } as unknown as TestApp['heard'];
   const refreshed: string[] = [];
+  const created: SiteTestApp['created'] = [];
   const online = new Map<string, PrincipalRef[]>();
   const logs: string[] = [];
   const importArchive = options.importArchive ?? fakeImport;
@@ -117,6 +125,9 @@ export async function makeApp(options: FakeOptions = {}): Promise<TestApp> {
                 return Response.json(online.get(id) ?? []);
               case 'destroy':
                 return Response.json({ ok: true });
+              case 'create':
+                created.push({ id, body: (await request.json()) as Record<string, unknown> });
+                return Response.json({ ok: true });
               default:
                 return Response.json({ code: 'not_found', message: `No call ${url.pathname}.` }, { status: 404 });
             }
@@ -127,7 +138,7 @@ export async function makeApp(options: FakeOptions = {}): Promise<TestApp> {
       }),
     },
   };
-  const site = new Site(env, { version: '0.0.0-test', types: Object.entries(TYPES).map(([id, title]) => ({ id, title })), shellHtml: SHELL_HTML, homeHtml: HOME_HTML }, { log: (line) => logs.push(line), pluginModules });
+  const site = new Site(env, { version: '0.0.0-test', types: Object.entries(TYPES).map(([id, title]) => ({ id, title })), shellHtml: SHELL_HTML, homeHtml: HOME_HTML, ...(options.frames ? { frames: options.frames } : {}) }, { log: (line) => logs.push(line), pluginModules });
   if (site.configError) throw site.configError;
   const catalog: Catalog = await site.ready();
   // A refresh of every room (a plugin forgot every role) is recorded as `*`, as the core fixture does.
@@ -145,6 +156,9 @@ export async function makeApp(options: FakeOptions = {}): Promise<TestApp> {
   const ctx: AppCtx = { config: site.config, catalog, now: () => new Date(), log: (line) => logs.push(line), ...site.services(exec) };
 
   return {
+    site,
+    db,
+    created,
     config: site.config,
     catalog,
     events,

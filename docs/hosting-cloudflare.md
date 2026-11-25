@@ -561,6 +561,33 @@ artifact, and an agent on the site's MCP is told that the type's text is its pub
 - **16 MiB per package** (the `.oatype` file). A larger one is refused with `too_large` (413), naming the limit and
   that a Node site takes more, before the body is read whole. Inside it the limits are the Node site's: at most 2000
   files, 16 MiB per file, 64 MiB unpacked.
+- **Type pages, the Types tab and the site's MCP**, while the site runs pages (never with `OA_CONTENT_SAME_SITE=true`,
+  where it keeps no published types): as on a Node site ([A type's page on a site](custom-types.md#a-types-page-on-a-site)),
+  each type has its page at `/t/<id>` (its publisher, its SKILL.md drawn as text, the install command, and who sees it
+  for its publisher or a site admin to change), the home page has a Types tab, and the app's API has the site type
+  routes (`/api/open-artifact.types`, `.type`, `.types.package`, `.types.update`, `.types.unpublish`). Who sees a type
+  is the Node site's rule: `private` answers someone else as an unknown id does, `site` lists it to every member, `link`
+  shows it to anyone with the address (signed out too, where the site allows public access, without naming a publisher
+  whose name is an email address); signed out, anything else is sent to sign in. The site's MCP lists the published
+  types a person may list (with the notice that their text is the publisher's), makes artifacts of them, and refuses
+  a delisted one. A new artifact's folder is made by its object: `.artifact.json` with `type`, `id`, `title`,
+  `release: null`, `typeUid` and `typeSource` (`<app origin>/t/<id>`) and nothing else, the marker a Node site writes.
+- **Where its SKILL.md is kept.** In the `type_skills` table (`uid`, `version`, `skill`), made on first use like the
+  package tables: the file the manifest's `skill` names (else `SKILL.md`), at most 256 KiB, written in the same batch
+  that marks the version complete, and deleted with the version's rows. The type page and an MCP create read that one
+  row, never the package. For a version stored before the table existed, the first view (or MCP create) reads it from
+  the package once and keeps it.
+- **What a download costs.** The package route (`GET /api/open-artifact.types.package?id=`, also what
+  `types install https://<site>/t/<id>` fetches from a computer with no remote of the site, and what someone signed
+  out may fetch for a `link` type) streams the package: `HEAD` answers from the head row (the size, with no chunk read);
+  `GET` reads 4 chunks (3 MiB) per D1 query while the body is sent, hashes them as they pass, and holds the last chunk
+  back until the sha256 matches the catalog's, so a package whose rows do not match ends in an error, never in a whole
+  wrong file. The length is sent as `Content-Length` (a `FixedLengthStream`). For 16 MiB: 6 chunk queries, 9 D1
+  statements in all signed out (`HEAD`: 3), far inside D1's 50 queries per Worker invocation on Free (1000 on Paid);
+  in Node the memory it keeps was about 3 MiB at most, against about 34 MiB when the package is put together first
+  (about 50 MiB and 120 MiB allocated without a collection). Cloudflare does not limit the size of a response body, and
+  a Worker that is still streaming one stays active. A download by a signed-in computer (`types install` through its
+  remote, the Link's `types.archive`) still puts the package together, as an object's first copy does.
 - **How an artifact's object reads them.** The first time an artifact of the type opens, its object reads the package
   from D1 once, checks its sha256 and the package again, and copies `index.html`, `artifact-type.json` and the
   `artifact-type/` files into its own SQLite (rows of at most 1 MiB), under the fingerprint `<uid>@<version>:<sha>`.
@@ -582,21 +609,21 @@ artifact, and an agent on the site's MCP is told that the type's text is its pub
   widen it).
 - **CPU and memory, measured locally in Node (not on Cloudflare):** for a 16 MiB package of 16 files that do not
   compress, the checks took about 10 ms of CPU, keeping it (every file inflated once to check it, then written in 6 D1
-  batches of 4 rows) about 50 ms with about 16 MiB more memory, reading it back about 30 ms with a peak of about
-  53 MiB, and an object's first copy about 40 ms. A small package that unpacks to 64 MiB took about 190 ms to keep.
+  batches of 4 rows) about 50 ms with about 16 MiB more memory, reading it back whole (an object's first copy, the
+  Link's `types.archive`) about 30 ms with a peak of about 53 MiB, and an object's first copy about 40 ms. A small package that unpacks to 64 MiB took about 190 ms to keep.
   That is far inside Workers Paid (30 s of CPU by default) and 128 MB per isolate, but **past Workers Free's 10 ms per
   request**: on Free, publishing a type and the first open of its artifacts can be stopped for CPU except for very
   small types.
-- **Not there yet** (a Node site has them): the site's own pages for types (`/t/<id>` and the home page's Types tab),
-  the published types in the app's API, and listing or making artifacts of them over the site's MCP (`Artifact list
-  scope types` shows the built-in ones). A computer signed in to the site still installs one of its types by that
-  address (`open-artifact types install https://<site>/t/<id>`): the package comes through the Link. The library may
-  show a published type's id instead of its name until the Worker isolate has read its row.
+- **Names in the library.** The library may show a published type's id instead of its name until the Worker isolate
+  has read its row (the site's MCP reads the rows again for each call).
 
 **Run here** only under `wrangler dev` (`e2e/cloudflare-types.test.mjs`, with the synthetic type
 `e2e/fixtures/site-type/team-poll`): a type published from a computer, an artifact of it published and opened by the
 owner and by a person who joined by the viewer link, version 1.1.0 reaching both open pages and the old version's rows
-leaving D1, and unpublishing it while the artifact uses it. Not deployed.
+leaving D1, and unpublishing it while the artifact uses it; then a second type's page for its publisher, for a second
+account per visibility and signed out, the Types tab, its 4 MiB package streamed with its length (`HEAD` and `GET`),
+the site's MCP listing it with the notice, making an artifact of it that opens and refusing the delisted one, and
+`types install <site>/t/<id>` from a second home with no remote. Not deployed.
 
 ## Not supported here
 

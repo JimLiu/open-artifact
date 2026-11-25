@@ -6,10 +6,14 @@
  *   and read back whole, a version switch, a failed write that leaves the old version served, the 16 MiB limit (and
  *   the Link's cap, in the same words), removal;
  * - how an archive names a published type (type_missing, type_mismatch, delisted → not_granted);
+ * - its SKILL.md: kept at publish (no package read to show it), read from the package once for a version stored before
+ *   (then kept), cut at `SITE_TYPE_SKILL_MAX`, the file the manifest names, none; the download streamed from D1 (whole,
+ *   its sha256 checked before the last chunk, the core's headers, `HEAD` from the head row with no chunk read);
  * - an artifact of a published type in its object: it opens on the frame engine under its manifest's CSP, its type
  *   files `no-cache` with an ETag, a new version reaches an open page (a `rewired` event, the new CSP), a delisted type
  *   keeps running, a removed one closes the core and opens nothing; import by type and uid, its title from
- *   `titleFrom`, actions, export.
+ *   `titleFrom`, actions, export; a new artifact of it made by its object (`scaffold`: the `.artifact.json` marker
+ *   alone).
  *
  * `node:fs` is aliased to this package's file system as in `page-room.test.ts`.
  */
@@ -64,9 +68,11 @@ const CLIENT = ['runtime.js', 'imports.js', 'shell.js', 'comments.js', 'shell.cs
 const D1_ROW_BYTES = 2_000_000;
 
 /** The D1 fake, refusing a bound string or BLOB past D1's row limit (the fake itself keeps no such limit). */
-function limitedD1(): FakeD1 & { failNext: (fragment: string) => void } {
+function limitedD1(): FakeD1 & { failNext: (fragment: string) => void; statements: string[] } {
   const inner = fakeD1();
   let failing: string | null = null;
+  /** Every statement prepared, in order (a test clears it to count what a call reads). */
+  const statements: string[] = [];
   const guard = (sql: string, values: unknown[]): void => {
     if (failing && sql.includes(failing)) {
       failing = null;
@@ -88,7 +94,11 @@ function limitedD1(): FakeD1 & { failNext: (fragment: string) => void } {
     first: () => statement.first(),
   });
   return Object.assign(Object.create(inner) as FakeD1, {
-    prepare: (sql: string) => wrap(inner.prepare(sql), sql),
+    statements,
+    prepare: (sql: string) => {
+      statements.push(sql);
+      return wrap(inner.prepare(sql), sql);
+    },
     batch: (statements: import('../src/d1.ts').D1PreparedStatement[]) => inner.batch(statements.map((s) => (s as unknown as { inner?: unknown }).inner ?? s) as never),
     failNext: (fragment: string) => {
       failing = fragment;
@@ -296,6 +306,137 @@ describe('a Cloudflare site\'s type packages in D1', () => {
   });
 });
 
+describe("a published type's SKILL.md and its download, on D1", () => {
+  const SKILL_UID = 'uid-skill';
+  /** A package of `id` (its own uid), with `files` as its other entries and `manifest` merged (no SKILL.md unless given). */
+  const kit = (o: { version?: string; manifest?: Record<string, unknown>; files?: Record<string, string | Buffer>; stored?: Record<string, Buffer> } = {}): Uint8Array => {
+    const version = o.version ?? '1.0.0';
+    const top = `skill-kit-${version}`;
+    const manifest = { slug: 'skill-kit', uid: SKILL_UID, name: 'Skill kit', version, description: 'A kit.', ...o.manifest };
+    const html = '<!doctype html><title>Skill kit</title><script>\n// artifact.json\nvar key = "skill";\nvar capabilities = { db: {} };\nvar monitoring = {};\n// end of artifact.json\n</script><p>kit</p>';
+    return new Uint8Array(
+      rawZip([
+        { name: `${top}/artifact-type.json`, data: JSON.stringify(manifest) },
+        { name: `${top}/index.html`, data: html },
+        ...Object.entries(o.files ?? {}).map(([name, data]) => ({ name: `${top}/${name}`, data })),
+        // Stored, not deflated: they keep their size in the zip.
+        ...Object.entries(o.stored ?? {}).map(([name, data]) => ({ name: `${top}/${name}`, data, method: 0 })),
+      ]),
+    );
+  };
+  const chunkReads = (): number => db.statements.filter((sql) => sql.includes('FROM type_package_chunks')).length;
+  const skillRow = (version = '1.0.0'): { skill: string | null } | undefined => ((r) => (r ? { ...r } : undefined))(db.sqlite.prepare('SELECT skill FROM type_skills WHERE uid = ? AND version = ?').get(SKILL_UID, version) as { skill: string | null } | undefined);
+  const drain = async (stream: ReadableStream<Uint8Array>): Promise<Uint8Array> => new Uint8Array(await new Response(stream).arrayBuffer());
+
+  after(async () => {
+    await services.removeFiles(SKILL_UID);
+    await types.remove(SKILL_UID).catch(() => undefined);
+  });
+
+  it('keeps the SKILL.md when the version is stored: shown with no read of the package', async () => {
+    await publish(kit({ files: { 'SKILL.md': '# Skill kit\nWrite things.' } }));
+    assert.deepEqual(skillRow(), { skill: '# Skill kit\nWrite things.' });
+    db.statements.length = 0;
+    assert.equal(await services.skill!(SKILL_UID, '1.0.0'), '# Skill kit\nWrite things.');
+    assert.equal(chunkReads(), 0, 'no chunk read to show it');
+  });
+
+  it('reads it from the package once for a version stored before it was kept, then keeps it', async () => {
+    db.sqlite.prepare('DELETE FROM type_skills').run();
+    db.statements.length = 0;
+    const [one, two] = await Promise.all([services.skill!(SKILL_UID, '1.0.0'), services.skill!(SKILL_UID, '1.0.0')]);
+    assert.equal(one, '# Skill kit\nWrite things.');
+    assert.equal(two, one);
+    assert.equal(chunkReads(), 1, 'one read of the package for both');
+    assert.deepEqual(skillRow(), { skill: '# Skill kit\nWrite things.' });
+    db.statements.length = 0;
+    assert.equal(await services.skill!(SKILL_UID, '1.0.0'), '# Skill kit\nWrite things.');
+    assert.equal(chunkReads(), 0, 'kept: not read again');
+    // A version that is not there whole keeps nothing (asked again next time); an unknown one is null.
+    assert.equal(await services.skill!(SKILL_UID, '9.9.9'), null);
+    assert.equal(skillRow('9.9.9'), undefined);
+    assert.equal(await services.skill!('../x', '1.0.0'), null);
+  });
+
+  it('cuts it at SITE_TYPE_SKILL_MAX, reads the file the manifest names, and keeps none when there is none', async () => {
+    const long = `# Long\n${'é'.repeat(core.SITE_TYPE_SKILL_MAX)}`;
+    await publish(kit({ version: '1.1.0', files: { 'SKILL.md': long } }));
+    const cut = await services.skill!(SKILL_UID, '1.1.0');
+    assert.equal(cut?.length, core.SITE_TYPE_SKILL_MAX);
+    assert.equal(cut, long.slice(0, core.SITE_TYPE_SKILL_MAX));
+    await publish(kit({ version: '1.2.0', manifest: { skill: 'docs/HOW.md' }, files: { 'SKILL.md': 'not this one', 'docs/HOW.md': '# How\nThis one.' } }));
+    assert.equal(await services.skill!(SKILL_UID, '1.2.0'), '# How\nThis one.');
+    db.sqlite.prepare('DELETE FROM type_skills').run();
+    assert.equal(await services.skill!(SKILL_UID, '1.2.0'), '# How\nThis one.', 'the named file, read from the package too');
+    await publish(kit({ version: '1.3.0' }));
+    assert.deepEqual(skillRow('1.3.0'), { skill: null }, 'kept: it has none');
+    db.statements.length = 0;
+    assert.equal(await services.skill!(SKILL_UID, '1.3.0'), null);
+    assert.equal(chunkReads(), 0);
+    // Removing a version's files removes its SKILL.md.
+    assert.deepEqual(db.sqlite.prepare('SELECT version FROM type_skills WHERE uid = ? ORDER BY version').all(SKILL_UID).map((r) => (r as { version: string }).version), ['1.3.0'], 'the old versions\' went with their files');
+  });
+
+  it('streams the download from D1: whole, a few chunks a query, the core\'s headers; HEAD reads no chunk', async () => {
+    const noise = (n: number): Buffer => Buffer.from(Array.from({ length: n }, (_, i) => (i * 2654435761) >>> 24));
+    const big = kit({ version: '2.0.0', stored: { 'artifact-type/a.bin': noise(2_000_000), 'artifact-type/b.bin': noise(1_800_000) } });
+    const { row } = await publish(big);
+    const chunks = Math.ceil(big.byteLength / st.CHUNK_BYTES);
+    assert.ok(chunks > st.READ_BATCH, `${chunks} chunks`);
+    db.statements.length = 0;
+    const head = await st.packageHead(driver, row.uid, row.version, row.sha256);
+    assert.deepEqual(head, { sha256: row.sha256, bytes: big.byteLength, chunks });
+    const typesRoutes = await import('../../host/src/core/link/types-routes.ts');
+    const core0 = typesRoutes.siteTypePackageResponse(row, big, 'HEAD', 'Ada Lovelace');
+    let made = 0;
+    const headAnswer = st.packageDownload(row, head!, 'HEAD', 'Ada Lovelace', () => {
+      made++;
+      return st.packageStream(driver, row.uid, row.version, head!);
+    });
+    assert.equal(made, 0, 'HEAD makes no stream');
+    assert.equal(headAnswer.body, null);
+    assert.equal(chunkReads(), 0, 'HEAD reads no chunk');
+    assert.deepEqual([...headAnswer.headers].sort(), [...core0.headers].sort(), "the core's headers, the length included");
+    const answer = st.packageDownload(row, head!, 'GET', 'Ada Lovelace', () => st.packageStream(driver, row.uid, row.version, head!));
+    assert.deepEqual([...answer.headers].sort(), [...core0.headers].sort());
+    assert.equal(chunkReads(), 0, 'nothing read before the body is');
+    assert.deepEqual(await drain(answer.body!), big, 'the body is whole');
+    assert.equal(chunkReads(), Math.ceil(chunks / st.READ_BATCH), `${st.READ_BATCH} chunks a query`);
+  });
+
+  it('a package that changed in D1 never arrives whole: the stream fails before its last chunk', async () => {
+    const row = (await types.byId('skill-kit'))!;
+    const head = (await st.packageHead(driver, row.uid, row.version, row.sha256))!;
+    const last = head.chunks - 1;
+    const kept = db.sqlite.prepare('SELECT data FROM type_package_chunks WHERE uid = ? AND version = ? AND n = ?').get(row.uid, row.version, last) as { data: string };
+    const changed = Buffer.from(kept.data, 'base64');
+    changed[0] = changed[0]! ^ 0xff;
+    db.sqlite.prepare('UPDATE type_package_chunks SET data = ? WHERE uid = ? AND version = ? AND n = ?').run(changed.toString('base64'), row.uid, row.version, last);
+    try {
+      const reader = st.packageStream(driver, row.uid, row.version, head).getReader();
+      let got = 0;
+      await assert.rejects(
+        (async () => {
+          for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            got += value.byteLength;
+          }
+        })(),
+        (e: { message: string }) => /sha256/.test(e.message),
+      );
+      assert.equal(got, last * st.CHUNK_BYTES, 'every chunk but the last');
+      // A chunk gone: the same.
+      db.sqlite.prepare('DELETE FROM type_package_chunks WHERE uid = ? AND version = ? AND n = 1').run(row.uid, row.version);
+      await assert.rejects(drain(st.packageStream(driver, row.uid, row.version, head)), (e: { message: string }) => /missing/.test(e.message));
+    } finally {
+      await services.removeFiles(SKILL_UID);
+      await types.remove(SKILL_UID);
+    }
+    assert.equal(await st.packageHead(driver, row.uid, row.version), null, 'removed: no head');
+  });
+});
+
 describe('an artifact of a published type in its object', () => {
   let config: import('@open-artifact/host').HostConfig;
   type ArtifactRow = import('@open-artifact/host').ArtifactRow;
@@ -486,6 +627,46 @@ describe('an artifact of a published type in its object', () => {
     await sessionOf(art, user(ada), 'owner');
     const fresh = await catalog.createArtifact({ type: 'poll-kit', title: 'New', ownerUser: ada.id });
     await assert.rejects((await objectOf(fresh)).room.importArtifact(artifactArchive(), { id: fresh.id }), (e: { code?: string }) => e.code === 'not_granted');
+  });
+
+  it('scaffolded through the room call, its folder is the marker the Node site writes, and it opens', async () => {
+    const calls = await import('../src/room-calls.ts');
+    const made = await catalog.createArtifact({ type: 'poll-kit', title: 'Made by an agent', ownerUser: ada.id });
+    const { room } = await objectOf(made);
+    const client = new calls.RoomClient({ fetch: (request) => calls.handleRoomCall(room, { refresh: async () => ({ dropped: 0 }) }, request) }, made.id);
+    const source = `${config.appOrigin}/t/poll-kit`;
+    await client.create('poll-kit', made.title, { typeUid: UID, typeSource: source });
+    const root = room.rootOf(made.id);
+    const fs = await import('../src/fs/index.ts');
+    assert.deepEqual(fs.readdirSync(root), ['.artifact.json'], 'nothing but the marker');
+    const text = String(fs.readFileSync(`${root}/.artifact.json`, 'utf8'));
+    assert.equal(text, `${JSON.stringify({ type: 'poll-kit', id: made.id, title: 'Made by an agent', release: null, typeUid: UID, typeSource: source }, null, 2)}\n`);
+    // Twice: the folder is there.
+    await assert.rejects(client.create('poll-kit', made.title, { typeUid: UID, typeSource: source }), (e: { code?: string; status?: number }) => e.code === 'exists' && e.status === 409);
+    // It opens on the frame engine (its type's page, no content yet).
+    const session = await sessionOf(made, user(ada), 'owner');
+    assert.equal(session.me.isOwner, true);
+    const { host, ver } = await pageOf(made, user(ada), 'owner');
+    assert.equal((await at(made, host, `/_f/${ver}/`)).status, 200);
+    // Without typeSource the marker leaves it out; a built-in or page type is refused as a published type.
+    const bare = await catalog.createArtifact({ type: 'poll-kit', title: 'Bare', ownerUser: ada.id });
+    const bareRoom = (await objectOf(bare)).room;
+    await bareRoom.create({ id: bare.id, type: 'poll-kit', title: 'Bare', typeUid: UID });
+    assert.deepEqual(Object.keys(JSON.parse(String(fs.readFileSync(`${bareRoom.rootOf(bare.id)}/.artifact.json`, 'utf8')))), ['type', 'id', 'title', 'release', 'typeUid']);
+    for (const type of ['page', 'whiteboard']) {
+      const other = await catalog.createArtifact({ type, title: 'No', ownerUser: ada.id });
+      await assert.rejects((await objectOf(other)).room.create({ id: other.id, type, title: 'No', typeUid: UID }), (e: { code?: string }) => e.code === 'invalid_argument');
+    }
+  });
+
+  it('a room with no pages refuses to scaffold a published type', async () => {
+    const storage = testStorage();
+    const made = await catalog.createArtifact({ type: 'poll-kit', title: 'Nowhere', ownerUser: ada.id });
+    let room: InstanceType<Rooms['ArtifactRoom']> | null = null;
+    const host = roomHosts.createProductRoomHost({ config, catalog, hub, rootOf: (id) => room!.rootOf(id) });
+    room = new rooms.ArtifactRoom({ storage, id: { toString: () => made.id, name: made.id } }, { ASSETS: assets }, { host: host.host, pair: sockets().pair, upgraded: () => new Response(null, { status: 204 }), log: () => undefined });
+    await assert.rejects(room.create({ id: made.id, type: 'poll-kit', title: 'Nowhere', typeUid: UID }), (e: { code?: string; message?: string }) => e.code === 'invalid_argument' && /runs no published types/.test(e.message ?? ''));
+    await room.destroy().catch(() => undefined);
   });
 
   it('removed, the open core closes (its pages\' connections end) and nothing of it opens', async () => {

@@ -229,7 +229,8 @@ open-artifact-host: OA_CONTENT_ORIGIN: must be a different site from OA_APP_ORIG
 - **站点上的 agent**：站点的 MCP 在内置类型旁边列出这个人能列出的已发布类型，标明出自发布者（`third_party_notice`），
   并能用它们做作品；已下架的类型不能再做新作品，MCP 的工具都不能发布、修改或取消发布类型。
 - Cloudflare 站点也保存发布的类型，存在 D1 里，每个包最多 16 MiB（见 [Cloudflare 上发布的类型](hosting-cloudflare.zh-CN.md#发布的类型)）。
-  类型页面、类型标签页和站点 MCP 里的已发布类型目前只有 Node 站点有。
+  站点运行页面时（不是 `OA_CONTENT_SAME_SITE`），它也有类型页面、类型标签页和站点 MCP 里的已发布类型；在那里下载时，包从 D1
+  以流的方式发出。
 
 ## 角色和分享
 

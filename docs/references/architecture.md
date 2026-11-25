@@ -197,9 +197,14 @@ packages/daemon (local open-artifact daemon, one per machine)
   made on first use; an artifact's object copies its type's served files into its own SQLite (`catalogFrameTypes`,
   keyed `uid@version:sha`, a second `RoomFrameTypes` source after `bundledFrameTypes`); a changed row reaches rooms
   through the hub (`/types/watch`, `/types/changed` → the room call `type-changed`), with the room's own row check as
-  the fallback (2 s per request, 30 s while pages are connected). It does not yet implement `skill` / `scaffold`, mount
-  `siteTypeRoutes` or pass `AppServices.siteTypes` / `McpServices.siteTypes`, so it has no type page, Types tab or
-  published types in its MCP; the `core/` routes, page and MCP code are platform-neutral.
+  the fallback (2 s per request, 30 s while pages are connected). While the site runs pages (`site.pages`, never under
+  `OA_CONTENT_SAME_SITE`) it registers its own `GET types.package` before `siteTypeRoutes` (the package streamed from
+  D1: `HEAD` from the `type_packages` head row, `GET` `READ_BATCH` chunks per query through a `FixedLengthStream`, the
+  sha256 checked before the last chunk is sent) and passes `AppServices.siteTypes` and `McpServices.siteTypes`: `skill`
+  reads the `type_skills` row kept when the version is stored (an older version's is read from its package once, then
+  kept), and `scaffold` asks the artifact's room (`RoomClient.create` with `typeUid` and `typeSource`) to write the
+  marker `scaffoldArtifact` writes. `mcpDispatch` reads the rows again for each `POST /mcp` (`publishedTypes(true)`,
+  for the synchronous `publishedType`). The `core/` routes, page and MCP code are platform-neutral.
 
 - **The frame core** (`packages/server-sdk/src/frame/`): `core.ts` (`FrameCore`, `mountFrameCore`) serves one
   artifact to any number of viewers from plain data (`FrameRequest` → `FrameReply`; `connect` for an event

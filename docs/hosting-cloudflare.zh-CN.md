@@ -522,6 +522,25 @@ await (await fetch('/api/open-artifact.admin.link-tokens.revoke', { method: 'POS
   部分。D1 Time Travel 和目录库的其余部分一起恢复它们。
 - **每个包 16 MiB**（`.oatype` 文件）。更大的包会以 `too_large`（413）被拒绝，消息写明这个上限，并说明 Node 站点能收更大的，
   而且在整个请求体读进来之前就拒绝。包里面的上限和 Node 站点一样：最多 2000 个文件，单个文件 16 MiB，解开后共 64 MiB。
+- **类型的页面、类型标签页和站点 MCP**，在站点运行页面时才有（`OA_CONTENT_SAME_SITE=true` 时从来没有，那时站点不保存发布的
+  类型）：和 Node 站点一样（见[网站上类型的页面](custom-types.zh-CN.md#网站上类型的页面)），每个类型在 `/t/<id>` 有自己的页面（发布者、
+  当作文字显示的 SKILL.md、安装命令，以及谁能看到它，发布者或站点管理员可以在这里改），主页有类型标签页，应用 API 有站点类型的
+  路由（`/api/open-artifact.types`、`.type`、`.types.package`、`.types.update`、`.types.unpublish`）。谁能看到一个类型，规则和
+  Node 站点相同：`private` 对别人的回答和不存在的 id 一样，`site` 列给每个成员，`link` 给任何有地址的人看（站点允许公开访问时，
+  未登录也可以，但名字是邮箱地址的发布者不显示名字）；未登录时，其余情况都会被送去登录。站点 MCP 列出这个人可以列出的发布的
+  类型（附上它们的文字来自发布者的提示），用它们做作品，并拒绝已下架的类型。新作品的文件夹由它的对象建立：`.artifact.json`
+  里只有 `type`、`id`、`title`、`release: null`、`typeUid` 和 `typeSource`（`<应用源>/t/<id>`），和 Node 站点写的标记一样。
+- **SKILL.md 保存在哪里。** 在 `type_skills` 表里（`uid`、`version`、`skill`），和包的表一样在第一次用到时建立：清单的 `skill`
+  指定的文件（否则是 `SKILL.md`），最多 256 KiB，和把这个版本标记为完整的写入在同一批里，并随版本的行一起删除。类型的页面和
+  MCP 新建作品只读这一行，从不读包。这张表出现之前保存的版本，第一次查看（或 MCP 新建）时从包里读一次，然后保存下来。
+- **下载要花多少。** 包的路由（`GET /api/open-artifact.types.package?id=`，也就是没有这个站点远端的电脑上
+  `types install https://<站点>/t/<id>` 取的地址，以及未登录的人对 `link` 类型可以取的地址）以流的方式发出包：`HEAD` 只用头信息
+  那一行回答（大小，不读任何块）；`GET` 在发送响应体的同时每次 D1 查询读 4 块（3 MiB），边发边算哈希，最后一块要等 sha256 和
+  目录里的一致才发出，所以行对不上的包会以错误结束，而不是发出一个完整但错误的文件。长度作为 `Content-Length` 发出（一个
+  `FixedLengthStream`）。16 MiB 的包：6 次读块的查询，未登录时一共 9 条 D1 语句（`HEAD` 是 3 条），远低于 Free 上每次 Worker 调用
+  50 次 D1 查询的上限（Paid 是 1000 次）；在 Node 里，它占住的内存最多大约 3 MiB，先把包拼起来再发则大约 34 MiB（不做垃圾回收时
+  分别分配大约 50 MiB 和 120 MiB）。Cloudflare 不限制响应体的大小，还在发送响应体的 Worker 会一直保持活动。已登录的电脑下载
+  （经它的远端 `types install`，即 Link 的 `types.archive`）仍然会把包拼起来，和对象第一次复制时一样。
 - **作品的对象怎么读它们。** 这个类型的作品第一次打开时，它的对象从 D1 读一次包，再检查 sha256 和包本身，把 `index.html`、
   `artifact-type.json` 和 `artifact-type/` 下的文件复制到自己的 SQLite 里（每行最多 1 MiB），以指纹 `<uid>@<version>:<sha>`
   为键。之后从这里提供类型的文件，`no-cache` 加一个随版本变化的 ETag；对象下次启动不必再读 D1。复制新版本时删除上一个版本的
@@ -537,17 +556,18 @@ await (await fetch('/api/open-artifact.admin.link-tokens.revoke', { method: 'POS
 - **类型能做什么**：服务器上什么都不运行。它的页面在每个人的页面主机上的沙箱框架里运行，Content-Security-Policy 来自清单里的
   `openArtifact.network` 列表（`OA_PAGE_NETWORK` 不会放宽它）。
 - **CPU 和内存，在本地用 Node 测的（不是在 Cloudflare 上）：** 一个由 16 个不可压缩文件组成的 16 MiB 包，检查大约用 10 毫秒
-  CPU；保存（每个文件解压一次做检查，再分 6 批、每批 4 行写入 D1）大约 50 毫秒，多用大约 16 MiB 内存；读回大约 30 毫秒，峰值
-  大约 53 MiB；对象第一次复制大约 40 毫秒。一个解开后有 64 MiB 的小包，保存用了大约 190 毫秒。这远在 Workers Paid（默认 30 秒
+  CPU；保存（每个文件解压一次做检查，再分 6 批、每批 4 行写入 D1）大约 50 毫秒，多用大约 16 MiB 内存；整个读回（对象第一次复制、
+  Link 的 `types.archive`）大约 30 毫秒，峰值大约 53 MiB；对象第一次复制大约 40 毫秒。一个解开后有 64 MiB 的小包，保存用了大约 190 毫秒。这远在 Workers Paid（默认 30 秒
   CPU）和每个 isolate 128 MB 之内，但**超过了 Workers Free 每个请求 10 毫秒的上限**：在 Free 上，除了很小的类型，发布类型和它的
   作品第一次打开都可能因为 CPU 被中止。
-- **还没有的**（Node 站点有）：站点上类型自己的页面（`/t/<id>` 和主页的类型标签页）、应用 API 里的已发布类型、通过站点 MCP
-  列出它们或用它们做作品（`Artifact list scope types` 只列内置类型）。已登录这个站点的电脑仍然可以凭这个地址安装它的类型
-  （`open-artifact types install https://<站点>/t/<id>`）：包经 Link 取回。在 Worker isolate 读到类型的行之前，作品库可能显示发布的类型的 id 而不是名字。
+- **作品库里的名字。** 在 Worker isolate 读到类型的行之前，作品库可能显示发布的类型的 id 而不是名字（站点 MCP 每次调用都会重新
+  读这些行）。
 
 **这里只在 `wrangler dev` 下运行过**（`e2e/cloudflare-types.test.mjs`，用合成的类型 `e2e/fixtures/site-type/team-poll`）：从电脑
 发布一个类型，发布它的一个作品，由所有者和一个用 viewer 链接加入的人打开；1.1.0 版到达两个打开着的页面，旧版本的行离开 D1；
-在作品还在用时取消发布它。没有部署过。
+在作品还在用时取消发布它；然后是第二个类型的页面，分别给它的发布者、按每种可见范围给第二个账号、给未登录的人看；类型标签页；
+它 4 MiB 的包带着长度以流的方式发出（`HEAD` 和 `GET`）；站点 MCP 列出它并附上提示，用它做出能打开的作品，拒绝已下架的类型；
+以及从没有远端的第二个主目录 `types install <站点>/t/<id>`。没有部署过。
 
 ## 这里不支持的
 

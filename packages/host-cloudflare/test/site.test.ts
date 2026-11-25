@@ -6,7 +6,8 @@
  *   with the Worker behind their fixture (`site-app-fixture.ts`, put in place by `site-app-hooks.ts`). Skipped: the
  *   three roles tests that read the core fixture's made-up token text (the Worker mints real tokens), and
  *   `app-bearer` (it mounts its own router);
- * - what is the Worker's own: its router matches the core's, the health route, content-host routing (unknown ids,
+ * - what is the Worker's own: its router matches the core's (the site type routes only while it runs pages), published
+ *   types' routes over D1 (the type page, the Types tab, the package's HEAD and streamed GET), the health route, content-host routing (unknown ids,
  *   cookies, the Worker's call headers), the 32 MiB import cap, a configuration error, the debug stats gate.
  */
 import assert from 'node:assert/strict';
@@ -14,14 +15,18 @@ import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { appRouter, connectedAppRoutes, Router } from '@open-artifact/host';
-import { LINK_API_PREFIX, LINK_ROUTES, type HomeBoot } from '@open-artifact/protocol';
+import { appRouter, connectedAppRoutes, Router, siteTypeApiPath, siteTypeRoutes, type AppCtx, type UserRecord } from '@open-artifact/host';
+import { LINK_API_PREFIX, LINK_ROUTES, SITE_TYPE_ROUTES, type HomeBoot } from '@open-artifact/protocol';
 import { CLOUDFLARE_IMPORT_MAX_BYTES, HEALTH_PATH, IMPORT_PATH, STATS_PATH, Site, productRouter } from '../src/site.ts';
 import { ROOM_CALL_HEADER } from '../src/room-calls.ts';
 import { ARTIFACT_HEADER } from '../src/room.ts';
 import { HUB_CALL_HEADER } from '../src/hub.ts';
 import { ADMIN_LINK_TOKENS_PATH, ADMIN_LINK_TOKENS_REVOKE_PATH } from '../src/admin.ts';
-import { bootOf, makeApp, OWNER_KEY } from './site-app-fixture.ts';
+import type { FrameBuild } from '../src/frames.ts';
+import { SiteTypes } from '../../host/src/core/catalog/site-types.ts';
+import { packageOf, UID } from '../../host/test/site-type-fixture.ts';
+import { cloudflareMcpServices } from '../src/agents.ts';
+import { bootOf, makeApp, OWNER_KEY, type SiteTestApp } from './site-app-fixture.ts';
 import { fakeD1 } from './d1-fake.ts';
 
 const repo = fileURLToPath(new URL('../../..', import.meta.url));
@@ -59,7 +64,7 @@ for (const [suite, least] of Object.entries(CORE_SUITES)) {
   });
 }
 
-test("the Worker's router has the core's routes, the Link and connected-app routes, the import route first (its cap)", () => {
+test("the Worker's router has the core's routes, the Link and connected-app routes, the import route first (its cap), and the site type routes only with pages", () => {
   const app = appRouter().routes().map((r) => `${r.method} ${r.pattern}`);
   const agents = connectedAppRoutes(new Router()).routes().map((r) => `${r.method} ${r.pattern}`);
   const site = { hub: { stream: async () => new Response() }, build: { version: '0.0.0-test' } } as unknown as Site;
@@ -71,6 +76,117 @@ test("the Worker's router has the core's routes, the Link and connected-app rout
   assert.deepEqual(extra.filter((route) => !link(route)).sort(), [`POST ${ADMIN_LINK_TOKENS_PATH}`, `POST ${ADMIN_LINK_TOKENS_REVOKE_PATH}`], 'the only others are the Link API, its device page and the admin token routes');
   for (const name of Object.values(LINK_ROUTES)) assert.ok(product.some((route) => route.endsWith(` ${LINK_API_PREFIX}${name}`)), name);
   assert.ok(product.indexOf(`POST ${IMPORT_PATH}`) < product.lastIndexOf(`POST ${IMPORT_PATH}`), 'the capped import route is matched first');
+  // No pages: none of the site type routes.
+  const typeRouter = new Router<AppCtx>();
+  siteTypeRoutes(typeRouter);
+  const types = typeRouter.routes().map((r) => `${r.method} ${r.pattern}`);
+  assert.ok(types.length >= 6, types.join(', '));
+  assert.deepEqual(types.filter((route) => product.includes(route)), [], 'no site type route without pages');
+
+  // While the site runs pages: every core route and every site type route, the package route the Worker's own first.
+  const paged = productRouter({ ...site, pages: { network: 'self', build: { types: [] } } } as unknown as Site).routes().map((r) => `${r.method} ${r.pattern}`);
+  const withTypes = new Set([...core, ...types]);
+  assert.deepEqual([...withTypes].filter((route) => !paged.includes(route)), [], 'every core route and site type route is served');
+  assert.deepEqual([...new Set(paged)].filter((route) => !withTypes.has(route) && !link(route)).sort(), [`POST ${ADMIN_LINK_TOKENS_PATH}`, `POST ${ADMIN_LINK_TOKENS_REVOKE_PATH}`], 'nothing else is added with pages');
+  const pkg = `GET ${siteTypeApiPath(SITE_TYPE_ROUTES.package)}`;
+  assert.ok(types.includes(pkg));
+  assert.ok(paged.indexOf(pkg) < paged.lastIndexOf(pkg), "the Worker's streamed package route is matched before the core's");
+});
+
+/** A frame build the site takes as running pages (only `types` is looked at for that here). */
+const FRAMES = { types: [{ id: 'page', label: 'artifact-types/page', fingerprint: 'f'.repeat(16), manifest: { id: 'page' }, skill: '', indexHtml: null, files: {}, page: true }], client: { base: '/_open-artifact/frame/ffff/', files: [] } } as unknown as FrameBuild;
+const bootIn = (html: string): HomeBoot => JSON.parse(/window\.__OPEN_ARTIFACT_HOME__=(.*);<\/script>/.exec(html)![1]!) as HomeBoot;
+
+/** Publishes a synthetic package as the site's Link route does: checked and stored by the site's services, then its row. */
+async function publishOn(app: SiteTestApp, by: UserRecord, bytes: Uint8Array, visibility: 'private' | 'site' | 'link'): Promise<void> {
+  const services = app.ctx.siteTypes!;
+  const candidate = await services.read(bytes);
+  const types = new SiteTypes(app.catalog.driver);
+  const actor = { id: by.id, siteRole: by.siteRole };
+  const plan = await types.plan(candidate, actor);
+  await services.store(candidate, bytes);
+  await types.save(candidate, actor, plan, visibility);
+}
+
+test('while the site runs pages: the type page, the site API with its SKILL.md, the Types tab; the package HEAD reads no chunk', async () => {
+  const app = await makeApp({ frames: FRAMES, env: { OA_TYPES_PUBLISH: 'members', OA_PUBLIC_ACCESS: 'true' } });
+  try {
+    assert.ok(app.site.pages, 'pages');
+    assert.ok(app.ctx.siteTypes?.skill && app.ctx.siteTypes.scaffold, 'the services the core reads');
+    const mcp = cloudflareMcpServices(app.site, app.ctx, { list: () => [], has: () => false } as never);
+    assert.ok(mcp.siteTypes, "the site's MCP offers published types");
+    const ada = await app.person('Ada');
+    const bob = await app.person('Bob');
+    const bytes = packageOf({ manifest: { skill: 'docs/HOW.md' }, extra: [{ name: 'poll-kit-1.0.0/docs/HOW.md', data: '# Poll kit\n\n</script><b>text</b>' }] });
+    await publishOn(app, ada.user, bytes, 'private');
+    const nav = { 'sec-fetch-mode': 'navigate', 'sec-fetch-dest': 'document', accept: 'text/html' };
+
+    const page = await app.fetch('/t/poll-kit', { cookie: ada.cookie, headers: nav });
+    assert.equal(page.status, 200);
+    const html = await page.text();
+    assert.ok(!html.includes('</script><b>'), 'the SKILL.md never ends the boot script');
+    const boot = bootIn(html);
+    assert.equal(boot.typePage!.skill, '# Poll kit\n\n</script><b>text</b>', 'kept at publish, handed out as text');
+    assert.equal(boot.typePage!.manages, true);
+    assert.equal(boot.cloud!.siteTypes, true, 'the home page gets its Types tab');
+    assert.equal(bootIn(await (await app.fetch('/', { cookie: ada.cookie, headers: nav })).text()).cloud!.siteTypes, true);
+    // Private: Bob gets what an unknown id gets.
+    const hidden = await app.fetch(`${siteTypeApiPath(SITE_TYPE_ROUTES.detail)}?id=poll-kit`, { cookie: bob.cookie });
+    const unknown = await app.fetch(`${siteTypeApiPath(SITE_TYPE_ROUTES.detail)}?id=nope-kit`, { cookie: bob.cookie });
+    assert.equal(hidden.status, unknown.status);
+    assert.deepEqual(await hidden.json(), await unknown.json());
+    assert.equal((await app.fetch(`${siteTypeApiPath(SITE_TYPE_ROUTES.update)}`, { cookie: ada.cookie, body: { id: 'poll-kit', visibility: 'link' } })).status, 200);
+
+    // The package: HEAD answers from the head row (no chunk read), GET streams the whole package.
+    const statements: string[] = [];
+    const prepare = app.db.prepare.bind(app.db);
+    app.db.prepare = (sql: string) => {
+      statements.push(sql);
+      return prepare(sql);
+    };
+    const path = `${siteTypeApiPath(SITE_TYPE_ROUTES.package)}?id=poll-kit`;
+    const head = await app.fetch(path, { method: 'HEAD' });
+    assert.equal(head.status, 200);
+    assert.equal(head.headers.get('content-length'), String(bytes.byteLength));
+    assert.equal(head.headers.get('content-type'), 'application/zip');
+    assert.equal(head.headers.get('x-open-artifact-type-publisher'), 'Ada');
+    assert.equal(await head.text(), '');
+    assert.deepEqual(statements.filter((sql) => sql.includes('type_package_chunks')), [], 'HEAD reads no chunk');
+    const get = await app.fetch(path);
+    assert.equal(get.status, 200);
+    assert.equal(get.headers.get('content-disposition'), 'attachment; filename="poll-kit-1.0.0.oatype"');
+    assert.deepEqual(new Uint8Array(await get.arrayBuffer()), bytes, 'the body is the whole package');
+    assert.equal(statements.filter((sql) => sql.includes('FROM type_package_chunks')).length, 1, 'one chunk query for a one-chunk package');
+
+    // scaffold: the artifact's room is asked to make the marker, its typeSource the type's page on this site.
+    await app.ctx.siteTypes!.scaffold!({ id: 'art_0000000001', type: 'poll-kit', typeUid: UID, title: 'Lunch' });
+    assert.deepEqual(app.created, [{ id: 'art_0000000001', body: { type: 'poll-kit', title: 'Lunch', typeUid: UID, typeSource: `${app.config.appOrigin}/t/poll-kit` } }]);
+    assert.equal((await app.fetch(`${siteTypeApiPath(SITE_TYPE_ROUTES.package)}?id=nope-kit`, { method: 'HEAD', cookie: bob.cookie })).status, 404);
+    assert.equal((await app.fetch(`${siteTypeApiPath(SITE_TYPE_ROUTES.package)}?id=nope-kit`, { method: 'HEAD' })).status, 401, 'signed out, an unknown id is sent to sign in');
+  } finally {
+    await app.close();
+  }
+});
+
+test('without pages (no frame build, or OA_CONTENT_SAME_SITE): no type page, no site type API, no Types tab', async () => {
+  const same = { OA_APP_ORIGIN: 'http://app.oa.localhost:4900', OA_CONTENT_ORIGIN: 'http://{id}.oa.localhost:4900', OA_CONTENT_SAME_SITE: 'true' };
+  for (const [name, options] of [['no frames', {}], ['one site', { frames: FRAMES, env: same }]] as const) {
+    const app = await makeApp(options);
+    try {
+      assert.equal(app.site.pages, null, name);
+      assert.equal(app.ctx.siteTypes, undefined, name);
+      assert.equal(cloudflareMcpServices(app.site, app.ctx, { list: () => [], has: () => false } as never).siteTypes, undefined, name);
+      const ada = await app.person('Ada');
+      const nav = { 'sec-fetch-mode': 'navigate', 'sec-fetch-dest': 'document', accept: 'text/html' };
+      assert.notEqual((await app.fetch('/t/poll-kit', { cookie: ada.cookie, headers: nav })).status, 200, name);
+      for (const route of [SITE_TYPE_ROUTES.list, SITE_TYPE_ROUTES.detail, SITE_TYPE_ROUTES.package]) {
+        assert.equal((await app.fetch(`${siteTypeApiPath(route)}?id=poll-kit`, { cookie: ada.cookie })).status, 404, `${name}: ${route}`);
+      }
+      assert.ok(!bootIn(await (await app.fetch('/', { cookie: ada.cookie, headers: nav })).text()).cloud?.siteTypes, name);
+    } finally {
+      await app.close();
+    }
+  }
 });
 
 test('health answers on any host without a session; HEAD has no body', async () => {

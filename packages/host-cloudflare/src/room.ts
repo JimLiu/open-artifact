@@ -368,9 +368,18 @@ export class ArtifactRoom {
 
   /**
    * Makes a new artifact's folder as the type server would (the Node host's `scaffoldArtifact`): `.artifact.json` and
-   * the type's empty content, written beside the folder and renamed in. `exists` (409) when it has one.
+   * the type's empty content, written beside the folder and renamed in. `exists` (409) when it has one. With `typeUid`
+   * (a type published to the site, while it runs pages), only `.artifact.json` naming that uid and, as `typeSource`,
+   * its type page: the type's page opens with no content and the agent writes it.
    */
-  async create(input: { id: string; type: string; title: string }): Promise<void> {
+  async create(input: { id: string; type: string; title: string; typeUid?: string; typeSource?: string }): Promise<void> {
+    if (input.typeUid !== undefined) {
+      if (!this.host.pages) throw roomError('invalid_argument', `This site runs no published types (${input.type}).`);
+      if (isTypeName(input.type) || input.type === PAGE_TYPE) throw roomError('invalid_argument', `${input.type} is not a published type.`);
+      const marker = { type: input.type, id: input.id, title: input.title, release: null, typeUid: input.typeUid, ...(input.typeSource ? { typeSource: input.typeSource } : {}) };
+      await this.seed(input.id, { '.artifact.json': `${JSON.stringify(marker, null, 2)}\n` });
+      return;
+    }
     if (this.host.pages && input.type === PAGE_TYPE) {
       await this.seed(input.id, pageScaffold(input.id, input.title));
       return;

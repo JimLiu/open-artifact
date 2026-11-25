@@ -337,7 +337,17 @@ The site keeps the types people publish (`open-artifact types publish`) and runs
 
 - **Nothing to add**: no binding, bucket or migration step. The package goes into D1 (`type_packages` and
   `type_package_chunks`, made on the first publish), written whole under its version before the catalog row moves to
-  it; the old version's rows are deleted after. `OA_TYPES_PUBLISH` (above) says who may publish.
+  it; the old version's rows are deleted after. Its SKILL.md (at most 256 KiB) is kept beside it in `type_skills`, made
+  on first use too; a version kept before that table is read from its package once, the first time it is shown.
+  `OA_TYPES_PUBLISH` (above) says who may publish.
+- **Type pages, the Types tab and the site's MCP** come with pages (not with `OA_CONTENT_SAME_SITE`): `/t/<id>`, the
+  app's site type routes, the home page's Types tab, and published types listed and made over `/mcp`, as on a Node
+  site.
+- **A download streams**: `HEAD` of the package route reads only the head row; `GET` reads 4 chunks per D1 query as it
+  sends them and checks the sha256 before the last one, with a `Content-Length`. A 16 MiB package is 6 chunk queries
+  (9 D1 statements signed out), inside the 50 per invocation of Workers Free; in Node it kept at most about 3 MiB in
+  memory (about 34 MiB put together whole). Someone signed out may fetch a `link` type's package where public access
+  is on.
 - **16 MiB per package**, refused larger with `too_large` naming the limit and that a Node site takes more.
 - **Each artifact's object copies the type's files** (`index.html`, `artifact-type.json`, `artifact-type/`) from D1
   into its own SQLite on first use, keyed by `<uid>@<version>:<sha>`, and serves them `no-cache` with an ETag.
@@ -426,7 +436,11 @@ Open Artifact's own limits on this host:
 - D1 (read 2026-11-25, "D1 limits"): a row, string or BLOB of at most 2,000,000 bytes; a statement of at most 100 KB
   with at most 100 bound parameters; 1000 queries per Worker invocation on Paid, 50 on Free, a batch counting as one.
   A published type's package is kept in rows of 768 KiB of the package (1 MiB of base64), so a 16 MiB package is 22
-  rows written in 6 batches.
+  rows written in 6 batches, and read back for a download in 6 queries.
+- Streaming (read 2026-11-25, "Workers limits" and "Response"): Cloudflare does not enforce response body size
+  limits, and a Worker that is still streaming a response body remains active; a `FixedLengthStream` body is sent with
+  its length as `Content-Length`, any other stream with chunked encoding. No page says whether the D1 queries made
+  while the body streams count against the invocation's 50 or 1000; the 6 of a 16 MiB package fit either way.
 - The device sign-in's rate limit is kept per Worker isolate, not across the deployment (the Node host keeps one per
   process). A Durable Object for it would make it exact; it was not needed for the tests.
 
@@ -525,8 +539,8 @@ work was not done.
 - Rendering (PNG, PDF, video exports) runs on people's computers, as on the Node host in hosted mode.
 - A built-in type added after the build: those come from `artifact-types/` at build time. A person's own type is
   published to the running site ([Published types](#published-types)).
-- The site's own pages for published types, the app API's list of them and the MCP listing (being built on the Node
-  host first).
+- Type pages, the Types tab and published types in the site's MCP with one zone for both (`OA_CONTENT_SAME_SITE`),
+  where the site keeps no published types.
 - `open-artifact-host` commands (`link-token`, backup, restore): the admin API above stands in for `link-token`;
   backup is D1's and each artifact's export.
 - The device sign-in's rate limit across isolates (above).

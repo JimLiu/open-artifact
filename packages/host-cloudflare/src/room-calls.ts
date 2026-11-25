@@ -12,7 +12,7 @@
  * | `GET connected` | who has a page open (principal refs) |
  * | `POST action/<name>` (JSON args) | a type server action |
  * | `GET manifest`, `GET file?path=`, `POST files` (`{ writes, author }`) | files, for the Link and remote MCP |
- * | `POST create` (`{ type, title }`) | a new artifact's folder, scaffolded (remote MCP) |
+ * | `POST create` (`{ type, title, typeUid?, typeSource? }`) | a new artifact's folder, scaffolded (remote MCP); with `typeUid`, a published type's: only its `.artifact.json` |
  * | `GET title?type=` | the title the artifact's own files hold (`{ title }`, null when none) |
  * | `GET stats` | rows, bytes, connections, whether the artifact is open |
  * | `GET capabilities`, `POST capabilities` (`{ capabilities }`) | a page artifact's declared capabilities (`{ capabilities }`, null: not a page here); set: `{ changed }` |
@@ -96,8 +96,14 @@ export async function handleRoomCall(room: ArtifactRoom, host: RoomCallHost, req
         return Response.json(await room.writeFiles(body.writes, body.author));
       }
       case 'create': {
-        const body = (await request.json()) as { type: string; title: string };
-        await room.create({ id, type: body.type, title: body.title });
+        const body = (await request.json()) as { type: string; title: string; typeUid?: unknown; typeSource?: unknown };
+        await room.create({
+          id,
+          type: body.type,
+          title: body.title,
+          ...(typeof body.typeUid === 'string' && body.typeUid ? { typeUid: body.typeUid } : {}),
+          ...(typeof body.typeSource === 'string' && body.typeSource ? { typeSource: body.typeSource } : {}),
+        });
         return Response.json({ ok: true });
       }
       case 'title':
@@ -212,9 +218,12 @@ export class RoomClient {
     return (await this.call('files', { method: 'POST', json: { writes, author } })).json() as Promise<LinkWriteResult[]>;
   }
 
-  /** Scaffolds a new artifact's folder (`exists` when it has one). */
-  async create(type: string, title: string): Promise<void> {
-    await (await this.call('create', { method: 'POST', json: { type, title } })).body?.cancel();
+  /**
+   * Scaffolds a new artifact's folder (`exists` when it has one). `published`: an artifact of a type published to the
+   * site (its uid, and its type page as where it came from).
+   */
+  async create(type: string, title: string, published?: { typeUid: string; typeSource?: string }): Promise<void> {
+    await (await this.call('create', { method: 'POST', json: { type, title, ...(published ?? {}) } })).body?.cancel();
   }
 
   /** The title the artifact's own files hold, or undefined. */

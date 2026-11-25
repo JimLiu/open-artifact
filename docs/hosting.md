@@ -267,8 +267,9 @@ A **Node** site that runs pages also keeps the types people publish to it (`open
   as their publisher's (`third_party_notice`), and makes artifacts of them; a delisted one takes no new artifacts, and
   no MCP tool publishes, changes or unpublishes a type.
 - The Cloudflare host keeps published types too, in D1, with a 16 MiB limit per package
-  ([Published types on Cloudflare](hosting-cloudflare.md#published-types)). Type pages, the Types tab and published
-  types in the site's MCP are on a Node site only for now.
+  ([Published types on Cloudflare](hosting-cloudflare.md#published-types)). It has type pages, the Types tab and published
+  types in the site's MCP too, while it runs pages (not with `OA_CONTENT_SAME_SITE`); a download there streams the
+  package from D1.
 
 ## Roles and sharing
 

@@ -22,7 +22,25 @@
  *   manifest, the id, the declaration), then every file inflated once and checked against its size and CRC, one at a
  *   time (nothing is kept unpacked in D1).
  * - The tables are made on first use (`CREATE TABLE IF NOT EXISTS`), not by a catalog migration: they are this
- *   platform's, and a migration number of its own would sit among the core's.
+ *   platform's, and a migration number of its own would sit among the core's. A site whose package tables were made
+ *   before `type_skills` existed gains it the same way, on the next use.
+ *
+ * Its SKILL.md. The type page, the site's API and its MCP show a type's SKILL.md (the file its manifest's `skill`
+ * names, else `SKILL.md`), which is only in the package: a room copies only the served files. Putting up to 16 MiB of
+ * package together again for every view of a type page would cost what a download costs (below), so the text is kept
+ * on its own when the version is stored:
+ *
+ *     type_skills          (uid, version) → skill (text, NULL: it has none)     one row per kept version
+ *
+ * written in the same D1 batch that marks the version complete, at most {@link SITE_TYPE_SKILL_MAX} characters (at
+ * most 768 KiB of UTF-8, inside D1's row limit). A version stored before this table existed has no row: the first
+ * {@link SiteTypeServices.skill} of it reads its package once and keeps what it finds. A version whose package is not
+ * there whole keeps nothing (it is asked again next time).
+ *
+ * A download (`GET /api/open-artifact.types.package`, which someone signed out may ask for a `link` type) is streamed
+ * from D1 ({@link packageStream}): {@link READ_BATCH} chunks per query, read as the client takes them, hashed as they
+ * pass; the last chunk is held back until the whole package's sha256 is the kept one, so a package that changed in D1
+ * never arrives whole. `HEAD` reads only the head row.
  *
  * How a room reads them. An artifact's object copies its type's served files (index.html, artifact-type.json,
  * `artifact-type/**`) into its own SQLite the first time it opens an artifact of that version
@@ -41,8 +59,8 @@
 
 import { Buffer } from 'node:buffer';
 import { createHash } from 'node:crypto';
-import { installedTypeCsp, OpenArtifactError, parseTitleFrom, readStaticDeclaration, titleInFile } from '@open-artifact/protocol';
-import type { SiteTypeServices, SqlDriver } from '@open-artifact/host';
+import { ARCHIVE_CONTENT_TYPE, installedTypeCsp, OpenArtifactError, parseTitleFrom, readStaticDeclaration, titleInFile, TYPE_PUBLISHER_HEADER } from '@open-artifact/protocol';
+import { SITE_TYPE_SKILL_MAX, type SiteTypeServices, type SqlDriver } from '@open-artifact/host';
 import type { FrameFile, FrameTypeSource } from '@open-artifact/server-sdk/frame/env';
 import { checkTypePackage, type CheckedTypePackage } from '@open-artifact/server-sdk/type-package';
 import { unpackZipFile, ZipRefusal } from '@open-artifact/server-sdk/zip';
@@ -159,6 +177,7 @@ export function ensureTypeTables(driver: SqlDriver): Promise<void> {
         sql: 'CREATE TABLE IF NOT EXISTS type_packages (uid TEXT NOT NULL, version TEXT NOT NULL, sha256 TEXT NOT NULL, bytes INTEGER NOT NULL, chunks INTEGER NOT NULL, complete INTEGER NOT NULL DEFAULT 0, written_at TEXT NOT NULL, PRIMARY KEY (uid, version))',
       },
       { sql: 'CREATE TABLE IF NOT EXISTS type_package_chunks (uid TEXT NOT NULL, version TEXT NOT NULL, n INTEGER NOT NULL, data TEXT NOT NULL, PRIMARY KEY (uid, version, n))' },
+      { sql: 'CREATE TABLE IF NOT EXISTS type_skills (uid TEXT NOT NULL, version TEXT NOT NULL, skill TEXT, PRIMARY KEY (uid, version))' },
     ]);
     done.catch(() => tables.delete(driver));
     tables.set(driver, done);
@@ -175,6 +194,91 @@ export function tooLargePackage(bytes?: number): OpenArtifactError {
     `The package is ${bytes === undefined ? 'larger than 16 MiB' : `${mib(bytes)} (${bytes} bytes)`}: a Cloudflare site keeps type packages of at most 16 MiB (a Node site takes more).`,
     { fix: 'Make the type smaller (its artifact-type/ files), or publish it to a Node site.', status: 413 },
   );
+}
+
+/** A kept version's head row: its sha256, size and number of chunks. */
+export interface PackageHead {
+  sha256: string;
+  bytes: number;
+  chunks: number;
+}
+
+/** The head row of a complete version (whose sha256 is `sha256`, when given), or null. Reads no chunk. */
+export async function packageHead(driver: SqlDriver, uid: string, version: string, sha256?: string): Promise<PackageHead | null> {
+  if (!SITE_TYPE_UID.test(uid) || !SITE_TYPE_VERSION.test(version)) return null;
+  await ensureTypeTables(driver);
+  const head = await driver.get<{ sha256: string; bytes: number; chunks: number; complete: number }>('SELECT sha256, bytes, chunks, complete FROM type_packages WHERE uid = ? AND version = ?', [uid, version]);
+  if (!head || Number(head.complete) !== 1 || (sha256 !== undefined && head.sha256 !== sha256)) return null;
+  return { sha256: head.sha256, bytes: Number(head.bytes), chunks: Number(head.chunks) };
+}
+
+/**
+ * A complete version's package as a stream (see the module comment): {@link READ_BATCH} chunks a query, read when the
+ * reader asks for more; an error (and never the last chunk) when the chunks are not the head's, in number, order, size
+ * or sha256.
+ */
+export function packageStream(driver: SqlDriver, uid: string, version: string, head: PackageHead): ReadableStream<Uint8Array> {
+  const hash = createHash('sha256');
+  let from = 0;
+  let at = 0;
+  const broken = (why: string): Error => new OpenArtifactError('server_failed', `The package of ${uid} ${version} is not whole on this site (${why}).`, { status: 500 });
+  return new ReadableStream<Uint8Array>(
+    {
+      async pull(controller) {
+        if (from >= head.chunks) {
+          controller.close();
+          return;
+        }
+        const to = Math.min(head.chunks, from + READ_BATCH);
+        const rows = await driver.all<{ n: number; data: string }>('SELECT n, data FROM type_package_chunks WHERE uid = ? AND version = ? AND n >= ? AND n < ? ORDER BY n', [uid, version, from, to]);
+        if (rows.length !== to - from) return controller.error(broken('a chunk is missing'));
+        for (let i = 0; i < rows.length; i++) {
+          if (Number(rows[i]!.n) !== from + i) return controller.error(broken('a chunk is missing'));
+          const data = new Uint8Array(Buffer.from(rows[i]!.data, 'base64'));
+          rows[i] = { n: 0, data: '' };
+          at += data.byteLength;
+          if (at > head.bytes) return controller.error(broken('it is longer than kept'));
+          hash.update(data);
+          const last = from + i === head.chunks - 1;
+          if (last) {
+            if (at !== head.bytes) return controller.error(broken('it is shorter than kept'));
+            if (hash.digest('hex') !== head.sha256) return controller.error(broken('its sha256 is not the kept one'));
+          }
+          controller.enqueue(data);
+        }
+        from = to;
+        if (from >= head.chunks) controller.close();
+      },
+    },
+    // One query's worth at a time: the next is read once the reader has taken these.
+    { highWaterMark: 0 },
+  );
+}
+
+/** The Workers runtime's `FixedLengthStream` (a stream body that keeps its Content-Length), where there is one. */
+type FixedLength = new (length: number) => TransformStream<Uint8Array, Uint8Array>;
+
+/**
+ * The package download's answer, as the host core's `siteTypePackageResponse` makes it (the same headers: an
+ * attachment that never runs, `nosniff`, `no-store`, the publisher's name), but streamed from D1 and, for `HEAD`, from
+ * the head row alone. `body` makes the stream (`packageStream`); it is not called for `HEAD`.
+ *
+ * A Worker ignores a Content-Length set by hand on a stream body and sends it chunked; through `FixedLengthStream` it
+ * keeps the length (and the runtime refuses a body of another length).
+ */
+export function packageDownload(row: Pick<SiteTypeRow, 'id' | 'version'>, head: PackageHead, method: string, publisher: string | null, body: () => ReadableStream<Uint8Array>): Response {
+  const headers: Record<string, string> = {
+    ...(publisher ? { [TYPE_PUBLISHER_HEADER]: encodeURIComponent(publisher) } : {}),
+    'content-type': ARCHIVE_CONTENT_TYPE,
+    'content-length': String(head.bytes),
+    'content-disposition': `attachment; filename="${row.id}-${row.version}.oatype"`,
+    'cache-control': 'no-store',
+    'x-content-type-options': 'nosniff',
+  };
+  if (method === 'HEAD') return new Response(null, { headers });
+  const Fixed = (globalThis as { FixedLengthStream?: FixedLength }).FixedLengthStream;
+  const stream = body();
+  return new Response(Fixed ? stream.pipeThrough(new Fixed(head.bytes)) : stream, { headers });
 }
 
 /** Reads every chunk of a complete version; null when it is not there whole (or not complete). */
@@ -214,18 +318,43 @@ async function checkUnpacks(bytes: Uint8Array, pkg: CheckedTypePackage): Promise
   }
 }
 
+/**
+ * A package's SKILL.md as the Node site reads it (`node/site-types.ts`): the file its manifest's `skill` names, else
+ * `SKILL.md`, a plain relative path; at most {@link SITE_TYPE_SKILL_MAX} characters; null when there is none.
+ */
+export async function skillOfPackage(bytes: Uint8Array, pkg: CheckedTypePackage): Promise<string | null> {
+  const manifest = pkg.manifest as { skill?: unknown };
+  const named = typeof manifest.skill === 'string' ? manifest.skill : 'SKILL.md';
+  if (named.startsWith('/') || named.includes('\\') || named.split('/').some((part) => part === '..' || part === '')) return null;
+  let text: string | null = pkg.skill?.path === named ? pkg.skill.text : null;
+  if (text === null) {
+    const file = pkg.files.find((f) => f.path === named);
+    if (!file) return null;
+    text = Buffer.from(await unpackZipFile(bytes, file)).toString('utf8');
+  }
+  return text.slice(0, SITE_TYPE_SKILL_MAX);
+}
+
 export interface CloudflareSiteTypesOptions {
   driver: SqlDriver;
   /** A type's row changed or went: the rooms running it are told (the hub's `types/changed`). */
   changed(type: string): Promise<void>;
+  /** Makes a new artifact's folder of a published type (through its object); absent: the services have no `scaffold`. */
+  scaffold?: SiteTypeServices['scaffold'];
   now?: () => Date;
   log?: (line: string) => void;
 }
+
+/** The SKILL.md reads of older versions under way, per driver. */
+const skillReads = new WeakMap<object, Map<string, Promise<string | null>>>();
 
 /** The Link's `SiteTypeServices` over D1 (see the module comment). */
 export function cloudflareSiteTypeServices(options: CloudflareSiteTypesOptions): SiteTypeServices {
   const { driver } = options;
   const now = options.now ?? (() => new Date());
+  // Per driver (an isolate's), not per services object: the site makes one of these per request.
+  const backfills = skillReads.get(driver) ?? new Map<string, Promise<string | null>>();
+  skillReads.set(driver, backfills);
   const tell = async (type: string): Promise<void> => {
     await options.changed(type).catch((error: unknown) => options.log?.(`types: telling the rooms of ${type} failed: ${error instanceof Error ? error.message : String(error)}`));
   };
@@ -257,6 +386,7 @@ export function cloudflareSiteTypeServices(options: CloudflareSiteTypesOptions):
       if (bytes.byteLength > CLOUDFLARE_TYPE_MAX_BYTES) throw tooLargePackage(bytes.byteLength);
       const pkg = (candidate as { [CHECKED]?: CheckedTypePackage })[CHECKED] ?? (await checkTypePackage(bytes, 'The package'));
       await checkUnpacks(bytes, pkg);
+      const skill = await skillOfPackage(bytes, pkg);
       await ensureTypeTables(driver);
       const { uid, version } = candidate;
       const chunks = Math.max(1, Math.ceil(bytes.byteLength / CHUNK_BYTES));
@@ -264,6 +394,7 @@ export function cloudflareSiteTypeServices(options: CloudflareSiteTypesOptions):
       await driver.batch([
         { sql: 'DELETE FROM type_packages WHERE uid = ? AND version = ?', params: [uid, version] },
         { sql: 'DELETE FROM type_package_chunks WHERE uid = ? AND version = ?', params: [uid, version] },
+        { sql: 'DELETE FROM type_skills WHERE uid = ? AND version = ?', params: [uid, version] },
         { sql: 'INSERT INTO type_packages (uid, version, sha256, bytes, chunks, complete, written_at) VALUES (?, ?, ?, ?, ?, 0, ?)', params: [uid, version, candidate.sha256, bytes.byteLength, chunks, now().toISOString()] },
       ]);
       for (let from = 0; from < chunks; from += WRITE_BATCH) {
@@ -274,7 +405,12 @@ export function cloudflareSiteTypeServices(options: CloudflareSiteTypesOptions):
         }
         await driver.batch(statements);
       }
-      await driver.run('UPDATE type_packages SET complete = 1 WHERE uid = ? AND version = ?', [uid, version]);
+      // Its SKILL.md and the mark that it is whole, together (a D1 batch is one transaction).
+      await driver.batch([
+        { sql: 'DELETE FROM type_skills WHERE uid = ? AND version = ?', params: [uid, version] },
+        { sql: 'INSERT INTO type_skills (uid, version, skill) VALUES (?, ?, ?)', params: [uid, version, skill] },
+        { sql: 'UPDATE type_packages SET complete = 1 WHERE uid = ? AND version = ?', params: [uid, version] },
+      ]);
     },
 
     async package(uid, version) {
@@ -282,6 +418,35 @@ export function cloudflareSiteTypeServices(options: CloudflareSiteTypesOptions):
       await ensureTypeTables(driver);
       return readPackage(driver, uid, version);
     },
+
+    async skill(uid, version) {
+      if (!SITE_TYPE_UID.test(uid) || !SITE_TYPE_VERSION.test(version)) return null;
+      await ensureTypeTables(driver);
+      const kept = await driver.get<{ skill: string | null }>('SELECT skill FROM type_skills WHERE uid = ? AND version = ?', [uid, version]);
+      if (kept) return kept.skill;
+      // Stored before SKILL.md was kept on its own: read from the package once (one read per version an isolate asks
+      // for at a time), then kept. `INSERT OR IGNORE`: a store of this version meanwhile wrote the newer text.
+      const key = `${uid}\n${version}`;
+      let reading = backfills.get(key);
+      if (!reading) {
+        reading = (async () => {
+          const bytes = await readPackage(driver, uid, version);
+          if (!bytes) return null;
+          const skill = await skillOfPackage(bytes, await checkTypePackage(bytes, 'The package'));
+          await driver.run('INSERT OR IGNORE INTO type_skills (uid, version, skill) VALUES (?, ?, ?)', [uid, version, skill]);
+          options.log?.(`types: kept the SKILL.md of ${uid} ${version} (read from its package once)`);
+          return skill;
+        })();
+        backfills.set(key, reading);
+        reading.then(
+          () => backfills.delete(key),
+          () => backfills.delete(key),
+        );
+      }
+      return reading;
+    },
+
+    ...(options.scaffold ? { scaffold: options.scaffold } : {}),
 
     async removeFiles(uid, version) {
       if (!SITE_TYPE_UID.test(uid) || (version !== undefined && !SITE_TYPE_VERSION.test(version))) return;
@@ -292,6 +457,7 @@ export function cloudflareSiteTypeServices(options: CloudflareSiteTypesOptions):
       await driver.batch([
         { sql: `DELETE FROM type_packages WHERE ${where}`, params },
         { sql: `DELETE FROM type_package_chunks WHERE ${where}`, params },
+        { sql: `DELETE FROM type_skills WHERE ${where}`, params },
       ]);
     },
 

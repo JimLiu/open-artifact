@@ -26,10 +26,16 @@
  * held whole in the Worker and again in the object, inside 128 MB isolates.
  *
  * Agents: the Link API and remote MCP (`agents.ts`) are mounted here; the Link's event stream is the hub's.
+ *
+ * Published types (while the site runs pages, never under `OA_CONTENT_SAME_SITE`): the core's site type routes and the
+ * type page (`siteTypeRoutes`: `/t/<id>`, `types`, `type`, `types.update`, `types.unpublish`) over
+ * {@link Site.siteTypes}, which the home page's Types tab and the site's MCP read too. The package route
+ * (`types.package`) is this host's, registered first: the same rules and headers, streamed from D1 instead of put
+ * together whole, and `HEAD` from the head row (`site-types.ts`).
  * {@link SiteServices} lets a test add routes or a handler asked first.
  */
 
-import { SHELL_PARAMS, type DaemonHealth } from '@open-artifact/protocol';
+import { SHELL_PARAMS, SITE_TYPE_ROUTES, siteTypePagePath, type DaemonHealth } from '@open-artifact/protocol';
 import {
   AccessCache,
   authRoutes,
@@ -60,6 +66,10 @@ import {
   emitEvent,
   artifactRef,
   purgeExpiredPluginKv,
+  publisherNameFor,
+  seeSiteType,
+  siteTypeApiPath,
+  siteTypeRoutes,
   type Plugins,
   type AppCtx,
   type AppServices,
@@ -78,7 +88,7 @@ import { ROOM_CALL_HEADER, RoomClient } from './room-calls.ts';
 import { ARTIFACT_HEADER } from './room.ts';
 import { startCloudflarePlugins, type PluginModules } from './plugins.ts';
 import { PAGE_TITLE, PAGE_TYPE, sitePagesOf, type FrameBuild, type PageNetwork } from './frames.ts';
-import { cloudflareSiteTypeServices, siteTypeRow, siteTypeRows, type SiteTypeRow } from './site-types.ts';
+import { cloudflareSiteTypeServices, packageDownload, packageHead, packageStream, siteTypeRow, siteTypeRows, type SiteTypeRow } from './site-types.ts';
 import type { SiteTypeServices } from '@open-artifact/host';
 
 /** The health check's path (as the Node host). */
@@ -155,6 +165,17 @@ export function productRouter(site: Site, options: { providers?: ProviderDeps; s
   cloudflareLinkRoutes(router, site);
   adminRoutes(router);
   adminPluginRoutes(router);
+  if (site.pages) {
+    // The package download, streamed (registered first, it is matched first); then the core's routes and type page.
+    router.get(siteTypeApiPath(SITE_TYPE_ROUTES.package), async (request, ctx) => {
+      const { row, person } = await seeSiteType(request, ctx, new URL(request.url).searchParams.get('id') ?? '');
+      const head = await packageHead(site.driver, row.uid, row.version, row.sha256);
+      if (!head) throw httpError('not_found', `The package of ${row.id} ${row.version} is missing on this site.`, { status: 404 });
+      const name = (await ctx.catalog.getUsers([row.publisherUser])).get(row.publisherUser)?.name ?? null;
+      return packageDownload(row, head, request.method, publisherNameFor(name, person), () => packageStream(site.driver, row.uid, row.version, head));
+    });
+    siteTypeRoutes(router);
+  }
   router.get(EVENTS_PATH, async (request) => site.hub.stream(request));
   router.get('/_open-artifact/*', async (request, ctx) => {
     const pathname = new URL(request.url).pathname;
@@ -270,11 +291,14 @@ export class Site {
     return row;
   }
 
-  /** Reads every published type's row, unless that was done lately (the site's MCP names them synchronously). */
-  async publishedTypes(): Promise<void> {
+  /**
+   * Reads every published type's row, unless that was done lately (`fresh`: now). The site's MCP reads them fresh for
+   * each call: its tools name a published type synchronously (`McpServices.publishedType`, for the third-party notice).
+   */
+  async publishedTypes(fresh = false): Promise<void> {
     if (!this.pages) return;
     const at = Date.now();
-    if (at - this.#typeRowsAt < TYPE_ROW_MS) return;
+    if (!fresh && at - this.#typeRowsAt < TYPE_ROW_MS) return;
     const rows = await siteTypeRows(this.driver);
     for (const [id, kept] of this.#typeRows) if (!kept.row) this.#typeRows.delete(id);
     for (const row of rows) this.#typeRows.set(row.id, { row, at });
@@ -287,15 +311,19 @@ export class Site {
   }
 
   /**
-   * The Link's type catalog (while the site runs pages): packages in D1 (`site-types.ts`); a changed row reaches the
-   * rooms running it through the hub.
+   * The site's type catalog (while the site runs pages), for the Link, the app origin and the site's MCP: packages and
+   * their SKILL.md in D1 (`site-types.ts`); a changed row reaches the rooms running it through the hub. A new artifact
+   * of a published type (the site's MCP) is made by its object: its `.artifact.json` alone, naming the type's uid and
+   * its type page (`<app origin>/t/<id>`) as where it came from, as the Node site's `scaffoldArtifact` writes it.
    */
   siteTypes(): SiteTypeServices | undefined {
     if (!this.pages) return undefined;
+    const appOrigin = this.config.appOrigin;
     return cloudflareSiteTypeServices({
       driver: this.driver,
       now: this.#now,
       log: this.#log,
+      scaffold: (artifact) => this.room(artifact.id).create(artifact.type, artifact.title, { typeUid: artifact.typeUid, typeSource: appOrigin + siteTypePagePath(artifact.type) }),
       changed: async (type) => {
         this.#typeRows.delete(type);
         this.#typeRowsAt = 0;
@@ -308,7 +336,10 @@ export class Site {
   services(exec: ExecutionContext): AppServices {
     const { config, catalog } = this;
     const appOrigin = new URL(config.appOrigin).origin;
+    const siteTypes = this.siteTypes();
     return {
+      // The type page, its routes and the home page's Types tab (`cloud.siteTypes`), while the site runs pages.
+      ...(siteTypes ? { siteTypes } : {}),
       events: new ForwardingEvents(this.hub, (promise) => exec.waitUntil(promise), this.#log),
       access: this.access,
       pageFor: async (artifact: ArtifactRow, principal, role) => {
