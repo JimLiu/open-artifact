@@ -40,6 +40,13 @@ describe('the printed data note', () => {
     assert.ok(PRINT_CSS.startsWith('@media print{'));
   });
 
+  it('hides what sits beside the dashboard, never the dashboard’s own content', () => {
+    // #dash-root carries the path mark too: a rule hiding every unmarked child of a marked element emptied the sheet.
+    const hide = /([^{}]*)\{display:none!important\}/.exec(PRINT_CSS.slice('@media print{'.length));
+    assert.ok(hide, 'no rule hides the page’s surroundings');
+    assert.equal(hide[1], `[${PRINT_PATH_ATTRIBUTE}]:not(:where(#dash-root))>:not([${PRINT_PATH_ATTRIBUTE}])`);
+  });
+
   it('recognises when a dashboard already brings its own print rules', () => {
     assert.equal(hasPagePrintLayout([{ text: 'body { color: black; }' }]), false);
     assert.equal(hasPagePrintLayout([{ text: '@media print { .tabs { display: block; } }' }]), true);
