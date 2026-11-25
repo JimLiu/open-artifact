@@ -7,7 +7,7 @@ import { createServer, type IncomingMessage, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { after, before, beforeEach, describe, it } from 'node:test';
 import type { DshRoute } from '../src/server/dsh.ts';
-import { pageView, registerRoutes, thumbnailStamp, typeTiles } from '../src/server/routes.ts';
+import { pageView, registerRoutes } from '../src/server/routes.ts';
 import { PATHS, ROUTE_BASE } from '../src/shared/routes.ts';
 
 const TOKEN = 'secret';
@@ -233,23 +233,5 @@ describe('routes', () => {
     const response = await call(PATHS.events);
     assert.equal(response.headers.get('content-type'), 'text/event-stream');
     assert.equal(await response.text(), event);
-  });
-});
-
-describe('shapes', () => {
-  it('reads a thumbnail version from a stamp or a URL', () => {
-    assert.equal(thumbnailStamp(null), null);
-    assert.equal(thumbnailStamp('abc'), 'abc');
-    assert.equal(thumbnailStamp('/api/open-artifact.artifacts.thumbnail?id=a&v=9'), '9');
-    assert.equal(thumbnailStamp('http://127.0.0.1:1/x?v=3'), '3');
-  });
-
-  it('fills what the daemon leaves out', () => {
-    const view = pageView({ id: 'a', createdAt: '2026-01-01T00:00:00.000Z' });
-    assert.equal(view.openedAt, '2026-01-01T00:00:00.000Z');
-    assert.equal(view.updatedAt, '2026-01-01T00:00:00.000Z');
-    assert.equal(view.ownerStatus, null);
-    assert.equal(view.openable, true);
-    assert.deepEqual(typeTiles([{ id: 'design' }, { title: 'no id' }]), [{ id: 'design', title: 'design', description: '' }]);
   });
 });

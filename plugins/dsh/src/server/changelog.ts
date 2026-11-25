@@ -9,7 +9,7 @@
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { parseChangelog, releasesBetween, type ChangelogAnswer, type ReleaseNotes } from '../shared/changelog.ts';
+import { parseChangelog, releasesBetween, type ChangelogAnswer, type ReleaseNotes } from '@open-artifact/library-page/library';
 import type { UpdateCheck } from '../shared/routes.ts';
 
 type Fetch = (url: string, init: RequestInit) => Promise<Response>;

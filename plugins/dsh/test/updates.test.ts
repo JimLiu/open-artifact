@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { updateChecker, type PluginManager } from '../src/server/updates.ts';
-import { isNewer, type PluginUpdate } from '../src/shared/routes.ts';
+import type { PluginUpdate } from '../src/shared/routes.ts';
 import { markOf, reasonOf, run, updateState, type PluginManagerRemote } from '../src/client/update-state.ts';
 
 const NAME = 'dsh-open-artifact';
@@ -27,16 +27,6 @@ function registry(latest: string | null) {
   };
   return { asked, fetcher };
 }
-
-describe('isNewer', () => {
-  it('orders versions, a prerelease before its release', () => {
-    assert.ok(isNewer('0.8.0', '0.7.9'));
-    assert.ok(isNewer('1.0.0', '1.0.0-beta.2'));
-    assert.ok(isNewer('1.0.0-beta.10', '1.0.0-beta.2'));
-    assert.ok(!isNewer('0.7.0', '0.7.0'));
-    assert.ok(!isNewer('0.6.9', '0.7.0'));
-  });
-});
 
 describe('updateChecker', () => {
   it('offers the registry latest over an older install from that registry', async () => {

@@ -7,7 +7,7 @@
  * Only the desktop app has this. Elsewhere (`dsh web`) {@link desktopBrowser} is undefined and the cards keep the drawn
  * picture of their type.
  */
-import { captureRecipe } from './types.ts';
+import { captureRecipe } from '@open-artifact/library-page/library';
 
 /** What the app's preload exposes for a Browser guest (`window.dshDesktop.browser`). */
 export interface DesktopBrowser {

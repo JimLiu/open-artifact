@@ -1,6 +1,6 @@
 /**
- * The page's words, in the two languages DSH ships (`zh`, `en`). DSH's locale service picks one; outside it (tests,
- * an app without the service) {@link fallbackTranslate} uses English.
+ * The page's words, in two languages (`zh`, `en`). The host's locale service picks one ({@link translator}); without
+ * one (tests, an app without the service) {@link fallbackTranslate} uses English.
  */
 
 /** Chinese. The keys of every dictionary. */
@@ -21,15 +21,6 @@ export const zh = {
   'create.heading': '新建',
   'create.new': '新建',
   'create.session': '新会话',
-  'prompt.slides': '帮我做一份幻灯片，主题是：',
-  'prompt.design': '帮我设计：',
-  'prompt.design-system': '帮我做一套设计系统，品牌是：',
-  'prompt.data': '帮我做一个数据看板，数据是：',
-  'prompt.docs': '帮我写一份文档，内容是：',
-  'prompt.motion': '帮我做一段动画，内容是：',
-  'prompt.whiteboard': '帮我在白板上画出：',
-  'prompt.sheets': '帮我做一张表格，用来：',
-  'prompt.generic': '帮我做一个{type}：',
   'view.list': '列表视图',
   'view.grid': '网格视图',
   'filter.button': '排序和筛选',
@@ -112,16 +103,6 @@ export const zh = {
   'about.data': '用你的数据做的图表、数字和表格，每一项都标明出处。',
   'about.whiteboard': '方框、箭头和便利贴，你和 Agent 都能在上面画。',
   'about.motion': '一段在页面里直接播放的短动画，可以导出成 MP4、GIF 或网页。',
-  'card.comment': '已将对“{title}”的评论发给 Agent',
-  'card.request': '已将“{title}”上的 {label} 发给 Agent',
-  'card.message': '已将关于“{title}”的消息发给 Agent',
-  'card.view': '查看评论',
-  'card.more': '显示位置',
-  'card.less': '收起位置',
-  'card.requestLabel': '请求',
-  'card.from': '来自 {name}（{role}，不是所有者）',
-  'card.task': '“{title}”上的 {action} 已完成，结果已发给 Agent',
-  'card.taskFailed': '“{title}”上的 {action} 失败，结果已发给 Agent',
 };
 
 /** A key of the dictionaries. */
@@ -148,15 +129,6 @@ export const en: Record<Key, string> = {
   'create.heading': 'Make something new',
   'create.new': 'New',
   'create.session': 'New session',
-  'prompt.slides': 'Make me a slide deck about: ',
-  'prompt.design': 'Design this for me: ',
-  'prompt.design-system': 'Make me a design system for this brand: ',
-  'prompt.data': 'Make me a dashboard from this data: ',
-  'prompt.docs': 'Write me a doc about: ',
-  'prompt.motion': 'Make me an animation about: ',
-  'prompt.whiteboard': 'Lay this out on a whiteboard: ',
-  'prompt.sheets': 'Make me a spreadsheet for: ',
-  'prompt.generic': 'Make me a {type}: ',
   'view.list': 'List view',
   'view.grid': 'Grid view',
   'filter.button': 'Sort and filter',
@@ -239,16 +211,6 @@ export const en: Record<Key, string> = {
   'about.data': 'Charts, numbers and tables from your data, each marked with its source.',
   'about.whiteboard': 'Boxes, arrows and sticky notes you and the agent both draw on.',
   'about.motion': 'A short animated film that plays in place and exports as MP4, GIF or HTML.',
-  'card.comment': 'Comment on “{title}” sent to agent',
-  'card.request': '{label} on “{title}” sent to agent',
-  'card.message': 'Message on “{title}” sent to agent',
-  'card.view': 'View thread',
-  'card.more': 'Show where',
-  'card.less': 'Hide where',
-  'card.requestLabel': 'Request',
-  'card.from': 'From {name} ({role}, not the owner)',
-  'card.task': '{action} on “{title}” finished; result sent to agent',
-  'card.taskFailed': '{action} on “{title}” failed; result sent to agent',
 };
 
 /** Words with `{name}` placeholders filled. */

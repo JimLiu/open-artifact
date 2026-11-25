@@ -11,7 +11,7 @@ guide is [docs/integrating.md](../../docs/integrating.md).
 | Tools | `Artifact`, `ArtifactData` and `ArtifactComments` as native DSH tools, each call made as the calling session (`caller: { session: <agent id>, workspace: <its folder> }`) | `src/server/index.ts` |
 | Wakes | A comment or request from a page reaches the session that owns the artifact right away: a new turn when it idles, added to the running turn otherwise. The owner's words go in as the person's; a collaborator's message or a task result goes in as a notice. A session with no live agent is resumed through DSH's session controller; when nothing can take it, the answer is `failed` and the daemon keeps it in the inbox. | `src/server/wake.ts` |
 | Pages | `host.open` shows the Shell's `embed_url` in the session's Browser in the right sidebar, as a top-level view; what the Shell says comes back as `shell.event` | `src/server/host-open.ts`, `src/client/` |
-| Library | The Open Artifact page in the sidebar lists the library, with update checks and release notes | `src/server/routes.ts`, `updates.ts`, `changelog.ts` |
+| Library | The Open Artifact page in the sidebar lists the library, with update checks and release notes. The page itself is `@open-artifact/library-page` (`packages/library-page`); the plugin gives it its routes, sessions, update offer and release notes, maps the page's `--oa-page-*` tokens onto DSH's (`src/client/styles.ts`), and adds the chat cards and the words that start a session (`src/client/words.ts`) | `src/server/routes.ts`, `updates.ts`, `changelog.ts`, `src/client/` |
 | Skill | `/open-artifact <type> …`, rendered by the daemon for DSH | `src/server/skill.ts` |
 | Status | A session going `running` and back to `idle` is passed on, so the Shell shows the agent working only while it is | `src/server/index.ts` |
 
@@ -67,3 +67,7 @@ node --test plugins/dsh/test/*.test.ts # part of npm test
 ```
 
 `--no-vendor` leaves `vendor/` as it is.
+
+`node plugins/dsh/test/look/look.mjs capture <dir>` renders the Open Artifact page in Chrome in 19 states and 4 looks
+(light, dark, with and without macOS) on a fake DSH, and `compare <a> <b>` diffs two captures: DOM, computed styles
+and pixels. It is not part of `npm test`; run it before and after a change to the page's markup or CSS.

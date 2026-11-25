@@ -3,6 +3,7 @@
  * tailnet). The daemon's address is this computer's loopback, which the other device cannot reach, so the page opens
  * what the open route answers with in a window of its own.
  */
+import type { PendingWindow } from '@open-artifact/library-page';
 
 /** The name in a Host header (`192.168.1.5:7777`, `[fd00::5]:80`, `box.ts.net`), lower case; '' when there is none. */
 export function hostName(host: string): string {
@@ -27,11 +28,7 @@ export function onAnotherDevice(): boolean {
 }
 
 /** A window opened before its address is known. */
-export interface PendingWindow {
-  /** Show `url` in it. */
-  go(url: string): void;
-  close(): void;
-}
+export type { PendingWindow };
 
 /**
  * A window opened at once, while the click still counts as the person's, and sent to the artifact when its address

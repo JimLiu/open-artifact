@@ -1,5 +1,5 @@
 /**
- * The release notes on the Open Artifact page (changelog-state.ts holds them):
+ * The release notes on the Open Artifact page (changelog-state.ts holds them; the host's {@link PageEnv.changelog} reads them):
  *
  *   - {@link WhatsNewPanel}: once a new version is installed, what it brings, at the top of the page until Got it;
  *   - {@link UpcomingNotes}: in the update's offer (updates.tsx), what the offered version brings;
@@ -7,7 +7,6 @@
  *     dialog, the offered one first.
  */
 import { type ReactNode, useEffect, useState, useSyncExternalStore } from 'react';
-import { inlinePieces, type ReleaseNotes } from '../shared/changelog.ts';
 import {
   changelogState,
   closeChangelog,
@@ -18,12 +17,12 @@ import {
   subscribeChangelog,
   whatsNew,
 } from './changelog-state.ts';
-import { usePageEnv } from './env.tsx';
+import { usePageEnv, useUpdates, type PageEnv } from './env.tsx';
 import { isKey, type Translate } from './i18n.ts';
-import { latestOf, subscribe as subscribeUpdates, updateState } from './update-state.ts';
+import { inlinePieces, type ReleaseNotes } from './library/changelog.ts';
+import { latestOf } from './library/routes.ts';
 
 export const useChangelog = () => useSyncExternalStore(subscribeChangelog, changelogState);
-const useUpdates = () => useSyncExternalStore(subscribeUpdates, updateState);
 
 /** An item's Markdown, drawn. */
 function Inline({ text }: { text: string }) {
@@ -119,16 +118,17 @@ export function ReleaseNotesList({ releases, headings, fold = false, tag }: Note
 /** Reads the notes when the page shows, and again once an update has gone in. */
 function useLoadChangelog(): void {
   const { phase } = useUpdates();
+  const { changelog: read } = usePageEnv();
   useEffect(() => {
-    void loadChangelog();
-  }, []);
+    if (read) void loadChangelog(read);
+  }, [read]);
   useEffect(() => {
-    if (phase !== 'done') return;
-    // The server half may be starting again on the new version: ask now, and once more after.
-    void loadChangelog();
-    const again = setTimeout(() => void loadChangelog(), 5_000);
+    if (phase !== 'done' || !read) return;
+    // The host's server may be starting again on the new version: ask now, and once more after.
+    void loadChangelog(read);
+    const again = setTimeout(() => void loadChangelog(read), 5_000);
     return () => clearTimeout(again);
-  }, [phase]);
+  }, [phase, read]);
 }
 
 /** What the version installed brings, at the top of the page until Got it. */
@@ -160,12 +160,12 @@ export function WhatsNewPanel() {
 
 /** What the offered update brings, in the offer. Nothing while the notes are not known. */
 export function UpcomingNotes() {
-  const { t } = usePageEnv();
+  const { t, changelog: read } = usePageEnv();
   const latest = latestOf(useUpdates().updates);
   const { upcoming } = useChangelog();
   useEffect(() => {
-    void loadUpcoming(latest);
-  }, [latest]);
+    if (read) void loadUpcoming(latest, read);
+  }, [latest, read]);
   if (upcoming.length === 0) return null;
   return (
     <div className="oa-news-upcoming">
@@ -195,12 +195,12 @@ export function ChangelogFooter() {
 
 /** Every release, the offered one first: the changelog dialog's body. */
 export function ChangelogView() {
-  const { t } = usePageEnv();
+  const { t, changelog: read } = usePageEnv();
   const { version, releases, upcoming } = useChangelog();
   const latest = latestOf(useUpdates().updates);
   useEffect(() => {
-    void loadUpcoming(latest);
-  }, [latest]);
+    if (read) void loadUpcoming(latest, read);
+  }, [latest, read]);
   const tag = (release: ReleaseNotes) =>
     release.version === version ? (
       <span className="oau-tag" data-tone="neutral">

@@ -1,6 +1,6 @@
 import { type CSSProperties, useState } from 'react';
 import { isShellMessage, type CardData, type CardRequest, type CardThread } from '../cards.ts';
-import type { Translate } from '../i18n.ts';
+import type { DshTranslate as Translate } from '../words.ts';
 
 /** Opens the artifact's Shell at a comment. */
 export type OpenThread = (data: CardData, threadId: string) => void;

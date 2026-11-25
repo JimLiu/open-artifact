@@ -51,6 +51,7 @@
   "license": "Apache-2.0",
   "devDependencies": {
     "@open-artifact/harness-kit": "0.14.6",
+    "@open-artifact/library-page": "0.14.6",
     "@open-artifact/protocol": "0.14.6",
     "@open-artifact/ui": "0.14.6"
   }

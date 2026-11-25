@@ -1,7 +1,7 @@
 /**
  * Sorting, filtering and searching the list: pure functions of the artifacts and what the person picked.
  */
-import type { PageArtifact } from '../shared/routes.ts';
+import type { PageArtifact } from './library/routes.ts';
 
 /** What the list is sorted by. */
 export type Sort = 'opened' | 'updated' | 'created' | 'name';

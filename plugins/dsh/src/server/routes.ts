@@ -6,8 +6,8 @@
  */
 import { ensureDaemon, type EnsureDaemonOptions } from '@open-artifact/harness-kit';
 import { LIBRARY_ROUTES, hostToShellOf, type ArtifactView, type DaemonState, type HostToShell, type TypeView } from '@open-artifact/protocol';
-import { PATHS, SHELL_EVENT, type ArtifactList, type DeleteAnswer, type OpenAnswer, type PageArtifact, type TypeTile, type UpdateCheck } from '../shared/routes.ts';
-import type { ChangelogAnswer } from '../shared/changelog.ts';
+import { artifactList, deleteAnswer, openAnswer, pageView as shapeView, thumbnailStamp, type ChangelogAnswer, type PageArtifact } from '@open-artifact/library-page/library';
+import { PATHS, SHELL_EVENT, type UpdateCheck } from '../shared/routes.ts';
 import type { DshRoute } from './dsh.ts';
 import type { HostOpens } from './host-open.ts';
 
@@ -17,49 +17,8 @@ export const HARNESS = 'dsh';
 const NO_STORE = { 'cache-control': 'no-store' };
 const json = (body: unknown, status = 200): Response => Response.json(body, { status, headers: NO_STORE });
 
-/**
- * The version a thumbnail was taken at. The daemon names it either by the stamp itself or by a URL carrying it as `v`
- * (`/api/open-artifact.artifacts.thumbnail?id=…&v=…`).
- */
-export function thumbnailStamp(value: string | null | undefined): string | null {
-  if (!value) return null;
-  if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(value) && !value.startsWith('/')) return value;
-  try {
-    return new URL(value, 'http://localhost').searchParams.get('v') ?? value;
-  } catch {
-    return value;
-  }
-}
-
-/** One artifact of the daemon's library as the page reads one. */
-export function pageView(a: Partial<ArtifactView>): PageArtifact {
-  const created = a.createdAt ?? '';
-  const owner = a.owner ?? null;
-  return {
-    id: a.id ?? '',
-    root: a.root ?? '',
-    type: a.type ?? '',
-    typeTitle: a.typeTitle ?? a.type ?? '',
-    sessionId: owner?.harness === HARNESS && typeof owner.session === 'string' ? owner.session : '',
-    ownerStatus: owner ? (owner.live === false ? 'offline' : (owner.status ?? null)) : null,
-    title: a.title ?? '',
-    openedAt: a.openedAt ?? created,
-    createdAt: created,
-    updatedAt: a.contentAt ?? a.updatedAt ?? created,
-    pinned: !!a.pinned,
-    shared: !!a.shared,
-    thumbnail: thumbnailStamp(a.thumbnail),
-    openable: !a.typeMissing,
-    viewUrl: a.view_url ?? '',
-  };
-}
-
-/** The installed types a new session can make one of, as the page's tiles read them. */
-export function typeTiles(types: Partial<TypeView>[]): TypeTile[] {
-  return types
-    .filter((t) => typeof t.id === 'string' && t.enabled !== false && t.runnable !== false && !t.shadowedBy && !(t.problems?.length))
-    .map((t) => ({ id: t.id!, title: t.title || t.id!, description: t.description ?? '' }));
-}
+/** One artifact of the daemon's library as the page reads one: an owner of the plugin's harness is a DSH session. */
+export const pageView = (a: Partial<ArtifactView>): PageArtifact => shapeView(a, HARNESS);
 
 /** A failure the daemon answered with: its words, and the status the route answers with. */
 export class DaemonError extends Error {
@@ -193,8 +152,7 @@ export function registerRoutes(routes: RouteRegistry, options: RouteOptions = {}
       api<{ artifacts?: ArtifactView[] }>(LIBRARY_ROUTES.artifacts),
       api<{ types?: TypeView[] }>(LIBRARY_ROUTES.types),
     ]);
-    const body: ArtifactList = { artifacts: (list.artifacts ?? []).map(pageView), types: typeTiles(types.types ?? []) };
-    return json(body);
+    return json(artifactList(list, types, HARNESS));
   });
 
   route(PATHS.open, ['POST'], async (request) => {
@@ -202,8 +160,7 @@ export function registerRoutes(routes: RouteRegistry, options: RouteOptions = {}
     // The page shows it in its session's Browser itself: the daemon's own host.open would open it a second time.
     const opened = await api<{ view_url?: string }>(LIBRARY_ROUTES.open, { body: { id, host: false } });
     const view = pageView(await api<ArtifactView>(LIBRARY_ROUTES.artifact, { query: { id } }));
-    const body: OpenAnswer = { url: opened.view_url ?? view.viewUrl, sessionId: view.sessionId, title: view.title };
-    return json(body);
+    return json(openAnswer(opened, view));
   });
 
   route(PATHS.preview, ['POST'], async (request) => {
@@ -235,8 +192,7 @@ export function registerRoutes(routes: RouteRegistry, options: RouteOptions = {}
   route(PATHS.delete, ['POST'], async (request) => {
     const id = param(request, 'id');
     const out = await api<{ deleted?: string; folderKept?: string }>(LIBRARY_ROUTES.delete, { body: { id } });
-    const body: DeleteAnswer = { trash: out.deleted ?? id, path: out.folderKept ?? '' };
-    return json(body);
+    return json(deleteAnswer(out, id));
   });
 
   route(PATHS.restore, ['POST'], async (request) => {

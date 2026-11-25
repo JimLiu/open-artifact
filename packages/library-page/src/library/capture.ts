@@ -1,6 +1,7 @@
 /**
- * How each type's thumbnail is taken from its editor page (thumbnails.ts). A type without its own recipe is taken
- * whole, at 1280×800. How a type looks on the page (colors, icon, drawing) is in look.tsx.
+ * How each type's thumbnail is taken from its editor page, for a host's `PageHost.capture` (the DSH plugin's:
+ * plugins/dsh/src/client/thumbnails.ts). A type without its own recipe is taken whole, at 1280×800. How a type looks
+ * on the page (colors, icon, drawing) is in ../look.tsx.
  */
 
 /** How a type's thumbnail is taken from its editor page. */

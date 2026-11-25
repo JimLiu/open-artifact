@@ -3,17 +3,16 @@
  * notice at the foot of the page, and the live updates that keep the list current. One store per mounted plugin
  * (`createPageStore`), handed to the components through {@link StoreProvider}.
  *
- * Everything that needs the app (opening a session, starting one, the clipboard, the desktop Browser) comes in as
- * {@link PageHost}, so the store runs, and is tested, without DSH.
+ * Everything that needs the app (opening a session, starting one, the clipboard, taking a thumbnail) comes in as
+ * {@link PageHost}, so the store runs, and is tested, without a host.
  */
 import { createContext, createElement, useContext, type ReactNode } from 'react';
 import { useStore as useZustand } from 'zustand';
 import { createStore, type StoreApi } from 'zustand/vanilla';
-import type { OpenAnswer, PageArtifact, TypeTile } from '../shared/routes.ts';
-import type { PageApi } from './api.ts';
+import type { PageApi, PendingWindow } from './api.ts';
 import { NO_FILTERS, type Filters } from './filters.ts';
-import { isKey, type Translate } from './i18n.ts';
-import type { PendingWindow } from './remote.ts';
+import type { Translate } from './i18n.ts';
+import type { OpenAnswer, PageArtifact, TypeTile } from './library/routes.ts';
 
 /** Where the list stands. */
 export type LoadStatus = 'loading' | 'ready' | 'error';
@@ -71,7 +70,7 @@ export interface PageActions {
   open(artifact: PageArtifact, panel?: 'share'): Promise<void>;
   /** Opens an artifact at the Shell's share panel. */
   share(artifact: PageArtifact): Promise<void>;
-  /** A new session: empty, or with `/open-artifact <type>` and the start of a sentence in its input. */
+  /** A new session: empty, or one to make an artifact of a type (the host's {@link PageHost.create}). */
   create(typeId?: string): void;
   pin(artifact: PageArtifact, pinned: boolean): Promise<void>;
   rename(artifact: PageArtifact, title: string): Promise<void>;
@@ -91,8 +90,8 @@ export type PageStore = PageState & PageActions;
 export interface PageHost {
   /** The app can start a session from here. */
   canCreate(): boolean;
-  /** Starts a session, with `prompt` added to its input. */
-  startSession(prompt?: string): void;
+  /** Starts a session: empty, or one to make an artifact of `type`. */
+  create(type?: { id: string; title: string }): void;
   /** The app is open on another device. */
   away(): boolean;
   /** A window opened now, for an address that comes later. */
@@ -118,15 +117,6 @@ export interface PageStoreOptions {
 }
 
 const LAYOUT_KEY = 'open-artifact.view';
-
-/**
- * What the input of a new session holds: the `/open-artifact` skill word with the type, which makes the app load the
- * skill (src/server/skill.ts), then the start of a sentence for the person to finish.
- */
-export function promptFor(typeId: string, title: string, t: Translate): string {
-  const key = `prompt.${typeId}`;
-  return `/open-artifact ${typeId} ${isKey(key) ? t(key) : t('prompt.generic', { type: title })}`;
-}
 
 /** A URL with one search parameter set; the URL as it is when it does not parse. */
 function withParam(url: string, name: string, value: string): string {
@@ -256,7 +246,7 @@ export function createPageStore({ api, host, t, eventDelayMs = 300 }: PageStoreO
           const answer = panel ? { ...opened, url: withParam(opened.url, 'panel', panel) } : opened;
           const { sessionGone } = await host.show({ ...answer, sessionId: answer.sessionId || artifact.sessionId }, pending);
           set({ opening: null });
-          // One of another harness (or of none) has no DSH session to go back to: only a session gone is news.
+          // One of another harness (or of none) has no session of the host's to go back to: only a session gone is news.
           if (sessionGone && (answer.sessionId || artifact.sessionId)) get().showToast(t('open.noSession'));
           void get().reload();
         } catch (error) {
@@ -270,8 +260,8 @@ export function createPageStore({ api, host, t, eventDelayMs = 300 }: PageStoreO
 
       create(typeId) {
         if (!host.canCreate()) return;
-        if (typeId === undefined) return host.startSession();
-        host.startSession(promptFor(typeId, get().types.find((type) => type.id === typeId)?.title || typeId, t));
+        if (typeId === undefined) return host.create();
+        host.create({ id: typeId, title: get().types.find((type) => type.id === typeId)?.title || typeId });
       },
 
       async pin(artifact, pinned) {

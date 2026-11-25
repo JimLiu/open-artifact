@@ -25,7 +25,7 @@ node scripts/build-plugins.mjs # Build unified skill + dist/plugins/<name>/ + ma
   - `types` — copies `dist/server/` into every `artifact-types/<type>/scripts/`
   - `shell` — builds `dist/daemon/shell/` and `dist/daemon/home/`
   - `frame` — builds `dist/daemon/frame-host/`
-  - `dsh` — builds `plugins/dsh/` (`lib/`, the vendored daemon in `vendor/`, and the launcher `scripts/open-artifact.mjs` that makes the folder a runtime folder)
+  - `dsh` — builds `plugins/dsh/` (`lib/`, the vendored daemon in `vendor/`, and the launcher `scripts/open-artifact.mjs` that makes the folder a runtime folder); `lib/client.js` bundles the library page from `packages/library-page`, with React left to DSH's loader
   - `sea` — the single executable `dist/sea/open-artifact-<platform>-<arch>` for this platform (`scripts/build-sea.mjs`; `--node <file>` or `OPEN_ARTIFACT_SEA_NODE` picks the Node to embed, an official build of Node 25.5+). Never part of the full build; needs `npm run build` and `node scripts/build-skill.mjs` first.
 - `node scripts/build-plugins.mjs --only <app>` — builds one plugin (`claude-code`, `codex`, `cursor`, `copilot`, `antigravity`, `zcode`, `chatgpt`). Pass `--no-skill` to reuse an already-built skill.
 - `node scripts/build-wasm.mjs` — compiles Rust crates under `crates/` and updates committed output under `packages/wasm-*/generated/`.
@@ -53,7 +53,7 @@ E2E tests copy built `artifact-types/` folders into isolated temporary directori
 
 ## Releasing
 
-`node scripts/build-npm.mjs` stages publishable packages into `dist/npm/`: the `@open-artifact/*` libraries, `@open-artifact/cli`, and `dsh-open-artifact`.
+`node scripts/build-npm.mjs` stages publishable packages into `dist/npm/`: the `@open-artifact/*` libraries, `@open-artifact/cli`, and `dsh-open-artifact`. `@open-artifact/library-page` is private and not staged: only the DSH plugin uses it, bundled into its `lib/client.js`; publish it when a host outside this repository needs it.
 `@open-artifact/cli` is the skill folder: its `files` are `scripts/`, `vendor/`, `reference/` (the skill's guides, such as `new-type.md`) and `SKILL.md`.
 The libraries are compiled with `tsc` (`rewriteRelativeImportExtensions`, which fixes `./x.ts` imports in the emitted JavaScript only); the script then rewrites relative `.ts`/`.tsx`/`.mts`/`.cts` specifiers in every staged `.d.ts` (compiled or authored) to `.js`/`.js`/`.mjs`/`.cjs` (`scripts/declaration-specifiers.mjs`, tested by `scripts/declaration-specifiers.test.mjs`) and fails the build if one is left.
 

@@ -12,7 +12,7 @@ plain folders on disk.
 | --- | --- |
 | `artifact-types/<type>/` | Self-contained type skills (`SKILL.md`, `reference/`, `artifact-type.json`, built `scripts/`). |
 | `skills/open-artifact/` | Unified `/open-artifact <type>` skill + vendored daemon. |
-| `packages/` | Core platform (`daemon`, `shell`, `protocol`, `runtime`, `type-server`, `server-sdk`, `live-store`, `host*`, `harness-kit`), 8 type pairs (`<type>-core` + `<type>-editor`), shared UI/canvas/export kits, and `wasm-*` bindings. |
+| `packages/` | Core platform (`daemon`, `shell`, `protocol`, `runtime`, `type-server`, `server-sdk`, `live-store`, `host*`, `harness-kit`, `library-page`), 8 type pairs (`<type>-core` + `<type>-editor`), shared UI/canvas/export kits, and `wasm-*` bindings. |
 | `crates/` | Rust crates compiled to WebAssembly (`packages/wasm-*/generated/` is committed). |
 | `plugins/` | Per-app agent plugins (`claude-code`, `codex`, `cursor`, `copilot`, `antigravity`, `zcode`, `dsh`, `chatgpt`). |
 | `examples/` | Runnable agent-app integrations (`harness-node`, `harness-electron`, `harness-stdio`) and host plugins. |

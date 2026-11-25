@@ -2,6 +2,8 @@
  * The page's calls to its Host routes (src/server/routes.ts). Paths are fetched relative to the document, as the app's
  * own pages call their routes, so the page works under whatever prefix the app is served at.
  */
+import type { ChangelogReader, PageApi } from '@open-artifact/library-page';
+import type { ChangelogAnswer } from '@open-artifact/library-page/library';
 import { PATHS, type ArtifactList, type DeleteAnswer, type OpenAnswer, type PageArtifact } from '../shared/routes.ts';
 
 /** A route path as the page fetches it. */
@@ -16,20 +18,7 @@ async function call<T>(path: string, params: Record<string, string>, init: Reque
   return body;
 }
 
-/** The routes, as functions. Replaceable in tests. */
-export interface PageApi {
-  list(): Promise<ArtifactList>;
-  open(id: string): Promise<OpenAnswer>;
-  preview(id: string): Promise<string | null>;
-  update(id: string, patch: { title?: string; pinned?: boolean }): Promise<PageArtifact>;
-  remove(id: string): Promise<DeleteAnswer>;
-  restore(trash: string): Promise<PageArtifact>;
-  saveThumbnail(id: string, version: string, jpeg: Uint8Array): Promise<string | null>;
-  /** The thumbnail's address, for an `<img>`. */
-  thumbnailUrl(id: string, version: string): string;
-  /** The library's events; the returned function stops them. Null where the browser has no EventSource. */
-  events(onEvent: () => void, onError: () => void): (() => void) | null;
-}
+export type { PageApi };
 
 /** The routes over `fetch`. */
 export const httpApi: PageApi = {
@@ -63,4 +52,16 @@ export const httpApi: PageApi = {
     source.onerror = () => onError();
     return () => source.close();
   },
+};
+
+/** The release notes, from the changelog route (src/server/changelog.ts); null when it does not answer. */
+export const readChangelog: ChangelogReader = async (upcoming) => {
+  try {
+    const response = await fetch(routeUrl(PATHS.changelog, upcoming ? { upcoming: '1' } : undefined), { cache: 'no-store' });
+    if (!response.ok) return null;
+    const body = (await response.json()) as Partial<ChangelogAnswer>;
+    return typeof body.version === 'string' && Array.isArray(body.releases) ? { version: body.version, releases: body.releases, upcoming: body.upcoming ?? [] } : null;
+  } catch {
+    return null;
+  }
 };

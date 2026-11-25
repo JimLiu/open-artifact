@@ -1,7 +1,7 @@
 /**
- * The release notes: CHANGELOG.md read into releases, for the page's "What's new" and its changelog. The server half
- * reads the copy the build puts in the plugin (scripts/build.mjs) and, for a release not installed yet, that release's
- * own copy (src/server/changelog.ts); the page draws them (src/client/changelog.tsx). No Node or DOM code here.
+ * The release notes: CHANGELOG.md read into releases, for the page's "What's new" and its changelog. A host's server
+ * reads its copy (the DSH plugin's: plugins/dsh/src/server/changelog.ts) and answers with them; the page draws them
+ * (src/changelog.tsx). No Node or DOM code here.
  *
  * CHANGELOG.md is written by hand to one form (AGENTS.md, Releasing):
  *

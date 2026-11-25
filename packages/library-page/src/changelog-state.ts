@@ -1,14 +1,14 @@
 /**
  * The release notes the page shows (changelog.tsx draws them): what the version installed brings, once after it is
  * installed ("What's new"); what an offered update brings, beside the offer; and every release, in the changelog. Here,
- * without React, so the tests can run it.
+ * without React, so the tests can run it. The notes come from the host ({@link ChangelogReader}).
  *
  * Which version's notes were last seen is kept in localStorage. One never seen (a profile that had no such key, as
  * before this existed) sees the installed version's notes once.
  */
-import { releasesBetween, type ChangelogAnswer, type ReleaseNotes } from '../shared/changelog.ts';
-import { isNewer, PATHS } from '../shared/routes.ts';
-import { routeUrl } from './api.ts';
+import type { ChangelogReader } from './api.ts';
+import { releasesBetween, type ReleaseNotes } from './library/changelog.ts';
+import { isNewer } from './library/routes.ts';
 
 const SEEN_KEY = 'open-artifact.changelog.seen';
 
@@ -49,19 +49,8 @@ export const subscribeChangelog = (listener: () => void) => {
 };
 export const changelogState = (): ChangelogState => state;
 
-async function read(upcoming: boolean): Promise<ChangelogAnswer | null> {
-  try {
-    const response = await fetch(routeUrl(PATHS.changelog, upcoming ? { upcoming: '1' } : undefined), { cache: 'no-store' });
-    if (!response.ok) return null;
-    const body = (await response.json()) as Partial<ChangelogAnswer>;
-    return typeof body.version === 'string' && Array.isArray(body.releases) ? { version: body.version, releases: body.releases, upcoming: body.upcoming ?? [] } : null;
-  } catch {
-    return null;
-  }
-}
-
 /** Reads the installed version's notes; an answer that does not come changes nothing. */
-export async function loadChangelog(): Promise<void> {
+export async function loadChangelog(read: ChangelogReader): Promise<void> {
   const answer = await read(false);
   if (answer === null) return;
   // Updated since the offer's notes were read: the ones it has now are no longer ahead of it.
@@ -70,7 +59,7 @@ export async function loadChangelog(): Promise<void> {
 }
 
 /** Reads what the update to `latest` brings, once per version offered. */
-export async function loadUpcoming(latest: string): Promise<void> {
+export async function loadUpcoming(latest: string, read: ChangelogReader): Promise<void> {
   if (latest === '' || latest === state.upcomingFor) return;
   set({ upcomingFor: latest });
   const answer = await read(true);

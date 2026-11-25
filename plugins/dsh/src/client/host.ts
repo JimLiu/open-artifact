@@ -2,20 +2,11 @@
  * The subset of the DSH (DeepSeek Harness) client API the page uses, declared locally: DSH publishes no types for it.
  * Services are read with `ctx.get(name)` and may be missing in an older or smaller app, so every use checks first.
  */
+import type { ExternalStore, SessionsSnapshot } from '@open-artifact/library-page';
 import type { ComponentType } from 'react';
 
-/** A store the app hands out (`useSyncExternalStore` shape). */
-export interface ExternalStore<T> {
-  getSnapshot(): T;
-  subscribe(listener: () => void): () => void;
-}
-
-/** The app's conversation list (`ctx.get('sessions').list`): ids, and each one's title. */
-export interface SessionsSnapshot {
-  phase?: string;
-  ids?: string[];
-  byId?: Record<string, { title?: string } | undefined>;
-}
+/** A store the app hands out (`useSyncExternalStore` shape), and its conversation list (`ctx.get('sessions').list`). */
+export type { ExternalStore, SessionsSnapshot };
 
 /** The app's workspaces (`ctx.get('workspaces').list`). */
 export interface WorkspacesSnapshot {

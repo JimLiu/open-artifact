@@ -42,7 +42,7 @@ Load this reference whenever adding, modifying, or removing features, artifact t
 - `docs/custom-types.md` / `.zh-CN.md` — Making, checking, trying, turning off and trusting your own types.
 - `artifact-types/<type>/SKILL.md`, `artifact-types/<type>/reference/*`, `artifact-types/<type>/artifact-type.json` — Authoritative type instructions and metadata.
 - `plugins/README.md` and `plugins/<app>/README.md` — Per-agent-app plugin behavior, hooks, and install guides.
-- `packages/host/README.md`, `packages/host-plugin/README.md`, `packages/editor-kit/README.md`, `packages/harness-kit/README.md`, `deploy/*/README.md`, `e2e/README.md`.
+- `packages/host/README.md`, `packages/host-plugin/README.md`, `packages/editor-kit/README.md`, `packages/harness-kit/README.md`, `packages/library-page/README.md`, `deploy/*/README.md`, `e2e/README.md`.
 - `examples/README.md` and `examples/*/README.md` (English only).
 
 ## Detailed sync checklist by change type

@@ -31,6 +31,7 @@ packages/daemon (local open-artifact daemon, one per machine)
 | `packages/server-sdk` | Shared server primitives and frame-host support used by `type-server` and hosts; `./zip` (`src/zip.ts`) is the one zip reader and writer (archives, type packages, imports: `checkZip`, `unpackZip`, `zipBytes`, `archiveEntries`), which the daemon uses too. |
 | `packages/live-store` | Real-time JSON document sync store shared by `whiteboard`, `data`, and `motion`. |
 | `packages/harness-kit` | The SDK an agent app builds its adapter on: `createHarness` (connect, start the newest compatible runtime, reconnect, sessions, tools, wakes, pages, `runtime.status()`/`runtime.update()`), `./embed` (Shell embedding in a renderer, no Node), `./testing` (a fake daemon that lists the real daemon's features). See `packages/harness-kit/README.md`. |
+| `packages/library-page` | The Open Artifact library page (list, filters, new, rename/pin/delete, update panel, release notes) as a React component a host mounts. Hosts give it their routes and app through interfaces (`PageApi`, `PageHost`, `PageEnv`), map its `--oa-page-*` tokens, and set `theme`/`platform` on its root. `./library` is the DOM-free half (route shapes, changelog parsing). Private, bundled into the DSH plugin's `lib/client.js`. See `packages/library-page/README.md`. |
 
 ### Artifact type packages
 

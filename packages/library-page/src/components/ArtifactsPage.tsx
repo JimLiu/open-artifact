@@ -12,16 +12,16 @@
  *   │▣ Q3 results│ │▣ Landing   │ │▣ Brand kit │
  *   └────────────┘ └────────────┘ └────────────┘
  *
- * The tiles are the types the daemon has installed. A tile starts a session with `/open-artifact <type> …` in its
- * input: the server half's skill (src/server/skill.ts) tells the agent to make one of that type. A pointer resting on a
- * tile shows a card with what the type makes and a button that does what the tile does (keyboard focus shows it too).
+ * The tiles are the types the daemon has installed. A tile starts a session to make one of that type (how is the
+ * host's: `PageHost.create`, store.ts). A pointer resting on a tile shows a card with what the type makes and a button
+ * that does what the tile does (keyboard focus shows it too).
  *
- * A card opens the artifact's page (the Shell: comments, share, export) in its session's Browser, in the right
- * sidebar. Its thumbnail is a picture of its editor (thumbnails.ts), taken again when its files changed. Its menu pins,
- * renames, copies the link, opens the share panel and deletes.
+ * A card opens the artifact's page (the Shell: comments, share, export) where the host shows it (`PageHost.show`). Its
+ * thumbnail is a picture of its editor, taken by the host (`PageHost.capture`) again when its files changed. Its menu
+ * pins, renames, copies the link, opens the share panel and deletes.
  */
 import { type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { PageArtifact, TypeTile } from '../../shared/routes.ts';
+import type { PageArtifact, TypeTile } from '../library/routes.ts';
 import { usePageEnv, useSessionTitle } from '../env.tsx';
 import { countByType, DATES, isFiltered, NO_FILTERS, SHARINGS, SORTS, visibleArtifacts, type Filters } from '../filters.ts';
 import { isKey, type Translate } from '../i18n.ts';
@@ -602,10 +602,14 @@ function TilePeek({ tile, anchor, t, onAct, onEnter, onLeave, onClose }: {
 export interface ArtifactsPageProps {
   /** The app can start a session from here. */
   canCreate: boolean;
+  /** The host's look, on the page's root as `data-theme`: `dark` draws the dark one. */
+  theme?: 'light' | 'dark';
+  /** The host's platform, on the page's root as `data-platform`: `darwin` leaves room for a macOS title bar. */
+  platform?: string;
 }
 
 /** The page. */
-export function ArtifactsPage({ canCreate }: ArtifactsPageProps) {
+export function ArtifactsPage({ canCreate, theme, platform }: ArtifactsPageProps) {
   const { t } = usePageEnv();
   const sessionTitle = useSessionTitle();
   const status = usePage((s) => s.status);
@@ -706,7 +710,7 @@ export function ArtifactsPage({ canCreate }: ArtifactsPageProps) {
   const toggle = (kind: 'filter' | 'create', anchor: HTMLElement) => setPopup((p) => (p?.kind === kind ? null : { kind, anchor }));
 
   return (
-    <section className="oa-page" aria-label={t('title')} data-testid="open-artifact-page">
+    <section className="oa-page" aria-label={t('title')} data-testid="open-artifact-page" data-theme={theme} data-platform={platform}>
       <div className="oa-scroll">
         <div className="oa-content">
           <div className="oa-heading">
