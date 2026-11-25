@@ -263,7 +263,8 @@ the install shows), its `SKILL.md` as plain text, the command that installs it, 
 
 - **Who sees the page.** Whoever may download the type: anyone signed in, for a `site` or `link` type (a `link` one
   only by its address), and its publisher and the site admins for a `private` one. Someone not signed in sees a
-  `link` type only where the site allows public access (`OA_PUBLIC_ACCESS`, on by default), else is sent to sign in.
+  `link` type only where the site allows public access (`OA_PUBLIC_ACCESS`, on by default), else is sent to sign in;
+  they are not told a publisher's name when it is an email address (an account with no name of its own).
   For anyone else the page and the API answer exactly as for an id that does not exist: they never say a private type
   is there.
 - **Managing it there.** Its publisher or a site admin changes who sees it and unpublishes it from the page. Showing it

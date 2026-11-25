@@ -218,6 +218,24 @@ describe('the site type routes and the type page', () => {
     assert.equal((await app.fetch('/api/open-artifact.types.update', { body: { id: 'poll-kit', visibility: 'site' } })).status, 401, 'never managed signed out');
   });
 
+  it('does not hand a publisher\'s email address to someone signed out (an account with no name of its own)', async () => {
+    const eve = await app.person('eve@example.com', 'eve@example.com');
+    await publish(app, eve.user, { id: 'mail-kit', uid: 'uid-mail', name: 'Mail' }, 'link');
+    const out = await app.fetch('/api/open-artifact.type?id=mail-kit');
+    assert.equal(out.status, 200);
+    assert.equal(((await out.json()) as SiteTypeDetail).publisher.name, null);
+    const page = await app.fetch('/t/mail-kit');
+    assert.equal(page.status, 200);
+    assert.ok(!(await page.text()).includes('eve@example.com'), 'the page');
+    const pkg = await app.fetch('/api/open-artifact.types.package?id=mail-kit');
+    assert.equal(pkg.status, 200);
+    assert.equal(pkg.headers.get('x-open-artifact-type-publisher'), null);
+    // Signed in, the name is there as everywhere else on the site; a publisher with a name is named to anyone.
+    assert.equal(((await (await app.fetch('/api/open-artifact.type?id=mail-kit', { cookie: bob.cookie })).json()) as SiteTypeDetail).publisher.name, 'eve@example.com');
+    assert.equal(((await (await app.fetch('/api/open-artifact.type?id=poll-kit')).json()) as SiteTypeDetail).publisher.name, 'Ada');
+    await new SiteTypes(app.catalog.driver).remove('uid-mail');
+  });
+
   it('unpublishes as the Link does: delisted while artifacts use it (shown so to its managers only), else removed', async () => {
     await app.artifact(bob.user, { type: 'poll-kit', title: 'Lunch' });
     const delisted = await app.fetch('/api/open-artifact.types.unpublish', { cookie: ada.cookie, body: { id: 'poll-kit' } });

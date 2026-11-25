@@ -179,8 +179,16 @@ packages/daemon (local open-artifact daemon, one per machine)
   origin (`LinkClient.typesArchive`), else the public `types.package` address without credentials
   (`fetchTypePackageAnswer`); 401/403/404 become `unauthorized` / `not_granted` / `not_found` with the fix, the
   preview carries `site {origin, publisher, remote}`, and the page's address is the recorded source that
-  `types.update` reads again. Cloudflare has no `siteTypes` yet: it needs a `SiteTypeServices` (with `skill` and
-  `scaffold`) over object storage and a frame engine; the `core/` routes, page and MCP code are platform-neutral.
+  `types.update` reads again. To someone signed out, a publisher named by an email address is not named
+  (`publisherNameFor`).
+  The Cloudflare host keeps the catalog too (`packages/host-cloudflare/src/site-types.ts`): `SiteTypeServices` over D1
+  (`type_packages`, `type_package_chunks`: 768 KiB chunks, 16 MiB a package, a version served only once `complete`),
+  made on first use; an artifact's object copies its type's served files into its own SQLite (`catalogFrameTypes`,
+  keyed `uid@version:sha`, a second `RoomFrameTypes` source after `bundledFrameTypes`); a changed row reaches rooms
+  through the hub (`/types/watch`, `/types/changed` → the room call `type-changed`), with the room's own row check as
+  the fallback (2 s per request, 30 s while pages are connected). It does not yet implement `skill` / `scaffold`, mount
+  `siteTypeRoutes` or pass `AppServices.siteTypes` / `McpServices.siteTypes`, so it has no type page, Types tab or
+  published types in its MCP; the `core/` routes, page and MCP code are platform-neutral.
 
 - **The frame core** (`packages/server-sdk/src/frame/`): `core.ts` (`FrameCore`, `mountFrameCore`) serves one
   artifact to any number of viewers from plain data (`FrameRequest` → `FrameReply`; `connect` for an event

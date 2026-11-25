@@ -10,6 +10,8 @@
  *   who names it). Someone not signed in gets a `link` type only where the site allows public access
  *   (`OA_PUBLIC_ACCESS`, as public artifacts), else is sent to sign in;
  * - a delisted type: only to those who manage it, who are told it is delisted;
+ * - the publisher's name: to anyone who sees the type, but not to someone signed out when it is an email address
+ *   ({@link publisherNameFor});
  * - anything else is answered exactly as an unknown id ({@link noSiteType}): nothing says a `private` type exists.
  *
  * Writes go through the app origin's rules (same origin, no Bearer token: `routes.ts`) and are audited. Every name,
@@ -57,13 +59,22 @@ export async function seeSiteType(request: Request, ctx: AppCtx, id: string): Pr
   return { row, person, auth };
 }
 
+/**
+ * The publisher's name as this asker may read it. An account without a name of its own is named by its email address
+ * (`auth/accounts.ts`): someone not signed in is not given that.
+ */
+export function publisherNameFor(name: string | null, person: UserPrincipal | null): string | null {
+  return !person && name && /^[^\s@]+@[^\s@]+$/.test(name.trim()) ? null : name;
+}
+
 /** What the type page shows of a type, for this asker. */
 export async function siteTypeDetail(ctx: AppCtx, row: SiteTypeRow, person: UserPrincipal | null): Promise<SiteTypeDetail> {
-  const [view] = await linkSiteTypes(ctx, [row], person?.id ?? '');
+  const [listed] = await linkSiteTypes(ctx, [row], person?.id ?? '');
+  const view = { ...listed!, publisher: { ...listed!.publisher, name: publisherNameFor(listed!.publisher.name, person) } };
   const skill = (await ctx.siteTypes?.skill?.(row.uid, row.version).catch(() => null)) ?? null;
   const pageUrl = ctx.config.appOrigin + siteTypePagePath(row.id);
   return {
-    ...view!,
+    ...view,
     skill,
     manages: !!person && managesSiteType(row, actorOf(person)),
     pageUrl,
@@ -104,11 +115,11 @@ export function siteTypeRoutes(router: Router<AppCtx>): void {
   });
 
   router.get(siteTypeApiPath(SITE_TYPE_ROUTES.package), async (request, ctx) => {
-    const { row } = await seeSiteType(request, ctx, new URL(request.url).searchParams.get('id') ?? '');
+    const { row, person } = await seeSiteType(request, ctx, new URL(request.url).searchParams.get('id') ?? '');
     const bytes = await ctx.siteTypes!.package(row.uid, row.version);
     if (!bytes) throw httpError('not_found', `The package of ${row.id} ${row.version} is missing on this site.`, { status: 404 });
     const [view] = await linkSiteTypes(ctx, [row], '');
-    return siteTypePackageResponse(row, bytes, request.method, view!.publisher.name);
+    return siteTypePackageResponse(row, bytes, request.method, publisherNameFor(view!.publisher.name, person));
   });
 
   router.post(siteTypeApiPath(SITE_TYPE_ROUTES.update), async (request, ctx) => {
