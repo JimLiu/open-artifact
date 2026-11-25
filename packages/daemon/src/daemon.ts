@@ -614,7 +614,7 @@ export class Daemon extends EventEmitter<{ exit: [] }> {
         // write an adapter saw, to the session now.
         claimed: (id, owner, seen) => {
           this.wake.handOff(id, owner, 'wrote');
-          if (seen) void this.wake.deliverWaiting(id, owner);
+          if (seen) this.wake.deliverWaiting(id, owner).catch((error: unknown) => log(`wake ${id}: delivering what waited failed: ${(error as Error)?.message ?? error}`));
         },
       }),
       handOff: (id, owner, how) => this.wake.handOff(id, owner, how),

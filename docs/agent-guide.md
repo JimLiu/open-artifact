@@ -95,7 +95,7 @@ Users actively edit artifacts in the live browser page between turns. Always gua
 
 Comments sent from the page arrive prefixed with `[Artifact comment sent to agent]` or `[Artifact edit request sent to agent]` via plugin hooks, background monitors, tool result `messages`, or `ArtifactComments {action: "wait", timeout_ms: 600000}`.
 
-Comments go to the session that owns the artifact. What is sent from an artifact no session owns (one the person made on the home page or opened from a folder) waits until a session becomes its owner, and then goes to that session only, once, with a first line that says why: the person made it, the person picked this session for it in the page's Ask pane, or the session that made it is no longer its owner. A session becomes the owner by `Artifact {action: "adopt", url}`, by writing the artifact through the tools (the result's `notes` say it is yours now), or when the person picks it.
+Comments go to the session that owns the artifact. What is sent from an artifact no session owns (one the person made on the home page or opened from a folder) waits until a session becomes its owner, and then goes to that session only, once, with a first line that says why: the person made it, the person picked this session for it in the page's Ask pane, or the session that made it is no longer its owner. That line also says when it was sent (or that this is not known): check that an old request still stands before acting on it. A session becomes the owner by `Artifact {action: "adopt", url}`, by writing the artifact through the tools (the result's `notes` say it is yours now), or when the person picks it.
 
 Standard loop:
 1. Read threads: `ArtifactComments {action: "read", url}`.

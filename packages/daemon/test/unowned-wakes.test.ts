@@ -7,12 +7,12 @@
  * that wrote the artifact without `adopt` left it unowned.
  */
 
-import { tempDir } from './helpers.ts';
+import { tempDir, until } from './helpers.ts';
 import assert from 'node:assert/strict';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, before, test } from 'node:test';
-import { artifactUrl, type ArtifactView, type AssignArtifactResult, type DaemonState, type InboxMessage, type SessionRef } from '@open-artifact/protocol';
+import { WAKE_PER_MINUTE, artifactUrl, type ArtifactView, type AssignArtifactResult, type DaemonState, type InboxMessage, type SessionRef } from '@open-artifact/protocol';
 import { readDaemon } from '../src/client.ts';
 import { startDaemon, type Daemon } from '../src/daemon.ts';
 import { Inbox } from '../src/inbox.ts';
@@ -308,6 +308,218 @@ test('handOff: what waited survives a restart (the inbox is on disk), and is han
   assert.equal(router.handOff(record.id, session('someone-else'), 'wrote').length, 0);
   assert.equal(inbox.take(sessionKeyOf(owner)!).length, 1);
   assert.ok(inbox.peek(UNOWNED_KEY).some((m) => m.text === 'other'), "another artifact's message stays");
+});
+
+// ---- many messages waiting ---------------------------------------------------------------------------------------
+
+/** More than the per-minute limit lets the page send at once. */
+const MANY = WAKE_PER_MINUTE + 5;
+
+/**
+ * `count` messages from the page of an artifact nobody owns, as they pile up over time: rendered and routed one by one
+ * as a wake is (`WakeRouter.deliver`), past the per-minute limit and the merge window, which are on `queue`.
+ */
+async function backlog(id: string, count = MANY, word = 'Note'): Promise<string[]> {
+  const words = Array.from({ length: count }, (_, i) => `${word} ${i + 1} of ${count}`);
+  for (const [i, text] of words.entries()) {
+    const result = await daemon.wake.deliver(id, [], [{ id: `r${i}`, text }]);
+    assert.equal(result.via, 'inbox');
+  }
+  assert.equal(unownedOf(id).length, count);
+  return words;
+}
+
+/** Each word in exactly one of `texts`, and nothing else for this artifact. */
+function eachOnce(words: string[], texts: string[]): void {
+  assert.equal(texts.length, words.length, `${texts.length} messages for ${words.length}`);
+  for (const word of words) assert.equal(texts.filter((t) => t.includes(`\n${word}\n`)).length, 1, `${word} once`);
+}
+
+test('many waiting, adopt: every one comes with the adopt, once, past the per-minute limit', async () => {
+  const id = await made('Many adopted');
+  const words = await backlog(id);
+  const caller = session('many-adopter');
+  const adopted = await daemon.tools.call('Artifact', { action: 'adopt', url: artifactUrl(id) }, caller);
+  assert.equal(adopted.error, undefined, JSON.stringify(adopted.error));
+  eachOnce(words, texts(adopted.messages));
+  assert.deepEqual(texts(adopted.messages).map((t) => t.match(/\nNote (\d+) of/)?.[1]), words.map((_, i) => String(i + 1)), 'in the order they were sent');
+  assert.equal(unownedOf(id).length, 0);
+  assert.equal((await daemon.tools.call('Artifact', { action: 'list' }, caller)).messages, undefined, 'nothing a second time');
+  // The page may still send: handing them over counted nothing against its limit.
+  assert.equal(await ask(id, 'One more'), 'inbox');
+  daemon.inbox.take(sessionKeyOf(caller)!);
+});
+
+test('many waiting, a write through the tools: the write carries every one, once', async () => {
+  const id = await made('Many written');
+  const words = await backlog(id);
+  const caller = session('many-writer');
+  const wrote = await daemon.tools.call('Artifact', { action: 'publish', url: artifactUrl(id), files: { 'index.html': '<h1>Hi</h1>' } }, caller);
+  assert.equal(wrote.error, undefined, JSON.stringify(wrote.error));
+  eachOnce(words, texts(wrote.messages));
+  for (const text of texts(wrote.messages)) assert.match(text, /^\[Open Artifact\] The person made .* It was sent at \d{4}-\d\d-\d\d \d\d:\d\d UTC\./);
+  assert.equal(unownedOf(id).length, 0);
+  assert.equal(daemon.inbox.count(sessionKeyOf(caller)!), 0);
+});
+
+test('many waiting, artifacts.assign to a session online: all delivered live, each once; none left in an inbox', async () => {
+  const id = await made('Many assigned');
+  const words = await backlog(id);
+  const ref = session('many-online');
+  const { key } = daemon.harnesses.pollAttach({ harness: ref.harness, session: ref.session!, workspace: ref.workspace! });
+  const assigned = await post<AssignArtifactResult>('artifacts.assign', { id, session: key });
+  assert.equal(assigned.status, 200, JSON.stringify(assigned.body));
+  assert.equal(assigned.body.delivered.length, MANY);
+  assert.ok(assigned.body.delivered.every((d) => d.via === 'live' && d.status === 'queued'), JSON.stringify(assigned.body.delivered));
+  assert.equal(daemon.inbox.count(key), 0, 'delivered, not also in the inbox');
+  assert.equal(unownedOf(id).length, 0);
+  const polled = await daemon.harnesses.pollWait({ harness: ref.harness, session: ref.session!, workspace: ref.workspace!, timeoutMs: 1000 });
+  eachOnce(words, polled.messages.map((m) => m.text));
+  const more = await daemon.harnesses.pollWait({ harness: ref.harness, session: ref.session!, workspace: ref.workspace!, timeoutMs: 1000 });
+  assert.equal(more.messages.length, 0, 'nothing a second time');
+  daemon.harnesses.pollDetach({ harness: ref.harness, session: ref.session!, workspace: ref.workspace! });
+});
+
+test('many waiting, artifacts.assign while the session has a poll open: the poll takes the first, the next poll the rest', async () => {
+  const id = await made('Many polled');
+  const words = await backlog(id);
+  const ref = session('many-polling');
+  const params = { harness: ref.harness, session: ref.session!, workspace: ref.workspace! };
+  const { key } = daemon.harnesses.pollAttach(params);
+  const open = daemon.harnesses.pollWait({ ...params, timeoutMs: 10_000 });
+  const assigned = await post<AssignArtifactResult>('artifacts.assign', { id, session: key });
+  assert.equal(assigned.status, 200, JSON.stringify(assigned.body));
+  assert.deepEqual(
+    assigned.body.delivered.map((d) => d.status),
+    ['delivered', ...Array(MANY - 1).fill('queued')],
+  );
+  const first = await open;
+  const rest = await daemon.harnesses.pollWait({ ...params, timeoutMs: 1000 });
+  eachOnce(words, [...first.messages, ...rest.messages].map((m) => m.text));
+  assert.equal(daemon.inbox.count(key), 0);
+  daemon.harnesses.pollDetach(params);
+});
+
+test('many waiting, the session not online (an adapter saw it write): all wait in its inbox, each once, with their line', async () => {
+  const id = await made('Many offline');
+  const words = await backlog(id);
+  const caller = session('many-offline');
+  const root = daemon.store.require(id).root;
+  writeFileSync(join(root, 'index.html'), '<h1>By the agent</h1>');
+  daemon.tools.agentWrote(caller, [join(root, 'index.html')]);
+  assert.equal(daemon.store.require(id).owner?.session, 'many-offline');
+  const key = sessionKeyOf(caller)!;
+  // No adapter takes them live: deliverWaiting leaves them in the inbox.
+  await until(() => daemon.inbox.peek(key).length === MANY);
+  await new Promise((done) => setTimeout(done, 300));
+  const waiting = daemon.inbox.take(key).filter((m) => m.artifactId === id);
+  eachOnce(words, waiting.map((m) => m.text));
+  for (const message of waiting) assert.match(message.text, /^\[Open Artifact\] The person made .* it is yours now/);
+  assert.equal(unownedOf(id).length, 0);
+});
+
+test('deliverWaiting: a live delivery that fails leaves each in the inbox once, nudged once; one taken meanwhile is not sent again', async () => {
+  const store = new ArtifactStore();
+  const owner = session('router-owner');
+  const key = sessionKeyOf(owner)!;
+  const record = store.create({ root: join(tempDir('open-artifact-many-'), 'r'), type: 'design', owner: null, title: 'Router' });
+  const inbox = new Inbox();
+  const sent: string[] = [];
+  const nudges: string[] = [];
+  let answer: () => 'failed' | 'delivered' = () => 'failed';
+  let during: (() => void) | null = null;
+  const router = new WakeRouter({
+    store,
+    inbox,
+    live: () => ({
+      deliver: async (_ref, payload) => {
+        sent.push(payload.text);
+        during?.();
+        during = null;
+        return answer();
+      },
+    }),
+    viewUrl: () => 'v',
+    log: () => {},
+    nudge: (target) => nudges.push(sessionKeyOf(target)!),
+  });
+  const words = Array.from({ length: MANY }, (_, i) => `Item ${i + 1} of ${MANY}`);
+  for (const [i, text] of words.entries()) await router.deliver(record.id, [], [{ id: `r${i}`, text }]);
+  const unowned = (): InboxMessage[] => inbox.peek(UNOWNED_KEY).filter((m) => m.artifactId === record.id);
+  assert.equal(unowned().length, MANY);
+  assert.equal(sent.length, 0, 'nobody owned it: nothing went live');
+
+  // Offline: every live delivery fails; all stay in the session's inbox, in their order, with the time they were sent.
+  store.update(record.id, { owner });
+  const sentAt = unowned().map((m) => m.at);
+  router.handOff(record.id, owner, 'assign');
+  const failed = await router.deliverWaiting(record.id, owner);
+  assert.equal(failed.length, MANY);
+  assert.ok(failed.every((r) => r.via === 'inbox'));
+  assert.equal(sent.length, MANY, 'each was tried live once');
+  assert.deepEqual(nudges, [key], 'nudged once, not once per message');
+  const kept = inbox.peek(key);
+  eachOnce(words, kept.map((m) => m.text));
+  assert.deepEqual(kept.map((m) => m.at), sentAt, 'in their order, with the time each was sent');
+  assert.equal(unowned().length, 0);
+
+  // Online now, and the session takes its inbox (a tool call) while the first is being delivered.
+  sent.length = 0;
+  answer = () => 'delivered';
+  let tookMeanwhile: string[] = [];
+  during = () => (tookMeanwhile = inbox.take(key).map((m) => m.text));
+  const delivered = await router.deliverWaiting(record.id, owner);
+  assert.equal(delivered.length, 1, 'only the one already on its way');
+  assert.equal(tookMeanwhile.length, MANY - 1);
+  eachOnce(words, [...sent, ...tookMeanwhile]);
+  assert.equal(inbox.count(key), 0);
+});
+
+test('handOff: a message with no time says it may be old; a dated one says when it was sent', () => {
+  const store = new ArtifactStore();
+  const record = store.create({ root: join(tempDir('open-artifact-old-'), 'r'), type: 'design', owner: null, title: 'Old' });
+  const inbox = new Inbox();
+  const file = inbox.fileOf(UNOWNED_KEY);
+  const old = { kind: 'wake', text: '[Artifact edit request sent to agent]\nfrom an older daemon', artifactId: record.id, artifact: artifactUrl(record.id) };
+  const dated = { ...old, text: '[Artifact edit request sent to agent]\nlong ago', at: new Date(Date.now() - 40 * 86_400_000).toISOString() };
+  writeFileSync(file, `${JSON.stringify(old)}\n${JSON.stringify(dated)}\n`, { flag: 'a' });
+  const router = new WakeRouter({ store, inbox, live: () => null, viewUrl: () => 'v', log: () => {} });
+  const moved = router.handOff(record.id, session('old-owner'), 'adopt');
+  assert.equal(moved.length, 2, 'none dropped, however old');
+  assert.match(moved[0]!.text, /^\[Open Artifact\] .*When it was sent is not known: it may be from long ago/);
+  assert.match(moved[1]!.text, /^\[Open Artifact\] .*It was sent at .* UTC, 40 days ago: check that it still stands/);
+});
+
+// ---- a type action that writes (Artifact call) -------------------------------------------------------------------
+
+test('rule 2: a type action whose effect is write makes the session its owner; a read or a refused write does not', { timeout: 60000 }, async () => {
+  const made = await post<ArtifactView>('artifacts.create', { type: 'docs', title: 'Doc by action', folder: join(home, 'doc-action'), blank: true });
+  assert.equal(made.status, 201, JSON.stringify(made.body));
+  const id = made.body.id;
+  const url = artifactUrl(id);
+  const words = await backlog(id, 3, 'Ask');
+  const caller = session('acts');
+
+  const read = await daemon.tools.call('Artifact', { action: 'call', url, name: 'read', args: { call: {} } }, caller);
+  assert.equal(read.error, undefined, JSON.stringify(read.error));
+  assert.equal(daemon.store.require(id).owner, null, 'a read action moves nothing');
+  assert.equal(read.messages, undefined);
+
+  const refused = await daemon.tools.call('Artifact', { action: 'call', url, name: 'delete', args: { call: { ref: { object: 'file', id: 'no-such-tab' } } } }, caller);
+  assert.ok(refused.error, 'deleting a tab that is not there is refused');
+  assert.equal(daemon.store.require(id).owner, null, 'a write that failed moves nothing');
+  assert.equal(refused.messages, undefined);
+
+  const wrote = await daemon.tools.call('Artifact', { action: 'call', url, name: 'batch', args: { call: { batch: [{ verb: 'create', object: 'file', payload: { birthName: 'Notes' } }] } } }, caller);
+  assert.equal(wrote.error, undefined, JSON.stringify(wrote.error));
+  assert.equal(sessionKeyOf(daemon.store.require(id).owner!), sessionKeyOf(caller));
+  assert.ok(texts(wrote.notes).some((note) => note.includes(id) && /had no owner session, so it is yours now/.test(note)), JSON.stringify(wrote.notes));
+  eachOnce(words, texts(wrote.messages));
+  for (const text of texts(wrote.messages)) assert.match(text, /^\[Open Artifact\] The person made .* If you have not, call Artifact \{action: "adopt"/);
+  assert.equal(unownedOf(id).length, 0);
+  const again = await daemon.tools.call('Artifact', { action: 'call', url, name: 'read', args: { call: {} } }, caller);
+  assert.equal(again.messages, undefined, 'nothing a second time');
+  assert.ok(!texts(again.notes).some((note) => /yours now/.test(note)), 'said once');
 });
 
 test('Inbox.takeWhere takes the matching messages and keeps the rest in order', () => {

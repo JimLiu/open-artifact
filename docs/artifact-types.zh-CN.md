@@ -20,7 +20,7 @@ Open Artifact 内置了 **9 种 Artifact 类型**。每种类型都包含一套�
 
 ### 不经 Agent 新建
 
-主页的「新建」列出全部内置类型，分两组。「直接开始」（Docs、Sheets、Whiteboard、Slides、Design System）建好时就带着该类型的初始文件，直接进入编辑器，由你自己动手写；Design System 的欢迎页上，「Start by hand」会带你到各个分区去添加颜色、字体和间距。「和 Agent 一起做」（Design、Data、Motion、Page）建好后交给 Agent 来搭，因为这几类目前还不能完全手工搭建：Design、Data、Motion 打开时是空作品，并给出交给 Agent 的提示。「直接开始」这组类型的空作品，在 Shell 里也会多一个「从空白开始」按钮，点它不改变作品的归属。在这台电脑上做的类型照旧列在后面。在主页新建的作品不属于任何 Agent 会话，直到有会话接手。
+主页的「新建作品」列出全部内置类型，分两组。「直接开始」（Docs、Sheets、Whiteboard、Slides、Design System）建好时就带着该类型的初始文件，直接进入编辑器，由你自己动手写；Design System 的欢迎页上，「Start by hand」会带你到各个分区去添加颜色、字体和间距。「和 Agent 一起做」（Design、Data、Motion、Page）建好后交给 Agent 来搭，因为这几类目前还不能完全手工搭建：Design、Data、Motion 打开时是空作品，并给出交给 Agent 的提示。「直接开始」这组类型的空作品，在 Shell 里也会多一个「从空白开始」按钮，点它不改变作品的归属。在这台电脑上做的类型照旧列在后面。在主页新建的作品不属于任何 Agent 会话，直到有会话接手。
 
 ## 应该选哪种类型？
 

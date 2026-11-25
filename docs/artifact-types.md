@@ -20,7 +20,7 @@ Open Artifact ships with **9 built-in artifact types**. Each type combines a pla
 
 ### Making one without an agent
 
-The home page's **New** offers every built-in type, in two groups. **Start right away** (Docs, Sheets, Whiteboard,
+The home page's **New artifact** offers every built-in type, in two groups. **Start right away** (Docs, Sheets, Whiteboard,
 Slides, Design System) makes the artifact with its type's starting files and opens it in its editor, so you can write
 it yourself; on a Design System's welcome page, **Start by hand** goes to its sections to add colors, type and
 spacing. **Make with an agent** (Design, Data, Motion, Page) makes the artifact for an agent to build, because

@@ -38,7 +38,10 @@ calls `adopt`, it writes the artifact through the tools, or the person picks it 
 that artifact's wakes move to the session's inbox and go the ways above, once. Each gets a first line, starting
 `[Open Artifact] `, that says why the session has it: the person made the artifact, the person picked this session, or
 the session that made it is no longer its owner; the first two tell it to call `adopt` for the type's instructions
-unless it just did. The text is stored without that line, since who gets it is known only then.
+unless it just did. The same line says when the message was sent (`It was sent at 2026-11-24 11:40 UTC.`, with how long
+ago once that is an hour or more), or that this is not known, so the session checks that an old request still stands.
+The text is stored without that line, since who gets it is known only then. However many wait, all of them move: the
+per-minute wake limit and the merge window apply to new wakes only.
 
 ## The payload
 

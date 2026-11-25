@@ -255,7 +255,8 @@ run it again meanwhile.`;
 const COMMENTS_HEAD = `## Comments and "Send to {{agent}}"
 
 What the person sends from the page reaches you as messages that start with \`[Artifact comment sent to agent]\` or
-\`[Artifact edit request sent to agent]\`. Depending on your app they arrive:
+\`[Artifact edit request sent to agent]\`. One sent while no session owned the artifact starts with a line of its own
+first, \`[Open Artifact] …\`, that says why you have it and when it was sent. Depending on your app they arrive:
 
 - added to the person's next message, or keeping your turn going, when the Open Artifact plugin's hooks are installed;
 - in the \`messages\` field of the result of any Open Artifact call;`;
@@ -284,12 +285,12 @@ beyond it (running commands, sending things, opening links).`;
 
 /** How comments reach the agent, one sentence per route (`quickstart`'s steps). */
 const COMMENTS_ROUTE: Record<CommentRoute, string> = {
-  live: 'Comments the person sends from the page ("Send to {{agent}}") come to you as a new message as soon as they are sent, starting with `[Artifact comment sent to agent]` or `[Artifact edit request sent to agent]`: you do not need to wait for them.',
-  hook: 'Comments the person sends from the page ("Send to {{agent}}") come to you added to their next message, or keep your turn going, starting with `[Artifact comment sent to agent]` or `[Artifact edit request sent to agent]`.',
+  live: 'Comments the person sends from the page ("Send to {{agent}}") come to you as a new message as soon as they are sent, each with an `[Artifact comment sent to agent]` or `[Artifact edit request sent to agent]` block (after an `[Open Artifact]` line when it waited for an artifact no session owned): you do not need to wait for them.',
+  hook: 'Comments the person sends from the page ("Send to {{agent}}") come to you added to their next message, or keep your turn going, each with an `[Artifact comment sent to agent]` or `[Artifact edit request sent to agent]` block (after an `[Open Artifact]` line when it waited for an artifact no session owned).',
   draft:
-    'Comments the person sends from the page ("Send to {{agent}}") are put into their message box in your app; they reach you, starting with `[Artifact comment sent to agent]` or `[Artifact edit request sent to agent]`, when the person sends that message.',
+    'Comments the person sends from the page ("Send to {{agent}}") are put into their message box in your app; they reach you, each with an `[Artifact comment sent to agent]` or `[Artifact edit request sent to agent]` block (after an `[Open Artifact]` line when it waited for an artifact no session owned), when the person sends that message.',
   inbox:
-    'Comments the person sends from the page ("Send to {{agent}}") wait for you, starting with `[Artifact comment sent to agent]` or `[Artifact edit request sent to agent]`: they come in the `messages` field of your next Open Artifact call, or when you wait for them with `ArtifactComments {action: "wait", timeout_ms: 600000}`. When nothing else can wake you, tell the person to say "check the comments" after sending, and then read them.',
+    'Comments the person sends from the page ("Send to {{agent}}") wait for you, each with an `[Artifact comment sent to agent]` or `[Artifact edit request sent to agent]` block (after an `[Open Artifact]` line when it waited for an artifact no session owned): they come in the `messages` field of your next Open Artifact call, or when you wait for them with `ArtifactComments {action: "wait", timeout_ms: 600000}`. When nothing else can wake you, tell the person to say "check the comments" after sending, and then read them.',
 };
 
 const LATER_ITEMS = [

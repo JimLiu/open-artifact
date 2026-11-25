@@ -147,7 +147,8 @@ run it again meanwhile.
 ## Comments and "Send to agent"
 
 What the person sends from the page reaches you as messages that start with `[Artifact comment sent to agent]` or
-`[Artifact edit request sent to agent]`. Depending on your app they arrive:
+`[Artifact edit request sent to agent]`. One sent while no session owned the artifact starts with a line of its own
+first, `[Open Artifact] …`, that says why you have it and when it was sent. Depending on your app they arrive:
 
 - added to the person's next message, or keeping your turn going, when the Open Artifact plugin's hooks are installed;
 - in the `messages` field of the result of any Open Artifact call;

@@ -93,6 +93,21 @@ test('wake messages carry no word on who gets them; the hand-off line is added w
   assert.equal(withHandOffLine(old, made), `${made}\n\n${text}`, "an older daemon's opening gives way to the true one");
 });
 
+test('the hand-off line says when the message was sent, and that an old one may no longer stand', () => {
+  const url = 'open-artifact://artifact/art_0abcdefghi1234';
+  const now = Date.parse('2026-11-24T12:00:00Z');
+  const fresh = wakeHandOffLine('made', url, { sentAt: '2026-11-24T11:40:10.123Z', now });
+  assert.ok(fresh.endsWith(' It was sent at 2026-11-24 11:40 UTC.'), fresh);
+  assert.ok(fresh.startsWith('[Open Artifact] The person made'), 'the opening stays first');
+  const hours = wakeHandOffLine('assigned', url, { sentAt: '2026-11-24T07:00:00Z', now });
+  assert.match(hours, /It was sent at 2026-11-24 07:00 UTC, 5 hours ago: check that it still stands before acting on it\.$/);
+  const days = wakeHandOffLine('gone', url, { sentAt: '2026-10-01T09:30:00Z', now });
+  assert.match(days, /It was sent at 2026-10-01 09:30 UTC, 54 days ago: check that it still stands/);
+  for (const sentAt of [undefined, null, '', 'yesterday']) {
+    assert.match(wakeHandOffLine('made', url, { sentAt, now }), /When it was sent is not known: it may be from long ago, so check that it still stands before acting on it\.$/, String(sentAt));
+  }
+});
+
 test('wake messages name a sender only when someone other than the owner sent it', () => {
   const artifact = { id: 'art_0abcdefghi1234', title: 'Landing', root: '/w/artifacts/landing' };
   const thread = { id: 't1', anchor: 'h1', messages: [{ from: 'user', text: 'Bigger' }] };

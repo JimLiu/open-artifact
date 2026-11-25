@@ -27,6 +27,8 @@
 /open-artifact docs a technical RFC for migrating our auth service, including a Mermaid sequence diagram
 ```
 
+Or start with no agent: on the home page, click **New artifact**, pick **Docs**, and name it. A blank doc opens in its editor and you write in it yourself. A comment you **Send to agent** there waits until a session takes the doc (it calls `adopt`, or you pick one in the Ask pane), and that session then gets it once.
+
 ### Edit, review suggestions & export
 - **Write & organize**: Edit directly in the rich-text editor, add tabs/subtabs in the sidebar, insert dates, dropdowns, or checklists.
 - **Review suggestions**: Accept or reject proposed edits inline, or pin comments on words/suggestions and click **Send to agent**.

@@ -94,7 +94,7 @@ node <skill>/scripts/open-artifact.mjs wait --timeout 600000
 
 用户在页面点击 **Send to agent** 后，消息会以 `[Artifact comment sent to agent]` 或 `[Artifact edit request sent to agent]` 开头送达 Agent（通过插件 hooks、后台 monitor、工具返回中的 `messages` 字段，或 `ArtifactComments {action: "wait", timeout_ms: 600000}`）。
 
-评论发给拥有这份作品的会话。没有会话拥有的作品（用户在主页新建或从文件夹打开的）发出的消息会一直等着，直到有会话成为它的归属，然后只交给这个会话、只交一次，开头有一句说明原因：这是用户新建的作品、用户在页面的 Ask 面板里选了这个会话，或者做它的那个会话已经不是归属了。会话成为归属的方式有三种：调 `Artifact {action: "adopt", url}`；通过工具写这份作品（结果的 `notes` 会说它现在归你）；用户选中它。
+评论发给拥有这份作品的会话。没有会话拥有的作品（用户在主页新建或从文件夹打开的）发出的消息会一直等着，直到有会话成为它的归属，然后只交给这个会话、只交一次，开头有一句说明原因：这是用户新建的作品、用户在页面的 Ask 面板里选了这个会话，或者做它的那个会话已经不是归属了。这句还会写明消息是什么时候发的（不知道时也会直说）：旧请求先确认仍然有效再动手。会话成为归属的方式有三种：调 `Artifact {action: "adopt", url}`；通过工具写这份作品（结果的 `notes` 会说它现在归你）；用户选中它。
 
 标准处理步骤：
 1. 读取评论线程：`ArtifactComments {action: "read", url}`。
