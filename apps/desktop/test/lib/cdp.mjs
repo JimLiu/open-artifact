@@ -39,9 +39,21 @@ class Cdp {
         if (data.error) reject(new Error(`${method}: ${data.error.message}`));
         else resolve(data.result);
       } else if (data.method) {
+        // A target that goes away never answers what was sent to it: fail those calls now, not after their timeout.
+        if (data.method === 'Target.detachedFromTarget') this.drop(data.params.sessionId, `the target was removed (${data.params.targetId ?? 'detached'})`);
         for (const listener of this.listeners) listener(data);
       }
     });
+    socket.addEventListener('close', () => this.drop(undefined, 'the DevTools socket closed'));
+  }
+
+  /** Fails every waiting call of `sessionId` (every call at all when it is undefined). */
+  drop(sessionId, why) {
+    for (const [id, call] of this.waiting) {
+      if (sessionId !== undefined && call.sessionId !== sessionId) continue;
+      this.waiting.delete(id);
+      call.reject(new Error(`${call.method}: ${why}`));
+    }
   }
 
   send(method, params = {}, sessionId, timeoutMs = 30_000) {
@@ -54,6 +66,7 @@ class Cdp {
       }, timeoutMs);
       this.waiting.set(id, {
         method,
+        sessionId,
         resolve: (value) => (clearTimeout(timer), resolve(value)),
         reject: (error) => (clearTimeout(timer), reject(error)),
       });
