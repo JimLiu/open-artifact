@@ -16,6 +16,6 @@
     "noEmit": true,
     "types": ["node"]
   },
-  "include": ["packages/*/src", "packages/*/test", "plugins/dsh/src", "plugins/dsh/test", "packages/server-sdk/bin", "packages/*/vite.config.ts", "examples/harness-pi", "scripts/*.ts"],
+  "include": ["packages/*/src", "packages/*/test", "plugins/dsh/src", "plugins/dsh/test", "packages/server-sdk/bin", "packages/*/vite.config.ts", "plugins/pi/src", "plugins/pi/test", "scripts/*.ts"],
   "exclude": ["packages/sheets-editor"]
 }

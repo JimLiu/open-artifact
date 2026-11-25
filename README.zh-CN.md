@@ -72,6 +72,7 @@
 | [ZCode](plugins/zcode/README.md) | 在插件市场里把解压出的 `zcode/` 添加为插件市场，再从列表安装 **Open Artifact**。 |
 | [网页版 ChatGPT](plugins/chatgpt/README.md) | 从解压出的 `chatgpt/` 运行预构建连接器，再通过 HTTPS 接入。 |
 | [DeepSeek Harness](https://www.npmjs.com/package/dsh-open-artifact) | 在插件页面选择「添加插件」，输入 npm 包名 `dsh-open-artifact`。CLI 的 web profile 可用 `dsh plugin --profile web add dsh-open-artifact`。 |
+| [Pi](plugins/pi/README.zh-CN.md) | 运行 `pi install npm:pi-open-artifact`，再开一个新的 Pi 会话。 |
 
 升级时下载新版 ZIP，把解压目录替换到原来的路径，再按表中对应的指南刷新插件。如果原来的插件市场还指向源码仓库，
 按对应指南把市场切换到解压目录。
@@ -163,7 +164,7 @@ node scripts/build-wasm.mjs   # 需要 cargo + wasm32-unknown-unknown、wasm-bin
 ### 发布
 
 `node scripts/build-npm.mjs` 把要发布的包整理到 `dist/npm/`：`@open-artifact/*` 库包（编译成 JavaScript，带类型声明）、
-`@open-artifact/cli`（自带 daemon 的 `open-artifact` 命令）和 `dsh-open-artifact`。发布新版的步骤：
+`@open-artifact/cli`（自带 daemon 的 `open-artifact` 命令）、`dsh-open-artifact` 和 `pi-open-artifact`。发布新版的步骤：
 
 1. 改高版本号（所有包和插件清单共用一个版本号）。
 2. 运行 `node scripts/changelog.mjs` 列出上一个 tag 以来的提交，据此在 [CHANGELOG.md](CHANGELOG.md) 顶部加一节

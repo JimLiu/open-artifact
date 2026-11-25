@@ -127,6 +127,7 @@ mapping, `sessionWorkspace` a known name. A bad field is refused with a sentence
 | `copilot` | L2 | mcp | inbox (`wakesIdle: false`) | `copilot` | — | — |
 | `cursor` | L2 | mcp | inbox (`wakesIdle: false`) | `cursor` | — | — |
 | `dsh` | L3 | harness-api | live, inbox | — | — | — |
+| `pi` | L3 | harness-api | live, inbox | — | — | `PI_SESSION_ID` |
 | `zcode` | L2 | mcp | inbox (`wakesIdle: false`) | `claude-code` | — | — |
 
 Every shipped profile but `chatgpt` and `dsh` says `"open": "browser"`.

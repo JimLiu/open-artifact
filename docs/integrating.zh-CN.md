@@ -37,7 +37,7 @@
 | 3. 页面放进你的界面 | `open` 回调和嵌入方式 | 聊天旁边的页面 | 同上，另外 **Ask** 会新建或打开你的会话 |
 | 4. 作品库 | 根据作品事件生成卡片或列表 | 消息下面的卡片，或你自己的作品列表 | 同上 |
 
-已有的集成分布在这些层级：Claude Code、Codex、Cursor、Copilot、Antigravity 和 ZCode 是带 hooks 的第 1 层；DeepSeek Harness（`plugins/dsh`）是基于 kit 的完整适配器。[`plugins/README.md`](../plugins/README.md) 列出了它们。
+已有的集成分布在这些层级：Claude Code、Codex、Cursor、Copilot、Antigravity 和 ZCode 是带 hooks 的第 1 层；DeepSeek Harness（`plugins/dsh`）和 Pi（`plugins/pi`）是基于 kit 的完整适配器。[`plugins/README.md`](../plugins/README.md) 列出了它们。
 
 ## 第 0 层：skill 和命令行
 
@@ -316,4 +316,4 @@ daemon 通过 profile 认识每个 harness：标题、Agent 名字、层级、�
 | 宿主与 Shell 之间的每条消息 | [spec/embed.zh-CN.md](spec/embed.zh-CN.md) |
 | profile 的每个字段 | [spec/profile.zh-CN.md](spec/profile.zh-CN.md) |
 | 可运行的示例 | [examples/README.md](../examples/README.md) |
-| Pi 扩展 | [examples/harness-pi](../examples/harness-pi/README.zh-CN.md) |
+| 终端 Agent 基于 kit 的完整适配器（Pi） | [plugins/pi](../plugins/pi/README.zh-CN.md) |

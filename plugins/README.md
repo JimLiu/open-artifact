@@ -14,6 +14,7 @@ every type, with each type's own editor and comments inside. `/open-artifact sli
 | [`antigravity/`](antigravity/README.md) | Google Antigravity (`agy` CLI, app) | MCP tools, skill, hooks | at session start, before each model call, at the end of a turn (the turn goes on); an idle conversation is started with `agentapi send-message` |
 | [`zcode/`](zcode/README.md) | ZCode | MCP tools, skill, hooks, extension | at session start, with the person's next message, at the end of a turn (the turn goes on), and while the session idles (the extension starts a turn the moment they are sent) |
 | [`dsh/`](dsh/README.md) | DeepSeek Harness | native tools, the Open Artifact sidebar page, comment cards, `/open-artifact` | right away: a new turn when the session idles, added to the running turn otherwise (a full adapter, L3) |
+| [`pi/`](pi/README.md) | Pi (`pi` CLI) | native tools, skill, system prompt section, `/open-artifact` | right away: the owner's words as a user message (a new turn when Pi is idle, steered into the running turn otherwise), anyone else's as a custom message the model reads (a full adapter, L3) |
 | [`chatgpt/`](chatgpt/README.md) | ChatGPT on the web | MCP tools over HTTPS, a card | in the next tool result, or when the person presses "Send comments to ChatGPT" on the card |
 | [`../skills/open-artifact/`](../skills/open-artifact/SKILL.md) | any other agent that reads skills | the command line | in the result of any call, or by `wait` |
 

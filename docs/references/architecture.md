@@ -5,7 +5,7 @@ Load this reference when working across packages, daemon/Shell communication, MC
 ## High-level data flow
 
 ```text
-Agent app (Claude Code, Codex, Cursor, Copilot, Antigravity, ZCode, DSH, ChatGPT, or CLI)
+Agent app (Claude Code, Codex, Cursor, Copilot, Antigravity, ZCode, DSH, Pi, ChatGPT, or CLI)
    │  MCP tools (Artifact, ArtifactData, ArtifactComments, ShowArtifact) or CLI
    ▼
 packages/daemon (local open-artifact daemon, one per machine)

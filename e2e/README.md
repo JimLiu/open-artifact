@@ -221,6 +221,15 @@ The harness asks its questions (`waitFor`, `evaluateAll`, `load`'s `ready`) in a
   - On origin B once `compat-frame` has gone and no origin is declared at all, the page is taken (`shell_ready`), but `comment_summon` comes with empty text.
 - The same cases against the two previous minor versions of `@open-artifact/harness-kit` from npm have a place at the end of the file. That place is skipped, and says why: the kit is not published yet. To run it, install each version into a temporary folder and build the hosts with its `createHarness`.
 
+**Pi** (`pi.test.mjs`, no browser; skipped, and says why, when `pi` is not on `PATH` or Node.js is older than 22.19)
+
+- The real `pi` command loads the extension from `plugins/pi` (`pi -e plugins/pi`) against a real daemon (`open-artifact daemon run` from source, in a temporary `OPEN_ARTIFACT_HOME`, with a `note` user type). The model is a scripted local endpoint (OpenAI chat completions, streamed) named in the `models.json` of a temporary Pi agent folder (`PI_CODING_AGENT_DIR`, with `PI_OFFLINE=1`). Nothing reaches the network, and your own Pi settings, sessions and sign-ins are not read.
+- (a) Print mode (`pi -p`): the model is offered Artifact, ArtifactData and ArtifactComments with the daemon's parameters, and its system prompt has the `<open_artifact>` section. Its `Artifact {action: "list"}` call reaches the daemon: while the call runs, the daemon lists a `pi` adapter with a session in the test folder. The daemon's answer comes back as the tool result. The skill is written to `<home>/skills/pi/open-artifact/SKILL.md`.
+- (b) `Artifact {action: "read"}` of an artifact that does not exist comes back to the model as a failed tool result with the daemon's `not_found`. Arguments the schema refuses never reach the daemon, because Pi checks them against the daemon's schemas first.
+- (c) RPC mode (`pi --mode rpc`, kept running): the session attaches at start, since a daemon runs. `open-artifact doctor --harness pi --session <id> --json` passes every conformance step, and `session`, `tools`, `commands` and `wake` are `ok`. The doctor's wake (a request from the page, in the owner's words) starts a Pi turn whose last message is a user message with the doctor's text. The suite prints each step that is not `ok`.
+- The collaborator's and the system's wakes (a custom message, never a user message), Esc during a call, the status, `agent.wrote` and the command are covered by the unit tests in `plugins/pi/test/`.
+- `OA_E2E_PI_EXTENSION=<folder>` runs the suite against another copy of the extension, such as the staged `dist/npm/pi-open-artifact` packed and installed with npm, to check the package as Pi users get it.
+
 **Type servers in worker threads** (`node-threads.test.mjs`, no browser)
 
 - A real daemon (`open-artifact daemon run` from source, in a temporary `OPEN_ARTIFACT_HOME` on a free port) with `OPEN_ARTIFACT_NODE_CHILDREN=threads`, the mode an Electron app with its `RunAsNode` fuse off ends up in. Its built-in types are copies of `slides` and `docs`; a host connects with `createHarness`.

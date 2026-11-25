@@ -1,0 +1,29 @@
+{
+  "name": "pi",
+  "title": "Pi",
+  "agentName": "Pi",
+  "level": "L3",
+  "entry": "harness-api",
+  "plugin": "pi-open-artifact",
+  "sessionEnv": "PI_SESSION_ID",
+  "markers": [
+    "PI_CODING_AGENT",
+    "PI_SESSION_ID"
+  ],
+  "wake": [
+    "live",
+    "inbox"
+  ],
+  "open": "browser",
+  "caps": {
+    "tools": "native",
+    "commands": {
+      "names": [
+        "open-artifact"
+      ]
+    },
+    "wake": {
+      "resume": true
+    }
+  }
+}

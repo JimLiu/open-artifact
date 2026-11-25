@@ -14,7 +14,7 @@ plain folders on disk.
 | `skills/open-artifact/` | Unified `/open-artifact <type>` skill + vendored daemon. |
 | `packages/` | Core platform (`daemon`, `shell`, `protocol`, `runtime`, `type-server`, `server-sdk`, `live-store`, `host*`, `harness-kit`, `library-page`), 8 type pairs (`<type>-core` + `<type>-editor`), shared UI/canvas/export kits, and `wasm-*` bindings. |
 | `crates/` | Rust crates compiled to WebAssembly (`packages/wasm-*/generated/` is committed). |
-| `plugins/` | Per-app agent plugins (`claude-code`, `codex`, `cursor`, `copilot`, `antigravity`, `zcode`, `dsh`, `chatgpt`). |
+| `plugins/` | Per-app agent plugins (`claude-code`, `codex`, `cursor`, `copilot`, `antigravity`, `zcode`, `dsh`, `pi`, `chatgpt`). |
 | `examples/` | Runnable agent-app integrations (`harness-node`, `harness-electron`, `harness-stdio`) and host plugins. |
 | `apps/desktop/` | Open Artifact Desktop (Electron): sidebar, tabs of artifacts, the library page as home, bundled runtime, no agent. Own `package.json`; not a workspace, not in `npm test`. |
 | `docs/` | Bilingual user & agent guides (`*.md` and `*.zh-CN.md`), `docs/types/`, the integrator guide (`docs/integrating*`, `docs/spec/`), and contributor `docs/references/`. |
@@ -62,8 +62,8 @@ See [docs/references/docs-maintenance.md](docs/references/docs-maintenance.md) f
 Every release gets a `CHANGELOG.md` entry written from commit history; the Publish to npm workflow refuses a tag
 without one and uses the entry as the GitHub release notes.
 
-1. Raise the version everywhere it is kept (`@open-artifact/*` packages, `plugins/dsh`, every plugin manifest, and
-   the marketplaces share one version).
+1. Raise the version everywhere it is kept (`@open-artifact/*` packages, `plugins/dsh`, `plugins/pi`, every plugin
+   manifest, and the marketplaces share one version).
 2. Run `node scripts/changelog.mjs` to list commits since the last `v*` tag (`node scripts/changelog.mjs <from> <to>`
    for another range).
 3. Add a `## [x.y.z] - YYYY-MM-DD` section at the top of `CHANGELOG.md` (one-line summary, then `### Added`,

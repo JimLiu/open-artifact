@@ -81,6 +81,7 @@ DeepSeek Harness は、ビルド済みのパッケージを npm から直接イ�
 | [ZCode](plugins/zcode/README.md) | Plugin Marketplace で、展開した `zcode/` フォルダーをプラグインマーケットプレイスとして追加し、一覧から **Open Artifact** をインストールします。 |
 | [Web 版の ChatGPT](plugins/chatgpt/README.md) | 展開した `chatgpt/` フォルダーにあるビルド済みのコネクターを実行し、HTTPS で接続します。 |
 | [DeepSeek Harness](https://www.npmjs.com/package/dsh-open-artifact) | Plugins で **Add plugin** を選び、npm パッケージとして `dsh-open-artifact` を入力します。CLI では、Web プロファイル向けに `dsh plugin --profile web add dsh-open-artifact` を実行します。 |
+| [Pi](plugins/pi/README.md) | `pi install npm:pi-open-artifact` を実行してから、Pi の新しいセッションを始めます。 |
 
 アップグレードするには、新しい ZIP をダウンロードして、展開済みのフォルダーを同じパスで置き換え、リンク先のガイドにある
 アプリごとの更新手順に従ってください。マーケットプレイスがまだソースのチェックアウトを指している場合は、アプリのガイドにある移行手順で
@@ -175,8 +176,8 @@ node scripts/build-wasm.mjs   # needs cargo + wasm32-unknown-unknown, wasm-bindg
 ### リリース
 
 `node scripts/build-npm.mjs` は、npm パッケージを `dist/npm/` に用意します。`@open-artifact/*` のライブラリ（型宣言付きで
-JavaScript にコンパイル）、`@open-artifact/cli`（デーモンを同梱した `open-artifact` コマンド）、そして
-`dsh-open-artifact` です。リリースの手順は次のとおりです。
+JavaScript にコンパイル）、`@open-artifact/cli`（デーモンを同梱した `open-artifact` コマンド）、
+`dsh-open-artifact`、そして `pi-open-artifact` です。リリースの手順は次のとおりです。
 
 1. バージョンを上げます（すべてのパッケージとプラグインのマニフェストで同じバージョンを共有します）。
 2. `node scripts/changelog.mjs` を実行して前回のタグ以降のコミットを確認し、[CHANGELOG.md](CHANGELOG.md) の先頭に
