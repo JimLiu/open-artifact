@@ -223,7 +223,7 @@ const embed = embedArtifact(this.transport(request.view), {
 - **框架方式要声明你自己的源。** `embed: { origins: ['https://app.example.com'], mode: 'frame' }`。对未声明的宿主，Shell 不给提示文本、不给评论文本、不给外链、不报告保存的文件、不显示目的地。从 `file://` 加载的页面源是 `null`，永远无法声明：请用自定义协议提供界面，或改用顶层视图。
 - **远程类型的页面先问。** 页面在另一台电脑上的类型会带着 `remote` 到来；kit 会先问你的 `allowRemote` 再显示（`embed.remote: 'ask'`，默认），或者永不显示（`deny`）。`allow` 只给面板本来就是通用浏览器的宿主用（[远程类型](integrating/remote-types.zh-CN.md)）。
 
-页面会告诉你人在哪里（`onPlace`）、选中了什么（`context()`，功能 `view.context`），并请你新建或打开会话（`onNewSession`、`onOpenSession`）。[在你的界面里显示页面](integrating/embedding.zh-CN.md) 有完整列表和 webview 检查清单；[Embed 参考](spec/embed.zh-CN.md) 列出每条消息。
+页面会告诉你人在哪里（`onPlace`）、选中了什么（`context()`，功能 `view.context`），并请你新建或打开会话（`onNewSession`、`onOpenSession`）。它也会说自己的保存状态（`onSaved`），这样关闭会丢失工作的视图前你的应用可以先问人；你的应用有标签页时，`switcher: true` 隐藏 Shell 自己的作品切换。要显示人在你的应用里挑的作品、没有 Agent 发起时，调用 `oa.view(url)`（功能 `view.open`）。[在你的界面里显示页面](integrating/embedding.zh-CN.md) 有完整列表和 webview 检查清单；[Embed 参考](spec/embed.zh-CN.md) 列出每条消息。
 
 - **人看到什么：** 页面在聊天旁边打开；**Ask** 进入你的会话；作品库里出现缩略图。
 - **检查：** 你的 `open` 回调接下页面时，`main.mjs` 打印 `opened in-host`；你的视图只加载允许列表里的源。

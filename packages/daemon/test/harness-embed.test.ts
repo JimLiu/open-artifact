@@ -6,9 +6,9 @@
  * `context` action a stub server answers.
  */
 
-import { tempDir, until } from './helpers.ts';
+import { TEST_HOME, tempDir, until } from './helpers.ts';
 import assert from 'node:assert/strict';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { join } from 'node:path';
 import { after, before, test } from 'node:test';
@@ -28,7 +28,7 @@ import {
 } from '@open-artifact/protocol';
 import { api, readDaemon } from '../src/client.ts';
 import { startDaemon, type Daemon } from '../src/daemon.ts';
-import { EmbedViews, MAX_QUEUED, embedOrigins, hostCommandOf, shellEventOf, type ViewSink } from '../src/harness-embed.ts';
+import { EmbedViews, MAX_QUEUED, embedOrigins, hostCommandOf, localArtifactIdOf, shellEventOf, type ViewSink } from '../src/harness-embed.ts';
 import { CONTEXT_EVENT_MS, ViewContexts, type ViewRecord } from '../src/harness-view.ts';
 import type { AdapterConnection } from '../src/harness.ts';
 
@@ -226,6 +226,69 @@ test('message shapes: destinations capped, theme checked, non-messages dropped',
   assert.deepEqual(shellEventOf({ openArtifact: 'saved_file', path: '/Users/me/Downloads/deck.pdf' }), { openArtifact: 'saved_file', path: '/Users/me/Downloads/deck.pdf' });
 });
 
+test('message shapes: saved carries a known save state (or null) and leaveLosesWork, else it is dropped', () => {
+  assert.deepEqual(shellEventOf({ openArtifact: 'saved', state: 'saving', leaveLosesWork: true, extra: 1 }), { openArtifact: 'saved', state: 'saving', leaveLosesWork: true });
+  assert.deepEqual(shellEventOf({ openArtifact: 'saved', state: null }), { openArtifact: 'saved', state: null, leaveLosesWork: false });
+  assert.deepEqual(shellEventOf({ openArtifact: 'saved', leaveLosesWork: 'yes' }), { openArtifact: 'saved', state: null, leaveLosesWork: false }, 'only true is true');
+  assert.equal(shellEventOf({ openArtifact: 'saved', state: 'lost' }), null, 'an unknown state');
+  assert.equal(shellEventOf({ openArtifact: 'saved', state: 3 }), null);
+  assert.equal(shellEventOf({ openArtifact: 'some_future_message' }), null, 'a message a reader does not know is dropped: how an older host takes saved');
+  assert.deepEqual(hostCommandOf({ openArtifact: 'host_hello', caps: { switcher: true, toolbar: 'yes' } }), { openArtifact: 'host_hello', caps: { switcher: true } });
+});
+
+test('localArtifactIdOf: open-artifact:// and the daemon\'s own /a/<id> only', () => {
+  const hosts = ['127.0.0.1:4800', 'localhost:4800', '[::1]:4800'];
+  const id = 'art_0123456789';
+  assert.equal(localArtifactIdOf(`open-artifact://artifact/${id}`, hosts), id);
+  assert.equal(localArtifactIdOf(id, hosts), id, 'a bare id, as artifactIdOf reads it');
+  assert.equal(localArtifactIdOf(`http://127.0.0.1:4800/a/${id}`, hosts), id);
+  assert.equal(localArtifactIdOf(`http://localhost:4800/a/${id}/?oa_view=x#s2`, hosts), id, 'query and fragment are ignored');
+  assert.equal(localArtifactIdOf(`http://[::1]:4800/a/${id}`, hosts), id);
+  for (const other of [
+    `http://127.0.0.1:4801/a/${id}`,
+    `https://127.0.0.1:4800/a/${id}`,
+    `http://127.0.0.1.evil.example:4800/a/${id}`,
+    `http://me@127.0.0.1:4800/a/${id}`,
+    `http://127.0.0.1:4800/a/${id}/page`,
+    `http://127.0.0.1:4800/x/a/${id}`,
+    `http://127.0.0.1:4800/a/art_nope`,
+    `https://cloud.example.com/a/${id}`,
+    `javascript:alert(1)`,
+    `file:///a/${id}`,
+    '',
+    42,
+  ]) {
+    assert.equal(localArtifactIdOf(other, hosts), null, String(other));
+  }
+});
+
+test('view.open: no session; a ticket for a top-level view, the plain Shell for a frame; other addresses refused', () => {
+  const views = new EmbedViews({ broadcast: () => undefined, connections: () => [] });
+  try {
+    const id = 'art_0123456789';
+    views.setShellUrl((x) => `http://127.0.0.1:4800/a/${x}`);
+    views.setArtifacts({ hosts: () => ['127.0.0.1:4800'], artifact: (x) => (x === id ? { title: 'Deck', view_url: `http://127.0.0.1:4800/a/${x}` } : null) });
+    const c = conn();
+    const opened = views.open(c, { url: `http://127.0.0.1:4800/a/${id}` });
+    assert.equal(opened.url, `open-artifact://artifact/${id}`);
+    assert.equal(opened.view_url, `http://127.0.0.1:4800/a/${id}`);
+    assert.equal(opened.title, 'Deck');
+    assert.ok(opened.view);
+    assert.equal(opened.embed_url, `http://127.0.0.1:4800/a/${id}?oa_view=${opened.view}`);
+    assert.equal(views.claim(opened.view!, id, null, sink()).session, null, 'the view belongs to no session');
+
+    const framed = views.open(conn({ open: { embed: 'frame', origins: [] } }), { url: `open-artifact://artifact/${id}` });
+    assert.deepEqual(framed, { url: `open-artifact://artifact/${id}`, view_url: `http://127.0.0.1:4800/a/${id}`, title: 'Deck', embed_url: `http://127.0.0.1:4800/a/${id}` });
+
+    assert.throws(() => views.open(c, { url: `https://evil.example/a/${id}` }), /one of this daemon's artifacts/);
+    assert.throws(() => views.open(c, { url: `http://127.0.0.1:4801/a/${id}` }), /one of this daemon's artifacts/);
+    assert.throws(() => views.open(c, {}), /one of this daemon's artifacts/);
+    assert.throws(() => views.open(c, { url: 'open-artifact://artifact/art_9999999999' }), /No artifact/);
+  } finally {
+    views.close();
+  }
+});
+
 test('ViewContexts: owner only; nulls without a context action; changed; events throttled per artifact', async () => {
   const events: ViewContextEvent[] = [];
   let now = 10_000;
@@ -390,6 +453,40 @@ test('origins: a URL entry on the web is remote; a server starting and stopping 
   }
 });
 
+test('type servers: types.servers lists the running ones; types.restart stops one (403 from an agent or another origin); it comes back', async () => {
+  const id = await create('srvtype', { harness: 'servers-app', session: 'r1', workspace: tempDir('open-artifact-ws-') });
+  await daemon.openPage(daemon.store.require(id));
+  const list = async () => ((await (await fetch(`${state.url}/api/open-artifact.types.servers`)).json()) as { servers: Array<{ type: string; state: string; url?: string; pid?: number }> }).servers;
+  const running = (await list()).find((s) => s.type === 'srvtype');
+  assert.ok(running, 'the server is listed');
+  assert.equal(running.state, 'running');
+  assert.match(String(running.url), /^http:\/\/127\.0\.0\.1:\d+/);
+  assert.ok(running.pid);
+
+  const restart = (headers: Record<string, string>) =>
+    fetch(`${state.url}/api/open-artifact.types.restart`, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify({ id: 'srvtype' }) });
+  const agent = await restart({ authorization: `Bearer ${state.token}`, 'x-open-artifact-agent': 'codex session t-1' });
+  assert.equal(agent.status, 403, 'from inside an agent session');
+  assert.equal(((await agent.json()) as { code: string }).code, 'not_granted');
+  const foreign = await restart({ authorization: `Bearer ${state.token}`, origin: 'http://srv.frame.localhost:1' });
+  assert.equal(foreign.status, 403, 'from a page of another origin, even with the token');
+  assert.equal((await list()).some((s) => s.type === 'srvtype'), true, 'still running');
+  assert.equal((await fetch(`${state.url}/api/open-artifact.types.restart?id=srvtype`)).status, 405, 'a POST');
+
+  const done = await restart({ origin: state.url });
+  assert.equal(done.status, 200);
+  assert.deepEqual(await done.json(), { id: 'srvtype', stopped: true });
+  assert.equal((await list()).some((s) => s.type === 'srvtype'), false);
+  assert.match(readFileSync(join(TEST_HOME, 'logs', 'daemon.log'), 'utf8'), /audit: restarted the server of type srvtype, asked by /);
+  const again = await restart({ authorization: `Bearer ${state.token}` });
+  assert.deepEqual(await again.json(), { id: 'srvtype', stopped: false }, 'nothing running: nothing stopped');
+
+  // The next page that needs it starts it again.
+  await daemon.openPage(daemon.store.require(id));
+  const back = await until(async () => (await list()).find((s) => s.type === 'srvtype'), 10_000);
+  assert.notEqual(back.pid, running.pid);
+});
+
 test("view.context: answered by a URL-entry type's context action, owner only; the type's report sends view/context", async () => {
   const workspace = tempDir('open-artifact-ws-');
   const host = await adapter('ctx-app');
@@ -472,5 +569,37 @@ test('top-level views over the daemon: host.open carries a ticket; the Shell cla
   } finally {
     host.close();
     other.close();
+  }
+});
+
+test('view.open over the daemon: a ticket with no session and no tool call; the Shell claims it; others refused', async () => {
+  const workspace = tempDir('open-artifact-ws-');
+  const host = await adapter('pick-app', { open: { embed: 'view', origins: [] } });
+  try {
+    const id = await create('neartype', { harness: 'someone-else', session: 'x1', workspace });
+    const before = host.calls.length;
+    const opened = await host.call('view.open', { url: `${state.url}/a/${id}` });
+    assert.equal(opened.error, undefined, JSON.stringify(opened.error));
+    const view = opened.result.view as string;
+    assert.ok(view);
+    assert.equal(opened.result.url, `open-artifact://artifact/${id}`);
+    assert.equal(opened.result.title, 'A neartype');
+    assert.equal(opened.result.embed_url, `${state.url}/a/${id}?oa_view=${view}`);
+    assert.deepEqual(opened.result.remote, { type: 'neartype', origins: [`http://0.0.0.0:${stubPort}`] });
+    assert.equal(host.calls.length, before, 'no host.open: the host asked for it');
+
+    const controller = new AbortController();
+    const stream = await fetch(`${state.url}/api/open-artifact.view?view=${view}&id=${id}`, { signal: controller.signal });
+    assert.equal(stream.status, 200, 'the Shell claims it as any view');
+    controller.abort();
+
+    const foreign = await host.call('view.open', { url: `https://evil.example/a/${id}` });
+    assert.equal(foreign.error?.data?.code, 'invalid_argument');
+    const page = await host.call('view.open', { url: `${state.url}/a/${id}/page` });
+    assert.equal(page.error?.data?.code, 'invalid_argument');
+    const missing = await host.call('view.open', { url: 'open-artifact://artifact/art_zzzzzzzzzz' });
+    assert.equal(missing.error?.data?.code, 'not_found');
+  } finally {
+    host.close();
   }
 });

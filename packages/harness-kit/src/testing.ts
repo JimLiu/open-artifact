@@ -18,10 +18,13 @@
  * `session.status`, `session.detach`, `session.rename`, `tools.list`, `tools.call`, `agent.wrote`, `artifact.open`,
  * `inbox.take`, `subscribe`, `embed.origins` ({@link FakeDaemonOptions.origins}), `shell.command` (kept in
  * {@link FakeDaemon.shellCommands}; a view this fake did not open is `not_found`), `view.context` (from
- * {@link FakeDaemon.setContext}), `runtime.status`, `runtime.update`; any other method is `methodNotFound` unless `handle` answers it. The Library API answers
+ * {@link FakeDaemon.setContext}), `view.open` (an artifact of {@link FakeDaemon.setArtifact}, by
+ * `open-artifact://artifact/<id>` or the fake's own `/a/<id>`; any other address is `invalid_argument`; an adapter with
+ * `caps.open.embed: 'view'` gets a ticket that `shell.command` then takes), `runtime.status`, `runtime.update`; any other method is `methodNotFound` unless `handle` answers it. The Library API answers
  * `GET artifact?id=` from {@link FakeDaemon.setArtifact}, `POST artifacts.thumbnail?id=` (kept in
  * {@link FakeDaemon.thumbnails}), and health. {@link FakeDaemon.open} with `view` set plays a top-level view; then
- * {@link FakeDaemon.shellEvent} sends the adapter what its Shell said.
+ * {@link FakeDaemon.shellEvent} sends the adapter what its Shell said. `Harness.daemon.restart()` is refused against a
+ * fake (`invalid_argument`): its `daemon.json` names this very process.
  */
 
 import { createHash, randomBytes } from 'node:crypto';
@@ -303,6 +306,19 @@ export async function startFakeDaemon(options: FakeDaemonOptions = {}): Promise<
       case 'view.context': {
         const id = String((params as { url?: string }).url ?? '').replace(/^open-artifact:\/\/artifact\//, '');
         return contexts.get(id) ?? { at: null, context: null, changed: false };
+      }
+      case 'view.open': {
+        const url = String((params as { url?: unknown }).url ?? '');
+        const match = /^open-artifact:\/\/artifact\/([^/?#]+)$/.exec(url) ?? new RegExp(`^${server.url.replace(/[.]/g, '\\.')}/a/([^/?#]+)/?(?:[?#].*)?$`).exec(url);
+        if (!match) return fail('invalid_argument', "url: one of this daemon's artifacts (open-artifact://artifact/<id> or its /a/<id> address).");
+        const found = artifacts.get(match[1]!);
+        if (!found) return fail('not_found', `No artifact ${match[1]}.`);
+        const viewUrl = `${server.url}/a/${found.id}`;
+        const open = hellos.at(-1)?.caps?.open;
+        if (!open || typeof open !== 'object' || open.embed !== 'view') return { url: found.url, view_url: found.view_url, title: found.title, embed_url: viewUrl };
+        const view = randomBytes(12).toString('hex');
+        views.add(view);
+        return { url: found.url, view_url: found.view_url, title: found.title, view, embed_url: `${viewUrl}?oa_view=${view}` };
       }
       case 'runtime.status': {
         const runtimes: RuntimeSource[] = hellos

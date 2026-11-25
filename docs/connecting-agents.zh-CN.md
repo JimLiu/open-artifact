@@ -360,7 +360,7 @@ chmod 600 ~/.agents/open-artifact/preset.json
 **谁优先**，从高到低：人自己设置的（`settings.json`、`remotes.json`、命令行、分享面板），然后是环境变量，然后是
 `preset.json`，最后是默认值。预设只添加一次站点：人删掉的站点不会被加回来，用过的令牌不会再发送。地址、名字和令牌是
 一组：`preset.json` 里的令牌不会和环境变量里的地址配对。仍然写成 `${…}` 的值（应用没有替换）当作没设。已经在运行的
-daemon 保留它启动时的设置：运行 `open-artifact daemon stop`，下一次工具调用会重新启动它。
+daemon 保留它启动时的设置：运行 `open-artifact daemon stop`，下一次工具调用会重新启动它（或者在你自己的终端里运行 `open-artifact daemon restart`）。
 
 ### 生成 Link 令牌
 

@@ -403,6 +403,11 @@ export interface HostCaps {
   toolbar?: boolean;
   /** The home page only: the host shows artifacts itself, so a click on one sends `open_artifact` instead of navigating. */
   artifacts?: boolean;
+  /**
+   * The host has its own way between artifacts (its own library, tabs or windows): the Shell hides "Switch artifact" and
+   * "All artifacts", which would navigate its view away from this artifact.
+   */
+  switcher?: boolean;
 }
 
 /** What the home page lists when a host asks for less than the whole library (`host_hello`'s `library`). */
@@ -477,7 +482,16 @@ export type ShellToHost =
    * declared host. Exports that are browser downloads (the folder's zip, a page with no server) are not reported:
    * the host's view handles them as downloads.
    */
-  | { openArtifact: 'saved_file'; path: string };
+  | { openArtifact: 'saved_file'; path: string }
+  /**
+   * The page's save state ({@link ChromeSaved}; `null` before the page said one, or while a page loads) and whether
+   * leaving now would lose work (the page's `leaveLosesWork`), so a host can warn before it closes its view. Sent right
+   * after `shell_ready` and whenever either changes. A host that does not know it ignores it.
+   */
+  | { openArtifact: 'saved'; state: ChromeSaved | null; leaveLosesWork: boolean };
+
+/** The save states {@link ChromeSaved} names, for checking a message's. */
+const CHROME_SAVED: readonly ChromeSaved[] = ['saved', 'saving', 'unsaved', 'reconnecting', 'readonly'];
 
 /**
  * Home page → host. The home page sends `home_hello` to `*` on load when it is framed; the host answers with
@@ -528,6 +542,10 @@ export function shellToHostOf(value: unknown): ShellToHost | null {
       const path = hostText(value.path, 4096);
       return path ? { openArtifact: 'saved_file', path } : null;
     }
+    case 'saved': {
+      const state = value.state === null || value.state === undefined ? null : CHROME_SAVED.includes(value.state as ChromeSaved) ? (value.state as ChromeSaved) : undefined;
+      return state === undefined ? null : { openArtifact: 'saved', state, leaveLosesWork: value.leaveLosesWork === true };
+    }
     default:
       return null;
   }
@@ -548,6 +566,7 @@ export function hostToShellOf(value: unknown): HostToShell | null {
       ...(caps.sessions === true ? { sessions: true } : {}),
       ...(caps.toolbar === true ? { toolbar: true } : {}),
       ...(caps.artifacts === true ? { artifacts: true } : {}),
+      ...(caps.switcher === true ? { switcher: true } : {}),
     },
   };
   if (typeof value.agentName === 'string' && value.agentName.trim()) hello.agentName = value.agentName.trim().slice(0, 80);

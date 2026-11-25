@@ -18,6 +18,7 @@ import {
   type AttachParams,
   type CommandEntry,
   type EmbedOriginsResult,
+  type DaemonState,
   type HarnessEvent,
   type HostToShell,
   type ShellEventParams,
@@ -40,7 +41,7 @@ import {
   wakeSourceOf,
 } from '@open-artifact/protocol';
 import { HarnessClient, type HarnessConnectionState } from './client.ts';
-import { api, type EnsureDaemonOptions } from './daemon.ts';
+import { api, restartDaemon, type EnsureDaemonOptions } from './daemon.ts';
 import { commands, keepSkillInstalled, type InstallSkillOptions, type InstallSkillResult } from './skill.ts';
 import { contextBlock, readContext, type ArtifactContext } from './context.ts';
 import { remoteGate, remotePolicyOf, type AllowRemote, type RemotePage, type RemotePagePolicy } from './embed/remote.ts';
@@ -164,6 +165,17 @@ export interface HarnessRuntimeCalls {
   update(version?: string): Promise<RuntimeUpdateResult>;
 }
 
+/** The daemon itself, as the harness reaches it (`Harness.daemon`). */
+export interface HarnessDaemonCalls {
+  /**
+   * Restarts the daemon of the harness's home: stops it, waits for its process to exit, starts one (the newest
+   * compatible runtime, as a first start does) and reconnects, attaching the sessions again. With no daemon running it
+   * only starts one, also under `autoStart: false`. Resolves with the new daemon (its `pid`, `url`, `version`; not its
+   * token) once the harness has said hello to it. Not inside an agent's own command: it is the person's to ask for.
+   */
+  restart(): Promise<Omit<DaemonState, 'token'>>;
+}
+
 /** The connection to the daemon, as {@link createHarness} returns it. */
 export interface Harness {
   /** The underlying connection, for calls the kit does not wrap (`client.request(method, params)`). */
@@ -204,6 +216,15 @@ export interface Harness {
   publicUrl(url: string): Promise<string | null>;
   /** The origins a host must let in to show pages (feature `embed.origins`); `on('event')` gets `embed/origins` changes. */
   embedOrigins(): Promise<EmbedOriginsResult>;
+  /**
+   * A view of one of the daemon's artifacts for the host to show on its own, with no tool call and no session (feature
+   * `view.open`): the person picked it in the host's own library. `url`: `open-artifact://artifact/<id>` or the
+   * daemon's own `/a/<id>` address; any other address is refused (`invalid_argument`), an artifact it does not keep is
+   * `not_found`. The answer is what `open` gets (`session: null`; `view` and the ticket on `embedUrl` for an
+   * `embed.mode: 'view'` harness). A remote type's page passes the `embed.remote` policy first: refused, it throws
+   * `not_granted`.
+   */
+  view(url: string): Promise<OpenRequest>;
   /** Sends a host message to the Shell of a top-level view this harness opened (feature `shell.command`). */
   shellCommand(view: string, command: HostToShell): Promise<void>;
   /**
@@ -232,6 +253,8 @@ export interface Harness {
   commands(options?: { command?: string; locale?: string }): Promise<CommandEntry[]>;
   /** The runtime's status and updates (feature `runtime.update`); `on('event')` gets `runtime/update` when one exists. */
   readonly runtime: HarnessRuntimeCalls;
+  /** The daemon process: restart it. */
+  readonly daemon: HarnessDaemonCalls;
   /** Closes the connection for good. */
   close(): void;
 }
@@ -293,6 +316,24 @@ function within<T>(work: Promise<T>, ms: number, fallback: () => T): Promise<T> 
       },
     );
   });
+}
+
+/** `host.open`'s (or `view.open`'s) `remote`, reduced to its fields; `undefined` when there is none. */
+function remotePageOf(remote: HostOpenParams['remote'] | undefined): RemotePage | undefined {
+  return remote && typeof remote.type === 'string' && Array.isArray(remote.origins) ? { type: remote.type, origins: remote.origins.filter((o) => typeof o === 'string') } : undefined;
+}
+
+/** What the `open` callback (and `view`) gets for a `host.open` (or `view.open`) answer. */
+function openRequestOf(params: Omit<HostOpenParams, 'session'> & { session?: string | null }, remote: RemotePage | undefined): OpenRequest {
+  return {
+    session: params.session ?? null,
+    url: params.url,
+    viewUrl: params.view_url,
+    embedUrl: params.embed_url || params.view_url,
+    ...(params.view ? { view: params.view } : {}),
+    ...(params.title !== undefined ? { title: params.title } : {}),
+    ...(remote?.origins.length ? { remote } : {}),
+  };
 }
 
 /** The wake to hand to the `wake` callback for one inbox message, or `null` when it is not a whole wake. */
@@ -486,7 +527,7 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
       ...(options.open
         ? {
             'host.open': async (params: HostOpenParams) => {
-              const remote = params.remote && typeof params.remote.type === 'string' && Array.isArray(params.remote.origins) ? { type: params.remote.type, origins: params.remote.origins.filter((o) => typeof o === 'string') } : undefined;
+              const remote = remotePageOf(params.remote);
               try {
                 if (!(await remoteOk(remote, params.title))) {
                   log(`open-artifact open ${params.url}: a page from ${remote!.origins.join(', ')} (another computer) was not allowed`);
@@ -495,15 +536,7 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
               } catch {
                 return { opened: false };
               }
-              const request: OpenRequest = {
-                session: params.session ?? null,
-                url: params.url,
-                viewUrl: params.view_url,
-                embedUrl: params.embed_url || params.view_url,
-                ...(params.view ? { view: params.view } : {}),
-                ...(params.title !== undefined ? { title: params.title } : {}),
-                ...(remote?.origins.length ? { remote } : {}),
-              };
+              const request = openRequestOf(params, remote);
               try {
                 return { opened: (await options.open!(request)) !== false };
               } catch (error) {
@@ -526,6 +559,9 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
   }
 
   /** Connects if needed, then throws `unsupported` unless the daemon lists `feature`. */
+  /** A restart under way: a second call waits for the same one. */
+  let restarting: Promise<Omit<DaemonState, 'token'>> | null = null;
+
   const needs = async (feature: string, method: string): Promise<void> => {
     if (!client.connected) await client.connect();
     if (!client.features.includes(feature)) {
@@ -586,6 +622,15 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
       return record?.remote?.url || null;
     },
     embedOrigins: () => client.request('embed.origins', {}),
+    async view(url) {
+      await needs('view.open', 'view');
+      const params = await client.request('view.open', { url });
+      const remote = remotePageOf(params.remote);
+      if (remote && !(await remoteOk(remote, params.title).catch(() => false))) {
+        throw new OpenArtifactError('not_granted', `The page of ${params.url} comes from ${remote.origins.join(', ')} (another computer), which this app does not let in.`);
+      }
+      return openRequestOf(params, remote);
+    },
     async shellCommand(view, command) {
       await client.request('shell.command', { view, command });
     },
@@ -632,6 +677,20 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
       async update(version) {
         await needs('runtime.update', 'runtime.update');
         return client.request('runtime.update', version ? { version } : {});
+      },
+    },
+    daemon: {
+      async restart() {
+        if (!restarting) {
+          restarting = client
+            .across(() => restartDaemon(daemon))
+            .then(({ result }) => {
+              const { token: _token, ...state } = result.daemon;
+              return state;
+            })
+            .finally(() => (restarting = null));
+        }
+        return restarting;
       },
     },
     close: () => client.close(),

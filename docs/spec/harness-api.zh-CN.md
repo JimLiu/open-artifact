@@ -47,6 +47,7 @@
 | `hello.runtime` | 记录 `hello` 的 `runtime`，并启动最新的兼容运行时 |
 | `runtime.update` | 回答 `runtime.status` 和 `runtime.update`，并发送 `runtime/update` 事件 |
 | `types.source` | 在列出类型的地方、读取作品时，用 `source`（`builtin`、`local`、`installed`）描述类型，安装的类型还带 `installed_from` 和 `third_party_notice`；新建或接管作品时，把 `third_party_notice` 放在 `instructions` 旁边；还没信任的项目里的类型带它自己的 `third_party_notice`，读取这两种类型的作品时（`Artifact`、`ArtifactData`、`ArtifactComments`）再加一句页面内容的说明 |
+| `view.open` | 回答 `view.open`：在你的应用里显示它自己的某个作品所需的地址，不需要会话 |
 
 `session.*`、`tools.list`、`tools.call`、`agent.wrote`、`artifact.open`、`inbox.take`、`inbox.wait` 和 `subscribe` 是基础协议，不需要功能名。
 
@@ -99,8 +100,11 @@
 | `view.context` | `url`、`session?`、`workspace?` | `{ at, context, changed }`；只限所有者会话 |
 | `runtime.status` | — | `RuntimeStatus` |
 | `runtime.update` | `version?` | `{ installed, pending, message }` |
+| `view.open` | `url`（`open-artifact://artifact/<id>`，或这个 daemon 的 `http://<host>:<port>/a/<id>`） | `{ url, view_url, title?, view?, embed_url?, remote? }`：即 `host.open` 带的内容，没有 `session` |
 
 `skill.get` 的 `opens` 决定 skill 里“展示给人”那一步怎么写：`host`（你的应用自己显示页面）、`agent-browser`（Agent 在它自己的浏览器面板里打开 `view_url`）、`system`（电脑的浏览器）、`link`（Agent 把 `view_url` 给人）。不传时，你的 caps（来自 `hello` 或 profile）有 `open` 就用 `host`，否则用一段兼顾内置浏览器和电脑浏览器的通用说明。
+
+`view.open` 用于人在你的应用里（最近列表、一个链接）打开作品、并没有 agent 发起的情况。它只接受这个 daemon 自己的作品：别的 daemon 的地址、已发布的页面或 `/page/` 地址是 `invalid_argument`，未知的 id 是 `not_found`。`caps.open.embed: 'view'` 的适配器拿到 `view` 和带票据的 `embed_url`；其他适配器拿到不带票据的 `embed_url`。daemon 自己不显示任何东西。
 
 `session` 和 `workspace` 指调用方 harness 的一个会话。没有 id 的会话以它的工作目录为键。`may` 是 `{ create?, modify?, remove?, reply? }`（[Agent 工具](../integrating/tools.zh-CN.md#会话权限)）。
 

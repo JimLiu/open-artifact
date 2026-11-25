@@ -17,8 +17,9 @@
  *   backend and answered with `cap_grant`/`cap_r`/`cap_ack`/`cap_ev`;
  * - **host**, with the app that embeds the Shell: `shell_hello` to `*` on
  *   load, `host_hello` back, then `shell_ready`, `new_session`,
- *   `open_session`, `close`, `comment_summon`, `place`, `open_external`
- *   and `saved_file` to the host's origin; the host may send `goto` with a
+ *   `open_session`, `close`, `comment_summon`, `place`, `open_external`,
+ *   `saved_file` and `saved` (the page's save state, after `shell_ready` and
+ *   on each change) to the host's origin; the host may send `goto` with a
  *   place, and `host_hello` again when its theme changes. `host_hello` is
  *   taken only from an origin a connected adapter declared
  *   (`caps.open.origins`, read from `/api/open-artifact.embed` each time);
@@ -41,12 +42,14 @@ import { browserClipboard, createClipboardRelay } from './clipboard.ts';
 import {
   FRAME_READY_FALLBACK_MS, accentVars, actionOf, exportRequestId, frameDeniedReason,
   hostOf, hostVerdict, inlineView, normalizeReport, readyOnLoad, sheetPageFragment, showsComments,
-  toHostMessage, type ExportEntry, type HostInfo,
+  savedMessage, toHostMessage, type ExportEntry, type HostInfo,
 } from './model.ts';
 import { gotoCommand, placeOf } from './place.ts';
 import { useShell } from './store.ts';
 import { startViewChannel, viewSend } from './view-channel.ts';
 
+/** The `saved` message the host last got (JSON), so it hears only changes; `null` after a new `host_hello`. */
+let lastSaved: string | null = null;
 /** The page's frame, while mounted. */
 let frame: HTMLIFrameElement | null = null;
 /** The page's origin: chrome messages go only there. */
@@ -289,6 +292,16 @@ function acceptHost(host: HostInfo): void {
   if (host.via === 'view') viewSend(ready);
   else window.parent.postMessage(ready, host.origin);
   tellPlace();
+  lastSaved = null;
+  tellSaved();
+}
+
+/** Tells the host the page's save state, when it changed since the host last heard it. */
+function tellSaved(): void {
+  const message = savedMessage(useShell.getState().report);
+  const text = JSON.stringify(message);
+  if (text === lastSaved) return;
+  if (toHost(message)) lastSaved = text;
 }
 
 /** A host's `goto`: the page shows that place, or the Shell says where it is. */
@@ -491,7 +504,13 @@ export function startBridge(): () => void {
   if (embedded && hello && !viaView) window.parent.postMessage(hello, '*');
   // Exports the page's server saved: the declared host hears where.
   setSavedFileListener((path) => void toHost({ openArtifact: 'saved_file', path }));
+  // The page's save state: the host hears each change (a page that loads again starts with none).
+  lastSaved = null;
+  const stopSaved = useShell.subscribe((state, previous) => {
+    if (state.report.saved !== previous.report.saved || state.report.leaveLosesWork !== previous.report.leaveLosesWork) tellSaved();
+  });
   return () => {
+    stopSaved();
     stopView?.();
     viaView = false;
     setSavedFileListener(null);

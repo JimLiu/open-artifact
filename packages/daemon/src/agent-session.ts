@@ -131,7 +131,8 @@ export type PersonAct =
   | 'type-update'
   | 'type-uninstall'
   | 'type-publish'
-  | 'type-unpublish';
+  | 'type-unpublish'
+  | 'daemon-restart';
 
 /** What each act is, in the refusal. */
 const ACT_TEXT: Record<PersonAct, { what: string; panel: string }> = {
@@ -161,6 +162,8 @@ const ACT_TEXT: Record<PersonAct, { what: string; panel: string }> = {
   // A type's pages and instructions go to everyone who opens its artifacts on the site: never an agent's to send.
   'type-publish': { what: 'Publishing a type to a site', panel: 'run the command' },
   'type-unpublish': { what: 'Taking a type off a site', panel: 'run the command' },
+  // Every harness's connection drops and every open page reconnects: the person's call, not one session's.
+  'daemon-restart': { what: 'Restarting the Open Artifact daemon (every connected app and open page reconnects)', panel: 'restart it' },
 };
 
 /**

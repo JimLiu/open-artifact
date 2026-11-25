@@ -34,7 +34,7 @@ await fake.close();
 | `request(method, params)` | sends any daemon-to-adapter call |
 | `emit(event)` | sends an event to subscribed adapters |
 | `queueInbox(session, message)` | the next `session.attach` or `inbox.take` returns it |
-| `setArtifact`, `removeArtifact` | what the Library API answers for an id (so `on('artifact')` can report it) |
+| `setArtifact`, `removeArtifact` | what the Library API answers for an id (so `on('artifact')` can report it), and what `view.open` takes: `open-artifact://artifact/<id>` or the fake's `/a/<id>`, with a ticket when you declared `mode: 'view'` |
 | `setContext(id, context)` | what `view.context` answers |
 | `runtimeUpdate(available, installed)` | sends `runtime/update` |
 | `calls`, `hellos`, `sessions`, `shellCommands`, `thumbnails`, `connected` | what your adapter did |

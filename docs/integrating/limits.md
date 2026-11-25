@@ -11,6 +11,7 @@ it shows.
 | --- | --- |
 | A Shell served by a site (a published artifact opened at its site address) cannot read the daemon's declared origins, so it treats every host as undeclared: `new_session` comes with an empty prompt, `comment_summon` with empty text, and there is no `open_external`, `saved_file` or destinations. | Embed the local view URL (`viewUrl`), not the site address. |
 | A page loaded from `file://` has the origin `null` and cannot be declared. | Serve your UI from a custom scheme, or use a top-level view. |
+| `caps.switcher` hides only the title menu's Switch artifact and All artifacts. Duplicate still opens the copy in the same view, and the view then shows the copy's place and `saved`. | Watch `onPlace`'s `artifact` and treat a change as the view moving to another artifact. |
 | An artifact a newer type release wrote is read-only on this computer, including the page's comment box. | The page and the tools' `newer_release` error tell the person to update; the agent's tools may still reply to comments. |
 
 ## Examples

@@ -822,6 +822,7 @@ export class HarnessHub extends EventEmitter<{ changed: [] }> {
         return handleSkillCall(method as (typeof SKILL_METHODS)[number], raw, { harness, caller: this.callerOf(conn, raw), caps: conn.caps, version: this.options.version, tools: this.options.tools });
       case 'embed.origins':
       case 'shell.command':
+      case 'view.open':
         return handleEmbedCall(method as (typeof EMBED_METHODS)[number], raw, { harness, caller: this.callerOf(conn, raw), conn, views: this.embed });
       case 'view.context':
         return handleViewCall(method as (typeof VIEW_METHODS)[number], raw, { harness, caller: this.callerOf(conn, raw), contexts: this.contexts });

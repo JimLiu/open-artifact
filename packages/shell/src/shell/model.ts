@@ -124,6 +124,22 @@ export function toHostMessage(host: HostInfo, message: ShellToHost): ShellToHost
   }
 }
 
+/**
+ * Whether the title menu offers "Switch artifact" (and its "All artifacts"): not when the host has its own way between
+ * artifacts (`caps.switcher`), where navigating would take its view away from the artifact it opened.
+ */
+export function offersSwitch(host: Pick<HostInfo, 'caps'> | null): boolean {
+  return host?.caps.switcher !== true;
+}
+
+/**
+ * The `saved` message for the host: the page's save state (`null` before it reported one, or while a page loads) and
+ * whether leaving now loses work. Every host gets it, declared or not: it carries nothing the person typed.
+ */
+export function savedMessage(report: Pick<ChromeReport, 'saved' | 'leaveLosesWork'>): Extract<ShellToHost, { openArtifact: 'saved' }> {
+  return { openArtifact: 'saved', state: report.saved ?? null, leaveLosesWork: report.leaveLosesWork === true };
+}
+
 /** The page request a destination's pick sends the agent (data: the host's label and id, quoted). */
 export function destinationRequest(destination: HostDestination, artifactTitle: string): string {
   return `Export "${artifactTitle}" and send it to the destination the person picked in the Export tab: "${destination.label}" (destination id: ${destination.id}). The host app that embeds the Shell offered this destination.`;

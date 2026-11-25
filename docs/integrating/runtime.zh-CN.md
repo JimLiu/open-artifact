@@ -149,8 +149,11 @@ const status = await oa.runtime.status();
 | `open-artifact runtime update [--version <x.y.z>]` | 安装最新的兼容运行时，或指定版本 |
 | `open-artifact runtime pin <range> \| --clear` | 把运行时限制在一个版本范围内 |
 | `open-artifact runtime policy [auto\|prompt\|bundled\|default] [--json]` | 打印或设置人的策略 |
+| `open-artifact daemon restart` | 停下正在运行的 daemon，等它的进程退出，再启动一个（没有在运行的就只是启动） |
 
-`update`、`pin` 和 `policy` 由人决定：在 Agent 会话里运行会被拒绝。
+`update`、`pin`、`policy` 和 `daemon restart` 由人决定：在 Agent 会话里运行会被拒绝。
+
+在你的应用里，`harness.daemon.restart()` 替人做同样的事（一个“重启”按钮），并连接到新的 daemon；kit 的 `restartDaemon(options)` 是不带连接的版本。只有能回答健康检查的 daemon 才会被停下，所以只是复用了旧 pid 的进程永远不会收到信号。每个打开的页面和已连接的应用都会重新连接；顶层视图的票据随旧连接结束，所以要重新打开视图（`oa.view(url)`）。
 
 ## 新版本写过的作品
 

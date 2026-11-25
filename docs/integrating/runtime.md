@@ -207,8 +207,15 @@ Open Artifact runtime this computer runs.`) when the daemon does not list the fe
 | `open-artifact runtime update [--version <x.y.z>]` | installs the newest compatible runtime, or that version |
 | `open-artifact runtime pin <range> \| --clear` | keeps the runtime within a range |
 | `open-artifact runtime policy [auto\|prompt\|bundled\|default] [--json]` | prints or sets the person's policy |
+| `open-artifact daemon restart` | stops the running daemon, waits for its process to exit, and starts another (a start when none runs) |
 
-`update`, `pin` and `policy` are the person's decisions: run inside an agent's session they are refused.
+`update`, `pin`, `policy` and `daemon restart` are the person's decisions: run inside an agent's session they are
+refused.
+
+From your app, `harness.daemon.restart()` does the same for the person (a "Restart" button) and connects to the new
+daemon; the kit's `restartDaemon(options)` is the call without a connection. Only a daemon that answers its health
+check is stopped, so a process that merely reuses an old pid is never signalled. Every open page and connected app
+reconnects; a top-level view's ticket ends with the old connection, so open the view again (`oa.view(url)`).
 
 ## Artifacts from a newer release
 

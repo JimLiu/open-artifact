@@ -274,7 +274,10 @@ Three rules decide whether this works safely:
   only for a host whose pane is already a general browser ([remote types](integrating/remote-types.md)).
 
 The page tells you where the person is (`onPlace`), what they selected (`context()`, feature `view.context`), and asks
-you to start or open sessions (`onNewSession`, `onOpenSession`). [Embedding](integrating/embedding.md) has the whole
+you to start or open sessions (`onNewSession`, `onOpenSession`). It also says its save state (`onSaved`), so your app
+can ask before closing a view that would lose work; `switcher: true` hides the Shell's own artifact switcher when your
+app has tabs. To show an artifact the person picked in your app, with no agent asking, call `oa.view(url)` (feature
+`view.open`). [Embedding](integrating/embedding.md) has the whole
 list and a webview checklist; [embed reference](spec/embed.md) has every message.
 
 - **What the person sees:** the page opens beside the chat; **Ask** goes to your session; thumbnails appear in the

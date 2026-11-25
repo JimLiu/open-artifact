@@ -393,6 +393,22 @@ export interface AssignArtifactRequest {
   session: string;
 }
 
+/** `GET /api/open-artifact.types.servers`: the local type servers that run now. */
+export interface TypeServersResponse {
+  servers: Array<{ type: string } & TypeServerStatus>;
+}
+
+/** `POST /api/open-artifact.types.restart`: stop this type's local server; the next page that needs it starts it again. */
+export interface TypeServerRestartRequest {
+  id: string;
+}
+
+/** {@link TypeServerRestartRequest}'s answer: whether a server was running (or starting) and was stopped. */
+export interface TypeServerRestartResult {
+  id: string;
+  stopped: boolean;
+}
+
 /** {@link AssignArtifactRequest}'s answer: the artifact, and how each message that waited for it went. */
 export interface AssignArtifactResult {
   artifact: ArtifactView;
@@ -516,6 +532,14 @@ export const LIBRARY_ROUTES = {
    * with the third-party notice; it installs nothing.
    */
   typesSites: 'types.sites',
+  /**
+   * Local type servers. `types.servers` (`GET`): the ones that run now, with their address, pid and restarts
+   * ({@link TypeServersResponse}). `types.restart` (`POST { id }`, {@link TypeServerRestartRequest}): stops that type's
+   * server, which the next page that needs it starts again; the person's (a host's "restart" button), so from the
+   * command line or this daemon's own page only, and refused inside an agent's session.
+   */
+  typesServers: 'types.servers',
+  typesRestart: 'types.restart',
   /**
    * `POST` a zip (`Content-Type: application/zip`, `?folder=` optional): an artifact archive made into a local artifact,
    * opened only by a type of the uid its `.artifact.json` names (`type_missing` otherwise). From the CLI or the home

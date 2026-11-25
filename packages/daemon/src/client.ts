@@ -13,10 +13,13 @@ import { fileURLToPath } from 'node:url';
 import {
   HarnessClient as KitHarnessClient,
   ensureDaemon as kitEnsureDaemon,
+  restartDaemon as kitRestartDaemon,
   RUNTIME_ENTRY,
   type EnsureDaemonOptions,
   type HarnessClientOptions,
   type OwnRuntime,
+  type RestartDaemonOptions,
+  type RestartDaemonResult,
 } from '@open-artifact/harness-kit';
 import { PROTOCOL_MAX, PROTOCOL_MIN, type DaemonState } from '@open-artifact/protocol';
 import pkg from '../package.json' with { type: 'json' };
@@ -62,6 +65,14 @@ function withDefaults(options: EnsureDaemonOptions = {}): EnsureDaemonOptions {
  */
 export function ensureDaemon(options: EnsureDaemonOptions = {}): Promise<DaemonState> {
   return kitEnsureDaemon(withDefaults(options));
+}
+
+/**
+ * Restarts the daemon (see `restartDaemon` in the kit): stops the running one, waits for it to exit, and starts one
+ * with this build's defaults, as {@link ensureDaemon}.
+ */
+export function restartDaemon(options: RestartDaemonOptions = {}): Promise<RestartDaemonResult> {
+  return kitRestartDaemon(withDefaults(options) as RestartDaemonOptions);
 }
 
 /** A Harness API connection (see `@open-artifact/harness-kit`) that starts this package's daemon. */

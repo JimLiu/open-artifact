@@ -10,6 +10,7 @@
 | --- | --- |
 | 由站点提供的 Shell（在站点地址上打开的已发布作品）读不到 daemon 声明的源，所以把每个宿主都当作未声明：`new_session` 的提示为空，`comment_summon` 的文本为空，没有 `open_external`、`saved_file` 和目的地。 | 嵌入本地视图地址（`viewUrl`），不要嵌入站点地址。 |
 | 从 `file://` 加载的页面源是 `null`，无法声明。 | 用自定义协议提供你的界面，或改用顶层视图。 |
+| `caps.switcher` 只隐藏标题菜单里的 Switch artifact 和 All artifacts。Duplicate 仍在同一个视图里打开副本，之后视图显示的是副本的位置和 `saved`。 | 留意 `onPlace` 的 `artifact`，它变了就当作视图换到了另一个作品。 |
 | 新版本类型写过的作品在这台电脑上是只读的，页面的评论框也一样。 | 页面和工具的 `newer_release` 错误会告诉人去更新；Agent 的工具仍可回复评论。 |
 
 ## 示例

@@ -40,6 +40,9 @@ import {
   type AddArtifactRequest,
   type AssignArtifactRequest,
   type AssignArtifactResult,
+  type TypeServerRestartRequest,
+  type TypeServerRestartResult,
+  type TypeServersResponse,
   type AskRequest,
   type BlankArtifactRequest,
   type CreateArtifactRequest,
@@ -715,6 +718,14 @@ export class Daemon extends EventEmitter<{ exit: [] }> {
     // A view loads the local Shell, also for a published artifact.
     this.harnesses.embed.setShellUrl((id) => `${this.origin}/a/${id}`);
     // An artifact of a remote type: host.open says where its page comes from, for the host to decide.
+    // `view.open`: only this daemon's own artifacts, by its own addresses.
+    this.harnesses.embed.setArtifacts({
+      hosts: () => this.hosts,
+      artifact: (id) => {
+        const record = this.store.get(id);
+        return record ? { title: record.title, view_url: this.viewUrl(id) } : null;
+      },
+    });
     this.harnesses.embed.setRemoteOf((id) => {
       const record = this.store.get(id);
       return record ? remoteOf(this.typeOf(record), this.pages.get(id)?.page) : null;
@@ -2272,6 +2283,31 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
         const type = this.types.get(String(url.searchParams.get('id') ?? ''), url.searchParams.get('workspace') || undefined);
         if (!type?.icon) throw new OpenArtifactError('not_found', 'No icon.');
         return this.sendFile(req, res, inside(type.dir, type.icon), 'no-cache');
+      }
+      case R.typesServers: {
+        const answer: TypeServersResponse = { servers: this.servers.running().map((s) => ({ type: s.type, ...(this.servers.status(s.type) ?? { state: 'running' as const, url: s.base }) })) };
+        return sendJson(res, 200, answer);
+      }
+      case R.typesRestart: {
+        // The person restarts a type's server (a host's button): as artifacts.assign, not from another origin, not from
+        // inside a session. Open pages of the type reconnect; the next one that needs the server starts it again.
+        if (get) throw new OpenArtifactError('invalid_argument', `${name} is a POST.`, { status: 405 });
+        const refusal =
+          this.originRefusal(req, name) ??
+          (req.headers['x-open-artifact-agent'] ? 'Restarting a type server is for the person to decide: they restart it from their own app or terminal.' : null);
+        if (refusal) {
+          req.resume();
+          return sendJson(res, 403, { code: 'not_granted', message: refusal });
+        }
+        const body = await readJsonBody<Partial<TypeServerRestartRequest>>(req);
+        const id = typeof body.id === 'string' ? body.id : '';
+        if (!id) throw new OpenArtifactError('invalid_argument', 'id: the type whose server to restart.');
+        const was = this.servers.status(id);
+        const stopped = !!was && (was.state === 'running' || was.state === 'starting');
+        this.servers.stop(id);
+        this.log(`audit: ${stopped ? 'restarted' : 'asked to restart (not running)'} the server of type ${id}, asked by ${this.askedBy(req, name)}`);
+        const answer: TypeServerRestartResult = { id, stopped };
+        return sendJson(res, 200, answer);
       }
       case R.typesNew:
       case R.typesCheck:

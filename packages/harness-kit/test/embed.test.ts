@@ -139,6 +139,32 @@ describe('embedArtifact in a frame', () => {
     assert.deepEqual(seen, ['saved:/Users/me/Downloads/deck.pdf', 'comment:please fix', 'session:s1', 'close']);
   });
 
+  it('saved: onSaved and view.saved follow the Shell; switcher sets caps; a host without onSaved is unchanged', () => {
+    const win = new FakeWindow();
+    const frame = fakeFrame(`${SHELL}/a/art_aaaaaaaaaa`);
+    const states: unknown[] = [];
+    const view = embedArtifact(frame, { window: win, switcher: true, onSaved: (state) => states.push(state) });
+    win.dispatch(shellHello, SHELL, frame.contentWindow);
+    assert.deepEqual(frame.sent[0]!.message.caps, { switcher: true });
+    assert.equal(view.saved, null, 'nothing before the Shell says');
+    win.dispatch({ openArtifact: 'saved', state: null, leaveLosesWork: false }, SHELL, frame.contentWindow);
+    win.dispatch({ openArtifact: 'saved', state: 'saving', leaveLosesWork: true }, SHELL, frame.contentWindow);
+    win.dispatch({ openArtifact: 'saved', state: 'lost', leaveLosesWork: true }, SHELL, frame.contentWindow);
+    assert.deepEqual(states, [{ state: null, leaveLosesWork: false }, { state: 'saving', leaveLosesWork: true }], 'an unknown state is dropped');
+    assert.deepEqual(view.saved, { state: 'saving', leaveLosesWork: true });
+
+    // A host that gives neither (as one written before `saved`): the same hello, no callback, nothing thrown.
+    const errors: unknown[] = [];
+    const plainFrame = fakeFrame(`${SHELL}/a/art_aaaaaaaaaa`);
+    embedArtifact(plainFrame, { window: win, toolbar: true, onError: (error) => errors.push(error) });
+    win.dispatch(shellHello, SHELL, plainFrame.contentWindow);
+    assert.deepEqual(plainFrame.sent[0]!.message.caps, { toolbar: true });
+    win.dispatch({ openArtifact: 'saved', state: 'unsaved', leaveLosesWork: true }, SHELL, plainFrame.contentWindow);
+    win.dispatch({ openArtifact: 'some_future_message', x: 1 }, SHELL, plainFrame.contentWindow);
+    assert.equal(plainFrame.sent.length, 1, 'nothing answered');
+    assert.deepEqual(errors, []);
+  });
+
   it('captures a thumbnail after the Shell is ready and hands it to saveThumbnail', async (t) => {
     t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
     const win = new FakeWindow();
@@ -250,6 +276,35 @@ describe('Harness: embedding methods against the fake daemon', () => {
     daemon.setArtifact({ id: 'art_aaaaaaaaaa', remote: { url: 'https://site.example.com/d/abc' } as never });
     assert.equal(await harness.viewUrl(ART), `${daemon.url}/a/art_aaaaaaaaaa`, 'viewUrl stays the local Shell when published');
     assert.equal(await harness.publicUrl(ART), 'https://site.example.com/d/abc');
+  });
+
+  test('view: a view of the daemon\'s artifact with no session, its ticket taken by shellCommand; saved reaches on(shell)', async () => {
+    const { daemon, harness } = await start();
+    daemon.setArtifact({ id: 'art_aaaaaaaaaa', title: 'Deck' });
+    const opened = await harness.view(`${daemon.url}/a/art_aaaaaaaaaa`);
+    assert.equal(opened.session, null);
+    assert.equal(opened.url, ART);
+    assert.equal(opened.title, 'Deck');
+    assert.ok(opened.view);
+    assert.equal(opened.embedUrl, `${daemon.url}/a/art_aaaaaaaaaa?oa_view=${opened.view}`);
+    await harness.shellCommand(opened.view!, { openArtifact: 'goto', hash: '#3' });
+    assert.deepEqual(daemon.shellCommands.at(-1), { view: opened.view, command: { openArtifact: 'goto', hash: '#3' } });
+    assert.equal((await harness.view(ART)).url, ART, 'open-artifact:// works too');
+    await assert.rejects(harness.view('https://evil.example/a/art_aaaaaaaaaa'), (error: { code?: string }) => error.code === 'invalid_argument');
+    await assert.rejects(harness.view('open-artifact://artifact/art_bbbbbbbbbb'), (error: { code?: string }) => error.code === 'not_found');
+
+    const events: unknown[] = [];
+    harness.on('shell', (event) => events.push(event));
+    await daemon.shellEvent(opened.view!, { openArtifact: 'saved', state: 'saving', leaveLosesWork: true });
+    assert.deepEqual(events, [{ view: opened.view, session: null, event: { openArtifact: 'saved', state: 'saving', leaveLosesWork: true } }]);
+
+    // An older daemon (no view.open): unsupported, and nothing is sent.
+    const old = await startFakeDaemon({ features: [] });
+    closers.push(old);
+    const h2 = await createHarness({ harness: 'old-app', home: old.home, autoStart: false });
+    closers.push(h2);
+    await assert.rejects(h2.view(ART), (error: { code?: string }) => error.code === 'unsupported');
+    assert.ok(!old.calls.some((c) => c.method === 'view.open'));
   });
 });
 

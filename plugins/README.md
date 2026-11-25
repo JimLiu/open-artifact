@@ -77,7 +77,8 @@ Each plugin can link the daemon to an Open Artifact server, so artifacts are pub
 It takes them from the process that started it, usually a plugin's MCP bridge, and the bridge gets only what its app
 gives it: Claude Code and the Copilot CLI pass their own environment on, Codex and Cursor do not (see the table). One
 daemon serves every app on the computer, so whichever app starts it first decides its environment; a daemon that is
-already running keeps what it started with (`open-artifact daemon stop`, and the next tool call starts it again).
+already running keeps what it started with (`open-artifact daemon stop`, and the next tool call starts it again; or
+`open-artifact daemon restart` in your own terminal, which agents' sessions are refused).
 
 `preset.json` in the Open Artifact folder takes the same keys and works for every app, however it was started:
 

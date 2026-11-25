@@ -99,6 +99,8 @@ export class HarnessClient {
   private ws: WebSocket | null = null;
   private retry: ReturnType<typeof setTimeout> | undefined;
   private failures = 0;
+  /** While above 0 (a daemon restart), the client does not reconnect by itself. */
+  private holding = 0;
 
   constructor(options: HarnessClientOptions) {
     this.options = options;
@@ -198,13 +200,13 @@ export class HarnessClient {
    * by itself after a drop; call it after a first {@link connect} failed to keep trying in the background.
    */
   reconnect(): void {
-    if (this.closed || this.retry !== undefined || this.connected) return;
+    if (this.closed || this.holding > 0 || this.retry !== undefined || this.connected) return;
     const min = this.options.reconnect?.minMs ?? RECONNECT_MS;
     const max = Math.max(min, this.options.reconnect?.maxMs ?? RECONNECT_MS);
     const delay = Math.min(max, min * 2 ** Math.min(this.failures, 16));
     this.retry = setTimeout(() => {
       this.retry = undefined;
-      if (this.closed || this.connected) return;
+      if (this.closed || this.holding > 0 || this.connected) return;
       this.connect().catch((error: unknown) => {
         this.failures++;
         this.options.log?.(`open-artifact reconnect: ${(error as Error).message}`);
@@ -320,6 +322,44 @@ export class HarnessClient {
   /** Calls a tool as `caller`. */
   callTool(name: string, args: Record<string, unknown>, caller?: SessionParams): Promise<ToolCallResult> {
     return this.request('tools.call', { name, arguments: args, ...(caller ? { caller } : {}) });
+  }
+
+  /**
+   * Runs `work` (which stops the daemon and starts another) without reconnecting meanwhile, so the client does not race
+   * it to start a daemon; then drops the old connection and connects to the daemon running now, attaching the sessions
+   * again. When `work` fails the client goes back to reconnecting by itself.
+   */
+  async across<T>(work: () => Promise<T>): Promise<{ result: T; hello: HelloResult }> {
+    if (this.closed) throw new OpenArtifactError('disconnected', 'The open-artifact client is closed.');
+    this.holding++;
+    clearTimeout(this.retry);
+    this.retry = undefined;
+    let result: T;
+    try {
+      result = await work();
+      // The old daemon is gone: its socket is done with, whether or not its close was seen yet.
+      const ws = this.ws;
+      if (ws) {
+        try {
+          ws.close();
+        } catch {
+          /* already closed */
+        }
+        this.onClose(ws);
+      }
+    } catch (error) {
+      this.holding--;
+      this.reconnect();
+      throw error;
+    }
+    this.holding--;
+    this.failures = 0;
+    try {
+      return { result, hello: await this.connect() };
+    } catch (error) {
+      this.reconnect();
+      throw error;
+    }
   }
 
   /** Closes the connection for good. */

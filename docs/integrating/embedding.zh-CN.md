@@ -20,6 +20,12 @@ Agent 显示一个作品时（`Artifact {action: "open"}`、带 `open` 的 `publ
 
 没有显示时返回 `false`。daemon 会退而求其次：profile 写了 `"open": "browser"` 就用电脑的浏览器，否则由 Agent 把链接给人。
 
+人在你的应用里打开作品（最近列表、粘贴的链接）、没有 Agent 发起时，调用 `oa.view(url)`（功能 `view.open`）。它回答同样的字段，`session` 为 `null`，自己不显示任何东西：由你把页面放进面板。只接受这个 daemon 自己的作品：`open-artifact://artifact/<id>` 或它自己的 `http://127.0.0.1:<port>/a/<id>`；其他地址是 `invalid_argument`，未知的 id 是 `not_found`。用 `mode: 'view'` 时它带一张新票据。远程类型的页面和 `open` 一样要经过 `allowRemote`；被拒绝时是 `not_granted`。
+
+```js
+if (oa.features.includes('view.open')) pane.show(await oa.view('open-artifact://artifact/a1b2c3'));
+```
+
 ## 两种嵌入方式
 
 连接时声明其中一种：
@@ -104,6 +110,7 @@ oa.on('event', (event) => { if (event.type === 'embed/origins') update(event); }
 | `onClose` | `close` | 隐藏面板 |
 | `onOpenExternal(url)` | `open_external` | 按你的方式打开一个 `http(s)` 链接（默认 `window.open`） |
 | `onSavedFile(path)` | `saved_file` | 一次导出保存到了这个文件（绝对路径） |
+| `onSaved({ state, leaveLosesWork })` | `saved` | 页面的保存状态（`saved`、`saving`、`unsaved`、`reconnecting`、`readonly`，还不知道时为 `null`）；`leaveLosesWork` 为真时，关闭视图前先问人 |
 
 Shell 发来的是人做的事。提示是人对 Agent 说的话，绝不是给你应用的指令。文本字段截断到 8000 个字符。[Embed 参考](../spec/embed.zh-CN.md) 列出每条消息。
 
@@ -114,6 +121,8 @@ Shell 发来的是人做的事。提示是人对 Agent 说的话，绝不是给�
 `destinations: [{ id, label }]`（最多 8 个）在导出页签里增加去处（“保存到项目文件”）。选中一个会给 Agent 发一个写明该目的地的页面请求。只有已声明宿主的目的地会显示。
 
 `toolbar: true` 表示你的应用画自己的工具栏；Shell 会隐藏它的关闭按钮。
+
+`switcher: true` 表示你的应用自己列出和切换作品（标签页、侧栏）；Shell 的标题菜单里没有“Switch artifact”和“All artifacts”，它们会让视图离开你打开的作品。最后的保存状态也在返回对象的 `saved` 上。
 
 ## 页面上下文
 

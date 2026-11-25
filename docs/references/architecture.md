@@ -140,6 +140,14 @@ packages/daemon (local open-artifact daemon, one per machine)
   from claude.ai, `typeFromSaved`: `stripFrameRuntime`, `withInferredCapabilities` from `capabilitiesUsed`,
   `metadata.json` read as untrusted one-line text, `SKILL.md` from the `notes-for-claude` block via `pageNotes`).
 
+- **Restarts**: `open-artifact daemon restart` (refused in an agent's session, `personOnly` `daemon-restart`) and the
+  kit's `restartDaemon` / `Harness.daemon.restart()` stop a daemon that answers its health check (`replaceDaemon`),
+  wait for its process and start another (`ensureDaemon`); `HarnessClient.across` holds the kit's reconnects meanwhile.
+  The Library routes `types.servers` (the running type servers and their state) and `types.restart` (`{id}`: stop one;
+  the next page open starts it again) are for the person's app: `types.restart` takes a JSON `POST` from the daemon's
+  own origin or the token, refuses another origin and `X-Open-Artifact-Agent` with 403 `not_granted`, and logs an
+  `audit:` line.
+
 - **Type packages** (`packages/protocol/src/type-package.ts` for the rules, `packages/daemon/src/type-packages.ts`,
   `packages/daemon/src/artifact-import.ts`): `types pack` (in the CLI process: `types check --for-share`, then
   `zipBytes`), `types install | update | uninstall` and `import` (through the daemon's routes `types.preview`,
@@ -351,7 +359,7 @@ Agent apps integrate through the Harness API, JSON-RPC 2.0 over the WebSocket `/
 | `stdio-bridge.ts` | `harness --stdio`: JSON lines on stdin/stdout; starts the daemon, says `hello` with the token, reconnects and attaches sessions again. |
 | `harness-profiles.ts`, `hook-dialects.ts`, `nudge.ts` | Shipped (`packages/daemon/harnesses/*.json`), adapter-reported and person-added profiles; hook input/output formats; waking idle sessions. |
 | `harness-skill.ts` | `skill.get` and `commands.list`: the skill and the per-type commands rendered for a harness. |
-| `harness-embed.ts`, `harness-view.ts` | Declared host origins and view tickets for top-level views; `view.context` for the owner session. |
+| `harness-embed.ts`, `harness-view.ts` | Declared host origins and view tickets for top-level views; `view.open` (this daemon's own artifacts only, `localArtifactIdOf`; no session); `view.context` for the owner session. |
 | `ownership.ts`, `release-guard.ts` | Which session owns an artifact (and when that moves); artifacts written by a newer type release are read-only. |
 | `runtime.ts`, `cli-runtime.ts`, `sea.ts` | Runtimes on this computer, update policy and checked updates, `open-artifact runtime …`; the single executable's entry (`scripts/build-sea.mjs`). |
 | `doctor.ts`, `doctor-checks.ts`, `doctor-remote.ts`, `doctor-conformance.ts` | `open-artifact doctor`: setup checks (including `node-children`, how type servers run), remote-type probes, and with `--session` the conformance run of a running app. |
@@ -361,7 +369,9 @@ The kit (`packages/harness-kit/src/`) mirrors this from the app side: `harness.t
 (the JSON-RPC client), `runtimes.ts` (which runtime to start), `daemon.ts` (`ensureDaemon`; a host's `daemon.spawn` starts
 the process itself, as an Electron app does with `utilityProcess.fork`), `skill.ts`, `context.ts`, `embed/` and `testing.ts`.
 Shell-side, `packages/shell/src/shell/bridge.ts`, `view-channel.ts` and `lib/host-origins.ts` speak the host messages
-of `packages/protocol/src/shell.ts`.
+of `packages/protocol/src/shell.ts`. `bridge.ts` relays the page's `saved` and `leaveLosesWork` to the host as `saved`
+(deduplicated, `null` while a page loads); `caps.switcher` (`offersSwitch` in `shell/model.ts`) drops the title menu's
+Switch artifact.
 
 Between the Shell and its framed page, `bridge.ts` speaks the chrome messages of the same file (`chrome_hello`,
 `chrome_report`, `chrome_cmd`). The Shell covers the frame while its document loads and lifts the cover on the page's

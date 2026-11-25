@@ -26,12 +26,16 @@
  * (stores it, e.g. through the adapter's `Harness.saveThumbnail`; a browser page should not hold the daemon token).
  * The kit captures {@link THUMBNAIL_DELAY_MS} after the Shell is ready, then after a place change at most once every
  * {@link THUMBNAIL_INTERVAL_MS}.
+ *
+ * Save state: `onSaved` hears the page's save state and whether leaving now loses work (the Shell's `saved`, after it
+ * is ready and on each change), and `saved` keeps the last one, so a host can ask before it closes its view.
  */
 
 import {
   HOST_PROTOCOL,
   MAX_HOST_DESTINATIONS,
   shellToHostOf,
+  type ChromeSaved,
   type HostCaps,
   type HostDestination,
   type HostLibraryFilter,
@@ -40,7 +44,14 @@ import {
   type ShellToHost,
 } from '@open-artifact/protocol';
 
-export type { HostDestination, HostTheme, HostToShell, ShellToHost };
+export type { ChromeSaved, HostDestination, HostTheme, HostToShell, ShellToHost };
+
+/** The page's save state as the Shell reports it (`saved`): `state` is `null` before the page said one. */
+export interface EmbedSavedState {
+  state: ChromeSaved | null;
+  /** Leaving now would lose work: ask before closing the view. */
+  leaveLosesWork: boolean;
+}
 
 /** How long after the Shell is ready the first thumbnail is captured. */
 export const THUMBNAIL_DELAY_MS = 2000;
@@ -93,6 +104,11 @@ export interface EmbedArtifactOptions {
   harness?: string;
   /** The host draws its own toolbar: the Shell leaves out its close button. */
   toolbar?: boolean;
+  /**
+   * The host has its own way between artifacts (its library, tabs or windows): the Shell leaves out "Switch artifact"
+   * and "All artifacts", which would navigate this view to another page. Sets caps `switcher`.
+   */
+  switcher?: boolean;
   /** The host's colour scheme and accent (`#rrggbb`). */
   theme?: HostTheme;
   /** Places the host sends exports to; the Shell lists at most {@link MAX_HOST_DESTINATIONS} in its Export tab. */
@@ -113,6 +129,8 @@ export interface EmbedArtifactOptions {
   onOpenExternal?(url: string): void;
   /** An export was saved to this file (absolute path on the computer that runs the type's server). */
   onSavedFile?(path: string): void;
+  /** The page's save state changed (and once when the Shell is ready). A Shell older than this kit never sends it. */
+  onSaved?(state: EmbedSavedState): void;
   /** Takes a JPEG of the view, or `null` when it cannot now. */
   capture?(): Promise<Blob | Uint8Array | ArrayBuffer | null> | Blob | Uint8Array | ArrayBuffer | null;
   /** Stores a captured thumbnail (JPEG bytes) of `artifact`. */
@@ -129,6 +147,8 @@ export interface EmbeddedArtifact {
   readonly artifact: string | null;
   /** The last place the Shell reported, or `null`. */
   readonly place: string | null;
+  /** The last save state the Shell reported, or `null` (before it did, or a Shell that does not report it). */
+  readonly saved: EmbedSavedState | null;
   /** Resolves once the Shell is ready. */
   readonly ready: Promise<EmbedReadyInfo>;
   /** Shows a place (a fragment from `onPlace`, or a link's own). */
@@ -193,6 +213,7 @@ export function embedArtifact(target: EmbedFrame | EmbedTransport, options: Embe
   let theme = options.theme;
   let info: EmbedReadyInfo | null = null;
   let place: string | null = null;
+  let saved: EmbedSavedState | null = null;
   let helloed = false;
   let stopped = false;
   let resolveReady!: (info: EmbedReadyInfo) => void;
@@ -225,6 +246,7 @@ export function embedArtifact(target: EmbedFrame | EmbedTransport, options: Embe
     const caps: HostCaps = {};
     if (options.onOpenSession || options.onNewSession) caps.sessions = true;
     if (options.toolbar) caps.toolbar = true;
+    if (options.switcher) caps.switcher = true;
     return {
       openArtifact: 'host_hello',
       caps,
@@ -296,6 +318,13 @@ export function embedArtifact(target: EmbedFrame | EmbedTransport, options: Embe
       case 'saved_file':
         safely(() => options.onSavedFile?.(message.path));
         break;
+      case 'saved': {
+        const now: EmbedSavedState = { state: message.state, leaveLosesWork: message.leaveLosesWork };
+        saved = now;
+        safely(() => options.onSaved?.({ ...now }));
+        break;
+      }
+      // Anything else (a message of a newer Shell) is not this kit's to answer.
     }
   };
 
@@ -320,6 +349,9 @@ export function embedArtifact(target: EmbedFrame | EmbedTransport, options: Embe
     },
     get place() {
       return place;
+    },
+    get saved() {
+      return saved ? { ...saved } : null;
     },
     ready,
     goto(hash) {

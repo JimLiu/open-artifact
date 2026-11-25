@@ -20,11 +20,12 @@ fields are cut to 8000 characters (`MAX_HOST_TEXT`).
 
 | Message | Fields | |
 | --- | --- | --- |
-| `host_hello` | `caps` (`sessions?`, `toolbar?`, `artifacts?`), `agentName?`, `harness?`, `protocol?`, `theme?` (`scheme`, `accent?`), `destinations?` (`id`, `label`; at most 8), `library?` (`harness?`, `workspace?`) | the answer to `shell_hello` or `home_hello`; send it again when the theme changes |
+| `host_hello` | `caps` (`sessions?`, `toolbar?`, `artifacts?`, `switcher?`), `agentName?`, `harness?`, `protocol?`, `theme?` (`scheme`, `accent?`), `destinations?` (`id`, `label`; at most 8), `library?` (`harness?`, `workspace?`) | the answer to `shell_hello` or `home_hello`; send it again when the theme changes |
 | `goto` | `hash` | show this place; the Shell answers with `place` |
 
 `caps.sessions`: you can start and open sessions. `caps.toolbar`: you draw your own toolbar, so the Shell hides its
-close button. `caps.artifacts` (home page only): a click on an artifact sends `open_artifact` instead of navigating.
+close button. `caps.switcher`: your app lists and switches artifacts itself, so the Shell's title menu has no
+"Switch artifact" (with "All artifacts"). `caps.artifacts` (home page only): a click on an artifact sends `open_artifact` instead of navigating.
 `library` (home page only): list only that harness's or that folder's artifacts.
 
 ## Shell → host
@@ -40,8 +41,12 @@ close button. `caps.artifacts` (home page only): a click on an artifact sends `o
 | `comment_summon` | `text` | `text` is empty to an undeclared host |
 | `open_external` | `url` (`http(s)` only) | yes |
 | `saved_file` | `path` (absolute) | yes |
+| `saved` | `state` (`saved`, `saving`, `unsaved`, `reconnecting`, `readonly`, or `null`), `leaveLosesWork` | |
 
-`place` comes after `shell_ready`, whenever the place changes, and in answer to `goto`.
+`place` comes after `shell_ready`, whenever the place changes, and in answer to `goto`. `saved` comes after
+`host_hello` and whenever the page's save state or `leaveLosesWork` changes; `state` is `null` before the page reports
+one and while another page loads. `leaveLosesWork: true` means closing now loses work: ask before you close the view.
+An older Shell sends no `saved`.
 
 ## Home page → host
 
@@ -99,7 +104,7 @@ A ticket ends with its adapter connection.
 | Option | |
 | --- | --- |
 | `url` | `viewUrl` (frame) or `embed_url` (view); set as the iframe's `src` when it differs |
-| `agentName`, `harness`, `toolbar`, `theme`, `destinations` | what `host_hello` says |
+| `agentName`, `harness`, `toolbar`, `switcher`, `theme`, `destinations` | what `host_hello` says |
 | `onReady(info)` | `info`: `artifact`, `id`, `title`, `type`, `version`, `protocol` |
 | `onOpenSession({ session, harness, artifact })` | sets `caps.sessions` |
 | `onNewSession({ prompt, artifact })` | sets `caps.sessions` |
@@ -108,11 +113,12 @@ A ticket ends with its adapter connection.
 | `onClose()` | |
 | `onOpenExternal(url)` | default: `window.open` |
 | `onSavedFile(path)` | |
+| `onSaved({ state, leaveLosesWork })` | the `saved` message |
 | `capture()`, `saveThumbnail(jpeg, artifact)` | thumbnails: 2 s after ready, then after a place change at most once a minute |
 | `onError(error)` | a callback or a thumbnail failed |
 | `window` | the window to listen on |
 
-Returns `{ artifact, place, ready, goto(hash), setTheme(theme), url(), destroy() }`. `url()` is the Shell's address with
+Returns `{ artifact, place, ready, saved, goto(hash), setTheme(theme), url(), destroy() }`. `url()` is the Shell's address with
 the last place and without a ticket.
 
 ## `embedLibrary(iframe, options)`

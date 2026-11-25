@@ -32,7 +32,7 @@ await fake.close();
 | `request(method, params)` | 发送任意 daemon 到适配器的调用 |
 | `emit(event)` | 向已订阅的适配器发送事件 |
 | `queueInbox(session, message)` | 下一次 `session.attach` 或 `inbox.take` 会返回它 |
-| `setArtifact`、`removeArtifact` | Library API 对某个 id 的回答（这样 `on('artifact')` 能报告它） |
+| `setArtifact`、`removeArtifact` | Library API 对某个 id 的回答（这样 `on('artifact')` 能报告它），也是 `view.open` 接受的作品：`open-artifact://artifact/<id>` 或假 daemon 的 `/a/<id>`，声明了 `mode: 'view'` 时带票据 |
 | `setContext(id, context)` | `view.context` 的回答 |
 | `runtimeUpdate(available, installed)` | 发送 `runtime/update` |
 | `calls`、`hellos`、`sessions`、`shellCommands`、`thumbnails`、`connected` | 你的适配器做了什么 |

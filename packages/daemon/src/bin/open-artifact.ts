@@ -2,7 +2,7 @@
 /**
  * `open-artifact`: the Open Artifact command line.
  *
- *   open-artifact daemon run [--port <n>] | ensure | status | stop
+ *   open-artifact daemon run [--port <n>] | ensure | status | stop | restart
  *   open-artifact mcp [--harness <name>] [--channel]     stdio MCP server, bridged to the daemon (--channel: push comment notices, claude/channel)
  *   open-artifact types [list] [--workspace <dir>]
  *   open-artifact types new <id> [--scope user|project] [--template page|data] [--name <name>] | check <id|dir> [--for-share]
@@ -32,7 +32,7 @@ import { resolve as resolvePath, sep } from 'node:path';
 import { createInterface } from 'node:readline';
 import { LIBRARY_ROUTES, type DaemonState, type SessionRef, type ToolCallResult, type TypesFromResponse, type TypesNewResponse, type TypePackagePreview, type TypesSettingResponse, type TypesPublishResponse, type TypesUnpublishResponse } from '@open-artifact/protocol';
 import { agentSessionOf, dataChoice, dataLeftOut, DATA_QUESTION, personOnlyRefusal, saidYes, type PersonAct } from '../agent-session.ts';
-import { api, ensureDaemon, readDaemon } from '../client.ts';
+import { api, ensureDaemon, readDaemon, restartDaemon } from '../client.ts';
 import { harnessProfile, shippedProfilesDir } from '../harness.ts';
 import { addUserProfile, listProfiles, removeProfile } from '../harness-profiles.ts';
 import { hookDialectOf } from '../hook-dialects.ts';
@@ -53,7 +53,7 @@ import pkg from '../../package.json' with { type: 'json' };
 
 const argv = process.argv.slice(2);
 
-const USAGE = `open-artifact daemon run [--port <n>] | ensure | status | stop
+const USAGE = `open-artifact daemon run [--port <n>] | ensure | status | stop | restart
 open-artifact mcp [--harness <name>] [--channel]     stdio MCP server, bridged to the daemon (--channel: push comment notices, claude/channel)
 open-artifact types [list] [--workspace <dir>]   the types here (JSON): scope, source (builtin | local | installed), version, uid…
 open-artifact types new <id> [--scope user|project] [--template page|data] [--name <name>]
@@ -501,8 +501,19 @@ async function daemon(sub: string | undefined): Promise<void> {
       process.kill(state.pid, 'SIGTERM');
       return out({ stopped: state.pid });
     }
+    case 'restart': {
+      // Every connected app and open page reconnects: the person's to do, not an agent's.
+      personOnly('daemon-restart', 'open-artifact daemon restart');
+      try {
+        const { stopped, daemon: started } = await restartDaemon();
+        const { token: _token, ...shown } = started;
+        return out({ ...(stopped ? { stopped: stopped.pid } : {}), ...shown });
+      } catch (error) {
+        return die(errorText(error));
+      }
+    }
     default:
-      die('daemon run | ensure | status | stop');
+      die('daemon run | ensure | status | stop | restart');
   }
 }
 
