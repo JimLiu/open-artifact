@@ -107,6 +107,46 @@ export function dashChartToken(index: number): string {
   return `--dash-chart-${index}`;
 }
 
+const SPACE_SIZES = ['xs', 'sm', 'md', 'lg', 'xl'] as const;
+
+/**
+ * The names the dashboards on claude.ai give the same tokens (`--cds-*`, `--font-anthropic-*`), each with the token it
+ * stands for here. `#dash-root` sets every one to its token, so a page written there draws the same here, in either
+ * theme and under a look. Other `--cds-*` names are no token here.
+ */
+export const DASH_CLAUDE_TOKEN_ALIASES: Readonly<Record<string, string>> = {
+  '--font-anthropic-sans': '--font-sans',
+  '--font-anthropic-serif': '--font-serif',
+  '--font-anthropic-mono': '--font-mono',
+  '--cds-page-bg': '--dash-page-bg',
+  '--cds-surface-panel': '--dash-surface-panel',
+  '--cds-surface-popover': '--dash-surface-popover',
+  '--cds-text-primary': '--dash-text-primary',
+  '--cds-text-secondary': '--dash-text-secondary',
+  '--cds-text-muted': '--dash-text-muted',
+  '--cds-text-success': '--dash-text-success',
+  '--cds-text-warning': '--dash-text-warning',
+  '--cds-text-danger': '--dash-text-danger',
+  '--cds-border': '--dash-border',
+  '--cds-radius': '--dash-radius',
+  '--cds-font-size-caption': '--dash-font-size-caption',
+  '--cds-font-size-body': '--dash-font-size-body',
+  '--cds-font-size-heading': '--dash-font-size-heading',
+  '--cds-font-size-title': '--dash-font-size-title',
+  '--cds-font-weight-medium': '--dash-font-weight-medium',
+  ...Object.fromEntries(SPACE_SIZES.flatMap((size) => [[`--cds-gap-${size}`, `--dash-gap-${size}`], [`--cds-pad-${size}`, `--dash-pad-${size}`]])),
+  '--cds-shadow-popover': '--dash-shadow-popover',
+  '--cds-dur-fast': '--dash-dur-fast',
+  '--cds-dur-slow': '--dash-dur-slow',
+  '--cds-ease-out': '--dash-ease-out',
+  '--cds-chart-axis': '--dash-chart-axis',
+  '--cds-chart-grid': '--dash-chart-grid',
+  '--cds-chart-muted': '--dash-chart-muted',
+  '--cds-chart-reference': '--dash-chart-reference',
+  '--cds-chart-status-critical': '--dash-chart-critical',
+  ...Object.fromEntries(Array.from({ length: MAX_LOOK_CHARTS }, (_, index) => [`--cds-chart-categorical-${index + 1}`, dashChartToken(index + 1)])),
+};
+
 const GENERIC_FONT_FAMILY_PATTERN =
   /^(serif|sans-serif|monospace|cursive|fantasy|system-ui|ui-serif|ui-sans-serif|ui-monospace|ui-rounded|emoji|math|fangsong|-apple-system|blinkmacsystemfont)$/i;
 const HEX_COLOR_PATTERN = /^#([0-9a-f]{6})([0-9a-f]{2})?$/;

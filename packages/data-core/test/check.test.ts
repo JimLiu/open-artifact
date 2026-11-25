@@ -146,6 +146,18 @@ describe('check', () => {
     );
   });
 
+  it('accepts the token names a claude.ai dashboard page uses, and names a claude.ai one with nothing behind it here', () => {
+    const page = (style: string): Record<string, unknown> => ({ ...GOOD, 'files/index.html': { text: `<style>${style}</style>${GOOD['files/index.html'].text}` } });
+    const claude =
+      '.card{padding:var(--cds-pad-lg);gap:var(--cds-gap-md);border-radius:var(--cds-radius);font:var(--cds-font-weight-medium) var(--cds-font-size-title)/1.2 var(--font-anthropic-serif)}' +
+      '.bad{color:var(--cds-chart-status-critical);background:var(--cds-surface-popover);box-shadow:var(--cds-shadow-popover);fill:var(--cds-chart-categorical-3)}';
+    assert.deepEqual(errors(checkDataProject(project(page(claude)), CONTEXT)), []);
+    assert.deepEqual(errors(checkDataProject(project(page('.x{color:var(--cds-text-accent);font-family:var(--font-anthropic-display)}')), CONTEXT)), [
+      ['db/files/index.html.json', 'var(--cds-text-accent) is no token of the dashboard: of the claude.ai names, only those in reference/design-defaults.md are set here.'],
+      ['db/files/index.html.json', 'var(--font-anthropic-display) is no token of the dashboard (a typo?): use the names in reference/design-defaults.md.'],
+    ]);
+  });
+
   it('reports what the page leaves unused or unmarked, and connectors the owner lacks', () => {
     const findings = checkDataProject(
       project({

@@ -1,6 +1,6 @@
 import type { Table } from './types.ts';
 import { cellToString } from './tables.ts';
-import { DASH_PAGE_TOKENS, dashChartToken, MAX_LOOK_CHARTS } from './look.ts';
+import { DASH_CLAUDE_TOKEN_ALIASES, DASH_PAGE_TOKENS, dashChartToken, MAX_LOOK_CHARTS } from './look.ts';
 
 /** How a page finding is told: the document it is in, and a line of that document's text when it has one. */
 export type PageReport = (doc: string, level: 'error' | 'warning', message: string, line?: number) => void;
@@ -66,8 +66,9 @@ export const DASH_DEFINED_TOKENS: ReadonlySet<string> = new Set([
   '--dash-gutter',
   ...['xs', 'sm', 'md', 'lg', 'xl'].flatMap((size) => [`--dash-gap-${size}`, `--dash-pad-${size}`]),
   ...Array.from({ length: MAX_LOOK_CHARTS }, (_, index) => dashChartToken(index + 1)),
+  ...Object.keys(DASH_CLAUDE_TOKEN_ALIASES),
 ]);
-const TOKEN_USE_PATTERN = /var\(\s*(--(?:dash|color|font)-[A-Za-z0-9_-]+)/g;
+const TOKEN_USE_PATTERN = /var\(\s*(--(?:dash|color|font|cds)-[A-Za-z0-9_-]+)/g;
 const TOKEN_DEFINITION_PATTERN = /(--[A-Za-z0-9_-]+)\s*:/g;
 
 export function decodeHtmlEntities(text: string): string {
@@ -314,7 +315,13 @@ function checkTokens(page: ReturnType<typeof scanHtml>, js: readonly PageScript[
       if (!DASH_DEFINED_TOKENS.has(token) && !own.has(token)) unknown.add(token);
     }
   for (const token of unknown)
-    report(PAGE_DOC, 'error', `var(${token}) is no token of the dashboard (a typo?): use the names in reference/design-defaults.md.`);
+    report(
+      PAGE_DOC,
+      'error',
+      token.startsWith('--cds-')
+        ? `var(${token}) is no token of the dashboard: of the claude.ai names, only those in reference/design-defaults.md are set here.`
+        : `var(${token}) is no token of the dashboard (a typo?): use the names in reference/design-defaults.md.`,
+    );
 }
 
 function checkMarks(

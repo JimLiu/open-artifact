@@ -15,6 +15,7 @@
 - **Built-in Sources panel**: Shows every reader where every number came from, its query/script, and how fresh it is.
 - **Interactive filters & safe rules**: Bind page filters (`{{name}}`) directly into dataset parameters, validated by Rust/WASM filter rules (`open-artifact-data-rules`).
 - **Hand editing, looks & Design Systems**: Users can edit words directly on the page, switch ready-made visual looks, or install a [Design System](design-system.md).
+- **Pages from claude.ai dashboards**: A dashboard page brought over from claude.ai keeps its styles as written. Its `--cds-*` and `--font-anthropic-*` names stand for the dashboard's own tokens, so it follows light and dark and any look; `check` reports a claude.ai name that has no counterpart here.
 - **Remix & Read-aloud**: Remix a dashboard into a narrative scroll story or a short visual draft, and listen via built-in read-aloud support.
 - **Exports**: Export to **PDF**, standalone **HTML**, or **JSON** from **Share → Export**, plus portable `.zip` archives. The PDF is a file made right in the page (paper-size sheets, the light look, selectable text, clickable links); **Print…** opens the browser's print dialog when you want to print or choose the paper and margins yourself.
 

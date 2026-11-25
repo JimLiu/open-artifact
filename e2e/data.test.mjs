@@ -1,9 +1,10 @@
 // End-to-end tests of the data type's command line: the fixture dashboard (fixtures/data) is written through write-db
-// and passes check; a broken copy of each kind fails it with the finding the page would show; write-db refuses what
-// the page would drop and writes nothing; history leaves out dash/settings; upload, read-db --text and delete-asset;
-// open, wait and stop. In a browser: what a guest's page may save (a commenter only their own folder), the
-// read-only embedded view of a dashboard another page frames through the Shell, and the empty dashboard's format
-// picker and file import.
+// and passes check, also with the token names of claude.ai's dashboards; a broken copy of each kind fails it with the
+// finding the page would show; write-db refuses what the page would drop and writes nothing; history leaves out
+// dash/settings; upload, read-db --text and delete-asset; open, wait and stop. In a browser: what a guest's page may
+// save (a commenter only their own folder), the read-only embedded view of a dashboard another page frames through the
+// Shell, the empty dashboard's format picker and file import, and claude.ai's token names drawing as the dashboard's
+// own tokens in light, dark and under a look.
 //
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -71,6 +72,16 @@ describe(TYPE, { skip: skip() }, () => {
     assert.deepEqual(findingsOf(out), ['warning datasets/unused nothing on the page names it; Sources labels it "Unused".']);
   });
 
+  it('check passes a page written with the token names of the dashboards on claude.ai', T, async () => {
+    const root = copy('claude-tokens');
+    const css = readDoc(root, 'files/app.css');
+    css.text += '\n.claude { padding: var(--cds-pad-lg); gap: var(--cds-gap-md); border-radius: var(--cds-radius); font-family: var(--font-anthropic-serif); color: var(--cds-chart-status-critical); }';
+    writeDoc(root, 'files/app.css', css);
+    const out = await ctx.cli.run(['check', root, '--json']);
+    assert.equal(out.code, 0, out.stdout);
+    assert.deepEqual(findingsOf(out), ['warning datasets/unused nothing on the page names it; Sources labels it "Unused".']);
+  });
+
   it('check says when a live query names a connector the owner has not set up', T, async () => {
     const out = await ctx.cli.run(['check', ctx.root, '--json'], { env: { OPEN_ARTIFACT_CONNECTORS: path.join(path.dirname(ctx.connectors), 'none.json') } });
     assert.equal(out.code, 0, out.stdout);
@@ -89,6 +100,7 @@ describe(TYPE, { skip: skip() }, () => {
     'a mark of no dataset': [root => { const d = readDoc(root, 'files/index.html'); d.text += '\n<b data-source="nosuch" data-field="x">1</b>'; writeDoc(root, 'files/index.html', d); }, 'error files/index.html <b>: data-source="nosuch" names no dataset or dash.calc'],
     'a dataset read but not marked': [root => { const d = readDoc(root, 'files/app.js'); d.text += '\ndash.data("unused");'; writeDoc(root, 'files/app.js', d); }, 'error datasets/unused files/app.js reads it, but no element is marked'],
     'a token that does not exist': [root => { const d = readDoc(root, 'files/app.css'); d.text += '\n.x { color: var(--dash-nope); }'; writeDoc(root, 'files/app.css', d); }, 'error files/index.html var(--dash-nope) is no token of the dashboard'],
+    'a claude.ai token with nothing behind it here': [root => { const d = readDoc(root, 'files/app.css'); d.text += '\n.x { color: var(--cds-text-accent); }'; writeDoc(root, 'files/app.css', d); }, 'error files/index.html var(--cds-text-accent) is no token of the dashboard: of the claude.ai names'],
     'no dash/meta': [root => fs.rmSync(docPath(root, 'dash/meta')), 'error dash/meta is missing'],
     'saved rows kept outside data/': [root => writeDoc(root, 'datasets/notes', { title: 'Notes', source: { kind: 'store', path: 'notes/all' } }), 'error datasets/notes source.path "notes/all" isn’t under data/'],
     'saved rows in a person’s own reports': [root => writeDoc(root, 'datasets/notes', { title: 'Notes', source: { kind: 'store', path: 'data/users/me/check' } }), 'error datasets/notes source.path "data/users/me/check" is one of the page’s own reports'],
@@ -420,6 +432,61 @@ describe(`${TYPE} in a browser`, { skip: skip() || browserSkip }, () => {
     }
   });
 
+  it('gives a page the token names of the dashboards on claude.ai, as its own tokens in light, dark and under a look', T, async () => {
+    // A page brought over from claude.ai writes --cds-* and --font-anthropic-* (its spacing, sizes, chart and popover
+    // colors, fonts). Before the aliases, most of them were set nowhere here and silently fell back to nothing.
+    const { DASH_CLAUDE_TOKEN_ALIASES } = await import('../packages/data-core/src/look.ts');
+    const { dir } = install(typePath(TYPE), 'data-claude-type');
+    const serving = cli(dir, { OPEN_ARTIFACT_TYPE_SERVER_HOME: path.join(tmpDir('data-claude-state'), 'state'), OPEN_ARTIFACT_USER: 'E2E' });
+    const root = path.join(tmpDir('data-claude'), 'dashboard');
+    let page;
+    try {
+      const load = await run(path.join(fixtures, 'data', 'load.mjs'), [serving.script, root], { env: serving.env() });
+      assert.equal(load.code, 0, `the fixture did not load: ${load.stderr}`);
+      writeDoc(root, 'dash/look', { light: { ground: '#f3f5f9', card: '#ffffff', text: '#0d1b33', muted: '#5a6780', border: '#d6dce8' }, corners: '4px' });
+      const opened = await serving.json(['open', root, '--json']);
+      page = await browser.load(opened.url, { ready: "document.querySelector('#dash-root [data-source]')", timeout: 60000, settle: 1000, ignore: [/\/favicon\.ico$/] });
+      // Each probe draws with the claude.ai names; its twin with the tokens they stand for.
+      const read = mode => `(() => {
+        document.documentElement.setAttribute('data-mode', ${JSON.stringify(mode)});
+        const place = document.querySelector('#dash-root [data-source]').parentElement;
+        const draw = (pad, radius, serif, critical) => {
+          const probe = document.createElement('div');
+          probe.style.cssText = 'padding:var(' + pad + ');border-radius:var(' + radius + ');font-family:var(' + serif + ');color:var(' + critical + ');background:var(' + (pad.startsWith('--cds') ? '--cds-surface-popover' : '--dash-surface-popover') + ')';
+          place.append(probe);
+          const style = getComputedStyle(probe);
+          return { probe, style, drawn: [style.paddingTop, style.borderTopLeftRadius, style.fontFamily, style.color, style.backgroundColor] };
+        };
+        const claude = draw('--cds-pad-lg', '--cds-radius', '--font-anthropic-serif', '--cds-chart-status-critical');
+        const own = draw('--dash-pad-lg', '--dash-radius', '--font-serif', '--dash-chart-critical');
+        const value = name => claude.style.getPropertyValue(name).trim();
+        const aliases = ${JSON.stringify(DASH_CLAUDE_TOKEN_ALIASES)};
+        const shown = {
+          differ: Object.entries(aliases).filter(([alias, token]) => !value(token) || value(alias) !== value(token)).map(([alias, token]) => alias + '=' + value(alias) + ' ' + token + '=' + value(token)),
+          claude: claude.drawn, own: own.drawn,
+        };
+        claude.probe.remove();
+        own.probe.remove();
+        return shown;
+      })()`;
+      const light = await page.evaluate(read('light'));
+      assert.deepEqual(light.differ, [], 'a claude.ai name is not its token in light');
+      assert.deepEqual(light.claude, light.own, 'the claude.ai names draw unlike the tokens in light');
+      const [padding, radius, font, , popover] = light.claude;
+      assert.equal(padding, '16px');
+      assert.equal(radius, '4px', 'the look’s corners did not reach --cds-radius');
+      assert.match(font, /Georgia/);
+      assert.equal(popover, 'rgb(255, 255, 255)', 'the look’s card did not reach --cds-surface-popover');
+      const dark = await page.evaluate(read('dark'));
+      assert.deepEqual(dark.differ, [], 'a claude.ai name is not its token in dark');
+      assert.deepEqual(dark.claude, dark.own, 'the claude.ai names draw unlike the tokens in dark');
+      assert.equal(dark.claude[4], 'rgb(32, 32, 31)', 'the popover color did not follow the dark theme');
+    } finally {
+      await page?.close();
+      await serving.run(['stop']).catch(() => {});
+    }
+  });
+
   it('prints the dashboard itself, not a blank sheet, beside nothing of the editor', T, async () => {
     // Issue #24: #dash-root carries the print path's mark too, and the rule hiding every unmarked child of a marked
     // element hid the dashboard's own content. The PDF button and the browser's Print both mark the path; `beforeprint`
@@ -456,7 +523,6 @@ describe(`${TYPE} in a browser`, { skip: skip() || browserSkip }, () => {
       await printing.run(['stop']).catch(() => {});
     }
   });
-});
 
   it('exports the dashboard as a PDF file made in the page, and keeps Print as its own entry', { timeout: 150000 }, async () => {
     // Export → PDF used to open the print dialog. It now saves a file: a copy of the dashboard laid out as it prints,
@@ -568,3 +634,4 @@ describe(`${TYPE} in a browser`, { skip: skip() || browserSkip }, () => {
       await exporting.run(['stop']).catch(() => {});
     }
   });
+});
