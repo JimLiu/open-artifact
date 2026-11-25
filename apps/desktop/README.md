@@ -1,8 +1,8 @@
 # Open Artifact Desktop
 
 An Electron app that shows the local library's artifacts, with no agent attached: one window with a sidebar, a tab bar
-and the library page (the home tab), and one sandboxed `WebContentsView` per artifact tab showing its Shell. There is
-no server switcher yet.
+and the library page (the home tab), and one sandboxed `WebContentsView` per artifact tab showing its Shell, with a
+switcher for the Open Artifact sites (servers) the daemon knows.
 
 - It carries its own Open Artifact runtime (`resources/runtime`, a copy of the built `skills/open-artifact`) and starts
   the daemon with its own executable as Node (`ELECTRON_RUN_AS_NODE=1`), detached, so no Node.js has to be installed
@@ -60,6 +60,31 @@ The window's page (`renderer/`, a React app bundled into `out/renderer/app.js`) 
   empty (`src/folders.mjs`); without one the daemon decides (`<homeWorkspace>/<artifactsDir>/<slug>`).
 - **Service status** (the first of the home page's heading tools, `headingTools`): a dot and the state (running,
   reconnecting, stopped, started elsewhere, failed) with how many apps are connected; it opens the service panel.
+- **Servers switcher** (next to the service status; `src/servers.mjs`, `renderer/src/ServerSwitcher.jsx`): "This
+  Mac" and each site of the daemon's `remotes` with its name, address, signed-in account and whether it can be
+  reached. Everything is the daemon's (`remotes`, `cloud.settings`); the app keeps no copy, and reads them again every
+  3 s while connected (there is no daemon event), when the panel opens and when a site's page fails, so changes made
+  with `open-artifact remote …` show within seconds.
+  - **Add**: the address and a name (suggested from the host name; letters, digits, `-` and `_`). Only `https://` is
+    taken as it is; a plain `http://` address is asked about first and then sent as `--insecure-http` would be
+    (`insecureHttp`). The app calls `remotes.add` with `browse: false` and waits with `remotes.add.wait`, showing the
+    site's code, a waiting state, Open the approval page (the system browser) and Cancel (`remotes.add.cancel`).
+  - **Choose**: sets only the default (`cloud.settings {default}`); nothing is published. "This Mac" is a state,
+    not a choice: automatic publishing off (new artifacts stay here), whatever the default is. The button shows it then,
+    and the default server's name once automatic publishing is on. With one site, that site is the default.
+  - **Automatic publishing**: the switch "New artifacts go up to “<name>” automatically" (agents' new artifacts too) beside the button and
+    in the panel is `cloud.settings {publish}`, off by default. The first time a server becomes the default the app
+    asks once (`autoPublishAsked` in the app's settings).
+  - **Remove** (`remotes.remove`, asked first; forcing offered when the site still holds artifacts). **Open server
+    home** opens the site's own page in a tab.
+  - **Presets**: a preset site that is not the default and a preset problem are shown. What the daemon does not say
+    (the preset's publish policy, a preset address the person removed) is not shown.
+  - **Sites' pages**: a published artifact's tab (the daemon's redirect to its site) and a site's home page open in a
+    partition of their own (`persist:open-artifact-servers`: no preload, no daemon channel, never the token). Only
+    the `remotes` origins are shown at the top level; any other address (a third-party sign-in too) goes to the system
+    browser. Such a tab has no saved state and no place, its title is the library's, and it closes without asking.
+    When the site cannot be reached, the same tab shows the working copy here, editable; it stays local until
+    reloaded. The site's own sign-in is needed once in that partition.
 - **Service panel**: the daemon this app shares with the agent apps (its version, and whether it is the one the app
   carries; address and process; the profile folder), the apps connected with their sessions, the editors (type
   servers) running with a restart each (`types.restart`), the runtime and its updates, Restart and Stop (each asked
@@ -77,7 +102,11 @@ The window's page (`renderer/`, a React app bundled into `out/renderer/app.js`) 
   it changed), Artifacts (the folder new ones go to, chosen with the system's dialog), Service and updates (the
   service's state and its panel, the runtime and Check, the "check for updates" switch: on is `prompt`, off is
   `bundled`, written by the person-only `runtime policy`; shown read-only under `auto` or the computer's switch),
-  Advanced (the profile folder with Show in Finder, the versions).
+  Advanced (the profile folder with Show in Finder, the versions). Artifacts also has "Open agents' artifacts in this
+  app" (the daemon's `desktop.settings {openInDesktop}`, off by default): when an agent app that shows no pages itself
+  opens an artifact, the page opens in a tab here instead of the browser (the app started with the
+  `open-artifact://artifact/<id>` link when it is not running; that start has unit tests only, no run on a real
+  machine). Service and updates shows the default server, with the switcher.
 
 - **Menu bar** (`src/menu.mjs`, built again when the language, the types or the tab in front change): the app menu
   (About, Settings… `⌘,`, Services, Hide, Quit); File (New ▸ each type in the new dialog's two groups, New… `⌘N`,
@@ -196,8 +225,8 @@ npm test         # builds, then runs test/*.test.mjs one file at a time
 - `unit.test.mjs`: the profile guards and test-mode flags, the navigation rules, back and forward over tabs, the
   window's settings file (and the choices of the look and the language), what the page may ask of the Library API,
   the links the app takes (`open-artifact://artifact/<id>` only) and the arguments that ask to open, what a package
-  adds to its `Info.plist` (nothing, or the URL type with `OA_DESKTOP_URL_SCHEME=1`), and that no source registers the
-  scheme; no Electron.
+  adds to its `Info.plist` (nothing, or the URL type with `OA_DESKTOP_URL_SCHEME=1`), that no source registers the
+  scheme, the sites' navigation rules and the servers switcher's model against a fake daemon; no Electron.
 - `no-node.test.mjs`: with no `node` on PATH, Electron as Node starts a detached daemon on a free port and the blank
   Docs, Sheets, Slides and Whiteboard artifacts it creates open with their editors (`test/probe/chain-probe.mjs`).
 - `smoke.test.mjs`: the app in test mode: a blank doc in a tab, typing reaches the artifact's folder, no Node or
@@ -255,13 +284,24 @@ npm test         # builds, then runs test/*.test.mjs one file at a time
   (`HTTP_PROXY`, `HTTPS_PROXY`, `NODE_USE_ENV_PROXY=1`); Slides is also exported as PowerPoint with its current fonts,
   whose outcome is reported, not asserted; what was refused is listed (`OA_DESKTOP_OFFLINE_REPORT=<file>` writes it as
   JSON).
+- `servers.test.mjs`: against two real sites (`packages/host`, `test/lib/host.mjs`) on loopback ports, data in the
+  profile, approved through the site's own forms (no browser): adding from the switcher (an `http://` address asked
+  first, the code, the wait); Settings naming the default server and opening the switcher; choosing sets only the
+  default; automatic publishing on (the app's and an agent's new
+  artifacts go up and open there) and off; changes made on the command line (default, automatic publishing) shown;
+  a site that stops (the tab shows the editable working copy); a site's home tab in the servers' partition (no
+  preload, no token, no ticket) that closes without asking; removing asked first.
+- `open-in-app.test.mjs`: a fake agent app (harness-kit, no `open` of its own): with "Open agents' artifacts in this
+  app" off, its `Artifact open` opens no tab; turned on in Settings, it opens a tab here and the browser is not used
+  (`opened_in: "desktop"`); the setting refused from an agent's session.
 - `packaged/packaged.test.mjs` (`npm run test:packaged`, not in `npm test`): the packaged app uses the throwaway
   folders when given them; with no `node` on PATH the four types open and the daemon and the type servers run the
   package's executable; an edit kept across quitting; doctor; a copy of the package in another folder starts; the
   default package's `Info.plist` declares no URL scheme.
 
 Every test uses a throwaway profile (`HOME`, `OPEN_ARTIFACT_HOME`, `TMPDIR`) and a free port other than 4800, with a
-whitelisted environment (`OPEN_ARTIFACT_RUNTIME_UPDATE=off` and `OPEN_ARTIFACT_REGISTRY` on a closed loopback port
+whitelisted environment (`OPEN_ARTIFACT_BROWSER=none`, `OPEN_ARTIFACT_DESKTOP_LAUNCH=off`,
+`OPEN_ARTIFACT_RUNTIME_UPDATE=off` and `OPEN_ARTIFACT_REGISTRY` on a closed loopback port
 unless a test brings its fake registry; never the computer's policy file), and stops the daemons it started by the
 pid in their `daemon.json`. In test mode, opening a folder, Show in Finder, the folder and file dialogs, Reopen,
 About and full screen are only logged (a test gives Open Folder…, Import… and Move To… their path, and

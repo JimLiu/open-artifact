@@ -12,7 +12,9 @@ import { TabHistory } from '../src/history.mjs';
 import { LibraryError, createArg, idArg, libraryClient, patchArg, startsBlank } from '../src/library.mjs';
 import { Settings, chromiumLang } from '../src/settings.mjs';
 import { daemonEnv, daemonOnDefaultPort, resolveProfile } from '../src/profile.mjs';
-import { OriginAllowlist, decide, shellArtifactId, subframeAllowed } from '../src/navigation.mjs';
+import { OriginAllowlist, decide, decideServer, serverSubframeAllowed, shellArtifactId, subframeAllowed } from '../src/navigation.mjs';
+import { Servers, serverAddress, suggestName } from '../src/servers.mjs';
+import { until } from './lib/env.mjs';
 
 const user = '/Users/someone';
 
@@ -144,6 +146,130 @@ describe('navigation', () => {
   });
 });
 
+describe('navigation: the sites this computer is connected to', () => {
+  const allowlist = new OriginAllowlist();
+  allowlist.setDaemon('http://127.0.0.1:4891');
+  allowlist.fromDaemon({ origins: [], entries: [{ pattern: 'http://*.frame.localhost:4891' }] });
+  allowlist.setServers(['https://oa.example.com', 'http://localhost:5100/', 'not a url', 'ftp://x.example', 'http://127.0.0.1:4891']);
+
+  it('only the sites in the list, and never this computer\'s own pages', () => {
+    assert.deepEqual(allowlist.servers, ['https://oa.example.com', 'http://localhost:5100', 'http://127.0.0.1:4891']);
+    assert.equal(allowlist.serverOf('https://oa.example.com/a/art_1'), 'https://oa.example.com');
+    assert.equal(allowlist.serverOf('http://localhost:5100/auth/sign-in'), 'http://localhost:5100');
+    assert.equal(allowlist.serverOf('https://other.example.com/'), null);
+    assert.equal(allowlist.serverOf('http://localhost:5101/'), null, 'another port is another origin');
+    assert.equal(allowlist.serverOf('http://127.0.0.1:4891/a/art_1'), null, 'the daemon is never a site');
+    assert.equal(allowlist.allows('https://oa.example.com/'), false, 'a site never joins the local allowlist');
+  });
+
+  it('a site\'s page stays on its site; local Shells open tabs; everything else goes to the browser', () => {
+    assert.deepEqual(decideServer('https://oa.example.com/a/art_1?x', { allowlist }), { action: 'allow' });
+    assert.deepEqual(decideServer('http://localhost:5100/auth/sign-in?return_to=%2F', { allowlist }), { action: 'allow' });
+    assert.deepEqual(decideServer('http://127.0.0.1:4891/a/art_2', { allowlist }), { action: 'open-tab', id: 'art_2' });
+    assert.deepEqual(decideServer('http://127.0.0.1:4891/', { allowlist }), { action: 'home' });
+    assert.deepEqual(decideServer('http://127.0.0.1:4891/types', { allowlist }), { action: 'block' });
+    assert.deepEqual(decideServer('https://accounts.example.net/login', { allowlist }), { action: 'external', url: 'https://accounts.example.net/login' });
+    assert.deepEqual(decideServer('file:///etc/passwd', { allowlist }), { action: 'block' });
+    assert.deepEqual(decideServer('javascript:alert(1)', { allowlist }), { action: 'block' });
+  });
+
+  it('a site\'s subframes: its own and the web (its CSP decides), never this computer\'s pages', () => {
+    assert.equal(serverSubframeAllowed('http://art1--x.content.localhost:5100/', allowlist), true);
+    assert.equal(serverSubframeAllowed('about:srcdoc', allowlist), true);
+    assert.equal(serverSubframeAllowed('http://art1.frame.localhost:4891/docs/', allowlist), false);
+    assert.equal(serverSubframeAllowed('http://127.0.0.1:4891/a/art_1', allowlist), false);
+    assert.equal(serverSubframeAllowed('file:///etc/passwd', allowlist), false);
+  });
+});
+
+describe('the servers switcher, as the main process keeps it', () => {
+  it('takes https; asks before plain http; refuses the rest', () => {
+    assert.deepEqual(serverAddress('oa.example.com'), { host: 'https://oa.example.com', insecure: false });
+    assert.deepEqual(serverAddress(' https://oa.example.com/some/path '), { host: 'https://oa.example.com', insecure: false });
+    assert.deepEqual(serverAddress('http://10.0.0.2:8080'), { host: 'http://10.0.0.2:8080', needsConfirm: 'http' });
+    assert.deepEqual(serverAddress('http://10.0.0.2:8080', { insecure: true }), { host: 'http://10.0.0.2:8080', insecure: true });
+    for (const bad of ['', 'ftp://x.example', 'https://user:pw@x.example', 'file:///etc']) assert.throws(() => serverAddress(bad), bad);
+  });
+
+  it('suggests a name the daemon takes, from the address', () => {
+    assert.equal(suggestName('https://oa.example.com'), 'oa');
+    assert.equal(suggestName('https://oa.example.com', ['oa', 'oa-2']), 'oa-3');
+    assert.equal(suggestName('http://localhost:5100'), 'localhost');
+    assert.equal(suggestName('https://[::1]:5100'), 'server');
+  });
+
+  /** A fake of the daemon's routes: what was asked, and the settings as the daemon would keep them. */
+  function fakeDaemon() {
+    const calls = [];
+    const daemon = { remotes: [], cloud: { default: null, publish: 'manual' }, waits: 0 };
+    const library = {
+      async call(name, { body } = {}) {
+        calls.push([name, body ?? null]);
+        if (name === 'remotes') return { remotes: daemon.remotes.map((r) => ({ ...r, default: r.name === (daemon.cloud.default ?? (daemon.remotes.length === 1 ? r.name : null)) })), cloud: daemon.cloud };
+        if (name === 'desktop.settings') return { openInDesktop: false };
+        if (name === 'remotes.add') return { name: body.name, host: body.host, user_code: 'ABCD-EFGH', verification_uri: `${body.host}/link/device`, verification_uri_complete: `${body.host}/link/device?user_code=ABCD-EFGH` };
+        if (name === 'remotes.add.wait') {
+          daemon.waits += 1;
+          daemon.remotes.push({ name: body.name, host: 'https://oa.example.com', user: { name: 'Ada' }, signedIn: true, reachable: true, connected: true, token: 'secret-token', artifacts: [] });
+          return { status: 'done' };
+        }
+        if (name === 'cloud.settings') {
+          Object.assign(daemon.cloud, body);
+          return { cloud: daemon.cloud };
+        }
+        if (name === 'remotes.remove') {
+          daemon.remotes = daemon.remotes.filter((r) => r.name !== body.name);
+          return { removed: body.name, unlinked: [] };
+        }
+        throw Object.assign(new Error(`no route ${name}`), { status: 404 });
+      },
+    };
+    return { calls, daemon, library };
+  }
+
+  it('adds with no browser, sets only the default, asks once, and gives the page no token', async () => {
+    const { calls, daemon, library } = fakeDaemon();
+    let asked = false;
+    const views = [];
+    const servers = new Servers({ library, connected: () => true, asked: () => asked, setAsked: (on) => (asked = on), onChange: (v) => views.push(v), log: () => {} });
+    await servers.refresh();
+    assert.equal(servers.view().remotes.length, 0);
+    assert.deepEqual(await servers.add({ host: 'http://10.0.0.2' }), { needsConfirm: 'http', host: 'http://10.0.0.2' });
+    assert.equal(calls.some(([name]) => name === 'remotes.add'), false, 'nothing sent before the http question was answered');
+
+    await servers.add({ host: 'oa.example.com', name: 'team' });
+    assert.deepEqual(calls.find(([name]) => name === 'remotes.add')[1], { name: 'team', host: 'https://oa.example.com', browse: false });
+    await until(() => servers.view().adding?.state === 'done', 2000);
+    const view = servers.view();
+    assert.deepEqual([view.remotes[0].name, view.remotes[0].user, view.remotes[0].isDefault], ['team', 'Ada', true]);
+    assert.equal(JSON.stringify(views).includes('secret-token'), false, 'a token reached the page');
+
+    assert.equal(servers.shouldAsk(), true);
+    await servers.answerAsk(false);
+    assert.equal(asked, true);
+    assert.equal(daemon.cloud.publish, 'manual', 'not turned on by a no');
+    daemon.remotes.push({ name: 'other', host: 'https://other.example.com', signedIn: true, reachable: false, artifacts: [] });
+    await servers.refresh();
+    const chosen = await servers.setDefault('other');
+    assert.deepEqual(calls.filter(([name]) => name === 'cloud.settings').at(-1)[1], { default: 'other' }, 'only the default is sent');
+    assert.deepEqual(chosen, { ask: false }, 'asked once only');
+    assert.deepEqual([...servers.reachable()], [['https://oa.example.com', true], ['https://other.example.com', false]]);
+    await servers.setPublish(true);
+    assert.equal(daemon.cloud.publish, 'auto');
+    await servers.remove('other');
+    assert.deepEqual(servers.view().remotes.map((r) => r.name), ['team']);
+    await assert.rejects(() => servers.setDefault('nobody'));
+  });
+
+  it('insecure http is sent only once the person said so, as the CLI\'s --insecure-http', async () => {
+    const { calls, library } = fakeDaemon();
+    const servers = new Servers({ library, connected: () => true, asked: () => true, setAsked: () => {}, log: () => {} });
+    await servers.add({ host: 'http://10.0.0.2:8080', name: 'lab', insecure: true });
+    assert.deepEqual(calls.find(([name]) => name === 'remotes.add')[1], { name: 'lab', host: 'http://10.0.0.2:8080', browse: false, insecureHttp: true });
+    await servers.cancel();
+  });
+});
+
 describe('profile: test-mode looks', () => {
   const dev = (argv) => resolveProfile({ argv: ['--home', '/tmp/p', '--port', '4891', ...argv], env: {}, packaged: false, userHome: user, accountHome: user });
 
@@ -202,7 +328,7 @@ describe('settings', () => {
       const first = new Settings(dir);
       assert.equal(first.get('sidebarCollapsed'), false);
       first.set('sidebarCollapsed', true);
-      assert.deepEqual(JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8')), { sidebarCollapsed: true, theme: 'system', locale: 'system', artifactsFolder: '' });
+      assert.deepEqual(JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8')), { sidebarCollapsed: true, theme: 'system', locale: 'system', artifactsFolder: '', autoPublishAsked: false });
       assert.equal(new Settings(dir).get('sidebarCollapsed'), true);
       assert.throws(() => first.set('sidebarCollapsed', 'yes'), /not a setting/);
       assert.throws(() => first.set('token', 'x'), /not a setting/);

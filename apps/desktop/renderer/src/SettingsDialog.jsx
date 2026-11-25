@@ -1,9 +1,11 @@
 // The settings dialog: only what takes effect. General (the look, at once; the language, when the app opens again),
-// Artifacts (where new ones go), Service and updates (the service's state and its panel, the runtime and Check, the
+// Artifacts (where new ones go; whether agents' artifacts open in this app), Service and updates (the default server
+// and the switcher too) (the service's state and its panel, the runtime and Check, the
 // "check for updates" setting when this app may change it), Advanced (the profile folder, the versions).
 import { useEffect, useRef, useState } from 'react';
 import { RuntimeRow } from './ServicePanel.jsx';
 import { runtimeDo } from './service.js';
+import { defaultOf, serversDo } from './ServerSwitcher.jsx';
 
 const LOOKS = ['system', 'light', 'dark'];
 const LANGUAGES = ['system', 'zh-CN', 'en'];
@@ -61,7 +63,7 @@ function CheckSwitch({ t, runtime }) {
 }
 
 /** `settings`: the settings view (`desktop.settings.get()`, kept current through the state); `onService()`: the panel. */
-export function SettingsDialog({ t, settings, service, runtime, onService, onClose }) {
+export function SettingsDialog({ t, settings, service, runtime, servers, onService, onServers, onClose }) {
   const [error, setError] = useState('');
   const dialog = useRef(null);
   useEffect(() => dialog.current?.focus(), []);
@@ -101,6 +103,20 @@ export function SettingsDialog({ t, settings, service, runtime, onService, onClo
   const serviceLine =
     state === 'running' ? t('settings.serviceLine', { state: stateWord, version, count: String(service?.apps?.length ?? 0) }) : t('settings.serviceLineOff', { state: stateWord });
   const folder = settings.artifactsFolder;
+  const target = defaultOf(servers);
+  const serverLine = target
+    ? t(servers.publish === 'auto' ? 'settings.serverAuto' : 'settings.serverManual', { name: target.name, host: target.host })
+    : t('settings.serverNone');
+  // "Open agents' artifacts in this app": the daemon's setting (null: this daemon has none, not offered).
+  const openInDesktop = servers?.openInDesktop ?? null;
+  const flipOpen = async () => {
+    setError('');
+    try {
+      await serversDo('open-in-desktop', { on: !openInDesktop });
+    } catch (failure) {
+      setError(t('settings.failed', { message: failure.message }));
+    }
+  };
   const versions = settings.versions ?? {};
 
   return (
@@ -170,6 +186,17 @@ export function SettingsDialog({ t, settings, service, runtime, onService, onClo
                 {t('settings.folderChange')}
               </button>
             </div>
+            {openInDesktop !== null && (
+              <div className="settings-row" data-testid="open-in-desktop-row">
+                <span className="row-text">
+                  <span id="open-in-desktop-label">{t('settings.openInDesktop')}</span>
+                  <span className="row-hint">{t('settings.openInDesktopHint')}</span>
+                </span>
+                <button type="button" role="switch" className="switch" aria-checked={openInDesktop} aria-labelledby="open-in-desktop-label" data-testid="open-in-desktop" onClick={() => void flipOpen()}>
+                  <span aria-hidden="true" />
+                </button>
+              </div>
+            )}
           </Section>
 
           <Section id="settings-shared" title={t('settings.shared')}>
@@ -182,6 +209,17 @@ export function SettingsDialog({ t, settings, service, runtime, onService, onClo
               </span>
               <button type="button" className="button-outline" data-testid="settings-manage" onClick={onService}>
                 {t('settings.manage')}
+              </button>
+            </div>
+            <div className="settings-row" data-testid="settings-server">
+              <span className="row-text">
+                <span>{t('settings.server')}</span>
+                <span className="row-hint" data-testid="server-line">
+                  {serverLine}
+                </span>
+              </span>
+              <button type="button" className="button-outline" data-testid="settings-servers" onClick={onServers}>
+                {t('settings.serversManage')}
               </button>
             </div>
             <RuntimeRow t={t} runtime={runtime} compact />

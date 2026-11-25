@@ -74,7 +74,7 @@ packages/daemon (local open-artifact daemon, one per machine)
 ### Desktop app
 
 `apps/desktop/` is Open Artifact Desktop, an Electron app with no agent: a sidebar, a tab bar, the library page as
-its home tab, one view per artifact tab, a service panel, runtime updates and a settings dialog (no server switcher yet).
+its home tab, one view per artifact tab, a service panel, runtime updates, a settings dialog and a servers switcher.
 It is a Harness API host like the examples, built on `@open-artifact/harness-kit`:
 
 - **Runtime**: it carries the built `skills/open-artifact` as `resources/runtime` (`apps/desktop/scripts/build-runtime.mjs`)
@@ -142,6 +142,31 @@ It is a Harness API host like the examples, built on `@open-artifact/harness-kit
   dialog (` (2)` when the name is taken), and cancels a download from anywhere the views may not show; an editor's
   export reaches the app as the Shell's `saved_file`. Both show a notice, a transparent `WebContentsView` of its own
   page above the tab's view, with Show in Finder.
+- **Servers** (`apps/desktop/src/servers.mjs`, `renderer/src/ServerSwitcher.jsx`): the switcher in the home tab's
+  heading (and in Settings, Service and updates) shows the daemon's `remotes` (name, address, account, reachable) and
+  `cloud` settings; the app keeps no copy. Adding one is `remotes.add` with `browse: false`, then `remotes.add.wait`
+  in a loop (the code and the site's approval page shown in the app, Cancel as `remotes.add.cancel`); an `http://`
+  address is asked about first and sent with `insecureHttp`. Choosing one sets only `cloud.settings {default}`; the
+  automatic-publishing switch is `cloud.settings {publish: 'auto'|'manual'}`, asked about once when a server first
+  becomes the default (`autoPublishAsked` in the app's settings). "This Mac" is a state, not a choice: automatic publishing off, whatever the default (the button shows it then, the
+  default's name when publishing is automatic). Removing
+  is `remotes.remove` (asked first; `force` offered on a conflict). There is no daemon event for these, so the main
+  process reads `remotes` every 3 s while connected (and when the panel opens or a site's page fails): changes made on
+  the command line show within that. A published artifact's `/a/<id>` (the daemon's redirect to its site) and a
+  site's home page open in a view of a partition of their own (`persist:open-artifact-servers`: no preload, no daemon
+  channel, never the token; only the `remotes` origins at the top level, the rest to the system browser); such a tab
+  has no saved state or place and closes without asking. When the site cannot be reached, the same tab loads the
+  local working copy (editable). An open local tab of an artifact that just got published (nothing unsaved) is loaded
+  again so it shows the site's page.
+- **Agents' artifacts in the app**: the settings switch "Open agents' artifacts in this app" is the daemon's
+  `desktop.settings {openInDesktop}` (`settings.json`, off by default; refused from another origin or inside an
+  agent's session). With it on, `HarnessHub.show`'s browser step (a harness whose profile says `open: "browser"`)
+  goes first to the connected `open-artifact-desktop` adapter's `host.open` (the app opens a tab: the kit's `open`
+  callback); when the app is not connected, `DaemonOptions.launchDesktop` (default `systemLaunchDesktop`: `open
+  open-artifact://artifact/<id>` on macOS; `OPEN_ARTIFACT_DESKTOP_LAUNCH=off` turns it off) starts it with the link;
+  the browser when neither worked, or the running app declined. A host that shows the page itself (`host.open` of the
+  caller) comes first and is unaffected. `Artifact open` answers `opened_in: "desktop"`; doctor's conformance open
+  step warns on it. The launcher has unit tests only, no run on a real machine.
 - **Profile**: a development build refuses the default home and port 4800 and keeps Electron's folders under
   `<home>/desktop/`; so does a test-mode run of the packaged app. Test mode only: `--locale`, `--theme` (both before
   the settings), `--thumbnails`, `--offline` (every session's requests past this computer refused and listed).

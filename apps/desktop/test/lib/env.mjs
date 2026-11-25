@@ -76,6 +76,9 @@ export function cleanEnv(profile, port, extra = {}) {
     OPEN_ARTIFACT_REGISTRY: 'http://127.0.0.1:9',
     // Never the computer's policy file.
     OPEN_ARTIFACT_MACHINE_POLICY: join(profile.tmp, 'no-machine-policy.json'),
+    // Never this computer's browser, and never Open Artifact Desktop started by its link, from a test's daemon.
+    OPEN_ARTIFACT_BROWSER: 'none',
+    OPEN_ARTIFACT_DESKTOP_LAUNCH: 'off',
     ...extra,
   };
 }

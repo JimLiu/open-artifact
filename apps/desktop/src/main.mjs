@@ -36,7 +36,8 @@ import { createHarness, readDaemon, runtimeInfo } from '@open-artifact/harness-k
 import { thumbnailStamp } from '@open-artifact/library-page/library';
 import { daemonEnv, daemonOnDefaultPort, resolveProfile } from './profile.mjs';
 import { OriginAllowlist } from './navigation.mjs';
-import { HOME_TAB, PARTITION, Tabs, unsavedOf } from './tabs.mjs';
+import { HOME_TAB, PARTITION, SERVER_PARTITION, SITE_TAB, Tabs, unsavedOf } from './tabs.mjs';
+import { Servers } from './servers.mjs';
 import { TabHistory } from './history.mjs';
 import { CHOICES, Settings, chromiumLang, validSetting } from './settings.mjs';
 import { createArg, idArg, libraryClient, patchArg } from './library.mjs';
@@ -246,6 +247,7 @@ async function start() {
     for (const [name, ses] of [
       ['window', session.defaultSession],
       ['views', session.fromPartition(PARTITION)],
+      ['sites', session.fromPartition(SERVER_PARTITION)],
       ['thumbnails', session.fromPartition(CAPTURE_PARTITION)],
     ]) {
       blockOffline(ses, (url, details) => {
@@ -316,6 +318,10 @@ async function start() {
   downloads.attach(session.fromPartition(PARTITION));
   downloads.refuse(session.defaultSession, 'the window');
   downloads.refuse(session.fromPartition(CAPTURE_PARTITION), 'the thumbnails');
+  // A site's pages (the servers' partition) save nothing to this computer through this app.
+  downloads.refuse(session.fromPartition(SERVER_PARTITION), 'the sites');
+  /** The daemon's `host.open` with no session: an agent's open handed to this app ("open agents' artifacts here"). */
+  let showOpen = async () => false;
   harness = await createHarness({
     harness: 'open-artifact-desktop',
     // The runtime this app carries; updates are offered, never installed without the person (a later stage).
@@ -324,8 +330,9 @@ async function start() {
     daemon: { env: daemonEnv(process.env, profile), timeoutMs: 60_000 },
     // Views of its own (`view.open` gives a ticket only to `embed: 'view'`); a remote type's page is not shown yet.
     embed: { origins: [], mode: 'view', remote: 'deny' },
-    // Opens asked for by an agent's session never come here (this app attaches none): nothing is shown for them.
-    open: () => false,
+    // This app attaches no session: a `host.open` comes only when the person turned on "open agents' artifacts in this
+    // app" (the daemon's `openInDesktop`) and an agent's app could not show the page itself. It opens a tab.
+    open: (request) => showOpen(request),
     reconnect: { minMs: 500, maxMs: 5000 },
     log: (line) => log(`kit: ${line}`),
   });
@@ -563,7 +570,10 @@ async function start() {
     return true;
   };
   /** The library's word on an open tab's artifact (its title and type). */
+  /** Open tabs' artifacts last seen published (by id → the site's name), to follow one that was just published. */
+  const publishedTo = new Map();
   const describe = async (id) => {
+    if (SITE_TAB.test(id)) return;
     try {
       const artifact = await library.artifact(id);
       tabs.setInfo(id, { title: artifact.title, type: artifact.type });
@@ -571,13 +581,57 @@ async function start() {
       log(`artifact ${id}: ${error?.message ?? error}`);
     }
   };
+  /** An open local tab whose artifact was just published (now on a site that can be reached): loaded again, there. */
+  const followPublishing = async (id) => {
+    const was = publishedTo.get(id) ?? null;
+    try {
+      const record = await library.record(id);
+      const now = record?.remote?.name ?? null;
+      publishedTo.set(id, now);
+      if (now && now !== was && servers.remotes.some((remote) => remote.name === now && remote.reachable)) await tabs.followPublished(id);
+    } catch (error) {
+      log(`artifact ${id}: ${error?.message ?? error}`);
+    }
+  };
   const openTab = async (ref) => {
     const id = await tabs.open(ref);
     void describe(id);
+    if (!publishedTo.has(id)) void library.record(id).then((record) => publishedTo.set(id, record?.remote?.name ?? null), () => {});
     return id;
   };
   const libraryEvent = (event) => {
     if (!window.isDestroyed()) window.webContents.send('desktop:library', event);
+  };
+
+  // ---- the servers (sites) this computer is connected to: the daemon's settings, read and changed here ----
+  const servers = new Servers({
+    library,
+    connected: () => harness.connected,
+    asked: () => settings.get('autoPublishAsked'),
+    setAsked: (on) => settings.set('autoPublishAsked', on === true),
+    log,
+    onChange: (view) => {
+      // Only those sites' origins are let into the servers' partition (none of them into the local one).
+      allowlist.setServers(view.remotes.map((remote) => remote.host));
+      tabs.serversChanged(servers.reachable());
+      if (!window.isDestroyed()) window.webContents.send('desktop:servers', view);
+    },
+  });
+  // A site's page did not load: the list is read again now (a site that cannot be reached shows the working copy).
+  tabs.onServerFailed = () => void servers.refresh();
+  /** A server's home page in a tab of the servers' partition. */
+  const openServerHome = async (name) => {
+    const home = servers.homeOf(name);
+    if (!home.origin) throw new Error(`no address for ${name}`);
+    allowlist.setServers(servers.remotes.map((remote) => remote.host));
+    return tabs.openSite(home.name, home.origin);
+  };
+  // An agent's open the daemon handed to this app: a tab of it, the window in front.
+  showOpen = async (request) => {
+    const id = await openTab(request.url);
+    log(`open from the daemon: ${id}`);
+    toFront();
+    return true;
   };
 
   harness.on('event', (event) => {
@@ -586,7 +640,7 @@ async function start() {
       // The page's list reloads; an open tab of it follows a rename, and closes when it was deleted.
       if (tabs.tabs.has(event.id)) {
         if (event.removed) void tabs.close(event.id);
-        else void describe(event.id);
+        else void describe(event.id).then(() => followPublishing(event.id));
       }
       libraryEvent({ type: event.type, id: event.id, removed: !!event.removed });
     } else if (event.type === 'types/changed') {
@@ -606,11 +660,14 @@ async function start() {
         tabs.setConnected(true);
         libraryEvent({ type: 'connected' });
         void refreshTypes();
+        servers.start();
       });
       void runtime.refresh();
     } else {
       tabs.setConnected(false, { stopped: state === 'stopped' });
       libraryEvent({ type: 'disconnected' });
+      servers.stop();
+      void servers.refresh();
       void runtime.refresh();
     }
   });
@@ -694,6 +751,40 @@ async function start() {
     return settingsView();
   });
   // Where new artifacts go, chosen with the system's folder dialog (never in test mode: no dialog is shown there).
+  // The servers switcher: the daemon's list (display data only), and the person's changes, each a daemon call here.
+  handle('desktop:servers', async (fresh) => (fresh === true ? servers.refresh() : servers.view()));
+  answer('desktop:servers-do', async (what, arg) => {
+    const a = arg && typeof arg === 'object' ? arg : {};
+    switch (what) {
+      case 'add':
+        return servers.add({ host: String(a.host ?? ''), name: typeof a.name === 'string' ? a.name : '', insecure: a.insecure === true });
+      case 'cancel':
+        return servers.cancel();
+      case 'dismiss':
+        return servers.dismiss();
+      case 'default':
+        return servers.setDefault(String(a.name ?? ''));
+      case 'publish':
+        return servers.setPublish(a.on === true);
+      case 'answer-ask':
+        return servers.answerAsk(a.on === true);
+      case 'remove':
+        return servers.remove(String(a.name ?? ''), a.force === true);
+      case 'home':
+        return { id: await openServerHome(String(a.name ?? '')) };
+      case 'approve-page': {
+        // The site's approval page for the sign-in under way, in the system browser (test mode: only logged).
+        const link = servers.adding?.state === 'waiting' ? servers.adding.verificationUri : '';
+        if (!/^https?:\/\//.test(link)) throw new Error('no sign-in under way');
+        openExternal(link);
+        return true;
+      }
+      case 'open-in-desktop':
+        return servers.setOpenInDesktop(a.on === true);
+      default:
+        throw new Error(`not a servers action: ${what}`);
+    }
+  });
   handle('desktop:choose-folder', async () => {
     if (profile.testMode) {
       log('choose folder (test mode: no dialog)');
@@ -826,7 +917,8 @@ async function start() {
     void notice.say({ message, kind });
   };
   /** The artifact in front (null on the home page). */
-  const currentArtifact = () => (tabs.current === HOME_TAB ? null : tabs.current);
+  // A server's home page (`site:<name>`) is no artifact: nothing to reveal, move or reload as one.
+  const currentArtifact = () => (tabs.current === HOME_TAB || SITE_TAB.test(tabs.current) ? null : tabs.current);
   /** The page the Edit and View items act on: the dialog's or the home page's (the window's own), else the tab's. */
   const targetContents = () => (tabs.overlay ? null : tabs.currentView()?.webContents) ?? window.webContents;
   /**
@@ -1056,6 +1148,25 @@ async function start() {
     handle('test:notice', () => notice.state());
     handle('test:blocked', () => blocked.slice());
     handle('test:downloads', () => downloads.folder);
+    // A tab's view as Electron made it: its session's partition, its preload (none) and the address it shows.
+    handle('test:tab-info', (id) => {
+      const tab = tabs.tabs.get(String(id));
+      const contents = tab?.view?.webContents;
+      if (!contents || contents.isDestroyed()) return null;
+      const prefs = contents.getLastWebPreferences?.() ?? {};
+      return {
+        kind: tab.kind,
+        server: tab.server,
+        url: contents.getURL(),
+        partition: contents.session === session.fromPartition(SERVER_PARTITION) ? SERVER_PARTITION : contents.session === session.fromPartition(PARTITION) ? PARTITION : 'other',
+        preload: prefs.preload ?? null,
+        preloads: contents.session.getPreloads?.() ?? [],
+        sandbox: prefs.sandbox === true,
+        nodeIntegration: prefs.nodeIntegration === true,
+        ticket: tab.ticket ?? null,
+      };
+    });
+    handle('test:servers', () => ({ view: servers.view(), servers: [...allowlist.servers] }));
     // What the Shell said of a tab's saving, set by a test (`{ state, leaveLosesWork }`), so a test does not wait on timing.
     handle('test:saved', (id, saved) => {
       // null: as a tab whose Shell never said anything of its saving.
@@ -1092,6 +1203,7 @@ async function start() {
   // The page asked before the connection was there: now it can list the library.
   if (harness.connected) libraryEvent({ type: 'connected' });
   if (harness.connected) void refreshTypes();
+  if (harness.connected) servers.start();
 
   window.on('closed', () => app.quit());
   app.on('before-quit', (event) => {

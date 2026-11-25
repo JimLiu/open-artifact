@@ -8,6 +8,7 @@ import { TabBar } from './TabBar.jsx';
 import { NewDialog } from './NewDialog.jsx';
 import { ServicePanel, ServiceStatus } from './ServicePanel.jsx';
 import { SettingsDialog } from './SettingsDialog.jsx';
+import { ServerButton, ServerPanel, useServers } from './ServerSwitcher.jsx';
 import { MissingFolder, UnsavedDialog } from './Unsaved.jsx';
 import { pageApi, pageHost, setTypeWords, tileGroups } from './host.js';
 import { runtimeUpdates, useRuntime, useService } from './service.js';
@@ -24,6 +25,9 @@ export function App({ initial }) {
   // The service panel (`{ ask }`: opened with a question asked) and the settings dialog.
   const [servicePanel, setServicePanel] = useState(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // The servers switcher (the sites this computer is connected to).
+  const [serversOpen, setServersOpen] = useState(false);
+  const servers = useServers();
   const service = useService();
   const runtime = useRuntime();
   const runtimeRef = useRef(runtime);
@@ -80,6 +84,7 @@ export function App({ initial }) {
         if (name === 'settings') setSettingsOpen(true);
         else if (name === 'new-dialog') setDialogOpen(true);
         else if (name === 'service') setServicePanel({ ask: null });
+        else if (name === 'servers') setServersOpen(true);
         else if (name === 'toast' && typeof arg?.message === 'string') store.getState().showToast(arg.message, arg.kind === 'error' ? 'error' : 'info');
       }),
     [store],
@@ -124,7 +129,7 @@ export function App({ initial }) {
 
   // A dialog is drawn over the artifact's view: the view is hidden while one is open (the main process's question
   // about unsaved work too).
-  const overlay = dialogOpen || !!servicePanel || settingsOpen || !!state.ask;
+  const overlay = dialogOpen || !!servicePanel || settingsOpen || serversOpen || !!state.ask;
   useEffect(() => {
     void window.desktop.setOverlay(overlay);
   }, [overlay]);
@@ -164,7 +169,12 @@ export function App({ initial }) {
                 searchButton={false}
                 createButton={false}
                 tileGroups={groups}
-                headingTools={<ServiceStatus t={t} service={service} onOpen={() => setServicePanel({ ask: null })} />}
+                headingTools={
+                  <>
+                    <ServerButton t={t} view={servers} onOpen={() => setServersOpen(true)} />
+                    <ServiceStatus t={t} service={service} onOpen={() => setServicePanel({ ask: null })} />
+                  </>
+                }
                 cardActions={cardActions}
               />
             </main>
@@ -176,9 +186,19 @@ export function App({ initial }) {
           </div>
         </div>
         {dialogOpen && <NewDialog t={t} onClose={() => setDialogOpen(false)} />}
-        {settingsOpen && !servicePanel && (
-          <SettingsDialog t={t} settings={state.settings} service={service} runtime={runtime} onService={() => setServicePanel({ ask: null })} onClose={() => setSettingsOpen(false)} />
+        {settingsOpen && !servicePanel && !serversOpen && (
+          <SettingsDialog
+            t={t}
+            settings={state.settings}
+            service={service}
+            runtime={runtime}
+            servers={servers}
+            onService={() => setServicePanel({ ask: null })}
+            onServers={() => setServersOpen(true)}
+            onClose={() => setSettingsOpen(false)}
+          />
         )}
+        {serversOpen && !servicePanel && <ServerPanel t={t} view={servers} onClose={() => setServersOpen(false)} />}
         {servicePanel && <ServicePanel t={t} service={service} runtime={runtime} ask={servicePanel.ask} unsaved={unsavedNames} onClose={() => setServicePanel(null)} />}
         {state.ask && <UnsavedDialog key={state.ask.id} t={t} ask={state.ask} />}
       </StoreProvider>

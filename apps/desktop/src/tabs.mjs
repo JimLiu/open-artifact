@@ -22,15 +22,29 @@
  * An artifact whose folder is gone (moved or renamed outside Open Artifact: the daemon's `folderMissing`) gets a tab
  * with no view (`status: 'missing'`, `missing`: the folder the library still names); the window's page draws what to
  * do about it. Its Shell is never loaded: the daemon would show it as an empty artifact to start again.
+ *
+ * A published artifact is edited on its site: the daemon answers its `/a/<id>` with a redirect to the site while the
+ * site can be reached. Such a redirect of a tab's view (to one of the sites in `remotes`, `allowlist.serverOf`) is
+ * not followed in the local view: the tab gets a view of the servers' partition ({@link SERVER_PARTITION}: no preload,
+ * no daemon channel, never the daemon's token; what the site's sign-in leaves stays there) loading that address
+ * (`kind: 'server'`). The site's Shell does not take this app's host messages, so such a tab has no saved state and no
+ * place, its title is the library's, and closing it asks nothing. When the site cannot be reached any more (the
+ * page failed to load, or the servers' list says so: `serversChanged`), the same tab loads the artifact's local Shell
+ * again (the working copy, editable); it stays there once the site is back, the daemon syncing what changed.
+ * A site's own home page opens in a tab of that partition too (`openSite`, `kind: 'site'`, id `site:<name>`).
  */
 import { WebContentsView, nativeTheme, session as electronSession } from 'electron';
 import { embedArtifact } from '@open-artifact/harness-kit/embed';
-import { artifactIdOf, decide, httpish, subframeAllowed } from './navigation.mjs';
+import { artifactIdOf, decide, decideServer, httpish, serverSubframeAllowed, subframeAllowed } from './navigation.mjs';
 
 export { artifactIdOf };
 
 /** The views' own storage: nothing the window keeps (or a page sets) is shared with it. */
 export const PARTITION = 'persist:open-artifact-pages';
+/** The sites' pages (published artifacts, a site's home page): a partition of their own, apart from the local pages'. */
+export const SERVER_PARTITION = 'persist:open-artifact-servers';
+/** A site's home page tab: `site:<remote name>`. */
+export const SITE_TAB = /^site:([a-z0-9][a-z0-9_-]{0,31})$/i;
 /** The only permission a page gets: writing to the clipboard (and only on an allowed origin). */
 const PERMISSIONS = new Set(['clipboard-sanitized-write']);
 /** The app's own first tab: the home page. */
@@ -60,15 +74,16 @@ export class Tabs {
     this.current = HOME_TAB;
     this.connected = harness.connected;
     this.guardSession(electronSession.fromPartition(PARTITION));
+    this.guardSession(electronSession.fromPartition(SERVER_PARTITION), (origin) => !!this.allowlist.serverOf(origin));
     nativeTheme.on('updated', () => {
       for (const tab of this.tabs.values()) tab.embed?.setTheme(themeOf());
     });
     window.on('resize', () => this.layout());
   }
 
-  /** Permissions for every page in the partition: only clipboard writes, only from an allowed origin. */
-  guardSession(ses) {
-    const allowed = (permission, origin) => PERMISSIONS.has(permission) && !!origin && this.allowlist.allows(origin);
+  /** Permissions for every page in the partition: only clipboard writes, only from an allowed origin (`allows`). */
+  guardSession(ses, allows = (origin) => this.allowlist.allows(origin)) {
+    const allowed = (permission, origin) => PERMISSIONS.has(permission) && !!origin && allows(origin);
     ses.setPermissionRequestHandler((_contents, permission, callback, details) => {
       const ok = allowed(permission, details?.requestingUrl);
       if (!ok) this.log(`permission denied: ${permission} for ${details?.requestingUrl ?? '?'}`);
@@ -87,6 +102,10 @@ export class Tabs {
         id: tab.id,
         title: tab.title || tab.id,
         type: tab.type ?? '',
+        /** `local` (the artifact's Shell here), `server` (its page on a site) or `site` (a site's home page). */
+        kind: tab.kind ?? 'local',
+        /** The site's origin a `server` or `site` tab shows, else null. */
+        server: tab.server ?? null,
         unsaved: unsavedOf(tab),
         saved: tab.saved?.state ?? null,
         status: tab.status,
@@ -111,7 +130,7 @@ export class Tabs {
       this.select(id);
       return id;
     }
-    const tab = { id, title: '', type: '', saved: null, status: 'opening', view: null, embed: null, ticket: null, place: null, discard: false, closing: false, missing: null };
+    const tab = { id, kind: 'local', server: null, title: '', type: '', saved: null, status: 'opening', view: null, embed: null, ticket: null, place: null, discard: false, closing: false, missing: null };
     this.tabs.set(id, tab);
     this.current = id;
     this.changed();
@@ -135,25 +154,18 @@ export class Tabs {
 
   /** Asks the daemon for a view of the tab's artifact and loads it (into the tab's view, made on first use). */
   async load(tab) {
+    if (tab.kind === 'site') return this.loadSite(tab);
     const request = await this.harness.view(artifactLink(tab.id));
     if (!request.view) throw new Error('the daemon gave no view ticket (caps.open.embed must be "view")');
     if (!httpish(request.embedUrl) || !this.allowlist.allows(request.embedUrl)) throw new Error(`the page address is not allowed: ${request.embedUrl}`);
     tab.title = request.title ?? tab.title;
     tab.ticket = request.view;
+    // A tab that showed the site's page: back to a local view (the daemon redirects again while the site is there).
+    if (tab.view && tab.kind !== 'local') this.dropView(tab);
+    tab.kind = 'local';
+    tab.server = null;
     if (!tab.view) {
-      tab.view = new WebContentsView({
-        webPreferences: {
-          partition: PARTITION,
-          sandbox: true,
-          contextIsolation: true,
-          nodeIntegration: false,
-          nodeIntegrationInSubFrames: false,
-          nodeIntegrationInWorker: false,
-          webviewTag: false,
-          // A test window is never shown: keep its pages drawing and their timers running.
-          backgroundThrottling: !this.testMode,
-        },
-      });
+      tab.view = this.makeView(PARTITION);
       this.guardNavigation(tab);
       this.window.contentView.addChildView(tab.view);
     }
@@ -188,7 +200,191 @@ export class Tabs {
     this.layout();
     this.changed();
     const target = tab.place ? `${request.embedUrl.replace(/#.*$/, '')}${tab.place.startsWith('#') ? tab.place : `#${tab.place}`}` : request.embedUrl;
-    await tab.view.webContents.loadURL(target);
+    const contents = tab.view.webContents;
+    await contents.loadURL(target).catch((error) => {
+      // The daemon redirected it to the artifact's site: the tab went to a view of the servers' partition.
+      if (tab.kind === 'server' || tab.view?.webContents !== contents) return;
+      throw error;
+    });
+  }
+
+  /** A sandboxed view with no Node and no preload, in `partition`. */
+  makeView(partition) {
+    return new WebContentsView({
+      webPreferences: {
+        partition,
+        sandbox: true,
+        contextIsolation: true,
+        nodeIntegration: false,
+        nodeIntegrationInSubFrames: false,
+        nodeIntegrationInWorker: false,
+        webviewTag: false,
+        // A test window is never shown: keep its pages drawing and their timers running.
+        backgroundThrottling: !this.testMode,
+      },
+    });
+  }
+
+  /** Lets go of a tab's view (and its Shell's channel). */
+  dropView(tab) {
+    tab.embed?.destroy();
+    tab.embed = null;
+    if (tab.view) {
+      this.window.contentView.removeChildView(tab.view);
+      if (!tab.view.webContents.isDestroyed()) tab.view.webContents.close();
+      tab.view = null;
+    }
+  }
+
+  /**
+   * The daemon sent a tab's view to the artifact's page on a site (`origin`): the tab shows `url` in a view of the
+   * servers' partition instead, with no saved state and no place (the site's Shell does not take this app's messages).
+   */
+  async toServer(tab, url, origin) {
+    if (this.tabs.get(tab.id) !== tab) return;
+    this.dropView(tab);
+    Object.assign(tab, { kind: 'server', server: origin, saved: null, place: null, ticket: null, status: 'loading', failed: false });
+    tab.view = this.makeView(SERVER_PARTITION);
+    this.guardServerNavigation(tab);
+    this.window.contentView.addChildView(tab.view);
+    this.log(`tab ${tab.id}: shown on its site ${origin}`);
+    this.layout();
+    this.changed();
+    await tab.view.webContents.loadURL(url).catch((error) => this.log(`tab ${tab.id}: ${error?.message ?? error}`));
+  }
+
+  /** A site's home page in a tab (or its tab): `name` (the remote's), `origin` (its address). Returns the tab's id. */
+  async openSite(name, origin) {
+    const id = `site:${name}`;
+    if (!SITE_TAB.test(id)) throw new Error(`not a site: ${name}`);
+    if (!this.allowlist.serverOf(origin)) throw new Error(`not a site this computer is connected to: ${origin}`);
+    const known = this.tabs.get(id);
+    if (known) {
+      this.select(id);
+      return id;
+    }
+    const tab = { id, kind: 'site', server: new URL(origin).origin, title: name, type: '', saved: null, status: 'opening', view: null, embed: null, ticket: null, place: null, discard: false, closing: false, missing: null };
+    this.tabs.set(id, tab);
+    this.current = id;
+    this.changed();
+    await this.loadSite(tab);
+    return id;
+  }
+
+  async loadSite(tab) {
+    if (!this.allowlist.serverOf(tab.server)) {
+      tab.status = 'stale';
+      this.changed();
+      throw new Error(`not a site this computer is connected to: ${tab.server}`);
+    }
+    if (!tab.view) {
+      tab.view = this.makeView(SERVER_PARTITION);
+      this.guardServerNavigation(tab);
+      this.window.contentView.addChildView(tab.view);
+    }
+    tab.status = 'loading';
+    this.layout();
+    this.changed();
+    await tab.view.webContents.loadURL(`${tab.server}/`).catch((error) => this.log(`tab ${tab.id}: ${error?.message ?? error}`));
+  }
+
+  /** Navigation in a view of a site's page: see `navigation.mjs` (`decideServer`). New windows are never opened. */
+  guardServerNavigation(tab) {
+    const contents = tab.view.webContents;
+    const onTop = (event, legacyUrl) => {
+      const url = event.url ?? legacyUrl;
+      const verdict = decideServer(url, { allowlist: this.allowlist });
+      if (verdict.action === 'allow') return;
+      event.preventDefault();
+      if (verdict.action === 'open-tab') {
+        // The site's page went back to this computer's Shell: the site cannot be reached, or the artifact is local.
+        if (verdict.id === tab.id && tab.kind === 'server') return void this.toLocal(tab, 'the site sent it back here');
+        void this.open(verdict.id).catch((error) => this.log(`open ${verdict.id}: ${error?.message ?? error}`));
+      } else if (verdict.action === 'home') this.select(HOME_TAB);
+      else if (verdict.action === 'external') this.external(verdict.url);
+      else this.log(`blocked navigation to ${url}`);
+    };
+    contents.on('will-navigate', onTop);
+    contents.on('will-redirect', (event, legacyUrl) => {
+      if (event.isMainFrame === false) return;
+      onTop(event, legacyUrl);
+    });
+    contents.on('will-frame-navigate', (event) => {
+      if (event.isMainFrame) return;
+      if (serverSubframeAllowed(event.url, this.allowlist)) return;
+      event.preventDefault();
+      this.log(`blocked frame navigation to ${event.url}`);
+    });
+    contents.setWindowOpenHandler(({ url }) => {
+      if (httpish(url)) this.external(url);
+      else this.log(`blocked new window for ${url}`);
+      return { action: 'deny' };
+    });
+    contents.on('will-attach-webview', (event) => event.preventDefault());
+    contents.on('did-finish-load', () => {
+      if (tab.view?.webContents !== contents) return;
+      tab.status = 'ready';
+      tab.failed = false;
+      if (tab.kind === 'site' && !tab.title) tab.title = contents.getTitle();
+      this.changed();
+    });
+    contents.on('did-fail-load', (_event, code, description, address, isMainFrame) => {
+      // -3: aborted (a navigation this app stopped, or the next one started).
+      if (!isMainFrame || code === -3 || tab.view?.webContents !== contents) return;
+      this.log(`tab ${tab.id}: the site's page did not load (${description || code}) ${address}`);
+      tab.failed = true;
+      tab.status = 'offline';
+      this.changed();
+      this.onServerFailed?.(tab.server);
+    });
+    contents.on('render-process-gone', (_event, details) => {
+      tab.status = 'crashed';
+      this.log(`tab ${tab.id}: renderer gone (${details.reason})`);
+      this.changed();
+    });
+  }
+
+  /** A tab of a site's page loads the artifact's local Shell again (the working copy). */
+  async toLocal(tab, why) {
+    if (this.tabs.get(tab.id) !== tab || tab.kind !== 'server') return;
+    this.log(`tab ${tab.id}: the local working copy (${why})`);
+    this.dropView(tab);
+    tab.kind = 'local';
+    tab.server = null;
+    tab.status = 'opening';
+    this.changed();
+    try {
+      await this.load(tab);
+    } catch (error) {
+      tab.status = 'stale';
+      this.log(`tab ${tab.id}: could not load the working copy: ${error?.message ?? error}`);
+      this.changed();
+    }
+  }
+
+  /**
+   * The servers' list changed (`reachable` by origin): a tab on a site that cannot be reached shows the working copy;
+   * a site tab whose site is no longer in the list closes.
+   */
+  serversChanged(reachable) {
+    for (const tab of [...this.tabs.values()]) {
+      if (!tab.server) continue;
+      const known = reachable.has(tab.server);
+      if (tab.kind === 'site' && !known) {
+        this.log(`tab ${tab.id}: the site was removed`);
+        void this.close(tab.id);
+      } else if (tab.kind === 'server' && (!known || reachable.get(tab.server) === false)) {
+        void this.toLocal(tab, known ? 'the site cannot be reached' : 'the site was removed');
+      }
+    }
+  }
+
+  /** An open local tab of an artifact that is now published (and its site reachable): loaded again, to the site. */
+  async followPublished(id) {
+    const tab = this.tabs.get(id);
+    if (!tab || tab.kind !== 'local' || tab.status === 'missing' || unsavedOf(tab)) return false;
+    this.log(`tab ${id}: published, loaded again`);
+    return this.reload(id);
   }
 
   /** Host messages to one view's Shell, through the daemon: the view's ticket names it. */
@@ -222,6 +418,14 @@ export class Tabs {
     contents.on('will-navigate', onTop);
     contents.on('will-redirect', (event, legacyUrl) => {
       if (event.isMainFrame === false) return;
+      // The daemon's redirect of a published artifact to its site: shown in a view of the servers' partition.
+      const url = event.url ?? legacyUrl;
+      const origin = this.allowlist.serverOf(url);
+      if (origin && tab.view?.webContents === contents) {
+        event.preventDefault();
+        void this.toServer(tab, url, origin);
+        return;
+      }
       onTop(event, legacyUrl);
     });
     contents.on('will-frame-navigate', (event) => {
@@ -397,14 +601,15 @@ export class Tabs {
     const was = this.connected;
     this.connected = connected;
     if (!connected) {
-      for (const tab of this.tabs.values()) if (tab.status !== 'crashed' && tab.status !== 'missing') tab.status = stopped ? 'stopped' : 'reconnecting';
+      // A site's home page does not need this computer's daemon.
+      for (const tab of this.tabs.values()) if (tab.status !== 'crashed' && tab.status !== 'missing' && tab.kind !== 'site') tab.status = stopped ? 'stopped' : 'reconnecting';
       this.changed();
       return;
     }
     if (was) return this.changed();
     for (const tab of this.tabs.values()) {
-      // No folder: nothing to load; the person relocates it (or removes it) from the tab.
-      if (tab.status === 'missing') continue;
+      // No folder: nothing to load; the person relocates it (or removes it) from the tab. A site's page: not this daemon's.
+      if (tab.status === 'missing' || tab.kind === 'site') continue;
       // Something was not saved when the daemon went away: leave the page as it is, for the person to decide.
       if (unsavedOf(tab)) {
         tab.status = 'stale';

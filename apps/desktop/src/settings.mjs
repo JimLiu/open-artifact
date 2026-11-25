@@ -9,7 +9,7 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, normalize } from 'node:path';
 
-export const DEFAULTS = Object.freeze({ sidebarCollapsed: false, theme: 'system', locale: 'system', artifactsFolder: '' });
+export const DEFAULTS = Object.freeze({ sidebarCollapsed: false, theme: 'system', locale: 'system', artifactsFolder: '', autoPublishAsked: false });
 
 /** The values a setting may take (a setting not listed takes any value of its default's type). */
 export const CHOICES = Object.freeze({

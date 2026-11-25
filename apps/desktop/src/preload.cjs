@@ -58,6 +58,18 @@ contextBridge.exposeInMainWorld('desktop', {
     onChange: listen('desktop:runtime'),
   },
   /**
+   * The servers (the sites this computer is connected to; the daemon's settings, shared with the command line):
+   * `get(refresh)` the list, the default, automatic publishing and a sign-in under way; `do(act, arg)` runs `add`
+   * (`{ host, name, insecure }`), `cancel`, `dismiss`, `default` (`{ name }`), `publish` (`{ on }`), `answer-ask`
+   * (`{ on }`), `remove` (`{ name, force }`), `home` (`{ name }`), `approve-page` or `open-in-desktop` (`{ on }`),
+   * answering `{ ok, value }` or `{ ok: false, error }`. Display data only: never a token.
+   */
+  servers: {
+    get: (refresh) => ipcRenderer.invoke('desktop:servers', refresh === true),
+    do: (act, arg) => ipcRenderer.invoke('desktop:servers-do', String(act), arg && typeof arg === 'object' ? { ...arg } : undefined),
+    onChange: listen('desktop:servers'),
+  },
+  /**
    * What the menu bar asks of this page (`{ name, arg }`): `settings`, `new-dialog`, `service` (the service panel) or
    * `toast` (`{ message, kind }`).
    */
@@ -90,6 +102,9 @@ contextBridge.exposeInMainWorld('desktop', {
     notice: () => ipcRenderer.invoke('test:notice'),
     blocked: () => ipcRenderer.invoke('test:blocked'),
     downloads: () => ipcRenderer.invoke('test:downloads'),
+    /** A tab's view as Electron made it (its partition, its preload), and the servers this process lets in. */
+    tabInfo: (id) => ipcRenderer.invoke('test:tab-info', String(id)),
+    servers: () => ipcRenderer.invoke('test:servers'),
   },
   /** Keyboard focus back to this page. */
   focus: () => ipcRenderer.invoke('desktop:focus'),
