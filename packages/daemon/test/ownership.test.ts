@@ -140,7 +140,7 @@ test('ownership: an owner still there keeps it; the writer is told once that ado
   assert.equal(own.wrote(make(OWNER), WRITER).moved, true);
 });
 
-test('ownership: never across harnesses or workspaces, and an unowned artifact stays so', () => {
+test('ownership: never across harnesses or workspaces; an unowned artifact goes to the session that writes it', () => {
   const { store, own, make } = ownership(hub());
   const other = make(OWNER);
   const codex: SessionRef = { harness: 'codex', session: 'new', workspace: WS };
@@ -151,8 +151,15 @@ test('ownership: never across harnesses or workspaces, and an unowned artifact s
   // No workspace known on either side: not the same workspace.
   assert.equal(own.wrote(make({ ...OWNER, workspace: null }), { ...WRITER, workspace: null }).moved, false);
   const unowned = store.create({ root: join(tempDir('open-artifact-root-'), 'u'), type: 'design', title: 'Nobody' }).id;
-  assert.deepEqual(own.wrote(unowned, WRITER), { moved: false, note: null });
+  // Not a caller with no session id (the home page, a command line run by hand).
+  assert.deepEqual(own.wrote(unowned, { harness: 'open-artifact-home', session: null, workspace: WS }), { moved: false, note: null });
+  assert.deepEqual(own.wrote(unowned, { harness: 'cli', session: null, workspace: WS }), { moved: false, note: null });
   assert.equal(store.get(unowned)!.owner ?? null, null);
+  // A session: it owns it now, whatever its harness.
+  const taken = own.wrote(unowned, codex);
+  assert.equal(taken.moved, true);
+  assert.match(String(taken.note), /had no owner session, so it is yours now/);
+  assert.deepEqual(store.get(unowned)!.owner, codex);
 });
 
 test('ownership: only writes count, through the single call in Tools', async () => {

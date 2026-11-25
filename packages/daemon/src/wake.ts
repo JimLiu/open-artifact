@@ -14,6 +14,12 @@
  * to send) too, so it never also goes to the inbox. When the answer names another session that took it (a thread that
  * ended handed it to its coordinator), that session of the same harness becomes the artifact's owner (`handOver` in
  * `ownership.ts`), and later wakes go straight to it.
+ *
+ * An artifact no session owns (the person made it on the home page, or opened its folder) has its wakes in the unowned
+ * inbox, each with its `artifactId`. They follow the artifact: when a session becomes its owner (`adopt`, a write
+ * through the tools, or the person's `artifacts.assign`), {@link WakeRouter.handOff} moves that artifact's messages to
+ * the session's inbox, with a first line that says why it has them ({@link wakeHandOffLine}); from there they go the
+ * usual ways. Nothing else reads the unowned inbox.
  */
 
 import {
@@ -21,7 +27,10 @@ import {
   WAKE_MERGE_MS,
   WAKE_PER_MINUTE,
   artifactUrl,
+  wakeHandOffLine,
   wakeMessage,
+  withHandOffLine,
+  type InboxMessage,
   type LibraryEvent,
   type SessionRef,
   type WakeDeliverResult,
@@ -160,7 +169,8 @@ export class WakeRouter {
     const record = this.options.store.get(id);
     if (!record) return { via: 'dropped' };
     const owner = record.owner;
-    const message = wakeMessage(record, threads, requests, { viewUrl: this.options.viewUrl(id), noOwner: !owner });
+    // Stored without a word on who gets it: that is known when a session takes the artifact (handOff).
+    const message = wakeMessage(record, threads, requests, { viewUrl: this.options.viewUrl(id) });
     const payload: WakePayload = { artifact: artifactUrl(id), artifactId: id, text: message.text, source: message.source };
     const result = await this.send(owner, payload);
     // The adapter handed it to another session of the harness: that one owns the artifact from now on.
@@ -210,5 +220,45 @@ export class WakeRouter {
     const via: WakeVia = taken ? 'wait' : 'inbox';
     emit?.({ type: 'wake/state', artifactId: id, via });
     return { via };
+  }
+
+  /**
+   * `owner` became the owner of artifact `id` (`how`: by `adopt`, by writing it, or the person assigned it): the
+   * artifact's messages in the unowned inbox move to `owner`'s inbox, each wake with its first line. They are written
+   * there first and taken out of the unowned inbox after, in one synchronous step, so each is handed over once; a
+   * process killed between the two writes leaves a copy in both rather than losing one. Returns what moved.
+   */
+  handOff(id: string, owner: SessionRef, how: 'adopt' | 'wrote' | 'assign'): InboxMessage[] {
+    const { inbox, store, log, emit } = this.options;
+    const key = sessionKeyOf(owner);
+    if (!key || key === UNOWNED_KEY) return [];
+    const mine = (message: InboxMessage): boolean => message.artifactId === id;
+    const waiting = inbox.peek(UNOWNED_KEY).filter(mine);
+    if (!waiting.length) return [];
+    const why = how === 'assign' ? 'assigned' : store.get(id)?.createdBy ? 'gone' : 'made';
+    const line = wakeHandOffLine(why, artifactUrl(id), { adopted: how === 'adopt' });
+    const moved = waiting.map((message) => (message.kind === 'wake' ? { ...message, text: withHandOffLine(message.text, line) } : message));
+    for (const message of moved) inbox.append(key, message);
+    inbox.takeWhere(UNOWNED_KEY, mine);
+    log(`wake ${id}: ${moved.length} waiting message(s) from the unowned inbox -> ${key} (${how})`);
+    emit?.({ type: 'wake/state', artifactId: id, via: 'inbox' });
+    return moved;
+  }
+
+  /**
+   * Delivers the wakes of artifact `id` waiting in `owner`'s inbox now, as a new wake would go (live, else back to the
+   * inbox and a nudge): after the person assigned the artifact, or after an adapter saw the session write it. Unlike
+   * {@link handOff}, they are taken out of the inbox before they are sent: a process killed in between loses them.
+   */
+  async deliverWaiting(id: string, owner: SessionRef): Promise<WakeResult[]> {
+    const key = sessionKeyOf(owner);
+    if (!key) return [];
+    const taken = this.options.inbox.takeWhere(key, (message) => message.artifactId === id && message.kind === 'wake' && !!message.source);
+    const results: WakeResult[] = [];
+    for (const message of taken) {
+      const payload: WakePayload = { artifact: message.artifact ?? artifactUrl(id), artifactId: id, text: message.text, source: message.source! };
+      results.push(await this.send(owner, payload));
+    }
+    return results;
   }
 }

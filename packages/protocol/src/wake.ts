@@ -204,8 +204,49 @@ export function requestBlock(id: string, request: WakeRequestItem): string {
 export interface WakeMessageOptions {
   /** Where the person views the artifact. */
   viewUrl: string;
-  /** The artifact has no owner session; another session was picked. */
-  noOwner?: boolean;
+}
+
+/**
+ * Why a session gets messages that waited for an artifact no session owned (the daemon's unowned inbox), when it
+ * becomes the owner:
+ *
+ * - `made`: the person made the artifact without an agent (the home page, a folder they opened) and this session took
+ *   it, by `adopt` or by writing it;
+ * - `assigned`: the person picked this session for it (`artifacts.assign`, the Ask pane);
+ * - `gone`: an agent's session made it and is no longer its owner.
+ */
+export type WakeHandOff = 'made' | 'assigned' | 'gone';
+
+/** What every {@link wakeHandOffLine} starts with: a message carrying one is not given another. */
+export const WAKE_HANDOFF_PREFIX = '[Open Artifact] ';
+
+/**
+ * The opening line put before a message that waited while no session owned the artifact, when it is handed to the
+ * session that now owns it. Messages are stored without it, since who gets them and why is known only then.
+ * `adopted`: the session has the type's instructions already (it called `adopt`), so it is not told to.
+ */
+export function wakeHandOffLine(how: WakeHandOff, url: string, options: { adopted?: boolean } = {}): string {
+  const adopt = options.adopted ? '' : ` If you have not, call Artifact {action: "adopt", url: "${url}"} first for its type's instructions.`;
+  switch (how) {
+    case 'assigned':
+      return `${WAKE_HANDOFF_PREFIX}The person picked this session for ${url} and it is yours now: comments on it come to this session.${adopt} It may already hold what the person wrote: read it before you change it.`;
+    case 'made':
+      return `${WAKE_HANDOFF_PREFIX}The person made ${url} without an agent, and it is yours now: comments on it come to this session. This came while no session had it.${adopt} It may already hold what the person wrote: read it before you change it.`;
+    default:
+      return `${WAKE_HANDOFF_PREFIX}The session that made ${url} is no longer its owner; it is yours now, and this came while no session had it.${adopt} Read the artifact before acting.`;
+  }
+}
+
+/** The opening an older daemon stored on every unowned message, true or not; {@link withHandOffLine} replaces it. */
+const OLD_NO_OWNER_LINE = /^This artifact's original session is gone; you were picked to handle it\. Read the artifact before acting\.\n+/;
+
+/**
+ * `text` with {@link wakeHandOffLine} before it, unless it starts with such a line already. The opening an older
+ * daemon stored ("the original session is gone", said of artifacts the person made too) gives way to `line`.
+ */
+export function withHandOffLine(text: string, line: string): string {
+  if (text.startsWith(WAKE_HANDOFF_PREFIX)) return text;
+  return `${line}\n\n${text.replace(OLD_NO_OWNER_LINE, '')}`;
 }
 
 /** Renders merged threads and requests as one message and its structured copy. */
@@ -225,12 +266,7 @@ export function wakeMessage(
       : null,
     'Read the files again before changing them: the person may have edited them.',
   ].filter((line): line is string => line !== null);
-  const parts = [
-    options.noOwner ? "This artifact's original session is gone; you were picked to handle it. Read the artifact before acting.\n" : null,
-    blocks.join('\n\n'),
-    '',
-    footer.join('\n'),
-  ].filter((part): part is string => part !== null);
+  const parts = [blocks.join('\n\n'), '', footer.join('\n')];
 
   const first = threads[0];
   const firstRequest = requests[0];

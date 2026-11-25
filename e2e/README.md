@@ -174,6 +174,8 @@ The harness asks its questions (`waitFor`, `evaluateAll`, `load`'s `ready`) in a
 - The home page's **New** lists Docs under "Start right away" and Design under "Make with an agent"; choosing Docs, a title and Create opens the Shell on the doc's editor, not the empty state, and the doc has `doc/doc.json` and no owner.
 - An empty whiteboard opens on the empty state with its hand-over prompt; **Start blank** opens its editor. An empty design shows no **Start blank**.
 - A Design System made blank opens on its welcome page; **Start by hand** brings its Colors section into view.
+- A blank doc no session owns: with no session online, its Ask pane offers the take-over prompt; a message sent from it waits in the unowned inbox, and a session that adopts the doc later gets it in that call's result, once.
+- With a session online (a polling session attached in the test), the Ask pane lists it; **Hand over** makes it the doc's owner, and it gets what was sent at once.
 
 **The MCP App view in a host on a public address** (`mcp-app.test.mjs`, Chrome only)
 

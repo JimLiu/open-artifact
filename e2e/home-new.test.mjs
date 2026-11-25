@@ -2,7 +2,8 @@
 // temporary home) and no agent session at all. The home page's "New" makes a blank doc, which opens in its editor
 // rather than the empty state with the hand-over prompt; an empty whiteboard made earlier opens on the empty state,
 // and its "Start blank" opens the editor. A blank Design System's "Start by hand" goes to its Colors section. Design stays
-// in the "make with an agent" group.
+// in the "make with an agent" group. What is sent from a blank doc no session owns waits, and a session that adopts it
+// later gets it; with a session online, the Ask pane hands the artifact to it and it gets the message at once.
 //
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -152,6 +153,77 @@ describe('making an artifact without an agent', { skip: skip() }, () => {
       assert.ok(before > 300, `Colors starts below the welcome page (${before})`);
       await inFrame(`(${button}.click(), true)`);
       assert.ok(await page.waitFor(`${button} && ${colorsTop} < 200`, 10000), `Colors is not in view: ${await inFrame(colorsTop)}`);
+    } finally {
+      await page.close();
+    }
+  });
+
+  /** A blank doc made the way the home page makes one: owned by nobody. */
+  const blankDoc = async (title) => {
+    const made = await fetch(`${ctx.daemon.origin}/api/open-artifact.artifacts.create`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Origin: ctx.daemon.origin },
+      body: JSON.stringify({ type: 'docs', title, blank: true }),
+    }).then((r) => r.json());
+    assert.ok(made.id, JSON.stringify(made));
+    assert.equal(ctx.daemon.store.require(made.id).owner, null);
+    return made.id;
+  };
+  /** Types `text` in the Ask pane's box and sends it. */
+  const sendFromPane = async (page, text) => {
+    await clickOn(page, 'aside form textarea');
+    await page.type(text);
+    await clickOn(page, 'aside form button[type=submit]');
+  };
+  const waitingFor = (id) => ctx.daemon.inbox.peek('unowned').filter((m) => m.artifactId === id);
+
+  it('Send to agent from a blank doc with no agent: the message waits, and a session that adopts it later gets it once', T, async () => {
+    const id = await blankDoc('Plan');
+    const page = await ctx.browser.load(`${ctx.daemon.origin}/a/${id}?ask=1`, { ready: "!!document.querySelector('[data-testid=assign-none]')", ignore: [/favicon\.ico/] });
+    try {
+      assert.deepEqual(page.problems, []);
+      // No session online: the pane offers the take-over prompt.
+      assert.match(await page.evaluate("document.querySelector('[data-testid=assign-none] textarea').value"), /Artifact \{action: "adopt"/);
+      await sendFromPane(page, 'Add a summary at the top');
+      const waited = await page.waitFor("!!document.querySelector('aside ol li')", 10000);
+      assert.ok(waited, 'the pane shows it was sent');
+    } finally {
+      await page.close();
+    }
+    const waiting = waitingFor(id);
+    assert.equal(waiting.length, 1, 'it waits in the unowned inbox');
+    assert.match(waiting[0].text, /Add a summary at the top/);
+    // Later, an agent session adopts it: the adopt's result carries the message, and only it.
+    const caller = { harness: 'e2e-agent', session: 'adopts-later', workspace: ctx.workspace };
+    const adopted = await ctx.daemon.tools.call('Artifact', { action: 'adopt', url: `open-artifact://artifact/${id}` }, caller);
+    assert.equal(adopted.error, undefined, JSON.stringify(adopted.error));
+    assert.equal(adopted.messages?.length, 1, JSON.stringify(adopted.messages));
+    assert.match(adopted.messages[0], /The person made .* it is yours now/);
+    assert.match(adopted.messages[0], /Add a summary at the top/);
+    assert.equal(waitingFor(id).length, 0);
+    assert.equal((await ctx.daemon.tools.call('Artifact', { action: 'list' }, caller)).messages, undefined, 'not a second time');
+  });
+
+  it('with a session online, the Ask pane hands the artifact to it, and it gets what was sent at once', T, async () => {
+    const id = await blankDoc('Brief');
+    const ref = { harness: 'e2e-agent', session: 'online-now', workspace: ctx.workspace };
+    const page = await ctx.browser.load(`${ctx.daemon.origin}/a/${id}?ask=1`, { ready: "!!document.querySelector('[data-testid=assign-none]')", ignore: [/favicon\.ico/] });
+    try {
+      await sendFromPane(page, 'Make the title shorter');
+      assert.ok(await page.waitFor("!!document.querySelector('aside ol li')", 10000));
+      // A session comes online: the pane lists it.
+      const { key } = ctx.daemon.harnesses.pollAttach({ harness: ref.harness, session: ref.session, workspace: ref.workspace });
+      assert.ok(await page.waitFor(`document.querySelector('[data-testid=assign-session]')?.value === ${JSON.stringify(key)}`, 10000), 'the online session is offered');
+      await clickOn(page, '[data-testid=assign-button]');
+      const polled = await ctx.daemon.harnesses.pollWait({ ...ref, timeoutMs: 10000 });
+      assert.equal(polled.messages.length, 1);
+      assert.match(polled.messages[0].text, /The person picked this session/);
+      assert.match(polled.messages[0].text, /Make the title shorter/);
+      assert.deepEqual(ctx.daemon.store.require(id).owner, ref);
+      // The pane now shows the owner, not the choice.
+      assert.ok(await page.waitFor("!document.querySelector('[data-testid=assign-box]')", 10000), 'the choice is gone');
+      assert.equal(waitingFor(id).length, 0);
+      ctx.daemon.harnesses.pollDetach(ref);
     } finally {
       await page.close();
     }

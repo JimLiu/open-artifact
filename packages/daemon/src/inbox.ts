@@ -4,7 +4,7 @@
  * on its next tool call, or in a wait.
  */
 
-import { appendFileSync, readFileSync, rmSync } from 'node:fs';
+import { appendFileSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { InboxMessage } from '@open-artifact/protocol';
 import { ensureDir, files } from './paths.ts';
@@ -74,6 +74,25 @@ export class Inbox {
     const items = this.peek(key);
     if (items.length) rmSync(this.fileOf(key), { force: true });
     return items;
+  }
+
+  /**
+   * The waiting messages that `match`, removed; the others stay, in their order. The file is rewritten whole (a new
+   * file renamed over it), so a reader never sees half of it. Synchronous: nothing else touches the inbox meanwhile.
+   */
+  takeWhere(key: string, match: (message: InboxMessage) => boolean): InboxMessage[] {
+    const items = this.peek(key);
+    const taken = items.filter(match);
+    if (!taken.length) return [];
+    const kept = items.filter((item) => !match(item));
+    const file = this.fileOf(key);
+    if (!kept.length) rmSync(file, { force: true });
+    else {
+      const next = `${file}.${process.pid}.tmp`;
+      writeFileSync(next, kept.map((item) => `${JSON.stringify(item)}\n`).join(''));
+      renameSync(next, file);
+    }
+    return taken;
   }
 
   /** The messages that are there, or the next ones to come, or `[]` after `timeoutMs`. */

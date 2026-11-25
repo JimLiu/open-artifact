@@ -38,6 +38,8 @@ import {
   type ArtifactRecord,
   type ArtifactView,
   type AddArtifactRequest,
+  type AssignArtifactRequest,
+  type AssignArtifactResult,
   type AskRequest,
   type BlankArtifactRequest,
   type CreateArtifactRequest,
@@ -82,7 +84,7 @@ import { Inbox } from './inbox.ts';
 import { LinkHub } from './link.ts';
 import { callerFromRequest, handleMcp, uiFromRequest, type McpMessage, type McpReply } from './mcp.ts';
 import { nudgeSession } from './nudge.ts';
-import { Ownership } from './ownership.ts';
+import { HOME_HARNESS, Ownership } from './ownership.ts';
 import { ensureDir, expandHome, files, inside, openArtifactHome, readJson, realInside, writeJson } from './paths.ts';
 import { ACTION_CALL_MS, TypeServers } from './servers.ts';
 import { badModeVariable, nodeChildren } from './node-children.ts';
@@ -604,7 +606,18 @@ export class Daemon extends EventEmitter<{ exit: [] }> {
       openAfterFirstWrite: (record, caller) => this.openAfterFirstWrite(record, caller),
       cancelOpenAfterFirstWrite: (id) => this.pendingOpens.get(id)?.(),
       link: this.link,
-      ownership: new Ownership({ store: this.store, hub: () => this.harnesses ?? null, log }),
+      ownership: new Ownership({
+        store: this.store,
+        hub: () => this.harnesses ?? null,
+        log,
+        // Its first writer took an artifact nobody owned: what was sent from it goes with this call's result, or, for a
+        // write an adapter saw, to the session now.
+        claimed: (id, owner, seen) => {
+          this.wake.handOff(id, owner, 'wrote');
+          if (seen) void this.wake.deliverWaiting(id, owner);
+        },
+      }),
+      handOff: (id, owner, how) => this.wake.handOff(id, owner, how),
     });
     this.guardToolCalls();
     this.runtime = new RuntimeManager({
@@ -1591,10 +1604,8 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
    * refused too. That header is the caller's word, as in {@link askedBy}: a guard rail, not a boundary.
    */
   private typesRefusal(req: IncomingMessage, name: string): string | null {
-    const origin = req.headers.origin;
-    if (origin !== undefined && !this.ownOrigin(origin)) return `${name} comes from the open-artifact command line or this daemon's own page, not from ${origin}.`;
-    const site = req.headers['sec-fetch-site'];
-    if (site !== undefined && site !== 'same-origin' && site !== 'none') return `${name} comes from the open-artifact command line or this daemon's own page, not from another site.`;
+    const from = this.originRefusal(req, name);
+    if (from) return from;
     const personOnly: string[] = [LIBRARY_ROUTES.typesEnable, LIBRARY_ROUTES.typesDisable, LIBRARY_ROUTES.typesTrust];
     if (personOnly.includes(name) && req.headers['x-open-artifact-agent']) {
       return 'Turning a type on or off and trusting a project are for the person to decide: they run it in their own terminal, or use the Types tab of the home page.';
@@ -1607,6 +1618,18 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
     if (installs.includes(name) && req.headers['x-open-artifact-agent']) {
       return "Installing, updating and uninstalling a type are for the person to decide: they run open-artifact types install | update | uninstall in their own terminal, or use the Types tab of the home page.";
     }
+    return null;
+  }
+
+  /**
+   * Why a call that only the command line or this daemon's own pages may make is refused, or null: it carries another
+   * `Origin` (an artifact's page, a type server's page, another site), or is a browser's cross-site request.
+   */
+  private originRefusal(req: IncomingMessage, name: string): string | null {
+    const origin = req.headers.origin;
+    if (origin !== undefined && !this.ownOrigin(origin)) return `${name} comes from the open-artifact command line or this daemon's own page, not from ${origin}.`;
+    const site = req.headers['sec-fetch-site'];
+    if (site !== undefined && site !== 'same-origin' && site !== 'none') return `${name} comes from the open-artifact command line or this daemon's own page, not from another site.`;
     return null;
   }
 
@@ -2356,7 +2379,7 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
         if (!typeId) throw new OpenArtifactError('invalid_argument', 'type: the type id (or open-artifact://type/<id>) to create from.');
         const folder = typeof body.folder === 'string' && body.folder.trim() ? body.folder.trim() : undefined;
         if (folder && !isAbsolute(folder) && !folder.startsWith('~')) throw new OpenArtifactError('invalid_argument', 'folder: an absolute path (or ~/...).');
-        const caller: SessionRef = { harness: 'open-artifact-home', session: null, workspace: this.settings.homeWorkspace };
+        const caller: SessionRef = { harness: HOME_HARNESS, session: null, workspace: this.settings.homeWorkspace };
         const blank = body.blank === true;
         const made = await this.tools.call(
           'Artifact',
@@ -2445,6 +2468,36 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
         this.log(`audit: relocated ${record.id} from ${record.root} to ${root}, asked by ${this.askedBy(req, name)}`);
         this.broadcast({ type: 'artifacts/changed', id: record.id });
         return sendJson(res, 200, this.artifactView(next));
+      }
+      case R.assign: {
+        // The person hands an artifact nobody owns to a session online now (the Ask pane). Which agent may work on
+        // which artifact is theirs to decide: as types.enable, not from another origin, not from inside a session.
+        const refusal =
+          this.originRefusal(req, name) ??
+          (req.headers['x-open-artifact-agent'] ? 'Handing an artifact to a session is for the person to decide: they pick the session in the Ask pane of its page.' : null);
+        if (refusal) {
+          req.resume();
+          return sendJson(res, 403, { code: 'not_granted', message: refusal });
+        }
+        const body = await readJsonBody<AssignArtifactRequest & { url?: string }>(req);
+        const record = this.store.require(body.id ?? body.url);
+        if (record.owner && sessionKeyOf(record.owner)) {
+          throw new OpenArtifactError('conflict', `${record.id} belongs to the session ${sessionKeyOf(record.owner)} already.`, {
+            fix: 'Only an artifact no session owns is assigned. To move it, ask the session you want to call Artifact {action: "adopt", url}.',
+          });
+        }
+        const key = typeof body.session === 'string' ? body.session : '';
+        const live = key ? this.harnesses.sessions.get(key) : undefined;
+        if (!live?.conn || !live.ref.session) {
+          throw new OpenArtifactError('not_found', `No session ${key || '(none given)'} is online now.`, { fix: `Pick one of the sessions ${R.harnesses} lists with live: true (its key).` });
+        }
+        const owner: SessionRef = { harness: live.ref.harness, session: live.ref.session, workspace: live.ref.workspace ?? this.harnesses.workspaceOf(live.ref) };
+        const next = this.store.update(record.id, { owner });
+        this.log(`audit: assigned ${record.id} to the session ${key}, asked by ${this.askedBy(req, name)}`);
+        this.wake.handOff(record.id, owner, 'assign');
+        const delivered = (await this.wake.deliverWaiting(record.id, owner)).map((r) => ({ via: r.via, ...(r.status ? { status: r.status } : {}) }));
+        const answer: AssignArtifactResult = { artifact: this.artifactView(next), delivered };
+        return sendJson(res, 200, answer);
       }
       case R.update: {
         const body = await readJsonBody<UpdateArtifactRequest & { url: string }>(req);

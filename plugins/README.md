@@ -20,6 +20,11 @@ every type, with each type's own editor and comments inside. `/open-artifact sli
 Whatever the app, comments also come back in the `messages` of any Open Artifact tool result, and an agent can
 wait for them (`ArtifactComments {action: "wait"}`).
 
+Comments go to the session that owns the artifact. One the person made on the home page or opened from a folder has
+no owner session: what is sent from it waits, and goes once to the session that becomes its owner, by `adopt`, by
+writing it through the tools, or because the person picked that session in the page's Ask pane (which lists the
+sessions online now; with none, it offers a prompt to paste into one).
+
 `/open-artifact new-type` asks the agent to make a type of its own rather than an artifact, with the skill's
 `reference/new-type.md` and the `open-artifact types new | check | from | list | pack` commands
 ([Making your own artifact types](../docs/custom-types.md)); `types from` takes a page artifact or a page saved from

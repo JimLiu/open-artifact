@@ -95,6 +95,8 @@ Users actively edit artifacts in the live browser page between turns. Always gua
 
 Comments sent from the page arrive prefixed with `[Artifact comment sent to agent]` or `[Artifact edit request sent to agent]` via plugin hooks, background monitors, tool result `messages`, or `ArtifactComments {action: "wait", timeout_ms: 600000}`.
 
+Comments go to the session that owns the artifact. What is sent from an artifact no session owns (one the person made on the home page or opened from a folder) waits until a session becomes its owner, and then goes to that session only, once, with a first line that says why: the person made it, the person picked this session for it in the page's Ask pane, or the session that made it is no longer its owner. A session becomes the owner by `Artifact {action: "adopt", url}`, by writing the artifact through the tools (the result's `notes` say it is yours now), or when the person picks it.
+
 Standard loop:
 1. Read threads: `ArtifactComments {action: "read", url}`.
 2. If the comment references what the user is looking at ("this box", "make it wider") and the anchor is ambiguous, check `Artifact {action: "call", url, name: "context"}` to see their current viewport/selection.
@@ -165,7 +167,7 @@ same id is here.
 - **User owns sharing, publishing, and deletion**:
   - Never create share links or change share permissions yourself; open the UI panel for the user instead (`Artifact {action: "open", url, panel: "share"}` or `panel: "export"`).
   - Never run `open-artifact publish`, `unpublish`, or `remote` commands unless the user explicitly asks and has authorized it.
-  - Only `delete` or `adopt` an artifact when explicitly asked (note: `delete` removes the registry entry and keeps the folder on disk).
-  - An artifact the person made on the home page or added from a folder belongs to no session (`owner` is empty) until one adopts it. One started blank (on the home page, or with **Start blank** in the Shell, which keeps its owner) already holds its type's starting files and maybe the person's own writing: read it before you change it, and revise rather than replace.
+  - Only `delete` an artifact, or `adopt` one another session owns, when explicitly asked (note: `delete` removes the registry entry and keeps the folder on disk).
+  - An artifact the person made on the home page or added from a folder belongs to no session (`owner` is empty) until one adopts it, writes it through the tools (files, rows, a type action that writes; reads do not count), or the person hands it to one from the page's Ask pane. When a message says the person made it or picked you for it, call `Artifact {action: "adopt", url}` first for its type's instructions, unless you just did. One started blank (on the home page, or with **Start blank** in the Shell, which keeps its owner) already holds its type's starting files and maybe the person's own writing: read it before you change it, and revise rather than replace.
   - Turning a type on or off (`open-artifact types enable | disable`), trusting a project's types (`types trust | untrust`) and installing, updating or uninstalling a type (`types install | update | uninstall`) are the person's: the commands refuse to run inside an agent's session. Ask them to do it in their terminal or the home page's Types tab.
 - **Never impersonate or deceive**: Refuse artifacts that impersonate real organizations/people, forge genuine-looking receipts/reviews/records, or harvest passwords/payment details.

@@ -24,7 +24,7 @@
 2. **收件箱。** 否则消息在会话的收件箱里等着。会话挂上时交出（`session.attach` 返回 `inbox`；kit 会把它交给你的 `wake` 回调），或在该会话下一次工具调用结果的 `messages` 里，或通过 `inbox.take`、`inbox.wait`，或通过 harness 的 hook，或通过 `ArtifactComments {action: "wait"}`。
 3. **nudge。** 消息进了收件箱、且该 harness 的 profile 有 `nudge` 时，daemon 运行这个命令，在空闲会话里开启一个回合（Codex：`codex queue`；Antigravity：`agentapi send-message`）。然后由这个回合的 hook 交出消息。
 
-没有所有者的作品，唤醒放在共享收件箱里，由来取的会话拿走。
+没有所有者的作品（主页新建的、用户打开的文件夹），唤醒存在 daemon 的 `unowned` 收件箱里，每条带着 `artifactId`，这时不交给任何会话。等有会话成为它的所有者（调了 `adopt`、通过工具写了这份作品，或者用户在 Ask 面板里选了它：`artifacts.assign`），这份作品的唤醒就移到该会话的收件箱，按上面的方式送达，只送一次。每条前面加一行以 `[Open Artifact] ` 开头的说明，讲清会话为什么收到它：用户新建的作品、用户选了这个会话，或者做它的会话已经不是所有者了；前两种会让它先调 `adopt` 取类型说明，刚调过就不用。存的时候不带这一行，因为那时还不知道谁会收到。
 
 ## 载荷
 

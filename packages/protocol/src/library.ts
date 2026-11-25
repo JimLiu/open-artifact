@@ -383,6 +383,24 @@ export interface RelocateArtifactRequest {
 }
 
 /**
+ * `POST /api/open-artifact.artifacts.assign`: the person hands an artifact no session owns to one of the sessions
+ * online now (the Ask pane). The person's call only: from the daemon's own pages or the command line, never from
+ * inside an agent's session.
+ */
+export interface AssignArtifactRequest {
+  id: string;
+  /** The session's key, as `GET harnesses` lists it in `sessions[].key`; it must be online (`live`). */
+  session: string;
+}
+
+/** {@link AssignArtifactRequest}'s answer: the artifact, and how each message that waited for it went. */
+export interface AssignArtifactResult {
+  artifact: ArtifactView;
+  /** One entry per message handed over: `live` (the session has it now), else `inbox` or `wait`. */
+  delivered: Array<{ via: string; status?: string }>;
+}
+
+/**
  * How the home page offers the built-in types for "New", and whether an empty artifact of one can be started blank.
  * `blank`: the person starts it by hand (created with `blank: true`, it opens in its editor). `agent`: an agent
  * builds it (made as before: Design, Data and Motion open empty, on the prompt that hands it to one; a Page has no
@@ -440,6 +458,11 @@ export const LIBRARY_ROUTES = {
   add: 'artifacts.add',
   /** `POST { id, folder }` ({@link RelocateArtifactRequest}): the artifact's folder is now there. */
   relocate: 'artifacts.relocate',
+  /**
+   * `POST { id, session }` ({@link AssignArtifactRequest}): an artifact no session owns goes to that online session,
+   * which gets what was sent from it meanwhile. The person's call only.
+   */
+  assign: 'artifacts.assign',
   update: 'artifacts.update',
   duplicate: 'artifacts.duplicate',
   delete: 'artifacts.delete',

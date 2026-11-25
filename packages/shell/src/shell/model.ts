@@ -17,6 +17,7 @@ import {
   type ChromeSaved,
   type ChromeWhy,
   type FrameDeniedReason,
+  type HarnessesResponse,
   type HostCaps,
   type HostDestination,
   type HostTheme,
@@ -28,6 +29,33 @@ import {
   type ShellBoot,
 } from '@open-artifact/protocol';
 import { isCloudShared } from '../lib/cloud.ts';
+
+/** A session the person can hand an artifact no session owns to (the Ask pane). */
+export interface AssignableSession {
+  /** Its key, for `artifacts.assign`. */
+  key: string;
+  /** Its app's name and the session's title (or id). */
+  label: string;
+  running: boolean;
+}
+
+/**
+ * The sessions online now (`live`) that an artifact can be handed to, the busy ones first, then by name. A session
+ * without an id (one known by its folder only) is not one to pick.
+ */
+export function assignableSessions(info: Pick<HarnessesResponse, 'harnesses' | 'sessions'> | null | undefined): AssignableSession[] {
+  if (!info) return [];
+  const titles = new Map(info.harnesses.map((h) => [h.name, h.title || h.name]));
+  return info.sessions
+    .filter((s) => s.live && !!s.session && !!s.key)
+    .map((s) => ({ key: s.key, label: `${titles.get(s.harness) ?? s.harness} · ${s.title || s.session}`, running: s.status === 'running' }))
+    .sort((a, b) => Number(b.running) - Number(a.running) || a.label.localeCompare(b.label));
+}
+
+/** What the person pastes into an agent session to have it take over an artifact no session owns. */
+export function takeOverText(boot: Pick<ShellBoot, 'url' | 'title' | 'typeTitle' | 'root'>): string {
+  return `Take over artifact ${boot.url} (${boot.typeTitle} "${boot.title}", folder ${boot.root}): call Artifact {action: "adopt", url: "${boot.url}"} for the type's instructions and the messages sent from its page, then read it before you change it.`;
+}
 
 /** The owner session as the library reports it. */
 export type Owner = NonNullable<ArtifactView['owner']>;

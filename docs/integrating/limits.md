@@ -34,7 +34,7 @@ it shows.
 | --- | --- |
 | On Windows a nudge runs only an `.exe`; a `.cmd` or `.bat` is skipped and logged, because Node runs those only through a shell. | Point the nudge at the `.exe`, or rely on the inbox and hooks. |
 | HTTP polling adapters get no events and cannot show pages. | Use the WebSocket or the stdio bridge. |
-| An artifact with no owner (made by a call with no caller) has its wakes in a shared inbox. | Always pass a caller. |
+| An artifact with no owner (made by a call with no caller, or by the person on the home page) keeps its wakes until a session owns it. | Always pass a caller; the session that adopts or writes it, or the one the person picks, gets them. |
 
 ## Checking
 

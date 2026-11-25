@@ -6,6 +6,7 @@ import {
   addressWithoutThread,
   agentNameOf,
   appendSent,
+  assignableSessions,
   canOpenSession,
   countText,
   deliveryOf,
@@ -16,6 +17,7 @@ import {
   leastRole,
   shownAddresses,
   sortedGuests,
+  takeOverText,
   ownerState,
   pageAddress,
   pageOriginOf,
@@ -505,5 +507,46 @@ describe('peers and following', async () => {
     assert.equal(peerColorOf({ key: 'x' }), peerColorOf({ key: 'x' }));
     assert.equal(inkOnColor('#fbb315'), '#0b0b0b');
     assert.equal(inkOnColor('#257de0'), '#ffffff');
+  });
+});
+
+describe('the Ask pane for an artifact no session owns', () => {
+  it('lists the sessions online now, busy first, then by name; not offline ones or ones with no session id', () => {
+    const at = (key: string, harness: string, session: string | null, live: boolean, status: 'running' | 'idle' | 'offline', title?: string) => ({
+      key,
+      harness,
+      session,
+      workspace: '/w',
+      live,
+      status,
+      ...(title ? { title } : {}),
+    });
+    const listed = assignableSessions({
+      harnesses: [
+        { name: 'claude-code', title: 'Claude Code', agentName: 'Claude', connected: true, sessions: [] },
+        { name: 'myide', title: 'myide', agentName: 'Agent', connected: true, sessions: [] },
+      ],
+      sessions: [
+        at('myide:b', 'myide', 'b', true, 'idle'),
+        at('claude-code:a', 'claude-code', 'a', true, 'idle', 'Landing page'),
+        at('claude-code:off', 'claude-code', 'off', false, 'offline'),
+        at('claude-code:busy', 'claude-code', 'busy', true, 'running'),
+        at('myide:ws:x', 'myide', null, true, 'idle'),
+      ],
+    });
+    assert.deepEqual(listed, [
+      { key: 'claude-code:busy', label: 'Claude Code · busy', running: true },
+      { key: 'claude-code:a', label: 'Claude Code · Landing page', running: false },
+      { key: 'myide:b', label: 'myide · b', running: false },
+    ]);
+    assert.deepEqual(assignableSessions(null), []);
+    assert.deepEqual(assignableSessions({ harnesses: [], sessions: [] }), []);
+  });
+
+  it('the take-over prompt names the artifact and says to adopt it first', () => {
+    const text = takeOverText({ url: 'open-artifact://artifact/art_1', title: 'Notes', typeTitle: 'Docs', root: '/w/notes' });
+    assert.ok(text.includes('Artifact {action: "adopt", url: "open-artifact://artifact/art_1"}'));
+    assert.match(text, /Docs "Notes", folder \/w\/notes/);
+    assert.match(text, /read it before you change it/);
   });
 });

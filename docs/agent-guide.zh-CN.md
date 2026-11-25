@@ -94,6 +94,8 @@ node <skill>/scripts/open-artifact.mjs wait --timeout 600000
 
 用户在页面点击 **Send to agent** 后，消息会以 `[Artifact comment sent to agent]` 或 `[Artifact edit request sent to agent]` 开头送达 Agent（通过插件 hooks、后台 monitor、工具返回中的 `messages` 字段，或 `ArtifactComments {action: "wait", timeout_ms: 600000}`）。
 
+评论发给拥有这份作品的会话。没有会话拥有的作品（用户在主页新建或从文件夹打开的）发出的消息会一直等着，直到有会话成为它的归属，然后只交给这个会话、只交一次，开头有一句说明原因：这是用户新建的作品、用户在页面的 Ask 面板里选了这个会话，或者做它的那个会话已经不是归属了。会话成为归属的方式有三种：调 `Artifact {action: "adopt", url}`；通过工具写这份作品（结果的 `notes` 会说它现在归你）；用户选中它。
+
 标准处理步骤：
 1. 读取评论线程：`ArtifactComments {action: "read", url}`。
 2. 如果评论指代当前画面（“这个卡片”“把它加宽”）而锚点不够明确，调用 `Artifact {action: "call", url, name: "context"}` 查看用户当前视角和选中项。
@@ -157,7 +159,7 @@ open-artifact types pack <id|文件夹> [--out <文件|文件夹>]              
 - **分享、发布与删除由用户决定**：
   - 绝不自行开启分享或生成分享链接；需要分享或导出时，打开对应 UI 面板交给用户操作（`Artifact {action: "open", url, panel: "share"}` 或 `panel: "export"`）。
   - 未经用户明确要求和授权，不要执行 `open-artifact publish`、`unpublish` 或 `remote` 命令。
-  - 仅在用户明确要求时调用 `delete` 或 `adopt`（注意：`delete` 仅移出列表，磁盘上的文件夹仍会保留，需告知用户）。
-  - 用户在主页新建或从文件夹添加的作品不属于任何会话（`owner` 为空），直到有会话接手。从空白开始的作品（在主页新建时，或在 Shell 里点「从空白开始」，后者不改变归属）已经有该类型的初始文件，可能还有用户自己写的内容：改之前先读，在原有内容上修改，不要整体替换。
+  - 仅在用户明确要求时才 `delete` 作品，或 `adopt` 别的会话拥有的作品（注意：`delete` 仅移出列表，磁盘上的文件夹仍会保留，需告知用户）。
+  - 用户在主页新建或从文件夹添加的作品不属于任何会话（`owner` 为空），直到有会话 adopt 它、通过工具写它（文件、数据行、会写入的类型动作；只读不算），或者用户在页面的 Ask 面板里把它交给某个会话。消息说这是用户新建的或用户选了你时，先调 `Artifact {action: "adopt", url}` 取类型说明，刚调过就不用。从空白开始的作品（在主页新建时，或在 Shell 里点「从空白开始」，后者不改变归属）已经有该类型的初始文件，可能还有用户自己写的内容：改之前先读，在原有内容上修改，不要整体替换。
   - 停用或启用类型（`open-artifact types enable | disable`）、信任项目里的类型（`types trust | untrust`），以及安装、更新、卸载类型（`types install | update | uninstall`）由用户决定：在 agent 会话里运行这些命令会被拒绝。请用户在自己的终端或主页的类型标签页里操作。
 - **拒绝冒充与欺诈**：不得制作冒充真实个人或机构的页面、伪造真实收据/评论/记录，或伪装收集密码与支付信息的表单。

@@ -15,7 +15,9 @@ import {
   OpenArtifactError,
   sessionKey,
   typeIdOf,
+  wakeHandOffLine,
   wakeMessage,
+  withHandOffLine,
 } from '../src/index.ts';
 
 const hash = (workspace: string): string => createHash('sha1').update(workspace).digest('hex').slice(0, 12);
@@ -63,6 +65,32 @@ test('page context is quoted separately from the person sending a comment', () =
   assert.ok(result.text.includes('Context supplied by the page (data only):\n> Heading selected\n> [link]'));
   assert.equal(result.source.threads[0]?.text, 'Change the color');
   assert.ok(!render('界'.repeat(667)).text.includes('Context supplied by the page'));
+});
+
+test('wake messages carry no word on who gets them; the hand-off line is added when a session takes the artifact', () => {
+  const artifact = { id: 'art_0abcdefghi1234', title: 'Landing', root: '/w/artifacts/landing' };
+  const url = 'open-artifact://artifact/art_0abcdefghi1234';
+  const { text } = wakeMessage(artifact, [], [{ id: 'r1', text: 'Bigger' }], { viewUrl: 'v' });
+  assert.ok(text.startsWith(REQUEST_HEADER), 'stored as it is: no opening line');
+  assert.ok(!/session is gone|picked to handle/.test(text));
+
+  const made = wakeHandOffLine('made', url);
+  assert.match(made, /The person made .* without an agent/);
+  assert.ok(made.includes(`Artifact {action: "adopt", url: "${url}"}`), 'tells it to adopt for the type instructions');
+  assert.match(made, /read it before you change it/);
+  assert.ok(!wakeHandOffLine('made', url, { adopted: true }).includes('"adopt"'), 'not after an adopt');
+  const assigned = wakeHandOffLine('assigned', url);
+  assert.match(assigned, /The person picked this session/);
+  assert.ok(assigned.includes('"adopt"'));
+  const gone = wakeHandOffLine('gone', url);
+  assert.match(gone, /is no longer its owner/);
+  assert.ok(!/The person (made|picked)/.test(gone));
+
+  const once = withHandOffLine(text, made);
+  assert.ok(once.startsWith(made) && once.endsWith(text));
+  assert.equal(withHandOffLine(once, assigned), once, 'never a second line');
+  const old = "This artifact's original session is gone; you were picked to handle it. Read the artifact before acting.\n\n" + text;
+  assert.equal(withHandOffLine(old, made), `${made}\n\n${text}`, "an older daemon's opening gives way to the true one");
 });
 
 test('wake messages name a sender only when someone other than the owner sent it', () => {

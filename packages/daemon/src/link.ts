@@ -1622,7 +1622,9 @@ export class LinkHub {
 
   /** A message for the artifact's owning session, given with its next tool result. */
   private tell(record: ArtifactRecord, text: string): void {
-    const key = (record.owner && sessionKeyOf(record.owner)) || UNOWNED_KEY;
+    // The owner as the store has it now: a session may have taken the artifact while this sync was awaited.
+    const owner = this.o.store.get(record.id)?.owner ?? record.owner;
+    const key = (owner && sessionKeyOf(owner)) || UNOWNED_KEY;
     this.o.inbox.append(key, { kind: 'link', artifact: artifactUrl(record.id), artifactId: record.id, text });
   }
 

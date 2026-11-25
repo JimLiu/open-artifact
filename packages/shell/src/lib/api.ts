@@ -9,6 +9,8 @@ import {
   type ArtifactDetail,
   type ArtifactView,
   type AskRequest,
+  type AssignArtifactResult,
+  type HarnessesResponse,
   type CreateArtifactRequest,
   type LibraryEvent,
   type OpenArtifactErrorCode,
@@ -121,6 +123,10 @@ export interface LibraryApi {
   purge(id: string): Promise<{ purged: string }>;
   /** `POST artifacts.ask`: a message to the owner agent. */
   ask(request: AskRequest): Promise<AskResult>;
+  /** `GET harnesses`: the agent apps and the sessions the daemon knows (`sessions[].live`: online now). */
+  harnesses(): Promise<HarnessesResponse>;
+  /** `POST artifacts.assign`: the person hands an artifact no session owns to a session online now. */
+  assign(id: string, session: string): Promise<AssignArtifactResult>;
   /** `POST artifacts.open`: starts the page without telling a harness. */
   open(id: string): Promise<OpenResult>;
   /**
@@ -264,6 +270,11 @@ export function createLibraryApi(options: LibraryApiOptions = {}): LibraryApi {
     },
     purge: (id) => call<{ purged: string }>('artifacts.purge', { body: { id } }),
     ask: (request) => call<AskResult>(LIBRARY_ROUTES.ask, { body: request }),
+    async harnesses() {
+      const out = await call<Partial<HarnessesResponse>>(LIBRARY_ROUTES.harnesses);
+      return { harnesses: Array.isArray(out.harnesses) ? out.harnesses : [], adapters: Array.isArray(out.adapters) ? out.adapters : [], sessions: Array.isArray(out.sessions) ? out.sessions : [] };
+    },
+    assign: (id, session) => call<AssignArtifactResult>(LIBRARY_ROUTES.assign, { body: { id, session } }),
     open: (id) => call<OpenResult>(LIBRARY_ROUTES.open, { body: { id, host: false } }),
     boot: (id, options) => call<ShellBoot>(LIBRARY_ROUTES.boot, { query: options?.fresh ? { id, fresh: '1' } : { id }, timeoutMs: BOOT_TIMEOUT_MS }),
     async remotes() {

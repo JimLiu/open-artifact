@@ -32,7 +32,13 @@ The daemon tries, in order:
    turn in the idle session (Codex: `codex queue`; Antigravity: `agentapi send-message`). The turn's hook then hands over
    the messages.
 
-An artifact without an owner has its wakes in a shared inbox that whichever session takes it gets.
+An artifact without an owner (made on the home page, a folder the person opened) has its wakes kept in the daemon's
+`unowned` inbox, each with its `artifactId`, and nothing hands them to anyone yet. When a session becomes its owner (it
+calls `adopt`, it writes the artifact through the tools, or the person picks it in the Ask pane: `artifacts.assign`),
+that artifact's wakes move to the session's inbox and go the ways above, once. Each gets a first line, starting
+`[Open Artifact] `, that says why the session has it: the person made the artifact, the person picked this session, or
+the session that made it is no longer its owner; the first two tell it to call `adopt` for the type's instructions
+unless it just did. The text is stored without that line, since who gets it is known only then.
 
 ## The payload
 

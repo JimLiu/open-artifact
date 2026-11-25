@@ -5,19 +5,24 @@
  *
  * On a cloud host no session owns the artifact: the pane says what the host says of the owner's agent (a linked
  * computer connected or away, an MCP client used lately, or none), and, once sent, whether it has the request now.
+ *
+ * On this computer, an artifact no session owns (made on the home page, a folder opened) lists the sessions online now:
+ * the person picks one and it gets the artifact and what was sent from it (`artifacts.assign`). With none online, the
+ * pane offers the prompt that has a session take it over.
  */
 
-import { Send, X } from 'lucide-react';
+import { Copy, Send, UserCheck, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Button, IconButton } from '@open-artifact/ui';
 import { OwnerBadge } from '../../components/OwnerBadge.tsx';
-import { ago } from '../../lib/format.ts';
+import { api, errorText } from '../../lib/api.ts';
+import { ago, copyText } from '../../lib/format.ts';
 import { cloudAskLine } from '../../lib/cloud.ts';
 import { t, type MessageKey } from '../../lib/i18n.ts';
 import { ask } from '../actions.ts';
 import { useAgentName, useCloudAgent, useOwner, useOwnerState, useRole } from '../hooks.ts';
-import type { Delivery } from '../model.ts';
-import { useShell } from '../store.ts';
+import { assignableSessions, takeOverText, type AssignableSession, type Delivery } from '../model.ts';
+import { useBoot, useShell } from '../store.ts';
 
 const DELIVERY: Record<Delivery, MessageKey> = { delivered: 'viaDelivered', drafted: 'viaDrafted', inbox: 'viaInbox', failed: 'viaFailed' };
 
@@ -40,6 +45,98 @@ function useStateLines(agent: string): { state: string; note: string } {
   return { state: t('sessionOffline'), note: t('offlineNote', { agent, harness }) };
 }
 
+/** An artifact no session owns: pick a session online now to hand it to, or copy the prompt that has one take it. */
+function AssignBox() {
+  const boot = useBoot();
+  // Every artifact refresh (sessions come and go: `harness/changed`) lists the sessions again.
+  const artifact = useShell((state) => state.artifact);
+  const [sessions, setSessions] = useState<AssignableSession[] | null>(null);
+  const [chosen, setChosen] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState('');
+  useEffect(() => {
+    let live = true;
+    api.harnesses().then(
+      (info) => live && setSessions(assignableSessions(info)),
+      () => live && setSessions([]),
+    );
+    return () => {
+      live = false;
+    };
+  }, [artifact]);
+  if (sessions === null) return null;
+  const pick = sessions.some((s) => s.key === chosen) ? chosen : (sessions[0]?.key ?? '');
+  if (!sessions.length) {
+    const prompt = takeOverText(boot);
+    return (
+      <div data-testid="assign-none" className="mb-3.5">
+        <p className="mb-1.5 mt-0 text-xs text-fg-muted">{t('noSessionsOnline')}</p>
+        <textarea readOnly value={prompt} aria-label={t('copyTakeOver')} className="block min-h-20 w-full resize-y rounded-lg border border-line bg-surface-2 px-2.5 py-2 font-mono text-[11px] leading-relaxed text-fg outline-none focus:border-accent" />
+        <div className="mt-1.5 flex items-center gap-2">
+          <Button
+            size="md"
+            icon={<Copy className="size-3.5" />}
+            onClick={async () => {
+              await copyText(prompt);
+              setStatus(t('promptCopied'));
+            }}
+          >
+            {t('copyTakeOver')}
+          </Button>
+          <span role="status" className="min-w-0 flex-1 text-xs text-fg-muted">
+            {status}
+          </span>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div data-testid="assign-box" className="mb-3.5">
+      <p className="mb-1.5 mt-0 text-xs font-medium">{t('assignTo')}</p>
+      <div className="flex items-center gap-2">
+        <select
+          data-testid="assign-session"
+          aria-label={t('assignPick')}
+          value={pick}
+          onChange={(event) => setChosen(event.target.value)}
+          className="h-8 min-w-0 flex-1 rounded-lg border border-line bg-surface-2 px-2 text-[13px] text-fg outline-none focus:border-accent"
+        >
+          {sessions.map((s) => (
+            <option key={s.key} value={s.key}>
+              {s.label}
+            </option>
+          ))}
+        </select>
+        <Button
+          size="md"
+          variant="primary"
+          data-testid="assign-button"
+          disabled={busy || !pick}
+          icon={<UserCheck className="size-3.5" />}
+          onClick={async () => {
+            setBusy(true);
+            setStatus(t('assigning'));
+            try {
+              await api.assign(boot.id, pick);
+              // The pane shows the owner next (this box goes): the line under the message box says what happened.
+              setStatus('');
+              useShell.getState().setAskStatus(t('assigned', { session: sessions.find((s) => s.key === pick)?.label ?? pick }));
+            } catch (error) {
+              setStatus(t('couldNotAssign', { error: errorText(error) }));
+            }
+            setBusy(false);
+          }}
+        >
+          {t('assignButton')}
+        </Button>
+      </div>
+      <p role="status" className="mb-0 mt-1.5 text-xs text-fg-muted">
+        {status}
+      </p>
+    </div>
+  );
+}
+
 /** The ask pane. */
 export function AskPane() {
   const agent = useAgentName();
@@ -48,6 +145,8 @@ export function AskPane() {
   const ownerStatus = useOwnerState();
   const cloudAgent = useCloudAgent();
   const owner = useOwner();
+  const boot = useBoot();
+  const role = useRole();
   const { state, note } = useStateLines(agent);
   // A cloud host's agent: its own words for the dot, and "waiting for the agent" (there is no session to wait for).
   const badgeLabel = cloudAgent && ownerStatus !== 'working' ? t(cloudAgent.state === 'online' ? 'statusConnected' : cloudAgent.state === 'none' ? 'statusNoAgent' : 'statusOffline') : undefined;
@@ -81,6 +180,7 @@ export function AskPane() {
       <div className="min-h-0 flex-1 overflow-auto p-3.5">
         <p className="mb-1 mt-0 font-medium">{state}</p>
         {note ? <p className="mb-3.5 mt-0 text-xs text-fg-muted">{note}</p> : <div className="mb-3.5" />}
+        {!owner && !cloudAgent && !boot.cloud && role === 'owner' ? <AssignBox /> : null}
         <ol ref={log} className="m-0 flex list-none flex-col gap-2.5 p-0">
           {sent.map((message, index) => (
             <li key={`${message.at}-${index}`} className="max-w-[92%] self-end whitespace-pre-wrap break-words rounded-2xl bg-surface-2 px-3 py-2">

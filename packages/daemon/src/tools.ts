@@ -373,6 +373,11 @@ export interface ToolsOptions {
   link?: LinkTools;
   /** Moves ownership when another session writes an artifact (`ownership.ts`). */
   ownership?: Pick<Ownership, 'afterTool' | 'wrote'>;
+  /**
+   * A session became an artifact's owner by `adopt`: what was sent from it while no session owned it moves to that
+   * session's inbox, so this call's result carries it (`WakeRouter.handOff`).
+   */
+  handOff?: (id: string, owner: SessionRef, how: 'adopt') => void;
 }
 
 /** One file in a listing. */
@@ -1396,6 +1401,7 @@ export class Tools {
       if (owner && owner !== sessionKeyOf(caller)) this.allow(caller, 'remove', "Artifact adopt of another session's artifact");
       else this.allow(caller, 'modify', 'Artifact adopt');
       const next = this.o.store.update(record.id, { owner: caller, agentSeenAt: now() });
+      this.o.handOff?.(next.id, caller, 'adopt');
       // Taking over one made elsewhere (the home page, another session): the type's instructions come along.
       const type = this.o.types.get(next.type, caller.workspace ?? undefined);
       const actions = type ? await this.knownActions(type, false) : null;
@@ -1620,7 +1626,7 @@ export class Tools {
         touched.add(record.id);
         this.o.store.update(record.id, { agentSeenAt: now() });
         if (record.remote || record.autoPublish === 'pending') this.o.link?.wrote(record);
-        this.o.ownership?.wrote(record.id, caller);
+        this.o.ownership?.wrote(record.id, caller, true);
       }
     }
     return { artifacts: [...touched].map(artifactUrl) };

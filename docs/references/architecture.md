@@ -101,6 +101,28 @@ packages/daemon (local open-artifact daemon, one per machine)
   otherwise), after closing its page in the old folder. These routes take writes as `artifacts.create` does
   (`writeAllowed`: a JSON `POST` from the daemon's own origin, or the daemon token) and log an `audit:` line.
 
+- **Artifacts no session owns** (`wake.ts`, `ownership.ts`, `inbox.ts`): a wake of an artifact whose `owner` is empty
+  (made on the home page, a folder added) is stored in the `unowned` inbox with its `artifactId`, rendered by
+  `wakeMessage` with no word on who gets it; `link.ts`'s `tell` stores its notices there the same way. Nothing reads
+  that inbox but `WakeRouter.handOff(id, owner, how)`, which runs when a session becomes the owner: `Artifact adopt`
+  (`Tools.adopt`, through the `handOff` option), a write through the tools by a session (`Ownership.judge`'s no-owner
+  branch: `Artifact publish` with files, an `ArtifactData` write, a type action whose effect is `write`, or
+  `agent.wrote`; only a caller with a session id, never `open-artifact-home`, through the `claimed` option), and
+  `artifacts.assign`. It writes that artifact's messages to the owner's inbox, each wake with `wakeHandOffLine`
+  (`made`, `assigned`, or `gone` when the record has a `createdBy`) before it (`withHandOffLine` adds none to a text that
+  has one, and replaces the old "original session is gone" opening an older daemon stored), then takes them out of `unowned` (`Inbox.takeWhere`, which rewrites the file through a rename); both writes
+  are one synchronous step, so a message is handed over once, and a process killed between them leaves a copy in both
+  rather than none. After `adopt` and tool writes the call's own result carries them (`Tools.call` takes the inbox after
+  `afterTool`); after `agent.wrote` and `artifacts.assign`, `WakeRouter.deliverWaiting` sends them as a new wake goes
+  (live, else back to the inbox with a nudge); it takes them out of the inbox before sending, so a process killed in
+  between loses them. `artifacts.assign { id, session }` takes a session key that `harnesses` lists as live, with a
+  session id, refuses an artifact that has an owner (`conflict`) and a session not online (`not_found`),
+  and is the person's only: `originRefusal` (the check `types.*` routes use) and any `X-Open-Artifact-Agent` header
+  answer 403 `not_granted`; it logs an `audit:` line. The Shell's Ask pane (`AssignBox` in `AskPane.tsx`, with
+  `assignableSessions` and `takeOverText` in `shell/model.ts`) lists the live sessions for an artifact no session
+  owns, or, with none online, the prompt to copy. Opening, editing or commenting from the Shell or the home page never
+  changes an owner.
+
 - **Types people make**: `open-artifact types new | check | from | enable | disable | trust | untrust | list` and the
   Library routes `types.new`, `types.check`, `types.from`, `types.enable`, `types.disable`, `types.trust`
   (`packages/daemon/src/type-authoring.ts`). The routes refuse any `Origin` but the daemon's own (`http://<one of its
