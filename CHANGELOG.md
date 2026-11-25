@@ -6,6 +6,18 @@ agent plugins. Since 0.9.0 they all share one version; before that `dsh-open-art
 Each entry is written from the commits since the previous tag (`node scripts/changelog.mjs` lists them); see
 [Releasing](README.md#releasing).
 
+## [0.14.7] - 2026-11-25
+
+Data prints the dashboard again: Export → PDF and the browser's Print showed a blank sheet.
+
+### Fixed
+
+- In Data, Export → PDF and the browser's Print showed a blank page with only the data note under it (#24). The print rules that hide the editor around the dashboard also hid the dashboard's own content. The dashboard now prints at its full length, with the data note under it and nothing of the editor around it.
+
+### Integrators
+
+- The Harness API, Shell and wake messages, harness kit, stdio bridge and shipped profiles are unchanged.
+
 ## [0.14.6] - 2026-11-23
 
 Design lists the errors of its artboards where you can see them and asks the agent to fix them, and the MCP App card says when the app keeps the artifact's page out of the conversation, as Codex does, and always leaves a way to open the page.
@@ -585,6 +597,7 @@ One version for every package, with Docs and Sheets in every plugin.
 - Plugins for Claude Code, Codex, Cursor, Copilot, ChatGPT and DeepSeek Harness.
 - English and Chinese READMEs, under Apache-2.0.
 
+[0.14.7]: https://github.com/JimLiu/open-artifact/compare/v0.14.6...v0.14.7
 [0.14.6]: https://github.com/JimLiu/open-artifact/compare/v0.14.5...v0.14.6
 [0.14.5]: https://github.com/JimLiu/open-artifact/compare/v0.14.4...v0.14.5
 [0.14.4]: https://github.com/JimLiu/open-artifact/compare/v0.14.3...v0.14.4

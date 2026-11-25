@@ -16,7 +16,7 @@ const harness = await createHarness({
   harness: 'my-app',                  // ^[a-z0-9][a-z0-9._-]{0,40}$
   agentName: 'Assistant',
   commands: ['artifact'],
-  runtime: { dir: '/path/to/@open-artifact/cli', version: '0.14.6' }, // starts the daemon when none runs
+  runtime: { dir: '/path/to/@open-artifact/cli', version: '0.14.7' }, // starts the daemon when none runs
   // Give a message to a session: 'delivered' | 'resumed' | 'drafted' | 'queued' | 'failed' (the daemon keeps it),
   // or { status, session }. Only the owner's words (source.from.kind === 'owner') should become a user turn.
   wake: async ({ session, text, source }) => ((await myApp.deliver(session, text, source)) ? 'delivered' : 'failed'),

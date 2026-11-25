@@ -65,7 +65,7 @@ Parameters:
   RepoRef:
     Type: String
     Default: main
-    Description: The branch or release tag to build (a tag such as v0.14.6 keeps upgrades deliberate).
+    Description: The branch or release tag to build (a tag such as v0.14.7 keeps upgrades deliberate).
   BackupBucket:
     Type: String
     Default: ''
