@@ -197,4 +197,34 @@ export class Page {
   type(text) {
     return this.send('Input.insertText', { text });
   }
+
+  /** A real mouse click at (x, y) of the page's viewport (Chromium finds the frame there). `button`: left or right. */
+  async click(x, y, { button = 'left' } = {}) {
+    await this.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
+    for (const type of ['mousePressed', 'mouseReleased']) await this.send('Input.dispatchMouseEvent', { type, x, y, button, clickCount: 1 });
+  }
+
+  /**
+   * Clicks `element` (an expression in the page's own world) once it has a box that holds still and nothing covers
+   * it (a menu still opening moves its rows): the element's own `click()` (a window that is never shown gets no real
+   * mouse). Throws when there is nothing to click in `timeoutMs`.
+   */
+  async clickOn(element, { timeoutMs = 10_000 } = {}) {
+    const middle = `(() => { const el = (${element}); const r = el?.getBoundingClientRect(); if (!r?.width) return null;
+      const x = r.x + r.width / 2, y = r.y + r.height / 2; const hit = document.elementFromPoint(x, y);
+      return hit && (hit === el || el.contains(hit)) ? [x, y] : null; })()`;
+    const deadline = Date.now() + timeoutMs;
+    let was = null;
+    for (;;) {
+      const at = await this.evaluate(middle).catch(() => null);
+      if (at && was && at[0] === was[0] && at[1] === was[1]) return this.evaluate(`(${element}).click(), true`);
+      was = at;
+      if (Date.now() > deadline) throw new Error(`nothing to click: ${element}`);
+      await sleep(100);
+    }
+  }
 }
+
+/** A button or menu item by its words or its aria-label (an expression for `clickOn`). */
+export const buttonNamed = (name) =>
+  `[...document.querySelectorAll('button, [role="menuitem"]')].find((b) => b.getAttribute('aria-label') === ${JSON.stringify(name)} || b.textContent.trim() === ${JSON.stringify(name)})`;

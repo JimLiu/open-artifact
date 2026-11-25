@@ -11,13 +11,16 @@ export const isShellOf = (id) => (info) => info.type === 'page' && new URL(info.
 
 /**
  * `defaultLocale: false` leaves out the `--locale en` every other launch gets, for a test of the language setting
- * (test mode's `--locale` comes before it).
+ * (test mode's `--locale` comes before it). `binary`: the packaged app's executable (`Contents/MacOS/Open Artifact`),
+ * started with no app folder; else Electron with this folder. Either way it gets `--home`, `--port`, `--test-mode` and
+ * the throwaway profile's environment: the packaged app is never started without them.
  */
-export async function launchApp(profile, port, { args = [], env = {}, defaultLocale = true } = {}) {
+export async function launchApp(profile, port, { args = [], env = {}, defaultLocale = true, binary = null } = {}) {
   const debugPort = await freePort();
   // English unless a test asks for another language: the tests read the app's words.
   const locale = args.includes('--locale') || !defaultLocale ? [] : ['--locale', 'en'];
-  const child = spawn(electronBinary(), [APP, '--home', profile.oaHome, '--port', String(port), '--test-mode', '--devtools-port', String(debugPort), ...locale, ...args], {
+  if (!profile?.oaHome || !port || port === 4800) throw new Error('launchApp needs a throwaway profile and a port that is not 4800');
+  const child = spawn(binary ?? electronBinary(), [...(binary ? [] : [APP]), '--home', profile.oaHome, '--port', String(port), '--test-mode', '--devtools-port', String(debugPort), ...locale, ...args], {
     env: cleanEnv(profile, port, env),
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -80,10 +83,28 @@ export async function launchApp(profile, port, { args = [], env = {}, defaultLoc
         child.kill('SIGTERM');
         await until(() => exited, 5000);
       }
-      if (!exited && alive(child.pid)) child.kill('SIGKILL');
+      if (!exited && alive(child.pid)) {
+        child.kill('SIGKILL');
+        await until(() => exited, 5000);
+      }
       app.cdp?.close();
+      child.stdout?.destroy();
+      child.stderr?.destroy();
       await sleep(100);
       return exited;
+    },
+    /** The app's own `[desktop] profile {…}` line, parsed. */
+    async profileLine() {
+      const line = await app.line(/\[desktop\] profile \{/);
+      return JSON.parse(line.slice(line.indexOf('{')));
+    },
+    /** A named command of the main process (the menu's), through the test-only bridge. */
+    command(name, arg) {
+      return app.chrome.evaluate(`desktop.test.command(${JSON.stringify(name)}, ${JSON.stringify(arg ?? null)})`);
+    },
+    /** The application menu, as the main process sees it (labels, roles, accelerators, enabled). */
+    menu() {
+      return app.chrome.evaluate('desktop.test.menu()');
     },
   };
   return app;

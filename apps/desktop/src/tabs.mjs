@@ -35,10 +35,11 @@ export class Tabs {
   /**
    * `window`: the BrowserWindow; `harness`: the kit's connection; `allowlist`: an `OriginAllowlist`; `topInset()`: the
    * height of the window's own bar; `leftInset()`: the width of its sidebar (0 when collapsed); `onChange()`: the tabs
-   * changed (the window redraws its bar); `openExternal(url)`; `log(line)`; `testMode`.
+   * changed (the window redraws its bar); `openExternal(url)`; `onSavedFile(path, id)`: a page's server saved a file
+   * (the Shell's `saved_file`); `log(line)`; `testMode`.
    */
-  constructor({ window, harness, allowlist, topInset, leftInset = () => 0, onChange, openExternal, log, testMode = false }) {
-    Object.assign(this, { window, harness, allowlist, topInset, leftInset, onChange, openExternal, log, testMode });
+  constructor({ window, harness, allowlist, topInset, leftInset = () => 0, onChange, openExternal, onSavedFile = () => {}, log, testMode = false }) {
+    Object.assign(this, { window, harness, allowlist, topInset, leftInset, onChange, openExternal, onSavedFile, log, testMode });
     /** The window's page draws over the views: the current one is hidden. */
     this.overlay = false;
     /** Artifact id → tab. */
@@ -153,6 +154,7 @@ export class Tabs {
       },
       onClose: () => void this.close(tab.id),
       onOpenExternal: (url) => this.external(url),
+      onSavedFile: (path) => this.onSavedFile(path, tab.id),
       // A window that is not on screen (test mode, minimized) has nothing to capture.
       capture: async () =>
         tab.view && !tab.view.webContents.isDestroyed() && this.window.isVisible() && this.current === tab.id ? (await tab.view.webContents.capturePage()).toJPEG(70) : null,
@@ -242,6 +244,19 @@ export class Tabs {
     if (typeof type === 'string' && type) tab.type = type;
     this.changed();
     return true;
+  }
+
+  /** The view of the tab in front (null on the home page). */
+  currentView() {
+    const tab = this.tabs.get(this.current);
+    return tab?.view && !tab.view.webContents.isDestroyed() ? tab.view : null;
+  }
+
+  /** The tab next to the current one (`step` 1 or -1), the home page counted first; wraps around. */
+  neighbour(step) {
+    const order = [HOME_TAB, ...this.tabs.keys()];
+    const at = Math.max(0, order.indexOf(this.current));
+    return order[(at + step + order.length) % order.length];
   }
 
   /** The window's page draws over the views (a dialog), or stops. */

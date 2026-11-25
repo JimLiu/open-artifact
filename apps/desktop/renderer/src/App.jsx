@@ -12,6 +12,10 @@ import { pageApi, pageHost, setTypeWords, tileGroups } from './host.js';
 import { runtimeUpdates, useRuntime, useService } from './service.js';
 import { typeName, wordsFor } from './words.js';
 
+/** The cards' icons for Show in Finder (a folder) and Move To… (a folder with an arrow), 16×16 paths. */
+export const FOLDER_ICON = 'M2.5 4.5a1 1 0 0 1 1-1h3l1.5 1.5h4.5a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1v-7.5Z';
+export const MOVE_ICON = 'M2.5 4.5a1 1 0 0 1 1-1h3l1.5 1.5h4.5a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1v-7.5ZM6 9h4.5M9 7.5 10.5 9 9 10.5';
+
 export function App({ initial }) {
   const [state, setState] = useState(initial);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -68,6 +72,34 @@ export function App({ initial }) {
 
   useEffect(() => window.desktop.onState(setState), []);
 
+  // What the menu bar asks of this page.
+  useEffect(
+    () =>
+      window.desktop.onCommand(({ name, arg } = {}) => {
+        if (name === 'settings') setSettingsOpen(true);
+        else if (name === 'new-dialog') setDialogOpen(true);
+        else if (name === 'service') setServicePanel({ ask: null });
+        else if (name === 'toast' && typeof arg?.message === 'string') store.getState().showToast(arg.message, arg.kind === 'error' ? 'error' : 'info');
+      }),
+    [store],
+  );
+
+  // Show in Finder and Move To… in each card's More menu (and the sidebar's right-click menu): the main process's.
+  const artifactDo = useCallback(
+    (act, id) =>
+      void window.desktop.artifactDo(act, id).then((out) => {
+        if (out && out.ok === false) store.getState().showToast(t('action.failed', { message: out.error }), 'error');
+      }),
+    [store, t],
+  );
+  const cardActions = useMemo(
+    () => [
+      { id: 'reveal', label: t('card.reveal'), icon: FOLDER_ICON, run: (artifact) => artifactDo('reveal', artifact.id) },
+      { id: 'move', label: t('card.move'), icon: MOVE_ICON, run: (artifact) => artifactDo('move', artifact.id) },
+    ],
+    [t, artifactDo],
+  );
+
   // The look and the language on the root, for the CSS.
   useEffect(() => {
     const root = document.documentElement;
@@ -114,7 +146,7 @@ export function App({ initial }) {
     <EnvProvider env={env}>
       <StoreProvider store={store}>
         <div className="window" data-sidebar={collapsed ? 'collapsed' : 'open'}>
-          {!collapsed && <Sidebar t={t} state={state} platform={platform} onNew={openDialog} onSearch={onSearch} onSettings={() => setSettingsOpen(true)} />}
+          {!collapsed && <Sidebar t={t} state={state} platform={platform} onNew={openDialog} onSearch={onSearch} onSettings={() => setSettingsOpen(true)} artifactDo={artifactDo} />}
           <div className="main">
             <TabBar t={t} state={state} platform={platform} onNew={openDialog} />
             <main className="content" data-testid="home" hidden={state.current !== 'home'}>
@@ -126,6 +158,7 @@ export function App({ initial }) {
                 createButton={false}
                 tileGroups={groups}
                 headingTools={<ServiceStatus t={t} service={service} onOpen={() => setServicePanel({ ask: null })} />}
+                cardActions={cardActions}
               />
             </main>
           </div>

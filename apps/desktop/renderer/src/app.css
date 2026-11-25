@@ -947,3 +947,45 @@ button.section-head {
 .switch:disabled {
   opacity: 0.6;
 }
+
+/* The sidebar's right-click menu on an artifact row: Open, Show in Finder, Move To…. It stays inside the sidebar
+   (an artifact's view is drawn over anything past it). */
+.row-menu {
+  position: fixed;
+  z-index: 40;
+  width: 200px;
+  box-sizing: border-box;
+  padding: 4px;
+  border-radius: 8px;
+  border: 1px solid var(--oa-page-border-floating);
+  background: var(--oa-page-bg);
+  color: var(--oa-page-text-primary);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.16), 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+:root[data-theme='dark'] .row-menu {
+  background: #2a2a2c;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
+}
+.row-menu-item {
+  display: block;
+  width: 100%;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+}
+.row-menu-item:hover,
+.row-menu-item:focus-visible {
+  background: var(--oa-page-accent);
+  color: #fff;
+  outline: none;
+}
+.row-menu-rule {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--oa-page-border);
+}

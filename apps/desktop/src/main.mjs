@@ -22,20 +22,26 @@
  * Electron is ready and before anything connects; then the window, then the connection, then the tabs.
  *
  *   electron . --home <dir> --port <n> [--open <artifact id>]…
- *              [--test-mode --devtools-port <n> [--locale en|zh] [--theme light|dark] [--thumbnails]]
+ *              [--test-mode --devtools-port <n> [--locale en|zh] [--theme light|dark] [--thumbnails] [--offline]]
  */
-import { mkdirSync, statSync } from 'node:fs';
-import { join } from 'node:path';
-import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeTheme, session, shell } from 'electron';
+import { mkdirSync, readFileSync, statSync } from 'node:fs';
+import { basename, isAbsolute, join } from 'node:path';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, session, shell } from 'electron';
 import { createHarness, readDaemon, runtimeInfo } from '@open-artifact/harness-kit';
 import { thumbnailStamp } from '@open-artifact/library-page/library';
 import { daemonEnv, daemonOnDefaultPort, resolveProfile } from './profile.mjs';
 import { OriginAllowlist } from './navigation.mjs';
-import { HOME_TAB, Tabs } from './tabs.mjs';
+import { HOME_TAB, PARTITION, Tabs } from './tabs.mjs';
 import { TabHistory } from './history.mjs';
 import { CHOICES, Settings, chromiumLang, validSetting } from './settings.mjs';
 import { createArg, idArg, libraryClient, patchArg } from './library.mjs';
-import { Photographer, registerThumbnailScheme, serveThumbnails } from './thumbnails.mjs';
+import { CAPTURE_PARTITION, Photographer, registerThumbnailScheme, serveThumbnails } from './thumbnails.mjs';
+import { Downloads } from './downloads.mjs';
+import { blockOffline } from './offline.mjs';
+import { Notice } from './notice.mjs';
+import { describeMenu, menuTemplate, templateCommands } from './menu.mjs';
+import { moveArtifact } from './move.mjs';
+import { wordsFor } from '../renderer/src/words.js';
 import { Service } from './service.mjs';
 import { RuntimeUpdates } from './runtime.mjs';
 import { libraryDefaultFolder, newArtifactFolder } from './folders.mjs';
@@ -71,6 +77,11 @@ if (profile.testMode) {
   if (profile.debugPort) app.commandLine.appendSwitch('remote-debugging-port', String(profile.debugPort));
   // Never in the person's way: no Dock icon, no activation, no shown window.
   if (process.platform === 'darwin') app.setActivationPolicy?.('accessory');
+  // A window never shown still runs its pages' animation frames and timers (without these, a page's
+  // requestAnimationFrame was seen not to fire for seconds).
+  app.commandLine.appendSwitch('disable-renderer-backgrounding');
+  app.commandLine.appendSwitch('disable-background-timer-throttling');
+  app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
 }
 registerThumbnailScheme();
 
@@ -160,7 +171,7 @@ function fail(error) {
 }
 
 async function start() {
-  log(`profile ${JSON.stringify({ home: profile.home, port: profile.port, packaged: profile.packaged, testMode: profile.testMode, paths: profile.paths })}`);
+  log(`profile ${JSON.stringify({ home: profile.home, port: profile.port, packaged: profile.packaged, testMode: profile.testMode, guarded: profile.guarded, paths: profile.paths })}`);
   if (profile.testMode && process.platform === 'darwin') app.dock?.hide();
   // The look of every page (the window's, the views', their frames'): a test run's switch, else the setting.
   nativeTheme.themeSource = themeSource();
@@ -169,9 +180,26 @@ async function start() {
   if (!info?.version) throw new Error(`No Open Artifact runtime in ${runtimeDir}: run npm run build in apps/desktop.`);
   carriedVersion = info.version;
 
-  // A daemon already runs for this home: a development build must not connect to one on 4800.
-  if (!profile.packaged && daemonOnDefaultPort(await readDaemon(profile.home))) {
-    throw new Error(`The daemon of ${profile.home} listens on port 4800; this development build does not connect to it.`);
+  // A daemon already runs for this home: a development or test run must not connect to one on 4800.
+  if (profile.guarded && daemonOnDefaultPort(await readDaemon(profile.home))) {
+    throw new Error(`The daemon of ${profile.home} listens on port 4800; this development or test run does not connect to it.`);
+  }
+
+  // Test mode's --offline: no page of the app reaches past this computer (the views', the window's, the thumbnails').
+  /** The addresses refused so far (test mode's --offline), in order. */
+  const blocked = [];
+  if (profile.offline) {
+    for (const [name, ses] of [
+      ['window', session.defaultSession],
+      ['views', session.fromPartition(PARTITION)],
+      ['thumbnails', session.fromPartition(CAPTURE_PARTITION)],
+    ]) {
+      blockOffline(ses, (url, details) => {
+        blocked.push({ session: name, url, type: details.resourceType ?? '' });
+        log(`offline: blocked ${name} ${details.resourceType ?? ''} ${url.slice(0, 300)}`);
+      });
+    }
+    log('offline: only this computer is reachable');
   }
 
   // Nothing here may ask for a permission, and the window's own page never navigates.
@@ -219,6 +247,21 @@ async function start() {
   await window.loadFile(pagePath);
 
   const allowlist = new OriginAllowlist();
+  const t = wordsFor(locale);
+  // The "saved" notice over the views, and the downloads that end in it.
+  let downloads = null;
+  const notice = new Notice({
+    window,
+    dir: here,
+    words: () => ({ saved: (folder) => t('notice.saved', { folder }), reveal: t('notice.reveal'), close: t('notice.close'), lang: locale === 'zh' ? 'zh-CN' : 'en' }),
+    reveal: (id) => downloads.reveal(id),
+    log,
+    testMode: profile.testMode,
+  });
+  downloads = new Downloads({ allowlist, notify: (n) => void notice.show(n), reveal: (path) => system.reveal(path), log });
+  downloads.attach(session.fromPartition(PARTITION));
+  downloads.refuse(session.defaultSession, 'the window');
+  downloads.refuse(session.fromPartition(CAPTURE_PARTITION), 'the thumbnails');
   harness = await createHarness({
     harness: 'open-artifact-desktop',
     // The runtime this app carries; updates are offered, never installed without the person (a later stage).
@@ -261,7 +304,7 @@ async function start() {
   /** The daemon's origin and the page origins it lists; refused when a development build reached a daemon on 4800. */
   const refreshOrigins = async () => {
     const state = harness.client.state;
-    if (!profile.packaged && daemonOnDefaultPort(state)) {
+    if (profile.guarded && daemonOnDefaultPort(state)) {
       console.error(`[desktop] connected to a daemon on port 4800 (${state.url}); quitting.`);
       app.exit(3);
       return false;
@@ -280,6 +323,10 @@ async function start() {
   const history = new TabHistory(HOME_TAB);
   let travelling = false;
   let tabs = null;
+  /** The menu bar's types (File ▸ New) and what it was last built for; it is built once the commands are there. */
+  let menuTypes = [];
+  let menuKey = '';
+  let menuReady = false;
   const snapshot = () => ({
     ...tabs.snapshot(),
     canBack: history.canBack,
@@ -299,6 +346,8 @@ async function start() {
     for (const id of new Set(history.entries)) if (!open.has(id)) history.remove(id, HOME_TAB);
     if (!travelling) history.visit(tabs.current);
     window.webContents.send('desktop:state', snapshot());
+    notice.raise();
+    refreshMenu();
   };
   tabs = new Tabs({
     window,
@@ -308,6 +357,10 @@ async function start() {
     leftInset: () => (settings.get('sidebarCollapsed') ? 0 : SIDEBAR_WIDTH),
     onChange: send,
     openExternal,
+    onSavedFile: (path, id) => {
+      log(`saved_file from ${id}`);
+      downloads.fromShell(path);
+    },
     log,
     testMode: profile.testMode,
   });
@@ -351,6 +404,7 @@ async function start() {
       libraryEvent({ type: event.type, id: event.id, removed: !!event.removed });
     } else if (event.type === 'types/changed') {
       libraryEvent({ type: event.type });
+      void refreshTypes();
     } else if (event.type === 'runtime/update') {
       log(`runtime/update ${JSON.stringify({ current: event.current, available: event.available, installed: event.installed })}`);
       runtime.event();
@@ -364,6 +418,7 @@ async function start() {
         if (!ok) return;
         tabs.setConnected(true);
         libraryEvent({ type: 'connected' });
+        void refreshTypes();
       });
       void runtime.refresh();
     } else {
@@ -559,18 +614,241 @@ async function start() {
     return true;
   });
 
+  // ---- the commands: what the menu bar, the cards' and the sidebar's menus run, each by name ----
+
+  /** To the window's page: open a dialog or panel of its own, or say something (`toast`). */
+  const toPage = (name, arg) => {
+    if (!window.isDestroyed()) window.webContents.send('desktop:command', { name, ...(arg === undefined ? {} : { arg }) });
+  };
+  const say = (message, kind = 'info') => toPage('toast', { message, kind });
+  /** The artifact in front (null on the home page). */
+  const currentArtifact = () => (tabs.current === HOME_TAB ? null : tabs.current);
+  /** The page the Edit and View items act on: the dialog's or the home page's (the window's own), else the tab's. */
+  const targetContents = () => (tabs.overlay ? null : tabs.currentView()?.webContents) ?? window.webContents;
+  /**
+   * A folder or file the person picks with the system's dialog; in test mode no dialog is shown: the test gives the
+   * path (`given`), else nothing is picked.
+   */
+  const pick = async (given, { file = false, title = '' } = {}) => {
+    if (profile.testMode) {
+      if (typeof given === 'string' && isAbsolute(given)) return given;
+      log(`choose ${file ? 'file' : 'folder'} (test mode: no dialog)`);
+      return null;
+    }
+    const picked = await dialog.showOpenDialog(window, {
+      title,
+      properties: file ? ['openFile'] : ['openDirectory', 'createDirectory'],
+      ...(file ? { filters: [{ name: 'Zip', extensions: ['zip'] }] } : {}),
+    });
+    return picked.canceled ? null : (picked.filePaths[0] ?? null);
+  };
+  /** Waits (up to `ms`) until the tab of `id` has nothing unsaved; false when it still has. */
+  const savedNow = async (id, ms = 10_000) => {
+    const deadline = Date.now() + ms;
+    for (;;) {
+      const tab = tabs.tabs.get(id);
+      const unsaved = tab?.saved && (tab.saved.leaveLosesWork || tab.saved.state === 'unsaved' || tab.saved.state === 'saving');
+      if (!unsaved) return true;
+      if (Date.now() > deadline) return false;
+      await new Promise((done) => setTimeout(done, 100));
+    }
+  };
+  const artifactArg = (arg) => {
+    const id = typeof arg === 'string' ? arg : typeof arg?.id === 'string' ? arg.id : currentArtifact();
+    if (!id) throw new Error('no artifact in front');
+    return idArg(id);
+  };
+  const zoom = (by) => {
+    const contents = targetContents();
+    const level = by === 0 ? 0 : Math.max(-5, Math.min(5, contents.getZoomLevel() + by));
+    contents.setZoomLevel(level);
+    log(`zoom ${level}`);
+    return level;
+  };
+  const edit = (method) => () => {
+    const contents = targetContents();
+    contents[method]();
+    log(`edit ${method} on ${contents === window.webContents ? 'the window' : `tab ${tabs.current}`}`);
+    return true;
+  };
+  const makeOfType = async (type) => {
+    const asked = createArg({ type, title: '' });
+    const base = settings.get('artifactsFolder');
+    const made = await library.create({ ...asked, ...(base ? { folder: newArtifactFolder(base, asked.type) } : {}) });
+    await openTab(made.id);
+    return { id: made.id };
+  };
+
+  const commands = {
+    about: () => {
+      log(`about${profile.testMode ? ' (test mode: not shown)' : ''}`);
+      if (!profile.testMode) app.showAboutPanel();
+      return true;
+    },
+    settings: () => (toPage('settings'), true),
+    'new-dialog': () => (toPage('new-dialog'), true),
+    'open-folder': async (arg) => {
+      const folder = await pick(arg, { title: t('menu.openFolder') });
+      if (!folder) return null;
+      try {
+        const made = await library.add(folder);
+        await openTab(made.id);
+        say(t('add.done', { title: made.title || basename(folder) }));
+        return { id: made.id };
+      } catch (error) {
+        say(t('add.failed', { message: error?.message ?? String(error) }), 'error');
+        throw error;
+      }
+    },
+    import: async (arg) => {
+      const file = await pick(arg, { file: true, title: t('menu.import') });
+      if (!file) return null;
+      try {
+        const made = await library.importZip(readFileSync(file), basename(file));
+        await openTab(made.id);
+        say(t('import.done', { title: made.title || basename(file) }));
+        return { id: made.id };
+      } catch (error) {
+        say(t('import.failed', { message: error?.message ?? String(error) }), 'error');
+        throw error;
+      }
+    },
+    reveal: async (arg) => {
+      const record = await library.record(artifactArg(arg));
+      return system.reveal(record.root);
+    },
+    move: async (arg) => {
+      const id = artifactArg(arg);
+      const into = await pick(arg?.into, { title: t('menu.move') });
+      if (!into) return null;
+      const open = tabs.tabs.has(id);
+      try {
+        if (open) {
+          if (!(await savedNow(id))) throw new Error('it still has changes that are not saved');
+          await tabs.close(id);
+        }
+        const moved = await moveArtifact({ library, id, into, log });
+        say(t('move.done', { folder: basename(into) }));
+        return moved;
+      } catch (error) {
+        say(t('move.failed', { message: error?.message ?? String(error) }), 'error');
+        throw error;
+      } finally {
+        if (open) await openTab(id).catch((error) => log(`open ${id}: ${error?.message ?? error}`));
+      }
+    },
+    'close-tab': () => {
+      const id = currentArtifact();
+      return id ? tabs.close(id) : false;
+    },
+    reload: () => {
+      const id = currentArtifact();
+      return id ? tabs.reload(id, { discard: tabs.tabs.get(id)?.status === 'stale' }) : false;
+    },
+    'toggle-sidebar': () => {
+      settings.set('sidebarCollapsed', !settings.get('sidebarCollapsed'));
+      tabs.layout();
+      log(`sidebar ${settings.get('sidebarCollapsed') ? 'collapsed' : 'open'}`);
+      send();
+      return settings.get('sidebarCollapsed');
+    },
+    'zoom-reset': () => zoom(0),
+    'zoom-in': () => zoom(0.5),
+    'zoom-out': () => zoom(-0.5),
+    fullscreen: () => {
+      // A test window is never shown: going full screen would take a Space of the person's screen.
+      if (profile.testMode) return (log('full screen (test mode: not done)'), false);
+      window.setFullScreen(!window.isFullScreen());
+      return window.isFullScreen();
+    },
+    'previous-tab': () => travel(tabs.neighbour(-1)),
+    'next-tab': () => travel(tabs.neighbour(1)),
+    logs: () => service.openLogs(),
+    doctor: async () => {
+      toPage('service');
+      const out = await service.runDoctor();
+      return out.report ? { counts: out.report.counts, ok: out.report.ok } : { error: out.error ?? 'no report' };
+    },
+    'edit:undo': edit('undo'),
+    'edit:redo': edit('redo'),
+    'edit:cut': edit('cut'),
+    'edit:copy': edit('copy'),
+    'edit:paste': edit('paste'),
+    'edit:paste-plain': edit('pasteAndMatchStyle'),
+    'edit:delete': edit('delete'),
+    'edit:select-all': edit('selectAll'),
+  };
+  /** Commands that need an artifact in front, and those that need the daemon. */
+  const NEEDS_ARTIFACT = new Set(['reveal', 'move', 'close-tab', 'reload']);
+  const NEEDS_DAEMON = new Set(['new-dialog', 'open-folder', 'import', 'reveal', 'move', 'doctor']);
+  const enabled = (name) => {
+    if (NEEDS_ARTIFACT.has(name) && !currentArtifact()) return false;
+    if ((NEEDS_DAEMON.has(name) || name.startsWith('new:')) && !harness.connected) return false;
+    return true;
+  };
+  /** Runs a command; `named`: an artifact is named (a card's, a row's), so none need be in front. */
+  const runCommand = async (name, arg, { named = false } = {}) => {
+    const run = name.startsWith('new:') ? () => makeOfType(name.slice(4)) : commands[name];
+    if (!run) throw new Error(`not a command: ${name}`);
+    if (named ? !harness.connected : !enabled(name)) throw new Error(`${name} cannot run now`);
+    log(`command ${name}`);
+    return run(arg);
+  };
+  /** A menu item's click: a failure is logged (and said by the command), never thrown into Electron. */
+  const fromMenu = (name, arg) => {
+    void runCommand(name, arg).catch((error) => log(`command ${name}: ${error?.message ?? error}`));
+  };
+
+  function refreshMenu(force = false) {
+    if (!menuReady) return;
+    const key = JSON.stringify([currentArtifact() !== null, harness.connected, menuTypes.map((type) => [type.id, type.title])]);
+    if (!force && key === menuKey) return;
+    menuKey = key;
+    const template = menuTemplate({ t, types: menuTypes, run: fromMenu, enabled, appName: 'Open Artifact' });
+    for (const name of templateCommands(template)) if (!name.startsWith('new:') && !commands[name]) log(`menu: no command ${name}`);
+    Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+  }
+  async function refreshTypes() {
+    try {
+      const { types } = await library.list();
+      menuTypes = (types ?? []).map((type) => ({ id: type.id, title: type.title }));
+    } catch (error) {
+      log(`menu types: ${error?.message ?? error}`);
+    }
+    refreshMenu(true);
+  }
+  menuReady = true;
+  refreshMenu(true);
+
+  // The cards' and the sidebar's menus: Show in Finder and Move To… of one artifact.
+  answer('desktop:artifact-do', (act, id) => {
+    if (act !== 'reveal' && act !== 'move') throw new Error(`not an artifact action: ${act}`);
+    return runCommand(act, { id: idArg(id) }, { named: true });
+  });
+
+  // Test mode only: a command by name, the menu as built, the notice, what --offline refused.
+  if (profile.testMode) {
+    answer('test:command', (name, arg) => runCommand(String(name), arg ?? undefined));
+    handle('test:menu', () => describeMenu(Menu.getApplicationMenu()));
+    handle('test:notice', () => notice.state());
+    handle('test:blocked', () => blocked.slice());
+    handle('test:downloads', () => downloads.folder);
+  }
+
   if (harness.connected && !(await refreshOrigins())) return;
   tabs.setConnected(harness.connected);
   if (harness.connected) void service.refresh();
   void runtime.refresh();
   // The page asked before the connection was there: now it can list the library.
   if (harness.connected) libraryEvent({ type: 'connected' });
+  if (harness.connected) void refreshTypes();
 
   window.on('closed', () => app.quit());
   app.on('before-quit', () => {
     service.close();
     runtime.close();
     photographer.closeAll();
+    notice.close();
     tabs.closeAll();
     harness.close();
   });

@@ -113,6 +113,26 @@ export function libraryClient({ state, fetchImpl = fetch }) {
       if (typeof made?.id !== 'string' || !made.id) throw new LibraryError('the daemon made no artifact');
       return made;
     },
+    /** The artifact's record as the daemon keeps it (its folder is `root`): for this process only, never the page. */
+    async record(id) {
+      return call(LIBRARY_ROUTES.artifact, { query: { id } });
+    },
+    /** "Open Folder": an artifact folder on this computer joins the library, owned by nobody (`artifacts.add`). */
+    async add(folder) {
+      const made = await call(LIBRARY_ROUTES.add, { body: { folder } });
+      if (typeof made?.id !== 'string' || !made.id) throw new LibraryError('the daemon added no artifact');
+      return made;
+    },
+    /** "Import": a zip of an artifact made into one here (`artifacts.import`), where the daemon puts new ones. */
+    async importZip(bytes, name) {
+      const made = await call(LIBRARY_ROUTES.import, { method: 'POST', query: { name }, body: bytes, contentType: 'application/zip' });
+      if (typeof made?.id !== 'string' || !made.id) throw new LibraryError('the daemon imported no artifact');
+      return made;
+    },
+    /** The artifact's folder was moved to `folder` (`artifacts.relocate`). */
+    async relocate(id, folder) {
+      return call(LIBRARY_ROUTES.relocate, { body: { id, folder } });
+    },
     /** A type's page of the artifact (for its thumbnail): an address that stays in this process. */
     async preview(id) {
       const out = await call(LIBRARY_ROUTES.preview, { body: { id } });

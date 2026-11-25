@@ -284,7 +284,31 @@ function FilterMenu({ anchor, filters, setFilters, types, counts, t, onClose }: 
 
 type Act = 'pin' | 'rename' | 'copy' | 'share' | 'delete';
 
-function ActionsMenu({ anchor, artifact, t, onClose, act }: { anchor: HTMLElement; artifact: PageArtifact; t: Translate; onClose(): void; act: (what: Act) => void }) {
+/** A host's own item in a card's "More" menu (after Share): its words, an optional icon (a 16×16 path), and what it does. */
+export interface CardAction {
+  id: string;
+  label: string;
+  icon?: string;
+  run(artifact: PageArtifact): void;
+}
+
+function ActionsMenu({
+  anchor,
+  artifact,
+  t,
+  onClose,
+  act,
+  extra = [],
+  onExtra,
+}: {
+  anchor: HTMLElement;
+  artifact: PageArtifact;
+  t: Translate;
+  onClose(): void;
+  act: (what: Act) => void;
+  extra?: readonly CardAction[];
+  onExtra?: (action: CardAction) => void;
+}) {
   const item = (what: Exclude<Act, 'delete'>, icon: ReactNode | string, label: string, key: string) => (
     <button type="button" className="oa-menu-item" role="menuitem" aria-keyshortcuts={key} onClick={() => act(what)}>
       <Icon d={icon} />
@@ -308,6 +332,12 @@ function ActionsMenu({ anchor, artifact, t, onClose, act }: { anchor: HTMLElemen
       {item('rename', ICON.rename, t('action.rename'), 'R')}
       {item('copy', ICON.link, t('action.copy'), 'C')}
       {item('share', ICON.share, t('action.share'), 'S')}
+      {extra.map((action) => (
+        <button key={action.id} type="button" className="oa-menu-item" role="menuitem" data-action={action.id} onClick={() => onExtra?.(action)}>
+          <Icon d={action.icon ?? ''} />
+          <span className="oa-menu-label">{action.label}</span>
+        </button>
+      ))}
       <div className="oa-menu-rule" role="separator" />
       <button type="button" className="oa-menu-item" role="menuitem" data-danger="true" onClick={() => act('delete')}>
         <Icon d={ICON.trash} />
@@ -636,10 +666,12 @@ export interface ArtifactsPageProps {
   platform?: string;
   /** The host's own controls at the start of the heading's tools (e.g. a status button); none by default. */
   headingTools?: ReactNode;
+  /** The host's own items in each card's "More" menu, after Share (e.g. a desktop app's Show in Finder); none by default. */
+  cardActions?: readonly CardAction[];
 }
 
 /** The page. */
-export function ArtifactsPage({ canCreate, theme, platform, searchButton = true, createButton = true, tileGroups, headingTools }: ArtifactsPageProps) {
+export function ArtifactsPage({ canCreate, theme, platform, searchButton = true, createButton = true, tileGroups, headingTools, cardActions }: ArtifactsPageProps) {
   const { t } = usePageEnv();
   const sessionTitle = useSessionTitle();
   const status = usePage((s) => s.status);
@@ -952,6 +984,11 @@ export function ArtifactsPage({ canCreate, theme, platform, searchButton = true,
           artifact={actionsFor}
           t={t}
           onClose={closePopup}
+          extra={cardActions}
+          onExtra={(action) => {
+            setPopup(null);
+            action.run(actionsFor);
+          }}
           act={(what) => {
             setPopup(null);
             if (what === 'pin') void pin(actionsFor, !actionsFor.pinned);

@@ -10,7 +10,7 @@
 // and UPDATE_CSS (the runtime's update panel at the top of the library).
 //
 //   node build.mjs        (from apps/desktop; `npm run build` also builds the runtime it carries)
-import { copyFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, cpSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { buildSync } from 'esbuild';
@@ -35,6 +35,7 @@ const common = {
 
 buildSync({ ...common, entryPoints: [join(here, 'src', 'main.mjs')], outfile: join(out, 'main.mjs'), external: ['electron'] });
 copyFileSync(join(here, 'src', 'preload.cjs'), join(out, 'preload.cjs'));
+copyFileSync(join(here, 'src', 'notice-preload.cjs'), join(out, 'notice-preload.cjs'));
 
 // ---- the window's page ----
 const own = (name) => join(here, 'node_modules', name);
@@ -58,5 +59,7 @@ const { PAGE_CSS, UPDATE_CSS } = await import(pathToFileURL(join(here, '..', '..
 writeFileSync(join(out, 'renderer', 'page.css'), `/* @open-artifact/library-page PAGE_CSS and UPDATE_CSS, written by build.mjs */\n${PAGE_CSS.trim()}\n${UPDATE_CSS.trim()}\n`);
 copyFileSync(join(here, 'renderer', 'src', 'app.css'), join(out, 'renderer', 'app.css'));
 copyFileSync(join(here, 'renderer', 'index.html'), join(out, 'renderer', 'index.html'));
+// The "saved" notice's page (a view of its own over the artifact's): plain files, no React.
+cpSync(join(here, 'renderer', 'notice'), join(out, 'renderer', 'notice'), { recursive: true });
 buildSync({ ...common, entryPoints: [join(here, 'test', 'probe', 'chain-probe.mjs')], outfile: join(out, 'test', 'chain-probe.mjs') });
 console.log(`built ${out}`);

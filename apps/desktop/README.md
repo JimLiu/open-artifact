@@ -55,6 +55,25 @@ The window's page (`renderer/`, a React app bundled into `out/renderer/app.js`) 
   `bundled`, written by the person-only `runtime policy`; shown read-only under `auto` or the computer's switch),
   Advanced (the profile folder with Show in Finder, the versions).
 
+- **Menu bar** (`src/menu.mjs`, built again when the language, the types or the tab in front change): the app menu
+  (About, Settings… `⌘,`, Services, Hide, Quit); File (New ▸ each type in the new dialog's two groups, New… `⌘N`,
+  Open Folder… `⌘O` adds a folder that holds an artifact (`artifacts.add`), Import… `⇧⌘O` a `.zip` of one
+  (`artifacts.import`), Show in Finder `⌥⌘R`, Move To…, Close Tab `⌘W`); Edit (the standard items, sent to the tab in
+  front, or to the window's page while a dialog is over it); View (Reload Tab `⌘R`, Toggle Sidebar `⌃⌘S`, Actual
+  Size, Zoom In and Out, Enter Full Screen `⌃⌘F`); Window (the standard items, Previous and Next Tab `⇧⌘[` `⇧⌘]`);
+  Help (the logs folder, Run doctor in the service panel). Its labels follow the app's language. The items for an
+  artifact are greyed out while the Library tab is in front, the ones that need the service while it is not
+  connected. Every item is a named command of the main process.
+- **Show in Finder and Move To…**: also in a card's More menu (`cardActions` of the library page) and in a sidebar
+  row's right-click menu. Move To… asks for a folder, closes the artifact's tab once its work is saved, moves the
+  folder there (`<name> (2)` when the name is taken; across volumes, copied then removed), tells the daemon
+  (`artifacts.relocate`) and opens the tab again; when the daemon refuses, the folder is put back.
+- **Downloads** (`src/downloads.mjs`, `src/notice.mjs`): what an artifact's view saves goes to `~/Downloads` with no
+  dialog: an editor's export (the Shell's `saved_file`, written by the type server) and the view's own downloads (the
+  folder's zip, a page's `blob:` file; ` (2)`, ` (3)`… when the name is taken). A download from anywhere the views may
+  not show is cancelled and logged. A notice at the window's bottom right names the file and the folder, with Show in
+  Finder; it goes after a few seconds (not while the pointer is on it).
+
 The page reaches the main process through a small preload bridge (`window.desktop`); every call checks that it came
 from the window's own page. The Library API calls (list, update title or pinned, delete, restore, create, thumbnails)
 are made by the main process with the daemon's token, which the page never sees; the page gets the library's events
@@ -113,9 +132,32 @@ after the app quits; stop it by the pid in `<home>/daemon.json` once the app is 
 a daemon again when its daemon goes away).
 
 Test mode (`--test-mode`, with `--devtools-port <n>`) keeps the window hidden, keeps the app out of the Dock, only
-logs links that would go to the system browser, and opens DevTools on that port for the tests to drive. Only in test
+logs links that would go to the system browser, and opens DevTools on that port for the tests to drive; it also turns off
+Chromium's backgrounding of hidden windows, so the pages of a window never shown keep their animation frames and
+timers. Only in test
 mode: `--locale en|zh` and `--theme light|dark` set the language and the look, before the settings, and
-`--thumbnails` takes thumbnails although the window is never shown.
+`--thumbnails` takes thumbnails although the window is never shown, and `--offline` refuses every request a page of
+the app makes past this computer (the window's, the views', the thumbnails'), logged as `offline: blocked …`.
+
+## Packaging
+
+```bash
+npm run package        # npm run build, then scripts/package.mjs
+npm run test:packaged  # the packaged app's checks (test/packaged/); package first
+```
+
+`scripts/package.mjs` makes `dist/Open Artifact-darwin-arm64/Open Artifact.app` (`dist/` is ignored by git): macOS
+arm64, a folder (no DMG, no notarization, no automatic updates), signed ad hoc on this computer
+(`codesign --force --deep --sign -`, the package only). It carries `out/` (the main process, the preloads, the
+pages) in `Contents/Resources/app.asar` (Electron checks it against `ElectronAsarIntegrity` in `Info.plist`) and the
+runtime in `Contents/Resources/runtime`. The icon is a placeholder drawn by `scripts/placeholder-icon.mjs`, and the
+bundle id `dev.openartifact.desktop` is a placeholder too. Electron's fuses are left as they are: `RunAsNode` stays
+on, the daemon and the type servers run on the app's own executable. No URL scheme is declared and nothing is
+installed or registered. Electron's zip comes from `@electron/get`'s cache when it is there.
+
+The packaged app started with no arguments uses your own home and port, as it will for the person. Start it for a
+test only through the test code (`launchApp(…, { binary })`), which always passes `--home`, a port other than 4800,
+`--test-mode` and a throwaway `HOME`; a test-mode run of the package is guarded like a development one.
 
 ## Tests
 
@@ -155,10 +197,23 @@ npm test         # builds, then runs test/*.test.mjs one file at a time
   `prefers-color-scheme` and `data-theme` in the Shell page and in its editor's frame, the Shell's words, the look
   switched at once in an open view, a changed language waiting for the app to open again (`restartNeeded`) and then
   taking effect, and test mode's `--locale` and `--theme` coming before the settings.
+- `downloads.test.mjs`: a Docs export (Markdown) and a Sheets export (CSV, twice: ` (2)`), the folder's zip twice and
+  a page's `blob:` file twice, each in the throwaway HOME's Downloads with no dialog and named in the notice (its Show
+  in Finder and Close); a download from another loopback server cancelled.
+- `menu.test.mjs`: the menu bar's structure, shortcuts and greyed-out items, and each command by name: New by type,
+  the Edit items, previous and next tab, Close Tab, Reload, the sidebar, zoom, Show in Finder, Move To… (the folder
+  moved, the artifact opening from there), Open Folder…, Import…, the logs, doctor, About, Settings, and the card's
+  and the sidebar row's menus.
+- `offline.test.mjs`: with `--offline`, and the daemon and the type servers sent to a proxy of the test's that
+  refuses everything: Docs, Sheets, Slides and Whiteboard each made new, edited, quit, opened again with the edit,
+  and exported once; what was refused is listed (`OA_DESKTOP_OFFLINE_REPORT=<file>` writes it as JSON).
+- `packaged/packaged.test.mjs` (`npm run test:packaged`, not in `npm test`): the packaged app uses the throwaway
+  folders when given them; with no `node` on PATH the four types open and the daemon and the type servers run the
+  package's executable; an edit kept across quitting; doctor; a copy of the package in another folder starts.
 
 Every test uses a throwaway profile (`HOME`, `OPEN_ARTIFACT_HOME`, `TMPDIR`) and a free port other than 4800, with a
 whitelisted environment (`OPEN_ARTIFACT_RUNTIME_UPDATE=off` and `OPEN_ARTIFACT_REGISTRY` on a closed loopback port
 unless a test brings its fake registry; never the computer's policy file), and stops the daemons it started by the
-pid in their `daemon.json`. In test mode, opening a folder, Show in Finder, the folder dialog and Reopen are only
-logged. Set `OA_DESKTOP_KEEP=1`
+pid in their `daemon.json`. In test mode, opening a folder, Show in Finder, the folder and file dialogs, Reopen,
+About and full screen are only logged (a test gives Open Folder…, Import… and Move To… their path). Set `OA_DESKTOP_KEEP=1`
 to keep the profiles, `OA_DESKTOP_VERBOSE=1` to see the app's log.

@@ -59,6 +59,7 @@ const store = createPageStore({ api, host, t });
 | `createButton` | `true` | The New button in the heading (with `canCreate`). The type tiles stay either way. |
 | `tileGroups` | one row | `TileGroup[]` (`{ id, title, types }`): the type tiles in groups, each under its own heading, in the order `types` lists; a group's element carries `data-group="<id>"`. A type no group names goes at the end of the last group; a group with no installed type is left out. |
 | `headingTools` | none | A node the host puts first among the heading's tools (before filter and layout), such as a status button of its own. |
+| `cardActions` | none | The host's own items in each card's More menu, after Share: `{ id, label, icon?, run(artifact) }` (a desktop app's Show in Finder and Move To…). |
 
 The store's `focusSearch()` (in `PageActions`) asks the page to show its search box and put the keyboard in it; each
 call counts up `searchFocus` in `PageState`, so the page focuses it again even when the box is already showing.

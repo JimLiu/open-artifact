@@ -35,6 +35,7 @@ npm run test:sea               # Build and test the single executable (official 
 open-artifact doctor --harness <name> [--session <id>]   # Check a setup; with --session, an app's conformance run
 node scripts/build-wasm.mjs    # Only needed when modifying Rust crates in crates/
 cd apps/desktop && npm run setup && npm test   # Desktop app: needs npm run build && node scripts/build-skill.mjs first
+cd apps/desktop && npm run package && npm run test:packaged   # Desktop app: the macOS .app (dist/, ad hoc signed) and its checks
 ```
 
 Node.js **22.18+** is required.

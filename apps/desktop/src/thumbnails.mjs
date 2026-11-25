@@ -18,7 +18,7 @@ import { artifactIdOf } from './navigation.mjs';
 
 export const THUMBNAIL_SCHEME = 'oa-thumbnail';
 /** The picture windows' storage: nothing kept, nothing shared with the tabs. */
-const CAPTURE_PARTITION = 'open-artifact-thumbnails';
+export const CAPTURE_PARTITION = 'open-artifact-thumbnails';
 /** The picture's width: twice a card's, for a Retina screen (as the DSH plugin takes them). */
 const WIDTH = 720;
 const QUALITY = 82;

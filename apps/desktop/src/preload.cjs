@@ -57,6 +57,24 @@ contextBridge.exposeInMainWorld('desktop', {
     do: (act, arg) => ipcRenderer.invoke('desktop:runtime-do', String(act), arg === true ? true : arg === false ? false : undefined),
     onChange: listen('desktop:runtime'),
   },
+  /**
+   * What the menu bar asks of this page (`{ name, arg }`): `settings`, `new-dialog`, `service` (the service panel) or
+   * `toast` (`{ message, kind }`).
+   */
+  onCommand: listen('desktop:command'),
+  /** An artifact's Show in Finder (`reveal`) or Move To… (`move`): `{ ok, value }` or `{ ok: false, error }`. */
+  artifactDo: (act, id) => ipcRenderer.invoke('desktop:artifact-do', String(act), String(id)),
+  /**
+   * Test mode only (the main process answers these only then): a menu command by name, the menu as built, the
+   * notice showing, the addresses --offline refused, the downloads folder.
+   */
+  test: {
+    command: (name, arg) => ipcRenderer.invoke('test:command', String(name), arg ?? null),
+    menu: () => ipcRenderer.invoke('test:menu'),
+    notice: () => ipcRenderer.invoke('test:notice'),
+    blocked: () => ipcRenderer.invoke('test:blocked'),
+    downloads: () => ipcRenderer.invoke('test:downloads'),
+  },
   /** Keyboard focus back to this page. */
   focus: () => ipcRenderer.invoke('desktop:focus'),
   /** The tabs, the connection, back and forward, the sidebar and the look, now and on every change. */

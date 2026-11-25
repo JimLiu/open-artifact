@@ -119,8 +119,22 @@ It is a Harness API host like the examples, built on `@open-artifact/harness-kit
   `host_hello.theme` follows `nativeTheme`). The language is Chromium's `--lang`, set before `ready`, so
   `navigator.language` (which the Shell and the editors read) is that language; a changed one takes effect when the
   app is opened again (`restartNeeded`). Sheets' own View-menu theme still comes before the app's look.
+- **Menu bar** (`apps/desktop/src/menu.mjs`): the macOS application menu, built from a template of named commands
+  (New by type, Open Folder… as `artifacts.add`, Import… as `artifacts.import`, Show in Finder, Move To…, Close Tab,
+  the Edit items sent to the view in front, Reload, the sidebar, zoom, full screen, previous and next tab, the logs,
+  doctor) and built again when the language, the types or the tab in front change. The card's More menu
+  (`cardActions` of the library page) and a sidebar row's right-click menu reach the same Show in Finder and Move To…
+  (`apps/desktop/src/move.mjs`: the app moves the folder, then `artifacts.relocate`; the folder goes back when the
+  daemon refuses).
+- **Downloads** (`apps/desktop/src/downloads.mjs`, `notice.mjs`): the views' partition saves to `~/Downloads` with no
+  dialog (` (2)` when the name is taken), and cancels a download from anywhere the views may not show; an editor's
+  export reaches the app as the Shell's `saved_file`. Both show a notice, a transparent `WebContentsView` of its own
+  page above the tab's view, with Show in Finder.
 - **Profile**: a development build refuses the default home and port 4800 and keeps Electron's folders under
-  `<home>/desktop/`. Test mode only: `--locale`, `--theme` (both before the settings), `--thumbnails`.
+  `<home>/desktop/`; so does a test-mode run of the packaged app. Test mode only: `--locale`, `--theme` (both before
+  the settings), `--thumbnails`, `--offline` (every session's requests past this computer refused and listed).
+- **Packaging** (`apps/desktop/scripts/package.mjs`): a folder-form arm64 `.app`, the code in `app.asar`, the runtime
+  in `Contents/Resources/runtime` (found through `process.resourcesPath`), `RunAsNode` left on, signed ad hoc.
 
 ## Agent tools & wake loop
 

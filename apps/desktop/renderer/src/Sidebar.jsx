@@ -1,7 +1,7 @@
 // The sidebar: the window's controls (room for the macOS window buttons, collapse, back, forward), New, Search, the
 // library, the pinned artifacts and the ones changed last. Its lists are the home page's store: they follow every
 // change the page sees (made, renamed, pinned, deleted), at once.
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArtifactsIcon, TypeIcon, typeStyle, usePage } from '@open-artifact/library-page';
 import { BackIcon, ChevronIcon, ForwardIcon, PlusIcon, SearchIcon, SettingsIcon, SidebarIcon } from './icons.jsx';
 
@@ -38,7 +38,57 @@ export function WindowControls({ t, state, platform }) {
   );
 }
 
-function ArtifactRow({ artifact, current, t }) {
+/** The width of the sidebar's right-click menu (CSS `.row-menu`); it stays inside the sidebar, off the artifact's view. */
+const MENU_WIDTH = 200;
+
+/** A row's right-click menu: Open, Show in Finder, Move To… (an artifact's view would be drawn over a menu past the sidebar). */
+function RowMenu({ t, menu, onClose, artifactDo }) {
+  const box = useRef(null);
+  useEffect(() => {
+    box.current?.querySelector('button')?.focus();
+    const away = (event) => {
+      if (!box.current?.contains(event.target)) onClose();
+    };
+    const key = (event) => {
+      if (event.key === 'Escape') onClose();
+    };
+    window.addEventListener('mousedown', away, true);
+    window.addEventListener('keydown', key, true);
+    window.addEventListener('blur', onClose);
+    return () => {
+      window.removeEventListener('mousedown', away, true);
+      window.removeEventListener('keydown', key, true);
+      window.removeEventListener('blur', onClose);
+    };
+  }, [onClose]);
+  const item = (testid, label, run) => (
+    <button
+      type="button"
+      role="menuitem"
+      className="row-menu-item"
+      data-testid={testid}
+      onClick={() => {
+        onClose();
+        run();
+      }}
+    >
+      {label}
+    </button>
+  );
+  const sidebar = box.current?.parentElement?.getBoundingClientRect();
+  const left = Math.max(4, Math.min(menu.x, (sidebar?.width ?? 240) - MENU_WIDTH - 4));
+  const top = Math.max(4, Math.min(menu.y, window.innerHeight - 120));
+  return (
+    <div ref={box} className="row-menu" role="menu" aria-label={t('row.menu', { title: menu.title })} data-testid="row-menu" data-artifact={menu.id} style={{ left, top }}>
+      {item('row-open', t('row.open'), () => void window.desktop.open(menu.id))}
+      <div className="row-menu-rule" role="separator" />
+      {item('row-reveal', t('card.reveal'), () => artifactDo('reveal', menu.id))}
+      {item('row-move', t('card.move'), () => artifactDo('move', menu.id))}
+    </div>
+  );
+}
+
+function ArtifactRow({ artifact, current, t, onMenu }) {
   const title = artifact.title || t('nav.untitled');
   return (
     <li>
@@ -50,6 +100,10 @@ function ArtifactRow({ artifact, current, t }) {
         title={title}
         style={typeStyle(artifact.type)}
         onClick={() => void window.desktop.open(artifact.id)}
+        onContextMenu={(event) => {
+          event.preventDefault();
+          onMenu({ id: artifact.id, title, x: event.clientX, y: event.clientY });
+        }}
       >
         <span className="type-glyph">
           <TypeIcon type={artifact.type} size={16} />
@@ -60,9 +114,11 @@ function ArtifactRow({ artifact, current, t }) {
   );
 }
 
-export function Sidebar({ t, state, platform, onNew, onSearch, onSettings }) {
+export function Sidebar({ t, state, platform, onNew, onSearch, onSettings, artifactDo }) {
   const artifacts = usePage((s) => s.artifacts);
   const [pinnedOpen, setPinnedOpen] = useState(true);
+  const [menu, setMenu] = useState(null);
+  const closeMenu = useMemo(() => () => setMenu(null), []);
   const pinned = useMemo(() => artifacts.filter((a) => a.pinned).sort(latest('openedAt')), [artifacts]);
   const recent = useMemo(() => artifacts.filter((a) => !a.pinned).sort(latest('updatedAt')).slice(0, RECENT_MAX), [artifacts]);
   const onHome = state.current === 'home';
@@ -93,7 +149,7 @@ export function Sidebar({ t, state, platform, onNew, onSearch, onSettings }) {
             {pinnedOpen && (
               <ul>
                 {pinned.map((a) => (
-                  <ArtifactRow key={a.id} artifact={a} current={state.current === a.id} t={t} />
+                  <ArtifactRow key={a.id} artifact={a} current={state.current === a.id} t={t} onMenu={setMenu} />
                 ))}
               </ul>
             )}
@@ -104,7 +160,7 @@ export function Sidebar({ t, state, platform, onNew, onSearch, onSettings }) {
             <span className="section-head">{t('nav.recent')}</span>
             <ul>
               {recent.map((a) => (
-                <ArtifactRow key={a.id} artifact={a} current={state.current === a.id} t={t} />
+                <ArtifactRow key={a.id} artifact={a} current={state.current === a.id} t={t} onMenu={setMenu} />
               ))}
             </ul>
           </section>
@@ -116,6 +172,7 @@ export function Sidebar({ t, state, platform, onNew, onSearch, onSettings }) {
           {t('nav.settings')}
         </button>
       </div>
+      {menu && <RowMenu t={t} menu={menu} onClose={closeMenu} artifactDo={artifactDo} />}
     </nav>
   );
 }

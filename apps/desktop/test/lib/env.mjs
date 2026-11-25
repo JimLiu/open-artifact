@@ -113,8 +113,8 @@ export async function until(check, timeoutMs = 10_000, everyMs = 100) {
 /**
  * Every process on this computer as `{ pid, ppid, command }` (`ps`, read only).
  */
-export function processes() {
-  const text = execFileSync('/bin/ps', ['-axww', '-o', 'pid=,ppid=,command='], { encoding: 'utf8' });
+export function processes({ withEnv = false } = {}) {
+  const text = execFileSync('/bin/ps', [withEnv ? '-axwwE' : '-axww', '-o', 'pid=,ppid=,command='], { encoding: 'utf8' });
   return text
     .split('\n')
     .map((line) => /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(line))
@@ -139,9 +139,14 @@ export function treeOf(pid, all = processes()) {
   return out;
 }
 
-/** Processes whose command line names the profile (what a test left running). */
+/**
+ * Processes whose command line or environment names the profile (what a test left running: a daemon names it only in
+ * its environment, `HOME` and `OPEN_ARTIFACT_HOME`; `ps -E` shows the environment of this user's processes).
+ */
 export function leftovers(profile) {
-  return processes().filter((p) => p.command.includes(profile.root) && p.pid !== process.pid);
+  return processes({ withEnv: true })
+    .filter((p) => p.command.includes(profile.root) && p.pid !== process.pid)
+    .map((p) => ({ ...p, command: p.command.slice(0, 300) }));
 }
 
 /**

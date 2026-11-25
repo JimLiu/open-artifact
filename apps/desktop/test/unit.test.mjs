@@ -4,7 +4,7 @@
  * (settings.mjs), and what the home page may ask of the Library API (library.mjs).
  */
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
@@ -57,6 +57,21 @@ describe('profile', () => {
     assert.deepEqual(profile.problems, []);
     assert.equal(profile.home, `${user}/.agents/open-artifact`);
     assert.equal(profile.paths, null);
+    assert.equal(profile.guarded, false);
+  });
+
+  it('the packaged app in test mode is guarded as a development run: its own home, port and Electron folders', () => {
+    const packagedTest = (argv, env = {}) => resolveProfile({ argv: ['--test-mode', ...argv], env, packaged: true, userHome: user, accountHome: user });
+    const profile = packagedTest(['--home', '/tmp/p/oa', '--port', '4891']);
+    assert.deepEqual(profile.problems, []);
+    assert.equal(profile.guarded, true);
+    assert.equal(profile.paths.userData, '/tmp/p/oa/desktop/user-data');
+    assert.equal(profile.paths.crashDumps, '/tmp/p/oa/desktop/crash-dumps');
+    assert.match(packagedTest(['--port', '4891']).problems.join(' '), /default home/);
+    assert.match(packagedTest(['--home', '/tmp/p', '--port', '4800']).problems.join(' '), /4800/);
+    assert.match(packagedTest(['--home', '/tmp/p']).problems.join(' '), /needs a port/);
+    // OA_DESKTOP_TEST=1 is test mode too.
+    assert.match(resolveProfile({ argv: [], env: { OA_DESKTOP_TEST: '1' }, packaged: true, userHome: user, accountHome: user }).problems.join(' '), /default home/);
   });
 
   it('DevTools only in test mode; --open collects artifacts', () => {
@@ -324,6 +339,167 @@ describe('the service panel and the runtime, as the page is sent them', async ()
       assert.equal(newArtifactFolder(base, 'Ferry'), join(base, 'ferry-2'));
     } finally {
       rmSync(base, { recursive: true, force: true });
+    }
+  });
+});
+
+// ---- stage 1.5: downloads, offline, the menu, Move To… ----
+const { downloadAllowed, freeTarget, safeName, downloadsFolder } = await import('../src/downloads.mjs');
+const { onThisComputer } = await import('../src/offline.mjs');
+const { menuTemplate, newGroups, templateCommands } = await import('../src/menu.mjs');
+const { moveArtifact, moveTarget } = await import('../src/move.mjs');
+const { wordsFor } = await import('../renderer/src/words.js');
+
+describe('downloads', () => {
+  const allowlist = new OriginAllowlist();
+  allowlist.setDaemon('http://127.0.0.1:4891');
+  allowlist.fromDaemon({ origins: ['http://docs.localhost:4891'] });
+
+  it('saves what the views may show, a blob made by such a page, and a data: address from one', () => {
+    assert.equal(downloadAllowed('http://127.0.0.1:4891/api/open-artifact.artifact.archive?id=x', allowlist), true);
+    assert.equal(downloadAllowed('blob:http://127.0.0.1:4891/2f1c-uuid', allowlist), true);
+    assert.equal(downloadAllowed('data:text/plain,hi', allowlist, 'http://127.0.0.1:4891/a/art_x'), true);
+  });
+
+  it('cancels another loopback server, the web, file:, an opaque blob, and a data: address from elsewhere', () => {
+    assert.equal(downloadAllowed('http://127.0.0.1:9999/file.txt', allowlist), false);
+    assert.equal(downloadAllowed('https://example.com/file.zip', allowlist), false);
+    assert.equal(downloadAllowed('file:///etc/hosts', allowlist), false);
+    assert.equal(downloadAllowed('blob:null/abc', allowlist), false);
+    assert.equal(downloadAllowed('blob:https://example.com/abc', allowlist), false);
+    assert.equal(downloadAllowed('data:text/plain,hi', allowlist, 'https://example.com/'), false);
+    assert.equal(downloadAllowed('data:text/plain,hi', allowlist), false);
+  });
+
+  it('names: no folders or forbidden characters; a taken name gets (2), (3)…', () => {
+    assert.equal(safeName('../../etc/passwd'), 'passwd');
+    assert.equal(safeName('a:b*c?.txt'), 'a_b_c_.txt');
+    assert.equal(safeName('.hidden'), 'hidden');
+    assert.equal(safeName(''), 'download');
+    const dir = mkdtempSync(join(tmpdir(), 'oa-dl-'));
+    try {
+      assert.equal(freeTarget(dir, 'Notes.md'), join(dir, 'Notes.md'));
+      writeFileSync(join(dir, 'Notes.md'), 'x');
+      assert.equal(freeTarget(dir, 'Notes.md'), join(dir, 'Notes (2).md'));
+      writeFileSync(join(dir, 'Notes (2).md'), 'x');
+      assert.equal(freeTarget(dir, 'Notes.md', new Set([join(dir, 'Notes (3).md')])), join(dir, 'Notes (4).md'));
+      assert.equal(freeTarget(dir, 'folder'), join(dir, 'folder'));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+    assert.equal(downloadsFolder('/Users/someone'), '/Users/someone/Downloads');
+  });
+});
+
+describe('offline', () => {
+  it('this computer: localhost, *.localhost, 127/8, ::1, and what is not a network address', () => {
+    for (const url of ['http://localhost:3000/', 'http://docs.localhost:4891/x', 'http://127.0.0.1:4891/', 'http://127.9.9.9/', 'ws://127.0.0.1:1/', 'http://[::1]:80/', 'file:///tmp/x', 'blob:http://127.0.0.1/x', 'data:text/plain,x', 'devtools://devtools/x', 'oa-thumbnail://artifact/x', 'not a url']) {
+      assert.equal(onThisComputer(url), true, url);
+    }
+  });
+  it('everything else leaves it', () => {
+    for (const url of ['https://example.com/', 'http://192.168.1.2/', 'http://10.0.0.1/', 'https://fonts.googleapis.com/css', 'wss://example.com/', 'http://127.0.0.1.example.com/', 'http://localhost.example.com/']) {
+      assert.equal(onThisComputer(url), false, url);
+    }
+  });
+});
+
+describe('the menu bar', () => {
+  const types = ['docs', 'sheets', 'whiteboard', 'slides', 'design-system', 'design', 'data', 'motion', 'page', 'my-own'].map((id) => ({ id, title: id }));
+  const build = (locale, opts = {}) => menuTemplate({ t: wordsFor(locale), types, run: () => {}, platform: 'darwin', ...opts });
+  const sub = (template, label) => template.find((m) => m.label === label).submenu;
+
+  it('has the app, File, Edit, View, Window and Help menus, in English and in Chinese', () => {
+    assert.deepEqual(build('en').map((m) => m.label), ['Open Artifact', 'File', 'Edit', 'View', 'Window', 'Help']);
+    assert.deepEqual(build('zh').map((m) => m.label), ['Open Artifact', '文件', '编辑', '显示', '窗口', '帮助']);
+    assert.equal(sub(build('zh'), '文件').find((i) => i.id === 'move').label, '移动到…');
+    assert.equal(sub(build('en'), 'File').find((i) => i.id === 'reveal').label, 'Show Artifact Folder in Finder');
+  });
+
+  it('File ▸ New lists the types in the new-artifact dialog\'s groups and order, with its names', () => {
+    const groups = newGroups(types);
+    assert.deepEqual(groups.blank.map((t) => t.id), ['docs', 'sheets', 'whiteboard', 'slides', 'design-system']);
+    assert.deepEqual(groups.agent.map((t) => t.id), ['design', 'data', 'motion', 'page', 'my-own']);
+    const items = sub(build('en'), 'File').find((i) => i.id === 'new').submenu;
+    assert.deepEqual(items.filter((i) => i.id).map((i) => i.id), [...groups.blank, ...groups.agent].map((t) => `new:${t.id}`));
+    assert.equal(items[0].label, wordsFor('en')('group.blank'));
+    assert.equal(items[0].enabled, false);
+    assert.equal(items.find((i) => i.id === 'new:docs').label, wordsFor('en')('type.docs'));
+    assert.equal(items.find((i) => i.id === 'new:page').label, 'Page');
+  });
+
+  it('every item of the app\'s own is a named command; the rest are macOS roles', () => {
+    const template = build('en');
+    const names = templateCommands(template);
+    for (const name of ['about', 'settings', 'new-dialog', 'open-folder', 'import', 'reveal', 'move', 'close-tab', 'edit:undo', 'edit:redo', 'edit:cut', 'edit:copy', 'edit:paste', 'edit:select-all', 'reload', 'toggle-sidebar', 'zoom-reset', 'zoom-in', 'zoom-out', 'fullscreen', 'previous-tab', 'next-tab', 'logs', 'doctor']) {
+      assert.ok(names.includes(name), name);
+    }
+    const roles = [];
+    const walk = (items) => items.forEach((i) => (i.role && roles.push(i.role), i.submenu && walk(i.submenu)));
+    walk(template);
+    assert.deepEqual(roles.sort(), ['front', 'help', 'hide', 'hideOthers', 'minimize', 'quit', 'services', 'unhide', 'windowMenu', 'zoom'].sort());
+    const ran = [];
+    const clicking = menuTemplate({ t: wordsFor('en'), types, run: (name, arg) => ran.push([name, arg]), platform: 'darwin' });
+    sub(clicking, 'File').find((i) => i.id === 'new').submenu.find((i) => i.id === 'new:sheets').click();
+    sub(clicking, 'File').find((i) => i.id === 'close-tab').click();
+    assert.deepEqual(ran, [['new:sheets', 'sheets'], ['close-tab', undefined]]);
+  });
+
+  it('greys out what needs an artifact in front, with the macOS shortcuts', () => {
+    const template = build('en', { enabled: (name) => !['reveal', 'move', 'close-tab', 'reload'].includes(name) });
+    const file = sub(template, 'File');
+    for (const id of ['reveal', 'move', 'close-tab']) assert.equal(file.find((i) => i.id === id).enabled, false, id);
+    assert.equal(sub(template, 'View').find((i) => i.id === 'reload').enabled, false);
+    assert.equal(file.find((i) => i.id === 'open-folder').enabled, true);
+    assert.equal(file.find((i) => i.id === 'close-tab').accelerator, 'CmdOrCtrl+W');
+    assert.equal(file.find((i) => i.id === 'new-dialog').accelerator, 'CmdOrCtrl+N');
+    assert.equal(sub(template, 'View').find((i) => i.id === 'zoom-in').accelerator, 'CmdOrCtrl+=');
+    assert.equal(sub(template, 'Open Artifact').find((i) => i.id === 'settings').accelerator, 'CmdOrCtrl+,');
+  });
+});
+
+describe('Move To…', () => {
+  const setup = () => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), 'oa-move-')));
+    const root = join(dir, 'lib', 'Ferry notes');
+    mkdirSync(join(root, 'doc'), { recursive: true });
+    writeFileSync(join(root, '.artifact.json'), JSON.stringify({ id: 'art_x' }));
+    writeFileSync(join(root, 'doc', 'a.md'), 'The ferry');
+    mkdirSync(join(dir, 'into'));
+    return { dir, root };
+  };
+
+  it('renames the folder into the one chosen, then tells the library', async () => {
+    const { dir, root } = setup();
+    try {
+      const told = [];
+      const library = { record: async () => ({ root }), relocate: async (id, folder) => told.push([id, folder]) };
+      const out = await moveArtifact({ library, id: 'art_x', into: join(dir, 'into') });
+      assert.deepEqual(out, { from: root, to: join(dir, 'into', 'Ferry notes'), moved: true });
+      assert.equal(existsSync(root), false);
+      assert.equal(readFileSync(join(dir, 'into', 'Ferry notes', 'doc', 'a.md'), 'utf8'), 'The ferry');
+      assert.deepEqual(told, [['art_x', join(dir, 'into', 'Ferry notes')]]);
+      // A name taken there: (2).
+      mkdirSync(join(dir, 'into', 'Other'));
+      assert.equal(moveTarget(join(dir, 'x', 'Other'), join(dir, 'into')), join(dir, 'into', 'Other (2)'));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('puts the folder back when the library refuses, and refuses a folder inside itself or one that is not there', async () => {
+    const { dir, root } = setup();
+    try {
+      const library = { record: async () => ({ root }), relocate: async () => { throw new Error('conflict'); } };
+      await assert.rejects(moveArtifact({ library, id: 'art_x', into: join(dir, 'into') }), /conflict/);
+      assert.equal(readFileSync(join(root, 'doc', 'a.md'), 'utf8'), 'The ferry');
+      assert.equal(existsSync(join(dir, 'into', 'Ferry notes')), false);
+      const ok = { record: async () => ({ root }), relocate: async () => {} };
+      await assert.rejects(moveArtifact({ library: ok, id: 'art_x', into: join(root, 'doc') }), /into itself/);
+      await assert.rejects(moveArtifact({ library: ok, id: 'art_x', into: join(dir, 'missing') }), /not a folder/);
+      await assert.rejects(moveArtifact({ library: ok, id: 'art_x', into: 'relative' }), /absolute/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
     }
   });
 });

@@ -64,6 +64,8 @@ cd apps/desktop
 npm run setup                                   # npm install + install-electron (Electron 45 fetches its binary here)
 npm run build                                   # scripts/build-runtime.mjs → resources/runtime, then build.mjs → out/ (main + renderer)
 npm test                                        # build, then test/*.test.mjs one file at a time
+npm run package                                 # build, then scripts/package.mjs → dist/Open Artifact-darwin-arm64/Open Artifact.app
+npm run test:packaged                           # test/packaged/: the packaged app's checks (package first)
 ```
 
 `scripts/build-runtime.mjs` copies `skills/open-artifact` (`scripts/`, `vendor/`, `reference/`, `SKILL.md`) into
@@ -71,6 +73,13 @@ npm test                                        # build, then test/*.test.mjs on
 differs from `packages/daemon`. The tests run with no `node` on PATH, a throwaway `HOME`/`OPEN_ARTIFACT_HOME`, a free
 port other than 4800, the window hidden (`--test-mode`), and drive the app over its DevTools port; each stops the
 daemons it started by their `daemon.json` pid (see `apps/desktop/README.md`).
+
+`npm run package` makes a folder-form macOS arm64 `.app` in `apps/desktop/dist/` (ignored by git) with
+`@electron/packager`: the build's `out/` in `app.asar` (with `ElectronAsarIntegrity`), the runtime in
+`Contents/Resources/runtime`, a placeholder icon and bundle id (`dev.openartifact.desktop`), Electron's fuses as they
+are (`RunAsNode` on), signed ad hoc on this computer. No DMG, notarization or automatic updates yet. Packaged, the app
+with no arguments uses the person's own home and port, so `test/packaged/` only starts it with `--home`, a port other
+than 4800, `--test-mode` and a throwaway `HOME`, and checks first that it then uses those folders only.
 
 ## Releasing
 

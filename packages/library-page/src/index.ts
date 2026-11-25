@@ -16,7 +16,7 @@ export {
   type UpdateState,
   type UpdateWord,
 } from './api.ts';
-export { ArtifactsPage, type ArtifactsPageProps, type TileGroup } from './components/ArtifactsPage.tsx';
+export { ArtifactsPage, type ArtifactsPageProps, type CardAction, type TileGroup } from './components/ArtifactsPage.tsx';
 export { ReleaseNotesList, ChangelogFooter, ChangelogView, UpcomingNotes, WhatsNewPanel } from './changelog.tsx';
 export { changelogState, closeChangelog, loadChangelog, loadUpcoming, markSeen, openChangelog, subscribeChangelog, whatsNew, type ChangelogState } from './changelog-state.ts';
 export { EMPTY_SESSIONS, EnvProvider, usePageEnv, useSessionTitle, useUpdates, type PageEnv } from './env.tsx';
