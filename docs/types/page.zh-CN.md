@@ -78,7 +78,7 @@ Page 没有独立的类型 CLI：页面需要守护进程来提供。
 3. 用 `await window.openArtifact.use(name)` 获取每个能力，并处理返回 `null` 的情况。
 4. 需要长期保存或共享的状态放在 `db`，不要放在 `localStorage`。
 5. 不要自己写 `.artifact.json`、`db/`、`history/`、`comments.json` 或以 `.`、`_` 开头的文件。
-6. 页面里调用 `artifact.publish(html)` 时，只有在该视图加载后没人改过页面才会替换 `index.html`（否则返回 `conflict`）；之后所有视图都会重新加载。
+6. 页面里调用 `artifact.publish(html)` 时，只有在该视图加载后没有别人改过页面才会替换 `index.html`（否则返回 `conflict`）；之后所有视图都会重新加载。页面把自己的 `outerHTML` 发回来时，服务端注入 `<head>` 的运行时不会写进文件。
 7. 要做设计：页面没有任何默认样式。写页面前先读类型自带的 `artifact-type/reference/design.md`（从主题和真实内容出发，颜色和字体写成 token 并配一套深色值，用系统字体或放在页面旁的字体文件，360px 宽也能用，加载完就是完整的，加载中和空状态都要设计）；画图示前读 `diagrams.md`，画图表前读 `charts.md`。
 8. 交付前看一眼：`Artifact {action: "call", url, name: "snapshot", args: {width: 400, height: 900, scheme: "dark"}}` 返回页面的一张 PNG 的路径（见下文）；再读一次页面存下的数据，`name: "info"` 可以列出它的文件和能力声明。
 

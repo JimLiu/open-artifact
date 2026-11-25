@@ -1,0 +1,5 @@
+:root { --bg: rgb(250, 249, 245); --fg: rgb(28, 28, 26); --accent: rgb(47, 111, 79); }
+@media (prefers-color-scheme: dark) { :root { --bg: rgb(21, 21, 20); --fg: rgb(236, 235, 230); } }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.5 system-ui, sans-serif; }
+main { max-width: 480px; margin: 0 auto; padding: 32px 16px; }
+h1 { color: var(--accent); }

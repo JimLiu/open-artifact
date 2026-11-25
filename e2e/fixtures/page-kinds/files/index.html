@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Photo board</title>
+<style>
+  body { margin: 0; background: #fafaf7; color: #1c1c1a; font: 15px/1.5 system-ui, sans-serif; }
+  main { max-width: 640px; margin: 0 auto; padding: 24px 16px; }
+  #grid img { width: 96px; height: 96px; object-fit: cover; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Photo board</h1>
+  <input id="pick" type="file" accept="image/*">
+  <button id="export" type="button">Export the list</button>
+  <div id="grid"></div>
+  <p id="status">Loading…</p>
+</main>
+<script>
+  // Files people add (assets) and a file handed to the viewer (downloads). window.board is what the page does, so a
+  // test can do it without a native file picker.
+  (async () => {
+    const status = document.getElementById('status');
+    const assets = await window.openArtifact.use('assets');
+    const downloads = await window.openArtifact.use('downloads');
+    if (!assets || !downloads) { status.textContent = 'missing'; return; }
+    const render = async () => {
+      const { assets: list } = await assets.list();
+      document.getElementById('grid').replaceChildren(...list.map((a) => {
+        const img = document.createElement('img');
+        img.src = a.url;
+        img.dataset.id = a.id;
+        img.alt = '';
+        return img;
+      }));
+      return list;
+    };
+    window.board = {
+      add: async (blob) => { const added = await assets.upload(blob); await render(); return added; },
+      remove: async (id) => { const out = await assets.delete(id); await render(); return out; },
+      list: () => assets.list(),
+      exportList: async () => downloads.save({ filename: 'photo-board.json', data: (await assets.list()).assets.map((a) => ({ id: a.id, type: a.contentType, bytes: a.sizeBytes })) }),
+    };
+    document.getElementById('pick').addEventListener('change', (e) => e.target.files[0] && window.board.add(e.target.files[0]));
+    document.getElementById('export').addEventListener('click', () => window.board.exportList());
+    await render();
+    status.textContent = 'ready';
+  })().catch((error) => { document.getElementById('status').textContent = `failed: ${error.code || error.message}`; });
+</script>
+</body>
+</html>

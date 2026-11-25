@@ -62,7 +62,9 @@ Always granted (also as `use('self')`).
 
 - `id`: the artifact's id.
 - `publish(html)`: replaces `index.html` with a whole new document. It is refused with `conflict` when the page
-  changed since this view loaded it. Afterwards every open view reloads, this one too.
+  changed since this view loaded it (this view's own `publish` calls do not count). Afterwards every open view
+  reloads, this one too. A page may send itself back as `'<!doctype html>\n' + document.documentElement.outerHTML`:
+  the runtime Open Artifact puts in the served `<head>` is left out of the file.
 - `publish({ 'path': content, … }, { ifMatch })`: writes other files beside the page (text, a `Blob` or bytes;
   `null` deletes). `ifMatch` maps a path to the sha256 it must still have (or `null`: must not exist). The view keeps
   running; other views reload.

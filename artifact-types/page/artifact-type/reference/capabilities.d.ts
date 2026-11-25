@@ -86,7 +86,7 @@ export interface PublishResult {
 
 export interface ArtifactSelf {
   readonly id: string;
-  /** A whole new index.html; every open view reloads. */
+  /** A whole new index.html; every open view reloads. Sent from `outerHTML`, the runtime served in `<head>` is left out. */
   publish(html: string): Promise<PublishResult>;
   /** Files beside the page; `null` deletes one. */
   publish(

@@ -254,7 +254,9 @@ import type { FramePageRuntime, PageCapabilities, PageNamespace } from '../page-
       if (gone(p.cap) && p.cap === 'db') {
         pending.delete(id);
         p.reject({ code: 'revoked', message: 'The document store is no longer available to this artifact.' });
-      } else if (changed) {
+      } else if (changed && !(p.cap === 'artifact' && p.method === 'publish')) {
+        // A publish is answered either way (written, or refused for its stale stamp); publish(html) rewires every view
+        // itself, before its own answer arrives.
         pending.delete(id);
         if (p.cap === 'user') p.resolve(null);
         else p.reject({ code: p.cap === 'db' || p.cap === 'downloads' ? 'unavailable' : 'upstream_error', message: REWIRED_MESSAGE });
@@ -597,7 +599,11 @@ import type { FramePageRuntime, PageCapabilities, PageNamespace } from '../page-
         else out[p] = { ...(await encodeContent('content' in v ? v.content : undefined)), ...('contentType' in v && v.contentType ? { contentType: v.contentType } : {}), ...g };
       } else out[p] = { ...(await encodeContent(v)), ...guard };
     }
-    return call<PublishResult>('artifact', 'publish', { files: out });
+    const result = await call<PublishResult>('artifact', 'publish', { files: out });
+    // This view's own write keeps it running: the files' version is now the one it has, so a later publish(html)
+    // compares with it, not with the version the view was loaded at.
+    if (result && typeof result.version === 'string' && result.version) pageVer = result.version;
+    return result;
   }
 
   const self: FrameServices['artifact'] = {
@@ -1192,7 +1198,7 @@ import type { FramePageRuntime, PageCapabilities, PageNamespace } from '../page-
   }
 
   /** The `/_f/<ver>/` segment of this page: the `ver` of a `__frame_cap_want`. */
-  const pageVer = ((/^\/_f\/([^/]{1,128})\//.exec(location.pathname) || [])[1] as string | undefined) || '0';
+  let pageVer = ((/^\/_f\/([^/]{1,128})\//.exec(location.pathname) || [])[1] as string | undefined) || '0';
 
   function want(cap: string): Promise<object | null> {
     return new Promise((resolve) => {

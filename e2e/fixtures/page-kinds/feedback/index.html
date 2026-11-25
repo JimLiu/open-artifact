@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Launch plan feedback</title>
+<style>body { margin: 2rem; font: 15px/1.5 system-ui, sans-serif; background: #fff; color: #111; }</style>
+</head>
+<body>
+<h1 id="headline">Launch on 3 March</h1>
+<p id="status">Loading…</p>
+<script>
+  // A page that places its own comments and sends them to the agent. window.feedback is what its buttons would do.
+  (async () => {
+    const comments = await window.openArtifact.use('comments');
+    if (!comments) { document.getElementById('status').textContent = 'no comments'; return; }
+    window.feedback = {
+      ask: async (text) => {
+        const { threadId } = await comments.create({ anchor: { kind: 'headline' }, label: 'Headline', text });
+        const sent = await comments.sendToAgent({ threadId });
+        return { threadId, status: sent.status, can: await comments.canSendToAgent() };
+      },
+      thread: async (id) => (await comments.list()).find((t) => t.id === id) ?? null,
+    };
+    document.getElementById('status').textContent = 'ready';
+  })().catch((error) => { document.getElementById('status').textContent = `failed: ${error.code || error.message}`; });
+</script>
+</body>
+</html>

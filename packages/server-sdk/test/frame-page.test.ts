@@ -250,6 +250,26 @@ describe('frame-host page mode', () => {
     assert.equal(readFileSync(join(bareRoot, 'notes.txt'), 'utf8'), 'n');
   });
 
+  // A page that publishes itself from document.documentElement.outerHTML sends back what it was served: the runtime's
+  // boot script and tag were written into index.html and ran twice on every later load.
+  it('artifact.publish(html) of the page as served writes it without the runtime, and answers the new version', async () => {
+    const site = sites.get(bareRoot)!;
+    const own = (text: string) => `<!doctype html><html><head><title>Self edit</title></head><body><p id="n">${text}</p></body></html>`;
+    const first = await capCall(BARE, 'artifact', 'publish', { html: own('first'), ver: site.ver });
+    assert.ok(!first.error, JSON.stringify(first));
+    const { version } = first.result;
+    const served = (await index(BARE)).text;
+    assert.match(served, /__FRAME_PREAMBLE/);
+    const out = await capCall(BARE, 'artifact', 'publish', { html: served.replace('first', 'edited'), ver: version });
+    assert.ok(!out.error, JSON.stringify(out));
+    assert.equal(readFileSync(join(bareRoot, 'index.html'), 'utf8'), own('edited'));
+    assert.notEqual(out.result.version, version);
+    assert.equal(out.result.version, site.ver, 'the view keeps this version for its next publish');
+    const again = (await index(BARE)).text;
+    assert.equal(again.split('/_runtime/open-artifact-frame.js').length - 1, 1, 'one runtime tag');
+    assert.equal(again.split('__FRAME_PREAMBLE').length - 1, 1, 'one boot script');
+  });
+
   it("the page's <title> becomes the artifact's title, with no author", async () => {
     const deadline = Date.now() + 2000;
     while (Date.now() < deadline && !touches.some((t) => t.title === 'Fresh page')) await new Promise((r) => setTimeout(r, 20));

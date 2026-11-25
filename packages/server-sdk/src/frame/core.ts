@@ -128,6 +128,21 @@ export function mountFrameCore(root: string, env: FrameEnv): FrameCore {
   return new FrameCore(resolve(root), declaration, env);
 }
 
+/** Where a served page loads the Frame Runtime from (sendIndex puts it first in the page's <head>). */
+const RUNTIME_SRC = '/_runtime/open-artifact-frame.js';
+
+/**
+ * A document as the page wrote it, without the runtime sendIndex put in its <head>: what a page that publishes itself
+ * from `document.documentElement.outerHTML` sends back. Kept, the boot script would carry this run's shell origin and
+ * grants into the file, and run before the fresh one on every later load. (`safe()` escapes `<`, so the boot script's
+ * own text holds no `</script>`.)
+ */
+export function withoutFrameRuntime(html: string): string {
+  return html
+    .replace(/<script>window\.__FRAME_PREAMBLE=[^<]*<\/script>/g, '')
+    .replace(new RegExp(`<script src="${RUNTIME_SRC.replace(/[.]/g, '\\.')}"></script>`, 'g'), '');
+}
+
 /** One open artifact of an original type. */
 export class FrameCore {
   readonly root: string;
@@ -994,7 +1009,7 @@ export class FrameCore {
     if (ver !== undefined && ver !== this.files.manifest().ver) {
       throw new FrameError('conflict', 'The page changed since this view loaded it: nothing was written.', 409, { live: this.files.manifest().ver });
     }
-    const out = this.files.publish({ 'index.html': { data: Buffer.from(html, 'utf8'), contentType: 'text/html' } });
+    const out = this.files.publish({ 'index.html': { data: Buffer.from(withoutFrameRuntime(html), 'utf8'), contentType: 'text/html' } });
     if (out.version !== this.ver) {
       this.ver = out.version;
       this.rewire('files');
@@ -1147,7 +1162,7 @@ export class FrameCore {
     const url = new URL(req.url || '/', 'http://local');
     const p = url.pathname;
     if (p === '/' || p === '/index.html') return { status: 302, headers: { Location: `/_f/${this.ver}/${url.search}`, 'Cache-Control': 'no-store' }, body: null };
-    if (p === '/_runtime/open-artifact-frame.js') return this.sendScript(req, 'runtime');
+    if (p === RUNTIME_SRC) return this.sendScript(req, 'runtime');
     if (p.startsWith('/_/openartifact:')) return this.capabilityModule(req, p);
     const blob = /^\/_blob\/([0-9a-f]{32})$/.exec(p);
     if (blob) return this.sendBlob(req, blob[1]!);
@@ -1229,7 +1244,7 @@ export class FrameCore {
     const safe = (v: unknown): string => JSON.stringify(v).replace(/[<\u2028\u2029]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`);
     const inject =
       `<script>window.__FRAME_PREAMBLE=${safe({ origins: [this.shellOrigin] })};window.__OPEN_ARTIFACT_FRAME=${safe(boot)};</script>` +
-      `<script src="/_runtime/open-artifact-frame.js"></script>`;
+      `<script src="${RUNTIME_SRC}"></script>`;
     const head = /<head\b[^>]*>/i.exec(html);
     const out = head ? html.slice(0, head.index + head[0].length) + inject + html.slice(head.index + head[0].length) : inject + html;
     const body = Buffer.from(out, 'utf8');

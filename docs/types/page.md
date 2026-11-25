@@ -82,7 +82,7 @@ Cloudflare host runs pages as the Node site does ([Page artifacts](../hosting-cl
 3. Ask for each capability with `await window.openArtifact.use(name)` and handle `null`.
 4. Keep state that must last or be shared in `db`, not `localStorage`.
 5. Never write `.artifact.json`, `db/`, `history/`, `comments.json` or names starting with `.` or `_` yourself.
-6. `artifact.publish(html)` from the page replaces `index.html` only if nobody changed it since that view loaded (else `conflict`); every view reloads.
+6. `artifact.publish(html)` from the page replaces `index.html` only if nobody else changed it since that view loaded (else `conflict`); every view reloads. A page that sends its own `outerHTML` gets back the file it was written as: the runtime served in its `<head>` is not saved.
 7. Design it: nothing styles a page for you. Read the type's `artifact-type/reference/design.md` before writing the page (start from the subject and its real content, colour and type as tokens with a dark set, system fonts or font files beside the page, works from 360px wide, complete when loaded, designed loading and empty states), `diagrams.md` before a drawn figure and `charts.md` before a chart.
 8. Look at it once before handing over: `Artifact {action: "call", url, name: "snapshot", args: {width: 400, height: 900, scheme: "dark"}}` returns the path of a PNG of the page (see below); also one read of what the page stored, and `name: "info"` for its files and declaration.
 

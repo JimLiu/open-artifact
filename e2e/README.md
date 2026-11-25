@@ -261,6 +261,24 @@ The harness asks its questions (`waitFor`, `evaluateAll`, `load`'s `ready`) in a
 - With "Viewers can download and export" off, a viewer who joined by link is refused with a readable message and gets no file; turned on, the same export downloads.
 - A to-do case: a Docs file keeps the doc's name (it needs the type server to expose `content-disposition` to the Shell).
 
+**The page type** (`page.test.mjs`, Chrome only)
+
+- A daemon in the test's process creates a `page` declaring `db` and `network`: it shows its empty state until the agent writes `index.html` (`fixtures/page/`), then renders it, votes into `db/votes/` on disk, and the artifact takes the page's `<title>`.
+- Snapshots and their documents are frozen; `network.origins()` is `[]` for the built-in page; a module import of the database subscribes and writes.
+- `snapshot` draws a PNG at the size and scheme asked, by a read-only viewer: the page's write on load is refused, `db/` is unchanged and the open view does not reload. `_agent/` is not among the artifact's files.
+- `room` declared later: the open view reloads and says `connected()` true with itself as the one peer, without waiting for a change; a second view sees both, and the first view sees the second. (The shell opened its event stream before the page connected, and only the stream's hello carried this, so a view alone said `false` and `[]` for as long as it stayed open.)
+- With the declaration cleared (`{}`), the page reloads and `use('db')` is `null`.
+
+**Kinds of page** (`page-kinds.test.mjs`, Chrome only)
+
+- A daemon in the test's process makes six pages the way an agent does (`Artifact` publish with the capabilities each declares, then the files from `fixtures/page-kinds/`), each opened in the Shell.
+- Multi-file: a stylesheet, a module that imports another module, an SVG image and a JSON file fetched beside the page all load, with no problems in the page.
+- Checklist (`db`): two items typed and added and the first ticked with the real mouse and keyboard reach `db`, and `ArtifactData` `list` reads them as the person left them. An item the agent `set`s and an edit it `update`s show in the open page; an `update` with a stale `if_match` is refused as `conflict`.
+- Files (`assets`, `downloads`): an uploaded SVG is stored under `_blobs/` with its bytes and drawn from its `url`; `list()` gives it with `usage`, the same bytes again are the same asset, the page's Export button downloads a JSON file the browser saves, and `delete` takes it off the list, the page and the disk.
+- Feedback (`comments`): a thread the page places and sends reaches `ArtifactComments` `read` with its anchor and the agent's status, in `comments.json`; the agent's reply reaches the page as the agent's.
+- Self-edit (nothing declared): `artifact.publish` of a file beside the page writes it and keeps the view running; `ifMatch` with an old sha256 is refused as `conflict`. Then the page publishes itself (`outerHTML` with a new heading): it is not refused as stale after its own file writes, its answer is not an error, both open views reload with the new heading, and `index.html` is the page as written, without the runtime served in its `<head>`. (Before the fix, the view kept the version it loaded with, so its own file writes made its next publish a `conflict`; the reload that a page publish starts rejected that publish's own pending call; and the boot script and runtime tag were written into the file and ran twice on every later load.)
+- Capabilities: `mcp`, `sample`, `tts` and `paste` give a namespace whose calls reject with their codes (`server_not_connected`, `tools_unavailable`, `capability_disabled`); an unknown name and an undeclared `db` give `null`; `artifact` and `self` are the same; `user.me()` is the owner, with no email. In two views, a message on the `team` sub-room reaches only that sub-room, and one on the room itself only the room.
+
 **A page artifact on a cloud host** (`host-page.test.mjs`, Chrome only)
 
 - A daemon linked to a Node host publishes a synthetic poll `page` (database, comments, who is viewing) and a second page. The owner's page runs on a page host of its own (`<id>--<opaque>`), with no page token in its address; its logo loads; a vote, a comment and a note reach the computer's folder, and a database file written there shows on the page.
@@ -270,14 +288,6 @@ The harness asks its questions (`waitFor`, `evaluateAll`, `load`'s `ready`) in a
 **A person's own type on a cloud host** (`host-types.test.mjs`, Chrome only)
 
 - Two daemons on a Node host: the owner's (an admin, linked in Chrome) and a member's (a token from `open-artifact-host link-token`). The type is synthetic (`fixtures/site-type/team-poll`).
-**The page type** (`page.test.mjs`, Chrome only)
-
-- A daemon in the test's process creates a `page` declaring `db` and `network`: it shows its empty state until the agent writes `index.html` (`fixtures/page/`), then renders it, votes into `db/votes/` on disk, and the artifact takes the page's `<title>`.
-- Snapshots and their documents are frozen; `network.origins()` is `[]` for the built-in page; a module import of the database subscribes and writes.
-- `snapshot` draws a PNG at the size and scheme asked, by a read-only viewer: the page's write on load is refused, `db/` is unchanged and the open view does not reload. `_agent/` is not among the artifact's files.
-- `room` declared later: the open view reloads and says `connected()` true with itself as the one peer, without waiting for a change; a second view sees both, and the first view sees the second. (The shell opened its event stream before the page connected, and only the stream's hello carried this, so a view alone said `false` and `[]` for as long as it stayed open.)
-- With the declaration cleared (`{}`), the page reloads and `use('db')` is `null`.
-
 - Publishing an artifact of a type the site lacks is refused, naming the type, `types publish` and `--with-type`; `types publish` inside an agent session is refused; `types publish` keeps the package under the site's data folder, then the artifact publishes.
 - The artifact runs on a page host with no page token in its address, which answers no API; viewer, commenter and editor by share links can do what the type's db rules let them.
 - A new version reaches the open page and the old version's files go; `types unpublish` delists it (the artifact still opens, a new one is refused); `publish --with-type` sends a fresh type first.
