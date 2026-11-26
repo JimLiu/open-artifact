@@ -390,6 +390,20 @@ describe('wake.deliver', () => {
     await until(() => got.followup.length === 1);
     assert.equal(got.followup[0]!.content[0]!.text, 'Waiting comment');
   });
+
+  it('puts back in the daemon what its agent could not take on attach, for the next tool call', async () => {
+    const { agent } = fakeAgent('s1', 'idle');
+    const fake = await startFakeDaemon();
+    daemons.push(fake);
+    // A note is no wake: no agent is handed it, and it stays the session's.
+    fake.queueInbox('s1', { kind: 'note', text: 'Just a note' });
+    const context = fakeContext({ agents: new Map([['s1', agent]]) });
+    plugins.push(context.dispose);
+    setup(context.ctx, {}, { harness: { home: fake.home, autoStart: false } });
+    await context.tools.get('Artifact')!.execute({}, { agent: { id: 's1', status: 'idle' } });
+    const returned = (await fake.waitFor('inbox.return')).params as { session: string; messages: Array<{ text: string }> };
+    assert.deepEqual([returned.session, returned.messages.map((m) => m.text)], ['s1', ['Just a note']]);
+  });
 });
 
 describe('host.open', () => {

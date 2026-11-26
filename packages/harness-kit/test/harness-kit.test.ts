@@ -205,6 +205,54 @@ test('inbox: on a re-attach after a reconnect, waiting messages go to wake too',
   assert.deepEqual(woken, ['While you were away']);
 });
 
+test('inbox: what wake did not take on a re-attach goes back to the daemon, ahead of what came since', async () => {
+  const daemon = await fake();
+  const woken: string[] = [];
+  const h = await harness(daemon, { wake: (params) => (woken.push(params.text), params.text.includes('refuse') ? 'failed' : 'delivered') });
+  await h.attach({ session: 's1', workspace: '/w' });
+  daemon.drop();
+  daemon.queueInbox('s1', { text: 'Taken while away', source: source('a1') });
+  daemon.queueInbox('s1', { text: 'A collaborator: please refuse', source: source('a1') });
+  daemon.queueInbox('s1', { kind: 'note', text: 'Just a note' });
+  const returned = (await daemon.waitFor('inbox.return')).params as { session: string; workspace: string; messages: Array<{ text: string }> };
+  assert.deepEqual(woken, ['Taken while away', 'A collaborator: please refuse']);
+  assert.deepEqual(
+    { session: returned.session, workspace: returned.workspace, texts: returned.messages.map((m) => m.text) },
+    { session: 's1', workspace: '/w', texts: ['A collaborator: please refuse', 'Just a note'] },
+  );
+  // The daemon has them now, not the kit: a call goes as it is, and the inbox answers them first.
+  daemon.queueInbox('s1', { kind: 'note', text: 'Came later' });
+  const result = await h.call('Artifact', { action: 'list' }, { session: 's1', workspace: '/w' });
+  assert.equal(result.messages, undefined);
+  assert.deepEqual(
+    (await h.attach({ session: 's1', workspace: '/w' })).inbox.map((m) => m.text),
+    ['A collaborator: please refuse', 'Just a note', 'Came later'],
+  );
+});
+
+test('inbox: from a daemon without inbox.return, the kit adds what it holds to the session’s next call, or answers a wait with it', async () => {
+  const daemon = await fake({ features: HARNESS_FEATURES.filter((f) => f !== 'inbox.return'), onToolCall: () => ({ content: [], messages: ['From the daemon'] }) });
+  const h = await harness(daemon, { wake: () => 'failed' });
+  await h.attach({ session: 's1', workspace: '/w' });
+  daemon.drop();
+  daemon.queueInbox('s1', { text: 'Held one', source: source('a1') });
+  daemon.queueInbox('s1', { text: 'Held two', source: source('a1') });
+  await until(() => daemon.calls.filter((c) => c.method === 'session.attach').length === 2);
+  await new Promise((done) => setTimeout(done, 50));
+  assert.equal(daemon.calls.some((c) => c.method === 'inbox.return'), false);
+  // Another session's call is not given them.
+  assert.deepEqual((await h.call('Artifact', { action: 'list' }, { session: 's2', workspace: '/w' })).messages, ['From the daemon']);
+  assert.deepEqual((await h.call('Artifact', { action: 'list' }, { session: 's1', workspace: '/w' })).messages, ['Held one', 'Held two', 'From the daemon']);
+  assert.deepEqual((await h.call('Artifact', { action: 'list' }, { session: 's1', workspace: '/w' })).messages, ['From the daemon']);
+  daemon.drop();
+  daemon.queueInbox('s1', { text: 'Held three', source: source('a1') });
+  await until(() => daemon.calls.filter((c) => c.method === 'session.attach').length === 3);
+  await new Promise((done) => setTimeout(done, 50));
+  const before = daemon.calls.filter((c) => c.method === 'tools.call').length;
+  assert.deepEqual(await h.call('ArtifactComments', { action: 'wait' }, { session: 's1', workspace: '/w' }), { messages: ['Held three'] });
+  assert.equal(daemon.calls.filter((c) => c.method === 'tools.call').length, before, 'answered without waiting on the daemon');
+});
+
 test('wake: the callback answers the daemon; a slow or throwing one answers failed', async () => {
   const daemon = await fake();
   let mode: 'ok' | 'session' | 'slow' | 'throw' = 'ok';

@@ -263,8 +263,19 @@ export function setup(ctx: DshContext, config: Config = {}, deps: SetupDeps = {}
     workspaces.add(workspace);
     attached.set(session, workspaces);
     try {
-      const { inbox } = await (await harness()).attach({ session, workspace, status: status === 'idle' ? 'idle' : 'running' });
-      if (inbox.length) log('warn', `${inbox.length} inbox message(s) for ${session} could not be handed to its agent; the next attach returns them`);
+      const h = await harness();
+      const { inbox } = await h.attach({ session, workspace, status: status === 'idle' ? 'idle' : 'running' });
+      if (inbox.length) {
+        // The attach took them out of the daemon: put them back, for the session's next tool call or wait.
+        if (h.features.includes('inbox.return')) {
+          await h.client
+            .request('inbox.return', { session, workspace, messages: inbox })
+            .then(() => log('warn', `${inbox.length} inbox message(s) for ${session} could not be handed to its agent; they wait for its next tool call`))
+            .catch((error: Error) => log('warn', `${inbox.length} inbox message(s) for ${session} could not be put back: ${error.message}`));
+        } else {
+          log('warn', `${inbox.length} inbox message(s) for ${session} could not be handed to its agent; an older daemon cannot take them back`);
+        }
+      }
     } catch (error) {
       attachedKeys.delete(key);
       throw error;

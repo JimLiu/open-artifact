@@ -60,6 +60,8 @@ export const PROTOCOL_MAX = 1;
  *   `instructions`.
  * - `view.open`: `view.open` hands the adapter a view of one of this daemon's artifacts, with no tool call and no
  *   session (a host's own window for an artifact the person picked).
+ * - `inbox.return`: `inbox.return` puts messages an adapter took (with `session.attach`'s `inbox`) but could not hand
+ *   to its agent back in the session's inbox, ahead of what came since, so its next tool call, wait or attach has them.
  */
 export type HarnessFeature =
   | 'hello.profile'
@@ -79,14 +81,15 @@ export type HarnessFeature =
   | 'hello.runtime'
   | 'runtime.update'
   | 'types.source'
-  | 'view.open';
+  | 'view.open'
+  | 'inbox.return';
 
 /**
  * The features this release's daemon implements, the `features` its `hello` answers. Kept here, not in the daemon, so
  * the kit's fake daemon (`@open-artifact/harness-kit/testing`) answers the same list. A name goes in when the code
  * that answers it lands, never before, so an adapter can trust every name it reads.
  */
-export const HARNESS_FEATURES: readonly HarnessFeature[] = Object.freeze(['hello.profile', 'embed.origins', 'shell.command', 'shell.event', 'view.context', 'wake.from', 'wake.drafted', 'wake.session', 'skill.get', 'commands.list', 'session.may', 'tools.actions', 'quickstart.steps', 'types.remote', 'hello.runtime', 'runtime.update', 'types.source', 'view.open'] as const);
+export const HARNESS_FEATURES: readonly HarnessFeature[] = Object.freeze(['hello.profile', 'embed.origins', 'shell.command', 'shell.event', 'view.context', 'wake.from', 'wake.drafted', 'wake.session', 'skill.get', 'commands.list', 'session.may', 'tools.actions', 'quickstart.steps', 'types.remote', 'hello.runtime', 'runtime.update', 'types.source', 'view.open', 'inbox.return'] as const);
 
 /** How a harness shows pages in its own UI: in a frame of its page, or in a top-level view (a webview). */
 export interface AdapterOpenCaps {
@@ -362,6 +365,9 @@ export interface InboxMessage extends Partial<WakePayload> {
   at: string;
 }
 
+/** The most messages one `inbox.return` takes. */
+export const INBOX_RETURN_MAX = 500;
+
 /** A caller override for `tools.call` and friends. */
 export interface CallerParams {
   caller?: SessionParams;
@@ -381,6 +387,12 @@ export interface AdapterToDaemon {
   'artifact.open': { params: { url: string } & CallerParams & SessionParams; result: { opened: boolean; view_url?: string } };
   'inbox.take': { params: SessionParams & CallerParams; result: { messages: InboxMessage[] } };
   'inbox.wait': { params: SessionParams & CallerParams & { timeoutMs?: number }; result: { messages: InboxMessage[] } };
+  /**
+   * Puts back messages this adapter took from the session's inbox and could not hand to its agent (feature
+   * `inbox.return`): they wait again, ahead of what came since, and an open wait takes them at once. At most
+   * {@link INBOX_RETURN_MAX} messages; `returned` says how many were kept.
+   */
+  'inbox.return': { params: SessionParams & CallerParams & { messages: InboxMessage[] }; result: { ok: true; returned: number } };
   /** Turns {@link HarnessEvent}s on or off. */
   subscribe: { params: { on: boolean }; result: { ok: true } };
   /** The skill body, rendered for this harness (feature `skill.get`). */

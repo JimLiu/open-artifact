@@ -250,6 +250,13 @@ The harness asks its questions (`waitFor`, `evaluateAll`, `load`'s `ready`) in a
 - (e) An artifact made at the workspace's top (`folder: "."`) is listed for another session in that workspace; a session in another workspace sees nothing of it under `mine` or `all`.
 - (f) The workspace moved away and a new folder made at its path, with a planted `index.html`: `read`, `publish` and `call` answer `not_granted`, the planted file is not overwritten, the static page answers 404 and the zip is refused.
 
+**A reconnect hands back what the host did not take** (`reattach-inbox.test.mjs`, no browser)
+
+- A real daemon (`open-artifact daemon run` from source, in a temporary `OPEN_ARTIFACT_HOME` on a free port) with a static `note` type, and a host connected through `createHarness` whose `wake` turns every request down (as Cindy does for a collaborator's comment). Requests are sent as the Shell's Ask sends them (`artifacts.ask`). Between cases the daemon is stopped and started again on the same port, and the kit attaches the session again by itself.
+- (a) A request sent while the host turns it down waits in the inbox. After the restart the kit's re-attach takes it, `wake` turns it down again, and the kit puts it back (`inbox.return`; the daemon log says so). The session's next tool call has it in `messages`, and the call after that does not.
+- (b) After another restart, `ArtifactComments wait` answers with the request that was put back at once; a request sent during a second wait is taken by that wait (`via: "wait"`).
+- (c) What was put back is on disk: the daemon restarted again before any tool call still has it, and the next call has it once.
+
 **Saving while a person edits** (`shell-save.test.mjs`, Chrome only)
 
 - A real daemon from source in a temporary `OPEN_ARTIFACT_HOME` on a free port, once with `OPEN_ARTIFACT_NODE_CHILDREN=threads` and once with `process`; a host connects with `createHarness` and opens the artifacts in the Shell.

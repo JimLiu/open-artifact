@@ -236,7 +236,10 @@ export interface Harness {
   ready(): Promise<HelloResult>;
   /**
    * Attaches a session; a reconnect attaches it again. What waited in its inbox goes to the `wake` callback; the
-   * answer's `inbox` holds what the callback did not take (all of it without a callback).
+   * answer's `inbox` holds what the callback did not take (all of it without a callback). What the callback does not
+   * take on a reconnect's attach goes back to the session's inbox (`inbox.return`), so the session's next tool call,
+   * wait or attach has it; a daemon without that feature leaves it with the kit, which adds it to the session's next
+   * {@link Harness.call} (or this attach's `inbox`).
    */
   attach(params: AttachParams): Promise<{ key: string; inbox: InboxMessage[] }>;
   /** The session's agent is `running` or `idle` now. */
@@ -445,7 +448,10 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
     }
   };
 
-  /** Inbox messages the `wake` callback did not take on a re-attach, handed back by the session's next attach. */
+  /**
+   * Inbox messages the `wake` callback did not take on a re-attach, when the daemon could not take them back
+   * (`inbox.return`): the session's next call or attach returns them.
+   */
   const leftovers = new Map<string, InboxMessage[]>();
   const sessionKey = (ref: SessionParams): string => (ref.session ? `s:${ref.session}` : `w:${ref.workspace ?? ''}`);
   const timeout = options.wakeTimeoutMs ?? WAKE_TIMEOUT_MS;
@@ -563,11 +569,21 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
     onState: (state) => emit('state', state),
     onReattach: async (params, result) => {
       const left = await handOver(params, result.inbox);
-      if (left.length) {
-        const key = sessionKey(params);
-        leftovers.set(key, [...(leftovers.get(key) ?? []), ...left]);
-        log(`open-artifact: ${left.length} message(s) for ${params.session ?? params.workspace} were not taken; the next attach returns them`);
+      if (!left.length) return;
+      const who = params.session ?? params.workspace;
+      // Back to the daemon, which keeps them on disk for the session's next tool call, wait or attach.
+      if (client.features.includes('inbox.return')) {
+        try {
+          await client.request('inbox.return', { session: params.session ?? null, workspace: params.workspace ?? null, messages: left });
+          log(`open-artifact: ${left.length} message(s) for ${who} were not taken; they wait in its inbox again`);
+          return;
+        } catch (error) {
+          log(`open-artifact inbox.return for ${who}: ${(error as Error)?.message ?? error}`);
+        }
       }
+      const key = sessionKey(params);
+      leftovers.set(key, [...(leftovers.get(key) ?? []), ...left]);
+      log(`open-artifact: ${left.length} message(s) for ${who} were not taken; the session's next call or attach returns them`);
     },
     handlers: {
       ...(options.wake ? { 'wake.deliver': (params: WakeDeliverParams) => wake(params) } : {}),
@@ -684,7 +700,25 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
       }
       return TOOL_DEFINITIONS.map((tool) => ({ ...tool }));
     },
-    call: (name, args, caller) => client.callTool(name, args, caller),
+    async call(name, args, caller) {
+      // What an older daemon could not take back goes along, as the daemon adds what waited in the inbox.
+      const key = caller && (caller.session || caller.workspace) ? sessionKey(caller) : null;
+      const held = key ? leftovers.get(key) : undefined;
+      if (!key || !held?.length) return client.callTool(name, args, caller);
+      leftovers.delete(key);
+      const texts = held.map((message) => message.text);
+      // A wait would only return what is there: these are.
+      if (name === 'ArtifactComments' && args.action === 'wait') return { messages: texts };
+      let result: ToolCallResult;
+      try {
+        result = await client.callTool(name, args, caller);
+      } catch (error) {
+        leftovers.set(key, [...held, ...(leftovers.get(key) ?? [])]);
+        throw error;
+      }
+      const more = Array.isArray(result.messages) ? result.messages : [];
+      return { ...result, messages: [...texts, ...more] };
+    },
     wrote: (paths, caller) => client.request('agent.wrote', { paths, ...(caller ? { caller } : {}) }),
     open: (url, opts) => client.request('artifact.open', { url, ...(opts ? { caller: opts } : {}) }),
     owns: ownsCall,

@@ -18,6 +18,7 @@ import { randomBytes } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import {
   HARNESS_NAME,
+  INBOX_RETURN_MAX,
   OpenArtifactError,
   RPC_ERRORS,
   rpcErrorCode,
@@ -64,6 +65,28 @@ const POLL_GRACE_MS = Number(process.env.OPEN_ARTIFACT_POLL_GRACE_MS ?? 20_000);
 const POLL_MAX_MS = 60_000;
 /** The longest `inbox.wait`, ms. */
 const INBOX_WAIT_MAX_MS = 3_600_000;
+/** The largest message `inbox.return` puts back, as JSON. */
+const INBOX_RETURN_MESSAGE_MAX = 256 * 1024;
+
+/** The messages of an `inbox.return` worth keeping: objects with `text`, given a `kind` and `at` when they lack one. */
+function returnedMessages(raw: unknown): InboxMessage[] {
+  if (!Array.isArray(raw)) throw new OpenArtifactError('invalid_argument', 'inbox.return needs messages (an array).');
+  const kept: InboxMessage[] = [];
+  for (const item of raw.slice(0, INBOX_RETURN_MAX)) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
+    const message = item as Partial<InboxMessage>;
+    if (typeof message.text !== 'string' || !message.text) continue;
+    const filled: InboxMessage = {
+      ...message,
+      kind: typeof message.kind === 'string' && message.kind ? message.kind : 'wake',
+      text: message.text,
+      at: typeof message.at === 'string' && message.at ? message.at : new Date().toISOString(),
+    };
+    if (JSON.stringify(filled).length > INBOX_RETURN_MESSAGE_MAX) continue;
+    kept.push(filled);
+  }
+  return kept;
+}
 /** How recently a hook or attach must have seen a session for a session-less MCP bridge to fall back to it, ms. */
 const RECENT_SESSION_MS = 2 * 60 * 60_000;
 
@@ -873,6 +896,16 @@ export class HarnessHub extends EventEmitter<{ changed: [] }> {
         if (!key) throw new OpenArtifactError('invalid_argument', 'inbox.wait needs session or workspace.');
         const timeout = Math.min(Number(params.timeoutMs) || 600_000, INBOX_WAIT_MAX_MS);
         return { messages: await this.options.inbox.wait(key, timeout) };
+      }
+      case 'inbox.return': {
+        // Only this connection's own harness: an adapter puts back what it took for its sessions.
+        const params = raw as unknown as AdapterToDaemon['inbox.return']['params'];
+        const key = sessionKeyOf(this.callerOf(conn, params));
+        if (!key) throw new OpenArtifactError('invalid_argument', 'inbox.return needs session or workspace.');
+        const messages = returnedMessages(params.messages);
+        this.options.inbox.giveBack(key, messages);
+        if (messages.length) this.options.log(`adapter ${harness}: ${messages.length} message(s) for ${key} put back in its inbox`);
+        return { ok: true, returned: messages.length };
       }
       case 'subscribe':
         conn.subscribed = (raw as { on?: boolean }).on !== false;

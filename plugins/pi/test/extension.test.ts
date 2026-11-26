@@ -207,6 +207,12 @@ describe('pi-open-artifact', () => {
     assert.equal(pi.prompts[0].text, 'while you were away');
   });
 
+  it('puts back in the daemon what the session could not take on attach, for its next tool call', async () => {
+    const { daemon } = await started({}, (d) => d.queueInbox(SESSION, { kind: 'note', text: 'Just a note' }));
+    const returned = (await daemon.waitFor('inbox.return')).params as { session: string; messages: Array<{ text: string }> };
+    assert.deepEqual([returned.session, returned.messages.map((m) => m.text)], [SESSION, ['Just a note']]);
+  });
+
   it('adds the always-on prompt as its own system prompt section', async () => {
     const { pi } = await started();
     const event = { systemPromptOptions: { sections: { other: 'kept' } as Record<string, string> } };

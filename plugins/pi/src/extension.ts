@@ -223,7 +223,13 @@ function setup(pi: PiExtensionAPI, options: OpenArtifactPiOptions): void {
       // `createHarness` keeps trying in the background when its first try failed; this says why it could not.
       await h.ready();
       if (closed) throw new Error('The Pi session ended.');
-      await h.attach({ ...session, status: running ? 'running' : 'idle', pid: process.pid });
+      const { inbox } = await h.attach({ ...session, status: running ? 'running' : 'idle', pid: process.pid });
+      // The attach took them out of the daemon; what `wake` did not take (a note, say) waits for the next tool call.
+      if (inbox.length && h.features.includes('inbox.return')) {
+        await h.client
+          .request('inbox.return', { session: session.session ?? null, workspace: session.workspace ?? null, messages: inbox })
+          .catch((error: unknown) => log(`open-artifact inbox.return: ${messageOf(error)}`));
+      }
     } catch (error) {
       h.close();
       throw error;

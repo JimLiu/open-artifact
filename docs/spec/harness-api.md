@@ -54,6 +54,7 @@ an `### Integrators` section in [CHANGELOG.md](../../CHANGELOG.md) saying what c
 | `runtime.update` | answers `runtime.status` and `runtime.update`, and sends `runtime/update` events |
 | `types.source` | describes types with `source` (`builtin`, `local`, `installed`) and, for an installed one, `installed_from` and `third_party_notice`, wherever types are listed and when an artifact is read; puts `third_party_notice` next to `instructions` when one is created or adopted; a project type not trusted yet gets its own `third_party_notice`, and reads of an artifact of either (`Artifact`, `ArtifactData`, `ArtifactComments`) add a page-content one |
 | `view.open` | answers `view.open`: the addresses to show one of its own artifacts in your app, with no session |
+| `inbox.return` | answers `inbox.return`: messages you took from a session's inbox and could not hand to its agent wait there again |
 
 `session.*`, `tools.list`, `tools.call`, `agent.wrote`, `artifact.open`, `inbox.take`, `inbox.wait` and `subscribe` are
 the base protocol and need no feature.
@@ -102,6 +103,7 @@ no place that lists artifacts; there is no separate value for that.
 | `artifact.open` | `url`, `caller?` or `session`/`workspace` | `{ opened, view_url? }` |
 | `inbox.take` | `session`/`workspace` or `caller` | `{ messages }` |
 | `inbox.wait` | the same, `timeoutMs?` (default 10 minutes, at most an hour) | `{ messages }` |
+| `inbox.return` | `session`/`workspace` or `caller`, `messages` (as `session.attach`'s `inbox` gave them, at most 500) | `{ ok, returned }`; feature `inbox.return` |
 | `subscribe` | `on` | `{ ok }`; `event` notifications follow while on |
 | `skill.get` | `form?` (`entry` \| `full`), `command?`, `agentName?`, `tools?`, `toolNames?`, `opens?`, `locale?` | `{ name, description, argumentHint, body, version, etag, prompt? }` |
 | `commands.list` | `command?`, `locale?` | `{ commands }`: `text`, `type`, `title`, `description`, `templates?`, `remote?`, `origin?` |

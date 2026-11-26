@@ -34,7 +34,10 @@ harness.on('artifact', ({ session, artifact, change }) => myApp.card(session, ar
 
 - The connection reconnects with backoff (1 s doubling to 30 s), says hello again and attaches every session again;
   not after the person's `daemon.stop()`, until they ask for the daemon again.
-- What waited in a session's inbox goes to `wake` on attach; `attach()` returns what `wake` did not take.
+- What waited in a session's inbox goes to `wake` on attach; `attach()` returns what `wake` did not take. On the
+  kit's own attach after a reconnect, what `wake` did not take goes back to the daemon's inbox (`inbox.return`), so
+  the session's next `call()` or wait has it; a daemon without that feature leaves it with the kit, which adds it to
+  the session's next `call()`.
 - A `wake` callback that throws or takes longer than `wakeTimeoutMs` (25 s) answers `failed`.
 - `caps` in `hello` follow from the callbacks: `wake` only with a `wake` callback, `open` only with an `open` callback
   (`{ embed, origins, remote }` with `embed`). `options.caps` adds `tools`, `library`, `wake.resume`, `wake.mode`.

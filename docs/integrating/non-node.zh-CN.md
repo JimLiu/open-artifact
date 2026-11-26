@@ -36,7 +36,7 @@ open-artifact harness --stdio --harness my-agent
 1. **你先发 `hello`**，不带令牌。给出 `harness` 时必须和 `--harness` 一致。第二次 `hello` 得到 `conflict`。在它之前的任何请求得到 `unauthorized`。
 2. **你调用方法**，用你自己的 id（字符串或数字）：`session.attach`、`tools.list`、`tools.call`、`subscribe`……
 3. **桥调用你**，id 是 `d1`、`d2`……：你的 caps 有 `wake` 时是 `wake.deliver`，有 `open` 时是 `host.open` 和 `shell.event`。没有这些 caps 就收不到这些调用。用同样的 id 在 30 秒内回答每一个，否则 daemon 算作失败。
-4. **通知**没有 id：`event`（只在 `subscribe {"on": true}` 之后），以及桥自己的 `bridge.state {state: "connected" | "disconnected"}` 和 `bridge.reattached {params, inbox}`（重连后重新挂上的会话，以及这期间为它攒下的消息）。
+4. **通知**没有 id：`event`（只在 `subscribe {"on": true}` 之后），以及桥自己的 `bridge.state {state: "connected" | "disconnected"}` 和 `bridge.reattached {params, inbox}`（重连后重新挂上的会话，以及这期间为它攒下的消息）。这个 `inbox` 已经从 daemon 取走了：交不给会话的消息，用 `inbox.return {session, workspace, messages}`（功能名 `inbox.return`）放回去，会话的下一次工具调用或 wait 就能拿到。
 
 ```text
 → {"jsonrpc":"2.0","id":1,"method":"hello","params":{"harness":"my-agent","caps":{"agentName":"My Agent","tools":"native","wake":{}}}}

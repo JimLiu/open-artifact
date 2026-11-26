@@ -98,6 +98,23 @@ export class Inbox {
     return taken!;
   }
 
+  /**
+   * Puts back messages that were taken but not delivered: an open wait takes them at once; otherwise they wait again,
+   * ahead of what came since (they are older). Synchronous, as {@link takeWhere}.
+   */
+  giveBack(key: string, messages: InboxMessage[]): void {
+    if (!messages.length) return;
+    const waiting = this.waiters.get(key);
+    const first = waiting?.values().next().value;
+    if (waiting && first) {
+      waiting.delete(first);
+      first(messages);
+      return;
+    }
+    ensureDir(files.inbox());
+    this.keep(key, [...messages, ...this.peek(key)]);
+  }
+
   /** Rewrites a key's file with `kept` only (removes it when empty). */
   private keep(key: string, kept: InboxMessage[]): void {
     const file = this.fileOf(key);

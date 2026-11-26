@@ -41,7 +41,8 @@ Options: `--harness` (default `example-stdio`), `--session` (default `py-1`), `-
 4. The bridge's own requests have ids `d1`, `d2`, …; answer each with the same id. They can arrive while one of your
    requests is still waiting (`host.open` during `publish` with `open: "now"`), so read on a thread of its own.
 5. `bridge.state` says when the daemon connection drops and comes back (the bridge starts the daemon again if needed
-   and attaches your sessions again); `bridge.reattached` then hands over what waited for a session meanwhile.
+   and attaches your sessions again); `bridge.reattached` then hands over what waited for a session meanwhile (what you cannot hand on, put back with
+   `inbox.return`).
 
 The bridge ends when its stdin ends; the daemon keeps running. The framing is specified at the top of
 `packages/daemon/src/stdio-bridge.ts`; the methods and their types are in `packages/protocol/src/harness.ts`.

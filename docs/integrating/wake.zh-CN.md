@@ -89,6 +89,8 @@ export function routeOf(params) {
 
 回调抛出异常或超过 `wakeTimeoutMs`（默认 25 秒），都按 `failed` 回答。daemon 自己最多等适配器 30 秒。
 
+`session.attach` 会把会话收件箱里的消息从 daemon 取走：回答里的 `inbox` 从此归你。你自己 attach 时，kit 把其中每条唤醒交给你的回调，没接住的作为返回值还给你。kit 自己重新 attach 时（重连、daemon 重启或升级之后）没有调用方可还，于是它用 `inbox.return`（功能名 `inbox.return`）把你的回调没接住的消息放回会话收件箱：消息存在磁盘上，排在这之后新来的消息前面，会话的下一次工具调用（`messages`）、`ArtifactComments wait` 或 attach 都能拿到。对没有这个功能的 daemon，kit 自己留着，加进这个会话下一次 `call()` 的结果（或直接回答一次 wait），下一次 `attach()` 也会返回它。你不用为了取回它们再 attach 一次。自己实现协议的适配器，对取走却没能交出去的消息，也照样调用 `inbox.return`。
+
 `{ status, session: 'other-id' }` 表示你的另一个会话接下了它，例如一个子 Agent 的线程结束后把消息交给了它的协调者。那个会话成为作品的所有者（功能 `wake.session`），之后的评论直接送到它。
 
 ## 恢复

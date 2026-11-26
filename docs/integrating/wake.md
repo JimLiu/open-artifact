@@ -113,6 +113,15 @@ The `wake` callback answers with a status, or `{ status, session }`:
 A callback that throws or takes longer than `wakeTimeoutMs` (default 25 seconds) answers `failed`. The daemon itself
 waits 30 seconds for an adapter's answer.
 
+`session.attach` takes the session's inbox out of the daemon: the answer's `inbox` is now yours. When you attach, the
+kit hands each wake in it to your callback and returns what you did not take. When the kit attaches again by itself
+(after a reconnect, a daemon restart or upgrade) there is no caller to return it to, so it puts what your callback
+turned down back in the session's inbox with `inbox.return` (feature `inbox.return`): it waits there on disk, ahead of
+what came since, and the session's next tool call (`messages`), `ArtifactComments wait` or attach has it. Against a
+daemon without the feature the kit keeps it and adds it to the session's next `call()` (or answers a wait with it),
+or the next `attach()` returns it. You need not attach again to collect it. An adapter that speaks the protocol itself
+calls `inbox.return` the same way for what it took and could not hand on.
+
 `{ status, session: 'other-id' }` says another of your sessions took it, for example a sub-agent's thread that ended and
 handed the message to its coordinator. That session becomes the artifact's owner (feature `wake.session`), so later
 comments go straight to it.

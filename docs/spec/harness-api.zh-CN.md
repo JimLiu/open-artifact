@@ -48,6 +48,7 @@
 | `runtime.update` | 回答 `runtime.status` 和 `runtime.update`，并发送 `runtime/update` 事件 |
 | `types.source` | 在列出类型的地方、读取作品时，用 `source`（`builtin`、`local`、`installed`）描述类型，安装的类型还带 `installed_from` 和 `third_party_notice`；新建或接管作品时，把 `third_party_notice` 放在 `instructions` 旁边；还没信任的项目里的类型带它自己的 `third_party_notice`，读取这两种类型的作品时（`Artifact`、`ArtifactData`、`ArtifactComments`）再加一句页面内容的说明 |
 | `view.open` | 回答 `view.open`：在你的应用里显示它自己的某个作品所需的地址，不需要会话 |
+| `inbox.return` | 回答 `inbox.return`：你从会话收件箱取走、却没能交给它的 agent 的消息，放回去继续等 |
 
 `session.*`、`tools.list`、`tools.call`、`agent.wrote`、`artifact.open`、`inbox.take`、`inbox.wait` 和 `subscribe` 是基础协议，不需要功能名。
 
@@ -92,6 +93,7 @@
 | `artifact.open` | `url`、`caller?` 或 `session`/`workspace` | `{ opened, view_url? }` |
 | `inbox.take` | `session`/`workspace` 或 `caller` | `{ messages }` |
 | `inbox.wait` | 同上，加 `timeoutMs?`（默认 10 分钟，最多 1 小时） | `{ messages }` |
+| `inbox.return` | `session`/`workspace` 或 `caller`，加 `messages`（照 `session.attach` 的 `inbox` 原样，最多 500 条） | `{ ok, returned }`；功能名 `inbox.return` |
 | `subscribe` | `on` | `{ ok }`；开启期间随后有 `event` 通知 |
 | `skill.get` | `form?`（`entry` \| `full`）、`command?`、`agentName?`、`tools?`、`toolNames?`、`opens?`、`locale?` | `{ name, description, argumentHint, body, version, etag, prompt? }` |
 | `commands.list` | `command?`、`locale?` | `{ commands }`：`text`、`type`、`title`、`description`、`templates?`、`remote?`、`origin?` |

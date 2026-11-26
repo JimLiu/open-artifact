@@ -16,7 +16,7 @@
  * `skill.get` (the protocol's skill template, rendered for the adapter's caps), `commands.list` (one entry per
  * {@link FakeDaemonOptions.types}), `session.attach` (with what {@link FakeDaemon.queueInbox} queued),
  * `session.status`, `session.detach`, `session.rename`, `tools.list`, `tools.call`, `agent.wrote`, `artifact.open`,
- * `inbox.take`, `subscribe`, `embed.origins` ({@link FakeDaemonOptions.origins}), `shell.command` (kept in
+ * `inbox.take`, `inbox.return` (back in front of the session's queue), `subscribe`, `embed.origins` ({@link FakeDaemonOptions.origins}), `shell.command` (kept in
  * {@link FakeDaemon.shellCommands}; a view this fake did not open is `not_found`), `view.context` (from
  * {@link FakeDaemon.setContext}), `view.open` (an artifact of {@link FakeDaemon.setArtifact}, by
  * `open-artifact://artifact/<id>` or the fake's own `/a/<id>`; any other address is `invalid_argument`; an adapter with
@@ -287,6 +287,13 @@ export async function startFakeDaemon(options: FakeDaemonOptions = {}): Promise<
         const messages = inboxes.get(session) ?? [];
         inboxes.delete(session);
         return { messages };
+      }
+      case 'inbox.return': {
+        // Back in front of what came since, as the real daemon does.
+        const session = String((params as { session?: string }).session ?? '');
+        const back = (params as { messages?: InboxMessage[] }).messages ?? [];
+        inboxes.set(session, [...back, ...(inboxes.get(session) ?? [])]);
+        return { ok: true, returned: back.length };
       }
       case 'subscribe':
         subscribed = !!(params as { on?: boolean }).on;

@@ -49,7 +49,9 @@ keeps running.
    within 30 seconds, or the daemon counts it failed.
 4. **Notifications** have no id: `event` (only after `subscribe {"on": true}`), and the bridge's own `bridge.state
    {state: "connected" | "disconnected"}` and `bridge.reattached {params, inbox}` (a session attached again after a
-   reconnect, with what waited for it).
+   reconnect, with what waited for it). That `inbox` was taken out of the daemon: what you cannot hand to the session,
+   put back with `inbox.return {session, workspace, messages}` (feature `inbox.return`), so its next tool call or wait
+   has it.
 
 ```text
 → {"jsonrpc":"2.0","id":1,"method":"hello","params":{"harness":"my-agent","caps":{"agentName":"My Agent","tools":"native","wake":{}}}}

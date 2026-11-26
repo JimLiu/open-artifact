@@ -13,6 +13,7 @@ import { harnessProfile, listProfiles, saveAdapterProfile, sanitizeAdapterProfil
 import { HarnessHub, type AdapterConnection } from '../src/harness.ts';
 import { Inbox } from '../src/inbox.ts';
 import { files } from '../src/paths.ts';
+import { sessionKeyOf } from '../src/store.ts';
 
 const BIN = fileURLToPath(new URL('../src/bin/open-artifact.ts', import.meta.url));
 /** Shipped profiles of these tests' own, so a profile written here never meets a real one. */
@@ -25,12 +26,12 @@ writeFileSync(
 
 const TOKEN = 'test-token';
 
-function hub(): HarnessHub {
+function hub(inbox = new Inbox()): HarnessHub {
   return new HarnessHub({
     token: TOKEN,
     version: '9.9.9',
     tools: { definitions: () => [], call: async () => ({ content: [] }), agentWrote: () => ({ artifacts: [] }) },
-    inbox: new Inbox(),
+    inbox,
     log: () => undefined,
     openArtifact: async () => ({ opened: false }),
     browse: null,
@@ -116,6 +117,42 @@ test('skill.get and commands.list answer; an unknown method is method_not_found'
     // The hub's fake tools list no types: no command entries.
     assert.deepEqual(await h.handle(conn, 'commands.list', {}), { commands: [] });
     await assert.rejects(h.handle(conn, 'no.such.method', {}), (error: Error & { code?: string }) => error.code === 'method_not_found');
+  } finally {
+    h.close();
+  }
+});
+
+test('inbox.return: what an adapter took and could not hand on waits again, first, for that harness only', async () => {
+  const inbox = new Inbox();
+  const h = hub(inbox);
+  try {
+    const conn = connection();
+    await h.handle(conn, 'hello', { harness: 'return-app', token: TOKEN });
+    inbox.append(sessionKeyOf({ harness: 'return-app', session: 's1', workspace: null })!, { kind: 'wake', text: 'Older', at: '2026-01-01T00:00:00.000Z' });
+    const { key, inbox: taken } = (await h.handle(conn, 'session.attach', { session: 's1', workspace: '/w' })) as { key: string; inbox: Array<{ text: string }> };
+    assert.deepEqual(taken.map((m) => m.text), ['Older']);
+    inbox.append(key, { kind: 'note', text: 'Came since' });
+    const answer = await h.handle(conn, 'inbox.return', {
+      session: 's1',
+      workspace: '/w',
+      messages: [taken[0], { text: 'No kind or at' }, { kind: 'wake' }, 'not an object', { text: 'x'.repeat(300 * 1024) }],
+    });
+    assert.deepEqual(answer, { ok: true, returned: 2 });
+    const waiting = inbox.peek(key);
+    assert.deepEqual(waiting.map((m) => [m.kind, m.text]), [['wake', 'Older'], ['wake', 'No kind or at'], ['note', 'Came since']]);
+    assert.equal(waiting[0]!.at, '2026-01-01T00:00:00.000Z', 'its time is kept');
+    assert.match(waiting[1]!.at, /^\d{4}-\d{2}-\d{2}T/);
+    // Another harness's session with the same id is not touched.
+    assert.equal(inbox.count(sessionKeyOf({ harness: 'other-app', session: 's1', workspace: null })!), 0);
+    // An open wait takes them at once.
+    inbox.take(key);
+    const wait = h.handle(conn, 'inbox.wait', { session: 's1', timeoutMs: 2000 }) as Promise<{ messages: Array<{ text: string }> }>;
+    await new Promise((done) => setTimeout(done, 20));
+    await h.handle(conn, 'inbox.return', { session: 's1', messages: [{ kind: 'wake', text: 'Back to the wait' }] });
+    assert.deepEqual((await wait).messages.map((m) => m.text), ['Back to the wait']);
+    await assert.rejects(h.handle(conn, 'inbox.return', { session: 's1', messages: 'no' }), (error: Error & { code?: string }) => error.code === 'invalid_argument');
+    await assert.rejects(h.handle(conn, 'inbox.return', { messages: [] }), (error: Error & { code?: string }) => error.code === 'invalid_argument');
+    assert.ok(HARNESS_FEATURES.includes('inbox.return'));
   } finally {
     h.close();
   }
