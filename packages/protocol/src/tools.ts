@@ -129,6 +129,12 @@ export interface ArtifactArgs {
    */
   lan?: boolean;
   links?: { editor?: boolean; commenter?: boolean; viewer?: boolean };
+  /**
+   * Refused: publish writes `files`, and a picture or font a page names is stored with the type's `upload` action.
+   * Kept here so an agent that still sends them gets an answer that names the call to make instead.
+   */
+  file_path?: string;
+  asset?: boolean;
   /** share: publish to this cloud remote (by its name), where the person allowed the agent to (`remotes.<name>.agentMayPublish`). */
   cloud?: string;
 }

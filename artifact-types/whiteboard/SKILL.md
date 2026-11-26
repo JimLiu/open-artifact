@@ -28,8 +28,12 @@ of it). The first `write-db` that writes `board/meta` starts it.
 `Artifact {action: "quickstart", intent: "other"}`, then `Artifact {action: "publish", type_url:
 "open-artifact://type/whiteboard", title}`; its result gives the board's `url` (`open-artifact://artifact/<id>`). Read and
 write its documents with **ArtifactData** (`url` = the board's): `get`, `list`, `set`, `update`,
-`delete` and `batch`. Comments are **ArtifactComments**. Uploads are `Artifact {action: "publish",
-url, file_path, asset: true}`. Never run `open-artifact open`, `serve`, `wait` or `stop` under a host.
+`delete` and `batch`; a `set` over a document that exists, and a `delete`, take `if_match`, the sha256 you read (or
+`"*"`). A board made this way already has its `board/meta`: `update` it. Comments are **ArtifactComments**. There, `open-artifact upload` is `Artifact {action: "call",
+url, name: "upload", args: {file: "<absolute path>"}}` (one file a call; the `/_blob/<id>` url it returns is an
+`image` element's `src`), `open-artifact check` is `Artifact {action: "call", url, name: "check"}` and `open-artifact
+context` is `Artifact {action: "call", url, name: "context"}`. A picture never goes in with `publish`. Never run
+`open-artifact open`, `serve`, `wait` or `stop` under a host.
 
 **Standalone**, the same documents through the CLI:
 
@@ -204,7 +208,8 @@ write, and a rewrite would lose what they did. Read it (`get` `board/meta`, `lis
 and what to set right around them, is in Being a good teammate; extend the board down or right when a new subject has
 no room.
 
-A new board: `set` `board/meta` first (`{"v": 1, "title": …, "order": [ids back to front]}`), then the
+A new board: `set` `board/meta` first (`{"v": 1, "title": …, "order": [ids back to front]}`; under a host it
+exists already, so `update` it), then the
 elements back to front, at most 500 writes in one batch. Upload pictures before you write the elements
 that show them.
 

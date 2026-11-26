@@ -68,6 +68,7 @@ node <skill>/scripts/open-artifact.mjs wait --timeout 600000
 4. **严格按类型说明写入内容**
    - **项目文件型（`slides`、`design`、`design-system`）**：用文件工具直接写入 `<root>/project/`（或调用 `Artifact publish`），图片/字体/媒体通过 `Artifact {action: "call", url, name: "upload", args: {file}}` 上传。
    - **实时文档库型（`whiteboard`、`data`、`motion`）**：通过 `ArtifactData`（`batch`、`set`、`update`、`str_replace`）写入。
+   - **上传（除 `page` 外的所有类型；`page` 的文件直接放在 `index.html` 旁边）**：图片、字体、视频片段、数据文件都用 `Artifact {action: "call", url, name: "upload", args: {file: "<绝对路径>"}}` 上传，一次一个文件；返回的 `/_blob/<id>` 写到内容里引用这个文件的地方。`publish` 只收 `files`：带 `file_path` 或 `asset` 而没有 `files` 的调用会返回 `invalid_argument`，`fix` 里写着该用的上传调用。
    - **结构化操作型（`sheets`、`docs`）**：通过 `Artifact {action: "call", url, name: "create" | "read" | "update" | "batch" | "import", args: ...}` 操作，绝不手改底层文件。
    - **自由页面（`page`）**：写 `<root>/index.html`（一份完整的 HTML 文档，带 `<title>`）和它旁边要用的文件。用 `publish` 的 `capabilities` 参数声明页面可用的能力，创建时或之后都可以：`{"db": true}` 是从此以后的完整集合，`{}` 表示不声明（只剩 `artifact` 和 `permissions`），不传则保留当前声明。只有 page 接受 `capabilities`，其他类型会返回 `invalid_argument`。页面里用 `await window.openArtifact.use("db")` 获取每个能力（`window.claude` 是同一个对象，为 claude.ai 写的页面可以照常运行）。页面可以发布到运行页面的站点（Node 或 Cloudflare）（不运行页面的站点，也就是旧版站点或单域名站点，会拒绝发布，页面留在本机）；能力声明会跟着同步过去，所有者也可以在站点上修改。
 5. **校验**

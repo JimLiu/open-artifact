@@ -1177,6 +1177,11 @@ export class Tools {
     const directory = this.artifactFiles(record, caller);
     // The type matters to a write only for a page (its capabilities, its title); a registry may be left out in tests.
     const type = this.o.types?.get(record.type, record.owner?.workspace ?? undefined) ?? null;
+    if (args.files === undefined && (args.file_path !== undefined || args.asset !== undefined)) {
+      throw new OpenArtifactError('invalid_argument', 'publish with url writes files: {"rel/path": …}; it takes no file_path or asset.', {
+        fix: 'To store a picture, font or other upload: Artifact {action: "call", url, name: "upload", args: {file: "<absolute path>"}}, and use the /_blob/<id> url it returns. To write a file of the artifact: files: {"<rel/path>": "<text>"} ({content, encoding: "base64"} for bytes).',
+      });
+    }
     const capabilities = args.capabilities === undefined ? undefined : capabilitiesOf(args.capabilities, type);
     // A page's capabilities may change alone, with no files.
     const given = (args.files === undefined && capabilities !== undefined ? {} : args.files) as unknown;

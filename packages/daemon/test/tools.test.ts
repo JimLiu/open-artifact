@@ -1,7 +1,7 @@
 import { tempDir } from './helpers.ts';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { basename, dirname, join } from 'node:path';
 import { after, before, test } from 'node:test';
@@ -606,4 +606,23 @@ test('sharing is the person\'s: share only reports, open shows its panel, publis
     const wrote = await tool('Artifact', { action: 'publish', url, files: { [path]: '{"lan": true}' } });
     assert.equal(wrote.error?.code, 'bad_path', path);
   }
+});
+
+test('publish with a file_path or asset and no files names the upload action and writes nothing', async () => {
+  const url = await createGreeter('Card with a picture');
+  const root = String((await tool('Artifact', { action: 'read', url })).root);
+  const before = readdirSync(root).sort();
+  const picture = join(tempDir('open-artifact-picture-'), 'hero.png');
+  writeFileSync(picture, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+  for (const args of [{ file_path: picture, asset: true }, { file_path: picture }, { asset: true }]) {
+    const refused = await tool('Artifact', { action: 'publish', url, ...args });
+    assert.equal(refused.error?.code, 'invalid_argument', JSON.stringify(args));
+    assert.match(String(refused.error?.message), /takes no file_path or asset/);
+    assert.match(String(refused.error?.fix), /action: "call", url, name: "upload", args: \{file: "<absolute path>"\}/);
+  }
+  assert.deepEqual(readdirSync(root).sort(), before, 'nothing was written');
+  // With files given, the files are what is written.
+  const wrote = await tool('Artifact', { action: 'publish', url, files: { 'note.txt': 'hi' }, file_path: picture });
+  assert.equal(wrote.error, undefined, JSON.stringify(wrote.error));
+  assert.equal(readFileSync(join(root, 'note.txt'), 'utf8'), 'hi');
 });

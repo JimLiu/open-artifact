@@ -265,6 +265,12 @@ The harness asks its questions (`waitFor`, `evaluateAll`, `load`'s `ready`) in a
 - (e) An artifact made at the workspace's top (`folder: "."`) is listed for another session in that workspace; a session in another workspace sees nothing of it under `mine` or `all`.
 - (f) The workspace moved away and a new folder made at its path, with a planted `index.html`: `read`, `publish` and `call` answer `not_granted`, the planted file is not overwritten, the static page answers 404 and the zip is refused.
 
+**A picture on a whiteboard, uploaded by an agent** (`agent-upload.test.mjs`, no browser)
+
+- A real daemon (`open-artifact daemon run` from source, in a temporary `OPEN_ARTIFACT_HOME`) runs the built whiteboard; the agent's every step is a tool call, as the board's skill gives it.
+- (a) `Artifact {action: "publish", url, file_path, asset: true}` (no `files`) answers `invalid_argument`, its `fix` names `Artifact {action: "call", url, name: "upload", args: {file: "<absolute path>"}}`, and nothing lands in the board's folder.
+- (b) `call upload` with a PNG's absolute path keeps its bytes in `_blobs/<id>.png` and returns `/_blob/<id>`; an `image` element with that `src` passes `check`, and reading it back gives the same `src`.
+
 **A reconnect hands back what the host did not take** (`reattach-inbox.test.mjs`, no browser)
 
 - A real daemon (`open-artifact daemon run` from source, in a temporary `OPEN_ARTIFACT_HOME` on a free port) with a static `note` type, and a host connected through `createHarness` whose `wake` turns every request down (as Cindy does for a collaborator's comment). Requests are sent as the Shell's Ask sends them (`artifacts.ask`). Between cases the daemon is stopped and started again on the same port, and the kit attaches the session again by itself.
