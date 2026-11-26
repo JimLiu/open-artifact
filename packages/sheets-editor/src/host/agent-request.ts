@@ -4,7 +4,8 @@ import type { AgentRequest, SelectionSnapshot } from '@open-artifact/runtime';
 import { selectionSnapshotOf } from '@open-artifact/editor-kit';
 import { isNonNullObject } from '../utils/objects.ts';
 
-export const MAX_REQUEST_TEXT = 10_000;
+/** As the type server takes (its `MAX_REQUEST_TEXT`): room for words within the Ask limit and what the page puts before them. */
+export const MAX_REQUEST_TEXT = 24_000;
 export const MAX_REQUEST_LABEL = 1_000;
 export const MAX_REQUEST_CONTEXT = 4_000;
 

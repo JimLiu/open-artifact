@@ -1,4 +1,5 @@
 import { isNonNullObject } from '../utils/objects.ts';
+import { cleanAskWords } from './ask-words.ts';
 import { isViewId } from './view-context.ts';
 import { isAskTaken, type AskSentToChat } from '../messages/charts.ts';
 import type { ChartKindOrAny } from '../charts/chart-words.ts';
@@ -414,13 +415,7 @@ export function createChatWithAgent(
     },
   };
 }
-export const MAX_ASK_WORDS_LENGTH = 1000;
-export const UNSHOWN_CHARACTERS_PATTERN =
-  /[\p{Cc}\p{Cf}\p{Co}\p{Cs}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}\p{Noncharacter_Code_Point}\u2800\uFFFD\u{16FE4}]/gu;
-export const collapseWhitespace = (text: string): string => text.replaceAll(/\s+/gu, ' ').trim();
-export const hasUnshownCharacters = (text: string): boolean => text.replaceAll(UNSHOWN_CHARACTERS_PATTERN, '') !== text;
-export const cleanAskWords = (text: string): string =>
-  collapseWhitespace(collapseWhitespace(text).slice(0, MAX_ASK_WORDS_LENGTH).replaceAll(UNSHOWN_CHARACTERS_PATTERN, ''));
+export { MAX_ASK_WORDS_LENGTH, tooLongNoteOf, UNSHOWN_CHARACTERS_PATTERN, collapseWhitespace, hasUnshownCharacters, cleanAskWords } from './ask-words.ts';
 export const pressedCellsOf = ({ sheetNumber, range, pressed }: PressedCellsHeard): Pick<SelectionForAgent, 'sheetNumber' | 'range'> | null =>
   typeof sheetNumber === 'number' && typeof range === 'string' && pressed === undefined
     ? {

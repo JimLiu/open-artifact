@@ -123,7 +123,9 @@ function AskField(): ReactNode {
     if (!message || sending) return;
     setSending(true);
     try {
-      if (await sendToAgent(message)) setText('');
+      // The draft stays when the words are refused or the send fails, so the person can try again.
+      const result = await sendToAgent(message);
+      if (result && result.status !== 'failed') setText('');
     } finally {
       setSending(false);
     }
@@ -142,7 +144,6 @@ function AskField(): ReactNode {
       <input
         value={text}
         aria-label={`Ask ${name}`}
-        maxLength={4000}
         placeholder={open ? (selected ? `Ask ${name} about the selection…` : `Ask ${name} to change this slide…`) : `Ask ${name}`}
         className="h-full min-w-0 flex-1 bg-transparent text-[14px] text-chrome-fg outline-none placeholder:text-chrome-muted"
         onFocus={() => setFocused(true)}

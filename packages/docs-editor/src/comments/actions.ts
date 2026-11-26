@@ -4,7 +4,7 @@
  * the thread.
  */
 import type { CommentThread } from '@open-artifact/runtime';
-import { COMMENT_TEXT_MAX } from '@open-artifact/editor-kit';
+import { COMMENT_TEXT_BYTES, COMMENT_TOO_LONG, commentTextBytes } from '@open-artifact/editor-kit';
 import { toast } from '@open-artifact/ui';
 import type { EditorState } from 'prosemirror-state';
 import { CellSelection } from 'prosemirror-tables';
@@ -49,8 +49,19 @@ const failed = (title: string) => (error: unknown) => {
 
 const capability = () => maybeSession()?.comments ?? null;
 
-/** The text as sent: trimmed, at most the longest a message may be. */
-const bodyOf = (text: string) => text.trim().slice(0, COMMENT_TEXT_MAX);
+/** The text as sent: trimmed, never cut (a longer one is refused, {@link refusedAsTooLong}). */
+const bodyOf = (text: string) => text.trim();
+
+/**
+ * Whether a message is over the comment limit ({@link COMMENT_TEXT_BYTES}, UTF-8 bytes, the `@agent` in front
+ * included): then the page says {@link COMMENT_TOO_LONG} and nothing is sent, so the draft stays for the person to
+ * shorten.
+ */
+function refusedAsTooLong(body: string): boolean {
+  if (commentTextBytes(body) <= COMMENT_TEXT_BYTES) return false;
+  toast.add({ title: COMMENT_TOO_LONG });
+  return true;
+}
 
 /** Who a message is addressed to, from its @mentions. */
 function addressees(text: string): string[] {
@@ -82,7 +93,13 @@ export function replyGoesToAgent(thread: CommentThread, text: string): boolean {
 }
 
 /** The text addressed to the agent: an `@agent` in front unless it already names it. */
-const toAgent = (text: string): string => (mentionsAgent(text) ? text : bodyOf(`@${agentName()} ${text}`));
+const toAgent = (text: string): string => (mentionsAgent(text) ? text : `@${agentName()} ${text}`);
+
+/** The comment an Ask posts for `text` (what the agent chip's thread says), to check its length before the chip goes in. */
+export const askedComment = (text: string): string => toAgent(bodyOf(text));
+
+/** Whether an Ask's comment is over the comment limit; says so when it is (see {@link refusedAsTooLong}). */
+export const askRefusedAsTooLong = (text: string): boolean => refusedAsTooLong(askedComment(text));
 
 /** Margin comments come back into view when a comment is started. */
 function showMargin(): void {
@@ -329,6 +346,7 @@ export async function createThread(text: string, composer: Composer | null = use
   const typed = bodyOf(text);
   if (!comments || !composer || !typed) return false;
   const body = send && canAskAgent() ? toAgent(typed) : typed;
+  if (refusedAsTooLong(body)) return false;
   const to = addressees(body);
   const input = {
     anchor: docComments.adapter.serialize(composer.anchor),
@@ -379,6 +397,7 @@ export async function reply(threadId: string, text: string, send?: boolean): Pro
   const thread = threadById(threadId);
   const asks = send === true && canAskAgent() && !(thread && replyGoesToAgent(thread, typed));
   const body = asks ? toAgent(typed) : typed;
+  if (refusedAsTooLong(body)) return false;
   const quiet = send === false;
   const to = addressees(body);
   try {
@@ -408,7 +427,7 @@ export async function reply(threadId: string, text: string, send?: boolean): Pro
 export async function editMessage(threadId: string, messageId: string, text: string): Promise<boolean> {
   const comments = capability();
   const body = bodyOf(text);
-  if (!comments || !body) return false;
+  if (!comments || !body || refusedAsTooLong(body)) return false;
   const to = addressees(body);
   try {
     const thread = await comments.edit(threadId, messageId, body, to.length ? { to } : undefined);

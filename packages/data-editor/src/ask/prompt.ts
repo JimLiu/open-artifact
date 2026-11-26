@@ -6,7 +6,7 @@
  */
 
 import type { AgentRequest, SelectionSnapshot } from '@open-artifact/runtime';
-import { selectionSnapshotOf } from '@open-artifact/editor-kit';
+import { agentResultMessage, selectionSnapshotOf } from '@open-artifact/editor-kit';
 import { stripColumnNamespace, type ParameterValue, type Parameters, type SourceAddress } from '@open-artifact/data-core';
 import type { RequestSelection } from '../drafts/request.ts';
 import { getSelectionLabelText, type ElementSelection } from '../page/selection.ts';
@@ -22,6 +22,15 @@ export const ASK_SENDING = 'Sending…';
 export const ASK_SENT = 'Sent to the agent.';
 export const NOT_LISTENING = 'The agent isn’t listening to this dashboard. Ask it to wait for requests here, then try again.';
 export const PROMPT_COPIED = 'Prompt copied';
+
+/**
+ * What the box says when a request to a listening agent was not taken: how the host said it failed (as every editor's
+ * toast says it), never {@link NOT_LISTENING}, which is only for no agent listening.
+ */
+export function sendFailedText(reason?: string): string {
+  const message = agentResultMessage({ status: 'failed', ...(reason ? { reason } : {}) }, 'this dashboard');
+  return message.description ? `${message.title}. ${message.description}` : message.title;
+}
 
 /** A filter in play: its name and value (null when it has none). */
 export type ActiveFilter = readonly [name: string, value: ParameterValue | null];

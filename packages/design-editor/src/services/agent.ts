@@ -10,7 +10,7 @@
 import { buildViewContext, type DesignViewContext, type SelectedElement } from '@open-artifact/design-core';
 import { elementKind, elementLabel, parseDcDocument, parseTemplate, resolveElement, type TemplateModel } from '@open-artifact/dc';
 import { fenceUntrusted, type AgentSendResult, type AgentStatus } from '@open-artifact/runtime';
-import { agentResultMessage, sendFailure, watchAgentStatus } from '@open-artifact/editor-kit';
+import { ASK_TOO_LONG, agentResultMessage, askTooLong, sendFailure, watchAgentStatus } from '@open-artifact/editor-kit';
 import { toast } from '@open-artifact/ui';
 import { create } from 'zustand';
 import { isDirty, useDocument } from '../state/document.ts';
@@ -117,11 +117,15 @@ function reportResult(result: AgentSendResult): void {
   toast.add(agentResultMessage(result, 'this design', useAgent.getState().status));
 }
 
-/** Sends the viewer's request about the current selection. */
+/** Sends the viewer's request about the current selection; words over the Ask limit are refused, not cut. */
 export async function sendToAgent(message: string): Promise<AgentSendResult | null> {
   const { agent } = session();
   const text = message.trim();
   if (!agent || !text) return null;
+  if (askTooLong(text)) {
+    toast.add({ title: ASK_TOO_LONG });
+    return null;
+  }
   const context = currentViewContext();
   const parts = [text];
   const selection = context.selection ?? [];

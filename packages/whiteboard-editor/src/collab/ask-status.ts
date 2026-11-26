@@ -47,9 +47,6 @@ export const ASK_LINGER_MS = 3000;
 /** How long a request's area takes to fade in or out (ms). */
 export const ASK_FADE_MS = 420;
 
-/** Most characters of a typed request. */
-export const MAX_ASK_TEXT = 20_000;
-
 /** Most characters of a request's words shared with other viewers. */
 export const MAX_SHARED_ASK_TEXT = 120;
 

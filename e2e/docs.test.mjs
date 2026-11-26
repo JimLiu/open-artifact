@@ -1008,6 +1008,31 @@ describe(`${TYPE} in Chrome: Ask Agent as a comment on an agent chip`, { skip: s
     }
   });
 
+  it('an Ask whose @agent comment is over 4096 UTF-8 bytes is refused as a comment is: the draft stays, no chip, no thread', T, async () => {
+    const w = await startWait(ctx, ctx.root, 60);
+    const { browser, page } = await opened(ctx.root, 'Bikes ride free');
+    try {
+      const before = await chips(page);
+      const threads = (await ctx.cli.json(['comments', ctx.root, '--json'])).threads.length;
+      await prompt(page, 'Bikes');
+      // "@Agent " and 1,364 CJK characters are 4,099 bytes, though far under 4000 characters.
+      const wide = '蓝'.repeat(1364);
+      await page.cdp('Input.insertText', { text: wide });
+      await page.press('Enter');
+      assert.ok(await page.waitFor("document.body.innerText.includes('That comment is too long.')", 10000), 'the page does not say the comment is too long');
+      assert.equal((await page.evaluateAll(`${PROMPT}?.value`)).find(Boolean), wide, 'the draft stays in the prompt');
+      await new Promise(resolve => setTimeout(resolve, 500));
+      assert.equal(await chips(page), before, 'no agent chip went in');
+      assert.equal((await ctx.cli.json(['comments', ctx.root, '--json'])).threads.length, threads, 'no thread was saved');
+      await page.press('Escape');
+      assert.deepEqual(page.problems, []);
+    } finally {
+      await browser.close();
+      w.child.kill();
+      await w.exited;
+    }
+  });
+
   it('Escape closes the prompt and leaves no chip and no thread', T, async () => {
     const w = await startWait(ctx, ctx.root, 60);
     const { browser, page } = await opened(ctx.root, 'Tickets are sold');

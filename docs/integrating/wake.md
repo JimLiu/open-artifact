@@ -18,7 +18,9 @@ Three things on a page reach the agent:
 The Shell’s **Ask** pane accepts up to 8,000 bytes of UTF-8 after trimming surrounding whitespace (`MAX_ASK_BYTES`,
 the limit claude.ai’s Ask box uses; about 2,600 Chinese characters). A longer draft stays in the pane for editing.
 Sending it directly to `artifacts.ask` returns HTTP 413 (`too_large`) before delivery. A message within the limit is
-never cut: it also fits the 8,000-character text field of `comment_summon`.
+never cut: it also fits the 8,000-character text field of `comment_summon`. An editor’s own Ask field (Slides, Design,
+Design System, Whiteboard, Sheets, Data) takes the same 8,000 bytes and refuses a longer request the same way; Docs’
+Ask Agent posts a comment and takes a comment’s 4,096 bytes.
 
 Messages for one artifact that arrive within 1.5 seconds go out as one wake. An artifact may send at most 20 per minute;
 past that the page is answered `rate_limited`.
@@ -101,7 +103,8 @@ taken when Send is pressed, so a selection changed or cleared a moment later doe
   part is `collaborator`, and its `userText` is data like the rest.
 - Web links in `text` are replaced by `[link]`; `userText` keeps them as typed, so what you show is not quite what the
   agent reads.
-- A request whose `text` is cut at its limit (8000 characters) before the words end has no `userText`.
+- A page request’s `text` holds up to 24,000 characters (the type server’s `MAX_REQUEST_TEXT`): the person’s words
+  and what the page puts after them. One cut at that limit before the words end has no `userText`.
 - A comment a page sends to the agent through its type's comment store (Docs, Whiteboard, Sheets, Data) arrives as a
   request whose `text` says which thread to read and answer. From Docs (Ask Agent, or a comment or reply with Send
   to agent) it has `userText`: the words typed, without the `@Agent` the page puts before them. Its `text` then starts

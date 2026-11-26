@@ -4,6 +4,7 @@ import type { ConditionalFormatsOfPane, ListedSheet, PageView } from '../../view
 import type { RuleDescription } from '../../messages/conditional-format.ts';
 import type { ShownRule } from './pane-state.ts';
 import * as React from 'react';
+import { askTooLong } from '@open-artifact/editor-kit';
 import { CONDITIONAL_FORMATTING_WORDS } from '../../messages/conditional-format.ts';
 import { cleanAskWords } from '../../agent/chat-with-agent.ts';
 import { CONDITIONAL_FORMATTING_PRESS } from './pane-state.ts';
@@ -78,7 +79,7 @@ export function askAgentForRulesInChat(
 ): Promise<boolean> {
   let selectionByAddress = store.getView().selectionByAddress;
   let request = cleanAskWords(words);
-  if (store.isEventUnfinished() || selectionByAddress === null || request === '') return Promise.resolve(false);
+  if (store.isEventUnfinished() || selectionByAddress === null || request === '' || askTooLong(words)) return Promise.resolve(false);
   return chat.openWithWhatWasPressed(cleanAskWords(request.slice(0, MOST_PRESSED_WORDS_CHARS)), selectionByAddress, CONDITIONAL_FORMATTING_PRESS, {
     request,
   });

@@ -6,6 +6,7 @@ import {
   ASK_SENT,
   ASK_TITLE,
   NOT_LISTENING,
+  sendFailedText,
   buildAskRequest,
   buildCopiedPrompt,
   buildSelectionPrompt,
@@ -64,6 +65,12 @@ describe('ask prompt', () => {
     assert.match(buildCopiedPrompt(selection), /Signups/);
     assert.equal(ASK_SENT, 'Sent to the agent.');
     assert.equal(NOT_LISTENING, 'The agent isn’t listening to this dashboard. Ask it to wait for requests here, then try again.');
+  });
+
+  it('a failed send says how it failed, not that no agent listens', () => {
+    assert.equal(sendFailedText('Agent request failed (500).'), 'Could not reach the agent. Agent request failed (500).');
+    assert.equal(sendFailedText(), 'Could not reach the agent. Try again, or copy your request into the conversation.');
+    assert.notEqual(sendFailedText(), NOT_LISTENING);
   });
 });
 

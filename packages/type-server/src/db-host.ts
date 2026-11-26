@@ -271,7 +271,7 @@ export interface SendHow {
 /** The `@name ` a page puts before the person's words when it asks the agent: one name, no punctuation, one line. */
 const AGENT_MENTION = /^@[^\s@,.;:!?][^\n@,.;:!?]{0,59}\s+$/;
 
-/** The longest words a request starts with: the request text (8000 characters) keeps room for what follows them. */
+/** The longest words a thread request starts with (a comment is at most 4096 bytes): the request text keeps room for what follows them. */
 const USER_TEXT_MAX = 6000;
 
 /**

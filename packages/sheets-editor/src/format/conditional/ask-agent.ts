@@ -1,3 +1,4 @@
+import { ASK_TEXT_BYTES } from '@open-artifact/editor-kit';
 import { isPromptDataTooLong } from '../../agent/prompt-text.ts';
 import {
   withConditionalFormatsPane,
@@ -189,7 +190,8 @@ export function askAgentForMoreSuggestions(state: PageState, reads: WorkbookRead
     linesAsTold,
   });
 }
-export const MOST_RULE_WORDS_FOR_AGENT = 2000;
+/** The words of a rule's Ask are refused over the Ask limit, never cut: whatever is within it is told whole. */
+export const MOST_RULE_WORDS_FOR_AGENT = ASK_TEXT_BYTES;
 export const MOST_AGENT_ATTEMPTS = 2;
 export const ROOM_KEPT_FOR_RETRY = 4096;
 export const agentAskFailed = (state: PageState, pane: ConditionalFormatsPane, about: AgentAbout): PageTransition => ({

@@ -369,6 +369,45 @@ describe('slides', { skip: skipFor('slides') }, () => {
     }
   });
 
+  it('refuses an Ask over 8000 UTF-8 bytes with the draft kept, and sends one at the limit whole with its selection', { skip: browserSkip, timeout: 120000 }, async () => {
+    const waiting = await run.start(['wait', root, '--timeout', '60'], { firstLine: false });
+    try {
+      assert.ok(await until(() => fs.existsSync(path.join(root, '_agent', 'waiting')), 10000), 'wait wrote no heartbeat');
+      await page.evaluate("location.hash = '#slide-3'");
+      const on = selector => `document.querySelector('[data-open-artifact-mode="edit"][data-open-artifact-slide="end"] ${selector}')`;
+      assert.ok(await page.waitFor(on('h1')));
+      const box = await page.evaluate(`(() => { const box = ${on('h1')}.getBoundingClientRect(); return [box.x + 12, box.y + box.height / 2]; })()`);
+      await page.click(...box);
+      const field = `document.querySelector('input[aria-label^="Ask "]')`;
+      assert.ok(await page.waitFor(field, 15000), 'no Ask field: the page does not see the waiting agent');
+      await page.evaluate(`${field}.focus()`);
+      // 2,667 CJK characters are 8,001 bytes, far under 8000 UTF-16 units: refused, the words kept, nothing sent.
+      const wide = '蓝'.repeat(2667);
+      await page.cdp('Input.insertText', { text: wide });
+      await page.press('Enter');
+      assert.ok(await page.waitFor("document.body.innerText.includes('That’s too long to send.')", 10000), 'the page does not say the Ask is too long');
+      assert.equal(await page.evaluate(`${field}.value`), wide, 'the draft stays in the field');
+      const inbox = path.join(root, '_agent', 'inbox');
+      const queued = () => (fs.existsSync(inbox) ? fs.readdirSync(inbox) : []).map(name => fs.readFileSync(path.join(inbox, name), 'utf8'));
+      assert.ok(!queued().some(text => text.includes('蓝蓝蓝')), 'the long Ask was not queued');
+      // Exactly 8000 bytes, with the element after it: the agent gets every word and the whole fenced selection.
+      const words = `Make the title bolder ${'w'.repeat(8000 - 22)}`;
+      await page.evaluate(`${field}.select()`);
+      await page.cdp('Input.insertText', { text: words });
+      await page.press('Enter');
+      const { code } = await waiting.exited;
+      assert.equal(code, 0, waiting.stdout());
+      const doneDir = path.join(root, '_agent', 'done');
+      const sent = fs.readdirSync(doneDir).map(name => JSON.parse(fs.readFileSync(path.join(doneDir, name), 'utf8'))).find(r => r.userText === words);
+      assert.ok(sent, 'no request with all the words in _agent/done');
+      assert.ok(sent.text.startsWith(words), 'the agent reads every word first');
+      assert.match(sent.text, /<<<END-UNTRUSTED-DATA-[0-9a-f]+>>>$/, 'the selected element is fenced to the end, nothing cut');
+      assert.equal(await page.evaluate(`${field}.value`), '', 'a sent Ask clears the field');
+    } finally {
+      waiting.child?.kill('SIGTERM');
+    }
+  });
+
   it('sets a source paragraph’s margin from the properties panel, saves it on the tag and undoes it', { skip: browserSkip }, async () => {
     const file = path.join(root, 'project/slides/plan.html');
     const original = fs.readFileSync(file, 'utf8');

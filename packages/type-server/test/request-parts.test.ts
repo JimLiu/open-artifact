@@ -6,7 +6,7 @@
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { normalizeRequest } from '../src/agent.ts';
+import { MAX_REQUEST_TEXT, normalizeRequest } from '../src/agent.ts';
 
 const snapshot = { kind: 'elements', label: '3 selected elements', count: 3, items: [{ id: 'a', kind: 'text', label: 'Hi' }] };
 
@@ -22,8 +22,17 @@ test('normalizeRequest drops words the agent would not read first, and a malform
   assert.equal(queued.selectionSnapshot, undefined);
 });
 
+test('normalizeRequest: the longest Ask (8000 bytes) and the selection after it are kept whole', () => {
+  const words = 'w'.repeat(8000);
+  const selection = `<<<UNTRUSTED-DATA-ab12>>>\n${'label '.repeat(1500)}\n<<<END-UNTRUSTED-DATA-ab12>>>`;
+  const text = `${words}\n\n${selection}`;
+  const queued = normalizeRequest({ text, userText: words, selectionSnapshot: snapshot }, 'send');
+  assert.equal(queued.text, text, 'nothing is cut, the closing fence included');
+  assert.equal(queued.userText, words);
+});
+
 test('normalizeRequest: words cut off with the text at its limit are left out', () => {
-  const words = 'w'.repeat(9000);
+  const words = 'w'.repeat(MAX_REQUEST_TEXT + 1);
   const queued = normalizeRequest({ text: words, userText: words }, 'send');
   assert.ok(queued.text.endsWith("…"), "the text is cut");
   assert.equal(queued.userText, undefined);

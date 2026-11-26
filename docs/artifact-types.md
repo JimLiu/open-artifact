@@ -65,7 +65,14 @@ All types share `<root>/_blobs/` (content-addressed uploads via `upload`), `<roo
 A comment or reply written in the page holds up to 4,096 bytes of UTF-8 (`COMMENT_TEXT_BYTES`, the limit claude.ai’s
 comment boxes use; about 1,300 Chinese characters). Typing and pasting stop at 4,096 characters; a longer comment in
 bytes is not sent: the page says “That comment is too long.” and keeps the draft. Docs comments count characters
-instead, with a counter under the box.
+instead, with a counter under the box (4,000), and are refused the same way when they are over 4,096 bytes. Docs’ Ask
+Agent posts a comment, so it takes what a comment takes, `@Agent ` included.
+
+An editor’s own Ask field (Slides, Design, Design System, Whiteboard, Sheets, Data) takes what the Shell’s Ask takes:
+8,000 bytes of UTF-8 after trimming (about 2,600 Chinese characters). A longer request is not sent: the page says
+“That’s too long to send.” and keeps the draft. A request that fails keeps its draft too. The words are never cut, and
+neither is what the editor adds after them (the selection, the slide). The whiteboard’s cursor chat is a short bubble
+and stops at 500 characters.
 
 ## Cross-type workflows
 

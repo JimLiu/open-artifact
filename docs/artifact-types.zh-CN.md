@@ -54,7 +54,9 @@ Open Artifact 内部有三种存储模式，外加自由页面，了解它们就
 
 所有类型共用 `<root>/_blobs/`（通过 `upload` 写入的内容寻址附件）、`<root>/comments.json` 和 `<root>/history/`。
 
-在页面里写的评论或回复，按 UTF-8 最多 4,096 个字节（`COMMENT_TEXT_BYTES`，和 claude.ai 的评论框一样；中文约 1,300 字）。输入和粘贴到 4,096 个字符就停；按字节算超长的评论不会发出，页面提示 “That comment is too long.”，草稿保留。文档（docs）的评论按字符计，框下有计数。
+在页面里写的评论或回复，按 UTF-8 最多 4,096 个字节（`COMMENT_TEXT_BYTES`，和 claude.ai 的评论框一样；中文约 1,300 字）。输入和粘贴到 4,096 个字符就停；按字节算超长的评论不会发出，页面提示 “That comment is too long.”，草稿保留。文档（docs）的评论按字符计，框下有计数（4,000），超过 4,096 个字节时同样不发。Docs 的 Ask Agent 发的是一条评论，所以限长和评论一样，`@Agent ` 也算在内。
+
+编辑器自己的 Ask 输入框（Slides、Design、Design System、Whiteboard、Sheets、Data）和 Shell 的 Ask 一样：去掉首尾空白后按 UTF-8 最多 8,000 个字节（中文约 2,600 字）。超长的请求不会发出，页面提示 “That’s too long to send.”，草稿保留；发送失败时草稿也保留。用户的字不会被截断，编辑器附在后面的内容（选区、当前页）也不会。白板的光标聊天是短气泡，到 500 个字符就停。
 
 ## 跨类型协同工作流
 

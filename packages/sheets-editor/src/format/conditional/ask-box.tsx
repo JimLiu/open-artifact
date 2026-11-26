@@ -12,6 +12,8 @@ import type { MessagePart } from '../../i18n/messages.ts';
 import type { ConditionalFormatsOfPane } from '../../view/page-view.ts';
 import type { PANE_START_ATTRIBUTE } from '../../ui/side-pane/side-pane.tsx';
 import * as React from 'react';
+import { askTooLong } from '@open-artifact/editor-kit';
+import { MAX_ASK_WORDS_LENGTH, tooLongNoteOf } from '../../agent/ask-words.ts';
 import { cardRowFrameProps, CARD_ROW_HOVER_CLASSES } from '../../ui/card-rows.tsx';
 import {
   agentRowHighlightProps,
@@ -226,10 +228,14 @@ export function RuleAskBox(props: RuleAskBoxProps) {
   let canAsk = agent !== 'writes' && draft === null;
   let hasFailed = agent === 'hasFailed';
   let isFailedForTyped = hasFailed && typed === wordsAsked;
+  // Words over the Ask limit are not sent: the field keeps them, and says so until they are changed.
+  let [refusedTyped, setRefusedTyped] = React.useState<string | null>(null);
+  let tooLongNote = tooLongNoteOf(typed, refusedTyped);
   const isForChat = isFailedForTyped && chatInstead !== null;
   let ask = () => {
     if (trimmed === '' || !canAsk) return;
     keepFieldFocus();
+    if (askTooLong(typed)) return setRefusedTyped(typed);
     if (isForChat) return chatInstead.onAsked(trimmed);
     setWordsAsked(typed);
     return onAsked(trimmed);
@@ -549,7 +555,7 @@ export function RuleAskBox(props: RuleAskBoxProps) {
       rowsEaseIn.onClickCapture(event);
       if (lastPressRef.current.isByMouse && isPointerAway(event.target)) event.stopPropagation();
     }}><section className="flex min-w-0 shrink-0 flex-col pt-md">{agent !== null &&
-            (<FieldRoot invalid={isFailedForTyped && !isForChat} className={`${cardRowFrameProps.className} flex-col items-stretch px-2`}><div className="relative"><TextInput ref={fieldRef} data-stop-of-walk fullWidth dir="auto" aria-label={words.placeholder} autoComplete="off" spellCheck={false} enterKeyHint="go" placeholder={words.placeholder} readOnly={agent === 'writes'} value={typed} {...(!isCoarse && markOfStart)} onFocus={() => setFieldFocused(true)} onBlur={() => {
+            (<FieldRoot invalid={tooLongNote !== null || (isFailedForTyped && !isForChat)} className={`${cardRowFrameProps.className} flex-col items-stretch px-2`}><div className="relative"><TextInput ref={fieldRef} data-stop-of-walk fullWidth dir="auto" aria-label={words.placeholder} autoComplete="off" spellCheck={false} enterKeyHint="go" placeholder={words.placeholder} readOnly={agent === 'writes'} maxLength={MAX_ASK_WORDS_LENGTH} value={typed} {...(!isCoarse && markOfStart)} onFocus={() => setFieldFocused(true)} onBlur={() => {
                         emptiedRef.current = null;
                         setFieldFocused(false);
                       }} onChange={(event) => {
@@ -558,7 +564,9 @@ export function RuleAskBox(props: RuleAskBoxProps) {
                         if (draft !== null) onDiscarded();
                         onTyped(event.target.value);
                       }} onKeyDown={onFieldKeyDown} />{isMoreLookedFor &&
-                      <LineWhileAgentLooks isOnBox />}</div>{isFailedForTyped &&
+                      <LineWhileAgentLooks isOnBox />}</div>{tooLongNote !== null &&
+                  <FieldError match className="leading-4">{tooLongNote}</FieldError>}{tooLongNote === null &&
+                  isFailedForTyped &&
                   !isForChat &&
                   <FieldError match className="leading-4">{words.hasFailed}</FieldError>}{isForChat &&
                   (<FieldDescription className="leading-4"><GoToChatInstead whyNotHere={chatInstead.whyNotHere} goThere={chatInstead.goThere} data-stop-of-walk onTaken={() => {

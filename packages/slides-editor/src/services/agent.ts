@@ -26,7 +26,7 @@ import {
   type SlidesViewContext,
 } from '@open-artifact/slides-core';
 import { fenceUntrusted, type AgentSendResult, type AgentStatus, type Peer } from '@open-artifact/runtime';
-import { agentResultMessage, createPresence, sendFailure, watchAgentStatus, type PeerView as KitPeerView } from '@open-artifact/editor-kit';
+import { ASK_TOO_LONG, agentResultMessage, askTooLong, createPresence, sendFailure, watchAgentStatus, type PeerView as KitPeerView } from '@open-artifact/editor-kit';
 import { toast } from '@open-artifact/ui';
 import { create } from 'zustand';
 import { deckOrder, isDirty, useDeck } from '../state/deck.ts';
@@ -232,11 +232,15 @@ function reportResult(result: AgentSendResult): void {
   toast.add(agentResultMessage(result, 'this deck', useAgent.getState().status));
 }
 
-/** Sends the viewer's request with what they have selected. */
+/** Sends the viewer's request with what they have selected; words over the Ask limit are refused, not cut. */
 export async function sendToAgent(message: string): Promise<AgentSendResult | null> {
   const { agent } = session();
   const text = message.trim();
   if (!agent || !text) return null;
+  if (askTooLong(text)) {
+    toast.add({ title: ASK_TOO_LONG });
+    return null;
+  }
   const context = currentViewContext();
   const parts = [text];
   // Taken now, when Send is pressed: the app showing the request lists what was selected then, not what is later.

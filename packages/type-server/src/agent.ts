@@ -38,8 +38,12 @@ export const WAITER_HEARTBEAT_MS = 5_000;
 /** How many taken requests `done/` keeps. */
 const DONE_KEEP = 50;
 
-/** Largest request text, characters. */
-const MAX_TEXT = 8000;
+/**
+ * Largest request text, characters: the person's words (an editor's Ask takes 8000 UTF-8 bytes, so at most 8000
+ * characters) and what the page puts after them (the selection, the slide, a fenced block), with room to spare. A
+ * page keeps within it; a longer text is cut here only as a last resort.
+ */
+export const MAX_REQUEST_TEXT = 24_000;
 
 /** A request as stored in the inbox. */
 export interface QueuedRequest {
@@ -146,7 +150,7 @@ export function normalizeRequest(request: AgentRequest, deliver: AgentDelivery):
   if (!request || typeof request.text !== 'string' || !request.text.trim()) throw new Error('request.text must be a non-empty string.');
   const context = request.context && typeof request.context === 'object' && !Array.isArray(request.context) ? request.context : undefined;
   // The page fences untrusted parts; here we only strip control characters and clamp.
-  const text = sanitizeUntrusted(request.text, MAX_TEXT);
+  const text = sanitizeUntrusted(request.text, MAX_REQUEST_TEXT);
   // What an app shows: the person's words only when the agent reads them too, and the selection as checked data.
   const userText = normalizeUserText(request.userText, text);
   const selectionSnapshot = normalizeSelectionSnapshot(request.selectionSnapshot);

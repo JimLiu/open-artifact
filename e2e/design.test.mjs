@@ -667,6 +667,28 @@ editorSuite({
       }
     });
 
+    it('Send to agent over 8000 UTF-8 bytes is refused: the composer stays open with the draft and nothing is queued', T, async () => {
+      const { root, url } = await ctx.openNew('ask-too-long');
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: textIn('Smoke canvas'), settle: 800 });
+      try {
+        await clickOn(page, `[...document.querySelectorAll('button')].find(b => /^Ask /.test(b.textContent.trim()))`, 'the Ask button');
+        const area = `document.querySelector('textarea[placeholder]')`;
+        assert.ok(await page.waitFor(area, 10000), 'the composer did not open');
+        await page.evaluate(`(${area}).focus()`);
+        // 2,667 CJK characters are 8,001 bytes, far under 8000 UTF-16 units.
+        const wide = '蓝'.repeat(2667);
+        await page.cdp('Input.insertText', { text: wide });
+        await clickOn(page, buttonNamed('Send'));
+        assert.ok(await page.waitFor("document.body.innerText.includes('That’s too long to send.')", 10000), 'the page does not say the request is too long');
+        assert.equal(await page.evaluate(`(${area})?.value`), wide, 'the composer stays open with the draft');
+        const inbox = path.join(root, '_agent', 'inbox');
+        assert.ok(!fs.existsSync(inbox) || fs.readdirSync(inbox).length === 0, 'nothing was queued');
+        assert.deepEqual(page.problems, []);
+      } finally {
+        await page.close();
+      }
+    });
+
     const throwing = (ctx_, root) => {
       copyFixture('design', root);
       const board = path.join(root, BOARD);

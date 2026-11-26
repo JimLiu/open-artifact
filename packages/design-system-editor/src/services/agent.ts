@@ -9,7 +9,7 @@
  */
 
 import { fenceUntrusted, type AgentRequest, type AgentSendResult, type AgentStatus } from '@open-artifact/runtime';
-import { agentResultMessage, sendFailure, watchAgentStatus } from '@open-artifact/editor-kit';
+import { ASK_TOO_LONG, agentResultMessage, askTooLong, sendFailure, watchAgentStatus } from '@open-artifact/editor-kit';
 import { toast } from '@open-artifact/ui';
 import { create } from 'zustand';
 import { isDirty, useFiles } from '../state/files.ts';
@@ -116,10 +116,14 @@ async function send(
   }
 }
 
-/** "Send to agent": the viewer's request about what they focused. */
+/** "Send to agent": the viewer's request about what they focused; words over the Ask limit are refused, not cut. */
 export async function sendToAgent(message: string): Promise<AgentSendResult | null> {
   const text = message.trim();
   if (!text) return null;
+  if (askTooLong(text)) {
+    toast.add({ title: ASK_TOO_LONG });
+    return null;
+  }
   const focus = useView.getState().focus;
   // Taken now, when Send is pressed: the app showing the request names what was focused then.
   const snapshot = focusSnapshot(focus);

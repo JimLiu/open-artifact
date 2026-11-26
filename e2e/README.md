@@ -31,6 +31,8 @@ When Chrome stops a frame's renderer (Chrome shows the frame as gone and the pag
 
 The harness asks its questions (`waitFor`, `evaluateAll`, `load`'s `ready`) in a tab's page and frames only, never in a worker: workers are attached so their errors and exits are seen, and that is all. Chrome 157 stops the renderer when `location` is read in a module worker whose script has not all arrived, and the suites' questions start with `location.hostname…`. That was the `renderer crashed: iframe …/whiteboard/…` the Cloudflare suites showed on about one first load in four (the whiteboard starts its `whiteboard-looks` worker while the test waits for the board). `browser-lib.test.mjs` holds the case.
 
+`cloudflare.test.mjs` seeds its rooms from fixture folders in `test-artifacts/` and compares a room's files with the folder's. Both sides leave out what git does not keep there: the folder's `.gitignore` and the machine-local state it names (`_agent/`, `history/`, `.artifact*`, `.sharing.json`, `*.log`, `*.tmp`, `.DS_Store`), which opening a fixture on your computer leaves behind. A local run so seeds what CI seeds (`packages/host-cloudflare/test/room-node.test.ts` does the same).
+
 ## What is covered
 
 `lib/editor.mjs` holds the path both types share. Each `*.test.mjs` file adds what only its type has.
@@ -88,6 +90,7 @@ The harness asks its questions (`waitFor`, `evaluateAll`, `load`'s `ready`) in a
 - In Chrome:
   - Send to agent: the composer's request reaches `wait`;
   - Send to agent with two elements selected (a click, then a Shift-click on the artboard) and two lines typed: the request in `_agent/done` has `userText` with the line break, its `text` starts with it, and its `selectionSnapshot` says `2 selected elements` with both items (and no `where`: the fixture canvas names no page), though Escape clears the selection right after Send;
+  - Send to agent with 2,667 CJK characters (8,001 bytes of UTF-8) is not sent: the page says "That’s too long to send.", the composer stays open with the draft, and nothing is queued;
   - a comment in the Shell's comment layer: the box stops at 4,096 characters (its `maxLength`); 1,366 CJK characters (4,098 bytes of UTF-8) are not sent, the page says "That comment is too long." and the draft stays; a short comment is then saved to `comments.json` and listed in the comments panel (as the owner and as a commenter by link);
   - a board that throws shows its error, and "Ask agent to fix" sends it (`wait` receives the title and the error);
   - "1 error" at the top right lists the artboards with errors and its "Ask agent to fix" sends them all; closing an artboard's error notice leaves a mark in its name strip that brings it back;
@@ -112,6 +115,7 @@ The harness asks its questions (`waitFor`, `evaluateAll`, `load`'s `ready`) in a
 **Slides: asking about a selection** (`slides.test.mjs`, on the shared deck's third slide, with `wait` running)
 
 - A click on the heading and a Shift-click on the list select two elements; the Ask field says it asks about the selection. A request typed there and sent with Enter reaches `wait`, and in `_agent/done` it has `userText`, a `text` that starts with it, and a `selectionSnapshot` of `2 selected elements` on `Slide 3 of 3`, though Escape clears the selection right after Send.
+- The Ask takes as many UTF-8 bytes as the Shell's (8,000, `MAX_ASK_BYTES`): 2,667 CJK characters (8,001 bytes, far under 8,000 characters) sent with Enter are not sent, the page says "That’s too long to send." and the words stay in the field. Words of exactly 8,000 bytes then reach `wait` whole: in `_agent/done` the request's `userText` is all of them, and its `text` starts with them and ends with the fenced selected element's closing marker (the type server keeps room for what follows the words). Before, the field stopped at 4,000 characters, a failed send cleared it, and the type server cut a request's `text` at 8,000 characters.
 
 **Slides: polygon clipping** (`slides.test.mjs`, on the shared deck's second slide)
 
@@ -141,6 +145,7 @@ The harness asks its questions (`waitFor`, `evaluateAll`, `load`'s `ready`) in a
 **Docs: Ask Agent's words and line** (`docs.test.mjs`, the first case of the "Ask Agent as a comment on an agent chip" group, Chrome only)
 
 - With `wait` running, `@` → Ask Agent at the end of "The ferry leaves at nine." puts the agent chip in, and "Say when the last ferry leaves" plus Enter posts the `@Agent` thread on it. The request in `_agent/done` has `userText` "Say when the last ferry leaves", its `text` starts with those words and then "(The person wrote this in the comment thread on "@Agent" …", and its `selectionSnapshot` is `{kind: 'line', label: 'The ferry leaves at nine.', count: 1, items: [{id: <the line's block>, kind: 'block'}], text: …}`: the line without the chip, and no `where` in a one-tab doc.
+- An Ask is a comment, so it takes what a comment takes (4,096 bytes of UTF-8, `@Agent ` included): 1,364 CJK characters at "Bikes ride free." are refused with "That comment is too long.", the draft stays in the prompt, and no chip or thread is added. Before, the words were cut to 4,000 characters without a word.
 
 **Docs: wide tables** (`docs.test.mjs`, two cases in the "wide tables and folded sections" group, Chrome only)
 
@@ -302,6 +307,10 @@ The harness asks its questions (`waitFor`, `evaluateAll`, `load`'s `ready`) in a
 - Whiteboard: an element is dragged with the real mouse and a note is added from the canvas menu ("Add a note here"). The save state is never `unsaved`, and the store on disk changes.
 - Whiteboard through a Shell older than `db.listing` (one left open while the daemon was upgraded): a script added before the Shell's own refuses every `db.listing` call from the page as `invalid` ("unknown method"), as the 0.14.2 broker did. The board still shows (the page asked for `listing` and fell back to `list`), a dragged element reaches the store on disk, and the save state settles.
 - The type servers' logs (`<home>/logs/servers/`) hold no error, no refused request and no 4xx or 5xx.
+
+**Whiteboard: an Ask over the limit** (`whiteboard.test.mjs`, one case, Chrome only, with `wait` running)
+
+- "Ask …" in the toolbar opens the Ask panel. 2,667 CJK characters (8,001 bytes of UTF-8, the Shell's `MAX_ASK_BYTES` and one more) sent with Enter are not sent: the page says "That’s too long to send.", the panel stays open with the draft, and nothing is queued. Before, the panel took 20,000 characters, cut longer ones without a word, and closed with the draft gone before the send's answer came.
 
 **The whiteboard in a narrow pane** (`whiteboard.test.mjs`, one case, Chrome only)
 

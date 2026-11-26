@@ -12,7 +12,7 @@
  */
 
 import { create } from 'zustand';
-import { agentResultMessage } from '@open-artifact/editor-kit';
+import { ASK_TOO_LONG, agentResultMessage, askTooLong } from '@open-artifact/editor-kit';
 import { toast } from '@open-artifact/ui';
 import type { AgentSendResult, CommentThread, JsonRecord, JsonValue } from '@open-artifact/runtime';
 import { boardPointTarget, createClaimKey, elementsWithinBox, type Box } from '@open-artifact/whiteboard-core';
@@ -24,7 +24,6 @@ import { currentMeasures } from '../state/measures.ts';
 import {
   ASK_FADE_MS,
   ASK_LINGER_MS,
-  MAX_ASK_TEXT,
   MAX_SHARED_ASK_TEXT,
   SHARED_ASK_REBROADCAST_MS,
   askStatusAfterClaims,
@@ -188,11 +187,16 @@ export interface AskInput {
  * Sends a request to the agent: the person's words, what it is about, any
  * attached files and the view context (with the request's claim key).
  * Resolves with the host's answer, or `undefined` when there was nothing
- * to send.
+ * to send. Words over the Ask limit are refused (a `failed` result, with
+ * {@link ASK_TOO_LONG} said), never cut.
  */
 export async function askAgent(input: AskInput): Promise<AgentSendResult | undefined> {
-  const text = [...input.text.trim()].slice(0, MAX_ASK_TEXT).join('');
+  const text = input.text.trim();
   if (text === '') return undefined;
+  if (askTooLong(text)) {
+    toast.add({ title: ASK_TOO_LONG });
+    return { status: 'failed', reason: ASK_TOO_LONG };
+  }
   const key = createClaimKey();
   const activity = askActivity(text);
   const ask: LocalAsk = { key, text, target: input.target, via: input.via, status: 'sending', at: Date.now(), ...(activity ? { activity } : {}) };

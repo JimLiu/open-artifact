@@ -1,7 +1,7 @@
 import { translateMessage } from '../i18n/messages.ts';
 import { chartMessages, type ChartChangeRefusal } from '../messages/charts.ts';
-import type { StockKind } from './stock-programs.ts';
-import { cleanAskWords } from '../agent/chat-with-agent.ts';
+import { STOCK_KINDS, type StockKind } from './stock-programs.ts';
+import { cleanAskWords, MAX_ASK_WORDS_LENGTH } from '../agent/ask-words.ts';
 /** A kind of chart asked for, or 'any' when the agent is to pick it. */
 export type ChartKindOrAny = StockKind | 'any';
 /** Why no chart was made or changed. */
@@ -273,6 +273,15 @@ export const chartRefusalText = (why: WhyNoChart): string =>
     })
   )[why]();
 export const MAX_CHART_TITLE_CHARS = 60;
+/** What a row of a kind asks with: the page's "Make this a … chart." before the words typed, if any. */
+export const askWordsOfKind = (kind: ChartKindOrAny, words: string) =>
+  kind === 'any' ? words : [makeThisChartKindPrompt(kind), words.trim()].join(' ').trim();
+/**
+ * The most UTF-16 units of an ask that the page hands on when it writes a chart's code with the agent: all the words an
+ * Ask field may hold, and room for the kind's sentence put before them, so words within the Ask limit are never cut.
+ */
+export const mostAskedUnitsWithKind = () =>
+  MAX_ASK_WORDS_LENGTH + 1 + Math.max(...STOCK_KINDS.map((kind) => makeThisChartKindPrompt(kind).length));
 export const newChartTitle = (chartKind: ChartKindOrAny, prompt: string): string =>
   chartKind !== 'any'
     ? chartKindName(chartKind)

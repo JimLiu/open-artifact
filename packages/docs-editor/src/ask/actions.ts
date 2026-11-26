@@ -5,7 +5,7 @@ import type { EditorView } from 'prosemirror-view';
 import { docClient } from '../app/doc-client.ts';
 import { getDocs, setDocs } from '../app/store.ts';
 import { blockIdAt, idsOfRange } from '../comments/anchor-map.ts';
-import { createThread } from '../comments/actions.ts';
+import { askRefusedAsTooLong, createThread } from '../comments/actions.ts';
 import { type Composer, agentName, canAskAgent, canComment } from '../comments/store.ts';
 import { currentView, useEditor } from '../editor/format.ts';
 import { suggestingNow } from '../suggest/mode.ts';
@@ -90,6 +90,8 @@ export async function sendAsk(entry: AskEntry): Promise<void> {
   const view = currentView();
   const tab = useEditor.getState().tab;
   if (!text || !view || !tab || getAsk().sending || !canAskInText()) return;
+  // Its comment is over the comment limit: said, and the draft stays; no chip goes in.
+  if (askRefusedAsTooLong(text)) return;
   setAsk({ sending: entry });
   const outcome = await askOnChip<Placed>({ put: () => putChip(view, tab, entry), post: placed => postOn(placed, text), take: takeChip }).finally(() =>
     setAsk({ sending: null }),

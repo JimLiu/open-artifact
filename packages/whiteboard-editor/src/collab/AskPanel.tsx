@@ -13,6 +13,7 @@
 
 import { ArrowUp, FileText, Frame, LayoutGrid, MousePointer2, X } from 'lucide-react';
 import { useEffect, useRef, useState, type ClipboardEvent as ReactClipboardEvent, type DragEvent as ReactDragEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { ASK_TOO_LONG, askTooLong } from '@open-artifact/editor-kit';
 import { cn, toast } from '@open-artifact/ui';
 import { isBoardMediaFile } from '../lib/media.ts';
 import { middleCut } from '../lib/middle-cut.ts';
@@ -24,7 +25,6 @@ import { useSelection } from '../state/selection.ts';
 import { Card, ChromeButton, Tip } from '../ui/chrome.tsx';
 import { useFocusThroughDisable } from '../ui/hooks.ts';
 import { askAgent, type AskTarget } from './asks.ts';
-import { MAX_ASK_TEXT } from './ask-status.ts';
 import {
   attachedFilesContext,
   clipboardTextIsFileNames,
@@ -99,12 +99,19 @@ export function offerFilesToAsk(files: readonly File[]): void {
   });
 }
 
-/** Sends the panel's request with the attached files; a request that fails gives them back. */
-async function sendWithFiles(text: string, target: AskTarget, via: 'panel' | 'area'): Promise<void> {
+/**
+ * Sends the panel's request with the attached files. A request that fails gives them back, and its words: the panel
+ * opens again on the same scope with them as the draft, unless the person has started another one.
+ */
+async function sendWithFiles(text: string, scope: AskScope, via: 'panel' | 'area'): Promise<void> {
   const files = takeAttachedFiles();
-  const result = await askAgent({ text, target, via, ...(files.length > 0 ? { files: attachedFilesContext(files) } : {}) });
-  if (files.length === 0 || (result !== undefined && result.status !== 'failed')) return;
+  const result = await askAgent({ text, target: scopeTarget(scope), via, ...(files.length > 0 ? { files: attachedFilesContext(files) } : {}) });
+  if (result !== undefined && result.status !== 'failed') return;
   for (const message of giveBackAttachedFiles(files)) toast.add({ title: message });
+  const ask = useAsk.getState();
+  if (ask.draft.trim() !== '') return;
+  ask.setDraft(text);
+  if (!ask.open) ask.show(scope);
 }
 
 /** True when a drag carries files. */
@@ -182,8 +189,13 @@ export function AskPanel() {
   const send = (): void => {
     const text = useAsk.getState().draft.trim();
     if (text === '' || !available) return;
+    // Over the limit: said, and the panel stays open with the draft.
+    if (askTooLong(text)) {
+      toast.add({ title: ASK_TOO_LONG });
+      return;
+    }
     const current = useAsk.getState().scope;
-    void sendWithFiles(text, scopeTarget(current), current.kind === 'area' ? 'area' : 'panel');
+    void sendWithFiles(text, current, current.kind === 'area' ? 'area' : 'panel');
     useAsk.getState().setDraft('');
     useAsk.getState().hide();
   };
@@ -252,7 +264,6 @@ export function AskPanel() {
             ref={field}
             rows={2}
             value={draft}
-            maxLength={MAX_ASK_TEXT}
             disabled={!available}
             placeholder={available ? `Ask ${name} to add, change or explain something` : 'No agent is connected to this board.'}
             aria-label={`Request for ${name}`}

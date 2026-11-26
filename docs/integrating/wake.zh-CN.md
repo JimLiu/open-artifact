@@ -14,7 +14,7 @@
 | `request` | **Ask** 和其他页面请求（导出到某个目的地、修改请求） | `[Artifact edit request sent to agent]` |
 | `task` | 类型的一个后台操作完成了 | `[Artifact task finished]` |
 
-Shell 的 **Ask** 面板会去掉消息首尾的空白，按 UTF-8 最多接受 8,000 个字节（`MAX_ASK_BYTES`，和 claude.ai 的 Ask 框一样；中文约 2,600 字）。消息超长时，草稿会留在面板里供用户编辑。直接向 `artifacts.ask` 发送超长消息时，接口会在投递前返回 HTTP 413（`too_large`）。不超限的消息不会被截断，`comment_summon` 的 8,000 字符文本字段也放得下。
+Shell 的 **Ask** 面板会去掉消息首尾的空白，按 UTF-8 最多接受 8,000 个字节（`MAX_ASK_BYTES`，和 claude.ai 的 Ask 框一样；中文约 2,600 字）。消息超长时，草稿会留在面板里供用户编辑。直接向 `artifacts.ask` 发送超长消息时，接口会在投递前返回 HTTP 413（`too_large`）。不超限的消息不会被截断，`comment_summon` 的 8,000 字符文本字段也放得下。编辑器自己的 Ask 输入框（Slides、Design、Design System、Whiteboard、Sheets、Data）同样按 8,000 个字节计、同样拒发超长请求；Docs 的 Ask Agent 发的是评论，按评论的 4,096 个字节计。
 
 同一个作品 1.5 秒内到达的消息合并成一次唤醒。一个作品每分钟最多发 20 次；超过时页面会收到 `rate_limited`。
 
@@ -72,7 +72,7 @@ Artifact root: <folder>. View it: <view url>.
 - Shell 的 Ask 面板有 `userText`，没有快照。
 - 只有 `source.from.kind` 是 `owner` 时，才把 `userText` 当作用户的话显示。合并后的唤醒只要有一部分来自协作者，就是 `collaborator`，其中的 `userText` 和其余内容一样只是数据。
 - `text` 里的网页链接会被换成 `[link]`，`userText` 保留原样，所以你显示的和 Agent 读到的不完全一样。
-- 如果请求的 `text` 在上限（8000 个字符）处被截断、而用户的字还没结束，就没有 `userText`。
+- 页面请求的 `text` 最多 24,000 个字符（类型服务器的 `MAX_REQUEST_TEXT`），装得下用户的字和页面附在后面的内容。在这个上限处被截断、而用户的字还没结束的请求，没有 `userText`。
 - 页面通过类型的评论库发给 Agent 的评论（Docs、Whiteboard、Sheets、Data）也是一条请求，它的 `text` 说明要去读哪个线程、在线程里回复。Docs 发的（Ask Agent，或勾选 Send to agent 的评论、回复）带 `userText`：用户打的字，不含页面加在前面的 `@Agent`，这时 `text` 以这些字开头。新建的线程还带快照，说明评论落在哪里：`line`（Ask Agent 芯片所在的那一行）、`text`、`block`、`cell` 或 `cells`；文档有多个标签页时加 `where: Tab "…"`。回复不带快照。只有线程最新一条消息是发送者本人写的、而且就是这些字时，type server 才保留 `userText`。其他类型的评论暂时都不带。
 - 宿主插件只能看到 Ask 面板的请求（`id`、`text`、`sentAt`、`label`），看不到这两个字段。
 

@@ -273,6 +273,31 @@ describe('whiteboard', { skip: skipFor('whiteboard') }, () => {
     } finally { await p.close(); }
   });
 
+  it('refuses an Ask over 8000 UTF-8 bytes: the panel stays open with the draft and nothing is queued', { skip: noBrowser, timeout: 60000 }, async () => {
+    const waiting = await run.start(['wait', root, '--timeout', '30'], { firstLine: false });
+    const p = await browser.load(url, { ready });
+    try {
+      assert.ok(await until(() => fs.existsSync(path.join(root, '_agent', 'waiting')), 10000), 'wait wrote no heartbeat');
+      await clickOn(p, `[...document.querySelectorAll('button')].find(b => /^Ask /.test(b.textContent.trim()))`, 'the Ask button');
+      const field = `document.querySelector('textarea[aria-label^="Request for"]')`;
+      assert.ok(await p.waitFor(`${field} && !${field}.disabled`, 15000), 'the Ask panel did not open for a waiting agent');
+      await p.evaluate(`${field}.focus()`);
+      // 2,667 CJK characters are 8,001 bytes, far under the 20,000 characters the panel took before.
+      const wide = '蓝'.repeat(2667);
+      await p.cdp('Input.insertText', { text: wide });
+      await p.press('Enter');
+      assert.ok(await p.waitFor("document.body.innerText.includes('That’s too long to send.')", 10000), 'the page does not say the Ask is too long');
+      assert.equal(await p.evaluate(`${field}?.value`), wide, 'the panel stays open with the draft');
+      const inbox = path.join(root, '_agent', 'inbox');
+      assert.ok(!fs.existsSync(inbox) || fs.readdirSync(inbox).length === 0, 'nothing was queued');
+      assert.deepEqual(p.problems, []);
+    } finally {
+      await p.close();
+      waiting.child?.kill('SIGTERM');
+      await waiting.exited;
+    }
+  });
+
   it('plays and pauses an imported video from the canvas', { skip: noBrowser }, async () => {
     const p = await browser.load(url, { ready });
     try {

@@ -8,6 +8,8 @@ import type { RuleDescription } from '../../messages/conditional-format.ts';
 import type { ConditionalFormatsOfPane, ConditionalFormatsView } from '../../view/page-view.ts';
 import type { RulesPaneAction, ShownRulesWithEach, ShownSuggestion } from './pane-state.ts';
 import * as React from 'react';
+import { askTooLong } from '@open-artifact/editor-kit';
+import { MAX_ASK_WORDS_LENGTH, tooLongNoteOf } from '../../agent/ask-words.ts';
 import {
   wordsOfRuleEntry,
   joinWithCommas,
@@ -159,6 +161,14 @@ export function ConditionalAskCard({ pane, onAct, onAskedInChat }: ConditionalAs
   let restTimerRef = React.useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   React.useEffect(() => () => clearTimeout(restTimerRef.current), []);
   let readAtOnceWords = readAtOnce === null ? null : wordsOfRuleEntry(readAtOnce.toSay);
+  // Words over the Ask limit are not sent: the field keeps them, and says so until they are changed.
+  let [refusedTyped, setRefusedTyped] = React.useState<string | null>(null);
+  let tooLongNote = tooLongNoteOf(typed, refusedTyped);
+  let isRefusedAsTooLong = () => {
+    if (!askTooLong(typed)) return false;
+    setRefusedTyped(typed);
+    return true;
+  };
   let hasFailedForTyped = pane.agent === 'hasFailed' && askedWords === typed;
   let isForChat =
     readAtOnce === null &&
@@ -171,7 +181,7 @@ export function ConditionalAskCard({ pane, onAct, onAskedInChat }: ConditionalAs
   let [rowsAtOpen] = React.useState(() => askListRowsAtOpen(suggestionsShown.length, pane.moreFromAgent === 'isLookedFor'));
   let cardRef = React.useRef<HTMLDivElement>(null);
   let [extraHeight, setExtraHeight] = React.useState(0);
-  let isAnswerShown = hasFailedForTyped || pane.offer !== null || (readAtOnceWords !== null && joinMessageParts(readAtOnceWords.what));
+  let isAnswerShown = tooLongNote !== null || hasFailedForTyped || pane.offer !== null || (readAtOnceWords !== null && joinMessageParts(readAtOnceWords.what));
   React.useLayoutEffect(() => {
     let listbox = cardRef.current?.querySelector('[role="listbox"]') ?? null;
     if (isAnswerShown === false || listbox === null) return;
@@ -297,6 +307,7 @@ export function ConditionalAskCard({ pane, onAct, onAskedInChat }: ConditionalAs
     },
   ];
   let askAgent = () => {
+    if (isRefusedAsTooLong()) return;
     setAskedWords(typed);
     setHasAsked(true);
     onAct({
@@ -305,16 +316,20 @@ export function ConditionalAskCard({ pane, onAct, onAskedInChat }: ConditionalAs
       canChatTakeIt: onAskedInChat !== null,
     });
   };
-  let askInChat = () => void onAskedInChat?.(typed);
+  let askInChat = () => {
+    if (!isRefusedAsTooLong()) void onAskedInChat?.(typed);
+  };
   let stepBack = () =>
     onAct({
       kind: 'stepBack',
     });
-  let askList = <AskOrPickList nameOfField={CONDITIONAL_FORMATTING_WORDS.askAgentToMakeARule()} nameOfList={CONDITIONAL_FORMATTING_WORDS.waysToAddARule()} placeholder={CONDITIONAL_FORMATTING_WORDS.askAgentToMakeARule()} text={typed} stands={stands} hasAnswer={hasOffer} isAgentAtWork={stands === 'whileAgentWrites' || isLookingForMore} said={askListStatusWords(pane, {
+  let askList = <AskOrPickList nameOfField={CONDITIONAL_FORMATTING_WORDS.askAgentToMakeARule()} nameOfList={CONDITIONAL_FORMATTING_WORDS.waysToAddARule()} placeholder={CONDITIONAL_FORMATTING_WORDS.askAgentToMakeARule()} text={typed} mostCharacters={MAX_ASK_WORDS_LENGTH} stands={stands} hasAnswer={hasOffer} isAgentAtWork={stands === 'whileAgentWrites' || isLookingForMore} said={tooLongNote ?? askListStatusWords(pane, {
       hasFailed: hasFailedForTyped,
       isForChat,
       countOfAgents: isTyped ? 0 : suggestionsShown.filter(({ isFromAgent }) => isFromAgent).length,
-    })} note={hasFailedForTyped
+    })} note={tooLongNote !== null
+      ? <div className="px-md py-1 text-footnote text-danger">{tooLongNote}</div>
+      : hasFailedForTyped
       ? (<div className="px-md py-1 text-footnote text-secondary">{isForChat
             ? <GoToChatInstead {...chatInsteadForRules()} onTaken={askInChat} />
             : CONDITIONAL_FORMATTING_WORDS.rulesNotWritten()}</div>)
@@ -361,6 +376,7 @@ export function ConditionalAskCard({ pane, onAct, onAskedInChat }: ConditionalAs
       let action = askListRowAction(rowId, pane.suggestions);
       if (action === 'ask') return askAgent();
       if (action === 'takeRead') {
+        if (isRefusedAsTooLong()) return;
         setAskedWords(typed);
         setHasAsked(true);
         return onAct({

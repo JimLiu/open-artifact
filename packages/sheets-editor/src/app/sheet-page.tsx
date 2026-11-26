@@ -164,7 +164,7 @@ import { useLingeringRows } from '../ui/lingering-rows.ts';
 import { IS_IOS_BROWSER } from '../grid/cell-drawing-values.ts';
 import { useLineKeys } from '../grid/line-keys.ts';
 import { NO_WORDS_OF_LOAD } from '../shell/load-announcer.ts';
-import { NO_CHAT_WITH_AGENT, MAX_ASK_WORDS_LENGTH, cleanAskWords } from '../agent/chat-with-agent.ts';
+import { NO_CHAT_WITH_AGENT, cleanAskWords } from '../agent/chat-with-agent.ts';
 import { NO_CHART_MAKER, insertChartWrittenByAgent } from '../charts/new-charts.ts';
 import { NO_AGENT_AI_COMMENTS } from '../comments/agent-ai-comments.ts';
 import { noMouseAroundComments } from '../comments/mouse-around.ts';
@@ -181,7 +181,6 @@ import {
   getPlacedViewRect,
   isInPlacedViewCardOrTools,
   placementIdAttributes,
-  askWordsOfKind,
   howCaretComesToPlacedView,
   PlacedViewsLayer,
 } from '../charts/placed-views-layer.tsx';
@@ -506,6 +505,8 @@ import {
   CHART_MESSAGES,
   chartRefusalText,
   insertChartKindLabel,
+  askWordsOfKind,
+  mostAskedUnitsWithKind,
 } from '../charts/chart-words.ts';
 import { CHART_END_WORDS, chartEndWordOfAgent, countChartAsk, chartAskKindWord } from '../agent/changes-by-agent.ts';
 import { isSingleCellSample } from '../charts/cells-held.ts';
@@ -7549,7 +7550,7 @@ export function SheetsPage({
         },
         {
           asked: chartKind === 'any' && words === '' ? null : askWordsOfKind(chartKind, words),
-          mostUnitsOfAsked: MAX_ASK_WORDS_LENGTH,
+          mostUnitsOfAsked: mostAskedUnitsWithKind(),
         },
       ).catch(() => (chartWritingGivenUpNthRef.current >= nth ? 'stopped' : 'notChanged'));
       if (chartMakingNthRef.current !== nth) return ['stopped', 'agent'];

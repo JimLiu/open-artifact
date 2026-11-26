@@ -103,6 +103,24 @@ export function draftedText(agentName?: string | null, zh = chinese()): { sent: 
     : { sent: `It is in the ${name || 'agent'} conversation now: send it there.`, via: 'in the conversation, for you to send', label: 'In the conversation, for you to send' };
 }
 
+/**
+ * Longest Ask a person can send from an editor, in UTF-8 bytes of the trimmed words: what the Shell's Ask and
+ * claude.ai's take (`MAX_ASK_BYTES` of `@open-artifact/protocol`). Longer words are refused when sent, with
+ * {@link ASK_TOO_LONG} and the draft kept, never cut. What the editor adds after them (the selection, the slide) does
+ * not count: the type server keeps room for it.
+ */
+export const ASK_TEXT_BYTES = 8000;
+
+/** What an editor says when an Ask is over {@link ASK_TEXT_BYTES} (as the Shell's Ask says it). */
+export const ASK_TOO_LONG = 'That’s too long to send.';
+
+const utf8 = new TextEncoder();
+
+/** Whether the person's words are over {@link ASK_TEXT_BYTES} once trimmed. */
+export function askTooLong(words: string): boolean {
+  return utf8.encode(words.trim()).length > ASK_TEXT_BYTES;
+}
+
 /** A failed send result for an error thrown while sending. */
 export function sendFailure(error: unknown): AgentSendResult {
   return { status: 'failed', reason: error instanceof Error ? error.message : String(error) };

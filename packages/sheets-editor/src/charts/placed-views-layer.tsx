@@ -48,15 +48,16 @@ import {
   type ChartChange,
   type KeyInAskBox,
 } from './ask-to-change-chart.ts';
+import { askTooLong } from '@open-artifact/editor-kit';
 import { cleanAskWords, MAX_ASK_WORDS_LENGTH } from '../agent/chat-with-agent.ts';
 import { cycleTabFocusForward } from '../ui/dom-events.ts';
 import { ChartAskMenu } from './chart-ask-menu.tsx';
 import { LiveAnnouncer } from '../ui/live-announcer.tsx';
 import { ChartBeingMade } from './chart-being-made.tsx';
 import { useIsTrueForVisibleMs } from '../ui/save-status.tsx';
-import { makeThisChartKindPrompt, type ChartKindOrAny } from './chart-words.ts';
+import { askWordsOfKind, mostAskedUnitsWithKind, type ChartKindOrAny } from './chart-words.ts';
 import { canSwapChartKind } from './chart-kind-fit.ts';
-import { STOCK_KINDS, type StockKind } from './stock-programs.ts';
+import type { StockKind } from './stock-programs.ts';
 import type { SheetId } from '@open-artifact/sheets-core';
 import type { ChartInputs, PointAt } from '../chart-frame/messages.ts';
 import type { PaneRect } from '../grid/geometry.ts';
@@ -246,7 +247,7 @@ export function ChartDrawing({
 export function typeIntoAskBox(key: string, isCharacter: boolean, words: string): Pick<ChartAsk, 'words'> | 'shut' | 'nothing' {
   if (isCharacter)
     return {
-      words: `${words}${key}`.slice(0, mostAskWordsTyped()),
+      words: `${words}${key}`.slice(0, MAX_ASK_WORDS_LENGTH),
     };
   let lastSegment = [...new Intl.Segmenter().segment(words)].at(-1);
   if (key === 'Backspace')
@@ -560,7 +561,7 @@ export function PlacedView({
   let isChatToBeHad = doesChatTakeWords || onAskAgent !== null;
   let onAsked = (kind: ChartKindOrAny, words: string) => {
     let askWords = askWordsOfKind(kind, words);
-    if (cleanAskWords(askWords) === '') return;
+    if (cleanAskWords(askWords) === '' || askTooLong(words)) return;
     let isKindSwap =
       kind !== 'any' && cleanAskWords(words) === '' && chart.kind !== 'none' && canSwapChartKind(chart.inputs, kind);
     let canChangeHere = canAskChange && (isKindSwap || canAgentWrite);
@@ -598,7 +599,7 @@ export function PlacedView({
             inputs: chart.inputs,
           },
           askWords,
-          MAX_ASK_WORDS_LENGTH,
+          mostAskedUnitsWithKind(),
           kind !== 'any' && cleanAskWords(words) === '' ? kind : null,
         )
         .then(
@@ -747,7 +748,7 @@ export function PlacedView({
             }} onFocus={noteCardFocus} onBlur={({ relatedTarget, currentTarget }) => {
               if (relatedTarget === null || currentTarget.contains(relatedTarget)) return;
               if (!isInPlacedViewCardOrTools(relatedTarget)) onCardOpenChange(placementId, false);
-            }}><Surface elevation="popover"><div className="overflow-hidden rounded-[inherit]"><ChartAskMenu changesChart onOffer={changeOffers} whyNot={ask.isOnItsWay ? 'waiting' : !canAgentWrite && !isChatToBeHad ? 'noChat' : null} canPageMakeChart={changeOffers.some(({ isSwap }) => isSwap)} change={chartChangeStage(change)} askedOfAgent={ask.asked ?? ''} isKindAsked={ask.wasAskedByRow === true} onChangeKept={onChangeKept} onSteppedBackFromChange={() => onSteppedBackFromChange(viewId)} noteOnLastAsk={ask.became === 'taken' ? null : noteOnLastAsk} mostTyped={mostAskWordsTyped()} typed={ask.words} onTyped={(words) =>
+            }}><Surface elevation="popover"><div className="overflow-hidden rounded-[inherit]"><ChartAskMenu changesChart onOffer={changeOffers} whyNot={ask.isOnItsWay ? 'waiting' : !canAgentWrite && !isChatToBeHad ? 'noChat' : null} canPageMakeChart={changeOffers.some(({ isSwap }) => isSwap)} change={chartChangeStage(change)} askedOfAgent={ask.asked ?? ''} isKindAsked={ask.wasAskedByRow === true} onChangeKept={onChangeKept} onSteppedBackFromChange={() => onSteppedBackFromChange(viewId)} noteOnLastAsk={ask.became === 'taken' ? null : noteOnLastAsk} typed={ask.words} onTyped={(words) =>
                     onAskChanged(
                       viewId,
                       () => ({
@@ -1275,12 +1276,6 @@ export const editButtonAct = (press: PressOfEditButton) => {
   if (!press.isCardOffered) return 'attachesChart';
   return press.isWindowLeft ? 'nothing' : 'opensCard';
 };
-export const mostAskWordsTyped = () =>
-  MAX_ASK_WORDS_LENGTH -
-  1 -
-  Math.max(...STOCK_KINDS.map((kind) => makeThisChartKindPrompt(kind).length));
-export const askWordsOfKind = (kind: ChartKindOrAny, words: string) =>
-  kind === 'any' ? words : [makeThisChartKindPrompt(kind), words.trim()].join(' ').trim();
 export const MOST_CHARTS_RUN = 12;
 export const KEPT_CHANGE_SHOWN_MS = 3000;
 export const NO_PLACES_TOLD_OF: ReadonlySet<string> = new Set<string>();

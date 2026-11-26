@@ -6,14 +6,14 @@
  */
 
 import { create } from 'zustand';
-import { agentResultMessage, sendFailure } from '@open-artifact/editor-kit';
+import { ASK_TOO_LONG, agentResultMessage, askTooLong, sendFailure } from '@open-artifact/editor-kit';
 import type { AgentSendResult } from '@open-artifact/runtime';
 import { toast } from '@open-artifact/ui';
 import type { RequestSelection } from '../drafts/request.ts';
 import type { ElementSelection } from '../page/selection.ts';
 import { useAgentActivity } from '../platform/agent-activity.ts';
 import { maybeSession } from '../services/session.ts';
-import { ASK_SENT, NOT_LISTENING, buildAskRequest, buildCopiedPrompt, buildSelectionPrompt, toRequestSelection, type SelectionContext } from './prompt.ts';
+import { ASK_SENT, NOT_LISTENING, buildAskRequest, sendFailedText, buildCopiedPrompt, buildSelectionPrompt, toRequestSelection, type SelectionContext } from './prompt.ts';
 
 export interface AskBoxRequest {
   /** A new box each time one opens (a box already open gives way to it). */
@@ -80,17 +80,21 @@ export function askAboutElement(selection: ElementSelection, context: SelectionC
 
 export type AskSendOutcome = { sent: true } | { sent: false; error: string };
 
-/** Sends the box's request. Delivered: the box closes and the page says so; failed: the box stays with the error. */
+/**
+ * Sends the box's request. Delivered: the box closes and the page says so; refused (words over the Ask limit) or
+ * failed: the box stays, with the words and what went wrong.
+ */
 export async function sendAsk(words: string, selection: RequestSelection): Promise<AskSendOutcome> {
   const agent = maybeSession()?.agent ?? null;
   if (agent === null || !isListening()) return { sent: false, error: NOT_LISTENING };
+  if (askTooLong(words)) return { sent: false, error: ASK_TOO_LONG };
   let result: AgentSendResult;
   try {
     result = await agent.send(buildAskRequest(words, selection), { deliver: 'send' });
   } catch (error) {
     result = sendFailure(error);
   }
-  if (result.status === 'failed') return { sent: false, error: NOT_LISTENING };
+  if (result.status === 'failed') return { sent: false, error: sendFailedText(result.reason) };
   closeAskBox();
   if (result.status === 'delivered' && !result.drafted) toast.add({ title: ASK_SENT });
   else {

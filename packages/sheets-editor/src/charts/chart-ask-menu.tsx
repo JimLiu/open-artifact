@@ -2,7 +2,8 @@ import { AgentMark } from '../kit/agent-mark.tsx';
 import { Icon, type IconName } from '../kit/icon.tsx';
 import { Shortcut } from '../kit/shortcut.tsx';
 import * as React from 'react';
-import { MAX_ASK_WORDS_LENGTH, cleanAskWords } from '../agent/chat-with-agent.ts';
+import { askTooLong } from '@open-artifact/editor-kit';
+import { MAX_ASK_WORDS_LENGTH, cleanAskWords, tooLongNoteOf } from '../agent/ask-words.ts';
 import type { ChartChangeStage } from './ask-to-change-chart.ts';
 import { ChartThumbnail } from './chart-thumbnail.tsx';
 import type { ChartSketch } from './chart-thumbnail-paths.ts';
@@ -220,7 +221,10 @@ export function ChartAskMenu({
     onSteppedBackFromChange?.();
   };
   let isNoAgentNote = whyNot === 'noChat' && !showsOnlyKinds;
-  let note = isNoAgentNote ? CHART_MESSAGES.noAgent() : noteOnLastAsk;
+  // Words over the Ask limit are not sent: the field keeps them, and says so until they are changed.
+  let [refusedTyped, setRefusedTyped] = React.useState<string | null>(null);
+  let tooLongNote = tooLongNoteOf(typedText, refusedTyped);
+  let note = isNoAgentNote ? CHART_MESSAGES.noAgent() : (tooLongNote ?? noteOnLastAsk);
   let measureNote = (noteElement: HTMLDivElement | null) => {
     if (noteElement !== null && noteElement.offsetHeight > 0)
       setNoteHeight((tallest) => Math.max(tallest ?? 0, noteElement.offsetHeight));
@@ -251,15 +255,17 @@ export function ChartAskMenu({
     if (rowId === KEEP_CHANGE_ROW) return onChangeKept?.();
     if (rowId === DISCARD_CHANGE_ROW) return onSteppedBackFromChange?.();
     let kind = chartKindOfRow(rowId);
-    if (kind !== null && (kind === 'any' ? canAskAgent : canTakeKind)) onAsked(kind, typedText);
+    if (kind === null || !(kind === 'any' ? canAskAgent : canTakeKind)) return;
+    if (askTooLong(typedText)) return setRefusedTyped(typedText);
+    onAsked(kind, typedText);
   };
   return <AskOrPickList nameOfField={fieldName} nameOfList={changesChart ? chartMessages.editWithAgent() : CHART_MESSAGES.insertChart()} placeholder={fieldName} text={change !== null && typedText === '' ? askedOfAgent : typedText} {...((nextIsFieldLocked || change === 'waits') && {
       idOfWhyFieldIsOutOfUse: noteId,
-    })} isFieldLeftOut={showsOnlyKinds} mostCharacters={mostTyped} stands={change === 'agentWrites' ? 'whileAgentWrites' : 'atRest'} hasAnswer={change === 'waits' || isLastAskNotToBeRepeated} isAgentAtWork={change === 'agentWrites'} said={isNoAgentNote ? note : (changeSaid ?? (changesChart ? null : noteOnLastAsk) ?? stoppedSaid)} note={change === 'waits'
+    })} isFieldLeftOut={showsOnlyKinds} mostCharacters={mostTyped} stands={change === 'agentWrites' ? 'whileAgentWrites' : 'atRest'} hasAnswer={change === 'waits' || isLastAskNotToBeRepeated} isAgentAtWork={change === 'agentWrites'} said={isNoAgentNote ? note : (changeSaid ?? tooLongNote ?? (changesChart ? null : noteOnLastAsk) ?? stoppedSaid)} note={change === 'waits'
         ? <div id={noteId} className="sr-only">{changeSaid}</div>
         : note === null
           ? null
-          : <div ref={measureNote} id={noteId} className={`px-md py-1 text-footnote ${isNoAgentNote || !isNoteOfFault ? 'text-secondary' : 'text-danger'}`}>{note}</div>} sections={change === 'waits' ? keepOrDiscardSections : sections} {...(change === 'agentWrites' && {
+          : <div ref={measureNote} id={noteId} className={`px-md py-1 text-footnote ${isNoAgentNote || (!isNoteOfFault && tooLongNote === null) ? 'text-secondary' : 'text-danger'}`}>{note}</div>} sections={change === 'waits' ? keepOrDiscardSections : sections} {...(change === 'agentWrites' && {
       inPlaceOfList: (<AgentWritingRow words={{
           writes: workingText,
           stop: chartMessages.stopChange(),
