@@ -22,26 +22,30 @@
  *   on each change) to the host's origin; the host may send `goto` with a
  *   place, and `host_hello` again when its theme changes. `host_hello` is
  *   taken only from an origin a connected adapter declared
- *   (`caps.open.origins`, read from `/api/open-artifact.embed` each time);
- *   while no adapter declared any, any parent is taken as before but gets no
+ *   (`caps.open.origins`, read from `/api/open-artifact.embed` each time).
+ *   Until a list has been read, a failed read is still undeclared. After that,
+ *   a failed read is judged by the last list, and a refusal clears a host this
+ *   origin already wrote (`lib/host-hello.ts`, shared with the home page).
+ *   While no adapter declared any, any parent is taken as before but gets no
  *   prompt or comment text, links or saved files (`toHostMessage`). A Shell
  *   opened as a top-level view (`?oa_view=<ticket>`, no parent) speaks the
  *   same protocol through the daemon instead (`view-channel.ts`).
  */
 
 import { copyGivenLink, frameDenied } from './actions.ts';
-import { DOC_FRAGMENT, HOST_PROTOCOL, SLIDE_FRAGMENT } from '@open-artifact/protocol';
+import { DOC_FRAGMENT, HOST_PROTOCOL, SLIDE_FRAGMENT, applyHostTheme } from '@open-artifact/protocol';
 import type { ChromeCommand, ChromeExportItem, ChromeExportState, PageToShell, ShellToHost, ShellToPage } from '@open-artifact/protocol';
 import { CHROME_DRAWS, CHROME_READY_TIMEOUT_MS, isShellMessage } from '@open-artifact/protocol';
 import { toast } from '@open-artifact/ui';
 import { mayComment, roleOf } from '../lib/cloud.ts';
+import { beginHostOriginRead, emptyHostOriginLedger, hostAfterHello, settleHostOriginRead } from '../lib/host-hello.ts';
 import { declaredHosts } from '../lib/host-origins.ts';
 import { t } from '../lib/i18n.ts';
 import { call as brokerCall, setSavedFileListener, want as brokerWant, type PagePost } from './broker.ts';
 import { browserClipboard, createClipboardRelay } from './clipboard.ts';
 import {
-  FRAME_READY_FALLBACK_MS, accentVars, actionOf, exportRequestId, frameDeniedReason,
-  hostOf, hostVerdict, inlineView, normalizeReport, readyOnLoad, sheetPageFragment, showsComments,
+  FRAME_READY_FALLBACK_MS, actionOf, exportRequestId, frameDeniedReason,
+  hostOf, inlineView, normalizeReport, readyOnLoad, sheetPageFragment, showsComments,
   savedMessage, toHostMessage, type ExportEntry, type HostInfo,
 } from './model.ts';
 import { gotoCommand, placeOf } from './place.ts';
@@ -78,6 +82,8 @@ let exportSeq = 0;
 const formatsWaiting = new Map<string, string>();
 /** The page's last reported place, for a host that says hello later or asks for an unknown one. */
 let place: string | null = null;
+/** This page's reads of the declared-host list. The home page keeps its own, with the same rules. */
+let hostOrigins = emptyHostOriginLedger();
 /** Pending reload after `files_changed`, cleared by `files_changed_ok`. */
 let filesTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -272,12 +278,13 @@ export function openExternal(url: string): void {
   window.open(url, '_blank', 'noopener');
 }
 
-/** Follows the host's colour scheme and accent: the Shell's root, and the page through `chrome_hello`. */
+/**
+ * Follows the host's colour scheme and accent: the Shell's root, and the page through `chrome_hello`.
+ * No theme, or an accent that is not `#rrggbb`, removes `data-theme` or the accent properties.
+ * The page's own `color-scheme` is left alone (light and dark both stay available).
+ */
 function applyTheme(host: HostInfo): void {
-  const root = document.documentElement;
-  if (!host.theme) return;
-  root.dataset.theme = host.theme.scheme;
-  for (const [name, value] of Object.entries(accentVars(host.theme.accent ?? null))) root.style.setProperty(name, value);
+  applyHostTheme(document.documentElement, host.theme);
 }
 
 /** A `host_hello` was taken: the Shell answers `shell_ready` and its place. */
@@ -285,7 +292,8 @@ function acceptHost(host: HostInfo): void {
   const store = useShell.getState();
   store.setHost(host);
   applyTheme(host);
-  if (host.theme) sendChromeHello();
+  // A hello with no theme still goes out, so the page drops a scheme and accent it had pinned.
+  sendChromeHello();
   const boot = store.boot;
   if (!boot) return;
   const ready: ShellToHost = { openArtifact: 'shell_ready', artifact: boot.url };
@@ -444,11 +452,23 @@ function onMessage(event: MessageEvent): void {
   }
   if (message.openArtifact !== 'host_hello') return;
   const origin = event.origin;
-  // Only from an origin a connected adapter declared; while none declared any, as before but without texts.
+  // Ordered against other reads (`lib/host-hello.ts`). A late answer cannot accept over a newer one,
+  // and a failed read cannot widen a list already read.
+  const begun = beginHostOriginRead(hostOrigins);
+  hostOrigins = begun.ledger;
   void declaredHosts().then((hosts) => {
-    const verdict = hostVerdict(origin, hosts);
-    if (verdict === 'refused') return;
-    const host = hostOf(message, origin, verdict === 'declared');
+    const settled = settleHostOriginRead(hostOrigins, begun.read, origin, hosts);
+    hostOrigins = settled.ledger;
+    const { decision } = settled;
+    if (decision.action === 'discard') return;
+    if (decision.action === 'refuse') {
+      const current = useShell.getState().host;
+      const next = hostAfterHello(current, origin, decision, () => null);
+      // A host this origin already wrote (a failed read can arrive first) must not stay. Another origin stays.
+      if (next !== current) useShell.setState({ host: next });
+      return;
+    }
+    const host = hostOf(message, origin, decision.verdict === 'declared');
     if (host) acceptHost(host);
   });
 }

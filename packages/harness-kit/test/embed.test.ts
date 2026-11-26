@@ -111,6 +111,10 @@ describe('embedArtifact in a frame', () => {
     view.setTheme({ scheme: 'light' });
     assert.deepEqual(frame.sent.slice(1).map((s) => [s.message.openArtifact, s.origin]), [['goto', SHELL], ['host_hello', SHELL]]);
     assert.deepEqual(frame.sent[2]!.message.theme, { scheme: 'light' });
+    view.setTheme(null);
+    const cleared = frame.sent.at(-1)!;
+    assert.equal(cleared.message.openArtifact, 'host_hello');
+    assert.equal(Object.hasOwn(cleared.message, 'theme'), false, 'setTheme(null) resends host_hello without theme');
 
     view.destroy();
     win.dispatch({ openArtifact: 'close' }, SHELL, frame.contentWindow);
@@ -223,14 +227,17 @@ describe('embedLibrary', () => {
     const win = new FakeWindow();
     const frame = fakeFrame();
     const opened: string[] = [];
-    embedLibrary(frame, { url: `${SHELL}/`, window: win, harness: 'my-app', workspace: '/w/proj', onOpenArtifact: (a) => opened.push(a.id) });
+    const library = embedLibrary(frame, { url: `${SHELL}/`, window: win, harness: 'my-app', workspace: '/w/proj', theme: { scheme: 'dark', accent: '#112233' }, onOpenArtifact: (a) => opened.push(a.id) });
     win.dispatch({ openArtifact: 'home_hello' }, 'https://evil.example', frame.contentWindow);
     assert.equal(frame.sent.length, 0);
     win.dispatch({ openArtifact: 'home_hello' }, SHELL, frame.contentWindow);
     assert.deepEqual(frame.sent[0], {
       origin: SHELL,
-      message: { openArtifact: 'host_hello', caps: { artifacts: true }, protocol: HOST_PROTOCOL, harness: 'my-app', library: { harness: 'my-app', workspace: '/w/proj' } },
+      message: { openArtifact: 'host_hello', caps: { artifacts: true }, protocol: HOST_PROTOCOL, harness: 'my-app', theme: { scheme: 'dark', accent: '#112233' }, library: { harness: 'my-app', workspace: '/w/proj' } },
     });
+    library.setTheme(null);
+    assert.equal(frame.sent[1]!.message.openArtifact, 'host_hello');
+    assert.equal(Object.hasOwn(frame.sent[1]!.message, 'theme'), false, 'setTheme(null) resends host_hello without theme');
     win.dispatch({ openArtifact: 'open_artifact', url: ART, id: 'art_aaaaaaaaaa', title: 'Deck', type: 'slides' }, SHELL, frame.contentWindow);
     assert.deepEqual(opened, ['art_aaaaaaaaaa']);
   });

@@ -16,6 +16,7 @@ import {
   CHROME_PROTOCOL,
   MAX_CHROME_PEERS,
   SHELL_PARAMS,
+  applyHostTheme,
   type ChromeCommand,
   type ChromeDraw,
   type ChromeExportItem,
@@ -132,15 +133,11 @@ export function connectShell(): ShellConnection | null {
         const said = (data as { draws?: unknown }).draws;
         draws = new Set(Array.isArray(said) ? (said.filter((d) => typeof d === 'string') as ChromeDraw[]) : []);
         writesClipboard = (data as { clipboard?: unknown }).clipboard === true;
-        // The embedding host's colour scheme and accent, when the Shell passes one on: the page follows it.
-        const theme = (data as { theme?: { scheme?: unknown; accent?: unknown } }).theme;
-        if (theme && (theme.scheme === 'light' || theme.scheme === 'dark') && typeof document !== 'undefined') {
-          const root = document.documentElement;
-          root.dataset.theme = theme.scheme;
-          if (typeof theme.accent === 'string' && /^#[0-9a-f]{6}$/i.test(theme.accent)) {
-            root.style.setProperty('--open-artifact-accent', theme.accent);
-            root.style.setProperty('--open-artifact-accent-soft', `${theme.accent}1f`);
-          }
+        // Missing `theme` or `scheme` clears a pin. A bad or missing accent clears the three properties.
+        // Both light and dark are applied; `color-scheme` is not forced to light (Safari iframes follow this message).
+        if (typeof document !== 'undefined' && document.documentElement) {
+          const theme = (data as { theme?: { scheme?: unknown; accent?: unknown } | null }).theme;
+          applyHostTheme(document.documentElement, theme ?? null);
         }
         for (const handler of helloHandlers) handler(draws);
         sendReport();

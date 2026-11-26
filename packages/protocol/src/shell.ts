@@ -331,7 +331,9 @@ export type ShellToPage =
   /**
    * `draws`: what this Shell draws for the page (absent from older Shells).
    * `clipboard`: the Shell takes `clipboard_write` (absent from older Shells).
-   * `theme`: the embedding host's colour scheme, when it gave one: the page follows it (`data-theme` on its root).
+   * `theme`: the embedding host's colour scheme and accent, when it gave one. The page pins `data-theme` and
+   * `--open-artifact-accent`, `--open-artifact-accent-fg`, `--open-artifact-accent-soft`. Omit `theme` to clear
+   * them. Both `light` and `dark` stay valid; this does not set `color-scheme` to light only.
    */
   | { openArtifact: 'chrome_hello'; draws?: ChromeDraw[]; clipboard?: boolean; theme?: HostTheme }
   | ({ openArtifact: 'chrome_cmd' } & ChromeCommand)
@@ -379,10 +381,13 @@ export const HOST_PROTOCOL = 1;
 /** Most destinations a host offers in `host_hello`. */
 export const MAX_HOST_DESTINATIONS = 8;
 
-/** The host's colour scheme, for the Shell and the page to follow. */
+/**
+ * The host's colour scheme, for the Shell and the page to follow. Omit the field on `host_hello` (and on
+ * `chrome_hello`) to clear a scheme and accent pinned earlier.
+ */
 export interface HostTheme {
   scheme: 'light' | 'dark';
-  /** An accent colour (`#rrggbb`). */
+  /** An accent colour (`#rrggbb`). Anything else clears the accent custom properties instead of leaving them. */
   accent?: string;
 }
 
@@ -430,9 +435,10 @@ export const VIEW_TICKET_PARAM = 'oa_view';
 /** Host → Shell. */
 export type HostToShell =
   /**
-   * The host's answer to `shell_hello` (or `home_hello`); sent again when its theme changes. `harness`: the harness
-   * the host belongs to, whose sessions it can open (the home page reads it). `protocol`: the host protocol version
-   * it speaks. `destinations`: at most {@link MAX_HOST_DESTINATIONS}.
+   * The host's answer to `shell_hello` (or `home_hello`); sent again when its theme changes, including to clear
+   * one by omitting `theme`. `harness`: the harness the host belongs to, whose sessions it can open (the home
+   * page reads it). `protocol`: the host protocol version it speaks. `destinations`: at most
+   * {@link MAX_HOST_DESTINATIONS}.
    */
   | {
       openArtifact: 'host_hello';
@@ -440,6 +446,7 @@ export type HostToShell =
       agentName?: string;
       harness?: string;
       protocol?: number;
+      /** Colour scheme and optional accent. Omit to clear a scheme and accent pinned earlier. */
       theme?: HostTheme;
       destinations?: HostDestination[];
       /** The home page only: list just these artifacts. */

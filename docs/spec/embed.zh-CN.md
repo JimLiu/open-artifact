@@ -17,10 +17,12 @@
 
 | 消息 | 字段 | |
 | --- | --- | --- |
-| `host_hello` | `caps`（`sessions?`、`toolbar?`、`artifacts?`、`switcher?`）、`agentName?`、`harness?`、`protocol?`、`theme?`（`scheme`、`accent?`）、`destinations?`（`id`、`label`；最多 8 个）、`library?`（`harness?`、`workspace?`） | 对 `shell_hello` 或 `home_hello` 的回答；主题变化时再发一次 |
+| `host_hello` | `caps`（`sessions?`、`toolbar?`、`artifacts?`、`switcher?`）、`agentName?`、`harness?`、`protocol?`、`theme?`（`scheme`、`accent?`）、`destinations?`（`id`、`label`；最多 8 个）、`library?`（`harness?`、`workspace?`） | 对 `shell_hello` 或 `home_hello` 的回答；主题变化时再发一次。省略 `theme` 即清除钉死的方案与 accent |
 | `goto` | `hash` | 显示这个位置；Shell 用 `place` 回答 |
 
 `caps.sessions`：你能新建和打开会话。`caps.toolbar`：你画自己的工具栏，所以 Shell 隐藏它的关闭按钮。`caps.switcher`：你的应用自己列出和切换作品，所以 Shell 的标题菜单里没有“Switch artifact”（连同“All artifacts”）。`caps.artifacts`（仅首页）：点击作品发送 `open_artifact`，而不是跳转。`library`（仅首页）：只列出该 harness 的作品（按所属会话的 harness），或该目录的作品：所属会话在这个目录里工作，作品的文件夹在它之下，或者作品是为包含这个目录、或位于这个目录之内的项目创建的（所以放在用户 Open Artifact 文件夹里的作品，仍然列在它的项目下）。
+
+带上 `theme` 时，它是 `scheme`（`light` 或 `dark`）和可选的 `accent`（`#rrggbb`）。Shell 把该方案钉在根上的 `data-theme`，并钉上 accent 变量（`--open-artifact-accent`、`--open-artifact-accent-fg`、`--open-artifact-accent-soft`），再在 `chrome_hello` 里带上同一个 `theme`，页面也照样钉住。省略 `theme` 即清除 Shell 和页面上的这处钉死。页面仍然支持 light 和 dark；清除不会把 `color-scheme` 写成只支持 light。
 
 ## Shell → 宿主
 
@@ -63,8 +65,10 @@ Shell 读取 `GET /api/open-artifact.embed`（`hosts`：已连接适配器在 `c
 | 判定 | 条件 | 效果 |
 | --- | --- | --- |
 | declared（已声明） | 某个已连接适配器声明了这个源，或 Shell 运行在用票据打开的视图里（顶层或框架内） | 全部可用 |
-| refused（拒绝） | 适配器声明了源，但不是这个 | `host_hello` 被忽略 |
-| undeclared（未声明） | 没有适配器声明任何源，或读不到列表 | `prompt` 和 `text` 为空；没有 `open_external`、`saved_file` 和目的地 |
+| refused（拒绝） | 当前生效的名单里有别的源，没有这个 | `host_hello` 不被接受。这个源已经装上的宿主会被清掉（首页上，它的资料库过滤也一起去掉） |
+| undeclared（未声明） | 还没有任何一次成功读到的名单：没有适配器声明源，或到目前为止每次读取都失败了 | `prompt` 和 `text` 为空；没有 `open_external`、`saved_file` 和目的地 |
+
+当前生效的名单是上一份成功读到的名单。第一次成功之前的读取失败，仍然是未声明（云端宿主，或类型服务器自己的 Shell，读不到 daemon 的名单）。有过一次成功之后，失败的刷新按那份名单判定：它不会变成未声明，也不会放行被拒绝的源、从而放大信任。更早的回答不能覆盖更新的成功名单。拒绝会清掉这个源已经写下的宿主，包括早先一次失败读取先接受下来的那个。`shell_hello` 仍然发给 `*`。`goto` 仍然只认当前宿主的源。
 
 ## 视图票据
 
@@ -101,11 +105,11 @@ Shell 读取 `GET /api/open-artifact.embed`（`hosts`：已连接适配器在 `c
 | `onError(error)` | 某个回调或缩略图失败 |
 | `window` | 监听的窗口 |
 
-返回 `{ artifact, place, ready, saved, goto(hash), setTheme(theme), url(), destroy() }`。`url()` 是带最后位置、不带票据的 Shell 地址。
+返回 `{ artifact, place, ready, saved, goto(hash), setTheme(theme | null), url(), destroy() }`。`setTheme(null)` 发送不带 `theme` 的 `host_hello`，并清除钉死的方案与 accent。`url()` 是带最后位置、不带票据的 Shell 地址。
 
 ## `embedLibrary(iframe, options)`
 
-选项：`url`、`harness`、`workspace`、`agentName`、`theme`、`onOpenArtifact(artifact)`（设置 `caps.artifacts`）、`onOpenSession({ session, harness })`、`onNewSession({ prompt, artifact })`、`onReady()`、`onError`、`window`。返回 `{ setTheme(theme), destroy() }`。
+选项：`url`、`harness`、`workspace`、`agentName`、`theme`、`onOpenArtifact(artifact)`（设置 `caps.artifacts`）、`onOpenSession({ session, harness })`、`onNewSession({ prompt, artifact })`、`onReady()`、`onError`、`window`。返回 `{ setTheme(theme | null), destroy() }`。`setTheme(null)` 同样清除钉死的方案与 accent。
 
 ## 远程页面
 

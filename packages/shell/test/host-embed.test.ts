@@ -5,7 +5,8 @@
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { MAX_HOST_DESTINATIONS, MAX_HOST_TEXT, type ArtifactView } from '@open-artifact/protocol';
+import { HOST_ACCENT_VARS, MAX_HOST_DESTINATIONS, MAX_HOST_TEXT, accentVars as protocolAccentVars, hostThemePatch, type ArtifactView } from '@open-artifact/protocol';
+import { beginHostOriginRead, emptyHostOriginLedger, hostAfterHello, settleHostOriginRead, type HostHelloDecision, type HostOriginLedger } from '../src/lib/host-hello.ts';
 import { accentVars, destinationRequest, hostOf, hostVerdict, offersSwitch, savedMessage, toHostMessage } from '../src/shell/model.ts';
 import { forHost, homeHostOf } from '../src/home/model.ts';
 
@@ -87,6 +88,141 @@ describe('host handshake', () => {
   it('cuts long texts in messages it reads', () => {
     const host = hostOf(hello({ agentName: 'x'.repeat(MAX_HOST_TEXT) }), 'app://host', true)!;
     assert.ok(host.agentName!.length <= 80);
+  });
+
+  it('re-exports the one accent implementation', () => {
+    assert.equal(accentVars, protocolAccentVars);
+  });
+});
+
+describe('declared-host list races', () => {
+  const evil = 'https://evil.example';
+  const good = 'app://host';
+
+  /** Applies one settled read the way the Shell and the home page do. `library` stands for the home filter. */
+  function step(
+    ledger: HostOriginLedger,
+    origin: string,
+    hosts: readonly string[] | null,
+    host: { origin: string; library?: { harness: string } } | null,
+    read = beginHostOriginRead(ledger),
+  ): { ledger: HostOriginLedger; host: typeof host; decision: HostHelloDecision; accepted: boolean } {
+    const settled = settleHostOriginRead(read.ledger, read.read, origin, hosts);
+    let accepted = false;
+    const next = hostAfterHello(host, origin, settled.decision, () => {
+      accepted = true;
+      return { origin, library: { harness: 'myagent' } };
+    });
+    return { ledger: settled.ledger, host: next, decision: settled.decision, accepted };
+  }
+
+  it('takes a first failed read as undeclared, then a refusal clears that host and its library filter', () => {
+    let ledger = emptyHostOriginLedger();
+    let host: { origin: string; library?: { harness: string } } | null = null;
+    const failed = step(ledger, evil, null, host);
+    ledger = failed.ledger;
+    host = failed.host;
+    assert.deepEqual(failed.decision, { action: 'accept', verdict: 'undeclared' });
+    assert.equal(failed.accepted, true);
+    assert.deepEqual(host?.library, { harness: 'myagent' });
+    assert.equal(ledger.lastGoodHosts, null);
+
+    const refused = step(ledger, evil, [good], host);
+    assert.equal(refused.decision.action, 'refuse');
+    assert.equal(refused.accepted, false, 'a refusal does not acceptHost');
+    assert.equal(refused.host, null, 'the host the failed read wrote is cleared, and its library filter with it');
+    assert.deepEqual(refused.ledger.lastGoodHosts, [good]);
+  });
+
+  it('does not accept a failed read once a refusal is on record', () => {
+    let ledger = emptyHostOriginLedger();
+    const refused = step(ledger, evil, [good], { origin: evil, library: { harness: 'myagent' } });
+    ledger = refused.ledger;
+    assert.equal(refused.host, null, 'the refusal clears the host this origin already wrote');
+    const again = step(ledger, evil, null, refused.host);
+    assert.equal(again.decision.action, 'refuse');
+    assert.equal(again.accepted, false, 'a later failure does not acceptHost');
+    assert.equal(again.host, null);
+    assert.deepEqual(again.ledger.lastGoodHosts, [good], 'the failure does not wipe the list');
+  });
+
+  it('keeps a declared host when a later read fails', () => {
+    let ledger = emptyHostOriginLedger();
+    const declared = step(ledger, good, [good], null);
+    ledger = declared.ledger;
+    assert.deepEqual(declared.decision, { action: 'accept', verdict: 'declared' });
+    const failed = step(ledger, good, null, declared.host);
+    assert.deepEqual(failed.decision, { action: 'accept', verdict: 'declared' });
+    assert.equal(failed.accepted, true);
+    assert.equal(failed.host?.origin, good);
+    assert.deepEqual(failed.ledger.lastGoodHosts, [good]);
+  });
+
+  it('drops an older successful read that arrives after a newer one', () => {
+    let ledger = emptyHostOriginLedger();
+    const first = beginHostOriginRead(ledger);
+    ledger = first.ledger;
+    const second = beginHostOriginRead(ledger);
+    ledger = second.ledger;
+    const newer = settleHostOriginRead(ledger, second.read, 'https://new.example', ['https://new.example']);
+    ledger = newer.ledger;
+    assert.deepEqual(newer.decision, { action: 'accept', verdict: 'declared' });
+    const older = settleHostOriginRead(ledger, first.read, 'https://new.example', ['https://old.example']);
+    assert.equal(older.decision.action, 'discard');
+    assert.deepEqual(older.ledger.lastGoodHosts, ['https://new.example']);
+    const host = hostAfterHello({ origin: 'https://new.example' }, 'https://new.example', older.decision, () => {
+      throw new Error('acceptHost');
+    });
+    assert.equal(host?.origin, 'https://new.example');
+  });
+
+  it('still applies an older success when a newer read failed and accepted first', () => {
+    let ledger = emptyHostOriginLedger();
+    const first = beginHostOriginRead(ledger);
+    ledger = first.ledger;
+    const second = beginHostOriginRead(ledger);
+    ledger = second.ledger;
+    const failed = settleHostOriginRead(ledger, second.read, evil, null);
+    ledger = failed.ledger;
+    assert.deepEqual(failed.decision, { action: 'accept', verdict: 'undeclared' });
+    let host = hostAfterHello(null, evil, failed.decision, () => ({ origin: evil }));
+    const late = settleHostOriginRead(ledger, first.read, evil, [good]);
+    assert.equal(late.decision.action, 'refuse');
+    assert.deepEqual(late.ledger.lastGoodHosts, [good]);
+    host = hostAfterHello(host, evil, late.decision, () => {
+      throw new Error('acceptHost');
+    });
+    assert.equal(host, null);
+  });
+
+  it('a refusal does not clear a different origin', () => {
+    const current = { origin: good };
+    const next = hostAfterHello(current, evil, { action: 'refuse' }, () => {
+      throw new Error('acceptHost');
+    });
+    assert.equal(next, current);
+  });
+});
+
+describe('host theme clear list', () => {
+  it('names the three accent properties when the theme or the accent is missing', () => {
+    assert.deepEqual([...HOST_ACCENT_VARS], ['--open-artifact-accent', '--open-artifact-accent-fg', '--open-artifact-accent-soft']);
+    const cleared = hostThemePatch(null);
+    assert.equal(cleared.scheme, null);
+    assert.deepEqual(cleared.set, {});
+    assert.deepEqual(cleared.remove, [...HOST_ACCENT_VARS]);
+    const missing = hostThemePatch({ scheme: 'dark' });
+    assert.equal(missing.scheme, 'dark');
+    assert.deepEqual(missing.set, {}, 'a missing accent is not an empty object the caller may ignore');
+    assert.deepEqual(missing.remove, [...HOST_ACCENT_VARS]);
+    const invalid = hostThemePatch({ scheme: 'light', accent: 'red' });
+    assert.deepEqual(invalid.remove, [...HOST_ACCENT_VARS]);
+    assert.equal(hostThemePatch({ accent: '#112233' }).scheme, null, 'a missing scheme clears the pin');
+    assert.equal(hostThemePatch({ scheme: 'light' }).scheme, 'light');
+    assert.equal(hostThemePatch({ scheme: 'dark' }).scheme, 'dark');
+    const painted = hostThemePatch({ scheme: 'dark', accent: '#FFEE00' });
+    assert.deepEqual(painted.remove, []);
+    assert.deepEqual(painted.set, accentVars('#FFEE00'));
   });
 });
 

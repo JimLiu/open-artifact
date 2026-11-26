@@ -10,6 +10,7 @@
  * - `link.ts`: the Link API between a daemon and a cloud host (`/api/open-artifact.link.*`).
  * - `archive-paths.ts`: which paths of an artifact folder an export zip and a Link sync carry.
  * - `shell.ts`: the Shell's chrome and host `postMessage` protocols.
+ * - `host-theme.ts`: a host accent's custom properties, and clearing them when `theme` is omitted.
  * - `tools.ts`: the agent tools' schemas.
  * - `prompt.ts`: the agent's system prompt.
  * - `skill.ts`: the `/open-artifact` skill as a template (`SKILL.md` is its default rendering).
@@ -35,6 +36,7 @@ export * from './wake.ts';
 export * from './link.ts';
 export * from './archive-paths.ts';
 export * from './shell.ts';
+export * from './host-theme.ts';
 export * from './tools.ts';
 export * from './prompt.ts';
 export * from './skill.ts';

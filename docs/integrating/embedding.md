@@ -68,8 +68,10 @@ origins connected adapters declared (`GET /api/open-artifact.embed`, field `host
 | Verdict | When | The host gets |
 | --- | --- | --- |
 | declared | a connected adapter declared its origin | everything below |
-| refused | adapters declared other origins | nothing: its `host_hello` is ignored |
-| undeclared | no adapter declared any origin, or the list could not be read | sessions and places, but `new_session` with an empty `prompt`, `comment_summon` with empty `text`, no `open_external`, no `saved_file`, no destinations |
+| refused | the list that applies declared other origins | nothing: its `host_hello` is not taken, and a host this origin already installed is cleared |
+| undeclared | no list has been read successfully yet (no adapter declared an origin, or every read so far failed). A site's Shell never reads one, so it stays undeclared ([Limits](limits.md)) | sessions and places, but `new_session` with an empty `prompt`, `comment_summon` with empty `text`, no `open_external`, no `saved_file`, no destinations |
+
+After a list has been read, a failed refresh is judged by that last successful list. It does not become undeclared, and it does not widen trust. A refusal clears a host that origin already wrote.
 
 An origin is `scheme://host[:port]`. A page loaded from `file://` has the origin `null` and **cannot be declared**: serve
 your UI from a custom scheme (`app://my-agent`), or use views (`mode: 'view'`) and frame the ticketed `embedUrl` (see
@@ -147,7 +149,13 @@ Text fields are cut to 8000 characters. [Embed reference](../spec/embed.md) has 
 ## Theme and destinations
 
 `theme: { scheme: 'light' | 'dark', accent: '#rrggbb' }` makes the Shell and the page follow your app. Call
-`setTheme(theme)` when it changes; the kit sends `host_hello` again.
+`setTheme(theme)` when it changes; the kit sends `host_hello` again. `setTheme(null)` sends `host_hello` again
+without `theme`, which clears the pinned scheme and accent on the Shell and the page.
+
+| Call | What is sent |
+| --- | --- |
+| `setTheme(theme)` | `host_hello` with `theme` |
+| `setTheme(null)` | `host_hello` with `theme` omitted, which clears the pinned scheme and accent |
 
 `destinations: [{ id, label }]` (at most 8) adds places to the Export tab ("Save to project files"). Picking one sends
 the agent a page request that names the destination. Only a declared host's destinations are shown.
@@ -199,7 +207,7 @@ The Electron example (`examples/harness-electron/src/pane.mjs`) follows each ite
 - [ ] Allow `blob:` and `about:srcdoc` subframes; grant no permission but clipboard writes, and only to allowed origins.
 - [ ] Open new windows and navigations outside the list in the system browser; the view never navigates away.
 - [ ] Hide views instead of destroying them; send the kept place back with `goto`.
-- [ ] Send `host_hello` again on a theme change.
+- [ ] Send `host_hello` again on a theme change, and call `setTheme(null)` to clear a pinned one.
 - [ ] Never make a page loaded from `file://` a frame host; it may frame a view's ticketed `embedUrl`.
 
 ## Not yet

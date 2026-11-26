@@ -7,6 +7,7 @@
 
 import { isShellMessage, type HomeToHost, type HostCaps, type HostLibraryFilter } from '@open-artifact/protocol';
 import { HOME_BOOT_GLOBAL, homeBootOf, type HomeBootRead } from '../lib/cloud.ts';
+import { beginHostOriginRead, emptyHostOriginLedger, hostAfterHello, settleHostOriginRead } from '../lib/host-hello.ts';
 import { declaredHosts } from '../lib/host-origins.ts';
 import { homeHostOf } from './model.ts';
 import { useHome } from './store.ts';
@@ -32,6 +33,8 @@ export interface HomeHost {
 }
 
 const embedded = window.parent !== window;
+/** This page's reads of the declared-host list. The Shell keeps its own, with the same rules. */
+let hostOrigins = emptyHostOriginLedger();
 
 /** Sends a message to the host's origin. Does nothing without a host. */
 export function toHost(message: HomeToHost): void {
@@ -43,11 +46,22 @@ function onMessage(event: MessageEvent): void {
   const message: unknown = event.data;
   if (!embedded || event.source !== window.parent || !isShellMessage(message) || message.openArtifact !== 'host_hello') return;
   const origin = event.origin;
-  // As the Shell: only an origin a connected adapter declared, while any did.
+  // Same rules as the Shell (`lib/host-hello.ts`): one sequence, and a failed read does not widen a list already read.
+  const begun = beginHostOriginRead(hostOrigins);
+  hostOrigins = begun.ledger;
   void declaredHosts().then((hosts) => {
-    const declared = !!hosts?.length && hosts.includes(origin);
-    if (hosts?.length && !declared) return;
-    const host = homeHostOf(message, origin, declared);
+    const settled = settleHostOriginRead(hostOrigins, begun.read, origin, hosts);
+    hostOrigins = settled.ledger;
+    const { decision } = settled;
+    if (decision.action === 'discard') return;
+    if (decision.action === 'refuse') {
+      const current = useHome.getState().host;
+      const next = hostAfterHello(current, origin, decision, () => null);
+      // Clearing the host drops its `library` filter, which is what that hello had applied.
+      if (next !== current) useHome.setState({ host: next });
+      return;
+    }
+    const host = homeHostOf(message, origin, decision.verdict === 'declared');
     if (!host) return;
     useHome.getState().setHost(host);
     window.parent.postMessage({ openArtifact: 'home_ready' } satisfies HomeToHost, origin);

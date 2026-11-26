@@ -20,7 +20,7 @@ fields are cut to 8000 characters (`MAX_HOST_TEXT`).
 
 | Message | Fields | |
 | --- | --- | --- |
-| `host_hello` | `caps` (`sessions?`, `toolbar?`, `artifacts?`, `switcher?`), `agentName?`, `harness?`, `protocol?`, `theme?` (`scheme`, `accent?`), `destinations?` (`id`, `label`; at most 8), `library?` (`harness?`, `workspace?`) | the answer to `shell_hello` or `home_hello`; send it again when the theme changes |
+| `host_hello` | `caps` (`sessions?`, `toolbar?`, `artifacts?`, `switcher?`), `agentName?`, `harness?`, `protocol?`, `theme?` (`scheme`, `accent?`), `destinations?` (`id`, `label`; at most 8), `library?` (`harness?`, `workspace?`) | the answer to `shell_hello` or `home_hello`; send it again when the theme changes. Omit `theme` to clear a pinned scheme and accent |
 | `goto` | `hash` | show this place; the Shell answers with `place` |
 
 `caps.sessions`: you can start and open sessions. `caps.toolbar`: you draw your own toolbar, so the Shell hides its
@@ -29,6 +29,12 @@ close button. `caps.switcher`: your app lists and switches artifacts itself, so 
 `library` (home page only): list only that harness's artifacts (by the owner session's harness), or that folder's: the
 owner session works in it, the artifact's folder is under it, or the artifact was made for a project the folder is in
 or holds (so an artifact kept in the person's Open Artifact folder is still listed for its project).
+
+`theme`, when present, is `scheme` (`light` or `dark`) and an optional `accent` (`#rrggbb`). The Shell pins that
+scheme (`data-theme` on the root) and the accent properties (`--open-artifact-accent`, `--open-artifact-accent-fg`,
+`--open-artifact-accent-soft`), and passes the same `theme` on `chrome_hello` so the page pins them too. Omit `theme`
+to clear that pin on the Shell and the page. The page still supports light and dark; clearing does not force
+`color-scheme: light`.
 
 ## Shell → host
 
@@ -83,8 +89,15 @@ The Shell reads `GET /api/open-artifact.embed` (`hosts`: the origins connected a
 | Verdict | When | Effect |
 | --- | --- | --- |
 | declared | a connected adapter declared the origin, or the Shell runs in a view opened with a ticket (top-level or framed) | everything |
-| refused | adapters declared origins, but not this one | `host_hello` is ignored |
-| undeclared | no adapter declared any origin, or the list could not be read | empty `prompt` and `text`; no `open_external`, `saved_file` or destinations |
+| refused | the list that applies names other origins, not this one | `host_hello` is not taken. A host this origin already installed is cleared (on the home page, its library filter goes too) |
+| undeclared | no list has been read successfully yet: no adapter declared an origin, or every read so far failed | empty `prompt` and `text`; no `open_external`, `saved_file` or destinations |
+
+The list that applies is the last one read successfully. A failed read before that first success is still undeclared
+(a cloud host, or a type server's own Shell, cannot read the daemon's list). After a success, a failed refresh is
+judged by that list: it does not become undeclared, and it does not widen trust by letting a refused origin through.
+An older answer does not override a newer successful list. A refusal clears a host the same origin already wrote,
+including one an earlier failed read had accepted. `shell_hello` is still sent to `*`. `goto` is still taken only
+from the current host's origin.
 
 ## View tickets
 
@@ -121,14 +134,15 @@ A ticket ends with its adapter connection.
 | `onError(error)` | a callback or a thumbnail failed |
 | `window` | the window to listen on |
 
-Returns `{ artifact, place, ready, saved, goto(hash), setTheme(theme), url(), destroy() }`. `url()` is the Shell's address with
-the last place and without a ticket.
+Returns `{ artifact, place, ready, saved, goto(hash), setTheme(theme | null), url(), destroy() }`. `setTheme(null)` sends
+`host_hello` without `theme` and clears the pinned scheme and accent. `url()` is the Shell's address with the last
+place and without a ticket.
 
 ## `embedLibrary(iframe, options)`
 
 Options: `url`, `harness`, `workspace`, `agentName`, `theme`, `onOpenArtifact(artifact)` (sets `caps.artifacts`),
 `onOpenSession({ session, harness })`, `onNewSession({ prompt, artifact })`, `onReady()`, `onError`, `window`. Returns
-`{ setTheme(theme), destroy() }`.
+`{ setTheme(theme | null), destroy() }`. `setTheme(null)` clears the pinned scheme and accent the same way.
 
 ## Remote pages
 

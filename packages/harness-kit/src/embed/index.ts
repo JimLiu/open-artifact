@@ -153,8 +153,11 @@ export interface EmbeddedArtifact {
   readonly ready: Promise<EmbedReadyInfo>;
   /** Shows a place (a fragment from `onPlace`, or a link's own). */
   goto(hash: string): void;
-  /** Follows a new colour scheme or accent (sends `host_hello` again). */
-  setTheme(theme: HostTheme): void;
+  /**
+   * Follows a new colour scheme or accent (sends `host_hello` again).
+   * `null` omits `theme`, which clears a scheme and accent the Shell and the page had pinned.
+   */
+  setTheme(theme: HostTheme | null): void;
   /** The Shell's address with the place last reported (without a view ticket), or `null` when unknown. */
   url(): string | null;
   /** Stops listening (and leaves the iframe as it is). */
@@ -210,7 +213,7 @@ export function embedArtifact(target: EmbedFrame | EmbedTransport, options: Embe
   if (frame && !shellOrigin) throw new Error('embedArtifact: the Shell address (options.url or the iframe src) is not an http(s) address.');
   if (frame && !win) throw new Error('embedArtifact: no window to listen on.');
 
-  let theme = options.theme;
+  let theme: HostTheme | null | undefined = options.theme;
   let info: EmbedReadyInfo | null = null;
   let place: string | null = null;
   let saved: EmbedSavedState | null = null;
@@ -253,6 +256,7 @@ export function embedArtifact(target: EmbedFrame | EmbedTransport, options: Embe
       protocol: HOST_PROTOCOL,
       ...(options.agentName ? { agentName: options.agentName } : {}),
       ...(options.harness ? { harness: options.harness } : {}),
+      // `null` clears: the field is omitted, and the Shell drops the pinned scheme and accent.
       ...(theme ? { theme } : {}),
       ...(options.destinations?.length ? { destinations: options.destinations.slice(0, MAX_HOST_DESTINATIONS).map((d) => ({ id: d.id, label: d.label })) } : {}),
     };
@@ -402,8 +406,11 @@ export interface EmbedLibraryOptions {
 
 /** The embedded home page. */
 export interface EmbeddedLibrary {
-  /** Follows a new colour scheme or accent. */
-  setTheme(theme: HostTheme): void;
+  /**
+   * Follows a new colour scheme or accent (sends `host_hello` again).
+   * `null` omits `theme`, which clears a scheme and accent the home page had pinned.
+   */
+  setTheme(theme: HostTheme | null): void;
   destroy(): void;
 }
 
@@ -416,7 +423,7 @@ export function embedLibrary(iframe: EmbedFrame, options: EmbedLibraryOptions = 
   if (options.url && iframe.src !== options.url) iframe.src = options.url;
   const origin = originOf(options.url ?? iframe.src);
   if (!origin) throw new Error('embedLibrary: the home page address (options.url or the iframe src) is not an http(s) address.');
-  let theme = options.theme;
+  let theme: HostTheme | null | undefined = options.theme;
   let helloed = false;
   let stopped = false;
 
@@ -433,6 +440,7 @@ export function embedLibrary(iframe: EmbedFrame, options: EmbedLibraryOptions = 
       protocol: HOST_PROTOCOL,
       ...(options.harness ? { harness: options.harness } : {}),
       ...(options.agentName ? { agentName: options.agentName } : {}),
+      // `null` clears: the field is omitted, and the home page drops the pinned scheme and accent.
       ...(theme ? { theme } : {}),
       ...(library.harness || library.workspace ? { library } : {}),
     };

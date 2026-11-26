@@ -1,6 +1,7 @@
 /**
  * The host origins connected adapters declared (`caps.open.origins`), from the daemon's `GET /api/open-artifact.embed`:
  * the Shell and the home page take `host_hello` only from these while there are any.
+ * A failed read is `null`. Remembering the last success, and ignoring a late answer, is `host-hello.ts`.
  */
 
 import { LIBRARY_ROUTES } from '@open-artifact/protocol';

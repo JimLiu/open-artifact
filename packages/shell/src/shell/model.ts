@@ -82,13 +82,10 @@ export interface HostInfo {
 }
 
 /**
- * Whether a `host_hello` from `origin` is taken: `declared` when a connected adapter declared the origin, `refused`
- * when adapters declared others, `undeclared` when none declared any (or the list could not be read: `null`).
+ * Whether a `host_hello` from `origin` is taken. Implemented in `lib/host-hello.ts`, which also remembers
+ * the last list that was read: a later failure must not be passed here as `null` once that list exists.
  */
-export function hostVerdict(origin: string, hosts: readonly string[] | null): 'declared' | 'undeclared' | 'refused' {
-  if (!hosts || !hosts.length) return 'undeclared';
-  return hosts.includes(origin) ? 'declared' : 'refused';
-}
+export { hostVerdict } from '../lib/host-hello.ts';
 
 /** The host a `host_hello` makes, reduced to its fields; `null` for anything else. */
 export function hostOf(message: unknown, origin: string, declared: boolean, via: HostInfo['via'] = 'frame'): HostInfo | null {
@@ -146,20 +143,10 @@ export function destinationRequest(destination: HostDestination, artifactTitle: 
 }
 
 /**
- * The CSS variables a host's accent sets (`--open-artifact-accent`, its text colour and soft tint); none for no accent
- * or one that is not `#rrggbb`.
+ * The CSS variables a host's accent sets. The page runtime uses this same function
+ * (`@open-artifact/protocol`'s `host-theme.ts`); a missing accent removes those names.
  */
-export function accentVars(accent: string | null): Record<string, string> {
-  if (!accent || !/^#[0-9a-f]{6}$/i.test(accent)) return {};
-  const [r, g, b] = [1, 3, 5].map((i) => parseInt(accent.slice(i, i + 2), 16) / 255);
-  const lin = (c: number): number => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
-  const luminance = 0.2126 * lin(r!) + 0.7152 * lin(g!) + 0.0722 * lin(b!);
-  return {
-    '--open-artifact-accent': accent.toLowerCase(),
-    '--open-artifact-accent-fg': luminance > 0.4 ? '#0b1220' : '#ffffff',
-    '--open-artifact-accent-soft': `${accent.toLowerCase()}1f`,
-  };
-}
+export { accentVars } from '@open-artifact/protocol';
 
 /** A goto or host_hello for the Shell; the parsed form of a host's message. */
 export type HostMessage = HostToShell;

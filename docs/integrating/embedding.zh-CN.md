@@ -56,8 +56,10 @@ kit 用 `host_hello` 回答 Shell 的 `shell_hello`，只发给 Shell 的源，�
 | 判定 | 条件 | 宿主得到 |
 | --- | --- | --- |
 | declared（已声明） | 某个已连接适配器声明了它的源 | 下面列的全部 |
-| refused（拒绝） | 适配器声明了别的源 | 什么都没有：它的 `host_hello` 被忽略 |
-| undeclared（未声明） | 没有适配器声明任何源，或读不到列表 | 会话和位置，但 `new_session` 的 `prompt` 为空，`comment_summon` 的 `text` 为空，没有 `open_external`、没有 `saved_file`、没有目的地 |
+| refused（拒绝） | 当前生效的名单声明了别的源 | 什么都没有：它的 `host_hello` 不被接受，这个源已经装上的宿主会被清掉 |
+| undeclared（未声明） | 还没有任何一次成功读到的名单（没有适配器声明源，或到目前为止每次读取都失败了）。站点上的 Shell 始终读不到名单，所以一直是未声明（[已知限制](limits.zh-CN.md)） | 会话和位置，但 `new_session` 的 `prompt` 为空，`comment_summon` 的 `text` 为空，没有 `open_external`、没有 `saved_file`、没有目的地 |
+
+有过一次成功读到的名单之后，失败的刷新按那份名单判定。它不会变成未声明，也不会放大信任。拒绝会清掉这个源已经写下的宿主。
 
 源的形式是 `scheme://host[:port]`。从 `file://` 加载的页面源是 `null`，**无法声明**：请用自定义协议（`app://my-agent`）提供界面，或改用视图（`mode: 'view'`），在框架里加载带票据的 `embedUrl`（见下文）。
 
@@ -116,7 +118,12 @@ Shell 发来的是人做的事。提示是人对 Agent 说的话，绝不是给�
 
 ## 主题和目的地
 
-`theme: { scheme: 'light' | 'dark', accent: '#rrggbb' }` 让 Shell 和页面跟随你的应用。主题变化时调用 `setTheme(theme)`；kit 会再发一次 `host_hello`。
+`theme: { scheme: 'light' | 'dark', accent: '#rrggbb' }` 让 Shell 和页面跟随你的应用。主题变化时调用 `setTheme(theme)`；kit 会再发一次 `host_hello`。`setTheme(null)` 会再发一次不带 `theme` 的 `host_hello`，清除 Shell 和页面上钉死的方案与 accent。
+
+| 调用 | 发出的内容 |
+| --- | --- |
+| `setTheme(theme)` | 带 `theme` 的 `host_hello` |
+| `setTheme(null)` | 省略 `theme` 的 `host_hello`，即清除钉死的方案与 accent |
 
 `destinations: [{ id, label }]`（最多 8 个）在导出页签里增加去处（“保存到项目文件”）。选中一个会给 Agent 发一个写明该目的地的页面请求。只有已声明宿主的目的地会显示。
 
@@ -155,7 +162,7 @@ Electron 示例（`examples/harness-electron/src/pane.mjs`）逐条照做了；�
 - [ ] 允许 `blob:` 和 `about:srcdoc` 子框架；除剪贴板写入外不授予任何权限，且只授予允许的源。
 - [ ] 新窗口和列表外的导航在系统浏览器里打开；视图本身永远不跳走。
 - [ ] 隐藏视图而不是销毁；用 `goto` 发回保存的位置。
-- [ ] 主题变化时再发一次 `host_hello`。
+- [ ] 主题变化时再发一次 `host_hello`；用 `setTheme(null)` 清除钉死的主题。
 - [ ] 绝不把从 `file://` 加载的页面当作框架宿主；它可以在框架里加载视图带票据的 `embedUrl`。
 
 ## 尚未支持
