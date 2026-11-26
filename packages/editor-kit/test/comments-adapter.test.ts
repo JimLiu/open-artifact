@@ -7,7 +7,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { CommentsCapability, CommentThread } from '@open-artifact/runtime';
-import { createComments, type CommentsAdapter } from '../src/index.ts';
+import { COMMENT_TEXT_BYTES, COMMENT_TOO_LONG, commentTextBytes, createComments, type CommentsAdapter } from '../src/index.ts';
 
 const thread = (id: string, anchor: string): CommentThread =>
   ({
@@ -70,6 +70,28 @@ describe('comments adapter hooks', () => {
     await comments.start(fake.capability);
     assert.equal(await comments.create('A', '   '), false);
     assert.equal(fake.calls.length, 0);
+  });
+
+  it('refuses a comment over the UTF-8 byte limit by default, with the draft kept and nothing cut', async () => {
+    const told: string[] = [];
+    const comments = createComments(adapter({ notify: (message) => void told.push(message.title) }));
+    const fake = fakeCapability([]);
+    await comments.start(fake.capability);
+    comments.store.getState().setDraftText('draft');
+    // Exactly COMMENT_TEXT_BYTES: the emoji is 4 bytes and 2 UTF-16 units.
+    const fits = 'Make it blue 🟦'.padStart(COMMENT_TEXT_BYTES - 2, 'x');
+    assert.equal(commentTextBytes(fits), COMMENT_TEXT_BYTES);
+    // 1,366 CJK characters are 4,098 bytes, though far under 4,096 UTF-16 units.
+    const wide = '蓝'.repeat(Math.ceil((COMMENT_TEXT_BYTES + 1) / 3));
+    for (const text of [`${fits}!`, wide]) {
+      assert.equal(await comments.create('A', text), false);
+      assert.equal(await comments.reply('t', text), false);
+    }
+    assert.deepEqual(told, Array(4).fill(COMMENT_TOO_LONG));
+    assert.equal(fake.calls.length, 0);
+    assert.equal(comments.store.getState().draftText, 'draft');
+    assert.equal(await comments.create('A', ` ${fits}\n`), true);
+    assert.deepEqual(fake.calls, [`create A - ${fits}`]);
   });
 
   it('deletes only for those the adapter allows', async () => {

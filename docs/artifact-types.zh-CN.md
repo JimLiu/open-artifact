@@ -54,6 +54,8 @@ Open Artifact 内部有三种存储模式，外加自由页面，了解它们就
 
 所有类型共用 `<root>/_blobs/`（通过 `upload` 写入的内容寻址附件）、`<root>/comments.json` 和 `<root>/history/`。
 
+在页面里写的评论或回复，按 UTF-8 最多 4,096 个字节（`COMMENT_TEXT_BYTES`，和 claude.ai 的评论框一样；中文约 1,300 字）。输入和粘贴到 4,096 个字符就停；按字节算超长的评论不会发出，页面提示 “That comment is too long.”，草稿保留。文档（docs）的评论按字符计，框下有计数。
+
 ## 跨类型协同工作流
 
 - **Design System → Design / Slides / Data / Motion**：一次建好品牌设计系统（`design-system`），之后做界面设计、演示文稿、数据看板或宣传动画时，只要告诉 Agent“用我们的 XX 设计系统”，Agent 就会自动安装它的 tokens、字体和（针对 Design 的）实时组件包，编辑器里的配色与字体选择器也会同步展示品牌规范。

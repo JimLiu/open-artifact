@@ -7,6 +7,7 @@
  */
 import { useContext, useLayoutEffect, useRef, type KeyboardEvent, type MouseEvent, type Ref } from 'react';
 import { Badge, Button, cn, mergeRefs, panelClass, panelVars, PlainEditor, useCdsRoot } from './cds.tsx';
+import { COMMENT_TEXT_BYTES } from '../comments.ts';
 import { ReplyFieldContext, SendBox, type SendBoxSpec } from './comment-card.tsx';
 
 /** The footer shown. */
@@ -164,6 +165,7 @@ export function CommentComposer({
           onKeyDown={onKeyDown}
           placeholder={tagged ? undefined : placeholder}
           aria-label={label}
+          maxLength={COMMENT_TEXT_BYTES}
           readOnly={busy}
           aria-disabled={busy || undefined}
           className={cn(

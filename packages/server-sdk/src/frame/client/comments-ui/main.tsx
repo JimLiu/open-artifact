@@ -21,7 +21,7 @@
 import './styles.css';
 import { StrictMode, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { createRoot } from 'react-dom/client';
-import { createComments, type CommentsController, type PinPlace } from '@open-artifact/editor-kit';
+import { COMMENT_TEXT_BYTES, COMMENT_TOO_LONG, commentTextBytes, createComments, type CommentsController, type PinPlace } from '@open-artifact/editor-kit';
 import { AllComments, CommentPins, CommentPopover, CommentsButton, CommentsLayer, ThreadCard, type AgentBadge } from '@open-artifact/editor-kit/react';
 import type { CommentsCapability, CommentThread } from '@open-artifact/runtime';
 
@@ -228,6 +228,11 @@ export function mount(host: HTMLElement, bridge: FrameCommentsBridge, options: F
       if (!options?.send || !base.canSendToAgent()) return base.create(anchor, text, options);
       const body = text.trim();
       if (!body) return false;
+      // The controller's own check, which this path goes around: refused past the limit, the draft kept.
+      if (commentTextBytes(body) > COMMENT_TEXT_BYTES) {
+        bridge.toast(COMMENT_TOO_LONG);
+        return false;
+      }
       const point = placed.composer ?? draftAt;
       try {
         const out = (await bridge.sendToAgent({ anchor: anchor.value, text: body, label: anchor.label, ...(anchor.detail ? { detail: anchor.detail } : {}) })) as {

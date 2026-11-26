@@ -98,6 +98,33 @@ async function shellExport(page, label) {
   await clickOn(page, row, label);
 }
 
+/**
+ * The comment box stops at 4,096 characters (its maxLength), and a comment over 4,096 bytes of UTF-8 that fits it is
+ * not sent: the page says so and keeps the draft, as claude.ai's comment boxes do. Leaves the box empty.
+ */
+async function refuseLongComment(shell, root) {
+  // The comment layer is in a frame of the Shell: read the focused box in whichever frame has it.
+  const value = async () => (await shell.evaluateAll("document.activeElement?.shadowRoot?.activeElement?.value")).find(v => typeof v === 'string');
+  const clear = async () => {
+    await shell.press('a', { meta: true, commands: ['selectAll'] });
+    await shell.press('Backspace');
+    assert.equal(await value(), '');
+  };
+  await shell.cdp('Input.insertText', { text: 'x'.repeat(4097) });
+  assert.equal((await value())?.length, 4096, 'the comment box stops at its maxLength');
+  await clear();
+  // 1,366 CJK characters are 4,098 bytes, though under the maxLength: refused, the draft kept, nothing saved.
+  const wide = '蓝'.repeat(1366);
+  await shell.cdp('Input.insertText', { text: wide });
+  await shell.press('Enter');
+  const told = "[...document.querySelectorAll('[data-toast], [role=status], [role=alert], .toast')].some(el => el.textContent.includes('That comment is too long.'))";
+  assert.ok(await shell.waitFor(told, 10000), 'the page says the comment is too long');
+  assert.equal(await value(), wide, 'the draft stays in the box');
+  const file = path.join(root, 'comments.json');
+  assert.ok(!fs.existsSync(file) || !fs.readFileSync(file, 'utf8').includes(wide), 'the long comment is not saved');
+  await clear();
+}
+
 async function postShellComment(shell, root) {
   assert.ok(await shell.waitFor("document.querySelector('[data-comments-button]')"));
   await clickOn(shell, buttonNamed('Comments'));
@@ -108,6 +135,7 @@ async function postShellComment(shell, root) {
   })()`);
   await shell.click(...point);
   assert.ok(await shell.waitFor("document.activeElement?.shadowRoot?.activeElement?.matches('textarea')"));
+  await refuseLongComment(shell, root);
   await shell.type('Frame shell review');
   await shell.press('Enter');
   const file = path.join(root, 'comments.json');

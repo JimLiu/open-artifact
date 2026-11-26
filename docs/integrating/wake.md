@@ -15,8 +15,10 @@ Three things on a page reach the agent:
 | `request` | **Ask** and other page requests (an export to a destination, an edit request) | `[Artifact edit request sent to agent]` |
 | `task` | a background action of the type that finished | `[Artifact task finished]` |
 
-The Shell’s **Ask** pane accepts up to 8,000 UTF-16 code units after trimming surrounding whitespace. A longer draft
-stays in the pane for editing. Sending it directly to `artifacts.ask` returns HTTP 413 (`too_large`) before delivery.
+The Shell’s **Ask** pane accepts up to 8,000 bytes of UTF-8 after trimming surrounding whitespace (`MAX_ASK_BYTES`,
+the limit claude.ai’s Ask box uses; about 2,600 Chinese characters). A longer draft stays in the pane for editing.
+Sending it directly to `artifacts.ask` returns HTTP 413 (`too_large`) before delivery. A message within the limit is
+never cut: it also fits the 8,000-character text field of `comment_summon`.
 
 Messages for one artifact that arrive within 1.5 seconds go out as one wake. An artifact may send at most 20 per minute;
 past that the page is answered `rate_limited`.

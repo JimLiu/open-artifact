@@ -36,7 +36,7 @@ import { createServer as createNetServer } from 'node:net';
 import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { api, createHarness, readDaemon } from '@open-artifact/harness-kit';
-import { MAX_HOST_TEXT } from '@open-artifact/protocol';
+import { MAX_ASK_BYTES, utf8Bytes } from '@open-artifact/protocol';
 import { ScriptedAgent } from '../examples/harness-node/agent.mjs';
 import { callerOf, connectHarness } from '../examples/harness-node/harness.mjs';
 import { registerTools } from '../examples/harness-node/tools.mjs';
@@ -416,7 +416,9 @@ describe('harness compatibility: the reference host against a real daemon', () =
     const page = await ctx.browser.load(ctx.hostPage(ctx.originA), { ready: "window.got && window.got.some(m => m.data && m.data.openArtifact === 'shell_hello')" });
     assert.ok(await page.waitFor("window.got.some(m => m.data && m.data.openArtifact === 'shell_ready')", 15000), `taken: ${JSON.stringify(await heard(page))}`);
     const wakes = ctx.frameWakes.length;
-    const text = 'Make the heading blue'.padStart(MAX_HOST_TEXT, 'x');
+    // Exactly MAX_ASK_BYTES in UTF-8 (the emoji is 4 bytes, 2 UTF-16 units); the draft is one byte over.
+    const text = 'Make the heading blue 🟦'.padStart(MAX_ASK_BYTES - 2, 'x');
+    assert.equal(utf8Bytes(text), MAX_ASK_BYTES);
     const draft = text + '!';
     await askFromPage(page, draft);
     const drafts = await page.evaluateAll(`document.querySelector('aside button[type="submit"]')?.disabled ? document.querySelector('aside textarea[aria-invalid="true"]')?.value : undefined`);

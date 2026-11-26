@@ -35,6 +35,7 @@ import {
   useCdsRoot,
   type MenuItemSpec,
 } from './cds.tsx';
+import { COMMENT_TEXT_BYTES } from '../comments.ts';
 
 const CardContext = createContext({ expanded: false });
 const InRepliesContext = createContext(false);
@@ -517,6 +518,7 @@ export function EditField({
         <PlainEditor
           ref={editor}
           aria-label="Edit comment"
+          maxLength={COMMENT_TEXT_BYTES}
           value={value}
           onChange={setValue}
           onSubmit={save}

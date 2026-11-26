@@ -21,7 +21,7 @@
 import { create } from 'zustand';
 import { toast } from '@open-artifact/ui';
 import type { CommentThread } from '@open-artifact/runtime';
-import { createComments, openMessageCount } from '@open-artifact/editor-kit';
+import { COMMENT_TEXT_BYTES, createComments, openMessageCount } from '@open-artifact/editor-kit';
 import { boardPointTarget, elementBounds, type Box } from '@open-artifact/whiteboard-core';
 import { surfaceRef } from '../canvas/BoardSurface.tsx';
 import { screenToBoard, type Point } from '../lib/camera.ts';
@@ -47,29 +47,14 @@ export {
   type ThreadPlace,
 } from './comment-places.ts';
 
-/** Most UTF-8 bytes of one comment. */
-export const MAX_COMMENT_BYTES = 4096;
+/** Most UTF-8 bytes of one comment: the editor kit's limit, which its default check enforces. */
+export const MAX_COMMENT_BYTES = COMMENT_TEXT_BYTES;
 
 /** Most threads on one board. */
 export const MAX_THREADS = 500;
 
 /** Screen pixels a press must move in comment mode to comment on an area. */
 const AREA_DRAG_PX = 6;
-
-function utf8Length(text: string): number {
-  return new TextEncoder().encode(text).length;
-}
-
-/** Checks a comment's text; tells the person when it is too long. */
-function checkedText(text: string): string | undefined {
-  const body = text.trim();
-  if (!body) return undefined;
-  if (utf8Length(body) > MAX_COMMENT_BYTES) {
-    toast.add({ title: 'This comment is too long', description: 'Comments can hold about 4,000 characters.' });
-    return undefined;
-  }
-  return body;
-}
 
 /** Where an anchor sits on the board now (see {@link anchorPlace}). */
 function placeNow(anchor: string) {
@@ -96,7 +81,6 @@ export const boardComments = createComments<BoardAnchor>({
   heard: (threads) => {
     for (const thread of threads) noteThreadChanged(thread);
   },
-  checkText: checkedText,
   noun: 'board',
   maxThreads: MAX_THREADS,
   // A row of the "All comments" panel: the thread's place comes into view.

@@ -13,8 +13,25 @@ import type { CommentsCapability, CommentThread, JsonRecord } from '@open-artifa
 import { create, type StoreApi, type UseBoundStore } from 'zustand';
 import type { AnchorState } from './pins.ts';
 
-/** Longest message. */
+/**
+ * Longest comment, in UTF-8 bytes of the trimmed text: claude.ai's comment boxes take as much. The boxes also set it
+ * as their `maxLength` (UTF-16 units), so typing and pasting stop there, and a longer text in bytes (CJK, emoji) is
+ * refused when it is sent, with the draft kept.
+ */
+export const COMMENT_TEXT_BYTES = 4096;
+
+/** What the default check says when a comment is over {@link COMMENT_TEXT_BYTES}. */
+export const COMMENT_TOO_LONG = 'That comment is too long.';
+
+/** Longest docs comment, in characters: the docs composer counts toward it. */
 export const COMMENT_TEXT_MAX = 4000;
+
+const utf8 = new TextEncoder();
+
+/** The UTF-8 size of `text`, as {@link COMMENT_TEXT_BYTES} counts it. */
+export function commentTextBytes(text: string): number {
+  return utf8.encode(text).length;
+}
 
 /** What an editor tells the comments controller. `A` is its anchor type. */
 export interface CommentsAdapter<A> {
@@ -51,8 +68,9 @@ export interface CommentsAdapter<A> {
   maxThreads?: number;
   /**
    * Checks a message before it is sent: the text to send, or `undefined` to
-   * send nothing (after telling the person why). Default: trimmed and cut
-   * to {@link COMMENT_TEXT_MAX} characters.
+   * send nothing (after telling the person why); the draft stays either way
+   * until a send succeeds. Default: trimmed, and refused with
+   * {@link COMMENT_TOO_LONG} past {@link COMMENT_TEXT_BYTES}.
    */
   checkText?(text: string): string | undefined;
   /** What the agent reads about an anchor, stored with a new thread. */
@@ -274,7 +292,13 @@ export function createComments<A>(adapter: CommentsAdapter<A>): CommentsControll
   };
   const checkText = (text: string): string | undefined => {
     if (adapter.checkText) return adapter.checkText(text);
-    return text.trim().slice(0, COMMENT_TEXT_MAX) || undefined;
+    const body = text.trim();
+    if (!body) return undefined;
+    if (commentTextBytes(body) > COMMENT_TEXT_BYTES) {
+      notify({ title: COMMENT_TOO_LONG });
+      return undefined;
+    }
+    return body;
   };
   const canComment = (): boolean => Boolean(capability) && adapter.canComment();
   const canSendToAgent = (): boolean => Boolean(capability) && adapter.canSendToAgent();

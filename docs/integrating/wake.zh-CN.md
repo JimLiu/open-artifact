@@ -14,7 +14,7 @@
 | `request` | **Ask** 和其他页面请求（导出到某个目的地、修改请求） | `[Artifact edit request sent to agent]` |
 | `task` | 类型的一个后台操作完成了 | `[Artifact task finished]` |
 
-Shell 的 **Ask** 面板会去掉消息首尾的空白，最多接受 8,000 个 UTF-16 码元。消息超长时，草稿会留在面板里供用户编辑。直接向 `artifacts.ask` 发送超长消息时，接口会在投递前返回 HTTP 413（`too_large`）。
+Shell 的 **Ask** 面板会去掉消息首尾的空白，按 UTF-8 最多接受 8,000 个字节（`MAX_ASK_BYTES`，和 claude.ai 的 Ask 框一样；中文约 2,600 字）。消息超长时，草稿会留在面板里供用户编辑。直接向 `artifacts.ask` 发送超长消息时，接口会在投递前返回 HTTP 413（`too_large`）。不超限的消息不会被截断，`comment_summon` 的 8,000 字符文本字段也放得下。
 
 同一个作品 1.5 秒内到达的消息合并成一次唤醒。一个作品每分钟最多发 20 次；超过时页面会收到 `rate_limited`。
 

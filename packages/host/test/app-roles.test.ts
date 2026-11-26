@@ -5,7 +5,7 @@
 
 import assert from 'node:assert/strict';
 import { after, before, describe, it } from 'node:test';
-import { MAX_HOST_TEXT, type ArtifactView, type HomeBoot, type ShellBoot } from '@open-artifact/protocol';
+import { MAX_ASK_BYTES, utf8Bytes, type ArtifactView, type HomeBoot, type ShellBoot } from '@open-artifact/protocol';
 import { guestCookie } from '../src/core/auth/session.ts';
 import type { ArtifactRow, UserRecord } from '../src/core/types.ts';
 import { bootOf, makeApp, type TestApp } from './app-fixture.ts';
@@ -149,9 +149,12 @@ describe('app roles', () => {
     for (const as of [cam.cookie, vic.cookie, guestCookieHeader]) assert.equal(await ask(as), 403);
     await app.catalog.setArtifactSettings(board.id, { editorsCanAskAgent: true });
     app.ctx.access.invalidate(board.id);
-    const text = 'Please add a column 📊'.padStart(MAX_HOST_TEXT, 'x');
+    // Exactly MAX_ASK_BYTES in UTF-8 (the emoji is 2 UTF-16 units and 4 bytes); one byte more is refused.
+    const text = 'Please add a column 📊'.padStart(MAX_ASK_BYTES - 2, 'x');
+    assert.equal(utf8Bytes(text), MAX_ASK_BYTES);
     assert.equal(await ask(eve.cookie, text), 200);
     assert.equal(await ask(eve.cookie, text + '!'), 413);
+    assert.equal(await ask(eve.cookie, '列'.repeat(Math.ceil((MAX_ASK_BYTES + 1) / 3))), 413);
     assert.equal(await ask(ada.cookie, '  '), 400);
     const outbox = await app.catalog.listOutbox(ada.user.id);
     assert.equal(outbox.length, 2);

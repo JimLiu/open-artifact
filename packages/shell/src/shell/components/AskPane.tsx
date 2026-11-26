@@ -13,7 +13,7 @@
 
 import { Copy, Send, UserCheck, X } from 'lucide-react';
 import { useEffect, useId, useRef, useState } from 'react';
-import { MAX_HOST_TEXT } from '@open-artifact/protocol';
+import { MAX_ASK_BYTES, utf8Bytes } from '@open-artifact/protocol';
 import { Button, IconButton } from '@open-artifact/ui';
 import { OwnerBadge } from '../../components/OwnerBadge.tsx';
 import { api, errorText } from '../../lib/api.ts';
@@ -156,9 +156,10 @@ export function AskPane() {
   const statusId = useId();
   const input = useRef<HTMLTextAreaElement>(null);
   const log = useRef<HTMLOListElement>(null);
-  const length = text.trim().length;
-  const tooLong = length > MAX_HOST_TEXT;
-  const canSend = !busy && length > 0 && !tooLong;
+  // Counted as claude.ai's Ask box counts it: the trimmed text in UTF-8 bytes. A longer draft stays here to edit.
+  const trimmed = text.trim();
+  const tooLong = utf8Bytes(trimmed) > MAX_ASK_BYTES;
+  const canSend = !busy && trimmed !== '' && !tooLong;
 
   useEffect(() => input.current?.focus(), []);
   useEffect(() => {
@@ -222,8 +223,8 @@ export function AskPane() {
           className="block max-h-[40vh] min-h-[72px] w-full resize-y rounded-xl border border-line bg-surface-2 px-3 py-2.5 text-[13px] text-fg outline-none placeholder:text-fg-subtle focus:border-accent"
         />
         <div className="mt-2 flex items-center gap-2">
-          <span id={statusId} role="status" className="min-w-0 flex-1 text-xs text-fg-muted">
-            {tooLong ? t('askTooLong', { limit: MAX_HOST_TEXT }) : status}
+          <span role="status" className={`min-w-0 flex-1 text-xs ${tooLong ? 'text-danger' : 'text-fg-muted'}`}>
+            {tooLong ? <span id={statusId}>{t('askTooLong')}</span> : status}
           </span>
           <Button type="submit" size="lg" variant="primary" disabled={!canSend} icon={<Send className="size-3.5" />}>
             {t(owner?.wakeMode === 'draft' ? 'sendToConversation' : 'sendToAgent', { agent })}

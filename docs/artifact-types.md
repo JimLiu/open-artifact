@@ -62,6 +62,11 @@ Open Artifact uses three storage styles, plus the free page—knowing which styl
 
 All types share `<root>/_blobs/` (content-addressed uploads via `upload`), `<root>/comments.json`, and `<root>/history/`.
 
+A comment or reply written in the page holds up to 4,096 bytes of UTF-8 (`COMMENT_TEXT_BYTES`, the limit claude.ai’s
+comment boxes use; about 1,300 Chinese characters). Typing and pasting stop at 4,096 characters; a longer comment in
+bytes is not sent: the page says “That comment is too long.” and keeps the draft. Docs comments count characters
+instead, with a counter under the box.
+
 ## Cross-type workflows
 
 - **Design System → Design / Slides / Data / Motion**: Create a brand kit once (`design-system`), then tell your agent *"use our Acme design system"* when making a UI mockup, pitch deck, dashboard, or launch animation. The agent installs the system's tokens, fonts, and (for Design) live component bundles so the editor's color/type pickers reflect your brand.

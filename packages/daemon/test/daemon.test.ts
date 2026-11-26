@@ -10,6 +10,7 @@ import {
   HARNESS_PATH,
   HARNESS_SUBPROTOCOL,
   LIBRARY_ROUTES,
+  MAX_ASK_BYTES,
   MAX_HOST_TEXT,
   artifactIdOf,
   type DaemonState,
@@ -401,8 +402,13 @@ test('wake: delivered live to a connected HarnessClient', async () => {
     assert.ok(delivered[0]!.text.includes(text), 'the whole request reaches the live session');
     assert.equal(delivered[0]!.source.requests[0]?.text, text);
     assert.match(delivered[0]!.text, /sent to agent/i);
-    const rejected = await api<{ code: string }>(state, LIBRARY_ROUTES.ask, { id, text: text.padEnd(MAX_HOST_TEXT + 1, '!') });
-    assert.equal(rejected.code, 'too_large');
+    // The limit counts UTF-8 bytes, as claude.ai's Ask box does: 2,667 CJK characters are 8,001 bytes.
+    const wide = '蓝'.repeat(Math.ceil((MAX_ASK_BYTES + 1) / 3));
+    assert.ok(wide.length < MAX_HOST_TEXT);
+    for (const tooLarge of [text.padEnd(MAX_ASK_BYTES + 1, '!'), wide]) {
+      const rejected = await api<{ code: string }>(state, LIBRARY_ROUTES.ask, { id, text: tooLarge });
+      assert.equal(rejected.code, 'too_large');
+    }
     assert.equal(delivered.length, 1);
     const info = await api<{ sessions: Array<{ session: string; live: boolean }> }>(state, 'harnesses');
     assert.ok(info.sessions.some((s) => s.session === 'live-1' && s.live));

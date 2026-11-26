@@ -8,7 +8,6 @@
  */
 
 import { OpenArtifactError } from './errors.ts';
-import { MAX_HOST_TEXT } from './shell.ts';
 import type { ResolvedEntry, TypeRuntime, TypeScope } from './manifest.ts';
 import type { LinkSiteType, SiteTypeDetail } from './link.ts';
 import type { TypeSourceKind } from './type-package.ts';
@@ -512,11 +511,25 @@ export interface AskRequest {
   label?: string;
 }
 
-/** The same Ask text must fit in the session request and the host's `comment_summon`. */
+/**
+ * Longest Ask message, in UTF-8 bytes after trimming: the limit claude.ai's Ask box uses. A UTF-8 byte count is
+ * never below the UTF-16 length, so a message within it also fits `MAX_HOST_TEXT` and reaches the host's
+ * `comment_summon` whole.
+ */
+export const MAX_ASK_BYTES = 8000;
+
+const utf8 = new TextEncoder();
+
+/** The UTF-8 size of `text` in bytes, as `MAX_ASK_BYTES` counts it. */
+export function utf8Bytes(text: string): number {
+  return utf8.encode(text).length;
+}
+
+/** The trimmed Ask text, or an `invalid_argument` / `too_large` error before anything is delivered. */
 export function askRequestText(value: unknown): string {
   const text = typeof value === 'string' ? value.trim() : '';
   if (!text) throw new OpenArtifactError('invalid_argument', 'Enter a message to send.');
-  if (text.length > MAX_HOST_TEXT) throw new OpenArtifactError('too_large', `Shorten the message to ${MAX_HOST_TEXT} characters or fewer.`);
+  if (utf8Bytes(text) > MAX_ASK_BYTES) throw new OpenArtifactError('too_large', `Shorten the message to ${MAX_ASK_BYTES} bytes (UTF-8) or fewer.`);
   return text;
 }
 

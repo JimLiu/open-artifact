@@ -212,7 +212,7 @@ const EN = {
   sessionOffline: 'The session is offline',
   offlineNote: '{agent} sees what you send the next time the {harness} session works.',
   askPlaceholder: 'What should change?',
-  askTooLong: 'Shorten your message to {limit} characters or fewer.',
+  askTooLong: 'That’s too long to send.',
   sendToAgent: 'Send to {agent}',
   // The harness puts the message in the conversation; the person sends it there.
   sendToConversation: 'Put in the {agent} conversation',
@@ -804,7 +804,7 @@ const ZH: Partial<Record<MessageKey, string>> = {
   sessionOffline: '会话离线',
   offlineNote: '{harness} 会话下次工作时，{agent} 会看到你发的消息。',
   askPlaceholder: '想改什么？',
-  askTooLong: '请将消息缩短到 {limit} 个字符以内。',
+  askTooLong: '内容太长，发不出去。',
   sendToAgent: '发给 {agent}',
   sendToConversation: '放进 {agent} 的对话',
   sending: '发送中…',
