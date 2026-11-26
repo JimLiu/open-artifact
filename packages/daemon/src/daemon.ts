@@ -127,7 +127,7 @@ import { ArtifactStore, sessionKeyOf, userEditsAfter, type StoreChange } from '.
 import { Tools, type ShareAccess } from './tools.ts';
 import { BUILTIN_TYPE_IDS, TypeRegistry, isBuiltinPage, isSiteKindType, siteRefusal, typeLocation, type ListedType, type TypeInfo } from './types.ts';
 import { checkType, newType, setProjectTrusted, setTypeEnabled, typeFromPage, typeFromSaved } from './type-authoring.ts';
-import { WakeRouter, type WakeResult } from './wake.ts';
+import { WakeRouter, type WakeItem, type WakeResult } from './wake.ts';
 import { acceptWebSocket, type WebSocketConnection } from './ws.ts';
 import pkg from '../package.json' with { type: 'json' };
 
@@ -561,7 +561,7 @@ export class Daemon extends EventEmitter<{ exit: [] }> {
       store: this.store,
       inbox: this.inbox,
       settings: () => this.settings,
-      wake: (id, item) => this.wake.queue(id, item),
+      wake: (id, item) => this.queuePageWake(id, item),
       archive: (record) => this.archiveBytes(record),
       browse,
       log,
@@ -794,6 +794,21 @@ export class Daemon extends EventEmitter<{ exit: [] }> {
       clearInterval(ping);
       this.harnesses.embed.detach(view, sink);
     });
+  }
+
+  /**
+   * Queues a thread or request a type's page sent (through its type server, or a hosted page through the Link). An app
+   * shows a request's `userText` as the person's own message, so only a type whose code is trusted here and runs here
+   * may say what they typed; another type's request still reaches the agent, with what was selected, but not as their
+   * words.
+   */
+  private queuePageWake(id: string, item: WakeItem): Promise<WakeResult> {
+    if (!('request' in item) || item.request.userText === undefined) return this.wake.queue(id, item);
+    const record = this.store.get(id);
+    const type = record ? this.typeOf(record) : null;
+    if (type && type.trusted && !typeLocation(type).remote) return this.wake.queue(id, item);
+    const { userText: _dropped, ...request } = item.request;
+    return this.wake.queue(id, { request });
   }
 
   private typeOf(record: ArtifactRecord): ListedType | null {
@@ -2189,7 +2204,7 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
         if (!threads.length && !requests.length) throw new OpenArtifactError('invalid_argument', 'wake needs threads or requests.');
         const waits: Array<Promise<WakeResult>> = [
           ...threads.map((thread) => this.wake.queue(record.id, { thread })),
-          ...requests.map((r) => this.wake.queue(record.id, { request: { ...r, id: r.id ?? `req_${Date.now().toString(36)}` } as WakeRequestItem })),
+          ...requests.map((r) => this.queuePageWake(record.id, { request: { ...r, id: r.id ?? `req_${Date.now().toString(36)}` } as WakeRequestItem })),
         ];
         const result = (await Promise.all(waits)).at(-1)!;
         const status: WakeStatus =

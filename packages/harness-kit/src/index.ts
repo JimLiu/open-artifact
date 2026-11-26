@@ -54,6 +54,8 @@ export {
   type WakeAnswer,
 } from './harness.ts';
 export type { RuntimeStatus, RuntimeUpdateResult } from '@open-artifact/protocol';
+/** A wake's structured copy: `source.requests[]` carry `userText` and `selectionSnapshot` (`wake.request.parts`). */
+export type { SelectionSnapshot, SelectionSnapshotItem, WakeSource, WakeSourceRequest } from '@open-artifact/protocol';
 export { remoteGate, remotePolicyOf, type AllowRemote, type RemotePage, type RemotePagePolicy, type RemotePageRequest } from './embed/remote.ts';
 export { CONTEXT_HEADER, MAX_CONTEXT_CHARS, contextBlock, readContext, type ArtifactContext } from './context.ts';
 export { commands, installSkill, keepSkillInstalled, localSkill, renderSkill, type InstallSkillOptions, type InstallSkillResult } from './skill.ts';

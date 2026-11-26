@@ -19,7 +19,7 @@ import { OriginAllowlist } from './allowlist.mjs';
 import { cardOf, followArtifacts } from './artifacts.mjs';
 import { hostRuntime, runtimeFolders } from './harness.mjs';
 import { PlaceMemory } from './places.mjs';
-import { describeWake, routeOf, wakeHandler } from './wakes.mjs';
+import { describeWake, requestBubbles, routeOf, wakeHandler } from './wakes.mjs';
 import { ScriptedAgent } from './agent.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -69,6 +69,21 @@ describe('shared modules', () => {
     assert.ok(!list.allows('https://types.example.com/deck'));
     list.trust('https://types.example.com');
     assert.ok(list.allows('https://types.example.com/deck'));
+  });
+
+  it('shows each request as the owner typed it, with a chip of what was selected', () => {
+    const snapshot = { kind: 'elements', label: '3 selected elements', count: 3, items: [{ id: 'hero', kind: 'text', label: 'Welcome' }, { id: 'cta' }], where: 'Page "Home"' };
+    const requests = [
+      { id: 'r1', label: 'Send to agent', text: 'Warmer\nplease\n\n<selected>…</selected>', userText: 'Warmer\nplease', selectionSnapshot: snapshot },
+      { id: 'r2', label: 'Ask agent to fix', text: 'Fix the errors' },
+    ];
+    assert.deepEqual(requestBubbles({ source: source({ kind: 'owner' }, { requests }) }), [
+      { role: 'user', text: 'Warmer\nplease', tag: 'Deck · Send to agent', chip: { label: '3 selected elements', items: ['Welcome · text', 'cta'], more: 1, where: 'Page "Home"' } },
+      { role: 'user', text: 'Fix the errors', tag: 'Deck · Ask agent to fix' },
+    ]);
+    const theirs = requestBubbles({ source: source({ kind: 'collaborator', name: 'Ann', role: 'editor' }, { requests }) });
+    assert.equal(theirs[0].role, 'notice');
+    assert.equal(theirs[0].text, requests[0].text, 'a collaborator’s words are never shown as the owner’s');
   });
 
   it('routes the owner to a turn and everyone else to a notice', () => {

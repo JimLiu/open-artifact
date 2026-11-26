@@ -410,7 +410,13 @@ export function createLocalProvider(options: LocalProviderOptions = {}): Capabil
         remove: async (threadId, messageId) => {
           await post<CommentsResponse>(API.commentsRemove, { threadId, ...(messageId ? { messageId } : {}) } satisfies CommentRemoveRequest);
         },
-        sendToAgent: (threadId, options) => thread(API.commentsSend, { threadId, ...(options?.unasked ? { unasked: true } : {}) } satisfies CommentSendRequest),
+        sendToAgent: (threadId, options) =>
+          thread(API.commentsSend, {
+            threadId,
+            ...(options?.unasked
+              ? { unasked: true }
+              : { ...(options?.userText ? { userText: options.userText } : {}), ...(options?.selectionSnapshot ? { selectionSnapshot: options.selectionSnapshot } : {}) }),
+          } satisfies CommentSendRequest),
         onChange: (listener: (threads: CommentThread[]) => void) => subscribe('comments', listener),
       };
       return capability;

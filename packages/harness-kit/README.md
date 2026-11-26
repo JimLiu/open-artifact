@@ -19,6 +19,7 @@ const harness = await createHarness({
   runtime: { dir: '/path/to/@open-artifact/cli', version: '0.16.1' }, // starts the daemon when none runs
   // Give a message to a session: 'delivered' | 'resumed' | 'drafted' | 'queued' | 'failed' (the daemon keeps it),
   // or { status, session }. Only the owner's words (source.from.kind === 'owner') should become a user turn.
+  // source.requests[] may carry userText and selectionSnapshot (feature wake.request.parts) for the chat to show.
   wake: async ({ session, text, source }) => ((await myApp.deliver(session, text, source)) ? 'delivered' : 'failed'),
   // Show a page in the app's own UI; return false when it was not shown.
   embed: { origins: [], mode: 'view', remote: 'ask' },

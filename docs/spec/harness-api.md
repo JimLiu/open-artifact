@@ -55,6 +55,7 @@ an `### Integrators` section in [CHANGELOG.md](../../CHANGELOG.md) saying what c
 | `types.source` | describes types with `source` (`builtin`, `local`, `installed`) and, for an installed one, `installed_from` and `third_party_notice`, wherever types are listed and when an artifact is read; puts `third_party_notice` next to `instructions` when one is created or adopted; a project type not trusted yet gets its own `third_party_notice`, and reads of an artifact of either (`Artifact`, `ArtifactData`, `ArtifactComments`) add a page-content one |
 | `view.open` | answers `view.open`: the addresses to show one of its own artifacts in your app, with no session |
 | `inbox.return` | answers `inbox.return`: messages you took from a session's inbox and could not hand to its agent wait there again |
+| `wake.request.parts` | may put `userText` (the person's words) and `selectionSnapshot` (what was selected at Send) on a wake's `source.requests` entries |
 
 `session.*`, `tools.list`, `tools.call`, `agent.wrote`, `artifact.open`, `inbox.take`, `inbox.wait` and `subscribe` are
 the base protocol and need no feature.

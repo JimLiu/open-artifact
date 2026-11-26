@@ -67,6 +67,14 @@ export function lineWords(block: PMNode): string {
   return block.textBetween(0, block.content.size, ' ', leaf => (leaf.type === nodes.mention ? `@${leaf.attrs.label ?? leaf.attrs.name ?? ''}` : ' '));
 }
 
+/** A line's words without its mention chips: what the person sees around an agent chip they put in. */
+export function lineText(block: PMNode): string {
+  return block
+    .textBetween(0, block.content.size, ' ', leaf => (leaf.type === nodes.mention ? '' : ' '))
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 export interface ChipThread {
   anchor: DocAnchor;
   label: string;

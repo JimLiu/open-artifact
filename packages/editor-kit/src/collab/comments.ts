@@ -9,7 +9,7 @@
  * {@link CommentsController.start}.
  */
 
-import type { CommentsCapability, CommentThread, JsonRecord } from '@open-artifact/runtime';
+import type { CommentSendOptions, CommentsCapability, CommentThread, JsonRecord } from '@open-artifact/runtime';
 import { create, type StoreApi, type UseBoundStore } from 'zustand';
 import type { AnchorState } from './pins.ts';
 
@@ -173,8 +173,11 @@ export interface CommentsController<A> {
   resolve(id: string, resolved: boolean): Promise<void>;
   remove(id: string, messageId?: string): Promise<void>;
   move(id: string, anchor: A): Promise<void>;
-  /** Hands a thread to the agent; resolves whether it was sent. */
-  sendToAgent(id: string): Promise<boolean>;
+  /**
+   * Hands a thread to the agent; resolves whether it was sent. `parts`: the person's words in the newest message and
+   * what it is on, for an app to show (the host checks them).
+   */
+  sendToAgent(id: string, parts?: Pick<CommentSendOptions, 'userText' | 'selectionSnapshot'>): Promise<boolean>;
   sendAllToAgent(): Promise<void>;
   /** Whether a thread has something from a person the agent has not been handed (open, a person's message, not sent or answered since). */
   canSendThread(thread: CommentThread): boolean;
@@ -434,12 +437,12 @@ export function createComments<A>(adapter: CommentsAdapter<A>): CommentsControll
         failed(error);
       }
     },
-    async sendToAgent(id) {
+    async sendToAgent(id, parts) {
       if (!capability || !canSendToAgent()) return false;
       const thread = adapter.sendToAgent ? store.getState().threads.find((t) => t.id === id) : undefined;
       if (adapter.sendToAgent) return thread ? adapter.sendToAgent(thread, anchorOf(thread)) : false;
       try {
-        put(await capability.sendToAgent(id));
+        put(await (parts?.userText || parts?.selectionSnapshot ? capability.sendToAgent(id, parts) : capability.sendToAgent(id)));
         notify(sentNotice(adapter.agentName?.() || 'the agent', adapter.agentWakesIdle?.()));
         return true;
       } catch (error) {

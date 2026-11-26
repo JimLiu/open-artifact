@@ -28,7 +28,7 @@ Each file covers one part of the integration. `examples/harness-electron` import
 | `harness.mjs` | `connectHarness`: the one `createHarness` call, with the caps a native-tools host declares. |
 | `agent.mjs` | `ScriptedAgent`: a session with a transcript and a tool registry (your app's agent goes here). |
 | `tools.mjs` | Registers `oa.tools()` in the agent, each call going back through `oa.call` with the session as caller; `oa.wrote` for files the agent wrote itself. |
-| `wakes.mjs` | The `wake` callback: routes by `source.from.kind` — the owner's words start a turn, a collaborator's comment or a finished task is a notice. |
+| `wakes.mjs` | The `wake` callback: routes by `source.from.kind` — the owner's words start a turn, a collaborator's comment or a finished task is a notice. `requestBubbles` turns `source.requests` into chat bubbles: the owner's `userText`, else `text`, with a chip from `selectionSnapshot`. |
 | `artifacts.mjs` | Artifact cards from `on('artifact')`, one per artifact and session, keyed by the `open-artifact://` link. |
 | `skill.mjs` | `installSkill` into the app's skill folder, and `commands()` for the command menu. |
 | `allowlist.mjs` | The origins an artifact view may load, from `embedOrigins()` and `embed/origins` events; remote origins only once trusted. |

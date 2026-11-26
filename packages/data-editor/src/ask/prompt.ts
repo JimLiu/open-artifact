@@ -5,7 +5,8 @@
  * the request itself (the person's own words).
  */
 
-import type { AgentRequest } from '@open-artifact/runtime';
+import type { AgentRequest, SelectionSnapshot } from '@open-artifact/runtime';
+import { selectionSnapshotOf } from '@open-artifact/editor-kit';
 import { stripColumnNamespace, type ParameterValue, type Parameters, type SourceAddress } from '@open-artifact/data-core';
 import type { RequestSelection } from '../drafts/request.ts';
 import { getSelectionLabelText, type ElementSelection } from '../page/selection.ts';
@@ -170,7 +171,20 @@ export function toRequestSelection(prompt: SelectionPrompt): RequestSelection {
 /** The request sent once the person wrote what the agent should do: their words, with the selection as data. */
 export function buildAskRequest(words: string, selection: RequestSelection): AgentRequest {
   const request = words.trim();
-  return { title: ASK_TITLE, text: request, context: { request, label: selection.label, selection: { ...selection } } };
+  const snapshot = pickSnapshot(selection);
+  return {
+    title: ASK_TITLE,
+    text: request,
+    context: { request, label: selection.label, selection: { ...selection } },
+    // What a chat shows: the person's words, and the chip of the part they asked about (taken when they pressed Send).
+    userText: request,
+    ...(snapshot ? { selectionSnapshot: snapshot } : {}),
+  };
+}
+
+/** The picked part of the dashboard as a request's `selectionSnapshot`: its chip in words, and what it shows. */
+export function pickSnapshot(selection: RequestSelection): SelectionSnapshot | null {
+  return selectionSnapshotOf({ kind: 'pick', label: selection.label || 'Part of the dashboard', count: 1, ...(selection.text ? { text: selection.text } : {}) });
 }
 
 /** What is copied when no agent listens: the request and the selection, to paste into a conversation with the agent. */

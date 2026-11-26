@@ -33,6 +33,7 @@ import { deckOrder, isDirty, useDeck } from '../state/deck.ts';
 import { useView } from '../state/view.ts';
 import { session } from './session.ts';
 import { followOnPeers, followPeer, followPresence, setLead } from './follow.ts';
+import { slidesSelectionSnapshot } from '../lib/selection-snapshot.ts';
 
 /** A peer with the view context it published (`state`: the slide it is looking at…). */
 export type PeerView = KitPeerView<SlidesViewContext>;
@@ -238,6 +239,8 @@ export async function sendToAgent(message: string): Promise<AgentSendResult | nu
   if (!agent || !text) return null;
   const context = currentViewContext();
   const parts = [text];
+  // Taken now, when Send is pressed: the app showing the request lists what was selected then, not what is later.
+  const snapshot = slidesSelectionSnapshot(context, useView.getState().selection.length);
   if (context.selection?.length) {
     // Labels are slide text: fenced, never instructions.
     const listed = context.selection.map((item) => `${item.id} (${item.kind})${item.label ? `: ${item.label}` : ''}`).join('\n');
@@ -248,7 +251,13 @@ export async function sendToAgent(message: string): Promise<AgentSendResult | nu
     parts.push(`Current slide: ${context.slideId} (${context.slideIndex} of ${context.slideCount})`);
   }
   try {
-    const result = await agent.send({ title: 'Ask agent', text: parts.join('\n\n'), context: { view: context as unknown as Record<string, unknown> } });
+    const result = await agent.send({
+      title: 'Ask agent',
+      text: parts.join('\n\n'),
+      context: { view: context as unknown as Record<string, unknown> },
+      userText: text,
+      ...(snapshot ? { selectionSnapshot: snapshot } : {}),
+    });
     reportResult(result);
     return result;
   } catch (error) {

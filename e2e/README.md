@@ -87,6 +87,7 @@ The harness asks its questions (`waitFor`, `evaluateAll`, `load`'s `ready`) in a
 - `list` finds design systems under the given folders, and returns none when there are none.
 - In Chrome:
   - Send to agent: the composer's request reaches `wait`;
+  - Send to agent with two elements selected (a click, then a Shift-click on the artboard) and two lines typed: the request in `_agent/done` has `userText` with the line break, its `text` starts with it, and its `selectionSnapshot` says `2 selected elements` with both items (and no `where`: the fixture canvas names no page), though Escape clears the selection right after Send;
   - a comment in the Shell's comment layer: the box stops at 4,096 characters (its `maxLength`); 1,366 CJK characters (4,098 bytes of UTF-8) are not sent, the page says "That comment is too long." and the draft stays; a short comment is then saved to `comments.json` and listed in the comments panel (as the owner and as a commenter by link);
   - a board that throws shows its error, and "Ask agent to fix" sends it (`wait` receives the title and the error);
   - "1 error" at the top right lists the artboards with errors and its "Ask agent to fix" sends them all; closing an artboard's error notice leaves a mark in its name strip that brings it back;
@@ -107,6 +108,10 @@ The harness asks its questions (`waitFor`, `evaluateAll`, `load`'s `ready`) in a
   - the overview shows the README, and opening the page writes the generated files;
   - an empty system's Welcome page offers "From code", and its request reaches `wait`;
   - an image dropped on an asset group is uploaded into `design-system.json`.
+
+**Slides: asking about a selection** (`slides.test.mjs`, on the shared deck's third slide, with `wait` running)
+
+- A click on the heading and a Shift-click on the list select two elements; the Ask field says it asks about the selection. A request typed there and sent with Enter reaches `wait`, and in `_agent/done` it has `userText`, a `text` that starts with it, and a `selectionSnapshot` of `2 selected elements` on `Slide 3 of 3`, though Escape clears the selection right after Send.
 
 **Slides: polygon clipping** (`slides.test.mjs`, on the shared deck's second slide)
 
@@ -132,6 +137,10 @@ The harness asks its questions (`waitFor`, `evaluateAll`, `load`'s `ready`) in a
 **Docs: writing in a second tab** (`docs.test.mjs`, one case, Chrome only)
 
 - A doc with two tabs is opened on the first. Three characters are typed there, one at a time, and each reaches the disk (`export --tab`). The second tab is chosen from the tab list in the page bar, and four characters are typed at the end of its line: each reaches the disk, and 400 ms later the editor still shows it. Before the fix for issue #25, every tab's sync counted its calls from 1 under the page's one session, so the second tab's first three writes went out under the first tab's opIds; the server answered them as replays, landed nothing, and the page read the tab back over the typing.
+
+**Docs: Ask Agent's words and line** (`docs.test.mjs`, the first case of the "Ask Agent as a comment on an agent chip" group, Chrome only)
+
+- With `wait` running, `@` → Ask Agent at the end of "The ferry leaves at nine." puts the agent chip in, and "Say when the last ferry leaves" plus Enter posts the `@Agent` thread on it. The request in `_agent/done` has `userText` "Say when the last ferry leaves", its `text` starts with those words and then "(The person wrote this in the comment thread on "@Agent" …", and its `selectionSnapshot` is `{kind: 'line', label: 'The ferry leaves at nine.', count: 1, items: [{id: <the line's block>, kind: 'block'}], text: …}`: the line without the chip, and no `where` in a one-tab doc.
 
 **Docs: wide tables** (`docs.test.mjs`, two cases in the "wide tables and folded sections" group, Chrome only)
 
@@ -219,7 +228,7 @@ The harness asks its questions (`waitFor`, `evaluateAll`, `load`'s `ready`) in a
 - (c) In Chrome, the Shell loaded at `embed_url` claims the ticket, says `shell_hello` through the daemon, and takes the ticket out of the address bar. A `host_hello` sent with `shell.command` gets `shell_ready` back as `shell.event`, and a second claim gets 404.
 - (c) In Chrome, a page on an undeclared origin frames `embed_url`. The framed Shell still talks through the daemon: `shell_hello` and `shell_ready` reach the adapter, and the parent page hears nothing.
 - (b) In Chrome, a host page on each of two 127.0.0.1 ports frames the Shell and answers `shell_hello` with `host_hello`. The Ask goes through the real mouse and keys.
-  - On origin A, which is declared, a draft one byte over 8,000 bytes of UTF-8 (`MAX_ASK_BYTES`; it ends in an emoji) stays in the Ask pane, marked invalid, with Send off. With the last character removed it is sent: the Shell says `shell_ready`, and the Ask sends `comment_summon` with the whole text and wakes the owner session with the same text. The Ask pane names the owner session by the profile title (`Compat Frame`), never by the id `compat-frame`.
+  - On origin A, which is declared, a draft one byte over 8,000 bytes of UTF-8 (`MAX_ASK_BYTES`; it ends in an emoji) stays in the Ask pane, marked invalid, with Send off. With the last character removed it is sent: the Shell says `shell_ready`, and the Ask sends `comment_summon` with the whole text and wakes the owner session with the same text. That wake's request has the same text as `userText` and no `selectionSnapshot`, and `requestBubbles` (examples/harness-node) shows it as the owner's message. The Ask pane names the owner session by the profile title (`Compat Frame`), never by the id `compat-frame`.
   - On origin B while A is declared, the page hears nothing after `shell_hello`, even though the Ask is sent and wakes the session.
   - On origin B once `compat-frame` has gone and no origin is declared at all, the page is taken (`shell_ready`), but `comment_summon` comes with empty text.
 - The same cases against the two previous minor versions of `@open-artifact/harness-kit` from npm have a place at the end of the file. That place is skipped, and says why: the kit is not published yet. To run it, install each version into a temporary folder and build the hosts with its `createHarness`.

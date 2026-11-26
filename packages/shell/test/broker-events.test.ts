@@ -162,4 +162,9 @@ test('comments: thread lists reach the page and sendToAgent is brokered', async 
   assert.deepEqual(seen, [[{ id: 'c_1' }]]);
   await comments.sendToAgent('c_1');
   assert.deepEqual(h.calls.find((c) => c.method === 'comments.sendToAgent')?.args, ['c_1']);
+  // The person's words and selection go along; nothing else the page put in does.
+  const snapshot = { kind: 'line', label: 'The ferry leaves at nine.', count: 1, items: [{ id: 'b1', kind: 'block' }] };
+  await comments.sendToAgent('c_2', { userText: 'Say when', selectionSnapshot: snapshot, extra: 1 } as never);
+  assert.deepEqual(h.calls.find((c) => c.method === 'comments.sendToAgent' && (c.args as unknown[])[0] === 'c_2')?.args, ['c_2', { userText: 'Say when', selectionSnapshot: snapshot }]);
+  await assert.rejects(comments.sendToAgent('c_3', { unasked: true }));
 });

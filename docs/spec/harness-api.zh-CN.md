@@ -49,6 +49,7 @@
 | `types.source` | 在列出类型的地方、读取作品时，用 `source`（`builtin`、`local`、`installed`）描述类型，安装的类型还带 `installed_from` 和 `third_party_notice`；新建或接管作品时，把 `third_party_notice` 放在 `instructions` 旁边；还没信任的项目里的类型带它自己的 `third_party_notice`，读取这两种类型的作品时（`Artifact`、`ArtifactData`、`ArtifactComments`）再加一句页面内容的说明 |
 | `view.open` | 回答 `view.open`：在你的应用里显示它自己的某个作品所需的地址，不需要会话 |
 | `inbox.return` | 回答 `inbox.return`：你从会话收件箱取走、却没能交给它的 agent 的消息，放回去继续等 |
+| `wake.request.parts` | 可能在唤醒的 `source.requests` 各项上放 `userText`（用户打的字）和 `selectionSnapshot`（按发送时选中的内容） |
 
 `session.*`、`tools.list`、`tools.call`、`agent.wrote`、`artifact.open`、`inbox.take`、`inbox.wait` 和 `subscribe` 是基础协议，不需要功能名。
 

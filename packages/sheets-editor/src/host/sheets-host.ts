@@ -1,7 +1,6 @@
 import { connectHost, createShellBridge, type HostCapabilities, type RoleAbilities, type ShellBridge } from '@open-artifact/editor-kit';
 import type {
   AgentCapability,
-  AgentRequest,
   AgentStatus,
   Peer,
   RoomCapability,
@@ -96,43 +95,8 @@ export interface SheetsHost {
 
 export const VIEWER_PRESENCE_KEY = 'person';
 
-export const MAX_REQUEST_TEXT = 10_000;
-export const MAX_REQUEST_LABEL = 1_000;
-export const MAX_REQUEST_CONTEXT = 4_000;
-
-export function agentRequestOf(payload: unknown): AgentRequest | null {
-  if (!isNonNullObject(payload)) return null;
-  const { label, request, ...rest } = payload as Record<string, unknown>;
-  const asked = typeof request === 'string' ? request.trim() : '';
-  const pressed = rest.pressed;
-  const text =
-    asked ||
-    (typeof pressed === 'string' && pressed.trim() !== ''
-      ? pressed.trim()
-      : rest.isSheetBlank === true
-        ? 'Fill this blank sheet.'
-        : typeof rest.chartId === 'string'
-          ? 'About this chart.'
-          : typeof rest.ruleNumber === 'number'
-            ? 'About this conditional formatting rule.'
-            : typeof rest.range === 'string'
-              ? 'About these cells.'
-              : '');
-  if (text === '') return null;
-  let context: Record<string, unknown> = { ...rest };
-  let contextText = JSON.stringify(context);
-  while (contextText.length > MAX_REQUEST_CONTEXT && Array.isArray(context.errors) && context.errors.length > 0) {
-    const leftOut = typeof context.errorsLeftOut === 'number' ? context.errorsLeftOut : 0;
-    context = { ...context, errors: context.errors.slice(0, -1), errorsLeftOut: leftOut + 1 };
-    contextText = JSON.stringify(context);
-  }
-  const title = typeof label === 'string' ? label.trim().slice(0, MAX_REQUEST_LABEL) : '';
-  return {
-    text: text.slice(0, MAX_REQUEST_TEXT),
-    ...(title !== '' && { title }),
-    ...(contextText.length <= MAX_REQUEST_CONTEXT && contextText !== '{}' && { context }),
-  };
-}
+export { MAX_REQUEST_CONTEXT, MAX_REQUEST_LABEL, MAX_REQUEST_TEXT, agentRequestOf, sheetsSelectionSnapshot } from './agent-request.ts';
+import { agentRequestOf } from './agent-request.ts';
 
 const personSaidByPeer = (peer: Peer): string | null => {
   const said = peer.state[VIEWER_PRESENCE_KEY];

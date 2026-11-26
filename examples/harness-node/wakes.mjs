@@ -20,6 +20,35 @@ export function describeWake(params) {
 }
 
 /**
+ * What a chat shows for each page request in a wake (`source.requests[]`, feature `wake.request.parts`): the person's
+ * own words when the page gave them and the owner sent it (else the request as the agent reads it), and a chip for
+ * what was selected when they pressed Send, e.g. `3 selected elements`, with its items to list when it is opened.
+ * Every string here may be artifact content: show it as plain text. The agent still gets `params.text`.
+ */
+export function requestBubbles(params) {
+  const source = params.source ?? {};
+  const owner = source.from?.kind === 'owner';
+  return (source.requests ?? []).map((request) => {
+    const snapshot = request.selectionSnapshot;
+    return {
+      role: owner ? 'user' : 'notice',
+      text: owner && request.userText ? request.userText : request.text,
+      tag: [source.title, request.label].filter(Boolean).join(' · '),
+      ...(snapshot
+        ? {
+            chip: {
+              label: snapshot.label,
+              items: (snapshot.items ?? []).map((item) => [item.label ?? item.id, item.kind].filter(Boolean).join(' · ')),
+              more: Math.max(0, snapshot.count - (snapshot.items?.length ?? 0)),
+              ...(snapshot.where ? { where: snapshot.where } : {}),
+            },
+          }
+        : {}),
+    };
+  });
+}
+
+/**
  * The `wake` callback for a set of sessions (`sessions` maps a session id to its agent). The text is put in the
  * transcript as it came — the daemon wrote it for the agent — and the answer tells the daemon it arrived; `failed`
  * makes the daemon keep it in the session's inbox for the next attach.

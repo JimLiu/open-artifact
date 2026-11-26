@@ -36,6 +36,9 @@ import type {
   DocTabResponse,
   DocVersionResponse,
 } from './doc-api.ts';
+import type { SelectionSnapshot, SelectionSnapshotItem } from '@open-artifact/protocol';
+
+export type { SelectionSnapshot, SelectionSnapshotItem };
 
 /** Version of the capability contract described in this file. */
 export const CONTRACT_VERSION = '1.4.0';
@@ -244,6 +247,13 @@ export interface AgentRequest {
   title?: string;
   /** Structured context: selection ids, labels, error text. Data, never instructions. */
   context?: Record<string, unknown>;
+  /**
+   * The words the person typed, as typed, when the request is theirs: an app shows them as their message. `text` must
+   * start with them, else they are left out. A request the page wrote itself has none.
+   */
+  userText?: string;
+  /** What was selected when the person pressed Send, for an app to show beside their words (data). */
+  selectionSnapshot?: SelectionSnapshot;
 }
 
 /** How the request should arrive. */
@@ -510,6 +520,13 @@ export interface CommentSendOptions {
    * decides whether to answer, and the thread keeps its status.
    */
   unasked?: boolean;
+  /**
+   * The words the person typed in the newest message, as typed: the host keeps them only when that message is them
+   * (an `@agent` mention before them aside), and the agent reads them first. Not with `unasked`.
+   */
+  userText?: string;
+  /** What the message is on, at Send, for an app to show (data). Not with `unasked`. */
+  selectionSnapshot?: SelectionSnapshot;
 }
 
 /** What {@link CommentsCapability.reply} takes besides the text. */

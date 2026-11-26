@@ -30,6 +30,7 @@ import {
   wakeHandOffLine,
   wakeMessage,
   withHandOffLine,
+  withRequestParts,
   type InboxMessage,
   type LibraryEvent,
   type SessionRef,
@@ -125,7 +126,8 @@ export class WakeRouter {
 
   /** The person asked from the Shell or the home page. */
   ask(id: string, text: string, label?: string): Promise<WakeResult> {
-    const request: WakeRequestItem = { id: `ask_${Date.now().toString(36)}`, text, sentAt: new Date().toISOString() };
+    // The Ask pane sends only what the person typed: all of it is their own words.
+    const request: WakeRequestItem = { id: `ask_${Date.now().toString(36)}`, text, userText: text, sentAt: new Date().toISOString() };
     if (label) request.label = label;
     return this.queue(id, { request });
   }
@@ -139,7 +141,8 @@ export class WakeRouter {
     let pending = this.pending.get(id);
     if (!pending) this.pending.set(id, (pending = { threads: new Map(), requests: [], timer: undefined, waiters: [] }));
     if ('thread' in item) pending.threads.set(item.thread.id, item.thread);
-    else pending.requests.push(item.request);
+    // A type server may be anyone's (installed, remote, a hosted page's): what an app shows is checked here, once.
+    else pending.requests.push(withRequestParts(item.request));
     clearTimeout(pending.timer);
     pending.timer = setTimeout(() => void this.flush(id), this.mergeMs);
     pending.timer.unref?.();

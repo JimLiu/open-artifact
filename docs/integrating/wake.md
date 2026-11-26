@@ -57,7 +57,7 @@ per-minute wake limit and the merge window apply to new wakes only.
 | `session`, `workspace` | the target session |
 | `artifact`, `artifactId` | `open-artifact://artifact/<id>` and the id |
 | `text` | the whole message, written for the agent |
-| `source` | the same message as data: `kind` (`open-artifact.event`), `artifactId`, `url`, `title`, `root`, `viewUrl`, `threads` (`id`, `where`, `text`), `requests` (`id`, `label`, `text`), `task` (`id`, `action`, `ok`), `summary` (one line, at most 120 characters), `reason`, `from` |
+| `source` | the same message as data: `kind` (`open-artifact.event`), `artifactId`, `url`, `title`, `root`, `viewUrl`, `threads` (`id`, `where`, `text`), `requests` (`id`, `label`, `text`, and with `wake.request.parts` `userText` and `selectionSnapshot`), `task` (`id`, `action`, `ok`), `summary` (one line, at most 120 characters), `reason`, `from` |
 
 The text has this shape for one comment:
 
@@ -78,6 +78,51 @@ someone other than the owner has a `From: <name> (<role>, not the owner)` line. 
 replaced by `[link]`.
 
 Use `source` for your UI (a notification from `summary`, a badge from `reason`), and give the agent `text`.
+
+## What the person typed and selected: `userText` and `selectionSnapshot`
+
+A daemon that lists the feature `wake.request.parts` may put two more fields on each entry of `source.requests`, for
+an app that shows a request in its chat the way the person sent it:
+
+| Field | What |
+| --- | --- |
+| `userText` | the person's own words, line breaks kept. `text` starts with them (after leading spaces), so it is never something the page wrote. |
+| `selectionSnapshot` | what was selected when they pressed Send: `kind` (`elements`, `slides`, `cells`, `pick`, …), `label` (one line, at most 120 characters, such as `3 selected elements`), `count`, and optionally `items` (at most 20 of `id`, `kind`, `label`), `where` (`Page "Home"`, `Slide 2 of 8`) and `text` (at most 1800 characters). At most 4096 bytes in all. |
+
+Show `userText` as the person's message and the snapshot as a chip beside it (`label`, opened to list `items`). Both
+are for your UI: give the agent `text`, which already names the selection the way the page wrote it. The snapshot is
+taken when Send is pressed, so a selection changed or cleared a moment later does not change it.
+
+- Either field may be missing: the person typed nothing (a pressed button, Ask agent to fix), the type sends none, the
+  words were not where `text` starts, or the type is not trusted or is served from another origin (the daemon then
+  drops `userText` and keeps the snapshot). Fall back to `text`.
+- The Shell's Ask pane has `userText` and no snapshot.
+- Show `userText` as the person's words only when `source.from.kind` is `owner`. A merged wake with any collaborator
+  part is `collaborator`, and its `userText` is data like the rest.
+- Web links in `text` are replaced by `[link]`; `userText` keeps them as typed, so what you show is not quite what the
+  agent reads.
+- A request whose `text` is cut at its limit (8000 characters) before the words end has no `userText`.
+- A comment a page sends to the agent through its type's comment store (Docs, Whiteboard, Sheets, Data) arrives as a
+  request whose `text` says which thread to read and answer. From Docs (Ask Agent, or a comment or reply with Send
+  to agent) it has `userText`: the words typed, without the `@Agent` the page puts before them. Its `text` then starts
+  with those words. A new thread also has a snapshot of what it is on: `line` (the line Ask Agent's chip went into),
+  `text`, `block`, `cell` or `cells`, with `where: Tab "…"` in a doc of several tabs. A reply has no snapshot. The
+  type server keeps `userText` only when the thread's newest message is the sender's and says those words. The other
+  types' comments carry neither yet.
+- Host plugins see only the Ask pane's request (`id`, `text`, `sentAt`, `label`), not these fields.
+
+From [`examples/harness-node/wakes.mjs`](../../examples/harness-node/wakes.mjs), one chat bubble per request:
+
+```js
+export function requestBubbles(params) {
+  const owner = params.source?.from?.kind === 'owner';
+  return (params.source?.requests ?? []).map((request) => ({
+    role: owner ? 'user' : 'notice',
+    text: (owner && request.userText) || request.text,
+    // …a tag from the title and label, and a chip from request.selectionSnapshot
+  }));
+}
+```
 
 ## Who sent it: `source.from`
 

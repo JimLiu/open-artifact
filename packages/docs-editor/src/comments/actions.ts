@@ -24,6 +24,7 @@ import { AGENT_KEY, mentionsIn } from './mentions.ts';
 import { CommentOutbox, type OutboxEntry, type OutboxItem, indexedDbOutboxStore, isNetworkError, outboxText } from './outbox.ts';
 import { rangesOf } from './plugin.ts';
 import { showRefused } from './refused.ts';
+import { docsSelectionSnapshot, sendParts, tabWhere } from './send-parts.ts';
 import {
   type Composer,
   NEW_THREAD,
@@ -56,6 +57,18 @@ function addressees(text: string): string[] {
   const { threads } = docComments.store.getState();
   const { peers } = useCommentUi.getState();
   return mentionsIn(text, mentionCandidates(threads, peers, myName(), canAskAgent() ? { name: agentName() } : null));
+}
+
+type SendParts = ReturnType<typeof sendParts>;
+
+/** What a new thread's send to the agent shows: the words typed, and what the thread is on (its tab, when several). */
+function newThreadParts(typed: string, composer: Composer): SendParts {
+  const files = getDocs().project?.files ?? [];
+  const tab = composer.anchor.tab;
+  const where = files.length > 1 ? tabWhere(files.find(file => file.id === tab)?.name) : undefined;
+  const block = typeof composer.location.block === 'string' ? composer.location.block : null;
+  const place = { anchor: composer.anchor, label: composer.label, block, ...(composer.quote ? { quote: composer.quote } : {}), ...(composer.chip ? { chip: true } : {}) };
+  return sendParts(typed, docsSelectionSnapshot(place, where));
 }
 
 /** The text @mentions the agent: it goes to the agent whatever "Send to agent" says. */
@@ -115,6 +128,7 @@ function wordsComposer(view: EditorView, tab: string, from: number, until: numbe
     detail: quoteDetail(words, aroundText(view.state, from, to)),
     location: anchorLocation(anchor, blockIdAt(view.state.doc, from)),
     text: '',
+    quote: words,
     ...(cut !== null ? { clamped: true } : {}),
   };
 }
@@ -141,10 +155,24 @@ function cellComposer(tab: string, selection: CellSelection): Composer | null {
     const cell = selection.$anchorCell.nodeAfter;
     const words = cell?.textContent ?? '';
     const anchor: DocAnchor = { kind: 'cell', tab, cell: picked.cells[0]! };
-    return { anchor, label: words ? quoteLabel(words) : 'Table cell', detail: words ? quoteDetail(words, '') : 'An empty table cell', location: anchorLocation(anchor, null), text: '' };
+    return {
+      anchor,
+      label: words ? quoteLabel(words) : 'Table cell',
+      detail: words ? quoteDetail(words, '') : 'An empty table cell',
+      location: anchorLocation(anchor, null),
+      text: '',
+      ...(words ? { quote: words } : {}),
+    };
   }
   const anchor: DocAnchor = { kind: 'cells', tab, cells: picked.cells, ...(picked.table ? { table: picked.table } : {}) };
-  return { anchor, label: cellsLabel(picked.shape), detail: cellsDetail(picked.shape, picked.words), location: anchorLocation(anchor, null), text: '' };
+  return {
+    anchor,
+    label: cellsLabel(picked.shape),
+    detail: cellsDetail(picked.shape, picked.words),
+    location: anchorLocation(anchor, null),
+    text: '',
+    ...(picked.words ? { quote: picked.words } : {}),
+  };
 }
 
 /** Why a selection that takes in table cells and text around them (or two tables) gets no comment. */
@@ -220,12 +248,12 @@ export async function commentOnSuggestion(target: SuggestionReplyTarget): Promis
  * a talk with the agent, unasked. `edited`: the message was changed, not written. `quiet`: the person unchecked
  * "Send to agent", so only an @mention hands it over.
  */
-async function handOver(thread: CommentThread, to: readonly string[], edited = false, quiet = false): Promise<void> {
+async function handOver(thread: CommentThread, to: readonly string[], edited = false, quiet = false, parts?: SendParts): Promise<void> {
   if (!canAskAgent()) return;
   const { choice } = judgeComment({ thread, to, edited });
   // "Send to agent" unchecked on a reply: it stays with people, unless it @mentions the agent.
   if (quiet && choice !== 'asked') return;
-  if (choice === 'asked') await docComments.sendToAgent(thread.id);
+  if (choice === 'asked') await docComments.sendToAgent(thread.id, parts);
   // A reply going on a talk with the agent reaches it unasked: no "Sent" notice, and a host that refuses it is no error.
   else if (choice === 'wake') await capability()?.sendToAgent(thread.id, { unasked: true }).then(putThread, () => undefined);
 }
@@ -315,7 +343,7 @@ export async function createThread(text: string, composer: Composer | null = use
     putThread(thread);
     if (useCommentUi.getState().composer === composer) setCommentUi({ composer: null });
     setActive(thread.id);
-    await handOver(thread, to);
+    await handOver(thread, to, false, false, newThreadParts(typed, composer));
     return true;
   } catch (error) {
     if (await keepForLater(error, { kind: 'create', input })) {
@@ -361,7 +389,7 @@ export async function reply(threadId: string, text: string, send?: boolean): Pro
       const { [threadId]: _sent, ...replies } = state.replies;
       return { replies };
     });
-    await handOver(thread, to, false, quiet);
+    await handOver(thread, to, false, quiet, sendParts(typed));
     return true;
   } catch (error) {
     if (await keepForLater(error, { kind: 'reply', threadId, text: body, ...(to.length ? { to } : {}), ...(quiet ? { quiet } : {}) })) {

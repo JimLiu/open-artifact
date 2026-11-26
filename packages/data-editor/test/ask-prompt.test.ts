@@ -58,6 +58,9 @@ describe('ask prompt', () => {
     assert.equal(request.title, ASK_TITLE);
     assert.equal(request.text, 'Make it bigger');
     assert.deepEqual(request.context, { request: 'Make it bigger', label: selection.label, selection });
+    // For the app showing the request: the words as typed, and the chip of the part asked about.
+    assert.equal(request.userText, 'Make it bigger');
+    assert.deepEqual(request.selectionSnapshot, { kind: 'pick', label: selection.label, count: 1, text: selection.text });
     assert.match(buildCopiedPrompt(selection), /Signups/);
     assert.equal(ASK_SENT, 'Sent to the agent.');
     assert.equal(NOT_LISTENING, 'The agent isn’t listening to this dashboard. Ask it to wait for requests here, then try again.');

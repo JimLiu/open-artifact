@@ -9,7 +9,7 @@ import { createThread } from '../comments/actions.ts';
 import { type Composer, agentName, canAskAgent, canComment } from '../comments/store.ts';
 import { currentView, useEditor } from '../editor/format.ts';
 import { suggestingNow } from '../suggest/mode.ts';
-import { type AskEntry, agentChip, askOnChip, chipInsertion, chipThread, emptyDocSpot, lineWords, offersAsk } from './ask.ts';
+import { type AskEntry, agentChip, askOnChip, chipInsertion, chipThread, emptyDocSpot, lineText, lineWords, offersAsk } from './ask.ts';
 import { askSpotOf, setAskSpot } from './spot.ts';
 import { getAsk, setAsk, setDraft } from './store.ts';
 
@@ -66,7 +66,7 @@ function putChip(view: EditorView, tab: string, entry: AskEntry): Placed | null 
   }
   const block = view.state.doc.resolve(inserted.at).parent;
   const thread = chipThread({ tab, chip: ids[0], block: blockIdAt(view.state.doc, inserted.at), name, line: lineWords(block) });
-  return { tab, chip: ids[0], composer: { ...thread, text: '' } };
+  return { tab, chip: ids[0], composer: { ...thread, text: '', quote: lineText(block), chip: true } };
 }
 
 /** Takes the chip out again, wherever it is now. */

@@ -85,9 +85,155 @@ export interface WakeRequestItem {
   text: string;
   /** What was selected on the page, as text (data). */
   selection?: string;
+  /**
+   * The words the person typed on the page, as typed (line breaks kept), for an app to show as their message. `text`
+   * starts with them; a request the page wrote itself ("Ask agent to fix") has none. See {@link normalizeUserText}.
+   */
+  userText?: string;
+  /** What was selected when the person sent it, for an app to show (data). See {@link SelectionSnapshot}. */
+  selectionSnapshot?: SelectionSnapshot;
   sentAt?: string;
   /** Who asked, when it was not the owner (see {@link WakeThread.from}). */
   from?: WakeSender;
+}
+
+/**
+ * What was selected on the page when the person sent a request: taken at that moment, so an app need not read the
+ * view later, when the person may have clicked elsewhere. It describes the selection the request's `text` names.
+ * Every string in it is artifact content, possibly written by someone else: show it as plain text.
+ *
+ * As claude.ai's pages do, it is the viewer's view context at send time (`selection: [{id, kind, label}]`) with a count,
+ * and the one-line `label` claude.ai shows beside a page's request.
+ */
+export interface SelectionSnapshot {
+  /**
+   * What is selected: `elements`, `artboards`, `slides`, `slide`, `focus`, `area`, `point`, `pick`, `cells`, `chart`,
+   * `text`, or a type's own word. An app shows the kinds it knows its own way and `label` for the others.
+   */
+  kind: string;
+  /** One line naming it, e.g. `3 selected elements`, `Sheet1!B2:D9` (at most 120 characters). */
+  label: string;
+  /** How many things are selected (at least 1, at least `items.length`): `items` may list only the first ones. */
+  count: number;
+  /** The first selected things (at most 20). */
+  items?: SelectionSnapshotItem[];
+  /** Where they are: the page, slide, board or sheet, e.g. `Slide 3 of 12` (at most 120 characters). */
+  where?: string;
+  /** The selected text, when the selection is text (at most 1,800 characters). */
+  text?: string;
+}
+
+/** One selected thing in a {@link SelectionSnapshot}. */
+export interface SelectionSnapshotItem {
+  /** The id the artifact knows it by (at most 128 characters). */
+  id: string;
+  /** What it is, e.g. `text`, `image`, `sticky` (at most 32 characters). */
+  kind?: string;
+  /** Its label, e.g. the start of its text (at most 60 characters). */
+  label?: string;
+}
+
+/** Limits of a {@link SelectionSnapshot}. */
+export const SELECTION_SNAPSHOT_LIMITS = Object.freeze({
+  /** The whole snapshot as JSON, UTF-8 bytes (what claude.ai's `sendToClaudeSession` takes). */
+  bytes: 4096,
+  kind: 32,
+  label: 120,
+  where: 120,
+  text: 1800,
+  items: 20,
+  itemId: 128,
+  itemKind: 32,
+  itemLabel: 60,
+});
+
+/** Characters that can fake markers or control a terminal (as `sanitizeUntrusted` of `@open-artifact/runtime`). */
+const UNSAFE = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f‪-‮⁦-⁩]/g;
+
+/** A snapshot string: unsafe characters removed, on one line when `oneLine`, clamped; `undefined` when empty. */
+function snapshotString(value: unknown, max: number, oneLine = true): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  let text = value.replace(UNSAFE, '');
+  if (oneLine) text = text.replace(/\s+/g, ' ');
+  text = text.trim();
+  if (!text) return undefined;
+  const chars = [...text];
+  return chars.length > max ? `${chars.slice(0, max - 1).join('')}…` : text;
+}
+
+const utf8Bytes = (text: string): number => new TextEncoder().encode(text).length;
+
+/**
+ * A {@link SelectionSnapshot} as a page sent it, checked: `undefined` when it is not one (no `kind`, `label` or
+ * positive `count`), else its strings cleaned and clamped, bad items left out, and at most
+ * {@link SELECTION_SNAPSHOT_LIMITS}`.bytes` of JSON (dropping `text`, then items from the end). Something to show that
+ * is broken never stops the request it came with: it is only left out.
+ */
+export function normalizeSelectionSnapshot(value: unknown): SelectionSnapshot | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const given = value as Record<string, unknown>;
+  const L = SELECTION_SNAPSHOT_LIMITS;
+  const kind = snapshotString(given.kind, L.kind);
+  const label = snapshotString(given.label, L.label);
+  const count = typeof given.count === 'number' && Number.isFinite(given.count) ? Math.floor(given.count) : 0;
+  if (!kind || !label || count < 1) return undefined;
+  const items: SelectionSnapshotItem[] = [];
+  if (Array.isArray(given.items)) {
+    for (const raw of given.items) {
+      if (items.length >= L.items) break;
+      if (!raw || typeof raw !== 'object') continue;
+      const entry = raw as Record<string, unknown>;
+      const id = snapshotString(entry.id, L.itemId);
+      if (!id) continue;
+      const itemKind = snapshotString(entry.kind, L.itemKind);
+      const itemLabel = snapshotString(entry.label, L.itemLabel);
+      items.push({ id, ...(itemKind ? { kind: itemKind } : {}), ...(itemLabel ? { label: itemLabel } : {}) });
+    }
+  }
+  const where = snapshotString(given.where, L.where);
+  const text = snapshotString(given.text, L.text, false);
+  const snapshot: SelectionSnapshot = {
+    kind,
+    label,
+    count: Math.max(count, items.length),
+    ...(items.length ? { items } : {}),
+    ...(where ? { where } : {}),
+    ...(text ? { text } : {}),
+  };
+  const fits = (): boolean => utf8Bytes(JSON.stringify(snapshot)) <= L.bytes;
+  if (!fits()) delete snapshot.text;
+  while (!fits() && snapshot.items?.length) {
+    snapshot.items.pop();
+    if (!snapshot.items.length) delete snapshot.items;
+  }
+  return fits() ? snapshot : undefined;
+}
+
+/**
+ * A request's `userText` as a page sent it, checked against the request's `text` (as the type server cleaned it):
+ * unsafe characters removed and surrounding whitespace trimmed, line breaks kept; `undefined` when it is empty or
+ * `text` does not start with it (after its leading whitespace). Pages put the person's words first and what they add
+ * (a fenced selection) after, so what an app shows as the person's message is always what the agent reads first, and
+ * never a piece of artifact content further down. A `text` cut short loses its `userText`.
+ */
+export function normalizeUserText(value: unknown, text: string): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const words = value.replace(UNSAFE, '').trim();
+  if (!words) return undefined;
+  return text.trimStart().startsWith(words) ? words : undefined;
+}
+
+/**
+ * A request with its `userText` and `selectionSnapshot` checked ({@link normalizeUserText},
+ * {@link normalizeSelectionSnapshot}): each is left out when it does not pass.
+ */
+export function withRequestParts<T extends { text: string; userText?: unknown; selectionSnapshot?: unknown }>(
+  request: T,
+): Omit<T, 'userText' | 'selectionSnapshot'> & { userText?: string; selectionSnapshot?: SelectionSnapshot } {
+  const { userText, selectionSnapshot, ...rest } = request;
+  const words = normalizeUserText(userText, request.text);
+  const snapshot = normalizeSelectionSnapshot(selectionSnapshot);
+  return { ...rest, ...(words ? { userText: words } : {}), ...(snapshot ? { selectionSnapshot: snapshot } : {}) };
 }
 
 /** The structured copy of a wake message, for adapters that render it. */
@@ -99,7 +245,11 @@ export interface WakeSource {
   root: string;
   viewUrl: string;
   threads: Array<{ id: string; where: string; text: string }>;
-  requests: Array<{ id: string; label: string; text: string }>;
+  /**
+   * Page requests. `userText` and `selectionSnapshot` come from daemons that list the feature `wake.request.parts`,
+   * for requests whose page gives them: the person's own words, and what was selected when they sent it.
+   */
+  requests: WakeSourceRequest[];
   /** For a {@link TASK_HEADER} message: the task, its action and whether it succeeded. */
   task?: { id: string; action: string; ok: boolean };
   /** One line, at most 120 characters, for notifications and titles. */
@@ -118,6 +268,21 @@ export interface WakeSource {
    * part of it.
    */
   from: WakeFrom;
+}
+
+/** One page request in a {@link WakeSource}. */
+export interface WakeSourceRequest {
+  id: string;
+  label: string;
+  /** The request as the agent reads it (the person's words with what the page added). */
+  text: string;
+  /**
+   * The words the person typed, as typed: `text` starts with them. Show them as the person's message only when the
+   * wake's `from.kind` is `owner`.
+   */
+  userText?: string;
+  /** What was selected when the person sent it (artifact content: plain text). */
+  selectionSnapshot?: SelectionSnapshot;
 }
 
 /** A {@link WakeSource}: `reason` and `from` are always there now. Kept for code written when they were optional. */
@@ -307,7 +472,13 @@ export function wakeMessage(
       root: artifact.root,
       viewUrl: options.viewUrl,
       threads: threads.map((t) => ({ id: t.id, where: t.where ?? '', text: personText(t) })),
-      requests: requests.map((r) => ({ id: r.id, label: r.label ?? '', text: r.text })),
+      requests: requests.map((r) => ({
+        id: r.id,
+        label: r.label ?? '',
+        text: r.text,
+        ...(r.userText ? { userText: r.userText } : {}),
+        ...(r.selectionSnapshot ? { selectionSnapshot: r.selectionSnapshot } : {}),
+      })),
       summary,
       reason: threads.length ? 'comment' : 'request',
       from: wakeFrom([...threads.map((t) => t.from), ...requests.map((r) => r.from)]),

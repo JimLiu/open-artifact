@@ -67,7 +67,7 @@ import {
 } from '@open-artifact/runtime/http-api';
 import { agentPaths, agentStatus, askedAt, ASKING_MAX_MS, clearAsking, forgetPresence, markAsking, normalizeRequest, readEdits, sendToAgent } from './agent.ts';
 import { runCheck } from './project-check.ts';
-import type { ActionRequest, TypeServerHealth, OpenResult as OpenArtifactOpenResult, WakeSender } from '@open-artifact/protocol';
+import type { ActionRequest, TypeServerHealth, OpenResult as OpenArtifactOpenResult, SelectionSnapshot, WakeSender } from '@open-artifact/protocol';
 import type { TypeApiLike } from '@open-artifact/server-sdk';
 import { acceptWebSocket } from '@open-artifact/server-sdk/ws';
 import { reportTouch } from './daemon.ts';
@@ -713,7 +713,12 @@ export function createTypeServer(options: TypeServerOptions): TypeServer {
       },
       sendThread: async (thread, how) => {
         const request = normalizeRequest(
-          { text: threadRequestText(thread, how), title: `Comment: ${thread.label}`.slice(0, 80), context: { comment: { id: thread.id, where: thread.label, location: thread.location, messages: thread.messages.map((m) => ({ from: m.author?.kind ?? 'user', name: m.author?.name ?? '', text: m.text })) } } },
+          {
+            text: threadRequestText(thread, how),
+            title: `Comment: ${thread.label}`.slice(0, 80),
+            ...(how?.userText ? { userText: how.userText } : {}),
+            ...(how?.selectionSnapshot !== undefined ? { selectionSnapshot: how.selectionSnapshot as SelectionSnapshot } : {}),
+            context: { comment: { id: thread.id, where: thread.label, location: thread.location, messages: thread.messages.map((m) => ({ from: m.author?.kind ?? 'user', name: m.author?.name ?? '', text: m.text })) } } },
           'send',
         );
         const result = await sendToAgent({ root: artifact.root, artifactId: artifact.id, request, daemon, ...(how?.from ? { from: how.from } : {}) });
