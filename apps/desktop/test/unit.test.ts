@@ -19,6 +19,8 @@ import { OriginAllowlist, decide, decideServer, serverSubframeAllowed, shellArti
 import { daemonEnv, daemonOnDefaultPort, resolveProfile } from '../src/profile.ts';
 import { Servers, serverAddress, suggestName } from '../src/servers.ts';
 import { Settings, chromiumLang } from '../src/settings.ts';
+import { inflateSync } from 'node:zlib';
+import { APP_LOOK, drawIcon, markPart } from '../scripts/placeholder-icon.ts';
 import { until } from './lib/env.ts';
 
 const user = '/Users/someone';
@@ -911,5 +913,35 @@ describe("the package's Info.plist additions", async () => {
     assert.deepEqual(infoPlistAdditions({ urlScheme: true, bundleId: 'dev.openartifact.desktop' }), {
       CFBundleURLTypes: [{ CFBundleURLName: 'dev.openartifact.desktop.link', CFBundleURLSchemes: ['open-artifact'], CFBundleTypeRole: 'Viewer' }],
     });
+  });
+});
+
+describe('the app icon', () => {
+  it('tells the parts of the mark apart, the front square covering the one behind', () => {
+    assert.equal(markPart(15, 15), 'dot');
+    assert.equal(markPart(21, 15), 'front');
+    assert.equal(markPart(3, 9), 'back');
+    // Inside the front square, where the back square's line would run: covered.
+    assert.equal(markPart(15, 12), null);
+    assert.equal(markPart(12, 12), null);
+  });
+
+  it('draws each part in its colour on the brand blue', () => {
+    const size = 120;
+    const file = drawIcon(size);
+    // One IDAT (the PNG is ours): rows of a filter byte (0) and RGBA.
+    const at = file.indexOf('IDAT');
+    const rows = inflateSync(file.subarray(at + 4, at + 4 + file.readUInt32BE(at - 4)));
+    const pixel = (u: number, v: number) => {
+      // The mark's 24 units are 0.6 of the side, centred.
+      const x = Math.floor((0.5 + (u - 12) / 40) * size);
+      const y = Math.floor((0.5 + (v - 12) / 40) * size);
+      const i = y * (size * 4 + 1) + 1 + x * 4;
+      return '#' + [...rows.subarray(i, i + 3)].map((c) => c.toString(16).padStart(2, '0')).join('');
+    };
+    assert.equal(pixel(15, 15), APP_LOOK.dot);
+    assert.equal(pixel(21, 15), APP_LOOK.front);
+    assert.equal(pixel(3, 9), APP_LOOK.back);
+    assert.notEqual(pixel(12, 12), APP_LOOK.back);
   });
 });

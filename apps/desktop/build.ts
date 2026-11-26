@@ -3,7 +3,8 @@
 // `electron` is left to Electron), bundles the sandbox preloads beside it, builds the window's page into out/renderer/
 // (a React app: renderer/src/main.tsx → app.js, the home page's CSS → page.css, the window's own → app.css, the
 // Tailwind utilities of the UI kit's components it uses → ui.css, and index.html), and bundles the probe the no-Node
-// test runs (out/test/chain-probe.mjs).
+// test runs (out/test/chain-probe.mjs). It also writes the app's icon as out/icon.png, which a development run puts
+// in the Dock.
 //
 // The page's React is this app's own (node_modules/react, the version the workspace uses): every import of react and
 // react-dom, the shared page package's and zustand's too, is pointed at it, so the page has exactly one React.
@@ -17,6 +18,7 @@ import { buildSync, type BuildOptions } from 'esbuild';
 import { copyFileSync, cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { PAGE_CSS, UPDATE_CSS } from '../../packages/library-page/src/styles.ts';
+import { drawIcon } from './scripts/placeholder-icon.ts';
 
 const here = import.meta.dirname;
 const out = join(here, 'out');
@@ -35,6 +37,9 @@ const common: BuildOptions = {
   logLevel: 'warning',
   banner: { js: "import { createRequire as __r } from 'node:module'; const require = __r(import.meta.url);" },
 };
+
+// The app's icon as a PNG, for the Dock of a development run (a packaged app carries the .icns).
+writeFileSync(join(out, 'icon.png'), drawIcon(512));
 
 // The entry is start.ts: the desktop app (main.ts), or an artifact installed as an app (artifact-app.ts).
 buildSync({ ...common, entryPoints: [join(here, 'src', 'start.ts')], outfile: join(out, 'main.mjs'), external: ['electron'] });

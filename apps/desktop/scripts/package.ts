@@ -9,7 +9,7 @@
  *   main process is one bundle (only `electron` is left out of it, which Electron provides).
  * - The runtime it carries (`resources/runtime`) is copied to `Contents/Resources/runtime`, where `main.ts` looks
  *   for it when packaged (`process.resourcesPath`).
- * - The icon is a placeholder (`scripts/placeholder-icon.ts`), and so are the icons of artifacts installed as apps
+ * - The icon is drawn by `scripts/placeholder-icon.ts`; the icons of artifacts installed as apps are still placeholders
  *   (one per type, `Contents/Resources/app-icons/<type>.icns`, copied into each app). The stable bundle id is
  *   `dev.openartifact.desktop`.
  * - Electron's fuses are left as they are: `RunAsNode` stays on, the daemon and the type servers run on the app's own

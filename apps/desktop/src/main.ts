@@ -246,6 +246,8 @@ async function start() {
     `profile ${JSON.stringify({ home: profile.home, port: profile.port, packaged: profile.packaged, testMode: profile.testMode, guarded: profile.guarded, paths: profile.paths })}`,
   );
   if (profile.testMode && process.platform === 'darwin') app.dock?.hide();
+  // A development run shows the app's icon in the Dock, not Electron's (a packaged app carries its own .icns).
+  else if (!profile.packaged && process.platform === 'darwin') app.dock?.setIcon(join(here, 'icon.png'));
   // The look of every page (the window's, the views', their frames'): a test run's switch, else the setting.
   nativeTheme.themeSource = themeSource();
 

@@ -321,8 +321,9 @@ arm64, a folder signed ad hoc on this computer
 (`codesign --force --deep --sign -`, the package only). It carries `out/` (the main process, the preloads, the
 pages) in `Contents/Resources/app.asar` (Electron checks it against `ElectronAsarIntegrity` in `Info.plist`) and the
 runtime in `Contents/Resources/runtime`, and the icons of installed artifact apps in
-`Contents/Resources/app-icons/`. The app icon (the Open Artifact mark in white on the brand blue) and the type icons
-(still placeholders) are drawn by `scripts/placeholder-icon.ts`, and the
+`Contents/Resources/app-icons/`. The app icon (the Open Artifact mark on the brand blue: the back square light blue, the front one white, the
+dot amber) and the type icons (still placeholders) are drawn by `scripts/placeholder-icon.ts`; `node build.ts` also
+writes the app icon as `out/icon.png`, which a development run puts in the Dock. The
 stable bundle id is `dev.openartifact.desktop`. Electron's fuses are left as they are: `RunAsNode` stays
 on, the daemon and the type servers run on the app's own executable. No URL scheme is declared by default, and
 nothing is installed or registered. `OA_DESKTOP_URL_SCHEME=1 npm run package` declares `open-artifact://` in the

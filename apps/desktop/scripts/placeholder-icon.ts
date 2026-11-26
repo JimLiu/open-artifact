@@ -3,8 +3,9 @@ export interface IconLook {
   glyph: 'sheet' | 'slide' | 'grid' | 'diamond' | 'swatches' | 'bars' | 'ring' | 'play' | 'window';
 }
 /**
- * The app's icon: a rounded square in the brand blue with the Open Artifact mark in white (two rounded squares in line,
- * the front one overlapping half of the one behind, a dot in the front one: `plugins/codex/assets/icon.svg`), drawn
+ * The app's icon: a rounded square in the brand blue with the Open Artifact mark (two rounded squares in line, the
+ * front one overlapping half of the one behind, a dot in the front one: `plugins/codex/assets/icon.svg`) in colour —
+ * the back square light blue, the front one white, the dot amber ({@link APP_LOOK}) — drawn
  * here pixel by pixel at every size an `.icns` holds, written as PNGs (Node's zlib, no image library) and put together
  * with macOS's `iconutil`. Nothing binary is kept in the repository. The type icons below are still placeholders.
  *
@@ -156,16 +157,28 @@ export const BRAND = '#2f5bb7';
  * radius 2 in the front one, as in `plugins/codex/assets/icon.svg`.
  */
 export function onMark(u: number, v: number, stroke = 2) {
+  return markPart(u, v, stroke) !== null;
+}
+
+/** Which part of the mark (u, v) is on (see {@link onMark}): the dot, the front square's line, the back one's, or none. */
+export function markPart(u: number, v: number, stroke = 2): 'dot' | 'front' | 'back' | null {
   // Signed distance to a rounded square centred on (cx, cy), `half` its half side, `r` its corner radius.
   const square = (cx: number, cy: number, half: number, r: number) => {
     const qx = Math.abs(u - cx) - (half - r);
     const qy = Math.abs(v - cy) - (half - r);
     return Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) + Math.min(Math.max(qx, qy), 0) - r;
   };
+  if (Math.hypot(u - 15, v - 15) <= 2) return 'dot';
   const front = square(15, 15, 6, 3);
-  if (Math.abs(front) <= stroke / 2 || Math.hypot(u - 15, v - 15) <= 2) return true;
-  return front > 0 && Math.abs(square(9, 9, 6, 3)) <= stroke / 2;
+  if (Math.abs(front) <= stroke / 2) return 'front';
+  return front > 0 && Math.abs(square(9, 9, 6, 3)) <= stroke / 2 ? 'back' : null;
 }
+
+/**
+ * The app icon's colours: the square's gradient (brand blue, lighter at the top), the back square's line a lighter
+ * blue, the front one's white, the dot amber.
+ */
+export const APP_LOOK = { top: '#4a78d8', bottom: '#2449a0', back: '#9db7f0', front: '#ffffff', dot: '#ffb547' };
 
 /**
  * The mark alone as a PNG, `ink` on `paper` (a colour, or transparent when left out), the 24-unit grid `scale` of the
@@ -198,16 +211,17 @@ export function drawMark(size: number, { ink = BRAND, paper, scale = 0.864 }: { 
 }
 
 /**
- * The icon at `size` pixels: 4×4 samples a pixel, so the edges are smooth. With no `look`, the app's own (the brand
- * blue, the mark in white); `look`: `{ tint, glyph }` (see {@link TYPE_ICONS}).
+ * The icon at `size` pixels: 4×4 samples a pixel, so the edges are smooth. With no `look`, the app's own
+ * ({@link APP_LOOK}); `look`: `{ tint, glyph }` (see {@link TYPE_ICONS}).
  */
 export function drawIcon(size: number, look?: IconLook) {
   const out = Buffer.alloc(size * size * 4);
   const S = 4;
   const tint = rgb(look?.tint ?? BRAND);
-  const top = mix(tint, WHITE, 0.12);
-  const bottom = mix(tint, [0, 0, 0], look ? 0.18 : 0.12);
+  const top = look ? mix(tint, WHITE, 0.12) : rgb(APP_LOOK.top);
+  const bottom = look ? mix(tint, [0, 0, 0], 0.18) : rgb(APP_LOOK.bottom);
   const ink = mix(tint, [0, 0, 0], 0.1);
+  const parts = { dot: rgb(APP_LOOK.dot), front: rgb(APP_LOOK.front), back: rgb(APP_LOOK.back) };
   const glyph = look?.glyph ?? 'sheet';
   for (let py = 0; py < size; py++) {
     for (let px = 0; px < size; px++) {
@@ -222,7 +236,12 @@ export function drawIcon(size: number, look?: IconLook) {
           // macOS icons sit in a 10% margin.
           if (!inRounded(x, y, 0.1, 0.1, 0.9, 0.9, 0.18)) continue;
           // The mark's 24 units are 0.6 of the side, so its lines sit in the middle 50%.
-          let c = look ? glyphAt(glyph, x, y, ink) : onMark(12 + (x - 0.5) * 40, 12 + (y - 0.5) * 40) ? WHITE : null;
+          let c: number[] | null;
+          if (look) c = glyphAt(glyph, x, y, ink);
+          else {
+            const part = markPart(12 + (x - 0.5) * 40, 12 + (y - 0.5) * 40);
+            c = part ? parts[part] : null;
+          }
           if (!c) {
             // The square: a little lighter at the top.
             const t = (y - 0.1) / 0.8;
