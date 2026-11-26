@@ -49,6 +49,12 @@ it shows.
 The DSH plugin is a level-3 integration. For want of a DSH API, three things are not wired: cards of the artifacts a turn
 made, the person's selection on the page as context, and `agent.wrote` for files DSH's own tools write.
 
+A request from a page shows in DSH's chat as the person typed it, with a chip of what was selected
+([`userText` and `selectionSnapshot`](wake.md#what-the-person-typed-and-selected-usertext-and-selectionsnapshot)).
+DSH has no separate display text for a user message: the agent and the chat share one text, the daemon's. The plugin's
+browser half draws the card from the message's source instead, so a DSH view that does not load it shows that full
+text, fenced selection included.
+
 ## Security
 
 Session permissions and person-only commands keep an honest agent on its path; they do not stop code that runs as the

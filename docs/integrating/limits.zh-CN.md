@@ -47,6 +47,9 @@
 
 DSH 插件是 L3 接入。由于缺少 DSH 的 API，有三件事没有接上：一个回合创建的作品的卡片、人在页面上的选择作为上下文，以及 DSH 自己的工具写文件时的 `agent.wrote`。
 
+页面发来的请求在 DSH 的对话里显示为人输入的原话，旁边是一个所选内容的标签
+（[`userText` 和 `selectionSnapshot`](wake.zh-CN.md#用户打的字和选中的内容usertext-与-selectionsnapshot)）。DSH 的用户消息没有单独的显示文本：Agent 和对话框用的是同一段文字，也就是 daemon 写的那段。插件的浏览器部分改为从消息的 source 画卡片，所以没有加载它的 DSH 界面会显示那整段文字，连同框起来的选区。
+
 ## 安全
 
 会话权限和仅限本人的命令让诚实的 Agent 走在正路上；它们拦不住以人的身份运行的代码（[安全](security.zh-CN.md#它不做什么)）。

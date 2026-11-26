@@ -1,5 +1,5 @@
 import { type CSSProperties, useState } from 'react';
-import { isShellMessage, type CardData, type CardRequest, type CardThread } from '../cards.ts';
+import { isShellMessage, type CardData, type CardRequest, type CardSelection, type CardThread } from '../cards.ts';
 import type { DshTranslate as Translate } from '../words.ts';
 
 /** Opens the artifact's Shell at a comment. */
@@ -116,6 +116,46 @@ function TaskCard({ data, t }: { data: CardData; t: Translate }) {
   );
 }
 
+function SelectIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true" style={iconStyle}>
+      <path d="M2 4V2.5a.5.5 0 0 1 .5-.5H4M8 2h1.5a.5.5 0 0 1 .5.5V4M10 8v1.5a.5.5 0 0 1-.5.5H8M4 10H2.5a.5.5 0 0 1-.5-.5V8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+/** What was selected when the request was sent: a chip with its label and place, opened to list what it holds. */
+function SelectionChip({ selection, t }: { selection: CardSelection; t: Translate }) {
+  const [open, setOpen] = useState(false);
+  const line = [selection.label, selection.where].filter(Boolean).join(' · ');
+  const more = selection.more > 0 ? t('card.selectionMore', { count: String(selection.more) }) : '';
+  const listed = selection.items.length > 0 || selection.text !== '';
+  return (
+    <div className="oac-selection">
+      <div className="oac-chip" title={line}>
+        <SelectIcon />
+        <span className="oac-chip-text">{line}</span>
+        {listed && (
+          <button type="button" className="oac-toggle" aria-expanded={open} aria-label={t(open ? 'card.selectionHide' : 'card.selectionShow')} onClick={() => setOpen(!open)}>
+            <ChevronDown />
+          </button>
+        )}
+      </div>
+      {listed && open && (
+        <div className="oac-selection-list">
+          {selection.text !== '' && <div className="oac-selection-text">{selection.text}</div>}
+          {selection.items.map((item, index) => (
+            <div key={index} className="oac-where">
+              {item}
+            </div>
+          ))}
+          {more && <div className="oac-where">{more}</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function RequestCard({ data, request, t }: { data: CardData; request: CardRequest; t: Translate }) {
   const { title } = data;
   const message = isShellMessage(request);
@@ -128,6 +168,7 @@ function RequestCard({ data, request, t }: { data: CardData; request: CardReques
         <Heading text={t(key, { title, label })} title={title} parts={t(key, { title: TITLE_MARK, label }).split(TITLE_MARK)} />
       </div>
       <div className="oac-body">{request.text}</div>
+      {request.selection && <SelectionChip selection={request.selection} t={t} />}
       <From data={data} t={t} />
     </div>
   );

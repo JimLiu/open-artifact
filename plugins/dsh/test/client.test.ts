@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { WAKE_SOURCE_KIND } from '@open-artifact/protocol';
-import { cardData, isShellMessage, isWakeEvent, threadUrl } from '../src/client/cards.ts';
+import { cardData, isShellMessage, isWakeEvent, selectionOf, threadUrl } from '../src/client/cards.ts';
 import { MAX_VIEWS, ShellViews } from '../src/client/host-open.ts';
 import { promptFor } from '../src/client/page-host.ts';
 import { dshEn, dshTranslator, dshZh, en, zh } from '../src/client/words.ts';
@@ -37,7 +37,7 @@ describe('cards', () => {
     const data = cardData(event);
     assert.equal(data.title, 'Landing page');
     assert.deepEqual(data.threads, [{ id: 't1', where: 'Hero', text: 'Bigger' }]);
-    assert.deepEqual(data.requests, [{ id: 'r1', label: 'Fix', text: 'Fix it' }]);
+    assert.deepEqual(data.requests, [{ id: 'r1', label: 'Fix', text: 'Fix it', selection: null }]);
     assert.equal(data.seq, 3);
     assert.equal(typeof isShellMessage(data.requests[0]!), 'boolean');
   });
@@ -51,6 +51,61 @@ describe('cards', () => {
     const task = cardData({ ...event, data: { source: { title: 'Deck', from: { kind: 'system' }, task: { id: 'k1', action: 'export', ok: false } } } });
     assert.deepEqual(task.task, { action: 'export', ok: false });
     assert.deepEqual(task.threads, []);
+  });
+
+  describe("a request's words and selection (wake.request.parts)", () => {
+    const agentText = 'Change this title to "Results"\n\n<<<UNTRUSTED-DATA-1f2e>>>\nSelected: Title (text) on Slide 2\n<<<END-UNTRUSTED-DATA-1f2e>>>';
+    const snapshot = {
+      kind: 'elements',
+      label: '3 selected elements',
+      count: 3,
+      items: [{ id: 'title', kind: 'text', label: 'Q3 results' }, { id: 'logo' }, null],
+      where: 'Slide 2 of 8',
+    };
+    const wake = (from: unknown, requests: unknown[]) => ({ ...event, data: { source: { ...event.data!.source, from, requests } } });
+    const request = { id: 'r1', label: 'Send to agent', text: agentText, userText: 'Change this title to "Results"', selectionSnapshot: snapshot };
+
+    it("shows the owner's own words, not the request as the agent reads it, with a chip of the selection", () => {
+      const [card] = cardData(wake({ kind: 'owner' }, [request])).requests;
+      assert.equal(card!.text, 'Change this title to "Results"');
+      assert.ok(!card!.text.includes('UNTRUSTED-DATA'));
+      assert.deepEqual(card!.selection, { label: '3 selected elements', where: 'Slide 2 of 8', items: ['Q3 results · text', 'logo'], more: 1, text: '' });
+    });
+
+    it("never shows a collaborator's userText as words: their card shows the request's text", () => {
+      const [card] = cardData(wake({ kind: 'collaborator', name: 'Ana', role: 'editor' }, [request])).requests;
+      assert.equal(card!.text, agentText);
+      assert.equal(card!.selection?.label, '3 selected elements', 'the chip is drawn either way');
+      // A wake that says nothing of who sent it is not taken as the owner's either.
+      assert.equal(cardData(wake(undefined, [request])).requests[0]!.text, agentText);
+    });
+
+    it('falls back to the text without words, and draws no chip for a snapshot without a label', () => {
+      const requests = [
+        { id: 'r1', label: 'Fix', text: 'Fix the errors' },
+        { id: 'r2', label: 'Send', text: 'x\n\n<selected/>', userText: '   ', selectionSnapshot: { kind: 'elements', count: 2 } },
+        { id: 'ask_1', text: 'Hello\nthere', userText: 'Hello\nthere' },
+        { id: 'r3', label: 'Text', text: 'Tighten', userText: 'Tighten', selectionSnapshot: { kind: 'text', label: 'Selected text', count: 1, text: 'A long\nparagraph' } },
+        'not a request',
+      ];
+      const cards = cardData(wake({ kind: 'owner' }, requests)).requests;
+      assert.deepEqual(
+        cards.map((card) => [card.id, card.text, card.selection]),
+        [
+          ['r1', 'Fix the errors', null],
+          ['r2', 'x\n\n<selected/>', null],
+          ['ask_1', 'Hello\nthere', null],
+          ['r3', 'Tighten', { label: 'Selected text', where: '', items: [], more: 0, text: 'A long\nparagraph' }],
+        ],
+      );
+      assert.equal(isShellMessage(cards[2]!), true);
+    });
+
+    it('reads a snapshot without a usable count by its items', () => {
+      assert.deepEqual(selectionOf({ label: 'Cells', count: 'many', items: [{ id: 'B2' }] }), { label: 'Cells', where: '', items: ['B2'], more: 0, text: '' });
+      assert.equal(selectionOf(null), null);
+      assert.equal(selectionOf('3 selected'), null);
+    });
   });
 
   it('links a thread by its comment', () => {

@@ -24,6 +24,9 @@ export const dshZh = {
   'card.less': '收起位置',
   'card.requestLabel': '请求',
   'card.from': '来自 {name}（{role}，不是所有者）',
+  'card.selectionShow': '显示所选内容',
+  'card.selectionHide': '收起所选内容',
+  'card.selectionMore': '还有 {count} 项',
   'card.task': '“{title}”上的 {action} 已完成，结果已发给 Agent',
   'card.taskFailed': '“{title}”上的 {action} 失败，结果已发给 Agent',
 };
@@ -53,6 +56,9 @@ export const dshEn: Record<DshKey, string> = {
   'card.less': 'Hide where',
   'card.requestLabel': 'Request',
   'card.from': 'From {name} ({role}, not the owner)',
+  'card.selectionShow': 'Show what was selected',
+  'card.selectionHide': 'Hide what was selected',
+  'card.selectionMore': 'and {count} more',
   'card.task': '{action} on “{title}” finished; result sent to agent',
   'card.taskFailed': '{action} on “{title}” failed; result sent to agent',
 };

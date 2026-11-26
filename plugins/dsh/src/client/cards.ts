@@ -12,6 +12,17 @@
  * A request from one of the page's buttons gets a card of its own, the header and its words; a message from the
  * Shell's chat (a request without a label, id `ask_…`) is one too. Words from someone other than the owner say who
  * sent them (`source.from`), and the result of a task the agent started (`source.task`) gets a card of its own.
+ *
+ * A request's words are what the person typed (`userText`, feature `wake.request.parts`) when the owner sent it, not
+ * the request as the agent reads it, which adds the fenced selection the page wrote. What was selected at Send
+ * (`selectionSnapshot`) is a chip under them:
+ *
+ *   Send to agent on "Q3 deck" sent to agent
+ *   Change this title to "Results"
+ *   [ Title · Slide 2 of 8 ]  ▾
+ *
+ * The agent's own copy (the message's content) is the daemon's text, unchanged. Every string here is artifact content:
+ * it is drawn as text, never as markup.
  */
 import { WAKE_SOURCE_KIND } from '@open-artifact/protocol';
 
@@ -22,11 +33,28 @@ export interface CardThread {
   text: string;
 }
 
+/** What was selected when a request was sent, as its chip draws it. */
+export interface CardSelection {
+  /** One line naming it, e.g. `3 selected elements`. */
+  label: string;
+  /** Where it is, e.g. `Slide 2 of 8`; empty when the page gave none. */
+  where: string;
+  /** The first selected things, each `label · kind` (or its id). */
+  items: string[];
+  /** How many more are selected than `items` lists (0 when it lists none: the label says how many). */
+  more: number;
+  /** The selected text, when the selection is text; empty otherwise. */
+  text: string;
+}
+
 /** One request of a card. */
 export interface CardRequest {
   id: string;
   label: string;
+  /** What the card shows: the person's own words when the owner typed them, else the request as the agent reads it. */
   text: string;
+  /** What was selected when it was sent, when the page said. */
+  selection: CardSelection | null;
 }
 
 /** What a card draws. */
@@ -72,17 +100,47 @@ function taskOf(value: unknown): CardData['task'] {
   return task && typeof task === 'object' ? { action: str(task.action), ok: task.ok !== false } : null;
 }
 
+/** The chip of a request's `selectionSnapshot`, or null when it has none that can be drawn. */
+export function selectionOf(value: unknown): CardSelection | null {
+  const snapshot = value as { label?: unknown; where?: unknown; count?: unknown; items?: unknown; text?: unknown } | null;
+  if (!snapshot || typeof snapshot !== 'object' || !str(snapshot.label)) return null;
+  const items = (Array.isArray(snapshot.items) ? (snapshot.items as Array<Record<string, unknown> | null>) : [])
+    .filter((item): item is Record<string, unknown> => !!item && typeof item === 'object')
+    .map((item) => [str(item.label) || str(item.id), str(item.kind)].filter(Boolean).join(' · '))
+    .filter(Boolean);
+  const count = typeof snapshot.count === 'number' && Number.isFinite(snapshot.count) ? Math.floor(snapshot.count) : items.length;
+  return { label: str(snapshot.label), where: str(snapshot.where), items, more: items.length > 0 ? Math.max(0, count - items.length) : 0, text: str(snapshot.text) };
+}
+
+/**
+ * A request as its card draws it. Only the owner's `userText` is shown as their words: in a wake from anyone else
+ * (`from` not `owner`, a merged one included) it is data like the rest, so the card shows the request's text.
+ */
+function requestOf(request: Record<string, unknown>, owner: boolean): CardRequest {
+  const words = owner ? str(request.userText) : '';
+  return {
+    id: str(request.id),
+    label: str(request.label),
+    text: words.trim() ? words : str(request.text),
+    selection: selectionOf(request.selectionSnapshot),
+  };
+}
+
 /** The card's data, from the message's source. */
 export function cardData(event: SessionEventLike): CardData {
   const source = event.data?.source ?? {};
   const threads = Array.isArray(source.threads) ? (source.threads as Record<string, unknown>[]) : [];
   const requests = Array.isArray(source.requests) ? (source.requests as Record<string, unknown>[]) : [];
+  const owner = (source.from as { kind?: unknown } | undefined)?.kind === 'owner';
   return {
     title: str(source.title),
     artifactId: str(source.artifactId),
     viewUrl: str(source.viewUrl),
     threads: threads.map((t) => ({ id: str(t.id), where: str(t.where), text: str(t.text) })).filter((t) => t.id),
-    requests: requests.map((r) => ({ id: str(r.id), label: str(r.label), text: str(r.text) })).filter((r) => r.id && r.text),
+    requests: requests
+      .filter((r) => r && typeof r === 'object' && str(r.text))
+      .map((r) => requestOf(r, owner))
+      .filter((r) => r.id && r.text),
     from: fromOf(source.from),
     task: taskOf(source.task),
     seq: event.seq,

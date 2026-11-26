@@ -52,6 +52,16 @@ export const CARD_CSS = `
 .oac-toggle svg{transition:transform .15s}
 .oac-toggle[aria-expanded=false] svg{transform:rotate(-90deg)}
 .oac-body{font-size:var(--dsh-content-font-size, 14px);line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere}
+.oac-selection{display:flex;flex-direction:column;gap:4px;min-width:0}
+.oac-chip{align-self:flex-start;max-width:100%;box-sizing:border-box;display:inline-flex;align-items:center;gap:4px;height:24px;padding:0 8px;
+  border:0.5px solid var(--dsw-alias-border-l1);border-radius:var(--dsw-radius-sm, 6px);color:var(--dsw-alias-label-secondary);
+  font:var(--dsw-font-xxs-12, 12px/18px sans-serif)}
+.oac-chip svg{flex:none}
+.oac-chip-text{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.oac-chip .oac-toggle{margin:0 -4px 0 0}
+.oac-selection-list{display:flex;flex-direction:column;gap:2px;padding-left:8px;border-left:2px solid var(--dsw-alias-border-l1)}
+.oac-selection-text{color:var(--dsw-alias-label-secondary);font:var(--dsw-font-xxs-12, 12px/18px sans-serif);white-space:pre-wrap;
+  overflow-wrap:anywhere;max-height:9em;overflow:auto}
 .oac-meta{display:flex;flex-direction:column;gap:6px;padding-top:6px;border-top:0.5px solid var(--dsw-alias-border-l1)}
 .oac-where{color:var(--dsw-alias-label-tertiary);font:var(--dsw-font-xxs-12, 12px/18px sans-serif);overflow-wrap:anywhere}
 .oac-view{align-self:flex-start;display:inline-flex;align-items:center;gap:2px;height:24px;margin-left:-6px;padding:0 6px;border:0;

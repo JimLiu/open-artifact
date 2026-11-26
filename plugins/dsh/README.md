@@ -15,8 +15,16 @@ guide is [docs/integrating.md](../../docs/integrating.md).
 | Skill | `/open-artifact <type> …`, rendered by the daemon for DSH | `src/server/skill.ts` |
 | Status | A session going `running` and back to `idle` is passed on, so the Shell shows the agent working only while it is | `src/server/index.ts` |
 
+A request from a page shows in the chat as a card with the words the person typed (`userText`) and a chip of what was
+selected when they sent it (`selectionSnapshot`, opened to list the items; feature `wake.request.parts`), not the
+request as the agent reads it with the page's fenced selection. A collaborator's request shows its full text, and one
+without `userText` (a button such as Ask agent to fix) shows its text as before. The agent reads the daemon's text
+unchanged (`src/client/cards.ts`).
+
 Not wired, for want of a DSH API: cards of the artifacts a turn made, the person's selection on a page as context, and
-`agent.wrote` for files DSH's own tools write ([limits](../../docs/integrating/limits.md)).
+`agent.wrote` for files DSH's own tools write. A DSH user message has one text, the one the agent reads; the person's
+words and the chip are drawn from the message's source by the plugin's browser half, so a DSH view that does not load
+it shows the full text ([limits](../../docs/integrating/limits.md)).
 
 ## Install
 
