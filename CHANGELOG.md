@@ -6,6 +6,24 @@ Every release of Open Artifact: the `@open-artifact/*` libraries, `@open-artifac
 Each entry is written from the commits since the previous tag (`node scripts/changelog.mjs` lists them); see
 [Releasing](README.md#releasing).
 
+## [0.16.2] - 2026-11-25
+
+Update signed Open Artifact Desktop releases from GitHub, and keep undelivered messages when agents reconnect.
+
+### Added
+
+- macOS Apple Silicon desktop releases check stable desktop versions on GitHub after launch and every six hours. A button beside Settings in the sidebar appears only when an update is available; clicking it opens the update window and starts a download with actual byte progress, cancellation and retry. Automatic downloads are optional and separate from runtime update policy.
+- Desktop downloads verify ZIP size and SHA-256, then pass the verified archive to the native macOS updater for code-signature verification and installation. Restart and Update waits for pending saves and asks about unsaved work; a staged update also installs on normal quit.
+- Desktop releases include a static update feed generated from the final signed and notarized ZIP. Publication validates its version, download URL, byte count and digest, preserves immutable assets and verifies public downloads.
+
+### Fixed
+
+- Comments, requests and notes that an agent could not take after reconnecting, a daemon restart, or the first DSH/Pi attach wait in its inbox again, so a later tool call, wait or attach can receive them instead of losing them with the host process.
+
+### Integrators
+
+- The optional `inbox.return` feature and method put undelivered messages back in the adapter's own session inbox, ahead of newer messages; an open wait receives them immediately. Each call accepts up to 500 messages, each up to 256 KB. The kit returns declined messages after automatic re-attachment; with an older daemon it adds retained messages to the next `call()` or wait. DSH and Pi also return messages their first attach could not hand on. The Harness protocol version remains 1.
+
 ## [0.16.1] - 2026-11-25
 
 Keep an agent that runs in a sandbox to its session's workspace, even though the daemon runs with your full rights.
@@ -662,6 +680,7 @@ One version for every package, with Docs and Sheets in every plugin.
 - Plugins for Claude Code, Codex, Cursor, Copilot, ChatGPT and DeepSeek Harness.
 - English and Chinese READMEs, under Apache-2.0.
 
+[0.16.2]: https://github.com/JimLiu/open-artifact/compare/v0.16.1...v0.16.2
 [0.16.1]: https://github.com/JimLiu/open-artifact/compare/v0.16.0...v0.16.1
 [0.16.0]: https://github.com/JimLiu/open-artifact/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/JimLiu/open-artifact/compare/v0.14.7...v0.15.0

@@ -1,6 +1,6 @@
 {
   "name": "@open-artifact/motion-core",
-  "version": "0.16.1",
+  "version": "0.16.2",
   "private": true,
   "type": "module",
   "description": "The Motion type's model, free of DOM and React: the film store, scenes.json, names and limits, the play/film clock, by-hand records and their source rewriting, palettes, fonts, comment anchors, agent requests, the flash check and the project check.",
@@ -8,7 +8,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@open-artifact/wasm-motion": "0.16.1"
+    "@open-artifact/wasm-motion": "0.16.2"
   },
   "license": "Apache-2.0"
 }

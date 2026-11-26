@@ -121,6 +121,13 @@ runs before restart; canceling leaves the staged update ready. Development, ad h
 builds never check or install. An older app without this updater needs one manual download of an updater-enabled
 release. The updater itself needs no GitHub token or additional signing secrets.
 
+A [signed rehearsal on 2026-11-25](https://github.com/JimLiu/open-artifact-update-drill-20261125-a1cd84/blob/main/verification.json)
+verified anonymous GitHub downloads, actual byte progress, cancellation and partial-file cleanup, rejection of an
+incorrect SHA-256 and a damaged code signature, cancellation at the unsaved-work prompt, recovery of the pending
+save, native restart/installation and retained document content. The installed bytes, signature, stapled ticket and
+Gatekeeper assessment matched the notarized target. The fixtures use a dedicated repository, bundle ID and profile;
+they are test versions, separate from production releases. Test mode remains unable to check or install updates.
+
 ## Local packaging and checks
 
 Build the runtime at the repository root first:

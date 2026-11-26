@@ -1,6 +1,6 @@
 {
   "name": "@open-artifact/host",
-  "version": "0.16.1",
+  "version": "0.16.2",
   "private": true,
   "type": "module",
   "description": "The Open Artifact cloud host: a platform-neutral core (HTTP routing, page tokens, the catalog, authorization) and its Node adapter.",
@@ -13,11 +13,11 @@
     "./files": "./src/node/files.ts"
   },
   "dependencies": {
-    "@open-artifact/host-plugin": "0.16.1",
-    "@open-artifact/protocol": "0.16.1",
-    "@open-artifact/runtime": "0.16.1",
-    "@open-artifact/server-sdk": "0.16.1",
-    "@open-artifact/type-server": "0.16.1"
+    "@open-artifact/host-plugin": "0.16.2",
+    "@open-artifact/protocol": "0.16.2",
+    "@open-artifact/runtime": "0.16.2",
+    "@open-artifact/server-sdk": "0.16.2",
+    "@open-artifact/type-server": "0.16.2"
   },
   "license": "Apache-2.0"
 }

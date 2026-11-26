@@ -111,6 +111,11 @@ Electron 原生 macOS 更新器，再次校验完整性和代码签名，通过�
 测试模式都不检查或安装。没有更新器的旧版需要手动下载一次已支持更新器的新版本。更新器本身无需 GitHub token
 或新增签名密钥。
 
+[2026-11-25 的真实签名演练](https://github.com/JimLiu/open-artifact-update-drill-20261125-a1cd84/blob/main/verification.json)
+验证了匿名 GitHub 下载、实际字节进度、取消与半截文件清理、错误 SHA-256 和损坏代码签名的拒绝、未保存内容确认时
+取消安装、恢复待保存内容、原生重启安装以及文档保留。安装后的字节、签名、staple 票据与 Gatekeeper 校验均匹配
+已公证目标。演练使用独立仓库、Bundle ID 和配置目录，版本仅供测试，与正式发布分开；测试模式仍不能检查或安装更新。
+
 ## 本机打包与检查
 
 先在仓库根构建 runtime：
