@@ -12,7 +12,8 @@
  */
 
 import { Copy, Send, UserCheck, X } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
+import { MAX_HOST_TEXT } from '@open-artifact/protocol';
 import { Button, IconButton } from '@open-artifact/ui';
 import { OwnerBadge } from '../../components/OwnerBadge.tsx';
 import { api, errorText } from '../../lib/api.ts';
@@ -152,8 +153,12 @@ export function AskPane() {
   const badgeLabel = cloudAgent && ownerStatus !== 'working' ? t(cloudAgent.state === 'online' ? 'statusConnected' : cloudAgent.state === 'none' ? 'statusNoAgent' : 'statusOffline') : undefined;
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
+  const statusId = useId();
   const input = useRef<HTMLTextAreaElement>(null);
   const log = useRef<HTMLOListElement>(null);
+  const length = text.trim().length;
+  const tooLong = length > MAX_HOST_TEXT;
+  const canSend = !busy && length > 0 && !tooLong;
 
   useEffect(() => input.current?.focus(), []);
   useEffect(() => {
@@ -161,7 +166,7 @@ export function AskPane() {
   }, [sent.length]);
 
   const submit = async (): Promise<void> => {
-    if (busy || !text.trim()) return;
+    if (!canSend) return;
     setBusy(true);
     if (await ask(text, agent)) setText('');
     setBusy(false);
@@ -205,6 +210,8 @@ export function AskPane() {
           value={text}
           placeholder={t('askPlaceholder')}
           aria-label={t('askPlaceholder')}
+          aria-invalid={tooLong || undefined}
+          aria-describedby={tooLong ? statusId : undefined}
           onChange={(event) => setText(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
@@ -215,10 +222,10 @@ export function AskPane() {
           className="block max-h-[40vh] min-h-[72px] w-full resize-y rounded-xl border border-line bg-surface-2 px-3 py-2.5 text-[13px] text-fg outline-none placeholder:text-fg-subtle focus:border-accent"
         />
         <div className="mt-2 flex items-center gap-2">
-          <span role="status" className="min-w-0 flex-1 text-xs text-fg-muted">
-            {status}
+          <span id={statusId} role="status" className="min-w-0 flex-1 text-xs text-fg-muted">
+            {tooLong ? t('askTooLong', { limit: MAX_HOST_TEXT }) : status}
           </span>
-          <Button type="submit" size="lg" variant="primary" disabled={busy || !text.trim()} icon={<Send className="size-3.5" />}>
+          <Button type="submit" size="lg" variant="primary" disabled={!canSend} icon={<Send className="size-3.5" />}>
             {t(owner?.wakeMode === 'draft' ? 'sendToConversation' : 'sendToAgent', { agent })}
           </Button>
         </div>

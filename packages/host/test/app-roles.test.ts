@@ -5,7 +5,7 @@
 
 import assert from 'node:assert/strict';
 import { after, before, describe, it } from 'node:test';
-import type { ArtifactView, HomeBoot, ShellBoot } from '@open-artifact/protocol';
+import { MAX_HOST_TEXT, type ArtifactView, type HomeBoot, type ShellBoot } from '@open-artifact/protocol';
 import { guestCookie } from '../src/core/auth/session.ts';
 import type { ArtifactRow, UserRecord } from '../src/core/types.ts';
 import { bootOf, makeApp, type TestApp } from './app-fixture.ts';
@@ -149,12 +149,14 @@ describe('app roles', () => {
     for (const as of [cam.cookie, vic.cookie, guestCookieHeader]) assert.equal(await ask(as), 403);
     await app.catalog.setArtifactSettings(board.id, { editorsCanAskAgent: true });
     app.ctx.access.invalidate(board.id);
-    assert.equal(await ask(eve.cookie, 'Please add a column'), 200);
+    const text = 'Please add a column 📊'.padStart(MAX_HOST_TEXT, 'x');
+    assert.equal(await ask(eve.cookie, text), 200);
+    assert.equal(await ask(eve.cookie, text + '!'), 413);
     assert.equal(await ask(ada.cookie, '  '), 400);
     const outbox = await app.catalog.listOutbox(ada.user.id);
     assert.equal(outbox.length, 2);
     const last = outbox.at(-1)!.payload as { requests: Array<{ text: string }>; from: { name: string; role: string } };
-    assert.equal(last.requests[0]!.text, 'Please add a column');
+    assert.equal(last.requests[0]!.text, text);
     assert.deepEqual(last.from, { name: 'Eve', role: 'editor' });
     assert.ok(app.heard.outbox.some((e) => e.userId === ada.user.id));
     await app.catalog.setArtifactSettings(board.id, { editorsCanAskAgent: false });

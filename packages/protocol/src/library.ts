@@ -7,6 +7,8 @@
  * origin or with `Authorization: Bearer <daemon token>`.
  */
 
+import { OpenArtifactError } from './errors.ts';
+import { MAX_HOST_TEXT } from './shell.ts';
 import type { ResolvedEntry, TypeRuntime, TypeScope } from './manifest.ts';
 import type { LinkSiteType, SiteTypeDetail } from './link.ts';
 import type { TypeSourceKind } from './type-package.ts';
@@ -508,6 +510,14 @@ export interface AskRequest {
   id: string;
   text: string;
   label?: string;
+}
+
+/** The same Ask text must fit in the session request and the host's `comment_summon`. */
+export function askRequestText(value: unknown): string {
+  const text = typeof value === 'string' ? value.trim() : '';
+  if (!text) throw new OpenArtifactError('invalid_argument', 'Enter a message to send.');
+  if (text.length > MAX_HOST_TEXT) throw new OpenArtifactError('too_large', `Shorten the message to ${MAX_HOST_TEXT} characters or fewer.`);
+  return text;
 }
 
 /** Library API route names (after `/api/open-artifact.`). */

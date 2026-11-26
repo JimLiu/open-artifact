@@ -36,6 +36,7 @@ import { createServer as createNetServer } from 'node:net';
 import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { api, createHarness, readDaemon } from '@open-artifact/harness-kit';
+import { MAX_HOST_TEXT } from '@open-artifact/protocol';
 import { ScriptedAgent } from '../examples/harness-node/agent.mjs';
 import { callerOf, connectHarness } from '../examples/harness-node/harness.mjs';
 import { registerTools } from '../examples/harness-node/tools.mjs';
@@ -138,7 +139,7 @@ const shellPoint = selector =>
 const ASK_BUTTON = `[...document.querySelectorAll('button[aria-expanded]')].find(b => /^(Ask|问) /.test(b.textContent.trim()))`;
 const ASK_TEXT = `document.querySelector('aside textarea') || document.querySelector('textarea')`;
 
-/** Clicks the Shell's Ask, types `text` in the pane and sends it with Enter: real mouse and keys. */
+/** Clicks the Shell's Ask, enters the whole draft and presses Enter. */
 async function askFromPage(page, text) {
   let at = null;
   await until(async () => (at = (await page.evaluateAll(shellPoint(ASK_BUTTON))).find(Array.isArray)), 20000, 200);
@@ -153,7 +154,7 @@ async function askFromPage(page, text) {
     return (await page.evaluateAll(focused)).includes(true);
   }, 10000, 300);
   assert.ok(inBox, 'the Ask pane has no text box to type in');
-  await page.type(text);
+  await page.cdp('Input.insertText', { text });
   await page.press('Enter');
 }
 
@@ -415,15 +416,22 @@ describe('harness compatibility: the reference host against a real daemon', () =
     const page = await ctx.browser.load(ctx.hostPage(ctx.originA), { ready: "window.got && window.got.some(m => m.data && m.data.openArtifact === 'shell_hello')" });
     assert.ok(await page.waitFor("window.got.some(m => m.data && m.data.openArtifact === 'shell_ready')", 15000), `taken: ${JSON.stringify(await heard(page))}`);
     const wakes = ctx.frameWakes.length;
-    await askFromPage(page, 'Make the heading blue');
+    const text = 'Make the heading blue'.padStart(MAX_HOST_TEXT, 'x');
+    const draft = text + '!';
+    await askFromPage(page, draft);
+    const drafts = await page.evaluateAll(`document.querySelector('aside button[type="submit"]')?.disabled ? document.querySelector('aside textarea[aria-invalid="true"]')?.value : undefined`);
+    assert.ok(drafts.includes(draft), 'the oversized draft stays editable and cannot be sent');
+    await page.press('Backspace');
+    await page.press('Enter');
     // The pane names the owner session by the harness's title from its profile, not by its id.
     const paneText = async () => (await page.evaluateAll("location.pathname.startsWith('/a/') ? document.querySelector('aside')?.innerText ?? '' : undefined")).find(text => typeof text === 'string') ?? '';
     assert.ok(await until(async () => (await paneText()).includes('Compat Frame'), 10000, 200), `the Ask pane does not name the harness by its title: ${JSON.stringify(await paneText())}`);
     assert.ok(!(await paneText()).includes('compat-frame'), 'the Ask pane shows the harness id');
     assert.ok(await page.waitFor("window.got.some(m => m.data && m.data.openArtifact === 'comment_summon')", 15000), `no comment_summon: ${JSON.stringify(await heard(page))} ${JSON.stringify(await page.evaluateAll("location.pathname.startsWith('/a/') ? [document.activeElement?.tagName, (document.querySelector('textarea')||{}).value, document.querySelector('aside [role=status]')?.textContent, document.querySelector('aside')?.innerText.slice(0,300)] : undefined"))} ${JSON.stringify(page.problems)}`);
     const summon = await page.evaluate("window.got.find(m => m.data.openArtifact === 'comment_summon').data");
-    assert.equal(summon.text, 'Make the heading blue');
+    assert.equal(summon.text, text);
     assert.ok(await until(() => ctx.frameWakes.length > wakes, 10000), 'the Ask woke the owner session');
+    assert.equal(ctx.frameWakes[wakes].source.requests[0].text, text);
     await page.close();
   });
 
