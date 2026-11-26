@@ -1,0 +1,15 @@
+// Deploys the built website (website/dist) as a Cloudflare Worker with static assets.
+// Build first: node website/build.mjs (SITE_URL=https://openartifact.net for canonical links).
+{
+  "name": "open-artifact-website",
+  "account_id": "36b461683fc0ec50dcbc7ec197d44bde",
+  "compatibility_date": "2026-11-26",
+  "assets": {
+    "directory": "dist",
+    "html_handling": "auto-trailing-slash",
+    "not_found_handling": "404-page"
+  },
+  "routes": [
+    { "pattern": "openartifact.net", "custom_domain": true }
+  ]
+}
