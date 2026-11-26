@@ -734,6 +734,12 @@ export class HostTools {
     // A page's capabilities are its owner's to change: an editor writes its files, never what it may reach.
     const { artifact } = await this.#reach(args.url, args.capabilities === undefined ? 'editor' : 'owner', 'artifacts.write', args.capabilities === undefined ? 'change it' : "change a page's capabilities");
     const id = artifact.id;
+    if (args.files === undefined && (args.file_path !== undefined || args.asset !== undefined)) {
+      throw invalid(
+        'publish with url writes files: {"rel/path": …}; it takes no file_path or asset.',
+        'A hosted server runs no upload action: write the file with files: {"<rel/path>": {content, encoding: "base64"}} ("<text>" for text).',
+      );
+    }
     const capabilities = this.#capabilitiesArg(args.capabilities, artifact.type);
     if (capabilities) {
       await this.#s.pages!.setCapabilities(id, capabilities, MCP_AUTHOR);

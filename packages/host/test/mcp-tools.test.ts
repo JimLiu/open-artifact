@@ -205,6 +205,9 @@ describe('MCP tools', () => {
     assert.equal((reserved.error as { code: string }).code, 'invalid_argument');
     const upload = await host.tool(adaToken, 'Artifact', { action: 'call', url, name: 'upload', args: { file: '/etc/passwd' } });
     assert.equal((upload.error as { code: string }).code, 'unsupported');
+    const asAsset = await host.tool(adaToken, 'Artifact', { action: 'publish', url, file_path: '/tmp/hero.png', asset: true });
+    assert.equal((asAsset.error as { code: string }).code, 'invalid_argument');
+    assert.match(String((asAsset.error as { fix?: string }).fix), /encoding: "base64"/);
     const unknown = await host.tool(adaToken, 'Artifact', { action: 'call', url, name: 'nope' });
     assert.equal((unknown.error as { code: string }).code, 'unknown_action');
     await host.catalog.upsertGrant({ artifactId: row.id, subjectKind: 'user', subject: bo.id, role: 'viewer', createdBy: ada.id });
