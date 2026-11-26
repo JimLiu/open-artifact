@@ -1,3 +1,5 @@
+import { HOST_MESSAGE_BOOT } from '@open-artifact/protocol';
+
 /**
  * The MCP App: an artifact's live page inside the conversation, for MCP clients that show MCP Apps
  * (the `io.modelcontextprotocol/ui` extension).
@@ -153,14 +155,15 @@ iframe:not([src]){display:none}
 </div></div>
 <script>
 (function(){
+  ${HOST_MESSAGE_BOOT}
   var VERSION=__OPEN_ARTIFACT_VERSION__;
   /* How long the page has to greet the view once its frame loaded, to load at all, and the host to open a link. */
   var HELLO_MS=4000,LOAD_MS=15000,LINK_MS=3000;
   var data=null,nextId=1,pending={},mode='inline',modes=[],told=0,caps=null;
   var shown=false,stuck=false,blocked=false,linkOff=false,timer=0;
   var root=document.documentElement,$=function(id){return document.getElementById(id);};
-  function post(m){window.parent.postMessage(m,'*');}
-  function rpc(method,params){var id=nextId++;post({jsonrpc:'2.0',id:id,method:method,params:params||{}});return new Promise(function(ok,fail){pending[id]={ok:ok,fail:fail};});}
+  function post(m){postToHost(m,false);}
+  function rpc(method,params){var id=nextId++;postToHost({jsonrpc:'2.0',id:id,method:method,params:params||{}},method==='ui/initialize');return new Promise(function(ok,fail){pending[id]={ok:ok,fail:fail};});}
   function notify(method,params){post({jsonrpc:'2.0',method:method,params:params||{}});}
   function size(){
     if(mode!=='inline')return;
@@ -238,7 +241,7 @@ iframe:not([src]){display:none}
   window.addEventListener('message',function(e){
     var m=e.data;
     if(e.source&&e.source===$('page').contentWindow){if(m&&typeof m.openArtifact==='string')landed();return;}
-    if(e.source!==window.parent)return;
+    if(!acceptParent(e))return;
     if(!m||m.jsonrpc!=='2.0')return;
     if(m.method===undefined){var p=pending[m.id];if(p){delete pending[m.id];if(m.error)p.fail(m.error);else p.ok(m.result);}return;}
     if(m.id!==undefined&&m.id!==null){

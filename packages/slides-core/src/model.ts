@@ -234,7 +234,7 @@ export interface SvgNode extends NodeBase {
   /**
    * The whole `<svg …>…</svg>` element as written, minus its `id`, `style`
    * and `data-*` attributes (those live on the node and are written back by
-   * the serializer).
+   * the serializer). Empty when a safety check failed: the source is not kept.
    */
   markup: string;
 }

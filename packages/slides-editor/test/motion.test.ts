@@ -68,6 +68,20 @@ describe('flash guard', () => {
     assert.equal(smilPlays('animate', ' attributeName="x" dur="later"'), false);
     assert.equal(smilPlays('animateTransform', ' type="rotate" from="0" to="360" dur="3s" repeatCount="indefinite"'), true);
   });
+
+  it('removes SMIL that sets a link or an event handler even while presenting', () => {
+    const attack = '<svg><rect width="10" height="10"/><set attributeName="href" to="javascript:alert(1)"/><animate attributeName="onclick" values="alert(1)" dur="1s"/></svg>';
+    const kept = guardSmil(attack, true);
+    assert.match(kept, /<rect\b/);
+    assert.equal(kept.includes('javascript:'), false);
+    assert.equal(kept.includes('onclick'), false);
+    assert.equal(kept.includes('<set'), false);
+    assert.equal(kept.includes('<animate'), false);
+
+    const turn = '<svg><rect width="10" height="10"><animateTransform attributeName="transform" type="rotate" from="0" to="360" dur="3s"/></rect></svg>';
+    assert.equal(guardSmil(turn, true), turn);
+    assert.equal(guardSmil(turn, false), '<svg><rect width="10" height="10"></rect></svg>');
+  });
 });
 
 describe('count-up and entrances', () => {

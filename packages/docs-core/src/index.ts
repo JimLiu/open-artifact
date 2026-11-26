@@ -3,6 +3,7 @@ export * from './blobs.ts';
 export * from './content.ts';
 export * from './ops.ts';
 export * from './markdown.ts';
+export * from './href.ts';
 export * from './anchors.ts';
 export * from './decisions.ts';
 export * from './history.ts';

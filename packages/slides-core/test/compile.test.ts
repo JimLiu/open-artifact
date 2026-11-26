@@ -114,3 +114,49 @@ describe('flex direction', () => {
     assert.equal(stack!.style['flex-direction'], undefined);
   });
 });
+
+describe('svg markup', () => {
+  function drawing(inner: string) {
+    const result = compileSlide(`<section id="s1">${inner}</section>`, { id: 's1', lints: false });
+    const node = result.slide.children.find((child) => child.kind === 'svg');
+    assert.equal(node?.kind, 'svg');
+    return { result, markup: node && node.kind === 'svg' ? node.markup : '' };
+  }
+
+  it('drops the drawing when the svg is not safe to keep', () => {
+    for (const inner of [
+      '<svg><script>alert(1)</script></svg>',
+      '<svg><foreignObject><div xmlns="http://www.w3.org/1999/xhtml"></div></foreignObject></svg>',
+      '<svg><rect width="1" height="1" onerror="alert(1)"/></svg>',
+      '<svg><use href="https://evil.example/a.svg"/></svg>',
+      '<svg><set attributeName="href" to="javascript:alert(1)"/></svg>',
+      '<svg><animate attributeName="onclick" to="alert(1)" dur="1s"/></svg>',
+      '<svg><animate attributeName="x" from="javascript:alert(1)" to="1" dur="1s"/></svg>',
+    ]) {
+      const { result, markup } = drawing(inner);
+      assert.equal(result.held, true, inner);
+      assert.equal(markup, '', inner);
+    }
+  });
+
+  it('keeps a drawing that only uses local references and a transform animation', () => {
+    const safe = drawing('<svg viewBox="0 0 10 10"><rect id="r" width="10" height="10"/><use href="#r"/></svg>');
+    assert.equal(safe.result.held, false);
+    assert.match(safe.markup, /<rect\b/);
+    assert.match(safe.markup, /href="#r"/);
+    assert.match(safe.markup, /xmlns="http:\/\/www\.w3\.org\/2000\/svg"/);
+
+    const motion = drawing('<svg><rect width="10" height="10"/><animateTransform attributeName="transform" type="rotate" from="0" to="360" dur="3s"/></svg>');
+    assert.equal(motion.result.held, false);
+    assert.match(motion.markup, /<animateTransform\b/);
+    assert.match(motion.markup, /attributeName="transform"/);
+  });
+
+  it('still keeps a drawing that is only over the size limit', () => {
+    const pad = 'a'.repeat(60 * 1024);
+    const { result, markup } = drawing(`<svg><rect id="${pad}" width="1" height="1"/></svg>`);
+    assert.equal(result.held, true);
+    assert.match(markup, /<rect\b/);
+    assert.ok(markup.length > 1024);
+  });
+});

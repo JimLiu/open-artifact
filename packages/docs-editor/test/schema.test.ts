@@ -96,4 +96,26 @@ describe('the editor schema', () => {
     assert.equal(last.attrs.suggestOp, 'ins');
     assert.equal(last.attrs.suggestId, 'sg1');
   });
+
+  it('does not keep a link the document may not store', () => {
+    const bad = schema.marks.link.create({ href: 'javascript:alert(1)' });
+    const badSpec = schema.marks.link.spec.toDOM!(bad, true);
+    assert.ok(Array.isArray(badSpec));
+    const badAttrs = badSpec[1] as Record<string, string>;
+    assert.equal(badAttrs.href, undefined);
+    assert.equal(badAttrs.rel, 'noopener noreferrer nofollow');
+
+    const good = schema.marks.link.create({ href: 'https://example.com' });
+    const goodSpec = schema.marks.link.spec.toDOM!(good, true);
+    assert.ok(Array.isArray(goodSpec));
+    assert.equal((goodSpec[1] as Record<string, string>).href, 'https://example.com');
+
+    const getAttrs = schema.marks.link.spec.parseDOM?.[0]?.getAttrs as ((dom: { getAttribute(name: string): string | null }) => false | { href: string }) | undefined;
+    assert.equal(typeof getAttrs, 'function');
+    const read = (href: string) => getAttrs!({ getAttribute: (name: string) => (name === 'href' ? href : null) });
+    assert.equal(read('javascript:alert(1)'), false);
+    assert.equal(read('java\nscript:alert(1)'), false);
+    assert.deepEqual(read('https://example.com'), { href: 'https://example.com' });
+    assert.deepEqual(read('#section'), { href: '#section' });
+  });
 });

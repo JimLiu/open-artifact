@@ -1234,36 +1234,50 @@ class SlideCompiler {
     node.style = this.style(el, attrs.get('style') ?? '', { element: 'svg', pinned, ...this.placeContext(place, pinned) });
     const own = ['id', 'style', 'data-build-in', 'data-build-out', 'data-fit'];
     this.common(node, el, new Map([...attrs].filter(([name]) => own.includes(name))), place, [], pinned);
-    // Validate the drawing: no scripts, handlers, foreign content or URLs.
-    const check = (nodes: HtmlNode[]): void => {
-      for (const child of nodes) {
-        if (child.type !== 'element') continue;
-        const tag = child.tag;
-        if (tag === 'script') this.error('<svg> holds a <script> — drawings never run code', child);
-        if (tag === 'foreignobject') this.error('<svg> holds <foreignObject> — not allowed', child);
-        if (tag === 'text' || tag === 'tspan') {
-          this.warn('<svg> <text> — fonts never load in an svg; put labels in <p>s over it', child);
-        }
-        for (const attr of child.attrs) {
-          const name = attr.name.toLowerCase();
-          if (name.startsWith('on')) this.error(`<svg> ${name}= — event handlers are not allowed`, child);
-          if ((name === 'href' || name === 'xlink:href' || name === 'src') && attr.value && !attr.value.trim().startsWith('#')) {
-            this.error(`<svg> ${name}="${attr.value.slice(0, 60)}" — only local #id references`, child);
-          }
-          if (attr.value && /url\(\s*['"]?(?!#)/i.test(attr.value)) this.error('<svg> url() to anything but a local #id', child);
-        }
-        if (tag === 'style') {
-          const css = child.children.map((n) => (n.type === 'text' ? n.value : '')).join('');
-          if (/url\(\s*['"]?(?!#)|@import/i.test(css)) this.error('<svg> <style> loads an external resource', child);
-        }
-        check(child.children);
-      }
+    // Validate the drawing. A safety error must not keep the source slice: that slice is what the renderer would parse.
+    let unsafe = false;
+    const forbid = (message: string, at: HtmlElement): void => {
+      unsafe = true;
+      this.error(message, at);
     };
-    for (const attr of el.attrs) {
-      if (attr.name.toLowerCase().startsWith('on')) this.error(`<svg> ${attr.name}= — event handlers are not allowed`, el);
+    const inspect = (child: HtmlElement): void => {
+      const tag = child.tag;
+      if (tag === 'script') forbid('<svg> holds a <script> — drawings never run code', child);
+      if (tag === 'foreignobject') forbid('<svg> holds <foreignObject> — not allowed', child);
+      if (tag === 'text' || tag === 'tspan') this.warn('<svg> <text> — fonts never load in an svg; put labels in <p>s over it', child);
+      let attributeName: string | null = null;
+      let to: string | null = null;
+      let from: string | null = null;
+      let by: string | null = null;
+      let values: string | null = null;
+      for (const attr of child.attrs) {
+        const name = attr.name.toLowerCase();
+        if (unsafeSvgAttribute(attr.name, attr.value)) {
+          if (name.startsWith('on') || name.slice(name.lastIndexOf(':') + 1).startsWith('on')) forbid(`<svg> ${attr.name}= — event handlers are not allowed`, child);
+          else if (attr.value && /url\(\s*['"]?(?!#)/i.test(attr.value)) forbid('<svg> url() to anything but a local #id', child);
+          else forbid(`<svg> ${attr.name}="${(attr.value ?? '').slice(0, 60)}" — only local #id references`, child);
+        }
+        if (name === 'attributename') attributeName = attr.value;
+        else if (name === 'to') to = attr.value;
+        else if (name === 'from') from = attr.value;
+        else if (name === 'by') by = attr.value;
+        else if (name === 'values') values = attr.value;
+      }
+      if (SMIL_TAGS.has(tag) && unsafeSmilAnimation({ attributeName, to, from, by, values })) {
+        forbid(`<svg> <${child.rawTag}> animation — cannot set an event handler, href, or a URL that is not a local #id`, child);
+      }
+      if (tag === 'style') {
+        const css = child.children.map((n) => (n.type === 'text' ? n.value : '')).join('');
+        if (/url\(\s*['"]?(?!#)|@import/i.test(css)) forbid('<svg> <style> loads an external resource', child);
+      }
+      for (const grandchild of child.children) if (grandchild.type === 'element') inspect(grandchild);
+    };
+    inspect(el);
+    if (unsafe) {
+      node.markup = '';
+      return node;
     }
-    check(el.children);
-    // Keep the markup minus the attributes the node carries itself.
+    // Keep the markup minus the attributes the node carries itself. Only reached when every safety check passed.
     const kept = el.attrs.filter((attr) => {
       const name = attr.name.toLowerCase();
       return !own.includes(name) && !name.startsWith('on') && !(name.startsWith('data-') && name !== 'data-name');
@@ -1412,6 +1426,70 @@ function describe(el: HtmlElement): string {
 function escapeAttr(value: string): string {
   return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
 }
+
+/** Characters the URL parser ignores, which must not hide a scheme or a host. */
+const SVG_INVISIBLE = /[\u0000-\u001F\u007F-\u009F\u00AD\u200B-\u200F\u2028\u2029\u202A-\u202E\u2060\u2066-\u2069\uFEFF]/;
+
+/** A same-document `#id` reference. Anything else, including a control character, is not local. */
+export function isLocalSvgRef(value: string): boolean {
+  const text = value.trim();
+  return text.startsWith('#') && !text.includes('\\') && !SVG_INVISIBLE.test(text) && !/\s/.test(text);
+}
+
+/** A SMIL timing value that carries a URL other than a local `#id` (`url(#grad)` stays). */
+export function smilValueHasRemoteUrl(value: string): boolean {
+  if (/(?:javascript|data|vbscript)\s*:/i.test(value)) return true;
+  const flat = value.replace(SVG_INVISIBLE, '');
+  if (flat !== value && /(?:javascript|data|vbscript|https?|file|blob)\s*:/i.test(flat)) return true;
+  for (const part of flat.split(';')) {
+    const token = part.trim();
+    if (!token) continue;
+    if (/^(?:javascript|data|vbscript|https?|file|blob)\s*:/i.test(token)) return true;
+    if (token.startsWith('//') || token.startsWith('\\\\')) return true;
+    if (/url\(\s*['"]?(?!#)/i.test(token)) return true;
+    if (/(?:javascript|data|vbscript)\s*:/i.test(token)) return true;
+  }
+  return false;
+}
+
+/** `attributeName` of SMIL that would set an event handler or a link. `orientation` is an SVG attribute. */
+function unsafeSmilAttributeName(value: string): boolean {
+  const target = value.trim().toLowerCase();
+  if (target === 'href' || target === 'xlink:href') return true;
+  return target.startsWith('on') && target !== 'orientation';
+}
+
+/** SMIL that must not play: it sets `on*` / `href` / `xlink:href`, or a `to` / `from` / `by` / `values` URL that is not a local `#id`. */
+export interface SmilAnimationTarget {
+  attributeName?: string | null;
+  to?: string | null;
+  from?: string | null;
+  by?: string | null;
+  values?: string | null;
+}
+
+export function unsafeSmilAnimation(target: SmilAnimationTarget): boolean {
+  if (target.attributeName && unsafeSmilAttributeName(target.attributeName)) return true;
+  for (const value of [target.to, target.from, target.by, target.values]) {
+    if (value && smilValueHasRemoteUrl(value)) return true;
+  }
+  return false;
+}
+
+/**
+ * An attribute the drawing must not keep: an event handler, a non-local
+ * `href` / `src`, or a `url()` that is not a local `#id`.
+ */
+export function unsafeSvgAttribute(name: string, value: string | null): boolean {
+  const key = name.toLowerCase();
+  const local = key.slice(key.lastIndexOf(':') + 1);
+  if (local.startsWith('on') || key.startsWith('on')) return true;
+  if ((local === 'href' || local === 'src') && value && !isLocalSvgRef(value)) return true;
+  if (value && /url\(\s*['"]?(?!#)/i.test(value)) return true;
+  return false;
+}
+
+const SMIL_TAGS = new Set(['animate', 'animatetransform', 'animatemotion', 'animatecolor', 'set']);
 
 /** Reads `Npx` back to a number. */
 export function readPx(value: string | undefined): number | undefined {
