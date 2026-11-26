@@ -184,7 +184,8 @@ a minute. A browser page should not hold the daemon token: send the bytes to you
 ## The library page
 
 `embedLibrary(iframe, { url, harness, workspace, onOpenArtifact, … })` embeds the daemon's home page, listing only your
-harness's artifacts or one workspace's. With `onOpenArtifact`, a click sends you `open_artifact` instead of navigating,
+harness's artifacts or one workspace's (those made for the workspace's project too, wherever their folders are: see
+[where artifacts go](../settings.md)). With `onOpenArtifact`, a click sends you `open_artifact` instead of navigating,
 so you show the artifact in your own pane.
 
 ## Webview checklist

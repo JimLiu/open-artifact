@@ -20,7 +20,7 @@ export { ArtifactsPage, type ArtifactsPageProps, type CardAction, type TileGroup
 export { ReleaseNotesList, ChangelogFooter, ChangelogView, UpcomingNotes, WhatsNewPanel } from './changelog.tsx';
 export { changelogState, closeChangelog, loadChangelog, loadUpcoming, markSeen, openChangelog, subscribeChangelog, whatsNew, type ChangelogState } from './changelog-state.ts';
 export { EMPTY_SESSIONS, EnvProvider, usePageEnv, useSessionTitle, useUpdates, type PageEnv } from './env.tsx';
-export { countByType, inRange, isFiltered, NO_FILTERS, visibleArtifacts, type Filters } from './filters.ts';
+export { countByType, inRange, isFiltered, NO_FILTERS, NO_PROJECT, projectChoices, projectName, visibleArtifacts, type Filters, type ProjectChoice } from './filters.ts';
 export { en, fallbackTranslate, fill, isKey, translator, zh, type Key, type Translate } from './i18n.ts';
 export { ArtifactsIcon, TYPE_ORDER, TypeIcon, typeStyle } from './look.tsx';
 export { createPageStore, StoreProvider, usePage, type DialogState, type Layout, type LoadStatus, type PageActions, type PageHost, type PageState, type PageStore, type PageStoreOptions, type Toast } from './store.ts';

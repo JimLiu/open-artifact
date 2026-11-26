@@ -26,6 +26,8 @@ export interface HomeState {
   tab: HomeTab;
   /** Every artifact; `null` until loaded. */
   artifacts: ArtifactView[] | null;
+  /** The project whose artifacts the list shows (its folder; `''` for the artifacts of none); `null`: all. */
+  project: string | null;
   /** The types and their roots; `null` until loaded. */
   types: TypesResponse | null;
   /** The last load failure. */
@@ -67,6 +69,7 @@ export interface HomeState {
 export interface HomeActions {
   setTab(tab: HomeTab): void;
   setArtifacts(artifacts: ArtifactView[]): void;
+  setProject(project: string | null): void;
   setTypes(types: TypesResponse): void;
   setError(error: string | null): void;
   setHost(host: HomeHost): void;
@@ -98,6 +101,7 @@ function savedTab(): HomeTab {
 export const useHome = create<HomeState & HomeActions>()((set) => ({
   tab: savedTab(),
   artifacts: null,
+  project: null,
   types: null,
   error: null,
   host: null,
@@ -124,6 +128,7 @@ export const useHome = create<HomeState & HomeActions>()((set) => ({
     set({ tab });
   },
   setArtifacts: (artifacts) => set({ artifacts }),
+  setProject: (project) => set({ project }),
   setTypes: (types) => set({ types }),
   setError: (error) => set({ error }),
   setHost: (host) => set({ host }),

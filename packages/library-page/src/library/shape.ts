@@ -25,6 +25,7 @@ export function pageView(a: Partial<ArtifactView>, harness: string): PageArtifac
   return {
     id: a.id ?? '',
     root: a.root ?? '',
+    project: a.project ?? '',
     type: a.type ?? '',
     typeTitle: a.typeTitle ?? a.type ?? '',
     sessionId: owner?.harness === harness && typeof owner.session === 'string' ? owner.session : '',

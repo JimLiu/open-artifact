@@ -1,6 +1,6 @@
 /** The home page's pure logic: ordering, what can be created, owner badges. No DOM. */
 
-import { builtinStartOf, hostToShellOf, type ArtifactView, type HostLibraryFilter, type TypeView } from '@open-artifact/protocol';
+import { builtinStartOf, hostToShellOf, NO_PROJECT, type ArtifactView, type HostLibraryFilter, type ProjectChoice, type TypeView } from '@open-artifact/protocol';
 import type { HomeHost } from './host.ts';
 import type { BadgeState } from '../components/OwnerBadge.tsx';
 
@@ -20,19 +20,34 @@ export function contentTime(a: Pick<ArtifactView, 'contentAt' | 'updatedAt' | 'c
 }
 
 /**
- * The artifacts a host asked for (`host_hello`'s `library`): its harness's sessions', its workspace's (or a folder
- * under it); all of them without a filter.
+ * The artifacts a host asked for (`host_hello`'s `library`): its harness's sessions', its workspace's (the owner
+ * session works there, the artifact's folder is under it, or it was made for a project the workspace is in or holds);
+ * all of them without a filter.
  */
 export function forHost(list: readonly ArtifactView[], filter: HostLibraryFilter | null | undefined): ArtifactView[] {
   if (!filter || (!filter.harness && !filter.workspace)) return [...list];
   const trim = (path: string): string => path.replace(/[\\/]+$/, '');
+  const inside = (path: string, folder: string): boolean => path === folder || path.startsWith(`${folder}/`) || path.startsWith(`${folder}\\`);
   const workspace = filter.workspace ? trim(filter.workspace) : null;
-  const under = (path: string | null | undefined): boolean => {
-    if (!workspace || !path) return false;
-    const p = trim(path);
-    return p === workspace || p.startsWith(`${workspace}/`) || p.startsWith(`${workspace}\\`);
-  };
-  return list.filter((a) => (!filter.harness || a.owner?.harness === filter.harness) && (!workspace || under(a.owner?.workspace) || under(a.root)));
+  const under = (path: string | null | undefined): boolean => !!workspace && !!path && inside(trim(path), workspace);
+  // Kept in the person's Open Artifact folder, an artifact is its project's still: the workspace may be a folder of it.
+  const ofProject = (project: string | null | undefined): boolean => !!workspace && !!project && (inside(trim(project), workspace) || inside(workspace, trim(project)));
+  return list.filter(
+    (a) => (!filter.harness || a.owner?.harness === filter.harness) && (!workspace || under(a.owner?.workspace) || under(a.root) || ofProject(a.project)),
+  );
+}
+
+/**
+ * The project the list shows: the one picked, while the list still has artifacts of it; otherwise all (`null`).
+ * `choices` are {@link projectChoices}'s.
+ */
+export function shownProject(choices: readonly ProjectChoice[], picked: string | null): string | null {
+  return picked !== null && choices.some((choice) => choice.project === picked) ? picked : null;
+}
+
+/** The artifacts of one project ({@link NO_PROJECT}: those of none); all of them for `null`. */
+export function inProject(list: readonly ArtifactView[], project: string | null): ArtifactView[] {
+  return project === null ? [...list] : list.filter((a) => (a.project || NO_PROJECT) === project);
 }
 
 /** Pinned first, then the most recently changed. */

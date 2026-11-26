@@ -1,15 +1,15 @@
 /** The artifact library: a card per artifact, opening its Shell. */
 
-import type { ArtifactView } from '@open-artifact/protocol';
-import { Cloud, Copy, Ellipsis, ExternalLink, Link, MessageSquare, Pencil, Pin, PinOff, Trash2, TriangleAlert } from 'lucide-react';
+import { NO_PROJECT, projectChoices, projectName, type ArtifactView, type ProjectChoice } from '@open-artifact/protocol';
+import { Cloud, Copy, Ellipsis, ExternalLink, Folder, Link, MessageSquare, Pencil, Pin, PinOff, Trash2, TriangleAlert } from 'lucide-react';
 import type { MouseEvent, ReactNode } from 'react';
 import { Button, EmptyState, IconButton, Menu, MenuItem, MenuSeparator } from '@open-artifact/ui';
 import { OwnerBadge } from '../../components/OwnerBadge.tsx';
 import { ago } from '../../lib/format.ts';
-import { t } from '../../lib/i18n.ts';
+import { locale, t } from '../../lib/i18n.ts';
 import { backToSession, copyWebLink, deleteArtifact, duplicateArtifact, openArtifact, openOnWeb, shellHref, togglePin } from '../actions.ts';
 import { homeBoot } from '../host.ts';
-import { forHost, ownerBadge, sortArtifacts } from '../model.ts';
+import { forHost, inProject, ownerBadge, shownProject, sortArtifacts } from '../model.ts';
 import { useHome } from '../store.ts';
 
 /** A small rounded label. */
@@ -70,6 +70,14 @@ function ArtifactCard({ artifact }: { artifact: ArtifactView }) {
             </Chip>
           ) : null}
           {local && artifact.open ? <Chip>{t('pageOpen')}</Chip> : null}
+          {local && artifact.project ? (
+            <span title={t('projectOf', { folder: artifact.project })} data-home-project={artifact.project} className="inline-flex min-w-0 max-w-full">
+              <Chip>
+                <Folder className="size-3 shrink-0" />
+                <span className="truncate">{projectName(artifact.project)}</span>
+              </Chip>
+            </span>
+          ) : null}
         </div>
         {artifact.typeMissing ? (
           <div className="flex items-center gap-1 text-xs text-warning">
@@ -138,18 +146,55 @@ function ArtifactCard({ artifact }: { artifact: ArtifactView }) {
   );
 }
 
-/** The artifact grid, pinned first. */
+/** The projects to narrow the list to: "All", one per project, then the artifacts of none. */
+function ProjectFilter({ choices, shown, total }: { choices: readonly ProjectChoice[]; shown: string | null; total: number }) {
+  const pick = (project: string | null, label: string, count: number, title?: string) => {
+    const on = shown === project;
+    return (
+      <button
+        key={project ?? '*'}
+        type="button"
+        role="radio"
+        aria-checked={on}
+        title={title}
+        data-home-project-filter={project ?? '*'}
+        onClick={() => useHome.getState().setProject(project)}
+        className={`inline-flex max-w-[220px] cursor-pointer items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs transition-colors ${
+          on ? 'border-transparent bg-hover font-medium text-fg' : 'border-line bg-transparent text-fg-muted hover:border-line-strong hover:text-fg'
+        }`}
+      >
+        <span className="truncate">{label}</span>
+        <span className="tabular-nums opacity-70">{count}</span>
+      </button>
+    );
+  };
+  return (
+    <div role="radiogroup" aria-label={t('projectFilter')} data-testid="project-filter" className="mb-3 flex flex-wrap items-center gap-1.5">
+      {pick(null, t('projectAll'), total)}
+      {choices.map((choice) => pick(choice.project, choice.project === NO_PROJECT ? t('projectNone') : choice.label, choice.count, choice.project || undefined))}
+    </div>
+  );
+}
+
+/** The artifact grid, pinned first; above it, the projects to narrow it to when its artifacts are of more than one. */
 export function ArtifactList() {
   const all = useHome((state) => state.artifacts);
   const library = useHome((state) => state.host?.library ?? null);
+  const picked = useHome((state) => state.project);
   const artifacts = all && library ? forHost(all, library) : all;
   if (artifacts === null) return <p className="py-8 text-fg-muted">{t('loading')}</p>;
   if (!artifacts.length) return <EmptyState title={t('artifacts')}>{t(homeBoot.cloud ? 'noArtifactsCloud' : 'noArtifacts')}</EmptyState>;
+  // A cloud host keeps no projects; one group is nothing to choose between.
+  const choices = homeBoot.cloud ? [] : projectChoices(artifacts, locale);
+  const shown = shownProject(choices, picked);
   return (
-    <div className="grid grid-cols-[repeat(auto-fill,minmax(260px,1fr))] gap-3">
-      {sortArtifacts(artifacts).map((artifact) => (
-        <ArtifactCard key={artifact.id} artifact={artifact} />
-      ))}
-    </div>
+    <>
+      {choices.length > 1 ? <ProjectFilter choices={choices} shown={shown} total={artifacts.length} /> : null}
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(260px,1fr))] gap-3">
+        {sortArtifacts(inProject(artifacts, shown)).map((artifact) => (
+          <ArtifactCard key={artifact.id} artifact={artifact} />
+        ))}
+      </div>
+    </>
   );
 }

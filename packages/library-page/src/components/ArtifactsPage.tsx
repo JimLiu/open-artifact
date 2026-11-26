@@ -23,7 +23,7 @@
 import { type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { PageArtifact, TypeTile } from '../library/routes.ts';
 import { usePageEnv, useSessionTitle } from '../env.tsx';
-import { countByType, DATES, isFiltered, NO_FILTERS, SHARINGS, SORTS, visibleArtifacts, type Filters } from '../filters.ts';
+import { countByType, DATES, isFiltered, NO_FILTERS, NO_PROJECT, projectChoices, projectName, SHARINGS, SORTS, visibleArtifacts, type Filters, type ProjectChoice } from '../filters.ts';
 import { isKey, type Translate } from '../i18n.ts';
 import { ArtifactsIcon, BETA, Doodle, Drawn, Icon, ICON, inTypeOrder, svg, TypeIcon, typeStyle } from '../look.tsx';
 import { usePage } from '../store.ts';
@@ -211,18 +211,24 @@ function SubMenu({ id, label, value, open, setOpen, children }: { id: string; la
   );
 }
 
-function FilterMenu({ anchor, filters, setFilters, types, counts, t, onClose }: {
+function FilterMenu({ anchor, filters, setFilters, types, counts, projects, t, onClose }: {
   anchor: HTMLElement;
   filters: Filters;
   setFilters(next: Filters): void;
   types: readonly { id: string; title: string }[];
   counts: Map<string, number>;
+  /** The projects the library has artifacts of; empty: no project menu. */
+  projects: readonly ProjectChoice[];
   t: Translate;
   onClose(): void;
 }) {
   const [open, setOpen] = useState<string | null>(null);
   const titleOf = (id: string) => typeLabel(t, id, types.find((type) => type.id === id)?.title);
   const typeValue = filters.types.length === 0 ? t('filter.any') : filters.types.length === 1 ? titleOf(filters.types[0]!) : t('filter.some', { count: String(filters.types.length) });
+  const projectLabel = (choice: ProjectChoice) => (choice.project === NO_PROJECT ? t('filter.noProject') : choice.label);
+  const pickedProject = projects.find((choice) => choice.project === filters.projects[0]);
+  const projectValue =
+    filters.projects.length === 0 ? t('filter.any') : filters.projects.length === 1 ? (pickedProject ? projectLabel(pickedProject) : projectName(filters.projects[0]!)) : t('filter.some', { count: String(filters.projects.length) });
   return (
     <Menu anchor={anchor} label={t('filter.button')} onClose={onClose}>
       <SubMenu id="sort" label={t('filter.sort')} value={t(`sort.${filters.sort}`)} open={open} setOpen={setOpen}>
@@ -252,6 +258,31 @@ function FilterMenu({ anchor, filters, setFilters, types, counts, t, onClose }: 
           );
         })}
       </SubMenu>
+      {projects.length > 0 && (
+        <SubMenu id="project" label={t('filter.project')} value={projectValue} open={open} setOpen={setOpen}>
+          {projects.map((choice) => {
+            const on = filters.projects.includes(choice.project);
+            return (
+              <button
+                key={choice.project || 'none'}
+                type="button"
+                className="oa-menu-item"
+                role="menuitemcheckbox"
+                aria-checked={on}
+                title={choice.project || undefined}
+                data-project={choice.project}
+                onClick={() => setFilters({ ...filters, projects: on ? filters.projects.filter((x) => x !== choice.project) : [...filters.projects, choice.project] })}
+              >
+                <span className="oa-check" data-on={on}>
+                  <Icon d={ICON.tick} size={12} />
+                </span>
+                <span className="oa-menu-label">{projectLabel(choice)}</span>
+                <span className="oa-menu-count">{choice.count}</span>
+              </button>
+            );
+          })}
+        </SubMenu>
+      )}
       <SubMenu id="date" label={t('filter.date')} value={t(`date.${filters.date}`)} open={open} setOpen={setOpen}>
         {DATES.map((date) => (
           <ChoiceItem key={date} label={t(`date.${date}`)} on={filters.date === date} onPick={() => setFilters({ ...filters, date })} />
@@ -481,7 +512,9 @@ interface ItemProps {
   onMenu(artifact: PageArtifact, button: HTMLElement): void;
 }
 
-const hint = (artifact: PageArtifact, conversation: string) => (conversation ? `${artifact.root}\n${conversation}` : artifact.root);
+/** A card's tooltip: its folder, the project it was made for when its folder is somewhere else, and its conversation. */
+const hint = (artifact: PageArtifact, conversation: string) =>
+  [artifact.root, artifact.project && !artifact.root.startsWith(artifact.project) ? artifact.project : '', conversation].filter(Boolean).join('\n');
 
 function PinButton({ artifact, t, onPin }: Pick<ItemProps, 'artifact' | 't' | 'onPin'>) {
   const label = t(artifact.pinned ? 'action.unpin' : 'action.pin');
@@ -526,7 +559,10 @@ function Card({ artifact, opening, conversation, now, t, onOpen, onPin, menuOpen
           </span>
           <span className="oa-text">
             <span className="oa-name">{artifact.title}</span>
-            <span className="oa-meta">{ago(artifact.openedAt, now, t)}</span>
+            <span className="oa-meta">
+              {artifact.project ? <span className="oa-project" data-project={artifact.project}>{projectName(artifact.project)} · </span> : null}
+              {ago(artifact.openedAt, now, t)}
+            </span>
           </span>
         </span>
       </button>
@@ -545,7 +581,16 @@ function Row({ artifact, opening, conversation, now, t, onOpen, onPin, menuOpen,
       <button type="button" className="oa-row" disabled={opening !== null} aria-busy={busy} title={hint(artifact, conversation)} onClick={() => onOpen(artifact)} data-type={artifact.type}>
         <span className="oa-glyph">{busy ? <span className="oa-spinner" /> : <TypeIcon type={artifact.type} />}</span>
         <span className="oa-name">{artifact.title}</span>
-        <span className="oa-meta">{busy ? t('card.opening') : ago(artifact.openedAt, now, t)}</span>
+        <span className="oa-meta">
+          {busy ? (
+            t('card.opening')
+          ) : (
+            <>
+              {artifact.project ? <span className="oa-project" data-project={artifact.project}>{projectName(artifact.project)} · </span> : null}
+              {ago(artifact.openedAt, now, t)}
+            </>
+          )}
+        </span>
       </button>
       <div className="oa-row-tools">
         {artifact.shared && (
@@ -719,6 +764,7 @@ export function ArtifactsPage({ canCreate, theme, platform, searchButton = true,
   }, [searchFocus]);
 
   const counts = useMemo(() => countByType(artifacts), [artifacts]);
+  const projects = useMemo(() => projectChoices(artifacts, t('time.locale')), [artifacts, t]);
   
   const tiles = useMemo(() => inTypeOrder(types.map((type) => type.id)).map((id) => types.find((type) => type.id === id)!), [types]);
   // A type shows in the filter when it is installed or something listed is of it.
@@ -964,7 +1010,7 @@ export function ArtifactsPage({ canCreate, theme, platform, searchButton = true,
           <ChangelogFooter />
         </div>
       </div>
-      {popup?.kind === 'filter' && <FilterMenu anchor={popup.anchor} filters={filters} setFilters={(next) => setFilters(next)} types={filterTypes} counts={counts} t={t} onClose={closePopup} />}
+      {popup?.kind === 'filter' && <FilterMenu anchor={popup.anchor} filters={filters} setFilters={(next) => setFilters(next)} types={filterTypes} counts={counts} projects={projects} t={t} onClose={closePopup} />}
       {popup?.kind === 'create' && (
         <CreateMenu
           anchor={popup.anchor}

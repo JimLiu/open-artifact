@@ -129,7 +129,9 @@ function ArtifactRow({ artifact, current, t, onMenu }: WordsProps & { artifact: 
         className="nav-row artifact-row"
         data-artifact={artifact.id}
         aria-current={current ? 'page' : undefined}
-        title={title}
+        // The project it was made for, on a second line: two of one title are told apart.
+        title={artifact.project ? `${title}\n${artifact.project}` : title}
+        data-project={artifact.project || undefined}
         style={typeStyle(artifact.type)}
         onClick={() => void window.desktop.open(artifact.id)}
         onContextMenu={(event) => {

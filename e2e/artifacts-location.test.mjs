@@ -17,6 +17,8 @@
 //  (g) Two projects with the same folder name get two folders under the Open Artifact folder.
 //  (h) `open-artifact doctor` says where an app's sessions keep new artifacts in a checkout and who chose it, warns
 //      when home was chosen for an app that keeps its agent to the working folder, and names a project file's unused keys.
+//  (i) In Chrome, the daemon's home page names each artifact's project on its card and narrows the list to one project,
+//      telling two projects of one name apart (skipped without Chrome or the built home page).
 //
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
@@ -24,8 +26,9 @@ import fs from 'node:fs';
 import { createServer as createNetServer } from 'node:net';
 import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
+import { findChrome, launch } from './lib/browser.mjs';
 import { until } from './lib/http.mjs';
-import { repoRoot, tmpDir } from './lib/target.mjs';
+import { browserOff, repoRoot, tmpDir } from './lib/target.mjs';
 
 const T = { timeout: 120000 };
 const CLI = path.join(repoRoot, 'packages', 'daemon', 'src', 'bin', 'open-artifact.ts');
@@ -312,5 +315,61 @@ describe('where new artifacts go: the Open Artifact folder, the workspace, and t
     assert.equal(path.dirname(make(second, 'More notes', { session: 'app-2' }).root), path.dirname(two.root));
     assert.deepEqual(titles(first, { session: 'app-3' }), ['Notes']);
     assert.deepEqual(titles(second, { session: 'app-3' }), ['More notes', 'Notes']);
+  });
+
+  const noHomePage = () => {
+    if (browserOff || !findChrome()) return 'no browser (E2E_BROWSER=0 or no Chrome)';
+    return fs.existsSync(path.join(repoRoot, 'dist', 'daemon', 'home', 'index.html')) ? false : 'the home page is not built (npm run build)';
+  };
+
+  it("(i) the home page names each artifact's project and narrows the list to one", { ...T, skip: noHomePage() }, async () => {
+    // Two projects of one name (as in (g)), each with artifacts in the person's Open Artifact folder.
+    const first = checkout('gallery');
+    const second = checkout('gallery');
+    make(first, 'Plan', { session: 'gallery-1' });
+    make(second, 'Launch', { session: 'gallery-2' });
+    make(second, 'Review', { session: 'gallery-2' });
+    const browser = await launch({ width: 1200, height: 900 });
+    try {
+      const page = await browser.load(`http://127.0.0.1:${ctx.port}/`, { ready: "!!document.querySelector('[data-testid=project-filter]')", ignore: [/favicon\.ico/] });
+      assert.deepEqual(page.problems, []);
+      /** The filter's choices: [project folder or '*', its text, whether it is the one picked]. */
+      const choices = () =>
+        page.evaluate("[...document.querySelectorAll('[data-home-project-filter]')].map(b => [b.dataset.homeProjectFilter, b.textContent, b.getAttribute('aria-checked') === 'true'])");
+      /** The cards shown: [title, the project its chip names (its folder), the chip's text]. */
+      const cards = () =>
+        page.evaluate(
+          "[...document.querySelectorAll('[data-home-project]')].map(chip => [chip.closest('.group').querySelector('a').textContent, chip.dataset.homeProject, chip.textContent])",
+        );
+      const all = await cards();
+      const sites = (await choices()).filter(([folder]) => path.basename(folder) === 'gallery');
+      assert.equal(sites.length, 2, JSON.stringify(await choices()));
+      // Two projects of one name are told apart by the folder each is in; each says how many artifacts it has.
+      const labels = sites.map(([, text]) => text).sort();
+      assert.deepEqual(labels, [`gallery (${path.basename(path.dirname(first))})1`, `gallery (${path.basename(path.dirname(second))})2`].sort());
+      assert.deepEqual((await choices())[0].slice(1), [`All${all.length}`, true]);
+      // Every card of a session's artifact names its project by the folder's name.
+      const mine = all.filter(([, folder]) => sites.some(([site]) => site === folder));
+      assert.deepEqual(mine.map(([title, , chip]) => [title, chip]).sort(), [['Launch', 'gallery'], ['Plan', 'gallery'], ['Review', 'gallery']]);
+
+      // One project: its artifacts only, wherever their folders are.
+      const two = sites.find(([, text]) => text.endsWith('2'))[0];
+      const click = async folder => {
+        const at = await page.evaluate(
+          `(() => { const b = [...document.querySelectorAll('[data-home-project-filter]')].find(e => e.dataset.homeProjectFilter === ${JSON.stringify(folder)}); b.scrollIntoView({ block: 'center' }); const r = b.getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; })()`,
+        );
+        await page.click(...at);
+      };
+      await click(two);
+      assert.ok(await page.waitFor(`document.querySelectorAll('[data-home-project]').length === 2`, 10000), JSON.stringify(await cards()));
+      assert.deepEqual((await cards()).map(([title, folder]) => [title, folder]).sort(), [['Launch', two], ['Review', two]]);
+      assert.deepEqual((await choices()).filter(([, , on]) => on).map(([folder]) => folder), [two]);
+      // And back to all of them.
+      await click('*');
+      assert.ok(await page.waitFor(`document.querySelectorAll('[data-home-project]').length === ${all.length}`, 10000), JSON.stringify(await cards()));
+      assert.deepEqual(page.problems, []);
+    } finally {
+      await browser.close();
+    }
   });
 });

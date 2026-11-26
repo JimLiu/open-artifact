@@ -414,7 +414,10 @@ export interface HostCaps {
 export interface HostLibraryFilter {
   /** Only artifacts whose owner session is of this harness. */
   harness?: string;
-  /** Only artifacts whose owner session works in this folder (or whose folder is under it). */
+  /**
+   * Only artifacts whose owner session works in this folder, whose folder is under it, or that were made for a project
+   * this folder is in or holds ({@link ArtifactView.project}).
+   */
   workspace?: string;
 }
 

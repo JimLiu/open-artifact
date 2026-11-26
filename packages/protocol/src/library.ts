@@ -145,6 +145,12 @@ export interface ArtifactView {
    * out.
    */
   folderMissing?: boolean;
+  /**
+   * Set by the daemon: the project the artifact was made for, as its folder (the top of the Git checkout the session
+   * worked in, the main working tree's for a worktree), wherever the artifact's own folder is. `null` for one made
+   * with no session (the home page), or before projects were kept. A cloud host leaves it out.
+   */
+  project?: string | null;
   /** The Shell page: `<daemon>/a/<id>`. */
   view_url: string;
   /** The page without the Shell. */
@@ -449,6 +455,45 @@ export function builtinStartOf(typeId: string): keyof typeof BUILTIN_START | nul
   if ((BUILTIN_START.blank as readonly string[]).includes(typeId)) return 'blank';
   if ((BUILTIN_START.agent as readonly string[]).includes(typeId)) return 'agent';
   return null;
+}
+
+/** How a list keys the artifacts of no project ({@link ArtifactView.project} unset), where it filters by project. */
+export const NO_PROJECT = '';
+
+/** A project's name: its folder's own name. */
+export function projectName(project: string): string {
+  return project.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || project;
+}
+
+/** A project a list has artifacts of ({@link projectChoices}). */
+export interface ProjectChoice {
+  /** The project's folder; {@link NO_PROJECT} for the artifacts of none. */
+  project: string;
+  /** What the menu calls it: the folder's name, with the folder it is in when two projects share a name. */
+  label: string;
+  count: number;
+}
+
+/**
+ * The projects the list has artifacts of, by name, then the artifacts of none (last, with an empty label for the page
+ * to word). Empty when no artifact has a project: there is nothing to choose between.
+ */
+export function projectChoices(list: readonly { project?: string | null }[], locale: string): ProjectChoice[] {
+  const counts = new Map<string, number>();
+  for (const a of list) counts.set(a.project || NO_PROJECT, (counts.get(a.project || NO_PROJECT) ?? 0) + 1);
+  const projects = [...counts.keys()].filter((project) => project !== NO_PROJECT);
+  if (!projects.length) return [];
+  const names = new Map<string, number>();
+  for (const project of projects) names.set(projectName(project), (names.get(projectName(project)) ?? 0) + 1);
+  const parent = (project: string): string => projectName(project.replace(/[\\/]+$/, '').replace(/[\\/][^\\/]*$/, ''));
+  const choices = projects
+    .map((project) => {
+      const name = projectName(project);
+      return { project, label: (names.get(name) ?? 0) > 1 ? `${name} (${parent(project)})` : name, count: counts.get(project) ?? 0 };
+    })
+    .sort((a, b) => a.label.localeCompare(b.label, locale) || a.project.localeCompare(b.project));
+  const none = counts.get(NO_PROJECT);
+  return none ? [...choices, { project: NO_PROJECT, label: '', count: none }] : choices;
 }
 
 /** `POST /api/open-artifact.artifacts.update`. */

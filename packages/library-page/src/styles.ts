@@ -131,7 +131,7 @@ export const PAGE_CSS = `
 .oa-row{display:flex;align-items:center;gap:12px;flex:1;min-width:0;padding:8px 10px;border:0;border-radius:10px;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer}
 .oa-row:disabled{cursor:progress}
 .oa-row .oa-name{flex:1;min-width:0}
-.oa-row .oa-meta{flex:none;margin-left:16px}
+.oa-row .oa-meta{flex:none;max-width:45%;margin-left:16px}
 .oa-row-tools{flex:none;display:flex;align-items:center;gap:2px;margin-left:4px;color:var(--oa-page-text-tertiary)}
 .oa-shared{display:inline-flex;align-items:center;margin-right:6px;color:var(--oa-page-text-tertiary)}
 .oa-list .oa-act{width:28px;height:28px;border:0;background:none}

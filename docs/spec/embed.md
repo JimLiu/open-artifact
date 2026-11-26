@@ -26,7 +26,9 @@ fields are cut to 8000 characters (`MAX_HOST_TEXT`).
 `caps.sessions`: you can start and open sessions. `caps.toolbar`: you draw your own toolbar, so the Shell hides its
 close button. `caps.switcher`: your app lists and switches artifacts itself, so the Shell's title menu has no
 "Switch artifact" (with "All artifacts"). `caps.artifacts` (home page only): a click on an artifact sends `open_artifact` instead of navigating.
-`library` (home page only): list only that harness's or that folder's artifacts.
+`library` (home page only): list only that harness's artifacts (by the owner session's harness), or that folder's: the
+owner session works in it, the artifact's folder is under it, or the artifact was made for a project the folder is in
+or holds (so an artifact kept in the person's Open Artifact folder is still listed for its project).
 
 ## Shell → host
 

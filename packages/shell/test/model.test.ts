@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { BUILTIN_START, type ArtifactView, type ShareView, type TypeView } from '@open-artifact/protocol';
+import { BUILTIN_START, NO_PROJECT, projectChoices, projectName, type ArtifactView, type ShareView, type TypeView } from '@open-artifact/protocol';
 import {
   addressWithout,
   addressWithoutThread,
@@ -27,7 +27,7 @@ import {
   switchPool,
   type Owner,
 } from '../src/shell/model.ts';
-import { createGroupOf, createGroups, defaultCreatable, isCreatable, ownerBadge, sortArtifacts } from '../src/home/model.ts';
+import { createGroupOf, createGroups, defaultCreatable, inProject, isCreatable, ownerBadge, shownProject, sortArtifacts } from '../src/home/model.ts';
 import { useShell } from '../src/shell/store.ts';
 
 const owner = (patch: Partial<Owner> = {}): Owner => ({ harness: 'dsh', session: 's1', workspace: null, live: true, status: 'idle', ...patch });
@@ -548,5 +548,44 @@ describe('the Ask pane for an artifact no session owns', () => {
     assert.ok(text.includes('Artifact {action: "adopt", url: "open-artifact://artifact/art_1"}'));
     assert.match(text, /Docs "Notes", folder \/w\/notes/);
     assert.match(text, /read it before you change it/);
+  });
+});
+
+describe('home page projects', () => {
+  const list = [
+    artifact('plan', { project: '/code/shop', root: '/home/me/OpenArtifact/shop/plan' }),
+    artifact('board', { project: '/code/shop', root: '/code/shop/artifacts/board' }),
+    artifact('deck', { project: '/work/app' }),
+    artifact('page', { project: '/play/app' }),
+    artifact('note', { project: null }),
+    artifact('old'),
+  ];
+
+  it('offers the projects by name, tells two of one name apart, and puts the artifacts of none last', () => {
+    assert.equal(projectName('/code/shop/'), 'shop');
+    assert.deepEqual(projectChoices(list, 'en'), [
+      { project: '/play/app', label: 'app (play)', count: 1 },
+      { project: '/work/app', label: 'app (work)', count: 1 },
+      { project: '/code/shop', label: 'shop', count: 2 },
+      { project: NO_PROJECT, label: '', count: 2 },
+    ]);
+    assert.deepEqual(projectChoices([artifact('a'), artifact('b', { project: null })], 'en'), [], 'no projects: nothing to choose between');
+  });
+
+  it('narrows the list to a project, wherever the folders are', () => {
+    const ids = (project: string | null): string[] => inProject(list, project).map((a) => a.id);
+    assert.deepEqual(ids(null), ['plan', 'board', 'deck', 'page', 'note', 'old']);
+    assert.deepEqual(ids('/code/shop'), ['plan', 'board']);
+    assert.deepEqual(ids(NO_PROJECT), ['note', 'old']);
+    assert.deepEqual(ids('/gone'), []);
+  });
+
+  it('goes back to all when the picked project has no artifacts left', () => {
+    const choices = projectChoices(list, 'en');
+    assert.equal(shownProject(choices, '/code/shop'), '/code/shop');
+    assert.equal(shownProject(choices, NO_PROJECT), NO_PROJECT);
+    assert.equal(shownProject(choices, null), null);
+    assert.equal(shownProject(choices, '/gone'), null);
+    assert.equal(shownProject(projectChoices([list[0]!], 'en'), NO_PROJECT), null);
   });
 });

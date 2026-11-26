@@ -10,13 +10,13 @@ import type { TestProfile } from './lib/env.ts';
  * reaches the sidebar and the tab, a delete takes it away and Undo brings it back, the new-artifact dialog makes a
  * blank doc that opens in its editor (typing reaches its folder) and an empty design that opens on the Shell's
  * hand-to-an-agent prompt, back and forward go over the tabs, the sidebar collapses (and stays so in the app's
- * settings), Search brings the library forward with its search field focused, and the daemon's token is nowhere the
- * page can reach.
+ * settings), Search brings the library forward with its search field focused, the daemon's token is nowhere the
+ * page can reach, and an agent's artifacts say their project, which the filter's Project submenu narrows the library to.
  *
  * Throwaway profile, free port that is not 4800; the daemon is stopped by the pid its own daemon.json names.
  */
 import assert from 'node:assert/strict';
-import { chmodSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { chmodSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { launchApp, library } from './lib/app.ts';
@@ -340,5 +340,66 @@ describe('the home page, the sidebar and the tab bar', () => {
       `desktop.library.update(${js(made.ferry.id)}, { owner: 'someone' })`,
     );
     assert.ok(!refused.ok);
+  });
+
+  it("an agent's artifacts say their project, and the filter's Project submenu narrows the library to it", T, async () => {
+    const daemon = daemonState(profile);
+    // Two sessions, each in a folder of its own (no checkout around it: the folder is the project). Nothing is set, so
+    // their artifacts go under the profile's Open Artifact folder, outside both projects.
+    const shop = join(profile.root, 'code', 'shop');
+    const site = join(profile.root, 'code', 'site');
+    for (const dir of [shop, site]) mkdirSync(dir, { recursive: true });
+    const make = async (title: string, workspace: string) => {
+      const result = (await library(daemon, 'tools.call', {
+        name: 'Artifact',
+        arguments: { action: 'publish', type_url: 'open-artifact://type/docs', title, open: 'never' },
+        caller: { harness: 'mcp', session: `session-${title}`, workspace },
+      })) as { url?: string; root?: string; error?: unknown };
+      assert.equal(result.error, undefined, js(result));
+      assert.ok(present(result.root).startsWith(join(profile.home, 'OpenArtifact')), js(result));
+      return present(result.url).split('/').pop()!;
+    };
+    const plan = await make('Shop plan', shop);
+    await make('Shop review', shop);
+    await make('Site map', site);
+
+    await run<boolean>(`document.querySelector('[data-testid=nav-library]').click(), true`);
+    assert.ok(await waitFor(`!!(${card('Shop plan')}) && !!(${card('Shop review')}) && !!(${card('Site map')})`), await run<string>('document.body.innerText'));
+    // Under each title: the project's name, and which folder that is.
+    const projectOn = (title: string) => run<[string, string] | null>(`(() => { const p = (${card(title)})?.querySelector('.oa-project'); return p ? [p.dataset.project, p.textContent] : null; })()`);
+    assert.deepEqual(await projectOn('Shop plan'), [shop, 'shop · ']);
+    assert.deepEqual(await projectOn('Site map'), [site, 'site · ']);
+    assert.equal(await projectOn('2027 Budget'), null, 'made with no session: of no project');
+    // The sidebar's row says the project when pointed at.
+    assert.equal(await run<string | undefined>(`document.querySelector('[data-testid=sidebar] [data-artifact=${js(plan)}]')?.title`), `Shop plan\n${shop}`);
+
+    // The filter menu's Project submenu: each project with its count, then the artifacts of none.
+    const shown = () => run<string[]>(`[...document.querySelectorAll('.oa-item .oa-name')].map((e) => e.textContent).sort()`);
+    const everything = await shown();
+    await run<boolean>(`document.querySelector('.oa-heading .oa-tool[aria-label="Sort and filter"]').click(), true`);
+    const projectRow = `[...document.querySelectorAll('.oa-menu-item[aria-haspopup=menu]')].find((b) => b.textContent.includes('Project'))`;
+    assert.ok(await waitFor(`!!(${projectRow})`), 'no Project row in the filter menu');
+    await run<boolean>(`(${projectRow}).click(), true`);
+    assert.ok(await waitFor(`!!document.querySelector('[role=menuitemcheckbox][data-project]')`), 'the Project submenu did not open');
+    const choices = await run<[string, string, string][]>(
+      `[...document.querySelectorAll('[role=menuitemcheckbox][data-project]')].map((b) => [b.dataset.project, b.querySelector('.oa-menu-label').textContent, b.querySelector('.oa-menu-count').textContent])`,
+    );
+    assert.deepEqual(choices.slice(0, 2), [
+      [shop, 'shop', '2'],
+      [site, 'site', '1'],
+    ]);
+    assert.deepEqual(choices[2]?.slice(0, 2), ['', 'No project'], js(choices));
+    const pick = (project: string) => run<boolean>(`document.querySelector('[role=menuitemcheckbox][data-project=${js(project)}]').click(), true`);
+    await pick(shop);
+    assert.ok(await waitFor(`document.querySelectorAll('.oa-item').length === 2`), js(await shown()));
+    assert.deepEqual(await shown(), ['Shop plan', 'Shop review']);
+    // A second project adds its artifacts; unpicking both brings everything back.
+    await pick(site);
+    assert.ok(await waitFor(`document.querySelectorAll('.oa-item').length === 3`), js(await shown()));
+    assert.deepEqual(await shown(), ['Shop plan', 'Shop review', 'Site map']);
+    await pick(shop);
+    await pick(site);
+    assert.ok(await waitFor(`document.querySelectorAll('.oa-item').length === ${everything.length}`), js(await shown()));
+    assert.deepEqual(await shown(), everything);
   });
 });

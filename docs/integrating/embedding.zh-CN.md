@@ -143,7 +143,7 @@ if (oa.features.includes('view.context')) {
 
 ## 作品库页面
 
-`embedLibrary(iframe, { url, harness, workspace, onOpenArtifact, … })` 嵌入 daemon 的首页，只列出你的 harness 或某个工作目录的作品。有 `onOpenArtifact` 时，点击会给你发 `open_artifact`，而不是跳转，由你在自己的面板里显示作品。
+`embedLibrary(iframe, { url, harness, workspace, onOpenArtifact, … })` 嵌入 daemon 的首页，只列出你的 harness 或某个工作目录的作品（也包括为这个工作目录所在项目创建的作品，不管文件夹在哪：见[作品放在哪里](../settings.zh-CN.md)）。有 `onOpenArtifact` 时，点击会给你发 `open_artifact`，而不是跳转，由你在自己的面板里显示作品。
 
 ## Webview 检查清单
 

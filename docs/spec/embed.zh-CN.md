@@ -20,7 +20,7 @@
 | `host_hello` | `caps`（`sessions?`、`toolbar?`、`artifacts?`、`switcher?`）、`agentName?`、`harness?`、`protocol?`、`theme?`（`scheme`、`accent?`）、`destinations?`（`id`、`label`；最多 8 个）、`library?`（`harness?`、`workspace?`） | 对 `shell_hello` 或 `home_hello` 的回答；主题变化时再发一次 |
 | `goto` | `hash` | 显示这个位置；Shell 用 `place` 回答 |
 
-`caps.sessions`：你能新建和打开会话。`caps.toolbar`：你画自己的工具栏，所以 Shell 隐藏它的关闭按钮。`caps.switcher`：你的应用自己列出和切换作品，所以 Shell 的标题菜单里没有“Switch artifact”（连同“All artifacts”）。`caps.artifacts`（仅首页）：点击作品发送 `open_artifact`，而不是跳转。`library`（仅首页）：只列出该 harness 或该目录的作品。
+`caps.sessions`：你能新建和打开会话。`caps.toolbar`：你画自己的工具栏，所以 Shell 隐藏它的关闭按钮。`caps.switcher`：你的应用自己列出和切换作品，所以 Shell 的标题菜单里没有“Switch artifact”（连同“All artifacts”）。`caps.artifacts`（仅首页）：点击作品发送 `open_artifact`，而不是跳转。`library`（仅首页）：只列出该 harness 的作品（按所属会话的 harness），或该目录的作品：所属会话在这个目录里工作，作品的文件夹在它之下，或者作品是为包含这个目录、或位于这个目录之内的项目创建的（所以放在用户 Open Artifact 文件夹里的作品，仍然列在它的项目下）。
 
 ## Shell → 宿主
 

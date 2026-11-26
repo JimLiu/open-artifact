@@ -294,6 +294,11 @@ artifact apps keep their ad hoc outer signatures. See `apps/desktop/RELEASING.md
   and marks it with `.open-artifact-project.json`; a taken name gets 4, 8 or 16 hex digits of the path's sha256. The
   record keeps `project` (`ArtifactRecord.project`, never in `.artifact.json`), and "this project's artifacts" in
   `list`, `quickstart`'s `existing` and `related` are the records of the caller's project or under its workspace.
+  The Library API hands the project on as `ArtifactView.project`. Both lists show and filter by it with the protocol's
+  `projectChoices` and `projectName`: the daemon's home page (`packages/shell/src/home`: a chip on each card, a row of
+  projects above the grid, and `forHost` counting an artifact made for the host workspace's project as the workspace's)
+  and the library page (`packages/library-page`: `PageArtifact.project`, `Filters.projects`, the filter menu's Project
+  submenu, the search), which Desktop and the DSH plugin mount.
   When the location came from the harness default and the daemon makes `<workspace>/<artifactsDir>/` in a Git checkout,
   it writes a `.gitignore` (`*`) there. A `root` outside the caller's workspace adds a note to the create result (the
   agent may send files with `publish`'s `files`). `open-artifact config [list] | get | set | unset [--project | --local]`

@@ -242,7 +242,7 @@ The harness asks its questions (`waitFor`, `evaluateAll`, `load`'s `ready`) in a
 - (e) `SIGTERM` to the daemon: it waits for its threads and exits 0, `daemon.log` has `daemon <version> stopped (SIGTERM)` once, every server log ends with `--- exit 0`, `daemon.json` and the lock are gone, the ports refuse connections and no process is left.
 - Not covered here: a real Electron utility process (it was checked by hand, see `docs/integrating/runtime.md` and `examples/harness-electron/README.md`, the stop on quit included) and the other six built-in types in threads.
 
-**Where new artifacts go** (`artifacts-location.test.mjs`, no browser)
+**Where new artifacts go** (`artifacts-location.test.mjs`; (i) in Chrome)
 
 - A real daemon (`open-artifact daemon run` from source) with a temporary `HOME` and `OPEN_ARTIFACT_HOME` and no settings, real Git checkouts (`git init`, `git worktree add`), and the `open-artifact` command line run in them as an agent's session would (`artifact '{…}'`) and as the person would (`config set`). `note` is a static user type, so nothing has to be built. Skipped when `git` is not installed.
 - (a) With nothing set, a session of an app without a profile makes the artifact under the person's Open Artifact folder, `~/OpenArtifact/<project>/<slug>`, from a folder deep in the checkout: the project's folder carries `.open-artifact-project.json`, the result says the files are outside the working folder, `git status` is clean, and the session lists it again.
@@ -253,6 +253,7 @@ The harness asks its questions (`waitFor`, `evaluateAll`, `load`'s `ready`) in a
 - (f) A linked worktree is the same project: both make their artifacts in the same folder under the Open Artifact folder, a new session in the worktree lists both, and a session in another checkout lists none.
 - (g) Two checkouts with the same folder name get two folders (`app`, `app-<4 hex digits>`), each stable for its project, and neither session lists the other's artifacts.
 - (h) `open-artifact doctor --json --harness claude-code` in a checkout: `artifacts-location` says the workspace and that it is the app's default; after `config set artifactsLocation home --local` it is a warning that names `claude --add-dir <the Open Artifact folder>`, which goes away once `~/.claude/settings.json` lists the folder under `permissions.additionalDirectories`; `--harness pi` needs nothing. A project file with `trustedProjects` makes `project-settings` a warning naming the key, and nothing fails.
+- (i) In Chrome (skipped without it or without the built home page), the daemon's home page: every card of a session's artifact names its project by the folder's name; the row of projects above the list tells two projects of one name apart by the folder each is in and says how many artifacts each has; picking one shows that project's artifacts only (kept in the Open Artifact folder, outside the checkout), and **All** brings the rest back.
 
 **Workspace confinement** (`workspace-confinement.test.mjs`, no browser)
 

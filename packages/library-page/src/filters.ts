@@ -1,7 +1,10 @@
 /**
  * Sorting, filtering and searching the list: pure functions of the artifacts and what the person picked.
  */
+import { NO_PROJECT } from '@open-artifact/protocol';
 import type { PageArtifact } from './library/routes.ts';
+
+export { NO_PROJECT, projectChoices, projectName, type ProjectChoice } from '@open-artifact/protocol';
 
 /** What the list is sorted by. */
 export type Sort = 'opened' | 'updated' | 'created' | 'name';
@@ -15,13 +18,15 @@ export interface Filters {
   sort: Sort;
   /** Type ids; empty: all. */
   types: readonly string[];
+  /** Project folders ({@link PageArtifact.project}; {@link NO_PROJECT} for artifacts of none); empty: all. */
+  projects: readonly string[];
   date: DateRange;
   sharing: Sharing;
   pinned: boolean;
 }
 
 /** Nothing picked. */
-export const NO_FILTERS: Filters = Object.freeze({ sort: 'opened', types: [], date: 'any', sharing: 'any', pinned: false });
+export const NO_FILTERS: Filters = Object.freeze({ sort: 'opened', types: [], projects: [], date: 'any', sharing: 'any', pinned: false });
 /** The sort choices, in menu order. */
 export const SORTS: readonly Sort[] = ['opened', 'updated', 'created', 'name'];
 /** The date choices, in menu order. */
@@ -31,7 +36,7 @@ export const SHARINGS: readonly Sharing[] = ['any', 'shared', 'private'];
 
 /** Whether anything but the sort narrows the list. */
 export function isFiltered(f: Filters): boolean {
-  return f.types.length > 0 || f.date !== 'any' || f.sharing !== 'any' || f.pinned;
+  return f.types.length > 0 || f.projects.length > 0 || f.date !== 'any' || f.sharing !== 'any' || f.pinned;
 }
 
 const DAY = 86_400_000;
@@ -73,17 +78,18 @@ export interface ListQuery {
   sessionTitle?: (sessionId: string) => string;
 }
 
-/** The artifacts the page lists: filtered, searched (title, session title, folder) and sorted. */
+/** The artifacts the page lists: filtered, searched (title, session title, folder, project) and sorted. */
 export function visibleArtifacts(list: readonly PageArtifact[], { filters, query, now, locale, sessionTitle }: ListQuery): PageArtifact[] {
   const q = query.trim().toLowerCase();
   const kept = list.filter((a) => {
     if (filters.types.length > 0 && !filters.types.includes(a.type)) return false;
+    if (filters.projects.length > 0 && !filters.projects.includes(a.project ?? NO_PROJECT)) return false;
     if (filters.pinned && !a.pinned) return false;
     if (filters.sharing !== 'any' && a.shared !== (filters.sharing === 'shared')) return false;
     if (!inRange(a.openedAt, filters.date, now)) return false;
     if (!q) return true;
     const session = a.sessionId && sessionTitle ? sessionTitle(a.sessionId) : '';
-    return a.title.toLowerCase().includes(q) || session.toLowerCase().includes(q) || a.root.toLowerCase().includes(q);
+    return a.title.toLowerCase().includes(q) || session.toLowerCase().includes(q) || a.root.toLowerCase().includes(q) || (a.project ?? '').toLowerCase().includes(q);
   });
   return sortArtifacts(kept, filters.sort, locale);
 }

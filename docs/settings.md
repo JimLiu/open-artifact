@@ -55,6 +55,14 @@ Artifacts you make on the home page (no session) go to `~/OpenArtifact/artifacts
 "This project's artifacts" (what `Artifact {action: "list"}` shows a session, and what `quickstart` offers to reuse) are
 the ones made for the project, wherever their folders are, plus any whose folder is inside the session's folder.
 
+You see the projects too. On the home page (`open-artifact open`) each card names the project its artifact was made
+for (the full folder shows when you point at it), and when your artifacts are of more than one project a row above the
+list narrows it to one: **All**, each project with how many artifacts it has, and **No project** for the ones made on
+the home page or before projects were kept. Two projects of one name are told apart by the folder each is in
+(`app (work)`, `app (play)`). In Open Artifact Desktop the library says the project under each title, its filter menu
+has a **Project** submenu, the search finds a project by its path, and a row in the sidebar shows the project when you
+point at it.
+
 ### Choosing
 
 | You want | Do |

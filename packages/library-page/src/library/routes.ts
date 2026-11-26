@@ -30,6 +30,11 @@ export interface PageArtifact {
   id: string;
   /** The artifact folder. */
   root: string;
+  /**
+   * The folder of the project it was made for (the daemon's `project`), wherever its own folder is. Empty or left out:
+   * none (made on the home page, or by a host that keeps no projects).
+   */
+  project?: string;
   /** Its type's id (`design`, …). */
   type: string;
   /** Its type's title, for a type the page has no words of its own for. */

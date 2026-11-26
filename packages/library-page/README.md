@@ -1,7 +1,7 @@
 # @open-artifact/library-page
 
-The Open Artifact library page as a React component: the list of artifacts (grid or list, search, filters by type
-and date), new artifacts from the type tiles, rename, pin, copy link, delete with undo, thumbnails, an update panel,
+The Open Artifact library page as a React component: the list of artifacts (grid or list, search, filters by type,
+project and date), new artifacts from the type tiles, rename, pin, copy link, delete with undo, thumbnails, an update panel,
 "What's new" and the changelog. Two hosts mount it: the DSH plugin (`plugins/dsh`) in DSH's sidebar, bundled into
 its `lib/client.js`, and Open Artifact Desktop (`apps/desktop`) as its home tab, bundled into the window's page. The
 package is private: hosts in this repository bundle it.

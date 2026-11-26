@@ -31,7 +31,8 @@ The window's page (`renderer/`, a React app bundled into `out/renderer/app.js`) 
 - **Sidebar** (240 px, can be folded; the choice is kept in `<userData>/settings.json`): room for the macOS traffic
   lights, fold, back and forward over the tabs the person went to; New (the new dialog), Search (the library tab with
   its search field focused), Library; Pinned (foldable) and Recent (the 8 most recently changed artifacts that are not
-  pinned), each with its type's colored icon. It follows the library's events.
+  pinned), each with its type's colored icon; pointing at a row shows its title and, on a second line, the project it
+  was made for. It follows the library's events.
 - **Tab bar**: the Library tab first (it cannot be closed), then one tab per artifact (its type's color, title, close,
   a dot while it has unsaved work, reconnecting, stopped, "reload", "saving…" while a close waits for the save, and
   "folder not found" states), and `+` for the new dialog. It scrolls sideways.
@@ -53,7 +54,9 @@ The window's page (`renderer/`, a React app bundled into `out/renderer/app.js`) 
   (`BUILTIN_START.blank`), and types an agent builds (`BUILTIN_START.agent`, made empty, the Shell shows the hand-over
   prompt). Thumbnails are taken by the main process in a hidden offscreen window of their own partition and shown
   through the `oa-thumbnail:` scheme; they are taken only while the window is on screen (or with `--thumbnails` in
-  test mode).
+  test mode). Each artifact says the project it was made for under its title (the daemon's `ArtifactView.project`, see
+  [where artifacts go](../../docs/settings.md)); the filter menu's Project submenu narrows the list to one or more
+  projects, and the search finds a project by its path.
 - **New dialog**: the two groups (each type with its icon), a title field, Create and open; a failed create says the
   daemon's reason in the dialog, which stays open. With a folder chosen in Settings, the app names the new artifact's
   folder itself, as the daemon would: `<folder>/<slug of the title>`, `-2`, `-3`… past one that exists and is not
@@ -351,7 +354,9 @@ npm test         # builds, then runs test/*.test.ts one file at a time
 - `home.test.ts`: the sidebar, the tab bar and the home page in the running app: the list and its live updates,
   opening a card, pin and fold, rename, delete and undo, the new dialog (a blank doc whose typing reaches its folder,
   an empty design with the Shell's prompt, a failed create that says why), back and forward, folding the sidebar,
-  search, and that the page never sees the token or reaches the daemon itself.
+  search, that the page never sees the token or reaches the daemon itself, and that artifacts two agent sessions made
+  (kept in the Open Artifact folder) say their project under the title and in the sidebar row's tooltip, with the
+  filter menu's Project submenu narrowing the library to one project or two.
 - `look.test.ts`: Chinese words and the dark look (`--locale zh --theme dark`), a new artifact's thumbnail taken,
   saved at its version and shown through `oa-thumbnail:` (`--thumbnails`), and the scheme refusing what is not an id.
 - `service.test.ts`: the service panel against the real daemon (version, address, pid, the apps, the editors),

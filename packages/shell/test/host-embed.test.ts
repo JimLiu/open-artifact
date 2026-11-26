@@ -107,4 +107,13 @@ describe('home page host', () => {
     assert.deepEqual(forHost(list, { harness: 'myagent', workspace: '/w/proj' }).map((a) => a.id), ['a', 'd']);
     assert.deepEqual(forHost([art('f', 'myagent', '/w/project')], { workspace: '/w/proj' }), [], 'a sibling folder with the same prefix is not under it');
   });
+
+  it('lists the artifacts made for the workspace\'s project, wherever their folders are', () => {
+    // Kept in the Open Artifact folder, with the session that made them gone.
+    const made = (id: string, project: string | null): ArtifactView => ({ ...art(id, null, null, `/home/me/OpenArtifact/x/${id}`), project }) as ArtifactView;
+    const list = [made('a', '/w/proj'), made('b', '/w/proj/packages/app'), made('c', '/w'), made('d', '/w/project'), made('e', null)];
+    assert.deepEqual(forHost(list, { workspace: '/w/proj' }).map((a) => a.id), ['a', 'b', 'c'], 'its own project, a project under it, the project it is a folder of');
+    assert.deepEqual(forHost(list, { workspace: '/w/proj/packages/app/' }).map((a) => a.id), ['a', 'b', 'c']);
+    assert.deepEqual(forHost(list, { harness: 'myagent', workspace: '/w/proj' }), [], 'the harness is still asked of the owner');
+  });
 });

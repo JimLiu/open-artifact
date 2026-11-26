@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { after, before, beforeEach, describe, test } from 'node:test';
-import { PROJECT_SETTINGS_FILE, artifactIdOf, type ArtifactRecord, type DaemonState, type ToolCallResult } from '@open-artifact/protocol';
+import { PROJECT_SETTINGS_FILE, artifactIdOf, type ArtifactRecord, type ArtifactView, type DaemonState, type ToolCallResult } from '@open-artifact/protocol';
 import { api, readDaemon } from '../src/client.ts';
 import { startDaemon, type Daemon } from '../src/daemon.ts';
 import { files } from '../src/paths.ts';
@@ -343,5 +343,18 @@ describe('Artifact publish', () => {
     // quickstart finds it as one to reuse, from the worktree too.
     const quick = await artifact({ action: 'quickstart', type: 'design', title: 'Shared plan' }, wt, 'mcp', 'in-worktree');
     assert.ok(JSON.stringify(quick).includes(made.id), JSON.stringify(quick).slice(0, 400));
+  });
+
+  test("the library's views say the project: the checkout's top from a worktree, null with no working folder", async () => {
+    const main = repo();
+    const inWorktree = await make('From a worktree', join(worktree(main), 'src'), 'mcp', {}, 'wt');
+    const inWorkspace = await make('In the checkout', main, 'dsh', {}, 'ws');
+    const loose = await make('No project', null, 'mcp', {}, 'loose');
+    const listed = (await api<{ artifacts: ArtifactView[] }>(state, 'artifacts')).artifacts;
+    const projectOfView = (id: string): string | null | undefined => listed.find((a) => a.id === id)?.project;
+    assert.equal(projectOfView(inWorktree.id), main);
+    assert.equal(projectOfView(inWorkspace.id), main);
+    assert.equal(projectOfView(loose.id), null);
+    assert.equal(daemon.artifactView(daemon.store.require(inWorktree.id)).project, main);
   });
 });
