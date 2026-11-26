@@ -7,7 +7,7 @@
 import { AlertCircle, AlertTriangle, ChevronRight, Copy, Download, FileIcon, FileText, Folder, Info, Trash2, X } from 'lucide-react';
 import { useEffect, useMemo, useState, type MouseEvent } from 'react';
 import { checkDesignSystem, type SystemDiagnostic } from '@open-artifact/design-system-core';
-import { Button, ConfirmDialog, IconButton, MenuItem, MenuSeparator, cn } from '@open-artifact/ui';
+import { Button, ConfirmDialog, IconButton, MenuItem, MenuSeparator, cn, shortcutLetter } from '@open-artifact/ui';
 import { copyText, downloadUrl } from '../services/downloads.ts';
 import { useFiles } from '../state/files.ts';
 import { useModel } from '../state/model.ts';
@@ -121,7 +121,7 @@ function TextEditor({ path, text, readOnly }: { path: string; text: string; read
       onChange={(event) => setDraft(event.target.value)}
       onBlur={commit}
       onKeyDown={(event) => {
-        if ((event.metaKey || event.ctrlKey) && event.key === 's') commit();
+        if ((event.metaKey || event.ctrlKey) && !event.altKey && shortcutLetter(event) === 's') commit();
       }}
       aria-label={path}
       className="h-[calc(100vh-220px)] min-h-80 w-full resize-none rounded-lg border border-line bg-surface p-3 font-mono text-[12px] leading-5 text-fg outline-none focus:border-accent"

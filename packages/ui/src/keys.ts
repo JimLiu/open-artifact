@@ -120,3 +120,23 @@ export function guardHeldActivation(
   win.addEventListener('keyup', onKey, true);
   return end;
 }
+
+/** The fields of a keyboard event {@link shortcutLetter} reads. */
+export interface ShortcutKeyLike {
+  key: string;
+  code?: string;
+}
+
+/**
+ * The letter a shortcut means, lower-cased. A Latin letter is taken as typed,
+ * so remapped layouts (Dvorak, AZERTY) keep their own letters; any other
+ * character (Cyrillic, Greek, a symbol the Option key makes) falls back to the
+ * physical key, so ⌘S still saves on a Russian layout. Keys that are not
+ * letters (`Escape`, `Enter`) come back lower-cased.
+ */
+export function shortcutLetter(event: ShortcutKeyLike): string {
+  if (/^[a-z]$/i.test(event.key)) return event.key.toLowerCase();
+  const physical = /^Key([A-Z])$/.exec(event.code ?? '');
+  if (physical && event.key.length === 1) return physical[1]!.toLowerCase();
+  return event.key.toLowerCase();
+}

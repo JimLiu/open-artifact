@@ -8,6 +8,7 @@ import {
   isComposingKey,
   isRepeatedActivation,
   preventRepeatedActivation,
+  shortcutLetter,
   withRepeatGuard,
   type KeyGuardEvent,
   type KeyGuardWindow,
@@ -164,5 +165,23 @@ describe('isComposingKey', () => {
     assert.equal(isComposingKey({ isComposing: false, keyCode: 229 }), true);
     assert.equal(isComposingKey({ isComposing: false, keyCode: 13 }), false);
     assert.equal(isComposingKey({}), false);
+  });
+});
+
+describe('shortcutLetter', () => {
+  it('takes a Latin letter as typed, whatever key makes it', () => {
+    assert.equal(shortcutLetter({ key: 'S', code: 'KeyS' }), 's');
+    assert.equal(shortcutLetter({ key: 'o', code: 'KeyS' }), 'o', 'Dvorak keeps its own letters');
+  });
+
+  it('falls back to the physical key for other characters', () => {
+    assert.equal(shortcutLetter({ key: 'ы', code: 'KeyS' }), 's');
+    assert.equal(shortcutLetter({ key: 'ß', code: 'KeyS' }), 's', 'an Option-made symbol');
+    assert.equal(shortcutLetter({ key: 'я' }), 'я', 'no code to go by');
+  });
+
+  it('lower-cases named keys', () => {
+    assert.equal(shortcutLetter({ key: 'Escape', code: 'Escape' }), 'escape');
+    assert.equal(shortcutLetter({ key: 'Enter', code: 'KeyE' }), 'enter');
   });
 });

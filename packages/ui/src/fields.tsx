@@ -11,7 +11,7 @@ import { Toggle } from '@base-ui/react/toggle';
 import { Check, ChevronDown } from 'lucide-react';
 import { forwardRef, useEffect, useRef, useState, type InputHTMLAttributes, type ReactNode } from 'react';
 import { cn } from './cn.ts';
-import { isComposingKey, preventRepeatedActivation } from './keys.ts';
+import { isComposingKey, preventRepeatedActivation, shortcutLetter } from './keys.ts';
 import { POPUP_CLASS } from './menu.tsx';
 
 /**
@@ -41,7 +41,8 @@ export interface CommitInputProps extends Omit<InputHTMLAttributes<HTMLInputElem
 /**
  * A text input that keeps a local draft and commits on Enter or blur; Escape
  * restores the last committed value. Inspector edits use it so every
- * keystroke does not become a document write.
+ * keystroke does not become a document write. ⌘S / Ctrl+S commits the draft
+ * and lets the key go on to the page's save, keeping focus in the field.
  */
 export function CommitInput({ value, onCommit, onDraftChange, className, ...rest }: CommitInputProps) {
   const [draft, setDraft] = useState(value);
@@ -70,7 +71,9 @@ export function CommitInput({ value, onCommit, onDraftChange, className, ...rest
       onBlur={commit}
       onKeyDown={(event) => {
         if (isComposingKey(event.nativeEvent)) return;
-        if (event.key === 'Enter') {
+        if ((event.metaKey || event.ctrlKey) && !event.altKey && shortcutLetter(event) === 's') {
+          commit();
+        } else if (event.key === 'Enter') {
           commit();
           settled.current = true;
           (event.target as HTMLInputElement).blur();

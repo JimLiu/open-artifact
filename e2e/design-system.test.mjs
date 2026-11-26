@@ -611,6 +611,31 @@ editorSuite({
       }
     });
 
+    it('Command/Ctrl-S in a field saves what was typed without leaving the field, on any keyboard layout', T, async () => {
+      const { root, url } = await ctx.openNew('save-typed');
+      const tokens = path.join(root, 'project', 'tokens.json');
+      const field = `document.querySelector('input[aria-label^="ink value in"]')`;
+      const mod = process.platform === 'darwin' ? { meta: true } : { ctrl: true };
+      const page = await (await ctx.browser()).load(url, { ready: field });
+      try {
+        await page.evaluate(`(() => { const input = ${field}; input.scrollIntoView({ block: 'center' }); input.focus(); input.select(); })()`);
+        await page.type('#123456');
+        await page.press('s', mod);
+        assert.ok(await until(() => fs.readFileSync(tokens, 'utf8').includes('#123456'), 8000), 'the typed value was not saved');
+        assert.equal(await page.evaluate(`document.activeElement === ${field}`), true, 'the field lost focus');
+        await page.evaluate(`${field}.select()`);
+        await page.type('#654321');
+        // A Russian layout: the S key types "ы".
+        const key = { key: 'ы', code: 'KeyS', windowsVirtualKeyCode: 83, modifiers: mod.meta ? 4 : 2 };
+        await page.cdp('Input.dispatchKeyEvent', { type: 'rawKeyDown', ...key });
+        await page.cdp('Input.dispatchKeyEvent', { type: 'keyUp', ...key });
+        assert.ok(await until(() => fs.readFileSync(tokens, 'utf8').includes('#654321'), 8000), 'the non-Latin S did not save');
+        assert.deepEqual(page.problems, []);
+      } finally {
+        await page.close();
+      }
+    });
+
     it('a component preview cannot take focus from the page before it is used', T, async () => {
       const { root, url } = await ctx.openNew('preview-focus');
       const dir = path.join(root, 'project', 'components', 'Grabby');

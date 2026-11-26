@@ -1,6 +1,7 @@
 /** Keyboard shortcuts of the page. */
 
 import { isApplePlatform, isTextField } from '@open-artifact/editor-kit';
+import { shortcutLetter } from '@open-artifact/ui';
 import { useFiles } from '../state/files.ts';
 import { useView } from '../state/view.ts';
 import { flush } from '../services/sync.ts';
@@ -12,8 +13,8 @@ const IS_MAC = isApplePlatform();
 export function installKeyboard(): () => void {
   const onKey = (event: KeyboardEvent): void => {
     const mod = IS_MAC ? event.metaKey : event.ctrlKey;
-    const key = event.key.toLowerCase();
-    if (mod && key === 's') {
+    const key = shortcutLetter(event);
+    if (mod && !event.altKey && key === 's') {
       event.preventDefault();
       void flush();
       return;
