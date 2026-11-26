@@ -39,6 +39,7 @@
  * commit (`data-wb-committed`) lets it reach the board.
  */
 
+import { shortcutLetter } from '@open-artifact/ui/keys';
 import { isElementLocked, orderElementsForReading, tableColumnIds, tableRowIds, type BoardElement, type ElementId } from '@open-artifact/whiteboard-core';
 import { panBy, type Point } from '../lib/camera.ts';
 import { alignShortcutOf, layerOrderShortcutOf, toolShortcutOf, zoomShortcutOf } from '../lib/tools.ts';
@@ -75,6 +76,7 @@ import {
 import { NOTHING_SELECTED_MESSAGE, announce, groupSelectedMessage, selectionCountMessage, toolNameMessage } from './announce.ts';
 import { redo, undo } from './commands.ts';
 import { cancelCrop } from './crop.ts';
+import { deleteAfterHide, enterFirstLayer, holdWholeDrawing, leaveLayer, pickedDrawingLayer, runLayerAction } from './drawing-layers.ts';
 import { toggleSelectionMark } from './text-marks.ts';
 import { maybeSession } from './session.ts';
 import { groupKeyStep } from './group-keys.ts';
@@ -97,9 +99,9 @@ export interface KeyPress {
   getModifierState?(key: string): boolean;
 }
 
-/** True when `event` is the letter (by key, or by physical key on non-Latin layouts). */
+/** True when `event` is the letter: as typed on a Latin layout, by its physical key on others. */
 function isLetter(event: Pick<KeyPress, 'key' | 'code'>, letter: string): boolean {
-  return event.key.toLowerCase() === letter || event.code === 'Key' + letter.toUpperCase();
+  return shortcutLetter(event) === letter;
 }
 
 /** The primary modifier (⌘ or Ctrl) is down. */
@@ -512,7 +514,7 @@ export function openContextMenuFromKeyboard(): void {
   const screen = { x: (boardPoint.x - camera.camera.x) * camera.camera.zoom, y: (boardPoint.y - camera.camera.y) * camera.camera.zoom };
   const clamp = (value: number, size: number): number => Math.min(Math.max(value, 8), Math.max(8, size - 8));
   const at = { x: left + clamp(screen.x, camera.width), y: top + clamp(screen.y, camera.height) };
-  useContextMenu.getState().show({ at, kind: selected.length > 0 ? 'items' : 'board', board: boardPoint });
+  useContextMenu.getState().show({ at, kind: selected.length > 0 ? 'items' : 'board', board: boardPoint, keyboard: true });
 }
 
 /** ⌘A and the menu's Select all: every unlocked item (every item on a read-only board). */
@@ -572,6 +574,10 @@ export function installKeyboard(): () => void {
       if (done !== false) event.preventDefault();
     };
 
+    if (layerKeys(event, keysOn, onChrome)) {
+      run();
+      return;
+    }
     if (history) {
       run();
       if (history === 'undo') undo();
@@ -739,4 +745,32 @@ export function installKeyboard(): () => void {
     document.removeEventListener('visibilitychange', onVisibility);
     onBlur();
   };
+}
+
+/**
+ * Keys of a drawing's layers: Enter on a selected drawing picks its first
+ * layer; while one is picked, Delete hides it, the layer order keys move
+ * it, arrows do nothing, Escape goes back to the whole drawing and
+ * whole-drawing commands are held. `true` when a key was taken.
+ */
+function layerKeys(event: KeyboardEvent, keysOn: boolean, onChrome: boolean): boolean {
+  if (deleteAfterHide(event.key, event.repeat)) return true;
+  if (pickedDrawingLayer() === undefined)
+    return event.key === 'Enter' && !onChrome && !event.repeat && !hasMod(event) && !event.altKey && !event.shiftKey && !useTool.getState().commentMode && enterFirstLayer();
+  if (isDuplicateShortcut(event) || groupingKeyCommand(event) !== undefined || rotationKeyStep(event) !== undefined) {
+    holdWholeDrawing(event.repeat);
+    return true;
+  }
+  if (event.key === 'Delete' || event.key === 'Backspace') {
+    if (!event.repeat) runLayerAction('hide');
+    return true;
+  }
+  const order = layerOrderShortcutOf(event, keysOn);
+  if (order !== undefined) {
+    if (!event.repeat) runLayerAction(order);
+    return true;
+  }
+  if (onChrome) return false;
+  if (arrowKeyDirection(event.key) !== undefined && !hasMod(event) && !event.altKey) return true;
+  return event.key === 'Escape' && !event.repeat && leaveLayer();
 }

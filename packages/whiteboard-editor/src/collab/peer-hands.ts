@@ -21,7 +21,7 @@
  * Pure: unit-tested. `live-gestures.ts` keeps the hands and the timing.
  */
 
-import { cachedStrokePath, type BoardElement, type InkColor } from '@open-artifact/whiteboard-core';
+import { strokeDrawing, type BoardElement, type InkColor } from '@open-artifact/whiteboard-core';
 import type { SettleGlide } from '../state/shown.ts';
 import type { GestureFrame } from './gesture-wire.ts';
 
@@ -177,14 +177,18 @@ export function settleGlides(
 /** A pen stroke or an arrow a peer is drawing (no element yet). */
 export type HandSketch =
   /** The pen stroke being drawn, absolute board coordinates. */
-  | { kind: 'ink'; d: string; color: InkColor; width: number }
+  | { kind: 'ink'; d: string; color: InkColor; width: number; filled: boolean }
   /** The arrow being drawn. */
   | { kind: 'draft'; x1: number; y1: number; x2: number; y2: number; color: InkColor };
 
 /** The sketches of a frame. */
 export function handSketches(frame: GestureFrame): HandSketch[] {
   const sketches: HandSketch[] = [];
-  if (frame.ink && frame.ink.points.length >= 2) sketches.push({ kind: 'ink', d: cachedStrokePath(frame.ink.points), color: frame.ink.color, width: frame.ink.width });
+  if (frame.ink && frame.ink.points.length >= 2) {
+    const { color, width, points, widths } = frame.ink;
+    const drawing = strokeDrawing({ points, width, ...(widths !== undefined ? { widths } : {}) });
+    sketches.push({ kind: 'ink', d: drawing.d, color, width, filled: drawing.filled });
+  }
   if (frame.draft) {
     const { from, to, color } = frame.draft;
     sketches.push({ kind: 'draft', x1: from[0], y1: from[1], x2: to[0], y2: to[1], color });

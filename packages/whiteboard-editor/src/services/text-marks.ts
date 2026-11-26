@@ -2,14 +2,15 @@
  * ⌘B / ⌘I on the selection (not while typing): bold or italic on the whole
  * text of the selected notes, shapes and texts, as one "Edit text" undo
  * step (see `elements/mark-across.ts` for which way it goes). Notes and
- * shapes grow to fit the marked text, as after typing.
+ * shapes grow to fit the marked text where there is room, as after typing.
  */
 
-import { autoFitPatch, isElementLocked, TEXT_CUT_NOTICE } from '@open-artifact/whiteboard-core';
+import { autoFitPatchWithRoom, isElementLocked, TEXT_CUT_NOTICE } from '@open-artifact/whiteboard-core';
 import { markDisabledReason, richTextTargets, toggleMarkAcross, type TextMark } from '../elements/mark-across.ts';
 import { updateElements } from '../state/board.ts';
+import { currentMeasures } from '../state/measures.ts';
 import { useTool } from '../state/tool.ts';
-import { canEditBoard, selectedElements } from './actions.ts';
+import { boardElements, canEditBoard, selectedElements } from './actions.ts';
 import { announce, notify } from './announce.ts';
 
 /** Said once marked text is written. */
@@ -35,6 +36,8 @@ export function toggleSelectionMark(mark: TextMark, repeat = false): boolean {
   }
   const { texts, cut } = toggleMarkAcross(targets, mark);
   if (texts.size === 0) return true;
+  const elements = boardElements();
+  const measures = currentMeasures();
   const changed = updateElements(
     texts.keys(),
     (element) => {
@@ -42,7 +45,7 @@ export function toggleSelectionMark(mark: TextMark, repeat = false): boolean {
       if (text === undefined) return element;
       if (element.type === 'note' || element.type === 'shape') {
         const next = { ...element, text };
-        return { ...next, ...autoFitPatch(next) };
+        return { ...next, ...autoFitPatchWithRoom(next, elements, measures) };
       }
       return element.type === 'text' ? { ...element, text } : element;
     },

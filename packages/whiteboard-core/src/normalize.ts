@@ -70,6 +70,7 @@ import {
 } from './schema.ts';
 import { clampElementText, isSvgImageSource, isUploadedBlobSource, normalizeImageSource } from './image-source.ts';
 import { normalizeImageCrop } from './image-crop.ts';
+import { normalizeStrokeWidths } from './stroke-widths.ts';
 import { normalizeHttpUrl, normalizeLinkFields, sanitizeShortLabel } from './links.ts';
 import { isStickerArt, normalizeStickerGlyph, stickerGlyphForArt } from './stickers.ts';
 import { normalizeTable } from './table.ts';
@@ -327,7 +328,8 @@ function normalizeElementFields(raw: unknown, takenIds: ReadonlySet<ElementId>):
         points.push(value);
       }
       if (points.length < 2) return undefined;
-      return { type: 'stroke', id, x, y, points, color: ink(input.color), width: clampFiniteNumber(input.width, 1, 40) ?? 4 };
+      const widths = normalizeStrokeWidths(input.widths, points.length / 2);
+      return { type: 'stroke', id, x, y, points, color: ink(input.color), width: clampFiniteNumber(input.width, 1, 40) ?? 4, ...(widths !== undefined ? { widths } : {}) };
     }
     case 'shape': {
       const stroke = typeof input.stroke === 'string' ? ink(input.stroke) : undefined;

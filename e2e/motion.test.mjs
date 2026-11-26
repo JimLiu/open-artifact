@@ -55,11 +55,15 @@ function introSceneCode(extraShape = '') {
 });`;
 }
 
+// A line on only in the middle of a scene that starts seconds in: Read as text must look between its ends.
 const OUTRO_SCENE = `kit.scene('outro', {
   init(kit) {
-    kit.stage.append(kit.h('<div class="wrap"><h1 class="headline">See you soon</h1></div>'));
+    kit.stage.append(kit.h('<div class="wrap"><h1 class="headline">See you soon</h1><p class="aside">Back next week</p></div>'));
+    this.aside = kit.stage.querySelector('.aside');
   },
-  render() {},
+  render(t) {
+    this.aside.style.opacity = t > 0.6 && t < 1.4 ? '1' : '0';
+  },
 });`;
 
 const SCENES_JSON = {
@@ -338,7 +342,7 @@ describe(TYPE, { skip: skip() }, () => {
     assert.ok(
       await page.waitFor(`(() => {
         const text = document.querySelector('[data-video-read]')?.textContent ?? '';
-        return text.includes('Hello motion') && text.includes('See you soon');
+        return text.includes('Hello motion') && text.includes('See you soon') && text.includes('Back next week');
       })()`, 30_000),
       await page.evaluate(`document.querySelector('[data-video-read]')?.innerText ?? 'no panel'`),
     );
@@ -356,7 +360,7 @@ describe(TYPE, { skip: skip() }, () => {
     assert.ok(await until(() => fs.existsSync(file), 10_000), 'smoke-film.txt should be saved');
     const text = fs.readFileSync(file, 'utf8');
     assert.match(text, /^Smoke film\n\nIntro \(from 0:0+\)\nOpening card with headline and badge\.\nOn screen:\n- Hello motion\n/, text);
-    assert.match(text, /Outro \(from 0:0?3\)\nClosing headline\.\nOn screen:\n- See you soon\n/, text);
+    assert.match(text, /Outro \(from 0:0?3\)\nClosing headline\.\nOn screen:\n- See you soon\n- Back next week\n/, text);
 
     await centre('[data-video-panel] button[aria-label="Close panel"]');
     assert.ok(await page.waitFor(`!document.querySelector('[data-video-panel]') && document.activeElement?.hasAttribute('data-video-more')`, 10_000));

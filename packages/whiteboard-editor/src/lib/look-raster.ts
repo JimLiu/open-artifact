@@ -387,3 +387,34 @@ export function paintDrawingLook(ctx: LookContext, plan: DrawingPaintPlan, look:
 export function planPaintsAnything(plan: DrawingPaintPlan): boolean {
   return plan.parts.some((part: DrawingPaintPart) => part.contours.length > 0);
 }
+
+/** Side of the square a canvas is checked with before painting, px. */
+const NOISE_PROBE_PX = 8;
+/** Probe color the canvas must give back (RGBA). */
+const NOISE_PROBE_RGBA = [200, 80, 40, 255] as const;
+/** Most a channel may come back off by and the canvas still count as faithful. */
+const NOISE_TOLERANCE = 16;
+
+/** A canvas the probe can be written to and read from (a page canvas or an offscreen one). */
+export interface ProbeContext {
+  createImageData(width: number, height: number): ImageData;
+  putImageData(data: ImageData, x: number, y: number): void;
+  getImageData(x: number, y: number, width: number, height: number): ImageData;
+}
+
+/**
+ * Whether a canvas gives its pixels back as written. Some browsers add
+ * noise to every read (against fingerprinting); a look painted there would
+ * come out speckled, so it is not painted at all.
+ */
+export function canvasReadsBackFaithfully(ctx: ProbeContext): boolean {
+  try {
+    const probe = ctx.createImageData(NOISE_PROBE_PX, NOISE_PROBE_PX);
+    for (let index = 0; index < probe.data.length; index += 1) probe.data[index] = NOISE_PROBE_RGBA[index % 4]!;
+    ctx.putImageData(probe, 0, 0);
+    const back = ctx.getImageData(0, 0, NOISE_PROBE_PX, NOISE_PROBE_PX).data;
+    return back.length === probe.data.length && back.every((value, index) => Math.abs(value - probe.data[index]!) <= NOISE_TOLERANCE);
+  } catch {
+    return false;
+  }
+}

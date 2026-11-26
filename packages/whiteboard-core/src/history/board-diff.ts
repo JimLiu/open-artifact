@@ -5,13 +5,14 @@
  *
  * Applying merges by field groups: only the fields the step changed (and the
  * fields that go with them) are written, so undoing a move does not revert
- * someone else's text edit of the same note. Tables, SVG drawings and
- * multi-element steps are applied as whole values, except a step that only
- * moved or resized its elements.
+ * someone else's text edit of the same note. Tables, SVG drawings that the
+ * step redraws and multi-element steps are applied as whole values, except a
+ * step that only moved or resized its elements; a redrawn drawing still keeps
+ * where someone else put it ({@link rebaseRedrawnDrawing}).
  */
 
 import { canonicalValuesEqual } from '../json.ts';
-import { isSvgBase64DataUrl } from '../image-source.ts';
+import { checkSvgSource, decodeSvgDataUrl, isSvgBase64DataUrl } from '../image-source.ts';
 import { tryNormalizeElement } from '../normalize.ts';
 import {
   MAX_BOARD_ELEMENTS,
@@ -61,6 +62,8 @@ export const FIELD_GROUPS = {
 
 /** When one field of a group changed, every field of the group is written. */
 export const LINKED_FIELD_GROUPS: readonly (readonly string[])[] = [
+  // A stroke's pen widths belong to its points, one per point.
+  ['points', 'widths'],
   ...Object.values(FIELD_GROUPS),
   ['text', 'words', 'author'],
   ['label', 'words'],
@@ -73,6 +76,40 @@ export const LINKED_FIELD_GROUPS: readonly (readonly string[])[] = [
 /** Elements applied whole (their fields do not merge meaningfully). */
 export function isWholeValueElement(element: BoardElement): boolean {
   return element.type === 'table' || (element.type === 'image' && isSvgBase64DataUrl(element.src));
+}
+
+/** True when a step from `source` to `wanted` keeps the same drawing, so its fields merge one by one. */
+function keepsDrawing(source: BoardElement | undefined, wanted: BoardElement): boolean {
+  return wanted.type === 'image' && source?.type === 'image' && source.src === wanted.src;
+}
+
+/** The viewBox of a base64 drawing, as text (`undefined` when unreadable). */
+function drawingViewBoxKey(src: string): string | undefined {
+  const svg = decodeSvgDataUrl(src);
+  const check = svg === undefined ? undefined : checkSvgSource(svg);
+  return check === undefined || typeof check === 'string' ? undefined : `${check.x} ${check.y} ${check.w} ${check.h}`;
+}
+
+/**
+ * A step that swaps a drawing's picture (`next.src` differs from what the
+ * step left) keeps where the drawing is now when someone moved it since:
+ * position and turn always, size and crop only when both pictures share a
+ * viewBox (otherwise the old size would stretch the new picture).
+ */
+export function rebaseRedrawnDrawing(next: BoardElement, current: BoardElement, source: BoardElement | undefined): BoardElement {
+  if (next.type !== 'image' || current.type !== 'image' || source?.type !== 'image' || next.src === source.src || !isSvgBase64DataUrl(next.src)) return next;
+  const sameFrame = drawingViewBoxKey(next.src) !== undefined && drawingViewBoxKey(next.src) === drawingViewBoxKey(current.src);
+  const fields = ['x', 'y', 'turn', ...(sameFrame ? ['w', 'h', 'crop'] : [])];
+  const kept = new Map(Object.entries(next));
+  const now = new Map(Object.entries(current));
+  const before = new Map(Object.entries(source));
+  for (const field of fields) {
+    if (canonicalValuesEqual(now.get(field), before.get(field))) continue;
+    const value = now.get(field);
+    if (value === undefined) kept.delete(field);
+    else kept.set(field, value);
+  }
+  return tryNormalizeElement(Object.fromEntries(kept)) ?? next;
 }
 
 /** Fields a move or resize changes. */
@@ -259,7 +296,10 @@ export function applyBoardDiff(content: BoardContent, diff: BoardDiff, direction
     };
     const mergeInto = (base: BoardElement, wanted: BoardElement): BoardElement => {
       const result =
-        wholeValues || isWholeValueElement(base) || isWholeValueElement(wanted) || source?.type !== wanted.type || base.type !== wanted.type
+        wholeValues ||
+        ((isWholeValueElement(base) || isWholeValueElement(wanted)) && !keepsDrawing(source, wanted)) ||
+        source?.type !== wanted.type ||
+        base.type !== wanted.type
           ? wanted
           : (merged(base, wanted) ?? merged(mergeChangedFields(base, undefined, wanted), wanted) ?? wanted);
       return canonicalValuesEqual(result, wanted) ? wanted : result;
@@ -269,7 +309,11 @@ export function applyBoardDiff(content: BoardContent, diff: BoardDiff, direction
     const rebased =
       target !== undefined && next !== undefined && current !== undefined
         ? rebaseStickerHost(
-            rebaseTurn(rebaseImageHref(rebaseGroups(rebaseLock(mergeTableEdit(next, current, source), current, source), current), current, source), current, source),
+            rebaseTurn(
+              rebaseImageHref(rebaseGroups(rebaseLock(mergeTableEdit(rebaseRedrawnDrawing(next, current, source), current, source), current, source), current), current, source),
+              current,
+              source,
+            ),
             current,
             target,
           )

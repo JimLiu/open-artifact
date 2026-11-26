@@ -36,6 +36,19 @@
   stroke-linejoin: round;
 }
 
+.wb-sel-layer-halo {
+  fill: none;
+  stroke: #fff;
+  stroke-opacity: 0.8;
+  stroke-width: 3.5;
+}
+
+.wb-sel-layer {
+  fill: none;
+  stroke: var(--wb-select);
+  stroke-width: 1.5;
+}
+
 .wb-sel-hairline {
   fill: none;
   stroke: var(--wb-select);
@@ -63,6 +76,14 @@
   stroke-width: 1.5;
 }
 
+.wb-sel-hover-band {
+  fill: none;
+  stroke: var(--wb-select);
+  stroke-opacity: 0.35;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 .wb-sel-connect {
   fill: var(--wb-select-soft);
   stroke: var(--wb-select);
@@ -82,6 +103,28 @@
 
 .wb-sel-guide[data-kind='center'] {
   stroke-dasharray: 3 3;
+}
+
+.wb-sel-lasso {
+  fill: none;
+  stroke: var(--wb-select);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.wb-sel-hold-ring {
+  fill: var(--wb-select-soft);
+  stroke: var(--wb-select);
+  stroke-width: 2;
+  animation: wb-hold-ring 160ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+@keyframes wb-hold-ring {
+  from { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wb-sel-hold-ring { animation: none; }
 }
 
 .wb-sel-draft path,
@@ -111,10 +154,16 @@
   outline: 1.5px dashed var(--wb-select);
 }
 
+.wb-sel-frame[data-bare] {
+  box-shadow: none;
+  outline: none;
+}
+
 /* Everything pressable in the overlay. */
 .wb-handle,
 .wb-crop-handle,
 .wb-turn-zone,
+.wb-turn-knob,
 .wb-side-dot,
 .wb-arrow-end,
 .wb-arrow-leg,
@@ -255,6 +304,35 @@
 @media (pointer: coarse) {
   .wb-sel {
     --wb-turn-zone: 40px;
+  }
+}
+
+/* The turn knob for fingers and styluses (TURN_KNOB in SelectionOverlay.tsx). */
+.wb-turn-knob {
+  position: absolute;
+  width: 44px;
+  height: 44px;
+  margin: -22px 0 0 -22px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  cursor: grab;
+}
+
+.wb-turn-knob-disc {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--wb-select);
+  color: #fff;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.2);
+}
+
+@media (forced-colors: active) {
+  .wb-turn-knob-disc {
+    outline: 2px solid CanvasText;
   }
 }
 

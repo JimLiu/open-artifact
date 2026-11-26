@@ -46,12 +46,22 @@ const row = (kind: LayerRow['kind'], texts: string[], from: number, kids: LayerR
   full: false,
 });
 
-test('the words a reading found: text rows only, nested ones too, each line once with its spaces collapsed', () => {
+test('the words a reading found: text rows, nested ones too, each line once with its spaces collapsed', () => {
   const rows = [row('group', ['ignored'], 0, [row('text', ['  Hello\n world '], 0), row('text', ['Hello world'], 2)]), row('text', ['Second', ''], 3)];
   assert.deepEqual(readLines(rows, 0), [
     { text: 'Hello world', atStart: true },
     { text: 'Second', atStart: false },
   ]);
+});
+
+test('words on a box they paint are read too, but not the words of a drawing', () => {
+  const chip = row('shape', ['2× speed'], 0);
+  const drawing = { ...row('shape', ['Axis label'], 0), drawn: 'graphic' as const };
+  const box = row('shape', [], 0, [row('text', ['Inside'], 1)]);
+  assert.deepEqual(
+    readLines([chip, drawing, box], 0).map((line) => line.text),
+    ['2× speed', 'Inside'],
+  );
 });
 
 test('a line still on from the scene before is left out; one that comes again later is kept', () => {

@@ -255,6 +255,27 @@ describe('board diffs', () => {
     assert.equal(reverted?.type === 'image' && reverted.style, undefined, 'undoing a restyle takes the style off');
   });
 
+  it('keeps where someone else moved a drawing when undo brings its old picture back', () => {
+    const svg = (viewBox: string, body: string): string => `data:image/svg+xml;base64,${Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="${viewBox}">${body}</svg>`).toString('base64')}`;
+    const drawing = (src: string, extra: Partial<ImageElement> = {}): ImageElement => ({ type: 'image', id: 'd1', x: 0, y: 0, w: 100, h: 60, src, ...extra });
+    const [first, second] = [svg('0 0 50 30', '<rect width="9" height="9"/>'), svg('0 0 50 30', '<circle cx="9" cy="9" r="4"/>')];
+    const redraw = diffBoardContents(board(drawing(first)), board(drawing(second)));
+    assert.ok(redraw);
+    const moved = find(applyBoardDiff(board(drawing(second, { x: 300, y: 40, w: 200, h: 120 })), redraw, 'back'), 'd1');
+    assert.deepEqual(moved?.type === 'image' && [moved.src, moved.x, moved.y, moved.w, moved.h], [first, 300, 40, 200, 120]);
+
+    const reframed = svg('0 0 80 30', '<rect width="9" height="9"/>');
+    const wider = diffBoardContents(board(drawing(reframed)), board(drawing(second)));
+    assert.ok(wider);
+    const back = find(applyBoardDiff(board(drawing(second, { x: 300, w: 200, h: 120 })), wider, 'back'), 'd1');
+    assert.deepEqual(back?.type === 'image' && [back.src, back.x, back.w, back.h], [reframed, 300, 100, 60], 'another viewBox takes its own size back');
+
+    const shift = diffBoardContents(board(drawing(first)), board(drawing(first, { x: 50 })));
+    assert.ok(shift);
+    const resized = find(applyBoardDiff(board(drawing(first, { x: 50, w: 200 })), shift, 'back'), 'd1');
+    assert.deepEqual(resized?.type === 'image' && [resized.x, resized.w], [0, 200], 'a move of the same picture merges field by field');
+  });
+
   it('leaves table fills and heat maps as the board has them, like cell text', () => {
     const table = (extra: Partial<TableElement> = {}): TableElement => ({ type: 'table', id: 't1', x: 0, y: 0, head: true, color: 'white', ...tableFromGrid([['a', 'b'], ['1', '2']]), ...extra });
     const diff = diffBoardContents(board(table()), board(table({ x: 300 })));

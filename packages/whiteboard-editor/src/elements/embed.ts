@@ -15,9 +15,10 @@
  * - `boardEmbed.onLoad(fn)` calls `fn` with the state whenever someone
  *   else's save arrives, and returns a function that stops it.
  *
- * The board writes saves through {@link createStateSaver} (debounced, and
- * remembering its own writes so their echoes are not sent back) and stops
- * an embed that navigates away or floods it with messages.
+ * The board writes saves through one {@link createStateSaver} for all its
+ * embeds (batched, and remembering its own writes so their echoes are not
+ * sent back) and stops an embed that navigates away or floods it with
+ * messages.
  *
  * The bootstrap also hands the board a private `MessagePort` (before the
  * embed's own code runs, so the embed cannot reach or fake it) and reports
@@ -133,6 +134,13 @@ function scriptJson(value: unknown): string {
  * state, and hands the board its private port (see the module comment). It
  * keeps its own references to what it calls, so the embed's code cannot
  * reroute its reports later.
+ *
+ * It also keeps the embed on its page, which would otherwise be stopped as
+ * navigated away: links do nothing (a `#name` link scrolls to its target),
+ * a click on a link or a submit button with a modifier key or another
+ * button is canceled, as is a modified Enter on a link or in a form; a form
+ * submits only by `method="dialog"`; and an event the embed's code fires
+ * with a modifier key, or at a node outside the page, is canceled first.
  */
 export function embedBootstrap(state: string | undefined): string {
   return `(function(){
@@ -146,6 +154,17 @@ addEventListener('pointerdown',function(event){if(event.isTrusted){entered=true;
 addEventListener('keydown',function(event){if(!event.isTrusted)return;if(event.key==='Escape'){entered=false;if(!event.repeat&&!event.isComposing)tell({kind:'key',key:'Escape'});return;}keep(event);},true);
 ['keypress','keyup','beforeinput','paste','drop'].forEach(function(type){addEventListener(type,keep,true);});
 addEventListener('dragover',function(event){if(event.isTrusted&&!entered){apply(hold,event,[]);apply(halt,event,[]);if(event.dataTransfer)event.dataTransfer.dropEffect='none';}},true);
+var path=Event.prototype.composedPath,matches=Element.prototype.matches,attr=Element.prototype.getAttribute,byId=Document.prototype.getElementById,show=Element.prototype.scrollIntoView,fire=EventTarget.prototype.dispatchEvent,connected=Object.getOwnPropertyDescriptor(Node.prototype,'isConnected').get,Ui=UIEvent,Form=HTMLFormElement;
+var LINK='a[href],area[href],a[*|href]',SUBMIT='button,input[type=submit],input[type=image]',IN_FORM='form a[href],form button,form input';
+function modified(event){return event.ctrlKey||event.metaKey||event.shiftKey||event.altKey;}
+function reach(event,selector){var nodes=apply(path,event,[]);for(var i=0;i<nodes.length;i++){var node=nodes[i];if(node instanceof Element&&apply(matches,node,[selector]))return node;}return null;}
+function clicked(event){var link=reach(event,LINK);if(!link&&!reach(event,SUBMIT))return;var plain=!modified(event)&&event.button===0;if(link||!plain)apply(hold,event,[]);if(!link||!plain)return;var href=apply(attr,link,['href'])||'';if(href.charAt(0)!=='#'||href.length<2)return;var id=href.slice(1);try{id=decodeURIComponent(id);}catch(e){}var target=apply(byId,document,[id]);if(target)apply(show,target,[]);}
+addEventListener('click',clicked,true);addEventListener('auxclick',clicked,true);
+function entering(event){if(event.key==='Enter'&&modified(event)&&reach(event,LINK+','+IN_FORM))apply(hold,event,[]);}
+addEventListener('keydown',entering,true);addEventListener('keypress',entering,true);
+addEventListener('submit',function(event){var by=event.submitter,form=event.target;if(by instanceof Element&&apply(attr,by,['formmethod'])==='dialog')return;if(form instanceof Form&&form.method==='dialog')return;apply(hold,event,[]);},true);
+function onPage(target){return target===window||target===document||(target instanceof Node&&apply(connected,target,[]));}
+EventTarget.prototype.dispatchEvent=function(event){if(event instanceof Ui&&!event.isTrusted&&(modified(event)||!onPage(this))){if(!event.cancelable)event=new event.constructor(event.type,{bubbles:event.bubbles,cancelable:true,composed:event.composed,view:event.view,detail:event.detail,button:event.button,buttons:event.buttons,clientX:event.clientX,clientY:event.clientY,screenX:event.screenX,screenY:event.screenY,key:event.key,code:event.code,ctrlKey:event.ctrlKey,metaKey:event.metaKey,shiftKey:event.shiftKey,altKey:event.altKey});apply(hold,event,[]);}return apply(fire,this,[event]);};
 var state=${scriptJson(state ?? null)},listeners=[],MAX=${MAX_HTML_STATE_CHARS};
 function parse(text){if(text==null)return null;try{return JSON.parse(text);}catch(e){return null;}}
 var api={
@@ -175,7 +194,10 @@ export function buildEmbedSrcdoc(html: string, state: string | undefined): strin
 /** How long saves wait for more before writing, in milliseconds. */
 export const EMBED_SAVE_DELAY_MS = 400;
 
-/** How many of its own writes a saver remembers. */
+/** How many embeds' states one write takes while saves are waiting. */
+export const EMBED_SAVES_PER_WRITE = 16;
+
+/** How many of its own writes the saver remembers per embed. */
 export const EMBED_OWN_WRITES = 8;
 
 /** Timer functions a saver uses (injectable for tests). */
@@ -184,59 +206,108 @@ export interface SaverClock {
   clearTimeout(handle: unknown): void;
 }
 
-/** Debounced writes of an embed's state. */
+/** The page's timers as a {@link SaverClock}. */
+function systemClock(): SaverClock {
+  const timers = new Map<number, ReturnType<typeof setTimeout>>();
+  let last = 0;
+  return {
+    setTimeout(callback, ms) {
+      const key = ++last;
+      timers.set(
+        key,
+        setTimeout(() => {
+          timers.delete(key);
+          callback();
+        }, ms),
+      );
+      return key;
+    },
+    clearTimeout(handle) {
+      if (typeof handle !== 'number') return;
+      const timer = timers.get(handle);
+      if (timer !== undefined) clearTimeout(timer);
+      timers.delete(handle);
+    },
+  };
+}
+
+/** One embed's state to write. */
+export type EmbedStateWrite = readonly [id: string, state: string];
+
+/** The board's writes of its embeds' states. */
 export interface StateSaver {
-  /** Queues a state: the first one writes at once, later ones after a pause. */
-  save(state: string): void;
-  /** Writes the queued state now. */
-  flush(): void;
-  /** Whether a state is one this saver wrote (an echo, not someone else's change). */
-  isOwnWrite(state: string | undefined): boolean;
-  /** Drops the queued state. */
+  /**
+   * Queues an embed's state. When nothing has been written for a while it
+   * writes at once; otherwise it waits, and each pause then writes up to
+   * {@link EMBED_SAVES_PER_WRITE} embeds' latest states in one board change.
+   * A state that is not JSON, or is too long, is dropped.
+   */
+  save(id: string, state: string): void;
+  /** Writes the queued state of one embed now, or of all of them. */
+  flush(id?: string): void;
+  /** Whether a state is one this saver wrote for the embed (an echo, not someone else's change). */
+  isOwnWrite(id: string, state: string | undefined): boolean;
+  /** Drops everything queued. */
   cancel(): void;
 }
 
-/** A {@link StateSaver} that writes through `write`. */
-export function createStateSaver(write: (state: string) => void, delay = EMBED_SAVE_DELAY_MS, clock: SaverClock = globalThis as unknown as SaverClock): StateSaver {
-  let pending: string | undefined;
+/** Whether a state is JSON the board can keep. */
+function isKeepableState(state: string): boolean {
+  if (state.length > MAX_HTML_STATE_CHARS) return false;
+  try {
+    JSON.parse(state);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** A {@link StateSaver} that writes through `write` (one call per board change). */
+export function createStateSaver(write: (writes: readonly EmbedStateWrite[]) => void, delay = EMBED_SAVE_DELAY_MS, clock: SaverClock = systemClock()): StateSaver {
+  const queued = new Map<string, string>();
+  const own = new Map<string, string[]>();
   let timer: unknown;
-  let quietUntil = -Infinity;
-  const own: string[] = [];
-  const commit = (state: string) => {
-    own.push(state);
-    if (own.length > EMBED_OWN_WRITES) own.shift();
-    write(state);
+  const commit = (writes: readonly EmbedStateWrite[]): void => {
+    if (writes.length === 0) return;
+    for (const [id, state] of writes) own.set(id, [...(own.get(id) ?? []), state].slice(-EMBED_OWN_WRITES));
+    write(writes);
   };
-  const flush = () => {
-    if (timer !== undefined) clock.clearTimeout(timer);
-    timer = undefined;
-    if (pending === undefined) return;
-    const state = pending;
-    pending = undefined;
-    commit(state);
+  const take = (count: number): EmbedStateWrite[] => {
+    const writes = [...queued].slice(0, count);
+    for (const [id] of writes) queued.delete(id);
+    return writes;
+  };
+  // While saves come in, a write every `delay`; quiet once a pause finds nothing queued.
+  const pause = (): void => {
+    timer = clock.setTimeout(() => {
+      timer = undefined;
+      if (queued.size === 0) return;
+      commit(take(EMBED_SAVES_PER_WRITE));
+      pause();
+    }, delay);
   };
   return {
-    save(state) {
-      if (state.length > MAX_HTML_STATE_CHARS) return;
-      const now = Date.now();
-      if (timer === undefined && now >= quietUntil) {
-        quietUntil = now + delay;
-        commit(state);
+    save(id, state) {
+      if (!isKeepableState(state)) return;
+      if (timer !== undefined) {
+        queued.set(id, state);
         return;
       }
-      pending = state;
-      if (timer !== undefined) clock.clearTimeout(timer);
-      timer = clock.setTimeout(() => {
-        quietUntil = Date.now() + delay;
-        flush();
-      }, delay);
+      commit([[id, state]]);
+      pause();
     },
-    flush,
-    isOwnWrite: (state) => state !== undefined && own.includes(state),
+    flush(id) {
+      if (id === undefined) return commit(take(queued.size));
+      const state = queued.get(id);
+      if (state === undefined) return;
+      queued.delete(id);
+      commit([[id, state]]);
+    },
+    isOwnWrite: (id, state) => state !== undefined && (own.get(id)?.includes(state) ?? false),
     cancel() {
       if (timer !== undefined) clock.clearTimeout(timer);
       timer = undefined;
-      pending = undefined;
+      queued.clear();
     },
   };
 }

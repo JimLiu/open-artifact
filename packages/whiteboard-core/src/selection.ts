@@ -620,8 +620,6 @@ export interface ElementKindAffordance {
   /** Whether it has resize handles. */
   resizes: boolean;
   dots: ElementDots;
-  /** Shows a hairline outline on hover. */
-  hairline?: true;
   /** Is a line (no selection outline). */
   line?: true;
 }
@@ -630,7 +628,7 @@ export interface ElementKindAffordance {
 export const ELEMENT_KIND_AFFORDANCES: Record<ElementType, ElementKindAffordance> = {
   note: { words: 'body', resizes: true, dots: 'adds, connects' },
   shape: { words: 'body', resizes: true, dots: 'adds, connects' },
-  text: { words: 'body', resizes: true, dots: 'none', hairline: true },
+  text: { words: 'body', resizes: true, dots: 'none' },
   table: { words: 'body', resizes: true, dots: 'none' },
   container: { words: 'label', resizes: true, dots: 'none' },
   arrow: { words: 'label', resizes: false, dots: 'none', line: true },
@@ -671,8 +669,11 @@ export function selectionChromeFor(kind: ElementType, state: SelectionChromeStat
   const affordance = ELEMENT_KIND_AFFORDANCES[kind];
   const selecting = context.tool === 'select';
   switch (state) {
-    case 'hovered':
-      return !selecting ? NO_SELECTION_CHROME : { ...NO_SELECTION_CHROME, outline: affordance.hairline ? 'hair' : 'none', dots: affordance.dots };
+    case 'hovered': {
+      // With the Select tool, whatever the pointer is over gets a hairline (the overlay draws it) and its dots.
+      if (!selecting) return NO_SELECTION_CHROME;
+      return { ...NO_SELECTION_CHROME, outline: 'hair', dots: affordance.dots };
+    }
     case 'selected':
       return {
         outline: affordance.line ? 'none' : 'full',

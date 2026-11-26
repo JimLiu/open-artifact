@@ -11,7 +11,7 @@
  */
 
 import { lineSpanText, listMarkMeasureSample, textLinesWithHang, zeroDigits, type TextAlign } from '@open-artifact/whiteboard-core';
-import { isRightToLeftText, rasterSpanFont, wrapRichText, type SpanFontStyle, type SpanKind, type WrappedLine } from './text-layout.ts';
+import { ellipsizeLine, isRightToLeftText, rasterSpanFont, wrapRichText, type SpanFontStyle, type SpanKind, type WrappedLine } from './text-layout.ts';
 
 /** How a text is set and colored. */
 export interface TextLook extends SpanFontStyle {
@@ -50,20 +50,23 @@ export type TextCanvas = CanvasRenderingContext2D | OffscreenCanvasRenderingCont
 
 /**
  * Lays out markup text in `width`, at most `maxLines` lines. Lines of
- * centered or right-aligned list text carry the block width (`box`).
+ * centered or right-aligned list text carry the block width (`box`). With
+ * `ellipsis`, text cut by the limit ends its last line in "…".
  */
-export function layoutRasterTextLines(ctx: MeasureContext, text: string, look: SpanFontStyle, width: number, align: TextAlign, maxLines = Infinity): RasterLine[] {
+export function layoutRasterTextLines(ctx: MeasureContext, text: string, look: SpanFontStyle, width: number, align: TextAlign, maxLines = Infinity, ellipsis = false): RasterLine[] {
   const measure = (run: string, kind: SpanKind): number => {
     ctx.font = rasterSpanFont(kind, look);
     return ctx.measureText(run).width;
   };
+  // One line past the limit tells whether anything was cut.
+  const limit = ellipsis ? maxLines + 1 : maxLines;
   const lines: RasterLine[] = [];
   let wrapped = false;
   const paragraphs = textLinesWithHang(text, look.px, (sample) => measure(sample, 'text'));
   for (const { mark, spans, hang } of paragraphs) {
-    if (lines.length >= maxLines) break;
+    if (lines.length >= limit) break;
     const rtl = isRightToLeftText(lineSpanText({ spans }));
-    const wrappedLines = wrapRichText([spans], width - hang, measure, maxLines - lines.length);
+    const wrappedLines = wrapRichText([spans], width - hang, measure, limit - lines.length);
     wrapped ||= wrappedLines.length > 1;
     wrappedLines.forEach((line, lineIndex) => {
       lines.push({
@@ -72,6 +75,14 @@ export function layoutRasterTextLines(ctx: MeasureContext, text: string, look: S
         ...(hang === 0 ? {} : { w: line.w + hang, hang, ...(lineIndex === 0 ? { mark } : {}) }),
       });
     });
+  }
+  if (lines.length > maxLines) {
+    lines.length = maxLines;
+    const last = lines[maxLines - 1];
+    if (last !== undefined) {
+      const cut = ellipsizeLine(last, width - (last.hang ?? 0), measure, last.rtl === true);
+      lines[maxLines - 1] = { ...last, ...cut, ...(last.hang === undefined ? {} : { w: cut.w + last.hang }) };
+    }
   }
   if (align === 'left' || paragraphs.every((line) => line.hang === 0)) return lines;
   const box = wrapped ? width : Math.max(...lines.map((line) => line.w));

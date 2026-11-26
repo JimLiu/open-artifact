@@ -6,8 +6,9 @@ import { Collapsible } from '@base-ui/react/collapsible';
 import { Tabs as BaseTabs } from '@base-ui/react/tabs';
 import { Toast } from '@base-ui/react/toast';
 import { ChevronDown, X } from 'lucide-react';
-import type { HTMLAttributes, KeyboardEvent, ReactNode } from 'react';
+import { useEffect, useRef, useState, type HTMLAttributes, type KeyboardEvent, type ReactNode } from 'react';
 import { cn } from './cn.ts';
+import { scrollStanding } from './focusables.ts';
 import { guardHeldActivation } from './keys.ts';
 
 /* ---------------------------------- Tabs ---------------------------------- */
@@ -151,6 +152,44 @@ function guardToastClose(event: KeyboardEvent<HTMLElement>) {
   guardHeldActivation(view, event.key, (target) => target instanceof view.Node && toastElement.contains(target));
 }
 
+/**
+ * A toast's text. A long one is held to the room above the toast (at least
+ * 3rem) and scrolls, fading out at its foot while there is more below; it
+ * then takes focus, so keys can scroll it. The close button stays outside.
+ */
+function ToastBody({ children }: { children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [standing, setStanding] = useState<'none' | 'more' | 'end'>('none');
+  useEffect(() => {
+    const node = ref.current;
+    if (!node) return undefined;
+    const measure = (): void => {
+      const style = getComputedStyle(node);
+      const { scrollWidth, clientWidth, scrollHeight, clientHeight, scrollTop } = node;
+      setStanding(scrollStanding({ scrollWidth, clientWidth, scrollHeight, clientHeight, scrollTop, overflowX: style.overflowX, overflowY: style.overflowY }));
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    for (const child of node.children) observer.observe(child);
+    node.addEventListener('scroll', measure, { passive: true });
+    return () => {
+      observer.disconnect();
+      node.removeEventListener('scroll', measure);
+    };
+  }, []);
+  return (
+    <Toast.Content
+      ref={ref}
+      tabIndex={standing === 'none' ? undefined : 0}
+      data-overflow={standing === 'none' ? undefined : standing}
+      className="flex max-h-[max(3rem,calc(100dvh-3.5rem))] min-w-0 flex-1 flex-col gap-0.5 overflow-y-auto overscroll-contain rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent data-[overflow=more]:[mask-image:linear-gradient(to_bottom,black_calc(100%-1.5rem),transparent)]"
+    >
+      {children}
+    </Toast.Content>
+  );
+}
+
 function ToastList() {
   const { toasts } = Toast.useToastManager();
   return toasts.map((item) => (
@@ -160,13 +199,13 @@ function ToastList() {
       data-toast=""
       className="pointer-events-auto flex w-80 items-start gap-3 rounded-lg bg-surface p-3 text-fg shadow-popup transition-[opacity,transform] data-[starting-style]:translate-y-2 data-[starting-style]:opacity-0 data-[ending-style]:opacity-0"
     >
-      <Toast.Content className="flex min-w-0 flex-1 flex-col gap-0.5">
+      <ToastBody>
         <Toast.Title className="text-[13px] font-semibold" />
         <Toast.Description className="text-xs text-fg-muted" />
         {item.actionProps ? (
           <Toast.Action className="mt-1 self-start rounded px-2 py-0.5 text-xs font-medium text-accent hover:bg-hover" />
         ) : null}
-      </Toast.Content>
+      </ToastBody>
       <Toast.Close aria-label="Dismiss" onKeyDown={guardToastClose} className="rounded p-0.5 text-fg-muted hover:bg-hover">
         <X className="size-3.5" />
       </Toast.Close>

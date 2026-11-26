@@ -17,7 +17,7 @@
 import type { DocumentMap, DocumentValue } from '@open-artifact/live-store/engine';
 import { ELEMENT_ID_PATTERN, MAX_BOARD_ELEMENTS, type Board, type BoardContent, type BoardElement, type BoardInk, type ClaimedArea, type ElementId, type HexColor, type StoredElement, type TimerFields } from './schema.ts';
 import { persistedElementOf } from './derived.ts';
-import { EMPTY_SVG_DATA_URL, normalizeImageSource } from './image-source.ts';
+import { EMPTY_SVG_DATA_URL, normalizeImageSource, svgBase64ToTextDataUrl } from './image-source.ts';
 import { canonicalValuesEqual, escapedJsonByteLength, jsonValueDepth } from './json.ts';
 
 /** The meta document: title and drawing order. */
@@ -98,11 +98,16 @@ const storedElementCache = new WeakMap<BoardElement, StoredElement>();
 /**
  * The stored form of an element (cached per element object). A derived
  * element (a sticker that followed its host for display) stores its
- * persisted twin instead.
+ * persisted twin instead; a drawing stores its SVG as text
+ * ({@link svgBase64ToTextDataUrl}).
  */
 export function toStoredElement(element: BoardElement): StoredElement {
   let stored = storedElementCache.get(element);
-  if (stored === undefined) storedElementCache.set(element, (stored = withoutElementId(persistedElementOf(element))));
+  if (stored === undefined) {
+    const persisted = withoutElementId(persistedElementOf(element));
+    stored = persisted.type === 'image' ? { ...persisted, src: svgBase64ToTextDataUrl(persisted.src) } : persisted;
+    storedElementCache.set(element, stored);
+  }
   return stored;
 }
 
@@ -186,7 +191,7 @@ export function composeBoard(documents: DocumentMap): ComposedBoard {
   for (const [path, value] of documents) {
     const id = elementIdOfPath(path);
     if (id === undefined) continue;
-    const element = (value.type === 'image' && normalizeImageSource(value.src) === undefined ? { ...value, id, src: EMPTY_SVG_DATA_URL } : { ...value, id }) as BoardElement;
+    const element = (value.type === 'image' ? { ...value, id, src: normalizeImageSource(value.src) ?? EMPTY_SVG_DATA_URL } : { ...value, id }) as BoardElement;
     elements.set(id, element);
   }
   const ordered: BoardElement[] = [];

@@ -939,4 +939,359 @@ describe('whiteboard', { skip: skipFor('whiteboard') }, () => {
       await exchange(current, original, path.join(referenceRoot, 'db/elements'));
     } finally { await current?.close(); await original?.close(); await refCli(['stop', referenceRoot]); }
   });
+
+  describe('pen and touch', { skip: noBrowser }, () => {
+    let board, boardUrl;
+    const elementsDir = () => path.join(board, 'db/elements');
+    const stored = () => fs.readdirSync(elementsDir()).map(n => JSON.parse(fs.readFileSync(path.join(elementsDir(), n))));
+
+    before(async () => {
+      board = tmpDir('whiteboard-pen');
+      const elements = {
+        left: { type: 'shape', kind: 'rect', x: 0, y: 0, w: 80, h: 60, color: 'blue', text: 'Left' },
+        right: { type: 'shape', kind: 'rect', x: 120, y: 0, w: 80, h: 60, color: 'green', text: 'Right' },
+        far: { type: 'shape', kind: 'rect', x: 420, y: 260, w: 80, h: 60, color: 'red', text: 'Far' },
+        scribble: { type: 'stroke', x: 300, y: 0, points: [0, 0, 60, 20, 120, 0], color: 'ink', width: 4 },
+      };
+      for (const sub of ['db/elements', 'db/board']) fs.mkdirSync(path.join(board, sub), { recursive: true });
+      fs.writeFileSync(path.join(board, 'db/board/meta.json'), JSON.stringify({ v: 1, title: 'Pen board', order: Object.keys(elements) }));
+      for (const [id, el] of Object.entries(elements)) fs.writeFileSync(path.join(elementsDir(), id + '.json'), JSON.stringify(el));
+      ({ url: boardUrl } = await run.json(['open', board, '--type', 'whiteboard', '--json']));
+    });
+    after(async () => { await run?.run(['stop', board]); });
+
+    // A stylus on a touch screen: Chrome reports maxTouchPoints > 0 and pointerType "pen".
+    const open = async () => {
+      const p = await browser.load(boardUrl, { ready });
+      await p.cdp('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
+      await p.cdp('Page.reload', {});
+      assert.ok(await p.waitFor(ready));
+      assert.ok(await p.waitFor('navigator.maxTouchPoints > 0'));
+      return p;
+    };
+    const pen = (p, type, x, y, extra = {}) => p.cdp('Input.dispatchMouseEvent', {
+      type, x, y, pointerType: 'pen', button: type === 'mouseMoved' ? 'none' : 'left',
+      buttons: type === 'mouseReleased' ? 0 : 1, clickCount: 1, force: 0.5, ...extra,
+    });
+    const centre = (p, selector) => p.evaluate(`(() => {const r = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2];})()`);
+    const box = (p, id) => p.evaluate(`(() => {const r = document.querySelector('[data-wb-id="${id}"]').getBoundingClientRect(); return {x: r.x, y: r.y, w: r.width, h: r.height};})()`);
+
+    it('stores the widths of a stroke drawn with pressure', async () => {
+      const p = await open();
+      try {
+        await p.click(...await centre(p, '[aria-label="Board tools"] button[aria-label="Draw"]'));
+        const before = stored().filter(el => el.type === 'stroke').length;
+        const far = await box(p, 'far');
+        const x = far.x - 160, y = far.y + far.h + 40;
+        await pen(p, 'mousePressed', x, y, { force: 0.1 });
+        for (let i = 1; i <= 12; i++) await pen(p, 'mouseMoved', x + i * 8, y + (i % 3) * 4, { buttons: 1, force: Math.min(1, 0.1 + i * 0.08) });
+        await pen(p, 'mouseReleased', x + 96, y, { force: 0 });
+        assert.ok(await until(() => stored().filter(el => el.type === 'stroke').length === before + 1), 'the stroke was saved');
+        const drawn = stored().filter(el => el.type === 'stroke' && el.widths !== undefined);
+        assert.equal(drawn.length, 1, 'only the new stroke has widths');
+        assert.equal(drawn[0].widths.length, drawn[0].points.length / 2, 'one width per point');
+        assert.match(drawn[0].widths, /^[0-9a-z]+$/);
+        assert.deepEqual(p.problems, []);
+      } finally { await p.close(); }
+    });
+
+    it('clicks a toolbar button once for a stylus tap and still takes mouse clicks after it', async () => {
+      const p = await open();
+      try {
+        await p.evaluate(`window.__penClicks = 0; document.addEventListener('click', e => { if (e.target.closest('[aria-label="Board tools"] button')) window.__penClicks++; }, true)`);
+        const [x, y] = await centre(p, '[aria-label="Board tools"] button[aria-label="Text"]');
+        await pen(p, 'mouseMoved', x, y, { buttons: 0 });
+        await pen(p, 'mousePressed', x, y);
+        await pen(p, 'mouseReleased', x, y);
+        assert.ok(await p.waitFor('window.__penClicks >= 1', 2000), 'the tap clicked the button');
+        await new Promise(resolve => setTimeout(resolve, 900));
+        assert.equal(await p.evaluate('window.__penClicks'), 1, 'one click for one tap');
+        await p.click(x, y);
+        assert.ok(await p.waitFor('window.__penClicks === 2', 2000), 'a mouse click still lands');
+        assert.deepEqual(p.problems, []);
+      } finally { await p.close(); }
+    });
+
+    it('selects what a stylus loops around on the empty board', async () => {
+      const p = await open();
+      try {
+        const left = await box(p, 'left');
+        const right = await box(p, 'right');
+        const x0 = left.x - 20, y0 = left.y - 20, x1 = right.x + right.w + 20, y1 = right.y + right.h + 20;
+        const loop = [[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0 + 4]];
+        await pen(p, 'mouseMoved', x0, y0, { buttons: 0 });
+        await pen(p, 'mousePressed', x0, y0);
+        for (let i = 1; i < loop.length; i++) {
+          const [ax, ay] = loop[i - 1], [bx, by] = loop[i];
+          for (let s = 1; s <= 8; s++) await pen(p, 'mouseMoved', ax + (bx - ax) * s / 8, ay + (by - ay) * s / 8, { buttons: 1 });
+        }
+        await pen(p, 'mouseReleased', x0, y0 + 4);
+        assert.ok(await p.waitFor("document.querySelector('.wb-announcer')?.textContent.includes('2 items selected')", 3000),
+          await p.evaluate("document.querySelector('.wb-announcer')?.textContent ?? ''"));
+        assert.ok(await p.waitFor("document.querySelector('.wb-sel-frame')", 3000));
+        assert.deepEqual(p.problems, []);
+      } finally { await p.close(); }
+    });
+
+    it('rubs a stroke out with the stylus eraser', async () => {
+      const p = await open();
+      try {
+        assert.ok(stored().some(el => el.type === 'stroke' && el.points.length === 6), 'the scribble is there');
+        const s = await box(p, 'scribble');
+        const x = s.x + s.w / 2, y0 = s.y - 30, y1 = s.y + s.h + 30;
+        // The input domain has no eraser button, so the eraser end's events are made in the page.
+        await p.evaluate(`(() => {
+          const send = (type, y, button, buttons) => document.elementFromPoint(${x}, y).dispatchEvent(new PointerEvent(type,
+            { bubbles: true, cancelable: true, composed: true, pointerId: 7, pointerType: 'pen', isPrimary: true, clientX: ${x}, clientY: y, button, buttons, pressure: 0.5 }));
+          send('pointerdown', ${y0}, 5, 32);
+          for (let i = 1; i <= 10; i++) send('pointermove', ${y0} + (${y1} - ${y0}) * i / 10, -1, 32);
+          send('pointerup', ${y1}, 5, 0);
+        })()`);
+        assert.ok(await until(() => !fs.existsSync(path.join(elementsDir(), 'scribble.json'))), 'the scribble was erased');
+        assert.ok(fs.existsSync(path.join(elementsDir(), 'far.json')), 'nothing else was erased');
+        assert.deepEqual(p.problems, []);
+      } finally { await p.close(); }
+    });
+  });
+
+  describe('text, menus and keys', { skip: noBrowser }, () => {
+    let board, boardUrl, entry;
+    const longText = 'One two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen';
+    const els = {
+      cut: { type: 'shape', kind: 'rect', x: 0, y: 0, w: 120, h: 60, color: 'white', text: longText },
+      under: { type: 'shape', kind: 'rect', x: 0, y: 70, w: 120, h: 40, color: 'blue', text: 'Below' },
+      other: { type: 'shape', kind: 'rect', x: 0, y: 260, w: 120, h: 60, color: 'green', text: 'Other' },
+    };
+    const byId = id => `document.querySelector('#wb-${id}')`;
+    const selection = p => p.evaluate('window.__openArtifactWhiteboard.state().selection');
+    /** One key down and up through DevTools (`mods`: 2 Ctrl, 4 Meta, 8 Shift). */
+    const key = async (p, { key: name, code, keyCode, mods = 0, text }) => {
+      await p.cdp('Input.dispatchKeyEvent', { type: text ? 'keyDown' : 'rawKeyDown', key: name, code, windowsVirtualKeyCode: keyCode, modifiers: mods, text });
+      await p.cdp('Input.dispatchKeyEvent', { type: 'keyUp', key: name, code, windowsVirtualKeyCode: keyCode, modifiers: mods });
+    };
+    const selectOnly = async (p, id) => {
+      await p.press('Escape');
+      await clickOn(p, byId(id));
+      assert.ok(await p.waitFor(`JSON.stringify(window.__openArtifactWhiteboard.state().selection) === '["${id}"]'`, 5000), `${id} selected`);
+    };
+    const fresh = async () => {
+      const p = await browser.load(entry, { ready });
+      assert.ok(await p.waitFor(`${byId('cut')} && ${byId('other')}`, 10000));
+      return p;
+    };
+
+    before(async () => {
+      board = tmpDir('whiteboard-text-keys');
+      for (const sub of ['db/elements', 'db/board']) fs.mkdirSync(path.join(board, sub), { recursive: true });
+      ({ url: boardUrl } = await run.json(['open', board, '--type', 'whiteboard', '--json']));
+      const all = { ...els, embed: { type: 'html', x: 400, y: 0, w: 320, h: 200,
+        html: `<!doctype html><title>Links</title><a href="${new URL('/elsewhere', boardUrl).href}" style="display:block;height:100vh;font-size:32px">Go elsewhere</a>` } };
+      fs.writeFileSync(path.join(board, 'db/board/meta.json'), JSON.stringify({ v: 1, title: 'Text and keys', order: Object.keys(all) }));
+      for (const [id, el] of Object.entries(all)) fs.writeFileSync(path.join(board, 'db/elements', id + '.json'), JSON.stringify(el));
+      const at = new URL(boardUrl);
+      at.searchParams.set('open_artifact_bench', '1');
+      entry = at.href;
+    });
+    after(async () => { await run.run(['stop', board]); });
+
+    it('clips a shape too small for its words and shows them all on a card while it is selected', async () => {
+      const p = await fresh();
+      try {
+        const text = `${byId('cut')}.querySelector('.wb-shape-text')`;
+        const look = `(() => { const t = ${text}; const s = getComputedStyle(t); const card = getComputedStyle(t, '::before');
+          return { clamp: s.webkitLineClamp, clipped: t.scrollHeight > t.clientHeight + 1, card: card.content !== 'none' && card.display !== 'none',
+            open: ${byId('cut')}.hasAttribute('data-wb-open'), h: ${byId('cut')}.getBoundingClientRect().height }; })()`;
+        assert.ok(await p.waitFor(`document.fonts.status === 'loaded'`, 10000));
+        const shut = await p.evaluate(look);
+        assert.notEqual(shut.clamp, 'none', 'the words are cut to the lines that fit');
+        assert.equal(shut.clipped, true);
+        assert.equal(shut.card, false);
+        assert.deepEqual((await p.evaluate(`window.__openArtifactWhiteboard.elements(['cut'])`))[0].h, 60, 'the shape did not grow over its neighbor');
+        await selectOnly(p, 'cut');
+        const open = await p.evaluate(look);
+        assert.equal(open.open, true);
+        assert.equal(open.clamp, 'none', 'all the words show');
+        assert.equal(open.card, true, 'a card holds the words that run past the shape');
+        assert.ok(await p.evaluate(`document.querySelector('.wb-sel-frame[data-bare]') !== null`), 'the selection outline gives way to the card');
+        await p.press('Escape');
+        assert.ok(await p.waitFor(`!${byId('cut')}.hasAttribute('data-wb-open') && getComputedStyle(${text}).webkitLineClamp !== 'none'`, 5000));
+        assert.deepEqual(p.problems, []);
+      } finally { await p.close(); }
+    });
+
+    it('keeps a picture panel open on a touch screen until a file is chosen', async () => {
+      const p = await fresh();
+      const picture = path.join(tmpDir('whiteboard-pick'), 'dot.png');
+      fs.writeFileSync(picture, bytes);
+      const panel = `document.querySelector('[aria-label="Search stickers"]')`;
+      const openPanel = async () => {
+        await clickOn(p, `document.querySelector('[aria-label="Board tools"] button[aria-label="Stickers"]')`);
+        assert.ok(await p.waitFor(`${panel} && document.querySelector('[aria-label="Upload a picture"]')`, 5000), 'the sticker panel is open');
+      };
+      try {
+        await p.cdp('Page.setInterceptFileChooserDialog', { enabled: true });
+        await openPanel();
+        await clickOn(p, `document.querySelector('[aria-label="Upload a picture"]')`);
+        assert.ok(await p.waitFor(`!${panel}`, 5000), 'with a mouse the panel closes at once');
+        await p.cdp('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
+        assert.ok(await p.waitFor(`matchMedia('(any-pointer: coarse)').matches`, 5000));
+        await openPanel();
+        await clickOn(p, `document.querySelector('[aria-label="Upload a picture"]')`);
+        await new Promise(resolve => setTimeout(resolve, 400));
+        assert.ok(await p.evaluate(`${panel} !== null`), 'on touch the panel waits for the picker');
+        const before = (await p.evaluate('window.__openArtifactWhiteboard.state()')).elements;
+        const { result } = await p.cdp('Runtime.evaluate', { expression: `document.querySelector('input[type="file"]')` });
+        await p.cdp('DOM.setFileInputFiles', { files: [picture], objectId: result.objectId });
+        assert.ok(await p.waitFor(`!${panel} && window.__openArtifactWhiteboard.state().elements === ${before + 1}`, 10000), 'a chosen file closes it and lands on the board');
+        assert.deepEqual(p.problems, []);
+      } finally { await p.close(); }
+    });
+
+    it('keeps an embed running when a link in it is clicked', async () => {
+      const p = await fresh();
+      try {
+        assert.ok(await p.waitFor(`${byId('embed')}?.querySelector('iframe')`, 10000));
+        await clickOn(p, `${byId('embed')}.querySelector('.wb-html-tab')`);
+        assert.ok(await p.waitFor(`${byId('embed')}.hasAttribute('data-wb-live')`, 5000));
+        const [left, top, width, height] = await p.evaluate(`(({ left, top, width, height }) => [left, top, width, height])(${byId('embed')}.querySelector('iframe').getBoundingClientRect())`);
+        for (const shift of [false, true]) await p.click(left + width / 2, top + height / 2, { shift });
+        await new Promise(resolve => setTimeout(resolve, 1500));
+        assert.ok(await p.evaluate(`${byId('embed')}.querySelector('.wb-html-stopped') === null && ${byId('embed')}.querySelector('iframe') !== null`), 'the embed was not stopped');
+        assert.deepEqual(p.problems, []);
+      } finally { await p.close(); }
+    });
+
+    it('reads shortcut letters as typed on Latin layouts and by place on others', async () => {
+      const p = await fresh();
+      try {
+        const mods = (await p.evaluate(`/Mac|iPhone|iPad/.test(navigator.platform)`)) ? 4 : 2;
+        await selectOnly(p, 'other');
+        await key(p, { key: 'q', code: 'KeyA', keyCode: 81, mods });
+        await new Promise(resolve => setTimeout(resolve, 300));
+        assert.deepEqual(await selection(p), ['other'], 'Q on a layout that puts it where A is selects nothing more');
+        await key(p, { key: 'ф', code: 'KeyA', keyCode: 65, mods });
+        assert.ok(await p.waitFor(`(({ selection, elements }) => elements > 1 && selection.length === elements)(window.__openArtifactWhiteboard.state())`, 5000), 'the A key on a Cyrillic layout selects all');
+        assert.deepEqual(p.problems, []);
+      } finally { await p.close(); }
+    });
+
+    it('leaves Escape to the input method while it composes', async () => {
+      const p = await fresh();
+      try {
+        const search = `document.querySelector('[aria-label="Search stickers"]')`;
+        await clickOn(p, `document.querySelector('[aria-label="Board tools"] button[aria-label="Stickers"]')`);
+        assert.ok(await p.waitFor(search, 5000));
+        await p.evaluate(`${search}.focus()`);
+        await key(p, { key: 'Escape', code: 'Escape', keyCode: 229 });
+        await new Promise(resolve => setTimeout(resolve, 300));
+        assert.ok(await p.evaluate(`${search} !== null`), 'an Escape the input method takes leaves the panel open');
+        await key(p, { key: 'Escape', code: 'Escape', keyCode: 27 });
+        assert.ok(await p.waitFor(`!${search}`, 5000), 'a plain Escape closes it');
+        assert.deepEqual(p.problems, []);
+      } finally { await p.close(); }
+    });
+
+    it('puts focus on the first item of a context menu opened from the keyboard', async () => {
+      const p = await fresh();
+      const focusedItem = `document.activeElement?.getAttribute('role')?.startsWith('menuitem') === true`;
+      try {
+        await selectOnly(p, 'other');
+        await key(p, { key: 'F10', code: 'F10', keyCode: 121, mods: 8 });
+        assert.ok(await p.waitFor(`document.querySelector('[role="menu"]')`, 5000), 'Shift+F10 opens the menu');
+        assert.ok(await p.waitFor(focusedItem, 2000), 'its first item has focus');
+        await p.press('Escape');
+        assert.ok(await p.waitFor(`!document.querySelector('[role="menu"]')`, 5000));
+        await p.evaluate(`document.querySelector('button[aria-label="More actions"]').focus()`);
+        await p.press('Enter');
+        assert.ok(await p.waitFor(`document.querySelector('[role="menu"]')`, 5000), 'Enter on More actions opens the menu');
+        assert.ok(await p.waitFor(focusedItem, 2000), 'its first item has focus');
+        await p.press('Escape');
+        assert.ok(await p.waitFor(`!document.querySelector('[role="menu"]')`, 5000));
+        const more = `document.querySelector('button[aria-label="More actions"]')`;
+        await clickOn(p, more);
+        assert.ok(await p.waitFor(`document.querySelector('[role="menu"]')`, 5000));
+        await new Promise(resolve => setTimeout(resolve, 200));
+        assert.equal(await p.evaluate(focusedItem), false, 'a click leaves focus where Base UI puts it');
+        assert.deepEqual(p.problems, []);
+      } finally { await p.close(); }
+    });
+  });
+
+  describe('drawing layers', { skip: noBrowser }, () => {
+    let board, boardUrl;
+    const file = () => path.join(board, 'db/elements/scene.json');
+    const svgOf = () => {
+      const src = JSON.parse(fs.readFileSync(file())).src;
+      const comma = src.indexOf(',');
+      return src.slice(0, comma).endsWith(';base64') ? Buffer.from(src.slice(comma + 1), 'base64').toString() : decodeURIComponent(src.slice(comma + 1));
+    };
+    const layers = () => [...svgOf().matchAll(/<g\b[^>]*?\bid=["']([^"']+)/g)].map(m => m[1]);
+    const heard = (p, text) => p.waitFor(`(document.querySelector('.wb-announcer')?.textContent ?? '').includes(${JSON.stringify(text)})`, 3000);
+    const mod = process.platform === 'darwin' ? { meta: true } : { ctrl: true };
+
+    before(async () => {
+      board = tmpDir('whiteboard-layers');
+      const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 240">'
+        + '<g id="sky_wash"><rect width="400" height="240" fill="#bfdbfe" fill-opacity=".5"/></g>'
+        + '<g id="green-hill"><path d="M0 240 L0 120 Q200 20 400 120 L400 240 Z" fill="#16a34a"/></g>'
+        + '<g id="sun"><circle cx="300" cy="80" r="30" fill="#facc15"/></g></svg>';
+      const elements = { scene: { type: 'image', x: 0, y: 0, w: 400, h: 240, style: 'watercolor', src: 'data:image/svg+xml;base64,' + Buffer.from(svg).toString('base64') } };
+      for (const sub of ['db/elements', 'db/board']) fs.mkdirSync(path.join(board, sub), { recursive: true });
+      fs.writeFileSync(path.join(board, 'db/board/meta.json'), JSON.stringify({ v: 1, title: 'Layers', order: Object.keys(elements) }));
+      for (const [id, el] of Object.entries(elements)) fs.writeFileSync(path.join(board, 'db/elements', id + '.json'), JSON.stringify(el));
+      ({ url: boardUrl } = await run.json(['open', board, '--type', 'whiteboard', '--json']));
+    });
+    after(async () => { await run?.run(['stop', board]); });
+
+    it('picks a layer with a double-click, moves and hides it, keeps the painting meanwhile, and undoes each', async () => {
+      const p = await browser.load(boardUrl, { ready });
+      const img = "document.querySelector('[data-wb-id=\"scene\"] img')";
+      try {
+        assert.ok(await p.waitFor(`${img}?.src.startsWith('blob:') && ${img}.naturalWidth > 0`, 15000), 'the watercolor look is painted');
+        const r = await p.evaluate(`(() => {const r = document.querySelector('[data-wb-id="scene"]').getBoundingClientRect(); return {x: r.x, y: r.y, w: r.width, h: r.height};})()`);
+        const sun = [r.x + (300 * r.w) / 400, r.y + (80 * r.h) / 240];
+        await p.clickTimes(...sun, 2);
+        assert.ok(await p.waitFor("document.querySelector('[data-wb-layer-frame]')", 3000), 'the picked layer is framed');
+        assert.ok(await heard(p, 'Sun\u2069, layer 3 of 3, selected'), 'the picked layer is announced');
+        assert.equal(await p.evaluate("document.querySelector('[data-wb-layer-name]')?.getAttribute('aria-label')"), 'Layer: \u2068Sun\u2069');
+        assert.equal(await p.evaluate("document.querySelectorAll('.wb-handle, .wb-turn-knob').length"), 0, 'no handles on a picked layer');
+
+        await p.evaluate(`(() => {
+          const node = ${img};
+          window.__flat = [];
+          new MutationObserver(() => { if (!node.src.startsWith('blob:')) window.__flat.push(node.src.slice(0, 30)); }).observe(node, { attributes: true, attributeFilter: ['src'] });
+          window.__firstPaint = node.src;
+        })()`);
+        const backward = await p.evaluate(`(() => {const r = document.querySelector('[data-wb-layer-action="backward"]').getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2];})()`);
+        await p.click(...backward);
+        assert.ok(await until(() => layers().join() === 'sky_wash,sun,green-hill'), `saved order ${layers()}`);
+        assert.ok(await p.waitFor(`${img}.src !== window.__firstPaint && ${img}.src.startsWith('blob:')`, 15000), 'the new painting arrives');
+        assert.deepEqual(await p.evaluate('window.__flat'), [], 'the old painting shows until the new one is ready');
+        assert.ok(await p.waitFor("document.querySelector('[data-wb-layer-frame]')", 3000), 'the moved layer stays picked');
+
+        await p.press('z', mod);
+        assert.ok(await until(() => layers().join() === 'sky_wash,green-hill,sun'), `undone order ${layers()}`);
+
+        await p.evaluate('document.activeElement?.blur()');
+        await p.press('Escape');
+        assert.ok(await p.waitFor("!document.querySelector('[data-wb-layer-frame]') && !!document.querySelector('.wb-sel-frame')", 3000), 'the whole drawing stays selected');
+        assert.ok(await heard(p, 'Whole drawing selected'));
+
+        await p.press('Enter');
+        assert.ok(await p.waitFor("document.querySelector('[data-wb-layer-frame]')", 3000), 'Enter picks a layer');
+        const picked = await p.evaluate("document.querySelector('[data-wb-layer-name]')?.getAttribute('aria-label')");
+        await p.press('Backspace');
+        assert.ok(await until(() => /<g\b[^>]*opacity='0'/.test(svgOf())), 'Delete hides the layer');
+        assert.ok(fs.existsSync(file()), 'the drawing is kept');
+        assert.ok(await p.waitFor("!document.querySelector('[data-wb-layer-frame]') && !!document.querySelector('.wb-sel-frame')", 3000));
+        assert.ok(picked?.startsWith('Layer: '));
+        await p.press('Backspace');
+        await new Promise(resolve => setTimeout(resolve, 300));
+        assert.ok(fs.existsSync(file()), 'the Delete right after a hide does not delete the drawing');
+        await p.press('z', mod);
+        assert.ok(await until(() => !/opacity='0'/.test(svgOf())), 'undo shows the layer again');
+        assert.deepEqual(p.problems, []);
+      } finally { await p.close(); }
+    });
+  });
 });

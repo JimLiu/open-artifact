@@ -28,7 +28,9 @@ export interface ContextMenuState {
   board: Point | null;
   /** The table cell under the press, if any. */
   cell: MenuCell | null;
-  show(options: { at: Point; kind: MenuKind; board?: Point | null; cell?: MenuCell | null }): void;
+  /** Opened from the keyboard: its first item takes focus. */
+  keyboard: boolean;
+  show(options: { at: Point; kind: MenuKind; board?: Point | null; cell?: MenuCell | null; keyboard?: boolean }): void;
   hide(): void;
 }
 
@@ -39,8 +41,9 @@ export const useContextMenu = create<ContextMenuState>()((set) => ({
   kind: 'board',
   board: null,
   cell: null,
-  show({ at, kind, board = null, cell = null }) {
-    set({ open: true, at, kind, board, cell });
+  keyboard: false,
+  show({ at, kind, board = null, cell = null, keyboard = false }) {
+    set({ open: true, at, kind, board, cell, keyboard });
   },
   hide() {
     set({ open: false });

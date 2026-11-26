@@ -51,6 +51,9 @@ export function textParts(parts: readonly ClockPart[], duration: number): TextPa
 /** Tells one reading of a stretch from another: a changed cut reads again. */
 export const partKey = (part: TextPart, index: number): string => `${index}:${part.key ?? ''}:${part.from}:${part.to}`;
 
+/** A row whose words are its own: plain words, or words on a box they paint (a chip, a badge), but not a drawing. */
+const wordsRow = (row: LayerRow): boolean => row.kind === 'text' || (row.kind === 'shape' && row.drawn === '');
+
 /**
  * The lines of words a reading found, in the order the layers list them, each once. A line whose row is on from
  * the stretch's first moment is marked, so one held over from the scene before can be left out there.
@@ -59,7 +62,7 @@ export function readLines(rows: readonly LayerRow[], from: number): ReadLine[] {
   const found: ReadLine[] = [];
   const seen = new Set<string>();
   const visit = (row: LayerRow): void => {
-    if (row.kind === 'text') {
+    if (wordsRow(row)) {
       const atStart = row.spans.length > 0 && row.spans[0]![0] <= from + START_SLACK;
       for (const raw of row.texts) {
         const text = plainWords(raw);

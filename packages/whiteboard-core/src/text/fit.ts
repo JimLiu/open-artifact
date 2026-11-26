@@ -10,7 +10,9 @@
 
 import { normalizeElementOrKeep, persistedElementByDerived } from '../derived.ts';
 import { MIN_ELEMENT_SIZE, TEXT_LINE_HEIGHT, TEXT_SIZE_STYLES, type BoardContent, type BoardElement, type BoxGeometry, type NoteElement, type ShapeElement, type ShapeKind, type TextAlign, type TextElement, type TextSize } from '../schema.ts';
+import { elementLayoutBox, type ElementMeasures } from '../geometry.ts';
 import { shapeTextInsets } from '../shape-paths.ts';
+import { growthMeetsNeighbor, grownSizeMeetsNeighbor } from './grow-room.ts';
 import { hasBlankText, lineSpanStyles, lineSpanText, textLinesWithHang, type HungTextLine, type TextLine, type TextRunStyle } from './markup.ts';
 import { DEFAULT_TEXT_STYLE, measureRunsWidth, measureTextBlock, textWidthWithListMarker } from './measure.ts';
 
@@ -258,9 +260,31 @@ export function overflowFitSize(element: FittableText & { w: number; h: number }
   return fitBoxToText(element, element.w, element.h, FIT_EXACT).h === element.h ? undefined : fitBoxToText(element, element.w, element.h, FIT_LOOSE);
 }
 
+/**
+ * How many lines of text a shape shows: as many as fit in its text area
+ * (a hair of rounding allowed), at least one. Text beyond them is cut on
+ * the board and in exports alike.
+ */
+export function shapeTextLineCount(shape: Pick<ShapeElement, 'kind' | 'w' | 'h' | 'size'>): number {
+  const { top, bottom } = shapeTextInsets(shape.kind, shape.w, shape.h);
+  const lineHeight = textStyleOf(shape.size).px * TEXT_LINE_HEIGHT;
+  return Math.max(1, Math.floor((shape.h * (1 - top - bottom)) / lineHeight + 0.01));
+}
+
 /** How a note or shape grows after its text changed (shapes only when their text overflows). */
 export function autoFitPatch(element: NoteElement | ShapeElement): Partial<BoxGeometry> | undefined {
   return element.type === 'shape' && overflowFitSize(element) === undefined ? undefined : fittedBoxPatch(element);
+}
+
+/**
+ * {@link autoFitPatch} among the board's `elements`: `undefined` also when
+ * the growth would run into an item the box was clear of (it then keeps
+ * its size, and its text overflows).
+ */
+export function autoFitPatchWithRoom(element: NoteElement | ShapeElement, elements: readonly BoardElement[], measures?: ElementMeasures): Partial<BoxGeometry> | undefined {
+  const patch = autoFitPatch(element);
+  const before = patch && elementLayoutBox(element, measures);
+  return before !== undefined && growthMeetsNeighbor(elements, element.id, before, { ...before, ...patch }, measures) ? undefined : patch;
 }
 
 /**
@@ -299,10 +323,11 @@ export function widenTextWrapToFit(text: TextElement): TextElement {
 /**
  * A memoized fitter of board content to the loaded fonts: text wraps are
  * widened ({@link widenTextWrapToFit}) and shapes whose text overflows grow
- * ({@link overflowFitSize}). A shape whose text and box did not change
- * since the previous call is not refitted, so a person can still shrink
- * it; derived elements are left alone. Returns the same content when
- * nothing changed.
+ * ({@link overflowFitSize}) unless that runs them into a neighbor
+ * ({@link grownSizeMeetsNeighbor}; such a shape is tried again on the next
+ * call). A shape whose text and box did not change since the previous call
+ * is not refitted, so a person can still shrink it; derived elements are
+ * left alone. Returns the same content when nothing changed.
  *
  * The page calls it only once its fonts have loaded (and resets metrics
  * then); before that, raw content should be shown as is.
@@ -329,12 +354,14 @@ export function createFontFitContent(): (raw: BoardContent) => BoardContent {
         prior.w === element.w &&
         prior.h === element.h;
       let fitted = fitCache.get(element);
+      let blocked = false;
       if (fitted === undefined) {
         const grow = sameLayout ? undefined : overflowFitSize(element);
-        fitted = grow === undefined ? element : normalizeElementOrKeep<ShapeElement>({ ...element, ...grow });
+        blocked = grow !== undefined && grownSizeMeetsNeighbor(raw.elements, element, grow);
+        fitted = grow === undefined || blocked ? element : normalizeElementOrKeep<ShapeElement>({ ...element, ...grow });
       }
-      if (fitted === element) unchangedById.set(element.id, element);
-      else fitCache.set(element, fitted);
+      if (fitted !== element) fitCache.set(element, fitted);
+      else if (!blocked) unchangedById.set(element.id, element);
       return fitted;
     });
     lastRaw = raw;

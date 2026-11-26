@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { contoursToFillPaths, layerSvgForContrast, strokeToCapsulePaths } from '../src/drawn-svg/contrast.ts';
 import { brushStrokeOutline, brushSvgStrokes, hatchFillLines, hatchSvgFills, splitPolylineAtRepeats } from '../src/drawn-svg/restyle.ts';
-import { flattenSvgPath, flattenSvgShape, IDENTITY_MATRIX, invertMatrix, parseSvgTransform, splitSvgPathArcs, svgShapePathData } from '../src/drawn-svg/svg-geometry.ts';
+import { flattenSvgPath, flattenSvgShape, IDENTITY_MATRIX, invertMatrix, parseSvgTransform, splitSvgPathArcs, svgPointsList, svgShapePathData } from '../src/drawn-svg/svg-geometry.ts';
 import { drawingSvgOrPlaceholder, ensureSvgNamespace, findUnknownSvgParts, svgShapeLength, UNKNOWN_SVG_PART, UNREADABLE_DRAWING_SVG, WHOLE_SVG_PART } from '../src/drawn-svg/vetting.ts';
 import { createSvgElement, parseSvgTree, parseXml, serializeXml, XmlElement, XmlParseError } from '../src/drawn-svg/xml.ts';
 import { seededRandomFromString } from '../src/shape-paths.ts';
@@ -82,6 +82,20 @@ describe('svg geometry', () => {
       rect.setAttribute(name, value);
     assert.equal(svgShapePathData(rect), 'M1 2h3v4h-3v-4Z');
     assert.deepEqual(flattenSvgShape(rect, [2, 0, 0, 2, 0, 0]), [[2, 4, 8, 4, 8, 4, 8, 12, 8, 12, 2, 12, 2, 12, 2, 4]]);
+  });
+
+  it('reads polyline and polygon points up to stray words after the numbers', () => {
+    const shape = (localName: string, points: string): XmlElement => {
+      const element = createSvgElement(localName);
+      element.setAttribute('points', points);
+      return element;
+    };
+    assert.equal(svgPointsList('4 4 12 4 fill=red'), '4 4 12 4');
+    assert.equal(svgPointsList('4,4,12,4,stroke'), '4,4,12,4');
+    assert.equal(svgPointsList('4 4 12 4'), '4 4 12 4');
+    assert.deepEqual(flattenSvgShape(shape('polyline', '0 0 6 6 12 0 done')), flattenSvgShape(shape('polyline', '0 0 6 6 12 0')));
+    assert.ok(flattenSvgShape(shape('polygon', '0 0 6 6 12 0\nclosed')));
+    assert.equal(flattenSvgShape(shape('polyline', 'x 0 0 6 6')), undefined);
   });
 });
 

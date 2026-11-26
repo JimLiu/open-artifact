@@ -318,7 +318,7 @@ interface Telling {
   /** Elements the gesture took off the board. */
   gone: Set<string>;
   /** The pen stroke being drawn (its points grow in place). */
-  ink?: { color: InkColor; width: number; points: readonly number[] };
+  ink?: { color: InkColor; width: number; points: readonly number[]; widths?: string };
   /** The arrow being drawn. */
   draft?: { from: WirePoint; to: WirePoint; color: InkColor };
   startedAt: number;
@@ -351,7 +351,17 @@ function startTelling(room: RoomCapability): () => void {
     return {
       elements: [...current.ids].flatMap((id) => byId.get(id) ?? []),
       gone: [...current.gone].filter((id) => !byId.has(id)),
-      ...(current.ink ? { ink: { color: current.ink.color, width: current.ink.width, points: [...current.ink.points] } } : {}),
+      ...(current.ink
+        ? {
+            ink: {
+              color: current.ink.color,
+              width: current.ink.width,
+              // The points grow in place; widths were taken at the last report, so send no more points than they cover.
+              points: current.ink.widths !== undefined ? current.ink.points.slice(0, current.ink.widths.length * 2) : [...current.ink.points],
+              ...(current.ink.widths !== undefined ? { widths: current.ink.widths } : {}),
+            },
+          }
+        : {}),
       ...(current.draft ? { draft: current.draft } : {}),
     };
   };
@@ -428,7 +438,7 @@ function startTelling(room: RoomCapability): () => void {
     schedule();
   });
 
-  const offInk = onInkTrail((points) => {
+  const offInk = onInkTrail((points, widths) => {
     if (points === null) {
       if (telling?.key === 'ink') setTimeout(finish, 0);
       return;
@@ -436,7 +446,7 @@ function startTelling(room: RoomCapability): () => void {
     const look = useInteraction.getState().ink;
     const current = look ? begin('ink') : null;
     if (current === null || look === null) return;
-    current.ink = { color: look.color, width: look.width, points };
+    current.ink = { color: look.color, width: look.width, points, ...(widths !== undefined ? { widths } : {}) };
     current.dirty = true;
     schedule();
   });

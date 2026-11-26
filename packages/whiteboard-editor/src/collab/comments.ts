@@ -27,7 +27,7 @@ import { surfaceRef } from '../canvas/BoardSurface.tsx';
 import { screenToBoard, type Point } from '../lib/camera.ts';
 import { revealBox } from '../services/navigation.ts';
 import { maybeSession } from '../services/session.ts';
-import { panToPoint } from '../services/viewport.ts';
+import { isPinching, panToPoint } from '../services/viewport.ts';
 import { onShellCommand, setShellReport } from '../services/shell.ts';
 import { useBoard } from '../state/board.ts';
 import { useCamera } from '../state/camera.ts';
@@ -185,6 +185,7 @@ function watchCommentPresses(): () => void {
     const surface = surfaceRef.current;
     const over =
       useTool.getState().commentMode &&
+      !useTool.getState().handOverride &&
       !event.buttons &&
       surface &&
       event.target instanceof Element &&
@@ -199,13 +200,25 @@ function watchCommentPresses(): () => void {
     const { clientX, clientY } = event;
     hoverFrame = requestAnimationFrame(() => setHover(elementBoxAt(boardPointAt(clientX, clientY, surface))));
   };
+  /** Drops the press in progress without drafting anything. */
+  const giveUp = (): void => {
+    press = null;
+    if (useCommentDrag.getState().dragging !== null) useCommentDrag.setState({ dragging: null });
+  };
   const onDown = (event: PointerEvent): void => {
+    // A second finger (the camera takes the pair) or a stylus taking over ends the press.
+    if (press && event.pointerId !== press.pointerId) {
+      giveUp();
+      return;
+    }
     const surface = surfaceRef.current;
-    if (!useTool.getState().commentMode || event.button !== 0 || !surface || !(event.target instanceof Element)) return;
+    // Space held: the press pans the board instead.
+    if (!useTool.getState().commentMode || useTool.getState().handOverride || event.button !== 0 || !surface || !(event.target instanceof Element)) return;
     if (!surface.contains(event.target) || event.target.closest('[data-wb-chrome],[data-no-pan]')) return;
     if (!boardComments.canComment()) return;
     event.preventDefault();
-    event.stopPropagation();
+    // Fingers still reach the camera, so two of them can pinch.
+    if (event.pointerType !== 'touch') event.stopPropagation();
     press = { pointerId: event.pointerId, start: boardPointAt(event.clientX, event.clientY, surface), startClient: { x: event.clientX, y: event.clientY } };
   };
   const onMove = (event: PointerEvent): void => {
@@ -215,6 +228,7 @@ function watchCommentPresses(): () => void {
       return;
     }
     if (event.pointerId !== press.pointerId || !surface) return;
+    if (isPinching(surface)) return giveUp();
     if (Math.hypot(event.clientX - press.startClient.x, event.clientY - press.startClient.y) < AREA_DRAG_PX) return;
     const point = boardPointAt(event.clientX, event.clientY, surface);
     useCommentDrag.setState({
@@ -224,6 +238,7 @@ function watchCommentPresses(): () => void {
   const onUp = (event: PointerEvent): void => {
     const surface = surfaceRef.current;
     if (!press || event.pointerId !== press.pointerId || !surface) return;
+    if (isPinching(surface)) return giveUp();
     const start = press.start;
     press = null;
     const rect = useCommentDrag.getState().dragging;
@@ -236,8 +251,7 @@ function watchCommentPresses(): () => void {
   };
   const onCancel = (event: PointerEvent): void => {
     if (!press || event.pointerId !== press.pointerId) return;
-    press = null;
-    useCommentDrag.setState({ dragging: null });
+    giveUp();
   };
   // The camera moves under a still pointer: the next move picks again.
   const onWheel = (): void => {
@@ -289,6 +303,7 @@ export function startComments(): () => void {
         if (!state.commentMode) useCommentDrag.setState({ hover: null });
         reportToShell();
       }
+      if (state.handOverride && !previous.handOverride && useCommentDrag.getState().hover !== null) useCommentDrag.setState({ hover: null });
     }),
   );
   // Comment mode turned on from the comments views (a row of the "All comments" panel) is the board's comment tool.

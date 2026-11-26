@@ -7,6 +7,12 @@
  * image's crop, open a link, or new text on empty board. A click on a link
  * opens it (see `services/link-card.ts`).
  *
+ * A stylus on a touch screen draws a lasso over empty board (see
+ * `tools/lasso.ts`); a finger or such a stylus held still on empty board
+ * shows a ring, then opens the board menu on release or draws a rubber
+ * band when it moves. After a finger or stylus picks with either, taps
+ * gather (add to or take from the selection).
+ *
  * Moves write the board on every frame under one coalesced undo step.
  */
 
@@ -36,9 +42,10 @@ import {
   type ElementId,
 } from '@open-artifact/whiteboard-core';
 import type { Point, Rect } from '../lib/camera.ts';
-import { announce, duplicatedMessage, movedMessage } from '../services/announce.ts';
+import { announce, duplicatedMessage, movedMessage, selectionCountMessage } from '../services/announce.ts';
 import { boardElements, canEditBoard, duplicateIds, editContent, selectedIds } from '../services/actions.ts';
 import { cancelPendingLinkOpen, clickBoardLink, openLink } from '../services/link-card.ts';
+import { enterLayerAt, pressWhilePicked } from '../services/drawing-layers.ts';
 import { useAsk } from '../state/ask.ts';
 import { currentMeasures } from '../state/measures.ts';
 import { useSelection } from '../state/selection.ts';
@@ -48,10 +55,13 @@ import { setLiftedElements } from '../elements/view-state.ts';
 import { videoClickedRecently } from '../elements/video-playback.ts';
 import { gestureKey, pastThreshold, type Gesture, type PointerSample } from './gesture.ts';
 import { panGesture } from './hand.ts';
-import { containerAtPoint, hitContext, pressTargetAt, type HitContext } from './hit.ts';
+import { containerAtPoint, hitContext, hitElementAt, pressTargetAt, type HitContext } from './hit.ts';
+import { LASSO, isGathering, lassoPick, setGathering } from './lasso.ts';
+import { PEN_DOUBLE_TAP, isTouchScreenPen, pressKind } from './pen-input.ts';
+import { penPressWhileTyping } from './pen-text.ts';
 import { DOUBLE_TAP, MARQUEE_START_SLOP_PX, createTextAt, placeElement } from './place.ts';
-import { guideLines, snapCandidatesNear, snapDistanceFor, stillBoxes } from './snap.ts';
-import { TOUCH_LONG_PRESS_MS, isQuickTap, reduceTouchPress, type TouchPress } from './touch.ts';
+import { guideLines, snapCandidatesNear, snapDistanceFor, stillBoxes, type SnapBox } from './snap.ts';
+import { TOUCH_LONG_PRESS_MS, isQuickTap, movedPastTouchSlop, reduceTouchPress, type TouchPress } from './touch.ts';
 
 /* ------------------------------------------------------------------------ */
 /* Shared bits                                                              */
@@ -99,9 +109,16 @@ function rememberTap(sample: PointerSample, id: ElementId | null): void {
 function isSecondTap(sample: PointerSample, id: ElementId | null): boolean {
   const tap = lastTap;
   if (!tap || tap.id !== id) return false;
-  const slop = sample.event.pointerType === 'touch' ? DOUBLE_TAP.px * 3 : DOUBLE_TAP.px;
-  return sample.event.timeStamp - tap.at <= DOUBLE_TAP.ms && Math.hypot(sample.screen.x - tap.screen.x, sample.screen.y - tap.screen.y) <= slop;
+  const pen = sample.event.pointerType === 'pen';
+  const slop = pen ? PEN_DOUBLE_TAP.px : sample.event.pointerType === 'touch' ? DOUBLE_TAP.px * 3 : DOUBLE_TAP.px;
+  const ms = pen ? PEN_DOUBLE_TAP.ms : DOUBLE_TAP.ms;
+  return sample.event.timeStamp - tap.at <= ms && Math.hypot(sample.screen.x - tap.screen.x, sample.screen.y - tap.screen.y) <= slop;
 }
+
+/** When a finger's tap last cleared a selection (a double tap right after makes no text). */
+let touchClearedAt = Number.NEGATIVE_INFINITY;
+/** How long after a finger clears the selection a double tap makes no text, ms. */
+const NO_TEXT_AFTER_TOUCH_CLEAR_MS = 700;
 
 /** Forgets the last tap (another tool ran in between). */
 export function forgetTap(): void {
@@ -111,9 +128,10 @@ export function forgetTap(): void {
 /**
  * What a double tap on an element does: enter its group, start typing into
  * it (a table cell, an arrow label), crop an image, or open a link.
+ * A drawing with layers picks the layer at `at` instead of cropping.
  * Returns `true` when it did something.
  */
-export function openElement(element: BoardElement, node: Element | null): boolean {
+export function openElement(element: BoardElement, node: Element | null, at?: { point: Point; pointerType: string }): boolean {
   const elements = boardElements();
   const selection = selectedIds();
   if (outermostGroupOf(elements, element.id) !== undefined) {
@@ -149,6 +167,7 @@ export function openElement(element: BoardElement, node: Element | null): boolea
       return true;
     }
     case 'image':
+      if (at !== undefined && enterLayerAt(element, at.point, at.pointerType)) return true;
       // A double click on a video that just started or paused it does not crop it.
       if (element.video !== undefined && videoClickedRecently()) return false;
       useSelection.getState().select([element.id]);
@@ -219,10 +238,93 @@ function marqueeGesture(sample: PointerSample, base: ReadonlySet<ElementId>, tog
         return;
       }
       if (asks && rect && !end.event.altKey) useAsk.getState().show({ kind: 'area', rect });
+      if (end.event.pointerType !== 'mouse') setGathering(useSelection.getState().ids.length > 0);
     },
     cancel() {
       useSelection.getState().setMarquee(null);
       useSelection.getState().select(was);
+    },
+  };
+}
+
+/**
+ * Holding still on empty board: after {@link TOUCH_LONG_PRESS_MS} a ring
+ * shows under the press; lifting then opens the board menu (`ui/ContextMenu`),
+ * moving draws a rubber band. `armed` tells whether the hold happened.
+ */
+function emptyHold(sample: PointerSample): { armed(): boolean; marquee(): Gesture; stop(): void } {
+  let armed = false;
+  const timer = setTimeout(() => {
+    armed = true;
+    useInteraction.getState().setHoldRing(sample.board);
+  }, TOUCH_LONG_PRESS_MS);
+  const stop = (): void => {
+    clearTimeout(timer);
+    useInteraction.getState().setHoldRing(null);
+  };
+  return {
+    armed: () => armed,
+    marquee() {
+      stop();
+      return marqueeGesture(sample, new Set(), false, false);
+    },
+    stop,
+  };
+}
+
+/** A stylus's lasso (see `tools/lasso.ts`); `hit` is what the stylus pressed, if anything. */
+function lassoGesture(sample: PointerSample, hit: BoardElement | undefined): Gesture {
+  const hold = emptyHold(sample);
+  const points: Point[] = [sample.board];
+  let last = sample.screen;
+  let travel = 0;
+  let then: Gesture | null = null;
+  const stop = (): void => {
+    hold.stop();
+    useInteraction.getState().setLasso(null);
+  };
+  return {
+    cursor: 'crosshair',
+    move(next) {
+      if (then) return then.move?.(next);
+      if (hold.armed()) {
+        if (!movedPastTouchSlop(sample.screen, next.screen)) return;
+        stop();
+        then = hold.marquee();
+        return then.move?.(next);
+      }
+      const step = Math.hypot(next.screen.x - last.x, next.screen.y - last.y);
+      if (step < LASSO.stepPx) return;
+      if (movedPastTouchSlop(sample.screen, next.screen)) hold.stop();
+      travel += step;
+      last = next.screen;
+      points.push(next.board);
+      useInteraction.getState().setLasso([...points]);
+    },
+    up(end) {
+      if (then) return then.up?.(end);
+      const held = hold.armed();
+      stop();
+      // A hold lifted in place: the board menu opens (ui/ContextMenu).
+      if (held) return;
+      if (travel >= LASSO.loopPx) {
+        const context = hitContext();
+        const picked = lassoPick(context.elements, points, sample.board, context.measures, context.byId);
+        useSelection.getState().select([...picked]);
+        announce(selectionCountMessage(picked.size));
+        setGathering(picked.size > 0);
+        return;
+      }
+      if (hit) useSelection.getState().select([...expandSelectionToGroups(boardElements(), new Set([hit.id]), selectedIds())]);
+      else {
+        useSelection.getState().clear();
+        setGathering(false);
+      }
+      rememberTap(end, hit?.id ?? null);
+    },
+    cancel() {
+      stop();
+      then?.cancel?.();
     },
   };
 }
@@ -252,7 +354,7 @@ export interface MoveState {
   /** Boxes of the moving items at the start (riders and arrows left out), for snapping. */
   startBoxes: Box[];
   /** Boxes of the items staying put. */
-  still: Box[];
+  still: SnapBox[];
   /** How many top-level items were copied (an ⌥-drag), for the announcement. */
   copies: number;
 }
@@ -406,23 +508,49 @@ export function selectPress(sample: PointerSample): Gesture | null {
   const context = hitContext();
   const editable = canEditBoard();
   const mod = hasModifier(event);
-  const hit = pressTargetAt(context, sample.board, event.pointerType, editable && !event.shiftKey && !mod);
+  if (editing?.kind === 'element' && isTouchScreenPen(event)) {
+    const near = penPressWhileTyping(sample, editing.id, stopTyping);
+    if (near) return near;
+    stopTyping();
+  }
+  const hit = pressTargetAt(context, sample.board, pressKind(event), editable && !event.shiftKey && !mod);
   if (editing && editing.id !== hit?.id) stopTyping();
+  if (useSelection.getState().layer !== null && event.button === 0 && !event.shiftKey && !mod && !event.altKey && pressWhilePicked(hit, sample.board, event.pointerType)) {
+    lastTap = null;
+    return SWALLOW;
+  }
 
   if (isSecondTap(sample, hit?.id ?? null)) {
     lastTap = null;
     cancelPendingLinkOpen();
-    if (hit) openElement(hit, sample.node);
-    else if (editable) placeElement(createTextAt(sample.board), { label: 'Add text', keepTool: true });
+    if (hit) openElement(hit, sample.node, { point: sample.board, pointerType: event.pointerType });
+    else if (editable && event.timeStamp - touchClearedAt > NO_TEXT_AFTER_TOUCH_CLEAR_MS) placeElement(createTextAt(sample.board), { label: 'Add text', keepTool: true });
     return SWALLOW;
+  }
+  if (event.pointerType === 'mouse') setGathering(false);
+
+  // A stylus on a touch screen lassoes from empty board, from a section it did not press directly, or (with a
+  // selection) from a locked item.
+  if (isTouchScreenPen(event) && !event.shiftKey && !mod && !event.altKey) {
+    const selection = selectedIds();
+    const direct = hit?.type === 'container' ? hitElementAt(context, sample.board, 'touch-pen') : hit;
+    if (!hit || (hit.type === 'container' && direct?.id !== hit.id && !selection.has(hit.id)) || (selection.size > 0 && isElementLocked(hit)))
+      return lassoGesture(sample, hit);
   }
 
   // One finger on a touch screen pans first (see `tools/touch.ts`).
   if (event.pointerType === 'touch' && !event.shiftKey && !mod) {
     const pressed = hit ?? null;
     return touchGesture(sample, pressed, editable && pressed !== null && !isElementLocked(pressed), (end) => {
-      if (pressed === null) useSelection.getState().clear();
-      else useSelection.getState().select([...expandSelectionToGroups(boardElements(), new Set([pressed.id]), useSelection.getState().ids)]);
+      if (pressed === null) {
+        if (useSelection.getState().ids.length > 0) touchClearedAt = end.event.timeStamp;
+        useSelection.getState().clear();
+        setGathering(false);
+      } else if (isGathering()) {
+        togglePicked(expandSelectionToGroups(boardElements(), new Set([pressed.id]), new Set()), selectedIds());
+        rememberTap(end, pressed.id);
+        return;
+      } else useSelection.getState().select([...expandSelectionToGroups(boardElements(), new Set([pressed.id]), useSelection.getState().ids)]);
       rememberTap(end, pressed?.id ?? null);
       if (pressed !== null && isQuickTap(sample.screen, sample.event.timeStamp, end.screen, end.event.timeStamp) && clickStartsTyping(pressed)) {
         useSelection.getState().edit({ kind: 'element', id: pressed.id });
@@ -450,7 +578,7 @@ export function selectPress(sample: PointerSample): Gesture | null {
   }
 
   const boxSelect = (mod || isElementLocked(hit)) && !event.altKey;
-  const fresh = !event.shiftKey && !selection.has(hit.id);
+  const fresh = !event.shiftKey && !(isGathering() && isTouchScreenPen(event)) && !selection.has(hit.id);
   if (fresh && !boxSelect) useSelection.getState().select([...expandSelectionToGroups(elements, new Set([hit.id]), selection)]);
 
   if (boxSelect) {
@@ -493,7 +621,7 @@ export function selectPress(sample: PointerSample): Gesture | null {
     },
     up(end) {
       if (move) return move.up?.(end);
-      if (event.shiftKey) togglePicked(expandSelectionToGroups(elements, new Set([hit.id]), selection), selection);
+      if (event.shiftKey || (isGathering() && isTouchScreenPen(event))) togglePicked(expandSelectionToGroups(elements, new Set([hit.id]), event.shiftKey ? selection : new Set()), selection);
       else {
         useSelection.getState().select([...expandSelectionToGroups(elements, new Set([hit.id]), useSelection.getState().ids)]);
         if (clickStartsTyping(hit)) useSelection.getState().edit({ kind: 'element', id: hit.id });
@@ -549,11 +677,22 @@ function touchGesture(sample: PointerSample, hit: BoardElement | null, movable: 
           touchLift(surface, withoutLockedIds(elements, picked));
         }, TOUCH_LONG_PRESS_MS)
       : undefined;
-  const settle = (): void => clearTimeout(timer);
+  // Empty board: a hold shows the ring, then opens the menu or draws a rubber band.
+  const hold = hit === null ? emptyHold(sample) : null;
+  const settle = (): void => {
+    clearTimeout(timer);
+    hold?.stop();
+  };
   return {
     move(next) {
       if (then) return then.move?.(next);
       if (press === null) return;
+      if (hold?.armed()) {
+        if (!movedPastTouchSlop(sample.screen, next.screen)) return;
+        press = null;
+        then = hold.marquee();
+        return then.move?.(next);
+      }
       const decided = reduceTouchPress(press, { kind: 'move', at: next.screen });
       press = decided.press;
       if (decided.outcome === 'none') return;
@@ -575,6 +714,8 @@ function touchGesture(sample: PointerSample, hit: BoardElement | null, movable: 
       if (then) return then.up?.(end);
       const current = press;
       press = null;
+      // A hold on empty board lifted in place: the board menu opens (ui/ContextMenu).
+      if (hold?.armed()) return;
       // A picked-up item lifted without moving: the context menu opens (ui/ContextMenu).
       if (current !== null && reduceTouchPress(current, { kind: 'up' }).outcome === 'tap') tap(end);
     },

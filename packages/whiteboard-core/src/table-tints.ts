@@ -82,6 +82,22 @@ function tableBodyRowIds(table: Pick<TableElement, 'rows' | 'head'>): string[] {
 }
 
 /**
+ * Whether a heat map on one column (`cols`, header row left out) or row
+ * (`rows`) would shade anything: it needs two numbers of the same unit.
+ */
+export function tableLineHasHeat(table: Pick<TableElement, 'cols' | 'rows' | 'head'>, axis: TableAxis, line: string): boolean {
+  const cells = axis === 'cols' ? tableBodyRowIds(table).map((rowId) => tableCellValue(table, rowId, line)) : tableColumnIds(table).map((columnId) => tableCellValue(table, line, columnId));
+  const seen = new Set<string>();
+  for (const text of cells) {
+    const unit = tableCellNumber(text)?.unit;
+    if (unit === undefined) continue;
+    if (seen.has(unit)) return true;
+    seen.add(unit);
+  }
+  return false;
+}
+
+/**
  * The heat-map level of every numeric cell a heat map covers. Numbers are
  * ranked against those of the same unit; when a line mixes units, a unit
  * with a single number is left unshaded. Equal numbers sit at 0.5. Where a

@@ -35,6 +35,13 @@ export interface GuideLine extends SnapGuide {
   to: number;
 }
 
+/** How the pen stroke being drawn looks. */
+export interface InkLook {
+  color: InkColor;
+  width: number;
+  filled?: boolean;
+}
+
 /** The interaction store's state. */
 export interface InteractionState {
   /** The transform in progress, if any. */
@@ -47,14 +54,20 @@ export interface InteractionState {
   connect: ConnectTarget | null;
   /** The arrow being drawn. */
   arrowDraft: ArrowDraft | null;
-  /** The pen stroke's look while drawing. */
-  ink: { color: InkColor; width: number } | null;
+  /** The pen stroke's look while drawing (`filled`: drawn with pressure, its path is an outline). */
+  ink: InkLook | null;
+  /** The lasso being drawn, board points. */
+  lasso: readonly Point[] | null;
+  /** Where a long press on empty board is held (the ring is shown there), board point. */
+  holdRing: Point | null;
   setTransform(transform: TransformKind | null): void;
   setGuides(guides: readonly GuideLine[]): void;
   setTurnDegrees(degrees: number | null): void;
   setConnect(target: ConnectTarget | null): void;
   setArrowDraft(draft: ArrowDraft | null): void;
-  setInk(ink: { color: InkColor; width: number } | null): void;
+  setInk(ink: InkLook | null): void;
+  setLasso(lasso: readonly Point[] | null): void;
+  setHoldRing(at: Point | null): void;
   /** Clears everything (a gesture ended). */
   reset(): void;
 }
@@ -79,6 +92,8 @@ export const useInteraction = create<InteractionState>()((set, get) => ({
   connect: null,
   arrowDraft: null,
   ink: null,
+  lasso: null,
+  holdRing: null,
   setTransform(transform) {
     if (get().transform !== transform) set({ transform });
   },
@@ -99,11 +114,17 @@ export const useInteraction = create<InteractionState>()((set, get) => ({
   setInk(ink) {
     set({ ink });
   },
+  setLasso(lasso) {
+    set({ lasso });
+  },
+  setHoldRing(at) {
+    if (get().holdRing !== at) set({ holdRing: at });
+  },
   reset() {
     const state = get();
-    if (state.transform === null && state.guides.length === 0 && state.turnDegrees === null && state.connect === null && state.arrowDraft === null && state.ink === null)
+    if (state.transform === null && state.guides.length === 0 && state.turnDegrees === null && state.connect === null && state.arrowDraft === null && state.ink === null && state.lasso === null && state.holdRing === null)
       return;
-    set({ transform: null, guides: NO_GUIDES, turnDegrees: null, connect: null, arrowDraft: null, ink: null });
+    set({ transform: null, guides: NO_GUIDES, turnDegrees: null, connect: null, arrowDraft: null, ink: null, lasso: null, holdRing: null });
   },
 }));
 
@@ -126,8 +147,8 @@ export function drawInkPreview(d: string): void {
   inkPath?.setAttribute('d', d);
 }
 
-/** Receives the pen stroke being drawn (flat x, y board points), or `null` once it ends. */
-export type InkTrailListener = (points: readonly number[] | null) => void;
+/** Receives the pen stroke being drawn (flat x, y board points, and its widths with pressure), or `null` once it ends. */
+export type InkTrailListener = (points: readonly number[] | null, widths?: string) => void;
 
 const inkTrailListeners = new Set<InkTrailListener>();
 
@@ -140,6 +161,6 @@ export function onInkTrail(listener: InkTrailListener): () => void {
 }
 
 /** Tells the listeners about the pen stroke being drawn (`null`: it ended). */
-export function reportInkTrail(points: readonly number[] | null): void {
-  for (const listener of inkTrailListeners) listener(points);
+export function reportInkTrail(points: readonly number[] | null, widths?: string): void {
+  for (const listener of inkTrailListeners) listener(points, widths);
 }

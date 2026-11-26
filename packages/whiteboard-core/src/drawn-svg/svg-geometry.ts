@@ -358,6 +358,12 @@ export function splitSvgPathArcs(path: string): SvgPathArcs | undefined {
 /* Shapes                                                                      */
 /* -------------------------------------------------------------------------- */
 
+/** A `points` list without stray words after the numbers (`"0 0 9 9 fill"` reads as `"0 0 9 9"`). */
+export function svgPointsList(points: string): string {
+  const junk = /[ \t\r\n\f,][a-z][^]*$/i.exec(points);
+  return junk === null ? points : points.slice(0, junk.index);
+}
+
 /** The path equivalent of a basic shape element, or `undefined` for other elements. */
 export function svgShapePathData(element: SvgShapeSource): string | undefined {
   const attr = (name: string): string => element.getAttribute(name) ?? '0';
@@ -369,9 +375,9 @@ export function svgShapePathData(element: SvgShapeSource): string | undefined {
     case 'line':
       return `M${[attr('x1'), attr('y1'), attr('x2'), attr('y2')].join(' ')}`;
     case 'polyline':
-      return `M${element.getAttribute('points') ?? ''}`;
+      return `M${svgPointsList(element.getAttribute('points') ?? '')}`;
     case 'polygon':
-      return `M${element.getAttribute('points') ?? ''}Z`;
+      return `M${svgPointsList(element.getAttribute('points') ?? '')}Z`;
     case 'rect': {
       const [width, height, rx, ry] = ['width', 'height', 'rx', 'ry'].map((name) => Number(attr(name))) as [number, number, number, number];
       const [cornerX, cornerY] = [Math.min(rx || ry, width / 2), Math.min(ry || rx, height / 2)];

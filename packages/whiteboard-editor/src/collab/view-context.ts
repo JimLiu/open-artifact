@@ -72,8 +72,10 @@ export interface BoardViewContext {
   mode?: 'comment';
   /** The active tool, when not the select tool. */
   tool?: string;
-  /** Selected ids, most recent last. */
+  /** Selected ids, most recent last (at most {@link MAX_CONTEXT_SELECTED}). */
   selected?: string[];
+  /** How many items are selected, when `selected` lists only some of them. */
+  selectedCount?: number;
   /** Labels of up to five selected items (the most recent). */
   selection?: ViewContextItem[];
   /** The board area in sight, clear of chrome, and the zoom. */
@@ -133,10 +135,10 @@ export function fitViewContext(context: BoardViewContext, maxBytes = MAX_VIEW_CO
   if (jsonBytes(context) <= maxBytes) return context;
   const steps: Array<(next: BoardViewContext) => BoardViewContext> = [
     ({ selection: _selection, ...rest }) => rest,
-    (next) => (next.selected ? { ...next, selected: next.selected.slice(-MAX_CONTEXT_LABELS) } : next),
+    (next) => (next.selected ? listSelected(next, next.selected.slice(-MAX_CONTEXT_LABELS)) : next),
     ({ issues: _issues, issuesMore: _more, ...rest }) => rest,
     ({ moving: _moving, ...rest }) => rest,
-    ({ selected: _selected, editing: _editing, pin: _pin, ...rest }) => rest,
+    ({ selected: _selected, selectedCount: _count, editing: _editing, pin: _pin, ...rest }) => rest,
   ];
   let next = context;
   for (const step of steps) {
@@ -144,6 +146,13 @@ export function fitViewContext(context: BoardViewContext, maxBytes = MAX_VIEW_CO
     if (jsonBytes(next) <= maxBytes) return next;
   }
   return next;
+}
+
+/** `context` listing only `ids` of its selection, counting the rest. */
+function listSelected(context: BoardViewContext, ids: string[]): BoardViewContext {
+  const count = context.selectedCount ?? context.selected?.length ?? 0;
+  const { selectedCount: _count, ...rest } = context;
+  return { ...rest, selected: ids, ...(count > ids.length ? { selectedCount: count } : {}) };
 }
 
 /** The board area clear of chrome, rounded. */
@@ -169,6 +178,7 @@ export function buildViewContext(input: ViewContextInput): BoardViewContext {
     ...(input.commentMode ? { mode: 'comment' as const } : {}),
     ...(input.tool !== 'select' ? { tool: input.tool } : {}),
     ...(selected.length > 0 ? { selected: selected.slice(-MAX_CONTEXT_SELECTED), selection: labeled } : {}),
+    ...(selected.length > MAX_CONTEXT_SELECTED ? { selectedCount: selected.length } : {}),
     viewport,
     ...(input.pin ? { pin: input.pin } : {}),
     ...(editing

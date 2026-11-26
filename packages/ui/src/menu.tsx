@@ -11,6 +11,9 @@ export const POPUP_CLASS =
 
 const ITEM_CLASS =
   'flex h-7 min-w-40 cursor-default select-none items-center gap-2 rounded-md px-2 outline-none data-[highlighted]:bg-hover data-[disabled]:opacity-40';
+/** A row with a check mark: its label takes up to two lines, the mark stays by the first. */
+const CHECK_ITEM_CLASS =
+  'flex min-h-7 min-w-40 cursor-default select-none items-start gap-2 rounded-md px-2 py-1 leading-5 outline-none data-[highlighted]:bg-hover data-[disabled]:opacity-40';
 
 /** Props of {@link Menu}. */
 export interface MenuProps {
@@ -84,13 +87,13 @@ export function MenuCheckboxItem({
   closeOnClick?: boolean;
 }) {
   return (
-    <BaseMenu.CheckboxItem className={ITEM_CLASS} checked={checked} closeOnClick={closeOnClick} onCheckedChange={(next) => onCheckedChange(next)} onKeyDown={preventRepeatedActivation}>
-      <span className="flex size-4 items-center justify-center">
+    <BaseMenu.CheckboxItem className={CHECK_ITEM_CLASS} checked={checked} closeOnClick={closeOnClick} onCheckedChange={(next) => onCheckedChange(next)} onKeyDown={preventRepeatedActivation}>
+      <span className="flex h-5 w-4 shrink-0 items-center justify-center">
         <BaseMenu.CheckboxItemIndicator>
           <Check className="size-3.5" />
         </BaseMenu.CheckboxItemIndicator>
       </span>
-      <span className="flex-1">{children}</span>
+      <span className="line-clamp-2 min-w-0 flex-1 break-words">{children}</span>
     </BaseMenu.CheckboxItem>
   );
 }

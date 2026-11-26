@@ -322,6 +322,8 @@ export interface StrokeElement extends ElementBase {
   color: InkColor;
   /** Pen width, 1–40. */
   width: number;
+  /** Pen pressure: one base-36 digit per point, the width factor there (see `stroke-widths.ts`). */
+  widths?: string;
 }
 
 /** One end of an arrow: an element id or a free point. */

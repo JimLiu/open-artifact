@@ -13,8 +13,12 @@ import { cameraLayerTransform } from '../lib/camera.ts';
 import { useCamera } from '../state/camera.ts';
 import { effectiveTool, useTool } from '../state/tool.ts';
 import { attachViewportGestures } from '../services/viewport.ts';
+import { installPalmRejection } from '../services/palm-rejection.ts';
+import { installFingerTaps } from '../services/finger-taps.ts';
 import { sampleOf, toolPress, type Gesture } from '../tools/gesture.ts';
 import { panGesture } from '../tools/hand.ts';
+import { eraserPress } from '../tools/eraser.ts';
+import { isPenEraser } from '../tools/pen-input.ts';
 import { Grid } from './Grid.tsx';
 import { PlaceGhost } from './PlaceGhost.tsx';
 import { boardGestureCanceller, surfaceRef } from './surface.ts';
@@ -37,6 +41,7 @@ export function BoardSurface({ elements, children, overlay }: BoardSurfaceProps)
   const layer = useRef<HTMLDivElement>(null);
   const tool = useTool((state) => effectiveTool(state));
   const commenting = useTool((state) => state.commentMode);
+  const spacePan = useTool((state) => state.commentMode && state.handOverride);
   // Size.
   useEffect(() => {
     const element = surface.current;
@@ -71,7 +76,7 @@ export function BoardSurface({ elements, children, overlay }: BoardSurfaceProps)
   }, []);
 
   // Wheel, trackpad and pinch; a pinch cancels the one-finger gesture in progress.
-  const active = useRef<{ pointerId: number; gesture: Gesture } | null>(null);
+  const active = useRef<{ pointerId: number; pointerType: string; gesture: Gesture } | null>(null);
   useEffect(() => {
     const element = surface.current;
     if (!element) return;
@@ -84,6 +89,23 @@ export function BoardSurface({ elements, children, overlay }: BoardSurfaceProps)
     });
   }, []);
 
+  // Palms resting on the screen while a stylus writes; a stylus going down stops what fingers were doing.
+  useEffect(() => {
+    const element = surface.current;
+    if (!element) return;
+    return installPalmRejection(element, () => {
+      const current = active.current;
+      if (current?.pointerType !== 'touch') return;
+      active.current = null;
+      current.gesture.cancel?.();
+    });
+  }, []);
+
+  useEffect(() => {
+    const element = surface.current;
+    return element ? installFingerTaps(element) : undefined;
+  }, []);
+
   // Press → gesture routing.
   useEffect(() => {
     const element = surface.current;
@@ -94,9 +116,11 @@ export function BoardSurface({ elements, children, overlay }: BoardSurfaceProps)
       if (event.target instanceof Element && event.target.closest('[data-wb-chrome],[data-no-pan]')) return;
       const sample = sampleOf(event, element);
       const middle = event.button === 1;
-      if (event.button !== 0 && !middle) return;
+      // A stylus's eraser end presses with its own button.
+      const eraser = isPenEraser(event);
+      if (event.button !== 0 && !middle && !eraser) return;
       const name = middle ? 'hand' : effectiveTool();
-      const gesture = middle ? panGesture(sample) : (toolPress(name)?.(sample) ?? null);
+      const gesture = eraser ? eraserPress(sample) : middle ? panGesture(sample) : (toolPress(name)?.(sample) ?? null);
       if (!gesture) return;
       event.preventDefault();
       // preventDefault keeps focus where it was; a press on the board still takes it from a field in a panel. After the
@@ -108,7 +132,7 @@ export function BoardSurface({ elements, children, overlay }: BoardSurfaceProps)
           if (document.activeElement === before) element.focus({ preventScroll: true });
         });
       }
-      active.current = { pointerId: event.pointerId, gesture };
+      active.current = { pointerId: event.pointerId, pointerType: event.pointerType, gesture };
       try {
         element.setPointerCapture(event.pointerId);
       } catch {
@@ -123,6 +147,7 @@ export function BoardSurface({ elements, children, overlay }: BoardSurfaceProps)
       // Coalesced events keep pen strokes smooth at high pointer rates.
       const events = typeof event.getCoalescedEvents === 'function' ? event.getCoalescedEvents() : [];
       for (const each of events.length ? events : [event]) current.gesture.move?.(sampleOf(each, element));
+      if (current.gesture.predict && typeof event.getPredictedEvents === 'function') current.gesture.predict(event.getPredictedEvents().map((each) => sampleOf(each, element)));
     };
     const onUp = (event: PointerEvent): void => {
       const current = active.current;
@@ -194,6 +219,7 @@ export function BoardSurface({ elements, children, overlay }: BoardSurfaceProps)
       className={`wb-surface wb-tool-${tool}${commenting ? ' wb-commenting' : ''}`}
       // Comment mode's pointer is the comments' speech bubble, as in every editor (styles.css).
       style={commenting ? ({ '--wb-comment-cursor': COMMENT_CURSOR } as CSSProperties) : undefined}
+      {...(spacePan ? { 'data-wb-space-pan': '' } : {})}
       tabIndex={-1}
       data-wb-region="canvas"
       data-testid="board-surface"

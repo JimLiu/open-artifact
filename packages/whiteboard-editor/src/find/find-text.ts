@@ -10,6 +10,8 @@
  * collapsed to one space too.
  */
 
+import { shortcutLetter } from '@open-artifact/ui/keys';
+
 /** Most matches counted; the counter shows "+" past it. */
 export const MAX_FIND_MATCHES = 1000;
 /** Longest query the field takes. */
@@ -192,9 +194,9 @@ export interface FindKeyPress {
   altKey: boolean;
 }
 
-/** A letter key, by its letter or (on other layouts) its place. */
+/** A letter key: as typed on a Latin layout, by its place on others. */
 function keyMatchesLetter(event: Pick<FindKeyPress, 'key' | 'code'>, letter: string): boolean {
-  return event.key.toLowerCase() === letter || event.code === `Key${letter.toUpperCase()}`;
+  return shortcutLetter(event) === letter;
 }
 
 /** ⌘ alone on Apple platforms, Ctrl alone elsewhere, never with ⌥. */

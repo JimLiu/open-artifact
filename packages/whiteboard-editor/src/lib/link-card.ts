@@ -60,9 +60,9 @@ export interface PressSpan {
   moved: number;
 }
 
-/** Whether a press counts as a click: a short, still tap on touch; a press that never became a drag otherwise. */
+/** Whether a press counts as a click: a short, still tap on touch (or with a stylus on a touch screen, `touch-pen`); a press that never became a drag otherwise. */
 export function pressIsClick(press: PressSpan): boolean {
-  if (press.pointerType === 'touch') return press.ms <= TAP_MAX_MS && press.moved <= TAP_MAX_MOVE_PX;
+  if (press.pointerType === 'touch' || press.pointerType === 'touch-pen') return press.ms <= TAP_MAX_MS && press.moved <= TAP_MAX_MOVE_PX;
   return press.moved <= CLICK_MAX_MOVE_PX;
 }
 

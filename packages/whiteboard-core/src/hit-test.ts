@@ -23,6 +23,7 @@ import { wbGeom } from '@open-artifact/wasm-wb-geom';
 import { kindCode } from './geom-codec.ts';
 import {
   arrowPolyline,
+  boxCenter,
   containerTitleBounds,
   containerTitleTextBounds,
   elementLayoutBox,
@@ -30,6 +31,7 @@ import {
   measuredArrowGeometry,
   measuredArrowLabelBox,
   noteAuthorBottomPadding,
+  rotatePointAround,
   type Box,
   type GeometryHooks,
   type ElementMeasures,
@@ -46,16 +48,18 @@ import {
   type ElementId,
   type NoteElement,
   type ShapeElement,
+  type StrokeElement,
   type TextAlign,
   type TextElement,
 } from './schema.ts';
 import type { ArrowGeometry } from './arrows/layout.ts';
 import { shapeTextInsets } from './shape-paths.ts';
+import { strokeWidestFactor, strokeWidthFactors } from './stroke-widths.ts';
 import { PLACEHOLDER_HIT_MIN_PX, showsTextPlaceholder } from './text/placeholder.ts';
 
-/** How far (in board units) a pointer may miss: 16 screen px for touch, 6 for a mouse. */
+/** How far (in board units) a pointer may miss: 16 screen px for touch, 10 for a stylus on a touch screen (`touch-pen`), 6 for a mouse. */
 export function hitSlop(pointerType: string, zoom: number): number {
-  return (pointerType === 'touch' ? 16 : 6) / zoom;
+  return (pointerType === 'touch' ? 16 : pointerType === 'touch-pen' ? 10 : 6) / zoom;
 }
 
 /** Squared distance from a point to a segment. */
@@ -163,7 +167,7 @@ function buildHitRecord(element: BoardElement, measures: ElementMeasures | undef
       break;
     case 'stroke':
       out[1] = BODY_STROKE;
-      out.push(element.x, element.y, element.width, element.points.length);
+      out.push(element.x, element.y, element.width * strokeWidestFactor(element), element.points.length);
       for (const value of element.points) out.push(value);
       break;
   }
@@ -226,7 +230,31 @@ export function hitTestElement(
 ): boolean {
   const hit = wbGeom().hit_test_element(hitRecord(element, measures, byId, zoom), x, y, tolerance);
   // An unknown element type is neither hit nor missed.
-  return hit === -1 ? (undefined as unknown as boolean) : hit === 1;
+  if (hit === -1) return undefined as unknown as boolean;
+  return hit === 1 && (element.type !== 'stroke' || pressureStrokeHit(element, x, y, tolerance, measures, zoom));
+}
+
+/**
+ * The close test of a stroke drawn with pressure, after the coarse one
+ * (which reaches as far as its widest point): each segment reaches half the
+ * wider of its two ends' widths, plus the tolerance. Plain strokes pass.
+ */
+export function pressureStrokeHit(stroke: StrokeElement, x: number, y: number, tolerance: number, measures?: ElementMeasures, zoom?: number): boolean {
+  const factors = strokeWidthFactors(stroke);
+  if (factors === undefined) return true;
+  const turn = elementTurn(stroke);
+  const frame = turn !== 0 ? hitLayoutBox(stroke, measures, zoom) : undefined;
+  const local = frame ? rotatePointAround({ x, y }, boxCenter(frame), -turn) : { x, y };
+  const px = local.x - stroke.x;
+  const py = local.y - stroke.y;
+  const { points } = stroke;
+  const reach = (index: number, other: number): number => (stroke.width * Math.max(factors[index] ?? 1, factors[other] ?? 1)) / 2 + tolerance;
+  if (points.length === 2) return Math.hypot(px - points[0]!, py - points[1]!) <= reach(0, 0);
+  for (let at = 0; at + 3 < points.length; at += 2) {
+    const limit = reach(at / 2, at / 2 + 1);
+    if (distanceToSegmentSq(px, py, points[at]!, points[at + 1]!, points[at + 2]!, points[at + 3]!) <= limit * limit) return true;
+  }
+  return false;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -439,6 +467,17 @@ export function topElementAt(
   const lookup = byIdOf(elements, byId);
   const found = wbGeom().top_element_at(hitRecords(elements, measures, lookup, zoom), x, y, tolerance);
   const hit = found < 0 ? undefined : elements[found];
+  // The coarse test of a stroke drawn with pressure reaches as far as its widest point: past its thinner parts, look beneath.
+  if (hit?.type === 'stroke' && !pressureStrokeHit(hit, x, y, tolerance, measures, zoom))
+    return topElementAt(
+      elements.filter((element) => element !== hit),
+      x,
+      y,
+      tolerance,
+      measures,
+      lookup,
+      zoom,
+    );
   if (hit === undefined || !showsTextPlaceholder(hit)) return hit;
   // An empty text's hint gives way to anything else under the point.
   const others = elements.filter((element) => !showsTextPlaceholder(element));

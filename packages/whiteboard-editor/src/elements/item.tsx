@@ -19,6 +19,8 @@ export interface ElementItemProps extends BoardListItemProps {
   'data-wb-locked'?: true;
   /** Set while the element is being dragged (it casts a lifted shadow). */
   'data-wb-lifted'?: true;
+  /** Set while a stylus's eraser has swept the element (it is hidden until the eraser lifts). */
+  'data-wb-erasing'?: true;
 }
 
 /** The DOM id of an element's view (the board list owns it by this id). */
@@ -35,6 +37,7 @@ export function useItemProps(element: BoardElement): ElementItemProps {
   const pos = useElementView((state) => state.reading.get(element.id));
   const size = useElementView((state) => state.readingSize);
   const lifted = useElementView((state) => state.lifted.has(element.id));
+  const erasing = useElementView((state) => state.erasing.has(element.id));
   return {
     ...boardListItemProps(label, pos, size),
     id: elementDomId(element.id),
@@ -43,5 +46,6 @@ export function useItemProps(element: BoardElement): ElementItemProps {
     'data-wb-type': element.type,
     ...(element.locked ? { 'data-wb-locked': true as const } : {}),
     ...(lifted ? { 'data-wb-lifted': true as const } : {}),
+    ...(erasing ? { 'data-wb-erasing': true as const } : {}),
   };
 }

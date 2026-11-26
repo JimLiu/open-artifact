@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it, mock } from 'node:test';
-import { scrollsOverflow } from '../src/focusables.ts';
+import { scrollStanding, scrollsOverflow } from '../src/focusables.ts';
 import {
   guardHeldActivation,
   HELD_KEY_GUARD_MAX_MS,
@@ -156,6 +156,17 @@ describe('scrollsOverflow', () => {
     assert.equal(scrollsOverflow({ ...box, overflowY: 'clip' }), false);
     assert.equal(scrollsOverflow({ ...box, overflowY: 'visible' }), false);
     assert.equal(scrollsOverflow({ ...box, scrollHeight: 201 }), false);
+  });
+});
+
+describe('scrollStanding', () => {
+  const box = { scrollWidth: 100, clientWidth: 100, scrollHeight: 400, clientHeight: 200, overflowX: 'hidden', overflowY: 'auto', scrollTop: 0 };
+
+  it('tells a box that fits from one with more below and one scrolled to its end', () => {
+    assert.equal(scrollStanding({ ...box, scrollHeight: 200 }), 'none');
+    assert.equal(scrollStanding(box), 'more');
+    assert.equal(scrollStanding({ ...box, scrollTop: 199.5 }), 'end');
+    assert.equal(scrollStanding({ ...box, overflowY: 'hidden' }), 'none');
   });
 });
 

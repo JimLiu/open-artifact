@@ -37,6 +37,7 @@ import { useLinkCard } from '../state/link-card.ts';
 import { useSelection, type TextEditTarget } from '../state/selection.ts';
 import { effectiveTool, useTool } from '../state/tool.ts';
 import type { PointerSample } from '../tools/gesture.ts';
+import { pressKind } from '../tools/pen-input.ts';
 import { canEditBoard } from './actions.ts';
 import { announce, notify } from './announce.ts';
 import { maybeSession } from './session.ts';
@@ -153,7 +154,7 @@ export function clickBoardLink(down: PointerSample, up: PointerSample): void {
   const link = boardLinkNode(down.node);
   if (!link || pointerTaken()) return;
   const moved = Math.hypot(up.screen.x - down.screen.x, up.screen.y - down.screen.y);
-  if (!pressIsClick({ pointerType: down.event.pointerType, ms: up.event.timeStamp - down.event.timeStamp, moved })) return;
+  if (!pressIsClick({ pointerType: pressKind(down.event), ms: up.event.timeStamp - down.event.timeStamp, moved })) return;
   const action = linkClickAction(down.event, isApplePlatform());
   if (action === 'none') return;
   const href = link.dataset.wbLink ?? '';

@@ -200,6 +200,9 @@ export function wrapRichText(paragraphs: readonly (readonly WrapSpan[])[], maxWi
   return lines;
 }
 
+/** What a cut line ends with. */
+const ELLIPSIS = '…';
+
 /** The text cut with an ellipsis to fit `maxWidth` (`''` when not even one character fits). */
 export function truncateToWidth(text: string, maxWidth: number, measure: (text: string) => number): string {
   if (measure(text) <= maxWidth) return text;
@@ -212,6 +215,49 @@ export function truncateToWidth(text: string, maxWidth: number, measure: (text: 
     else hi = mid - 1;
   }
   return lo === 0 ? '' : `${graphemes.slice(0, lo).join('')}…`;
+}
+
+/**
+ * A line shortened to end in "…" within `maxWidth`: whole runs go from the
+ * end until the rest and the ellipsis fit, then the last run kept loses
+ * graphemes from its end (an only run keeps at least one) and trailing
+ * whitespace. The ellipsis joins a plain or right-to-left last run, and is
+ * a plain run of its own after bold, italic, code or a link.
+ */
+export function ellipsizeLine(line: WrappedLine, maxWidth: number, measure: SpanMeasure, rtl = false): WrappedLine {
+  const runs = line.pieces.map((piece) => ({ ...piece, trail: Math.max(0, piece.w - piece.lead - measure(piece.text, piece.kind)) }));
+  const widthOf = (run: (typeof runs)[number], text = run.text): number => run.lead + measure(text, run.kind) + run.trail;
+  const budget = maxWidth - measure(ELLIPSIS, 'text');
+  const kept: typeof runs = [];
+  let used = 0;
+  for (const run of runs) {
+    if (used + run.w <= budget) {
+      kept.push(run);
+      used += run.w;
+      continue;
+    }
+    const graphemes = graphemesOf(run.text);
+    let low = 0;
+    let high = graphemes.length;
+    while (low < high) {
+      const middle = Math.ceil((low + high) / 2);
+      if (used + widthOf(run, graphemes.slice(0, middle).join('')) <= budget) low = middle;
+      else high = middle - 1;
+    }
+    if (low === 0 && kept.length === 0) low = Math.min(1, graphemes.length);
+    if (low > 0) kept.push({ ...run, text: graphemes.slice(0, low).join('') });
+    break;
+  }
+  const last = kept.pop();
+  if (last !== undefined) {
+    const text = last.text.replace(/\s+$/u, '');
+    if (text !== '' || kept.length === 0) kept.push({ ...last, text });
+  }
+  const end = kept[kept.length - 1];
+  if (end !== undefined && (end.kind === 'text' || rtl || isRightToLeftText(end.text))) end.text += ELLIPSIS;
+  else kept.push({ text: ELLIPSIS, kind: 'text', lead: 0, w: 0, trail: 0 });
+  const pieces: LinePiece[] = kept.map((run) => ({ text: run.text, kind: run.kind, lead: run.lead, w: widthOf(run) }));
+  return { pieces, w: pieces.reduce((total, piece) => total + piece.w, 0) };
 }
 
 /** A canvas `font` in the board face at a size and weight. */

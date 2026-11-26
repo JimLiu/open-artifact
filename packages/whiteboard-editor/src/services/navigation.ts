@@ -10,6 +10,7 @@ import {
   elementsBounds,
   fitsInViewport,
   panCameraToReveal,
+  rotatableSelection,
   unionBounds,
   type Box,
   type BoardElement,
@@ -21,6 +22,7 @@ import { useCamera } from '../state/camera.ts';
 import { currentMeasures } from '../state/measures.ts';
 import { useSelection } from '../state/selection.ts';
 import { fitTo, glideCamera, setCamera } from './viewport.ts';
+import { useLastInput } from '../tools/pen-input.ts';
 
 /** Most a selection is zoomed to (a small sticker should not fill the screen). */
 const SELECTION_MAX_ZOOM = 2;
@@ -36,13 +38,18 @@ export function fitBoard(): void {
   fitTo(contentBounds(useBoard.getState().board.content.elements) ?? null);
 }
 
-/** Zooms to the selected elements. */
+/** Room kept below a selection for the turn knob (a finger or stylus turns from it), screen pixels. */
+const TURN_KNOB_ROOM_PX = 58 + 22;
+
+/** Zooms to the selected elements (leaving room for the turn knob when it shows). */
 export function fitSelection(): void {
   const ids = new Set(useSelection.getState().ids);
   if (ids.size === 0) return;
-  const selected = useBoard.getState().board.content.elements.filter((element) => ids.has(element.id));
+  const elements = useBoard.getState().board.content.elements;
+  const selected = elements.filter((element) => ids.has(element.id));
   const bounds = contentBounds(selected);
-  if (bounds) fitTo(bounds, { maxZoom: SELECTION_MAX_ZOOM });
+  const knob = useLastInput.getState().kind !== 'mouse' && rotatableSelection(elements, ids).items.length > 0;
+  if (bounds) fitTo(bounds, { maxZoom: SELECTION_MAX_ZOOM, ...(knob ? { bottomRoom: TURN_KNOB_ROOM_PX } : {}) });
 }
 
 /** The view's size and the chrome insets, in the shape the core geometry takes. */

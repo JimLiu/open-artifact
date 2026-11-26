@@ -78,8 +78,10 @@ import {
   shapePathData,
   shapeStrokePaint,
   shapeTextInsets,
+  shapeTextLineCount,
   showsTextPlaceholder,
   singleLineTitleText,
+  strokeDrawing,
   strokePointsToPath,
   tableCellPaints,
   tableColumnIds,
@@ -412,7 +414,7 @@ function paintShape(scope: PaintScope, el: ShapeElement): void {
     chip: el.hollow === true ? defaultChipColor(options.scheme) : chipColorOn(fill),
   };
   const lineHeight = look.px * TEXT_LINE_HEIGHT;
-  const lines = layoutRasterTextLines(ctx, el.text, look, box.w, textAlignOf(el), Math.ceil(box.h / lineHeight));
+  const lines = layoutRasterTextLines(ctx, el.text, look, box.w, textAlignOf(el), shapeTextLineCount(el), true);
   ctx.save();
   clipToRect(ctx, box.x, box.y, box.w, box.h);
   drawRasterTextLines(ctx, lines, look, box.x, box.y + Math.max(0, (box.h - lines.length * lineHeight) / 2), lineHeight, { side: textAlignOf(el), w: box.w });
@@ -655,11 +657,17 @@ function paintElement(scope: PaintScope, el: BoardElement, turn: number): void {
       ctx.translate(el.x, el.y);
       ctx.globalAlpha = scope.dark ? 0.95 : 0.92;
       if (!scope.dark) ctx.globalCompositeOperation = 'multiply';
-      ctx.strokeStyle = themedInkColor(el.color, options.scheme);
-      ctx.lineWidth = el.width;
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-      ctx.stroke(new Path2D(strokePointsToPath(el.points)));
+      const drawing = strokeDrawing(el);
+      if (drawing.filled) {
+        ctx.fillStyle = themedInkColor(el.color, options.scheme);
+        ctx.fill(new Path2D(drawing.d), 'nonzero');
+      } else {
+        ctx.strokeStyle = themedInkColor(el.color, options.scheme);
+        ctx.lineWidth = el.width;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.stroke(new Path2D(strokePointsToPath(el.points)));
+      }
       ctx.restore();
       return;
     }

@@ -59,16 +59,21 @@ function textureRequest(element: ImageElement, scheme: ColorScheme, scale: numbe
 
 /**
  * The painted look of a drawing in a textured look, once it is ready; asked
- * for only while `view` is in the viewport.
+ * for only while `view` is in the viewport. While a new painting is on its
+ * way (the drawing changed, or the zoom did), the last one of the same look,
+ * scheme and size keeps showing. `dropKept` gives that one up when it fails
+ * to load.
  */
-function usePaintedLook(request: LookRequest | undefined, view: RefObject<HTMLDivElement | null>): string | undefined {
+function usePaintedLook(request: LookRequest | undefined, view: RefObject<HTMLDivElement | null>): { url: string | undefined; dropKept: (url: string) => void } {
   const key = request === undefined ? undefined : lookRequestKey(request).key;
   const painted = useDrawingLooks((state) => (key === undefined ? undefined : state.painted.get(key)));
   const last = useRef<(LookRequest & { key: string }) | undefined>(undefined);
+  const [broken, setBroken] = useState<string | undefined>(undefined);
   const previous = last.current;
-  const previousKey = request && previous?.src === request.src && previous.look === request.look && previous.scheme === request.scheme &&
+  const previousKey = request && previous?.look === request.look && previous.scheme === request.scheme &&
     previous.w === request.w && previous.h === request.h ? previous.key : undefined;
-  const fallback = useDrawingLooks(state => previousKey ? state.painted.get(previousKey) : undefined);
+  const kept = useDrawingLooks(state => previousKey ? state.painted.get(previousKey) : undefined);
+  const fallback = kept === broken ? undefined : kept;
   useLayoutEffect(() => {
     if (painted && key && request) last.current = { ...request, key };
     else if (!previousKey) last.current = undefined;
@@ -94,7 +99,7 @@ function usePaintedLook(request: LookRequest | undefined, view: RefObject<HTMLDi
     void requestDrawingLook(request);
     return release;
   }, [key, inView]);
-  return painted ?? fallback;
+  return { url: painted ?? fallback, dropKept: (url) => { if (url === kept) setBroken(url); } };
 }
 
 /* ------------------------------------------------------------------------ */
@@ -108,7 +113,7 @@ export const ImageView = memo(function ImageView({ element }: { element: ImageEl
   const plain = isDrawing(element.src);
   const view = useRef<HTMLDivElement>(null);
   const scale = useDrawingLooks((state) => state.scale);
-  const painted = usePaintedLook(plain ? textureRequest(element, scheme, scale) : undefined, view);
+  const { url: painted, dropKept } = usePaintedLook(plain ? textureRequest(element, scheme, scale) : undefined, view);
   const src = painted ?? (plain ? drawnImageSrc(element, drawnImagePen(scheme)) : resolveAssetUrl(element.src));
   const style: ViewStyle = { left: element.x, top: element.y, width: element.w, height: element.h, ...rotationStyle(element), ...(plain ? {} : { padding: IMAGE_FRAME_PADDING }) };
   const crop = element.crop ? (imageCropCss(element.crop) as ViewStyle) : undefined;
@@ -116,7 +121,7 @@ export const ImageView = memo(function ImageView({ element }: { element: ImageEl
     element.video !== undefined ? (
       <BoardVideo id={element.id} src={resolveAssetUrl(element.video)} poster={src} crop={crop} />
     ) : (
-      <img src={src} alt="" draggable={false} style={crop} />
+      <img src={src} alt="" draggable={false} style={crop} {...(painted !== undefined ? { onError: () => dropKept(painted) } : {})} />
     );
   const target = element.href !== undefined ? boardLinkTarget(element.href) : undefined;
   return (

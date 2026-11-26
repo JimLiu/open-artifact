@@ -56,6 +56,8 @@ export interface Item {
   op: number[];
   box: Array<StageRect | null>;
   text: string;
+  /** The look the text was read at: of two as long, the later one's is kept, so a number that counts up reads as it ends. */
+  textAt: number;
   /** A part of an svg drawing. */
   art: boolean;
   /** An svg, or a g in one, read part by part; false: shut for the rest of the reading; null: not decided. */
@@ -107,6 +109,7 @@ export function newItem(el: Element, key: string, path: number[], up: Item | nul
     op: [],
     box: [],
     text: '',
+    textAt: -1,
     art: false,
     easel: null,
     anew: false,

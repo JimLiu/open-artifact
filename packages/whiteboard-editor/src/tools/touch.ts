@@ -85,3 +85,100 @@ export function reduceTouchPress(press: TouchPress, event: TouchPressEvent): { p
       return { press: null, outcome: 'cancel' };
   }
 }
+
+/* ------------------------------------------------------------------------ */
+/* Palms                                                                    */
+/* ------------------------------------------------------------------------ */
+
+/**
+ * When a touch on the board is a hand resting on the screen, not a finger:
+ * any touch while a stylus is down; once a stylus was seen, a touch within
+ * {@link PALM_RULES}`.penLiftMs` of it lifting or a contact wider than
+ * `contactPx`; and any touch within `afterPalmMs` of the last palm.
+ */
+export const PALM_RULES = { penLiftMs: 500, contactPx: 90, afterPalmMs: 300 } as const;
+
+/** What palm rejection remembers about the stylus and the last palm. */
+export interface PalmWatch {
+  /** Styluses down now. */
+  pensDown: number;
+  /** A stylus was used on this page. */
+  penSeen: boolean;
+  /** When the last stylus lifted, ms. */
+  penUpAt: number;
+  /** When the last palm touched or lifted, ms. */
+  palmAt: number;
+}
+
+/** A fresh watch: no stylus seen, no palm. */
+export function newPalmWatch(): PalmWatch {
+  return { pensDown: 0, penSeen: false, penUpAt: -Infinity, palmAt: -Infinity };
+}
+
+/** True when a touch landing at `now` with a contact of `width × height` CSS pixels is a palm. */
+export function isPalmTouch(watch: PalmWatch, contact: { width: number; height: number }, now: number): boolean {
+  if (watch.pensDown > 0) return true;
+  if (now - watch.palmAt < PALM_RULES.afterPalmMs) return true;
+  return watch.penSeen && (now - watch.penUpAt < PALM_RULES.penLiftMs || Math.max(contact.width, contact.height) > PALM_RULES.contactPx);
+}
+
+/**
+ * Whether a touch's `touchmove` is held back from the page while a stylus
+ * or palm is down: not for a touch that started on a control or off the
+ * board until it moved past {@link TOUCH_MOVE_SLOP_PX}, so controls still
+ * get their taps and small scrolls.
+ */
+export function swallowsTouchMove(busy: boolean, startedOnBoard: boolean, start: Point, at: Point): boolean {
+  if (!busy) return false;
+  return startedOnBoard || movedPastTouchSlop(start, at);
+}
+
+/* ------------------------------------------------------------------------ */
+/* Two- and three-finger taps                                               */
+/* ------------------------------------------------------------------------ */
+
+/**
+ * Two fingers tapped together undo; three redo. Every finger must lift
+ * within {@link FINGER_TAP}`.ms` of the first one landing, none moving
+ * `px` or more.
+ */
+export const FINGER_TAP = { ms: 300, px: 10 } as const;
+
+/** Fingers on the screen since the first one landed. */
+export interface FingerTaps {
+  /** When the first finger landed, ms. */
+  startedAt: number;
+  /** Where each finger still down landed. */
+  down: Map<number, Point>;
+  /** The most fingers down at once. */
+  most: number;
+  /** A finger moved too far or the fingers stayed too long. */
+  spoiled: boolean;
+}
+
+/** A finger landed; starts the count when it is the first. */
+export function fingerDown(taps: FingerTaps | null, id: number, at: Point, now: number): FingerTaps {
+  const next = taps ?? { startedAt: now, down: new Map(), most: 0, spoiled: false };
+  next.down.set(id, at);
+  next.most = Math.max(next.most, next.down.size);
+  return next;
+}
+
+/** A finger moved; too far spoils the tap. */
+export function fingerMoved(taps: FingerTaps, id: number, at: Point): void {
+  const start = taps.down.get(id);
+  if (start && Math.hypot(at.x - start.x, at.y - start.y) >= FINGER_TAP.px) taps.spoiled = true;
+}
+
+/**
+ * A finger lifted (or was cancelled). Once the last one is up: `undo` for
+ * a two-finger tap, `redo` for three, else `none`; `null` while fingers
+ * are still down.
+ */
+export function fingerUp(taps: FingerTaps, id: number, now: number, cancelled = false): 'undo' | 'redo' | 'none' | null {
+  if (!taps.down.delete(id)) return taps.down.size === 0 ? 'none' : null;
+  if (cancelled || now - taps.startedAt > FINGER_TAP.ms) taps.spoiled = true;
+  if (taps.down.size > 0) return null;
+  if (taps.spoiled) return 'none';
+  return taps.most === 2 ? 'undo' : taps.most === 3 ? 'redo' : 'none';
+}

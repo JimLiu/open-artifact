@@ -50,6 +50,16 @@ describe('undo and redo keys', () => {
   it('reads the physical key on other keyboard layouts', () => {
     assert.equal(undoKeyCommand({ ...press('я', { metaKey: true }), code: 'KeyZ' }), 'undo');
   });
+
+  it('takes a Latin letter as typed, wherever its key is', () => {
+    // AZERTY: the key in the QWERTY Z place types W, and Z sits where QWERTY has W.
+    assert.equal(undoKeyCommand({ ...press('w', { ctrlKey: true }), code: 'KeyZ' }), undefined);
+    assert.equal(undoKeyCommand({ ...press('z', { ctrlKey: true }), code: 'KeyW' }), 'undo');
+    // Dvorak: ⌘D is typed where QWERTY has H; the QWERTY D place types E.
+    assert.equal(isDuplicateShortcut({ ...press('d', { metaKey: true }), code: 'KeyH' }), true);
+    assert.equal(isDuplicateShortcut({ ...press('e', { metaKey: true }), code: 'KeyD' }), false);
+    assert.equal(isSelectAllShortcut({ ...press('a', { metaKey: true }), code: 'KeyA' }), true);
+  });
 });
 
 describe('undo from a focused field', () => {

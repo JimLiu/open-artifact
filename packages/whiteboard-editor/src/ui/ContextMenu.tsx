@@ -19,6 +19,7 @@ import { Menu as BaseMenu } from '@base-ui/react/menu';
 import {
   arrowNeedsEndsMessage,
   expandSelectionToGroups,
+  hitSlop,
   isElementLocked,
   planGroupSelection,
   planUngroupSelection,
@@ -30,9 +31,10 @@ import { useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { surfaceRef } from '../canvas/BoardSurface.tsx';
 import { linkDisplayUrl, openBoardLink } from '../elements/links.ts';
 import { screenToBoard, type Point } from '../lib/camera.ts';
-import { TABLE_HEAT_LABELS, takesRowHeat } from '../lib/table-heat.ts';
+import { TABLE_HEAT_LABELS, heatRefusal, takesRowHeat } from '../lib/table-heat.ts';
 import { isApplePlatform, modKey } from '../lib/tools.ts';
 import { useContextMenu, type MenuCell, type MenuKind } from '../selection/menu-store.ts';
+import { useInteraction } from '../selection/store.ts';
 import {
   TIDY_REFUSAL,
   arrangedContent,
@@ -53,6 +55,8 @@ import {
   type TableCellCommand,
 } from '../services/actions.ts';
 import { useAgent } from '../services/agent.ts';
+import { layerActionRefusals, layeredDrawing, layersAt, rightClickWhilePicked, runLayerAction, usePickedLayer, type PickedDrawingLayer } from '../services/drawing-layers.ts';
+import { LAYERS_UNDER_POINTER, LAYER_MESSAGES } from '../lib/layer-picking.ts';
 import { EMPTY_BOARD_MESSAGE, LOCKED_MESSAGE, READ_ONLY_MESSAGE } from '../services/announce.ts';
 import { INTERNAL_PASTE_ONLY_MESSAGE, canPasteFromMenu, copySelectionCommand, pasteFromMenu } from '../services/clipboard.ts';
 import { selectEverything, isTypingTarget } from '../services/keyboard.ts';
@@ -66,8 +70,10 @@ import { useSelection } from '../state/selection.ts';
 import { useTool } from '../state/tool.ts';
 import { elementIdAt } from '../tools/gesture.ts';
 import { createNoteAt, placeElement } from '../tools/place.ts';
+import { isTouchScreenPen } from '../tools/pen-input.ts';
 import { TOUCH_LONG_PRESS_MS, movedPastTouchSlop } from '../tools/touch.ts';
-import { ChromeMenuItem, ChromeMenuSeparator, POPUP } from './chrome.tsx';
+import { ChromeMenuItem, ChromeMenuLabel, ChromeMenuSeparator, ChromeSubmenu, POPUP } from './chrome.tsx';
+import { LayerRows } from './LayerBar.tsx';
 import { useCoarsePointer } from './hooks.ts';
 import { selectionLinks } from './selection-links.ts';
 import { severalLinksMessage } from '../lib/link-card.ts';
@@ -107,6 +113,7 @@ export function openContextMenuAt(client: Point, target: Element | null): void {
   const id = elementIdAt(target);
   let kind: MenuKind = 'board';
   let cell: MenuCell | null = null;
+  if (board !== null && id !== null && id === selection.layer?.el) rightClickWhilePicked(board);
   if (id !== null && byId.has(id)) {
     if (!selection.ids.includes(id)) selection.select([...expandSelectionToGroups(boardElements(), new Set([id]), selection.ids)]);
     kind = 'items';
@@ -123,7 +130,7 @@ export function openContextMenuAt(client: Point, target: Element | null): void {
 /** Listens for right-clicks and long-presses under `root`; returns a function that stops. */
 function listenForMenu(root: HTMLElement): () => void {
   /** A touch press that may become a long press; `held` once it lasted long enough. */
-  let press: { id: number; at: Point; target: Element | null; held: boolean; timer: ReturnType<typeof setTimeout> } | null = null;
+  let press: { id: number; at: Point; target: Element | null; held: boolean; pen: boolean; timer: ReturnType<typeof setTimeout> } | null = null;
   // When a long press last opened the menu; never yet (0 would swallow right-clicks in the page's first second).
   let longPressAt = Number.NEGATIVE_INFINITY;
   const cancel = (): void => {
@@ -142,13 +149,16 @@ function listenForMenu(root: HTMLElement): () => void {
   };
   const onDown = (event: PointerEvent): void => {
     cancel();
-    if (event.pointerType !== 'touch' || !event.isPrimary || !ownsTarget(event.target)) return;
+    // A stylus on a touch screen holds like a finger, but only on empty board (where the select tool shows the hold ring).
+    const pen = isTouchScreenPen(event);
+    if ((event.pointerType !== 'touch' && !pen) || !event.isPrimary || !ownsTarget(event.target)) return;
     if (useTool.getState().tool !== 'select' || useTool.getState().commentMode) return;
     const current = {
       id: event.pointerId,
       at: { x: event.clientX, y: event.clientY },
       target: event.target,
       held: false,
+      pen,
       timer: setTimeout(() => {
         current.held = true;
       }, TOUCH_LONG_PRESS_MS),
@@ -161,9 +171,9 @@ function listenForMenu(root: HTMLElement): () => void {
   };
   const onEnd = (event: PointerEvent): void => {
     if (!press || event.pointerId !== press.id) return;
-    const { held, at, target } = press;
+    const { held, at, target, pen } = press;
     cancel();
-    if (!held || event.type !== 'pointerup') return;
+    if (!held || event.type !== 'pointerup' || (pen && useInteraction.getState().holdRing === null)) return;
     longPressAt = performance.now();
     openContextMenuAt(at, target);
   };
@@ -204,6 +214,7 @@ type ItemCommand =
   | 'ungroup'
   | 'tidy'
   | 'delete'
+  | 'hide-layer'
   | 'ask';
 
 /** Heat map commands on a table cell: turn its column's or row's heat map on or off, or remove it. */
@@ -272,11 +283,31 @@ function itemRefusals(
         if (reason) refusals[command] = reason;
       }
       if (isElementLocked(table)) for (const command of TABLE_HEAT_COMMANDS) refusals[command] = LOCKED_MESSAGE;
+      else
+        for (const command of ['heat-cols', 'heat-rows'] as const) {
+          const axis = heatCommandAxis(command);
+          const reason = heatRefusal(table, axis, axis === 'rows' ? cell.row : cell.col);
+          if (reason) refusals[command] = reason;
+        }
     } else {
       // The table went away under the open menu (a peer deleted it).
       for (const command of ['row-above', 'row-below', 'row-delete', 'col-left', 'col-right', 'col-delete', ...TABLE_HEAT_COMMANDS] as const) refusals[command] = TABLE_GONE_MESSAGE;
     }
   }
+  return refusals;
+}
+
+/** Commands that work on the whole drawing, refused while one of its layers is picked. */
+const WHOLE_DRAWING_COMMANDS = ['cut', 'copy', 'duplicate', 'group', 'ungroup', 'tidy'] as const;
+
+/** Refusals while a layer is picked: whole-drawing commands are held; front, back and delete work on the layer. */
+function layerPickRefusals(picked: PickedDrawingLayer): Partial<Record<ItemCommand, string>> {
+  const refusals: Partial<Record<ItemCommand, string>> = {};
+  for (const command of WHOLE_DRAWING_COMMANDS) refusals[command] = LAYER_MESSAGES.whole;
+  const layer = layerActionRefusals(picked);
+  if (layer.front !== undefined) refusals.front = layer.front;
+  if (layer.back !== undefined) refusals.back = layer.back;
+  if (layer.hide !== undefined) refusals['hide-layer'] = layer.hide;
   return refusals;
 }
 
@@ -325,7 +356,10 @@ function runItemCommand(command: ItemCommand, cell: MenuCell | null, board: Poin
       return;
     case 'front':
     case 'back':
-      arrangeSelection(command);
+      if (!runLayerAction(command) && useSelection.getState().layer === null) arrangeSelection(command);
+      return;
+    case 'hide-layer':
+      runLayerAction('hide');
       return;
     case 'group':
       groupSelection();
@@ -417,10 +451,11 @@ function ItemMenuItems({ cell, board }: { cell: MenuCell | null; board: Point | 
   const editable = canEditBoard();
   const idSet = useMemo(() => new Set(ids), [ids]);
   const selected = useMemo(() => content.elements.filter((element) => idSet.has(element.id)), [content, idSet]);
-  const refusals = useMemo(
-    () => itemRefusals(content, idSet, cell, { editable, agentAvailable, canPaste: canPasteFromMenu() }),
-    [content, idSet, cell, editable, agentAvailable],
-  );
+  const picked = usePickedLayer();
+  const refusals = useMemo(() => {
+    const base = itemRefusals(content, idSet, cell, { editable, agentAvailable, canPaste: canPasteFromMenu() });
+    return picked === undefined ? base : { ...base, ...layerPickRefusals(picked) };
+  }, [content, idSet, cell, editable, agentAvailable, picked]);
   const links = selectionLinks(selected);
   const [link] = links;
   const [only] = selected;
@@ -483,6 +518,18 @@ function ItemMenuItems({ cell, board }: { cell: MenuCell | null; board: Point | 
         [lockItem],
       ]
     : [[...first, lockItem]];
+  const layered = editable && selected.length === 1 ? layeredDrawing(only) : undefined;
+  if (layered !== undefined) {
+    const why = locked ? LOCKED_MESSAGE : undefined;
+    const under = board === null || why !== undefined ? [] : layersAt(layered, board, hitSlop('mouse', useCamera.getState().camera.zoom)).slice(0, LAYERS_UNDER_POINTER);
+    groups.unshift([
+      <ChromeMenuLabel key="layer-label">{LAYER_MESSAGES.select}</ChromeMenuLabel>,
+      <LayerRows key="layers-under" drawing={layered} layers={under} picked={picked?.layer.n} why={why} />,
+      <ChromeSubmenu key="all-layers" label={LAYER_MESSAGES.all}>
+        <LayerRows drawing={layered} layers={layered.listed.toReversed()} picked={picked?.layer.n} why={why} />
+      </ChromeSubmenu>,
+    ]);
+  }
   groups.push(
     [
       item('cut', 'Cut', keyLabel('X', { mod: true })),
@@ -497,7 +544,7 @@ function ItemMenuItems({ cell, board }: { cell: MenuCell | null; board: Point | 
       item('ungroup', 'Ungroup', keyLabel('G', { mod: true, shift: true })),
       item('tidy', 'Tidy up'),
     ],
-    [item('delete', 'Delete', isApplePlatform() ? '⌫' : 'Delete', true)],
+    [picked !== undefined ? item('hide-layer', LAYER_MESSAGES.hide, isApplePlatform() ? '⌫' : 'Delete') : item('delete', 'Delete', isApplePlatform() ? '⌫' : 'Delete', true)],
   );
   if (refusals.ask === undefined) groups.push([item('ask', 'Ask the agent', modKey() + 'K')]);
   return <MenuGroups groups={groups} />;
@@ -563,9 +610,27 @@ function BoardMenuPopup() {
   const kind = useContextMenu((state) => state.kind);
   const board = useContextMenu((state) => state.board);
   const cell = useContextMenu((state) => state.cell);
+  const keyboard = useContextMenu((state) => state.keyboard);
   const count = useSelection((state) => state.ids.length);
+  const picked = usePickedLayer() !== undefined;
+  const popup = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open || !keyboard) return undefined;
+    let frame = 0;
+    let tries = 0;
+    const focusFirst = (): void => {
+      const node = popup.current;
+      const active = document.activeElement;
+      const onItem = node !== null && active !== null && active !== node && node.contains(active);
+      if (!onItem) node?.querySelector<HTMLElement>('[role^="menuitem"]:not([aria-disabled="true"]):not([data-disabled])')?.focus();
+      tries += 1;
+      if (tries < 12) frame = requestAnimationFrame(focusFirst);
+    };
+    frame = requestAnimationFrame(focusFirst);
+    return () => cancelAnimationFrame(frame);
+  }, [open, keyboard]);
   const anchor = useMemo(() => ({ getBoundingClientRect: () => DOMRect.fromRect({ x: at.x, y: at.y, width: 0, height: 0 }) }), [at]);
-  const name = kind === 'board' ? 'Board actions' : count > 1 ? 'Actions for ' + String(count) + ' items' : 'Item actions';
+  const name = kind === 'board' ? 'Board actions' : picked ? LAYER_MESSAGES.menu : count > 1 ? 'Actions for ' + String(count) + ' items' : 'Item actions';
   return (
     <BaseMenu.Root
       open={open}
@@ -575,7 +640,7 @@ function BoardMenuPopup() {
     >
       <BaseMenu.Portal>
         <BaseMenu.Positioner anchor={anchor} side="bottom" align="start" sideOffset={2} collisionPadding={8} className="z-[1000]">
-          <BaseMenu.Popup data-wb-chrome="" aria-label={name} className={POPUP}>
+          <BaseMenu.Popup ref={popup} data-wb-chrome="" aria-label={name} className={POPUP}>
             {open ? kind === 'items' ? <ItemMenuItems cell={cell} board={board} /> : <BoardMenuItems board={board} /> : null}
           </BaseMenu.Popup>
         </BaseMenu.Positioner>

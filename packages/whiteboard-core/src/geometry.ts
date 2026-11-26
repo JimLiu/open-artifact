@@ -34,6 +34,7 @@ import {
   type NoteElement,
   type TextSize,
 } from './schema.ts';
+import { strokeWidestFactor } from './stroke-widths.ts';
 import { tableTotalHeight, tableWidth } from './table.ts';
 import { MAX_LIST_INDENT_LEVEL } from './text/markup.ts';
 import { textOrPlaceholder } from './text/placeholder.ts';
@@ -395,7 +396,8 @@ export function estimateNoteHeight(note: Pick<NoteElement, 'w' | 'text' | 'size'
 /**
  * The element's unrotated box as drawn: notes grow to their text, sections
  * to their content, text and tables take their measured (or estimated)
- * size, strokes their points plus half the pen width. Arrows have none.
+ * size, strokes their points plus half the pen width (at its widest, with
+ * pressure). Arrows have none.
  */
 export function elementLayoutBox(element: BoardElement, measures?: ElementMeasures): Box | undefined {
   switch (element.type) {
@@ -435,8 +437,10 @@ export function elementLayoutBox(element: BoardElement, measures?: ElementMeasur
         if (py < minY) minY = py;
         if (py > maxY) maxY = py;
       }
-      const halfWidth = element.width / 2;
-      return { x: element.x + minX - halfWidth, y: element.y + minY - halfWidth, w: maxX - minX + element.width, h: maxY - minY + element.width };
+      // Drawn with pressure, the line is as wide as its widest point.
+      const drawnWidth = element.width * strokeWidestFactor(element);
+      const halfWidth = drawnWidth / 2;
+      return { x: element.x + minX - halfWidth, y: element.y + minY - halfWidth, w: maxX - minX + drawnWidth, h: maxY - minY + drawnWidth };
     }
   }
 }

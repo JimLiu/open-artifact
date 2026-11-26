@@ -4,12 +4,14 @@ import { MAX_HTML_STATE_CHARS } from '@open-artifact/whiteboard-core';
 import {
   EMBED_CSP,
   EMBED_OWN_WRITES,
+  EMBED_SAVES_PER_WRITE,
   buildEmbedSrcdoc,
   createFloodGuard,
   createStateSaver,
   embedBootstrap,
   embedRefusal,
   isEmbedSaveMessage,
+  type EmbedStateWrite,
   type SaverClock,
 } from '../src/elements/embed.ts';
 import { artifactIdOf, boardLinkTarget, linkDisplayUrl, resolveAssetUrl } from '../src/elements/links.ts';
@@ -63,32 +65,69 @@ describe('embed sandbox', () => {
 });
 
 describe('createStateSaver', () => {
-  it('writes the first save at once and debounces the rest', () => {
-    const writes: string[] = [];
+  const recorder = () => {
+    const writes: string[][] = [];
+    return { writes, write: (batch: readonly EmbedStateWrite[]) => writes.push(batch.map(([id, state]) => `${id}=${state}`)) };
+  };
+
+  it('writes the first save at once, then the latest of each embed after a pause', () => {
+    const { writes, write } = recorder();
     const clock = manualClock();
-    const saver = createStateSaver((state) => writes.push(state), 400, clock);
-    saver.save('1');
-    saver.save('2');
-    saver.save('3');
-    assert.deepEqual(writes, ['1']);
+    const saver = createStateSaver(write, 400, clock);
+    saver.save('a', '1');
+    saver.save('a', '2');
+    saver.save('b', '1');
+    saver.save('a', '3');
+    assert.deepEqual(writes, [['a=1']]);
     clock.run();
-    assert.deepEqual(writes, ['1', '3']);
-    assert.ok(saver.isOwnWrite('3'));
-    assert.ok(!saver.isOwnWrite('2'));
+    assert.deepEqual(writes, [['a=1'], ['a=3', 'b=1']], 'one board change for both');
+    clock.run();
+    assert.deepEqual(writes.length, 2, 'quiet once nothing is waiting');
+    saver.save('b', '2');
+    assert.deepEqual(writes.at(-1), ['b=2'], 'at once again after a quiet pause');
+    assert.ok(saver.isOwnWrite('a', '3'));
+    assert.ok(!saver.isOwnWrite('a', '2'));
+    assert.ok(!saver.isOwnWrite('b', '3'));
   });
 
-  it('remembers only its last writes, drops oversized states and flushes on demand', () => {
-    const writes: string[] = [];
-    const saver = createStateSaver((state) => writes.push(state), 400, manualClock());
-    saver.save('x'.repeat(MAX_HTML_STATE_CHARS + 1));
-    assert.deepEqual(writes, []);
-    saver.save('a');
+  it(`writes at most ${EMBED_SAVES_PER_WRITE} embeds per pause, and all of them on a full flush`, () => {
+    const { writes, write } = recorder();
+    const clock = manualClock();
+    const saver = createStateSaver(write, 400, clock);
+    saver.save('first', '0');
+    for (let index = 0; index < EMBED_SAVES_PER_WRITE + 4; index += 1) saver.save(`e${index}`, String(index));
+    clock.run();
+    assert.equal(writes[1]?.length, EMBED_SAVES_PER_WRITE);
+    assert.equal(writes[1]?.[0], 'e0=0');
+    saver.save('e0', '"again"');
+    saver.flush();
+    assert.deepEqual(writes[2], ['e16=16', 'e17=17', 'e18=18', 'e19=19', 'e0="again"']);
+    saver.save('late', '1');
+    saver.flush('late');
+    assert.deepEqual(writes.at(-1), ['late=1'], 'one embed alone');
+    saver.flush('late');
+    assert.equal(writes.length, 4);
+  });
+
+  it('drops states that are not JSON or too long, remembers only its last writes and cancels', () => {
+    const { writes, write } = recorder();
+    const clock = manualClock();
+    const saver = createStateSaver(write, 400, clock);
+    saver.save('a', 'x'.repeat(MAX_HTML_STATE_CHARS + 1));
+    saver.save('a', '{not json');
+    assert.equal(writes.length, 0);
+    saver.save('a', '"a"');
     for (let index = 0; index < EMBED_OWN_WRITES; index += 1) {
-      saver.save(`b${index}`);
+      saver.save('a', `${index}`);
       saver.flush();
     }
-    assert.ok(!saver.isOwnWrite('a'));
-    assert.ok(saver.isOwnWrite(`b${EMBED_OWN_WRITES - 1}`));
+    assert.ok(!saver.isOwnWrite('a', '"a"'));
+    assert.ok(saver.isOwnWrite('a', `${EMBED_OWN_WRITES - 1}`));
+    saver.save('b', '1');
+    saver.cancel();
+    clock.run();
+    saver.flush();
+    assert.ok(!writes.some((batch) => batch.includes('b=1')));
   });
 });
 

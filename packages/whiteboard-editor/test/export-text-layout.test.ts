@@ -8,6 +8,7 @@ import { describe, it } from 'node:test';
 import { layoutRasterTextLines, type MeasureContext } from '../src/export/raster-text.ts';
 import {
   CODE_CHIP_PAD,
+  ellipsizeLine,
   graphemesOf,
   isRightToLeftText,
   rasterSpanFont,
@@ -111,6 +112,32 @@ describe('rasterSpanFont', () => {
   });
 });
 
+describe('ellipsizeLine', () => {
+  const line = (runs: { kind: 'text' | 'bold' | 'code'; text: string }[]): WrappedLine => {
+    const pieces = runs.map((run) => ({ ...run, lead: 0, w: width(run.text) }));
+    return { pieces, w: pieces.reduce((total, piece) => total + piece.w, 0) };
+  };
+
+  it('drops whole runs from the end, then graphemes, and trims trailing space', () => {
+    const cut = ellipsizeLine(line([{ kind: 'text', text: 'ab ' }, { kind: 'text', text: 'cdef' }]), 60, measure);
+    assert.deepEqual(cut.pieces.map((piece) => piece.text), ['ab ', 'cd…']);
+    assert.equal(cut.w, 60);
+    const spaced = ellipsizeLine(line([{ kind: 'text', text: 'ab cdef' }]), 40, measure);
+    assert.equal(lineText(spaced), 'ab…');
+  });
+
+  it('adds the ellipsis as plain text after a styled run, and into a plain one', () => {
+    const bold = ellipsizeLine(line([{ kind: 'bold', text: 'abcdef' }]), 40, measure);
+    assert.deepEqual(bold.pieces.map((piece) => [piece.kind, piece.text]), [['bold', 'abc'], ['text', '…']]);
+    const rtl = ellipsizeLine(line([{ kind: 'bold', text: 'abcdef' }]), 40, measure, true);
+    assert.deepEqual(rtl.pieces.map((piece) => [piece.kind, piece.text]), [['bold', 'abc…']]);
+  });
+
+  it('keeps one grapheme of an only run', () => {
+    assert.equal(lineText(ellipsizeLine(line([{ kind: 'text', text: 'abc' }]), 5, measure)), 'a…');
+  });
+});
+
 describe('layoutRasterTextLines', () => {
   it('lays out markup paragraphs', () => {
     const lines = layoutRasterTextLines(fakeContext(), 'Went **well**\nnext', { px: 16, weight: 400 }, 200, 'left');
@@ -129,5 +156,16 @@ describe('layoutRasterTextLines', () => {
   it('respects the line limit', () => {
     const lines = layoutRasterTextLines(fakeContext(), 'a\nb\nc\nd', { px: 16, weight: 400 }, 200, 'left', 2);
     assert.equal(lines.length, 2);
+  });
+
+  it('ends text cut by the line limit in an ellipsis', () => {
+    const look = { px: 16, weight: 400 };
+    const cut = layoutRasterTextLines(fakeContext(), 'aaaa bbbb cccc dddd eeee', look, 90, 'left', 2, true);
+    assert.deepEqual(cut.map(lineText), ['aaaa bbbb', 'cccc ddd…']);
+    const fits = layoutRasterTextLines(fakeContext(), 'aaaa bbbb', look, 90, 'left', 2, true);
+    assert.deepEqual(fits.map(lineText), ['aaaa bbbb'], 'nothing cut, no ellipsis');
+    const full = layoutRasterTextLines(fakeContext(), 'aaaa bbbb\ncccc', look, 90, 'left', 1, true);
+    assert.deepEqual(full.map(lineText), ['aaaa bbb…']);
+    assert.ok((full[0]?.w ?? 0) <= 90);
   });
 });

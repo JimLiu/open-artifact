@@ -6,6 +6,8 @@
 
 import { CAMERA_GLIDE_MS, centerOn, fitRect, glideCameraAt, nextZoomStep, panBy, recallCamera, rememberCamera, sameCamera, zoomAround, type Camera, type Point, type Rect } from '../lib/camera.ts';
 import { useCamera, zoomRange } from '../state/camera.ts';
+import { isTouchScreenPen } from '../tools/pen-input.ts';
+import { penOrPalmDown } from './palm-rejection.ts';
 
 /** Wheel zoom factor of one wheel delta (pixels), clamped per event. */
 export function wheelZoomFactor(deltaY: number): number {
@@ -112,15 +114,16 @@ export function zoomStep(direction: 1 | -1): void {
   zoomTo(nextZoomStep(state.camera.zoom, direction, min, max));
 }
 
-/** Shows a board rectangle, fitted (never past 100%). */
-export function fitTo(rect: Rect | null, options: { maxZoom?: number } = {}): void {
+/** Shows a board rectangle, fitted (never past 100%); `bottomRoom` keeps that many more screen pixels free below it. */
+export function fitTo(rect: Rect | null, options: { maxZoom?: number; bottomRoom?: number } = {}): void {
   const state = useCamera.getState();
   if (!rect) {
     setCamera(centerOn({ x: 0, y: 0 }, 1, state.width, state.height));
     return;
   }
   const { min } = zoomRange();
-  setCamera(fitRect(rect, state.width, state.height, { insets: state.insets, minZoom: min, ...(options.maxZoom !== undefined ? { maxZoom: options.maxZoom } : {}) }));
+  const insets = options.bottomRoom ? { ...state.insets, bottom: state.insets.bottom + options.bottomRoom } : state.insets;
+  setCamera(fitRect(rect, state.width, state.height, { insets, minZoom: min, ...(options.maxZoom !== undefined ? { maxZoom: options.maxZoom } : {}) }));
 }
 
 /** Centers a board point at the current zoom. */
@@ -210,6 +213,7 @@ export function attachViewportGestures(options: ViewportGestureOptions): () => v
     return fresh.length >= 2 ? [fresh[0]!, fresh[1]!] : null;
   };
   const startPinch = (now: number): void => {
+    if (penOrPalmDown()) return;
     const pair = activeTouches(now);
     if (!pair) return;
     const [a, b] = pair;
@@ -217,7 +221,19 @@ export function attachViewportGestures(options: ViewportGestureOptions): () => v
     element.dataset.wbPinching = '';
     options.onGestureStart?.();
   };
+  const endPinch = (): void => {
+    if (!pinch) return;
+    pinch = null;
+    delete element.dataset.wbPinching;
+    options.onGestureEnd?.();
+  };
   const onPointerDown = (event: PointerEvent): void => {
+    // A stylus going down takes over from the fingers.
+    if (isTouchScreenPen(event)) {
+      touches.clear();
+      endPinch();
+      return;
+    }
     if (event.pointerType !== 'touch') return;
     const point = local(event.clientX, event.clientY);
     touches.set(event.pointerId, { ...point, at: event.timeStamp });
@@ -240,11 +256,7 @@ export function attachViewportGestures(options: ViewportGestureOptions): () => v
   const onPointerEnd = (event: PointerEvent): void => {
     if (event.pointerType !== 'touch') return;
     touches.delete(event.pointerId);
-    if (pinch && touches.size < 2) {
-      pinch = null;
-      delete element.dataset.wbPinching;
-      options.onGestureEnd?.();
-    }
+    if (touches.size < 2) endPinch();
   };
   // Safari's proprietary pinch events; the wheel path handles other browsers.
   const preventGesture = (event: Event): void => event.preventDefault();

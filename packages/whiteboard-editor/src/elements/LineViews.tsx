@@ -26,6 +26,8 @@ import {
   measuredArrowGeometry,
   placeArrowLabel,
   strokeBounds,
+  strokeDrawing,
+  strokeWidestFactor,
   subscribeTextMetrics,
   type ArrowElement,
   type ArrowGeometry,
@@ -59,11 +61,18 @@ export const StrokeView = memo(function StrokeView({ element }: { element: Strok
   const item = useItemProps(element);
   const bounds = strokeBounds(element);
   const d = cachedStrokePath(element.points);
+  const drawing = strokeDrawing(element);
+  const color = elementInkColor(element, scheme);
   const style: ViewStyle = { left: bounds.x, top: bounds.y, width: bounds.w, height: bounds.h, transformOrigin: '50% 50%', ...rotationStyle(element) };
+  const hitWidth = element.width * strokeWidestFactor(element);
   return (
     <svg {...item} className="wb-el wb-stroke" style={style} viewBox={`${bounds.x - element.x} ${bounds.y - element.y} ${bounds.w} ${bounds.h}`}>
-      <path className="wb-stroke-ink" d={d} stroke={elementInkColor(element, scheme)} strokeWidth={element.width} />
-      <path className="wb-hit" d={d} data-wb-id={element.id} style={{ strokeWidth: `max(${element.width}px, ${HIT_WIDTH})` }} />
+      {drawing.filled ? (
+        <path className="wb-stroke-ink" d={drawing.d} style={{ fill: color, stroke: 'none' }} />
+      ) : (
+        <path className="wb-stroke-ink" d={d} stroke={color} strokeWidth={element.width} />
+      )}
+      <path className="wb-hit" d={d} data-wb-id={element.id} style={{ strokeWidth: `max(${hitWidth}px, ${HIT_WIDTH})` }} />
     </svg>
   );
 });

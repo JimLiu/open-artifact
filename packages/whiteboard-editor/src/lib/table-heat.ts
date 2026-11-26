@@ -4,7 +4,7 @@
  * map toggle shows.
  */
 
-import { defaultTableHeatColor, tableHeatPaint, tableRowIds, type ColorScheme, type FillColor, type TableAxis, type TableElement, type TableHeat } from '@open-artifact/whiteboard-core';
+import { defaultTableHeatColor, tableHeatPaint, tableLineHasHeat, tableRowIds, type ColorScheme, type FillColor, type TableAxis, type TableElement, type TableHeat } from '@open-artifact/whiteboard-core';
 
 /** What is said after a cell color or heat map change. */
 export const TABLE_TINT_MESSAGES = {
@@ -21,6 +21,14 @@ export const TABLE_HEAT_LABELS = {
   toggle: (axis: TableAxis): string => (axis === 'rows' ? 'Heat map this row' : 'Heat map this column'),
   remove: (axis: TableAxis): string => (axis === 'rows' ? 'Remove row heat map' : 'Remove column heat map'),
 } as const;
+
+/** Why a heat map cannot be turned on for a line. */
+export const HEAT_NEEDS_NUMBERS = 'A heat map needs two numbers of the same kind';
+
+/** Why the heat map of one line cannot be turned on (absent when it can, or when it is on and may be turned off). */
+export function heatRefusal(table: Pick<TableElement, 'cols' | 'rows' | 'head' | 'heat'>, axis: TableAxis, line: string): string | undefined {
+  return table.heat?.[axis]?.[line] === undefined && !tableLineHasHeat(table, axis, line) ? HEAT_NEEDS_NUMBERS : undefined;
+}
 
 const OTHER_AXIS: Readonly<Record<TableAxis, TableAxis>> = { rows: 'cols', cols: 'rows' };
 

@@ -6,6 +6,8 @@
  * The hovered item stays hovered while the pointer crosses the gap to its
  * side dots and while it is over one of them, so the dots can be reached.
  *
+ * The camera moving drops the hover until the pointer moves again.
+ *
  * Apart from that, the untitled section the pointer is over (inside it on
  * empty board, or on its title band) asks for a title: “Add a title”.
  */
@@ -80,9 +82,16 @@ export function installHover(surface: HTMLElement): () => void {
     useSelection.getState().setHover(null);
     setSectionHover(null);
   };
+  // The camera moving under a resting pointer drops the hover; the next move picks again.
+  const stopCamera = useCamera.subscribe((state, previous) => {
+    if (state.camera === previous.camera) return;
+    last = null;
+    if (useSelection.getState().hover !== null) useSelection.getState().setHover(null);
+  });
   surface.addEventListener('pointermove', onMove, { passive: true });
   surface.addEventListener('pointerleave', onLeave);
   return () => {
+    stopCamera();
     onLeave();
     surface.removeEventListener('pointermove', onMove);
     surface.removeEventListener('pointerleave', onLeave);

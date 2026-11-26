@@ -56,3 +56,13 @@ export function scrollsOverflow(metrics: ScrollMetrics): boolean {
     (metrics.scrollHeight > metrics.clientHeight + 1 && scrolls(metrics.overflowY))
   );
 }
+
+/**
+ * Where a scrolling box stands: `none` when its content fits, `more` while
+ * there is more below, `end` once scrolled to the bottom (a pixel of
+ * rounding allowed).
+ */
+export function scrollStanding(metrics: ScrollMetrics & { scrollTop: number }): 'none' | 'more' | 'end' {
+  if (!scrollsOverflow(metrics)) return 'none';
+  return metrics.scrollTop + metrics.clientHeight >= metrics.scrollHeight - 1 ? 'end' : 'more';
+}

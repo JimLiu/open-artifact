@@ -4,6 +4,7 @@
  * shape tray's order.
  */
 
+import { isApplePlatform } from '@open-artifact/editor-kit';
 import { SHAPE_KIND_LABELS, type ShapeKind } from '@open-artifact/whiteboard-core';
 
 /** Every tool. `shape` carries a kind in {@link ToolPick}. */
@@ -107,13 +108,23 @@ export type LayerMove = 'front' | 'back' | 'forward' | 'backward';
 
 /**
  * The layer move a key press asks for: `]`/`[` (single keys on) to front or
- * back; ⌘]/⌘[ one step; ⌘⌥] / ⌘⌥[ (Ctrl+Shift on other platforms) all the way.
+ * back; ⌘]/⌘[ one step; ⌘⌥] / ⌘⌥[ all the way. Elsewhere Ctrl stands for ⌘
+ * and Ctrl+Shift goes all the way: by the typed `}`/`{` when the layout types
+ * a symbol there, else by the key's place. On Apple platforms Ctrl alone is
+ * not a layer key.
  */
-export function layerOrderShortcutOf(event: Pick<KeyboardEvent, 'key' | 'code' | 'altKey' | 'ctrlKey' | 'metaKey' | 'shiftKey'>, keysOn: boolean): LayerMove | undefined {
+export function layerOrderShortcutOf(
+  event: Pick<KeyboardEvent, 'key' | 'code' | 'altKey' | 'ctrlKey' | 'metaKey' | 'shiftKey'>,
+  keysOn: boolean,
+  apple: boolean = isApplePlatform(),
+): LayerMove | undefined {
   const bracket = event.key === ']' ? 1 : event.key === '[' ? -1 : 0;
-  if (!event.metaKey && (!event.ctrlKey || event.altKey)) return bracket !== 0 && keysOn ? (bracket === 1 ? 'front' : 'back') : undefined;
+  const toEnd = (direction: number): LayerMove | undefined => (direction === 0 ? undefined : direction === 1 ? 'front' : 'back');
+  if (!event.metaKey && (!event.ctrlKey || event.altKey)) return keysOn && !(apple && event.ctrlKey) ? toEnd(bracket) : undefined;
+  if (!event.metaKey && apple) return undefined;
+  if (!event.metaKey && event.shiftKey && /^[^\p{L}\p{N}]$/u.test(event.key)) return toEnd(event.key === '}' ? 1 : event.key === '{' ? -1 : 0);
   const bracketCode = event.code === 'BracketRight' ? 1 : event.code === 'BracketLeft' ? -1 : 0;
-  if (event.metaKey ? event.altKey && !event.shiftKey : event.shiftKey) return bracketCode === 0 ? undefined : bracketCode === 1 ? 'front' : 'back';
+  if (event.metaKey ? event.altKey && !event.shiftKey : event.shiftKey) return toEnd(bracketCode);
   return bracket === 0 || event.shiftKey || event.altKey ? undefined : bracket === 1 ? 'forward' : 'backward';
 }
 

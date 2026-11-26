@@ -45,10 +45,74 @@ interface FakeEvent {
   timeStamp: number;
   held: boolean;
   dataTransfer: { dropEffect: string };
+  shiftKey: boolean;
+  button: number;
+  /** What `composedPath()` returns. */
+  path: unknown[];
+  target: unknown;
+  submitter: unknown;
+}
+
+/** A stand-in for a node in the embed's page. */
+class FakeNode {
+  connected = true;
+  get isConnected(): boolean {
+    return this.connected;
+  }
+}
+
+/** A stand-in element: `matches` knows `tag`, `tag[attr]` and `tag[attr=value]`, and `form …` inside a form. */
+class FakeElement extends FakeNode {
+  scrolled = 0;
+  readonly tag: string;
+  readonly attrs: Record<string, string>;
+  readonly inForm: boolean;
+  constructor(tag: string, attrs: Record<string, string> = {}, inForm = false) {
+    super();
+    this.tag = tag;
+    this.attrs = attrs;
+    this.inForm = inForm;
+  }
+  matches(selectors: string): boolean {
+    return selectors.split(',').some((selector) => {
+      const inside = selector.startsWith('form ');
+      const match = /^(\w+)(?:\[(?:\*\|)?([\w-]+)(?:=(\w+))?\])?$/.exec(inside ? selector.slice(5) : selector);
+      if (!match || (inside && !this.inForm) || match[1] !== this.tag) return false;
+      const [, , attr, value] = match;
+      return attr === undefined || (attr in this.attrs && (value === undefined || this.attrs[attr] === value));
+    });
+  }
+  getAttribute(name: string): string | null {
+    return this.attrs[name] ?? null;
+  }
+  scrollIntoView(): void {
+    this.scrolled += 1;
+  }
+}
+
+/** A stand-in form. */
+class FakeForm extends FakeElement {
+  readonly method: string;
+  constructor(method: string) {
+    super('form');
+    this.method = method;
+  }
 }
 
 /** The bootstrap run in a bare page: fire events at it, post board messages, and read what it told the board. */
-function bootedEmbed(): { fire(type: string, init?: Partial<FakeEvent>): FakeEvent; board(message: object): void; told: unknown[] } {
+function bootedEmbed(): {
+  fire(type: string, init?: Partial<FakeEvent>): FakeEvent;
+  board(message: object): void;
+  told: unknown[];
+  /** The page's elements by id (what a `#id` link scrolls to). */
+  byId: Map<string, FakeElement>;
+  /** The page's UI event class. */
+  UiEvent: new (type: string, init?: { cancelable?: boolean; ctrlKey?: boolean; metaKey?: boolean; shiftKey?: boolean; altKey?: boolean }) => { held: boolean; cancelable: boolean };
+  /** Events that reached the real `dispatchEvent`. */
+  dispatched: unknown[];
+  /** Dispatches `event` at `target` through the page's `dispatchEvent`. */
+  dispatch(target: object, event: object): boolean;
+} {
   const listeners = new Map<string, Array<(event: FakeEvent) => void>>();
   const told: unknown[] = [];
   const port1: { onmessage: ((event: { data: unknown }) => void) | null; postMessage(message: unknown): void } = {
@@ -64,7 +128,50 @@ function bootedEmbed(): { fire(type: string, init?: Partial<FakeEvent>): FakeEve
       this.held = true;
     }
     stopImmediatePropagation(): void {}
+    composedPath(this: FakeEvent): unknown[] {
+      return this.path;
+    }
   }
+  /** A synthetic UI event, as a script in the page makes one. */
+  class FakeUiEvent extends FakeEventBase {
+    readonly isTrusted = false;
+    readonly type: string;
+    readonly init: { cancelable?: boolean; ctrlKey?: boolean; metaKey?: boolean; shiftKey?: boolean; altKey?: boolean };
+    constructor(type: string, init: { cancelable?: boolean; ctrlKey?: boolean; metaKey?: boolean; shiftKey?: boolean; altKey?: boolean } = {}) {
+      super();
+      this.type = type;
+      this.init = init;
+    }
+    get cancelable(): boolean {
+      return this.init.cancelable === true;
+    }
+    get ctrlKey(): boolean {
+      return this.init.ctrlKey === true;
+    }
+    get metaKey(): boolean {
+      return this.init.metaKey === true;
+    }
+    get shiftKey(): boolean {
+      return this.init.shiftKey === true;
+    }
+    get altKey(): boolean {
+      return this.init.altKey === true;
+    }
+  }
+  const dispatched: unknown[] = [];
+  class FakeEventTarget {
+    dispatchEvent(event: unknown): boolean {
+      dispatched.push(event);
+      return true;
+    }
+  }
+  const page = { byId: new Map<string, FakeElement>() };
+  class FakeDocument extends FakeNode {
+    getElementById(id: string): FakeElement | null {
+      return page.byId.get(id) ?? null;
+    }
+  }
+  const document = new FakeDocument();
   const context = {
     Reflect,
     JSON,
@@ -82,10 +189,23 @@ function bootedEmbed(): { fire(type: string, init?: Partial<FakeEvent>): FakeEve
       listeners.set(type, [...(listeners.get(type) ?? []), listener]);
     },
     window: {},
+    document,
+    Node: FakeNode,
+    Element: FakeElement,
+    Document: FakeDocument,
+    EventTarget: FakeEventTarget,
+    UIEvent: FakeUiEvent,
+    HTMLFormElement: FakeForm,
   };
   runInNewContext(embedBootstrap(undefined), context);
   return {
     told,
+    byId: page.byId,
+    UiEvent: FakeUiEvent,
+    dispatched,
+    dispatch(target, event) {
+      return FakeEventTarget.prototype.dispatchEvent.call(target, event);
+    },
     fire(type, init = {}) {
       const event = Object.assign(new FakeEventBase(), {
         type,
@@ -98,6 +218,11 @@ function bootedEmbed(): { fire(type: string, init?: Partial<FakeEvent>): FakeEve
         altKey: false,
         timeStamp: 0,
         dataTransfer: { dropEffect: 'copy' },
+        shiftKey: false,
+        button: 0,
+        path: [],
+        target: null,
+        submitter: null,
         ...init,
       }) as FakeEvent;
       for (const listener of listeners.get(type) ?? []) listener(event);
@@ -126,8 +251,8 @@ describe('embed document', () => {
     assert.ok(boot.includes("tell({kind:'press'"));
     assert.ok(boot.includes("event.key==='Escape'"));
     assert.ok(boot.includes("tell({kind:'echo',n:data.ping})"));
-    // Reports and holds back only trusted input.
-    assert.equal(boot.match(/event\.isTrusted/g)?.length, 4);
+    // Reports and holds back only trusted input (the fifth: scripted clicks with a modifier are cancelled).
+    assert.equal(boot.match(/event\.isTrusted/g)?.length, 5);
   });
 
   it('keeps typing, Delete, paste and drops from the page until the embed is entered', () => {
@@ -164,6 +289,52 @@ describe('embed document', () => {
     // Pings are still echoed.
     page.board({ ping: 7 });
     assert.deepEqual(page.told.at(-1), { kind: 'echo', n: 7 });
+  });
+
+  it('keeps links from navigating the embed: a plain #link scrolls, anything else is cancelled', () => {
+    const page = bootedEmbed();
+    const away = new FakeElement('a', { href: 'https://example.org/' });
+    const span = new FakeElement('span');
+    assert.ok(page.fire('click', { path: [span, away] }).held, 'a link elsewhere');
+    const section = new FakeElement('h2');
+    page.byId.set('more info', section);
+    assert.ok(page.fire('click', { path: [new FakeElement('a', { href: '#more%20info' })] }).held);
+    assert.equal(section.scrolled, 1, 'the #link scrolls to its target');
+    assert.ok(page.fire('click', { path: [new FakeElement('a', { href: '#more%20info' })], metaKey: true }).held);
+    assert.equal(section.scrolled, 1, 'a modified click does not');
+    assert.ok(page.fire('auxclick', { path: [away], button: 1 }).held);
+    assert.ok(page.fire('click', { path: [new FakeElement('button')], shiftKey: true }).held, 'a modified click on a button');
+    assert.ok(!page.fire('click', { path: [new FakeElement('button')] }).held, 'a plain click on a button is the page\'s');
+    assert.ok(!page.fire('click', { path: [span] }).held);
+  });
+
+  it('cancels a modified Enter on a link or in a form, and every submit but a dialog\'s', () => {
+    const page = bootedEmbed();
+    page.fire('pointerdown');
+    assert.ok(page.fire('keydown', { key: 'Enter', shiftKey: true, path: [new FakeElement('a', { href: '/x' })] }).held);
+    assert.ok(page.fire('keypress', { key: 'Enter', metaKey: true, path: [new FakeElement('input', {}, true)] }).held);
+    assert.ok(!page.fire('keydown', { key: 'Enter', path: [new FakeElement('input', {}, true)] }).held, 'a plain Enter');
+    assert.ok(!page.fire('keydown', { key: 'Enter', shiftKey: true, path: [new FakeElement('textarea')] }).held, 'a new line outside a form');
+    assert.ok(page.fire('submit', { target: new FakeForm('get') }).held);
+    assert.ok(!page.fire('submit', { target: new FakeForm('dialog') }).held);
+    assert.ok(!page.fire('submit', { target: new FakeForm('get'), submitter: new FakeElement('button', { formmethod: 'dialog' }) }).held);
+  });
+
+  it('cancels scripted clicks that carry a modifier or aim off the page', () => {
+    const page = bootedEmbed();
+    const link = new FakeElement('a', { href: '/x' });
+    const modified = new page.UiEvent('click', { cancelable: true, metaKey: true });
+    page.dispatch(link, modified);
+    assert.ok(modified.held);
+    const plain = new page.UiEvent('click', { cancelable: true });
+    page.dispatch(link, plain);
+    assert.ok(!plain.held, 'a plain scripted click on the page is the page\'s');
+    const loose = new FakeElement('a', { href: '/x' });
+    loose.connected = false;
+    page.dispatch(loose, new page.UiEvent('click'));
+    const sent = page.dispatched.at(-1);
+    assert.ok(sent instanceof page.UiEvent && sent.cancelable && sent.held, 'an uncancellable click off the page is made cancellable, then cancelled');
+    assert.equal(page.dispatched.length, 3);
   });
 
   it('reads port offers and port messages', () => {

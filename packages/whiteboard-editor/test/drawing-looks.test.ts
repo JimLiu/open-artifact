@@ -9,11 +9,34 @@ import { describe, it } from 'node:test';
 import { BLUEPRINT_CUT_FILL, decodeSvgDataUrl, DRAWING_LOOK_TONES, DRAWING_STYLES, seededLookRandom, svgToBase64DataUrl, UNREADABLE_DRAWING_SVG } from '@open-artifact/whiteboard-core';
 import { applyLookToDrawnSvg, applyPenToDrawnSvg, drawnImageSrc, drawnImageSrcForPen } from '../src/export/drawn-svg.ts';
 import { drawingLookScale, drawingSourceId, isRasterLook, LOOK_SCALE_RANGE, lookPaintKey, lookPaintKeySource, lookPaintSize, MAX_LOOK_PX } from '../src/lib/drawing-looks.ts';
-import { grownOutline, outlineArea, pointInOutline, roughOutline } from '../src/lib/look-raster.ts';
+import { canvasReadsBackFaithfully, grownOutline, outlineArea, pointInOutline, roughOutline, type ProbeContext } from '../src/lib/look-raster.ts';
 
 const SVG_OPEN = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 100" fill="none" stroke="currentColor" stroke-width="2">';
 const drawing = `${SVG_OPEN}<rect x="20" y="20" width="80" height="50" fill="#3b82f6"/><path d="M110 20L180 80"/></svg>`;
 const src = svgToBase64DataUrl(drawing);
+
+/** A canvas stand-in that gives back what was put, each channel shifted by `noise`. */
+function probeCanvas(noise: number): ProbeContext {
+  let stored = new Uint8ClampedArray(0);
+  const image = (data: ImageData['data'], width: number, height: number): ImageData => ({ data, width, height, colorSpace: 'srgb' });
+  return {
+    createImageData: (width, height) => image(new Uint8ClampedArray(width * height * 4), width, height),
+    putImageData: (data) => void (stored = Uint8ClampedArray.from(data.data)),
+    getImageData: (_x, _y, width, height) => image(stored.map((value, index) => value + (index % 7 === 3 ? noise : 0)), width, height),
+  };
+}
+
+describe('canvasReadsBackFaithfully', () => {
+  it('trusts a canvas that gives its pixels back within a small error', () => {
+    assert.equal(canvasReadsBackFaithfully(probeCanvas(0)), true);
+    assert.equal(canvasReadsBackFaithfully(probeCanvas(16)), true);
+  });
+
+  it('turns down a canvas that adds noise, or cannot be read', () => {
+    assert.equal(canvasReadsBackFaithfully(probeCanvas(17)), false);
+    assert.equal(canvasReadsBackFaithfully({ ...probeCanvas(0), getImageData: () => { throw new Error('blocked'); } }), false);
+  });
+});
 
 describe('isRasterLook', () => {
   it('paints marker, watercolor and paper', () => {

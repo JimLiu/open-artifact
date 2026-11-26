@@ -16,6 +16,13 @@ export type TextEditTarget =
   /** One table cell. */
   | { kind: 'cell'; id: ElementId; row: string; col: string };
 
+/** One layer of a drawing picked inside it: the drawing, the layer's index (back first) and its id. */
+export interface PickedLayer {
+  el: ElementId;
+  n: number;
+  id: string;
+}
+
 export interface SelectionState {
   /** Selected element ids, in the order they were picked. */
   ids: readonly ElementId[];
@@ -29,6 +36,8 @@ export interface SelectionState {
   marquee: Rect | null;
   /** Image whose crop is being edited. */
   cropping: ElementId | null;
+  /** The layer picked inside the one selected drawing. */
+  layer: PickedLayer | null;
   select(ids: readonly ElementId[], options?: { groupPath?: readonly string[] }): void;
   toggle(id: ElementId): void;
   add(ids: readonly ElementId[]): void;
@@ -37,6 +46,8 @@ export interface SelectionState {
   setHover(id: ElementId | null): void;
   setMarquee(rect: Rect | null): void;
   setCropping(id: ElementId | null): void;
+  /** Selects the layer's drawing alone and picks the layer; `null` goes back to the whole drawing. */
+  pickLayer(layer: PickedLayer | null): void;
   /** Drops ids that no longer exist (after a remote delete). */
   prune(exists: (id: ElementId) => boolean): void;
 }
@@ -54,6 +65,7 @@ export const useSelection = create<SelectionState>()((set, get) => ({
   hover: null,
   marquee: null,
   cropping: null,
+  layer: null,
   select(ids, options) {
     const unique = [...new Set(ids)];
     const groupPath = options?.groupPath ?? (unique.length === 0 ? EMPTY : get().groupPath);
@@ -64,6 +76,7 @@ export const useSelection = create<SelectionState>()((set, get) => ({
       groupPath,
       editing: editing && unique.includes(editing.id) ? editing : null,
       cropping: get().cropping && unique.includes(get().cropping!) ? get().cropping : null,
+      layer: unique.length === 1 && get().layer?.el === unique[0] ? get().layer : null,
     });
   },
   toggle(id) {
@@ -74,11 +87,11 @@ export const useSelection = create<SelectionState>()((set, get) => ({
     get().select([...get().ids, ...ids]);
   },
   clear() {
-    if (get().ids.length === 0 && get().editing === null && get().cropping === null) return;
-    set({ ids: EMPTY, groupPath: EMPTY, editing: null, cropping: null });
+    if (get().ids.length === 0 && get().editing === null && get().cropping === null && get().layer === null) return;
+    set({ ids: EMPTY, groupPath: EMPTY, editing: null, cropping: null, layer: null });
   },
   edit(target) {
-    set(target ? { editing: target, ids: get().ids.includes(target.id) ? get().ids : [target.id] } : { editing: null });
+    set(target ? { editing: target, ids: get().ids.includes(target.id) ? get().ids : [target.id], layer: null } : { editing: null });
   },
   setHover(id) {
     if (get().hover !== id) set({ hover: id });
@@ -87,16 +100,26 @@ export const useSelection = create<SelectionState>()((set, get) => ({
     set({ marquee: rect });
   },
   setCropping(id) {
-    set({ cropping: id });
+    set(id ? { cropping: id, layer: null } : { cropping: null });
+  },
+  pickLayer(layer) {
+    if (layer === null) {
+      if (get().layer !== null) set({ layer: null });
+      return;
+    }
+    const current = get().layer;
+    if (current?.el === layer.el && current.n === layer.n && current.id === layer.id && sameIds(get().ids, [layer.el])) return;
+    set({ ids: [layer.el], editing: null, cropping: null, layer });
   },
   prune(exists) {
-    const { ids, editing, hover, cropping } = get();
+    const { ids, editing, hover, cropping, layer } = get();
     const kept = ids.filter(exists);
     const next: Partial<SelectionState> = {};
     if (kept.length !== ids.length) next.ids = kept.length ? kept : EMPTY;
     if (editing && !exists(editing.id)) next.editing = null;
     if (hover && !exists(hover)) next.hover = null;
     if (cropping && !exists(cropping)) next.cropping = null;
+    if (layer && !exists(layer.el)) next.layer = null;
     if (Object.keys(next).length) set(next);
   },
 }));

@@ -17,7 +17,7 @@
  * Pure (no DOM, no stores): unit-tested.
  */
 
-import { COORDINATE_LIMIT, INK_COLOR_NAMES, normalizeElement, type BoardElement, type InkColor } from '@open-artifact/whiteboard-core';
+import { COORDINATE_LIMIT, INK_COLOR_NAMES, normalizeElement, normalizeStrokeWidths, type BoardElement, type InkColor } from '@open-artifact/whiteboard-core';
 
 /** The room topic live gestures travel on. */
 export const GESTURE_TOPIC = 'gesture';
@@ -41,8 +41,8 @@ export interface GestureFrame {
   elements: BoardElement[];
   /** Ids of elements the gesture took off the board (a drawn shape dragged back to nothing). */
   gone?: string[];
-  /** The pen stroke being drawn: its ink, pen width and flat `x, y` points (board units). */
-  ink?: { color: InkColor; width: number; points: number[] };
+  /** The pen stroke being drawn: its ink, pen width and flat `x, y` points (board units), and its widths when drawn with pressure. */
+  ink?: { color: InkColor; width: number; points: number[]; widths?: string };
   /** The arrow being drawn: where it starts and ends, and its ink. */
   draft?: { from: WirePoint; to: WirePoint; color: InkColor };
 }
@@ -110,11 +110,14 @@ export function splitByBytes(text: string, budget: number): string[] {
  */
 export function encodeGestureFrame(n: number, s: number, frame: GestureFrame): GesturePart[] | undefined {
   if (frame.elements.length > GESTURE_MAX_ELEMENTS) return undefined;
-  const ink = frame.ink && frame.ink.points.length > GESTURE_MAX_INK_POINTS * 2 ? { ...frame.ink, points: frame.ink.points.slice(-GESTURE_MAX_INK_POINTS * 2) } : frame.ink;
+  const ink =
+    frame.ink && frame.ink.points.length > GESTURE_MAX_INK_POINTS * 2
+      ? { ...frame.ink, points: frame.ink.points.slice(-GESTURE_MAX_INK_POINTS * 2), ...(frame.ink.widths !== undefined ? { widths: frame.ink.widths.slice(-GESTURE_MAX_INK_POINTS) } : {}) }
+      : frame.ink;
   const body: GestureFrame = {
     elements: frame.elements,
     ...(frame.gone && frame.gone.length > 0 ? { gone: frame.gone } : {}),
-    ...(ink ? { ink: { color: ink.color, width: ink.width, points: ink.points.map(roundCoord) } } : {}),
+    ...(ink ? { ink: { color: ink.color, width: ink.width, points: ink.points.map(roundCoord), ...(ink.widths !== undefined ? { widths: ink.widths } : {}) } } : {}),
     ...(frame.draft
       ? { draft: { from: [roundCoord(frame.draft.from[0]), roundCoord(frame.draft.from[1])], to: [roundCoord(frame.draft.to[0]), roundCoord(frame.draft.to[1])], color: frame.draft.color } }
       : {}),
@@ -172,8 +175,11 @@ export function readGestureFrame(json: string): GestureFrame | undefined {
     const color = readInkColor(raw.ink.color);
     const { width, points } = raw.ink;
     const widthOk = typeof width === 'number' && width > 0 && width <= GESTURE_MAX_INK_WIDTH;
-    if (color && widthOk && Array.isArray(points) && points.length % 2 === 0 && points.length <= GESTURE_MAX_INK_POINTS * 2 && points.every(isCoord))
-      frame.ink = { color, width, points: points as number[] };
+    if (color && widthOk && Array.isArray(points) && points.length % 2 === 0 && points.length <= GESTURE_MAX_INK_POINTS * 2 && points.every(isCoord)) {
+      // Widths that do not fit the points are dropped; the stroke is still drawn, at its plain width.
+      const widths = normalizeStrokeWidths(raw.ink.widths, points.length / 2);
+      frame.ink = { color, width, points: points as number[], ...(widths !== undefined ? { widths } : {}) };
+    }
   }
   if (isRecord(raw.draft)) {
     const color = readInkColor(raw.draft.color);

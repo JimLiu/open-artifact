@@ -5,7 +5,8 @@
  * chip, a note's "last edited by", an empty title's hint), and so is an
  * item whose text is being edited.
  *
- * Revealing a match first brings its item into view, then, two frames
+ * Revealing a match first brings its item into view and marks it as the
+ * current match (a shape whose text is cut opens for it), then, two frames
  * later, moves the view by the least amount that shows the match itself
  * clear of the chrome and of the find bar.
  */
@@ -29,6 +30,14 @@ export const FIND_SKIP_SELECTOR = '.wb-sr, .sr-only, [aria-hidden="true"], [cont
 export const FIND_BAR_ATTR = 'data-wb-find';
 /** Room kept between the find bar and a match revealed under it, px. */
 const BAR_GAP_PX = 8;
+/** The attribute on the item that holds the current match (a cut shape opens for it while the find bar has focus). */
+export const FIND_HIT_ATTR = 'data-wb-found';
+
+/** Moves the current-match mark to `node` (or takes it away). */
+function markFound(node: Element | null): void {
+  for (const marked of document.querySelectorAll(`[${FIND_HIT_ATTR}]`)) if (marked !== node) marked.removeAttribute(FIND_HIT_ATTR);
+  node?.setAttribute(FIND_HIT_ATTR, '');
+}
 
 const skipNonWords = (element: Element): boolean => element.matches(FIND_SKIP_SELECTOR);
 
@@ -94,6 +103,7 @@ export function createBoardFindAdapter(subscribe: (listener: () => void) => () =
       await nextFrame();
       await nextFrame();
       if (signal.aborted) return undefined;
+      markFound(itemNode(match.id));
       const range = rangesFor(match.id)[match.nth];
       if (range === undefined) return false;
       for (let attempt = 0; attempt < 2; attempt++) {
@@ -111,6 +121,7 @@ export function createBoardFindAdapter(subscribe: (listener: () => void) => () =
       return undefined;
     },
     paint(matches, current) {
+      if (matches[current] === undefined) markFound(null);
       const ranges: AbstractRange[] = [];
       let currentRange: AbstractRange | null = null;
       const cache = new Map<ElementId, AbstractRange[]>();
@@ -126,6 +137,7 @@ export function createBoardFindAdapter(subscribe: (listener: () => void) => () =
     },
     clear() {
       query = '';
+      markFound(null);
       clearFindHighlights();
     },
     subscribe,

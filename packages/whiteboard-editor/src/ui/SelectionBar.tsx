@@ -74,7 +74,7 @@ import { openBoardLink, linkDisplayUrl } from '../elements/links.ts';
 import { isRichTextItem, type RichTextItem } from '../elements/mark-across.ts';
 import { boardToScreen } from '../lib/camera.ts';
 import { barKeyTarget } from '../lib/toolbar-keys.ts';
-import { TABLE_HEAT_LABELS, heatColorFor, heatRampGradient, takesRowHeat } from '../lib/table-heat.ts';
+import { TABLE_HEAT_LABELS, heatColorFor, heatRampGradient, heatRefusal, takesRowHeat } from '../lib/table-heat.ts';
 import { ALIGN_SHORTCUT_LETTERS, BASIC_SHAPE_KINDS, MORE_SHAPE_KINDS, isApplePlatform, type AlignEdge } from '../lib/tools.ts';
 import { blockKindOf, isKindChangeable, type BlockKind } from '../selection/kind-change.ts';
 import { useContextMenu } from '../selection/menu-store.ts';
@@ -109,6 +109,8 @@ import { useTableHeat } from '../state/table-heat.ts';
 import { useColorScheme } from '../state/theme.ts';
 import { effectiveTool, useTool } from '../state/tool.ts';
 import { Card, ChromeButton, ChromeDivider, ChromeMenu, ChromeMenuItem, ChromePopover, SwatchRow, TipGroup, ToolButton, type ChromeSide, type Swatch } from './chrome.tsx';
+import { layeredDrawing, usePickedLayer } from '../services/drawing-layers.ts';
+import { LayerToolbar, LayersMenuButton } from './LayerBar.tsx';
 import { FormatBar } from './FormatBar.tsx';
 import { useCoarsePointer } from './hooks.ts';
 import { ShapeKindIcon } from './icons.tsx';
@@ -716,8 +718,16 @@ function HeatToggle({ table, axis, line }: { table: TableElement; axis: TableAxi
   const scheme = useColorScheme();
   const lastPicked = useTableHeat((state) => state.lastPicked);
   const on = table.heat?.[axis]?.[line] !== undefined;
+  const refusal = heatRefusal(table, axis, line);
   return (
-    <ChromeButton pressed={on} className="w-full justify-start gap-2 px-2" onClick={() => toggleTableLineHeat(table.id, axis, line)}>
+    <ChromeButton
+      pressed={on}
+      className="w-full justify-start gap-2 px-2 aria-disabled:cursor-default aria-disabled:opacity-40 aria-disabled:hover:bg-transparent"
+      {...(refusal !== undefined ? { 'aria-disabled': true, title: refusal } : {})}
+      onClick={() => {
+        if (refusal === undefined) toggleTableLineHeat(table.id, axis, line);
+      }}
+    >
       <span aria-hidden="true" className="h-3 w-6 shrink-0 rounded-[3px] ring-1 ring-inset ring-black/10 dark:ring-white/15" style={{ background: heatRampGradient(heatColorFor(table, axis, line, lastPicked), scheme) }} />
       <span className="flex-1 text-left">{TABLE_HEAT_LABELS.toggle(axis)}</span>
       <span aria-hidden="true" className="flex size-4 items-center justify-center">{on ? <Check className="size-4" strokeWidth={2.25} /> : null}</span>
@@ -1006,6 +1016,7 @@ export function SelectionBar(): ReactNode {
   const viewHeight = useCamera((state) => state.height);
   const menuOpen = useContextMenu((state) => state.open && state.kind === 'items');
   const coarse = useCoarsePointer();
+  const pickedLayer = usePickedLayer();
 
   const selected = useMemo(() => ids.flatMap((id) => byId.get(id) ?? []), [ids, byId]);
   const idle = selected.length > 0 && cropping === null && marquee === null && transform === null;
@@ -1098,6 +1109,21 @@ export function SelectionBar(): ReactNode {
     />
   );
   const [link] = model.links;
+  const moreButton = (
+    <ToolButton
+      key="more"
+      label="More actions"
+      tipSide={side}
+      aria-haspopup="menu"
+      aria-expanded={menuOpen}
+      icon={<Ellipsis aria-hidden="true" />}
+      onClick={(event) => {
+        const rect = event.currentTarget.getBoundingClientRect();
+        leaveTyping();
+        useContextMenu.getState().show({ at: { x: rect.left, y: rect.bottom + 6 }, kind: 'items', keyboard: event.detail === 0 });
+      }}
+    />
+  );
   const actions = [
     model.links.length === 1 && link !== undefined ? (
       <ToolButton
@@ -1124,24 +1150,14 @@ export function SelectionBar(): ReactNode {
         }}
       />
     ) : null,
-    <ToolButton
-      key="more"
-      label="More actions"
-      tipSide={side}
-      aria-haspopup="menu"
-      aria-expanded={menuOpen}
-      icon={<Ellipsis aria-hidden="true" />}
-      onClick={(event) => {
-        const rect = event.currentTarget.getBoundingClientRect();
-        leaveTyping();
-        useContextMenu.getState().show({ at: { x: rect.left, y: rect.bottom + 6 }, kind: 'items' });
-      }}
-    />,
+    moreButton,
   ];
 
   let content: ReactNode;
   if (!model.editable) {
     content = videoControl;
+  } else if (pickedLayer !== undefined) {
+    content = withDividers([[<LayerToolbar key="layer" picked={pickedLayer} side={side} />], [moreButton]]);
   } else if (typing || model.textItem !== undefined) {
     // The text bar: the format controls work on the typed selection, or on all of the item's text.
     content = (
@@ -1152,13 +1168,15 @@ export function SelectionBar(): ReactNode {
       </FormatBar>
     );
   } else {
+    const layered = model.image ? layeredDrawing(model.image) : undefined;
     const imageControls = model.image
       ? [
+          layered !== undefined ? <LayersMenuButton key="layers" drawing={layered} side={side} why={model.allLocked ? LOCKED_MESSAGE : undefined} /> : null,
           model.image.video === undefined ? (
             <ToolButton
               key="crop"
               label="Crop"
-              tip={model.allLocked ? LOCKED_MESSAGE : 'Crop (or double-click the picture)'}
+              tip={model.allLocked ? LOCKED_MESSAGE : layered !== undefined ? 'Crop' : 'Crop (or double-click the picture)'}
               tipSide={side}
               icon={<Crop aria-hidden="true" />}
               disabled={model.allLocked}

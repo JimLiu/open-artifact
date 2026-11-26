@@ -341,7 +341,7 @@ export function startSync(options: SyncOptions = {}): () => void {
   };
 
   const publishHistory = (): void => {
-    useHistory.setState({ canUndo: raw.canUndo(), canRedo: raw.canRedo(), undoLabel: undefined, redoLabel: raw.waiting().at(-1)?.label });
+    useHistory.setState({ canUndo: raw.canUndo(), canRedo: raw.canRedo(), undoLabel: undefined, redoLabel: raw.waiting().at(-1)?.label, redoDepth: raw.redoDepth() });
     setShellReport({
       actions: [
         { id: 'undo', disabled: !raw.canUndo() },

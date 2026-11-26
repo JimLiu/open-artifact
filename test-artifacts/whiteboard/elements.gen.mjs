@@ -105,6 +105,9 @@ styles.forEach((style, i) => {
   add({ type: 'image', x, y, w: 300, h: 240, by: BY, style, src: 'data:image/svg+xml,' + mug(style) });
   add({ type: 'text', x: x + 316, y: y + 100, text: style, size: 'large', by: BY });
 });
+// A drawing in layers (named groups right under the root): double-click one to pick it.
+add({ type: 'image', x: 1442, y: 1342, w: 300, h: 240, by: BY, style: 'watercolor', src: 'data:image/svg+xml,' + landscape() });
+add({ type: 'text', x: 1442, y: 1590, text: 'watercolor, in layers', size: 'small', by: BY });
 
 // ---------- write ----------
 // sticker sits on the first note
@@ -156,6 +159,22 @@ function mug(style) {
   if (style === 'blueprint') body += `<line x1='150' y1='20' x2='150' y2='230' stroke-dasharray='18 4 3 4' stroke-width='1'/><path d='M85 230 L215 230 M85 224 L85 236 M215 224 L215 236' stroke-width='1'/>`;
   body += `<path d='M130 60 Q120 45 132 32 Q144 20 134 6 M160 60 Q150 44 162 30 Q174 18 164 4' fill='none' stroke='${flat ? c('9aa5b1') : 'currentColor'}' stroke-width='3'/>`;
   return root + desc + body + '</svg>';
+}
+
+// Layers back to front: sky_wash, far-hills (with an opacity of its own), sun, near_hill,
+// tree, bird_flock (hidden). The ground line is drawn outside any layer.
+function landscape() {
+  const c = (h) => '%23' + h;
+  const root = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 300 240' stroke='none' fill='none'>`;
+  const desc = `<desc>A landscape in layers: sky, far hills, sun, near hill, tree, and a hidden flock of birds</desc>`;
+  const sky = `<g id='sky_wash'><rect width='300' height='240' fill='${c('bfdbfe')}' fill-opacity='.6'/></g>`;
+  const far = `<g id='far-hills' opacity='.7'><path d='M0 150 Q60 90 120 140 Q190 80 300 135 L300 240 L0 240 Z' fill='${c('7c9cbf')}' fill-opacity='.6'/></g>`;
+  const sun = `<g id='sun'><circle cx='225' cy='70' r='30' fill='${c('facc15')}' fill-opacity='.6'/></g>`;
+  const near = `<g id='near_hill'><path d='M0 190 Q110 120 220 175 Q260 192 300 180 L300 240 L0 240 Z' fill='${c('4d9a5b')}' fill-opacity='.6'/></g>`;
+  const tree = `<g id='tree'><rect x='76' y='130' width='12' height='50' fill='${c('8f5a3c')}' fill-opacity='.6'/><circle cx='82' cy='118' r='30' fill='${c('2f7d4a')}' fill-opacity='.6'/></g>`;
+  const birds = `<g id='bird_flock' opacity='0'><path d='M140 50 l8 6 8-6 M165 38 l7 5 7-5 M120 66 l6 5 6-5' stroke='${c('333333')}' stroke-width='2.5' stroke-linecap='round'/></g>`;
+  const ground = `<path d='M0 236 L300 236' stroke='${c('6b5a44')}' stroke-width='3'/>`;
+  return root + desc + sky + far + sun + near + tree + ground + birds + '</svg>';
 }
 
 function pngDataUri(w, h) {

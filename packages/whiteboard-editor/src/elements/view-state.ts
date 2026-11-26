@@ -5,6 +5,7 @@
  * - `frozen`: sections that must not grow to fit their contents right now
  *   (a section being resized keeps the size the person drags it to);
  * - `lifted`: elements drawn with the "picked up" look while dragged;
+ * - `erasing`: strokes a stylus's eraser has swept, hidden until it lifts;
  * - `reading` / `readingSize`: each element's position in reading order,
  *   which the layer computes once for every view's spoken label;
  * - `backdrops`: the fill behind each free text (so its ink reads on it).
@@ -19,6 +20,7 @@ import type { ElementId } from '@open-artifact/whiteboard-core';
 export interface ElementViewState {
   frozen: ReadonlySet<ElementId> | null;
   lifted: ReadonlySet<ElementId>;
+  erasing: ReadonlySet<ElementId>;
   reading: ReadonlyMap<ElementId, number>;
   readingSize: number;
   backdrops: ReadonlyMap<ElementId, string>;
@@ -30,6 +32,7 @@ const NONE: ReadonlySet<ElementId> = new Set();
 export const useElementView = create<ElementViewState>()(() => ({
   frozen: null,
   lifted: NONE,
+  erasing: NONE,
   reading: new Map(),
   readingSize: 0,
   backdrops: new Map(),
@@ -43,4 +46,9 @@ export function setFrozenSections(ids: ReadonlySet<ElementId> | null): void {
 /** Sets the elements drawn lifted (being dragged). */
 export function setLiftedElements(ids: ReadonlySet<ElementId>): void {
   useElementView.setState({ lifted: ids.size === 0 ? NONE : ids });
+}
+
+/** Sets the strokes hidden under the eraser (`null` shows them all again). */
+export function setErasingElements(ids: ReadonlySet<ElementId> | null): void {
+  useElementView.setState({ erasing: ids === null || ids.size === 0 ? NONE : ids });
 }

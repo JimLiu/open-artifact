@@ -9,7 +9,7 @@
  */
 
 import { ShapeFace } from '../elements/ShapeFace.tsx';
-import { memo, useEffect, useRef, type RefObject } from 'react';
+import { memo, useEffect, useMemo, useRef, type RefObject } from 'react';
 import { Lock } from 'lucide-react';
 import {
   NOTE_SHADOWS,
@@ -23,6 +23,7 @@ import {
   CONTAINER_TITLE_GAP_SCALED,
   inkColorOnFill,
   noteAuthorBottomPadding,
+  overflowFitSize,
   sectionFillColor,
   sectionInkColor,
   sectionLineColor,
@@ -47,7 +48,7 @@ import { useIsFeatured, useMeasureNode } from './hooks.ts';
 import { useSelection } from '../state/selection.ts';
 import { useItemProps } from './item.tsx';
 import { RichText } from './markup.tsx';
-import { alignStyle, fontStyle, paperFont, rotationStyle, type ViewStyle } from './style.ts';
+import { alignStyle, fontStyle, paperFont, rotationStyle, shapeTextAreaStyle, type ViewStyle } from './style.ts';
 import { TextEditor, useEditing, writeElementText } from './TextEditor.tsx';
 import { useElementView } from './view-state.ts';
 
@@ -110,7 +111,12 @@ export const NoteView = memo(function NoteView({ element }: { element: NoteEleme
 /* Shape                                                                    */
 /* ------------------------------------------------------------------------ */
 
-/** A shape: its outline drawn in SVG, with centered rich text inside its text area. */
+/**
+ * A shape: its outline drawn in SVG, with centered rich text inside its text
+ * area, cut to the lines that fit. A shape whose text does not fit opens
+ * while it is selected alone or edited (or is the find bar's current match)
+ * into a card below it that shows all of its text.
+ */
 export const ShapeView = memo(function ShapeView({ element }: { element: ShapeElement }) {
   const scheme = useColorScheme();
   const item = useItemProps(element);
@@ -127,9 +133,17 @@ export const ShapeView = memo(function ShapeView({ element }: { element: ShapeEl
     '--wb-paper-text': paperTextColor(element, scheme),
     ...(fill !== 'none' ? { '--wb-paper-chip': chipColorOn(fill) } : {}),
   };
-  const label: ViewStyle = { ...shapeTextInsetStyle(element), ...fontStyle(font), ...alignStyle(textAlignOf(element)) };
+  const cut = useMemo(() => overflowFitSize(element) !== undefined, [element]);
+  const open = useSelection((state) => state.editing?.id === element.id || (state.ids.length === 1 && state.ids[0] === element.id));
+  const label: ViewStyle = { ...shapeTextInsetStyle(element), ...fontStyle(font), ...alignStyle(textAlignOf(element)), ...shapeTextAreaStyle(element, scheme, cut) };
   return (
-    <div {...item} className={element.hollow ? 'wb-el wb-shape wb-hollow' : 'wb-el wb-shape'} style={style}>
+    <div
+      {...item}
+      className={element.hollow ? 'wb-el wb-shape wb-hollow' : 'wb-el wb-shape'}
+      style={style}
+      data-wb-cut={cut || undefined}
+      data-wb-open={open || undefined}
+    >
       <ShapeFace element={element} scheme={scheme} />
       <div className="wb-shape-label" style={label}>
         <div className="wb-shape-text">

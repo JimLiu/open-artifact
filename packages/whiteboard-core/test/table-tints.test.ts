@@ -14,6 +14,7 @@ import {
   tableFillPaint,
   tableHeatLevels,
   tableHeatPaint,
+  tableLineHasHeat,
   withTableHeat,
 } from '../src/table-tints.ts';
 import { mergeTableEdit, tableColumnIsTinted, tableFromGrid, tableRowIsTinted } from '../src/table.ts';
@@ -30,6 +31,25 @@ const normalizeTableElement = (fields: Record<string, unknown>): TableElement =>
 
 const levelsOf = (element: TableElement): Record<string, Record<string, number>> =>
   Object.fromEntries(Object.entries(tableHeatLevels(element)).map(([rowId, cells]) => [rowId, Object.fromEntries(Object.entries(cells).map(([colId, { level }]) => [colId, level]))]));
+
+describe('which lines can take a heat map', () => {
+  it('needs two numbers of the same unit, not counting the header row in a column', () => {
+    const scores = table([
+      ['Team', '12', 'Goal'],
+      ['Ana', '$40', '5%'],
+      ['Bo', '$7', 'n/a'],
+      ['Cy', '3', '8%'],
+    ]);
+    assert.equal(tableLineHasHeat(scores, 'cols', 'c2'), true, 'two dollar amounts');
+    assert.equal(tableLineHasHeat(scores, 'cols', 'c3'), true, 'two percentages');
+    assert.equal(tableLineHasHeat(scores, 'cols', 'c1'), false, 'names only');
+    assert.equal(tableLineHasHeat(table([['12'], ['7'], ['x']]), 'cols', 'c1'), false, 'the header number does not count');
+    assert.equal(tableLineHasHeat(table([['12'], ['7'], ['x']], { head: false }), 'cols', 'c1'), true);
+    assert.equal(tableLineHasHeat(scores, 'rows', 'r2'), false, 'a dollar amount and a percentage are not the same kind');
+    assert.equal(tableLineHasHeat(scores, 'rows', 'r4'), false);
+    assert.equal(tableLineHasHeat(table([['a', 'b'], ['1', '2']]), 'rows', 'r2'), true);
+  });
+});
 
 describe('table fills', () => {
   const grid = { cols: { c1: { at: 1 }, c2: { at: 2 } }, rows: { r1: { at: 1, c1: 'a', c2: 'b' }, r2: { at: 2, c1: 'c', c2: 'd' } } };

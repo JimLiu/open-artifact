@@ -11,7 +11,7 @@
  */
 
 import { MessageCircle } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import {
   INK_COLOR_NAMES,
   SHAPE_KIND_LABELS,
@@ -22,6 +22,7 @@ import {
 import { DRAW_TOOLS, MORE_SHAPE_KINDS, BASIC_SHAPE_KINDS, shapesButtonTools, toolPickForShapeKind, modKey, toolShortcutKey, type ToolName, type ToolPick } from '../lib/tools.ts';
 import { addBoardInk, removeBoardInk } from '../services/commands.ts';
 import { insertFiles } from '../services/files.ts';
+import { waitForFileChoice } from '../lib/file-choice.ts';
 import { useAgent } from '../services/agent.ts';
 import { maybeSession } from '../services/session.ts';
 import { useAsk } from '../state/ask.ts';
@@ -80,6 +81,7 @@ function BoardToolbar({ touch }: { touch: boolean }) {
   const standaloneComment = !session?.shell && session?.comments && session.canComment;
   const shown: ToolName = handOverride ? 'hand' : tool;
   const fileInput = useRef<HTMLInputElement>(null);
+  const picker = useFilePicker(fileInput);
 
   // On touch, the section lives under Shapes; elsewhere the Shapes button never shows it.
   const shapesButtonPick: ToolPick = !touch && shapesPick.tool === 'container' ? { tool: 'shape', kind: 'rounded' } : shapesPick;
@@ -106,7 +108,9 @@ function BoardToolbar({ touch }: { touch: boolean }) {
             onChange={(event) => {
               const files = [...(event.target.files ?? [])];
               event.target.value = '';
-              if (files.length > 0) void insertFiles(files);
+              if (files.length === 0) return;
+              picker.chosen();
+              void insertFiles(files);
             }}
           />
           <ChromeDivider />
@@ -144,7 +148,7 @@ function BoardToolbar({ touch }: { touch: boolean }) {
             pressed={shapesButtonTools(touch).includes(shown)}
             onClick={() => pickFromButton(shapesButtonPick)}
           />
-          <StickerButton keysOn={keysOn} onUpload={() => fileInput.current?.click()} />
+          <StickerButton keysOn={keysOn} onUpload={picker.open} fileInput={fileInput} />
         </>
       ) : null}
       {standaloneComment ? (
@@ -180,8 +184,51 @@ function AskButton({ name, busy }: { name: string; busy: boolean }) {
   );
 }
 
+/**
+ * Opens the picture file input from a panel. With a mouse the panel closes
+ * (`close`) at once; on a touch screen it stays open until a file is chosen
+ * or the picker is turned away (see `lib/file-choice.ts`).
+ */
+function useFilePicker(input: RefObject<HTMLInputElement | null>): { open: (close: () => void) => void; chosen: () => void } {
+  const pending = useRef<{ close: () => void; stop: () => void } | undefined>(undefined);
+  const settle = useCallback(() => {
+    pending.current?.stop();
+    pending.current = undefined;
+  }, []);
+  useEffect(() => settle, [settle]);
+  const open = useCallback(
+    (close: () => void) => {
+      const element = input.current;
+      settle();
+      element?.click();
+      if (!element || !window.matchMedia('(any-pointer: coarse)').matches) return close();
+      const stop = waitForFileChoice({
+        input: element,
+        host: window,
+        inPanel: (target) => target instanceof Element && target.closest('[role="dialog"]') !== null,
+        tapsDismiss: CSS.supports('-webkit-touch-callout', 'none'),
+        close: () => {
+          pending.current = undefined;
+          close();
+        },
+        over: () => {
+          pending.current = undefined;
+        },
+      });
+      pending.current = { close, stop };
+    },
+    [input, settle],
+  );
+  const chosen = useCallback(() => {
+    const waiting = pending.current;
+    settle();
+    waiting?.close();
+  }, [settle]);
+  return { open, chosen };
+}
+
 /** The Stickers button and its picker. */
-function StickerButton({ keysOn, onUpload }: { keysOn: boolean; onUpload: () => void }) {
+function StickerButton({ keysOn, onUpload, fileInput }: { keysOn: boolean; onUpload: (close: () => void) => void; fileInput: RefObject<HTMLInputElement | null> }) {
   const tool = useTool((state) => state.tool);
   const sticker = useTool((state) => state.sticker);
   const [open, setOpen] = useState(false);
@@ -204,7 +251,12 @@ function StickerButton({ keysOn, onUpload }: { keysOn: boolean; onUpload: () => 
   return (
     <ChromePopover
       open={open || awaiting}
-      onOpenChange={(next) => {
+      onOpenChange={(next, details) => {
+        // Opening the file picker clicks the hidden input, outside the panel: that is not a press that closes it.
+        if (!next && details.reason === 'outside-press' && details.event.target !== null && details.event.target === fileInput.current) {
+          details.cancel();
+          return;
+        }
         if (next) {
           setOpen(true);
           if (!on) useTool.getState().armSticker(undefined);
@@ -239,11 +291,11 @@ function StickerButton({ keysOn, onUpload }: { keysOn: boolean; onUpload: () => 
         onPick={choose}
         onUpload={
           session?.assets
-            ? () => {
-                setOpen(false);
-                putDown();
-                onUpload();
-              }
+            ? () =>
+                onUpload(() => {
+                  setOpen(false);
+                  putDown();
+                })
             : undefined
         }
         me={me}

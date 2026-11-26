@@ -6,11 +6,11 @@
  * - a small inline raster, `data:image/(webp|jpeg|png);base64,…`;
  * - an SVG drawing as base64, `data:image/svg+xml;base64,…`.
  *
- * Agents write drawings as text data URIs (`data:image/svg+xml,<svg…>`);
- * those are checked (one root `<svg>` with the SVG namespace and a positive
- * viewBox, no `#`, no control characters, parses as XML) and stored as
- * base64. An invalid `src` reads back as an empty SVG, so one bad element
- * never breaks the board.
+ * Drawings are saved as text data URIs (`data:image/svg+xml,<svg…>`), which
+ * is also how agents write them; those are checked (one root `<svg>` with
+ * the SVG namespace and a positive viewBox, no `#`, no control characters,
+ * parses as XML) and read as base64. An invalid `src` reads back as an empty
+ * SVG, so one bad element never breaks the board.
  */
 
 import { MAX_RASTER_DATA_URL_CHARS, MAX_TEXT_CHARS } from './schema.ts';
@@ -158,6 +158,31 @@ export function svgTextToBase64DataUrl(src: string): string | undefined {
   const result = decoded === undefined || typeof checkSvgSource(decoded) === 'string' ? undefined : dataUrl;
   svgTextCache.set(src, result);
   return result;
+}
+
+const svgStoredTextCache = new Map<string, string>();
+let svgStoredTextCacheChars = 0;
+
+/**
+ * The form a drawing is saved in: a base64 SVG becomes a text data URL
+ * (`data:image/svg+xml,<svg …>`, with `%`, `#`, tabs and line breaks
+ * percent-escaped) so the file stays readable, but only when that text
+ * passes {@link checkSvgSource} and reads back as exactly the same base64.
+ * Any other source is returned as is.
+ */
+export function svgBase64ToTextDataUrl(src: string): string {
+  if (!isSvgBase64DataUrl(src)) return src;
+  const cached = svgStoredTextCache.get(src);
+  if (cached !== undefined) return cached;
+  if ((svgStoredTextCacheChars += src.length) > SVG_TEXT_CACHE_BUDGET) {
+    svgStoredTextCache.clear();
+    svgStoredTextCacheChars = src.length;
+  }
+  const svg = decodeSvgDataUrl(src, true);
+  const text = svg === undefined ? undefined : 'data:image/svg+xml,' + svg.replace(/[%#\t\n\r]/g, (char) => encodeURIComponent(char));
+  const stored = text !== undefined && svgTextToBase64DataUrl(text) === src ? text : src;
+  svgStoredTextCache.set(src, stored);
+  return stored;
 }
 
 /** True when `src` may be stored as is. */

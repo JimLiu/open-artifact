@@ -15,6 +15,7 @@ import { elementsBounds, rotatedBoundingBox, type Box, type ElementMeasures, typ
 import { copiedGroupFate, everyArrowEndId, groupBoundsCells, remapCopiedGroups } from './groups.ts';
 import { clampElementText } from './image-source.ts';
 import { escapedJsonByteLength } from './json.ts';
+import { withStrokeWidths } from './stroke-widths.ts';
 import { normalizeArtifactAddress } from './links.ts';
 import { parseBoardContent, pickAuthorshipFields } from './normalize.ts';
 import {
@@ -130,8 +131,11 @@ export function removeElements<T extends BoardContent>(content: T, removedIds: R
 export function takeElementGeometry<T extends BoardElement>(element: T, source: BoardElement): T {
   const el: BoardElement = element;
   if (el.type === 'arrow') return (source.type === 'arrow' ? { ...el, from: source.from, to: source.to } : el) as T;
-  if (el.type === 'stroke')
-    return (source.type === 'stroke' ? { ...el, x: source.x, y: source.y, points: source.points, width: source.width } : el) as T;
+  if (el.type === 'stroke') {
+    if (source.type !== 'stroke') return element;
+    // The pen widths go with the points (one per point).
+    return withStrokeWidths({ ...el, points: source.points, x: source.x, y: source.y, width: source.width }, source.widths) as T;
+  }
   if (source.type !== el.type || !('x' in source)) return element;
   if (el.type === 'table' && source.type === 'table') return { ...el, cols: mergeTableEdit(source, el, el).cols, x: source.x, y: source.y } as T;
   if (el.type === 'text' && source.type === 'text') {

@@ -36,6 +36,7 @@ import {
   createHeartbeat,
   createKeyboardGuard,
   createStateSaver,
+  type EmbedStateWrite,
   embedKeyboardStopMessage,
   embedRefusal,
   embedStopHint,
@@ -71,10 +72,17 @@ function isLiveNow(id: HtmlElement['id']): boolean {
   return ids.length === 1 && ids[0] === id && effectiveTool(tool) === 'select' && !tool.commentMode;
 }
 
-/** Writes an embed's state for everyone (not an undo step). */
-function writeEmbedState(id: HtmlElement['id'], state: string): void {
-  updateElements([id], (element) => (element.type === 'html' && element.state !== state ? { ...element, state } : element), { coalesce: `embed:${id}`, history: false });
+/** Writes embeds' states for everyone, in one change (not an undo step). */
+function writeEmbedStates(writes: readonly EmbedStateWrite[]): void {
+  const states = new Map(writes);
+  updateElements(states.keys(), (element) => {
+    const state = states.get(element.id);
+    return element.type === 'html' && state !== undefined && element.state !== state ? { ...element, state } : element;
+  }, { history: false });
 }
+
+/** The board's one saver of embed states. */
+const embedStates = createStateSaver(writeEmbedStates);
 
 /** An HTML embed (see the module comment). */
 export const HtmlView = memo(function HtmlView({ element }: { element: HtmlElement }) {
@@ -145,7 +153,6 @@ function EmbedFrame({ element, title }: { element: HtmlElement; title: string })
   const stateRef = useRef(element.state);
   // A stop ending (run again) reloads the frame with the state as it is then.
   const srcdoc = useMemo(() => buildEmbedSrcdoc(html, stateRef.current), [html, stopped]);
-  const saver = useMemo(() => createStateSaver((state) => writeEmbedState(id, state)), [id]);
 
   // A layout effect, so the listeners are in place before the frame's bootstrap can post its port.
   useLayoutEffect(() => {
@@ -268,7 +275,7 @@ function EmbedFrame({ element, title }: { element: HtmlElement; title: string })
       }
       if (!isEmbedSaveMessage(event.data) || !(maybeSession()?.canEdit ?? false)) return;
       stateRef.current = event.data.state;
-      saver.save(event.data.state);
+      embedStates.save(id, event.data.state);
     };
 
     const onLoad = (): void => {
@@ -355,16 +362,22 @@ function EmbedFrame({ element, title }: { element: HtmlElement; title: string })
       window.removeEventListener('pointerdown', onPressBoard, true);
       document.removeEventListener('focusin', onFocusIn, true);
       document.removeEventListener('focusout', onFocusOut, true);
-      saver.flush();
+      embedStates.flush(id);
     };
-  }, [srcdoc, refusal, stopped, saver, id, html]);
+  }, [srcdoc, refusal, stopped, id, html]);
 
   useEffect(() => {
-    if (element.state === stateRef.current || saver.isOwnWrite(element.state)) return;
+    const flushAll = (): void => embedStates.flush();
+    window.addEventListener('pagehide', flushAll);
+    return () => window.removeEventListener('pagehide', flushAll);
+  }, []);
+
+  useEffect(() => {
+    if (element.state === stateRef.current || embedStates.isOwnWrite(id, element.state)) return;
     stateRef.current = element.state;
     const message: EmbedStateMessage = { boardEmbed: 'state', state: element.state ?? null };
     frame.current?.contentWindow?.postMessage(message, '*');
-  }, [element.state, saver]);
+  }, [element.state, id]);
 
   if (refusal !== undefined || stopped !== undefined) return <StoppedEmbed id={id} reason={stopped} refusal={refusal} />;
   return (

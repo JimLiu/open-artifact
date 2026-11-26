@@ -175,6 +175,11 @@
   box-shadow: 0 2px 4px rgb(0 0 0 / 0.08), 0 12px 28px rgb(0 0 0 / 0.16);
 }
 
+/* Strokes a stylus's eraser swept (tools/eraser.ts), until it lifts. */
+.wb-el[data-wb-erasing] {
+  visibility: hidden;
+}
+
 /* Touch: an item picked up by a long press, or dragged by a finger, lifts
    (TOUCH_LIFT_FEEDBACK in tools/touch.ts). Sections and arrows only fade. */
 .wb-surface[data-wb-touch-lift] .wb-el[data-wb-lifted] {
@@ -234,6 +239,57 @@
 .wb-shape-text {
   max-width: 100%;
   min-width: 1ch;
+}
+
+/*
+ * A shape shows as many lines as fit its text area (--wb-lines). One whose
+ * text does not fit (data-wb-cut) opens while it is selected alone or edited
+ * (data-wb-open) or is the current match of the focused find bar
+ * (data-wb-found): its text runs on below the shape on a card in the shape's
+ * fill and outline (--wb-card-*, set by shapeTextAreaStyle).
+ */
+.wb-shape > .wb-shape-label > .wb-shape-text {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: var(--wb-lines);
+  overflow: clip;
+}
+
+.wb-shape:is([data-wb-open], body:has([data-wb-find]:focus-within) [data-wb-found]) > .wb-shape-label > .wb-shape-text {
+  display: block;
+  -webkit-line-clamp: none;
+  overflow: visible;
+}
+
+.wb-shape[data-wb-cut]:is([data-wb-open], body:has([data-wb-find]:focus-within) [data-wb-found]) {
+  z-index: 3;
+}
+
+.wb-shape[data-wb-cut]:is([data-wb-open], body:has([data-wb-find]:focus-within) [data-wb-found]) > .wb-shape-label {
+  overflow: visible;
+}
+
+.wb-shape[data-wb-cut]:is([data-wb-open], body:has([data-wb-find]:focus-within) [data-wb-found]) > .wb-shape-label > .wb-shape-text {
+  position: relative;
+  z-index: 0;
+  width: 100%;
+}
+
+.wb-shape[data-wb-cut]:is([data-wb-open], body:has([data-wb-find]:focus-within) [data-wb-found]) > .wb-shape-label > .wb-shape-text::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  top: 0;
+  left: var(--wb-card-left);
+  bottom: calc(-1 * var(--wb-card-foot));
+  width: var(--wb-card-width);
+  min-height: var(--wb-card-least);
+  box-sizing: border-box;
+  background: var(--wb-card-fill, var(--wb-paper));
+  border: var(--wb-card-edge);
+  border-top: 0;
+  border-radius: 0 0 6px 6px;
+  pointer-events: none;
 }
 
 .wb-hollow {

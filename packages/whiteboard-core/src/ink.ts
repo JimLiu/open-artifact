@@ -9,7 +9,8 @@
  *   breaking at sharp corners (where a small blob hides the joint). The seed
  *   is the element id, so an outline looks the same on every screen.
  * - **Pen strokes.** Freehand stroke points (flat `[x0, y0, x1, y1, …]`)
- *   become a smooth quadratic path; helpers append points while drawing,
+ *   become a smooth quadratic path (or, drawn with pressure, a filled
+ *   outline following the width at each point); helpers append points while drawing,
  *   straighten a held tail into a line, and normalize a finished stroke to
  *   its top-left corner.
  *
@@ -22,6 +23,7 @@
 import { wbGeom } from '@open-artifact/wasm-wb-geom';
 import { decodePoints, encodeCommands, encodePoints, kindCode, utf16 } from './geom-codec.ts';
 import { MAX_STROKE_POINTS, type ShapeKind } from './schema.ts';
+import { strokeWidestFactor, strokeWidthFactors } from './stroke-widths.ts';
 import type { OutlineKind, PathCommand } from './shape-paths.ts';
 
 /** A point `[x, y]`. */
@@ -261,10 +263,72 @@ export function normalizeStrokePoints(points: readonly number[]): { x: number; y
   return { x: values[0]!, y: values[1]!, points: Array.from(values.subarray(2)) };
 }
 
-/** Bounds of a stroke's relative points, padded by half its width. */
-export function strokeBounds(stroke: { x: number; y: number; points: readonly number[]; width?: number }): { x: number; y: number; w: number; h: number } {
-  const [x, y, w, h] = wbGeom().stroke_bounds(stroke.x, stroke.y, Float64Array.from(stroke.points, (value) => value ?? 0), stroke.width ?? DEFAULT_STROKE_WIDTH) as unknown as [number, number, number, number];
-  return { x, y, w, h };
+/** Bounds of a stroke's relative points, padded by half its widest pen width. */
+export function strokeBounds(stroke: { x: number; y: number; points: readonly number[]; width?: number; widths?: string }): { x: number; y: number; w: number; h: number } {
+  const width = (stroke.width ?? DEFAULT_STROKE_WIDTH) * strokeWidestFactor(stroke);
+  const box = wbGeom().stroke_bounds(stroke.x, stroke.y, Float64Array.from(stroke.points, (value) => value ?? 0), width);
+  return { x: box[0]!, y: box[1]!, w: box[2]!, h: box[3]! };
+}
+
+/** Points of a pressure outline closer than this merge into one (the wider one wins). */
+const PRESSURE_MERGE_DISTANCE = 0.05;
+
+/** A number for path data, two decimals. */
+function pathNumber(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+/**
+ * The filled outline (path data, `fill-rule: nonzero`) of a stroke drawn
+ * with pressure: flat points, one width factor per point, and the pen
+ * width. Every point is a disc of radius `width × factor / 2` and every
+ * segment the band between two discs, all wound the same way, so sharp
+ * turns stay round and the ends are round caps. A single point is a disc.
+ */
+export function pressureStrokeOutline(points: readonly number[], factors: readonly number[], width: number): string {
+  const nodes: { x: number; y: number; r: number }[] = [];
+  for (let index = 0; index + 1 < points.length; index += 2) {
+    const x = points[index]!;
+    const y = points[index + 1]!;
+    const r = Math.max(0.05, (width * (factors[index / 2] ?? 1)) / 2);
+    const last = nodes.at(-1);
+    if (last && Math.hypot(x - last.x, y - last.y) < PRESSURE_MERGE_DISTANCE) last.r = Math.max(last.r, r);
+    else nodes.push({ x, y, r });
+  }
+  const parts: string[] = [];
+  const disc = ({ x, y, r }: { x: number; y: number; r: number }): string => {
+    const radius = pathNumber(r);
+    return `M ${pathNumber(x + r)} ${pathNumber(y)} A ${radius} ${radius} 0 1 0 ${pathNumber(x - r)} ${pathNumber(y)} A ${radius} ${radius} 0 1 0 ${pathNumber(x + r)} ${pathNumber(y)} Z`;
+  };
+  nodes.forEach((node, index) => {
+    parts.push(disc(node));
+    const next = nodes[index + 1];
+    if (!next) return;
+    const length = Math.hypot(next.x - node.x, next.y - node.y);
+    const nx = -(next.y - node.y) / length;
+    const ny = (next.x - node.x) / length;
+    parts.push(
+      `M ${pathNumber(node.x + nx * node.r)} ${pathNumber(node.y + ny * node.r)} L ${pathNumber(next.x + nx * next.r)} ${pathNumber(next.y + ny * next.r)} L ${pathNumber(next.x - nx * next.r)} ${pathNumber(next.y - ny * next.r)} L ${pathNumber(node.x - nx * node.r)} ${pathNumber(node.y - ny * node.r)} Z`,
+    );
+  });
+  return parts.join(' ');
+}
+
+const pressureOutlineCache = new WeakMap<readonly number[], { widths: string; width: number; d: string }>();
+
+/**
+ * The path data a stroke is drawn with: its outline when it has widths
+ * (`filled`), else the smooth centerline stroked at its width. Cached per
+ * points array.
+ */
+export function strokeDrawing(stroke: { points: readonly number[]; width: number; widths?: string }): { d: string; filled: boolean } {
+  const factors = strokeWidthFactors(stroke);
+  if (factors === undefined) return { d: cachedStrokePath(stroke.points), filled: false };
+  const cached = pressureOutlineCache.get(stroke.points);
+  if (cached && cached.widths === stroke.widths && cached.width === stroke.width) return { d: cached.d, filled: true };
+  const d = pressureStrokeOutline(stroke.points, factors, stroke.width);
+  pressureOutlineCache.set(stroke.points, { widths: stroke.widths ?? '', width: stroke.width, d });
+  return { d, filled: true };
 }
 
 /** Re-exported for callers that only import ink: the kinds a hand-drawn outline accepts. */

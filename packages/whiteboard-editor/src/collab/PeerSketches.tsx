@@ -22,7 +22,8 @@ const PeerSketch = memo(function PeerSketch({ hand, scheme }: { hand: PeerHand; 
     <g className="wb-peer-sketch" data-ended={hand.endedAt !== undefined ? '' : undefined}>
       {sketches.map((sketch) => {
         const ink = elementInkColor(sketch, scheme);
-        if (sketch.kind === 'ink') return <path key="ink" d={sketch.d} stroke={ink} strokeWidth={sketch.width} />;
+        if (sketch.kind === 'ink')
+          return sketch.filled ? <path key="ink" d={sketch.d} style={{ fill: ink, stroke: 'none' }} /> : <path key="ink" d={sketch.d} stroke={ink} strokeWidth={sketch.width} />;
         const tip = { x: sketch.x2, y: sketch.y2 };
         const from = { x: sketch.x1, y: sketch.y1 };
         return (

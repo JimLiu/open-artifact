@@ -27,7 +27,7 @@ import { useEffect, useLayoutEffect, useRef, type ClipboardEvent, type DragEvent
 import {
   MAX_HTML_CHARS,
   MAX_LABEL_CHARS,
-  autoFitPatch,
+  autoFitPatchWithRoom,
   escapeInlineMarkdown,
   normalizeArrowLabel,
   textCutNotice,
@@ -38,7 +38,8 @@ import {
   type TextProfile,
 } from '@open-artifact/whiteboard-core';
 import { notify } from '../services/announce.ts';
-import { updateElements } from '../state/board.ts';
+import { updateElements, useBoard } from '../state/board.ts';
+import { currentMeasures } from '../state/measures.ts';
 import { useSelection, type TextEditTarget } from '../state/selection.ts';
 import { capText, continueList, indentListLines, keyAction, keyChord, textEditHost, toggleMark, type TextSelection } from './edit.ts';
 import { RICH_TEXT_CLIPBOARD_TYPE } from '../lib/rich-clipboard.ts';
@@ -82,8 +83,10 @@ export function editCoalesceKey(id: ElementId): string {
   return `type:${id}`;
 }
 
-/** Writes an element's main text (notes and shapes grow to fit it; embeds take it as their HTML). */
+/** Writes an element's main text (notes and shapes grow to fit it where there is room; embeds take it as their HTML). */
 export function writeElementText(id: ElementId, text: string): void {
+  const elements = useBoard.getState().board.content.elements;
+  const measures = currentMeasures();
   updateElements(
     [id],
     (element) => {
@@ -91,7 +94,7 @@ export function writeElementText(id: ElementId, text: string): void {
         case 'note':
         case 'shape': {
           const next = { ...element, text };
-          return { ...next, ...autoFitPatch(next) };
+          return { ...next, ...autoFitPatchWithRoom(next, elements, measures) };
         }
         case 'text':
         case 'container':

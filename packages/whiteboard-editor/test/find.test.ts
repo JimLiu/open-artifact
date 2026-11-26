@@ -119,6 +119,7 @@ describe('find keys', () => {
     assert.equal(isFindShortcut(key({ key: 'f', ctrlKey: true }), true), false);
     assert.equal(isFindShortcut(key({ key: 'f', ctrlKey: true }), false), true);
     assert.equal(isFindShortcut(key({ key: 'а', code: 'KeyF', metaKey: true }), true), true);
+    assert.equal(isFindShortcut(key({ key: 'u', code: 'KeyF', metaKey: true }), true), false, 'Dvorak types U on that key');
     assert.equal(isFindShortcut(key({ key: 'f', metaKey: true, shiftKey: true }), true), false);
     assert.equal(isFindShortcut(key({ key: 'f', metaKey: true, altKey: true }), true), false);
   });

@@ -9,6 +9,7 @@ import type { ElementId } from '@open-artifact/whiteboard-core';
 import { screenToBoard, type Point } from '../lib/camera.ts';
 import { useCamera } from '../state/camera.ts';
 import type { ToolName } from '../lib/tools.ts';
+import { TOUCH_PEN_SLOP, isTouchScreenPen } from './pen-input.ts';
 
 /** One pointer sample. */
 export interface PointerSample {
@@ -29,6 +30,8 @@ export interface Gesture {
   /** Cursor while the gesture runs. */
   cursor?: string;
   move?(sample: PointerSample): void;
+  /** Where the pointer is predicted to go next (draw ahead with them; they are not samples). */
+  predict?(samples: readonly PointerSample[]): void;
   up?(sample: PointerSample): void;
   /** Escape, a second finger, or the pointer was lost. Undo any preview. */
   cancel?(): void;
@@ -79,8 +82,9 @@ export const DRAG_THRESHOLD_PX = 3;
 /** On touch, the same threshold is larger. */
 export const TOUCH_DRAG_THRESHOLD_PX = 8;
 
-/** The drag threshold for a pointer type. */
+/** The drag threshold for a pointer type (a stylus on a touch screen grabs after {@link TOUCH_PEN_SLOP}`.grabPx`). */
 export function dragThreshold(event: PointerEvent): number {
+  if (isTouchScreenPen(event)) return TOUCH_PEN_SLOP.grabPx;
   return event.pointerType === 'touch' ? TOUCH_DRAG_THRESHOLD_PX : DRAG_THRESHOLD_PX;
 }
 

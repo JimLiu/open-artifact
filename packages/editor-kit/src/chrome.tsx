@@ -237,9 +237,16 @@ export interface ChromeMenuItemProps {
 
 /** One menu row. A row that closes the menu keeps the rest of a double click from reaching what the menu uncovers. */
 export function ChromeMenuItem({ children, onSelect, shortcut, checked, disabled, danger, icon, title, description, closeOnClick }: ChromeMenuItemProps): ReactNode {
+  const wraps = checked !== undefined && description === undefined;
+  const cell = wraps ? 'flex h-5 w-4 shrink-0 items-center justify-center' : 'flex size-4 shrink-0 items-center justify-center';
   return (
     <BaseMenu.Item
-      className={cn(ITEM, description !== undefined && 'h-auto min-h-7 items-start py-1.5', danger && 'text-danger data-[highlighted]:bg-danger data-[highlighted]:text-white')}
+      className={cn(
+        ITEM,
+        description !== undefined && 'h-auto min-h-7 items-start py-1.5',
+        wraps && 'h-auto min-h-7 items-start py-1',
+        danger && 'text-danger data-[highlighted]:bg-danger data-[highlighted]:text-white',
+      )}
       disabled={disabled}
       onClick={(event) => {
         if (closeOnClick !== false) swallowFollowUpClicks(event.nativeEvent);
@@ -248,17 +255,19 @@ export function ChromeMenuItem({ children, onSelect, shortcut, checked, disabled
       closeOnClick={closeOnClick}
       title={title}
     >
-      {checked !== undefined ? (
-        <span className="flex size-4 shrink-0 items-center justify-center">{checked ? <Check className="size-4 text-chrome-accent" strokeWidth={2.25} /> : null}</span>
+      {checked !== undefined ? <span className={cell}>{checked ? <Check className="size-4 text-chrome-accent" strokeWidth={2.25} /> : null}</span> : null}
+      {icon ? (
+        <span data-chrome-icon="" className={cn(cell, 'text-chrome-muted')}>
+          {icon}
+        </span>
       ) : null}
-      {icon ? <span data-chrome-icon="" className="flex size-4 shrink-0 items-center justify-center text-chrome-muted">{icon}</span> : null}
       {description !== undefined ? (
         <span className="flex min-w-0 flex-1 flex-col">
           <span className="truncate">{children}</span>
           <span className="truncate text-[12px] leading-4 text-chrome-muted">{description}</span>
         </span>
       ) : (
-        <span className="min-w-0 flex-1 truncate">{children}</span>
+        <span className={cn('min-w-0 flex-1', wraps ? 'line-clamp-2 break-words' : 'truncate')}>{children}</span>
       )}
       {shortcut ? <span className="ml-6 max-w-40 shrink-0 truncate text-[13px] text-chrome-muted">{shortcut}</span> : null}
     </BaseMenu.Item>

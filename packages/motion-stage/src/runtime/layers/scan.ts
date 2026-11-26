@@ -1,5 +1,6 @@
 import type { PlaySeconds } from '@open-artifact/motion-core';
 import type { LayerBox, LayerLook, LayerRow, LayersReport } from '../../protocol.ts';
+import { realNow } from '../determinism.ts';
 import { srect } from '../kit/geometry.ts';
 import type { StageRect } from '../kit/geometry.ts';
 import type { ReadMemo } from '../retouch/entry.ts';
@@ -93,19 +94,20 @@ export async function scanLayers(d: LayersAsk, sys: ScanSys, gone: () => boolean
     const taken: number[] = [];
     let spent = 0;
     const moment = (i: number): number => from + ((to - from - 1 / 240) * i) / (all - 1);
-    let s0 = performance.now();
+    // The film's clock stands in for performance.now while a moment is drawn, so the time spent is read off the real one.
+    let s0 = realNow();
     for (let q = 0; q < turn.length; q++) {
       // A film that is slow to draw is looked at less often.
       if ((spent > WHOLE_MS && q >= FEWEST_LOOKS) || spent > LAST_MS) break;
-      if (performance.now() - s0 > SLICE_MS) {
+      if (realNow() - s0 > SLICE_MS) {
         await breath();
         if (gone()) return null;
-        s0 = performance.now();
+        s0 = realNow();
       }
       const i = turn[q] ?? 0;
-      const l0 = performance.now();
+      const l0 = realNow();
       lookAt(reading, sys.render, moment(i), i, false);
-      spent += performance.now() - l0;
+      spent += realNow() - l0;
       taken.push(i);
     }
     taken.sort((a, b) => a - b);

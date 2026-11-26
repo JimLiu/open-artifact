@@ -11,6 +11,8 @@ export interface HistoryState {
   /** Label of the step undo would revert (e.g. `Move`), for tooltips. */
   undoLabel: string | undefined;
   redoLabel: string | undefined;
+  /** Steps waiting to be redone: an undo that took effect adds one, a redo removes one. */
+  redoDepth: number;
 }
 
 export const useHistory = create<HistoryState>()(() => ({
@@ -18,4 +20,5 @@ export const useHistory = create<HistoryState>()(() => ({
   canRedo: false,
   undoLabel: undefined,
   redoLabel: undefined,
+  redoDepth: 0,
 }));

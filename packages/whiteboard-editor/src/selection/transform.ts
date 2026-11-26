@@ -197,8 +197,20 @@ export function canTurnSelection(elements: readonly BoardElement[], ids: Readonl
   return rotatableSelection(elements, ids).items.length > 0;
 }
 
-/** Starts turning the selection around its center (Shift snaps to 15° steps). */
-export function turnGesture(sample: PointerSample): Gesture | null {
+/** The turn knob (for fingers and styluses) snaps to multiples of `step` degrees within `within`. */
+export const KNOB_SNAP = { step: 15, within: 4 } as const;
+
+/** A turn (degrees) pulled to the nearest multiple of {@link KNOB_SNAP}`.step` when that is close. */
+export function snapKnobTurn(degrees: number): number {
+  const nearest = Math.round(degrees / KNOB_SNAP.step) * KNOB_SNAP.step + 0;
+  return Math.abs(degrees - nearest) <= KNOB_SNAP.within ? nearest : degrees;
+}
+
+/**
+ * Starts turning the selection around its center (Shift snaps to 15°
+ * steps; from the turn knob, near multiples of 15° snap on their own).
+ */
+export function turnGesture(sample: PointerSample, options: { knob?: boolean } = {}): Gesture | null {
   const elements = boardElements();
   const ids = withoutLockedIds(elements, selectedIds());
   const items = rotatableSelection(elements, ids).items;
@@ -214,6 +226,7 @@ export function turnGesture(sample: PointerSample): Gesture | null {
     cursor: 'grabbing',
     move(next) {
       degrees = rotationAngle(start, from, next.board, next.event.shiftKey, base);
+      if (options.knob && !next.event.shiftKey) degrees = normalizeTurnDegrees(snapKnobTurn(base + degrees) - base);
       editContent((content) => ({ ...content, elements: rotateElements(content.elements, start, degrees) }), { label: 'Turn', coalesce: key });
       useInteraction.getState().setTurnDegrees(normalizeTurnDegrees(base + degrees));
     },

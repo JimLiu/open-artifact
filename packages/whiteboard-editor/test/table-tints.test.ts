@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { tableCellPaints, tableFromGrid, tableHeatPaint, type TableElement } from '@open-artifact/whiteboard-core';
 import { tableTintDividers } from '../src/export/look.ts';
-import { TABLE_TINT_MESSAGES, heatChangeMessage, heatColorFor, heatRampGradient, takesRowHeat } from '../src/lib/table-heat.ts';
+import { HEAT_NEEDS_NUMBERS, TABLE_TINT_MESSAGES, heatChangeMessage, heatColorFor, heatRampGradient, heatRefusal, takesRowHeat } from '../src/lib/table-heat.ts';
 
 /** A table with a header row: rows r1… and columns c1… from the grid. */
 const table = (grid: string[][], extra: Partial<TableElement> = {}): TableElement => ({ type: 'table', id: 't1', x: 0, y: 0, head: true, color: 'white', ...tableFromGrid(grid), ...extra });
@@ -49,6 +49,15 @@ describe('takesRowHeat', () => {
     assert.equal(takesRowHeat(element, 'r2'), true);
     assert.equal(takesRowHeat(element, 'r9'), false);
     assert.equal(takesRowHeat({ ...element, head: false }, 'r1'), true);
+  });
+});
+
+describe('heatRefusal', () => {
+  it('refuses to turn a heat map on without two numbers of a kind, but always lets one be turned off', () => {
+    const element = table([['Name', 'Score'], ['Ana', '4'], ['Bo', 'late']]);
+    assert.equal(heatRefusal(element, 'cols', 'c2'), HEAT_NEEDS_NUMBERS);
+    assert.equal(heatRefusal({ ...element, heat: { cols: { c2: 'green' } } }, 'cols', 'c2'), undefined);
+    assert.equal(heatRefusal(table([['Name', 'Score'], ['Ana', '4'], ['Bo', '9']]), 'cols', 'c2'), undefined);
   });
 });
 

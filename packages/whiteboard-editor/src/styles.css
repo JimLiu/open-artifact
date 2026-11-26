@@ -221,9 +221,13 @@ body {
   cursor: grab;
 }
 /* Comment mode: the speech bubble everywhere on the board but its chrome (pins, cards); a Space pan still grabs. */
-.wb-surface.wb-commenting:not([data-wb-grabbing]),
-.wb-surface.wb-commenting:not([data-wb-grabbing]) :not([data-wb-chrome], [data-wb-chrome] *) {
+.wb-surface.wb-commenting:not([data-wb-grabbing], [data-wb-space-pan]),
+.wb-surface.wb-commenting:not([data-wb-grabbing], [data-wb-space-pan]) :not([data-wb-chrome], [data-wb-chrome] *) {
   cursor: var(--wb-comment-cursor) !important;
+}
+.wb-surface.wb-commenting[data-wb-space-pan]:not([data-wb-grabbing]),
+.wb-surface.wb-commenting[data-wb-space-pan]:not([data-wb-grabbing]) :not([data-wb-chrome], [data-wb-chrome] *) {
+  cursor: grab !important;
 }
 .wb-surface.wb-tool-hand:active,
 .wb-surface[data-wb-grabbing],

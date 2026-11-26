@@ -16,12 +16,14 @@
  */
 
 import { useEffect, useMemo, useRef, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
-import { Check, RotateCcw, Type } from 'lucide-react';
+import { useShallow } from 'zustand/react/shallow';
+import { Check, RotateCcw, RotateCw, Type } from 'lucide-react';
 import {
   ARROW_STROKE,
   ELEMENT_KIND_AFFORDANCES,
   arrowLegHandles,
   blockColorHex,
+  cachedStrokePath,
   elementBounds,
   elementLayoutBox,
   elementTurn,
@@ -31,10 +33,13 @@ import {
   layoutBoxResolver,
   measuredArrowGeometry,
   measuredArrowLabelBox,
+  overflowFitSize,
   roundedPolygonPathData,
   shapePathData,
   selectionGroupCells,
   shapeFillPaint,
+  strokeBounds,
+  strokeWidestFactor,
   unionBounds,
   wouldExceedElementLimit,
   type ArrowElement,
@@ -69,10 +74,15 @@ import { sideDotPoint } from '../tools/hit.ts';
 import { SIDE_DOTS_MIN_SIZE, SIDE_DOT_OFFSET_PX } from '../tools/place.ts';
 import { sideDotTitle, sideDotsWithRoom } from '../lib/side-dots.ts';
 import { gestureKey } from '../tools/gesture.ts';
+import { lassoPath } from '../tools/lasso.ts';
+import { useLastInput } from '../tools/pen-input.ts';
+import { useVersionHistory } from '../services/version-history.ts';
+import { usePickedLayer, type PickedDrawingLayer } from '../services/drawing-layers.ts';
+import { layerFrameBox } from '../lib/layer-picking.ts';
 import { AreaMarquee } from './AreaMarquee.tsx';
 import { CROP_IMAGE_CHANGED_ELSEWHERE, cropTargetChanged } from './crop-guard.ts';
 import { driveFromHandle, surfaceOf } from './drive.ts';
-import { registerInkPath, useInteraction, type ArrowDraft, type GuideLine } from './store.ts';
+import { registerInkPath, useInteraction, type ArrowDraft, type GuideLine, type InkLook } from './store.ts';
 import {
   arrowEndGesture,
   arrowLegGesture,
@@ -163,20 +173,59 @@ function arrowHeadPath(tip: Point, from: Point): string {
   return `M ${back.x - uy * wing} ${back.y + ux * wing} L ${tip.x} ${tip.y} L ${back.x + uy * wing} ${back.y - ux * wing}`;
 }
 
+/** The ring under a long press on empty board, screen pixels across. */
+const HOLD_RING_PX = 64;
+
 /** The SVG transform of a board box turned about its center. */
 function turnTransform(box: Box, turn: number): string | undefined {
   return turn !== 0 ? `rotate(${turn} ${box.x + box.w / 2} ${box.y + box.h / 2})` : undefined;
 }
 
-/** The outline of an element (or the union of its group when the group is not entered). */
-function hoverOutline(elements: readonly BoardElement[], element: BoardElement, selected: readonly ElementId[], measures: ElementMeasures): { box: Box; turn: number } | undefined {
+/** `[x, y, x, y…]` as pairs. */
+function pointPairs(points: readonly number[]): [number, number][] {
+  const pairs: [number, number][] = [];
+  for (let index = 0; index + 1 < points.length; index += 2) pairs.push([points[index]!, points[index + 1]!]);
+  return pairs;
+}
+
+/** The hover mark of an item: a box, or a band along a line (board units; `width` in screen pixels). */
+type HoverMark = { kind: 'box'; box: Box; turn: number } | { kind: 'band'; d: string; transform: string | undefined; width: number };
+
+/**
+ * The hover mark of an element: the union box of its group when the group
+ * is not entered; else a band along a pen stroke or an arrow (its line
+ * width plus 6 screen pixels, at least 8), or the element's box.
+ */
+function hoverOutline(
+  elements: readonly BoardElement[],
+  element: BoardElement,
+  selected: readonly ElementId[],
+  measures: ElementMeasures,
+  byId: ReadonlyMap<ElementId, BoardElement>,
+  zoom: number,
+): HoverMark | undefined {
   const group = expandSelectionToGroups(elements, new Set([element.id]), selected);
   if (group.size > 1) {
     const union = unionBounds(elements.flatMap((each) => (group.has(each.id) ? (elementBounds(each, measures) ?? []) : [])));
-    return union ? { box: union, turn: 0 } : undefined;
+    return union ? { kind: 'box', box: union, turn: 0 } : undefined;
+  }
+  const band = (lineWidth: number): number => Math.max(8, lineWidth * zoom + 6);
+  if (element.type === 'stroke') {
+    const bounds = strokeBounds(element);
+    return {
+      kind: 'band',
+      // A stroke drawn with pressure is drawn straight from point to point.
+      d: element.widths === undefined ? cachedStrokePath(element.points) : polylinePath(pointPairs(element.points)),
+      transform: `${turnTransform(bounds, elementTurn(element)) ?? ''} translate(${element.x} ${element.y})`,
+      width: band(element.width * strokeWidestFactor(element)),
+    };
+  }
+  if (element.type === 'arrow') {
+    const line = measuredArrowGeometry(element, byId, measures);
+    return line ? { kind: 'band', d: polylinePath(arrowPoints(line)), transform: undefined, width: band(ARROW_STROKE.width) } : undefined;
   }
   const box = elementLayoutBox(element, measures);
-  return box ? { box, turn: elementTurn(element) } : undefined;
+  return box ? { kind: 'box', box, turn: elementTurn(element) } : undefined;
 }
 
 /** The ink an element's color paints with (the preview of a pen stroke or an arrow). */
@@ -194,15 +243,19 @@ interface MarksProps {
   scheme: ColorScheme;
   marquee: Box | null;
   guides: readonly GuideLine[];
-  hover: { box: Box; turn: number } | undefined;
+  hover: HoverMark | undefined;
   section: { box: Box; turn: number } | undefined;
   connect: { box: Box; turn: number; dot?: Point } | undefined;
   hairlines: readonly { id: ElementId; box: Box; turn: number }[];
   groups: readonly Box[];
   arrowLines: readonly { id: ElementId; d: string }[];
   draft: ArrowDraft | null;
-  ink: { color: InkColor; width: number } | null;
+  ink: InkLook | null;
   offer: DotOffer | undefined;
+  /** The lasso being drawn, board points. */
+  lasso: readonly Point[] | null;
+  /** Where a long press on empty board is held. */
+  holdRing: Point | null;
 }
 
 /** What a click on the hovered side dot would add: the faint item. */
@@ -211,7 +264,7 @@ interface DotOffer {
 }
 
 /** The passive marks: guides, rubber band, outlines, the pen stroke and the arrow being drawn. */
-function Marks({ camera, scheme, marquee, guides, hover, section, connect, hairlines, groups, arrowLines, draft, ink, offer }: MarksProps): ReactNode {
+function Marks({ camera, scheme, marquee, guides, hover, section, connect, hairlines, groups, arrowLines, draft, ink, offer, lasso, holdRing }: MarksProps): ReactNode {
   const zoom = camera.zoom;
   return (
     <svg className="wb-sel-marks" aria-hidden="true">
@@ -232,8 +285,11 @@ function Marks({ camera, scheme, marquee, guides, hover, section, connect, hairl
             transform={`${turnTransform(section.box, section.turn) ?? ''} translate(${section.box.x} ${section.box.y})`}
           />
         ) : null}
-        {hover ? (
+        {hover?.kind === 'box' ? (
           <rect className="wb-sel-hover" x={hover.box.x} y={hover.box.y} width={hover.box.w} height={hover.box.h} transform={turnTransform(hover.box, hover.turn)} vectorEffect="non-scaling-stroke" />
+        ) : null}
+        {hover?.kind === 'band' ? (
+          <path className="wb-sel-hover-band" d={hover.d} transform={hover.transform} strokeWidth={hover.width} vectorEffect="non-scaling-stroke" />
         ) : null}
         {connect ? (
           <>
@@ -250,6 +306,8 @@ function Marks({ camera, scheme, marquee, guides, hover, section, connect, hairl
           ),
         )}
         {marquee ? <AreaMarquee className="wb-sel-marquee" box={marquee} zoom={zoom} /> : null}
+        {lasso ? <path className="wb-sel-lasso" d={lassoPath(lasso)} strokeWidth={2 / zoom} strokeDasharray={`${6 / zoom} ${6 / zoom}`} /> : null}
+        {holdRing ? <circle className="wb-sel-hold-ring" cx={holdRing.x} cy={holdRing.y} r={HOLD_RING_PX / 2 / zoom} vectorEffect="non-scaling-stroke" /> : null}
         {draft ? (
           <g className="wb-sel-draft" stroke={inkPaint(draft.color, scheme)} strokeWidth={ARROW_STROKE.width}>
             <path d={`M ${draft.from.x} ${draft.from.y} L ${draft.to.x} ${draft.to.y}`} />
@@ -262,6 +320,7 @@ function Marks({ camera, scheme, marquee, guides, hover, section, connect, hairl
           className="wb-sel-ink"
           stroke={ink ? inkPaint(ink.color, scheme) : 'none'}
           strokeWidth={ink?.width ?? 0}
+          style={ink?.filled ? { fill: inkPaint(ink.color, scheme), stroke: 'none' } : undefined}
           visibility={ink ? 'visible' : 'hidden'}
         />
       </g>
@@ -363,6 +422,42 @@ function FrameHandles({
       ) : null}
       {dotsFor !== undefined ? dots.map(({ side, adds }) => <SideDot key={side} element={dotsFor} side={side} adds={adds} />) : null}
     </>
+  );
+}
+
+/**
+ * The turn knob, for a finger or a stylus (the corner zones are hard to
+ * find without a cursor): a round grip {@link TURN_KNOB}`.gapPx` below the
+ * selection, or beside it when there is no room below.
+ */
+export const TURN_KNOB = { sizePx: 44, gapPx: 58 } as const;
+
+/** Where the knob's center goes for a frame, in a view `width × height` whose bottom `bottomInset` is chrome. */
+export function turnKnobCenter(frame: ScreenFrame, width: number, height: number, bottomInset: number): Point {
+  const radians = (frame.turn * Math.PI) / 180;
+  const halfW = (Math.abs(frame.width * Math.cos(radians)) + Math.abs(frame.height * Math.sin(radians))) / 2;
+  const halfH = (Math.abs(frame.width * Math.sin(radians)) + Math.abs(frame.height * Math.cos(radians))) / 2;
+  const center = { x: frame.left + frame.width / 2, y: frame.top + frame.height / 2 };
+  const reach = TURN_KNOB.sizePx / 2;
+  if (center.y + halfH + TURN_KNOB.gapPx + reach <= height - bottomInset) return { x: center.x, y: center.y + halfH + TURN_KNOB.gapPx };
+  if (center.x + halfW + TURN_KNOB.gapPx + reach <= width) return { x: center.x + halfW + TURN_KNOB.gapPx, y: center.y };
+  return { x: center.x - halfW - TURN_KNOB.gapPx, y: center.y };
+}
+
+/** The turn knob at `at` (screen point). */
+function TurnKnob({ at }: { at: Point }): ReactNode {
+  return (
+    <div
+      className="wb-turn-knob"
+      data-no-pan
+      aria-hidden="true"
+      style={{ left: at.x, top: at.y }}
+      onPointerDown={press((sample) => turnGesture(sample, { knob: true }))}
+    >
+      <span className="wb-turn-knob-disc">
+        <RotateCw className="size-4" aria-hidden="true" />
+      </span>
+    </div>
   );
 }
 
@@ -646,6 +741,8 @@ export function SelectionOverlay(): ReactNode {
   const connectTarget = useInteraction((state) => state.connect);
   const draft = useInteraction((state) => state.arrowDraft);
   const ink = useInteraction((state) => state.ink);
+  const lasso = useInteraction((state) => state.lasso);
+  const holdRing = useInteraction((state) => state.holdRing);
   const scheme = useColorScheme();
   const coarse = useCoarsePointer();
 
@@ -689,6 +786,8 @@ export function SelectionOverlay(): ReactNode {
   const lone = boxes.length === 1 && selected.length === 1 ? boxes[0] : undefined;
   const loneArrow = selected.length === 1 && lines.length === 1 ? lines[0] : undefined;
   const croppingImage = cropping !== null && lone?.id === cropping && lone.type === 'image' ? lone : undefined;
+  // A lone shape whose text is cut opens into a card below its box: the frame then keeps only its handles.
+  const opened = useMemo(() => lone?.type === 'shape' && overflowFitSize(lone) !== undefined, [lone]);
 
   // Leg handles of a lone arrow. While an arrow handle is dragged they stay
   // as they were when it started (hidden), so the pressed one keeps its
@@ -703,15 +802,19 @@ export function SelectionOverlay(): ReactNode {
   const legsHeld = useRef(legsNow);
   if (transform !== 'arrow') legsHeld.current = legsNow;
 
-  // Handles: only for an editable, unlocked selection with the Select tool, outside text editing and crop mode.
-  const active = editable && selecting && !locked && !typing && croppingImage === undefined;
+  // Handles: only for an editable, unlocked selection with the Select tool, outside text editing, crop mode and a picked layer.
+  const pickedLayer = usePickedLayer();
+  const active = editable && selecting && !locked && !typing && croppingImage === undefined && pickedLayer === undefined;
   const handles = active ? resizeHandlesFor(boxes) : [];
   const turnable = active && boxes.length > 0 && canTurnSelection(elements, new Set(ids));
+  const lastInput = useLastInput((state) => state.kind);
+  const view = useCamera(useShallow((state) => ({ width: state.width, height: state.height, bottom: state.insets.bottom })));
   const dotsFor =
     editable &&
     selecting &&
     !locked &&
     croppingImage === undefined &&
+    pickedLayer === undefined &&
     lone &&
     hasDots(lone) &&
     dotsFit(lone, measures, camera.zoom) &&
@@ -724,8 +827,11 @@ export function SelectionOverlay(): ReactNode {
 
   // Hover: an unselected element under the pointer, with the Select tool.
   const hovered = hoverId !== null && selecting && transform === null && !ids.includes(hoverId) ? byId.get(hoverId) : undefined;
-  //; the others show their side dots alone.
-  const hover = hovered && ELEMENT_KIND_AFFORDANCES[hovered.type].hairline ? hoverOutline(elements, hovered, ids, measures) : undefined;
+  const commenting = useTool((state) => state.commentMode);
+  const previewing = useVersionHistory((state) => state.previewing !== null);
+  // Its outline shows only while nothing else is going on (no lasso or hold under way either).
+  const idle = !typing && cropping === null && !commenting && !previewing && lasso === null && holdRing === null;
+  const hover = hovered && idle ? hoverOutline(elements, hovered, ids, measures, byId, camera.zoom) : undefined;
 
   // Side dots of the hovered item (the selected item's own dots win). While
   // a gesture runs they stay as they were when it started (hidden), so the
@@ -765,7 +871,6 @@ export function SelectionOverlay(): ReactNode {
   }, [offering, dotOwner, dotHover, elements, measures, content]);
 
   const sectionHoverId = useSectionHover((state) => state.id);
-  const commenting = useTool((state) => state.commentMode);
   // The section under the pointer (not picked, not locked, not being edited) glows in the accent.
   const glowId = sectionHoverId ?? (hovered?.type === 'container' ? hovered.id : null);
   const glowing = glowId !== null ? byId.get(glowId) : undefined;
@@ -797,9 +902,11 @@ export function SelectionOverlay(): ReactNode {
         draft={draft}
         ink={ink}
         offer={offer}
+        lasso={lasso}
+        holdRing={holdRing}
       />
       {screen && croppingImage === undefined && !titling ? (
-        <div className="wb-sel-frame" data-locked={locked || undefined} data-thin={typing || undefined} data-sides={handles.length === 2 || undefined} style={frameStyle(screen)}>
+        <div className="wb-sel-frame" data-locked={locked || undefined} data-thin={typing || pickedLayer !== undefined || undefined} data-sides={handles.length === 2 || undefined} data-bare={opened || undefined} style={frameStyle(screen)}>
           <FrameHandles handles={handles} turnable={turnable} turn={screen.turn} dots={dotChoices} dotsFor={dotsFor} turning={turning} />
         </div>
       ) : null}
@@ -813,9 +920,27 @@ export function SelectionOverlay(): ReactNode {
           editable={editable && selecting && !isElementLocked(loneArrow.arrow)}
         />
       ) : null}
+      {screen && turnable && lastInput !== 'mouse' && !titling ? <TurnKnob at={turnKnobCenter(screen, view.width, view.height, view.bottom)} /> : null}
       {hoverDots ? <HoverDots element={hoverDots} dots={hoverDotChoices} camera={camera} measures={measures} /> : null}
       {croppingImage ? <CropFrame image={croppingImage} camera={camera} /> : null}
+      {pickedLayer ? <PickedLayerFrame picked={pickedLayer} camera={camera} /> : null}
     </div>
+  );
+}
+
+/** The frame around the picked layer of a drawing, turned with the drawing. */
+function PickedLayerFrame({ picked, camera }: { picked: PickedDrawingLayer; camera: Camera }): ReactNode {
+  const element = picked.drawing.element;
+  const box = layerFrameBox(element, picked.drawing.shapes.size, picked.shape.box);
+  if (box === undefined) return null;
+  const turn = turnTransform(element, elementTurn(element));
+  return (
+    <svg className="wb-sel-marks" aria-hidden="true" data-wb-layer-frame="">
+      <g transform={`scale(${camera.zoom}) translate(${-camera.x} ${-camera.y})`}>
+        <rect className="wb-sel-layer-halo" x={box.x} y={box.y} width={box.w} height={box.h} transform={turn} vectorEffect="non-scaling-stroke" />
+        <rect className="wb-sel-layer" x={box.x} y={box.y} width={box.w} height={box.h} transform={turn} vectorEffect="non-scaling-stroke" />
+      </g>
+    </svg>
   );
 }
 

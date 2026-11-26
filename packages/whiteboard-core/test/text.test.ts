@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { after, describe, it } from 'node:test';
-import type { NoteElement, ShapeElement, TextElement } from '../src/schema.ts';
-import { createFontFitContent, FIT_EXACT, FIT_LOOSE, fitBoxToText, fittedBoxPatch, longestWordWidth, overflowFitSize, splitBreakableWords, widenTextWrapToFit } from '../src/text/fit.ts';
+import { TEXT_LINE_HEIGHT, TEXT_SIZE_STYLES, type NoteElement, type ShapeElement, type TextElement } from '../src/schema.ts';
+import { shapeTextInsets } from '../src/shape-paths.ts';
+import { createFontFitContent, FIT_EXACT, FIT_LOOSE, fitBoxToText, fittedBoxPatch, longestWordWidth, overflowFitSize, shapeTextLineCount, splitBreakableWords, widenTextWrapToFit } from '../src/text/fit.ts';
 import { decodeMarkdownEscapes, encodeMarkdownEscapes, escapeInlineMarkdown, markdownLinkUrls, tokenizeCodeSpans, tokenizeInlineMarkdown } from '../src/text/inline-markdown.ts';
 import { isLinkableHref, linkableTextSpans, linkEditCost } from '../src/text/links.ts';
 import {
@@ -239,6 +240,17 @@ describe('box fitting', () => {
     assert.deepEqual(overflowFitSize(shape), { w: 64, h: 63 });
     assert.equal(overflowFitSize({ ...shape, w: 200, h: 100 }), undefined);
     assert.deepEqual(fittedBoxPatch(shape), { x: 88, y: 78.5, w: 64, h: 63 });
+  });
+
+  it('counts the lines a shape shows', () => {
+    const rect = { kind: 'rect' as const, size: 'body' as const, w: 200 };
+    const { top, bottom } = shapeTextInsets('rect', 200, 100);
+    const line = TEXT_SIZE_STYLES.body.px * TEXT_LINE_HEIGHT;
+    const tall = (lines: number): number => (lines * line) / (1 - top - bottom);
+    assert.equal(shapeTextLineCount({ ...rect, h: tall(3) }), 3);
+    assert.equal(shapeTextLineCount({ ...rect, h: tall(3) - 0.05 }), 3, 'a hair short still fits');
+    assert.equal(shapeTextLineCount({ ...rect, h: tall(3) - 2 }), 2);
+    assert.equal(shapeTextLineCount({ ...rect, h: 4 }), 1, 'always at least one');
   });
 
   it('widens notes to their widest word', () => {

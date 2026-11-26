@@ -9,7 +9,8 @@
  * by frame. Each painting is an object URL kept by source, look, scheme and
  * pixel size; a source keeps visible paintings and its two latest idle paintings per look. All of
  * them are freed when no drawing on the board uses that source in that
- * look. Until a painting is ready, views draw the plain drawing.
+ * look and no view still shows them. Until a painting is ready, views draw
+ * the plain drawing, or the painting they showed before the drawing changed.
  */
 
 import { decodeSvgDataUrl, imageDrawingLook, unknownSvgParts, type BoardElement, type ColorScheme, type ElementId } from '@open-artifact/whiteboard-core';
@@ -115,10 +116,14 @@ function publishWithout(keys: Iterable<string>): void {
   for (const url of retired) URL.revokeObjectURL(url);
 }
 
+/** A source's paintings not in view, oldest first. */
+function idle(group: string): string[] {
+  return [...paintings].filter(([key, painting]) => painting.group === group && !consumers.has(key)).map(([key]) => key);
+}
+
 /** A source's paintings to let go: its oldest ones not in view, past {@link PAINTINGS_PER_SOURCE}. */
 function expired(group: string): string[] {
-  return [...paintings].filter(([key, painting]) => painting.group === group && !consumers.has(key))
-    .map(([key]) => key).slice(0, -PAINTINGS_PER_SOURCE);
+  return idle(group).slice(0, -PAINTINGS_PER_SOURCE);
 }
 
 /**
@@ -135,7 +140,8 @@ export function retainDrawingLook(key: string): () => void {
     else {
       consumers.delete(key);
       const painting = paintings.get(key);
-      const retired = painting ? expired(painting.group) : [];
+      if (painting === undefined) return;
+      const retired = groupsInUse(useBoard.getState().board.content.elements).has(painting.group) ? expired(painting.group) : idle(painting.group);
       if (retired.length) publishWithout(retired);
     }
   };
@@ -201,10 +207,10 @@ function groupsInUse(elements: readonly BoardElement[]): Set<string> {
   return groups;
 }
 
-/** Frees the paintings no drawing on the board uses any more. */
+/** Frees the paintings no drawing on the board uses any more (one still shown goes once its view lets it go). */
 function freeUnused(elements: readonly BoardElement[]): void {
   const groups = groupsInUse(elements);
-  const unused = [...paintings].filter(([, painting]) => !groups.has(painting.group)).map(([key]) => key);
+  const unused = [...paintings].filter(([key, painting]) => !groups.has(painting.group) && !consumers.has(key)).map(([key]) => key);
   if (unused.length === 0) return;
   publishWithout(unused);
 }

@@ -8,7 +8,7 @@
  *     BoardSurface
  *       camera layer (board units)   ElementsLayer, UploadPlaceholders, CollabBoardLayer, NextItemOffer
  *       overlay (screen units)       SelectionOverlay, CollabOverlay
- *   TimerEndGlow, BoardPill, BoardFoot, SelectionBar, LinkCard, CollabChrome, FindBar,
+ *   TimerEndGlow, BoardPill, BoardFoot, SelectionBar, LinkCard, CollabChrome, FindBar, GestureNotice,
  *   VersionHistory                   the history panel and a past version's preview
  * .wb-veil                           over the board until its first view settles
  * ```
@@ -28,6 +28,7 @@ import { startBoard } from './services/boot.ts';
 import { waitForViewportReady } from './services/reveal.ts';
 import { setBoardRevealed, useBoard } from './state/board.ts';
 import { BoardPill } from './ui/BoardPill.tsx';
+import { GestureNotice } from './ui/GestureNotice.tsx';
 import { BoardContextMenu } from './ui/ContextMenu.tsx';
 import { LinkCard } from './ui/LinkCard.tsx';
 import { SelectionBar } from './ui/SelectionBar.tsx';
@@ -138,6 +139,7 @@ export function App() {
             <LinkCard />
             <CollabChrome />
             <FindBar />
+            <GestureNotice />
             <VersionHistory />
           </>
         )}

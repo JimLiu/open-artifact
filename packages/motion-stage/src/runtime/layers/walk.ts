@@ -219,8 +219,12 @@ function walk(r: Reading, el: Element, op: number, i: number, memo: Map<Element,
       if (!hid && !it.words && o > 0.9 && box.w * box.h >= COVER * r.W * r.H && paintsOver(el, r.stage, memo)) state.covers.push(it);
     }
     if (it.words) {
-      const s = wordsIn(el);
-      if (s.length > it.text.length) it.text = s.slice(0, 300);
+      const s = wordsIn(el).slice(0, 300);
+      // Looks are not taken in time order. The look at the moment on show changes no finding, so it never breaks a tie.
+      if (s.length > it.text.length || (s.length === it.text.length && !state.closed && i > it.textAt)) {
+        it.text = s;
+        if (!state.closed) it.textAt = i;
+      }
     }
   }
   under.forEach((child, k) => {

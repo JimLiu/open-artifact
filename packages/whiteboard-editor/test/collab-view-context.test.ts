@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { BoardElement, ContainerElement, NoteElement, ShapeElement, StrokeElement } from '@open-artifact/whiteboard-core';
 import { coveredShare, findBoardIssues, MAX_REPORTED_ISSUES } from '../src/collab/board-issues.ts';
-import { buildViewContext, fitViewContext, jsonBytes, MAX_CONTEXT_LABELS, type BoardViewContext, type ViewContextInput } from '../src/collab/view-context.ts';
+import { buildViewContext, fitViewContext, jsonBytes, MAX_CONTEXT_LABELS, MAX_CONTEXT_SELECTED, type BoardViewContext, type ViewContextInput } from '../src/collab/view-context.ts';
 
 const note = (id: string, x: number, y: number, text = 'Hello there'): NoteElement => ({ type: 'note', id, x, y, w: 100, h: 100, color: 'yellow', text, tilt: 0 });
 const shape = (id: string, x: number, y: number, w = 100, h = 100): ShapeElement => ({ type: 'shape', id, x, y, w, h, kind: 'rect', color: 'blue', text: '' });
@@ -46,6 +46,15 @@ describe('buildViewContext', () => {
     assert.equal(context.selected?.length, 8);
     assert.equal(context.selection?.length, MAX_CONTEXT_LABELS);
     assert.deepEqual(context.selection?.at(-1), { id: 'n7', kind: 'note', label: 'Note 7' });
+    assert.equal(context.selectedCount, undefined);
+  });
+
+  it('lists the most recent part of a big selection and counts it all', () => {
+    const notes = Array.from({ length: 30 }, (_, index) => note(`n${index}`, index * 200, 0, ''));
+    const context = buildViewContext(input(notes, { selected: notes.map((element) => element.id) }));
+    assert.equal(context.selected?.length, MAX_CONTEXT_SELECTED);
+    assert.equal(context.selected?.at(-1), 'n29');
+    assert.equal(context.selectedCount, 30);
   });
 
   it('notes the mode, tool, editing target, pin, moving items and unsaved changes', () => {
@@ -92,8 +101,12 @@ describe('fitViewContext', () => {
     const withoutLabels = fitViewContext(big, jsonBytes(big) - 100);
     assert.equal(withoutLabels.selection, undefined);
     assert.equal(withoutLabels.selected?.length, 20);
-    const small = fitViewContext(big, jsonBytes({ ...big, selection: undefined, selected: big.selected?.slice(-MAX_CONTEXT_LABELS) }));
+    const small = fitViewContext(big, jsonBytes({ ...big, selection: undefined, selected: big.selected?.slice(-MAX_CONTEXT_LABELS), selectedCount: 20 }));
     assert.deepEqual(small.selected, ['id15', 'id16', 'id17', 'id18', 'id19']);
+    assert.equal(small.selectedCount, 20);
+    const counted = fitViewContext({ ...big, selectedCount: 40 }, 200);
+    assert.equal(counted.selected?.length, MAX_CONTEXT_LABELS);
+    assert.equal(counted.selectedCount, 40);
     assert.equal(fitViewContext(big), big);
   });
 });
