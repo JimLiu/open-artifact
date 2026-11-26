@@ -71,6 +71,43 @@ describe('tokens', () => {
     assert.match(css, /@font-face \{ font-family: "Acme Sans"; src: url\("fonts\/AcmeSans\.woff2"\) format\("woff2"\); font-weight: 300 800;/);
     assert.doesNotMatch(css, /url\(x\)|body \{ background/);
   });
+
+  it('keeps valid font features and ranges, and drops only a bad one', () => {
+    const { tokens: read, notes: said } = normalizeTokens({
+      type: {
+        fonts: [
+          { family: 'Acme Sans', file: 'AcmeSans.woff2', features: '"ss01" 1,"liga"  0, "tnum"', unicodeRange: 'u+0-7f, U+20ac, U+4??' },
+          { family: 'Acme Mono', file: 'AcmeMono.woff2', features: 'ss01 1', unicodeRange: 'U+110000' },
+          { family: 'Acme Icons', file: 'AcmeIcons.woff2', features: '"ss01" 1; } body {', unicodeRange: 'U+FF-10' },
+        ],
+      },
+    });
+    assert.deepEqual(read.fonts.map((font) => font.family), ['Acme Sans', 'Acme Mono', 'Acme Icons'], 'every face stays');
+    assert.equal(read.fonts[0]!.features, '"ss01" 1, "liga" 0, "tnum"');
+    assert.equal(read.fonts[0]!.unicodeRange, 'U+0-7F, U+20AC, U+4??');
+    for (const font of read.fonts.slice(1)) {
+      assert.equal(font.features, undefined);
+      assert.equal(font.unicodeRange, undefined);
+    }
+    assert.equal(said.filter((n) => n.message.includes('features')).length, 2);
+    assert.equal(said.filter((n) => n.message.includes('unicodeRange')).length, 2);
+
+    const css = compileTokensCss(read);
+    assert.match(css, /font-family: "Acme Sans";[^}]*font-feature-settings: "ss01" 1, "liga" 0, "tnum"; unicode-range: U\+0-7F, U\+20AC, U\+4\?\?; font-display: swap; \}/);
+    assert.match(css, /font-family: "Acme Mono";[^}]*font-style: normal; font-display: swap; \}/);
+    assert.doesNotMatch(css, /body \{/);
+  });
+
+  it('reports a bad font descriptor in check', () => {
+    const files = new Map<string, string>([
+      ['design-system.json', JSON.stringify(emptySystemIndex('Acme UI', new Date('2026-01-01T00:00:00Z')))],
+      ['tokens.json', JSON.stringify({ type: { fonts: [{ family: 'Acme Sans', file: 'AcmeSans.woff2', unicodeRange: 'latin' }] } })],
+      ['fonts/AcmeSans.woff2', ''],
+    ]);
+    const findings = checkDesignSystem(files).filter((finding) => finding.file === 'tokens.json');
+    assert.ok(findings.some((finding) => finding.message.includes('unicodeRange')), JSON.stringify(findings));
+    assert.ok(!findings.some((finding) => finding.message.includes('missing')), 'the face and its file are kept');
+  });
 });
 
 describe('system', () => {

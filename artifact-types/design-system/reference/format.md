@@ -103,7 +103,10 @@ so. (`readme.md` in any case is read as the README.)
 - `type.families` values: CSS font-family stacks ≤200 chars, no
   `; { } < > \ ( )` (no functions), balanced quotes. `type.fonts[]`: `family` a bare name (no
   quotes), `file` a path under `project/` (a bare name means `fonts/<file>`; no spaces, quotes or parentheses),
-  `weight` a CSS descriptor (`"400"` or `"300 800"`, default 400), `style` normal|italic|oblique.
+  `weight` a CSS descriptor (`"400"` or `"300 800"`, default 400), `style` normal|italic|oblique; optional
+  `features` (a `font-feature-settings` list: `"ss01" 1, "liga" 0`, a tag alone means on) and `unicodeRange`
+  (`U+0-7F, U+20AC, U+4??`), both copied into the face's `@font-face`. A bad `features` or `unicodeRange` is
+  left out with a note; the face itself stays.
 - OPTIONAL families (absent = no section), all `{note?, tokens:[{name,
   value, usage?}]}`: `shadow` — a box-shadow string (lengths,
   hex/function colours, `inset`, `none`, characters `[A-Za-z0-9 #%(),./+_-]`; no `var()`/`url()`/`calc()`; ≤400)

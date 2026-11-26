@@ -50,6 +50,10 @@ export interface FontFace {
   /** CSS descriptor: `"400"` or `"300 800"`. */
   weight?: string | number;
   style?: 'normal' | 'italic' | 'oblique';
+  /** OpenType features the face turns on or off: `"ss01" 1, "liga" 0`. */
+  features?: string;
+  /** Code points the face covers: `U+0000-00FF, U+20AC`. */
+  unicodeRange?: string;
 }
 
 /** A type style. */
@@ -186,6 +190,47 @@ export function fontWeight(value: unknown): string | null {
   return ok ? parts.join(' ') : null;
 }
 
+/** Comma-separated items, trimmed; `null` when any item is empty. */
+function listItems(value: unknown): string[] | null {
+  if (typeof value !== 'string' || !value.trim()) return null;
+  const items = value.split(',').map((item) => item.trim());
+  return items.every(Boolean) ? items : null;
+}
+
+/**
+ * A `font-feature-settings` value: `"tag"` items with an optional count or
+ * `on` / `off`, comma-separated. Tags are four printable characters.
+ */
+export function fontFeatures(value: unknown): string | null {
+  const items = listItems(value);
+  if (!items || items.length > 32) return null;
+  const read = items.map((item) => {
+    const match = /^"([\x21\x23-\x7e]{4})"(?:\s+(\d{1,3}|on|off))?$/.exec(item);
+    return match ? (match[2] ? `"${match[1]}" ${match[2]}` : `"${match[1]}"`) : null;
+  });
+  return read.every((item) => item !== null) ? read.join(', ') : null;
+}
+
+const LAST_CODE_POINT = 0x10ffff;
+
+/** A `unicode-range` value: `U+41`, `U+0-7F` or `U+4??` items, comma-separated. */
+export function unicodeRange(value: unknown): string | null {
+  const items = listItems(value);
+  if (!items || items.length > 64) return null;
+  const read = items.map((item) => {
+    const match = /^[Uu]\+([0-9A-Fa-f?]{1,6})(?:-([0-9A-Fa-f]{1,6}))?$/.exec(item);
+    if (!match) return null;
+    const [, first = '', last] = match;
+    const wild = first.includes('?');
+    if (wild && (last || !/^[0-9A-Fa-f]*\?+$/.test(first))) return null;
+    const low = parseInt(wild ? first.replace(/\?/g, '0') : first, 16);
+    const high = parseInt(wild ? first.replace(/\?/g, 'F') : (last ?? first), 16);
+    if (high > LAST_CODE_POINT || low > high) return null;
+    return `U+${first.toUpperCase()}${last ? `-${last.toUpperCase()}` : ''}`;
+  });
+  return read.every((item) => item !== null) ? read.join(', ') : null;
+}
+
 /** True when parentheses balance. */
 function balanced(text: string): boolean {
   let depth = 0;
@@ -298,6 +343,8 @@ export interface NormalizedFont {
   file: string;
   weight: string;
   style: 'normal' | 'italic' | 'oblique';
+  features?: string;
+  unicodeRange?: string;
 }
 
 /** An extra family (`opacity`, `zIndex`…). */
@@ -570,7 +617,18 @@ export function normalizeTokens(input: unknown): NormalizeResult {
         note(`type.fonts: ${family} has an invalid weight or style; dropped.`);
         continue;
       }
-      out.fonts.push({ family, file: file.includes('/') ? file : `fonts/${file}`, weight, style });
+      const face: NormalizedFont = { family, file: file.includes('/') ? file : `fonts/${file}`, weight, style };
+      if (font.features !== undefined) {
+        const features = fontFeatures(font.features);
+        if (features) face.features = features;
+        else note(`type.fonts: ${family} features ${JSON.stringify(font.features)} are not a font-feature-settings list like "ss01" 1, "liga" 0; ignored.`);
+      }
+      if (font.unicodeRange !== undefined) {
+        const range = unicodeRange(font.unicodeRange);
+        if (range) face.unicodeRange = range;
+        else note(`type.fonts: ${family} unicodeRange ${JSON.stringify(font.unicodeRange)} is not a list like U+0000-00FF, U+20AC; ignored.`);
+      }
+      out.fonts.push(face);
     }
     let styleCount = 0;
     for (const group of Array.isArray(type.groups) ? type.groups : []) {
@@ -713,8 +771,12 @@ export function compileTokensCss(tokens: NormalizedTokens, options: CompileOptio
     const ext = font.file.split('.').pop()?.toLowerCase() ?? '';
     const format = FONT_FORMATS[ext];
     const url = fontUrl(font.file).replace(/["\\\n]/g, '');
+    const extra = [
+      font.features ? ` font-feature-settings: ${font.features};` : '',
+      font.unicodeRange ? ` unicode-range: ${font.unicodeRange};` : '',
+    ].join('');
     lines.push(
-      `@font-face { font-family: "${font.family}"; src: url("${url}")${format ? ` format("${format}")` : ''}; font-weight: ${font.weight}; font-style: ${font.style}; font-display: swap; }`,
+      `@font-face { font-family: "${font.family}"; src: url("${url}")${format ? ` format("${format}")` : ''}; font-weight: ${font.weight}; font-style: ${font.style};${extra} font-display: swap; }`,
     );
   }
   return `${lines.join('\n')}\n`;
