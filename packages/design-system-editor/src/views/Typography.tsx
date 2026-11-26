@@ -75,7 +75,7 @@ function StyleField({ label, value, editable, onCommit }: { label: string; value
   return (
     <label className="flex min-w-0 flex-col gap-0.5">
       <span className="text-[10px] uppercase tracking-wide text-fg-subtle">{label}</span>
-      {editable ? <CommitInput value={value} onCommit={onCommit} className="h-6 font-mono text-[11px]" /> : <span className="h-6 truncate font-mono text-[11px] leading-6 text-fg-muted">{value || '—'}</span>}
+      {editable ? <CommitInput value={value} onCommit={onCommit} className="h-6 font-mono text-[11px]" /> : <span className="min-h-6 py-1 font-mono text-[11px] leading-4 text-fg-muted wrap-anywhere">{value || '—'}</span>}
     </label>
   );
 }
@@ -148,7 +148,7 @@ function StyleRow({ style, families, editable }: { style: NormalizedStyle; famil
               onChange={(pick) => pickFamily(pick, (raw, key) => updateStyle(raw, style.name, { family: key }))}
             />
           ) : (
-            <span className="h-6 truncate font-mono text-[11px] leading-6 text-fg-muted">{stack ?? '—'}</span>
+            <span className="min-h-6 py-1 font-mono text-[11px] leading-4 text-fg-muted wrap-anywhere">{stack ?? '—'}</span>
           )}
         </div>
         <StyleField label="Size" value={style.fontSize} editable={editable} onCommit={set('fontSize')} />

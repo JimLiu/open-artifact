@@ -123,9 +123,9 @@ function Swatch({ token, theme, first, editable, against }: SwatchProps) {
           className="h-6 font-mono text-[11px]"
         />
       ) : (
-        <span className={cn('truncate font-mono text-[11px]', own === undefined ? 'text-fg-subtle' : 'text-fg-muted')}>{declared}</span>
+        <span className={cn('font-mono text-[11px] wrap-anywhere', own === undefined ? 'text-fg-subtle' : 'text-fg-muted')}>{declared}</span>
       )}
-      {alias ? <span className="truncate text-[11px] text-fg-subtle">alias of {`{${alias}}`}</span> : null}
+      {alias ? <span className="text-[11px] text-fg-subtle wrap-anywhere">alias of {`{${alias}}`}</span> : null}
       {against && ratio !== null ? (
         <span
           className={cn('flex items-center gap-1 truncate text-[11px] tabular-nums', ratio >= required ? 'text-fg-subtle' : 'text-danger')}
