@@ -1,0 +1,20 @@
+{
+  "id": "docs",
+  "type": "docs",
+  "typeTitle": "Docs",
+  "source": "test-artifacts/docs/browser-qa",
+  "agent": {
+    "name": "Agent",
+    "thinkMs": 2500,
+    "responses": [
+      {
+        "reply": "Done. I added a note near the top of “{{tab}}” with what you asked for.",
+        "edits": [{ "kind": "doc", "at": "top", "text": "Updated by the agent: {{request}}" }]
+      },
+      {
+        "reply": "I added a follow-up at the end of “{{tab}}” as well.",
+        "edits": [{ "kind": "doc", "tab": "Review Notes", "at": "end", "text": "Follow-up from the agent: {{request}}" }]
+      }
+    ]
+  }
+}

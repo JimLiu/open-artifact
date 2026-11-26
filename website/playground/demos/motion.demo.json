@@ -1,0 +1,57 @@
+{
+  "id": "motion",
+  "type": "motion",
+  "typeTitle": "Motion",
+  "source": "test-artifacts/motion/playback",
+  "title": "Hello motion",
+  "agent": {
+    "name": "Agent",
+    "thinkMs": 2500,
+    "responses": [
+      {
+        "reply": "Done. The intro now opens on “Made with your agent” and the badge is a brighter coral. Press play to see it.",
+        "edits": [
+          {
+            "kind": "db",
+            "writes": [
+              {
+                "op": "set",
+                "path": "modules/scene-intro.js",
+                "data": {
+                  "kind": "js",
+                  "text": "let badge;\nkit.scene('intro', {\n  init(kit) {\n    const wrap = kit.h(\n      '<div class=\"wrap\"><h1 class=\"headline\">Made with your agent</h1>' +\n      '<svg aria-label=\"Moving shapes\" viewBox=\"0 0 180 100\" width=\"180\" height=\"100\">' +\n      '<g class=\"badge\"><rect x=\"10\" y=\"20\" width=\"64\" height=\"50\" rx=\"8\" fill=\"var(--accent)\"/>' +\n      '<circle cx=\"110\" cy=\"54\" r=\"22\" fill=\"var(--second)\"/></g></svg></div>'\n    );\n    kit.stage.append(wrap);\n    badge = wrap.querySelector('.badge');\n  },\n  render(t) {\n    badge.setAttribute('transform', 'translate(' + (t * 12).toFixed(2) + ' 0)');\n  },\n});"
+                }
+              },
+              {
+                "op": "set",
+                "path": "modules/base.css",
+                "data": {
+                  "kind": "css",
+                  "text": ":root {\n  --ground: #f5efe6;\n  --main: #1c2430;\n  --second: #4f8a5b;\n  --accent: #e8505b;\n}\n.wrap {\n  width: 100%;\n  height: 100%;\n  display: grid;\n  place-content: center;\n  justify-items: center;\n  background: var(--ground);\n  color: var(--main);\n  font: 600 28px system-ui;\n}\n.headline { margin: 12px; }"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "reply": "Changed the closing title to answer your note.",
+        "edits": [
+          {
+            "kind": "db",
+            "writes": [
+              {
+                "op": "set",
+                "path": "modules/scene-outro.js",
+                "data": {
+                  "kind": "js",
+                  "text": "kit.scene('outro', {\n  init(kit) {\n    kit.stage.append(kit.h('<div class=\"wrap\"><h1 class=\"headline\">Thanks for watching</h1></div>'));\n  },\n  render() {},\n});\n"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

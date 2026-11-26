@@ -1,0 +1,354 @@
+{
+  "id": "data",
+  "type": "data",
+  "typeTitle": "Data",
+  "source": "test-artifacts/data/sales-and-signups",
+  "omit": [
+    "db/datasets/broken.json",
+    "db/datasets/unused.json"
+  ],
+  "add": {
+    "db/files/index.html.json": {
+      "text": "<meta name=\"dash-one-writer\">\n<link rel=\"stylesheet\" href=\"app.css\">\n<main class=\"fx\" data-read lang=\"en\">\n  <header class=\"fx-head\" id=\"overview\">\n    <h1 class=\"fx-title\" id=\"title\">Sales and signups</h1>\n    <p class=\"fx-lede\" data-read-step>Signups reached <b data-draw=\"latest\" data-source=\"signups\" data-field=\"signups\" data-where=\"month=2026-10\">—</b> in the latest month, <b data-draw=\"growth\" data-source=\"growth\">—</b> on the month before.</p>\n    <div class=\"fx-filters\">\n      <label>Region\n        <select class=\"dash-select\" data-draw=\"region\" aria-label=\"Region\" data-source=\"regions\"></select>\n      </label>\n      <button type=\"button\" class=\"fx-clear\" id=\"clear-filters\">Clear filters</button>\n    </div>\n  </header>\n\n  <nav class=\"fx-tabs\" role=\"tablist\">\n    <button type=\"button\" role=\"tab\" data-tab=\"revenue\" id=\"tab-revenue\">Revenue</button>\n    <button type=\"button\" role=\"tab\" data-tab=\"signups\" id=\"tab-signups\">Signups</button>\n    <button type=\"button\" role=\"tab\" data-tab=\"support\" id=\"tab-support\">Support</button>\n  </nav>\n\n  <section class=\"fx-page\" id=\"revenue\" data-tab-page=\"revenue\">\n    <div class=\"fx-cards\">\n      <article class=\"fx-card\" id=\"card-revenue\">\n        <h2>Revenue</h2>\n        <p class=\"fx-big\"><span data-draw=\"revenue-total\" data-source=\"revenue_total\" data-fetchpriority=\"high\">—</span></p>\n        <p class=\"fx-note\">All months shown, in dollars.</p>\n      </article>\n      <article class=\"fx-card\" id=\"card-target\">\n        <h2>Target</h2>\n        <p class=\"fx-big\"><span data-draw=\"target-total\" data-source=\"regions\" data-field=\"target\">—</span></p>\n        <p class=\"fx-note\">Sum of the region targets for FY27.</p>\n      </article>\n    </div>\n    <figure class=\"fx-chart\" id=\"revenue-chart\" data-source=\"orders\">\n      <figcaption>Revenue by month</figcaption>\n      <div class=\"fx-chart-body\" data-draw=\"revenue-chart\"></div>\n    </figure>\n    <table class=\"fx-table\" id=\"orders-table\" data-source=\"orders\" data-row-key=\"month\" data-fetchpriority=\"low\">\n      <thead><tr><th data-field=\"region\">Region</th><th data-field=\"month\">Month</th><th data-field=\"revenue\">Revenue</th><th data-field=\"orders\">Orders</th></tr></thead>\n      <tbody data-draw=\"orders-rows\"></tbody>\n    </table>\n  </section>\n\n  <section class=\"fx-page\" id=\"signups\" data-tab-page=\"signups\" hidden>\n    <figure class=\"fx-chart\" id=\"signups-chart\" data-source=\"signups\">\n      <figcaption>Signups per month</figcaption>\n      <div class=\"fx-chart-body\" data-draw=\"signups-chart\"></div>\n    </figure>\n    <p class=\"fx-note\" data-read-step>Click a bar to see that month. Picked: <b data-draw=\"picked\">—</b></p>\n  </section>\n\n  <section class=\"fx-page\" id=\"support\" data-tab-page=\"support\" hidden>\n    <h2>Open tickets</h2>\n    <ul class=\"fx-list\" data-source=\"tickets\" data-draw=\"tickets\"></ul>\n  </section>\n</main>\n<script src=\"app.js\"></script>\n"
+    },
+    "db/files/app.js.json": {
+      "text": "window.fx = {\n  money: d3.format('$,.0f'),\n  pct: d3.format('+.0%'),\n  target: 17800,\n};\n\ndash.calc('growth', {\n  title: 'Signup growth',\n  description: 'Latest month against the month before.',\n  inputs: ['signups'],\n  fn: (signups) => {\n    const rows = signups.slice(-2).map(r => Number(r.signups));\n    return rows.length === 2 ? rows[1] / rows[0] - 1 : null;\n  },\n});\n\ndash.calc('revenue_total', {\n  title: 'Revenue total',\n  description: 'Sum of revenue over the rows shown.',\n  inputs: ['orders'],\n  fn: (orders) => d3.sum(orders, r => Number(r.revenue)),\n});\n\ndash.loader('tickets', {\n  description: 'One ticket per block: id | status | title.',\n  fn: ({ items }) => items.filter(i => typeof i === 'string' && i.startsWith('T-')).map(i => {\n    const [id, status, title] = i.split(' | ');\n    return { id, status, title };\n  }),\n});\n\nfunction showTab(name) {\n  for (const page of document.querySelectorAll('[data-tab-page]')) page.hidden = page.dataset.tabPage !== name;\n  for (const tab of document.querySelectorAll('[data-tab]')) tab.setAttribute('aria-selected', String(tab.dataset.tab === name));\n}\nfor (const tab of document.querySelectorAll('[data-tab]')) {\n  tab.addEventListener('click', () => { showTab(tab.dataset.tab); dash.setLink(tab.dataset.tab); });\n}\nshowTab(location.hash.slice(1) || 'revenue');\nfor (const button of document.querySelectorAll('#clear-filters')) button.addEventListener('click', () => dash.resetParams());\n\ndash.draw('latest', el => {\n  const d = dash.data('signups');\n  const row = d.status === 'ok' ? d.data.find(r => r.month === '2026-10') : null;\n  el.textContent = row ? row.signups : '—';\n});\n\ndash.draw('growth', el => {\n  const g = dash.data('growth');\n  el.textContent = g.status === 'ok' && g.data !== null ? fx.pct(g.data) : '—';\n});\n\ndash.draw('region', sel => {\n  const g = dash.data('regions');\n  sel.replaceChildren(new Option('All regions', ''), ...(g.status === 'ok' ? g.data : []).map(r => new Option(r.region)));\n  sel.value = dash.params().region ?? '';\n  sel.onchange = () => dash.setParams({ region: sel.value });\n});\n\ndash.draw('revenue-total', el => {\n  const t = dash.data('revenue_total');\n  el.textContent = t.status === 'ok' ? fx.money(t.data) : '—';\n});\n\ndash.draw('target-total', el => {\n  const g = dash.data('regions');\n  el.textContent = g.status === 'ok' ? fx.money(d3.sum(g.data, r => Number(r.target))) : '—';\n});\n\ndash.draw('orders-rows', body => {\n  const d = dash.data('orders');\n  body.replaceChildren();\n  if (d.status !== 'ok') return;\n  for (const row of d.data) {\n    const tr = document.createElement('tr');\n    tr.dataset.key = row.month;\n    for (const key of ['region', 'month', 'revenue', 'orders']) {\n      const td = document.createElement('td');\n      td.textContent = key === 'revenue' ? fx.money(Number(row[key])) : row[key];\n      tr.appendChild(td);\n    }\n    body.appendChild(tr);\n  }\n});\n\nfunction barChart(el, rows, { x, y, color, onPick }) {\n  el.replaceChildren();\n  const width = el.clientWidth || 600;\n  const height = 220;\n  const margin = { top: 10, right: 10, bottom: 28, left: 48 };\n  const sx = d3.scaleBand().domain(rows.map(x)).range([margin.left, width - margin.right]).padding(0.2);\n  const sy = d3.scaleLinear().domain([0, d3.max(rows, y) || 1]).nice().range([height - margin.bottom, margin.top]);\n  const svg = d3.select(el).append('svg').attr('width', width).attr('height', height).attr('aria-label', 'Bar chart');\n  svg.append('g').attr('transform', `translate(0,${height - margin.bottom})`).call(d3.axisBottom(sx));\n  svg.append('g').attr('transform', `translate(${margin.left},0)`).call(d3.axisLeft(sy).ticks(4));\n  const tip = d3.select(el).append('div').attr('class', 'fx-tip').style('opacity', 0);\n  svg.append('g').selectAll('rect').data(rows).join('rect')\n    .attr('x', d => sx(x(d))).attr('width', sx.bandwidth())\n    .attr('y', d => sy(y(d))).attr('height', d => sy(0) - sy(y(d)))\n    .attr('fill', color)\n    .on('pointermove', (event, d) => {\n      const [px, py] = d3.pointer(event, el);\n      tip.style('opacity', 1).style('left', `${px + 8}px`).style('top', `${py - 24}px`).text(`${x(d)}: ${y(d)}`);\n    })\n    .on('pointerleave', () => tip.style('opacity', 0))\n    .on('click', (event, d) => onPick?.(d));\n}\n\ndash.draw('revenue-chart', el => {\n  const d = dash.data('orders');\n  if (d.status !== 'ok') { el.textContent = '—'; return; }\n  const byMonth = d3.rollups(d.data, v => d3.sum(v, r => Number(r.revenue)), r => r.month).map(([month, revenue]) => ({ month, revenue }));\n  barChart(el, byMonth, { x: r => r.month, y: r => r.revenue, color: dash.colors[0] });\n});\n\nwindow.fx.picked = null;\ndash.draw('signups-chart', el => {\n  const d = dash.data('signups');\n  if (d.status !== 'ok') { el.textContent = '—'; return; }\n  barChart(el, d.data, { x: r => r.month, y: r => Number(r.signups), color: dash.colors[1], onPick: r => { fx.picked = r.month; dash.draw('picked'); } });\n});\n\ndash.draw('picked', el => { el.textContent = fx.picked ?? '—'; });\n\ndash.draw('tickets', list => {\n  const d = dash.data('tickets');\n  list.replaceChildren();\n  if (d.status !== 'ok') return;\n  for (const t of d.data.filter(r => r.status === 'open')) {\n    const li = document.createElement('li');\n    li.dataset.key = t.id;\n    li.textContent = `${t.id}: ${t.title}`;\n    list.appendChild(li);\n  }\n});\n"
+    },
+    "db/data/live.json": {
+      "at": "2026-11-20T09:00:00Z",
+      "owner": "Sam",
+      "queries": [
+        "orders",
+        "tickets"
+      ]
+    },
+    "db/data/live/answers/orders.json": {
+      "at": "2026-11-20T09:00:00Z",
+      "connector": "sales",
+      "calls": [
+        {
+          "tool": "run_sql",
+          "args": {
+            "query": "SELECT region, month, revenue, orders\nFROM orders\nWHERE ('' = '' OR region = '')\nORDER BY region, month"
+          },
+          "result": {
+            "content": [
+              {
+                "type": "text",
+                "text": "{\"rows\": [{\"region\": \"North\", \"month\": \"2026-07\", \"revenue\": \"1250\", \"orders\": \"20\"}, {\"region\": \"North\", \"month\": \"2026-08\", \"revenue\": \"1400\", \"orders\": \"23\"}, {\"region\": \"North\", \"month\": \"2026-09\", \"revenue\": \"1550\", \"orders\": \"26\"}, {\"region\": \"North\", \"month\": \"2026-10\", \"revenue\": \"1700\", \"orders\": \"29\"}, {\"region\": \"South\", \"month\": \"2026-07\", \"revenue\": \"950\", \"orders\": \"20\"}, {\"region\": \"South\", \"month\": \"2026-08\", \"revenue\": \"1100\", \"orders\": \"23\"}, {\"region\": \"South\", \"month\": \"2026-09\", \"revenue\": \"1250\", \"orders\": \"26\"}, {\"region\": \"South\", \"month\": \"2026-10\", \"revenue\": \"1400\", \"orders\": \"29\"}, {\"region\": \"East\", \"month\": \"2026-07\", \"revenue\": \"840\", \"orders\": \"20\"}, {\"region\": \"East\", \"month\": \"2026-08\", \"revenue\": \"990\", \"orders\": \"23\"}, {\"region\": \"East\", \"month\": \"2026-09\", \"revenue\": \"1140\", \"orders\": \"26\"}, {\"region\": \"East\", \"month\": \"2026-10\", \"revenue\": \"1290\", \"orders\": \"29\"}, {\"region\": \"West\", \"month\": \"2026-07\", \"revenue\": \"1140\", \"orders\": \"20\"}, {\"region\": \"West\", \"month\": \"2026-08\", \"revenue\": \"1290\", \"orders\": \"23\"}, {\"region\": \"West\", \"month\": \"2026-09\", \"revenue\": \"1440\", \"orders\": \"26\"}, {\"region\": \"West\", \"month\": \"2026-10\", \"revenue\": \"1590\", \"orders\": \"29\"}], \"query\": \"SELECT region, month, revenue, orders\\nFROM orders\\nWHERE ('' = '' OR region = '')\\nORDER BY region, month\"}"
+              }
+            ],
+            "structuredContent": {
+              "rows": [
+                {
+                  "region": "North",
+                  "month": "2026-07",
+                  "revenue": "1250",
+                  "orders": "20"
+                },
+                {
+                  "region": "North",
+                  "month": "2026-08",
+                  "revenue": "1400",
+                  "orders": "23"
+                },
+                {
+                  "region": "North",
+                  "month": "2026-09",
+                  "revenue": "1550",
+                  "orders": "26"
+                },
+                {
+                  "region": "North",
+                  "month": "2026-10",
+                  "revenue": "1700",
+                  "orders": "29"
+                },
+                {
+                  "region": "South",
+                  "month": "2026-07",
+                  "revenue": "950",
+                  "orders": "20"
+                },
+                {
+                  "region": "South",
+                  "month": "2026-08",
+                  "revenue": "1100",
+                  "orders": "23"
+                },
+                {
+                  "region": "South",
+                  "month": "2026-09",
+                  "revenue": "1250",
+                  "orders": "26"
+                },
+                {
+                  "region": "South",
+                  "month": "2026-10",
+                  "revenue": "1400",
+                  "orders": "29"
+                },
+                {
+                  "region": "East",
+                  "month": "2026-07",
+                  "revenue": "840",
+                  "orders": "20"
+                },
+                {
+                  "region": "East",
+                  "month": "2026-08",
+                  "revenue": "990",
+                  "orders": "23"
+                },
+                {
+                  "region": "East",
+                  "month": "2026-09",
+                  "revenue": "1140",
+                  "orders": "26"
+                },
+                {
+                  "region": "East",
+                  "month": "2026-10",
+                  "revenue": "1290",
+                  "orders": "29"
+                },
+                {
+                  "region": "West",
+                  "month": "2026-07",
+                  "revenue": "1140",
+                  "orders": "20"
+                },
+                {
+                  "region": "West",
+                  "month": "2026-08",
+                  "revenue": "1290",
+                  "orders": "23"
+                },
+                {
+                  "region": "West",
+                  "month": "2026-09",
+                  "revenue": "1440",
+                  "orders": "26"
+                },
+                {
+                  "region": "West",
+                  "month": "2026-10",
+                  "revenue": "1590",
+                  "orders": "29"
+                }
+              ],
+              "query": "SELECT region, month, revenue, orders\nFROM orders\nWHERE ('' = '' OR region = '')\nORDER BY region, month"
+            }
+          }
+        }
+      ]
+    },
+    "db/data/live/answers/tickets.json": {
+      "at": "2026-11-20T09:00:00Z",
+      "connector": "sales",
+      "calls": [
+        {
+          "tool": "list_tickets",
+          "args": {},
+          "result": {
+            "content": [
+              {
+                "type": "text",
+                "text": "T-101 | open | Login fails on Safari"
+              },
+              {
+                "type": "text",
+                "text": "T-102 | closed | Export button hidden"
+              },
+              {
+                "type": "text",
+                "text": "T-103 | open | Chart colors too light"
+              },
+              {
+                "type": "text",
+                "text": "page 1 of 1 (3 tickets)"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "agent": {
+    "name": "Agent",
+    "thinkMs": 2500,
+    "responses": [
+      {
+        "reply": "Done. I pulled the late October orders into the snapshot (revenue is up about $2,000 for the month) and added a note under the title.",
+        "edits": [
+          {
+            "kind": "db",
+            "writes": [
+              {
+                "op": "set",
+                "path": "data/live/answers/orders",
+                "data": {
+                  "at": "2026-11-26T09:00:00Z",
+                  "connector": "sales",
+                  "calls": [
+                    {
+                      "tool": "run_sql",
+                      "args": {
+                        "query": "SELECT region, month, revenue, orders\nFROM orders\nWHERE ('' = '' OR region = '')\nORDER BY region, month"
+                      },
+                      "result": {
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "{\"rows\": [{\"region\": \"North\", \"month\": \"2026-07\", \"revenue\": \"1250\", \"orders\": \"20\"}, {\"region\": \"North\", \"month\": \"2026-08\", \"revenue\": \"1400\", \"orders\": \"23\"}, {\"region\": \"North\", \"month\": \"2026-09\", \"revenue\": \"1550\", \"orders\": \"26\"}, {\"region\": \"North\", \"month\": \"2026-10\", \"revenue\": \"2200\", \"orders\": \"35\"}, {\"region\": \"South\", \"month\": \"2026-07\", \"revenue\": \"950\", \"orders\": \"20\"}, {\"region\": \"South\", \"month\": \"2026-08\", \"revenue\": \"1100\", \"orders\": \"23\"}, {\"region\": \"South\", \"month\": \"2026-09\", \"revenue\": \"1250\", \"orders\": \"26\"}, {\"region\": \"South\", \"month\": \"2026-10\", \"revenue\": \"1900\", \"orders\": \"35\"}, {\"region\": \"East\", \"month\": \"2026-07\", \"revenue\": \"840\", \"orders\": \"20\"}, {\"region\": \"East\", \"month\": \"2026-08\", \"revenue\": \"990\", \"orders\": \"23\"}, {\"region\": \"East\", \"month\": \"2026-09\", \"revenue\": \"1140\", \"orders\": \"26\"}, {\"region\": \"East\", \"month\": \"2026-10\", \"revenue\": \"1790\", \"orders\": \"35\"}, {\"region\": \"West\", \"month\": \"2026-07\", \"revenue\": \"1140\", \"orders\": \"20\"}, {\"region\": \"West\", \"month\": \"2026-08\", \"revenue\": \"1290\", \"orders\": \"23\"}, {\"region\": \"West\", \"month\": \"2026-09\", \"revenue\": \"1440\", \"orders\": \"26\"}, {\"region\": \"West\", \"month\": \"2026-10\", \"revenue\": \"2090\", \"orders\": \"35\"}], \"query\": \"SELECT region, month, revenue, orders\\nFROM orders\\nWHERE ('' = '' OR region = '')\\nORDER BY region, month\"}"
+                          }
+                        ],
+                        "structuredContent": {
+                          "rows": [
+                            {
+                              "region": "North",
+                              "month": "2026-07",
+                              "revenue": "1250",
+                              "orders": "20"
+                            },
+                            {
+                              "region": "North",
+                              "month": "2026-08",
+                              "revenue": "1400",
+                              "orders": "23"
+                            },
+                            {
+                              "region": "North",
+                              "month": "2026-09",
+                              "revenue": "1550",
+                              "orders": "26"
+                            },
+                            {
+                              "region": "North",
+                              "month": "2026-10",
+                              "revenue": "2200",
+                              "orders": "35"
+                            },
+                            {
+                              "region": "South",
+                              "month": "2026-07",
+                              "revenue": "950",
+                              "orders": "20"
+                            },
+                            {
+                              "region": "South",
+                              "month": "2026-08",
+                              "revenue": "1100",
+                              "orders": "23"
+                            },
+                            {
+                              "region": "South",
+                              "month": "2026-09",
+                              "revenue": "1250",
+                              "orders": "26"
+                            },
+                            {
+                              "region": "South",
+                              "month": "2026-10",
+                              "revenue": "1900",
+                              "orders": "35"
+                            },
+                            {
+                              "region": "East",
+                              "month": "2026-07",
+                              "revenue": "840",
+                              "orders": "20"
+                            },
+                            {
+                              "region": "East",
+                              "month": "2026-08",
+                              "revenue": "990",
+                              "orders": "23"
+                            },
+                            {
+                              "region": "East",
+                              "month": "2026-09",
+                              "revenue": "1140",
+                              "orders": "26"
+                            },
+                            {
+                              "region": "East",
+                              "month": "2026-10",
+                              "revenue": "1790",
+                              "orders": "35"
+                            },
+                            {
+                              "region": "West",
+                              "month": "2026-07",
+                              "revenue": "1140",
+                              "orders": "20"
+                            },
+                            {
+                              "region": "West",
+                              "month": "2026-08",
+                              "revenue": "1290",
+                              "orders": "23"
+                            },
+                            {
+                              "region": "West",
+                              "month": "2026-09",
+                              "revenue": "1440",
+                              "orders": "26"
+                            },
+                            {
+                              "region": "West",
+                              "month": "2026-10",
+                              "revenue": "2090",
+                              "orders": "35"
+                            }
+                          ],
+                          "query": "SELECT region, month, revenue, orders\nFROM orders\nWHERE ('' = '' OR region = '')\nORDER BY region, month"
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "op": "set",
+                "path": "data/live",
+                "data": {
+                  "at": "2026-11-26T09:00:00Z",
+                  "owner": "Sam",
+                  "queries": [
+                    "orders",
+                    "tickets"
+                  ]
+                }
+              },
+              {
+                "op": "set",
+                "path": "files/index.html",
+                "data": {
+                  "text": "<meta name=\"dash-one-writer\">\n<link rel=\"stylesheet\" href=\"app.css\">\n<main class=\"fx\" data-read lang=\"en\">\n  <header class=\"fx-head\" id=\"overview\">\n    <h1 class=\"fx-title\" id=\"title\">Sales and signups</h1>\n    <p class=\"fx-lede\" data-read-step>Signups reached <b data-draw=\"latest\" data-source=\"signups\" data-field=\"signups\" data-where=\"month=2026-10\">—</b> in the latest month, <b data-draw=\"growth\" data-source=\"growth\">—</b> on the month before.</p>\n    <p class=\"fx-note\" id=\"agent-note\">Agent: October closed strong, revenue is up in every region. (You asked: {{request}})</p>\n    <div class=\"fx-filters\">\n      <label>Region\n        <select class=\"dash-select\" data-draw=\"region\" aria-label=\"Region\" data-source=\"regions\"></select>\n      </label>\n      <button type=\"button\" class=\"fx-clear\" id=\"clear-filters\">Clear filters</button>\n    </div>\n  </header>\n\n  <nav class=\"fx-tabs\" role=\"tablist\">\n    <button type=\"button\" role=\"tab\" data-tab=\"revenue\" id=\"tab-revenue\">Revenue</button>\n    <button type=\"button\" role=\"tab\" data-tab=\"signups\" id=\"tab-signups\">Signups</button>\n    <button type=\"button\" role=\"tab\" data-tab=\"support\" id=\"tab-support\">Support</button>\n  </nav>\n\n  <section class=\"fx-page\" id=\"revenue\" data-tab-page=\"revenue\">\n    <div class=\"fx-cards\">\n      <article class=\"fx-card\" id=\"card-revenue\">\n        <h2>Revenue</h2>\n        <p class=\"fx-big\"><span data-draw=\"revenue-total\" data-source=\"revenue_total\" data-fetchpriority=\"high\">—</span></p>\n        <p class=\"fx-note\">All months shown, in dollars.</p>\n      </article>\n      <article class=\"fx-card\" id=\"card-target\">\n        <h2>Target</h2>\n        <p class=\"fx-big\"><span data-draw=\"target-total\" data-source=\"regions\" data-field=\"target\">—</span></p>\n        <p class=\"fx-note\">Sum of the region targets for FY27.</p>\n      </article>\n    </div>\n    <figure class=\"fx-chart\" id=\"revenue-chart\" data-source=\"orders\">\n      <figcaption>Revenue by month</figcaption>\n      <div class=\"fx-chart-body\" data-draw=\"revenue-chart\"></div>\n    </figure>\n    <table class=\"fx-table\" id=\"orders-table\" data-source=\"orders\" data-row-key=\"month\" data-fetchpriority=\"low\">\n      <thead><tr><th data-field=\"region\">Region</th><th data-field=\"month\">Month</th><th data-field=\"revenue\">Revenue</th><th data-field=\"orders\">Orders</th></tr></thead>\n      <tbody data-draw=\"orders-rows\"></tbody>\n    </table>\n  </section>\n\n  <section class=\"fx-page\" id=\"signups\" data-tab-page=\"signups\" hidden>\n    <figure class=\"fx-chart\" id=\"signups-chart\" data-source=\"signups\">\n      <figcaption>Signups per month</figcaption>\n      <div class=\"fx-chart-body\" data-draw=\"signups-chart\"></div>\n    </figure>\n    <p class=\"fx-note\" data-read-step>Click a bar to see that month. Picked: <b data-draw=\"picked\">—</b></p>\n  </section>\n\n  <section class=\"fx-page\" id=\"support\" data-tab-page=\"support\" hidden>\n    <h2>Open tickets</h2>\n    <ul class=\"fx-list\" data-source=\"tickets\" data-draw=\"tickets\"></ul>\n  </section>\n</main>\n<script src=\"app.js\"></script>\n"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "reply": "Updated the note at the top with what you asked for.",
+        "edits": [
+          {
+            "kind": "db",
+            "writes": [
+              {
+                "op": "set",
+                "path": "files/index.html",
+                "data": {
+                  "text": "<meta name=\"dash-one-writer\">\n<link rel=\"stylesheet\" href=\"app.css\">\n<main class=\"fx\" data-read lang=\"en\">\n  <header class=\"fx-head\" id=\"overview\">\n    <h1 class=\"fx-title\" id=\"title\">Sales and signups</h1>\n    <p class=\"fx-lede\" data-read-step>Signups reached <b data-draw=\"latest\" data-source=\"signups\" data-field=\"signups\" data-where=\"month=2026-10\">—</b> in the latest month, <b data-draw=\"growth\" data-source=\"growth\">—</b> on the month before.</p>\n    <p class=\"fx-note\" id=\"agent-note\">Agent, pass {{n}}: {{request}}</p>\n    <div class=\"fx-filters\">\n      <label>Region\n        <select class=\"dash-select\" data-draw=\"region\" aria-label=\"Region\" data-source=\"regions\"></select>\n      </label>\n      <button type=\"button\" class=\"fx-clear\" id=\"clear-filters\">Clear filters</button>\n    </div>\n  </header>\n\n  <nav class=\"fx-tabs\" role=\"tablist\">\n    <button type=\"button\" role=\"tab\" data-tab=\"revenue\" id=\"tab-revenue\">Revenue</button>\n    <button type=\"button\" role=\"tab\" data-tab=\"signups\" id=\"tab-signups\">Signups</button>\n    <button type=\"button\" role=\"tab\" data-tab=\"support\" id=\"tab-support\">Support</button>\n  </nav>\n\n  <section class=\"fx-page\" id=\"revenue\" data-tab-page=\"revenue\">\n    <div class=\"fx-cards\">\n      <article class=\"fx-card\" id=\"card-revenue\">\n        <h2>Revenue</h2>\n        <p class=\"fx-big\"><span data-draw=\"revenue-total\" data-source=\"revenue_total\" data-fetchpriority=\"high\">—</span></p>\n        <p class=\"fx-note\">All months shown, in dollars.</p>\n      </article>\n      <article class=\"fx-card\" id=\"card-target\">\n        <h2>Target</h2>\n        <p class=\"fx-big\"><span data-draw=\"target-total\" data-source=\"regions\" data-field=\"target\">—</span></p>\n        <p class=\"fx-note\">Sum of the region targets for FY27.</p>\n      </article>\n    </div>\n    <figure class=\"fx-chart\" id=\"revenue-chart\" data-source=\"orders\">\n      <figcaption>Revenue by month</figcaption>\n      <div class=\"fx-chart-body\" data-draw=\"revenue-chart\"></div>\n    </figure>\n    <table class=\"fx-table\" id=\"orders-table\" data-source=\"orders\" data-row-key=\"month\" data-fetchpriority=\"low\">\n      <thead><tr><th data-field=\"region\">Region</th><th data-field=\"month\">Month</th><th data-field=\"revenue\">Revenue</th><th data-field=\"orders\">Orders</th></tr></thead>\n      <tbody data-draw=\"orders-rows\"></tbody>\n    </table>\n  </section>\n\n  <section class=\"fx-page\" id=\"signups\" data-tab-page=\"signups\" hidden>\n    <figure class=\"fx-chart\" id=\"signups-chart\" data-source=\"signups\">\n      <figcaption>Signups per month</figcaption>\n      <div class=\"fx-chart-body\" data-draw=\"signups-chart\"></div>\n    </figure>\n    <p class=\"fx-note\" data-read-step>Click a bar to see that month. Picked: <b data-draw=\"picked\">—</b></p>\n  </section>\n\n  <section class=\"fx-page\" id=\"support\" data-tab-page=\"support\" hidden>\n    <h2>Open tickets</h2>\n    <ul class=\"fx-list\" data-source=\"tickets\" data-draw=\"tickets\"></ul>\n  </section>\n</main>\n<script src=\"app.js\"></script>\n"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

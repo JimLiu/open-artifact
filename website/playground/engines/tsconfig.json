@@ -1,0 +1,6 @@
+{
+  "extends": "../../../tsconfig.json",
+  "compilerOptions": { "typeRoots": ["../../../node_modules/@types"] },
+  "include": ["src", "shims/wasm-sheets.ts"],
+  "exclude": []
+}

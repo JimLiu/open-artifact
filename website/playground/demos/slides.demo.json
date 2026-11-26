@@ -1,0 +1,35 @@
+{
+  "id": "slides",
+  "type": "slides",
+  "typeTitle": "Slides",
+  "source": "test-artifacts/slides/browser-smoke",
+  "agent": {
+    "name": "Agent",
+    "thinkMs": 2500,
+    "responses": [
+      {
+        "reply": "Done. I rewrote the second slide so its heading says what the deck is about.",
+        "edits": [
+          {
+            "kind": "files",
+            "files": {
+              "project/slides/s-u7lxj2.html": "<section id=\"s-u7lxj2\" data-flat style=\"display:flex;flex-direction:column;gap:48px;padding:128px;background:#ffffff;color:#1a1a1a\">\n  <h2>Updated by the agent</h2>\n  <p style=\"max-width:1200px\">You asked: {{request}}</p>\n  <aside>\n    QA speaker notes · 第二页\n  </aside>\n</section>\n"
+            }
+          }
+        ]
+      },
+      {
+        "reply": "Added a closing slide at the end of the deck.",
+        "edits": [
+          {
+            "kind": "files",
+            "files": {
+              "project/slides/s-agent{{n}}.html": "<section id=\"s-agent{{n}}\" data-flat style=\"display:flex;flex-direction:column;gap:48px;padding:128px;background:#ffffff;color:#1a1a1a\">\n  <h2>Thank you</h2>\n  <p style=\"max-width:1200px\">Added by the agent: {{request}}</p>\n</section>\n"
+            },
+            "appendOrder": { "path": "project/deck.json", "field": "order", "value": "s-agent{{n}}" }
+          }
+        ]
+      }
+    ]
+  }
+}

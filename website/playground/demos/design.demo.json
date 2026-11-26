@@ -1,0 +1,63 @@
+{
+  "id": "design",
+  "type": "design",
+  "typeTitle": "Design",
+  "source": "e2e/fixtures/design",
+  "title": "Launch card",
+  "add": {
+    "project/canvas.json": {
+      "v": 3,
+      "createdOnFiles": {
+        "v": 1,
+        "at": "2026-11-01T00:00:00Z"
+      },
+      "title": "Launch card",
+      "launch": {
+        "view": "canvas"
+      },
+      "pages": [],
+      "boards": {
+        "Main.dc.html": {
+          "x": 0,
+          "y": 0,
+          "w": 880,
+          "h": 560
+        }
+      },
+      "order": [
+        "Main.dc.html"
+      ],
+      "notes": {},
+      "designSystems": []
+    },
+    "project/Main.dc.html": "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Launch card</title>\n<script src=\"./support.js\"></script>\n</head>\n<body>\n<x-dc>\n<helmet>\n<style>\nbody{margin:0}\n</style>\n</helmet>\n<div style=\"width: 880px; height: 560px; box-sizing: border-box; padding: 64px; display: flex; flex-direction: column; justify-content: center; gap: 24px; background: #fbfbf8; font-family: Georgia, serif\">\n<p style=\"margin: 0; font: 600 16px/1 system-ui, sans-serif; letter-spacing: 0.14em; text-transform: uppercase; color: #8a8f96\">Open Artifact · Spring launch</p>\n<h1 style=\"margin: 0; font-size: 64px; line-height: 1.05; color: {{accent}}\">Make things people can comment on</h1>\n<p style=\"margin: 0; max-width: 620px; font-size: 24px; line-height: 1.4; color: #4a4f55\">An artboard on a canvas: the real Design editor, running in your browser.</p>\n</div>\n</x-dc>\n<script type=\"text/x-dc\" data-dc-script data-props='{\"accent\":{\"editor\":\"color\",\"default\":\"#2f5d8a\"},\"$preview\":{\"width\":880,\"height\":560}}'>\nclass Component extends DCLogic {\nrenderVals() {\nreturn { accent: this.props.accent ?? '#2f5d8a' };\n}\n}\n</script>\n</body>\n</html>\n"
+  },
+  "agent": {
+    "name": "Agent",
+    "thinkMs": 2500,
+    "responses": [
+      {
+        "reply": "Done. I warmed the headline up to a terracotta accent and added a call-to-action under it, as you asked: “{{request}}”.",
+        "edits": [
+          {
+            "kind": "files",
+            "files": {
+              "project/Main.dc.html": "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Launch card</title>\n<script src=\"./support.js\"></script>\n</head>\n<body>\n<x-dc>\n<helmet>\n<style>\nbody{margin:0}\n</style>\n</helmet>\n<div style=\"width: 880px; height: 560px; box-sizing: border-box; padding: 64px; display: flex; flex-direction: column; justify-content: center; gap: 24px; background: #fbfbf8; font-family: Georgia, serif\">\n<p style=\"margin: 0; font: 600 16px/1 system-ui, sans-serif; letter-spacing: 0.14em; text-transform: uppercase; color: #8a8f96\">Open Artifact · Spring launch</p>\n<h1 style=\"margin: 0; font-size: 64px; line-height: 1.05; color: {{accent}}\">Make things people can comment on</h1>\n<p style=\"margin: 0; max-width: 620px; font-size: 24px; line-height: 1.4; color: #4a4f55\">An artboard on a canvas: the real Design editor, running in your browser.</p>\n<p style=\"margin: 8px 0 0; align-self: flex-start; padding: 14px 24px; border-radius: 999px; background: #c2562b; color: #fff; font: 600 20px/1 system-ui, sans-serif\">Try it now → (updated by the agent)</p>\n</div>\n</x-dc>\n<script type=\"text/x-dc\" data-dc-script data-props='{\"accent\":{\"editor\":\"color\",\"default\":\"#c2562b\"},\"$preview\":{\"width\":880,\"height\":560}}'>\nclass Component extends DCLogic {\nrenderVals() {\nreturn { accent: this.props.accent ?? '#c2562b' };\n}\n}\n</script>\n</body>\n</html>\n"
+            }
+          }
+        ]
+      },
+      {
+        "reply": "Tightened the headline and switched the accent to green for this pass.",
+        "edits": [
+          {
+            "kind": "files",
+            "files": {
+              "project/Main.dc.html": "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Launch card</title>\n<script src=\"./support.js\"></script>\n</head>\n<body>\n<x-dc>\n<helmet>\n<style>\nbody{margin:0}\n</style>\n</helmet>\n<div style=\"width: 880px; height: 560px; box-sizing: border-box; padding: 64px; display: flex; flex-direction: column; justify-content: center; gap: 24px; background: #fbfbf8; font-family: Georgia, serif\">\n<p style=\"margin: 0; font: 600 16px/1 system-ui, sans-serif; letter-spacing: 0.14em; text-transform: uppercase; color: #8a8f96\">Open Artifact · Spring launch</p>\n<h1 style=\"margin: 0; font-size: 64px; line-height: 1.05; color: {{accent}}\">Comment. Ask. Watch it change.</h1>\n<p style=\"margin: 0; max-width: 620px; font-size: 24px; line-height: 1.4; color: #4a4f55\">Second pass by the agent: {{request}}</p>\n</div>\n</x-dc>\n<script type=\"text/x-dc\" data-dc-script data-props='{\"accent\":{\"editor\":\"color\",\"default\":\"#3d7a4f\"},\"$preview\":{\"width\":880,\"height\":560}}'>\nclass Component extends DCLogic {\nrenderVals() {\nreturn { accent: this.props.accent ?? '#3d7a4f' };\n}\n}\n</script>\n</body>\n</html>\n"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

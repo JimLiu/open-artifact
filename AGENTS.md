@@ -17,6 +17,7 @@ plain folders on disk.
 | `plugins/` | Per-app agent plugins (`claude-code`, `codex`, `cursor`, `copilot`, `antigravity`, `zcode`, `dsh`, `pi`, `chatgpt`). |
 | `examples/` | Runnable agent-app integrations (`harness-node`, `harness-electron`, `harness-stdio`) and host plugins. |
 | `apps/desktop/` | Open Artifact Desktop (Electron, strict TypeScript): sidebar, tabs of artifacts, the library page as home, bundled runtime, no agent. Own `package.json`; not a workspace, not in `npm test`. |
+| `website/` | Official website: static site (`site/`) + live in-browser demos (`playground/`). Own builds and lockfiles; not a workspace, not in `npm test`. |
 | `docs/` | Bilingual user & agent guides (`*.md` and `*.zh-CN.md`), `docs/types/`, the integrator guide (`docs/integrating*`, `docs/spec/`), and contributor `docs/references/`. |
 | `scripts/` | Build, plugin packaging, WASM, npm staging/publishing, and changelog scripts. |
 | `e2e/` | End-to-end tests driving built artifact types via CLI and Chrome DevTools Protocol. |
@@ -34,6 +35,7 @@ npm run e2e                    # Full E2E suite (supports: --only <suite>, --no-
 npm run test:sea               # Build and test the single executable (official Node 25.5+; not in npm test)
 open-artifact doctor --harness <name> [--session <id>]   # Check a setup; with --session, an app's conformance run
 node scripts/build-wasm.mjs    # Only needed when modifying Rust crates in crates/
+node website/build.mjs         # Website (site + playground) → website/dist/; needs npm run build first; see website/README.md
 cd apps/desktop && npm run setup && npm run check   # Desktop app: needs npm run build && node scripts/build-skill.mjs first
 cd apps/desktop && npm run package && npm run test:packaged   # Desktop: local ad hoc macOS .app and its checks
 cd apps/desktop && npm run package:release      # Developer ID signed, notarized ZIP/DMG; see apps/desktop/RELEASING.md

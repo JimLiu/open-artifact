@@ -136,6 +136,15 @@ when an update exists; its window displays transferred/total bytes and supports 
 `test/release.test.ts` rejects an update feed that differs from the signed candidate. `test/settings-dialog.test.ts`
 checks the separate desktop-update controls, saved preferences and test-mode refusal through real Electron IPC.
 
+### Website
+
+`website/` is the official website, outside the workspaces and `npm test`. `site/` (a plain Node build script) and
+`playground/` (Vite) each have their own `package.json` and lockfile. The playground copies the editors and the
+frame-host client that the root `npm run build` produced and bundles the Docs/Sheets engines with the root esbuild.
+`node website/build.mjs` builds both into `website/dist/` (site at the root, playground under `playground/`; `SITE_BASE`,
+`SITE_URL`); `cd website && npm run verify` checks every internal link and runs the playground's headless-Chrome checks
+against it. See `website/README.md`.
+
 ## Releasing
 
 `node scripts/build-npm.mjs` stages publishable packages into `dist/npm/`: the `@open-artifact/*` libraries, `@open-artifact/cli`, `dsh-open-artifact`, and `pi-open-artifact` (copied from `plugins/pi` as it is: Pi loads its TypeScript directly). `@open-artifact/library-page` is private and not staged: the DSH plugin bundles it into its `lib/client.js` and Open Artifact Desktop into its window page; publish it when a host outside this repository needs it.

@@ -222,6 +222,14 @@ app's own preferences are independent of runtime policy. Explicit installation p
 guard; staged updates also install on normal quit. Development, ad hoc and test builds never update. Locally installed
 artifact apps keep their ad hoc outer signatures. See `apps/desktop/RELEASING.md` and `RELEASING.zh-CN.md`.
 
+### Website
+
+`website/` is the public website and is not shipped in any package. `site/` prerenders the marketing pages and the docs
+(EN/zh-CN) from the repo's markdown. `playground/` runs the real Shell (`packages/shell` sources) and the real prebuilt
+editors over an in-memory capability backend with a scripted agent, and the Docs host and Sheets store from
+`packages/type-server` are bundled for the browser (`playground/engines/`). Each demo is a static page at
+`/playground/<type>/`. See `website/README.md`.
+
 ## Agent tools & wake loop
 
 - **Tools** (defined in `packages/protocol/src/tools.ts`, implemented in `packages/daemon/src/tools.ts`):

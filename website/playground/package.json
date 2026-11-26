@@ -1,0 +1,23 @@
+{
+  "name": "open-artifact-playground",
+  "private": true,
+  "type": "module",
+  "description": "The website's live demos: the real Open Artifact editors and Shell running fully client-side, with an in-memory backend and a simulated agent.",
+  "scripts": {
+    "seeds": "node scripts/make-seeds.mjs",
+    "engines": "node engines/build.mjs",
+    "dev": "node scripts/make-seeds.mjs && node engines/build.mjs && vite",
+    "build": "node scripts/make-seeds.mjs && node engines/build.mjs && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -p tsconfig.json && tsc -p engines/tsconfig.json",
+    "verify": "node scripts/verify.mjs"
+  },
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "@noble/hashes": "^1.8.0",
+    "buffer": "^6.0.3",
+    "events": "^3.3.0",
+    "fflate": "^0.8.2",
+    "path-browserify": "^1.0.1"
+  }
+}

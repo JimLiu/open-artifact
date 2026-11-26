@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="origin">
+<link rel="icon" href="data:,">
+<title>Artifact</title>
+<!-- frame-host's inner shell page (its shell.html), framed by the demo Shell for the page demo. main.ts answers its
+     API from the in-memory artifact, then loads frame-host's own comments.js and shell.js. -->
+<script type="module" src="./src/page-frame/main.ts"></script>
+</head>
+<body>
+<main id="stage" aria-live="polite"></main>
+<div id="comments-ui"></div>
+<div id="problem" class="problem" hidden role="alert">
+  <div class="problem-card">
+    <h2 id="problemTitle">This page did not start</h2>
+    <p id="problemText"></p>
+    <div class="row">
+      <button id="problemReload" type="button">Reload</button>
+      <button id="problemAgent" type="button" class="primary" hidden>Ask the agent to look</button>
+    </div>
+    <p id="problemNote" class="note"></p>
+  </div>
+</div>
+<div id="toast" class="toast" hidden role="status"></div>
+</body>
+</html>

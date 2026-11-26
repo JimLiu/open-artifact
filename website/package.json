@@ -1,0 +1,17 @@
+{
+  "name": "open-artifact-website-all",
+  "private": true,
+  "description": "The Open Artifact website: the static site (site/) and the live playground demos (playground/), built together into dist/.",
+  "type": "module",
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "setup": "cd site && npm ci && cd ../playground && npm ci",
+    "build": "node build.mjs",
+    "serve": "node scripts/serve.mjs dist",
+    "check-links": "node scripts/check-links.mjs dist",
+    "verify": "node scripts/verify.mjs"
+  }
+}

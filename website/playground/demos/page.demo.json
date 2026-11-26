@@ -1,0 +1,71 @@
+{
+  "id": "page",
+  "type": "page",
+  "typeTitle": "Page",
+  "source": "e2e/fixtures/page-kinds/checklist",
+  "prefix": "project/",
+  "title": "Packing list",
+  "add": {
+    "db/items/a1.json": {
+      "text": "Passport",
+      "done": true,
+      "at": 1764000000001
+    },
+    "db/items/a2.json": {
+      "text": "Phone charger",
+      "done": false,
+      "at": 1764000000002
+    },
+    "db/items/a3.json": {
+      "text": "Rain jacket",
+      "done": false,
+      "at": 1764000000003
+    },
+    "db/items/a4.json": {
+      "text": "Sunscreen",
+      "done": true,
+      "at": 1764000000004
+    },
+    "db/items/a5.json": {
+      "text": "A good book",
+      "done": false,
+      "at": 1764000000005
+    }
+  },
+  "agent": {
+    "name": "Agent",
+    "thinkMs": 2500,
+    "responses": [
+      {
+        "reply": "Done. I retitled the page for the weekend trip and put your note in a tip box at the top.",
+        "edits": [
+          {
+            "kind": "files",
+            "files": {
+              "project/index.html": "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>Packing list</title>\n<style>\n  :root { --bg: #fafaf7; --fg: #1c1c1a; --line: #e3e2dc; --accent: #2f6f4f; }\n  @media (prefers-color-scheme: dark) { :root { --bg: #151514; --fg: #ecebe6; --line: #2c2c29; --accent: #7cc19a; } }\n  body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.5 system-ui, sans-serif; }\n  main { max-width: 480px; margin: 0 auto; padding: 24px 16px; }\n  ul { list-style: none; padding: 0; }\n  li { display: flex; gap: 8px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); }\n  li input { width: 20px; height: 20px; margin: 0; }\n  form { display: flex; gap: 8px; }\n  #text { flex: 1; font: inherit; padding: 8px; }\n  #add { font: inherit; padding: 8px 16px; background: var(--accent); color: var(--bg); border: 0; }\n  li.done span { text-decoration: line-through; }\n  .tip { margin: 0 0 16px; padding: 12px 14px; border-radius: 10px; background: color-mix(in srgb, var(--accent) 14%, var(--bg)); border-left: 4px solid var(--accent); }\n</style>\n</head>\n<body>\n<main>\n  <h1>Weekend trip: packing list</h1>\n  <p class=\"tip\" id=\"agent-tip\">Updated by the agent: {{request}}</p>\n  <form id=\"form\"><input id=\"text\" name=\"text\" autocomplete=\"off\" placeholder=\"Add an item\"><button id=\"add\">Add</button></form>\n  <ul id=\"items\"></ul>\n  <p id=\"status\">Loading…</p>\n</main>\n<script>\n  // A tool someone uses with the mouse and keyboard: items live in db, so every view and the agent see them.\n  (async () => {\n    const status = document.getElementById('status');\n    const db = await window.openArtifact.use('db');\n    if (!db) { status.textContent = 'cannot save here'; return; }\n    const items = db.collection('items');\n    items.orderBy('at').onSnapshot((snap) => {\n      const list = document.getElementById('items');\n      list.replaceChildren(...snap.docs.map((doc) => {\n        const li = document.createElement('li');\n        li.dataset.id = doc.id;\n        li.className = doc.data().done ? 'done' : '';\n        const box = document.createElement('input');\n        box.type = 'checkbox';\n        box.checked = !!doc.data().done;\n        box.addEventListener('change', () => doc.ref.update({ done: box.checked }));\n        const label = document.createElement('span');\n        label.textContent = doc.data().text;\n        li.append(box, label);\n        return li;\n      }));\n      status.textContent = `${snap.size} items`;\n    }, (error) => { status.textContent = `failed: ${error.code}`; });\n    document.getElementById('form').addEventListener('submit', async (event) => {\n      event.preventDefault();\n      const input = document.getElementById('text');\n      const text = input.value.trim();\n      if (!text) return;\n      input.value = '';\n      await items.add({ text, done: false, at: Date.now() });\n    });\n  })().catch((error) => { document.getElementById('status').textContent = `failed: ${error.code || error.message}`; });\n</script>\n</body>\n</html>\n"
+            }
+          }
+        ]
+      },
+      {
+        "reply": "Added the snacks to the list.",
+        "edits": [
+          {
+            "kind": "db",
+            "writes": [
+              {
+                "op": "set",
+                "path": "items/agent-{{n}}",
+                "data": {
+                  "text": "Snacks for the road (from the agent)",
+                  "done": false,
+                  "at": 1764000100000
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

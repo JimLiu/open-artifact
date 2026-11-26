@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en" data-lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Playground · Open Artifact</title>
+    <meta name="description" content="Try Open Artifact in your browser: the real editors and Shell for slides, designs, whiteboards, sheets, dashboards, docs and motion, with a simulated agent." />
+    <meta name="color-scheme" content="light dark" />
+    <!--favicon-->
+    <link rel="stylesheet" href="./src/landing/landing.css" />
+    <script>
+      // The site's language choice (oa-lang), else the site's Chinese pages when they sent the visitor here, else the
+      // browser's language.
+      (function () {
+        var d = document.documentElement, l = null;
+        try { l = localStorage.getItem('oa-lang'); } catch (_) {}
+        if (l !== 'en' && l !== 'zh') {
+          var site = new URL('../', location.href);
+          var ref = null;
+          try { ref = document.referrer ? new URL(document.referrer) : null; } catch (_) {}
+          l = ref && ref.origin === location.origin && ref.pathname.indexOf(site.pathname + 'zh/') === 0 ? 'zh' : /^zh\b/i.test(navigator.language || '') ? 'zh' : 'en';
+        }
+        d.setAttribute('data-lang', l);
+        d.lang = l === 'zh' ? 'zh-CN' : 'en';
+        if (l === 'zh') document.title = '在线试用 · Open Artifact';
+      })();
+    </script>
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="wrap header-row">
+        <a class="brand" data-site-href="" href="../" aria-label="Open Artifact"><!--mark--><span>Open Artifact</span></a>
+        <nav class="main-nav" id="main-nav" aria-label="Main">
+          <a data-site-href="types/" href="../types/"><span data-l="en">Types</span><span data-l="zh">产物类型</span></a>
+          <a data-site-href="docs/" href="../docs/"><span data-l="en">Docs</span><span data-l="zh">文档</span></a>
+          <a data-site-href="install/" href="../install/"><span data-l="en">Install</span><span data-l="zh">安装</span></a>
+          <a href="./" aria-current="page"><span data-l="en">Playground</span><span data-l="zh">在线试用</span></a>
+          <a href="https://github.com/JimLiu/open-artifact" rel="noopener">GitHub</a>
+        </nav>
+        <div class="header-tools">
+          <button class="lang" type="button" data-lang-toggle><span data-l="en">中文</span><span data-l="zh">English</span></button>
+        </div>
+      </div>
+    </header>
+    <main id="main">
+      <section class="pg-hero">
+        <div class="wrap">
+          <span class="eyebrow"><i aria-hidden="true"></i><span data-l="en">Live in your browser</span><span data-l="zh">在浏览器里直接运行</span></span>
+          <h1><span data-l="en">Try every artifact type, right here</span><span data-l="zh">每种产物类型，都能在这里直接试</span></h1>
+          <p class="sub">
+            <span data-l="en">Each demo is the real product: the real Shell and the real editor, running entirely in your browser over an in-memory artifact. The agent is simulated, so you can see the comment loop without installing anything.</span>
+            <span data-l="zh">每个演示都是真正的产品：真正的 Shell 和真正的编辑器，完全在你的浏览器里运行，背后是一个内存里的产物。Agent 是模拟的，不用安装任何东西，就能看到评论如何回到 Agent、Agent 又如何修改产物。</span>
+          </p>
+          <ol class="pg-steps">
+            <li><span data-l="en"><b>Edit</b> directly: retype text, move things, change a cell.</span><span data-l="zh"><b>直接编辑</b>：改文字、挪元素、改单元格。</span></li>
+            <li><span data-l="en"><b>Comment</b> on any spot and tick “Send to Agent”.</span><span data-l="zh"><b>留评论</b>，并勾选“发给 Agent”。</span></li>
+            <li><span data-l="en"><b>Watch</b> the agent reply in the thread and change the artifact live.</span><span data-l="zh"><b>看 Agent</b> 在评论里回复，并实时修改产物。</span></li>
+          </ol>
+        </div>
+      </section>
+      <section class="pg-demos">
+        <div class="wrap">
+          <div class="type-grid">
+<!--demos-->
+          </div>
+          <p class="pg-note">
+            <span data-l="en">Nothing is saved: reload a demo to start over. Works best in a desktop browser. To use it with your own agent, <a data-site-href="install/" href="../install/">install Open Artifact</a>.</span>
+            <span data-l="zh">不会保存任何内容：刷新页面即可重来。在桌面浏览器里体验最好。想配合你自己的 Agent 使用，请<a data-site-href="install/" href="../install/">安装 Open Artifact</a>。</span>
+          </p>
+        </div>
+      </section>
+    </main>
+    <footer class="pg-foot">
+      <div class="wrap">
+        <span>© Open Artifact · Apache-2.0</span>
+        <a data-site-href="" href="../"><span data-l="en">Back to the Open Artifact site</span><span data-l="zh">返回 Open Artifact 官网</span></a>
+      </div>
+    </footer>
+    <script>
+      (function () {
+        var d = document.documentElement;
+        var site = new URL('../', location.href);
+        var links = document.querySelectorAll('[data-site-href]');
+        function sync() {
+          var zh = d.getAttribute('data-lang') === 'zh';
+          for (var i = 0; i < links.length; i++) links[i].href = new URL((zh ? 'zh/' : '') + links[i].getAttribute('data-site-href'), site).href;
+        }
+        sync();
+        document.querySelector('[data-lang-toggle]').addEventListener('click', function () {
+          var l = d.getAttribute('data-lang') === 'zh' ? 'en' : 'zh';
+          d.setAttribute('data-lang', l);
+          d.lang = l === 'zh' ? 'zh-CN' : 'en';
+          document.title = l === 'zh' ? '在线试用 · Open Artifact' : 'Playground · Open Artifact';
+          try { localStorage.setItem('oa-lang', l); } catch (_) {}
+          sync();
+        });
+      })();
+    </script>
+  </body>
+</html>

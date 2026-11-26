@@ -1,0 +1,34 @@
+{
+  "id": "design-system",
+  "type": "design-system",
+  "typeTitle": "Design system",
+  "source": "e2e/fixtures/design-system",
+  "agent": {
+    "name": "Agent",
+    "thinkMs": 2500,
+    "responses": [
+      {
+        "reply": "Done. I moved the accent token to a deeper blue (#2563eb, #60a5fa in dark), so the primary button and every link pick it up.",
+        "edits": [
+          {
+            "kind": "files",
+            "files": {
+              "project/tokens.json": "{\n \"name\": \"Smoke System\",\n \"version\": 1,\n \"color\": {\n  \"themes\": [\n   {\n    \"id\": \"light\",\n    \"name\": \"Light\"\n   },\n   {\n    \"id\": \"dark\",\n    \"name\": \"Dark\"\n   }\n  ],\n  \"tokens\": [\n   {\n    \"name\": \"surface-100\",\n    \"value\": {\n     \"light\": \"#fbf7f1\",\n     \"dark\": \"#1d1a17\"\n    },\n    \"usage\": \"Page background.\"\n   },\n   {\n    \"name\": \"ink\",\n    \"value\": {\n     \"light\": \"#2b2118\",\n     \"dark\": \"#f3ece3\"\n    },\n    \"usage\": \"Text on surface-100.\"\n   },\n   {\n    \"name\": \"accent\",\n    \"value\": {\n     \"light\": \"#2563eb\",\n     \"dark\": \"#60a5fa\"\n    },\n    \"usage\": \"Links and the primary button. Changed by the agent: {{request}}\"\n   }\n  ]\n },\n \"type\": {\n  \"fonts\": [],\n  \"families\": {\n   \"serif\": \"Georgia, serif\"\n  },\n  \"groups\": [\n   {\n    \"name\": \"Text\",\n    \"family\": \"serif\",\n    \"styles\": [\n     {\n      \"name\": \"body\",\n      \"fontSize\": \"16px\",\n      \"lineHeight\": \"24px\",\n      \"fontWeight\": 400\n     }\n    ]\n   }\n  ]\n },\n \"spacing\": {\n  \"tokens\": [\n   {\n    \"name\": \"space-4\",\n    \"value\": \"16px\",\n    \"usage\": \"Card padding.\"\n   }\n  ]\n },\n \"radius\": {\n  \"tokens\": [\n   {\n    \"name\": \"radius-md\",\n    \"value\": \"8px\",\n    \"usage\": \"Buttons, cards.\"\n   }\n  ]\n }\n}\n"
+            }
+          }
+        ]
+      },
+      {
+        "reply": "Added a usage note to the Button component's README.",
+        "edits": [
+          {
+            "kind": "files",
+            "files": {
+              "project/components/Button/README.md": "# Button\n\nThe primary action. Use one per view.\n\n> Note from the agent: {{request}}\n"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

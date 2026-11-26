@@ -1,0 +1,20 @@
+{
+  "id": "sheets",
+  "type": "sheets",
+  "typeTitle": "Sheets",
+  "source": "test-artifacts/sheets/sales",
+  "agent": {
+    "name": "Agent",
+    "thinkMs": 2500,
+    "responses": [
+      {
+        "reply": "Done. I set the Notebook amount (Sales!B2) to {{value}}, so the sales total went from {{was}} to {{now}}.",
+        "edits": [{ "kind": "sheet", "sheet": "Sales", "cell": "B2", "value": 1000, "watch": { "sheet": "Sales", "cell": "B5" } }]
+      },
+      {
+        "reply": "I raised the Folder amount (Sales!B4) to {{value}}: the total is now {{now}} (it was {{was}}).",
+        "edits": [{ "kind": "sheet", "sheet": "Sales", "cell": "B4", "value": 300, "watch": { "sheet": "Sales", "cell": "B5" } }]
+      }
+    ]
+  }
+}
