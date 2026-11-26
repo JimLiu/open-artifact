@@ -18,7 +18,7 @@ import { followArtifacts } from './artifacts.mjs';
 import { callerOf, connectHarness } from './harness.mjs';
 import { installSkill } from './skill.mjs';
 import { registerTools, reportWrites } from './tools.mjs';
-import { describeWake, wakeHandler } from './wakes.mjs';
+import { describeWake, requestBubbles, wakeHandler } from './wakes.mjs';
 
 const { values: args } = parseArgs({
   options: { workspace: { type: 'string', default: process.cwd() }, type: { type: 'string' }, once: { type: 'boolean', default: false } },
@@ -34,6 +34,8 @@ const oa = await connectHarness({
   wake: wakeHandler(sessions, {
     onWake(params, route) {
       say(`wake ${route} ${describeWake(params)}`);
+      // What a chat would show for each page request: the person's words and the selection chip.
+      for (const bubble of requestBubbles(params)) say(`bubble ${JSON.stringify(bubble)}`);
       if (stopAfterWake) setTimeout(() => void shutdown(0), 10);
     },
   }),

@@ -254,7 +254,8 @@ export function libraryRoutes(router: Router<AppCtx>): void {
       artifactId: access.artifact.id,
       toUser: access.artifact.ownerUser,
       kind: 'wake',
-      payload: { requests: [requestItem], from },
+      // The Ask pane sends only what the person typed: all of it is their own words (`wake.request.parts`).
+      payload: { requests: [{ ...requestItem, userText: text }], from },
     });
     ctx.events.emit('outbox', { userId: access.artifact.ownerUser });
     // Kept in the outbox either way; a connected computer is told at once (the outbox event above reaches its stream).

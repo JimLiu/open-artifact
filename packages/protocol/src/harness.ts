@@ -62,6 +62,8 @@ export const PROTOCOL_MAX = 1;
  *   session (a host's own window for an artifact the person picked).
  * - `inbox.return`: `inbox.return` puts messages an adapter took (with `session.attach`'s `inbox`) but could not hand
  *   to its agent back in the session's inbox, ahead of what came since, so its next tool call, wait or attach has them.
+ * - `wake.request.parts`: a wake's `source.requests[]` carry `userText` (the person's own words) and
+ *   `selectionSnapshot` (what was selected when they sent it) when the page gave them.
  */
 export type HarnessFeature =
   | 'hello.profile'
@@ -82,14 +84,15 @@ export type HarnessFeature =
   | 'runtime.update'
   | 'types.source'
   | 'view.open'
-  | 'inbox.return';
+  | 'inbox.return'
+  | 'wake.request.parts';
 
 /**
  * The features this release's daemon implements, the `features` its `hello` answers. Kept here, not in the daemon, so
  * the kit's fake daemon (`@open-artifact/harness-kit/testing`) answers the same list. A name goes in when the code
  * that answers it lands, never before, so an adapter can trust every name it reads.
  */
-export const HARNESS_FEATURES: readonly HarnessFeature[] = Object.freeze(['hello.profile', 'embed.origins', 'shell.command', 'shell.event', 'view.context', 'wake.from', 'wake.drafted', 'wake.session', 'skill.get', 'commands.list', 'session.may', 'tools.actions', 'quickstart.steps', 'types.remote', 'hello.runtime', 'runtime.update', 'types.source', 'view.open', 'inbox.return'] as const);
+export const HARNESS_FEATURES: readonly HarnessFeature[] = Object.freeze(['hello.profile', 'embed.origins', 'shell.command', 'shell.event', 'view.context', 'wake.from', 'wake.drafted', 'wake.session', 'skill.get', 'commands.list', 'session.may', 'tools.actions', 'quickstart.steps', 'types.remote', 'hello.runtime', 'runtime.update', 'types.source', 'view.open', 'inbox.return', 'wake.request.parts'] as const);
 
 /** How a harness shows pages in its own UI: in a frame of its page, or in a top-level view (a webview). */
 export interface AdapterOpenCaps {

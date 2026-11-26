@@ -8,13 +8,14 @@
  * data. Only what the viewer typed goes in as their own words.
  */
 
-import { fenceUntrusted, type AgentSendResult, type AgentStatus } from '@open-artifact/runtime';
+import { fenceUntrusted, type AgentRequest, type AgentSendResult, type AgentStatus } from '@open-artifact/runtime';
 import { agentResultMessage, sendFailure, watchAgentStatus } from '@open-artifact/editor-kit';
 import { toast } from '@open-artifact/ui';
 import { create } from 'zustand';
 import { isDirty, useFiles } from '../state/files.ts';
 import { useView, type Focus } from '../state/view.ts';
 import { session } from './session.ts';
+import { focusSnapshot } from '../lib/focus-snapshot.ts';
 
 /** Live agent status. */
 export const useAgent = create<{ status: AgentStatus }>()(() => ({
@@ -89,7 +90,12 @@ function describeFocus(focus: Focus | null): string | null {
 }
 
 /** Sends a request; `title` labels it for the agent and in logs. */
-async function send(title: string, parts: (string | null)[], context: Record<string, unknown> = {}): Promise<AgentSendResult | null> {
+async function send(
+  title: string,
+  parts: (string | null)[],
+  context: Record<string, unknown> = {},
+  shown: Pick<AgentRequest, 'userText' | 'selectionSnapshot'> = {},
+): Promise<AgentSendResult | null> {
   const { agent, isOwner } = session();
   if (!isOwner) {
     toast.add({ title: 'Only the owner can send requests to the agent', description: 'Leave a comment instead.' });
@@ -100,7 +106,7 @@ async function send(title: string, parts: (string | null)[], context: Record<str
     return null;
   }
   try {
-    const result = await agent.send({ title, text: parts.filter(Boolean).join('\n\n'), context: { view: currentViewContext(), ...context } });
+    const result = await agent.send({ title, text: parts.filter(Boolean).join('\n\n'), context: { view: currentViewContext(), ...context }, ...shown });
     report(result);
     return result;
   } catch (error) {
@@ -114,7 +120,10 @@ async function send(title: string, parts: (string | null)[], context: Record<str
 export async function sendToAgent(message: string): Promise<AgentSendResult | null> {
   const text = message.trim();
   if (!text) return null;
-  return send('Send to agent', [text, describeFocus(useView.getState().focus)]);
+  const focus = useView.getState().focus;
+  // Taken now, when Send is pressed: the app showing the request names what was focused then.
+  const snapshot = focusSnapshot(focus);
+  return send('Send to agent', [text, describeFocus(focus)], {}, { userText: text, ...(snapshot ? { selectionSnapshot: snapshot } : {}) });
 }
 
 /** A contrast pair that fails its threshold. */

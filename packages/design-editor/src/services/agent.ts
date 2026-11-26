@@ -18,6 +18,7 @@ import { useView } from '../state/view.ts';
 import { session } from './session.ts';
 import { visibleBoards } from './viewport.ts';
 import { errorsKey, fixRequest, type BoardProblem } from '../lib/board-errors.ts';
+import { designSelectionSnapshot } from '../lib/selection-snapshot.ts';
 
 /** Live agent status. */
 export const useAgent = create<{ status: AgentStatus }>()(() => ({
@@ -124,6 +125,8 @@ export async function sendToAgent(message: string): Promise<AgentSendResult | nu
   const context = currentViewContext();
   const parts = [text];
   const selection = context.selection ?? [];
+  // Taken now, when Send is pressed: the app showing the request lists what was selected then, not what is later.
+  const snapshot = designSelectionSnapshot(context, selectedElements().length);
   if (selection.length) {
     // Labels are artifact text: fenced, never instructions.
     const listed = selection.map((item) => `${item.id} (${item.kind})${item.label ? `: ${item.label}` : ''}`).join('\n');
@@ -132,7 +135,13 @@ export async function sendToAgent(message: string): Promise<AgentSendResult | nu
     parts.push(`Selected artboards: ${context.selectedArtboards.join(', ')}`);
   }
   try {
-    const result = await agent.send({ title: 'Send to agent', text: parts.join('\n\n'), context: { view: context } });
+    const result = await agent.send({
+      title: 'Send to agent',
+      text: parts.join('\n\n'),
+      context: { view: context },
+      userText: text,
+      ...(snapshot ? { selectionSnapshot: snapshot } : {}),
+    });
     reportResult(result);
     return result;
   } catch (error) {

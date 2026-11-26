@@ -40,7 +40,7 @@ import { MAX_ASK_BYTES, utf8Bytes } from '@open-artifact/protocol';
 import { ScriptedAgent } from '../examples/harness-node/agent.mjs';
 import { callerOf, connectHarness } from '../examples/harness-node/harness.mjs';
 import { registerTools } from '../examples/harness-node/tools.mjs';
-import { wakeHandler } from '../examples/harness-node/wakes.mjs';
+import { requestBubbles, wakeHandler } from '../examples/harness-node/wakes.mjs';
 import { findChrome, launch } from './lib/browser.mjs';
 import { until } from './lib/http.mjs';
 import { browserOff, removeTmp, repoRoot, tmpDir } from './lib/target.mjs';
@@ -434,6 +434,11 @@ describe('harness compatibility: the reference host against a real daemon', () =
     assert.equal(summon.text, text);
     assert.ok(await until(() => ctx.frameWakes.length > wakes, 10000), 'the Ask woke the owner session');
     assert.equal(ctx.frameWakes[wakes].source.requests[0].text, text);
+    // wake.request.parts: the Ask pane's words are the userText (there is no selection), and the host shows them as
+    // the owner's own message.
+    assert.equal(ctx.frameWakes[wakes].source.requests[0].userText, text);
+    assert.equal(ctx.frameWakes[wakes].source.requests[0].selectionSnapshot, undefined);
+    assert.deepEqual(requestBubbles(ctx.frameWakes[wakes]).map(b => [b.role, b.text]), [['user', text]]);
     await page.close();
   });
 

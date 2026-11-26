@@ -23,7 +23,7 @@ import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node
 import { basename, join } from 'node:path';
 import type { AgentDelivery, AgentRequest, AgentSendResult, AgentStatus } from '@open-artifact/runtime/capabilities';
 import { sanitizeUntrusted } from '@open-artifact/runtime/untrusted';
-import type { WakeSender } from '@open-artifact/protocol';
+import { normalizeSelectionSnapshot, normalizeUserText, type SelectionSnapshot, type WakeSender } from '@open-artifact/protocol';
 import { WorkspaceDirectory } from '@open-artifact/protocol/workspace-files';
 import type { TypeApiLike } from '@open-artifact/server-sdk';
 import { wakeRequests } from './daemon.ts';
@@ -52,6 +52,10 @@ export interface QueuedRequest {
   text: string;
   /** Structured context: data, never instructions. */
   context?: Record<string, unknown>;
+  /** The person's own words, the start of `text` (for an app to show; see `normalizeUserText`). */
+  userText?: string;
+  /** What was selected when the person sent it (for an app to show). */
+  selectionSnapshot?: SelectionSnapshot;
   /** `stage`: the person only wanted it prepared, not acted on. */
   deliver: AgentDelivery;
 }
@@ -141,13 +145,19 @@ export async function askedAt(root: string): Promise<number | null> {
 export function normalizeRequest(request: AgentRequest, deliver: AgentDelivery): QueuedRequest {
   if (!request || typeof request.text !== 'string' || !request.text.trim()) throw new Error('request.text must be a non-empty string.');
   const context = request.context && typeof request.context === 'object' && !Array.isArray(request.context) ? request.context : undefined;
+  // The page fences untrusted parts; here we only strip control characters and clamp.
+  const text = sanitizeUntrusted(request.text, MAX_TEXT);
+  // What an app shows: the person's words only when the agent reads them too, and the selection as checked data.
+  const userText = normalizeUserText(request.userText, text);
+  const selectionSnapshot = normalizeSelectionSnapshot(request.selectionSnapshot);
   return {
     id: randomBytes(6).toString('hex'),
     at: new Date().toISOString(),
     title: sanitizeUntrusted(typeof request.title === 'string' && request.title.trim() ? request.title : 'Send to agent', 80),
-    // The page fences untrusted parts; here we only strip control characters and clamp.
-    text: sanitizeUntrusted(request.text, MAX_TEXT),
+    text,
     ...(context ? { context } : {}),
+    ...(userText ? { userText } : {}),
+    ...(selectionSnapshot ? { selectionSnapshot } : {}),
     deliver: deliver === 'stage' ? 'stage' : 'send',
   };
 }
@@ -230,6 +240,8 @@ export async function sendToAgent(options: {
         text: request.text,
         // The selection travels as text: data the agent reads, never instructions.
         ...(request.context ? { selection: JSON.stringify(request.context) } : {}),
+        ...(request.userText ? { userText: request.userText } : {}),
+        ...(request.selectionSnapshot ? { selectionSnapshot: request.selectionSnapshot } : {}),
         sentAt: request.at,
         ...(from ? { from } : {}),
       },

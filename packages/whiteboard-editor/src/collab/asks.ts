@@ -39,6 +39,7 @@ import type { SharedAsk } from './peers.ts';
 import { publishPresence } from './presence.ts';
 import { flushViewContext } from './publish-context.ts';
 import { viewContextItem } from './view-context.ts';
+import { askScopeSnapshot } from './ask-snapshot.ts';
 
 /** What a request is about. */
 export type AskTarget =
@@ -197,12 +198,17 @@ export async function askAgent(input: AskInput): Promise<AgentSendResult | undef
   const ask: LocalAsk = { key, text, target: input.target, via: input.via, status: 'sending', at: Date.now(), ...(activity ? { activity } : {}) };
   addAsk(ask);
   const view = flushViewContext();
+  // Taken now, when Send is pressed: the app showing the request lists what the ask was about then.
+  const scope = askScopeContext(input.target);
+  const snapshot = askScopeSnapshot(scope);
   const result = await sendToAgent({
     text,
     title: ASK_TITLES[input.via],
+    userText: text,
+    ...(snapshot ? { selectionSnapshot: snapshot } : {}),
     context: {
       action: 'ask',
-      scope: askScopeContext(input.target),
+      scope,
       claim: key,
       via: input.via,
       ...(input.files && input.files.length > 0 ? { files: input.files.map((file) => ({ name: file.name, text: file.text })) } : {}),

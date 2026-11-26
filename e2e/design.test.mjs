@@ -622,6 +622,51 @@ editorSuite({
       }
     });
 
+    it('Send to agent with two elements selected: the request keeps the words as typed and the selection at Send', T, async () => {
+      const { root, url } = await ctx.openNew('request-parts');
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: textIn('Smoke canvas'), settle: 800 });
+      const pointAt = selector => page.evaluate(`(() => {
+        const frame = document.querySelector('iframe[data-board="Main.dc.html"]');
+        const rect = frame.getBoundingClientRect();
+        const box = frame.contentDocument.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();
+        const zoom = rect.width / frame.offsetWidth;
+        return [rect.left + (box.left + box.width / 2) * zoom, rect.top + (box.top + box.height / 2) * zoom];
+      })()`);
+      const w = await startWait(ctx, root, 60);
+      try {
+        await page.click(...await pointAt('h1'));
+        await page.click(...await pointAt('p'), { shift: true });
+        await clickOn(page, `[...document.querySelectorAll('button')].find(b => /^Ask /.test(b.textContent.trim()))`, 'the Ask button');
+        const area = `document.querySelector('textarea[placeholder^="Describe the change"]')`;
+        assert.ok(await page.waitFor(area, 10000), 'the composer did not open');
+        await typeInto(page, area, 'Make these terracotta');
+        await page.press('Enter');
+        await page.type('and a little larger');
+        await clickOn(page, buttonNamed('Send'));
+        // The selection changes right after Send: what was sent stays as it was.
+        await page.press('Escape');
+        await page.press('Escape');
+        const { code, stdout } = await w.done;
+        assert.equal(code, 0, stdout);
+        assert.match(stdout, /^Make these terracotta\nand a little larger$/m);
+        const doneDir = path.join(root, '_agent', 'done');
+        const sent = fs.readdirSync(doneDir).map(name => JSON.parse(fs.readFileSync(path.join(doneDir, name), 'utf8'))).find(r => r.title === 'Send to agent');
+        assert.ok(sent, 'no request in _agent/done');
+        assert.equal(sent.userText, 'Make these terracotta\nand a little larger');
+        assert.ok(sent.text.startsWith(sent.userText), 'the agent reads the words first');
+        assert.equal(sent.selectionSnapshot?.kind, 'elements');
+        assert.equal(sent.selectionSnapshot.count, 2);
+        assert.equal(sent.selectionSnapshot.label, '2 selected elements');
+        assert.equal(sent.selectionSnapshot.where, undefined, 'the fixture canvas names no page, so the snapshot says none');
+        assert.equal(sent.selectionSnapshot.items.length, 2);
+        assert.ok(sent.selectionSnapshot.items.some(item => /Smoke canvas/.test(item.label ?? '')), JSON.stringify(sent.selectionSnapshot));
+        assert.deepEqual(page.problems, []);
+      } finally {
+        w.child.kill('SIGTERM');
+        await page.close();
+      }
+    });
+
     const throwing = (ctx_, root) => {
       copyFixture('design', root);
       const board = path.join(root, BOARD);

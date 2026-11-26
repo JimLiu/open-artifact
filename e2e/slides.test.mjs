@@ -334,6 +334,41 @@ describe('slides', { skip: skipFor('slides') }, () => {
     assert.ok(await until(() => fs.readFileSync(file, 'utf8') === original), fs.readFileSync(file, 'utf8'));
   });
 
+  it('asks the agent about two selected elements: the request keeps the words and the selection at Send', { skip: browserSkip, timeout: 120000 }, async () => {
+    const waiting = await run.start(['wait', root, '--timeout', '60'], { firstLine: false });
+    try {
+      assert.ok(await until(() => fs.existsSync(path.join(root, '_agent', 'waiting')), 10000), 'wait wrote no heartbeat');
+      await page.evaluate("location.hash = '#slide-3'");
+      const on = selector => `document.querySelector('[data-open-artifact-mode="edit"][data-open-artifact-slide="end"] ${selector}')`;
+      assert.ok(await page.waitFor(on('h1')));
+      const pointAt = selector => page.evaluate(`(() => { const box = ${on(selector)}.getBoundingClientRect(); return [box.x + 12, box.y + box.height / 2]; })()`);
+      await page.click(...await pointAt('h1'));
+      await page.click(...await pointAt('ul'), { shift: true });
+      const field = `document.querySelector('input[aria-label^="Ask "]')`;
+      assert.ok(await page.waitFor(field, 15000), 'no Ask field: the page does not see the waiting agent');
+      await page.evaluate(`${field}.focus()`);
+      assert.ok(await page.waitFor(`${field}.placeholder.includes('about the selection')`, 5000), 'the Ask field does not see the selection');
+      await page.type('Make these two blue');
+      await page.press('Enter');
+      // Right after Send, the selection goes: what was sent stays as it was.
+      await page.press('Escape');
+      await page.press('Escape');
+      const { code } = await waiting.exited;
+      assert.equal(code, 0, waiting.stdout());
+      assert.match(waiting.stdout(), /^Make these two blue$/m);
+      const doneDir = path.join(root, '_agent', 'done');
+      const sent = fs.readdirSync(doneDir).map(name => JSON.parse(fs.readFileSync(path.join(doneDir, name), 'utf8'))).find(r => r.userText === 'Make these two blue');
+      assert.ok(sent, 'no request with the words in _agent/done');
+      assert.ok(sent.text.startsWith(sent.userText));
+      assert.equal(sent.selectionSnapshot?.kind, 'elements', JSON.stringify(sent.selectionSnapshot));
+      assert.equal(sent.selectionSnapshot.count, 2);
+      assert.equal(sent.selectionSnapshot.label, '2 selected elements');
+      assert.equal(sent.selectionSnapshot.where, 'Slide 3 of 3');
+    } finally {
+      waiting.child?.kill('SIGTERM');
+    }
+  });
+
   it('sets a source paragraph’s margin from the properties panel, saves it on the tag and undoes it', { skip: browserSkip }, async () => {
     const file = path.join(root, 'project/slides/plan.html');
     const original = fs.readFileSync(file, 'utf8');

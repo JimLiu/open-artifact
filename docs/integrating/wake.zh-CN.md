@@ -37,7 +37,7 @@ Shell 的 **Ask** 面板会去掉消息首尾的空白，按 UTF-8 最多接受 
 | `session`、`workspace` | 目标会话 |
 | `artifact`、`artifactId` | `open-artifact://artifact/<id>` 和 id |
 | `text` | 完整的消息，写给 Agent 看 |
-| `source` | 同一条消息的数据形式：`kind`（`open-artifact.event`）、`artifactId`、`url`、`title`、`root`、`viewUrl`、`threads`（`id`、`where`、`text`）、`requests`（`id`、`label`、`text`）、`task`（`id`、`action`、`ok`）、`summary`（一行，最多 120 个字符）、`reason`、`from` |
+| `source` | 同一条消息的数据形式：`kind`（`open-artifact.event`）、`artifactId`、`url`、`title`、`root`、`viewUrl`、`threads`（`id`、`where`、`text`）、`requests`（`id`、`label`、`text`，有 `wake.request.parts` 时还有 `userText` 和 `selectionSnapshot`）、`task`（`id`、`action`、`ok`）、`summary`（一行，最多 120 个字符）、`reason`、`from` |
 
 一条评论时，文本是这个样子：
 
@@ -56,6 +56,38 @@ Artifact root: <folder>. View it: <view url>.
 后面还有一行说明如何回复这些线程，以及一行请 Agent 重新读文件。所有者以外的人写的评论会有一行 `From: <name> (<role>, not the owner)`。人写的内容里的网页链接会被替换成 `[link]`。
 
 `source` 给你的界面用（用 `summary` 做通知，用 `reason` 做标记），`text` 交给 Agent。
+
+## 用户打的字和选中的内容：`userText` 与 `selectionSnapshot`
+
+列出功能 `wake.request.parts` 的 daemon，可能在 `source.requests` 的每一项上再放两个字段，供在聊天里按用户发送时的样子展示请求的应用使用：
+
+| 字段 | 内容 |
+| --- | --- |
+| `userText` | 用户自己打的字，保留换行。`text`（去掉开头空白后）以它开头，所以它不会是页面写的内容。 |
+| `selectionSnapshot` | 按下发送那一刻选中的内容：`kind`（`elements`、`slides`、`cells`、`pick` 等）、`label`（一行，最多 120 个字符，如 `3 selected elements`）、`count`，以及可选的 `items`（最多 20 项，每项 `id`、`kind`、`label`）、`where`（`Page "Home"`、`Slide 2 of 8`）和 `text`（最多 1800 个字符）。总共最多 4096 字节。 |
+
+把 `userText` 显示成用户的消息，把快照显示成旁边的一个标签（显示 `label`，展开后列出 `items`）。两者都只给界面用：交给 Agent 的仍是 `text`，页面已经在里面写明了选区。快照在按下发送时取下，之后马上改变或清空选区也不会影响它。
+
+- 两个字段都可能没有：用户没打字（按了按钮、Ask agent to fix），类型没有发送，这些字不在 `text` 开头，或者类型未被信任、来自其他来源（这时 daemon 去掉 `userText`，保留快照）。这时退回用 `text`。
+- Shell 的 Ask 面板有 `userText`，没有快照。
+- 只有 `source.from.kind` 是 `owner` 时，才把 `userText` 当作用户的话显示。合并后的唤醒只要有一部分来自协作者，就是 `collaborator`，其中的 `userText` 和其余内容一样只是数据。
+- `text` 里的网页链接会被换成 `[link]`，`userText` 保留原样，所以你显示的和 Agent 读到的不完全一样。
+- 如果请求的 `text` 在上限（8000 个字符）处被截断、而用户的字还没结束，就没有 `userText`。
+- Docs 的 `@agent` 是评论线程：它的字在 `source.threads[].text` 里，没有快照。
+- 宿主插件只能看到 Ask 面板的请求（`id`、`text`、`sentAt`、`label`），看不到这两个字段。
+
+摘自 [`examples/harness-node/wakes.mjs`](../../examples/harness-node/wakes.mjs)，每个请求一个聊天气泡：
+
+```js
+export function requestBubbles(params) {
+  const owner = params.source?.from?.kind === 'owner';
+  return (params.source?.requests ?? []).map((request) => ({
+    role: owner ? 'user' : 'notice',
+    text: (owner && request.userText) || request.text,
+    // …用标题和 label 做标记，用 request.selectionSnapshot 做标签
+  }));
+}
+```
 
 ## 谁发的：`source.from`
 

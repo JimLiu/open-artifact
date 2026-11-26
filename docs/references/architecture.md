@@ -242,6 +242,15 @@ editors over an in-memory capability backend with a scripted agent, and the Docs
 - **CLI parity**: `skills/open-artifact/scripts/open-artifact.mjs` invokes the exact same daemon tool handlers over local HTTP (`artifact`, `data`, `comments`, `open`, `wait`, `mcp`, `hook`). `open-artifact --version` / `-v` prints the runtime's version.
 - **Wake routing**: When a user clicks **Send to agent** in the Shell, comments go to the session that owns the artifact: live to a connected Harness API adapter of its harness (`wake.deliver`), else into the daemon inbox, delivered via app-specific hooks (`packages/daemon/harnesses/<name>.json`), background monitors/extensions (`open-artifact watch`, which exits once its parent, or past any shells the first ancestor that is not one, is gone: `lifeline.ts`), the `messages` array in tool responses, or `ArtifactComments {action: "wait"}`. `session.attach` takes the inbox; what an adapter took on a re-attach and could not hand on comes back with `inbox.return` (`Inbox.giveBack`: an open wait takes it, else it waits again ahead of newer messages).
 
+- **What the person typed and selected** (`wake.request.parts`; `normalizeUserText`, `normalizeSelectionSnapshot` and
+  `withRequestParts` in `packages/protocol/src/wake.ts`): an editor's `agent.send` may add `userText` (its words) and
+  `selectionSnapshot` (the selection at Send, built with `selectionSnapshotOf` in `packages/editor-kit/src/agent.ts`).
+  The type server's `normalizeRequest` keeps `userText` only when the request's `text`, after `trimStart`, starts with
+  it, and clamps the snapshot (4096 bytes; `text` dropped first, then items). The daemon's `queuePageWake` (the
+  `type.wake` route and Link's `wake`) drops `userText` for a type that is not trusted or is remote, and keeps the
+  snapshot; `WakeRouter.ask` (the Shell's Ask pane) and the hosted Ask set `userText` to the request's text.
+  `wakeMessage` copies both onto `source.requests[]`; the agent's `text` is the same as without them. Design, Slides,
+  Design System, Whiteboard, Data and Sheets send them; Docs' `@agent` is a comment thread and sends neither.
 - **Starting without an agent** (`libraryCall` in `packages/daemon/src/daemon.ts`): `artifacts.create` makes an
   artifact as `open-artifact-home`, then clears `owner` and `createdBy`; it writes only `.artifact.json`, so `bootOf`
   says `empty` (no `detect` file) and `shellBoot` returns before opening the page, and the Shell shows `EmptyArtifact`
