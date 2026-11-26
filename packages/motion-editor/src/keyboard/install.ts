@@ -1,3 +1,4 @@
+import { isCharacterKey, useLetterKeys } from './letter-keys.ts';
 import { shortcuts, type KeyRegistry } from './registry.ts';
 
 /** Input types that are controls rather than text fields (so playback and undo shortcuts stay active on them). */
@@ -52,6 +53,7 @@ const pressesControl = (event: KeyboardEvent): boolean =>
 export function installShortcuts(target: Window, registry: KeyRegistry = shortcuts): () => void {
   const onKeyDown = (event: KeyboardEvent): void => {
     if (event.defaultPrevented || event.isComposing || event.keyCode === 229 || pressesControl(event)) return;
+    if (!useLetterKeys.getState().on && isCharacterKey(event)) return;
     const shortcut = registry.match(event, keysStayIn(event.target, target.document));
     if (shortcut === null) return;
     event.preventDefault();

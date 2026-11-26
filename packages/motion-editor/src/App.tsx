@@ -9,9 +9,11 @@ import { COMMENTS_HINT } from './comments/words.ts';
 import { SidePanel } from './panels/SidePanel.tsx';
 import { Notices } from './player/Notices.tsx';
 import { Player } from './player/Player.tsx';
+import { SceneWords } from './reading/SceneWords.tsx';
 import { Timeline } from './timeline/Timeline.tsx';
 import { setFullscreenTarget } from './transport/fullscreen.ts';
 import { Transport } from './transport/Transport.tsx';
+import { SpokenLines } from './voiceover/SpokenLines.tsx';
 
 
 function VideoPage(): ReactElement {
@@ -28,6 +30,8 @@ function VideoPage(): ReactElement {
         <Player />
         <Timeline />
         <Transport />
+        <SceneWords />
+        <SpokenLines />
       </main>
       <SidePanel />
       <AllComments comments={filmComments} agent={agent} top={8} hint={COMMENTS_HINT} />

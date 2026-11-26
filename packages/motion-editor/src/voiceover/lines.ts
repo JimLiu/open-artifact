@@ -129,3 +129,27 @@ export function laneSpan(at: number, dur: number, across: number): { left: strin
 export function peaksPath(peaks: readonly number[]): string {
   return `M0 1${peaks.map((peak, index) => `L${index + 0.5} ${1 - peak}`).join('')}L${peaks.length} 1Z`;
 }
+
+/** The line said at `t`, or -1. */
+export function lineAt(lines: readonly { at: number; dur: number }[], t: number): number {
+  let found = -1;
+  lines.forEach((line, index) => {
+    if (t >= line.at && t < line.at + line.dur) found = index;
+  });
+  return found;
+}
+
+/** A take's last move: the start its code was given, the time it went to, and the lines on show when it was made. */
+export interface LastMove {
+  code: string;
+  at: number;
+  on: unknown;
+}
+
+/**
+ * Where a take's line starts for the next move: where its last move put it, while the lines on show are still those
+ * it was made on and its code still reads as that move wrote it; else `null` (the line's own start counts).
+ */
+export function movedFrom(last: LastMove | undefined, code: string, shown: unknown): number | null {
+  return last !== undefined && last.on === shown && last.code === code ? last.at : null;
+}

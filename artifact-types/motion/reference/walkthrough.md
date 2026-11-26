@@ -60,7 +60,8 @@ whose names the player shows as chapters (their names are verbs:
   0.92 → 1 over 1.4 s, holds 1.6 s, the UI eases back.
 - **Closing card**: a 72 px display line from the right, one accent
   recap chip per flow tumbling in (2.5D is allowed for shapes), a tiny grey
-  "Concept mock · Month YYYY". The player ends paused on it.
+  "Concept mock · Month YYYY", still 4.5:1 in contrast with whatever sits
+  directly beneath it. The player ends paused on it.
 - Type: the product's own body face inside mocks; everything the
   viewer must read ≥ ~26 px on screen after zoom.
 

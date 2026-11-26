@@ -10,6 +10,7 @@ import type { DrawMoment } from './retouch.ts';
 import { stageOf } from './retouch.ts';
 import { fits, kinOf, like, peers, standsAt } from './seat.ts';
 import { ID, blind, home, lapsedOn, marks, toldAt, unmark } from './state.ts';
+import { ownStyles } from './own-styles.ts';
 import { TYPE_KEYS, familyHead, offerType, typeSeen } from './type-style.ts';
 
 const LOOKS = 10;
@@ -68,6 +69,14 @@ export function ask(scene: string, id: string, lo: number, hi: number, at: numbe
     now.ink = null;
     for (const key of TYPE_KEYS) type[key] = null;
   }
+  // What every word sets for itself is not offered, and the page says why. Read before the looks below draw other moments.
+  const own = read.worded ? inOwnColors(() => ownStyles(stage, el, { weight: type.weight, italic: type.italic, px: type.px, tracking: type.tracking, ink: now.ink })) : [];
+  // Letter spacing is shown in px of the line's size: where the words took the size but not the spacing, that size is still told.
+  let linePx = own.includes('px') && !own.includes('tracking') ? type.px : null;
+  for (const key of own) {
+    if (key === 'ink') now.ink = null;
+    else type[key] = null;
+  }
   for (let i = 0; i < LOOKS; i++) {
     const s = draw(lo + ((hi - lo) * i) / (LOOKS - 1));
     if (s === null) return null;
@@ -85,6 +94,7 @@ export function ask(scene: string, id: string, lo: number, hi: number, at: numbe
   if (!boxed) for (const key of OF_BOX) changed.add(key);
   for (const key of changed) now[key] = null;
   for (const key of TYPE_KEYS) if (changed.has(key)) type[key] = null;
+  if (changed.has('px')) linePx = null;
   const kept = classesFor(cls);
   return {
     ...type,
@@ -101,6 +111,8 @@ export function ask(scene: string, id: string, lo: number, hi: number, at: numbe
     home: !!mine && home(mine, lo, hi),
     lapsed,
     family,
+    ...(own.length > 0 ? { own } : {}),
+    ...(linePx !== null ? { linePx } : {}),
   };
 }
 

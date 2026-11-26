@@ -135,7 +135,8 @@ Where you have a real screenshot, hold a still of the scene beside it
 A design file's exported HTML, an HTML prototype or a Figma export is
 lifted the same way (route A on its HTML; its token sheet for values).
 Say in the hand-off which parts are design rather than product, and put
-"Concept mock · Month YYYY" small and grey on the closing card. Never
+"Concept mock · Month YYYY" small and grey on the closing card (small, but
+still 4.5 to 1 against what lies right behind it). Never
 invent product features to fill a beat; film what exists or what the
 design shows.
 
@@ -159,7 +160,7 @@ design shows.
   row instead of hugging the text, a drag ghost painting under artboards,
   text snapping under a slow zoom. Names and data are fictional ("Acme");
   anything speculative gets a tiny grey "Concept mock · Month YYYY" on the
-  closing card.
+  closing card, at 4.5 to 1 or more against what lies right behind it.
 
 ## Small things that are easy to get wrong
 

@@ -75,8 +75,11 @@ export function readNarration(
   };
 }
 
+/** Words shown over the film for a while: a narration line, or a clip's (kit.video's captions), which plays no take. */
+export type CaptionLine = Pick<PlayedNarrationLine, 'at' | 'dur' | 'text'> & Partial<PlayedNarrationLine>;
+
 /** A line over LONGEST_CUE characters shows in parts of about equal length, split at spaces, each for its share of the line's time. */
-export function captionCues(lines: readonly PlayedNarrationLine[]): CaptionCue[] {
+export function captionCues(lines: readonly CaptionLine[]): CaptionCue[] {
   const out: CaptionCue[] = [];
   for (const line of lines) {
     const words = line.text.trim().split(/\s+/);
@@ -106,7 +109,7 @@ export interface CaptionLayer {
 }
 
 /** `shortSide`, the stage's shorter side, sizes the type. What draw shows depends only on t. */
-export function captionLayer(lines: readonly PlayedNarrationLine[], style: string | undefined, shortSide: number, sans: string): CaptionLayer {
+export function captionLayer(lines: readonly CaptionLine[], style: string | undefined, shortSide: number, sans: string): CaptionLayer {
   const cues = captionCues(lines);
   const box = document.createElement('div');
   const words = document.createElement('span');

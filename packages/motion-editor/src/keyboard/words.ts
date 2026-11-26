@@ -10,3 +10,4 @@ export const TO_END = 'To the end';
 export const NEXT_CHAPTER = 'Next chapter';
 export const PREVIOUS_CHAPTER = 'Previous chapter';
 export const TOGGLE_PANEL = 'Show or hide the panel';
+export const SINGLE_KEY_SHORTCUTS = 'Single-key shortcuts';

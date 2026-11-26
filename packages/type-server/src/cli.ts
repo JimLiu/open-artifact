@@ -49,6 +49,7 @@ import { cmdArchive, cmdDeleteAsset, cmdDsSync } from './more-cli.ts';
 import { ensureGitignore } from './artifact-files.ts';
 import { runCheck } from './project-check.ts';
 import { cmdStills } from './stills-cli.ts';
+import { motionUploadNext, motionUploadProblem } from './motion.ts';
 import { readEdits } from './agent.ts';
 import { SheetRefusalError } from '@open-artifact/sheets-core';
 import { SheetStore } from './sheets/store.ts';
@@ -285,7 +286,8 @@ async function cmdUpload(args: Args): Promise<void> {
   if (files.length === 0) throw new UsageError('Pass one or more files to upload.');
   const group = flag(args, 'group');
   if (group !== undefined && (!group || /[/\\]/.test(group))) throw new UsageError('--group takes a group folder name, without slashes.');
-  const isSystem = (await detectType(root)) === 'design-system';
+  const detected = await detectType(root);
+  const isSystem = detected === 'design-system';
   if (isSystem && !group) throw new UsageError('MISSING_GROUP: pass --group <name> for a design-system asset.');
   const named = flag(args, 'name');
   if (named !== undefined && (files.length > 1 || !named.trim() || /[/\\]/.test(named)))
@@ -296,10 +298,15 @@ async function cmdUpload(args: Args): Promise<void> {
       throw error.code === 'ENOENT' || error.code === 'EISDIR' ? new UsageError(`No such file: ${resolve(file)}`) : error;
     });
     const name = named ?? basename(file);
+    const tooLarge = detected === 'motion' ? motionUploadProblem(name, mimeOf(name), bytes.length) : null;
+    if (tooLarge !== null) throw new UsageError(tooLarge);
     const groupKey = isSystem ? await prepareSystemUpload(root, group, name, bytes.length) : assetKey(group ?? '');
     const blob = await store.putBlob(bytes, mimeOf(name));
     if (group === undefined) {
       console.log(`/_blob/${blob.id}\t${blob.contentType.split(';')[0]}\t${blob.size}\t${name}`);
+      const next = detected === 'motion' ? motionUploadNext(name, blob.contentType.split(';')[0] ?? '', `/_blob/${blob.id}`) : null;
+      // On stderr, so the tab-separated lines stay all there is on stdout.
+      if (next !== null) console.error(next);
       continue;
     }
     // A design system names each upload under assets/<Group>/ by a record in

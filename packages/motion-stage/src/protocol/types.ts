@@ -1,4 +1,4 @@
-import type { FilmSeconds, PlaySeconds, RetouchedRecord, ScoreData, ScoreEvent } from '@open-artifact/motion-core';
+import type { ClipSoundUse, FilmSeconds, PlaySeconds, RetouchedRecord, ScoreData, ScoreEvent } from '@open-artifact/motion-core';
 import type { AskedLook, LayersReport } from './layers.ts';
 
 export type * from './layers.ts';
@@ -177,7 +177,8 @@ export type HostToStage =
 
 export type StageToHost =
   | { type: 'hello'; version: number }
-  | { type: 'ready'; meta: StageMeta; score: PlayedScore | null; narration: NarrationReport | null; loadMs: number }
+  /** `clips`: the clips whose own sound plays (kit.video's `sound`), on the play clock; absent when none does. */
+  | { type: 'ready'; meta: StageMeta; score: PlayedScore | null; narration: NarrationReport | null; loadMs: number; clips?: ClipSoundUse[] }
   /** The frame asked for with `seq` (and every one before it) is on show. */
   | { type: 'presented'; seq: number; t: PlaySeconds; ok: boolean; ms: number }
   | { type: 'frame'; seq: number; t: FilmSeconds; svg: string; pw: number; ph: number; ms: number }

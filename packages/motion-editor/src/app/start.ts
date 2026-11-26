@@ -17,6 +17,7 @@ import { pageFontsIo } from '../host/fonts.ts';
 import { startVideoPage } from '../host/boot.ts';
 import { filmSource } from '../host/live-film.ts';
 import { installShortcuts } from '../keyboard/install.ts';
+import { registerLetterKeysRow } from '../keyboard/LetterKeysRow.tsx';
 import { registerPlaybackShortcuts } from '../keyboard/shortcuts.ts';
 import { startComments } from '../comments/comments.ts';
 import { FilmCommentsButton } from '../comments/CommentLayer.tsx';
@@ -28,6 +29,8 @@ import { installLayers } from '../layers/install.ts';
 import { installStyle } from '../style/install.ts';
 import { installVoiceover } from '../voiceover/install.ts';
 import { installExport } from '../export/install.ts';
+import { installReading } from '../reading/install.ts';
+import { installClips } from '../clips/install.ts';
 import { markInspector } from '../panels/inspector.ts';
 import { watchStaleBuild } from './stale-build.ts';
 import { startViewContext } from './view-context.ts';
@@ -68,6 +71,9 @@ export async function startVideoApp(): Promise<() => void> {
     installStyle(),
     installVoiceover(),
     installExport(),
+    installReading(),
+    installClips(),
+    registerLetterKeysRow(),
   ];
   if (page.session !== null) {
     engine.start();

@@ -132,7 +132,15 @@ export function VoiceoverLane({ context }: { context: LaneContext }): ReactEleme
 
   const send = (audio: string, to: number): void => {
     const state = now.current;
-    if (state.waiting) return;
+    // Another move waits for the film: this one is held and goes once the wait is over.
+    if (state.waiting) {
+      clearNudge();
+      nudgeRef.current = setTimeout(() => {
+        nudgeRef.current = null;
+        send(audio, to);
+      }, NUDGE_COMMIT_MS);
+      return;
+    }
     const line = state.lines?.find((each) => each.audio === audio);
     if (line === undefined || state.off || Math.abs(to - line.at) < 0.005) return setMove(null);
     setMove({ audio, to, moving: false });

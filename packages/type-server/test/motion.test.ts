@@ -8,9 +8,9 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
-import { detectType } from '../src/index.ts';
+import { detectType, main } from '../src/index.ts';
 import { TYPES } from '../src/types.ts';
-import { motionHistoryIgnores, motionSyntaxError } from '../src/motion.ts';
+import { motionHistoryIgnores, motionSyntaxError, motionUploadNext, motionUploadProblem } from '../src/motion.ts';
 
 const none = (): unknown => undefined;
 
@@ -59,5 +59,52 @@ describe('motion type', () => {
   it('leaves people’s own documents out of the history', () => {
     assert.equal(motionHistoryIgnores('data/users/owner/x'), true);
     assert.equal(motionHistoryIgnores('modules/recut.json'), false);
+  });
+});
+
+describe('motion uploads', () => {
+  /** Runs the CLI, keeping what it printed. */
+  async function run(...argv: string[]): Promise<{ code: number; out: string[]; err: string[] }> {
+    const out: string[] = [];
+    const err: string[] = [];
+    const log = console.log;
+    const error = console.error;
+    console.log = (line: unknown) => void out.push(String(line));
+    console.error = (line: unknown) => void err.push(String(line));
+    try {
+      return { code: await main(argv), out, err };
+    } finally {
+      console.log = log;
+      console.error = error;
+    }
+  }
+
+  it('refuses a video over 20 MiB, and only a video', () => {
+    assert.match(motionUploadProblem('long.mp4', 'video/mp4', 20 * 1024 * 1024 + 1) ?? '', /^FILE_TOO_LARGE: long\.mp4 is 20\.0 MB/);
+    assert.equal(motionUploadProblem('clip.mp4', 'video/mp4', 20 * 1024 * 1024), null);
+    assert.equal(motionUploadProblem('song.mp3', 'audio/mpeg', 30 * 1024 * 1024), null);
+    assert.match(motionUploadNext('clip.mp4', 'video/mp4', '/_blob/abc') ?? '', /"ref": "\/_blob\/abc".*"note"/);
+    assert.equal(motionUploadNext('logo.png', 'image/png', '/_blob/abc'), null);
+  });
+
+  it('says so from the CLI, and tells the agent to write a note after a video upload', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'oa-motion-upload-'));
+    try {
+      const files = TYPES.motion.scaffold('Clip', join(root, 'db'));
+      await mkdir(join(root, 'db', 'film'), { recursive: true });
+      await writeFile(join(root, 'db', 'film', 'meta.json'), files['film/meta.json']!);
+      await writeFile(join(root, 'big.mp4'), Buffer.alloc(20 * 1024 * 1024 + 10));
+      await writeFile(join(root, 'clip.mp4'), Buffer.from('not really a video'));
+      const big = await run('upload', root, join(root, 'big.mp4'));
+      assert.notEqual(big.code, 0);
+      assert.ok([...big.out, ...big.err].some((line) => line.includes('FILE_TOO_LARGE')));
+      const small = await run('upload', root, join(root, 'clip.mp4'));
+      assert.equal(small.code, 0, small.err.join('\n'));
+      assert.match(small.out[0] ?? '', /^\/_blob\/[0-9a-f]+\tvideo\/mp4\t\d+\tclip\.mp4$/);
+      assert.equal(small.out.length, 1);
+      assert.ok(small.err.some((line) => line.includes('"note"')));
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });

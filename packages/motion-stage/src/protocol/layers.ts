@@ -114,6 +114,9 @@ export interface TypeLook {
   align: TextAlign | null;
 }
 
+/** A style of a line of words that its words may each set for themselves. */
+export type OwnTextStyle = 'weight' | 'italic' | 'px' | 'tracking' | 'ink';
+
 /** How the film itself draws the thing an id names, read with no change by hand on the stage. */
 export interface AskedLook extends TypeLook {
   cls: string;
@@ -130,4 +133,14 @@ export interface AskedLook extends TypeLook {
   lapsed: RetouchProperty[];
   /** The head of its font stack; '': none that is a plain name. */
   family: string;
+  /**
+   * The styles every word of the line sets for itself, so a change laid on the line would show on none of them. Each
+   * is null above. Absent: none.
+   */
+  own?: OwnTextStyle[];
+  /**
+   * The line's font size where its words set their own size but not their own letter spacing: letter spacing is laid
+   * in ems of the line's size, and shown in pixels by it. Absent: `px` says it, or there is none to tell.
+   */
+  linePx?: number;
 }

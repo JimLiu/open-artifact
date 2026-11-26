@@ -3,3 +3,4 @@ export const CLOSE_PANEL = 'Close panel';
 export const PROPERTIES_AND_THEME_TITLE = 'Properties and Theme';
 export const panelOpened = (title: string): string => `${title} opened`;
 export const panelClosed = (title: string): string => `${title} closed`;
+export const UNDO_OR_REDO = 'Undo or redo';

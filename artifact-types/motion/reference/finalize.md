@@ -37,6 +37,14 @@ Then hold it to the brief. Everything they asked you to show or say, except what
 
 When the brief is plain work (a product promo, an explainer, a results update, a board paper), the words, numbers and product are the subject and the world stays quiet. Pick a visual system that suits the subject and draw its parts well: a chart can be a drawn object with depth, and a process can be a machine. Keep every number theirs or clearly made up. If the film shows their product, screenshots or logo, the world frames them and never restyles them (recreate-ui.md). An explainer's world is its subject and where it stands: one familiar thing that works the way the idea does, with its facts in `W.facts` and every amount drawn from them (explainer.md).
 
+**Software, sold or explained, is shown being used.** Its screens take up most scenes, big enough to read, and follow
+one task from the first click to its result (in a walkthrough, one task per flow). An analogy may open, frame or close
+the film but never replaces the screens. Lift them from their code (recreate-ui.md) or use their screenshots as they
+are, hiding any private person's details before uploading. Zoom toward what counts, and on a screenshot draw only the
+parts that move: cursor, typing, a menu, the outcome. If there's no code and no screenshot, draw simple screens using
+their own wording and labels, and mention that their real screens would take their place. For an API, show the call,
+the response, and a chart of what comes back.
+
 ## 3. Draw the backdrop, in one batch
 
 Your first write here is one `batch` holding `modules/base.css` and `modules/shared.js` (uploads alone go ahead of it; each font and image gets its `assets` document). Send it before you think about any one scene. In test films the thinking before this write goes the same way: the world is settled, the functions for `shared.js` are named, and then, at "let me write shared.js now", the file is typed out in thought, coordinates and all, and again in the call. So the moment you know what those functions are called and roughly how big each thing is, the cast's too, begin the batch. The numbers inside a drawing come as you draw it.

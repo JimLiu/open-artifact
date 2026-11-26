@@ -1,4 +1,5 @@
 import type { FilmSeconds } from '@open-artifact/motion-core';
+import { clipClock, clipSecondAt } from './clips.ts';
 
 /** What `kit.seek(video, s)` asked a clip to show in this render, instead of film time less its start. */
 export const videoSeeks = new Map<HTMLVideoElement, number>();
@@ -15,14 +16,15 @@ export function warnOnce(video: HTMLVideoElement, key: string, message: string):
 }
 
 /**
- * The clip's own second at film time `t`, looped or held at its end once its duration is known.
- * Half a millisecond on, so a frame boundary reached through float arithmetic lands on that frame.
+ * The clip's own second at film time `t` (kit.video's `from`, `dur` and `speed` applied), looped or held at its end once
+ * its duration is known. Half a millisecond on, so a frame boundary reached through float arithmetic lands on that frame.
  */
 export function videoTime(video: HTMLVideoElement, t: FilmSeconds): { at: number; live: boolean; explicit: boolean } {
   const explicit = videoSeeks.has(video);
-  let at = explicit ? (videoSeeks.get(video) ?? 0) : t - (Number(video.getAttribute('data-start')) || 0);
+  const timed = clipSecondAt(video, t);
+  let at = explicit ? (videoSeeks.get(video) ?? 0) : timed.second;
   const duration = video.duration;
-  let live = at >= 0;
+  let live = explicit ? at >= 0 : timed.on;
   if (duration > 0 && isFinite(duration)) {
     if (video.loop) {
       if (at >= 0) at = at % duration;
@@ -116,7 +118,7 @@ export function syncVideos(stage: HTMLElement | null, t: FilmSeconds, mode: Vide
   const waits: Array<Promise<void>> = [];
   const eps = 0.5 / (clock.fps || 60);
   for (const video of stage.querySelectorAll('video')) {
-    const wait = syncVideo(video, t, mode, eps, clock, quick);
+    const wait = syncVideo(video, t, mode, eps, clipClock(video, clock), quick);
     if (wait) waits.push(wait);
   }
   return waits.length ? Promise.all(waits) : null;

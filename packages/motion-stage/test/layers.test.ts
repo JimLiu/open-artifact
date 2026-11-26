@@ -5,6 +5,8 @@ import { flattenLayers, hitTestLayers } from '../src/layers.ts';
 import type { LayerRow } from '../src/protocol.ts';
 import { drawnValue } from '../src/runtime/layers/parts.ts';
 import { typeRule } from '../src/runtime/retouch/type-style.ts';
+import { OWN_TEXT_STYLES, ownByTrial, trialValue } from '../src/runtime/retouch/own-styles.ts';
+import { isAskedLook } from '../src/protocol/layer-guards.ts';
 import { sketchBox } from '../src/runtime/sketch/strokes.ts';
 import type { SketchBoxOptions } from '../src/runtime/sketch/strokes.ts';
 
@@ -91,4 +93,57 @@ test('a value read from a var() keeps only fallbacks that use one too', () => {
   assert.equal(drawnValue('var(--a, red)'), 'var(--a)');
   assert.equal(drawnValue('var(--a, var(--b, red))'), 'var(--a, var(--b))');
   assert.equal(drawnValue('var(--a'), null);
+});
+
+const asked = {
+  weight: 400,
+  italic: 0,
+  px: 48,
+  leading: 1.2,
+  tracking: 0,
+  align: null,
+  cls: 'headline',
+  kin: '0/1',
+  at: 1,
+  fill: null,
+  ink: '#222222',
+  radius: null,
+  most: 20,
+  size: 1,
+  hidden: null,
+  entry: null,
+  home: false,
+  lapsed: [],
+  family: 'Inter',
+};
+
+test('an asked look may tell the styles its words set themselves, and the line size letter spacing counts by', () => {
+  assert.equal(isAskedLook(asked), true);
+  assert.equal(isAskedLook({ ...asked, weight: null, px: null, own: ['weight', 'px'], linePx: 48 }), true);
+  assert.equal(isAskedLook({ ...asked, own: [] }), true);
+  // Only the styles a line's words can set: not the alignment or the line height, which are the line's.
+  assert.equal(isAskedLook({ ...asked, own: ['align'] }), false);
+  assert.equal(isAskedLook({ ...asked, own: 'weight' }), false);
+  assert.equal(isAskedLook({ ...asked, linePx: 0 }), false);
+  assert.equal(isAskedLook({ ...asked, linePx: Number.NaN }), false);
+  assert.equal(isAskedLook({ ...asked, linePx: null }), false);
+});
+
+test('a style is the words\' own only where the line took the trial and no word that showed the line\'s value followed', () => {
+  const line = { before: '400', during: '800' };
+  // <h1><b>Hello</b> <b>motion</b></h1>: every word keeps its own weight.
+  assert.equal(ownByTrial(line, [{ before: '700', during: '700' }, { before: '700', during: '700' }]), true);
+  // <h1>Hello <b>motion</b></h1>: "Hello" follows the line, so a change shows.
+  assert.equal(ownByTrial(line, [{ before: '400', during: '800' }, { before: '700', during: '700' }]), false);
+  // A word with a value of its own that still moves (say, bolder than the line) does not count: it is not the line's value.
+  assert.equal(ownByTrial(line, [{ before: '700', during: '900' }]), true);
+  // A trial the line itself did not take tells nothing: the control stays.
+  assert.equal(ownByTrial({ before: '400', during: '400' }, [{ before: '700', during: '700' }]), false);
+  assert.equal(ownByTrial(line, []), false);
+});
+
+test('each style is tried with a value other than the line\'s', () => {
+  assert.deepEqual([...OWN_TEXT_STYLES], ['weight', 'italic', 'px', 'tracking', 'ink']);
+  for (const [key, now] of [['weight', 400], ['weight', 700], ['italic', 0], ['italic', 1], ['px', 48], ['tracking', 0], ['tracking', 0.1], ['ink', '#123456'], ['ink', '#222222']] as const)
+    assert.notEqual(trialValue(key, now), now, `${key} ${now}`);
 });

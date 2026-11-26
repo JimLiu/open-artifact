@@ -14,6 +14,8 @@
 
 import {
   FILM_META_PATH,
+  MAX_ASSET_NOTE_CHARS,
+  MAX_VIDEO_UPLOAD_BYTES,
   USER_DATA_COLLECTION,
   checkFilm,
   scaffoldFilmFiles,
@@ -81,4 +83,28 @@ function withFileData(write: unknown): unknown {
 /** Refuses an agent's batch that the player would drop part of, or that writes what only the page writes. */
 export function motionTypeWritesProblem(writes: readonly unknown[], read: (path: string) => unknown): WriteRefusal | null {
   return videoWritesProblem(writes.map(withFileData), read);
+}
+
+const MIB = 1024 * 1024;
+
+/**
+ * Why a film's upload is refused, or null: a video over {@link MAX_VIDEO_UPLOAD_BYTES}. A film shows seconds of a
+ * clip, not the whole recording, so the agent cuts and converts it first.
+ */
+export function motionUploadProblem(name: string, contentType: string, size: number): string | null {
+  if (!contentType.startsWith('video/') || size <= MAX_VIDEO_UPLOAD_BYTES) return null;
+  return (
+    `FILE_TOO_LARGE: ${name} is ${(size / MIB).toFixed(1)} MB; a film's video is ${MAX_VIDEO_UPLOAD_BYTES / MIB} MB at most. ` +
+    'Cut it to the seconds the film shows and convert it (reference/footage.md says how), then upload that.'
+  );
+}
+
+/** What the agent writes after a film's video upload: its assets document, with a note saying what the clip is. */
+export function motionUploadNext(name: string, contentType: string, url: string): string | null {
+  if (!contentType.startsWith('video/')) return null;
+  return (
+    `Next: write assets/<name> for ${name}: {"ref": "${url}", "mime": "${contentType}", "note": "…"}. ` +
+    `The note (${MAX_ASSET_NOTE_CHARS} characters at most) says which of their videos it is and which seconds it holds, ` +
+    'never their file name, so a later edit knows what the clip shows (reference/footage.md).'
+  );
 }

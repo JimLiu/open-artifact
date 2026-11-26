@@ -10,6 +10,18 @@ export function finalizeRequest(): VideoAgentRequest {
   return { title: 'Finalize', text: 'Finalize the animation.' };
 }
 
+/**
+ * Work a video added on the page into the film: scene `scene` (from 1) of a film that had more, or `blank`, the
+ * film's only scene, to build an animation around.
+ */
+export function addedVideoRequest(scene: number, blank: boolean): VideoAgentRequest {
+  return {
+    title: 'Added video',
+    text: blank ? 'Make an animation around the video I added.' : `Fit the video I added into the animation. It is scene ${scene}.`,
+    context: { scene },
+  };
+}
+
 /** Take scene `scene` (from 1) out of a film of `count` scenes. */
 export function deleteSceneRequest(scene: number, count: number): VideoAgentRequest {
   return {

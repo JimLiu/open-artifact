@@ -5,6 +5,8 @@ import type { AudioKeepalive } from './keepalive.ts';
 import { createMasterBus } from './mixer.ts';
 import type { MasterBus } from './mixer.ts';
 import { filmSound, knownScoreGain, measureScoreGain } from './offline.ts';
+import { hasVoices } from './offline.ts';
+import type { Footage } from './clips/footage.ts';
 import type { FilmSound, FilmSoundInput } from './offline.ts';
 import { playScore } from './played-score.ts';
 import type { PlayedScore } from './played-score.ts';
@@ -101,6 +103,14 @@ export class FilmSoundPlayer {
     this.#update({});
   }
 
+  /** Takes the video clips' own sound, keeping the score and narration; playing on from where the playhead is. */
+  setFootage(footage: Footage | null): void {
+    if (footage === null && (this.#sound.footage ?? null) === null) return;
+    this.#sound = { ...this.#sound, footage };
+    if (this.#state.playing) this.#restart(this.now());
+    this.#update({});
+  }
+
   /** Makes or wakes the audio context; call from a click or key press, which browsers require for sound. */
   prime(): void {
     const hadContext = this.#context !== null;
@@ -181,7 +191,7 @@ export class FilmSoundPlayer {
 
   #audible(): boolean {
     const { playing, muted, volume } = this.#state;
-    return playing && !muted && volume > 0 && (this.#sound.score.sounds.length > 0 || this.#sound.speech !== null);
+    return playing && !muted && volume > 0 && (this.#sound.score.sounds.length > 0 || hasVoices(this.#sound));
   }
 
   #ensureContext(): AudioContext | null {

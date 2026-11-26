@@ -1,3 +1,4 @@
+import { isClipSoundList } from './clip-guards.ts';
 import { isAskedLook, isLayersReport, isRetouchedRecord } from './layer-guards.ts';
 import { STAGE_CONNECT } from './types.ts';
 import type {
@@ -238,7 +239,8 @@ export function isStageToHost(value: unknown): value is StageToHost {
         isMeta(message['meta']) &&
         isNullable(message['score'], isScore) &&
         isNullable(message['narration'], isNarration) &&
-        isNumber(message['loadMs'])
+        isNumber(message['loadMs']) &&
+        isOptional(message['clips'], isClipSoundList)
       );
     case 'presented':
       return isNumber(message['seq']) && isNumber(message['t']) && isBoolean(message['ok']) && isNumber(message['ms']);

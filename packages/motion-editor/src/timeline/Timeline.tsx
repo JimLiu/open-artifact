@@ -87,8 +87,14 @@ function ScrubTrack({ total, fps, width }: { total: number; fps: number; width: 
   };
   const spans = partSpans(parts, total, width);
   const chapter = spanAt(spans, time)?.label ?? chapterAt(chapters, time);
+  const paged = chapters.length > 0 ? 'chapter' : parts.length > 1 ? 'scene' : null;
   return (
     <div className="relative pt-1">
+      {paged !== null ? (
+        <span id="video-page-keys" hidden>
+          {words.pageKeysHint(paged)}
+        </span>
+      ) : null}
       <div
         ref={track}
         role="slider"
@@ -98,6 +104,7 @@ function ScrubTrack({ total, fps, width }: { total: number; fps: number; width: 
         aria-valuemax={Math.floor(total)}
         aria-valuenow={Math.floor(time)}
         aria-valuetext={spokenPosition(time, total, chapter)}
+        aria-describedby={paged !== null ? 'video-page-keys' : undefined}
         className="relative h-5 cursor-pointer touch-none select-none outline-none focus-visible:ring-2 focus-visible:ring-chrome-accent"
         onPointerDown={down}
         onPointerMove={move}

@@ -8,9 +8,12 @@ import type { PlateOptions } from '../snapshot/plate.ts';
 import { builtStage } from '../stage.ts';
 import { stageSize } from '../stage-size.ts';
 import { videoSeeks, watchVideo } from '../video-sync.ts';
+import { clipAttributes, noteClip, noteSeek, prepareClip } from '../clips.ts';
 import { Camera } from './camera.ts';
 import { chip, show, spotlight } from './chip.ts';
 import type { ChipOptions, ShowOptions, SpotlightOptions } from './chip.ts';
+import { count } from './count.ts';
+import type { CountOptions } from './count.ts';
 import { CURSORS, Cursor, cursorElement } from './cursor.ts';
 import { el, h } from './dom.ts';
 import { camrect, center, phraseCamRect, phraseRect, srect } from './geometry.ts';
@@ -27,8 +30,18 @@ export const KIT_VERSION = 2;
 
 export interface VideoOptions {
   loop?: boolean;
-  /** Film seconds at which the clip's first frame shows. */
+  /** Film seconds at which the clip comes on (in a scene, from the scene's beginning). */
   start?: number;
+  /** The clip's own second it starts from. */
+  from?: number;
+  /** Film seconds it plays for; by default to its end. */
+  dur?: number;
+  /** Its seconds per film second, 0.25 to 4. */
+  speed?: number;
+  /** Its own sound plays too (a level from 0 to 1, or true for 1), to its scene's end at most. */
+  sound?: boolean | number;
+  /** What is said in it, `at` a second of the clip: shown over the film like the narration's captions. */
+  captions?: ReadonlyArray<{ at: number; dur: number; text: string }>;
   class?: string;
   style?: string;
 }
@@ -92,6 +105,7 @@ export interface Kit {
   polyStr: typeof polyStr;
   video(source: string, options?: VideoOptions): HTMLVideoElement;
   seek(video: HTMLVideoElement, second: number): void;
+  count(el: Element, t: number, t0: number, t1: number, options?: CountOptions): string;
   cursor(glyph?: string): Cursor;
   svgLayer(): SVGSVGElement;
   chip(text: string, options?: ChipOptions): HTMLElement;
@@ -176,20 +190,23 @@ export function makeKit(): Kit {
     cutPaper,
     polyLerp,
     polyStr,
-    // A muted clip the stage keeps at film time t − start (looped if asked), playing with the transport; kit.seek shows an exact second instead.
+    // A muted clip the stage keeps at its second from + (t − start) × speed for dur film seconds (looped if asked), playing with
+    // the transport; kit.seek shows an exact second instead. Its sound, when asked for, is played by the host (clips.ts).
     video(source, options = {}) {
       const video = el('video', {
         muted: true,
         playsInline: true,
         preload: 'auto',
         loop: !!options.loop,
-        attrs: { 'data-start': String(options.start || 0) },
+        attrs: clipAttributes(options),
         class: options.class,
         style: options.style,
       });
       if (!(video instanceof HTMLVideoElement)) throw new Error('kit.video: no video element');
+      prepareClip(video);
       let src = String(source || '');
       const asset = assetUrl(src);
+      noteClip(video, asset !== null ? src : null, options.sound, options.captions);
       if (asset !== null) src = asset;
       else if (!/[:/]/.test(src)) console.error('kit.video: no asset ' + src);
       watchVideo(video);
@@ -197,8 +214,11 @@ export function makeKit(): Kit {
       return video;
     },
     seek(video, second) {
-      if (video instanceof HTMLVideoElement && isFinite(second)) videoSeeks.set(video, Number(second));
+      if (!(video instanceof HTMLVideoElement) || !isFinite(second)) return;
+      videoSeeks.set(video, Number(second));
+      noteSeek(video);
     },
+    count,
     cursor(glyph) {
       const node = cursorElement(glyph);
       beneathFx(node);

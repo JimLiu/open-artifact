@@ -17,6 +17,7 @@ export function SceneStrip({ context }: { context: LaneContext }): ReactElement 
   const filmWidth = useFilm((s) => s.meta?.width ?? 1920);
   const filmHeight = useFilm((s) => s.meta?.height ?? 1080);
   const sceneEdge = useTimelineSeams((s) => s.sceneEdge);
+  const sceneEnds = useTimelineSeams((s) => s.sceneEnds);
   if (context.spans.length === 0) return null;
   const thumbWidth = Math.max(1, Math.round((THUMB_HEIGHT * filmWidth) / Math.max(1, filmHeight)));
   return (
@@ -26,7 +27,7 @@ export function SceneStrip({ context }: { context: LaneContext }): ReactElement 
         return (
           <div key={`${span.index}:${span.key ?? ''}`} role="listitem" className="absolute top-0 bottom-0 px-px" style={{ left: span.left, width: span.width }}>
             <SceneCard span={span} count={context.spans.length} state={state} thumbWidth={thumbWidth} />
-            {sceneEdge?.(span, context) ?? null}
+            {sceneEnds !== null ? sceneEnds(span, context, sceneEdge?.(span, context) ?? null) : (sceneEdge?.(span, context) ?? null)}
           </div>
         );
       })}

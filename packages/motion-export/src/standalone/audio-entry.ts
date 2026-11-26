@@ -3,6 +3,7 @@ import type { FilmClock, NarrationData, PlaySeconds, ScoreData } from '@open-art
 import { FilmSoundPlayer, decodeNarration, identityTimeline, planNarration } from '@open-artifact/motion-audio';
 import { OFFLINE_AUDIO_GLOBAL, OFFLINE_DATA_ID, fromBase64, readOfflineData } from '@open-artifact/motion-stage';
 import type { NarrationReport, PlayedScore, ScorePlayer, ScorePlayerFactory } from '@open-artifact/motion-stage';
+import { standaloneFootage } from './clip-footage.ts';
 
 // The standalone page plays the film as recorded in play time, unretimed: its clock has no parts, so play time and film
 // time are the same moments.
@@ -57,11 +58,13 @@ function takeBytes(names: ReadonlySet<string>): Map<string, ArrayBuffer> {
 function makeScorePlayer(): ScorePlayer {
   const player = new FilmSoundPlayer();
   return {
-    async prepare(score, narration, duration) {
+    async prepare(score, narration, duration, clips = []) {
       const length = asPlayed.toFilm(duration);
       const plan = narration === null ? null : planNarration(narrationData(narration), length);
       const decoded = plan === null ? null : await decodeNarration(plan, takeBytes(new Set(plan.lines.map((line) => line.audio))));
       player.load({ score: score === null ? null : scoreData(score), narration: decoded, timeline: identityTimeline(length) });
+      // The clips' own sound joins once their files are decoded.
+      player.setFootage(await standaloneFootage(clips));
     },
     start(t) {
       player.setMuted(false);

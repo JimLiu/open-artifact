@@ -4,6 +4,7 @@
  */
 
 import { TEXT_STYLE_BOUNDS, TEXT_STYLE_UI_BOUNDS } from '@open-artifact/motion-core';
+import type { OwnTextStyle } from '@open-artifact/motion-stage/protocol';
 
 export type TypeNumber = 'px' | 'leading' | 'tracking';
 
@@ -39,6 +40,19 @@ export function typeRange(key: TypeNumber, filmValue: number | 'normal' | null, 
     max: Math.ceil(roundTo(hi * unit * scale, 100)) / scale,
     keep: (shown) => Math.min(hi, Math.max(lo, roundTo(shown / unit, KEPT[key]))),
   };
+}
+
+/** Whether every word of the line sets this style for itself (the stage's `own`), so no control changes it. */
+export const ownsStyle = (look: { own?: readonly OwnTextStyle[] } | null, key: OwnTextStyle): boolean => look?.own?.includes(key) === true;
+
+/**
+ * The font size letter spacing is counted by, in pixels: the size on show; where the words set their own size, the
+ * line's size as the stage told it (`linePx`), or the size saved by hand for the line. null: none, so no spacing control.
+ */
+export function spacingSize(px: number | null, linePx: number | undefined, savedPx: number | null): number | null {
+  if (px !== null) return px;
+  if (linePx === undefined) return null;
+  return savedPx ?? linePx;
 }
 
 /** Letter spacing in pixels, as the control shows it: ems times the font size, to a tenth. */

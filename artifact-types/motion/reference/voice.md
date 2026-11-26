@@ -74,6 +74,10 @@ through with the same `--model`, `--voice` and `--instructions`.
 | their own audio recording in it, even as the voiceover (this row, not the first) | I can't use your recording. | Your recording can't be used: the animation will have text on screen. Once it is finished, Export saves it as a video, and any video editor can add your recording to that. | I couldn't use your recording, but any video editor can add it to the video that Export saves. |
 | a music file of theirs in it | I can't use your music file. | Your music file can't be used: I'll compose a score. | I couldn't use your music file, but any video editor can add it to the video that Export saves. |
 
+A video of theirs is neither a recording nor a music file: it keeps its own sound in the film (film-api.md, the
+clip's `sound`; footage.md). The only exception: a video that is just music playing over a single still or a black
+screen counts as a music file.
+
 Say it in their language, and as short. It is a plain fact about this type, not a refusal: give no reason, and never
 let it hold up the form or the film. They are told in **the last text of the turn in which they ask**:
 
@@ -237,9 +241,11 @@ allows one. No list of the lines.
 
 ## A clip's own sound
 
-A clip (a `video/mp4` or `video/webm` asset, film-api.md §1) always plays muted. To hear what is said in it, such as
-an interview or a talk, give each sentence a narration line that names the clip and says where in it the sentence
-starts. No recording tool is needed, and no file is cut: the page decodes the clip's sound and plays that stretch.
+A clip (a `video/mp4` or `video/webm` asset, film-api.md §1) is silent unless its `kit.video` sets `sound`, which plays
+what it holds as it plays (film-api.md, "A clip's options"). The other way to hear what is said in it, sentence by
+sentence under captions, such as an interview or a talk, is a narration line for each sentence that names the clip and
+says where in it the sentence starts. Use one way for any second of a clip: no line plays seconds that a clip with
+`sound` already plays (the console warns once where they overlap). No recording tool is needed, and no file is cut: the page decodes the clip's sound and plays that stretch.
 
 ```js
 kit.narration((T) => ({ lines: [
@@ -252,8 +258,8 @@ kit.narration((T) => ({ lines: [
   most). The line plays the clip's sound from `from` to `from + dur` at `at` in the film, captioned with `text`. The
   score ducks under it, it is brought to the same loudness as any other line, and Export saves it into the video
   exactly on its frames.
-- **Line it up with the picture.** `kit.video('c-tao')` in a scene shows the clip's second `t − start` at the scene's
-  time `t`, so a line about the clip's second `from` has `at` = the scene's start + `start` + `from` (above, `start` is
+- **Line it up with the picture.** `kit.video('c-tao')` in a scene (no `from` or `speed`) shows the clip's second
+  `t − start` at the scene's time `t`, so a line about the clip's second `from` has `at` = the scene's start + `start` + `from` (above, `start` is
   0). Where `render` shows the clip with `kit.seek(video, s)`, show `s = from + (t − at)` while the line plays.
 - **Find each sentence's seconds** from a transcript with timings, or from a tool that gives them. Never guess a
   `from`: a line that starts mid-word sounds broken.

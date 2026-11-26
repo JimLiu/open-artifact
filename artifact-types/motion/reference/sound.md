@@ -29,7 +29,14 @@ music file stays.
   film marimba, electric piano, round bass and a light kit. No risers, cinematic booms or vocal chops.
 - **Your own tune.** Write no existing song's, theme's or jingle's melody, note by note or near enough to be recognised: write
   an original one in that mood, and say so in the close's one sentence (it names the song they asked for, not your music). The
-  user's own, or the public domain, is fine. A genre, mood, tempo or instrument is fine.
+  user's own, or the public domain, is fine. A genre, mood, tempo or instrument is fine. Notes they type or paste count
+  too: if you recognise them as a song still in copyright, even one they claim as theirs, compose a different tune and mention it;
+  notes you don't recognise are theirs to use.
+- **Your own words.** A known song's lyrics never appear in the film, as text, as captions or as speech, not even when
+  they claim to have written or licensed them: put your own lines there and mention it in that one sentence. A parody keeps none of the song's lines, not even
+  with a word or two swapped. Their own lyrics, the public domain, or just naming the song or singer is fine.
+- **Under a clip with `sound`** (film-api.md), the clip leads: hold a pad at most, and bring in no drums, patterns or
+  effects until it ends.
 - **On a later turn, if they asked for other music, name it in a plain line:** a mood and two instruments in everyday words, with no key, BPM or
   apology. Music off by request is a film with no score; mute and volume are the viewer's own.
 

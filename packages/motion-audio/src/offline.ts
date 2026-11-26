@@ -1,5 +1,6 @@
 import { playSeconds } from '@open-artifact/motion-core';
 import type { PlaySeconds, ScoreData } from '@open-artifact/motion-core';
+import type { Footage } from './clips/footage.ts';
 import { loudnessGain, measureIntegratedLoudness } from './loudness.ts';
 import type { LoudnessMeasurement } from './loudness.ts';
 import { createMasterBus } from './mixer.ts';
@@ -14,10 +15,11 @@ import type { FilmTimeline } from './timeline.ts';
 import { heardFrom } from './window.ts';
 import type { HeardSpan } from './window.ts';
 
-/** Everything a film sounds: its score and its narration, both in play time. */
+/** Everything a film sounds: its score and its narration, both in play time, and its video clips' own sound. */
 export interface FilmSound {
   readonly score: PlayedScore;
   readonly speech: Speech | null;
+  readonly footage?: Footage | null;
 }
 
 /** A film's sound as recorded: the score and decoded narration in film time, and how film time is played. */
@@ -25,12 +27,17 @@ export interface FilmSoundInput {
   readonly score: ScoreData | null;
   readonly narration: DecodedNarration | null;
   readonly timeline: FilmTimeline;
+  /** The video clips' sound, already on the play clock. */
+  readonly footage?: Footage | null;
 }
 
 /** Places the score and the narration in play time. */
 export function filmSound(input: FilmSoundInput): FilmSound {
-  return { score: playScore(input.score, input.timeline), speech: placeSpeech(input.narration, input.timeline) };
+  return { score: playScore(input.score, input.timeline), speech: placeSpeech(input.narration, input.timeline), footage: input.footage ?? null };
 }
+
+/** Whether a film's sound has anything spoken or recorded over the score. */
+export const hasVoices = (sound: FilmSound): boolean => sound.speech !== null || (sound.footage ?? null) !== null;
 
 export interface FilmAudioRender extends LoudnessMeasurement {
   readonly buffer: AudioBuffer;
@@ -192,12 +199,13 @@ async function renderPass(
   const session = createScoreSession(master, {
     master: sound.score.master,
     speech: withSpeech ? sound.speech : null,
+    footage: withSpeech ? (sound.footage ?? null) : null,
     duration: sound.score.duration,
     origin: prerollFrames / sampleRate,
     rate: 1,
   });
   // The narration's takes are few and start up front; the score's sounds are scheduled by stretch where they can be.
-  if (withSpeech && sound.speech !== null) session.speak(playSeconds(0));
+  if (withSpeech && hasVoices(sound)) session.speak(playSeconds(0));
   const { sounds } = sound.score;
   const schedule: ScheduleHeard = (bus, index) => {
     const heard = sounds[index];
@@ -293,7 +301,7 @@ export async function renderFilmAudio(sound: FilmSound, options: RenderOptions =
   // A render with a tail measures more than the score, so its gain is not kept for the score.
   rememberGain(sound.score, key, tail === 0 && Number.isFinite(rawMeasurement.lufs) ? gain : undefined);
   const final =
-    sound.speech === null && Math.abs(20 * Math.log10(gain)) < UNITY_TOLERANCE_DB
+    !hasVoices(sound) && Math.abs(20 * Math.log10(gain)) < UNITY_TOLERANCE_DB
       ? raw
       : await renderPass(sound, renderSeconds, sampleRate, gain, true);
   const measurement = final === raw ? rawMeasurement : measureIntegratedLoudness(final.buffer);

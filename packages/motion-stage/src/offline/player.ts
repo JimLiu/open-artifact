@@ -105,7 +105,7 @@ export function mountPlayer(options: PlayerOptions): OfflinePlayer {
       case 'ready': {
         meta = message.meta;
         const loaded = message.meta;
-        void (audio?.prepare(message.score, message.narration, loaded.duration) ?? Promise.resolve()).then(
+        void (audio?.prepare(message.score, message.narration, loaded.duration, message.clips ?? []) ?? Promise.resolve()).then(
           () => undefined,
           (error: unknown) => console.warn('the film’s sound could not be prepared, so it plays silent: ' + String(error)),
         );

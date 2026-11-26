@@ -8,7 +8,8 @@ import { findLayerAgain, holdersOf, layerIconKind, layerKey, layerSummary, layer
 import { applyChange, entryCounts, entryTarget, freshEntryId, opaqueHexColor, pairChange, pickedColor, takesEntries, touchKey } from '../src/layers/entry.ts';
 import { appearanceRow, collectLayerTints } from '../src/layers/tints.ts';
 import { hideKey, hidesToTell } from '../src/layers/lapsed-hides.ts';
-import { boldToggle, isClearInk, trackingPx, typeRange } from '../src/layers/type-style.ts';
+import { boldToggle, isClearInk, ownsStyle, spacingSize, trackingPx, typeRange } from '../src/layers/type-style.ts';
+import { PICKED_ROW, escapeGoesToRow } from '../src/layers/escape-to-row.ts';
 
 const motion = (how: LayerRow['enter']['how'], from: number, to: number) => ({ how, from: playSeconds(from), to: playSeconds(to) });
 
@@ -318,4 +319,37 @@ test('flat top-level layer lists omit the empty caret spacer; nested or expandab
   assert.equal(showsLayerCaretColumn(0, flat), false);
   assert.equal(showsLayerCaretColumn(0, withGroup), true);
   assert.equal(showsLayerCaretColumn(1, flat), true);
+});
+
+test('Esc in Text styles or Appearance goes back to the picked row, unless something else took it', () => {
+  const press = { key: 'Escape', defaultPrevented: false, composing: false, inside: true };
+  assert.equal(escapeGoesToRow(press), true);
+  assert.equal(escapeGoesToRow({ ...press, key: 'Enter' }), false);
+  // A field or popup that handled Esc itself (closing a menu, ending an edit) keeps it.
+  assert.equal(escapeGoesToRow({ ...press, defaultPrevented: true }), false);
+  // An input method's Esc is its own.
+  assert.equal(escapeGoesToRow({ ...press, composing: true }), false);
+  // A popup portaled out of the group (a color picker, a select's list) bubbles through React but is not inside.
+  assert.equal(escapeGoesToRow({ ...press, inside: false }), false);
+  assert.match(PICKED_ROW, /\[data-layers-tree\]/);
+  assert.match(PICKED_ROW, /aria-selected="true"/);
+});
+
+test('letter spacing counts by the line\'s size, which the stage tells where the words set their own', () => {
+  // The size on show wins.
+  assert.equal(spacingSize(48, undefined, null), 48);
+  assert.equal(spacingSize(48, 30, 40), 48);
+  // The words set their own size: the line's size as told, or the one saved by hand for the line.
+  assert.equal(spacingSize(null, 30, null), 30);
+  assert.equal(spacingSize(null, 30, 40), 40);
+  // No size to count by: no spacing control.
+  assert.equal(spacingSize(null, undefined, 40), null);
+  assert.equal(trackingPx(0.05, spacingSize(null, 30, null) ?? 0), 1.5);
+});
+
+test('a style the words all set themselves is told by the stage', () => {
+  assert.equal(ownsStyle(null, 'weight'), false);
+  assert.equal(ownsStyle({}, 'weight'), false);
+  assert.equal(ownsStyle({ own: ['weight', 'ink'] }, 'ink'), true);
+  assert.equal(ownsStyle({ own: ['weight'] }, 'px'), false);
 });

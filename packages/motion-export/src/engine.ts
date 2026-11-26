@@ -66,7 +66,8 @@ export interface ExportEngine {
   dispose(): void;
 }
 
-const audible = (sound: FilmSound | null): sound is FilmSound => sound !== null && (sound.score.sounds.length > 0 || (sound.speech?.clips.length ?? 0) > 0);
+const audible = (sound: FilmSound | null): sound is FilmSound =>
+  sound !== null && (sound.score.sounds.length > 0 || (sound.speech?.clips.length ?? 0) > 0 || (sound.footage?.pieces.length ?? 0) > 0);
 
 const withSignal = (signal: AbortSignal | undefined): { signal?: AbortSignal } => (signal !== undefined ? { signal } : {});
 

@@ -1,6 +1,8 @@
 import type { PlaySeconds, ScoreMaster } from '@open-artifact/motion-core';
 import { fadeLevel, masterGain } from './mixer.ts';
 import type { MasterBus } from './mixer.ts';
+import type { Footage } from './clips/footage.ts';
+import { lowerOf } from './clips/footage.ts';
 import { sampleEnvelope } from './narration/duck.ts';
 import type { Speech } from './narration/speech.ts';
 import { noiseBuffer } from './synth/noise.ts';
@@ -23,6 +25,8 @@ export interface ScoreSession {
 export interface SessionOptions {
   readonly master: ScoreMaster;
   readonly speech: Speech | null;
+  /** The video clips' own sound, played with the narration. */
+  readonly footage?: Footage | null;
   readonly duration: PlaySeconds;
   readonly origin: number;
   readonly rate: number;
@@ -37,6 +41,7 @@ const DISCONNECT_DELAY_MS = 120;
 export function createScoreSession(masterBus: MasterBus, options: SessionOptions): ScoreSession {
   const { context } = masterBus;
   const { origin, rate, duration, speech } = options;
+  const footage = options.footage ?? null;
   const contextTime = (play: number): number => contextTimeOf(play, origin, rate);
   const level = masterGain(options.master.gain);
   const fadeOut = Math.max(0, Math.min(duration, options.master.fadeOut));
@@ -84,6 +89,13 @@ export function createScoreSession(masterBus: MasterBus, options: SessionOptions
     speechGain.gain.value = 0;
     speechGain.connect(masterBus.speech);
   }
+  const footageGain = footage === null ? null : context.createGain();
+  if (footageGain !== null) {
+    footageGain.gain.value = 0;
+    footageGain.connect(masterBus.speech);
+  }
+  // Under narration and footage at once the score sits at the lower of the two levels.
+  const ducked = lowerOf(speech?.duck ?? [], footage?.duck ?? []);
   const duck = masterBus.duck.gain;
 
   return {
@@ -93,12 +105,41 @@ export function createScoreSession(masterBus: MasterBus, options: SessionOptions
     contextTime,
     speak(from) {
       const now = context.currentTime;
-      if (speech === null || speechGain === null) {
+      if ((speech === null || speechGain === null) && (footage === null || footageGain === null)) {
         duck.cancelScheduledValues(now);
         duck.setValueAtTime(1, now);
         return;
       }
       const start = Math.max(now, contextTime(from));
+      if (footage !== null && footageGain !== null) {
+        footageGain.gain.setValueAtTime(0, start);
+        footageGain.gain.linearRampToValueAtTime(1, start + SPEECH_FADE_SECONDS);
+        if (endTime - SPEECH_TAIL_SECONDS > start + SPEECH_FADE_SECONDS) {
+          footageGain.gain.setValueAtTime(1, endTime - SPEECH_TAIL_SECONDS);
+          footageGain.gain.linearRampToValueAtTime(0, endTime);
+        }
+        for (const piece of footage.pieces) {
+          // Each piece is already cut to its stretch of play time; it starts part way in when playback starts inside it.
+          const offset = Math.max(0, from - piece.at);
+          if (offset >= piece.buffer.duration) continue;
+          const level = context.createGain();
+          level.gain.value = piece.gain;
+          level.connect(footageGain);
+          const source = context.createBufferSource();
+          source.buffer = piece.buffer;
+          source.playbackRate.value = rate;
+          source.connect(level);
+          bus.track(source);
+          source.addEventListener('ended', () => level.disconnect());
+          source.start(Math.max(now, contextTime(piece.at + offset)), offset);
+        }
+      }
+      const level = sampleEnvelope(ducked, from);
+      duck.cancelScheduledValues(now);
+      duck.setValueAtTime(level, now);
+      duck.setValueAtTime(level, start);
+      for (const point of ducked) if (point.t > from) duck.linearRampToValueAtTime(point.v, contextTime(point.t));
+      if (speech === null || speechGain === null) return;
       speechGain.gain.setValueAtTime(0, start);
       speechGain.gain.linearRampToValueAtTime(speech.gain, start + SPEECH_FADE_SECONDS);
       if (endTime - SPEECH_TAIL_SECONDS > start + SPEECH_FADE_SECONDS) {
@@ -116,21 +157,24 @@ export function createScoreSession(masterBus: MasterBus, options: SessionOptions
         bus.track(source);
         source.start(Math.max(now, contextTime(clip.at + offset)), offset);
       }
-      const level = sampleEnvelope(speech.duck, from);
-      duck.cancelScheduledValues(now);
-      duck.setValueAtTime(level, now);
-      duck.setValueAtTime(level, start);
-      for (const point of speech.duck) if (point.t > from) duck.linearRampToValueAtTime(point.v, contextTime(point.t));
     },
     stop() {
       const now = context.currentTime;
       try {
+        const tail = Math.max(0, Math.min(1, (endTime - now) / SPEECH_TAIL_SECONDS));
         if (speechGain !== null && speech !== null) {
           speechGain.gain.cancelScheduledValues(now);
-          speechGain.gain.setValueAtTime(speech.gain * Math.max(0, Math.min(1, (endTime - now) / SPEECH_TAIL_SECONDS)), now);
+          speechGain.gain.setValueAtTime(speech.gain * tail, now);
           speechGain.gain.linearRampToValueAtTime(0, now + STOP_FADE_SECONDS);
+        }
+        if (footageGain !== null) {
+          footageGain.gain.cancelScheduledValues(now);
+          footageGain.gain.setValueAtTime(footageGain.gain.value * tail, now);
+          footageGain.gain.linearRampToValueAtTime(0, now + STOP_FADE_SECONDS);
+        }
+        if (speechGain !== null || footageGain !== null) {
           duck.cancelScheduledValues(now);
-          duck.setValueAtTime(sampleEnvelope(speech.duck, playTimeAt(now, origin, rate)), now);
+          duck.setValueAtTime(sampleEnvelope(ducked, playTimeAt(now, origin, rate)), now);
           duck.linearRampToValueAtTime(1, now + DUCK_RECOVERY_SECONDS);
         }
         dry.gain.cancelScheduledValues(now);
@@ -152,6 +196,7 @@ export function createScoreSession(masterBus: MasterBus, options: SessionOptions
         dry.disconnect();
         reverb.disconnect();
         speechGain?.disconnect();
+        footageGain?.disconnect();
       }, DISCONNECT_DELAY_MS);
     },
   };

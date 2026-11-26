@@ -69,6 +69,7 @@ export const RESET_TEXT_STYLES = 'Reset these words to the animation’s own sty
 export const NOTHING_TO_RESET = 'Nothing to reset';
 export const READING_STYLES = 'Reading the styles…';
 export const COULD_NOT_READ_STYLES = 'Couldn’t read these words’ styles.';
+export const OWN_STYLE_REASON = 'The words here set this style themselves, so a change to the whole line wouldn’t show. Ask the agent to change it.';
 export const WEIGHT_NAMES: Readonly<Record<number, string>> = {
   100: 'Thin',
   200: 'Extra light',

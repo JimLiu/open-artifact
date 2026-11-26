@@ -3,6 +3,8 @@ import type { FilmSeconds, PlaySeconds, ScoreData } from '@open-artifact/motion-
 import type { Chapter, NarrationReport, PlayedNarrationLine, StageFilm, StageMeta } from '../protocol.ts';
 import { addAssets } from './assets.ts';
 import { captionLayer, readNarration } from './captions.ts';
+import { addClipCaptions } from './clip-captions.ts';
+import { narrationOverlaps, playedClipSound, soundingClips } from './clips.ts';
 import { errorPhase, failedToLoad, reportError, setErrorPhase, setLateHandler } from './console.ts';
 import { chaptersOf, readCut } from './cut.ts';
 import type { Cut } from './film.ts';
@@ -215,14 +217,26 @@ export async function loadFilm(given: StageFilm, hold: HoldFirstDraw): Promise<v
     takeRecord(looks ? parseRetouchedRecord(looks.text) : null);
     forgetReading();
     const narration = narrationOf(cut, given, clock);
+    addClipCaptions(cut, narration, clock);
     setErrorPhase('render');
     const sampled = renderState.gavePromise;
     // track() catches this promise's failure, so the window never hears of it: it is reported here.
     renderAt(0 as PlaySeconds)?.then(undefined, (error: unknown) => reportError(errorPhase(), error));
     void syncClips('hold');
     scanStage();
+    // After the first render: a clip that render moves with kit.seek is known by now.
+    const sounding = soundingClips(cut.duration);
+    for (const overlap of narrationOverlaps(cut.narration, sounding)) console.warn(overlap);
+    const clips = playedClipSound(sounding, clock);
     film.loaded = true;
-    say({ type: 'ready', meta, score: score ? playedScore(score, clock) : null, narration, loadMs: Math.round(realNow() - began) });
+    say({
+      type: 'ready',
+      meta,
+      score: score ? playedScore(score, clock) : null,
+      narration,
+      loadMs: Math.round(realNow() - began),
+      ...(clips.length > 0 ? { clips } : {}),
+    });
     afterReady(sampled);
   } catch (error) {
     reportError('load', error);

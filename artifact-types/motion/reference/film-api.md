@@ -16,8 +16,13 @@ where `<id>` is the 32 characters after `_blob/` in the asset's `ref` (under a h
 
 **Uploads.** Upload each raster image, font file and clip: `open-artifact upload <root> <file>` prints its
 `/_blob/<id>` url and type (under a host, `Artifact {action: "call", url, name: "upload", args: {file: "<absolute
-path>"}}` returns the same). Copy these as the asset's `ref` and `mime`. An upload is at most 25 MB. Put files you make
+path>"}}` returns the same). Copy these as the asset's `ref` and `mime`. An upload is at most 25 MB, and a video 20 MB
+(a larger one is refused with `FILE_TOO_LARGE`). Put files you make
 for it in your scratch directory or the working directory, never in the film's folder.
+
+**Their own video.** reference/footage.md covers looking at it, cutting it down to the seconds you use, converting and
+uploading it. If that page can't be followed, at the very least remove its metadata (which may record where it was
+filmed) and upload an MP4 no bigger than 20 MB; don't mix in an audio file or any sound you generated.
 
 **Store limits.** Names match `[A-Za-z0-9][A-Za-z0-9_.-]{0,63}`. `modules/<file>`: 200 KiB each, split as
 `<file>~1` … `~99` beyond that; 500 modules and 16 MiB in all. `film/script`: 200 KiB. `film` and `assets`: 2 MiB each.
@@ -38,9 +43,26 @@ before each `render`. Destructure what you use: `const { seg, lerp, eo, eio, eob
 
 **DOM and content.** `kit.el(tag, {class, style, text, html, attrs:{…}}, [children])`; `kit.h('<div>…</div>')`, that element, or for several roots a box-less parent: move and select them, not it; a trailing `<style>` is dropped;
 `kit.esc(s)`; `kit.css(text)` adds a style inside the stage. `kit.module(name)`, `kit.json(name)`. `kit.assets.url(name)`,
-`.image(name)` (a Promise: await it in `init`), `.has(name)`, `.list()`. `kit.video(name, {start, loop, class, style})` makes a
-muted clip for you to add to the stage, shown at film time `t − start` (in a scene, from its beginning); `kit.seek(video, s)` in `render` shows second `s`. The clip's own sound is heard through narration lines that name it with a `from` (voice.md, "A clip's own sound"). `kit.fonts.sans`, `.serif`, `.mono`,
+`.image(name)` (a Promise: await it in `init`), `.has(name)`, `.list()`. `kit.video(name, {…})` makes a
+clip for you to add to the stage (its options below), coming on at film time `start` (in a scene, from its beginning); `kit.seek(video, s)` in `render` shows second `s`. Its own sound plays through its `sound` option, or through narration lines that name it with a `from` (voice.md, "A clip's own sound"). `kit.fonts.sans`, `.serif`, `.mono`,
 `(kit.fonts.display || kit.fonts.sans)` hold double quotes, so inside a `style="…"` write the stack as `base.css` does. `kit.W`, `kit.H`.
+
+**A clip's options.** Create it in `init`; the options object takes `start`, `from`, `dur`, `loop`, `sound`, `speed`,
+`captions`, `class` and `style`. At `start` (scene time in a scene) it begins at its own second `from` (0 when left out)
+and plays for `dur` film seconds, or on to its end. `speed`, 0.25 to 4, runs it faster or slower while `dur` still counts the film's seconds: `{from: 40,
+dur: 3, speed: 3}` covers 9 s of the file in 3, and a clip that carries on after it starts at `from` 49, which is `from +
+dur × speed`. A clip that runs across several scenes gets one `kit.video` in each, each `from` picking up where the
+one before stopped, so no second of it plays twice.
+- `sound: true`, or a level from 0 to 1, lets its own sound play, up to its scene's end at most, with the score dipped
+  under it; only between speed 0.5 and 2 is it heard (at its own pitch), and without `sound` the clip is silent picture.
+  Switch it on for their own video unless they'd rather it be quiet; a clip the film already holds keeps its setting
+  until they ask for a change. First make sure the file carries an audio track (when it doesn't, tell them and request
+  the original file), and beneath it let the score be no more than a held pad. Never `kit.seek` a clip with `sound`.
+- Its sound has one source a second: either `sound` on the clip, or narration lines that play that clip (voice.md),
+  never both over the same seconds. The player warns once in the console where they overlap.
+- `captions: [{at, dur, text}]` puts words said in it over the film, in the player and in every export; `at` counts in
+  the file's own seconds. Where someone speaks, ask what the words are and the second they start: only the person knows,
+  and every caption line must be words they supplied.
 
 **Time and easing,** all pure. `clamp01`, `clamp(x,a,b)`, `seg(t,a,b)` (0 to 1 across a to b), `lerp`, `smoothstep(a,b,x)`, `eo`,
 `ei`, `eio`, `eoq`, `eox` (whips), `eob(x, overshoot = 1.4)`, `spring(x)`, `step(t,a)`, `pulse(t,a,b)`, `rng(seed)` (gives a function
@@ -51,12 +73,29 @@ at(t)}`; `kit.streamed(text, t, t0, cps)` gives the part revealed so far.
 `cam.apply(t)` first in `render`. (cx, cy) is the point at stage center, z the zoom; the view eases from key to key (`ease: kit.eox` whips; it's a function, never a string); `cut: true`
 is a hard cut; `drift: [dx/s, dy/s, dlogz/s]` creeps during a hold.
 
-**Type and shapes.** `kit.TextFx.fadeFromRight(el, t, t0, {stagger, dur, dx})` splits a line into words and moves them;
+**Type and shapes.** `kit.TextFx.fadeFromRight(el, t, t0, {stagger, dur, dx})` splits a line into words and moves them
+(a line that combines RTL and LTR scripts comes out of order once split, so animate such a line whole);
 `kit.TextFx.fadeOutLeft(el, t, t0)`. `kit.cutPaper(seed, n, irregularity)` gives a unit polygon, with `kit.polyLerp(A, B, p)` and
 `kit.polyStr(pts, cx, cy, sx, sy, rot)`. `kit.breathe(t, amt, period)` gives a scale. `kit.svgLayer()` adds a stage-size SVG. Hand-drawn marks, the cursor, chips, spotlight and plates for product films are in recreate-ui.md.
 
+**A number that counts.** Write the end figure into the markup exactly as it should appear,
+`<b class="fans-n">12,400</b>`, and from `render` run `kit.count(el, t, t0, t1)`. Over the span t0 to t1 it rises from half
+the figure up to it; after t1 the element's text is left exactly as written, so a figure someone retypes stays theirs.
+Another starting value goes in `from`: counting down to the markup's 1.9% from 2.4% is
+`kit.count(el, t, t0, t1, { from: 2.4 })`. Give each element a single figure, and let the count finish by the middle of
+the scene. Such an element fades or moves as one piece, not through `kit.TextFx` and not inside a line that does. A bar
+or ring whose size follows a figure reads the figure's text in `init` and falls back when it isn't a number; with
+"68%" written, `const m = el.textContent.replace(/,/g, "").match(/\d+(\.\d+)?/);` then
+`const share = m ? Math.min(Number(m[0]), 100) / 100 : 0.68;`. Bars take each one's part of the largest.
+
 **Drawing.** All of inline SVG and CSS is yours, and survives Export: paths, gradients, patterns, masks, clip paths,
-`color-mix()` and `var()` in `style` (give a gradient stop its color in `style` too). Give ids the scene's id as a prefix. Move a
+`color-mix()` and `var()` in `style` (give a gradient stop its color in `style` too). CSS 3D is the exception to watch:
+Export may paint it in markup order rather than by depth, so a box can show its far faces and a flipping card its
+mirrored back. Put what stays behind earlier in the markup, and to flip a card, rotate the two faces separately,
+`perspective(900px) rotateY(${a}deg)` on the front and `rotateY(${a - 180}deg)` (same perspective) on the back, showing
+the front and hiding the back while `a` is below 90, then the reverse. SVG `<animate>`, `el.animate()` and animated
+GIF, WebP or PNG images run on the wall clock, not on `t`, so Export can't follow them even paused: set the values in
+`render`, or use a clip instead. Give ids the scene's id as a prefix. Move a
 part with `style.transform` and `style.transformOrigin` in px, or its `transform` attribute.
 
 ## 4. Render discipline

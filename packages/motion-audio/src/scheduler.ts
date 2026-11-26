@@ -51,6 +51,7 @@ export function startScorePass(options: ScorePassOptions): ScorePass {
   const session = createScoreSession(master, {
     master: sound.score.master,
     speech: sound.speech,
+    footage: sound.footage ?? null,
     duration: sound.score.duration,
     origin: passOrigin(context.currentTime, from, rate),
     rate,

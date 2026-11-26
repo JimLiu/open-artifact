@@ -21,3 +21,4 @@ export function shiftText(shift: number): string {
   const shown = Number(Math.abs(shift).toFixed(2)).toLocaleString();
   return shift < 0 ? `${shown} s earlier` : `${shown} s later`;
 }
+export const WHAT_THE_VOICEOVER_SAYS = 'What the voiceover says';

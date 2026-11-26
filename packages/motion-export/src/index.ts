@@ -30,6 +30,10 @@ export {
   resolveVideoSettings,
 } from './plan.ts';
 export type { GifPlan, GifPreset, GifPresetName, VideoFramePlan, VideoHeight, VideoQuality, VideoSettings } from './plan.ts';
+export { VideoPartError } from './clip/problem.ts';
+export type { VideoFileFacts, VideoPart, VideoPartProblem } from './clip/problem.ts';
+export { convertVideoPart, readVideoFile } from './clip/in-worker.ts';
+export type { StartVideoWorker, VideoPartOptions } from './clip/in-worker.ts';
 export { describeVideoFormat } from './video/format.ts';
 export type { ExportAudioCodec, ExportVideoCodec, VideoFormat, VideoPlan } from './video/format.ts';
 export { newEncoderMemory } from './video/attempts.ts';

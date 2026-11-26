@@ -14,3 +14,4 @@ export const sceneNumber = (number: number): string => `Scene ${number}`;
 export const sceneOf = (number: number, total: number): string => `${number} of ${total}`;
 export const PLAYHEAD = 'Playhead';
 export const CHAPTER = 'Chapter';
+export const pageKeysHint = (by: 'scene' | 'chapter'): string => `Page Up and Page Down move by ${by}`;

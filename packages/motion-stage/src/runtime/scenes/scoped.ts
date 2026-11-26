@@ -1,3 +1,4 @@
+import { clipInScene } from '../clips.ts';
 import type { Kit, VideoOptions } from '../kit/index.ts';
 
 /** A scene being brought up: what deferred code threw meanwhile, and how to cut its init short. */
@@ -36,7 +37,12 @@ export function scopedKit(
   };
   scoped.svgLayer = () => into(kit.svgLayer());
   scoped.chip = (text, options) => into(kit.chip(text, options));
-  scoped.video = (source, options: VideoOptions = {}) => kit.video(source, { ...options, start: start + (Number(options.start) || 0) });
+  // Its sound and words stay within the scene.
+  scoped.video = (source, options: VideoOptions = {}) => {
+    const video = kit.video(source, { ...options, start: start + (Number(options.start) || 0) });
+    clipInScene(video, { lo: start, hi: start + dur, gone: () => me.gone });
+    return video;
+  };
   scoped.typist = (text, at, cps, seed) => {
     const times = kit.typing.times;
     const before = times.length;

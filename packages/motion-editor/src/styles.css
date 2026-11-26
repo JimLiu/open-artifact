@@ -248,9 +248,10 @@ body {
   background: var(--vid-played);
 }
 
+/* The scene being made beats a few times, then rests: a beat that never stops keeps pulling the eye. */
 .vid-pip[data-pip="next"] {
   background: var(--vid-played);
-  animation: vid-pulse 1.2s ease-in-out infinite;
+  animation: vid-pulse 1.2s ease-in-out 4;
 }
 
 .vid-pip[data-pip="failed"] {

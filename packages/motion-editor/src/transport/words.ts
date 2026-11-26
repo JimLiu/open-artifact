@@ -14,3 +14,4 @@ export const FULLSCREEN_REFUSED = 'The browser would not go full screen here.';
 export const PLAYBACK = 'Playback';
 export const PLAYHEAD = 'Playhead';
 export const NO_ANIMATION_TO_PLAY = 'No animation to play yet';
+export const MORE = 'More';

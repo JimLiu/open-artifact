@@ -20,3 +20,5 @@ export * from './retype/index.ts';
 export * from './recolor/index.ts';
 export * from './palettes/index.ts';
 export * from './flags.ts';
+export * from './clip-sound.ts';
+export * from './video-clips/index.ts';

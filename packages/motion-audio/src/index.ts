@@ -97,3 +97,10 @@ export { audioClockSource, createVisibleClock, wallClockSource } from './playbac
 export type { PlaybackTimeSource, VisibleClock } from './playback-clock.ts';
 export { FilmSoundPlayer } from './player.ts';
 export type { FilmSoundPlayerOptions, SoundPlayerState } from './player.ts';
+
+export { FOOTAGE_DUCK_DB, lowerOf, placeFootage, samplesOf, useWithin } from './clips/footage.ts';
+export type { BufferMaker, Footage, FootagePiece } from './clips/footage.ts';
+export { footageGain, loadFootage } from './clips/load.ts';
+export type { FootageOptions } from './clips/load.ts';
+export { stretchChannels } from './clips/stretch.ts';
+export { hasVoices } from './offline.ts';

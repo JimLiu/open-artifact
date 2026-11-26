@@ -1,16 +1,30 @@
 /** A change made by hand that can be taken back: `undo` and `redo` each write the record as it was or will be. */
 export interface UndoEntry {
   label: string;
-  undo(): void;
-  redo(): void;
+  /**
+   * Each may decline by returning an {@link UndoDeclined}: it then says why, and the entry stays to try again (`keep`)
+   * or is dropped. Anything else it returns is ignored.
+   */
+  undo(): unknown;
+  redo(): unknown;
+}
+
+/** An undo or redo that changed nothing: what to say instead, and whether the entry stays where it was. */
+export interface UndoDeclined {
+  said: string;
+  keep: boolean;
 }
 
 export const MAX_UNDO = 100;
+
+const declinedBy = (result: unknown): UndoDeclined | null =>
+  typeof result === 'object' && result !== null && typeof (result as UndoDeclined).said === 'string' ? (result as UndoDeclined) : null;
 
 /** The page's undo history: a new change clears what could be redone. Pure. */
 export class UndoStack {
   #done: UndoEntry[] = [];
   #undone: UndoEntry[] = [];
+  #declined: UndoDeclined | null = null;
   readonly #max: number;
 
   constructor(max = MAX_UNDO) {
@@ -35,17 +49,24 @@ export class UndoStack {
   undo(): UndoEntry | null {
     const entry = this.#done.pop();
     if (entry === undefined) return null;
-    entry.undo();
-    this.#undone.push(entry);
+    this.#declined = declinedBy(entry.undo());
+    if (this.#declined === null) this.#undone.push(entry);
+    else if (this.#declined.keep) this.#done.push(entry);
     return entry;
   }
 
   redo(): UndoEntry | null {
     const entry = this.#undone.pop();
     if (entry === undefined) return null;
-    entry.redo();
-    this.#done.push(entry);
+    this.#declined = declinedBy(entry.redo());
+    if (this.#declined === null) this.#done.push(entry);
+    else if (this.#declined.keep) this.#undone.push(entry);
     return entry;
+  }
+
+  /** What the last undo or redo said when it declined, else `null`. */
+  get declined(): UndoDeclined | null {
+    return this.#declined;
   }
 
   clear(): void {

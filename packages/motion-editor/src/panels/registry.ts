@@ -23,6 +23,8 @@ export interface PanelEntry {
    * keep saying what it has to show (Theme).
    */
   keepMounted?: boolean;
+  /** Opened from a menu only: Mod+\ does not open it again as the last panel open. */
+  fromMenu?: boolean;
   render: () => ReactNode;
 }
 
@@ -61,7 +63,10 @@ export function registerPanel(entry: PanelEntry): () => void {
 export function togglePanel(id?: string): void {
   const { panel, lastPanel, openPanel } = useUi.getState();
   const { panels } = usePanels.getState();
-  const wanted = id ?? (panels.some((entry) => entry.id === lastPanel) ? lastPanel : (panels[0]?.id ?? null));
+  // A panel opened from a menu closes like any other.
+  if (id === undefined && panels.some((entry) => entry.id === panel && entry.fromMenu === true)) return openPanel(null);
+  const recalled = panels.some((entry) => entry.id === lastPanel && entry.fromMenu !== true);
+  const wanted = id ?? (recalled ? lastPanel : (panels.find((entry) => entry.fromMenu !== true)?.id ?? null));
   if (wanted === null) return;
   openPanel(panel === wanted ? null : wanted);
 }

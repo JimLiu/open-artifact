@@ -38,8 +38,11 @@ settles it. With no design system listed, a request that says both what the film
 settles all three, and what it leaves open is yours. It's settled too when they ask to make it from their own deck or
 design: the look and colors come from it, and the length is yours. "A calm watercolor of the harbor for my mother's
 birthday" settles it; "a 20 second promo for our app" has no look, so it gets the form. With a design system listed,
-neither settles it: the form stays, because its options are the offer. With no subject at all, ask for one in a plain
-line and end the turn.
+neither settles it: the form stays, because its options are the offer. With no subject at all ("make a video"), the
+form opens with one more question, before Style, and has no question for facts: what should it be about? Offer three
+or four short ideas drawn from the conversation, work first (a launch, a team moment), never anything made up or
+private, plus room to type their own. If they name their own app, shop, team or event, that is enough of a subject, even when you
+know little about it. Without the tool, ask for a subject in one plain line and end the turn.
 
 ## The form
 
@@ -58,7 +61,8 @@ until then make no other tool call.
 
 **Without such a tool,** ask none of the three, in plain words or otherwise: people would sooner watch a film arrive
 and change it than be stopped first. Decide, then write one short line before the first write, with no question in
-it: the style, colors and length in plain words, and that any can be changed. Go on in the same turn.
+it: the style, colors and length in plain words, and that any can be changed. Go on in the same turn. The same holds
+when the tool is refused or fails: decide as here, and don't ask a second time.
 
 > Going with First bell (a drawn brick yard in morning light), green-black and copper, 20 seconds. Tell me if you'd
 > like any of that changed.
@@ -134,6 +138,7 @@ more: that many, 36000 seconds (10 hours) at most.
 |---|---|
 | a Style option | that look, as the line you wrote under it says: what it is made of, its light, how it moves. Its colors come from the Colors answer |
 | Style in their own words, or the request said the style | a look of your own from their words; with an option picked too, that one bent to them |
+| a subject, picked or typed | what the film is about; words they typed there count as their facts too |
 | a palette, or a design system | its four colors (a system: design-systems.md too) |
 | Colors in their own words | a palette of your own that fits their words |
 | no Colors answer | as for "not asking", above |

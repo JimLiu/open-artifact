@@ -1,7 +1,8 @@
-/** The requests the page itself sends: go on, finalize, delete a scene, make it again in another shape, fix an error. */
+/** The requests the page itself sends: go on, finalize, delete a scene, fit an added video, make it again in another shape, fix an error. */
 
 import {
   REQUEST_LIMITS,
+  addedVideoRequest,
   clipRequestWords,
   continueRequest,
   deleteSceneRequest,
@@ -15,7 +16,7 @@ import type { StageProblem } from '../stores/film.ts';
 import { useWorking } from '../stores/working.ts';
 import { formatPlaybackTime } from '../transport/time-format.ts';
 import { sendAgentRequest, type RequestOutcome } from './send.ts';
-import { ERROR_LABEL, FIX_ERROR_TITLE, SAY_CONTINUE, SAY_FINALIZE, errorWhere, fixErrorText } from './words.ts';
+import { ERROR_LABEL, FIX_ERROR_TITLE, SAY_ADDED_VIDEO, SAY_CONTINUE, SAY_FINALIZE, errorWhere, fixErrorText } from './words.ts';
 
 /** Go on with the scenes still to make; `left`: their numbers, from 1. */
 export async function askContinue(left: readonly number[]): Promise<RequestOutcome> {
@@ -35,6 +36,11 @@ export async function askFinalize(): Promise<RequestOutcome> {
 /** Take scene `scene` (from 1) out of a film of `count` scenes. */
 export function askDeleteScene(scene: number, count: number): Promise<RequestOutcome> {
   return sendAgentRequest(deleteSceneRequest(scene, count));
+}
+
+/** Work the video just added (scene `scene`, from 1) into the film, or build one around it when it is all there is. */
+export function askFitVideo(scene: number, blank: boolean): Promise<RequestOutcome> {
+  return sendAgentRequest(addedVideoRequest(scene, blank), { say: SAY_ADDED_VIDEO });
 }
 
 export function askShape(shape: FilmShape): Promise<RequestOutcome> {

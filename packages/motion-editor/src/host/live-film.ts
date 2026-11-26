@@ -79,6 +79,17 @@ export function writeFilmDocument(path: string, data: DocumentValue | null): boo
   return store.commit(next);
 }
 
+/** Replaces or deletes (`null`) several documents in one change, so the film never shows half of it. */
+export function writeFilmDocuments(changes: ReadonlyMap<string, DocumentValue | null>): boolean {
+  if (store === null) return false;
+  const next = new Map(store.value());
+  for (const [path, data] of changes) {
+    if (data === null) next.delete(path);
+    else next.set(path, data);
+  }
+  return store.commit(next);
+}
+
 /** Writes this page made that the store has not confirmed yet. */
 export function filmPending(): number {
   return store?.getSnapshot().pending ?? 0;

@@ -41,7 +41,9 @@ Nothing blinks or cuts more than three times a second, rough or finished.
 - `id`: lower-case letters, digits and `-`, a letter first, 32 at most. It never changes and no two are alike, because
   comments and the user's own edits hang on it. A bad `id`, `dur` or count stops the whole film.
 - `name`: one to three words (48 characters at most), for a listener: "The pour", not "Scene 2".
-- `dur`: seconds, above 0. `desc`: one plain sentence on what happens. A person is in it only if the ask needs one (motion.md).
+- `dur`: seconds, above 0. `desc`: one plain sentence on what happens, in the language of the film and readable by
+  someone who can't see the picture: what appears, plus any text or color that means something. Revise it after you
+  draw the scene. A person is in it only if the ask needs one (motion.md).
 
 One continuous action (one window, one camera move, one cursor's errand) is ONE scene, however long: nothing carries
 over a cut. The one exception: a character or object that moves about or travels (a window, screen, cursor, card or logo
@@ -54,13 +56,15 @@ left it**: place, size, pose, speed; plan none of its moves ahead, in thought or
 - `width`, `height`: vertical (Reels, TikTok, Shorts) is 1080 by 1920.
 - `background`: the picked ground; `"transparent"` for graphics made to lay over footage (motion.md, "Overlays").
 - `look`: the look in words, for whoever draws the scenes, perhaps in another conversation: the picked option's name and
-  line, and whatever they typed, word for word. If you decided, a name and line of your own. Either way, add rich or plain. Before you write the look line, hold it against motion.md's never-draw list: no red rising sun with rays; no spread eagle or heroic figure against a red or pale disc, rays or a field of red. A sunset, a moon or a sunrise that the person asks for stays.
+  line, plus their Style text about the look or feel, copied exactly (a named style, artist or era is kept as
+  typed); leave out the rest of what they typed in it, their subject and their facts included. If you decided, a name and line of your own. Either way, add rich or plain. Before you write the look line, hold it against motion.md's never-draw list: no red rising sun with rays; no spread eagle or heroic figure against a red or pale disc, rays or a field of red. A sunset, a moon or a sunrise that the person asks for stays.
 - `palettes`: every palette the Colors question offered, picked or not, in the order shown (the picked one is not moved
   up), each its four colors as `#rrggbb` in role order (ground, main, second, accent); for a palette offered in words alone, settle its
   four now. `theirs`: how many of them, from the first, are the user's. If they answered Other or in words of their
   own, the palette you made of that stands first and counts as theirs.
   With no Colors question: the film's own four alone, `theirs` 1 if they are the user's, else 0. Keep both keys at every
   later write: the page offers them again.
+- `lang`: the language the film's words are in, as a language tag (`"en"`, `"de"`, `"pt-BR"`).
 
 **`fonts`** names the film's faces, in four optional slots: `sans`, `serif` and `mono` for text, `display` for headlines. A
 slot takes one of the ten faces that ship with the player, by id, or nearly any Google Fonts family with the nearest of
@@ -73,10 +77,12 @@ The ten. Text: `plus-jakarta-sans` (wide), `manrope` (round), `space-grotesk` (a
 `fraunces` (serif), `dm-mono`, `departure-mono` (pixel), these two of one weight. Headlines: `fraunces-display` (hairline,
 one weight, the only italic), `inter-display` (loud, to 900), `shantell-sans` (hand-drawn, slants from 600 up). `manrope` goes to 800.
 
-**Plain films lean to Inter and Space Grotesk.** With Western European words, no design system, and no family or lettering
-asked for in the request or in `Style (other)`, a film you've called plain starts from `display` `space-grotesk` and `sans`
-`{"family":"Inter","or":"instrument-sans"}`. A rich film, or one whose look or Style pick wants other lettering, picks for
-itself: think what kind of face is at home there (a hymn book, a shop sign), then a family of that kind fit for work. Inter sets wider than
+**Plain films lean to Inter for their text.** If the words are in a Western European language, there's no design
+system, and neither the request nor `Style (other)` names a family or lettering, a plain film begins with `sans`
+`{"family":"Inter","or":"instrument-sans"}` and the clean sans that suits it best as `display`. A rich film, or one whose look or Style pick wants other lettering, picks for
+itself: think what kind of face is at home there (a hymn book, a shop sign), then a family of that kind fit for work.
+Space Grotesk and Bricolage Grotesque have been seen too often: reach for them only on request, as the brand's own
+face, or when no other family fits. Inter sets wider than
 `instrument-sans`, so leave each line room for it. If only `display` is named, `sans` still takes Inter; if a text face is
 named, leave `display` unnamed. Two faces are enough; a third only as `mono`, for code or figures in
 columns; figures that count up need `tabular-nums` in a mono, `instrument-sans`, `space-grotesk`, `plus-jakarta-sans` or

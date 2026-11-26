@@ -6,6 +6,7 @@ import { useFilm } from '../stores/film.ts';
 import { usePlayback } from '../stores/playback.ts';
 import { useUi } from '../stores/ui.ts';
 import { fullscreenAvailable, toggleFullscreen } from './fullscreen.ts';
+import { MoreMenu } from './MoreMenu.tsx';
 import { useToolbar } from './slots.ts';
 import { TimeDisplay } from './TimeDisplay.tsx';
 import { VolumeControl } from './VolumeControl.tsx';
@@ -48,6 +49,7 @@ export function Transport(): ReactElement {
             {item.render()}
           </span>
         ))}
+      <MoreMenu />
       <ToolButton
         label={!canFullscreen ? words.FULL_SCREEN_UNAVAILABLE : fullscreen ? words.EXIT_FULL_SCREEN : words.FULL_SCREEN}
         shortcut="F"

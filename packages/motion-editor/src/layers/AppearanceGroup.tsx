@@ -3,14 +3,15 @@
  * scale and its corners, each with its own Reset. Shown on a film not made of scenes, or a finished scene.
  */
 
-import { useMemo, type ReactElement, type ReactNode } from 'react';
+import { useMemo, type KeyboardEvent, type ReactElement, type ReactNode } from 'react';
 import { RotateCcw } from 'lucide-react';
 import { ColorPicker, IconButton, NumberInput, Row, Section, SliderInput, type ColorSwatch } from '@open-artifact/ui';
 import { SIZE_BOUNDS, scanFilmColors, type RetouchLayer, type RetouchProperty } from '@open-artifact/motion-core';
 import type { LayerLook, LayerRow } from '@open-artifact/motion-stage/protocol';
 import { useFilm } from '../stores/film.ts';
 import { entryCounts, opaqueHexColor, pickedColor, type EntryLook } from './entry.ts';
-import { commitLive, previewLayerProperties, rowEntry, setLayerProperties, shownValue, type LayerChange } from './retouch.ts';
+import { escapeToPickedRow } from './escape-to-row.ts';
+import { cancelLive, commitLive, previewLayerProperties, rowEntry, setLayerProperties, shownValue, type LayerChange } from './retouch.ts';
 import { useLayers } from './store.ts';
 import { appearanceRow, collectLayerTints, type LayerTint } from './tints.ts';
 import * as words from './words.ts';
@@ -37,6 +38,11 @@ export function isSetByHand(row: LayerRow, look: EntryLook | null, property: Ret
   if (look === null) return false;
   const entry = rowEntry(row, look);
   return entry !== null && entry[property] !== undefined && countsIn(look, property)(entry);
+}
+
+/** Esc in one of the picked layer's groups: back to the layer's row, dropping a preview still showing (as letting the pick go did). */
+export function onGroupKeyDown(event: KeyboardEvent<HTMLDivElement>): void {
+  if (escapeToPickedRow(event)) cancelLive();
 }
 
 export function ResetButton({ what, onReset }: { what: string; onReset: (() => void) | null }): ReactElement {
@@ -231,11 +237,13 @@ export function AppearanceGroup({ layer, inkAbove }: { layer: LayerRow; inkAbove
   const own = look === null ? [] : ownRows(target, look, swatches, inkAbove).filter((node) => node !== null);
   if (tints.length === 0 && own.length === 0) return null;
   return (
-    <Section title={words.APPEARANCE_TITLE}>
-      {tints.map((tint, index) => (
-        <TintRow key={tint.hue} tint={tint} label={tints.length === 1 ? words.COLOR : words.colorN(index + 1)} swatches={swatches} />
-      ))}
-      {own}
-    </Section>
+    <div onKeyDown={onGroupKeyDown}>
+      <Section title={words.APPEARANCE_TITLE}>
+        {tints.map((tint, index) => (
+          <TintRow key={tint.hue} tint={tint} label={tints.length === 1 ? words.COLOR : words.colorN(index + 1)} swatches={swatches} />
+        ))}
+        {own}
+      </Section>
+    </div>
   );
 }

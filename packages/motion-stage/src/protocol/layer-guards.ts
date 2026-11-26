@@ -1,6 +1,6 @@
 import { MAX_RETOUCHED_LAYERS, RETOUCH_PROPERTIES, TEXT_ALIGNS, isRetouchParts, parseRetouchLayer } from '@open-artifact/motion-core';
 import type { RetouchedRecord } from '@open-artifact/motion-core';
-import type { AskedLook, LayerBox, LayerLook, LayerMotion, LayerRow, LayersReport } from './layers.ts';
+import type { AskedLook, LayerBox, LayerLook, LayerMotion, LayerRow, LayersReport, OwnTextStyle } from './layers.ts';
 
 type Fields = Record<string, unknown>;
 
@@ -24,6 +24,7 @@ const LAYER_DRAWN: readonly string[] = ['', 'graphic', 'drawing', 'group', 'line
 const LAYER_EFFECTS: readonly string[] = ['fade', 'grow', 'left', 'right', 'top', 'bottom'];
 const PROPERTIES: readonly string[] = RETOUCH_PROPERTIES;
 const ALIGNS: readonly string[] = TEXT_ALIGNS;
+const OWN_TEXT_STYLES: readonly string[] = ['weight', 'italic', 'px', 'tracking', 'ink'] satisfies OwnTextStyle[];
 
 function isMotion(value: unknown): value is LayerMotion {
   return isFields(value) && isNullable(value['how'], (how: unknown): how is string[] => isListOf(how, isOneOf(LAYER_EFFECTS))) && isNumber(value['from']) && isNumber(value['to']);
@@ -110,7 +111,9 @@ export function isAskedLook(value: unknown): value is AskedLook {
     isNullable(value['entry'], isString) &&
     isBoolean(value['home']) &&
     isListOf(value['lapsed'], isOneOf(PROPERTIES)) &&
-    isString(value['family'])
+    isString(value['family']) &&
+    (value['own'] === undefined || isListOf(value['own'], isOneOf(OWN_TEXT_STYLES))) &&
+    (value['linePx'] === undefined || (isNumber(value['linePx']) && value['linePx'] > 0))
   );
 }
 

@@ -12,7 +12,7 @@ import { registerUndoKeys } from './undo-keys.ts';
 import { UndoStack, type UndoEntry } from './undo-stack.ts';
 import { NOTHING_TO_REDO, NOTHING_TO_UNDO, redid, undid } from './words.ts';
 
-export type { UndoEntry } from './undo-stack.ts';
+export type { UndoDeclined, UndoEntry } from './undo-stack.ts';
 
 const stack = new UndoStack();
 
@@ -36,7 +36,7 @@ function run(step: () => UndoEntry | null, said: (label: string) => string, none
     entry = null;
   }
   publish();
-  toast.add({ title: entry === null ? none : said(entry.label) });
+  toast.add({ title: entry === null ? none : (stack.declined?.said ?? said(entry.label)) });
 }
 
 export function undo(): void {

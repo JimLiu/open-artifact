@@ -1,4 +1,4 @@
-import type { PlaySeconds } from '@open-artifact/motion-core';
+import type { ClipSoundUse, PlaySeconds } from '@open-artifact/motion-core';
 import type { NarrationReport, PlayedScore } from '../protocol.ts';
 
 /**
@@ -6,8 +6,8 @@ import type { NarrationReport, PlayedScore } from '../protocol.ts';
  * narration, and the player plays neither itself. With none, the film plays silent.
  */
 export interface ScorePlayer {
-  /** Once the film is ready, with its sound as played. */
-  prepare(score: PlayedScore | null, narration: NarrationReport | null, duration: PlaySeconds): Promise<void>;
+  /** Once the film is ready, with its sound as played: `clips`, the clips whose own sound plays. */
+  prepare(score: PlayedScore | null, narration: NarrationReport | null, duration: PlaySeconds, clips?: readonly ClipSoundUse[]): Promise<void>;
   /** Called from a click, which a browser asks for before it makes a sound. */
   start(t: PlaySeconds): void;
   stop(): void;

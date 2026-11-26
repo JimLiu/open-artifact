@@ -80,7 +80,8 @@ const videoSettings = (options: VideoOptions): VideoSettings => ({ height: optio
 /** A MOV takes the video's resolution, rate and supersampling; it has no quality to pick. */
 const movChoices = (options: VideoOptions): MovChoices => ({ height: options.height, fps: options.fps, supersample: options.supersample });
 
-const audible = (sound: FilmSound): boolean => sound.score.sounds.length > 0 || (sound.speech?.clips.length ?? 0) > 0;
+const audible = (sound: FilmSound): boolean =>
+  sound.score.sounds.length > 0 || (sound.speech?.clips.length ?? 0) > 0 || (sound.footage?.pieces.length ?? 0) > 0;
 
 function stopEstimate(): void {
   clearTimeout(estimateTimer);

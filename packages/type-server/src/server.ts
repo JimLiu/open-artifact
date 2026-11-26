@@ -75,6 +75,7 @@ import { downloadName, saveDownload } from './downloads.ts';
 import { HttpError, IMMUTABLE, isFramedNavigation, isHashedName, isLocalHost, mimeOf, readBody, readJson, send, sendBytes, sendError, sendFrameDenied, sendJson } from './http.ts';
 import { ArtifactStore, MAX_BATCH_FILES, PROJECT_DIR, sha256, writeAtomic } from './store.ts';
 import { TYPES, contentDirOf, historyTracksOf, isTypeName, type TypeName } from './types.ts';
+import { motionUploadNext, motionUploadProblem } from './motion.ts';
 import { ARM_RESCAN_MS, DbHost, threadRequestText, toHttpError } from './db-host.ts';
 import { HISTORY_AGENT, HistoryHost, personOf } from './history-host.ts';
 import { findChrome, snapshotPage } from './snapshot.ts';
@@ -1849,9 +1850,13 @@ export function createTypeServer(options: TypeServerOptions): TypeServer {
       const blob = await store.putBlob(bytes, mimeOf(file));
       return sendJson(res, 200, { upload: { ...groupUploadRecord(String(group), key, name, blob), size: blob.size, name } });
     }
+    const tooLarge = type === 'motion' ? motionUploadProblem(basename(file), mimeOf(file), bytes.length) : null;
+    if (tooLarge !== null) throw new HttpError(400, 'invalid_argument', tooLarge);
     const blob = await store.putBlob(bytes, mimeOf(file));
+    const next = type === 'motion' ? motionUploadNext(basename(file), blob.contentType.split(';')[0] ?? '', `${BLOB_PREFIX}${blob.id}`) : null;
     return sendJson(res, 200, {
       upload: { url: `${BLOB_PREFIX}${blob.id}`, contentType: blob.contentType, size: blob.size, name: basename(file) },
+      ...(next !== null ? { next } : {}),
     });
   };
 

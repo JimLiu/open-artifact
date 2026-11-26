@@ -92,6 +92,11 @@ export class PlaybackLoop {
     this.#push();
   }
 
+  /** Shows the playhead's moment again, as it stands (after something else drew on the stage). */
+  show(): void {
+    this.#push();
+  }
+
   /** A film is on show: show the playhead's moment on it, and play if asked to before it was ready. */
   stageReady(): void {
     resetGate(this.#gate, this.#stage.lastSent);

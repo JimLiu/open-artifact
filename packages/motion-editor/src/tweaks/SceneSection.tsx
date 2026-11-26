@@ -3,6 +3,7 @@ import { RotateCcw } from 'lucide-react';
 import { ChromeButton, Tip, ToolButton } from '@open-artifact/editor-kit/react';
 import { CommitInput, ScrubNumberField, Section } from '@open-artifact/ui';
 import { EMPTY_RECUT_RECORD, MAX_SCENE_NAME_CHARS, SCENE_DURATION_STEP, partRecut, type ClockPart } from '@open-artifact/motion-core';
+import { ClipRows } from '../clips/ClipRows.tsx';
 import { setSceneLength, setSceneName } from '../recut/actions.ts';
 import { roundTenths, scaledSceneLength, sceneLengthBounds, stableSceneKey } from '../recut/bounds.ts';
 import { useFilm } from '../stores/film.ts';
@@ -73,6 +74,7 @@ export function SceneSection({ parts, index, off }: { parts: readonly ClockPart[
         <SpeedButton text={words.HALF_SPEED_MARK} tip={slower === null ? words.CANT_GO_SLOWER : words.HALF_SPEED} length={slower} off={off} />
         <SpeedButton text={words.DOUBLE_SPEED_MARK} tip={faster === null ? words.CANT_GO_FASTER : words.DOUBLE_SPEED} length={faster} off={off} />
       </PanelRow>
+      <ClipRows sceneId={part.key} number={index + 1} off={off} />
     </Section>
   );
 }

@@ -1,0 +1,21 @@
+import { formatPlaybackTime } from '../transport/time-format.ts';
+
+export const READ_AS_TEXT = 'Read as text';
+export const DESCRIBE_SCENES_ALOUD = 'Describe scenes aloud';
+export const WHAT_IT_SHOWS = 'What this animation shows';
+export const ON_SCREEN = 'On screen';
+export const SPOKEN = 'Spoken';
+export const CURRENT = 'current';
+export const sceneName = (name: string, index: number): string => (name.trim() === '' ? `Scene ${index + 1}` : name);
+export const startsAt = (seconds: number): string => `from ${formatPlaybackTime(seconds)}`;
+export const goToScene = (name: string, at: string): string => `Go to ${name}, ${at}`;
+export const WORDS_UNREAD = 'The words in this scene couldn’t be read.';
+export const WORDS_READING = 'Reading the words on screen…';
+export const PAUSE_TO_READ = 'Pause to read the rest of the words.';
+export const PICTURE_WORDS = 'Words inside pictures aren’t listed.';
+export const notesBy = (agent: string): string => `${agent} wrote the scene descriptions.`;
+export const SAVE_TEXT = 'Save text';
+export const savedFile = (name: string): string => `Saved ${name}`;
+export const SAVE_FAILED = 'The file wasn’t saved. Try again.';
+export const SAVE_WHEN_DONE = 'The text can be saved once every scene is read.';
+export const NOTHING_TO_READ = 'No animation to read yet.';

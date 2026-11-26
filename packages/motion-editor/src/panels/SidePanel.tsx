@@ -7,6 +7,7 @@ import { useFilm } from '../stores/film.ts';
 import { useUi } from '../stores/ui.ts';
 import { givesWayTo, panelToggleAnnouncement, panelView } from './panel-view.ts';
 import { panelContent, usePanels, type PanelEntry } from './registry.ts';
+import { UndoMenu } from './UndoMenu.tsx';
 import { CLOSE_PANEL } from './words.ts';
 
 /** Width of the compact inspector side panel, in pixels. */
@@ -66,6 +67,7 @@ export function SidePanel(): ReactElement | null {
       <Frame id={view.panel.id} title={view.panel.label}>
         <header className="flex h-11 shrink-0 items-center gap-2 border-b border-chrome-line pr-2 pl-4" data-video-panel-head="">
           <h2 className="min-w-0 flex-1 truncate text-[13px] font-medium">{view.panel.label}</h2>
+          <UndoMenu />
           <CloseButton />
         </header>
         <div className="min-h-0 flex-1 overflow-auto">{view.panel.render()}</div>
@@ -79,7 +81,12 @@ export function SidePanel(): ReactElement | null {
         label={view.title}
         value={view.active.id}
         onChange={(id) => useUi.getState().openPanel(id)}
-        trailing={<CloseButton />}
+        trailing={
+          <>
+            <UndoMenu />
+            <CloseButton />
+          </>
+        }
         items={view.tabs.map((tab) => ({
           value: tab.id,
           label: tab.label,

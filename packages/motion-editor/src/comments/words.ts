@@ -8,4 +8,10 @@ export const MARK_STRETCH = 'Mark the start of a stretch to comment on';
 export const COMMENT_HERE = 'Comment on this moment (or the marked stretch)';
 export const TOGGLE_COMMENT_MODE = 'Comment mode';
 export const COMMENTS_ON_TIMELINE = 'Comments';
-export const commentAt = (where: string): string => `Comment at ${where}`;
+export const commentNumberAt = (number: number, time: string, scene: string, resolved: boolean): string =>
+  `Comment ${number} at ${time}${scene.trim() === '' ? '' : `, ${scene}`}${resolved ? ', resolved' : ''}`;
+export const commentOnStretch = (number: number, start: string, end: string, resolved: boolean): string =>
+  `Comment ${number} on ${start}–${end}${resolved ? ', resolved' : ''}`;
+export const plusCount = (count: number): string => `+${count}`;
+export const moreCommentsNear = (count: number, time: string): string => (count === 1 ? `+1 comment near ${time}` : `+${count} comments near ${time}`);
+export const firstCommentsNear = (time: string): string => `Back to the first comments near ${time}`;

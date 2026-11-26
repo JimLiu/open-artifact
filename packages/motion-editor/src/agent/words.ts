@@ -1,6 +1,7 @@
 export const REQUEST_SUBJECT = 'this animation';
 export const SAY_CONTINUE = 'Continue';
 export const SAY_FINALIZE = 'Finalize';
+export const SAY_ADDED_VIDEO = 'Fit in the video I added';
 export const FIX_ERROR_TITLE = 'Fix the error';
 export const errorWhere = (phase: 'load' | 'render'): string => (phase === 'load' ? 'while loading the code' : 'while rendering a frame');
 export const fixErrorText = (where: string, at: string | null): string =>

@@ -29,6 +29,7 @@ import { filmStageFaces, type FilmFontsIo } from './film-faces.ts';
 import { PlaybackLoop } from './playback-loop.ts';
 import { readFilmRecords, type FilmRecords } from './records.ts';
 import { loadFilmSound } from './sound.ts';
+import { withClipSound } from './clip-sound.ts';
 import { StageController, type FrameMessage, type ReadyMessage } from './stage-controller.ts';
 import { buildStageFilm, stageKey, stageModules, type AssetReader } from './stage-film.ts';
 import { ThumbnailCache } from './thumbnails.ts';
@@ -321,11 +322,12 @@ export class FilmEngine {
       this.sound.load(input);
       tell(this.#soundListeners, input);
     };
-    loadFilmSound(give, message, {
+    const load = {
       isCurrent: () => token === this.#loadToken,
       assets: film?.assets ?? [],
-      bytes: (ref) => this.#assets.bytes(ref),
-    }).catch((error: unknown) => {
+      bytes: (ref: string) => this.#assets.bytes(ref),
+    };
+    loadFilmSound(withClipSound(give, message, load), message, load).catch((error: unknown) => {
       console.warn('video: the sound could not be prepared', error);
       toast.add({ title: SOUND_FAILED });
     });
