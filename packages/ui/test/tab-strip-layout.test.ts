@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { closeGroups, dragOrder, fitTabs, moveTo, pickedPlace, sameFit, type FitInput } from '../src/tab-strip-layout.ts';
+import { closeGroups, dragLeft, dragOrder, fitTabs, moveTo, pickedPlace, sameFit, type FitInput } from '../src/tab-strip-layout.ts';
 
 /** A row of a fixed home tab (60px) and `count` tabs of 100px each, 4px apart, ▾ 32px with its space. */
 function row(count: number, avail: number, init: Partial<FitInput> = {}): FitInput {
@@ -89,24 +89,66 @@ describe('moveTo', () => {
   });
 });
 
+describe('dragLeft', () => {
+  const box = { left: 0, width: 100, slot: 64, rowLeft: 0, rowRight: 400, fixedEnd: 60 };
+  it('draws the tab under the pointer, held inside the row and right of the fixed tabs', () => {
+    assert.equal(dragLeft({ ...box, left: 150 }), 150);
+    assert.equal(dragLeft({ ...box, left: 10 }), 60);
+    assert.equal(dragLeft({ ...box, left: -20, fixedEnd: -Infinity }), 4);
+    assert.equal(dragLeft({ ...box, left: 900 }), 296);
+  });
+});
+
 describe('dragOrder', () => {
   const order = ['home', 'a', 'b', 'c'];
-  const middles: Record<string, number> = { a: 100, b: 200, c: 300 };
-  const middleOf = (id: string) => middles[id];
+  // home is 0..46; a, b and c are 100px wide, side by side from 50: their middles are at 100, 200 and 300.
+  const boxes: Record<string, { left: number; width: number }> = { a: { left: 50, width: 100 }, b: { left: 150, width: 100 }, c: { left: 250, width: 100 } };
+  const boxOf = (id: string) => boxes[id];
+  /** The 100px tab `id` dragged to `left`, in a row 0..350. */
+  const at = (id: string, left: number) => ({ left, width: 100, slot: boxes[id].left, rowLeft: 0, rowRight: 350, fixedEnd: 46 });
 
   it('puts the dragged tab after every tab whose middle it passed', () => {
-    assert.deepEqual(dragOrder(order, ['a', 'b', 'c'], 'a', 250, middleOf), ['home', 'b', 'a', 'c']);
-    assert.deepEqual(dragOrder(order, ['a', 'b', 'c'], 'a', 350, middleOf), ['home', 'b', 'c', 'a']);
-    assert.deepEqual(dragOrder(order, ['a', 'b', 'c'], 'c', 50, middleOf), ['home', 'c', 'a', 'b']);
+    assert.deepEqual(dragOrder(order, ['a', 'b', 'c'], 'a', at('a', 200), boxOf), ['home', 'b', 'a', 'c']);
+    assert.deepEqual(dragOrder(order, ['a', 'b', 'c'], 'a', at('a', 300), boxOf), ['home', 'b', 'c', 'a']);
+    assert.deepEqual(dragOrder(order, ['a', 'b', 'c'], 'c', at('c', 40), boxOf), ['home', 'c', 'a', 'b']);
   });
 
   it('leaves the order alone when the tab has not passed a middle', () => {
-    assert.deepEqual(dragOrder(order, ['a', 'b', 'c'], 'b', 190, middleOf), order);
+    assert.deepEqual(dragOrder(order, ['a', 'b', 'c'], 'b', at('b', 140), boxOf), order);
+  });
+
+  it('puts the tab first when it is held against the fixed tabs', () => {
+    // Its middle (96) is short of a's (100), but the row holds it at the fixed tabs' end.
+    assert.deepEqual(dragOrder(order, ['a', 'b', 'c'], 'b', { ...at('b', 46), left: 46 }, boxOf), ['home', 'b', 'a', 'c']);
   });
 
   it('counts from the first tab shown when the ones before are in the list', () => {
     const long = ['home', 'x', 'a', 'b', 'c'];
-    assert.deepEqual(dragOrder(long, ['a', 'b', 'c'], 'c', 50, middleOf), ['home', 'x', 'c', 'a', 'b']);
+    assert.deepEqual(dragOrder(long, ['a', 'b', 'c'], 'c', at('c', 40), boxOf), ['home', 'x', 'c', 'a', 'b']);
+  });
+
+  // 2026-11-26: a tab wider than the last one could not be dragged past it: the row ends at its last tab, and the
+  // dragged tab's middle never reached the other's before the row held it.
+  it('passes a narrower tab it covers whole, whichever way it covers it from', () => {
+    const pair = ['home', 'wide', 'narrow'];
+    // wide is 50..250, narrow 254..314 (middle 284), the row ends at 314. At 120 wide covers narrow, its middle (220)
+    // short of narrow's.
+    const was = { wide: { left: 50, width: 200 }, narrow: { left: 254, width: 60 } } as Record<string, { left: number; width: number }>;
+    const over = { left: 120, width: 200, slot: 50, rowLeft: 0, rowRight: 314, fixedEnd: 46 };
+    assert.deepEqual(dragOrder(pair, ['wide', 'narrow'], 'wide', over, (id) => was[id]), ['home', 'narrow', 'wide']);
+    // Laid out again: narrow at 50..110, wide's place at 114. Where it is, it stays.
+    const now = { narrow: { left: 50, width: 60 }, wide: { left: 114, width: 200 } } as Record<string, { left: number; width: number }>;
+    const after = ['home', 'narrow', 'wide'];
+    assert.deepEqual(dragOrder(after, ['narrow', 'wide'], 'wide', { ...over, slot: 114 }, (id) => now[id]), after);
+    // Back over narrow from the right, it goes before it again.
+    assert.deepEqual(dragOrder(after, ['narrow', 'wide'], 'wide', { ...over, left: 40, slot: 114 }, (id) => now[id]), pair);
+  });
+
+  it('passes the last tab once the pointer is past the row, its middle held at the end', () => {
+    const pair = ['home', 'wide', 'narrow'];
+    const was = { wide: { left: 50, width: 200 }, narrow: { left: 254, width: 60 } } as Record<string, { left: number; width: number }>;
+    const past = { left: 600, width: 200, slot: 50, rowLeft: 0, rowRight: 314, fixedEnd: 46 };
+    assert.deepEqual(dragOrder(pair, ['wide', 'narrow'], 'wide', past, (id) => was[id]), ['home', 'narrow', 'wide']);
   });
 });
 

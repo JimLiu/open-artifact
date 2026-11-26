@@ -1,6 +1,6 @@
 /**
  * The arithmetic of {@link TabStrip} (`tab-strip.tsx`), apart from the page so it can be tested on its own: which tabs
- * fit in the row and what room the ones whose title is cut are given, where a dragged tab lands, where a tab picked from
+ * fit in the row and what room the ones whose title is cut are given, where a dragged tab is drawn and lands, where a tab picked from
  * the list of those that do not fit goes, and what each Close item of a tab's menu closes.
  */
 
@@ -92,12 +92,51 @@ export function moveTo(order: readonly string[], id: string, to: number): string
   return next;
 }
 
+/** Where the dragged tab is, for {@link dragLeft} and {@link dragOrder}; all in the row's own coordinates. */
+export interface DragBox {
+  /** Its left edge where the pointer puts it, before the row holds it. */
+  left: number;
+  width: number;
+  /** The left edge of the place it is laid out in. */
+  slot: number;
+  /** The row's edges. */
+  rowLeft: number;
+  rowRight: number;
+  /** Where the fixed tabs end (-Infinity when there are none): the dragged tab goes no further left. */
+  fixedEnd: number;
+}
+
+/** Room left between the dragged tab and the row's ends. */
+export const DRAG_EDGE_PX = 4;
+
+/** Where the dragged tab is drawn: under the pointer, held inside the row and right of the fixed tabs. */
+export function dragLeft(drag: DragBox): number {
+  return Math.min(Math.max(drag.left, drag.rowLeft + DRAG_EDGE_PX, drag.fixedEnd), drag.rowRight - DRAG_EDGE_PX - drag.width);
+}
+
 /**
- * The order while a tab is dragged: it goes after every other tab of the row whose middle its own middle has passed.
- * `row` is the tabs shown that can move, in order; `middleOf` says where another tab's middle is.
+ * The order while a tab is dragged. It goes after every other tab of the row it has passed: one whose middle its own
+ * middle (held inside the row) has passed, or, when it covers the other tab whole, one laid out after its place. Held
+ * against the fixed tabs, it goes first. `row` is the tabs shown that can move, in order; `boxOf` says where another
+ * tab is laid out.
  */
-export function dragOrder(order: readonly string[], row: readonly string[], id: string, middle: number, middleOf: (id: string) => number): string[] {
-  const passed = row.filter((other) => other !== id && middleOf(other) < middle).length;
+export function dragOrder(
+  order: readonly string[],
+  row: readonly string[],
+  id: string,
+  drag: DragBox,
+  boxOf: (id: string) => { left: number; width: number } | undefined,
+): string[] {
+  const right = drag.left + drag.width;
+  const middle = Math.min(Math.max(drag.left + drag.width / 2, drag.rowLeft + DRAG_EDGE_PX), drag.rowRight - DRAG_EDGE_PX);
+  let passed = 0;
+  for (const other of row) {
+    const box = other === id ? undefined : boxOf(other);
+    if (!box) continue;
+    const covers = drag.left < box.left && right > box.left + box.width;
+    if (covers ? box.left > drag.slot : middle > box.left + box.width / 2) passed++;
+  }
+  if (dragLeft(drag) <= drag.fixedEnd + 1) passed = 0;
   return moveTo(order, id, order.indexOf(row[0]) + passed);
 }
 

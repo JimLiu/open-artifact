@@ -140,6 +140,30 @@ describe('the tab bar', () => {
     assert.ok(await until(async () => (await drawn()).join() === (await order()).join(), 5000), 'the bar and the app disagree');
   });
 
+  // 2026-11-26: a tab wider than the last one could not be dragged past it: the row ends at its last tab, and the
+  // dragged tab's middle never reached the other's.
+  it('a wide tab dragged over a narrow last one passes it', T, async () => {
+    const daemon = daemonState(profile);
+    const short = await library(daemon, 'artifacts.create', { type: 'docs', title: 'Ink', blank: true, folder: join(profile.artifacts, 'ink') });
+    made.push(short);
+    await app.open(short.id);
+    assert.ok(await until(async () => (await shown()).at(-1) === short.id, 15_000), js(await shown()));
+    const row = await shown();
+    const wide = row.at(-2)!;
+    const widths = await run<[number, number]>(`[${tab(wide)}.getBoundingClientRect().width, ${tab(short.id)}.getBoundingClientRect().width]`);
+    assert.ok(widths[0] > widths[1] * 1.5, `the tabs are not wide and narrow: ${js(widths)}`);
+    const [wx, y] = await middle(wide);
+    const end = await run<number>(`innerWidth - 8`);
+    await pointer('pointerdown', wx, y);
+    for (let x = wx; x <= end; x += 12) await pointer('pointermove', x, y);
+    await pointer('pointerup', end, y);
+    assert.ok(await until(async () => {
+      const now = await order();
+      return now.indexOf(wide) === now.indexOf(short.id) + 1;
+    }, 5000), js({ order: await order(), wide, narrow: short.id }));
+    assert.ok(await until(async () => (await drawn()).join() === (await order()).join(), 5000), 'the bar and the app disagree');
+  });
+
   it('a tab moves by key (⌘/Ctrl ⇧ ←/→) and keeps the keyboard', T, async () => {
     const row = await shown();
     const id = row[1];

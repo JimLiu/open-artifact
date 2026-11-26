@@ -33,7 +33,7 @@ import {
 } from 'react';
 import { cn } from './cn.ts';
 import { MENU_ITEM_CLASS, MenuLabel, MenuSeparator, POPUP_CLASS } from './menu.tsx';
-import { closeGroups, dragOrder, fitTabs, moveTo, pickedPlace, sameFit, type Fit } from './tab-strip-layout.ts';
+import { closeGroups, dragLeft, dragOrder, fitTabs, moveTo, pickedPlace, sameFit, type Fit } from './tab-strip-layout.ts';
 
 export interface TabStripTab {
   id: string;
@@ -313,6 +313,8 @@ export function TabStrip(props: TabStripProps) {
       window.removeEventListener('pointerup', onUp, true);
       window.removeEventListener('pointercancel', onCancel, true);
       window.removeEventListener('keydown', onKey, true);
+      window.removeEventListener('auxclick', onAside, true);
+      window.removeEventListener('contextmenu', onAside, true);
       window.removeEventListener('blur', onCancel);
       if (!current.started) return;
       const { el, id } = current;
@@ -348,10 +350,16 @@ export function TabStrip(props: TabStripProps) {
     const current = drag.current;
     const strip = stripRef.current;
     if (!current || !strip || event.pointerId !== current.pointer) return;
+    // The button came up where the page did not hear it: the drag ends there.
+    if (!(event.buttons & 1)) {
+      endRef.current(true);
+      return;
+    }
     if (!current.started) {
       if (Math.abs(event.clientX - current.x0) < DRAG_START_PX) return;
       current.started = true;
       current.el.setPointerCapture(current.pointer);
+      if (strip.contains(document.activeElement)) document.getSelection()?.removeAllRanges();
       current.el.style.transition = 'none';
       setPopup(null);
       setDragId(current.id);
@@ -359,21 +367,31 @@ export function TabStrip(props: TabStripProps) {
     event.preventDefault();
     const { shown } = latest.current;
     const { el } = current;
+    // The row's own coordinates: what it has scrolled by counts in.
+    const rect = strip.getBoundingClientRect();
+    const origin = rect.left - strip.scrollLeft;
     // The fixed tabs keep their place: the dragged one goes no further left than their end.
     const fixedEnd = shown.reduce((end, tab) => {
       const fixed = tab.fixed ? tabEls.current.get(tab.id) : undefined;
       return fixed ? Math.max(end, fixed.offsetLeft + fixed.offsetWidth) : end;
-    }, 0);
-    const width = el.offsetWidth;
-    const left = Math.max(fixedEnd, Math.min(strip.clientWidth - width, event.clientX - strip.getBoundingClientRect().left - current.grab));
+    }, -Infinity);
+    const box = {
+      left: event.clientX - current.grab - origin,
+      width: el.offsetWidth,
+      slot: el.offsetLeft,
+      rowLeft: rect.left - origin,
+      rowRight: rect.right - origin,
+      fixedEnd,
+    };
+    const left = dragLeft(box);
     current.left = left;
     el.style.transform = `translateX(${left - el.offsetLeft}px)`;
     const hidden = layoutRef.current.hidden;
     const order = shown.map((tab) => tab.id);
     const row = shown.filter((tab) => !hidden.has(tab.id) && !tab.fixed).map((tab) => tab.id);
-    const next = dragOrder(order, row, current.id, left + width / 2, (id) => {
+    const next = dragOrder(order, row, current.id, box, (id) => {
       const other = tabEls.current.get(id);
-      return other ? other.offsetLeft + other.offsetWidth / 2 : Infinity;
+      return other ? { left: other.offsetLeft, width: other.offsetWidth } : undefined;
     });
     if (next.join('\0') !== order.join('\0')) setOverride(next);
   }).current;
@@ -381,6 +399,12 @@ export function TabStrip(props: TabStripProps) {
     if (drag.current && event.pointerId === drag.current.pointer) endRef.current(true);
   }).current;
   const onCancel = useRef(() => endRef.current(false)).current;
+  // While a tab is dragged, the other buttons open no menu.
+  const onAside = useRef((event: MouseEvent) => {
+    if (!drag.current?.started) return;
+    event.preventDefault();
+    event.stopPropagation();
+  }).current;
   const onKey = useRef((event: KeyboardEvent) => {
     if (event.key !== 'Escape' || !drag.current?.started) return;
     event.preventDefault();
@@ -399,7 +423,7 @@ export function TabStrip(props: TabStripProps) {
       id: tab.id,
       pointer: event.pointerId,
       x0: event.clientX,
-      grab: event.clientX - strip.getBoundingClientRect().left - el.offsetLeft,
+      grab: event.clientX - el.getBoundingClientRect().left,
       started: false,
       before: latest.current.shown.map((x) => x.id),
       left: el.offsetLeft,
@@ -409,6 +433,8 @@ export function TabStrip(props: TabStripProps) {
     window.addEventListener('pointerup', onUp, true);
     window.addEventListener('pointercancel', onCancel, true);
     window.addEventListener('keydown', onKey, true);
+    window.addEventListener('auxclick', onAside, true);
+    window.addEventListener('contextmenu', onAside, true);
     window.addEventListener('blur', onCancel);
   };
 
