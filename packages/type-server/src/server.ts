@@ -44,7 +44,8 @@ import { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { Duplex } from 'node:stream';
 import { homedir } from 'node:os';
-import { basename, dirname, isAbsolute, join, normalize, resolve, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, normalize, relative, resolve, sep } from 'node:path';
+import { WorkspaceDirectory, type WorkspaceDirectoryIdentity } from '@open-artifact/protocol/workspace-files';
 import { DB_LIMITS, ROOM_MESSAGE_MAX_BYTES, canEdit, type AgentStatus, type FileListing, type Peer, type Viewer } from '@open-artifact/runtime/capabilities';
 import {
   API,
@@ -334,6 +335,7 @@ export interface OpenRequest {
   id?: string;
   /** Absolute path of the artifact folder. */
   root: string;
+  workspaceDirectory?: WorkspaceDirectoryIdentity;
   /** Type name; required when the server hosts more than one type. */
   type?: TypeName;
   title?: string;
@@ -478,14 +480,16 @@ class OpenArtifact {
   readonly token: string;
   readonly type: TypeName;
   readonly root: string;
+  readonly workspace: WorkspaceDirectory | undefined;
   title: string;
 
-  constructor(id: string, token: string, type: TypeName, root: string, title: string) {
+  constructor(id: string, token: string, type: TypeName, root: string, title: string, workspace?: WorkspaceDirectory) {
     this.id = id;
     this.token = token;
     this.type = type;
     this.root = root;
     this.title = title;
+    this.workspace = workspace;
     this.store = new ArtifactStore(root);
   }
 
@@ -543,9 +547,10 @@ export function folderId(root: string): string {
 }
 
 /** Reads `<root>/.artifact.json`, if any. */
-async function readArtifactMeta(root: string): Promise<{ id?: string; title?: string; type?: string }> {
+async function readArtifactMeta(root: string, files?: WorkspaceDirectory): Promise<{ id?: string; title?: string; type?: string }> {
   try {
-    const meta = JSON.parse(await readFile(join(root, '.artifact.json'), 'utf8')) as Record<string, unknown>;
+    const path = join(root, '.artifact.json');
+    const meta = JSON.parse(await readFile(files?.resolve(path) ?? path, 'utf8')) as Record<string, unknown>;
     return {
       id: typeof meta.id === 'string' ? meta.id : undefined,
       title: typeof meta.title === 'string' ? meta.title : undefined,
@@ -557,9 +562,10 @@ async function readArtifactMeta(root: string): Promise<{ id?: string; title?: st
 }
 
 /** Title recorded in the type's index file, if any. */
-async function indexTitle(root: string, type: TypeName): Promise<string | undefined> {
+async function indexTitle(root: string, type: TypeName, files?: Pick<WorkspaceDirectory, 'resolve'>): Promise<string | undefined> {
   try {
-    const index = JSON.parse(await readFile(join(root, contentDirOf(type), TYPES[type].marker), 'utf8')) as { title?: unknown };
+    const path = join(root, contentDirOf(type), TYPES[type].marker);
+    const index = JSON.parse(await readFile(files?.resolve(path) ?? path, 'utf8')) as { title?: unknown };
     return typeof index.title === 'string' && index.title.trim() ? index.title.trim() : undefined;
   } catch {
     return undefined;
@@ -567,12 +573,13 @@ async function indexTitle(root: string, type: TypeName): Promise<string | undefi
 }
 
 /** Detects the type of an artifact folder from its marker file. */
-export async function detectType(root: string): Promise<TypeName | null> {
-  const meta = await readArtifactMeta(root);
+export async function detectType(root: string, files?: WorkspaceDirectory): Promise<TypeName | null> {
+  const meta = await readArtifactMeta(root, files);
   if (isTypeName(meta.type)) return meta.type;
   for (const type of Object.values(TYPES)) {
     try {
-      await stat(join(root, contentDirOf(type.name), type.marker));
+      const path = join(root, contentDirOf(type.name), type.marker);
+      await stat(files?.resolve(path) ?? path);
       return type.name;
     } catch {
       /* next */
@@ -582,7 +589,8 @@ export async function detectType(root: string): Promise<TypeName | null> {
   for (const type of Object.values(TYPES)) {
     if (type.store !== 'db' || !type.marker.includes('/')) continue;
     try {
-      if ((await stat(join(root, contentDirOf(type.name), dirname(type.marker)))).isDirectory()) return type.name;
+      const path = join(root, contentDirOf(type.name), dirname(type.marker));
+      if ((await stat(files?.resolve(path) ?? path)).isDirectory()) return type.name;
     } catch {
       /* next */
     }
@@ -678,6 +686,7 @@ export function createTypeServer(options: TypeServerOptions): TypeServer {
   const makeDbHost = (artifact: OpenArtifact): DbHost => {
     const host = new DbHost({
       root: artifact.root,
+      workspace: artifact.workspace,
       // A project-style type with comments gets the comment store alone.
       documents: TYPES[artifact.type].store === 'db',
       ...(TYPES[artifact.type].writesProblem ? { writesProblem: TYPES[artifact.type].writesProblem } : {}),
@@ -690,14 +699,14 @@ export function createTypeServer(options: TypeServerOptions): TypeServer {
         artifact.history?.recordDocs(paths, HISTORY_AGENT);
         artifact.externalAt = Date.now();
         void refreshStatus(artifact).catch(() => undefined);
-        void indexTitle(artifact.root, artifact.type).then((title) => {
+        void indexTitle(artifact.root, artifact.type, artifact.store).then((title) => {
           if (title) artifact.title = title;
         });
       },
       onWrite: (paths, client) => {
         artifact.history?.recordDocs(paths, personOf(artifact.clients.get(client)?.viewer ?? ownerOf(artifact.id)));
         void reportTouch(daemon, artifact.id, 'owner', paths.map((path) => `db/${path}.json`));
-        void indexTitle(artifact.root, artifact.type).then((title) => {
+        void indexTitle(artifact.root, artifact.type, artifact.store).then((title) => {
           if (title) artifact.title = title;
         });
       },
@@ -781,7 +790,7 @@ export function createTypeServer(options: TypeServerOptions): TypeServer {
           for (let i = 0; i < docs.length; i += DB_LIMITS.maxWrites) artifact.db.write(docs.slice(i, i + DB_LIMITS.maxWrites), author);
         }
         void reportTouch(daemon, artifact.id, who.id === viewer.id ? 'owner' : who.name, [...paths, ...docs.map((d) => `db/${d.path}.json`)]);
-        const title = await indexTitle(artifact.root, artifact.type);
+        const title = await indexTitle(artifact.root, artifact.type, artifact.store);
         if (title) artifact.title = title;
       },
       log,
@@ -986,9 +995,12 @@ export function createTypeServer(options: TypeServerOptions): TypeServer {
 
   const open = async (request: OpenRequest): Promise<OpenResult> => {
     if (!request || typeof request.root !== 'string' || !request.root) throw new HttpError(400, 'invalid', 'root is required.');
-    const root = resolve(request.root);
-    const meta = await readArtifactMeta(root);
-    const type = request.type ?? (await detectType(root)) ?? (hosted.size === 1 ? [...hosted][0]! : null);
+    const identity = request.workspaceDirectory;
+    const workspace = identity ? new WorkspaceDirectory(identity.root, identity) : request.id ? byId.get(request.id)?.workspace : undefined;
+    const root = workspace?.resolve(request.root) ?? resolve(request.root);
+    const files = workspace ? new WorkspaceDirectory(root) : undefined;
+    const meta = await readArtifactMeta(root, files);
+    const type = request.type ?? (await detectType(root, files)) ?? (hosted.size === 1 ? [...hosted][0]! : null);
     if (!type || !hosted.has(type)) throw new HttpError(400, 'invalid', `This server hosts ${[...hosted].join(', ')}; pass a type.`);
     const id = request.id ?? meta.id ?? folderId(root);
     let shell: string | undefined;
@@ -1003,21 +1015,24 @@ export function createTypeServer(options: TypeServerOptions): TypeServer {
     // A new artifact gets its type's empty index.
     const marker = join(root, contentDirOf(type), TYPES[type].marker);
     try {
-      await stat(marker);
+      await stat(files?.resolve(marker) ?? marker);
     } catch {
       const title = request.title?.trim() || meta.title || basename(root);
       const dir = join(root, contentDirOf(type));
-      for (const [path, content] of Object.entries(TYPES[type].scaffold(title, dir))) await writeAtomic(join(dir, path), content);
+      for (const [path, content] of Object.entries(TYPES[type].scaffold(title, dir))) {
+        const target = join(dir, path);
+        await writeAtomic(files?.resolve(target, false) ?? target, content);
+      }
     }
 
-    const title = request.title?.trim() || meta.title || (await indexTitle(root, type)) || basename(root);
+    const title = request.title?.trim() || meta.title || (await indexTitle(root, type, files)) || basename(root);
     let artifact = byId.get(id);
     if (artifact && (artifact.root !== root || artifact.type !== type)) {
       close(id);
       artifact = undefined;
     }
     if (!artifact) {
-      artifact = new OpenArtifact(id, randomBytes(16).toString('hex'), type, root, title);
+      artifact = new OpenArtifact(id, randomBytes(16).toString('hex'), type, root, title, workspace);
       byId.set(id, artifact);
       byToken.set(artifact.token, artifact);
       // A Sheet keeps its own versions: its edit log. A doc keeps its own versions, per tab.
@@ -1108,8 +1123,19 @@ export function createTypeServer(options: TypeServerOptions): TypeServer {
     hosting?.onIdleClose?.(artifact.id, byId.size);
   };
 
+  const requireAuthorized = (artifact: OpenArtifact): void => {
+    if (artifact.workspace) {
+      try {
+        if (artifact.workspace.resolve(artifact.root) !== artifact.root) throw new Error('Directory changed');
+      } catch {
+        throw new HttpError(403, 'not_granted', 'The authorized artifact directory changed.');
+      }
+    }
+  };
+
   /** Marks a request for `artifact` in flight until `res` is done; it is not closed for idleness meanwhile. */
   const hold = (artifact: OpenArtifact, res: ServerResponse): void => {
+    requireAuthorized(artifact);
     if (!idleCloseMs) return;
     artifact.inFlight++;
     stopIdle(artifact);
@@ -1365,7 +1391,7 @@ export function createTypeServer(options: TypeServerOptions): TypeServer {
           emit(artifact, 'files', { changes: hashes, author }, typeof body.client === 'string' ? body.client : undefined);
           void reportTouch(daemon, artifact.id, who.role === 'owner' ? 'owner' : who.name, Object.keys(hashes));
           // The index title may have changed.
-          const title = await indexTitle(artifact.root, artifact.type);
+          const title = await indexTitle(artifact.root, artifact.type, artifact.store);
           if (title) artifact.title = title;
         }
         return sendJson(res, 200, { hashes });
@@ -1555,6 +1581,7 @@ export function createTypeServer(options: TypeServerOptions): TypeServer {
     const root = typeof body.root === 'string' && isAbsolute(body.root) ? resolve(body.root) : opened?.root;
     if (!root) throw new HttpError(400, 'invalid_argument', 'root (an absolute path) is required.');
     const open = opened?.root === root ? opened : [...byId.values()].find((a) => a.root === root);
+    if (open) requireAuthorized(open);
     const type = open?.type ?? (await detectType(root));
     if (!type || !hosted.has(type)) throw new HttpError(404, 'unknown_action', `No action ${name}: this type keeps no document store.`);
     if (name.startsWith('open-artifact.comments.') && !TYPES[type].comments) throw new HttpError(404, 'unknown_action', `No action ${name}: this type has no comments.`);
@@ -1647,13 +1674,15 @@ export function createTypeServer(options: TypeServerOptions): TypeServer {
       byToken.delete(token);
       snapshotTokens.delete(token);
     }
-    const dir = join(agentPaths(root).dir, 'snapshots');
+    const files = new WorkspaceDirectory(root);
+    const dir = files.resolve('_agent/snapshots');
     await mkdir(dir, { recursive: true });
-    const image = join(dir, `snapshot-${new Date().toISOString().replace(/[:.]/g, '-')}.png`);
-    await writeFile(image, png);
+    const image = files.resolve(join(dir, `snapshot-${new Date().toISOString().replace(/[:.]/g, '-')}.png`), false);
+    await writeFile(image, png, { flag: 'wx' });
     const old = (await readdir(dir)).filter((name) => /^snapshot-.*\.png$/.test(name)).sort();
-    for (const name of old.slice(0, Math.max(0, old.length - SNAPSHOTS_KEPT))) await rm(join(dir, name), { force: true });
-    return { image, width, height, bytes: png.length, note: SNAPSHOT_NOTE };
+    for (const name of old.slice(0, Math.max(0, old.length - SNAPSHOTS_KEPT))) await rm(files.resolve(join(dir, name), false), { force: true });
+    // Named as the folder is (its real path checked above), so it reads as a file of the artifact the agent knows.
+    return { image: join(root, relative(files.root, image)), width, height, bytes: png.length, note: SNAPSHOT_NOTE };
   };
 
   /** The folder a Sheet's or a doc's call names, the artifact open on it here, and its type. */
@@ -1662,6 +1691,7 @@ export function createTypeServer(options: TypeServerOptions): TypeServer {
     const root = typeof body.root === 'string' && isAbsolute(body.root) ? resolve(body.root) : opened?.root;
     if (!root) throw new HttpError(400, 'invalid_argument', 'root (an absolute path) is required.');
     const open = opened?.root === root ? opened : [...byId.values()].find((a) => a.root === root);
+    if (open) requireAuthorized(open);
     const type = open?.type ?? (await detectType(root)) ?? (hosted.size === 1 ? [...hosted][0]! : null);
     return { root, open, type };
   };
@@ -1699,7 +1729,7 @@ export function createTypeServer(options: TypeServerOptions): TypeServer {
     }
     // An open Sheet has a page to link to and may have the owner's page to show a walkthrough on; one made for the
     // call has neither.
-    const host: SheetCallHost = open ? { artifactUrl: pageUrl(open), showWalkthrough: (walkthrough) => showWalkthrough(open, walkthrough) } : {};
+    const host: SheetCallHost = open ? { artifactUrl: pageUrl(open), workspace: open.workspace, showWalkthrough: (walkthrough) => showWalkthrough(open, walkthrough) } : {};
     const run = (store: SheetStore): unknown => runSheetCall(store, call, host);
     try {
       assertSheetFor(root, call);
@@ -1743,8 +1773,8 @@ export function createTypeServer(options: TypeServerOptions): TypeServer {
     const named = ownerOf(open?.id ?? (typeof body.id === 'string' ? body.id : undefined));
     const owner = { id: named.id, name: named.name };
     const answer = open?.doc
-      ? await open.run(async () => runDocAction(name, args, { root, owner, host: open.doc! }))
-      : await runDocAction(name, args, { root, owner });
+      ? await open.run(async () => runDocAction(name, args, { root, owner, host: open.doc!, workspace: open.workspace }))
+      : await runDocAction(name, args, { root, owner, workspace: open?.workspace });
     if (open?.doc) {
       open.externalAt = Date.now();
       void refreshStatus(open).catch(() => undefined);
@@ -2214,9 +2244,12 @@ export function createTypeServer(options: TypeServerOptions): TypeServer {
       if (req.method !== 'POST') throw new HttpError(405, 'invalid', 'POST required.');
       assertSameOrigin(artifact, req);
       const args = await readJson<Record<string, unknown>>(req, 2048);
-      const answer = await artifact.run(() => runDocAction('duplicate', args, { root: artifact.root, owner: viewer, host: artifact.doc! }));
+      const answer = await artifact.run(() => runDocAction('duplicate', args, { root: artifact.root, owner: viewer, host: artifact.doc!, workspace: artifact.workspace }));
       if (answer.status !== 201) return sendJson(res, answer.status, answer.body);
-      const copy = await open({ root: String(answer.body.root), type: 'docs', title: String(answer.body.name) });
+      const copy = await open({
+        root: String(answer.body.root), type: 'docs', title: String(answer.body.name),
+        ...(artifact.workspace ? { workspaceDirectory: artifact.workspace.identity } : {}),
+      });
       return sendJson(res, 201, { url: copy.pageUrl });
     }
     if (rel === FRAME_SHARE_PATH) {

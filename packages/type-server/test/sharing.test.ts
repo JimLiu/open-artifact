@@ -9,8 +9,10 @@
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
+import { OpenArtifactError } from '@open-artifact/protocol';
+import { WorkspaceDirectory } from '@open-artifact/protocol/workspace-files';
 import { createTypeServer, type TypeServer } from '../src/index.ts';
 import { GUEST_ROLES, roleMay } from '../src/sharing.ts';
 
@@ -107,6 +109,34 @@ describe('LAN sharing', () => {
     // Only the owner's computer, with the secret.
     assert.equal((await fetch(new URL(`/__open-artifact/share?id=${id}`, page))).status, 401);
     assert.equal((await fetch(new URL(`/__open-artifact/share?id=${id}`, page), guest('', { headers: { authorization: `Bearer ${secret}` } }))).status, 403);
+  });
+
+  it('keeps an artifact private when the directory policy denies its sharing state', async (t) => {
+    const other = join(dir, 'Private');
+    await mkdir(other, { recursive: true });
+    const sidecar = join(other, '.sharing.json');
+    const saved = { lan: true };
+    await writeFile(sidecar, JSON.stringify(saved));
+    const resolve = WorkspaceDirectory.prototype.resolve;
+    t.mock.method(WorkspaceDirectory.prototype, 'resolve', function (this: WorkspaceDirectory, input: string, followLeaf = true) {
+      if (basename(input) === '.sharing.json') {
+        throw new OpenArtifactError('not_granted', 'Fixture policy denied the sharing state.', { status: 403 });
+      }
+      return resolve.call(this, input, followLeaf);
+    });
+    const opened = await server.open({ root: other, type: 'whiteboard', workspaceDirectory: new WorkspaceDirectory(dir).identity });
+    try {
+      const route = new URL('/__open-artifact/share', opened.url);
+      const headers = { authorization: `Bearer ${secret}`, 'content-type': 'application/json' };
+      const response = await fetch(new URL(`?id=${opened.id}`, route), { headers });
+      assert.equal(response.status, 200);
+      assert.equal((await response.json() as View).lan, false);
+      const change = await fetch(route, { method: 'POST', headers, body: JSON.stringify({ id: opened.id, lan: true }) });
+      assert.equal(change.status, 403);
+      assert.deepEqual(JSON.parse(await readFile(sidecar, 'utf8')), saved);
+    } finally {
+      await server.close(opened.id);
+    }
   });
 
   it('lets nobody in from the network until it is shared', async () => {

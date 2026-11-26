@@ -30,6 +30,15 @@ MCP 客户端声明支持 MCP Apps（`io.modelcontextprotocol/ui`）时，还会
 
 不带调用方的调用算 harness 自己的。它能用，但它做出的作品没有所有者，所以作品上的评论会进共享收件箱，等哪个会话来取。
 
+用 `OPEN_ARTIFACT_WORKSPACE_FOLDERS_ONLY=1` 启动的 daemon 里，工作区是必填的，也是边界：见
+[安全](security.zh-CN.md#沙箱里的-agent只用工作区里的目录)。
+
+## 执行前就被拒绝的写入
+
+经过检查、在任何改动之前就被拒绝的写入会明说：`error` 旁边带 `executionStatus: "not_executed"`。目前这是
+`if_match` 引起的 `conflict`（`Artifact` 的 publish，或本机的 `ArtifactData` 写入），`current` 里是当前状态。没有这个
+字段时，错误并不说明调用是否部分执行了。动作自己的回答不能设置它：类型服务器送来的会被 daemon 去掉。
+
 ## 操作类别：哪些调用要确认
 
 `tools.list` 给出每个工具的 `actions`：从操作到类别的映射（功能 `tools.actions`）。MCP 把它放在 `_meta["open-artifact/actions"]` 里。

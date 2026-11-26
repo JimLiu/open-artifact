@@ -259,6 +259,22 @@ states have concrete interfaces and discriminated unions in `src/installed-app-t
   owns, or, with none online, the prompt to copy. Opening, editing or commenting from the Shell or the home page never
   changes an owner.
 
+- **Workspace confinement** (`OPEN_ARTIFACT_WORKSPACE_FOLDERS_ONLY=1`, `startDaemon({ workspaceFoldersOnly })`, for an
+  app that sandboxes its agents): `WorkspaceDirectory` (`packages/protocol/src/workspace-files.ts`) pins a folder by
+  real path, device and inode and resolves a path through the real path of its nearest existing parent (a link leading
+  out, or a replaced folder, is `not_granted` 403); `readJson`/`writeJson` go through it, the write by a random
+  temporary name made with `wx`. `ArtifactStore.create` records `workspaceDirectory` (the caller workspace's identity)
+  and `authorizedRoot(record)` resolves the folder through it; the daemon uses that for type-server calls, the static
+  page's `/_root/`, zips and `setCapabilities`, and passes the identity in `OpenRequest.workspaceDirectory`, so the
+  type server (`server-sdk` `Mounted.workspace`, `requireAuthorized`) and its stores (docs, sheets, uploads, snapshots,
+  the frame db's `imports` for `file_path`) refuse the same. In `tools.ts`: `workspaceDirectory(caller)` (a caller with
+  no workspace is refused), `artifactFiles(record, caller)` for publish/read, `resolveFolder` and `adopt` keep folders
+  in the workspace, `pathOutside` refuses an action's argument path that leads out of it (a path counts when its top
+  folder exists), `dataToFile` writes `out_file` inside it, and `reachable` limits `list` (`scope: "all"` too),
+  `similarTo` and `relatedTo` to it. `inFolder` makes an artifact at a workspace's top count as the workspace's (in
+  every mode). A refused precondition (`if_match` conflict) carries `executionStatus: "not_executed"`, set by the
+  dispatcher only (an action's own is removed). Tested in `e2e/workspace-confinement.test.mjs`.
+
 - **Types people make**: `open-artifact types new | check | from | enable | disable | trust | untrust | list` and the
   Library routes `types.new`, `types.check`, `types.from`, `types.enable`, `types.disable`, `types.trust`
   (`packages/daemon/src/type-authoring.ts`). The routes refuse any `Origin` but the daemon's own (`http://<one of its

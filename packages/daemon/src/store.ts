@@ -18,6 +18,7 @@ import {
   type SessionRef,
 } from '@open-artifact/protocol';
 import { ensureDir, files, readJson, writeJson } from './paths.ts';
+import { WorkspaceDirectory, type WorkspaceDirectoryIdentity } from '@open-artifact/protocol/workspace-files';
 
 /** A new artifact id: `art_` + base36 time + 16 random hex digits. */
 export function newArtifactId(): string {
@@ -78,6 +79,7 @@ export function changedFiles(record: ArtifactRecord): string[] {
 /** Fields of a new record. */
 export interface CreateRecord {
   root: string;
+  workspaceDirectory?: WorkspaceDirectoryIdentity;
   type: string;
   typeSource?: string | null;
   typeRelease?: string | null;
@@ -93,8 +95,11 @@ export interface CreateRecord {
 
 /** The records of every artifact. Emits `changed` after each write. */
 export class ArtifactStore extends EventEmitter<{ changed: [StoreChange] }> {
-  constructor() {
+  private readonly enforceWorkspaceDirectories: boolean;
+
+  constructor(enforceWorkspaceDirectories = false) {
     super();
+    this.enforceWorkspaceDirectories = enforceWorkspaceDirectories;
     ensureDir(files.artifacts());
   }
 
@@ -157,9 +162,13 @@ export class ArtifactStore extends EventEmitter<{ changed: [StoreChange] }> {
   create(fields: CreateRecord): ArtifactRecord {
     const now = new Date().toISOString();
     const owner = fields.owner ?? null;
+    const identity = fields.workspaceDirectory;
+    if (this.enforceWorkspaceDirectories && !identity) throw new OpenArtifactError('not_granted', 'An authorized workspace is required.');
+    const workspace = identity ? new WorkspaceDirectory(identity.root, identity) : undefined;
     const record: ArtifactRecord = {
       id: newArtifactId(),
-      root: resolve(fields.root),
+      root: workspace?.resolve(fields.root) ?? resolve(fields.root),
+      ...(identity ? { workspaceDirectory: identity } : {}),
       type: fields.type,
       typeSource: fields.typeSource ?? null,
       typeRelease: fields.typeRelease ?? null,
@@ -184,7 +193,8 @@ export class ArtifactStore extends EventEmitter<{ changed: [StoreChange] }> {
       ...(fields.typeUid && fields.typeFrom ? { typeSource: fields.typeFrom } : {}),
       ...(fields.capabilities ? { capabilities: fields.capabilities } : {}),
     };
-    writeJson(join(record.root, '.artifact.json'), marker);
+    if (workspace) new WorkspaceDirectory(workspace.resolve(record.root)).writeJson('.artifact.json', marker);
+    else writeJson(join(record.root, '.artifact.json'), marker);
     return this.save(record);
   }
 
@@ -195,12 +205,26 @@ export class ArtifactStore extends EventEmitter<{ changed: [StoreChange] }> {
   setCapabilities(id: string, capabilities: Record<string, unknown> | null): ArtifactRecord {
     const record = this.get(id);
     if (!record) throw new OpenArtifactError('not_found', `No artifact ${id}.`);
-    const file = join(record.root, '.artifact.json');
-    const marker = readJson<Record<string, unknown> | null>(file, null) ?? { type: record.type, id: record.id, release: record.typeRelease };
+    const folder = new WorkspaceDirectory(this.authorizedRoot(record));
+    const marker = folder.readJson<Record<string, unknown> | null>('.artifact.json', null) ?? { type: record.type, id: record.id, release: record.typeRelease };
     const { capabilities: _old, ...rest } = marker;
-    writeJson(file, capabilities ? { ...rest, capabilities } : rest);
+    folder.writeJson('.artifact.json', capabilities ? { ...rest, capabilities } : rest);
     const { capabilities: _was, ...kept } = record;
     return this.save({ ...kept, ...(capabilities ? { capabilities } : {}), updatedAt: new Date().toISOString() });
+  }
+
+  /**
+   * The real folder of an artifact. One made in a workspace-confined daemon ({@link ArtifactRecord.workspaceDirectory})
+   * resolves inside the workspace it was made in, and fails `not_granted` when that folder was moved, replaced or now
+   * leads outside it; in a confined daemon, an artifact with no workspace fails too.
+   */
+  authorizedRoot(record: ArtifactRecord): string {
+    const identity = record.workspaceDirectory;
+    if (!identity) {
+      if (this.enforceWorkspaceDirectories) throw new OpenArtifactError('not_granted', 'This artifact needs an authorized workspace.');
+      return record.root;
+    }
+    return new WorkspaceDirectory(identity.root, identity).resolve(record.root);
   }
 
   /** Merges `patch` into a record; `updatedAt` moves unless the patch sets it. */

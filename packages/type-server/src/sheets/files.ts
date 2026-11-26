@@ -6,6 +6,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { deflateRawSync } from 'node:zlib';
+import type { WorkspaceDirectory } from '@open-artifact/protocol/workspace-files';
 import type { XlsxPart } from '@open-artifact/sheets-core';
 import { crc32 } from '../archive.ts';
 
@@ -35,15 +36,17 @@ export const looksLikeXlsx = (bytes: Uint8Array): boolean => bytes.length >= 4 &
  * Keeps the file in `<sheet>/imports/`, under `name` or, when that is taken, `name-2`, `name-3`…; never over a file
  * that is there. Answers its path from the Sheet's folder (`imports/Budget.xlsx`).
  */
-export function saveImport(sheetDir: string, name: string, bytes: Uint8Array): string {
-  const dir = path.join(sheetDir, IMPORTS_DIR);
+export function saveImport(sheetDir: string, name: string, bytes: Uint8Array, files?: WorkspaceDirectory): string {
+  const requested = path.resolve(sheetDir, IMPORTS_DIR);
+  const dir = files?.resolve(requested) ?? requested;
   fs.mkdirSync(dir, { recursive: true });
   const ext = path.extname(name);
   const stem = name.slice(0, name.length - ext.length);
   for (let n = 1; n < 1000; n++) {
     const file = n === 1 ? name : `${stem}-${n}${ext}`;
     try {
-      fs.writeFileSync(path.join(dir, file), bytes, { flag: 'wx' });
+      const target = path.join(dir, file);
+      fs.writeFileSync(files?.resolve(target, false) ?? target, bytes, { flag: 'wx' });
       return `${IMPORTS_DIR}/${file}`;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;

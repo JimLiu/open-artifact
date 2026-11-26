@@ -90,6 +90,8 @@ export interface OpenRequest {
    * `entryLocation`): a path on this computer is not sent to another one.
    */
   root?: string;
+  /** The local workspace owning this folder, when the embedding host requires it. */
+  workspaceDirectory?: import('./workspace-files.ts').WorkspaceDirectoryIdentity;
   /** The artifact's title (also sent to a remote type: its page shows it). */
   title?: string;
   /** Preferred UI language, e.g. `en` or `zh-CN`. */

@@ -64,6 +64,30 @@ for is checked on the site against the viewer's live role. A viewer reads what a
 - A remote type never gets a path on this computer, a secret, or a followed redirect, and its answers are size-capped.
 - Runtime updates are refused unless their sha512 matches the registry's integrity digest.
 
+### A sandboxed agent: workspace folders only
+
+The daemon runs as the person, so an agent that may only see its workspace could otherwise reach other files through
+it. An app that sandboxes its agents starts the daemon with `OPEN_ARTIFACT_WORKSPACE_FOLDERS_ONLY=1` (`startDaemon`'s
+`workspaceFoldersOnly`). Then:
+
+- **Every call needs a workspace.** A caller without one is refused (`not_granted`). New artifacts go under it, and a
+  `folder` that leads out of it (absolute, `..`, or through a link) is refused. `adopt` takes folders in it only.
+- **Each artifact is bound to the workspace it was made in**, by the real path and the device and inode of that folder
+  (`workspaceDirectory` in its record). Reads, writes, actions, the static page, zips and the type server's routes
+  check the folder still resolves inside that same directory: a workspace moved away and replaced by another folder at
+  the same path answers `not_granted` (403), and nothing in the new folder is read or written.
+- **Links that lead out are not followed**: not by a publish, a read, the static page, a database import or a comment,
+  and not on the type server's side (docs, sheets, uploads, snapshots).
+- **Paths in arguments stay in the workspace.** A path on this computer in an action's arguments (upload's `file`,
+  docs `import` and `export`, sheets `codeFile`, any type's own) and ArtifactData's `file_path` and `out_file` must
+  lead inside the caller's workspace, or the call is refused before any server sees it. A path counts as soon as its
+  top folder exists here (`/tmp/out.pdf`); one that names nothing here (a JSON pointer such as `/blocks/0`) passes.
+- **Listings show the caller's workspace only**, `scope: "all"` included, so an agent never learns the paths of folders
+  it cannot open.
+
+Files the daemon writes are created under random names with exclusive creation (`wx`), so a link planted at a
+predictable temporary name is never written through.
+
 ### Type packages
 
 A type package (`.oatype`, `types install`) and an artifact archive (`open-artifact import`) may come from anyone:

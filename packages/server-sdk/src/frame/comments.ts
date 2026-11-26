@@ -68,6 +68,12 @@ export class CommentStore {
     if (this.lock === 'process') rmSync(`${this.file}.lock`, { force: true });
   }
 
+  /** The file's text as it is on disk (history compares it); throws when there is none or it leads out of the folder. */
+  readText(): string {
+    if (!this.guard.inside(this.root, this.file)) throw new FrameError('read_only_path', `${COMMENTS_FILE} leads out of the artifact folder (a link).`, 403);
+    return readFileSync(this.file, 'utf8');
+  }
+
   load(): CommentsDoc {
     try {
       // A comments.json that is a link to a file outside the artifact folder is not read (and a write replaces the link).
@@ -148,7 +154,7 @@ export class CommentStore {
     const out = fn(doc);
     if (doc.threads.length || existsSync(this.file)) {
       const tmp = join(this.root, `.${COMMENTS_FILE}.${randomBytes(4).toString('hex')}.tmp`);
-      writeFileSync(tmp, `${JSON.stringify({ version: 1, threads: doc.threads }, null, 2)}\n`);
+      writeFileSync(tmp, `${JSON.stringify({ version: 1, threads: doc.threads }, null, 2)}\n`, { flag: 'wx' });
       renameSync(tmp, this.file);
     }
     return out;

@@ -21,6 +21,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import type { WorkspaceDirectory } from '@open-artifact/protocol/workspace-files';
 import { AgentError, GUIDE_KIND, isObject, type Json, type JsonObject, SheetRefusalError, type SheetWalkthrough } from '@open-artifact/sheets-core';
 import { readMeta, SHEET_DIR, SheetStore } from './store.ts';
 
@@ -167,20 +168,12 @@ function needSheet(root: string): void {
 }
 
 /** A batch's creates with "codeFile" (resolved against the batch file's folder) read into "code". */
-function withCode(calls: unknown, from: string): unknown {
+function withCode(calls: unknown, from: string, workspace?: WorkspaceDirectory): unknown {
   if (!Array.isArray(calls)) return calls;
   return calls.map((call: unknown) => {
     if (!isObject(call) || !isObject(call.payload) || !('codeFile' in call.payload)) return call;
     const { codeFile, ...rest } = call.payload;
-    if (typeof codeFile !== 'string') throw new SheetsCommandError('NOT_FOUND', 'codeFile is the path of a file of chart code.');
-    const file = path.resolve(from, codeFile);
-    let code: string;
-    try {
-      code = fs.readFileSync(file, 'utf8');
-    } catch {
-      throw new SheetsCommandError('NOT_FOUND', `${file} (codeFile) is not a file of chart code.`);
-    }
-    return { ...call, payload: { ...rest, code } };
+    return { ...call, payload: { ...rest, code: widgetCodeFromFile(codeFile, from, workspace) } };
   });
 }
 
@@ -197,18 +190,21 @@ function needsSheet(call: SheetCall): boolean {
 }
 
 /** Reads `codeFile` (a path, resolved against `from`) into `code`. */
-function withCodeFile(args: JsonObject, from: string): JsonObject {
+function withCodeFile(args: JsonObject, from: string, workspace?: WorkspaceDirectory): JsonObject {
   if (!('codeFile' in args)) return args;
   const { codeFile, ...rest } = args;
+  return { ...rest, code: widgetCodeFromFile(codeFile, from, workspace) };
+}
+
+function widgetCodeFromFile(codeFile: unknown, from: string, workspace?: WorkspaceDirectory): string {
   if (typeof codeFile !== 'string') throw new SheetsCommandError('NOT_FOUND', 'codeFile is the path of a file of chart code.');
-  const file = path.resolve(from, codeFile);
-  let code: string;
+  const requested = path.resolve(from, codeFile);
+  const file = workspace?.resolve(requested) ?? requested;
   try {
-    code = fs.readFileSync(file, 'utf8');
+    return fs.readFileSync(file, 'utf8');
   } catch {
     throw new SheetsCommandError('NOT_FOUND', `${file} (codeFile) is not a file of chart code.`);
   }
-  return { ...rest, code };
 }
 
 /** The call a command line asks for: its payload, code and files read here, so the call can run anywhere. */
@@ -283,14 +279,15 @@ function widgetArgs(root: string, words: readonly string[]): JsonObject {
 }
 
 /** A widget call's arguments in the store's words: {action, widget?, basePub?, code?}. */
-function widgetPayload(args: JsonObject): JsonObject {
-  const { verb, id, ...rest } = withCodeFile(args, process.cwd());
+function widgetPayload(args: JsonObject, workspace?: WorkspaceDirectory): JsonObject {
+  const { verb, id, ...rest } = withCodeFile(args, process.cwd(), workspace);
   return { action: verb ?? null, ...(id !== undefined ? { widget: id } : {}), ...rest };
 }
 
 /** Writes an export where it was asked (a file, or a folder), `<root>/exports/` by default. */
-function exportTo(store: SheetStore, root: string, args: JsonObject): Json {
-  const given = typeof args.file === 'string' ? path.resolve(args.file) : undefined;
+function exportTo(store: SheetStore, root: string, args: JsonObject, workspace?: WorkspaceDirectory): Json {
+  const requested = typeof args.file === 'string' ? path.resolve(args.file) : undefined;
+  const given = requested === undefined ? undefined : workspace?.resolve(requested) ?? requested;
   const isFolder = given !== undefined && fs.existsSync(given) && fs.statSync(given).isDirectory();
   const csv = args.csv === true || (given !== undefined && /\.csv$/i.test(given));
   if (given !== undefined && !isFolder && !/\.(xlsx|csv)$/i.test(given)) {
@@ -299,7 +296,8 @@ function exportTo(store: SheetStore, root: string, args: JsonObject): Json {
   if (csv && given !== undefined && /\.xlsx$/i.test(given)) throw new SheetsCommandError('NOT_CSV', '--csv writes a .csv file, not an .xlsx one.');
   const made = store.exportFile(csv ? 'csv' : 'xlsx', typeof args.sheet === 'string' ? { sheet: args.sheet } : {});
   const into = given === undefined ? path.join(root, 'exports') : isFolder ? given : null;
-  const file = into === null ? given! : path.join(into, made.filename);
+  const output = into === null ? given! : path.join(into, made.filename);
+  const file = workspace?.resolve(output) ?? output;
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, made.bytes);
   return { file, bytes: made.bytes.length, ...(made.notCarriedOver.length > 0 ? { notCarriedOver: made.notCarriedOver } : {}) };
@@ -312,6 +310,7 @@ function exportTo(store: SheetStore, root: string, args: JsonObject): Json {
 export interface SheetCallHost {
   /** The address of the Sheet's page: a read that lists the sheets gives it as `frame.artifactUrl`. */
   artifactUrl?: string;
+  workspace?: WorkspaceDirectory | undefined;
   /** Shows a walkthrough on a page the owner has open; false when they have none open. */
   showWalkthrough?(walkthrough: SheetWalkthrough): boolean;
 }
@@ -352,11 +351,11 @@ export function runSheetCall(store: SheetStore, call: SheetCall, host: SheetCall
       return store.agentUpdate(payload);
     }
     case 'batch':
-      return store.agentBatch(withCode(args.calls, process.cwd()));
+      return store.agentBatch(withCode(args.calls, process.cwd(), host.workspace));
     case 'widget':
-      return store.agentWidget(widgetPayload(args));
+      return store.agentWidget(widgetPayload(args, host.workspace));
     case 'export':
-      return exportTo(store, store.root, args);
+      return exportTo(store, store.root, args, host.workspace);
   }
 }
 

@@ -195,8 +195,9 @@ export type FileWrite = { data: Buffer; contentType?: string; ifMatch?: string |
 
 function writeAtomic(file: string, data: Buffer | string): void {
   mkdirSync(dirname(file), { recursive: true });
-  const tmp = join(dirname(file), `.${basename(file)}.${randomBytes(4).toString('hex')}.tmp`);
-  writeFileSync(tmp, data);
+  const tmp = join(dirname(file), `.${basename(file)}.${randomBytes(8).toString('hex')}.tmp`);
+  // `wx`: a temporary name someone made first (a link planted there) is never written through.
+  writeFileSync(tmp, data, { flag: 'wx' });
   renameSync(tmp, file);
 }
 

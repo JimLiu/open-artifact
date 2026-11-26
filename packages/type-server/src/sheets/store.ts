@@ -18,9 +18,10 @@
  * lines it did not write, applies them and sends them to the pages. A store with pages open rescans every second.
  */
 
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { WorkspaceDirectory } from '@open-artifact/protocol/workspace-files';
 import {
   AgentError,
   applyEdits,
@@ -173,10 +174,11 @@ export interface SheetInfo {
 
 const refused = (refusal: string): SheetReadRefusal => ({ kind: 'refused', refusal });
 
-export function readMeta(sheetDir: string): SheetMeta | null {
+export function readMeta(sheetDir: string, files?: WorkspaceDirectory): SheetMeta | null {
+  const file = path.resolve(sheetDir, META_FILE);
   let meta: unknown;
   try {
-    meta = JSON.parse(fs.readFileSync(path.join(sheetDir, META_FILE), 'utf8'));
+    meta = JSON.parse(fs.readFileSync(files?.resolve(file) ?? file, 'utf8'));
   } catch {
     return null;
   }
@@ -188,20 +190,21 @@ export function readMeta(sheetDir: string): SheetMeta | null {
   };
 }
 
-function writeMeta(sheetDir: string, meta: SheetMeta): void {
-  fs.mkdirSync(sheetDir, { recursive: true });
-  const file = path.join(sheetDir, META_FILE);
-  const temporary = `${file}.${process.pid}.tmp`;
-  fs.writeFileSync(temporary, `${JSON.stringify(meta, null, 2)}\n`);
+function writeMeta(sheetDir: string, meta: SheetMeta, files?: WorkspaceDirectory): void {
+  const requested = path.resolve(sheetDir, META_FILE);
+  const file = files?.resolve(requested, false) ?? requested;
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const temporary = `${file}.${randomBytes(8).toString('hex')}.tmp`;
+  fs.writeFileSync(temporary, `${JSON.stringify(meta, null, 2)}\n`, { flag: 'wx' });
   fs.renameSync(temporary, file);
 }
 
 /** The Sheet's meta, written now if the folder has none (a new, empty workbook). */
-export function ensureMeta(sheetDir: string, title = DEFAULT_TITLE): SheetMeta {
-  const meta = readMeta(sheetDir);
+export function ensureMeta(sheetDir: string, title = DEFAULT_TITLE, files?: WorkspaceDirectory): SheetMeta {
+  const meta = readMeta(sheetDir, files);
   if (meta) return meta;
   const made: SheetMeta = { id: randomUUID(), createdAt: new Date().toISOString(), title: title.trim() || DEFAULT_TITLE };
-  writeMeta(sheetDir, made);
+  writeMeta(sheetDir, made, files);
   return made;
 }
 
@@ -209,10 +212,11 @@ export function ensureMeta(sheetDir: string, title = DEFAULT_TITLE): SheetMeta {
  * Reads the edit log: the whole lines that parse as edits, in order. A torn last line (a write cut short, or one still
  * being written) is left out; `damaged` is the revision of a whole line that is not an edit, where the log stops.
  */
-export function readEdits(sheetDir: string): { edits: StoredEdit[]; bytes: number; damaged: number | null } {
+export function readEdits(sheetDir: string, files?: WorkspaceDirectory): { edits: StoredEdit[]; bytes: number; damaged: number | null } {
+  const file = path.resolve(sheetDir, EDITS_FILE);
   let text: string;
   try {
-    text = fs.readFileSync(path.join(sheetDir, EDITS_FILE), 'utf8');
+    text = fs.readFileSync(files?.resolve(file) ?? file, 'utf8');
   } catch {
     return { edits: [], bytes: 0, damaged: null };
   }
@@ -263,6 +267,7 @@ export class SheetStore {
   readonly widgets: WidgetStore;
   private meta: SheetMeta;
   private readonly engine: Engine;
+  private readonly files: WorkspaceDirectory;
   private readonly ownerId: string;
   private readonly ownerName: string;
   private readonly morePeople: () => SheetPerson[];
@@ -299,8 +304,10 @@ export class SheetStore {
   private readonly names = new Map<string, string>();
 
   constructor(options: SheetStoreOptions) {
-    this.root = options.root;
-    this.dir = path.join(options.root, SHEET_DIR);
+    this.root = path.resolve(options.root);
+    fs.mkdirSync(this.root, { recursive: true });
+    this.files = new WorkspaceDirectory(this.root);
+    this.dir = path.join(this.root, SHEET_DIR);
     this.engine = options.engine ?? engineOf(sheetsEngine());
     this.ownerId = options.ownerId ?? OWNER;
     this.ownerName = options.ownerName ?? 'Owner';
@@ -308,8 +315,8 @@ export class SheetStore {
     this.sendToAgent = options.sendToAgent ?? null;
     this.log = options.log ?? ((line) => process.stderr.write(`${line}\n`));
     this.watchMode = options.watch ?? 'poll';
-    this.meta = ensureMeta(this.dir, options.title);
-    this.widgets = new WidgetStore(this.dir);
+    this.meta = ensureMeta(this.dir, options.title, this.files);
+    this.widgets = new WidgetStore(this.dir, this.files);
     const described = describeEngine(this.engine);
     this.newest = described.newest;
     this.localeOfANewWorkbook = described.localeOfANewWorkbook;
@@ -331,7 +338,7 @@ export class SheetStore {
     const trimmed = title.trim();
     if (!trimmed) throw new Error('A Sheet\'s title is some words, not "".');
     this.meta = { ...this.meta, title: trimmed };
-    writeMeta(this.dir, this.meta);
+    writeMeta(this.dir, this.meta, this.files);
   }
 
   info(): SheetInfo {
@@ -352,7 +359,7 @@ export class SheetStore {
 
   /** Reads the whole log again into a new session (at start, or after the file shrank or changed under us). */
   private reload(): void {
-    const { edits, bytes, damaged } = readEdits(this.dir);
+    const { edits, bytes, damaged } = readEdits(this.dir, this.files);
     this.damaged = damaged;
     const session = this.engine.session();
     const all = edits.flatMap((e) => e.ops);
@@ -435,13 +442,13 @@ export class SheetStore {
   rescan(): void {
     let size: number;
     try {
-      size = fs.statSync(path.join(this.dir, EDITS_FILE)).size;
+      size = fs.statSync(this.files.resolve(path.join(this.dir, EDITS_FILE))).size;
     } catch {
       size = 0;
     }
     if (size === this.bytesRead) return;
     const before = this.revision;
-    const { edits, bytes } = readEdits(this.dir);
+    const { edits, bytes } = readEdits(this.dir, this.files);
     const same = size > this.bytesRead && edits.length >= before && edits.slice(0, before).every((e, i) => e.at === this.edits[i]!.at && e.opId === this.edits[i]!.opId);
     if (!same) {
       this.log(`${EDITS_FILE} changed under the store; reading it again`);
@@ -476,8 +483,9 @@ export class SheetStore {
       at: new Date().toISOString(),
     };
     const line = `${JSON.stringify(edit)}\n`;
-    fs.mkdirSync(this.dir, { recursive: true });
-    fs.appendFileSync(path.join(this.dir, EDITS_FILE), line);
+    const file = this.files.resolve(path.join(this.dir, EDITS_FILE));
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.appendFileSync(file, line);
     this.bytesRead += Buffer.byteLength(line);
     this.edits.push(edit);
     this.broadcast(edit);
@@ -539,8 +547,9 @@ export class SheetStore {
   private startNoticing(): void {
     if (this.watchMode === 'events') {
       try {
-        fs.mkdirSync(this.dir, { recursive: true });
-        const watcher = fs.watch(this.dir, () => {
+        const dir = this.files.resolve(this.dir);
+        fs.mkdirSync(dir, { recursive: true });
+        const watcher = fs.watch(dir, () => {
           if (this.watchWait) return;
           this.watchWait = setTimeout(() => {
             this.watchWait = null;
@@ -789,14 +798,14 @@ export class SheetStore {
     const kept = importFileName(name);
     if (kept === null || !looksLikeXlsx(bytes)) throw SheetRefusalError.of(new AgentError('notAnXlsxFile', 'Import from Excel takes an .xlsx file.'));
     if (bytes.length > MAX_IMPORT_BYTES) throw SheetRefusalError.of(new AgentError('fileTooLarge', `The file is over ${MAX_IMPORT_BYTES / 1024 / 1024} MB.`));
-    const file = saveImport(this.dir, kept, bytes);
+    const file = saveImport(this.dir, kept, bytes, this.files);
     let sentToAgent = false;
     try {
       sentToAgent = await this.sendToAgent?.(importRequest(`${SHEET_DIR}/${file}`)) ?? false;
     } catch (error) {
       this.log(`import: the request did not reach the agent (${(error as Error).message})`);
     }
-    if (!sentToAgent) fs.rmSync(path.join(this.dir, file), { force: true });
+    if (!sentToAgent) fs.rmSync(this.files.resolve(path.join(this.dir, file), false), { force: true });
     return { path: `${SHEET_DIR}/${file}`, sentToAgent };
   }
 

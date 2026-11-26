@@ -6,6 +6,7 @@
  *   doc/tabs/.deleted/   deleted tabs' content files, until a restore puts one back (the manifest's `deleted` says
  *                        what each was called, where it sat and who deleted it when)
  *   doc/.sessions.json   writing sessions and their id counters (the page predicts ids from them)
+ *   doc/.people.json     display names of people who worked on the doc
  *   doc/history/<tab>/   the tab's versions: who wrote each (a person or the agent), when, and its content
  *
  * The server holds one DocStore for as long as the artifact is open and is then the only writer; without a server the
@@ -14,6 +15,7 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { WorkspaceDirectory } from '@open-artifact/protocol/workspace-files';
 import {
   type Block,
   type DiskDoc,
@@ -36,6 +38,7 @@ import {
 export const MANIFEST_FILE = 'doc.json';
 export const TABS_DIR = 'tabs';
 export const SESSIONS_FILE = '.sessions.json';
+const PEOPLE_FILE = '.people.json';
 export const DOC_DIR = 'doc';
 export const DOC_FORMAT = 'open-artifact-docs';
 
@@ -265,8 +268,8 @@ export const orderAfter = (last: string | undefined): string => orderBetween(las
 
 function writeAtomic(file: string, text: string): void {
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  const temp = `${file}.${process.pid}.tmp`;
-  fs.writeFileSync(temp, text);
+  const temp = `${file}.${randomBytes(8).toString('hex')}.tmp`;
+  fs.writeFileSync(temp, text, { flag: 'wx' });
   fs.renameSync(temp, file);
 }
 const writeJson = (file: string, value: unknown) => writeAtomic(file, `${JSON.stringify(value, null, 2)}\n`);
@@ -275,6 +278,7 @@ export const isDocFolder = (root: string) => fs.existsSync(path.join(root, MANIF
 
 export class DocStore {
   readonly root: string;
+  private readonly files: WorkspaceDirectory;
   manifest: Manifest;
   private docs = new Map<string, DocState>();
   /** Each tab's history index as read or last written (null: none on disk). */
@@ -285,18 +289,21 @@ export class DocStore {
   private nested = 0;
   private txn: { manifest: string; sessions: string; counters: Map<string, number>; files: Map<string, string | null>; group?: string } | null = null;
 
-  private constructor(root: string, manifest: Manifest, sessions: SessionsFile) {
+  private constructor(root: string, manifest: Manifest, sessions: SessionsFile, files: WorkspaceDirectory) {
     this.root = root;
+    this.files = files;
     this.manifest = manifest;
     this.sessionsFile = sessions;
   }
 
   /** Opens the doc in `root`. */
-  static open(root: string): DocStore {
+  static open(root: string, files?: WorkspaceDirectory): DocStore {
+    root = path.resolve(root);
     const file = path.join(root, MANIFEST_FILE);
     let manifest: Manifest;
     try {
-      manifest = JSON.parse(fs.readFileSync(file, 'utf8')) as Manifest;
+      files ??= new WorkspaceDirectory(root);
+      manifest = JSON.parse(fs.readFileSync(files.resolve(file), 'utf8')) as Manifest;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new StoreError('NOT_A_DOC', `${root} holds no doc (no ${MANIFEST_FILE}); create one first.`);
       throw new StoreError('BAD_MANIFEST', `${file} is not readable JSON: ${(error as Error).message}`);
@@ -306,22 +313,31 @@ export class DocStore {
     manifest.head ??= 1;
     let sessions: SessionsFile = { sessions: {} };
     try {
-      sessions = JSON.parse(fs.readFileSync(path.join(root, SESSIONS_FILE), 'utf8')) as SessionsFile;
+      sessions = JSON.parse(fs.readFileSync(files.resolve(path.join(root, SESSIONS_FILE)), 'utf8')) as SessionsFile;
       sessions.sessions ??= {};
     } catch {}
-    return new DocStore(root, manifest, sessions);
+    return new DocStore(root, manifest, sessions, files);
+  }
+
+  readPeople(): unknown {
+    return this.files.readJson(path.join(this.root, PEOPLE_FILE), undefined);
+  }
+
+  savePeople(names: Record<string, string>): void {
+    this.files.writeJson(path.join(this.root, PEOPLE_FILE), names);
   }
 
   /**
    * Creates a doc in `root` (an empty or missing folder). `tabs` gives each tab's name and blocks; `fill` builds them
    * with the CLI session (so their ids come from its counter) after the manifest exists.
    */
-  static create(root: string, name: string, fill: (store: DocStore, session: Session) => { id?: string | undefined; name: string; blocks: Block[] }[]): DocStore {
-    if (isDocFolder(root)) throw new StoreError('DOC_EXISTS', `${root} already holds a doc.`);
+  static create(root: string, name: string, fill: (store: DocStore, session: Session) => { id?: string | undefined; name: string; blocks: Block[] }[], files?: WorkspaceDirectory): DocStore {
+    root = files?.resolve(path.resolve(root)) ?? path.resolve(root);
+    if (fs.existsSync(files?.resolve(path.join(root, MANIFEST_FILE)) ?? path.join(root, MANIFEST_FILE))) throw new StoreError('DOC_EXISTS', `${root} already holds a doc.`);
     fs.mkdirSync(root, { recursive: true });
     const now = new Date().toISOString();
     const manifest: Manifest = { format: DOC_FORMAT, version: 1, id: randomUUID(), name, created: now, updated: now, head: 1, tabs: {}, enums: {} };
-    const store = new DocStore(root, manifest, { sessions: {} });
+    const store = new DocStore(root, manifest, { sessions: {} }, files ?? new WorkspaceDirectory(root));
     const session = store.cliSession();
     const tabs = fill(store, session);
     if (tabs.length === 0) throw new StoreError('NO_TABS', 'A doc has at least one tab.');
@@ -379,7 +395,7 @@ export class DocStore {
     const file = path.join(this.root, TABS_DIR, `${tabId}.json`);
     let disk: DiskDoc;
     try {
-      disk = JSON.parse(fs.readFileSync(file, 'utf8')) as DiskDoc;
+      disk = JSON.parse(fs.readFileSync(this.files.resolve(file), 'utf8')) as DiskDoc;
     } catch (error) {
       throw new StoreError('BAD_TAB', `${file} is not readable: ${(error as Error).message}`);
     }
@@ -425,8 +441,9 @@ export class DocStore {
     if (!txn) return;
     this.txn = null;
     for (const [file, text] of txn.files) {
-      if (text === null) fs.rmSync(file, { force: true });
-      else writeAtomic(file, text);
+      const entry = this.files.resolve(file, false);
+      if (text === null) fs.rmSync(entry, { force: true });
+      else writeAtomic(entry, text);
     }
     this.manifest = JSON.parse(txn.manifest) as Manifest;
     this.sessionsFile = JSON.parse(txn.sessions) as SessionsFile;
@@ -438,20 +455,20 @@ export class DocStore {
     this.docs.clear();
     this.histories.clear();
     this.saveManifest();
-    writeJson(path.join(this.root, SESSIONS_FILE), this.sessionsFile);
+    writeJson(this.files.resolve(path.join(this.root, SESSIONS_FILE), false), this.sessionsFile);
   }
 
   /** Writes a tab file, remembering what it held when a transaction is open. */
   private writeTab(file: string, value: unknown): void {
     this.remember(file);
-    writeJson(file, value);
+    writeJson(this.files.resolve(file, false), value);
   }
 
   private remember(file: string): void {
     if (!this.txn || this.txn.files.has(file)) return;
     let prior: string | null = null;
     try {
-      prior = fs.readFileSync(file, 'utf8');
+      prior = fs.readFileSync(this.files.resolve(file), 'utf8');
     } catch {}
     this.txn.files.set(file, prior);
   }
@@ -465,7 +482,7 @@ export class DocStore {
     this.assertFits(before, doc);
     let beforeAt = new Date().toISOString();
     try {
-      beforeAt = fs.statSync(file).mtime.toISOString();
+      beforeAt = fs.statSync(this.files.resolve(file)).mtime.toISOString();
     } catch {}
     const recorded = recordWrite(this.history(tabId), before, beforeAt, doc, writer, new Date());
     const dir = this.historyDir(tabId);
@@ -473,7 +490,7 @@ export class DocStore {
     for (const rev of recorded.remove) {
       const old = path.join(dir, `${rev}.json`);
       this.remember(old);
-      fs.rmSync(old, { force: true });
+      fs.rmSync(this.files.resolve(old, false), { force: true });
     }
     this.writeTab(path.join(dir, HISTORY_INDEX), recorded.index);
     this.histories.set(tabId, recorded.index);
@@ -494,7 +511,7 @@ export class DocStore {
     if (this.histories.has(tabId)) return this.histories.get(tabId)!;
     let index: HistoryIndex | null = null;
     try {
-      const read = JSON.parse(fs.readFileSync(path.join(this.historyDir(tabId), HISTORY_INDEX), 'utf8')) as HistoryIndex;
+      const read = JSON.parse(fs.readFileSync(this.files.resolve(path.join(this.historyDir(tabId), HISTORY_INDEX)), 'utf8')) as HistoryIndex;
       if (Array.isArray(read.versions)) index = { ...emptyIndex(), ...read };
     } catch {}
     this.histories.set(tabId, index);
@@ -506,7 +523,7 @@ export class DocStore {
     const now = this.doc(tabId);
     if (rev === now.rev) return now;
     try {
-      return docFromDisk(JSON.parse(fs.readFileSync(path.join(this.historyDir(tabId), `${rev}.json`), 'utf8')) as DiskDoc);
+      return docFromDisk(JSON.parse(fs.readFileSync(this.files.resolve(path.join(this.historyDir(tabId), `${rev}.json`)), 'utf8')) as DiskDoc);
     } catch {
       return null;
     }
@@ -605,8 +622,9 @@ export class DocStore {
     try {
       this.remember(file);
       this.remember(this.binFile(id));
-      fs.mkdirSync(path.dirname(this.binFile(id)), { recursive: true });
-      fs.renameSync(file, this.binFile(id));
+      const bin = this.files.resolve(this.binFile(id), false);
+      fs.mkdirSync(path.dirname(bin), { recursive: true });
+      fs.renameSync(this.files.resolve(file, false), bin);
     } catch {}
     this.touch();
   }
@@ -615,7 +633,7 @@ export class DocStore {
   private deletedIds(): string[] {
     let names: string[] = [];
     try {
-      names = fs.readdirSync(path.join(this.root, TABS_DIR, DELETED_DIR));
+      names = fs.readdirSync(this.files.resolve(path.join(this.root, TABS_DIR, DELETED_DIR)));
     } catch {}
     return names.filter(name => name.endsWith('.json') && !name.startsWith('.')).map(name => name.slice(0, -'.json'.length)).filter(id => !this.manifest.tabs[id]);
   }
@@ -628,7 +646,7 @@ export class DocStore {
     if (this.manifest.tabs[id]) throw new StoreError('NOT_DELETED', `Tab ${id} is not deleted (it was restored already).`);
     const bin = this.binFile(id);
     try {
-      return docFromDisk(JSON.parse(fs.readFileSync(bin, 'utf8')) as DiskDoc);
+      return docFromDisk(JSON.parse(fs.readFileSync(this.files.resolve(bin), 'utf8')) as DiskDoc);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new StoreError('NOT_DELETED', `No deleted tab ${id}.`);
       throw new StoreError('BAD_TAB', `${bin} is not readable: ${(error as Error).message}`);
@@ -690,7 +708,7 @@ export class DocStore {
     const bin = this.binFile(id);
     let disk: DiskDoc;
     try {
-      disk = JSON.parse(fs.readFileSync(bin, 'utf8')) as DiskDoc;
+      disk = JSON.parse(fs.readFileSync(this.files.resolve(bin), 'utf8')) as DiskDoc;
       docFromDisk(disk);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new StoreError('NOT_DELETED', `No deleted tab ${id}.`);
@@ -718,7 +736,7 @@ export class DocStore {
     const file = path.join(this.root, TABS_DIR, `${id}.json`);
     this.remember(bin);
     this.remember(file);
-    fs.renameSync(bin, file);
+    fs.renameSync(this.files.resolve(bin, false), this.files.resolve(file, false));
     this.docs.delete(id);
     restored.push(id);
     if (this.manifest.deleted) {
@@ -734,7 +752,7 @@ export class DocStore {
     if (record) {
       const deleted = this.manifest.deleted ?? {};
       for (const [child, other] of Object.entries(deleted).sort(([, a], [, b]) => (a.order < b.order ? -1 : a.order > b.order ? 1 : 0)))
-        if (other.subtabOf === id && other.group === record.group && fs.existsSync(this.binFile(child))) this.putBack(child, restored);
+        if (other.subtabOf === id && other.group === record.group && fs.existsSync(this.files.resolve(this.binFile(child)))) this.putBack(child, restored);
     }
     return atPlace ? 'place' : 'end';
   }
@@ -819,7 +837,7 @@ export class DocStore {
   }
 
   saveManifest(): void {
-    writeJson(path.join(this.root, MANIFEST_FILE), this.manifest);
+    writeJson(this.files.resolve(path.join(this.root, MANIFEST_FILE), false), this.manifest);
   }
 
   // ---- sessions ----
@@ -874,7 +892,7 @@ export class DocStore {
       const record = this.sessionsFile.sessions[sess];
       if (record) record.next = session.next;
     }
-    writeJson(path.join(this.root, SESSIONS_FILE), this.sessionsFile);
+    writeJson(this.files.resolve(path.join(this.root, SESSIONS_FILE), false), this.sessionsFile);
   }
 }
 

@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { type DiskDoc, docFromDisk } from '@open-artifact/docs-core';
+import { WorkspaceDirectory } from '@open-artifact/protocol/workspace-files';
 import type { DocCallAnswer, DocFrame, DocSessionResponse, DocTabResponse } from '@open-artifact/runtime/doc-api';
 import { createTypeServer, type TypeServer } from '../src/index.ts';
 
@@ -88,6 +89,40 @@ describe('docs on the type server', () => {
   it('lists the doc actions', async () => {
     const listed = (await (await fetch(new URL('/__open-artifact/actions', page), { headers: { authorization: `Bearer ${secret}` } })).json()) as { actions: { name: string }[] };
     for (const name of ['create', 'read', 'update', 'batch', 'delete', 'export', 'import']) assert.ok(listed.actions.some((a) => a.name === name), name);
+  });
+
+  it('uses the document storage policy for reading and remembering people', async (t) => {
+    const other = join(dir, 'People');
+    const folder = join(other, 'doc');
+    await mkdir(folder, { recursive: true });
+    const file = join(folder, '.people.json');
+    const saved = { earlier: 'Previous collaborator' };
+    await writeFile(file, JSON.stringify(saved));
+    const resolve = WorkspaceDirectory.prototype.resolve;
+    const opens: boolean[] = [];
+    t.mock.method(WorkspaceDirectory.prototype, 'resolve', function (
+      this: WorkspaceDirectory, input: string, followLeaf = true,
+    ) {
+      if (basename(input) === '.people.json') {
+        opens.push(followLeaf);
+        throw new Error('Fixture policy refused the people index');
+      }
+      return resolve.call(this, input, followLeaf);
+    });
+    const opened = await server.open({ root: other, type: 'docs' });
+    try {
+      const response = await fetch(new URL('_api/doc/session', opened.url), {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ client: 'people' }),
+      });
+      assert.equal(response.status, 200);
+      const session = await response.json() as DocSessionResponse;
+      assert.ok(session.people);
+      assert.equal(session.people.earlier, undefined);
+      assert.deepEqual(JSON.parse(await readFile(file, 'utf8')), saved);
+      assert.deepEqual(opens, [true, false]);
+    } finally {
+      await server.close(opened.id);
+    }
   });
 
   it('keeps the blank doc when a birth is refused, then takes a corrected one', async () => {

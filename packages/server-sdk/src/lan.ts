@@ -6,14 +6,13 @@
  */
 
 import { lookup } from 'node:dns/promises';
-import { readFileSync } from 'node:fs';
 import type { Server } from 'node:http';
 import { connect, createServer, type AddressInfo } from 'node:net';
 import { hostname, networkInterfaces, type NetworkInterfaceInfo } from 'node:os';
-import { join } from 'node:path';
+import { SHARING_FILE, WorkspaceDirectory, readSharingState } from '@open-artifact/protocol/workspace-files';
 
 /** The file in an artifact folder that records its sharing state. */
-export const SHARING_FILE = '.sharing.json';
+export { SHARING_FILE };
 
 /** 198.18.0.0/15 (RFC 2544): TUN-mode proxies put their own interface there; nobody else reaches it. */
 const isBenchmarkRange = (address: string): boolean => /^198\.1[89]\./.test(address);
@@ -111,7 +110,7 @@ function isMachineName(name: string): boolean {
 /** Whether an artifact folder's {@link SHARING_FILE} says it is shared on the network (without mounting anything). */
 export function sharedOnLan(root: string): boolean {
   try {
-    return (JSON.parse(readFileSync(join(root, SHARING_FILE), 'utf8')) as { lan?: unknown } | null)?.lan === true;
+    return readSharingState(new WorkspaceDirectory(root))?.lan === true;
   } catch {
     return false;
   }

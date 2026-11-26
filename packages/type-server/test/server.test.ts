@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import type { IncomingHttpHeaders } from 'node:http';
-import { mkdtemp, mkdir, readFile, stat, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rename, stat, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { createTypeServer, pending, sha256, type TypeServer } from '../src/index.ts';
 import { findChrome } from '../src/snapshot.ts';
+import { WorkspaceDirectory } from '@open-artifact/protocol/workspace-files';
 
 /** Reads SSE frames from a stream until `predicate` matches one. */
 async function nextEvent(
@@ -81,6 +82,25 @@ describe('type server', () => {
     assert.equal(again.url, page);
     const res = await fetch(new URL('/design/nope/_api/session', page));
     assert.equal(res.status, 404);
+  });
+
+  it('keeps a mounted editor bound to the original workspace', async () => {
+    const workspace = join(dir, 'Authorized workspace');
+    const work = join(workspace, 'Canvas');
+    await mkdir(work, { recursive: true });
+    const files = new WorkspaceDirectory(workspace);
+    const { id, pageUrl } = await server.open({ root: files.resolve(work), type: 'design', workspaceDirectory: files.identity });
+    try {
+      const session = new URL('_api/session', pageUrl);
+      assert.equal((await fetch(session)).status, 200);
+      await rename(workspace, join(dir, 'Moved workspace'));
+      await mkdir(work, { recursive: true });
+      const response = await fetch(session);
+      assert.equal(response.status, 403);
+      assert.equal((await response.json()).code, 'not_granted');
+    } finally {
+      server.close(id);
+    }
   });
 
   it('publishes with ifMatch and reports conflicts', async () => {

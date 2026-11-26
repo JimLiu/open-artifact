@@ -9,7 +9,8 @@
 
 import { existsSync, type Dirent } from 'node:fs';
 import { readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
-import { basename, join, relative, sep } from 'node:path';
+import { basename, join, relative, resolve, sep } from 'node:path';
+import { WorkspaceDirectory } from '@open-artifact/protocol/workspace-files';
 import { ArtifactStore } from './store.ts';
 
 /** Files larger than this are not searched for references (uploads are never referenced from them). */
@@ -28,18 +29,20 @@ export function blobIdOf(given: string | undefined): string | null {
 
 /** Artifact-relative paths of the files that name `id`. */
 export async function referencesTo(root: string, id: string): Promise<string[]> {
+  root = resolve(root);
+  const directory = new WorkspaceDirectory(root);
   const users: string[] = [];
   const needle = Buffer.from(id);
   const visit = async (file: string): Promise<void> => {
-    const info = await stat(file).catch(() => null);
+    const info = await stat(directory.resolve(file)).catch(() => null);
     if (!info?.isFile() || info.size > MAX_SEARCHED_BYTES) return;
-    const bytes = await readFile(file).catch(() => null);
+    const bytes = await readFile(directory.resolve(file)).catch(() => null);
     if (bytes?.includes(needle)) users.push(relative(root, file).split(sep).join('/'));
   };
   const walk = async (dir: string): Promise<void> => {
     let entries: Dirent[];
     try {
-      entries = await readdir(dir, { withFileTypes: true });
+      entries = await readdir(directory.resolve(dir), { withFileTypes: true });
     } catch {
       return;
     }
@@ -98,9 +101,9 @@ history/
  * `.gitignore`; an existing one is never touched. Returns whether it wrote.
  */
 export async function ensureGitignore(root: string): Promise<boolean> {
-  const file = join(root, '.gitignore');
-  if (existsSync(file) || !existsSync(root)) return false;
+  if (!existsSync(root)) return false;
   try {
+    const file = new WorkspaceDirectory(root).resolve('.gitignore', false);
     await writeFile(file, ARTIFACT_GITIGNORE, { flag: 'wx' });
     return true;
   } catch {

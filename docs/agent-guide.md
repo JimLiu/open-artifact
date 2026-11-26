@@ -90,7 +90,8 @@ Users actively edit artifacts in the live browser page between turns. Always gua
   - On `Artifact {action: "publish", url, files, if_match}`: pass each file's `sha256` from your last read.
   - On `ArtifactData` `set` / `delete` of an existing doc: pass `if_match: "<sha256>"`.
   - On `sheets` / `docs` `update`: pass the current revision (`base` / `ifRev`).
-  - If a write returns a conflict, re-read the current state, merge your change, and retry.
+  - If a write returns a conflict, re-read the current state, merge your change, and retry. `executionStatus: "not_executed"` on it means nothing was written.
+- **Workspace-confined apps**: Some apps start the daemon with `OPEN_ARTIFACT_WORKSPACE_FOLDERS_ONLY=1`. There a folder or a file path outside your workspace (an action's `file` / `out`, ArtifactData's `file_path` / `out_file`) answers `not_granted`; use a path inside the workspace.
 
 ## 5. Handling comments & "Send to agent"
 

@@ -27,13 +27,13 @@
  */
 
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
-import { readFileSync, renameSync, writeFileSync } from 'node:fs';
 import type { IncomingMessage, Server, ServerResponse } from 'node:http';
-import { join, resolve } from 'node:path';
-import type { ShareRequest, ShareRole, ShareView } from '@open-artifact/protocol';
+import { resolve } from 'node:path';
+import { OpenArtifactError, type ShareRequest, type ShareRole, type ShareView } from '@open-artifact/protocol';
+import { SHARING_FILE, WorkspaceDirectory, readSharingState } from '@open-artifact/protocol/workspace-files';
 import type { Role, Viewer } from '@open-artifact/runtime/capabilities';
 import { ASK_AGENT_ROUTES, isOwnerOnlyRoute, roleMay, type RoleOptions } from '@open-artifact/runtime/roles';
-import { LanNetwork, SHARING_FILE, isTailnet, lanAddresses } from '@open-artifact/server-sdk/lan';
+import { LanNetwork, isTailnet, lanAddresses } from '@open-artifact/server-sdk/lan';
 import { HttpError, isFramedNavigation, readBody, send, sendFrameDenied } from './http.ts';
 
 export { SHARING_FILE };
@@ -128,22 +128,17 @@ export const guestViewer = (guest: Guest): Viewer => ({ id: `guest-${guest.id}`,
 
 /** The sharing state of one artifact folder (`.sharing.json`). */
 export class SharingFile {
-  readonly file: string;
+  private readonly files: WorkspaceDirectory;
   state: SharingState;
 
-  constructor(root: string) {
-    this.file = join(root, SHARING_FILE);
-    this.state = SharingFile.read(this.file);
+  constructor(files: WorkspaceDirectory) {
+    this.files = files;
+    this.state = SharingFile.read(files);
   }
 
-  static read(file: string): SharingState {
+  static read(files: WorkspaceDirectory): SharingState {
     const state = fresh();
-    let raw: unknown;
-    try {
-      raw = JSON.parse(readFileSync(file, 'utf8'));
-    } catch {
-      return state;
-    }
+    const raw = readSharingState(files);
     if (!isRecord(raw)) return state;
     state.lan = raw.lan === true;
     if (typeof raw.port === 'number' && Number.isInteger(raw.port) && raw.port > 0 && raw.port < 65536) state.port = raw.port;
@@ -170,10 +165,18 @@ export class SharingFile {
     return state;
   }
 
+  assertAvailable(): void {
+    try {
+      this.files.resolve(SHARING_FILE);
+    } catch (error) {
+      if (error instanceof OpenArtifactError && error.code === 'not_granted') throw new HttpError(403, error.code, error.message);
+      throw error;
+    }
+  }
+
   save(): void {
-    const tmp = `${this.file}.${process.pid}.tmp`;
-    writeFileSync(tmp, `${JSON.stringify(this.state, null, 2)}\n`, { mode: 0o600 });
-    renameSync(tmp, this.file);
+    this.assertAvailable();
+    this.files.writeJson(SHARING_FILE, this.state, 0o600);
   }
 
   /** The role whose link has this token, while that link is on. */
@@ -215,9 +218,14 @@ export class SharingFile {
   }
 
   setLan(on: boolean, port?: number): void {
-    this.state.lan = on;
-    if (on && port) this.state.port = port;
-    this.save();
+    const prior = this.state;
+    this.state = { ...prior, lan: on, ...(on && port ? { port } : {}) };
+    try {
+      this.save();
+    } catch (error) {
+      this.state = prior;
+      throw error;
+    }
   }
 
   setLink(role: ShareRole, on: boolean): void {
@@ -280,6 +288,7 @@ export function assertRoleMay(viewer: Viewer, route: string, method: string, opt
 export interface ShareTarget {
   readonly id: string;
   readonly root: string;
+  readonly workspace?: WorkspaceDirectory | undefined;
   readonly type: string;
   readonly token: string;
   readonly title: string;
@@ -342,7 +351,8 @@ export class LanSharing {
   async attach(target: ShareTarget): Promise<void> {
     const existing = this.entries.get(target.id);
     if (existing && existing.target === target) return;
-    const entry: Entry = { target, file: new SharingFile(target.root), on: false };
+    const root = target.workspace?.resolve(target.root) ?? target.root;
+    const entry: Entry = { target, file: new SharingFile(new WorkspaceDirectory(root)), on: false };
     this.entries.set(target.id, entry);
     if (entry.file.state.lan) await this.setLan(entry, true);
   }
@@ -410,17 +420,24 @@ export class LanSharing {
     if (!on) {
       const was = entry.on;
       entry.on = false;
-      if (entry.file.state.lan) entry.file.setLan(false);
       if (was) this.lan.release();
       this.dropRevoked(entry);
+      if (entry.file.state.lan) entry.file.setLan(false);
       return;
     }
     const port = this.options.port();
     const remembered = entry.file.state.port;
     if (remembered && remembered !== port) this.options.log(`sharing: the links of ${entry.target.id} were given out on port ${remembered}; this server is on ${port}: give the new links out again`);
+    entry.file.assertAvailable();
     const addresses = await this.lan.open();
-    entry.on = true;
-    if (!entry.file.state.lan || entry.file.state.port !== port) entry.file.setLan(true, port);
+    try {
+      if (!entry.file.state.lan || entry.file.state.port !== port) entry.file.setLan(true, port);
+      else entry.file.assertAvailable();
+      entry.on = true;
+    } catch (error) {
+      this.lan.release();
+      throw error;
+    }
     this.options.log(`sharing ${entry.target.id} on the network: ${addresses.map((a) => `http://${hostOf(a)}:${port}${page(entry.target)}`).join(', ') || '(no network address)'}`);
   }
 
@@ -458,6 +475,7 @@ export class LanSharing {
   async change(id: string, change: ShareChange): Promise<ShareViewFull> {
     const entry = this.entry(id);
     const { file } = entry;
+    if (change.links !== undefined || change.reset !== undefined || change.guests !== undefined) file.assertAvailable();
     if (change.links !== undefined) {
       if (!isRecord(change.links)) throw new HttpError(400, 'invalid_argument', 'links is {editor|commenter|viewer: boolean}.');
       for (const [role, on] of Object.entries(change.links)) {

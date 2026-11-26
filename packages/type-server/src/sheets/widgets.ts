@@ -10,9 +10,10 @@
  * widget's projection again and draws with it.
  */
 
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import type { WorkspaceDirectory } from '@open-artifact/protocol/workspace-files';
 import { type ChartCodeError, chartCodeErrors, chartModule } from '@open-artifact/sheets-core';
 
 export const WIDGETS_DIR = 'widgets';
@@ -36,11 +37,18 @@ const isCodeError = (value: unknown): value is ChartCodeError =>
 /** The widgets in `<dir>`, a file each. */
 export class WidgetStore {
   readonly dir: string;
+  private readonly files: WorkspaceDirectory | undefined;
   /** Each widget's projection, by the pub it was made at. */
   private readonly modules = new Map<string, { pub: number; module: string }>();
 
-  constructor(sheetDir: string) {
-    this.dir = path.join(sheetDir, WIDGETS_DIR);
+  constructor(sheetDir: string, files?: WorkspaceDirectory) {
+    this.dir = path.resolve(sheetDir, WIDGETS_DIR);
+    this.files = files;
+  }
+
+  private file(id: string, followLeaf = true): string {
+    const requested = path.join(this.dir, `${id}.json`);
+    return this.files?.resolve(requested, followLeaf) ?? requested;
   }
 
   static isId(id: unknown): id is string {
@@ -51,7 +59,7 @@ export class WidgetStore {
     if (!WidgetStore.isId(id)) return null;
     let value: unknown;
     try {
-      value = JSON.parse(fs.readFileSync(path.join(this.dir, `${id}.json`), 'utf8'));
+      value = JSON.parse(fs.readFileSync(this.file(id), 'utf8'));
     } catch {
       return null;
     }
@@ -72,7 +80,7 @@ export class WidgetStore {
   list(): Widget[] {
     let names: string[];
     try {
-      names = fs.readdirSync(this.dir);
+      names = fs.readdirSync(this.files?.resolve(this.dir) ?? this.dir);
     } catch {
       return [];
     }
@@ -103,7 +111,7 @@ export class WidgetStore {
     this.modules.delete(id);
     if (!WidgetStore.isId(id)) return false;
     try {
-      fs.rmSync(path.join(this.dir, `${id}.json`));
+      fs.rmSync(this.file(id, false));
       return true;
     } catch {
       return false;
@@ -128,10 +136,10 @@ export class WidgetStore {
   }
 
   private write(widget: Widget): void {
-    fs.mkdirSync(this.dir, { recursive: true });
-    const file = path.join(this.dir, `${widget.id}.json`);
-    const temporary = `${file}.${process.pid}.tmp`;
-    fs.writeFileSync(temporary, `${JSON.stringify(widget, null, 2)}\n`);
+    const file = this.file(widget.id, false);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    const temporary = `${file}.${randomBytes(8).toString('hex')}.tmp`;
+    fs.writeFileSync(temporary, `${JSON.stringify(widget, null, 2)}\n`, { flag: 'wx' });
     fs.renameSync(temporary, file);
   }
 }

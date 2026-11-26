@@ -12,12 +12,15 @@ import type { LinkSiteType, SiteTypeDetail } from './link.ts';
 import type { TypeSourceKind } from './type-package.ts';
 import type { SessionRef } from './refs.ts';
 import type { ArtifactRole, ShareCloudView } from './type-server.ts';
+import type { WorkspaceDirectoryIdentity } from './workspace-files.ts';
 
 /** The record the daemon keeps for one artifact (`artifacts/<id>.json`). */
 export interface ArtifactRecord {
   id: string;
   /** Absolute path of the artifact folder. */
   root: string;
+  /** A local embedding host may pin the workspace that contains this artifact. */
+  workspaceDirectory?: WorkspaceDirectoryIdentity;
   /** Type id. */
   type: string;
   /** Marketplace the type came from, when known. */

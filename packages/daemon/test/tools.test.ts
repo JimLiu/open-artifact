@@ -1,15 +1,15 @@
 import { tempDir } from './helpers.ts';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { after, before, test } from 'node:test';
 import { artifactIdOf, type DaemonState, type ToolCallResult } from '@open-artifact/protocol';
 import { api, readDaemon } from '../src/client.ts';
 import { startDaemon, type Daemon } from '../src/daemon.ts';
 import { parseActions } from '../src/servers.ts';
-import { checkArgs } from '../src/tools.ts';
+import { checkArgs, inFolder } from '../src/tools.ts';
 
 let daemon: Daemon;
 let state: DaemonState;
@@ -121,7 +121,7 @@ before(async () => {
       titleFrom: 'card.json#/title',
     }),
   );
-  daemon = await startDaemon({ port: 0, quiet: true, shellDir: tempDir('open-artifact-shell-'), homeDir: tempDir('open-artifact-no-home-') });
+  daemon = await startDaemon({ port: 0, quiet: true, shellDir: tempDir('open-artifact-shell-'), homeDir: tempDir('open-artifact-no-home-'), workspaceFoldersOnly: true });
   state = (await readDaemon())!;
 });
 
@@ -149,6 +149,49 @@ async function createGreeter(title: string): Promise<string> {
   assert.equal(made.error, undefined, JSON.stringify(made.error));
   return String(made.url);
 }
+
+test('constrained creation and adoption keep the same default, explicit, and workspace-root placement', () => {
+  const root = tempDir('open-artifact-placement-');
+  const who = { ...caller, workspace: root };
+  const tools = daemon.tools;
+  assert.equal(tools.resolveFolder(undefined, who, 'New card'), join(root, 'artifacts', 'new-card'));
+  assert.equal(tools.resolveFolder('chosen', who), join(root, 'chosen'));
+  assert.equal(tools.resolveFolder('.', who), root);
+  assert.throws(() => tools.resolveFolder(undefined, { ...who, workspace: null }), { code: 'not_granted' });
+  const sibling = tempDir('open-artifact-other-');
+  assert.equal(dirname(root), dirname(sibling));
+  assert.throws(() => tools.resolveFolder(join('..', basename(sibling)), who), { code: 'not_granted' });
+});
+
+test('inFolder: the folder itself and what is under it, not a sibling whose name starts the same', () => {
+  assert.equal(inFolder('/w/proj', '/w/proj'), true);
+  assert.equal(inFolder('/w/proj/', '/w/proj'), true);
+  assert.equal(inFolder('/w/proj/deck', '/w/proj/'), true);
+  assert.equal(inFolder('/w/project', '/w/proj'), false);
+  assert.equal(inFolder('/w', '/w/proj'), false);
+  assert.equal(inFolder('/anything', '/'), true);
+});
+
+test('a confined listing: an artifact at the workspace top is the workspace\'s, and one in another workspace is never shown', async () => {
+  const top = tempDir('open-artifact-ws-top-');
+  const maker = { harness: 'dsh', session: 'maker-1', workspace: top };
+  const made = await api<ToolCallResult>(state, 'tools.call', {
+    name: 'Artifact',
+    arguments: { action: 'publish', type_url: 'open-artifact://type/greeter', title: 'Workspace top card', folder: '.' },
+    caller: maker,
+  });
+  assert.equal(made.error, undefined, JSON.stringify(made.error));
+  const peer = { harness: 'dsh', session: 'peer-1', workspace: top };
+  const listed = await api<ToolCallResult>(state, 'tools.call', { name: 'Artifact', arguments: { action: 'list', query: 'workspace top' }, caller: peer });
+  const rows = listed.artifacts as Array<{ url: string; mine: boolean }>;
+  assert.deepEqual(rows.map((a) => a.url), [made.url], 'another session in the same workspace sees an artifact made at its top');
+  assert.equal(rows[0]!.mine, false);
+  // The default caller works in another workspace: neither "mine" nor "all" shows it the folder.
+  for (const scope of ['mine', 'all']) {
+    const other = await tool('Artifact', { action: 'list', scope, query: 'workspace top' });
+    assert.deepEqual(other.artifacts, [], `scope ${scope}`);
+  }
+});
 
 test('MCP instructions are the agent prompt with the installed types', async () => {
   const response = await fetch(`${state.url}/mcp`, {
@@ -216,6 +259,14 @@ test('call checks the name and args against the list, and passes on fix', async 
   assert.equal(missing.error?.message, 'greet needs args.name.');
   const wrong = await tool('Artifact', { action: 'call', url, name: 'greet', args: { name: 3 } });
   assert.equal(wrong.error?.message, 'greet: args.name must be string.');
+  // A confined daemon: a path on this computer outside the caller's workspace never reaches the type's server.
+  const outside = tempDir('open-artifact-outside-');
+  const escape = await tool('Artifact', { action: 'call', url, name: 'greet', args: { name: join(outside, 'secret.txt') } });
+  assert.equal(escape.error?.code, 'not_granted');
+  assert.match(String(escape.error?.message), /args\.name/);
+  assert.equal((await tool('Artifact', { action: 'call', url, name: 'greet', args: { name: `file://${outside}` } })).error?.code, 'not_granted');
+  assert.deepEqual(await tool('Artifact', { action: 'call', url, name: 'greet', args: { name: join(workspace, 'notes.txt') } }), { hello: join(workspace, 'notes.txt') });
+  assert.deepEqual(await tool('Artifact', { action: 'call', url, name: 'greet', args: { name: '/blocks/0' } }), { hello: '/blocks/0' }, 'a pointer that names nothing here passes');
   const unknown = await tool('Artifact', { action: 'call', url, name: 'nope' });
   assert.equal(unknown.error?.code, 'unknown_action');
   assert.match(String(unknown.error?.fix), /This type's actions: greet, check, fail, render, restyle\./);
@@ -235,6 +286,7 @@ test('publish with if_match writes only what is unchanged; read gives sha256', a
 
   const stale = await tool('Artifact', { action: 'publish', url, files: { 'a.txt': 'two', 'c.txt': 'new' }, if_match: { 'a.txt': '0'.repeat(64) } });
   assert.equal(stale.error?.code, 'conflict');
+  assert.equal(stale.executionStatus, 'not_executed');
   assert.deepEqual((stale.current as Record<string, { content: string; sha256: string }>)['a.txt']!.content, 'one');
   assert.equal(readFileSync(join(root, 'a.txt'), 'utf8'), 'one', 'nothing was written');
   assert.throws(() => readFileSync(join(root, 'c.txt')));
@@ -400,6 +452,7 @@ test('ArtifactData passes paging, queries, if_match and str_replace through, and
 
   const conflict = await tool('ArtifactData', { action: 'set', url, path: 'notes/a', data: {}, if_match: SHA_STALE });
   assert.equal(conflict.error?.code, 'conflict');
+  assert.equal(conflict.executionStatus, 'not_executed');
   assert.equal((conflict.error as Record<string, unknown>).current, undefined);
   assert.deepEqual((conflict.current as Record<string, { data: unknown }>)['notes/a']!.data, { t: 1 });
 
@@ -410,6 +463,14 @@ test('ArtifactData passes paging, queries, if_match and str_replace through, and
   assert.equal(JSON.parse(readFileSync(join(workspace, 'out', 'notes.json'), 'utf8')).docs.length, 1);
   const root = String((await tool('Artifact', { action: 'read', url })).root);
   assert.equal((await tool('ArtifactData', { action: 'get', url, path: 'notes/a', out_file: join(root, 'x.json') })).error?.code, 'bad_path');
+  // A confined daemon writes out_file in the caller's workspace only, and reads file_path from there only.
+  const elsewhere = tempDir('open-artifact-elsewhere-');
+  assert.equal((await tool('ArtifactData', { action: 'get', url, path: 'notes/a', out_file: join(elsewhere, 'x.json') })).error?.code, 'not_granted');
+  assert.equal((await tool('ArtifactData', { action: 'get', url, path: 'notes/a', out_file: '../x.json' })).error?.code, 'not_granted');
+  assert.equal(existsSync(join(elsewhere, 'x.json')), false);
+  writeFileSync(join(elsewhere, 'b.json'), '{}');
+  const imported = await tool('ArtifactData', { action: 'batch', url, writes: [{ op: 'update', path: 'notes/b', file_path: join(elsewhere, 'b.json') }] });
+  assert.equal(imported.error?.code, 'not_granted');
 });
 
 test('ArtifactComments filters threads and keeps replies to the threads sent to the agent', async () => {

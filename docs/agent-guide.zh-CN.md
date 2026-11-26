@@ -89,7 +89,8 @@ node <skill>/scripts/open-artifact.mjs wait --timeout 600000
   - `Artifact {action: "publish", url, files, if_match}`：传入上次读取得到的各文件 `sha256`。
   - `ArtifactData` 对已有文档执行 `set` / `delete` 时传入 `if_match: "<sha256>"`。
   - `sheets` / `docs` 执行 `update` 时传入当前版本号（`base` / `ifRev`）。
-  - 遇到冲突（`conflict`）时，重新读取最新版本、合并修改后再写。
+  - 遇到冲突（`conflict`）时，重新读取最新版本、合并修改后再写。冲突结果里的 `executionStatus: "not_executed"` 表示什么都没写。
+- **限定工作区的应用**：有些应用用 `OPEN_ARTIFACT_WORKSPACE_FOLDERS_ONLY=1` 启动 daemon。在那里，工作区外的目录或文件路径（动作的 `file` / `out`，ArtifactData 的 `file_path` / `out_file`）回答 `not_granted`；改用工作区里的路径。
 
 ## 5. 处理评论与 “Send to agent”
 

@@ -23,9 +23,10 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, watch, type FSWatcher } from 'node:fs';
+import { existsSync, mkdirSync, watch, type FSWatcher } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { join } from 'node:path';
+import type { WorkspaceDirectory } from '@open-artifact/protocol/workspace-files';
 import {
   DB_LIMITS,
   type CommentAuthor,
@@ -82,6 +83,7 @@ export const ARM_RESCAN_MS: readonly number[] = [300, 1_500];
 export interface DbHostOptions {
   /** The artifact folder. */
   root: string;
+  workspace?: WorkspaceDirectory | undefined;
   /** Display name of the local viewer (comment author). */
   viewerName: string;
   /** Pushes an event to the artifact's pages; `except` skips one client. */
@@ -297,7 +299,7 @@ export class DbHost {
   constructor(options: DbHostOptions) {
     this.options = options;
     this.root = options.root;
-    this.db = new DbStore(options.root);
+    this.db = new DbStore(options.root, { imports: options.workspace });
     this.comments = new CommentStore(options.root, { lock: options.commentLock ?? 'file' });
   }
 
@@ -384,7 +386,7 @@ export class DbHost {
 
   private readText(path: string): string | null {
     try {
-      return canonical(readFileSync(join(this.db.dir, ...path.split('/')) + '.json', 'utf8'));
+      return canonical(this.db.readDocumentFile(path));
     } catch {
       return null;
     }
@@ -392,7 +394,7 @@ export class DbHost {
 
   private readCommentsText(): string | null {
     try {
-      return readFileSync(this.comments.file, 'utf8');
+      return this.comments.readText();
     } catch {
       return null;
     }
@@ -783,7 +785,7 @@ export function readDbFiles(root: string): Map<string, string> {
   const files = new Map<string, string>();
   for (const { path } of store.listAll()) {
     try {
-      files.set(path, readFileSync(join(store.dir, ...path.split('/')) + '.json', 'utf8'));
+      files.set(path, store.readDocumentFile(path));
     } catch {
       files.set(path, '');
     }

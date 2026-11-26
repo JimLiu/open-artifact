@@ -44,6 +44,16 @@ Every call should name the session it comes from: `{ session, workspace }` as th
 A call with no caller is the harness's own. It works, but nobody owns what it makes, so comments on it wait in the shared
 inbox for whichever session takes it.
 
+In a daemon started with `OPEN_ARTIFACT_WORKSPACE_FOLDERS_ONLY=1` the workspace is required and is a boundary: see
+[security](security.md#a-sandboxed-agent-workspace-folders-only).
+
+## A write refused before it ran
+
+A write that was checked and refused before anything changed says so: `executionStatus: "not_executed"` beside its
+`error`. Today that is a `conflict` from `if_match` (an `Artifact` publish, or a local `ArtifactData` write), with the
+current state in `current`. Without it, an error does not say whether part of the call ran. An action's own answer
+cannot set it: the daemon removes one a type server sends.
+
 ## Action kinds: which calls to confirm
 
 `tools.list` gives each tool's `actions`, a map from action to kind (feature `tools.actions`). MCP puts it under

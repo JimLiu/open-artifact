@@ -5,7 +5,8 @@
   "type": "module",
   "description": "The Open Artifact protocol: typed contracts shared by the daemon, harness adapters, type servers, the Shell and pages.",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./workspace-files": "./src/workspace-files.ts"
   },
   "license": "Apache-2.0"
 }

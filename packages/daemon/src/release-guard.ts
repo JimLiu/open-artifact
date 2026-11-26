@@ -21,10 +21,21 @@
  * viewer role and are off.)
  */
 
-import { join } from 'node:path';
 import { actionKindOf, type ArtifactRecord, type SessionRef, type ToolCallResult, type ToolName } from '@open-artifact/protocol';
+import { artifactDirectory } from '@open-artifact/protocol/workspace-files';
 import { compareVersions, parseVersion } from '@open-artifact/harness-kit';
-import { readJson, writeJson } from './paths.ts';
+
+const MARKER = '.artifact.json';
+
+function releaseMarker(record: ArtifactRecord) {
+  try {
+    const files = artifactDirectory(record);
+    const value = files.readJson<Record<string, unknown> | null>(MARKER, null);
+    return value ? { files, value } : null;
+  } catch {
+    return null;
+  }
+}
 
 /** What the guard needs from the daemon. */
 export interface ReleaseGuardOptions {
@@ -43,8 +54,8 @@ export interface ReleaseGuardOptions {
 
 /** The release that last wrote the artifact: the newer of its record's and its folder marker's. */
 export function writtenRelease(record: ArtifactRecord): string | null {
-  const marker = readJson<{ release?: unknown } | null>(join(record.root, '.artifact.json'), null);
-  const candidates = [record.typeRelease, typeof marker?.release === 'string' ? marker.release : null].filter((v): v is string => !!v && !!parseVersion(v));
+  const release = releaseMarker(record)?.value.release;
+  const candidates = [record.typeRelease, typeof release === 'string' ? release : null].filter((v): v is string => !!v && !!parseVersion(v));
   return candidates.sort((a, b) => compareVersions(b, a))[0] ?? null;
 }
 
@@ -75,9 +86,8 @@ function readOnlyNote(record: ArtifactRecord, written: string, installed: string
 
 /** Records the newer release in the artifact's folder marker too. */
 export function writeMarkerRelease(record: ArtifactRecord, release: string): void {
-  const file = join(record.root, '.artifact.json');
-  const marker = readJson<Record<string, unknown> | null>(file, null);
-  if (marker && marker.release !== release) writeJson(file, { ...marker, release });
+  const marker = releaseMarker(record);
+  if (marker && marker.value.release !== release) marker.files.writeJson(MARKER, { ...marker.value, release });
 }
 
 /** Wraps the tools' `call` with the release check. */

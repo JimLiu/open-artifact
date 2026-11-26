@@ -479,7 +479,10 @@ async function daemon(sub: string | undefined): Promise<void> {
         exit();
       };
       for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) process.on(signal, stop);
-      const started = await startDaemon(port !== undefined ? { port: Number(port) } : {});
+      const started = await startDaemon({
+        ...(port !== undefined ? { port: Number(port) } : {}),
+        ...(process.env.OPEN_ARTIFACT_WORKSPACE_FOLDERS_ONLY === '1' ? { workspaceFoldersOnly: true } : {}),
+      });
       running = started;
       started.on('exit', exit);
       if (asked) return stop(asked);

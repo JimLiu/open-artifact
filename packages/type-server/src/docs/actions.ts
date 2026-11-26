@@ -5,6 +5,7 @@
 import fs from 'node:fs';
 import { duplicateDoc } from './duplicate.ts';
 import path from 'node:path';
+import type { WorkspaceDirectory } from '@open-artifact/protocol/workspace-files';
 import { type CallOutcome, type DocPerson, birth, exportMarkdown, rebirth, runCall } from './calls.ts';
 import type { DocHost } from './host.ts';
 import { DocStore, StoreError, docDirOf, isDocFolder } from './store.ts';
@@ -91,6 +92,7 @@ export interface DocActionContext {
   owner: DocPerson;
   /** The open doc, when the server has it open. */
   host?: DocHost;
+  workspace?: WorkspaceDirectory | undefined;
 }
 
 export interface DocActionAnswer {
@@ -120,7 +122,7 @@ export async function runDocAction(name: DocActionName, args: Json, context: Doc
     case 'duplicate': {
       if (typeof args.name !== 'string' || !args.name.trim() || args.name.length > 256) return refused(400, 'bad_name', 'Enter a document name of up to 256 characters.');
       const store = host?.store ?? openStore(root);
-      return store instanceof DocStore ? { status: 201, body: duplicateDoc(store, args.name.trim()) } : store;
+      return store instanceof DocStore ? { status: 201, body: duplicateDoc(store, args.name.trim(), context.workspace) } : store;
     }
     case 'create': {
       const call = args.call;
@@ -147,13 +149,14 @@ export async function runDocAction(name: DocActionName, args: Json, context: Doc
   }
 }
 
-async function exportAction(args: Json, { root, owner, host }: DocActionContext): Promise<DocActionAnswer> {
+async function exportAction(args: Json, { root, owner, host, workspace }: DocActionContext): Promise<DocActionAnswer> {
   const given = typeof args.format === 'string' ? (args.format === 'md' ? 'markdown' : args.format) : 'markdown';
   if (!isExportFormat(given)) return refused(400, 'bad_format', `No export as ${given}: markdown, docx, pdf or html.`);
   const format: ExportFormat = given;
   if (args.paper !== undefined && !isPaper(args.paper)) return refused(400, 'bad_paper', `No paper called ${String(args.paper)}: a4 or letter.`);
   const tab = typeof args.tab === 'string' && args.tab ? args.tab : undefined;
-  const out = typeof args.out === 'string' && args.out ? path.resolve(args.out) : undefined;
+  const requested = typeof args.out === 'string' && args.out ? path.resolve(args.out) : undefined;
+  const out = requested === undefined ? undefined : workspace?.resolve(requested) ?? requested;
   const store = host?.store ?? openStore(root);
   if (!(store instanceof DocStore)) return store;
   if (format === 'markdown') {
@@ -170,7 +173,8 @@ async function exportAction(args: Json, { root, owner, host }: DocActionContext)
   }
   try {
     const file = await exportDocFile(store, owner, { format, ...(tab ? { tab } : {}), ...(isPaper(args.paper) ? { paper: args.paper } : {}) });
-    const into = out ?? path.join(root, EXPORTS_DIR, file.name);
+    const requested = out ?? path.join(root, EXPORTS_DIR, file.name);
+    const into = workspace?.resolve(requested) ?? requested;
     fs.mkdirSync(path.dirname(into), { recursive: true });
     fs.writeFileSync(into, file.bytes);
     return {
@@ -182,18 +186,19 @@ async function exportAction(args: Json, { root, owner, host }: DocActionContext)
   }
 }
 
-async function importAction(args: Json, { root, owner, host }: DocActionContext): Promise<DocActionAnswer> {
+async function importAction(args: Json, { root, owner, host, workspace }: DocActionContext): Promise<DocActionAnswer> {
   if (typeof args.file !== 'string' || !path.isAbsolute(args.file)) return refused(400, 'missing_file', 'file is the absolute path of a .md, .docx or .pdf.');
+  const file = workspace?.resolve(args.file) ?? args.file;
   let bytes: Uint8Array;
   try {
-    bytes = fs.readFileSync(args.file);
+    bytes = fs.readFileSync(file);
   } catch {
     return refused(404, 'file_not_found', `No such file: ${args.file}`);
   }
   if (bytes.length > IMPORT_MAX_BYTES) return refused(413, 'too_large', `${args.file} is over ${IMPORT_MAX_BYTES / 1024 / 1024} MB.`);
   const name = typeof args.name === 'string' && args.name.trim() ? args.name.trim() : undefined;
   try {
-    const body = await importIntoFolder({ root, owner, ...(host ? { host } : {}) }, { file: args.file, bytes, ...(name ? { name } : {}) });
+    const body = await importIntoFolder({ root, owner, ...(host ? { host } : {}) }, { file, bytes, ...(name ? { name } : {}) });
     return { status: 200, body: body as unknown as Json };
   } catch (error) {
     return refusalOf(error);

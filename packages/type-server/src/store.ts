@@ -11,9 +11,10 @@
  */
 
 import { createHash, randomBytes } from 'node:crypto';
-import type { Dirent } from 'node:fs';
+import { existsSync, type Dirent } from 'node:fs';
 import { lstat, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
-import { dirname, join, relative, sep } from 'node:path';
+import { dirname, join } from 'node:path';
+import { WorkspaceDirectory } from '@open-artifact/protocol/workspace-files';
 import type { ConflictPath, FileListing, PublishBatch } from '@open-artifact/runtime/capabilities';
 import { HttpError, extensionOf, mimeOf } from './http.ts';
 
@@ -104,43 +105,50 @@ export class ArtifactStore {
 
   /** Absolute path of the artifact folder. */
   readonly root: string;
+  private directory: WorkspaceDirectory | undefined;
 
   constructor(root: string) {
     this.root = root;
   }
 
-  /** Absolute path of an artifact-relative path. */
-  resolve(path: string): string {
-    return join(this.root, ...path.split('/'));
+  /**
+   * Absolute path of an artifact-relative path: the real path, checked to stay in the folder (a link in it that leads
+   * out is refused). A folder not made yet (a first upload makes it) has no links in it: the path as written.
+   */
+  resolve(path: string, followLeaf = true): string {
+    if (!this.directory) {
+      if (!existsSync(this.root)) return join(this.root, ...path.split('/'));
+      this.directory = new WorkspaceDirectory(this.root);
+    }
+    return this.directory.resolve(path, followLeaf);
   }
 
   /** Lists every file under `project/` with its hash. */
   async list(): Promise<FileListing> {
     const out: FileListing = {};
     const seen = new Set<string>();
-    const walk = async (dir: string): Promise<void> => {
+    const walk = async (path: string): Promise<void> => {
       let entries;
       try {
-        entries = await readdir(dir, { withFileTypes: true });
+        entries = await readdir(this.resolve(path), { withFileTypes: true });
       } catch {
         return;
       }
       for (const entry of entries) {
         if (SKIPPED.has(entry.name) || entry.name.startsWith('.') || TEMP_FILE.test(entry.name)) continue;
-        const absolute = join(dir, entry.name);
+        const relative = `${path}/${entry.name}`;
         if (entry.isDirectory()) {
-          await walk(absolute);
+          await walk(relative);
         } else if (entry.isFile()) {
-          const path = relative(this.root, absolute).split(sep).join('/');
-          const hash = await this.hashOf(path);
+          const hash = await this.hashOf(relative);
           if (hash) {
-            out[path] = { sha256: hash.sha256, size: hash.size };
-            seen.add(path);
+            out[relative] = { sha256: hash.sha256, size: hash.size };
+            seen.add(relative);
           }
         }
       }
     };
-    await walk(this.resolve(PROJECT_DIR));
+    await walk(PROJECT_DIR);
     for (const path of this.hashes.keys()) if (!seen.has(path)) this.hashes.delete(path);
     return out;
   }
@@ -210,6 +218,7 @@ export class ArtifactStore {
     for (const path of paths) {
       const problem = pagePathProblem(path);
       if (problem) throw new HttpError(400, 'invalid', `Path ${JSON.stringify(path)} ${problem}.`);
+      this.resolve(path);
       const file = batch[path];
       if (file === null) {
         writes.set(path, null);
@@ -236,7 +245,7 @@ export class ArtifactStore {
 
     const hashes: Record<string, string | null> = {};
     for (const [path, bytes] of writes) {
-      const absolute = this.resolve(path);
+      const absolute = this.resolve(path, false);
       if (bytes === null) {
         await rm(absolute, { force: true });
         this.hashes.delete(path);
@@ -258,7 +267,7 @@ export class ArtifactStore {
 
   /** Folder of uploads. */
   get blobDir(): string {
-    return join(this.root, '_blobs');
+    return this.resolve('_blobs');
   }
 
   /**
@@ -270,7 +279,7 @@ export class ArtifactStore {
     const type = contentType.split(';')[0]!.trim().toLowerCase() || 'application/octet-stream';
     const existing = await this.findBlob(id);
     if (existing) return existing;
-    const file = join(this.blobDir, `${id}.${extensionOf(type)}`);
+    const file = this.resolve(`_blobs/${id}.${extensionOf(type)}`, false);
     await writeAtomic(file, bytes);
     return { id, file, contentType: type === 'application/octet-stream' ? mimeOf(file) : type, size: bytes.length };
   }
@@ -278,7 +287,7 @@ export class ArtifactStore {
   async designAsset(id: string): Promise<(StoredBlob & { sha256: string }) | null> {
     if (!/^[0-9a-f]{32}$/.test(id)) return null;
     const project = this.resolve(PROJECT_DIR);
-    const assets = join(project, 'assets');
+    const assets = this.resolve(`${PROJECT_DIR}/assets`);
     try {
       if (!(await lstat(project)).isDirectory() || !(await lstat(assets)).isDirectory()) return null;
       const entries = await readdir(assets, { withFileTypes: true });
@@ -301,10 +310,10 @@ export class ArtifactStore {
       const entries = await readdir(this.blobDir, { withFileTypes: true });
       const name = blobFilenames(entries).get(id);
       if (!name) return null;
-      const file = join(this.blobDir, name);
+      const file = this.resolve(`_blobs/${name}`);
       const info = await lstat(file);
       if (!info.isFile()) return null;
-      const contentType = name === id ? await boardMediaType(file + '.json') : mimeOf(name);
+      const contentType = name === id ? await boardMediaType(this.resolve(`_blobs/${name}.json`)) : mimeOf(name);
       return { id, file, contentType, size: info.size };
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
@@ -317,7 +326,7 @@ export class ArtifactStore {
 export async function writeAtomic(file: string, bytes: Buffer | string): Promise<void> {
   await mkdir(dirname(file), { recursive: true });
   const temp = `${file}.${randomBytes(4).toString('hex')}.tmp`;
-  await writeFile(temp, bytes);
+  await writeFile(temp, bytes, { flag: 'wx' });
   try {
     await rename(temp, file);
   } catch (error) {

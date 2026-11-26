@@ -282,13 +282,23 @@ export class DbStore extends EventEmitter {
   readonly dir: string;
   readonly leases = new Map<string, Lease>();
   private readonly guard: PathGuard;
+  private readonly imports: { resolve(path: string): string } | undefined;
 
-  /** `guard`: how it keeps inside the artifact folder (default {@link LINK_GUARD}: links followed). */
-  constructor(root: string, options: { guard?: PathGuard } = {}) {
+  /**
+   * `guard`: how it keeps inside the artifact folder (default {@link LINK_GUARD}: links followed). `imports`: where a
+   * write's `file_path` may be read from (it checks the path, or throws); none: anywhere.
+   */
+  constructor(root: string, options: { guard?: PathGuard; imports?: { resolve(path: string): string } | undefined } = {}) {
     super();
     this.root = root;
     this.dir = join(root, DB_DIR);
     this.guard = options.guard ?? LINK_GUARD;
+    this.imports = options.imports;
+  }
+
+  /** The bytes of a document's file as they are on disk (history and validation compare them); throws when it has none. */
+  readDocumentFile(p: string): string {
+    return readFileSync(this.fileOf(splitPath(p, 'doc')), 'utf8');
   }
 
   /** A document's file; refused when a link (db/ itself, or a folder in it) leads it out of the artifact folder. */
@@ -538,8 +548,14 @@ export class DbStore extends EventEmitter {
       let data = w.data;
       if (hasFile) {
         if (!isAbsolute(w.file_path!)) throw dbError('invalid_argument', 'file_path is an absolute path.');
+        let file: string;
         try {
-          data = JSON.parse(readFileSync(w.file_path!, 'utf8')) as unknown;
+          file = this.imports ? this.imports.resolve(w.file_path!) : w.file_path!;
+        } catch {
+          throw dbError('not_granted', `${w.file_path} is outside the artifact's workspace.`);
+        }
+        try {
+          data = JSON.parse(readFileSync(file, 'utf8')) as unknown;
         } catch (error) {
           throw dbError('invalid_argument', `${w.file_path}: ${(error as Error)?.message ?? error}`);
         }

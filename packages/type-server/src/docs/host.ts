@@ -20,6 +20,7 @@ import {
   suggestionAsOf,
   walk,
 } from '@open-artifact/docs-core';
+import { WorkspaceDirectory } from '@open-artifact/protocol/workspace-files';
 import { canEdit, type Viewer } from '@open-artifact/runtime/capabilities';
 import { DocPeople } from './people.ts';
 import type {
@@ -174,8 +175,8 @@ export class DocHost {
 
   constructor(options: DocHostOptions) {
     this.options = options;
-    this.store = DocStore.open(docDirOf(options.root));
-    this.people = DocPeople.open(docDirOf(options.root));
+    this.store = DocStore.open(docDirOf(options.root), new WorkspaceDirectory(options.root));
+    this.people = DocPeople.open(this.store);
   }
 
   get title(): string {

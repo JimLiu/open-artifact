@@ -10,10 +10,11 @@
 
 import { randomBytes } from 'node:crypto';
 import { EventEmitter } from 'node:events';
-import { appendFileSync, cpSync, createReadStream, existsSync, openSync, readFileSync, readdirSync, rmSync, statSync, watch, writeFileSync, writeSync, closeSync, type Dirent, type FSWatcher } from 'node:fs';
+import { appendFileSync, cpSync, createReadStream, existsSync, mkdirSync, openSync, readFileSync, readdirSync, rmSync, statSync, watch, writeFileSync, writeSync, closeSync, type Dirent, type FSWatcher } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { userInfo } from 'node:os';
 import { basename, dirname, extname, isAbsolute, join, resolve, sep } from 'node:path';
+import { WorkspaceDirectory, readSharingState } from '@open-artifact/protocol/workspace-files';
 import { Readable, type Duplex } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import {
@@ -304,11 +305,6 @@ const escapeHtml = (text: string): string =>
 /** JSON safe to put inside a `<script>`. */
 const scriptJson = (value: unknown): string => JSON.stringify(value).replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
 
-/** Whether `.sharing.json` in an artifact folder says it is shared on the network (the type server writes it). */
-function sharedOnLan(root: string): boolean {
-  return readJson<{ lan?: boolean } | null>(join(root, '.sharing.json'), null)?.lan === true;
-}
-
 function safeUserName(): string {
   try {
     return userInfo().username || 'You';
@@ -434,6 +430,8 @@ export interface DaemonOptions {
   homeDir?: string;
   /** The built-in type root; `null` turns it off. Default: the repository's `artifact-types/`. */
   builtinTypesDir?: string | null;
+  /** Require workspaces for local artifact creation and adoption. */
+  workspaceFoldersOnly?: boolean;
   /**
    * Opens a page in this computer's browser, for harnesses whose profile says `open: "browser"`; `null` never does.
    * Default {@link systemBrowse}.
@@ -543,7 +541,7 @@ export class Daemon extends EventEmitter<{ exit: [] }> {
     this.logFile = files.daemonLog();
     const log = (line: string): void => this.log(line);
     this.types = new TypeRegistry(() => this.settings, options.builtinTypesDir !== undefined ? { builtinDir: options.builtinTypesDir } : {});
-    this.store = new ArtifactStore();
+    this.store = new ArtifactStore(options.workspaceFoldersOnly === true);
     this.inbox = new Inbox();
     this.wake = new WakeRouter({
       store: this.store,
@@ -589,7 +587,7 @@ export class Daemon extends EventEmitter<{ exit: [] }> {
       run: async (record, args) => {
         const type = this.typeOf(record);
         if (!type) throw new OpenArtifactError('not_found', `The type ${record.type} is not installed.`);
-        return this.servers.call<DataRefreshResult>(type, 'POST', `${TYPE_SERVER_ROUTES.actions}${encodeURIComponent(DATA_REFRESH_ACTION)}`, { id: record.id, root: record.root, args }, undefined, DATA_REFRESH_MS);
+        return this.servers.call<DataRefreshResult>(type, 'POST', `${TYPE_SERVER_ROUTES.actions}${encodeURIComponent(DATA_REFRESH_ACTION)}`, { id: record.id, root: this.store.authorizedRoot(record), args }, undefined, DATA_REFRESH_MS);
       },
       sync: (id) => this.link.syncNow(id),
       owner: (record) => this.link.ownerName(record),
@@ -601,12 +599,13 @@ export class Daemon extends EventEmitter<{ exit: [] }> {
       inbox: this.inbox,
       harnesses: () => this.harnesses,
       settings: () => this.settings,
+      workspaceFoldersOnly: options.workspaceFoldersOnly === true,
       viewUrl: (id) => this.viewUrl(id),
       openPage: (record) => this.openPage(record),
       reopenPage: (record) => this.reopenPage(record),
       reach: (type) => this.servers.reach(type),
       typeAction: (type, record, name, args) =>
-        this.servers.call(type, 'POST', `${TYPE_SERVER_ROUTES.actions}${encodeURIComponent(name)}`, { id: record.id, root: record.root, args }, undefined, ACTION_CALL_MS),
+        this.servers.call(type, 'POST', `${TYPE_SERVER_ROUTES.actions}${encodeURIComponent(name)}`, { id: record.id, root: this.store.authorizedRoot(record), args }, undefined, ACTION_CALL_MS),
       typeActions: (type, options) => this.servers.actions(type, options),
       shareOf: (record) => this.shareOf(record),
       log,
@@ -749,7 +748,7 @@ export class Daemon extends EventEmitter<{ exit: [] }> {
         const actions = await this.servers.actions(type, { start: true });
         if (!actions?.some((a) => a.name === 'context')) return null;
         await this.openPage(record);
-        return this.servers.call(type, 'POST', `${TYPE_SERVER_ROUTES.actions}context`, { id: record.id, root: record.root, args: {} }, undefined, ACTION_CALL_MS);
+        return this.servers.call(type, 'POST', `${TYPE_SERVER_ROUTES.actions}context`, { id: record.id, root: this.store.authorizedRoot(record), args: {} }, undefined, ACTION_CALL_MS);
       },
     });
   }
@@ -856,9 +855,18 @@ export class Daemon extends EventEmitter<{ exit: [] }> {
     return this;
   }
 
+  /** The library and startup use the same checked sharing record as the editor. */
+  private sharedOnLan(record: ArtifactRecord): boolean {
+    try {
+      return readSharingState(new WorkspaceDirectory(this.store.authorizedRoot(record)))?.lan === true;
+    } catch {
+      return false;
+    }
+  }
+
   private async remountShared(): Promise<void> {
     for (const record of this.store.list()) {
-      if (!sharedOnLan(record.root)) continue;
+      if (!this.sharedOnLan(record)) continue;
       try {
         await this.openPage(record);
       } catch (error) {
@@ -1510,25 +1518,47 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
   }
 
   private async duplicate(record: ArtifactRecord, name?: string): Promise<ArtifactRecord> {
+    const source = this.store.authorizedRoot(record);
+    const workspace = record.workspaceDirectory;
+    const inherited = {
+      type: record.type, typeSource: record.typeSource, typeRelease: record.typeRelease, typeUid: record.typeUid ?? null, owner: record.owner,
+      ...(workspace ? { workspaceDirectory: workspace } : {}),
+    };
     if (record.type === 'docs') {
       const type = this.typeOf(record);
       if (!type) throw new OpenArtifactError('unsupported', 'The Docs type is unavailable.');
+      if (workspace) await this.openPage(record);
       const copy = await this.servers.call<{ root: string; name: string }>(type, 'POST', TYPE_SERVER_ROUTES.actions + 'duplicate',
-        { root: record.root, id: record.id, args: { name: name ?? (record.title.slice(0, 249) + ' (copy)') } }, undefined, ACTION_CALL_MS);
-      return this.store.create({ root: copy.root, title: copy.name, type: record.type, typeSource: record.typeSource, typeRelease: record.typeRelease, typeUid: record.typeUid ?? null, owner: record.owner });
+        { root: source, id: record.id, args: { name: name ?? (record.title.slice(0, 249) + ' (copy)') } }, undefined, ACTION_CALL_MS);
+      return this.store.create({ ...inherited, root: copy.root, title: copy.name });
     }
-    const parent = dirname(record.root);
-    const base = record.root.slice(parent.length + 1);
-    let root = join(parent, `${base}-copy`);
-    for (let n = 2; existsSync(root); n++) root = join(parent, `${base}-copy-${n}`);
+    // In a workspace-confined daemon the copy stays in the same workspace (next to the original, or inside it when the
+    // original is the workspace itself), and nothing is copied through a link that leads out of the original.
+    const directory = workspace ? new WorkspaceDirectory(workspace.root, workspace) : undefined;
+    const parent = directory?.root === source ? source : dirname(source);
+    const base = basename(source) || 'work';
+    const target = (name: string) => directory?.resolve(join(parent, name), false) ?? join(parent, name);
+    let root = target(`${base}-copy`);
     // `_agent/` is this computer's agent channel (snapshots): never part of the artifact, so not of its copy.
     const skip = (name: string): boolean => name.startsWith('.') || name === 'history' || name === 'exports' || name === 'node_modules' || name === '_agent';
-    ensureDir(root);
-    for (const name of readdirSync(record.root)) {
-      if (skip(name)) continue;
-      cpSync(join(record.root, name), join(root, name), { recursive: true, errorOnExist: false });
+    const children = readdirSync(source).filter((name) => !skip(name));
+    for (let n = 2; ; n++) {
+      try {
+        mkdirSync(root);
+        break;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+        root = target(`${base}-copy-${n}`);
+      }
     }
-    return this.store.create({ root, type: record.type, typeSource: record.typeSource, typeRelease: record.typeRelease, typeUid: record.typeUid ?? null, owner: record.owner, title: `Copy of ${record.title}`.slice(0, 200) });
+    const files = directory ? new WorkspaceDirectory(source) : undefined;
+    for (const name of children) {
+      cpSync(join(source, name), join(root, name), {
+        recursive: true, errorOnExist: false,
+        ...(files ? { dereference: true, filter: (path: string) => { files.resolve(path); return true; } } : {}),
+      });
+    }
+    return this.store.create({ ...inherited, root, title: `Copy of ${record.title}`.slice(0, 200) });
   }
 
   private thumbnailFile(id: string): string {
@@ -1563,7 +1593,7 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
       openedAt: record.openedAt ?? null,
       contentAt: this.contentAt(record),
       thumbnail: this.thumbnailOf(record.id),
-      shared: sharedOnLan(record.root),
+      shared: this.sharedOnLan(record),
       open: this.pages.has(record.id),
       remote: record.remote ? { name: record.remote.name, host: record.remote.host, url: record.remote.url, syncedAt: record.remote.syncedAt } : null,
       ...releaseView(record, type?.version ?? null),
@@ -1864,6 +1894,7 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
    * absolute address on the page's own origin.
    */
   async openPage(record: ArtifactRecord, context: { lang?: string | undefined; shell?: string } = {}): Promise<Omit<OpenPage, 'lastUsed'>> {
+    record = { ...record, root: this.store.authorizedRoot(record) };
     const type = this.typeOf(record);
     if (!type) throw new OpenArtifactError('type_missing', `The type ${record.type} is not installed.`);
     const mismatch = typeMismatch(record, type);
@@ -1967,7 +1998,12 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
     if (rel.includes('\0')) return this.notFound(req, res);
     let base = type.dir;
     if (rel === '/_root' || rel.startsWith('/_root/')) {
-      base = record.root;
+      // In a workspace-confined daemon, the folder as it is now inside its workspace (a replaced one is nobody's page).
+      try {
+        base = this.store.authorizedRoot(record);
+      } catch {
+        return this.notFound(req, res);
+      }
       rel = rel.slice('/_root'.length);
     } else if (rel === '/' || rel === '') rel = `/${type.entry.file}`;
     const parts = rel.split('/').filter(Boolean);
@@ -1998,7 +2034,7 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
     // A static type has no server: the daemon zips the folder itself, with the same rules.
     if (this.typeOf(record)?.entry?.kind === 'static') {
       res.setHeader('X-Content-Type-Options', 'nosniff');
-      return sendFolderArchive(req, res, record.root);
+      return sendFolderArchive(req, res, this.store.authorizedRoot(record));
     }
     const head = req.method === 'HEAD';
     const answer = await this.archiveAnswer(record, head ? 'HEAD' : 'GET');
@@ -2039,7 +2075,7 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
 
   /** The artifact's folder as a zip, made by its type server with the export's rules (what Link publishes). */
   private async archiveBytes(record: ArtifactRecord): Promise<Uint8Array> {
-    if (this.typeOf(record)?.entry?.kind === 'static') return zipBytes(await archiveEntries(record.root));
+    if (this.typeOf(record)?.entry?.kind === 'static') return zipBytes(await archiveEntries(this.store.authorizedRoot(record)));
     const answer = await this.archiveAnswer(record, 'GET', 300_000);
     const type = this.typeOf(record);
     // Held in memory whole: capped for a type on another computer (remote-archive.ts).

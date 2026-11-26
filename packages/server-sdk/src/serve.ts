@@ -18,6 +18,7 @@ import { hostname } from 'node:os';
 import { basename, isAbsolute, join, resolve } from 'node:path';
 import type { Duplex } from 'node:stream';
 import { threadId } from 'node:worker_threads';
+import { WorkspaceDirectory } from '@open-artifact/protocol/workspace-files';
 import {
   OPEN_ARTIFACT_PROTOCOL,
   OpenArtifactError,
@@ -127,6 +128,7 @@ export interface SiteContext {
   id: string;
   /** Artifact title, as the daemon knows it (may be empty). */
   title: string;
+  workspace?: WorkspaceDirectory | undefined;
   /** The Type API client. */
   daemon: TypeApi;
   /** Appends a line to the artifact's log file. */
@@ -503,6 +505,7 @@ export interface TypeServerOptions {
 /** One mounted artifact. */
 interface Mounted extends ArtifactRef {
   page: string;
+  workspace: WorkspaceDirectory | undefined;
   /** Open event streams. */
   streams: number;
   lastUsed: number;
@@ -658,7 +661,10 @@ export class TypeServer {
       throw new OpenArtifactError('invalid_argument', 'open needs the artifact root (an absolute path).', { status: 400 });
     }
     const have = this.byId.get(id);
-    if (have && have.root === resolve(root)) {
+    const identity = request.workspaceDirectory;
+    const workspace = identity ? new WorkspaceDirectory(identity.root, identity) : have?.workspace;
+    const target = workspace?.resolve(root) ?? resolve(root);
+    if (have && have.root === target && have.workspace?.root === workspace?.root) {
       have.lastUsed = Date.now();
       if (title) have.title = title;
       return have;
@@ -666,17 +672,17 @@ export class TypeServer {
     if (have) this.unmount(id);
     const busy = this.mounting.get(id);
     if (busy) return busy;
-    const work = this.mount(id, resolve(root), title).finally(() => this.mounting.delete(id));
+    const work = this.mount(id, target, title, workspace).finally(() => this.mounting.delete(id));
     this.mounting.set(id, work);
     return work;
   }
 
-  private async mount(id: string, root: string, title: string | undefined): Promise<Mounted> {
+  private async mount(id: string, root: string, title: string | undefined, workspace?: WorkspaceDirectory): Promise<Mounted> {
     if (!existsSync(root)) throw new OpenArtifactError('not_found', `The folder ${root} is gone.`, { status: 404 });
-    const logFile = join(root, LOG_FILE);
+    const logPath = join(root, LOG_FILE);
     const log = (line: string): void => {
       try {
-        appendFileSync(logFile, `[${new Date().toISOString()}] ${line}\n`);
+        appendFileSync(workspace ? new WorkspaceDirectory(workspace.resolve(root)).resolve(logPath) : logPath, `[${new Date().toISOString()}] ${line}\n`);
       } catch {
         // A read-only or vanished folder.
       }
@@ -701,6 +707,7 @@ export class TypeServer {
     const site = await this.options.mountSite(root, {
       id,
       title: title ?? '',
+      workspace,
       daemon: this.daemon,
       log,
       network: this.lan.network,
@@ -718,7 +725,7 @@ export class TypeServer {
       site.close();
       throw new OpenArtifactError('conflict', `${other.root} is already open at ${site.page}.`, { status: 409 });
     }
-    const entry: Mounted = { id, root, title: title ?? '', site, page: site.page, streams: 0, lastUsed: Date.now() };
+    const entry: Mounted = { id, root, title: title ?? '', site, page: site.page, workspace, streams: 0, lastUsed: Date.now() };
     this.byId.set(id, entry);
     this.byPage.set(site.page, entry);
     try {
@@ -789,6 +796,12 @@ export class TypeServer {
     }
   }
 
+  private requireAuthorized(entry: Mounted): void {
+    if (entry.workspace && entry.workspace.resolve(entry.root) !== entry.root) {
+      throw new OpenArtifactError('not_granted', 'The authorized artifact directory changed.', { status: 403 });
+    }
+  }
+
   /** The site that answers a path outside every site's address: share links, uploads, common paths, the referrer. */
   private async answering(req: IncomingMessage, pathname: string): Promise<Mounted | null> {
     const link = /^\/s\/([A-Za-z0-9_-]{16,64})$/.exec(pathname);
@@ -820,6 +833,7 @@ export class TypeServer {
         req.resume();
         return notFound(res);
       }
+      this.requireAuthorized(content.entry);
       content.entry.lastUsed = Date.now();
       await site.content(req, res);
       return;
@@ -832,6 +846,7 @@ export class TypeServer {
   private async siteRequest(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
     const at = this.under(url.pathname);
     if (at) {
+      this.requireAuthorized(at.entry);
       at.entry.lastUsed = Date.now();
       if (at.rest === '') {
         req.resume();
@@ -844,6 +859,7 @@ export class TypeServer {
     }
     const entry = await this.answering(req, url.pathname);
     if (entry) {
+      this.requireAuthorized(entry);
       entry.lastUsed = Date.now();
       await entry.site.handle(req, res);
       return;
@@ -869,6 +885,7 @@ export class TypeServer {
         req.resume();
         return sendJson(res, 404, { code: 'not_found', message: `${url.searchParams.get('id')} is not open here.`, fix: 'Open it first (/__open-artifact/open).' });
       }
+      this.requireAuthorized(entry);
       entry.lastUsed = Date.now();
       return sendArchive(req, res, entry.root);
     }
@@ -877,6 +894,7 @@ export class TypeServer {
     const artifact = (id: unknown): Mounted => {
       const entry = this.byId.get(String(id ?? ''));
       if (!entry) throw new OpenArtifactError('not_found', `${String(id)} is not open here.`, { status: 404, fix: 'Open it first (/__open-artifact/open).' });
+      this.requireAuthorized(entry);
       entry.lastUsed = Date.now();
       return entry;
     };

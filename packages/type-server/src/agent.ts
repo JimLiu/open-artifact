@@ -20,10 +20,11 @@
 import { randomBytes } from 'node:crypto';
 import { mkdir, readFile, readdir, rename, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import type { AgentDelivery, AgentRequest, AgentSendResult, AgentStatus } from '@open-artifact/runtime/capabilities';
 import { sanitizeUntrusted } from '@open-artifact/runtime/untrusted';
 import type { WakeSender } from '@open-artifact/protocol';
+import { WorkspaceDirectory } from '@open-artifact/protocol/workspace-files';
 import type { TypeApiLike } from '@open-artifact/server-sdk';
 import { wakeRequests } from './daemon.ts';
 import { writeAtomic } from './store.ts';
@@ -57,14 +58,15 @@ export interface QueuedRequest {
 
 /** Folder paths of an artifact's agent channel. */
 export function agentPaths(root: string): { dir: string; inbox: string; done: string; waiting: string; asking: string; viewContext: string } {
-  const dir = join(root, '_agent');
+  const files = new WorkspaceDirectory(root);
+  const entry = (name: string) => files.resolve(join('_agent', name));
   return {
-    dir,
-    inbox: join(dir, 'inbox'),
-    done: join(dir, 'done'),
-    waiting: join(dir, 'waiting'),
-    asking: join(dir, 'asking'),
-    viewContext: join(dir, 'view-context.json'),
+    get dir() { return files.resolve('_agent'); },
+    get inbox() { return entry('inbox'); },
+    get done() { return entry('done'); },
+    get waiting() { return entry('waiting'); },
+    get asking() { return entry('asking'); },
+    get viewContext() { return entry('view-context.json'); },
   };
 }
 
@@ -92,7 +94,7 @@ export async function touchWaiter(root: string): Promise<void> {
 
 /** Removes the waiter heartbeat. */
 export async function clearWaiter(root: string): Promise<void> {
-  await rm(agentPaths(root).waiting, { force: true });
+  await rm(new WorkspaceDirectory(root).resolve('_agent/waiting', false), { force: true });
 }
 
 /** An agent that asked and never came back stops showing as waiting on the person after this long, ms. */
@@ -110,7 +112,7 @@ export async function markAsking(root: string): Promise<void> {
 
 /** The agent went on (it read, waits for the page, or said so): it no longer waits on the person. */
 export function clearAsking(root: string): void {
-  rmSync(agentPaths(root).asking, { force: true });
+  rmSync(new WorkspaceDirectory(root).resolve('_agent/asking', false), { force: true });
 }
 
 /**
@@ -152,25 +154,26 @@ export function normalizeRequest(request: AgentRequest, deliver: AgentDelivery):
 
 /** Appends a request to the inbox. */
 export async function enqueue(root: string, request: QueuedRequest): Promise<void> {
-  const { inbox } = agentPaths(root);
+  const files = new WorkspaceDirectory(root);
   const stamp = request.at.replace(/[-:.TZ]/g, '');
-  await writeAtomic(join(inbox, `${stamp}-${request.id}.json`), `${JSON.stringify(request, null, 2)}\n`);
+  await writeAtomic(files.resolve(join('_agent', 'inbox', `${stamp}-${request.id}.json`), false), `${JSON.stringify(request, null, 2)}\n`);
 }
 
 /** The pending requests, oldest first. */
 export async function pending(root: string): Promise<{ file: string; request: QueuedRequest }[]> {
-  const { inbox } = agentPaths(root);
+  const files = new WorkspaceDirectory(root);
   let names: string[];
   try {
-    names = (await readdir(inbox)).filter((name) => name.endsWith('.json')).sort();
+    names = (await readdir(files.resolve('_agent/inbox'))).filter((name) => name.endsWith('.json')).sort();
   } catch {
     return [];
   }
   const out: { file: string; request: QueuedRequest }[] = [];
   for (const name of names) {
-    const file = join(inbox, name);
     try {
-      out.push({ file, request: JSON.parse(await readFile(file, 'utf8')) as QueuedRequest });
+      const requested = join('_agent', 'inbox', name);
+      const request = JSON.parse(await readFile(files.resolve(requested), 'utf8')) as QueuedRequest;
+      out.push({ file: files.resolve(requested, false), request });
     } catch {
       /* half-written or corrupt: skip */
     }
@@ -180,14 +183,16 @@ export async function pending(root: string): Promise<{ file: string; request: Qu
 
 /** Moves taken requests to `done/` and trims it. */
 export async function markTaken(root: string, files: string[]): Promise<void> {
-  const { done } = agentPaths(root);
+  const directory = new WorkspaceDirectory(root);
+  const done = directory.resolve('_agent/done');
   await mkdir(done, { recursive: true });
   for (const file of files) {
-    const name = file.slice(file.lastIndexOf('/') + 1);
-    await rename(file, join(done, name)).catch(() => rm(file, { force: true }));
+    const input = directory.resolve(file, false);
+    const output = directory.resolve(join(done, basename(file)), false);
+    await rename(input, output).catch(() => rm(input, { force: true }));
   }
   const names = (await readdir(done)).sort();
-  for (const name of names.slice(0, Math.max(0, names.length - DONE_KEEP))) await rm(join(done, name), { force: true });
+  for (const name of names.slice(0, Math.max(0, names.length - DONE_KEEP))) await rm(directory.resolve(join(done, name), false), { force: true });
 }
 
 /** Formats requests for an agent reading a terminal. */
@@ -294,7 +299,7 @@ export async function agentStatus(root: string, daemon: TypeApiLike | null, busy
 
 /** `_agent/edits.json`: how many edits people made since the agent last read the content. */
 export function editsFile(root: string): string {
-  return join(agentPaths(root).dir, 'edits.json');
+  return new WorkspaceDirectory(root).resolve('_agent/edits.json');
 }
 
 /** The count of people's edits since the agent's last read (0 when none was counted). */
@@ -310,11 +315,11 @@ export function readEdits(root: string): number {
 /** Adds `n` people's edits to the count (the server, on each page write). */
 export function countEdits(root: string, n: number): void {
   if (!(n > 0)) return;
-  const file = editsFile(root);
   try {
+    const file = new WorkspaceDirectory(root).resolve('_agent/edits.json', false);
     mkdirSync(agentPaths(root).dir, { recursive: true });
     const temp = `${file}.${randomBytes(4).toString('hex')}.tmp`;
-    writeFileSync(temp, `${JSON.stringify({ edits: readEdits(root) + n, at: new Date().toISOString() })}\n`);
+    writeFileSync(temp, `${JSON.stringify({ edits: readEdits(root) + n, at: new Date().toISOString() })}\n`, { flag: 'wx' });
     renameSync(temp, file);
   } catch {
     // The count is a hint; a folder that cannot be written keeps none.
@@ -323,5 +328,5 @@ export function countEdits(root: string, n: number): void {
 
 /** Starts the count again (the agent read the content: `read-db`, ArtifactData read). */
 export function resetEdits(root: string): void {
-  rmSync(editsFile(root), { force: true });
+  rmSync(new WorkspaceDirectory(root).resolve('_agent/edits.json', false), { force: true });
 }

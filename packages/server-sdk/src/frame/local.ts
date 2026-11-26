@@ -311,6 +311,7 @@ export function localFrameEnv(root: string, ctx: SiteContext, options: LocalFram
     allowedNetworkOrigins: options.allowedNetworkOrigins,
     page,
     guard: LINK_GUARD,
+    imports: ctx.workspace,
     debug: () => !!process.env.OPEN_ARTIFACT_FRAME_DEBUG,
     daemon: ctx.daemon,
     agentHook: ctx.agentHook,

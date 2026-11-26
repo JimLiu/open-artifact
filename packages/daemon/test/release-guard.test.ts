@@ -6,11 +6,12 @@
 import { tempDir } from './helpers.ts';
 import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { after, before, test } from 'node:test';
 import type { ArtifactRecord, ToolCallResult } from '@open-artifact/protocol';
+import { WorkspaceDirectory } from '@open-artifact/protocol/workspace-files';
 import { startDaemon, type Daemon } from '../src/daemon.ts';
-import { ReleaseGuard, isNewerRelease, writtenRelease } from '../src/release-guard.ts';
+import { ReleaseGuard, isNewerRelease, writeMarkerRelease, writtenRelease } from '../src/release-guard.ts';
 
 function record(overrides: Partial<ArtifactRecord> = {}): ArtifactRecord {
   const root = tempDir('open-artifact-release-');
@@ -73,11 +74,38 @@ test('the guard: writes refused, reads marked read-only, a newer writer recorded
   assert.equal(isNewerRelease('3.0.0', null), false);
 });
 
+test('release metadata reads and updates respect the artifact directory policy', (t) => {
+  const current = record();
+  current.workspaceDirectory = new WorkspaceDirectory(current.root).identity;
+  const marker = join(current.root, '.artifact.json');
+  writeFileSync(marker, JSON.stringify({ release: '3.0.0' }));
+  const resolve = WorkspaceDirectory.prototype.resolve;
+  t.mock.method(WorkspaceDirectory.prototype, 'resolve', function (this: WorkspaceDirectory, input: string, followLeaf = true) {
+    if (basename(input) === '.artifact.json') throw new Error('Fixture policy denied the artifact marker.');
+    return resolve.call(this, input, followLeaf);
+  });
+  assert.equal(writtenRelease(current), '2.0.0');
+  writeMarkerRelease(current, '4.0.0');
+  assert.deepEqual(JSON.parse(readFileSync(marker, 'utf8')), { release: '3.0.0' });
+});
 let daemon: Daemon;
 before(async () => {
   daemon = await startDaemon({ port: 0, quiet: true, shellDir: tempDir('open-artifact-shell-'), homeDir: tempDir('open-artifact-no-home-') });
 });
 after(() => daemon.close());
+
+test('the library reports sharing only from the checked artifact state', (t) => {
+  const current = record();
+  current.workspaceDirectory = new WorkspaceDirectory(current.root).identity;
+  writeFileSync(join(current.root, '.sharing.json'), JSON.stringify({ lan: true }));
+  assert.equal(daemon.artifactView(current).shared, true);
+  const resolve = WorkspaceDirectory.prototype.resolve;
+  t.mock.method(WorkspaceDirectory.prototype, 'resolve', function (this: WorkspaceDirectory, input: string, followLeaf = true) {
+    if (basename(input) === '.sharing.json') throw new Error('Fixture policy denied sharing state.');
+    return resolve.call(this, input, followLeaf);
+  });
+  assert.equal(daemon.artifactView(current).shared, false);
+});
 
 test('the daemon\'s tools go through the guard', async (t) => {
   const type = daemon.types.list().find((candidate) => candidate.enabled && candidate.version);

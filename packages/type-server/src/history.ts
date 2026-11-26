@@ -37,7 +37,8 @@
 
 import { createHash, randomBytes } from 'node:crypto';
 import { mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync, existsSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { WorkspaceDirectory } from '@open-artifact/protocol/workspace-files';
 import type { HistoryAuthor, HistoryFileChange } from '@open-artifact/runtime/capabilities';
 
 /** Folder of the history, under the artifact root. */
@@ -186,7 +187,7 @@ function writeAtomicSync(file: string, data: Buffer | string): void {
   mkdirSync(dirname(file), { recursive: true });
   const temp = `${file}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`;
   try {
-    writeFileSync(temp, data);
+    writeFileSync(temp, data, { flag: 'wx' });
     renameSync(temp, file);
   } catch (error) {
     rmSync(temp, { force: true });
@@ -203,6 +204,8 @@ export function sameAuthor(a: HistoryAuthor, b: HistoryAuthor): boolean {
 export class History {
   /** Absolute path of `history/`. */
   readonly dir: string;
+  private readonly root: string;
+  private directory: WorkspaceDirectory | undefined;
   private readonly maxVersions: number;
   private readonly idleMs: number;
   private readonly spanMs: number;
@@ -214,7 +217,8 @@ export class History {
   private stamp = '';
 
   constructor(root: string, options: HistoryOptions = {}) {
-    this.dir = join(root, HISTORY_DIR);
+    this.root = resolve(root);
+    this.dir = join(this.root, HISTORY_DIR);
     this.maxVersions = Math.max(1, options.maxVersions ?? HISTORY_MAX_VERSIONS);
     this.idleMs = options.idleMs ?? HISTORY_IDLE_MS;
     this.spanMs = options.spanMs ?? HISTORY_SPAN_MS;
@@ -224,9 +228,18 @@ export class History {
 
   /* ---- loading ----------------------------------------------------------- */
 
+  private get files(): WorkspaceDirectory {
+    return this.directory ??= new WorkspaceDirectory(this.root);
+  }
+
+  private writableFiles(): WorkspaceDirectory {
+    if (!this.directory) mkdirSync(this.root, { recursive: true });
+    return this.files;
+  }
+
   private stampNow(): string {
     try {
-      const info = statSync(join(this.dir, INDEX));
+      const info = statSync(this.files.resolve(join(this.dir, INDEX)));
       return `${info.mtimeMs}:${info.size}`;
     } catch {
       return 'none';
@@ -239,7 +252,7 @@ export class History {
     if (stamp === this.stamp) return;
     let raw: unknown = null;
     try {
-      raw = JSON.parse(readFileSync(join(this.dir, INDEX), 'utf8'));
+      raw = JSON.parse(readFileSync(this.files.resolve(join(this.dir, INDEX)), 'utf8'));
     } catch {
       // No history yet (or an unreadable one: it starts again).
     }
@@ -249,7 +262,7 @@ export class History {
   }
 
   private save(): void {
-    writeAtomicSync(join(this.dir, INDEX), `${JSON.stringify(this.index)}\n`);
+    writeAtomicSync(this.writableFiles().resolve(join(this.dir, INDEX), false), `${JSON.stringify(this.index)}\n`);
     this.stamp = this.stampNow();
   }
 
@@ -306,7 +319,7 @@ export class History {
   read(sha: string): Buffer | null {
     if (!SHA.test(sha)) return null;
     try {
-      return readFileSync(join(this.dir, OBJECTS, sha));
+      return readFileSync(this.files.resolve(join(this.dir, OBJECTS, sha)));
     } catch {
       return null;
     }
@@ -316,7 +329,7 @@ export class History {
   size(sha: string): number | null {
     if (!SHA.test(sha)) return null;
     try {
-      return statSync(join(this.dir, OBJECTS, sha)).size;
+      return statSync(this.files.resolve(join(this.dir, OBJECTS, sha))).size;
     } catch {
       return null;
     }
@@ -473,7 +486,7 @@ export class History {
   /* ---- storage ----------------------------------------------------------- */
 
   private putObject(sha: string, bytes: Buffer): void {
-    const file = join(this.dir, OBJECTS, sha);
+    const file = this.writableFiles().resolve(join(this.dir, OBJECTS, sha));
     if (existsSync(file)) return;
     writeAtomicSync(file, bytes);
   }
@@ -511,11 +524,13 @@ export class History {
     for (const notice of this.index.notices) if (notice.lost.sha) keep.add(notice.lost.sha);
     let names: string[];
     try {
-      names = readdirSync(join(this.dir, OBJECTS));
+      names = readdirSync(this.files.resolve(join(this.dir, OBJECTS)));
     } catch {
       return;
     }
-    for (const name of names) if (SHA.test(name) && !keep.has(name)) rmSync(join(this.dir, OBJECTS, name), { force: true });
+    for (const name of names) {
+      if (SHA.test(name) && !keep.has(name)) rmSync(this.files.resolve(join(this.dir, OBJECTS, name), false), { force: true });
+    }
   }
 }
 

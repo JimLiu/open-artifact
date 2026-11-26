@@ -15,9 +15,9 @@
  */
 
 import { isTailnet } from '@open-artifact/server-sdk/lan';
-import { GUEST_ROLES, SHARING_FILE, SharingFile, isGuestRole, type ShareChange, type ShareViewFull } from './sharing.ts';
+import { WorkspaceDirectory } from '@open-artifact/protocol/workspace-files';
+import { GUEST_ROLES, SharingFile, isGuestRole, type ShareChange, type ShareViewFull } from './sharing.ts';
 import type { ShareRole } from '@open-artifact/protocol';
-import { join } from 'node:path';
 
 /** What the share commands need of the CLI. */
 export interface ShareCliDeps {
@@ -70,7 +70,13 @@ export function shareChangeOf(flags: Flags, fail: ShareCliDeps['fail']): ShareCh
 }
 
 /** The port the links were given out with, so a server started for them gets it back. */
-export const sharedPort = (root: string): number | undefined => SharingFile.read(join(root, SHARING_FILE)).port;
+export function sharedPort(root: string): number | undefined {
+  try {
+    return SharingFile.read(new WorkspaceDirectory(root)).port;
+  } catch {
+    return undefined;
+  }
+}
 
 /** Lines for a person to read. */
 export function formatShare(view: ShareViewFull): string {

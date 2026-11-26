@@ -140,6 +140,10 @@ auto off`, `open-artifact remote default <name>`, or the Share panel). No agent 
 - **Harness profiles** (`packages/daemon/harnesses/<name>.json`) give the page the agent's name ("Ask Claude",
   "Ask Codex", …) and the session variable.
 
+A daemon started with `OPEN_ARTIFACT_WORKSPACE_FOLDERS_ONLY=1` (for an app that sandboxes its agents) keeps every
+call to the caller's workspace: folders, file paths in arguments and listings; see
+[docs/integrating/security.md](../docs/integrating/security.md#a-sandboxed-agent-workspace-folders-only).
+
 ## What was checked
 
 | | |

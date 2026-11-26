@@ -240,6 +240,16 @@ The harness asks its questions (`waitFor`, `evaluateAll`, `load`'s `ready`) in a
 - (e) `SIGTERM` to the daemon: it waits for its threads and exits 0, `daemon.log` has `daemon <version> stopped (SIGTERM)` once, every server log ends with `--- exit 0`, `daemon.json` and the lock are gone, the ports refuse connections and no process is left.
 - Not covered here: a real Electron utility process (it was checked by hand, see `docs/integrating/runtime.md` and `examples/harness-electron/README.md`, the stop on quit included) and the other six built-in types in threads.
 
+**Workspace confinement** (`workspace-confinement.test.mjs`, no browser)
+
+- A real daemon (`open-artifact daemon run` from source, in a temporary `OPEN_ARTIFACT_HOME`) started with `OPEN_ARTIFACT_WORKSPACE_FOLDERS_ONLY=1`, as a sandboxed agent host runs it. The built-in `docs` and `whiteboard` run from the built tree; `note` is a static user type, so the daemon serves its folder itself. Next to the workspace sits an `outside` folder with a secret file.
+- (a) A `folder` outside the workspace (absolute, or `..`) and a caller with no workspace are refused with `not_granted`, and nothing is made; `folder: "inside"` makes the artifact at the workspace's real path.
+- (b) Links in an artifact folder that lead out (a folder link and a file link): a publish through them writes nothing outside, a `read` returns nothing from outside, and the static page's `/_root/` answers 404 for them while it serves the artifact's own `index.html`.
+- (c) Action arguments: upload's `file`, docs `import`'s `file` (a path or a `file:` URL) and `export`'s `out` outside the workspace, or through a link in the workspace that leads out, are refused with `not_granted` before the type's server sees them, and no file is written; the same calls with files in the workspace work.
+- (d) ArtifactData: `file_path` and `out_file` outside the workspace (absolute, or `..`) are refused and nothing is written or imported; `out_file: "out/n1.json"` lands in the workspace. A `set` with a stale `if_match` answers `conflict` with `executionStatus: "not_executed"`, and the document is as it was.
+- (e) An artifact made at the workspace's top (`folder: "."`) is listed for another session in that workspace; a session in another workspace sees nothing of it under `mine` or `all`.
+- (f) The workspace moved away and a new folder made at its path, with a planted `index.html`: `read`, `publish` and `call` answer `not_granted`, the planted file is not overwritten, the static page answers 404 and the zip is refused.
+
 **Saving while a person edits** (`shell-save.test.mjs`, Chrome only)
 
 - A real daemon from source in a temporary `OPEN_ARTIFACT_HOME` on a free port, once with `OPEN_ARTIFACT_NODE_CHILDREN=threads` and once with `process`; a host connects with `createHarness` and opens the artifacts in the Shell.

@@ -51,6 +51,7 @@ import {
   PAGE_CONTENT_NOTICE,
   restrictedTypeNotice,
 } from '@open-artifact/protocol';
+import { WorkspaceDirectory } from '@open-artifact/protocol/workspace-files';
 import type { HarnessHub } from './harness.ts';
 import { harnessProfile } from './harness-profiles.ts';
 import { commentRouteOf, harnessSkillOptions, runtimeCli } from './harness-skill.ts';
@@ -251,6 +252,32 @@ const cleanPath = (rel: unknown): string => String(rel).replace(/\\/g, '/').repl
  * that only looks absolute (a JSON pointer such as `/blocks/0`) and names nothing here passes.
  */
 export function localPathIn(value: unknown, at: string, root: string, depth = 0): { at: string; path: string } | null {
+  const home = homedir();
+  const under = (full: string, dir: string): boolean => !!dir && (full === resolve(dir) || full.startsWith(resolve(dir) + sep));
+  return pathIn(value, at, (full) => under(full, home) || under(full, root) || existsSync(full), depth);
+}
+
+/**
+ * The first path on this computer in an action's arguments that a workspace-confined caller may not name: one that
+ * does not lead inside `workspace`. Stricter than {@link localPathIn}: a file still to be made counts as soon as its
+ * top folder is here (`/tmp/out.pdf`), so only a path that names nothing here (a JSON pointer such as `/blocks/0`)
+ * passes unchecked.
+ */
+export function pathOutside(value: unknown, at: string, workspace: WorkspaceDirectory): { at: string; path: string } | null {
+  return pathIn(value, at, (full) => {
+    const top = full.split(sep).slice(0, 2).join(sep) || sep;
+    if (!existsSync(top)) return false;
+    try {
+      workspace.resolve(full);
+      return false;
+    } catch {
+      return true;
+    }
+  });
+}
+
+/** The first absolute path (or `file:` URL) in `value` that `counts`, with where it is. */
+function pathIn(value: unknown, at: string, counts: (full: string) => boolean, depth = 0): { at: string; path: string } | null {
   if (typeof value === 'string') {
     if (value.length > 4096) return null;
     let path = value;
@@ -262,15 +289,12 @@ export function localPathIn(value: unknown, at: string, root: string, depth = 0)
       }
     }
     if (!isAbsolute(path) || resolve(path) === resolve('/')) return null;
-    const home = homedir();
-    const full = resolve(path);
-    const under = (dir: string): boolean => !!dir && (full === resolve(dir) || full.startsWith(resolve(dir) + sep));
-    return under(home) || under(root) || existsSync(full) ? { at, path: value } : null;
+    return counts(resolve(path)) ? { at, path: value } : null;
   }
   if (depth >= 8 || !value || typeof value !== 'object') return null;
   const entries = Array.isArray(value) ? value.slice(0, 1000).map((item, i) => [String(i), item] as const) : Object.entries(value).slice(0, 1000);
   for (const [key, item] of entries) {
-    const found = localPathIn(item, Array.isArray(value) ? `${at}[${key}]` : `${at}.${key}`, root, depth + 1);
+    const found = pathIn(item, Array.isArray(value) ? `${at}[${key}]` : `${at}.${key}`, counts, depth + 1);
     if (found) return found;
   }
   return null;
@@ -334,6 +358,8 @@ export interface ToolsOptions {
   inbox: Inbox;
   harnesses: () => HarnessHub;
   settings: () => OpenArtifactSettings;
+  /** Use the attached workspace as the boundary of a new or adopted folder. */
+  workspaceFoldersOnly?: boolean;
   /** The Shell address of an artifact. */
   viewUrl: (id: string) => string;
   /** Opens (resolves) the artifact's page, starting its type server when needed. */
@@ -410,9 +436,9 @@ export function capabilitiesOf(value: unknown, type: Pick<TypeInfo, 'id' | 'open
 }
 
 /** The type uid (and where that type came from) a folder's `.artifact.json` records, when it records one. */
-export function markerTypeUid(root: string): { typeUid: string | null; typeSource: string | null } {
+function markerTypeUid(files: WorkspaceDirectory): { typeUid: string | null; typeSource: string | null } {
   try {
-    const marker = JSON.parse(readFileSync(join(root, '.artifact.json'), 'utf8')) as { typeUid?: unknown; typeSource?: unknown };
+    const marker = JSON.parse(readFileSync(files.resolve('.artifact.json'), 'utf8')) as { typeUid?: unknown; typeSource?: unknown };
     const typeUid = typeof marker.typeUid === 'string' && marker.typeUid ? marker.typeUid : null;
     return { typeUid, typeSource: typeUid && typeof marker.typeSource === 'string' ? marker.typeSource : null };
   } catch {
@@ -421,9 +447,9 @@ export function markerTypeUid(root: string): { typeUid: string | null; typeSourc
 }
 
 /** The capabilities a folder's `.artifact.json` declares, when they are well formed and not empty. */
-function markerCapabilities(root: string): Record<string, unknown> | undefined {
+function markerCapabilities(files: WorkspaceDirectory): Record<string, unknown> | undefined {
   try {
-    const value = (JSON.parse(readFileSync(join(root, '.artifact.json'), 'utf8')) as { capabilities?: unknown }).capabilities;
+    const value = (JSON.parse(readFileSync(files.resolve('.artifact.json'), 'utf8')) as { capabilities?: unknown }).capabilities;
     return value !== undefined && !capabilitiesProblem(value) && Object.keys(value as object).length ? (value as Record<string, unknown>) : undefined;
   } catch {
     return undefined;
@@ -445,14 +471,21 @@ export function capabilityNotes(capabilities: Record<string, unknown> | null | u
  * The title an artifact's own files declare at its type's `titleFrom` (`<file>#<JSON pointer>`), at most 200
  * characters, or undefined (no `titleFrom`, no such file, no string there).
  */
-export function contentTitle(root: string, titleFrom: string | null): string | undefined {
+function contentTitle(files: WorkspaceDirectory, titleFrom: string | null): string | undefined {
   const parsed = titleFrom ? parseTitleFrom(titleFrom) : null;
   if (!parsed) return undefined;
   try {
-    return titleInFile(parsed.file, readFileSync(join(root, parsed.file), 'utf8'), parsed.pointer)?.slice(0, 200);
+    return titleInFile(parsed.file, readFileSync(files.resolve(parsed.file), 'utf8'), parsed.pointer)?.slice(0, 200);
   } catch {
     return undefined;
   }
+}
+
+/** Whether `root` is `folder` itself or inside it (an artifact made at a workspace's top is the workspace's too). */
+export function inFolder(root: string, folder: string): boolean {
+  const full = resolve(root);
+  const top = resolve(folder);
+  return full === top || full.startsWith(top.endsWith(sep) ? top : top + sep);
 }
 
 /** The tools. */
@@ -557,7 +590,7 @@ export class Tools {
       case 'publish':
         if (args.url) {
           this.allow(caller, 'modify', 'Artifact publish with url');
-          return this.write(args);
+          return this.write(args, caller);
         }
         this.allow(caller, 'create', 'Artifact publish with type_url');
         return this.create(args, caller);
@@ -759,11 +792,11 @@ export class Tools {
     const wanted = significant(text);
     if (!wanted.size) return [];
     const me = sessionKeyOf(caller);
-    const workspace = caller.workspace ? resolve(caller.workspace) + sep : null;
+    const workspace = caller.workspace ? resolve(caller.workspace) : null;
     const mine = (a: ArtifactRecord): boolean => !!a.owner && sessionKeyOf(a.owner) === me;
     return this.o.store
       .list()
-      .filter((a) => a.type === type.id && (mine(a) || (reuse === 'workspace' && !!workspace && a.root.startsWith(workspace))))
+      .filter((a) => a.type === type.id && this.reachable(a, workspace) && (mine(a) || (reuse === 'workspace' && !!workspace && inFolder(a.root, workspace))))
       .map((a) => ({ a, score: [...significant(a.title)].filter((w) => wanted.has(w)).length }))
       .filter(({ score }) => score > 0)
       .sort((x, y) => y.score - x.score || String(y.a.updatedAt).localeCompare(String(x.a.updatedAt)))
@@ -775,11 +808,11 @@ export class Tools {
   private relatedTo(type: TypeInfo, caller: SessionRef): Array<Record<string, unknown>> {
     if (!type.uses.length) return [];
     const me = sessionKeyOf(caller);
-    const workspace = caller.workspace ? resolve(caller.workspace) + sep : null;
+    const workspace = caller.workspace ? resolve(caller.workspace) : null;
     const mine = (a: ArtifactRecord): boolean => !!a.owner && sessionKeyOf(a.owner) === me;
     return this.o.store
       .list()
-      .filter((a) => type.uses.includes(a.type) && (mine(a) || (workspace && a.root.startsWith(workspace))))
+      .filter((a) => type.uses.includes(a.type) && this.reachable(a, workspace) && (mine(a) || (!!workspace && inFolder(a.root, workspace))))
       .sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)))
       .slice(0, RELATED_MAX)
       .map((a) => ({ url: artifactUrl(a.id), title: a.title, type: a.type, root: a.root, mine: mine(a), updatedAt: a.updatedAt }));
@@ -798,12 +831,12 @@ export class Tools {
     const offset = args.cursor === undefined || args.cursor === '' ? 0 : Number(args.cursor);
     if (!Number.isInteger(offset) || offset < 0) throw new OpenArtifactError('invalid_argument', 'cursor: the next_cursor of the previous page.');
     const me = sessionKeyOf(caller);
-    const workspace = caller.workspace ? resolve(caller.workspace) + sep : null;
+    const workspace = caller.workspace ? resolve(caller.workspace) : null;
     const mine = (a: ArtifactRecord): boolean => !!a.owner && sessionKeyOf(a.owner) === me;
     const changed = (a: ArtifactRecord): boolean => !!a.lastUserEditAt && (!a.agentSeenAt || a.lastUserEditAt > a.agentSeenAt);
     const shown = this.o.store
       .list()
-      .filter((a) => scope === 'all' || mine(a) || (workspace && a.root.startsWith(workspace)))
+      .filter((a) => this.reachable(a, workspace) && (scope === 'all' || mine(a) || (!!workspace && inFolder(a.root, workspace))))
       .filter((a) => (!typeId || a.type === typeId) && (!query || a.title.toLowerCase().includes(query)));
     const page = shown.slice(offset, offset + limit);
     const anyChanged = page.some(changed);
@@ -838,12 +871,17 @@ export class Tools {
    * A caller with no known workspace gets the home folder, never the daemon's own folder (which may be a plugin's).
    */
   resolveFolder(folder: string | undefined, caller: SessionRef, title?: string): string {
+    if (this.o.workspaceFoldersOnly && !caller.workspace) {
+      throw new OpenArtifactError('not_granted', 'A local workspace is required to create or adopt a work.');
+    }
     const base = caller.workspace ? resolve(caller.workspace) : homedir();
-    if (folder) return resolve(base, folder);
-    const dir = join(base, this.o.settings().artifactsDir || 'artifacts');
+    const directory = this.o.workspaceFoldersOnly ? new WorkspaceDirectory(base) : null;
+    const folderPath = (candidate: string) => directory?.resolve(candidate) ?? candidate;
+    if (folder) return folderPath(resolve(base, folder));
+    const dir = folderPath(join(base, this.o.settings().artifactsDir || 'artifacts'));
     const slug = slugify(title);
-    let root = join(dir, slug);
-    for (let i = 2; existsSync(root) && readdirSync(root).length; i++) root = join(dir, `${slug}-${i}`);
+    let root = folderPath(join(dir, slug));
+    for (let i = 2; existsSync(root) && readdirSync(root).length; i++) root = folderPath(join(dir, `${slug}-${i}`));
     return root;
   }
 
@@ -945,7 +983,11 @@ export class Tools {
       if (known) throw new OpenArtifactError('conflict', `${root} is already the artifact ${artifactUrl(known.id)}.`, { fix: 'Use that url, or give another folder.' });
     }
     const owner = caller.session || caller.workspace ? caller : null;
-    const record = this.o.store.create({ root, type: typeId, typeSource: type.scope, typeRelease: type.version, typeUid: type.uid, typeFrom: markerSourceOf(type), owner, title, capabilities });
+    const workspace = this.workspaceDirectory(caller);
+    const record = this.o.store.create({
+      root, type: typeId, typeSource: type.scope, typeRelease: type.version, typeUid: type.uid, typeFrom: markerSourceOf(type), owner, title, capabilities,
+      ...(workspace ? { workspaceDirectory: workspace.identity } : {}),
+    });
     this.o.log(`created ${record.id} (${typeId}) at ${root} for ${sessionKeyOf(caller) ?? 'nobody'}`);
     const auto = this.o.link?.created?.(record) === true;
     const actions = await this.knownActions(type, false);
@@ -1005,8 +1047,32 @@ export class Tools {
     }
   }
 
-  private async write(args: ArtifactArgs): Promise<ToolCallResult> {
+  /**
+   * Whether a listing may show an artifact to a caller in `workspace`: always, except in a workspace-confined daemon,
+   * where only the artifacts whose folders are in that workspace are shown (`scope: "all"` included), so a sandboxed
+   * agent never learns the paths of folders it cannot reach.
+   */
+  private reachable(record: ArtifactRecord, workspace: string | null): boolean {
+    return !this.o.workspaceFoldersOnly || (!!workspace && inFolder(record.root, workspace));
+  }
+
+  /** In a workspace-confined daemon, the caller's workspace: every folder it makes, adopts or touches stays in it. */
+  private workspaceDirectory(caller: SessionRef): WorkspaceDirectory | null {
+    if (!this.o.workspaceFoldersOnly) return null;
+    if (!caller.workspace) throw new OpenArtifactError('not_granted', 'A local workspace is required to access an artifact.');
+    return new WorkspaceDirectory(caller.workspace);
+  }
+
+  /** In a workspace-confined daemon, the artifact's real folder, checked to be in the caller's workspace. */
+  private artifactFiles(record: ArtifactRecord, caller: SessionRef): WorkspaceDirectory | null {
+    const workspace = this.workspaceDirectory(caller);
+    if (!workspace) return null;
+    return new WorkspaceDirectory(workspace.resolve(this.o.store.authorizedRoot(record)));
+  }
+
+  private async write(args: ArtifactArgs, caller: SessionRef): Promise<ToolCallResult> {
     let record = this.o.store.require(args.url);
+    const directory = this.artifactFiles(record, caller);
     // The type matters to a write only for a page (its capabilities, its title); a registry may be left out in tests.
     const type = this.o.types?.get(record.type, record.owner?.workspace ?? undefined) ?? null;
     const capabilities = args.capabilities === undefined ? undefined : capabilitiesOf(args.capabilities, type);
@@ -1022,7 +1088,8 @@ export class Tools {
     const plan = entries.map(([rel, value]) => {
       const clean = cleanPath(rel);
       if (/(^|\/)(\.artifact[^/]*|\.sharing\.json|_blobs)(\/|$)/.test(clean)) throw new OpenArtifactError('bad_path', `${rel} is the artifact's own bookkeeping.`);
-      const file = inside(record.root, clean);
+      const requested = inside(record.root, clean);
+      const file = directory?.resolve(requested, value !== null) ?? requested;
       if (value === null) return { clean, file, bytes: null };
       const content = typeof value === 'string' ? value : value?.content;
       if (typeof content !== 'string') throw new OpenArtifactError('invalid_argument', `${rel}: give text, or {content, encoding: "base64"}.`);
@@ -1040,7 +1107,8 @@ export class Tools {
           throw new OpenArtifactError('invalid_argument', `if_match ${rel}: the sha256 read returned, null (the file must not exist) or "*".`);
         }
         const clean = cleanPath(rel);
-        const current = this.hashOf(inside(record.root, clean));
+        const requested = inside(record.root, clean);
+        const current = this.hashOf(directory?.resolve(requested) ?? requested);
         if (expected === null ? current !== null : current !== expected.toLowerCase()) conflicts.push(clean);
       }
       if (conflicts.length) {
@@ -1050,8 +1118,9 @@ export class Tools {
             message: `${conflicts.length === 1 ? 'A file' : `${conflicts.length} files`} changed since you read ${conflicts.length === 1 ? 'it' : 'them'}: nothing was written.`,
             fix: 'Merge your change into the current version in current, then write again with its sha256 as if_match.',
           },
+          executionStatus: 'not_executed',
           url: artifactUrl(record.id),
-          current: Object.fromEntries(conflicts.map((path) => [path, this.fileState(record, path)])),
+          current: Object.fromEntries(conflicts.map((path) => [path, this.fileState(record, path, directory)])),
         };
       }
     }
@@ -1070,7 +1139,7 @@ export class Tools {
     if (capabilities !== undefined) record = this.o.store.setCapabilities(record.id, Object.keys(capabilities).length ? capabilities : null);
     const changed = changedFiles(record);
     // A page's title is its index.html's <title> (the type's titleFrom): an agent's write of it renames the artifact.
-    const titled = type?.titleFrom && isPageType(type) && plan.some(({ clean }) => clean === parseTitleFrom(type.titleFrom!)?.file) ? contentTitle(record.root, type.titleFrom) : undefined;
+    const titled = type?.titleFrom && isPageType(type) && plan.some(({ clean }) => clean === parseTitleFrom(type.titleFrom!)?.file) ? contentTitle(directory ?? new WorkspaceDirectory(record.root), type.titleFrom) : undefined;
     this.o.store.update(record.id, { agentSeenAt: now(), ...(titled && titled !== record.title ? { title: titled } : {}) });
     if (record.remote || record.autoPublish === 'pending') this.o.link?.wrote(record);
     const offline = this.o.link?.offlineNote(record) ?? null;
@@ -1100,21 +1169,21 @@ export class Tools {
   }
 
   /** What a file holds now, for a conflict: its sha256 and, for text, its content. */
-  private fileState(record: ArtifactRecord, path: string): Record<string, unknown> {
+  private fileState(record: ArtifactRecord, path: string, directory: WorkspaceDirectory | null): Record<string, unknown> {
     try {
-      return this.readOne(record, path, MAX_READ);
+      return this.readOne(record, path, MAX_READ, directory);
     } catch {
       return { sha256: null, note: 'It does not exist.' };
     }
   }
 
-  private listFiles(root: string, hashes = false): FileEntry[] {
+  private listFiles(root: string, hashes = false, directory: WorkspaceDirectory | null = null): FileEntry[] {
     const out: FileEntry[] = [];
     const walk = (dir: string, rel: string): void => {
       if (out.length >= MAX_LIST) return;
       let entries;
       try {
-        entries = readdirSync(dir, { withFileTypes: true });
+        entries = readdirSync(directory?.resolve(dir) ?? dir, { withFileTypes: true });
       } catch {
         return;
       }
@@ -1124,7 +1193,8 @@ export class Tools {
         if (e.isDirectory()) walk(join(dir, e.name), r);
         else if (out.length < MAX_LIST) {
           try {
-            const file = join(dir, e.name);
+            const requested = join(dir, e.name);
+            const file = directory?.resolve(requested) ?? requested;
             const bytes = statSync(file).size;
             out.push({ path: r, bytes, ...(hashes && bytes <= MAX_LIST_HASH ? { sha256: sha256(readFileSync(file)) } : {}) });
           } catch {
@@ -1138,11 +1208,12 @@ export class Tools {
   }
 
   /** One file (its content and sha256) or folder (its listing) under the root; text is cut at `budget` characters. */
-  private readOne(record: ArtifactRecord, path: string, budget: number): Record<string, unknown> {
-    const file = inside(record.root, path);
+  private readOne(record: ArtifactRecord, path: string, budget: number, directory: WorkspaceDirectory | null): Record<string, unknown> {
+    const requested = inside(record.root, path);
+    const file = directory?.resolve(requested) ?? requested;
     if (!existsSync(file)) throw new OpenArtifactError('not_found', `No file ${path} in ${record.root}.`);
     const stat = statSync(file);
-    if (stat.isDirectory()) return { path, files: this.listFiles(file, true) };
+    if (stat.isDirectory()) return { path, files: this.listFiles(file, true, directory) };
     const buffer = readFileSync(file);
     const hash = sha256(buffer);
     if (buffer.subarray(0, 8000).includes(0)) return { path, bytes: stat.size, sha256: hash, binary: true, note: 'A binary file: read it from disk if you need it.' };
@@ -1163,6 +1234,7 @@ export class Tools {
       throw new OpenArtifactError('invalid_argument', 'read needs url (an artifact) or type_url (a type).');
     }
     const record = this.o.store.require(args.url);
+    const directory = this.artifactFiles(record, caller);
     const changed = changedFiles(record);
     this.o.store.update(record.id, { agentSeenAt: now(), updatedAt: record.updatedAt });
     const seen = changed.length ? { changed_files: changed, notes: [changedNote(changed.length)] } : {};
@@ -1174,7 +1246,7 @@ export class Tools {
       let budget = MAX_READ_TOTAL;
       const files = args.paths.map((path) => {
         try {
-          const one = this.readOne(record, path, budget);
+          const one = this.readOne(record, path, budget, directory);
           if (typeof one.content === 'string') budget -= one.content.length;
           return one;
         } catch (error) {
@@ -1183,8 +1255,8 @@ export class Tools {
       });
       return { url: artifactUrl(record.id), files, ...seen, ...this.pageContentFields(record) };
     }
-    if (args.path) return { ...this.readOne(record, args.path, MAX_READ), ...seen, ...this.pageContentFields(record) };
-    const { owner, userEdits: _edits, remote, ...shown } = record;
+    if (args.path) return { ...this.readOne(record, args.path, MAX_READ, directory), ...seen, ...this.pageContentFields(record) };
+    const { owner, userEdits: _edits, remote, workspaceDirectory: _workspace, ...shown } = record;
     const type = this.o.types.get(record.type, owner?.workspace ?? undefined);
     const actions = type ? await this.knownActions(type, false) : null;
     return {
@@ -1198,7 +1270,7 @@ export class Tools {
       // notice: the type's, then the page content's, in the one field).
       ...(type ? { type_title: type.title, ...typeLocationFields(type), ...this.sourceFields(type) } : {}),
       ...(type && !type.trusted ? { third_party_notice: `${restrictedTypeNotice(type)} ${PAGE_CONTENT_NOTICE}` } : {}),
-      files: this.listFiles(record.root, true),
+      files: this.listFiles(record.root, true, directory),
       ...(actions ? { actions } : {}),
       ...seen,
     };
@@ -1337,6 +1409,16 @@ export class Tools {
         );
       }
     }
+    // A workspace-confined caller names files in its workspace only: a path elsewhere is refused before any server sees it.
+    const confined = caller ? this.workspaceDirectory(caller) : null;
+    if (confined) {
+      const outside = pathOutside(args, 'args', confined);
+      if (outside) {
+        throw new OpenArtifactError('not_granted', `${name} cannot take ${outside.at} (${outside.path}): it is outside this session's workspace.`, {
+          fix: 'Use a file inside the workspace, or pass the content itself in the arguments.',
+        });
+      }
+    }
     // A render (snapshot, Docs export) runs here on the working copy, brought up to date with the host first.
     const fresh = !forward && this.o.link?.renders(record, type, name) ? await this.o.link.freshen(record, type) : null;
     const behind = fresh?.note ?? null;
@@ -1366,6 +1448,8 @@ export class Tools {
     try {
       const out = forward ? await this.o.link!.call(record, name, args, effect) : await this.o.typeAction(type, record, name, args);
       const result: ToolCallResult = out && typeof out === 'object' && !Array.isArray(out) ? (out as ToolCallResult) : { result: out };
+      // The dispatcher assigns this proof. An action response cannot vouch for its own execution.
+      if (result.error && result.executionStatus === 'not_executed') delete result.executionStatus;
       if (behind) result.notes = [...(Array.isArray(result.notes) ? (result.notes as string[]) : []), behind];
       if (own && caller && typeof result.task === 'string' && result.pending === true) {
         this.o.taskStarted?.({ record, type, task: result.task, action: name, effect, caller });
@@ -1373,6 +1457,12 @@ export class Tools {
       if (own && caller && effect === 'write') this.o.ownership?.wrote(record.id, caller);
       return result;
     } catch (error) {
+      // A local data conflict reports the precondition state before any batch write.
+      if (name === 'open-artifact.db.write' && !forward && !location.remote &&
+          error instanceof OpenArtifactError && error.status === 409 && error.code === 'conflict' && error.current !== undefined) {
+        const { current, ...body } = errorBody(error);
+        return { error: body, current, executionStatus: 'not_executed' };
+      }
       if ((error as OpenArtifactError)?.code === 'unknown_action') {
         if (missing) throw missing;
         if (own && !(error as OpenArtifactError).fix) throw unknown(actions);
@@ -1396,11 +1486,16 @@ export class Tools {
   private async adopt(args: ArtifactArgs, caller: SessionRef): Promise<ToolCallResult> {
     if (args.url) {
       const record = this.o.store.require(args.url);
+      const workspace = this.workspaceDirectory(caller);
+      if (workspace) workspace.resolve(record.workspaceDirectory ? this.o.store.authorizedRoot(record) : record.root);
       // Taking over another session's artifact removes it from that session; one of nobody's (or already the caller's) is a change.
       const owner = record.owner ? sessionKeyOf(record.owner) : null;
       if (owner && owner !== sessionKeyOf(caller)) this.allow(caller, 'remove', "Artifact adopt of another session's artifact");
       else this.allow(caller, 'modify', 'Artifact adopt');
-      const next = this.o.store.update(record.id, { owner: caller, agentSeenAt: now() });
+      const next = this.o.store.update(record.id, {
+        owner: caller, agentSeenAt: now(),
+        ...(workspace && !record.workspaceDirectory ? { workspaceDirectory: workspace.identity } : {}),
+      });
       this.o.handOff?.(next.id, caller, 'adopt');
       // Taking over one made elsewhere (the home page, another session): the type's instructions come along.
       const type = this.o.types.get(next.type, caller.workspace ?? undefined);
@@ -1420,24 +1515,28 @@ export class Tools {
     const known = this.o.store.byRoot(root);
     if (known) return this.adopt({ url: artifactUrl(known.id) }, caller);
     this.allow(caller, 'create', 'Artifact adopt of a folder');
+    const workspace = this.workspaceDirectory(caller);
+    const files = new WorkspaceDirectory(workspace?.resolve(root) ?? root);
     let typeId = typeIdOf(args.type_url);
     if (!typeId) {
-      try {
-        typeId = (JSON.parse(readFileSync(join(root, '.artifact.json'), 'utf8')) as { type?: string }).type ?? null;
-      } catch {
-        // Detect by the types' marker files.
-        typeId = this.o.types.list(caller.workspace).find((t) => t.detect.some((rel) => existsSync(join(root, rel))))?.id ?? null;
+      const marker = files.readJson<{ type?: unknown } | null>('.artifact.json', null);
+      if (marker === null) {
+        typeId = this.o.types.list(caller.workspace).find((t) => t.detect.some((rel) => {
+          try { return existsSync(files.resolve(rel)); } catch { return false; }
+        }))?.id ?? null;
+      } else if (typeof marker.type === 'string') {
+        typeId = marker.type;
       }
     }
     if (!typeId) throw new OpenArtifactError('invalid_argument', `Which type is ${root}? Give type_url.`);
     const type = this.o.types.get(typeId, caller.workspace);
     // The title its content declares (the type's `titleFrom`, e.g. a doc's name), else the folder's name.
-    const title = args.title || contentTitle(root, type?.titleFrom ?? null) || basename(root);
+    const title = args.title || contentTitle(files, type?.titleFrom ?? null) || basename(root);
     // A page folder keeps the capabilities its marker declares (the record is new, the declaration is the folder's).
-    const capabilities = isPageType(type) ? markerCapabilities(root) : undefined;
+    const capabilities = isPageType(type) ? markerCapabilities(files) : undefined;
     // The uid the folder's marker recorded is kept as it is (none recorded: none is added); the type here is checked
     // against it when the artifact is opened or written.
-    const marked = markerTypeUid(root);
+    const marked = markerTypeUid(files);
     const record = this.o.store.create({
       root,
       type: typeId,
@@ -1448,6 +1547,7 @@ export class Tools {
       owner: caller,
       title,
       capabilities,
+      ...(workspace ? { workspaceDirectory: workspace.identity } : {}),
     });
     const auto = this.o.link?.created?.(record) === true;
     const actions = type ? await this.knownActions(type, false) : null;
@@ -1467,7 +1567,7 @@ export class Tools {
     const record = this.o.store.require(args.url);
     if (actionKindOf('ArtifactData', typeof args.action === 'string' ? args.action : undefined) !== 'read') this.allow(caller, 'modify', `ArtifactData ${String(args.action)}`);
     const noStore = new OpenArtifactError('unsupported', `${record.type} keeps no document store: write its files with Artifact publish.`);
-    const db = (name: ReservedAction, a: Record<string, unknown>): Promise<ToolCallResult> => this.action(record, name, a, noStore);
+    const db = (name: ReservedAction, a: Record<string, unknown>): Promise<ToolCallResult> => this.action(record, name, a, noStore, caller);
     const docPath = args.path ?? (args.collection && args.doc_id ? `${args.collection}/${args.doc_id}` : args.collection);
     const base = caller.workspace ? resolve(caller.workspace) : record.root;
     // A write passes only the fields a write has, with its file_path made absolute.
@@ -1504,7 +1604,7 @@ export class Tools {
         if (args.action === 'query' && docs && out.query !== true) notes.push(DATA_QUERY_IGNORED_NOTE);
         if ((docs && docs.some((d) => typeof d.sha256 !== 'string')) || (out.exists === true && typeof out.sha256 !== 'string')) notes.push(DATA_NO_SHA_NOTE);
         const result: ToolCallResult = { url: artifactUrl(record.id), ...out, ...(notes.length ? { notes } : {}), ...this.pageContentFields(record) };
-        return args.out_file ? this.dataToFile(record, result, args.out_file, base) : result;
+        return args.out_file ? this.dataToFile(record, result, args.out_file, base, this.workspaceDirectory(caller)) : result;
       }
       case 'set':
       case 'update':
@@ -1523,8 +1623,9 @@ export class Tools {
   }
 
   /** A read's result written to a JSON file: the agent reads it from disk instead of its context. */
-  private dataToFile(record: ArtifactRecord, result: ToolCallResult, outFile: string, base: string): ToolCallResult {
-    const file = resolve(base, outFile);
+  private dataToFile(record: ArtifactRecord, result: ToolCallResult, outFile: string, base: string, workspace: WorkspaceDirectory | null): ToolCallResult {
+    // In a workspace-confined daemon, the file is in the caller's workspace, its real path (a link there is followed).
+    const file = workspace ? workspace.resolve(resolve(base, outFile)) : resolve(base, outFile);
     if (file === record.root || file.startsWith(record.root + sep)) throw new OpenArtifactError('bad_path', 'out_file goes outside the artifact folder: a file there would become part of the artifact.');
     mkdirSync(dirname(file), { recursive: true });
     const { notes, url: _url, third_party_notice: notice, ...data } = result;

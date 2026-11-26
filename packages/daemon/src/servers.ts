@@ -133,7 +133,7 @@ export function failureOf(error: unknown, timeoutMs?: number): string {
  */
 export function forRemote<T>(type: TypeInfo, body: T): T {
   if (!typeLocation(type).remote || !body || typeof body !== 'object' || Array.isArray(body) || !('root' in body)) return body;
-  const { root: _root, ...rest } = body as Record<string, unknown>;
+  const { root: _root, workspaceDirectory: _workspace, ...rest } = body as Record<string, unknown>;
   return rest as T;
 }
 
@@ -276,7 +276,7 @@ export class TypeServers {
   }
 
   /** The artifact's page (absolute addresses): a URL template filled in, or `/__open-artifact/open` asked of the server. */
-  async open(type: TypeInfo, record: { id: string; root: string; title: string }, context: { lang?: string; shell: string }): Promise<{ url: string; page_url: string }> {
+  async open(type: TypeInfo, record: Pick<OpenRequest, 'id' | 'workspaceDirectory'> & { root: string; title: string }, context: { lang?: string; shell: string }): Promise<{ url: string; page_url: string }> {
     const entry = remoteEntry(type);
     if (entry.kind === 'url' && !entry.open) {
       const url = fillTemplate(entry.url, { id: record.id, lang: context.lang, root: record.root });
@@ -290,7 +290,11 @@ export class TypeServers {
     }
     // The Shell's own address on the same origin: a top-level visit to the framed page goes there. A remote type gets
     // no `root` (forRemote): the title, language and the Shell's address only, which its page sees anyway.
-    const request: OpenRequest = { id: record.id, root: record.root, title: record.title, lang: context.lang || 'en', shell: context.shell, viewer: context.shell + shellPath(record.id) };
+    const request: OpenRequest = {
+      id: record.id, root: record.root, title: record.title, lang: context.lang || 'en',
+      shell: context.shell, viewer: context.shell + shellPath(record.id),
+      ...(record.workspaceDirectory ? { workspaceDirectory: record.workspaceDirectory } : {}),
+    };
     const out = await this.call<Partial<OpenResult>>(type, 'POST', TYPE_SERVER_ROUTES.open, request);
     if (!out || typeof out.url !== 'string') throw new OpenArtifactError('server_failed', `${type.id}: ${TYPE_SERVER_ROUTES.open} returned no url.`);
     const url = new URL(out.url, base).href;

@@ -204,6 +204,11 @@ export interface FrameEnv {
   page: boolean;
   /** How the stores keep inside the artifact folder: local follows links; a virtual file system has none. */
   guard: PathGuard;
+  /**
+   * Where files named by absolute path (an `ArtifactData` write's `file_path`) may be read from: in a
+   * workspace-confined daemon, the artifact's workspace; checks a path and returns it (or throws). None: anywhere.
+   */
+  imports?: { resolve(path: string): string } | undefined;
   /** Whether pages relay their console errors (`OPEN_ARTIFACT_FRAME_DEBUG` locally). */
   debug(): boolean;
   /** The daemon (this computer), or null. */

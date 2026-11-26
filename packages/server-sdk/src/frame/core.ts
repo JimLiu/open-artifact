@@ -211,7 +211,7 @@ export class FrameCore {
       );
     }
     const guard = { guard: env.guard };
-    this.db = new DbStore(root, guard);
+    this.db = new DbStore(root, { ...guard, imports: env.imports });
     this.comments = new CommentStore(root, guard);
     this.files = new FileStore(root, { ownIndex: this.pageMode, ...guard });
     this.blobs = new BlobStore(root, guard);
