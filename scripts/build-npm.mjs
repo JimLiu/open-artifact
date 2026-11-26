@@ -10,6 +10,8 @@
  *   dsh-open-artifact         the DeepSeek Harness plugin (plugins/dsh/), its `files`
  *   pi-open-artifact          the Pi package (plugins/pi/): its TypeScript sources as they are (Pi loads them), and
  *                             the three packages above it runs on as dependencies, at this release's version
+ *   omp-open-artifact         the OMP package (plugins/omp/): the same shape, with its `skills/` as they are (OMP scans
+ *                             them in an extension package)
  *
  * Needs a build first: `npm run build` (the frame client, the DSH plugin) and `node scripts/build-skill.mjs`.
  *
@@ -361,6 +363,29 @@ function stagePi() {
   return published;
 }
 
+// ---------------------------------------------------------------- omp-open-artifact
+
+function stageOmp() {
+  const source = join(ROOT, 'plugins', 'omp');
+  const pkg = readJson(join(source, 'package.json'));
+  const out = join(OUT, 'omp-open-artifact');
+  rmSync(out, { recursive: true, force: true });
+  mkdirSync(out, { recursive: true });
+  for (const entry of pkg.files) {
+    if (!existsSync(join(source, entry))) fail(`plugins/omp/${entry} is missing`);
+    cpSync(join(source, entry), join(out, entry), { recursive: true });
+  }
+  // The packages it imports are published with this release: one version for all of them.
+  const version = readJson(join(ROOT, 'packages', 'daemon', 'package.json')).version;
+  if (pkg.version !== version) fail(`plugins/omp is ${pkg.version}, the release is ${version}: raise its version too`);
+  const dependencies = Object.fromEntries(Object.keys(pkg.dependencies ?? {}).map((name) => [name, version]));
+  const { private: _private, devDependencies: _dev, scripts: _scripts, ...rest } = pkg;
+  const published = { ...rest, dependencies, files: [...pkg.files, 'LICENSE', 'NOTICE'], ...common(pkg, 'plugins/omp') };
+  writeJson(join(out, 'package.json'), published);
+  copyLegal(out);
+  return published;
+}
+
 // ---------------------------------------------------------------- order
 
 /** Folders under dist/npm/, dependencies first. */
@@ -391,6 +416,7 @@ const staged = LIBRARIES.map((dir) => ({ folder: dir, pkg: stageLibrary(dir) }))
 staged.push({ folder: 'cli', pkg: stageCli() });
 staged.push({ folder: 'dsh-open-artifact', pkg: stageDsh() });
 staged.push({ folder: 'pi-open-artifact', pkg: stagePi() });
+staged.push({ folder: 'omp-open-artifact', pkg: stageOmp() });
 rmSync(TSC_OUT, { recursive: true, force: true });
 for (const folder of publishingOrder(staged)) {
   const { pkg } = staged.find((p) => p.folder === folder);

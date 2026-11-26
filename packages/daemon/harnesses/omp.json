@@ -1,0 +1,28 @@
+{
+  "name": "omp",
+  "title": "OMP",
+  "agentName": "OMP",
+  "level": "L3",
+  "entry": "harness-api",
+  "plugin": "omp-open-artifact",
+  "sessionEnv": "OMP_BASH_SESSION",
+  "markers": [
+    "OMP_BASH_SESSION"
+  ],
+  "wake": [
+    "live",
+    "inbox"
+  ],
+  "open": "browser",
+  "caps": {
+    "tools": "native",
+    "commands": {
+      "names": [
+        "open-artifact"
+      ]
+    },
+    "wake": {
+      "resume": true
+    }
+  }
+}

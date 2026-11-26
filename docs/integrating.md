@@ -47,7 +47,7 @@ and how to check it.
 | 4. The library | Cards or a list from artifact events | Cards under messages, or your own artifact list | As above |
 
 The shipped integrations sit at these levels: Claude Code, Codex, Cursor, Copilot, Antigravity and ZCode are level 1
-with hooks; DeepSeek Harness (`plugins/dsh`) and Pi (`plugins/pi`) are full adapters on the kit.
+with hooks; DeepSeek Harness (`plugins/dsh`), Pi (`plugins/pi`) and OMP (`plugins/omp`) are full adapters on the kit.
 [`plugins/README.md`](../plugins/README.md) lists them.
 
 ## Level 0: the skill and the command line
@@ -406,4 +406,4 @@ Shell shows your harness name as it is.
 | Every host ↔ Shell message | [spec/embed.md](spec/embed.md) |
 | Every profile field | [spec/profile.md](spec/profile.md) |
 | Runnable examples | [examples/README.md](../examples/README.md) |
-| A full adapter of a terminal agent, on the kit (Pi) | [plugins/pi](../plugins/pi/README.md) |
+| A full adapter of a terminal agent, on the kit (Pi, OMP) | [plugins/pi](../plugins/pi/README.md), [plugins/omp](../plugins/omp/README.md) |

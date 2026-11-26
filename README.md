@@ -83,6 +83,7 @@ DeepSeek Harness installs its prebuilt package directly from npm.
 | [ChatGPT on the web](plugins/chatgpt/README.md) | Run the prebuilt connector from the extracted `chatgpt/` folder and connect it over HTTPS. |
 | [DeepSeek Harness](https://www.npmjs.com/package/dsh-open-artifact) | In Plugins, choose **Add plugin** and enter `dsh-open-artifact` as the npm package. In the CLI, run `dsh plugin --profile web add dsh-open-artifact` for the web profile. |
 | [Pi](plugins/pi/README.md) | Run `pi install npm:pi-open-artifact`, then start a new Pi session. |
+| [OMP](plugins/omp/README.md) | Run `omp plugin install npm:omp-open-artifact`, then start a new OMP session. |
 
 To upgrade, download the new ZIP, replace the extracted folder at the same path, and follow your app's
 update steps in the linked guide. If your marketplace still points to a source checkout, register the extracted
@@ -180,7 +181,7 @@ node scripts/build-wasm.mjs   # needs cargo + wasm32-unknown-unknown, wasm-bindg
 
 `node scripts/build-npm.mjs` stages the npm packages in `dist/npm/`: the `@open-artifact/*` libraries (compiled to
 JavaScript with type declarations), `@open-artifact/cli` (the `open-artifact` command with the daemon vendored),
-`dsh-open-artifact` and `pi-open-artifact`. To release:
+`dsh-open-artifact`, `pi-open-artifact` and `omp-open-artifact`. To release:
 
 1. Raise the versions (every package and plugin manifest shares one version).
 2. Run `node scripts/changelog.mjs` for the commits since the last tag, and add a `## [x.y.z] - date` entry at the top
