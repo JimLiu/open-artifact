@@ -113,7 +113,12 @@ describe('install as app: the dialog, moves in the Finder, refresh, repair, unin
     );
   };
   const buttons = () => page(`[...document.querySelectorAll('[data-testid=install-app-dialog] .new-actions button')].map((b) => b.dataset.testid)`);
-  const click = (testid: string) =>
+  /**
+   * Clicks a button once it is there and on: while a call is under way (Open's, say) every button of the dialog is off,
+   * and the main process may log the call's work before the page has its answer. False if it never comes on.
+   */
+  const click = async (testid: string) =>
+    (await waitPage(`document.querySelector('[data-testid=${testid}]')?.disabled === false`, 10_000)) &&
     page(`(() => { const b = document.querySelector('[data-testid=${testid}]'); if (!b || b.disabled) return false; b.click(); return true; })()`);
   const text = async (testid: string) => present(await page<string | null>(`document.querySelector('[data-testid=${testid}]')?.textContent ?? null`));
   const closeDialog = async () => {
