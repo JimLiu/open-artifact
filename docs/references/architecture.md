@@ -203,6 +203,16 @@ strict `tsconfig.json`. `src/contracts.ts` defines the page bridges and IPC chan
 adapters; sender checks and runtime input validation still run in the main process. Installed-app journals and
 states have concrete interfaces and discriminated unions in `src/installed-app-types.ts`.
 
+Desktop packaging (`apps/desktop/scripts/package.ts`) keeps local ad hoc builds and offers `--release` for Developer ID
+signing and Apple notarization. `macos-distribution.ts` signs nested code inside out with hardened runtime and JIT
+entitlements, staples the accepted app before ZIP creation, checks the extracted package, and separately signs,
+notarizes and staples the DMG. `macos-ci-keychain.ts` isolates signing/notary secrets in a temporary keychain with a
+real private-key signing probe and explicit cleanup. Desktop and runtime versions agree. `desktop-macos.yml` builds
+on native macOS arm64 and tests the signed package; its publisher (`scripts/release.ts`) validates tag/source/signer
+and hashes and uploads only public ZIP/DMG/checksums/report to an independent `desktop-v*` GitHub Release, preserving
+existing assets and npm's Latest release. There is no desktop auto-updater; locally installed artifact apps keep
+their ad hoc outer signatures. See `apps/desktop/RELEASING.md` and `RELEASING.zh-CN.md`.
+
 ## Agent tools & wake loop
 
 - **Tools** (defined in `packages/protocol/src/tools.ts`, implemented in `packages/daemon/src/tools.ts`):

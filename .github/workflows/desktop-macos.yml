@@ -1,0 +1,151 @@
+name: Desktop macOS
+
+on:
+  push:
+    tags: ['desktop-v*']
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Validate credentials, build a candidate, or publish an existing desktop tag
+        type: choice
+        options: [validate, package, publish]
+        default: validate
+      tag:
+        description: Existing desktop-v<version> tag (required for publish; optional otherwise)
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: desktop-macos-release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: macos-15
+    environment: macos-release
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    outputs:
+      tag: ${{ steps.plan.outputs.tag }}
+      source_commit: ${{ steps.plan.outputs.source_commit }}
+      signing_sha1: ${{ vars.OA_MAC_SIGNING_SHA1 }}
+      team_id: ${{ vars.OA_APPLE_TEAM_ID }}
+    env:
+      RELEASE_MODE: ${{ github.event_name == 'push' && 'publish' || inputs.mode }}
+      RELEASE_TAG: ${{ inputs.tag || (github.ref_type == 'tag' && github.ref_name) || '' }}
+    steps:
+      - name: Validate selected tag format before checkout
+        run: |
+          if [[ -n "$RELEASE_TAG" && ! "$RELEASE_TAG" =~ ^desktop-v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo 'Expected a stable desktop-v<MAJOR>.<MINOR>.<PATCH> tag'
+            exit 1
+          fi
+          if [[ "$RELEASE_MODE" == publish && -z "$RELEASE_TAG" ]]; then
+            echo 'Publication requires an existing desktop tag'
+            exit 1
+          fi
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.tag && format('refs/tags/{0}', inputs.tag) || github.ref }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Require trusted main ancestry before running repository code
+        run: git merge-base --is-ancestor HEAD origin/main
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            apps/desktop/package-lock.json
+      - name: Validate release source, tag, versions and changelog
+        id: plan
+        run: |
+          test "$(uname -m)" = arm64
+          node apps/desktop/scripts/release.ts plan
+      - name: Import signing identity and validate Apple notarization access
+        id: credentials
+        env:
+          OA_MAC_CERTIFICATE_BASE64: ${{ secrets.OA_MAC_CERTIFICATE_BASE64 }}
+          OA_MAC_CERTIFICATE_PASSWORD: ${{ secrets.OA_MAC_CERTIFICATE_PASSWORD }}
+          OA_MAC_SIGNING_SHA1: ${{ vars.OA_MAC_SIGNING_SHA1 }}
+          OA_APPLE_TEAM_ID: ${{ vars.OA_APPLE_TEAM_ID }}
+          OA_NOTARY_APPLE_ID: ${{ secrets.OA_NOTARY_APPLE_ID }}
+          OA_NOTARY_APP_PASSWORD: ${{ secrets.OA_NOTARY_APP_PASSWORD }}
+          OA_NOTARY_API_KEY_BASE64: ${{ secrets.OA_NOTARY_API_KEY_BASE64 }}
+          OA_NOTARY_KEY_ID: ${{ secrets.OA_NOTARY_KEY_ID }}
+          OA_NOTARY_ISSUER_ID: ${{ secrets.OA_NOTARY_ISSUER_ID }}
+        run: node apps/desktop/scripts/macos-ci-keychain.ts prepare
+      - name: Install dependencies and Electron
+        if: env.RELEASE_MODE != 'validate'
+        run: |
+          npm ci
+          cd apps/desktop
+          npm ci
+          npm exec -- install-electron
+      - name: Build runtime and check desktop
+        if: env.RELEASE_MODE != 'validate'
+        run: |
+          npm run build
+          node scripts/build-skill.mjs
+          cd apps/desktop
+          npm run check
+      - name: Sign, notarize and verify ZIP and DMG
+        if: env.RELEASE_MODE != 'validate'
+        working-directory: apps/desktop
+        env:
+          OA_MAC_SIGNING_SHA1: ${{ vars.OA_MAC_SIGNING_SHA1 }}
+          OA_APPLE_TEAM_ID: ${{ vars.OA_APPLE_TEAM_ID }}
+          OA_NOTARY_PROFILE: open-artifact-notary
+          OA_MAC_KEYCHAIN: ${{ runner.temp }}/open-artifact-signing.keychain-db
+        run: npm run package:release
+      - name: Test the signed packaged app and installed artifact apps
+        if: env.RELEASE_MODE != 'validate'
+        working-directory: apps/desktop
+        run: npm run test:packaged
+      - name: Remove signing and notarization credentials
+        if: always() && steps.credentials.outcome != 'skipped'
+        run: node apps/desktop/scripts/macos-ci-keychain.ts cleanup
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        if: success() && env.RELEASE_MODE != 'validate'
+        with:
+          name: open-artifact-desktop-macos-arm64
+          retention-days: 14
+          if-no-files-found: error
+          path: |
+            apps/desktop/dist/release/*.zip
+            apps/desktop/dist/release/*.dmg
+            apps/desktop/dist/release/*.sha256
+            apps/desktop/dist/release/release.json
+
+  publish:
+    needs: build
+    if: github.event_name == 'push' || inputs.mode == 'publish'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.build.outputs.source_commit }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Download the verified native candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name open-artifact-desktop-macos-arm64 --dir "$RUNNER_TEMP/desktop-candidate"
+      - name: Publish immutable desktop assets and verify public downloads
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.build.outputs.tag }}
+          OA_MAC_SIGNING_SHA1: ${{ needs.build.outputs.signing_sha1 }}
+          OA_APPLE_TEAM_ID: ${{ needs.build.outputs.team_id }}
+        run: node apps/desktop/scripts/release.ts publish "$RUNNER_TEMP/desktop-candidate"

@@ -66,6 +66,8 @@ npm run build                                   # scripts/build-runtime.ts → r
 npm run typecheck                               # strict TypeScript: app, renderer, build scripts and all tests
 npm test                                        # build, then test/*.test.ts one file at a time
 npm run package                                 # build, then scripts/package.ts → dist/Open Artifact-darwin-arm64/Open Artifact.app
+npm run package:release                         # Developer ID + notarization → dist/release/ ZIP, DMG, checksums, report
+npm run test:release                            # release validation tests; no Apple credentials needed
 npm run test:packaged                           # test/packaged/: the packaged app's checks (package first)
 ```
 
@@ -81,8 +83,10 @@ with `app.quit({ force: true })` (the app would otherwise ask).
 `npm run package` makes a folder-form macOS arm64 `.app` in `apps/desktop/dist/` (ignored by git) with
 `@electron/packager`: the build's `out/` in `app.asar` (with `ElectronAsarIntegrity`), the runtime in
 `Contents/Resources/runtime`, the type icons of installed artifact apps in `Contents/Resources/app-icons/`, a
-placeholder icon and bundle id (`dev.openartifact.desktop`), Electron's fuses as they
-are (`RunAsNode` on), signed ad hoc on this computer. No DMG, notarization or automatic updates yet. Packaged, the app
+placeholder icon, stable bundle id (`dev.openartifact.desktop`), Electron's fuses as they
+are (`RunAsNode` on), signed ad hoc on this computer. `package:release` instead signs nested code with Developer ID,
+hardened runtime and timestamps, notarizes/staples the app before archiving, verifies the extracted ZIP, and separately
+signs/notarizes/staples the DMG; both pass Gatekeeper. No desktop automatic updates yet. Packaged, the app
 with no arguments uses the person's own home and port, so `test/packaged/` only starts it with `--home`, a port other
 than 4800, `--test-mode` and a throwaway `HOME`, and checks first that it then uses those folders only. A package
 declares no URL scheme; `OA_DESKTOP_URL_SCHEME=1 npm run package` adds `open-artifact://` to its `Info.plist`
@@ -104,6 +108,16 @@ Desktop owns its TypeScript 5.9 compiler and Electron, Node, React and Chrome De
 tests. Node 22.18+ runs the erasable TypeScript scripts/tests directly; esbuild emits Electron’s ESM main process,
 CommonJS sandbox preloads and browser JavaScript into `out/`. See the bilingual
 `apps/desktop/DEVELOPMENT.md` / `DEVELOPMENT.zh-CN.md` for the shared bridge and IPC contracts.
+
+Desktop `package.json` and its lockfile now share the runtime version. The separate `desktop-v<version>` tag triggers
+`.github/workflows/desktop-macos.yml` on native arm64 `macos-15`, with a `macos-release` Environment restricted to
+`main` and desktop tags. Manual modes are `validate` (default, private-key signing probe and Apple access), `package`
+(signed/notarized candidate only), and `publish` (existing tag required, checked against package/lock/runtime and
+`origin/main`). Only the credential step receives Apple secrets; it uses an ephemeral keychain cleaned with `always()`.
+The build runs desktop `check` and signed `test:packaged`; the publisher receives only the five public files,
+verifies hashes before and after upload and anonymous public download, refuses changed existing assets, and leaves
+GitHub Latest and npm releases alone. Retry only the failed publisher to reuse its original candidate. Details and
+secret names: `apps/desktop/RELEASING.md` / `RELEASING.zh-CN.md`.
 
 ## Releasing
 

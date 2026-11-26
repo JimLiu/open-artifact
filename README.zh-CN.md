@@ -176,6 +176,9 @@ node scripts/build-wasm.mjs   # 需要 cargo + wasm32-unknown-unknown、wasm-bin
 在本机也可以运行 `node scripts/publish-npm.mjs` 发布 npm 包，可加 `--dry-run` 预览。
 新包首次发布时，用 `node scripts/publish-npm.mjs --claim` 发布已准备好的包，并将工作流设为其 trusted publisher。
 
+Open Artifact Desktop 共用版本号，使用独立的 `desktop-v<版本>` tag。[Desktop macOS 工作流](.github/workflows/desktop-macos.yml)
+完成 Developer ID 签名、Apple 公证并在 GitHub 发布 ZIP / DMG，配置见[桌面应用发布指南](apps/desktop/RELEASING.zh-CN.md)。
+
 ## 仓库结构
 
 | 路径 | 内容 |

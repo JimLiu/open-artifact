@@ -1,7 +1,7 @@
 {
   "name": "open-artifact-desktop",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.16.0",
   "type": "module",
   "description": "Open Artifact Desktop: the Electron app that shows the local library's artifacts in tabs, with no agent.",
   "main": "out/main.mjs",
@@ -11,6 +11,8 @@
     "start": "node build.ts && electron .",
     "test": "npm run build && node --test --test-concurrency=1 test/*.test.ts",
     "package": "npm run build && node scripts/package.ts",
+    "package:release": "npm run build && node scripts/package.ts --release",
+    "test:release": "node --test test/release.test.ts",
     "test:packaged": "node --test --test-concurrency=1 test/packaged/*.test.ts",
     "typecheck": "tsc -p tsconfig.json",
     "check": "npm run typecheck && npm test"
@@ -19,6 +21,7 @@
     "node": ">=22.18"
   },
   "devDependencies": {
+    "@electron/osx-sign": "2.7.2",
     "@electron/packager": "20.3.0",
     "@types/node": "24.19.1",
     "@types/react": "19.2.14",

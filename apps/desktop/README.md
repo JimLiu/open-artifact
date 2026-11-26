@@ -284,21 +284,29 @@ The bridge: `desktop.apps.state(id)`, `install(id, { confirmedName, allowCopy })
 
 ```bash
 npm run package        # npm run build, then scripts/package.ts
+npm run package:release # Developer ID signed, notarized ZIP / DMG; requires signing credentials
 npm run test:packaged  # the packaged app's checks (test/packaged/); package first
 ```
 
 `scripts/package.ts` makes `dist/Open Artifact-darwin-arm64/Open Artifact.app` (`dist/` is ignored by git): macOS
-arm64, a folder (no DMG, no notarization, no automatic updates), signed ad hoc on this computer
+arm64, a folder signed ad hoc on this computer
 (`codesign --force --deep --sign -`, the package only). It carries `out/` (the main process, the preloads, the
 pages) in `Contents/Resources/app.asar` (Electron checks it against `ElectronAsarIntegrity` in `Info.plist`) and the
 runtime in `Contents/Resources/runtime`, and the icons of installed artifact apps in
 `Contents/Resources/app-icons/`. The icon is a placeholder drawn by `scripts/placeholder-icon.ts`, and the
-bundle id `dev.openartifact.desktop` is a placeholder too. Electron's fuses are left as they are: `RunAsNode` stays
+stable bundle id is `dev.openartifact.desktop`. Electron's fuses are left as they are: `RunAsNode` stays
 on, the daemon and the type servers run on the app's own executable. No URL scheme is declared by default, and
 nothing is installed or registered. `OA_DESKTOP_URL_SCHEME=1 npm run package` declares `open-artifact://` in the
 package's `Info.plist` (`CFBundleURLTypes`, from `scripts/info-plist.ts`); macOS then sends such links to the app once
 it has been run from where it is installed. Nothing is registered by the app or the script either way. Electron's zip
 comes from `@electron/get`'s cache when it is there.
+
+`npm run package:release` signs nested code inside out with Developer ID, hardened runtime and a secure timestamp,
+notarizes and staples the app and DMG, verifies the extracted ZIP and Gatekeeper, and writes ZIP / DMG, SHA-256 files
+and a public report to `dist/release/`. Missing credentials or failed Apple checks stop the release. GitHub Actions
+supports credential validation, candidate builds and publication from `desktop-v<version>` tags, independently of npm
+releases. The desktop version follows the bundled runtime. See the signing, backup, secrets and release guide:
+[English](RELEASING.md) · [简体中文](RELEASING.zh-CN.md). Desktop app updates require a new download.
 
 The packaged app started with no arguments uses your own home and port, as it will for the person. Start it for a
 test only through the test code (`launchApp(…, { binary })`), which always passes `--home`, a port other than 4800,

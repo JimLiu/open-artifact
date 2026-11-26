@@ -18,6 +18,8 @@ npm run check
 - `npm test` 重新构建应用，依次运行开发版测试。每个测试使用独立的配置目录和端口。
 - `npm run check` 先运行严格类型检查，再运行 `npm test`。
 - `npm run package` 构建并签名本地 macOS 应用；打包完成后运行 `npm run test:packaged`。
+- `npm run package:release` 生成 Developer ID 签名、公证的 ZIP / DMG；`npm run test:release` 无需 Apple 凭据即可
+  检查发布验证逻辑。见[签名与 GitHub Actions 发布](RELEASING.zh-CN.md)。
 
 `tsconfig.json` 继承仓库的严格类型配置，并开启 `erasableSyntaxOnly`。Node 直接运行 `.ts` 脚本和测试，
 源码导入使用 `.ts` / `.tsx`。Esbuild 将主入口生成为 `out/main.mjs`，沙箱 preload 生成为 `out/*.cjs`，

@@ -193,6 +193,9 @@ A package npm doesn't have yet is claimed once from a computer before its first 
 `node scripts/publish-npm.mjs --claim` publishes its staged version and sets the workflow as its trusted publisher.
 `node scripts/publish-npm.mjs` publishes from a computer too (`--dry-run` to look first).
 
+Open Artifact Desktop uses the same version, with separate `desktop-v<version>` tags. Its [Desktop macOS workflow](.github/workflows/desktop-macos.yml)
+signs with Developer ID, notarizes and publishes ZIP / DMG assets to GitHub. See [desktop release setup](apps/desktop/RELEASING.md).
+
 ## Repository layout
 
 | Path | Contents |

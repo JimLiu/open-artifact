@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
- * Packages the built app as `dist/Open Artifact-darwin-arm64/Open Artifact.app` (macOS arm64, a folder: no DMG, no
- * notarization, no automatic updates), signed ad hoc on this computer. Run `npm run build` first (`npm run package`
- * does both).
+ * Packages the built app as `dist/Open Artifact-darwin-arm64/Open Artifact.app` (macOS arm64).
+ * Local builds are signed ad hoc. --release requires Developer ID + notarization credentials and also creates
+ * signed, notarized ZIP / DMG assets in dist/release. Run `npm run build` first (`npm run package` does both).
  *
  * - The app's code is the build's `out/main.mjs`, `out/preload.cjs`, `out/notice-preload.cjs`,
  *   `out/artifact-preload.cjs` and `out/renderer/` with a package.json naming the app, staged in `dist/stage/` and packed into `Contents/Resources/app.asar`. Nothing from node_modules goes in: the
@@ -10,15 +10,15 @@
  * - The runtime it carries (`resources/runtime`) is copied to `Contents/Resources/runtime`, where `main.ts` looks
  *   for it when packaged (`process.resourcesPath`).
  * - The icon is a placeholder (`scripts/placeholder-icon.ts`), and so are the icons of artifacts installed as apps
- *   (one per type, `Contents/Resources/app-icons/<type>.icns`, copied into each app); the bundle id `dev.openartifact.desktop` is a
- *   placeholder too.
+ *   (one per type, `Contents/Resources/app-icons/<type>.icns`, copied into each app). The stable bundle id is
+ *   `dev.openartifact.desktop`.
  * - Electron's fuses are left as they are: `RunAsNode` stays on, the daemon and the type servers run on the app's own
  *   executable as Node.
  * - No URL scheme is declared unless `OA_DESKTOP_URL_SCHEME=1` is set (`scripts/info-plist.ts`: then `Info.plist`
  *   declares `open-artifact://`); either way nothing is installed or registered (no `lsregister`).
  * - Electron's zip comes from the cache `@electron/get` keeps (`~/Library/Caches/electron`) when it is there, so a
  *   package needs no network then; otherwise `@electron/get` downloads it.
- * - Signing: `codesign --force --deep --sign -` on the packaged `.app` only.
+ * - Signing: ad hoc locally; --release signs nested code inside out with hardened runtime and a secure timestamp.
  *
  *   node scripts/package.ts        (from apps/desktop)
  */
@@ -29,6 +29,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { infoPlistAdditions, urlSchemeFromEnv } from './info-plist.ts';
 import { writeIcns, writeTypeIcons } from './placeholder-icon.ts';
+import { distributeMac, signingConfig, signingPreflight } from './macos-distribution.ts';
 
 const here = join(import.meta.dirname, '..');
 const dist = join(here, 'dist');
@@ -43,10 +44,20 @@ const fail = (line: string) => {
 const readJson = <T>(path: string): T => JSON.parse(readFileSync(path, 'utf8'));
 
 if (process.platform !== 'darwin') fail('the app is packaged on macOS only for now.');
+if (process.argv.slice(2).some(arg => arg !== '--release')) fail('expected no arguments or --release');
+const release = process.argv.includes('--release');
+if (release && execFileSync('git', ['status', '--porcelain', '--untracked-files=normal'], { cwd: here, encoding: 'utf8' }).trim())
+  fail('release packaging requires committed, clean sources.');
+const signing = release ? signingConfig() : null;
+if (signing) signingPreflight(signing);
 for (const path of ['out/main.mjs', 'out/preload.cjs', 'out/renderer/index.html', 'resources/runtime/scripts/open-artifact.mjs']) {
   if (!existsSync(join(here, path))) fail(`${path} is missing: run npm run build in apps/desktop first.`);
 }
 const pkg = readJson<{ name: string; version: string; description: string; license: string }>(join(here, 'package.json'));
+if (release) {
+  const runtime = readJson<{ version: string }>(join(here, 'resources/runtime/package.json'));
+  if (runtime.version !== pkg.version) fail(`desktop ${pkg.version} differs from bundled runtime ${runtime.version}`);
+}
 const electronVersion = readJson<{ version: string }>(join(here, 'node_modules', 'electron', 'package.json')).version;
 
 // ---- the staged app: package.json and the build's output, nothing else ----
@@ -103,6 +114,7 @@ const [appDir] = await packager({
   quiet: true,
 });
 const app = join(appDir, `${NAME}.app`);
-execFileSync('/usr/bin/codesign', ['--force', '--deep', '--sign', '-', app], { stdio: 'inherit' });
+if (signing) await distributeMac(app, pkg.version, signing, dist);
+else execFileSync('/usr/bin/codesign', ['--force', '--deep', '--sign', '-', app], { stdio: 'inherit' });
 rmSync(stage, { recursive: true, force: true });
 console.log(`package: ${app}`);

@@ -18,6 +18,8 @@ npm run check
 - `npm test` rebuilds the app and runs development tests sequentially. Each test uses an isolated profile and port.
 - `npm run check` runs the strict typecheck followed by `npm test`.
 - `npm run package` builds and signs the local macOS app; run `npm run test:packaged` after packaging finishes.
+- `npm run package:release` creates Developer ID signed, notarized ZIP / DMG files; `npm run test:release` checks
+  release validation without Apple credentials. See [signing and GitHub Actions releases](RELEASING.md).
 
 `tsconfig.json` inherits strict workspace settings and enables `erasableSyntaxOnly`. Node runs `.ts` scripts and tests
 directly. Source imports use `.ts` / `.tsx`. Esbuild emits the main entry as `out/main.mjs`, sandbox preloads as

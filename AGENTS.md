@@ -35,7 +35,8 @@ npm run test:sea               # Build and test the single executable (official 
 open-artifact doctor --harness <name> [--session <id>]   # Check a setup; with --session, an app's conformance run
 node scripts/build-wasm.mjs    # Only needed when modifying Rust crates in crates/
 cd apps/desktop && npm run setup && npm run check   # Desktop app: needs npm run build && node scripts/build-skill.mjs first
-cd apps/desktop && npm run package && npm run test:packaged   # Desktop app: the macOS .app (dist/, ad hoc signed) and its checks
+cd apps/desktop && npm run package && npm run test:packaged   # Desktop: local ad hoc macOS .app and its checks
+cd apps/desktop && npm run package:release      # Developer ID signed, notarized ZIP/DMG; see apps/desktop/RELEASING.md
 ```
 
 Node.js **22.18+** is required.
@@ -72,6 +73,10 @@ without one and uses the entry as the GitHub release notes.
    profiles, the stdio bridge) also needs `### Integrators`; `--check` names the files.
 4. Check it with `node scripts/changelog.mjs --check x.y.z` (a shallow clone skips the Integrators rule with a
    warning; the publish workflow fetches full history, so it checks it), commit, tag `vx.y.z`, and push the tag.
+
+Desktop's package and lockfile share the runtime version. Its separate `desktop-vx.y.z` tag triggers
+`.github/workflows/desktop-macos.yml` (Developer ID signing, notarization, native checks, immutable GitHub assets).
+Use `mode=validate` before the first release; secrets live in `macos-release`. See `apps/desktop/RELEASING.md` (EN / zh-CN).
 
 ## Progressive-loading references
 
