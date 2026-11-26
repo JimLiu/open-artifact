@@ -14,6 +14,7 @@ import type {
   AgentStatus,
   ArtifactErrorCode,
   CommentCreate,
+  CommentSendOptions,
   CommentThread,
   ConflictPath,
   DbChangeEvent,
@@ -35,6 +36,7 @@ import type {
   PublishBatch,
   PublishResult,
   RoomMessage,
+  SelectionSnapshot,
   Viewer,
 } from './capabilities.ts';
 import type { SheetFrame, SheetWalkthrough } from './sheet-api.ts';
@@ -237,6 +239,10 @@ export interface CommentSendRequest {
   threadId: string;
   /** A reply that does not ask the agent, sent because it took part in the thread. */
   unasked?: boolean;
+  /** See {@link CommentSendOptions.userText}. */
+  userText?: string;
+  /** See {@link CommentSendOptions.selectionSnapshot}. */
+  selectionSnapshot?: SelectionSnapshot;
 }
 
 /** 200 body of the comment routes that change one thread. */

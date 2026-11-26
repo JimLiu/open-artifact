@@ -340,8 +340,13 @@ export function createShellProvider(options: ShellProviderOptions = {}): Capabil
           setResolved: (threadId, resolved) => c('setResolved', [threadId, resolved]),
           move: (threadId, anchor, location) => c('move', location ? [threadId, anchor, location] : [threadId, anchor]),
           remove: (threadId, messageId) => c('remove', messageId ? [threadId, messageId] : [threadId]),
-          // A host hears only threads people send: one the page would send unasked is not handed over there.
-          sendToAgent: (threadId, options) => (options?.unasked ? Promise.reject(new Error('This host takes only threads that ask the agent.')) : c('sendToAgent', [threadId], true)),
+          // A host hears only threads people send: one the page would send unasked is not handed over there. The
+          // person's words and selection go along (the type server checks the words against the thread).
+          sendToAgent: (threadId, options) => {
+            if (options?.unasked) return Promise.reject(new Error('This host takes only threads that ask the agent.'));
+            const parts = { ...(options?.userText ? { userText: options.userText } : {}), ...(options?.selectionSnapshot ? { selectionSnapshot: options.selectionSnapshot } : {}) };
+            return c('sendToAgent', Object.keys(parts).length ? [threadId, parts] : [threadId], true);
+          },
           onChange: (listener) => listen('comments', BROKERED_EVENTS.comments.onChange, listener),
         };
         return ns;

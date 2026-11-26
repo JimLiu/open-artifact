@@ -250,7 +250,12 @@ editors over an in-memory capability backend with a scripted agent, and the Docs
   `type.wake` route and Link's `wake`) drops `userText` for a type that is not trusted or is remote, and keeps the
   snapshot; `WakeRouter.ask` (the Shell's Ask pane) and the hosted Ask set `userText` to the request's text.
   `wakeMessage` copies both onto `source.requests[]`; the agent's `text` is the same as without them. Design, Slides,
-  Design System, Whiteboard, Data and Sheets send them; Docs' `@agent` is a comment thread and sends neither.
+  Design System, Whiteboard, Data and Sheets send them. Docs sends them with a comment: `CommentsCapability.sendToAgent`
+  takes `userText` and `selectionSnapshot` (`POST _api/comments/send`; built in
+  `packages/docs-editor/src/comments/send-parts.ts`), `DbHost.sendThread` keeps the words only when `threadUserText`
+  finds them in the thread's newest message (the sender's, perhaps after an `@agent` mention), and
+  `threadRequestText` then starts the request's `text` with them. The page's broker (`packages/runtime/src/broker.ts`)
+  passes both on to the Shell, which hands them to the type server as they are.
 - **Starting without an agent** (`libraryCall` in `packages/daemon/src/daemon.ts`): `artifacts.create` makes an
   artifact as `open-artifact-home`, then clears `owner` and `createdBy`; it writes only `.artifact.json`, so `bootOf`
   says `empty` (no `detect` file) and `shellBoot` returns before opening the page, and the Shell shows `EmptyArtifact`

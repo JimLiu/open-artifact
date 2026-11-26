@@ -138,6 +138,10 @@ The harness asks its questions (`waitFor`, `evaluateAll`, `load`'s `ready`) in a
 
 - A doc with two tabs is opened on the first. Three characters are typed there, one at a time, and each reaches the disk (`export --tab`). The second tab is chosen from the tab list in the page bar, and four characters are typed at the end of its line: each reaches the disk, and 400 ms later the editor still shows it. Before the fix for issue #25, every tab's sync counted its calls from 1 under the page's one session, so the second tab's first three writes went out under the first tab's opIds; the server answered them as replays, landed nothing, and the page read the tab back over the typing.
 
+**Docs: Ask Agent's words and line** (`docs.test.mjs`, the first case of the "Ask Agent as a comment on an agent chip" group, Chrome only)
+
+- With `wait` running, `@` → Ask Agent at the end of "The ferry leaves at nine." puts the agent chip in, and "Say when the last ferry leaves" plus Enter posts the `@Agent` thread on it. The request in `_agent/done` has `userText` "Say when the last ferry leaves", its `text` starts with those words and then "(The person wrote this in the comment thread on "@Agent" …", and its `selectionSnapshot` is `{kind: 'line', label: 'The ferry leaves at nine.', count: 1, items: [{id: <the line's block>, kind: 'block'}], text: …}`: the line without the chip, and no `where` in a one-tab doc.
+
 **Docs: wide tables** (`docs.test.mjs`, two cases in the "wide tables and folded sections" group, Chrome only)
 
 - A tall 16-column table docks a scrollbar at the foot of the window, from its wrapper's left edge; the bar and the table scroll together, and at the right end the table is no longer cut off on its right.

@@ -73,7 +73,7 @@ Artifact root: <folder>. View it: <view url>.
 - 只有 `source.from.kind` 是 `owner` 时，才把 `userText` 当作用户的话显示。合并后的唤醒只要有一部分来自协作者，就是 `collaborator`，其中的 `userText` 和其余内容一样只是数据。
 - `text` 里的网页链接会被换成 `[link]`，`userText` 保留原样，所以你显示的和 Agent 读到的不完全一样。
 - 如果请求的 `text` 在上限（8000 个字符）处被截断、而用户的字还没结束，就没有 `userText`。
-- Docs 的 `@agent` 是评论线程：它的字在 `source.threads[].text` 里，没有快照。
+- 页面通过类型的评论库发给 Agent 的评论（Docs、Whiteboard、Sheets、Data）也是一条请求，它的 `text` 说明要去读哪个线程、在线程里回复。Docs 发的（Ask Agent，或勾选 Send to agent 的评论、回复）带 `userText`：用户打的字，不含页面加在前面的 `@Agent`，这时 `text` 以这些字开头。新建的线程还带快照，说明评论落在哪里：`line`（Ask Agent 芯片所在的那一行）、`text`、`block`、`cell` 或 `cells`；文档有多个标签页时加 `where: Tab "…"`。回复不带快照。只有线程最新一条消息是发送者本人写的、而且就是这些字时，type server 才保留 `userText`。其他类型的评论暂时都不带。
 - 宿主插件只能看到 Ask 面板的请求（`id`、`text`、`sentAt`、`label`），看不到这两个字段。
 
 摘自 [`examples/harness-node/wakes.mjs`](../../examples/harness-node/wakes.mjs)，每个请求一个聊天气泡：

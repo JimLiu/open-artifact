@@ -520,6 +520,13 @@ export interface CommentSendOptions {
    * decides whether to answer, and the thread keeps its status.
    */
   unasked?: boolean;
+  /**
+   * The words the person typed in the newest message, as typed: the host keeps them only when that message is them
+   * (an `@agent` mention before them aside), and the agent reads them first. Not with `unasked`.
+   */
+  userText?: string;
+  /** What the message is on, at Send, for an app to show (data). Not with `unasked`. */
+  selectionSnapshot?: SelectionSnapshot;
 }
 
 /** What {@link CommentsCapability.reply} takes besides the text. */

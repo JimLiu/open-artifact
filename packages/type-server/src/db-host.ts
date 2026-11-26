@@ -260,10 +260,46 @@ export interface SendHow {
   unasked?: boolean;
   /** Who sent the thread, when not the owner (an editor on a hosted artifact whose owner lets editors ask). */
   from?: WakeSender;
+  /** The person's words in the newest message, as {@link threadUserText} kept them: the request text starts with them. */
+  userText?: string;
+  /** The sender's name as their messages carry it (a page's guest name, else the viewer's): whose words `userText` must be. */
+  author?: string;
+  /** What the message is on, at Send, as the page sent it (the type server and the wake check it). */
+  selectionSnapshot?: unknown;
 }
 
-/** The text of the request that hands a thread to the agent (the thread itself travels as data). */
+/** The `@name ` a page puts before the person's words when it asks the agent: one name, no punctuation, one line. */
+const AGENT_MENTION = /^@[^\s@,.;:!?][^\n@,.;:!?]{0,59}\s+$/;
+
+/** The longest words a request starts with: the request text (8000 characters) keeps room for what follows them. */
+const USER_TEXT_MAX = 6000;
+
+/**
+ * The words a page says the person typed in the thread's newest message, kept only when that message is theirs
+ * (`author`: the sender's name) and is those words, or, when it asks the agent, an `@name ` mention and then those
+ * words (a page that asks the agent puts its name first). `undefined` otherwise, and past {@link USER_TEXT_MAX}: what
+ * an app shows as the person's message is always what the thread keeps, never the page's word alone.
+ */
+export function threadUserText(thread: Thread, value: unknown, author?: string): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const words = value.trim();
+  const newest = thread.messages.at(-1);
+  if (!words || words.length > USER_TEXT_MAX || !newest || newest.author.kind === 'agent') return undefined;
+  if (author !== undefined && newest.author.name !== author) return undefined;
+  const said = newest.text.trim();
+  if (said === words) return words;
+  if (!said.endsWith(words) || !newest.to?.includes('agent')) return undefined;
+  return AGENT_MENTION.test(said.slice(0, said.length - words.length)) ? words : undefined;
+}
+
+/**
+ * The text of the request that hands a thread to the agent (the thread itself travels as data). With the person's
+ * words ({@link SendHow.userText}) it starts with them, as a page request does, and says where they were written.
+ */
 export function threadRequestText(thread: Thread, how: SendHow = {}): string {
+  if (how.userText && !how.unasked) {
+    return `${how.userText}\n\n(The person wrote this in the comment thread on "${thread.label}" and sent it to you. Read the thread (ArtifactComments read, or the context below), act on it, and reply in the thread.)`;
+  }
   if (how.unasked) {
     return `A new reply in the comment thread on "${thread.label}", which you took part in, was sent to you without being addressed to you (it does not @mention you). Read the thread (ArtifactComments read, or the context below) and decide whether the reply is for you. If it is, do what it asks and answer briefly in the thread; if it is a note for the writer or for someone else, leave it: no reply is needed.`;
   }
@@ -575,7 +611,12 @@ export class DbHost {
     const unasked = how.unasked === true;
     let thread = guarded(() => this.comments.markSent(threadId, { unasked }));
     this.commentsChanged();
-    const outcome = this.options.sendThread ? await this.options.sendThread(thread, { ...(unasked ? { unasked } : {}), ...(how.from ? { from: how.from } : {}) }) : 'queued';
+    const userText = unasked ? undefined : threadUserText(thread, how.userText, how.author ?? this.viewer().name);
+    const parts = {
+      ...(userText ? { userText } : {}),
+      ...(!unasked && how.selectionSnapshot !== undefined ? { selectionSnapshot: how.selectionSnapshot } : {}),
+    };
+    const outcome = this.options.sendThread ? await this.options.sendThread(thread, { ...(unasked ? { unasked } : {}), ...(how.from ? { from: how.from } : {}), ...parts }) : 'queued';
     if (outcome === 'failed') throw new HttpError(503, 'unavailable', 'The agent could not be reached; the thread stays marked for it.');
     if ((outcome === 'delivered' || outcome === 'drafted') && !unasked) {
       // `drafted`: in the agent's conversation, waiting for the person to send it there.
@@ -708,7 +749,12 @@ export class DbHost {
         this.threadById(body.threadId);
         // A guest gets here only when the role check let them send (an editor whose owner lets editors ask).
         const from = as?.role && as.role !== 'owner' ? { name: as.name, role: as.role } : undefined;
-        const thread = await this.sendThread(body.threadId, { unasked: body.unasked === true, ...(from ? { from } : {}) });
+        const thread = await this.sendThread(body.threadId, {
+          unasked: body.unasked === true,
+          ...(from ? { from } : {}),
+          ...(body.userText !== undefined ? { userText: body.userText, author: this.viewer(as?.name).name } : {}),
+          ...(body.selectionSnapshot !== undefined ? { selectionSnapshot: body.selectionSnapshot } : {}),
+        });
         sendJson(res, 200, { thread: pageThread(thread) } satisfies CommentThreadResponse);
         return true;
       }

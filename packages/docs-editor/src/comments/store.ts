@@ -26,6 +26,10 @@ export interface Composer {
   text: string;
   /** The selection was too long: the thread hangs on its beginning. */
   clamped?: boolean;
+  /** The words the thread is on (or the line of an agent chip), for what a send to the agent shows. */
+  quote?: string;
+  /** The thread hangs on an agent chip put in at the caret (Ask Agent). */
+  chip?: boolean;
   /** "Send to agent" as the person set it for this comment; unset, it is their last choice ({@link rememberedSend}). */
   send?: boolean;
 }

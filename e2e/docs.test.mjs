@@ -985,6 +985,23 @@ describe(`${TYPE} in Chrome: Ask Agent as a comment on an agent chip`, { skip: s
       const stored = JSON.parse(fs.readFileSync(path.join(ctx.root, 'comments.json'), 'utf8'));
       const anchor = JSON.parse((stored.threads ?? stored).find(t => t.id === thread.id).anchor);
       assert.deepEqual(anchor.range, [chip, chip]);
+
+      // What an app shows (wake.request.parts): the words typed, first in what the agent reads, and the chip's line.
+      const doneDir = path.join(ctx.root, '_agent', 'done');
+      const sent = fs
+        .readdirSync(doneDir)
+        .map(name => JSON.parse(fs.readFileSync(path.join(doneDir, name), 'utf8')))
+        .find(request => request.context?.comment?.id === thread.id);
+      assert.ok(sent, 'no request in _agent/done');
+      assert.equal(sent.userText, 'Say when the last ferry leaves');
+      assert.ok(sent.text.startsWith('Say when the last ferry leaves\n\n(The person wrote this in the comment thread on "@Agent"'), sent.text);
+      assert.deepEqual(sent.selectionSnapshot, {
+        kind: 'line',
+        label: 'The ferry leaves at nine.',
+        count: 1,
+        items: [{ id: thread.location.block, kind: 'block' }],
+        text: 'The ferry leaves at nine.',
+      });
       assert.deepEqual(page.problems, []);
     } finally {
       await browser.close();

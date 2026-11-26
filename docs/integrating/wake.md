@@ -102,7 +102,13 @@ taken when Send is pressed, so a selection changed or cleared a moment later doe
 - Web links in `text` are replaced by `[link]`; `userText` keeps them as typed, so what you show is not quite what the
   agent reads.
 - A request whose `text` is cut at its limit (8000 characters) before the words end has no `userText`.
-- Docs' `@agent` is a comment thread: its words are `source.threads[].text`, with no snapshot.
+- A comment a page sends to the agent through its type's comment store (Docs, Whiteboard, Sheets, Data) arrives as a
+  request whose `text` says which thread to read and answer. From Docs (Ask Agent, or a comment or reply with Send
+  to agent) it has `userText`: the words typed, without the `@Agent` the page puts before them. Its `text` then starts
+  with those words. A new thread also has a snapshot of what it is on: `line` (the line Ask Agent's chip went into),
+  `text`, `block`, `cell` or `cells`, with `where: Tab "…"` in a doc of several tabs. A reply has no snapshot. The
+  type server keeps `userText` only when the thread's newest message is the sender's and says those words. The other
+  types' comments carry neither yet.
 - Host plugins see only the Ask pane's request (`id`, `text`, `sentAt`, `label`), not these fields.
 
 From [`examples/harness-node/wakes.mjs`](../../examples/harness-node/wakes.mjs), one chat bubble per request:
