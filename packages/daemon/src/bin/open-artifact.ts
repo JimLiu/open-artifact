@@ -51,6 +51,7 @@ import { runtimeCommand } from '../cli-runtime.ts';
 import { doctorText, runDoctor } from '../doctor.ts';
 import { DOCTOR_CHECKS } from '../doctor-checks.ts';
 import { runStdioBridge } from '../stdio-bridge.ts';
+import { exitWithHolders } from '../lifeline.ts';
 import pkg from '../../package.json' with { type: 'json' };
 
 const argv = process.argv.slice(2);
@@ -306,9 +307,13 @@ function wakeNotice(url: string, title: string): string {
  * `open-artifact watch [--harness <name>]`: prints one line per comment notice for this session, for as long as it
  * runs (a harness's background monitor, such as a Claude Code plugin monitor, turns each line into a notification).
  * The session is OPEN_ARTIFACT_SESSION / the profile's variable, else the one a hook registered for an ancestor
- * process. It waits for a daemon rather than starting one.
+ * process. It waits for a daemon rather than starting one. It ends once the app that started it is gone (its parent,
+ * and past any shells the first process that is not one; see lifeline.ts), or when its output can no longer be written:
+ * an app that quits does not always stop its monitor (on Windows a child outlives its parent).
  */
 async function watch(): Promise<void> {
+  process.stdout.on('error', () => process.exit(0));
+  exitWithHolders();
   const harness = flag('harness', process.env.OPEN_ARTIFACT_HARNESS ?? 'mcp');
   const session = sessionFromEnv(harness);
   const daemon = async (): Promise<DaemonState> => {

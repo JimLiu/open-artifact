@@ -48,7 +48,9 @@ settings. Without that, Claude Code asks before each write outside the working f
 
 Press "Send to agent" (or "Ask Claude") on the page. The comments reach the session that made the artifact: right
 away if Claude is working (the Stop hook continues its turn), as a monitor notice if the session is idle, or with your
-next message. Monitors run in interactive sessions only.
+next message. Monitors run in interactive sessions only. The monitor (`open-artifact watch`) ends by itself once
+the session's Claude Code process or the shell it ran in is gone, so a session that was closed or killed (on Windows
+Claude Code does not always stop it) leaves no Node.js process behind.
 
 **Channels (optional).** Claude Code's channels push messages into a running session. To use one instead of the
 monitor, add `"--channel"` to the server's `args` in `.mcp.json` and start Claude Code with

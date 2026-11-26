@@ -272,6 +272,13 @@ The harness asks its questions (`waitFor`, `evaluateAll`, `load`'s `ready`) in a
 - (b) After another restart, `ArtifactComments wait` answers with the request that was put back at once; a request sent during a second wait is taken by that wait (`via: "wait"`).
 - (c) What was put back is on disk: the daemon restarted again before any tool call still has it, and the next call has it once.
 
+**watch ends with the app that started it** (`watch-exit.test.mjs`, no browser; skipped on Windows)
+
+- An app (a small Node script) starts `sh -c "node open-artifact.ts watch --harness claude-code"` the way Claude Code runs its monitor, with stdin the null device and no daemon (watch waits for one).
+- (a) While the app and its shell run, watch keeps running.
+- (b) The shell is killed outright: watch exits.
+- (c) The app is killed and its shell stays (as a monitor does on Windows): watch exits, and the shell ends after it.
+
 **Saving while a person edits** (`shell-save.test.mjs`, Chrome only)
 
 - A real daemon from source in a temporary `OPEN_ARTIFACT_HOME` on a free port, once with `OPEN_ARTIFACT_NODE_CHILDREN=threads` and once with `process`; a host connects with `createHarness` and opens the artifacts in the Shell.
