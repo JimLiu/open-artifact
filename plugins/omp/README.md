@@ -36,7 +36,7 @@ To try it for one run without installing it, use `omp -e ./plugins/omp`. Upgrade
 | Tools `Artifact`, `ArtifactData`, `ArtifactComments` | Registered as OMP tools with the daemon's own schemas, `essential` so they stay in the top-level tool list. Each call names the OMP session, so the artifacts it makes belong to that session. A daemon error fails the call, and its text keeps everything the daemon said (a conflict's current files included). Esc stops waiting for a call; nothing else times a call out. |
 | Comments and requests from the page | They reach the session that owns the artifact right away. Your own words become a user message: a new turn when OMP is idle, steered into the running turn otherwise. A collaborator's comment or a system message (a background task's result) becomes an `open-artifact` custom message that the model reads and that is never taken for your words; it wakes an idle OMP the same way. What was sent while the session was closed comes when you open it again (`omp --resume`). |
 | System prompt | The always-on Open Artifact prompt, added on `before_agent_start` to the system prompt OMP sends. |
-| Skill `open-artifact` | Rendered for OMP (native tools, pages in the computer's browser) into this package's `skills/` folder, which OMP scans as an extension package; it is rewritten with the installed types once the daemon answers. `/skill:open-artifact` loads it. |
+| Skill `open-artifact` | Rendered for OMP (native tools, pages in the computer's browser) into this package's `skills/` folder, which OMP scans as an extension package; an installed copy rewrites it with the installed types once the daemon answers (a source checkout keeps the tracked file). `/skill:open-artifact` loads it. |
 | Command `/open-artifact <type> <what to make>` | Sends the skill and your request as one user message, with the installed types as completions. OMP sends a message without expanding `/skill:`, so the command carries the skill text itself. |
 | Session state | `running` while OMP works and `idle` when it has settled, so pages say whether the agent is busy. A loop stop inside a run (OMP's `willContinue`) stays `running`. Files OMP's own `write` and `edit` tools change are reported (`agent.wrote`), so an open page follows at once. |
 
@@ -80,5 +80,6 @@ The suite checks the four differences from the Pi adapter: the system prompt goe
 skill is written where OMP scans extension packages, `/open-artifact` sends the skill text itself, and `agent_end`
 (not `agent_settled`) says the session is idle.
 
-A session connected to the daemon rewrites `skills/open-artifact/SKILL.md` with your installed types, which dirties a
-checkout. `node scripts/build-skill.mjs` (or the command that generated it) restores the tracked file.
+An installed copy rewrites `skills/open-artifact/SKILL.md` with your installed types once the daemon answers. Run from
+a source checkout of this repository, the extension leaves that tracked file alone (it lists the skill without the
+installed types); `node scripts/build-skill.mjs` renders it.

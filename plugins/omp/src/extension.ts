@@ -10,16 +10,17 @@
  *   become a custom message the model reads (never a user message), the same way. What waited in the session's inbox
  *   comes the same way when the session attaches (a resumed session gets what came while it was away).
  * - The always-on Open Artifact prompt, added to the system prompt on `before_agent_start` (OMP takes the event's
- *   returned prompt, not a section of it); the `open-artifact` skill, written next to this package's `skills/` folder,
- *   which OMP scans as an extension package (it does not fire `resources_discover`); `/open-artifact <type> <what to
- *   make>` with the installed types as completions, which sends the skill and the request as one user message (OMP
- *   does not expand prompt templates in `sendUserMessage`).
+ *   returned prompt, not a section of it); the `open-artifact` skill, written into this package's `skills/` folder
+ *   (not in a source checkout, where that file is tracked), which OMP scans as an extension package (it does not fire
+ *   `resources_discover`); `/open-artifact <type> <what to make>` with the installed types as completions, which sends
+ *   the skill and the request as one user message (OMP does not expand prompt templates in `sendUserMessage`).
  * - The session's state (`running` / `idle`) and the files OMP's own `write` and `edit` tools wrote (`agent.wrote`), so
  *   open pages follow at once.
  *
  * The daemon is only started by a tool call: a session that never makes an artifact starts nothing. When a daemon
  * already runs, the session connects at start so comments reach it.
  */
+import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -61,8 +62,16 @@ export interface OpenArtifactOmpOptions {
   home?: string;
   /** The runtime this package carries (default {@link hostRuntime}); `null`: none, the kit finds one. */
   runtime?: { dir: string; version: string } | null;
-  /** Where the skill is written (default this package's `skills/`, which OMP scans as an extension package). */
-  skillsDir?: string;
+  /**
+   * Where the skill is written (default {@link defaultSkillsDir}: this package's `skills/`, which OMP scans as an
+   * extension package); `null`: nowhere, OMP lists the skill this package ships.
+   */
+  skillsDir?: string | null;
+  /**
+   * How long a message given to OMP may take to be refused before it counts as taken (default 1000 ms). OMP's
+   * `sendUserMessage` may settle only when the turn it starts ends, far past the daemon's wait for a wake's answer.
+   */
+  refusalWindowMs?: number;
   /** Diagnostic log (default: stderr when `OMP_OPEN_ARTIFACT_DEBUG` is set). */
   log?: (line: string) => void;
 }
@@ -73,6 +82,55 @@ export function absolutePath(path: string, cwd: string): string {
   if (bare === '~') return homedir();
   if (bare.startsWith('~/')) return join(homedir(), bare.slice(2));
   return resolve(cwd, bare);
+}
+
+/**
+ * Where the extension writes the skill by default: this package's `skills/`, so OMP lists the daemon's rendering with
+ * the installed types. In a source checkout of Open Artifact (`scripts/build-skill.mjs` at the top of it) that file is
+ * tracked and rendered by that script, so it is left alone: `null`.
+ */
+export function defaultSkillsDir(from: string = import.meta.url): string | null {
+  if (existsSync(fileURLToPath(new URL('../../../scripts/build-skill.mjs', from)))) return null;
+  return fileURLToPath(new URL('../skills', from));
+}
+
+/** An always-on Open Artifact prompt: one block, `<open_artifact>` … `</open_artifact>`. */
+const PROMPT_BLOCK = /^\s*<open_artifact>[\s\S]*<\/open_artifact>\s*$/;
+
+/** The system prompt with one Open Artifact block, `prompt`, at the end (a revived turn already carries one). */
+export function withPrompt(systemPrompt: readonly string[], prompt: string): string[] {
+  return [...systemPrompt.filter((block) => !PROMPT_BLOCK.test(block)), prompt];
+}
+
+/**
+ * Hands a message to OMP: `false` when OMP refused it within `windowMs`, else `true`. OMP may settle the send only once
+ * the turn it started ends, so a later failure is only logged: the message was in the session by then.
+ */
+async function handedOver(send: () => Promise<void>, windowMs: number, log: (line: string) => void): Promise<boolean> {
+  let sent: Promise<void>;
+  try {
+    sent = Promise.resolve(send());
+  } catch (error) {
+    log(`open-artifact send: ${messageOf(error)}`);
+    return false;
+  }
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const window = new Promise<'open'>((done) => {
+    timer = setTimeout(() => done('open'), windowMs);
+  });
+  const outcome = await Promise.race([
+    sent.then(
+      () => 'taken' as const,
+      (error: unknown) => {
+        log(`open-artifact send: ${messageOf(error)}`);
+        return 'refused' as const;
+      },
+    ),
+    window,
+  ]);
+  // A refusal after the window is logged by the handler above all the same.
+  clearTimeout(timer);
+  return outcome !== 'refused';
 }
 
 /** The text after the command in a `commands.list` entry (`/open-artifact slides ` → `slides `). */
@@ -109,7 +167,8 @@ export function openArtifact(options: OpenArtifactOmpOptions = {}): (omp: OmpExt
 
 function setup(omp: OmpExtensionAPI, options: OpenArtifactOmpOptions): void {
   const log = options.log ?? (process.env.OMP_OPEN_ARTIFACT_DEBUG ? (line: string) => process.stderr.write(`${line}\n`) : () => undefined);
-  const skillsDir = options.skillsDir ?? fileURLToPath(new URL('../skills', import.meta.url));
+  const skillsDir = options.skillsDir === undefined ? defaultSkillsDir() : options.skillsDir;
+  const refusalWindowMs = options.refusalWindowMs ?? 1000;
 
   /** The session's context, from `session_start` to `session_shutdown`. */
   let ctx: OmpContext | null = null;
@@ -164,18 +223,19 @@ function setup(omp: OmpExtensionAPI, options: OpenArtifactOmpOptions): void {
     if (closed || !ctx) return 'failed';
     if (params.session ? params.session !== session.session : params.workspace && params.workspace !== session.workspace) return 'failed';
     const idle = ctx.isIdle();
+    if (params.source?.from?.kind === 'owner') {
+      // The person's own words: a user message, as if typed. Started from idle, OMP may settle the send only when the
+      // turn ends, past the daemon's wait: only a refusal within the window is `failed` (the daemon keeps the message).
+      const taken = await handedOver(() => (idle ? omp.sendUserMessage(params.text) : omp.sendUserMessage(params.text, { deliverAs: 'steer' })), refusalWindowMs, log);
+      if (!taken) return 'failed';
+      return idle ? 'resumed' : 'delivered';
+    }
     try {
-      if (params.source?.from?.kind === 'owner') {
-        // The person's own words: a user message, as if typed.
-        if (idle) await omp.sendUserMessage(params.text);
-        else await omp.sendUserMessage(params.text, { deliverAs: 'steer' });
-      } else {
-        // A collaborator's or the system's: the model reads it, and it is never taken for the person's words.
-        omp.sendMessage(
-          { customType: MESSAGE_TYPE, content: params.text, display: true, details: { artifact: params.artifact, source: params.source } },
-          { triggerTurn: true, deliverAs: idle ? 'followUp' : 'steer' },
-        );
-      }
+      // A collaborator's or the system's: the model reads it, and it is never taken for the person's words.
+      omp.sendMessage(
+        { customType: MESSAGE_TYPE, content: params.text, display: true, details: { artifact: params.artifact, source: params.source } },
+        { triggerTurn: true, deliverAs: idle ? 'followUp' : 'steer' },
+      );
     } catch (error) {
       // A failed answer makes the daemon keep the message in the session's inbox instead of losing it.
       log(`open-artifact wake: ${messageOf(error)}`);
@@ -211,10 +271,12 @@ function setup(omp: OmpExtensionAPI, options: OpenArtifactOmpOptions): void {
     } catch (error) {
       log(`open-artifact prompt: ${messageOf(error)}`);
     }
-    try {
-      await h.installSkill({ dir: skillsDir, ...SKILL });
-    } catch (error) {
-      log(`open-artifact skill: ${messageOf(error)}`);
+    if (skillsDir) {
+      try {
+        await h.installSkill({ dir: skillsDir, ...SKILL });
+      } catch (error) {
+        log(`open-artifact skill: ${messageOf(error)}`);
+      }
     }
     try {
       commands = await h.commands({ command: COMMAND });
@@ -303,8 +365,9 @@ function setup(omp: OmpExtensionAPI, options: OpenArtifactOmpOptions): void {
   });
 
   omp.on('before_agent_start', (event) => {
-    // OMP takes a replacement prompt from the handler's answer; there is no section list to patch.
-    return { systemPrompt: [...event.systemPrompt, prompt] };
+    // OMP takes a replacement prompt from the handler's answer; there is no section list to patch. A revived turn may
+    // already carry the block (an older one, before the daemon named the installed types): it is replaced, not repeated.
+    return { systemPrompt: withPrompt(event.systemPrompt, prompt) };
   });
 
   /**
@@ -344,14 +407,15 @@ function setup(omp: OmpExtensionAPI, options: OpenArtifactOmpOptions): void {
         .filter((item) => item.value.startsWith(prefix));
       return items.length ? items : null;
     },
-    handler: async (args, c) => {
+    handler: (args, c) => {
       // OMP sends a message without expanding `/skill:`: the skill goes with the request, as Pi's expansion would.
       const text = args.trim() ? `${skillBody}\n\n${args.trim()}` : skillBody;
+      // Not awaited: from idle the send may settle only when the turn it starts ends, and the command is done once sent.
+      const failed = (error: unknown) => log(`open-artifact command: ${messageOf(error)}`);
       try {
-        if (c.isIdle()) await omp.sendUserMessage(text);
-        else await omp.sendUserMessage(text, { deliverAs: 'followUp' });
+        void Promise.resolve(c.isIdle() ? omp.sendUserMessage(text) : omp.sendUserMessage(text, { deliverAs: 'followUp' })).catch(failed);
       } catch (error) {
-        log(`open-artifact command: ${messageOf(error)}`);
+        failed(error);
       }
     },
   });

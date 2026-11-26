@@ -20,7 +20,7 @@ Which one applies, when nothing is set:
 | --- | --- | --- |
 | Claude Code, Codex, Cursor, GitHub Copilot, Antigravity, ZCode, DeepSeek Harness | `workspace` | In their usual modes the ones that were measured ask before, or refuse, a write outside the working folder ([below](#let-your-app-write-to-the-open-artifact-folder)); the others are kept the same until they are measured. |
 | ChatGPT on the web (`open-artifact chatgpt`) | `workspace` | The connector tells its artifacts apart by their path. |
-| Pi, the `open-artifact` command line, any app without a profile | `home` | Nothing stops the write. |
+| Pi, OMP, the `open-artifact` command line, any app without a profile | `home` | Nothing stops the write. |
 | An app that starts the daemon with `OPEN_ARTIFACT_WORKSPACE_FOLDERS_ONLY=1` | `workspace`, always | A confined daemon keeps every folder in the workspace; no setting or call changes that. |
 
 When an app's default puts artifacts in a Git checkout and Open Artifact has to make the `artifacts/` folder, it also
@@ -91,7 +91,7 @@ write:
 | Cursor CLI | None found: `--add-dir` does not lift it. `--force` allows every write. | 2026.11.13 |
 | Pi | Nothing to set. | 1.6.1 |
 
-These were measured on macOS, in each app's headless mode. Not measured: Antigravity, ZCode, DeepSeek Harness, the
+These were measured on macOS, in each app's headless mode. Not measured: Antigravity, ZCode, DeepSeek Harness, OMP, the
 apps' interactive prompts, the Cursor editor, the Claude desktop app, Windows and Linux. Open Artifact never changes
 another app's permission settings for you.
 

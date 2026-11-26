@@ -31,7 +31,7 @@ omp plugin install ./plugins/omp
 | 工具 `Artifact`、`ArtifactData`、`ArtifactComments` | 以 daemon 自己的参数 schema 注册为 OMP 工具，并设为 `essential`，让它们留在顶层工具列表里。每次调用都带上 OMP 的会话，做出的作品归这个会话。daemon 返回错误时调用失败，错误文本保留 daemon 说的全部内容（冲突时包括文件的当前内容）。按 Esc 停止等待；除此之外调用不设超时。 |
 | 页面上的评论和请求 | 立刻送到拥有该作品的会话。你本人的话作为用户消息：OMP 空闲时开始新一轮，正在工作时插入当前这一轮。协作者的评论或系统消息（后台任务的结果）作为 `open-artifact` 自定义消息交给模型，不会被当作你说的话；OMP 空闲时同样会被唤醒。会话关闭期间发来的消息，在你重新打开它（`omp --resume`）时送达。 |
 | 系统提示词 | 常驻的 Open Artifact 提示词，在 `before_agent_start` 时加进 OMP 发给模型的系统提示词。 |
-| Skill `open-artifact` | 按 OMP 的方式渲染（原生工具、页面在电脑的浏览器里打开），写到本包的 `skills/` 文件夹——OMP 会扫描扩展包的这一目录；daemon 连上后再按已安装的类型重写。用 `/skill:open-artifact` 加载。 |
+| Skill `open-artifact` | 按 OMP 的方式渲染（原生工具、页面在电脑的浏览器里打开），写到本包的 `skills/` 文件夹——OMP 会扫描扩展包的这一目录；安装后的副本在 daemon 连上后再按已安装的类型重写（源码目录里保留仓库中的文件）。用 `/skill:open-artifact` 加载。 |
 | 命令 `/open-artifact <类型> <要做什么>` | 把 skill 和你的要求作为一条用户消息发出去，并把已安装的类型作为补全。OMP 发送消息时不会展开 `/skill:`，所以命令自己带上 skill 文本。 |
 | 会话状态 | OMP 工作时为 `running`，结束后为 `idle`，页面据此显示 agent 是否在忙。一轮中暂时的停顿（OMP 的 `willContinue`）仍然是 `running`。OMP 自己的 `write` 和 `edit` 工具改动的文件会上报（`agent.wrote`），打开着的页面立刻跟上。 |
 
@@ -59,5 +59,5 @@ node --test plugins/omp/test/*.test.ts   # 用假的 OMP 和 kit 的假 daemon �
 
 测试覆盖了与 Pi 适配器的四处差异：系统提示词从 `before_agent_start` 返回；skill 写到 OMP 扫描扩展包的位置；`/open-artifact` 自己发送 skill 文本；用 `agent_end`（而不是 `agent_settled`）表示会话空闲。
 
-连上 daemon 的会话会把 `skills/open-artifact/SKILL.md` 按已安装的类型重写，在源码目录里会让该文件变脏；
-运行 `node scripts/build-skill.mjs`（或当初生成它的命令）可还原仓库里的版本。
+安装后的副本在 daemon 连上后会把 `skills/open-artifact/SKILL.md` 按已安装的类型重写。从本仓库的源码目录运行时，
+扩展不会改这个被 git 跟踪的文件（列出的 skill 不含已安装的类型）；它由 `node scripts/build-skill.mjs` 生成。

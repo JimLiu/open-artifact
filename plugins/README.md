@@ -75,8 +75,8 @@ that folder; `build-plugins.mjs` leaves it alone.
 
 `pi/` and `omp/` are npm packages too (`pi-open-artifact`, `omp-open-artifact`), staged by `scripts/build-npm.mjs`;
 both are loaded as TypeScript as they are. OMP scans the `skills/` folder of an installed extension package, so
-`omp-open-artifact` carries the skill there (rendered for OMP, rewritten with the installed types once its daemon
-answers). OMP 19.2.1's marketplace installer refuses npm sources, so there is no OMP catalog in `dist/plugins`:
+`omp-open-artifact` carries the skill there (rendered for OMP; an installed copy rewrites it with the installed types once its
+daemon answers). OMP 19.2.1's marketplace installer refuses npm sources, so there is no OMP catalog in `dist/plugins`:
 install `omp-open-artifact` from npm directly (`omp plugin install npm:omp-open-artifact`).
 
 ## Use a server instead of this computer

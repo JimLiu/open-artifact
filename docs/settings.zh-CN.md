@@ -20,7 +20,7 @@ agent 的调用没有指定文件夹时，Open Artifact 自己选一个，并按
 | --- | --- | --- |
 | Claude Code、Codex、Cursor、GitHub Copilot、Antigravity、ZCode、DeepSeek Harness | `workspace` | 实测过的几个在常用模式下，往工作文件夹之外写文件要先确认，或者直接被拒（见[下文](#让你的应用能写-open-artifact-文件夹)）；其余几个在实测之前保持一致。 |
 | 网页版 ChatGPT（`open-artifact chatgpt`） | `workspace` | 这个连接器按路径区分自己的作品。 |
-| Pi、`open-artifact` 命令行、没有 profile 的应用 | `home` | 没有东西拦着写。 |
+| Pi、OMP、`open-artifact` 命令行、没有 profile 的应用 | `home` | 没有东西拦着写。 |
 | 用 `OPEN_ARTIFACT_WORKSPACE_FOLDERS_ONLY=1` 启动 daemon 的应用 | 始终 `workspace` | 受限的 daemon 把所有文件夹都留在工作区里，任何设置和调用都改不了。 |
 
 如果是应用的默认值让作品落进了 Git 检出目录，而且 `artifacts/` 这个文件夹是 Open Artifact 这次新建的，它会同时
@@ -84,7 +84,7 @@ agent 用自己的文件工具写作品的文件。多数 agent 应用只让这�
 | Cursor CLI | 没找到：`--add-dir` 不起作用。`--force` 放开所有写入。 | 2026.11.13 |
 | Pi | 不用设置。 | 1.6.1 |
 
-以上是在 macOS 上、用各应用的无界面模式测的。没有测：Antigravity、ZCode、DeepSeek Harness、各应用交互界面里的
+以上是在 macOS 上、用各应用的无界面模式测的。没有测：Antigravity、ZCode、DeepSeek Harness、OMP、各应用交互界面里的
 确认弹窗、Cursor 编辑器、Claude 桌面应用、Windows 和 Linux。Open Artifact 不会替你改别的应用的权限设置。
 
 作品的文件夹在 agent 的工作文件夹之外时，新建的结果里会说明。写不进去的 agent 仍然可以填内容：

@@ -8,8 +8,8 @@
  *                                                  skill template (packages/protocol/src/skill.ts) rendered with its
  *                                                  defaults, written here when it changed
  *   plugins/omp/skills/open-artifact/SKILL.md      the same skill rendered for OMP (tracked), which reads the `skills/`
- *                                                  folder of an installed extension package; its extension rewrites it
- *                                                  with the installed types once its daemon answers
+ *                                                  folder of an installed extension package; an installed copy's
+ *                                                  extension rewrites it with the installed types (never in this repo)
  *   skills/open-artifact/scripts/open-artifact.mjs the command the agent runs: points the daemon at vendor/ (tracked)
  *   skills/open-artifact/vendor/                   built here, git ignores it:
  *     open-artifact.mjs                            the daemon and its CLI, one Node ESM file

@@ -5,15 +5,16 @@
  * reaches the daemon as the OMP session.
  */
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { afterEach, describe, it } from 'node:test';
 import { startFakeDaemon, type FakeDaemon } from '@open-artifact/harness-kit/testing';
 import { localSkill } from '@open-artifact/harness-kit';
 import { AGENT_PROMPT, TOOL_DEFINITIONS, type HelloParams, type ToolCallResult } from '@open-artifact/protocol';
 import { renderedSkillFile } from '@open-artifact/protocol';
-import { absolutePath, openArtifact, PROFILE } from '../src/extension.ts';
+import { absolutePath, defaultSkillsDir, openArtifact, PROFILE, withPrompt } from '../src/extension.ts';
 import type { OmpAgentEndEvent, OmpCommand, OmpContext, OmpCustomMessage, OmpExtensionAPI, OmpTool } from '../src/omp.ts';
 
 const SESSION = 'omp-session-1';
@@ -28,6 +29,8 @@ function fakeOmp(cwd: string) {
   let idle = true;
   let sessionId = SESSION;
   let failPrompts = false;
+  /** OMP settles a send from idle only when the turn it started ends: this one never ends. */
+  let hangPrompts = false;
   const ctx: OmpContext = {
     cwd,
     mode: 'print',
@@ -41,6 +44,7 @@ function fakeOmp(cwd: string) {
     sendMessage: (message: OmpCustomMessage, options?: unknown) => messages.push({ message, options }),
     sendUserMessage: (text: string, options?: unknown) => {
       prompts.push({ text, options });
+      if (hangPrompts) return new Promise<void>(() => undefined);
       return failPrompts ? Promise.reject(new Error('dropped')) : Promise.resolve();
     },
     on: (event: string, handler: (event: unknown, ctx: OmpContext) => unknown) => handlers.set(event, [...(handlers.get(event) ?? []), handler]),
@@ -60,6 +64,9 @@ function fakeOmp(cwd: string) {
     },
     setFailPrompts: (value: boolean) => {
       failPrompts = value;
+    },
+    setHangPrompts: (value: boolean) => {
+      hangPrompts = value;
     },
     async emit(event: string, payload: unknown = {}): Promise<unknown[]> {
       const answers = [];
@@ -92,7 +99,7 @@ async function started(options: Parameters<typeof startFakeDaemon>[0] = {}, befo
   const skillsDir = mkdtempSync(join(tmpdir(), 'oa-omp-skills-'));
   cleanup.push(() => rmSync(skillsDir, { recursive: true, force: true }));
   const omp = fakeOmp(cwd);
-  openArtifact({ home: daemon.home, runtime: null, skillsDir })(omp.api);
+  openArtifact({ home: daemon.home, runtime: null, skillsDir, refusalWindowMs: 50 })(omp.api);
   cleanup.push(() => omp.emit('session_shutdown', { reason: 'quit' }));
   beforeStart?.(daemon);
   await omp.emit('session_start', { reason: 'startup' });
@@ -222,6 +229,16 @@ describe('omp-open-artifact', () => {
     assert.deepEqual(await daemon.wake({ session: SESSION, text: 'again', source }), { status: 'resumed' });
   });
 
+  it('answers a wake that starts a turn without waiting for the turn to end', async () => {
+    const { daemon, omp } = await started();
+    omp.setHangPrompts(true);
+    const source = { reason: 'comment', from: { kind: 'owner' } } as never;
+    const start = Date.now();
+    assert.deepEqual(await daemon.wake({ session: SESSION, text: 'a long job', source }), { status: 'resumed' });
+    assert.ok(Date.now() - start < 2000, `answered after ${Date.now() - start} ms`);
+    assert.equal(omp.prompts.at(-1)?.text, 'a long job');
+  });
+
   it('detaches the old session and attaches the new one after /new or /resume', async () => {
     const { daemon, omp, cwd } = await started();
     omp.setSessionId('omp-session-2');
@@ -264,6 +281,11 @@ describe('omp-open-artifact', () => {
     assert.deepEqual(answer?.systemPrompt.slice(0, 1), ['base']);
     assert.match(answer?.systemPrompt.at(-1) ?? '', /<open_artifact>[\s\S]*<\/open_artifact>/);
     assert.equal(answer?.systemPrompt.at(-1), AGENT_PROMPT);
+
+    // A revived turn carries the block already: it is replaced, never repeated.
+    const [again] = (await omp.emit('before_agent_start', { reason: 'revive', prompt: '', systemPrompt: ['base', '<open_artifact>\nold\n</open_artifact>', 'tail'] })) as Array<{ systemPrompt: string[] } | undefined>;
+    assert.deepEqual(again?.systemPrompt, ['base', 'tail', AGENT_PROMPT]);
+    assert.deepEqual(withPrompt(withPrompt(['base'], AGENT_PROMPT), AGENT_PROMPT), ['base', AGENT_PROMPT]);
   });
 
   it('says when the agent runs and settles, and keeps a loop stop inside a run as running', async () => {
@@ -321,6 +343,28 @@ describe('omp-open-artifact', () => {
     omp.setIdle(false);
     await command.handler('', omp.ctx);
     assert.deepEqual(omp.prompts.at(-1)!.options, { deliverAs: 'followUp' });
+
+    // The command is done once the message is sent, not when the turn it starts ends.
+    omp.setIdle(true);
+    omp.setHangPrompts(true);
+    await command.handler('slides another', omp.ctx);
+    assert.match(omp.prompts.at(-1)!.text, /\n\nslides another$/);
+  });
+});
+
+describe('defaultSkillsDir', () => {
+  it('is the package’s skills folder when installed, and nowhere in a source checkout', () => {
+    const root = mkdtempSync(join(tmpdir(), 'oa-omp-layout-'));
+    cleanup.push(() => rmSync(root, { recursive: true, force: true }));
+    const installed = join(root, 'node_modules', 'omp-open-artifact');
+    mkdirSync(join(installed, 'src'), { recursive: true });
+    assert.equal(defaultSkillsDir(pathToFileURL(join(installed, 'src', 'extension.ts')).href), join(installed, 'skills'));
+
+    const checkout = join(root, 'repo');
+    mkdirSync(join(checkout, 'scripts'), { recursive: true });
+    writeFileSync(join(checkout, 'scripts', 'build-skill.mjs'), '');
+    mkdirSync(join(checkout, 'plugins', 'omp', 'src'), { recursive: true });
+    assert.equal(defaultSkillsDir(pathToFileURL(join(checkout, 'plugins', 'omp', 'src', 'extension.ts')).href), null);
   });
 });
 
