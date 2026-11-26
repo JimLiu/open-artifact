@@ -127,7 +127,7 @@ import { Tools, type ShareAccess } from './tools.ts';
 import { BUILTIN_TYPE_IDS, TypeRegistry, isBuiltinPage, isSiteKindType, siteRefusal, typeLocation, type ListedType, type TypeInfo } from './types.ts';
 import { checkType, newType, setProjectTrusted, setTypeEnabled, typeFromPage, typeFromSaved } from './type-authoring.ts';
 import { WakeRouter, type WakeResult } from './wake.ts';
-import { acceptWebSocket } from './ws.ts';
+import { acceptWebSocket, type WebSocketConnection } from './ws.ts';
 import pkg from '../package.json' with { type: 'json' };
 
 /** How long a dashboard's live-data refresh may take on its type server, ms (every live query, one by one). */
@@ -757,7 +757,8 @@ export class Daemon extends EventEmitter<{ exit: [] }> {
 
   /**
    * `GET /api/open-artifact.view?view=&id=[&key=]`: the Shell of a top-level view claims its ticket (or comes back with
-   * its key) and gets the host's commands as an event stream, the first event (`view`) carrying its key. `POST {view,
+   * its key) and gets the host's commands as an event stream, the first event (`view`) carrying its key (where no
+   * WebSocket opens: {@link viewSocket} is the same claim). `POST {view,
    * key, event}`: what the Shell says to its host, on to the adapter. Only pages of this origin.
    */
   private async viewChannel(req: IncomingMessage, res: ServerResponse, url: URL, get: boolean): Promise<void> {
@@ -2890,7 +2891,56 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
       if (ws) this.harnesses.accept(ws);
       return;
     }
+    if (url.pathname === `/api/open-artifact.${LIBRARY_ROUTES.view}`) return this.viewSocket(req, socket, head, url);
     socket.end('HTTP/1.1 404 Not Found\r\n\r\n');
+  }
+
+  /**
+   * The view channel of {@link viewChannel} over a WebSocket (same address, same claim): a browser opens at most six
+   * HTTP/1.1 connections to one host and each view's event stream held one, so a seventh view's page waited for one to
+   * close; a WebSocket does not count against them. Text frames: `{type: 'view', view, key, session}` first, then
+   * `{type: 'command', command}`. What the Shell says still goes by POST. Only pages of this origin.
+   */
+  private viewSocket(req: IncomingMessage, socket: Duplex, head: Buffer, url: URL): void {
+    const site = req.headers['sec-fetch-site'];
+    if (
+      this.frameIdOf(req.headers.host) !== null ||
+      !isLoopback(req.socket.remoteAddress) ||
+      req.headers.origin === undefined ||
+      (site !== undefined && site !== 'same-origin')
+    ) {
+      socket.end('HTTP/1.1 403 Forbidden\r\n\r\n');
+      return;
+    }
+    const id = artifactIdOf(String(url.searchParams.get('id') ?? ''));
+    const view = String(url.searchParams.get('view') ?? '');
+    let ws: WebSocketConnection | null = null;
+    // Commands the claim hands over at once wait for the socket.
+    const early: string[] = [];
+    const write = (text: string): void => {
+      if (ws) ws.sendText(text);
+      else early.push(text);
+    };
+    const sink: ViewSink = {
+      send: (command) => write(JSON.stringify({ type: 'command', command })),
+      end: () => ws?.close(),
+    };
+    let claimed: { key: string; session: string | null };
+    try {
+      claimed = this.harnesses.embed.claim(view, id ?? '', url.searchParams.get('key') || null, sink);
+    } catch {
+      // An unknown, used or expired ticket, another artifact's, a wrong key.
+      socket.end('HTTP/1.1 404 Not Found\r\n\r\n');
+      return;
+    }
+    ws = acceptWebSocket(req, socket, head);
+    if (!ws) {
+      this.harnesses.embed.detach(view, sink);
+      return;
+    }
+    ws.handlers = { close: () => this.harnesses.embed.detach(view, sink) };
+    ws.sendText(JSON.stringify({ type: 'view', view, key: claimed.key, session: claimed.session }));
+    for (const text of early.splice(0)) ws.sendText(text);
   }
 }
 

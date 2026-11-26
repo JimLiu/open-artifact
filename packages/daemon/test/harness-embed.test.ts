@@ -572,6 +572,57 @@ test('top-level views over the daemon: host.open carries a ticket; the Shell cla
   }
 });
 
+// 2026-11-26: every view held an event stream, and a browser opens six HTTP connections to one host: the seventh
+// tab of an app waited for its page. The Shell claims its view over a WebSocket instead.
+test('top-level views over a WebSocket: the claim and the commands come down it; a page of another origin and a used ticket are refused', async () => {
+  const workspace = tempDir('open-artifact-ws-');
+  const host = await adapter('socket-app', { open: { embed: 'view', origins: [] } });
+  /** A socket to the view route; its messages, and how it ended (`opened`: whether the upgrade was taken). */
+  const connect = (query: string, origin: string) => {
+    const ws = new WebSocket(`${state.url.replace(/^http/, 'ws')}/api/open-artifact.view?${query}`, { headers: { origin } } as unknown as string[]);
+    const got: Array<{ type: string; key?: string; command?: unknown }> = [];
+    const ended = new Promise<{ opened: boolean }>((done) => {
+      let opened = false;
+      ws.addEventListener('open', () => (opened = true));
+      ws.addEventListener('close', () => done({ opened }));
+    });
+    ws.addEventListener('message', (event) => got.push(JSON.parse(String(event.data))));
+    return { ws, got, ended };
+  };
+  try {
+    await host.call('session.attach', { session: 's1', workspace });
+    const id = await create('neartype', { harness: 'socket-app', session: 's1', workspace });
+    const opened = await host.call('view.open', { url: `${state.url}/a/${id}` });
+    const view = opened.result.view as string;
+    assert.ok(view, JSON.stringify(opened));
+    assert.equal((await host.call('shell.command', { view, command: { openArtifact: 'goto', hash: '#early' } })).result.ok, true);
+
+    const foreign = connect(`view=${view}&id=${id}`, 'https://evil.example');
+    assert.deepEqual(await foreign.ended, { opened: false }, 'a page of another origin claims nothing');
+
+    const shell = connect(`view=${view}&id=${id}`, state.url);
+    await until(() => shell.got.length >= 2, 5000);
+    assert.equal(shell.got[0]!.type, 'view');
+    assert.ok(shell.got[0]!.key);
+    assert.deepEqual(shell.got[1], { type: 'command', command: { openArtifact: 'goto', hash: '#early' } }, 'a command sent before the claim');
+    assert.equal((await host.call('shell.command', { view, command: { openArtifact: 'goto', hash: '#later' } })).result.ok, true);
+    await until(() => shell.got.length >= 3, 5000);
+    assert.deepEqual(shell.got[2], { type: 'command', command: { openArtifact: 'goto', hash: '#later' } });
+
+    const again = connect(`view=${view}&id=${id}`, state.url);
+    assert.deepEqual(await again.ended, { opened: false }, 'the ticket is used once');
+
+    // A reload: the same Shell with its key takes the view over; the old socket ends.
+    const back = connect(`view=${view}&id=${id}&key=${shell.got[0]!.key}`, state.url);
+    assert.deepEqual(await shell.ended, { opened: true });
+    await until(() => back.got.length >= 1, 5000);
+    assert.equal(back.got[0]!.type, 'view');
+    back.ws.close();
+  } finally {
+    host.close();
+  }
+});
+
 test('view.open over the daemon: a ticket with no session and no tool call; the Shell claims it; others refused', async () => {
   const workspace = tempDir('open-artifact-ws-');
   const host = await adapter('pick-app', { open: { embed: 'view', origins: [] } });

@@ -7,7 +7,9 @@
   "exports": {
     ".": "./src/index.ts",
     "./keys": "./src/keys.ts",
-    "./styles.css": "./src/styles.css"
+    "./tab-strip": "./src/tab-strip.tsx",
+    "./styles.css": "./src/styles.css",
+    "./theme.css": "./src/theme.css"
   },
   "license": "Apache-2.0"
 }

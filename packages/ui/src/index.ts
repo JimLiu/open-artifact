@@ -8,6 +8,8 @@ export * from './cn.ts';
 export * from './button.tsx';
 export * from './tooltip.tsx';
 export * from './menu.tsx';
+export * from './tab-strip.tsx';
+export * from './tab-strip-layout.ts';
 export * from './overlays.tsx';
 export * from './fields.tsx';
 export * from './layout.tsx';

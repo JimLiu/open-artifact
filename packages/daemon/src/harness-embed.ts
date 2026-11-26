@@ -8,10 +8,10 @@
  *   page in the Shell's frame runs the type's and the agent's code and must not reach the Shell or the daemon.
  *   Subscribed adapters get `embed/origins` when the answer changes.
  * - Top-level views (`caps.open.embed: 'view'`): `host.open` carries a one-time ticket (`view`) and the Shell address
- *   with it (`embed_url`). A Shell loaded with a ticket and no parent frame claims it over `GET
- *   /api/open-artifact.view` (an event stream): the claim gives it a key only it knows, and from then on what it would
- *   have posted to a parent frame goes to `POST /api/open-artifact.view` with that key, and on to the adapter as
- *   `shell.event`; the adapter's `shell.command` comes down the stream. A ticket is used once, belongs to the adapter
+ *   with it (`embed_url`). A Shell loaded with a ticket and no parent frame claims it over a WebSocket to
+ *   `/api/open-artifact.view` (or, where no socket opens, `GET` on it, an event stream): the claim gives it a key only
+ *   it knows, and from then on what it would have posted to a parent frame goes to `POST /api/open-artifact.view` with
+ *   that key, and on to the adapter as `shell.event`; the adapter's `shell.command` comes down the socket. A ticket is used once, belongs to the adapter
  *   connection it was issued to, expires unclaimed after {@link TICKET_MS}, and ends with that connection. Commands
  *   sent before the Shell connects wait (at most {@link MAX_QUEUED}). A Shell that reloads may come back with its key
  *   within {@link GRACE_MS}.

@@ -751,6 +751,7 @@ async function start() {
     }
   });
   handle('desktop:select', (id) => tabs.select(String(id)));
+  handle('desktop:move', (id, index) => tabs.move(String(id), Number(index)));
   handle('desktop:close', (id) => (id === HOME_TAB ? false : requestClose(String(id))));
   // The person's Reload of a tab kept as it was (`stale`): its unsaved work, which can no longer be saved, is let go
   // once they said so. Any other reload leaves a page that holds unsaved work as it is.

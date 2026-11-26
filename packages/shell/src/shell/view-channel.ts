@@ -1,8 +1,11 @@
 /**
  * The host channel of a Shell opened as a top-level view (`host.open`'s `embed_url`: the Shell's address with
- * `?oa_view=<ticket>`, no parent frame). The Shell claims the one-time ticket over `GET /api/open-artifact.view` (an
- * event stream whose first event, `view`, carries a key only this Shell knows), then sends what it would have posted
- * to a parent frame with `POST /api/open-artifact.view` and that key; the adapter's commands come down the stream.
+ * `?oa_view=<ticket>`, no parent frame). The Shell claims the one-time ticket over a WebSocket to
+ * `/api/open-artifact.view` (its first message, `view`, carries a key only this Shell knows), then sends what it would
+ * have posted to a parent frame with `POST /api/open-artifact.view` and that key; the adapter's commands come down the
+ * socket. A browser opens at most six HTTP/1.1 connections to one host and a WebSocket is not one of them, so a host
+ * with many views open (an app's tabs) still loads the next one; where no socket opens, the same claim goes over an
+ * event stream (`GET`) instead.
  * The ticket leaves the address once claimed; the key stays in this tab's session storage, so a reload comes back to
  * the same view (within the daemon's grace).
  */
@@ -50,6 +53,81 @@ export function takeTicket(): string | null {
   return ticket || null;
 }
 
+/** What comes down the channel, and its end (`opened`: whether it was ever open). */
+interface StreamHandlers {
+  view: (data: { view?: unknown; key?: unknown }) => void;
+  command: (message: unknown) => void;
+  lost: (opened: boolean) => void;
+}
+interface Stream {
+  close(): void;
+}
+
+/** Whether to try a WebSocket first (until one fails to open in this page). */
+let useSocket = typeof WebSocket !== 'undefined';
+
+/** The channel over a WebSocket: JSON text messages, `{type: 'view', …}` then `{type: 'command', command}`. */
+function openSocket(path: string, on: StreamHandlers): Stream {
+  const url = new URL(path, location.href);
+  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+  const socket = new WebSocket(url);
+  let opened = false;
+  let done = false;
+  socket.addEventListener('open', () => (opened = true));
+  socket.addEventListener('message', (event) => {
+    try {
+      const data = JSON.parse(String((event as MessageEvent).data)) as { type?: unknown; command?: unknown };
+      if (data.type === 'view') on.view(data as { view?: unknown; key?: unknown });
+      else if (data.type === 'command') on.command(data.command);
+    } catch {
+      // Not JSON: dropped.
+    }
+  });
+  socket.addEventListener('close', () => {
+    if (done) return;
+    done = true;
+    on.lost(opened);
+  });
+  return {
+    close: () => {
+      done = true;
+      socket.close();
+    },
+  };
+}
+
+/** The channel over an event stream: events `view` and `command`. */
+function openEvents(path: string, on: StreamHandlers): Stream {
+  const source = new EventSource(path);
+  let done = false;
+  source.addEventListener('view', (event) => {
+    try {
+      on.view(JSON.parse((event as MessageEvent<string>).data) as { view?: unknown; key?: unknown });
+    } catch {
+      // Not a view event.
+    }
+  });
+  source.addEventListener('command', (event) => {
+    try {
+      on.command(JSON.parse((event as MessageEvent<string>).data));
+    } catch {
+      // Not JSON: dropped.
+    }
+  });
+  source.addEventListener('error', () => {
+    source.close();
+    if (done) return;
+    done = true;
+    on.lost(true);
+  });
+  return {
+    close: () => {
+      done = true;
+      source.close();
+    },
+  };
+}
+
 /**
  * Starts the view channel of artifact `id` when this Shell was opened as a top-level view; `null` when it was not.
  * `onOpen` runs once the view is claimed (the Shell says `shell_hello`), `onCommand` for each host message.
@@ -59,43 +137,40 @@ export function startViewChannel(id: string, handlers: { onCommand: (message: un
   const kept = ticket ? null : stored(id);
   if (!ticket && !kept) return null;
   let stopped = false;
-  let source: EventSource | null = null;
+  let source: Stream | null = null;
   let retries = 0;
+  const onView = (data: { view?: unknown; key?: unknown }): void => {
+    if (typeof data.view !== 'string' || typeof data.key !== 'string') return;
+    current = { view: data.view, key: data.key };
+    store(id, current);
+    retries = 0;
+    handlers.onOpen();
+  };
   const open = (view: string, key: string | null): void => {
     const query = new URLSearchParams({ view, id, ...(key ? { key } : {}) });
-    source = new EventSource(`${ROUTE}?${query}`);
-    source.addEventListener('view', (event) => {
-      try {
-        const data = JSON.parse((event as MessageEvent<string>).data) as { view?: unknown; key?: unknown };
-        if (typeof data.view !== 'string' || typeof data.key !== 'string') return;
-        current = { view: data.view, key: data.key };
-        store(id, current);
-        retries = 0;
-        handlers.onOpen();
-      } catch {
-        // Not a view event.
-      }
-    });
-    source.addEventListener('command', (event) => {
-      try {
-        handlers.onCommand(JSON.parse((event as MessageEvent<string>).data));
-      } catch {
-        // Not JSON: dropped.
-      }
-    });
-    source.addEventListener('error', () => {
-      // A refused claim or a dropped stream: try again with the key, a few times.
-      source?.close();
-      source = null;
-      if (stopped) return;
-      if (!current || retries >= MAX_RETRIES) {
-        store(id, null);
-        current = null;
-        return;
-      }
-      retries += 1;
-      const again = current;
-      setTimeout(() => !stopped && open(again.view, again.key), 1000 * retries);
+    source = (useSocket ? openSocket : openEvents)(`${ROUTE}?${query}`, {
+      view: onView,
+      command: handlers.onCommand,
+      lost: (opened) => {
+        source = null;
+        if (stopped) return;
+        // No socket opened at all (a proxy that does not pass them on, or a refused claim): the same claim over an
+        // event stream, which says which it was.
+        if (useSocket && !opened) {
+          useSocket = false;
+          open(view, key);
+          return;
+        }
+        // A refused claim or a dropped stream: try again with the key, a few times.
+        if (!current || retries >= MAX_RETRIES) {
+          store(id, null);
+          current = null;
+          return;
+        }
+        retries += 1;
+        const again = current;
+        setTimeout(() => !stopped && open(again.view, again.key), 1000 * retries);
+      },
     });
   };
   if (ticket) open(ticket, null);

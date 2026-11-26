@@ -1,12 +1,20 @@
 import type { TabSnapshot } from '../../src/tabs.ts';
-import type { ArtifactMenu, DialogProps, InstallApp, WindowProps, WordsProps } from './types.ts';
-// The tab bar: the library first (never closed), one tab per open artifact (its type's color, its title, a mark while
-// something is not saved, what its connection is doing, a close button), then "+". It scrolls sideways and never
-// wraps; its empty part moves the window.
-import { ArtifactsIcon, typeStyle, usePage } from '@open-artifact/library-page';
-import { useEffect, useRef } from 'react';
-import { CloseIcon, PlusIcon } from './icons.tsx';
+import type { InstallApp, WindowProps, WordsProps } from './types.ts';
+// The tab bar: the library first (never closed or moved), one tab per open artifact (its type's icon in its color, its
+// title, a dot while something is not saved, what its connection is doing, a close button), then "+". Tabs are dragged
+// to change their order; the ones that do not fit go into the list behind ▾. A tab's right-click menu has Install as
+// App… and the Close items. Its empty part moves the window.
+//
+// "+" opens a menu: New, one line per installed type (picking one makes it at once, with no name, and opens it), then
+// the artifacts made for the same project as the tab in front that are not open (or, with none, the ones opened last).
+//
+// The row is the UI kit's TabStrip (styled by ui.css). Its menus drop below the bar, where the view of the tab in front is drawn: `onPopupChange` tells the window's page,
+// which hides the view while one is open.
+import { ArtifactsIcon, TypeIcon, typeStyle, usePage, type PageArtifact } from '@open-artifact/library-page';
+import { TabStrip, type TabStripMenuItem, type TabStripTab, type TabStripWords } from '@open-artifact/ui/tab-strip';
+import { useMemo } from 'react';
 import { WindowControls } from './Sidebar.tsx';
+import { typeName } from './words.ts';
 
 const STATUS_WORD: Partial<Record<TabSnapshot['status'], string>> = {
   opening: 'tabs.opening',
@@ -17,112 +25,152 @@ const STATUS_WORD: Partial<Record<TabSnapshot['status'], string>> = {
   missing: 'tabs.missing',
 };
 
-function ArtifactTab({
-  tab,
-  selected,
-  title,
-  type,
-  t,
-  onMenu,
-}: WordsProps & { tab: TabSnapshot; selected: boolean; title: string; type: string; onMenu?(menu: ArtifactMenu): void }) {
-  const desktop = window.desktop;
+/** The order of the types under New; a type not named here comes after them, in the order the library gives. */
+const NEW_ORDER = ['docs', 'slides', 'design', 'sheets', 'data', 'whiteboard', 'motion'];
+/** How many artifacts the + menu lists. */
+const RELATED_MAX = 6;
+
+const typeIcon = (type: string) => (
+  <span className="tab-type" style={typeStyle(type)}>
+    <TypeIcon type={type} size={14} />
+  </span>
+);
+
+const openedAt = (a: PageArtifact) => Date.parse(a.openedAt) || 0;
+
+/** What a tab shows after its title: what its connection is doing, or Reload for a tab kept as it was. */
+function TabState({ tab, t }: WordsProps & { tab: TabSnapshot }) {
   // While a close (or the app's quit) waits for the save: that word, before what the connection does.
   const status = tab.closing ? 'tabs.closing' : STATUS_WORD[tab.status];
-  return (
-    <div
-      className="tab"
-      role="tab"
-      tabIndex={0}
-      aria-selected={selected}
-      data-tab={tab.id}
-      data-unsaved={String(!!tab.unsaved)}
-      data-status={tab.status || undefined}
-      data-closing={tab.closing ? 'true' : undefined}
-      title={title}
-      onClick={() => void desktop.select(tab.id)}
-      onKeyDown={(event) => (event.key === 'Enter' || event.key === ' ') && void desktop.select(tab.id)}
-      onAuxClick={(event) => event.button === 1 && void desktop.close(tab.id)}
-      onContextMenu={(event) => {
-        event.preventDefault();
-        onMenu?.({ id: tab.id, title, x: event.clientX, y: event.clientY });
-      }}
-    >
-      <span className="tab-swatch" aria-hidden="true" style={typeStyle(type)} />
-      <span className="tab-title">{title}</span>
-      {tab.unsaved && <span className="tab-dot" data-testid="unsaved" title={t('tabs.unsaved')} aria-label={t('tabs.unsaved')} />}
-      {status &&
-        (tab.status === 'stale' && !tab.closing ? (
-          <button
-            type="button"
-            className="tab-state tab-reload"
-            title={t('tabs.staleHint')}
-            onClick={(event) => {
-              event.stopPropagation();
-              void desktop.reload(tab.id);
-            }}
-          >
-            {t(status)}
-          </button>
-        ) : (
-          <span className="tab-state" data-testid={tab.closing ? 'tab-closing' : undefined}>
-            {t(status)}
-          </span>
-        ))}
+  if (!status) return null;
+  if (tab.status === 'stale' && !tab.closing)
+    return (
       <button
         type="button"
-        className="tab-close"
-        aria-label={t('tabs.close', { title })}
-        title={t('tabs.close', { title })}
+        className="tab-state tab-reload"
+        title={t('tabs.staleHint')}
         onClick={(event) => {
           event.stopPropagation();
-          void desktop.close(tab.id);
+          void window.desktop.reload(tab.id);
         }}
       >
-        <CloseIcon />
+        {t(status)}
       </button>
-    </div>
+    );
+  return (
+    <span className="tab-state" data-testid={tab.closing ? 'tab-closing' : undefined}>
+      {t(status)}
+    </span>
   );
 }
 
-export function TabBar({ t, state, platform, onNew, onMenu }: WindowProps & { onNew(): void; onMenu(menu: ArtifactMenu): void }) {
+export function TabBar({
+  t,
+  state,
+  platform,
+  onCreate,
+  onInstallApp,
+  onPopupChange,
+}: WindowProps & { onCreate(type: string): void; onInstallApp: InstallApp; onPopupChange(open: boolean): void }) {
   const artifacts = usePage((s) => s.artifacts);
-  const strip = useRef<HTMLDivElement>(null);
-  const byId = new Map(artifacts.map((a) => [a.id, a]));
+  const types = usePage((s) => s.types);
   const collapsed = !!state.sidebarCollapsed;
+  const words = useMemo<TabStripWords>(
+    () => ({
+      label: t('tabs.label'),
+      newTab: t('tabs.new'),
+      moreTabs: t('tabs.more'),
+      close: (title) => t('tabs.close', { title }),
+      menu: (title) => t('row.menu', { title }),
+      closeTab: t('tabs.closeThis'),
+      closeOthers: t('tabs.closeOthers'),
+      closeRight: t('tabs.closeRight'),
+      closeAll: t('tabs.closeAll'),
+    }),
+    [t],
+  );
 
-  // The current tab stays in sight.
-  useEffect(() => {
-    strip.current?.querySelector<HTMLElement>('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-  }, [state.current, state.tabs.length]);
+  const byId = new Map(artifacts.map((a) => [a.id, a]));
+  const tabs: TabStripTab[] = [
+    { id: 'home', title: t('nav.library'), icon: <ArtifactsIcon size={15} />, fixed: true, attrs: { 'data-tab': 'home' } },
+    ...state.tabs.map((tab): TabStripTab => {
+      const artifact = byId.get(tab.id);
+      // The page's store has the newest title (a rename shows at once); the main process's is the fallback.
+      const title = artifact?.title || tab.title || t('nav.untitled');
+      const type = artifact?.type || tab.type;
+      return {
+        id: tab.id,
+        title,
+        icon: typeIcon(type),
+        detail: type ? typeName(t, type, undefined) : undefined,
+        marked: !!tab.unsaved,
+        markLabel: t('tabs.unsaved'),
+        extra: <TabState tab={tab} t={t} />,
+        attrs: {
+          'data-tab': tab.id,
+          'data-unsaved': String(!!tab.unsaved),
+          'data-status': tab.status || undefined,
+          'data-closing': tab.closing ? 'true' : undefined,
+        },
+      };
+    }),
+  ];
+
+  // ---- what + offers ----
+  const rank = (id: string) => (NEW_ORDER.includes(id) ? NEW_ORDER.indexOf(id) : NEW_ORDER.length);
+  const newTypes = types.map((tile, i) => ({ tile, i })).sort((a, b) => rank(a.tile.id) - rank(b.tile.id) || a.i - b.i);
+  const open = new Set(state.tabs.map((tab) => tab.id));
+  const closed = artifacts.filter((a) => !open.has(a.id) && a.openable).sort((a, b) => openedAt(b) - openedAt(a));
+  const project = byId.get(state.current)?.project;
+  const sameProject = project ? closed.filter((a) => a.project === project) : [];
+  const relatedHeading = sameProject.length ? t('tabs.related') : t('tabs.recent');
+  const related = sameProject.length ? sameProject : closed;
+  const newMenu: TabStripMenuItem[] = [
+    ...(newTypes.length ? [{ heading: t('tabs.newHeading') }] : []),
+    ...newTypes.map(
+      ({ tile }): TabStripMenuItem => ({
+        key: `new:${tile.id}`,
+        label: typeName(t, tile.id, tile.title),
+        icon: typeIcon(tile.id),
+        attrs: { 'data-type': tile.id },
+        onSelect: () => onCreate(tile.id),
+      }),
+    ),
+    ...(newTypes.length && related.length ? ['separator' as const] : []),
+    ...(related.length ? [{ heading: relatedHeading }] : []),
+    ...related.slice(0, RELATED_MAX).map(
+      (a): TabStripMenuItem => ({
+        key: `open:${a.id}`,
+        label: a.title || t('nav.untitled'),
+        detail: typeName(t, a.type, a.typeTitle),
+        icon: typeIcon(a.type),
+        attrs: { 'data-artifact': a.id },
+        onSelect: () => void window.desktop.open(a.id),
+      }),
+    ),
+  ];
 
   return (
     <header id="bar" className="tab-bar drag" data-collapsed={String(collapsed)}>
       {collapsed && <WindowControls t={t} state={state} platform={platform} />}
-      <div className="tab-strip" role="tablist" aria-label={t('tabs.label')} ref={strip}>
-        <div
-          className="tab tab-home"
-          role="tab"
-          tabIndex={0}
-          aria-selected={state.current === 'home'}
-          data-tab="home"
-          onClick={() => void window.desktop.select('home')}
-          onKeyDown={(event) => (event.key === 'Enter' || event.key === ' ') && void window.desktop.select('home')}
-        >
-          <ArtifactsIcon size={15} />
-          <span className="tab-title">{t('nav.library')}</span>
-        </div>
-        {state.tabs.map((tab) => {
-          const artifact = byId.get(tab.id);
-          // The page's store has the newest title (a rename shows at once); the main process's is the fallback.
-          const title = artifact?.title || tab.title || t('nav.untitled');
-          return (
-            <ArtifactTab key={tab.id} tab={tab} selected={state.current === tab.id} title={title} type={artifact?.type || tab.type} t={t} onMenu={onMenu} />
-          );
-        })}
-        <button type="button" className="icon-button tab-new" data-testid="tab-new" aria-label={t('tabs.new')} title={t('tabs.new')} onClick={onNew}>
-          <PlusIcon size={14} />
-        </button>
-      </div>
+      <TabStrip
+        tabs={tabs}
+        activeId={state.current}
+        words={words}
+        onSelect={(id) => void window.desktop.select(id)}
+        onClose={(ids) => {
+          // One after another: a tab with unsaved work asks first, and the next waits for the answer.
+          void (async () => {
+            for (const id of ids) await window.desktop.close(id);
+          })();
+        }}
+        // The main process counts only the artifact tabs: the library is first.
+        onReorder={(id, index) => void window.desktop.move(id, index - 1)}
+        newMenu={newMenu}
+        newTestId="tab-new"
+        menuItems={(tab) => [{ key: 'install-app', label: t('menu.installApp'), testId: 'tab-install-app', onSelect: () => onInstallApp(tab.id, tab.title) }]}
+        onPopupChange={onPopupChange}
+      />
       <span id="connection" role="status" aria-live="polite" data-connected={String(!!state.connected)}>
         {state.connected
           ? ''
@@ -133,56 +181,5 @@ export function TabBar({ t, state, platform, onNew, onMenu }: WindowProps & { on
               : t('connection.lost')}
       </span>
     </header>
-  );
-}
-
-/**
- * A tab's right-click menu: Install as App…. Drawn by the window's page (not a menu of the system's), so the view of
- * the tab in front is hidden while it is open (it drops below the tab bar, where the view is).
- */
-export function TabMenu({ t, menu, onClose, onInstallApp }: DialogProps & { menu: ArtifactMenu; onInstallApp: InstallApp }) {
-  const box = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    box.current?.querySelector<HTMLElement>('button')?.focus();
-    const away = (event: MouseEvent) => {
-      if (!box.current?.contains(event.target instanceof Node ? event.target : null)) onClose();
-    };
-    const key = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
-    };
-    window.addEventListener('mousedown', away, true);
-    window.addEventListener('keydown', key, true);
-    window.addEventListener('blur', onClose);
-    return () => {
-      window.removeEventListener('mousedown', away, true);
-      window.removeEventListener('keydown', key, true);
-      window.removeEventListener('blur', onClose);
-    };
-  }, [onClose]);
-  const left = Math.max(4, Math.min(menu.x, window.innerWidth - 204));
-  const top = Math.max(4, Math.min(menu.y, window.innerHeight - 60));
-  return (
-    <div
-      ref={box}
-      className="row-menu"
-      role="menu"
-      aria-label={t('row.menu', { title: menu.title })}
-      data-testid="tab-menu"
-      data-artifact={menu.id}
-      style={{ left, top }}
-    >
-      <button
-        type="button"
-        role="menuitem"
-        className="row-menu-item"
-        data-testid="tab-install-app"
-        onClick={() => {
-          onClose();
-          onInstallApp(menu.id, menu.title);
-        }}
-      >
-        {t('menu.installApp')}
-      </button>
-    </div>
   );
 }

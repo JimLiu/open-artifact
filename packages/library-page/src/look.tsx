@@ -29,11 +29,15 @@ const COLORS: Record<KnownType, { wash: string; ink: string; tint: string }> = {
   whiteboard: { wash: '#fbd6e5', ink: '#902552', tint: '#d6409f' },
   motion: { wash: '#bfeee5', ink: '#006458', tint: '#14a38b' },
 };
+/** Types that are not tiles of their own but still have a look: a free page. */
+const MORE_COLORS: Record<string, { wash: string; ink: string; tint: string }> = {
+  page: { wash: '#d6e4ee', ink: '#2c5672', tint: '#4f86ad' },
+};
 const NO_COLORS = { wash: '#ececec', ink: '#555555', tint: '#8a8a8a' };
 
 /** The custom properties an element of one type is drawn with. */
 export const typeStyle = (type: string): CSSProperties => {
-  const c = isKnownType(type) ? COLORS[type] : NO_COLORS;
+  const c = isKnownType(type) ? COLORS[type] : (MORE_COLORS[type] ?? NO_COLORS);
   return { '--oa-tint': c.tint, '--oa-wash': c.wash, '--oa-ink': c.ink } as CSSProperties;
 };
 
@@ -72,6 +76,8 @@ export function TypeIcon({ type, size = 18 }: { type: string; size?: number }) {
         return (<><path d="M11.52 8.25A5 5 0 1 0 8.25 11.52" {...p} /><rect x="8.25" y="8.25" width="10" height="10" rx="2.25" {...p} /></>);
       case 'motion':
         return (<><path d="M3.75 6.6h2M1.5 10H5M3.75 13.4h2" {...p} /><circle cx="13.75" cy="10" r="4.75" {...p} /></>);
+      case 'page':
+        return (<><rect x="2.25" y="3.25" width="15.5" height="13.5" rx="2.75" {...p} /><path d="M2.25 7.25h15.5" {...p} /><circle cx="5" cy="5.25" r=".8" fill="currentColor" stroke="none" /><circle cx="7.4" cy="5.25" r=".8" fill="currentColor" stroke="none" /><path d="m8 10.25-2 1.75 2 1.75M12 10.25l2 1.75-2 1.75" {...p} /></>);
       default:
         return <rect x="3" y="3" width="14" height="14" rx="2" {...p} />;
     }

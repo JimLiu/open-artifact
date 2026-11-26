@@ -9,7 +9,8 @@ import { preventRepeatedActivation } from './keys.ts';
 export const POPUP_CLASS =
   'rounded-lg bg-surface p-1 text-[13px] text-fg shadow-popup outline-none origin-[var(--transform-origin)] transition-[opacity,transform] duration-100 data-[starting-style]:opacity-0 data-[starting-style]:scale-95 data-[ending-style]:opacity-0';
 
-const ITEM_CLASS =
+/** Shared look of a menu's rows. */
+export const MENU_ITEM_CLASS =
   'flex h-7 min-w-40 cursor-default select-none items-center gap-2 rounded-md px-2 outline-none data-[highlighted]:bg-hover data-[disabled]:opacity-40';
 /** A row with a check mark: its label takes up to two lines, the mark stays by the first. */
 const CHECK_ITEM_CLASS =
@@ -58,7 +59,7 @@ export interface MenuItemProps {
 export function MenuItem({ children, onSelect, icon, shortcut, disabled, danger }: MenuItemProps) {
   return (
     <BaseMenu.Item
-      className={cn(ITEM_CLASS, danger && 'text-danger')}
+      className={cn(MENU_ITEM_CLASS, danger && 'text-danger')}
       disabled={disabled}
       onClick={(event) => {
         swallowFollowUpClicks(event.nativeEvent);
@@ -112,7 +113,7 @@ export function MenuLabel({ children }: { children: ReactNode }) {
 export function MenuSubmenu({ label, icon, children }: { label: ReactNode; icon?: ReactNode; children: ReactNode }) {
   return (
     <BaseMenu.SubmenuRoot>
-      <BaseMenu.SubmenuTrigger className={ITEM_CLASS} onKeyDown={preventRepeatedActivation}>
+      <BaseMenu.SubmenuTrigger className={MENU_ITEM_CLASS} onKeyDown={preventRepeatedActivation}>
         <span className="flex size-4 items-center justify-center text-fg-muted">{icon}</span>
         <span className="flex-1">{label}</span>
         <ChevronRight className="size-3.5 text-fg-subtle" />

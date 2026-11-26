@@ -1,7 +1,7 @@
 import type { PageArtifact } from '@open-artifact/library-page';
 import type { DesktopState } from '../../src/contracts.ts';
 import type { TabSnapshot } from '../../src/tabs.ts';
-import type { ArtifactMenu } from './types.ts';
+import { errorInfo } from '../../src/errors.ts';
 // The window's page: the sidebar, the tab bar, and the home page (the shared `ArtifactsPage`). The home page stays
 // mounted while an artifact's tab is in front (its view covers this part of the window), so its list keeps following
 // the library and the sidebar keeps showing it.
@@ -14,9 +14,9 @@ import { ServicePanel, ServiceStatus } from './ServicePanel.tsx';
 import { SettingsDialog } from './SettingsDialog.tsx';
 import { AppUpdateDialog, useAppUpdates } from './AppUpdate.tsx';
 import { Sidebar } from './Sidebar.tsx';
-import { TabBar, TabMenu } from './TabBar.tsx';
+import { TabBar } from './TabBar.tsx';
 import { MissingFolder, UnsavedDialog } from './Unsaved.tsx';
-import { pageApi, pageHost, setTypeWords, tileGroups } from './host.ts';
+import { createArtifact, pageApi, pageHost, setTypeWords, tileGroups } from './host.ts';
 import { runtimeUpdates, useRuntime, useService } from './service.ts';
 import { typeName, wordsFor } from './words.ts';
 
@@ -38,7 +38,8 @@ export function App({ initial }: { initial: DesktopState }) {
   const [serversOpen, setServersOpen] = useState(false);
   // "Install as app" of one artifact (`{ id, title }`), and a tab's right-click menu (`{ id, title, x, y }`).
   const [installFor, setInstallFor] = useState<{ id: string; title: string } | null>(null);
-  const [tabMenu, setTabMenu] = useState<ArtifactMenu | null>(null);
+  /** A tab's menu, or the list of tabs that do not fit, is open. */
+  const [tabPopup, setTabPopup] = useState(false);
   const servers = useServers();
   const service = useService();
   const runtime = useRuntime();
@@ -152,8 +153,8 @@ export function App({ initial }: { initial: DesktopState }) {
 
   // A dialog is drawn over the artifact's view: the view is hidden while one is open (the main process's question
   // about unsaved work too).
-  // A tab's menu too: it drops below the tab bar, where the view is.
-  const overlay = dialogOpen || !!servicePanel || settingsOpen || updatesOpen || serversOpen || !!state.ask || !!installFor || !!tabMenu;
+  // A tab's menu and the list of tabs that do not fit too: they drop below the tab bar, where the view is.
+  const overlay = dialogOpen || !!servicePanel || settingsOpen || updatesOpen || serversOpen || !!state.ask || !!installFor || tabPopup;
   useEffect(() => {
     void window.desktop.setOverlay(overlay);
   }, [overlay]);
@@ -170,9 +171,14 @@ export function App({ initial }: { initial: DesktopState }) {
   }, [searchWanted, state.current, store]);
 
   const openDialog = useCallback(() => setDialogOpen(true), []);
+  // A type picked from the tab bar's + menu: made with no name, then opened in its tab (as the dialog does).
+  const createOfType = useCallback(
+    (type: string) =>
+      void createArtifact(type).catch((failure: unknown) => store.getState().showToast(t('create.failed', { message: errorInfo(failure).message }), 'error')),
+    [store, t],
+  );
   const titleOf = (tab: TabSnapshot) => store.getState().artifacts.find((a) => a.id === tab.id)?.title || tab.title || tab.id;
   const installApp = useCallback((id: string, title: string) => setInstallFor({ id, title }), []);
-  const closeTabMenu = useCallback(() => setTabMenu(null), []);
   // The tabs with work not saved, named in the service panel's restart and stop questions.
   const unsavedNames = state.tabs.filter((tab) => tab.unsaved).map(titleOf);
   const front = state.tabs.find((tab) => tab.id === state.current);
@@ -203,7 +209,7 @@ export function App({ initial }: { initial: DesktopState }) {
             />
           )}
           <div className="main">
-            <TabBar t={t} state={state} platform={platform} onNew={openDialog} onMenu={setTabMenu} />
+            <TabBar t={t} state={state} platform={platform} onCreate={createOfType} onInstallApp={installApp} onPopupChange={setTabPopup} />
             <main className="content" data-testid="home" hidden={state.current !== 'home'}>
               <ArtifactsPage
                 canCreate
@@ -229,7 +235,6 @@ export function App({ initial }: { initial: DesktopState }) {
           </div>
         </div>
         {dialogOpen && <NewDialog t={t} onClose={() => setDialogOpen(false)} />}
-        {tabMenu && <TabMenu t={t} menu={tabMenu} onClose={closeTabMenu} onInstallApp={installApp} />}
         {installFor && <InstallAppDialog key={installFor.id} t={t} artifact={installFor} onClose={() => setInstallFor(null)} />}
         {updatesOpen && <AppUpdateDialog t={t} view={appUpdates} onClose={() => setUpdatesOpen(false)} />}
         {settingsOpen && !servicePanel && !serversOpen && !updatesOpen && (

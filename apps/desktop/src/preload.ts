@@ -21,6 +21,7 @@ const desktop: DesktopBridge = {
   /** Opens an artifact in a tab: an id or an `open-artifact://artifact/<id>` link. */
   open: (ref) => invoke('desktop:open')(String(ref)),
   select: (id) => invoke('desktop:select')(String(id)),
+  move: (id, index) => invoke('desktop:move')(String(id), Number(index)),
   close: (id) => invoke('desktop:close')(String(id)),
   reload: (id) => invoke('desktop:reload')(String(id)),
   /** Back and forward over the tabs the person went to. */

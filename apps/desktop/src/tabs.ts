@@ -586,6 +586,20 @@ export class Tabs {
     return true;
   }
 
+  /** Puts a tab at `index` among the artifact tabs (the home page not counted): the bar's drag and Move keys. */
+  move(id: string, index: number) {
+    if (!this.tabs.has(id) || !Number.isInteger(index)) return false;
+    const order = [...this.tabs.entries()];
+    const from = order.findIndex(([key]) => key === id);
+    const to = Math.max(0, Math.min(order.length - 1, index));
+    if (from === to) return true;
+    const [entry] = order.splice(from, 1);
+    order.splice(to, 0, entry);
+    this.tabs = new Map(order);
+    this.changed();
+    return true;
+  }
+
   /** Closes a tab (the Shell's `close`, or the bar's close button). */
   async close(id: string) {
     const tab = this.tabs.get(id);

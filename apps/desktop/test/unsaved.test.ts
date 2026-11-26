@@ -153,7 +153,7 @@ describe('unsaved work: closing a tab and quitting ask first', () => {
   it('not saved: Close Anyway closes the tab', T, async () => {
     const { id } = docs.Lantern;
     // The bar's ×.
-    void app.chrome.evaluate<boolean>(`document.querySelector('[data-tab=${js(id)}] .tab-close').click(), true`);
+    void app.chrome.evaluate<boolean>(`document.querySelector('[data-tab=${js(id)}] [data-slot=tab-close]').click(), true`);
     assert.ok(await until(async () => (await dialogKind()) === 'close', 10_000), 'the × did not ask');
     await click('confirm-unsaved-yes');
     assert.ok(await until(async () => !(await tab(id)), 5000), 'Close Anyway did not close the tab');

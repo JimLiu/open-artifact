@@ -33,9 +33,17 @@ The window's page (`renderer/`, a React app bundled into `out/renderer/app.js`) 
   its search field focused), Library; Pinned (foldable) and Recent (the 8 most recently changed artifacts that are not
   pinned), each with its type's colored icon; pointing at a row shows its title and, on a second line, the project it
   was made for. It follows the library's events.
-- **Tab bar**: the Library tab first (it cannot be closed), then one tab per artifact (its type's color, title, close,
-  a dot while it has unsaved work, reconnecting, stopped, "reload", "saving…" while a close waits for the save, and
-  "folder not found" states), and `+` for the new dialog. It scrolls sideways.
+- **Tab bar** (`TabStrip` of `packages/ui`): the Library tab first (it cannot be closed or moved), then one tab per artifact (its type's icon in the
+  type's color, title, close, a dot in place of × while it has unsaved work, reconnecting, stopped, "reload", "saving…"
+  while a close waits for the save, and "folder not found" states), and `+`. `+` opens a menu: New, one line per
+  installed type (a pick makes it at once, with no name, and opens it in a tab; ⌘N still opens the new dialog), then
+  the artifacts made for the same project as the tab in front that are not open (with none, the ones opened last; six
+  at most). Tabs are dragged to
+  change their order (`desktop.move`; the main process keeps it, so ⌘⇧[ / ⌘⇧] follow it); ⌘⇧← / ⌘⇧→ (Ctrl+Shift
+  elsewhere) moves the focused tab. A middle click, Delete or Backspace closes a tab. Tabs that do not fit go into the
+  list behind ▾ (each with its type, a click brings it into the row next to the last tab shown, × or Delete closes it).
+  A tab's right-click menu has Install as App…, Close Tab, Close Other Tabs, Close Tabs to the Right and Close All Tabs
+  (each close asks about unsaved work as ⌘W does). The view of the tab in front is hidden while a menu is open.
 - **Unsaved work** (built on what each tab's Shell says of its saving: `saved` and `unsaved`): closing a tab (its ×,
   ⌘W, File ▸ Close Tab, the Shell's own `close`) with work not saved waits up to 3 s for the save, the tab saying
   "saving…"; saved, it closes; not saved, the window's page asks "<title> has changes that are not saved" with Close

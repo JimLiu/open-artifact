@@ -50,7 +50,7 @@ packages/daemon (local open-artifact daemon, one per machine)
 
 | Package / Crate | Responsibility |
 | --- | --- |
-| `packages/ui` | Shared UI primitives (Base UI + Tailwind CSS). |
+| `packages/ui` | Shared UI primitives (Base UI + Tailwind CSS), the browser-style `TabStrip` among them; `theme.css` holds the tokens alone for an app that builds only the utilities it uses. |
 | `packages/editor-kit` | Shared editor controllers & React views (comments, version history, presence, find, merge, Shell bridge). See `packages/editor-kit/README.md`. |
 | `packages/export-kit` | Browser-side export helpers shared by the Slides, Design, Whiteboard and Data editors: DOM capture to pictures and SVG, a rendered document's pages as pictures, measuring and paginating a long document for a PDF, its text layer, font embedding. |
 | `packages/canvas-engine` | Shared WebGL2 infinite canvas rendering engine. |
@@ -114,7 +114,9 @@ It is a Harness API host like the examples, built on `@open-artifact/harness-kit
   process; the page is sent display data picked field by field, never the token. The library's update offer is the
   shared `UpdatePanel` (`PageUpdates.restart` opens the service panel's restart question).
 - **Window page**: `apps/desktop/renderer/` is a React app (bundled by `apps/desktop/build.ts` into
-  `out/renderer/`, with `PAGE_CSS` and `UPDATE_CSS` written to `page.css`) that draws the sidebar, the tab bar, the
+  `out/renderer/`, with `PAGE_CSS` and `UPDATE_CSS` written to `page.css`, and the Tailwind utilities of the
+  `packages/ui` components it uses, the tab bar's `TabStrip` and its menus, compiled with no reset from
+  `renderer/src/ui.css` into `ui.css`) that draws the sidebar, the tab bar, the
   new dialog, the service panel, the settings dialog and the
   shared `ArtifactsPage` of `packages/library-page`. It talks to the main process only through the preload bridge
   (`window.desktop`); every `ipcMain` handler checks the sender is the window's own page. The page's `PageApi` calls

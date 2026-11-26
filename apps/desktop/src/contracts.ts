@@ -141,6 +141,8 @@ export interface ArtifactAppInfo extends ArtifactWindowSnapshot {
 export interface DesktopBridge {
   open(ref: string): Promise<{ ok: true; id: string } | { ok: false; error: string }>;
   select(id: string): Promise<boolean>;
+  /** Puts an artifact tab at `index` among the artifact tabs (the home page not counted). */
+  move(id: string, index: number): Promise<boolean>;
   close(id: string): Promise<boolean>;
   reload(id: string): Promise<boolean>;
   back(): Promise<boolean>;
@@ -244,6 +246,7 @@ export interface NoticeBridge {
 export interface DesktopIpc {
   'desktop:open': DesktopBridge['open'];
   'desktop:select': DesktopBridge['select'];
+  'desktop:move': DesktopBridge['move'];
   'desktop:close': DesktopBridge['close'];
   'desktop:reload': DesktopBridge['reload'];
   'desktop:back': DesktopBridge['back'];

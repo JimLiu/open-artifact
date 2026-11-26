@@ -125,7 +125,7 @@ describe('the home page, the sidebar and the tab bar', () => {
     const view = await app.view(made.ferry.id);
     assert.ok(await view.waitInFrame(inDocs, "!!document.querySelector('.doc-text p')"), 'the doc editor did not draw');
     // The tab bar: the tab's title and its type's color; the sidebar row of the artifact is the current one.
-    assert.equal(await run<string>(`document.querySelector('[data-tab=${js(made.ferry.id)}] .tab-title').textContent`), 'Ferry notes');
+    assert.equal(await run<string>(`document.querySelector('[data-tab=${js(made.ferry.id)}] [data-slot=tab-title]').textContent`), 'Ferry notes');
     assert.equal(await run<string | null>(`document.querySelector('[data-artifact=${js(made.ferry.id)}]').getAttribute('aria-current')`), 'page');
     // The view sits beside the sidebar and under the tab bar.
     assert.equal(await view.evaluate<number>('innerWidth'), 1280 - 240);
@@ -163,7 +163,7 @@ describe('the home page, the sidebar and the tab bar', () => {
     await run<boolean>(`[...document.querySelectorAll('.oa-dialog button')].find((b) => b.textContent === 'Save').click(), true`);
     assert.ok(await until(async () => (await sidebarTitles('recent')).includes('Ferry timetable'), 10_000), js(await sidebarTitles('recent')));
     assert.ok(
-      await waitFor(`document.querySelector('[data-tab=${js(made.ferry.id)}] .tab-title')?.textContent === 'Ferry timetable'`),
+      await waitFor(`document.querySelector('[data-tab=${js(made.ferry.id)}] [data-slot=tab-title]')?.textContent === 'Ferry timetable'`),
       'the tab kept the old title',
     );
     // The main process's tab follows the library too (what a restart of the page would show).
@@ -211,14 +211,25 @@ describe('the home page, the sidebar and the tab bar', () => {
     assert.ok(await until(() => treeText(record.root).includes(WORDS), 15_000), 'the words did not reach the folder');
   });
 
-  it("a type an agent builds is made empty and its tab shows the Shell's prompt to hand it over", T, async () => {
+  it("+ in the tab bar makes a type at once, with no dialog; a type an agent builds is made empty and its tab shows the Shell's prompt", T, async () => {
+    const before = new Set((await state()).tabs.map((t) => t.id));
     await run<boolean>(`document.querySelector('[data-testid=tab-new]').click(), true`);
-    assert.ok(await waitFor(`!!document.querySelector('[data-testid=new-dialog]')`), 'no dialog');
-    await run<boolean>(`document.querySelector('.new-type[data-type=design]').click(), true`);
-    await fill('#new-name', 'Launch page');
-    await run<boolean>(`document.querySelector('[data-testid=new-create]').click(), true`);
-    assert.ok(await until(async () => (await state()).tabs.some((t) => t.title === 'Launch page'), 30_000), js(await state()));
-    const tab = (await state()).tabs.find((t) => t.title === 'Launch page');
+    assert.ok(await waitFor(`!!document.querySelector('[data-testid=tab-new-menu]')`), 'no menu');
+    assert.equal(await run<boolean>(`!!document.querySelector('[data-testid=new-dialog]')`), false, 'a dialog opened');
+    // New first, its types in their order; then the artifacts not open.
+    const lines = await run<string[]>(
+      `[...document.querySelectorAll('[data-testid=tab-new-menu] > *')].map((el) => el.getAttribute('role') === 'separator' ? '-' : el.getAttribute('role') !== 'menuitem' ? '#' + el.textContent : el.dataset.type ? 'type:' + el.dataset.type : 'open:' + el.dataset.artifact)`,
+    );
+    assert.equal(lines[0], '#New', js(lines));
+    const typeLines = lines.filter((line) => line.startsWith('type:'));
+    assert.ok(typeLines.indexOf('type:docs') < typeLines.indexOf('type:design'), js(lines));
+    if (lines.some((line) => line.startsWith('open:'))) assert.ok(lines.indexOf('-') > lines.indexOf(typeLines[typeLines.length - 1]), js(lines));
+    assert.equal(await run<boolean>(`document.querySelector('[data-testid=tab-new]').getAttribute('aria-expanded') === 'true'`), true);
+    await run<boolean>(`document.querySelector('[data-testid=tab-new-menu] [data-type=design]').click(), true`);
+    assert.ok(await waitFor(`!document.querySelector('[data-testid=tab-new-menu]')`), 'the menu stayed');
+    assert.ok(await until(async () => (await state()).tabs.some((t) => !before.has(t.id)), 30_000), js(await state()));
+    const tab = (await state()).tabs.find((t) => !before.has(t.id));
+    assert.equal((await state()).current, present(tab).id);
     made.launch = await library(daemonState(profile), `artifact?id=${present(tab).id}`);
     const view = await app.view(present(tab).id);
     assert.ok(await view.waitFor(`!!document.querySelector('[data-testid=empty-artifact]')`, 20_000), await view.evaluate<string>('document.body.innerText'));

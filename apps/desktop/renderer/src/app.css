@@ -127,9 +127,8 @@ button {
   -webkit-app-region: drag;
 }
 .drag button,
-.drag [role='tab'],
-.drag input,
-.tab-strip {
+.drag [role='tablist'],
+.drag input {
   -webkit-app-region: no-drag;
 }
 
@@ -294,65 +293,14 @@ button.section-head {
 .tab-bar[data-collapsed='true'] .window-controls {
   margin-right: 4px;
 }
-.tab-strip {
+/* The tabs, ▾ (when some do not fit) and + are the UI kit's TabStrip, styled by ui.css; what is left here is the
+   window's own: a tab's type icon in its type's color, what its connection is doing, and the connection note. */
+.tab-type {
   display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: none;
-  /* The strip takes only what its tabs need: the rest of the bar stays empty, and moves the window. */
-  flex: 0 1 auto;
+  color: var(--oa-ink);
 }
-.tab-strip::-webkit-scrollbar {
-  display: none;
-}
-.tab {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  height: 28px;
-  max-width: 220px;
-  padding: 0 4px 0 10px;
-  border-radius: 7px;
-  font-size: 13px;
-  color: var(--tab-text);
-  flex: none;
-  cursor: default;
-  white-space: nowrap;
-}
-.tab-home {
-  padding: 0 12px;
-}
-.tab:hover:not([aria-selected='true']) {
-  background: var(--bar-hover);
-}
-.tab[aria-selected='true'] {
-  background: var(--tab-active);
-  box-shadow: var(--tab-active-shadow);
-  color: var(--oa-page-text-primary);
-  font-weight: 500;
-}
-.tab-swatch {
-  width: 14px;
-  height: 14px;
-  border-radius: 4px;
-  background: var(--oa-wash);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--oa-ink) 20%, transparent);
-  flex: none;
-}
-.tab-title {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.tab-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--oa-page-text-caption);
-  flex: none;
+:root[data-theme='dark'] .tab-type {
+  color: var(--oa-tint);
 }
 .tab-state {
   font-size: 12px;
@@ -367,27 +315,6 @@ button.section-head {
   background: color-mix(in srgb, var(--oa-page-accent) 14%, transparent);
   color: var(--oa-page-accent);
 }
-.tab-close {
-  display: grid;
-  place-items: center;
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  border: 0;
-  border-radius: 5px;
-  background: transparent;
-  color: var(--tab-close);
-  flex: none;
-  opacity: 0;
-}
-.tab:hover .tab-close,
-.tab[aria-selected='true'] .tab-close,
-.tab-close:focus-visible {
-  opacity: 1;
-}
-.tab-close:hover {
-  background: var(--bar-hover);
-}
 #connection {
   margin-left: auto;
   padding-left: 8px;
@@ -396,6 +323,7 @@ button.section-head {
   white-space: nowrap;
   flex: none;
 }
+
 
 /* ---- the home page in the window ---- */
 .content .oa-page {
