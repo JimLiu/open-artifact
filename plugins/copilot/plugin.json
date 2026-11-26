@@ -1,7 +1,7 @@
 {
   "name": "open-artifact",
   "description": "Make slide decks, design canvases, whiteboards, spreadsheets, data dashboards, docs, animated films, design systems and free HTML pages as folders of files that open in one local page where the person views, edits, comments and exports; comments sent from the page come back to the agent. /open-artifact <type> <what to make>. Needs Node.js 22 or later.",
-  "version": "0.16.2",
+  "version": "0.16.3",
   "author": {
     "name": "Jim Liu 宝玉",
     "url": "https://github.com/JimLiu"

@@ -1,6 +1,6 @@
 {
   "name": "@open-artifact/whiteboard-core",
-  "version": "0.16.2",
+  "version": "0.16.3",
   "private": true,
   "type": "module",
   "description": "The Whiteboard artifact model: element schema and normalization, the document codec, geometry, arrows, hand-drawn ink, history, view context and the live sync engine.",
@@ -8,9 +8,9 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@open-artifact/live-store": "0.16.2",
-    "@open-artifact/protocol": "0.16.2",
-    "@open-artifact/wasm-wb-geom": "0.16.2"
+    "@open-artifact/live-store": "0.16.3",
+    "@open-artifact/protocol": "0.16.3",
+    "@open-artifact/wasm-wb-geom": "0.16.3"
   },
   "license": "Apache-2.0"
 }

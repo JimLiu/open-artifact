@@ -6,6 +6,31 @@ Every release of Open Artifact: the `@open-artifact/*` libraries, `@open-artifac
 Each entry is written from the commits since the previous tag (`node scripts/changelog.mjs` lists them); see
 [Releasing](README.md#releasing).
 
+## [0.16.3] - 2026-11-26
+
+Choose where new artifacts go, see each artifact's project, and stop leftover comment monitors.
+
+### Added
+
+- New artifacts go under the Open Artifact folder (`~/OpenArtifact/<project>/<slug>`) or in the workspace (`<workspace>/artifacts/<slug>`), as the `artifactsLocation` setting says. The call's own folder comes first, then the person's entry for the project, the project's `.agents/open-artifact/settings.json` (only `artifactsLocation` and `artifactsDir` are read), the person's setting, the harness profile, and then the Open Artifact folder. In a Git checkout the daemon writes `artifacts/.gitignore` when it makes that folder. A workspace-confined daemon reads none of these.
+- `open-artifact config` lists, gets, sets and unsets the plain settings in the person's file, a project's file (`--project`), or the person's entry for a project (`--local`). Only the person changes them.
+- `open-artifact doctor` says where a session keeps new artifacts for a folder (`--workspace`, otherwise where it runs) and who chose that, whether the Open Artifact folder can be written, which keys in the project's settings file are not used, and which `projects` entries point at folders that are gone. For Claude Code, Codex, Copilot CLI and Cursor it warns when the app keeps its agent to the working folder and names the setting to add. For Claude Code and Codex it reports ok when the app's own settings already allow the folder.
+- The daemon's home page and the library page (Desktop's home tab, the DSH plugin) show the project each artifact was made for, and filter by it: a row above the grid on the home page, a Project submenu and search on the library page. Desktop's sidebar shows the project when you point at a row.
+
+### Changed
+
+- Every shipped harness profile except Pi keeps new artifacts in the workspace, since those apps ask before writing outside the working folder or refuse to. Records keep their project (a linked worktree counts as its repository's project), and listings and reuse group by project.
+- The icon is a new line mark of two overlapping rounded squares, in the plugins' SVG and PNG icons, at the top of the ChatGPT, MCP app and MCP pages, and in the sidebars of the DeepSeek Harness, Desktop and the library page. Desktop's app icon is the mark in white on the brand blue.
+
+### Fixed
+
+- The Claude Code plugin's comment monitor (`open-artifact watch`) exits once the Claude Code process or the shell that started it is gone, or once its output can no longer be written. Before, a session that was closed without stopping the monitor (on Windows a child process outlives its parent) or that crashed left a Node.js process behind ([#32](https://github.com/JimLiu/open-artifact/issues/32)).
+
+### Integrators
+
+- `HarnessPolicy.artifacts` (`home` or `workspace`) says where a harness's sessions put new artifacts when neither the call nor the settings say; leaving it out means `home`. Every shipped profile except Pi now sets `workspace`.
+- `HostLibraryFilter.workspace` also matches artifacts made for a project that the folder is in or holds, and `ArtifactView.project` names that project. The Harness protocol version remains 1.
+
 ## [0.16.2] - 2026-11-25
 
 Update signed Open Artifact Desktop releases from GitHub, and keep undelivered messages when agents reconnect.
@@ -680,6 +705,7 @@ One version for every package, with Docs and Sheets in every plugin.
 - Plugins for Claude Code, Codex, Cursor, Copilot, ChatGPT and DeepSeek Harness.
 - English and Chinese READMEs, under Apache-2.0.
 
+[0.16.3]: https://github.com/JimLiu/open-artifact/compare/v0.16.2...v0.16.3
 [0.16.2]: https://github.com/JimLiu/open-artifact/compare/v0.16.1...v0.16.2
 [0.16.1]: https://github.com/JimLiu/open-artifact/compare/v0.16.0...v0.16.1
 [0.16.0]: https://github.com/JimLiu/open-artifact/compare/v0.15.0...v0.16.0
