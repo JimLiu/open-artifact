@@ -41,11 +41,13 @@ export const BETA: readonly string[] = ['whiteboard', 'data', 'sheets', 'motion'
 
 export const svg = (size: number): CSSProperties => ({ display: 'block', width: size, height: size, flex: 'none' });
 
+/** The Open Artifact mark (as in `plugins/codex/assets/icon.svg`): two rounded squares in line, the front one over half of the one behind, a dot in the front one. */
 export function ArtifactsIcon({ size = 16 }: { size?: number }) {
   return (
-    <svg viewBox="0 0 20 20" fill="none" aria-hidden="true" style={svg(size)}>
-      <rect x="3" y="6" width="8.5" height="11" rx="2" stroke="currentColor" strokeWidth="1.5" />
-      <path d="M8.5 6V5a2 2 0 0 1 2-2h4.5a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-3.5" stroke="currentColor" strokeWidth="1.5" />
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={svg(size)}>
+      <path d="M15 9V6a3 3 0 0 0-3-3H6a3 3 0 0 0-3 3v6a3 3 0 0 0 3 3h3" />
+      <rect x="9" y="9" width="12" height="12" rx="3" />
+      <circle cx="15" cy="15" r="2" fill="currentColor" stroke="none" />
     </svg>
   );
 }
