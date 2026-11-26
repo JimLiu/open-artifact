@@ -584,6 +584,33 @@ editorSuite({
       }
     });
 
+    it('an asset tile gets a dark or light backdrop when its mark needs one', T, async () => {
+      const svg = fill => `<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40"><rect x="10" y="10" width="20" height="20" fill="${fill}"/></svg>`;
+      const { url } = await ctx.openNew('asset-tone', (c, dir) => {
+        copyFixture('design-system', dir);
+        const logos = path.join(dir, 'project/assets/Logos');
+        fs.mkdirSync(logos, { recursive: true });
+        fs.writeFileSync(path.join(logos, 'logo-white.svg'), svg('#ffffff'));
+        fs.writeFileSync(path.join(logos, 'logo-on-light.svg'), svg('#ffffff'));
+        fs.writeFileSync(path.join(logos, 'mark.svg'), svg('#fdfdfd'));
+        fs.writeFileSync(path.join(logos, 'ink.svg'), svg('#111111'));
+        fs.writeFileSync(path.join(logos, 'photo.png'), png([250, 250, 250]));
+      });
+      const page = await (await ctx.browser()).load(url, { ready: textIn('Warm paper surfaces') });
+      const tones = `Object.fromEntries([...document.querySelectorAll('figure')].map(tile => [tile.querySelector('img')?.alt, tile.firstElementChild?.dataset.tone ?? 'page']))`;
+      try {
+        await clickOn(page, `[...document.querySelectorAll('nav button')].find(b => b.textContent.startsWith('Assets'))`, 'Assets');
+        const want = { 'logo-white.svg': 'dark', 'logo-on-light.svg': 'light', 'mark.svg': 'dark', 'ink.svg': 'light', 'photo.png': 'page' };
+        const matches = `(() => { const got = ${tones}; return ${JSON.stringify(Object.entries(want))}.every(([name, tone]) => got[name] === tone); })()`;
+        assert.ok(await page.waitFor(matches, 8000), JSON.stringify(await page.evaluate(tones)));
+        await page.evaluate(`[...document.querySelectorAll('figure')].find(tile => tile.innerText.startsWith('mark.svg')).dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))`);
+        assert.ok(await page.waitFor(`document.querySelector('aside[aria-label="Details of mark.svg"] [data-tone="dark"]')`, 5000), 'the details preview kept the page backdrop');
+        assert.deepEqual(page.problems, []);
+      } finally {
+        await page.close();
+      }
+    });
+
     it('a component preview cannot take focus from the page before it is used', T, async () => {
       const { root, url } = await ctx.openNew('preview-focus');
       const dir = path.join(root, 'project', 'components', 'Grabby');

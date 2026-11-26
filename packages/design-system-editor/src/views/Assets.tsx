@@ -5,7 +5,7 @@
  */
 
 import { Copy, Download, FileIcon, Info, Pencil, Plus, Trash2, Upload, X } from 'lucide-react';
-import { useEffect, useRef, useState, type DragEvent, type MouseEvent } from 'react';
+import { useEffect, useRef, useState, type DragEvent, type MouseEvent, type SyntheticEvent } from 'react';
 import { assetGroupKey, type AssetItem, type TileSize } from '@open-artifact/design-system-core';
 import { Button, ConfirmDialog, Dialog, IconButton, MenuItem, MenuSeparator, TextInput, cn, toast } from '@open-artifact/ui';
 import { create } from 'zustand';
@@ -13,7 +13,7 @@ import { useFiles } from '../state/files.ts';
 import { useModel } from '../state/model.ts';
 import { anchorId, useView } from '../state/view.ts';
 import { projectUrl } from '../lib/color.ts';
-import { ASSET_CHECKER, assetInkBackground } from '../lib/ink-bg.ts';
+import { canSampleTone, sampleTone, toneFromName, type AssetTone } from '../lib/asset-tone.ts';
 import { addAssetGroup, editIndex, editText, relocateAssets, removeAsset, renameAsset, reorderAssets, uploadAssets } from '../services/edit.ts';
 import { droppedBrandFiles } from '../lib/drop-files.ts';
 import { copyText, downloadUrl } from '../services/downloads.ts';
@@ -38,27 +38,36 @@ function assetUrl(item: AssetItem): string | null {
   return item.path ? projectUrl(item.path) : null;
 }
 
-/** The contrasting field for an image, or the checker until that field is known. */
-function useAssetBackdrop(url: string | null, image: boolean): string {
-  const [background, setBackground] = useState(ASSET_CHECKER);
-  useEffect(() => {
-    if (!url || !image) {
-      setBackground(ASSET_CHECKER);
-      return;
-    }
-    let live = true;
-    void assetInkBackground(url).then((next) => {
-      if (live) setBackground(next);
-    });
-    return () => {
-      live = false;
-    };
-  }, [url, image]);
-  return background;
-}
-
 function isImage(item: AssetItem): boolean {
   return (item.type ?? '').startsWith('image/') || IMAGE.test(item.name);
+}
+
+/** Checkerboard squares behind a picture: the page's own, or fixed ones a mark needs to show up. */
+const CHECKER: Record<AssetTone | 'page', readonly [string, string]> = {
+  page: ['var(--color-surface-2)', 'var(--color-surface)'],
+  dark: ['#2a2a2e', '#1e1e21'],
+  light: ['#ececee', '#ffffff'],
+};
+
+function checker(tone: AssetTone | null): string {
+  const [a, b] = CHECKER[tone ?? 'page'];
+  return `repeating-conic-gradient(${a} 0% 25%, ${b} 0% 50%) 50% / 16px 16px`;
+}
+
+/** The backdrop an asset's picture needs: from its name, else from its pixels once loaded. */
+function useAssetTone(item: AssetItem): { tone: AssetTone | null; onLoad(event: SyntheticEvent<HTMLImageElement>): void } {
+  const named = toneFromName(item.name);
+  const [sampled, setSampled] = useState<AssetTone | null>(null);
+  const url = assetUrl(item);
+  useEffect(() => setSampled(null), [url]);
+  const sampleable = canSampleTone(item.name) && item.type !== 'image/jpeg';
+  const vector = /\.svg$/i.test(item.name) || item.type === 'image/svg+xml';
+  return {
+    tone: named ?? sampled,
+    onLoad: (event) => {
+      if (!named && sampleable) setSampled(sampleTone(event.currentTarget, vector));
+    },
+  };
 }
 
 interface TileProps {
@@ -118,8 +127,8 @@ function Tile({ item, width, editable, dragging, selected, onSelect, onDragStart
   const setRenaming = (on: boolean): void => useAssetUi.setState({ renaming: on ? itemKey(item) : null });
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const url = assetUrl(item);
-  const backdrop = useAssetBackdrop(url, Boolean(url && isImage(item)));
   const size = item.size ?? useFiles.getState().listing[item.path ?? '']?.size;
+  const { tone, onLoad } = useAssetTone(item);
   return (
     <figure
       id={anchorId('asset', itemKey(item))}
@@ -149,8 +158,8 @@ function Tile({ item, width, editable, dragging, selected, onSelect, onDragStart
       )}
       style={{ width }}
     >
-      <div className="flex items-center justify-center bg-surface-2" style={{ height: width * 0.75, background: backdrop }}>
-        {url && isImage(item) ? <img src={url} alt={item.name} draggable={false} className="max-h-full max-w-full object-contain p-3" /> : url && VIDEO.test(item.name) ? <video src={url} muted preload="metadata" className="max-h-full max-w-full" /> : <FileIcon className="size-8 text-fg-subtle" />}
+      <div className="flex items-center justify-center bg-surface-2" data-tone={tone ?? undefined} style={{ height: width * 0.75, background: checker(tone) }}>
+        {url && isImage(item) ? <img src={url} alt={item.name} draggable={false} className="max-h-full max-w-full object-contain p-3" onLoad={onLoad} /> : url && VIDEO.test(item.name) ? <video src={url} muted preload="metadata" className="max-h-full max-w-full" /> : <FileIcon className="size-8 text-fg-subtle" />}
       </div>
       <figcaption className="flex items-center gap-1 border-t border-line px-2 py-1.5">
         <div className="min-w-0 flex-1">
@@ -398,10 +407,10 @@ function NewGroup() {
 /** The details of one asset: a larger preview, its facts and actions. */
 function AssetDetails({ item, editable }: { item: AssetItem; editable: boolean }) {
   const url = assetUrl(item);
-  const backdrop = useAssetBackdrop(url, Boolean(url && isImage(item)));
   const [dimensions, setDimensions] = useState<{ w: number; h: number } | null>(null);
   const size = item.size ?? useFiles.getState().listing[item.path ?? '']?.size;
   useEffect(() => setDimensions(null), [url]);
+  const { tone, onLoad } = useAssetTone(item);
   const fact = (label: string, value: string | null | undefined) =>
     value ? (
       <div className="grid grid-cols-[72px_minmax(0,1fr)] gap-2">
@@ -418,9 +427,12 @@ function AssetDetails({ item, editable }: { item: AssetItem; editable: boolean }
         <CommentBadge focus={{ kind: 'asset', name: itemKey(item) }} className="opacity-100" />
         <IconButton size="sm" label="Close details" icon={<X className="size-3.5" />} onClick={() => useAssetUi.setState({ details: null })} />
       </div>
-      <div className="flex h-40 items-center justify-center rounded-md" style={{ background: backdrop }}>
+      <div className="flex h-40 items-center justify-center rounded-md" data-tone={tone ?? undefined} style={{ background: checker(tone) }}>
         {url && isImage(item) ? (
-          <img src={url} alt={item.name} className="max-h-full max-w-full object-contain p-2" onLoad={(event) => setDimensions({ w: event.currentTarget.naturalWidth, h: event.currentTarget.naturalHeight })} />
+          <img src={url} alt={item.name} className="max-h-full max-w-full object-contain p-2" onLoad={(event) => {
+              setDimensions({ w: event.currentTarget.naturalWidth, h: event.currentTarget.naturalHeight });
+              onLoad(event);
+            }} />
         ) : url && VIDEO.test(item.name) ? (
           <video src={url} controls preload="metadata" className="max-h-full max-w-full" />
         ) : (
