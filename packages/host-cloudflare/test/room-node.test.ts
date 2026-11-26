@@ -36,22 +36,28 @@ type RoomModule = typeof import('../src/room.ts');
 let rooms: RoomModule;
 
 /**
- * An artifact folder on disk as path → bytes (what the export would carry: no `.gitignore`, and no `_agent/`, the
- * machine-local state an editor opened on the fixture leaves behind).
+ * An artifact folder on disk as path → bytes: what git keeps of the fixture. The `.gitignore` and the machine-local
+ * state it names (`_agent/`, `history/`, `.artifact*`, …; type-server's ARTIFACT_GITIGNORE), which opening the fixture
+ * on this computer leaves behind, are left out, so a local run seeds what CI seeds.
  */
 function folderFiles(dir: string): Record<string, Uint8Array> {
   const out: Record<string, Uint8Array> = {};
   const walk = (at: string): void => {
     for (const name of readdirSync(at)) {
+      if (machineState(name, at === dir)) continue;
       const path = join(at, name);
-      if (statSync(path).isDirectory()) {
-        if (at !== dir || name !== '_agent') walk(path);
-      }
-      else if (name !== '.gitignore') out[relative(dir, path)] = readFileSync(path);
+      if (statSync(path).isDirectory()) walk(path);
+      else out[relative(dir, path)] = readFileSync(path);
     }
   };
   walk(dir);
   return out;
+}
+
+/** Whether a name is the fixture's `.gitignore` or machine-local state it names (`_agent/` and `history/` at the top). */
+function machineState(name: string, top: boolean): boolean {
+  if (top && (name === '_agent' || name === 'history')) return true;
+  return name === '.gitignore' || name.startsWith('.artifact') || name === '.sharing.json' || name === '.DS_Store' || /\.(log|tmp)$/.test(name);
 }
 
 /** The editors from `dist/server`, as the assets binding serves them. */

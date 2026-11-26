@@ -61,18 +61,29 @@ function freePort() {
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-/** A sample folder as {path: base64} (what an export carries: no `.gitignore`). */
+/**
+ * A sample folder as {path: base64}: what git keeps of it. The `.gitignore` and the machine-local state it names
+ * (`_agent/`, `history/`, `.artifact*`, …; type-server's ARTIFACT_GITIGNORE), which opening a sample on this computer
+ * leaves behind, are left out, so a local run seeds what CI seeds.
+ */
 function folderJson(dir) {
   const out = {};
   const walk = at => {
     for (const name of fs.readdirSync(at)) {
+      if (machineState(name, at === dir)) continue;
       const file = path.join(at, name);
       if (fs.statSync(file).isDirectory()) walk(file);
-      else if (name !== '.gitignore') out[path.relative(dir, file)] = fs.readFileSync(file).toString('base64');
+      else out[path.relative(dir, file)] = fs.readFileSync(file).toString('base64');
     }
   };
   walk(dir);
   return out;
+}
+
+/** Whether a name is the sample's `.gitignore` or machine-local state it names (`_agent/` and `history/` at the top). */
+function machineState(name, top) {
+  if (top && (name === '_agent' || name === 'history')) return true;
+  return name === '.gitignore' || name.startsWith('.artifact') || name === '.sharing.json' || name === '.DS_Store' || /\.(log|tmp)$/.test(name);
 }
 
 describe('cloudflare: rooms under wrangler dev', { skip: skip() }, () => {
