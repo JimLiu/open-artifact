@@ -25,6 +25,8 @@ import { toReactStyle, withItemMargin } from '../render/css.ts';
 import { useTextFit } from '../render/fit.ts';
 import { RunsView, useRenderOptions } from '../render/SlideView.tsx';
 import { blocksToHtml, indentItems, itemsToHtml, readBlocks, readItems, readRuns, runsToHtml } from '../lib/richtext.ts';
+import { isComposingKey } from '@open-artifact/ui';
+import { linkAround, linkMissed } from '../lib/editor-link.ts';
 import { useView } from '../state/view.ts';
 import { changeSlide } from '../services/commands.ts';
 
@@ -75,6 +77,54 @@ export function formatEditor(command: 'bold' | 'italic' | 'underline' | 'foreCol
   document.execCommand('styleWithCSS', false, command === 'foreColor' ? 'true' : 'false');
   document.execCommand(command, false, value);
   el.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+/** The link both ends of the editor's selection (or its caret) sit in, if any. */
+function selectionLink(el: HTMLElement, range: Range | null): HTMLAnchorElement | null {
+  if (!range) return null;
+  const link = linkAround<Node>(range.startContainer, range.endContainer, el);
+  return link instanceof HTMLAnchorElement ? link : null;
+}
+
+/** True when the editor's selection or caret is inside a link. */
+export function editorSelectionInLink(): boolean {
+  const el = activeEditor();
+  const range = savedRange ?? (window.getSelection()?.rangeCount ? window.getSelection()!.getRangeAt(0) : null);
+  return Boolean(el && selectionLink(el, range));
+}
+
+/** Links the editor's selection to `href` (see {@link relinkSelection}). */
+export function linkEditorSelection(href: string): void {
+  const el = activeEditor();
+  if (!el) return;
+  focusEditor();
+  relinkSelection(el, href);
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+/**
+ * Links the current selection in `el` to `href`, through the browser so that
+ * undo while typing takes it back. A selection inside a link changes that
+ * whole link's address rather than nesting a new link in it; when the address
+ * read back is not `href`, the links are removed and made again.
+ */
+export function relinkSelection(el: HTMLElement, href: string): void {
+  const selection = window.getSelection();
+  if (!selection?.rangeCount) return;
+  const around = selectionLink(el, selection.getRangeAt(0));
+  if (around) {
+    const whole = document.createRange();
+    whole.selectNodeContents(around);
+    selection.removeAllRanges();
+    selection.addRange(whole);
+  }
+  document.execCommand('styleWithCSS', false, 'false');
+  document.execCommand('createLink', false, href);
+  const readBack = () => (selection.rangeCount ? (selectionLink(el, selection.getRangeAt(0))?.getAttribute('href') ?? null) : null);
+  if (linkMissed(readBack(), href)) {
+    document.execCommand('unlink');
+    document.execCommand('createLink', false, href);
+  }
 }
 
 /** True when the editor's selection has a mark. */
@@ -223,6 +273,8 @@ function useEditable(
     };
     const onKey = (event: KeyboardEvent): void => {
       if (event.key === 'Escape') {
+        // Escape while composing dismisses the input method's candidates, nothing more.
+        if (isComposingKey(event)) return;
         event.preventDefault();
         event.stopPropagation();
         flush();

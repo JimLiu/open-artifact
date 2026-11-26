@@ -9,7 +9,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { LinkCard, toast } from '@open-artifact/ui';
 import { writeClipboardText } from '@open-artifact/editor-kit';
-import { activeEditor, LINK_CARD } from './TextEditor.tsx';
+import { activeEditor, LINK_CARD, relinkSelection } from './TextEditor.tsx';
 import { typedLink } from '../lib/link.ts';
 import { maybeSession } from '../services/session.ts';
 import { useView } from '../state/view.ts';
@@ -50,8 +50,11 @@ function onLink(anchor: HTMLAnchorElement, command: 'createLink' | 'unlink', val
   const selection = window.getSelection();
   selection?.removeAllRanges();
   selection?.addRange(range);
-  document.execCommand('styleWithCSS', false, 'false');
-  document.execCommand(command, false, value);
+  if (command === 'createLink' && value) relinkSelection(editor, value);
+  else {
+    document.execCommand('styleWithCSS', false, 'false');
+    document.execCommand(command, false, value);
+  }
   selection?.collapseToEnd();
 }
 

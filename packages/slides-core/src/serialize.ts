@@ -104,13 +104,14 @@ function buildValue(build: BuildSpec): string {
   return [build.effect, build.order !== undefined ? String(build.order) : '', build.auto ? 'auto' : ''].filter(Boolean).join(' ');
 }
 
-/** `id`, builds and fit: the attributes every element node may carry. */
+/** `id`, builds, fit and lock: the attributes every element node may carry. */
 function commonAttrs(node: NodeBase): string {
   return (
     attr('id', node.id) +
     (node.buildIn ? attr('data-build-in', buildValue(node.buildIn)) : '') +
     (node.buildOut ? attr('data-build-out', buildValue(node.buildOut)) : '') +
-    attr('data-fit', node.fit)
+    attr('data-fit', node.fit) +
+    attr('data-locked', node.locked)
   );
 }
 

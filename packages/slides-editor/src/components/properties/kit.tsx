@@ -17,11 +17,22 @@ import { Switch as BaseSwitch } from '@base-ui/react/switch';
 import { Toggle } from '@base-ui/react/toggle';
 import { ToggleGroup } from '@base-ui/react/toggle-group';
 import { Check, ChevronDown, ChevronRight, ChevronUp, RotateCcw, X } from 'lucide-react';
-import { Fragment, forwardRef, useEffect, useRef, useState, type ButtonHTMLAttributes, type CSSProperties, type InputHTMLAttributes, type ReactNode } from 'react';
+import { Fragment, forwardRef, useEffect, useMemo, useRef, useState, type ButtonHTMLAttributes, type CSSProperties, type InputHTMLAttributes, type PointerEvent, type ReactNode } from 'react';
 import { cn } from '@open-artifact/ui';
+import { announce } from '@open-artifact/editor-kit';
 import { Tip } from '@open-artifact/editor-kit/react';
 import { CornerIcon, CornersIcon, SideIcon, SidesIcon, type CornerName, type SideName } from './icons.tsx';
 import { captureNumberScrubPointer, SCRUBBED, useNumberScrubGesture } from '../../lib/number-scrub.ts';
+import {
+  entryAnnouncement,
+  isMinusKey,
+  minusRefusal,
+  refusesMinus,
+  settleEntry,
+  startsWithMinus,
+  stepWithoutMinus,
+  type NumberEntryEvent,
+} from '../../lib/number-entry.ts';
 
 /* --------------------------------- layout --------------------------------- */
 
@@ -183,17 +194,58 @@ export interface NumberInputProps {
   /** The placeholder is the value in effect (inherited), drawn like a value. */
   inherited?: boolean;
   'aria-label'?: string;
+  /**
+   * Told when the field refuses a minus sign or changes a typed value (held at a limit, minus left out),
+   * instead of the field announcing it.
+   */
+  onLimit?: (event: NumberEntryEvent) => void;
 }
 
+/** The decimal separator numbers are shown with here. */
+function decimalSeparator(): string {
+  return new Intl.NumberFormat(undefined, NUMBER_FORMAT).formatToParts(1.5).find((part) => part.type === 'decimal')?.value ?? '.';
+}
 
+/** A number as the field shows it. */
+function numberText(n: number): string {
+  return new Intl.NumberFormat(undefined, NUMBER_FORMAT).format(n);
+}
 
+/**
+ * Replaces a field's text as if it were typed, so the field's own input
+ * handling takes it in. False when the browser cannot.
+ */
+function retype(field: HTMLInputElement, text: string): boolean {
+  field.select();
+  return document.execCommand('insertText', false, text);
+}
 
-
-
-export function NumberInput({ value, onChange, onCommit, label, unit, min, max, step = 1, placeholder, className, steppers = true, disabled, title, inherited = false, ...aria }: NumberInputProps): ReactNode {
+/** A number field that commits on blur, Enter, a step or the end of a scrub; its label scrubs the value. */
+export function NumberInput({ value, onChange, onCommit, label, unit, min, max, step = 1, placeholder, className, steppers = true, disabled, title, inherited = false, onLimit, ...aria }: NumberInputProps): ReactNode {
   const [scrubbed, setScrubbed] = useState<number | null>(null);
   const last = useRef<number | null>(null);
   const input = useRef<HTMLInputElement>(null);
+  const decimal = useMemo(decimalSeparator, []);
+  const bounds = { min, max };
+  const name = aria['aria-label'] ?? (typeof label === 'string' ? label : undefined);
+  const tell = (event: NumberEntryEvent): void => {
+    if (onLimit) return onLimit(event);
+    const shown = event.kind === 'entry' ? numberText(event.outcome.value) + (unit ? `${unit === '%' ? '' : ' '}${unit}` : '') : '';
+    const message = event.kind === 'minus-key' ? minusRefusal(name) : entryAnnouncement(event.outcome, name, shown);
+    if (message) announce(message);
+  };
+  /**
+   * The value to pass on for one the field reports. Typed text with a refused minus sign keeps its number
+   * without the sign (the field would hold it at the minimum); a typed value held at a limit is announced.
+   */
+  const typedValue = (next: number | null, reason: string, committed: boolean): number | null => {
+    const text = input.current?.value;
+    if (text === undefined || (reason !== 'input-change' && reason !== 'input-blur')) return next;
+    const outcome = settleEntry(text, bounds, decimal);
+    if (!outcome || (!outcome.minusDropped && outcome.value !== next)) return next;
+    if (committed) tell({ kind: 'entry', outcome });
+    return outcome.value;
+  };
   const scrub = useNumberScrubGesture({
     value: value ?? Number.NaN,
     step,
@@ -225,8 +277,8 @@ export function NumberInput({ value, onChange, onCommit, label, unit, min, max, 
       step={step}
       disabled={disabled}
       title={title}
-      onValueChange={(next) => onChange?.(next)}
-      onValueCommitted={(next) => onCommit(next)}
+      onValueChange={(next, details) => onChange?.(typedValue(next, details.reason, false))}
+      onValueCommitted={(next, details) => onCommit(typedValue(next, details.reason, true))}
       format={NUMBER_FORMAT}
       className={cn(FIELD, 'group/num relative flex items-center', fullWidth(className), className)}
     >
@@ -251,11 +303,36 @@ export function NumberInput({ value, onChange, onCommit, label, unit, min, max, 
         onInput={(event) => event.currentTarget.removeAttribute(SCRUBBED)}
         onBlur={(event) => event.currentTarget.removeAttribute(SCRUBBED)}
         onKeyDown={(event) => {
-          // Enter commits what was typed (the field commits on blur), keeping the focus.
-          if (event.key !== 'Enter' || event.nativeEvent.isComposing) return;
-          const input = event.currentTarget;
-          input.blur();
-          input.focus();
+          if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+          const field = event.currentTarget;
+          if (event.key === 'Enter') {
+            // Enter commits what was typed (the field commits on blur), keeping the focus.
+            field.blur();
+            field.focus();
+          } else if (refusesMinus(bounds) && isMinusKey(event.key) && !event.ctrlKey && !event.metaKey) {
+            event.preventDefault();
+            tell({ kind: 'minus-key' });
+          } else if ((event.key === 'ArrowUp' || event.key === 'ArrowDown') && !event.ctrlKey && !event.metaKey) {
+            // Left to the field, a step from "-5" would start at -5 and stop at the minimum.
+            const amount = event.altKey ? 0.1 : event.shiftKey ? 10 : step;
+            const next = stepWithoutMinus(field.value, event.key === 'ArrowUp' ? amount : -amount, bounds, decimal);
+            if (next === null) return;
+            event.preventDefault();
+            if (!retype(field, numberText(next))) onChange?.(next);
+            onCommit(next);
+            tell({ kind: 'entry', outcome: { value: next, minusDropped: true, limit: null } });
+          }
+        }}
+        onPaste={(event) => {
+          if (!refusesMinus(bounds)) return;
+          const field = event.currentTarget;
+          const pasted = event.clipboardData.getData('text/plain');
+          const text = field.value.slice(0, field.selectionStart ?? 0) + pasted + field.value.slice(field.selectionEnd ?? field.value.length);
+          const outcome = startsWithMinus(text) ? settleEntry(text, bounds, decimal) : null;
+          if (!outcome) return;
+          event.preventDefault();
+          if (!retype(field, numberText(outcome.value))) onChange?.(outcome.value);
+          tell({ kind: 'entry', outcome });
         }}
         className={cn('h-full w-full min-w-0 bg-transparent text-[13px] tabular-nums text-chrome-fg outline-none', inherited ? 'placeholder:text-chrome-secondary' : 'placeholder:text-chrome-muted', label === undefined && 'pl-2')}
       />
@@ -471,8 +548,40 @@ export interface SliderInputProps {
   'aria-label'?: string;
 }
 
-/** A horizontal slider. */
+/**
+ * A horizontal slider. A drag always ends in `onCommit`: also when the
+ * pointer is cancelled, or the slider is disabled or removed mid-drag. Pointer
+ * movement after a cancelled drag changes nothing.
+ */
 export function SliderInput({ value, min, max, step = 1, onChange, onCommit, disabled, ...aria }: SliderInputProps): ReactNode {
+  const drag = useRef<{ last: number; moved: boolean; stop: () => void } | null>(null);
+  const latest = useRef(onCommit);
+  latest.current = onCommit;
+  const settle = (final?: number): void => {
+    const current = drag.current;
+    if (!current) return;
+    drag.current = null;
+    current.stop();
+    if (final !== undefined || current.moved) latest.current?.(final ?? current.last);
+  };
+  const begin = (event: PointerEvent<HTMLDivElement>): void => {
+    if (drag.current || disabled || event.button !== 0) return;
+    const end = (): void => {
+      // The slider commits a release itself; settle whatever it left open.
+      setTimeout(() => settle(), 0);
+    };
+    const events = ['pointerup', 'pointercancel', 'touchend', 'touchcancel', 'blur'] as const;
+    events.forEach((type) => window.addEventListener(type, end));
+    drag.current = { last: value, moved: false, stop: () => events.forEach((type) => window.removeEventListener(type, end)) };
+  };
+  useEffect(() => {
+    if (disabled) settle();
+  }, [disabled]);
+  useEffect(() => () => settle(), []);
+  // After a cancelled drag the slider keeps tracking the pointer until the next
+  // release; whatever it reports then belongs to no drag of this slider.
+  const strayPointer = (reason: string): boolean => !drag.current && (reason === 'drag' || reason === 'track-press');
+  const single = (next: number | readonly number[]): number => (Array.isArray(next) ? (next[0] ?? min) : (next as number));
   return (
     <BaseSlider.Root
       value={value}
@@ -480,8 +589,19 @@ export function SliderInput({ value, min, max, step = 1, onChange, onCommit, dis
       min={min}
       max={max}
       step={step}
-      onValueChange={(next) => onChange(Array.isArray(next) ? (next[0] ?? min) : next)}
-      onValueCommitted={(next) => onCommit?.(Array.isArray(next) ? (next[0] ?? min) : next)}
+      onPointerDownCapture={begin}
+      onValueChange={(next, details) => {
+        if (strayPointer(details.reason)) return;
+        const v = single(next);
+        if (drag.current) drag.current = { ...drag.current, last: v, moved: true };
+        onChange(v);
+      }}
+      onValueCommitted={(next, details) => {
+        if (strayPointer(details.reason)) return;
+        const v = single(next);
+        if (drag.current) settle(v);
+        else onCommit?.(v);
+      }}
       className="flex h-6 w-full items-center px-1 data-[disabled]:opacity-40"
     >
       <BaseSlider.Control className="flex h-4 w-full items-center">

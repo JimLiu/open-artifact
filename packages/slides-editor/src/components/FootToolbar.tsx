@@ -4,7 +4,7 @@
  * that hands a request to the agent with what this viewer is looking at.
  */
 
-import { useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useId, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { ArrowUp, ChevronDown, Circle, Diamond, Film, Image, Loader2, Minus, MoveRight, RectangleHorizontal, Shapes, Spline, Square, Table, Type } from 'lucide-react';
 import { cn, isComposingKey } from '@open-artifact/ui';
 import { getToolbarKeyTarget, isTextField } from '@open-artifact/editor-kit';
@@ -114,6 +114,7 @@ function AskField(): ReactNode {
   const name = useAgent((s) => s.status.name);
   const busy = useAgent((s) => s.status.busy);
   const selected = useView((s) => s.selection.length);
+  const onSlide = useView((s) => s.current !== null);
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
   const [focused, setFocused] = useState(false);
@@ -144,13 +145,13 @@ function AskField(): ReactNode {
       <input
         value={text}
         aria-label={`Ask ${name}`}
-        placeholder={open ? (selected ? `Ask ${name} about the selection…` : `Ask ${name} to change this slide…`) : `Ask ${name}`}
+        placeholder={open ? (selected ? `Ask ${name} about the selection…` : onSlide ? `Ask ${name} to change this slide…` : `Ask ${name} to make some slides…`) : `Ask ${name}`}
         className="h-full min-w-0 flex-1 bg-transparent text-[14px] text-chrome-fg outline-none placeholder:text-chrome-muted"
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}
         onChange={(event) => setText(event.target.value)}
         onKeyDown={(event) => {
-          if (event.key === 'Escape') {
+          if (event.key === 'Escape' && !isComposingKey(event.nativeEvent)) {
             event.preventDefault();
             event.currentTarget.blur();
           }
@@ -176,10 +177,47 @@ export interface FootToolbarProps {
   editing: boolean;
   /** Show the Ask field. */
   ask: boolean;
+  /** Why the insert tools can't be used yet (they show disabled), if they can't. */
+  insertBlocked?: string;
+}
+
+/**
+ * The insert tools, unavailable with the reason as their tip. They stay
+ * focusable and take the pointer, so hovering or tabbing to one tells why.
+ */
+function BlockedInsert({ reason }: { reason: string }): ReactNode {
+  const reasonId = useId();
+  const tools: [string, ReactNode][] = [
+    ['Text', <Type key="t" {...ICON} />],
+    ['Image or video', <Image key="i" {...ICON} />],
+    ['Table', <Table key="tb" {...ICON} />],
+    ['Shapes', <Shapes key="s" {...ICON} />],
+  ];
+  return (
+    <>
+      <span id={reasonId} hidden>
+        {reason}
+      </span>
+      {tools.map(([label, icon]) => (
+        <Tip key={label} label={`${label}. ${reason}`} side="top">
+          <ChromeButton
+            size="lg"
+            square
+            aria-label={label}
+            aria-disabled
+            aria-describedby={reasonId}
+            className="opacity-40 hover:bg-transparent"
+          >
+            {icon}
+          </ChromeButton>
+        </Tip>
+      ))}
+    </>
+  );
 }
 
 /** The toolbar (the caller places it). */
-export function FootToolbar({ editing, ask }: FootToolbarProps): ReactNode {
+export function FootToolbar({ editing, ask, insertBlocked }: FootToolbarProps): ReactNode {
   const tool = useView((s) => s.tool);
   const view = useView.getState;
   if (!editing && !ask) return null;
@@ -201,7 +239,8 @@ export function FootToolbar({ editing, ask }: FootToolbarProps): ReactNode {
 
   return (
     <Card role="toolbar" aria-label={editing ? 'Insert' : 'Ask'} className="max-w-full gap-1 p-1" onKeyDown={onKeyDown}>
-      {editing ? (
+      {editing && insertBlocked ? <BlockedInsert reason={insertBlocked} /> : null}
+      {editing && !insertBlocked ? (
         <>
           <Tip label="Text" shortcut="T" side="top">
             <ChromeButton size="lg" square pressed={tool === 'text'} aria-label="Text" onClick={() => view().setTool(tool === 'text' ? 'select' : 'text')}>

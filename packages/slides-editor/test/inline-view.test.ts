@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { inlineSlides, isInlineView, pagerText, slideAfterChange } from '../src/lib/inline-view.ts';
+import { inlineSlides, isInlineView, pagerStep, pagerText, slideAfterChange, takesTyping } from '../src/lib/inline-view.ts';
 
 describe('inline view', () => {
   it('needs both a framing page and the inline fragment', () => {
@@ -29,5 +29,33 @@ describe('inline view', () => {
   it('counts from one and names the slide for screen readers', () => {
     assert.deepEqual(pagerText(0, 3, 'Plan'), { counter: '1 / 3', announcement: 'Slide 1 of 3: Plan' });
     assert.deepEqual(pagerText(2, 3, undefined), { counter: '3 / 3', announcement: 'Slide 3 of 3' });
+  });
+
+  it('pages with the bare arrow keys from anywhere but a text field', () => {
+    const key = (k: string, mods: Partial<{ altKey: boolean; ctrlKey: boolean; metaKey: boolean; shiftKey: boolean }> = {}) => ({
+      key: k,
+      altKey: false,
+      ctrlKey: false,
+      metaKey: false,
+      shiftKey: false,
+      ...mods,
+    });
+    assert.equal(pagerStep(key('ArrowLeft'), false), -1);
+    assert.equal(pagerStep(key('ArrowRight'), false), 1);
+    assert.equal(pagerStep(key('ArrowDown'), false), 0);
+    assert.equal(pagerStep(key('ArrowRight', { shiftKey: true }), false), 0);
+    assert.equal(pagerStep(key('ArrowRight', { metaKey: true }), false), 0);
+    assert.equal(pagerStep(key('ArrowLeft', { altKey: true }), false), 0);
+    assert.equal(pagerStep(key('ArrowLeft', { ctrlKey: true }), false), 0);
+    assert.equal(pagerStep(key('ArrowRight'), true), 0);
+  });
+
+  it('counts inputs, text areas, list boxes and editable content as text fields', () => {
+    assert.equal(takesTyping({ tagName: 'INPUT' }), true);
+    assert.equal(takesTyping({ tagName: 'textarea' }), true);
+    assert.equal(takesTyping({ tagName: 'SELECT' }), true);
+    assert.equal(takesTyping({ tagName: 'DIV', isContentEditable: true }), true);
+    assert.equal(takesTyping({ tagName: 'BUTTON' }), false);
+    assert.equal(takesTyping(null), false);
   });
 });

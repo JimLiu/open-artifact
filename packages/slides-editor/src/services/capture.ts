@@ -43,6 +43,7 @@ import { SlideView } from '../render/SlideView.tsx';
 import { installSlideStyles, slideStylesheet } from '../render/css.ts';
 import { fitElement } from '../render/fit.ts';
 import { fontsReady, syncDeckFonts } from '../render/fonts.ts';
+import { drawUntilStill, holdsInlinedPictures, settleBudget } from '../lib/late-pictures.ts';
 import type { AssetCache } from './export/assets.ts';
 
 export type { LinkArea, TextLine };
@@ -176,6 +177,11 @@ export interface PictureOptions {
   bare?: boolean;
   /** Draw web fonts (default true; off for pictures without text). */
   fonts?: boolean;
+  /**
+   * When the export must be done, on the `performance.now()` clock. Without
+   * one, waiting for pictures the browser draws late is never cut short.
+   */
+  deadline?: number;
 }
 
 /** A drawn picture. */
@@ -202,12 +208,19 @@ export function inlinedCopy(root: HTMLElement, context: CaptureContext, options:
   });
 }
 
+/** A slide drawn as SVG. */
+interface SlideSvg {
+  svg: string;
+  /** The markup holds pictures inlined as `data:` URLs. */
+  pictures: boolean;
+}
+
 /** The slide as an SVG document drawing its markup through `<foreignObject>`. */
-async function slideSvg(mounted: MountedSlide, context: CaptureContext, options: PictureOptions): Promise<string> {
+async function slideSvg(mounted: MountedSlide, context: CaptureContext, options: PictureOptions): Promise<SlideSvg> {
   const copy = await inlinedCopy(mounted.root, context, options);
   const markup = new XMLSerializer().serializeToString(copy);
   const css = `${options.fonts === false ? '' : context.fontCss}\n${PAGE_RESET}\n${slideStylesheet()}`;
-  return foreignObjectSvg(markup, css, { width: SLIDE_WIDTH, height: SLIDE_HEIGHT });
+  return { svg: foreignObjectSvg(markup, css, { width: SLIDE_WIDTH, height: SLIDE_HEIGHT }), pictures: holdsInlinedPictures(markup) };
 }
 
 /** The slide rebuilt as plain SVG by dom-to-svg (the fallback renderer). */
@@ -234,6 +247,71 @@ async function plainSvg(mounted: MountedSlide, context: CaptureContext, options:
 /** Loads an SVG document as an image. */
 const loadSvg = (svg: string): Promise<HTMLImageElement> => loadSvgImage(svg, { error: 'The slide could not be drawn.', decoding: 'sync' });
 
+/** The canvas a slide is redrawn on while its pictures decode: small, the slide's shape. */
+const SETTLE_CANVAS = { width: 96, height: 54 };
+/** How long the late-picture test may take, ms. */
+const PROBE_TIMEOUT = 1000;
+/** The test picture's side, px. */
+const PROBE_SIDE = 4;
+
+let lateDrawProbe: Promise<boolean> | undefined;
+
+/** Whether this browser draws a foreignObject's `data:` pictures before decoding them; tested once a session. */
+function picturesDrawLate(): Promise<boolean> {
+  lateDrawProbe ??= Promise.race([probeLateDraw(), wait(PROBE_TIMEOUT).then(() => false)]);
+  return lateDrawProbe;
+}
+
+/**
+ * Draws a tiny SVG holding a picture the browser has not seen yet (a pixel
+ * of a random colour) and reads it back: a blank read means the picture was
+ * drawn before it decoded.
+ */
+async function probeLateDraw(): Promise<boolean> {
+  try {
+    const dot = document.createElement('canvas');
+    dot.width = 1;
+    dot.height = 1;
+    const dotContext = dot.getContext('2d');
+    if (!dotContext) return false;
+    dotContext.fillStyle = `rgb(${Math.floor(Math.random() * 256)} ${Math.floor(Math.random() * 256)} 200)`;
+    dotContext.fillRect(0, 0, 1, 1);
+    // Written as markup, not made with createElement: an <img> element starts loading (and decoding) at once.
+    const picture = `<img src="${dot.toDataURL('image/png')}" style="display:block;width:${PROBE_SIDE}px;height:${PROBE_SIDE}px"/>`;
+    const read = pixelReader(PROBE_SIDE, PROBE_SIDE);
+    const image = await loadSvg(foreignObjectSvg(picture, '', { width: PROBE_SIDE, height: PROBE_SIDE }));
+    const pixels = read?.(image);
+    return pixels !== undefined && pixels.every((channel, i) => i % 4 !== 3 || channel === 0);
+  } catch {
+    return false;
+  }
+}
+
+/** A canvas of the given size that draws an image over all of it and returns its pixels; null without a 2D context. */
+function pixelReader(width: number, height: number): ((image: HTMLImageElement) => Uint8ClampedArray) | null {
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext('2d', { willReadFrequently: true });
+  if (!context) return null;
+  return (image) => {
+    context.clearRect(0, 0, width, height);
+    context.drawImage(image, 0, 0, width, height);
+    return context.getImageData(0, 0, width, height).data;
+  };
+}
+
+/** Redraws a slide image small until it holds still, for at most `budget` ms. */
+async function letPicturesDecode(image: HTMLImageElement, budget: number): Promise<void> {
+  const read = pixelReader(SETTLE_CANVAS.width, SETTLE_CANVAS.height);
+  if (!read) return;
+  try {
+    await drawUntilStill(() => read(image), budget, { now: () => performance.now(), sleep: wait });
+  } catch {
+    // Draw it as it is.
+  }
+}
+
 /** Draws a loaded slide image onto a canvas; null when the browser refuses to read it back. */
 async function draw(image: HTMLImageElement, area: SlideRect, scale: number, options: PictureOptions): Promise<Picture | null> {
   const canvas = document.createElement('canvas');
@@ -255,7 +333,14 @@ export async function slidePicture(mounted: MountedSlide, context: CaptureContex
   const area = options.area ?? { x: 0, y: 0, w: SLIDE_WIDTH, h: SLIDE_HEIGHT };
   const scale = Math.max(0.05, Math.min(options.scale, maxCaptureScale(area.w, area.h, CAPTURE_LIMITS)));
   try {
-    const picture = await draw(await loadSvg(await slideSvg(mounted, context, options)), area, scale, options);
+    const { svg, pictures } = await slideSvg(mounted, context, options);
+    const image = await loadSvg(svg);
+    if (pictures) {
+      const timeLeft = options.deadline === undefined ? undefined : options.deadline - performance.now();
+      const budget = settleBudget({ drawsLate: await picturesDrawLate(), holdsPictures: true, timeLeft });
+      if (budget > 0) await letPicturesDecode(image, budget);
+    }
+    const picture = await draw(image, area, scale, options);
     if (picture) return picture;
   } catch {
     // Fall back below.

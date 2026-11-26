@@ -12,6 +12,7 @@
 
 
 import { useEffect, useRef, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from 'react';
+import { undoRedoKey, type ModifiedKey } from './shortcut-keys.ts';
 
 /**
  * Marks a field whose value was last set by dragging its label. Until it is
@@ -21,25 +22,18 @@ import { useEffect, useRef, type MouseEvent as ReactMouseEvent, type PointerEven
 export const SCRUBBED = 'data-open-artifact-scrubbed';
 
 /** The fields of a keydown {@link undoesScrub} reads. */
-export interface ScrubUndoKey {
+export interface ScrubUndoKey extends ModifiedKey {
   target: unknown;
-  key: string;
-  metaKey: boolean;
-  ctrlKey: boolean;
-  shiftKey: boolean;
-  altKey: boolean;
 }
 
 /**
- * True for ⌘Z, ⇧⌘Z or ⌘Y (Ctrl elsewhere) in a field marked {@link SCRUBBED}.
+ * True for undo or redo (⌘Z, ⇧⌘Z, Ctrl+Y) in a field marked {@link SCRUBBED}.
  * The caller has already let an input method's keys go by.
  */
 export function undoesScrub(event: ScrubUndoKey): boolean {
   const target = event.target as { tagName?: string; hasAttribute?: (name: string) => boolean } | null;
   if (target?.tagName !== 'INPUT' || !target.hasAttribute?.(SCRUBBED)) return false;
-  if (!(event.metaKey || event.ctrlKey) || event.altKey) return false;
-  const key = event.key.toLowerCase();
-  return key === 'z' || (key === 'y' && !event.shiftKey);
+  return undoRedoKey(event) !== null;
 }
 
 /** What a scrub reads, at every move (the latest render's values). */

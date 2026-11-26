@@ -53,14 +53,17 @@ export interface MenuItemProps {
   shortcut?: string;
   disabled?: boolean;
   danger?: boolean;
+  /** Shown on hover: why a disabled row is unavailable, for one. */
+  title?: string;
 }
 
 /** One action row. The rest of a double click on it does not reach what the closed menu uncovers. */
-export function MenuItem({ children, onSelect, icon, shortcut, disabled, danger }: MenuItemProps) {
+export function MenuItem({ children, onSelect, icon, shortcut, disabled, danger, title }: MenuItemProps) {
   return (
     <BaseMenu.Item
       className={cn(MENU_ITEM_CLASS, danger && 'text-danger')}
       disabled={disabled}
+      title={title}
       onClick={(event) => {
         swallowFollowUpClicks(event.nativeEvent);
         onSelect?.();

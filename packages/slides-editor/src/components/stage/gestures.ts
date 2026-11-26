@@ -13,6 +13,7 @@ import {
   comparePaths,
   duplicateNodes,
   isAncestorPath,
+  isLocked,
   isPinned,
   LIMITS,
   nodeAt,
@@ -41,7 +42,8 @@ import { flushSync } from 'react-dom';
 import { FLOW_ROOT_KEY } from '../../render/SlideView.tsx';
 import { useDeck } from '../../state/deck.ts';
 import { useView, type Tool } from '../../state/view.ts';
-import { changeSlide, editableEntry, insertPinned, insertShape, insertTextBox, isLayoutOnly, newShape, pinAt, selectableElements, selectableFor } from '../../services/commands.ts';
+import { changeSlide, editableEntry, insertPinned, insertShape, insertTextBox, isLayoutOnly, newShape, pinAt, refuse, selectableElements, selectableFor } from '../../services/commands.ts';
+import { LOCKED_REFUSAL, lockRefusal, sweepTargets } from '../../lib/locks.ts';
 import {
   connectorEnds,
   elementGuides,
@@ -220,6 +222,7 @@ export function startMove(ctx: StageContext, event: PointerEvent | React.Pointer
   if (!slide || !stageEditable(ctx)) return;
   const paths = topmost(selection.filter((p) => nodeAt(slide, p)));
   if (paths.length === 0) return;
+  const held = paths.some((p) => isLocked(slide, p));
   const elements = paths.map((p) => elementOf(ctx.root, p));
   if (elements.some((el) => !el)) return;
   const boxes = paths.map((p) => boxOf(ctx, slide, p)!);
@@ -266,6 +269,11 @@ export function startMove(ctx: StageContext, event: PointerEvent | React.Pointer
     up(e) {
       restore();
       if (!moving || (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5)) return;
+      const refusal = held ? (e.altKey ? lockRefusal(slide, paths, 'duplicate') : LOCKED_REFUSAL) : null;
+      if (refusal) {
+        refuse(refusal);
+        return;
+      }
       commitMove(ctx, paths, boxes, dx, dy, e.altKey);
     },
     cancel: restore,
@@ -586,10 +594,12 @@ export function startConnectorEnd(ctx: StageContext, event: PointerEvent | React
 /* -------------------------------------------------------------------------- */
 
 /**
- * Drags a selection rectangle from the background. Shift adds to the
- * selection. A click without a drag clears the selection.
+ * Drags a selection rectangle from the background (or from a locked
+ * element). Shift adds to the selection. A click without a drag selects
+ * `clicked`: nothing by default. While the slide can be edited the
+ * rectangle passes over locked elements.
  */
-export function startMarquee(ctx: StageContext, event: PointerEvent | React.PointerEvent, additive: boolean): void {
+export function startMarquee(ctx: StageContext, event: PointerEvent | React.PointerEvent, additive: boolean, clicked: readonly NodePath[] = []): void {
   const slide = storedSlide(ctx);
   if (!slide) return;
   const from = toSlidePoint(ctx.root, event.clientX, event.clientY, ctx.scale);
@@ -606,12 +616,11 @@ export function startMarquee(ctx: StageContext, event: PointerEvent | React.Poin
         dragging = true;
         useView.getState().endTextEdit();
         // Top-level elements (groups count as one).
-        candidates = selectableElements(slide)
-          .filter((p, _, all) => !all.some((q) => isAncestorPath(q, p)))
-          .flatMap((path) => {
-            const el = elementOf(ctx.root, path);
-            return el ? [{ path, rect: measure(ctx.root, el, ctx.scale) }] : [];
-          });
+        const tops = selectableElements(slide).filter((p, _, all) => !all.some((q) => isAncestorPath(q, p)));
+        candidates = sweepTargets(slide, tops, stageEditable(ctx)).flatMap((path) => {
+          const el = elementOf(ctx.root, path);
+          return el ? [{ path, rect: measure(ctx.root, el, ctx.scale) }] : [];
+        });
       }
       const to = toSlidePoint(ctx.root, e.clientX, e.clientY, ctx.scale);
       const rect = rectFromPoints(from, to);
@@ -624,7 +633,7 @@ export function startMarquee(ctx: StageContext, event: PointerEvent | React.Poin
       useStageGesture.getState().set({ marquee: null });
       if (!dragging && !additive) {
         useView.getState().endTextEdit();
-        useView.getState().select([]);
+        useView.getState().select([...clicked]);
       }
     },
     cancel() {

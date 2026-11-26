@@ -2,7 +2,7 @@
  * The Slides artifact model, shared by the editor, the type server and the
  * command line: the slide HTML subset (compiler and serializer), the deck
  * index and its merges, outline sections, element addressing, immutable
- * edits, view context and whole-project checks.
+ * edits, element locks, view context and whole-project checks.
  */
 
 export * from './limits.ts';
@@ -18,6 +18,7 @@ export * from './compile.ts';
 export * from './serialize.ts';
 export * from './ids.ts';
 export * from './edit.ts';
+export * from './locks.ts';
 export * from './deck.ts';
 export * from './sections.ts';
 export * from './templates.ts';

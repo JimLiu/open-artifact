@@ -6,12 +6,13 @@
  * here too.
  *
  * Fitting leaves room for the floating cards above the slide, the toolbar
- * below it and a line of notes.
+ * below it and a line of notes. What the keyboard selects, the caret while
+ * typing and the focus across a zoom step are scrolled into view.
  */
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from 'react';
 import { EyeOff } from 'lucide-react';
-import { isAncestorPath, isTextual, nodeAt, pathKey, rotationOf, samePath, SLIDE_HEIGHT, SLIDE_WIDTH, type NodePath, type SlideNode } from '@open-artifact/slides-core';
+import { isAncestorPath, isLocked, isTextual, nodeAt, pathKey, rotationOf, samePath, SLIDE_HEIGHT, SLIDE_WIDTH, type NodePath, type SlideNode } from '@open-artifact/slides-core';
 import { toast } from '@open-artifact/ui';
 import { COMMENT_CURSOR } from '@open-artifact/editor-kit/react';
 import { SlideView, useElementSize, type RenderOptions } from '../render/SlideView.tsx';
@@ -19,7 +20,9 @@ import { useDeck } from '../state/deck.ts';
 import { stageScale, useView } from '../state/view.ts';
 import { isPlaceable, pickFiles, placeFiles, replaceImage } from '../services/assets.ts';
 import { setClipboardRegion } from '../services/clipboard.ts';
-import { canChange, editableEntry } from '../services/commands.ts';
+import { canChange, editableEntry, refuse } from '../services/commands.ts';
+import { allLocked, LOCKED_REFUSAL, settledSelection } from '../lib/locks.ts';
+import { caretRoom, insetBox, overlaps, REVEAL_FOCUS_EVENT, revealOffset, ZOOM_STEP_EVENT, type Box } from '../lib/reveal.ts';
 import { useComments } from '../services/comments.ts';
 import { highlightMatches, useFind } from '../services/find.ts';
 import { resolveSrc } from '../services/session.ts';
@@ -27,7 +30,7 @@ import { ContextMenu } from './ContextMenu.tsx';
 import { NotesEditor } from './NotesPane.tsx';
 import { CHROME_BOTTOM, CHROME_TOP } from './StageChrome.tsx';
 import { CommentPins } from './comments/CommentPins.tsx';
-import { setPendingCaret, TextEditor } from './TextEditor.tsx';
+import { activeEditor, setPendingCaret, TextEditor } from './TextEditor.tsx';
 import { toSlidePoint } from './stage/geometry.ts';
 import { deepestAt, pickAt, startDraw, startMarquee, startMove, type StageContext } from './stage/gestures.ts';
 import { Overlay } from './stage/Overlay.tsx';
@@ -42,6 +45,8 @@ const TOP = CHROME_TOP;
 const BOTTOM = CHROME_BOTTOM + 24;
 /** Room kept under the slide for the speaker notes, px. */
 const NOTES_ROOM = 72;
+/** Room kept around an element the keyboard brings into view, px. */
+const REVEAL_MARGIN = 16;
 
 /** True for the node kinds edited in place. */
 function editsInPlace(node: SlideNode): boolean {
@@ -112,6 +117,7 @@ export function Stage(): ReactNode {
   }, [textEdit, current]);
 
   useFindHighlights(root, current, slide);
+  useKeepFocusInView(scroller, rootRef, scale);
 
   if (!current || !entry || !slide) {
     return <div className="absolute inset-0 bg-stage" />;
@@ -154,12 +160,20 @@ export function Stage(): ReactNode {
       return;
     }
     const selected = view.selection.some((p) => samePath(p, path));
+    const editable = editableEntry(ctx.slideId) !== null;
     if (event.shiftKey || event.metaKey || event.ctrlKey) {
       if (selected) {
         view.select(view.selection.filter((p) => !samePath(p, path)));
         return;
       }
-      view.select([...view.selection, path]);
+      const added = [...view.selection, path];
+      const next = settledSelection(stored, added, editable) ?? added;
+      view.select(next);
+      if (!next.some((p) => samePath(p, path)) || (allLocked(stored, next) && !event.altKey)) return;
+    } else if (editable && isLocked(stored, path) && !event.altKey) {
+      if (!selected) view.select([path]);
+      startMarquee(ctx, event, false, useView.getState().selection);
+      return;
     } else if (!selected) {
       view.select([path]);
     }
@@ -197,6 +211,8 @@ export function Stage(): ReactNode {
         void pickFiles('image/png,image/jpeg,image/gif,image/webp,image/svg+xml', false).then((files) => {
           if (files[0]) void replaceImage(path, files[0]);
         });
+      } else if (isLocked(stored, path)) {
+        refuse(LOCKED_REFUSAL);
       } else if (rotationOf(node)) {
         toast.add({ title: 'Straighten the picture to crop it' });
       } else {
@@ -310,6 +326,105 @@ export function Stage(): ReactNode {
       </div>
     </ContextMenu>
   );
+}
+
+/** The part of the stage the floating cards leave uncovered (client coordinates). */
+function uncoveredStage(scroller: HTMLElement): Box {
+  return insetBox(scroller.getBoundingClientRect(), { top: CHROME_TOP, bottom: CHROME_BOTTOM });
+}
+
+/** The caret in the text being typed into, or null. */
+function caretBox(): Box | null {
+  const editor = activeEditor();
+  const selection = window.getSelection();
+  const end = selection?.focusNode;
+  if (!editor || !selection || !end || !editor.contains(end)) return null;
+  // The moving end of the selection: where the caret is drawn.
+  const caret = document.createRange();
+  caret.setStart(end, selection.focusOffset);
+  const rect = caret.getClientRects()[0] ?? caret.getBoundingClientRect();
+  if (rect.width > 0 || rect.height > 0) return rect;
+  // A caret on an empty line has no rectangle: take the start of the line's element.
+  const holder = caret.endContainer instanceof Element ? caret.endContainer : caret.endContainer.parentElement;
+  const line = holder?.getBoundingClientRect();
+  return line ? { left: line.left, top: line.top, right: line.left + 1, bottom: line.top + Math.min(line.height, 48) } : null;
+}
+
+/** What the keyboard works on: the caret while typing, else the edited or last selected element. */
+function focusBox(root: HTMLElement | null): { box: Box; caret: boolean } | null {
+  const view = useView.getState();
+  const caret = view.textEdit ? caretBox() : null;
+  if (caret) return { box: caret, caret: true };
+  const path = view.textEdit?.path ?? view.selection[view.selection.length - 1];
+  const element = root && path ? root.querySelector(`[data-open-artifact-path="${pathKey(path)}"]`) : null;
+  return element ? { box: element.getBoundingClientRect(), caret: false } : null;
+}
+
+/** Scrolls the stage as little as it takes for the focus to show (the caret keeping clear of the edges). */
+function revealFocusIn(scroller: HTMLElement | null, root: HTMLElement | null): void {
+  const target = scroller ? focusBox(root) : null;
+  if (!scroller || !target) return;
+  const view = uncoveredStage(scroller);
+  const offset = revealOffset(view, target.box, target.caret ? caretRoom(view) : REVEAL_MARGIN);
+  if (offset.x || offset.y) scroller.scrollBy({ left: offset.x, top: offset.y });
+}
+
+/**
+ * Keeps the keyboard's focus in view: after a keyboard selection, as the
+ * caret moves while typing, and across a zoom step when it showed before.
+ * While the mouse button is down nothing scrolls; it catches up on release.
+ */
+function useKeepFocusInView(scroller: RefObject<HTMLElement | null>, rootRef: RefObject<HTMLElement | null>, scale: number): void {
+  const keepOnZoom = useRef(false);
+
+  useEffect(() => {
+    let held = false;
+    let waiting = false;
+    let frame = 0;
+    const reveal = (): void => {
+      if (held) {
+        waiting = true;
+        return;
+      }
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => revealFocusIn(scroller.current, rootRef.current));
+    };
+    const onZoomStep = (): void => {
+      const target = scroller.current ? focusBox(rootRef.current) : null;
+      keepOnZoom.current = Boolean(scroller.current && target && overlaps(uncoveredStage(scroller.current), target.box));
+    };
+    const onSelectionChange = (): void => {
+      if (useView.getState().textEdit && caretBox()) reveal();
+    };
+    const onDown = (event: PointerEvent): void => {
+      if (event.button === 0) held = true;
+    };
+    const onUp = (): void => {
+      held = false;
+      if (!waiting) return;
+      waiting = false;
+      reveal();
+    };
+    const wiring = new AbortController();
+    const { signal } = wiring;
+    window.addEventListener(REVEAL_FOCUS_EVENT, reveal, { signal });
+    window.addEventListener(ZOOM_STEP_EVENT, onZoomStep, { signal });
+    document.addEventListener('selectionchange', onSelectionChange, { signal });
+    for (const type of ['pointerup', 'pointercancel'] as const) window.addEventListener(type, onUp, { signal, capture: true });
+    window.addEventListener('pointerdown', onDown, { signal, capture: true });
+    window.addEventListener('blur', onUp, { signal });
+    return () => {
+      wiring.abort();
+      cancelAnimationFrame(frame);
+    };
+  }, [scroller, rootRef]);
+
+  // After a zoom step has laid out, bring back what showed before it.
+  useLayoutEffect(() => {
+    if (!keepOnZoom.current) return;
+    keepOnZoom.current = false;
+    revealFocusIn(scroller.current, rootRef.current);
+  }, [scale, scroller, rootRef]);
 }
 
 /** Highlights the find bar's matches on the slide on stage. */

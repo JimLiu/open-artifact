@@ -25,6 +25,7 @@ import { LayoutSection, SizeSection } from './LayoutSections.tsx';
 import { AppearanceSection, EffectsSection } from './StyleSections.tsx';
 import { TextSection } from './TextSection.tsx';
 import type { Target } from './shared.tsx';
+import { holdHandle, isHandlePress, moveHandle, PANEL_PRESS_DELAY, pressedWidth, type HandlePointer } from '../../lib/panel-width.ts';
 
 /* -------------------------------------------------------------------------- */
 /* Width                                                                       */
@@ -64,38 +65,76 @@ function saveWidth(width: number): void {
 /** The panel's width, its resize handle's props, and re-clamping on window resize. */
 function usePanelWidth(): { width: number; handle: ReactNode } {
   const [width, setWidth] = useState(readWidth);
-  const drag = useRef<{ x: number; width: number } | null>(null);
+  const drag = useRef<{ pointer: HandlePointer; width: number; mouse: boolean } | null>(null);
+  const latest = useRef(width);
+  latest.current = width;
+  // Only a drag sets this (not Home, End, arrows or a press); it lasts while the page is open.
+  const dragged = useRef<number | null>(null);
+  const pressTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => {
     const onResize = (): void => setWidth((w) => clampWidth(w));
     window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
+    return () => {
+      window.removeEventListener('resize', onResize);
+      clearTimeout(pressTimer.current);
+    };
   }, []);
 
-  const commit = (next: number): void => {
+  const commit = (next: number): number => {
     const clamped = clampWidth(next);
     setWidth(clamped);
     saveWidth(clamped);
+    return clamped;
+  };
+  const press = (): void => {
+    const presets = { home: clampWidth(DEFAULT_WIDTH), min: clampWidth(MIN_WIDTH), max: clampWidth(maxWidth()), dragged: dragged.current };
+    commit(pressedWidth(latest.current, presets));
+  };
+  const cancelPress = (): void => {
+    clearTimeout(pressTimer.current);
+    pressTimer.current = undefined;
   };
   const onPointerDown = (event: PointerEvent<HTMLDivElement>): void => {
-    if (event.button !== 0) return;
+    if (event.button !== 0 || !event.isPrimary) return;
     event.preventDefault();
+    cancelPress();
     event.currentTarget.setPointerCapture(event.pointerId);
-    drag.current = { x: event.clientX, width };
+    drag.current = { pointer: holdHandle(event.clientX, event.clientY), width, mouse: event.pointerType === 'mouse' };
   };
   const onPointerMove = (event: PointerEvent<HTMLDivElement>): void => {
-    if (!drag.current) return;
-    setWidth(clampWidth(drag.current.width + drag.current.x - event.clientX));
+    const held = drag.current;
+    if (!held) return;
+    held.pointer = moveHandle(held.pointer, event.clientX, event.clientY);
+    if (held.pointer.dragging) setWidth(clampWidth(held.width + held.pointer.x - event.clientX));
   };
   const onPointerUp = (event: PointerEvent<HTMLDivElement>): void => {
-    if (!drag.current) return;
-    commit(drag.current.width + drag.current.x - event.clientX);
+    const held = drag.current;
+    if (!held) return;
     drag.current = null;
+    held.pointer = moveHandle(held.pointer, event.clientX, event.clientY);
+    if (held.pointer.dragging) {
+      dragged.current = commit(held.width + held.pointer.x - event.clientX);
+    } else if (isHandlePress(held.pointer)) {
+      if (held.mouse) pressTimer.current = setTimeout(press, PANEL_PRESS_DELAY);
+      else press();
+    }
+  };
+  /** The pointer was taken away: keep what a drag reached, never count it as a press. */
+  const onPointerLost = (): void => {
+    const held = drag.current;
+    if (!held) return;
+    drag.current = null;
+    if (held.pointer.dragging) dragged.current = commit(latest.current);
   };
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
     const step = event.shiftKey ? 48 : 16;
     if (event.key === 'ArrowLeft') commit(width + step);
     else if (event.key === 'ArrowRight') commit(width - step);
-    else return;
+    else if (event.key === 'Home') commit(MIN_WIDTH);
+    else if (event.key === 'End') commit(maxWidth());
+    else if (event.key === 'Enter' || event.key === ' ') {
+      if (!event.repeat) press();
+    } else return;
     event.preventDefault();
   };
 
@@ -108,12 +147,16 @@ function usePanelWidth(): { width: number; handle: ReactNode } {
       aria-valuemin={MIN_WIDTH}
       aria-valuemax={maxWidth()}
       tabIndex={0}
-      title="Drag to resize. Double-click to reset."
+      title="Drag to resize. Click to step through sizes, double-click to reset."
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
-      onPointerCancel={onPointerUp}
-      onDoubleClick={() => commit(DEFAULT_WIDTH)}
+      onPointerCancel={onPointerLost}
+      onLostPointerCapture={onPointerLost}
+      onDoubleClick={() => {
+        cancelPress();
+        commit(DEFAULT_WIDTH);
+      }}
       onKeyDown={onKeyDown}
       className="group absolute inset-y-0 -left-1 z-10 flex w-2 cursor-col-resize justify-center outline-none"
     >

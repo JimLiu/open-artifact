@@ -16,6 +16,27 @@ const fileNames = ['cover', 'plan', 'end'];
 const browserSkip = browserOff || !findChrome();
 const inlineSlide = id => `document.querySelector('[data-open-artifact-inline-view] [data-open-artifact-slide="${id}"]')`;
 const inlinePager = `document.querySelector('nav[aria-label="Slides"]')`;
+const stageNode = at => `document.querySelector('[data-open-artifact-mode="edit"] [data-open-artifact-path="${at}"]')`;
+/** What the editor last read out to screen readers. */
+const announced = `document.querySelector('[role="status"][aria-atomic="true"]')?.textContent`;
+/** How many elements the stage shows selected (one frame each). */
+const selectedCount = `[...(document.querySelector('[data-open-artifact-overlay]')?.children ?? [])].filter(el => el.classList.contains('border-accent')).length`;
+const resizeHandles = `document.querySelectorAll('[data-open-artifact-overlay] [style*="resize"]').length`;
+const propertySections = `[...document.querySelectorAll('[data-open-artifact-properties] h3')].map(h => h.textContent)`;
+const menuItem = label => `[...document.querySelectorAll('[role="menuitem"]')].find(el => el.textContent.trim().startsWith(${JSON.stringify(label)}))`;
+const middle = (page, element) => page.evaluate(`(() => { const r = (${element}).getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; })()`);
+
+/**
+ * Press a key with modifiers as a keyboard sends it: `code` is the key's place, `key` what it types in the current
+ * layout. `mod` is Command on a Mac and Control elsewhere; `held` more presses come as the key repeating.
+ */
+async function chord(page, key, code, keyCode, { mod = false, alt = false, shift = false, ctrl = false, mac = true, held = 0 } = {}) {
+  const modifiers = (alt ? 1 : 0) | (ctrl || (mod && !mac) ? 2 : 0) | (mod && mac ? 4 : 0) | (shift ? 8 : 0);
+  const down = { type: 'rawKeyDown', key, code, windowsVirtualKeyCode: keyCode, modifiers };
+  await page.cdp('Input.dispatchKeyEvent', down);
+  for (let n = 0; n < held; n++) await page.cdp('Input.dispatchKeyEvent', { ...down, autoRepeat: true });
+  await page.cdp('Input.dispatchKeyEvent', { type: 'keyUp', key, code, windowsVirtualKeyCode: keyCode, modifiers });
+}
 
 /** A page on an origin of its own that frames `src` (as a chat or a doc embeds a deck), running `script` beside it. */
 async function framing(src, script = '') {
@@ -471,6 +492,30 @@ describe('slides', { skip: skipFor('slides') }, () => {
     }
   });
 
+  it('keeps a locked heading and an inline drawing as written when the text beside them changes', { skip: browserSkip }, async () => {
+    const file = path.join(root, 'project/slides/end.html');
+    const original = fs.readFileSync(file, 'utf8');
+    const marked = '<section id="end">\n  <h1 data-locked>Close</h1>\n  <p>Plain line</p>\n' +
+      '  <svg data-locked viewBox="0 0 10 10" style="position:absolute;left:1000px;top:128px;width:160px;height:160px"><circle cx="5" cy="5" r="4" fill="#1870e0"/></svg>\n</section>\n';
+    fs.writeFileSync(file, marked);
+    try {
+      await page.evaluate("location.hash = '#slide-~end'");
+      const line = `[...document.querySelectorAll('[data-open-artifact-mode="edit"][data-open-artifact-slide="end"] p')].find(p => p.textContent === 'Plain line')`;
+      assert.ok(await page.waitFor(`(${line}) && document.querySelector('[data-open-artifact-mode="edit"][data-open-artifact-slide="end"] svg circle')`));
+      await page.clickTimes(...(await middle(page, line)), 2);
+      assert.ok(await page.waitFor('document.activeElement?.isContentEditable'));
+      const mac = await page.evaluate("navigator.platform.includes('Mac')");
+      await page.press('a', { meta: mac, ctrl: !mac, commands: ['selectAll'] });
+      await page.type('Edited line');
+      await page.press('Escape');
+      assert.ok(await until(() => fs.readFileSync(file, 'utf8') === marked.replace('Plain line', 'Edited line')), fs.readFileSync(file, 'utf8'));
+    } finally {
+      fs.writeFileSync(file, original);
+    }
+    await page.evaluate("location.hash = '#slide-1'");
+    assert.ok(await page.waitFor(`document.querySelector('[data-open-artifact-mode="edit"][data-open-artifact-slide="cover"]')`));
+  });
+
   it('uses the frame to comment on selected text and a dragged slide area', { skip: browserSkip }, async () => {
     const shell = await browser.load(publicUrl + '#slide-~plan', { ready: "document.querySelector('[data-comments-button]')" });
     try {
@@ -739,6 +784,30 @@ describe('slides', { skip: skipFor('slides') }, () => {
     }
   });
 
+  it('reads the first slide out as a framed deck appears, and pages with the arrow keys from anywhere in it', { skip: browserSkip }, async () => {
+    const host = await framing(url + '#view-inline');
+    const viewer = await browser.load(host.url, { ready: inlineSlide('cover') });
+    try {
+      assert.ok(await viewer.waitFor(`/^Slide 1 of 3/.test(${inlinePager}?.querySelector('[role="status"]').textContent)`));
+      const buttons = (await viewer.evaluateAll(`${inlinePager} ? [...${inlinePager}.querySelectorAll('button')].map(b => {
+        const r = b.getBoundingClientRect();
+        return [b.getAttribute('aria-label'), b.getAttribute('aria-keyshortcuts'), Math.round(r.width), Math.round(r.height)];
+      }) : null`)).filter(Boolean);
+      assert.deepEqual(buttons, [[['Previous slide', 'ArrowLeft', 40, 40], ['Next slide', 'ArrowRight', 40, 40]]]);
+      // A click on the slide, not on the pager: the keys still turn the page.
+      const point = await viewer.evaluate(`(() => { const r = document.getElementById('framed').getBoundingClientRect(); return [r.x + r.width / 2, r.y + 120]; })()`);
+      await viewer.click(...point);
+      await viewer.press('ArrowRight');
+      assert.ok(await viewer.waitFor(`${inlineSlide('plan')} && ${inlinePager}.textContent.includes('2 / 3') && /^Slide 2 of 3/.test(${inlinePager}.querySelector('[role="status"]').textContent)`));
+      await viewer.press('ArrowLeft');
+      assert.ok(await viewer.waitFor(`${inlineSlide('cover')} && ${inlinePager}.textContent.includes('1 / 3')`));
+      assert.deepEqual(viewer.problems, []);
+    } finally {
+      await viewer.close();
+      await host.close();
+    }
+  });
+
   it('shows a reload card, not a blank page, when the editor fails to draw', { skip: browserSkip }, async () => {
     const broken = await browser.load(url, { ready: `document.querySelectorAll('${rail}').length === 3` });
     try {
@@ -803,4 +872,310 @@ describe('slides', { skip: skipFor('slides') }, () => {
     }
   });
 
+  describe('elements on an inline-style deck', { skip: browserSkip }, () => {
+    // Written as the editor saves them, so a save that changes one thing changes nothing else in the file.
+    const SHAPES = '<section id="shapes" style="background:#ffffff">\n' +
+      '  <div id="back" style="position:absolute;left:200px;top:200px;width:400px;height:300px;background:#cc3333"></div>\n' +
+      '  <div id="front" style="position:absolute;left:500px;top:300px;width:400px;height:300px;background:#3355cc"></div>\n' +
+      '  <p id="caption" style="position:absolute;left:200px;top:700px;width:800px;font-size:48px">Caption text</p>\n</section>\n';
+    const GRID = '<section id="grid" style="background:#ffffff"><table style="position:absolute;left:200px;top:200px;width:800px;font-size:32px">' +
+      '<tr><td>A1</td><td>B1</td></tr><tr><td>A2</td><td>B2</td></tr></table></section>';
+    const LOCKED = SHAPES.replace('<div id="back"', '<div id="back" data-locked');
+    let deck, deckUrl, mac;
+    const shapesFile = () => path.join(deck, 'project/slides/shapes.html');
+    const shapes = () => fs.readFileSync(shapesFile(), 'utf8');
+    const order = () => shapes().match(/ id="[a-z0-9-]+"/g).slice(1).join('');
+    const back = stageNode(0);
+
+    before(async () => {
+      deck = tmpDir('slides-layers');
+      fs.mkdirSync(path.join(deck, 'project/slides'), { recursive: true });
+      fs.writeFileSync(path.join(deck, 'project/deck.json'), JSON.stringify({
+        v: 5, lists: 'css', title: 'Layers', order: ['shapes', 'grid'], cover: 'shapes',
+        createdOnFiles: { v: 1, at: '2026-11-15T00:00:00Z' }, sections: {}, faces: {}, designSystems: [],
+      }));
+      fs.writeFileSync(path.join(deck, 'project/slides/grid.html'), GRID);
+      fs.writeFileSync(shapesFile(), SHAPES);
+      deckUrl = new URL('index.html', (await run.json(['open', deck, '--json'])).url).href;
+    });
+
+    /** The deck in a tab of its own, on `slide`, with the shapes slide as written above. */
+    async function openDeck(slide = 'shapes') {
+      fs.writeFileSync(shapesFile(), SHAPES);
+      const tab = await browser.load(`${deckUrl}#slide-~${slide}`, { ready: `document.querySelector('[data-open-artifact-mode="edit"][data-open-artifact-slide="${slide}"] [data-open-artifact-path]')` });
+      mac = await tab.evaluate("navigator.platform.includes('Mac')");
+      return tab;
+    }
+    const selectBack = async tab => {
+      await tab.click(...(await middle(tab, back)));
+      assert.ok(await tab.waitFor(`${selectedCount} === 1`));
+    };
+    const lockKey = (tab, held = 0) => chord(tab, 'L', 'KeyL', 76, { mod: true, shift: true, mac, held });
+    const undoKey = tab => tab.press('z', { meta: mac, ctrl: !mac });
+
+    it('locks an element from its menu: the file gains a bare data-locked, and the element holds still until it is unlocked', async () => {
+      const tab = await openDeck();
+      try {
+        await selectBack(tab);
+        assert.ok(await tab.waitFor(`${resizeHandles} > 0 && ${propertySections}.includes('Size')`));
+        await tab.rightClick(...(await middle(tab, back)));
+        assert.ok(await tab.waitFor(`${menuItem('Lock')}?.textContent.trim().startsWith('Lock')`));
+        await tab.evaluate(`${menuItem('Lock')}.click()`);
+        assert.ok(await until(() => shapes() === LOCKED), shapes());
+        assert.ok(await tab.waitFor(`${announced} === 'Element locked'`));
+        // No handles and no size fields for a locked element.
+        assert.ok(await tab.waitFor(`${resizeHandles} === 0 && !${propertySections}.includes('Size') && ${propertySections}.includes('Appearance')`));
+
+        // Delete, held down: the element stays, and one notice says why.
+        await chord(tab, 'Delete', 'Delete', 46, { held: 2 });
+        const notices = `[...document.querySelectorAll('[data-toast]')].filter(t => /unlock/i.test(t.textContent)).length`;
+        assert.ok(await tab.waitFor(`${notices} === 1`));
+        assert.equal(await tab.evaluate(`document.querySelectorAll('[data-open-artifact-mode="edit"] [data-open-artifact-path]').length`), 3);
+        assert.equal(await tab.evaluate(notices), 1);
+
+        // A drag that starts on it draws a selection box and leaves it where it is.
+        const before = await tab.evaluate(`${back}.getAttribute('style')`);
+        const corner = await tab.evaluate(`(() => { const r = ${back}.getBoundingClientRect(); return [r.x + 6, r.y + 6]; })()`);
+        await tab.dragMouse(corner, [corner[0] + 80, corner[1] + 80]);
+        assert.equal(await tab.evaluate(`${back}.getAttribute('style')`), before);
+
+        // Select all passes over it.
+        await tab.press('Escape');
+        await tab.press('a', { meta: mac, ctrl: !mac });
+        assert.ok(await tab.waitFor(`${selectedCount} === 2`));
+        await tab.press('Escape');
+
+        // ⇧⌘L held down unlocks once; the file is as it was before the lock.
+        await selectBack(tab);
+        await lockKey(tab, 3);
+        assert.ok(await tab.waitFor(`${announced} === 'Element unlocked'`));
+        assert.ok(await until(() => shapes() === SHAPES), shapes());
+        assert.ok(await tab.waitFor(`${resizeHandles} > 0 && ${propertySections}.includes('Size')`));
+        assert.deepEqual(tab.problems, []);
+      } finally {
+        await tab.close();
+      }
+    });
+
+    it('duplicates, copies and pastes a locked element as unlocked copies, and undoes back to the written file', async () => {
+      const tab = await openDeck();
+      try {
+        await selectBack(tab);
+        await lockKey(tab);
+        assert.ok(await until(() => shapes() === LOCKED), shapes());
+        await tab.press('d', { meta: mac, ctrl: !mac });
+        assert.ok(await until(() => shapes().includes('<div id="back-2" style=')), shapes());
+        assert.equal(shapes().match(/data-locked/g).length, 1);
+        // The copy sits over most of the original: pick the original by its uncovered corner.
+        await tab.press('Escape');
+        const corner = await tab.evaluate(`(() => { const r = ${back}.getBoundingClientRect(); return [r.x + 4, r.y + 4]; })()`);
+        await tab.click(...corner);
+        assert.ok(await tab.waitFor(`${selectedCount} === 1 && ${resizeHandles} === 0`));
+        await tab.press('c', { meta: mac, ctrl: !mac, commands: ['copy'] });
+        await tab.press('v', { meta: mac, ctrl: !mac, commands: ['paste'] });
+        assert.ok(await until(() => shapes().includes('<div id="back-3" style=')), shapes());
+        assert.equal(shapes().match(/data-locked/g).length, 1);
+        await tab.press('Escape');
+        for (const step of [s => !s.includes('back-3'), s => s === LOCKED, s => s === SHAPES]) {
+          await undoKey(tab);
+          assert.ok(await until(() => step(shapes())), shapes());
+        }
+        assert.deepEqual(tab.problems, []);
+      } finally {
+        await tab.close();
+      }
+    });
+
+    it('restacks with ⌘] and ⌥⌘] by the key’s place, undoes on another layout, and leaves ⌥⌘D and ⌘[ in text alone', async () => {
+      const tab = await openDeck();
+      try {
+        assert.equal(order(), ' id="back" id="front" id="caption"');
+        await selectBack(tab);
+        await chord(tab, ']', 'BracketRight', 221, { mod: true, mac });
+        assert.ok(await tab.waitFor(`${announced} === 'Element moved up one layer'`));
+        assert.ok(await until(() => order() === ' id="front" id="back" id="caption"'), shapes());
+        // To the front: ⌥⌘] on a Mac, where the key types ‘ (Ctrl+Shift+] elsewhere).
+        if (mac) await chord(tab, '‘', 'BracketRight', 221, { mod: true, alt: true, mac });
+        else await chord(tab, '}', 'BracketRight', 221, { ctrl: true, shift: true, mac });
+        assert.ok(await tab.waitFor(`${announced} === 'Element moved to the front'`));
+        assert.ok(await until(() => order() === ' id="front" id="caption" id="back"'), shapes());
+        // ⌘Z where the Z key types я.
+        await chord(tab, 'я', 'KeyZ', 90, { mod: true, mac });
+        assert.ok(await until(() => order() === ' id="front" id="back" id="caption"'), shapes());
+        await chord(tab, 'я', 'KeyZ', 90, { mod: true, mac });
+        assert.ok(await until(() => shapes() === SHAPES), shapes());
+
+        if (mac) {
+          // ⌥⌘D duplicates neither the element nor the slide; the ⌘] after it is the only change saved.
+          await selectBack(tab);
+          await chord(tab, '∂', 'KeyD', 68, { mod: true, alt: true, mac });
+          await chord(tab, ']', 'BracketRight', 221, { mod: true, mac });
+          assert.ok(await tab.waitFor(`${announced} === 'Element moved up one layer'`));
+          assert.ok(await until(() => order() === ' id="front" id="back" id="caption"'), shapes());
+          assert.equal(shapes(), SHAPES.replace(/(  <div id="back".*\n)(  <div id="front".*\n)/, '$2$1'));
+          assert.deepEqual(JSON.parse(fs.readFileSync(path.join(deck, 'project/deck.json'), 'utf8')).order, ['shapes', 'grid']);
+          assert.equal(await tab.evaluate(`document.querySelectorAll('${rail}').length`), 2);
+          await undoKey(tab);
+          assert.ok(await until(() => shapes() === SHAPES), shapes());
+        }
+
+        // ⌘[ while typing in the caption: still typing, the page stays, the layers stay.
+        await tab.press('Escape');
+        await tab.clickTimes(...(await middle(tab, stageNode(2))), 2);
+        assert.ok(await tab.waitFor('document.activeElement?.isContentEditable'));
+        const hash = await tab.evaluate('location.hash');
+        await chord(tab, '[', 'BracketLeft', 219, { mod: true, mac });
+        await tab.press('End');
+        await tab.type('!');
+        await tab.press('Escape');
+        assert.ok(await until(() => shapes() === SHAPES.replace('Caption text<', 'Caption text!<')), shapes());
+        assert.equal(await tab.evaluate('location.hash'), hash);
+        await undoKey(tab);
+        assert.ok(await until(() => shapes() === SHAPES), shapes());
+        assert.deepEqual(tab.problems, []);
+      } finally {
+        await tab.close();
+      }
+    });
+
+    it('outlines the table cell its menu acts on while the menu is open', async () => {
+      const tab = await openDeck('grid');
+      try {
+        const cell = `document.querySelector('[data-open-artifact-mode="edit"] [data-open-artifact-cell="1:0"]')`;
+        const outline = `document.querySelector('[data-open-artifact-menu-cell]')`;
+        await tab.clickTimes(...(await middle(tab, cell)), 2);
+        assert.ok(await tab.waitFor(`${cell}.isContentEditable`));
+        assert.equal(await tab.evaluate(`Boolean(${outline})`), false);
+        await tab.rightClick(...(await middle(tab, cell)));
+        assert.ok(await tab.waitFor(`${menuItem('Insert row above')} && ${outline}?.getAttribute('data-open-artifact-menu-cell') === '1:0'`));
+        const gap = await tab.evaluate(`(() => {
+          const a = ${outline}.firstElementChild.getBoundingClientRect(), b = ${cell}.getBoundingClientRect();
+          return Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y), Math.abs(a.width - b.width), Math.abs(a.height - b.height));
+        })()`);
+        assert.ok(gap < 2, `the outline is ${gap}px off the cell`);
+        // Escape closes the menu once the menu has the focus.
+        assert.ok(await tab.waitFor(`document.activeElement?.closest('[role="menu"]')`));
+        await tab.press('Escape');
+        assert.ok(await tab.waitFor(`!document.querySelector('[role="menu"]') && !${outline}`));
+        assert.deepEqual(tab.problems, []);
+      } finally {
+        await tab.close();
+      }
+    });
+
+    it('says why the opacity field turns down a minus sign and a value past 100', async () => {
+      const tab = await openDeck();
+      try {
+        await selectBack(tab);
+        const field = `document.querySelector('input[aria-label="Opacity"]')`;
+        assert.ok(await tab.waitFor(field));
+        await tab.click(...(await middle(tab, field)));
+        await tab.evaluate(`${field}.select()`);
+        await tab.type('-');
+        assert.ok(await tab.waitFor(`${announced} === "Opacity can't be negative"`));
+        assert.equal(await tab.evaluate(`${field}.value`), '100');
+        await tab.evaluate(`${field}.select()`);
+        await tab.type('50');
+        await tab.press('Enter');
+        assert.ok(await until(() => shapes().includes('opacity:0.5')), shapes());
+        await tab.evaluate(`${field}.select()`);
+        await tab.type('250');
+        await tab.press('Tab');
+        assert.ok(await tab.waitFor(`${announced} === 'Opacity is now at its maximum, 100%' && ${field}.value === '100'`));
+        assert.ok(await until(() => shapes() === SHAPES), shapes());
+        assert.deepEqual(tab.problems, []);
+      } finally {
+        await tab.close();
+      }
+    });
+
+    it('steps the properties panel through its widths from the keyboard', async () => {
+      const tab = await openDeck();
+      const handle = `document.querySelector('[role="separator"][aria-label="Resize the properties panel"]')`;
+      const width = `Number(${handle}.getAttribute('aria-valuenow'))`;
+      try {
+        assert.ok(await tab.waitFor(`${width} === 304`));
+        const [min, max] = await tab.evaluate(`[${handle}.getAttribute('aria-valuemin'), ${handle}.getAttribute('aria-valuemax')].map(Number)`);
+        assert.ok(min < 304 && max > 304, `${min}–${max}`);
+        await tab.evaluate(`${handle}.focus()`);
+        for (const [key, expected] of [['Enter', max], ['Enter', min], ['Enter', 304], ['Home', min], ['End', max]]) {
+          await tab.press(key);
+          assert.ok(await tab.waitFor(`${width} === ${expected}`), `${key} gave ${await tab.evaluate(width)}, not ${expected}`);
+        }
+        assert.ok(await tab.waitFor(`Math.round(document.querySelector('[data-open-artifact-properties]').getBoundingClientRect().width) >= ${max - 2}`));
+        assert.deepEqual(tab.problems, []);
+      } finally {
+        await tab.evaluate(`localStorage.removeItem('open-artifact-slides:properties-width')`).catch(() => {});
+        await tab.close();
+      }
+    });
+
+    it('keeps the focus where it was when a toolbar tooltip is pressed', async () => {
+      const tab = await openDeck();
+      try {
+        await selectBack(tab);
+        const field = `document.querySelector('input[aria-label="Opacity"]')`;
+        await tab.click(...(await middle(tab, field)));
+        assert.ok(await tab.waitFor(`document.activeElement === ${field}`));
+        const [x, y] = await middle(tab, `document.querySelector('[role="toolbar"][aria-label="Insert"] button[aria-label="Text"]')`);
+        await tab.hover(x, y);
+        const tip = `[...document.querySelectorAll('[data-side]')].filter(el => el.textContent.startsWith('Text')).at(-1)`;
+        assert.ok(await tab.waitFor(tip, 4000), 'no tooltip on the Text button');
+        const [tx, ty] = await middle(tab, tip);
+        await tab.hover(tx, ty);
+        assert.ok(await tab.evaluate(`Boolean((${tip})?.contains(document.elementFromPoint(${tx}, ${ty})))`), 'the press would miss the tooltip');
+        await tab.cdp('Input.dispatchMouseEvent', { type: 'mousePressed', x: tx, y: ty, button: 'left', buttons: 1, clickCount: 1 });
+        assert.equal(await tab.evaluate(`document.activeElement === ${field}`), true);
+        await tab.cdp('Input.dispatchMouseEvent', { type: 'mouseReleased', x: tx, y: ty, button: 'left', buttons: 0, clickCount: 1 });
+        assert.equal(await tab.evaluate(`document.activeElement === ${field}`), true);
+        assert.deepEqual(tab.problems, []);
+      } finally {
+        await tab.close();
+      }
+    });
+
+    it('keeps the bottom toolbar on a deck without slides: inserting waits for a slide, asking the agent works', async () => {
+      const blank = tmpDir('slides-blank');
+      const opened = await run.json(['open', blank, '--type', 'slides', '--title', 'Blank start', '--json']);
+      const waiting = await run.start(['wait', blank, '--timeout', '60'], { firstLine: false });
+      const tab = await browser.load(new URL('index.html', opened.url).href, { ready: `document.querySelector('[role="toolbar"][aria-label="Insert"]')` });
+      try {
+        const tools = `[...document.querySelectorAll('[role="toolbar"][aria-label="Insert"] button')].filter(b => !b.closest('form')).map(b => [b.getAttribute('aria-label'), b.getAttribute('aria-disabled') === 'true'])`;
+        assert.deepEqual(await tab.evaluate(tools), [['Text', true], ['Image or video', true], ['Table', true], ['Shapes', true]]);
+        const ask = `document.querySelector('[role="toolbar"] input[aria-label^="Ask "]')`;
+        assert.ok(await tab.waitFor(`${ask} && !${ask}.disabled`), 'no Ask field while the agent waits');
+        await tab.evaluate(`${ask}.focus()`);
+        await tab.type('Make three slides');
+        await tab.press('Enter');
+        assert.ok(await until(() => waiting.stdout().includes('Make three slides'), 15000), waiting.stdout() + waiting.stderr());
+        assert.deepEqual(tab.problems, []);
+      } finally {
+        waiting.child.kill();
+        await tab.close();
+      }
+    });
+
+    it('tells why the insert tools wait on a deck without slides, by hover and by keyboard', async () => {
+      const blank = tmpDir('slides-blank-tip');
+      const opened = await run.json(['open', blank, '--type', 'slides', '--title', 'Blank tips', '--json']);
+      const tab = await browser.load(new URL('index.html', opened.url).href, { ready: `document.querySelector('[role="toolbar"][aria-label="Insert"]')` });
+      try {
+        const [x, y] = await middle(tab, `document.querySelector('[role="toolbar"][aria-label="Insert"] button[aria-label="Text"]')`);
+        await tab.hover(x, y);
+        assert.ok(await tab.waitFor(`[...document.querySelectorAll('[data-side]')].some(el => el.textContent.includes('Add a slide first'))`, 4000));
+        const text = `document.querySelector('[role="toolbar"][aria-label="Insert"] button[aria-label="Text"]')`;
+        assert.equal(await tab.evaluate(`document.getElementById(${text}.getAttribute('aria-describedby'))?.textContent`), 'Add a slide first');
+        await tab.evaluate(`${text}.click()`);
+        assert.equal(await tab.evaluate(`${text}.getAttribute('aria-pressed')`), null, 'the text tool armed on a deck without slides');
+        await tab.hover(1, 1);
+        await tab.evaluate(`${text}.focus()`);
+        await tab.press('ArrowRight');
+        assert.ok(await tab.waitFor(`document.activeElement?.getAttribute('aria-label') === 'Image or video'`), 'the arrow keys skip the unavailable insert tools');
+        assert.ok(await tab.waitFor(`[...document.querySelectorAll('[data-side]')].some(el => el.textContent.includes('Image or video. Add a slide first'))`, 4000), 'no tip on the focused insert tool');
+        assert.deepEqual(tab.problems, []);
+      } finally {
+        await tab.close();
+      }
+    });
+  });
 });

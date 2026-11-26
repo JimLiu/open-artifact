@@ -208,6 +208,14 @@ describe('writing edits back', () => {
     assert.match(added ?? '', /<h2 style="font-size:64px">The plan<\/h2>\n {2}<p style="font-size:40px">Added<\/p>\n {2}<div class="cards">/);
   });
 
+  it('writes into a slide that holds an inline drawing instead of saving it flat', () => {
+    const drawn = source.replace('</section>', '  <svg class="mark" viewBox="0 0 10 10" style="position:absolute;left:1600px;top:80px;width:120px;height:120px"><circle cx="5" cy="5" r="4"/></svg>\n</section>');
+    const read = readSourceSlide(drawn, deck, { id: 'plan', index: 1, lints: false }).slide;
+    const edited = structuredClone(read);
+    (edited.children[0] as TextNode).runs = [{ text: 'The new plan' }];
+    assert.equal(patchSourceSlide(drawn, read, edited, deck, { id: 'plan', index: 1 }), drawn.replace('The plan', 'The new plan'));
+  });
+
   it('reads data-deck-skip as a skipped slide, and showing it again removes it', () => {
     const skipped = source.replace(/<section\b/, '<section data-deck-skip');
     const read = readSourceSlide(skipped, deck, { id: 'plan', index: 1, lints: false });

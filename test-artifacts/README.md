@@ -41,6 +41,7 @@ and stop its server before running the generator again. The generator replaces t
 ```bash
 node test-artifacts/whiteboard/elements.gen.mjs     # or: node test-artifacts/open.mjs whiteboard/elements --reset
 node test-artifacts/sheets/sales.gen.mjs            # or: node test-artifacts/open.mjs sheets/sales --reset
+node test-artifacts/slides/locks.gen.mjs
 ```
 
 `git checkout -- test-artifacts/<path>` works too. After changing a script, run it and commit the result with it.
@@ -57,4 +58,5 @@ stays out of git.
 | `design/locks` | Locked and unlocked layers side by side: a locked heading, card, drawing (its shapes locked through the `<svg>`) and absolutely placed badge next to unlocked ones, a locked artboard, and a locked and an unlocked note. Try ⌘L, the lock in the selection bar, the outline's unlock buttons, and moving, resizing or deleting what is locked. |
 | `motion/playback` | A five-second, two-scene film with editable text, an animated SVG group, two palettes, a generated score and a captioned narration clip. Use it to try scrubbing, scene timing, layer edits, anchored comments and exports. |
 | `sheets/sales` | A three-row sales table with a total of 240 and a Summary tab that reads the total. Edit an amount to test recalculation, filter by region, or select `Sales!A1:B4` to insert a chart. |
+| `slides/locks` | Locked and unlocked elements on one slide: unlocked text, a locked text box, a locked drawing, a locked shape under an unlocked one, and a 2×2 table; a second slide to page to. Try ⇧⌘L and the menu's Lock, deleting, dragging or selecting all with something locked, ⌘] and ⌥⌘], the table cell menu, and the Opacity field and slider. |
 | `whiteboard/elements` | One of every element kind, style and option: the twelve shapes, hollow and stroked shapes, left-aligned text, notes and a sticker, arrows (labelled, dashed, two-headed, dot end, no head, with bends, free end), text in every size with wrapping and a placeholder, pen strokes, a table with fills and heat colours, an HTML embed you can vote in, link cards, a timer, pictures (linked and cropped) and an SVG drawing in each of the seven styles |

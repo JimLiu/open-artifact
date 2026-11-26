@@ -336,7 +336,6 @@ function FontRow({ target, resolved, isSlide }: { target: Target; resolved: Reso
 
   const choose = (choice: FontChoice): void => {
     setOpen(false);
-    setQuery('');
     if (choice.google) {
       const font = googleFont(choice.label)!;
       commitFontFamily(target, choice.css, googleFace(font));
@@ -349,8 +348,12 @@ function FontRow({ target, resolved, isSlide }: { target: Target; resolved: Reso
         open={open}
         onOpenChange={(next) => {
           setOpen(next);
-          if (next) loadMenuFonts();
-          else setQuery('');
+          if (!next) return;
+          setQuery('');
+          loadMenuFonts();
+        }}
+        onOpenChangeComplete={(nowOpen) => {
+          if (!nowOpen) setQuery('');
         }}
       >
         <BasePopover.Trigger aria-label={`Font: ${label}`} className={cn(FIELD, 'flex w-full min-w-0 cursor-default items-center gap-1.5 pl-2 pr-[5px] text-left data-[popup-open]:shadow-[inset_0_0_0_1px_var(--color-chrome-accent)]')}>

@@ -19,6 +19,9 @@ import { answerPartialExport, startExport, useExportUi } from '../services/shell
 import { SlideThumb } from './SlideThumb.tsx';
 import { MOD } from '@open-artifact/editor-kit';
 
+/** All the way to the front or back: ⌥⌘ on the Mac; Ctrl+Alt is AltGr elsewhere, so Ctrl+Shift there. */
+const LAYER_END = MOD === '⌘' ? `⌥${MOD}` : `⇧${MOD}`;
+
 /** The dialogs, mounted once by the app. */
 export function Dialogs(): ReactNode {
   const dialog = useUi((s) => s.dialog);
@@ -287,7 +290,10 @@ const SHORTCUTS: ReadonlyArray<{ group: string; rows: ReadonlyArray<[string, str
       ['Enter / ⇧Enter', 'Into a group or text / back out'],
       ['Arrows', 'Move 8 px (Shift: 1 px)'],
       [`${MOD}G / ⇧${MOD}G`, 'Group / ungroup'],
+      [`⇧${MOD}L`, 'Lock / unlock'],
       ['] / [', 'Bring to front / send to back'],
+      [`${MOD}] / ${MOD}[`, 'Bring forward / send backward one layer'],
+      [`${LAYER_END}] / ${LAYER_END}[`, 'Bring to front / send to back'],
       ['⌥A ⌥H ⌥D', 'Align left, horizontal centers, right'],
       ['⌥W ⌥V ⌥S', 'Align top, vertical centers, bottom'],
       [`⌥${MOD}C / ⌥${MOD}V`, 'Copy / paste style'],

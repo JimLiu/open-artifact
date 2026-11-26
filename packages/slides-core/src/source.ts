@@ -1404,6 +1404,10 @@ class Patcher {
     const sameShape = saved.kind === edited.kind && ('tag' in saved ? saved.tag === (edited as typeof saved).tag : true);
     if (!sameShape || saved.kind === 'svg') {
       if (JSON.stringify(stripNode(saved)) === JSON.stringify(stripNode(edited))) return true;
+      if (sameShape && JSON.stringify(stripNode(unlocked(saved))) === JSON.stringify(stripNode(unlocked(edited)))) {
+        setAttribute(el, 'data-locked', edited.locked ? null : undefined);
+        return true;
+      }
       const next = flatElement(edited, el);
       if (!next) return false;
       this.replaceElement(el, next);
@@ -1505,6 +1509,13 @@ function withoutResets(slide: Slide): Slide {
     return copy;
   };
   return { ...clean(slide), children: slide.children.map(node) };
+}
+
+/** A node without its own lock, for telling a lock-only change apart. */
+function unlocked(node: SlideNode): SlideNode {
+  const copy = { ...node };
+  delete copy.locked;
+  return copy;
 }
 
 function stripNode(node: SlideNode): SlideNode {

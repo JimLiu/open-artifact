@@ -7,6 +7,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { LIMITS, setNotes } from '@open-artifact/slides-core';
+import { isComposingKey } from '@open-artifact/ui';
 import { useDeck } from '../state/deck.ts';
 import { changeSlide, editableEntry } from '../services/commands.ts';
 
@@ -70,7 +71,7 @@ export function NotesEditor({ slideId, className, autoFocus, autoGrow = false }:
       }}
       onKeyDown={(event) => {
         // Escape hands focus back to the stage.
-        if (event.key === 'Escape') {
+        if (event.key === 'Escape' && !isComposingKey(event.nativeEvent)) {
           event.preventDefault();
           event.currentTarget.blur();
         }

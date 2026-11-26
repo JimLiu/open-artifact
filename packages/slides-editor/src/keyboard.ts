@@ -5,14 +5,17 @@
  *
  * | Keys            | Action                                        |
  * |-----------------|-----------------------------------------------|
- * | ⌘Z / ⇧⌘Z, ⌘Y    | Undo / redo                                   |
+ * | ⌘Z / ⇧⌘Z, Ctrl+Y | Undo / redo                                   |
  * | ⌘M              | New slide (layout picker)                     |
  * | ⌘D              | Duplicate (elements or slides)                |
  * | ⌫ / Delete      | Delete (elements or slides)                   |
  * | ⌘A              | Select all                                    |
  * | ⌘G / ⇧⌘G        | Group / ungroup (find next / previous when the find bar is open) |
  * | ] / [           | Bring to front / send to back                 |
+ * | ⌘] / ⌘[         | Bring forward / send backward one layer       |
+ * | ⌥⌘] / ⌥⌘[       | Bring to front / send to back (Ctrl+Shift+] / [ off the Mac) |
  * | ⌥⌘C / ⌥⌘V       | Copy / paste style                            |
+ * | ⇧⌘L             | Lock / unlock (held: once)                    |
  * | ⌥A H D / ⌥W V S | Align left, centers, right / top, middles, bottom |
  * | K               | Scale…                                        |
  * | T R ⇧R O D L ⇧L | Text, rectangle, rounded, ellipse, diamond, line, connector tools |
@@ -53,10 +56,13 @@ import {
   nudgeSelection,
   pasteStyle,
   redo,
+  refuse,
   reorderSelection,
   selectAll,
+  selectionLockRefusal,
   stepSlide,
   targetSlides,
+  toggleSelectionLock,
   undo,
   ungroupSelection,
 } from './services/commands.ts';
@@ -68,7 +74,11 @@ import { playableSlides } from './services/present.ts';
 import { nudgeCrop } from './components/stage/gestures.ts';
 import { undoesScrub } from './lib/number-scrub.ts';
 import { isCopySlideLinkKey } from './lib/slide-link.ts';
-import { isComposingKey } from '@open-artifact/ui';
+import { isLockShortcut, refusedWhenLocked } from './lib/locks.ts';
+import { commandLetter, holdsLayerKeyInField, layerMoveKey, undoRedoKey } from './lib/shortcut-keys.ts';
+import { isApplePlatform } from '@open-artifact/editor-kit';
+import { REVEAL_FOCUS_EVENT, ZOOM_STEP_EVENT } from './lib/reveal.ts';
+import { isComposingKey, shortcutLetter } from '@open-artifact/ui';
 
 /**
  * True when the key event comes from a field that takes typing, or from a
@@ -97,12 +107,19 @@ function pressesControl(event: KeyboardEvent): boolean {
 /** Zoom steps of ⌘= / ⌘-. */
 const ZOOMS = [0.1, 0.25, 0.33, 0.5, 0.67, 0.75, 1, 1.25, 1.5, 2, 3, 4];
 
-/** Zooms the stage one step in (1) or out (-1). */
+/** Zooms the stage one step in (1) or out (-1); what was in view stays in view. */
 export function zoomStep(direction: 1 | -1): void {
   const view = useView.getState();
   const current = stageScale(view);
   const next = direction > 0 ? ZOOMS.find((z) => z > current + 0.001) : [...ZOOMS].reverse().find((z) => z < current - 0.001);
-  if (next) view.setZoom(next);
+  if (!next) return;
+  window.dispatchEvent(new Event(ZOOM_STEP_EVENT));
+  view.setZoom(next);
+}
+
+/** Has the stage scroll what the keyboard just selected into view. */
+function revealFocus(): void {
+  window.dispatchEvent(new Event(REVEAL_FOCUS_EVENT));
 }
 
 /** Columns of the grid view on screen (it publishes them on its scroller), else 1. */
@@ -124,21 +141,26 @@ export function present(from: 'current' | 'start', speaker = false): void {
 export function installKeyboard(): () => void {
   const onKey = (event: KeyboardEvent): void => {
     const view = useView.getState();
-    if (document.querySelector('[aria-modal="true"]') || view.presenting || useDeck.getState().status !== 'ready') return;
+    const apple = isApplePlatform();
+    const elsewhere = Boolean(document.querySelector('[aria-modal="true"]')) || view.presenting || useDeck.getState().status !== 'ready';
+    // The stacking-order keys are the browser's back and forward: held back even where they do nothing.
+    if ((elsewhere || typing(event)) && holdsLayerKeyInField(event, apple)) event.preventDefault();
+    if (elsewhere) return;
     const mod = event.metaKey || event.ctrlKey;
     const key = event.key;
-    const lower = key.toLowerCase();
+    const letter = shortcutLetter(event);
+    const command = commandLetter(event);
     const findOpen = view.findOpen;
 
     // Find works everywhere, even while typing.
-    if (mod && !event.altKey && lower === 'f') {
+    if (command === 'f') {
       event.preventDefault();
       view.toggle('findOpen', true);
       // Already open: the bar takes focus again.
       window.dispatchEvent(new Event('open-artifact-slides:focus-find'));
       return;
     }
-    if ((findOpen && mod && lower === 'g') || key === 'F3') {
+    if ((findOpen && command === 'g') || key === 'F3') {
       event.preventDefault();
       if (!findOpen) view.toggle('findOpen', true);
       useFind.getState().step(event.shiftKey ? -1 : 1);
@@ -157,52 +179,65 @@ export function installKeyboard(): () => void {
     const slidesRegion = clipboardRegion() === 'slides' || !onStage;
     const hasSelection = view.selection.length > 0;
 
+    // A held key repeating a command the locked selection refuses: the first press already said why.
+    if (event.repeat && editing && onStage && hasSelection && !slidesRegion && refusedWhenLocked(event, apple) && selectionLockRefusal() !== null) {
+      event.preventDefault();
+      return;
+    }
+
     // ⌘-shortcuts.
     if (mod) {
-      if (lower === 'z') {
+      if (isLockShortcut(event)) {
         event.preventDefault();
-        if (event.shiftKey) redo();
+        if (!event.repeat && editing && onStage && hasSelection && !slidesRegion) toggleSelectionLock();
+        return;
+      }
+      const history = undoRedoKey(event);
+      if (history) {
+        event.preventDefault();
+        if (history === 'redo') redo();
         else undo();
         return;
       }
-      if (lower === 'y' && !event.shiftKey) {
+      const layer = layerMoveKey(event, apple);
+      if (layer) {
         event.preventDefault();
-        redo();
+        if (editing && onStage && hasSelection && !slidesRegion) reorderSelection(layer);
         return;
       }
-      if (lower === 'm' && editing) {
+      if (command === 'm' && editing) {
         event.preventDefault();
         useUi.getState().open('newSlide');
         return;
       }
-      if (lower === 'd' && editing) {
+      if (command === 'd' && editing) {
         event.preventDefault();
         if (slidesRegion || !hasSelection) duplicateSlides(targetSlides());
         else duplicateSelection();
         return;
       }
-      if (lower === 'a' && !slidesRegion) {
+      if (command === 'a' && !slidesRegion) {
         event.preventDefault();
         selectAll();
         return;
       }
-      if (lower === 'a' && slidesRegion) {
+      if (command === 'a' && slidesRegion) {
         event.preventDefault();
         useView.getState().selectSlides(playableSlides().length ? targetSlidesAll() : []);
         return;
       }
-      if (lower === 'g' && editing) {
+      if (command === 'g' && editing) {
         event.preventDefault();
         if (event.shiftKey) ungroupSelection();
         else groupSelection();
         return;
       }
-      if (event.altKey && (event.code === 'KeyC' || lower === 'c')) {
+      if (event.altKey && letter === 'c') {
         event.preventDefault();
         copyStyle();
         return;
       }
-      if (event.altKey && (event.code === 'KeyV' || lower === 'v') && editing) {
+      if (event.altKey && letter === 'v' && editing) {
         event.preventDefault();
         pasteStyle();
         return;
@@ -269,7 +304,10 @@ export function installKeyboard(): () => void {
         else if (view.textEdit) view.endTextEdit();
         else if (view.cropping) view.setCropping(null);
         else if (view.tool !== 'select') view.setTool('select');
-        else if (hasSelection) exitSelection();
+        else if (hasSelection) {
+          exitSelection();
+          revealFocus();
+        }
         else if (view.canvasEdit) view.editOnCanvas(null);
         else if (useAgent.getState().following) useAgent.getState().follow(null);
         return;
@@ -295,11 +333,13 @@ export function installKeyboard(): () => void {
         event.preventDefault();
         if (event.shiftKey) exitSelection();
         else enterSelection();
+        revealFocus();
         return;
       case 'Tab':
         if (!onStage) return;
         event.preventDefault();
         cycleSelection(event.shiftKey ? -1 : 1);
+        revealFocus();
         return;
       case 'ArrowLeft':
       case 'ArrowRight':
@@ -343,23 +383,31 @@ export function installKeyboard(): () => void {
     if (event.altKey) return;
     if (!onStage) return;
     // Single-letter tools and commands.
-    if (lower === 'c' && !event.shiftKey && useComments.getState().available) {
+    if (letter === 'c' && !event.shiftKey && useComments.getState().available) {
       maybeSession()?.shell?.requestCommentMode(!useComments.getState().on);
       return;
     }
-    if (!editing) return;
+    // No slide yet (an empty deck): a drawing tool would have nothing to draw on.
+    if (!editing || !view.current) return;
     if (key === ']') reorderSelection('front');
     else if (key === '[') reorderSelection('back');
-    else if (lower === 'k' && hasSelection) useUi.getState().open('scale');
-    else if (lower === 't') view.setTool('text');
-    else if (lower === 'r') view.setTool(event.shiftKey ? 'rounded' : 'rect');
-    else if (lower === 'o') view.setTool('ellipse');
-    else if (lower === 'd') view.setTool('diamond');
-    else if (lower === 'l') view.setTool(event.shiftKey ? 'connector' : 'line');
-    else if (lower === 'v') view.setTool('select');
+    else if (letter === 'k' && hasSelection) openScale();
+    else if (letter === 't') view.setTool('text');
+    else if (letter === 'r') view.setTool(event.shiftKey ? 'rounded' : 'rect');
+    else if (letter === 'o') view.setTool('ellipse');
+    else if (letter === 'd') view.setTool('diamond');
+    else if (letter === 'l') view.setTool(event.shiftKey ? 'connector' : 'line');
+    else if (letter === 'v') view.setTool('select');
   };
   window.addEventListener('keydown', onKey);
   return () => window.removeEventListener('keydown', onKey);
+}
+
+/** K: the Scale dialog, unless the selection is locked. */
+function openScale(): void {
+  const refusal = selectionLockRefusal();
+  if (refusal) refuse(refusal);
+  else useUi.getState().open('scale');
 }
 
 /** Every slide id in order (⌘A in the rail or grid). */

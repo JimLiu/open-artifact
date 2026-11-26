@@ -27,8 +27,10 @@ import {
   duplicateSlide,
   groupNodes,
   isAncestorPath,
+  isLocked,
   isPinned,
   LIMITS,
+  lockToggle,
   countSlideCells,
   insertTableColumn,
   insertTableRow,
@@ -60,6 +62,7 @@ import {
   sectionsMap,
   sectionsOf,
   setHidden,
+  setLocked,
   SLIDE_HEIGHT,
   SLIDE_WIDTH,
   slideElementIds,
@@ -81,8 +84,11 @@ import {
   type StylePatch,
   type ZMove,
 } from '@open-artifact/slides-core';
+import { announce } from '@open-artifact/editor-kit';
 import { toast } from '@open-artifact/ui';
 import { targetTable, type TableTarget } from '../lib/table-target.ts';
+import { layerAnnouncement } from '../lib/shortcut-keys.ts';
+import { editablePart, GENERATED_REFUSAL, lockAnnouncement, lockRefusal, refusalGate, selectAllRefusal, sweepTargets, type LockedAction } from '../lib/locks.ts';
 import { deckOrder, useDeck, type SlideEntry } from '../state/deck.ts';
 import { useView } from '../state/view.ts';
 
@@ -434,16 +440,35 @@ export function selectableElements(slide: Slide, within: NodePath = []): NodePat
   return out;
 }
 
-/** Selects every element of the current slide (inside the entered group, if any). */
+/** What Select all considers: every element of the current slide, or of the entered group. */
+function selectAllCandidates(slide: Slide): NodePath[] {
+  const first = useView.getState().selection[0];
+  const scope = first && first.length > 1 ? first.slice(0, -1) : [];
+  const parent = scope.length ? nodeAt(slide, scope) : undefined;
+  const within = parent?.kind === 'box' && parent.group ? scope : [];
+  return selectableElements(slide, within).filter((p) => p.length === within.length + 1 || within.length === 0);
+}
+
+/** Why Select all has nothing to take (every candidate is locked), or null. */
+export function selectAllBlocked(): string | null {
+  const slide = currentSlide();
+  if (!slide) return null;
+  return selectAllRefusal(slide, selectAllCandidates(slide), editableEntry(useView.getState().current) !== null);
+}
+
+/** Selects every element of the current slide (inside the entered group, if any); while editing, not the locked ones. */
 export function selectAll(): void {
   const slide = currentSlide();
   if (!slide) return;
   const view = useView.getState();
-  const first = view.selection[0];
-  const scope = first && first.length > 1 ? first.slice(0, -1) : [];
-  const parent = scope.length ? nodeAt(slide, scope) : undefined;
-  const within = parent?.kind === 'box' && parent.group ? scope : [];
-  view.select(selectableElements(slide, within).filter((p) => p.length === within.length + 1 || within.length === 0));
+  const editable = editableEntry(view.current) !== null;
+  const candidates = selectAllCandidates(slide);
+  const refusal = selectAllRefusal(slide, candidates, editable);
+  if (refusal) {
+    refuse(refusal);
+    return;
+  }
+  view.select(sweepTargets(slide, candidates, editable));
 }
 
 /** Tab / Shift+Tab: the next or previous element. */
@@ -512,10 +537,54 @@ function topmost(paths: readonly NodePath[]): NodePath[] {
   return paths.filter((p) => !paths.some((q) => isAncestorPath(q, p)));
 }
 
+const lockNotice = refusalGate(4000);
+
+/** Says why a command was refused; a burst of refused tries shows one notice. */
+export function refuse(reason: string): void {
+  if (lockNotice()) toast.add({ title: reason });
+}
+
+/** Why the selection refuses `action` because of locks, or null when it goes ahead. */
+export function selectionLockRefusal(action: LockedAction = 'edit'): string | null {
+  const slide = currentSlide();
+  return slide ? lockRefusal(slide, topmost(selectedPaths()), action) : null;
+}
+
+/**
+ * `paths` cleared for `action`: null (after saying why) when locks refuse it;
+ * for an edit, only the unlocked part of a mixed selection.
+ */
+function unlockedFor(paths: NodePath[], action: LockedAction = 'edit'): NodePath[] | null {
+  const slide = currentSlide();
+  if (!slide || paths.length === 0) return paths;
+  const reason = lockRefusal(slide, paths, action);
+  if (reason) {
+    refuse(reason);
+    return null;
+  }
+  return action === 'edit' ? editablePart(slide, paths) : paths;
+}
+
+/** ⇧⌘L: locks the selection, or unlocks it when all of it is locked. */
+export function toggleSelectionLock(): void {
+  const slide = currentSlide();
+  const toggle = slide ? lockToggle(slide, selectedPaths()) : null;
+  if (!slide || !toggle || toggle.kind === 'empty') return;
+  if (toggle.kind === 'generated') {
+    refuse(GENERATED_REFUSAL);
+    return;
+  }
+  const lock = toggle.kind === 'lock';
+  const changed = lock ? toggle.paths.filter((p) => !isLocked(slide, p)).length : toggle.paths.length;
+  if (!changeCurrent(lock ? 'Lock' : 'Unlock', (s) => setLocked(s, toggle.paths, lock))) return;
+  if (lock && useView.getState().cropping) useView.getState().setCropping(null);
+  announce(lockAnnouncement(lock, Math.max(changed, 1)));
+}
+
 /** Deletes the selection. */
 export function deleteSelection(): void {
-  const paths = topmost(selectedPaths());
-  if (paths.length === 0) return;
+  const paths = unlockedFor(topmost(selectedPaths()));
+  if (!paths?.length) return;
   if (changeCurrent(paths.length === 1 ? 'Delete' : `Delete ${paths.length} elements`, (slide) => removeNodes(slide, paths))) {
     useView.getState().select([]);
   }
@@ -523,8 +592,8 @@ export function deleteSelection(): void {
 
 /** ⌘D: duplicates the selection next to itself. */
 export function duplicateSelection(): void {
-  const paths = topmost(selectedPaths());
-  if (paths.length === 0) return;
+  const paths = unlockedFor(topmost(selectedPaths()), 'duplicate');
+  if (!paths?.length) return;
   const parent = paths[0]!.slice(0, -1);
   const siblings = paths.filter((p) => samePath(p.slice(0, -1), parent));
   let copies: NodePath[] = [];
@@ -571,9 +640,9 @@ export function patchSelectionStyle(label: string, patch: StylePatch, options: {
 
 /** Arrow keys: moves pinned selected elements by (dx, dy) slide px. */
 export function nudgeSelection(dx: number, dy: number): void {
-  const paths = topmost(selectedPaths());
+  const paths = unlockedFor(topmost(selectedPaths()));
   const slide = currentSlide();
-  if (!slide || paths.length === 0) return;
+  if (!slide || !paths?.length) return;
   const pinned = paths.filter((p) => {
     const node = nodeAt(slide, p);
     return node && isPinned(node) && pinnedRectOf(node);
@@ -617,13 +686,13 @@ export function nudgeSelection(dx: number, dy: number): void {
   );
 }
 
-/** Z-order: `]` to front, `[` to back (and one step with the modifier). */
+/** Z-order: `]` to front, `[` to back (and one step with the modifier); the outcome is read out. */
 export function reorderSelection(move: ZMove): void {
-  const paths = topmost(selectedPaths());
-  if (paths.length === 0) return;
+  const paths = unlockedFor(topmost(selectedPaths()));
+  if (!paths?.length) return;
   const ordered = move === 'front' || move === 'backward' ? paths : [...paths].reverse();
   let next: NodePath[] = [];
-  changeCurrent(move === 'front' ? 'Bring to front' : move === 'back' ? 'Send to back' : move === 'forward' ? 'Bring forward' : 'Send backward', (slide) => {
+  const changed = changeCurrent(move === 'front' ? 'Bring to front' : move === 'back' ? 'Send to back' : move === 'forward' ? 'Bring forward' : 'Send backward', (slide) => {
     let s = slide;
     next = [];
     for (const path of ordered) {
@@ -634,12 +703,13 @@ export function reorderSelection(move: ZMove): void {
     return s;
   });
   if (next.length) useView.getState().select(next);
+  if (changed) announce(layerAnnouncement(move, paths.length));
 }
 
 /** ⌘G: groups selected siblings (at most 24) into a manual group. */
 export function groupSelection(): void {
-  const paths = topmost(selectedPaths());
-  if (paths.length < 2) return;
+  const paths = unlockedFor(topmost(selectedPaths()));
+  if (!paths || paths.length < 2) return;
   if (paths.length > LIMITS.group) {
     toast.add({ title: `A group holds at most ${LIMITS.group} elements` });
     return;
@@ -662,7 +732,7 @@ export function groupSelection(): void {
 /** ⇧⌘G: ungroups the selected group(s). */
 export function ungroupSelection(): void {
   const slide = currentSlide();
-  const paths = topmost(selectedPaths())
+  const paths = (unlockedFor(topmost(selectedPaths()), 'ungroup') ?? [])
     .filter((p) => {
       const node = slide && nodeAt(slide, p);
       return node?.kind === 'box';
@@ -709,14 +779,17 @@ export function pasteStyle(): void {
 /** K: scales pinned selected elements about their top-left corner. */
 export function scaleSelection(factor: number): void {
   if (!(factor > 0) || factor === 1) return;
-  updateSelection('Scale', (node) => {
+  const paths = unlockedFor(selectedPaths());
+  if (!paths?.length) return;
+  const scaled = (node: SlideNode): SlideNode => {
     const r = pinnedRectOf(node);
     if (!r) return node;
     let next = pinNode(node, { x: r.x, y: r.y, w: r.w * factor, h: r.h * factor });
     const size = /^([\d.]+)px$/.exec(node.style['font-size'] ?? '');
     if (size) next = { ...next, style: { ...next.style, 'font-size': pxValue(Number(size[1]) * factor) } } as SlideNode;
     return next;
-  });
+  };
+  changeCurrent('Scale', (slide) => paths.reduce((next, path) => updateNodeAt(next, path, scaled), slide));
 }
 
 /** An edge or center line elements align on. */
@@ -742,8 +815,8 @@ export function alignRefusal(nodes: readonly SlideNode[]): string | undefined {
 /** Aligns pinned selected elements to the slide or to each other. */
 export function alignSelection(edge: AlignEdge): void {
   const slide = currentSlide();
-  const paths = topmost(selectedPaths());
-  if (!slide || paths.length === 0) return;
+  const paths = unlockedFor(topmost(selectedPaths()));
+  if (!slide || !paths?.length) return;
   const rects = paths.map((p) => {
     const node = nodeAt(slide, p);
     return node ? pinnedRectOf(node) : null;

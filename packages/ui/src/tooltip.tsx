@@ -1,5 +1,5 @@
 import { Tooltip as BaseTooltip } from '@base-ui/react/tooltip';
-import type { ReactElement, ReactNode } from 'react';
+import type { MouseEvent, ReactElement, ReactNode } from 'react';
 
 /** Props of {@link Tooltip}. */
 export interface TooltipProps {
@@ -13,6 +13,14 @@ export interface TooltipProps {
   children: ReactElement<Record<string, unknown>>;
 }
 
+/**
+ * A press on a tooltip leaves focus where it was: the tip floats over a
+ * field or text being edited, and a stray click on it must not end that.
+ */
+export function keepFocusOnTipPress(event: MouseEvent<HTMLElement>): void {
+  event.preventDefault();
+}
+
 /** Wraps any element with a hover tooltip. Put one {@link TooltipProvider} near the app root. */
 export function Tooltip({ label, shortcut, side = 'bottom', children }: TooltipProps) {
   return (
@@ -20,7 +28,7 @@ export function Tooltip({ label, shortcut, side = 'bottom', children }: TooltipP
       <BaseTooltip.Trigger render={children} />
       <BaseTooltip.Portal>
         <BaseTooltip.Positioner side={side} sideOffset={6} className="z-[1000]">
-          <BaseTooltip.Popup className="rounded-md bg-fg px-2 py-1 text-xs text-surface shadow-popup data-[starting-style]:opacity-0 data-[ending-style]:opacity-0 transition-opacity">
+          <BaseTooltip.Popup onMouseDown={keepFocusOnTipPress} className="rounded-md bg-fg px-2 py-1 text-xs text-surface shadow-popup data-[starting-style]:opacity-0 data-[ending-style]:opacity-0 transition-opacity">
             {label}
             {shortcut ? <span className="ml-2 opacity-60">{shortcut}</span> : null}
           </BaseTooltip.Popup>

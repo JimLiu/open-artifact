@@ -3,7 +3,9 @@
  * Add slide / View card at the top-left when the rail does not show it, the
  * Present / properties / zoom card at the top-right, and, while
  * a slide is on stage, the insert toolbar at the bottom and the text format
- * strip next to the selected text.
+ * strip next to the selected text. A deck without slides keeps the bottom
+ * toolbar where one can be added: the Ask field, and the insert tools waiting
+ * for a slide.
  *
  * The layer itself lets pointer events through; only the cards take them.
  */
@@ -12,6 +14,7 @@ import { type ReactNode } from 'react';
 import { useDeck } from '../state/deck.ts';
 import { useAgent } from '../services/agent.ts';
 import { canChange } from '../services/commands.ts';
+import { EMPTY_DECK_INSERT } from '../lib/empty-deck.ts';
 import { EndCard } from './EndCard.tsx';
 import { FormatBar } from './FormatBar.tsx';
 import { TextLinkCard } from './TextLinkCard.tsx';
@@ -37,10 +40,12 @@ export interface StageChromeProps {
   onStage: boolean;
   /** Show the Add slide / View card (the rail is hidden or another view is up). */
   startCard: boolean;
+  /** The edit view of a deck without slides, where one can be added: the bottom toolbar shows. */
+  emptyDeck?: boolean;
 }
 
 /** The floating layer. */
-export function StageChrome({ onStage, startCard }: StageChromeProps): ReactNode {
+export function StageChrome({ onStage, startCard, emptyDeck = false }: StageChromeProps): ReactNode {
   const readOnly = useDeck((s) => s.readOnly);
   const agentAvailable = useAgent((s) => s.status.available);
   const editing = !readOnly && canChange();
@@ -64,6 +69,10 @@ export function StageChrome({ onStage, startCard }: StageChromeProps): ReactNode
           <FormatBar />
           <TextLinkCard />
         </>
+      ) : emptyDeck ? (
+        <div className="pointer-events-none absolute inset-x-0 bottom-3 z-10 flex justify-center px-3">
+          <FootToolbar editing={editing} ask={agentAvailable && !readOnly} insertBlocked={EMPTY_DECK_INSERT} />
+        </div>
       ) : null}
     </>
   );

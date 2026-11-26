@@ -10,13 +10,14 @@
 
 import { useLayoutEffect, useMemo, useState, type ReactNode } from 'react';
 import { Check, Plus, RotateCcw, RotateCw } from 'lucide-react';
-import { isAncestorPath, nodeAt, pathKey, resolveContextId, rotationOf, samePath, type ImageNode, type NodePath, type Slide, type TableNode } from '@open-artifact/slides-core';
+import { isAncestorPath, isLocked, nodeAt, pathKey, resolveContextId, rotationOf, samePath, type ImageNode, type NodePath, type Slide, type TableNode } from '@open-artifact/slides-core';
 import { Button, SliderInput, Tooltip, cn } from '@open-artifact/ui';
 import { editTable, tableAddRefusal } from '../../services/commands.ts';
 import { useComments } from '../../services/comments.ts';
 import { resolveSrc } from '../../services/session.ts';
 import { usePeersBySlide } from '../../state/outline.ts';
 import { useView } from '../../state/view.ts';
+import { cellSelector, outlinedCell } from '../../lib/menu-cell.ts';
 import { connectorEnds, elementOf, hostRect, HANDLES, measureBox, rectFromPoints, unionRect, type Box } from './geometry.ts';
 import { CROP_EDGES, type CropEdge } from './crop.ts';
 import {
@@ -115,6 +116,7 @@ export function Overlay({ ctx, slide, children }: OverlayProps): ReactNode {
   const single = frames.length === 1 ? frames[0]! : null;
   const singleNode = single ? nodeAt(slide, single.path) : undefined;
   const showHandles = Boolean(single && singleNode && editable && !textEdit && !cropping && !move);
+  const reshapes = showHandles && !isLocked(slide, single!.path);
   const union = frames.length > 1 ? unionRect(frames.map(shifted)) : null;
 
   return (
@@ -124,12 +126,12 @@ export function Overlay({ ctx, slide, children }: OverlayProps): ReactNode {
 
       {frames.map((frame) => (
         <FrameBox key={frame.key} box={shifted(frame)} scale={s} className={cn('border-accent', frames.length > 1 ? 'border' : 'border-[1.5px]', textEdit && 'border-dashed')}>
-          {showHandles && single === frame && singleNode && singleNode.kind !== 'connector' ? <ResizeHandles ctx={ctx} path={frame.path} /> : null}
+          {reshapes && single === frame && singleNode && singleNode.kind !== 'connector' ? <ResizeHandles ctx={ctx} path={frame.path} /> : null}
           {showHandles && single === frame && singleNode?.kind === 'table' ? <TableAddButtons table={singleNode} path={frame.path} /> : null}
         </FrameBox>
       ))}
 
-      {showHandles && single && singleNode?.kind === 'connector' && singleNode.points ? <ConnectorHandles ctx={ctx} slide={slide} path={single.path} /> : null}
+      {reshapes && single && singleNode?.kind === 'connector' && singleNode.points ? <ConnectorHandles ctx={ctx} slide={slide} path={single.path} /> : null}
 
       {union ? (
         <div
@@ -137,6 +139,8 @@ export function Overlay({ ctx, slide, children }: OverlayProps): ReactNode {
           style={{ left: union.x * s - 4, top: union.y * s - 4, width: union.w * s + 8, height: union.h * s + 8 }}
         />
       ) : null}
+
+      <MenuCellFrame ctx={ctx} slide={slide} />
 
       <PeerFrames ctx={ctx} slide={slide} />
 
@@ -160,6 +164,26 @@ export function Overlay({ ctx, slide, children }: OverlayProps): ReactNode {
       {cropping && editable ? <CropLayer ctx={ctx} slide={slide} path={cropping} /> : null}
 
       {children}
+    </div>
+  );
+}
+
+/** The table cell an open context menu acts on: an inset accent outline over a faint accent fill. */
+function MenuCellFrame({ ctx, slide }: { ctx: StageContext; slide: Slide }): ReactNode {
+  const target = useStageGesture((g) => g.menuCell);
+  const current = useView((v) => v.current);
+  const tick = useStageGesture((g) => g.layoutTick);
+  const [outline, setOutline] = useState<{ box: Box; cell: readonly [number, number] } | null>(null);
+  useLayoutEffect(() => {
+    const cell = outlinedCell(target, current, slide);
+    const node = target ? nodeAt(slide, target.path) : undefined;
+    const el = cell && target ? elementOf(ctx.root, target.path)?.querySelector(cellSelector(cell)) : null;
+    setOutline(cell && el && node ? { box: measureBox(ctx.root, el, ctx.scale, rotationOf(node)), cell } : null);
+  }, [ctx, slide, target, current, tick]);
+  if (!outline) return null;
+  return (
+    <div data-open-artifact-menu-cell={outline.cell.join(':')}>
+      <FrameBox box={outline.box} scale={ctx.scale} className="border-2 border-accent bg-accent/10" />
     </div>
   );
 }

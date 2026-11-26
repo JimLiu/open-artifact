@@ -7,6 +7,7 @@
 import { create } from 'zustand';
 import type { NodePath, Rect, Slide } from '@open-artifact/slides-core';
 import type { Tool } from '../../state/view.ts';
+import type { TableTarget } from '../../lib/table-target.ts';
 
 /** A move preview: the moving elements are drawn shifted by (dx, dy). */
 export interface MovePreview {
@@ -32,6 +33,8 @@ interface StageGestureState {
   draw: DrawPreview | null;
   /** The element under the pointer (hover outline). */
   hover: NodePath | null;
+  /** The table cell an open context menu's row and column commands act on (outlined while it stays put). */
+  menuCell: TableTarget | null;
   /** Bumped whenever the overlay should re-measure (fonts, images, resizes). */
   layoutTick: number;
   set(patch: Partial<Omit<StageGestureState, 'set' | 'reset' | 'relayout'>>): void;
@@ -48,6 +51,7 @@ export const useStageGesture = create<StageGestureState>()((set, get) => ({
   marquee: null,
   draw: null,
   hover: null,
+  menuCell: null,
   layoutTick: 0,
   set(patch) {
     set(patch);

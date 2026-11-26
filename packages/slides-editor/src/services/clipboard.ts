@@ -17,6 +17,7 @@ import {
   pxValue,
   serializeNode,
   serializeSlide,
+  unlockedCopy,
   type Slide,
   type SlideNode,
 } from '@open-artifact/slides-core';
@@ -24,7 +25,7 @@ import { toast } from '@open-artifact/ui';
 import { useDeck } from '../state/deck.ts';
 import { useView } from '../state/view.ts';
 import { placeFiles, insertVideoLink } from './assets.ts';
-import { canChange, centeredRect, currentSlide, deleteSelection, deleteSlides, insertPinned, insertSlides, insertTextBox, selectedPaths, targetSlides } from './commands.ts';
+import { canChange, centeredRect, currentSlide, deleteSelection, deleteSlides, insertPinned, insertSlides, insertTextBox, refuse, selectedPaths, selectionLockRefusal, targetSlides } from './commands.ts';
 import { newTextBox, nodeAt, plainRuns } from '@open-artifact/slides-core';
 
 /** Where keyboard copy / paste acts: the slide list or the slide on stage. */
@@ -67,7 +68,7 @@ function currentPayload(): { payload: Payload; text: string } | null {
   if (!slide || paths.length === 0) return null;
   const nodes = paths.map((p) => nodeAt(slide, p)).filter((n): n is SlideNode => Boolean(n));
   return {
-    payload: { openArtifact: 'slides', v: 1, kind: 'elements', from: slide.id, nodes: nodes.map((n) => serializeNode(n)) },
+    payload: { openArtifact: 'slides', v: 1, kind: 'elements', from: slide.id, nodes: nodes.map((n) => serializeNode(unlockedCopy(n))) },
     text: nodes.map(nodeText).filter(Boolean).join('\n'),
   };
 }
@@ -129,7 +130,8 @@ function pastePayload(payload: Payload): void {
   const slide = currentSlide();
   if (!slide) return;
   const sameSlide = payload.from === slide.id;
-  const nodes = compileNodes(payload.nodes).map((node) => {
+  const nodes = compileNodes(payload.nodes).map((pasted) => {
+    const node = unlockedCopy(pasted);
     if (isPinned(node)) {
       const r = pinnedRectOf(node);
       return r && sameSlide ? ({ ...node, style: { ...node.style, left: pxValue(r.x + 24), top: pxValue(r.y + 24) } } as SlideNode) : node;
@@ -161,6 +163,12 @@ export function installClipboard(): () => void {
   };
   const onCut = (event: ClipboardEvent): void => {
     if (document.querySelector('[aria-modal="true"]') || inTextField(event.target) || useView.getState().presenting || !canChange()) return;
+    const refusal = clipboardRegion() === 'slides' ? null : selectionLockRefusal();
+    if (refusal) {
+      event.preventDefault();
+      refuse(refusal);
+      return;
+    }
     const current = currentPayload();
     if (!current) return;
     write(event, current.payload, current.text);

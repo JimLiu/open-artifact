@@ -1,18 +1,18 @@
 /**
  * The deck framed read only by another page (`#view-inline`): one slide
  * fitted to the frame with every build shown, and, when there is more than
- * one slide, a pager under it. ← and → page while the pager has focus.
+ * one slide, a pager under it. ← and → page from anywhere in the view.
  * Skipped slides are left out unless every slide is skipped.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { ChevronLeft, ChevronRight, Loader2, Presentation, TriangleAlert } from 'lucide-react';
 import { SLIDE_HEIGHT, SLIDE_WIDTH, type Slide } from '@open-artifact/slides-core';
 import { CrashBoundary, EmptyState, IconButton } from '@open-artifact/ui';
 import { useDeck } from '../state/deck.ts';
 import { useInlineView } from '../state/inline.ts';
-import { pagerText, slideAfterChange } from '../lib/inline-view.ts';
+import { pagerStep, pagerText, slideAfterChange, takesTyping } from '../lib/inline-view.ts';
 import { startInlineView, viewedSlides, viewedTitle } from '../services/inline.ts';
 import { buildPhases, buildSteps } from '../services/present.ts';
 import { resolveSrc } from '../services/session.ts';
@@ -42,22 +42,47 @@ function ViewedSlide({ slide, scale }: { slide: Slide; scale: number }): ReactNo
 
 function Pager({ index, count, title, go }: { index: number; count: number; title: string | undefined; go: (index: number) => void }): ReactNode {
   const { counter, announcement } = pagerText(index, count, title);
-  const onKeyDown = (event: KeyboardEvent<HTMLElement>): void => {
-    if (event.altKey || event.ctrlKey || event.metaKey) return;
-    if (event.key === 'ArrowLeft' && index > 0) go(index - 1);
-    else if (event.key === 'ArrowRight' && index < count - 1) go(index + 1);
-    else return;
-    event.preventDefault();
-  };
+  // Filled after mounting: a live region that already holds its text when it appears is not read out.
+  const [spoken, setSpoken] = useState('');
+  useEffect(() => setSpoken(announcement), [announcement]);
+
+  useEffect(() => {
+    const onKeyDown = (event: globalThis.KeyboardEvent): void => {
+      if (event.defaultPrevented) return;
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      const next = index + pagerStep(event, takesTyping(target));
+      if (next === index) return;
+      event.preventDefault();
+      if (next >= 0 && next < count) go(next);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [index, count, go]);
+
+  const button = '!size-10';
   return (
-    <nav aria-label="Slides" className="flex h-11 shrink-0 items-center justify-center gap-2 border-t border-chrome-sep bg-chrome text-chrome-fg" onKeyDown={onKeyDown}>
-      <IconButton label="Previous slide" icon={<ChevronLeft className="size-4" />} disabled={index === 0} onClick={() => go(index - 1)} />
-      <span className="min-w-14 text-center text-xs tabular-nums text-chrome-muted" aria-hidden="true">
-        {counter}
-      </span>
-      <IconButton label="Next slide" icon={<ChevronRight className="size-4" />} disabled={index >= count - 1} onClick={() => go(index + 1)} />
+    <nav aria-label="Slides" className="flex h-12 shrink-0 items-center justify-center gap-2 border-t border-chrome-sep bg-chrome text-chrome-fg">
+      <IconButton
+        label="Previous slide"
+        noTooltip
+        aria-keyshortcuts="ArrowLeft"
+        className={button}
+        icon={<ChevronLeft className="size-5" />}
+        disabled={index === 0}
+        onClick={() => go(index - 1)}
+      />
+      <span className="min-w-14 text-center text-xs tabular-nums text-chrome-muted">{counter}</span>
+      <IconButton
+        label="Next slide"
+        noTooltip
+        aria-keyshortcuts="ArrowRight"
+        className={button}
+        icon={<ChevronRight className="size-5" />}
+        disabled={index >= count - 1}
+        onClick={() => go(index + 1)}
+      />
       <span className="sr-only" role="status" aria-live="polite">
-        {announcement}
+        {spoken}
       </span>
     </nav>
   );

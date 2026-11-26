@@ -185,6 +185,8 @@ hold until set on them).
 - At most 24 pinned children in one host, **the section included** (an error past that). With more,
   group them into pinned or `position:relative` layer `<div>`s, or split the slide.
 - `data-group` on a `<div>` marks a group people made on the page (at most 24 members): keep it.
+- `data-locked` on an element (not on the `<section>`) is a lock a person set on the page: keep it, and
+  don't move, resize or delete that element. Whatever sits inside a locked element is locked with it.
 - At most about 200 elements per slide (a warning past that; 800 is an error), 4,000 table cells and
   100 builds.
 

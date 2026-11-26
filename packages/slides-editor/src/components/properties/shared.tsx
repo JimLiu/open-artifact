@@ -47,6 +47,7 @@ import { changeCurrent, editableEntry, updateSelection } from '../../services/co
 import { useView } from '../../state/view.ts';
 import { matchSystemStyle, systemStyleById, systemStyleDeclarations, useDesignSystems } from '../../services/design-systems.ts';
 import { checkDeclaration } from '../../lib/style.ts';
+import { allLocked } from '../../lib/locks.ts';
 
 /** What the panel edits: the selected elements, or the slide itself (`[]`). */
 export interface Target {
@@ -55,6 +56,11 @@ export interface Target {
   paths: NodePath[];
   /** The nodes at `paths` (empty for the slide). */
   nodes: SlideNode[];
+}
+
+/** True when elements are selected and all of them are locked: the panel puts their geometry away. */
+export function targetLocked(target: Target): boolean {
+  return target.nodes.length > 0 && allLocked(target.slide, target.paths);
 }
 
 /** A value read across the selection. */

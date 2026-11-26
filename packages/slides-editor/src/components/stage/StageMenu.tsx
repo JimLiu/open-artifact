@@ -3,7 +3,7 @@
  * selected, otherwise paste, select all and the slide's own commands.
  */
 
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import {
   BringToFront,
   ClipboardPaste,
@@ -11,6 +11,8 @@ import {
   Crop,
   Group,
   ImageUp,
+  Lock,
+  LockOpen,
   MessageCircle,
   Paintbrush,
   Scissors,
@@ -23,6 +25,7 @@ import { isTextual, nodeAt, rotationOf, samePath, type NodePath, type TableNode 
 import { MenuItem, MenuSeparator, toast } from '@open-artifact/ui';
 import { useView } from '../../state/view.ts';
 import { tableTarget } from '../../lib/table-target.ts';
+import { lockMenuRow } from '../../lib/locks.ts';
 import { hasMemory, pasteFromMemory } from '../../services/clipboard.ts';
 import { replaceImage, pickFiles } from '../../services/assets.ts';
 import { canComment, elementAnchor, requestAnchoredComment } from '../../services/comments.ts';
@@ -37,17 +40,22 @@ import {
   pasteStyle,
   reorderSelection,
   selectAll,
+  selectAllBlocked,
   selectedPaths,
+  selectionLockRefusal,
+  toggleSelectionLock,
   ungroupSelection,
   editTable,
   tableAddRefusal,
   tableRemoveRefusal,
 } from '../../services/commands.ts';
 import { SlideMenuItems } from '../SlideMenu.tsx';
+import { useStageGesture } from './store.ts';
 import { MOD } from '@open-artifact/editor-kit';
 
 const ALT = MOD === '⌘' ? '⌥' : 'Alt+';
 const SHIFT = MOD === '⌘' ? '⇧' : 'Shift+';
+/** All the way to the front or back: Ctrl+Alt is AltGr off the Mac, so Ctrl+Shift there. */
 
 /** Runs the browser's copy / cut so the document clipboard handlers write the payload. */
 function clipboardCommand(command: 'copy' | 'cut'): void {
@@ -64,6 +72,7 @@ export function StageMenuItems(): ReactNode {
   if (!slide || !view.current) return null;
 
   if (paths.length === 0) {
+    const allLocked = selectAllBlocked();
     return (
       <>
         {editable ? (
@@ -71,7 +80,7 @@ export function StageMenuItems(): ReactNode {
             Paste
           </MenuItem>
         ) : null}
-        <MenuItem shortcut={`${MOD}A`} onSelect={selectAll}>
+        <MenuItem shortcut={`${MOD}A`} disabled={allLocked !== null} title={allLocked ?? undefined} onSelect={selectAll}>
           Select all
         </MenuItem>
         {canComment() ? (
@@ -88,10 +97,15 @@ export function StageMenuItems(): ReactNode {
   const single = paths.length === 1 ? paths[0]! : null;
   const node = single ? nodeAt(slide, single) : undefined;
   const isGroup = node?.kind === 'box' && node.group;
+  const locked = selectionLockRefusal();
+  const lockedCopy = selectionLockRefusal('duplicate');
+  const lockedGroup = selectionLockRefusal('ungroup');
+  const lockRow = lockMenuRow(slide, paths);
+  const why = (reason: string | null) => ({ disabled: reason !== null, title: reason ?? undefined });
   return (
     <>
       {editable ? (
-        <MenuItem icon={<Scissors className="size-4" />} shortcut={`${MOD}X`} onSelect={() => clipboardCommand('cut')}>
+        <MenuItem icon={<Scissors className="size-4" />} shortcut={`${MOD}X`} {...why(locked)} onSelect={() => clipboardCommand('cut')}>
           Cut
         </MenuItem>
       ) : null}
@@ -103,10 +117,18 @@ export function StageMenuItems(): ReactNode {
           <MenuItem icon={<ClipboardPaste className="size-4" />} shortcut={`${MOD}V`} disabled={!hasMemory()} onSelect={() => pasteFromMemory()}>
             Paste
           </MenuItem>
-          <MenuItem shortcut={`${MOD}D`} onSelect={duplicateSelection}>
+          <MenuItem shortcut={`${MOD}D`} {...why(lockedCopy)} onSelect={duplicateSelection}>
             Duplicate
           </MenuItem>
-          <MenuItem icon={<Trash2 className="size-4" />} shortcut="⌫" danger onSelect={deleteSelection}>
+          <MenuItem
+            icon={lockRow.label === 'Lock' ? <Lock className="size-4" /> : <LockOpen className="size-4" />}
+            shortcut={`${SHIFT}${MOD}L`}
+            {...why(lockRow.refusal)}
+            onSelect={toggleSelectionLock}
+          >
+            {lockRow.label}
+          </MenuItem>
+          <MenuItem icon={<Trash2 className="size-4" />} shortcut="⌫" danger {...why(locked)} onSelect={deleteSelection}>
             Delete
           </MenuItem>
           <MenuSeparator />
@@ -118,6 +140,7 @@ export function StageMenuItems(): ReactNode {
           {node?.kind === 'image' && node.src ? (
             <MenuItem
               icon={<Crop className="size-4" />}
+              {...why(locked)}
               onSelect={() => {
                 if (rotationOf(node)) toast.add({ title: 'Straighten the picture to crop it' });
                 else useView.getState().setCropping(single);
@@ -139,26 +162,26 @@ export function StageMenuItems(): ReactNode {
             </MenuItem>
           ) : null}
           {node?.kind === 'table' && single ? <TableMenuItems table={node} path={single} /> : null}
-          <MenuItem icon={<BringToFront className="size-4" />} shortcut="]" onSelect={() => reorderSelection('front')}>
+          <MenuItem icon={<BringToFront className="size-4" />} shortcut="]" {...why(locked)} onSelect={() => reorderSelection('front')}>
             Bring to front
           </MenuItem>
-          <MenuItem shortcut={`${MOD}]`} onSelect={() => reorderSelection('forward')}>
+          <MenuItem shortcut={`${MOD}]`} {...why(locked)} onSelect={() => reorderSelection('forward')}>
             Bring forward
           </MenuItem>
-          <MenuItem shortcut={`${MOD}[`} onSelect={() => reorderSelection('backward')}>
+          <MenuItem shortcut={`${MOD}[`} {...why(locked)} onSelect={() => reorderSelection('backward')}>
             Send backward
           </MenuItem>
-          <MenuItem icon={<SendToBack className="size-4" />} shortcut="[" onSelect={() => reorderSelection('back')}>
+          <MenuItem icon={<SendToBack className="size-4" />} shortcut="[" {...why(locked)} onSelect={() => reorderSelection('back')}>
             Send to back
           </MenuItem>
           <MenuSeparator />
           {paths.length > 1 ? (
-            <MenuItem icon={<Group className="size-4" />} shortcut={`${MOD}G`} onSelect={groupSelection}>
+            <MenuItem icon={<Group className="size-4" />} shortcut={`${MOD}G`} {...why(locked)} onSelect={groupSelection}>
               Group
             </MenuItem>
           ) : null}
           {isGroup ? (
-            <MenuItem icon={<Ungroup className="size-4" />} shortcut={`${SHIFT}${MOD}G`} onSelect={ungroupSelection}>
+            <MenuItem icon={<Ungroup className="size-4" />} shortcut={`${SHIFT}${MOD}G`} {...why(lockedGroup)} onSelect={ungroupSelection}>
               Ungroup
             </MenuItem>
           ) : null}
@@ -193,6 +216,14 @@ function TableMenuItems({ table, path }: { table: TableNode; path: NodePath }): 
     return tableTarget(current ?? '', path, table, edit?.cell && samePath(edit.path, path) ? edit.cell : undefined);
   });
   const cell = opened.cell ?? null;
+  // The cell is outlined on the stage while the menu is open.
+  useEffect(() => {
+    if (!opened.cell) return;
+    useStageGesture.getState().set({ menuCell: opened });
+    return () => {
+      if (useStageGesture.getState().menuCell === opened) useStageGesture.getState().set({ menuCell: null });
+    };
+  }, [opened]);
   const addRow = tableAddRefusal(table, 'row');
   const addColumn = tableAddRefusal(table, 'column');
   const removeRow = tableRemoveRefusal(table, 'row');

@@ -3,9 +3,10 @@ import { describe, it } from 'node:test';
 import { SCRUBBED, undoesScrub } from '../src/lib/number-scrub.ts';
 
 const field = (scrubbed: boolean) => ({ tagName: 'INPUT', hasAttribute: (name: string) => scrubbed && name === SCRUBBED });
-const key = (target: unknown, key: string, mods: { meta?: boolean; ctrl?: boolean; shift?: boolean; alt?: boolean } = {}) => ({
+const key = (target: unknown, key: string, mods: { meta?: boolean; ctrl?: boolean; shift?: boolean; alt?: boolean; code?: string } = {}) => ({
   target,
   key,
+  code: mods.code,
   metaKey: Boolean(mods.meta),
   ctrlKey: Boolean(mods.ctrl),
   shiftKey: Boolean(mods.shift),
@@ -18,6 +19,11 @@ describe('undo in a field a drag just set', () => {
     assert.equal(undoesScrub(key(field(true), 'Z', { meta: true, shift: true })), true);
     assert.equal(undoesScrub(key(field(true), 'z', { ctrl: true })), true);
     assert.equal(undoesScrub(key(field(true), 'y', { ctrl: true })), true);
+  });
+
+  it('reads the key pressed on a Cyrillic layout, and ⌘Y is not redo', () => {
+    assert.equal(undoesScrub(key(field(true), 'я', { meta: true, code: 'KeyZ' })), true);
+    assert.equal(undoesScrub(key(field(true), 'y', { meta: true })), false);
   });
 
   it('stays with the field once it was typed into, and for other keys', () => {

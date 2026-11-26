@@ -345,6 +345,9 @@ class SlideCompiler {
           else if (t && t !== 'none') this.warn(`data-transition="${t}" — one of fade, push, magic; dropped`, el);
           break;
         }
+        case 'data-locked':
+          if (!this.options.source) this.note('<section> data-locked= is ignored: lock the elements on the slide', el);
+          break;
         default:
           this.attribute(name, el, '<section>');
       }
@@ -422,6 +425,8 @@ class SlideCompiler {
 
   /** An attribute the element does not take. */
   private attribute(name: string, el: HtmlElement, tag: string): void {
+    // A lock holds a whole element; on a part of one (a line, an item, a cell, a span) it goes quietly.
+    if (name === 'data-locked') return;
     if (this.options.source && (name === SOURCE_MARK || name.startsWith('data-') || name.startsWith('aria-') || name === 'role')) return;
     if (name.startsWith('on')) this.warn(`${tag} ${name}= — event handlers never run here; dropped`, el);
     else if (name === 'class' || name.startsWith('data-') || name.startsWith('aria-') || name === 'role' || name === 'title' || name === 'lang' || name === 'dir') {
@@ -607,6 +612,9 @@ class SlideCompiler {
           }
           break;
         }
+        case 'data-locked':
+          node.locked = true;
+          break;
         case 'data-fit': {
           const fit = (value ?? '').trim().toLowerCase();
           if (!(FIT_MODES as readonly string[]).includes(fit)) this.warn(`${tag} data-fit="${fit}" — one of none, grow, shrink; dropped`, el);
@@ -1233,7 +1241,7 @@ class SlideCompiler {
     if (bytes > LIMITS.svgBytes) this.error(`an <svg> of ${Math.round(bytes / 1024)} KB — at most ${LIMITS.svgBytes / 1024} KB`, el);
     const node: SvgNode = { kind: 'svg', style: {}, markup: '' };
     node.style = this.style(el, attrs.get('style') ?? '', { element: 'svg', pinned, ...this.placeContext(place, pinned) });
-    const own = ['id', 'style', 'data-build-in', 'data-build-out', 'data-fit'];
+    const own = ['id', 'style', 'data-build-in', 'data-build-out', 'data-fit', 'data-locked', SOURCE_MARK];
     this.common(node, el, new Map([...attrs].filter(([name]) => own.includes(name))), place, [], pinned);
     // Fonts never load in an svg: a warning, the drawing stays.
     const texts = (nodes: HtmlNode[]): void => {

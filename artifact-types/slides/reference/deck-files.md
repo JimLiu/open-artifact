@@ -67,8 +67,9 @@ that exists).
 1. **Find it.** `<its root>` is the system's folder as YOU were given it (your instructions, the person,
    `open-artifact list`), relative to the working directory when it sits inside it; NEVER a path read from the
    system, the index or a record here. Read its files the way `fonts.md` says (the README first, then
-   the token files it names), never its page. Nothing to install when you read no `tokens.json` and its
-   README lists no font or picture by path: say so and use your own look.
+   the token files it names), never its page. Nothing to install when no `tokens.json` came back from your
+   read (go by the read or the tool's note, not by the README leaving it out) and its README lists no font or
+   picture by path: say so and use your own look.
 2. **The folder.** The system's `namespace` (the "Consuming this system" end of its README names it;
    `open-artifact list` prints the folder made from it as `folder`), else a short plain name you give it: lower
    case, each run of other characters one `-`, no leading `-` or `_`, 64 at most, so it fits
@@ -115,7 +116,9 @@ A copy never changes by itself. A file of the earlier copy this one no longer ha
 
 People edit live, even while you work: start from what you just read, never an older copy, and change
 only what was asked. A person's edit stays in what you wrote; a `data-flat` slide has plain inline
-styles and follows no shared rules. Keep `data-` attributes you didn't write. No `format` key: write
+styles and follows no shared rules. Keep `data-` attributes you didn't write (an element the person locked carries
+`data-locked`: on the slide it can't be moved, resized or deleted until they unlock it, so don't do any of
+that to it yourself). No `format` key: write
 inline styles, by `format.md`. Only when you change how the deck looks, or the person asks for a design system:
 read `project/deck.json`, and if it has no `designSystems` record for that system, install it (above)
 along with the change. A change of words alone installs nothing.

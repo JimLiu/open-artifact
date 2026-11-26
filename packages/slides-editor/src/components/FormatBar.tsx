@@ -41,9 +41,9 @@ import { LIMITS, isSafeHref, isTextual, nodeHasMark, nodeUniformLink, resizeTabl
 import { Popover } from '@open-artifact/ui';
 import { useSelectedNodes } from '../state/selection.ts';
 import { useView } from '../state/view.ts';
-import { ALIGN_KEYS, alignRefusal, alignSelection, canChange, patchSelectionStyle, updateSelection, type AlignEdge } from '../services/commands.ts';
+import { ALIGN_KEYS, alignRefusal, alignSelection, canChange, patchSelectionStyle, selectionLockRefusal, updateSelection, type AlignEdge } from '../services/commands.ts';
 import { placeFloatingLeft, placeFloatingToolbar } from '../lib/floating.ts';
-import { activeEditor, editorHasMark, editorSelectionCollapsed, focusEditor, formatEditor } from './TextEditor.tsx';
+import { activeEditor, editorHasMark, editorSelectionCollapsed, editorSelectionInLink, focusEditor, formatEditor, linkEditorSelection } from './TextEditor.tsx';
 import { useStageGesture } from './stage/store.ts';
 import { ColorPanel, useColorGroups } from './properties/ColorField.tsx';
 import { Button, NumberInput, TextInput } from './properties/kit.tsx';
@@ -440,7 +440,7 @@ function TableStrip({ table, path }: { table: TableNode; path: NodePath }): Reac
 
 /** Aligning the selected elements to each other (⌥A/H/D/W/V/S). */
 function AlignItems({ nodes }: { nodes: SlideNode[] }): ReactNode {
-  const refused = alignRefusal(nodes);
+  const refused = alignRefusal(nodes) ?? selectionLockRefusal();
   if (refused) {
     return (
       <Tip label={`Align items. ${refused}`}>
@@ -524,7 +524,7 @@ function LinkButton({ node }: { node: SlideNode | null }): ReactNode {
   const apply = (): void => {
     const href = url.trim();
     if (!isSafeHref(href)) return;
-    if (onSelectedText()) formatEditor('createLink', href);
+    if (onSelectedText() || editorSelectionInLink()) linkEditorSelection(href);
     else updateSelection('Link', (n) => setNodeMark(n, 'href', href));
     setOpen(false);
   };

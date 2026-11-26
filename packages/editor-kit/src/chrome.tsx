@@ -22,7 +22,7 @@ import { Tooltip as BaseTooltip } from '@base-ui/react/tooltip';
 import { Check, ChevronRight } from 'lucide-react';
 import { forwardRef, useEffect, useRef, useState, type ButtonHTMLAttributes, type CSSProperties, type HTMLAttributes, type ReactElement, type ReactNode } from 'react';
 import type { ChromeDraw, ShellConnection } from '@open-artifact/runtime';
-import { cn, swallowFollowUpClicks } from '@open-artifact/ui';
+import { cn, keepFocusOnTipPress, swallowFollowUpClicks } from '@open-artifact/ui';
 import { menuFit } from './menu-fit.ts';
 
 /** A floating chrome card. */
@@ -64,7 +64,7 @@ export function Tip({
       <BaseTooltip.Trigger render={children} />
       <BaseTooltip.Portal>
         <BaseTooltip.Positioner side={side} sideOffset={8} className="z-[1000]">
-          <BaseTooltip.Popup className="flex max-w-80 items-center gap-1.5 rounded-[6px] bg-tip px-2 py-[5px] text-[13px] leading-[18px] text-tip-fg shadow-[0_1px_2px_rgb(11_11_11/0.06),0_2px_8px_rgb(11_11_11/0.08)] transition-opacity data-[ending-style]:opacity-0 data-[starting-style]:opacity-0">
+          <BaseTooltip.Popup onMouseDown={keepFocusOnTipPress} className="flex max-w-80 items-center gap-1.5 rounded-[6px] bg-tip px-2 py-[5px] text-[13px] leading-[18px] text-tip-fg shadow-[0_1px_2px_rgb(11_11_11/0.06),0_2px_8px_rgb(11_11_11/0.08)] transition-opacity data-[ending-style]:opacity-0 data-[starting-style]:opacity-0">
             <span>{label}</span>
             {shortcut ? <kbd className="rounded-[4px] bg-white/15 px-1 font-sans text-[12px] leading-4 text-tip-fg/80">{shortcut}</kbd> : null}
           </BaseTooltip.Popup>

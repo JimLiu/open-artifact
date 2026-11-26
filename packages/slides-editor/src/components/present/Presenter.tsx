@@ -22,7 +22,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { useShallow } from 'zustand/react/shallow';
 import { ChevronLeft, ChevronRight, Maximize, Minimize, StickyNote, X } from 'lucide-react';
 import { SLIDE_HEIGHT, SLIDE_WIDTH, slideTitle, type Slide } from '@open-artifact/slides-core';
-import { IconButton, cn, toast } from '@open-artifact/ui';
+import { IconButton, cn, shortcutLetter, toast } from '@open-artifact/ui';
 import { useDeck } from '../../state/deck.ts';
 import { useView } from '../../state/view.ts';
 import { buildPhases, buildSteps, hiddenFragments, playableSlides } from '../../services/present.ts';
@@ -261,7 +261,7 @@ function Show({ start, speaker, only }: { start: string; speaker: boolean; only:
         }, 500);
         return;
       }
-      switch (key) {
+      switch (key.length === 1 ? shortcutLetter(event) : key) {
         case 'ArrowRight':
         case 'ArrowDown':
         case 'PageDown':
@@ -288,7 +288,6 @@ function Show({ start, speaker, only }: { start: string; speaker: boolean; only:
           go(playableSlides().length - 1, 1, { cut: true, allDone: true });
           return;
         case 'f':
-        case 'F':
           if (only) return;
           event.preventDefault();
           toggleFullscreen(root.current);

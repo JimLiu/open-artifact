@@ -31,7 +31,7 @@ import {
   type Transform,
 } from '@open-artifact/slides-core';
 import { CommitInput, IconButton, NumberInput, PanelField, Row, Section, SelectInput } from './kit.tsx';
-import { CssField, commitCss, patchTarget, sharedStyle, type Target } from './shared.tsx';
+import { CssField, commitCss, patchTarget, sharedStyle, targetLocked, type Target } from './shared.tsx';
 
 /** A subsection title inside Advanced. */
 function Subsection({ title, children }: { title: string; children: ReactNode }): ReactNode {
@@ -98,7 +98,7 @@ function writeFlex(target: Target, label: string, fn: (flex: Flex) => Flex): voi
 
 /** How a flow child sits in its group. */
 function SizingRows({ target }: { target: Target }): ReactNode {
-  if (target.nodes.length === 0 || target.nodes.some((n) => isPinned(n) || n.kind === 'connector')) return null;
+  if (target.nodes.length === 0 || targetLocked(target) || target.nodes.some((n) => isPinned(n) || n.kind === 'connector')) return null;
   const node = target.nodes[0]!;
   const path = target.paths[0]!;
   const parentStyle = (path.length > 1 ? parentAt(target.slide, path)?.style : target.slide.style) ?? {};
@@ -190,7 +190,7 @@ function EffectRows({ target }: { target: Target }): ReactNode {
   if (target.nodes.length === 0) return null;
   const filterable = target.nodes.every((n) => FILTER_KINDS.has(n.kind) && n.kind !== 'rule');
   // A shape turns only (Size › Rotation); connectors don't transform.
-  const transformable = target.nodes.every((n) => n.kind !== 'connector' && n.kind !== 'shape');
+  const transformable = !targetLocked(target) && target.nodes.every((n) => n.kind !== 'connector' && n.kind !== 'shape');
   if (!filterable && !transformable) return null;
   const blend = sharedStyle(target, 'mix-blend-mode');
   return (
@@ -303,9 +303,10 @@ function CssRows({ target }: { target: Target }): ReactNode {
     const styles = target.nodes.length ? target.nodes.map((n) => n.style) : [target.slide.style];
     const names = new Set<CssProperty>();
     for (const style of styles) for (const key of Object.keys(style) as CssProperty[]) names.add(key);
-    return CSS_PROPERTIES.filter((p) => names.has(p));
+    const locked = targetLocked(target);
+    return CSS_PROPERTIES.filter((p) => names.has(p) && !(locked && p === 'transform'));
   }, [target]);
-  const available = CSS_PROPERTIES.filter((p) => !declared.includes(p));
+  const available = CSS_PROPERTIES.filter((p) => !declared.includes(p) && !(p === 'transform' && targetLocked(target)));
 
   return (
     <Subsection title="CSS">

@@ -8,6 +8,7 @@
 
 import { useEffect, useRef, type ReactNode } from 'react';
 import { Loader2, Plus, Presentation, TriangleAlert } from 'lucide-react';
+import { LIMITS } from '@open-artifact/slides-core';
 import { Button, CrashBoundary, EmptyState } from '@open-artifact/ui';
 import { useDeck } from './state/deck.ts';
 import { useOrder } from './state/outline.ts';
@@ -15,7 +16,9 @@ import { useView } from './state/view.ts';
 import { installKeyboard } from './keyboard.ts';
 import { startPresence, useAgent, usePresence } from './services/agent.ts';
 import { installClipboard } from './services/clipboard.ts';
+import { installLockedSelection } from './services/lock-selection.ts';
 import { addSlide, canChange } from './services/commands.ts';
+import { emptyDeckToolbar } from './lib/empty-deck.ts';
 import { startComments, useComments } from './services/comments.ts';
 import { startCreation, useCreation } from './services/creation.ts';
 import { startCursors } from './services/cursors.ts';
@@ -36,7 +39,7 @@ import { FindBar } from './components/FindBar.tsx';
 import { Rail } from './components/Rail.tsx';
 import { Stage } from './components/Stage.tsx';
 import { StageChrome } from './components/StageChrome.tsx';
-import { TipGroup } from '@open-artifact/editor-kit/react';
+import { Announcer, TipGroup } from '@open-artifact/editor-kit/react';
 import { guardFileDrops } from '@open-artifact/editor-kit';
 import { CommentList } from './components/comments/CommentList.tsx';
 import { PropertiesPanel } from './components/properties/PropertiesPanel.tsx';
@@ -111,6 +114,8 @@ export function App(): ReactNode {
   const current = useView((s) => s.current);
   const showRail = useView((s) => s.showRail);
   const showProperties = useView((s) => s.showProperties);
+  const readOnly = useDeck((s) => s.readOnly);
+  const writing = useCreation((s) => s.writing);
 
   useEffect(() => {
     if (!booted) {
@@ -119,10 +124,12 @@ export function App(): ReactNode {
     }
     const keyboard = installKeyboard();
     const clipboard = installClipboard();
+    const locks = installLockedSelection();
     const drops = guardFileDrops(window);
     return () => {
       keyboard();
       clipboard();
+      locks();
       drops();
     };
   }, []);
@@ -170,6 +177,7 @@ export function App(): ReactNode {
   const onStage = mode === 'edit' || canvasEdit;
   const empty = order.length === 0;
   const railShown = mode === 'edit' && showRail && !empty;
+  const emptyToolbar = mode === 'edit' && emptyDeckToolbar({ editable: !readOnly && canChange(), writing, slides: order.length, maxSlides: LIMITS.slides });
 
   return (
     <CrashBoundary fallback={<CrashCard />}>
@@ -180,10 +188,11 @@ export function App(): ReactNode {
             <Banners />
             <main className="relative flex min-h-0 min-w-0 flex-1">
               {mode === 'edit' ? empty ? <EmptyDeck /> : <Stage /> : mode === 'grid' ? <GridView /> : <CanvasView />}
-              <StageChrome onStage={onStage && !empty} startCard={!railShown} />
+              <StageChrome onStage={onStage && !empty} startCard={!railShown} emptyDeck={emptyToolbar} />
               <FindBar />
               <CreationStatus />
               <CreationAnnouncer />
+              <Announcer />
             </main>
           </div>
           {onStage && showProperties && !empty ? <PropertiesPanel /> : null}

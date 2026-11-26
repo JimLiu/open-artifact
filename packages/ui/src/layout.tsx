@@ -6,10 +6,11 @@ import { Collapsible } from '@base-ui/react/collapsible';
 import { Tabs as BaseTabs } from '@base-ui/react/tabs';
 import { Toast } from '@base-ui/react/toast';
 import { ChevronDown, X } from 'lucide-react';
-import { useEffect, useRef, useState, type HTMLAttributes, type KeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type HTMLAttributes, type KeyboardEvent, type ReactNode } from 'react';
 import { cn } from './cn.ts';
 import { scrollStanding } from './focusables.ts';
 import { guardHeldActivation } from './keys.ts';
+import { TOAST_TOP_GAP_PX, toastBodyLimit, type ToastExtent } from './toast-fit.ts';
 
 /* ---------------------------------- Tabs ---------------------------------- */
 
@@ -153,9 +154,10 @@ function guardToastClose(event: KeyboardEvent<HTMLElement>) {
 }
 
 /**
- * A toast's text. A long one is held to the room above the toast (at least
- * 3rem) and scrolls, fading out at its foot while there is more below; it
- * then takes focus, so keys can scroll it. The close button stays outside.
+ * A toast's text. A long one is held to its share of the room above the
+ * column (see {@link useToastFit}) and scrolls, fading out at its foot while
+ * there is more below; it then takes focus as a group, so keys can scroll it.
+ * The close button stays outside.
  */
 function ToastBody({ children }: { children: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -181,17 +183,56 @@ function ToastBody({ children }: { children: ReactNode }) {
   return (
     <Toast.Content
       ref={ref}
+      role={standing === 'none' ? undefined : 'group'}
       tabIndex={standing === 'none' ? undefined : 0}
       data-overflow={standing === 'none' ? undefined : standing}
-      className="flex max-h-[max(3rem,calc(100dvh-3.5rem))] min-w-0 flex-1 flex-col gap-0.5 overflow-y-auto overscroll-contain rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent data-[overflow=more]:[mask-image:linear-gradient(to_bottom,black_calc(100%-1.5rem),transparent)]"
+      data-toast-body=""
+      className="flex max-h-[var(--toast-fit,none)] min-w-0 flex-1 flex-col gap-0.5 overflow-y-auto overscroll-contain rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent data-[overflow=more]:[mask-image:linear-gradient(to_bottom,black_calc(100%-1.5rem),transparent)]"
     >
       {children}
     </Toast.Content>
   );
 }
 
-function ToastList() {
+/**
+ * Keeps `--toast-fit` on the column at the height each toast's text is held
+ * to, so every toast stays below the top of the window. Measured again when
+ * toasts come and go, change size, or the window does.
+ */
+function useToastFit(viewport: HTMLElement | null, toasts: readonly unknown[]): void {
+  useLayoutEffect(() => {
+    const view = viewport?.ownerDocument.defaultView;
+    if (!viewport || !view) return undefined;
+    const cards = (): HTMLElement[] => Array.from(viewport.querySelectorAll<HTMLElement>('[data-toast]'));
+    const update = (): void => {
+      const extents: ToastExtent[] = [];
+      for (const card of cards()) {
+        const body = card.querySelector<HTMLElement>('[data-toast-body]');
+        if (body) extents.push({ chrome: card.offsetHeight - body.offsetHeight, content: body.scrollHeight });
+      }
+      const room = viewport.getBoundingClientRect().bottom - TOAST_TOP_GAP_PX;
+      const limit = toastBodyLimit(extents, room, parseFloat(view.getComputedStyle(viewport).rowGap) || 0);
+      const value = limit === null ? 'none' : `${limit}px`;
+      if (viewport.style.getPropertyValue('--toast-fit') !== value) viewport.style.setProperty('--toast-fit', value);
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    for (const card of cards()) {
+      observer.observe(card);
+      const body = card.querySelector('[data-toast-body]');
+      if (body) for (const part of body.children) observer.observe(part);
+    }
+    view.addEventListener('resize', update);
+    return () => {
+      observer.disconnect();
+      view.removeEventListener('resize', update);
+    };
+  }, [viewport, toasts]);
+}
+
+function ToastList({ viewport }: { viewport: HTMLElement | null }) {
   const { toasts } = Toast.useToastManager();
+  useToastFit(viewport, toasts);
   return toasts.map((item) => (
     <Toast.Root
       key={item.id}
@@ -215,12 +256,13 @@ function ToastList() {
 
 /** Mount once near the app root to show toasts. */
 export function Toaster({ children }: { children?: ReactNode }) {
+  const [viewport, setViewport] = useState<HTMLDivElement | null>(null);
   return (
     <Toast.Provider toastManager={toast} timeout={4000}>
       {children}
       <Toast.Portal>
-        <Toast.Viewport className="pointer-events-none fixed bottom-4 right-4 z-[1100] flex flex-col gap-2">
-          <ToastList />
+        <Toast.Viewport ref={setViewport} className="pointer-events-none fixed bottom-4 right-4 z-[1100] flex flex-col gap-2">
+          <ToastList viewport={viewport} />
         </Toast.Viewport>
       </Toast.Portal>
     </Toast.Provider>

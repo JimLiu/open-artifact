@@ -8,6 +8,7 @@
  */
 
 import { isValidId, nodeAt, slideElementIds, type NodePath } from './ids.ts';
+import { unlockedCopy } from './locks.ts';
 import {
   isPinned,
   type BoxNode,
@@ -314,7 +315,8 @@ export function uniqueId(base: string, taken: ReadonlySet<string>): string {
 
 /**
  * Duplicates sibling nodes right after the last of them (pinned copies are
- * nudged by `nudge` px). Returns the slide and the copies' paths.
+ * nudged by `nudge` px). Copies come without locks. Returns the slide and
+ * the copies' paths.
  */
 export function duplicateNodes(slide: Slide, paths: readonly NodePath[], nudge = 24): { slide: Slide; paths: NodePath[] } {
   const sorted = [...paths].sort(comparePaths);
@@ -326,7 +328,7 @@ export function duplicateNodes(slide: Slide, paths: readonly NodePath[], nudge =
     .map((p) => nodeAt(slide, p))
     .filter((n): n is SlideNode => Boolean(n))
     .map((node) => {
-      const copy = cloneNode(node, taken);
+      const copy = cloneNode(unlockedCopy(node), taken);
       if (!isPinned(copy)) return copy;
       const r = pinnedRectOf(copy);
       return r ? ({ ...copy, style: patchStyle(copy.style, { left: pxValue(r.x + nudge), top: pxValue(r.y + nudge) }) } as SlideNode) : copy;

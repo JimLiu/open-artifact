@@ -58,7 +58,7 @@ import { IconButton, Note, NumberInput, QuadRow, Row, Section, Segmented, Select
 import { ALIGN_KEYS, alignSelection, changeCurrent } from '../../services/commands.ts';
 import { useDeck } from '../../state/deck.ts';
 import { useView } from '../../state/view.ts';
-import { CssField, commitCss, patchTarget, pxOf, sharedStyle, type Target } from './shared.tsx';
+import { CssField, commitCss, patchTarget, pxOf, sharedStyle, targetLocked, type Target } from './shared.tsx';
 
 /* -------------------------------------------------------------------------- */
 /* Pinned geometry                                                             */
@@ -269,7 +269,7 @@ export function SizeSection({ target }: { target: Target }): ReactNode {
   const [revealed, setRevealed] = useState<ReadonlySet<Limit>>(new Set());
   useEffect(() => setRevealed(new Set()), [selectionKey]);
   const measured = useMeasured(target.nodes.length === 1 ? target.paths[0]! : null);
-  if (target.nodes.length === 0) return null;
+  if (target.nodes.length === 0 || targetLocked(target)) return null;
   if (target.nodes.every((n) => isPinned(n) && n.kind !== 'connector')) return <PinnedSize target={target} />;
   if (target.nodes.some((n) => isPinned(n))) return null;
   const path = target.paths[0]!;
@@ -506,6 +506,7 @@ export function LayoutSection({ target }: { target: Target }): ReactNode {
   }
   if (!isSlide && node?.kind !== 'box') return null;
   if (node?.kind === 'box' && node.group) return null;
+  if (targetLocked(target)) return null;
   const style = isSlide ? target.slide.style : node!.style;
   const kind: ContainerKind = style.display === 'grid' ? 'grid' : style.position === 'relative' ? 'layered' : 'stack';
   return (

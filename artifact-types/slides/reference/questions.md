@@ -1,10 +1,13 @@
 # Ask before you build
 
-Only with a tool that asks the person multiple-choice questions and a
-person there to answer (no such tool: ask the same in one short message,
-as a numbered list, and wait);
-otherwise (a headless run, an agent caller, "just make it") do what SKILL.md
-says: decide, build, and state your assumptions in one line.
+Only with a person there to answer, and only while no question for this
+request (a form, a question tool or plain text) has been answered, skipped
+or left to time out. Ask with a tool that asks the person multiple-choice
+questions; no such tool: ask the same in one short message, as a numbered
+list, and wait (that message is the round). Otherwise (a headless run, an
+agent caller, "just make it", or the round already over) ask nothing more,
+by tool or in text, except for figures or a file they promised, and do what
+SKILL.md says: decide, build, and state your assumptions in one line.
 
 Read what they gave you first. A brief that still leaves two or more
 result-changing decisions open earns ONE question call of at most 4
@@ -32,8 +35,7 @@ adds "Other" itself), and no question whose only answer is free text.
 Treat the answers as decisions and restate them in your one-line
 assumptions; whatever they leave to you, decide and say what you picked.
 One more round (at most 4 new questions) only if they ask for more (in
-chat or under "Other") or an answer opens a question you could not have
-asked before; otherwise build. Never re-ask.
+chat or under "Other"). Otherwise build, and never re-ask.
 
 ## A deck's questions come from its source
 

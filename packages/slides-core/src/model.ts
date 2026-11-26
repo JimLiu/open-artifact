@@ -92,6 +92,8 @@ export interface NodeBase {
   buildOut?: BuildSpec;
   /** `data-fit`, when not the default `shrink`. */
   fit?: Exclude<FitMode, 'shrink'>;
+  /** `data-locked`: held in place in the editor, with everything inside it (see `locks.ts`). */
+  locked?: true;
   /**
    * In a slide read from a source deck: the element of the source file this
    * node was read from (its place in document order, see `source.ts`), so an

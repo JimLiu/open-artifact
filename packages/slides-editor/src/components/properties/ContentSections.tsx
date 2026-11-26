@@ -43,7 +43,7 @@ import { useUi } from '../../state/ui.ts';
 import { changeCurrent, updateSelection } from '../../services/commands.ts';
 import { pickFiles, posterFromClip, posterFromSite, replaceImage, replacePoster } from '../../services/assets.ts';
 import { resolveSrc } from '../../services/session.ts';
-import { colorsAt, commitCss, contrastFor, sharedStyle, type Target } from './shared.tsx';
+import { colorsAt, commitCss, contrastFor, sharedStyle, targetLocked, type Target } from './shared.tsx';
 
 const IMAGE_ACCEPT = 'image/png,image/jpeg,image/gif,image/webp,image/svg+xml';
 const VIDEO_ACCEPT = 'video/mp4,video/quicktime,video/webm,.mov';
@@ -186,7 +186,7 @@ export function ImageSection({ target }: { target: Target }): ReactNode {
         onRemove={() => updateImages(video ? 'Remove video' : 'Remove image', clearMedia)}
       />
       {video ? <CoverRow node={node} path={path} video={video} /> : null}
-      {video?.link && !node.src ? null : (
+      {(video?.link && !node.src) || targetLocked(target) ? null : (
         <Row label="Fit">
           <Segmented<'cover' | 'contain'>
             aria-label="Image fit"
@@ -429,7 +429,7 @@ export function ConnectorSection({ target }: { target: Target }): ReactNode {
   return (
     <>
       <Section title="Connector">
-        {flow ? (
+        {flow && !targetLocked(target) ? (
           <Row label="Direction">
             <Segmented<Corner>
               aria-label="Direction"
@@ -525,9 +525,11 @@ export function LineSection({ target }: { target: Target }): ReactNode {
   };
   return (
     <Section title="Line">
-      <Row label="Thickness">
-        <NumberInput aria-label="Thickness" value={shared.mixed ? null : border.width} placeholder="Mixed" unit="px" min={1} max={32} onCommit={(v) => commit({ width: v ?? 2 }, 'Line thickness')} />
-      </Row>
+      {targetLocked(target) ? null : (
+        <Row label="Thickness">
+          <NumberInput aria-label="Thickness" value={shared.mixed ? null : border.width} placeholder="Mixed" unit="px" min={1} max={32} onCommit={(v) => commit({ width: v ?? 2 }, 'Line thickness')} />
+        </Row>
+      )}
       <ColorRow label="Color" aria-label="Line color" value={shared.mixed ? null : border.color} mixed={shared.mixed} groups={groups} onCommit={(color) => color && commit({ color }, 'Line color')} />
     </Section>
   );
