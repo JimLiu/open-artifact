@@ -1,7 +1,7 @@
 {
   "name": "open-artifact-desktop",
   "private": true,
-  "version": "0.16.0",
+  "version": "0.16.1",
   "type": "module",
   "description": "Open Artifact Desktop: the Electron app that shows the local library's artifacts in tabs, with no agent.",
   "main": "out/main.mjs",

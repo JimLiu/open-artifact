@@ -10,10 +10,13 @@ Each entry is written from the commits since the previous tag (`node scripts/cha
 
 Keep an agent that runs in a sandbox to its session's workspace, even though the daemon runs with your full rights.
 
+The first signed macOS desktop release uses the separate `desktop-v0.16.1` tag.
+
 ### Added
 
 - A daemon started with `OPEN_ARTIFACT_WORKSPACE_FOLDERS_ONLY=1` works only inside the calling session's workspace: making, reading and listing artifacts, ArtifactData's `file_path` and `out_file`, file paths in type actions (an upload's `file`, docs import and export), and artifact pages and archives. Anything outside answers `not_granted`. A symbolic link out of the workspace, or a workspace folder replaced by another, is refused too. Without the variable nothing changes.
 - A write refused because `if_match` no longer matches says `executionStatus: "not_executed"`, so an agent knows nothing was written.
+- macOS Apple Silicon desktop releases ship as Developer ID signed, hardened, Apple notarized and stapled ZIP and DMG downloads, with SHA-256 checksums. GitHub Actions validates signing credentials, tests the signed app and publishes immutable assets from `desktop-v<version>` tags. Local ad hoc packaging remains available.
 
 ### Fixed
 
@@ -27,13 +30,10 @@ Keep an agent that runs in a sandbox to its session's workspace, even though the
 
 Make artifacts from Pi, and install an artifact as an app of its own from Open Artifact Desktop.
 
-The first signed macOS desktop release uses the separate `desktop-v0.16.0` tag.
-
 ### Added
 
 - Pi support: `pi install npm:pi-open-artifact` gives Pi the Artifact, ArtifactData and ArtifactComments tools, the `open-artifact` skill and `/open-artifact <type> <what to make>`. Comments and requests from a page reach the Pi session that made the artifact: your own words as a message from you, a collaborator's comment or a background task's result as a separate note the model reads. Pages show whether Pi is working, and follow the files Pi's own write and edit tools change.
 - Open Artifact Desktop can install an artifact as an app of its own, from a card, a sidebar row, a tab's menu or the File menu. The app opens that one artifact in its own window and hands everything else to the desktop app. Installed apps can be uninstalled, repaired, and are refreshed when the desktop app changes.
-- macOS Apple Silicon desktop releases ship as Developer ID signed, hardened, Apple notarized and stapled ZIP and DMG downloads, with SHA-256 checksums. GitHub Actions validates signing credentials, tests the signed app and publishes immutable assets from `desktop-v<version>` tags. Local ad hoc packaging remains available.
 
 ### Fixed
 
