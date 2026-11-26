@@ -15,6 +15,7 @@
  * (the dashboard's PDF).
  */
 
+import { canvasArea, SAFE_CANVAS_AREA } from './canvas-area.ts';
 import { elementSvg, foreignObjectSvg, loadSvgImage, maxCaptureScale, SVG_NS, type CaptureLimits } from './capture.ts';
 import { embeddedFontCss, type EmbeddedFonts } from './font-embed.ts';
 import { cssUrls } from './fonts.ts';
@@ -23,6 +24,14 @@ import { blobToDataUrl } from './pictures.ts';
 const PNG_SCALE = 2;
 /** How large a capture may be: 12000 px a side, 120 megapixels. */
 export const CAPTURE_LIMITS: CaptureLimits = { maxSide: 12000, maxPixels: 120_000_000 };
+
+/** Rounding a capture's sides up adds at most a row and a column of pixels. */
+const canvasPixels = canvasArea(CAPTURE_LIMITS.maxPixels, SAFE_CANVAS_AREA - (CAPTURE_LIMITS.maxSide + 1));
+
+/** {@link CAPTURE_LIMITS} with the canvas area this browser is drawing at now (lowered after a canvas it would not make). */
+export function captureLimits(): CaptureLimits {
+  return { maxSide: CAPTURE_LIMITS.maxSide, maxPixels: canvasPixels.limit };
+}
 
 /** Web fonts inlined into one picture unless the caller sets its own limit, characters of `data:` URL. */
 const FONT_BYTES = 64 * 1024 * 1024;
@@ -99,15 +108,22 @@ export interface RasterOptions {
   background?: string;
   /** Only rows `[from, to)` (CSS px) keep the drawing; the rest is painted over with `background`. */
   keep?: { from: number; to: number };
+  /**
+   * Lets the picture come out smaller than `scale` asks when the browser
+   * will not make a canvas that large: it is drawn again on a smaller one,
+   * and this is called with the scale it was drawn at.
+   */
+  onSmaller?: (scale: number) => void;
 }
 
-export async function rasterize(svg: string, width: number, height: number, { scale = PNG_SCALE, type = 'image/png', background, keep }: RasterOptions = {}): Promise<Blob> {
-  scale = Math.min(scale, maxCaptureScale(width, height, CAPTURE_LIMITS));
+/** One drawing of `image` on a canvas; `blob` is null when the browser gave back an empty canvas. */
+async function drawOnCanvas(image: HTMLImageElement, width: number, height: number, scale: number, { type = 'image/png', background, keep }: RasterOptions): Promise<{ blob: Blob | null; pixels: number }> {
   const canvas = document.createElement('canvas');
   canvas.width = Math.max(1, Math.round(width * scale));
   canvas.height = Math.max(1, Math.round(height * scale));
-  const image = await loadSvgImage(svg, { error: 'The drawing could not be rendered.', decoding: 'sync' });
-  const context = canvas.getContext('2d')!;
+  const pixels = canvas.width * canvas.height;
+  const context = canvas.getContext('2d');
+  if (!context) return { blob: null, pixels };
   if (background) {
     context.fillStyle = background;
     context.fillRect(0, 0, canvas.width, canvas.height);
@@ -121,7 +137,31 @@ export async function rasterize(svg: string, width: number, height: number, { sc
     if (from > 0) context.fillRect(0, 0, canvas.width, from);
     if (to < canvas.height) context.fillRect(0, to, canvas.width, canvas.height - to);
   }
-  return new Promise((resolve, reject) => canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error('The image is empty.'))), type, 0.92));
+  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, type, 0.92));
+  if (blob) canvasPixels.drawn(pixels);
+  return { blob, pixels };
+}
+
+/**
+ * An SVG drawing as a picture at `scale` (2 by default), within the capture
+ * limits. With `onSmaller`, a canvas the browser will not make lowers the
+ * area captures use, and the picture is drawn once more under it.
+ */
+export async function rasterize(svg: string, width: number, height: number, options: RasterOptions = {}): Promise<Blob> {
+  const asked = options.scale ?? PNG_SCALE;
+  const scaleNow = (): number => Math.min(asked, maxCaptureScale(width, height, captureLimits()));
+  const fullScale = Math.min(asked, maxCaptureScale(width, height, CAPTURE_LIMITS));
+  const image = await loadSvgImage(svg, { error: 'The drawing could not be rendered.', decoding: 'sync' });
+  let scale = scaleNow();
+  let drawn = await drawOnCanvas(image, width, height, scale, options);
+  if (!drawn.blob && options.onSmaller && canvasPixels.lowerFor(drawn.pixels)) {
+    scale = scaleNow();
+    drawn = await drawOnCanvas(image, width, height, scale, options);
+    if (!drawn.blob) canvasPixels.reset();
+  }
+  if (!drawn.blob) throw new Error('The image is empty.');
+  if (scale < fullScale) options.onSmaller?.(scale);
+  return drawn.blob;
 }
 
 /** dom-to-svg cannot paint CSS masks or SVG use shadow trees. */
@@ -139,8 +179,11 @@ export function needsBrowserPaint(element: Element): boolean {
  */
 let paintReadable = true;
 
-/** Paint the computed HTML, with embedded images and the fonts of `fontCss`, so shadows, masks and ::before survive. */
-export async function browserDrawing(element: Element, width: number, height: number, top = 0, fontCss = '', html?: string): Promise<string> {
+/**
+ * Paint the computed HTML, with embedded images and the fonts of `fontCss`, so shadows, masks and ::before survive.
+ * `margin` (px) is room left around the element on every side, for what it draws outside its box (an outline).
+ */
+export async function browserDrawing(element: Element, width: number, height: number, top = 0, fontCss = '', html?: string, margin = 0): Promise<string> {
   const holder = document.createElement('div');
   holder.innerHTML = html ?? (await captureHtml(element, 'raster'));
   const root = holder.firstElementChild as HTMLElement | SVGElement | null;
@@ -148,9 +191,10 @@ export async function browserDrawing(element: Element, width: number, height: nu
     Object.assign(root.style, { position: 'relative', inset: 'auto', margin: '0' });
   }
   holder.style.marginTop = `-${top}px`;
+  if (margin > 0) holder.style.padding = `${margin}px`;
   // Laid out at the device pixels the element was measured at, so its text is as wide in the drawing.
   const zoom = element.ownerDocument.defaultView?.devicePixelRatio ?? 1;
-  return foreignObjectSvg(new XMLSerializer().serializeToString(holder), fontCss, { width, height, zoom });
+  return foreignObjectSvg(new XMLSerializer().serializeToString(holder), fontCss, { width: width + margin * 2, height: height + margin * 2, zoom });
 }
 
 /**
@@ -192,6 +236,8 @@ export async function pageImage(
      * for the first image and kept here for the next ones, instead of reading every computed style again.
      */
     reuse?: { html?: string };
+    /** Lets the image come out smaller than `scale` where the browser cannot draw it that large (see {@link RasterOptions}). */
+    onSmaller?: (scale: number) => void;
   },
 ): Promise<Blob> {
   const rasterOptions = { ...options, background: options.background ?? '#ffffff' };

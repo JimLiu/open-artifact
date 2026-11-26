@@ -2,7 +2,8 @@
  * A small card under a hovered element that sits in a link: its address
  * and, for web and mail links, a button that opens it in a new tab. It
  * shows without selecting anything, and stays while the pointer moves
- * onto it.
+ * onto it. While the keyboard focus is in it, it stays put: the pointer
+ * leaving does not hide it and another hovered link does not replace it.
  */
 
 import { ExternalLink } from 'lucide-react';
@@ -20,14 +21,16 @@ export interface HoverLinkProps {
 export function HoverLink({ link }: HoverLinkProps) {
   const [shown, setShown] = useState(link);
   const over = useRef(false);
+  const focused = useRef(false);
   const latest = useRef(link);
   latest.current = link;
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useEffect(() => {
+    if (focused.current) return;
     clearTimeout(timer.current);
     if (link) setShown(link);
-    else if (!over.current) timer.current = setTimeout(() => !over.current && setShown(null), LINGER_MS);
+    else if (!over.current) timer.current = setTimeout(() => !over.current && !focused.current && setShown(null), LINGER_MS);
   }, [link?.href, link?.left, link?.top, link?.height]);
   useEffect(() => () => clearTimeout(timer.current), []);
 
@@ -46,7 +49,18 @@ export function HoverLink({ link }: HoverLinkProps) {
       onPointerLeave={() => {
         over.current = false;
         // Back on the element: the card stays for it.
-        timer.current = setTimeout(() => !latest.current && setShown(null), LINGER_MS);
+        if (!focused.current) timer.current = setTimeout(() => !latest.current && !focused.current && setShown(null), LINGER_MS);
+      }}
+      onFocus={() => {
+        focused.current = true;
+        clearTimeout(timer.current);
+      }}
+      onBlur={(event) => {
+        if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+        focused.current = false;
+        // Back to following the pointer.
+        if (latest.current) setShown(latest.current);
+        else if (!over.current) setShown(null);
       }}
     >
       <span className="min-w-0 flex-1 truncate" title={shown.href}>

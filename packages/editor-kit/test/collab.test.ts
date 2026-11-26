@@ -191,6 +191,30 @@ describe('history controller', () => {
     await history.preview(null);
     assert.equal(history.store.getState().previewing, null);
   });
+
+  it('writes pending edits before restoring, and restores even when that fails', async () => {
+    const log: string[] = [];
+    let fail = false;
+    const history = createHistory<string>({
+      loadPreview: async (_h, n) => `v${n}`,
+      settle: async () => {
+        log.push('settle');
+        if (fail) throw new Error('offline');
+      },
+    });
+    history.start({
+      list: async () => ({ canRestore: true }),
+      onChange: () => () => undefined,
+      restore: async (n: number, paths?: string[]) => {
+        log.push(`restore ${n}${paths ? ` ${paths.join(',')}` : ''}`);
+        return { changed: paths ?? ['a'] };
+      },
+    } as unknown as HistoryCapability);
+    await history.restore(2);
+    fail = true;
+    assert.deepEqual(await history.restorePaths(3, ['b'], 'The file'), ['b']);
+    assert.deepEqual(log, ['settle', 'restore 2', 'settle', 'restore 3 b']);
+  });
 });
 
 describe('presence', () => {

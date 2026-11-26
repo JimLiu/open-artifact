@@ -15,12 +15,11 @@ import {
   nudgeSelection,
   pasteProperties,
   redo,
-  reorderSelection,
-  restackSelectedNotes,
   selectAllSiblings,
   selectChild,
   selectParent,
   selectSibling,
+  stackSelection,
   undo,
   unwrapSelection,
   wrapSelection,
@@ -32,9 +31,19 @@ import { zoomStep, zoomTo, zoomToBoards, zoomToFit } from './services/viewport.t
 import { frameKeyPressed } from './services/follow.ts';
 import { openFind, useFind } from './services/find.ts';
 import { runCollabShortcut } from './services/collab.ts';
-import { isTextField } from '@open-artifact/editor-kit';
+import { isApplePlatform, isTextField } from '@open-artifact/editor-kit';
 import { copyAs } from './services/capture.ts';
-import { isCopyPngKey, zoomKeyOf } from './lib/physical-keys.ts';
+import { historyShortcutOf, isCopyPngKey, paintKeyOf, zoomKeyOf } from './lib/physical-keys.ts';
+import { stackOrderOf } from './lib/stacking.ts';
+import { swapSelectionPaint, unfillSelection } from './services/paint.ts';
+import { isLockKey } from './lib/locks.ts';
+import { toggleSelectionLock } from './services/locks.ts';
+import { unlockedObjects } from '@open-artifact/design-core';
+import { altHeldAfter, spacePanAfter, type HeldKeyEvent } from './lib/held-keys.ts';
+import { DIALOG_SELECTOR, dialogKeepsKey } from './lib/dialog-keys.ts';
+import { pressAgainMessage } from './lib/card-exit.ts';
+import { cardExit } from './services/card-exit.ts';
+import { announce } from './services/announce.ts';
 
 /** A key press, from the window or from a frame. */
 export interface KeyPress {
@@ -44,6 +53,8 @@ export interface KeyPress {
   meta: boolean;
   shift: boolean;
   alt: boolean;
+  /** Held down and repeating. */
+  repeat?: boolean;
 }
 
 const TOOL_KEYS: Record<string, Tool> = { v: 'select', h: 'hand', a: 'board', b: 'board', n: 'sticky', t: 'title', r: 'rect', o: 'oval', l: 'line', p: 'pen' };
@@ -53,7 +64,7 @@ const TOOL_KEYS: Record<string, Tool> = { v: 'select', h: 'hand', a: 'board', b:
  * and paste pressed in this window are left to the clipboard events
  * (`fromFrame` false); pressed inside an artboard frame they run here.
  */
-export function runShortcut({ key, code, meta, shift, alt }: KeyPress, fromFrame = false): boolean {
+export function runShortcut({ key, code, meta, shift, alt, repeat }: KeyPress, fromFrame = false): boolean {
   const view = useView.getState();
   const doc = useDocument.getState();
   const lower = key.toLowerCase();
@@ -119,6 +130,15 @@ export function runShortcut({ key, code, meta, shift, alt }: KeyPress, fromFrame
     return true;
   }
 
+  // ⌘L / ⇧⌘L: lock or unlock the selection. Claimed even when held down,
+  // so the browser never takes it.
+  if (isLockKey({ key, code, meta, alt })) {
+    if (!repeat && !doc.readOnly) toggleSelectionLock();
+    return true;
+  }
+
+  if (runHistoryOrStacking({ key, code, meta, shift, alt }, view.mode === 'focused')) return true;
+
   if (meta) {
     switch (lower) {
       case 'c':
@@ -130,13 +150,6 @@ export function runShortcut({ key, code, meta, shift, alt }: KeyPress, fromFrame
         if (!fromFrame || shift || alt) return false;
         void pasteFromSystem();
         return true;
-      case 'z':
-        if (shift) redo();
-        else undo();
-        return true;
-      case 'y':
-        redo();
-        return true;
       case 'd':
         duplicateSelection();
         return true;
@@ -145,8 +158,10 @@ export function runShortcut({ key, code, meta, shift, alt }: KeyPress, fromFrame
           selectAllSiblings();
           return true;
         }
+        // Locked artboards and notes are left out.
         const page = view.page;
-        view.select({ kind: 'objects', boards: boardsOnPage(doc.canvas, page), notes: notesOnPage(doc.canvas, page) });
+        const free = unlockedObjects(doc.canvas, boardsOnPage(doc.canvas, page), notesOnPage(doc.canvas, page));
+        view.select({ kind: 'objects', boards: free.boards, notes: free.notes });
         return true;
       }
       case '=':
@@ -164,14 +179,6 @@ export function runShortcut({ key, code, meta, shift, alt }: KeyPress, fromFrame
         return true;
       case 'enter':
         view.setComposer(true);
-        return true;
-      case '[':
-      case '{':
-        if (!restackSelectedNotes('back')) reorderSelection(-1, shift);
-        return true;
-      case ']':
-      case '}':
-        if (!restackSelectedNotes('front')) reorderSelection(1, shift);
         return true;
       case 'k':
         if (!elements || shift || alt || doc.readOnly) return false;
@@ -222,15 +229,10 @@ export function runShortcut({ key, code, meta, shift, alt }: KeyPress, fromFrame
       nudgeSelection(dx, dy);
       return true;
     }
-    case ']':
-    case '[':
-      if (restackSelectedNotes(key === ']' ? 'front' : 'back')) return true;
-      if (view.selection.kind !== 'elements' || doc.readOnly) return false;
-      reorderSelection(key === ']' ? 1 : -1, true);
-      return true;
     default:
       break;
   }
+  if (runPaintKey({ key, code, meta, shift, alt })) return true;
   if (elements && !alt && !doc.readOnly) {
     if (shift && letter === 'h') {
       flipSelection('x');
@@ -269,29 +271,84 @@ export function runShortcut({ key, code, meta, shift, alt }: KeyPress, fromFrame
   return false;
 }
 
+/**
+ * ⌘Z / ⇧⌘Z (and Ctrl+Y elsewhere) by the physical key; the stacking
+ * shortcuts (see `stackOrderOf`). With ⌘ they are always claimed, so the
+ * browser never takes them; bare brackets only when something restacks,
+ * and not while an artboard plays.
+ */
+function runHistoryOrStacking(press: KeyPress, playing: boolean): boolean {
+  const apple = isApplePlatform();
+  const history = historyShortcutOf(press, apple);
+  if (history) {
+    if (history === 'undo') undo();
+    else redo();
+    return true;
+  }
+  const order = stackOrderOf(press, apple);
+  if (!order || (!press.meta && playing)) return false;
+  return stackSelection(order) || press.meta;
+}
+
+/** X takes the fill away, ⇧X swaps fill and stroke, on the selected elements or shape notes. */
+function runPaintKey(press: KeyPress): boolean {
+  const paint = paintKeyOf(press);
+  if (!paint || useDocument.getState().readOnly) return false;
+  return paint === 'swap' ? swapSelectionPaint() : unfillSelection();
+}
+
+/** Right after the address field closes by keyboard, the first Delete only says to press it again. */
+function swallowedAfterCard(press: { key: string; repeat?: boolean }): boolean {
+  const after = cardExit.keyDown(press);
+  if (after === 'first') announce(pressAgainMessage(press.key, isApplePlatform()));
+  return after !== null;
+}
 
 /** Installs the window listeners. */
 export function installKeyboard(): () => void {
+  const inDialog = (target: EventTarget | null): boolean => Boolean((target as Element | null)?.closest?.(DIALOG_SELECTOR));
+  const held = (event: KeyboardEvent): void => {
+    const view = useView.getState();
+    const press = event as KeyboardEvent & HeldKeyEvent;
+    view.setAltHeld(altHeldAfter(press));
+    if (event.key !== ' ' && view.spacePan) view.setSpacePan(spacePanAfter(true, press));
+  };
   const down = (event: KeyboardEvent): void => {
-    if (event.key === ' ' && !isTextField(event.target)) {
-      useView.getState().setSpacePan(true);
+    held(event);
+    if (event.key === ' ' && !isTextField(event.target) && !inDialog(event.target)) {
+      useView.getState().setSpacePan(spacePanAfter(useView.getState().spacePan, event as KeyboardEvent & HeldKeyEvent));
       event.preventDefault();
       return;
     }
     if (isTextField(event.target)) return;
     // Escape in an open menu or popover closes just that, not the selection (or a text edit).
     if (event.key === 'Escape' && (event.target as Element | null)?.closest?.('[role="menu"], [role="dialog"], [role="listbox"]')) return;
-    const handled = runShortcut({ key: event.key, code: event.code, meta: event.metaKey || event.ctrlKey, shift: event.shiftKey, alt: event.altKey });
+    // In a dialog or popover, Enter or Space presses its button and Delete deletes nothing behind it.
+    if (dialogKeepsKey(event.key) && inDialog(event.target)) return;
+    if (swallowedAfterCard(event)) {
+      event.preventDefault();
+      return;
+    }
+    const handled = runShortcut({ key: event.key, code: event.code, meta: event.metaKey || event.ctrlKey, shift: event.shiftKey, alt: event.altKey, repeat: event.repeat });
     if (handled) event.preventDefault();
   };
   const up = (event: KeyboardEvent): void => {
+    held(event);
+    cardExit.keyUp(event.key);
     if (event.key === ' ') useView.getState().setSpacePan(false);
   };
-  const blur = (): void => useView.getState().setSpacePan(false);
+  const cancelCard = (): void => cardExit.cancel();
+  const blur = (): void => {
+    cardExit.cancel();
+    useView.getState().setSpacePan(false);
+    useView.getState().setAltHeld(false);
+  };
   window.addEventListener('keydown', down);
   window.addEventListener('keyup', up);
   window.addEventListener('blur', blur);
+  window.addEventListener('pointerdown', cancelCard, true);
   return () => {
+    window.removeEventListener('pointerdown', cancelCard, true);
     window.removeEventListener('keydown', down);
     window.removeEventListener('keyup', up);
     window.removeEventListener('blur', blur);
@@ -302,5 +359,6 @@ export function installKeyboard(): () => void {
 export function handleFrameKey(press: KeyPress): void {
   if (press.key === ' ') return;
   frameKeyPressed(press.key);
+  if (swallowedAfterCard(press)) return;
   runShortcut(press, true);
 }

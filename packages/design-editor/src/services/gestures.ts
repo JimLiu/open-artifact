@@ -15,6 +15,7 @@ import { useDocument } from '../state/document.ts';
 import type { ElementSelection } from '../state/view.ts';
 import { templateOf } from './agent.ts';
 import { boardApi } from './frames.ts';
+import { isElementLocked } from '../lib/locks.ts';
 
 export { combineSelection, flowDrop, marqueeHits, type FlowContext, type FlowDrop, type MarqueeCandidate };
 
@@ -58,7 +59,9 @@ export function marqueeCandidates(board: string, container: Address | null): Mar
   const source = useDocument.getState().boards[board]?.source;
   if (!source) return [];
   const model = templateOf(source);
-  const all = model.elements.filter((el) => el.tag !== 'helmet' && !hasAncestor(el, 'helmet'));
+  // A box passes over locked elements (a read-only view keeps them).
+  const readOnly = useDocument.getState().readOnly;
+  const all = model.elements.filter((el) => el.tag !== 'helmet' && !hasAncestor(el, 'helmet') && (readOnly || !isElementLocked(el)));
   const rects = worldRects(board, all.map((el) => model.tidOf.get(el)!));
   const candidate = (el: HtmlElement): MarqueeCandidate => ({ tid: model.tidOf.get(el)!, path: elementPath(model, el), rects: rects[model.tidOf.get(el)!] ?? [] });
   if (!container) return all.map(candidate).filter((c) => c.rects.length);
@@ -67,6 +70,7 @@ export function marqueeCandidates(board: string, container: Address | null): Mar
   const out: MarqueeCandidate[] = [];
   const visit = (list: HtmlElement[]) => {
     for (const el of list) {
+      if (!readOnly && isElementLocked(el)) continue;
       const c = candidate(el);
       if (c.rects.length) out.push(c);
       else visit(elementChildren(el));
@@ -95,6 +99,8 @@ const NOT_CONTAINERS = new Set([
 const BOUND = new Set(['li', 'dt', 'dd', 'tr', 'td', 'th', 'thead', 'tbody', 'tfoot', 'caption', 'option', 'col', 'colgroup', 'source', 'track']);
 
 function canContain(element: HtmlElement): boolean {
+  // Nothing is dropped into a locked element.
+  if (isElementLocked(element)) return false;
   if (VOID_ELEMENTS.has(element.tag) || element.closeStart < 0 || NOT_CONTAINERS.has(element.tag) || holdsText(element)) return false;
   for (let up = element.parent; up; up = up.parent) if (up.tag === 'svg' || up.tag === 'sc-for' || up.tag === 'dc-import' || up.tag === 'x-import') return false;
   return true;

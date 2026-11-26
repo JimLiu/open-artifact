@@ -28,7 +28,10 @@ import {
   Link,
   List,
   ListOrdered,
+  Lock,
+  LockOpen,
   PencilLine,
+  Trash2,
   Underline,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react';
@@ -38,12 +41,20 @@ import { useDocument } from '../state/document.ts';
 import { useView, type ElementSelection } from '../state/view.ts';
 import { boardApi } from '../services/frames.ts';
 import { templateOf } from '../services/agent.ts';
-import { attributeSelection, detachSelection, edit, detachSelectionRefusal, editSelectedComponent, selectedComponentPath, startTextEdit, styleSelection } from '../services/commands.ts';
+import { useCoarsePointer } from '../services/pointer.ts';
+import { attributeSelection, deleteSelection, detachSelection, edit, detachSelectionRefusal, editSelectedComponent, selectedComponentPath, startTextEdit, styleSelection } from '../services/commands.ts';
 import { KEEP_TEXT_EDIT, applyEditedTextLink, cancelEditedTextLink, formatEditedText } from '../services/text-edit.ts';
 import { cancelScale, commitScale, setScaleFactor, useScale } from '../services/scale.ts';
 import { parseScaleInput } from '../lib/scale.ts';
-import { Card, ChromeButton, ChromeDivider, ChromeMenu, ChromeMenuItem, Tip, TipGroup } from '@open-artifact/editor-kit/react';
+import { Card, ChromeButton, ChromeDivider, ChromeMenu, ChromeMenuItem, MOD, Tip, TipGroup } from '@open-artifact/editor-kit/react';
+import { toggleSelectionLock, useLockedWhy, useSelectionLock } from '../services/locks.ts';
 import { PColor, PIconButton, PInput, PSegments, isTransparent, roundPx, toHex, withoutUnit } from './fields.tsx';
+import { BorderAlignButton } from './BorderAlign.tsx';
+import { alignedLookPatch, readAlignment, SIDES_NEED_INSIDE } from '../lib/border-align.ts';
+import { fillColorPatch } from '../lib/paint.ts';
+import { loneShapeOf } from '../lib/lone-shape.ts';
+import { layerPaint, paintSelection } from '../services/paint.ts';
+import { addressCardKeys } from './address-card.ts';
 
 /** Screen box of the selection the bar sits on. */
 export interface SelectionBarBox {
@@ -144,6 +155,7 @@ function StripPopup({
   width = 'w-[200px]',
   wide,
   pressed,
+  address,
   children,
 }: {
   tip: string;
@@ -154,9 +166,12 @@ function StripPopup({
   wide?: boolean;
   /** Shown as on (a link that is set). */
   pressed?: boolean;
+  /** An address card: its keys (see `addressCardKeys`), given the saved address. */
+  address?: string;
   children: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
+  const cardKeys = address === undefined ? undefined : addressCardKeys({ saved: address, close: () => setOpen(false), guardDelete: true });
   const button = (
     <ChromeButton square={!wide} aria-label={tip} pressed={pressed} disabled={disabled} className={cn(wide && 'px-2', open && 'bg-chrome-hover')} />
   );
@@ -170,6 +185,7 @@ function StripPopup({
           <Popover.Popup
             aria-label={tip}
             {...{ [KEEP_TEXT_EDIT]: '' }}
+            onKeyDown={cardKeys}
             className={cn(
               'flex flex-col gap-1.5 rounded-[12px] bg-chrome p-2 text-[13px] font-control text-chrome-fg shadow-chrome-popup outline-none transition-[opacity,transform] duration-100 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0',
               width,
@@ -272,7 +288,7 @@ function BackgroundPopup({ ctx }: { ctx: StripContext }) {
         value={written}
         rendered={rendered}
         disabled={ctx.locked}
-        onCommit={(next) => ctx.set(ctx.inline.background !== undefined ? { background: null, 'background-color': next } : { 'background-color': next })}
+        onCommit={(next) => ctx.set(fillColorPatch(ctx.inline, ctx.computed, next))}
       />
     </StripPopup>
   );
@@ -280,12 +296,14 @@ function BackgroundPopup({ ctx }: { ctx: StripContext }) {
 
 /** Border style, weight (or each side's width) and color. */
 function BorderPopup({ ctx }: { ctx: StripContext }) {
+  // A border aligned center or outside is drawn by an outline: that is what shows and changes.
+  const aligned = readAlignment(ctx.inline).look;
   const short = parseBorder(ctx.inline.border);
-  const style = ((ctx.inline['border-style'] ?? short.style ?? ctx.computed['border-top-style'] ?? 'none') as string).split(/\s+/)[0] as BorderStyle;
+  const style = ((aligned?.style ?? ctx.inline['border-style'] ?? short.style ?? ctx.computed['border-top-style'] ?? 'none') as string).split(/\s+/)[0] as BorderStyle;
   const current: BorderStyle = (['none', 'solid', 'dashed', 'dotted'] as const).includes(style as BorderStyle) ? style : 'solid';
-  const color = ctx.inline['border-color'] ?? short.color ?? '';
-  const widthShort = expandSides(ctx.inline['border-width'] ?? short.width);
-  const widths = SIDES.map((side, i) => ctx.inline[`border-${side}-width`] ?? widthShort?.[i] ?? '');
+  const color = aligned?.color ?? ctx.inline['border-color'] ?? short.color ?? '';
+  const widthShort = expandSides(aligned?.width ?? ctx.inline['border-width'] ?? short.width);
+  const widths = SIDES.map((side, i) => (aligned ? widthShort?.[i] : ctx.inline[`border-${side}-width`] ?? widthShort?.[i]) ?? '');
   const renderedWidth = roundPx(ctx.computed['border-top-width']);
   const uniform = widths.every((w) => w === widths[0]);
   const [split, setSplit] = useState(!uniform);
@@ -293,6 +311,11 @@ function BorderPopup({ ctx }: { ctx: StripContext }) {
 
   /** Writes the border as longhands, dropping the shorthand. */
   const write = (next: { style?: BorderStyle; width?: string | null; color?: string | null; sides?: string[] }) => {
+    if (aligned) {
+      const patch = alignedLookPatch(ctx.inline, { style: next.style, width: next.width ?? undefined, color: next.color ?? undefined }, ctx.computed);
+      if (patch) ctx.set(patch);
+      return;
+    }
     const patch: Record<string, string | null> = { border: null };
     const nextStyle = next.style ?? current;
     if (nextStyle === 'none') {
@@ -328,7 +351,12 @@ function BorderPopup({ ctx }: { ctx: StripContext }) {
         ]}
       />
       <fieldset disabled={off || ctx.locked} title={off ? 'Pick a border style first' : undefined} className={cn('m-0 flex min-w-0 flex-col gap-1.5 border-0 p-0', off && 'opacity-60')}>
-        <PColor aria-label="Border color" value={color} placeholder={off ? undefined : ctx.computed['border-top-color']} disabled={off || ctx.locked} onCommit={(next) => write({ color: next || null })} />
+        <div className="flex items-center gap-1.5">
+          <div className="min-w-0 flex-1">
+            <PColor aria-label="Border color" value={color} placeholder={off ? undefined : ctx.computed['border-top-color']} disabled={off || ctx.locked} onCommit={(next) => write({ color: next || null })} />
+          </div>
+          <BorderAlignButton element={ctx.element} computed={ctx.computed} disabled={off || ctx.locked} set={ctx.set} />
+        </div>
         <div className="grid grid-cols-[1fr_1fr_auto] items-center gap-1.5">
           {split ? (
             <>
@@ -353,7 +381,7 @@ function BorderPopup({ ctx }: { ctx: StripContext }) {
                 disabled={off || ctx.locked}
                 onCommit={(next) => write({ width: next || null })}
               />
-              <SplitToggle split={false} label="Individual borders" disabled={off} onToggle={() => setSplit(true)} />
+              <SplitToggle split={false} label={aligned ? SIDES_NEED_INSIDE : 'Individual borders'} disabled={off || Boolean(aligned)} onToggle={() => setSplit(true)} />
             </>
           )}
         </div>
@@ -563,7 +591,7 @@ function LinkPopup({ ctx, board, item, single, readOnly }: { ctx: StripContext; 
         : null;
   const tip = reason ?? (own ? (href ? `Edit the link (${href})` : 'Set the link') : 'Link the whole text');
   return (
-    <StripPopup tip={tip} trigger={<Link {...ICON} />} disabled={reason !== null} pressed={own && href !== ''} width="w-[260px]">
+    <StripPopup tip={tip} trigger={<Link {...ICON} />} disabled={reason !== null} pressed={own && href !== ''} width="w-[260px]" address={href}>
       <Hint>Link</Hint>
       <PInput
         aria-label="Link"
@@ -607,6 +635,7 @@ function EditingLinkPopup({ disabled }: { disabled: boolean }) {
           <Popover.Popup
             aria-label="Link"
             {...{ [KEEP_TEXT_EDIT]: '' }}
+            onKeyDown={addressCardKeys({ saved: link?.href ?? '', guardDelete: false })}
             className="flex w-[260px] flex-col gap-1.5 rounded-[12px] bg-chrome p-2 text-[13px] font-control text-chrome-fg shadow-chrome-popup outline-none"
           >
             <Hint>Link</Hint>
@@ -795,7 +824,7 @@ function StrokePopup({ ctx }: { ctx: StripContext }) {
       />
       <fieldset disabled={off || ctx.locked} title={off ? 'Pick a stroke style first' : undefined} className={cn('m-0 flex min-w-0 flex-col gap-1.5 border-0 p-0', off && 'opacity-60')}>
         <PColor aria-label="Stroke color" value={off ? '' : stroke} disabled={off || ctx.locked} onCommit={(next) => write({ color: next || null })} />
-        <PInput aria-label="Stroke weight" prefix={<Glyph name="borderWeight" className="size-3.5" />} value={fieldValue(width)} placeholder="1" unit="px" disabled={off || ctx.locked} onCommit={(next) => write({ width: withoutUnit(next) })} />
+        <PInput aria-label="Stroke weight" prefix={<Glyph name="borderWeight" className="size-3.5" />} value={fieldValue(width)} placeholder="1" unit="px" step={0.5} disabled={off || ctx.locked} onCommit={(next) => write({ width: withoutUnit(next) })} />
       </fieldset>
     </StripPopup>
   );
@@ -822,8 +851,9 @@ function SourcePopup({ ctx }: { ctx: StripContext }) {
 /** Starts (or ends) the crop editor on the image. */
 function CropButton({ ctx, board, item, single }: { ctx: StripContext; board: string; item: ElementSelection; single: boolean }) {
   const crop = useView((s) => s.crop);
+  const lockedWhy = useLockedWhy();
   const cropping = crop?.board === board && crop.tid === item.tid;
-  const reason = !single ? 'Crop one image at a time' : null;
+  const reason = lockedWhy ?? (!single ? 'Crop one image at a time' : null);
   return (
     <StripButton
       tip={reason ?? (cropping ? 'Done cropping' : 'Crop')}
@@ -844,12 +874,45 @@ function CropButton({ ctx, board, item, single }: { ctx: StripContext; board: st
 /** Component imports: their styles live in the imported file. */
 const IMPORTS = new Set(['dc-import', 'x-import']);
 
-/** Ask about the selection, and open the properties panel. */
+/** Locks or unlocks the selection (⌘L), in a group of its own at the strip's start. */
+function LockButton({ readOnly }: { readOnly: boolean }) {
+  const lock = useSelectionLock();
+  if (!lock.lockable) return null;
+  const locked = lock.next === false;
+  return (
+    <>
+      <Group>
+        <StripButton
+          tip={locked ? 'Unlock' : 'Lock'}
+          shortcut={`${MOD}L`}
+          aria-label="Lock"
+          pressed={locked}
+          disabled={readOnly}
+          onClick={() => toggleSelectionLock()}
+        >
+          {locked ? <Lock {...ICON} /> : <LockOpen {...ICON} />}
+        </StripButton>
+      </Group>
+      <ChromeDivider />
+    </>
+  );
+}
+
+/** Ask about the selection, and open the properties panel; on touch screens, Delete too. */
 function Tail({ lead }: { lead?: ReactNode }) {
   const setPanel = useView((s) => s.setPanel);
+  const coarse = useCoarsePointer();
+  const readOnly = useDocument((s) => s.readOnly);
+  const editing = useView((s) => s.textEdit !== null);
+  const lockedWhy = useLockedWhy();
   return (
     <Group>
       {lead}
+      {coarse && !readOnly && !editing && lockedWhy === null ? (
+        <StripButton tip="Delete" aria-label="Delete" onClick={() => deleteSelection()}>
+          <Trash2 {...ICON} />
+        </StripButton>
+      ) : null}
       <StripButton tip="Open the Properties panel" aria-label="Properties" onClick={() => setPanel('properties', true)}>
         <EllipsisVertical {...ICON} />
       </StripButton>
@@ -959,19 +1022,23 @@ export function SelectionBar({ box }: { box: SelectionBarBox }) {
   );
   if (!element || !board || !first) return null;
 
-  const ctx: StripContext = {
-    element,
-    inline: styleMap(attributeValue(element, 'style') ?? ''),
-    computed,
-    locked: readOnly || hasDynamicStyle(element),
-    set: (patch) => styleSelection(patch),
-  };
+  // A graphic of one shape is edited as that shape: one layer.
+  const lone = element.tag === 'svg' ? loneShapeOf(element) : null;
+  const ctx: StripContext = lone
+    ? { element: lone, inline: layerPaint(element, lone), computed, locked: readOnly || hasDynamicStyle(lone), set: paintSelection }
+    : {
+        element,
+        inline: styleMap(attributeValue(element, 'style') ?? ''),
+        computed,
+        locked: readOnly || hasDynamicStyle(element),
+        set: (patch) => (SVG_PAINTED.has(element.tag) ? paintSelection(patch) : styleSelection(patch)),
+      };
   // Remount the popups' local state (split toggles) when the selection changes.
   const key = `${board}:${items.map((item) => item.tid).join(',')}`;
   const kind = elementKind(element);
   const variant = IMPORTS.has(element.tag)
     ? 'import'
-    : SVG_PAINTED.has(element.tag)
+    : SVG_PAINTED.has(ctx.element.tag)
       ? 'vector'
       : element.tag === 'img' || element.tag === 'video'
         ? 'media'
@@ -1005,6 +1072,7 @@ export function SelectionBar({ box }: { box: SelectionBarBox }) {
     >
       <TipGroup>
         <Card role="toolbar" aria-label="Selection" className="gap-1 p-1" key={key}>
+          {scaling || editing ? null : <LockButton readOnly={readOnly} />}
           {scaling ? (
             <ScaleStrip />
           ) : variant === 'import' ? (
@@ -1016,7 +1084,7 @@ export function SelectionBar({ box }: { box: SelectionBarBox }) {
           ) : variant === 'vector' ? (
             <>
               <Group>
-                {SVG_STROKED.has(element.tag) ? null : <FillPopup ctx={ctx} />}
+                {SVG_STROKED.has(ctx.element.tag) ? null : <FillPopup ctx={ctx} />}
                 <StrokePopup ctx={ctx} />
               </Group>
               <ChromeDivider />

@@ -21,14 +21,15 @@ import {
   type HtmlElement,
   type TemplateModel,
 } from '@open-artifact/dc';
-import { addNoteCopies } from '@open-artifact/design-core';
+import { addNoteCopies, isLockedObject, noteFontSize, notesOnPage, withoutLock } from '@open-artifact/design-core';
 import { create } from 'zustand';
 import { clipboardData, payloadFromHtml, remapBoardReferences, type ClipboardPayload } from '../lib/clipboard-data.ts';
 import { toast } from '@open-artifact/ui';
 import { placeImages } from './images.ts';
 import { freeBoardName } from '../lib/frame.ts';
-import { looksLikeHtml, sanitizeHtml } from '../lib/sanitize.ts';
+import { looksLikeHtml, sanitizeHtml, textParagraphs } from '../lib/sanitize.ts';
 import type { Address } from '../lib/ops.ts';
+import { isElementLocked, withoutLocks } from '../lib/locks.ts';
 import { useDocument } from '../state/document.ts';
 import { useView, type ElementSelection } from '../state/view.ts';
 import { templateOf } from './agent.ts';
@@ -38,6 +39,9 @@ import { maybeSession } from './session.ts';
 import { liveElementOf, standaloneHtml } from './capture.ts';
 import { carriedCss, dependsOnArtboard, helmetFor, renderedMarkup } from './carry.ts';
 import { isTextField, writeClipboard, writeClipboardText } from '@open-artifact/editor-kit';
+import { refuseIfLocked, refuseLocked } from './locks.ts';
+import { noteTextOf, staggeredSpot, textNoteSize } from '../lib/notes.ts';
+import { announce } from './announce.ts';
 
 export { clipboardData, payloadFromHtml, type ClipboardPayload };
 
@@ -63,9 +67,10 @@ export function selectionPayload(): ClipboardPayload | null {
     const boards = selection.boards.flatMap((path) => {
       const entry = doc.canvas.boards[path];
       const source = doc.boards[path]?.source;
-      return entry && source ? [{ path, entry, source }] : [];
+      return entry && source ? [{ path, entry: withoutLock(entry), source }] : [];
     });
-    const notes = selection.notes.flatMap((id) => (doc.canvas.notes[id] ? [doc.canvas.notes[id]!] : []));
+    // Copies never carry a lock.
+    const notes = selection.notes.flatMap((id) => (doc.canvas.notes[id] ? [withoutLock(doc.canvas.notes[id]!)] : []));
     return { kind: 'objects', boards, notes };
   }
   return null;
@@ -79,7 +84,8 @@ const MAX_STANDALONE = 2 * 1024 * 1024;
 
 /** The payload of copied elements, with what they need to look the same elsewhere. */
 function elementsPayload(board: string, model: TemplateModel, elements: HtmlElement[], items: readonly ElementSelection[]): ClipboardPayload {
-  const html = elements.map((el) => elementSource(model, el));
+  // Copies never carry a lock.
+  const html = elements.map((el) => withoutLocks(elementSource(model, el)));
   const payload: Extract<ClipboardPayload, { kind: 'elements' }> = { kind: 'elements', board, html, from: here() };
   try {
     const itemOf = (el: HtmlElement): ElementSelection => {
@@ -87,7 +93,7 @@ function elementsPayload(board: string, model: TemplateModel, elements: HtmlElem
       return items.find((item) => item.tid === tid) ?? { tid, path: elementPath(model, el), instance: 0 };
     };
     const lives = elements.map((el) => liveElementOf(board, itemOf(el), { descend: false, svg: false }));
-    const rendered = elements.map((_el, index) => (lives[index] && dependsOnArtboard(html[index]!) ? renderedMarkup(model, lives[index]!) : null));
+    const rendered = elements.map((_el, index) => (lives[index] && dependsOnArtboard(html[index]!) ? withoutLocks(renderedMarkup(model, lives[index]!)) : null));
     if (rendered.some((markup) => markup !== null)) payload.rendered = rendered;
     const present = lives.filter((live): live is Element => live !== null);
     const css = carriedCss(present);
@@ -120,9 +126,9 @@ export function copySelection(): ClipboardPayload | null {
   return payload;
 }
 
-/** Copies, then deletes the selection. */
+/** Copies, then deletes the selection; nothing when any of it is locked. */
 export function cutSelection(): ClipboardPayload | null {
-  if (useDocument.getState().readOnly) return null;
+  if (useDocument.getState().readOnly || refuseIfLocked()) return null;
   const payload = copySelection();
   if (payload) deleteSelection();
   return payload;
@@ -161,16 +167,30 @@ const TEXTUAL = new Set([
 
 /** True when pasted elements can go inside this element. */
 function holdsPaste(element: HtmlElement): boolean {
+  if (isElementLocked(element)) return false;
   if (VOID_ELEMENTS.has(element.tag) || element.closeStart < 0 || TEXTUAL.has(element.tag) || holdsText(element)) return false;
   for (let up = element.parent; up; up = up.parent) if (up.tag === 'svg' || up.tag === 'sc-for' || up.tag === 'dc-import' || up.tag === 'x-import') return false;
   return true;
 }
 
+type PasteTarget = { board: string; target: Address | null; position: 'after' | 'last-child' };
+
 /**
  * Where pasted elements go: inside a single selected container, after the
- * selection, or inside an artboard's root.
+ * selection, or inside an artboard's root; `locked` when that artboard is
+ * locked, `null` when there is no artboard to paste into.
  */
-function pasteTarget(fallbackBoard: string | null, html = ''): { board: string; target: Address | null; position: 'after' | 'last-child' } | null {
+function pasteTarget(fallbackBoard: string | null, html = ''): PasteTarget | 'locked' | null {
+  const where = pastePlace(fallbackBoard, html);
+  return where && isLockedObject(useDocument.getState().canvas.boards[where.board]) ? 'locked' : where;
+}
+
+/** True when a paste would go into a locked artboard (Paste is disabled then). */
+export function pasteIntoLocked(): boolean {
+  return pasteTarget(null) === 'locked';
+}
+
+function pastePlace(fallbackBoard: string | null, html: string): PasteTarget | null {
   const doc = useDocument.getState();
   const { selection } = useView.getState();
   const intoBoard = (board: string) => {
@@ -200,6 +220,10 @@ function pasteTarget(fallbackBoard: string | null, html = ''): { board: string; 
 /** Inserts copied elements at the paste target and selects them. */
 function pasteElements(payload: Extract<ClipboardPayload, { kind: 'elements' }>): boolean {
   const where = pasteTarget(payload.board, payload.html.join('\n'));
+  if (where === 'locked') {
+    refuseLocked();
+    return false;
+  }
   if (!where) {
     toast.add({ title: 'Select an artboard to paste into' });
     return false;
@@ -224,7 +248,7 @@ function pasteObjects(payload: Extract<ClipboardPayload, { kind: 'objects' }>): 
   }
   for (const { path, entry, source } of payload.boards) {
     const name = names.get(path)!;
-    const { page: _page, ...rest } = entry;
+    const { page: _page, ...rest } = withoutLock(entry);
     useDocument.getState().createBoard(name, remapBoardReferences(source, path, names), { ...rest, x: entry.x + 40, y: entry.y + 40, ...(page ? { page } : {}) });
     boards.push(name);
   }
@@ -233,7 +257,7 @@ function pasteObjects(payload: Extract<ClipboardPayload, { kind: 'objects' }>): 
     useDocument.getState().updateCanvas((canvas) => {
       // Copies of a group form a new group of their own.
       const copied = addNoteCopies(canvas, payload.notes, (note) => {
-        const { page: _page, ...rest } = note;
+        const { page: _page, ...rest } = withoutLock(note);
         return { ...rest, x: note.x + 24, y: note.y + 24, ...(page ? { page } : {}) };
       });
       notes = copied.ids;
@@ -259,8 +283,6 @@ export function pastePayload(payload: ClipboardPayload): void {
   else pasteObjects(payload);
 }
 
-const escapeHtml = (text: string) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-
 /** Markup for pasted plain text: sanitized HTML when it is markup, else paragraphs. */
 export function textMarkup(text: string): string {
   if (looksLikeHtml(text)) {
@@ -272,11 +294,7 @@ export function textMarkup(text: string): string {
       return blocks ? html : `<p style="margin: 0">${html}</p>`;
     }
   }
-  return text
-    .trim()
-    .split(/\n{2,}/)
-    .map((block) => `<p style="margin: 0">${escapeHtml(block).replace(/\n/g, '<br>')}</p>`)
-    .join('\n');
+  return textParagraphs(text);
 }
 
 const INLINE = new Set(['a', 'abbr', 'b', 'br', 'cite', 'code', 'em', 'i', 'img', 'kbd', 'mark', 'q', 's', 'small', 'span', 'strong', 'sub', 'sup', 'time', 'u']);
@@ -286,12 +304,49 @@ export function pasteText(text: string): void {
   if (useDocument.getState().readOnly || !text.trim()) return;
   const html = textMarkup(text);
   const where = pasteTarget(null, html);
-  if (where) {
+  if (where === 'locked') refuseLocked();
+  else if (where) {
     edit(where.board, { kind: 'insert', target: where.target, position: where.position, html }, { selectCreated: true });
   } else {
-    addNote('sticky', viewportCenter(), { text: text.trim() });
-    useView.getState().setNoteEdit(null);
+    pasteTextNote(text);
   }
+}
+
+/** The longest text a paste turns into a note. */
+export const MAX_PASTED_NOTE_TEXT = 10_000;
+/** How wide a pasted text note grows before its text is scaled down. */
+const TEXT_NOTE_WIDTH = 1200;
+
+let measuring: CanvasRenderingContext2D | null = null;
+function measureText(fontSize: number): (line: string) => number {
+  measuring ??= typeof document === 'undefined' ? null : document.createElement('canvas').getContext('2d');
+  const context = measuring;
+  if (!context) return (line) => line.length * fontSize * 0.55;
+  context.font = `400 ${fontSize}px ${getComputedStyle(document.body).fontFamily || 'sans-serif'}`;
+  return (line) => context.measureText(line).width;
+}
+
+/**
+ * Pasted text that lands outside every artboard: a text note at medium size,
+ * centred in the view (stepped aside from a note already there), selected
+ * but not being edited.
+ */
+function pasteTextNote(text: string): void {
+  const clean = noteTextOf(text);
+  if (!clean.trim()) return;
+  if (clean.length > MAX_PASTED_NOTE_TEXT) {
+    toast.add({ title: 'That text is too long to paste as a note' });
+    return;
+  }
+  const fontSize = noteFontSize('m');
+  const size = textNoteSize(clean, fontSize, measureText(fontSize), TEXT_NOTE_WIDTH);
+  const center = viewportCenter();
+  const { canvas } = useDocument.getState();
+  const taken = notesOnPage(canvas, useView.getState().page).map((id) => canvas.notes[id]!);
+  const at = staggeredSpot({ x: center.x - size.w / 2, y: center.y - size.h / 2 }, taken);
+  if (!addNote('title1', at, { text: clean, size: 'm', bold: false, maxW: TEXT_NOTE_WIDTH })) return;
+  useView.getState().setNoteEdit(null);
+  announce('Text added');
 }
 
 /** Paste for callers without a clipboard event (context menu, frame keys). */
@@ -366,7 +421,7 @@ function freeformContainer(board: string): { model: TemplateModel; container: Ht
 
 /** True when the context menu can offer "Paste here". */
 export function canPasteHere(): boolean {
-  return Boolean(menuPoint && !useDocument.getState().readOnly && (memory || 'clipboard' in navigator) && freeformContainer(menuPoint.board));
+  return Boolean(menuPoint && !useDocument.getState().readOnly && !isLockedObject(useDocument.getState().canvas.boards[menuPoint.board]) && (memory || 'clipboard' in navigator) && freeformContainer(menuPoint.board));
 }
 
 /** Gives one element's markup an absolute position, without margins. */
@@ -385,6 +440,10 @@ function positioned(html: string, left: number, top: number): string | null {
 export async function pasteHere(): Promise<void> {
   const point = menuPoint;
   if (!point || useDocument.getState().readOnly) return;
+  if (isLockedObject(useDocument.getState().canvas.boards[point.board])) {
+    refuseLocked();
+    return;
+  }
   let payload: ClipboardPayload | null = null;
   let text = '';
   try {

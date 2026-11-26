@@ -27,9 +27,11 @@ import {
   expandNotesToGroups,
   groupItems,
   intersects,
+  isLockedObject,
   MIN_BOARD_SIZE,
   notesOnPage,
   pageOf,
+  unlockedObjects,
   type BoardEntry,
   type Canvas as CanvasModel,
   type CanvasNote,
@@ -39,9 +41,13 @@ import { toast } from '@open-artifact/ui';
 import { useDocument } from '../state/document.ts';
 import { NO_SELECTION, toWorld, useView, type Camera, type ElementSelection, type ViewState } from '../state/view.ts';
 import { boardApi } from '../services/frames.ts';
-import { addBoard, addNote, edit, moveObjects, moveSelectedElements, resizeObject, selectionIsPositioned, startTextEdit, editTextAt, type ResizeTarget } from '../services/commands.ts';
+import { addBoard, addNote, edit, moveObjects, moveSelectedElements, resizeObject, selectionIsPositioned, selectionPinnedAxes, startTextEdit, editTextAt, type ResizeTarget } from '../services/commands.ts';
 import { combineSelection, flowDropAt, freezeInherited, marqueeCandidates, marqueeHits, rootAddress, templateRoot, type FlowDrop, type MarqueeCandidate } from '../services/gestures.ts';
 import { pickDepth, type PickMode } from '../lib/pick-depth.ts';
+import { staysTap } from '../lib/touch.ts';
+import { shiftDragDelta } from '../lib/drag-axis.ts';
+import { isElementLocked, lockedTids } from '../lib/locks.ts';
+import { boardPassesThrough, refuseLocked, selectionHasLock } from '../services/locks.ts';
 import type { Address } from '../lib/ops.ts';
 import { placeImages } from '../services/images.ts';
 import { session } from '../services/session.ts';
@@ -78,7 +84,7 @@ type Drag =
   /** A box dragged inside an artboard selects elements. `click` runs when it stays a click. */
   | { kind: 'elementMarquee'; board: string; startX: number; startY: number; deep: boolean; toggle: boolean; candidates: MarqueeCandidate[] | null; container: Address | null; initial: ElementSelection[]; click: () => void; moved: boolean }
   /** Dragging selected elements: positioned ones move live, flow ones land among their siblings. */
-  | { kind: 'elementMove'; board: string; startX: number; startY: number; moved: boolean; positioned: boolean; applied: { x: number; y: number }; drop: FlowDrop | null; key: string; click: (() => void) | null }
+  | { kind: 'elementMove'; board: string; startX: number; startY: number; moved: boolean; positioned: boolean; pinned?: { x: boolean; y: boolean }; applied: { x: number; y: number }; drop: FlowDrop | null; key: string; click: (() => void) | null }
   /** The Pen tool: dragging out the handles of the node just placed. */
   | { kind: 'pathHandle'; startX: number; startY: number };
 
@@ -140,14 +146,16 @@ function domHit(target: HTMLElement): Hit {
   const note = target.closest<HTMLElement>('[data-note]')?.dataset.note;
   if (note) return { kind: 'note', note };
   const board = target.closest<HTMLElement>('[data-board]')?.dataset.board;
-  return board ? { kind: 'board', board } : { kind: 'empty' };
+  // A locked artboard nothing is selected in counts as empty canvas (its title still selects it).
+  return board && !boardPassesThrough(board) ? { kind: 'board', board } : { kind: 'empty' };
 }
 
 /** What the engine draws at a point of its canvas. */
 function engineHit(point: { x: number; y: number }): Hit {
   const item = itemAt(point);
   if (!item) return { kind: 'empty' };
-  return 'board' in item ? { kind: 'board', board: item.board } : { kind: 'note', note: item.note };
+  if ('board' in item) return boardPassesThrough(item.board) ? { kind: 'empty' } : { kind: 'board', board: item.board };
+  return { kind: 'note', note: item.note };
 }
 
 /** The selected artboards and notes (none while elements are selected). */
@@ -174,16 +182,22 @@ function engineTakes(event: ReactPointerEvent, hit: Hit, world: { x: number; y: 
 
 /**
  * Element under a screen point inside an artboard, or `null`: which level
- * of the elements under it follows the selection (see `pickDepth`).
+ * of the elements under it follows the selection (see `pickDepth`). Locked
+ * elements are passed through, except for the context menu (`locked`).
  */
-function pickElement(path: string, world: { x: number; y: number }, mode: PickMode): ElementSelection | null {
+function pickElement(path: string, world: { x: number; y: number }, mode: PickMode, { locked = false }: { locked?: boolean } = {}): ElementSelection | null {
   const entry = useDocument.getState().canvas.boards[path];
   const api = boardApi(path);
   const source = useDocument.getState().boards[path]?.source;
   if (!entry || !api || !source) return null;
-  const chain = api.pickAll(world.x - entry.x, world.y - entry.y).reverse();
-  if (!chain.length) return null;
   const model = templateOf(source);
+  const skip = locked ? [] : lockedTids(model);
+  let chain = api.pickAll(world.x - entry.x, world.y - entry.y, skip).reverse();
+  if (skip.length) {
+    const skipped = new Set(skip);
+    chain = chain.filter((pick) => !skipped.has(pick.tid));
+  }
+  if (!chain.length) return null;
   const { selection } = useView.getState();
   const selected = selection.kind === 'elements' && selection.board === path ? selection.items : [];
   let onChain = -1;
@@ -213,6 +227,17 @@ function pickElement(path: string, world: { x: number; y: number }, mode: PickMo
   // The runtime reports tids; the path is recovered from the parsed template.
   const elementAt = pathOfTid(source, hit.tid);
   return elementAt ? { tid: hit.tid, path: elementAt, instance: hit.instance } : null;
+}
+
+/** Whether any of the selected elements is not locked. */
+function selectionHasUnlocked(path: string, items: readonly ElementSelection[]): boolean {
+  const source = useDocument.getState().boards[path]?.source;
+  if (!source) return false;
+  const model = templateOf(source);
+  return items.some((item) => {
+    const element = resolveElement(model, item.tid, item.path);
+    return element ? !isElementLocked(element) : false;
+  });
 }
 
 /** Whether `inner` lies within `outer` (a pixel of slack for rounding). */
@@ -474,7 +499,8 @@ export function Canvas() {
     setMenuPoint(board ? { board, world: worldOf(event) } : null);
     if (!board) return;
     if (objects.boards.includes(board)) return;
-    const picked = pickElement(board, worldOf(event), event.metaKey || event.ctrlKey ? 'deep' : 'click');
+    // A locked element is picked too: its menu unlocks it.
+    const picked = pickElement(board, worldOf(event), event.metaKey || event.ctrlKey ? 'deep' : 'click', { locked: true });
     if (!picked) {
       view.select({ kind: 'objects', boards: [board], notes: [] });
       return;
@@ -520,7 +546,7 @@ export function Canvas() {
     event.stopPropagation();
     const next = local(event);
     const tap = touchTap.current;
-    if (tap && Math.hypot(next.x - tap.x, next.y - tap.y) < DRAG_THRESHOLD) return;
+    if (tap && staysTap(tap, next)) return;
     touchTap.current = null;
     const pair = [...points.keys()].slice(0, 2);
     points.set(event.pointerId, next);
@@ -599,6 +625,7 @@ export function Canvas() {
 
   /** Starts what a press does here, given what it landed on. */
   const begin = (event: ReactPointerEvent<HTMLDivElement>, hit: Hit): void => {
+    useView.getState().setHoverObject(null);
     if (event.button === 2) {
       endTextEdit();
       selectForMenu(event, hit);
@@ -659,6 +686,11 @@ export function Canvas() {
       const { target } = hit;
       const note = 'note' in target ? doc.canvas.notes[target.note] : undefined;
       const rect = 'board' in target ? doc.canvas.boards[target.board] : note ? noteBounds(note) : undefined;
+      if ('board' in target ? isLockedObject(rect as BoardEntry | undefined) : isLockedObject(note)) {
+        refuseLocked();
+        drag.current = null;
+        return;
+      }
       if (rect) {
         doc.beginGesture();
         drag.current = { kind: 'resize', handle: hit.handle, target, startX: world.x, startY: world.y, base: doc.canvas, rect: { x: rect.x, y: rect.y, w: rect.w, h: rect.h } };
@@ -687,10 +719,16 @@ export function Canvas() {
       }
       view.select({ kind: 'objects', ...next });
       if (doc.readOnly) return;
+      // A locked item is selected but stays put; locked items in the selection stay behind.
+      if (item.board ? isLockedObject(doc.canvas.boards[item.board]) : isLockedObject(doc.canvas.notes[item.note!])) {
+        drag.current = null;
+        return;
+      }
+      const free = unlockedObjects(doc.canvas, next.boards, next.notes);
       // The engine moves what it draws (snapping, Shift locking the axis) and commits the move.
       const kept = item.board ? next.boards.includes(item.board) : next.notes.includes(item.note!);
       if (kept && startEngineMove(item.board ? { board: item.board } : { note: item.note! }, event.nativeEvent, point)) drag.current = null;
-      else drag.current = { kind: 'move', startX: world.x, startY: world.y, base: doc.canvas, boards: next.boards, notes: next.notes, moved: false };
+      else drag.current = { kind: 'move', startX: world.x, startY: world.y, base: doc.canvas, boards: free.boards, notes: free.notes, moved: false };
     };
 
     if (hit.kind === 'title') {
@@ -791,14 +829,22 @@ export function Canvas() {
       return;
     }
     if (!current) {
+      // The pointer carries Alt too: keys pressed while an artboard frame has focus don't reach this window.
+      view.setAltHeld(event.altKey);
       // Hover highlight inside artboards (throttled to one pick per frame); none while the engine drags.
-      if (view.tool !== 'select' || view.textEdit || event.buttons) return;
+      if (view.tool !== 'select' || view.textEdit || event.buttons) {
+        view.setHoverObject(null);
+        return;
+      }
       const target = event.target;
       const clientX = event.clientX;
       const clientY = event.clientY;
+      const touch = event.pointerType === 'touch';
       cancelAnimationFrame(hoverFrame.current);
       hoverFrame.current = requestAnimationFrame(() => {
         const hit = hitOf(target, { clientX, clientY });
+        // The artboard or note under the pointer gets a hover ring (not under a finger).
+        view.setHoverObject(touch ? null : hit.kind === 'note' ? { note: hit.note } : hit.kind === 'board' || hit.kind === 'title' ? { board: hit.board } : null);
         const board = hit.kind === 'board' ? hit.board : undefined;
         if (!board) {
           view.setHover(null);
@@ -825,11 +871,8 @@ export function Canvas() {
           current.moved = true;
           doc.beginGesture();
         }
-        // Shift locks to the dominant axis.
-        if (event.shiftKey) {
-          if (Math.abs(dx) > Math.abs(dy)) dy = 0;
-          else dx = 0;
-        }
+        // Shift keeps the move across, upright or on a diagonal.
+        if (event.shiftKey) ({ x: dx, y: dy } = shiftDragDelta(dx, dy));
         doc.updateCanvas(() => moveObjects(current.base, current.boards, current.notes, dx, dy));
         break;
       }
@@ -845,7 +888,8 @@ export function Canvas() {
         const rect = spanRect({ x: current.startX, y: current.startY }, world);
         setMarquee(rect);
         const canvasNow = doc.canvas;
-        const hitBoards = boardsOnPage(canvasNow, view.page).filter((p) => intersects(rect, canvasNow.boards[p]!));
+        // Locked artboards are left out.
+        const hitBoards = boardsOnPage(canvasNow, view.page).filter((p) => !isLockedObject(canvasNow.boards[p]) && intersects(rect, canvasNow.boards[p]!));
         const touched = notesOnPage(canvasNow, view.page).filter((id) => intersects(rect, noteBounds(canvasNow.notes[id]!)));
         // A box touching one note of a group selects the whole group.
         const hitNotes = touched.length ? expandNotesToGroups(groupItems(canvasNow), touched, current.initial.notes) : touched;
@@ -877,16 +921,21 @@ export function Canvas() {
           current.moved = true;
           current.click = null;
           current.positioned = selectionIsPositioned();
+          current.pinned = current.positioned ? selectionPinnedAxes() : undefined;
           view.setHover(null);
+          // Positioned elements move without the locked ones; in the flow nothing moves when any is locked.
+          if (selectionHasLock() && (!current.positioned || !selectionHasUnlocked(current.board, selection.items))) {
+            drag.current = null;
+            refuseLocked();
+            return;
+          }
         }
         if (current.positioned) {
-          // Shift locks to the dominant axis.
-          let x = Math.round(dx);
-          let y = Math.round(dy);
-          if (event.shiftKey) {
-            if (Math.abs(x) > Math.abs(y)) y = 0;
-            else x = 0;
-          }
+          // Shift keeps the move on one of eight directions; an element set
+          // from both sides on an axis never moves along it.
+          let { x, y } = event.shiftKey ? shiftDragDelta(Math.round(dx), Math.round(dy)) : { x: Math.round(dx), y: Math.round(dy) };
+          if (current.pinned?.x) x = 0;
+          if (current.pinned?.y) y = 0;
           if (x !== current.applied.x || y !== current.applied.y) {
             if (moveSelectedElements(x - current.applied.x, y - current.applied.y, { coalesce: current.key })) current.applied = { x, y };
           }
@@ -1061,7 +1110,10 @@ export function Canvas() {
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerUp}
-      onPointerLeave={() => useView.getState().setHover(null)}
+      onPointerLeave={() => {
+        useView.getState().setHover(null);
+        useView.getState().setHoverObject(null);
+      }}
       onDoubleClick={onDoubleClick}
       onDragOver={(event) => {
         if (!readOnly) event.preventDefault();

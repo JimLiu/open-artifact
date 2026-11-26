@@ -3,12 +3,19 @@ import { toast } from '@open-artifact/ui';
 import { addNote, edit } from './commands.ts';
 import { useDocument } from '../state/document.ts';
 import { session } from './session.ts';
+import { isLockedObject } from '@open-artifact/design-core';
+import { refuseLocked } from './locks.ts';
 
 /** Uploads dropped or pasted images and places them on the canvas or inside the target artboard. */
 export async function placeImages(files: readonly File[], at: { x: number; y: number }, board?: string): Promise<void> {
   const { assets } = session();
   if (!assets) {
     toast.add({ title: 'Images cannot be added here', description: 'This host does not accept uploads.' });
+    return;
+  }
+  // Nothing is dropped into a locked artboard.
+  if (board && isLockedObject(useDocument.getState().canvas.boards[board])) {
+    refuseLocked();
     return;
   }
   let offset = 0;

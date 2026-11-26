@@ -13,7 +13,7 @@
  * `groups` lists of the notes they touch. Every function here is pure.
  */
 
-import { freshId, MAX_NOTE_GROUPS, type Canvas, type CanvasNote } from './canvas.ts';
+import { freshId, MAX_NOTE_GROUPS, pageOf, type Canvas, type CanvasNote } from './canvas.ts';
 
 /** A note as the group functions see it. */
 export interface GroupedItem {
@@ -295,6 +295,41 @@ export function restackNotes(canvas: Canvas, ids: readonly string[], to: 'front'
   const staying = keys.filter((id) => !picked.has(id));
   const order = to === 'front' ? [...staying, ...moving] : [...moving, ...staying];
   if (!moving.length || order.every((id, at) => id === keys[at])) return canvas;
+  const notes: Record<string, CanvasNote> = {};
+  for (const id of order) notes[id] = canvas.notes[id]!;
+  return { ...canvas, notes };
+}
+
+/**
+ * Moves notes one step up (`forward`) or down (`backward`) the stacking
+ * order: each steps past the next note on its page that is not moving, or
+ * past that note's whole group. Locked notes stay where they are. Returns
+ * the same canvas when nothing moves.
+ */
+export function stepNotes(canvas: Canvas, ids: readonly string[], direction: 'forward' | 'backward'): Canvas {
+  const moving = new Set(ids.filter((id) => id in canvas.notes && canvas.notes[id]!.locked !== true));
+  const keys = Object.keys(canvas.notes);
+  if (!moving.size) return canvas;
+  const index = noteGroupIndex(groupItems(canvas));
+  const page = (id: string) => pageOf(canvas, canvas.notes[id]!);
+  let order = [...keys];
+  const up = direction === 'forward';
+  // The note nearest the end it heads for goes first, so none jumps another.
+  const queue = keys.filter((id) => moving.has(id));
+  if (up) queue.reverse();
+  for (const id of queue) {
+    const at = order.indexOf(id);
+    const ahead = up ? order.slice(at + 1) : order.slice(0, at).reverse();
+    const next = ahead.find((other) => !moving.has(other) && page(other) === page(id));
+    if (next === undefined) continue;
+    // Stepping past a grouped note steps past all of its group on this page.
+    const unit = new Set(expandToGroups(index, [next]).filter((other) => !moving.has(other) && page(other) === page(id)));
+    const rest = order.filter((other) => other !== id);
+    const spots = rest.flatMap((other, spot) => (unit.has(other) ? [spot] : []));
+    const spot = up ? Math.max(...spots) + 1 : Math.min(...spots);
+    order = [...rest.slice(0, spot), id, ...rest.slice(spot)];
+  }
+  if (order.every((id, at) => id === keys[at])) return canvas;
   const notes: Record<string, CanvasNote> = {};
   for (const id of order) notes[id] = canvas.notes[id]!;
   return { ...canvas, notes };

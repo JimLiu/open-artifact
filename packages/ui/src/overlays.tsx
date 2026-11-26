@@ -4,10 +4,10 @@
 import { Dialog as BaseDialog } from '@base-ui/react/dialog';
 import { Popover as BasePopover } from '@base-ui/react/popover';
 import { X } from 'lucide-react';
-import type { ReactElement, ReactNode } from 'react';
+import { useRef, type KeyboardEvent, type ReactElement, type ReactNode } from 'react';
 import { Button } from './button.tsx';
 import { cn } from './cn.ts';
-import { preventRepeatedActivation } from './keys.ts';
+import { blocksEarlyPress, preventRepeatedActivation, type EarlyPressTimes } from './keys.ts';
 import { POPUP_CLASS } from './menu.tsx';
 
 /** Props of {@link Popover}. */
@@ -45,12 +45,16 @@ export interface DialogProps {
   /** Footer buttons; defaults to none. */
   footer?: ReactNode;
   className?: string;
+  /** Called once the dialog has finished appearing or disappearing. */
+  onOpenChangeComplete?: (open: boolean) => void;
+  /** Sees every keydown and keyup inside the dialog first (capture phase). */
+  onKeyCapture?: (event: KeyboardEvent<HTMLElement>) => void;
 }
 
 /** A modal dialog. */
-export function Dialog({ open, onOpenChange, title, description, children, footer, className }: DialogProps) {
+export function Dialog({ open, onOpenChange, title, description, children, footer, className, onOpenChangeComplete, onKeyCapture }: DialogProps) {
   return (
-    <BaseDialog.Root open={open} onOpenChange={(next) => onOpenChange(next)}>
+    <BaseDialog.Root open={open} onOpenChange={(next) => onOpenChange(next)} onOpenChangeComplete={onOpenChangeComplete}>
       <BaseDialog.Portal>
         <BaseDialog.Backdrop className="fixed inset-0 z-[900] bg-black/30 transition-opacity data-[starting-style]:opacity-0 data-[ending-style]:opacity-0" />
         <BaseDialog.Popup
@@ -59,6 +63,8 @@ export function Dialog({ open, onOpenChange, title, description, children, foote
             'transition-[opacity,transform] data-[starting-style]:scale-95 data-[starting-style]:opacity-0 data-[ending-style]:opacity-0',
             className,
           )}
+          onKeyDownCapture={onKeyCapture}
+          onKeyUpCapture={onKeyCapture}
         >
           <div className="mb-3 flex items-start gap-3">
             <div className="flex-1">
@@ -85,17 +91,33 @@ export interface ConfirmDialogProps {
   description?: ReactNode;
   confirmLabel?: string;
   danger?: boolean;
+  /**
+   * With `danger`: while the dialog appears, Enter and Space from the
+   * keyboard do nothing in it, so the press that opened it (a held Enter or
+   * Delete) can't also confirm. Pointer clicks and Escape work as usual.
+   */
+  guardEarlyPress?: boolean;
   onConfirm: () => void;
 }
 
 /** A yes/no dialog. */
-export function ConfirmDialog({ open, onOpenChange, title, description, confirmLabel = 'Confirm', danger, onConfirm }: ConfirmDialogProps) {
+export function ConfirmDialog({ open, onOpenChange, title, description, confirmLabel = 'Confirm', danger, guardEarlyPress, onConfirm }: ConfirmDialogProps) {
+  const times = useRef<EarlyPressTimes | null>(null);
+  const guarded = Boolean(danger && guardEarlyPress);
+  if (!open) times.current = null;
+  else if (guarded && !times.current) times.current = { opened: performance.now(), shown: null };
   return (
     <Dialog
       open={open}
       onOpenChange={onOpenChange}
       title={title}
       description={description}
+      onOpenChangeComplete={guarded ? (shown) => {
+        if (shown && times.current && times.current.shown === null) times.current = { ...times.current, shown: performance.now() };
+      } : undefined}
+      onKeyCapture={guarded ? (event) => {
+        if (times.current && blocksEarlyPress(times.current, performance.now(), { key: event.key, repeat: event.repeat, isTrusted: event.nativeEvent.isTrusted })) event.preventDefault();
+      } : undefined}
       footer={
         <>
           <Button onClick={() => onOpenChange(false)}>Cancel</Button>

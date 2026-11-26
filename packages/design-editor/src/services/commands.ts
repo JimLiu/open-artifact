@@ -5,18 +5,24 @@
 
 import {
   addNoteCopies,
+  anyLockedObject,
   freshGroupId,
   freshId,
   groupItems,
   groupRefusalMessage,
+  isLockedObject,
   MAX_BOARD_SIZE,
   MIN_BOARD_SIZE,
+  moveCanvasPage,
   pageOf,
   placeNewBoard,
   planGroup,
   regroupNotes,
   restackNotes,
   selectionHasGroup,
+  stepNotes,
+  unlockedObjects,
+  withoutLock,
   type BoardEntry,
   type Canvas,
   type CanvasNote,
@@ -41,8 +47,12 @@ import { toast } from '@open-artifact/ui';
 import { detachMarkup, detachRefusal, instanceProps } from '../lib/detach.ts';
 import { freeBoardName, newBoardSource } from '../lib/frame.ts';
 import { importTargets, textEditOptions } from '../lib/text-edit.ts';
+import { isElementLocked, LOCKED_MESSAGE, lockVerdict, withoutLocks } from '../lib/locks.ts';
 import type { Address, BoardOp } from '../lib/ops.ts';
 import { flipTransform } from '../lib/transform.ts';
+import { layerOf } from '../lib/lone-shape.ts';
+import { pinnedAxes } from '../lib/drag-axis.ts';
+import { stackMessage, stacksUp, type StackOrder } from '../lib/stacking.ts';
 import { useDocument } from '../state/document.ts';
 import { NO_SELECTION, useView, type ElementSelection } from '../state/view.ts';
 import { templateOf } from './agent.ts';
@@ -50,9 +60,27 @@ import { boardApi } from './frames.ts';
 import { artifactPath, session } from './session.ts';
 import { visibleRect, zoomToBoards } from './viewport.ts';
 import { announce } from './announce.ts';
+import { refuseLocked } from './locks.ts';
 
-/** Applies an edit to the selected artboard and selects what it created. */
+/**
+ * Applies an edit to the selected artboard and selects what it created.
+ * Locked elements keep their place: an edit that would move, resize, delete
+ * or restructure one is refused, and placement is dropped from style edits
+ * (both with a toast).
+ */
 export function edit(board: string, op: BoardOp, options: { selectCreated?: boolean; coalesce?: string } = {}): boolean {
+  const source = useDocument.getState().boards[board]?.source;
+  if (source) {
+    const verdict = lockVerdict(templateOf(source), op);
+    if (verdict.kind === 'refused') {
+      refuseLocked();
+      return false;
+    }
+    if (verdict.kind === 'trimmed') {
+      op = verdict.op;
+      toast.add({ title: LOCKED_MESSAGE, description: 'Locked elements kept their size and position.' });
+    }
+  }
   // Words being typed on this board are written first: the edit re-renders the board.
   if (useView.getState().textEdit?.board === board) boardApi(board)?.endTextEdit(true);
   const result = useDocument.getState().editBoard(board, op, { coalesce: options.coalesce });
@@ -98,6 +126,10 @@ export function deleteSelection(): void {
       announce(selection.items.length === 1 ? 'Deleted' : `Deleted ${selection.items.length} elements`);
     }
   } else if (selection.kind === 'objects') {
+    if (anyLockedObject(doc.canvas, selection.boards, selection.notes)) {
+      refuseLocked();
+      return;
+    }
     if (selection.notes.length) {
       doc.updateCanvas((canvas) => {
         const notes = { ...canvas.notes };
@@ -130,15 +162,15 @@ export function duplicateSelection(): void {
     if (!entry || !source) continue;
     const name = freeBoardName(path.replace(/\.dc\.html$/, '').replace(/^.*\//, ''), taken);
     taken.add(name);
-    useDocument.getState().createBoard(name, source, { ...entry, x: entry.x + entry.w + 80 });
+    useDocument.getState().createBoard(name, source, { ...withoutLock(entry), x: entry.x + entry.w + 80 });
     newBoards.push(name);
   }
   let newNotes: string[] = [];
   if (selection.notes.length) {
     useDocument.getState().updateCanvas((canvas) => {
-      // Copies of a group form a new group of their own.
+      // Copies of a group form a new group of their own; copies start unlocked.
       const sources = selection.notes.flatMap((id) => (canvas.notes[id] ? [canvas.notes[id]!] : []));
-      const copied = addNoteCopies(canvas, sources, (note) => ({ ...note, x: note.x + 24, y: note.y + 24 }));
+      const copied = addNoteCopies(canvas, sources, (note) => ({ ...withoutLock(note), x: note.x + 24, y: note.y + 24 }));
       newNotes = copied.ids;
       return copied.canvas;
     });
@@ -160,6 +192,10 @@ export function groupSelectedNotes(kind: 'group' | 'ungroup'): void {
     toast.add({ title: 'Group and Ungroup work only on objects outside artboards. Select only those.' });
     return;
   }
+  if (anyLockedObject(doc.canvas, [], selection.notes)) {
+    refuseLocked();
+    return;
+  }
   const next = regroupNotes(doc.canvas, selection.notes, kind, freshGroupId(doc.canvas));
   if ('refused' in next) {
     toast.add({ title: groupRefusalMessage(next.refused) });
@@ -178,9 +214,40 @@ export function restackSelectedNotes(to: 'front' | 'back'): boolean {
   const { selection } = useView.getState();
   if (selection.kind !== 'objects' || !selection.notes.length) return false;
   if (!doc.readOnly) {
-    const next = restackNotes(doc.canvas, selection.notes, to);
+    // Locked notes stay where they are in the stack.
+    const { notes } = unlockedObjects(doc.canvas, [], selection.notes);
+    if (!notes.length) {
+      refuseLocked();
+      return true;
+    }
+    const next = restackNotes(doc.canvas, notes, to);
     if (next !== doc.canvas) doc.updateCanvas(() => next);
   }
+  return true;
+}
+
+/**
+ * Moves the selected notes or elements one step or to the end of the stack
+ * and says what happened. Returns false when the selection has neither.
+ */
+export function stackSelection(order: StackOrder): boolean {
+  const doc = useDocument.getState();
+  const { selection } = useView.getState();
+  if (selection.kind === 'objects' && selection.notes.length) {
+    if (doc.readOnly) return true;
+    const { notes } = unlockedObjects(doc.canvas, [], selection.notes);
+    if (!notes.length) {
+      refuseLocked();
+      return true;
+    }
+    const next = order === 'forward' || order === 'backward' ? stepNotes(doc.canvas, notes, order) : restackNotes(doc.canvas, notes, order);
+    if (next !== doc.canvas) doc.updateCanvas(() => next);
+    announce(stackMessage(order, next !== doc.canvas));
+    return true;
+  }
+  if (selection.kind !== 'elements' || doc.readOnly) return false;
+  const result = reorderSelection(stacksUp(order) ? 1 : -1, order === 'front' || order === 'back');
+  if (result) announce(stackMessage(order, result === 'moved'));
   return true;
 }
 
@@ -232,32 +299,61 @@ function siblingsOf(model: TemplateModel, element: HtmlElement): HtmlElement[] {
  * Moves the selection one step (`toEnd` false: before its previous / after
  * its next sibling) or to the first / last place among its siblings.
  */
-export function reorderSelection(direction: -1 | 1, toEnd = false): void {
+export function reorderSelection(direction: -1 | 1, toEnd = false): 'moved' | 'end' | null {
+  const plan = reorderPlan(direction, toEnd);
+  if (!plan || plan === 'end') return plan;
+  return edit(plan.board, plan.op, { selectCreated: true }) ? 'moved' : null;
+}
+
+/** The move `reorderSelection` would make: `'end'` when already there, `null` when it can't. */
+function reorderPlan(direction: -1 | 1, toEnd: boolean): { board: string; op: BoardOp } | 'end' | null {
   const selected = selectedElements();
-  if (!selected) return;
-  const { model, elements } = selected;
+  if (!selected) return null;
+  const { model } = selected;
+  // A shape that is its graphic's only layer stacks as the graphic.
+  const elements = [...new Set(selected.elements.map(layerOf))].sort((a, b) => a.start - b.start);
   const parent = elements[0]!.parent;
-  if (elements.some((el) => el.parent !== parent)) return;
+  if (elements.some((el) => el.parent !== parent)) return null;
   const siblings = siblingsOf(model, elements[0]!);
   const others = siblings.filter((el) => !elements.includes(el));
-  if (!others.length) return;
+  if (!others.length) return 'end';
   let neighbour: HtmlElement | undefined;
   if (toEnd) neighbour = direction > 0 ? others[others.length - 1] : others[0];
   else if (direction > 0) neighbour = siblings.slice(siblings.indexOf(elements[elements.length - 1]!) + 1).find((el) => !elements.includes(el));
   else neighbour = siblings.slice(0, siblings.indexOf(elements[0]!)).reverse().find((el) => !elements.includes(el));
-  if (!neighbour) return;
+  if (!neighbour) return 'end';
   // Already at that end.
-  if (toEnd && (direction > 0 ? neighbour.start < elements[0]!.start : neighbour.start > elements[elements.length - 1]!.start)) return;
-  edit(selected.board, { kind: 'move', targets: elements.map((el) => addressIn(model, el)), target: addressIn(model, neighbour), position: direction < 0 ? 'before' : 'after' }, { selectCreated: true });
+  if (toEnd && (direction > 0 ? neighbour.start < elements[0]!.start : neighbour.start > elements[elements.length - 1]!.start)) return 'end';
+  return { board: selected.board, op: { kind: 'move', targets: elements.map((el) => addressIn(model, el)), target: addressIn(model, neighbour), position: direction < 0 ? 'before' : 'after' } };
 }
 
-/** Selects every sibling of the selected element (⌘A inside an artboard). */
+/**
+ * Whether the selection can go `order`'s way in the stack: `false` when it
+ * is already at that end, `null` when it has nothing that stacks.
+ */
+export function stackRoom(order: StackOrder): boolean | null {
+  const { canvas } = useDocument.getState();
+  const { selection } = useView.getState();
+  if (selection.kind === 'objects' && selection.notes.length) {
+    const { notes } = unlockedObjects(canvas, [], selection.notes);
+    if (!notes.length) return null;
+    const next = order === 'forward' || order === 'backward' ? stepNotes(canvas, notes, order) : restackNotes(canvas, notes, order);
+    return next !== canvas;
+  }
+  if (selection.kind !== 'elements') return null;
+  const plan = reorderPlan(stacksUp(order) ? 1 : -1, order === 'front' || order === 'back');
+  return plan === null ? null : plan !== 'end';
+}
+
+/** Selects every sibling of the selected element that is not locked (⌘A inside an artboard). */
 export function selectAllSiblings(): void {
   const selected = selectedElements();
   if (!selected) return;
   const { model, elements, board } = selected;
-  const items = siblingsOf(model, elements[0]!).map((el) => ({ ...addressIn(model, el), instance: 0 }));
-  useView.getState().select({ kind: 'elements', board, items });
+  const items = siblingsOf(model, elements[0]!)
+    .filter((el) => !isElementLocked(el))
+    .map((el) => ({ ...addressIn(model, el), instance: 0 }));
+  if (items.length) useView.getState().select({ kind: 'elements', board, items });
 }
 
 /* ------------------------------ properties ------------------------------ */
@@ -269,8 +365,21 @@ let copiedStyle: string | null = null;
 export function copyProperties(): void {
   const selected = selectedElements();
   if (!selected) return;
+  if (!hasPropertiesToCopy()) {
+    toast.add({ title: `${NO_PROPERTIES}.` });
+    return;
+  }
   copiedStyle = attributeValue(selected.elements[0]!, 'style') ?? '';
   toast.add({ title: 'Properties copied' });
+}
+
+/** Why Copy properties does nothing: the element has no inline style. */
+export const NO_PROPERTIES = 'This element has no properties to copy';
+
+/** Whether the (first) selected element has an inline style to copy. */
+export function hasPropertiesToCopy(): boolean {
+  const selected = selectedElements();
+  return Boolean(selected && (attributeValue(selected.elements[0]!, 'style') ?? '').trim());
 }
 
 /** Replaces the inline style of every selected element with the copied one. */
@@ -302,14 +411,20 @@ const round = (value: number): string => `${Math.round(value * 100) / 100}px`;
 /**
  * Moves absolutely positioned elements by an offset in artboard pixels,
  * through `left`/`top` (or `right`/`bottom` when only those are set).
+ * Locked elements stay (with a toast when all of them are locked).
  * Returns `false` when any selected element is in the flow.
  */
 export function moveSelectedElements(dx: number, dy: number, options: { coalesce?: string } = {}): boolean {
   const selected = selectedElements();
   if (!selected) return false;
+  const free = selected.elements.filter((element) => !isElementLocked(element));
+  if (!free.length) {
+    refuseLocked();
+    return false;
+  }
   const api = boardApi(selected.board);
   const edits: { target: Address; patch: StylePatch }[] = [];
-  for (const element of selected.elements) {
+  for (const element of free) {
     const inline = styleMap(attributeValue(element, 'style') ?? '');
     const tid = selected.model.tidOf.get(element)!;
     const computed = api?.inspect(tid)?.computed ?? {};
@@ -328,6 +443,19 @@ export function moveSelectedElements(dx: number, dy: number, options: { coalesce
   }
   if (!edits.length) return false;
   return edit(selected.board, { kind: 'styles', edits }, { coalesce: options.coalesce });
+}
+
+/** Axes a drag of the selected positioned elements holds still: any of them set from both sides on it. */
+export function selectionPinnedAxes(): { x: boolean; y: boolean } {
+  const selected = selectedElements();
+  const out = { x: false, y: false };
+  for (const element of selected?.elements ?? []) {
+    if (isElementLocked(element)) continue;
+    const pinned = pinnedAxes(styleMap(attributeValue(element, 'style') ?? ''));
+    out.x ||= pinned.x;
+    out.y ||= pinned.y;
+  }
+  return out;
 }
 
 /** True when every selected element is absolutely positioned. */
@@ -447,26 +575,40 @@ export function startTextEdit(board: string, item: ElementSelection, caret: 'all
   return true;
 }
 
-/** Moves selected artboards and notes by a world offset (arrow keys). */
+/** Moves selected artboards and notes by a world offset (arrow keys); locked ones stay. */
 export function nudgeSelection(dx: number, dy: number): void {
   const { selection } = useView.getState();
   if (selection.kind !== 'objects') return;
-  useDocument.getState().updateCanvas((canvas) => moveObjects(canvas, selection.boards, selection.notes, dx, dy));
+  const doc = useDocument.getState();
+  const free = unlockedObjects(doc.canvas, selection.boards, selection.notes);
+  if (!free.boards.length && !free.notes.length) {
+    if (selection.boards.length || selection.notes.length) refuseLocked();
+    return;
+  }
+  doc.updateCanvas((canvas) => moveObjects(canvas, free.boards, free.notes, dx, dy));
 }
 
-/** Returns the canvas with artboards and notes moved. */
+/**
+ * Returns the canvas with artboards and notes moved. Locked ones stay; the
+ * same canvas comes back when nothing moved.
+ */
 export function moveObjects(canvas: Canvas, boards: readonly string[], notes: readonly string[], dx: number, dy: number): Canvas {
   const nextBoards = { ...canvas.boards };
+  let moved = false;
   for (const path of boards) {
     const entry = nextBoards[path];
-    if (entry) nextBoards[path] = { ...entry, x: Math.round(entry.x + dx), y: Math.round(entry.y + dy) };
+    if (!entry || isLockedObject(entry)) continue;
+    nextBoards[path] = { ...entry, x: Math.round(entry.x + dx), y: Math.round(entry.y + dy) };
+    moved = true;
   }
   const nextNotes = { ...canvas.notes };
   for (const id of notes) {
     const note = nextNotes[id];
-    if (note) nextNotes[id] = { ...note, x: Math.round(note.x + dx), y: Math.round(note.y + dy) };
+    if (!note || isLockedObject(note)) continue;
+    nextNotes[id] = { ...note, x: Math.round(note.x + dx), y: Math.round(note.y + dy) };
+    moved = true;
   }
-  return { ...canvas, boards: nextBoards, notes: nextNotes };
+  return moved ? { ...canvas, boards: nextBoards, notes: nextNotes } : canvas;
 }
 
 /** What a resize applies to. */
@@ -475,18 +617,19 @@ export type ResizeTarget = { board: string } | { note: string };
 /**
  * Returns the canvas with an artboard or note given a new world rect
  * (rounded; artboards kept within the size limits, titles take only the width).
+ * Locked ones keep their rect.
  */
 export function resizeObject(canvas: Canvas, target: ResizeTarget, rect: Rect): Canvas {
   const x = Math.round(rect.x);
   const y = Math.round(rect.y);
   if ('board' in target) {
     const entry = canvas.boards[target.board];
-    if (!entry) return canvas;
+    if (!entry || isLockedObject(entry)) return canvas;
     const size = (v: number) => Math.min(MAX_BOARD_SIZE, Math.max(MIN_BOARD_SIZE, Math.round(v)));
     return { ...canvas, boards: { ...canvas.boards, [target.board]: { ...entry, x, y, w: size(rect.w), h: size(rect.h) } } };
   }
   const note = canvas.notes[target.note];
-  if (!note) return canvas;
+  if (!note || isLockedObject(note)) return canvas;
   const w = Math.max(16, Math.round(rect.w));
   const patch = note.kind === 'title1' ? { x, y, maxW: w } : { x, y, w, h: Math.max(16, Math.round(rect.h)) };
   return { ...canvas, notes: { ...canvas.notes, [target.note]: { ...note, ...patch } } };
@@ -518,6 +661,21 @@ export function addBoard(at?: { x: number; y: number }, size = { w: 1280, h: 800
   doc.createBoard(path, newBoardSource({ title: entry.title!, width: size.w, height: size.h }), entry);
   view.select({ kind: 'objects', boards: [path], notes: [] });
   if (!at) zoomToBoards([path]);
+  return path;
+}
+
+/**
+ * The Artboard tool picked with Enter: an artboard goes in the next free
+ * spot at once, and its name field in the properties panel takes focus.
+ */
+export function addBoardFromKeyboard(): string | null {
+  const path = addBoard();
+  if (!path) return null;
+  const view = useView.getState();
+  view.setTool('select');
+  view.setPanel('properties', true);
+  view.requestFocus(`board-name:${path}`);
+  announce('Artboard added');
   return path;
 }
 
@@ -568,6 +726,31 @@ export function renamePage(id: string, name: string): void {
   const clean = name.trim().slice(0, 80);
   if (!clean) return;
   useDocument.getState().updateCanvas((canvas) => ({ ...canvas, pages: canvas.pages.map((p) => (p.id === id ? { ...p, name: clean } : p)) }));
+}
+
+/**
+ * Moves a page to follow `afterId` (`null` = first) in one undo step. The
+ * current page stays current. Returns whether the order changed.
+ */
+export function movePage(id: string, afterId: string | null): boolean {
+  const doc = useDocument.getState();
+  if (doc.readOnly) return false;
+  const before = doc.canvas;
+  doc.updateCanvas((canvas) => moveCanvasPage(canvas, id, afterId));
+  return useDocument.getState().canvas !== before;
+}
+
+/** Moves a page one place up or down the list and says so. */
+export function stepPage(id: string, direction: -1 | 1): boolean {
+  const pages = useDocument.getState().canvas.pages;
+  const at = pages.findIndex((p) => p.id === id);
+  const to = at + direction;
+  if (at < 0 || to < 0 || to >= pages.length) return false;
+  // Moving up lands after the page two places up; moving down, after the next one.
+  const after = direction < 0 ? (to === 0 ? null : pages[to - 1]!.id) : pages[to]!.id;
+  const moved = movePage(id, after);
+  if (moved) announce(direction < 0 ? 'Page moved up' : 'Page moved down');
+  return moved;
 }
 
 /** Deletes a page with its artboards and notes (undoable). */
@@ -756,7 +939,8 @@ export async function detachSelection(): Promise<void> {
       failures.push(result.reason);
       continue;
     }
-    plans.push({ target: addressIn(selected.model, element), html: result.html, helmet: result.helmet });
+    // The copy starts unlocked, whatever the component locks.
+    plans.push({ target: addressIn(selected.model, element), html: withoutLocks(result.html), helmet: result.helmet });
   }
   if (!plans.length) {
     toast.add({ title: 'Couldn’t detach', description: failures[0] });

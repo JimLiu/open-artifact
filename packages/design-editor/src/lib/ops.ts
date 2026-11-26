@@ -49,6 +49,7 @@ import {
   type TemplateModel,
 } from '@open-artifact/dc';
 import { knownWords } from './text-edit.ts';
+import { lockSplices, withoutLocks } from './locks.ts';
 
 /** Where an element sits in a template: both must agree for it to resolve. */
 export interface Address {
@@ -90,8 +91,11 @@ export type BoardOp =
   /** Wraps the element's whole content in `<a href>` (the element itself stays). */
   | { kind: 'linkText'; target: Address; href: string }
   | { kind: 'remove'; targets: Address[] }
+  /** Copies land unlocked. */
   | { kind: 'duplicate'; targets: Address[] }
-  /** Inserts HTML; `helmet` is appended to the template's `<helmet>` (styles carried from another artboard). */
+  /** Locks the elements (`data-locked="true"`) or unlocks them (removing the attribute, see `lib/locks.ts`). */
+  | { kind: 'lock'; targets: Address[]; locked: boolean }
+  /** Inserts HTML (without locks); `helmet` is appended to the template's `<helmet>` (styles carried from another artboard). */
   | { kind: 'insert'; target: Address | null; position: InsertPosition; html: string; helmet?: string }
   | { kind: 'move'; targets: Address[]; target: Address; position: InsertPosition }
   | { kind: 'wrap'; targets: Address[]; open: string; close: string }
@@ -289,13 +293,19 @@ export function applyOp(source: string, op: BoardOp): OpResult | null {
       case 'duplicate': {
         const elements = resolveAll(model, op.targets);
         if (!elements) return null;
-        splices = duplicateElements(model, elements);
+        splices = duplicateElements(model, elements).map((splice) => ({ ...splice, text: withoutLocks(splice.text) }));
+        break;
+      }
+      case 'lock': {
+        const elements = resolveAll(model, op.targets);
+        if (!elements) return null;
+        splices = lockSplices(model, elements, op.locked);
         break;
       }
       case 'insert': {
         const target = op.target ? resolveElement(model, op.target.tid, op.target.path) : null;
         if (op.target && !target) return null;
-        splices = insertHtml(model, target, op.position, op.html);
+        splices = insertHtml(model, target, op.position, withoutLocks(op.html));
         if (op.helmet) splices.push(helmetSplice(model, op.helmet));
         break;
       }
@@ -334,7 +344,7 @@ export function applyOp(source: string, op: BoardOp): OpResult | null {
   const template = applySplices(model.text, splices);
   const after = parseTemplate(template);
   let created =
-    op.kind === 'style' || op.kind === 'styles' || op.kind === 'attr' || op.kind === 'text' || op.kind === 'importText'
+    op.kind === 'style' || op.kind === 'styles' || op.kind === 'attr' || op.kind === 'lock' || op.kind === 'text' || op.kind === 'importText'
       ? []
       : elementsStartingIn(after, insertedRanges(splices)).filter((address) => !inHelmet(after.elements[address.tid]));
   if (op.kind === 'richText') {

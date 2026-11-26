@@ -5,7 +5,7 @@
  */
 
 import { announce } from '@open-artifact/editor-kit';
-import { boardsOnPage } from '@open-artifact/design-core';
+import { boardsOnPage, isLockedObject } from '@open-artifact/design-core';
 import { useDocument } from '../state/document.ts';
 import { useView, type Selection } from '../state/view.ts';
 import { templateOf } from './agent.ts';
@@ -22,7 +22,7 @@ export function describeSelection(selection: Selection): string {
   if (selection.kind === 'objects') {
     const { boards, notes } = selection;
     if (boards.length + notes.length === 0) return 'Selection cleared';
-    if (boards.length === 1 && notes.length === 0) return `Artboard ${boardTitle(boards[0]!)} selected`;
+    if (boards.length === 1 && notes.length === 0) return `Artboard ${boardTitle(boards[0]!)}${isLockedObject(useDocument.getState().canvas.boards[boards[0]!]) ? ', locked' : ''} selected`;
     if (notes.length === 1 && boards.length === 0) {
       const note = useDocument.getState().canvas.notes[notes[0]!];
       const text = note?.text?.trim();

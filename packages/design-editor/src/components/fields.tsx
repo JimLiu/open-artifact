@@ -77,6 +77,8 @@ export interface PInputProps {
   disabled?: boolean;
   className?: string;
   mono?: boolean;
+  /** What an arrow key adds (Shift: ten times it); 1 when not given. */
+  step?: number;
   'aria-label'?: string;
 }
 
@@ -87,7 +89,7 @@ export interface PInputProps {
  * field steps from its placeholder. Undo and redo with nothing typed undo
  * the design, not the field's text.
  */
-export function PInput({ value, onCommit, placeholder, unit, prefix, disabled, className, mono, ...aria }: PInputProps) {
+export function PInput({ value, onCommit, placeholder, unit, prefix, disabled, className, mono, step = 1, ...aria }: PInputProps) {
   const [draft, setDraft] = useState(value);
   const cancelled = useRef(false);
   const field = useRef<HTMLInputElement>(null);
@@ -132,7 +134,7 @@ export function PInput({ value, onCommit, placeholder, unit, prefix, disabled, c
             setDraft(value);
             event.currentTarget.blur();
           } else if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
-            const stepped = stepLength(draft, placeholder ?? '', (event.key === 'ArrowUp' ? 1 : -1) * (event.shiftKey ? 10 : 1), unit !== undefined);
+            const stepped = stepLength(draft, placeholder ?? '', (event.key === 'ArrowUp' ? 1 : -1) * (event.shiftKey ? 10 : 1) * step, unit !== undefined);
             if (stepped === null) return;
             event.preventDefault();
             const shown = unit && stepped.endsWith(unit) ? stepped.slice(0, -unit.length) : stepped;

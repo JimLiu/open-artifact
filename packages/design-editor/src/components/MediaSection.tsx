@@ -116,7 +116,8 @@ export function MediaSection({ ctx, readOnly }: { ctx: ElementContext; readOnly:
         </PButton>
         {video ? null : (
           <PButton
-            disabled={locked}
+            disabled={locked || ctx.lockedWhy !== null}
+            title={ctx.lockedWhy ?? undefined}
             aria-pressed={cropping}
             className={cropping ? 'bg-chrome-selected' : undefined}
             onClick={() => {
@@ -128,7 +129,7 @@ export function MediaSection({ ctx, readOnly }: { ctx: ElementContext; readOnly:
           </PButton>
         )}
         {!video && ctx.inline['clip-path'] ? (
-          <PButton disabled={locked} onClick={() => ctx.set({ 'clip-path': null })}>
+          <PButton disabled={locked || ctx.lockedWhy !== null} title={ctx.lockedWhy ?? undefined} onClick={() => ctx.set({ 'clip-path': null })}>
             Reset crop
           </PButton>
         ) : null}

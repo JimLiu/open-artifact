@@ -74,6 +74,8 @@ export interface BoardEntry {
   guides?: BoardGuide[];
   /** Corner radius, px. */
   radius?: number;
+  /** Locked on the canvas: it can't be moved, resized or deleted until unlocked. Unlocking removes the key. */
+  locked?: boolean;
   [key: string]: unknown;
 }
 
@@ -133,6 +135,8 @@ export interface CanvasNote {
   href?: string;
   /** Groups this note belongs to, innermost first (see `note-groups.ts`). */
   groups?: string[];
+  /** Locked on the canvas: it can't be moved, resized or deleted until unlocked. Unlocking removes the key. */
+  locked?: boolean;
   [key: string]: unknown;
 }
 
@@ -333,6 +337,36 @@ export function boardsOnPage(canvas: Canvas, page: string | null): string[] {
 /** Note ids on a page. */
 export function notesOnPage(canvas: Canvas, page: string | null): string[] {
   return Object.keys(canvas.notes).filter((id) => page === null || pageOf(canvas, canvas.notes[id]!) === page);
+}
+
+/**
+ * Moves a page so it follows `afterId` (`null` puts it first). Returns the
+ * canvas itself when nothing would change or an id is unknown. Artboards and
+ * notes count as being on the first page when they name no (known) page, so
+ * when the first page changes they get that page's id written in first and
+ * stay where they are.
+ */
+export function moveCanvasPage(canvas: Canvas, pageId: string, afterId: string | null): Canvas {
+  const from = canvas.pages.findIndex((page) => page.id === pageId);
+  if (from < 0 || afterId === pageId) return canvas;
+  if (afterId !== null && !canvas.pages.some((page) => page.id === afterId)) return canvas;
+  const rest = canvas.pages.filter((page) => page.id !== pageId);
+  const at = afterId === null ? 0 : rest.findIndex((page) => page.id === afterId) + 1;
+  const pages = [...rest.slice(0, at), canvas.pages[from]!, ...rest.slice(at)];
+  if (pages.every((page, i) => page === canvas.pages[i])) return canvas;
+  const oldFirst = canvas.pages[0]!.id;
+  if (pages[0]!.id === oldFirst) return { ...canvas, pages };
+  const pin = <T extends { page?: string }>(items: Record<string, T>): Record<string, T> => {
+    let changed = false;
+    const out: Record<string, T> = {};
+    for (const [key, item] of Object.entries(items)) {
+      const stays = item.page !== oldFirst && pageOf(canvas, item) === oldFirst;
+      out[key] = stays ? { ...item, page: oldFirst } : item;
+      changed ||= stays;
+    }
+    return changed ? out : items;
+  };
+  return { ...canvas, pages, boards: pin(canvas.boards), notes: pin(canvas.notes) };
 }
 
 /** A fresh id not used by `taken`. */

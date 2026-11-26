@@ -1,6 +1,6 @@
 # Shaders
 
-One shader is one artboard. Its levers are ordinary tweaks. Words or buttons over it are ordinary markup after the `<canvas>`, absolutely placed, with `pointer-events: none`, and `auto` on buttons.
+One shader is one artboard, or one layer of a PAGE (see A layer in a page). Its levers are ordinary tweaks. Words or buttons over it are ordinary markup after the `<canvas>`, placed on top of it; the kit still follows the pointer through them. Editing a shader made with an older kit? Put this kit in its place, since the old one only heard the pointer on the canvas itself.
 
 You don't run your work, so keep to this page's sample, kit and building blocks.
 
@@ -152,12 +152,17 @@ function drop(force) {
   trail.length = Math.min(trail.length, 12);
 }
 function point(e) {
-  aim = [e.offsetX / (view.clientWidth || 1), 1 - e.offsetY / (view.clientHeight || 1)];
-  inside = true; run();
+  var box = view.getBoundingClientRect(), x = (e.clientX - box.left) / (box.width || 1), y = (e.clientY - box.top) / (box.height || 1);
+  inside = x >= 0 && y >= 0 && x <= 1 && y <= 1;
+  if (!inside) { down = false; return false; }
+  aim = [x, 1 - y];
+  if (shown) run();
+  return true;
 }
 var on = {
-  pointermove: (e) => { point(e); drop(false); },
-  pointerdown: (e) => { point(e); down = true; drop(true); },
+  pointerover: point,
+  pointermove: (e) => { if (point(e)) drop(false); },
+  pointerdown: (e) => { if (!point(e)) return; down = true; drop(true); },
   pointerup: () => { down = false; },
   pointerleave: () => { inside = false; down = false; }
 };
@@ -168,9 +173,10 @@ var seen = new IntersectionObserver((es) => {
   else { halt(); away = setTimeout(sleep, 1500); }
 });
 function hold(el) {
+  var root = document.documentElement;
   for (var ev in on) {
-    if (view) view.removeEventListener(ev, on[ev]);
-    if (el) el.addEventListener(ev, on[ev]);
+    if (el) root.addEventListener(ev, on[ev]);
+    else root.removeEventListener(ev, on[ev]);
   }
   seen.disconnect();
   view = el;
@@ -217,6 +223,28 @@ class Component extends DCLogic {
 ```
 
 In `project/canvas.json`, every shader's `boards` entry has `"is_interactive": true`, or it gets no Play button.
+
+## A layer in a page
+
+A hero, background or card of a longer PAGE gets its shader from a file of its own, imported. That file is the sample above with its root set to `position: absolute; inset: 0` instead of `position: relative` and a size. It needs a `$preview` and a `boards` entry of its own, and the page's entry takes `"is_interactive": true` too. The import passes each lever on by name and takes no `style`: the shader file's root places itself, filling the nearest positioned box.
+
+```html
+<section style="position: relative; min-height: 560px; overflow: hidden; background: #0B3A4A">
+<dc-import name="Tide" speed="{{tide.speed}}" water="{{tide.water}}" light="{{tide.light}}" ripple="{{tide.ripple}}" hint-size="100%,100%"></dc-import>
+<div style="position: relative; padding: 120px 32px; color: #FFFFFF">
+<h1>Headline</h1>
+<a href="#start" style="color: #FFFFFF">A link</a>
+</div>
+</section>
+```
+
+- Words over it stay readable over its brightest part.
+- The page's Tweaks show only the page's own levers, so repeat the shader's levers in the page's `data-props` and return `tide: this.props` from its `renderVals()`.
+- A shader nothing else uses may live in the page itself, with its `<canvas>` as the box's first child, `position: absolute; inset: 0`. The cost: a shader error then stops the page's logic too, where an imported one fails on its own.
+
+## When nobody asked for one
+
+A new design about something that moves (the sea, weather, fire, light, cloth) may carry one shader, no more, as its hero or background, when it suits the design. Never in forms, tables, dashboards, documents or print. Mention it in your reply.
 
 ## Uniforms the kit sets, if declared
 
@@ -291,13 +319,13 @@ float caustic(vec2 p, float t) {
 ## Rules
 
 - Flashing stays inside the accessibility limit at any tweak setting: nothing brightens and darkens over much of the artboard more than 3 times a second. Asked for a strobe, pulse as fast as that allows and say so.
-- A shader someone asked for is exempt from "no gradient washes".
+- Every shader is exempt from "no gradient washes", asked for or not.
 - Comments in `FRAG` are short labels. Nothing on the canvas holds instructions to an agent or a later reader: those live on this page.
 
 ## Limits
 
 One pass, no memory between frames, no pictures: no true fluid or particle simulation, no photo, video, camera, microphone or network input. Asked for one, make the effect itself over an abstract ground in the brief's colors, never a painted stand-in, and say in your reply what it can't do.
 
-A desktop browser runs about 16 shaders at once; the rest hold still.
+A desktop browser runs about 16 shaders at once, and an imported shader counts its own artboard as well as the page's layer; the rest hold still.
 
 In your reply, say to press Play to use the pointer, and that Tweaks holds the levers.

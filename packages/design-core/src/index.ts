@@ -6,6 +6,7 @@
 
 export * from './canvas.ts';
 export * from './note-groups.ts';
+export * from './locks.ts';
 export * from './merge.ts';
 export * from './view-context.ts';
 export * from './check.ts';

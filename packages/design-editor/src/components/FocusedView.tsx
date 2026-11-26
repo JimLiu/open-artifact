@@ -26,6 +26,8 @@ import { ErrorNotice, useBoardProblems, useCanAskAgent } from './BoardErrors.tsx
 import { noticeClosed } from '../lib/board-errors.ts';
 import { ChromeButton, ChromeMenu, ChromeMenuItem, ChromeMenuLabel, ChromeMenuSeparator, Tip, TipGroup, useShellDraw } from '@open-artifact/editor-kit/react';
 import { isTextField } from '@open-artifact/editor-kit';
+import { watchSwipes } from '../services/swipe.ts';
+import { useComments } from '../services/comments.ts';
 
 /** Padding around an artboard in Fit. */
 const PAD = 48;
@@ -80,6 +82,33 @@ export function FocusedView({ path }: { path: string }) {
     return () => window.removeEventListener('keydown', onKey);
   });
 
+  // On touch screens a sideways swipe steps too, on the backdrop or inside the
+  // frame, unless a menu, dialog or comment is open. A frame that had focus
+  // hands it to the next one.
+  const canSwipe = (): boolean => {
+    if (siblings.length < 2) return false;
+    const comments = useComments.getState();
+    if (comments.on || comments.draft || comments.active) return false;
+    return !document.querySelector('[role="menu"], [role="listbox"], [role="dialog"]:not([data-toast]), [role="alertdialog"]:not([data-toast])');
+  };
+  const refocus = useRef(false);
+  const swipeTo = (direction: -1 | 1): void => {
+    refocus.current = document.activeElement instanceof HTMLIFrameElement && Boolean(box.current?.contains(document.activeElement));
+    step(direction);
+  };
+  const swipeRef = useRef({ canSwipe, swipeTo });
+  swipeRef.current = { canSwipe, swipeTo };
+  useEffect(() => {
+    const element = box.current;
+    if (!element) return;
+    return watchSwipes(element, { enabled: () => swipeRef.current.canSwipe(), onSwipe: (direction) => swipeRef.current.swipeTo(direction) });
+  }, []);
+  useEffect(() => {
+    if (!refocus.current) return;
+    refocus.current = false;
+    box.current?.querySelector('iframe')?.focus();
+  }, [path]);
+
   const title = entry?.title || path.replace(/^.*\//, '').replace(/\.dc\.html$/, '');
   const fit = focusedFit(preferred, entry?.expand);
 
@@ -113,7 +142,7 @@ export function FocusedView({ path }: { path: string }) {
       <TipGroup>
         <header className="flex h-12 shrink-0 items-center gap-1 border-b border-chrome-line bg-chrome px-2 text-chrome-fg">
           <Tip label="Back to canvas" shortcut="Esc">
-            <ChromeButton square aria-label="Back to canvas" onClick={() => focus(null)}>
+            <ChromeButton data-focus-landing="" square aria-label="Back to canvas" onClick={() => focus(null)}>
               <ChevronLeft className="size-4" />
             </ChromeButton>
           </Tip>
@@ -149,7 +178,7 @@ export function FocusedView({ path }: { path: string }) {
               borderRadius: fit ? entry.radius : 0,
             }}
           >
-            <BoardFrame key={path} path={path} mode="play" width={frame.width} height={frame.height} interactive onNavigate={navigate} />
+            <BoardFrame key={path} path={path} mode="play" width={frame.width} height={frame.height} interactive onNavigate={navigate} canSwipe={canSwipe} onSwipe={swipeTo} />
           </div>
         ) : null}
         {problem && !noticeClosed(closedNotices, problem) ? <ErrorNotice problem={problem} canAsk={canAsk} className="absolute inset-x-3 bottom-3" /> : null}

@@ -102,6 +102,7 @@ export function checkDesignProject(files: ReadonlyMap<string, string>, options: 
     if (entry?.expand !== undefined && entry.expand !== 'fill') add('canvas.json', 'error', `Board "${path}" expand must be "fill".`);
     if (entry?.print !== undefined && entry.print !== 'flow' && entry.print !== 'fixed') add('canvas.json', 'error', `Board "${path}" print must be "flow" or "fixed".`);
     if (entry?.paper !== undefined && entry.paper !== 'letter' && entry.paper !== 'a4') add('canvas.json', 'error', `Board "${path}" paper must be "letter" or "a4".`);
+    if (entry?.locked !== undefined && typeof entry.locked !== 'boolean') add('canvas.json', 'error', `Board "${path}" locked must be true or false.`);
     if (Array.isArray(entry?.guides) && entry.guides.length > MAX_GUIDES) add('canvas.json', 'error', `Board "${path}" has more than ${MAX_GUIDES} guides.`);
     if (!order.includes(path)) add('canvas.json', 'error', `Board "${path}" is missing from "order".`);
   }
@@ -165,6 +166,7 @@ export function checkDesignProject(files: ReadonlyMap<string, string>, options: 
       if (below.length) add('canvas.json', 'error', `Title "${id}" is ${Number(below[0]![1].y) - y} px above ${below[0]![0]}. Leave 223 px above its row (y ≤ ${Number(below[0]![1].y) - 223}).`);
       if (over.length) add('canvas.json', 'error', `Title "${id}" sits over ${over[0]![0]}. Move it at least 223 px above its row.`);
     }
+    if (note.locked !== undefined && typeof note.locked !== 'boolean') add('canvas.json', 'error', `Note "${id}" locked must be true or false.`);
     if (note?.groups !== undefined) {
       const groups = note.groups;
       if (!Array.isArray(groups) || groups.some((group) => typeof group !== 'string' || !ID_PATTERN.test(group))) {

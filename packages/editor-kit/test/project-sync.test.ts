@@ -270,6 +270,37 @@ describe('createProjectSync', () => {
     assert.deepEqual(editor.timers.pending(), [0]);
   });
 
+  it('settles: waits out a save already running, then writes what changed meanwhile', async () => {
+    const host = fakeHost({ 'project/a.txt': 'a' });
+    const editor = toyEditor(host);
+    const release = host.hold();
+    editor.edit('project/a.txt', '1');
+    editor.timers.advance(700);
+    await settle();
+    editor.edit('project/a.txt', '2');
+    let settled = false;
+    const done = editor.sync.settle().then(() => void (settled = true));
+    await settle();
+    assert.equal(settled, false, 'still waiting on the first save');
+    release();
+    await done;
+    assert.equal(host.published.length, 2);
+    assert.equal(host.files.get('project/a.txt')?.text, 'a12');
+    assert.equal(editor.save(), 'saved');
+  });
+
+  it('settles at once with nothing unsaved, and gives up while offline', async () => {
+    const host = fakeHost({ 'project/a.txt': 'a' });
+    const editor = toyEditor(host);
+    await editor.sync.settle();
+    assert.equal(host.published.length, 0);
+    host.refuse('offline');
+    editor.edit('project/a.txt', '1');
+    await editor.sync.settle();
+    assert.equal(host.published.length, 1);
+    assert.equal(editor.save(), 'offline');
+  });
+
   it('on a conflict reads theirs, lets the editor merge, and retries', async () => {
     const host = fakeHost({ 'project/a.txt': 'a' });
     const editor = toyEditor(host);

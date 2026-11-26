@@ -14,6 +14,8 @@ import { useDocument } from '../state/document.ts';
 import { useView } from '../state/view.ts';
 import { edit, selectedElements, undo } from './commands.ts';
 import { boardApi } from './frames.ts';
+import { isElementLocked } from '../lib/locks.ts';
+import { refuseLocked } from './locks.ts';
 
 interface Target {
   address: Address;
@@ -52,6 +54,10 @@ export function armScale(): void {
   const selected = selectedElements();
   if (!selected) {
     toast.add({ title: 'Select elements to scale them' });
+    return;
+  }
+  if (selected.elements.some(isElementLocked)) {
+    refuseLocked();
     return;
   }
   const { board, model } = selected;

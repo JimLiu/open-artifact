@@ -50,6 +50,9 @@ export type Selection =
 export const NO_SELECTION: Selection = { kind: 'none' };
 
 /** Runtime state of a mounted artboard frame. */
+/** An artboard or a note under the pointer. */
+export type HoverObject = { board: string; note?: undefined } | { note: string; board?: undefined };
+
 export interface FrameInfo {
   booted: boolean;
   errors: BoardError[];
@@ -64,6 +67,12 @@ export interface ViewState {
   selection: Selection;
   /** Element under the pointer. */
   hover: { board: string; tid: number; instance: number } | null;
+  /** Artboard or note under the pointer (its hover ring, and what Alt measures to). */
+  hoverObject: HoverObject | null;
+  /** Alt is held: distances from the selection to what the pointer is on show. */
+  altHeld: boolean;
+  /** A field that should take focus once it shows (`board-name:<path>`). */
+  focusRequest: string | null;
   /** The artboard the comment pointer rests on: kept live so its elements can be picked at any zoom (services/live.ts). */
   peek: string | null;
   /** In-place text editing. */
@@ -118,6 +127,9 @@ export interface ViewActions {
   setTool(tool: Tool): void;
   select(selection: Selection): void;
   setHover(hover: ViewState['hover']): void;
+  setHoverObject(hover: HoverObject | null): void;
+  setAltHeld(on: boolean): void;
+  requestFocus(target: string | null): void;
   setPeek(peek: string | null): void;
   setTextEdit(edit: ViewState['textEdit']): void;
   /** Updates the text edit in progress (nothing when none is). */
@@ -161,6 +173,9 @@ export const useView = create<ViewState & ViewActions>()((set, get) => ({
   tool: 'select',
   selection: NO_SELECTION,
   hover: null,
+  hoverObject: null,
+  altHeld: false,
+  focusRequest: null,
   peek: null,
   textEdit: null,
   noteEdit: null,
@@ -188,7 +203,7 @@ export const useView = create<ViewState & ViewActions>()((set, get) => ({
     set({ camera: { ...camera, zoom } });
   },
   setPage(page) {
-    if (get().page !== page) set({ page, playing: null, selection: NO_SELECTION, hover: null, peek: null, crop: null });
+    if (get().page !== page) set({ page, playing: null, selection: NO_SELECTION, hover: null, hoverObject: null, peek: null, crop: null });
   },
   setTool(tool) {
     set({ tool, playing: null });
@@ -200,6 +215,17 @@ export const useView = create<ViewState & ViewActions>()((set, get) => ({
     const current = get().hover;
     if (current?.board === hover?.board && current?.tid === hover?.tid && current?.instance === hover?.instance) return;
     set({ hover });
+  },
+  setHoverObject(hoverObject) {
+    const current = get().hoverObject;
+    if (current?.board === hoverObject?.board && current?.note === hoverObject?.note) return;
+    set({ hoverObject });
+  },
+  setAltHeld(altHeld) {
+    if (get().altHeld !== altHeld) set({ altHeld });
+  },
+  requestFocus(focusRequest) {
+    if (get().focusRequest !== focusRequest) set({ focusRequest });
   },
   setPeek(peek) {
     if (get().peek !== peek) set({ peek });
@@ -215,7 +241,7 @@ export const useView = create<ViewState & ViewActions>()((set, get) => ({
     set({ noteEdit });
   },
   focus(path) {
-    set(path ? { mode: 'focused', focused: path, playing: null, hover: null } : { mode: 'canvas', focused: null });
+    set(path ? { mode: 'focused', focused: path, playing: null, hover: null, hoverObject: null } : { mode: 'canvas', focused: null });
   },
   play(path) {
     set({ playing: path, hover: null, selection: NO_SELECTION, tool: 'select', noteEdit: null, textEdit: null });

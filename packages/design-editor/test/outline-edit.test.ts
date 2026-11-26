@@ -82,3 +82,65 @@ describe('whole-source op', () => {
     assert.match(templateText(result.source), /<p>New<\/p>/);
   });
 });
+
+describe('layers: rows follow their element', async () => {
+  const { carryTids, climbAfter, levelsLeft } = await import('../src/lib/outline.ts');
+
+  it('maps tids across an insert, a delete and a style edit', () => {
+    const before = parseTemplate('<div><h1>Title</h1><p>Body</p><ul><li>One</li></ul></div>');
+    // tids: div 0, h1 1, p 2, ul 3, li 4
+    const inserted = parseTemplate('<div><h2>New</h2><h1>Title</h1><p>Body</p><ul><li>One</li></ul></div>');
+    assert.deepEqual([...carryTids(before, inserted)], [[0, 0], [1, 2], [2, 3], [3, 4], [4, 5]]);
+    const removed = parseTemplate('<div><h1>Title</h1><ul><li>One</li></ul></div>');
+    assert.deepEqual([...carryTids(before, removed)], [[0, 0], [1, 1], [3, 2], [4, 3]]);
+    const styled = parseTemplate('<div><h1 style="color: red">Title</h1><p>Body</p><ul><li>One</li></ul></div>');
+    assert.deepEqual([...carryTids(before, styled)], [[0, 0], [1, 1], [2, 2], [3, 3], [4, 4]]);
+  });
+
+  it('climbs out of last children only, and not out of a repeat', () => {
+    const model = parseTemplate('<div><section><p>A</p><p>B</p></section><footer></footer></div><sc-for each="x"><span>1</span></sc-for>');
+    // tids: div 0, section 1, p 2, p 3, footer 4, sc-for 5, span 6
+    assert.deepEqual(climbAfter(model, 3, 5), [3, 1]);
+    assert.deepEqual(climbAfter(model, 2, 5), [2]);
+    assert.deepEqual(climbAfter(model, 4, 1), [4, 0]);
+    assert.deepEqual(climbAfter(model, 6, 3), [6]);
+    assert.equal(levelsLeft(100, 70, 16), 2);
+    assert.equal(levelsLeft(100, 120, 16), 0);
+  });
+});
+
+describe('layers: a graphic of one shape', async () => {
+  const { buildOutline, loneLabelOp, rowTidOf } = await import('../src/lib/outline.ts');
+  const source = board('<div><svg viewBox="0 0 10 10" data-label="Pointer"><path d="M0 0L10 10" stroke="#000" data-label="old"/></svg></div>');
+  const model = modelOf(source);
+
+  it('shows as one row named for the shape, labelled by the graphic', () => {
+    const [root] = buildOutline(model);
+    const row = root!.children[0]!;
+    assert.equal(row.children.length, 0);
+    assert.equal(row.glyph, 'shape');
+    assert.equal(row.detail, 'Pointer');
+    assert.equal(model.elements[row.tid]!.tag, 'svg');
+  });
+
+  it('selects the graphic row for its shape, and renaming clears the shape name', () => {
+    const svgTid = buildOutline(model)[0]!.children[0]!.tid;
+    const shapeTid = model.elements.findIndex((element) => element.tag === 'path');
+    assert.equal(rowTidOf(model, shapeTid), svgTid);
+    const op = loneLabelOp(model, svgTid)!;
+    assert.ok(!apply(source, [op]).includes('data-label="old"'));
+  });
+});
+
+describe('layers: rows follow their element through a move', async () => {
+  const { carryTids } = await import('../src/lib/outline.ts');
+  it('keeps the elements a move passes over', () => {
+    const before = modelOf(board('<div><p>a</p><svg><rect/></svg><h2>b</h2></div>'));
+    const after = modelOf(board('<div><svg><rect/></svg><h2>b</h2><p>a</p></div>'));
+    const svg = (model: typeof before) => model.elements.findIndex((element) => element.tag === 'svg');
+    const p = (model: typeof before) => model.elements.findIndex((element) => element.tag === 'p');
+    const map = carryTids(before, after);
+    assert.equal(map.get(svg(before)), svg(after));
+    assert.equal(map.get(p(before)), p(after));
+  });
+});

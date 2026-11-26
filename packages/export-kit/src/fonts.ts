@@ -127,7 +127,37 @@ export function fontSources(src: string): FontSource[] {
   });
 }
 
-/** Every `url(…)` in a CSS text: the whole match and the address. */
+/**
+ * Every `url(…)` in a CSS text: the whole match and the address, as written
+ * (backslash escapes are kept). A quoted address runs to its closing quote,
+ * so it may hold `)`, the other quote and escaped characters; an unquoted one
+ * ends at the first quote or `)`.
+ */
 export function cssUrls(css: string): { match: string; url: string }[] {
-  return Array.from(css.matchAll(/url\((['"]?)([^'")]+)\1\)/g), (match) => ({ match: match[0], url: match[2]! }));
+  const found: { match: string; url: string }[] = [];
+  let from = 0;
+  for (;;) {
+    const start = css.indexOf('url(', from);
+    if (start < 0) return found;
+    const address = urlArgument(css, start + 'url('.length);
+    if (address) {
+      found.push({ match: css.slice(start, address.end), url: address.url });
+      from = address.end;
+    } else from = start + 1;
+  }
+}
+
+/** The address of a `url(` whose argument starts at `at`, and where the call ends; null when it is not well formed. */
+function urlArgument(css: string, at: number): { url: string; end: number } | null {
+  const quote = css[at];
+  if (quote === '"' || quote === "'") {
+    let close = at + 1;
+    while (close < css.length && css[close] !== quote) close += css[close] === '\\' ? 2 : 1;
+    if (close === at + 1 || close >= css.length || css[close + 1] !== ')') return null;
+    return { url: css.slice(at + 1, close), end: close + 2 };
+  }
+  let close = at;
+  while (close < css.length && css[close] !== ')' && css[close] !== '"' && css[close] !== "'") close++;
+  if (close === at || css[close] !== ')') return null;
+  return { url: css.slice(at, close), end: close + 1 };
 }

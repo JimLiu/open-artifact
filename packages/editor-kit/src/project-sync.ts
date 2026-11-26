@@ -84,6 +84,11 @@ export interface ProjectSync {
   schedule(delay?: number): void;
   /** Saves now (coalescing with a save already running). */
   flush(): Promise<void>;
+  /**
+   * Resolves once nothing is left unsaved: waits for a save already running,
+   * then saves what is still dirty. Stops early when offline or read-only.
+   */
+  settle(): Promise<void>;
   /** Retries a failed save now, resetting the backoff. */
   retryNow(): void;
   /** Applies changes made elsewhere (path → new hash, `null`: deleted). `force` re-reads even known hashes and ignores text edits. */
@@ -102,6 +107,8 @@ export function createProjectSync<Sent, Run>(options: ProjectSyncOptions<Sent, R
   let timer: unknown = null;
   let running = false;
   let again = false;
+  /** The save in progress, if any. */
+  let current: Promise<void> | null = null;
   let offlineDelay = OFFLINE_FIRST_MS;
   /** Paths whose remote change waits for a text edit to end. */
   const deferred = new Map<string, string | null>();
@@ -116,11 +123,33 @@ export function createProjectSync<Sent, Run>(options: ProjectSyncOptions<Sent, R
     }, delay);
   }
 
-  async function flush(): Promise<void> {
+  function flush(): Promise<void> {
     if (running) {
       again = true;
-      return;
+      return Promise.resolve();
     }
+    const run = saveNow();
+    current = run;
+    const done = () => {
+      if (current === run) current = null;
+    };
+    run.then(done, done);
+    return run;
+  }
+
+  async function settle(): Promise<void> {
+    for (let round = 0; round <= maxRetries; round++) {
+      if (current) {
+        await current.catch(() => undefined);
+        continue;
+      }
+      if (options.readOnly() || !options.isDirty()) return;
+      await flush();
+      if (options.save() === 'offline') return;
+    }
+  }
+
+  async function saveNow(): Promise<void> {
     running = true;
     try {
       for (let attempt = 0; attempt <= maxRetries; attempt++) {
@@ -212,6 +241,7 @@ export function createProjectSync<Sent, Run>(options: ProjectSyncOptions<Sent, R
     start,
     schedule,
     flush,
+    settle,
     retryNow() {
       offlineDelay = OFFLINE_FIRST_MS;
       schedule(0);

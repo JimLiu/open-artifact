@@ -78,7 +78,7 @@ export type BoardEvent =
    */
   | { type: 'link-edit'; href: string; collapsed: boolean; rect: BoardRect; host?: boolean }
   /** A key the editor handles (undo, delete…) was pressed inside the frame. */
-  | { type: 'key'; key: string; code?: string; meta: boolean; shift: boolean; alt: boolean };
+  | { type: 'key'; key: string; code?: string; meta: boolean; shift: boolean; alt: boolean; repeat?: boolean };
 
 /** Formatting toggles in-place text editing applies to the selection. */
 export type TextFormat = 'bold' | 'italic' | 'underline' | 'ul' | 'ol' | 'link';
@@ -167,8 +167,12 @@ export interface BoardApi {
   setMode(mode: BoardMode): void;
   /** The template node under a point, honoring import boundaries; `null` on empty space. */
   pick(x: number, y: number): PickResult | null;
-  /** Every element under a point, innermost first (for deep select). */
-  pickAll(x: number, y: number): PickResult[];
+  /**
+   * Every element under a point, innermost first (for deep select). With
+   * `skip`, the chain starts at the topmost element under the point whose
+   * template node is not one of those (what lies beneath them is reached).
+   */
+  pickAll(x: number, y: number, skip?: readonly number[]): PickResult[];
   /** Rects of every rendered instance of each template node. */
   rects(tids: readonly number[]): Record<number, BoardRect[]>;
   inspect(tid: number): ElementInspection | null;

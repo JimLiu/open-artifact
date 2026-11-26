@@ -76,4 +76,19 @@ describe('scene items', () => {
     assert.equal(oval.kind, 'path');
     assert.notEqual(oval.kind === 'path' && oval.fill, 'transparent');
   });
+
+  it('keeps locked artboards and notes in place, and lets pointers through an idle locked artboard', () => {
+    const entry: BoardEntry = { x: 0, y: 0, w: 400, h: 300, locked: true };
+    const active = boardItem('A.dc.html', entry, { hole: false, z: 0, editable: true, locked: true });
+    assert.equal(active.movable, false);
+    assert.equal(active.resizable, false);
+    assert.equal(active.hittable, undefined);
+    const idle = boardItem('A.dc.html', entry, { hole: false, z: 0, editable: true, locked: true, passThrough: true });
+    assert.equal(idle.hittable, false);
+    assert.equal(idle.selectable, false);
+    const note = noteItem('n1', { kind: 'sticky', x: 0, y: 0, text: 'Hi', locked: true } as CanvasNote, { z: 0, editable: true, locked: true });
+    assert.equal(note.movable, false);
+    assert.equal(note.resizable, false);
+    assert.equal(note.hittable, undefined);
+  });
 });

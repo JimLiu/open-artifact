@@ -1,0 +1,47 @@
+{
+  "v": 3,
+  "title": "Locks",
+  "launch": {
+    "view": "canvas"
+  },
+  "pages": [],
+  "boards": {
+    "Elements.dc.html": {
+      "x": 0,
+      "y": 0,
+      "w": 800,
+      "h": 520,
+      "title": "Locked elements"
+    },
+    "Locked.dc.html": {
+      "x": 900,
+      "y": 0,
+      "w": 800,
+      "h": 520,
+      "title": "Locked artboard",
+      "locked": true
+    }
+  },
+  "order": [
+    "Elements.dc.html",
+    "Locked.dc.html"
+  ],
+  "notes": {
+    "locked-note": {
+      "x": 0,
+      "y": 600,
+      "w": 260,
+      "h": 160,
+      "text": "A locked note: its words still change, it does not move.",
+      "locked": true
+    },
+    "free-note": {
+      "x": 300,
+      "y": 600,
+      "w": 260,
+      "h": 160,
+      "text": "An unlocked note, to compare."
+    }
+  },
+  "designSystems": []
+}

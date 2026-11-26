@@ -96,3 +96,18 @@ export function sanitizeHtml(html: string): string {
 export function looksLikeHtml(text: string): boolean {
   return /^\s*<[a-z!][\s\S]*>\s*$/i.test(text);
 }
+
+/** Past this many line breaks a pasted text keeps them with `white-space: pre-line` instead of `<br>`s. */
+const MAX_BREAKS = 500;
+
+/**
+ * Plain text as paragraphs (a blank line starts the next one). Its `{{`
+ * is broken with `<wbr>`, so pasted text never reads as a binding.
+ */
+export function textParagraphs(text: string): string {
+  const escape = (value: string): string => value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\{\{/g, '{<wbr>{');
+  const blocks = text.trim().split(/\n{2,}/);
+  const breaks = blocks.reduce((sum, block) => sum + (block.match(/\n/g)?.length ?? 0), 0);
+  if (breaks > MAX_BREAKS) return blocks.map((block) => `<p style="margin: 0; white-space: pre-line">${escape(block)}</p>`).join('\n');
+  return blocks.map((block) => `<p style="margin: 0">${escape(block).replace(/\n/g, '<br>')}</p>`).join('\n');
+}

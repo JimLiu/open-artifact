@@ -66,10 +66,12 @@ An open canvas takes the new files in at once.
 
 ## First: where a design system keeps itself
 
-Read `<its root>/project/README.md`, never its page: everything it names is under `<its root>/project/`
-(`project/api/…`, `project/tokens.json`); an upload it names by id is `<its root>/_blobs/<id>.<ext>`. No README:
-say so, never guess; a new system may have tokens and no README yet: its `project/tokens.json` alone is then what
-you read and install.
+Read `<its root>/project/README.md`, never its page, and `<its root>/project/tokens.json` in one message; a file
+that isn't found doesn't exist. Everything the README names is under `<its root>/project/` (`project/api/…`,
+`project/tokens.json`); an upload it names by id is `<its root>/_blobs/<id>.<ext>`. Apart from `tokens.json`, don't
+go looking for files it doesn't name, and when you got only part of it, read the rest (its Consuming section sits at
+the end). No README: say so, never guess; a new system may have tokens and no README yet: its `project/tokens.json`
+alone is then what you read and install.
 
 ## Mounting a design system's components
 

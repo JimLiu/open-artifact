@@ -12,7 +12,7 @@ import { cn } from '@open-artifact/ui';
 import { useDocument } from '../state/document.ts';
 import { useView } from '../state/view.ts';
 import { observeNoteSize } from '../services/engine.ts';
-import { DEFAULT_STICKY, arrowHeads, penViewBox, noteStroke, inlineRuns, isPathNote, markdownBlocks, noteBounds, noteColor, noteFontSize } from '../lib/notes.ts';
+import { DEFAULT_STICKY, arrowHeads, penViewBox, noteStroke, inlineRuns, isPathNote, markdownBlocks, noteBounds, noteColor, noteFontSize, textLines } from '../lib/notes.ts';
 
 /** Renders inline Markdown runs. */
 function Inline({ text }: { text: string }) {
@@ -267,7 +267,7 @@ export const NoteView = memo(function NoteView({ id, note, bare = false }: NoteV
         {editing ? (
           <NoteEditor id={id} note={note} style={textStyle} />
         ) : (
-          <div style={{ ...textStyle, height: fontSize * 1.35 * fit }}>
+          <div style={{ ...textStyle, height: fontSize * 1.35 * textLines(note.text) * fit }}>
             <span ref={titleContent} className="inline-block origin-top-left whitespace-pre" style={{ transform: `scale(${fit})` }}>{note.text || ' '}</span>
           </div>
         )}

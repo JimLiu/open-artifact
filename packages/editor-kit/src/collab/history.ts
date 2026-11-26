@@ -21,6 +21,12 @@ export interface HistoryAdapter<P> {
   loadPreview(history: HistoryCapability, n: number): Promise<P>;
   /** What the document is called in messages (default `document`). */
   noun?: string;
+  /**
+   * Called before a restore and awaited: writes edits still on their way to
+   * the files, so they don't land on top of the restored version afterwards.
+   * A failure doesn't stop the restore.
+   */
+  settle?(): Promise<void>;
 }
 
 /** The history store. */
@@ -110,6 +116,7 @@ export function createHistory<P>(adapter: HistoryAdapter<P>): HistoryController<
     },
     async restore(n) {
       if (!capability) return;
+      await adapter.settle?.().catch(() => undefined);
       try {
         const result = await capability.restore(n);
         notify({ title: result.changed.length ? `Restored version ${n}` : `The ${noun} already matches version ${n}` });
@@ -120,6 +127,7 @@ export function createHistory<P>(adapter: HistoryAdapter<P>): HistoryController<
     },
     async restorePaths(n, paths, what) {
       if (!capability) return null;
+      await adapter.settle?.().catch(() => undefined);
       try {
         return (await capability.restore(n, paths)).changed;
       } catch (error) {

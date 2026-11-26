@@ -16,6 +16,8 @@ import { textEditEvent } from '../services/text-edit.ts';
 import { artifactPath, session } from '../services/session.ts';
 import { handleFrameKey } from '../keyboard.ts';
 import { liveAll } from '../services/live.ts';
+import { watchSwipes } from '../services/swipe.ts';
+import type { SwipeStep } from '../lib/swipe.ts';
 
 export interface BoardFrameProps {
   path: string;
@@ -30,18 +32,28 @@ export interface BoardFrameProps {
   hideUntilBooted?: boolean;
   /** Keep the frame running but out of sight (a resting artboard, drawn from its snapshot). */
   hidden?: boolean;
+  /**
+   * Called for a one-finger sideways swipe inside the frame that the page
+   * doesn't use itself (lib/swipe.ts). Listening starts when the frame boots.
+   */
+  onSwipe?: (step: Exclude<SwipeStep, 0>) => void;
+  /** Whether a swipe would page right now (checked before `onSwipe`). */
+  canSwipe?: () => boolean;
 }
 
 /** Absolute URLs the frame document needs. */
 const urls = () => ({ runtime: new URL('support.js', location.href).toString(), project: new URL('project/', location.href).toString() });
 
-export function BoardFrame({ path, mode, width, height, interactive, onNavigate, hideUntilBooted = false, hidden = false }: BoardFrameProps) {
+export function BoardFrame({ path, mode, width, height, interactive, onNavigate, hideUntilBooted = false, hidden = false, onSwipe, canSwipe }: BoardFrameProps) {
   const ref = useRef<HTMLIFrameElement>(null);
   const sent = useRef<string | null>(null);
   const liveMode = useRef(mode);
   liveMode.current = mode;
   const navigate = useRef(onNavigate);
   navigate.current = onNavigate;
+  const swipe = useRef({ onSwipe, canSwipe });
+  swipe.current = { onSwipe, canSwipe };
+  const swipes = Boolean(onSwipe);
   const source = useDocument((s) => s.boards[path]?.source ?? null);
   const overrides = useView((s) => s.overrides[path]);
   const hasSource = source !== null;
@@ -53,6 +65,7 @@ export function BoardFrame({ path, mode, width, height, interactive, onNavigate,
     const initial = useDocument.getState().boards[path]?.source;
     if (!iframe || initial == null) return;
     const view = useView.getState();
+    let stopSwipes: (() => void) | null = null;
     const report = (event: BoardEvent): void => {
       const v = useView.getState();
       if (textEditEvent(path, event)) return;
@@ -61,6 +74,17 @@ export function BoardFrame({ path, mode, width, height, interactive, onNavigate,
           boardApi(path)?.setMode(liveMode.current);
           iframe.contentDocument?.documentElement.toggleAttribute('data-dc-canvas', liveMode.current === 'edit');
           v.frame(path, { booted: true, size: event.size, errors: boardApi(path)?.errors() ?? [] });
+          const doc = iframe.contentDocument;
+          if (swipes && doc && !stopSwipes) {
+            // Swipes inside the frame arrive in its own (possibly scaled) pixels.
+            const scale = (): number => iframe.getBoundingClientRect().width / (iframe.offsetWidth || 1);
+            stopSwipes = watchSwipes(doc, {
+              scale,
+              screenX: (x) => iframe.getBoundingClientRect().left + x * scale(),
+              enabled: () => swipe.current.canSwipe?.() ?? Boolean(swipe.current.onSwipe),
+              onSwipe: (step) => swipe.current.onSwipe?.(step),
+            });
+          }
           // Catch up with edits made while the frame was loading.
           const latest = useDocument.getState().boards[path]?.source;
           if (latest && latest !== sent.current) {
@@ -99,6 +123,7 @@ export function BoardFrame({ path, mode, width, height, interactive, onNavigate,
     iframe.srcdoc = frameDocument(path, initial, urls(), { canvas: mode === 'edit' });
     const unregister = registerFrame(path, iframe);
     return () => {
+      stopSwipes?.();
       unregister();
       // An artboard that stays on the canvas keeps its errors while it has no frame (services/live.ts).
       if (!liveAll && useDocument.getState().canvas.boards[path]) useView.getState().parkFrame(path);

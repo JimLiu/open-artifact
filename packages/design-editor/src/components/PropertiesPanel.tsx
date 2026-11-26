@@ -27,6 +27,7 @@ import {
   AlignRight,
   AlignStartHorizontal,
   AlignStartVertical,
+  Ban,
   ArrowDown,
   ArrowRight,
   Bold,
@@ -40,7 +41,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   attributeValue,
   elementKind,
@@ -58,7 +59,9 @@ import {
   type StylePatch,
   type TemplateModel,
 } from '@open-artifact/dc';
-import { NOTE_COLORS, type BoardEntry, type CanvasNote, type NoteSize } from '@open-artifact/design-core';
+import { isLockedObject, NOTE_COLORS, type BoardEntry, type CanvasNote, type NoteSize } from '@open-artifact/design-core';
+import { LOCK_ATTRIBUTE, LOCKED_REASON } from '../lib/locks.ts';
+import { useLockedWhy } from '../services/locks.ts';
 import { SliderInput, SwitchInput, cn } from '@open-artifact/ui';
 import { useDocument } from '../state/document.ts';
 import { useView } from '../state/view.ts';
@@ -76,6 +79,11 @@ import { isFontAvailable } from '../lib/fonts.ts';
 import { matchSystemStyle, systemStylePatch, styleById, useDesignSystems, useSystemSwatches, useSystemTextStyles } from '../services/design-systems.ts';
 import { ThemePanel } from './ThemePanel.tsx';
 import { MediaSection } from './MediaSection.tsx';
+import { BorderAlignButton } from './BorderAlign.tsx';
+import { alignedLookPatch, readAlignment } from '../lib/border-align.ts';
+import { fillColorPatch, isClearColor, removableFill } from '../lib/paint.ts';
+import { loneShapeOf } from '../lib/lone-shape.ts';
+import { removeFill } from '../services/paint.ts';
 import {
   PButton,
   PColor,
@@ -95,6 +103,8 @@ import {
   withoutUnit,
   type POption,
 } from './fields.tsx';
+
+import { isFixedPreset, nextPanelWidth, type PanelWidths } from '../lib/panel-width.ts';
 
 /* --------------------------------- storage -------------------------------- */
 
@@ -151,6 +161,11 @@ export interface ElementContext {
   computed: Record<string, string>;
   inspection: ElementInspection | null;
   locked: boolean;
+  /**
+   * Why the selection's size and position can't change (it is locked), or
+   * `null`. Separate from `locked`: everything else stays editable.
+   */
+  lockedWhy: string | null;
   set(patch: StylePatch): void;
 }
 
@@ -637,6 +652,63 @@ function TextSection({ ctx, source }: { ctx: ElementContext; source: string }) {
 
 /* ------------------------------- appearance ------------------------------- */
 
+/** Remove fill: shown while there is a fill to remove (a shape's or a single-shape graphic's too). */
+function RemoveFillButton({ ctx }: { ctx: ElementContext }) {
+  const subject = ctx.element.tag === 'svg' ? (loneShapeOf(ctx.element) ?? ctx.element) : ctx.element;
+  if (ctx.locked || !removableFill(subject, ctx.computed)) return null;
+  return (
+    <PTipButton tip="Remove fill" label="Remove fill" onClick={() => removeFill()}>
+      <Ban className="size-3.5" strokeWidth={1.75} />
+    </PTipButton>
+  );
+}
+
+/** The image layers of a background (a gradient or picture), as written: the shorthand, or `background-image`. */
+function LayersRow({ ctx }: { ctx: ElementContext }) {
+  const background = ctx.inline.background;
+  const layered = (value: string | undefined) => value !== undefined && /gradient|url\(/.test(value);
+  if (layered(background)) {
+    return (
+      <PRow label="Background">
+        <PInput aria-label="Background" mono value={background!} disabled={ctx.locked} onCommit={(next) => ctx.set({ background: next || null })} />
+      </PRow>
+    );
+  }
+  const image = ctx.inline['background-image'];
+  if (!layered(image)) return null;
+  return (
+    <PRow label="Background">
+      <PInput aria-label="Background image" mono value={image!} disabled={ctx.locked} onCommit={(next) => ctx.set({ 'background-image': next || null, ...(next ? {} : { 'background-size': null }) })} />
+    </PRow>
+  );
+}
+
+/**
+ * The border as one shorthand field and its alignment. An aligned border
+ * shows (and edits) the outline that draws it.
+ */
+function BorderRow({ ctx, placeholder }: { ctx: ElementContext; placeholder: string }) {
+  const { look } = readAlignment(ctx.inline);
+  const commit = (next: string) => {
+    if (!look) {
+      ctx.set({ border: next || null });
+      return;
+    }
+    const parts = next.trim().split(/\s+(?![^(]*\))/).filter(Boolean);
+    const width = parts.find((part) => /^(\d*\.?\d+[a-z%]*|thin|medium|thick)$/i.test(part));
+    const style = parts.find((part) => /^(none|hidden|solid|dashed|dotted|double|groove|ridge|inset|outset)$/.test(part));
+    const color = parts.filter((part) => part !== width && part !== style).join(' ');
+    const patch = alignedLookPatch(ctx.inline, next.trim() ? { width, style, color: color || undefined } : { style: 'none' }, ctx.computed);
+    if (patch) ctx.set(patch);
+  };
+  return (
+    <PRow label="Border">
+      <PInput aria-label="Border" value={look ? `${look.width} ${look.style} ${look.color}` : (ctx.inline.border ?? '')} placeholder={placeholder} disabled={ctx.locked} onCommit={commit} />
+      <BorderAlignButton element={ctx.element} computed={ctx.computed} disabled={ctx.locked} set={ctx.set} />
+    </PRow>
+  );
+}
+
 function AppearanceSection({ ctx }: { ctx: ElementContext }) {
   const swatches = useSystemSwatches();
   const background = ctx.inline.background;
@@ -651,17 +723,14 @@ function AppearanceSection({ ctx }: { ctx: ElementContext }) {
         <PColor
           aria-label="Fill"
           swatches={swatches}
-          value={fill}
-          placeholder={computedFill}
+          value={isClearColor(fill) ? '' : fill}
+          placeholder={computedFill ?? 'None'}
           disabled={ctx.locked}
-          onCommit={(next) => ctx.set(plainBackground ? { background: null, 'background-color': next || null } : { 'background-color': next || null })}
+          onCommit={(next) => ctx.set(fillColorPatch(ctx.inline, ctx.computed, next || null))}
         />
+        <RemoveFillButton ctx={ctx} />
       </PRow>
-      {background && !plainBackground ? (
-        <PRow label="Background">
-          <PInput aria-label="Background" mono value={background} disabled={ctx.locked} onCommit={(next) => ctx.set({ background: next || null })} />
-        </PRow>
-      ) : null}
+      <LayersRow ctx={ctx} />
       <PRow label="Opacity">
         <PInput
           aria-label="Opacity"
@@ -676,9 +745,7 @@ function AppearanceSection({ ctx }: { ctx: ElementContext }) {
         />
         <PInput aria-label="Corner radius" prefix="◜" className="w-[96px] shrink-0" value={withoutUnit(ctx.inline['border-radius'])} placeholder={roundPx(ctx.computed['border-top-left-radius'])} unit="px" disabled={ctx.locked} onCommit={(next) => ctx.set({ 'border-radius': next || null })} />
       </PRow>
-      <PRow label="Border">
-        <PInput aria-label="Border" value={ctx.inline.border ?? ''} placeholder={border} disabled={ctx.locked} onCommit={(next) => ctx.set({ border: next || null })} />
-      </PRow>
+      <BorderRow ctx={ctx} placeholder={border} />
       <PRow label="Clip">
         <PSelect
           aria-label="Overflow"
@@ -703,8 +770,8 @@ function EffectsSection({ ctx }: { ctx: ElementContext }) {
       <PRow label="Shadow">
         <PInput aria-label="Shadow" value={ctx.inline['box-shadow'] ?? ''} placeholder={!shadow || shadow === 'none' ? 'None' : shadow} disabled={ctx.locked} onCommit={(next) => ctx.set({ 'box-shadow': next || null })} />
       </PRow>
-      <PRow label="Transform">
-        <PInput aria-label="Transform" value={ctx.inline.transform ?? ''} placeholder={!ctx.computed.transform || ctx.computed.transform === 'none' ? 'None' : ctx.computed.transform} disabled={ctx.locked} onCommit={(next) => ctx.set({ transform: next || null })} />
+      <PRow label="Transform" title={ctx.lockedWhy ?? undefined}>
+        <PInput aria-label="Transform" value={ctx.inline.transform ?? ''} placeholder={!ctx.computed.transform || ctx.computed.transform === 'none' ? 'None' : ctx.computed.transform} disabled={ctx.locked || ctx.lockedWhy !== null} onCommit={(next) => ctx.set({ transform: next || null })} />
       </PRow>
     </PSection>
   );
@@ -736,6 +803,7 @@ function useElementContext(board: string): (ElementContext & { many: boolean; dy
   const model = useMemo(() => (source ? templateOf(source) : null), [source]);
   const element = useMemo(() => (model && first ? resolveElement(model, first.tid, first.path) : null), [model, first]);
   const inspection = useMemo(() => (first ? (boardApi(board)?.inspect(first.tid) ?? null) : null), [board, first, source, layoutTick]); // eslint-disable-line react-hooks/exhaustive-deps
+  const lockedWhy = useLockedWhy();
   if (!element || !model || !source || selection.kind !== 'elements') return null;
   const dynamic = hasDynamicStyle(element);
   const locked = dynamic || readOnly;
@@ -748,6 +816,7 @@ function useElementContext(board: string): (ElementContext & { many: boolean; dy
     computed: inspection?.computed ?? {},
     inspection,
     locked,
+    lockedWhy,
     dynamic,
     many: selection.items.length > 1,
     set: (patch) => {
@@ -764,8 +833,10 @@ function ElementInspector({ board }: { board: string }) {
   return (
     <div key={`${ctx.model.tidOf.get(ctx.element)}`}>
       {ctx.dynamic ? <PNote className="mx-3 mt-2 rounded-[8px] bg-chrome-hover text-chrome-secondary">This element’s style comes from code. Change it in Tweaks, or ask the agent.</PNote> : null}
-      <SizeSection ctx={ctx} />
-      <LayoutSection ctx={ctx} />
+      {ctx.lockedWhy ? <PNote className="mx-3 mt-2 rounded-[8px] bg-chrome-hover text-chrome-secondary">{ctx.lockedWhy}: its size, position and layout stay as they are.</PNote> : null}
+      {/* Locked: the size and layout rows are disabled, the rest stays editable. */}
+      <SizeSection ctx={ctx.lockedWhy ? { ...ctx, locked: true } : ctx} />
+      <LayoutSection ctx={ctx.lockedWhy ? { ...ctx, locked: true } : ctx} />
       {texty ? <TextSection ctx={ctx} source={ctx.source} /> : null}
       {ctx.element.tag === 'img' || ctx.element.tag === 'video' ? <MediaSection ctx={ctx} readOnly={readOnly} /> : null}
       <AppearanceSection ctx={ctx} />
@@ -790,13 +861,25 @@ function BoardInspector({ path }: { path: string }) {
   const pages = useDocument((s) => s.canvas.pages);
   const readOnly = useDocument((s) => s.readOnly);
   const focus = useView((s) => s.focus);
+  const focusRequest = useView((s) => s.focusRequest);
+  const nameRow = useRef<HTMLDivElement>(null);
+  // A new artboard placed from the keyboard: its name field takes focus.
+  useEffect(() => {
+    if (focusRequest !== `board-name:${path}`) return;
+    const input = nameRow.current?.querySelector('input');
+    if (!input) return;
+    input.focus();
+    input.select();
+    useView.getState().requestFocus(null);
+  }, [focusRequest, path, entry !== undefined]);
   if (!entry) return null;
+  const lockedWhy = isLockedObject(entry) ? LOCKED_REASON : undefined;
   const number = (key: 'x' | 'y' | 'w' | 'h', label: string) => (
     <PInput
       aria-label={label}
       prefix={label}
       value={String(entry[key])}
-      disabled={readOnly}
+      disabled={readOnly || Boolean(lockedWhy)}
       onCommit={(value) => {
         const n = num(value);
         if (Number.isFinite(n)) updateBoard(path, { [key]: Math.round(n) });
@@ -806,14 +889,16 @@ function BoardInspector({ path }: { path: string }) {
   return (
     <>
       <PSection title="Artboard">
-        <PRow label="Name">
-          <PInput aria-label="Artboard name" value={entry.title ?? ''} placeholder={path} disabled={readOnly} onCommit={(value) => updateBoard(path, { title: value.trim() || undefined })} />
-        </PRow>
-        <PRow label="Position">
+        <div ref={nameRow} className="contents">
+          <PRow label="Name">
+            <PInput aria-label="Artboard name" value={entry.title ?? ''} placeholder={path} disabled={readOnly} onCommit={(value) => updateBoard(path, { title: value.trim() || undefined })} />
+          </PRow>
+        </div>
+        <PRow label="Position" title={lockedWhy}>
           {number('x', 'X')}
           {number('y', 'Y')}
         </PRow>
-        <PRow label="Size">
+        <PRow label="Size" title={lockedWhy}>
           {number('w', 'W')}
           {number('h', 'H')}
         </PRow>
@@ -942,14 +1027,14 @@ function NoteInspector({ id }: { id: string }) {
           <PInput aria-label="Link" value={note.href ?? ''} disabled={readOnly} onCommit={(value) => updateNote(id, { href: value.trim() || undefined })} />
         </PRow></>
       ) : null}
-      <PRow label="Position">
+      <PRow label="Position" title={isLockedObject(note) ? LOCKED_REASON : undefined}>
         {(['x', 'y'] as const).map((key) => (
           <PInput
             key={key}
             aria-label={key.toUpperCase()}
             prefix={key.toUpperCase()}
             value={String(Math.round(note[key]))}
-            disabled={readOnly}
+            disabled={readOnly || isLockedObject(note)}
             onCommit={(value) => Number.isFinite(num(value)) && updateNote(id, { [key]: Math.round(num(value)) })}
           />
         ))}
@@ -1024,7 +1109,8 @@ function codeOf(element: HtmlElement): { css: string; attrs: Map<string, string 
   const attrs = new Map<string, string | null>();
   for (const attr of element.attrs) {
     const name = attr.name.toLowerCase();
-    if (name === 'style' || name.startsWith('data-dc') || name.startsWith('sc-')) continue;
+    // The lock marker is not edited here (its own command sets and clears it).
+    if (name === 'style' || name === LOCK_ATTRIBUTE || name.startsWith('data-dc') || name.startsWith('sc-')) continue;
     attrs.set(attr.name, attr.value);
   }
   const attrLines = [...attrs].map(([name, value]) => (value === null ? `@${name}` : `@${name}: ${value}`));
@@ -1274,6 +1360,83 @@ const WIDTH_KEY = 'mc-side/width';
 const OUTLINE_KEY = 'mc-side/outline';
 const maxWidth = () => Math.min(560, window.innerWidth - 120);
 
+const CUSTOM_WIDTH_KEY = 'mc-side/custom-width';
+const DEFAULT_WIDTH = 336;
+const MIN_WIDTH = 285;
+/** Pointer travel before a press on the grip resizes. */
+const RESIZE_AFTER = 3;
+/** Pointer travel after which a press is no click. */
+const CLICK_SLOP = 8;
+/** A click waits this long, so a double click does nothing. */
+const CLICK_DELAY = 500;
+
+/**
+ * The panel's resize grip. Dragging sets the width (a width that is no
+ * preset is kept as the custom one); a click or Enter steps through the
+ * presets (see `nextPanelWidth`).
+ */
+function PanelGrip({ width, onWidth }: { width: number; onWidth(width: number): void }) {
+  const press = useRef<{ x: number; y: number; start: number; resizing: boolean; click: boolean; last: number } | null>(null);
+  const pending = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(pending.current), []);
+  const widths = (): PanelWidths => ({ default: DEFAULT_WIDTH, min: MIN_WIDTH, max: maxWidth(), custom: stored(CUSTOM_WIDTH_KEY, 0) || null });
+  const step = (): void => {
+    const next = nextPanelWidth(width, widths());
+    onWidth(next);
+    store(WIDTH_KEY, next);
+  };
+  return (
+    <div
+      role="separator"
+      tabIndex={0}
+      aria-orientation="vertical"
+      aria-label="Resize panel"
+      aria-valuenow={Math.round(width)}
+      aria-valuemin={MIN_WIDTH}
+      aria-valuemax={Math.round(maxWidth())}
+      onPointerDown={(event) => {
+        if (event.button !== 0) return;
+        event.preventDefault();
+        event.currentTarget.setPointerCapture(event.pointerId);
+        press.current = { x: event.clientX, y: event.clientY, start: width, resizing: false, click: true, last: width };
+      }}
+      onPointerMove={(event) => {
+        const current = press.current;
+        if (!current) return;
+        const dx = event.clientX - current.x;
+        if (Math.hypot(dx, event.clientY - current.y) > CLICK_SLOP) current.click = false;
+        if (!current.resizing && Math.abs(dx) <= RESIZE_AFTER) return;
+        current.resizing = true;
+        current.click = false;
+        current.last = clamp(current.start - dx, MIN_WIDTH, maxWidth());
+        onWidth(current.last);
+      }}
+      onPointerUp={(event) => {
+        const current = press.current;
+        if (!current) return;
+        press.current = null;
+        event.currentTarget.releasePointerCapture(event.pointerId);
+        if (current.resizing) {
+          store(WIDTH_KEY, current.last);
+          if (!isFixedPreset(current.last, { default: DEFAULT_WIDTH, min: MIN_WIDTH, max: maxWidth() })) store(CUSTOM_WIDTH_KEY, current.last);
+          return;
+        }
+        if (!current.click) return;
+        window.clearTimeout(pending.current);
+        pending.current = window.setTimeout(step, CLICK_DELAY);
+      }}
+      onDoubleClick={() => window.clearTimeout(pending.current)}
+      onKeyDown={(event) => {
+        if (event.key !== 'Enter') return;
+        event.preventDefault();
+        event.stopPropagation();
+        step();
+      }}
+      className="absolute inset-y-0 -left-1 z-20 w-2 cursor-col-resize outline-none focus-visible:bg-chrome-accent/40"
+    />
+  );
+}
+
 /** The layers list with its bottom resize handle. */
 function OutlinePane() {
   const [height, setHeight] = useState(() => clamp(stored(OUTLINE_KEY, 168), 72, 480));
@@ -1306,26 +1469,17 @@ export function PropertiesPanel() {
   const panel = useView((s) => s.panel);
   const setPanel = useView((s) => s.setPanel);
   const togglePanel = useView((s) => s.togglePanel);
-  const [width, setWidth] = useState(() => clamp(stored(WIDTH_KEY, 336), 285, maxWidth()));
-  const [start, setStart] = useState(width);
-  const drag = useDragResize(
-    ({ dx }) => setWidth(clamp(start - dx, 285, maxWidth())),
-    () => store(WIDTH_KEY, width),
-  );
+  const [width, setWidth] = useState(() => clamp(stored(WIDTH_KEY, DEFAULT_WIDTH), MIN_WIDTH, maxWidth()));
+  // A narrower window narrows the panel with it.
+  useEffect(() => {
+    const fit = () => setWidth((current) => clamp(current, MIN_WIDTH, maxWidth()));
+    window.addEventListener('resize', fit);
+    return () => window.removeEventListener('resize', fit);
+  }, []);
 
   return (
     <aside className="relative flex h-full shrink-0 flex-col border-l border-chrome-sep bg-chrome text-chrome-fg" style={{ width }}>
-      <div
-        role="separator"
-        aria-orientation="vertical"
-        aria-label="Resize panel"
-        {...drag}
-        onPointerDown={(event) => {
-          setStart(width);
-          drag.onPointerDown(event);
-        }}
-        className="absolute inset-y-0 -left-1 z-20 w-2 cursor-col-resize"
-      />
+      <PanelGrip width={width} onWidth={setWidth} />
       <BaseTabs.Root value={panel} onValueChange={(value) => setPanel(value as typeof panel)} className="flex min-h-0 flex-1 flex-col">
         <div className="flex shrink-0 items-center gap-[6px] px-[6px] py-2">
           <BaseTabs.List className="flex min-w-0 flex-1 items-center gap-0.5">

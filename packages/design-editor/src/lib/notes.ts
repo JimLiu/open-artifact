@@ -54,8 +54,37 @@ export function noteBounds(note: CanvasNote): Rect {
   }
   if (note.kind === 'link') return { x: note.x, y: note.y, w: note.w ?? 640, h: note.h ?? 112 };
   const w = note.w ?? (note.kind === 'title1' ? Math.min(note.maxW ?? 1200, 480) : 240);
-  const h = note.h ?? (note.kind === 'title1' ? noteFontSize(note.size, note.kind) * 1.3 : 80);
+  const h = note.h ?? (note.kind === 'title1' ? noteFontSize(note.size, note.kind) * 1.3 * textLines(note.text) : 80);
   return { x: note.x, y: note.y, w, h };
+}
+
+/** Line height of note text, as a multiple of its size. */
+export const NOTE_LINE_HEIGHT = 1.35;
+
+/** Lines in a note's text (at least one). */
+export function textLines(text: string | undefined): number {
+  return text ? text.split('\n').length : 1;
+}
+
+/** Pasted text as a note keeps it: one kind of line break, no blank lines around it. */
+export function noteTextOf(text: string): string {
+  return text.replace(/\r\n?/g, '\n').replace(/^\s*\n|\s+$/g, '');
+}
+
+/** The box a text note needs: its widest line up to `maxW`, and its lines. */
+export function textNoteSize(text: string, fontSize: number, measure: (line: string) => number, maxW: number): { w: number; h: number } {
+  const lines = text.split('\n');
+  const widest = Math.max(1, ...lines.map((line) => measure(line)));
+  return { w: Math.ceil(Math.min(maxW, widest)), h: Math.ceil(fontSize * NOTE_LINE_HEIGHT * lines.length) };
+}
+
+/** Steps a new object along a diagonal until no object already starts at the same spot. */
+export function staggeredSpot(at: { x: number; y: number }, taken: readonly { x: number; y: number }[], step = 24, tries = 50): { x: number; y: number } {
+  let spot = { x: Math.round(at.x), y: Math.round(at.y) };
+  for (let i = 0; i < tries && taken.some((other) => Math.abs(other.x - spot.x) < step / 2 && Math.abs(other.y - spot.y) < step / 2); i++) {
+    spot = { x: spot.x + step, y: spot.y + step };
+  }
+  return spot;
 }
 
 /** One rendered piece of a sticky's Markdown. */

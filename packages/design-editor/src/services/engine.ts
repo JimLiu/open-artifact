@@ -29,11 +29,12 @@
  */
 
 import { CanvasEngine, parseColor, type CanvasItem, type HoleRect, type Theme } from '@open-artifact/canvas-engine';
-import { boardsOnPage, expandNotesToGroups, groupItems, notesOnPage } from '@open-artifact/design-core';
+import { boardsOnPage, expandNotesToGroups, groupItems, isLockedObject, notesOnPage } from '@open-artifact/design-core';
 import { boardItem, boardItemId, fromEngineCamera, imageKey, itemTarget, noteItem, noteItemId, smallSnapshot, SMALL_SNAPSHOT_WIDTH, toEngineCamera } from '../lib/scene.ts';
 import { useDocument } from '../state/document.ts';
 import { MAX_ZOOM, MIN_ZOOM, useView, type Camera, type Selection, type Tool } from '../state/view.ts';
 import { commitMove, commitResize } from './commands.ts';
+import { boardIsActive } from './locks.ts';
 import { isLive, useLive, type MotionSource } from './live.ts';
 import { cameraDriver, viewportSize } from './viewport.ts';
 
@@ -128,6 +129,11 @@ const noteObserver = typeof ResizeObserver === 'function'
       if (changed) active?.noteResized();
     })
   : null;
+
+/** The size a note's text box last rendered at, when it has been measured. */
+export function measuredNoteSize(id: string): { w: number; h: number } | undefined {
+  return noteSizes.get(id);
+}
 
 /**
  * Reports the size a note's text box renders at (world units; it decides the
@@ -224,6 +230,8 @@ export async function startEngine(canvas: HTMLCanvasElement, surface: HTMLElemen
   let motionZoom = 1;
   let zooming = false;
   let syncQueued = false;
+  /** A marquee is being drawn (its selection commit arrives before it ends). */
+  let marqueeing = false;
 
   /** Texture key of the snapshot an artboard should show now (by its snapshot and how large it is on screen). */
   const wantedTexture = (path: string): string | undefined => {
@@ -255,10 +263,13 @@ export async function startEngine(canvas: HTMLCanvasElement, surface: HTMLElemen
       // resolution) unless the snapshot is in other fonts than the frame.
       const standIn = shown.has(path) && (resting.has(path) || (zooming && !snapshots[path]?.rough));
       const hole = isLive(path, live) && Boolean(view.frames[path]?.booted) && (editing || !standIn);
-      const look = `${hole ? 'h' : 'i'}|${texture ?? ''}|${z}|${readOnly ? 'r' : 'w'}`;
+      const locked = isLockedObject(entry);
+      // A locked artboard nothing is selected in lets presses through to the canvas.
+      const passThrough = locked && !boardIsActive(view.selection, path);
+      const look = `${hole ? 'h' : 'i'}|${texture ?? ''}|${z}|${readOnly ? 'r' : 'w'}|${passThrough ? 'p' : locked ? 'l' : ''}`;
       const last = sent.get(id);
       if (last && last.source === entry && last.look === look) return;
-      upsert.push(remember(boardItem(path, entry, { hole, texture, z, editable: !readOnly }), entry, look));
+      upsert.push(remember(boardItem(path, entry, { hole, texture, z, editable: !readOnly, locked, passThrough }), entry, look));
     });
     notesOnPage(canvas, view.page).forEach((noteId, z) => {
       const note = canvas.notes[noteId]!;
@@ -269,7 +280,7 @@ export async function startEngine(canvas: HTMLCanvasElement, surface: HTMLElemen
       const last = sent.get(id);
       if (last && last.source === note && last.look === look) return;
       if (note.kind === 'image' && note.src) sources.set(imageKey(note.src), { url: note.src });
-      upsert.push(remember(noteItem(noteId, note, { z, editable: !readOnly, measured: size }), note, look));
+      upsert.push(remember(noteItem(noteId, note, { z, editable: !readOnly, locked: isLockedObject(note), measured: size }), note, look));
     });
     const remove = [...sent.keys()].filter((id) => !seen.has(id));
     for (const id of remove) sent.delete(id);
@@ -369,6 +380,7 @@ export async function startEngine(canvas: HTMLCanvasElement, surface: HTMLElemen
       if (!moving) refreshTextures();
     }),
     engine.on('gesture', (event) => {
+      if (event.kind === 'marquee') marqueeing = event.phase === 'start';
       surface.toggleAttribute('data-gesture', event.phase === 'start' && event.kind !== 'pan' && event.kind !== 'pinch');
     }),
     engine.on('holes', (event) => {
@@ -381,7 +393,12 @@ export async function startEngine(canvas: HTMLCanvasElement, surface: HTMLElemen
     engine.on('commit', (intent) => {
       const doc = useDocument.getState();
       if (intent.op === 'select') {
-        useView.getState().select(proposedSelection(intent.ids, intent.modifiers.shift));
+        // A marquee leaves locked artboards out (a click still selects one).
+        const ids = marqueeing ? intent.ids.filter((id) => {
+          const target = itemTarget(id);
+          return !(target && 'board' in target && isLockedObject(doc.canvas.boards[target.board]));
+        }) : intent.ids;
+        useView.getState().select(proposedSelection(ids, intent.modifiers.shift));
         return;
       }
       const before = doc.canvas;
@@ -438,7 +455,11 @@ export async function startEngine(canvas: HTMLCanvasElement, surface: HTMLElemen
   const unsubscribeView = useView.subscribe((state, prev) => {
     if (state.camera !== prev.camera && !echo) engine.setCamera(toEngineCamera(state.camera));
     if (state.tool !== prev.tool || state.spacePan !== prev.spacePan) engine.setTool(engineTool(state.tool, state.spacePan));
-    if (state.selection !== prev.selection) engine.setSelection(selectionIds(state.selection));
+    if (state.selection !== prev.selection) {
+      engine.setSelection(selectionIds(state.selection));
+      // Locked artboards take presses only while something is selected in them.
+      queueSync();
+    }
     if (state.page !== prev.page || state.frames !== prev.frames || state.textEdit !== prev.textEdit || state.playing !== prev.playing) queueSync();
   });
   const unsubscribeDocument = useDocument.subscribe((state, prev) => {

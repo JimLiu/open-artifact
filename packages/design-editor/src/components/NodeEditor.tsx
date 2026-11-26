@@ -13,17 +13,17 @@
  */
 
 import { useRef, type PointerEvent as ReactPointerEvent } from 'react';
-import type { CanvasNote } from '@open-artifact/design-core';
+import { isLockedObject, type CanvasNote } from '@open-artifact/design-core';
 import { useDocument } from '../state/document.ts';
 import { useView } from '../state/view.ts';
 import { announce } from '../services/announce.ts';
 import { bezierPathData, dragNode, editableNodes, notePatchForNodes, removeNode, splitSegment, toggleSmooth, type BezierNode, type NodePart } from '../lib/bezier.ts';
 
-/** The note being node-edited, if the selection is exactly one editable note. */
+/** The note being node-edited, if the selection is exactly one editable note (locked ones have no nodes to drag). */
 function useEditedNote(): { id: string; note: CanvasNote; nodes: BezierNode[] } | null {
   const id = useView((s) => (s.selection.kind === 'objects' && s.selection.boards.length === 0 && s.selection.notes.length === 1 && s.tool === 'select' && !s.noteEdit ? s.selection.notes[0]! : null));
   const note = useDocument((s) => (id && !s.readOnly ? s.canvas.notes[id] : undefined));
-  if (!id || !note) return null;
+  if (!id || !note || isLockedObject(note)) return null;
   const nodes = editableNodes(note);
   return nodes ? { id, note, nodes } : null;
 }

@@ -15,6 +15,7 @@ import {
   withNoteGroups,
   regroupNotes,
   restackNotes,
+  stepNotes,
   freshGroupId,
   addNoteCopies,
   type CanvasNote,
@@ -206,5 +207,40 @@ describe('restackNotes', () => {
   it('returns the same canvas when nothing moves', () => {
     assert.equal(restackNotes(canvas, ['c'], 'front'), canvas);
     assert.equal(restackNotes(canvas, ['zz'], 'back'), canvas);
+  });
+});
+
+describe('stepNotes', () => {
+  const note = (extra: Record<string, unknown> = {}) => ({ x: 0, y: 0, text: '', ...extra });
+  const canvas = normalizeCanvas({ notes: { a: note(), b: note(), c: note(), d: note() } });
+  const order = (next: ReturnType<typeof stepNotes>) => Object.keys(next.notes).join('');
+
+  it('steps one note past its neighbour', () => {
+    assert.equal(order(stepNotes(canvas, ['a'], 'forward')), 'bacd');
+    assert.equal(order(stepNotes(canvas, ['c'], 'backward')), 'acbd');
+  });
+
+  it('keeps a selection together and steps past one neighbour', () => {
+    assert.equal(order(stepNotes(canvas, ['a', 'b'], 'forward')), 'cabd');
+    assert.equal(order(stepNotes(canvas, ['c', 'd'], 'backward')), 'acdb');
+  });
+
+  it('steps past a whole group', () => {
+    const grouped = normalizeCanvas({ notes: { a: note(), b: note({ groups: ['g'] }), c: note({ groups: ['g'] }), d: note() } });
+    assert.equal(order(stepNotes(grouped, ['a'], 'forward')), 'bcad');
+    assert.equal(order(stepNotes(grouped, ['d'], 'backward')), 'adbc');
+  });
+
+  it('leaves locked notes and other pages alone', () => {
+    const locked = normalizeCanvas({ notes: { a: note({ locked: true }), b: note(), c: note() } });
+    assert.equal(stepNotes(locked, ['a'], 'forward'), locked);
+    const paged = normalizeCanvas({ pages: [{ id: 'p1', title: 'One' }, { id: 'p2', title: 'Two' }], notes: { a: note({ page: 'p1' }), b: note({ page: 'p2' }), c: note({ page: 'p1' }) } });
+    assert.equal(order(stepNotes(paged, ['a'], 'forward')), 'bca');
+  });
+
+  it('returns the same canvas at the end', () => {
+    assert.equal(stepNotes(canvas, ['d'], 'forward'), canvas);
+    assert.equal(stepNotes(canvas, ['a'], 'backward'), canvas);
+    assert.equal(stepNotes(canvas, ['zz'], 'forward'), canvas);
   });
 });

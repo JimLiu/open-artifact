@@ -57,6 +57,7 @@ The key is the artboard path under `project/`. Fields:
 | `expand: "fill"` | The artboard fills the window in the focused view instead of keeping its size. |
 | `print: "flow"`, `paper: "letter" \| "a4"` | Marks a document-like artboard for paginated printing. Share → Export → PDF in the frame shell paginates the artboard at the chosen paper width. |
 | `frameless` | Drawn without a frame. Set by the page; leave it. |
+| `locked` | `true`: the person locked the frame in the editor, so it can't be moved, resized or deleted there until they unlock it (that removes the key). Leave it. |
 | `radius` | Corner radius of the frame, px: a phone or tablet screen (about 40 for a phone). Leave it off a PAGE, print or poster. |
 | `guides` | Up to 6 layout guides: `{ "kind": "columns" \| "rows" \| "grid", "count": 12, "gutter": 24, "margin": 32 }`. |
 
@@ -76,6 +77,8 @@ Keyed by id (`[A-Za-z0-9_-]{1,40}`), as many as you need while the whole index s
 - Both take `size` (px, or `s m l xl xxl`), `bold`, `italic`, `page`, and `color` (sticky: `fill`)
   from `gray red orange green teal blue purple pink`.
 - `rect`, `oval`, `pen`, `line`, `arrow` and `image` are what people draw on the canvas: leave them.
+- `locked: true` on any note is the person's lock from the editor: it can't be moved, resized or deleted
+  there until they unlock it, which removes the key. Leave it; copies made in the editor come unlocked.
 - `groups` lists the groups a note belongs to, innermost first (ids like `g1`, at most 8 levels): people
   group notes with ⌘G and selecting one then selects its whole group. Keep the list when you move or
   restyle a note; drop an id from it only to take the note out of that group. Two or more notes make a
@@ -106,5 +109,6 @@ its components: `design-systems.md`.
 `open-artifact check <dir>` reports: a missing or invalid `canvas.json`, a wrong `v`,
 bad page or note ids, boards whose file is missing, sizes out of range,
 unknown pages, boards missing from `order` (or listed twice), artboard files
-not on the canvas, overlapping boards, a `launch` that names nothing, and
-installed systems without `tokens.json`.
+not on the canvas, overlapping boards, a `launch` that names nothing, a
+`locked` on a board or note that is not `true` or `false`, and installed
+systems without `tokens.json`.

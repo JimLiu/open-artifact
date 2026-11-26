@@ -11,7 +11,7 @@ import path from 'node:path';
 import { it } from 'node:test';
 import { pathToFileURL } from 'node:url';
 import { createTypeServer } from '../packages/type-server/src/server.ts';
-import { buttonNamed, clickOn, editorSuite, startWait, textIn, typeInto } from './lib/editor.mjs';
+import { buttonNamed, clickOn, editorSuite, middleOf, startWait, textIn, typeInto } from './lib/editor.mjs';
 import { blockFont } from './lib/font.mjs';
 import { png, until } from './lib/http.mjs';
 import { copyFixture, fixtures, repoRoot, tmpDir } from './lib/target.mjs';
@@ -946,6 +946,466 @@ editorSuite({
       }
     });
 
+    it('a sideways swipe in the focused view steps to the next and back to the previous artboard', T, async () => {
+      const twoBoards = (ctx_, root) => {
+        copyFixture('design', root);
+        fs.copyFileSync(path.join(root, BOARD), path.join(root, 'project', 'Second.dc.html'));
+        const file = path.join(root, 'project', 'canvas.json');
+        const canvas = JSON.parse(fs.readFileSync(file, 'utf8'));
+        canvas.boards['Second.dc.html'] = { x: 1000, y: 0, w: 880, h: 560 };
+        canvas.order.push('Second.dc.html');
+        fs.writeFileSync(file, JSON.stringify(canvas));
+      };
+      const { url } = await ctx.openNew('swipe', twoBoards);
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: textIn('Smoke canvas'), settle: 800 });
+      const title = `document.querySelector('header h1')?.textContent.trim()`;
+      const swipe = async (dx, frame) => {
+        const at = await page.evaluate(`(() => {
+          const r = document.querySelector(${JSON.stringify(frame ? 'iframe' : 'header + div')}).getBoundingClientRect();
+          return { x: r.left + r.width / 2, y: ${frame ? 'r.top + r.height / 2' : 'r.bottom - 12'} };
+        })()`);
+        await page.cdp('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: at.x, y: at.y }] });
+        for (let n = 1; n <= 5; n++) await page.cdp('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: at.x + (dx * n) / 5, y: at.y + n }] });
+        await page.cdp('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+      };
+      try {
+        await clickOn(page, `document.querySelector('[data-board-title="Main.dc.html"] button[aria-label="Focus"], [data-board-title="Main.dc.html"] button[aria-label="Play full screen"]')`, 'Focus');
+        assert.ok(await page.waitFor(`${title} === 'Main'`), 'the focused view opened on Main');
+        await page.cdp('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
+        assert.ok(await page.waitFor(`document.querySelector('iframe')?.contentDocument?.querySelector('h1')`), 'the artboard runs');
+        await swipe(-160, true);
+        assert.ok(await page.waitFor(`${title} === 'Second'`, 5000), `a swipe left in the artboard did not step on: ${await page.evaluate(title)}`);
+        assert.ok(await page.waitFor(`document.querySelector('iframe')?.contentDocument?.querySelector('h1')`), 'the next artboard runs');
+        await swipe(160, false);
+        assert.ok(await page.waitFor(`${title} === 'Main'`, 5000), `a swipe right on the backdrop did not step back: ${await page.evaluate(title)}`);
+        await swipe(-20, true);
+        await new Promise(resolve => setTimeout(resolve, 400));
+        assert.equal(await page.evaluate(title), 'Main', 'a short move paged');
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
+    it('Pages: Move up and a dragged row reorder the pages, and what was on the first page stays there', T, async () => {
+      const threePages = (ctx_, root) => {
+        copyFixture('design', root);
+        const file = path.join(root, 'project', 'canvas.json');
+        const canvas = JSON.parse(fs.readFileSync(file, 'utf8'));
+        canvas.pages = [{ id: 'one', name: 'One' }, { id: 'two', name: 'Two' }, { id: 'three', name: 'Three' }];
+        fs.writeFileSync(file, JSON.stringify(canvas));
+      };
+      const { root, url } = await ctx.openNew('page-order', threePages);
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: textIn('Smoke canvas'), settle: 800 });
+      const order = () => canvasOf(root).pages.map(p => p.id);
+      const pill = `document.querySelector('button[aria-label^="Pages:"]')`;
+      const row = name => `[...document.querySelectorAll('[data-page-row] > button')].find(b => b.getAttribute('aria-label')?.startsWith(${JSON.stringify(name + ',')}))`;
+      try {
+        await clickOn(page, pill, 'the Pages menu');
+        assert.ok(await page.waitFor(`(${row('Two')})?.getAttribute('aria-label') === 'Two, artboards: 0'`), 'a page row says how many artboards it holds');
+        await clickOn(page, buttonNamed('Actions for Two'), 'the page’s actions');
+        await clickOn(page, buttonNamed('Move up'), 'Move up');
+        assert.ok(await until(() => order().join() === 'two,one,three', 10000), `pages after Move up: ${order()}`);
+        assert.equal(canvasOf(root).boards['Main.dc.html'].page, 'one', 'the artboard left on the old first page moved with the new one');
+
+        if (!(await page.evaluate(`Boolean(${row('Three')})`))) await clickOn(page, pill, 'the Pages menu');
+        const from = await middleOf(page, row('Three'));
+        const top = await page.evaluate(`(${row('Two')}).getBoundingClientRect().top`);
+        await page.dragMouse([from.x, from.y], [from.x, top + 2]);
+        assert.ok(await until(() => order().join() === 'three,two,one', 10000), `pages after the drag: ${order()}`);
+        assert.equal(canvasOf(root).boards['Main.dc.html'].page, 'one');
+        assert.ok(await page.waitFor(`${pill}?.textContent.trim().endsWith('One')`, 3000), `the drop also switched pages: ${await page.evaluate(`${pill}?.textContent`)}`);
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
+    it('"Delete this page?" ignores an Enter pressed as it opens, and takes one pressed later', T, async () => {
+      const twoPages = (ctx_, root) => {
+        copyFixture('design', root);
+        const file = path.join(root, 'project', 'canvas.json');
+        const canvas = JSON.parse(fs.readFileSync(file, 'utf8'));
+        canvas.pages = [{ id: 'one', name: 'One' }, { id: 'two', name: 'Two' }];
+        // Only a page with something on it asks first.
+        canvas.boards['Main.dc.html'].page = 'two';
+        fs.writeFileSync(file, JSON.stringify(canvas));
+      };
+      const { root, url } = await ctx.openNew('page-delete', twoPages);
+      // The first page is empty: wait for the Pages menu rather than the canvas.
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: `document.querySelector('button[aria-label^="Pages:"]')`, settle: 800 });
+      const pages = () => canvasOf(root).pages.map(p => p.id).join();
+      try {
+        await clickOn(page, `document.querySelector('button[aria-label^="Pages:"]')`, 'the Pages menu');
+        await clickOn(page, buttonNamed('Actions for Two'), 'the page’s actions');
+        await clickOn(page, buttonNamed('Delete'), 'Delete');
+        await page.press('Enter');
+        assert.ok(await page.waitFor(textIn('Delete this page?'), 3000), 'the dialog closed on the early Enter');
+        await new Promise(resolve => setTimeout(resolve, 800));
+        assert.equal(pages(), 'one,two', 'the early Enter deleted the page');
+        await page.evaluate(`[...document.querySelectorAll('[role=dialog] button')].find(b => b.textContent.trim() === 'Delete').focus()`);
+        await page.press('Enter');
+        assert.ok(await until(() => pages() === 'one', 10000), `a later Enter did not delete: ${pages()}`);
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
+    it('answering the recovery banner from the keyboard leaves focus on the toolbar, not the page', T, async () => {
+      const { root, url } = await ctx.openNew('recovery-focus');
+      const browser = await ctx.browser();
+      const first = await browser.load(new URL('index.html', url).href, { ready: textIn('Smoke canvas'), settle: 800 });
+      try {
+        // A copy of unsaved work left by an earlier visit.
+        const source = fs.readFileSync(path.join(root, BOARD), 'utf8').replace('</h1>', ' (edited)</h1>');
+        await first.evaluate(`localStorage.setItem('open-artifact-design:recovery:' + location.pathname, ${JSON.stringify(JSON.stringify({ v: 1, at: Date.now(), title: 'Smoke canvas', boards: { 'Main.dc.html': source } }))})`);
+      } finally { await first.close(); }
+      const page = await browser.load(new URL('index.html', url).href, { ready: textIn('Smoke canvas'), settle: 800 });
+      try {
+        assert.ok(await page.waitFor(buttonNamed('Discard'), 10000), 'no recovery banner');
+        await page.evaluate(`(${buttonNamed('Discard')}).focus()`);
+        await page.press('Enter');
+        assert.ok(await page.waitFor(`!(${buttonNamed('Discard')})`, 5000), 'Enter did not answer the banner');
+        assert.ok(await page.waitFor(`document.activeElement?.hasAttribute('data-focus-landing')`, 3000), `focus went to ${await page.evaluate('document.activeElement?.tagName')}`);
+        assert.ok(!fs.readFileSync(path.join(root, BOARD), 'utf8').includes('(edited)'), 'Discard restored the copy');
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
+    it('pasted plain text off an artboard becomes a text note', T, async () => {
+      const { root, url } = await ctx.openNew('paste-text');
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: textIn('Smoke canvas'), settle: 800 });
+      try {
+        await page.evaluate(`(() => {
+          const dt = new DataTransfer();
+          dt.setData('text/plain', '\\n\\nFirst line\\r\\nSecond line  ');
+          document.body.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+        })()`);
+        let note;
+        assert.ok(await until(() => (note = Object.values(canvasOf(root).notes)[0]), 10000), 'no note in canvas.json');
+        assert.equal(note.kind, 'title1', JSON.stringify(note));
+        assert.equal(note.size, 'm', JSON.stringify(note));
+        assert.equal(note.text, 'First line\nSecond line');
+        assert.ok(!fs.readFileSync(path.join(root, BOARD), 'utf8').includes('First line'), 'the text went into the artboard');
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
+    // The middle of an element of Main.dc.html in the editor's viewport.
+    const elementAt = (page, selector) => page.evaluate(`(() => {
+      const frame = document.querySelector('iframe[data-board="Main.dc.html"]');
+      const rect = frame.getBoundingClientRect();
+      const box = frame.contentDocument.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();
+      const zoom = rect.width / frame.offsetWidth;
+      return [rect.left + (box.left + box.width / 2) * zoom, rect.top + (box.top + box.height / 2) * zoom];
+    })()`);
+
+    it('Enter on the Artboard tool places an artboard and puts the cursor in its name', T, async () => {
+      const { root, url } = await ctx.openNew('board-enter');
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: textIn('Smoke canvas'), settle: 800 });
+      try {
+        const before = Object.keys(canvasOf(root).boards).length;
+        await page.evaluate(`(${buttonNamed('Artboard')}).focus()`);
+        await page.press('Enter');
+        assert.ok(await until(() => Object.keys(canvasOf(root).boards).length === before + 1, 10000), `no artboard added: ${JSON.stringify(canvasOf(root).boards)}`);
+        assert.ok(await page.waitFor(`document.activeElement?.getAttribute('aria-label') === 'Artboard name'`, 5000), `focus is on ${await page.evaluate(`document.activeElement?.outerHTML.slice(0, 120)`)}`);
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
+    it('a ring marks the artboard under the mouse, and with Alt held the gap to the hovered element is measured', T, async () => {
+      const { url } = await ctx.openNew('hover-measure');
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: textIn('Smoke canvas'), settle: 800 });
+      try {
+        const heading = await elementAt(page, 'h1');
+        const paragraph = await elementAt(page, 'p');
+        await page.hover(...paragraph);
+        assert.ok(await page.waitFor(`document.querySelector('[data-hover-ring]')`, 5000), 'no ring on the hovered artboard');
+        await page.click(...heading);
+        assert.ok(await page.waitFor(buttonNamed('Lock')), 'the heading is selected');
+        assert.equal(await page.evaluate(`!!document.querySelector('[data-measure]')`), false, 'measured without Alt');
+        for (const dy of [0, 1]) await page.cdp('Input.dispatchMouseEvent', { type: 'mouseMoved', x: paragraph[0], y: paragraph[1] + dy, modifiers: 1 });
+        assert.ok(await page.waitFor(`[...document.querySelectorAll('[data-measure] div')].some(d => d.textContent.trim() === '24')`, 5000),
+          `the 24px gap was not measured: ${await page.evaluate(`document.querySelector('[data-measure]')?.textContent ?? 'nothing'`)}`);
+        await page.cdp('Input.dispatchMouseEvent', { type: 'mouseMoved', x: paragraph[0], y: paragraph[1] });
+        assert.ok(await page.waitFor(`!document.querySelector('[data-measure]')`, 5000), 'the distances stayed after Alt came up');
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
+    it('on a touch screen, Delete on the selection bar and the Undo or redo button work, and a locked element has no Delete', T, async () => {
+      const { root, url } = await ctx.openNew('touch-delete');
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: textIn('Smoke canvas'), settle: 800 });
+      const mod = { meta: process.platform === 'darwin', ctrl: process.platform !== 'darwin' };
+      const headings = () => [...fs.readFileSync(path.join(root, BOARD), 'utf8').matchAll(/<h1\b[^>]*>/g)].map(m => m[0]);
+      const deleteButton = `document.querySelector('button[aria-label="Delete"]')`;
+      try {
+        assert.equal(await page.evaluate(`!!${deleteButton} || !!document.querySelector('button[aria-label="Undo or redo"]')`), false, 'touch buttons with a mouse');
+        await page.cdp('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
+        assert.ok(await page.waitFor(`document.querySelector('button[aria-label="Undo or redo"]')`, 5000), 'no Undo or redo button on a touch screen');
+        await page.click(...await elementAt(page, 'h1'));
+        assert.ok(await page.waitFor(deleteButton, 5000), 'no Delete on the selection bar');
+        await clickOn(page, deleteButton, 'Delete');
+        assert.ok(await until(() => headings().length === 0, 10000), 'Delete left the heading');
+        await clickOn(page, `document.querySelector('button[aria-label="Undo or redo"]')`, 'Undo or redo');
+        await clickOn(page, `[...document.querySelectorAll('[role="menuitem"]')].find(m => m.textContent.trim().startsWith('Undo'))`, 'Undo');
+        assert.ok(await until(() => headings().length === 1, 10000), 'Undo did not bring the heading back');
+
+        await page.click(...await elementAt(page, 'h1'));
+        assert.ok(await page.waitFor(buttonNamed('Lock')), 'the heading is selected again');
+        await page.press('l', mod);
+        assert.ok(await page.waitFor(`(${buttonNamed('Lock')})?.getAttribute('aria-pressed') === 'true'`, 5000), 'not locked');
+        assert.ok(await page.waitFor(`!${deleteButton}`, 5000), 'a locked element still offers Delete');
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
+    it('⌘L locks an element: saved as data-locked, Delete is refused, ⌘L unlocks it, a duplicate is unlocked', T, async () => {
+      const { root, url } = await ctx.openNew('lock-element');
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: textIn('Smoke canvas'), settle: 800 });
+      const mod = { meta: process.platform === 'darwin', ctrl: process.platform !== 'darwin' };
+      const boardText = () => fs.readFileSync(path.join(root, BOARD), 'utf8');
+      const headings = () => [...boardText().matchAll(/<h1\b[^>]*>/g)].map(m => m[0]);
+      try {
+        const at = await page.evaluate(`(() => {
+          const frame = document.querySelector('iframe[data-board="Main.dc.html"]');
+          const rect = frame.getBoundingClientRect();
+          const box = frame.contentDocument.querySelector('h1').getBoundingClientRect();
+          const zoom = rect.width / frame.offsetWidth;
+          return [rect.left + (box.left + box.width / 2) * zoom, rect.top + (box.top + box.height / 2) * zoom];
+        })()`);
+        await page.click(...at);
+        assert.ok(await page.waitFor(buttonNamed('Lock')), 'the selection bar offers Lock');
+        await page.press('l', mod);
+        assert.ok(await until(() => /data-locked="true"/.test(headings()[0] ?? ''), 10000), `not locked: ${headings()}`);
+        assert.ok(await page.waitFor(`(${buttonNamed('Lock')})?.getAttribute('aria-pressed') === 'true'`), 'the Lock button shows the lock');
+
+        await page.press('Delete');
+        assert.ok(await page.waitFor(textIn('Locked: unlock first.'), 5000), 'Delete says the element is locked');
+        assert.equal(headings().length, 1, 'the locked heading was deleted');
+
+        await page.press('l', mod);
+        assert.ok(await until(() => !boardText().includes('data-locked'), 10000), '⌘L again removes data-locked');
+        await page.press('l', mod);
+        assert.ok(await until(() => /data-locked="true"/.test(headings()[0] ?? ''), 10000), 'locked again');
+        await page.press('d', mod);
+        assert.ok(await until(() => headings().length === 2, 10000), 'Duplicate made no copy');
+        assert.deepEqual(headings().map(tag => tag.includes('data-locked')), [true, false], 'only the heading copied from keeps its lock');
+
+        // A click on the locked heading goes through it to what is under it.
+        const below = await page.evaluate(`(() => { const r = document.querySelector('iframe[data-board="Main.dc.html"]').getBoundingClientRect(); return [r.left + r.width / 2, Math.min(r.bottom + 40, innerHeight - 10)]; })()`);
+        await page.click(...below);
+        await page.click(...at);
+        const pressed = `(${buttonNamed('Lock')})?.getAttribute('aria-pressed')`;
+        assert.ok(await page.waitFor(`${pressed} === 'false'`, 5000), `the click selected the locked heading (Lock pressed: ${await page.evaluate(pressed)})`);
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
+    it('copying a locked element puts no data-locked on the clipboard', T, async () => {
+      const { root, url } = await ctx.openNew('lock-copy');
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: textIn('Smoke canvas'), settle: 800 });
+      const mod = { meta: process.platform === 'darwin', ctrl: process.platform !== 'darwin' };
+      try {
+        const at = await page.evaluate(`(() => {
+          const frame = document.querySelector('iframe[data-board="Main.dc.html"]');
+          const rect = frame.getBoundingClientRect();
+          const box = frame.contentDocument.querySelector('h1').getBoundingClientRect();
+          const zoom = rect.width / frame.offsetWidth;
+          return [rect.left + (box.left + box.width / 2) * zoom, rect.top + (box.top + box.height / 2) * zoom];
+        })()`);
+        await page.click(...at);
+        assert.ok(await page.waitFor(buttonNamed('Lock')), 'the selection bar offers Lock');
+        await page.press('l', mod);
+        assert.ok(await until(() => /<h1\b[^>]*data-locked="true"/.test(fs.readFileSync(path.join(root, BOARD), 'utf8')), 10000), 'not locked');
+        const copied = await page.evaluate(`(() => {
+          const dt = new DataTransfer();
+          document.body.dispatchEvent(new ClipboardEvent('copy', { clipboardData: dt, bubbles: true, cancelable: true }));
+          return { html: dt.getData('text/html'), text: dt.getData('text/plain') };
+        })()`);
+        assert.match(copied.html, /<h1\b/i, `nothing copied: ${copied.html.slice(0, 200)}`);
+        assert.ok(!copied.html.includes('data-locked'), `the clipboard carries the lock: ${copied.html.slice(0, 400)}`);
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
+    // An artboard of three blocks in a column: a heading, a paragraph and a red box with a blue border.
+    const paintBoard = (_ctx, root) => {
+      copyFixture('design', root);
+      const file = path.join(root, BOARD);
+      const template = `<x-dc><helmet><style>body{margin:0}</style></helmet><div style="width: 880px; height: 560px; padding: 40px; box-sizing: border-box; display: flex; flex-direction: column; gap: 24px">
+<h1 style="margin: 0; font-size: 40px">Heading</h1>
+<p style="margin: 0; font-size: 20px">Paragraph</p>
+<div id="box" style="width: 160px; height: 80px; background-color: rgb(200, 0, 0); border: 4px solid rgb(0, 0, 200)"></div>
+</div></x-dc>`;
+      fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace(/<x-dc>[\s\S]*?<\/x-dc>/, template));
+    };
+    // Where on the page an element of the artboard is (its middle).
+    const boardMiddle = selector => `(() => {
+      const frame = document.querySelector('iframe[data-board="Main.dc.html"]');
+      const rect = frame.getBoundingClientRect();
+      const box = frame.contentDocument.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();
+      const zoom = rect.width / frame.offsetWidth;
+      return [rect.left + (box.left + box.width / 2) * zoom, rect.top + (box.top + box.height / 2) * zoom];
+    })()`;
+
+    it('stacking keys move an element one step or to the end, ⌘Z undoes by the physical key, and a locked element stays', T, async () => {
+      const { root, url } = await ctx.openNew('stacking', paintBoard);
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: `document.querySelector('iframe[data-board="Main.dc.html"]')?.contentDocument?.querySelector('#box')`, settle: 800 });
+      const mod = { meta: process.platform === 'darwin', ctrl: process.platform !== 'darwin' };
+      // Option on a Mac, Shift elsewhere, takes it to the end.
+      const toEnd = process.platform === 'darwin' ? { ...mod, alt: true } : { ...mod, shift: true };
+      const boardText = () => fs.readFileSync(path.join(root, BOARD), 'utf8');
+      const order = () => ['<h1', '<p', '<div id="box"'].map(tag => boardText().indexOf(tag)).map((at, i, all) => all.filter(other => other < at).length).join('');
+      try {
+        await page.click(...await page.evaluate(boardMiddle('p')));
+        assert.ok(await page.waitFor(buttonNamed('Lock')), 'the paragraph is selected');
+        await page.press('[', mod);
+        assert.ok(await until(() => order() === '102', 10000), `⌘[ moves the paragraph one earlier: ${order()}`);
+        assert.ok(await page.waitFor(textIn('Sent backward'), 5000), 'the move is announced');
+        await page.press(']', toEnd);
+        assert.ok(await until(() => order() === '021', 10000), `to the end puts it last: ${order()}`);
+        await page.press('z', mod);
+        assert.ok(await until(() => order() === '102', 10000), `⌘Z undoes the move: ${order()}`);
+        await page.press('z', { ...mod, shift: true });
+        assert.ok(await until(() => order() === '021', 10000), `⇧⌘Z redoes it: ${order()}`);
+
+        await page.press('l', mod);
+        assert.ok(await until(() => /<p [^>]*data-locked="true"/.test(boardText()), 10000), 'the paragraph is locked');
+        await page.press('[', mod);
+        assert.ok(await page.waitFor(textIn('Locked: unlock first.'), 5000), 'stacking a locked element says why not');
+        assert.equal(order(), '021', 'the locked paragraph moved');
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
+    it('⇧X swaps the fill and the border colour, X takes the fill away, and the border can sit centred on the edge', T, async () => {
+      const { root, url } = await ctx.openNew('paint-keys', paintBoard);
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: `document.querySelector('iframe[data-board="Main.dc.html"]')?.contentDocument?.querySelector('#box')`, settle: 800 });
+      const boxTag = () => /<div id="box"[^>]*>/.exec(fs.readFileSync(path.join(root, BOARD), 'utf8'))?.[0] ?? '';
+      const painted = `(() => { const box = document.querySelector('iframe[data-board="Main.dc.html"]').contentDocument.querySelector('#box'); const s = getComputedStyle(box); return [s.backgroundColor, s.borderTopColor, s.outlineStyle, s.outlineColor, s.outlineOffset].join(' | '); })()`;
+      try {
+        await page.click(...await page.evaluate(boardMiddle('#box')));
+        assert.ok(await page.waitFor(buttonNamed('Lock')), 'the box is selected');
+        await page.press('x', { shift: true });
+        assert.ok(await page.waitFor(`${painted}.startsWith('rgb(0, 0, 200) | rgb(200, 0, 0)')`, 10000), `⇧X swapped: ${await page.evaluate(painted)}`);
+        assert.ok(await page.waitFor(textIn('Fill and stroke swapped'), 5000), 'the swap is announced');
+
+        await page.click(...await page.evaluate(`[innerWidth / 2, innerHeight - 40]`));
+        await page.click(...await page.evaluate(boardMiddle('#box')));
+        assert.ok(await page.waitFor(buttonNamed('Border')), 'the box is selected again');
+        await clickOn(page, buttonNamed('Border'));
+        const align = buttonNamed('Border alignment: Inside');
+        assert.ok(await page.waitFor(align), 'the border panel offers its alignment');
+        await clickOn(page, align);
+        assert.ok(await page.waitFor(`${painted} === 'rgb(0, 0, 200) | rgba(0, 0, 0, 0) | solid | rgb(200, 0, 0) | -2px'`, 10000), `centred: ${await page.evaluate(painted)}`);
+        assert.ok(await until(() => /outline-offset:\s*-2px/.test(boxTag()), 10000), `the file keeps the centred border: ${boxTag()}`);
+        await page.press('Escape');
+
+        await page.press('x');
+        assert.ok(await page.waitFor(`${painted}.startsWith('rgba(0, 0, 0, 0)')`, 10000), `X took the fill away: ${await page.evaluate(painted)}`);
+        assert.ok(await until(() => /background-color:\s*transparent/.test(boxTag()), 10000), `the file has no fill: ${boxTag()}`);
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
+    // An image's content fills its border box: a border aligned outside goes away (no gap), the image keeps its size.
+    it('an image\u2019s border aligned outside leaves no gap: the border goes, the outline draws it, the box keeps its size', T, async () => {
+      const picture = `data:image/svg+xml,${encodeURIComponent("<svg xmlns='http://www.w3.org/2000/svg' width='16' height='10'><rect width='16' height='10' fill='green'/></svg>")}`;
+      const { root, url } = await ctx.openNew('image-border', (_ctx, dir) => {
+        copyFixture('design', dir);
+        const file = path.join(dir, BOARD);
+        const template = `<x-dc><helmet><style>body{margin:0}</style></helmet><div style="width: 880px; height: 560px; padding: 40px; box-sizing: border-box">
+<img id="pic" alt="Picture" src="${picture}" style="display: block; width: 160px; height: 100px; border: 4px solid rgb(0, 0, 200)">
+</div></x-dc>`;
+        fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace(/<x-dc>[\s\S]*?<\/x-dc>/, template));
+      });
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: `document.querySelector('iframe[data-board="Main.dc.html"]')?.contentDocument?.querySelector('#pic')`, settle: 800 });
+      const picTag = () => /<img id="pic"[^>]*>/.exec(fs.readFileSync(path.join(root, BOARD), 'utf8'))?.[0] ?? '';
+      const drawn = `(() => { const pic = document.querySelector('iframe[data-board="Main.dc.html"]').contentDocument.querySelector('#pic'); const s = getComputedStyle(pic); return [s.borderTopStyle, s.borderTopWidth, s.outlineStyle, s.outlineStyle === 'none' ? '-' : s.outlineWidth, s.outlineOffset, pic.offsetWidth, pic.offsetHeight].join(' | '); })()`;
+      try {
+        assert.equal(await page.evaluate(drawn), 'solid | 4px | none | - | 0px | 168 | 108');
+        await page.click(...await page.evaluate(boardMiddle('#pic')));
+        assert.ok(await page.waitFor(buttonNamed('Properties')), 'the image is selected');
+        await clickOn(page, buttonNamed('Properties'));
+        const align = name => `[...document.querySelectorAll('button[aria-label="Border alignment: ${name}"]')].find((b) => b.offsetParent)`;
+        assert.ok(await page.waitFor(align('Inside'), 5000), 'the panel offers the border alignment');
+        await clickOn(page, align('Inside'));
+        assert.ok(await page.waitFor(align('Center'), 10000), 'the border is centred');
+        await clickOn(page, align('Center'));
+        assert.ok(await page.waitFor(`${drawn} === 'none | 0px | solid | 4px | 0px | 168 | 108'`, 10000), `outside, same size: ${await page.evaluate(drawn)}`);
+        assert.ok(await until(() => /border-style:\s*none/.test(picTag()) && /outline-offset:\s*0px/.test(picTag()) && /outline-color:\s*rgb\(0, 0, 200\)/.test(picTag()) && /width:\s*168px/.test(picTag()) && !/border:/.test(picTag()), 10000), `the file has the outline and no border: ${picTag()}`);
+        assert.ok(await page.waitFor(align('Outside'), 5000), 'the alignment reads Outside');
+        await clickOn(page, align('Outside'));
+        assert.ok(await page.waitFor(`${drawn} === 'solid | 4px | none | - | 0px | 168 | 108'`, 10000), `inside again: ${await page.evaluate(drawn)}`);
+        assert.ok(await until(() => /border:\s*4px solid rgb\(0, 0, 200\)/.test(picTag()) && /width:\s*160px/.test(picTag()) && !/outline/.test(picTag()), 10000), `the file has the plain border back: ${picTag()}`);
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
+    it('closing the link address with Escape says the address was dropped, and the next Delete only says to press it again', T, async () => {
+      const { root, url } = await ctx.openNew('link-card', paintBoard);
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: `document.querySelector('iframe[data-board="Main.dc.html"]')?.contentDocument?.querySelector('#box')`, settle: 800 });
+      const boardText = () => fs.readFileSync(path.join(root, BOARD), 'utf8');
+      const grip = `document.querySelector('[role=separator][aria-label="Resize panel"]')`;
+      try {
+        await page.click(...await page.evaluate(boardMiddle('h1')));
+        const link = buttonNamed('Link the whole text');
+        assert.ok(await page.waitFor(link), 'the heading offers a link');
+        await clickOn(page, link);
+        assert.ok(await page.waitFor(`document.querySelector('input[aria-label="Link"]')`, 5000), 'the address field is there');
+        await page.evaluate(`document.querySelector('input[aria-label="Link"]').focus()`);
+        await page.type('https://example.com');
+        await page.press('Tab');
+        assert.equal(await page.evaluate(`document.activeElement?.getAttribute('aria-label')`), 'Link', 'Tab stays in the card');
+        await page.press('Escape');
+        assert.ok(await page.waitFor(textIn('Address field closed. The address was not saved'), 5000), 'closing says the address was dropped');
+        assert.ok(!boardText().includes('example.com'), 'the dropped address was saved');
+        await page.press('Delete');
+        assert.ok(await page.waitFor(textIn('again to delete'), 5000), 'the first Delete says to press it again');
+        assert.ok(boardText().includes('<h1'), 'the first Delete deleted the heading');
+        await page.press('Delete');
+        assert.ok(await until(() => !boardText().includes('<h1'), 10000), 'the second Delete deletes the heading');
+
+        // The panel's resize grip takes the keyboard: Enter steps through the preset widths.
+        await page.click(...await page.evaluate(boardMiddle('#box')));
+        assert.ok(await page.waitFor(buttonNamed('Properties')), 'the box is selected');
+        await clickOn(page, buttonNamed('Properties'));
+        assert.ok(await page.waitFor(grip, 5000), 'the side panel is open');
+        {
+          const width = `Math.round(${grip}.parentElement.getBoundingClientRect().width)`;
+          const before = await page.evaluate(width);
+          await page.evaluate(`${grip}.focus()`);
+          await page.press('Enter');
+          assert.ok(await page.waitFor(`${width} !== ${before}`, 5000), `Enter left the panel at ${before}px`);
+          assert.ok(await page.evaluate(`${grip}.getAttribute('aria-valuenow') === String(${width})`), 'the grip reports the width');
+        }
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
+    it('a locked artboard: locked: true in canvas.json, the arrows and Delete leave it, the outline unlocks it', T, async () => {
+      const { root, url } = await ctx.openNew('lock-board');
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: textIn('Smoke canvas'), settle: 800 });
+      const mod = { meta: process.platform === 'darwin', ctrl: process.platform !== 'darwin' };
+      const main = () => canvasOf(root).boards['Main.dc.html'];
+      try {
+        await clickOn(page, `document.querySelector('[data-board-title="Main.dc.html"]')`, 'the artboard title');
+        await page.press('l', mod);
+        assert.ok(await until(() => main()?.locked === true, 10000), `canvas.json board: ${JSON.stringify(main())}`);
+        assert.ok(await page.waitFor(`document.querySelector('[data-board-title="Main.dc.html"] [data-board-locked]')`), 'the title shows the lock');
+
+        await page.press('ArrowRight');
+        await page.press('Delete');
+        assert.ok(await page.waitFor(textIn('Locked: unlock first.'), 5000), 'the artboard says it is locked');
+        assert.deepEqual([main()?.x, main()?.y], [0, 0], 'the locked artboard moved or went away');
+
+        await page.rightClick(...await page.evaluate(`(() => { const r = document.querySelector('[data-board-title="Main.dc.html"]').getBoundingClientRect(); return [r.left + 10, r.top + r.height / 2]; })()`));
+        assert.ok(await page.waitFor(`[...document.querySelectorAll('[role=menuitem]')].some(item => item.textContent.trim().startsWith('Unlock'))`), 'the menu offers Unlock');
+        await page.press('Escape');
+
+        await clickOn(page, buttonNamed('Show the properties panel'));
+        await clickOn(page, buttonNamed('Unlock Main'), 'the outline’s unlock button');
+        assert.ok(await until(() => main() && !('locked' in main()), 10000), `unlocking left the key: ${JSON.stringify(main())}`);
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
     it('an unreadable canvas.json is shown as such, and left as it is', T, async () => {
       const broken = (ctx_, root) => {
         copyFixture('design', root);
@@ -969,6 +1429,146 @@ editorSuite({
       } finally {
         await page.close();
       }
+    });
+
+    it('Copy as SVG and Copy as PNG draw an element’s outline, and leave the page as it was', T, async () => {
+      const { root, url } = await ctx.openNew('copy-outline', (_ctx, root) => {
+        copyFixture('design', root);
+        const file = path.join(root, BOARD);
+        const template = `<x-dc><helmet><style>body{margin:0}</style></helmet><div style="width:400px;height:300px;background:#fff7d6;position:relative">
+          <div class="ring" style="position:absolute;left:100px;top:100px;width:100px;height:60px;background:#ffffff;outline:4px dashed rgb(200, 20, 50);outline-offset:2px"></div></div></x-dc>`;
+        fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace(/<x-dc>[\s\S]*?<\/x-dc>/, template));
+      });
+      const editor = new URL('index.html', url);
+      const ring = `document.querySelector('iframe[data-board="Main.dc.html"]')?.contentDocument?.querySelector('.ring')`;
+      const page = await (await ctx.browser()).load(editor.href, { ready: ring, settle: 800 });
+      const source = fs.readFileSync(path.join(root, BOARD), 'utf8');
+      const mod = { meta: process.platform === 'darwin', ctrl: process.platform !== 'darwin' };
+      // The copied PNG's size, and whether the outline's band above the box (at 1×, y 0 to 4) has red in it.
+      const copiedPng = () => page.evaluate(`(async () => {
+        const [item] = await navigator.clipboard.read();
+        const image = await createImageBitmap(await item.getType('image/png'));
+        const g = new OffscreenCanvas(image.width, image.height).getContext('2d');
+        g.drawImage(image, 0, 0);
+        const band = g.getImageData(0, 2, image.width, 4).data;
+        let red = false;
+        for (let i = 0; i < band.length; i += 4) if (band[i] > 150 && band[i + 1] < 90 && band[i + 2] < 110 && band[i + 3] > 200) red = true;
+        const middle = [...g.getImageData(image.width / 2, image.height / 2, 1, 1).data].slice(0, 3);
+        return { width: image.width, height: image.height, red, middle };
+      })()`);
+      try {
+        await page.cdp('Browser.grantPermissions', { origin: editor.origin, permissions: ['clipboardReadWrite', 'clipboardSanitizedWrite'] });
+        const at = await page.evaluate(`(() => {
+          const frame = document.querySelector('iframe[data-board="Main.dc.html"]');
+          const rect = frame.getBoundingClientRect();
+          const box = ${ring}.getBoundingClientRect();
+          const zoom = rect.width / frame.offsetWidth;
+          return [rect.left + (box.left + box.width / 2) * zoom, rect.top + (box.top + box.height / 2) * zoom];
+        })()`);
+        await page.click(...at);
+        await page.rightClick(...at);
+        await clickOn(page, `[...document.querySelectorAll('[role=menuitem]')].find(item => item.textContent.startsWith('Copy as SVG') && item.getAttribute('aria-disabled') !== 'true')`, 'Copy as SVG');
+        assert.ok(await page.waitFor(textIn('Copied as SVG'), 20000), 'the SVG copy finished');
+        const svg = await page.evaluate('navigator.clipboard.readText()');
+        // The box is 100 × 60; the outline reaches 4 + 2 px past it on each side, and is drawn centred 4 px out.
+        assert.match(svg, /^<svg[^>]* width="112" height="72"/, svg.slice(0, 300));
+        const rect = /<rect[^>]*stroke="rgb\(200, 20, 50\)"[^>]*>/.exec(svg)?.[0];
+        assert.ok(rect, `no outline rect in ${svg.slice(0, 2000)}`);
+        assert.match(rect, /width="108"/);
+        assert.match(rect, /height="68"/);
+        assert.match(rect, /stroke-width="4"/);
+        assert.match(rect, /stroke-dasharray="8 4"/);
+        assert.doesNotMatch(svg, /oa-capture-outline-/, 'the outline’s lent id stays out of the copy');
+        assert.equal(await page.evaluate(`${ring}.hasAttribute('id')`), false, 'the lent id is taken back from the page');
+
+        await page.press('c', { ...mod, shift: true });
+        assert.ok(await page.waitFor(textIn('Copied as PNG'), 20000), 'the PNG copy finished');
+        const drawn = await copiedPng();
+        assert.deepEqual(drawn, { width: 224, height: 144, red: true, middle: [255, 255, 255] }, 'shapes drawing: the PNG holds the outline');
+
+        // A page with a CSS mask is drawn by the browser instead; that drawing makes room for the outline too.
+        await page.evaluate(`(() => {
+          const doc = document.querySelector('iframe[data-board="Main.dc.html"]').contentDocument;
+          doc.head.append(Object.assign(doc.createElement('style'), { textContent: '.unused { mask: none }' }));
+          // Note whether a picture drawn by the browser (a <foreignObject>) is loaded.
+          const src = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, 'src');
+          window.paintedByBrowser = false;
+          Object.defineProperty(HTMLImageElement.prototype, 'src', {
+            ...src,
+            set(value) { if (String(value).includes('foreignObject')) window.paintedByBrowser = true; src.set.call(this, value); },
+          });
+        })()`);
+        await page.evaluate('navigator.clipboard.writeText("before")');
+        await page.press('c', { ...mod, shift: true });
+        assert.ok(await until(async () => (await page.evaluate('navigator.clipboard.read().then(items => items[0].types.join())')) === 'image/png', 20000), 'the second PNG copy finished');
+        const painted = await copiedPng();
+        assert.equal(await page.evaluate('window.paintedByBrowser'), true, 'the browser drew the second copy');
+        assert.deepEqual(painted, { width: 224, height: 144, red: true, middle: [255, 255, 255] }, 'browser drawing: the PNG holds the outline');
+        assert.equal(fs.readFileSync(path.join(root, BOARD), 'utf8'), source, 'copying left the artboard file alone');
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
+    // The width and height of the JPEG that starts at `at`, from its start-of-frame marker.
+    const jpegSize = (bytes, at) => {
+      at += 2;
+      while (at < bytes.length && !(bytes[at] === 0xff && bytes[at + 1] >= 0xc0 && bytes[at + 1] <= 0xc2)) at += bytes[at] === 0xff ? 2 + bytes.readUInt16BE(at + 2) : 1;
+      return [bytes.readUInt16BE(at + 7), bytes.readUInt16BE(at + 5)];
+    };
+    const tooLarge = [
+      { label: 'JPEG 2×', file: 'Huge@2x.jpg', item: `[...document.querySelectorAll('[role=menuitem]')].filter(item => item.textContent.includes('Selected artboard, 2×'))[1]`, size: bytes => jpegSize(bytes, 0) },
+      {
+        label: 'PDF', file: 'Huge.pdf', item: `[...document.querySelectorAll('[role=menuitem]')].find(item => item.textContent === 'Selected artboard')`,
+        // The page picture's size as the PDF states it must be the size of the JPEG it holds.
+        size: bytes => {
+          const text = bytes.toString('latin1');
+          const stated = [Number(/\/Width (\d+)/.exec(text)?.[1]), Number(/\/Height (\d+)/.exec(text)?.[1])];
+          const drawn = jpegSize(bytes, text.indexOf('\xff\xd8\xff'));
+          assert.deepEqual(stated, drawn, 'the PDF states the size its picture was drawn at');
+          return drawn;
+        },
+      },
+    ];
+    for (const format of tooLarge) it(`a ${format.label} export larger than the browser will draw is saved smaller, and says so`, T, async () => {
+      const { url } = await ctx.openNew('export-smaller', (_ctx, root) => {
+        copyFixture('design', root);
+        const index = canvasOf(root);
+        Object.assign(index.boards['Main.dc.html'], { title: 'Huge', w: 4200, h: 4200 });
+        fs.writeFileSync(path.join(root, 'project/canvas.json'), JSON.stringify(index));
+        const file = path.join(root, BOARD);
+        const template = '<x-dc><helmet><style>body{margin:0}</style></helmet><div style="width:4200px;height:4200px;background:rgb(30, 140, 60)"></div></x-dc>';
+        fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace(/<x-dc>[\s\S]*?<\/x-dc>/, template));
+      });
+      const browser = await ctx.browser();
+      const dir = ctx.downloads;
+      fs.mkdirSync(dir, { recursive: true });
+      await browser.downloadsTo(dir);
+      const file = path.join(dir, format.file);
+      fs.rmSync(file, { force: true });
+      const page = await browser.load(new URL('index.html', url).href, { ready: `document.querySelector('[data-board-title="Main.dc.html"]')`, settle: 800 });
+      try {
+        // A browser that will not make a canvas past 8192 × 8192: its canvas comes back empty.
+        await page.evaluate(`(() => {
+          const toBlob = HTMLCanvasElement.prototype.toBlob;
+          window.refusedCanvases = 0;
+          HTMLCanvasElement.prototype.toBlob = function (callback, ...rest) {
+            if (this.width * this.height <= 8192 * 8192) return toBlob.call(this, callback, ...rest);
+            window.refusedCanvases++;
+            setTimeout(() => callback(null));
+          };
+        })()`);
+        await clickOn(page, `document.querySelector('[data-board-title="Main.dc.html"] button[aria-label="Focus"], [data-board-title="Main.dc.html"] button[aria-label="Play full screen"]')`, 'Focus');
+        assert.ok(await page.waitFor(buttonNamed('Back to canvas')), 'the focused view opened');
+        await clickOn(page, buttonNamed('Export'));
+        assert.ok(await page.waitFor(`${format.item} && ${format.item}.getAttribute('aria-disabled') !== 'true'`), `${format.label} is offered`);
+        await clickOn(page, format.item, format.label);
+        assert.ok(await page.waitFor(textIn(`Saved “${format.file}” smaller than the size asked for: this browser can’t draw it that large.`), 60000), 'the export says it came out smaller');
+        assert.ok(await until(() => fs.existsSync(file) && fs.statSync(file).size > 0, 30000), `the ${format.label} was saved`);
+        assert.equal(await page.evaluate('window.refusedCanvases'), 1, 'one empty canvas, then a smaller one');
+        const size = format.size(fs.readFileSync(file));
+        assert.ok(size[0] < 8400 && size[0] > 8000 && size[0] * size[1] <= 8192 * 8192, `drawn at ${size.join(' × ')}`);
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
     });
   },
 });

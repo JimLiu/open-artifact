@@ -17,6 +17,7 @@
 import { elementToSVG, inlineResources } from 'dom-to-svg';
 import { withCaptureSafeDom } from './capture-safe.ts';
 import { cssUrls } from './fonts.ts';
+import { drawOutlines, markOutlines } from './outline.ts';
 
 /** A transparent 1×1 GIF: stands in for pictures a capture leaves out. */
 export const BLANK_GIF = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
@@ -319,7 +320,8 @@ function fitImages(root: Element, fits: readonly ImageFit[]): void {
 
 /**
  * The element rebuilt as plain SVG by dom-to-svg (links dropped), its
- * resources inlined. `area` defaults to the element's own box.
+ * resources inlined, and the CSS outlines dom-to-svg leaves out drawn as
+ * rects. `area` defaults to the element's own box.
  *
  * `fontCss` replaces the `@font-face` rules dom-to-svg copies itself. It
  * only copies those of linked stylesheets it may read (none from an inline
@@ -331,7 +333,14 @@ export async function elementSvg(element: Element, area?: CaptureArea, options: 
   const box = area ?? element.getBoundingClientRect();
   const view = element.ownerDocument.defaultView!;
   const fits = imageFits(element);
-  const doc = withCaptureSafeDom(element, () => elementToSVG(element, { captureArea: new view.DOMRect(box.x, box.y, box.width, box.height), keepLinks: false }));
+  const outlines = markOutlines(element);
+  let doc: XMLDocument;
+  try {
+    doc = withCaptureSafeDom(element, () => elementToSVG(element, { captureArea: new view.DOMRect(box.x, box.y, box.width, box.height), keepLinks: false }));
+  } finally {
+    outlines.release();
+  }
+  drawOutlines(doc.documentElement, outlines.outlined);
   linkImages(doc.documentElement);
   fitImages(doc.documentElement, fits);
   // dom-to-svg's own rules sit in the first <style>; emptied, there is nothing for it to download a second time.

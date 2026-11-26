@@ -6,6 +6,7 @@
 
 import { attributeValue, elementChildren, elementPath, styleMap, type HtmlElement, type TemplateModel } from '@open-artifact/dc';
 import type { Address, BoardOp } from './ops.ts';
+import { loneShapeName, loneShapeOf } from './lone-shape.ts';
 
 /** Glyph shown before a row's name. */
 export type OutlineGlyph = 'column' | 'row' | 'grid' | 'text' | 'frame' | 'image' | 'shape' | 'component' | 'repeat' | 'conditional';
@@ -155,10 +156,34 @@ export function buildOutline(model: TemplateModel, layoutOf?: (tid: number) => O
       .filter((element) => !HIDDEN.has(element.tag))
       .map((element) => {
         const tid = model.tidOf.get(element)!;
+        const shape = loneShapeOf(element);
+        if (shape) return loneRow(model, element, shape);
         const { name, glyph } = describeElement(element, layoutOf?.(tid));
         return { tid, path: elementPath(model, element), name, detail: detailOf(element), glyph, children: build(elementChildren(element)) };
       });
   return build(elementChildren(model.nodes));
+}
+
+/** A graphic of one shape: one row, named for the shape, labelled by the graphic or else the shape. */
+function loneRow(model: TemplateModel, svg: HtmlElement, shape: HtmlElement): OutlineNode {
+  const own = (element: HtmlElement): string | undefined => (attributeValue(element, 'data-label') ?? attributeValue(element, 'aria-label'))?.trim() || undefined;
+  const label = own(svg) ?? own(shape);
+  return { tid: model.tidOf.get(svg)!, path: elementPath(model, svg), name: loneShapeName(svg, shape), detail: label ? cut(label, 28) : '', glyph: 'shape', children: [] };
+}
+
+/** The row an element shows in: a lone shape shows as its graphic. */
+export function rowTidOf(model: TemplateModel, tid: number): number {
+  const element = model.elements[tid];
+  const parent = element?.parent;
+  return parent && loneShapeOf(parent) === element ? model.tidOf.get(parent)! : tid;
+}
+
+/** Naming a one-shape graphic takes the name off its shape, so the row shows the new one. */
+export function loneLabelOp(model: TemplateModel, tid: number): BoardOp | null {
+  const svg = model.elements[tid];
+  const shape = svg ? loneShapeOf(svg) : null;
+  if (!shape || attributeValue(shape, 'data-label') === undefined) return null;
+  return { kind: 'attr', target: addressOf(model, shape), name: 'data-label', value: null };
 }
 
 /** Tids of the ancestors of an element (by path), outermost first. */
@@ -259,4 +284,88 @@ export function visibilityOps(model: TemplateModel, tid: number): BoardOp[] {
   const ops: BoardOp[] = [{ kind: 'style', targets: [target], patch: { display: 'none' } }];
   if (display) ops.push({ kind: 'attr', target, name: HIDDEN_DISPLAY_ATTRIBUTE, value: display });
   return ops;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Rows that follow their element                                              */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Where each element of `before` is in `after` (old tid → new tid), for
+ * state kept per row (open or closed). The text both share at the start
+ * and the end is unchanged: elements that begin there are the same
+ * elements, shifted by the change in length when they come after it; an
+ * element whose start tag holds the change keeps its place if its tag
+ * does. Inside the changed text (a move spans from where an element was
+ * to where it went), an element is matched by its text, first come first
+ * served; one written differently has no match.
+ */
+export function carryTids(before: TemplateModel, after: TemplateModel): Map<number, number> {
+  const a = before.text;
+  const b = after.text;
+  const limit = Math.min(a.length, b.length);
+  let head = 0;
+  while (head < limit && a.charCodeAt(head) === b.charCodeAt(head)) head++;
+  // Back to the start of the tag the change is in: that tag may be another element now.
+  if (head < limit) head = Math.max(0, a.lastIndexOf('<', head));
+  let tail = 0;
+  while (tail < limit - head && a.charCodeAt(a.length - 1 - tail) === b.charCodeAt(b.length - 1 - tail)) tail++;
+  const shift = b.length - a.length;
+  const byStart = new Map<number, HtmlElement>();
+  for (const element of after.elements) byStart.set(element.start, element);
+  const out = new Map<number, number>();
+  const unmatched: [number, HtmlElement][] = [];
+  before.elements.forEach((element, tid) => {
+    // At the change itself only an element of the same tag is taken as the same (its start tag was edited).
+    const start = element.start >= a.length - tail ? element.start + shift : element.start <= head ? element.start : -1;
+    const match = start >= 0 ? byStart.get(start) : undefined;
+    if (match && match.tag === element.tag) out.set(tid, after.tidOf.get(match)!);
+    else unmatched.push([tid, element]);
+  });
+  // Inside the change (a move spans it), an element written the same way is the same element.
+  const taken = new Set(out.values());
+  const byText = new Map<string, number[]>();
+  after.elements.forEach((element, tid) => {
+    if (taken.has(tid)) return;
+    const text = b.slice(element.start, element.end);
+    byText.set(text, [...(byText.get(text) ?? []), tid]);
+  });
+  for (const [tid, element] of unmatched) {
+    const same = byText.get(a.slice(element.start, element.end));
+    const next = same?.shift();
+    if (next !== undefined) out.set(tid, next);
+  }
+  return out;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Dropping after a row, at a shallower level                                  */
+/* -------------------------------------------------------------------------- */
+
+/** Containers a drop never climbs out of. */
+const DROP_WALLS = new Set(['sc-if', 'sc-for', 'x-import', 'dc-import', 'td', 'th', 'caption', 'svg']);
+
+/**
+ * The rows a drop "after" `tid` may land after, nearest first: the row
+ * itself, then — while each is the last child — its parent, grandparent…
+ * up to `levels` steps. A drop pulled left of a last row this way ends up
+ * after the container it closes.
+ */
+export function climbAfter(model: TemplateModel, tid: number, levels: number): number[] {
+  const out = [tid];
+  let element = model.elements[tid];
+  for (let step = 0; element && step < levels; step++) {
+    const parent = element.parent;
+    if (!parent || DROP_WALLS.has(parent.tag)) break;
+    const kids = elementChildren(parent).filter((child) => !HIDDEN.has(child.tag));
+    if (kids[kids.length - 1] !== element) break;
+    out.push(model.tidOf.get(parent)!);
+    element = parent;
+  }
+  return out;
+}
+
+/** How many levels up a drop below a row goes, by how far left of the row's indent the pointer is. */
+export function levelsLeft(indentStart: number, pointerX: number, indent: number): number {
+  return Math.max(0, Math.ceil((indentStart - pointerX) / indent));
 }

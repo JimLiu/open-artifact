@@ -10,16 +10,20 @@
  * artboards far outside the view are left out.
  */
 
-import { Maximize2, Play, Square, SlidersHorizontal } from 'lucide-react';
+import { Lock, Maximize2, Play, Square, SlidersHorizontal } from 'lucide-react';
+import { expandNotesToGroups, groupItems, isLockedObject, unionRect, type Canvas as CanvasDoc, type Rect } from '@open-artifact/design-core';
 import { useMemo, type ReactNode } from 'react';
 import { parseDcDocument, tweakEntries, type BoardRect } from '@open-artifact/dc';
 import { cn } from '@open-artifact/ui';
 import { useDocument } from '../state/document.ts';
-import { useView, type Camera } from '../state/view.ts';
+import { useView, type Camera, type HoverObject } from '../state/view.ts';
 import { boardApi } from '../services/frames.ts';
 import { ErrorMark, ErrorNotice, useBoardProblems, useCanAskAgent } from './BoardErrors.tsx';
 import { noticeClosed } from '../lib/board-errors.ts';
-import { noteBounds } from '../lib/notes.ts';
+import { isPathNote, noteBounds } from '../lib/notes.ts';
+import { measureLines, rectWithin } from '../lib/measure.ts';
+import { noteRect } from '../lib/scene.ts';
+import { measuredNoteSize } from '../services/engine.ts';
 import type { Handle } from './Canvas.tsx';
 import { LayoutGuides } from './LayoutGuides.tsx';
 import { HoverLink } from './HoverLink.tsx';
@@ -84,6 +88,36 @@ function elementBoxes(board: string, tids: number[], instance: number | null, ca
   return out;
 }
 
+const rectOf = (box: Box): Rect => ({ x: box.left, y: box.top, w: box.width, h: box.height });
+const boxOf = (rect: Rect): Box => ({ left: rect.x, top: rect.y, width: rect.w, height: rect.h });
+const unionBox = (boxes: readonly Box[]): Box | null => {
+  const rect = unionRect(boxes.map(rectOf));
+  return rect ? boxOf(rect) : null;
+};
+
+/** A hover ring: a box, or a thin box turned along a straight line. */
+type Ring = { box: Box; angle?: undefined } | { box: Box; angle: number };
+
+/** The ring around a hovered artboard or note (its whole group), in screen space. */
+function hoverRing(canvas: CanvasDoc, hover: HoverObject, camera: Camera): Ring | null {
+  if (hover.board !== undefined) {
+    const entry = canvas.boards[hover.board];
+    return entry ? { box: toBox(camera, entry.x, entry.y, entry.w, entry.h) } : null;
+  }
+  const note = canvas.notes[hover.note];
+  if (!note) return null;
+  const ids = expandNotesToGroups(groupItems(canvas), [hover.note]);
+  if (ids.length === 1 && (note.kind === 'line' || note.kind === 'arrow') && note.points?.length === 2) {
+    const [[x1, y1], [x2, y2]] = note.points as [[number, number], [number, number]];
+    const pad = 6 + ((note.stroke ?? 3) * camera.zoom) / 2;
+    const length = Math.hypot(x2 - x1, y2 - y1) * camera.zoom;
+    const center = toBox(camera, note.x + (x1 + x2) / 2, note.y + (y1 + y2) / 2, 0, 0);
+    return { box: { left: center.left, top: center.top, width: length + pad * 2, height: pad * 2 }, angle: Math.atan2(y2 - y1, x2 - x1) };
+  }
+  const r = unionRect(ids.flatMap((id) => (canvas.notes[id] ? [noteRect(canvas.notes[id]!, measuredNoteSize(id))] : [])));
+  return r ? { box: toBox(camera, r.x, r.y, r.w, r.h) } : null;
+}
+
 /** Screen pixels around the view within which artboard labels are still drawn. */
 const LABEL_MARGIN = 240;
 
@@ -98,6 +132,9 @@ export function Overlay({ boards, engine = false }: OverlayProps) {
   const camera = useView((s) => s.camera);
   const selection = useView((s) => s.selection);
   const hover = useView((s) => s.hover);
+  const hoverObject = useView((s) => s.hoverObject);
+  const altHeld = useView((s) => s.altHeld);
+  const tool = useView((s) => s.tool);
   const textEdit = useView((s) => s.textEdit);
   const layoutTick = useView((s) => s.layoutTick);
   const focus = useView((s) => s.focus);
@@ -162,9 +199,42 @@ export function Overlay({ boards, engine = false }: OverlayProps) {
     return out;
   }, [selection, canvas, camera]);
 
+  // The hovered artboard or note, unless it is selected.
+  const ring = useMemo(() => {
+    if (!hoverObject || tool !== 'select' || textEdit) return null;
+    if (selection.kind === 'objects' && (hoverObject.board !== undefined ? selection.boards.includes(hoverObject.board) : selection.notes.includes(hoverObject.note))) return null;
+    return hoverRing(canvas, hoverObject, camera);
+  }, [hoverObject, tool, textEdit, selection, canvas, camera]);
+
+  // Alt held: distances from the selection to the element, artboard or note under the pointer.
+  const measures = useMemo(() => {
+    if (!altHeld || selection.kind === 'none') return [];
+    const from = unionBox(selection.kind === 'objects' ? objectBoxes.map((o) => o.box) : selectedBoxes);
+    if (!from) return [];
+    let to: Box | null = null;
+    if (hover && !(selection.kind === 'elements' && selection.board === hover.board && selection.items.some((i) => i.tid === hover.tid))) {
+      to = unionBox(elementBoxes(hover.board, [hover.tid], hover.instance, camera));
+    } else if (hoverObject && !(selection.kind === 'objects' && (hoverObject.board !== undefined ? selection.boards.includes(hoverObject.board) : selection.notes.includes(hoverObject.note)))) {
+      to = hoverRing(canvas, hoverObject, camera)?.box ?? null;
+      if (to && hoverObject.note !== undefined && canvas.notes[hoverObject.note] && isPathNote(canvas.notes[hoverObject.note]!)) {
+        const r = noteBounds(canvas.notes[hoverObject.note]!);
+        to = toBox(camera, r.x, r.y, r.w, r.h);
+      }
+    }
+    if (!to) return [];
+    const a = rectOf(from);
+    const b = rectOf(to);
+    // Something inside the selection: the pointer is in it.
+    if (rectWithin(b, a)) return [];
+    return measureLines(a, b).map((line) => ({ ...line, label: Math.round(line.length / camera.zoom) }));
+  }, [altHeld, selection, objectBoxes, selectedBoxes, hover, hoverObject, canvas, camera]);
+  const measuring = measures.length > 0;
+
   const single = objectBoxes.length === 1 ? objectBoxes[0]! : null;
   const singleNote = single?.note ? canvas.notes[single.note] : undefined;
-  const resizable = Boolean(single && !readOnly && !(singleNote && (singleNote.kind === 'pen' || singleNote.kind === 'line' || singleNote.kind === 'arrow')));
+  // Locked artboards and notes keep their size: no handles.
+  const singleLocked = single ? isLockedObject(single.board ? canvas.boards[single.board] : singleNote) : false;
+  const resizable = Boolean(single && !readOnly && !singleLocked && !(singleNote && (singleNote.kind === 'pen' || singleNote.kind === 'line' || singleNote.kind === 'arrow')));
 
   return (
     <div className="pointer-events-none absolute inset-0 overflow-hidden">
@@ -183,9 +253,14 @@ export function Overlay({ boards, engine = false }: OverlayProps) {
             {path !== playing && <LayoutGuides entry={entry} zoom={camera.zoom} left={box.left} top={box.top} />}
             <div
               data-board-title={path}
-              className="pointer-events-auto absolute flex h-5 items-center gap-1 text-[11px] leading-5"
+              className={cn('pointer-events-auto absolute flex h-5 items-center gap-1 text-[11px] leading-5 transition-opacity', measuring && 'opacity-0 focus-within:opacity-100')}
               style={{ left: box.left, top: box.top - 22, width: Math.max(60, box.width) }}
             >
+              {isLockedObject(entry) ? (
+                <span className={cn('flex shrink-0', selected ? 'text-accent' : 'text-fg-muted')} title="Locked" aria-label="Locked" role="img" data-board-locked="">
+                  <Lock className="size-3" aria-hidden />
+                </span>
+              ) : null}
               <span className={cn('min-w-0 flex-1 truncate', selected ? 'text-accent' : 'text-fg-muted')}>{entry.title || path.replace(/\.dc\.html$/, '')}</span>
               {problem && closed ? <ErrorMark problem={problem} /> : null}
               {box.width >= 64 ? (
@@ -228,6 +303,30 @@ export function Overlay({ boards, engine = false }: OverlayProps) {
         );
       })}
 
+      {ring ? (
+        <div
+          data-hover-ring=""
+          className={cn('absolute border border-accent/50', ring.angle === undefined ? 'rounded-[3px]' : 'rounded-full')}
+          style={ring.angle === undefined
+            ? { left: ring.box.left - 2, top: ring.box.top - 2, width: ring.box.width + 4, height: ring.box.height + 4 }
+            : { ...ring.box, transform: `translate(-50%, -50%) rotate(${ring.angle}rad)` }}
+        />
+      ) : null}
+      {measures.length ? (
+        <div data-measure="" aria-hidden>
+          {measures.map((line, index) => (
+            <div key={index}>
+              <div className="absolute bg-[#e5484d]" style={line.axis === 'x' ? { left: line.x1, top: line.y1 - 0.5, width: line.length, height: 1 } : { left: line.x1 - 0.5, top: line.y1, width: 1, height: line.length }} />
+              <div
+                className="absolute -translate-x-1/2 -translate-y-1/2 rounded bg-[#e5484d] px-1 text-[10px] leading-4 tabular-nums text-white"
+                style={{ left: (line.x1 + line.x2) / 2 + (line.axis === 'y' ? 14 : 0), top: (line.y1 + line.y2) / 2 + (line.axis === 'x' ? -10 : 0) }}
+              >
+                {line.label}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : null}
       {hoverBoxes.map((box, index) => (
         <div key={`h${index}`} className="absolute border border-accent/70" style={box} />
       ))}

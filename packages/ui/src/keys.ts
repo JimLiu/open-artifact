@@ -140,3 +140,37 @@ export function shortcutLetter(event: ShortcutKeyLike): string {
   if (physical && event.key.length === 1) return physical[1]!.toLowerCase();
   return event.key.toLowerCase();
 }
+
+/**
+ * A dangerous confirmation ignores Enter and Space while it appears, so the
+ * press that opened it (a held Enter or Delete) can't confirm it too. The
+ * window runs from opening until the dialog has been fully shown for
+ * {@link EARLY_PRESS_SETTLE_MS}, and never past {@link EARLY_PRESS_MAX_MS}.
+ */
+export const EARLY_PRESS_SETTLE_MS = 300;
+/** The early-press window never lasts longer than this after opening. */
+export const EARLY_PRESS_MAX_MS = 3000;
+
+/** When a guarded dialog opened and when it was fully shown (`null`: still appearing). */
+export interface EarlyPressTimes {
+  opened: number;
+  shown: number | null;
+}
+
+/** The time the early-press window closes. */
+export function earlyPressEnds(times: EarlyPressTimes): number {
+  const limit = times.opened + EARLY_PRESS_MAX_MS;
+  return times.shown === null ? limit : Math.min(limit, Math.max(times.opened, times.shown) + EARLY_PRESS_SETTLE_MS);
+}
+
+/**
+ * True when a key event must not activate anything in a guarded dialog: an
+ * Enter or Space from the user (synthetic events pass) inside the window, or
+ * an auto-repeat at any time.
+ */
+export function blocksEarlyPress(times: EarlyPressTimes, now: number, event: KeyLike & { isTrusted?: boolean }): boolean {
+  if (event.key !== 'Enter' && event.key !== ' ') return false;
+  if (event.repeat) return true;
+  if (event.isTrusted === false) return false;
+  return now < earlyPressEnds(times);
+}

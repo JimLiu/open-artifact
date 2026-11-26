@@ -102,6 +102,11 @@ export function flush(): Promise<void> {
   return sync.flush();
 }
 
+/** Resolves once every edit so far is saved (waiting out a save already running). */
+export function settle(): Promise<void> {
+  return sync.settle();
+}
+
 /**
  * Applies changes made elsewhere. `changes` maps artifact paths to their new
  * hash (`null`: deleted). Changes we already have are skipped.

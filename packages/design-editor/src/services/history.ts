@@ -12,6 +12,7 @@ import { toast } from '@open-artifact/ui';
 import { createHistory } from '@open-artifact/editor-kit';
 import { useDocument } from '../state/document.ts';
 import { artifactPath, session } from './session.ts';
+import { settle } from './sync.ts';
 
 /** A version loaded for preview. */
 export interface VersionPreview {
@@ -25,6 +26,8 @@ export interface VersionPreview {
 export const designHistory = createHistory<VersionPreview>({
   noun: 'design',
   notify: (message) => toast.add(message),
+  // Edits not written yet go out first: a restore must not be overwritten by them.
+  settle,
   async loadPreview(history, n) {
     const files = await history.files(n);
     const canvasText = files['project/canvas.json'] ? await history.read(n, 'project/canvas.json') : null;

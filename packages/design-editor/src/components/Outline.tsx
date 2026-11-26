@@ -7,12 +7,13 @@
  * operations (undoable, replayed over remote changes): double-click a name
  * to rename it (`data-label`), the eye hides or shows it (inline
  * `display: none`), and dragging rows moves the elements before, after or
- * into another layer of the same artboard.
+ * into another layer of the same artboard. Locked layers show a lock;
+ * clicking it unlocks that layer alone.
  */
 
-import { Box, ChevronRight, Eye, EyeOff, GitBranch, Hash, Image, LayoutGrid, Repeat, Shapes, StretchHorizontal, StretchVertical, Type } from 'lucide-react';
+import { Box, ChevronRight, Eye, EyeOff, GitBranch, Hash, Image, LayoutGrid, Lock, Repeat, Shapes, StretchHorizontal, StretchVertical, Type } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
-import { boardsOnPage, groupSelectionUnits, noteGroupIndex, notesOnPage } from '@open-artifact/design-core';
+import { boardsOnPage, groupSelectionUnits, isLockedObject, noteGroupIndex, notesOnPage } from '@open-artifact/design-core';
 import { cn, isComposingKey } from '@open-artifact/ui';
 import { useDocument } from '../state/document.ts';
 import { useView, type ElementSelection } from '../state/view.ts';
@@ -21,7 +22,9 @@ import { templateOf } from '../services/agent.ts';
 import { boardApi } from '../services/frames.ts';
 import { edit } from '../services/commands.ts';
 import { announce } from '../services/announce.ts';
-import { ancestorTids, buildOutline, isHiddenLayer, renameOp, reorderOp, visibilityOps, type OutlineDrop, type OutlineGlyph, type OutlineLayout, type OutlineNode } from '../lib/outline.ts';
+import { refuseLocked, unlockElement, unlockObjects } from '../services/locks.ts';
+import { isElementLocked } from '../lib/locks.ts';
+import { ancestorTids, buildOutline, carryTids, climbAfter, isHiddenLayer, levelsLeft, loneLabelOp, renameOp, reorderOp, rowTidOf, visibilityOps, type OutlineDrop, type OutlineGlyph, type OutlineLayout, type OutlineNode } from '../lib/outline.ts';
 
 const GLYPH_PROPS = { className: 'size-3.5', strokeWidth: 1.75 } as const;
 
@@ -57,10 +60,13 @@ function TreeRow({
   label,
   hidden = false,
   drop = null,
+  dropShift = 0,
   editable = false,
   onPress,
   onRename,
   onToggleHidden,
+  locked = false,
+  onUnlock,
 }: {
   level: number;
   name: string;
@@ -83,16 +89,22 @@ function TreeRow({
   hidden?: boolean;
   /** Where a drag would drop relative to this row. */
   drop?: OutlineDrop | null;
+  /** Levels shallower than this row the drop line sits (a drop after the container this row closes). */
+  dropShift?: number;
   /** Rename, hide and drag are offered. */
   editable?: boolean;
   /** A left press (after selecting): may start a drag. */
   onPress?(event: ReactMouseEvent): void;
   onRename?(name: string): void;
   onToggleHidden?(): void;
+  /** Locked: a lock shows, which unlocks the row when `onUnlock` is given. */
+  locked?: boolean;
+  onUnlock?(): void;
 }) {
   const [renaming, setRenaming] = useState(false);
   return (
     <div
+      aria-label={locked ? `${detail ? `${name} ${detail}` : name}, Locked` : undefined}
       data-outline-row={row?.board}
       data-outline-tid={row?.tid}
       role="treeitem"
@@ -168,7 +180,7 @@ function TreeRow({
         />
       ) : (
         <>
-          <span className={cn('shrink-0 truncate', hidden && 'opacity-50')}>{name}</span>
+          <span className={cn('min-w-0 truncate', hidden && 'opacity-50')}>{name}</span>
           {detail ? <span className={cn('mx-1.5 min-w-0 flex-auto shrink-[9999] truncate font-normal text-chrome-muted', hidden && 'opacity-50')}>{detail}</span> : <span className="flex-auto" />}
         </>
       )}
@@ -188,8 +200,33 @@ function TreeRow({
           {hidden ? <EyeOff className="size-3.5" strokeWidth={1.75} /> : <Eye className="size-3.5" strokeWidth={1.75} />}
         </button>
       ) : null}
+      {locked && !renaming ? (
+        editable && onUnlock ? (
+          <button
+            type="button"
+            tabIndex={-1}
+            title="Unlock"
+            aria-label={`Unlock ${name}`}
+            onMouseDown={(event) => {
+              event.stopPropagation();
+              event.preventDefault();
+            }}
+            onClick={(event) => {
+              event.stopPropagation();
+              onUnlock();
+            }}
+            className={cn('flex size-5 shrink-0 items-center justify-center rounded-[4px] text-chrome-muted hover:text-chrome-fg', !(onToggleHidden && editable) && 'ml-auto')}
+          >
+            <Lock className="size-3.5" strokeWidth={1.75} />
+          </button>
+        ) : (
+          <span role="img" aria-label="Locked" title="Locked" className="ml-auto flex size-5 shrink-0 items-center justify-center text-chrome-muted">
+            <Lock className="size-3.5" strokeWidth={1.75} />
+          </span>
+        )
+      ) : null}
       {drop === 'before' || drop === 'after' ? (
-        <span aria-hidden="true" className={cn('pointer-events-none absolute right-1 h-0.5 rounded-full bg-chrome-accent', drop === 'before' ? '-top-px' : '-bottom-px')} style={{ left: 6 + level * 16 + 20 }} />
+        <span aria-hidden="true" className={cn('pointer-events-none absolute right-1 h-0.5 rounded-full bg-chrome-accent', drop === 'before' ? '-top-px' : '-bottom-px')} style={{ left: 6 + (level - dropShift) * 16 + 20 }} />
       ) : null}
     </div>
   );
@@ -213,7 +250,7 @@ function useLayouts(board: string, source: string | null, enabled: boolean): (ti
 }
 
 /** The tree of one artboard. */
-function BoardTree({ path, flipped, flip, unflip, autoOpen }: { path: string; flipped: Set<string>; flip(key: string): void; unflip(keys: string[]): void; autoOpen: boolean }) {
+function BoardTree({ path, flipped, flip, unflip, carry, autoOpen }: { path: string; flipped: Set<string>; flip(key: string): void; unflip(keys: string[]): void; carry(path: string, before: string, after: string): void; autoOpen: boolean }) {
   const entry = useDocument((s) => s.canvas.boards[path]);
   const source = useDocument((s) => s.boards[path]?.source ?? null);
   const selection = useView((s) => s.selection);
@@ -224,11 +261,20 @@ function BoardTree({ path, flipped, flip, unflip, autoOpen }: { path: string; fl
   const boardSelected = selection.kind === 'objects' && selection.boards.includes(path);
   const open = autoOpen !== flipped.has(boardKey);
 
+  // Rows opened or closed by hand stay so when an edit renumbers the elements.
+  const lastSource = useRef(source);
+  useEffect(() => {
+    const before = lastSource.current;
+    lastSource.current = source;
+    if (before && source && before !== source) carry(path, before, source);
+  }, [source, path]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const layoutOf = useLayouts(path, source, open && booted);
   const model = useMemo(() => (source && open ? templateOf(source) : null), [source, open]);
   const nodes = useMemo(() => (model ? buildOutline(model, layoutOf) : []), [model, layoutOf]);
 
-  const selectedTids = useMemo(() => new Set(selection.kind === 'elements' && selection.board === path ? selection.items.map((item) => item.tid) : []), [selection, path]);
+  const selectedTids = useMemo(() => new Set(selection.kind === 'elements' && selection.board === path ? selection.items.map((item) => (model ? rowTidOf(model, item.tid) : item.tid)) : []), [selection, path, model]);
+  const hoveredTid = hover?.board === path && model ? rowTidOf(model, hover.tid) : null;
   const openTids = useMemo(() => {
     const out = new Set<number>();
     if (model && selection.kind === 'elements' && selection.board === path) for (const item of selection.items) for (const tid of ancestorTids(model, item.path)) out.add(tid);
@@ -241,7 +287,8 @@ function BoardTree({ path, flipped, flip, unflip, autoOpen }: { path: string; fl
   }, [openTids, path]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const readOnly = useDocument((s) => s.readOnly);
-  const [drop, setDrop] = useState<{ tid: number; where: OutlineDrop } | null>(null);
+  /** The drop: target row and side, and the row the line shows on (`at`, `shift` levels in). */
+  const [drop, setDrop] = useState<{ tid: number; where: OutlineDrop; at: number; shift: number } | null>(null);
 
   /** A press on a row: past a few pixels it drags the selected layers of this artboard. */
   const press = (node: OutlineNode) => (event: ReactMouseEvent) => {
@@ -249,13 +296,16 @@ function BoardTree({ path, flipped, flip, unflip, autoOpen }: { path: string; fl
     const startX = event.clientX;
     const startY = event.clientY;
     let dragging = false;
-    let target: { tid: number; where: OutlineDrop } | null = null;
-    const dragged = (): number[] => {
-      const current = useView.getState().selection;
-      return current.kind === 'elements' && current.board === path && current.items.some((item) => item.tid === node.tid) ? current.items.map((item) => item.tid) : [node.tid];
-    };
+    let target: { tid: number; where: OutlineDrop; at: number; shift: number } | null = null;
+    let refused = false;
     const move = (e: MouseEvent): void => {
-      if (!dragging && Math.hypot(e.clientX - startX, e.clientY - startY) < 4) return;
+      if (refused || (!dragging && Math.hypot(e.clientX - startX, e.clientY - startY) < 4)) return;
+      if (!dragging && dragged(node.tid).some((tid) => { const element = model.elements[tid]; return element ? isElementLocked(element) : false; })) {
+        // Locked layers stay where they are.
+        refused = true;
+        refuseLocked();
+        return;
+      }
       dragging = true;
       const row = (document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null)?.closest<HTMLElement>('[data-outline-tid]');
       if (!row || row.dataset.outlineRow !== path) {
@@ -267,9 +317,9 @@ function BoardTree({ path, flipped, flip, unflip, autoOpen }: { path: string; fl
       const box = row.getBoundingClientRect();
       const at = (e.clientY - box.top) / box.height;
       const element = model.elements[tid];
-      const inside = element && reorderOp(model, dragged(), tid, 'inside') !== null;
+      const inside = element && reorderOp(model, dragged(node.tid), tid, 'inside') !== null;
       const where: OutlineDrop = inside ? (at < 0.25 ? 'before' : at > 0.75 ? 'after' : 'inside') : at < 0.5 ? 'before' : 'after';
-      target = reorderOp(model, dragged(), tid, where) ? { tid, where } : null;
+      target = dropTarget(dragged(node.tid), tid, where, box.left, Number(row.getAttribute('aria-level')) - 1, e.clientX);
       setDrop(target);
     };
     const up = (): void => {
@@ -277,17 +327,39 @@ function BoardTree({ path, flipped, flip, unflip, autoOpen }: { path: string; fl
       window.removeEventListener('mouseup', up);
       setDrop(null);
       if (!dragging || !target) return;
-      const op = reorderOp(model, dragged(), target.tid, target.where);
+      const op = reorderOp(model, dragged(node.tid), target.tid, target.where);
       if (op && edit(path, op, { selectCreated: true })) announce(`Moved ${target.where === 'inside' ? 'into' : target.where} the layer`);
     };
     window.addEventListener('mousemove', move);
     window.addEventListener('mouseup', up);
   };
 
+  /**
+   * Below a row, pulled left of its indent: after the container the row
+   * closes, one level per indent step, or as far toward that as a drop may go.
+   */
+  const dropTarget = (moving: number[], tid: number, where: OutlineDrop, rowLeft: number, level: number, pointerX: number): { tid: number; where: OutlineDrop; at: number; shift: number } | null => {
+    if (!model) return null;
+    const climb = where === 'after' ? climbAfter(model, tid, levelsLeft(rowLeft + 6 + level * 16, pointerX, 16)) : [tid];
+    for (let shift = climb.length - 1; shift >= 0; shift--) {
+      if (reorderOp(model, moving, climb[shift]!, where)) return { tid: climb[shift]!, where, at: tid, shift };
+    }
+    return null;
+  };
+  const dragged = (tid: number): number[] => {
+    const current = useView.getState().selection;
+    return current.kind === 'elements' && current.board === path && current.items.some((item) => item.tid === tid) ? current.items.map((item) => item.tid) : [tid];
+  };
+
   const rename = (node: OutlineNode) => (name: string) => {
     if (!model) return;
     const op = renameOp(model, node.tid, name);
-    if (op && edit(path, op)) announce(name.trim() ? `Renamed to ${name.trim()}` : 'Name removed');
+    if (!op) return;
+    const key = `rename:${node.tid}:${Date.now()}`;
+    if (!edit(path, op, { coalesce: key })) return;
+    const shapeOp = loneLabelOp(model, node.tid);
+    if (shapeOp) edit(path, shapeOp, { coalesce: key });
+    announce(name.trim() ? `Renamed to ${name.trim()}` : 'Name removed');
   };
 
   const toggleHidden = (node: OutlineNode) => () => {
@@ -333,7 +405,7 @@ function BoardTree({ path, flipped, flip, unflip, autoOpen }: { path: string; fl
             detail={node.detail}
             glyph={node.glyph}
             selected={selectedTids.has(node.tid)}
-            hovered={hover?.board === path && hover.tid === node.tid}
+            hovered={hoveredTid === node.tid}
             open={nodeOpen}
             hasChildren={node.children.length > 0}
             onToggle={() => flip(key)}
@@ -342,11 +414,14 @@ function BoardTree({ path, flipped, flip, unflip, autoOpen }: { path: string; fl
             row={{ board: path, tid: node.tid }}
             label={model?.elements[node.tid] ? attributeValue(model.elements[node.tid]!, 'data-label') : undefined}
             hidden={model?.elements[node.tid] ? isHiddenLayer(model.elements[node.tid]!) : false}
-            drop={drop?.tid === node.tid ? drop.where : null}
+            drop={drop?.at === node.tid ? drop.where : null}
+            dropShift={drop?.at === node.tid ? drop.shift : 0}
             editable={!readOnly}
             onPress={press(node)}
             onRename={rename(node)}
             onToggleHidden={toggleHidden(node)}
+            locked={model?.elements[node.tid] ? isElementLocked(model.elements[node.tid]!) : false}
+            onUnlock={() => unlockElement(path, { tid: node.tid, path: node.path })}
           />
           {nodeOpen ? renderNodes(node.children, level + 1) : null}
         </div>
@@ -368,6 +443,9 @@ function BoardTree({ path, flipped, flip, unflip, autoOpen }: { path: string; fl
         onToggle={() => flip(boardKey)}
         onSelect={selectBoard}
         onHover={() => undefined}
+        editable={!readOnly}
+        locked={isLockedObject(entry)}
+        onUnlock={() => unlockObjects([path], [])}
       />
       {open ? nodes.length ? renderNodes(nodes, 1) : <div className="py-1 pl-[42px] text-[12px] text-chrome-muted">{source === null ? 'Loading…' : 'No elements yet'}</div> : null}
     </div>
@@ -379,6 +457,7 @@ export function Outline() {
   const canvas = useDocument((s) => s.canvas);
   const page = useView((s) => s.page);
   const selection = useView((s) => s.selection);
+  const readOnly = useDocument((s) => s.readOnly);
   const boards = useMemo(() => boardsOnPage(canvas, page), [canvas, page]);
   const units = useMemo(() => {
     const ids = notesOnPage(canvas, page);
@@ -416,6 +495,27 @@ export function Outline() {
       return next;
     });
 
+  /** Hand-toggled rows of an artboard follow their elements through an edit. */
+  const carry = (board: string, before: string, after: string) =>
+    setFlipped((current) => {
+      const prefix = `${board}:`;
+      if (![...current].some((key) => key.startsWith(prefix))) return current;
+      const map = carryTids(templateOf(before), templateOf(after));
+      const next = new Set<string>();
+      let changed = false;
+      for (const key of current) {
+        if (!key.startsWith(prefix)) {
+          next.add(key);
+          continue;
+        }
+        const tid = Number(key.slice(prefix.length));
+        const to = map.get(tid);
+        if (to !== undefined) next.add(prefix + to);
+        if (to !== tid) changed = true;
+      }
+      return changed ? next : current;
+    });
+
   const flip = (key: string) =>
     setFlipped((current) => {
       const next = new Set(current);
@@ -436,12 +536,13 @@ export function Outline() {
     const name = note.title || note.text?.split('\n')[0] || note.alt || note.href || note.kind || 'Sticky';
     const glyph = note.kind === 'image' ? 'image' : !note.kind || ['link', 'title1', 'sticky'].includes(note.kind) ? 'text' : 'shape';
     return <TreeRow key={id} level={level} name={name} glyph={glyph} selected={selectedNotes.includes(id)}
-      hovered={false} open={false} hasChildren={false} onHover={() => {}} onToggle={() => {}} onSelect={add => selectNotes([id], add)} />;
+      hovered={false} open={false} hasChildren={false} onHover={() => {}} onToggle={() => {}} onSelect={add => selectNotes([id], add)}
+      editable={!readOnly} locked={isLockedObject(note)} onUnlock={() => unlockObjects([], [id])} />;
   };
 
   return (
     <div ref={scroller} role="tree" aria-label="Layers" className="h-full overflow-y-auto px-1.5 py-1.5" onMouseLeave={() => useView.getState().setHover(null)}>
-      {boards.map(path => <BoardTree key={path} path={path} flipped={flipped} flip={flip} unflip={unflip} autoOpen={boards.length === 1 || path === activeBoard} />)}
+      {boards.map(path => <BoardTree key={path} path={path} flipped={flipped} flip={flip} unflip={unflip} carry={carry} autoOpen={boards.length === 1 || path === activeBoard} />)}
       {units.map(({ group, ids }) => {
         if (!group) return noteRow(ids[0]!, 0);
         const key = 'g:' + group;

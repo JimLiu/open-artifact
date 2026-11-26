@@ -2,6 +2,10 @@ import assert from 'node:assert/strict';
 import { describe, it, mock } from 'node:test';
 import { scrollStanding, scrollsOverflow } from '../src/focusables.ts';
 import {
+  blocksEarlyPress,
+  EARLY_PRESS_MAX_MS,
+  EARLY_PRESS_SETTLE_MS,
+  earlyPressEnds,
   guardHeldActivation,
   HELD_KEY_GUARD_MAX_MS,
   HELD_KEY_SETTLE_MS,
@@ -194,5 +198,35 @@ describe('shortcutLetter', () => {
   it('lower-cases named keys', () => {
     assert.equal(shortcutLetter({ key: 'Escape', code: 'Escape' }), 'escape');
     assert.equal(shortcutLetter({ key: 'Enter', code: 'KeyE' }), 'enter');
+  });
+});
+
+describe('early press guard', () => {
+  const enter = { key: 'Enter', repeat: false, isTrusted: true };
+  const space = { key: ' ', repeat: false, isTrusted: true };
+
+  it('blocks Enter and Space until the dialog has been fully shown for a moment', () => {
+    const times = { opened: 1000, shown: null };
+    assert.equal(blocksEarlyPress(times, 1000, enter), true);
+    assert.equal(blocksEarlyPress(times, 2500, space), true, 'still appearing');
+    const shown = { opened: 1000, shown: 1150 };
+    assert.equal(earlyPressEnds(shown), 1150 + EARLY_PRESS_SETTLE_MS);
+    assert.equal(blocksEarlyPress(shown, 1150 + EARLY_PRESS_SETTLE_MS - 1, enter), true);
+    assert.equal(blocksEarlyPress(shown, 1150 + EARLY_PRESS_SETTLE_MS, enter), false);
+  });
+
+  it('counts from opening when there is no transition, and never runs past the limit', () => {
+    assert.equal(earlyPressEnds({ opened: 500, shown: 500 }), 500 + EARLY_PRESS_SETTLE_MS);
+    assert.equal(earlyPressEnds({ opened: 500, shown: null }), 500 + EARLY_PRESS_MAX_MS);
+    assert.equal(earlyPressEnds({ opened: 500, shown: 500 + EARLY_PRESS_MAX_MS }), 500 + EARLY_PRESS_MAX_MS);
+  });
+
+  it('lets other keys and synthetic presses through, and always stops repeats', () => {
+    const times = { opened: 0, shown: 0 };
+    assert.equal(blocksEarlyPress(times, 10, { key: 'Escape', repeat: false, isTrusted: true }), false);
+    assert.equal(blocksEarlyPress(times, 10, { key: 'Tab', repeat: false, isTrusted: true }), false);
+    assert.equal(blocksEarlyPress(times, 10, { ...enter, isTrusted: false }), false);
+    assert.equal(blocksEarlyPress(times, 10_000, { ...enter, repeat: true }), true);
+    assert.equal(blocksEarlyPress(times, 10_000, enter), false);
   });
 });

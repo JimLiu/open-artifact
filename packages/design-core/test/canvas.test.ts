@@ -10,6 +10,9 @@ import {
   layoutRows,
   mergeCanvas,
   mergeOrder,
+  moveCanvasPage,
+  boardsOnPage,
+  notesOnPage,
   normalizeCanvas,
   placeNewBoard,
   serializeCanvas,
@@ -93,6 +96,54 @@ describe('canvas', () => {
     assert.deepEqual(merged.order, ['A.dc.html', 'B.dc.html']);
     assert.equal(merged.notes.n1!.text, 'Flows');
     assert.deepEqual(mergeOrder(['a', 'b', 'c'], ['a', 'x', 'b'], ['c', 'b', 'a', 'y']), ['b', 'a', 'x', 'y']);
+  });
+});
+
+describe('page order', () => {
+  const sample = () => normalizeCanvas({
+    pages: [{ id: 'p1', name: 'One' }, { id: 'p2', name: 'Two' }, { id: 'p3', name: 'Three' }],
+    boards: {
+      'A.dc.html': { x: 0, y: 0, w: 100, h: 100 },
+      'B.dc.html': { x: 0, y: 0, w: 100, h: 100, page: 'p2' },
+      'C.dc.html': { x: 0, y: 0, w: 100, h: 100, page: 'gone' },
+    },
+    notes: { n1: { x: 0, y: 0, text: 'Loose' }, n2: { x: 0, y: 0, text: 'Third', page: 'p3' } },
+  });
+
+  it('moves a page after another one or to the front', () => {
+    const canvas = sample();
+    assert.deepEqual(moveCanvasPage(canvas, 'p1', 'p2').pages.map((p) => p.id), ['p2', 'p1', 'p3']);
+    assert.deepEqual(moveCanvasPage(canvas, 'p3', null).pages.map((p) => p.id), ['p3', 'p1', 'p2']);
+    assert.deepEqual(moveCanvasPage(canvas, 'p2', 'p3').pages.map((p) => p.id), ['p1', 'p3', 'p2']);
+  });
+
+  it('returns the same canvas when nothing changes', () => {
+    const canvas = sample();
+    assert.equal(moveCanvasPage(canvas, 'p2', 'p1'), canvas);
+    assert.equal(moveCanvasPage(canvas, 'p1', null), canvas);
+    assert.equal(moveCanvasPage(canvas, 'p2', 'p2'), canvas);
+    assert.equal(moveCanvasPage(canvas, 'nope', null), canvas);
+    assert.equal(moveCanvasPage(canvas, 'p2', 'nope'), canvas);
+  });
+
+  it('keeps objects without a page on the page that was first', () => {
+    const canvas = sample();
+    const moved = moveCanvasPage(canvas, 'p2', null);
+    assert.equal(moved.boards['A.dc.html']!.page, 'p1');
+    assert.equal(moved.boards['C.dc.html']!.page, 'p1');
+    assert.equal(moved.boards['B.dc.html']!.page, 'p2');
+    assert.equal(moved.notes.n1!.page, 'p1');
+    assert.equal(moved.notes.n2!.page, 'p3');
+    assert.deepEqual(boardsOnPage(moved, 'p1'), boardsOnPage(canvas, 'p1'));
+    assert.deepEqual(notesOnPage(moved, 'p1'), notesOnPage(canvas, 'p1'));
+    assert.equal(canvas.boards['A.dc.html']!.page, undefined);
+  });
+
+  it('writes no page ids when the first page stays first', () => {
+    const canvas = sample();
+    const moved = moveCanvasPage(canvas, 'p3', 'p1');
+    assert.equal(moved.boards, canvas.boards);
+    assert.equal(moved.notes, canvas.notes);
   });
 });
 
@@ -218,5 +269,22 @@ describe('project check', () => {
     canvas.boards['Main.dc.html'].w = 1024;
     files.set('canvas.json', JSON.stringify(canvas));
     assert.ok(of(checkDesignProject(files), 'error').some((d) => d.file === 'Main.dc.html' && d.message.includes('$preview')));
+  });
+
+  it('requires locked on boards and notes to be a boolean', () => {
+    const files = project();
+    const canvas = JSON.parse(files.get('canvas.json')!);
+    canvas.boards['Main.dc.html'].locked = 'yes';
+    canvas.notes = { a: { x: 0, y: 900, text: 'Hi', locked: 1 }, b: { x: 300, y: 900, text: 'Hi', locked: true } };
+    files.set('canvas.json', JSON.stringify(canvas));
+    const errors = of(checkDesignProject(files), 'error').map((d) => d.message);
+    assert.ok(errors.includes('Board "Main.dc.html" locked must be true or false.'), errors.join('\n'));
+    assert.ok(errors.includes('Note "a" locked must be true or false.'), errors.join('\n'));
+    assert.ok(!errors.some((m) => m.includes('Note "b"')), errors.join('\n'));
+
+    canvas.boards['Main.dc.html'].locked = true;
+    canvas.notes.a.locked = false;
+    files.set('canvas.json', JSON.stringify(canvas));
+    assert.deepEqual(of(checkDesignProject(files), 'error').filter((d) => d.message.includes('locked')), []);
   });
 });

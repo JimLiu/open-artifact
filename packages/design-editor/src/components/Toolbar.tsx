@@ -23,15 +23,19 @@ import {
   Plus,
   SlidersHorizontal,
   TriangleAlert,
+  Undo2,
 } from 'lucide-react';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { boardsOnPage } from '@open-artifact/design-core';
-import { Button, CommitInput, Dialog, cn, isComposingKey } from '@open-artifact/ui';
+import { Button, CommitInput, ConfirmDialog, Dialog, cn, isComposingKey } from '@open-artifact/ui';
 import { useDocument, type SaveState } from '../state/document.ts';
 import { PEN_WEIGHTS, useView, type PenStyle, type Tool } from '../state/view.ts';
 import { useAgent } from '../services/agent.ts';
 import { session } from '../services/session.ts';
-import { addPage, deletePage, redo, renamePage, undo } from '../services/commands.ts';
+import { addBoardFromKeyboard, addPage, deletePage, movePage, redo, renamePage, stepPage, undo } from '../services/commands.ts';
+import { announce } from '../services/announce.ts';
+import { useCoarsePointer } from '../services/pointer.ts';
+import { dragScrollStep, dropLine, PAGE_DRAG_THRESHOLD, pageAfterDrop, pageDropIndex } from '../lib/page-order.ts';
 import { ZOOM_PRESETS, zoomStep, zoomTo, zoomToBoards, zoomToFit } from '../services/viewport.ts';
 import { MAX_ZOOM, MIN_ZOOM } from '../state/view.ts';
 import { Card, ChromeButton, ChromeDivider, ChromeMenu, ChromeMenuItem, ChromeMenuLabel, ChromeMenuSeparator, MOD, Tip, useShellDraw } from '@open-artifact/editor-kit/react';
@@ -87,6 +91,7 @@ function PagePill() {
   const list = pages.length ? pages : [{ id: '', name: 'Page 1' }];
   const current = list.find((p) => p.id === page) ?? list[0]!;
   const canvas = useDocument((s) => s.canvas);
+  const drag = usePageRowDrag(pages.map((p) => p.id), !readOnly && pages.length > 1, open);
 
   const remove = (id: string): void => {
     const first = canvas.pages[0]?.id;
@@ -102,7 +107,7 @@ function PagePill() {
         <Tip label={current.name} shortcut={undefined}>
           <Popover.Trigger
             render={
-              <ChromeButton className="pr-2" aria-label={`Pages: ${readOnly ? 'switch pages' : 'switch, add, rename or delete a page'}`}>
+              <ChromeButton data-focus-landing="" className="pr-2" aria-label={`Pages: ${readOnly ? 'switch pages' : 'switch, add, rename or delete a page'}`}>
                 {list.length > 1 ? (
                   <span className="min-w-[18px] rounded-full bg-chrome-hover px-1.5 text-[11px] leading-[18px] tabular-nums text-chrome-muted">{list.length}</span>
                 ) : null}
@@ -120,12 +125,21 @@ function PagePill() {
                 useDocument.getState().setTitle(clean);
                 useDocument.getState().updateCanvas(c => ({ ...c, title: clean || undefined }));
               }} />}
-              {list.map((p) => (
-                <div key={p.id || 'implicit'} className="group flex items-center gap-0.5">
+              <div ref={drag.listRef} className="relative max-h-[min(30rem,60vh)] overflow-y-auto">
+              {list.map((p, i) => (
+                <div key={p.id || 'implicit'} data-page-row="" className={cn('group flex items-center gap-0.5', drag.dragged === p.id && 'opacity-50')}>
                   <button
                     type="button"
-                    className="flex h-7 min-w-0 flex-1 items-center gap-2 rounded-[8px] px-2.5 text-left outline-none hover:bg-chrome-hover focus-visible:bg-chrome-hover"
+                    // The name, and how many artboards the page holds, for screen readers.
+                    aria-label={`${p.name}, artboards: ${boardsOnPage(canvas, canvas.pages.length ? p.id : null).length}`}
+                    className={cn('flex h-7 min-w-0 flex-1 items-center gap-2 rounded-[8px] px-2.5 text-left outline-none hover:bg-chrome-hover focus-visible:bg-chrome-hover', drag.dragged === p.id && 'cursor-grabbing')}
+                    onPointerDown={p.id ? (event) => drag.down(event, p.id, i) : undefined}
+                    onPointerMove={drag.move}
+                    onPointerUp={drag.up}
+                    onPointerCancel={drag.cancel}
+                    onLostPointerCapture={drag.cancel}
                     onClick={() => {
+                      if (drag.swallowClick()) return;
                       setPage(p.id || null);
                       setOpen(false);
                     }}
@@ -156,6 +170,24 @@ function PagePill() {
                       >
                         Rename
                       </ChromeMenuItem>
+                      {pages.length > 1 ? (
+                        <>
+                          <ChromeMenuItem
+                            disabled={i === 0}
+                            title={i === 0 ? 'This is already the first page.' : undefined}
+                            onSelect={() => stepPage(p.id, -1)}
+                          >
+                            Move up
+                          </ChromeMenuItem>
+                          <ChromeMenuItem
+                            disabled={i === pages.length - 1}
+                            title={i === pages.length - 1 ? 'This is already the last page.' : undefined}
+                            onSelect={() => stepPage(p.id, 1)}
+                          >
+                            Move down
+                          </ChromeMenuItem>
+                        </>
+                      ) : null}
                       <ChromeMenuItem
                         danger
                         disabled={pages.length <= 1}
@@ -171,6 +203,8 @@ function PagePill() {
                   )}
                 </div>
               ))}
+              {drag.line === null ? null : <div aria-hidden className="pointer-events-none absolute inset-x-1 h-0.5 -translate-y-1/2 rounded-full bg-chrome-accent" style={{ top: drag.line }} />}
+              </div>
               <div className="mx-2 my-1 h-px bg-chrome-line" />
               {readOnly ? null : (
                 <>
@@ -193,28 +227,113 @@ function PagePill() {
       </Popover.Root>
 
       <RenameDialog id={renaming} onClose={() => setRenaming(null)} />
-      <Dialog
+      <ConfirmDialog
         open={confirmDelete !== null}
         onOpenChange={(next) => !next && setConfirmDelete(null)}
         title="Delete this page?"
         description="Its artboards and notes are deleted too. You can undo this."
-        footer={
-          <>
-            <Button onClick={() => setConfirmDelete(null)}>Cancel</Button>
-            <Button
-              variant="danger"
-              onClick={() => {
-                if (confirmDelete) deletePage(confirmDelete);
-                setConfirmDelete(null);
-              }}
-            >
-              Delete
-            </Button>
-          </>
-        }
+        confirmLabel="Delete"
+        danger
+        guardEarlyPress
+        onConfirm={() => {
+          if (confirmDelete) deletePage(confirmDelete);
+        }}
       />
     </>
   );
+}
+
+/**
+ * Dragging page rows to reorder them: mouse or pen only, starting after a
+ * few pixels, with an insertion line and auto-scroll near the list's edges.
+ * The click that ends a drag doesn't switch pages; closing the list cancels.
+ */
+function usePageRowDrag(ids: string[], enabled: boolean, open: boolean) {
+  const listRef = useRef<HTMLDivElement>(null);
+  const state = useRef<{ id: string; from: number; x: number; y: number; pointer: number; active: boolean } | null>(null);
+  const frame = useRef(0);
+  const swallow = useRef(false);
+  const [dragged, setDragged] = useState<string | null>(null);
+  const [line, setLine] = useState<number | null>(null);
+  const idsRef = useRef(ids);
+  idsRef.current = ids;
+
+  const spans = () => [...(listRef.current?.querySelectorAll<HTMLElement>('[data-page-row]') ?? [])].map((row) => {
+    const rect = row.getBoundingClientRect();
+    return { top: rect.top, bottom: rect.bottom };
+  });
+  const track = (y: number): void => {
+    const drag = state.current;
+    const list = listRef.current;
+    if (!drag || !list) return;
+    drag.y = y;
+    const rows = spans();
+    const at = dropLine(rows, drag.from, pageDropIndex(rows, y));
+    setLine(at === null ? null : at - list.getBoundingClientRect().top + list.scrollTop);
+  };
+  const scroll = (): void => {
+    const drag = state.current;
+    const list = listRef.current;
+    if (!drag?.active || !list) return;
+    const rect = list.getBoundingClientRect();
+    const step = dragScrollStep({ top: rect.top, bottom: rect.bottom }, drag.y);
+    if (step) {
+      list.scrollTop += step;
+      track(drag.y);
+    }
+    frame.current = requestAnimationFrame(scroll);
+  };
+  const end = (): void => {
+    cancelAnimationFrame(frame.current);
+    state.current = null;
+    setDragged(null);
+    setLine(null);
+  };
+  useEffect(() => {
+    if (!open) end();
+  }, [open]);
+  useEffect(() => () => cancelAnimationFrame(frame.current), []);
+
+  return {
+    listRef,
+    dragged,
+    line,
+    down(event: ReactPointerEvent<HTMLElement>, id: string, from: number): void {
+      if (!enabled || event.button !== 0 || event.pointerType === 'touch') return;
+      state.current = { id, from, x: event.clientX, y: event.clientY, pointer: event.pointerId, active: false };
+    },
+    move(event: ReactPointerEvent<HTMLElement>): void {
+      const drag = state.current;
+      if (!drag || event.pointerId !== drag.pointer) return;
+      if (!drag.active) {
+        if (Math.hypot(event.clientX - drag.x, event.clientY - drag.y) < PAGE_DRAG_THRESHOLD) return;
+        drag.active = true;
+        event.currentTarget.setPointerCapture(event.pointerId);
+        setDragged(drag.id);
+        frame.current = requestAnimationFrame(scroll);
+      }
+      track(event.clientY);
+    },
+    up(event: ReactPointerEvent<HTMLElement>): void {
+      const drag = state.current;
+      if (!drag || event.pointerId !== drag.pointer) return;
+      if (drag.active) {
+        swallow.current = true;
+        setTimeout(() => (swallow.current = false), 0);
+        const after = pageAfterDrop(idsRef.current, drag.from, pageDropIndex(spans(), event.clientY));
+        if (after !== undefined && movePage(drag.id, after)) announce('Page moved');
+      }
+      end();
+    },
+    cancel(): void {
+      if (state.current?.active) end();
+    },
+    swallowClick(): boolean {
+      const swallowed = swallow.current;
+      swallow.current = false;
+      return swallowed;
+    },
+  };
 }
 
 /** Rename a page. */
@@ -462,7 +581,20 @@ function ToolButton({ spec, children, optionsFor = [] }: { spec: ToolSpec; child
   return (
     <span className="relative inline-flex">
       <Tip label={spec.label} shortcut={spec.key} side={tipSide}>
-        <ChromeButton size="lg" square pressed={active} aria-label={spec.label} onClick={() => pick(spec.tool)}>
+        <ChromeButton
+          size="lg"
+          square
+          pressed={active}
+          aria-label={spec.label}
+          onClick={() => pick(spec.tool)}
+          onKeyDown={spec.tool === 'board' ? (event) => {
+            // Enter places an artboard right away; Space and clicks pick the tool to draw one.
+            if (event.key !== 'Enter' || event.repeat || isComposingKey(event.nativeEvent)) return;
+            event.preventDefault();
+            event.stopPropagation(); // not also a canvas shortcut
+            addBoardFromKeyboard();
+          } : undefined}
+        >
           {spec.icon}
         </ChromeButton>
       </Tip>
@@ -597,6 +729,33 @@ function AskButton() {
 }
 
 /** The foot toolbar. */
+/** On touch screens, which have no ⌘Z: a button with Undo and Redo. */
+function UndoRedoButton() {
+  const coarse = useCoarsePointer();
+  const canUndo = useDocument((s) => s.undo.length > 0);
+  const canRedo = useDocument((s) => s.redo.length > 0);
+  const tipSide = useTipSide();
+  if (!coarse) return null;
+  return (
+    <ChromeMenu
+      side={tipSide}
+      tip={{ label: 'Undo or redo', side: tipSide }}
+      trigger={
+        <ChromeButton size="lg" square aria-label="Undo or redo">
+          <Undo2 className="size-5" strokeWidth={1.75} />
+        </ChromeButton>
+      }
+    >
+      <ChromeMenuItem shortcut={`${MOD}Z`} disabled={!canUndo} onSelect={undo}>
+        Undo
+      </ChromeMenuItem>
+      <ChromeMenuItem shortcut={`⇧${MOD}Z`} disabled={!canRedo} onSelect={redo}>
+        Redo
+      </ChromeMenuItem>
+    </ChromeMenu>
+  );
+}
+
 export function FootToolbar({ compact = false }: { compact?: boolean }) {
   const readOnly = useDocument((s) => s.readOnly);
   const tool = useView((s) => s.tool);
@@ -613,6 +772,7 @@ export function FootToolbar({ compact = false }: { compact?: boolean }) {
             </ToolButton>
           ))}
           <ShapesButton />
+          <UndoRedoButton />
         </>
       )}
       {readOnly ? null : <AskButton />}

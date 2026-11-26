@@ -32,6 +32,20 @@ describe('font stylesheets', () => {
     ]);
   });
 
+  it('reads a quoted url() to its closing quote', () => {
+    assert.deepEqual(cssUrls(`background: url("photo (1).png") no-repeat, url('it"s.png'), url("a\\"b.png"), url('c\\'d.png')`), [
+      { match: 'url("photo (1).png")', url: 'photo (1).png' },
+      { match: `url('it"s.png')`, url: 'it"s.png' },
+      { match: 'url("a\\"b.png")', url: 'a\\"b.png' },
+      { match: "url('c\\'d.png')", url: "c\\'d.png" },
+    ]);
+  });
+
+  it('skips url() calls that are not well formed', () => {
+    assert.deepEqual(cssUrls('url() url("") url("open url(e.png)'), [{ match: 'url(e.png)', url: 'e.png' }]);
+    assert.deepEqual(cssUrls('url(a"b.png) url(c.png'), []);
+  });
+
   it('reads the descriptors of a face, data: URLs and all', () => {
     const block = `@font-face { font-family: "Ma Shan Zheng"; FONT-WEIGHT: 400; src: local("x;y"), url("data:font/woff2;base64,AA;BB") format("woff2"); font-weight: 700 }`;
     assert.deepEqual([...fontFaceDescriptors(block)], [

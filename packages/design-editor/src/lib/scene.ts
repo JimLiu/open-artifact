@@ -60,6 +60,10 @@ export interface BoardLook {
   z: number;
   /** It can be moved and resized. */
   editable: boolean;
+  /** Locked: it stays where it is, at its size. */
+  locked?: boolean;
+  /** Locked with nothing selected in it: pointers pass through it to the canvas. */
+  passThrough?: boolean;
 }
 
 /**
@@ -67,7 +71,12 @@ export interface BoardLook {
  * has none; artboards outline the hovered element inside them instead).
  */
 export function boardItem(path: string, entry: BoardEntry, look: BoardLook): CanvasItem {
-  const base = { id: boardItemId(path), x: entry.x, y: entry.y, w: entry.w, h: entry.h, radius: entry.radius ?? 0, layer: 0, z: look.z, movable: look.editable, resizable: look.editable, hover: false };
+  const fixed = look.editable && !look.locked;
+  const base = {
+    id: boardItemId(path), x: entry.x, y: entry.y, w: entry.w, h: entry.h, radius: entry.radius ?? 0, layer: 0, z: look.z,
+    movable: fixed, resizable: fixed, hover: false,
+    ...(look.passThrough ? { hittable: false, selectable: false } : {}),
+  };
   if (look.hole) return { ...base, kind: 'hole' };
   return {
     ...base,
@@ -86,6 +95,8 @@ export interface NoteLook {
   /** Stacking among notes (notes draw over artboards). */
   z: number;
   editable: boolean;
+  /** Locked: it stays where it is, at its size. */
+  locked?: boolean;
   /** Size of its rendered text box (stickies grow with their text, titles and link cards fit it). */
   measured?: { w: number; h: number };
 }
@@ -128,7 +139,7 @@ export function noteRect(note: CanvasNote, measured?: { w: number; h: number }):
 /** The engine item of a note: its body (text is drawn by the DOM), without a hover outline like artboards. */
 export function noteItem(id: string, note: CanvasNote, look: NoteLook): CanvasItem {
   const rect = noteRect(note, look.measured);
-  const base = { id: noteItemId(id), ...rect, ...(note.rotate ? { rotation: note.rotate * Math.PI / 180 } : {}), layer: 1, z: look.z, movable: look.editable, resizable: look.editable && !isPathNote(note), hover: false };
+  const base = { id: noteItemId(id), ...rect, ...(note.rotate ? { rotation: note.rotate * Math.PI / 180 } : {}), layer: 1, z: look.z, movable: look.editable && !look.locked, resizable: look.editable && !look.locked && !isPathNote(note), hover: false };
   if (isPathNote(note)) {
     const { width, color, dash } = noteStroke(note);
     const stroke = noteFill(color, 'stroke', '#2b2b2b');

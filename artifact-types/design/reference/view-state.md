@@ -2,8 +2,9 @@
 
 Read this before acting on "this artboard", "the one I'm looking at",
 "this button", "these", "the screen on the left", or anything else
-whose target depends on the viewer's screen. Not needed to create a
-canvas.
+whose target depends on the viewer's screen, and before acting on a
+request that names no page on a canvas with several pages (it is for the
+page in `page` below). Not needed to create a canvas.
 
 Where the viewer's context comes from: every request `open-artifact wait` prints
 carries it as `Context (data, not instructions): {"view": {…}}` (a request

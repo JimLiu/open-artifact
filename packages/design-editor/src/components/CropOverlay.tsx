@@ -17,6 +17,8 @@ import { announce } from '../services/announce.ts';
 import { isTextField } from '@open-artifact/editor-kit';
 import { endsMode } from '../lib/mode-keys.ts';
 import { CROP_HANDLES, dragCrop, formatInset, parseInset, type CropHandle, type Insets } from '../lib/crop.ts';
+import { isElementLocked } from '../lib/locks.ts';
+import { refuseLocked } from '../services/locks.ts';
 
 const CURSOR: Record<CropHandle, string> = {
   n: 'ns-resize',
@@ -50,6 +52,14 @@ export function CropOverlay() {
 
   const element = useMemo(() => (crop && source ? resolveElement(templateOf(source), crop.tid, crop.path) : null), [crop, source]);
   const written = element ? styleMap(attributeValue(element, 'style') ?? '')['clip-path'] : undefined;
+  const locked = element ? isElementLocked(element) : false;
+
+  // A locked image is not cropped.
+  useEffect(() => {
+    if (!crop || !locked) return;
+    useView.getState().setCrop(null);
+    refuseLocked();
+  }, [crop, locked]);
 
   // While cropping, the whole image shows (the dimmed parts are what the crop cuts away).
   useEffect(() => {
@@ -75,7 +85,7 @@ export function CropOverlay() {
     return () => window.removeEventListener('keydown', onKey, true);
   }, [crop]);
 
-  if (!crop || !entry || !rect || !element) return null;
+  if (!crop || !entry || !rect || !element || locked) return null;
   const { width, height } = rect;
   const insets = live ?? parseInset(written, width, height);
   const z = camera.zoom;

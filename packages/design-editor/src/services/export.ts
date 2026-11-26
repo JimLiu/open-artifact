@@ -35,7 +35,7 @@ import { readUploadFiles, SKIP_REASONS, type ReadUpload } from '../lib/upload-re
 import { pageBookmark, pageLinks, pageRuns } from '../lib/pdf-text.ts';
 import { useDocument } from '../state/document.ts';
 import { useView } from '../state/view.ts';
-import { CAPTURE_LIMITS, captureFigmaHtml, pageImage } from './capture.ts';
+import { captureFigmaHtml, captureLimits, pageImage } from './capture.ts';
 import { documentBackground, documentBands, documentHeight, documentKeepBlocks, documentLinks, documentWords } from './print.ts';
 import { artifactPath, projectPath, session } from './session.ts';
 
@@ -51,7 +51,7 @@ export interface ScaleOption {
 
 /** The PNG sizes of an artboard (1× and 2×), and whether each can be captured. */
 export function pngOptions(width: number, height: number): ScaleOption[] {
-  const max = maxCaptureScale(width, height, CAPTURE_LIMITS);
+  const max = maxCaptureScale(width, height, captureLimits());
   return [1, 2].map((scale) => ({ scale, width: Math.round(width * scale), height: Math.round(height * scale), fits: scale <= max + 1e-9 }));
 }
 
@@ -169,7 +169,9 @@ const boardName = (path: string): string => useDocument.getState().canvas.boards
 /** Hands a file to the host, or the browser, to save. */
 async function save(name: string, data: Blob): Promise<void> {
   const saved = await saveFile(session().downloads, name, data, 10_000);
-  if (saved.to === 'host') toast.add({ title: `Exported ${name}`, description: saved.savedTo });
+  const where = saved.to === 'host' ? { description: saved.savedTo } : {};
+  if (drewSmaller) toast.add({ title: `Saved “${name}” smaller than the size asked for: this browser can’t draw it that large.`, ...where });
+  else if (saved.to === 'host') toast.add({ title: `Exported ${name}`, ...where });
 }
 
 const blobOf = (bytes: Uint8Array, type: string) => new Blob([bytes as Uint8Array<ArrayBuffer>], { type });
@@ -181,6 +183,12 @@ let busy = false;
 /** Font families an export's pictures had to leave out (see `pageImage`). */
 const lostFonts = new Set<string>();
 const noteLostFonts = (families: string[]): void => families.forEach((family) => lostFonts.add(family));
+
+/** Whether a picture of this export came out smaller than asked (the browser would not draw it that large). */
+let drewSmaller = false;
+const noteSmaller = (): void => {
+  drewSmaller = true;
+};
 
 /** True while an export runs. */
 export const exportBusy = (): boolean => busy;
@@ -194,6 +202,7 @@ async function run(label: string, work: () => Promise<void>): Promise<ExportOutc
   busy = true;
   const progress = toast.add({ title: `Exporting ${label}…`, timeout: 0 });
   lostFonts.clear();
+  drewSmaller = false;
   try {
     await work();
     if (lostFonts.size) toast.add({ title: 'Some fonts could not be embedded', description: `Drawn in a fallback font: ${[...lostFonts].join(', ')}` });
@@ -240,7 +249,7 @@ export function exportPng(path: string, scale: number, width?: number): Promise<
   return run('PNG', async () => {
     const entry = entryOf(path);
     const size = width ? { width, height: entry.h, fullLength: true } : { width: entry.w, height: entry.h };
-    const blob = await withBoard(path, size, (doc, w, h) => pageImage(doc, w, h, { scale, onSkippedFonts: noteLostFonts }));
+    const blob = await withBoard(path, size, (doc, w, h) => pageImage(doc, w, h, { scale, onSkippedFonts: noteLostFonts, onSmaller: noteSmaller }));
     const suffix = width ? ` ${width}w` : '';
     await save(fileName(`${boardName(path)}${suffix}${scale > 1 ? `@${scale}x` : ''}`, 'png'), blobOf(await optimizePng(blob), 'image/png'));
   });
@@ -250,7 +259,7 @@ export function exportPng(path: string, scale: number, width?: number): Promise<
 export function exportJpeg(path: string, scale: number): Promise<ExportOutcome> {
   return run('JPEG', async () => {
     const entry = entryOf(path);
-    const blob = await withBoard(path, { width: entry.w, height: entry.h }, (doc, w, h) => pageImage(doc, w, h, { scale, type: 'image/jpeg', onSkippedFonts: noteLostFonts }));
+    const blob = await withBoard(path, { width: entry.w, height: entry.h }, (doc, w, h) => pageImage(doc, w, h, { scale, type: 'image/jpeg', onSkippedFonts: noteLostFonts, onSmaller: noteSmaller }));
     await save(fileName(`${boardName(path)}${scale > 1 ? `@${scale}x` : ''}`, 'jpg'), blob);
   });
 }
@@ -274,7 +283,7 @@ async function pdfPages(paths: readonly string[]): Promise<PdfPage[]> {
     const paper = flowPaper(entry);
     const width = paper?.width ?? entry.w;
     const pageHeight = paper?.height ?? entry.h;
-    const scale = Math.min(2, maxCaptureScale(width, pageHeight, CAPTURE_LIMITS));
+    const scale = Math.min(2, maxCaptureScale(width, pageHeight, captureLimits()));
     const out = await withBoard(path, { width, height: paper ? paper.height : entry.h, fullLength: Boolean(paper) }, async (doc, w, h) => {
       const lines = groupLines(documentWords(doc));
       const links = documentLinks(doc);
@@ -284,19 +293,24 @@ async function pdfPages(paths: readonly string[]): Promise<PdfPage[]> {
       const background = paper ? documentBackground(doc) : '#ffffff';
       const made: PdfPage[] = [];
       for (const [index, slice] of slices.entries()) {
+        let drawnAt = scale;
         const jpeg = await pageImage(doc, w, pageHeight, {
           scale,
           type: 'image/jpeg',
           top: slice.top - slice.offset,
           background,
           onSkippedFonts: noteLostFonts,
+          onSmaller: (smaller) => {
+            drawnAt = smaller;
+            noteSmaller();
+          },
           ...(paper ? { slice: true, keep: { from: slice.offset, to: slice.offset + slice.bottom - slice.top } } : {}),
         });
         const bookmark = pageBookmark(title, index);
         made.push({
           jpeg,
-          pixelWidth: Math.max(1, Math.round(w * scale)),
-          pixelHeight: Math.max(1, Math.round(pageHeight * scale)),
+          pixelWidth: Math.max(1, Math.round(w * drawnAt)),
+          pixelHeight: Math.max(1, Math.round(pageHeight * drawnAt)),
           width: w * PT_PER_PX,
           height: pageHeight * PT_PER_PX,
           text: pageRuns(lines, slice, w, PT_PER_PX),
@@ -338,8 +352,8 @@ export function exportAllPng(page: string | null): Promise<ExportOutcome> {
     const taken = new Set<string>();
     for (const path of paths) {
       const entry = entryOf(path);
-      const scale = maxCaptureScale(entry.w, entry.h, CAPTURE_LIMITS) >= 2 ? 2 : 1;
-      const blob = await withBoard(path, { width: entry.w, height: entry.h }, (doc, w, h) => pageImage(doc, w, h, { scale, onSkippedFonts: noteLostFonts }));
+      const scale = maxCaptureScale(entry.w, entry.h, captureLimits()) >= 2 ? 2 : 1;
+      const blob = await withBoard(path, { width: entry.w, height: entry.h }, (doc, w, h) => pageImage(doc, w, h, { scale, onSkippedFonts: noteLostFonts, onSmaller: noteSmaller }));
       let name = fileName(boardName(path), 'png');
       for (let n = 2; taken.has(name); n++) name = fileName(`${boardName(path)} ${n}`, 'png');
       taken.add(name);

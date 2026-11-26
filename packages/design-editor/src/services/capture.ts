@@ -12,7 +12,7 @@
  * load them itself.
  */
 
-import { blobToDataUrl, browserDrawing, captureHtml, cleanSvg, cssUrls, documentFonts, elementSvg, needsBrowserPaint, rasterize, SVG_NS } from '@open-artifact/export-kit';
+import { blobToDataUrl, browserDrawing, captureHtml, cleanSvg, cssUrls, documentFonts, elementOutline, elementSvg, needsBrowserPaint, outlineReach, rasterize, SVG_NS } from '@open-artifact/export-kit';
 import { canWriteClipboard, writeClipboard } from '@open-artifact/editor-kit';
 import { toast } from '@open-artifact/ui';
 import { useView, type ElementSelection } from '../state/view.ts';
@@ -25,7 +25,7 @@ const TID_ATTRIBUTE = 'data-dc-tpl';
 const MAX_HTML = 8 * 1024 * 1024;
 
 /** Drawing a whole artboard and its standalone HTML live in export-kit (the Data editor's PDF uses them too). */
-export { CAPTURE_LIMITS, pageImage, standaloneHtml } from '@open-artifact/export-kit';
+export { captureLimits, pageImage, standaloneHtml } from '@open-artifact/export-kit';
 
 /** True when exactly one element or one artboard is selected. */
 export function canCaptureSelection(): boolean {
@@ -83,17 +83,24 @@ async function withoutTransform<T>(element: Element, run: () => Promise<T>): Pro
 }
 
 
-/** The element as SVG markup and its size; with `fontCss`, carrying those fonts (a drawing that is rasterized). */
+/** How far an element's outline reaches past its box: a copy of the element grows by as much on each side. A whole artboard's page does not. */
+function outlineRoom(element: Element): number {
+  return element === element.ownerDocument.body ? 0 : outlineReach(elementOutline(element));
+}
+
+/** The element as SVG markup and its size (its outline included); with `fontCss`, carrying those fonts (a drawing that is rasterized). */
 async function captureSvg(element: Element, fontCss?: string): Promise<{ svg: string; width: number; height: number }> {
   return withoutTransform(element, async () => {
     const rect = element.getBoundingClientRect();
-    const doc = await elementSvg(element, rect, fontCss === undefined ? {} : { fontCss });
+    const room = outlineRoom(element);
+    const area = { x: rect.x - room, y: rect.y - room, width: rect.width + room * 2, height: rect.height + room * 2 };
+    const doc = await elementSvg(element, area, fontCss === undefined ? {} : { fontCss });
     const root = doc.documentElement;
     cleanSvg(root);
-    root.setAttribute('width', String(Math.round(rect.width * 100) / 100));
-    root.setAttribute('height', String(Math.round(rect.height * 100) / 100));
+    root.setAttribute('width', String(Math.round(area.width * 100) / 100));
+    root.setAttribute('height', String(Math.round(area.height * 100) / 100));
     for (const node of [...root.childNodes]) if (node.nodeType === Node.COMMENT_NODE) node.remove();
-    return { svg: new XMLSerializer().serializeToString(doc), width: rect.width, height: rect.height };
+    return { svg: new XMLSerializer().serializeToString(doc), width: area.width, height: area.height };
   });
 }
 
@@ -104,7 +111,8 @@ async function selectionPng(element: Element): Promise<Blob> {
     try {
       return await withoutTransform(element, async () => {
         const { width, height } = element.getBoundingClientRect();
-        return rasterize(await browserDrawing(element, width, height, 0, fonts.css), width, height);
+        const room = Math.ceil(outlineRoom(element));
+        return rasterize(await browserDrawing(element, width, height, 0, fonts.css, undefined, room), width + room * 2, height + room * 2);
       });
     } catch { /* Fall back to native SVG shapes when foreignObject is unavailable. */ }
   }

@@ -45,7 +45,7 @@ const INSPECTED = [
   'box-shadow', 'opacity', 'font-family', 'font-size', 'font-weight', 'font-style', 'line-height', 'letter-spacing',
   'text-align', 'text-transform', 'text-decoration-line', 'white-space', 'overflow', 'object-fit', 'top', 'left',
   'right', 'bottom', 'z-index', 'transform', 'rotate', 'scale', 'translate', 'transform-origin', 'border-right-width',
-  'border-bottom-width', 'border-left-width',
+  'border-bottom-width', 'border-left-width', 'box-sizing', 'background-clip',
 ];
 
 /* -------------------------------------------------------------------------- */
@@ -379,9 +379,21 @@ class Board implements BoardApi {
     return element ? this.toPick(element) : null;
   }
 
-  pickAll(x: number, y: number): PickResult[] {
+  pickAll(x: number, y: number, skip?: readonly number[]): PickResult[] {
     const out: PickResult[] = [];
-    for (let element = this.owner(document.elementFromPoint(x, y)); element; element = this.owner(element.parentElement)) {
+    let start = this.owner(document.elementFromPoint(x, y));
+    if (skip?.length) {
+      const skipped = new Set(skip);
+      start = null;
+      for (const hit of document.elementsFromPoint(x, y)) {
+        const owner = this.owner(hit);
+        if (owner && !skipped.has(Number(owner.getAttribute(TID_ATTRIBUTE)))) {
+          start = owner;
+          break;
+        }
+      }
+    }
+    for (let element = start; element; element = this.owner(element.parentElement)) {
       out.push(this.toPick(element));
     }
     return out;
@@ -546,7 +558,7 @@ class Board implements BoardApi {
         const target = event.target as HTMLElement | null;
         if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
         event.preventDefault();
-        this.report({ type: 'key', key: event.key, code: event.code, meta: event.metaKey || event.ctrlKey, shift: event.shiftKey, alt: event.altKey });
+        this.report({ type: 'key', key: event.key, code: event.code, meta: event.metaKey || event.ctrlKey, shift: event.shiftKey, alt: event.altKey, repeat: event.repeat });
       },
       true,
     );
