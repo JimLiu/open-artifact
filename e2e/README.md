@@ -252,6 +252,7 @@ The harness asks its questions (`waitFor`, `evaluateAll`, `load`'s `ready`) in a
 - (e) `config set … --project` writes `.agents/open-artifact/settings.json` at the top of the checkout from a folder deep in it; its `artifactsDir` is used; `trustedProjects`, `homeWorkspace` and `cloud` in that file are listed as ignored and change nothing. `config set … --local` comes before the file without touching it, and `config unset … --local` leaves the person's file empty.
 - (f) A linked worktree is the same project: both make their artifacts in the same folder under the Open Artifact folder, a new session in the worktree lists both, and a session in another checkout lists none.
 - (g) Two checkouts with the same folder name get two folders (`app`, `app-<4 hex digits>`), each stable for its project, and neither session lists the other's artifacts.
+- (h) `open-artifact doctor --json --harness claude-code` in a checkout: `artifacts-location` says the workspace and that it is the app's default; after `config set artifactsLocation home --local` it is a warning that names `claude --add-dir <the Open Artifact folder>`, which goes away once `~/.claude/settings.json` lists the folder under `permissions.additionalDirectories`; `--harness pi` needs nothing. A project file with `trustedProjects` makes `project-settings` a warning naming the key, and nothing fails.
 
 **Workspace confinement** (`workspace-confinement.test.mjs`, no browser)
 

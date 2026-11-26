@@ -1,5 +1,5 @@
 /**
- * `open-artifact doctor [--harness <name>] [--session <id>] [--json]` (design 12): checks this computer's Open Artifact
+ * `open-artifact doctor [--harness <name>] [--session <id>] [--workspace <dir>] [--json]` (design 12): checks this computer's Open Artifact
  * setup and says, for each check, `ok`, `warn`, `fail` or `n/a` (the host did not declare that capability, or the step
  * needs a person or a real browser) with one line of what to do. Exits non-zero when any check fails. With
  * `--session`, the host's conformance steps run too (`doctor-conformance.ts`, which documents the `--json` shape).
@@ -33,6 +33,8 @@ export interface DoctorContext {
   harness: string | null;
   /** `--session`, when given: the host's session the conformance steps act as. */
   session: string | null;
+  /** The folder asked about (`--workspace`, else where the command runs): its project's settings are checked. */
+  workspace: string | null;
   env: NodeJS.ProcessEnv;
   /** The running daemon, or `null` (read once). */
   daemon: () => Promise<DaemonState | null>;
@@ -57,13 +59,14 @@ export interface DoctorReport {
 }
 
 /** Runs `checks` in order; a check that throws is a `fail` of its own. */
-export async function runDoctor(options: { checks: readonly DoctorCheck[]; harness?: string | null; session?: string | null; env?: NodeJS.ProcessEnv }): Promise<DoctorReport> {
+export async function runDoctor(options: { checks: readonly DoctorCheck[]; harness?: string | null; session?: string | null; workspace?: string | null; env?: NodeJS.ProcessEnv }): Promise<DoctorReport> {
   const env = options.env ?? process.env;
   let daemon: Promise<DaemonState | null> | null = null;
   const context: DoctorContext = {
     home: openArtifactHome(),
     harness: options.harness ?? null,
     session: options.session ?? null,
+    workspace: options.workspace ?? null,
     env,
     daemon: () => (daemon ??= readDaemon().catch(() => null)),
   };

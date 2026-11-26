@@ -105,7 +105,7 @@ test('every command a fix line names is one the CLI has (its USAGE lists it)', (
   const usage = /const USAGE = `([\s\S]*?)`;/.exec(source('bin/open-artifact.ts'))![1]!;
   const withSubcommands = new Set(['daemon', 'harness', 'runtime', 'remote', 'skill']);
   const named = new Set<string>();
-  for (const file of ['doctor.ts', 'doctor-checks.ts', 'doctor-conformance.ts', 'doctor-remote.ts']) {
+  for (const file of ['doctor.ts', 'doctor-checks.ts', 'doctor-conformance.ts', 'doctor-location.ts', 'doctor-remote.ts']) {
     for (const [line] of source(file).matchAll(/fix:[^\n]*/g)) {
       for (const [, command, sub] of line.matchAll(/open-artifact ([a-z]+)(?: ([a-z]+))?/g)) named.add(withSubcommands.has(command!) && sub ? `${command} ${sub}` : command!);
     }

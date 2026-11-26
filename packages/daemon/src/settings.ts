@@ -223,5 +223,15 @@ export function artifactsPlacement(workspace: string, harnessDefault?: Artifacts
   return { location, locationSource, artifactsDir, artifactsDirSource, layers };
 }
 
+/**
+ * The folder a session in `workspace` keeps new artifacts in when their location is `workspace`. A project's folder
+ * for its artifacts is relative to the project: where its settings file is, or, for the person's own entry for it, the
+ * project's folder. Otherwise the session's folder, as it always was.
+ */
+export function workspaceArtifactsDir(workspace: string, placement: ArtifactsPlacement): string {
+  const { info } = placement.layers;
+  return join(info.configDir ?? (placement.artifactsDirSource === 'local' ? info.dir : resolve(workspace)), placement.artifactsDir);
+}
+
 /** The keys a project may set, for messages. */
 export const PROJECT_KEYS_TEXT = PROJECT_SETTINGS_KEYS.join(', ');

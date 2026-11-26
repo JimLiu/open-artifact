@@ -12,6 +12,7 @@ import { api } from '@open-artifact/harness-kit';
 import { HARNESS_NAME, type DaemonHealth, type HarnessesResponse, type ToolDefinition } from '@open-artifact/protocol';
 import type { DoctorCheck } from './doctor.ts';
 import { CONFORMANCE_CHECKS } from './doctor-conformance.ts';
+import { LOCATION_CHECKS } from './doctor-location.ts';
 import { REMOTE_CHECKS } from './doctor-remote.ts';
 import { ownRuntime } from './client.ts';
 import { harnessProfile } from './harness-profiles.ts';
@@ -194,4 +195,4 @@ const settings: DoctorCheck = {
 };
 
 /** Every check, in the order they run. Append another module's checks here. */
-export const DOCTOR_CHECKS: readonly DoctorCheck[] = [node, home, settings, daemon, nodeChildren, runtime, types, harnessProfileCheck, harnessAdapter, tools, ...REMOTE_CHECKS, ...CONFORMANCE_CHECKS];
+export const DOCTOR_CHECKS: readonly DoctorCheck[] = [node, home, settings, daemon, nodeChildren, runtime, types, harnessProfileCheck, harnessAdapter, tools, ...LOCATION_CHECKS, ...REMOTE_CHECKS, ...CONFORMANCE_CHECKS];

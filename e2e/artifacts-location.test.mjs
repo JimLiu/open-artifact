@@ -15,6 +15,8 @@
 //  (f) A linked worktree is the same project: the same folder under the Open Artifact folder, and its sessions list
 //      the project's artifacts; a session in another checkout does not.
 //  (g) Two projects with the same folder name get two folders under the Open Artifact folder.
+//  (h) `open-artifact doctor` says where an app's sessions keep new artifacts in a checkout and who chose it, warns
+//      when home was chosen for an app that keeps its agent to the working folder, and names a project file's unused keys.
 //
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
@@ -259,6 +261,43 @@ describe('where new artifacts go: the Open Artifact folder, the workspace, and t
     // Another checkout's session sees none of them.
     const other = checkout('unrelated');
     assert.deepEqual(titles(other, { session: 'other-1' }), []);
+  });
+
+  it('(h) doctor: the location in effect and who chose it, the setting an app needs, and a project file\'s unused keys', T, () => {
+    const repo = checkout('portal');
+    const doctor = (...args) => {
+      // The apps' own settings are looked for under the temporary HOME: there are none.
+      const r = cli(repo, ['doctor', '--json', ...args]);
+      const report = JSON.parse(r.stdout);
+      return { report, find: id => report.findings.filter(f => f.id === id) };
+    };
+    let d = doctor('--harness', 'claude-code');
+    assert.equal(d.find('artifacts-location')[0].status, 'ok');
+    assert.ok(d.find('artifacts-location')[0].message.includes(`${path.join(repo, 'artifacts')}/<slug> (artifactsLocation workspace: the default of claude-code)`));
+    assert.match(d.find('home-workspace')[0].message, /not made yet|Open Artifact folder/);
+    assert.equal(d.find('project-settings')[0].message, `Project ${repo}: no settings file of its own`);
+
+    config(repo, 'set', 'artifactsLocation', 'home', '--local');
+    d = doctor('--harness', 'claude-code');
+    const warned = d.find('artifacts-location')[0];
+    assert.equal(warned.status, 'warn');
+    assert.match(warned.message, /artifactsLocation home: your setting for this project/);
+    assert.ok(warned.fix.includes(`claude --add-dir ${ctx.openArtifact}`));
+    // Claude Code's own settings allow the folder: no warning.
+    fs.mkdirSync(path.join(ctx.userHome, '.claude'), { recursive: true });
+    fs.writeFileSync(path.join(ctx.userHome, '.claude', 'settings.json'), JSON.stringify({ permissions: { additionalDirectories: ['~/OpenArtifact'] } }));
+    assert.equal(doctor('--harness', 'claude-code').find('artifacts-location')[0].status, 'ok');
+    fs.rmSync(path.join(ctx.userHome, '.claude'), { recursive: true });
+    // An app nothing stops needs nothing.
+    assert.equal(doctor('--harness', 'pi').find('artifacts-location')[0].status, 'ok');
+    config(repo, 'unset', 'artifactsLocation', '--local');
+
+    fs.mkdirSync(path.join(repo, '.agents', 'open-artifact'), { recursive: true });
+    fs.writeFileSync(path.join(repo, '.agents', 'open-artifact', 'settings.json'), JSON.stringify({ artifactsLocation: 'workspace', trustedProjects: [repo] }));
+    d = doctor('--workspace', repo);
+    assert.equal(d.find('project-settings')[0].status, 'warn');
+    assert.match(d.find('project-settings')[0].message, /artifactsLocation workspace; not used: trustedProjects/);
+    assert.equal(d.report.counts.fail, 0);
   });
 
   it('(g) two projects with the same folder name get two folders', T, () => {

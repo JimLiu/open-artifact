@@ -168,6 +168,23 @@ open-artifact config unset artifactsLocation [--local | --project]
 - **Only you change settings.** Inside an agent's session `config set` and `config unset` are refused, as trusting a
   project or publishing is; `list` and `get` work anywhere. `--project` removes the file when nothing is left in it.
 
+## Check it: `open-artifact doctor`
+
+```bash
+open-artifact doctor --harness claude-code      # in the project; --workspace <dir> names another folder
+```
+
+Among its checks, four are about this page:
+
+| Check | Says |
+| --- | --- |
+| `home-workspace` | Your Open Artifact folder, and whether it can be written (not made yet is fine). Fails when it cannot. |
+| `artifacts-location` | Where a session of that app in this folder keeps new artifacts, and who chose it. When that is your Open Artifact folder and the app keeps its agent to the working folder (Claude Code, Codex, Copilot CLI, Cursor), a warning with the setting to add. For Claude Code and Codex doctor reads the app's own settings (`~/.claude/settings.json` and the project's `.claude/settings*.json`; `~/.codex/config.toml`) and says ok when they already allow the folder; it cannot see a `--add-dir` given on the command line. |
+| `project-settings` | The project's settings file and what it sets; a warning naming the keys that are not used, or a file that is not a JSON object; and your own entry for the project. |
+| `settings-projects` | A warning for entries of `projects` in your settings whose folder is gone, or that are not named by an absolute path. |
+
+doctor only reads: it changes neither your settings nor another app's.
+
 ## For agents
 
 - Do not make up a folder. Leave `folder` out: the daemon chooses it and names it from the title.

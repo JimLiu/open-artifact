@@ -61,7 +61,7 @@ import type { Inbox } from './inbox.ts';
 import { HOME_HARNESS, type Ownership } from './ownership.ts';
 import { inside, scriptRunner, shellWord } from './paths.ts';
 import { homeProjectDir, projectMatcher, projectOf } from './project.ts';
-import { artifactsPlacement } from './settings.ts';
+import { artifactsPlacement, workspaceArtifactsDir } from './settings.ts';
 import { ACTION_NAME, type TypeAction } from './servers.ts';
 import { changedFiles, sessionKeyOf, slugify, type ArtifactStore } from './store.ts';
 import { markerSourceOf, typeSourceOf } from './type-packages.ts';
@@ -958,10 +958,7 @@ export class Tools {
       const reserved = [placement.artifactsDir, settings.artifactsDir || 'artifacts'].map((dir) => dir.split(/[\\/]/).find(Boolean) ?? dir);
       return { root: unique(homeProjectDir(home, placement.layers.info.project, reserved)) };
     }
-    // A project's folder for its artifacts is relative to the project: where its settings file is, or, for the
-    // person's own entry for it, the project's folder. Otherwise the session's folder, as it always was.
-    const { info } = placement.layers;
-    const parent = join(info.configDir ?? (placement.artifactsDirSource === 'local' ? info.dir : base), placement.artifactsDir);
+    const parent = workspaceArtifactsDir(base, placement);
     const fallback = !wanted && placement.locationSource === 'harness';
     return { root: unique(parent), ...(fallback && placement.layers.info.gitRoot && !existsSync(parent) ? { ignore: parent } : {}) };
   }

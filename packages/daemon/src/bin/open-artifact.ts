@@ -19,7 +19,7 @@
  *   open-artifact harness add <profile.json> | list [--json] | remove <name>   harness profiles of your own
  *   open-artifact harness --stdio --harness <name>       the Harness API as JSON-RPC lines on stdin/stdout (stdio-bridge.ts)
  *   open-artifact runtime status [--json] [--check] | update [--version <v>] | pin <range>|--clear | policy [<word>]   the runtime (cli-runtime.ts)
- *   open-artifact doctor [--harness <name> [--session <id>]] [--json]   check the setup (doctor.ts); with --session, the host's conformance steps (doctor-conformance.ts)
+ *   open-artifact doctor [--harness <name> [--session <id>]] [--workspace <dir>] [--json]   check the setup (doctor.ts); with --session, the host's conformance steps (doctor-conformance.ts)
  *   open-artifact remote add <name> <https://host> [--insecure-http] [--no-browser] | list | remove <name> [--force] [--json] | status [--json]    cloud remotes
  *   open-artifact remote default <name> | --clear       the remote used when none is named
  *   open-artifact remote auto on|off                     publish new artifacts to the default remote by themselves
@@ -106,7 +106,9 @@ open-artifact runtime update [--version <x.y.z>]     install the newest compatib
 open-artifact runtime pin <range> | --clear          keep the runtime within a version range, e.g. ^0.14
 open-artifact runtime policy [auto|prompt|bundled|default]   the update policy in effect and where it comes from; a word
                                                      sets yours (default removes it)
-open-artifact doctor [--harness <name>] [--json]     check this computer's setup; exits non-zero when a check fails
+open-artifact doctor [--harness <name>] [--workspace <dir>] [--json]   check this computer's setup, and where a session
+                                                     of that app in this folder keeps new artifacts; exits non-zero
+                                                     when a check fails
 open-artifact doctor --harness <name> --session <id> [--json]   also run the host's conformance steps as that session
                                                      (makes and removes a test artifact, asks the session once)
 open-artifact remote add <name> <https://host> [--insecure-http] [--no-browser]   link this computer to a cloud host (signs
@@ -1069,7 +1071,7 @@ async function main(): Promise<void> {
     case 'doctor': {
       if (sub) argv.unshift(sub);
       const json = argv.includes('--json');
-      const report = await runDoctor({ checks: DOCTOR_CHECKS, harness: flag('harness') ?? null, session: flag('session') ?? null });
+      const report = await runDoctor({ checks: DOCTOR_CHECKS, harness: flag('harness') ?? null, session: flag('session') ?? null, workspace: resolvePath(flag('workspace') ?? process.cwd()) });
       out(json ? report : doctorText(report));
       if (!report.ok) process.exitCode = 1;
       return;

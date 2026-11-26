@@ -143,8 +143,10 @@ A call that names no folder leaves the choice to the daemon. With nothing set, i
 The person chooses otherwise with `open-artifact config set artifactsLocation home | workspace` (`--local` for one
 project, `--project` for the repository's own settings file), and the agent, for one artifact, with `location`. In a
 Git checkout the daemon writes `artifacts/.gitignore` when it makes the folder because of an app's default, so the
-checkout stays clean. A workspace-confined daemon always uses the workspace. The whole of it, with what was measured
-in each app: [docs/settings.md](../docs/settings.md).
+checkout stays clean. A workspace-confined daemon always uses the workspace. `open-artifact doctor --harness <name>`,
+run in the project, says where that app's sessions keep new artifacts and who chose it, and warns when the app was not
+told it may write the Open Artifact folder. The whole of it, with what was measured in each app:
+[docs/settings.md](../docs/settings.md).
 
 ## How a plugin reaches the daemon
 

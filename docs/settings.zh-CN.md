@@ -155,6 +155,23 @@ open-artifact config unset artifactsLocation [--local | --project]
 - **只有你能改设置。**在 agent 的会话里，`config set` 和 `config unset` 会被拒绝，和信任项目、发布一样；`list` 和
   `get` 在哪都能用。`--project` 在文件里什么都不剩时会把文件删掉。
 
+## 检查：`open-artifact doctor`
+
+```bash
+open-artifact doctor --harness claude-code      # 在项目里运行；--workspace <dir> 指定另一个文件夹
+```
+
+它的检查里有四项和这一页有关：
+
+| 检查 | 说明 |
+| --- | --- |
+| `home-workspace` | 你的 Open Artifact 文件夹，以及它能不能写（还没建出来不算问题）。不能写时失败。 |
+| `artifacts-location` | 这个应用在这个文件夹里的会话把新作品放在哪，是谁选的。位置是你的 Open Artifact 文件夹、而这个应用只让 agent 写工作文件夹时（Claude Code、Codex、Copilot CLI、Cursor），给出警告和要加的设置。对 Claude Code 和 Codex，doctor 会读应用自己的设置（`~/.claude/settings.json` 和项目里的 `.claude/settings*.json`；`~/.codex/config.toml`），里面已经放行这个文件夹就报 ok；命令行上给的 `--add-dir` 它看不到。 |
+| `project-settings` | 项目的设置文件和它设了什么；有没被采用的键，或者文件不是 JSON 对象时给出警告；还有你对这个项目自己的设置。 |
+| `settings-projects` | 你的设置里 `projects` 的条目，文件夹已经不在了，或者不是用绝对路径命名的，给出警告。 |
+
+doctor 只读取：它不改你的设置，也不改别的应用的设置。
+
 ## 给 agent
 
 - 不要自己编文件夹。不传 `folder`：daemon 来选，并按标题起名。
