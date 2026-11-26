@@ -1,6 +1,6 @@
 {
   "name": "@open-artifact/library-page",
-  "version": "0.16.0",
+  "version": "0.16.1",
   "private": true,
   "type": "module",
   "description": "The Open Artifact library page, for an agent app to mount as its own: the artifact list, the type tiles, search and filters, the menus and dialogs, the update panel and release notes, on neutral --oa-page-* tokens. The host hands it its routes, how it opens and starts sessions, and how it takes thumbnails.",
@@ -11,7 +11,7 @@
     "./words": "./src/i18n.ts"
   },
   "dependencies": {
-    "@open-artifact/protocol": "0.16.0",
+    "@open-artifact/protocol": "0.16.1",
     "zustand": "5.0.10"
   },
   "peerDependencies": {

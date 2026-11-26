@@ -6,6 +6,23 @@ Every release of Open Artifact: the `@open-artifact/*` libraries, `@open-artifac
 Each entry is written from the commits since the previous tag (`node scripts/changelog.mjs` lists them); see
 [Releasing](README.md#releasing).
 
+## [0.16.1] - 2026-11-25
+
+Keep an agent that runs in a sandbox to its session's workspace, even though the daemon runs with your full rights.
+
+### Added
+
+- A daemon started with `OPEN_ARTIFACT_WORKSPACE_FOLDERS_ONLY=1` works only inside the calling session's workspace: making, reading and listing artifacts, ArtifactData's `file_path` and `out_file`, file paths in type actions (an upload's `file`, docs import and export), and artifact pages and archives. Anything outside answers `not_granted`. A symbolic link out of the workspace, or a workspace folder replaced by another, is refused too. Without the variable nothing changes.
+- A write refused because `if_match` no longer matches says `executionStatus: "not_executed"`, so an agent knows nothing was written.
+
+### Fixed
+
+- On macOS, a workspace under `/var` or `/tmp` is recognised when its path is spelled through the system's link to `/private`.
+
+### Integrators
+
+- `startDaemon({ workspaceFoldersOnly: true })` turns on the same confinement as the environment variable, for apps that run their agents in a sandbox. Each call is checked against the workspace the session gave (`caller.workspace`); a session without one cannot make or open artifacts there. A listing shows only artifacts inside that workspace, `scope: "all"` included. See "A sandboxed agent: workspace folders only" in the integrator guide's security page. Nothing in the Harness API messages, `harness-kit` or the Shell changed.
+
 ## [0.16.0] - 2026-11-25
 
 Make artifacts from Pi, and install an artifact as an app of its own from Open Artifact Desktop.
@@ -642,6 +659,7 @@ One version for every package, with Docs and Sheets in every plugin.
 - Plugins for Claude Code, Codex, Cursor, Copilot, ChatGPT and DeepSeek Harness.
 - English and Chinese READMEs, under Apache-2.0.
 
+[0.16.1]: https://github.com/JimLiu/open-artifact/compare/v0.16.0...v0.16.1
 [0.16.0]: https://github.com/JimLiu/open-artifact/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/JimLiu/open-artifact/compare/v0.14.7...v0.15.0
 [0.14.7]: https://github.com/JimLiu/open-artifact/compare/v0.14.6...v0.14.7

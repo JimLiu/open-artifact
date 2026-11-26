@@ -247,7 +247,7 @@ before the dry run and the deploy.
 
 The catalog's schema is created and migrated by the Worker on the first request; there is no separate migration step.
 Then open `https://artifacts.example.com/auth/sign-in`, sign in with the owner key, and check
-`https://artifacts.example.com/__open-artifact/health` answers `{"openArtifact":1,"version":"0.16.0"}`.
+`https://artifacts.example.com/__open-artifact/health` answers `{"openArtifact":1,"version":"0.16.1"}`.
 
 ### 6. Link computers
 

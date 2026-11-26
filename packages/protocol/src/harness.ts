@@ -315,7 +315,7 @@ export interface HelloParams {
   token: string;
   /** The Harness API versions the adapter speaks. */
   protocols?: ProtocolRange;
-  /** The SDK the adapter is built on, e.g. `{ name: '@open-artifact/harness-kit', version: '0.16.0' }`. */
+  /** The SDK the adapter is built on, e.g. `{ name: '@open-artifact/harness-kit', version: '0.16.1' }`. */
   kit?: { name: string; version: string };
   /**
    * The harness's profile, so the daemon knows it while no adapter is connected. The daemon keeps it as

@@ -1,7 +1,7 @@
 {
   "name": "open-artifact",
   "displayName": "Open Artifact",
-  "version": "0.16.0",
+  "version": "0.16.1",
   "description": "Make slide decks, design canvases, whiteboards, spreadsheets, data dashboards, docs, animated films, design systems and free HTML pages you view, edit, comment on and export in one local page; comments come back to the agent.",
   "logo": "assets/icon.png",
   "author": {
