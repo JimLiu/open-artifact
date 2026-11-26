@@ -28,8 +28,10 @@ of it). The first `write-db` that writes `board/meta` starts it.
 `Artifact {action: "quickstart", intent: "other"}`, then `Artifact {action: "publish", type_url:
 "open-artifact://type/whiteboard", title}`; its result gives the board's `url` (`open-artifact://artifact/<id>`). Read and
 write its documents with **ArtifactData** (`url` = the board's): `get`, `list`, `set`, `update`,
-`delete` and `batch`. Comments are **ArtifactComments**. Uploads are `Artifact {action: "publish",
-url, file_path, asset: true}`. Never run `open-artifact open`, `serve`, `wait` or `stop` under a host.
+`delete` and `batch`. Comments are **ArtifactComments**. To upload a picture, call
+`Artifact {action: "call", url, name: "upload", args: {file: "/absolute/path/to/image.png"}}`.
+Use the returned `/_blob/<id>` URL as the image element's `src`.
+Never run `open-artifact open`, `serve`, `wait` or `stop` under a host.
 
 **Standalone**, the same documents through the CLI:
 

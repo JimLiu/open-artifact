@@ -44,7 +44,7 @@
 | 创建 | `Artifact {action: "publish", type_url: "open-artifact://type/whiteboard", title, open: "after_first_write"}` | `open-artifact open <root> --type whiteboard --title "<标题>" --json` |
 | 读取白板 | `ArtifactData {action: "list", url, collection: "elements"}` / `get` `board/meta` | `open-artifact read-db <root> [elements \| board/meta]` |
 | 写入 / 批处理 | `ArtifactData {action: "batch", url, writes: [...]}`（`set`/`update`/`delete`） | `open-artifact write-db <root> '<writes>'`（支持 `{"$file":"..."}`） |
-| 上传图片 | `Artifact {action: "publish", url, file_path, asset: true}`（或 `call` `upload`） | `open-artifact upload <root> <file>...` |
+| 上传图片 | `Artifact {action: "call", url, name: "upload", args: {file: "/absolute/path/to/image.png"}}` | `open-artifact upload <root> <file>...` |
 | 校验 | `Artifact {action: "call", url, name: "check"}` | `open-artifact check <root>` |
 | 查看视角/选中项 | `Artifact {action: "call", url, name: "context"}` | `open-artifact context <root>` |
 
