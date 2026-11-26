@@ -14,7 +14,7 @@ plain folders on disk.
 | `skills/open-artifact/` | Unified `/open-artifact <type>` skill + vendored daemon. |
 | `packages/` | Core platform (`daemon`, `shell`, `protocol`, `runtime`, `type-server`, `server-sdk`, `live-store`, `host*`, `harness-kit`, `library-page`), 8 type pairs (`<type>-core` + `<type>-editor`), shared UI/canvas/export kits, and `wasm-*` bindings. |
 | `crates/` | Rust crates compiled to WebAssembly (`packages/wasm-*/generated/` is committed). |
-| `plugins/` | Per-app agent plugins (`claude-code`, `codex`, `cursor`, `copilot`, `antigravity`, `zcode`, `dsh`, `pi`, `chatgpt`). |
+| `plugins/` | Per-app agent plugins (`claude-code`, `codex`, `cursor`, `copilot`, `antigravity`, `zcode`, `dsh`, `pi`, `omp`, `chatgpt`). |
 | `examples/` | Runnable agent-app integrations (`harness-node`, `harness-electron`, `harness-stdio`) and host plugins. |
 | `apps/desktop/` | Open Artifact Desktop (Electron, strict TypeScript): sidebar, tabs of artifacts, the library page as home, bundled runtime, no agent. Own `package.json`; not a workspace, not in `npm test`. |
 | `website/` | Official website: static site (`site/`) + live in-browser demos (`playground/`). Own builds and lockfiles; not a workspace, not in `npm test`. |
@@ -66,7 +66,7 @@ See [docs/references/docs-maintenance.md](docs/references/docs-maintenance.md) f
 Every release gets a `CHANGELOG.md` entry written from commit history; the Publish to npm workflow refuses a tag
 without one and uses the entry as the GitHub release notes.
 
-1. Raise the version everywhere it is kept (`@open-artifact/*` packages, `plugins/dsh`, `plugins/pi`, every plugin
+1. Raise the version everywhere it is kept (`@open-artifact/*` packages, `plugins/dsh`, `plugins/pi`, `plugins/omp`, every plugin
    manifest, and the marketplaces share one version).
 2. Run `node scripts/changelog.mjs` to list commits since the last `v*` tag (`node scripts/changelog.mjs <from> <to>`
    for another range).

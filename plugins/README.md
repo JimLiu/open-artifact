@@ -15,6 +15,7 @@ every type, with each type's own editor and comments inside. `/open-artifact sli
 | [`zcode/`](zcode/README.md) | ZCode | MCP tools, skill, hooks, extension | at session start, with the person's next message, at the end of a turn (the turn goes on), and while the session idles (the extension starts a turn the moment they are sent) |
 | [`dsh/`](dsh/README.md) | DeepSeek Harness | native tools, the Open Artifact sidebar page, comment cards, `/open-artifact` | right away: a new turn when the session idles, added to the running turn otherwise (a full adapter, L3) |
 | [`pi/`](pi/README.md) | Pi (`pi` CLI) | native tools, skill, system prompt section, `/open-artifact` | right away: the owner's words as a user message (a new turn when Pi is idle, steered into the running turn otherwise), anyone else's as a custom message the model reads (a full adapter, L3) |
+| [`omp/`](omp/README.md) | OMP (`omp` CLI) | native tools, skill, system prompt, `/open-artifact` | right away: the owner's words as a user message (a new turn when OMP is idle, steered into the running turn otherwise), anyone else's as a custom message the model reads (a full adapter, L3) |
 | [`chatgpt/`](chatgpt/README.md) | ChatGPT on the web | MCP tools over HTTPS, a card | in the next tool result, or when the person presses "Send comments to ChatGPT" on the card |
 | [`../skills/open-artifact/`](../skills/open-artifact/SKILL.md) | any other agent that reads skills | the command line | in the result of any call, or by `wait` |
 
@@ -51,7 +52,8 @@ comments into your sessions, on `@open-artifact/harness-kit` or over `open-artif
 
 Follow your app's guide above. GitHub Releases includes `open-artifact-plugins.zip` with the prebuilt plugin
 folders, the ChatGPT web connector and the local marketplace catalogs. The
-[quick start](../README.md#1-as-a-plugin-in-your-agent-app-recommended) covers installation from npm for DeepSeek Harness.
+[quick start](../README.md#1-as-a-plugin-in-your-agent-app-recommended) covers installation from npm for DeepSeek Harness,
+Pi and OMP.
 
 ## Build from source
 
@@ -70,6 +72,12 @@ plugin. Each plugin carries the skill with the daemon vendored in `skills/open-a
 `dsh/` is different: it is an npm workspace package (`dsh-open-artifact`) with its own build, `node plugins/dsh/scripts/build.mjs`
 (run by `npm run build`), which writes `lib/` and vendors the daemon into `vendor/`. DeepSeek Harness installs it from
 that folder; `build-plugins.mjs` leaves it alone.
+
+`pi/` and `omp/` are npm packages too (`pi-open-artifact`, `omp-open-artifact`), staged by `scripts/build-npm.mjs`;
+both are loaded as TypeScript as they are. OMP scans the `skills/` folder of an installed extension package, so
+`omp-open-artifact` carries the skill there (rendered for OMP; an installed copy rewrites it with the installed types once its
+daemon answers). OMP 19.2.1's marketplace installer refuses npm sources, so there is no OMP catalog in `dist/plugins`:
+install `omp-open-artifact` from npm directly (`omp plugin install npm:omp-open-artifact`).
 
 ## Use a server instead of this computer
 

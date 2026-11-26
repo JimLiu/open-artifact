@@ -128,8 +128,9 @@ mapping, `sessionWorkspace` a known name. A bad field is refused with a sentence
 | `copilot` | L2 | mcp | inbox (`wakesIdle: false`) | `copilot` | — | — |
 | `cursor` | L2 | mcp | inbox (`wakesIdle: false`) | `cursor` | — | — |
 | `dsh` | L3 | harness-api | live, inbox | — | — | — |
+| `omp` | L3 | harness-api | live, inbox | — | — | `OMP_BASH_SESSION` |
 | `pi` | L3 | harness-api | live, inbox | — | — | `PI_SESSION_ID` |
 | `zcode` | L2 | mcp | inbox (`wakesIdle: false`) | `claude-code` | — | — |
 
-Every shipped profile but `chatgpt` and `dsh` says `"open": "browser"`. Every shipped profile but `pi` says
+Every shipped profile but `chatgpt` and `dsh` says `"open": "browser"`. Every shipped profile but `pi` and `omp` says
 `"policy": { "artifacts": "workspace" }`.

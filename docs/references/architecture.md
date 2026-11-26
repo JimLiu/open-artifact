@@ -5,7 +5,7 @@ Load this reference when working across packages, daemon/Shell communication, MC
 ## High-level data flow
 
 ```text
-Agent app (Claude Code, Codex, Cursor, Copilot, Antigravity, ZCode, DSH, Pi, ChatGPT, or CLI)
+Agent app (Claude Code, Codex, Cursor, Copilot, Antigravity, ZCode, DSH, Pi, OMP, ChatGPT, or CLI)
    │  MCP tools (Artifact, ArtifactData, ArtifactComments, ShowArtifact) or CLI
    ▼
 packages/daemon (local open-artifact daemon, one per machine)
@@ -294,7 +294,7 @@ editors over an in-memory capability backend with a scripted agent, and the Docs
   `<project>/.agents/open-artifact/settings.json` (`PROJECT_SETTINGS_FILE`; only `PROJECT_SETTINGS_KEYS`,
   `artifactsLocation` and a relative `artifactsDir` that stays inside, are read, every other key is ignored since a
   repository is untrusted); the person's `artifactsLocation`; the harness profile's `policy.artifacts` (`workspace` in
-  every shipped profile but `pi`); `home`. `artifactsPlacement` reads the files on each call and reports each value's
+  every shipped profile but `pi` and `omp`); `home`. `artifactsPlacement` reads the files on each call and reports each value's
   source. `projectOf(workspace)` walks up to the top of the Git checkout (never past it, never to the home folder,
   never taking the person's own settings file for a project's): the nearest settings file's folder is the project,
   else the checkout's top, else the workspace; a linked worktree (`.git` file with a `commondir`) has the main working

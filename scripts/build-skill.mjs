@@ -7,6 +7,9 @@
  *   skills/open-artifact/SKILL.md                  what the agent reads on `/open-artifact <type> …` (tracked): the
  *                                                  skill template (packages/protocol/src/skill.ts) rendered with its
  *                                                  defaults, written here when it changed
+ *   plugins/omp/skills/open-artifact/SKILL.md      the same skill rendered for OMP (tracked), which reads the `skills/`
+ *                                                  folder of an installed extension package; an installed copy's
+ *                                                  extension rewrites it with the installed types (never in this repo)
  *   skills/open-artifact/scripts/open-artifact.mjs the command the agent runs: points the daemon at vendor/ (tracked)
  *   skills/open-artifact/vendor/                   built here, git ignores it:
  *     open-artifact.mjs                            the daemon and its CLI, one Node ESM file
@@ -26,7 +29,8 @@ import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFil
 import { basename, dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildSync } from 'esbuild';
-import { renderSkill } from '../packages/protocol/src/skill.ts';
+import { localSkill } from '../packages/harness-kit/src/skill.ts';
+import { renderSkill, renderedSkillFile } from '../packages/protocol/src/skill.ts';
 import { PROTOCOL_MAX, PROTOCOL_MIN } from '../packages/protocol/src/harness.ts';
 import { vendorTypes } from './vendor-types.mjs';
 
@@ -77,8 +81,23 @@ function writeSkillFile() {
   log('SKILL.md rendered from packages/protocol/src/skill.ts');
 }
 
+/**
+ * plugins/omp/skills/open-artifact/SKILL.md: the skill for OMP, the way `localSkill` renders it when no daemon answers.
+ * OMP reads the `skills/` folder of an installed extension package, so the file has to be in the package at install.
+ */
+function writeOmpSkillFile() {
+  const folder = join(repo, 'plugins', 'omp', 'skills', 'open-artifact');
+  const file = join(folder, 'SKILL.md');
+  const text = renderedSkillFile(localSkill({ command: 'open-artifact', agentName: 'OMP', tools: 'native', opens: 'system' }));
+  if (existsSync(file) && readFileSync(file, 'utf8') === text) return;
+  mkdirSync(folder, { recursive: true });
+  writeFileSync(file, text);
+  log('plugins/omp/skills/open-artifact/SKILL.md rendered for OMP');
+}
+
 function main() {
   writeSkillFile();
+  writeOmpSkillFile();
   rmSync(vendor, { recursive: true, force: true });
   mkdirSync(vendor, { recursive: true });
   bundleDaemon();

@@ -1,6 +1,6 @@
 # Publishes the npm packages (scripts/build-npm.mjs, scripts/publish-npm.mjs): the @open-artifact/* libraries,
-# @open-artifact/cli, dsh-open-artifact and pi-open-artifact. Each version npm already has is skipped, so bump the
-# versions you want released, then push a tag (v0.2.0) or run the workflow by hand.
+# @open-artifact/cli, dsh-open-artifact, pi-open-artifact and omp-open-artifact. Each version npm already has is skipped,
+# so bump the versions you want released, then push a tag (v0.2.0) or run the workflow by hand.
 #
 # On a tag, CHANGELOG.md must have that version's entry (written from `node scripts/changelog.mjs`): the run stops
 # before publishing without one. The GitHub release gets those notes and a prebuilt plugin bundle.

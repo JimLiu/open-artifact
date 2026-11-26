@@ -115,8 +115,9 @@ harness profile 是 daemon 在适配器开口之前（以及之外）对一个 A
 | `copilot` | L2 | mcp | inbox（`wakesIdle: false`） | `copilot` | — | — |
 | `cursor` | L2 | mcp | inbox（`wakesIdle: false`） | `cursor` | — | — |
 | `dsh` | L3 | harness-api | live、inbox | — | — | — |
+| `omp` | L3 | harness-api | live、inbox | — | — | `OMP_BASH_SESSION` |
 | `pi` | L3 | harness-api | live、inbox | — | — | `PI_SESSION_ID` |
 | `zcode` | L2 | mcp | inbox（`wakesIdle: false`） | `claude-code` | — | — |
 
-除 `chatgpt` 和 `dsh` 外，每个随附的 profile 都写了 `"open": "browser"`。除 `pi` 外，每个随附的 profile 都写了
+除 `chatgpt` 和 `dsh` 外，每个随附的 profile 都写了 `"open": "browser"`。除 `pi` 和 `omp` 外，每个随附的 profile 都写了
 `"policy": { "artifacts": "workspace" }`。
