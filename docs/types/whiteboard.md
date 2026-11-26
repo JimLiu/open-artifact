@@ -44,7 +44,7 @@ Or start with no agent: on the home page, click **New artifact**, pick **Whitebo
 | Create | `Artifact {action: "publish", type_url: "open-artifact://type/whiteboard", title, open: "after_first_write"}` | `open-artifact open <root> --type whiteboard --title "<title>" --json` |
 | Read board | `ArtifactData {action: "list", url, collection: "elements"}` / `get` `board/meta` | `open-artifact read-db <root> [elements \| board/meta]` |
 | Write / batch | `ArtifactData {action: "batch", url, writes: [...]}` (`set`/`update`/`delete`) | `open-artifact write-db <root> '<writes>'` (supports `{"$file":"..."}`) |
-| Upload images | `Artifact {action: "publish", url, file_path, asset: true}` (or `call` `upload`) | `open-artifact upload <root> <file>...` |
+| Upload images | `Artifact {action: "call", url, name: "upload", args: {file: "/absolute/path/to/image.png"}}` | `open-artifact upload <root> <file>...` |
 | Validate | `Artifact {action: "call", url, name: "check"}` | `open-artifact check <root>` |
 | Inspect view/selection | `Artifact {action: "call", url, name: "context"}` | `open-artifact context <root>` |
 
