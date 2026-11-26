@@ -35,6 +35,16 @@ dsh plugin --profile web add dsh-open-artifact
 | `daemonBin` | — | an `open-artifact.mjs` to start, skipping the runtime choice |
 | `workspace` | — | the folder new artifacts go to when a session has none |
 
+## Where artifacts go
+
+New artifacts go in the session's folder (the `workspace` setting when a session has none): `artifacts/<slug>`. In a Git checkout the daemon adds
+`artifacts/.gitignore` when it makes that folder, so they stay out of `git status` (delete the file to track them).
+
+To keep them under your own Open Artifact folder instead (`~/OpenArtifact/<project>/<slug>`), run
+`open-artifact config set artifactsLocation home` in your terminal. Whether DSH lets its agent write outside the
+working folder was not measured; when it does not, the agent sends the files through the daemon. See
+[Settings](../../docs/settings.md).
+
 ## How it starts the daemon
 
 DSH installs no dependencies of a plugin, so the build puts what the daemon needs into `vendor/`: the daemon as one

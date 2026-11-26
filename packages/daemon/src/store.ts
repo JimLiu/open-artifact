@@ -88,6 +88,8 @@ export interface CreateRecord {
   /** Where that type came from, for `.artifact.json` (`builtin`, `local`, or an installed type's address). */
   typeFrom?: string | null;
   owner?: SessionRef | null;
+  /** The project it is made or adopted for ({@link ArtifactRecord.project}). */
+  project?: string | null;
   title?: string;
   /** A page artifact's declared capabilities ({@link ArtifactRecord.capabilities}). */
   capabilities?: Record<string, unknown> | null;
@@ -169,6 +171,7 @@ export class ArtifactStore extends EventEmitter<{ changed: [StoreChange] }> {
       id: newArtifactId(),
       root: workspace?.resolve(fields.root) ?? resolve(fields.root),
       ...(identity ? { workspaceDirectory: identity } : {}),
+      ...(fields.project ? { project: resolve(fields.project) } : {}),
       type: fields.type,
       typeSource: fields.typeSource ?? null,
       typeRelease: fields.typeRelease ?? null,

@@ -86,6 +86,12 @@ export interface ArtifactArgs {
   type_url?: string;
   title?: string;
   folder?: string;
+  /**
+   * publish without url: where the new artifact's folder goes, for this one artifact: `home` (the person's Open
+   * Artifact folder, under the project's name) or `workspace` (the working folder). The folder's name is still made
+   * from the title. Omitted: what the settings say. `folder` (an exact path) comes before it.
+   */
+  location?: 'home' | 'workspace';
   url?: string;
   files?: Record<string, PublishFile>;
   path?: string;
@@ -310,7 +316,7 @@ const ARTIFACT_SCHEMA: ToolInputSchema = {
     scope: {
       type: 'string',
       enum: ['types', 'mine', 'all'],
-      description: "list: types (the installed types), mine (this session's and this workspace's artifacts; the default) or all (every artifact).",
+      description: "list: types (the installed types), mine (this session's and this project's artifacts; the default) or all (every artifact).",
     },
     type: {
       type: 'string',
@@ -326,7 +332,14 @@ const ARTIFACT_SCHEMA: ToolInputSchema = {
     title: { type: 'string', description: "publish without url: the new artifact's name. quickstart: the name it will have, to find similar ones." },
     folder: {
       type: 'string',
-      description: "publish without url, or adopt: where the artifact's folder goes (absolute, or relative to the workspace). Default <workspace>/artifacts/<slug>.",
+      description:
+        "publish without url: the exact folder for the new artifact (absolute, or relative to the workspace), only when the person named one. Omitted: Open Artifact chooses the folder and its name. adopt: the folder to add.",
+    },
+    location: {
+      type: 'string',
+      enum: ['home', 'workspace'],
+      description:
+        "publish without url: where the new artifact's folder goes when the person asked: workspace (in the project, under the working folder) or home (the person's Open Artifact folder). Omitted: what the person's settings say. The folder is named from the title either way.",
     },
     url: { type: 'string', description: 'An artifact: open-artifact://artifact/<id>, as publish returned it.' },
     files: {

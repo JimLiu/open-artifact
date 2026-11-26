@@ -21,6 +21,16 @@ Run **Developer: Reload Window**. The extracted bundle also includes the Cursor 
 Replace the entire `~/.cursor/plugins/local/open-artifact` folder with the `cursor/` folder from the new ZIP, retaining
 the installed folder name `open-artifact`. Run **Developer: Reload Window**.
 
+## Where artifacts go
+
+New artifacts go in the folder Cursor works in: `artifacts/<slug>`. In a Git checkout the daemon adds
+`artifacts/.gitignore` when it makes that folder, so they stay out of `git status` (delete the file to track them).
+
+`open-artifact config set artifactsLocation home` moves them under your own Open Artifact folder
+(`~/OpenArtifact/<project>/<slug>`), but `cursor-agent` refuses writes outside the working folder unless it runs with
+`--force` (`--add-dir` does not lift it), so the workspace is the place that works. See
+[Settings](../../docs/settings.md).
+
 ## What it adds
 
 - `mcp.json`: the `Artifact`, `ArtifactData` and `ArtifactComments` tools (stdio, through the local daemon);

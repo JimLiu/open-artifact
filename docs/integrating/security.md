@@ -72,6 +72,8 @@ it. An app that sandboxes its agents starts the daemon with `OPEN_ARTIFACT_WORKS
 
 - **Every call needs a workspace.** A caller without one is refused (`not_granted`). New artifacts go under it, and a
   `folder` that leads out of it (absolute, `..`, or through a link) is refused. `adopt` takes folders in it only.
+  Where artifacts go is not a setting here: `artifactsLocation` and a project's settings file are not read, and
+  `location: "home"` is refused (`not_granted`).
 - **Each artifact is bound to the workspace it was made in**, by the real path and the device and inode of that folder
   (`workspaceDirectory` in its record). Reads, writes, actions, the static page, zips and the type server's routes
   check the folder still resolves inside that same directory: a workspace moved away and replaced by another folder at

@@ -18,6 +18,16 @@ everything else working: page messages then ride the session hooks, and the agen
 Replace the marketplace folder at the same path with the one from the new release (or rebuild `dist/plugins/zcode`). Then open the plugin
 store, check for updates in the top bar, and update when a newer version shows.
 
+## Where artifacts go
+
+New artifacts go in the folder ZCode works in: `artifacts/<slug>`. In a Git checkout the daemon adds
+`artifacts/.gitignore` when it makes that folder, so they stay out of `git status` (delete the file to track them).
+
+To keep them under your own Open Artifact folder instead (`~/OpenArtifact/<project>/<slug>`), run
+`open-artifact config set artifactsLocation home` in your terminal. Whether ZCode lets its agent write outside the
+working folder was not measured; when it does not, the agent sends the files through the daemon. See
+[Settings](../../docs/settings.md).
+
 ## What it adds
 
 | Part | File | Does |

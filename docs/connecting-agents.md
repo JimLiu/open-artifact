@@ -394,6 +394,9 @@ fill it in) counts as unset. A daemon that is already running keeps what it star
 `open-artifact daemon stop`, and the next tool call starts it again (or `open-artifact daemon restart` in your own
 terminal).
 
+A preset is about the site only. Where artifacts are kept on the computer, and the settings file a project may carry,
+are in [Settings, and where artifacts are kept](settings.md).
+
 ### Make a Link token
 
 On a **Node site**, on the server, with the same environment as the site (so the address it prints is right):

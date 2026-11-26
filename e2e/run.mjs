@@ -8,12 +8,16 @@
 //   npm run e2e -- --keep                     keep the temporary folders
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const suites = fs.readdirSync(here).filter(f => f.endsWith('.test.mjs')).map(f => f.slice(0, -'.test.mjs'.length)).sort();
 const env = { ...process.env };
+// The person's Open Artifact folder (`homeWorkspace`), where a session's artifacts go when nothing says otherwise:
+// a temporary one, so no suite writes into the real ~/OpenArtifact.
+env.OPEN_ARTIFACT_HOME_WORKSPACE ??= fs.mkdtempSync(path.join(os.tmpdir(), 'open-artifact-e2e-home-workspace-'));
 // The suites' `open-artifact` commands stand for a person's own terminal. Run from inside an agent's session (these
 // variables), the command line would refuse publish and the remote changes (packages/daemon/src/agent-session.ts).
 const { agentVariables } = await import('../packages/daemon/src/agent-session.ts');

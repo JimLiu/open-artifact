@@ -17,6 +17,8 @@ export function tempDir(prefix = 'open-artifact-test-'): string {
 export const TEST_HOME = tempDir('open-artifact-home-');
 
 process.env.OPEN_ARTIFACT_HOME = TEST_HOME;
+// The person's Open Artifact folder (`homeWorkspace`), where a session's artifacts go by default: never the real one.
+process.env.OPEN_ARTIFACT_HOME_WORKSPACE = tempDir('open-artifact-home-workspace-');
 process.env.OPEN_ARTIFACT_USER_TYPES = tempDir('open-artifact-user-types-');
 process.env.OPEN_ARTIFACT_INSTALLED_TYPES = tempDir('open-artifact-installed-types-');
 process.env.OPEN_ARTIFACT_WAKE_MERGE_MS = '40';

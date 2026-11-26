@@ -41,6 +41,13 @@ To try it for one run without installing it, use `pi -e ./plugins/pi`. Upgrade w
 Pi has no page view of its own: `Artifact {action: "open"}` opens the page in the computer's browser, and the agent
 gives you its `view_url` too.
 
+## Where artifacts go
+
+New artifacts go under your own Open Artifact folder, one folder per project: `~/OpenArtifact/<project>/<slug>`. Pi
+lets its agent write there, and the repository stays clean. To keep them in the project instead
+(`<session's folder>/artifacts/<slug>`), run `open-artifact config set artifactsLocation workspace` in your terminal,
+with `--local` for one project only. See [Settings](../../docs/settings.md).
+
 ## How it starts the daemon
 
 A Pi session that never makes an artifact starts nothing. When a daemon already runs at session start, the session

@@ -17,6 +17,9 @@
    └──────────────── "Send to agent" ─────────────────────────▶ 评论直接回到 Agent 会话
 ```
 
+这个文件夹放在项目里（`./artifacts/`），还是放在你自己的 Open Artifact 文件夹下（`~/OpenArtifact/<项目>/`），取决于
+你用的 agent 应用和你的选择，见[设置，以及作品存在哪里](settings.zh-CN.md)。
+
 ## 为什么选择 Open Artifact？核心优势
 
 | 核心优势 | 实际价值 |

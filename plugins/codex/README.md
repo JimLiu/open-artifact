@@ -27,9 +27,15 @@ folder and install the plugin from there.
 
 ## Where artifacts go
 
-New artifacts go under the thread's folder (`artifacts/<slug>`). Codex starts the MCP server in the plugin's own
-folder, so the daemon looks the thread's folder up: from its hook, or from the thread's rollout file in
+New artifacts go under the thread's folder (`artifacts/<slug>`). In a Git checkout the daemon adds
+`artifacts/.gitignore` when it makes that folder, so they stay out of `git status`. Codex starts the MCP server in the
+plugin's own folder, so the daemon looks the thread's folder up: from its hook, or from the thread's rollout file in
 `~/.codex/sessions` (`$CODEX_HOME`).
+
+To keep them under your own Open Artifact folder instead (`~/OpenArtifact/<project>/<slug>`), run
+`open-artifact config set artifactsLocation home` and let Codex write there: `codex --add-dir ~/OpenArtifact`, or
+`sandbox_workspace_write.writable_roots = ["/Users/you/OpenArtifact"]` in `config.toml` (without it, `workspace-write`
+refuses the write). See [Settings](../../docs/settings.md).
 
 ## What it adds
 

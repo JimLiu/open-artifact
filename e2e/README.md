@@ -25,6 +25,8 @@ Chrome is found in its usual places, or set `E2E_CHROME` to its path. `E2E_HEADF
 
 Each test file runs its own server, with its own `OPEN_ARTIFACT_TYPE_SERVER_HOME` and `HOME`. It never meets the server you use yourself, or another test file's server.
 
+`run.mjs` points `OPEN_ARTIFACT_HOME_WORKSPACE` at a temporary folder (unless you set it): an artifact a suite makes without naming a folder, from a session of an app without a profile, goes under the person's Open Artifact folder, and that must never be your real `~/OpenArtifact`.
+
 When Chrome stops a frame's renderer (Chrome shows the frame as gone and the page around it carries on), the harness says so: the page gets a `renderer crashed: <frame>` problem, and a `waitFor` that times out or an `inFrame` that finds no framed page fails with that line, not with a plain timeout. Nothing is retried. Chrome keeps the crash's minidump in its own Crashpad folder (`~/Library/Application Support/Google/Chrome/Crashpad/completed` on a Mac).
 
 The harness asks its questions (`waitFor`, `evaluateAll`, `load`'s `ready`) in a tab's page and frames only, never in a worker: workers are attached so their errors and exits are seen, and that is all. Chrome 157 stops the renderer when `location` is read in a module worker whose script has not all arrived, and the suites' questions start with `location.hostname…`. That was the `renderer crashed: iframe …/whiteboard/…` the Cloudflare suites showed on about one first load in four (the whiteboard starts its `whiteboard-looks` worker while the test waits for the board). `browser-lib.test.mjs` holds the case.
@@ -239,6 +241,17 @@ The harness asks its questions (`waitFor`, `evaluateAll`, `load`'s `ready`) in a
 - (d) A type change (the manifest touched, `builtin/.changed` written) stops the docs server through its `SIGTERM` handler (`--- exit 0` in its log); the next call starts a new thread.
 - (e) `SIGTERM` to the daemon: it waits for its threads and exits 0, `daemon.log` has `daemon <version> stopped (SIGTERM)` once, every server log ends with `--- exit 0`, `daemon.json` and the lock are gone, the ports refuse connections and no process is left.
 - Not covered here: a real Electron utility process (it was checked by hand, see `docs/integrating/runtime.md` and `examples/harness-electron/README.md`, the stop on quit included) and the other six built-in types in threads.
+
+**Where new artifacts go** (`artifacts-location.test.mjs`, no browser)
+
+- A real daemon (`open-artifact daemon run` from source) with a temporary `HOME` and `OPEN_ARTIFACT_HOME` and no settings, real Git checkouts (`git init`, `git worktree add`), and the `open-artifact` command line run in them as an agent's session would (`artifact '{…}'`) and as the person would (`config set`). `note` is a static user type, so nothing has to be built. Skipped when `git` is not installed.
+- (a) With nothing set, a session of an app without a profile makes the artifact under the person's Open Artifact folder, `~/OpenArtifact/<project>/<slug>`, from a folder deep in the checkout: the project's folder carries `.open-artifact-project.json`, the result says the files are outside the working folder, `git status` is clean, and the session lists it again.
+- (b) A session of an app whose profile keeps artifacts in the workspace (`--harness claude-code`) makes it in the checkout's `artifacts/<slug>`; the daemon writes `artifacts/.gitignore`, so `git status` stays clean. An `artifacts/` folder that was already there gets no `.gitignore`.
+- (c) `location: "workspace"` and `location: "home"` move one artifact either way (a workspace asked for is not hidden from git); `folder` still wins; an unknown `location` is `invalid_argument`.
+- (d) `open-artifact config set artifactsLocation home` comes before the app's default, `workspace` leaves git to show the folder, and `config unset` gives the default back. Run inside an agent's session (`CLAUDECODE`), `config set` is refused and nothing is saved.
+- (e) `config set … --project` writes `.agents/open-artifact/settings.json` at the top of the checkout from a folder deep in it; its `artifactsDir` is used; `trustedProjects`, `homeWorkspace` and `cloud` in that file are listed as ignored and change nothing. `config set … --local` comes before the file without touching it, and `config unset … --local` leaves the person's file empty.
+- (f) A linked worktree is the same project: both make their artifacts in the same folder under the Open Artifact folder, a new session in the worktree lists both, and a session in another checkout lists none.
+- (g) Two checkouts with the same folder name get two folders (`app`, `app-<4 hex digits>`), each stable for its project, and neither session lists the other's artifacts.
 
 **Workspace confinement** (`workspace-confinement.test.mjs`, no browser)
 

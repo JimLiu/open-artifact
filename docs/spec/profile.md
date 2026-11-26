@@ -44,7 +44,7 @@ profiles that ship. The type is `HarnessProfile` in `packages/protocol/src/harne
 | `nudge` | `{ command, args, env?, envFile? }` | **no** | the command that starts a turn in an idle session |
 | `sessionWorkspace` | `"codex-rollout"` | **no** | how to find a session's folder when nothing said it |
 | `caps` | `AdapterCaps` | yes | how far the harness goes in each dimension ([Harness API](harness-api.md#adaptercaps)) |
-| `policy` | `{ offer?, reuse?, roles?, confirm? }` | yes | rules that are data ([below](#policy)) |
+| `policy` | `{ offer?, reuse?, artifacts?, roles?, confirm? }` | yes | rules that are data ([below](#policy)) |
 | `rules` | string, at most 4000 characters | yes | rules that are text: the agent reads them first, and they win over the instructions that follow; they change no permission |
 | `commands` | string[] | yes | the harness's command names, e.g. `["artifact"]` |
 | `toolNames` | `{ Artifact?, ArtifactData?, ArtifactComments? }` | yes | the names the harness gave the tools |
@@ -59,6 +59,7 @@ somewhere (`skillsDir`) or read files (`sessionWorkspace`). They come only from 
 | --- | --- | --- |
 | `offer` | `asked` (default), `allowed` | make artifacts only when asked, or offer them for the types the person allowed |
 | `reuse` | `workspace` (default), `session`, `none` | how far `quickstart` looks for an existing artifact to reuse |
+| `artifacts` | `home`, `workspace` | where a session's new artifacts go when the call names no folder and neither the person nor the project chose: under the person's Open Artifact folder (`~/OpenArtifact/<project>/<slug>`), or in the session's workspace (`<workspace>/artifacts/<slug>`, with a `.gitignore` when the daemon makes that folder in a Git checkout). Left out: `home`. Say `workspace` when your app does not let its agent write outside the working folder ([Settings](../settings.md)) |
 | `roles` | `{ <role>: { create?, modify?, remove?, reply? } }` | what a session of each role may do ([tools](../integrating/tools.md#session-permissions)) |
 | `confirm` | `ActionKind[]` | the action kinds the person approves each time; the skill tells the agent so |
 
@@ -130,4 +131,5 @@ mapping, `sessionWorkspace` a known name. A bad field is refused with a sentence
 | `pi` | L3 | harness-api | live, inbox | — | — | `PI_SESSION_ID` |
 | `zcode` | L2 | mcp | inbox (`wakesIdle: false`) | `claude-code` | — | — |
 
-Every shipped profile but `chatgpt` and `dsh` says `"open": "browser"`.
+Every shipped profile but `chatgpt` and `dsh` says `"open": "browser"`. Every shipped profile but `pi` says
+`"policy": { "artifacts": "workspace" }`.

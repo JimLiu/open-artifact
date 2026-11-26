@@ -49,6 +49,11 @@ npm run test:sea                      # Build and run the single executable with
 temporary home as part of `npm test`. `open-artifact doctor --harness <name> --session <id> --json` is the conformance
 run an agent app can put in its own CI (`docs/integrating/testing.md`).
 
+`npm test` preloads `scripts/test-env.mjs` (`node --import`), which points `OPEN_ARTIFACT_HOME_WORKSPACE` at a temporary
+folder, and `e2e/run.mjs` does the same for the suites: a test that makes an artifact without naming a folder never
+writes into the real `~/OpenArtifact`. Running one test file by hand, pass the same flag
+(`node --import ./scripts/test-env.mjs --test <file>`), or use `packages/daemon/test/helpers.ts`, which sets it too.
+
 E2E tests copy built `artifact-types/` folders into isolated temporary directories outside the repo and drive them with Node's WebSocket client over Chrome DevTools Protocol (see `e2e/README.md`).
 
 ### Desktop app

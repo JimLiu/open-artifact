@@ -125,6 +125,27 @@ auto off`, `open-artifact remote default <name>`, or the Share panel). No agent 
   never by what it resolves to. `OPEN_ARTIFACT_REMOTE_INSECURE_HTTP=1` allows any host and makes the daemon warn
   that the token and the artifacts cross the network unencrypted: do not roll it out for a site on the internet.
 
+## Where artifacts go
+
+A call that names no folder leaves the choice to the daemon. With nothing set, it goes by the app's harness profile
+(`policy.artifacts`):
+
+| App | New artifacts go to | To use your Open Artifact folder (`~/OpenArtifact/<project>/<slug>`) |
+| --- | --- | --- |
+| Claude Code | `<workspace>/artifacts/<slug>` | `claude --add-dir ~/OpenArtifact`, or `permissions.additionalDirectories` in its settings |
+| Codex | `<workspace>/artifacts/<slug>` | `codex --add-dir ~/OpenArtifact`, or `sandbox_workspace_write.writable_roots` in `config.toml` |
+| GitHub Copilot CLI | `<workspace>/artifacts/<slug>` | `copilot --add-dir ~/OpenArtifact` |
+| Cursor | `<workspace>/artifacts/<slug>` | none found for `cursor-agent` short of `--force` |
+| Antigravity, ZCode, DeepSeek Harness | `<workspace>/artifacts/<slug>` | not measured |
+| ChatGPT on the web | `<workspace>/artifacts/<slug>` | keep the workspace: the connector knows its artifacts by that path |
+| Pi, the skill's command line, an app without a profile | `~/OpenArtifact/<project>/<slug>` | nothing to set |
+
+The person chooses otherwise with `open-artifact config set artifactsLocation home | workspace` (`--local` for one
+project, `--project` for the repository's own settings file), and the agent, for one artifact, with `location`. In a
+Git checkout the daemon writes `artifacts/.gitignore` when it makes the folder because of an app's default, so the
+checkout stays clean. A workspace-confined daemon always uses the workspace. The whole of it, with what was measured
+in each app: [docs/settings.md](../docs/settings.md).
+
 ## How a plugin reaches the daemon
 
 - **MCP server:** `node <plugin>/skills/open-artifact/scripts/open-artifact.mjs mcp --harness <name>`, a stdio

@@ -34,6 +34,7 @@ Start in [docs/](docs/README.md) for full bilingual (English / 中文) guides fo
 - [What is Open Artifact?](docs/overview.md) — Core concept, key advantages, and quick start.
 - [Artifact types overview](docs/artifact-types.md) — Compare all 9 types, how to choose, and storage models.
 - [How agents use Open Artifact](docs/agent-guide.md) — MCP tools, CLI fallback, workflow lifecycle, comments, and safety rules.
+- [Settings, and where artifacts are kept](docs/settings.md) — In the project or under `~/OpenArtifact`, how to choose, and `open-artifact config`.
 
 ### Building an agent product?
 

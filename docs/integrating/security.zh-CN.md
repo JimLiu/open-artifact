@@ -53,7 +53,8 @@ daemon 以人的身份运行，所以一个只该看到自己工作区的 Agent 
 `OPEN_ARTIFACT_WORKSPACE_FOLDERS_ONLY=1`（`startDaemon` 的 `workspaceFoldersOnly`）启动 daemon。此后：
 
 - **每次调用都要有工作区。** 没有工作区的调用方被拒绝（`not_granted`）。新作品放在工作区下，指向工作区外的
-  `folder`（绝对路径、`..`，或经过链接）被拒绝。`adopt` 只接受工作区里的目录。
+  `folder`（绝对路径、`..`，或经过链接）被拒绝。`adopt` 只接受工作区里的目录。作品放哪在这里不是一项设置：
+  不读 `artifactsLocation` 和项目的设置文件，`location: "home"` 会被拒绝（`not_granted`）。
 - **每个作品绑定创建它的工作区**：记下那个目录的真实路径、设备号和 inode（记录里的 `workspaceDirectory`）。读、
   写、动作、静态页面、压缩包和类型服务器的路由都会检查作品目录仍落在同一个目录里：工作区被移走、同一路径换成了
   另一个目录时，回答 `not_granted`（403），新目录里的东西一律不读不写。

@@ -14,6 +14,7 @@
  *   open-artifact watch [--harness <name>]               print a line whenever comments wait for this session (a harness monitor)
  *   open-artifact chatgpt [--port <n>] [--workspace <dir>] [--rotate]   the tools over HTTP for ChatGPT on the web (behind an HTTPS tunnel)
  *   open-artifact home                                   print the Open Artifact home folder
+ *   open-artifact config [list] | get <key> | set <key> <value> | unset <key>   [--project | --local] [--workspace <dir>]   settings (config.ts)
  *   open-artifact skill render [--command X] [--harness H] [--form entry|full] | install --command X --dir D [...]   the skill for a harness
  *   open-artifact harness add <profile.json> | list [--json] | remove <name>   harness profiles of your own
  *   open-artifact harness --stdio --harness <name>       the Harness API as JSON-RPC lines on stdin/stdout (stdio-bridge.ts)
@@ -30,7 +31,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { resolve as resolvePath, sep } from 'node:path';
 import { createInterface } from 'node:readline';
-import { LIBRARY_ROUTES, type DaemonState, type SessionRef, type ToolCallResult, type TypesFromResponse, type TypesNewResponse, type TypePackagePreview, type TypesSettingResponse, type TypesPublishResponse, type TypesUnpublishResponse } from '@open-artifact/protocol';
+import { LIBRARY_ROUTES, type ConfigScope, type ConfigSetRequest, type ConfigSetResponse, type DaemonState, type SessionRef, type ToolCallResult, type TypesFromResponse, type TypesNewResponse, type TypePackagePreview, type TypesSettingResponse, type TypesPublishResponse, type TypesUnpublishResponse } from '@open-artifact/protocol';
 import { agentSessionOf, dataChoice, dataLeftOut, DATA_QUESTION, personOnlyRefusal, saidYes, type PersonAct } from '../agent-session.ts';
 import { api, ensureDaemon, readDaemon, restartDaemon } from '../client.ts';
 import { harnessProfile, shippedProfilesDir } from '../harness.ts';
@@ -40,6 +41,7 @@ import { clientShowsApps } from '../mcp-app.ts';
 import { files, openArtifactHome } from '../paths.ts';
 import { remoteRemovedText, remoteStatusText } from '../remote-status.ts';
 import type { CloudStatus, RemoteStatus } from '../link.ts';
+import { CONFIG_KEYS, configList } from '../config.ts';
 import { loadSettings } from '../settings.ts';
 import { TypeRegistry } from '../types.ts';
 import { checkType, typeDirOf } from '../type-authoring.ts';
@@ -80,6 +82,15 @@ open-artifact hook <event> [--harness <name>]        harness hooks: SessionStart
 open-artifact watch [--harness <name>]               print a line whenever comments wait for this session (a harness monitor)
 open-artifact chatgpt [--port <n>] [--workspace <dir>] [--rotate]   the tools over HTTP for ChatGPT on the web (behind an HTTPS tunnel)
 open-artifact home                                   print the Open Artifact home folder
+open-artifact config [list] [--workspace <dir>] [--harness <name>]   the settings in effect here (JSON): each value, who
+                                                     set it (you for this project, the project, you, the app, nobody),
+                                                     and what of the project's settings file is not used
+open-artifact config get <key> [--workspace <dir>]   one value in effect
+open-artifact config set <key> <value> [--project | --local]   set artifactsLocation (home | workspace), artifactsDir,
+                                                     homeWorkspace or serverPort in your settings.json; --project: in
+                                                     this project's .agents/open-artifact/settings.json (for everyone
+                                                     who uses the repository); --local: for you, in this project only
+open-artifact config unset <key> [--project | --local]   remove it there, so the next source decides
 open-artifact skill render [--command <name>] [--harness <name>] [--form entry|full] [--workspace <dir>] [--json]
                                                      the /open-artifact skill as that harness gets it (its command, rules…)
 open-artifact skill install --command <name> --dir <skills folder> [--harness <name>] [--form entry|full] [--force]
@@ -945,6 +956,46 @@ function harnessCommand(sub: string | undefined): void {
   }
 }
 
+/** `open-artifact config …`: reading needs no daemon; a change goes through it, so the running daemon has it at once. */
+async function config(sub: string | undefined): Promise<void> {
+  const take = (name: string): boolean => {
+    const i = argv.indexOf(`--${name}`);
+    if (i >= 0) argv.splice(i, 1);
+    return i >= 0;
+  };
+  const workspace = resolvePath(flag('workspace') ?? process.cwd());
+  switch (sub) {
+    case undefined:
+    case 'list':
+    case 'get': {
+      const harness = flag('harness') ?? process.env.OPEN_ARTIFACT_HARNESS ?? AGENT?.harness ?? null;
+      const listed = configList(workspace, harness, harness ? harnessProfile(harness).policy?.artifacts : undefined);
+      if (sub !== 'get') return out(listed);
+      const [key] = argv;
+      if (!key) die('config get <key>');
+      const found = listed.values[key];
+      if (!found) die(`${key} is not a key config knows. Keys: ${CONFIG_KEYS.join(', ')}.`);
+      return out(typeof found.value === 'string' ? found.value : JSON.stringify(found.value));
+    }
+    case 'set':
+    case 'unset': {
+      const project = take('project');
+      const local = take('local');
+      if (project && local) die("--project (the repository's file, for everyone) or --local (yours, for this project): not both.");
+      const [key, value] = argv;
+      if (!key || (sub === 'set' && value === undefined)) die(sub === 'set' ? 'config set <key> <value> [--project | --local]' : 'config unset <key> [--project | --local]');
+      const scope: ConfigScope = project ? 'project' : local ? 'local' : 'user';
+      personOnly('config-set', `open-artifact config ${sub} ${key}${sub === 'set' ? ` ${value}` : ''}${project ? ' --project' : local ? ' --local' : ''}`);
+      const request: ConfigSetRequest = { key, value: sub === 'set' ? value! : null, scope, workspace };
+      const done = await daemonCall<ConfigSetResponse>(LIBRARY_ROUTES.configSet, request);
+      const where = done.scope === 'project' ? `this project's settings (${done.file})` : done.scope === 'local' ? `your settings for the project ${done.project} (${done.file})` : `your settings (${done.file})`;
+      return out(done.value === null ? `${done.key} removed from ${where}.` : `${done.key} = ${typeof done.value === 'string' ? done.value : JSON.stringify(done.value)} in ${where}.`);
+    }
+    default:
+      die('config [list] | get <key> | set <key> <value> [--project | --local] | unset <key> [--project | --local]');
+  }
+}
+
 async function main(): Promise<void> {
   const [command, sub] = argv.splice(0, 2);
   switch (command) {
@@ -985,6 +1036,13 @@ async function main(): Promise<void> {
       return chatgpt();
     case 'home':
       return out(openArtifactHome());
+    case 'config':
+      // `config --workspace <dir>` lists, as `config list` does.
+      if (sub?.startsWith('--')) {
+        argv.unshift(sub);
+        return config('list');
+      }
+      return config(sub);
     case 'skill':
       return out(
         skillCommand(sub, (name) => flag(name), (name) => {

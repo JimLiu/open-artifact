@@ -19,6 +19,9 @@
 | 安装的 | `<OPEN_ARTIFACT_HOME>/types/`（或 `OPEN_ARTIFACT_INSTALLED_TYPES`），由 `types install` 写入 | 每个项目都能用，但有[安装别人的类型](#安装别人的类型)里说的限制。 |
 | 内置的 | 随 Open Artifact 一起提供 | 一直可用，除非你停用它。 |
 
+项目的类型只在会话自己的文件夹里找。项目的设置文件（`.agents/open-artifact/settings.json`，决定这个项目的作品
+放哪）找法不同：从这个文件夹往上找到 Git 检出目录的顶层。见[设置](settings.zh-CN.md)。
+
 同一个 id，离得更近的文件夹优先：项目的盖过你自己的，你自己的盖过额外的，额外的盖过安装的。安装的类型永远不能用
 内置类型的 id。`open-artifact types list` 列出每个类型的 `scope`、`source`（`builtin`、`local` 或 `installed`，
 安装的类型还有 `installedFrom`）、`version`、`uid`、文件夹和问题。主页的 **类型** 标签页显示的是同样的内容，

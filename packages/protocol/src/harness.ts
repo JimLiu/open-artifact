@@ -246,8 +246,14 @@ export type ActionKind = 'read' | 'write' | 'ui' | 'remove' | 'person';
 export interface HarnessPolicy {
   /** `asked` (the default): make artifacts only when asked; `allowed`: offer them for the types the person allowed. */
   offer?: 'asked' | 'allowed';
-  /** How far `quickstart` looks for an existing artifact to reuse: the workspace (default), the session, or nowhere. */
+  /** How far `quickstart` looks for an existing artifact to reuse: the project (`workspace`, the default), the session, or nowhere. */
   reuse?: 'workspace' | 'session' | 'none';
+  /**
+   * Where the harness's sessions put new artifacts when neither the call nor the person's or the project's settings
+   * say (`settings.json` `artifactsLocation`): `workspace` for an app whose agent cannot write outside its working
+   * folder without asking; left out: `home`.
+   */
+  artifacts?: 'home' | 'workspace';
   /** What a session of each role may do, by role name (`session.attach`'s `role`). */
   roles?: Record<string, SessionMay>;
   /** The kinds of action the harness asks the person to confirm each time. */

@@ -346,8 +346,10 @@ its own name, given in `commands` (`createHarness({ commands: ['artifact'] })`) 
 
 Your harness's rules come in two kinds. `rules` is text (at most 4000 characters) that the daemon puts first in the
 skill, saying it wins over the instructions after it; it changes no permission. `policy` is data the daemon acts on:
-`offer` (make artifacts only when asked, or offer them), `reuse` (where `quickstart` looks for one to reuse), `roles`
-(what each kind of session may do) and `confirm` (action kinds the person approves each time). Per-session permissions
+`offer` (make artifacts only when asked, or offer them), `reuse` (where `quickstart` looks for one to reuse),
+`artifacts` (where new artifacts go by default: `home`, the person's Open Artifact folder, or `workspace`; say
+`workspace` when your app does not let its agent write outside the working folder, see [Settings](settings.md)),
+`roles` (what each kind of session may do) and `confirm` (action kinds the person approves each time). Per-session permissions
 go in `attach({ may, role })` and are enforced when the daemon lists `session.may` ([tools](integrating/tools.md)).
 
 ## The profile

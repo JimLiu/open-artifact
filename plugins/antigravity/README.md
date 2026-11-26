@@ -22,6 +22,16 @@ Install the `antigravity/` folder from the new ZIP with the same command. For a 
 `~/.gemini/config/plugins/open-artifact/` folder, retaining the installed folder name `open-artifact`. Restart
 Antigravity and start a new conversation.
 
+## Where artifacts go
+
+New artifacts go in the folder Antigravity works in: `artifacts/<slug>`. In a Git checkout the daemon adds
+`artifacts/.gitignore` when it makes that folder, so they stay out of `git status` (delete the file to track them).
+
+To keep them under your own Open Artifact folder instead (`~/OpenArtifact/<project>/<slug>`), run
+`open-artifact config set artifactsLocation home` in your terminal. Whether Antigravity lets its agent write outside the
+working folder was not measured; when it does not, the agent sends the files through the daemon. See
+[Settings](../../docs/settings.md).
+
 ## What it adds
 
 - `mcp_config.json`: the `Artifact`, `ArtifactData` and `ArtifactComments` tools (stdio, through the local daemon),

@@ -158,6 +158,13 @@ test('constrained creation and adoption keep the same default, explicit, and wor
   assert.equal(tools.resolveFolder('chosen', who), join(root, 'chosen'));
   assert.equal(tools.resolveFolder('.', who), root);
   assert.throws(() => tools.resolveFolder(undefined, { ...who, workspace: null }), { code: 'not_granted' });
+  // A workspace-confined daemon keeps artifacts in the workspace, whatever the call or the settings say.
+  assert.throws(() => tools.resolveFolder(undefined, who, 'New card', 'home'), { code: 'not_granted' });
+  assert.equal(tools.resolveFolder(undefined, who, 'New card', 'workspace'), join(root, 'artifacts', 'new-card'));
+  // Nor does a settings file in the workspace move them: a confined daemon reads none.
+  mkdirSync(join(root, '.agents', 'open-artifact'), { recursive: true });
+  writeFileSync(join(root, '.agents', 'open-artifact', 'settings.json'), JSON.stringify({ artifactsLocation: 'home', artifactsDir: 'elsewhere' }));
+  assert.equal(tools.resolveFolder(undefined, who, 'New card'), join(root, 'artifacts', 'new-card'));
   const sibling = tempDir('open-artifact-other-');
   assert.equal(dirname(root), dirname(sibling));
   assert.throws(() => tools.resolveFolder(join('..', basename(sibling)), who), { code: 'not_granted' });

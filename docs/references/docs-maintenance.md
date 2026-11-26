@@ -21,6 +21,7 @@ Load this reference whenever adding, modifying, or removing features, artifact t
   - `docs/overview.md` / `.zh-CN.md` — What Open Artifact is, core advantages, workflow, quick start for users & agents.
   - `docs/artifact-types.md` / `.zh-CN.md` — Overview & comparison of all 9 artifact types, decision guide, storage models, cross-type workflows.
   - `docs/agent-guide.md` / `.zh-CN.md` — How AI agents use Open Artifact (decision rules, MCP tools, CLI fallback, lifecycle, comments & wake loop, safety rules).
+  - `docs/settings.md` / `.zh-CN.md` — Where new artifacts go (`artifactsLocation`, the Open Artifact folder, projects), the person's and the project's settings files, precedence, `open-artifact config`, and each agent app's writable-folder setting. Update it with any change to placement, a settings key `config` knows, or a shipped profile's `policy.artifacts`.
 - **Per-type guides (`docs/types/`)**
   - `slides`, `design`, `design-system`, `whiteboard`, `sheets`, `data`, `docs`, `motion`, `page` — Each has `<type>.md` and `<type>.zh-CN.md` covering purpose, key features, user workflow, and agent workflow.
 - **Hosting & extensions**

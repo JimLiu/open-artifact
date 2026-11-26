@@ -157,6 +157,10 @@ function validPolicy(value: unknown): HarnessPolicy | null {
         if (field !== 'workspace' && field !== 'session' && field !== 'none') return null;
         policy.reuse = field;
         break;
+      case 'artifacts':
+        if (field !== 'home' && field !== 'workspace') return null;
+        policy.artifacts = field;
+        break;
       case 'roles': {
         if (!isObject(field) || Object.keys(field).length > LIST_MAX) return null;
         const roles: Record<string, SessionMay> = {};

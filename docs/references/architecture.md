@@ -278,6 +278,30 @@ artifact apps keep their ad hoc outer signatures. See `apps/desktop/RELEASING.md
   owns, or, with none online, the prompt to copy. Opening, editing or commenting from the Shell or the home page never
   changes an owner.
 
+- **Where a new artifact goes** (`Tools.place` in `packages/daemon/src/tools.ts`, `project.ts`, `settings.ts`,
+  `config.ts`): a `publish` that names no `folder` is placed by `artifactsLocation`, `home`
+  (`<homeWorkspace>/<project>/<slug>`) or `workspace` (`<workspace>/<artifactsDir>/<slug>`). Highest first: the call's
+  `folder`, then its `location`; a confined daemon (always the workspace; `location: "home"` is `not_granted`); the
+  person's `projects[<project>]` entry in `settings.json`; the project's own
+  `<project>/.agents/open-artifact/settings.json` (`PROJECT_SETTINGS_FILE`; only `PROJECT_SETTINGS_KEYS`,
+  `artifactsLocation` and a relative `artifactsDir` that stays inside, are read, every other key is ignored since a
+  repository is untrusted); the person's `artifactsLocation`; the harness profile's `policy.artifacts` (`workspace` in
+  every shipped profile but `pi`); `home`. `artifactsPlacement` reads the files on each call and reports each value's
+  source. `projectOf(workspace)` walks up to the top of the Git checkout (never past it, never to the home folder,
+  never taking the person's own settings file for a project's): the nearest settings file's folder is the project,
+  else the checkout's top, else the workspace; a linked worktree (`.git` file with a `commondir`) has the main working
+  tree's identity, read from the files without running `git`. `homeProjectDir` names the project's folder after it
+  and marks it with `.open-artifact-project.json`; a taken name gets 4, 8 or 16 hex digits of the path's sha256. The
+  record keeps `project` (`ArtifactRecord.project`, never in `.artifact.json`), and "this project's artifacts" in
+  `list`, `quickstart`'s `existing` and `related` are the records of the caller's project or under its workspace.
+  When the location came from the harness default and the daemon makes `<workspace>/<artifactsDir>/` in a Git checkout,
+  it writes a `.gitignore` (`*`) there. A `root` outside the caller's workspace adds a note to the create result (the
+  agent may send files with `publish`'s `files`). `open-artifact config [list] | get | set | unset [--project | --local]`
+  reads locally (`configList`) and writes through the Library route `config.set` (`configSet`: the person's file, the
+  project's file, or the person's `projects` entry), which refuses another origin and an agent's session (`personOnly`
+  `config-set`) and is logged as an `audit:` line. `OPEN_ARTIFACT_HOME_WORKSPACE` names `homeWorkspace` when the file
+  does not (the tests use it: `scripts/test-env.mjs`, `packages/daemon/test/helpers.ts`, `e2e/run.mjs`). User docs:
+  `docs/settings.md`.
 - **Workspace confinement** (`OPEN_ARTIFACT_WORKSPACE_FOLDERS_ONLY=1`, `startDaemon({ workspaceFoldersOnly })`, for an
   app that sandboxes its agents): `WorkspaceDirectory` (`packages/protocol/src/workspace-files.ts`) pins a folder by
   real path, device and inode and resolves a path through the real path of its nearest existing parent (a link leading

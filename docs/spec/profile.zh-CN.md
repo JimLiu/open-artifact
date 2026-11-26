@@ -40,7 +40,7 @@ harness profile 是 daemon 在适配器开口之前（以及之外）对一个 A
 | `nudge` | `{ command, args, env?, envFile? }` | **否** | 在空闲会话里开启回合的命令 |
 | `sessionWorkspace` | `"codex-rollout"` | **否** | 没有人告知时怎么找到会话的目录 |
 | `caps` | `AdapterCaps` | 是 | harness 在每个维度上做到哪一步（[Harness API](harness-api.zh-CN.md#adaptercaps)） |
-| `policy` | `{ offer?, reuse?, roles?, confirm? }` | 是 | 以数据表示的规则（[见下文](#policy)） |
+| `policy` | `{ offer?, reuse?, artifacts?, roles?, confirm? }` | 是 | 以数据表示的规则（[见下文](#policy)） |
 | `rules` | string，最多 4000 个字符 | 是 | 以文本表示的规则：Agent 最先读到它们，它们优先于随后的指令；不改变任何权限 |
 | `commands` | string[] | 是 | harness 的命令名，例如 `["artifact"]` |
 | `toolNames` | `{ Artifact?, ArtifactData?, ArtifactComments? }` | 是 | harness 给工具起的名字 |
@@ -54,6 +54,7 @@ harness profile 是 daemon 在适配器开口之前（以及之外）对一个 A
 | --- | --- | --- |
 | `offer` | `asked`（默认）、`allowed` | 只在被要求时创建作品，或对人允许的类型主动提出 |
 | `reuse` | `workspace`（默认）、`session`、`none` | `quickstart` 在多大范围内找可复用的已有作品 |
+| `artifacts` | `home`、`workspace` | 调用没有指定文件夹、人和项目也都没选时，会话的新作品放在哪：人的 Open Artifact 文件夹下（`~/OpenArtifact/<项目>/<slug>`），或会话的工作区里（`<workspace>/artifacts/<slug>`；这个文件夹是 daemon 在 Git 检出目录里新建的时候，会带一个 `.gitignore`）。不写：`home`。你的应用不让 Agent 往工作文件夹之外写时，写 `workspace`（[设置](../settings.zh-CN.md)） |
 | `roles` | `{ <role>: { create?, modify?, remove?, reply? } }` | 每种角色的会话可以做什么（[Agent 工具](../integrating/tools.zh-CN.md#会话权限)） |
 | `confirm` | `ActionKind[]` | 每次都要人批准的操作类别；skill 会告诉 Agent |
 
@@ -117,4 +118,5 @@ harness profile 是 daemon 在适配器开口之前（以及之外）对一个 A
 | `pi` | L3 | harness-api | live、inbox | — | — | `PI_SESSION_ID` |
 | `zcode` | L2 | mcp | inbox（`wakesIdle: false`） | `claude-code` | — | — |
 
-除 `chatgpt` 和 `dsh` 外，每个随附的 profile 都写了 `"open": "browser"`。
+除 `chatgpt` 和 `dsh` 外，每个随附的 profile 都写了 `"open": "browser"`。除 `pi` 外，每个随附的 profile 都写了
+`"policy": { "artifacts": "workspace" }`。

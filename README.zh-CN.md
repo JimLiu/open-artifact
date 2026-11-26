@@ -31,6 +31,7 @@
 - [什么是 Open Artifact？](docs/overview.zh-CN.md) — 核心概念、核心优势与快速上手。
 - [Artifact 类型总览](docs/artifact-types.zh-CN.md) — 对比全部 9 种类型、选型建议与存储模型。
 - [Agent 使用指南](docs/agent-guide.zh-CN.md) — MCP 工具、CLI 回退、生命周期、评论处理与安全边界。
+- [设置，以及作品存在哪里](docs/settings.zh-CN.md) — 放在项目里还是 `~/OpenArtifact` 下、怎么选，以及 `open-artifact config`。
 
 ### 在做 Agent 产品？
 

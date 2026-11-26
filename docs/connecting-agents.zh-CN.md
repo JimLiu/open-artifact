@@ -362,6 +362,8 @@ chmod 600 ~/.agents/open-artifact/preset.json
 一组：`preset.json` 里的令牌不会和环境变量里的地址配对。仍然写成 `${…}` 的值（应用没有替换）当作没设。已经在运行的
 daemon 保留它启动时的设置：运行 `open-artifact daemon stop`，下一次工具调用会重新启动它（或者在你自己的终端里运行 `open-artifact daemon restart`）。
 
+预设只管站点。作品在电脑上放哪，以及项目可以自带的设置文件，见[设置，以及作品存在哪里](settings.zh-CN.md)。
+
 ### 生成 Link 令牌
 
 在 **Node 站点**上，在服务器上，用和站点相同的环境（这样它输出的地址才对）：

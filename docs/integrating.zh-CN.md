@@ -268,7 +268,7 @@ export function cardOf(report) {
 - `commands()`（`commands.list`）为命令菜单给出每个已安装类型的一项：要插入的文本（`/artifact slides `）、标题、说明和起始提示。
 - skill 和 `quickstart` 读同一组选项：你的命令、Agent 名字、Agent 怎么调用工具、页面怎么打开、你的规则、要人确认的操作类别。
 
-harness 的规则分两种。`rules` 是文本（最多 4000 个字符），daemon 把它放在 skill 最前面，并说明它优先于后面的说明；它不改变任何权限。`policy` 是 daemon 会照着执行的数据：`offer`（只在被要求时做作品，还是主动提议）、`reuse`（`quickstart` 去哪里找可复用的作品）、`roles`（每种会话能做什么）和 `confirm`（每次都要人批准的操作类别）。单个会话的权限写在 `attach({ may, role })` 里，daemon 列出 `session.may` 时会强制执行（[Agent 工具](integrating/tools.zh-CN.md)）。
+harness 的规则分两种。`rules` 是文本（最多 4000 个字符），daemon 把它放在 skill 最前面，并说明它优先于后面的说明；它不改变任何权限。`policy` 是 daemon 会照着执行的数据：`offer`（只在被要求时做作品，还是主动提议）、`reuse`（`quickstart` 去哪里找可复用的作品）、`artifacts`（新作品默认放哪：`home` 是人的 Open Artifact 文件夹，`workspace` 是工作区；你的应用不让 Agent 往工作文件夹之外写时写 `workspace`，见[设置](settings.zh-CN.md)）、`roles`（每种会话能做什么）和 `confirm`（每次都要人批准的操作类别）。单个会话的权限写在 `attach({ may, role })` 里，daemon 列出 `session.may` 时会强制执行（[Agent 工具](integrating/tools.zh-CN.md)）。
 
 ## Profile
 

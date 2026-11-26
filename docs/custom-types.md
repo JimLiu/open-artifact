@@ -20,6 +20,10 @@ For a one-off page, ask for a `page` artifact instead.
 | Installed | `<OPEN_ARTIFACT_HOME>/types/` (or `OPEN_ARTIFACT_INSTALLED_TYPES`), written by `types install` | In every project, with the limits in [Install someone else's type](#install-someone-elses-type). |
 | Built in | Shipped with Open Artifact | Always, unless you turn them off. |
 
+A project's types are looked for in the session's own folder. The project's settings file
+(`.agents/open-artifact/settings.json`, which says where the project's artifacts go) is looked for differently: from
+that folder up to the top of the Git checkout. See [Settings](settings.md).
+
 A type of the same id in a nearer folder overrides the others: a project's over yours, yours over an extra one, an
 extra one over an installed one. An installed type never takes a built-in id.
 `open-artifact types list` shows every type with its `scope`, `source` (`builtin`, `local` or `installed`, with

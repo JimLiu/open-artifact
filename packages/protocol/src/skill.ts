@@ -200,13 +200,21 @@ const STEP_MATERIAL = `**Material.** Gather what goes in it before you create it
    the request needs things only the person has (the topic, the content, the brand) and the message gives none, ask
    in one short question. Otherwise go ahead.`;
 
+/**
+ * Where the new artifact's folder goes: Open Artifact decides (the person's settings, the project's, the app's
+ * default), and names it; the agent only passes on what the person asked for.
+ */
+const FOLDER_RULE = `Open Artifact chooses the folder and names it from the title: do not make up a path. When the person asks
+   for it in the project, add \`location: "workspace"\`; in their Open Artifact folder, \`location: "home"\`; and
+   \`folder\` only when they name an exact path.`;
+
 const STEP_CREATE = `**Create it:** \`Artifact {action: "publish", type_url: "open-artifact://type/<type id>", title: "<a short title>", open: "after_first_write"}\`.
-   Do not call \`quickstart\` first when the type is chosen. The folder is \`<current folder>/artifacts/<title>\` unless
-   you pass \`folder\`.`;
+   Do not call \`quickstart\` first when the type is chosen.
+   ${FOLDER_RULE}`;
 
 /** The create step where `quickstart` already answered: its `create` call is the one. */
-const STEP_CREATE_QUICKSTART = `**Create it** with the \`create\` call of this answer, with a short title in place of \`<name>\`. The folder is
-   \`<current folder>/artifacts/<title>\` unless you pass \`folder\`.`;
+const STEP_CREATE_QUICKSTART = `**Create it** with the \`create\` call of this answer, with a short title in place of \`<name>\`.
+   ${FOLDER_RULE}`;
 
 const STEP_FILL = `**Fill it.** The result carries the artifact's \`url\`, its \`root\` folder, its \`view_url\` and the type's own
    \`instructions\`. Follow those instructions exactly: they say which files to write into \`root\` (with your own file
@@ -247,7 +255,8 @@ const STEP_SHOW_LINK = `**Show it.** Your app cannot show pages, and nothing ope
 
 const STEP_TELL = `**Tell them** in a sentence or two what you made, and that they can comment on the page and press "Send to {{agent}}"
    to send you their comments. **Always include \`view_url\`** as a link in your final reply so they can open or return
-   to the page anytime, even if it already opened or was shown earlier.`;
+   to the page anytime, even if it already opened or was shown earlier. When the artifact's \`root\` is outside your
+   working folder, say where its files are.`;
 
 const PENDING = `An action that answers \`{task, pending: true}\` runs in the background; its result comes later as a message. Do not
 run it again meanwhile.`;

@@ -21,6 +21,13 @@ export interface ArtifactRecord {
   root: string;
   /** A local embedding host may pin the workspace that contains this artifact. */
   workspaceDirectory?: WorkspaceDirectoryIdentity;
+  /**
+   * The project a session made or adopted it for (the project's folder, absolute), when the session had a working
+   * folder: what makes it one of "this project's artifacts" wherever its own folder is. Only here, never in
+   * `.artifact.json`: an archive of the artifact must not carry a path of this computer. Absent: made before this was
+   * kept, or without a session; such an artifact is the project's when its folder is in the session's working folder.
+   */
+  project?: string | null;
   /** Type id. */
   type: string;
   /** Marketplace the type came from, when known. */
@@ -470,6 +477,12 @@ export const LIBRARY_ROUTES = {
    * session, as `cloud.settings` is the person's.
    */
   desktopSettings: 'desktop.settings',
+  /**
+   * `POST` {@link ConfigSetRequest}: sets or removes one plain setting (`open-artifact config set | unset`), in the
+   * person's settings file, a project's own, or the person's entry for a project. The person's to do: refused from
+   * another origin and inside an agent's session.
+   */
+  configSet: 'config.set',
   events: 'events',
   share: 'artifact.share',
   /** `GET`/`HEAD ?id=`: the artifact's folder as a .zip (the type server's `/__open-artifact/archive`). */

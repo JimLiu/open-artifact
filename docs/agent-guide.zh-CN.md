@@ -63,6 +63,8 @@ node <skill>/scripts/open-artifact.mjs wait --timeout 600000
    }
    ```
    返回结果包含 `url`（`open-artifact://artifact/<id>`）、`root`（本地目录路径）、`view_url` 以及该类型的 `instructions`。
+   - **文件夹放在哪**：不要传 `folder`。daemon 会选好文件夹并按标题起名：`<workspace>/artifacts/<slug>` 或 `~/OpenArtifact/<项目>/<slug>`，取决于所在的应用和用户的[设置](settings.zh-CN.md)。用户要求放在项目里时传 `location: "workspace"`，要放进他们的 Open Artifact 文件夹时传 `location: "home"`，只有用户给出确切路径时才传 `folder`。
+   - **`root` 在你的工作文件夹之外**：返回结果的 `notes` 会说明。告诉用户文件夹在哪；如果你的应用不让你往那里写，用 `Artifact {action: "publish", url, files}` 发送文件，不要用自己的文件工具。
 4. **严格按类型说明写入内容**
    - **项目文件型（`slides`、`design`、`design-system`）**：用文件工具直接写入 `<root>/project/`（或调用 `Artifact publish`），图片/字体/媒体通过 `Artifact {action: "call", url, name: "upload", args: {file}}` 上传。
    - **实时文档库型（`whiteboard`、`data`、`motion`）**：通过 `ArtifactData`（`batch`、`set`、`update`、`str_replace`）写入。
@@ -163,5 +165,6 @@ open-artifact types pack <id|文件夹> [--out <文件|文件夹>]              
   - 未经用户明确要求和授权，不要执行 `open-artifact publish`、`unpublish` 或 `remote` 命令。
   - 仅在用户明确要求时才 `delete` 作品，或 `adopt` 别的会话拥有的作品（注意：`delete` 仅移出列表，磁盘上的文件夹仍会保留，需告知用户）。
   - 用户在主页新建或从文件夹添加的作品不属于任何会话（`owner` 为空），直到有会话 adopt 它、通过工具写它（文件、数据行、会写入的类型动作；只读不算），或者用户在页面的 Ask 面板里把它交给某个会话。消息说这是用户新建的或用户选了你时，先调 `Artifact {action: "adopt", url}` 取类型说明，刚调过就不用。从空白开始的作品（在主页新建时，或在 Shell 里点「从空白开始」，后者不改变归属）已经有该类型的初始文件，可能还有用户自己写的内容：改之前先读，在原有内容上修改，不要整体替换。
+  - 设置同样由用户决定：`open-artifact config set | unset`（作品放哪、Open Artifact 文件夹、端口）在 agent 会话里会被拒绝，也不要替用户去编辑任何一份设置文件。`open-artifact config` 和 `config get <key>` 只读取，在哪都能用。见[设置](settings.zh-CN.md)。
   - 停用或启用类型（`open-artifact types enable | disable`）、信任项目里的类型（`types trust | untrust`），以及安装、更新、卸载类型（`types install | update | uninstall`）由用户决定：在 agent 会话里运行这些命令会被拒绝。请用户在自己的终端或主页的类型标签页里操作。重启 daemon（`open-artifact daemon restart`）也一样，重启后每个已连接的应用和打开的页面都要重新连接。
 - **拒绝冒充与欺诈**：不得制作冒充真实个人或机构的页面、伪造真实收据/评论/记录，或伪装收集密码与支付信息的表单。

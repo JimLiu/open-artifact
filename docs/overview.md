@@ -17,6 +17,9 @@ When you ask your AI agent for a slide deck, a UI design, a design system, a whi
    └──────────────── "Send to agent" ──────────────▶ comments return to the agent's session
 ```
 
+The folder goes in the project (`./artifacts/`) or under your own Open Artifact folder (`~/OpenArtifact/<project>/`),
+by the agent app and your choice: see [Settings, and where artifacts are kept](settings.md).
+
 ## Why Open Artifact? Key advantages
 
 | Advantage | What it means in practice |

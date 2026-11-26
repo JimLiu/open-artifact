@@ -18,7 +18,8 @@ It prints a local address with a secret path, `http://127.0.0.1:4891/mcp/<secret
 3. In a chat, pick it and ask for a deck, a design, a board, a spreadsheet, a dashboard, a doc or a short animation.
 
 The secret path is the only key: anyone who has it can make and change artifacts under the workspace. Keep it to
-yourself; `--rotate` makes a new one. New artifacts go in `<workspace>/artifacts/`.
+yourself; `--rotate` makes a new one. New artifacts go in `<workspace>/artifacts/`: the connector knows its artifacts
+by that path, so it keeps them there ([Settings](../../docs/settings.md)).
 
 To upgrade, stop the connector, replace the extracted folder with the one from the new ZIP and run the same
 command again.

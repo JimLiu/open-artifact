@@ -11,5 +11,8 @@
   "wakesIdle": false,
   "caps": {
     "tools": "mcp"
+  },
+  "policy": {
+    "artifacts": "workspace"
   }
 }

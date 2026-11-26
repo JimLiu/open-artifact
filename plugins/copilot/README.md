@@ -37,6 +37,16 @@ In VS Code, rerun **Chat: Install Plugin from Source** with the updated `copilot
 If the installed plugin still points to a different folder, uninstall it in **Chat: Open Customizations** before
 installing from the new path.
 
+## Where artifacts go
+
+New artifacts go in the folder Copilot works in: `artifacts/<slug>`. In a Git checkout the daemon adds
+`artifacts/.gitignore` when it makes that folder, so they stay out of `git status` (delete the file to track them).
+
+To keep them under your own Open Artifact folder instead (`~/OpenArtifact/<project>/<slug>`), run
+`open-artifact config set artifactsLocation home` in your terminal and start Copilot CLI with
+`copilot --add-dir ~/OpenArtifact`; without it, each write outside the working folder waits for your approval. See
+[Settings](../../docs/settings.md).
+
 ## What it adds
 
 - `.mcp.json`: the `Artifact`, `ArtifactData` and `ArtifactComments` tools (stdio, through the local daemon);

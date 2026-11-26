@@ -127,6 +127,7 @@ export type PersonAct =
   | 'type-disable'
   | 'type-trust'
   | 'type-untrust'
+  | 'config-set'
   | 'type-install'
   | 'type-update'
   | 'type-uninstall'
@@ -155,6 +156,8 @@ const ACT_TEXT: Record<PersonAct, { what: string; panel: string }> = {
   'type-disable': { what: 'Turning a type off', panel: 'switch it off in the Types tab of the home page' },
   'type-trust': { what: "Trusting a project's types", panel: 'trust the project in the Types tab of the home page' },
   'type-untrust': { what: "Taking back the trust in a project's types", panel: 'run the command' },
+  // Where artifacts go and the like: standing configuration of this computer or of a repository.
+  'config-set': { what: 'Changing an Open Artifact setting', panel: 'run the command' },
   // Another publisher's type, whose instructions agents will be given: the person reads it and decides.
   'type-install': { what: 'Installing a type', panel: 'install it from the Types tab of the home page, where they read it first' },
   'type-update': { what: 'Updating an installed type', panel: 'update it from the Types tab of the home page' },

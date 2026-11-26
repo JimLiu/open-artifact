@@ -46,5 +46,8 @@
         "open-artifact"
       ]
     }
+  },
+  "policy": {
+    "artifacts": "workspace"
   }
 }

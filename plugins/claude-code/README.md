@@ -24,6 +24,17 @@ sources. Run `/reload-plugins` or start a new session to load the updated local 
 If an older Claude Code client still shows the previous version, run `claude plugin marketplace update open-artifact`
 and `claude plugin update open-artifact@open-artifact`, then restart Claude Code.
 
+## Where artifacts go
+
+New artifacts go in the folder Claude Code works in: `artifacts/<slug>`. In a Git checkout the daemon adds
+`artifacts/.gitignore` when it makes that folder, so they stay out of `git status` (delete the file to track them).
+
+To keep them under your own Open Artifact folder instead (`~/OpenArtifact/<project>/<slug>`), run
+`open-artifact config set artifactsLocation home` in your terminal and let Claude Code write there:
+`claude --add-dir ~/OpenArtifact`, or `"permissions": {"additionalDirectories": ["/Users/you/OpenArtifact"]}` in its
+settings. Without that, Claude Code asks before each write outside the working folder (`auto` mode does not). See
+[Settings](../../docs/settings.md).
+
 ## What it adds
 
 | Part | File | Does |

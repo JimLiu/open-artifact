@@ -11,6 +11,7 @@ Guides written for both **people** (fast overview, concrete workflows, examples)
 | [What is Open Artifact?](overview.md) | You want to understand what Open Artifact is, its core advantages, how the daemon/Shell/agent loop works, and how to get started. |
 | [Artifact types overview](artifact-types.md) | You want to compare all 9 built-in artifact types, decide which type fits a task, or understand the storage models. |
 | [How agents use Open Artifact](agent-guide.md) | You are an AI agent (or setting up one) and need the exact MCP tools, CLI fallback, creation lifecycle, comment handling, and safety rules. |
+| [Settings, and where artifacts are kept](settings.md) | You want to know where a new artifact's folder goes (your Open Artifact folder or the project), choose it for everything, one project or one artifact, or read and set Open Artifact's settings (`open-artifact config`). |
 | [Making your own artifact types](custom-types.md) | You want a kind of page you make again and again as a type of its own: make, check and try one, turn a page into a type, turn types off, trust a project's types. |
 
 ## Artifact type guides

@@ -68,6 +68,7 @@ import {
   type TypesResponse,
   type TypesSitesResponse,
   THIRD_PARTY_NOTICE,
+  type ConfigSetRequest,
   type DesktopSettings,
   type EmbedResponse,
   type TypeView,
@@ -119,6 +120,7 @@ import { RuntimeManager } from './runtime.ts';
 import { remoteArchiveBytes, remoteErrorBody } from './remote-archive.ts';
 import { ownRuntime } from './client.ts';
 import { startDaemonProcess } from '@open-artifact/harness-kit';
+import { configSet } from './config.ts';
 import { loadSettings, saveCloudSettings, saveSettings } from './settings.ts';
 import { ArtifactStore, sessionKeyOf, userEditsAfter, type StoreChange } from './store.ts';
 import { Tools, type ShareAccess } from './tools.ts';
@@ -1522,6 +1524,7 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
     const workspace = record.workspaceDirectory;
     const inherited = {
       type: record.type, typeSource: record.typeSource, typeRelease: record.typeRelease, typeUid: record.typeUid ?? null, owner: record.owner,
+      project: record.project ?? null,
       ...(workspace ? { workspaceDirectory: workspace } : {}),
     };
     if (record.type === 'docs') {
@@ -2392,6 +2395,21 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
         this.log(`audit: agents' artifacts open ${body.openInDesktop ? 'in Open Artifact Desktop' : 'as their app says'}, asked by ${this.askedBy(req, name)}`);
         const answer: DesktopSettings = { openInDesktop: this.settings.openInDesktop === true };
         return sendJson(res, 200, answer);
+      }
+      case R.configSet: {
+        // One plain setting, in the person's file or a project's (`open-artifact config set`): the person's to change.
+        if (get) throw new OpenArtifactError('invalid_argument', `${R.configSet} is a write (POST).`);
+        const refusal =
+          this.originRefusal(req, name) ??
+          (req.headers['x-open-artifact-agent'] ? 'Changing an Open Artifact setting is for the person to decide: they run open-artifact config set in their own terminal.' : null);
+        if (refusal) {
+          req.resume();
+          return sendJson(res, 403, { code: 'not_granted', message: refusal });
+        }
+        const done = configSet((await readJsonBody<ConfigSetRequest>(req)) as ConfigSetRequest);
+        this.settings = loadSettings(this.preset);
+        this.log(`audit: ${done.value === null ? 'removed' : 'set'} ${done.key}${done.value === null ? '' : ` = ${JSON.stringify(done.value)}`} in ${done.file}${done.scope === 'local' ? ` (for ${done.project})` : ''}, asked by ${this.askedBy(req, name)}`);
+        return sendJson(res, 200, done);
       }
       case R.embed: {
         // Where pages are served from, and the origins hosts embed the Shell from (the Shell answers only those).

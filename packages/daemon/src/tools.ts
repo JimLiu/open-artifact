@@ -12,6 +12,7 @@ import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   ARTIFACT_PANELS,
+  ARTIFACTS_LOCATIONS,
   COMMENT_HEADER,
   DATA_ACTIONS,
   OpenArtifactError,
@@ -35,6 +36,7 @@ import {
   type ArtifactCommentsArgs,
   type ArtifactDataArgs,
   type ArtifactRecord,
+  type ArtifactsLocation,
   type DataWrite,
   type OpenArtifactSettings,
   type PublishFile,
@@ -56,8 +58,10 @@ import type { HarnessHub } from './harness.ts';
 import { harnessProfile } from './harness-profiles.ts';
 import { commentRouteOf, harnessSkillOptions, runtimeCli } from './harness-skill.ts';
 import type { Inbox } from './inbox.ts';
-import type { Ownership } from './ownership.ts';
+import { HOME_HARNESS, type Ownership } from './ownership.ts';
 import { inside, scriptRunner, shellWord } from './paths.ts';
+import { homeProjectDir, projectMatcher, projectOf } from './project.ts';
+import { artifactsPlacement } from './settings.ts';
 import { ACTION_NAME, type TypeAction } from './servers.ts';
 import { changedFiles, sessionKeyOf, slugify, type ArtifactStore } from './store.ts';
 import { markerSourceOf, typeSourceOf } from './type-packages.ts';
@@ -347,6 +351,14 @@ export interface LinkTools {
 }
 
 /** The note on a tool result while the artifact is being published by itself. */
+/**
+ * The note of a new artifact whose folder is outside the session's working folder (the person's Open Artifact folder,
+ * or a folder the call named): some apps do not let their agent write there.
+ */
+function outsideNote(root: string): string {
+  return `Its folder is outside your working folder: ${root}. If your app does not let you write there, send its files with Artifact {action: "publish", url, files} instead of your own file tools. Tell the person where the folder is.`;
+}
+
 function autoNote(host: string | null): string {
   return `This artifact is being published to ${host ?? 'the default site'} by itself, in the background: view_url is this computer's address until that finishes, then its web address (a later result's view_url, or Artifact {action: "read"}). Nothing for you to do.`;
 }
@@ -794,9 +806,10 @@ export class Tools {
     const me = sessionKeyOf(caller);
     const workspace = caller.workspace ? resolve(caller.workspace) : null;
     const mine = (a: ArtifactRecord): boolean => !!a.owner && sessionKeyOf(a.owner) === me;
+    const inProject = this.projectScope(workspace);
     return this.o.store
       .list()
-      .filter((a) => a.type === type.id && this.reachable(a, workspace) && (mine(a) || (reuse === 'workspace' && !!workspace && inFolder(a.root, workspace))))
+      .filter((a) => a.type === type.id && this.reachable(a, workspace) && (mine(a) || (reuse === 'workspace' && inProject(a))))
       .map((a) => ({ a, score: [...significant(a.title)].filter((w) => wanted.has(w)).length }))
       .filter(({ score }) => score > 0)
       .sort((x, y) => y.score - x.score || String(y.a.updatedAt).localeCompare(String(x.a.updatedAt)))
@@ -810,9 +823,10 @@ export class Tools {
     const me = sessionKeyOf(caller);
     const workspace = caller.workspace ? resolve(caller.workspace) : null;
     const mine = (a: ArtifactRecord): boolean => !!a.owner && sessionKeyOf(a.owner) === me;
+    const inProject = this.projectScope(workspace);
     return this.o.store
       .list()
-      .filter((a) => type.uses.includes(a.type) && this.reachable(a, workspace) && (mine(a) || (!!workspace && inFolder(a.root, workspace))))
+      .filter((a) => type.uses.includes(a.type) && this.reachable(a, workspace) && (mine(a) || inProject(a)))
       .sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)))
       .slice(0, RELATED_MAX)
       .map((a) => ({ url: artifactUrl(a.id), title: a.title, type: a.type, root: a.root, mine: mine(a), updatedAt: a.updatedAt }));
@@ -833,10 +847,11 @@ export class Tools {
     const me = sessionKeyOf(caller);
     const workspace = caller.workspace ? resolve(caller.workspace) : null;
     const mine = (a: ArtifactRecord): boolean => !!a.owner && sessionKeyOf(a.owner) === me;
+    const inProject = this.projectScope(workspace);
     const changed = (a: ArtifactRecord): boolean => !!a.lastUserEditAt && (!a.agentSeenAt || a.lastUserEditAt > a.agentSeenAt);
     const shown = this.o.store
       .list()
-      .filter((a) => this.reachable(a, workspace) && (scope === 'all' || mine(a) || (!!workspace && inFolder(a.root, workspace))))
+      .filter((a) => this.reachable(a, workspace) && (scope === 'all' || mine(a) || inProject(a)))
       .filter((a) => (!typeId || a.type === typeId) && (!query || a.title.toLowerCase().includes(query)));
     const page = shown.slice(offset, offset + limit);
     const anyChanged = page.some(changed);
@@ -867,22 +882,88 @@ export class Tools {
   }
 
   /**
-   * The folder of a new or adopted artifact: `folder` (relative to the workspace), else `<workspace>/<artifactsDir>/<slug>`.
-   * A caller with no known workspace gets the home folder, never the daemon's own folder (which may be a plugin's).
+   * Whether an artifact is one of the project's that a session in `workspace` works on: the record says so
+   * (`project`, wherever its folder is), or its folder is in the workspace (records made before `project` was kept,
+   * and folders the session made itself there).
    */
-  resolveFolder(folder: string | undefined, caller: SessionRef, title?: string): string {
+  private projectScope(workspace: string | null): (record: ArtifactRecord) => boolean {
+    if (!workspace) return () => false;
+    const sameProject = projectMatcher(this.projectIn(workspace));
+    return (record) => sameProject(record.project) || inFolder(record.root, workspace);
+  }
+
+  /** The project a session's new or adopted artifact is kept under (`ArtifactRecord.project`): none without a working folder. */
+  private projectFor(caller: SessionRef): string | null {
+    return caller.workspace && caller.harness !== HOME_HARNESS ? this.projectIn(caller.workspace) : null;
+  }
+
+  /**
+   * The project of a workspace. A workspace-confined daemon looks at nothing outside the workspace, so there the
+   * workspace is the project: no walk up to a checkout's top, and no settings file read.
+   */
+  private projectIn(workspace: string): string {
+    return this.o.workspaceFoldersOnly ? resolve(workspace) : projectOf(workspace).project;
+  }
+
+  /**
+   * The folder of a new or adopted artifact: `folder` (relative to the workspace), else the folder {@link place}
+   * chooses for `title`.
+   */
+  resolveFolder(folder: string | undefined, caller: SessionRef, title?: string, location?: ArtifactsLocation): string {
+    return this.place(folder, caller, title, location).root;
+  }
+
+  /**
+   * Where a new artifact's folder goes.
+   *
+   * - `folder`: as given (absolute, or relative to the workspace).
+   * - No working folder, or one inside the person's Open Artifact folder (the home page, an import):
+   *   `<that folder>/<artifactsDir>/<slug>`.
+   * - Location `workspace`: `<the project's settings folder, else the workspace>/<artifactsDir>/<slug>` (the project's
+   *   folder when `artifactsDir` is the person's own entry for the project).
+   * - Location `home`: `<Open Artifact folder>/<project>/<slug>`.
+   *
+   * The location is `wanted` (this call's `location`), else what {@link artifactsPlacement} finds; a workspace-confined
+   * daemon keeps everything in the workspace. A folder that exists and is not empty gets `-2`, `-3`….
+   *
+   * `ignore`: the artifacts folder the daemon is about to make in a Git checkout only because the session's harness
+   * keeps artifacts in the workspace (nobody chose it): it gets a `.gitignore`, so the checkout stays clean.
+   */
+  private place(folder: string | undefined, caller: SessionRef, title?: string, wanted?: ArtifactsLocation): { root: string; ignore?: string } {
     if (this.o.workspaceFoldersOnly && !caller.workspace) {
       throw new OpenArtifactError('not_granted', 'A local workspace is required to create or adopt a work.');
     }
-    const base = caller.workspace ? resolve(caller.workspace) : homedir();
-    const directory = this.o.workspaceFoldersOnly ? new WorkspaceDirectory(base) : null;
+    const confined = this.o.workspaceFoldersOnly === true;
+    const base = caller.workspace ? resolve(caller.workspace) : null;
+    const directory = confined && base ? new WorkspaceDirectory(base) : null;
     const folderPath = (candidate: string) => directory?.resolve(candidate) ?? candidate;
-    if (folder) return folderPath(resolve(base, folder));
-    const dir = folderPath(join(base, this.o.settings().artifactsDir || 'artifacts'));
+    if (folder) return { root: folderPath(resolve(base ?? homedir(), folder)) };
+    const settings = this.o.settings();
+    const home = resolve(settings.homeWorkspace);
     const slug = slugify(title);
-    let root = folderPath(join(dir, slug));
-    for (let i = 2; existsSync(root) && readdirSync(root).length; i++) root = folderPath(join(dir, `${slug}-${i}`));
-    return root;
+    const unique = (dir: string): string => {
+      let root = folderPath(join(dir, slug));
+      for (let i = 2; existsSync(root) && readdirSync(root).length; i++) root = folderPath(join(dir, `${slug}-${i}`));
+      return root;
+    };
+    if (confined && wanted === 'home') {
+      throw new OpenArtifactError('not_granted', 'This app keeps artifacts in the workspace: location "home" is not available here.');
+    }
+    // No session folder, the person's own Open Artifact folder, or a confined daemon (which reads no setting that
+    // could move it): its artifacts folder, whatever the location.
+    if (!base || confined || inFolder(base, home)) return { root: unique(folderPath(join(base ?? home, settings.artifactsDir || 'artifacts'))) };
+    const placement = artifactsPlacement(base, harnessProfile(caller.harness).policy?.artifacts);
+    const location = wanted ?? placement.location;
+    if (location === 'home') {
+      const reserved = [placement.artifactsDir, settings.artifactsDir || 'artifacts'].map((dir) => dir.split(/[\\/]/).find(Boolean) ?? dir);
+      return { root: unique(homeProjectDir(home, placement.layers.info.project, reserved)) };
+    }
+    // A project's folder for its artifacts is relative to the project: where its settings file is, or, for the
+    // person's own entry for it, the project's folder. Otherwise the session's folder, as it always was.
+    const { info } = placement.layers;
+    const parent = join(info.configDir ?? (placement.artifactsDirSource === 'local' ? info.dir : base), placement.artifactsDir);
+    const fallback = !wanted && placement.locationSource === 'harness';
+    return { root: unique(parent), ...(fallback && placement.layers.info.gitRoot && !existsSync(parent) ? { ignore: parent } : {}) };
   }
 
   /** The type's actions, or `null` when they are not known; never fails. */
@@ -977,7 +1058,11 @@ export class Tools {
     // A type on another computer that cannot be reached now: nothing is created, and the error says where and why.
     if (typeLocation(type).remote) await this.o.reach?.(type);
     const title = String(args.title ?? '').trim() || type.artifactTitle || type.title;
-    const root = this.resolveFolder(args.folder, caller, title);
+    if (args.location !== undefined && !ARTIFACTS_LOCATIONS.includes(args.location)) {
+      throw new OpenArtifactError('invalid_argument', 'location: "home" (the person\'s Open Artifact folder) or "workspace" (the working folder).');
+    }
+    const placed = this.place(args.folder, caller, title, args.location);
+    const root = placed.root;
     if (existsSync(join(root, '.artifact.json'))) {
       const known = this.o.store.byRoot(root);
       if (known) throw new OpenArtifactError('conflict', `${root} is already the artifact ${artifactUrl(known.id)}.`, { fix: 'Use that url, or give another folder.' });
@@ -986,9 +1071,13 @@ export class Tools {
     const workspace = this.workspaceDirectory(caller);
     const record = this.o.store.create({
       root, type: typeId, typeSource: type.scope, typeRelease: type.version, typeUid: type.uid, typeFrom: markerSourceOf(type), owner, title, capabilities,
+      project: this.projectFor(caller),
       ...(workspace ? { workspaceDirectory: workspace.identity } : {}),
     });
     this.o.log(`created ${record.id} (${typeId}) at ${root} for ${sessionKeyOf(caller) ?? 'nobody'}`);
+    if (placed.ignore) this.keepOutOfGit(placed.ignore);
+    // A folder outside the session's working folder: say so, since an app may not let its agent write there.
+    const outside = !!caller.workspace && caller.harness !== HOME_HARNESS && !inFolder(root, caller.workspace);
     const auto = this.o.link?.created?.(record) === true;
     const actions = await this.knownActions(type, false);
     const check = this.hasCheck(type, actions);
@@ -1032,10 +1121,26 @@ export class Tools {
                 ? AFTER_CREATE_CHECK
                 : AFTER_CREATE,
       ...(isPageType(type) ? { capabilities: record.capabilities ?? {} } : {}),
-      ...(auto || capabilityNotes(record.capabilities).length
-        ? { notes: [...(auto ? [autoNote(this.o.link?.autoTarget?.() ?? null)] : []), ...capabilityNotes(record.capabilities)] }
+      ...(auto || outside || capabilityNotes(record.capabilities).length
+        ? { notes: [...(outside ? [outsideNote(root)] : []), ...(auto ? [autoNote(this.o.link?.autoTarget?.() ?? null)] : []), ...capabilityNotes(record.capabilities)] }
         : {}),
     };
+  }
+
+  /**
+   * Keeps a new artifacts folder in a Git checkout out of git: a `.gitignore` that ignores everything in it, itself
+   * included. Only for a folder the daemon just made because the harness keeps artifacts in the workspace; a folder
+   * the person, the project or the call chose is theirs to track.
+   */
+  private keepOutOfGit(dir: string): void {
+    const file = join(dir, '.gitignore');
+    try {
+      if (existsSync(file)) return;
+      writeFileSync(file, '# Open Artifact keeps the artifacts made here out of git. Delete this file to track them.\n*\n');
+      this.o.log(`wrote ${file}: the artifacts folder stays out of git`);
+    } catch (error) {
+      this.o.log(`could not write ${file}: ${(error as Error).message}`);
+    }
   }
 
   /** A file's sha256, `null` when there is none. */
@@ -1547,6 +1652,7 @@ export class Tools {
       owner: caller,
       title,
       capabilities,
+      project: this.projectFor(caller),
       ...(workspace ? { workspaceDirectory: workspace.identity } : {}),
     });
     const auto = this.o.link?.created?.(record) === true;
