@@ -86,15 +86,19 @@ way the page treats it as a sandboxed image: scripts never run and external refe
 
 - SMIL animation (`<animate>`, `<animateTransform>`, `<animateMotion>`, `<set>`) plays only in `<svg>`
   code on the slide, only when presenting, and only if it changes at most three times a second with one
-  `begin` and a readable `dur` (`format.md`, Motion). An uploaded file shown with `<img>` never plays
-  it. The editor, thumbnails, PDF, PNG, PowerPoint and Reduce Motion show the drawing at its own
-  attributes, so give each element the look it should have there (no `fill="freeze"` to rely on).
+  `begin` and a readable `dur` (`format.md`, Motion). It must not set `attributeName` to an event
+  handler, `href` or `xlink:href`, and `to` / `from` / `by` / `values` must not contain a URL other
+  than a local `#id`. That is an error: the drawing is not shown. An uploaded file shown with `<img>`
+  never plays SMIL. The editor, thumbnails, PDF, PNG, PowerPoint and Reduce Motion show the drawing at
+  its own attributes, so give each element the look it should have there (no `fill="freeze"` to rely on).
 - A drawing holding `<foreignObject>` is refused in the slide (an error), so it never reaches an
   export; plain SVG is drawn as a picture in PowerPoint.
 
 Code in the slide is checked: no `<script>`, `on*=` handlers, `<foreignObject>` or external `href` or
-`url()` (errors), 52 KB at most. The markup inside is kept as you wrote it (only an `xmlns` is added if
-missing). An `aria-label` on the `<svg>` is its description: set one when the drawing carries meaning (a
+`url()` (errors), and no SMIL that sets an event handler, `href` or a non-local URL, 52 KB at most.
+An svg with any of those is not shown: its markup is dropped rather than placed on the page. A drawing
+that passes is kept as you wrote it (only an `xmlns` is added if missing). An `aria-label` on the
+`<svg>` is its description: set one when the drawing carries meaning (a
 chart, a plan, a map) and leave it off pure decoration.
 
 The drawing is read as XML: write a character as itself (`—`), as its number (`&#8212;`) or as one of

@@ -3,6 +3,7 @@
  * model's, every block carries its id as `bid`, and a suggestion is a block's `suggestId` / `suggestOp` or the
  * `suggestIns` / `suggestDel` mark.
  */
+import { storableHref } from '@open-artifact/docs-core';
 import { type DOMOutputSpec, type Mark, type Node as PMNode, type NodeSpec, type MarkSpec, Schema } from 'prosemirror-model';
 import { MEDIA_ATTRS } from '../sync/page.ts';
 
@@ -284,8 +285,19 @@ const marks: Record<string, MarkSpec> = {
   link: {
     attrs: { href: {} },
     inclusive: false,
-    parseDOM: [{ tag: 'a[href]', getAttrs: dom => ({ href: dom.getAttribute('href') }) }],
-    toDOM: (mark: Mark) => ['a', { href: mark.attrs.href, rel: 'noopener noreferrer nofollow' }, 0],
+    parseDOM: [{
+      tag: 'a[href]',
+      getAttrs: (dom) => {
+        const href = storableHref(dom.getAttribute('href') ?? '');
+        return href ? { href } : false;
+      },
+    }],
+    toDOM: (mark: Mark) => {
+      const href = storableHref(typeof mark.attrs.href === 'string' ? mark.attrs.href : '');
+      const attrs: Record<string, string> = { rel: 'noopener noreferrer nofollow' };
+      if (href) attrs.href = href;
+      return ['a', attrs, 0];
+    },
   },
   textColor: {
     attrs: { color: {} },

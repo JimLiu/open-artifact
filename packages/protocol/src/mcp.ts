@@ -206,8 +206,39 @@ export function cardContents(agent: string): Record<string, unknown> {
 const htmlText = (text: string): string => text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
 /**
+ * Inlined into the artifact card and the MCP App view so each document still runs on its own.
+ * Inbound messages are taken only when `event.source === window.parent`. `postMessage(..., '*')`
+ * is used only for a `ui/initialize` handshake that carries no artifact URL. Once the parent's
+ * origin is known — the opaque origin `"null"` is refused — every later message uses that origin.
+ */
+export const HOST_MESSAGE_BOOT = `var hostOrigin=null;
+function carriesArtifactUrl(message){
+  var body='';
+  try{body=JSON.stringify(message).toLowerCase();}catch(e){return true;}
+  return body.indexOf('https://')>=0||body.indexOf('http://')>=0||body.indexOf('open-artifact://')>=0;
+}
+function postToHost(message,handshake){
+  var origin=hostOrigin;
+  if(!origin){
+    if(!handshake||carriesArtifactUrl(message))return false;
+    origin='*';
+  }
+  window.parent.postMessage(message,origin);
+  return true;
+}
+function acceptParent(event){
+  if(event.source===window.parent){
+    var origin=event.origin;
+    if(!hostOrigin&&typeof origin==='string'&&origin&&origin!=='null')hostOrigin=origin;
+    return true;
+  }
+  return false;
+}`;
+
+/**
  * The card: ChatGPT's `window.openai` when it is there, else the MCP Apps messages (`ui/initialize`,
- * `ui/notifications/tool-result`, `ui/message`, `ui/open-link`). It frames nothing, so it needs no origin.
+ * `ui/notifications/tool-result`, `ui/message`, `ui/open-link`). It frames nothing. Messages come only
+ * from `window.parent`; `*` is only the `ui/initialize` handshake, and later messages use the parent's origin.
  */
 export function artifactCardHtml(agent: string): string {
   const name = htmlText(agent);
@@ -235,10 +266,11 @@ button:disabled{opacity:.55;cursor:default}
 <div class="hint" id="hint">Comment on the page, then press “Send comments to ${name}”.</div>
 <script>
 (function(){
+  ${HOST_MESSAGE_BOOT}
   var agent=${js}, data=null, nextId=1, pending={};
   var oa=window.openai;
-  function rpc(method,params){var id=nextId++;window.parent.postMessage({jsonrpc:'2.0',id:id,method:method,params:params||{}},'*');return new Promise(function(r){pending[id]=r;});}
-  function notify(method,params){window.parent.postMessage({jsonrpc:'2.0',method:method,params:params||{}},'*');}
+  function rpc(method,params){var id=nextId++;postToHost({jsonrpc:'2.0',id:id,method:method,params:params||{}},method==='ui/initialize');return new Promise(function(r){pending[id]=r;});}
+  function notify(method,params){postToHost({jsonrpc:'2.0',method:method,params:params||{}},false);}
   function show(d){
     if(!d||!d.url)return; data=d;
     document.getElementById('title').textContent=d.title||'Untitled artifact';
@@ -247,6 +279,7 @@ button:disabled{opacity:.55;cursor:default}
     document.getElementById('send').disabled=false;
   }
   window.addEventListener('message',function(e){
+    if(!acceptParent(e))return;
     var m=e.data; if(!m||m.jsonrpc!=='2.0')return;
     if(m.id!=null&&pending[m.id]){pending[m.id](m.result);delete pending[m.id];return;}
     if(m.method==='ui/notifications/tool-result'&&m.params)show(m.params.structuredContent);
