@@ -7,7 +7,7 @@ import * as React from 'react';
 import type { CustomNumberFormat } from '../state/initial-state.ts';
 import type { HowActBegan } from './answer-holds.ts';
 import type { ShownUnderPattern } from './number-format-choices.ts';
-import { createLateEnterTracker } from '../ui/menu-with-field.tsx';
+import { createLateEnterTracker, isComposingKey } from '@open-artifact/ui';
 import { sheetMessages } from '../i18n/sheet-messages.ts';
 import { isHistoryOrDropInputType } from '../editor/commit-entry.ts';
 import {
@@ -48,7 +48,7 @@ export function CustomFormatPatternInput({
   return <TextInput ref={ref} data-initial-focus aria-label={sheetMessages.customFormat()} aria-invalid={isInvalid || undefined} aria-describedby={CUSTOM_FORMAT_LINE_ID} readOnly={isHeldAsItIs} className={isHeldAsItIs ? 'text-secondary' : undefined} onKeyDown={(event) => {
       let vendor = event.currentTarget.ownerDocument.defaultView?.navigator.vendor ?? '';
       let isLateEnter = lateEnter.isLateEnter(event, vendor);
-      if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+      if (isComposingKey(event.nativeEvent)) return;
       if (isLateEnter) event.preventDefault();
       if (isLateEnter || event.repeat) onKeyHeld(event.key);
       else if (onKeyForAgent(event.key)) event.preventDefault();

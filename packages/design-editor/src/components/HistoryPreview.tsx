@@ -9,7 +9,7 @@
  * back to the current one.
  */
 
-import { useLayoutEffect, useMemo, useRef, type ReactNode } from 'react';
+import { useLayoutEffect, useMemo, useState, useRef, type ReactNode } from 'react';
 import type { BoardBoot } from '@open-artifact/dc';
 import { boardsOnPage, notesOnPage, unionRect, type BoardEntry, type Canvas, type CanvasNote } from '@open-artifact/design-core';
 import { cn } from '@open-artifact/ui';
@@ -87,6 +87,11 @@ export function HistoryPreview(): ReactNode {
   const currentBoards = useDocument((s) => s.canvas.boards);
   const viewPage = useView((s) => s.page);
   const preview = designHistory.store((s) => s.preview);
+  const previewing = designHistory.store((s) => s.previewing);
+  const [covered, setCovered] = useState<HTMLElement | null>(null);
+  useLayoutEffect(() => {
+    setCovered(document.querySelector<HTMLElement>('[data-canvas-surface]'));
+  }, [previewing]);
   const shown = useMemo(() => {
     if (!preview) return { boards: [] as string[], notes: [] as string[] };
     const page = pageIn(preview.canvas, viewPage);
@@ -97,6 +102,7 @@ export function HistoryPreview(): ReactNode {
     <VersionPreview<DesignVersion>
       history={designHistory}
       readOnly={readOnly}
+      covered={covered}
       fitKey={shown}
       bounds={(p) => unionRect([...shown.boards.map((path) => p.canvas.boards[path]!), ...shown.notes.map((id) => noteRect(p.canvas.notes[id]!))])}
       emptyText={(n) => `This page was empty in version ${n}.`}

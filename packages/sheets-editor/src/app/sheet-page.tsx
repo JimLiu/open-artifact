@@ -8,6 +8,7 @@ import { likelyHasKeyboard, subscribeSheetMedia } from '../kit/platform.ts';
 import { Button } from '../kit/button.tsx';
 import { Icon, type IconName } from '../kit/icon.tsx';
 import { TooltipGroup } from '../kit/tooltip.tsx';
+import { createLateEnterTracker, isComposingKey } from '@open-artifact/ui';
 import type { SheetController } from '../state/controller.ts';
 import type { SheetClipboard } from '../clipboard/page-clipboard.ts';
 import type { FrameChrome } from '../shell/frame-chrome.ts';
@@ -777,11 +778,9 @@ export function keepCaretAtEndOnTyping({
   key,
   ctrlKey,
   metaKey,
-  keyCode,
   nativeEvent,
 }: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) {
-  let isComposing = nativeEvent.isComposing || keyCode === 229;
-  if ((key.length === 1 || key === 'Dead') && !ctrlKey && !metaKey && !isComposing)
+  if ((key.length === 1 || key === 'Dead') && !ctrlKey && !metaKey && !isComposingKey(nativeEvent))
     currentTarget.setSelectionRange(currentTarget.value.length, currentTarget.value.length);
 }
 export function guardFieldHistoryUndo(field: HTMLElement & Pick<HTMLInputElement, 'value'>) {
@@ -798,8 +797,7 @@ export function guardFieldHistoryUndo(field: HTMLElement & Pick<HTMLInputElement
   return () => field.removeEventListener('beforeinput', onBeforeInput);
 }
 export function redispatchKeyToFocused(event: KeyboardEvent) {
-  let isComposing = event.isComposing || event.keyCode === 229 || event.key === 'Dead';
-  if (event.key === 'Tab' || isComposing) return;
+  if (event.key === 'Tab' || event.key === 'Dead' || isComposingKey(event)) return;
   ReactDOM.flushSync(() => {
     return;
   });
@@ -1125,6 +1123,32 @@ export function SheetsPage({
   let cellFieldKeyProps = useCellEntryFieldEvents(store);
   let functionsButtonRef = React.useRef<HTMLSpanElement | null>(null);
   let formulaBarRef = React.useRef<HTMLTextAreaElement | null>(null);
+  let lateEnterRef = React.useRef(createLateEnterTracker());
+  let lateEnterSeenRef = React.useRef(new WeakMap<Event, boolean>());
+  let isEntryKeyTarget = (target: EventTarget | null) => {
+    if (!(target instanceof Node)) return false;
+    return [formulaBarRef.current, activeEditorRef.current, cellEditorRef.current].some(
+      (field) => field !== null && (field === target || field.contains(target)),
+    );
+  };
+  let takeLateEnter = (event: React.KeyboardEvent, isReplayed: boolean) => {
+    let seen = lateEnterSeenRef.current.get(event.nativeEvent);
+    if (seen !== undefined) return seen;
+    let answer = isEntryKeyTarget(event.target)
+      ? lateEnterRef.current.isLateEnter(
+          {
+            key: event.key,
+            timeStamp: event.timeStamp,
+            metaKey: event.metaKey,
+            ctrlKey: event.ctrlKey,
+            isReplayed,
+          },
+          event.currentTarget.ownerDocument.defaultView?.navigator.vendor ?? '',
+        )
+      : false;
+    lateEnterSeenRef.current.set(event.nativeEvent, answer);
+    return answer;
+  };
   let formulaBarCleanupRef = React.useRef<(() => void) | null>(null);
   let setFormulaBarElement = React.useCallback((element: HTMLTextAreaElement | null) => {
     formulaBarCleanupRef.current?.();
@@ -2917,8 +2941,7 @@ export function SheetsPage({
     if (!isBlurDuringEventRef.current) return false;
     let caret = getCaretElement();
     if (caret === null || event.target !== caret.ownerDocument.body) return false;
-    let isComposingKey = event.isComposing || event.keyCode === 229 || event.key === 'Dead';
-    if (!event.isTrusted || event.defaultPrevented || isComposingKey || MODIFIER_KEYS.has(event.key)) return false;
+    if (!event.isTrusted || event.defaultPrevented || event.key === 'Dead' || isComposingKey(event) || MODIFIER_KEYS.has(event.key)) return false;
     if (!caret.dispatchEvent(redispatchedKeydown(event))) event.preventDefault();
     event.stopImmediatePropagation();
     return true;
@@ -2963,8 +2986,7 @@ export function SheetsPage({
     isFirstKeyAwaitedRef.current = false;
     let ownerDocument = cellsRef.current?.ownerDocument;
     if (event.target !== ownerDocument?.body) return;
-    let isComposingKey = event.isComposing || event.keyCode === 229 || event.key === 'Dead';
-    let mayForward = !event.defaultPrevented && !isComposingKey;
+    let mayForward = !event.defaultPrevented && event.key !== 'Dead' && !isComposingKey(event);
     if (isEscapeWhileEditing) event.preventDefault();
     let forwardTo = (target: Element | null) => {
       if (target === null || target === ownerDocument!.body || !mayForward) return;
@@ -3051,6 +3073,11 @@ export function SheetsPage({
     win.addEventListener('paste', onPasteEvent);
     win.addEventListener('keydown', onKeyDownFirstEvent, true);
     win.addEventListener('keydown', onKeyDownEvent, true);
+    let onCompositionEnd = (event: Event) => {
+      if (!isEntryKeyTarget(event.target)) return;
+      lateEnterRef.current.compositionEnded(event);
+    };
+    win.document.addEventListener('compositionend', onCompositionEnd, true);
     for (let type of beforeEvents) win.addEventListener(type, onBeforeClipboardEvent);
     offerCaretAtFirstEvent();
     return () => {
@@ -3071,6 +3098,7 @@ export function SheetsPage({
       win.removeEventListener('paste', onPasteEvent);
       win.removeEventListener('keydown', onKeyDownFirstEvent, true);
       win.removeEventListener('keydown', onKeyDownEvent, true);
+      win.document.removeEventListener('compositionend', onCompositionEnd, true);
       for (let type of beforeEvents) win.removeEventListener(type, onBeforeClipboardEvent);
     };
   }, []);
@@ -3294,11 +3322,16 @@ export function SheetsPage({
     return;
   };
   let onCellsKeyDown = (event: React.KeyboardEvent<HTMLElement>, isReplayed = false) => {
-    isComposingRef.current = event.nativeEvent.isComposing || event.keyCode === 229;
+    let composing = isComposingKey(event.nativeEvent);
+    let lateEnter = takeLateEnter(event, isReplayed);
+    isComposingRef.current = composing;
     if (!isReplayed) noteModifierKeys(event);
-    if (!isReplayed) endWaitForPeopleOnKey(event, isComposingRef.current);
-    if (isComposingRef.current && isInAtEndOfSheet(event.target)) noteCaretAtEnd();
-    if (isComposingRef.current) return;
+    if (!isReplayed) endWaitForPeopleOnKey(event, composing);
+    if (composing && isInAtEndOfSheet(event.target)) noteCaretAtEnd();
+    if (composing || lateEnter) {
+      if (event.key === 'Tab' || lateEnter) event.preventDefault();
+      return;
+    }
     let wereCommentsUp = mouseAroundComments.isUp();
     if (!MODIFIER_KEYS.has(event.key)) mouseAroundComments.putAway();
     if (wereCommentsUp && event.key === 'Escape' && store.getView().escapeInCells !== 'leaves') {
@@ -4595,14 +4628,19 @@ export function SheetsPage({
     });
   };
   let onFieldKeyDown = (event: React.KeyboardEvent<HTMLElement>, isReplayed = false) => {
-    let isComposingKey = event.nativeEvent.isComposing || event.keyCode === 229;
-    if (event.key === 'F6' && event.repeat && !event.altKey && !isComposingKey) return event.preventDefault();
-    if (!isReplayed) endWaitForPeopleOnKey(event, isComposingKey);
-    if (!isComposingKey && !isReplayed && typeAheadIntoEntry(event, onFieldKeyDown)) return;
+    let composing = isComposingKey(event.nativeEvent);
+    let lateEnter = takeLateEnter(event, isReplayed);
+    if (event.key === 'F6' && event.repeat && !event.altKey && !composing && !lateEnter) return event.preventDefault();
+    if (!isReplayed) endWaitForPeopleOnKey(event, composing);
+    if (lateEnter || (composing && event.key === 'Tab')) {
+      event.preventDefault();
+      return;
+    }
+    if (!composing && !isReplayed && typeAheadIntoEntry(event, onFieldKeyDown)) return;
     let isReplayedOutsideEdit = isReplayed && store.getView().mode.kind !== 'editing';
     let { mode: latestMode, openUnderCell } = store.getView();
     let tabStep = openUnderCell === null ? partStepOfTabInEntry(event, latestMode, wasFormulaBarFocusedRef.current) : null;
-    let focusMove = isComposingKey || isReplayedOutsideEdit ? null : (tabStep ?? focusMoveOfKey(normalizedKeyEvent(event)));
+    let focusMove = composing || isReplayedOutsideEdit ? null : (tabStep ?? focusMoveOfKey(normalizedKeyEvent(event)));
     let moveCaretOn = tabStep === null ? moveCaretTo : moveCaretFromCells;
     if ((focusMove === 'nextPart' || (focusMove === 'partBefore' && !isViewOnly)) && !isKeyForLayer(event, null)) {
       event.preventDefault();
@@ -6443,7 +6481,7 @@ export function SheetsPage({
   );
   let onSidePaneKeyDown = React.useCallback<ConditionalFormattingPaneProps['onKeyDownInPane']>(
     (event) => {
-      if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+      if (isComposingKey(event.nativeEvent)) return;
       let isToCells = focusMoveOfKey(normalizedKeyEvent(event)) === 'cells' && !isKeyForLayer(event, null);
       let { conditionalFormats: latestConditionalFormats, isCommentModeOn } = store.getView();
       if (isToCells && latestConditionalFormats?.doesEscapeStepBack === true) {

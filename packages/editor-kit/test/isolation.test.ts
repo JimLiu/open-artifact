@@ -16,7 +16,8 @@ const sources = (): string[] =>
 
 describe('editor kit isolation', () => {
   it('imports nothing of an editor', () => {
-    const allowed = /^(\.\.?\/[\w/-]+\.tsx?|@open-artifact\/(runtime|ui|design-system-core)|react|react-dom|zustand|lucide-react|clsx|@base-ui\/react\/[\w-]+)$/;
+    // `keys.ts` re-exports `isTextField` from the UI package's pure module, not the JSX barrel.
+    const allowed = /^(\.\.?\/[\w/-]+\.tsx?|\.\.\/\.\.\/ui\/src\/keys\.ts|@open-artifact\/(runtime|ui|design-system-core)|react|react-dom|zustand|lucide-react|clsx|@base-ui\/react\/[\w-]+)$/;
     for (const file of sources()) {
       const text = readFileSync(new URL(file, SRC), 'utf8');
       for (const [, from] of text.matchAll(/from '([^']+)'/g)) assert.match(from!, allowed, `${file} imports ${from}`);

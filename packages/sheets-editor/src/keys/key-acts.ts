@@ -339,6 +339,8 @@ export function keyActOf(
         };
     }
     if (mode.kind === 'editing' && keyEvent.key === 'Enter' && !keyEvent.isShiftHeld && !keyEvent.isAltHeld) {
+      // A confirming Enter still belongs to the input method. Cmd/Ctrl+Enter stays a shortcut.
+      if (keyEvent.caretInEntry?.isComposing === true && !keyEvent.isModifierHeld) return null;
       let stayPut = {
         rowDelta: 0,
         columnDelta: 0,

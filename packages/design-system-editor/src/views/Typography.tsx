@@ -9,7 +9,7 @@
 import { FolderPlus, Plus, Trash2, Upload } from 'lucide-react';
 import { useMemo, useRef, useState, type CSSProperties } from 'react';
 import { compileTokensCss, updateStyle, type NormalizedStyle, type NormalizedTokens, type RawTokens } from '@open-artifact/design-system-core';
-import { Button, CommitInput, Dialog, FontPicker, IconButton, TextInput, type DesignSystemFont, type FontPick } from '@open-artifact/ui';
+import { Button, CommitInput, Dialog, FontPicker, IconButton, TextInput, isComposingKey, type DesignSystemFont, type FontPick } from '@open-artifact/ui';
 import { useModel } from '../state/model.ts';
 import { anchorId, useView } from '../state/view.ts';
 import { projectUrl } from '../lib/color.ts';
@@ -211,7 +211,12 @@ function AddTypeSet() {
         }
       >
         <div className="flex flex-col gap-3">
-          <TextInput autoFocus placeholder="Name, e.g. Display" value={name} onChange={(event) => setName(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && create()} />
+          <TextInput autoFocus placeholder="Name, e.g. Display" value={name} onChange={(event) => setName(event.target.value)} onKeyDown={(event) => {
+            if (event.key !== 'Enter' || event.metaKey || event.ctrlKey) return;
+            event.preventDefault();
+            if (isComposingKey(event.nativeEvent)) return;
+            create();
+          }} />
           <FontPicker aria-label="Font of the set" value={font?.family ?? null} placeholder="Font (optional)" designSystemFonts={systemFonts} onChange={setFont} />
         </div>
       </Dialog>

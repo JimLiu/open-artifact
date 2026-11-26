@@ -3,6 +3,7 @@ import { describe, it, mock } from 'node:test';
 import { scrollStanding, scrollsOverflow } from '../src/focusables.ts';
 import {
   blocksEarlyPress,
+  createLateEnterTracker,
   EARLY_PRESS_MAX_MS,
   EARLY_PRESS_SETTLE_MS,
   earlyPressEnds,
@@ -11,8 +12,12 @@ import {
   HELD_KEY_SETTLE_MS,
   isComposingKey,
   isRepeatedActivation,
+  isSafariLateEnter,
+  isTextField,
   preventRepeatedActivation,
+  SAFARI_LATE_ENTER_MS,
   shortcutLetter,
+  shouldYieldWindowShortcut,
   withRepeatGuard,
   type KeyGuardEvent,
   type KeyGuardWindow,
@@ -228,5 +233,79 @@ describe('early press guard', () => {
     assert.equal(blocksEarlyPress(times, 10, { ...enter, isTrusted: false }), false);
     assert.equal(blocksEarlyPress(times, 10_000, { ...enter, repeat: true }), true);
     assert.equal(blocksEarlyPress(times, 10_000, enter), false);
+  });
+});
+
+const APPLE = 'Apple Computer, Inc.';
+
+describe('isTextField', () => {
+  it('is true for input, textarea, select and contentEditable', () => {
+    assert.equal(isTextField({ tagName: 'INPUT', isContentEditable: false }), true);
+    assert.equal(isTextField({ tagName: 'TEXTAREA', isContentEditable: false }), true);
+    assert.equal(isTextField({ tagName: 'SELECT', isContentEditable: false }), true);
+    assert.equal(isTextField({ tagName: 'DIV', isContentEditable: true }), true);
+  });
+
+  it('is false for a button, a plain div and a missing target', () => {
+    assert.equal(isTextField({ tagName: 'BUTTON', isContentEditable: false }), false);
+    assert.equal(isTextField({ tagName: 'DIV', isContentEditable: false }), false);
+    assert.equal(isTextField(null), false);
+  });
+});
+
+describe('Safari late Enter', () => {
+  it('matches an Apple confirming Enter inside the window and only once', () => {
+    const tracker = createLateEnterTracker();
+    tracker.compositionEnded({ timeStamp: 1_000 });
+    assert.equal(tracker.isLateEnter({ key: 'Enter', timeStamp: 1_000 + SAFARI_LATE_ENTER_MS - 1 }, APPLE), true);
+    assert.equal(tracker.isLateEnter({ key: 'Enter', timeStamp: 1_010 }, APPLE), false);
+  });
+
+  it('does not match at the window boundary, off Apple, or for a modified Enter', () => {
+    assert.equal(isSafariLateEnter(SAFARI_LATE_ENTER_MS, APPLE), false);
+    assert.equal(isSafariLateEnter(0, 'Google Inc.'), false);
+    const tracker = createLateEnterTracker();
+    tracker.compositionEnded({ timeStamp: 1_000 });
+    assert.equal(tracker.isLateEnter({ key: 'Enter', timeStamp: 1_000 }, 'Google Inc.'), false);
+    tracker.compositionEnded({ timeStamp: 2_000 });
+    assert.equal(tracker.isLateEnter({ key: 'Enter', timeStamp: 2_000 + SAFARI_LATE_ENTER_MS }, APPLE), false);
+    tracker.compositionEnded({ timeStamp: 3_000 });
+    assert.equal(tracker.isLateEnter({ key: 'Enter', timeStamp: 3_010, metaKey: true }, APPLE), false);
+    assert.equal(tracker.isLateEnter({ key: 'Enter', timeStamp: 3_020, ctrlKey: true }, APPLE), false);
+    // Cmd/Ctrl+Enter never entered the tracker, so the confirming Enter is still there.
+    assert.equal(tracker.isLateEnter({ key: 'Enter', timeStamp: 3_030 }, APPLE), true);
+  });
+
+  it('records compositionend once: a replayed key does not move the end time', () => {
+    const tracker = createLateEnterTracker();
+    tracker.compositionEnded({ timeStamp: 1_000 });
+    tracker.compositionEnded({ timeStamp: 9_000, isReplayed: true });
+    assert.equal(tracker.isLateEnter({ key: 'Enter', timeStamp: 1_200, isReplayed: true }, APPLE), false);
+    assert.equal(tracker.isLateEnter({ key: 'Enter', timeStamp: 1_200 }, APPLE), true);
+  });
+
+  it('honours a shorter window when one is passed', () => {
+    const tracker = createLateEnterTracker(50);
+    tracker.compositionEnded({ timeStamp: 100 });
+    assert.equal(tracker.isLateEnter({ key: 'Enter', timeStamp: 140 }, APPLE), true);
+    tracker.compositionEnded({ timeStamp: 100 });
+    assert.equal(tracker.isLateEnter({ key: 'Enter', timeStamp: 160 }, APPLE), false);
+  });
+});
+
+describe('shouldYieldWindowShortcut', () => {
+  const blank = { tagName: 'DIV', isContentEditable: false, closest: () => null };
+
+  it('yields on a text field, while composing, when already handled, and inside a menu or dialog', () => {
+    assert.equal(shouldYieldWindowShortcut({ defaultPrevented: false, target: { tagName: 'INPUT', isContentEditable: false, closest: () => null } }), true);
+    assert.equal(shouldYieldWindowShortcut({ defaultPrevented: false, isComposing: true, target: blank }), true);
+    assert.equal(shouldYieldWindowShortcut({ defaultPrevented: false, keyCode: 229, target: blank }), true);
+    assert.equal(shouldYieldWindowShortcut({ defaultPrevented: true, target: blank }), true);
+    assert.equal(shouldYieldWindowShortcut({ defaultPrevented: false, target: { tagName: 'DIV', isContentEditable: false, closest: () => ({}) } }), true);
+  });
+
+  it('does not yield for Escape on the shell background', () => {
+    assert.equal(shouldYieldWindowShortcut({ defaultPrevented: false, target: blank }), false);
+    assert.equal(shouldYieldWindowShortcut({ defaultPrevented: false, target: null }), false);
   });
 });

@@ -3,6 +3,7 @@ import { Button } from '../kit/button.tsx';
 import { Tooltip, TooltipGroup } from '../kit/tooltip.tsx';
 import { Icon } from '../kit/icon.tsx';
 import * as React from 'react';
+import { isComposingKey } from '@open-artifact/ui';
 import type { ReactNode } from 'react';
 import type { CaretAtEnd } from '../state/initial-state.ts';
 import type { PaneRect } from './geometry.ts';
@@ -103,9 +104,11 @@ export function AddRowsAtFoot({ most, onAdd }: AddRowsAtFootProps) {
         }} onMouseUp={(event) => {
           if (isSelectedOnFocusRef.current) event.preventDefault();
           isSelectedOnFocusRef.current = false;
-        }} onBlur={() => setCountTyped(count?.toLocaleString(MESSAGE_LOCALE) ?? defaultCountTyped)} onKeyDown={({ key, keyCode, repeat, nativeEvent }) => {
-          let isComposing = nativeEvent.isComposing || keyCode === 229;
-          if (key === 'Enter' && !repeat && !isComposing) addRows();
+        }} onBlur={() => setCountTyped(count?.toLocaleString(MESSAGE_LOCALE) ?? defaultCountTyped)} onKeyDown={(event) => {
+          if (event.key !== 'Enter' || event.repeat || event.metaKey || event.ctrlKey) return;
+          event.preventDefault();
+          if (isComposingKey(event.nativeEvent)) return;
+          addRows();
         }} /><span id={hintId}>{isCountInvalid ? enterNumberUpToHint(most) : countHint}</span><LiveAnnouncer words={isCountInvalid && enterNumberUpToHint(most)} /></>;
 }
 export function AddColumnsButtons({

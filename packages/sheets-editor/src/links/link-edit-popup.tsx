@@ -15,6 +15,7 @@ import { PRESS_TOO_SOON_MS } from '../ui/list-under-cell.tsx';
 import { usePopupGivenUpOnBlur } from '../ui/popup-given-up-on-blur.ts';
 import { IS_APPLE_PLATFORM } from '../ui/dom-events.ts';
 import { isCommandHeld, latinKeyOf } from '../keys/key-press.ts';
+import { isComposingKey } from '@open-artifact/ui';
 interface LinkEditFormProps {
   form: LinkForm;
   addressField: React.RefObject<HTMLInputElement | null>;
@@ -41,8 +42,9 @@ export function LinkEditForm({ form, addressField, onSaved, onShut }: LinkEditFo
   };
   let onFieldKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
     event.stopPropagation();
-    if (event.key !== 'Enter' || isComposingKeyEvent(event)) return;
+    if (event.key !== 'Enter' || event.metaKey || event.ctrlKey) return;
     event.preventDefault();
+    if (isComposingKey(event.nativeEvent)) return;
     save();
   };
   return <div className="flex flex-col gap-md"><FieldRoot><FieldLabel>{linkEditMessages.text()}</FieldLabel><TextInput value={typedText} onChange={(event) => setTypedText(event.target.value)} onKeyDown={onFieldKeyDown} autoComplete="off" /></FieldRoot><FieldRoot invalid={addressError !== null}><FieldLabel>{linkEditMessages.link()}</FieldLabel><TextInput ref={addressField} value={address} onChange={(event) => {
@@ -54,7 +56,6 @@ export function LinkEditForm({ form, addressField, onSaved, onShut }: LinkEditFo
 export const editLinkLabel = sheetMessages.editLink;
 export const LINK_FORM_ATTR = 'data-is-link-form';
 export const LINK_POPUP_TAB_STOPS_SELECTOR = 'input,button:not(:disabled)';
-export const isComposingKeyEvent = (event: React.KeyboardEvent): boolean => event.nativeEvent.isComposing || event.keyCode === 229;
 export const LinkEditPopup = React.memo(function ({
   form,
   anchor,
@@ -87,7 +88,9 @@ export const LinkEditPopup = React.memo(function ({
     hasFieldBeenFocusedRef.current = true;
   };
   let onPopupKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (isComposingKeyEvent(event)) return;
+    if (event.key === 'Escape') {
+      if (isComposingKey(event.nativeEvent)) return;
+    } else if (isComposingKey(event.nativeEvent)) return;
     let isEnterTooSoon = event.key === 'Enter' && (event.repeat || isJustOpened);
     if (event.key === 'Escape' || isEnterTooSoon) {
       event.preventDefault();

@@ -1,6 +1,5 @@
 import { Menu } from '../kit/menu.tsx';
 import { ShimmerText } from '../kit/shimmer-text.tsx';
-import { useUiWindow } from '../kit/theme.tsx';
 import { parseSingleShortcut } from '../kit/shortcut.tsx';
 import * as React from 'react';
 import type { CustomNumberFormat } from '../state/initial-state.ts';
@@ -14,7 +13,7 @@ import { LiveAnnouncer } from '../ui/live-announcer.tsx';
 import { formatPreviewText, customFormatProblemText } from '../i18n/format-labels.ts';
 import { useActHoldAtAnswer } from '../agent/answer-holds.tsx';
 import { customPatternListText } from './custom-number-format.ts';
-import { isSafariLateEnter } from '../ui/menu-with-field.tsx';
+import { isComposingKey } from '@open-artifact/ui';
 import { swallowRestOfPress } from '../ui/press-swallow.ts';
 /** Where the agent stands with a custom pattern, as its row in the list or its line in the dialog shows it. */
 export type CustomFormatStage =
@@ -69,7 +68,6 @@ export interface CustomFormatList extends CustomFormatActs {
   takesTypedPattern: boolean;
   handlers: ActHoldHandlers;
   noteKeyThatTakesNothing: () => void;
-  isLateEnterOfInputMethod: (event: KeyboardEvent) => boolean;
   stepBack: () => void;
 }
 /** A key pressed while the list of number formats is open, and where. */
@@ -168,18 +166,6 @@ export function useCustomFormatList({ entry, isAgentOffered, told }: CustomForma
     tellOfActHeld: () => told.onActHeld({}),
     isNoAct: isFieldInput,
   });
-  let compositionEndRef = React.useRef(Number.NEGATIVE_INFINITY);
-  let ownWindow = useUiWindow();
-  let ownDocument = ownWindow?.document;
-  let hasEntry = entry !== null;
-  React.useEffect(() => {
-    if (!hasEntry) return;
-    let noteCompositionEnd = ({ timeStamp }: CompositionEvent) => {
-      compositionEndRef.current = timeStamp;
-    };
-    ownDocument?.addEventListener('compositionend', noteCompositionEnd, true);
-    return () => ownDocument?.removeEventListener('compositionend', noteCompositionEnd, true);
-  }, [ownDocument, hasEntry]);
   return {
     entry,
     text: customPatternListText({
@@ -190,11 +176,6 @@ export function useCustomFormatList({ entry, isAgentOffered, told }: CustomForma
     takesTypedPattern,
     handlers: actGate.handlers,
     noteKeyThatTakesNothing: actGate.noteKeyThatTakesNothing,
-    isLateEnterOfInputMethod({ key, timeStamp }: KeyboardEvent) {
-      let msSinceComposition = timeStamp - compositionEndRef.current;
-      compositionEndRef.current = Number.NEGATIVE_INFINITY;
-      return key === 'Enter' && isSafariLateEnter(msSinceComposition, (ownWindow ?? window).navigator.vendor);
-    },
     stepBack: told.onEscaped,
     ...customFormatActs(actGate, told),
   };
@@ -230,7 +211,7 @@ export function handleCustomFormatKey(list: CustomFormatList, event: React.Keybo
           : 'anotherRow',
       isHeldDown: event.repeat,
       isWithModifier: event.shiftKey || event.altKey || event.ctrlKey || event.metaKey,
-      isOfInputMethod: list.isLateEnterOfInputMethod(event.nativeEvent) || event.nativeEvent.isComposing || event.keyCode === 229,
+      isOfInputMethod: isComposingKey(event.nativeEvent),
     },
     list,
     canOffer,

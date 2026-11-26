@@ -9,6 +9,7 @@ import { copiedSheetNameAffixes } from '../../i18n/sheet-names.ts';
 import { MenuItemWithWhyOff } from '../menu-item-why-off.tsx';
 import { offerKeyboardWhenReady } from '../keyboard-handoff.ts';
 import { whenBlurredToNothing } from '../../grid/focus-left.ts';
+import { isComposingKey } from '@open-artifact/ui';
 /** Where a tab stands among the tabs. */
 export interface PlaceAmongTabs {
   index: number;
@@ -136,7 +137,10 @@ export function SheetNameField({ renaming: { typed, refused }, whyNotId, dispatc
         );
     }} onMouseDown={(event) => event.stopPropagation()} onKeyDown={(event) => {
       event.stopPropagation();
-      if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+      if (isComposingKey(event.nativeEvent)) {
+        if (event.key === 'Enter' && !event.metaKey && !event.ctrlKey) event.preventDefault();
+        return;
+      }
       if (event.repeat || (event.key !== 'Enter' && event.key !== 'Escape')) return;
       event.preventDefault();
       dispatch({

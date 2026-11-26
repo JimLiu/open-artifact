@@ -1,6 +1,6 @@
 /** Editing a dropdown list: its name, and its options' names, colours and order; saved options retire, new ones go. */
 import { ChromeButton, SwatchRow } from '@open-artifact/editor-kit/react';
-import { Button, cn } from '@open-artifact/ui';
+import { Button, cn, isComposingKey } from '@open-artifact/ui';
 import { ArrowLeft, Eye, EyeOff, GripVertical, Plus, X } from 'lucide-react';
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { COLOR_VALUES, DROPDOWN_COLORS, type Draft, type DraftOption, addDraftOption, moveDraftOption, shownPlace } from './dropdown-model.ts';
@@ -133,8 +133,9 @@ export function OptionsEditor({ initial, submitLabel, busyLabel, failedLabel, on
                     event.preventDefault();
                     move(index, shownPlace(draft, index) + (event.key === 'ArrowUp' ? -1 : 1));
                     setFocusRow(index);
-                  } else if (event.key === 'Enter') {
+                  } else if (event.key === 'Enter' && !event.metaKey && !event.ctrlKey) {
                     event.preventDefault();
+                    if (isComposingKey(event.nativeEvent)) return;
                     const place = shownPlace(draft, index);
                     const next = rows[place + 1];
                     if (next) setFocusRow(next.index);

@@ -8,7 +8,7 @@ import { ToolbarMenu } from '../ui/format-toolbar.tsx';
 import { MenuTriggerButton } from '../ui/menu-trigger.tsx';
 import { MenuItemWithWhyOff } from '../ui/menu-item-why-off.tsx';
 import { wrapTabFocusInBar } from '../ui/dom-events.ts';
-import { isComposingKeyEvent } from '../links/link-edit-popup.tsx';
+import { isComposingKey } from '@open-artifact/ui';
 import { linkEditMessages } from '../links/link-hover-card.tsx';
 import { cleanNamedViewName } from './named-view-actions.ts';
 import { namedViewMessages, namedViewLimitWhyOff } from './named-view-messages.ts';
@@ -77,12 +77,10 @@ export function NamedViewNameForm({
             (setName(event.target.value), setIsNameTaken(false));
           }}
           onKeyDown={(event) => {
-            if (
-              event.key !== 'Enter' ||
-              isComposingKeyEvent(event)
-            )
-              return;
-            if ((event.preventDefault(), !event.repeat)) saveName();
+            if (event.key !== 'Enter' || event.metaKey || event.ctrlKey) return;
+            event.preventDefault();
+            if (isComposingKey(event.nativeEvent) || event.repeat) return;
+            saveName();
           }}
           autoComplete="off"
         />

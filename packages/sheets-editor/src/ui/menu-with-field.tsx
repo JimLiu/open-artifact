@@ -11,6 +11,7 @@ import { isCommandToConfirm } from './search-menu/matching.ts';
 import { MenuItemWithWhyOff } from './menu-item-why-off.tsx';
 import { commandGroupMessages } from './search-menu/command-groups.ts';
 import { AskAgentMenuItems } from '../agent/ask-agent-menu.tsx';
+import { createLateEnterTracker, isComposingKey } from '@open-artifact/ui';
 /** What Enter in a menu field did: the menu stays open, shuts, or lights the row that is out of use. */
 export type MenuFieldEntered = 'stay' | 'shut' | 'lightOutOfUse';
 /** The field at the top of a menu: what is typed in it, and the rows that typing finds. */
@@ -55,19 +56,6 @@ export interface MenuFieldKeyPress {
   isShiftHeld: boolean;
   isOfInputMethod: boolean;
   isHeldDown: boolean;
-}
-export function createLateEnterTracker() {
-  let compositionEndedAt = Number.NEGATIVE_INFINITY;
-  return {
-    compositionEnded: ({ timeStamp }: Pick<Event, 'timeStamp'>) => {
-      compositionEndedAt = timeStamp;
-    },
-    isLateEnter({ key, timeStamp }: Pick<KeyboardEvent, 'key' | 'timeStamp'>, vendor: string) {
-      const msSinceComposition = timeStamp - compositionEndedAt;
-      compositionEndedAt = Number.NEGATIVE_INFINITY;
-      return key === 'Enter' && isSafariLateEnter(msSinceComposition, vendor);
-    },
-  };
 }
 export function menuAlignForRoom(anchorStart: number, anchorSize: number, roomSize: number, isRtl: boolean): MenuAlign {
   const wideNeeded = MENU_NUDGE + WIDE_MENU_WIDTH + MENU_EDGE_GAP;
@@ -245,7 +233,7 @@ export function MenuWithField({
   ...popupProps
 }: MenuWithFieldProps) {
   const [focusedField, setFocusedField] = React.useState<HTMLInputElement | null>(null);
-  const compositionEndRef = React.useRef(Number.NEGATIVE_INFINITY);
+  const [lateEnter] = React.useState(createLateEnterTracker);
   const heldMenuRef = React.useRef<HTMLElement | null>(null);
   const pointerRef = React.useRef<PagePoint | null>(null);
   const restPointRef = React.useRef<PointerRest>(null);
@@ -366,10 +354,15 @@ export function MenuWithField({
         popupProps.onPasteCapture?.(event);
         if (typed === '') field.onPastedWithNothingTyped?.(event.nativeEvent);
       }} query={typed} onQueryChange={onTyped} onCompositionEndCapture={({ nativeEvent }) => {
-        compositionEndRef.current = nativeEvent.timeStamp;
+        lateEnter.compositionEnded(nativeEvent);
       }} onKeyDownCapture={(event) => {
-        const msSinceComposition = event.nativeEvent.timeStamp - compositionEndRef.current;
-        compositionEndRef.current = Number.NEGATIVE_INFINITY;
+        const ofInputMethod =
+          isComposingKey(event.nativeEvent) ||
+          lateEnter.isLateEnter(event.nativeEvent, event.currentTarget.ownerDocument.defaultView?.navigator.vendor ?? '');
+        if (ofInputMethod) {
+          if (event.key === 'Enter' && !event.metaKey && !event.ctrlKey) event.preventDefault();
+          return;
+        }
         onKeyDownCapture?.(event);
         if (event.isPropagationStopped()) return;
         const fieldElement = event.currentTarget.querySelector('input');
@@ -391,10 +384,7 @@ export function MenuWithField({
           isAnythingTyped: rowsFound !== null,
           isWithModifier: event.altKey || event.ctrlKey || event.metaKey,
           isShiftHeld: event.shiftKey,
-          isOfInputMethod:
-            event.nativeEvent.isComposing ||
-            event.keyCode === 229 ||
-            (event.key === 'Enter' && isSafariLateEnter(msSinceComposition, navigator.vendor)),
+          isOfInputMethod: false,
           isHeldDown: event.repeat,
         });
         if (action === null || (action === 'typeSpace' && field.isOverNumbers === true)) return;
@@ -493,8 +483,6 @@ export const MENU_ITEM_SELECTOR = '[role^="menuitem"]';
 export const DISABLED_COMMAND_SELECTOR = '[data-command][aria-disabled="true"]';
 export const ENABLED_MENU_ITEM_SELECTOR = `${MENU_ITEM_SELECTOR}${NOT_DISABLED_SELECTOR}`;
 export const MenuWithFieldRenderContext = React.createContext<MenuWithFieldRender | null>(null);
-export const isSafariLateEnter = (msSinceComposition: number, vendor: string) =>
-  /Apple Computer/.test(vendor) && Math.abs(msSinceComposition) < 500;
 export const anchorBottom = (anchor: MenuPopupProps['anchor']) =>
   anchor !== null && typeof anchor === 'object' && 'getBoundingClientRect' in anchor ? anchor.getBoundingClientRect().bottom : 0;
 export const bottomPaddingOf = (collisionPadding: MenuPopupProps['collisionPadding']) =>

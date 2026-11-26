@@ -1,5 +1,6 @@
 /** Reading a key press the way the page's shortcuts are written: ⌘ on Apple platforms, Ctrl elsewhere. */
 import { isApplePlatform } from '@open-artifact/editor-kit';
+import { isComposingKey } from '../../../ui/src/keys.ts';
 
 export interface KeyPress {
   key: string;
@@ -18,7 +19,7 @@ export function modOnly(event: KeyPress, apple = isApplePlatform()): boolean {
 }
 
 /** An input method is composing: the key is its, not a shortcut. */
-export const composing = (event: KeyPress) => event.isComposing === true || event.keyCode === 229;
+export const composing = (event: KeyPress) => isComposingKey(event);
 
 /** ⌘F (find) or ⇧⌘H (find and replace), else null. */
 export function findChord(event: KeyPress, apple = isApplePlatform()): 'find' | 'replace' | null {

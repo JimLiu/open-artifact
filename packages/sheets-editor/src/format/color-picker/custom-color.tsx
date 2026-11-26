@@ -2,6 +2,7 @@ import { TextInput } from '../../kit/text-input.tsx';
 import { Tooltip } from '../../kit/tooltip.tsx';
 import type { Color } from '@open-artifact/sheets-core';
 import * as React from 'react';
+import { isComposingKey } from '@open-artifact/ui';
 import { PAGE_BACKGROUND_COLORS, PAGE_TEXT_COLORS } from '../cell-colors.ts';
 import { DEFAULT_CELL_FONT_STYLE } from '../../grid/cell-drawing.tsx';
 import type { ChipPaints, PaintPair, StyleWithVariables } from '../../grid/cell-drawing.tsx';
@@ -145,7 +146,10 @@ export function CustomColorPicker(props: CustomColorPickerProps) {
             hue: Number(event.target.value),
           })} onKeyDown={onRangeKeyDown} onKeyUp={sendChange} onPointerDown={notePointerDown} onPointerUp={sendChange} /><TextInput size="sm" aria-label={sheetMessages.hex()} aria-invalid={hexTyped !== null && normalizeHexColor(hexTyped) === null} spellCheck={false} autoComplete="off" autoCapitalize="off" autoCorrect="off" value={hexTyped ?? hex.toUpperCase()} onChange={(event) => setHexTyped(event.target.value)} onBlur={() => setHexTyped(null)} onKeyDown={(event) => {
           stopKeyUnlessTabOrEscape(event);
-          if (event.key === 'Enter') commitHexTyped();
+          if (event.key !== 'Enter' || event.metaKey || event.ctrlKey) return;
+          event.preventDefault();
+          if (isComposingKey(event.nativeEvent)) return;
+          commitHexTyped();
         }} /><Tooltip anchor={() => rootRef.current?.closest('[role=dialog]') ?? rootRef.current} open={isPointerDown || isSampleShown} side="right" align="start" sideOffset={8} className="p-xs" content={<ColorSamplePreview sample={sample} color={color} />} /></div>;
 }
 export const clampToRange = (min: number, value: number, max: number): number => Math.min(max, Math.max(min, value));

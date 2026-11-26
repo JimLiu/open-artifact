@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { Button } from './button.tsx';
 import { cn } from './cn.ts';
+import { isComposingKey } from '@open-artifact/ui';
 
 export type ChatComposerForm = 'default' | 'reply';
 
@@ -44,10 +45,6 @@ interface ComposerState {
 }
 
 const ComposerStateContext = React.createContext<ComposerState>({ busy: false, form: 'default' });
-
-function isComposing(event: React.KeyboardEvent): boolean {
-  return event.nativeEvent.isComposing || event.keyCode === 229;
-}
 
 function insertNewLine(textarea: HTMLTextAreaElement, onChange: (value: string) => void): void {
   const { selectionStart, selectionEnd } = textarea;
@@ -102,9 +99,10 @@ const ChatComposerRoot = React.forwardRef<HTMLDivElement, ChatComposerProps>(fun
             onChange={(event) => onChange(event.currentTarget.value)}
             onKeyDownCapture={onKeyDownCapture}
             onKeyDown={(event) => {
-              if (event.key !== 'Enter' || event.defaultPrevented || event.currentTarget.readOnly || onSubmit === undefined) return;
-              if (isComposing(event) || event.shiftKey) return;
-              event.preventDefault();
+              if (event.key !== 'Enter' || event.defaultPrevented || event.currentTarget.readOnly || onSubmit === undefined || event.shiftKey) return;
+              const plain = !event.altKey && !event.metaKey && !event.ctrlKey;
+              if (plain || !isComposingKey(event.nativeEvent)) event.preventDefault();
+              if (isComposingKey(event.nativeEvent)) return;
               if (event.altKey) {
                 insertNewLine(event.currentTarget, onChange);
                 return;

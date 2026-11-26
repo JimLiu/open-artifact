@@ -6,6 +6,7 @@ import { Popover } from '../kit/popover.tsx';
 import { Tooltip, TooltipGroup } from '../kit/tooltip.tsx';
 import { Button } from '../kit/button.tsx';
 import { Icon } from '../kit/icon.tsx';
+import { isComposingKey } from '@open-artifact/ui';
 import * as React from 'react';
 import {
   ELLIPSIS_INPUT_CLASSES,
@@ -184,7 +185,10 @@ export function DropdownCellsField({
             }),
         );
     }} onKeyDown={(event) => {
-      if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+      if (isComposingKey(event.nativeEvent)) {
+        if (event.key === 'Enter' && !event.metaKey && !event.ctrlKey) event.preventDefault();
+        return;
+      }
       if (event.key === 'Enter') {
         event.preventDefault();
         onAct(
@@ -325,7 +329,8 @@ export function DropdownOptionRow({
                         fieldText.slice(0, selectionStart ?? fieldText.length) + firstName + fieldText.slice(selectionEnd ?? fieldText.length);
                       onNamesPasted([pastedName, ...otherNames]);
                     }} onKeyDown={(event) => {
-                      if (event.nativeEvent.isComposing || event.keyCode === 229) {
+                      if (isComposingKey(event.nativeEvent)) {
+                        if (event.key === 'Enter' && !event.metaKey && !event.ctrlKey) event.preventDefault();
                         event.stopPropagation();
                         return;
                       }

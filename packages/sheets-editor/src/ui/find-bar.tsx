@@ -6,6 +6,7 @@ import { UiRoot } from '../kit/theme.tsx';
 import { Button } from '../kit/button.tsx';
 import { Tooltip, TooltipGroup } from '../kit/tooltip.tsx';
 import * as React from 'react';
+import { isComposingKey } from '@open-artifact/ui';
 import type { KeyWithModifiers } from '../keys/key-press.ts';
 import type { CellsCountedOffer, DoneToCells } from '../state/initial-state.ts';
 import type { ReplaceChosen } from '../state/event-reducer.ts';
@@ -175,7 +176,12 @@ export function FindBar({
     if (!isStale || where === 'everyCell') onReplace(replaceText, where);
   };
   let onKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
-    if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+    let composing = isComposingKey(event.nativeEvent);
+    if (event.key !== 'Escape' && composing) {
+      if (event.key === 'Enter' && !event.shiftKey && !event.metaKey && !event.ctrlKey) event.preventDefault();
+      return;
+    }
+    if (event.key === 'Escape' && composing) return;
     let isEnterInFind = event.key === 'Enter' && event.target === fieldRef.current;
     let isEnterInReplace = event.key === 'Enter' && event.target === replaceFieldRef.current;
     let isBackward = (isEnterInFind || isEnterInReplace) && event.shiftKey;

@@ -7,7 +7,7 @@
 
 import { useEffect, useRef } from 'react';
 import type { ChromePeer } from '@open-artifact/protocol';
-import { Menu, MenuItem, MenuLabel, cn, toast } from '@open-artifact/ui';
+import { Menu, MenuItem, MenuLabel, cn, shouldYieldWindowShortcut, toast } from '@open-artifact/ui';
 import { t } from '../../lib/i18n.ts';
 import { command } from '../bridge.ts';
 import { followedPeer, inkOnColor, offersFollow, peerColorOf, peerInitials } from '../model.ts';
@@ -66,9 +66,9 @@ export function Peers() {
   useEffect(() => {
     if (!followed) return;
     const onKey = (event: KeyboardEvent) => {
-      // Escape in an open menu or dialog closes that instead.
-      if (event.key !== 'Escape' || event.defaultPrevented) return;
-      if (event.target instanceof Element && event.target.closest('[role="menu"], [role="dialog"]')) return;
+      // Bubble phase, and yield to a field, a composition, a menu or a dialog.
+      // Escape on the shell background still stops following.
+      if (event.key !== 'Escape' || shouldYieldWindowShortcut(event)) return;
       command({ cmd: 'follow', key: null });
     };
     window.addEventListener('keydown', onKey);

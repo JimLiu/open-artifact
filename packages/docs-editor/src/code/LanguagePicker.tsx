@@ -1,6 +1,6 @@
 /** The code block's language button and its filterable list: auto-detect, plain text and each language. */
 import { ChromePopover } from '@open-artifact/editor-kit/react';
-import { cn } from '@open-artifact/ui';
+import { cn, isComposingKey } from '@open-artifact/ui';
 import { Check, ChevronDown } from 'lucide-react';
 import { type KeyboardEvent, type ReactNode, useId, useMemo, useState } from 'react';
 import { filterLanguages, findLanguage } from './languages.ts';
@@ -48,13 +48,17 @@ export function LanguagePicker({ shown, language, disabled, onPick, onClose }: L
     onPick(choice.key);
   };
   const keyDown = (event: KeyboardEvent) => {
+    if (event.key === 'Enter' && !event.metaKey && !event.ctrlKey) {
+      event.preventDefault();
+      if (isComposingKey(event.nativeEvent)) return;
+      pick(choices[active]);
+      return;
+    }
+    if (isComposingKey(event.nativeEvent)) return;
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       event.preventDefault();
       const step = event.key === 'ArrowDown' ? 1 : -1;
       setActive(index => (choices.length ? (index + step + choices.length) % choices.length : 0));
-    } else if (event.key === 'Enter') {
-      event.preventDefault();
-      pick(choices[active]);
     }
   };
 

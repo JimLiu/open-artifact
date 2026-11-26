@@ -7,6 +7,7 @@
  */
 
 import { useLayoutEffect, useRef, type CSSProperties, type ReactNode, type RefObject } from 'react';
+import { isComposingKey } from '@open-artifact/ui';
 import {
   DEFAULT_TEXT,
   normalizeRuns,
@@ -25,7 +26,6 @@ import { toReactStyle, withItemMargin } from '../render/css.ts';
 import { useTextFit } from '../render/fit.ts';
 import { RunsView, useRenderOptions } from '../render/SlideView.tsx';
 import { blocksToHtml, indentItems, itemsToHtml, readBlocks, readItems, readRuns, runsToHtml } from '../lib/richtext.ts';
-import { isComposingKey } from '@open-artifact/ui';
 import { linkAround, linkMissed } from '../lib/editor-link.ts';
 import { useView } from '../state/view.ts';
 import { changeSlide } from '../services/commands.ts';
@@ -271,6 +271,10 @@ function useEditable(
       if (timer.current) clearTimeout(timer.current);
       timer.current = setTimeout(flush, 400);
     };
+    const onBeforeInput = (event: InputEvent): void => {
+      if (event.inputType !== 'insertParagraph' && event.inputType !== 'insertLineBreak') return;
+      if (isComposingKey(event)) event.preventDefault();
+    };
     const onKey = (event: KeyboardEvent): void => {
       if (event.key === 'Escape') {
         // Escape while composing dismisses the input method's candidates, nothing more.
@@ -281,20 +285,25 @@ function useEditable(
         useView.getState().endTextEdit();
         return;
       }
-      if (event.key === 'Enter' && (options.lineBreakOnEnter || event.shiftKey) && !event.isComposing) {
+      if (event.key === 'Enter' && !event.metaKey && !event.ctrlKey && (options.lineBreakOnEnter || event.shiftKey)) {
         event.preventDefault();
+        if (isComposingKey(event)) return;
         document.execCommand('insertLineBreak');
         return;
       }
+      if (event.key === 'Tab' && isComposingKey(event)) {
+        event.preventDefault();
+        return;
+      }
       // Tab goes to the card of the link the caret is in, where Tab does not already nest items or move between cells.
-      if (event.key === 'Tab' && !event.shiftKey && !event.isComposing && props.node.kind !== 'list' && props.node.kind !== 'table') {
+      if (event.key === 'Tab' && !event.shiftKey && props.node.kind !== 'list' && props.node.kind !== 'table') {
         const list = window.getSelection()?.anchorNode?.parentElement?.closest('ul,ol');
         if (!(list && el.contains(list)) && focusLinkCard()) {
           event.preventDefault();
           return;
         }
       }
-      if (event.key === 'Tab' && !event.isComposing && (props.node.kind === 'list' || props.node.kind === 'textbox')) {
+      if (event.key === 'Tab' && (props.node.kind === 'list' || props.node.kind === 'textbox')) {
         // Tab / Shift+Tab nest list items (up to nine levels).
         const list = props.node.kind === 'list' ? el : (window.getSelection()?.anchorNode?.parentElement?.closest('ul,ol') as HTMLElement | null);
         if (list && el.contains(list) && indentItems(list, event.shiftKey ? -1 : 1)) {
@@ -330,12 +339,14 @@ function useEditable(
       if (staysInSession(event.relatedTarget)) return;
       flush();
     };
+    el.addEventListener('beforeinput', onBeforeInput);
     el.addEventListener('input', onInput);
     el.addEventListener('keydown', onKey);
     el.addEventListener('paste', onPaste);
     el.addEventListener('blur', onBlur);
     document.execCommand('defaultParagraphSeparator', false, 'p');
     return () => {
+      el.removeEventListener('beforeinput', onBeforeInput);
       el.removeEventListener('input', onInput);
       el.removeEventListener('keydown', onKey);
       el.removeEventListener('paste', onPaste);

@@ -21,6 +21,7 @@ import { registerEntryEditor, isEntryEditor } from '../dom/entry-editor.ts';
 import type { EntryEditorElement, SignsInLastInput } from '../dom/entry-editor.ts';
 import { referenceTintStyle } from '../grid/cell-drawing.tsx';
 import { IS_APPLE_PLATFORM } from '../ui/dom-events.ts';
+import { isComposingKey } from '../../../ui/src/keys.ts';
 import type { EntryLooks, FontMark, StretchOfLooks } from '../state/initial-state.ts';
 import type { CaretSpan } from '../keys/key-acts.ts';
 /** How signs typed into an entry are read as looks: just as typed, or across the whole text asked for. */
@@ -533,6 +534,16 @@ export function createEntryEditorView(
               ? selectLastWordAtLineEnd(view.state, doubleClickPos)
               : null;
           if (tr !== null) view.dispatch(tr);
+          return false;
+        },
+        keydown: (view, event) => {
+          // Tab during composition must not leave the cell. Escape must stay with the input method, so it is not cancelled here.
+          if (event.key === 'Tab' && (view.composing || isComposingKey(event))) {
+            event.preventDefault();
+            event.stopPropagation();
+            return true;
+          }
+          if (event.key === 'Escape' && (view.composing || isComposingKey(event))) return false;
           return false;
         },
         beforeinput: (_view, event) => {

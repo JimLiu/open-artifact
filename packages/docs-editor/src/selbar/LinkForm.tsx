@@ -1,5 +1,5 @@
 /** The link box's fields: the text, and the address, where `#` or `/` lists the open tab's headings and the doc's tabs. */
-import { Button, TextInput } from '@open-artifact/ui';
+import { Button, TextInput, isComposingKey } from '@open-artifact/ui';
 import { cn } from '@open-artifact/ui';
 import type { EditorView } from 'prosemirror-view';
 import { type ClipboardEvent, type KeyboardEvent, type ReactNode, useEffect, useId, useMemo, useRef, useState } from 'react';
@@ -118,8 +118,9 @@ export function LinkForm({ view, pop }: { view: EditorView; pop: LinkPop }): Rea
   };
 
   const onEnter = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.key !== 'Enter' || event.nativeEvent.isComposing) return;
+    if (event.key !== 'Enter' || event.metaKey || event.ctrlKey) return;
     event.preventDefault();
+    if (isComposingKey(event.nativeEvent)) return;
     save();
   };
 
@@ -132,6 +133,7 @@ export function LinkForm({ view, pop }: { view: EditorView; pop: LinkPop }): Rea
       return;
     }
     if (event.key === 'Escape' && listing) {
+      if (isComposingKey(event.nativeEvent)) return;
       event.preventDefault();
       setDismissed(true);
       return;

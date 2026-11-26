@@ -36,7 +36,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { attributeValue, elementKind, hasDynamicStyle, isTextEditable, resolveElement, styleMap, type HtmlElement, type StylePatch, type TextFormat } from '@open-artifact/dc';
-import { cn } from '@open-artifact/ui';
+import { cn, isComposingKey } from '@open-artifact/ui';
 import { useDocument } from '../state/document.ts';
 import { useView, type ElementSelection } from '../state/view.ts';
 import { boardApi } from '../services/frames.ts';
@@ -981,13 +981,17 @@ function ScaleStrip() {
           onBlur={() => apply()}
           onKeyDown={(event) => {
             event.stopPropagation();
-            if (event.key === 'Enter') {
+            if (event.key === 'Enter' && !event.metaKey && !event.ctrlKey) {
               event.preventDefault();
+              if (isComposingKey(event.nativeEvent)) return;
               apply();
               commitScale();
             } else if (event.key === 'Escape') {
+              if (isComposingKey(event.nativeEvent)) return;
               event.preventDefault();
               cancelScale();
+            } else if (isComposingKey(event.nativeEvent)) {
+              return;
             } else if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
               event.preventDefault();
               const step = (event.key === 'ArrowUp' ? 1 : -1) * (event.shiftKey ? 10 : 1);

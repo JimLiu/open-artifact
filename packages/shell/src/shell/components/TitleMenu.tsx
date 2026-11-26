@@ -32,7 +32,7 @@ import {
   Undo2,
 } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { ConfirmDialog, Menu, MenuItem, MenuLabel, MenuSeparator, MenuSubmenu, TextInput, cn } from '@open-artifact/ui';
+import { ConfirmDialog, Menu, MenuItem, MenuLabel, MenuSeparator, MenuSubmenu, TextInput, cn, isComposingKey } from '@open-artifact/ui';
 import { ago, bytesText } from '../../lib/format.ts';
 import { t } from '../../lib/i18n.ts';
 import { command, openExternal, reloadPage, runAction } from '../bridge.ts';
@@ -108,10 +108,12 @@ function RenameField() {
       onChange={(event) => setDraft(event.target.value)}
       onBlur={onBlur}
       onKeyDown={(event) => {
-        if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
+        if (event.key === 'Enter' && !event.metaKey && !event.ctrlKey) {
           event.preventDefault();
+          if (isComposingKey(event.nativeEvent)) return;
           finish(true);
         } else if (event.key === 'Escape') {
+          if (isComposingKey(event.nativeEvent)) return;
           event.preventDefault();
           event.stopPropagation();
           finish(false);

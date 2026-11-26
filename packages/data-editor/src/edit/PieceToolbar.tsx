@@ -9,7 +9,7 @@ import { ArrowUpRight, Bold, EllipsisVertical, Italic, Link, MessagesSquare, Tra
 import { Fragment, useEffect, useLayoutEffect, useRef, useState, type FocusEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { announce, isApplePlatform, MOD } from '@open-artifact/editor-kit';
 import { Card, ChromeButton, ChromeDivider, ChromeMenu, ChromeMenuItem, Tip } from '@open-artifact/editor-kit/react';
-import { cn } from '@open-artifact/ui';
+import { cn, isComposingKey } from '@open-artifact/ui';
 import { ASK_AGENT_LABEL } from '../drafts/words.ts';
 import { DASHBOARD_ROOT_ID } from '../page/runtime.ts';
 import { rectOf, type Box, type Edges } from './geometry.ts';
@@ -304,12 +304,15 @@ export function PieceToolbar({ piece, box, room, visit, onAsk, pressed, rows }: 
                 : undefined
             }
             onKeyDown={(event) => {
-              if ((event.key !== 'Enter' && event.key !== 'Escape') || event.nativeEvent.isComposing) return;
-              event.preventDefault();
               if (event.key === 'Escape') {
+                if (isComposingKey(event.nativeEvent)) return;
+                event.preventDefault();
                 closeLink();
                 return;
               }
+              if (event.key !== 'Enter' || event.metaKey || event.ctrlKey) return;
+              event.preventDefault();
+              if (isComposingKey(event.nativeEvent)) return;
               if (normalizeLinkHref(link.url) === null) {
                 announce(LINK_URL_HINT);
                 setLinkDraft({ ...link, bad: true });

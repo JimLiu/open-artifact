@@ -3,7 +3,7 @@
 import { MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { TOKEN_NAME, addEntry, cleanName, familyEntries, freeTokenName, removeEntry, renameEntry, type RawEntry } from '@open-artifact/design-system-core';
-import { Button, Dialog, Menu, MenuItem, IconButton, TextInput, cn, toast } from '@open-artifact/ui';
+import { Button, Dialog, Menu, MenuItem, IconButton, TextInput, cn, isComposingKey, toast } from '@open-artifact/ui';
 import { useFiles } from '../state/files.ts';
 import { useModel } from '../state/model.ts';
 import { anchorId, useView, type Focus } from '../state/view.ts';
@@ -111,10 +111,12 @@ export function InlineText({
       onBlur={commit}
       onKeyDown={(event) => {
         if (event.key === 'Escape') {
+          if (isComposingKey(event.nativeEvent)) return;
           setDraft(value);
           setEditing(false);
-        } else if (event.key === 'Enter' && !(multiline && event.shiftKey)) {
+        } else if (event.key === 'Enter' && !event.metaKey && !event.ctrlKey && !(multiline && event.shiftKey)) {
           event.preventDefault();
+          if (isComposingKey(event.nativeEvent)) return;
           commit();
         }
       }}
@@ -206,7 +208,12 @@ export function TokenMenu({ family, name }: { family: string; name: string }) {
           </>
         }
       >
-        <TextInput autoFocus value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && rename()} />
+        <TextInput autoFocus value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => {
+          if (event.key !== 'Enter' || event.metaKey || event.ctrlKey) return;
+          event.preventDefault();
+          if (isComposingKey(event.nativeEvent)) return;
+          rename();
+        }} />
       </Dialog>
     </>
   );

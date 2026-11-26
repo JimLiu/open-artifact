@@ -4,6 +4,7 @@ import { FieldRoot } from '../kit/field.tsx';
 import { TextInput } from '../kit/text-input.tsx';
 import { useRovingToolbar } from '../kit/roving-toolbar.ts';
 import * as React from 'react';
+import { isComposingKey } from '@open-artifact/ui';
 import {
   ELLIPSIS_INPUT_CLASSES,
   PANE_SELECT_HEIGHT_CLASSES,
@@ -192,7 +193,10 @@ export function PivotTypedField(props: PivotTypedFieldProps) {
             else whenBlurredToNothing(currentTarget, enterTyping);
           }}
           onKeyDown={(event) => {
-            if (event.nativeEvent.isComposing || event.keyCode === 229) return event.stopPropagation();
+            if (isComposingKey(event.nativeEvent)) {
+              if (event.key === 'Enter' && !event.metaKey && !event.ctrlKey) event.preventDefault();
+              return event.stopPropagation();
+            }
             if (event.key === 'Enter') (event.preventDefault(), enterTyping());
             if (event.key === 'Escape' && typing !== null)
               (event.preventDefault(),

@@ -4,6 +4,7 @@ import { Icon } from '../../kit/icon.tsx';
 import { Tooltip } from '../../kit/tooltip.tsx';
 import { Button } from '../../kit/button.tsx';
 import * as React from 'react';
+import { isComposingKey } from '@open-artifact/ui';
 import {
   askFieldKeyAction,
   useFocusAskField,
@@ -606,7 +607,10 @@ export function AskOrPickList<RowId extends string = string>({
                 <fieldset key={id} aria-labelledby={`${listId}-${id}`} className="m-0 flex min-w-0 shrink-0 flex-col border-0 p-0"><div id={`${listId}-${id}`} className="px-md pt-2 pb-1 text-footnote font-medium text-muted select-none">{heading}</div>{controls}<Combobox.Separator className="forced-colors:bg-[CanvasText]" /></fieldset>,
             )}{list}</div>;
   let onKeyDownCapture = (event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (event.nativeEvent.isComposing || event.keyCode === 229) return event.stopPropagation();
+    if (isComposingKey(event.nativeEvent)) {
+      if (event.key === 'Enter' && !event.metaKey && !event.ctrlKey) event.preventDefault();
+      return event.stopPropagation();
+    }
     if (isKeyOfAnother?.(event) === true) return;
     if (moveBetweenArrowStops(event)) return;
     if (event.target !== fieldRef.current && event.key !== 'Escape') return;

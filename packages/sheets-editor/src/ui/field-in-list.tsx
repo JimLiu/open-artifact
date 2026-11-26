@@ -1,5 +1,6 @@
 import { menuItemVariants } from '../kit/menu.tsx';
 import * as React from 'react';
+import { isComposingKey } from '@open-artifact/ui';
 import { isInListUnderCell } from './list-under-cell.tsx';
 import { CellChip } from '../grid/cell-drawing.tsx';
 import type { ChipPaints } from '../grid/cell-drawing.tsx';
@@ -270,14 +271,17 @@ export function FieldInList({
   };
   let onKeyDownInField = (event: React.KeyboardEvent<HTMLInputElement>) => {
     event.stopPropagation();
-    let isOfInputMethod = event.nativeEvent.isComposing || event.keyCode === 229;
+    let isOfInputMethod = isComposingKey(event.nativeEvent);
     let keyAction = fieldInListKeyAction(event.key, {
       isOfInputMethod,
       isForNew: isForNew === true,
       isBlank: typed.trim() === '',
       isHeldDown: event.repeat,
     });
-    if (keyAction === 'leftToText') return;
+    if (keyAction === 'leftToText') {
+      if (event.key === 'Enter' && !event.metaKey && !event.ctrlKey) event.preventDefault();
+      return;
+    }
     event.preventDefault();
     if (keyAction === 'nothing') return;
     if (keyAction === 'dropAndLeave') {

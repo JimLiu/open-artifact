@@ -27,7 +27,7 @@ import {
   type RawTokens,
   type ThemedToken,
 } from '@open-artifact/design-system-core';
-import { Button, ColorPicker, CommitInput, ConfirmDialog, Dialog, TextInput, cn, toast, type ColorSwatch } from '@open-artifact/ui';
+import { Button, ColorPicker, CommitInput, ConfirmDialog, Dialog, TextInput, cn, isComposingKey, toast, type ColorSwatch } from '@open-artifact/ui';
 import { useModel } from '../state/model.ts';
 import { anchorId, useView } from '../state/view.ts';
 import { parseCssColor } from '../lib/color.ts';
@@ -228,7 +228,12 @@ function AddColorGroup() {
           </>
         }
       >
-        <TextInput autoFocus placeholder="Name, e.g. brand" value={name} onChange={(event) => setName(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && create()} />
+        <TextInput autoFocus placeholder="Name, e.g. brand" value={name} onChange={(event) => setName(event.target.value)} onKeyDown={(event) => {
+          if (event.key !== 'Enter' || event.metaKey || event.ctrlKey) return;
+          event.preventDefault();
+          if (isComposingKey(event.nativeEvent)) return;
+          create();
+        }} />
       </Dialog>
     </>
   );

@@ -10,6 +10,7 @@
  */
 import { type DocState, Refusal, proposalIds } from '@open-artifact/docs-core';
 import { isApplePlatform as isApple } from '@open-artifact/editor-kit';
+import { isComposingKey } from '../../../ui/src/keys.ts';
 import { Plugin, Selection, TextSelection, type EditorState, type Transaction } from 'prosemirror-state';
 import type { EditorView } from 'prosemirror-view';
 import { type OpenTab, docClient } from '../app/doc-client.ts';
@@ -184,7 +185,7 @@ function deletePlan(state: EditorState, ctx: PlanContext, event: KeyboardEvent, 
 }
 
 function handleKey(view: EditorView, event: KeyboardEvent): boolean {
-  if (!suggestingNow() || view.composing || event.isComposing) return false;
+  if (!suggestingNow() || view.composing || isComposingKey(event)) return false;
   const open = openOf(view);
   if (!open) return false;
   const state = view.state;

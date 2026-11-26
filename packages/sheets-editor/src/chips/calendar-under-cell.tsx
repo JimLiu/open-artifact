@@ -4,6 +4,7 @@ import { Calendar } from '../kit/calendar.tsx';
 import { Popover } from '../kit/popover.tsx';
 import { Button } from '../kit/button.tsx';
 import * as React from 'react';
+import { isComposingKey } from '@open-artifact/ui';
 import { timeTypedAs, secondsOfTime } from './time-of-day.ts';
 import { enterTimeHint, timeValueLabel } from '../i18n/grid-action-labels.ts';
 import { sheetMessages } from '../i18n/sheet-messages.ts';
@@ -139,9 +140,16 @@ export function CalendarTimeRow({
                   isLeavingByTabRef.current = false;
                 }} onKeyDown={(event) => {
                   if (event.key !== 'Tab') event.stopPropagation();
-                  if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+                  if (event.key === 'Escape') {
+                    if (isComposingKey(event.nativeEvent)) return;
+                    startTyping(null);
+                    return;
+                  }
+                  if (isComposingKey(event.nativeEvent)) {
+                    if (event.key === 'Enter' && !event.metaKey && !event.ctrlKey) event.preventDefault();
+                    return;
+                  }
                   let timeNotEntered = timeNotEnteredRef.current;
-                  if (event.key === 'Escape') startTyping(null);
                   if (event.key === 'Tab') {
                     isLeavingByTabRef.current = true;
                     if (timeNotEntered !== null) onTimeChosen(timeNotEntered, 'tabKey');

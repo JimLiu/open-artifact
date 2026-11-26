@@ -2,6 +2,7 @@ import { TextInput } from '../kit/text-input.tsx';
 import { Skeleton } from '../kit/skeleton.tsx';
 import { Icon } from '../kit/icon.tsx';
 import * as React from 'react';
+import { isComposingKey } from '@open-artifact/ui';
 import { translateMessage, MESSAGE_LOCALE } from '../i18n/messages.ts';
 import { importMessages, intoSheetLabel } from '../messages/import.ts';
 import {
@@ -73,10 +74,16 @@ export function useRenameField({ name, onNamed, onDone }: RenameFieldSetup) {
     onChange: ({ currentTarget }: React.ChangeEvent<HTMLInputElement>) => setDraft(currentTarget.value),
     onBlur: commitName,
     onKeyDown: (event: React.KeyboardEvent<HTMLInputElement>) => {
-      if (event.nativeEvent.isComposing || event.keyCode === 229) return;
       if (event.key !== 'Enter' && event.key !== 'Escape') return;
+      if (event.key === 'Escape') {
+        if (isComposingKey(event.nativeEvent)) return;
+      } else if (event.metaKey || event.ctrlKey) return;
+      else {
+        event.preventDefault();
+        if (isComposingKey(event.nativeEvent)) return;
+      }
       event.stopPropagation();
-      event.preventDefault();
+      if (event.key === 'Escape') event.preventDefault();
       if (event.key === 'Escape') setDraft(null);
       else commitName();
       isFinishingRef.current = true;

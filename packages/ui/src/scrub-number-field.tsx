@@ -4,6 +4,7 @@
  */
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react';
 import { cn } from './cn.ts';
+import { isComposingKey } from './keys.ts';
 import { clampNumber, evaluateNumberInput, formatNumber, roundTo, snapToStep, stepDecimals, stepStart } from './numbers.ts';
 
 /** Props of {@link ScrubNumberField}. */
@@ -138,6 +139,24 @@ export function ScrubNumberField({
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Enter' && !event.metaKey && !event.ctrlKey) {
+      event.preventDefault();
+      if (isComposingKey(event.nativeEvent)) return;
+      commitText();
+      event.currentTarget.select();
+      return;
+    }
+    if (event.key === 'Escape') {
+      if (isComposingKey(event.nativeEvent)) return;
+      if (editing.current) {
+        event.preventDefault();
+        event.stopPropagation();
+        editing.current = false;
+        setDraft(shown(value));
+      }
+      return;
+    }
+    if (isComposingKey(event.nativeEvent)) return;
     const unitStep = event.shiftKey ? big : event.altKey ? small : step;
     switch (event.key) {
       case 'ArrowUp':
@@ -166,19 +185,6 @@ export function ScrubNumberField({
         if (max !== undefined && !event.shiftKey) {
           event.preventDefault();
           settleAt(max);
-        }
-        break;
-      case 'Enter':
-        event.preventDefault();
-        commitText();
-        event.currentTarget.select();
-        break;
-      case 'Escape':
-        if (editing.current) {
-          event.preventDefault();
-          event.stopPropagation();
-          editing.current = false;
-          setDraft(shown(value));
         }
         break;
     }
@@ -238,7 +244,7 @@ export function ScrubNumberField({
   useEffect(() => {
     if (!scrubbing) return;
     const onKey = (event: globalThis.KeyboardEvent) => {
-      if (event.key !== 'Escape' || !scrub.current) return;
+      if (event.key !== 'Escape' || !scrub.current || isComposingKey(event)) return;
       event.preventDefault();
       const handle = document.querySelector<HTMLElement>(`[data-scrub-for="${CSS.escape(inputId)}"]`);
       if (handle) endScrub(handle, false);

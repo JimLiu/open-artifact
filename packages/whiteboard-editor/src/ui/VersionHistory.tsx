@@ -12,7 +12,8 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { History, Loader2, RotateCcw, X } from 'lucide-react';
-import { Button, ConfirmDialog, HistoryPanel, cn } from '@open-artifact/ui';
+import { Button, ConfirmDialog, HistoryPanel, cn, shouldYieldWindowShortcut } from '@open-artifact/ui';
+import { surfaceRef } from '../canvas/surface.ts';
 import { elementBounds, formatBoardHistoryPath, type Board } from '@open-artifact/whiteboard-core';
 import { drawnImagePen } from '../export/drawn-svg.ts';
 import { exportFrameFor, type ExportFrame } from '../export/frame.ts';
@@ -111,6 +112,27 @@ function VersionPreview(): ReactNode {
   const [confirm, setConfirm] = useState(false);
   const [size, setSize] = useState({ w: 0, h: 0 });
   const stage = useRef<HTMLDivElement>(null);
+  const covered = previewing === null ? null : surfaceRef.current;
+
+  useEffect(() => {
+    if (previewing === null || !covered) return;
+    const previous = covered.inert;
+    covered.inert = true;
+    return () => {
+      covered.inert = previous;
+    };
+  }, [previewing, covered]);
+
+  useEffect(() => {
+    if (previewing === null) return;
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape' || confirm || shouldYieldWindowShortcut(event)) return;
+      event.stopPropagation();
+      void previewVersion(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [previewing, confirm]);
 
   useEffect(() => {
     if (!preview) {

@@ -4,6 +4,7 @@ import { TextInput } from '../../kit/text-input.tsx';
 import { TextLink } from '../../kit/text-link.tsx';
 import { useUiWindow } from '../../kit/theme.tsx';
 import { Icon } from '../../kit/icon.tsx';
+import { isComposingKey } from '@open-artifact/ui';
 import type { AskFieldStands } from '../../agent/agent-rows.tsx';
 import type { IconName } from '../../kit/icon.tsx';
 import type { TextLinkProps } from '../../kit/text-link.tsx';
@@ -305,7 +306,10 @@ export function RuleAskBox(props: RuleAskBoxProps) {
   }, [hasDraft, hasFailed, isAgentWriting, pageWindow]);
   let emptiedRef = React.useRef<EmptiedWords | null>(null);
   let onFieldKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
-    if (event.nativeEvent.isComposing || event.keyCode === 229) return event.stopPropagation();
+    if (isComposingKey(event.nativeEvent)) {
+      if (event.key === 'Enter' && !event.metaKey && !event.ctrlKey) event.preventDefault();
+      return event.stopPropagation();
+    }
     let isUndoKey = (event.ctrlKey || event.metaKey) && !event.shiftKey && event.key.toLowerCase() === 'z';
     let undone = typed === '' ? undoneWordsFor(emptiedRef.current, changesAskedFor) : null;
     if (isUndoKey && undone !== null) {

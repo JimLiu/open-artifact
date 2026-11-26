@@ -3,7 +3,7 @@
  * saves, Escape gives up. Someone who may not edit sees a badge saying what they can do instead.
  */
 import { Tip } from '@open-artifact/editor-kit/react';
-import { toast } from '@open-artifact/ui';
+import { isComposingKey, toast } from '@open-artifact/ui';
 import { Lock, MessageSquare } from 'lucide-react';
 import { type ReactNode, useLayoutEffect, useRef, useState } from 'react';
 import { CallDenied, docClient } from '../app/doc-client.ts';
@@ -72,11 +72,12 @@ function NameField({ name }: { name: string }): ReactNode {
         finish(true);
       }}
       onKeyDown={event => {
-        if (event.nativeEvent.isComposing) return;
-        if (event.key === 'Enter') {
+        if (event.key === 'Enter' && !event.metaKey && !event.ctrlKey) {
           event.preventDefault();
+          if (isComposingKey(event.nativeEvent)) return;
           finish(true);
         } else if (event.key === 'Escape') {
+          if (isComposingKey(event.nativeEvent)) return;
           event.preventDefault();
           event.stopPropagation();
           finish(false);

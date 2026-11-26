@@ -17,11 +17,13 @@ export function modKey(): string {
   return isApplePlatform() ? '⌘' : 'Ctrl+';
 }
 
-/** True when a key or clipboard event goes to a text field (input, textarea, select or editable text). */
-export function isTextField(target: EventTarget | null): boolean {
-  const element = target as HTMLElement | null;
-  return Boolean(element && (element.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(element.tagName)));
-}
+/**
+ * True when a key or clipboard event goes to a text field (input, textarea,
+ * select or editable text). The implementation lives in `@open-artifact/ui`;
+ * this re-exports that module directly so node tests do not load the UI
+ * barrel (it pulls in JSX).
+ */
+export { isTextField } from '../../ui/src/keys.ts';
 
 /**
  * The next focus index inside a toolbar for Arrow keys, Home and End: arrows step and wrap,

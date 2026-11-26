@@ -7,7 +7,7 @@
 import { memo, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { AlertTriangle, EyeOff, ListPlus, MessageCircle, MoreHorizontal, Plus, Trash2 } from 'lucide-react';
 import { LIMITS, normalizeDescription, slideTitle, type SectionEntry } from '@open-artifact/slides-core';
-import { IconButton, Menu, MenuItem, cn } from '@open-artifact/ui';
+import { IconButton, Menu, MenuItem, cn, isComposingKey } from '@open-artifact/ui';
 import { useDeck } from '../../state/deck.ts';
 import { useView } from '../../state/view.ts';
 import type { PeerView } from '../../services/agent.ts';
@@ -228,11 +228,13 @@ function DescriptionInput({ initial, onCommit, onCancel }: { initial: string; on
       }}
       onKeyDown={(event) => {
         event.stopPropagation();
-        if (event.key === 'Enter') {
+        if (event.key === 'Enter' && !event.metaKey && !event.ctrlKey) {
           event.preventDefault();
+          if (isComposingKey(event.nativeEvent)) return;
           done.current = true;
           onCommit(value);
         } else if (event.key === 'Escape') {
+          if (isComposingKey(event.nativeEvent)) return;
           event.preventDefault();
           done.current = true;
           onCancel();

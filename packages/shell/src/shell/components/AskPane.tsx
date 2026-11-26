@@ -14,7 +14,7 @@
 import { Copy, Send, UserCheck, X } from 'lucide-react';
 import { useEffect, useId, useRef, useState } from 'react';
 import { MAX_ASK_BYTES, utf8Bytes } from '@open-artifact/protocol';
-import { Button, IconButton } from '@open-artifact/ui';
+import { Button, IconButton, isComposingKey } from '@open-artifact/ui';
 import { OwnerBadge } from '../../components/OwnerBadge.tsx';
 import { api, errorText } from '../../lib/api.ts';
 import { ago, copyText } from '../../lib/format.ts';
@@ -215,10 +215,10 @@ export function AskPane() {
           aria-describedby={tooLong ? statusId : undefined}
           onChange={(event) => setText(event.target.value)}
           onKeyDown={(event) => {
-            if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
-              event.preventDefault();
-              void submit();
-            }
+            if (event.key !== 'Enter' || event.shiftKey || event.metaKey || event.ctrlKey) return;
+            event.preventDefault();
+            if (isComposingKey(event.nativeEvent)) return;
+            void submit();
           }}
           className="block max-h-[40vh] min-h-[72px] w-full resize-y rounded-xl border border-line bg-surface-2 px-3 py-2.5 text-[13px] text-fg outline-none placeholder:text-fg-subtle focus:border-accent"
         />

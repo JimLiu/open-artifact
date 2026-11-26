@@ -6,6 +6,7 @@ import { Button } from '../kit/button.tsx';
 import { Icon } from '../kit/icon.tsx';
 import type { ColumnId, SortDirection } from '@open-artifact/sheets-core';
 import * as React from 'react';
+import { isComposingKey } from '@open-artifact/ui';
 import { useCoarsePointer } from '../app/media-queries.ts';
 import {
   customSortMessages,
@@ -147,7 +148,10 @@ export function SortCellsField({ cells, cellsTyped, whyNotSaidBy, onAct }: SortC
               }),
           );
       }} onKeyDown={(event) => {
-        if (event.nativeEvent.isComposing || event.keyCode === 229) return event.stopPropagation();
+        if (isComposingKey(event.nativeEvent)) {
+          if (event.key === 'Enter' && !event.metaKey && !event.ctrlKey) event.preventDefault();
+          return event.stopPropagation();
+        }
         if (event.key === 'Enter') {
           event.preventDefault();
           onAct({

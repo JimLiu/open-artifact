@@ -3,6 +3,7 @@ import * as ReactDOM from 'react-dom';
 import { Menu as BaseMenu } from '@base-ui/react/menu';
 import { ContextMenu as BaseContextMenu } from '@base-ui/react/context-menu';
 import { preventRepeatedActivation } from './closing-guard.ts';
+import { isComposingKey } from '@open-artifact/ui';
 import { cn } from './cn.ts';
 import { Icon, LeadingIcon, type IconName } from './icon.tsx';
 import { useKitLabel } from './labels.tsx';
@@ -847,7 +848,8 @@ const MenuSearchablePopup = React.forwardRef<HTMLDivElement, MenuSearchablePopup
         value={shown}
         onChange={(event) => changeQuery(event.target.value)}
         onKeyDown={(event) => {
-          if (event.nativeEvent.isComposing || event.keyCode === 229) {
+          if (isComposingKey(event.nativeEvent)) {
+            if (event.key === 'Enter' && !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey) event.preventDefault();
             event.stopPropagation();
             return;
           }

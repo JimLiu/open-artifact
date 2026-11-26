@@ -3,7 +3,7 @@
  * new one, or one from a template).
  */
 import type { DocEnum } from '@open-artifact/runtime/doc-api';
-import { cn } from '@open-artifact/ui';
+import { cn, isComposingKey } from '@open-artifact/ui';
 import { Check, Pencil, Plus, Search } from 'lucide-react';
 import type { EditorView } from 'prosemirror-view';
 import { type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from 'react';
@@ -137,15 +137,19 @@ function OptionList({ view, pos, list, current, enums, onEdit, onNew, onSwitch }
   };
 
   const onKey = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.nativeEvent.isComposing) return;
+    if (event.key === 'Enter' && !event.metaKey && !event.ctrlKey) {
+      event.preventDefault();
+      if (isComposingKey(event.nativeEvent)) return;
+      enter();
+      return;
+    }
+    if (event.key === 'Escape' && isComposingKey(event.nativeEvent)) return;
+    if (isComposingKey(event.nativeEvent)) return;
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       event.preventDefault();
       if (!rows.length) return;
       const step = event.key === 'ArrowDown' ? 1 : -1;
       setActive(active === null ? (step === 1 ? 0 : rows.length - 1) : (active + step + rows.length) % rows.length);
-    } else if (event.key === 'Enter') {
-      event.preventDefault();
-      enter();
     } else if (event.key === 'Tab' && !event.shiftKey) {
       event.preventDefault();
       leaveChip(view, pos);

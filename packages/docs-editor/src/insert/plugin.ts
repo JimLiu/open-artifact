@@ -6,6 +6,7 @@
 import type { Node as PMNode } from 'prosemirror-model';
 import { type EditorState, NodeSelection, Plugin, PluginKey, type Transaction } from 'prosemirror-state';
 import type { EditorView } from 'prosemirror-view';
+import { isComposingKey } from '../../../ui/src/keys.ts';
 import { getDocs } from '../app/store.ts';
 import { schema } from '../editor/schema.ts';
 
@@ -170,7 +171,7 @@ export function pickOption(view: EditorView, option: MenuOption, trigger: Trigge
 function handleMenuKey(view: EditorView, event: KeyboardEvent): boolean {
   const plugin = insertState(view.state);
   const trigger = activeTrigger(view.state);
-  if (!plugin || !trigger || view.composing || !canWrite(view)) return false;
+  if (!plugin || !trigger || view.composing || isComposingKey(event) || !canWrite(view)) return false;
   if (event.key === 'Escape') {
     dismissMenu(view);
     return true;
@@ -222,7 +223,7 @@ export function insertMenusPlugin(): Plugin<InsertState> {
       handleKeyDown(view, event) {
         if (handleMenuKey(view, event)) return true;
         const { selection } = view.state;
-        if (event.key === 'Enter' && !event.shiftKey && !event.metaKey && !event.ctrlKey && !event.altKey && canWrite(view)) {
+        if (event.key === 'Enter' && !event.shiftKey && !event.metaKey && !event.ctrlKey && !event.altKey && canWrite(view) && !view.composing && !isComposingKey(event)) {
           if (selection instanceof NodeSelection && isChip(selection.node)) {
             toggleChipPicker(view, selection.from, selection.node);
             return true;

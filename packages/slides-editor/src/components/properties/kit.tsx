@@ -18,7 +18,7 @@ import { Toggle } from '@base-ui/react/toggle';
 import { ToggleGroup } from '@base-ui/react/toggle-group';
 import { Check, ChevronDown, ChevronRight, ChevronUp, RotateCcw, X } from 'lucide-react';
 import { Fragment, forwardRef, useEffect, useMemo, useRef, useState, type ButtonHTMLAttributes, type CSSProperties, type InputHTMLAttributes, type PointerEvent, type ReactNode } from 'react';
-import { cn } from '@open-artifact/ui';
+import { cn, isComposingKey } from '@open-artifact/ui';
 import { announce } from '@open-artifact/editor-kit';
 import { Tip } from '@open-artifact/editor-kit/react';
 import { CornerIcon, CornersIcon, SideIcon, SidesIcon, type CornerName, type SideName } from './icons.tsx';
@@ -147,10 +147,13 @@ export function CommitInput({ value, onCommit, className, ...rest }: CommitInput
       onChange={(event) => setDraft(event.target.value)}
       onBlur={commit}
       onKeyDown={(event) => {
-        if (event.key === 'Enter') {
+        if (event.key === 'Enter' && !event.metaKey && !event.ctrlKey) {
+          event.preventDefault();
+          if (isComposingKey(event.nativeEvent)) return;
           commit();
           event.currentTarget.blur();
         } else if (event.key === 'Escape') {
+          if (isComposingKey(event.nativeEvent)) return;
           setDraft(value);
           event.currentTarget.blur();
         }
@@ -303,9 +306,10 @@ export function NumberInput({ value, onChange, onCommit, label, unit, min, max, 
         onInput={(event) => event.currentTarget.removeAttribute(SCRUBBED)}
         onBlur={(event) => event.currentTarget.removeAttribute(SCRUBBED)}
         onKeyDown={(event) => {
-          if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+          if (isComposingKey(event.nativeEvent)) return;
           const field = event.currentTarget;
-          if (event.key === 'Enter') {
+          if (event.key === 'Enter' && !event.metaKey && !event.ctrlKey) {
+            event.preventDefault();
             // Enter commits what was typed (the field commits on blur), keeping the focus.
             field.blur();
             field.focus();

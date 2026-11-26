@@ -12,7 +12,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { History, Loader2, RotateCcw, X } from 'lucide-react';
-import { Button, ConfirmDialog, HistoryPanel } from '@open-artifact/ui';
+import { Button, ConfirmDialog, HistoryPanel, shouldYieldWindowShortcut } from '@open-artifact/ui';
 import type { HistoryController } from './history.ts';
 import type { Box, Camera } from './pins.ts';
 
@@ -59,16 +59,23 @@ export interface VersionPreviewProps<P> {
   fitKey?: unknown;
   /** What the preview says when there is nothing to draw. */
   emptyText?(n: number): string;
+  /**
+   * The surface this preview covers. Only that element is made `inert`.
+   * The history panel stays a sibling and keeps working. Docs unmounts the
+   * editor, so it passes nothing.
+   */
+  covered?: HTMLElement | null;
 }
 
 /** The read-only preview of a past version, over the editor. */
-export function VersionPreview<P>({ history, readOnly, bounds, renderWorld, renderOverlay, fitKey, emptyText }: VersionPreviewProps<P>): ReactNode {
+export function VersionPreview<P>({ history, readOnly, bounds, renderWorld, renderOverlay, fitKey, emptyText, covered = null }: VersionPreviewProps<P>): ReactNode {
   const previewing = history.store((s) => s.previewing);
   const preview = history.store((s) => s.preview);
   const loading = history.store((s) => s.loading);
   const error = history.store((s) => s.error);
   const canRestore = history.store((s) => s.canRestore);
   const root = useRef<HTMLDivElement>(null);
+  const dragEnd = useRef<(() => void) | null>(null);
   const [camera, setCamera] = useState<Camera>({ x: 0, y: 0, zoom: 1 });
   const [confirm, setConfirm] = useState(false);
   const fitted = preview ? bounds(preview) : null;
@@ -103,17 +110,35 @@ export function VersionPreview<P>({ history, readOnly, bounds, renderWorld, rend
     return () => element.removeEventListener('wheel', onWheel);
   }, [previewing]);
 
-  // Esc goes back to the current version.
+  // Only the covered surface is inert. The panel is a sibling and stays usable.
+  useEffect(() => {
+    if (previewing === null || !covered) return;
+    const previous = covered.inert;
+    covered.inert = true;
+    return () => {
+      covered.inert = previous;
+    };
+  }, [previewing, covered]);
+
+  // Drop a pan that is still listening if the preview goes away mid-drag.
+  useEffect(() => {
+    return () => {
+      dragEnd.current?.();
+      dragEnd.current = null;
+    };
+  }, [previewing]);
+
+  // Esc goes back to the current version, in the bubble phase so a find field
+  // or the confirm dialog sees the key first. `confirm` leaves Escape to ConfirmDialog.
   useEffect(() => {
     if (previewing === null) return;
     const onKey = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape' && !confirm) {
-        event.stopPropagation();
-        void history.preview(null);
-      }
+      if (event.key !== 'Escape' || confirm || shouldYieldWindowShortcut(event)) return;
+      event.stopPropagation();
+      void history.preview(null);
     };
-    window.addEventListener('keydown', onKey, true);
-    return () => window.removeEventListener('keydown', onKey, true);
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
   }, [previewing, confirm, history]);
 
   if (previewing === null) return null;
@@ -140,13 +165,16 @@ export function VersionPreview<P>({ history, readOnly, bounds, renderWorld, rend
         className="relative min-h-0 flex-1 cursor-grab touch-none select-none overflow-hidden"
         onPointerDown={(event) => {
           if ((event.target as HTMLElement).closest('button')) return;
+          dragEnd.current?.();
           const start = { x: event.clientX, y: event.clientY, camera };
           event.currentTarget.setPointerCapture(event.pointerId);
           const move = (e: PointerEvent): void => setCamera({ ...start.camera, x: start.camera.x + e.clientX - start.x, y: start.camera.y + e.clientY - start.y });
           const up = (): void => {
             window.removeEventListener('pointermove', move);
             window.removeEventListener('pointerup', up);
+            if (dragEnd.current === up) dragEnd.current = null;
           };
+          dragEnd.current = up;
           window.addEventListener('pointermove', move);
           window.addEventListener('pointerup', up);
         }}

@@ -7,7 +7,7 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode, type SyntheticEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
-import { Button } from '@open-artifact/ui';
+import { Button, isComposingKey } from '@open-artifact/ui';
 import { closeAskBox, sendAsk, useAsk, type AskBoxRequest } from './ask.ts';
 import { ASK_CANCEL_LABEL, ASK_CLOSE_LABEL, ASK_FIELD_LABEL, ASK_HINT, ASK_PLACEHOLDER, ASK_SENDING, ASK_SEND_LABEL, ASK_TITLE } from './prompt.ts';
 
@@ -40,12 +40,14 @@ function AskBoxView({ box }: { box: AskBoxRequest }): ReactNode {
   const onKeyDown = (event: KeyboardEvent<HTMLElement>): void => {
     event.stopPropagation();
     if (event.key === 'Escape') {
+      if (isComposingKey(event.nativeEvent)) return;
       event.preventDefault();
       closeAskBox();
       return;
     }
-    if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && event.target === fieldRef.current) {
+    if (event.key === 'Enter' && !event.shiftKey && !event.metaKey && !event.ctrlKey && event.target === fieldRef.current) {
       event.preventDefault();
+      if (isComposingKey(event.nativeEvent)) return;
       void submit();
     }
   };

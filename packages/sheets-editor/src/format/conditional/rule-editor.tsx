@@ -6,6 +6,7 @@ import { Popover } from '../../kit/popover.tsx';
 import { Button } from '../../kit/button.tsx';
 import { Icon } from '../../kit/icon.tsx';
 import { Tooltip, TooltipGroup } from '../../kit/tooltip.tsx';
+import { isComposingKey } from '@open-artifact/ui';
 import type { Color, ColumnId, Shade } from '@open-artifact/sheets-core';
 import type { ColorProperty } from '../../i18n/format-labels.ts';
 import type { FontMark } from '../../state/initial-state.ts';
@@ -156,7 +157,10 @@ export function RuleTextField({
               }),
           );
       }} onKeyDown={(event) => {
-        if (event.nativeEvent.isComposing || event.keyCode === 229) return event.stopPropagation();
+        if (isComposingKey(event.nativeEvent)) {
+          if (event.key === 'Enter' && !event.metaKey && !event.ctrlKey) event.preventDefault();
+          return event.stopPropagation();
+        }
         if (event.key === 'Enter') {
           event.preventDefault();
           return onAct({

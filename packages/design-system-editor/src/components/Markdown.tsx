@@ -5,7 +5,7 @@
 
 import { Bold, Check, Code, Heading1, Heading2, Heading3, Italic, Link, List, ListChecks, ListOrdered, Pencil, Quote, Strikethrough } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type FocusEvent, type ReactNode } from 'react';
-import { Button, IconButton, cn } from '@open-artifact/ui';
+import { Button, IconButton, cn, isComposingKey } from '@open-artifact/ui';
 import { markdownOf } from '../lib/markdown-dom.ts';
 import { parseMarkdown, type Block, type Inline } from '../lib/markdown.ts';
 import { resolveProjectLink } from '../lib/color.ts';
@@ -449,6 +449,7 @@ export function EditableMarkdown({ source, from, readOnly, onCommit, placeholder
           onBlur={commit}
           onKeyDown={(event) => {
             if (event.key === 'Escape') {
+              if (isComposingKey(event.nativeEvent)) return;
               event.preventDefault();
               setDraft(source);
               setEditing(false);
@@ -458,9 +459,11 @@ export function EditableMarkdown({ source, from, readOnly, onCommit, placeholder
             } else if ((event.metaKey || event.ctrlKey) && !event.altKey && FORMAT_KEYS[event.key.toLowerCase()]) {
               event.preventDefault();
               apply(applyInline(selection(), FORMAT_KEYS[event.key.toLowerCase()]!));
-            } else if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+            } else if (event.key === 'Enter' && !event.shiftKey && !event.metaKey && !event.ctrlKey) {
+              if (isComposingKey(event.nativeEvent)) return;
               if (apply(continueOnEnter(selection()))) event.preventDefault();
             } else if (event.key === 'Tab') {
+              if (isComposingKey(event.nativeEvent)) return;
               if (apply(indentList(selection(), event.shiftKey))) event.preventDefault();
             }
           }}

@@ -14,6 +14,7 @@ import type { OwnFilterConditionDrawn, OwnFilterListDrawn } from './own-filter-l
 import type { CaretTarget } from './own-filter-bar-view.tsx';
 import type { AskListRow } from '../ui/ask-list/ask-or-pick-list.tsx';
 import * as React from 'react';
+import { isComposingKey } from '@open-artifact/ui';
 import { inputsOfFilterChoice, isIsoDateText } from './own-filter-conditions.ts';
 import { Fragment } from 'react/jsx-runtime';
 import { PaneSelect } from '../ui/side-pane/side-pane.tsx';
@@ -174,9 +175,11 @@ export function OwnFilterConditionEditor({
                               ...held,
                               [heldSide]: currentTarget.value,
                             })} onKeyDown={(keyEvent) => {
-                            let isComposing = keyEvent.nativeEvent.isComposing || keyEvent.keyCode === 229;
-                            if (keyEvent.key !== 'Enter' || isComposing || !areFieldsFilled) return;
-                            keyEvent.preventDefault();
+                            if (keyEvent.key !== 'Enter' || !areFieldsFilled) return;
+                            const plain = !keyEvent.metaKey && !keyEvent.ctrlKey;
+                            if (plain) keyEvent.preventDefault();
+                            if (isComposingKey(keyEvent.nativeEvent)) return;
+                            if (!plain) keyEvent.preventDefault();
                             onDone(held, keyEvent.currentTarget);
                           }} /></FieldRoot>)}</div>);
           })}{condition.isMistyped.includes(true) &&

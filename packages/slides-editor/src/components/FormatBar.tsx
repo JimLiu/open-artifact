@@ -38,7 +38,7 @@ import {
   Unlink,
 } from 'lucide-react';
 import { LIMITS, isSafeHref, isTextual, nodeHasMark, nodeUniformLink, resizeTable, setListKind, setNodeMark, tableColumns, toggleNodeMark, type NodePath, type SlideNode, type TableNode } from '@open-artifact/slides-core';
-import { Popover } from '@open-artifact/ui';
+import { Popover, isComposingKey } from '@open-artifact/ui';
 import { useSelectedNodes } from '../state/selection.ts';
 import { useView } from '../state/view.ts';
 import { ALIGN_KEYS, alignRefusal, alignSelection, canChange, patchSelectionStyle, selectionLockRefusal, updateSelection, type AlignEdge } from '../services/commands.ts';
@@ -557,10 +557,10 @@ function LinkButton({ node }: { node: SlideNode | null }): ReactNode {
           value={url}
           onChange={(event) => setUrl(event.target.value)}
           onKeyDown={(event) => {
-            if (event.key === 'Enter') {
-              event.preventDefault();
-              apply();
-            }
+            if (event.key !== 'Enter' || event.metaKey || event.ctrlKey) return;
+            event.preventDefault();
+            if (isComposingKey(event.nativeEvent)) return;
+            apply();
           }}
         />
         {url.trim() && !valid ? <p className="text-[12px] text-danger">Links must start with http:// or https://</p> : null}

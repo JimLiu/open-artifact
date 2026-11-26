@@ -6,6 +6,7 @@
 
 import { ChevronDown, ChevronUp, Search, X } from 'lucide-react';
 import { useEffect, useRef, type ReactNode } from 'react';
+import { isComposingKey } from '@open-artifact/ui';
 import { Card, ChromeButton, Tip } from './chrome.tsx';
 
 /** Props of {@link FindBar}. */
@@ -60,9 +61,13 @@ export function FindBar({ label, query, count, index, onQuery, onStep, onClose, 
         onChange={(event) => onQuery(event.target.value)}
         onKeyDown={(event) => {
           if (event.key === 'Enter' || (f3 && event.key === 'F3')) {
-            event.preventDefault();
+            const plainEnter = event.key === 'Enter' && !event.metaKey && !event.ctrlKey;
+            if (plainEnter) event.preventDefault();
+            if (isComposingKey(event.nativeEvent)) return;
+            if (!plainEnter) event.preventDefault();
             onStep(event.shiftKey ? -1 : 1);
           } else if (event.key === 'Escape') {
+            if (isComposingKey(event.nativeEvent)) return;
             event.preventDefault();
             if (stopEscape) event.stopPropagation();
             onClose();

@@ -10,6 +10,7 @@
 import type { ReactNode } from 'react';
 import { SOURCE_ATTRIBUTE } from '@open-artifact/data-core';
 import { isApplePlatform } from '@open-artifact/editor-kit';
+import { isComposingKey } from '../../../ui/src/keys.ts';
 import type { DraftEnded, DraftVisit, PageDraft } from './draft.ts';
 import {
   CHAPTER_NEEDS_WORDS,
@@ -711,7 +712,19 @@ function openWordsSession(words: HTMLElement, selection: Selection, start: Words
   };
   listen('keydown', (event) => {
     tipAt(null);
-    if (event.isComposing || event.keyCode === 229) return;
+    if (event.key === 'Escape') {
+      if (isComposingKey(event)) return;
+      event.preventDefault();
+      end('key');
+      return;
+    }
+    if (event.key === 'Enter' && !event.metaKey && !event.ctrlKey) {
+      event.preventDefault();
+      if (isComposingKey(event)) return;
+      end('key');
+      return;
+    }
+    if (isComposingKey(event)) return;
     if (event.key === ' ' && inButton) {
       event.preventDefault();
       if (handleInput('insertText', ' ', [])) exec('insertText', ' ');
@@ -720,9 +733,10 @@ function openWordsSession(words: HTMLElement, selection: Selection, start: Words
     if (shortcut !== null) event.preventDefault();
     if (shortcut === 'b' || shortcut === 'i') applyFormat(shortcut === 'b' ? 'bold' : 'italic');
     if (shortcut === 'a') selection.selectAllChildren(words);
-    if (event.key !== 'Enter' && event.key !== 'Escape') return;
-    event.preventDefault();
-    end('key');
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      end('key');
+    }
   });
   listen('keyup', (event) => {
     if (event.key === ' ' && inButton) event.preventDefault();

@@ -5,7 +5,7 @@
  */
 import { ChromeButton, Tip } from '@open-artifact/editor-kit/react';
 import { COMMENT_TEXT_MAX, MOD } from '@open-artifact/editor-kit';
-import { cn } from '@open-artifact/ui';
+import { cn, isComposingKey } from '@open-artifact/ui';
 import { ArrowUp, Bot } from 'lucide-react';
 import { type KeyboardEvent, type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { type MentionCandidate, insertMention, matchCandidates, mentionQuery } from './mentions.ts';
@@ -131,21 +131,33 @@ export function Composer({ value, onChange, onSubmit, onCancel, label, placehold
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     event.stopPropagation();
-    if (event.nativeEvent.isComposing) return;
+    if (event.key === 'Escape') {
+      if (isComposingKey(event.nativeEvent)) return;
+      event.preventDefault();
+      if (listOpen) setDismissed(query!.start);
+      else onCancel();
+      return;
+    }
+    if (event.key === 'Enter' && !event.shiftKey && !event.metaKey && !event.ctrlKey && !event.altKey) {
+      event.preventDefault();
+      if (isComposingKey(event.nativeEvent)) return;
+      if (listOpen) {
+        pick(matches[picked] ?? matches[0]!);
+        return;
+      }
+      submit();
+      return;
+    }
+    if (isComposingKey(event.nativeEvent)) return;
     if (listOpen) {
       if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
         event.preventDefault();
         setPicked(index => (index + (event.key === 'ArrowDown' ? 1 : matches.length - 1)) % matches.length);
         return;
       }
-      if ((event.key === 'Enter' && !event.metaKey && !event.ctrlKey) || event.key === 'Tab') {
+      if (event.key === 'Tab') {
         event.preventDefault();
         pick(matches[picked] ?? matches[0]!);
-        return;
-      }
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        setDismissed(query!.start);
         return;
       }
     }
@@ -161,15 +173,6 @@ export function Composer({ value, onChange, onSubmit, onCancel, label, placehold
       onChange(value.slice(0, box.selectionStart) + '\n' + value.slice(box.selectionEnd));
       requestAnimationFrame(() => box.setSelectionRange(caret, caret));
       return;
-    }
-    if (event.key === 'Enter' && !event.shiftKey) {
-      event.preventDefault();
-      submit();
-      return;
-    }
-    if (event.key === 'Escape') {
-      event.preventDefault();
-      onCancel();
     }
   };
 
