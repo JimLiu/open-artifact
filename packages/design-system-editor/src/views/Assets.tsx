@@ -13,6 +13,7 @@ import { useFiles } from '../state/files.ts';
 import { useModel } from '../state/model.ts';
 import { anchorId, useView } from '../state/view.ts';
 import { projectUrl } from '../lib/color.ts';
+import { ASSET_CHECKER, assetInkBackground } from '../lib/ink-bg.ts';
 import { addAssetGroup, editIndex, editText, relocateAssets, removeAsset, renameAsset, reorderAssets, uploadAssets } from '../services/edit.ts';
 import { droppedBrandFiles } from '../lib/drop-files.ts';
 import { copyText, downloadUrl } from '../services/downloads.ts';
@@ -35,6 +36,25 @@ const IMAGE = /\.(png|jpe?g|gif|webp|avif|svg|ico|bmp)$/i;
 function assetUrl(item: AssetItem): string | null {
   if (item.blob) return new URL(`/_blob/${encodeURIComponent(item.blob)}`, location.href).href;
   return item.path ? projectUrl(item.path) : null;
+}
+
+/** The contrasting field for an image, or the checker until that field is known. */
+function useAssetBackdrop(url: string | null, image: boolean): string {
+  const [background, setBackground] = useState(ASSET_CHECKER);
+  useEffect(() => {
+    if (!url || !image) {
+      setBackground(ASSET_CHECKER);
+      return;
+    }
+    let live = true;
+    void assetInkBackground(url).then((next) => {
+      if (live) setBackground(next);
+    });
+    return () => {
+      live = false;
+    };
+  }, [url, image]);
+  return background;
 }
 
 function isImage(item: AssetItem): boolean {
@@ -98,6 +118,7 @@ function Tile({ item, width, editable, dragging, selected, onSelect, onDragStart
   const setRenaming = (on: boolean): void => useAssetUi.setState({ renaming: on ? itemKey(item) : null });
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const url = assetUrl(item);
+  const backdrop = useAssetBackdrop(url, Boolean(url && isImage(item)));
   const size = item.size ?? useFiles.getState().listing[item.path ?? '']?.size;
   return (
     <figure
@@ -128,7 +149,7 @@ function Tile({ item, width, editable, dragging, selected, onSelect, onDragStart
       )}
       style={{ width }}
     >
-      <div className="flex items-center justify-center bg-surface-2" style={{ height: width * 0.75, background: 'repeating-conic-gradient(var(--color-surface-2) 0% 25%, var(--color-surface) 0% 50%) 50% / 16px 16px' }}>
+      <div className="flex items-center justify-center bg-surface-2" style={{ height: width * 0.75, background: backdrop }}>
         {url && isImage(item) ? <img src={url} alt={item.name} draggable={false} className="max-h-full max-w-full object-contain p-3" /> : url && VIDEO.test(item.name) ? <video src={url} muted preload="metadata" className="max-h-full max-w-full" /> : <FileIcon className="size-8 text-fg-subtle" />}
       </div>
       <figcaption className="flex items-center gap-1 border-t border-line px-2 py-1.5">
@@ -377,6 +398,7 @@ function NewGroup() {
 /** The details of one asset: a larger preview, its facts and actions. */
 function AssetDetails({ item, editable }: { item: AssetItem; editable: boolean }) {
   const url = assetUrl(item);
+  const backdrop = useAssetBackdrop(url, Boolean(url && isImage(item)));
   const [dimensions, setDimensions] = useState<{ w: number; h: number } | null>(null);
   const size = item.size ?? useFiles.getState().listing[item.path ?? '']?.size;
   useEffect(() => setDimensions(null), [url]);
@@ -396,7 +418,7 @@ function AssetDetails({ item, editable }: { item: AssetItem; editable: boolean }
         <CommentBadge focus={{ kind: 'asset', name: itemKey(item) }} className="opacity-100" />
         <IconButton size="sm" label="Close details" icon={<X className="size-3.5" />} onClick={() => useAssetUi.setState({ details: null })} />
       </div>
-      <div className="flex h-40 items-center justify-center rounded-md" style={{ background: 'repeating-conic-gradient(var(--color-surface-2) 0% 25%, var(--color-surface) 0% 50%) 50% / 16px 16px' }}>
+      <div className="flex h-40 items-center justify-center rounded-md" style={{ background: backdrop }}>
         {url && isImage(item) ? (
           <img src={url} alt={item.name} className="max-h-full max-w-full object-contain p-2" onLoad={(event) => setDimensions({ w: event.currentTarget.naturalWidth, h: event.currentTarget.naturalHeight })} />
         ) : url && VIDEO.test(item.name) ? (
