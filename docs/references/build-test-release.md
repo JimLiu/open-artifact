@@ -88,7 +88,7 @@ with `app.quit({ force: true })` (the app would otherwise ask).
 `npm run package` makes a folder-form macOS arm64 `.app` in `apps/desktop/dist/` (ignored by git) with
 `@electron/packager`: the build's `out/` in `app.asar` (with `ElectronAsarIntegrity`), the runtime in
 `Contents/Resources/runtime`, the type icons of installed artifact apps in `Contents/Resources/app-icons/`, a
-placeholder icon, stable bundle id (`dev.openartifact.desktop`), Electron's fuses as they
+the app icon (drawn by `scripts/placeholder-icon.ts`), stable bundle id (`dev.openartifact.desktop`), Electron's fuses as they
 are (`RunAsNode` on), signed ad hoc on this computer. `package:release` instead signs nested code with Developer ID,
 hardened runtime and timestamps, notarizes/staples the app before archiving, verifies the extracted ZIP, and separately
 signs/notarizes/staples the DMG; both pass Gatekeeper. Release packaging also writes the static Squirrel feed

@@ -137,7 +137,7 @@ iframe:not([src]){display:none}
 .stage.blocked>p,.stage.blocked iframe{visibility:hidden}
 </style></head><body>
 <div class="bar">
-<svg class="icon" viewBox="0 0 64 64" aria-hidden="true"><rect x="8" y="8" width="30" height="30" rx="6" fill="#2f5bb7"/><rect x="26" y="26" width="30" height="30" rx="6" fill="#6f8fd4" stroke="#fff" stroke-width="3"/><circle cx="41" cy="41" r="6" fill="#fff"/></svg>
+<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--accent)" aria-hidden="true"><path d="M15 9V6a3 3 0 0 0-3-3H6a3 3 0 0 0-3 3v6a3 3 0 0 0 3 3h3"/><rect x="9" y="9" width="12" height="12" rx="3"/><circle cx="15" cy="15" r="2" fill="currentColor" stroke="none"/></svg>
 <div class="text"><div class="title" id="title">Open Artifact</div><div class="meta" id="meta">Loading…</div></div>
 <div class="actions">
 <button id="full" hidden>Full screen</button>

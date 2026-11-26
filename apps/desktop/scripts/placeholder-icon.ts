@@ -3,9 +3,10 @@ export interface IconLook {
   glyph: 'sheet' | 'slide' | 'grid' | 'diamond' | 'swatches' | 'bars' | 'ring' | 'play' | 'window';
 }
 /**
- * The app's placeholder icon (there is no designed one yet): a rounded square in the library page's blue with a white
- * sheet whose corner is folded, drawn here pixel by pixel at every size an `.icns` holds, written as PNGs (Node's zlib,
- * no image library) and put together with macOS's `iconutil`. Nothing binary is kept in the repository.
+ * The app's icon: a rounded square in the brand blue with the Open Artifact mark in white (two rounded squares in line,
+ * the front one overlapping half of the one behind, a dot in the front one: `plugins/codex/assets/icon.svg`), drawn
+ * here pixel by pixel at every size an `.icns` holds, written as PNGs (Node's zlib, no image library) and put together
+ * with macOS's `iconutil`. Nothing binary is kept in the repository. The type icons below are still placeholders.
  *
  *   node scripts/placeholder-icon.ts <out.icns>
  */
@@ -134,7 +135,7 @@ function glyphAt(glyph: IconLook['glyph'], x: number, y: number, ink: number[], 
       return y < 0.395 ? ink : inBox(0.3, 0.45, 0.7, 0.66) ? mix(WHITE, ink, 0.2) : WHITE;
     }
     default: {
-      // The sheet, with its top-right corner folded (the app's own mark).
+      // The sheet, with its top-right corner folded.
       const fold = 0.14;
       const onSheet = x >= 0.3 && x <= 0.7 && y >= 0.24 && y <= 0.76 && !(x > 0.7 - fold && y < 0.24 + fold && x - (0.7 - fold) > y - 0.24);
       const onFold = x >= 0.7 - fold && x <= 0.7 && y >= 0.24 && y <= 0.24 + fold && x - (0.7 - fold) <= y - 0.24;
@@ -146,16 +147,67 @@ function glyphAt(glyph: IconLook['glyph'], x: number, y: number, ink: number[], 
   }
 }
 
+/** The brand blue of the mark (the plugins' `brandColor`). */
+export const BRAND = '#2f5bb7';
+
 /**
- * The icon at `size` pixels: 4×4 samples a pixel, so the edges are smooth. With no `look`, the app's own (blue, the
- * folded sheet); `look`: `{ tint, glyph }` (see {@link TYPE_ICONS}).
+ * Whether (u, v), in the units of the mark's 24-unit grid, is on the Open Artifact mark: the lines (`stroke` wide) of a
+ * rounded square from 9 to 21, of the one behind it from 3 to 15 where the front one does not cover it, and a dot of
+ * radius 2 in the front one, as in `plugins/codex/assets/icon.svg`.
+ */
+export function onMark(u: number, v: number, stroke = 2) {
+  // Signed distance to a rounded square centred on (cx, cy), `half` its half side, `r` its corner radius.
+  const square = (cx: number, cy: number, half: number, r: number) => {
+    const qx = Math.abs(u - cx) - (half - r);
+    const qy = Math.abs(v - cy) - (half - r);
+    return Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) + Math.min(Math.max(qx, qy), 0) - r;
+  };
+  const front = square(15, 15, 6, 3);
+  if (Math.abs(front) <= stroke / 2 || Math.hypot(u - 15, v - 15) <= 2) return true;
+  return front > 0 && Math.abs(square(9, 9, 6, 3)) <= stroke / 2;
+}
+
+/**
+ * The mark alone as a PNG, `ink` on `paper` (a colour, or transparent when left out), the 24-unit grid `scale` of the
+ * side wide (0.864 puts its lines at 7% to 93%): the plugins' `icon.png`.
+ */
+export function drawMark(size: number, { ink = BRAND, paper, scale = 0.864 }: { ink?: string; paper?: string; scale?: number } = {}) {
+  const out = Buffer.alloc(size * size * 4);
+  const S = 4;
+  const fg = rgb(ink);
+  const bg = paper ? rgb(paper) : null;
+  for (let py = 0; py < size; py++) {
+    for (let px = 0; px < size; px++) {
+      let hits = 0;
+      for (let sy = 0; sy < S; sy++)
+        for (let sx = 0; sx < S; sx++) {
+          const x = (px + (sx + 0.5) / S) / size;
+          const y = (py + (sy + 0.5) / S) / size;
+          if (onMark(12 + ((x - 0.5) * 24) / scale, 12 + ((y - 0.5) * 24) / scale)) hits++;
+        }
+      const t = hits / (S * S);
+      const i = (py * size + px) * 4;
+      const c = bg ? mix(bg, fg, t) : fg;
+      out[i] = c[0];
+      out[i + 1] = c[1];
+      out[i + 2] = c[2];
+      out[i + 3] = bg ? 255 : Math.round(255 * t);
+    }
+  }
+  return png(size, size, out);
+}
+
+/**
+ * The icon at `size` pixels: 4×4 samples a pixel, so the edges are smooth. With no `look`, the app's own (the brand
+ * blue, the mark in white); `look`: `{ tint, glyph }` (see {@link TYPE_ICONS}).
  */
 export function drawIcon(size: number, look?: IconLook) {
   const out = Buffer.alloc(size * size * 4);
   const S = 4;
-  const top = look ? mix(rgb(look.tint), WHITE, 0.12) : [70, 120, 255];
-  const bottom = look ? mix(rgb(look.tint), [0, 0, 0], 0.18) : [40, 80, 230];
-  const ink = look ? mix(rgb(look.tint), [0, 0, 0], 0.1) : [120, 150, 235];
+  const tint = rgb(look?.tint ?? BRAND);
+  const top = mix(tint, WHITE, 0.12);
+  const bottom = mix(tint, [0, 0, 0], look ? 0.18 : 0.12);
+  const ink = mix(tint, [0, 0, 0], 0.1);
   const glyph = look?.glyph ?? 'sheet';
   for (let py = 0; py < size; py++) {
     for (let px = 0; px < size; px++) {
@@ -169,7 +221,8 @@ export function drawIcon(size: number, look?: IconLook) {
           const y = (py + (sy + 0.5) / S) / size;
           // macOS icons sit in a 10% margin.
           if (!inRounded(x, y, 0.1, 0.1, 0.9, 0.9, 0.18)) continue;
-          let c = look ? glyphAt(glyph, x, y, ink) : glyphAt('sheet', x, y, ink, { fold: [200, 216, 255], line: [120, 150, 235] });
+          // The mark's 24 units are 0.6 of the side, so its lines sit in the middle 50%.
+          let c = look ? glyphAt(glyph, x, y, ink) : onMark(12 + (x - 0.5) * 40, 12 + (y - 0.5) * 40) ? WHITE : null;
           if (!c) {
             // The square: a little lighter at the top.
             const t = (y - 0.1) / 0.8;
@@ -193,7 +246,7 @@ export function drawIcon(size: number, look?: IconLook) {
   return png(size, size, out);
 }
 
-/** Writes the placeholder `.icns` to `file` (the app's, or with `look` a type's). */
+/** Writes the `.icns` to `file` (the app's, or with `look` a type's placeholder). */
 export function writeIcns(file: string, look?: IconLook) {
   const dir = mkdtempSync(join(tmpdir(), 'oa-icon-'));
   try {
@@ -220,5 +273,5 @@ export function writeTypeIcons(dir: string) {
 if (import.meta.url === `file://${process.argv[1]}`) {
   const file = resolve(process.argv[2] ?? 'icon.icns');
   writeIcns(file);
-  console.log(`placeholder icon: ${file}`);
+  console.log(`icon: ${file}`);
 }
