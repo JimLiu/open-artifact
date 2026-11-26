@@ -4,7 +4,7 @@
 
 Open Artifact Desktop ships for macOS Apple Silicon as a Developer ID signed, hardened, notarized and stapled app
 inside a ZIP and a signed, notarized, stapled DMG. Its stable bundle ID is `dev.openartifact.desktop`. Desktop,
-its lockfile and the bundled runtime use the same version. App updates currently require downloading a new release;
+its lockfile and the bundled runtime use the same version. Signed releases check GitHub for desktop updates;
 the runtime's own updates are separate. Artifact apps created on the user's Mac still receive local ad hoc signatures.
 
 ## Signing material
@@ -66,7 +66,8 @@ gh workflow run desktop-macos.yml --ref main -f mode=package
 
 All modes validate the tag input before checkout and require its commit to be on `origin/main` before executing
 repository code or accessing signing credentials. `package` builds and tests the runtime and desktop app, signs and notarizes the app and DMG, and uploads only the ZIP,
-DMG, two `.sha256` files and `release.json` as the `open-artifact-desktop-macos-arm64` Actions artifact (14 days).
+DMG, two `.sha256` files, `release.json` and `desktop-updates-darwin-arm64.json` as the
+`open-artifact-desktop-macos-arm64` Actions artifact (14 days).
 It creates no GitHub Release. The workflow uses a native arm64 `macos-15` runner; no Rust/WASM rebuild is needed because
 the generated WASM is committed.
 
@@ -94,6 +95,31 @@ and releases are independent of npm's `v*` workflow and leave GitHub's existing 
 Existing assets are immutable: retry the failed **publish job** to reuse the same build artifact. Different bytes
 for an existing filename are refused, including a partially uploaded draft. A rebuild that differs needs a new
 version/tag. The source commit, signer, Apple submission IDs and SHA-256 hashes are recorded in `release.json`.
+
+## Desktop automatic updates
+
+Release packaging sets `desktopUpdates: true` in the signed app's package metadata and generates
+`desktop-updates-darwin-arm64.json` from the final notarized ZIP. This static Squirrel JSON feed names the stable
+version, GitHub ZIP URL, byte count and SHA-256. The publisher verifies these against the ZIP and includes the feed
+in all upload and public download checks. No mutable branch feed, update server or change to GitHub Latest is needed.
+
+The app checks the public `JimLiu/open-artifact` GitHub Releases API 15 seconds after launch and every 6 hours,
+selecting the highest newer stable `desktop-v*` release with an uploaded arm64 ZIP and feed. Drafts, prereleases,
+npm tags and releases without update metadata are skipped. API or metadata failures show a retryable error.
+Settings → Desktop application updates and the app menu's Check for App Updates offer manual checks. A newer version
+adds an Update button at the bottom of the sidebar, to the right of Settings; with no update, the button is absent.
+Clicking it starts the download and opens a window with actual byte progress, percentage and transferred/total MB.
+Cancel Download stops the remote transfer; closing the window lets it continue in the background. Automatic
+checks default on; automatic downloads default off. These preferences are stored as `appAutoCheck` and
+`appAutoDownload` in the app's `<userData>/settings.json`, independently of runtime update policy.
+
+Chromium downloads the ZIP with progress and verifies its exact size and SHA-256. A capability-protected loopback
+endpoint hands only that verified ZIP to Electron's native macOS updater, which checks integrity and code signing
+before reporting it ready. Once ready, it installs
+on normal quit, or the person can choose Restart and Update. The existing pending-save and unsaved-work confirmation
+runs before restart; canceling leaves the staged update ready. Development, ad hoc, unsupported-platform and test
+builds never check or install. An older app without this updater needs one manual download of an updater-enabled
+release. The updater itself needs no GitHub token or additional signing secrets.
 
 ## Local packaging and checks
 

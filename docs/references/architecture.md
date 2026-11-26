@@ -209,9 +209,18 @@ entitlements, staples the accepted app before ZIP creation, checks the extracted
 notarizes and staples the DMG. `macos-ci-keychain.ts` isolates signing/notary secrets in a temporary keychain with a
 real private-key signing probe and explicit cleanup. Desktop and runtime versions agree. `desktop-macos.yml` builds
 on native macOS arm64 and tests the signed package; its publisher (`scripts/release.ts`) validates tag/source/signer
-and hashes and uploads only public ZIP/DMG/checksums/report to an independent `desktop-v*` GitHub Release, preserving
-existing assets and npm's Latest release. There is no desktop auto-updater; locally installed artifact apps keep
-their ad hoc outer signatures. See `apps/desktop/RELEASING.md` and `RELEASING.zh-CN.md`.
+and hashes and uploads only public ZIP/DMG/checksums/report/update feed to an independent `desktop-v*` GitHub Release,
+preserving existing assets and npm's Latest release. `src/app-update.ts` owns desktop update state and scheduling;
+`app-update-feed.ts` validates stable desktop releases and the static Squirrel JSON feed shared with the publisher.
+`app-update-electron.ts` uses Chromium networking for GitHub discovery; `app-update-download.ts` streams the ZIP with
+real byte progress, verifies size/SHA-256, and hands it through a capability-protected loopback server to Electron's
+native updater for integrity/code-signature verification and installation. `desktop.updates` exposes checked,
+data-only IPC to Settings and the update window. A button to the right of Settings in the sidebar footer appears only
+with an update; clicking starts a download and shows progress. Checks default on (15 seconds after launch, then every
+6 hours), downloads default off; the
+app's own preferences are independent of runtime policy. Explicit installation passes through the unsaved-work quit
+guard; staged updates also install on normal quit. Development, ad hoc and test builds never update. Locally installed
+artifact apps keep their ad hoc outer signatures. See `apps/desktop/RELEASING.md` and `RELEASING.zh-CN.md`.
 
 ## Agent tools & wake loop
 

@@ -64,6 +64,12 @@ const desktop: DesktopBridge = {
     do: (act, arg) => invoke('desktop:runtime-do')(String(act) as typeof act, arg === true ? true : arg === false ? false : undefined),
     onChange: listen<import('./runtime.ts').RuntimeView>('desktop:runtime'),
   },
+  /** The signed desktop app's own GitHub updates and preferences (independent of the runtime's updates). */
+  updates: {
+    get: () => invoke('desktop:updates')(),
+    do: (act, on) => invoke('desktop:updates-do')(String(act) as typeof act, on),
+    onChange: listen<import('./app-update.ts').AppUpdateView>('desktop:updates'),
+  },
   /**
    * The servers (the sites this computer is connected to; the daemon's settings, shared with the command line):
    * `get(refresh)` the list, the default, automatic publishing and a sign-in under way; `do(act, arg)` runs `add`

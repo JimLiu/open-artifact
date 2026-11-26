@@ -76,7 +76,7 @@ describe('the menu bar', () => {
       present(present(present(menu).find((m) => m.label === label)).submenu)
         .filter((i) => i.type !== 'separator')
         .map((i) => i.id ?? i.role);
-    assert.deepEqual(ids('Open Artifact'), ['about', 'settings', 'services', 'hide', 'hideothers', 'unhide', 'quit']);
+    assert.deepEqual(ids('Open Artifact'), ['about', 'check-updates', 'settings', 'services', 'hide', 'hideothers', 'unhide', 'quit']);
     assert.deepEqual(ids('File'), ['new', 'new-dialog', 'open-folder', 'import', 'reveal', 'move', 'install-app', 'close-tab']);
     assert.deepEqual(ids('Edit'), ['edit:undo', 'edit:redo', 'edit:cut', 'edit:copy', 'edit:paste', 'edit:paste-plain', 'edit:delete', 'edit:select-all']);
     assert.deepEqual(ids('View'), ['reload', 'toggle-sidebar', 'zoom-reset', 'zoom-in', 'zoom-out', 'fullscreen']);

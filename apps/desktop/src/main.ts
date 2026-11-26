@@ -43,6 +43,7 @@ import { mkdirSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, isAbsolute, join } from 'node:path';
 import { wordsFor } from '../renderer/src/words.ts';
+import { electronAppUpdates } from './app-update-electron.ts';
 import { daemonHostGone, daemonHostLive } from './daemon-host.ts';
 import { Downloads } from './downloads.ts';
 import { libraryDefaultFolder, newArtifactFolder } from './folders.ts';
@@ -553,13 +554,13 @@ async function start() {
   let quitAllowed = false;
   let quitting: Promise<boolean> | null = null;
   /** ⌘Q or the window's close with unsaved work: waited for, then asked about with the tabs' names. */
-  const confirmQuit = () =>
+  const confirmQuit = (finish: () => void = () => app.quit()) =>
     (quitting ??= (async () => {
       // The window is gone (its page closed it, which no close event can hold): there is nowhere to ask.
       if (window.isDestroyed()) {
         log('quit: the window is gone, nothing to ask in');
         quitAllowed = true;
-        app.quit();
+        finish();
         return true;
       }
       const ids = unsavedTabs().map((tab) => tab.id);
@@ -579,13 +580,26 @@ async function start() {
       }
       log(left.length ? `quit: with unsaved work let go in ${left.length} tab(s), as asked` : 'quit: the work was saved');
       quitAllowed = true;
-      app.quit();
+      try { finish(); } catch (error) { quitAllowed = false; throw error; }
       return true;
     })().finally(() => (quitting = null)));
   window.on('close', (event) => {
     if (quitAllowed || !unsavedTabs().length) return;
     event.preventDefault();
     void confirmQuit();
+  });
+  const appUpdates = electronAppUpdates({
+    testMode: profile.testMode,
+    preferences: () => ({ autoCheck: settings.get('appAutoCheck'), autoDownload: settings.get('appAutoDownload') }),
+    save: (name, on) => settings.set(name === 'autoCheck' ? 'appAutoCheck' : 'appAutoDownload', on),
+    confirmInstall: (install) => confirmQuit(install),
+    openNotes: openExternal,
+    changed: (view) => {
+      // A native install that failed before quitting must not leave later quits exempt from the save guard.
+      if (view.phase === 'error') quitAllowed = false;
+      if (!window.isDestroyed()) window.webContents.send('desktop:updates', view);
+    },
+    log,
   });
   const travel = (to: string | null) => {
     if (to === null) return false;
@@ -834,6 +848,21 @@ async function start() {
   handle('desktop:reveal-home', () => system.reveal(profile.home));
 
   // ---- the service panel and the runtime's updates ----
+  handle('desktop:updates', () => appUpdates.view());
+  answer('desktop:updates-do', async (act, on) => {
+    switch (act) {
+      case 'check': return appUpdates.check();
+      case 'download': return appUpdates.download();
+      case 'cancel': return appUpdates.cancel();
+      case 'install': return appUpdates.install();
+      case 'notes': return appUpdates.notes();
+      case 'checking':
+      case 'auto-download':
+        if (typeof on !== 'boolean') throw new Error('Expected an update preference');
+        return appUpdates.setPreference(act === 'checking' ? 'autoCheck' : 'autoDownload', on);
+      default: throw new Error(`not a desktop update action: ${act}`);
+    }
+  });
   handle('desktop:service', async (refresh) => {
     if (refresh === true) await service.refresh();
     return service.view();
@@ -1103,6 +1132,11 @@ async function start() {
     'previous-tab': () => travel(tabs.neighbour(-1)),
     'next-tab': () => travel(tabs.neighbour(1)),
     logs: () => service.openLogs(),
+    'check-updates': () => {
+      toPage('settings');
+      if (!appUpdates.view().unavailable) void appUpdates.check();
+      return true;
+    },
     doctor: async () => {
       toPage('service');
       const out = await service.runDoctor();
@@ -1333,6 +1367,7 @@ async function start() {
   if (harness.connected) libraryEvent({ type: 'connected' });
   if (harness.connected) void refreshTypes();
   if (harness.connected) servers.start();
+  appUpdates.start();
 
   window.on('closed', () => app.quit());
   app.on('before-quit', (event) => {
@@ -1345,6 +1380,7 @@ async function start() {
     quitAllowed = true;
     service.close();
     runtime.close();
+    appUpdates.close();
     photographer.closeAll();
     notice.close();
     tabs.closeAll();

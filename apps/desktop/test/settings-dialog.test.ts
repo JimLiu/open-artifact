@@ -79,6 +79,35 @@ describe('the settings dialog', () => {
     assert.equal((JSON.parse(readFileSync(join(profile.oaHome, 'desktop', 'user-data', 'settings.json'), 'utf8')) as SettingsValues).theme, 'light');
   });
 
+  it('desktop updates have separate saved preferences and cannot contact GitHub or install in test mode', T, async () => {
+    const run = <V>(expression: string) => ui.run<V>(expression);
+    assert.ok(await ui.waitFor(`!!document.querySelector('[data-testid=app-update-settings]')`));
+    assert.match(await ui.text('app-update-line'), /test mode|测试模式/i);
+    assert.equal(await ui.disabled('[data-testid=app-update-check]'), true);
+    const updates = () => run<import('../src/app-update.ts').AppUpdateView>('desktop.updates.get()');
+    assert.equal((await updates()).unavailable, 'test');
+    assert.equal(await ui.run<boolean>('!!document.querySelector("[data-testid=app-update-button]")'), false);
+    assert.equal((await updates()).autoCheck, true);
+    assert.equal((await updates()).autoDownload, false);
+    for (const action of ['check', 'download', 'install']) {
+      const out = await run<import('../src/types.ts').Reply<unknown>>(`desktop.updates.do(${js(action)})`);
+      assert.equal(out.ok, false);
+    }
+    assert.equal(await ui.click('[data-testid=app-update-auto-check]'), true);
+    assert.ok(await ui.waitFor(`document.querySelector('[data-testid=app-update-auto-check]')?.getAttribute('aria-checked') === 'false'`));
+    assert.equal(await ui.click('[data-testid=app-update-auto-download]'), true);
+    assert.ok(await ui.waitFor(`document.querySelector('[data-testid=app-update-auto-download]')?.getAttribute('aria-checked') === 'true'`));
+    const saved = JSON.parse(readFileSync(join(profile.oaHome, 'desktop', 'user-data', 'settings.json'), 'utf8')) as SettingsValues;
+    assert.equal(saved.appAutoCheck, false);
+    assert.equal(saved.appAutoDownload, true);
+    assert.equal((await updates()).phase, 'idle');
+    const invalid = await run<import('../src/types.ts').Reply<unknown>>(`desktop.updates.do('checking', 'true')`);
+    assert.equal(invalid.ok, false);
+    await present(app).command('check-updates');
+    assert.ok(await ui.waitFor(`!!document.querySelector('[data-testid=settings-dialog]')`));
+    assert.equal((await updates()).checkedAt, null);
+  });
+
   it('a changed language says it takes effect when the app opens again, and Reopen is only logged in test mode', T, async () => {
     assert.equal(await ui.run<boolean>(`document.querySelector('[data-testid=relaunch-note]') === null`), true);
     const before = (await present(app).state()).look.locale;

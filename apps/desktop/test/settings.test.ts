@@ -130,6 +130,8 @@ describe('the look and the language in the artifact views', () => {
       locale: 'en',
       artifactsFolder: '',
       autoPublishAsked: false,
+      appAutoCheck: true,
+      appAutoDownload: false,
     });
     await app.quit();
     app = null;

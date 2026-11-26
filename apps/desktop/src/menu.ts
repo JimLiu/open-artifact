@@ -109,6 +109,7 @@ export function menuTemplate({
             label: appName,
             submenu: [
               command('about', t('menu.about', { app: appName })),
+              command('check-updates', t('appUpdate.check')),
               sep,
               command('settings', t('menu.settings'), { accelerator: 'CmdOrCtrl+,' }),
               sep,
@@ -169,7 +170,7 @@ export function menuTemplate({
     {
       label: t('menu.help'),
       role: 'help' as const,
-      submenu: [command('logs', t('menu.logs')), command('doctor', t('menu.doctor'))],
+      submenu: [...(mac ? [] : [command('check-updates', t('appUpdate.check'))]), command('logs', t('menu.logs')), command('doctor', t('menu.doctor'))],
     },
   ];
 }

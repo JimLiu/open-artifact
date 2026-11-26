@@ -194,7 +194,10 @@ A package npm doesn't have yet is claimed once from a computer before its first 
 `node scripts/publish-npm.mjs` publishes from a computer too (`--dry-run` to look first).
 
 Open Artifact Desktop uses the same version, with separate `desktop-v<version>` tags. Its [Desktop macOS workflow](.github/workflows/desktop-macos.yml)
-signs with Developer ID, notarizes and publishes ZIP / DMG assets to GitHub. See [desktop release setup](apps/desktop/RELEASING.md).
+signs with Developer ID, notarizes and publishes ZIP / DMG assets and update metadata to GitHub. The signed macOS Apple Silicon app
+checks GitHub for desktop updates by default; a button beside Settings in the sidebar offers download with progress
+and restart to install. Automatic download is optional.
+See [desktop release setup](apps/desktop/RELEASING.md).
 
 ## Repository layout
 

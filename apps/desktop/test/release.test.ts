@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { notarize, signingConfig, signingPreflight, verifySignedApp } from '../scripts/macos-distribution.ts';
-import { sha256, validateCandidate, validateVersion } from '../scripts/release.ts';
+import { sha256, validateCandidate, validateVersion, writeUpdateFeed } from '../scripts/release.ts';
+import { UPDATE_FEED } from '../src/app-update-feed.ts';
 
 const identity = 'C'.repeat(40);
 const team = '22FY8U8BF9';
@@ -78,6 +79,7 @@ async function fixture() {
   const report = { schema: 1, version: '0.16.0', arch: 'arm64', appId: 'dev.openartifact.desktop', sourceCommit: source,
     signingSha1: identity, teamId: team, notarized: true, appSubmission: 'b'.repeat(36), dmgSubmission: 'c'.repeat(36), files };
   writeFileSync(join(directory, 'release.json'), JSON.stringify(report));
+  await writeUpdateFeed(directory, report.version);
   return { directory, report };
 }
 const expected = { tag: 'desktop-v0.16.0', source, identity, team };
@@ -85,7 +87,7 @@ const expected = { tag: 'desktop-v0.16.0', source, identity, team };
 test('publication detects corrupted archives and checksum files before upload', async () => {
   const { directory, report } = await fixture();
   try {
-    assert.equal((await validateCandidate(directory, expected)).names.length, 5);
+    assert.equal((await validateCandidate(directory, expected)).names.length, 6);
     const file = join(directory, report.files[0].name);
     const bytes = readFileSync(file);
     writeFileSync(file, 'tampered');
@@ -94,6 +96,23 @@ test('publication detects corrupted archives and checksum files before upload', 
     writeFileSync(`${file}.sha256`, 'tampered');
     await assert.rejects(validateCandidate(directory, expected), /Checksum file differs/);
   } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+test('publication requires update metadata matching the final ZIP, version, digest and GitHub repository', async () => {
+  for (const mutate of [
+    (feed: ReturnType<typeof import('../src/app-update-feed.ts').updateFeed>) => { feed.currentRelease = '0.17.0'; },
+    (feed: ReturnType<typeof import('../src/app-update-feed.ts').updateFeed>) => { feed.releases[0].updateTo.sha256 = 'd'.repeat(64); },
+    (feed: ReturnType<typeof import('../src/app-update-feed.ts').updateFeed>) => { feed.releases[0].updateTo.size++; },
+    (feed: ReturnType<typeof import('../src/app-update-feed.ts').updateFeed>) => { feed.releases[0].updateTo.url = 'https://example.com/other.zip'; },
+  ]) {
+    const { directory } = await fixture();
+    try {
+      const feed = JSON.parse(readFileSync(join(directory, UPDATE_FEED), 'utf8'));
+      mutate(feed);
+      writeFileSync(join(directory, UPDATE_FEED), JSON.stringify(feed));
+      await assert.rejects(validateCandidate(directory, expected));
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+  }
 });
 
 test('publication rejects mismatched source/signer, unnotarized builds and unexpected asset paths', async () => {

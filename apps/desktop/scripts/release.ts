@@ -1,10 +1,11 @@
 // Tag planning and publication use only Node built-ins; the publisher never receives Apple credentials.
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { createReadStream, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createReadStream, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { UPDATE_FEED, UPDATE_REPOSITORY, updateFeed, validateFeed } from '../src/app-update-feed.ts';
 
 const appRoot = resolve(import.meta.dirname, '..');
 const root = resolve(appRoot, '../..');
@@ -16,6 +17,13 @@ export async function sha256(file: string) {
   const hash = createHash('sha256');
   for await (const chunk of createReadStream(file)) hash.update(chunk);
   return hash.digest('hex');
+}
+
+/** Generated only from the final signed/notarized ZIP; uploaded with the immutable desktop release. */
+export async function writeUpdateFeed(directory: string, version: string, repository = UPDATE_REPOSITORY) {
+  const zip = join(directory, `Open-Artifact-${version}-darwin-arm64.zip`);
+  const feed = updateFeed(version, statSync(zip).size, await sha256(zip), repository);
+  writeFileSync(join(directory, UPDATE_FEED), `${JSON.stringify(feed, null, 2)}\n`);
 }
 
 export function validateVersion(tag: string, versions: string[]) {
@@ -51,7 +59,7 @@ interface Report {
   files: { name: string; sha256: string }[];
 }
 
-export async function validateCandidate(directory: string, expected: { tag: string; source: string; identity: string; team: string }) {
+export async function validateCandidate(directory: string, expected: { tag: string; source: string; identity: string; team: string; repository?: string }) {
   const report = json<Report>(join(directory, 'release.json'));
   const version = validateVersion(expected.tag, [report.version]);
   ensure(report.schema === 1 && report.arch === 'arm64' && report.appId === 'dev.openartifact.desktop', 'Unexpected desktop release identity');
@@ -66,7 +74,12 @@ export async function validateCandidate(directory: string, expected: { tag: stri
     ensure(await sha256(join(directory, name)) === entry.sha256, `Asset checksum differs: ${name}`);
     ensure(readFileSync(join(directory, `${name}.sha256`), 'utf8') === `${entry.sha256}  ${name}\n`, `Checksum file differs: ${name}`);
   }
-  return { report, names: [...names, ...names.map(name => `${name}.sha256`), 'release.json'] };
+  const zip = join(directory, names[0]);
+  const feed = json<unknown>(join(directory, UPDATE_FEED));
+  validateFeed(feed, { version, size: statSync(zip).size }, expected.repository);
+  const generated = updateFeed(version, statSync(zip).size, await sha256(zip), expected.repository);
+  ensure(JSON.stringify(feed) === JSON.stringify(generated), 'Update feed differs from the signed ZIP');
+  return { report, names: [...names, ...names.map(name => `${name}.sha256`), 'release.json', UPDATE_FEED] };
 }
 
 async function publish(directory: string) {
@@ -76,7 +89,7 @@ async function publish(directory: string) {
   const source = command('git', ['rev-parse', `refs/tags/${tag}^{commit}`]);
   ensure(source === command('git', ['rev-parse', 'HEAD']), 'Publisher checkout differs from release tag');
   const { report, names } = await validateCandidate(directory, {
-    tag, source, identity: process.env.OA_MAC_SIGNING_SHA1 ?? '', team: process.env.OA_APPLE_TEAM_ID ?? '',
+    tag, source, identity: process.env.OA_MAC_SIGNING_SHA1 ?? '', team: process.env.OA_APPLE_TEAM_ID ?? '', repository: repo,
   });
   const work = mkdtempSync(join(tmpdir(), 'open-artifact-publish-'));
   const gh = (...args: string[]) => command('gh', [...args, '--repo', repo]);

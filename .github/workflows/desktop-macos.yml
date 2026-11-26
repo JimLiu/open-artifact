@@ -119,6 +119,7 @@ jobs:
             apps/desktop/dist/release/*.dmg
             apps/desktop/dist/release/*.sha256
             apps/desktop/dist/release/release.json
+            apps/desktop/dist/release/desktop-updates-*.json
 
   publish:
     needs: build

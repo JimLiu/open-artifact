@@ -12,6 +12,7 @@ import { NewDialog } from './NewDialog.tsx';
 import { ServerButton, ServerPanel, useServers } from './ServerSwitcher.tsx';
 import { ServicePanel, ServiceStatus } from './ServicePanel.tsx';
 import { SettingsDialog } from './SettingsDialog.tsx';
+import { AppUpdateDialog, useAppUpdates } from './AppUpdate.tsx';
 import { Sidebar } from './Sidebar.tsx';
 import { TabBar, TabMenu } from './TabBar.tsx';
 import { MissingFolder, UnsavedDialog } from './Unsaved.tsx';
@@ -32,6 +33,7 @@ export function App({ initial }: { initial: DesktopState }) {
   // The service panel (`{ ask }`: opened with a question asked) and the settings dialog.
   const [servicePanel, setServicePanel] = useState<{ ask: 'restart' | 'stop' | null } | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [updatesOpen, setUpdatesOpen] = useState(false);
   // The servers switcher (the sites this computer is connected to).
   const [serversOpen, setServersOpen] = useState(false);
   // "Install as app" of one artifact (`{ id, title }`), and a tab's right-click menu (`{ id, title, x, y }`).
@@ -40,6 +42,7 @@ export function App({ initial }: { initial: DesktopState }) {
   const servers = useServers();
   const service = useService();
   const runtime = useRuntime();
+  const appUpdates = useAppUpdates();
   const runtimeRef = useRef(runtime);
   runtimeRef.current = runtime;
   const runtimeListeners = useRef(new Set<() => void>());
@@ -150,7 +153,7 @@ export function App({ initial }: { initial: DesktopState }) {
   // A dialog is drawn over the artifact's view: the view is hidden while one is open (the main process's question
   // about unsaved work too).
   // A tab's menu too: it drops below the tab bar, where the view is.
-  const overlay = dialogOpen || !!servicePanel || settingsOpen || serversOpen || !!state.ask || !!installFor || !!tabMenu;
+  const overlay = dialogOpen || !!servicePanel || settingsOpen || updatesOpen || serversOpen || !!state.ask || !!installFor || !!tabMenu;
   useEffect(() => {
     void window.desktop.setOverlay(overlay);
   }, [overlay]);
@@ -189,6 +192,12 @@ export function App({ initial }: { initial: DesktopState }) {
               onNew={openDialog}
               onSearch={onSearch}
               onSettings={() => setSettingsOpen(true)}
+              appUpdates={appUpdates}
+              onUpdate={() => {
+                setUpdatesOpen(true);
+                if (appUpdates && ['available', 'error'].includes(appUpdates.phase))
+                  void window.desktop.updates.do('download');
+              }}
               artifactDo={artifactDo}
               onInstallApp={installApp}
             />
@@ -222,12 +231,14 @@ export function App({ initial }: { initial: DesktopState }) {
         {dialogOpen && <NewDialog t={t} onClose={() => setDialogOpen(false)} />}
         {tabMenu && <TabMenu t={t} menu={tabMenu} onClose={closeTabMenu} onInstallApp={installApp} />}
         {installFor && <InstallAppDialog key={installFor.id} t={t} artifact={installFor} onClose={() => setInstallFor(null)} />}
-        {settingsOpen && !servicePanel && !serversOpen && (
+        {updatesOpen && <AppUpdateDialog t={t} view={appUpdates} onClose={() => setUpdatesOpen(false)} />}
+        {settingsOpen && !servicePanel && !serversOpen && !updatesOpen && (
           <SettingsDialog
             t={t}
             settings={state.settings}
             service={service}
             runtime={runtime}
+            appUpdates={appUpdates}
             servers={servers}
             onService={() => setServicePanel({ ask: null })}
             onServers={() => setServersOpen(true)}

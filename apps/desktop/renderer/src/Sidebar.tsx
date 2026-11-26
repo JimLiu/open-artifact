@@ -6,6 +6,7 @@ import type { ArtifactAction, ArtifactMenu, DialogProps, InstallApp, WindowProps
 import { ArtifactsIcon, TypeIcon, typeStyle, usePage } from '@open-artifact/library-page';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { BackIcon, ChevronIcon, ForwardIcon, PlusIcon, SearchIcon, SettingsIcon, SidebarIcon } from './icons.tsx';
+import { SidebarUpdateButton } from './AppUpdate.tsx';
 
 /** How many of the artifacts changed last the sidebar lists. */
 export const RECENT_MAX = 8;
@@ -152,9 +153,12 @@ export function Sidebar({
   onNew,
   onSearch,
   onSettings,
+  appUpdates,
+  onUpdate,
   artifactDo,
   onInstallApp,
-}: WindowProps & { onNew(): void; onSearch(): void; onSettings(): void; artifactDo: ArtifactAction; onInstallApp: InstallApp }) {
+}: WindowProps & { onNew(): void; onSearch(): void; onSettings(): void; appUpdates: import('../../src/app-update.ts').AppUpdateView | null;
+  onUpdate(): void; artifactDo: ArtifactAction; onInstallApp: InstallApp }) {
   const artifacts = usePage((s) => s.artifacts);
   const [pinnedOpen, setPinnedOpen] = useState(true);
   const [menu, setMenu] = useState<ArtifactMenu | null>(null);
@@ -224,6 +228,7 @@ export function Sidebar({
           <SettingsIcon />
           {t('nav.settings')}
         </button>
+        <SidebarUpdateButton t={t} view={appUpdates} onOpen={onUpdate} />
       </div>
       {menu && <RowMenu t={t} menu={menu} onClose={closeMenu} artifactDo={artifactDo} onInstallApp={onInstallApp} />}
     </nav>

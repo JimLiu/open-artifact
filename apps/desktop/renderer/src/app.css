@@ -548,11 +548,43 @@ button.section-head {
   opacity: 0.6;
 }
 
-/* ---- the sidebar's bottom: Settings ---- */
+/* ---- the sidebar's bottom: Settings, with updates on its right only when available ---- */
 .sidebar-bottom {
   flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   padding-top: 6px;
 }
+.sidebar-bottom .nav-row { flex: 1; min-width: 0; width: auto; }
+.app-update-button {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 32px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--oa-page-accent);
+  color: white;
+  font-size: 12px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  cursor: default;
+}
+.app-update-button:hover { filter: brightness(0.94); }
+.app-update-button:focus-visible { outline: 2px solid var(--oa-page-accent); outline-offset: 2px; }
+.settings-dialog.app-update-dialog { width: min(480px, 100%); }
+.app-update-dialog p { margin: 0; }
+.app-update-dialog .app-update-notes { max-height: 240px; font-size: 13px; }
+.app-update-progress { display: flex; flex-direction: column; gap: 8px; }
+.app-update-progress-text { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; color: var(--oa-page-text-secondary); font-variant-numeric: tabular-nums; }
+.app-update-progress progress { display: block; width: 100%; height: 6px; accent-color: var(--oa-page-accent); border: 0; border-radius: 8px; overflow: hidden; }
+.app-update-progress progress::-webkit-progress-bar { background: var(--oa-page-border); border-radius: 8px; }
+.app-update-progress progress::-webkit-progress-value { background: var(--oa-page-accent); border-radius: 8px; transition: width 100ms linear; }
+.app-update-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding-top: 14px; border-top: 1px solid var(--oa-page-border); }
 
 /* ---- buttons the panels share ---- */
 .button-outline,
@@ -1294,4 +1326,11 @@ button.section-head {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+.app-update-notes {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 180px;
+  overflow: auto;
+  font-size: 12px;
 }

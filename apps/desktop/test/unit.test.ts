@@ -409,6 +409,8 @@ describe('settings', () => {
         locale: 'system',
         artifactsFolder: '',
         autoPublishAsked: false,
+        appAutoCheck: true,
+        appAutoDownload: false,
       });
       assert.equal(new Settings(dir).get('sidebarCollapsed'), true);
       assert.throws(() => setUnknown(first, 'sidebarCollapsed', 'yes'), /not a setting/);

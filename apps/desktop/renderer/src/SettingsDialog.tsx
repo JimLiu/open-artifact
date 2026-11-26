@@ -13,6 +13,7 @@ import type { DialogProps, WordsProps } from './types.ts';
 import { useEffect, useRef, useState } from 'react';
 import { defaultOf, serversDo } from './ServerSwitcher.tsx';
 import { RuntimeRow } from './ServicePanel.tsx';
+import { AppUpdateSettings } from './AppUpdate.tsx';
 import { runtimeDo } from './service.ts';
 
 const LOOKS = ['system', 'light', 'dark'] as const;
@@ -85,6 +86,7 @@ export function SettingsDialog({
   settings,
   service,
   runtime,
+  appUpdates,
   servers,
   onService,
   onServers,
@@ -93,6 +95,7 @@ export function SettingsDialog({
   settings: SettingsSnapshot;
   service: ServiceView | null;
   runtime: RuntimeView | null;
+  appUpdates: import('../../src/app-update.ts').AppUpdateView | null;
   servers: ServersView | null;
   onService(): void;
   onServers(): void;
@@ -276,6 +279,7 @@ export function SettingsDialog({
             )}
           </Section>
 
+          <AppUpdateSettings t={t} view={appUpdates} />
           <Section id="settings-shared" title={t('settings.shared')}>
             <div className="settings-row">
               <span className="row-text">

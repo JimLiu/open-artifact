@@ -86,7 +86,10 @@ with `app.quit({ force: true })` (the app would otherwise ask).
 placeholder icon, stable bundle id (`dev.openartifact.desktop`), Electron's fuses as they
 are (`RunAsNode` on), signed ad hoc on this computer. `package:release` instead signs nested code with Developer ID,
 hardened runtime and timestamps, notarizes/staples the app before archiving, verifies the extracted ZIP, and separately
-signs/notarizes/staples the DMG; both pass Gatekeeper. No desktop automatic updates yet. Packaged, the app
+signs/notarizes/staples the DMG; both pass Gatekeeper. Release packaging also writes the static Squirrel feed
+`desktop-updates-darwin-arm64.json` from the final ZIP (GitHub URL, version, size, SHA-256). Only release packages set
+`desktopUpdates: true`; the signed macOS app checks GitHub desktop releases and uses Electron's native updater.
+Development, local ad hoc and test builds never check or install. Packaged, the app
 with no arguments uses the person's own home and port, so `test/packaged/` only starts it with `--home`, a port other
 than 4800, `--test-mode` and a throwaway `HOME`, and checks first that it then uses those folders only. A package
 declares no URL scheme; `OA_DESKTOP_URL_SCHEME=1 npm run package` adds `open-artifact://` to its `Info.plist`
@@ -114,10 +117,19 @@ Desktop `package.json` and its lockfile now share the runtime version. The separ
 `main` and desktop tags. Manual modes are `validate` (default, private-key signing probe and Apple access), `package`
 (signed/notarized candidate only), and `publish` (existing tag required, checked against package/lock/runtime and
 `origin/main`). Only the credential step receives Apple secrets; it uses an ephemeral keychain cleaned with `always()`.
-The build runs desktop `check` and signed `test:packaged`; the publisher receives only the five public files,
+The build runs desktop `check` and signed `test:packaged`; the publisher receives only the six public files
+(ZIP, DMG, two checksums, release report, update feed), validates the feed against the signed ZIP,
 verifies hashes before and after upload and anonymous public download, refuses changed existing assets, and leaves
 GitHub Latest and npm releases alone. Retry only the failed publisher to reuse its original candidate. Details and
 secret names: `apps/desktop/RELEASING.md` / `RELEASING.zh-CN.md`.
+
+`test/app-update.test.ts` covers release filtering/pagination, metadata validation, automatic-check timing and
+preferences, opt-in downloads, retry, install confirmation and disabled builds without networking or installing.
+`test/app-update-download.test.ts` checks real byte counting, SHA-256/size rejection, cancellation/partial-file cleanup
+and the private native handoff server's routes and shutdown. The sidebar shows an Update button beside Settings only
+when an update exists; its window displays transferred/total bytes and supports cancel during remote transfer.
+`test/release.test.ts` rejects an update feed that differs from the signed candidate. `test/settings-dialog.test.ts`
+checks the separate desktop-update controls, saved preferences and test-mode refusal through real Electron IPC.
 
 ## Releasing
 

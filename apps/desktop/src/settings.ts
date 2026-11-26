@@ -4,7 +4,8 @@ import type { Log } from './types.ts';
  * The app's own settings: one JSON file in Electron's `userData` folder (`settings.json`), not in the Open Artifact
  * home (they are this app's, not the library's). What the window remembers between runs: whether the sidebar is
  * collapsed, the look (`theme`: `system`, `light` or `dark`), the language (`locale`: `system`, `en` or `zh-CN`) and
- * where new artifacts go (`artifactsFolder`: an absolute folder, or empty for the library's own default). A
+ * where new artifacts go (`artifactsFolder`: an absolute folder, or empty for the library's own default), and desktop
+ * update preferences (`appAutoCheck`: true, `appAutoDownload`: false; separate from the runtime's policy). A
  * file that is missing or does not parse is the defaults, and a value it holds that is not one of a setting's choices
  * is that setting's default; a write that fails is logged and the setting lasts the run.
  */
@@ -17,6 +18,8 @@ export interface SettingsValues {
   locale: 'system' | 'en' | 'zh-CN';
   artifactsFolder: string;
   autoPublishAsked: boolean;
+  appAutoCheck: boolean;
+  appAutoDownload: boolean;
 }
 export const DEFAULTS: Readonly<SettingsValues> = Object.freeze({
   sidebarCollapsed: false,
@@ -24,6 +27,8 @@ export const DEFAULTS: Readonly<SettingsValues> = Object.freeze({
   locale: 'system',
   artifactsFolder: '',
   autoPublishAsked: false,
+  appAutoCheck: true,
+  appAutoDownload: false,
 });
 
 /** The values a setting may take (a setting not listed takes any value of its default's type). */

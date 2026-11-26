@@ -76,6 +76,7 @@ without one and uses the entry as the GitHub release notes.
 
 Desktop's package and lockfile share the runtime version. Its separate `desktop-vx.y.z` tag triggers
 `.github/workflows/desktop-macos.yml` (Developer ID signing, notarization, native checks, immutable GitHub assets).
+Release packaging also generates `desktop-updates-darwin-arm64.json` from the signed ZIP for the desktop updater.
 Use `mode=validate` before the first release; secrets live in `macos-release`. See `apps/desktop/RELEASING.md` (EN / zh-CN).
 
 ## Progressive-loading references

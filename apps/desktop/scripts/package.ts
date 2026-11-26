@@ -67,7 +67,7 @@ for (const entry of ['main.mjs', 'preload.cjs', 'notice-preload.cjs', 'artifact-
   cpSync(join(here, 'out', entry), join(stage, 'out', entry), { recursive: true });
 writeFileSync(
   join(stage, 'package.json'),
-  `${JSON.stringify({ name: pkg.name, productName: NAME, version: pkg.version, description: pkg.description, type: 'module', main: 'out/main.mjs', license: pkg.license }, null, 2)}\n`,
+  `${JSON.stringify({ name: pkg.name, productName: NAME, version: pkg.version, description: pkg.description, type: 'module', main: 'out/main.mjs', license: pkg.license, desktopUpdates: release }, null, 2)}\n`,
 );
 const icon = writeIcns(join(dist, 'icon.icns'));
 // The icons of artifacts installed as apps, one per type (`Contents/Resources/app-icons/<type>.icns`).

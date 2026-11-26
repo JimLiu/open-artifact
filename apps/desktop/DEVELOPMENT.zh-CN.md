@@ -31,5 +31,17 @@ npm run check
 一个适配器内。页面的全局对象声明位于 `renderer/globals.d.ts`。`src/installed-app-types.ts` 定义安装日志、
 原生操作以及通过状态字段区分的安装状态。测试中的 CDP 命令和事件使用 `devtools-protocol` 的协议映射类型。
 
+桌面应用更新由 `src/app-update.ts`（状态与调度）、`app-update-feed.ts`（GitHub 桌面 tag 和静态 Squirrel 清单）
+以及 `app-update-electron.ts`（Chromium 网络与原生更新器）实现。`desktop.updates` bridge 提供 `get()`、
+`onChange()`、`do(check|download|cancel|install|checking|auto-download|notes, on?)`；修改偏好的 action 必须传布尔值。
+应用设置中 `appAutoCheck` 默认 true、`appAutoDownload` 默认 false，独立于 runtime 更新。publisher 核对清单与
+公证 ZIP 一致。开发版、临时签名包和测试模式都不能检查或安装；测试向状态控制器注入依赖、使用虚拟时钟，并覆盖
+真实 Electron bridge 的禁用行为。重启安装复用现有的未保存内容退出确认。
+
+`app-update-download.ts` 将远程 ZIP 流式写入私有临时缓存，按实际写入字节计进度（最多每 100ms 推送一次），
+校验大小与 SHA-256，再在 127.0.0.1 上通过每次下载独立的随机凭据路径提供清单和 ZIP，供原生更新器验签、就位。
+取消下载会删除半截文件；交接／退出清理会关闭连接并删除临时缓存。侧边栏按钮只在已知有新版本时出现，点击打开
+`AppUpdateDialog`；关闭更新窗可让下载继续。取消操作仅在远程传输阶段提供，不中断原生就位。
+
 扩展应用时，应在这些契约中补充具体字段和状态分支。保留 IPC 参数、磁盘文件和子进程数据的运行时校验；
 `unknown` 用于这些输入边界及泛型辅助函数。不要使用 `any`、通用动态类型别名或 TypeScript 忽略注释替代业务模型。

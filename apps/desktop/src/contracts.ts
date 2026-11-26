@@ -1,5 +1,6 @@
 /** The three sandboxed preloads expose data-only APIs, shared with their pages and IPC handlers. */
 import type { EmbedSavedState } from '@open-artifact/harness-kit/embed';
+import type { AppUpdateAction, AppUpdateView } from './app-update.ts';
 import type { ArtifactList, DeleteAnswer, PageArtifact } from '@open-artifact/library-page';
 import type { ArtifactWindowSnapshot } from './artifact-window.ts';
 import type { InstallOutcome, InstalledAppState, RebuildOptions } from './installed-app-types.ts';
@@ -163,6 +164,11 @@ export interface DesktopBridge {
     do<K extends keyof RuntimeResults>(act: K, arg?: boolean): Promise<Reply<RuntimeResults[K]>>;
     onChange(listener: (view: RuntimeView) => void): Unsubscribe;
   };
+  updates: {
+    get(): Promise<AppUpdateView>;
+    do(act: AppUpdateAction, on?: boolean): Promise<Reply<AppUpdateView | boolean>>;
+    onChange(listener: (view: AppUpdateView) => void): Unsubscribe;
+  };
   servers: {
     get(refresh?: boolean): Promise<ServersView>;
     do<K extends keyof ServerResults>(act: K, arg?: ServerArguments[K]): Promise<Reply<ServerResults[K]>>;
@@ -253,6 +259,8 @@ export interface DesktopIpc {
   'desktop:service-do': DesktopBridge['service']['do'];
   'desktop:runtime': DesktopBridge['runtime']['get'];
   'desktop:runtime-do': DesktopBridge['runtime']['do'];
+  'desktop:updates': DesktopBridge['updates']['get'];
+  'desktop:updates-do': DesktopBridge['updates']['do'];
   'desktop:servers': DesktopBridge['servers']['get'];
   'desktop:servers-do': DesktopBridge['servers']['do'];
   'desktop:apps.state': DesktopBridge['apps']['state'];

@@ -3,7 +3,8 @@ import { sign } from '@electron/osx-sign';
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { sha256 } from './release.ts';
+import { sha256, writeUpdateFeed } from './release.ts';
+import { UPDATE_REPOSITORY } from '../src/app-update-feed.ts';
 
 export type Run = (program: string, args: string[]) => string;
 export const run: Run = (program, args) => {
@@ -123,6 +124,7 @@ export async function distributeMac(app: string, version: string, config: Signin
     signingSha1: config.identity, teamId: config.team, notarized: true, appSubmission, dmgSubmission, files,
   };
   writeFileSync(join(output, 'release.json'), `${JSON.stringify(report, null, 2)}\n`);
+  await writeUpdateFeed(output, version, process.env.GITHUB_REPOSITORY ?? UPDATE_REPOSITORY);
   rmSync(work, { recursive: true, force: true });
   console.log(`package: signed and notarized ZIP, DMG and checksums in ${output}`);
 }

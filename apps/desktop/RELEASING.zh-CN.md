@@ -4,7 +4,7 @@
 
 Open Artifact Desktop 的 macOS Apple Silicon 正式包使用 Developer ID 签名、Hardened Runtime、Apple 公证和
 staple 票据，交付 ZIP 与同样签名、公证、staple 的 DMG。固定 Bundle ID 为 `dev.openartifact.desktop`。
-桌面应用、lockfile 与包内 runtime 共用版本号。目前更新桌面应用需要下载新版，runtime 的更新另行处理。
+桌面应用、lockfile 与包内 runtime 共用版本号。正式签名版从 GitHub 检查桌面更新，runtime 的更新另行处理。
 用户在自己 Mac 上创建的作品应用仍使用本地临时签名。
 
 ## 签名材料
@@ -63,7 +63,8 @@ gh workflow run desktop-macos.yml --ref main -f mode=package
 
 所有模式都先校验 tag 输入，检出后确认提交在 `origin/main` 上，再执行仓库代码、访问签名凭据。
 `package` 构建并测试 runtime 与桌面应用，签名、公证 App 和 DMG，只上传 ZIP、DMG、两份 `.sha256` 与
-`release.json` 到 `open-artifact-desktop-macos-arm64` Actions artifact，保留 14 天，不创建 GitHub Release。
+`release.json`、`desktop-updates-darwin-arm64.json` 到 `open-artifact-desktop-macos-arm64` Actions artifact，
+保留 14 天，不创建 GitHub Release。
 使用原生 arm64 `macos-15` runner；生成的 WASM 已提交，不需要重编 Rust/WASM。
 
 ## 发布
@@ -88,6 +89,27 @@ URL scheme 声明仍由现有的 `OA_DESKTOP_URL_SCHEME=1` 打包选项显式启
 既有附件不可变：失败后只重跑 **publish job**，复用同一次构建的 artifact。同名文件字节不一致会拒绝继续，
 部分上传的草稿也一样。需要重新构建不同内容时，使用新的版本/tag。
 `release.json` 记录源码提交、签名身份、Apple submission ID 与 SHA-256。
+
+## 桌面应用自动更新
+
+正式打包在签名包的元数据中写入 `desktopUpdates: true`，并从最终公证 ZIP 生成
+`desktop-updates-darwin-arm64.json`。这份静态 Squirrel JSON 清单包含稳定版本、GitHub ZIP 地址、字节数和
+SHA-256。publisher 核对清单与 ZIP 一致，并将其纳入全部上传和公开下载校验。不需要维护分支上的可变清单、
+搭建更新服务器或修改 GitHub Latest。
+
+应用启动 15 秒后检查公开的 `JimLiu/open-artifact` GitHub Releases API，此后每 6 小时检查一次，选择比当前
+版本更高、同时具备已上传 arm64 ZIP 和清单的最高稳定 `desktop-v*` 版本。跳过草稿、预发布、npm tag 和没有
+更新清单的旧 Release。API 或清单出错会显示可重试的错误。设置 → 桌面应用更新，以及应用菜单中的“检查应用更新”
+提供手动检查。有更新时，侧边栏左下角“设置”右边出现“更新”按钮；没有更新时不显示。点击即开始下载，并打开更新窗，
+显示实际下载字节计算的进度条、百分比和已下载／总 MB。“取消下载”停止远程传输，关闭窗口则让下载在后台继续。
+自动检查默认开启，自动下载默认关闭。偏好保存在应用自身的 `<userData>/settings.json` 中，字段为
+`appAutoCheck`、`appAutoDownload`，独立于 runtime 的更新策略。
+
+Chromium 下载 ZIP 并报告进度，核对精确字节数和 SHA-256；带随机凭据路径的本机回环端点只把已验证的 ZIP 交给
+Electron 原生 macOS 更新器，再次校验完整性和代码签名，通过后才报告就绪。就绪后在正常退出时安装，也可以选择“重启并更新”。
+重启前会经过现有的等待保存和未保存内容确认；取消后仍保留就绪的更新。开发版、本地临时签名包、不支持的平台和
+测试模式都不检查或安装。没有更新器的旧版需要手动下载一次已支持更新器的新版本。更新器本身无需 GitHub token
+或新增签名密钥。
 
 ## 本机打包与检查
 

@@ -156,6 +156,23 @@ message to the Shell for it:
 
 The Sheets editor's own View menu choice of a look (kept in that page's storage) still comes before the app's.
 
+## Desktop application updates
+
+Signed macOS Apple Silicon releases check `JimLiu/open-artifact` on GitHub 15 seconds after launch and every 6 hours.
+Only newer stable `desktop-v*` releases with a ZIP and `desktop-updates-darwin-arm64.json` qualify; npm's Latest,
+drafts and prereleases are ignored. Settings → Desktop application updates and the app menu offer manual checks,
+release notes, download and Restart and Update. When an update is available, an Update button appears at the bottom
+of the sidebar, to the right of Settings. It is absent when there is no update. Clicking it starts the download and
+opens an update window with real byte progress, percentage, transferred/total MB, release notes and Cancel Download.
+Closing the window keeps a download running; after verification it offers Restart and Update.
+
+Automatic checks default on (`appAutoCheck`); automatic downloads default off (`appAutoDownload`). Both are saved
+in `<userData>/settings.json`, separately from runtime updates. Chromium downloads the ZIP with progress and verifies
+its size and SHA-256; a private loopback handoff lets Electron's native updater verify it again and check code signing,
+then install on normal quit or an explicit restart. Restart uses the existing unsaved-work guard;
+canceling keeps the update ready. Development, local ad hoc and test builds never check or install. See the bilingual
+[release and update guide](RELEASING.md) / [签名、发布与更新指南](RELEASING.zh-CN.md).
+
 ## Setup and build
 
 At the repository root, build the runtime pieces first:
@@ -303,10 +320,10 @@ comes from `@electron/get`'s cache when it is there.
 
 `npm run package:release` signs nested code inside out with Developer ID, hardened runtime and a secure timestamp,
 notarizes and staples the app and DMG, verifies the extracted ZIP and Gatekeeper, and writes ZIP / DMG, SHA-256 files
-and a public report to `dist/release/`. Missing credentials or failed Apple checks stop the release. GitHub Actions
+and a public report plus the static updater feed to `dist/release/`. Missing credentials or failed Apple checks stop the release. GitHub Actions
 supports credential validation, candidate builds and publication from `desktop-v<version>` tags, independently of npm
 releases. The desktop version follows the bundled runtime. See the signing, backup, secrets and release guide:
-[English](RELEASING.md) · [简体中文](RELEASING.zh-CN.md). Desktop app updates require a new download.
+[English](RELEASING.md) · [简体中文](RELEASING.zh-CN.md).
 
 The packaged app started with no arguments uses your own home and port, as it will for the person. Start it for a
 test only through the test code (`launchApp(…, { binary })`), which always passes `--home`, a port other than 4800,

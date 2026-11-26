@@ -177,7 +177,9 @@ node scripts/build-wasm.mjs   # 需要 cargo + wasm32-unknown-unknown、wasm-bin
 新包首次发布时，用 `node scripts/publish-npm.mjs --claim` 发布已准备好的包，并将工作流设为其 trusted publisher。
 
 Open Artifact Desktop 共用版本号，使用独立的 `desktop-v<版本>` tag。[Desktop macOS 工作流](.github/workflows/desktop-macos.yml)
-完成 Developer ID 签名、Apple 公证并在 GitHub 发布 ZIP / DMG，配置见[桌面应用发布指南](apps/desktop/RELEASING.zh-CN.md)。
+完成 Developer ID 签名、Apple 公证并在 GitHub 发布 ZIP / DMG 和更新清单。macOS Apple Silicon 正式签名版默认从
+GitHub 检查桌面应用更新；有更新时，侧边栏“设置”右边显示更新按钮，点击可查看下载进度并重启安装，也可开启自动下载。
+配置见[桌面应用发布指南](apps/desktop/RELEASING.zh-CN.md)。
 
 ## 仓库结构
 
