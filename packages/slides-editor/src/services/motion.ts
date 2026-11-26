@@ -1,5 +1,3 @@
-import { unsafeSmilAnimation } from '@open-artifact/slides-core';
-
 /**
  * Motion of source decks when presenting: the pure half. Reads the
  * animations, transitions and `@starting-style` the source reader kept for
@@ -417,8 +415,7 @@ export function startingEntrance(
 /* SVG SMIL                                                                    */
 /* -------------------------------------------------------------------------- */
 
-const SMIL = /<(animateTransform|animateMotion|animateColor|animate|set)\b([^>]*?)(?:\/>|>([\s\S]*?)<\/\1\s*>)/gi;
-const SMIL_TAG = /<(?:animate(?:Transform|Motion|Color)?|set)\b/i;
+const SMIL = /<(animate|animateTransform|animateMotion|animateColor|set)\b([^>]*?)(?:\/>|>([\s\S]*?)<\/\1\s*>)/gi;
 
 /** One attribute of an SMIL element's attribute text. */
 function attributeOf(attrs: string, name: string): string | undefined {
@@ -472,29 +469,14 @@ export function smilPlays(tag: string, attrs: string): boolean {
 }
 
 /**
- * Whether this SMIL element is allowed to exist at all. Event handlers and
- * links cannot be animation targets, and `to` / `from` / `by` / `values` may
- * not carry a URL other than a local `#id`. The flash guard is separate.
- */
-function smilAttributesAllowed(attrs: string): boolean {
-  return !unsafeSmilAnimation({
-    attributeName: attributeOf(attrs, 'attributeName'),
-    to: attributeOf(attrs, 'to'),
-    from: attributeOf(attrs, 'from'),
-    by: attributeOf(attrs, 'by'),
-    values: attributeOf(attrs, 'values'),
-  });
-}
-
-/**
  * SVG markup with its SMIL animation kept only where it may play: in
- * present mode, with motion allowed, passing the flash guard, and not
- * setting an event handler or a link. Elsewhere every `<animate>`, `<set>`,
- * … is removed, so the drawing stands still at its own attributes.
+ * present mode, with motion allowed, and passing the flash guard.
+ * Elsewhere every `<animate>`, `<set>`, … is removed, so the drawing
+ * stands still at its own attributes.
  */
 export function guardSmil(markup: string, play: boolean): string {
-  if (!SMIL_TAG.test(markup)) return markup;
-  return markup.replace(SMIL, (whole, tag: string, attrs: string) => (play && smilAttributesAllowed(attrs) && smilPlays(tag, attrs) ? whole : ''));
+  if (!/<(?:animate|set)\b/i.test(markup)) return markup;
+  return markup.replace(SMIL, (whole, tag: string, attrs: string) => (play && smilPlays(tag, attrs) ? whole : ''));
 }
 
 /** Resolve one source element's motion for both the live presenter and HTML export. */

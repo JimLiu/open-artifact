@@ -97,6 +97,16 @@ function webAddressBytes(text: string): number | null {
   }
 }
 
+/**
+ * Whether a link mark may carry `href` onto the page: a web, mail or phone address, a place in the doc (`#…`) or a
+ * path on this site (`/…`, not `//`). Anything else (`javascript:`, `data:`, …) is drawn as words, never as a link.
+ */
+export function isAllowedHref(href: unknown): href is string {
+  if (typeof href !== 'string' || href.length > MAX_LENGTH) return false;
+  const text = tidy(href);
+  return /^(?:https?|mailto|tel):/i.test(text) || text.startsWith('#') || (text.startsWith('/') && !text.startsWith('//'));
+}
+
 export type HrefCheck = { href: string } | { problem: 'not_link' } | { problem: 'too_long'; limit: number };
 
 /** A typed link checked: the address it means, or why it can't be saved (`limit`: the bytes it went over). */

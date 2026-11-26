@@ -9,7 +9,6 @@
  */
 import { BLOB_REF } from './blobs.ts';
 import { type IdSource, textToInline } from './content.ts';
-import { storableHref } from './href.ts';
 import { type Atom, type Block, type Inline, type Marks, isAtom, newBlock, textColorOf } from './model.ts';
 
 export type Chip = Record<string, unknown> & { type: string };
@@ -392,8 +391,7 @@ class InlineParser {
         const url = BARE_URL.exec(rest)?.[0].replace(/[.,;:!?)\]'*_~]+$/, '');
         if (url) {
           flush();
-          const stored = storableHref(url);
-          this.text(url, stored ? { ...(marks ?? {}), link: stored } : marks);
+          this.text(url, { ...(marks ?? {}), link: url });
           index += url.length;
           continue;
         }
@@ -428,13 +426,8 @@ class InlineParser {
           flush();
           const attrs = ch === '!' ? this.imageAttrs(link.label, link.href) : null;
           if (attrs) this.out.push({ id: this.ids.take(), atom: 'media', attrs, ...(marks ? { marks: { ...marks } } : {}) });
-          else {
-            // A picture nothing can be shown for keeps what it said. An href this document may not store
-            // does not become a link mark, and is not written back as the text either.
-            const stored = storableHref(link.href);
-            const shown = link.label || (ch === '!' && stored ? stored : '');
-            this.run(shown, stored ? { ...(marks ?? {}), link: stored } : marks);
-          }
+          // A picture nothing can be shown for keeps what it said and where it was.
+          else this.run(link.label || (ch === '!' ? link.href : ''), { ...(marks ?? {}), link: link.href });
           index = link.end;
           continue;
         }
@@ -458,8 +451,7 @@ class InlineParser {
           const anchor = /^<a\s[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/i.exec(rest);
           if (anchor) {
             flush();
-            const stored = storableHref(anchor[1]!);
-            this.run(anchor[2]!, stored ? { ...(marks ?? {}), link: stored } : marks);
+            this.run(anchor[2]!, { ...(marks ?? {}), link: anchor[1]! });
             index += anchor[0].length;
             continue;
           }
@@ -467,8 +459,7 @@ class InlineParser {
         const auto = /^<((?:https?|mailto):[^\s>]+)>/.exec(rest);
         if (auto) {
           flush();
-          const stored = storableHref(auto[1]!);
-          this.text(auto[1]!, stored ? { ...(marks ?? {}), link: stored } : marks);
+          this.text(auto[1]!, { ...(marks ?? {}), link: auto[1]! });
           index += auto[0].length;
           continue;
         }

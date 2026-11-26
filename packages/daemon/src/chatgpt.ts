@@ -20,7 +20,7 @@ import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { join } from 'node:path';
-import { HOST_MESSAGE_BOOT, type DaemonState } from '@open-artifact/protocol';
+import type { DaemonState } from '@open-artifact/protocol';
 import { openArtifactHome, writeJson } from './paths.ts';
 
 /** The card's resource. */
@@ -249,8 +249,8 @@ export async function serveChatGpt(options: ChatGptOptions): Promise<Server> {
 
 /**
  * The card: ChatGPT's `window.openai` when it is there, else the MCP Apps messages (`ui/initialize`,
- * `ui/notifications/tool-result`, `ui/message`, `ui/open-link`) for other MCP Apps hosts. Messages come
- * only from `window.parent`; `*` is only the `ui/initialize` handshake, and later messages use the parent's origin.
+ * `ui/notifications/tool-result`, `ui/message`, `ui/open-link`) for other MCP Apps hosts. It takes messages from its
+ * host frame (`window.parent`) only.
  */
 export const CARD_HTML = `<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -275,11 +275,10 @@ button:disabled{opacity:.55;cursor:default}
 <div class="hint" id="hint">Comment on the page, then press “Send comments to ChatGPT”.</div>
 <script>
 (function(){
-  ${HOST_MESSAGE_BOOT}
   var data=null, nextId=1, pending={};
   var oa=window.openai;
-  function rpc(method,params){var id=nextId++;postToHost({jsonrpc:'2.0',id:id,method:method,params:params||{}},method==='ui/initialize');return new Promise(function(r){pending[id]=r;});}
-  function notify(method,params){postToHost({jsonrpc:'2.0',method:method,params:params||{}},false);}
+  function rpc(method,params){var id=nextId++;window.parent.postMessage({jsonrpc:'2.0',id:id,method:method,params:params||{}},'*');return new Promise(function(r){pending[id]=r;});}
+  function notify(method,params){window.parent.postMessage({jsonrpc:'2.0',method:method,params:params||{}},'*');}
   function show(d){
     if(!d||!d.url)return; data=d;
     document.getElementById('title').textContent=d.title||'Untitled artifact';
@@ -288,7 +287,7 @@ button:disabled{opacity:.55;cursor:default}
     document.getElementById('send').disabled=false;
   }
   window.addEventListener('message',function(e){
-    if(!acceptParent(e))return;
+    if(e.source!==window.parent)return;
     var m=e.data; if(!m||m.jsonrpc!=='2.0')return;
     if(m.id!=null&&pending[m.id]){pending[m.id](m.result);delete pending[m.id];return;}
     if(m.method==='ui/notifications/tool-result'&&m.params)show(m.params.structuredContent);

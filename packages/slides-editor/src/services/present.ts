@@ -36,7 +36,7 @@ export function playableSlides(): string[] {
   const state = useDeck.getState();
   return deckOrder(state).filter((id) => {
     const entry = state.slides[id];
-    return entry && !entry.slide.hidden && !entry.held && !entry.conflict;
+    return entry && !entry.slide.hidden;
   });
 }
 

@@ -132,6 +132,16 @@ describe('svg markup', () => {
       '<svg><set attributeName="href" to="javascript:alert(1)"/></svg>',
       '<svg><animate attributeName="onclick" to="alert(1)" dur="1s"/></svg>',
       '<svg><animate attributeName="x" from="javascript:alert(1)" to="1" dur="1s"/></svg>',
+      // What the browser reads differently from the element tree.
+      '<svg><style><img src="x" onerror="alert(1)"></style></svg>',
+      '<svg><p>breaks out of the svg</p></svg>',
+      '<svg><!--><img src=x onerror=alert(1)>--></svg>',
+      '<svg><a href="#a"><set attributeName="xlink:href" to="java&#9;script:alert(1)"/></a></svg>',
+      '<svg><a href="#a"><set attributeName="href" to="&#106avascript:alert(1)"/></a></svg>',
+      '<svg><a href="javascript&colon;alert(1)"><rect width="1" height="1"/></a></svg>',
+      '<svg><rect/onclick="alert(1)" width="1" height="1"/></svg>',
+      '<svg><image xlink:href="https://evil.example/x.png"/></svg>',
+      '<svg><style>rect{fill:\\75 rl(https://evil.example/a)}</style></svg>',
     ]) {
       const { result, markup } = drawing(inner);
       assert.equal(result.held, true, inner);
@@ -150,6 +160,12 @@ describe('svg markup', () => {
     assert.equal(motion.result.held, false);
     assert.match(motion.markup, /<animateTransform\b/);
     assert.match(motion.markup, /attributeName="transform"/);
+  });
+
+  it('keeps the entities a drawing may use and a gradient by url(#id)', () => {
+    const { result, markup } = drawing('<svg viewBox="0 0 10 10"><defs><linearGradient id="g"><stop offset="0"/></linearGradient></defs><rect fill="url(#g)" width="10" height="10"/><title>A &amp; B&#160;&#8212;&mdash;&nbsp;</title></svg>');
+    assert.equal(result.held, false);
+    assert.match(markup, /url\(#g\)/);
   });
 
   it('still keeps a drawing that is only over the size limit', () => {

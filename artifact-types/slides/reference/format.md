@@ -225,15 +225,20 @@ hold until set on them).
 ## Drawings and live embeds
 
 `<svg aria-label="…" viewBox …>…</svg>`: charts, illustrations and a diagram's curved lines. One
-opaque graphic: paths, shapes, gradients, filters, local `#id` references only. At most 52 KB. An svg
-that holds a `<script>`, an `on*=` handler, a `<foreignObject>`, or an external `href`/`url()` is an
-error, and so is SMIL whose `attributeName` is an event handler, `href` or `xlink:href`, or whose
-`to` / `from` / `by` / `values` contain a URL other than a local `#id`. That drawing is not shown:
-its markup is dropped, not placed on the page. A drawing that passes is kept as written (an `xmlns`
-is added when it is missing). `<text>` gets a warning: fonts never load in an svg, so labels are
-`<p>`s over it. Use numeric entities (`&#160;`) or the XML five (`&amp;` …); other characters
-literally (`—`). Size it with `style` (`width`, `height`) matching the `viewBox`. An svg takes no
-background, border or shadow: put it in a painted `div`.
+opaque graphic: paths, shapes, gradients, filters, local `#id` references only. At most 52 KB. These
+are errors, and a drawing with one is not shown (its markup is dropped, never placed on the page): a
+`<script>`, `<foreignObject>`, `<iframe>`, `<object>`, `<embed>`, `<video>` or `<audio>`; an HTML tag
+inside it (`<p>`, `<div>`, `<img>`, `<span>` …, which would end the svg); an `on*=` handler; an
+`href` / `xlink:href` that is not a local `#id`, or a `src`; a `url()`, `@import` or `image-set()` to
+anything but a local `#id`; `javascript:` anywhere; SMIL whose `attributeName` is an event handler,
+`href` or `xlink:href`; a doctype or entity declaration. The check reads the code as the browser does,
+comments and `<style>` text included, after decoding character references. A drawing that passes is
+kept as written (an `xmlns` is added when it is missing). `<text>` gets a warning: fonts never load in
+an svg, so labels are `<p>`s over it. Use numeric entities (`&#160;`) or the XML five (`&amp;` …);
+other characters literally (`—`). A named entity the reader does not know (`&colon;`, `&sol;` …) is an
+error. Size it with `style` (`width`,
+`height`) matching the `viewBox`. An svg takes no background, border or shadow: put it in a painted
+`div`.
 
 `<x-embed style="position:absolute; left; top; width; height">…HTML…</x-embed>`: a small live page in
 a sandboxed frame. The content is the BODY of a page (inline `<style>` and `<script>` are fine; no
@@ -282,8 +287,7 @@ None of these hold content (anything inside is dropped with a warning).
   the slide that arrives, plus the same `id` on the matching pinned element of both slides.
 - SMIL inside an `<svg>` (`<animate>`, `<animateTransform>`, `<animateMotion>`, `<set>`) plays only when
   presenting, and only when it changes at most three times a second with one `begin` and a readable
-  `dur`. It must not set an event handler or `href` / `xlink:href`, and `to` / `from` / `by` / `values`
-  must not contain a URL other than a local `#id` (those are errors, and the drawing is not shown).
+  `dur`. One that animates an event handler or `href` / `xlink:href` is an error (Drawings, above).
   Elsewhere the drawing stands still at its own attributes. Nothing plays with reduced motion.
 - CSS animations, `@starting-style` entrances, count-ups and in-flow fragments: source decks only
   (`source-decks.md`, Motion).
@@ -303,7 +307,7 @@ kind or `x-icon` name; `<h4>`–`<h6>`;
 more than 15 nested `<div>`s; more than 24 pinned children in one host (the section included); an image
 `src` that is not `/_blob/<id>` or `project/ds/…`; an `<x-embed>` that is not a pinned direct child of the
 section, over 16 KB or over 8 on a slide; an `<svg>` over 52 KB, or holding a script, handler,
-foreignObject, external reference, or SMIL that sets an event handler, `href` or a non-local URL
-(that drawing is not shown); a text element over 20,000 characters or 100 inline marks; a table
+foreignObject, HTML tag, external reference, `javascript:`, an unknown named entity, or SMIL that
+animates a handler or `href` (that drawing is not shown); a text element over 20,000 characters or 100 inline marks; a table
 over 100 × 24; more than 4,000 table cells, 800 elements or 100 builds on a slide; an `<x-connector>`
 missing a coordinate; a slide file over 1 MB.

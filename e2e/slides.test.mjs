@@ -765,4 +765,42 @@ describe('slides', { skip: skipFor('slides') }, () => {
     }
   });
 
+  it('never runs a refused drawing: the slide is held and the svg comes up empty, in the stage and the rail', { skip: browserSkip }, async () => {
+    const deck = tmpDir('slides-unsafe-svg');
+    fs.mkdirSync(path.join(deck, 'project', 'slides'), { recursive: true });
+    fs.writeFileSync(path.join(deck, 'project', 'deck.json'), JSON.stringify({
+      v: 5, lists: 'css', title: 'Unsafe drawing', order: ['bad'], createdOnFiles: { v: 1, at: '2026-11-26T00:00:00Z' },
+      sections: {}, faces: {}, designSystems: [],
+    }));
+    // In an svg a <style> holds markup, and <img> leaves the svg for HTML: a tree that reads <style> as text sees no handler.
+    fs.writeFileSync(path.join(deck, 'project', 'slides', 'bad.html'), '<section id="bad"><h1>Drawing</h1>' +
+      '<svg viewBox="0 0 10 10" style="width:200px;height:200px"><style><img src="x" onerror="window.__ran=(window.__ran||0)+1"></style><rect width="10" height="10"/></svg></section>');
+    const checked = await run.run(['check', deck]);
+    assert.notEqual(checked.code, 0, 'check passed a drawing that holds an HTML tag');
+    assert.match(checked.stdout + checked.stderr, /<svg> holds <img>/);
+    const { url: deckUrl } = await run.json(['open', deck, '--json']);
+    const shown = await browser.load(new URL('index.html', deckUrl).href, { ready: `document.querySelector('[data-open-artifact-mode="edit"][data-open-artifact-slide="bad"]')` });
+    try {
+      assert.ok(await shown.waitFor(`document.body.innerText.includes("This slide's file has errors")`), 'the slide is not held');
+      // Give a broken-out <img> time to fail to load and fire its handler.
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      const state = await shown.evaluate(`({
+        ran: window.__ran ?? 0,
+        handlers: document.querySelectorAll('[onerror]').length,
+        titles: [...document.querySelectorAll('h1')].filter(h => h.textContent === 'Drawing').length,
+        drawings: document.querySelectorAll('[data-open-artifact-kind="svg"]').length,
+        images: document.querySelectorAll('img[src="x"]').length,
+      })`);
+      assert.equal(state.ran, 0, 'the drawing ran code');
+      assert.equal(state.handlers, 0);
+      assert.equal(state.images, 0, 'the <img> broke out of the svg');
+      // The held slide still draws (its title is on the stage and in the rail); only the refused drawing is gone.
+      assert.ok(state.titles >= 2, `the held slide is not drawn in the stage and the rail: ${state.titles}`);
+      assert.equal(state.drawings, 0, 'a refused drawing kept its markup');
+    } finally {
+      await shown.close();
+      await run.run(['stop', deck]);
+    }
+  });
+
 });

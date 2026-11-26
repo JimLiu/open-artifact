@@ -45,14 +45,12 @@ import {
   type TextBoxNode,
   type TextNode,
   type EmbedNode,
-  unsafeSmilAnimation,
-  unsafeSvgAttribute,
 } from '@open-artifact/slides-core';
 import { ImageIcon, Play, Video } from 'lucide-react';
 import { SECTION_LAYOUT, SLIDE_CLASS, toReactStyle, installSlideStyles, withItemMargin } from './css.ts';
 import { embedDocument, mountEmbedStill } from './embed-still.ts';
 import { useTextFit } from './fit.ts';
-import { smilPlays } from '../services/motion.ts';
+import { guardSmil } from '../services/motion.ts';
 import { ICON_GLYPHS } from './icons.tsx';
 import {
   connectorGeometry,
@@ -563,131 +561,16 @@ function TableView({ node, path }: NodeProps<TableNode>): ReactNode {
   );
 }
 
-const SVG_NS = 'http://www.w3.org/2000/svg';
-const SVG_SMIL = new Set(['animate', 'animatetransform', 'animatemotion', 'animatecolor', 'set']);
-const SVG_DROP = new Set(['script', 'foreignobject', 'iframe', 'object', 'embed']);
-
-/** One SMIL element's attributes, in the shape `smilPlays` reads. */
-function smilAttrText(el: Element): string {
-  let text = '';
-  for (const attr of el.attributes) text += ` ${attr.name}="${attr.value.replace(/"/g, '')}"`;
-  return text;
-}
-
-function svgAttr(el: Element, name: string): string | null {
-  const want = name.toLowerCase();
-  for (const attr of el.attributes) {
-    if (attr.name.toLowerCase() === want || attr.localName.toLowerCase() === want) return attr.value;
-  }
-  return null;
-}
-
-/**
- * Drops script, foreignObject, event handlers, non-local URLs and SMIL that
- * must not play. The element stays in the document it was parsed in.
- */
-function stripUnsafeSvg(root: Element, play: boolean): void {
-  const drop: Element[] = [];
-  const visit = (el: Element): void => {
-    const tag = el.localName.toLowerCase();
-    if (SVG_DROP.has(tag)) {
-      drop.push(el);
-      return;
-    }
-    if (tag === 'style') {
-      const css = el.textContent ?? '';
-      if (/url\(\s*['"]?(?!#)|@import/i.test(css)) {
-        drop.push(el);
-        return;
-      }
-    }
-    if (SVG_SMIL.has(tag)) {
-      const blocked = unsafeSmilAnimation({
-        attributeName: svgAttr(el, 'attributeName'),
-        to: svgAttr(el, 'to'),
-        from: svgAttr(el, 'from'),
-        by: svgAttr(el, 'by'),
-        values: svgAttr(el, 'values'),
-      });
-      if (!play || blocked || !smilPlays(tag, smilAttrText(el))) {
-        drop.push(el);
-        return;
-      }
-    }
-    for (const attr of [...el.attributes]) {
-      if (unsafeSvgAttribute(attr.name, attr.value)) el.removeAttribute(attr.name);
-    }
-    for (const child of [...el.children]) visit(child);
-  };
-  visit(root);
-  for (const el of drop) el.remove();
-}
-
-/** An `<svg>` from `markup`, parsed away from the live document. Null when it is not an svg. */
-function parsedSvg(markup: string): Element | null {
-  const xml = new DOMParser().parseFromString(markup, 'image/svg+xml');
-  const xmlRoot = xml.documentElement;
-  if (xmlRoot && xmlRoot.localName.toLowerCase() === 'svg' && xml.getElementsByTagName('parsererror').length === 0) return xmlRoot;
-  const html = new DOMParser().parseFromString(markup, 'text/html');
-  return html.querySelector('svg');
-}
-
-interface SvgFrame {
-  play: boolean;
-  path: string;
-  className?: string;
-  style: string;
-}
-
-function paintSvgFrame(svg: Element, frame: SvgFrame): void {
-  svg.setAttribute('data-open-artifact-path', frame.path);
-  svg.setAttribute('data-open-artifact-kind', 'svg');
-  if (frame.className) svg.setAttribute('class', frame.className);
-  if (frame.style) svg.setAttribute('style', frame.style);
-}
-
-/**
- * The one place a slide's SVG markup enters the page. It is parsed in a
- * separate document, stripped, then moved in with `adoptNode`. Serializing
- * it and assigning `innerHTML` would parse it a second time and can bring
- * back a mutation XSS the first parse had already changed.
- */
-export function mountSvgMarkup(host: HTMLElement, markup: string, frame: SvgFrame): void {
-  host.replaceChildren();
-  if (typeof document === 'undefined' || typeof DOMParser === 'undefined') return;
-  const blank = (): void => {
-    const svg = document.createElementNS(SVG_NS, 'svg');
-    paintSvgFrame(svg, frame);
-    host.appendChild(svg);
-  };
-  const source = markup.trim();
-  if (!source) {
-    blank();
-    return;
-  }
-  const root = parsedSvg(source);
-  if (!root) {
-    blank();
-    return;
-  }
-  stripUnsafeSvg(root, frame.play);
-  paintSvgFrame(root, frame);
-  host.appendChild(document.adoptNode(root));
-}
-
 function SvgView({ node, path }: NodeProps<SvgNode>): ReactNode {
   const options = useRenderOptions();
   const frame = frameOf(node, path, 'open-artifact-svg', options.builds?.get(path[0]!));
-  const host = useRef<HTMLSpanElement>(null);
-  // SMIL plays only when presenting, with motion allowed and nothing flashing.
-  const play = options.mode === 'present' && !(typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches);
-  const style = cssText(node.style);
-  const svgPath = frame['data-open-artifact-path'];
-  const className = frame.className;
-  useLayoutEffect(() => {
-    if (host.current) mountSvgMarkup(host.current, node.markup, { play, path: svgPath, className, style });
-  }, [node.markup, play, svgPath, className, style]);
-  return <span ref={host} className="open-artifact-contents" />;
+  const html = useMemo(() => {
+    const attrs = ` data-open-artifact-path="${frame['data-open-artifact-path']}" data-open-artifact-kind="svg"${frame.className ? ` class="${frame.className}"` : ''} style="${cssText(node.style).replace(/"/g, '&quot;')}"`;
+    // SMIL plays only when presenting, with motion allowed and nothing flashing.
+    const play = options.mode === 'present' && !(typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches);
+    return guardSmil(node.markup, play).replace(/^<svg/i, `<svg${attrs}`);
+  }, [node.markup, node.style, frame['data-open-artifact-path'], frame.className, options.mode]);
+  return <span className="open-artifact-contents" dangerouslySetInnerHTML={{ __html: html }} />;
 }
 
 function ShapeView({ node, path }: NodeProps<ShapeNode>): ReactNode {

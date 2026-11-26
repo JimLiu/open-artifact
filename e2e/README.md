@@ -128,6 +128,10 @@ The harness asks its questions (`waitFor`, `evaluateAll`, `load`'s `ready`) in a
   page (`/a/…`), and the note says the deck is shared on the network now.
 - The title menu's Copy link and the Export tab's Copy link copy that same link, word for word.
 
+**Slides: a refused drawing** (`slides.test.mjs`, a one-slide deck of its own, Chrome only)
+
+- The slide's `<svg>` holds `<style><img src="x" onerror="…"></style>`: in an svg a `<style>` holds markup and `<img>` leaves the svg for HTML, so a check that reads `<style>` as text sees no handler. `check` fails with `<svg> holds <img>`; in Chrome the slide is held ("This slide's file has errors"), no element carries `onerror`, the handler never ran, and every drawn svg (stage and rail) is empty. Before the fix for PR #36, a held slide still drew the drawing's source, and this one ran its handler.
+
 **Sheets** (`sheets.test.mjs`)
 
 - `read` on a folder with no Sheet is refused; a first `update` makes the Sheet (one blank `Sheet1`) and applies its edits.
@@ -141,6 +145,10 @@ The harness asks its questions (`waitFor`, `evaluateAll`, `load`'s `ready`) in a
 **Docs: writing in a second tab** (`docs.test.mjs`, one case, Chrome only)
 
 - A doc with two tabs is opened on the first. Three characters are typed there, one at a time, and each reaches the disk (`export --tab`). The second tab is chosen from the tab list in the page bar, and four characters are typed at the end of its line: each reaches the disk, and 400 ms later the editor still shows it. Before the fix for issue #25, every tab's sync counted its calls from 1 under the page's one session, so the second tab's first three writes went out under the first tab's opIds; the server answered them as replays, landed nothing, and the page read the tab back over the typing.
+
+**Docs: a link the page may not open** (`docs.test.mjs`, one case, Chrome only)
+
+- An agent's `update` writes `[the bad one](javascript:…)` and `[the good one](https://example.com/a)`; the stored doc keeps both addresses (`read --markdown`). The editor draws the first as an `<a>` with no `href` and the second with its address, and no link on the page starts with `javascript`. Before the fix for PR #36, the editor and its read-only views (a version, a deleted tab) drew any stored address as the link's `href`.
 
 **Docs: Ask Agent's words and line** (`docs.test.mjs`, the first case of the "Ask Agent as a comment on an agent chip" group, Chrome only)
 

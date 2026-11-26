@@ -840,6 +840,29 @@ describe(`${TYPE}: long links and refused comments`, { skip: skip() }, () => {
     }
   });
 
+  it('draws a written link to javascript: as words, and a web link as a link', { ...T, skip: chromeSkip() }, async () => {
+    const root = path.join(tmpDir('docs-unsafe-link'), 'links');
+    const source = path.join(tmpDir('docs-unsafe-link-src'), 'links.md');
+    fs.writeFileSync(source, '# Links\n\nAn opening line.\n');
+    const born = await ctx.cli.json(['create', root, '--markdown', source, '--name', 'Links']);
+    // An agent's update keeps the address it was given in the doc; the page must not make it a link.
+    await ctx.cli.json(['update', root, JSON.stringify({ tab: born.lids.f, ops: [{ op: 'insert', target: { kind: 'root' }, source: { markdown: 'See [the bad one](javascript:window.__ran=1) and [the good one](https://example.com/a).' } }] })]);
+    assert.match((await ctx.cli.run(['read', root, born.lids.f, '--markdown'])).stdout, /javascript:/, 'the stored doc lost the address, so this test shows nothing');
+    const { url } = await ctx.cli.json(['open', root, '--json']);
+    const browser = await launch();
+    try {
+      const page = await browser.load(url, { ready: textIn('the good one'), ignore: [/\/favicon\.ico$/] });
+      const links = `[...document.querySelectorAll('.doc-text a')].map(a => [a.textContent, a.getAttribute('href')])`;
+      assert.ok(await page.waitFor(`${links}.length === 2`, 10000), 'the two links are not drawn');
+      const drawn = (await page.evaluateAll(`${links}.length === 2 ? ${links} : null`)).find(Boolean);
+      assert.deepEqual(drawn, [['the bad one', null], ['the good one', 'https://example.com/a']]);
+      assert.deepEqual((await page.evaluateAll(`document.querySelectorAll('a[href^="javascript" i]').length`)).filter(n => n !== 0), []);
+      assert.deepEqual(page.problems, []);
+    } finally {
+      await browser.close();
+    }
+  });
+
   it('copies a refused comment draft, and the same text goes through when sent again', { ...T, skip: chromeSkip() }, async () => {
     const added = await ctx.cli.run(['comment-add', ctx.root, 'Is nine still right?', '--on', 'ferry']);
     assert.equal(added.code, 0, added.stderr);

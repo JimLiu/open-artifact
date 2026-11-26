@@ -97,25 +97,32 @@ describe('the editor schema', () => {
     assert.equal(last.attrs.suggestId, 'sg1');
   });
 
-  it('does not keep a link the document may not store', () => {
-    const bad = schema.marks.link.create({ href: 'javascript:alert(1)' });
-    const badSpec = schema.marks.link.spec.toDOM!(bad, true);
-    assert.ok(Array.isArray(badSpec));
-    const badAttrs = badSpec[1] as Record<string, string>;
-    assert.equal(badAttrs.href, undefined);
-    assert.equal(badAttrs.rel, 'noopener noreferrer nofollow');
+  it('draws a stored link only when it is an address a link may open', () => {
+    const hrefOf = (href: string) => {
+      const spec = schema.marks.link.spec.toDOM!(schema.marks.link.create({ href }), true);
+      assert.ok(Array.isArray(spec));
+      const attrs = spec[1] as Record<string, string>;
+      assert.equal(attrs.rel, 'noopener noreferrer nofollow');
+      return attrs.href;
+    };
+    for (const href of ['javascript:alert(1)', ' JaVaScRiPt:alert(1)', 'java\tscript:alert(1)', '​javascript:alert(1)', 'data:text/html,<b>x</b>', 'vbscript:x', '//evil.example', '/\\evil.example']) {
+      assert.equal(hrefOf(href), undefined, JSON.stringify(href));
+    }
+    for (const href of ['https://example.com', 'http://example.com/a?b=1&c=2', 'mailto:a@example.com', 'tel:+15551234', '#b1~plan', '/blob/abc']) {
+      assert.equal(hrefOf(href), href);
+    }
+  });
 
-    const good = schema.marks.link.create({ href: 'https://example.com' });
-    const goodSpec = schema.marks.link.spec.toDOM!(good, true);
-    assert.ok(Array.isArray(goodSpec));
-    assert.equal((goodSpec[1] as Record<string, string>).href, 'https://example.com');
-
+  it('reads a pasted link as the link box would, and drops one it may not open', () => {
     const getAttrs = schema.marks.link.spec.parseDOM?.[0]?.getAttrs as ((dom: { getAttribute(name: string): string | null }) => false | { href: string }) | undefined;
     assert.equal(typeof getAttrs, 'function');
     const read = (href: string) => getAttrs!({ getAttribute: (name: string) => (name === 'href' ? href : null) });
     assert.equal(read('javascript:alert(1)'), false);
     assert.equal(read('java\nscript:alert(1)'), false);
+    assert.equal(read('data:text/html,x'), false);
+    assert.equal(read('//evil.example'), false);
     assert.deepEqual(read('https://example.com'), { href: 'https://example.com' });
+    assert.deepEqual(read('example.com'), { href: 'https://example.com' });
     assert.deepEqual(read('#section'), { href: '#section' });
   });
 });
