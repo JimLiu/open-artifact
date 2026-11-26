@@ -12,6 +12,11 @@
     "build": "node build.mjs",
     "serve": "node scripts/serve.mjs dist",
     "check-links": "node scripts/check-links.mjs dist",
-    "verify": "node scripts/verify.mjs"
+    "verify": "node scripts/verify.mjs",
+    "deploy": "wrangler deploy",
+    "preview": "wrangler dev"
+  },
+  "devDependencies": {
+    "wrangler": "^4.168.0"
   }
 }
