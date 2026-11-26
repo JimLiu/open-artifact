@@ -104,7 +104,7 @@ async function whiteboard(browser) {
     const store = 'window.__PLAYGROUND__.store';
     check('the board renders the seeded elements', await page.waitFor(IN_FRAME("document.body.innerText.includes('Every element kind, style and option on one board')"), 10000));
     check('the Shell cover is gone', await page.evaluate("!document.querySelector('[data-shell-loading]')"));
-    check('db listing served from memory', (await page.evaluate(`${store}.listDocs('elements').length`)) === 64);
+    check('db listing served from memory', (await page.evaluate(`${store}.listDocs('elements').length`)) === 66);
     await shot(page, '01-whiteboard-loaded');
 
     // A change through the page's own runtime (the real broker path): move the "rect" shape.
@@ -417,7 +417,7 @@ async function docs(browser) {
     check('the tab list names the seeded tabs (Docs host session)', await page.waitFor("window.__PLAYGROUND__.engines.doc.host.project().files.map(f => f.name).sort().join('|') === 'Browser QA Scratch|Review Notes|Tab 1'", 5000));
     check('the engine module loaded on this demo only (its own chunk)', [...page.urls].some((u) => /\/assets\/docHost-[\w-]+\.js$/.test(u)) && ![...page.urls].some((u) => /sheetHost/.test(u)));
     check('the doc is not changed by the agent yet', !(await page.evaluate(`${DOC_TAB_TEXT('Tab 1')}.includes('Updated by the agent')`)) && !(await page.evaluateAll("document.body?.innerText?.includes('Updated by the agent')")).includes(true));
-    check('the artifact keeps the seeded doc files', Object.keys(await page.evaluate(`${store}.list()`)).filter((p) => p.startsWith('doc/')).length === 4);
+    check('the artifact keeps the seeded doc files', Object.keys(await page.evaluate(`${store}.list()`)).filter((p) => p.startsWith('doc/')).length === 6);
     await shot(page, '23-docs-loaded');
 
     // A real edit in the editor: type at the end of "Second goal"; the page writes it through doc.call (brokered).
