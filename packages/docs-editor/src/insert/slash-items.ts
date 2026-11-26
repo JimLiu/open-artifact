@@ -5,6 +5,7 @@
 import { setBlockType } from 'prosemirror-commands';
 import type { EditorState } from 'prosemirror-state';
 import type { EditorView } from 'prosemirror-view';
+import { insertContents } from '../code/contents.ts';
 import { type BlockStyle, type ListKind, inTable, insertBlocks, insertRule, insertTable, listKind, setBlockStyle, toggleList, toggleQuote } from '../editor/commands.ts';
 import { schema } from '../editor/schema.ts';
 import { clearRange, insertDate, insertDropdownChip } from './chips.ts';
@@ -153,6 +154,14 @@ const BASE_ITEMS: readonly SlashItem[] = [
     keywords: 'code codeblock snippet fence pre monospace block',
     noTable: true,
     run: after(makeCode(null)),
+  },
+  {
+    id: 'toc',
+    label: 'Table of contents',
+    icon: 'contents',
+    keywords: 'toc contents index',
+    noTable: true,
+    run: after(insertContents),
   },
   {
     id: 'date',

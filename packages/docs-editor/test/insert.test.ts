@@ -113,7 +113,7 @@ describe('menu state', () => {
 describe('slash items', () => {
   it('leads with headings, table and dropdown, then the rest A to Z', () => {
     assert.deepEqual(labels(ORDERED_ITEMS.slice(0, FEATURED_COUNT)), ['Heading 1', 'Heading 2', 'Heading 3', 'Table', 'Dropdown']);
-    assert.deepEqual(labels(ORDERED_ITEMS.slice(FEATURED_COUNT)), ['Bulleted list', 'Checklist', 'Code block', 'Date', 'Divider', 'Image', 'Numbered list', 'Quote']);
+    assert.deepEqual(labels(ORDERED_ITEMS.slice(FEATURED_COUNT)), ['Bulleted list', 'Checklist', 'Code block', 'Date', 'Divider', 'Image', 'Numbered list', 'Quote', 'Table of contents']);
   });
 
   it('lists everything for an empty query', () => {

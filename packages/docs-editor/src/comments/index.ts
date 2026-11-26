@@ -18,6 +18,7 @@ import { CommentsButton } from './CommentsButton.tsx';
 import { commentsPlugin, rangeAt } from './plugin.ts';
 import { CommentsRail } from './Rail.tsx';
 import { SelectionReactionPicker } from './Reactions.tsx';
+import { startReads } from './reads.ts';
 import { RefusedDrafts } from './RefusedDrafts.tsx';
 import { canComment, docComments, setActive, setCommentUi, threadById } from './store.ts';
 import { commentInLink, withoutComment } from './threads.ts';
@@ -111,6 +112,8 @@ async function startComments(): Promise<void> {
     room.onPeers(peers => setCommentUi({ peers: peerNames(peers, self) }));
   }
   await docComments.start(current.comments);
+  const doc = getDocs().project?.id;
+  if (doc) startReads(`${doc}|${current.viewer.id}`, docComments.store.getState().threads);
   openLinkedThread();
 }
 

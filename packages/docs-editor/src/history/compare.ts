@@ -11,7 +11,7 @@
  * when both hold text and share most of it, so a reworded paragraph reads as its changed words, not as a deleted and an
  * added one. A block both versions hold in another order is a move.
  */
-import { type Block, type DocState, type Inline, type Marks, isAtom, isText } from '@open-artifact/docs-core';
+import { type Block, type DocState, type Inline, type Marks, isAtom, isContentsLanguage, isText } from '@open-artifact/docs-core';
 
 export type ChangeOp = 'ins' | 'del';
 
@@ -419,6 +419,7 @@ const listLabel = (kind: unknown) => LIST_LABELS[typeof kind === 'string' ? kind
 export function nodeLabel(block: Pick<Block, 'type' | 'attrs'>): string {
   if (block.type === 'paragraph') return headingLabel(block.attrs?.heading);
   if (block.type === 'list') return listLabel(block.attrs?.kind);
+  if (block.type === 'codeBlock' && isContentsLanguage(block.attrs?.language)) return 'Table of contents';
   return BLOCK_LABELS[block.type] ?? 'Block';
 }
 
@@ -458,7 +459,9 @@ export function attrsSummary(old: Pick<Block, 'type' | 'attrs'>, fresh: Pick<Blo
       break;
     }
     case 'codeBlock':
-      from('Code language: ', orText('plain'), 'language');
+      // A table of contents is no language of code: the block became one, or stopped being one.
+      if (nodeLabel(old) !== nodeLabel(fresh)) items.push(`${nodeLabel(old)} → ${nodeLabel(fresh)}`);
+      else from('Code language: ', orText('plain'), 'language');
       break;
   }
   return items.length ? items.join('; ') : `${nodeLabel(fresh)} changed`;

@@ -62,8 +62,9 @@ export function languageLabel(name: string | null | undefined, detected?: string
 /** The languages the picker lists for `query` (by key, name or alias); an empty query lists them all. */
 export function filterLanguages(query: string): CodeLanguage[] {
   const wanted = query.trim().toLowerCase();
-  if (!wanted) return [...CODE_LANGUAGES];
-  return CODE_LANGUAGES.filter(
+  const listed = CODE_LANGUAGES.filter(language => !language.unlisted);
+  if (!wanted) return listed;
+  return listed.filter(
     language => language.key.includes(wanted) || language.label.toLowerCase().includes(wanted) || language.aliases.some(alias => alias.includes(wanted)),
   );
 }

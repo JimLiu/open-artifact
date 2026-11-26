@@ -17,6 +17,8 @@ export interface ColumnCard {
   select(open: boolean): void;
   /** How many suggestions it stands for, in its marker's count: 1 unless it gathers several. */
   count?: number;
+  /** What its marker is called while the card is alone on its line, in place of the count of what is there. */
+  label?(): string;
 }
 
 export interface ColumnFeed {

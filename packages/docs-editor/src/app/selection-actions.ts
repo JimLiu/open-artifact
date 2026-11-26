@@ -2,7 +2,7 @@
 import type { ComponentType } from 'react';
 import { create } from 'zustand';
 
-export type SelectionActionKey = 'comment' | 'react';
+export type SelectionActionKey = 'comment' | 'react' | 'copyLink';
 
 /** One extra button of the selection toolbar. */
 export interface SelectionAction {

@@ -129,6 +129,71 @@
   white-space: pre-wrap;
 }
 
+/* Tables of contents: links to the tab's headings, with no source to show */
+.doc-text .contents-block {
+  background: transparent;
+  border-left: 2px solid var(--doc-line);
+  border-radius: 0;
+  margin: 0.5em 0;
+}
+
+.doc-text .contents-block pre {
+  display: none;
+}
+
+.doc-text .contents-block.ProseMirror-selectednode {
+  outline: 2px solid var(--doc-accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.doc-text .contents-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0.25em 0 0.25em 1em;
+  font-family: var(--doc-sans);
+  user-select: none;
+}
+
+.doc-text .contents-line {
+  align-self: flex-start;
+  color: var(--doc-link);
+  text-decoration: none;
+  border-radius: 3px;
+}
+
+.doc-text a.contents-line:hover {
+  text-decoration: underline;
+}
+
+.doc-text .contents-line:focus-visible {
+  outline: 2px solid var(--doc-accent);
+  outline-offset: 1px;
+}
+
+.doc-text span.contents-line {
+  color: var(--doc-muted);
+}
+
+.doc-text .contents-line[data-step="1"] {
+  margin-left: 1.25em;
+}
+
+.doc-text .contents-line[data-step="2"] {
+  margin-left: 2.5em;
+}
+
+.doc-text .contents-line[data-group] {
+  font-weight: 600;
+}
+
+.doc-text .contents-empty {
+  margin: 0;
+  color: var(--doc-muted);
+  font-size: 14px;
+}
+
 /* Highlight tokens */
 .doc-text .code-block .hljs-keyword,
 .doc-text .code-block .hljs-selector-tag,

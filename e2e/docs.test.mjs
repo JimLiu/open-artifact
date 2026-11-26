@@ -690,6 +690,7 @@ describe(`${TYPE} in Chrome: wide tables and folded sections`, { skip: skip() ||
         `the folded section's suggestions are not at its heading: ${JSON.stringify(await inEditor(page, atHeading(group)))}`);
       assert.equal((await inEditor(page, atHeading(group))).ids.split(' ').length, 2);
       assert.equal(await inEditor(page, "document.querySelectorAll('[data-suggest-card]').length"), 0);
+      assert.equal(await inEditor(page, `document.querySelector('${group}').getAttribute('aria-label')`), '2 suggestions in the section “Plan”: show them');
       await clickStill(page, `document.querySelector('${group}')`);
       assert.ok(await page.waitFor(`!${folded} && document.querySelector('[aria-label="Collapse section, Plan"]')`, 5000), 'the card did not unfold the section');
       assert.ok(await page.waitFor("document.querySelectorAll('[data-suggest-card]').length === 2", 5000), 'the two cards did not come back');
@@ -701,7 +702,7 @@ describe(`${TYPE} in Chrome: wide tables and folded sections`, { skip: skip() ||
       const marker = '[data-margin-marker^="folded:"]';
       assert.ok(await until(async () => (await inEditor(page, atHeading(marker)))?.gap <= 24, 5000),
         `no marker by the folded heading: ${JSON.stringify(await inEditor(page, "[...document.querySelectorAll('[data-margin-marker]')].map(m => m.outerHTML)"))}`);
-      assert.deepEqual(await inEditor(page, `(button => button && [button.getAttribute('aria-label'), button.textContent.trim()])(document.querySelector('${marker} button'))`), ['2 suggestions on this line', '2']);
+      assert.deepEqual(await inEditor(page, `(button => button && [button.getAttribute('aria-label'), button.textContent.trim()])(document.querySelector('${marker} button'))`), ['2 suggestions in the section “Plan”', '2']);
       await clickStill(page, `document.querySelector('${marker} button')`);
       assert.ok(await page.waitFor(`!${folded} && document.querySelector('[aria-label="Collapse section, Plan"]')`, 5000), 'the marker did not unfold the section');
       await page.cdp('Emulation.clearDeviceMetricsOverride', {});
@@ -1155,6 +1156,415 @@ describe(`${TYPE} in Chrome: Ask Agent as a comment on an agent chip`, { skip: s
       await browser.close();
       w.child.kill();
       await w.exited;
+    }
+  });
+});
+
+describe(`${TYPE} in Chrome: unread comments, comments involving you, links to a selection`, { skip: skip() || chromeSkip() }, () => {
+  const ctx = {};
+  const card = id => `document.querySelector('[data-comment-card="${id}"]')`;
+  const threadOn = async words => (await ctx.cli.json(['comments', ctx.root, '--json'])).threads.find(thread => thread.where?.includes(words));
+  const readClipboard = async page => (await page.evaluateAll(`document.querySelector('.doc-text') ? navigator.clipboard.readText() : null`)).find(text => typeof text === 'string');
+  /** Selects `words` of the paragraph starting with `start` (a caret before them when `caret`), as a mouse would. */
+  const select = (page, start, words, caret = false) =>
+    page.evaluateAll(`(() => {
+      const p = [...document.querySelectorAll('.doc-text p')].find(p => p.textContent.startsWith(${JSON.stringify(start)}));
+      if (!p) return null;
+      const walker = document.createTreeWalker(p, NodeFilter.SHOW_TEXT);
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        const at = node.data.indexOf(${JSON.stringify(words)});
+        if (at < 0) continue;
+        p.closest('[contenteditable]')?.focus();
+        const range = document.createRange();
+        range.setStart(node, at);
+        range.setEnd(node, ${caret} ? at : at + ${words.length});
+        getSelection().removeAllRanges();
+        getSelection().addRange(range);
+        return true;
+      }
+      return null;
+    })()`);
+
+  before(async () => {
+    const { dir } = install(typePath(TYPE), TYPE);
+    ctx.cli = cli(dir, { OPEN_ARTIFACT_TYPE_SERVER_HOME: path.join(tmpDir('docs-unread-state'), 'state'), HOME: tmpDir('docs-unread-home'), OPEN_ARTIFACT_USER: 'E2E' });
+    ctx.root = path.join(tmpDir('docs-unread-root'), 'trips');
+    const source = path.join(tmpDir('docs-unread-src'), 'trips.md');
+    fs.writeFileSync(source, '# Trips\n\nThe ferry leaves at nine.\n\nThe bus leaves at ten.\n\nThe train leaves at noon.\n');
+    const created = await ctx.cli.json(['create', ctx.root, '--markdown', source, '--name', 'Trips']);
+    ctx.tab = created.lids.f;
+  });
+
+  after(async () => {
+    await ctx.cli?.run(['stop']).catch(() => {});
+    removeTmp();
+  });
+
+  it('marks what the agent writes after the page opened as unread, until it is opened or seen; lists what involves the viewer', T, async () => {
+    assert.equal((await ctx.cli.run(['comment-add', ctx.root, 'Is nine still right?', '--on', 'ferry'])).code, 0);
+    const ferry = await threadOn('ferry');
+    const { url } = await ctx.cli.json(['open', ctx.root, '--json']);
+    const browser = await launch();
+    try {
+      let page = await browser.load(url, { ready: textIn('The ferry leaves'), settle: 1000, ignore: [/\/favicon\.ico$/] });
+      assert.ok(await page.waitFor(card(ferry.id), 10000), 'no card for the first thread');
+      assert.ok(!(await page.evaluateAll('document.querySelector("[data-unread]")')).some(Boolean), 'a thread there before the first opening is unread');
+
+      // A reply, then a new thread naming the viewer, from the agent while the page is open.
+      assert.equal((await ctx.cli.run(['comment-reply', ctx.root, ferry.id, 'The timetable says ten now.'])).code, 0);
+      assert.ok(await page.waitFor(`${card(ferry.id)}?.matches('[data-unread]') && ${card(ferry.id)}.getAttribute('aria-label').endsWith('Has an unread reply.')`, 10000), 'the reply is not marked unread');
+      assert.equal((await ctx.cli.run(['comment-add', ctx.root, 'Can you book this, @E2E?', '--on', 'bus'])).code, 0);
+      const bus = await threadOn('bus');
+      assert.ok(await page.waitFor(`${card(bus.id)}?.matches('[data-unread]') && ${card(bus.id)}.getAttribute('aria-label').endsWith('Unread.')`, 10000), 'the new thread is not marked unread');
+
+      // Opening a card reads it; one only seen keeps its dot while the page is open.
+      await clickInEditor(page, `${card(bus.id)}.querySelector('p, [data-message], div')`);
+      assert.ok(await page.waitFor(`${card(bus.id)}?.matches('[data-open]:not([data-unread])')`, 5000), 'opening the thread did not read it');
+      assert.ok(await page.waitFor(`${card(ferry.id)}?.matches('[data-unread]')`, 1000), 'the thread only seen lost its dot');
+
+      // The list: "Involving you" holds the thread naming the viewer; each filter says when it is empty.
+      await clickOn(page, buttonNamed('Comment options'));
+      // The item carries the count of open threads after its name.
+      await clickOn(page, `[...document.querySelectorAll('[role="menuitem"]')].find(item => item.textContent.trim().startsWith('Show all comments'))`);
+      const list = `document.querySelector('aside[aria-label="Comments"]')`;
+      assert.ok(await page.waitFor(`${list} && ${buttonNamed('Involving you')}`, 5000), 'no Involving you filter');
+      await clickInEditor(page, buttonNamed('Involving you'));
+      assert.ok(await page.waitFor(`${list}.querySelectorAll('[data-comment-card]').length === 1 && ${list}.querySelector('[data-comment-card="${bus.id}"]')`, 5000), 'Involving you does not show just the thread naming the viewer');
+      await clickInEditor(page, buttonNamed('Resolved'));
+      assert.ok(await page.waitFor(`${list}.innerText.includes('No resolved comments')`, 5000), 'no empty note for Resolved');
+      assert.deepEqual(page.problems, []);
+      await page.close();
+
+      // Opened again: what was read or seen is no longer news.
+      page = await browser.load(url, { ready: textIn('The ferry leaves'), settle: 1500, ignore: [/\/favicon\.ico$/] });
+      assert.ok(await page.waitFor(`${card(ferry.id)} || document.querySelector('aside[aria-label="Comments"]')`, 10000));
+      assert.ok(!(await page.evaluateAll('document.querySelector("[data-unread]")')).some(Boolean), 'a thread read or seen is unread again');
+      assert.deepEqual(page.problems, []);
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it('copies a link to the selected words or the paragraph, and the link washes the words when opened', T, async () => {
+    const { url } = await ctx.cli.json(['open', ctx.root, '--json']);
+    const browser = await launch();
+    try {
+      const page = await browser.load(url, { ready: textIn('The train leaves'), settle: 1000, ignore: [/\/favicon\.ico$/] });
+      await page.cdp('Browser.grantPermissions', { origin: new URL(url).origin, permissions: ['clipboardReadWrite', 'clipboardSanitizedWrite'] });
+      assert.ok(await until(() => select(page, 'The bus', 'leaves at ten'), 5000), 'could not select the words');
+      assert.ok(await page.waitFor(buttonNamed('Copy link to selection'), 5000), 'no Copy link to selection on the selection toolbar');
+      await clickInEditor(page, buttonNamed('Copy link to selection'));
+      assert.ok(await page.waitFor(textIn('Link copied'), 5000), 'the link was not copied');
+      const words = await readClipboard(page);
+      assert.match(words, new RegExp(`#${ctx.tab}\\.[A-Za-z0-9]+\\.\\d+~[A-Za-z0-9]+\\.\\d+-[A-Za-z0-9]+\\.\\d+$`), words);
+
+      // With only a caret, the key copies a link to its paragraph.
+      assert.ok(await until(() => select(page, 'The train', 'noon', true), 5000), 'could not put the caret in');
+      await new Promise(resolve => setTimeout(resolve, 300));
+      const mods = 1 | (process.platform === 'darwin' ? 4 : 2);
+      for (const type of ['rawKeyDown', 'keyUp']) await page.cdp('Input.dispatchKeyEvent', { type, key: 'l', code: 'KeyL', windowsVirtualKeyCode: 76, modifiers: mods });
+      assert.ok(await until(async () => { const text = await readClipboard(page); return text !== words && text; }, 5000), 'the key copied nothing new');
+      const paragraph = await readClipboard(page);
+      assert.match(paragraph, new RegExp(`#${ctx.tab}\\.[A-Za-z0-9]+\\.\\d+$`), paragraph);
+      assert.deepEqual(page.problems, []);
+      await page.close();
+
+      // The link to the words: the page opens on them, washed for a moment.
+      const linked = await browser.load(words, { ready: textIn('The train leaves'), ignore: [/\/favicon\.ico$/] });
+      assert.ok(await linked.waitFor(`[...document.querySelectorAll('.doc-place-wash')].map(e => e.textContent).join('') === 'leaves at ten' && document.querySelector('.doc-place-block')?.textContent.startsWith('The bus')`, 10000), 'the linked words were not washed');
+      assert.ok(await linked.waitFor(`!document.querySelector('.doc-place-wash')`, 5000), 'the wash did not fade');
+      assert.deepEqual(linked.problems, []);
+    } finally {
+      await browser.close();
+    }
+  });
+});
+
+describe(`${TYPE} in Chrome: the oldest version, copies of versions, a page reloaded before its edits were saved`, { skip: skip() || chromeSkip() }, () => {
+  const ctx = {};
+  const insert = (tab, markdown) => ({ tab, ops: [{ op: 'insert', target: { kind: 'root' }, source: { markdown } }] });
+  const pageSays = words => `document.body?.innerText.includes(${JSON.stringify(words)})`;
+
+  /** A doc made blank by `open`, then written twice by the agent. */
+  async function blankThenWritten(name) {
+    const root = path.join(tmpDir(`docs-v-${name}`), name);
+    fs.mkdirSync(root, { recursive: true });
+    const { url } = await ctx.cli.json(['open', root, '--type', TYPE, '--json']);
+    const [file] = (await ctx.cli.json(['read', root])).files;
+    await ctx.cli.json(['update', root, JSON.stringify(insert(file.id, 'First words from the agent.'))]);
+    await ctx.cli.json(['update', root, JSON.stringify(insert(file.id, 'Second words from the agent.'))]);
+    return { root, url, tab: file.id };
+  }
+
+  async function opened(url, ready) {
+    const browser = await launch();
+    const page = await browser.load(url, { ready: textIn(ready), ignore: [/\/favicon\.ico$/] });
+    return { browser, page };
+  }
+
+  /** Opens Version history and picks its oldest row. */
+  async function pickOldest(page) {
+    await clickOn(page, buttonNamed('Version history'));
+    assert.ok(await page.waitFor(`document.querySelectorAll('[data-testid="history-version"]').length === 2`, 10000), 'the history does not list two versions');
+    await clickInEditor(page, `[...document.querySelectorAll('[data-testid="history-version"] button[aria-pressed]')].at(-1)`);
+    assert.ok(await page.waitFor(`document.querySelector('[data-testid="version-preview"]')`, 5000), 'no version preview');
+  }
+
+  before(async () => {
+    const { dir } = install(typePath(TYPE), TYPE);
+    ctx.cli = cli(dir, { OPEN_ARTIFACT_TYPE_SERVER_HOME: path.join(tmpDir('docs-v-state'), 'state'), HOME: tmpDir('docs-v-home'), OPEN_ARTIFACT_USER: 'E2E' });
+  });
+
+  after(async () => {
+    await ctx.cli?.run(['stop']).catch(() => {});
+    removeTmp();
+  });
+
+  it('the oldest version of a tab that started blank shows its changes against the tab as first saved', T, async () => {
+    const { url } = await blankThenWritten('blank');
+    const { browser, page } = await opened(url, 'Second words');
+    try {
+      await pickOldest(page);
+      const status = `document.querySelector('[data-testid="version-status"]')?.textContent ?? ''`;
+      assert.ok(await page.waitFor(`(${status}).includes('Compared with the tab as first saved')`, 10000), `status: ${await page.evaluateAll(status)}`);
+      assert.ok(await page.waitFor(`document.querySelector('[data-testid="version-compare-menu"]')?.textContent.includes('vs first saved version')`, 3000), 'the compare menu does not say first saved');
+      assert.ok(await page.waitFor(`/in this version/.test(document.querySelector('[data-testid="version-changes"]')?.textContent ?? '')`, 3000), 'no changes counted');
+      assert.ok(await page.waitFor(`document.querySelector('[data-testid="version-preview"]')?.textContent.includes('First words from the agent.')`, 3000));
+      assert.deepEqual(page.problems, []);
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it('a copy made while its version is still shown opens in a new tab and says so', T, async () => {
+    const { root, url, tab } = await blankThenWritten('copied');
+    const { browser, page } = await opened(url, 'Second words');
+    try {
+      await pickOldest(page);
+      await clickInEditor(page, `document.querySelector('[data-testid="history-copy"]')`);
+      assert.ok(await page.waitFor(pageSays('Copy opened in a new tab'), 10000), 'no word that the copy opened');
+      assert.ok(await page.waitFor(`!document.querySelector('[data-testid="version-preview"]')`, 5000), 'the preview stayed');
+      const files = (await ctx.cli.json(['read', root])).files;
+      assert.equal(files.length, 2);
+      const copy = files.find(file => file.id !== tab);
+      assert.match(copy.name, /\(version of /);
+      assert.ok(await page.waitFor(`[...document.querySelectorAll('.doc-text p')].some(p => p.textContent === 'First words from the agent.') && ![...document.querySelectorAll('.doc-text p')].some(p => p.textContent.startsWith('Second'))`, 5000), 'the copy is not the open tab');
+      assert.deepEqual(page.problems, []);
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it('a copy made after the person moved on to another version is only announced, with a way to open it', T, async () => {
+    const { root, url, tab } = await blankThenWritten('moved-on');
+    const { browser, page } = await opened(url, 'Second words');
+    try {
+      await pickOldest(page);
+      // Copy the oldest version, then pick the newest before the copy is done.
+      await page.evaluate(`(() => {
+        const editor = document.querySelector('iframe[name="open-artifact-shell"]').contentDocument;
+        editor.querySelector('[data-testid="history-copy"]').click();
+        editor.querySelector('[data-testid="history-version"] button[aria-pressed]').click();
+      })()`);
+      assert.ok(await page.waitFor(pageSays('Copy created'), 10000), 'no word that the copy was made');
+      assert.equal(await page.waitFor(pageSays('Copy opened in a new tab'), 500), false, 'the copy opened over the version picked since');
+      assert.ok(await page.waitFor(`document.querySelector('[data-testid="version-preview"]')`, 3000), 'the preview of the version picked since closed');
+      await clickInEditor(page, `[...document.querySelectorAll('button')].find(button => button.textContent.trim() === 'Open')`);
+      assert.ok(await page.waitFor(`!document.querySelector('[data-testid="version-preview"]')`, 5000), 'the preview stayed');
+      assert.ok(await page.waitFor(`[...document.querySelectorAll('.doc-text p')].some(p => p.textContent === 'First words from the agent.') && ![...document.querySelectorAll('.doc-text p')].some(p => p.textContent.startsWith('Second'))`, 5000), 'the copy is not the open tab');
+      const files = (await ctx.cli.json(['read', root])).files;
+      assert.equal(files.length, 2);
+      assert.ok(files.some(file => file.id !== tab && /\(version of /.test(file.name)));
+      assert.deepEqual(page.problems, []);
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it('a page reloaded after its saving stopped warns once to check that nothing is missing', T, async () => {
+    const { root, url, tab } = await blankThenWritten('reloaded');
+    const doc = JSON.parse(fs.readFileSync(path.join(root, 'doc', 'doc.json'), 'utf8')).id;
+    assert.ok(doc, 'no doc id');
+    const { browser, page } = await opened(url, 'Second words');
+    const notice = `document.querySelector('[data-testid="reload-notice"]')`;
+    try {
+      assert.equal(await page.waitFor(notice, 1000), false);
+      // What a page whose saving stopped leaves behind for the next load of the same tab.
+      await page.evaluate(`sessionStorage.setItem(${JSON.stringify(`open-artifact.docs.left-unsaved.${doc}.${tab}`)}, String(Date.now()))`);
+      await page.evaluate('setTimeout(() => location.reload(), 0)');
+      assert.ok(await page.waitFor(`${notice}?.textContent.includes('Check that nothing is missing')`, 8000), 'no warning after the reload');
+      await clickInEditor(page, `document.querySelector('[data-testid="reload-notice"] button[aria-label="Dismiss"]')`);
+      assert.ok(await page.waitFor(`!${notice}`, 3000), 'the warning did not close');
+      await page.evaluate('setTimeout(() => location.reload(), 0)');
+      assert.ok(await page.waitFor(textIn('Second words'), 15000));
+      assert.equal(await page.waitFor(notice, 3000), false, 'the warning came back');
+      assert.deepEqual(page.problems, []);
+    } finally {
+      await browser.close();
+    }
+  });
+});
+
+describe(`${TYPE} in Chrome: tables of contents`, { skip: skip() || chromeSkip() }, () => {
+  const ctx = {};
+  const LINES = `[...document.querySelectorAll('.doc-text .contents-block .contents-line')].map(line => [line.textContent, line.dataset.step, 'group' in line.dataset])`;
+  const linesOf = async page => (await page.evaluateAll(LINES)).find(list => list?.length) ?? [];
+
+  before(() => {
+    const { dir } = install(typePath(TYPE), TYPE);
+    ctx.cli = cli(dir, { OPEN_ARTIFACT_TYPE_SERVER_HOME: path.join(tmpDir('docs-toc-state'), 'state'), HOME: tmpDir('docs-toc-home'), OPEN_ARTIFACT_USER: 'E2E' });
+  });
+
+  after(async () => {
+    await ctx.cli?.run(['stop']).catch(() => {});
+    removeTmp();
+  });
+
+  it('the slash menu puts in a table of contents that lists the headings, follows them as they change, and links to them', T, async () => {
+    const root = path.join(tmpDir('docs-toc'), 'guide');
+    const source = path.join(tmpDir('docs-toc-src'), 'guide.md');
+    fs.writeFileSync(source, ['# Guide', '', 'Intro words.', '', '## Setup', '', '### Install', '', '## Usage', '', 'Closing words.', ''].join('\n'));
+    const created = await ctx.cli.json(['create', root, '--markdown', source, '--name', 'Guide']);
+    const tab = created.lids.f;
+    const { url } = await ctx.cli.json(['open', root, '--json']);
+    const browser = await launch();
+    try {
+      const page = await browser.load(url, { ready: textIn('Intro words.'), settle: 1000, ignore: [/\/favicon\.ico$/] });
+      // The page still moves its lines while it settles, and the click that focuses the text can leave the editor's
+      // caret where it was: click twice, until the caret is in the paragraph.
+      const caretIn = `getSelection().anchorNode?.parentElement?.closest('.doc-text p')?.textContent ?? null`;
+      const twice = async element => {
+        await clickInEditor(page, element);
+        // Far enough apart not to make a double click.
+        await new Promise(resolve => setTimeout(resolve, 800));
+        await clickInEditor(page, element);
+      };
+      assert.ok(await until(async () => {
+        await twice(`[...document.querySelectorAll('.doc-text p')].find(p => p.textContent === 'Intro words.')`);
+        return (await page.evaluateAll(caretIn)).includes('Intro words.');
+      }, 10000), 'the caret did not land in the intro');
+      await page.press('End');
+      await page.press('Enter');
+      await page.type('/toc');
+      assert.ok(await page.waitFor(`document.querySelector('[role="listbox"] [role="option"]')?.textContent.includes('Table of contents')`, 5000), 'the slash menu did not offer a table of contents');
+      await page.press('Enter');
+      assert.ok(await until(async () => (await linesOf(page)).length === 3, 5000), `no table of contents: ${JSON.stringify(await linesOf(page))}`);
+      // The tab's own title stays out; Install sits under Setup, and the top lines read as groups.
+      assert.deepEqual(await linesOf(page), [['Setup', '0', true], ['Install', '1', false], ['Usage', '0', true]]);
+      assert.ok(await until(async () => /```toc\n+```/.test((await ctx.cli.run(['read', root, tab, '--markdown'])).stdout), 10000), 'the table of contents was not saved as a toc block');
+
+      await ctx.cli.json(['update', root, JSON.stringify({ tab, ops: [{ op: 'insert', target: { kind: 'root' }, source: { markdown: '## Appendix' } }] })]);
+      assert.ok(await until(async () => (await linesOf(page)).at(-1)?.[0] === 'Appendix', 10000), `a new heading did not show: ${JSON.stringify(await linesOf(page))}`);
+
+      await clickInEditor(page, `[...document.querySelectorAll('.doc-text .contents-line')].find(a => a.textContent === 'Usage')`);
+      assert.ok(await until(async () => (await page.evaluateAll(`getSelection().anchorNode?.parentElement?.closest('h2')?.textContent ?? null`)).includes('Usage'), 5000),
+        'the link did not take the caret to its heading');
+
+      const html = path.join(tmpDir('docs-toc-out'), 'guide.html');
+      const out = await ctx.cli.run(['export', root, '--tab', tab, '--format', 'html', '--out', html]);
+      assert.equal(out.code, 0, out.stderr);
+      const printed = fs.readFileSync(html, 'utf8');
+      assert.match(printed, /<nav(?: id="[^"]*")? class="contents" aria-label="Table of contents">/);
+      assert.match(printed, /<a href="#usage">Usage<\/a>/);
+
+      // By keyboard: an arrow from the line below selects it whole, Enter reaches its links, the arrows move
+      // between them, Escape goes back to the block, and Backspace takes it out, saying so.
+      const said = async text => (await page.evaluateAll(`[...document.querySelectorAll('[aria-live]')].some(e => e.textContent.includes(${JSON.stringify(text)}))`)).includes(true);
+      const focused = async () => (await page.evaluateAll(`document.activeElement?.matches('.contents-line') ? document.activeElement.textContent : null`)).find(Boolean) ?? null;
+      const selected = `document.querySelector('.doc-text .contents-block.ProseMirror-selectednode') !== null`;
+      // The empty line the slash menu left under it: an arrow up from there selects it.
+      const below = `document.querySelector('.doc-text .contents-block')?.nextElementSibling`;
+      assert.ok(await until(async () => {
+        // The link above scrolled it out of sight.
+        await page.evaluateAll(`${below}?.scrollIntoView({ block: 'center' })`);
+        await twice(below);
+        return (await page.evaluateAll(`getSelection().anchorNode === ${below} || getSelection().anchorNode?.parentElement === ${below}`)).includes(true);
+      }, 10000), 'the caret did not land under the table of contents');
+      await page.press('ArrowUp');
+      assert.ok(await page.waitFor(selected, 5000), 'the arrow did not select the table of contents');
+      assert.ok(await until(() => said('Table of contents selected'), 5000), 'selecting it was not announced');
+      await page.press('Enter');
+      assert.ok(await until(async () => (await focused()) === 'Setup', 5000), 'Enter did not reach the first link');
+      await page.press('ArrowDown');
+      assert.ok(await until(async () => (await focused()) === 'Install', 5000), 'the arrow did not move to the next link');
+      await page.press('Escape');
+      assert.ok(await page.waitFor(selected, 5000), 'Escape did not go back to the block');
+      await page.press('Backspace');
+      assert.ok(await until(async () => (await linesOf(page)).length === 0, 5000), 'Backspace did not take it out');
+      assert.ok(await until(() => said('Table of contents deleted'), 5000), 'taking it out was not announced');
+      assert.deepEqual(page.problems, []);
+    } finally {
+      await Promise.all([browser.close(), ctx.cli.run(['stop', root])]);
+    }
+  });
+
+  it('in Suggesting mode a table of contents is not taken out by a key, and the text around it still takes suggestions', T, async () => {
+    const root = path.join(tmpDir('docs-toc-suggest'), 'notes');
+    const source = path.join(tmpDir('docs-toc-suggest-src'), 'notes.md');
+    fs.writeFileSync(source, ['# Notes', '', 'Intro words.', '', '```toc', '```', '', '## Setup', '', 'Setup words.', '', '## Usage', '', 'Closing words.', ''].join('\n'));
+    await ctx.cli.json(['create', root, '--markdown', source, '--name', 'Notes']);
+    const { url } = await ctx.cli.json(['open', root, '--json']);
+    const browser = await launch();
+    try {
+      const page = await browser.load(url, { ready: textIn('Setup words.'), settle: 1000, ignore: [/\/favicon\.ico$/] });
+      const said = async text => (await page.evaluateAll(`[...document.querySelectorAll('[aria-live]')].some(e => e.textContent.includes(${JSON.stringify(text)}))`)).includes(true);
+      const selected = `document.querySelector('.doc-text .contents-block.ProseMirror-selectednode') !== null`;
+      await clickInEditor(page, `document.querySelector('button[aria-label="Editing, mode"]')`);
+      await clickInEditor(page, `[...document.querySelectorAll('[role^=menuitem]')].find(item => item.textContent.includes('Suggesting'))`);
+      assert.ok(await page.waitFor(`document.querySelector('button[aria-label="Suggesting, mode"]')`, 5000), 'Suggesting did not come on');
+
+      // A press beside its links selects it; Enter reaches them and Escape comes back.
+      const blank = await page.evaluate(`(() => {
+        const frame = document.querySelector('iframe[name="open-artifact-shell"]');
+        const rect = frame.contentDocument.querySelector('.doc-text .contents-list').getBoundingClientRect();
+        const outer = frame.getBoundingClientRect();
+        return [outer.x + rect.right - 24, outer.y + rect.y + rect.height / 2];
+      })()`);
+      await page.click(...blank);
+      assert.ok(await page.waitFor(selected, 5000), 'a press did not select the table of contents');
+      await page.press('Enter');
+      assert.ok(await page.waitFor(`document.activeElement?.matches('.contents-line')`, 5000), 'Enter did not reach the links');
+      await page.press('Escape');
+      assert.ok(await page.waitFor(selected, 5000), 'Escape did not go back to the block');
+
+      // Backspace makes no suggestion of it here: the block stays, and nothing says it went.
+      await page.press('Backspace');
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      assert.equal((await page.evaluateAll(`document.querySelectorAll('.doc-text .contents-block').length`)).find(n => n > 0), 1, 'the table of contents went');
+      assert.equal(await said('Table of contents deleted'), false, 'it was said to be deleted');
+
+      // The text after it still takes a suggestion where the caret is.
+      const words = `[...document.querySelectorAll('.doc-text p')].find(p => p.textContent === 'Setup words.')`;
+      const caretIn = `getSelection().anchorNode?.parentElement?.closest('.doc-text p')?.textContent ?? null`;
+      assert.ok(await until(async () => {
+        await clickInEditor(page, words);
+        await new Promise(resolve => setTimeout(resolve, 800));
+        await clickInEditor(page, words);
+        return (await page.evaluateAll(caretIn)).includes('Setup words.');
+      }, 10000), 'the caret did not land in the paragraph');
+      await page.press('End');
+      await page.press('Enter');
+      assert.ok(await page.waitFor(`${words}?.nextElementSibling?.dataset.suggestOp === 'ins'`, 5000), 'Enter did not suggest a paragraph after the one with the caret');
+
+      // The slash menu does with a table of contents what it does with a code block (here: offers it, and the page
+      // does not put a whole block in as a suggestion).
+      const blocks = async () => (await page.evaluateAll(`document.querySelectorAll('.doc-text .code-block').length`)).find(n => n > 0) ?? 0;
+      const tryInsert = async (typed, label) => {
+        const before = await blocks();
+        await page.type(typed);
+        const offered = await page.waitFor(`[...document.querySelectorAll('[role="listbox"] [role="option"]')].some(o => o.textContent.includes(${JSON.stringify(label)}))`, 2000);
+        if (offered) await page.press('Enter');
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        const after = await blocks();
+        if (!offered) for (let i = 0; i < typed.length; i++) await page.press('Backspace');
+        return { offered, added: after - before };
+      };
+      const code = await tryInsert('/code', 'Code block');
+      const contents = await tryInsert('/toc', 'Table of contents');
+      assert.deepEqual(contents, code);
+      assert.deepEqual(page.problems, []);
+    } finally {
+      await Promise.all([browser.close(), ctx.cli.run(['stop', root])]);
     }
   });
 });

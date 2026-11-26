@@ -4,12 +4,14 @@ import { draftedText, queuedNote } from '@open-artifact/editor-kit';
 import { Tip } from '@open-artifact/editor-kit/react';
 import { ConfirmDialog, cn } from '@open-artifact/ui';
 import { CircleCheck } from 'lucide-react';
-import { type ReactNode, type Ref, useState } from 'react';
+import { type ReactNode, type Ref, type RefCallback, useCallback, useEffect, useState } from 'react';
 import { mentionsAgent, pressReactionThread, reply, replyGoesToAgent } from './actions.ts';
 import { Composer, Initial, type SendBoxSpec } from './Composer.tsx';
 import { Message } from './Message.tsx';
+import { seen, useUnread } from './reads.ts';
 import { type Hold, agentName, canAskAgent, canComment, canRemoveAny, docComments, myName, setActive, useCommentUi } from './store.ts';
 import { canDeleteThread, isOwn, reactionCount, resolvedWords } from './threads.ts';
+import { unreadIsReply } from './unread.ts';
 
 export interface ThreadCardProps {
   thread: CommentThread;
@@ -145,17 +147,51 @@ function focusNextCard(card: HTMLElement, step: 1 | -1): void {
   cards[cards.indexOf(card) + step]?.focus();
 }
 
+/** The share of a card in sight, while the page is shown, that counts as the viewer having seen it. */
+const SEEN_SHARE = 0.6;
+
+/** Notes a card with news as seen once enough of it has been in sight; hands its element on to `cardRef`. */
+function useSeenCard(id: string, news: boolean, cardRef: Ref<HTMLDivElement> | undefined): RefCallback<HTMLDivElement> {
+  const [element, setElement] = useState<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!news || !element || typeof IntersectionObserver === 'undefined') return;
+    const observer = new IntersectionObserver(
+      entries => {
+        if (document.visibilityState === 'visible' && entries.some(entry => entry.intersectionRatio >= SEEN_SHARE)) {
+          seen(id);
+          observer.disconnect();
+        }
+      },
+      { threshold: SEEN_SHARE },
+    );
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [id, news, element]);
+  return useCallback(
+    (node: HTMLDivElement | null) => {
+      setElement(node);
+      if (typeof cardRef === 'function') cardRef(node);
+      else if (cardRef) cardRef.current = node;
+    },
+    [cardRef],
+  );
+}
+
 export function ThreadCard({ thread, hold, open, inList = false, tabName, removablePlace, cardRef, onOpen }: ThreadCardProps): ReactNode {
+  const news = useUnread(thread) > 0;
+  const ref = useSeenCard(thread.id, news, cardRef);
   const [root, ...replies] = thread.messages;
   if (!root) return null;
   const resolved = thread.status === 'resolved';
   const shown = open ? replies : [];
+  const unread = news ? (unreadIsReply(thread) ? '. Has an unread reply.' : '. Unread.') : '';
   return (
     <div
-      ref={cardRef}
+      ref={ref}
       role="article"
-      aria-label={`Comment by ${root.author.name}${thread.label ? ` on “${thread.label}”` : ''}${resolved ? '. Resolved.' : ''}`}
+      aria-label={`Comment by ${root.author.name}${thread.label ? ` on “${thread.label}”` : ''}${resolved ? '. Resolved.' : ''}${unread}`}
       data-comment-card={thread.id}
+      data-unread={news ? '' : undefined}
       data-open={open ? '' : undefined}
       tabIndex={open ? -1 : 0}
       onClick={() => !open && onOpen()}
@@ -178,11 +214,12 @@ export function ThreadCard({ thread, hold, open, inList = false, tabName, remova
         }
       }}
       className={cn(
-        'pointer-events-auto rounded-[12px] bg-chrome p-3 text-chrome-fg shadow-chrome outline-none transition-[transform,box-shadow] duration-150',
+        'pointer-events-auto relative rounded-[12px] bg-chrome p-3 text-chrome-fg shadow-chrome outline-none transition-[transform,box-shadow] duration-150',
         open ? 'ring-1 ring-chrome-accent/50 shadow-chrome-popup' : 'cursor-pointer hover:shadow-chrome-popup',
         resolved && !open && 'opacity-70',
       )}
     >
+      {news ? <span aria-hidden="true" data-unread-dot="" className="absolute top-2 left-2 size-1.5 rounded-full bg-chrome-accent" /> : null}
       {inList && tabName ? <div className="mb-1 truncate text-[11px] font-medium uppercase tracking-wide text-chrome-muted">{tabName}</div> : null}
       {inList || hold === 'detached' ? <Quote thread={thread} hold={hold} /> : null}
       {resolved ? (

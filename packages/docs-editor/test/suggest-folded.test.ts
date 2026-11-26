@@ -4,7 +4,7 @@ import type { Node as PMNode } from 'prosemirror-model';
 import { EditorState } from 'prosemirror-state';
 import { foldHiding, foldKey, foldPlugin, headingPos } from '../src/editor/fold.ts';
 import { schema } from '../src/editor/schema.ts';
-import { foldedGroupId, foldedSuggestions, sameGroups } from '../src/suggest/folded.ts';
+import { foldedGroupId, foldedGroupLabel, foldedHeadingWords, foldedSuggestions, sameGroups } from '../src/suggest/folded.ts';
 
 const heading = (bid: string, level: number, words: string) => schema.nodes.paragraph.create({ bid, heading: level }, schema.text(words));
 const para = (bid: string, ...parts: PMNode[]) => schema.nodes.paragraph.create({ bid }, parts);
@@ -102,5 +102,25 @@ describe('suggestions a folded heading hides', () => {
     assert.ok(!sameGroups(one, [{ heading: 'h-plan', ids: ['sg2'] }]));
     assert.ok(!sameGroups(one, [{ heading: 'h-later', ids: ['sg2', 'sg3'] }]));
     assert.ok(!sameGroups(one, []));
+  });
+});
+
+describe('what a folded section\'s suggestions are called', () => {
+  it('names the heading by its words, with the count', () => {
+    assert.equal(foldedGroupLabel(3, foldedHeadingWords(doc, 'h-plan')), '3 suggestions in the section “Plan”');
+    assert.equal(foldedGroupLabel(1, 'Plan'), '1 suggestion in the section “Plan”');
+  });
+
+  it('says "this section" for a heading with no words, or one not there', () => {
+    const blank = schema.nodes.doc.create(null, [schema.nodes.paragraph.create({ bid: 'h-blank', heading: 2 }), para('p1', plain('one '))]);
+    assert.equal(foldedHeadingWords(blank, 'h-blank'), '');
+    assert.equal(foldedHeadingWords(doc, 'p2'), '');
+    assert.equal(foldedGroupLabel(2, ''), '2 suggestions in this section');
+    assert.equal(foldedGroupLabel(1, ''), '1 suggestion in this section');
+  });
+
+  it('reads the heading\'s words on one line, trimmed', () => {
+    const spaced = schema.nodes.doc.create(null, [heading('h-x', 2, '  Next   steps ')]);
+    assert.equal(foldedHeadingWords(spaced, 'h-x'), 'Next steps');
   });
 });

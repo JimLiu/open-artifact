@@ -128,6 +128,19 @@ export function recordWrite(index: HistoryIndex | null, before: DocState, before
   return { index: next, write, remove };
 }
 
+/** The rev a tab is born at: what the page calls the tab "as first saved". */
+export const FIRST_REV = 1;
+
+/**
+ * Whether the tab was blank when its history began: its first version is still the first one made, by a writer (not
+ * auto-save, which would hold content the tab already had), and came after the tab's first rev. The tab as first saved
+ * is then an empty tab, which no version keeps.
+ */
+export function startedBlank(index: HistoryIndex | null): boolean {
+  const first = index?.versions[0];
+  return !!first && first.n === 1 && first.by !== 'system' && first.rev > FIRST_REV;
+}
+
 /** The newest kept version at or before `rev` (the newest version is the tab now). */
 export function versionAt(index: HistoryIndex, rev: number): Version | undefined {
   let found: Version | undefined;

@@ -3,9 +3,9 @@ import { describe, it } from 'node:test';
 import type { Block, DocState, Inline, Marks } from '@open-artifact/docs-core';
 import type { DocSuggestion, DocVersion } from '@open-artifact/runtime/doc-api';
 import { type Comparison, attrsSummary, compareVersions, diffSequences, hasChanges, marksSummary, shortLink, stepChange, textSummary } from '../src/history/compare.ts';
-import { changesLabel, compareStatus, compareTarget } from '../src/history/compare-target.ts';
+import { againstLabel, changesLabel, compareStatus, compareTarget, isFirstSaved } from '../src/history/compare-target.ts';
 import { previewDocOf } from '../src/history/preview-doc.ts';
-import { copyMembers, copyName, safeTabName } from '../src/history/copy.ts';
+import { afterCopy, copyMembers, copyName, safeTabName } from '../src/history/copy.ts';
 import { learnNames } from '../src/app/people.ts';
 import { discardSentence, restoreNote } from '../src/history/restore-note.ts';
 import type { Preview } from '../src/history/store.ts';
@@ -71,6 +71,12 @@ describe('comparing versions', () => {
   it('reads a paragraph written over whole (new ids) as its changed words', () => {
     const compared = compareVersions(doc(para('p1', 'keep'), para('p2', 'Ship on Friday')), doc(para('p1', 'keep'), para('n9', 'Ship on Monday')));
     assert.deepEqual(shown(compared), ['keep', 'Ship on [-Friday][+Monday]']);
+  });
+
+  it('names a table of contents added or dropped', () => {
+    const contents: Block = { id: 'toc', type: 'codeBlock', attrs: { language: 'toc' }, inline: [] };
+    assert.deepEqual(summaries(compareVersions(doc(para('p1', 'one')), doc(para('p1', 'one'), contents))), ['ins: Table of contents added']);
+    assert.deepEqual(summaries(compareVersions(doc(para('p1', 'one'), contents), doc(para('p1', 'one')))), ['del: Table of contents deleted']);
   });
 
   it('shows an unrelated paragraph put in place of another as one dropped and one added', () => {
@@ -148,6 +154,8 @@ describe('words for changes', () => {
 
   it('words block settings', () => {
     assert.equal(attrsSummary({ type: 'codeBlock' }, { type: 'codeBlock', attrs: { language: 'js' } }), 'Code language: plain → js');
+    assert.equal(attrsSummary({ type: 'codeBlock', attrs: { language: 'js' } }, { type: 'codeBlock', attrs: { language: 'toc' } }), 'Code block → Table of contents');
+    assert.equal(attrsSummary({ type: 'codeBlock', attrs: { language: 'toc' } }, { type: 'codeBlock' }), 'Table of contents → Code block');
     assert.equal(attrsSummary({ type: 'listItem', attrs: { checked: false } }, { type: 'listItem', attrs: { checked: true } }), 'Checked');
     assert.equal(attrsSummary({ type: 'cell', attrs: { colspan: 1 } }, { type: 'cell', attrs: { colspan: 2, header: true } }), 'Made header cell; Merged cells');
     assert.equal(attrsSummary({ type: 'embed', attrs: { src: 'a' } }, { type: 'embed', attrs: { src: 'b' } }), 'Embed changed');
@@ -181,9 +189,9 @@ describe('what a preview is compared with', () => {
   const preview = (rev: number, base: number | null, current = false): Preview => ({ tab: 't', rev, base, at: '', current, count: 1, row: `r${rev}` });
 
   it('compares with the previous version, the current one, or the version a restore brought back', () => {
-    assert.deepEqual(compareTarget(preview(5, null), versions, 'previous', 'previous'), { against: 'previous', before: null, after: 5, restore: false, restoredFrom: null });
-    assert.deepEqual(compareTarget(preview(5, null), versions, 'current', 'previous'), { against: 'current', before: 5, after: 9, restore: false, restoredFrom: null });
-    assert.deepEqual(compareTarget(preview(7, 5), versions, 'current', 'restored'), { against: 'restored', before: 3, after: 7, restore: true, restoredFrom: 3 });
+    assert.deepEqual(compareTarget(preview(5, null), versions, 'previous', 'previous'), { against: 'previous', before: null, after: 5, restore: false, restoredFrom: null, firstSaved: false });
+    assert.deepEqual(compareTarget(preview(5, null), versions, 'current', 'previous'), { against: 'current', before: 5, after: 9, restore: false, restoredFrom: null, firstSaved: false });
+    assert.deepEqual(compareTarget(preview(7, 5), versions, 'current', 'restored'), { against: 'restored', before: 3, after: 7, restore: true, restoredFrom: 3, firstSaved: false });
     assert.equal(compareTarget(preview(9, 7, true), versions, 'current', 'previous').against, 'previous');
   });
 
@@ -196,6 +204,21 @@ describe('what a preview is compared with', () => {
     assert.equal(compareStatus(target, { kind: 'failed' }), 'Couldn’t compare');
     assert.equal(compareStatus(compareTarget(preview(7, 5), versions, 'previous', 'previous'), { kind: 'shown', count: 2 }), 'Compared with the version before the restore');
     assert.equal(compareStatus(target, { kind: 'off' }), null);
+  });
+
+  it('compares the oldest version of a tab that started blank with the tab as first saved', () => {
+    const oldest = compareTarget(preview(5, 1), versions, 'previous', 'previous');
+    assert.deepEqual(oldest, { against: 'previous', before: 1, after: 5, restore: false, restoredFrom: null, firstSaved: true });
+    assert.equal(compareStatus(oldest, { kind: 'shown', count: 2 }), 'Compared with the tab as first saved');
+    assert.equal(compareStatus(oldest, { kind: 'shown', count: 0 }), 'No changes');
+    assert.equal(againstLabel(oldest), 'vs first saved version');
+    assert.equal(againstLabel(compareTarget(preview(5, 1), versions, 'current', 'previous')), 'vs current version');
+    // A version kept at rev 1 is an ordinary previous version.
+    const kept: DocVersion[] = [...versions, { rev: 1, by: 'system', at: '2026-11-18T07:00:00Z' }];
+    assert.equal(compareTarget(preview(5, 1), kept, 'previous', 'previous').firstSaved, false);
+    assert.equal(isFirstSaved(versions, 1), true);
+    assert.equal(isFirstSaved(kept, 1), false);
+    assert.equal(isFirstSaved(versions, 5), false);
   });
 });
 
@@ -282,5 +305,21 @@ describe('copying a version', () => {
     assert.equal(members.length, 2);
     assert.equal(JSON.stringify(members).includes('"bid"'), false);
     assert.equal(JSON.stringify(members).includes('p1'), false);
+  });
+});
+
+describe('after a version is copied', () => {
+  const from = { tab: 't', rev: 5, row: 'r5', count: 1 };
+
+  it('opens the copy when its version is still shown', () => {
+    assert.deepEqual(afterCopy(from, { tab: 't', rev: 5, row: 'r5' }), { open: true, title: 'Copy opened in a new tab' });
+    assert.deepEqual(afterCopy({ ...from, row: 'g3', count: 3 }, { tab: 't', rev: 5, row: 'g3' }), { open: true, title: 'Opened a copy of the newest of 3 versions' });
+  });
+
+  it('only says it is made once the person went on to something else', () => {
+    assert.deepEqual(afterCopy(from, null), { open: false, title: 'Copy created' });
+    assert.deepEqual(afterCopy(from, { tab: 't', rev: 7, row: 'r7' }), { open: false, title: 'Copy created' });
+    assert.deepEqual(afterCopy(from, { tab: 'u', rev: 5, row: 'r5' }), { open: false, title: 'Copy created' });
+    assert.deepEqual(afterCopy({ ...from, row: 'g3', count: 3 }, { tab: 't', rev: 5, row: 'r5' }), { open: false, title: 'Copied the newest of 3 versions' });
   });
 });

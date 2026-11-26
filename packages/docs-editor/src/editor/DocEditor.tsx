@@ -76,6 +76,7 @@ export function DocEditor({ tabId, actions }: { tabId: string; actions: EditorAc
       openReference: () => actionsRef.current.openReference(),
       comment: () => actionsRef.current.comment(),
       toggleComments: () => actionsRef.current.toggleComments(),
+      copyPlaceLink: () => actionsRef.current.copyPlaceLink(),
       shortcuts: () => actionsRef.current.shortcuts(),
       slash: () => actionsRef.current.slash(),
     };

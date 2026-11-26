@@ -25,6 +25,7 @@ import {
   headingOf,
   hexColor,
   type Inline,
+  isContents,
   linkOf,
   type LinkTo,
   noteEmbed,
@@ -217,7 +218,7 @@ class DocumentWriter {
       case 'paragraph':
         return this.paragraph(block, place);
       case 'codeBlock':
-        return this.code(block, place);
+        return isContents(block) ? this.contents(block, place) : this.code(block, place);
       case 'horizontalRule':
         return `<w:p>${paragraphProps({ ...this.takeBreak(), border: '<w:pBdr><w:bottom w:val="single" w:sz="6" w:space="1" w:color="BFBFBF"/></w:pBdr>', ind: this.plainIndent(place) })}${this.bookmarks()}</w:p>`;
       case 'pending':
@@ -332,6 +333,19 @@ class DocumentWriter {
   private code(block: Block, place: Place): string {
     const text = segmentsOf(block.inline ?? [], this.source, this.notes).map(segment => segment.text).join('');
     return `<w:p>${paragraphProps({ style: 'Code', ...this.takeBreak(), ...(contentLeft(place) ? { ind: `<w:ind w:left="${contentLeft(place)}"/>` } : {}) })}${this.bookmarks()}<w:r>${textXml(text)}</w:r></w:p>`;
+  }
+
+  /** A table of contents: a paragraph for each heading it lists, linked to its bookmark and stepped in by its depth. */
+  private contents(block: Block, place: Place): string {
+    const lines = this.source.anchors?.contents?.get(block.id) ?? [];
+    return lines
+      .map(line => {
+        const left = contentLeft(place) + (line.indent * INDENT) / 2;
+        const run = runXml({ text: line.text, ...(line.group ? { marks: { bold: true } } : {}) }, !!line.anchor);
+        const linked = line.anchor ? `<w:hyperlink w:anchor="${line.anchor.bookmark}" w:history="1">${run}</w:hyperlink>` : run;
+        return `<w:p>${paragraphProps({ ...this.takeBreak(), ...(place.cell ? { spacing: CELL_SPACING } : {}), ...(left ? { ind: `<w:ind w:left="${left}"/>` } : {}) })}${this.bookmarks()}${linked}</w:p>`;
+      })
+      .join('');
   }
 
   private list(block: Block, place: Place): string {

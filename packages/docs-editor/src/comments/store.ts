@@ -15,7 +15,8 @@ import { AGENT_KEY, type MentionCandidate } from './mentions.ts';
 /** The pseudo thread id of the composer's words, while a new thread is written. */
 export const NEW_THREAD = '__new';
 
-export type CommentFilter = 'open' | 'resolved' | 'all';
+/** Which threads the list shows; `mine`: the open ones the viewer wrote in or is @mentioned in. */
+export type CommentFilter = 'open' | 'mine' | 'resolved' | 'all';
 
 /** A new thread being written: what it is on, and its text. */
 export interface Composer {

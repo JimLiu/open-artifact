@@ -19,7 +19,7 @@ import { useLinkPop } from './links.ts';
 import { useLayerPlacement } from './use-placement.ts';
 import { useSelbarSignals } from './watch.ts';
 
-const ACTION_ORDER: readonly SelectionActionKey[] = ['comment', 'react'];
+const ACTION_ORDER: readonly SelectionActionKey[] = ['comment', 'react', 'copyLink'];
 
 function touchesListItem(state: EditorState): boolean {
   let found = false;

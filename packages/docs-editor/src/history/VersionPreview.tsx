@@ -62,6 +62,8 @@ function PreviewPane({ preview }: { preview: Preview }): ReactNode {
   const result = useMemo((): { state: CompareState; comparison: Comparison | null } => {
     if (!compare) return { state: { kind: 'off' }, comparison: null };
     if (target.before === null) return { state: { kind: 'none' }, comparison: null };
+    // The tab as first saved isn't kept by every doc: then the oldest version has nothing earlier to compare.
+    if (older.error && target.firstSaved) return { state: { kind: 'none' }, comparison: null };
     if (older.error || newer.error) return { state: { kind: 'failed' }, comparison: null };
     if (!older.doc || !newer.doc) return { state: { kind: 'loading' }, comparison: null };
     try {
@@ -70,8 +72,10 @@ function PreviewPane({ preview }: { preview: Preview }): ReactNode {
     } catch {
       return { state: { kind: 'failed' }, comparison: null };
     }
-  }, [compare, target.before, older.doc, older.error, newer.doc, newer.error]);
+  }, [compare, target.before, target.firstSaved, older.doc, older.error, newer.doc, newer.error]);
   const { comparison } = result;
+  // The tab as first saved couldn't be read: the bar then speaks of the previous version, as for any oldest version.
+  const shown = useMemo(() => (target.firstSaved && older.error ? { ...target, firstSaved: false } : target), [target, older.error]);
 
   const [active, setActive] = useState(-1);
   useEffect(() => setActive(-1), [comparison]);
@@ -82,7 +86,7 @@ function PreviewPane({ preview }: { preview: Preview }): ReactNode {
   return (
     <div className="relative" role="region" aria-label="Version preview, read-only" data-testid="version-preview">
       <div className="sticky top-0 z-20 -mx-2 mb-6 rounded-b-lg border-b border-chrome-line bg-page/95 backdrop-blur">
-        <PreviewBar preview={preview} target={target} status={compareStatus(target, result.state)} />
+        <PreviewBar preview={preview} target={shown} status={compareStatus(shown, result.state)} />
         {comparison && count > 0 ? (
           <div className="flex items-center gap-2 border-t border-chrome-line px-2 py-1" data-testid="version-changes">
             <span className="shrink-0 text-[12px] text-chrome-muted" role="status">
@@ -166,14 +170,14 @@ function CompareMenu({ preview, target }: { preview: Preview; target: CompareTar
       tip={{ label: tip }}
       trigger={
         <ChromeButton className="text-[13px]" data-testid="version-compare-menu">
-          {againstLabel(target.against)}
+          {againstLabel(target)}
           <ChevronDown className="size-3.5 text-chrome-muted" />
         </ChromeButton>
       }
     >
       <ChromeMenuItem
         checked={target.against === 'previous'}
-        description={target.restore ? 'The one before this restore' : 'The one before this version'}
+        description={target.restore ? 'The one before this restore' : target.firstSaved ? 'The tab as first saved' : 'The one before this version'}
         onSelect={() => setCompareBase('previous')}
       >
         Previous version
