@@ -343,4 +343,39 @@ describe('the menu bar', () => {
     assert.ok(await until(() => app.lines.filter((line) => line.includes('choose folder (test mode: no dialog)')).length >= 2, 5000));
     assert.equal((await record(doc)).root, rec.root);
   });
+
+  it('a dialog blocks Close Tab and Reload, then focus returns to the artifact', T, async () => {
+    await app.chrome.evaluate(`desktop.select(${JSON.stringify(doc)})`);
+    await ready(doc);
+    const reloads = () => app.lines.filter((line) => line.includes('loaded again')).length;
+    const before = reloads();
+    await run('settings');
+    assert.ok(await app.chrome.waitFor("!!document.querySelector('[data-testid=settings-dialog]')", 5000), 'Settings did not open');
+    assert.ok(await until(async () => (await app.state()).overlay === true, 5000), 'the view was not covered');
+    assert.ok(
+      await until(() => app.lines.some((line) => line.includes('overlay: focus window')), 5000),
+      app.lines.slice(-12).join('\n'),
+    );
+    const menu = itemsOf(await app.menu());
+    assert.equal(menu.find((item) => item.id === 'close-tab')?.enabled, false);
+    assert.equal(menu.find((item) => item.id === 'reload')?.enabled, false);
+    assert.equal(menu.find((item) => item.id === 'move')?.enabled, false);
+    assert.equal(menu.find((item) => item.id === 'edit:copy')?.enabled, true);
+    const closed = await app.command('close-tab');
+    const reloaded = await app.command('reload');
+    assert.equal(closed.ok, false);
+    assert.equal(reloaded.ok, false);
+    assert.equal((await app.state()).current, doc);
+    assert.equal(
+      (await app.state()).tabs.some((tab) => tab.id === doc),
+      true,
+    );
+    assert.equal(reloads(), before, 'Reload ran on the tab under the dialog');
+    await app.chrome.evaluate<boolean>("document.querySelector('[data-testid=settings-done]').click(), true");
+    assert.ok(await until(async () => (await app.state()).overlay === false, 5000), 'the dialog stayed up');
+    assert.ok(
+      app.lines.some((line) => line.includes(`overlay: focus tab ${doc}`)),
+      app.lines.slice(-12).join('\n'),
+    );
+  });
 });

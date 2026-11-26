@@ -51,7 +51,6 @@ import {
   unsavedOf,
   viewTarget,
 } from './artifact-view.ts';
-import { httpish } from './navigation.ts';
 
 export class ArtifactWindow {
   window: BrowserWindow;
@@ -181,9 +180,21 @@ export class ArtifactWindow {
     this.changed();
   }
 
+  /** The window's page draws over the view (the unsaved-work question), or stops. Focus follows, as it does for a tab. */
   setOverlay(on: boolean) {
-    this.overlay = !!on;
+    const next = !!on;
+    const flipped = next !== this.overlay;
+    this.overlay = next;
     this.layout();
+    if (!flipped || this.window.isDestroyed()) return;
+    if (next) {
+      this.log('overlay: focus window');
+      this.window.webContents.focus();
+    } else if (!this.problem && this.tab.view && !this.tab.view.webContents.isDestroyed()) {
+      this.log('overlay: focus view');
+      this.tab.view.webContents.focus();
+    }
+    this.changed();
   }
 
   /** The view fills the window's content, unless the window's page is in front (a problem, the question). */
@@ -201,7 +212,6 @@ export class ArtifactWindow {
   }
 
   external(url: string) {
-    if (!httpish(url)) return this.log(`blocked link out to ${url}`);
     this.externalOut(url);
   }
 

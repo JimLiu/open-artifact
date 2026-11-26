@@ -200,6 +200,12 @@ export interface DesktopBridge {
     downloads(): Promise<string>;
     tabInfo(id: string): Promise<TabInfo | null>;
     servers(): Promise<{ view: ServersView; servers: string[] }>;
+    /** The next artifact load fails after its view is attached. */
+    failNextLoad(): Promise<boolean>;
+    /** Views in the window, and whether a failed open closed the one it added. */
+    views(): Promise<{ children: number; tabViews: number; listeners: number; attached: number; closed: number; current: string; ids: string[] }>;
+    /** Opens `origin` as a site tab. Test mode only. */
+    probeSite(origin: string): Promise<string>;
     appsHold(step: string): Promise<boolean>;
     appsRelease(): Promise<boolean>;
   };
@@ -295,6 +301,9 @@ export interface DesktopIpc {
   'test:downloads': DesktopBridge['test']['downloads'];
   'test:tab-info': DesktopBridge['test']['tabInfo'];
   'test:servers': DesktopBridge['test']['servers'];
+  'test:fail-next-load': DesktopBridge['test']['failNextLoad'];
+  'test:views': DesktopBridge['test']['views'];
+  'test:probe-site': DesktopBridge['test']['probeSite'];
   'test:apps-hold': DesktopBridge['test']['appsHold'];
   'test:apps-release': DesktopBridge['test']['appsRelease'];
 }

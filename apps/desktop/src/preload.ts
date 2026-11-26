@@ -138,6 +138,9 @@ const desktop: DesktopBridge = {
     /** A tab's view as Electron made it (its partition, its preload), and the servers this process lets in. */
     tabInfo: (id) => invoke('test:tab-info')(String(id)),
     servers: () => invoke('test:servers')(),
+    failNextLoad: () => invoke('test:fail-next-load')(),
+    views: () => invoke('test:views')(),
+    probeSite: (origin) => invoke('test:probe-site')(String(origin)),
     /** "Install as app": the next call waits at `step` (e.g. `recorded`) until `appsRelease()`. */
     appsHold: (step) => invoke('test:apps-hold')(String(step)),
     appsRelease: () => invoke('test:apps-release')(),

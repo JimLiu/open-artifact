@@ -15,6 +15,7 @@ import type { TestProfile } from './lib/env.ts';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { rmSync } from 'node:fs';
+import { createServer } from 'node:http';
 import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { launchApp, library } from './lib/app.ts';
@@ -65,11 +66,24 @@ describe('navigation in a tab', () => {
     assert.equal(await shellPath(), `/a/${first.id}`);
   });
 
+  it('a link that carries a password is opened without it, and the log does not record it', T, async () => {
+    await view.evaluate<string>("location.href = 'https://user:pw@example.com/x?token=secret#h'; true");
+    assert.ok(await logged('[desktop] external https://example.com/x'), app.lines.join('\n'));
+    assert.equal(
+      app.lines.some((line) => line.includes('user:pw') || line.includes('token=secret')),
+      false,
+      app.lines.filter((line) => line.includes('example.com')).join('\n'),
+    );
+  });
+
   it('new windows are never opened: the web goes to the system browser, the rest is dropped', T, async () => {
     assert.equal(await view.evaluate<boolean>("window.open('https://example.org/popup') === null"), true);
     assert.ok(await logged('[desktop] external https://example.org/popup'), app.lines.join('\n'));
     assert.equal(await view.evaluate<boolean>(`window.open('/a/${second.id}') === null`), true);
     assert.ok(await logged(`blocked new window for http://127.0.0.1:${port}/a/${second.id}`), app.lines.join('\n'));
+    assert.equal(await view.evaluate<boolean>("window.open('javascript:alert(1)') === null && window.open('file:///etc/passwd') === null"), true);
+    assert.ok(await logged('[desktop] blocked external'), app.lines.join('\n'));
+    assert.equal(app.lines.some((line) => line.includes('alert(1)') || line.includes('/etc/passwd')), false);
     const state = await app.state();
     assert.equal(state.tabs.length, 1);
     assert.equal((await app.cdp.targets()).filter((t) => t.type === 'page').length, 2, 'only the bar and the one view');
@@ -155,6 +169,95 @@ describe('navigation in a tab', () => {
       (await app.cdp.targets()).some((t) => t.type === 'page' && t.url.includes(`/a/${first.id}`)),
       false,
       'the closed view is gone',
+    );
+  });
+
+  it('a site subframe that redirects onto this computer is stopped', T, async () => {
+    const hops: Record<string, string> = {
+      '/to-loop': 'http://127.0.0.1:9/',
+      '/to-v6': 'http://[::1]/',
+      '/to-rfc': 'http://10.1.2.3/',
+      '/to-lan': 'http://192.168.0.8/',
+      '/to-link': 'http://169.254.169.254/',
+      '/to-local': 'http://not-declared.localhost/',
+    };
+    const server = createServer((req, res) => {
+      const path = (req.url ?? '/').split('?')[0] ?? '/';
+      const next = hops[path];
+      if (next) {
+        res.writeHead(302, { location: next });
+        res.end();
+        return;
+      }
+      res.writeHead(200, { 'content-type': 'text/html' });
+      res.end('<!doctype html><title>probe</title>');
+    });
+    const origin = await new Promise<string>((resolve) => {
+      server.listen(0, '127.0.0.1', () => {
+        const address = server.address();
+        const probePort = typeof address === 'object' && address ? address.port : 0;
+        resolve(`http://127.0.0.1:${probePort}`);
+      });
+    });
+    try {
+      const id = await app.chrome.evaluate<string>(`desktop.test.probeSite(${JSON.stringify(origin)})`);
+      assert.equal(id, 'site:probe');
+      const target = await app.cdp.waitTarget((info) => info.type === 'page' && info.url.startsWith(origin));
+      const site = await app.cdp.attach(target.targetId);
+      await site.send('Runtime.enable');
+      await site.send('Page.enable');
+      for (const path of Object.keys(hops)) {
+        await site.evaluate<boolean>(
+          `(() => { const frame = document.createElement('iframe'); frame.src = ${JSON.stringify(path)}; document.body.append(frame); return true; })()`,
+        );
+      }
+      for (const next of Object.values(hops)) {
+        assert.ok(await logged(`[desktop] blocked frame navigation to ${next}`), app.lines.join('\n'));
+      }
+      const frames = await site.frames();
+      for (const next of Object.values(hops)) {
+        assert.equal(
+          frames.some((frame) => frame.url.startsWith(next)),
+          false,
+          JSON.stringify(frames.map((frame) => frame.url)),
+        );
+      }
+      await app.chrome.evaluate(`desktop.close('site:probe')`);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  it('a failed open closes the view it attached and drops its shell listener', T, async () => {
+    const made = await library(daemonState(profile), 'artifacts.create', {
+      type: 'docs',
+      title: 'Failed',
+      blank: true,
+      folder: join(profile.artifacts, 'failed'),
+    });
+    assert.ok(made.id, JSON.stringify(made));
+    const before = await app.chrome.evaluate<{ children: number; listeners: number; attached: number; closed: number; ids: string[] }>(
+      'desktop.test.views()',
+    );
+    await app.chrome.evaluate('desktop.test.failNextLoad()');
+    const opened = await app.open(made.id);
+    assert.equal(opened.ok, false);
+    const state = await app.state();
+    assert.equal(state.current, 'home', 'the home page is in front');
+    assert.equal(
+      state.tabs.some((tab) => tab.id === made.id),
+      false,
+    );
+    const after = await app.chrome.evaluate<typeof before>('desktop.test.views()');
+    assert.equal(after.attached, before.attached + 1, 'the shell listener was never attached');
+    assert.equal(after.listeners, before.listeners, 'the shell listener is still attached');
+    assert.equal(after.closed, before.closed + 1, 'the view was not closed');
+    assert.equal(after.children, before.children, 'the view is still in the window');
+    assert.equal(after.ids.includes(made.id), false);
+    assert.equal(
+      (await app.cdp.targets()).some((target) => target.type === 'page' && target.url.includes(`/a/${made.id}`)),
+      false,
+      'the closed view is still a page',
     );
   });
 
