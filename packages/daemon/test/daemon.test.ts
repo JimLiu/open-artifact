@@ -10,6 +10,7 @@ import {
   HARNESS_PATH,
   HARNESS_SUBPROTOCOL,
   LIBRARY_ROUTES,
+  MAX_HOST_TEXT,
   artifactIdOf,
   type DaemonState,
   type ShellBoot,
@@ -391,13 +392,18 @@ test('wake: delivered live to a connected HarnessClient', async () => {
     await client.connect();
     await client.attach({ session: 'live-1', workspace, status: 'idle' });
     const id = await createDesign('Live', 'live-1');
-    const result = await api<{ via: string }>(state, LIBRARY_ROUTES.ask, { id, text: 'Please make it blue' });
+    const text = 'Please make it blue 🟦'.padStart(4022, 'x');
+    const result = await api<{ via: string }>(state, LIBRARY_ROUTES.ask, { id, text: ` ${text}\n` });
     assert.equal(result.via, 'live');
     assert.equal(delivered.length, 1);
     assert.equal(delivered[0]!.session, 'live-1');
     assert.equal(delivered[0]!.artifactId, id);
-    assert.match(delivered[0]!.text, /Please make it blue/);
+    assert.ok(delivered[0]!.text.includes(text), 'the whole request reaches the live session');
+    assert.equal(delivered[0]!.source.requests[0]?.text, text);
     assert.match(delivered[0]!.text, /sent to agent/i);
+    const rejected = await api<{ code: string }>(state, LIBRARY_ROUTES.ask, { id, text: text.padEnd(MAX_HOST_TEXT + 1, '!') });
+    assert.equal(rejected.code, 'too_large');
+    assert.equal(delivered.length, 1);
     const info = await api<{ sessions: Array<{ session: string; live: boolean }> }>(state, 'harnesses');
     assert.ok(info.sessions.some((s) => s.session === 'live-1' && s.live));
   } finally {

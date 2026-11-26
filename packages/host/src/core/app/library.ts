@@ -4,7 +4,7 @@
  * archive as a new artifact (decision 21), the Shell's boot, and Ask (a request into the owner's outbox).
  */
 
-import { ARCHIVE_CONTENT_TYPE, type ArtifactDetail, type AskRequest, type CloudAskAnswer, type UpdateArtifactRequest, type WakeRequestItem } from '@open-artifact/protocol';
+import { ARCHIVE_CONTENT_TYPE, askRequestText, type ArtifactDetail, type AskRequest, type CloudAskAnswer, type UpdateArtifactRequest, type WakeRequestItem } from '@open-artifact/protocol';
 import { newArtifactId, purgeArtifact } from '../catalog/catalog.ts';
 import { loadPrincipal, principalRef, type PrincipalRef } from '../authz/access.ts';
 import { effectiveRole, roleAtLeast } from '../authz/roles.ts';
@@ -20,8 +20,6 @@ import { artifactView, artifactViewFor, cloudAgent, noArtifact, personOf, reach,
 export const LIBRARY_BODY_BYTES = 64 * 1024;
 /** Longest title. */
 export const MAX_TITLE = 200;
-/** Longest Ask text, as the daemon keeps it. */
-export const MAX_ASK_TEXT = 4000;
 
 const invalid = (message: string): Error => httpError('invalid_argument', message, { status: 400 });
 const refused = (message: string): Error => httpError('not_granted', message, { status: 403 });
@@ -233,8 +231,7 @@ export function libraryRoutes(router: Router<AppCtx>): void {
     const body = await bodyWithId<AskRequest>(request);
     const { access, principal } = await reach(request, ctx, body.id);
     if (!mayAsk(access.role, access.artifact)) throw refused(access.role === 'editor' ? 'The owner does not let editors ask their agent.' : 'Only its owner and editors ask the agent.');
-    const text = typeof body.text === 'string' ? body.text.trim().slice(0, MAX_ASK_TEXT) : '';
-    if (!text) throw invalid('text is required.');
+    const text = askRequestText(body.text);
     const label = typeof body.label === 'string' && body.label.trim() ? body.label.trim().slice(0, 80) : undefined;
     await guards.ask(ctx, principal, access.artifact, { text, ...(label ? { label } : {}) });
     const sentAt = ctx.now().toISOString();

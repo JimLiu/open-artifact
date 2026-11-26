@@ -32,6 +32,7 @@ import {
   installedTypeCsp,
   restrictedTypeNotice,
   artifactUrl,
+  askRequestText,
   errorBody,
   shellPath,
   taskMessage,
@@ -2644,8 +2645,8 @@ ${rows ? `<ul>\n${rows}\n</ul>` : '<p>No artifacts yet. Ask an agent to make one
       case R.ask: {
         const body = await readJsonBody<AskRequest & { url: string }>(req);
         const record = this.store.require(body.id ?? body.url);
-        if (typeof body.text !== 'string' || !body.text.trim()) throw new OpenArtifactError('invalid_argument', 'text: what to ask.');
-        const result = await this.wake.ask(record.id, body.text.trim().slice(0, 4000), typeof body.label === 'string' ? body.label : undefined);
+        const text = askRequestText(body.text);
+        const result = await this.wake.ask(record.id, text, typeof body.label === 'string' ? body.label : undefined);
         return sendJson(res, 200, result);
       }
       case R.adopt: {
