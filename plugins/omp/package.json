@@ -1,0 +1,39 @@
+{
+  "name": "omp-open-artifact",
+  "version": "0.16.3",
+  "description": "Open Artifact in OMP: the Artifact, ArtifactData and ArtifactComments tools, comments on artifact pages waking the OMP session that made them, the open-artifact skill, and /open-artifact <type> to make a new one.",
+  "private": true,
+  "type": "module",
+  "keywords": [
+    "omp-package",
+    "open-artifact",
+    "artifacts"
+  ],
+  "exports": {
+    ".": "./src/index.ts",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src",
+    "skills",
+    "README.md",
+    "README.zh-CN.md"
+  ],
+  "omp": {
+    "extensions": [
+      "./src/index.ts"
+    ]
+  },
+  "scripts": {
+    "test": "node --test test/*.test.ts"
+  },
+  "dependencies": {
+    "@open-artifact/cli": "0.16.3",
+    "@open-artifact/harness-kit": "0.16.3",
+    "@open-artifact/protocol": "0.16.3"
+  },
+  "engines": {
+    "bun": ">=1.4.4"
+  },
+  "license": "Apache-2.0"
+}

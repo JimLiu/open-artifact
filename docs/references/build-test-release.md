@@ -13,6 +13,7 @@ Load this reference when building packages/plugins/WASM, running tests, or prepa
 ```bash
 npm ci                         # Install workspace dependencies
 npm run build                  # Full build: cli, support, editors, types, shell, frame, dsh
+node scripts/build-skill.mjs   # The skill (skills/open-artifact/) and its OMP rendering (plugins/omp/skills/)
 node scripts/build-plugins.mjs # Build unified skill + dist/plugins/<name>/ + marketplace manifests
 ```
 
@@ -34,7 +35,7 @@ node scripts/build-plugins.mjs # Build unified skill + dist/plugins/<name>/ + ma
 
 ```bash
 npm run typecheck                     # tsc -p tsconfig.json
-npm test                              # node --test across packages/*, plugins/dsh, plugins/pi, plugins/zcode, examples/host-plugins, examples/harness-node, examples/harness-stdio, scripts
+npm test                              # node --test across packages/*, plugins/dsh, plugins/pi, plugins/omp, plugins/zcode, examples/host-plugins, examples/harness-node, examples/harness-stdio, scripts
 npm run check                         # typecheck + unit tests
 npm run e2e                           # Full E2E suite (requires npm run build first)
 npm run e2e -- --only slides,docs     # Run selected E2E suites
@@ -138,11 +139,11 @@ checks the separate desktop-update controls, saved preferences and test-mode ref
 
 ## Releasing
 
-`node scripts/build-npm.mjs` stages publishable packages into `dist/npm/`: the `@open-artifact/*` libraries, `@open-artifact/cli`, `dsh-open-artifact`, and `pi-open-artifact` (copied from `plugins/pi` as it is: Pi loads its TypeScript directly). `@open-artifact/library-page` is private and not staged: the DSH plugin bundles it into its `lib/client.js` and Open Artifact Desktop into its window page; publish it when a host outside this repository needs it.
+`node scripts/build-npm.mjs` stages publishable packages into `dist/npm/`: the `@open-artifact/*` libraries, `@open-artifact/cli`, `dsh-open-artifact`, `pi-open-artifact` (copied from `plugins/pi` as it is: Pi loads its TypeScript directly) and `omp-open-artifact` (copied from `plugins/omp` as it is: OMP loads its TypeScript too, and scans its `skills/` folder as an extension package). `@open-artifact/library-page` is private and not staged: the DSH plugin bundles it into its `lib/client.js` and Open Artifact Desktop into its window page; publish it when a host outside this repository needs it.
 `@open-artifact/cli` is the skill folder: its `files` are `scripts/`, `vendor/`, `reference/` (the skill's guides, such as `new-type.md`) and `SKILL.md`.
 The libraries are compiled with `tsc` (`rewriteRelativeImportExtensions`, which fixes `./x.ts` imports in the emitted JavaScript only); the script then rewrites relative `.ts`/`.tsx`/`.mts`/`.cts` specifiers in every staged `.d.ts` (compiled or authored) to `.js`/`.js`/`.mjs`/`.cjs` (`scripts/declaration-specifiers.mjs`, tested by `scripts/declaration-specifiers.test.mjs`) and fails the build if one is left.
 
-1. **Bump versions in lockstep**: every `@open-artifact/*` package, `plugins/dsh`, `plugins/pi`, every plugin manifest, and marketplace manifests share one version.
+1. **Bump versions in lockstep**: every `@open-artifact/*` package, `plugins/dsh`, `plugins/pi`, `plugins/omp`, every plugin manifest, and marketplace manifests share one version.
 2. **Gather commits**: run `node scripts/changelog.mjs` (lists commits since last `v*` tag; pass `<from> <to>` for a custom range).
 3. **Update `CHANGELOG.md`**: add `## [x.y.z] - YYYY-MM-DD` at the top with a one-line summary and user-facing `### Added`, `### Changed`, `### Fixed` (and `### Removed` when applicable) sections. Merge related commits; omit release bookkeeping and purely internal refactors. Add the compare link at the bottom:
    `[x.y.z]: https://github.com/JimLiu/open-artifact/compare/v<prev>...vx.y.z`
