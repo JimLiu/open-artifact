@@ -1,6 +1,6 @@
 {
   "name": "omp-open-artifact",
-  "version": "0.16.3",
+  "version": "0.17.0",
   "description": "Open Artifact in OMP: the Artifact, ArtifactData and ArtifactComments tools, comments on artifact pages waking the OMP session that made them, the open-artifact skill, and /open-artifact <type> to make a new one.",
   "private": true,
   "type": "module",
@@ -28,9 +28,9 @@
     "test": "node --test test/*.test.ts"
   },
   "dependencies": {
-    "@open-artifact/cli": "0.16.3",
-    "@open-artifact/harness-kit": "0.16.3",
-    "@open-artifact/protocol": "0.16.3"
+    "@open-artifact/cli": "0.17.0",
+    "@open-artifact/harness-kit": "0.17.0",
+    "@open-artifact/protocol": "0.17.0"
   },
   "engines": {
     "bun": ">=1.4.4"

@@ -1,6 +1,6 @@
 {
   "name": "dsh-open-artifact",
-  "version": "0.16.3",
+  "version": "0.17.0",
   "description": "Open Artifact in DeepSeek Harness: the Artifact, ArtifactData and ArtifactComments tools, comments on artifact pages waking the session that owns them, the Open Artifact page in the sidebar listing the open-artifact library, artifacts the agent opens shown in the session's Browser, and /open-artifact <type> to make a new one.",
   "private": true,
   "type": "module",
@@ -50,9 +50,9 @@
   },
   "license": "Apache-2.0",
   "devDependencies": {
-    "@open-artifact/harness-kit": "0.16.3",
-    "@open-artifact/library-page": "0.16.3",
-    "@open-artifact/protocol": "0.16.3",
-    "@open-artifact/ui": "0.16.3"
+    "@open-artifact/harness-kit": "0.17.0",
+    "@open-artifact/library-page": "0.17.0",
+    "@open-artifact/protocol": "0.17.0",
+    "@open-artifact/ui": "0.17.0"
   }
 }

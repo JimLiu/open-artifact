@@ -1,10 +1,41 @@
 # Changelog
 
 Every release of Open Artifact: the `@open-artifact/*` libraries, `@open-artifact/cli`, `dsh-open-artifact`,
-`pi-open-artifact` and the agent plugins. Since 0.9.0 they all share one version; before that `dsh-open-artifact` had its own (noted per release).
+`pi-open-artifact`, `omp-open-artifact` and the agent plugins. Since 0.9.0 they all share one version; before that `dsh-open-artifact` had its own (noted per release).
 
 Each entry is written from the commits since the previous tag (`node scripts/changelog.mjs` lists them); see
 [Releasing](README.md#releasing).
+
+## [0.17.0] - 2026-11-26
+
+Edit video footage in Motion, draw with a pen or touch on Whiteboard, and make artifacts from OMP.
+
+### Added
+
+- Motion can add a video from a file picker or a drop, keep the chosen part and convert it to an H.264/AAC MP4 under the 20 MiB upload limit. Trim clips on the timeline, set their start and end, split at the playhead or remove the video from a scene; edits can be undone. Clips can play from an offset at 0.25–4× speed with their own sound and captions; the score ducks beneath speech, and MP4 and HTML exports keep the sound and captions. `kit.count` animates a number to the value in the markup.
+- Motion adds Read as text and Describe scenes aloud, Undo and Redo in the touch panel menu, grouped comment marks on the timeline, and explanations when a text's own styling disables a control.
+- Whiteboard adds editable SVG layers, pressure-sensitive pen strokes, stylus erasing, lasso selection and touch gestures, with improvements to text overflow, embedded content and keyboard access.
+- OMP support: `omp plugin install npm:omp-open-artifact` installs the Artifact, ArtifactData and ArtifactComments tools, the skill and `/open-artifact`. Page requests and comments reach the owning session, including after resume, and the adapter follows new, resumed and forked sessions.
+- The official website at [openartifact.net](https://openartifact.net) includes English and Simplified Chinese documentation, raw Markdown and `llms.txt` for agents, and a live browser playground running the real editors with a simulated agent.
+- Design System fonts can declare OpenType `features` and a `unicodeRange` in `tokens.json`; valid values become `@font-face` rules, and invalid values produce check errors without removing the font.
+
+### Changed
+
+- Desktop tabs can be reordered, scroll when they overflow and have their own menus. Top-level view connections use WebSockets, with an event-stream fallback, to avoid the browser's connection limit. The desktop and development Dock icons use the coloured brand mark.
+- Design System asset previews choose a light or dark backdrop when a mark needs contrast. Read-only token values wrap to show their full contents, and agents follow the questions in a design system's README before building.
+- DSH shows the person's own words for a page request and an expandable chip for the selection, while preserving the full request sent to the agent.
+
+### Fixed
+
+- Ask messages are sent in full. The Shell and editors refuse input over 8,000 UTF-8 bytes and keep the draft; Docs' Ask Agent uses the comment limit of 4,096 bytes, including its `@Agent ` prefix. Comments, replies and edits over 4,096 bytes are refused instead of silently shortened. Requests leave room for the selection appended to the person's words, and failed sends preserve drafts.
+- Saving with Command/Ctrl-S inside a Design System field commits the draft before saving and keeps focus, including on non-Latin keyboard layouts.
+- OMP accepts a wake without waiting for the entire agent turn to finish, preventing duplicate deliveries of long-running requests. Repeated turns replace the existing Open Artifact prompt block, and a source checkout keeps its tracked skill file.
+- `publish` refuses mistaken `file_path` or `asset` arguments and points the caller to `upload`; hosted uploads use base64 `files`.
+
+### Integrators
+
+- The optional `wake.request.parts` feature lets `wake.deliver` entries in `source.requests[]` carry `userText` (the person's words with line breaks) and `selectionSnapshot` (a bounded description of the selection at Send). The full agent text is unchanged, so adapters that ignore the fields keep working. Docs comments sent to the agent preserve the same parts through the Shell broker; `CommentsCapability.sendToAgent` and `POST _api/comments/send` accept them too.
+- A shipped OMP harness profile (`omp`, L3 over the Harness API) identifies sessions with `OMP_BASH_SESSION`. The Harness protocol version remains 1.
 
 ## [0.16.3] - 2026-11-26
 
@@ -705,6 +736,7 @@ One version for every package, with Docs and Sheets in every plugin.
 - Plugins for Claude Code, Codex, Cursor, Copilot, ChatGPT and DeepSeek Harness.
 - English and Chinese READMEs, under Apache-2.0.
 
+[0.17.0]: https://github.com/JimLiu/open-artifact/compare/v0.16.3...v0.17.0
 [0.16.3]: https://github.com/JimLiu/open-artifact/compare/v0.16.2...v0.16.3
 [0.16.2]: https://github.com/JimLiu/open-artifact/compare/v0.16.1...v0.16.2
 [0.16.1]: https://github.com/JimLiu/open-artifact/compare/v0.16.0...v0.16.1

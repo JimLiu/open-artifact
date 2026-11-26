@@ -1,6 +1,6 @@
 {
   "name": "@open-artifact/host-plugin",
-  "version": "0.16.3",
+  "version": "0.17.0",
   "private": true,
   "type": "module",
   "description": "Write plugins for the Open Artifact cloud host: the plugin API's types, definePlugin, helpers for signatures and JWTs, and a test kit that runs a plugin without a host.",
