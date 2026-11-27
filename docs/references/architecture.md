@@ -325,7 +325,7 @@ in a tabbed stage and plays the replay of the one on show. See `website/README.m
   `<project>/.agents/open-artifact/settings.json` (`PROJECT_SETTINGS_FILE`; only `PROJECT_SETTINGS_KEYS`,
   `artifactsLocation` and a relative `artifactsDir` that stays inside, are read, every other key is ignored since a
   repository is untrusted); the person's `artifactsLocation`; the harness profile's `policy.artifacts` (`workspace` in
-  every shipped profile but `pi` and `omp`); `home`. `artifactsPlacement` reads the files on each call and reports each value's
+  every shipped profile but `pi`, `omp` and `hermes`); `home`. `artifactsPlacement` reads the files on each call and reports each value's
   source. `projectOf(workspace)` walks up to the top of the Git checkout (never past it, never to the home folder,
   never taking the person's own settings file for a project's): the nearest settings file's folder is the project,
   else the checkout's top, else the workspace; a linked worktree (`.git` file with a `commondir`) has the main working

@@ -1,0 +1,364 @@
+{
+ "note": "The daemon's tool schemas (TOOL_DEFINITIONS), so register() never waits for the daemon. Refreshed from tools.list when the bridge connects; test/schemas.test.mjs checks this copy.",
+ "tools": [
+  {
+   "name": "Artifact",
+   "description": "Make and change artifacts: typed folders of files that open as live pages the person can view, edit, comment on and export. Actions:\n- quickstart {intent, type?}: call first for a new artifact; recommends a type (or takes the one given) and returns the call that creates it, the steps for this app and similar artifacts that already exist.\n- list {scope: \"mine\" | \"all\" | \"types\", type?, query?}: find existing artifacts, or the installed types.\n- publish {type_url, title, folder?, open?}: create an artifact; the result carries its root folder and the type's instructions. publish {url, files, if_match?, check?}: write files when you have no file tools of your own. A page artifact also takes capabilities (on create or write): the runtime capabilities its page may use.\n- read {url, path? | paths?}: the artifact's record, files and actions, or some of its files with their sha256. read {type_url}: a type's instructions, before creating.\n- open {url, panel?}: show it to the person in the computer's browser (or the app, when it shows pages), once its content is written. When your app has a built-in browser, open view_url there instead. panel \"share\" or \"export\" opens its Share panel or Export tab for them.\n- call {url, name, args?}: run one of the type's actions (check, upload, ...). A long one answers {task, pending: true}; its result comes later as a message.\n- adopt {url | folder}: take over an artifact, or add an existing folder. Only when the person asks.\n- share {url}: whether it is shared on the local network, and its links. Only the person changes that, in the page's Share panel.\n- delete {url}: forget an artifact; its folder stays. Only when the person asks.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "action": {
+      "type": "string",
+      "enum": [
+       "quickstart",
+       "list",
+       "publish",
+       "read",
+       "open",
+       "call",
+       "adopt",
+       "delete",
+       "share"
+      ],
+      "description": "What to do: quickstart, list, publish, read, open, call, adopt, delete or share. Omitted: publish."
+     },
+     "intent": {
+      "type": "string",
+      "description": "quickstart: what is being made (design, design-system, slides, whiteboard, document, data, sheets, motion, page, other), or a few words about it."
+     },
+     "scope": {
+      "type": "string",
+      "enum": [
+       "types",
+       "mine",
+       "all"
+      ],
+      "description": "list: types (the installed types), mine (this session's and this project's artifacts; the default) or all (every artifact)."
+     },
+     "type": {
+      "type": "string",
+      "description": "list: only artifacts of this type (an id, or open-artifact://type/<id>). quickstart: the type already chosen (an id), to get its create call and steps without matching."
+     },
+     "query": {
+      "type": "string",
+      "description": "list: only artifacts whose title contains this text."
+     },
+     "limit": {
+      "type": "integer",
+      "description": "list: how many to return (default 50, at most 200)."
+     },
+     "cursor": {
+      "type": "string",
+      "description": "list: the next_cursor of the previous page."
+     },
+     "type_url": {
+      "type": "string",
+      "description": "publish without url: the type to create from (open-artifact://type/<id>, from quickstart). read without url: the type to describe."
+     },
+     "title": {
+      "type": "string",
+      "description": "publish without url: the new artifact's name. quickstart: the name it will have, to find similar ones."
+     },
+     "folder": {
+      "type": "string",
+      "description": "publish without url: the exact folder for the new artifact (absolute, or relative to the workspace), only when the person named one. Omitted: Open Artifact chooses the folder and its name. adopt: the folder to add."
+     },
+     "location": {
+      "type": "string",
+      "enum": [
+       "home",
+       "workspace"
+      ],
+      "description": "publish without url: where the new artifact's folder goes when the person asked: workspace (in the project, under the working folder) or home (the person's Open Artifact folder). Omitted: what the person's settings say. The folder is named from the title either way."
+     },
+     "url": {
+      "type": "string",
+      "description": "An artifact: open-artifact://artifact/<id>, as publish returned it."
+     },
+     "files": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "publish with url: files to write under the artifact root, as {\"rel/path\": \"text\"} or {\"rel/path\": {\"content\": \"...\", \"encoding\": \"base64\"}}; null deletes."
+     },
+     "if_match": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "publish with url: {\"rel/path\": sha256 | null | \"*\"}. Write only while the file still has the sha256 you read, does not exist (null), or anyway (\"*\"). One mismatch writes nothing and returns the current versions."
+     },
+     "check": {
+      "type": "boolean",
+      "description": "publish with url: run the type's check action after writing; its result comes back as check."
+     },
+     "capabilities": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "publish, page artifacts only: the runtime capabilities the page may use, as {\"db\": true, \"assets\": true, ...}. Omitted: kept; {}: none; otherwise the whole set. With url it may be given without files."
+     },
+     "open": {
+      "type": "string",
+      "enum": [
+       "after_first_write",
+       "now",
+       "never"
+      ],
+      "description": "publish without url: after_first_write (the default) opens the page in your app once your first write lands; now opens it at once; never leaves it closed. Where your app cannot show pages by itself the result says so: open view_url in your app's built-in browser, if you have one."
+     },
+     "related": {
+      "type": "boolean",
+      "description": "quickstart: list existing artifacts the recommended type can build on, such as design systems (default true)."
+     },
+     "path": {
+      "type": "string",
+      "description": "read: one file or folder under the root (omitted: the record and the file list)."
+     },
+     "paths": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      },
+      "description": "read: several files under the root at once."
+     },
+     "name": {
+      "type": "string",
+      "description": "call: the action's name (check, upload, ...; read with url lists them)."
+     },
+     "args": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "call: the action's arguments. upload: {file: absolute path, name?, group?}."
+     },
+     "panel": {
+      "type": "string",
+      "enum": [
+       "share",
+       "export"
+      ],
+      "description": "open: also open the page's Share panel (share), for the person to share it on the network, or its Export tab (export), for them to download a file."
+     },
+     "cloud": {
+      "type": "string",
+      "description": "share: publish the artifact to this cloud remote (its name, as `open-artifact remote list` shows it). It works only on a remote the person set up and let agents publish to (agentMayPublish); otherwise the person publishes it, from the Share panel or with `open-artifact publish <id> --remote <name>`."
+     }
+    }
+   },
+   "annotations": {
+    "title": "Artifact",
+    "openWorldHint": false
+   },
+   "actions": {
+    "quickstart": "read",
+    "list": "read",
+    "read": "read",
+    "publish": "write",
+    "call": "write",
+    "open": "ui",
+    "delete": "remove",
+    "adopt": "remove",
+    "share": "person"
+   },
+   "remoteActions": [
+    "publish",
+    "open",
+    "call",
+    "share"
+   ]
+  },
+  {
+   "name": "ArtifactData",
+   "description": "Read and write the document store of an artifact whose type keeps one (its instructions say so). get, list and query read documents with their sha256; set, update, delete, str_replace and batch write them. update merges fields, and {\"__delete__\": true} removes one; str_replace changes one passage of a long text field. Replacing or deleting an existing document needs if_match: the sha256 you read, or \"*\". Your writes show live on open pages.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "action": {
+      "type": "string",
+      "enum": [
+       "get",
+       "list",
+       "query",
+       "set",
+       "update",
+       "delete",
+       "str_replace",
+       "batch"
+      ],
+      "description": "What to do: get, list, query, set, update, delete, str_replace or batch."
+     },
+     "url": {
+      "type": "string",
+      "description": "The artifact (open-artifact://artifact/<id>)."
+     },
+     "collection": {
+      "type": "string",
+      "description": "The collection: alone for list / query (query needs it), with doc_id for one document."
+     },
+     "doc_id": {
+      "type": "string",
+      "description": "With collection: the document to get / set / update / delete / str_replace."
+     },
+     "path": {
+      "type": "string",
+      "description": "collection/doc_id, instead of the two."
+     },
+     "data": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "set / update: the document's fields."
+     },
+     "file_path": {
+      "type": "string",
+      "description": "set / update: a JSON file holding the fields, instead of data."
+     },
+     "if_match": {
+      "description": "set / update / delete / str_replace: the sha256 get returned (write only if unchanged), null (only if it does not exist) or \"*\" (replace whatever is there)."
+     },
+     "field": {
+      "type": "string",
+      "description": "str_replace: the text field, as a dot path (body, notes.text)."
+     },
+     "old": {
+      "type": "string",
+      "description": "str_replace: the passage to replace; it must occur exactly once."
+     },
+     "new": {
+      "type": "string",
+      "description": "str_replace: the passage that replaces it."
+     },
+     "where": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "additionalProperties": true
+      },
+      "description": "query: [{field, op, value}], all must hold. op: ==, !=, <, <=, >, >=, in, not-in (up to 30 values), array-contains."
+     },
+     "order_by": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "query: {field, dir: \"asc\" | \"desc\"}."
+     },
+     "limit": {
+      "type": "integer",
+      "description": "list / query: how many documents (default 100, at most 1000)."
+     },
+     "cursor": {
+      "type": "string",
+      "description": "list / query: the next_cursor of the previous page."
+     },
+     "out_file": {
+      "type": "string",
+      "description": "get / list / query: write the result to this JSON file (absolute, or relative to the workspace) and return only its path and counts."
+     },
+     "writes": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "additionalProperties": true
+      },
+      "description": "batch: [{op: set|update|delete|str_replace, path | collection+doc_id, data | file_path, if_match?, field?, old?, new?}], at most 500."
+     }
+    },
+    "required": [
+     "action",
+     "url"
+    ]
+   },
+   "annotations": {
+    "title": "Artifact data",
+    "openWorldHint": false
+   },
+   "actions": {
+    "get": "read",
+    "list": "read",
+    "query": "read",
+    "set": "write",
+    "update": "write",
+    "str_replace": "write",
+    "batch": "write",
+    "delete": "write"
+   },
+   "remoteActions": [
+    "get",
+    "list",
+    "query",
+    "set",
+    "update",
+    "str_replace",
+    "batch",
+    "delete"
+   ]
+  },
+  {
+   "name": "ArtifactComments",
+   "description": "Comments the person leaves on their artifact's page, kept in the artifact's own folder on this computer (no outside service). read lists the threads; reply answers one (thread_id is after \";thread=\" in the message), with resolve: true when it is done; resolve and reopen change a thread's state. A thread sent to you is the person asking for your answer in it, so replying there is what they asked for. Answer only threads sent to you, in one or two lines. wait blocks until the next message for this session: use it only when nothing else can wake you.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "action": {
+      "type": "string",
+      "enum": [
+       "read",
+       "reply",
+       "resolve",
+       "reopen",
+       "wait"
+      ],
+      "description": "What to do: read, reply, resolve, reopen or wait."
+     },
+     "url": {
+      "type": "string",
+      "description": "The artifact (open-artifact://artifact/<id>). wait: optional."
+     },
+     "thread_id": {
+      "type": "string",
+      "description": "reply / resolve / reopen: the thread (after \";thread=\" in the message)."
+     },
+     "text": {
+      "type": "string",
+      "description": "reply: the answer."
+     },
+     "resolve": {
+      "type": "boolean",
+      "description": "reply: resolve the thread too."
+     },
+     "all": {
+      "type": "boolean",
+      "description": "read: resolved threads too."
+     },
+     "since": {
+      "type": "string",
+      "description": "read: only threads with a message at or after this time (ISO 8601)."
+     },
+     "acknowledge_duplicate": {
+      "type": "boolean",
+      "description": "reply: send the same text as your last reply in this thread again, on purpose."
+     },
+     "timeout_ms": {
+      "type": "number",
+      "description": "wait: how long (default 600000)."
+     }
+    },
+    "required": [
+     "action"
+    ]
+   },
+   "annotations": {
+    "title": "Artifact comments",
+    "destructiveHint": false,
+    "openWorldHint": false
+   },
+   "actions": {
+    "read": "read",
+    "wait": "read",
+    "reply": "write",
+    "resolve": "write",
+    "reopen": "write"
+   },
+   "remoteActions": [
+    "read",
+    "reply",
+    "resolve",
+    "reopen"
+   ]
+  }
+ ]
+}

@@ -35,7 +35,7 @@ node scripts/build-plugins.mjs # Build unified skill + dist/plugins/<name>/ + ma
 
 ```bash
 npm run typecheck                     # tsc -p tsconfig.json
-npm test                              # node --test across packages/*, plugins/dsh, plugins/pi, plugins/omp, plugins/zcode, examples/host-plugins, examples/harness-node, examples/harness-stdio, scripts
+npm test                              # node --test across packages/*, plugins/dsh, plugins/pi, plugins/omp, plugins/hermes, plugins/zcode, examples/host-plugins, examples/harness-node, examples/harness-stdio, scripts
 npm run check                         # typecheck + unit tests
 npm run e2e                           # Full E2E suite (requires npm run build first)
 npm run e2e -- --only slides,docs     # Run selected E2E suites
@@ -163,7 +163,7 @@ one file of checks per demo in `scripts/verify/`, each demo's replay included). 
 `@open-artifact/cli` is the skill folder: its `files` are `scripts/`, `vendor/`, `reference/` (the skill's guides, such as `new-type.md`) and `SKILL.md`.
 The libraries are compiled with `tsc` (`rewriteRelativeImportExtensions`, which fixes `./x.ts` imports in the emitted JavaScript only); the script then rewrites relative `.ts`/`.tsx`/`.mts`/`.cts` specifiers in every staged `.d.ts` (compiled or authored) to `.js`/`.js`/`.mjs`/`.cjs` (`scripts/declaration-specifiers.mjs`, tested by `scripts/declaration-specifiers.test.mjs`) and fails the build if one is left.
 
-1. **Bump versions in lockstep**: every `@open-artifact/*` package, `plugins/dsh`, `plugins/pi`, `plugins/omp`, every plugin manifest, and marketplace manifests share one version.
+1. **Bump versions in lockstep**: every `@open-artifact/*` package, `plugins/dsh`, `plugins/pi`, `plugins/omp`, `plugins/hermes/plugin.yaml` (the plugin reads its version there; its test checks it against the release), every plugin manifest, and marketplace manifests share one version.
 2. **Gather commits**: run `node scripts/changelog.mjs` (lists commits since last `v*` tag; pass `<from> <to>` for a custom range).
 3. **Update `CHANGELOG.md`**: add `## [x.y.z] - YYYY-MM-DD` at the top with a one-line summary and user-facing `### Added`, `### Changed`, `### Fixed` (and `### Removed` when applicable) sections. Merge related commits; omit release bookkeeping and purely internal refactors. Add the compare link at the bottom:
    `[x.y.z]: https://github.com/JimLiu/open-artifact/compare/v<prev>...vx.y.z`

@@ -53,7 +53,7 @@ for (const name of plugins) {
   const target = join(out, name);
   rmSync(target, { recursive: true, force: true });
   const from = join(source, name);
-  cpSync(from, target, { recursive: true, filter: (path) => basename(path) !== 'node_modules' && relative(from, path) !== 'test' });
+  cpSync(from, target, { recursive: true, filter: (path) => basename(path) !== 'node_modules' && basename(path) !== '__pycache__' && relative(from, path) !== 'test' });
   for (const file of BUNDLED[name] ?? []) {
     buildSync({
       entryPoints: [join(from, file)],

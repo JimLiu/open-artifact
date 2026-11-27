@@ -16,6 +16,7 @@ every type, with each type's own editor and comments inside. `/open-artifact sli
 | [`dsh/`](dsh/README.md) | DeepSeek Harness | native tools, the Open Artifact sidebar page, comment cards, `/open-artifact` | right away: a new turn when the session idles, added to the running turn otherwise (a full adapter, L3) |
 | [`pi/`](pi/README.md) | Pi (`pi` CLI) | native tools, skill, system prompt section, `/open-artifact` | right away: the owner's words as a user message (a new turn when Pi is idle, steered into the running turn otherwise), anyone else's as a custom message the model reads (a full adapter, L3) |
 | [`omp/`](omp/README.md) | OMP (`omp` CLI) | native tools, skill, system prompt, `/open-artifact` | right away: the owner's words as a user message (a new turn when OMP is idle, steered into the running turn otherwise), anyone else's as a custom message the model reads (a full adapter, L3) |
+| [`hermes/`](hermes/README.md) | Hermes Agent (CLI and gateway) | native tools, skill | in the gateway, right away: the owner's words as a new turn of the session that owns the artifact; anyone else's wait for its next turn, where the model reads them as data (a full adapter over `open-artifact harness --stdio`, L3) |
 | [`chatgpt/`](chatgpt/README.md) | ChatGPT on the web | MCP tools over HTTPS, a card | in the next tool result, or when the person presses "Send comments to ChatGPT" on the card |
 | [`../skills/open-artifact/`](../skills/open-artifact/SKILL.md) | any other agent that reads skills | the command line | in the result of any call, or by `wait` |
 
@@ -78,6 +79,12 @@ both are loaded as TypeScript as they are. OMP scans the `skills/` folder of an 
 `omp-open-artifact` carries the skill there (rendered for OMP; an installed copy rewrites it with the installed types once its
 daemon answers). OMP 19.2.1's marketplace installer refuses npm sources, so there is no OMP catalog in `dist/plugins`:
 install `omp-open-artifact` from npm directly (`omp plugin install npm:omp-open-artifact`).
+
+`hermes/` is a Hermes Agent plugin in Python (standard library only) that runs `open-artifact harness --stdio`.
+Hermes loads it from `~/.hermes/plugins/open-artifact` as it is: there is nothing to build, and it is copied into
+`dist/plugins/hermes/` with the skill like the other folders. It runs the runtime that skill carries
+(`skills/open-artifact/scripts/open-artifact.mjs`, with the `node` on the PATH), and the `open-artifact` on the PATH
+when the folder has none (a source checkout).
 
 ## Use a server instead of this computer
 

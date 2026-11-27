@@ -83,6 +83,7 @@ DeepSeek Harness は、ビルド済みのパッケージを npm から直接イ�
 | [DeepSeek Harness](https://www.npmjs.com/package/dsh-open-artifact) | Plugins で **Add plugin** を選び、npm パッケージとして `dsh-open-artifact` を入力します。CLI では、Web プロファイル向けに `dsh plugin --profile web add dsh-open-artifact` を実行します。 |
 | [Pi](plugins/pi/README.md) | `pi install npm:pi-open-artifact` を実行してから、Pi の新しいセッションを始めます。 |
 | [OMP](plugins/omp/README.md) | `omp plugin install npm:omp-open-artifact` を実行してから、OMP の新しいセッションを始めます。 |
+| [Hermes Agent](plugins/hermes/README.md) | 展開した `hermes/` フォルダーを `~/.hermes/plugins/open-artifact` としてリンクし、`hermes plugins enable open-artifact` を実行してから、`hermes config set plugins.entries.open-artifact.allow_gateway_injection true` でターンの開始を許可します。 |
 
 アップグレードするには、新しい ZIP をダウンロードして、展開済みのフォルダーを同じパスで置き換え、リンク先のガイドにある
 アプリごとの更新手順に従ってください。マーケットプレイスがまだソースのチェックアウトを指している場合は、アプリのガイドにある移行手順で
