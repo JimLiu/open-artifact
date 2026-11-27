@@ -132,7 +132,7 @@ daemon 等待回答 30 秒。没有回答、出错或 `failed` 都会让唤醒�
 | `artifacts/changed` | `id`、`author?`、`paths?`、`removed?` | 作品被创建、写入或删除 |
 | `types/changed` | — | 类型被安装、删除或改变 |
 | `harness/changed` | — | 适配器或会话变化 |
-| `wake/state` | `artifactId`、`via`、`status?` | 一次唤醒的结果 |
+| `wake/state` | `artifactId`、`via`、`status?` | 一次唤醒的结果；会话从收件箱取走等着的唤醒时为 `via: "taken"` |
 | `view/context` | `id`、`at`（来自 Harness API 时还有 `url`） | 所有者在页面上的选择变了（尽力而为） |
 | `embed/origins` | `origins`、`entries` | `embed.origins` 的结果变了 |
 | `runtime/update` | `current`、`available`、`installed` | 有可用更新，或已安装 |

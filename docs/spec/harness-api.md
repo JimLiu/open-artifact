@@ -152,7 +152,7 @@ The notification `event` carries one of these, while you are subscribed:
 | `artifacts/changed` | `id`, `author?`, `paths?`, `removed?` | an artifact was created, written or removed |
 | `types/changed` | — | types were installed, removed or changed |
 | `harness/changed` | — | adapters or sessions changed |
-| `wake/state` | `artifactId`, `via`, `status?` | how a wake went |
+| `wake/state` | `artifactId`, `via`, `status?` | how a wake went; `via: "taken"` when the session took its waiting wakes from the inbox |
 | `view/context` | `id`, `at` (`url` too, from the Harness API) | the owner's selection on a page changed (best effort) |
 | `embed/origins` | `origins`, `entries` | the result of `embed.origins` changed |
 | `runtime/update` | `current`, `available`, `installed` | an update exists, or was installed |
