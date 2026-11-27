@@ -608,16 +608,17 @@ export async function launch({ chrome = findChrome(), width = 1440, height = 900
     }
     /**
      * Drag with the real mouse from `[x, y]` to `[toX, toY]`: press, move there in `steps` moves, release. A page that
-     * waits for the pointer to move some way before it starts a drag sees it start.
+     * waits for the pointer to move some way before it starts a drag sees it start. `button` is 'left', 'right' or 'middle'.
      */
-    async function dragMouse([x, y], [toX, toY], { steps = 10 } = {}) {
+    async function dragMouse([x, y], [toX, toY], { steps = 10, button = 'left' } = {}) {
+      const buttons = { left: 1, right: 2, middle: 4 }[button];
       await onTop('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
-      await onTop('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', buttons: 1, clickCount: 1 });
+      await onTop('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button, buttons, clickCount: 1 });
       for (let n = 1; n <= steps; n++) {
-        await onTop('Input.dispatchMouseEvent', { type: 'mouseMoved', x: x + ((toX - x) * n) / steps, y: y + ((toY - y) * n) / steps, button: 'left', buttons: 1 });
+        await onTop('Input.dispatchMouseEvent', { type: 'mouseMoved', x: x + ((toX - x) * n) / steps, y: y + ((toY - y) * n) / steps, button, buttons });
         await sleep(16);
       }
-      await onTop('Input.dispatchMouseEvent', { type: 'mouseReleased', x: toX, y: toY, button: 'left', buttons: 0, clickCount: 1 });
+      await onTop('Input.dispatchMouseEvent', { type: 'mouseReleased', x: toX, y: toY, button, buttons: 0, clickCount: 1 });
     }
     /** Click with the real mouse's right button at (x, y): the page gets a contextmenu event, as from a person. */
     async function rightClick(x, y) {

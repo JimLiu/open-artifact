@@ -29,7 +29,7 @@ import { PeerDots } from '../Rail.tsx';
 import { SlideMenuItems } from '../SlideMenu.tsx';
 import { SlideThumb } from '../SlideThumb.tsx';
 import { useSectionDrag } from './sectionDrag.ts';
-import { GapAdd, SectionLabel } from './shared.tsx';
+import { CANVAS_NAV_TIP, GapAdd, SectionLabel } from './shared.tsx';
 import { CAPTION_H, dropLineBoxes, GAP_X, GAP_Y, grow, LABEL_W, TILE_W, tilesIn, type TileBox } from './canvasLayout.ts';
 import { EngineBoard } from './engineBoard.ts';
 
@@ -265,7 +265,9 @@ function Controls({ board }: { board: EngineBoard }): ReactNode {
           <Minus className="size-4" strokeWidth={1.5} />
         </ChromeButton>
       </Tip>
-      <span ref={readout} className="min-w-11 text-center text-[13px] tabular-nums text-chrome-secondary" />
+      <Tip label={CANVAS_NAV_TIP}>
+        <span ref={readout} className="min-w-11 text-center text-[13px] tabular-nums text-chrome-secondary" />
+      </Tip>
       <Tip label="Zoom in">
         <ChromeButton square aria-label="Zoom in" onClick={() => board.zoomBy(1.25)}>
           <Plus className="size-4" strokeWidth={1.5} />

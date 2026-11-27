@@ -23,13 +23,14 @@ import { useCommentCounts, useOrder, useOutline, usePeersBySlide } from '../../s
 import { useView } from '../../state/view.ts';
 import { addSlide, canChange } from '../../services/commands.ts';
 import { useElementSize } from '../../render/SlideView.tsx';
+import { installRightDragPan } from '@open-artifact/editor-kit';
 import { Card, ChromeButton, ChromeDivider, Tip } from '@open-artifact/editor-kit/react';
 import { SlideThumb } from '../SlideThumb.tsx';
 import { noteThumbsMoved } from '../../services/live.ts';
 import { Stage } from '../Stage.tsx';
 import { useSlideDrag } from '../useSlideDrag.ts';
 import { useSectionDrag } from './sectionDrag.ts';
-import { GapAdd, SectionLabel, SlideTile } from './shared.tsx';
+import { CANVAS_NAV_TIP, GapAdd, SectionLabel, SlideTile } from './shared.tsx';
 import { CAPTION_H, GAP_X, GAP_Y, LABEL_W, TILE_W } from './canvasLayout.ts';
 import { CanvasEngineBoard } from './CanvasEngineBoard.tsx';
 import { engineOff } from './engineBoard.ts';
@@ -166,6 +167,19 @@ function DomBoard(): ReactNode {
     return () => el.removeEventListener('wheel', onWheel);
   }, [zoomAt, move]);
 
+  // The right button drags the canvas, over slides too; a right-click without travel opens the menu as before.
+  useEffect(() => {
+    const el = viewport.current;
+    if (!el) return;
+    return installRightDragPan(el, {
+      accepts: (event) => !(event.target as Element).closest('[data-canvas-controls]'),
+      pan(dx, dy) {
+        const cam = cameraRef.current;
+        if (cam) move({ ...cam, x: cam.x + dx, y: cam.y + dy });
+      },
+    });
+  }, [move]);
+
   const center = (): { x: number; y: number } => ({ x: (size?.w ?? 0) / 2, y: (size?.h ?? 0) / 2 });
 
   // Dragging the background pans; a click on it clears the selection.
@@ -298,7 +312,9 @@ function DomBoard(): ReactNode {
             <Minus className="size-4" strokeWidth={1.5} />
           </ChromeButton>
         </Tip>
-        <span className="min-w-11 text-center text-[13px] tabular-nums text-chrome-secondary">{camera ? `${Math.round(camera.scale * 100)}%` : ''}</span>
+        <Tip label={CANVAS_NAV_TIP}>
+          <span className="min-w-11 text-center text-[13px] tabular-nums text-chrome-secondary">{camera ? `${Math.round(camera.scale * 100)}%` : ''}</span>
+        </Tip>
         <Tip label="Zoom in">
           <ChromeButton square aria-label="Zoom in" onClick={() => zoomAt(1.25, center().x, center().y)}>
             <Plus className="size-4" strokeWidth={1.5} />

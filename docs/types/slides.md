@@ -9,6 +9,7 @@
 ## Key features
 
 - **Direct slide editing**: Retype text, move/resize elements, tweak typography and colors, and reorder slides in the slide rail or section overview.
+- **Move around**: On the Canvas view, scroll or swipe with two fingers to pan and **⌘ + scroll** (Ctrl + scroll) or pinch to zoom at the pointer; on one slide, **⌘ + scroll** or pinch zooms the slide. On the Canvas view, and on a slide zoomed in past the window, drag with the **right** or **middle** mouse button (or hold **Space** and drag on the slide) to pan; a right-button drag leaves the selection alone and opens no menu, while a right-click without moving still opens the menu.
 - **Structured sections & outline**: Organize slides into named sections with descriptions visible in the overview grid.
 - **Speaker notes, builds & transitions**: Add per-slide speaker notes (`<aside>`), step-by-step element builds, and slide transitions.
 - **Full-screen presenter mode**: Present directly from the browser with keyboard navigation and speaker notes.

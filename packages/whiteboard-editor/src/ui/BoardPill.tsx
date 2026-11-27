@@ -184,6 +184,8 @@ function ZoomTip({ mod, keysOn }: { mod: string; keysOn: boolean }) {
     ['Fit the board', keysOn ? `${mod}0 or ⇧1` : `${mod}0`],
     ...(keysOn ? [['Zoom to selection', '⇧2'] as [string, string]] : []),
     ['Zoom in / out', `${mod}+ / ${mod}−`],
+    ['Zoom at the pointer', `${mod}scroll or pinch`],
+    ['Pan', 'Scroll, or drag with the right or middle button'],
   ];
   return (
     <span className="grid gap-0.5">

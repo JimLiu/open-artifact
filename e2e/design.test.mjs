@@ -1138,6 +1138,42 @@ editorSuite({
       } finally { await page.close(); }
     });
 
+    it('a right-button drag pans the canvas, keeping the selection and opening no menu; a right-click still opens the menu', T, async () => {
+      const { url } = await ctx.openNew('right-drag-pan');
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: textIn('Smoke canvas'), settle: 800 });
+      const camera = () => page.evaluate('window.__openArtifactLive().camera');
+      // Where the selection bar sits from the heading: it stands at the box of what is selected.
+      const barFromHeading = `(() => {
+        const bar = document.querySelector('[data-selection-bar]')?.getBoundingClientRect();
+        const frame = document.querySelector('iframe[data-board="Main.dc.html"]');
+        const rect = frame.getBoundingClientRect(), zoom = rect.width / frame.offsetWidth;
+        const heading = frame.contentDocument.querySelector('h1').getBoundingClientRect();
+        return bar ? [Math.round(bar.left - (rect.left + heading.left * zoom)), Math.round(bar.top - (rect.top + heading.top * zoom))] : null;
+      })()`;
+      try {
+        await page.click(...await elementAt(page, 'h1'));
+        assert.ok(await page.waitFor(buttonNamed('Lock'), 5000), 'the heading is selected');
+        const before = { camera: await camera(), bar: await page.evaluate(barFromHeading) };
+        assert.ok(before.bar, 'no selection bar');
+        // Pressed on another element of the artboard: a right-click there would select it for its menu.
+        const from = await elementAt(page, 'p');
+        await page.dragMouse(from, [from[0] + 120, from[1] + 60], { button: 'right' });
+        assert.ok(await page.waitFor(`(c => Math.abs(c.x - ${before.camera.x + 120}) <= 2 && Math.abs(c.y - ${before.camera.y + 60}) <= 2)(window.__openArtifactLive().camera)`, 5000),
+          `the camera went from ${JSON.stringify(before.camera)} to ${JSON.stringify(await camera())}`);
+        assert.equal((await camera()).zoom, before.camera.zoom);
+        await new Promise(resolve => setTimeout(resolve, 300));
+        assert.equal(await page.evaluate(`Boolean(document.querySelector('[role="menu"]'))`), false, 'a menu opened after the drag');
+        assert.deepEqual(await page.evaluate(barFromHeading), before.bar, 'the drag changed the selection');
+        assert.equal(await page.evaluate(`document.documentElement.hasAttribute('data-right-drag-pan')`), false, 'the canvas stayed grabbed');
+
+        // Without travel, it is a right-click: the menu opens for what is under the pointer.
+        await page.rightClick(...await elementAt(page, 'p'));
+        assert.ok(await page.waitFor(`document.querySelector('[role="menu"] [role="menuitem"]')`, 5000), 'a right-click opened no menu');
+        await page.press('Escape');
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
     it('on a touch screen, Delete on the selection bar and the Undo or redo button work, and a locked element has no Delete', T, async () => {
       const { root, url } = await ctx.openNew('touch-delete');
       const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: textIn('Smoke canvas'), settle: 800 });

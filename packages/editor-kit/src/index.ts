@@ -24,4 +24,5 @@ export * from './downloads.ts';
 export * from './clipboard.ts';
 export * from './find.ts';
 export * from './file-drop.ts';
+export * from './right-drag-pan.ts';
 export * from './design-systems.ts';
