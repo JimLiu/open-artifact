@@ -109,6 +109,24 @@ body,
   visibility: hidden;
 }
 
+[data-board-chrome][data-compact] [data-board-title-wide],
+[data-board-chrome]:not([data-compact]) [data-board-title-compact] {
+  display: none;
+}
+
+[data-design-overlays]:has(> [data-measure]) [data-board-title]:not(:focus-within) {
+  opacity: 0;
+}
+
+[data-live-board]:not([data-live-visible]) {
+  visibility: hidden;
+}
+
+/* Reuse the frame's raster during scripted zoom. At rest the browser can sharpen it at the final scale. */
+[data-canvas-surface][data-zooming] [data-live-board][data-live-visible] {
+  will-change: transform;
+}
+
 /* Creation tools keep their crosshair over the engine's canvas, which sets its own cursor. */
 [data-canvas-surface][data-tool-cursor] > canvas {
   cursor: inherit !important;

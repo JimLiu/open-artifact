@@ -8,18 +8,22 @@
 
 import { ExternalLink } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import type { Rect } from '@open-artifact/design-core';
 import { openableLink, shownLink } from '../lib/hover-link.ts';
+import { projectBox } from '../lib/overlay.ts';
+import { useLiveCamera } from '../services/camera-frame.ts';
 
 /** How long the card stays after the pointer leaves the element. */
 const LINGER_MS = 400;
 
 export interface HoverLinkProps {
-  /** The hovered link and the element's screen box, or `null`. */
-  link: { href: string; left: number; top: number; height: number } | null;
+  /** The hovered link and the element's world box, or `null`. */
+  link: { href: string; rect: Rect } | null;
 }
 
 export function HoverLink({ link }: HoverLinkProps) {
   const [shown, setShown] = useState(link);
+  const camera = useLiveCamera(shown !== null);
   const over = useRef(false);
   const focused = useRef(false);
   const latest = useRef(link);
@@ -31,16 +35,17 @@ export function HoverLink({ link }: HoverLinkProps) {
     clearTimeout(timer.current);
     if (link) setShown(link);
     else if (!over.current) timer.current = setTimeout(() => !over.current && !focused.current && setShown(null), LINGER_MS);
-  }, [link?.href, link?.left, link?.top, link?.height]);
+  }, [link]);
   useEffect(() => () => clearTimeout(timer.current), []);
 
   if (!shown) return null;
   const opens = openableLink(shown.href);
+  const box = projectBox(camera, shown.rect);
   return (
     <div
       data-hover-link=""
-      className="pointer-events-auto absolute z-10 flex max-w-[280px] items-center gap-1 rounded-[10px] bg-chrome py-1 pl-2.5 pr-1 text-[12px] font-control text-chrome-fg shadow-chrome-popup"
-      style={{ left: Math.max(8, shown.left), top: shown.top + shown.height + 6 }}
+      className="pointer-events-auto absolute left-0 top-0 z-10 flex max-w-[280px] items-center gap-1 rounded-[10px] bg-chrome py-1 pl-2.5 pr-1 text-[12px] font-control text-chrome-fg shadow-chrome-popup"
+      style={{ transform: `translate3d(${Math.max(8, box.left)}px, ${box.top + box.height + 6}px, 0)` }}
       onPointerDown={(event) => event.stopPropagation()}
       onPointerEnter={() => {
         over.current = true;

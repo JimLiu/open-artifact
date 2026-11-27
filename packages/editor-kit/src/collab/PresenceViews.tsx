@@ -30,9 +30,13 @@ export function PeerBoxes({ camera, boxes }: { camera: Camera; boxes: readonly P
   return (
     <>
       {boxes.map((b) => {
-        const s = screenBox(camera, b.rect);
+        const { left, top, width, height } = screenBox(camera, b.rect);
         return (
-          <div key={b.key} className={cn('pointer-events-none absolute rounded-[2px] border-2', b.agent && 'animate-pulse')} style={{ ...s, borderColor: b.color }}>
+          <div
+            key={b.key}
+            className={cn('pointer-events-none absolute left-0 top-0 rounded-[2px] border-2', b.agent && 'animate-pulse')}
+            style={{ transform: `translate3d(${left}px, ${top}px, 0)`, width, height, borderColor: b.color }}
+          >
             {b.label ? (
               <span
                 role="status"
@@ -51,7 +55,7 @@ export function PeerBoxes({ camera, boxes }: { camera: Camera; boxes: readonly P
 }
 
 /** Peers' pointers with their names, in screen space. `shown` filters peers (another page…). */
-export function PeerCursors<S>({ camera, peers, shown }: { camera: Camera; peers: readonly PeerView<S>[]; shown?(peer: PeerView<S>): boolean }): ReactNode {
+export function PeerCursors<S>({ camera, peers, shown, interpolate = true }: { camera: Camera; peers: readonly PeerView<S>[]; shown?(peer: PeerView<S>): boolean; interpolate?: boolean }): ReactNode {
   return (
     <>
       {peers.map((peer) => {
@@ -60,8 +64,10 @@ export function PeerCursors<S>({ camera, peers, shown }: { camera: Camera; peers
         return (
           <div
             key={`cursor:${peer.id}`}
-            className="pointer-events-none absolute transition-[left,top] duration-75 ease-linear"
-            style={{ left: c.x * camera.zoom + camera.x, top: c.y * camera.zoom + camera.y }}
+            className={cn('pointer-events-none absolute', interpolate && 'transition-[left,top] duration-75 ease-linear')}
+            style={interpolate
+              ? { left: c.x * camera.zoom + camera.x, top: c.y * camera.zoom + camera.y }
+              : { left: 0, top: 0, transform: `translate3d(${c.x * camera.zoom + camera.x}px, ${c.y * camera.zoom + camera.y}px, 0)` }}
             aria-hidden="true"
           >
             <svg width="18" height="18" viewBox="0 0 18 18" className="drop-shadow">
