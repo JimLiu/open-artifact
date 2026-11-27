@@ -18,6 +18,7 @@ A canvas is a folder, `<root>`; its content is ITS OWN files under `<root>/proje
 those files, renders the artboards, saves the person's edits back into them, and shows what you write as soon as you
 write it. Nearby artboards stay live while zooming. After settling below 30%, the canvas uses overview thumbnails
 and restores the retained frames when the zoom settles at 32% or higher.
+Artboard titles and their controls keep a fixed screen size while zooming. Double-click a title to rename it, then press Enter to save or Escape to cancel.
 
 **Write only under `<root>/project/`**: a file elsewhere never shows.
 

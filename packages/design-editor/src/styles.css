@@ -109,6 +109,15 @@ body,
   visibility: hidden;
 }
 
+[data-board-chrome][data-compact] [data-board-title-wide],
+[data-board-chrome]:not([data-compact]) [data-board-title-compact] {
+  display: none;
+}
+
+[data-design-overlays]:has(> [data-measure]) [data-board-title]:not(:focus-within) {
+  opacity: 0;
+}
+
 [data-live-board]:not([data-live-visible]) {
   visibility: hidden;
 }

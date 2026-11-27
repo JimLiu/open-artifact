@@ -67,7 +67,7 @@ import { useDocument } from '../state/document.ts';
 import { useView } from '../state/view.ts';
 import { boardApi } from '../services/frames.ts';
 import { templateOf } from '../services/agent.ts';
-import { alignMode, deleteSelection, edit, rememberRectRadius, runAlign, styleSelection } from '../services/commands.ts';
+import { alignMode, deleteSelection, edit, rememberRectRadius, runAlign, styleSelection, updateBoard } from '../services/commands.ts';
 import { hasCssBorder, NOTE_RECT_RADIUS, shapeFill } from '../lib/note-look.ts';
 import { ALIGN_ACTIONS, alignShortcut, alignTip, type AlignAction } from '../lib/align.ts';
 import { mixedElementKinds, mixedPaintValues, paintMixed } from '../services/paint.ts';
@@ -132,16 +132,6 @@ function store(key: string, value: number): void {
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
 /* --------------------------------- helpers -------------------------------- */
-
-function updateBoard(path: string, patch: Partial<BoardEntry>): void {
-  useDocument.getState().updateCanvas((canvas) => {
-    const entry = canvas.boards[path];
-    if (!entry) return canvas;
-    const next: BoardEntry = { ...entry, ...patch };
-    for (const [key, value] of Object.entries(patch)) if (value === undefined) delete next[key];
-    return { ...canvas, boards: { ...canvas.boards, [path]: next } };
-  });
-}
 
 function updateNote(id: string, patch: Partial<CanvasNote>): void {
   useDocument.getState().updateCanvas((canvas) => {

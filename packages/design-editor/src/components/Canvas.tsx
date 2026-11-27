@@ -19,7 +19,7 @@
  * template element under the pointer.
  */
 
-import { useEffect, useLayoutEffect, useRef, useState, type DragEvent, type MouseEvent, type ReactNode, type PointerEvent as ReactPointerEvent } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type DragEvent, type MouseEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import { contains, elementPath, isTextEditable, resolveElement } from '@open-artifact/dc';
 import {
   boardsOnPage,
@@ -67,6 +67,8 @@ import { CanvasMenu } from './CanvasMenu.tsx';
 import { setMenuPoint } from '../services/clipboard.ts';
 import { isLive, liveAll, startLive, useLive } from '../services/live.ts';
 import { activeEngine, engineEnabled, engineMotion, itemAt, liveCamera, measuredNoteSize, onCameraFrame, registerLiveBoard, startEngine, startEngineMove } from '../services/engine.ts';
+import { useLiveCamera } from '../services/camera-frame.ts';
+import { projectBox } from '../lib/overlay.ts';
 import { bezierPathData, relativeNodes, sampleBezier, type BezierNode } from '../lib/bezier.ts';
 import { CropOverlay } from './CropOverlay.tsx';
 import { NodeEditor } from './NodeEditor.tsx';
@@ -406,6 +408,7 @@ export function Canvas() {
   const [marquee, setMarquee] = useState<Rect | null>(null);
   const [draft, setDraft] = useState<DraftShape | null>(null);
   const [dropLine, setDropLine] = useState<FlowDrop | null>(null);
+  const [renamingBoard, setRenamingBoard] = useState<string | null>(null);
   /** Where Alt-dragged copies will land (the DOM's; the engine draws its own for artboards and notes). */
   const [ghosts, setGhosts] = useState<Rect[] | null>(null);
   /** Snap guides while drawing or hovering with a drawing tool, on the DOM canvas (the engine draws them on its own). */
@@ -1348,6 +1351,10 @@ export function Canvas() {
       return;
     }
     const hit = hitOf(pressed.current ?? event.target, event);
+    if (hit.kind === 'title' && view.tool === 'select' && !view.spacePan) {
+      setRenamingBoard(hit.board);
+      return;
+    }
     if (hit.kind === 'note') {
       const id = hit.note;
       const note = doc.canvas.notes[id];
@@ -1450,11 +1457,11 @@ export function Canvas() {
         <DomWorld boards={boards} notes={notes} />
       )}
       <CommentCapture />
-      <CameraFollow>
-        <Overlay boards={boards} notes={notes} engine={renderer === 'engine'} />
+      <div className="pointer-events-none absolute inset-0 z-[3]">
+        <Overlay boards={boards} engine={renderer === 'engine'} renamingBoard={renamingBoard} onRenameDone={() => setRenamingBoard(null)} />
         <PresenceLayer />
         <CommentPins />
-        {marquee ? <ScreenRect rect={marquee} className="border border-accent bg-accent/10" /> : null}
+        {marquee ? <Marquee rect={marquee} /> : null}
         {dropLine ? <DropLine drop={dropLine} /> : null}
         {draft ? <Draft draft={draft} /> : null}
         {ghosts ? <Ghosts rects={ghosts} /> : null}
@@ -1462,7 +1469,7 @@ export function Canvas() {
         {pathShown ? <PathDraftView draft={pathShown} /> : null}
         <NodeEditor />
         <CropOverlay />
-      </CameraFollow>
+      </div>
       {boards.length === 0 && notes.length === 0 ? (
         <div className="pointer-events-none absolute inset-0 z-[3] flex items-center justify-center text-[13px] text-fg-subtle">
           {agentStatus.busy ? `${agentStatus.name} is working…` : readOnly ? 'This page is empty.' : 'Press B and drag to add an artboard, or ask your agent to design something.'}
@@ -1613,53 +1620,24 @@ function NoteText({ notes }: { notes: string[] }) {
   );
 }
 
-/**
- * Screen-space layers drawn with the view store's camera (the overlay, the
- * marquee, drafts), kept in line with the camera drawn now: while the engine
- * moves it, the store's camera lags, and this transform makes up the
- * difference until the layers are drawn again.
- */
-function CameraFollow({ children }: { children: ReactNode }) {
-  const element = useRef<HTMLDivElement>(null);
-  useLayoutEffect(() => {
-    const follow = (live: Camera): void => {
-      const stored = useView.getState().camera;
-      const k = live.zoom / stored.zoom;
-      const x = live.x - stored.x * k;
-      const y = live.y - stored.y * k;
-      if (element.current) element.current.style.transform = k === 1 && Math.abs(x) < 0.01 && Math.abs(y) < 0.01 ? '' : `translate(${x}px, ${y}px) scale(${k})`;
-    };
-    follow(liveCamera());
-    const stopFrames = onCameraFrame(follow);
-    const stopStore = useView.subscribe((state, prev) => {
-      if (state.camera !== prev.camera) follow(liveCamera());
-    });
-    return () => {
-      stopFrames();
-      stopStore();
-    };
-  }, []);
-  return (
-    <div ref={element} data-camera-follow="" className="pointer-events-none absolute inset-0 z-[3] origin-top-left">
-      {children}
-    </div>
-  );
-}
-
 /** A world rect drawn in screen space. */
-function ScreenRect({ rect, className }: { rect: Rect; className?: string }) {
-  const camera = useView((s) => s.camera);
+function ScreenRect({ rect, className, camera }: { rect: Rect; className?: string; camera: Camera }) {
   return (
     <div
       className={`pointer-events-none absolute ${className ?? ''}`}
-      style={{ left: rect.x * camera.zoom + camera.x, top: rect.y * camera.zoom + camera.y, width: rect.w * camera.zoom, height: rect.h * camera.zoom }}
+      style={projectBox(camera, rect)}
     />
   );
 }
 
+function Marquee({ rect }: { rect: Rect }) {
+  const camera = useLiveCamera();
+  return <ScreenRect rect={rect} camera={camera} className="border border-accent bg-accent/10" />;
+}
+
 /** Where Alt-dragged copies will land. */
 function Ghosts({ rects }: { rects: readonly Rect[] }) {
-  const camera = useView((s) => s.camera);
+  const camera = useLiveCamera();
   return (
     <>
       {rects.map((rect, i) => (
@@ -1667,7 +1645,7 @@ function Ghosts({ rects }: { rects: readonly Rect[] }) {
           key={i}
           data-drag-ghost=""
           className="pointer-events-none absolute border border-accent bg-accent/15"
-          style={{ left: rect.x * camera.zoom + camera.x, top: rect.y * camera.zoom + camera.y, width: rect.w * camera.zoom, height: rect.h * camera.zoom }}
+          style={projectBox(camera, rect)}
         />
       ))}
     </>
@@ -1679,7 +1657,7 @@ const GUIDE_COLOR = '#f43f5e';
 
 /** Snap guides on the DOM canvas (the engine draws its own). */
 function SnapGuides({ guides }: { guides: readonly Guide[] }) {
-  const camera = useView((s) => s.camera);
+  const camera = useLiveCamera();
   const at = (v: number, axis: 'x' | 'y') => v * camera.zoom + camera[axis];
   return (
     <svg className="pointer-events-none absolute inset-0 size-full" aria-hidden="true">
@@ -1696,7 +1674,7 @@ function SnapGuides({ guides }: { guides: readonly Guide[] }) {
 
 /** Where dragged elements will land: the insertion line, and the container they move into. */
 function DropLine({ drop }: { drop: FlowDrop }) {
-  const camera = useView((s) => s.camera);
+  const camera = useLiveCamera();
   const at = (x: number, y: number) => ({ x: x * camera.zoom + camera.x, y: y * camera.zoom + camera.y });
   const { line, outline } = drop;
   const a = line && at(line.x1, line.y1);
@@ -1723,7 +1701,7 @@ interface DraftShape {
 
 /** Preview of a shape being drawn. */
 function Draft({ draft }: { draft: DraftShape }) {
-  const camera = useView((s) => s.camera);
+  const camera = useLiveCamera();
   const pen = useView((s) => s.pen);
   if (draft.tool === 'pen' && draft.points) {
     const d = draft.points.map(([x, y], i) => `${i ? 'L' : 'M'}${(draft.from.x + x) * camera.zoom + camera.x} ${(draft.from.y + y) * camera.zoom + camera.y}`).join(' ');
@@ -1742,12 +1720,12 @@ function Draft({ draft }: { draft: DraftShape }) {
       </svg>
     );
   }
-  return <ScreenRect rect={draft.rect} className={draft.tool === 'oval' ? 'rounded-[50%] border-2 border-accent' : 'border-2 border-accent'} />;
+  return <ScreenRect rect={draft.rect} camera={camera} className={draft.tool === 'oval' ? 'rounded-[50%] border-2 border-accent' : 'border-2 border-accent'} />;
 }
 
 /** The Pen tool's path so far: the curve, a rubber band to the pointer, and its nodes and handles. */
 function PathDraftView({ draft }: { draft: PathDraft }) {
-  const camera = useView((s) => s.camera);
+  const camera = useLiveCamera();
   const pen = useView((s) => s.pen);
   const at = (x: number, y: number) => ({ x: x * camera.zoom + camera.x, y: y * camera.zoom + camera.y });
   const last = draft.nodes[draft.nodes.length - 1];

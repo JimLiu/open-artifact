@@ -140,6 +140,24 @@ async function postShellComment(shell, root) {
   await shell.press('Enter');
   const file = path.join(root, 'comments.json');
   assert.ok(await until(() => fs.existsSync(file) && fs.readFileSync(file, 'utf8').includes('Frame shell review')), 'anchored comment saved');
+  const pin = `document.querySelector('[data-comment-layer]')?.shadowRoot?.querySelector('[data-comment-pin]')`;
+  assert.ok(await shell.waitFor(pin), 'the saved comment has a pin');
+  const measurePin = `(() => {
+    const pin = ${pin};
+    if (!pin) return null;
+    const { left, top, width, height } = pin.getBoundingClientRect();
+    return { left, top, width, height };
+  })()`;
+  const before = (await shell.evaluateAll(measurePin)).find(Boolean);
+  assert.ok(before);
+  for (const deltaY of [-24, -24, 24, 24]) {
+    await shell.cdp('Input.dispatchMouseEvent', { type: 'mouseWheel', x: 120, y: 320, deltaX: 0, deltaY, modifiers: 2 });
+    const after = (await shell.evaluateAll(`(${pin}) && new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(${measurePin}))))`)).find(Boolean);
+    assert.ok(after);
+    assert.equal(after.width, before.width);
+    assert.equal(after.height, before.height);
+    if (deltaY === -24) assert.ok(Math.abs(after.left - before.left) > 0.5 || Math.abs(after.top - before.top) > 0.5, 'the pin follows the anchor during zoom');
+  }
   await clickOn(shell, buttonNamed('Comment options'));
   await clickOn(shell, "[...document.querySelectorAll('[role=menuitem]')].find(el => el.textContent.includes('Show all comments'))");
   assert.ok(await shell.waitFor("document.querySelector('[data-comments-panel-layer]')?.shadowRoot?.querySelector('[data-comments-panel]')?.innerText.includes('Frame shell review')"));
@@ -531,6 +549,110 @@ editorSuite({
         assert.deepEqual(paged.problems, []);
       } finally { await paged.close(); }
     });
+
+    for (const renderer of ['webgl', 'dom']) {
+      it(`keeps screen-space artboard controls anchored during ${renderer} zoom`, T, async () => {
+        const { root, url } = await ctx.openNew('zoom-overlay', (_ctx, root) => {
+          copyFixture('design', root);
+          const canvas = canvasOf(root);
+          canvas.boards['Main.dc.html'].guides = [{ kind: 'grid', size: 16 }];
+          fs.writeFileSync(path.join(root, 'project/canvas.json'), JSON.stringify(canvas));
+        });
+        const address = new URL('index.html', url);
+        if (renderer === 'dom') address.searchParams.set('open_artifact_engine', 'off');
+        const title = `document.querySelector('[data-board-title="Main.dc.html"]')`;
+        const board = `document.querySelector('div[data-board="Main.dc.html"]')`;
+        const surface = `document.querySelector('[data-canvas-surface]')`;
+        const size = `document.querySelector('[data-board-size]')`;
+        const camera = renderer === 'webgl' ? 'window.__openArtifactCanvas()?.zoom' : 'window.__openArtifactLive()?.camera.zoom';
+        const page = await (await ctx.browser()).load(address.href, { ready: `${title} && ${camera}` });
+        const point = () => page.evaluate(`(() => { const box = ${title}.getBoundingClientRect(); return [box.left + 12, box.top + 10]; })()`);
+        const wheel = deltaY => page.cdp('Input.dispatchMouseEvent', { type: 'mouseWheel', x: 720, y: 450, deltaX: 0, deltaY, modifiers: 2 });
+        const zoomTo = async zoom => {
+          await wheel(Math.log(await page.evaluate(camera) / zoom) / 0.0025);
+          assert.ok(await page.waitFor(`Math.abs(${camera} - ${zoom}) < 0.001 && !${surface}.hasAttribute('data-moving')`), `canvas settles at ${zoom}`);
+        };
+        try {
+          await zoomTo(0.43);
+          assert.ok(await page.waitFor(`${board}?.offsetWidth === 880`));
+          await page.click(...await point());
+          assert.ok(await page.waitFor(`${title}.closest('[data-gesture-bound]') && ${size}`), 'clicking the title selects the board');
+          await page.evaluate(`(() => {
+            const probe = window.titleZoom = { active: true, frames: [] };
+            const measure = () => {
+              if (!probe.active) return;
+              const title = ${title};
+              const board = ${board}.getBoundingClientRect();
+              const heading = title.getBoundingClientRect();
+              const button = title.querySelector('button[aria-label="Focus"]').getBoundingClientRect();
+              const size = ${size}.getBoundingClientRect();
+              const guide = document.querySelector('[data-layout-guide="grid"]');
+              const guideBox = guide.getBoundingClientRect();
+              probe.frames.push({
+                boardWidth: board.width, headingHeight: heading.height, font: getComputedStyle(title).fontSize,
+                headingGap: board.top - heading.bottom, headingLeft: heading.left - board.left,
+                headingWidth: heading.width - Math.max(60, board.width), buttonRight: button.right - board.right,
+                buttonWidth: button.width, sizeHeight: size.height, sizeGap: size.top - board.bottom,
+                guideLeft: guideBox.left - board.left, guideWidth: guideBox.width - board.width,
+                grid: getComputedStyle(guide).backgroundImage,
+              });
+              requestAnimationFrame(measure);
+            };
+            requestAnimationFrame(measure);
+          })()`);
+          for (const delta of [-18, -18, -18, 18, 18, 18, -18, 18]) {
+            await wheel(delta);
+            await page.evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
+          }
+          const frames = await page.evaluate('window.titleZoom.active = false; window.titleZoom.frames');
+          assert.ok(new Set(frames.map(frame => Math.round(frame.boardWidth))).size >= 4, 'sampled multiple projected widths');
+          for (const frame of frames) {
+            const { boardWidth, font, grid, ...actual } = frame;
+            const expected = { headingHeight: 20, headingGap: 2, headingLeft: 0, headingWidth: 0, buttonRight: 0, buttonWidth: 16,
+              sizeHeight: 16, sizeGap: 6, guideLeft: 0, guideWidth: 0 };
+            assert.equal(font, '11px');
+            assert.match(grid, /linear-gradient/);
+            for (const [key, value] of Object.entries(expected)) assert.ok(Math.abs(actual[key] - value) < 0.15, `${key} at ${boardWidth}px: ${actual[key]}`);
+          }
+
+          await zoomTo(0.06);
+          assert.ok(await page.waitFor(`${title}.getBoundingClientRect().width === 60 && !${title}.querySelector('button').getClientRects().length`));
+          await zoomTo(0.02);
+          assert.ok(await page.waitFor(`${title}.getClientRects().length === 0`), 'titles below 24 CSS pixels are hidden');
+          await zoomTo(0.43);
+          if (renderer === 'webgl') {
+            await page.evaluate(`(() => {
+              const surface = ${surface};
+              const observer = new MutationObserver(() => {
+                if (surface.hasAttribute('data-gesture') && getComputedStyle(${title}).visibility === 'hidden') {
+                  window.titleHiddenDuringDrag = true;
+                  observer.disconnect();
+                }
+              });
+              observer.observe(surface, { attributes: true, attributeFilter: ['data-gesture'] });
+            })()`);
+          }
+          const [x, y] = await point();
+          await page.dragMouse([x, y], [x + 40, y + 24]);
+          assert.ok(await until(() => canvasOf(root).boards['Main.dc.html'].x !== 0), 'dragging the title moves the board');
+          if (renderer === 'webgl') assert.equal(await page.evaluate('window.titleHiddenDuringDrag'), true);
+          assert.ok(await page.waitFor(`getComputedStyle(${title}).visibility === 'visible'`));
+          const [left, top] = await point();
+          await page.clickTimes(left, top, 2);
+          const input = `${title}.querySelector('input[aria-label="Artboard name"]')`;
+          assert.ok(await page.waitFor(`${input} === document.activeElement`), 'double-click opens the title editor');
+          await page.type('Renamed artboard');
+          await page.press('Enter');
+          assert.ok(await until(() => canvasOf(root).boards['Main.dc.html'].title === 'Renamed artboard'));
+          assert.ok(await page.waitFor(`${title}.textContent.includes('Renamed artboard')`));
+          await page.clickTimes(...await point(), 2);
+          await page.type('Cancelled edit');
+          await page.press('Escape');
+          assert.ok(await page.waitFor(`!${input} && ${title}.textContent.includes('Renamed artboard')`));
+          assert.deepEqual(page.problems, []);
+        } finally { await page.close(); }
+      });
+    }
 
     it('keeps the WebGL artboard frame through zoom, then rests and reuses it in the overview', T, async () => {
       const { url } = await ctx.openNew('webgl-zoom-artboard', (_ctx, root) => webFontBoard(root));

@@ -19,6 +19,7 @@ Open Artifact ships with **9 built-in artifact types**. Each type combines a pla
 | `page` | [Page](types/page.md) | Small interactive pages no other type fits: widgets, tools, calculators, mini games, explainer pages, polls and checklists | The folder itself (`index.html`, capabilities in `.artifact.json`) | Any files the page loads | — (publishes to a Node or Cloudflare site) | No |
 
 The Design canvas keeps live artboards visible while zooming and uses thumbnails in its low-zoom overview.
+Artboard labels keep their screen size while zooming, and double-clicking a title opens it for renaming.
 
 ### Making one without an agent
 

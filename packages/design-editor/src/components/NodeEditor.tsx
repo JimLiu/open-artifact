@@ -17,6 +17,7 @@ import { isLockedObject, type CanvasNote } from '@open-artifact/design-core';
 import { useDocument } from '../state/document.ts';
 import { useView } from '../state/view.ts';
 import { announce } from '../services/announce.ts';
+import { useLiveCamera } from '../services/camera-frame.ts';
 import { bezierPathData, dragNode, editableNodes, notePatchForNodes, removeNode, splitSegment, toggleSmooth, type BezierNode, type NodePart } from '../lib/bezier.ts';
 
 /** The note being node-edited, if the selection is exactly one editable note (locked ones have no nodes to drag). */
@@ -37,8 +38,8 @@ function writeNodes(id: string, nodes: BezierNode[]): void {
 }
 
 export function NodeEditor() {
-  const camera = useView((s) => s.camera);
   const edited = useEditedNote();
+  const camera = useLiveCamera(edited !== null);
   const drag = useRef<{ index: number; part: NodePart; x: number; y: number; start: BezierNode[]; moved: boolean } | null>(null);
   if (!edited) return null;
   const { id, note, nodes } = edited;

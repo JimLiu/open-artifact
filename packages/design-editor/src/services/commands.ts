@@ -1049,6 +1049,16 @@ export function resizeObject(canvas: Canvas, target: ResizeTarget, rect: Rect): 
   return { ...canvas, notes: { ...canvas.notes, [target.note]: { ...note, ...patch } } };
 }
 
+export function updateBoard(path: string, patch: Partial<BoardEntry>): void {
+  useDocument.getState().updateCanvas((canvas) => {
+    const entry = canvas.boards[path];
+    if (!entry) return canvas;
+    const next: BoardEntry = { ...entry, ...patch };
+    for (const [key, value] of Object.entries(patch)) if (value === undefined) delete next[key];
+    return { ...canvas, boards: { ...canvas.boards, [path]: next } };
+  });
+}
+
 /** Moves artboards and notes by a world offset, as one undo step (a finished canvas drag). */
 export function commitMove(boards: readonly string[], notes: readonly string[], dx: number, dy: number): void {
   if (!boards.length && !notes.length) return;

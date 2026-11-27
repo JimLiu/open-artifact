@@ -12,6 +12,7 @@ import { noteRect } from '../lib/scene.ts';
 import { useDocument } from '../state/document.ts';
 import { useView } from '../state/view.ts';
 import { liveElementRect } from '../services/comments.ts';
+import { useLiveCamera } from '../services/camera-frame.ts';
 import { usePresence, type DesignPeer } from '../services/presence.ts';
 import { Tip } from '@open-artifact/editor-kit/react';
 
@@ -19,7 +20,6 @@ import { Tip } from '@open-artifact/editor-kit/react';
 export function PresenceLayer(): ReactNode {
   const peers = usePresence((s) => s.peers);
   const agentWrote = usePresence((s) => s.agentWrote);
-  const camera = useView((s) => s.camera);
   const page = useView((s) => s.page);
   const mode = useView((s) => s.mode);
   const layoutTick = useView((s) => s.layoutTick);
@@ -58,11 +58,12 @@ export function PresenceLayer(): ReactNode {
     // layoutTick: element boxes move as artboards re-render.
   }, [peers, agentWrote, canvas, page, layoutTick]);
 
+  const camera = useLiveCamera(mode === 'canvas' && (boxes.length > 0 || peers.some(peer => peer.cursor && here(peer.state?.page))));
   if (mode !== 'canvas') return null;
   return (
     <div data-presence-layer="" className="contents">
       <PeerBoxes camera={camera} boxes={boxes} />
-      <PeerCursors camera={camera} peers={peers} shown={(peer: DesignPeer) => here(peer.state?.page)} />
+      <PeerCursors camera={camera} peers={peers} shown={(peer: DesignPeer) => here(peer.state?.page)} interpolate={false} />
     </div>
   );
 }

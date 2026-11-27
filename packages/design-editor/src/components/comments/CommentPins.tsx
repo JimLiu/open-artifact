@@ -13,6 +13,7 @@ import { useView } from '../../state/view.ts';
 import { useAgent } from '../../services/agent.ts';
 import { anchorAt, designComments, highlightOf, pinContext, placeOnPage } from '../../services/comments.ts';
 import { liveCamera } from '../../services/engine.ts';
+import { useLiveCamera } from '../../services/camera-frame.ts';
 import { viewportSize } from '../../services/viewport.ts';
 
 /**
@@ -50,9 +51,8 @@ export function CommentCapture(): ReactNode {
   );
 }
 
-/** Pins of the current page, the open card and the composer (inside the canvas' camera-follow layer). */
+/** Pins of the current page, the open card and the composer. */
 export function CommentPins(): ReactNode {
-  const camera = useView((s) => s.camera);
   const page = useView((s) => s.page);
   const mode = useView((s) => s.mode);
   const layoutTick = useView((s) => s.layoutTick);
@@ -60,6 +60,8 @@ export function CommentPins(): ReactNode {
   const canvas = useDocument((s) => s.canvas);
   const boards = useDocument((s) => s.boards);
   const agent = useAgent((s) => s.status);
+  const hasPins = designComments.store((s) => s.available && (s.threads.length > 0 || s.draft !== null));
+  const camera = useLiveCamera(mode === 'canvas' && hasPins);
   // Pins move with the page, the canvas, artboard sources and their layout.
   const place = useCallback((anchor: DesignAnchor) => placeOnPage(anchor, page, pinContext()), [page, canvas, boards, layoutTick]);
   if (mode !== 'canvas') return null;
@@ -71,6 +73,7 @@ export function CommentPins(): ReactNode {
       place={place}
       highlight={highlightOf}
       anchorAt={anchorAt}
+      screenTransform
       agent={{ available: agent.available, name: agent.name, wakesIdle: agent.wakesIdle }}
       // "More comments" tabs keep clear of the corner cards and the foot toolbar.
       insets={toolbarTop ? { top: 104 } : { top: 48, bottom: 64 }}

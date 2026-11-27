@@ -20,12 +20,12 @@ function metrics(g: BoardGuide) {
   };
 }
 
-function guideStyle(g: BoardGuide, board: BoardEntry, zoom: number): CSSProperties {
+function guideStyle(g: BoardGuide, board: BoardEntry): CSSProperties {
   const { size, gutter, margin, offset, align, count } = metrics(g);
   const color = typeof g.color === 'string' && CSS.supports('color', g.color) ? g.color : 'rgba(255,0,0,0.1)';
   if (g.kind === 'grid') {
-    const line = (dir: string) => `linear-gradient(to ${dir}, ${color} ${1 / zoom}px, transparent ${1 / zoom}px)`;
-    return { inset: 0, backgroundImage: [line('right'), line('bottom')].join(', '), backgroundSize: `${size}px ${size}px`, opacity: valueIn((size * zoom - 3) / 4, 1, 0, 1) };
+    const line = (dir: string) => `linear-gradient(to ${dir}, ${color} calc(1px / var(--board-zoom)), transparent calc(1px / var(--board-zoom)))`;
+    return { inset: 0, backgroundImage: [line('right'), line('bottom')].join(', '), backgroundSize: `${size}px ${size}px`, opacity: `clamp(0, (${size} * var(--board-zoom) - 3) / 4, 1)` };
   }
   const columns = g.kind === 'columns';
   const extent = columns ? board.w : board.h;
@@ -42,11 +42,11 @@ function guideStyle(g: BoardGuide, board: BoardEntry, zoom: number): CSSProperti
 }
 
 /** Lives outside the board document so guides never enter Play, screenshots or exports. */
-export function LayoutGuides({ entry, zoom, left, top }: { entry: BoardEntry; zoom: number; left: number; top: number }) {
+export function LayoutGuides({ entry }: { entry: BoardEntry }) {
   if (!entry.guides?.some(g => !g.hidden)) return null;
   return (
-    <div aria-hidden="true" className="pointer-events-none absolute origin-top-left overflow-hidden" style={{ left, top, width: entry.w, height: entry.h, borderRadius: entry.radius, transform: `scale(${zoom})` }}>
-      {entry.guides.map((g, i) => g.hidden ? null : <div key={i} data-layout-guide={g.kind} className="absolute" style={guideStyle(g, entry, zoom)} />)}
+    <div aria-hidden="true" className="pointer-events-none absolute left-0 top-0 origin-top-left overflow-hidden" style={{ width: entry.w, height: entry.h, borderRadius: entry.radius, transform: 'scale(var(--board-zoom))' }}>
+      {entry.guides.map((g, i) => g.hidden ? null : <div key={i} data-layout-guide={g.kind} className="absolute" style={guideStyle(g, entry)} />)}
     </div>
   );
 }

@@ -59,6 +59,7 @@ const frameListeners = new Set<(camera: Camera) => void>();
 const motionListeners = new Set<(moving: boolean) => void>();
 const liveBoards = new Map<string, HTMLElement>();
 let holes = new Map<string, HoleRect>();
+let renderedCamera: Camera | null = null;
 
 /** The engine drawing the canvas, if one runs. */
 export const activeEngine = (): CanvasEngine | null => active?.engine ?? null;
@@ -74,10 +75,27 @@ export function itemAt(point: { x: number; y: number }): { board: string } | { n
   return id ? itemTarget(id) : null;
 }
 
-/** Calls `listener` with the camera of every frame in which it moved; returns the unsubscribe function. */
+/** A stable snapshot of the camera published to the overlay layers. */
+export function cameraFrame(): Camera {
+  return renderedCamera ?? useView.getState().camera;
+}
+
+/** Calls `listener` when the rendered camera changes in either renderer. */
 export function onCameraFrame(listener: (camera: Camera) => void): () => void {
+  const stopDom = useView.subscribe((state, prev) => {
+    if (!active && state.camera !== prev.camera) listener(state.camera);
+  });
   frameListeners.add(listener);
-  return () => frameListeners.delete(listener);
+  return () => {
+    stopDom();
+    frameListeners.delete(listener);
+  };
+}
+
+function publishCamera(camera: Camera | null): void {
+  renderedCamera = camera;
+  const frame = cameraFrame();
+  for (const listener of frameListeners) listener(frame);
 }
 
 /** The engine's camera motion, for services/live.ts. */
@@ -355,7 +373,7 @@ export async function startEngine(canvas: HTMLCanvasElement, surface: HTMLElemen
       const camera = fromEngineCamera(event);
       if (moving && event.zoom !== lastZoom && !surface.hasAttribute('data-zooming')) surface.setAttribute('data-zooming', '');
       lastZoom = event.zoom;
-      for (const listener of frameListeners) listener(camera);
+      publishCamera(camera);
       if (event.settled || performance.now() - lastStoreWrite >= STORE_CAMERA_MS) writeCamera(camera);
     }),
     engine.on('moving', (event) => {
@@ -491,6 +509,7 @@ export async function startEngine(canvas: HTMLCanvasElement, surface: HTMLElemen
     },
   };
   active = { engine, noteResized: queueSync };
+  publishCamera(liveCamera());
   sync();
   engine.setSelection(selectionIds(useView.getState().selection));
 
@@ -527,7 +546,10 @@ export async function startEngine(canvas: HTMLCanvasElement, surface: HTMLElemen
     unsubscribeLive();
     scheme?.removeEventListener('change', retheme);
     themeObserver.disconnect();
-    if (active?.engine === engine) active = null;
+    if (active?.engine === engine) {
+      active = null;
+      publishCamera(null);
+    }
     if (cameraDriver.current && !active) cameraDriver.current = null;
     holes = new Map();
     surface.removeAttribute('data-moving');
