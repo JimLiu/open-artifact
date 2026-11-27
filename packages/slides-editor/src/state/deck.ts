@@ -75,6 +75,11 @@ export interface SlideEntry {
    * file (`origin`), which an edit is written back against. Absent: `saved`.
    */
   source?: Slide;
+  /**
+   * In a source deck: the place in the deck (0-based) the saved file was read at, which is the page number its
+   * `counter()` lines show. Absent for a slide that was not read through the sheet.
+   */
+  place?: number;
   conflict?: SlideConflict;
   /** When this tab last wrote the file (a save made at the same moment may replace it). */
   writtenAt?: number;
@@ -189,10 +194,16 @@ export const OVERWRITE_WINDOW_MS = 3_000;
  * The deck's shared sheet when it is a source deck (deck.json `format`), and
  * each slide's place in it (for `counter()`). Set from the index and
  * `project/deck.css` by {@link configureDeck}; slides are read and written
- * through it.
+ * through it. The places follow the slides that come and go afterwards
+ * ({@link renumberSlides}).
  */
 let sourceDeck: SourceDeck | undefined;
 let sourcePlaces = new Map<string, number>();
+
+/** Each slide's place (0-based) in the order, among the slides there are. */
+function placesOf(index: DeckIndex, slideIds: Iterable<string>): Map<string, number> {
+  return new Map(resolveOrder(index.order, slideIds).map((id, i) => [id, i]));
+}
 
 /**
  * Sets the slide size and the shared sheet from the index and
@@ -203,7 +214,7 @@ export function configureDeck(index: DeckIndex, css: string | null | undefined, 
   setSlideSize(index.size);
   const previous = sourceDeck;
   sourceDeck = deckFormatKind(index) === 'source' ? createSourceDeck(css ?? undefined, index.size) : undefined;
-  sourcePlaces = new Map(resolveOrder(index.order, slideIds).map((id, i) => [id, i]));
+  sourcePlaces = placesOf(index, slideIds);
   return previous !== undefined || sourceDeck !== undefined;
 }
 
@@ -212,17 +223,46 @@ export function currentSourceDeck(): SourceDeck | undefined {
   return sourceDeck;
 }
 
-/** Compiles a slide file for the editor (through the shared sheet in a source deck). */
-export function readSlide(id: string, text: string, faces: Iterable<string>): Pick<SlideEntry, 'slide' | 'held' | 'diagnostics'> {
+/**
+ * Compiles a slide file for the editor (through the shared sheet in a source deck, at the slide's place in the deck
+ * unless `at` gives another).
+ */
+export function readSlide(id: string, text: string, faces: Iterable<string>, at?: number): Pick<SlideEntry, 'slide' | 'held' | 'diagnostics' | 'place'> {
   const bytes = new TextEncoder().encode(text).length;
   if (bytes > LIMITS.slideFileBytes) {
     const result = compileSlide(`<section id="${id}"></section>`, { id, lints: false });
-    return { slide: result.slide, held: `File is ${Math.round(bytes / 1024)} KB (max ${LIMITS.slideFileBytes / 1024} KB)`, diagnostics: [] };
+    return { slide: result.slide, held: `File is ${Math.round(bytes / 1024)} KB (max ${LIMITS.slideFileBytes / 1024} KB)`, diagnostics: [], place: undefined };
   }
-  const result = sourceDeck && !isFlatSlideHtml(text)
-    ? readSourceSlide(text, sourceDeck, { id, faces, lints: false, index: sourcePlaces.get(id) ?? 0 })
+  const place = sourceDeck && !isFlatSlideHtml(text) ? (at ?? sourcePlaces.get(id) ?? 0) : undefined;
+  const result = sourceDeck && place !== undefined
+    ? readSourceSlide(text, sourceDeck, { id, faces, lints: false, index: place })
     : compileSlide(text, { id, faces, lints: false });
-  return { slide: result.slide, held: result.held ? heldReason(result.diagnostics) ?? 'The file has errors' : undefined, diagnostics: result.diagnostics };
+  return { slide: result.slide, held: result.held ? heldReason(result.diagnostics) ?? 'The file has errors' : undefined, diagnostics: result.diagnostics, place };
+}
+
+/** True when the slide's file can be read again without losing anything: nothing unsaved, no decision waiting. */
+function canReread(entry: SlideEntry): entry is SlideEntry & { savedText: string } {
+  return entry.savedText !== null && !entry.conflict && (entry.slide === entry.saved || Boolean(entry.held));
+}
+
+/**
+ * Takes each slide's place from the order and the slides there are now, and reads again the unchanged slides whose
+ * place is no longer the one they were read at: a page number (`counter()`) is that place. Returns `slides`, or a copy
+ * with those slides read again. A slide with unsaved edits keeps its number until it is next read.
+ */
+function renumberSlides(index: DeckIndex, slides: Record<string, SlideEntry>): Record<string, SlideEntry> {
+  if (!sourceDeck) return slides;
+  sourcePlaces = placesOf(index, Object.keys(slides));
+  const faces = deckFaces(index);
+  let next = slides;
+  for (const [id, entry] of Object.entries(slides)) {
+    if (entry.place === undefined || entry.place === sourcePlaces.get(id) || !canReread(entry)) continue;
+    const read = readSlide(id, entry.savedText, faces);
+    if (next === slides) next = { ...slides };
+    // A slide that shows no number reads the same: it stays the slide it was (an undo step still knows it).
+    next[id] = !read.held && !entry.held && sameSlide(read.slide, entry.slide) ? { ...entry, place: read.place } : { ...entry, ...read, saved: read.slide, source: undefined };
+  }
+  return next;
 }
 
 /** Families the deck declares. */
@@ -252,14 +292,15 @@ export function deckOrder(state: Pick<DeckState, 'index' | 'slides'>): string[] 
  * into the slide's own markup when it can be; otherwise, and for a slide a
  * person added, the slide is saved flat (`data-flat`, inline styles).
  */
-export function slideText(slide: Slide, entry?: Pick<SlideEntry, 'saved' | 'savedText' | 'source'>): string {
+export function slideText(slide: Slide, entry?: Pick<SlideEntry, 'saved' | 'savedText' | 'source' | 'place'>): string {
   if (!sourceDeck) return serializeSlide(slide);
   if (slide.flat) return flattenSlide(slide);
   const savedText = entry?.savedText;
   const saved = entry?.source ?? entry?.saved;
   if (!savedText || !saved || isFlatSlideHtml(savedText)) return flattenSlide(slide);
   if (sameSlide(slide, saved)) return savedText;
-  return patchSourceSlide(savedText, saved, slide, sourceDeck, { id: slide.id, index: sourcePlaces.get(slide.id) ?? 0 }) ?? flattenSlide(slide);
+  // The patch is checked against the slide as read, page number included: at the place it was read at.
+  return patchSourceSlide(savedText, saved, slide, sourceDeck, { id: slide.id, index: entry?.place ?? sourcePlaces.get(slide.id) ?? 0 }) ?? flattenSlide(slide);
 }
 
 /** True when two slide models write the same file (source places aside). */
@@ -406,7 +447,7 @@ export const useDeck = create<DeckState>()((set, get) => ({
     const slides = { ...state.slides };
     let changed = false;
     for (const [id, entry] of Object.entries(slides)) {
-      if (entry.savedText === null || entry.conflict || (entry.slide !== entry.saved && !entry.held)) continue;
+      if (!canReread(entry)) continue;
       const read = readSlide(id, entry.savedText, faces);
       slides[id] = { ...entry, ...read, saved: read.slide, source: undefined };
       changed = true;
@@ -430,7 +471,7 @@ export const useDeck = create<DeckState>()((set, get) => ({
         // A source slide re-read from what was written knows where its new elements live.
         let source: Slide | undefined;
         if (sourceDeck && !isFlatSlideHtml(text)) {
-          const read = readSlide(id, text, deckFaces(state.index));
+          const read = readSlide(id, text, deckFaces(state.index), entry.place);
           if (!read.held && sameSlide(read.slide, slide)) source = read.slide;
         }
         slides[id] = { ...entry, saved: slide, savedText: text, hash, source, writtenAt: Date.now() };
@@ -463,72 +504,12 @@ export const useDeck = create<DeckState>()((set, get) => ({
   },
 
   remoteSlide(id, text, hash) {
+    const outcome = takeRemoteSlide(get, set, id, text, hash);
+    // A slide came or went: the ones whose place moved show their new page number.
     const state = get();
-    const entry = state.slides[id] ?? state.trash[id];
-    const inTrash = !state.slides[id] && Boolean(state.trash[id]);
-    if (text === null) {
-      if (!entry) return 'same';
-      if (inTrash || entry.slide === entry.saved || entry.held) {
-        const slides = { ...state.slides };
-        const trash = { ...state.trash };
-        delete slides[id];
-        delete trash[id];
-        set({ slides, trash });
-        return 'applied';
-      }
-      set({ slides: { ...state.slides, [id]: { ...entry, conflict: { theirsText: null, theirsHash: null, theirsSlide: null, reason: 'deleted' } } } });
-      return 'conflict';
-    }
-    const read = readSlide(id, text, deckFaces(state.index));
-    if (!entry) {
-      set({ slides: { ...state.slides, [id]: { ...read, saved: read.slide, savedText: text, hash } } });
-      return 'applied';
-    }
-    if (entry.savedText === text) {
-      set({ slides: { ...state.slides, [id]: { ...entry, hash } } });
-      return 'same';
-    }
-    const dirty = entry.slide !== entry.saved && !entry.held;
-    if (!dirty || inTrash) {
-      if (inTrash) {
-        // They edited a slide we deleted: theirs comes back.
-        const trash = { ...state.trash };
-        delete trash[id];
-        set({ trash, slides: { ...state.slides, [id]: { ...read, saved: read.slide, savedText: text, hash } } });
-        return 'applied';
-      }
-      // Our version came back (someone put it back): the notice about losing it is settled.
-      const settled = state.kept.filter((item) => !(item.reason === 'overwritten' && item.id === id && item.text === text));
-      // A save made at the same moment replaced the one this tab just made: keep ours to bring back.
-      const overwritten =
-        entry.writtenAt !== undefined && entry.savedText !== null && entry.saved !== null && Date.now() - entry.writtenAt <= OVERWRITE_WINDOW_MS && settled.length === state.kept.length;
-      const kept = overwritten ? [{ id, slide: entry.saved!, reason: 'overwritten' as const, at: Date.now(), text: entry.savedText! }, ...settled].slice(0, KEPT_MAX) : settled;
-      set({ kept, slides: { ...state.slides, [id]: { ...read, saved: read.slide, savedText: text, hash } } });
-      return overwritten ? 'overwritten' : 'applied';
-    }
-    if (sourceDeck ? !read.held && sameSlide(entry.slide, read.slide) : slideText(entry.slide) === text) {
-      set({ slides: { ...state.slides, [id]: { ...entry, saved: entry.slide, savedText: text, hash } } });
-      return 'same';
-    }
-    // Both changed the slide: when they changed different lines of the file both started from, merge by line.
-    if (entry.savedText !== null && !read.held) {
-      const merged = mergeLines(entry.savedText, slideText(entry.slide, entry), text, { adjacent: 'conflict' });
-      if (merged !== null) {
-        const theirs = { ...read, saved: read.slide, savedText: text, hash };
-        if (merged === text) {
-          set({ slides: { ...state.slides, [id]: theirs } });
-          return 'merged';
-        }
-        const mine = readSlide(id, merged, deckFaces(state.index));
-        if (!mine.held) {
-          // Shown as ours, saved over theirs (their hash is the next write's ifMatch).
-          set({ slides: { ...state.slides, [id]: { ...theirs, slide: mine.slide } }, revision: state.revision + 1 });
-          return 'merged';
-        }
-      }
-    }
-    set({ slides: { ...state.slides, [id]: { ...entry, conflict: { theirsText: text, theirsHash: hash, theirsSlide: read.held ? null : read.slide, reason: 'changed' } } } });
-    return 'conflict';
+    const slides = renumberSlides(state.index, state.slides);
+    if (slides !== state.slides) set({ slides });
+    return outcome;
   },
 
   bringBack(position) {
@@ -588,6 +569,78 @@ export const useDeck = create<DeckState>()((set, get) => ({
     set({ kept: get().kept.filter((_, i) => i !== position) });
   },
 }));
+
+/** Applies someone else's version of a slide (see {@link DeckState.remoteSlide}). */
+function takeRemoteSlide(get: () => DeckState, set: (partial: Partial<DeckState>) => void, id: string, text: string | null, hash: string | null): RemoteOutcome {
+  const state = get();
+  const entry = state.slides[id] ?? state.trash[id];
+  const inTrash = !state.slides[id] && Boolean(state.trash[id]);
+  if (text === null) {
+    if (!entry) return 'same';
+    if (inTrash || entry.slide === entry.saved || entry.held) {
+      const slides = { ...state.slides };
+      const trash = { ...state.trash };
+      delete slides[id];
+      delete trash[id];
+      set({ slides, trash });
+      return 'applied';
+    }
+    set({ slides: { ...state.slides, [id]: { ...entry, conflict: { theirsText: null, theirsHash: null, theirsSlide: null, reason: 'deleted' } } } });
+    return 'conflict';
+  }
+  // A slide that is new here is read at the place it comes to.
+  if (!state.slides[id]) sourcePlaces = placesOf(state.index, [...Object.keys(state.slides), id]);
+  const read = readSlide(id, text, deckFaces(state.index));
+  if (!entry) {
+    set({ slides: { ...state.slides, [id]: { ...read, saved: read.slide, savedText: text, hash } } });
+    return 'applied';
+  }
+  if (entry.savedText === text) {
+    set({ slides: { ...state.slides, [id]: { ...entry, hash } } });
+    return 'same';
+  }
+  const dirty = entry.slide !== entry.saved && !entry.held;
+  if (!dirty || inTrash) {
+    if (inTrash) {
+      // They edited a slide we deleted: theirs comes back.
+      const trash = { ...state.trash };
+      delete trash[id];
+      set({ trash, slides: { ...state.slides, [id]: { ...read, saved: read.slide, savedText: text, hash } } });
+      return 'applied';
+    }
+    // Our version came back (someone put it back): the notice about losing it is settled.
+    const settled = state.kept.filter((item) => !(item.reason === 'overwritten' && item.id === id && item.text === text));
+    // A save made at the same moment replaced the one this tab just made: keep ours to bring back.
+    const overwritten =
+      entry.writtenAt !== undefined && entry.savedText !== null && entry.saved !== null && Date.now() - entry.writtenAt <= OVERWRITE_WINDOW_MS && settled.length === state.kept.length;
+    const kept = overwritten ? [{ id, slide: entry.saved!, reason: 'overwritten' as const, at: Date.now(), text: entry.savedText! }, ...settled].slice(0, KEPT_MAX) : settled;
+    set({ kept, slides: { ...state.slides, [id]: { ...read, saved: read.slide, savedText: text, hash } } });
+    return overwritten ? 'overwritten' : 'applied';
+  }
+  if (sourceDeck ? !read.held && sameSlide(entry.slide, read.slide) : slideText(entry.slide) === text) {
+    set({ slides: { ...state.slides, [id]: { ...entry, saved: entry.slide, savedText: text, hash } } });
+    return 'same';
+  }
+  // Both changed the slide: when they changed different lines of the file both started from, merge by line.
+  if (entry.savedText !== null && !read.held) {
+    const merged = mergeLines(entry.savedText, slideText(entry.slide, entry), text, { adjacent: 'conflict' });
+    if (merged !== null) {
+      const theirs = { ...read, saved: read.slide, savedText: text, hash };
+      if (merged === text) {
+        set({ slides: { ...state.slides, [id]: theirs } });
+        return 'merged';
+      }
+      const mine = readSlide(id, merged, deckFaces(state.index));
+      if (!mine.held) {
+        // Shown as ours, saved over theirs (their hash is the next write's ifMatch).
+        set({ slides: { ...state.slides, [id]: { ...theirs, slide: mine.slide } }, revision: state.revision + 1 });
+        return 'merged';
+      }
+    }
+  }
+  set({ slides: { ...state.slides, [id]: { ...entry, conflict: { theirsText: text, theirsHash: hash, theirsSlide: read.held ? null : read.slide, reason: 'changed' } } } });
+  return 'conflict';
+}
 
 /** Undo or redo one step, warning first when someone else changed what it touches. */
 function travel(get: () => DeckState, set: (partial: Partial<DeckState>) => void, direction: 'undo' | 'redo'): UndoOutcome {

@@ -2017,4 +2017,56 @@ describe('slides', { skip: skipFor('slides') }, () => {
       await shell.close();
     }
   });
+
+  it('numbers the pages of slides that arrive while the deck is open by their place in the order', { skip: browserSkip }, async () => {
+    // A source deck whose sheet numbers its pages. The outline lists four slides; one is written. The agent writes
+    // the others into the open page, one out of order, then deletes the first.
+    const deck = tmpDir('slides-numbering');
+    const project = path.join(deck, 'project');
+    fs.mkdirSync(path.join(project, 'slides'), { recursive: true });
+    fs.writeFileSync(path.join(project, 'deck.json'), JSON.stringify({
+      v: 5, lists: 'css', title: 'Numbered', order: ['one', 'two', 'three', 'four'],
+      format: { v: 1, shared: ['project/deck.css'] }, createdOnFiles: { v: 1, at: '2026-11-27T00:00:00Z' },
+      sections: {}, faces: {}, designSystems: [],
+    }));
+    fs.writeFileSync(path.join(project, 'deck.css'), 'section { counter-increment: page; padding: 96px; } .folio { position: absolute; right: 96px; bottom: 64px; } .folio::after { content: "Page " counter(page); }');
+    const slideFile = id => path.join(project, 'slides', id + '.html');
+    const slideHtml = id => `<section id="${id}"><h1>Slide ${id}</h1><div class="folio"></div></section>`;
+    const write = id => fs.writeFileSync(slideFile(id), slideHtml(id));
+    write('one');
+    const { url: deckPublic } = await run.json(['open', deck, '--json']);
+    const deckUrl = new URL('index.html', deckPublic).href;
+    /** The page number each slide of the rail shows, in rail order: `one:1 two:2`. */
+    const numbers = `[...document.querySelectorAll('${rail}')].map(item => { const slide = item.querySelector('[data-open-artifact-slide]') ?? item; return (slide.getAttribute('data-open-artifact-slide') ?? '?') + ':' + (/Page (\\d+)/.exec(slide.textContent)?.[1] ?? '-'); }).join(' ')`;
+    const shows = async (tab, expected, why) => assert.ok(await tab.waitFor(`${numbers} === ${JSON.stringify(expected)}`, 15000), `${why}: ${(await tab.evaluateAll(numbers)).find(Boolean)}`);
+    const tab = await browser.load(deckUrl, { ready: `document.querySelectorAll('${rail}').length === 1` });
+    try {
+      await shows(tab, 'one:1', 'the slide that was there');
+      write('two');
+      await shows(tab, 'one:1 two:2', 'a slide written into the open page');
+      // Out of order: among the slides there are, it is the third page, until the one before it comes.
+      write('four');
+      await shows(tab, 'one:1 two:2 four:3', 'a slide written ahead of the one before it');
+      write('three');
+      await shows(tab, 'one:1 two:2 three:3 four:4', 'the slide after one that came late');
+      // The stage shows the number too.
+      await tab.evaluate(`location.hash = '#slide-~four'`);
+      assert.ok(await tab.waitFor(`document.querySelector('[data-open-artifact-mode="edit"][data-open-artifact-slide="four"]')?.textContent.includes('Page 4')`), 'the stage shows another number');
+      fs.rmSync(slideFile('one'));
+      await shows(tab, 'two:1 three:2 four:3', 'the slides after one that was deleted');
+      // A page that loads the deck whole reads the same numbers, and nothing was written back.
+      const whole = await browser.load(deckUrl, { ready: `document.querySelectorAll('${rail}').length === 3` });
+      try {
+        await shows(whole, 'two:1 three:2 four:3', 'the deck loaded whole');
+      } finally {
+        await whole.close();
+      }
+      for (const id of ['two', 'three', 'four']) assert.equal(fs.readFileSync(slideFile(id), 'utf8'), slideHtml(id), `${id}.html was rewritten`);
+      assert.deepEqual(JSON.parse(fs.readFileSync(path.join(project, 'deck.json'), 'utf8')).order, ['one', 'two', 'three', 'four']);
+      assert.deepEqual(tab.problems, []);
+    } finally {
+      // Not stopped: the deck under test shares its server (the suite stops it at the end).
+      await tab.close();
+    }
+  });
 });

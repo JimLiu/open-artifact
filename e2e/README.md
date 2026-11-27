@@ -161,6 +161,12 @@ The harness asks its questions (`waitFor`, `evaluateAll`, `load`'s `ready`) in a
 - Presenting the clip: it starts with its slide, with no play button over it; moving over it shows the bar at its bottom-left with Restart, Pause and Unmute. A click on the clip pauses it without turning the slide and brings up the play button, which plays it again; Unmute turns the sound on.
 - Presenting the YouTube video: its still and a play button show and no player loads until the button is pressed; then one player frame loads in the presentation with `autoplay=1` and `referrerpolicy="strict-origin-when-cross-origin"` (YouTube refuses an embed with no Referer), and the slide stays. The frame is emptied as it is added, so the test needs no network.
 
+**Slides: page numbers of slides that arrive** (`slides.test.mjs`, a source deck of its own, Chrome only)
+
+- The deck's sheet numbers its pages (`section { counter-increment: page }`, `.folio::after { content: "Page " counter(page) }`). Its `deck.json` lists four slides and only the first is written when the editor opens it.
+- The second slide is written to disk: the rail shows it as Page 2. The fourth is written before the third: it is Page 3, the third page among the slides there are. The third is written: it is Page 3 and the fourth becomes Page 4, on the stage too. Before the fix, every slide that arrived in the open page showed Page 1.
+- The first slide's file is deleted: the others become Pages 1 to 3. A second tab that loads the deck whole shows the same numbers, and the slide files and `deck.json` are as they were written.
+
 **Sheets** (`sheets.test.mjs`)
 
 - `read` on a folder with no Sheet is refused; a first `update` makes the Sheet (one blank `Sheet1`) and applies its edits.
