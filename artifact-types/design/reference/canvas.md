@@ -5,6 +5,12 @@ on which page, plus notes and installed design systems. The page edits it
 too (people drag, resize, add pages and notes), so read it again before
 each change and change only what you mean to.
 
+The editor keeps displayed live artboards live during a zoom gesture. When the zoom settles below 30%, nearby
+artboards switch to overview thumbnails and return to their retained frames at 32% or higher. The viewport admits
+up to 16 nearby live artboards. Artboards in use, such as a selected artboard or one playing a prototype, can remain live.
+
+Artboard titles, size labels and comment pins keep their screen size while the canvas zooms. Click an artboard title to select the artboard, drag it to move the artboard, or double-click it to rename the artboard. Enter saves the title and Escape cancels the edit.
+
 ```json
 {
   "v": 3,

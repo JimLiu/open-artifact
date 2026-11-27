@@ -9,7 +9,7 @@
  */
 
 import { parseColor, type CameraState, type CanvasItem, type Color } from '@open-artifact/canvas-engine';
-import type { BoardEntry, CanvasNote, Rect } from '@open-artifact/design-core';
+import { boardsOnPage, intersects, type BoardEntry, type Canvas, type CanvasNote, type Rect } from '@open-artifact/design-core';
 import type { Camera } from '../state/view.ts';
 import { noteOpacity, shapeLook } from './note-look.ts';
 import { DEFAULT_STICKY, arrowHeads, noteStroke, penViewBox, isPathNote, noteBounds, noteColor } from './notes.ts';
@@ -32,6 +32,33 @@ export const toEngineCamera = (camera: Camera): CameraState => ({ x: -camera.x /
 
 /** Engine camera → editor camera. */
 export const fromEngineCamera = (camera: CameraState): Camera => ({ x: -camera.x * camera.zoom, y: -camera.y * camera.zoom, zoom: camera.zoom });
+
+/** Below this settled zoom, nearby artboards show overview snapshots. */
+export const LIVE_MIN_ZOOM = 0.3;
+/** After entering the overview, resume live frames at this zoom. */
+export const LIVE_RESUME_ZOOM = 0.32;
+/** At most this many artboards are live for being on screen. */
+const MAX_LIVE = 16;
+
+/** Whether the settled zoom admits live frames for nearby artboards. */
+export function liveViewportEnabled(zoom: number, wasEnabled: boolean): boolean {
+  return zoom >= (wasEnabled ? LIVE_MIN_ZOOM : LIVE_RESUME_ZOOM);
+}
+
+/** The nearest artboards on the page, including a half-viewport margin on each side. */
+export function nearbyLiveBoards(canvas: Canvas, page: string | null, viewport: Rect): string[] {
+  const { x, y, w, h } = viewport;
+  const near = { x: x - w / 2, y: y - h / 2, w: w * 2, h: h * 2 };
+  const cx = x + w / 2;
+  const cy = y + h / 2;
+  return boardsOnPage(canvas, page)
+    .map((path) => ({ path, entry: canvas.boards[path]! }))
+    .filter(({ entry }) => intersects(entry, near))
+    .map(({ path, entry }) => ({ path, distance: Math.hypot(entry.x + entry.w / 2 - cx, entry.y + entry.h / 2 - cy) }))
+    .sort((a, b) => a.distance - b.distance)
+    .slice(0, MAX_LIVE)
+    .map(({ path }) => path);
+}
 
 /** Snapshot width used while an artboard is small on screen (overview zooms). */
 export const SMALL_SNAPSHOT_WIDTH = 256;

@@ -96,6 +96,8 @@ The harness asks its questions (`waitFor`, `evaluateAll`, `load`'s `ready`) in a
   - "1 error" at the top right lists the artboards with errors and its "Ask agent to fix" sends them all; closing an artboard's error notice leaves a mark in its name strip that brings it back;
   - a pasted image is uploaded and becomes an image note in `canvas.json`;
   - PNG and PDF exports draw an artboard in the web font its own `@font-face` loads, a Flow artboard's paper pages too;
+  - with WebGL, live artboards stay visible throughout zoom gestures, and the overview stays stable around 30 % until zoom reaches 32 %;
+  - in WebGL and DOM, artboard titles, controls, and size labels keep their CSS dimensions as the board and its grid move through each zoom frame, and the title still selects, moves and renames the board;
   - zoomed out below 30 %, an artboard shows a snapshot at its own size and in its web font, and zooming back in shows the same frame without booting it again;
   - a snapshot of an artboard set in a big CJK web font carries a subset of the font that still draws the artboard's ideographs;
   - Pages → Add page writes the page to `canvas.json`;

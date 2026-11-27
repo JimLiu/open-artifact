@@ -11,13 +11,9 @@
  * drags arrive as `commit`s and become canvas edits (services/commands.ts).
  *
  * Live artboards are holes in the canvas with their frame placed underneath
- * (`registerLiveBoard`). A pan moves their frames with the camera; while
- * the camera zooms, live artboards that have a snapshot are drawn from it and
- * their frames hidden, and once it settles the frames show again
- * (services/live.ts decides which artboards are live). A snapshot that left
- * web fonts out (`rough`) does not stand in for a frame while zooming: the
- * text would change font twice. Resting artboards keep a frame but show
- * their snapshot.
+ * (`registerLiveBoard`). Their frames follow the camera during panning and
+ * zooming. Resting artboards keep a frame but show their snapshot
+ * (services/live.ts decides which artboards rest).
  *
  * The camera belongs to the engine. Layers that must follow it every frame
  * (note text, artboard labels) subscribe with `onCameraFrame`; the view
@@ -63,6 +59,7 @@ const frameListeners = new Set<(camera: Camera) => void>();
 const motionListeners = new Set<(moving: boolean) => void>();
 const liveBoards = new Map<string, HTMLElement>();
 let holes = new Map<string, HoleRect>();
+let renderedCamera: Camera | null = null;
 
 /** The engine drawing the canvas, if one runs. */
 export const activeEngine = (): CanvasEngine | null => active?.engine ?? null;
@@ -78,10 +75,27 @@ export function itemAt(point: { x: number; y: number }): { board: string } | { n
   return id ? itemTarget(id) : null;
 }
 
-/** Calls `listener` with the camera of every frame in which it moved; returns the unsubscribe function. */
+/** A stable snapshot of the camera published to the overlay layers. */
+export function cameraFrame(): Camera {
+  return renderedCamera ?? useView.getState().camera;
+}
+
+/** Calls `listener` when the rendered camera changes in either renderer. */
 export function onCameraFrame(listener: (camera: Camera) => void): () => void {
+  const stopDom = useView.subscribe((state, prev) => {
+    if (!active && state.camera !== prev.camera) listener(state.camera);
+  });
   frameListeners.add(listener);
-  return () => frameListeners.delete(listener);
+  return () => {
+    stopDom();
+    frameListeners.delete(listener);
+  };
+}
+
+function publishCamera(camera: Camera | null): void {
+  renderedCamera = camera;
+  const frame = cameraFrame();
+  for (const listener of frameListeners) listener(frame);
 }
 
 /** The engine's camera motion, for services/live.ts. */
@@ -147,10 +161,8 @@ export function observeNoteSize(element: HTMLElement): () => void {
 
 function placeLiveBoard(path: string, element: HTMLElement): void {
   const hole = holes.get(boardItemId(path));
-  if (hole) {
-    element.style.transform = hole.transform;
-    element.style.visibility = '';
-  } else element.style.visibility = 'hidden';
+  if (hole) element.style.transform = hole.transform;
+  element.toggleAttribute('data-live-visible', Boolean(hole));
 }
 
 /* -------------------------------- colours -------------------------------- */
@@ -185,7 +197,8 @@ function selectionIds(selection: Selection): string[] {
 
 /**
  * Starts the engine on `canvas` inside the canvas `surface` (which gets
- * `data-moving` while the camera moves and `data-gesture` during a drag).
+ * `data-moving` while the camera moves, `data-zooming` during zoom and
+ * `data-gesture` during a drag).
  * Rejects when it cannot (no WebGL2); resolves to the stop function.
  */
 export async function startEngine(canvas: HTMLCanvasElement, surface: HTMLElement): Promise<() => void> {
@@ -228,9 +241,7 @@ export async function startEngine(canvas: HTMLCanvasElement, surface: HTMLElemen
   const sources = new Map<string, { url: string; path?: string; width?: number }>();
   const loading = new Set<string>();
   let moving = false;
-  /** The zoom when the camera started moving, and whether it has changed since (a zoom, not a pan). */
-  let motionZoom = 1;
-  let zooming = false;
+  let lastZoom = view.camera.zoom;
   let syncQueued = false;
   /** A marquee is being drawn (its selection commit arrives before it ends). */
   let marqueeing = false;
@@ -251,7 +262,7 @@ export async function startEngine(canvas: HTMLCanvasElement, surface: HTMLElemen
     if (stopped) return;
     const { canvas, readOnly } = useDocument.getState();
     const view = useView.getState();
-    const { live, resting, snapshots } = useLive.getState();
+    const { live, resting } = useLive.getState();
     const upsert: CanvasItem[] = [];
     const seen = new Set<string>();
     boardsOnPage(canvas, view.page).forEach((path, z) => {
@@ -260,11 +271,8 @@ export async function startEngine(canvas: HTMLCanvasElement, surface: HTMLElemen
       seen.add(id);
       const texture = shown.get(path) ?? wantedTexture(path);
       const editing = view.textEdit?.board === path || view.playing === path;
-      // A booted frame shows through, except where a snapshot stands in for it: for a resting artboard, and
-      // while the camera zooms (a pan only moves the frame, which stays sharp; a snapshot is a fraction of its
-      // resolution) unless the snapshot is in other fonts than the frame.
-      const standIn = shown.has(path) && (resting.has(path) || (zooming && !snapshots[path]?.rough));
-      const hole = isLive(path, live) && Boolean(view.frames[path]?.booted) && (editing || !standIn);
+      const showSnapshot = resting.has(path) && shown.has(path) && !editing;
+      const hole = isLive(path, live) && Boolean(view.frames[path]?.booted) && !showSnapshot;
       const locked = isLockedObject(entry);
       // A locked artboard nothing is selected in lets presses through to the canvas.
       const passThrough = locked && !boardIsActive(view.selection, path);
@@ -363,23 +371,24 @@ export async function startEngine(canvas: HTMLCanvasElement, surface: HTMLElemen
   const off = [
     engine.on('camera', (event) => {
       const camera = fromEngineCamera(event);
-      for (const listener of frameListeners) listener(camera);
-      if (moving && !zooming && Math.abs(event.zoom - motionZoom) > 1e-6) {
-        zooming = true;
-        sync();
-      }
+      if (moving && event.zoom !== lastZoom && !surface.hasAttribute('data-zooming')) surface.setAttribute('data-zooming', '');
+      lastZoom = event.zoom;
+      publishCamera(camera);
       if (event.settled || performance.now() - lastStoreWrite >= STORE_CAMERA_MS) writeCamera(camera);
     }),
     engine.on('moving', (event) => {
       moving = event.moving;
-      motionZoom = engine.camera.zoom;
-      zooming = false;
       surface.toggleAttribute('data-moving', moving);
       // The store holds the final camera before anyone reacts to the stop.
-      if (!moving) writeCamera(fromEngineCamera(engine.camera));
+      if (!moving) {
+        surface.removeAttribute('data-zooming');
+        writeCamera(fromEngineCamera(engine.camera));
+      }
       for (const listener of motionListeners) listener(moving);
-      sync();
-      if (!moving) refreshTextures();
+      if (!moving) {
+        sync();
+        refreshTextures();
+      }
     }),
     engine.on('gesture', (event) => {
       if (event.kind === 'marquee') marqueeing = event.phase === 'start';
@@ -500,6 +509,7 @@ export async function startEngine(canvas: HTMLCanvasElement, surface: HTMLElemen
     },
   };
   active = { engine, noteResized: queueSync };
+  publishCamera(liveCamera());
   sync();
   engine.setSelection(selectionIds(useView.getState().selection));
 
@@ -536,10 +546,14 @@ export async function startEngine(canvas: HTMLCanvasElement, surface: HTMLElemen
     unsubscribeLive();
     scheme?.removeEventListener('change', retheme);
     themeObserver.disconnect();
-    if (active?.engine === engine) active = null;
+    if (active?.engine === engine) {
+      active = null;
+      publishCamera(null);
+    }
     if (cameraDriver.current && !active) cameraDriver.current = null;
     holes = new Map();
     surface.removeAttribute('data-moving');
+    surface.removeAttribute('data-zooming');
     surface.removeAttribute('data-gesture');
     delete (globalThis as { __openArtifactCanvas?: unknown }).__openArtifactCanvas;
     engine.destroy();

@@ -372,6 +372,7 @@ function PinButton({
   title,
   expanded,
   faded = false,
+  screenTransform = false,
   ...handlers
 }: {
   pin: PinBox;
@@ -381,6 +382,7 @@ function PinButton({
   title?: string;
   expanded?: boolean;
   faded?: boolean;
+  screenTransform?: boolean;
   onClick?(): void;
   onPointerDown?(event: ReactPointerEvent<HTMLButtonElement>): void;
   onPointerMove?(event: ReactPointerEvent<HTMLButtonElement>): void;
@@ -389,8 +391,9 @@ function PinButton({
 }): ReactNode {
   const { pinId, ...events } = handlers;
   const style: CSSProperties = {
-    left: pin.left,
-    top: pin.top,
+    ...(screenTransform
+      ? { left: 0, top: 0, transform: `translate3d(${pin.left}px, ${pin.top}px, 0)` }
+      : { left: pin.left, top: pin.top }),
     width: PIN,
     height: PIN,
     pointerEvents: draft ? 'none' : 'auto',
@@ -451,18 +454,20 @@ export interface CommentPinsProps<A> {
   agent: AgentBadge;
   /** Changes whenever pins may have moved without threads or camera changing (document edits, layout). */
   revision?: unknown;
+  /** Position pins with transforms and keep their world anchors until `place` or `revision` changes. */
+  screenTransform?: boolean;
   /** Pins past the surface's edges become "More comments" tabs at that edge (default: on). */
   piles?: boolean;
   /** Bars over the surface's edges (px): a toolbar at its top or its bottom, which the tabs keep clear of. */
   insets?: { top?: number; bottom?: number };
 }
 
-interface Placed<A> {
+interface Anchored<A> {
   key: string;
   thread: CommentThread | null;
   anchor: A;
   state: AnchorState;
-  screen: Point;
+  world: Point;
 }
 
 
@@ -470,7 +475,7 @@ interface Placed<A> {
 
 
 
-export function CommentPins<A>({ comments, camera, viewport, place, highlight, anchorAt, movable, onMove, agent, revision, piles = true, insets }: CommentPinsProps<A>): ReactNode {
+export function CommentPins<A>({ comments, camera, viewport, place, highlight, anchorAt, movable, onMove, agent, revision, screenTransform = false, piles = true, insets }: CommentPinsProps<A>): ReactNode {
   const canMove = (movable ?? true) && Boolean(anchorAt || onMove);
   const available = comments.store((s) => s.available);
   const threads = comments.store((s) => s.threads);
@@ -482,29 +487,34 @@ export function CommentPins<A>({ comments, camera, viewport, place, highlight, a
   // A dragged pin's offset from its place.
   const [drag, setDrag] = useState<{ id: string; x: number; y: number } | null>(null);
 
-  const placed = useMemo((): Placed<A>[] => {
+  const placementCamera = screenTransform ? null : camera;
+  const anchored = useMemo((): Anchored<A>[] => {
     if (!available) return [];
-    const out: Placed<A>[] = [];
+    const out: Anchored<A>[] = [];
     for (const thread of threads) {
       if (thread.messages.length === 0) continue;
       if (thread.status !== 'open' && !showResolved && thread.id !== active) continue;
       const anchor = comments.anchorOf(thread);
       const at = place(anchor);
-      if (at) out.push({ key: thread.id, thread, anchor, state: at.state, screen: toScreenPoint(camera, at.world) });
+      if (at) out.push({ key: thread.id, thread, anchor, state: at.state, world: at.world });
     }
     if (draft !== null) {
       const at = place(draft);
-      if (at) out.push({ key: 'draft', thread: null, anchor: draft, state: at.state, screen: toScreenPoint(camera, at.world) });
+      if (at) out.push({ key: 'draft', thread: null, anchor: draft, state: at.state, world: at.world });
     }
     return out;
-  }, [available, threads, active, draft, showResolved, camera, place, revision, comments]);
-
-  if (!available) return null;
-  if (!on && !active && draft === null && placed.length === 0) return null;
+  }, [available, threads, active, draft, showResolved, place, revision, comments, placementCamera]);
 
   const focusKey = draft !== null ? 'draft' : active;
+  const focusedAnchor = anchored.find((p) => p.key === focusKey)?.anchor;
+  const cachedHighlight = useMemo(() => screenTransform && focusedAnchor !== undefined ? highlight?.(focusedAnchor) : null, [screenTransform, focusedAnchor, highlight, place, revision]);
+
+  if (!available) return null;
+  if (!on && !active && draft === null && anchored.length === 0) return null;
+
+  const placed = anchored.map((p) => ({ ...p, screen: toScreenPoint(camera, p.world) }));
   const focus = placed.find((p) => p.key === focusKey);
-  const lit = focus && highlight ? highlight(focus.anchor) : null;
+  const lit = screenTransform ? cachedHighlight : focus && highlight ? highlight(focus.anchor) : null;
   const pinned = placed.filter((p) => p.thread);
 
   const pileSet = piles
@@ -565,6 +575,7 @@ export function CommentPins<A>({ comments, camera, viewport, place, highlight, a
               detached={p.state === 'detached'}
               onDrag={(delta) => setDrag(delta ? { id: thread.id, ...delta } : null)}
               movable={canMove}
+              screenTransform={screenTransform}
               onDrop={(delta) => {
                 const screen = { x: p.screen.x + delta.x, y: p.screen.y + delta.y };
                 if (onMove) onMove(thread.id, screen);
@@ -591,7 +602,7 @@ export function CommentPins<A>({ comments, camera, viewport, place, highlight, a
         ) : null}
         {focus && !focus.thread && draft !== null ? (
           <>
-            <PinButton pin={pinBox(focus.screen, viewport)} draft label="New comment" avatar={<Avatar name={comments.viewerName()} size="sm" />} />
+            <PinButton pin={pinBox(focus.screen, viewport)} draft screenTransform={screenTransform} label="New comment" avatar={<Avatar name={comments.viewerName()} size="sm" />} />
             <CommentPopover pin={pinBox(focus.screen, viewport)} viewport={viewport} onEscape={() => comments.store.getState().setDraft(null)}>
               {() => <CommentComposer comments={comments} agent={agent} anchor={draft} />}
             </CommentPopover>
@@ -611,6 +622,7 @@ function ThreadPin<A>({
   expanded,
   detached,
   movable,
+  screenTransform,
   onDrag,
   onDrop,
 }: {
@@ -621,6 +633,7 @@ function ThreadPin<A>({
   expanded: boolean;
   detached: boolean;
   movable: boolean;
+  screenTransform: boolean;
   onDrag(delta: Point | null): void;
   onDrop(delta: Point): void;
 }): ReactNode {
@@ -632,6 +645,7 @@ function ThreadPin<A>({
     <PinButton
       pinId={thread.id}
       pin={box}
+      screenTransform={screenTransform}
       avatar={avatar}
       expanded={expanded}
       faded={detached}

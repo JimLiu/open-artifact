@@ -10,6 +10,7 @@ import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointer
 import { attributeValue, resolveElement, styleMap } from '@open-artifact/dc';
 import { useDocument } from '../state/document.ts';
 import { useView } from '../state/view.ts';
+import { useLiveCamera } from '../services/camera-frame.ts';
 import { boardApi } from '../services/frames.ts';
 import { templateOf } from '../services/agent.ts';
 import { edit } from '../services/commands.ts';
@@ -34,7 +35,7 @@ const CURSOR: Record<CropHandle, string> = {
 
 export function CropOverlay() {
   const crop = useView((s) => s.crop);
-  const camera = useView((s) => s.camera);
+  const camera = useLiveCamera(crop !== null);
   const tick = useView((s) => s.layoutTick);
   const entry = useDocument((s) => (crop ? s.canvas.boards[crop.board] : undefined));
   const source = useDocument((s) => (crop ? (s.boards[crop.board]?.source ?? null) : null));
