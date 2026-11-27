@@ -1,4 +1,4 @@
-/** Tests of the project save engine: debounce, one save at a time, conflicts, remote changes held by a text edit, and loading. */
+/** Tests of the project save engine: debounce, one save at a time, conflicts, remote changes held by a text edit, catching up, and loading. */
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
@@ -54,6 +54,9 @@ function fakeHost(initial: Record<string, string>) {
   let inFlight = 0;
   let maxInFlight = 0;
   let gate: Promise<void> | null = null;
+  /** Hold the reply, not the write: the files are on disk, the page has not heard back. */
+  let reply: Promise<void> | null = null;
+  const unreadable = new Set<string>();
   let refuse: 'not_writer' | 'offline' | null = null;
   const artifact = {
     id: 'a',
@@ -61,6 +64,7 @@ function fakeHost(initial: Record<string, string>) {
     list: async () => Object.fromEntries([...files].map(([path, file]) => [path, { sha256: file.hash, size: file.text.length }])),
     readText: async (path: string) => {
       reads.push(path);
+      if (unreadable.has(path)) throw new ArtifactError('unavailable', path);
       const file = files.get(path);
       if (!file) throw new ArtifactError('not_found', path);
       return file.text;
@@ -86,6 +90,7 @@ function fakeHost(initial: Record<string, string>) {
             hashes[path] = null;
           }
         }
+        if (reply) await reply;
         return { hashes };
       } finally {
         inFlight--;
@@ -115,6 +120,26 @@ function fakeHost(initial: Record<string, string>) {
         gate = null;
         release();
       };
+    },
+    /** Writes go through, their replies wait until released. */
+    holdReply() {
+      let release!: () => void;
+      reply = new Promise((resolve) => (release = resolve));
+      return () => {
+        reply = null;
+        release();
+      };
+    },
+    /** Someone else deletes `path`, unheard. */
+    remove(path: string) {
+      files.delete(path);
+    },
+    unreadable(path: string) {
+      unreadable.add(path);
+    },
+    /** The change stream started again: what was written meanwhile was not heard. */
+    resync() {
+      for (const listener of listeners) listener({ changes: {}, resync: true });
     },
     refuse(kind: 'not_writer' | 'offline' | null) {
       refuse = kind;
@@ -184,6 +209,7 @@ function toyEditor(host: ReturnType<typeof fakeHost>, options: { maxRetries?: nu
       },
       end: (run) => void (run.applied.length && log.push(`remote:${run.applied.join(',')}`)),
     },
+    known: () => docs.keys(),
     watchChanges: (listener) => void (changed = listener),
     watchTextEdit: (listener) => void (ended = listener),
     timers,
@@ -403,6 +429,88 @@ describe('createProjectSync', () => {
     editor.timers.advance(700);
     await settle();
     assert.equal(host.files.get('project/a.txt')?.text, 'theirs+mine');
+  });
+});
+
+describe('catching up after the change stream was down', () => {
+  it('merges what was written meanwhile, new and deleted files included, and skips what it holds', async () => {
+    const host = fakeHost({ 'project/a.txt': 'a', 'project/b.txt': 'b', 'project/c.txt': 'c' });
+    const editor = toyEditor(host);
+    host.theirs('project/a.txt', 'A', false);
+    host.theirs('project/d.txt', 'D', false);
+    host.remove('project/b.txt');
+    host.resync();
+    await settle();
+    assert.equal(editor.docs.get('project/a.txt')?.text, 'A');
+    assert.equal(editor.docs.get('project/d.txt')?.text, 'D');
+    assert.equal(editor.docs.get('project/b.txt')?.hash, null);
+    assert.equal(editor.docs.get('project/c.txt')?.text, 'c');
+    assert.deepEqual(host.reads.sort(), ['project/a.txt', 'project/d.txt']);
+  });
+
+  it('keeps unsaved edits, merged on top of theirs', async () => {
+    const host = fakeHost({ 'project/a.txt': 'a' });
+    const editor = toyEditor(host);
+    editor.edit('project/a.txt', '+mine');
+    host.theirs('project/a.txt', 'theirs', false);
+    host.resync();
+    await settle();
+    assert.equal(editor.docs.get('project/a.txt')?.text, 'theirs+mine');
+    editor.timers.advance(700);
+    await settle();
+    assert.equal(host.files.get('project/a.txt')?.text, 'theirs+mine');
+  });
+
+  // 2026-11-27: a catch-up while a save had written but not returned took the save for someone else's change and
+  // merged the unsaved edit on top of it again, so the next save wrote it twice.
+  it('waits out a save that has written but not returned, instead of taking it for theirs', async () => {
+    const host = fakeHost({ 'project/a.txt': 'a' });
+    const editor = toyEditor(host);
+    const release = host.holdReply();
+    editor.edit('project/a.txt', '+1');
+    editor.timers.advance(700);
+    await settle();
+    assert.equal(host.files.get('project/a.txt')?.text, 'a+1');
+    host.resync();
+    await settle();
+    // An edit meanwhile waits for the catch-up, then saves.
+    editor.edit('project/a.txt', '+2');
+    editor.timers.advance(700);
+    await settle();
+    assert.equal(host.published.length, 1);
+    release();
+    await settle();
+    editor.timers.advance(700);
+    await settle();
+    assert.equal(host.files.get('project/a.txt')?.text, 'a+1+2');
+    assert.equal(editor.docs.get('project/a.txt')?.text, 'a+1+2');
+    assert.equal(host.reads.length, 0);
+    assert.equal(editor.save(), 'saved');
+  });
+
+  it('leaves the project as it is when a read fails', async () => {
+    const host = fakeHost({ 'project/a.txt': 'a', 'project/b.txt': 'b' });
+    const editor = toyEditor(host);
+    host.theirs('project/a.txt', 'A', false);
+    host.theirs('project/b.txt', 'B', false);
+    host.unreadable('project/b.txt');
+    host.resync();
+    await settle();
+    assert.equal(editor.docs.get('project/a.txt')?.text, 'a');
+    assert.equal(editor.docs.get('project/b.txt')?.text, 'b');
+    assert.deepEqual(editor.log.filter((entry) => entry.startsWith('remote:')), []);
+  });
+
+  it('settle waits for a catch-up before saving', async () => {
+    const host = fakeHost({ 'project/a.txt': 'a' });
+    const editor = toyEditor(host);
+    host.theirs('project/a.txt', 'theirs', false);
+    editor.edit('project/a.txt', '+mine');
+    const caught = editor.sync.catchUp();
+    await editor.sync.settle();
+    await caught;
+    assert.equal(host.files.get('project/a.txt')?.text, 'theirs+mine');
+    assert.equal(host.published.length, 1);
   });
 });
 

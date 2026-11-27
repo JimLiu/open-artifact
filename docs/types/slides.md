@@ -36,6 +36,7 @@ Or start with no agent: on the home page, click **New artifact**, pick **Slides*
 - **Present**: Use the presenter button in the toolbar for full-screen delivery.
 - **Videos**: a round play button marks a video on the stage and in the thumbnails. While presenting, an uploaded clip starts with its slide; move over it for a bar at its bottom-left (restart, play or pause, sound), and click it to pause or play without turning the slide. A YouTube, Vimeo, Loom or Google Drive video shows its still and a play button, and its player loads, playing, once you click it.
 - **Request changes from your agent**: Pin a comment on a slide (e.g. *"simplify this comparison table into 3 bullets"*), then click **Send to agent**.
+- **Live updates**: Slides your agent writes appear in place. If the connection drops, what changed meanwhile is merged once it is back.
 - **Link to a specific slide**: Add `#slide-<number>` to the artifact URL (e.g. `#slide-3`).
 - **Export**: Open **Share → Export** to download PDF, PPTX, HTML, or PNG.
 

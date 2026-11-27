@@ -588,6 +588,19 @@ what the page shows is the server's documents with the page's own unsaved and un
   it (`listCollection` in `engine.ts`; `e2e/shell-save.test.mjs` (c)).
 - Whiteboard inks are ordered by `at`; `addInk` stamps one past the newest so a page with a slow clock still lands last.
 
+## Project file sync (`files`)
+
+`design` and `slides` keep their project as files under `<root>/project/`, saved and merged by editor-kit's
+`createProjectSync` (`packages/editor-kit/src/project-sync.ts`): a debounced save with `ifMatch` on every file, a
+conflict merged and retried, and each `files` change event read and merged in place.
+
+- **Reconnects**: changes made while the page's event stream was down are not sent again. When the stream opens after
+  it had been open, the local provider tells file listeners with `{changes: {}, resync: true}`
+  (`packages/runtime/src/local-provider.ts`). `createProjectSync` then catches up: it waits for a save in flight and
+  holds new ones, compares the listing with the hashes it holds (deleted files included), reads every changed file,
+  and merges them as pushed changes. A failed listing or read leaves the project as it is. The camera, the selection
+  and open drafts stay; the Shell's Refresh still reloads the frame.
+
 ## Harness API & agent-product integration
 
 Agent apps integrate through the Harness API, JSON-RPC 2.0 over the WebSocket `/__harness` (subprotocol

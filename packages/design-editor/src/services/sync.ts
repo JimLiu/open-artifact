@@ -7,7 +7,8 @@
  *   read, ours are merged on top (canvas: three-way; artboards: pending
  *   operations replayed) and the save retries.
  * - Remote changes: pushed by the host; merged the same way. An artboard
- *   being text-edited is merged when the edit ends.
+ *   being text-edited is merged when the edit ends. Changes made while the
+ *   host's stream was down are caught up when it starts again.
  *
  * The timing, retries and deferral are editor-kit's `createProjectSync`; this
  * file says what a project writes and how its files merge.
@@ -49,6 +50,7 @@ const sync = createProjectSync<SentBatch, RemoteRun>({
     useDocument.setState({ readOnly: true, save: 'readonly' });
     toast.add({ title: 'You can no longer edit this design', description: 'Your changes since the last save were not saved.' });
   },
+  known: () => [CANVAS_PATH, ...Object.keys(useDocument.getState().boards).map(artifactPath)],
   remote: {
     begin: () => ({ textEdit: useView.getState().textEdit, changedBoards: [], dropped: 0 }),
     file: remoteFile,

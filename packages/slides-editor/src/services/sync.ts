@@ -71,6 +71,7 @@ const sync = createProjectSync<SentBatch, RemoteRun>({
     toast.add({ title: 'You can no longer edit this deck', description: 'Your changes since the last save are kept in this browser for 3 days.' });
     saveRecovery(true);
   },
+  known: () => [DECK_PATH, ...Object.keys(useDeck.getState().slides).map(slidePath)],
   remote: {
     begin: () => ({ textEdit: useView.getState().textEdit, conflicts: [], mergedSlides: [], changedSlides: [], merged: 0 }),
     file: remoteFile,

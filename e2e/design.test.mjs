@@ -216,6 +216,69 @@ editorSuite({
   },
 
   chrome(ctx) {
+    // 2026-11-27: what changed on disk while the page's event stream was down never reached the open design; only a
+    // full reload showed it, and that lost the camera, the selection and an unsent Ask draft.
+    it('catches up on what changed on disk while its event stream was down, keeping the camera, selection and Ask draft', T, async () => {
+      const root = tmpDir('design-gap');
+      copyFixture('design', root);
+      const board = `document.querySelector('[data-board-title="Main.dc.html"]')`;
+      // Keep each WebSocket, and while `__holdStream` is set send new ones to a port nobody listens on, so the page
+      // keeps trying to reconnect and hears nothing.
+      const watch = `(() => {
+        const Native = window.WebSocket;
+        window.__streams = [];
+        window.__holdStream = false;
+        window.WebSocket = class extends Native {
+          constructor(url, protocols) {
+            super(window.__holdStream ? 'ws://127.0.0.1:9/' : url, protocols);
+            window.__streams.push(this);
+          }
+        };
+      })()`;
+      await withDesignShell(ctx, root, board, async page => {
+        await page.cdp('Page.addScriptToEvaluateOnNewDocument', { source: watch });
+        await page.cdp('Page.reload', {});
+        // The board and the event stream may live in different frames of the Shell.
+        assert.ok(await page.waitFor(board, 15000), 'Design loaded again');
+        assert.ok(await page.waitFor('window.__streams?.some(s => s.readyState === 1)', 15000), 'its event stream is open');
+        const bounds = async () => (await page.evaluateAll(`(() => {
+          const rect = ${board}?.getBoundingClientRect();
+          return rect && [rect.x, rect.y, rect.width];
+        })()`)).find(Boolean);
+        const [x, y, width] = await bounds();
+        const top = await page.evaluate(`document.querySelector('iframe[name="open-artifact-shell"]').getBoundingClientRect().top`);
+        await page.click(x + 12, top + y + 8);
+        assert.ok(await page.waitFor(`${board}?.querySelector('.text-accent')`), 'the board was selected');
+        await page.cdp('Input.dispatchMouseEvent', { type: 'mouseWheel', x: 600, y: 400, deltaX: 36, deltaY: 62 });
+        assert.ok(await until(async () => (await bounds())[1] !== y));
+        await page.cdp('Input.dispatchMouseEvent', { type: 'mouseWheel', x: 600, y: 400, deltaX: 0, deltaY: -80, modifiers: 2 });
+        assert.ok(await until(async () => (await bounds())[2] !== width));
+        await page.evaluateAll(`[...document.querySelectorAll('[aria-label="Canvas tools"] button')].find(b => /^Ask /i.test(b.textContent.trim()))?.click()`);
+        const draft = `document.querySelector('textarea[placeholder]')`;
+        assert.ok(await page.waitFor(`${draft} && document.activeElement === ${draft}`));
+        await page.cdp('Input.insertText', { text: 'Keep this draft' });
+
+        await page.evaluateAll('window.__holdStream = true; for (const s of window.__streams ?? []) s.close()');
+        assert.ok(await until(async () => !(await page.evaluateAll('!!window.__streams?.some(s => s.readyState === 1)')).includes(true), 5000));
+        // The agent renames the artboard and rewrites it while the page hears nothing.
+        const canvas = canvasOf(root);
+        canvas.boards['Main.dc.html'].title = 'Updated on disk';
+        fs.writeFileSync(path.join(root, 'project/canvas.json'), JSON.stringify(canvas));
+        const source = fs.readFileSync(path.join(root, BOARD), 'utf8');
+        fs.writeFileSync(path.join(root, BOARD), source.replace('>Smoke canvas</h1>', '>Updated artboard</h1>'));
+        await new Promise(resolve => setTimeout(resolve, 1500)); // the server's watcher has sent its event to no one
+        assert.ok(!(await page.evaluateAll(`${board}?.textContent.includes('Updated on disk')`)).includes(true), 'nothing heard yet');
+
+        const camera = await bounds();
+        await page.evaluateAll('window.__holdStream = false');
+        assert.ok(await page.waitFor(`${board}?.textContent.includes('Updated on disk')`, 15000), 'the reconnected editor read what it missed');
+        assert.ok(await page.waitFor(textIn('Updated artboard')), 'and rendered the changed artboard');
+        assert.ok((await page.evaluateAll(`${draft}?.value`)).includes('Keep this draft'), 'the draft stayed');
+        assert.deepEqual(await bounds(), camera, 'the camera stayed in place');
+        assert.ok(await page.waitFor(`${board}?.querySelector('.text-accent')`), 'the board stayed selected');
+      });
+    });
+
     for (const renderer of ['default', 'dom']) {
       it(`link cards and prototype navigation in the ${renderer} canvas`, T, async () => {
         const { root, url } = await ctx.openNew('prototype', (_ctx, root) => {

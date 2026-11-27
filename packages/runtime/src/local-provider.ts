@@ -189,6 +189,16 @@ export function createLocalProvider(options: LocalProviderOptions = {}): Capabil
   // pass upgrades), the same events come as server-sent events instead.
   let socket: WebSocket | null = null;
   let opened = false;
+  /*
+   * Changes made while the stream was down are not sent again. When it opens
+   * after it had been open, file listeners hear an empty `resync` event and
+   * compare the listing with what they hold.
+   */
+  let streamed = false;
+  const streamOpened = (): void => {
+    if (streamed) dispatch('files', { changes: {}, resync: true });
+    streamed = true;
+  };
   let fallback: EventSource | null = null;
   let retry: ReturnType<typeof setTimeout> | null = null;
   const fromSource = (event: Event): void => {
@@ -198,6 +208,8 @@ export function createLocalProvider(options: LocalProviderOptions = {}): Capabil
     const source = new EventSource(url(API.events, { client }));
     fallback = source;
     for (const name of listeners.keys()) source.addEventListener(name, fromSource);
+    // Also on each reconnect the EventSource makes by itself.
+    source.onopen = streamOpened;
     // An EventSource retries by itself, but gives up (CLOSED) on a refusal.
     source.onerror = () => {
       void checkAccess().then((ended) => {
@@ -262,6 +274,7 @@ export function createLocalProvider(options: LocalProviderOptions = {}): Capabil
     socket = ws;
     ws.onopen = () => {
       opened = true;
+      streamOpened();
     };
     ws.onmessage = (event) => {
       let message: { event?: ServerEventName; data?: unknown };
