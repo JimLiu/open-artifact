@@ -35,7 +35,7 @@ node scripts/build-plugins.mjs # Build unified skill + dist/plugins/<name>/ + ma
 
 ```bash
 npm run typecheck                     # tsc -p tsconfig.json
-npm test                              # node --test across packages/*, plugins/dsh, plugins/pi, plugins/omp, plugins/zcode, examples/host-plugins, examples/harness-node, examples/harness-stdio, scripts
+npm test                              # node --test across packages/*, plugins/dsh, plugins/pi, plugins/omp, plugins/hermes, plugins/zcode, examples/host-plugins, examples/harness-node, examples/harness-stdio, scripts
 npm run check                         # typecheck + unit tests
 npm run e2e                           # Full E2E suite (requires npm run build first)
 npm run e2e -- --only slides,docs     # Run selected E2E suites

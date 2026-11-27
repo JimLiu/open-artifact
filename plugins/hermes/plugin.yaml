@@ -1,0 +1,5 @@
+name: open-artifact
+version: 0.1.0
+description: "Open Artifact for Hermes Agent: the native tools Artifact, ArtifactData and ArtifactComments over `open-artifact harness --stdio --harness hermes`, and comments from an artifact's page into the Hermes session that owns it."
+author: Open Artifact contributors
+kind: standalone
