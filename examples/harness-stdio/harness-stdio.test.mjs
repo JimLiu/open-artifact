@@ -79,6 +79,10 @@ class FailingPeer:
 host.features = ["inbox.return"]
 host.peer = FailingPeer()
 host.give_back({"session": "gone-3", "workspace": "/w"}, [wake])
+for t in threading.enumerate():
+    if t is not threading.current_thread():
+        t.join(5)
+print("held", ",".join("%s:%s" % (s, "|".join(m["text"] for m in ms)) for s, ms in sorted(host.kept.items())))
 `);
     assert.equal(lines[0], 'reattached py-1 inbox=1');
     assert.equal(lines[1], 'wake turn request from owner on "T"');
@@ -88,6 +92,7 @@ host.give_back({"session": "gone-3", "workspace": "/w"}, [wake])
     assert.ok(lines.includes('1'), 'one inbox.return, for the session it no longer has');
     assert.ok(lines.includes('kept gone-too 1'), 'a daemon without the feature: the host keeps them');
     assert.ok(lines.includes('kept gone-3 1'), 'an inbox.return that fails: the host keeps them');
+    assert.equal(lines.at(-1), 'held gone-3:Bigger,gone-too:Bigger', 'kept means held for the session, not only said');
   });
 });
 

@@ -7,7 +7,7 @@ the Python standard library only and runs on Python 3.9 or later.
 | File | What it does |
 | --- | --- |
 | `rpc.py` | JSON-RPC 2.0, one object per line, both ways: the host's requests and their answers, the bridge's requests (answered on a thread each) and notifications. |
-| `host.py` | Answers the daemon's calls (`wake.deliver`, `host.open`, `shell.event`) and handles the bridge's notifications (`bridge.state`, `bridge.reattached`, `event`). Each prints one line. `route_of` says what a wake is to the agent: the owner's words a turn, anyone or anything else a notice. What a reattach brings for a session it no longer has goes back with `inbox.return`. |
+| `host.py` | Answers the daemon's calls (`wake.deliver`, `host.open`, `shell.event`) and handles the bridge's notifications (`bridge.state`, `bridge.reattached`, `event`). Each prints one line. `route_of` says what a wake is to the agent: the owner's words a turn, anyone or anything else a notice. What a reattach brings for a session it no longer has goes back with `inbox.return`, or stays in `kept` for that session's next tool result when the daemon cannot take it back. |
 | `main.py` | Spawns the bridge, says `hello`, subscribes, attaches a session, lists the tools, calls `quickstart` and `publish`, then answers the daemon until stopped. |
 | `harness-stdio.test.mjs` | Checks `host.py`'s routing and `inbox.return` on their own, then runs `main.py` against a real daemon in a temporary home (skipped, saying so, without `python3`). |
 

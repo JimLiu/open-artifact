@@ -35,6 +35,10 @@ class Host:
         self.peer = peer
         # hello's `features`: what the daemon can do (`inbox.return`, ...); main.py sets it.
         self.features = []
+        # session id -> messages a reattach brought that could not be put back: a real host hands them to the
+        # session's agent with its next tool result, as harness-kit does.
+        self.kept = {}
+        self._kept_lock = threading.Lock()
         self.connected = threading.Event()
         self.woken = threading.Event()
         self.reattached = threading.Event()
@@ -64,8 +68,8 @@ class Host:
 
     def give_back(self, ref, messages):
         """`inbox.return`: what was taken on a reattach and not handed on waits in the session's inbox again, ahead of
-        what came since, for its next tool call, wait or attach. Against a daemon without the feature a real host keeps
-        them and adds them to the session's next tool result."""
+        what came since, for its next tool call, wait or attach. Against a daemon without the feature, or when the
+        request fails, they stay in `kept` for the session's next tool result instead of being lost."""
         if "inbox.return" in self.features and self.peer is not None:
             try:
                 answer = self.peer.request("inbox.return", {"session": ref.get("session"), "workspace": ref.get("workspace"), "messages": messages})
@@ -73,6 +77,8 @@ class Host:
                 return
             except Exception as error:  # the bridge is going away again, say: keep them rather than lose them
                 say("inbox.return failed: %s" % error)
+        with self._kept_lock:
+            self.kept.setdefault(ref.get("session"), []).extend(messages)
         say("kept %s %d" % (ref.get("session"), len(messages)))
 
     def host_open(self, params):
