@@ -224,7 +224,7 @@ export function noteFilled(note: CanvasNote, color: string | null): CanvasNote |
  * (a gradient or picture would hide it); clearing goes back to the class.
  */
 export function fillColorPatch(inline: Record<string, string>, computed: Record<string, string>, next: string | null): StylePatch {
-  if (clipsToText(inline)) return { 'background-color': next };
+  if (clipsToText(inline, computed)) return { 'background-color': next };
   if (next !== null && isClearColor(next)) return REMOVE_FILL_PATCH;
   const patch: Record<string, string | null> = { 'background-color': next };
   if (inline.background !== undefined) patch.background = null;
@@ -235,12 +235,16 @@ export function fillColorPatch(inline: Record<string, string>, computed: Record<
 const CLOSED_SHAPES = new Set(['rect', 'circle', 'ellipse', 'polygon']);
 
 /**
- * Whether the background paints the text (`background-clip: text`, read
- * from the inline style). Its layers are the text's color, so neither a
- * fill pick nor None touches them.
+ * Whether the background paints the text (`background-clip: text` or
+ * `-webkit-background-clip: text`, read from the inline style, else from
+ * the computed one). Its layers are the text's color, so neither a fill
+ * pick nor None touches them.
  */
-export function clipsToText(inline: Record<string, string>): boolean {
-  return [inline['background-clip'], inline['-webkit-background-clip']].some((value) => /\btext\b/i.test(value ?? ''));
+export function clipsToText(inline: Record<string, string>, computed: Record<string, string> = {}): boolean {
+  const clip = (style: Record<string, string>) => [style['background-clip'], style['-webkit-background-clip']].some((value) => /\btext\b/i.test(value ?? ''));
+  if (clip(inline)) return true;
+  if (inline['background-clip'] !== undefined || inline['-webkit-background-clip'] !== undefined) return false;
+  return clip(computed);
 }
 
 /**
@@ -258,7 +262,7 @@ export function removableFill(element: HtmlElement, computed: Record<string, str
   }
   if (parseStyle(text).some((d) => d.important && d.property.startsWith('background'))) return false;
   const inline = styleMap(text);
-  if (clipsToText(inline)) return false;
+  if (clipsToText(inline, computed)) return false;
   const color = inline['background-color'] ?? (inline.background && !LAYERED.test(inline.background) ? inline.background : undefined) ?? computed['background-color'];
   const image = inline['background-image'] ?? (LAYERED.test(inline.background ?? '') ? inline.background : undefined) ?? computed['background-image'];
   return !isClearColor(color) || LAYERED.test(image ?? '');

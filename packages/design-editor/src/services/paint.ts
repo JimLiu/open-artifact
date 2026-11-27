@@ -228,7 +228,7 @@ export function unfillSelection(): boolean {
 }
 
 /** The edits that take the fill away from one artboard's selected elements, and the `fill` attributes to remove. */
-function planUnfill({ model, elements }: ResolvedGroup, patch: StylePatch): { edits: { target: Address; patch: StylePatch }[]; unfilled: Address[] } {
+function planUnfill({ board, model, elements }: ResolvedGroup, patch: StylePatch): { edits: { target: Address; patch: StylePatch }[]; unfilled: Address[] } {
   const edits: { target: Address; patch: StylePatch }[] = [];
   const unfilled: Address[] = [];
   for (const element of elements) {
@@ -236,7 +236,9 @@ function planUnfill({ model, elements }: ResolvedGroup, patch: StylePatch): { ed
     if (!subject) continue;
     if ('box' in subject) {
       const style = subject.box.attrs.find((attr) => attr.name.toLowerCase() === 'style')?.value ?? '';
-      edits.push({ target: address(model, subject.box), patch: clipsToText(styleMap(style)) ? { 'background-color': 'transparent' } : patch });
+      // A background that paints the text (inline or from a class) is the text's color: only its plain color goes.
+      const computed = boardApi(board)?.inspect(model.tidOf.get(subject.box)!)?.computed ?? {};
+      edits.push({ target: address(model, subject.box), patch: clipsToText(styleMap(style), computed) ? { 'background-color': 'transparent' } : patch });
       continue;
     }
     edits.push(...shapeEdits(model, subject.shape, subject.svg, SHAPE_UNFILL_PATCH));

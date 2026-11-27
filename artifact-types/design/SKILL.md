@@ -244,7 +244,9 @@ Rules that bite (each fails silently):
   toolbars wrap, wide tables scroll in a box. `$preview` = `w`×`h`; a PAGE's `h` = its height at `w` (estimate it
   from the content, erring taller: taller beats clipped).
 - Inline `style="…"` is what the properties panel edits; `<helmet><style>` is for page basics and the
-  `a`/`a:hover` colors. Lay out sibling groups with flex or grid plus `gap`.
+  `a`/`a:hover` colors. An element's hover, focus and pressed looks go in `style-hover`, `style-focus`,
+  `style-focus-visible`, `style-active` (declarations, like `style`; `reference/format.md`). Lay out sibling
+  groups with flex or grid plus `gap`.
 - `{{hole}}` is a dotted lookup into `renderVals()` only, never an expression; copy the viewer retypes stays literal
   markup.
 - Always include the `<script type="text/x-dc" data-dc-script>` block, classic JS (`class Component extends

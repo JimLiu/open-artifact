@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { rememberedRadius, shapeLook, withRectRadius } from '../src/lib/note-look.ts';
+import { IMAGE_PLACEHOLDER, imageLook, rememberedRadius, shapeLook, withRectRadius } from '../src/lib/note-look.ts';
+import { noteItem } from '../src/lib/scene.ts';
 import { noteSwap, noteUnfill } from '../src/lib/paint.ts';
 
 describe('a shape note’s look', () => {
@@ -65,5 +66,43 @@ describe('the radius a new rectangle takes', () => {
     assert.equal(withRectRadius({ x: 0, y: 0, kind: 'oval', text: '' }, 20).css, undefined);
     assert.deepEqual(withRectRadius({ x: 0, y: 0, kind: 'rect', text: '', css: { 'border-radius': '3px', opacity: '0.5' } }, 20).css, { 'border-radius': '3px', opacity: '0.5' });
     assert.deepEqual(withRectRadius({ x: 0, y: 0, kind: 'rect', text: '', css: { opacity: '0.5' } }, 0).css, { opacity: '0.5', 'border-radius': '0px' });
+  });
+});
+
+describe('an image note’s look', () => {
+  const image = { x: 0, y: 0, kind: 'image' as const, src: 'a.png' };
+
+  it('fills its box with square corners and no border, drawn by the scene', () => {
+    const look = imageLook(image);
+    assert.equal(look.dom['object-fit'], 'fill');
+    assert.equal(look.dom['border-radius'], '0px');
+    assert.equal(look.dom['border-style'], 'none');
+    assert.equal(look.dom['background-color'], undefined);
+    assert.equal(look.engine, true);
+  });
+
+  it('a border at the edge’s outside is an outline; a width alone is solid', () => {
+    const outside = imageLook({ ...image, css: { 'border-width': '4px', 'border-style': 'dashed', 'border-color': '#123456', 'border-position': 'outside' } }).dom;
+    assert.equal(outside.outline, '4px dashed #123456');
+    assert.equal(outside['outline-offset'], '0');
+    assert.equal(outside['border-style'], 'none');
+    const width = imageLook({ ...image, css: { 'border-width': '2px' } });
+    assert.equal(width.dom['border-style'], 'solid');
+    assert.equal(width.engine, false);
+  });
+
+  it('shows the placeholder only without a picture and a background', () => {
+    assert.equal(imageLook({ ...image, src: undefined }).dom['background-color'], IMAGE_PLACEHOLDER);
+    assert.equal(imageLook({ ...image, src: undefined, css: { 'background-color': '#ff0000' } }).dom['background-color'], '#ff0000');
+    assert.equal(imageLook(image).dom['background-color'], undefined);
+  });
+
+  it('a look the scene can’t draw leaves it a clear box to hit', () => {
+    const styled = { ...image, css: { 'border-radius': '4px', 'box-shadow': '0px 4px 12px rgba(0,0,0,0.2)' } };
+    assert.equal(imageLook(styled).engine, false);
+    const item = noteItem('n', styled, { z: 0, editable: true, locked: false } as Parameters<typeof noteItem>[2]);
+    assert.equal(item.kind, 'rect');
+    assert.equal(item.fill, 'transparent');
+    assert.equal(noteItem('n', image, { z: 0, editable: true, locked: false } as Parameters<typeof noteItem>[2]).kind, 'image');
   });
 });

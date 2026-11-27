@@ -13,7 +13,7 @@ import { escapeAttribute, escapeText } from '@open-artifact/dc';
 import type { CanvasNote, Rect } from '@open-artifact/design-core';
 import { bezierPathData, readNodes } from './bezier.ts';
 import { DEFAULT_STICKY, NOTE_LINE_HEIGHT, inlineRuns, isPathNote, markdownBlocks, noteBounds, noteColor, noteFontSize, noteStroke, penViewBox, type MarkdownBlock } from './notes.ts';
-import { shapeFill, shapeLook } from './note-look.ts';
+import { imageLook, shapeFill, shapeLook } from './note-look.ts';
 
 /** A note turned into one artboard element. */
 export interface NoteLayer {
@@ -211,9 +211,13 @@ function imageHtml(note: CanvasNote, box: Rect): string | null {
   if (!src || /[{}<]/.test(src)) return null;
   const alt = note.alt ?? note.text ?? '';
   if (templated(alt)) return null;
-  const fit = note.css?.['object-fit'] ?? 'contain';
-  const place = note.css?.['object-position'] ? ` object-position: ${note.css['object-position']};` : '';
-  return `<img src="${escapeAttribute(src)}" alt="${escapeAttribute(alt)}" width="${Math.round(box.w)}" height="${Math.round(box.h)}" style="width: ${px(box.w)}; height: ${px(box.h)}; object-fit: ${fit};${place}${noteTransformCss(note)}">`;
+  const look = imageLook(note).dom;
+  const fit = look['object-fit'];
+  const place = look['object-position'] ? ` object-position: ${look['object-position']};` : '';
+  // The look as the canvas draws it, without what an <img> has anyway.
+  const plain = (key: string, value: string) => key === 'box-sizing' || key.startsWith('object-') || (key === 'border-style' && value === 'none') || (key === 'border-radius' && value === '0px');
+  const rest = Object.entries(look).filter(([key, value]) => !plain(key, value)).map(([key, value]) => ` ${key}: ${value};`).join('');
+  return `<img src="${escapeAttribute(src)}" alt="${escapeAttribute(alt)}" width="${Math.round(box.w)}" height="${Math.round(box.h)}" style="width: ${px(box.w)}; height: ${px(box.h)}; object-fit: ${fit};${place}${rest}${noteTransformCss(note)}">`;
 }
 
 /** The world box a note's element takes. */

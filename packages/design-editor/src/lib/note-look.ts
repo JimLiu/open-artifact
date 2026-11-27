@@ -133,3 +133,53 @@ export function noteOpacity(note: CanvasNote): number | undefined {
   const n = value.endsWith('%') ? Number.parseFloat(value) / 100 : Number(value);
   return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : undefined;
 }
+
+/** The background an image note shows while it has no picture (and no fill of its own). */
+export const IMAGE_PLACEHOLDER = '#e8e6e1';
+
+/** An image note's look: CSS for the `<img>`, and whether the GPU scene can draw it as a plain texture. */
+export interface ImageLook {
+  dom: Record<string, string>;
+  engine: boolean;
+}
+
+/**
+ * How an image note is drawn, from its `css`: the picture fills its box
+ * (`object-fit: fill` unless the css says otherwise), square corners, no
+ * border until a width is given (then solid unless a style is), a border
+ * at the centre or outside the edge drawn as an outline, the effects,
+ * see-through and a background color as written, and a placeholder color
+ * while there is no picture. The GPU scene draws only the plain picture.
+ */
+export function imageLook(note: CanvasNote): ImageLook {
+  const css: NoteCss = { ...note.css };
+  const widths = Object.keys(css).some((key) => /^border(-(top|right|bottom|left))?-width$/.test(key));
+  if (!css['border-style']) css['border-style'] = widths ? 'solid' : 'none';
+  const border = noteBorderDeclarations(css);
+  const corners = (['top-left', 'top-right', 'bottom-right', 'bottom-left'] as const).flatMap((corner) => {
+    const value = css[`border-${corner}-radius`];
+    return value === undefined ? [] : [[`border-${corner}-radius`, value] as const];
+  });
+  const background = css['background-color'] ?? (note.src ? undefined : IMAGE_PLACEHOLDER);
+  const dom: Record<string, string> = {
+    'box-sizing': 'border-box',
+    'object-fit': css['object-fit'] ?? 'fill',
+    ...(css['object-position'] ? { 'object-position': css['object-position'] } : {}),
+    ...('outline' in border ? { 'border-style': 'none' } : {}),
+    ...border,
+    'border-radius': css['border-radius'] ?? '0px',
+    ...Object.fromEntries(corners),
+    ...(css['box-shadow'] ? { 'box-shadow': css['box-shadow'] } : {}),
+    ...(css.filter ? { filter: css.filter } : {}),
+    ...(css['backdrop-filter'] ? { 'backdrop-filter': css['backdrop-filter'] } : {}),
+    ...(css.opacity ? { opacity: css.opacity } : {}),
+    ...(background ? { 'background-color': background } : {}),
+  };
+  const drawnBorder = css['border-style'] !== 'none' && css['border-style'] !== 'hidden';
+  const radius = [css['border-radius'], ...corners.map(([, value]) => value)].some((value) => value !== undefined && px(value) !== 0);
+  const opacity = noteOpacity(note);
+  const engine =
+    !drawnBorder && !radius && !css['box-shadow'] && !css.filter && !css['backdrop-filter'] && css['background-color'] === undefined &&
+    (css['object-fit'] === undefined || css['object-fit'] === 'fill') && css['object-position'] === undefined && (opacity === undefined || opacity >= 1);
+  return { dom, engine };
+}

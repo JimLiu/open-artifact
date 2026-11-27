@@ -11,6 +11,8 @@ import {
   groupOf,
   hasValues,
   nearestNoteColor,
+  NOTE_GROUPS,
+  noteClass,
   pastedBoardRadius,
   pastedElementStyle,
   pastedNote,
@@ -210,14 +212,29 @@ describe('notes and artboards', () => {
 
   it('a link note has nothing to copy or take', () => {
     assert.equal(copyNoteStyle({ x: 0, y: 0, kind: 'link', href: 'https://example.com' }), null);
-    assert.equal(pastedNote(copyBoardStyle(8), { x: 0, y: 0, kind: 'link' }, valid), null);
+    assert.equal(pastedNote(copyBoardStyle(8, { 'background-color': '#ffffff' }), { x: 0, y: 0, kind: 'link' }, valid), null);
   });
 
-  it('an artboard: its radius', () => {
-    assert.deepEqual(copyBoardStyle(8).groups, { radius: { 'border-radius': '8px' } });
-    assert.equal(pastedBoardRadius(copyBoardStyle(8)), 8);
-    assert.equal(pastedBoardRadius(copyBoardStyle(undefined)), undefined, 'a copy without radius takes it away');
+  it('an artboard: its page background and radius', () => {
+    assert.deepEqual(copyBoardStyle(8, { 'background-color': '#ffffff' }).groups, { fill: { 'background-color': '#ffffff' }, radius: { 'border-radius': '8px' } });
+    assert.deepEqual(copyBoardStyle(undefined, { 'background-color': '#ffffff' }).groups.radius, { 'border-radius': '0px' });
+    assert.equal(pastedBoardRadius(copyBoardStyle(8, { 'background-color': '#ffffff' })), 8);
+    assert.equal(pastedBoardRadius(copyBoardStyle(undefined, { 'background-color': '#ffffff' })), undefined, 'a copy without radius takes it away');
     assert.equal(pastedBoardRadius({ source: 'text', groups: { text: {} } }), null);
+    assert.equal(pastedBoardRadius({ source: 'box', groups: { radius: { 'border-radius': '50%' } } }), null, 'only px corners');
+    assert.equal(pastedBoardRadius({ source: 'box', groups: { radius: { 'border-radius': '4px 8px' } } }), 4);
+  });
+
+  it('an image note: border, corners and effects, no fill', () => {
+    const image = { x: 0, y: 0, kind: 'image' as const, src: 'a.png' };
+    assert.equal(noteClass(image), 'image-note');
+    assert.ok(!NOTE_GROUPS['image-note'].includes('fill'));
+    assert.deepEqual(copyNoteStyle(image)!.groups, { border: {}, radius: { 'border-radius': '0px' }, shadow: {}, filter: {}, backdrop: {}, opacity: {} });
+    const rect = copyNoteStyle({ x: 0, y: 0, kind: 'rect', fill: 'green', css: { 'border-width': '4px', 'border-style': 'dashed', 'border-color': '#123456' } })!;
+    const pasted = pastedNote(rect, { ...image, css: { 'background-color': '#ff0000' } }, valid)!;
+    assert.equal(pasted.css?.['border-width'], '4px');
+    assert.equal(pasted.css?.['border-style'], 'dashed');
+    assert.equal(pasted.css?.['background-color'], '#ff0000', 'the fill is not pasted');
   });
 });
 
@@ -235,12 +252,12 @@ describe('what is said and kept', () => {
     const items = new Map<string, string>();
     const storage = { getItem: (key: string) => items.get(key) ?? null, setItem: (key: string, value: string) => void items.set(key, value) } as unknown as Storage;
     assert.equal(readCopiedStyle(() => storage), null);
-    assert.ok(writeCopiedStyle(copyBoardStyle(4), () => storage));
+    assert.ok(writeCopiedStyle(copyBoardStyle(4, { 'background-color': '#ffffff' }), () => storage));
     assert.ok(items.has(STYLE_CLIPBOARD_KEY));
-    assert.deepEqual(readCopiedStyle(() => storage), copyBoardStyle(4));
+    assert.deepEqual(readCopiedStyle(() => storage), copyBoardStyle(4, { 'background-color': '#ffffff' }));
     const broken = { getItem: () => { throw new Error('blocked'); }, setItem: () => { throw new Error('full'); } } as unknown as Storage;
     assert.equal(readCopiedStyle(() => broken), null);
-    assert.equal(writeCopiedStyle(copyBoardStyle(4), () => broken), false);
+    assert.equal(writeCopiedStyle(copyBoardStyle(4, { 'background-color': '#ffffff' }), () => broken), false);
     items.set(STYLE_CLIPBOARD_KEY, '{not json');
     assert.equal(readCopiedStyle(() => storage), null);
   });

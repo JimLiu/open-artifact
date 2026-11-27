@@ -158,6 +158,31 @@ export interface RepeatedRow {
   text: string;
 }
 
+/** The four sides of a box. */
+export interface BoxSides<T> {
+  top: T;
+  right: T;
+  bottom: T;
+  left: T;
+}
+
+/** What moving an element's border inside, onto its edge or outside depends on, measured in place. */
+export interface BorderContext {
+  /**
+   * Sides something the element paints touches from inside (an inset
+   * shadow, a positioned ::before / ::after, a painted descendant within
+   * half a pixel of the inner edge): the border's space on that side can't
+   * be kept without a gap showing.
+   */
+  pinned: BoxSides<boolean>;
+  /** The element's classes draw a border of their own (without its inline style). */
+  classBorder: boolean;
+  /** The outline the element's classes give it (without its inline style). */
+  classOutline: { width: string; style: string; color: string; offset: string };
+  /** The stylesheets already style its keyboard focus. */
+  focusStyled: boolean;
+}
+
 /** Computed values the properties panel shows for an element. */
 export interface ElementInspection {
   tid: number;
@@ -228,6 +253,8 @@ export interface BoardApi {
   /** The repeated levels (list rows) an instance sits in, outermost first, the instance itself included. */
   repeatedRows(tid: number, instance: number): RepeatedRow[];
   inspect(tid: number): ElementInspection | null;
+  /** What aligning the border of the node's first instance depends on; `null` when it is not rendered. */
+  borderContext(tid: number): BorderContext | null;
   /**
    * The first instance of each node, measured against `within`'s first
    * instance (the artboard's root when `null`). `null` when one of them
@@ -254,6 +281,8 @@ export interface BoardApi {
    * `import` target.
    */
   editImportText(tid: number, instance: number, x: number, y: number, targets: ImportTextTargetSpec[]): boolean;
+  /** The words of the text under a point (board pixels) inside an instance of element `tid`, spaces squashed, or null. */
+  wordsAt(tid: number, instance: number, x: number, y: number): string | null;
   /** Ends in-place text editing (`commit` false cancels). */
   endTextEdit(commit: boolean): void;
   /** Toggles a format on the selection of the text being edited (`link` asks for an address: `link-edit`). */

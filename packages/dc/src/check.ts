@@ -4,6 +4,7 @@
  * Errors break the artboard; warnings degrade it.
  */
 
+import { readStateStyle, STATE_STYLES, stateOfAttribute } from './pseudo-style.ts';
 import { SUPPORT_SCRIPT_TAG, parseDcDocument } from './document.ts';
 import { VOID_ELEMENTS, attributeValue, type HtmlElement } from './html.ts';
 import { splitHoles, wholeHole } from './holes.ts';
@@ -169,6 +170,11 @@ export function checkDcFile(path: string, source: string, options: CheckOptions 
       if (lower === 'src' && (element.tag === 'img' || element.tag === 'source')) checkAssetUrl(path, attr.value, `<${element.tag} src>`, options, line, out);
       if (lower === 'style' && /url\(\s*['"]?https?:/i.test(attr.value)) {
         out.push({ level: 'error', message: 'Inline styles may not load remote URLs; upload the image and use /_blob/<id>.', line });
+      }
+      if (lower.startsWith('style-')) {
+        const state = stateOfAttribute(lower);
+        if (!state) out.push({ level: 'warning', message: `${attr.name}="…" is not a state style and does nothing; use ${STATE_STYLES.map((name) => `style-${name}`).join(', ')}.`, line });
+        else for (const problem of readStateStyle(attr.value).problems) out.push({ level: 'error', message: `${attr.name}: ${problem}. It holds CSS declarations, like style-hover="background: #f4f4f4".`, line });
       }
     }
     for (const child of element.children) {

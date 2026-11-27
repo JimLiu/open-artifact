@@ -50,7 +50,7 @@ import { NOTE_RECT_RADIUS, rememberedRadius, withRectRadius } from '../lib/note-
 import { toast } from '@open-artifact/ui';
 import { detachMarkup, detachRefusal, instanceProps } from '../lib/detach.ts';
 import { freeBoardName, newBoardSource } from '../lib/frame.ts';
-import { importTargets, textEditOptions } from '../lib/text-edit.ts';
+import { importTargets, instanceWordsMessage, instanceWordsSource, textEditOptions } from '../lib/text-edit.ts';
 import { isElementLocked, LOCKED_MESSAGE, lockVerdict, withoutLocks } from '../lib/locks.ts';
 import type { Address, BoardOp } from '../lib/ops.ts';
 import { flipTransform } from '../lib/transform.ts';
@@ -1506,7 +1506,27 @@ export function editTextAt(board: string, item: ElementSelection, point: { x: nu
     view.setTextEdit({ board, tid: item.tid, plain: true });
     if (targets.length && api.editImportText(item.tid, item.instance, point.x, point.y, targets)) return;
     useView.getState().setTextEdit(null);
-    toast.add({ title: 'Ask the agent to edit this code component.' });
+    const from = instanceWordsSource(element, api.wordsAt(item.tid, item.instance, point.x, point.y));
+    if (!from) {
+      toast.add({ title: 'Ask the agent to edit this code component.' });
+      return;
+    }
+    // One toast per instance and reason, however often it is double-clicked.
+    toast.add({
+      id: `instance-words-${board}-${item.tid}-${from.kind}`,
+      title: instanceWordsMessage(from),
+      ...(from.kind === 'prop'
+        ? {
+            actionProps: {
+              children: `Show ${from.component} props`,
+              onClick: () => {
+                useView.getState().select({ kind: 'elements', board, items: [item] });
+                useView.getState().setPanel('code', true);
+              },
+            },
+          }
+        : {}),
+    });
     return;
   }
   if (!hasOwnWords(element)) {

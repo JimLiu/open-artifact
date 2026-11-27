@@ -28,6 +28,7 @@ import {
   AlignStartHorizontal,
   AlignStartVertical,
   Ban,
+  Blend,
   ArrowDown,
   ArrowRight,
   Bold,
@@ -38,6 +39,7 @@ import {
   RotateCcw,
   Save,
   Scan,
+  Square,
   X,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
@@ -61,7 +63,7 @@ import {
 import { cleanNoteCss, isLockedObject, noteCssValue, NOTE_COLORS, type BoardEntry, type CanvasNote, type NoteSize } from '@open-artifact/design-core';
 import { LOCK_ATTRIBUTE, LOCKED_REASON } from '../lib/locks.ts';
 import { useLockedWhy } from '../services/locks.ts';
-import { SliderInput, SwitchInput, cn, isComposingKey, toast, type SliderLook } from '@open-artifact/ui';
+import { GradientEditor, SliderInput, SwitchInput, cn, isComposingKey, toast, type SliderLook } from '@open-artifact/ui';
 import { useDocument } from '../state/document.ts';
 import { useView } from '../state/view.ts';
 import { boardApi } from '../services/frames.ts';
@@ -75,6 +77,7 @@ import { announce } from '../services/announce.ts';
 import { MIXED, inspectorRoute, mergedValue, selectionCounts, type MixedSelection, type ObjectsSelection, type PaintRole } from '../lib/selection.ts';
 import { zoomToBoards } from '../services/viewport.ts';
 import { isPathNote, NOTE_PALETTE, noteStroke } from '../lib/notes.ts';
+import { noteRect } from '../lib/scene.ts';
 import { describeElement, detailOf, selectorOf } from '../lib/outline.ts';
 import { MOD } from '@open-artifact/editor-kit';
 import { Tip } from '@open-artifact/editor-kit/react';
@@ -85,10 +88,15 @@ import { matchSystemStyle, systemStylePatch, styleById, useDesignSystems, useSys
 import { ThemePanel } from './ThemePanel.tsx';
 import { MediaSection } from './MediaSection.tsx';
 import { BorderAlignButton } from './BorderAlign.tsx';
-import { alignedLookPatch, readAlignment } from '../lib/border-align.ts';
-import { fillColorPatch, isClearColor, removableFill } from '../lib/paint.ts';
+import { readAlignment, SIDES_NEED_INSIDE, type BorderLook } from '../lib/border-align.ts';
+import { editSelectedAlignedBorder } from '../services/border-align.ts';
+import { BORDER_STYLES as ELEMENT_BORDER_STYLES, borderColorOf, borderColorPatch, borderSidesPatch, borderStyleOf, borderStylePatch, borderWidthPatch, borderWidthsOf, WIDTHS_DIFFER, type BorderStyle } from '../lib/border-fields.ts';
+import { COLUMNS_TIP, MAX_TRACKS, readSpan, ROWS_TIP, spanValue, trackCount, tracksShown, tracksValue } from '../lib/grid-tracks.ts';
+import { clipsToText, fillColorPatch, isClearColor, removableFill } from '../lib/paint.ts';
+import { FILL_IS_TEXT, firstStopOf, initialGradient, solidTextPatch, textGradientOf, textGradientPatch } from '../lib/text-gradient.ts';
 import { loneShapeOf } from '../lib/lone-shape.ts';
 import { removeFill } from '../services/paint.ts';
+import { boardBackgrounds, PAGE_UNREADABLE, setBoardBackground } from '../services/properties.ts';
 import {
   PButton,
   PColor,
@@ -99,6 +107,7 @@ import {
   PSection,
   PSearchSelect,
   PSegments,
+  type PSwatch,
   PSelect,
   PTipButton,
   isTransparent,
@@ -206,6 +215,29 @@ function SizeRow({ ctx, axis }: { ctx: ElementContext; axis: 'width' | 'height' 
   );
 }
 
+const SELF_ALIGN: Record<'align-self' | 'justify-self', { label: string; options: POption[] }> = {
+  'align-self': {
+    label: 'Align self',
+    options: [
+      { value: 'auto', label: 'Auto' },
+      { value: 'flex-start', label: 'Start' },
+      { value: 'center', label: 'Center' },
+      { value: 'flex-end', label: 'End' },
+      { value: 'stretch', label: 'Stretch' },
+    ],
+  },
+  'justify-self': {
+    label: 'Justify self',
+    options: [
+      { value: 'auto', label: 'Auto' },
+      { value: 'start', label: 'Start' },
+      { value: 'center', label: 'Center' },
+      { value: 'end', label: 'End' },
+      { value: 'stretch', label: 'Stretch' },
+    ],
+  },
+};
+
 const POSITIONS: POption[] = [
   { value: 'static', label: 'Inline' },
   { value: 'relative', label: 'Relative' },
@@ -217,6 +249,7 @@ const POSITIONS: POption[] = [
 function SizeSection({ ctx }: { ctx: ElementContext }) {
   const position = ctx.inline.position ?? ctx.computed.position ?? 'static';
   const parentFlex = (ctx.inspection?.parentDisplay ?? '').includes('flex');
+  const parentGrid = (ctx.inspection?.parentDisplay ?? '').includes('grid');
   // A piece's element is placed by the piece itself.
   const piece = useDocument((s) => s.canvas.boards[ctx.board]?.frameless === true);
   return (
@@ -231,6 +264,47 @@ function SizeSection({ ctx }: { ctx: ElementContext }) {
           <PInput aria-label="Flex grow" name="Grow" min={0} numeric value={ctx.inline['flex-grow'] ?? ''} placeholder={ctx.computed['flex-grow'] ?? '0'} disabled={ctx.locked} onCommit={(next) => ctx.set({ 'flex-grow': next || null })} />
         </PRow>
       ) : null}
+      {parentGrid ? (
+        <PRow label="Span">
+          {(['grid-column', 'grid-row'] as const).map((prop) => {
+            const name = prop === 'grid-column' ? 'Column span' : 'Row span';
+            const span = readSpan(ctx.inline[prop]).span;
+            return (
+              <Tip key={prop} label={name} side="top">
+                <span className="min-w-0 flex-1">
+                  <PInput aria-label={name} prefix={prop === 'grid-column' ? '↔' : '↕'} min={1} max={MAX_TRACKS} numeric value={span === null ? '' : String(span)} placeholder={readSpan(ctx.computed[prop]).span?.toString() ?? 'auto'} disabled={ctx.locked}
+                    onCommit={(next) => ctx.set({ [prop]: spanValue(ctx.inline[prop], next) })} />
+                </span>
+              </Tip>
+            );
+          })}
+        </PRow>
+      ) : null}
+      {(['min', 'max'] as const).map((bound) => (
+        <PRow key={bound} label={bound === 'min' ? 'Min' : 'Max'}>
+          {(['width', 'height'] as const).map((axis) => {
+            const prop = `${bound}-${axis}`;
+            const shown = ctx.computed[prop];
+            return (
+              <PInput key={prop} aria-label={`${bound === 'min' ? 'Min' : 'Max'} ${axis}`} prefix={axis === 'width' ? 'W' : 'H'} min={0} unit="px"
+                value={withoutUnit(ctx.inline[prop])} placeholder={!shown || shown === 'none' || shown === 'auto' ? (bound === 'min' ? '0' : 'None') : roundPx(shown)} disabled={ctx.locked}
+                onCommit={(next) => ctx.set({ [prop]: next || null })} />
+            );
+          })}
+        </PRow>
+      ))}
+      {/* Self alignment has no row of its own: it shows only once the element's style sets it. */}
+      {(['align-self', 'justify-self'] as const).map((prop) => {
+        const written = ctx.inline[prop]?.trim();
+        if (!written) return null;
+        const { label, options } = SELF_ALIGN[prop];
+        const known = options.some((option) => option.value === written);
+        return (
+          <PRow key={prop} label={label}>
+            <PSelect aria-label={label} value={written} options={known ? options : [...options, { value: written, label: written }]} disabled={ctx.locked} onChange={(next) => ctx.set({ [prop]: next })} />
+          </PRow>
+        );
+      })}
     </PSection>
   );
 }
@@ -247,45 +321,50 @@ function expandSides(value: string | undefined): [string, string, string, string
   return [a, b!, c!, d!];
 }
 
-function SidesRow({ ctx, prop, label }: { ctx: ElementContext; prop: 'padding' | 'margin'; label: string }) {
-  const short = expandSides(ctx.inline[prop]);
-  const written = SIDES.map((side, i) => ctx.inline[`${prop}-${side}`] ?? short?.[i] ?? '');
-  const rendered = SIDES.map((side) => roundPx(ctx.computed[`${prop}-${side}`]));
-  const uniform = written.every((v) => v === written[0]) && (written[0] !== '' || rendered.every((v) => v === rendered[0]));
-  const [split, setSplit] = useState(!uniform);
-  useEffect(() => setSplit(!uniform), [ctx.element]); // eslint-disable-line react-hooks/exhaustive-deps
-  // Padding takes no negative numbers; margin does.
-  const sideLimits = prop === 'padding' ? { min: 0 } : {};
+/** Props of {@link SidesField}. */
+interface SidesFieldProps {
+  label: string;
+  /** The one field's name; each side's is `sideName(side)`. */
+  name: string;
+  sideName: (side: (typeof SIDES)[number]) => string;
+  written: string[];
+  rendered: string[];
+  min?: number;
+  disabled: boolean;
+  /** The toggle's name, collapsed and expanded. */
+  toggle: [string, string];
+  /** Why the sides can't be set one by one, when they can't. */
+  toggleWhy?: string | null;
+  /** Shown in the one field while the sides differ. */
+  differ?: string;
+  /** Starts again (collapsed or not) when this changes. */
+  resetKey: unknown;
+  onOne: (value: string) => void;
+  onSides: (values: string[]) => void;
+}
 
-  const writeAll = (values: string[]) => {
-    const patch: Record<string, string | null> = { [prop]: null };
-    SIDES.forEach((side, i) => (patch[`${prop}-${side}`] = values[i] || null));
-    ctx.set(patch);
-  };
-  const toggle = (
-    <Tip label={split ? 'Same on all sides' : 'Individual sides'} side="top">
-      <PIconButton label="Individual sides" pressed={split} onClick={() => setSplit(!split)}>
-        <Scan {...ICON} />
-      </PIconButton>
+/** One value for all four sides, or a field per side behind a toggle; open while the sides differ. */
+function SidesField({ label, name, sideName, written, rendered, min, disabled, toggle: [expand, collapse], toggleWhy, differ, resetKey, onOne, onSides }: SidesFieldProps) {
+  const uniform = written.every((v) => v === written[0]) && (written[0] !== '' || rendered.every((v) => v === rendered[0]));
+  const [open, setOpen] = useState(!uniform && !toggleWhy);
+  useEffect(() => setOpen(!uniform && !toggleWhy), [resetKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const split = open && !toggleWhy;
+  const limits = min === undefined ? {} : { min };
+  const tip = toggleWhy ?? (split ? collapse : expand);
+  const button = (
+    <Tip label={tip} side="top">
+      <span className="inline-flex">
+        <PIconButton label={expand === 'Individual sides' ? expand : split ? collapse : expand} pressed={split} disabled={disabled || Boolean(toggleWhy)} onClick={() => setOpen(!split)}>
+          <Scan {...ICON} />
+        </PIconButton>
+      </span>
     </Tip>
   );
   if (!split) {
     return (
       <PRow label={label}>
-        <PInput
-          aria-label={label}
-          {...sideLimits}
-          value={withoutUnit(written[0])}
-          placeholder={rendered[0]}
-          unit="px"
-          disabled={ctx.locked}
-          onCommit={(next) => {
-            const patch: Record<string, string | null> = { [prop]: next || null };
-            for (const side of SIDES) patch[`${prop}-${side}`] = null;
-            ctx.set(patch);
-          }}
-        />
-        {toggle}
+        <PInput aria-label={name} {...limits} value={uniform ? withoutUnit(written[0]) : ''} placeholder={uniform ? rendered[0] : (differ ?? rendered[0])} unit="px" disabled={disabled} onCommit={onOne} />
+        {button}
       </PRow>
     );
   }
@@ -295,19 +374,49 @@ function SidesRow({ ctx, prop, label }: { ctx: ElementContext; prop: 'padding' |
         {SIDES.map((side, i) => (
           <PInput
             key={side}
-            aria-label={`${label} ${side}`}
-            {...sideLimits}
+            aria-label={sideName(side)}
+            {...limits}
             prefix={side[0]!.toUpperCase()}
             value={withoutUnit(written[i])}
             placeholder={rendered[i]}
             unit="px"
-            disabled={ctx.locked}
-            onCommit={(next) => writeAll(written.map((v, j) => (j === i ? next : v)))}
+            disabled={disabled}
+            onCommit={(next) => onSides(written.map((v, j) => (j === i ? next : v)))}
           />
         ))}
       </div>
-      {toggle}
+      {button}
     </PRow>
+  );
+}
+
+function SidesRow({ ctx, prop, label }: { ctx: ElementContext; prop: 'padding' | 'margin'; label: string }) {
+  const short = expandSides(ctx.inline[prop]);
+  const written = SIDES.map((side, i) => ctx.inline[`${prop}-${side}`] ?? short?.[i] ?? '');
+  const rendered = SIDES.map((side) => roundPx(ctx.computed[`${prop}-${side}`]));
+  return (
+    <SidesField
+      label={label}
+      name={label}
+      sideName={(side) => `${label} ${side}`}
+      written={written}
+      rendered={rendered}
+      // Padding takes no negative numbers; margin does.
+      {...(prop === 'padding' ? { min: 0 } : {})}
+      disabled={ctx.locked}
+      toggle={['Individual sides', 'Same on all sides']}
+      resetKey={ctx.element}
+      onOne={(next) => {
+        const patch: Record<string, string | null> = { [prop]: next || null };
+        for (const side of SIDES) patch[`${prop}-${side}`] = null;
+        ctx.set(patch);
+      }}
+      onSides={(values) => {
+        const patch: Record<string, string | null> = { [prop]: null };
+        SIDES.forEach((side, i) => (patch[`${prop}-${side}`] = values[i] || null));
+        ctx.set(patch);
+      }}
+    />
   );
 }
 
@@ -448,12 +557,22 @@ function LayoutSection({ ctx }: { ctx: ElementContext }) {
       ) : null}
       {grid ? (
         <>
-          <PRow label="Columns">
-            <PInput aria-label="Grid columns" mono value={ctx.inline['grid-template-columns'] ?? ''} placeholder={ctx.computed['grid-template-columns']} disabled={ctx.locked} onCommit={(next) => ctx.set({ 'grid-template-columns': next || null })} />
-          </PRow>
-          <PRow label="Rows">
-            <PInput aria-label="Grid rows" mono value={ctx.inline['grid-template-rows'] ?? ''} placeholder={ctx.computed['grid-template-rows']} disabled={ctx.locked} onCommit={(next) => ctx.set({ 'grid-template-rows': next || null })} />
-          </PRow>
+          {(['grid-template-columns', 'grid-template-rows'] as const).map((prop) => {
+            const columns = prop === 'grid-template-columns';
+            const shown = ctx.computed[prop];
+            const count = trackCount(shown);
+            return (
+              <PRow key={prop} label={columns ? 'Columns' : 'Rows'}>
+                <Tip label={columns ? COLUMNS_TIP : ROWS_TIP} side="top">
+                  <span className="min-w-0 flex-1">
+                    <PInput aria-label={columns ? 'Grid columns' : 'Grid rows'} mono value={tracksShown(ctx.inline[prop])}
+                      placeholder={!shown || shown === 'none' ? (columns ? '1' : 'Auto') : count === null ? shown.split(' ').length.toString() : String(count)}
+                      disabled={ctx.locked} onCommit={(next) => ctx.set({ [prop]: tracksValue(next) })} />
+                  </span>
+                </Tip>
+              </PRow>
+            );
+          })}
         </>
       ) : null}
       {flex || grid ? (
@@ -615,9 +734,7 @@ function TextSection({ ctx, source }: { ctx: ElementContext; source: string }) {
           </span>
         </Tip>
       </PRow>
-      <PRow label="Color">
-        <PColor aria-label="Text color" swatches={swatches} value={ctx.inline.color ?? ''} placeholder={ctx.computed.color} disabled={ctx.locked} onCommit={(next) => ctx.set({ color: next || null })} />
-      </PRow>
+      <TextColorRows ctx={ctx} swatches={swatches} />
       <PRow label="Align">
         <PSegments
           className="flex-1"
@@ -636,6 +753,70 @@ function TextSection({ ctx, source }: { ctx: ElementContext; source: string }) {
         </PIconButton>
       </PRow>
     </PSection>
+  );
+}
+
+/**
+ * Text › Color: a solid color, or a gradient painted through the glyphs
+ * (the background clipped to the text). Picking the gradient starts from
+ * the one used last, else from the text's color.
+ */
+function TextColorRows({ ctx, swatches }: { ctx: ElementContext; swatches: readonly PSwatch[] }) {
+  const clipped = clipsToText(ctx.inline, ctx.computed);
+  const gradient = textGradientOf(ctx.inline, ctx.computed);
+  const drag = useRef<string | null>(null);
+  // The gradient this element had, so going back to Gradient after Solid brings it back; another element starts afresh.
+  const last = useRef<{ key: string; gradient: string } | null>(null);
+  const key = `${ctx.board}:${ctx.model.tidOf.get(ctx.element)}`;
+  if (gradient) last.current = { key, gradient };
+  const paint = (css: string, coalesce?: string) => ctx.set(textGradientPatch(ctx.inline, css), coalesce ? { coalesce } : {});
+  const pick = (kind: 'solid' | 'gradient') => {
+    if (kind === (clipped ? 'gradient' : 'solid')) return;
+    if (kind === 'gradient') {
+      const before = last.current?.key === key ? last.current.gradient : null;
+      paint(initialGradient({ inline: ctx.inline.color, computed: ctx.computed.color }, true, before));
+      return;
+    }
+    const color = ctx.inline.color ?? (gradient ? firstStopOf(gradient) : null) ?? null;
+    ctx.set(solidTextPatch(ctx.inline, color));
+  };
+  return (
+    <>
+      <PRow label="Color">
+        <PSegments<'solid' | 'gradient'>
+          className="w-[56px] shrink-0"
+          value={clipped ? 'gradient' : 'solid'}
+          disabled={ctx.locked}
+          options={[
+            { value: 'solid', label: 'Solid color', icon: <Square className="size-3" /> },
+            { value: 'gradient', label: 'Gradient', icon: <Blend className="size-3" /> },
+          ]}
+          onChange={pick}
+        />
+        {clipped ? (
+          <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-chrome-muted">{gradient ?? 'Background'}</span>
+        ) : (
+          <PColor aria-label="Text color" swatches={swatches} value={ctx.inline.color ?? ''} placeholder={ctx.computed.color} disabled={ctx.locked} onCommit={(next) => ctx.set({ color: next || null })} />
+        )}
+      </PRow>
+      {clipped && !ctx.locked ? (
+        <div className="px-3 pb-2">
+          <GradientEditor
+            aria-label="Text gradient"
+            value={gradient ?? ctx.inline.background ?? ctx.inline['background-image'] ?? ''}
+            swatches={swatches.map((swatch) => ({ name: swatch.label, value: swatch.color, group: swatch.group, css: swatch.value }))}
+            onChange={(css) => {
+              drag.current ??= `text-gradient-${++dragSerial}`;
+              paint(css, drag.current);
+            }}
+            onCommit={(css) => {
+              paint(css, drag.current ?? undefined);
+              drag.current = null;
+            }}
+          />
+        </div>
+      ) : null}
+    </>
   );
 }
 
@@ -672,29 +853,63 @@ function LayersRow({ ctx }: { ctx: ElementContext }) {
   );
 }
 
+const BORDER_STYLE_OPTIONS = ELEMENT_BORDER_STYLES.map((value) => ({
+  value,
+  label: value === 'none' ? 'No border' : value[0]!.toUpperCase() + value.slice(1),
+  icon: value === 'none' ? <Ban className="size-3.5" strokeWidth={1.75} /> : <span aria-hidden className="block h-0 w-4" style={{ borderTop: `${value === 'double' ? 3 : 2}px ${value} currentColor` }} />,
+}));
+
 /**
- * The border as one shorthand field and its alignment. An aligned border
- * shows (and edits) the outline that draws it.
+ * The border: its style as segments (with the alignment button), then its
+ * color and width once it has a style. Each side's width is set only on a
+ * border aligned inside. An aligned border shows (and edits) the outline
+ * that draws it.
  */
-function BorderRow({ ctx, placeholder }: { ctx: ElementContext; placeholder: string }) {
-  const { look } = readAlignment(ctx.inline);
-  const commit = (next: string) => {
-    if (!look) {
-      ctx.set({ border: next || null });
-      return;
-    }
-    const parts = next.trim().split(/\s+(?![^(]*\))/).filter(Boolean);
-    const width = parts.find((part) => /^(\d*\.?\d+[a-z%]*|thin|medium|thick)$/i.test(part));
-    const style = parts.find((part) => /^(none|hidden|solid|dashed|dotted|double|groove|ridge|inset|outset)$/.test(part));
-    const color = parts.filter((part) => part !== width && part !== style).join(' ');
-    const patch = alignedLookPatch(ctx.inline, next.trim() ? { width, style, color: color || undefined } : { style: 'none' }, ctx.computed);
-    if (patch) ctx.set(patch);
-  };
+function BorderRows({ ctx }: { ctx: ElementContext }) {
+  const swatches = useSystemSwatches();
+  const { look } = readAlignment(ctx.inline, ctx.computed);
+  const style = look?.style ?? borderStyleOf(ctx.inline, ctx.computed);
+  const styled = style !== 'none' && style !== 'hidden';
+  const aligned = (change: Partial<BorderLook>) => editSelectedAlignedBorder(change);
+  const written = look ? [look.width, look.width, look.width, look.width] : borderWidthsOf(ctx.inline);
+  const rendered = SIDES.map((side) => roundPx(ctx.computed[`border-${side}-width`]));
+  const computedColor = ctx.computed['border-top-color'];
   return (
-    <PRow label="Border">
-      <PInput aria-label="Border" value={look ? `${look.width} ${look.style} ${look.color}` : (ctx.inline.border ?? '')} placeholder={placeholder} disabled={ctx.locked} onCommit={commit} />
-      <BorderAlignButton element={ctx.element} computed={ctx.computed} disabled={ctx.locked} set={ctx.set} />
-    </PRow>
+    <>
+      <PRow label={styled ? 'Border' : 'No border'}>
+        <PSegments
+          className="flex-1"
+          value={(ELEMENT_BORDER_STYLES as readonly string[]).includes(style) ? (style as BorderStyle) : null}
+          options={BORDER_STYLE_OPTIONS}
+          disabled={ctx.locked}
+          onChange={(next) => (look ? aligned({ style: next }) : ctx.set(borderStylePatch(ctx.inline, ctx.computed, next)))}
+        />
+        <BorderAlignButton element={ctx.element} computed={ctx.computed} disabled={ctx.locked} />
+      </PRow>
+      {styled ? (
+        <>
+          <PRow label="Color">
+            <PColor aria-label="Border color" swatches={swatches} value={look?.color ?? borderColorOf(ctx.inline)} placeholder={toHex(computedColor) ?? computedColor ?? ''} disabled={ctx.locked}
+              onCommit={(next) => (look ? aligned({ color: next }) : ctx.set(borderColorPatch(ctx.inline, next)))} />
+          </PRow>
+          <SidesField
+            label="Width"
+            name="Border width"
+            sideName={(side) => `Width ${side}`}
+            written={written}
+            rendered={rendered}
+            min={0}
+            disabled={ctx.locked}
+            toggle={['Edit width per side', 'Hide width per side']}
+            toggleWhy={look ? SIDES_NEED_INSIDE : null}
+            differ={WIDTHS_DIFFER}
+            resetKey={ctx.element}
+            onOne={(next) => (look ? aligned({ width: next }) : ctx.set(borderWidthPatch(ctx.inline, next)))}
+            onSides={(values) => ctx.set(borderSidesPatch(ctx.inline, values))}
+          />
+        </>
+      ) : null}
+    </>
   );
 }
 
@@ -710,7 +925,22 @@ const PANEL_SLIDER: SliderLook = {
 let dragSerial = 0;
 
 /** Opacity: a percentage field and a slider; a drag writes as it goes and is one undo step. */
+/** The rendered opacity of each selected element of the artboard, when several are selected. */
+function useSelectedOpacities(ctx: ElementContext): number[] {
+  const selection = useView((s) => s.selection);
+  const tick = useView((s) => s.layoutTick);
+  const source = useDocument((s) => s.boards[ctx.board]?.source);
+  return useMemo(() => {
+    if (selection.kind !== 'elements' || selection.items.length < 2) return [];
+    const api = boardApi(ctx.board);
+    return selection.items.map(({ tid }) => Math.round(num(api?.inspect(tid)?.computed.opacity ?? '1') * 100));
+  }, [selection, tick, source, ctx.board]); // eslint-disable-line react-hooks/exhaustive-deps
+}
+
 function OpacityRow({ ctx, opacity }: { ctx: ElementContext; opacity: string | undefined }) {
+  const all = useSelectedOpacities(ctx);
+  // Several elements with different opacities: the field is empty and says so; a value typed or dragged goes to all of them.
+  const mixed = all.some((value) => value !== all[0]);
   const shown = Math.round(num(opacity ?? ctx.computed.opacity ?? '1') * 100);
   const drag = useRef<string | null>(null);
   const write = (value: number, coalesce?: string) => ctx.set({ opacity: value >= 100 ? null : String(Math.max(0, value) / 100) }, coalesce ? { coalesce } : {});
@@ -722,8 +952,8 @@ function OpacityRow({ ctx, opacity }: { ctx: ElementContext; opacity: string | u
         min={0}
         max={100}
         numeric
-        value={opacity !== undefined ? String(shown) : ''}
-        placeholder={String(shown)}
+        value={mixed || opacity === undefined ? '' : String(shown)}
+        placeholder={mixed ? 'Mixed' : String(shown)}
         unit="%"
         disabled={ctx.locked}
         onCommit={(next) => {
@@ -738,6 +968,7 @@ function OpacityRow({ ctx, opacity }: { ctx: ElementContext; opacity: string | u
         min={0}
         max={100}
         value={shown}
+        mixed={mixed}
         disabled={ctx.locked}
         onChange={(value) => {
           drag.current ??= `opacity-drag-${++dragSerial}`;
@@ -759,26 +990,29 @@ function AppearanceSection({ ctx }: { ctx: ElementContext }) {
   const fill = ctx.inline['background-color'] ?? (plainBackground ? background : '') ?? '';
   const computedFill = isTransparent(ctx.computed['background-color']) ? undefined : ctx.computed['background-color'];
   const opacity = ctx.inline.opacity;
-  const border = ctx.computed['border-top-style'] && ctx.computed['border-top-style'] !== 'none' ? `${roundPx(ctx.computed['border-top-width'])}px ${ctx.computed['border-top-style']} ${toHex(ctx.computed['border-top-color']) ?? ctx.computed['border-top-color']}` : 'None';
+  // The background paints the text: it is the text's color, edited under Text › Color.
+  const textFill = clipsToText(ctx.inline, ctx.computed);
   return (
     <PSection title="Appearance">
-      <PRow label="Fill">
-        <PColor
-          aria-label="Fill"
-          swatches={swatches}
-          value={isClearColor(fill) ? '' : fill}
-          placeholder={computedFill ?? 'None'}
-          disabled={ctx.locked}
-          onCommit={(next) => ctx.set(fillColorPatch(ctx.inline, ctx.computed, next || null))}
-        />
+      <PRow label="Fill" title={textFill ? FILL_IS_TEXT : undefined}>
+        <span className="contents" data-reason={textFill ? 'fill' : undefined} title={textFill ? FILL_IS_TEXT : undefined}>
+          <PColor
+            aria-label="Fill"
+            swatches={swatches}
+            value={textFill || isClearColor(fill) ? '' : fill}
+            placeholder={textFill ? 'Text' : (computedFill ?? 'None')}
+            disabled={ctx.locked || textFill}
+            onCommit={(next) => ctx.set(fillColorPatch(ctx.inline, ctx.computed, next || null))}
+          />
+        </span>
         <RemoveFillButton ctx={ctx} />
       </PRow>
-      <LayersRow ctx={ctx} />
+      {textFill ? <PNote className="pt-0">{FILL_IS_TEXT}</PNote> : <LayersRow ctx={ctx} />}
       <OpacityRow ctx={ctx} opacity={opacity} />
       <PRow label="Radius">
         <PInput aria-label="Corner radius" prefix="◜" min={0} value={withoutUnit(ctx.inline['border-radius'])} placeholder={roundPx(ctx.computed['border-top-left-radius'])} unit="px" disabled={ctx.locked} onCommit={(next) => ctx.set({ 'border-radius': next || null })} />
       </PRow>
-      <BorderRow ctx={ctx} placeholder={border} />
+      <BorderRows ctx={ctx} />
       <PRow label="Clip">
         <PSelect
           aria-label="Overflow"
@@ -946,6 +1180,9 @@ function BoardInspector({ path }: { path: string }) {
             />
           </PRow>
         ) : null}
+      </PSection>
+      <PSection title="Appearance">
+        {entry.frameless ? null : <BoardBackgroundRow paths={[path]} readOnly={readOnly} />}
         <PRow label="Radius">
           <PInput aria-label="Corner radius" min={0} value={entry.radius ? String(entry.radius) : ''} placeholder="0" unit="px" disabled={readOnly} onCommit={(value) => updateBoard(path, { radius: num(value) ? Math.round(num(value)) : undefined })} />
         </PRow>
@@ -969,6 +1206,33 @@ function BoardInspector({ path }: { path: string }) {
       </PSection>
       <PNote className="font-mono text-[11px]">project/{path}</PNote>
     </>
+  );
+}
+
+/**
+ * The page background of the selected framed artboards (the `body` rule of
+ * each page's stylesheet): a color, a gradient or a picture. Artboards that
+ * differ read `Mixed`; a page that isn't loaded turns the row off.
+ */
+function BoardBackgroundRow({ paths, readOnly }: { paths: readonly string[]; readOnly: boolean }) {
+  const swatches = useSystemSwatches();
+  const sources = useDocument((s) => paths.map((path) => s.boards[path]?.source ?? '').join('\u0000'));
+  const key = paths.join('\n');
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const values = useMemo(() => boardBackgrounds(paths), [sources, key]);
+  if (!paths.length) return null;
+  const value = values ? sharedValue(values, (each) => each) : '';
+  return (
+    <PRow label="Background" title={values ? (value === MIXED ? MIXED_ACROSS : undefined) : PAGE_UNREADABLE}>
+      <PColor
+        aria-label="Background"
+        swatches={swatches}
+        value={value === MIXED ? '' : value}
+        placeholder={value === MIXED ? MIXED : undefined}
+        disabled={readOnly || !values}
+        onCommit={(next) => setBoardBackground(paths, next)}
+      />
+    </PRow>
   );
 }
 
@@ -1049,6 +1313,9 @@ function BoardsInspector({ paths }: { paths: readonly string[] }) {
             />
           </PRow>
         ) : null}
+      </PSection>
+      <PSection title="Appearance">
+        <BoardBackgroundRow paths={paths.filter((path) => boards[path] && !boards[path]!.frameless)} readOnly={readOnly} />
         <PRow label="Radius" title={mixedTitle(radius)}>
           <PInput
             aria-label="Corner radius"
@@ -1179,21 +1446,132 @@ function NoteInspector({ id }: { id: string }) {
           <PInput aria-label="Link" value={note.href ?? ''} disabled={readOnly} onCommit={(value) => updateNote(id, { href: value.trim() || undefined })} />
         </PRow></>
       ) : null}
-      <PRow label="Position" title={isLockedObject(note) ? LOCKED_REASON : undefined}>
+    </PSection>
+    <NoteSizeSection id={id} note={note} readOnly={readOnly} />
+    {note.kind === 'image' ? <NoteImageSection id={id} note={note} readOnly={readOnly} /> : null}
+    {shape || note.kind === 'image' || (stroked && note.kind !== 'title1') ? <NoteStyleSection id={id} note={note} readOnly={readOnly} /> : null}
+    </>
+  );
+}
+
+/** Why a field of a canvas object is off, when it is: the file is view only, or the object is locked. */
+export const VIEW_ONLY_REASON = 'View only — you can inspect this design but not change it';
+export const NOTE_REASONS = {
+  position: 'Canvas objects are placed freely on the canvas',
+  sizing: 'A canvas object has a fixed size — there is no parent to hug or fill',
+  sticky: 'A note grows with its text, then scrolls when out of space',
+  title: 'A title is as wide and tall as its text, up to its max width and height',
+  link: 'A link card is always this size',
+  oval: 'An oval is always round',
+  outsideImage: 'A canvas picture shows an uploaded file or a project image, not an outside address.',
+} as const;
+
+/**
+ * A canvas object's size and place. Its width and height are fixed (no
+ * parent to hug or fill), a sticky's height follows its text, a title is
+ * as big as its text (up to its max width and height), a link card has one
+ * size; lines and drawings have no width or height rows. The position
+ * mode is off: canvas objects are placed freely.
+ */
+function NoteSizeSection({ id, note, readOnly }: { id: string; note: CanvasNote; readOnly: boolean }) {
+  const locked = isLockedObject(note) ? LOCKED_REASON : undefined;
+  const off = readOnly ? VIEW_ONLY_REASON : locked;
+  const rect = noteRect(note);
+  const sticky = !note.kind || note.kind === 'sticky';
+  const fixedWhy = (axis: 'w' | 'h'): string | undefined =>
+    note.kind === 'title1' ? NOTE_REASONS.title : note.kind === 'link' ? NOTE_REASONS.link : sticky && axis === 'h' ? NOTE_REASONS.sticky : undefined;
+  const sizeRow = (axis: 'w' | 'h') => {
+    const why = fixedWhy(axis);
+    return (
+      <PRow key={axis} label={axis === 'w' ? 'Width' : 'Height'} title={off ?? why}>
+        <PInput
+          aria-label={axis === 'w' ? 'width' : 'height'}
+          min={1}
+          numeric
+          unit="px"
+          value={why || note[axis] === undefined ? '' : String(Math.round(note[axis]!))}
+          placeholder={String(Math.round(rect[axis]))}
+          disabled={Boolean(off ?? why)}
+          onCommit={(value) => {
+            const n = num(value);
+            if (Number.isFinite(n) && n >= 1) updateNote(id, { [axis]: Math.round(n) });
+          }}
+        />
+        <span title={off ?? NOTE_REASONS.sizing} className="w-[72px] shrink-0">
+          <PSelect aria-label={`${axis === 'w' ? 'width' : 'height'} sizing`} value="fixed" options={SIZING} disabled onChange={() => undefined} />
+        </span>
+      </PRow>
+    );
+  };
+  const maxRow = (key: 'maxW' | 'maxH', label: string, fallback: string) => (
+    <PRow key={key} label={label} title={off}>
+      <PInput
+        aria-label={label}
+        min={1}
+        numeric
+        unit="px"
+        value={note[key] === undefined ? '' : String(note[key])}
+        placeholder={fallback}
+        disabled={Boolean(off)}
+        onCommit={(value) => updateNote(id, { [key]: value && num(value) >= 1 ? Math.round(num(value)) : undefined })}
+      />
+    </PRow>
+  );
+  return (
+    <PSection title="Size">
+      {isPathNote(note) ? null : (['w', 'h'] as const).map(sizeRow)}
+      {note.kind === 'title1' ? [maxRow('maxW', 'Max width', '1200'), maxRow('maxH', 'Max height', 'None')] : null}
+      <PRow label="Position" title={off ?? NOTE_REASONS.position}>
+        <PSelect aria-label="Position" value="absolute" options={POSITIONS} disabled onChange={() => undefined} />
+      </PRow>
+      <PRow label="Place" title={off}>
         {(['x', 'y'] as const).map((key) => (
           <PInput
             key={key}
             aria-label={key.toUpperCase()}
             prefix={key.toUpperCase()}
             value={String(Math.round(note[key]))}
-            disabled={readOnly || isLockedObject(note)}
+            disabled={Boolean(off)}
             onCommit={(value) => Number.isFinite(num(value)) && updateNote(id, { [key]: Math.round(num(value)) })}
           />
         ))}
       </PRow>
     </PSection>
-    {shape || (stroked && note.kind !== 'title1') ? <NoteStyleSection id={id} note={note} readOnly={readOnly} /> : null}
-    </>
+  );
+}
+
+const OBJECT_FITS: POption[] = ['fill', 'contain', 'cover', 'none', 'scale-down'].map((value) => ({ value, label: value === 'scale-down' ? 'Scale down' : value[0]!.toUpperCase() + value.slice(1) }));
+
+/** An image note's picture: where it comes from (an upload or a project image), how it fits its box and where it sits. */
+function NoteImageSection({ id, note, readOnly }: { id: string; note: CanvasNote; readOnly: boolean }) {
+  const css = note.css ?? {};
+  const off = readOnly ? VIEW_ONLY_REASON : undefined;
+  return (
+    <PSection title="Image">
+      <PRow label="Source" title={off}>
+        <PInput
+          aria-label="Image source"
+          mono
+          value={note.src ?? ''}
+          placeholder="None"
+          disabled={readOnly}
+          onCommit={(value) => {
+            const next = value.trim();
+            if (/^([a-z][\w+.-]*:|\/\/)/i.test(next) && !/^data:image\//i.test(next)) {
+              toast.add({ title: NOTE_REASONS.outsideImage });
+              return;
+            }
+            if (next) updateNote(id, { src: next });
+          }}
+        />
+      </PRow>
+      <PRow label="Fit" title={off}>
+        <PSelect aria-label="Object fit" value={css['object-fit'] ?? 'fill'} options={OBJECT_FITS} disabled={readOnly} onChange={(value) => setNoteCss(id, note, { 'object-fit': value === 'fill' ? null : value })} />
+      </PRow>
+      <PRow label="Position" title={off}>
+        <PInput aria-label="Object position" value={css['object-position'] ?? ''} placeholder="center" disabled={readOnly} onCommit={(value) => setNoteCss(id, note, { 'object-position': value || null })} />
+      </PRow>
+    </PSection>
   );
 }
 
@@ -1251,8 +1629,12 @@ function NoteStyleSection({ id, note, readOnly }: { id: string; note: CanvasNote
     );
   }
   const oval = note.kind === 'oval';
+  const image = note.kind === 'image';
   const position = css['border-position'] ?? 'inside';
+  // An image has no border until one is given; a shape draws its palette stroke.
+  const drawn = image ? Boolean(css['border-width']) : !hasCssBorder(css);
   return (
+    <>
     <PSection title="Appearance">
       <PRow label="Fill">
         <PInput aria-label="Object fill" mono value={css.background ?? css['background-color'] ?? ''} placeholder={note.fill ? shapeFill(note) : 'None'} disabled={readOnly}
@@ -1266,25 +1648,28 @@ function NoteStyleSection({ id, note, readOnly }: { id: string; note: CanvasNote
           }} />
       </PRow>
       <PRow label="Border">
-        <PInput aria-label="Border width" name="Border width" className="w-[60px] shrink-0" min={0} unit="px" value={withoutUnit(css['border-width'])} placeholder={hasCssBorder(css) ? '' : '3'} disabled={readOnly}
+        <PInput aria-label="Border width" name="Border width" className="w-[60px] shrink-0" min={0} unit="px" value={withoutUnit(css['border-width'])} placeholder={image ? '0' : hasCssBorder(css) ? '' : '3'} disabled={readOnly}
           onCommit={(next) => set({ 'border-width': next || null, ...(next && !css['border-style'] ? { 'border-style': 'solid' } : {}) })} />
-        <PSelect aria-label="Border style" className="w-[84px] shrink-0" value={css['border-style'] ?? (hasCssBorder(css) ? 'none' : 'solid')} options={BORDER_STYLES} disabled={readOnly} onChange={(value) => set({ 'border-style': value })} />
-        <PInput aria-label="Border color" mono value={css['border-color'] ?? ''} placeholder={hasCssBorder(css) ? 'currentcolor' : 'Palette'} disabled={readOnly} onCommit={(next) => set({ 'border-color': next || null })} />
+        <PSelect aria-label="Border style" className="w-[84px] shrink-0" value={css['border-style'] ?? (drawn ? 'solid' : 'none')} options={BORDER_STYLES} disabled={readOnly} onChange={(value) => set({ 'border-style': value })} />
+        <PInput aria-label="Border color" mono value={css['border-color'] ?? ''} placeholder={image || hasCssBorder(css) ? 'currentcolor' : 'Palette'} disabled={readOnly} onCommit={(next) => set({ 'border-color': next || null })} />
       </PRow>
       <PRow label="Alignment">
         <PSelect aria-label="Border alignment" value={position} options={BORDER_POSITIONS} disabled={readOnly} onChange={(value) => set({ 'border-position': value === 'inside' ? null : value })} />
       </PRow>
       <PRow label="Radius">
         {oval ? (
-          <span className="text-[12px] text-chrome-muted" data-reason="radius">An oval is always round</span>
+          <span className="text-[12px] text-chrome-muted" data-reason="radius">{NOTE_REASONS.oval}</span>
         ) : (
-          <PInput aria-label="Object radius" name="Radius" min={0} max={400} unit="px" value={withoutUnit(css['border-radius'])} placeholder={String(NOTE_RECT_RADIUS)} disabled={readOnly}
+          <PInput aria-label="Object radius" name="Radius" min={0} max={400} unit="px" value={withoutUnit(css['border-radius'])} placeholder={image ? '0' : String(NOTE_RECT_RADIUS)} disabled={readOnly}
             onCommit={(next) => {
               set({ 'border-radius': next || null });
               if (note.kind === 'rect') rememberRectRadius(next ? num(next) : NOTE_RECT_RADIUS);
             }} />
         )}
       </PRow>
+      {opacityRow}
+    </PSection>
+    <PSection title="Effects">
       <PRow label="Shadow">
         <PInput aria-label="Object shadow" value={css['box-shadow'] ?? ''} placeholder="None" disabled={readOnly} onCommit={(next) => set({ 'box-shadow': next || null })} />
       </PRow>
@@ -1295,8 +1680,8 @@ function NoteStyleSection({ id, note, readOnly }: { id: string; note: CanvasNote
         <PInput aria-label="Backdrop blur" name="Backdrop blur" min={0} numeric unit="px" value={/^blur\((\d*\.?\d+)px\)$/.exec(css['backdrop-filter'] ?? '')?.[1] ?? ''} placeholder="0" disabled={readOnly}
           onCommit={(next) => set({ 'backdrop-filter': next && num(next) > 0 ? `blur(${num(next)}px)` : null })} />
       </PRow>
-      {opacityRow}
     </PSection>
+    </>
   );
 }
 
@@ -1621,7 +2006,10 @@ function TweakControl({ board, name, spec, value }: { board: string; name: strin
               if (Number.isFinite(n)) set(n);
             }}
           />
-          <SliderInput aria-label={name} look={PANEL_SLIDER} unit={spec.unit} min={spec.min ?? 0} max={spec.max ?? 100} step={spec.step ?? 1} value={Number(value ?? spec.min ?? 0)} onChange={set} />
+          {/* A range with no step drags in a thousand steps; its keys still move by the field's step. */}
+          <SliderInput aria-label={name} look={PANEL_SLIDER} unit={spec.unit} min={spec.min ?? 0} max={spec.max ?? 100}
+            step={spec.step ?? ((spec.max ?? 100) - (spec.min ?? 0)) / 1000} {...(spec.step === undefined ? { keyStep: 1 } : {})}
+            value={Number(value ?? spec.min ?? 0)} onChange={set} />
         </>
       );
     case 'int':

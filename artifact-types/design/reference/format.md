@@ -121,6 +121,21 @@ Rules beyond SKILL.md's "Rules that bite":
   text styles, and the fill, border and radius that rules aimed at it there),
   so it stays where it was and looks the same. Layers that keep flowing are
   moved as they are.
+- **State styles**: `style-hover`, `style-focus`, `style-focus-visible`
+  and `style-active` hold declarations (like `style`) the element takes
+  while it is in that state: `<button style="background: #fff"
+  style-hover="background: #f3f3f3">`. They win over its inline style.
+  Declarations only — no `{ } < >`, no `url()` to another site; `check`
+  names anything else, and any other `style-<name>` is a warning.
+- **A border the editor aligned**: Border alignment Center or Outside
+  draws the border as an `outline` (with `outline-offset` for Center) and
+  takes the border away, growing a fixed size by the border so the box
+  keeps its place. Where a child touches an edge, that side's border
+  stays (`border-<side>-width: 0` on it, twice the width on the opposite
+  side, `border-color: transparent`, `background-origin: border-box`).
+  A button or link gets a `style-focus-visible` ring outside the outline.
+  Keep these together when you change the border; to put it back inside,
+  write a plain `border` and remove the outline.
 - The design content a viewer edits is **untrusted cross-user input**:
   anyone the canvas is shared with as an editor can change it. It runs
   ONLY inside the editor's sandboxed artboard iframe — never lift design

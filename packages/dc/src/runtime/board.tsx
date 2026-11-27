@@ -18,6 +18,7 @@ import type {
   BoardMode,
   BoardRect,
   BoardSize,
+  BorderContext,
   ElementInspection,
   MeasuredBox,
   MeasureThere,
@@ -27,7 +28,7 @@ import type {
   TextEditOptions,
   TextFormat,
 } from '../protocol.ts';
-import { TextEditor } from './text-edit.ts';
+import { TextEditor, textNodeAt } from './text-edit.ts';
 import { guardFocus } from './focus-guard.ts';
 import { createLogicBase, evaluateLogic, type DCLogicClass, type TemplateRenderer } from './logic.ts';
 
@@ -48,7 +49,8 @@ const INSPECTED = [
   'box-shadow', 'opacity', 'font-family', 'font-size', 'font-weight', 'font-style', 'line-height', 'letter-spacing',
   'text-align', 'text-transform', 'text-decoration-line', 'white-space', 'overflow', 'object-fit', 'top', 'left',
   'right', 'bottom', 'z-index', 'transform', 'rotate', 'scale', 'translate', 'transform-origin', 'border-right-width',
-  'border-bottom-width', 'border-left-width', 'box-sizing', 'background-clip',
+  'border-bottom-width', 'border-left-width', 'box-sizing', 'background-clip', '-webkit-background-clip',
+  '-webkit-text-fill-color', 'grid-column', 'grid-row',
   // What Copy properties reads when a style is not written inline.
   'border-right-style', 'border-bottom-style', 'border-left-style', 'border-right-color', 'border-bottom-color',
   'border-left-color', 'outline-style', 'outline-width', 'outline-color', 'outline-offset', 'filter', 'backdrop-filter',
@@ -498,6 +500,57 @@ class Board implements BoardApi {
     };
   }
 
+  borderContext(tid: number): BorderContext | null {
+    const element = this.instances(tid)[0];
+    if (!element) return null;
+    // Measured still: no transform on the box, no transition anywhere.
+    const calm = document.createElement('style');
+    calm.textContent = '*, *::before, *::after { transition: none !important; animation-play-state: paused !important; }';
+    document.head.append(calm);
+    const inline = element.getAttribute('style');
+    element.style.setProperty('transform', 'none', 'important');
+    try {
+      const style = getComputedStyle(element);
+      const rect = element.getBoundingClientRect();
+      const width = (side: string) => Number.parseFloat(style.getPropertyValue(`border-${side}-width`)) || 0;
+      const inner = { top: rect.top + width('top'), right: rect.right - width('right'), bottom: rect.bottom - width('bottom'), left: rect.left + width('left') };
+      const clips = style.overflowX !== 'visible' || style.overflowY !== 'visible';
+      const pinned = { top: false, right: false, bottom: false, left: false };
+      const sides = ['top', 'right', 'bottom', 'left'] as const;
+      if (/\binset\b/.test(style.boxShadow)) for (const side of sides) pinned[side] = true;
+      for (const pseudo of ['::before', '::after']) {
+        const part = getComputedStyle(element, pseudo);
+        if (part.content === 'none' || part.content === 'normal' || part.position !== 'absolute') continue;
+        if (part.backgroundImage === 'none' && alphaOf(part.backgroundColor) <= 0.02) continue;
+        for (const side of sides) {
+          const inset = Number.parseFloat(part.getPropertyValue(side));
+          if (Number.isFinite(inset) && inset < 0.5 && (inset > -0.5 || clips)) pinned[side] = true;
+        }
+      }
+      let seen = 0;
+      for (const child of element.querySelectorAll<Element>('*')) {
+        if (sides.every((side) => pinned[side])) break;
+        if (child.closest('svg') && child.tagName.toLowerCase() !== 'svg') continue;
+        if (++seen > 400) break;
+        if (!paints(child)) continue;
+        const box = child.getBoundingClientRect();
+        if (box.width <= 0 || box.height <= 0) continue;
+        const gap = { top: box.top - inner.top, right: inner.right - box.right, bottom: inner.bottom - box.bottom, left: box.left - inner.left };
+        for (const side of sides) if (gap[side] <= 0.5 && (gap[side] >= -0.5 || clips)) pinned[side] = true;
+      }
+      // What the classes give without the inline style.
+      element.setAttribute('style', 'transform: none !important');
+      const bare = getComputedStyle(element);
+      const classBorder = sides.some((side) => !/^(none|hidden)$/.test(bare.getPropertyValue(`border-${side}-style`)) && Number.parseFloat(bare.getPropertyValue(`border-${side}-width`)) > 0);
+      const classOutline = { width: bare.outlineWidth, style: bare.outlineStyle, color: bare.outlineColor, offset: bare.outlineOffset };
+      return { pinned, classBorder, classOutline, focusStyled: focusStyled(element) };
+    } finally {
+      if (inline === null) element.removeAttribute('style');
+      else element.setAttribute('style', inline);
+      calm.remove();
+    }
+  }
+
   /**
    * What an element would compute placed in `there`: a bare copy of it (no
    * children but a word, no template id, no transitions) is put there,
@@ -575,6 +628,13 @@ class Board implements BoardApi {
     const mounts = this.instances(tid);
     const mount = mounts[instance];
     return mounts.length === 1 && mount ? this.text.startImport(mount, tid, x, y, targets) : false;
+  }
+
+  wordsAt(tid: number, instance: number, x: number, y: number): string | null {
+    const mount = this.instances(tid)[instance];
+    const node = textNodeAt(x, y);
+    if (!mount || !node || !mount.contains(node)) return null;
+    return (node.nodeValue ?? '').replace(/[ \t\n\r\f]+/g, ' ').trim() || null;
   }
 
   endTextEdit(commit: boolean): void {
@@ -762,4 +822,55 @@ export function startBoardRuntime(): void {
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => void run(), { once: true });
   else void run();
+}
+
+/** The alpha of a computed color (`rgb()` / `rgba()`), 1 when it can't be read. */
+function alphaOf(color: string): number {
+  if (color === 'transparent') return 0;
+  const match = /rgba?\(([^)]*)\)/.exec(color);
+  if (!match) return 1;
+  const parts = match[1]!.split(/[\s,/]+/).filter(Boolean);
+  return parts.length > 3 ? Number.parseFloat(parts[3]!) * (parts[3]!.endsWith('%') ? 0.01 : 1) : 1;
+}
+
+const REPLACED_TAGS = new Set(['img', 'video', 'canvas', 'svg', 'iframe', 'embed', 'object', 'input', 'select', 'textarea', 'button', 'progress', 'meter']);
+
+/** Whether an element paints anything itself: a background, a border, words, or replaced content. */
+function paints(element: Element): boolean {
+  const style = getComputedStyle(element);
+  if (style.visibility !== 'visible' || Number.parseFloat(style.opacity) === 0 || style.display === 'none') return false;
+  if (REPLACED_TAGS.has(element.tagName.toLowerCase())) return true;
+  if (style.backgroundImage !== 'none' || alphaOf(style.backgroundColor) > 0) return true;
+  if (['top', 'right', 'bottom', 'left'].some((side) => !/^(none|hidden)$/.test(style.getPropertyValue(`border-${side}-style`)) && Number.parseFloat(style.getPropertyValue(`border-${side}-width`)) > 0)) return true;
+  if (style.boxShadow !== 'none') return true;
+  return [...element.childNodes].some((node) => node.nodeType === Node.TEXT_NODE && Boolean(node.textContent?.trim()));
+}
+
+/** Whether a stylesheet rule styles this element's keyboard focus (the editor's own state rules aside). */
+function focusStyled(element: Element): boolean {
+  const visit = (rules: CSSRuleList): boolean => {
+    for (const rule of rules) {
+      if (rule instanceof CSSStyleRule) {
+        if (rule.selectorText.includes('data-dc-state')) continue;
+        for (const selector of rule.selectorText.split(',')) {
+          if (!/:focus/.test(selector)) continue;
+          const bare = selector.replace(/:focus(-visible|-within)?/g, '').trim() || '*';
+          try {
+            if (element.matches(bare)) return true;
+          } catch {
+            /* a selector the browser can't match here */
+          }
+        }
+      } else if ('cssRules' in rule && visit((rule as CSSGroupingRule).cssRules)) return true;
+    }
+    return false;
+  };
+  for (const sheet of document.styleSheets) {
+    try {
+      if (visit(sheet.cssRules)) return true;
+    } catch {
+      /* a sheet from elsewhere can't be read */
+    }
+  }
+  return false;
 }

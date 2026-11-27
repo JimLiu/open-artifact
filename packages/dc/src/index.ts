@@ -15,3 +15,4 @@ export * from './edit.ts';
 export * from './rich-text.ts';
 export * from './check.ts';
 export type * from './protocol.ts';
+export * from './pseudo-style.ts';

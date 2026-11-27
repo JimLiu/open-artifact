@@ -6,7 +6,7 @@
  * would be on its body, which the engine draws (services/engine.ts).
  */
 
-import { NOTE_BORDER_WIDTH, noteOpacity, reactStyle, shapeLook, shapeRadius } from '../lib/note-look.ts';
+import { imageLook, NOTE_BORDER_WIDTH, noteOpacity, reactStyle, shapeLook, shapeRadius } from '../lib/note-look.ts';
 import { memo, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import type { CanvasNote } from '@open-artifact/design-core';
 import { cn, isComposingKey } from '@open-artifact/ui';
@@ -196,7 +196,7 @@ export const NoteView = memo(function NoteView({ id, note, bare = false }: NoteV
   const position: CSSProperties = { left: note.x, top: note.y,
     ...(note.rotate || note.flipX || note.flipY ? { transform: `rotate(${note.rotate ?? 0}deg) scale(${note.flipX ? -1 : 1},${note.flipY ? -1 : 1})` } : {}) };
 
-  if (bare && (isPathNote(note) || note.kind === 'image')) return null;
+  if (bare && isPathNote(note)) return null;
 
   if (isPathNote(note)) {
     return (
@@ -207,9 +207,17 @@ export const NoteView = memo(function NoteView({ id, note, bare = false }: NoteV
   }
 
   if (note.kind === 'image') {
+    const look = imageLook(note);
+    // Over the GPU scene the picture is drawn here only when the scene cannot draw its look (note-look.ts).
+    if (bare && look.engine) return null;
+    const style = reactStyle(look.dom);
     return (
-      <div data-note={id} className="absolute" style={{ ...position, width: note.w ?? 320, height: note.h ?? 240 }}>
-        {note.src ? <img src={note.src} alt={note.alt ?? note.text ?? ''} draggable={false} className="size-full select-none object-contain" /> : null}
+      <div data-note={id} data-note-look="dom" className={cn('absolute', bare && 'pointer-events-none')} style={{ ...position, width: note.w ?? 320, height: note.h ?? 240 }}>
+        {note.src ? (
+          <img src={note.src} alt={note.alt ?? note.text ?? ''} draggable={false} className="block size-full select-none" style={style} />
+        ) : (
+          <div className="size-full" style={style} />
+        )}
       </div>
     );
   }

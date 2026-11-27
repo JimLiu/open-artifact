@@ -17,6 +17,7 @@ import { createPortal } from 'react-dom';
 import { VOID_ELEMENTS, attributeValue, type HtmlAttribute, type HtmlElement, type HtmlNode } from './html.ts';
 import { evaluateHole, interpolate, wholeHole, type Scope } from './holes.ts';
 import { toReactStyle } from './style.ts';
+import { STATE_STYLE_ATTRIBUTE, stateOfAttribute, stateStyleSheet, type StateStyle } from './pseudo-style.ts';
 import type { TemplateModel } from './template.ts';
 
 /** Attribute naming the template node a DOM element came from. */
@@ -104,12 +105,19 @@ function attributeProp(attr: HtmlAttribute, scopes: readonly Scope[]): unknown {
   return interpolate(attr.value, scopes);
 }
 
-/** Builds the React props of a plain element. */
-function elementProps(element: HtmlElement, tid: number, scopes: readonly Scope[], host: RenderHost): Record<string, unknown> {
+/** Builds the React props of a plain element; `states` collects its state styles (`style-hover`…). */
+function elementProps(element: HtmlElement, tid: number, scopes: readonly Scope[], host: RenderHost, states: Partial<Record<StateStyle, string>> = {}): Record<string, unknown> {
   const props: Record<string, unknown> = {};
   const hasChange = element.attrs.some((attr) => /^on(change|input)$/i.test(attr.name));
   for (const attr of element.attrs) {
     if (CONTROL_ATTRIBUTES.has(attr.name.toLowerCase())) continue;
+    // A state style becomes a rule of its own, never a DOM attribute.
+    const state = stateOfAttribute(attr.name);
+    if (state) {
+      const value = attributeProp(attr, scopes);
+      if (typeof value === 'string') states[state] = value;
+      continue;
+    }
     const name = reactAttributeName(attr.name);
     let value = attributeProp(attr, scopes);
     // Event handlers must be functions; inline handler strings never run.
@@ -268,8 +276,22 @@ function renderElement(
       break;
   }
 
-  const props = elementProps(element, tid, scopes, host);
+  const states: Partial<Record<StateStyle, string>> = {};
+  const props = elementProps(element, tid, scopes, host, states);
   props.key = key;
+  const sheet = stateStyleSheet(states);
+  if (sheet) {
+    // The rules go to the document head (React hoists a style with an href), once per set of rules.
+    props[STATE_STYLE_ATTRIBUTE] = sheet.key;
+    delete props.key;
+    const rules = createElement('style', { href: `dc-state-${sheet.key}`, precedence: 'dc-state' }, sheet.css);
+    return createElement(Fragment, { key }, rules, renderPlain(element, props, model, scopes, host, helmet));
+  }
+  return renderPlain(element, props, model, scopes, host, helmet);
+}
+
+/** Renders an element that is not a template tag, with its props. */
+function renderPlain(element: HtmlElement, props: Record<string, unknown>, model: TemplateModel, scopes: readonly Scope[], host: RenderHost, helmet: ReactNode[]): ReactNode {
   const type = SVG_CAMEL_TAGS.get(element.tag) ?? (element.rawTag.includes('-') ? element.rawTag : element.tag);
   if (VOID_ELEMENTS.has(element.tag)) return createElement(type, props);
   if (element.tag === 'textarea') {

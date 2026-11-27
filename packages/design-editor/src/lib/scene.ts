@@ -11,7 +11,7 @@
 import { parseColor, type CameraState, type CanvasItem, type Color } from '@open-artifact/canvas-engine';
 import { boardsOnPage, intersects, type BoardEntry, type Canvas, type CanvasNote, type Rect } from '@open-artifact/design-core';
 import type { Camera } from '../state/view.ts';
-import { noteOpacity, shapeLook } from './note-look.ts';
+import { IMAGE_PLACEHOLDER, imageLook, noteOpacity, shapeLook } from './note-look.ts';
 import { DEFAULT_STICKY, arrowHeads, noteStroke, penViewBox, isPathNote, noteBounds, noteColor } from './notes.ts';
 
 /** Engine item id of an artboard. */
@@ -198,7 +198,9 @@ export function noteItem(id: string, note: CanvasNote, look: NoteLook): CanvasIt
   }
   switch (note.kind) {
     case 'image':
-      return { ...base, kind: 'image', fill: '#00000010', ...(note.src ? { texture: imageKey(note.src) } : {}) };
+      // A look only the DOM draws (note-look.ts): the scene keeps a clear box to hit.
+      if (!imageLook(note).engine) return { ...base, kind: 'rect', fill: 'transparent' };
+      return { ...base, kind: 'image', fill: note.src ? '#00000010' : IMAGE_PLACEHOLDER, ...(note.src ? { texture: imageKey(note.src) } : {}) };
     case 'rect':
     case 'oval': {
       const shape = shapeLook(note).engine;

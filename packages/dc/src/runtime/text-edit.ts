@@ -429,7 +429,7 @@ function selectInField(field: HTMLElement, from: number, to: number): void {
 const nodeWords = (node: Node): string => (node.nodeValue ?? '').replace(/[ \t\n\r\f]+/g, ' ').replace(/^ | $/g, '');
 
 /** The words a point falls on: a text node whose drawn box holds the point. */
-function textNodeAt(x: number, y: number): Text | null {
+export function textNodeAt(x: number, y: number): Text | null {
   const node = caretAt(x, y)?.startContainer ?? null;
   if (!node || node.nodeType !== Node.TEXT_NODE || (node.nodeValue ?? '').trim() === '') return null;
   const range = document.createRange();

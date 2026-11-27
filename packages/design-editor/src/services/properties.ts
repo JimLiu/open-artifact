@@ -6,6 +6,8 @@
  */
 
 import { attributeValue, elementPath, parseStyle, serializeStyle, styleMap, type HtmlElement, type TemplateModel } from '@open-artifact/dc';
+import { DEFAULT_PAGE_COLOR, pageFillDeclarations, pageFillEdits, pageFillFromCopy, pageFillSplices, readPageFill, rootElementOf, safePageFillValue, type PageFill } from '../lib/page-fill.ts';
+import { announce } from './announce.ts';
 import { noteCssValue, type CanvasNote } from '@open-artifact/design-core';
 import { toast } from '@open-artifact/ui';
 import { useDocument } from '../state/document.ts';
@@ -16,7 +18,9 @@ import {
   copyBoardStyle,
   copyElementStyle,
   copyNoteStyle,
+  groupsFor,
   hasValues,
+  NOTE_GROUPS,
   pastedBoardRadius,
   pastedElementStyle,
   pastedNote,
@@ -27,8 +31,30 @@ import {
   type CopiedStyle,
   type Declarations,
 } from '../lib/style-clipboard.ts';
-import { edit, resolvedGroups } from './commands.ts';
+import { edit, resolvedGroups, type ResolvedGroup } from './commands.ts';
+import { templateOf } from './agent.ts';
 import { boardApi } from './frames.ts';
+
+/**
+ * A frameless artboard as its one root element (it is copied and pasted
+ * onto like an element), or null for a framed artboard.
+ */
+function framelessRoot(path: string): ResolvedGroup | null {
+  const { canvas, boards } = useDocument.getState();
+  const source = boards[path]?.source;
+  if (!canvas.boards[path]?.frameless || !source) return null;
+  const model = templateOf(source);
+  const root = rootElementOf(model);
+  return root ? { board: path, model, elements: [root] } : null;
+}
+
+/** A framed artboard's page background as copied declarations, or null when its page can't be read. */
+export function boardFillOf(path: string): Declarations | null {
+  const source = useDocument.getState().boards[path]?.source;
+  if (!source) return null;
+  const fill = readPageFill(templateOf(source));
+  return fill ? pageFillDeclarations(fill) : null;
+}
 
 function computedOf(board: string, model: TemplateModel, element: HtmlElement): Declarations {
   const tid = model.tidOf.get(element);
@@ -46,11 +72,12 @@ function copyOfSelection(): CopiedStyle | { refused: string } | null {
   if (parts.notes.length) {
     const note = canvas.notes[parts.notes[0]!];
     copied = note ? copyNoteStyle(note) : null;
-  } else if (parts.boards.length) {
+  } else if (parts.boards.length && !framelessRoot(parts.boards[0]!)) {
     const entry = canvas.boards[parts.boards[0]!];
-    copied = entry ? copyBoardStyle(entry.radius) : null;
+    const fill = entry ? boardFillOf(parts.boards[0]!) : null;
+    copied = entry && fill ? copyBoardStyle(entry.radius, fill) : null;
   } else {
-    const group = resolvedGroups(parts.elements)[0];
+    const group = parts.boards.length ? framelessRoot(parts.boards[0]!) : resolvedGroups(parts.elements)[0];
     const element = group?.elements[0];
     if (group && element && !REFUSED.has(element.tag)) {
       const subject = subjectOf(element);
@@ -77,7 +104,7 @@ export function copyProperties(): void {
   const copied = copyOfSelection();
   if (!copied) return;
   if ('refused' in copied) {
-    toast.add({ title: `${copied.refused}.` });
+    toast.add({ title: /[.!?]$/.test(copied.refused) ? copied.refused : `${copied.refused}.` });
     return;
   }
   toast.add({ title: writeCopiedStyle(copied) ? STYLE_CLIPBOARD_TEXT.copied : STYLE_CLIPBOARD_TEXT.copyFailed });
@@ -95,7 +122,7 @@ export function pasteProperties(): void {
   if (doc.readOnly) return;
   const copied = readCopiedStyle();
   if (!copied) {
-    toast.add({ title: `${STYLE_CLIPBOARD_TEXT.copyFirst}.` });
+    toast.add({ title: STYLE_CLIPBOARD_TEXT.copyFirst });
     return;
   }
   const parts = selectionParts(useView.getState().selection);
@@ -107,8 +134,10 @@ export function pasteProperties(): void {
   let refused = 0;
   let failed = false;
   const key = `paste-properties:${Date.now()}`;
+  const framed = parts.boards.filter((path) => !framelessRoot(path));
+  const roots = parts.boards.map(framelessRoot).filter((group): group is ResolvedGroup => group !== null);
   doc.transact(() => {
-    for (const group of resolvedGroups(parts.elements)) {
+    for (const group of [...resolvedGroups(parts.elements), ...roots]) {
       for (const element of group.elements) {
         if (refuses(element)) {
           refused++;
@@ -141,13 +170,26 @@ export function pasteProperties(): void {
       } else refused++;
     }
     const radii: Record<string, number | undefined> = {};
-    for (const path of parts.boards) {
-      const radius = doc.canvas.boards[path] ? pastedBoardRadius(copied) : null;
-      if (radius === null) refused++;
-      else {
-        radii[path] = radius;
-        pasted++;
+    const fill = groupsFor(copied, NOTE_GROUPS.board).fill;
+    for (const path of framed) {
+      if (!doc.canvas.boards[path]) {
+        refused++;
+        continue;
       }
+      const radius = pastedBoardRadius(copied);
+      let took = radius !== null;
+      if (radius !== null) radii[path] = radius;
+      if (fill) {
+        const page = pageFillFromCopy(fill);
+        const source = useDocument.getState().boards[path]?.source;
+        const edits = page ? pageFillEdits(page) : null;
+        // The same background already: nothing to write, and still a paste.
+        const splices = edits && source ? pageFillSplices(templateOf(source), edits) : null;
+        if (splices && (!splices.length || edit(path, { kind: 'pageFill', edits: edits! }, { coalesce: key }))) took = true;
+        else if (splices) failed = true;
+      }
+      if (took) pasted++;
+      else refused++;
     }
     if (Object.keys(notes).length || Object.keys(radii).length) {
       useDocument.getState().updateCanvas((canvas) => {
@@ -164,3 +206,45 @@ export function pasteProperties(): void {
   });
   toast.add({ title: failed ? STYLE_CLIPBOARD_TEXT.pasteFailed : pasteReport(pasted, refused) });
 }
+
+/** Why the artboards' Background row is off: a page that isn't loaded or can't be read. */
+export const PAGE_UNREADABLE = 'A selected artboard’s page can’t be read right now';
+
+/**
+ * The page backgrounds of framed artboards as the Background row shows them
+ * (the image layers, else the color, else white), or null when one can't be read.
+ */
+export function boardBackgrounds(paths: readonly string[]): string[] | null {
+  const out: string[] = [];
+  for (const path of paths) {
+    const source = useDocument.getState().boards[path]?.source;
+    const fill = source ? readPageFill(templateOf(source)) : null;
+    if (!fill) return null;
+    out.push(fill.image ?? fill.color ?? DEFAULT_PAGE_COLOR);
+  }
+  return out;
+}
+
+/**
+ * The Background row's edit on framed artboards, as one undo step: a color
+ * replaces the background, image layers (a gradient, a picture) keep the
+ * color under them, empty removes both declarations.
+ */
+export function setBoardBackground(paths: readonly string[], value: string): void {
+  const next = value.trim();
+  if (next && !safePageFillValue(next)) return;
+  const key = `board-background:${Date.now()}`;
+  let changed = false;
+  useDocument.getState().transact(() => {
+    for (const path of paths) {
+      const source = useDocument.getState().boards[path]?.source;
+      const before = source ? readPageFill(templateOf(source)) : null;
+      if (!before) continue;
+      const fill: PageFill = !next ? {} : LAYERED_VALUE.test(next) ? { image: next, ...(before.color ? { color: before.color } : {}) } : { color: next };
+      if (edit(path, { kind: 'pageFill', edits: pageFillEdits(fill) }, { coalesce: key })) changed = true;
+    }
+  });
+  if (changed) announce(next ? 'Background updated' : 'Background reset');
+}
+
+const LAYERED_VALUE = /url\(|gradient\(/i;

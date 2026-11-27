@@ -4,9 +4,9 @@
  * reason when the border can't be aligned.
  */
 
-import { styleMap, type HtmlElement, type StylePatch } from '@open-artifact/dc';
-import { announce } from '../services/announce.ts';
-import { alignmentName, alignPatch, alignRefusal, nextAlignment, readAlignment, type BorderAlignment } from '../lib/border-align.ts';
+import { styleMap, type HtmlElement } from '@open-artifact/dc';
+import { alignSelectedBorder } from '../services/border-align.ts';
+import { alignmentName, alignRefusal, nextAlignment, readAlignment, type BorderAlignment } from '../lib/border-align.ts';
 import { PTipButton } from './fields.tsx';
 
 /** Where the stroke sits against the box edge (dashed), per alignment. */
@@ -23,8 +23,9 @@ function AlignGlyph({ alignment }: { alignment: BorderAlignment }) {
   );
 }
 
-export function BorderAlignButton({ element, computed, disabled, set }: { element: HtmlElement; computed: Record<string, string>; disabled?: boolean; set(patch: StylePatch): void }) {
-  const { alignment } = readAlignment(styleMap(element.attrs.find((attr) => attr.name.toLowerCase() === 'style')?.value ?? ''));
+/** Steps the selected element's border to the next alignment (measured in the artboard on click). */
+export function BorderAlignButton({ element, computed, disabled }: { element: HtmlElement; computed: Record<string, string>; disabled?: boolean }) {
+  const { alignment } = readAlignment(styleMap(element.attrs.find((attr) => attr.name.toLowerCase() === 'style')?.value ?? ''), computed);
   const refusal = alignRefusal(element, computed);
   const next = nextAlignment(alignment);
   return (
@@ -32,12 +33,7 @@ export function BorderAlignButton({ element, computed, disabled, set }: { elemen
       tip={refusal ?? alignmentName(alignment)}
       label={alignmentName(alignment)}
       disabled={disabled || Boolean(refusal)}
-      onClick={() => {
-        const patch = alignPatch(element, next, computed);
-        if (!patch) return;
-        set(patch);
-        announce(alignmentName(next));
-      }}
+      onClick={() => alignSelectedBorder(next)}
     >
       <AlignGlyph alignment={alignment} />
     </PTipButton>

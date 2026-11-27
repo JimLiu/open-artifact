@@ -56,8 +56,10 @@ import { ChromeButton, ChromeMenu, ChromeMenuItem, FoldDivider, FoldGroup, FoldT
 import { toggleSelectionLock, useDeleteLockedWhy, useLockedWhy, useSelectionLock } from '../services/locks.ts';
 import { PColor, PIconButton, PInput, PSegments, isTransparent, roundPx, toHex, withoutUnit } from './fields.tsx';
 import { BorderAlignButton } from './BorderAlign.tsx';
-import { alignedLookPatch, readAlignment, SIDES_NEED_INSIDE } from '../lib/border-align.ts';
-import { fillColorPatch } from '../lib/paint.ts';
+import { readAlignment, SIDES_NEED_INSIDE } from '../lib/border-align.ts';
+import { editSelectedAlignedBorder } from '../services/border-align.ts';
+import { clipsToText, fillColorPatch } from '../lib/paint.ts';
+import { FILL_IS_TEXT, solidTextPatch } from '../lib/text-gradient.ts';
 import { loneShapeOf } from '../lib/lone-shape.ts';
 import { layerPaint, mixedPaintKinds, paintMixed, paintSelection } from '../services/paint.ts';
 import { addressCardKeys } from './address-card.ts';
@@ -289,8 +291,10 @@ function BackgroundPopup({ ctx }: { ctx: StripContext }) {
   const written = ctx.inline['background-color'] ?? (ctx.inline.background && !/url\(|gradient\(/.test(ctx.inline.background) ? ctx.inline.background : '');
   const rendered = ctx.computed['background-color'];
   const shown = written || rendered;
+  // A background that paints the text is the text's color, changed under Text › Color.
+  const textFill = clipsToText(ctx.inline, ctx.computed);
   return (
-    <StripPopup tip="Background color" trigger={<Swatch color={shown} />} disabled={ctx.locked}>
+    <StripPopup tip={textFill ? FILL_IS_TEXT : 'Background color'} trigger={<Swatch color={shown} />} disabled={ctx.locked || textFill}>
       <Hint>Background</Hint>
       <ColorPanel
         label="Background color"
@@ -306,7 +310,7 @@ function BackgroundPopup({ ctx }: { ctx: StripContext }) {
 /** Border style, weight (or each side's width) and color. */
 function BorderPopup({ ctx }: { ctx: StripContext }) {
   // A border aligned center or outside is drawn by an outline: that is what shows and changes.
-  const aligned = readAlignment(ctx.inline).look;
+  const aligned = readAlignment(ctx.inline, ctx.computed).look;
   const short = parseBorder(ctx.inline.border);
   const style = ((aligned?.style ?? ctx.inline['border-style'] ?? short.style ?? ctx.computed['border-top-style'] ?? 'none') as string).split(/\s+/)[0] as BorderStyle;
   const current: BorderStyle = (['none', 'solid', 'dashed', 'dotted'] as const).includes(style as BorderStyle) ? style : 'solid';
@@ -321,8 +325,7 @@ function BorderPopup({ ctx }: { ctx: StripContext }) {
   /** Writes the border as longhands, dropping the shorthand. */
   const write = (next: { style?: BorderStyle; width?: string | null; color?: string | null; sides?: string[] }) => {
     if (aligned) {
-      const patch = alignedLookPatch(ctx.inline, { style: next.style, width: next.width ?? undefined, color: next.color ?? undefined }, ctx.computed);
-      if (patch) ctx.set(patch);
+      editSelectedAlignedBorder({ style: next.style, width: next.width ?? undefined, color: next.color ?? undefined });
       return;
     }
     const patch: Record<string, string | null> = { border: null };
@@ -364,7 +367,7 @@ function BorderPopup({ ctx }: { ctx: StripContext }) {
           <div className="min-w-0 flex-1">
             <PColor aria-label="Border color" value={color} placeholder={off ? undefined : ctx.computed['border-top-color']} disabled={off || ctx.locked} onCommit={(next) => write({ color: next || null })} />
           </div>
-          <BorderAlignButton element={ctx.element} computed={ctx.computed} disabled={off || ctx.locked} set={ctx.set} />
+          <BorderAlignButton element={ctx.element} computed={ctx.computed} disabled={off || ctx.locked} />
         </div>
         <div className="grid grid-cols-[1fr_1fr_auto] items-center gap-1.5">
           {split ? (
@@ -579,7 +582,7 @@ function TextColorPopup({ ctx }: { ctx: StripContext }) {
   return (
     <StripPopup tip="Text color" trigger={<Swatch color={written || ctx.computed.color} />} disabled={ctx.locked}>
       <Hint>Text color</Hint>
-      <PColor aria-label="Text color" value={written} placeholder={toHex(ctx.computed.color) ?? ctx.computed.color} disabled={ctx.locked} onCommit={(next) => ctx.set({ color: next || null })} />
+      <PColor aria-label="Text color" value={written} placeholder={toHex(ctx.computed.color) ?? ctx.computed.color} disabled={ctx.locked} onCommit={(next) => ctx.set(clipsToText(ctx.inline, ctx.computed) ? solidTextPatch(ctx.inline, next || null) : { color: next || null })} />
     </StripPopup>
   );
 }

@@ -443,6 +443,12 @@ export interface SliderInputProps {
   min: number;
   max: number;
   step?: number;
+  /**
+   * What an arrow key moves when it is not `step` (a range with no step of
+   * its own drags in fine steps but keys by its field's step); Shift: ten
+   * times it.
+   */
+  keyStep?: number;
   /** Each move, during a drag or from a key. */
   onChange: (value: number) => void;
   /** Once per drag when it ends, and after each key. */
@@ -476,8 +482,13 @@ interface SliderDrag {
  * step, PageUp and PageDown ten, Home and End go to the ends; Space does not
  * scroll the page.
  */
-export function SliderInput({ value, min, max, step = 1, onChange, onCommit, disabled, mixed, unit, look, ...aria }: SliderInputProps): ReactNode {
+export function SliderInput({ value, min, max, step = 1, keyStep, onChange, onCommit, disabled, mixed, unit, look, ...aria }: SliderInputProps): ReactNode {
   const drag = useRef<SliderDrag | null>(null);
+  const root = useRef<HTMLDivElement>(null);
+  // A mixed slider has no one value to report.
+  useEffect(() => {
+    if (mixed) root.current?.querySelectorAll('[aria-valuenow]').forEach((node) => node.removeAttribute('aria-valuenow'));
+  });
   const latest = useRef(onCommit);
   latest.current = onCommit;
   const settle = (final?: number): void => {
@@ -523,7 +534,20 @@ export function SliderInput({ value, min, max, step = 1, onChange, onCommit, dis
       max={range.max}
       step={range.step}
       largeStep={largeStepOf(range.step)}
+      ref={root}
+      data-mixed={mixed ? '' : undefined}
       onPointerDownCapture={begin}
+      onKeyDownCapture={(event) => {
+        const direction = { ArrowUp: 1, ArrowRight: 1, ArrowDown: -1, ArrowLeft: -1 }[event.key];
+        if (keyStep === undefined || direction === undefined || disabled) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const from = mixed ? min : value;
+        const next = Math.min(max, Math.max(min, Math.round((from + direction * keyStep * (event.shiftKey ? 10 : 1)) * 1e6) / 1e6));
+        if (next === value) return;
+        onChange(next);
+        onCommit?.(next);
+      }}
       onKeyDown={(event) => {
         if (event.key === ' ') event.preventDefault();
       }}

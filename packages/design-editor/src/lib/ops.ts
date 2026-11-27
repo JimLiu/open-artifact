@@ -50,6 +50,7 @@ import {
 } from '@open-artifact/dc';
 import { knownWords } from './text-edit.ts';
 import { lockSplices, withoutLocks } from './locks.ts';
+import { pageFillSplices, type PageFillEdit } from './page-fill.ts';
 
 /** Where an element sits in a template: both must agree for it to resolve. */
 export interface Address {
@@ -104,6 +105,8 @@ export type BoardOp =
   | { kind: 'replace'; edits: { target: Address; html: string }[]; helmet?: string }
   /** New tweak defaults written back into `data-props`. */
   | { kind: 'props'; values: Record<string, unknown> }
+  /** The page background (`background`, `background-color`) in the helmet's `body` rule (see `lib/page-fill.ts`). */
+  | { kind: 'pageFill'; edits: PageFillEdit[] }
   /** The whole source replaced (restoring unsaved work): undoable, and replayed over remote changes as a whole. */
   | { kind: 'source'; text: string };
 
@@ -328,6 +331,12 @@ export function applyOp(source: string, op: BoardOp): OpResult | null {
         splices = unwrapElement(model, element);
         break;
       }
+      case 'pageFill': {
+        const fill = pageFillSplices(model, op.edits);
+        if (!fill) return null;
+        splices = fill;
+        break;
+      }
       case 'replace': {
         const elements = resolveAll(model, op.edits.map((entry) => entry.target));
         if (!elements || !elements.length) return null;
@@ -344,7 +353,7 @@ export function applyOp(source: string, op: BoardOp): OpResult | null {
   const template = applySplices(model.text, splices);
   const after = parseTemplate(template);
   let created =
-    op.kind === 'style' || op.kind === 'styles' || op.kind === 'attr' || op.kind === 'lock' || op.kind === 'text' || op.kind === 'importText'
+    op.kind === 'style' || op.kind === 'styles' || op.kind === 'attr' || op.kind === 'lock' || op.kind === 'text' || op.kind === 'importText' || op.kind === 'pageFill'
       ? []
       : elementsStartingIn(after, insertedRanges(splices)).filter((address) => !inHelmet(after.elements[address.tid]));
   if (op.kind === 'richText') {

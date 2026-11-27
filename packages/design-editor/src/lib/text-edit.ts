@@ -68,3 +68,58 @@ export function knownWords(source: string, overrides?: Record<string, unknown>):
 export function importTargets(source: string, element: HtmlElement, overrides?: Record<string, unknown>): ImportTextTarget[] {
   return importTextTargets(element, knownWords(source, overrides));
 }
+
+/** Attributes of an instance that are never words it shows. */
+const NOT_SHOWN = /^(component(-from-global-scope)?|from|class|style|style-.*|id|slot|key|ref|href|src|srcset|srcdoc|hint-size|data-.*|on.*)$/i;
+/** A hole holding a quoted string, a number or a boolean. */
+const LITERAL = /^\s*\{\{\s*(?:(-?\d+(?:\.\d+)?|true|false)|(['"])([^{}]*)\2)\s*\}\}\s*$/;
+
+/** Where the words of a component instance that can't be retyped come from. */
+export type InstanceWords = { kind: 'prop'; component: string; prop: string } | { kind: 'template'; component: string };
+
+/** The name a component goes by: its path without the design system's namespace (`Acme.Button` → `Button`). */
+export function componentName(path: string): string {
+  const parts = path.split('.').filter(Boolean);
+  return (parts.length > 1 ? parts.slice(1) : parts).join('.') || path;
+}
+
+/**
+ * Where `words` (drawn inside instance `element`) come from: a prop
+ * written on the instance (an attribute, or the content between its tags,
+ * `children`), or the component itself. Null when that can't be told (the
+ * instance passes values from code, or there are no words).
+ */
+export function instanceWordsSource(element: HtmlElement, words: string | null): InstanceWords | null {
+  if (element.tag !== 'x-import' || !words) return null;
+  const path = element.attrs.find((attr) => attr.name === 'component-from-global-scope' || attr.name === 'component')?.value ?? '';
+  if (!path || path.includes('{{')) return null;
+  const component = componentName(path);
+  const shown = squashSpaces(words);
+  let fromCode = false;
+  for (const attr of element.attrs) {
+    if (NOT_SHOWN.test(attr.name)) continue;
+    const text = attr.value ?? '';
+    const literal = LITERAL.exec(text);
+    const value = literal ? (literal[1] ?? literal[3] ?? '') : text;
+    if (!literal && value.includes('{{')) {
+      fromCode = true;
+      continue;
+    }
+    // The same words only: a short value (`size="s"`) would be found in almost anything.
+    if (squashSpaces(value) === shown) return { kind: 'prop', component, prop: attr.name };
+  }
+  const between = element.children.map((child) => (child.type === 'text' ? child.value : '')).join(' ');
+  if (between.includes('{{')) fromCode = true;
+  const inner = squashSpaces(between.replace(/\{\{[\s\S]*?\}\}/g, ' '));
+  // The content may be drawn in pieces (around markup): a piece of three or more letters, on word edges, is still the content's.
+  const piece = shown.length >= 3 && new RegExp(`(^|\\s)${shown.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\s|$)`).test(inner);
+  if (inner && (inner === shown || piece)) return { kind: 'prop', component, prop: 'children' };
+  return fromCode ? null : { kind: 'template', component };
+}
+
+/** What the canvas says when instance words can't be retyped. */
+export function instanceWordsMessage(source: InstanceWords): string {
+  return source.kind === 'prop'
+    ? `This text is set per instance — edit it under ${source.component} props.`
+    : `This text sits directly in the ${source.component} component and can’t be edited on the canvas — ask the agent in chat to change it.`;
+}

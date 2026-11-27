@@ -122,6 +122,8 @@ Values are plain: letters, digits, spaces and `# % ( ) , . / + -`, with no `;`, 
 functions are colours (`rgb()`, `hsl()`, `oklch()`, `color-mix()`, …), gradients and filter functions: no `url()`,
 `var()` or `calc()`. Anything else is dropped when the canvas is read, and `check` names it.
 
+An `image` note takes the same look: its picture fills the box (`object-fit` defaults to `fill`), corners square and no
+border until given; a width without a style is solid, and `background-color` shows behind a transparent picture.
 A border at `center` or `outside` with a style, one width on all four sides and one colour is drawn as an outline;
 any other border stays inside the box. An older
 `css.fill` on a `rect` or `oval` moves to the note's `fill`. A dashed or dotted `pen` stroke is also written as

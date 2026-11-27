@@ -87,7 +87,7 @@ describe('a note as artboard HTML', () => {
 
   it('writes an image with its alt and fit, and refuses an address that reads as template syntax', () => {
     const layer = noteHtml({ x: 0, y: 0, kind: 'image', src: 'uploads/a "b".png', alt: 'A cat', w: 320, h: 240 }, ids());
-    assert.equal(layer?.html, '<img src="uploads/a &quot;b&quot;.png" alt="A cat" width="320" height="240" style="width: 320px; height: 240px; object-fit: contain;">');
+    assert.equal(layer?.html, '<img src="uploads/a &quot;b&quot;.png" alt="A cat" width="320" height="240" style="width: 320px; height: 240px; object-fit: fill;">');
     assert.equal(noteHtml({ x: 0, y: 0, kind: 'image', src: 'uploads/{{x}}.png' }, ids()), null);
     assert.equal(noteHtml({ x: 0, y: 0, kind: 'image', src: 'a.png', alt: '{{x}}' }, ids()), null);
   });

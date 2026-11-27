@@ -19,7 +19,7 @@ export type StyleGroup = 'fill' | 'border' | 'outline' | 'radius' | 'shadow' | '
 export type ElementClass = 'text' | 'box' | 'image' | 'shape' | 'rule';
 
 /** Where a copied look came from. */
-export type StyleSource = ElementClass | 'text-note' | 'shape-note' | 'line-note' | 'board';
+export type StyleSource = ElementClass | 'text-note' | 'shape-note' | 'image-note' | 'line-note' | 'board';
 
 /** CSS declarations, kebab-case. */
 export type Declarations = Record<string, string>;
@@ -46,11 +46,14 @@ export const GROUPS_OF: Record<ElementClass, readonly StyleGroup[]> = {
 };
 
 /** The groups a canvas note or an artboard takes. */
-const NOTE_GROUPS: Record<'text-note' | 'shape-note' | 'line-note' | 'board', readonly StyleGroup[]> = {
+export const NOTE_GROUPS: Record<'text-note' | 'shape-note' | 'image-note' | 'line-note' | 'board', readonly StyleGroup[]> = {
   'text-note': ['text', 'fill'],
   'shape-note': ['fill', 'border', 'radius', 'shadow', 'filter', 'backdrop', 'opacity'],
+  // A picture takes no fill: pasting never paints behind it.
+  'image-note': ['border', 'radius', 'shadow', 'filter', 'backdrop', 'opacity'],
   'line-note': ['paint'],
-  board: ['radius'],
+  // The page background and the frame's corners.
+  board: ['fill', 'radius'],
 };
 
 const TEXT_PROPERTIES = new Set(['color', 'line-height', 'letter-spacing', 'text-align', 'text-transform', 'text-shadow']);
@@ -323,10 +326,11 @@ export function hasValues(style: CopiedStyle): boolean {
 export const NOTE_TEXT_COLOR = '#1d1d1b';
 const NOTE_STROKE = '#2b2b2b';
 
-/** Which kind of note this is for Copy and Paste properties; null when it has no look to copy (a link, an image). */
-export function noteClass(note: CanvasNote): 'text-note' | 'shape-note' | 'line-note' | null {
+/** Which kind of note this is for Copy and Paste properties; null when it has no look to copy (a link). */
+export function noteClass(note: CanvasNote): 'text-note' | 'shape-note' | 'image-note' | 'line-note' | null {
   if (!note.kind || note.kind === 'sticky' || note.kind === 'title1') return 'text-note';
   if (note.kind === 'rect' || note.kind === 'oval') return 'shape-note';
+  if (note.kind === 'image') return 'image-note';
   if (note.kind === 'line' || note.kind === 'arrow' || note.kind === 'pen') return 'line-note';
   return null;
 }
@@ -352,6 +356,25 @@ export function copyNoteStyle(note: CanvasNote): CopiedStyle | null {
     return { source: kind, groups: { paint: { stroke: stroke.color ?? NOTE_STROKE, 'stroke-width': `${stroke.width}px`, ...(dashes && dashes !== 'none' ? { 'stroke-dasharray': dashes } : {}) } } };
   }
   const css = note.css ?? {};
+  const one = (key: 'box-shadow' | 'filter' | 'backdrop-filter' | 'opacity'): Declarations => (css[key] ? { [key]: css[key]! } : {});
+  if (kind === 'image-note') {
+    // A picture has no border and square corners until its css gives them.
+    const border: Declarations = {};
+    for (const [key, value] of Object.entries(css)) if (groupOf(key) === 'border' || key === 'border-position') border[key] = value;
+    const radius: Declarations = {};
+    for (const [key, value] of Object.entries(css)) if (groupOf(key) === 'radius') radius[key] = value;
+    return {
+      source: kind,
+      groups: {
+        border: drawnBorder(border) ? border : {},
+        radius: Object.keys(radius).length ? radius : { 'border-radius': '0px' },
+        shadow: one('box-shadow'),
+        filter: one('filter'),
+        backdrop: one('backdrop-filter'),
+        opacity: one('opacity'),
+      },
+    };
+  }
   const fill = shapeFill(note);
   const border: Declarations = {};
   for (const [key, value] of Object.entries(css)) if (groupOf(key) === 'border' || key === 'border-position') border[key] = value;
@@ -361,7 +384,6 @@ export function copyNoteStyle(note: CanvasNote): CopiedStyle | null {
     for (const [key, value] of Object.entries(css)) if (groupOf(key) === 'radius') radius[key] = value;
     if (!Object.keys(radius).length) radius['border-radius'] = `${NOTE_RECT_RADIUS}px`;
   }
-  const one = (key: 'box-shadow' | 'filter' | 'backdrop-filter' | 'opacity'): Declarations => (css[key] ? { [key]: css[key]! } : {});
   return {
     source: kind,
     groups: {
@@ -376,9 +398,12 @@ export function copyNoteStyle(note: CanvasNote): CopiedStyle | null {
   };
 }
 
-/** An artboard's look: its corner radius. */
-export function copyBoardStyle(radius: number | undefined): CopiedStyle {
-  return { source: 'board', groups: { radius: radius ? { 'border-radius': `${radius}px` } : {} } };
+/**
+ * An artboard's look: its page background (see `lib/page-fill.ts`; white
+ * when nothing sets one) and its corner radius (0 when it has none).
+ */
+export function copyBoardStyle(radius: number | undefined, fill: Declarations): CopiedStyle {
+  return { source: 'board', groups: { fill, radius: { 'border-radius': `${radius ?? 0}px` } } };
 }
 
 /* -------------------------------- converting -------------------------------- */
@@ -614,7 +639,7 @@ export function pastedNote(copied: CopiedStyle, note: CanvasNote, valid: (key: s
   const groups = groupsFor(copied, takes);
   const pasted = Object.keys(groups) as StyleGroup[];
   if (!pasted.length) return null;
-  if (kind === 'shape-note') {
+  if (kind === 'shape-note' || kind === 'image-note') {
     const css: Declarations = {};
     for (const [key, value] of Object.entries(note.css ?? {})) if (!pasted.some((group) => NOTE_CSS_GROUP[group]?.(key))) css[key] = value;
     for (const group of pasted) for (const [key, value] of Object.entries(noteCssOf(group, groups[group]!))) {
@@ -651,12 +676,21 @@ export function pastedNote(copied: CopiedStyle, note: CanvasNote, valid: (key: s
   return next;
 }
 
-/** An artboard's radius once the copied look is pasted, or null when the copy has no radius group. */
+/**
+ * An artboard's radius once the copied look is pasted, or null when the
+ * copy has no radius group or a corner isn't in px. An artboard keeps one
+ * radius: the top-left corner's when the corners differ.
+ */
 export function pastedBoardRadius(copied: CopiedStyle): number | undefined | null {
   const radius = copied.groups.radius;
   if (!radius) return null;
-  const value = widthPx(tokens(radius['border-radius'] ?? radius['border-top-left-radius'] ?? '0')[0]);
-  return value && value > 0 ? Math.round(value) : undefined;
+  const corners = radius['border-radius'] !== undefined
+    ? perSide(radius['border-radius'])
+    : (['top-left', 'top-right', 'bottom-right', 'bottom-left'] as const).map((corner) => radius[`border-${corner}-radius`] ?? '0px');
+  const values = corners.map((corner) => (/^(-?\d*\.?\d+)(px)?$/.test(corner.trim()) && (corner.trim().endsWith('px') || /^0+(\.0+)?$/.test(corner.trim())) ? widthPx(corner) : null));
+  if (values.some((value) => value === null)) return null;
+  const value = values[0]!;
+  return value > 0 ? Math.round(value) : undefined;
 }
 
 /* ------------------------------- what is said ------------------------------- */
@@ -665,8 +699,8 @@ export const STYLE_CLIPBOARD_TEXT = {
   copied: 'Properties copied',
   copyFailed: 'Couldn’t copy the properties. Try again.',
   justOne: 'Select just one element to copy its properties',
-  nothing: 'This element has no properties to copy',
-  copyFirst: 'Copy an element’s properties first',
+  nothing: 'This element has no properties to copy.',
+  copyFirst: 'Copy an element’s properties first.',
   selectTargets: 'Select the elements to paste the properties onto.',
   component: 'This is part of a component. Open the component to copy or paste properties there.',
   pasteFailed: 'Couldn’t paste the properties. Try again.',

@@ -3382,16 +3382,263 @@ editorSuite({
         assert.ok(await page.waitFor(buttonNamed('Properties')), 'the image is selected');
         await clickOn(page, buttonNamed('Properties'));
         const align = name => `[...document.querySelectorAll('button[aria-label="Border alignment: ${name}"]')].find((b) => b.offsetParent)`;
+        // The alignment sits on the border's style row, below the fold of a short panel.
+        const press = async name => {
+          await page.evaluate(`${align(name)}?.scrollIntoView({ block: 'center' })`);
+          await clickOn(page, align(name));
+        };
         assert.ok(await page.waitFor(align('Inside'), 5000), 'the panel offers the border alignment');
-        await clickOn(page, align('Inside'));
+        await press('Inside');
         assert.ok(await page.waitFor(align('Center'), 10000), 'the border is centred');
-        await clickOn(page, align('Center'));
+        await press('Center');
         assert.ok(await page.waitFor(`${drawn} === 'none | 0px | solid | 4px | 0px | 168 | 108'`, 10000), `outside, same size: ${await page.evaluate(drawn)}`);
-        assert.ok(await until(() => /border-style:\s*none/.test(picTag()) && /outline-offset:\s*0px/.test(picTag()) && /outline-color:\s*rgb\(0, 0, 200\)/.test(picTag()) && /width:\s*168px/.test(picTag()) && !/border:/.test(picTag()), 10000), `the file has the outline and no border: ${picTag()}`);
+        assert.ok(await until(() => !/border-style/.test(picTag()) && !/outline-offset/.test(picTag()) && /outline-color:\s*rgb\(0, 0, 200\)/.test(picTag()) && /width:\s*168px/.test(picTag()) && !/border:/.test(picTag()), 10000), `the file has the outline and no border: ${picTag()}`);
         assert.ok(await page.waitFor(align('Outside'), 5000), 'the alignment reads Outside');
-        await clickOn(page, align('Outside'));
+        await press('Outside');
         assert.ok(await page.waitFor(`${drawn} === 'solid | 4px | none | - | 0px | 168 | 108'`, 10000), `inside again: ${await page.evaluate(drawn)}`);
         assert.ok(await until(() => /border:\s*4px solid rgb\(0, 0, 200\)/.test(picTag()) && /width:\s*160px/.test(picTag()) && !/outline/.test(picTag()), 10000), `the file has the plain border back: ${picTag()}`);
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
+    // Fields of the element panel: a column count, the border style and each side's width, Mixed opacity, gradient text.
+    it('the panel writes a column count as equal tracks, a border style and one side’s width, reads Mixed opacity, and paints text with a gradient and back', T, async () => {
+      const { root, url } = await ctx.openNew('panel-fields', (_ctx, dir) => {
+        copyFixture('design', dir);
+        const file = path.join(dir, BOARD);
+        const template = `<x-dc><helmet><style>body{margin:0}</style></helmet><div style="width: 880px; height: 560px; padding: 40px; box-sizing: border-box; display: flex; flex-direction: column; gap: 24px">
+<h1 id="title" style="margin: 0; font-size: 40px; color: rgb(200, 0, 0)">Heading</h1>
+<div id="grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 16px; background: #eee"><span>One</span><span>Two</span></div>
+<div id="box" style="width: 160px; height: 60px; border: 2px solid rgb(0, 0, 200); justify-self: end"></div>
+<div id="a" style="width: 80px; height: 30px; background: #ccc; opacity: 0.5"></div>
+<div id="b" style="width: 80px; height: 30px; background: #ccc"></div>
+</div></x-dc>`;
+        fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace(/<x-dc>[\s\S]*?<\/x-dc>/, template));
+      });
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: `document.querySelector('iframe[data-board="Main.dc.html"]')?.contentDocument?.querySelector('#box')`, settle: 800 });
+      const tag = id => new RegExp(`<\\w+ id="${id}"[^>]*>`).exec(fs.readFileSync(path.join(root, BOARD), 'utf8'))?.[0] ?? '';
+      const input = name => `[...document.querySelectorAll('input[aria-label=${JSON.stringify(name)}]')].find((i) => i.offsetParent)`;
+      const commit = async (name, text) => {
+        await clickOn(page, input(name));
+        await page.evaluate(`${input(name)}.select()`);
+        await page.type(text);
+        await page.press('Enter');
+      };
+      // The grid's padding, away from its cells.
+      const gridEdge = `(() => { const frame = document.querySelector('iframe[data-board="Main.dc.html"]'); const rect = frame.getBoundingClientRect(); const box = frame.contentDocument.querySelector('#grid').getBoundingClientRect(); const zoom = rect.width / frame.offsetWidth; return [rect.left + (box.left + 6) * zoom, rect.top + (box.top + 6) * zoom]; })()`;
+      try {
+        await page.click(...await page.evaluate(gridEdge));
+        assert.ok(await page.waitFor(buttonNamed('Properties')), 'the grid is selected');
+        await clickOn(page, buttonNamed('Properties'));
+        assert.ok(await page.waitFor(`${input('Grid columns')}?.value === '2'`, 5000), `two equal columns read as 2: ${await page.evaluate(`${input('Grid columns')}?.value`)}`);
+        await commit('Grid columns', '3');
+        assert.ok(await until(() => /grid-template-columns:\s*repeat\(3, minmax\(0, 1fr\)\)/.test(tag('grid')), 10000), `a count makes equal tracks: ${tag('grid')}`);
+
+        await page.press('Escape');
+        await page.click(...await page.evaluate(boardMiddle('#box')));
+        assert.ok(await page.waitFor(buttonNamed('Dashed'), 5000), 'the border style shows as segments');
+        // Self alignment shows only once the style sets it.
+        assert.ok(await page.waitFor(`document.querySelector('[aria-label="Justify self"]')?.textContent.includes('End') && !document.querySelector('[aria-label="Align self"]')`, 5000), 'the set self alignment shows, the unset one doesn’t');
+        await clickOn(page, buttonNamed('Dashed'));
+        assert.ok(await until(() => /border:\s*2px dashed rgb\(0, 0, 200\)/.test(tag('box')), 10000), `the style changes in the shorthand: ${tag('box')}`);
+        await page.evaluate(`${buttonNamed('Edit width per side')}?.scrollIntoView({ block: 'center' })`);
+        await clickOn(page, buttonNamed('Edit width per side'));
+        assert.ok(await page.waitFor(input('Width left'), 5000), 'each side gets a field');
+        await page.evaluate(`${input('Width left')}.scrollIntoView({ block: 'center' })`);
+        await commit('Width left', '6');
+        assert.ok(await until(() => /border-left-width:\s*6px/.test(tag('box')) && /border:\s*dashed rgb\(0, 0, 200\)/.test(tag('box')), 10000), `one side’s width, the rest from the shorthand gone: ${tag('box')}`);
+
+        await page.press('Escape');
+        await page.click(...await page.evaluate(boardMiddle('#a')));
+        await page.click(...await page.evaluate(boardMiddle('#b')), { shift: true });
+        assert.ok(await page.waitFor(`${input('Opacity')}?.placeholder === 'Mixed' && ${input('Opacity')}.value === '' && !!document.querySelector('[data-mixed]')`, 5000), 'different opacities read Mixed');
+        await commit('Opacity', '30');
+        assert.ok(await until(() => /opacity:\s*0\.3\b/.test(tag('a')) && /opacity:\s*0\.3\b/.test(tag('b')), 10000), `one value for both: ${tag('a')} | ${tag('b')}`);
+        await page.evaluate('document.activeElement?.blur()');
+        await page.press('z', { meta: process.platform === 'darwin', ctrl: process.platform !== 'darwin' });
+        assert.ok(await until(() => /opacity:\s*0\.5\b/.test(tag('a')) && !/opacity/.test(tag('b')), 10000), `one ⌘Z brings both back: ${tag('a')} | ${tag('b')}`);
+
+        await page.press('Escape');
+        await page.click(...await page.evaluate(boardMiddle('#title')));
+        assert.ok(await page.waitFor(buttonNamed('Gradient'), 5000), 'the text color offers a gradient');
+        await clickOn(page, buttonNamed('Gradient'));
+        assert.ok(await until(() => /background:\s*linear-gradient\(180deg, #c80000 0%/.test(tag('title')) && /(^|[^-])background-clip:\s*text/.test(tag('title')) && /-webkit-background-clip:\s*text/.test(tag('title')) && /-webkit-text-fill-color:\s*transparent/.test(tag('title')), 10000), `the four declarations: ${tag('title')}`);
+        assert.ok(await page.waitFor(`${input('Fill')}?.disabled === true && !!document.querySelector('[data-reason="fill"]') && document.body.innerText.includes('This background fills the text — change it under Text › Color')`, 5000), 'the Fill row is off and says why');
+        assert.ok(await page.waitFor(`!!document.querySelector('[role="group"][aria-label="Text gradient"]')`, 5000), 'the gradient editor shows');
+        await clickOn(page, buttonNamed('Solid color'));
+        assert.ok(await until(() => !/background/.test(tag('title')) && !/-webkit-text-fill-color/.test(tag('title')) && /color:\s*rgb\(200, 0, 0\)/.test(tag('title')), 10000), `back to a solid color: ${tag('title')}`);
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
+    // A border moved outside where a child touches the edge: that side's border stays inside (none), the other side takes its space.
+    it('a border aligned outside beside a child on the edge keeps the child in place, and a button gets a focus ring that clears the border', T, async () => {
+      const { root, url } = await ctx.openNew('border-pinned', (_ctx, dir) => {
+        copyFixture('design', dir);
+        const file = path.join(dir, BOARD);
+        const template = `<x-dc><helmet><style>body{margin:0}</style></helmet><div style="width: 880px; height: 560px; padding: 40px; box-sizing: border-box; display: flex; flex-direction: column; gap: 24px; align-items: flex-start">
+<div id="frame" style="width: 200px; padding-bottom: 20px; border: 2px solid rgb(0, 0, 200)"><div id="kid" style="width: 60px; height: 40px; background: rgb(0, 160, 0)"></div></div>
+<button id="go" style="padding: 8px 16px; border: 3px solid rgb(200, 0, 0); background: white">Go</button>
+</div></x-dc>`;
+        fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace(/<x-dc>[\s\S]*?<\/x-dc>/, template));
+      });
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: `document.querySelector('iframe[data-board="Main.dc.html"]')?.contentDocument?.querySelector('#go')`, settle: 800 });
+      const tag = id => new RegExp(`<\\w+ id="${id}"[^>]*>`).exec(fs.readFileSync(path.join(root, BOARD), 'utf8'))?.[0] ?? '';
+      const align = name => `[...document.querySelectorAll('button[aria-label="Border alignment: ${name}"]')].find((b) => b.offsetParent)`;
+      const frameEdge = `(() => { const frame = document.querySelector('iframe[data-board="Main.dc.html"]'); const rect = frame.getBoundingClientRect(); const box = frame.contentDocument.querySelector('#frame').getBoundingClientRect(); const zoom = rect.width / frame.offsetWidth; return [rect.left + (box.right - 20) * zoom, rect.top + (box.top + 10) * zoom]; })()`;
+      try {
+        await page.click(...await page.evaluate(frameEdge));
+        assert.ok(await page.waitFor(buttonNamed('Properties')), 'the frame is selected');
+        await clickOn(page, buttonNamed('Properties'));
+        const press = async name => {
+          assert.ok(await page.waitFor(align(name), 10000), `the alignment reads ${name}`);
+          await page.evaluate(`${align(name)}.scrollIntoView({ block: 'center' })`);
+          await clickOn(page, align(name));
+        };
+        await press('Inside');
+        await press('Center');
+        assert.ok(await until(() => /border-left-width:\s*0px/.test(tag('frame')) && /border-right-width:\s*4px/.test(tag('frame')), 10000), `the touched side gives its space to the other: ${tag('frame')}`);
+
+        await page.press('Escape');
+        await page.click(...await page.evaluate(boardMiddle('#go')));
+        await press('Inside');
+        await press('Center');
+        assert.ok(await until(() => /style-focus-visible="[^"]*box-shadow:\s*0 0 0 calc\(/.test(tag('go')), 10000), `the button gets a focus ring outside its border: ${tag('go')}`);
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
+    // Words of a component instance that can't be retyped (a quoted hole): the toast says where they come from.
+    it('double-clicking words of an instance that can’t be retyped says whether a prop or the component sets them, once each', T, async () => {
+      const { root, url } = await ctx.openNew('instance-words', (_ctx, dir) => {
+        copyFixture('design', dir);
+        const file = path.join(dir, BOARD);
+        const template = `<x-dc><helmet><style>body{margin:0}</style></helmet><div id="page" style="width: 880px; height: 560px; padding: 40px; box-sizing: border-box; font-size: 32px">
+<x-import component-from-global-scope="Kit.Badge" label="{{ 'Hello' }}"></x-import>
+</div></x-dc>`;
+        fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace(/<x-dc>[\s\S]*?<\/x-dc>/, template));
+      });
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: `document.querySelector('iframe[data-board="Main.dc.html"]')?.contentDocument?.querySelector('#page')`, settle: 800 });
+      const board = `document.querySelector('iframe[data-board="Main.dc.html"]')`;
+      // The component comes from the page's globals; drawing again picks it up.
+      const words = text => `(() => { const frame = ${board}; const doc = frame.contentDocument; const walk = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT); let node; while ((node = walk.nextNode())) if (node.nodeValue.includes(${JSON.stringify(text)})) break; if (!node) return null; const range = doc.createRange(); range.selectNodeContents(node); const box = range.getBoundingClientRect(); const rect = frame.getBoundingClientRect(); const zoom = rect.width / frame.offsetWidth; return [rect.left + (box.left + box.width / 2) * zoom, rect.top + (box.top + box.height / 2) * zoom]; })()`;
+      const toasts = text => `[...document.querySelectorAll('[data-toast]')].filter((t) => t.textContent.includes(${JSON.stringify(text)})).length`;
+      try {
+        await page.evaluate(`(() => { const win = ${board}.contentWindow; win.Kit = { Badge: (props) => ['Built in · ', props.label] }; })()`);
+        const file = path.join(root, BOARD);
+        fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace('font-size: 32px', 'font-size: 33px'));
+        assert.ok(await page.waitFor(`${words('Hello')} !== null`, 10000), 'the instance draws its words');
+        await page.clickTimes(...await page.evaluate(words('Hello')), 2);
+        assert.ok(await page.waitFor(`${toasts('This text is set per instance — edit it under Badge props.')} === 1`, 5000), 'a prop’s words say so');
+        assert.ok(await page.waitFor(buttonNamed('Show Badge props'), 5000), 'with a button to the props');
+        await page.clickTimes(...await page.evaluate(words('Hello')), 2);
+        await new Promise(resolve => setTimeout(resolve, 400));
+        assert.equal(await page.evaluate(toasts('This text is set per instance')), 1, 'the same toast is not shown twice');
+        await clickOn(page, buttonNamed('Show Badge props'));
+        assert.ok(await page.waitFor(`!!document.querySelector('textarea[aria-label="Inline CSS and attributes"]')?.value.includes('@label:')`, 5000), 'the button opens the instance’s attributes in Code');
+        await page.clickTimes(...await page.evaluate(words('Built in')), 2);
+        assert.ok(await page.waitFor(`${toasts('This text sits directly in the Badge component and can’t be edited on the canvas — ask the agent in chat to change it.')} === 1`, 5000), 'the component’s own words say so');
+      } finally { await page.close(); }
+    });
+
+    // An element's fill pasted on an artboard paints its page; an artboard's look pasted on another brings its background and corners.
+    it('properties pasted on an artboard: an element’s fill paints the page and one ⌘Z takes it back, another artboard’s background and radius come along, and clearing it says so', T, async () => {
+      const { root, url } = await ctx.openNew('paste-on-board', (_ctx, dir) => {
+        copyFixture('design', dir);
+        const file = path.join(dir, BOARD);
+        fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace(/<x-dc>[\s\S]*?<\/x-dc>/, `<x-dc><helmet><style>body{margin:0; background-color: rgb(250, 240, 200)}</style></helmet><div style="width: 880px; height: 560px; padding: 40px; box-sizing: border-box"><div id="box" style="width: 160px; height: 80px; background-color: rgb(200, 0, 0)"></div></div></x-dc>`));
+        withBoard(dir, 'Second.dc.html', `<x-dc><helmet><style>body{margin:0}</style></helmet><div style="width: 880px; height: 560px"><p id="words" style="margin: 0">Second</p></div></x-dc>`);
+        const canvas = canvasOf(dir);
+        canvas.boards['Main.dc.html'].radius = 12;
+        fs.writeFileSync(path.join(dir, 'project/canvas.json'), JSON.stringify(canvas));
+      });
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: `document.querySelector('iframe[data-board="Second.dc.html"]')?.contentDocument?.querySelector('#words')`, settle: 800 });
+      const mod = { meta: process.platform === 'darwin', ctrl: process.platform !== 'darwin' };
+      const withAlt = { ...mod, alt: true };
+      const second = () => fs.readFileSync(path.join(root, 'project/Second.dc.html'), 'utf8');
+      const bodyRule = () => /body\s*\{[^}]*\}/.exec(second())?.[0] ?? '';
+      const pageColor = `getComputedStyle(document.querySelector('iframe[data-board="Second.dc.html"]').contentDocument.body).backgroundColor`;
+      const say = async text => assert.ok(await page.waitFor(textIn(text), 5000), `it says “${text}”`);
+      const paste = async () => {
+        await new Promise(resolve => setTimeout(resolve, 300));
+        await page.evaluate(`document.querySelector('[data-canvas-surface]').focus()`);
+        await page.press('v', withAlt);
+      };
+      try {
+        await page.click(...await page.evaluate(boardMiddle('#box')));
+        assert.ok(await page.waitFor(buttonNamed('Lock')), 'the box is selected');
+        await page.press('c', withAlt);
+        await say('Properties copied');
+        await page.click(...await titleOf(page, 'Second.dc.html'));
+        await paste();
+        assert.ok(await until(() => /background-color:\s*rgb\(200, 0, 0\)/.test(bodyRule()), 10000), `the page takes the fill: ${bodyRule()}`);
+        assert.ok(await page.waitFor(`${pageColor} === 'rgb(200, 0, 0)'`, 10000), 'the artboard shows it');
+        await page.evaluate(`document.querySelector('[data-canvas-surface]').focus()`);
+        await page.press('z', mod);
+        assert.ok(await until(() => !/background/.test(bodyRule()), 10000), `one ⌘Z takes it back: ${bodyRule()}`);
+
+        await page.click(...await titleOf(page, 'Main.dc.html'));
+        await new Promise(resolve => setTimeout(resolve, 300));
+        await page.evaluate(`document.querySelector('[data-canvas-surface]').focus()`);
+        await page.press('c', withAlt);
+        await say('Properties copied');
+        await page.click(...await titleOf(page, 'Second.dc.html'));
+        await paste();
+        assert.ok(await until(() => /background-color:\s*rgb\(250, 240, 200\)/.test(bodyRule()) && canvasOf(root).boards['Second.dc.html'].radius === 12, 10000), `the background and the corners come along: ${bodyRule()} ${canvasOf(root).boards['Second.dc.html'].radius}`);
+
+        await page.press('\\', mod);
+        const field = `document.querySelector('[data-properties-panel] input[aria-label="Background"]')`;
+        assert.ok(await page.waitFor(`${field}?.value === 'rgb(250, 240, 200)'`, 5000), `the artboard’s Background reads it: ${await page.evaluate(`${field}?.value`)}`);
+        await clickOn(page, field);
+        await page.evaluate(`${field}.select()`);
+        await page.press('Backspace');
+        await page.press('Enter');
+        await say('Background reset');
+        assert.ok(await until(() => !/background/.test(bodyRule()), 10000), `the page background is gone: ${bodyRule()}`);
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
+    // An image note's corners and shadow are drawn on the page, and a shape's border pasted on it adds a border only.
+    it('an image note with a radius and a shadow is drawn on the page and still selectable; a rectangle’s border pasted on it adds the border and leaves its background', T, async () => {
+      const picture = `data:image/svg+xml,${encodeURIComponent("<svg xmlns='http://www.w3.org/2000/svg' width='16' height='10'><rect width='16' height='10' fill='green'/></svg>")}`;
+      const { root, url } = await ctx.openNew('image-note-look', (_ctx, dir) => {
+        copyFixture('design', dir);
+        const canvas = canvasOf(dir);
+        canvas.notes = {
+          ...canvas.notes,
+          pic: { kind: 'image', x: 0, y: 700, w: 160, h: 100, title: 'Picture', src: picture, css: { 'border-radius': '4px', 'box-shadow': '0 2px 6px rgba(0, 0, 0, 0.3)' } },
+          frame: { kind: 'rect', x: 300, y: 700, w: 160, h: 100, title: 'Border source', css: { 'background-color': 'rgb(0, 160, 0)', 'border-style': 'solid', 'border-width': '3px', 'border-color': 'rgb(0, 0, 200)' } },
+        };
+        fs.writeFileSync(path.join(dir, 'project/canvas.json'), JSON.stringify(canvas));
+      });
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: `document.querySelector('[data-note="pic"][data-note-look="dom"] img')`, settle: 800 });
+      const mod = { meta: process.platform === 'darwin', ctrl: process.platform !== 'darwin' };
+      const withAlt = { ...mod, alt: true };
+      const pictureNote = `document.querySelector('[data-note="pic"]')`;
+      const row = label => `[...document.querySelectorAll('[role=tree][aria-label="Layers"] [role=treeitem]')].find(el => el.textContent.includes(${JSON.stringify(label)}))`;
+      try {
+        assert.equal(await page.evaluate(`getComputedStyle(document.querySelector('[data-note="pic"] img')).borderRadius`), '4px', 'the page draws the corners');
+        await page.press('\\', mod);
+        assert.ok(await page.waitFor(row('Border source'), 5000), 'the layers list shows the rectangle');
+        const frame = await middleOf(page, row('Border source'));
+        await page.click(frame.x, frame.y);
+        await new Promise(resolve => setTimeout(resolve, 300));
+        await page.evaluate(`document.querySelector('[data-canvas-surface]').focus()`);
+        await page.press('c', withAlt);
+        assert.ok(await page.waitFor(textIn('Properties copied'), 5000), 'the rectangle’s properties are copied');
+        // The picture drawn on the page still takes the click.
+        const pic = await middleOf(page, pictureNote);
+        await page.click(pic.x, pic.y);
+        assert.ok(await page.waitFor(`!!document.querySelector('[data-properties-panel] input[aria-label="Image source"]')`, 5000), 'the image note is selected');
+        await new Promise(resolve => setTimeout(resolve, 300));
+        await page.evaluate(`document.querySelector('[data-canvas-surface]').focus()`);
+        await page.press('v', withAlt);
+        assert.ok(await until(() => {
+          const css = canvasOf(root).notes.pic.css ?? {};
+          return css['border-width'] === '3px' && css['border-color'] === 'rgb(0, 0, 200)' && css['background-color'] === undefined;
+        }, 10000), `the border lands, the background doesn’t: ${JSON.stringify(canvasOf(root).notes.pic.css)}`);
+        assert.ok(await page.waitFor(`getComputedStyle(document.querySelector('[data-note="pic"] img')).borderTopWidth === '3px'`, 5000), 'the page draws the border');
         assert.deepEqual(page.problems, []);
       } finally { await page.close(); }
     });

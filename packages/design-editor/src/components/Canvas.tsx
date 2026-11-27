@@ -38,6 +38,7 @@ import {
   type CanvasNote,
   type Rect,
 } from '@open-artifact/design-core';
+import { imageLook, shapeLook } from '../lib/note-look.ts';
 import { cn, toast } from '@open-artifact/ui';
 import { useDocument } from '../state/document.ts';
 import { NO_SELECTION, toWorld, useView, type Camera, type ElementSelection, type ViewState } from '../state/view.ts';
@@ -1629,9 +1630,15 @@ function LiveBoard({ path, entry, interactive, playing }: { path: string; entry:
   );
 }
 
-/** Notes whose text is drawn in the DOM over the engine's note bodies. */
+/**
+ * Notes drawn in the DOM over the engine's note bodies: their text, or a
+ * look the engine can't draw (note-look.ts).
+ */
 const hasText = (note: CanvasNote): boolean =>
-  note.kind === 'title1' || note.kind === 'link' || ((!note.kind || note.kind === 'sticky' || note.kind === 'rect' || note.kind === 'oval') && Boolean(note.text));
+  note.kind === 'title1' || note.kind === 'link' || ((!note.kind || note.kind === 'sticky' || note.kind === 'rect' || note.kind === 'oval') && Boolean(note.text)) || drawnInDom(note);
+
+/** A note body only the DOM draws. */
+const drawnInDom = (note: CanvasNote): boolean => (note.kind === 'image' && !imageLook(note).engine) || ((note.kind === 'rect' || note.kind === 'oval') && shapeLook(note).engine === null);
 
 /**
  * Note text over the engine's canvas, in a layer that follows its camera
@@ -1659,7 +1666,8 @@ function NoteText({ notes }: { notes: string[] }) {
       {notes.map((id) => {
         const note = all[id]!;
         if (id !== noteEdit && (!hasText(note) || !intersects(near, noteRect(note)))) return null;
-        const readable = id === noteEdit || noteFontSize(note.size, note.kind) * camera.zoom >= MIN_TEXT_PX;
+        // A body the engine can't draw shows at any size; only text too small to read hides.
+        const readable = id === noteEdit || noteFontSize(note.size, note.kind) * camera.zoom >= MIN_TEXT_PX || drawnInDom(note);
         return (
           <div key={id} style={readable ? undefined : { visibility: 'hidden' }}>
             <NoteView id={id} note={note} bare />
