@@ -7,14 +7,12 @@ import { isComposingKey } from '@open-artifact/ui/keys';
 import { useDocument } from './state/document.ts';
 import { NO_SELECTION, useView, type Tool } from './state/view.ts';
 import {
-  copyProperties,
   deleteSelection,
   duplicateSelection,
   flipSelection,
   groupSelectedNotes,
   moveSelectedElements,
   nudgeSelection,
-  pasteProperties,
   redo,
   runAlign,
   selectAllSiblings,
@@ -27,6 +25,7 @@ import {
 } from './services/commands.ts';
 import { boardsOnPage, notesOnPage } from '@open-artifact/design-core';
 import { copyToSystem, pasteFromSystem } from './services/clipboard.ts';
+import { copyProperties, pasteProperties } from './services/properties.ts';
 import { armScale, cancelScale, commitScale, useScale } from './services/scale.ts';
 import { zoomStep, zoomTo, zoomToBoards, zoomToFit } from './services/viewport.ts';
 import { frameKeyPressed } from './services/follow.ts';

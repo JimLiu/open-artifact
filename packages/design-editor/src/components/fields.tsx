@@ -10,6 +10,8 @@ import { Check, ChevronDown, Palette } from 'lucide-react';
 import { forwardRef, useEffect, useRef, useState, type ButtonHTMLAttributes, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { cn, isComposingKey, useSelectAnnouncement } from '@open-artifact/ui';
 import { historyKeyOf, stepLength } from '../lib/field-keys.ts';
+import { DESIGN_ENTRY_WORDS, refusesKey, settleField, stepField, type NumberFieldRule } from '../lib/number-field.ts';
+import { announce } from '../services/announce.ts';
 import { COMMITTED_ATTRIBUTE, endsCommitted } from '../lib/input-handoff.ts';
 import { isSaveKey } from '../lib/physical-keys.ts';
 import { redo, undo } from '../services/commands.ts';
@@ -79,21 +81,39 @@ export interface PInputProps {
   disabled?: boolean;
   className?: string;
   mono?: boolean;
-  /** What an arrow key adds (Shift: ten times it); 1 when not given. */
+  /** What an arrow key adds (Shift: ten times it, Alt: a tenth); 1 when not given. */
   step?: number;
+  /** Lowest number: a value below it is held at it; at 0 or more a minus sign is refused. */
+  min?: number;
+  /** Highest number: a value above it is held at it. */
+  max?: number;
+  /** Takes a number only: other text changes nothing and is said so. */
+  numeric?: boolean;
+  /** The field's name in what is said about it; its label when not given. */
+  name?: string;
   'aria-label'?: string;
+}
+
+/** The rule of a field with limits, or null for a plain text field. */
+function numberRule({ min, max, unit, numeric }: Pick<PInputProps, 'min' | 'max' | 'unit' | 'numeric'>): NumberFieldRule | null {
+  if (min === undefined && max === undefined && !numeric) return null;
+  return { ...(min === undefined ? {} : { min }), ...(max === undefined ? {} : { max }), ...(unit === undefined ? {} : { unit }), ...(numeric ? { strict: true } : {}) };
 }
 
 /**
  * A text field that keeps a draft and commits on Enter or blur; Escape
  * reverts. Enter keeps the focus, with the text selected, so the next value
  * can be typed at once. Arrow keys step numbers (Shift: by 10); an empty
- * field steps from its placeholder. Undo and redo with nothing typed undo
+ * field steps from its placeholder. A field with limits holds a number
+ * inside them, refuses a minus sign when it takes no negative numbers, and
+ * says what it changed (see lib/number-field.ts). Undo and redo with nothing typed undo
  * the design, not the field's text. After Enter the field is committed:
  * canvas shortcuts with a modifier (⇧X, ⌘L, ⌘]) work from it until it is
  * typed in or left.
  */
-export function PInput({ value, onCommit, placeholder, unit, prefix, disabled, className, mono, step = 1, ...aria }: PInputProps) {
+export function PInput({ value, onCommit, placeholder, unit, prefix, disabled, className, mono, step = 1, min, max, numeric, name, ...aria }: PInputProps) {
+  const rule = numberRule({ min, max, unit, numeric });
+  const said = name ?? aria['aria-label'];
   const [draft, setDraft] = useState(value);
   const cancelled = useRef(false);
   const field = useRef<HTMLInputElement>(null);
@@ -104,6 +124,18 @@ export function PInput({ value, onCommit, placeholder, unit, prefix, disabled, c
     if (input && input.ownerDocument.activeElement === input) requestAnimationFrame(() => input.ownerDocument.activeElement === input && input.select());
   }, [value]);
   const commit = (text = draft) => {
+    if (rule) {
+      const settled = settleField(text, rule, said);
+      if (settled.kind === 'refuse') {
+        setDraft(value);
+        announce(settled.say);
+        return;
+      }
+      if (settled.say) announce(settled.say);
+      if (settled.shown !== text.trim()) setDraft(settled.shown);
+      if (settled.shown !== value && settled.text !== value) onCommit(settled.text);
+      return;
+    }
     const trimmed = text.trim();
     const next = unit && /^-?\d*\.?\d+$/.test(trimmed) ? `${trimmed}${unit}` : trimmed;
     if (next !== value && trimmed !== value) onCommit(next);
@@ -132,7 +164,10 @@ export function PInput({ value, onCommit, placeholder, unit, prefix, disabled, c
           const press = { key: event.key, code: event.code, meta: event.metaKey || event.ctrlKey, shift: event.shiftKey, alt: event.altKey };
           if (endsCommitted(press)) event.currentTarget.removeAttribute(COMMITTED_ATTRIBUTE);
           const history = historyKeyOf(event);
-          if (isSaveKey(press)) {
+          if (rule && !press.meta && refusesKey(event.key, rule)) {
+            event.preventDefault();
+            announce(DESIGN_ENTRY_WORDS.minusKey(said));
+          } else if (isSaveKey(press)) {
             // ⌘S: the value is written first; the editor then saves.
             commit();
             event.currentTarget.setAttribute(COMMITTED_ATTRIBUTE, '');
@@ -150,9 +185,12 @@ export function PInput({ value, onCommit, placeholder, unit, prefix, disabled, c
             setDraft(value);
             event.currentTarget.blur();
           } else if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
-            const stepped = stepLength(draft, placeholder ?? '', (event.key === 'ArrowUp' ? 1 : -1) * (event.shiftKey ? 10 : 1) * step, unit !== undefined);
+            const delta = (event.key === 'ArrowUp' ? 1 : -1) * (event.shiftKey ? 10 : event.altKey ? 0.1 : 1) * step;
+            const result = rule ? stepField(draft, placeholder ?? '', delta, rule, said) : null;
+            const stepped = rule ? (result?.text ?? null) : stepLength(draft, placeholder ?? '', delta, unit !== undefined);
             if (stepped === null) return;
             event.preventDefault();
+            if (result?.say) announce(result.say);
             const shown = unit && stepped.endsWith(unit) ? stepped.slice(0, -unit.length) : stepped;
             setDraft(shown);
             commit(shown);

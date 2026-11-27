@@ -10,18 +10,13 @@ import { boardsOnPage, notesOnPage, unlockedObjects } from '@open-artifact/desig
 import { useDocument } from '../state/document.ts';
 import { useView, type Selection } from '../state/view.ts';
 import {
-  copyProperties,
   deleteSelection,
   detachSelection,
   detachSelectionRefusal,
   duplicateSelection,
   flipSelection,
   groupSelectedNotes,
-  hasCopiedProperties,
   noteGroupingFor,
-  hasPropertiesToCopy,
-  NO_PROPERTIES,
-  pasteProperties,
   selectAllSiblings,
   selectionIsPositioned,
   wrapSelection,
@@ -32,6 +27,7 @@ import { LOCKED_REASON, UNLOCKABLE_REASON } from '../lib/locks.ts';
 import { canCaptureSelection, canCopyAs, copyAs } from '../services/capture.ts';
 import { armScale } from '../services/scale.ts';
 import { swapSelectionPaint } from '../services/paint.ts';
+import { copyProperties, copyPropertiesRefusal, pasteProperties, pastePropertiesRefusal } from '../services/properties.ts';
 import { StackingItems } from './StackingItems.tsx';
 import { ChromeMenuItem, ChromeMenuSeparator, menuFit, POPUP } from '@open-artifact/editor-kit/react';
 import { groupSelection, ungroupSelection } from '../services/structure.ts';
@@ -114,6 +110,19 @@ function MenuItems() {
     </>
   );
 
+  const copyWhy = copyPropertiesRefusal();
+  const pasteWhy = pastePropertiesRefusal();
+  const propertyItems = (
+    <>
+      <ChromeMenuItem shortcut="⌥⌘C" disabled={readOnly || Boolean(copyWhy)} title={copyWhy ?? undefined} onSelect={copyProperties}>
+        Copy properties
+      </ChromeMenuItem>
+      <ChromeMenuItem shortcut="⌥⌘V" disabled={readOnly || Boolean(pasteWhy)} title={pasteWhy ?? undefined} onSelect={pasteProperties}>
+        Paste properties
+      </ChromeMenuItem>
+    </>
+  );
+
   // Elements of several artboards with or without canvas objects: what
   // each file does for its own part, as one undo step.
   if (mixed) {
@@ -127,6 +136,8 @@ function MenuItems() {
         <ChromeMenuItem shortcut="⌘L" disabled={readOnly || !lock.lockable} title={lock.lockable ? undefined : UNLOCKABLE_REASON} onSelect={toggleSelectionLock}>
           {lock.next === false ? 'Unlock' : 'Lock'}
         </ChromeMenuItem>
+        <ChromeMenuSeparator />
+        {propertyItems}
         <ChromeMenuSeparator />
         <StackingItems disabled={blockedMixed} reason={lockedWhy} />
         <ChromeMenuItem shortcut="⇧H" disabled={blockedMixed} title={lockedWhy} onSelect={() => flipSelection('x')}>
@@ -193,6 +204,8 @@ function MenuItems() {
       {objects ? (
         <>
           <ChromeMenuSeparator />
+          {propertyItems}
+          <ChromeMenuSeparator />
           <StackingItems disabled={readOnly || objectsLocked} reason={objectsLocked ? LOCKED_REASON : undefined} />
           <ChromeMenuItem shortcut="⇧X" disabled={readOnly} onSelect={swapSelectionPaint}>
             Swap fill and stroke
@@ -216,12 +229,7 @@ function MenuItems() {
       ) : null}
       {elements ? (
         <>
-          <ChromeMenuItem shortcut="⌥⌘C" disabled={!hasPropertiesToCopy()} title={hasPropertiesToCopy() ? undefined : NO_PROPERTIES} onSelect={copyProperties}>
-            Copy properties
-          </ChromeMenuItem>
-          <ChromeMenuItem shortcut="⌥⌘V" disabled={readOnly || !hasCopiedProperties()} onSelect={pasteProperties}>
-            Paste properties
-          </ChromeMenuItem>
+          {propertyItems}
           <ChromeMenuSeparator />
           <ChromeMenuItem shortcut="⇧X" disabled={readOnly} onSelect={swapSelectionPaint}>
             Swap fill and stroke

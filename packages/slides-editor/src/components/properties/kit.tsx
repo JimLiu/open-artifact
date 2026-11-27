@@ -12,13 +12,12 @@ import { Collapsible } from '@base-ui/react/collapsible';
 import { NumberField as BaseNumberField } from '@base-ui/react/number-field';
 import { Popover as BasePopover } from '@base-ui/react/popover';
 import { Select as BaseSelect } from '@base-ui/react/select';
-import { Slider as BaseSlider } from '@base-ui/react/slider';
 import { Switch as BaseSwitch } from '@base-ui/react/switch';
 import { Toggle } from '@base-ui/react/toggle';
 import { ToggleGroup } from '@base-ui/react/toggle-group';
 import { Check, ChevronDown, ChevronRight, ChevronUp, RotateCcw, X } from 'lucide-react';
-import { Fragment, forwardRef, useEffect, useMemo, useRef, useState, type ButtonHTMLAttributes, type CSSProperties, type InputHTMLAttributes, type PointerEvent, type ReactNode } from 'react';
-import { cn, isComposingKey } from '@open-artifact/ui';
+import { Fragment, forwardRef, useEffect, useMemo, useRef, useState, type ButtonHTMLAttributes, type CSSProperties, type InputHTMLAttributes, type ReactNode } from 'react';
+import { SliderInput as KitSlider, cn, isComposingKey, type SliderInputProps as KitSliderProps, type SliderLook } from '@open-artifact/ui';
 import { announce } from '@open-artifact/editor-kit';
 import { Tip } from '@open-artifact/editor-kit/react';
 import { CornerIcon, CornersIcon, SideIcon, SidesIcon, type CornerName, type SideName } from './icons.tsx';
@@ -549,85 +548,24 @@ export function CheckboxInput({ checked, onChange, disabled, ...aria }: Checkbox
   );
 }
 
+/** The kit slider in the chrome's look. */
+const CHROME_SLIDER: SliderLook = {
+  root: 'flex h-6 w-full items-center px-1 data-[disabled]:opacity-40',
+  track: 'h-[3px] w-full rounded-full bg-chrome-selected',
+  indicator: 'rounded-full bg-chrome-accent',
+  thumb: 'size-3.5 rounded-full bg-white shadow-[0_0_0_1px_rgb(0_0_0/0.12),0_1px_3px_rgb(0_0_0/0.2)] outline-none focus-visible:outline-2 focus-visible:outline-chrome-accent',
+};
+
 /** Props of {@link SliderInput}. */
-export interface SliderInputProps {
-  value: number;
-  min: number;
-  max: number;
-  step?: number;
-  onChange: (value: number) => void;
-  onCommit?: (value: number) => void;
-  disabled?: boolean;
-  'aria-label'?: string;
-}
+export type SliderInputProps = Omit<KitSliderProps, 'look'>;
 
 /**
- * A horizontal slider. A drag always ends in `onCommit`: also when the
- * pointer is cancelled, or the slider is disabled or removed mid-drag. Pointer
- * movement after a cancelled drag changes nothing.
+ * A horizontal slider in the chrome's look: the UI kit's, whose drag always
+ * ends in one `onCommit` (also when the pointer is cancelled, or the slider
+ * is disabled or removed mid-drag).
  */
-export function SliderInput({ value, min, max, step = 1, onChange, onCommit, disabled, ...aria }: SliderInputProps): ReactNode {
-  const drag = useRef<{ last: number; moved: boolean; stop: () => void } | null>(null);
-  const latest = useRef(onCommit);
-  latest.current = onCommit;
-  const settle = (final?: number): void => {
-    const current = drag.current;
-    if (!current) return;
-    drag.current = null;
-    current.stop();
-    if (final !== undefined || current.moved) latest.current?.(final ?? current.last);
-  };
-  const begin = (event: PointerEvent<HTMLDivElement>): void => {
-    if (drag.current || disabled || event.button !== 0) return;
-    const end = (): void => {
-      // The slider commits a release itself; settle whatever it left open.
-      setTimeout(() => settle(), 0);
-    };
-    const events = ['pointerup', 'pointercancel', 'touchend', 'touchcancel', 'blur'] as const;
-    events.forEach((type) => window.addEventListener(type, end));
-    drag.current = { last: value, moved: false, stop: () => events.forEach((type) => window.removeEventListener(type, end)) };
-  };
-  useEffect(() => {
-    if (disabled) settle();
-  }, [disabled]);
-  useEffect(() => () => settle(), []);
-  // After a cancelled drag the slider keeps tracking the pointer until the next
-  // release; whatever it reports then belongs to no drag of this slider.
-  const strayPointer = (reason: string): boolean => !drag.current && (reason === 'drag' || reason === 'track-press');
-  const single = (next: number | readonly number[]): number => (Array.isArray(next) ? (next[0] ?? min) : (next as number));
-  return (
-    <BaseSlider.Root
-      value={value}
-      disabled={disabled}
-      min={min}
-      max={max}
-      step={step}
-      onPointerDownCapture={begin}
-      onValueChange={(next, details) => {
-        if (strayPointer(details.reason)) return;
-        const v = single(next);
-        if (drag.current) drag.current = { ...drag.current, last: v, moved: true };
-        onChange(v);
-      }}
-      onValueCommitted={(next, details) => {
-        if (strayPointer(details.reason)) return;
-        const v = single(next);
-        if (drag.current) settle(v);
-        else onCommit?.(v);
-      }}
-      className="flex h-6 w-full items-center px-1 data-[disabled]:opacity-40"
-    >
-      <BaseSlider.Control className="flex h-4 w-full items-center">
-        <BaseSlider.Track className="h-[3px] w-full rounded-full bg-chrome-selected">
-          <BaseSlider.Indicator className="rounded-full bg-chrome-accent" />
-          <BaseSlider.Thumb
-            aria-label={aria['aria-label']}
-            className="size-3.5 rounded-full bg-white shadow-[0_0_0_1px_rgb(0_0_0/0.12),0_1px_3px_rgb(0_0_0/0.2)] outline-none focus-visible:outline-2 focus-visible:outline-chrome-accent"
-          />
-        </BaseSlider.Track>
-      </BaseSlider.Control>
-    </BaseSlider.Root>
-  );
+export function SliderInput(props: SliderInputProps): ReactNode {
+  return <KitSlider {...props} look={CHROME_SLIDER} />;
 }
 
 /* --------------------------------- buttons -------------------------------- */

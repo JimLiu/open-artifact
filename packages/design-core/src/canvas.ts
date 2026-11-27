@@ -5,8 +5,12 @@
  * infinite canvas, orders them back to front, groups them into pages, and
  * holds the canvas notes. Readers keep every key they do not know: the file
  * is shared by the editor, agents and future versions, so a normalize/save
- * cycle must never drop data.
+ * cycle must never drop data. The one exception is a note's `css`: it keeps
+ * only the style keys and values a note takes (note-css.ts), and `check`
+ * names what it drops.
  */
+
+import { cleanNoteCss, type NoteCss } from './note-css.ts';
 
 /** Current index version. */
 export const CANVAS_VERSION = 3;
@@ -105,7 +109,8 @@ export interface CanvasNote {
   title?: string;
   linkKind?: 'slides' | 'motion' | 'doc' | 'design';
   alt?: string;
-  css?: Record<string, string>;
+  /** Style keys a shape, image or line takes (see note-css.ts): only valid ones are kept. */
+  css?: NoteCss;
   rotate?: number;
   flipX?: boolean;
   flipY?: boolean;
@@ -236,7 +241,11 @@ export function normalizeCanvas(input: unknown): Canvas {
       const x = finite(note.x, 0);
       const y = finite(note.y, 0);
       const item = { ...rest, x, y, ...(groups ? { groups } : {}) } as CanvasNote;
-      if (isRecord(item.css)) item.css = Object.fromEntries(Object.entries(item.css).filter(([, value]) => typeof value === 'string'));
+      // An older file's `css.fill` is the note's fill: it moves there, so it draws as before.
+      const oldFill = isRecord(item.css) ? (item.css as Record<string, unknown>).fill : undefined;
+      if (typeof oldFill === 'string' && oldFill.trim() && item.fill === undefined && (item.kind === 'rect' || item.kind === 'oval')) item.fill = oldFill.trim();
+      const css = cleanNoteCss(item.css);
+      if (css) item.css = css;
       else delete item.css;
       if (!Number.isFinite(item.rotate)) delete item.rotate;
       if (item.points !== undefined) {
@@ -290,6 +299,18 @@ export function parseCanvas(text: string): { canvas: Canvas; error: string | nul
   }
 }
 
+/**
+ * A pen stroke's dash written into its `css` for readers of the file: whole
+ * numbers, as a note's `stroke-dasharray` takes (the editor draws from `dash`).
+ * Dotted is a one-unit dash and a gap of twice the width plus one.
+ */
+function penDash(dash: CanvasNote['dash'], width: number): NoteCss {
+  const w = Math.min(300, Math.max(1, Math.round(width)));
+  if (dash === 'dashed') return { 'stroke-dasharray': `${3 * w} ${Math.round(2.5 * w)}` };
+  if (dash === 'dotted') return { 'stroke-dasharray': `1 ${2 * w + 1}` };
+  return {};
+}
+
 /** Serializes the index the way it is stored: two-space JSON with a trailing newline. */
 export function serializeCanvas(canvas: Canvas): string {
   const notes = Object.fromEntries(Object.entries(canvas.notes).map(([id, note]) => {
@@ -304,8 +325,8 @@ export function serializeCanvas(canvas: Canvas): string {
       const nodes = Array.isArray(note.nodes) ? note.nodes.map(n => isRecord(n) ? { ...n, x: Number(n.x) - minX, y: Number(n.y) - minY } : n) : undefined;
       const d = points.map(([x, y], i) => `${i ? 'L' : 'M'}${x} ${y}`).join(' ') + (note.closed ? ' Z' : '');
       const width = typeof note.stroke === 'number' ? note.stroke : 3;
-      const css = { ...note.css, ...(note.stroke ? { 'stroke-width': width + 'px' } : {}),
-        ...(note.dash === 'dashed' ? { 'stroke-dasharray': `${3 * width} ${2.5 * width}` } : note.dash === 'dotted' ? { 'stroke-dasharray': `0.01 ${2 * width}` } : {}) };
+      const css = { ...note.css, ...(note.stroke ? { 'stroke-width': `${Math.round(width * 100) / 100}px` } : {}),
+        ...penDash(note.dash, width) };
       return [id, { ...note, x: note.x + minX, y: note.y + minY, w, h, d, points, ...(nodes ? { nodes } : {}), ...(Object.keys(css).length ? { css } : {}) }];
     }
     if ((note.kind === 'line' || note.kind === 'arrow') && note.points?.length === 2) {

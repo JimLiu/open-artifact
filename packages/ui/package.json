@@ -6,7 +6,11 @@
   "description": "Shared editor UI kit: Base UI primitives styled with Tailwind CSS, lucide icons, light and dark themes.",
   "exports": {
     ".": "./src/index.ts",
+    "./color": "./src/color.ts",
     "./keys": "./src/keys.ts",
+    "./link-card": "./src/link-card.ts",
+    "./number-entry": "./src/number-entry.ts",
+    "./number-limits": "./src/number-limits.ts",
     "./tab-strip": "./src/tab-strip.tsx",
     "./styles.css": "./src/styles.css",
     "./theme.css": "./src/theme.css"

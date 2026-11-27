@@ -26,6 +26,8 @@ export * from './color-picker.tsx';
 export * from './effects.ts';
 export * from './effect-editors.tsx';
 export * from './numbers.ts';
+export * from './number-entry.ts';
+export * from './slider-session.ts';
 export * from './scrub-number-field.tsx';
 export * from './fonts.ts';
 export * from './font-picker.tsx';

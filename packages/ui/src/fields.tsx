@@ -9,11 +9,14 @@ import { Switch as BaseSwitch } from '@base-ui/react/switch';
 import { ToggleGroup } from '@base-ui/react/toggle-group';
 import { Toggle } from '@base-ui/react/toggle';
 import { Check, ChevronDown } from 'lucide-react';
-import { forwardRef, useEffect, useRef, useState, type FocusEvent, type InputHTMLAttributes, type ReactNode } from 'react';
+import { forwardRef, useEffect, useMemo, useRef, useState, type FocusEvent, type InputHTMLAttributes, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { cn } from './cn.ts';
 import { isComposingKey, preventRepeatedActivation, shortcutLetter } from './keys.ts';
 import { POPUP_CLASS } from './menu.tsx';
+import { isMinusSign, limitsKept, readTypedNumber, refusesMinus, settleNumber, settleTypedText, startsWithMinus, type NumberLimit } from './number-limits.ts';
+import { clampNumber, roundTo } from './numbers.ts';
 import { createSelectAnnouncer } from './select-announce.ts';
+import { DRAG_ENDS, endsDrag, largeStepOf, sliderValueText } from './slider-session.ts';
 
 /**
  * Shared look of single-line inputs. Every field's box also carries `data-ui-field`, so a page can give the fields
@@ -108,18 +111,94 @@ export interface NumberInputProps {
   placeholder?: string;
   className?: string;
   'aria-label'?: string;
+  /**
+   * Told when the field changed what the user typed: held it at a bound, or
+   * (in a field whose minimum is zero or more) dropped a minus sign. Called
+   * once per commit or key with every change, in order; see
+   * {@link numberLimitMessage} for what to announce.
+   */
+  onLimit?: (limits: readonly NumberLimit[]) => void;
 }
 
-/** A number field whose label can be dragged horizontally to scrub the value. */
-export function NumberInput({ value, onChange, onCommit, label, unit, min, max, step = 1, placeholder, className, ...aria }: NumberInputProps) {
+/** Base UI's step sizes for Alt and Shift with an arrow key (the field sets neither). */
+const SMALL_STEP = 0.1;
+const LARGE_STEP = 10;
+
+/** The decimal separator the locale writes numbers with. */
+function localeDecimal(): string {
+  return new Intl.NumberFormat().formatToParts(1.5).find((part) => part.type === 'decimal')?.value ?? '.';
+}
+
+/**
+ * Commits what is typed in a field before ⌘S / Ctrl+S reaches the page's
+ * save, keeping the field focused with its text selected. The key is not
+ * stopped: the page saves the committed value.
+ */
+function commitBeforeSave(field: HTMLInputElement): void {
+  field.blur();
+  field.focus({ preventScroll: true });
+  field.select();
+  queueMicrotask(() => field.select());
+}
+
+/** True for ⌘S / Ctrl+S (without Alt), on any keyboard layout. */
+function isSaveKey(event: { key: string; code?: string; metaKey: boolean; ctrlKey: boolean; altKey: boolean }): boolean {
+  return (event.metaKey || event.ctrlKey) && !event.altKey && shortcutLetter(event) === 's';
+}
+
+/**
+ * Replaces a field's text as if it were typed, so the field's own input
+ * handling takes it in. False when the browser cannot.
+ */
+function retype(field: HTMLInputElement, text: string): boolean {
+  field.select();
+  return document.execCommand('insertText', false, text);
+}
+
+/**
+ * A number field whose label can be dragged horizontally to scrub the value.
+ *
+ * Typed text past `min` or `max` is held at the bound. When `min` is zero or
+ * more the field takes no negative numbers: the minus key does nothing, and
+ * typed or pasted text that starts with a minus sign keeps its number without
+ * the sign (`-5` is 5, not the minimum). `onLimit` hears about both. ⌘S /
+ * Ctrl+S commits what is typed before the page saves.
+ */
+export function NumberInput({ value, onChange, onCommit, label, unit, min, max, step = 1, placeholder, className, onLimit, ...aria }: NumberInputProps) {
+  const input = useRef<HTMLInputElement>(null);
+  /** The text in the field was typed or pasted and not committed yet. */
+  const typed = useRef(false);
+  const decimal = useMemo(localeDecimal, []);
+  const bounds = { min, max };
+  const tell = (limits: readonly NumberLimit[]) => {
+    if (limits.length > 0) onLimit?.(limits);
+  };
+  /**
+   * The value to pass on for one the field reports. Typed text that starts with a minus sign the field refuses
+   * keeps its number without the sign (left alone, the field would hold it at the minimum). On a commit from typed
+   * text, the changes are told.
+   */
+  const typedValue = (next: number | null, reason: string, event: Event | undefined, committed: boolean): number | null => {
+    const text = input.current?.value;
+    const stepped = reason === 'keyboard' && event instanceof KeyboardEvent && (event.key === 'ArrowUp' || event.key === 'ArrowDown');
+    const fromText = typed.current && text !== undefined && (reason === 'input-change' || reason === 'input-blur' || stepped);
+    if (committed) typed.current = false;
+    if (!fromText) return next;
+    const settled = settleTypedText(text, bounds, decimal);
+    if (settled === null) return next;
+    const minusDropped = settled.limits.some((limit) => limit.reason === 'no-minus');
+    const kept = minusDropped && !stepped ? settled.value : next;
+    if (committed) tell(limitsKept(settled.limits, kept));
+    return kept;
+  };
   return (
     <BaseNumberField.Root
       value={value}
       min={min}
       max={max}
       step={step}
-      onValueChange={(next) => onChange?.(next)}
-      onValueCommitted={(next) => onCommit(next)}
+      onValueChange={(next, details) => onChange?.(typedValue(next, details.reason, details.event, false))}
+      onValueCommitted={(next, details) => onCommit(typedValue(next, details.reason, details.event, true))}
       data-ui-field=""
       className={cn('flex h-7 min-w-0 items-center rounded-control border border-line bg-surface-2 focus-within:border-accent', className)}
     >
@@ -130,10 +209,45 @@ export function NumberInput({ value, onChange, onCommit, label, unit, min, max, 
         </BaseNumberField.ScrubArea>
       ) : null}
       <BaseNumberField.Input
+        ref={input}
         placeholder={placeholder}
         aria-label={aria['aria-label']}
+        onInput={() => {
+          typed.current = true;
+        }}
+        onPaste={() => {
+          typed.current = true;
+        }}
+        onBlur={() => {
+          // The field commits (or turns the text down) during this blur; what is typed after it is new.
+          queueMicrotask(() => {
+            typed.current = false;
+          });
+        }}
         onKeyDown={(event) => {
-          if (event.key === 'Enter' && !isComposingKey(event.nativeEvent)) event.currentTarget.blur();
+          if (isComposingKey(event.nativeEvent)) return;
+          const field = event.currentTarget;
+          if (isSaveKey(event)) {
+            commitBeforeSave(field);
+          } else if (event.key === 'Enter') {
+            field.blur();
+          } else if (refusesMinus(bounds) && isMinusSign(event.key) && !event.ctrlKey && !event.metaKey) {
+            // The field turns the key down too, except with Alt (which types dashes on a Mac).
+            event.preventDefault();
+            tell([{ reason: 'no-minus', limit: min ?? 0 }]);
+          } else if ((event.key === 'ArrowUp' || event.key === 'ArrowDown') && !event.ctrlKey && !event.metaKey && typed.current && refusesMinus(bounds) && startsWithMinus(field.value)) {
+            // Left to the field, a step from "-5" would start at -5 and stop at the minimum.
+            const from = readTypedNumber(field.value, decimal);
+            if (from === null) return;
+            event.preventDefault();
+            const amount = event.altKey ? SMALL_STEP : event.shiftKey ? LARGE_STEP : step;
+            const settled = settleNumber(Math.abs(from), false, bounds);
+            const next = clampNumber(roundTo(Math.abs(from) + (event.key === 'ArrowUp' ? amount : -amount), 10), min, max);
+            if (!retype(field, new Intl.NumberFormat().format(next))) onChange?.(next);
+            typed.current = false;
+            onCommit(next);
+            tell([{ reason: 'no-minus', limit: min ?? 0 }, ...limitsKept(settled.limits, next)]);
+          }
         }}
         className={cn('h-full w-full min-w-0 bg-transparent text-[13px] text-fg outline-none', label === undefined && 'pl-2')}
       />
@@ -287,33 +401,136 @@ export function SwitchInput({ checked, onChange, disabled, ...aria }: SwitchInpu
   );
 }
 
+/** Class names for the parts of a {@link SliderInput}, for an editor with its own look. */
+export interface SliderLook {
+  root?: string;
+  track?: string;
+  indicator?: string;
+  thumb?: string;
+}
+
+const SLIDER_LOOK: Required<SliderLook> = {
+  root: 'flex h-7 w-full items-center data-[disabled]:opacity-40',
+  track: 'h-1 w-full rounded-full bg-line-strong',
+  indicator: 'rounded-full bg-accent',
+  thumb: 'size-3.5 rounded-full border border-line-strong bg-white shadow outline-none focus-visible:outline-2 focus-visible:outline-accent',
+};
+
 /** Props of {@link SliderInput}. */
 export interface SliderInputProps {
   value: number;
   min: number;
   max: number;
   step?: number;
+  /** Each move, during a drag or from a key. */
   onChange: (value: number) => void;
+  /** Once per drag when it ends, and after each key. */
   onCommit?: (value: number) => void;
+  disabled?: boolean;
+  /** The selection holds different values: it reads "Mixed" and shows no thumb position. */
+  mixed?: boolean;
+  /** "%": the value reads as a percentage. */
+  unit?: string;
+  look?: SliderLook;
   'aria-label'?: string;
 }
 
-/** A horizontal slider. */
-export function SliderInput({ value, min, max, step = 1, onChange, onCommit, ...aria }: SliderInputProps) {
+/** The drag under way: the pointer that started it and what it has moved to. */
+interface SliderDrag {
+  pointerId: number | null;
+  last: number;
+  moved: boolean;
+  /** Another pointer was released while this one drags. */
+  foreign?: boolean;
+  /** The range as it was when the drag began: it holds still until the drag ends. */
+  range: { min: number; max: number; step: number };
+  stop: () => void;
+}
+
+/**
+ * A horizontal slider. A drag always ends in one `onCommit`: also when the
+ * pointer is cancelled, or the slider is disabled or removed mid-drag; only
+ * the pointer that started it ends it, and its range holds still meanwhile.
+ * Pointer movement after a cancelled drag changes nothing. The arrows move a
+ * step, PageUp and PageDown ten, Home and End go to the ends; Space does not
+ * scroll the page.
+ */
+export function SliderInput({ value, min, max, step = 1, onChange, onCommit, disabled, mixed, unit, look, ...aria }: SliderInputProps): ReactNode {
+  const drag = useRef<SliderDrag | null>(null);
+  const latest = useRef(onCommit);
+  latest.current = onCommit;
+  const settle = (final?: number): void => {
+    const current = drag.current;
+    if (!current) return;
+    drag.current = null;
+    current.stop();
+    if (final !== undefined || current.moved) latest.current?.(final ?? current.last);
+  };
+  const begin = (event: ReactPointerEvent<HTMLDivElement>): void => {
+    if (drag.current || disabled || event.button !== 0) return;
+    const pointerId = Number.isFinite(event.pointerId) ? event.pointerId : null;
+    const end = (ended: Event): void => {
+      // Listening in the capture phase hears every element's blur too: only the window's ends a drag.
+      if (ended.type === 'blur' && ended.target !== window) return;
+      if (!endsDrag({ type: ended.type, ...(ended instanceof PointerEvent ? { pointerId: ended.pointerId } : {}) }, pointerId)) {
+        // Another pointer let go: the slider ends its own tracking on any release, but this drag goes on.
+        if (drag.current) drag.current.foreign = true;
+        return;
+      }
+      // The slider commits a release itself; settle whatever it left open.
+      setTimeout(() => settle(), 0);
+    };
+    DRAG_ENDS.forEach((type) => window.addEventListener(type, end, true));
+    drag.current = { pointerId, last: value, moved: false, range: { min, max, step }, stop: () => DRAG_ENDS.forEach((type) => window.removeEventListener(type, end, true)) };
+  };
+  useEffect(() => {
+    if (disabled) settle();
+  }, [disabled]);
+  useEffect(() => () => settle(), []);
+  // After a cancelled drag the slider keeps tracking the pointer until the next
+  // release; whatever it reports then belongs to no drag of this slider.
+  const strayPointer = (reason: string): boolean => !drag.current && (reason === 'drag' || reason === 'track-press');
+  const single = (next: number | readonly number[]): number => (Array.isArray(next) ? (next[0] ?? min) : (next as number));
+  const range = drag.current?.range ?? { min, max, step };
+  const parts = { ...SLIDER_LOOK, ...look };
+  const valueText = (_formatted: string, current: number): string => sliderValueText(current, { ...(mixed ? { mixed } : {}), ...(unit ? { unit } : {}) }) ?? _formatted;
   return (
     <BaseSlider.Root
       value={value}
-      min={min}
-      max={max}
-      step={step}
-      onValueChange={(next) => onChange(Array.isArray(next) ? (next[0] ?? min) : next)}
-      onValueCommitted={(next) => onCommit?.(Array.isArray(next) ? (next[0] ?? min) : next)}
-      className="flex h-7 w-full items-center"
+      disabled={disabled}
+      min={range.min}
+      max={range.max}
+      step={range.step}
+      largeStep={largeStepOf(range.step)}
+      onPointerDownCapture={begin}
+      onKeyDown={(event) => {
+        if (event.key === ' ') event.preventDefault();
+      }}
+      onValueChange={(next, details) => {
+        if (strayPointer(details.reason)) return;
+        const v = single(next);
+        if (drag.current) drag.current = { ...drag.current, last: v, moved: true };
+        onChange(v);
+      }}
+      onValueCommitted={(next, details) => {
+        if (strayPointer(details.reason)) return;
+        const v = single(next);
+        const current = drag.current;
+        if (current?.foreign) {
+          // Released by another pointer: the drag ends when its own pointer lets go.
+          current.foreign = false;
+          current.last = v;
+          return;
+        }
+        if (current) settle(v);
+        else onCommit?.(v);
+      }}
+      className={parts.root}
     >
       <BaseSlider.Control className="flex h-4 w-full items-center">
-        <BaseSlider.Track className="h-1 w-full rounded-full bg-line-strong">
-          <BaseSlider.Indicator className="rounded-full bg-accent" />
-          <BaseSlider.Thumb aria-label={aria['aria-label']} className="size-3.5 rounded-full border border-line-strong bg-white shadow outline-none focus-visible:outline-2 focus-visible:outline-accent" />
+        <BaseSlider.Track className={parts.track}>
+          {mixed ? null : <BaseSlider.Indicator className={parts.indicator} />}
+          <BaseSlider.Thumb aria-label={aria['aria-label']} getAriaValueText={valueText} data-mixed={mixed ? '' : undefined} className={cn(parts.thumb, mixed && 'opacity-0 focus-visible:opacity-100')} />
         </BaseSlider.Track>
       </BaseSlider.Control>
     </BaseSlider.Root>

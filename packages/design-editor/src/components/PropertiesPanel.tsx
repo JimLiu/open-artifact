@@ -59,20 +59,21 @@ import {
   type StylePatch,
   type TemplateModel,
 } from '@open-artifact/dc';
-import { isLockedObject, NOTE_COLORS, type BoardEntry, type CanvasNote, type NoteSize } from '@open-artifact/design-core';
+import { cleanNoteCss, isLockedObject, noteCssValue, NOTE_COLORS, type BoardEntry, type CanvasNote, type NoteSize } from '@open-artifact/design-core';
 import { LOCK_ATTRIBUTE, LOCKED_REASON } from '../lib/locks.ts';
 import { useLockedWhy } from '../services/locks.ts';
-import { SliderInput, SwitchInput, cn, isComposingKey } from '@open-artifact/ui';
+import { SliderInput, SwitchInput, cn, isComposingKey, toast, type SliderLook } from '@open-artifact/ui';
 import { useDocument } from '../state/document.ts';
 import { useView } from '../state/view.ts';
 import { boardApi } from '../services/frames.ts';
 import { templateOf } from '../services/agent.ts';
-import { alignMode, deleteSelection, edit, runAlign, styleSelection } from '../services/commands.ts';
+import { alignMode, deleteSelection, edit, rememberRectRadius, runAlign, styleSelection } from '../services/commands.ts';
+import { hasCssBorder, NOTE_RECT_RADIUS, shapeFill } from '../lib/note-look.ts';
 import { ALIGN_ACTIONS, alignShortcut, alignTip, type AlignAction } from '../lib/align.ts';
 import { mixedElementKinds, mixedPaintValues, paintMixed } from '../services/paint.ts';
 import { MIXED, inspectorRoute, mergedValue, selectionCounts, sharedPaintRoles, type MixedSelection, type PaintRole } from '../lib/selection.ts';
 import { zoomToBoards } from '../services/viewport.ts';
-import { NOTE_PALETTE } from '../lib/notes.ts';
+import { isPathNote, NOTE_PALETTE, noteStroke } from '../lib/notes.ts';
 import { describeElement, detailOf, selectorOf } from '../lib/outline.ts';
 import { MOD } from '@open-artifact/editor-kit';
 import { Tip } from '@open-artifact/editor-kit/react';
@@ -169,7 +170,8 @@ export interface ElementContext {
    * `null`. Separate from `locked`: everything else stays editable.
    */
   lockedWhy: string | null;
-  set(patch: StylePatch): void;
+  /** Writes to the selection; edits with the same `coalesce` key are one undo step (a slider drag). */
+  set(patch: StylePatch, options?: { coalesce?: string }): void;
 }
 
 /* ---------------------------------- size ---------------------------------- */
@@ -233,7 +235,7 @@ function SizeSection({ ctx }: { ctx: ElementContext }) {
       </PRow>
       {parentFlex ? (
         <PRow label="Grow">
-          <PInput aria-label="Flex grow" value={ctx.inline['flex-grow'] ?? ''} placeholder={ctx.computed['flex-grow'] ?? '0'} disabled={ctx.locked} onCommit={(next) => ctx.set({ 'flex-grow': next || null })} />
+          <PInput aria-label="Flex grow" name="Grow" min={0} numeric value={ctx.inline['flex-grow'] ?? ''} placeholder={ctx.computed['flex-grow'] ?? '0'} disabled={ctx.locked} onCommit={(next) => ctx.set({ 'flex-grow': next || null })} />
         </PRow>
       ) : null}
     </PSection>
@@ -259,6 +261,8 @@ function SidesRow({ ctx, prop, label }: { ctx: ElementContext; prop: 'padding' |
   const uniform = written.every((v) => v === written[0]) && (written[0] !== '' || rendered.every((v) => v === rendered[0]));
   const [split, setSplit] = useState(!uniform);
   useEffect(() => setSplit(!uniform), [ctx.element]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Padding takes no negative numbers; margin does.
+  const sideLimits = prop === 'padding' ? { min: 0 } : {};
 
   const writeAll = (values: string[]) => {
     const patch: Record<string, string | null> = { [prop]: null };
@@ -277,6 +281,7 @@ function SidesRow({ ctx, prop, label }: { ctx: ElementContext; prop: 'padding' |
       <PRow label={label}>
         <PInput
           aria-label={label}
+          {...sideLimits}
           value={withoutUnit(written[0])}
           placeholder={rendered[0]}
           unit="px"
@@ -298,6 +303,7 @@ function SidesRow({ ctx, prop, label }: { ctx: ElementContext; prop: 'padding' |
           <PInput
             key={side}
             aria-label={`${label} ${side}`}
+            {...sideLimits}
             prefix={side[0]!.toUpperCase()}
             value={withoutUnit(written[i])}
             placeholder={rendered[i]}
@@ -459,7 +465,7 @@ function LayoutSection({ ctx }: { ctx: ElementContext }) {
       ) : null}
       {flex || grid ? (
         <PRow label="Gap">
-          <PInput aria-label="Gap" value={withoutUnit(ctx.inline.gap)} placeholder={roundPx(ctx.computed['row-gap'] ?? ctx.computed.gap)} unit="px" disabled={ctx.locked} onCommit={(next) => ctx.set({ gap: next || null })} />
+          <PInput aria-label="Gap" min={0} value={withoutUnit(ctx.inline.gap)} placeholder={roundPx(ctx.computed['row-gap'] ?? ctx.computed.gap)} unit="px" disabled={ctx.locked} onCommit={(next) => ctx.set({ gap: next || null })} />
         </PRow>
       ) : null}
     </PSection>
@@ -602,12 +608,12 @@ function TextSection({ ctx, source }: { ctx: ElementContext; source: string }) {
       </PRow>
       <PRow label="Weight">
         <PSelect aria-label="Font weight" value={normalWeight(ctx.inline['font-weight'] ?? ctx.computed['font-weight'])} options={WEIGHTS} disabled={ctx.locked} onChange={(next) => ctx.set({ 'font-weight': next })} />
-        <PInput aria-label="Font size" className="w-[76px] shrink-0" value={withoutUnit(ctx.inline['font-size'])} placeholder={roundPx(size)} unit="px" disabled={ctx.locked} onCommit={(next) => ctx.set({ 'font-size': next || null })} />
+        <PInput aria-label="Font size" min={1} max={400} className="w-[76px] shrink-0" value={withoutUnit(ctx.inline['font-size'])} placeholder={roundPx(size)} unit="px" disabled={ctx.locked} onCommit={(next) => ctx.set({ 'font-size': next || null })} />
       </PRow>
       <PRow label="Spacing">
         <Tip label="Line height" side="top">
           <span className="min-w-0 flex-1">
-            <PInput aria-label="Line height" prefix="↕" value={ctx.inline['line-height'] ?? ''} placeholder={ctx.computed['line-height'] === 'normal' ? 'Auto' : roundPx(ctx.computed['line-height'])} disabled={ctx.locked} onCommit={(next) => ctx.set({ 'line-height': next || null })} />
+            <PInput aria-label="Line height" prefix="↕" min={0} step={0.05} value={ctx.inline['line-height'] ?? ''} placeholder={ctx.computed['line-height'] === 'normal' ? 'Auto' : roundPx(ctx.computed['line-height'])} disabled={ctx.locked} onCommit={(next) => ctx.set({ 'line-height': next || null })} />
           </span>
         </Tip>
         <Tip label="Letter spacing" side="top">
@@ -699,6 +705,60 @@ function BorderRow({ ctx, placeholder }: { ctx: ElementContext; placeholder: str
   );
 }
 
+/** The look a slider has in the panel. */
+const PANEL_SLIDER: SliderLook = {
+  root: 'flex h-6 min-w-0 flex-1 items-center px-1 data-[disabled]:opacity-40',
+  track: 'h-[3px] w-full rounded-full bg-chrome-selected',
+  indicator: 'rounded-full bg-chrome-accent',
+  thumb: 'size-3.5 rounded-full bg-white shadow-[0_0_0_1px_rgb(0_0_0/0.12),0_1px_3px_rgb(0_0_0/0.2)] outline-none focus-visible:outline-2 focus-visible:outline-[#257de0]',
+};
+
+/** A drag's edits share one key, so the drag is one undo step. */
+let dragSerial = 0;
+
+/** Opacity: a percentage field and a slider; a drag writes as it goes and is one undo step. */
+function OpacityRow({ ctx, opacity }: { ctx: ElementContext; opacity: string | undefined }) {
+  const shown = Math.round(num(opacity ?? ctx.computed.opacity ?? '1') * 100);
+  const drag = useRef<string | null>(null);
+  const write = (value: number, coalesce?: string) => ctx.set({ opacity: value >= 100 ? null : String(Math.max(0, value) / 100) }, coalesce ? { coalesce } : {});
+  return (
+    <PRow label="Opacity">
+      <PInput
+        aria-label="Opacity"
+        className="w-[68px] shrink-0"
+        min={0}
+        max={100}
+        numeric
+        value={opacity !== undefined ? String(shown) : ''}
+        placeholder={String(shown)}
+        unit="%"
+        disabled={ctx.locked}
+        onCommit={(next) => {
+          const value = num(next);
+          ctx.set({ opacity: !next || !Number.isFinite(value) || value >= 100 ? null : String(Math.max(0, value) / 100) });
+        }}
+      />
+      <SliderInput
+        aria-label="Opacity slider"
+        look={PANEL_SLIDER}
+        unit="%"
+        min={0}
+        max={100}
+        value={shown}
+        disabled={ctx.locked}
+        onChange={(value) => {
+          drag.current ??= `opacity-drag-${++dragSerial}`;
+          write(value, drag.current);
+        }}
+        onCommit={(value) => {
+          write(value, drag.current ?? undefined);
+          drag.current = null;
+        }}
+      />
+    </PRow>
+  );
+}
+
 function AppearanceSection({ ctx }: { ctx: ElementContext }) {
   const swatches = useSystemSwatches();
   const background = ctx.inline.background;
@@ -721,19 +781,9 @@ function AppearanceSection({ ctx }: { ctx: ElementContext }) {
         <RemoveFillButton ctx={ctx} />
       </PRow>
       <LayersRow ctx={ctx} />
-      <PRow label="Opacity">
-        <PInput
-          aria-label="Opacity"
-          value={opacity !== undefined ? String(Math.round(num(opacity) * 100)) : ''}
-          placeholder={String(Math.round(num(ctx.computed.opacity ?? '1') * 100))}
-          unit="%"
-          disabled={ctx.locked}
-          onCommit={(next) => {
-            const value = num(next);
-            ctx.set({ opacity: !next || !Number.isFinite(value) || value >= 100 ? null : String(Math.max(0, value) / 100) });
-          }}
-        />
-        <PInput aria-label="Corner radius" prefix="◜" className="w-[96px] shrink-0" value={withoutUnit(ctx.inline['border-radius'])} placeholder={roundPx(ctx.computed['border-top-left-radius'])} unit="px" disabled={ctx.locked} onCommit={(next) => ctx.set({ 'border-radius': next || null })} />
+      <OpacityRow ctx={ctx} opacity={opacity} />
+      <PRow label="Radius">
+        <PInput aria-label="Corner radius" prefix="◜" min={0} value={withoutUnit(ctx.inline['border-radius'])} placeholder={roundPx(ctx.computed['border-top-left-radius'])} unit="px" disabled={ctx.locked} onCommit={(next) => ctx.set({ 'border-radius': next || null })} />
       </PRow>
       <BorderRow ctx={ctx} placeholder={border} />
       <PRow label="Clip">
@@ -809,8 +859,8 @@ function useElementContext(board: string): (ElementContext & { many: boolean; dy
     lockedWhy,
     dynamic,
     many: selection.items.length > 1,
-    set: (patch) => {
-      if (!locked) styleSelection(patch);
+    set: (patch, options) => {
+      if (!locked) styleSelection(patch, options);
     },
   };
 }
@@ -904,7 +954,7 @@ function BoardInspector({ path }: { path: string }) {
           </PRow>
         ) : null}
         <PRow label="Radius">
-          <PInput aria-label="Corner radius" value={entry.radius ? String(entry.radius) : ''} placeholder="0" unit="px" disabled={readOnly} onCommit={(value) => updateBoard(path, { radius: num(value) ? Math.round(num(value)) : undefined })} />
+          <PInput aria-label="Corner radius" min={0} value={entry.radius ? String(entry.radius) : ''} placeholder="0" unit="px" disabled={readOnly} onCommit={(value) => updateBoard(path, { radius: num(value) ? Math.round(num(value)) : undefined })} />
         </PRow>
       </PSection>
       <GuideInspector guides={entry.guides} readOnly={readOnly} change={guides => updateBoard(path, { guides: guides.length ? guides : undefined })} />
@@ -969,6 +1019,7 @@ function NoteInspector({ id }: { id: string }) {
   const colorKey = shape || sticky ? 'fill' : 'color';
   const title = note.kind === 'title1' ? 'Text' : note.kind === 'pen' ? 'Drawing' : note.kind ? note.kind[0]!.toUpperCase() + note.kind.slice(1) : 'Sticky note';
   return (
+    <>
     <PSection title={title}>
       <PRow label={shape ? 'Fill' : 'Color'}>
         <Swatches
@@ -1029,6 +1080,111 @@ function NoteInspector({ id }: { id: string }) {
           />
         ))}
       </PRow>
+    </PSection>
+    {shape || (stroked && note.kind !== 'title1') ? <NoteStyleSection id={id} note={note} readOnly={readOnly} /> : null}
+    </>
+  );
+}
+
+/** Said when a fill a canvas object cannot take (an image) is typed. */
+export const NOTE_FILL_REFUSED = 'A canvas object takes a color or gradient fill. To add an image, drag or paste it onto the canvas.';
+
+/** Writes `key` of a note's css (null: removes it); a value the note does not take changes nothing and says false. */
+function setNoteCss(id: string, note: CanvasNote, patch: Record<string, string | null>): boolean {
+  const next: Record<string, string> = { ...note.css };
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === null || value.trim() === '') delete next[key];
+    else if (noteCssValue(key, value) === null) return false;
+    else next[key] = value.trim();
+  }
+  updateNote(id, { css: cleanNoteCss(next) });
+  return true;
+}
+
+const BORDER_STYLES: POption[] = ['none', 'solid', 'dashed', 'dotted', 'double'].map((value) => ({ value, label: value[0]!.toUpperCase() + value.slice(1) }));
+const BORDER_POSITIONS: POption[] = [
+  { value: 'inside', label: 'Inside' },
+  { value: 'center', label: 'Center' },
+  { value: 'outside', label: 'Outside' },
+];
+
+/**
+ * The style rows of a shape or image note, written to its `css`: fill,
+ * border and where it sits, radius, effects and opacity. A line takes
+ * its width, dash and opacity.
+ */
+function NoteStyleSection({ id, note, readOnly }: { id: string; note: CanvasNote; readOnly: boolean }) {
+  const css = note.css ?? {};
+  const set = (patch: Record<string, string | null>) => setNoteCss(id, note, patch);
+  const line = isPathNote(note);
+  const opacity = css.opacity === undefined ? '' : String(Math.round((css.opacity.endsWith('%') ? Number.parseFloat(css.opacity) / 100 : Number(css.opacity)) * 100));
+  const opacityRow = (
+    <PRow label="Opacity">
+      <PInput aria-label="Object opacity" name="Opacity" className="w-[68px] shrink-0" numeric min={0} max={100} unit="%" value={opacity} placeholder="100" disabled={readOnly}
+        onCommit={(next) => set({ opacity: !next || num(next) >= 100 ? null : String(num(next) / 100) })} />
+    </PRow>
+  );
+  if (line) {
+    return (
+      <PSection title="Stroke">
+        <PRow label="Width">
+          <PInput aria-label="Stroke width" name="Width" min={0} max={100} numeric unit="px" value={note.stroke === undefined ? '' : String(note.stroke)} placeholder={String(noteStroke(note).width)} disabled={readOnly}
+            onCommit={(next) => updateNote(id, { stroke: next ? num(next) : undefined })} />
+        </PRow>
+        <PRow label="Dash">
+          <PSelect aria-label="Dash" value={note.dash ?? 'solid'} disabled={readOnly} options={[{ value: 'solid', label: 'Solid' }, { value: 'dashed', label: 'Dashed' }, { value: 'dotted', label: 'Dotted' }]}
+            onChange={(value) => updateNote(id, { dash: value === 'solid' ? undefined : (value as 'dashed' | 'dotted') })} />
+        </PRow>
+        {opacityRow}
+      </PSection>
+    );
+  }
+  const oval = note.kind === 'oval';
+  const position = css['border-position'] ?? 'inside';
+  return (
+    <PSection title="Appearance">
+      <PRow label="Fill">
+        <PInput aria-label="Object fill" mono value={css.background ?? css['background-color'] ?? ''} placeholder={note.fill ? shapeFill(note) : 'None'} disabled={readOnly}
+          onCommit={(next) => {
+            if (/url\(/i.test(next)) {
+              toast.add({ title: NOTE_FILL_REFUSED });
+              return;
+            }
+            const key = /gradient\(/i.test(next) ? 'background' : 'background-color';
+            set({ background: null, 'background-color': null, ...(next ? { [key]: next } : {}) });
+          }} />
+      </PRow>
+      <PRow label="Border">
+        <PInput aria-label="Border width" name="Border width" className="w-[60px] shrink-0" min={0} unit="px" value={withoutUnit(css['border-width'])} placeholder={hasCssBorder(css) ? '' : '3'} disabled={readOnly}
+          onCommit={(next) => set({ 'border-width': next || null, ...(next && !css['border-style'] ? { 'border-style': 'solid' } : {}) })} />
+        <PSelect aria-label="Border style" className="w-[84px] shrink-0" value={css['border-style'] ?? (hasCssBorder(css) ? 'none' : 'solid')} options={BORDER_STYLES} disabled={readOnly} onChange={(value) => set({ 'border-style': value })} />
+        <PInput aria-label="Border color" mono value={css['border-color'] ?? ''} placeholder={hasCssBorder(css) ? 'currentcolor' : 'Palette'} disabled={readOnly} onCommit={(next) => set({ 'border-color': next || null })} />
+      </PRow>
+      <PRow label="Alignment">
+        <PSelect aria-label="Border alignment" value={position} options={BORDER_POSITIONS} disabled={readOnly} onChange={(value) => set({ 'border-position': value === 'inside' ? null : value })} />
+      </PRow>
+      <PRow label="Radius">
+        {oval ? (
+          <span className="text-[12px] text-chrome-muted" data-reason="radius">An oval is always round</span>
+        ) : (
+          <PInput aria-label="Object radius" name="Radius" min={0} max={400} unit="px" value={withoutUnit(css['border-radius'])} placeholder={String(NOTE_RECT_RADIUS)} disabled={readOnly}
+            onCommit={(next) => {
+              set({ 'border-radius': next || null });
+              if (note.kind === 'rect') rememberRectRadius(next ? num(next) : NOTE_RECT_RADIUS);
+            }} />
+        )}
+      </PRow>
+      <PRow label="Shadow">
+        <PInput aria-label="Object shadow" value={css['box-shadow'] ?? ''} placeholder="None" disabled={readOnly} onCommit={(next) => set({ 'box-shadow': next || null })} />
+      </PRow>
+      <PRow label="Filter">
+        <PInput aria-label="Object filter" value={css.filter ?? ''} placeholder="None" disabled={readOnly} onCommit={(next) => set({ filter: next || null })} />
+      </PRow>
+      <PRow label="Backdrop">
+        <PInput aria-label="Backdrop blur" name="Backdrop blur" min={0} numeric unit="px" value={/^blur\((\d*\.?\d+)px\)$/.exec(css['backdrop-filter'] ?? '')?.[1] ?? ''} placeholder="0" disabled={readOnly}
+          onCommit={(next) => set({ 'backdrop-filter': next && num(next) > 0 ? `blur(${num(next)}px)` : null })} />
+      </PRow>
+      {opacityRow}
     </PSection>
   );
 }
@@ -1312,11 +1468,22 @@ function TweakControl({ board, name, spec, value }: { board: string; name: strin
     case 'range':
       return (
         <>
-          <SliderInput aria-label={name} min={spec.min ?? 0} max={spec.max ?? 100} step={spec.step ?? 1} value={Number(value ?? spec.min ?? 0)} onChange={set} />
-          <span className="w-12 shrink-0 text-right text-[12px] tabular-nums text-chrome-secondary">
-            {String(value ?? '')}
-            {spec.unit ?? ''}
-          </span>
+          <PInput
+            aria-label={`${name} value`}
+            name={name}
+            className="w-[68px] shrink-0"
+            numeric
+            min={spec.min ?? 0}
+            max={spec.max ?? 100}
+            step={spec.step ?? 1}
+            unit={spec.unit}
+            value={value === undefined || value === null ? '' : String(value)}
+            onCommit={(next) => {
+              const n = num(next);
+              if (Number.isFinite(n)) set(n);
+            }}
+          />
+          <SliderInput aria-label={name} look={PANEL_SLIDER} unit={spec.unit} min={spec.min ?? 0} max={spec.max ?? 100} step={spec.step ?? 1} value={Number(value ?? spec.min ?? 0)} onChange={set} />
         </>
       );
     case 'int':

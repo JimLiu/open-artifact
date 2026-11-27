@@ -4,7 +4,8 @@
  */
 
 import { attributeValue, parseStyle, styleMap, type HtmlElement, type StylePatch } from '@open-artifact/dc';
-import type { CanvasNote } from '@open-artifact/design-core';
+import type { CanvasNote, NoteCss } from '@open-artifact/design-core';
+import { hasCssBorder } from './note-look.ts';
 import { readAlignment, splitShorthand } from './border-align.ts';
 
 /** X: the fill goes, a class's background included. */
@@ -153,31 +154,52 @@ export function shapeSwap(shape: HtmlElement, strokeWidth = '1'): SwapPlan {
 /** A shape note's default stroke (its `color` unset). */
 const NOTE_STROKE = '#2b2b2b';
 
-/** Shape notes (rectangles and ovals) swapped: their fill takes the border's color and back. */
+/** A note's css without `keys` (undefined when nothing is left). */
+function cssWithout(css: NoteCss | undefined, keys: readonly string[]): NoteCss | undefined {
+  if (!css) return undefined;
+  const kept = Object.fromEntries(Object.entries(css).filter(([key]) => !keys.includes(key))) as NoteCss;
+  return Object.keys(kept).length ? kept : undefined;
+}
+
+/** A note with `css` set, or without the key when it is undefined. */
+function withCss(note: CanvasNote, css: NoteCss | undefined): CanvasNote {
+  const next: CanvasNote = { ...note };
+  if (css) next.css = css;
+  else delete next.css;
+  return next;
+}
+
+const NOTE_BACKGROUND = ['background', 'background-color'] as const;
+
+/**
+ * Shape notes (rectangles and ovals) swapped: their fill takes the border's
+ * color and back. A fill or border set in the note's css is swapped there;
+ * a gradient fill is not one color, and is refused.
+ */
 export function noteSwap(note: CanvasNote): CanvasNote | SwapRefusal {
   if (note.kind !== 'rect' && note.kind !== 'oval') return 'unfit';
-  const fill = note.fill ?? note.css?.fill ?? 'transparent';
-  const stroke = note.color ?? NOTE_STROKE;
+  const css = note.css;
+  const cssFill = css?.['background-color'] ?? css?.background;
+  if (cssFill !== undefined && LAYERED.test(cssFill)) return 'not-solid';
+  const cssBorder = hasCssBorder(css);
+  const fill = cssFill ?? note.fill ?? 'transparent';
+  const stroke = cssBorder ? (css?.['border-color'] ?? 'currentcolor') : (note.color ?? NOTE_STROKE);
   if (fill === stroke) return 'nothing';
-  const next: CanvasNote = { ...note, fill: stroke, color: fill };
-  if (note.css && 'fill' in note.css) {
-    const { fill: _, ...css } = note.css;
-    if (Object.keys(css).length) next.css = css;
-    else delete next.css;
-  }
+  let next = withCss(note, cssWithout(css, cssFill !== undefined ? NOTE_BACKGROUND : []));
+  if (cssFill !== undefined) next = withCss(next, { ...next.css, 'background-color': stroke });
+  else next.fill = stroke;
+  if (cssBorder) next = withCss(next, { ...next.css, 'border-color': fill });
+  else next.color = fill;
   return next;
 }
 
 /** A shape note without its fill (`null`: it has none, or isn't a shape note). */
 export function noteUnfill(note: CanvasNote): CanvasNote | null {
-  if ((note.kind !== 'rect' && note.kind !== 'oval') || (note.fill === undefined && note.css?.fill === undefined)) return null;
-  const next: CanvasNote = { ...note };
+  if (note.kind !== 'rect' && note.kind !== 'oval') return null;
+  const cssFill = note.css?.background !== undefined || note.css?.['background-color'] !== undefined;
+  if (note.fill === undefined && !cssFill) return null;
+  const next = withCss(note, cssWithout(note.css, NOTE_BACKGROUND));
   delete next.fill;
-  if (note.css && 'fill' in note.css) {
-    const { fill: _, ...css } = note.css;
-    if (Object.keys(css).length) next.css = css;
-    else delete next.css;
-  }
   return next;
 }
 

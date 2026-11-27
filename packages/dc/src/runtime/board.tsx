@@ -48,6 +48,11 @@ const INSPECTED = [
   'text-align', 'text-transform', 'text-decoration-line', 'white-space', 'overflow', 'object-fit', 'top', 'left',
   'right', 'bottom', 'z-index', 'transform', 'rotate', 'scale', 'translate', 'transform-origin', 'border-right-width',
   'border-bottom-width', 'border-left-width', 'box-sizing', 'background-clip',
+  // What Copy properties reads when a style is not written inline.
+  'border-right-style', 'border-bottom-style', 'border-left-style', 'border-right-color', 'border-bottom-color',
+  'border-left-color', 'outline-style', 'outline-width', 'outline-color', 'outline-offset', 'filter', 'backdrop-filter',
+  'mix-blend-mode', 'background-size', 'background-position', 'background-repeat', 'text-shadow', 'fill', 'stroke',
+  'stroke-width', 'stroke-dasharray', 'stroke-linecap', 'stroke-linejoin', 'fill-opacity', 'stroke-opacity',
 ];
 
 /** Computed properties `measure` reports: placement, and the text styles an element inherits. */

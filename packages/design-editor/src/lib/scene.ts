@@ -11,6 +11,7 @@
 import { parseColor, type CameraState, type CanvasItem, type Color } from '@open-artifact/canvas-engine';
 import type { BoardEntry, CanvasNote, Rect } from '@open-artifact/design-core';
 import type { Camera } from '../state/view.ts';
+import { noteOpacity, shapeLook } from './note-look.ts';
 import { DEFAULT_STICKY, arrowHeads, noteStroke, penViewBox, isPathNote, noteBounds, noteColor } from './notes.ts';
 
 /** Engine item id of an artboard. */
@@ -113,6 +114,15 @@ function noteFill(value: string | undefined, use: 'sticky' | 'stroke', fallback:
   }
 }
 
+/** A CSS colour as the engine takes it, or null when it cannot resolve it. */
+function engineColor(value: string): number | null {
+  try {
+    return parseColor(value);
+  } catch {
+    return null;
+  }
+}
+
 /** Texture key of an image note. */
 export const imageKey = (src: string): string => `img:${src}`;
 
@@ -144,7 +154,8 @@ export function noteItem(id: string, note: CanvasNote, look: NoteLook): CanvasIt
     const { width, color, dash } = noteStroke(note);
     const stroke = noteFill(color, 'stroke', '#2b2b2b');
     const points = (note.points ?? []).map(([x, y]) => [x + note.x - rect.x, y + note.y - rect.y] as const);
-    const line = { ...base, kind: 'path' as const, stroke, strokeWidth: width, ...(dash ? { dash } : {}), cap: 'round' as const, join: 'round' as const, hitStrokeOnly: true };
+    const opacity = noteOpacity(note);
+    const line = { ...base, kind: 'path' as const, stroke, strokeWidth: width, ...(dash ? { dash } : {}), ...(opacity !== undefined ? { opacity } : {}), cap: 'round' as const, join: 'round' as const, hitStrokeOnly: true };
     if (note.kind === 'pen' && note.d && !points.length) return { ...line, d: note.d, viewBox: penViewBox(note.d) };
     const heads = arrowHeads(note, points);
     if (heads.length) {
@@ -160,14 +171,21 @@ export function noteItem(id: string, note: CanvasNote, look: NoteLook): CanvasIt
     case 'image':
       return { ...base, kind: 'image', fill: '#00000010', ...(note.src ? { texture: imageKey(note.src) } : {}) };
     case 'rect':
-      return { ...base, kind: 'rect', fill: noteFill(note.fill, 'sticky', 'transparent'), stroke: noteFill(note.color, 'stroke', '#2b2b2b'), strokeWidth: 3, radius: 6 };
     case 'oval': {
+      const shape = shapeLook(note).engine;
+      const fill = shape && engineColor(shape.fill);
+      const stroke = shape && engineColor(shape.stroke);
+      // A look only the DOM body draws (see note-look.ts): the scene keeps a clear box to hit.
+      if (!shape || fill === null || stroke === null) return { ...base, kind: 'rect', fill: 'transparent' };
+      const paint = { stroke, strokeWidth: shape.strokeWidth, ...(shape.dash ? { dash: shape.dash } : {}), ...(shape.opacity !== undefined ? { opacity: shape.opacity } : {}) };
+      if (note.kind === 'rect') return { ...base, kind: 'rect', fill, radius: shape.radius, ...paint };
       // An ellipse inset by half the stroke, so the stroke stays inside the box (as a CSS border does).
-      const rx = Math.max(0, rect.w / 2 - 1.5);
-      const ry = Math.max(0, rect.h / 2 - 1.5);
-      const d = `M1.5 ${rect.h / 2}A${rx} ${ry} 0 1 0 ${rect.w - 1.5} ${rect.h / 2}A${rx} ${ry} 0 1 0 1.5 ${rect.h / 2}Z`;
+      const half = shape.strokeWidth / 2;
+      const rx = Math.max(0, rect.w / 2 - half);
+      const ry = Math.max(0, rect.h / 2 - half);
+      const d = `M${half} ${rect.h / 2}A${rx} ${ry} 0 1 0 ${rect.w - half} ${rect.h / 2}A${rx} ${ry} 0 1 0 ${half} ${rect.h / 2}Z`;
       // An unfilled oval still takes clicks inside (a path is hit by its fill): a fill too faint to see.
-      return { ...base, kind: 'path', d, fill: note.fill ? noteFill(note.fill, 'sticky', 'transparent') : '#00000001', stroke: noteFill(note.color, 'stroke', '#2b2b2b'), strokeWidth: 3 };
+      return { ...base, kind: 'path', d, fill: (fill & 0xff) === 0 ? '#00000001' : fill, ...paint };
     }
     case 'link':
       return { ...base, kind: 'rect', fill: '#ffffff', stroke: 'rgba(0,0,0,0.1)', strokeWidth: 1, radius: 8, shadow: { color: 'rgba(0,0,0,0.06)', blur: 3, dy: 1 } };

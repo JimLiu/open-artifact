@@ -46,6 +46,7 @@ import {
   type StylePatch,
   type TemplateModel,
 } from '@open-artifact/dc';
+import { NOTE_RECT_RADIUS, rememberedRadius, withRectRadius } from '../lib/note-look.ts';
 import { toast } from '@open-artifact/ui';
 import { detachMarkup, detachRefusal, instanceProps } from '../lib/detach.ts';
 import { freeBoardName, newBoardSource } from '../lib/frame.ts';
@@ -118,9 +119,9 @@ function selectedAddresses(): { board: string; targets: Address[] } | null {
 }
 
 /** Sets inline styles on every selected element. */
-export function styleSelection(patch: StylePatch): void {
+export function styleSelection(patch: StylePatch, options: { coalesce?: string } = {}): void {
   const selected = selectedAddresses();
-  if (selected) edit(selected.board, { kind: 'style', targets: selected.targets, patch });
+  if (selected) edit(selected.board, { kind: 'style', targets: selected.targets, patch }, options);
 }
 
 /** Sets an attribute on the (first) selected element. */
@@ -697,50 +698,6 @@ export function selectAllSiblings(): void {
   if (items.length) useView.getState().select({ kind: 'elements', board, items });
 }
 
-/* ------------------------------ properties ------------------------------ */
-
-/** Inline style copied with ⌥⌘C. */
-let copiedStyle: string | null = null;
-
-/** Copies the inline style of the (first) selected element. */
-export function copyProperties(): void {
-  const selected = selectedElements();
-  if (!selected) return;
-  if (!hasPropertiesToCopy()) {
-    toast.add({ title: `${NO_PROPERTIES}.` });
-    return;
-  }
-  copiedStyle = attributeValue(selected.elements[0]!, 'style') ?? '';
-  toast.add({ title: 'Properties copied' });
-}
-
-/** Why Copy properties does nothing: the element has no inline style. */
-export const NO_PROPERTIES = 'This element has no properties to copy';
-
-/** Whether the (first) selected element has an inline style to copy. */
-export function hasPropertiesToCopy(): boolean {
-  const selected = selectedElements();
-  return Boolean(selected && (attributeValue(selected.elements[0]!, 'style') ?? '').trim());
-}
-
-/** Replaces the inline style of every selected element with the copied one. */
-export function pasteProperties(): void {
-  const selected = selectedElements();
-  if (!selected || copiedStyle === null) return;
-  const copied = styleMap(copiedStyle);
-  const edits = selected.elements.map((element) => {
-    const patch: Record<string, string | null> = { ...copied };
-    for (const property of Object.keys(styleMap(attributeValue(element, 'style') ?? ''))) if (!(property in copied)) patch[property] = null;
-    return { target: addressIn(selected.model, element), patch };
-  });
-  edit(selected.board, { kind: 'styles', edits });
-}
-
-/** True once properties were copied. */
-export function hasCopiedProperties(): boolean {
-  return copiedStyle !== null;
-}
-
 /* -------------------------------- moving -------------------------------- */
 
 const px = (value: string | undefined): number => {
@@ -1136,16 +1093,25 @@ export function addBoardFromKeyboard(): string | null {
   return path;
 }
 
+/** The corner radius last set on a rectangle note in this session: a new rectangle takes it. */
+let lastRectRadius = NOTE_RECT_RADIUS;
+
+/** Remembers a rectangle's radius for the next one drawn. */
+export function rememberRectRadius(radius: number): void {
+  lastRectRadius = rememberedRadius(radius) ?? lastRectRadius;
+}
+
 /** Adds a note at a world point and selects it. */
 export function addNote(kind: CanvasNote['kind'] | undefined, at: { x: number; y: number }, extra: Partial<CanvasNote> = {}): string | null {
   const doc = useDocument.getState();
   if (doc.readOnly) return null;
   const view = useView.getState();
   const id = freshId('n', Object.keys(doc.canvas.notes));
-  const note: CanvasNote = { x: Math.round(at.x), y: Math.round(at.y), text: '', ...extra };
+  let note: CanvasNote = { x: Math.round(at.x), y: Math.round(at.y), text: '', ...extra };
   if (kind && kind !== 'sticky') note.kind = kind;
   if (kind === 'title1') Object.assign(note, { maxW: 1200, size: 24, bold: false }, extra);
   if (!kind || kind === 'sticky') note.w = 240;
+  note = withRectRadius(note, lastRectRadius);
   if (view.page && doc.canvas.pages.length > 1 && view.page !== doc.canvas.pages[0]?.id) note.page = view.page;
   doc.updateCanvas((canvas) => ({ ...canvas, notes: { ...canvas.notes, [id]: note } }));
   view.select({ kind: 'objects', boards: [], notes: [id] });

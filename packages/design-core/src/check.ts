@@ -16,6 +16,7 @@ import {
   MIN_BOARD_SIZE,
   noteFontSize,
 } from './canvas.ts';
+import { droppedNoteCss } from './note-css.ts';
 
 /** A finding tied to a file. */
 export interface ProjectDiagnostic extends Diagnostic {
@@ -154,6 +155,11 @@ export function checkDesignProject(files: ReadonlyMap<string, string>, options: 
       if (over.length) add('canvas.json', 'error', `Title "${id}" sits over ${over[0]![0]}. Move it at least 223 px above its row.`);
     }
     if (note.locked !== undefined && typeof note.locked !== 'boolean') add('canvas.json', 'error', `Note "${id}" locked must be true or false.`);
+    // The reader keeps only the style a note takes; name what it would drop.
+    if (note.css !== undefined) {
+      if (!note.css || typeof note.css !== 'object' || Array.isArray(note.css)) add('canvas.json', 'warning', `Note "${id}" css must be an object of style keys; it is ignored.`);
+      else for (const { key, why } of droppedNoteCss(note.css)) add('canvas.json', 'warning', `Note "${id}" css "${key}" is ignored: ${why}.`);
+    }
     if (note?.groups !== undefined) {
       const groups = note.groups;
       if (!Array.isArray(groups) || groups.some((group) => typeof group !== 'string' || !ID_PATTERN.test(group))) {

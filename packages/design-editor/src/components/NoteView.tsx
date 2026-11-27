@@ -6,6 +6,7 @@
  * would be on its body, which the engine draws (services/engine.ts).
  */
 
+import { NOTE_BORDER_WIDTH, noteOpacity, reactStyle, shapeLook, shapeRadius } from '../lib/note-look.ts';
 import { memo, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import type { CanvasNote } from '@open-artifact/design-core';
 import { cn, isComposingKey } from '@open-artifact/ui';
@@ -199,7 +200,7 @@ export const NoteView = memo(function NoteView({ id, note, bare = false }: NoteV
 
   if (isPathNote(note)) {
     return (
-      <div data-note={id} className="absolute" style={position}>
+      <div data-note={id} className="absolute" style={{ ...position, ...(noteOpacity(note) !== undefined ? { opacity: noteOpacity(note) } : {}) }}>
         <PathNote note={note} />
       </div>
     );
@@ -238,18 +239,20 @@ export const NoteView = memo(function NoteView({ id, note, bare = false }: NoteV
   }
 
   if (note.kind === 'rect' || note.kind === 'oval') {
+    const look = shapeLook(note);
+    // Over the GPU scene the body is drawn here only when the scene cannot draw its look (note-look.ts).
+    const drawn = !bare || look.engine === null;
     return (
       <div
         ref={outer}
         data-note={id}
-        className={cn('absolute flex items-center justify-center p-2 text-center', note.kind === 'oval' && 'rounded-[50%]', bare && 'pointer-events-none')}
+        data-note-look={drawn ? 'dom' : undefined}
+        className={cn('absolute flex items-center justify-center p-2 text-center', bare && 'pointer-events-none')}
         style={{
           ...position,
           width: note.w ?? 160,
           height: note.h ?? 100,
-          border: `3px solid ${bare ? 'transparent' : noteColor(note.color, 'stroke', '#2b2b2b')}`,
-          background: !bare ? noteColor(note.fill ?? note.css?.fill, 'sticky', 'transparent') : 'transparent',
-          borderRadius: note.kind === 'rect' ? 6 : undefined,
+          ...(drawn ? reactStyle(look.dom) : { border: `${NOTE_BORDER_WIDTH}px solid transparent`, background: 'transparent', borderRadius: shapeRadius(note) }),
         }}
       >
         {editing ? <NoteEditor id={id} note={note} style={{ ...textStyle, textAlign: 'center' }} /> : <span style={textStyle}>{note.text}</span>}

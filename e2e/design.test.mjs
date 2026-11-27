@@ -857,6 +857,175 @@ editorSuite({
       } finally { await page.close(); }
     });
 
+    it('number fields hold a value at their limits, refuse a minus sign, and say so', T, async () => {
+      const { root, url } = await ctx.openNew('field-limits', (_ctx, root) => copyFixture('design', root));
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: textIn('Smoke canvas'), settle: 800 });
+      const boardText = () => fs.readFileSync(path.join(root, BOARD), 'utf8');
+      const status = phrase => `[...document.querySelectorAll('[role=status][aria-live]')].some(el => el.textContent.includes(${JSON.stringify(phrase)}))`;
+      const field = label => `document.querySelector('input[aria-label="${label}"]')`;
+      const reach = async label => {
+        await page.evaluate(`${field(label)}.scrollIntoView({ block: 'center' })`);
+        await clickOn(page, field(label));
+      };
+      const typeIn = async (label, text) => {
+        await reach(label);
+        await page.evaluate(`${field(label)}.select()`);
+        await page.type(text);
+        await page.press('Enter');
+      };
+      try {
+        const h1 = await page.evaluate(`(() => {
+          const frame = document.querySelector('iframe[data-board="Main.dc.html"]');
+          const rect = frame.getBoundingClientRect();
+          const box = frame.contentDocument.querySelector('h1').getBoundingClientRect();
+          const zoom = rect.width / frame.offsetWidth;
+          return [rect.left + (box.left + box.width / 2) * zoom, rect.top + (box.top + box.height / 2) * zoom];
+        })()`);
+        await page.click(...h1);
+        await clickOn(page, buttonNamed('Properties'));
+        assert.ok(await page.waitFor(field('Opacity')), 'the properties panel shows');
+
+        await typeIn('Opacity', '40');
+        assert.ok(await until(() => /<h1 style=.[^>]*opacity: 0.4/.test(boardText()), 10000), 'a value inside the limits is kept');
+        await typeIn('Opacity', '150');
+        assert.ok(await page.waitFor(status('Changed to 100 %. Opacity can’t go higher.'), 5000), 'the limit is said');
+        // 100 % is no inline opacity: the field shows it in grey.
+        assert.ok(await page.waitFor(`(${field('Opacity')}.value || ${field('Opacity')}.placeholder) === '100'`, 5000), 'the field shows 100');
+        assert.ok(await until(() => !/opacity:/.test(boardText()), 10000), 'the value is held at 100 %');
+
+        await typeIn('Opacity', 'half');
+        assert.ok(await page.waitFor(status('Nothing changed. Opacity takes a number in %.'), 5000), 'text that is no number is refused');
+        assert.equal(await page.evaluate(`${field('Opacity')}.value`), '');
+
+        // Pasted text that starts with a minus sign: the number is kept without it.
+        await reach('Padding');
+        await page.evaluate(`(() => {
+          const input = ${field('Padding')};
+          Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, '−8');
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+        })()`);
+        await page.press('Enter');
+        assert.ok(await page.waitFor(status('Minus sign ignored. Padding doesn’t take negative numbers.'), 5000), 'the minus sign is said');
+        assert.ok(await until(() => /<h1 style=.[^>]*padding: 8px/.test(boardText()), 10000), 'the number is kept without its minus sign');
+        await page.evaluate(`${field('Padding')}.setSelectionRange(0, 0)`);
+        await page.type('-');
+        assert.equal(await page.evaluate(`${field('Padding')}.value`), '8', 'the minus key types nothing');
+        await page.press('Escape');
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
+    it('the opacity slider: a cancelled drag ends and is one undo step; keys step it', T, async () => {
+      const { root, url } = await ctx.openNew('opacity-slider', (_ctx, root) => copyFixture('design', root));
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: textIn('Smoke canvas'), settle: 800 });
+      const boardText = () => fs.readFileSync(path.join(root, BOARD), 'utf8');
+      const mod = { meta: process.platform === 'darwin', ctrl: process.platform !== 'darwin' };
+      const slider = `document.querySelector('[role=slider][aria-label="Opacity slider"], [aria-label="Opacity slider"] [role=slider], input[type=range][aria-label="Opacity slider"]')`;
+      try {
+        const h1 = await page.evaluate(`(() => {
+          const frame = document.querySelector('iframe[data-board="Main.dc.html"]');
+          const rect = frame.getBoundingClientRect();
+          const box = frame.contentDocument.querySelector('h1').getBoundingClientRect();
+          const zoom = rect.width / frame.offsetWidth;
+          return [rect.left + (box.left + box.width / 2) * zoom, rect.top + (box.top + box.height / 2) * zoom];
+        })()`);
+        await page.click(...h1);
+        await clickOn(page, buttonNamed('Properties'));
+        assert.ok(await page.waitFor(slider), 'the opacity slider shows');
+        await page.evaluate(`${slider}.scrollIntoView({ block: 'center' })`);
+        const track = await page.evaluate(`(() => {
+          const control = ${slider}.closest('[data-orientation]')?.parentElement ?? ${slider}.parentElement;
+          const box = control.getBoundingClientRect();
+          return { left: box.left, width: box.width, y: box.top + box.height / 2 };
+        })()`);
+        const at = share => track.left + track.width * share;
+        await page.cdp('Input.dispatchMouseEvent', { type: 'mouseMoved', x: at(0.95), y: track.y });
+        await page.cdp('Input.dispatchMouseEvent', { type: 'mousePressed', x: at(0.95), y: track.y, button: 'left', buttons: 1, clickCount: 1 });
+        for (const share of [0.8, 0.65, 0.5]) {
+          await page.cdp('Input.dispatchMouseEvent', { type: 'mouseMoved', x: at(share), y: track.y, button: 'left', buttons: 1 });
+          await new Promise(resolve => setTimeout(resolve, 150));
+        }
+        // The pointer is cancelled (a system gesture): the drag ends and is written.
+        await page.evaluate(`${slider}.dispatchEvent(new PointerEvent('pointercancel', { pointerId: 1, bubbles: true }))`);
+        assert.ok(await until(() => /<h1 style=.[^>]*opacity: 0\.[3-6]/.test(boardText()), 10000), 'the drag is written');
+        await page.cdp('Input.dispatchMouseEvent', { type: 'mouseReleased', x: at(0.2), y: track.y, button: 'left', buttons: 0, clickCount: 1 });
+        await page.cdp('Input.dispatchMouseEvent', { type: 'mouseMoved', x: at(0.1), y: track.y });
+        await new Promise(resolve => setTimeout(resolve, 300));
+        assert.ok(/<h1 style=.[^>]*opacity: 0\.[3-6]/.test(boardText()), 'moves after the cancel change nothing');
+        await page.evaluate('document.activeElement?.blur()');
+        await page.press('z', mod);
+        assert.ok(await until(() => !/opacity:/.test(boardText()), 10000), 'one undo takes the whole drag back');
+
+        // Keys: Home to 0, PageUp ten steps.
+        await page.evaluate(`${slider}.focus()`);
+        await page.press('Home');
+        assert.ok(await until(() => /<h1 style=.[^>]*opacity: 0[;"']/.test(boardText()), 10000), 'Home goes to 0');
+        await page.press('ArrowUp');
+        // PageUp has no key code in the helper: press it raw.
+        await page.cdp('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: 'PageUp', code: 'PageUp', windowsVirtualKeyCode: 33 });
+        await page.cdp('Input.dispatchKeyEvent', { type: 'keyUp', key: 'PageUp', code: 'PageUp', windowsVirtualKeyCode: 33 });
+        assert.ok(await until(() => /<h1 style=.[^>]*opacity: 0\.11/.test(boardText()), 10000), 'PageUp moves ten steps');
+        assert.equal(await page.evaluate(`${slider}.getAttribute('aria-valuetext')`), '11%');
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
+    it('a shape note’s style: a border outside the edge is an outline, an oval has no radius, a new rectangle takes the last radius', T, async () => {
+      const { root, url } = await ctx.openNew('note-style', (_ctx, root) => {
+        copyFixture('design', root);
+        const file = path.join(root, 'project', 'canvas.json');
+        const canvas = JSON.parse(fs.readFileSync(file, 'utf8'));
+        canvas.notes = { r: { x: 0, y: 620, w: 160, h: 100, kind: 'rect', title: 'Box shape' }, o: { x: 240, y: 620, w: 160, h: 100, kind: 'oval', title: 'Round shape' } };
+        fs.writeFileSync(file, JSON.stringify(canvas));
+      });
+      const page = await (await ctx.browser()).load(new URL('index.html?open_artifact_engine=off', url).href, { ready: textIn('Smoke canvas'), settle: 800 });
+      const field = label => `document.querySelector('input[aria-label="${label}"]')`;
+      const typeIn = async (label, text) => {
+        await page.evaluate(`${field(label)}.scrollIntoView({ block: 'center' })`);
+        await clickOn(page, field(label));
+        await page.evaluate(`${field(label)}.select()`);
+        await page.type(text);
+        await page.press('Enter');
+      };
+      const pick = async (label, option) => {
+        await page.evaluate(`document.querySelector('[aria-label="${label}"]').scrollIntoView({ block: 'center' })`);
+        await clickOn(page, `document.querySelector('[aria-label="${label}"]')`);
+        await clickOn(page, `[...document.querySelectorAll('[role=option]')].find(o => o.textContent.trim() === ${JSON.stringify(option)})`);
+      };
+      const note = id => `document.querySelector('[data-note="${id}"]')`;
+      const row = text => `[...document.querySelectorAll('[role=tree][aria-label="Layers"] [role=treeitem]')].find(el => el.textContent.includes(${JSON.stringify(text)}))`;
+      const mod = { meta: process.platform === 'darwin', ctrl: process.platform !== 'darwin' };
+      try {
+        await page.press('\\', mod);
+        assert.ok(await page.waitFor(row('Box shape'), 5000), 'the layers list shows the rectangle');
+        await clickOn(page, row('Box shape'), 'the rectangle’s row');
+        assert.ok(await page.waitFor(field('Border width'), 5000), 'a rectangle shows its border rows');
+        await typeIn('Border width', '2');
+        await pick('Border style', 'Dashed');
+        await pick('Border alignment', 'Outside');
+        assert.ok(await until(() => {
+          const css = canvasOf(root).notes.r?.css;
+          return css?.['border-width'] === '2px' && css['border-style'] === 'dashed' && css['border-position'] === 'outside';
+        }, 10000), `the css is written: ${JSON.stringify(canvasOf(root).notes.r)}`);
+        assert.ok(await page.waitFor(`(() => { const body = ${note('r')}.querySelector('[data-note-look="dom"]') ?? ${note('r')}; const s = getComputedStyle(body); return s.outlineStyle === 'dashed' && s.outlineWidth === '2px' && s.borderTopStyle === 'none'; })()`, 5000), 'it is drawn as an outline');
+
+        await typeIn('Object radius', '12');
+        assert.ok(await until(() => canvasOf(root).notes.r?.css?.['border-radius'] === '12px', 10000), 'the radius is written');
+
+        await clickOn(page, row('Round shape'), 'the oval’s row');
+        assert.ok(await page.waitFor(`document.querySelector('[data-reason="radius"]')?.textContent === 'An oval is always round'`, 5000), 'an oval has no radius to set');
+
+        // A new rectangle takes the radius set last.
+        const box = await noteBox(page, 'o');
+        await page.evaluate(`document.querySelector('[data-canvas-surface]').focus()`);
+        await page.press('r');
+        const start = { x: box.x + box.w + 80, y: box.y };
+        await pointer(page).drag(start, { x: start.x + 100, y: start.y + 60 });
+        assert.ok(await until(() => Object.entries(canvasOf(root).notes).some(([id, n]) => id !== 'r' && n.kind === 'rect' && n.css?.['border-radius'] === '12px'), 10000), `the new rectangle has the radius: ${JSON.stringify(canvasOf(root).notes)}`);
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
     it('an artboard link selects the artboard, and Shift+Cmd+C copies it as a PNG', T, async () => {
       const { url } = await ctx.openNew('copy-png');
       const editor = new URL('index.html', url);
@@ -1289,6 +1458,65 @@ editorSuite({
       const zoom = rect.width / frame.offsetWidth;
       return [rect.left + (box.left + box.width / 2) * zoom, rect.top + (box.top + box.height / 2) * zoom];
     })()`;
+
+    it('Copy and Paste properties: a box’s fill and border land on a shape as fill and stroke, a component instance takes none, ⌘Z undoes a paste in one step', T, async () => {
+      const { root, url } = await ctx.openNew('paste-properties', (_ctx, root) => {
+        copyFixture('design', root);
+        const main = fs.readFileSync(path.join(root, BOARD), 'utf8');
+        fs.writeFileSync(path.join(root, 'project/Chip.dc.html'), main.replace(/<x-dc>[\s\S]*?<\/x-dc>/, '<x-dc><div style="width: 80px; height: 40px; background: #eee">Chip</div></x-dc>'));
+        const template = `<x-dc><helmet><style>body{margin:0}</style></helmet><div style="width: 880px; height: 560px; padding: 40px; box-sizing: border-box; display: flex; flex-direction: column; gap: 24px">
+<p id="para" style="margin: 0; font-size: 20px">Paragraph</p>
+<div id="box" style="width: 160px; height: 80px; background-color: rgb(200, 0, 0); border: 4px solid rgb(0, 0, 200)"></div>
+<svg id="art" viewBox="0 0 120 60" style="width: 120px; height: 60px"><rect x="0" y="0" width="120" height="60" fill="#888888"></rect></svg>
+<dc-import name="Chip" style="display: block; width: 80px; height: 40px"></dc-import>
+</div></x-dc>`;
+        fs.writeFileSync(path.join(root, BOARD), main.replace(/<x-dc>[\s\S]*?<\/x-dc>/, template));
+      });
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: `document.querySelector('iframe[data-board="Main.dc.html"]')?.contentDocument?.querySelector('#art rect')`, settle: 800 });
+      const mod = { meta: process.platform === 'darwin', ctrl: process.platform !== 'darwin' };
+      const withAlt = { ...mod, alt: true };
+      const boardText = () => fs.readFileSync(path.join(root, BOARD), 'utf8');
+      const tagOf = id => boardText().match(id === 'shape' ? /<rect [^>]*>/ : new RegExp(`<[a-z]+ id="${id}"[^>]*>`))?.[0] ?? '';
+      const say = async text => assert.ok(await page.waitFor(textIn(text), 5000), `it says “${text}”`);
+      const chip = `[...document.querySelector('iframe[data-board="Main.dc.html"]').contentDocument.querySelectorAll('*')].find(el => el.textContent === 'Chip' && !el.children.length)`;
+      try {
+        await page.click(...await page.evaluate(boardMiddle('#box')));
+        assert.ok(await page.waitFor(buttonNamed('Lock')), 'the box is selected');
+        await page.press('c', withAlt);
+        await say('Properties copied');
+
+        await page.click(...await page.evaluate(boardMiddle('#art rect')));
+        await new Promise(resolve => setTimeout(resolve, 300));
+        await page.evaluate(`document.querySelector('[data-canvas-surface]').focus()`);
+        await page.press('v', withAlt);
+        assert.ok(await until(() => /fill: #c80000/.test(tagOf('shape')) && /stroke: #0000c8/.test(tagOf('shape')) && /stroke-width: 4px/.test(tagOf('shape')), 10000), `the shape took a fill and a stroke: ${tagOf('shape')}`);
+        await say('Properties pasted');
+
+        // A component instance takes none of it.
+        const [cx, cy] = await page.evaluate(`(() => { const frame = document.querySelector('iframe[data-board="Main.dc.html"]'); const rect = frame.getBoundingClientRect(); const box = ${chip}.getBoundingClientRect(); const zoom = rect.width / frame.offsetWidth; return [rect.left + (box.left + box.width / 2) * zoom, rect.top + (box.top + box.height / 2) * zoom]; })()`);
+        await page.click(cx, cy);
+        await new Promise(resolve => setTimeout(resolve, 300));
+        await page.evaluate(`document.querySelector('[data-canvas-surface]').focus()`);
+        await page.press('v', withAlt);
+        await say('The copied properties can’t be pasted onto this element.');
+
+        // Three selected, one can’t take them; one ⌘Z takes the paste back.
+        const para = tagOf('para');
+        await page.click(...await page.evaluate(boardMiddle('#para')));
+        await page.click(...await page.evaluate(boardMiddle('#box')), { shift: true });
+        await page.click(cx, cy, { shift: true });
+        await new Promise(resolve => setTimeout(resolve, 300));
+        await page.evaluate(`document.querySelector('[data-canvas-surface]').focus()`);
+        await page.press('v', withAlt);
+        await say('Properties pasted. 1 element couldn’t take them.');
+        assert.ok(await until(() => /background-color: rgb\(200, 0, 0\)/.test(tagOf('para')) && /border: 4px solid/.test(tagOf('para')), 10000), `the paragraph took the fill and border: ${tagOf('para')}`);
+        await page.evaluate(`document.querySelector('[data-canvas-surface]').focus()`);
+        await page.press('z', mod);
+        assert.ok(await until(() => tagOf('para') === para, 10000), `one ⌘Z takes it back: ${tagOf('para')}`);
+        assert.ok(/fill: #c80000/.test(tagOf('shape')), 'the earlier paste stays');
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
 
     it('stacking keys move an element one step or to the end, ⌘Z undoes by the physical key, and a locked element stays', T, async () => {
       const { root, url } = await ctx.openNew('stacking', paintBoard);
