@@ -18,9 +18,6 @@ Open Artifact ships with **9 built-in artifact types**. Each type combines a pla
 | `motion` | [Motion](types/motion.md) | Product promos, explainers, launch clips, walkthroughs, title cards, animated GIFs | Live doc store (`db/film/meta.json`) | Images, fonts, video/audio clips | MP4, GIF, standalone HTML player, source ZIP | Yes |
 | `page` | [Page](types/page.md) | Small interactive pages no other type fits: widgets, tools, calculators, mini games, explainer pages, polls and checklists | The folder itself (`index.html`, capabilities in `.artifact.json`) | Any files the page loads | — (publishes to a Node or Cloudflare site) | No |
 
-The Design canvas keeps live artboards visible while zooming and uses thumbnails in its low-zoom overview.
-Artboard labels keep their screen size while zooming, and double-clicking a title opens it for renaming.
-
 ### Making one without an agent
 
 The home page's **New artifact** offers every built-in type, in two groups. **Start right away** (Docs, Sheets, Whiteboard,

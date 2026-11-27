@@ -2,7 +2,7 @@
   "slug": "design",
   "name": "Design",
   "title": "Design (canvas)",
-  "description": "Designs as local files: a canvas of live HTML artboards (screens, components, prototypes) with overview thumbnails, notes and pages. Arrange, rename, edit and tweak artboards in a local page, or install a design system and use its tokens and components.",
+  "description": "Designs as local files: a canvas of live HTML artboards (screens, components, prototypes) with notes and pages, arranged, edited in place and tweaked in a local page. Can install a design system and use its tokens and components.",
   "summary": "A canvas of live HTML artboards: screens, pages, components and prototypes.",
   "artifactTitle": "Untitled design",
   "category": "Design",
