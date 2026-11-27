@@ -20,7 +20,8 @@ type Waiter = (messages: InboxMessage[]) => void;
 export interface InboxOptions {
   /**
    * A session took what waited for it ({@link Inbox.take}: an attach, a tool call, a hook, `inbox.take`, a wait that
-   * found messages there). Called with what it took, never with nothing.
+   * found messages there), or an open wait took a message as it came ({@link Inbox.append}, {@link Inbox.giveBack}).
+   * Called with what it took, never with nothing.
    */
   taken?: (key: string, messages: InboxMessage[]) => void;
   /** Messages taken earlier were put back ({@link Inbox.giveBack}) and wait again. */
@@ -50,6 +51,7 @@ export class Inbox {
     if (waiting && first) {
       waiting.delete(first);
       first([entry]);
+      this.report('taken', key, [entry]);
       return { taken: true };
     }
     ensureDir(files.inbox());

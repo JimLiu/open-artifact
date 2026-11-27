@@ -260,10 +260,11 @@ export class WakeRouter {
         ? { ...message, text: withHandOffLine(message.text, wakeHandOffLine(why, artifactUrl(id), { adopted: how === 'adopt', sentAt: message.at, now })) }
         : message,
     );
-    for (const message of moved) inbox.append(key, message);
+    // An open wait of the session takes what comes at once (the inbox says so: `wake/state` `taken`).
+    const waited = moved.filter((message) => !inbox.append(key, message).taken).length;
     inbox.takeWhere(UNOWNED_KEY, mine);
     log(`wake ${id}: ${moved.length} waiting message(s) from the unowned inbox -> ${key} (${how})`);
-    emit?.({ type: 'wake/state', artifactId: id, via: 'inbox' });
+    if (waited) emit?.({ type: 'wake/state', artifactId: id, via: 'inbox' });
     return moved;
   }
 
@@ -281,7 +282,7 @@ export class WakeRouter {
   async deliverWaiting(id: string, owner: SessionRef): Promise<WakeResult[]> {
     const key = sessionKeyOf(owner);
     if (!key) return [];
-    const { inbox, log } = this.options;
+    const { inbox, log, emit } = this.options;
     const mine = (message: InboxMessage): boolean => message.artifactId === id && message.kind === 'wake' && !!message.source;
     const results: WakeResult[] = [];
     for (const waiting of inbox.peek(key).filter(mine)) {
@@ -299,6 +300,8 @@ export class WakeRouter {
       results.push(result);
     }
     if (results.length) log(`wake ${id}: ${results.length} waiting message(s) delivered to ${key}: ${results.map((r) => r.status ?? r.via).join(', ')}`);
+    // Handed over live and none of the artifact's wakes waits for the session now: the page's Ask pane shows it.
+    if (results.some((r) => r.via === 'live') && !inbox.peek(key).some(mine)) emit?.({ type: 'wake/state', artifactId: id, via: 'taken' });
     return results;
   }
 }

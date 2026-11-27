@@ -35,8 +35,9 @@ The daemon tries, in order:
 2. **Inbox.** Otherwise the message waits in the session's inbox. It is handed over when the session attaches
    (`session.attach` returns `inbox`; the kit passes it to your `wake` callback), in the `messages` of the session's next
    tool call, by `inbox.take` or `inbox.wait`, by a hook of the harness, or by `ArtifactComments {action: "wait"}`.
-   When the owner session takes it, the daemon sends `wake/state` with `via: "taken"` for its artifact, and the page's
-   Ask pane shows what the person sent there as delivered instead of waiting. When an adapter puts it back with
+   When the owner session takes it (or an open wait of it takes it as it comes, or the person assigns the artifact and
+   what waited goes to the session live), the daemon sends `wake/state` with `via: "taken"` for its artifact, and the
+   page's Ask pane shows what the person sent there as delivered instead of waiting. When an adapter puts it back with
    `inbox.return`, `wake/state` says `via: "inbox"`: it waits in the inbox again.
 3. **Nudge.** When it went to the inbox and the harness's profile has a `nudge`, the daemon runs that command to start a
    turn in the idle session (Codex: `codex queue`; Antigravity: `agentapi send-message`). The turn's hook then hands over

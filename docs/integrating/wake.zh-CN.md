@@ -23,7 +23,7 @@ Shell 的 **Ask** 面板会去掉消息首尾的空白，按 UTF-8 最多接受 
 唤醒送给拥有该作品的会话（创建它或接手它的那个，见[归属怎么转移](tools.zh-CN.md#归属怎么转移)）。daemon 依次尝试：
 
 1. **实时。** 所有者所属 harness 的一个适配器接收 `wake.deliver`：先是该会话挂在的那个适配器，否则是该 harness 中任一声明了 `caps.wake.resume: true` 的已连接适配器。
-2. **收件箱。** 否则消息在会话的收件箱里等着。会话挂上时交出（`session.attach` 返回 `inbox`；kit 会把它交给你的 `wake` 回调），或在该会话下一次工具调用结果的 `messages` 里，或通过 `inbox.take`、`inbox.wait`，或通过 harness 的 hook，或通过 `ArtifactComments {action: "wait"}`。所有者会话取走后，daemon 为该作品发一条 `via: "taken"` 的 `wake/state`，页面的 Ask 面板就把用户在那里发的消息显示为已送达，不再是等待中。适配器用 `inbox.return` 放回时，`wake/state` 写 `via: "inbox"`：消息又在收件箱里等着了。
+2. **收件箱。** 否则消息在会话的收件箱里等着。会话挂上时交出（`session.attach` 返回 `inbox`；kit 会把它交给你的 `wake` 回调），或在该会话下一次工具调用结果的 `messages` 里，或通过 `inbox.take`、`inbox.wait`，或通过 harness 的 hook，或通过 `ArtifactComments {action: "wait"}`。所有者会话取走后（或者它正挂着的 wait 在消息到达时直接拿走，或者用户把作品指派给它、等着的消息实时交给了它），daemon 为该作品发一条 `via: "taken"` 的 `wake/state`，页面的 Ask 面板就把用户在那里发的消息显示为已送达，不再是等待中。适配器用 `inbox.return` 放回时，`wake/state` 写 `via: "inbox"`：消息又在收件箱里等着了。
 3. **nudge。** 消息进了收件箱、且该 harness 的 profile 有 `nudge` 时，daemon 运行这个命令，在空闲会话里开启一个回合（Codex：`codex queue`；Antigravity：`agentapi send-message`）。然后由这个回合的 hook 交出消息。
 
 没有所有者的作品（主页新建的、用户打开的文件夹），唤醒存在 daemon 的 `unowned` 收件箱里，每条带着 `artifactId`，这时不交给任何会话。等有会话成为它的所有者（调了 `adopt`、通过工具写了这份作品，或者用户在 Ask 面板里选了它：`artifacts.assign`），这份作品的唤醒就移到该会话的收件箱，按上面的方式送达，只送一次。每条前面加一行以 `[Open Artifact] ` 开头的说明，讲清会话为什么收到它：用户新建的作品、用户选了这个会话，或者做它的会话已经不是所有者了；前两种会让它先调 `adopt` 取类型说明，刚调过就不用。这一行还写明消息是什么时候发的（`It was sent at 2026-11-24 11:40 UTC.`，超过一小时还会说是多久以前），不知道发送时间时也会直说，好让会话先确认旧请求是否仍然有效。存的时候不带这一行，因为那时还不知道谁会收到。等着的消息不管有多少条都会全部移过去：每分钟的唤醒上限和合并窗口只管新的唤醒。

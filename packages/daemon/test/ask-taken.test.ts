@@ -124,3 +124,53 @@ test('what an adapter took and put back with inbox.return waits again: wake/stat
   await until(() => events.slice(before).some((e) => e.type === 'wake/state' && e.artifactId === id && e.via === 'inbox'));
   daemon.harnesses.pollDetach({ harness: owner.harness, session: owner.session!, workspace: owner.workspace! });
 });
+
+/** An artifact no session owns, and one request from its page that waits in the unowned inbox. */
+async function unowned(): Promise<string> {
+  const record = daemon.store.create({ root: join(workspace, `t-${++n}`), type: 'design', title: `Unowned ${n}` });
+  const response = await fetch(`${state.url}/api/open-artifact.artifacts.ask`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', origin: state.url },
+    body: JSON.stringify({ id: record.id, text: 'Make the title shorter' }),
+  });
+  assert.equal(((await response.json()) as { via: string }).via, 'inbox');
+  // The stream has said so before the test goes on.
+  await until(() => events.some((e) => e.type === 'wake/state' && e.artifactId === record.id && e.via === 'inbox'));
+  return record.id;
+}
+
+/** The person hands the artifact to the session `key` from the Ask pane. */
+async function assign(id: string, key: string): Promise<void> {
+  const response = await fetch(`${state.url}/api/open-artifact.artifacts.assign`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', origin: state.url },
+    body: JSON.stringify({ id, session: key }),
+  });
+  assert.equal(response.status, 200, await response.text());
+}
+
+test('assigned to a session online, what waited is handed over live: wake/state taken', async () => {
+  const id = await unowned();
+  const ref: SessionRef = { harness: 'here-app', session: 'assigned-live', workspace };
+  const { key } = daemon.harnesses.pollAttach({ harness: ref.harness, session: ref.session!, workspace: ref.workspace! });
+  await assign(id, key);
+  await until(() => takenOf(id).length === 1);
+  assert.equal(daemon.inbox.count(key), 0, 'nothing waits for it');
+  const polled = await daemon.harnesses.pollWait({ harness: ref.harness, session: ref.session!, workspace: ref.workspace!, timeoutMs: 1000 });
+  assert.equal(polled.messages.length, 1);
+  daemon.harnesses.pollDetach({ harness: ref.harness, session: ref.session!, workspace: ref.workspace! });
+});
+
+test('assigned to a session that waits, its wait takes what waited: wake/state taken, not inbox', async () => {
+  const id = await unowned();
+  const ref: SessionRef = { harness: 'here-app', session: 'assigned-waiting', workspace };
+  const { key } = daemon.harnesses.pollAttach({ harness: ref.harness, session: ref.session!, workspace: ref.workspace! });
+  const before = events.length;
+  const waited = daemon.inbox.wait(key, 5000);
+  await assign(id, key);
+  assert.equal((await waited).length, 1, 'the wait took it');
+  await until(() => takenOf(id).length === 1);
+  await new Promise((done) => setTimeout(done, 50));
+  assert.ok(!events.slice(before).some((e) => e.type === 'wake/state' && e.artifactId === id && e.via === 'inbox'), 'nothing waits: no inbox');
+  daemon.harnesses.pollDetach({ harness: ref.harness, session: ref.session!, workspace: ref.workspace! });
+});
