@@ -408,7 +408,7 @@ export function Canvas() {
   const [marquee, setMarquee] = useState<Rect | null>(null);
   const [draft, setDraft] = useState<DraftShape | null>(null);
   const [dropLine, setDropLine] = useState<FlowDrop | null>(null);
-  const [renamingBoard, setRenamingBoard] = useState<string | null>(null);
+  const renamingBoard = useView((s) => s.renamingBoard);
   /** Where Alt-dragged copies will land (the DOM's; the engine draws its own for artboards and notes). */
   const [ghosts, setGhosts] = useState<Rect[] | null>(null);
   /** Snap guides while drawing or hovering with a drawing tool, on the DOM canvas (the engine draws them on its own). */
@@ -1352,7 +1352,7 @@ export function Canvas() {
     }
     const hit = hitOf(pressed.current ?? event.target, event);
     if (hit.kind === 'title' && view.tool === 'select' && !view.spacePan) {
-      setRenamingBoard(hit.board);
+      view.setRenamingBoard(hit.board);
       return;
     }
     if (hit.kind === 'note') {
@@ -1458,7 +1458,7 @@ export function Canvas() {
       )}
       <CommentCapture />
       <div className="pointer-events-none absolute inset-0 z-[3]">
-        <Overlay boards={boards} engine={renderer === 'engine'} renamingBoard={renamingBoard} onRenameDone={() => setRenamingBoard(null)} />
+        <Overlay boards={boards} engine={renderer === 'engine'} renamingBoard={renamingBoard} onRenameDone={() => useView.getState().setRenamingBoard(null)} />
         <PresenceLayer />
         <CommentPins />
         {marquee ? <Marquee rect={marquee} /> : null}

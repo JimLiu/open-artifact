@@ -2542,6 +2542,30 @@ editorSuite({
       } finally { await page.close(); }
     });
 
+    it('Rename in the artboard menu brings its title into view at the same zoom and edits it there', T, async () => {
+      const { root, url } = await ctx.openNew('menu-rename-board');
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: textIn('Smoke canvas'), settle: 800 });
+      const title = `document.querySelector('[data-board-title="Main.dc.html"]')`;
+      const input = `${title}.querySelector('input[aria-label="Artboard name"]')`;
+      const renameItem = `[...document.querySelectorAll('[role=menuitem]')].find(item => item.textContent.trim() === 'Rename')`;
+      try {
+        assert.ok(await page.waitFor('window.__openArtifactCanvas?.()', 10000), 'the canvas camera is not exposed');
+        await clickOn(page, title, 'the artboard title');
+        for (let i = 0; i < 6; i++) await page.cdp('Input.dispatchMouseEvent', { type: 'mouseWheel', x: 720, y: 800, deltaX: 0, deltaY: -60, modifiers: 2 });
+        assert.ok(await page.waitFor(`${title}.getBoundingClientRect().bottom < 0`, 5000), 'the title scrolled off the top');
+        const zoom = await page.evaluate('window.__openArtifactCanvas().zoom');
+        await page.rightClick(720, 600);
+        assert.ok(await page.waitFor(renameItem, 5000), 'the artboard menu offers Rename');
+        await clickOn(page, renameItem, 'Rename');
+        assert.ok(await page.waitFor(`${input} === document.activeElement && ${title}.getBoundingClientRect().top > 56`, 5000), 'the title came into view with its name field focused');
+        assert.equal(await page.evaluate('window.__openArtifactCanvas().zoom'), zoom, 'revealing the title changed the zoom');
+        await page.type('Home screen');
+        await page.press('Enter');
+        assert.ok(await until(() => canvasOf(root).boards['Main.dc.html'].title === 'Home screen'), 'the new name was not saved');
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
     it('a locked artboard: locked: true in canvas.json, the arrows and Delete leave it, the outline unlocks it', T, async () => {
       const { root, url } = await ctx.openNew('lock-board');
       const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: textIn('Smoke canvas'), settle: 800 });

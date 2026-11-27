@@ -64,7 +64,7 @@ import { selectionFrom, type BoardElements, type MixedSelection } from '../lib/s
 import { templateOf } from './agent.ts';
 import { boardApi } from './frames.ts';
 import { artifactPath, session } from './session.ts';
-import { visibleRect, zoomToBoards } from './viewport.ts';
+import { boardTitleRect, revealRect, visibleRect, zoomToBoards } from './viewport.ts';
 import { announce } from './announce.ts';
 import { refuseLocked } from './locks.ts';
 
@@ -1152,6 +1152,20 @@ export function addPage(): void {
   }
   doc.updateCanvas((canvas) => ({ ...canvas, pages: [...pages, { id, name: `Page ${number}` }] }));
   useView.getState().setPage(id);
+}
+
+/**
+ * Starts renaming an artboard in place: it becomes the selection, the camera
+ * glides at the same zoom just far enough to show its title, and the title
+ * turns into a name field (Enter saves, Escape cancels).
+ */
+export function renameBoardOnCanvas(path: string): void {
+  const entry = useDocument.getState().canvas.boards[path];
+  if (!entry || useDocument.getState().readOnly) return;
+  const view = useView.getState();
+  view.select({ kind: 'objects', boards: [path], notes: [] });
+  revealRect(boardTitleRect(entry, view.camera.zoom));
+  view.setRenamingBoard(path);
 }
 
 /** Renames a page. */
