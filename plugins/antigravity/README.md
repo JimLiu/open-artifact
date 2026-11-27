@@ -39,6 +39,28 @@ working folder was not measured; when it does not, the agent sends the files thr
 - `skills/open-artifact/`: the skill, carrying the daemon;
 - `hooks.json`: `SessionStart`, `PreInvocation` and `Stop`.
 
+## Recommended with Gemini models: `gemini-frontend-design`
+
+For design work (`/open-artifact design …`: screens, landing pages, mockups) on a Gemini model, pair this plugin with
+Google's [`gemini-frontend-design`](https://github.com/google-gemini/demolab/blob/main/skills/gemini-frontend-design/SKILL.md)
+skill. It guides the model's visual direction, color, typography, layout and motion; the Design type's own skill
+covers how a canvas and its artboards are written. Open Artifact does not ship it: it lives in Google's
+[`google-gemini/demolab`](https://github.com/google-gemini/demolab) repository (Apache-2.0), so install it from
+there, following that repository's README:
+
+```bash
+agy plugin install https://github.com/google-gemini/demolab
+```
+
+```bash
+npx skills add google-gemini/demolab --skill gemini-frontend-design
+```
+
+The first installs the whole demolab plugin in Antigravity, the second only this skill. Once it is installed the
+agent uses both together; where they differ on the canvas's files or on checking the result, the Design type's
+rules apply. Without it everything still works: the agent mentions the link once before it starts a design, so you
+can install it first, and goes on without it unless you say otherwise.
+
 ## Publish to a server
 
 The plugin has no setting for it. Put the site in `~/.agents/open-artifact/preset.json`

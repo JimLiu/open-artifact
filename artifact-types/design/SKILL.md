@@ -272,6 +272,17 @@ Rules that bite (each fails silently):
   `aria-hidden="true"`, else `role="img" aria-label`. Text 4.5:1, even 11px grey labels (3:1 at 24px+); 4.3:1 still
   fails: pick shades that pass. Colors that must be told apart also differ in lightness, not hue alone; prefer
   blue/orange to red/green.
+- Running on a Gemini model (in Antigravity or elsewhere)? Google's `gemini-frontend-design` skill pairs well with
+  this one for the look: visual direction, color, type, layout, motion. It is not shipped here. Loaded in your
+  session: read it with this section and design by both; where the two differ on how an artboard is written, how an
+  image gets in (an image you generate is an upload, Creating step 3) or on checking (skip any render or screenshot
+  step it asks for: Creating's NEVER VERIFY rule), these pages win. Not loaded: BEFORE you design (a new canvas, or
+  a change to the look), say once per conversation, in a line, that it is recommended with Gemini models and that
+  installing it first gives a better result, with its link:
+  https://github.com/google-gemini/demolab/blob/main/skills/gemini-frontend-design/SKILL.md. Asking Creating step
+  1's round anyway? Make it one of its questions (install it first, or go on without it). No round, or it is over:
+  say the line and build by this section; never wait on it, and don't repeat it at hand-over. Never fetch or
+  install it yourself unless the person asks. Not a Gemini model: nothing to do or say.
 
 ## Revising a canvas
 
