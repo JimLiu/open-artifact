@@ -912,6 +912,27 @@ describe('slides', { skip: skipFor('slides') }, () => {
     };
     const lockKey = (tab, held = 0) => chord(tab, 'L', 'KeyL', 76, { mod: true, shift: true, mac, held });
     const undoKey = tab => tab.press('z', { meta: mac, ctrl: !mac });
+    const caption = stageNode(2);
+    const stage = `document.querySelector('[data-open-artifact-stage]')`;
+    const strip = `document.querySelector('[data-open-artifact-format-bar]')`;
+    /** ⌘\: the properties panel off or on (remembered for the origin: tests that use it forget it after). */
+    const propertiesKey = tab => chord(tab, '\\', 'Backslash', 220, { mod: true, mac });
+    const forgetView = tab => tab.evaluate(`localStorage.removeItem('open-artifact-slides:view')`).catch(() => {});
+    /** The Space bar pressed down or let go, as a keyboard sends it (a press types a space where typing goes). */
+    const space = (tab, down) => tab.cdp('Input.dispatchKeyEvent', down
+      ? { type: 'keyDown', key: ' ', code: 'Space', windowsVirtualKeyCode: 32, text: ' ' }
+      : { type: 'keyUp', key: ' ', code: 'Space', windowsVirtualKeyCode: 32 });
+    /** Alt (Option) pressed down or let go. */
+    const alt = (tab, down) => tab.cdp('Input.dispatchKeyEvent', { type: down ? 'rawKeyDown' : 'keyUp', key: 'Alt', code: 'AltLeft', windowsVirtualKeyCode: 18, modifiers: down ? 1 : 0 });
+    /** ⌘= a step at a time until the slide is 300px wider than the stage; false (with the scale it got to) if it never is. */
+    const zoomIn = async tab => {
+      const wide = `${stage}.scrollWidth > ${stage}.clientWidth + 300`;
+      for (let n = 0; n < 8 && !(await tab.evaluate(wide)); n++) {
+        await chord(tab, '=', 'Equal', 187, { mod: true, mac });
+        await tab.waitFor(wide, 1000);
+      }
+      return (await tab.evaluate(wide)) || tab.evaluate(`JSON.stringify([${stage}.scrollWidth, ${stage}.clientWidth, document.activeElement?.outerHTML.slice(0, 80)])`);
+    };
 
     it('locks an element from its menu: the file gains a bare data-locked, and the element holds still until it is unlocked', async () => {
       const tab = await openDeck();
@@ -1177,5 +1198,106 @@ describe('slides', { skip: skipFor('slides') }, () => {
         await tab.close();
       }
     });
+
+    it('centers the format strip over the selected text, and keeps it 8px inside the stage', async () => {
+      const tab = await openDeck();
+      try {
+        await tab.click(...(await middle(tab, caption)));
+        assert.ok(await tab.waitFor(`${selectedCount} === 1`));
+        assert.equal(await tab.evaluate(`Boolean(${strip})`), false, 'a format strip beside the properties panel');
+        await propertiesKey(tab);
+        assert.ok(await tab.waitFor(`!document.querySelector('[data-open-artifact-properties]')`), '⌘\\ left the properties panel open');
+        assert.ok(await tab.waitFor(strip), 'no format strip over the caption');
+        const across = `(() => {
+          const s = ${strip}.getBoundingClientRect(), c = (${caption}).getBoundingClientRect(), band = ${stage}.getBoundingClientRect();
+          return { off: s.left + s.width / 2 - (c.left + c.width / 2), left: s.left - band.left, right: band.right - s.right };
+        })()`;
+        // The stage widens as the panel goes: the strip follows the caption there.
+        await tab.waitFor(`Math.abs(${across}.off) <= 1`, 4000);
+        const centered = await tab.evaluate(across);
+        assert.ok(Math.abs(centered.off) <= 1, `the strip is ${centered.off}px off the caption's middle`);
+        assert.ok(centered.left >= 8 && centered.right >= 8, JSON.stringify(centered));
+        // Zoomed in, with the caption's middle 20px inside the stage's left edge: the strip stops 8px inside it.
+        assert.equal(await zoomIn(tab), true, 'zooming in left nothing to scroll');
+        await tab.evaluate(`(() => {
+          const c = (${caption}).getBoundingClientRect(), band = ${stage}.getBoundingClientRect();
+          ${stage}.scrollLeft += c.left + c.width / 2 - (band.left + 20);
+        })()`);
+        assert.ok(await tab.waitFor(`(() => { const c = (${caption}).getBoundingClientRect(); return Math.abs(c.left + c.width / 2 - ${stage}.getBoundingClientRect().left - 20) <= 1; })()`), 'the stage did not scroll there');
+        assert.ok(await tab.waitFor(`${strip} && Math.abs(${strip}.getBoundingClientRect().left - ${stage}.getBoundingClientRect().left - 8) <= 1`), JSON.stringify(await tab.evaluate(across)));
+        assert.deepEqual(tab.problems, []);
+      } finally {
+        await forgetView(tab);
+        await tab.close();
+      }
+    });
+
+    it('drags the zoomed stage while Space is held, without touching the selection, and leaves Space to a field', async () => {
+      const tab = await openDeck();
+      try {
+        await selectBack(tab);
+        assert.equal(await zoomIn(tab), true, 'zooming in left nothing to scroll');
+        const scroll = () => tab.evaluate(`[${stage}.scrollLeft, ${stage}.scrollTop]`);
+        const frame = `[...document.querySelector('[data-open-artifact-overlay]').children].find(el => el.classList.contains('border-accent'))`;
+        const offBack = `(() => { const f = (${frame}).getBoundingClientRect(), b = (${back}).getBoundingClientRect(); return Math.max(Math.abs(f.left - b.left), Math.abs(f.top - b.top)); })()`;
+        assert.ok(await tab.evaluate(`${offBack} < 3`));
+        await space(tab, true);
+        assert.ok(await tab.waitFor(`${stage}.getAttribute('data-open-artifact-pan') === 'ready'`), 'Space held did not ready the stage for a drag');
+        // Pressed on another element: the drag scrolls the stage toward where it has room (across, and down when it can).
+        const [left, top] = await scroll();
+        const room = await tab.evaluate(`${stage}.scrollHeight - ${stage}.clientHeight`);
+        const dx = left > 150 ? 120 : -120, dy = room < 60 ? 0 : top > 50 ? 40 : -40;
+        const from = await middle(tab, stageNode(1));
+        await tab.dragMouse(from, [from[0] + dx, from[1] + dy]);
+        const [afterLeft, afterTop] = await scroll();
+        assert.ok(Math.abs(afterLeft - (left - dx)) <= 2 && Math.abs(afterTop - (top - dy)) <= 2, `scrolled from ${[left, top]} to ${[afterLeft, afterTop]} by ${[dx, dy]}`);
+        assert.ok(await tab.waitFor(`${selectedCount} === 1 && ${offBack} < 3`), 'the drag changed the selection');
+        assert.equal(shapes(), SHAPES);
+        assert.equal(await tab.evaluate(`${stage}.getAttribute('data-open-artifact-pan')`), 'ready');
+        await space(tab, false);
+        assert.ok(await tab.waitFor(`!${stage}.hasAttribute('data-open-artifact-pan')`), 'letting go of Space left the stage ready to drag');
+
+        // In a field Space types a space.
+        await chord(tab, 'f', 'KeyF', 70, { mod: true, mac });
+        const find = `document.querySelector('input[aria-label="Find in presentation"]')`;
+        assert.ok(await tab.waitFor(`document.activeElement === ${find}`));
+        await tab.type('Caption');
+        await space(tab, true);
+        assert.equal(await tab.evaluate(`${stage}.hasAttribute('data-open-artifact-pan')`), false);
+        await space(tab, false);
+        await tab.type('text');
+        assert.equal(await tab.evaluate(`${find}.value`), 'Caption text');
+        await tab.press('Escape');
+        assert.deepEqual(tab.problems, []);
+      } finally {
+        await tab.close();
+      }
+    });
+
+    it('measures from the selection to the hovered element while Alt is held, with the format strip faded', async () => {
+      const tab = await openDeck();
+      const distances = `[...document.querySelectorAll('[data-open-artifact-distance]')].map(el => el.getAttribute('data-open-artifact-distance'))`;
+      try {
+        await tab.click(...(await middle(tab, caption)));
+        assert.ok(await tab.waitFor(`${selectedCount} === 1`));
+        await propertiesKey(tab);
+        assert.ok(await tab.waitFor(strip), 'no format strip over the caption');
+        assert.equal(await tab.evaluate(`${distances}.length`), 0);
+        const [x, y] = await middle(tab, back);
+        await alt(tab, true);
+        await tab.cdp('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y, modifiers: 1 });
+        assert.ok(await tab.waitFor(`${distances}.length > 0`), 'no distances with Alt held over another element');
+        const values = await tab.evaluate(distances);
+        assert.ok(values.every(value => /^\d+$/.test(value)), values.join());
+        assert.ok(await tab.waitFor(`${strip}?.hasAttribute('data-measuring') && getComputedStyle(${strip}).opacity === '0'`), 'the strip does not step aside');
+        await alt(tab, false);
+        assert.ok(await tab.waitFor(`${distances}.length === 0 && !${strip}?.hasAttribute('data-measuring')`), 'the distances stay after Alt is let go');
+        assert.deepEqual(tab.problems, []);
+      } finally {
+        await forgetView(tab);
+        await tab.close();
+      }
+    });
+
   });
 });

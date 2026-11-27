@@ -131,3 +131,21 @@ body {
     animation: none;
   }
 }
+
+/* Space held over the stage: the hand shows over everything on it, handles included. */
+[data-open-artifact-pan="ready"],
+[data-open-artifact-pan="ready"] * {
+  cursor: grab !important;
+}
+[data-open-artifact-pan="drag"],
+[data-open-artifact-pan="drag"] * {
+  cursor: grabbing !important;
+}
+
+/* Distances on the stage: the format strip clears out of the way unless it has the focus or an open menu. */
+[data-open-artifact-format-bar][data-measuring]:not(:focus-within):not(:has([aria-expanded="true"])) {
+  opacity: 0;
+}
+[data-open-artifact-format-bar][data-measuring]:not(:focus-within):not(:has([aria-expanded="true"])) * {
+  pointer-events: none !important;
+}

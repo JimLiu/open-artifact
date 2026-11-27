@@ -1,12 +1,13 @@
 /**
  * Pointer gestures on the stage: moving, resizing and rotating elements,
- * dragging connector ends, marquee selection, drawing new elements, and
- * panning a picture inside its crop or dragging the crop frame's sides.
+ * dragging connector ends, marquee selection, drawing new elements,
+ * panning a picture inside its crop or dragging the crop frame's sides, and
+ * dragging the stage itself to scroll it.
  *
  * Moves preview by shifting the drawn elements with the CSS `translate`
  * property (nothing reflows until the drop); the other gestures preview a
- * draft slide (see `useStageGesture`). Every gesture commits one undo step
- * on pointer-up and leaves nothing behind on Escape.
+ * draft slide (see `useStageGesture`). Every gesture that changes the slide
+ * commits one undo step on pointer-up and leaves nothing behind on Escape.
  */
 
 import {
@@ -640,6 +641,25 @@ export function startMarquee(ctx: StageContext, event: PointerEvent | React.Poin
       useStageGesture.getState().set({ marquee: null });
       useView.getState().select([...base]);
     },
+  });
+}
+
+/* -------------------------------------------------------------------------- */
+/* Pan                                                                         */
+/* -------------------------------------------------------------------------- */
+
+/** Scrolls the stage with the pointer (a press while Space is held) until it is released. */
+export function startPan(scroller: HTMLElement, event: PointerEvent | React.PointerEvent): void {
+  const grab = { x: event.clientX, y: event.clientY, left: scroller.scrollLeft, top: scroller.scrollTop };
+  const done = (): void => useStageGesture.getState().set({ panning: false });
+  useStageGesture.getState().set({ panning: true, hover: null });
+  track({
+    move(e) {
+      scroller.scrollLeft = grab.left - (e.clientX - grab.x);
+      scroller.scrollTop = grab.top - (e.clientY - grab.y);
+    },
+    up: done,
+    cancel: done,
   });
 }
 

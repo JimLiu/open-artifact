@@ -1,7 +1,8 @@
 /**
  * Transient state of a gesture on the stage: the slide as it would be if
  * the gesture ended now, snap guides, the marquee and the shape being
- * drawn. Nothing here is saved; a gesture commits through the commands.
+ * drawn, and the keys held over the stage (Space to pan, Alt to measure).
+ * Nothing here is saved; a gesture commits through the commands.
  */
 
 import { create } from 'zustand';
@@ -33,6 +34,16 @@ interface StageGestureState {
   draw: DrawPreview | null;
   /** The element under the pointer (hover outline). */
   hover: NodePath | null;
+  /** The pointer is over the slide itself (not the stage around it). */
+  pointerOnSlide: boolean;
+  /** Alt (Option) is held: distances from the selection show. */
+  altHeld: boolean;
+  /** Distances are drawn on the stage right now. */
+  measuring: boolean;
+  /** Space is held: a press on the stage drags it instead of selecting. */
+  spaceHeld: boolean;
+  /** The stage is being dragged to scroll it. */
+  panning: boolean;
   /** The table cell an open context menu's row and column commands act on (outlined while it stays put). */
   menuCell: TableTarget | null;
   /** Bumped whenever the overlay should re-measure (fonts, images, resizes). */
@@ -51,6 +62,11 @@ export const useStageGesture = create<StageGestureState>()((set, get) => ({
   marquee: null,
   draw: null,
   hover: null,
+  pointerOnSlide: false,
+  altHeld: false,
+  measuring: false,
+  spaceHeld: false,
+  panning: false,
   menuCell: null,
   layoutTick: 0,
   set(patch) {

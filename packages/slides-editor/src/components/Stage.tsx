@@ -3,7 +3,7 @@
  * under it, in-place text editing, the selection overlay and every pointer
  * gesture of the one-slide view (select, move, resize, rotate, marquee,
  * draw, crop, comment, drop files). The find bar's matches are highlighted
- * here too.
+ * here too. Holding Space turns a press into a drag of the stage itself.
  *
  * Fitting leaves room for the floating cards above the slide, the toolbar
  * below it and a line of notes. What the keyboard selects, the caret while
@@ -32,7 +32,8 @@ import { CHROME_BOTTOM, CHROME_TOP } from './StageChrome.tsx';
 import { CommentPins } from './comments/CommentPins.tsx';
 import { activeEditor, setPendingCaret, TextEditor } from './TextEditor.tsx';
 import { toSlidePoint } from './stage/geometry.ts';
-import { deepestAt, pickAt, startDraw, startMarquee, startMove, type StageContext } from './stage/gestures.ts';
+import { deepestAt, pickAt, startDraw, startMarquee, startMove, startPan, type StageContext } from './stage/gestures.ts';
+import { claimStageDrag, setAltHeld } from '../services/stage-keys.ts';
 import { Overlay } from './stage/Overlay.tsx';
 import { StageMenuItems } from './stage/StageMenu.tsx';
 import { useStageGesture } from './stage/store.ts';
@@ -63,6 +64,7 @@ export function Stage(): ReactNode {
   const tool = useView((s) => s.tool);
   const commentsOn = useComments((s) => s.on);
   const showNotes = useView((s) => s.showNotes);
+  const pan = useStageGesture((s) => (s.panning ? 'drag' : s.spaceHeld ? 'ready' : undefined));
   const scroller = useRef<HTMLDivElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const [root, setRoot] = useState<HTMLElement | null>(null);
@@ -125,6 +127,15 @@ export function Stage(): ReactNode {
 
   /* ------------------------------- Pointer ------------------------------- */
 
+  // While Space is held a press drags the stage, whatever it lands on (handles included).
+  const onPointerDownCapture = (event: ReactPointerEvent<HTMLDivElement>): void => {
+    if ((event.target as Element).closest('[data-open-artifact-comment-ui], [data-open-artifact-notes]')) return;
+    if (!claimStageDrag()) return;
+    event.preventDefault();
+    event.stopPropagation();
+    startPan(event.currentTarget, event);
+  };
+
   const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>): void => {
     if (!ctx) return;
     const target = event.target as Element;
@@ -181,7 +192,7 @@ export function Stage(): ReactNode {
   };
 
   const onDoubleClick = (event: React.MouseEvent<HTMLDivElement>): void => {
-    if (!ctx || useComments.getState().on) return;
+    if (!ctx || useComments.getState().on || useStageGesture.getState().spaceHeld) return;
     const target = event.target as Element;
     if (target.closest('[data-open-artifact-editing], [data-open-artifact-overlay] .pointer-events-auto, [data-open-artifact-comment-ui], [data-open-artifact-notes]')) return;
     const view = useView.getState();
@@ -225,17 +236,25 @@ export function Stage(): ReactNode {
   };
 
   const onPointerMove = (event: ReactPointerEvent<HTMLDivElement>): void => {
+    // Alt pressed or let go while the window was in the background shows here first.
+    setAltHeld(event.altKey);
     // In comment mode the hover is what a click comments on (whatever the tool), as the click picks it.
     const commenting = useComments.getState().on;
     if (!ctx || event.buttons || (!commenting && useView.getState().tool !== 'select')) return;
+    const { spaceHeld, panning } = useStageGesture.getState();
+    if (spaceHeld || panning) return;
     const x = event.clientX;
     const y = event.clientY;
     cancelAnimationFrame(hoverFrame.current);
     hoverFrame.current = requestAnimationFrame(() => {
       const stored = useDeck.getState().slides[ctx.slideId]?.slide;
       const next = stored ? pickAt(ctx, stored, x, y, commenting ? [] : useView.getState().selection) : null;
-      const prev = useStageGesture.getState().hover;
-      if (!(prev && next && samePath(prev, next)) && prev !== next) useStageGesture.getState().set({ hover: next });
+      const at = toSlidePoint(ctx.root, x, y, ctx.scale);
+      const pointerOnSlide = at.x >= 0 && at.y >= 0 && at.x <= SLIDE_WIDTH && at.y <= SLIDE_HEIGHT;
+      const gesture = useStageGesture.getState();
+      const prev = gesture.hover;
+      if (!(prev && next && samePath(prev, next)) && prev !== next) gesture.set({ hover: next });
+      if (gesture.pointerOnSlide !== pointerOnSlide) gesture.set({ pointerOnSlide });
     });
   };
 
@@ -278,10 +297,22 @@ export function Stage(): ReactNode {
         ref={scroller}
         data-open-artifact-stage
         className="absolute inset-0 overflow-auto bg-stage outline-none"
+        data-open-artifact-pan={pan}
         style={{ cursor }}
+        onPointerDownCapture={onPointerDownCapture}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
-        onPointerLeave={() => useStageGesture.getState().set({ hover: null })}
+        onPointerLeave={() => {
+          cancelAnimationFrame(hoverFrame.current);
+          useStageGesture.getState().set({ hover: null, pointerOnSlide: false });
+        }}
+        onContextMenuCapture={(event) => {
+          // No menu while Space is held: the press was a drag of the stage.
+          const { spaceHeld, panning } = useStageGesture.getState();
+          if (!spaceHeld && !panning) return;
+          event.preventDefault();
+          event.stopPropagation();
+        }}
         onDoubleClick={onDoubleClick}
         onDragOver={onDragOver}
         onDrop={onDrop}

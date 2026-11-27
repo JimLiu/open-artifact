@@ -30,6 +30,8 @@
  * | F6              | Focus the formatting toolbar                  |
  * | ←↑→↓ / + / -    | While cropping: move / zoom the picture        |
  * | ⌘= ⌘- ⌘0        | Zoom in / out / fit                           |
+ * | Space (held)    | Drag the stage around (Shift+Space too)       |
+ * | ⌥ (held)        | Distances from the selection to the hovered element |
  * | ⌘\              | Show / hide the properties panel              |
  * | PgUp / PgDn     | Previous / next slide                         |
  * | ?               | Keyboard shortcuts                            |
@@ -79,6 +81,8 @@ import { commandLetter, holdsLayerKeyInField, layerMoveKey, undoRedoKey } from '
 import { isApplePlatform } from '@open-artifact/editor-kit';
 import { REVEAL_FOCUS_EVENT, ZOOM_STEP_EVENT } from './lib/reveal.ts';
 import { isComposingKey, shortcutLetter } from '@open-artifact/ui';
+import { isSpaceKey } from './lib/space-pan.ts';
+import { holdSpace, installStageKeys } from './services/stage-keys.ts';
 
 /**
  * True when the key event comes from a field that takes typing, or from a
@@ -102,6 +106,20 @@ function pressesControl(event: KeyboardEvent): boolean {
   if ((event.key !== 'Enter' && event.key !== ' ') || event.metaKey || event.ctrlKey || event.altKey) return false;
   const el = event.target as HTMLElement | null;
   return Boolean(el?.closest('button,a[href],[role="button"]'));
+}
+
+/**
+ * True when Space belongs to something other than the one-slide stage, so
+ * holding it does not drag the stage: a field, a control, the text being
+ * typed, comment mode, or the focus somewhere off the stage (the rail, a
+ * panel).
+ */
+function spaceIsElsewhere(event: KeyboardEvent): boolean {
+  const view = useView.getState();
+  if (typing(event) || pressesControl(event) || view.textEdit || useComments.getState().on) return true;
+  if (!(view.mode === 'edit' || view.canvasEdit)) return true;
+  const el = event.target instanceof Element ? event.target : null;
+  return !(el === null || el === document.body || el === document.documentElement || el.closest('[data-open-artifact-stage]'));
 }
 
 /** Zoom steps of ⌘= / ⌘-. */
@@ -145,6 +163,10 @@ export function installKeyboard(): () => void {
     const elsewhere = Boolean(document.querySelector('[aria-modal="true"]')) || view.presenting || useDeck.getState().status !== 'ready';
     // The stacking-order keys are the browser's back and forward: held back even where they do nothing.
     if ((elsewhere || typing(event)) && holdsLayerKeyInField(event, apple)) event.preventDefault();
+    if (isSpaceKey(event)) {
+      holdSpace(event, Boolean(elsewhere) || spaceIsElsewhere(event));
+      return;
+    }
     if (elsewhere) return;
     const mod = event.metaKey || event.ctrlKey;
     const key = event.key;
@@ -400,7 +422,11 @@ export function installKeyboard(): () => void {
     else if (letter === 'v') view.setTool('select');
   };
   window.addEventListener('keydown', onKey);
-  return () => window.removeEventListener('keydown', onKey);
+  const stageKeys = installStageKeys();
+  return () => {
+    window.removeEventListener('keydown', onKey);
+    stageKeys();
+  };
 }
 
 /** K: the Scale dialog, unless the selection is locked. */

@@ -1,6 +1,9 @@
 /**
  * Placement of the toolbar that floats next to the selection.
  *
+ * Across, it is centered over the selection and kept inside the visible
+ * stage (see `stripMiddle` for when it stays put instead).
+ *
  * The toolbar sits 10px above the selection when there is room between the
  * top of the visible stage and the selection; otherwise 10px below it.
  * When neither fits (a selection taller than the view), it goes where it
@@ -61,7 +64,35 @@ export function placeFloatingToolbar(layout: FloatingLayout): FloatingPlacement 
   return preferTop ? { top: highest, placed: 'above', overlaps: true } : { top: lowest, placed: 'below', overlaps: true };
 }
 
-/** Places the toolbar horizontally: at the selection's left, kept inside the band. */
-export function placeFloatingLeft(selLeft: number, width: number, bandLeft: number, bandRight: number): number {
-  return Math.max(bandLeft + MARGIN, Math.min(selLeft, bandRight - width - MARGIN));
+/** Places the toolbar horizontally: its middle at `middle`, kept 8px inside the band. Returns its left edge. */
+export function placeFloatingAcross(middle: number, width: number, bandLeft: number, bandRight: number): number {
+  const first = bandLeft + MARGIN;
+  const last = Math.max(first, bandRight - MARGIN - width);
+  return Math.round(Math.min(last, Math.max(first, middle - width / 2)));
+}
+
+/** Where the strip was last put, for one selection. */
+export interface StripSpot {
+  /** Which selection it was over. */
+  key: string;
+  /** The selection's left edge and width then. */
+  left: number;
+  width: number;
+  /** The strip's middle then. */
+  middle: number;
+}
+
+/**
+ * Where the strip's middle goes for a selection spanning `left`..`left + width`.
+ *
+ * Normally over the selection's middle. While the strip is held (the pointer
+ * or the focus is on it, one of its menus is open, or the text under it is
+ * being typed) it stays for the same selection, so it never slides away from
+ * the pointer: a selection that moved takes it along, one that changed size
+ * leaves it where it was.
+ */
+export function stripMiddle(last: StripSpot | null, key: string, left: number, width: number, held: boolean): number {
+  if (!held || last === null || last.key !== key) return left + width / 2;
+  const resized = Math.abs(width - last.width) >= 0.5;
+  return resized ? last.middle : last.middle + left - last.left;
 }

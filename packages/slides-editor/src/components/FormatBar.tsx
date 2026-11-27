@@ -10,12 +10,15 @@
  * by the editor); otherwise they apply to the whole element.
  *
  * It sits 10px above the selection, or below it when there is no room (see
- * `lib/floating.ts`), left-aligned with it and kept inside the visible
- * stage, clear of the floating cards. It hides while the selection is moved,
- * resized or drawn over. F6 moves the focus into it.
+ * `lib/floating.ts`), centered over it and kept inside the visible stage,
+ * clear of the floating cards. While the pointer or the focus is in it (or
+ * one of its menus is open) it stays where it is, so a selection that grows
+ * under it does not pull it away. It hides while the selection is moved,
+ * resized or drawn over, and fades while distances show. F6 moves the focus
+ * into it.
  */
 
-import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode, type RefObject } from 'react';
 import {
   AlignCenter,
   AlignCenterHorizontal,
@@ -42,7 +45,7 @@ import { Popover, isComposingKey } from '@open-artifact/ui';
 import { useSelectedNodes } from '../state/selection.ts';
 import { useView } from '../state/view.ts';
 import { ALIGN_KEYS, alignRefusal, alignSelection, canChange, patchSelectionStyle, selectionLockRefusal, updateSelection, type AlignEdge } from '../services/commands.ts';
-import { placeFloatingLeft, placeFloatingToolbar } from '../lib/floating.ts';
+import { placeFloatingAcross, placeFloatingToolbar, stripMiddle, type StripSpot } from '../lib/floating.ts';
 import { activeEditor, editorHasMark, editorSelectionCollapsed, editorSelectionInLink, focusEditor, formatEditor, linkEditorSelection } from './TextEditor.tsx';
 import { useStageGesture } from './stage/store.ts';
 import { ColorPanel, useColorGroups } from './properties/ColorField.tsx';
@@ -170,24 +173,68 @@ function measureAnchor(paths: readonly NodePath[]): Anchor | null {
 
 /** Follows the selection on screen (scrolling, zooming, typing, moving) every frame. */
 function useAnchor(paths: readonly NodePath[] | null): Anchor | null {
-  const [anchor, setAnchor] = useState<Anchor | null>(null);
+  // Kept with the selection it was measured for: a box left from the previous selection is never returned.
+  const [anchor, setAnchor] = useState<{ key: string; box: Anchor } | null>(null);
   const key = paths ? paths.map((p) => p.join('.')).join(',') : null;
   useLayoutEffect(() => {
-    if (!paths) {
+    if (!paths || key === null) {
       setAnchor(null);
       return;
     }
     let frame = 0;
     const tick = (): void => {
       const next = measureAnchor(paths);
-      setAnchor((prev) => (sameAnchor(prev, next) ? prev : next));
+      setAnchor((prev) => (prev?.key === key && sameAnchor(prev.box, next) ? prev : next ? { key, box: next } : null));
       frame = requestAnimationFrame(tick);
     };
     tick();
     return () => cancelAnimationFrame(frame);
     // `key` stands for `paths` (a new array on every render).
   }, [key]);
-  return anchor;
+  return anchor && anchor.key === key ? anchor.box : null;
+}
+
+/** True when the strip should stay put: the pointer is on it (or a finger pressed it), the focus is in it, or one of its menus is open. */
+function stripHeld(strip: HTMLElement | null, touched: boolean): boolean {
+  if (!strip) return false;
+  if (touched || strip.matches(':hover')) return true;
+  // Menus and popovers render outside the strip but carry its attribute.
+  if (document.hasFocus() && document.activeElement?.closest('[data-open-artifact-format-bar]')) return true;
+  return strip.querySelector('[aria-expanded="true"]') !== null;
+}
+
+/**
+ * The strip's center across, for the selection's box on screen: its
+ * middle, unless the strip is held (see `stripMiddle`). Once let go, it
+ * goes back to the middle within 200ms.
+ */
+function useStripMiddle(strip: RefObject<HTMLDivElement | null>, key: string, box: Anchor | null, typing: boolean): number {
+  const last = useRef<StripSpot | null>(null);
+  const touched = useRef(false);
+  const [, recheck] = useState(0);
+  const left = box?.left ?? 0;
+  const width = box ? box.right - box.left : 0;
+  const middle = stripMiddle(last.current, key, left, width, typing || stripHeld(strip.current, touched.current));
+  useLayoutEffect(() => {
+    // Only a box measured for this selection is a place to stay at.
+    last.current = box ? { key, left, width, middle } : null;
+  });
+  useEffect(() => {
+    const onDown = (event: PointerEvent): void => {
+      touched.current = event.pointerType === 'touch' && Boolean(strip.current?.contains(event.target as Node));
+    };
+    document.addEventListener('pointerdown', onDown, true);
+    return () => document.removeEventListener('pointerdown', onDown, true);
+  }, [strip]);
+  const away = Math.abs(middle - (left + width / 2)) >= 0.5;
+  useEffect(() => {
+    if (!away || typing) return;
+    const timer = setInterval(() => {
+      if (!stripHeld(strip.current, touched.current)) recheck((n) => n + 1);
+    }, 200);
+    return () => clearInterval(timer);
+  }, [away, typing, strip]);
+  return middle;
 }
 
 /** The caret's box while typing. */
@@ -210,6 +257,7 @@ export function FormatBar(): ReactNode {
   const tool = useView((s) => s.tool);
   const cropping = useView((s) => s.cropping);
   const gesturing = useStageGesture((s) => Boolean(s.move || s.draft || s.marquee || s.draw));
+  const measuring = useStageGesture((s) => s.measuring);
   //.
   const showProperties = useView((s) => s.showProperties);
   const visible = !readOnly && canChange() && !showProperties && nodes.length > 0 && nodes.every(hasText) && tool === 'select' && !cropping && !gesturing;
@@ -219,12 +267,14 @@ export function FormatBar(): ReactNode {
   useLayoutEffect(() => {
     if (strip.current) setWidth(strip.current.offsetWidth);
   });
+  const spotKey = `${paths.map((p) => p.join('.')).join(',')}|${textEdit?.cell?.join('.') ?? ''}`;
+  const middle = useStripMiddle(strip, spotKey, anchor, Boolean(textEdit && !textEdit.cell));
 
   if (!visible || !anchor || !slide) return null;
   const { band } = anchor;
   // Scrolled out of view: hide rather than pin to an edge.
   if (anchor.bottom < band.top || anchor.top > band.bottom) return null;
-  const left = placeFloatingLeft(anchor.left, width, band.left, band.right);
+  const left = placeFloatingAcross(middle, width, band.left, band.right);
   //. A selected element
   // (not being typed into) has a rotation handle above its middle: when the
   // strip would cover it, the strip goes above the handle instead.
@@ -243,6 +293,7 @@ export function FormatBar(): ReactNode {
     <div
       ref={strip}
       data-open-artifact-format-bar
+      data-measuring={measuring || undefined}
       className="pointer-events-none fixed z-30 flex"
       style={{ left, top, maxWidth: band.right - band.left - 16 }}
     >

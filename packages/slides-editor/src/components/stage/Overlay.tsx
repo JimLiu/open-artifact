@@ -1,8 +1,8 @@
 /**
  * The stage overlay, drawn in screen pixels over the slide: selection
  * frames with resize, rotate and connector-end handles, the hover outline,
- * snap guides, the marquee, the shape being drawn, other people's
- * selections and the crop frame.
+ * snap guides, distances while Alt is held, the marquee, the shape being
+ * drawn, other people's selections and the crop frame.
  *
  * The overlay itself lets pointer events through to the slide; only its
  * handles (and the crop pan area) take them.
@@ -20,6 +20,7 @@ import { useView } from '../../state/view.ts';
 import { cellSelector, outlinedCell } from '../../lib/menu-cell.ts';
 import { connectorEnds, elementOf, hostRect, HANDLES, measureBox, rectFromPoints, unionRect, type Box } from './geometry.ts';
 import { CROP_EDGES, type CropEdge } from './crop.ts';
+import { Distances } from './Distances.tsx';
 import {
   cropGeometry,
   cropHandlesOff,
@@ -154,6 +155,8 @@ export function Overlay({ ctx, slide, children }: OverlayProps): ReactNode {
           ))}
         </>
       ) : null}
+
+      <Distances ctx={ctx} />
 
       {marquee ? (
         <div className="absolute border border-accent bg-accent/10" style={{ left: marquee.x * s, top: marquee.y * s, width: marquee.w * s, height: marquee.h * s }} />
