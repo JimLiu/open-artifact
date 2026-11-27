@@ -14,10 +14,9 @@
  */
 
 import { createProjectSync, readProject, type RemoteFile } from '@open-artifact/editor-kit';
-import type { PublishBatch } from '@open-artifact/runtime';
 import { DECK_PATH, DECK_STYLESHEET_PATH, parseDeckIndex, slideIdFromPath, slidePath } from '@open-artifact/slides-core';
 import { toast } from '@open-artifact/ui';
-import { configureDeck, deckOrder, indexText, isDirty, slideNeedsWrite, slideText, useDeck, type SentBatch } from '../state/deck.ts';
+import { configureDeck, deckOrder, isDirty, saveBatch, useDeck, type SentBatch } from '../state/deck.ts';
 import { useView } from '../state/view.ts';
 import { noteRemoteSlides } from './creation.ts';
 import { clearRecovery, saveRecovery } from './recovery.ts';
@@ -52,7 +51,7 @@ const sync = createProjectSync<SentBatch, RemoteRun>({
   isDirty: () => isDirty(useDeck.getState()),
   save: () => useDeck.getState().save,
   setSave: (save) => useDeck.getState().setSave(save),
-  collect,
+  collect: () => saveBatch(useDeck.getState()),
   acknowledge(sent, published) {
     const hashes: Record<string, string | null> = { ...published };
     // Unchanged slides keep their hash.
@@ -135,35 +134,6 @@ export function retryNow(): void {
  */
 export function applyRemote(changes: Record<string, string | null>, options: { force?: boolean } = {}): Promise<void> {
   return sync.applyRemote(changes, options);
-}
-
-/** Builds the next publish batch from the store. */
-function collect(): { batch: PublishBatch; sent: SentBatch } {
-  const state = useDeck.getState();
-  const batch: PublishBatch = {};
-  const sent: SentBatch = { index: null, slides: {}, deleted: [] };
-  if (state.index !== state.indexSaved && !state.indexError) {
-    const text = indexText(state.index);
-    batch[DECK_PATH] = { content: text, ifMatch: state.indexHash };
-    sent.index = { index: state.index, text };
-  }
-  for (const [id, entry] of Object.entries(state.slides)) {
-    if (!slideNeedsWrite(entry)) continue;
-    const text = slideText(entry.slide, entry);
-    if (text === entry.savedText) {
-      // Same bytes as the file: nothing to send, just mark it saved.
-      sent.slides[id] = { slide: entry.slide, text };
-      continue;
-    }
-    batch[slidePath(id)] = { content: text, ifMatch: entry.hash };
-    sent.slides[id] = { slide: entry.slide, text };
-  }
-  for (const [id, entry] of Object.entries(state.trash)) {
-    if (entry.hash === null || state.slides[id]) continue;
-    batch[slidePath(id)] = null;
-    sent.deleted.push(id);
-  }
-  return { batch, sent };
 }
 
 /** How one changed file of the deck is taken. */

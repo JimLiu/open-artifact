@@ -47,7 +47,7 @@ export function saveRecovery(immediate = false): void {
     if (!isDirty(state)) return;
     const record: Recovery = { at: Date.now(), slides: {} };
     for (const [id, entry] of Object.entries(state.slides)) {
-      if (entry.slide !== entry.saved && !entry.held) record.slides[id] = serializeSlide(entry.slide);
+      if ((entry.slide !== entry.saved || entry.gone) && !entry.held) record.slides[id] = serializeSlide(entry.slide);
     }
     for (const [id, entry] of Object.entries(state.trash)) if (entry.hash !== null) record.slides[id] = null;
     if (state.index !== state.indexSaved && !state.indexError) record.index = serializeDeckIndex(state.index);

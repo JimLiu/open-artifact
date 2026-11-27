@@ -2038,6 +2038,13 @@ describe('slides', { skip: skipFor('slides') }, () => {
   /** The page number each slide of the rail shows, in rail order: `one:1 two:2`. */
   const railNumbers = `[...document.querySelectorAll('${rail}')].map(item => { const slide = item.querySelector('[data-open-artifact-slide]') ?? item; return (slide.getAttribute('data-open-artifact-slide') ?? '?') + ':' + (/Page (\\d+)/.exec(slide.textContent)?.[1] ?? '-'); }).join(' ')`;
   const showsNumbers = async (tab, expected, why) => assert.ok(await tab.waitFor(`${railNumbers} === ${JSON.stringify(expected)}`, 15000), `${why}: ${(await tab.evaluateAll(railNumbers)).find(Boolean)}`);
+  /** Picks `label` from the menu of the rail's slide `at`. */
+  const railMenu = async (tab, at, label) => {
+    await tab.rightClick(...(await middle(tab, `document.querySelectorAll('${rail}')[${at}]`)));
+    assert.ok(await tab.waitFor(menuItem(label)), `the slide's menu has no ${label}`);
+    await tab.evaluate(`${menuItem(label)}.click()`);
+  };
+  const synced = `document.querySelector('button[aria-label="All changes synced"]')`;
 
   it('numbers the pages of slides that arrive while the deck is open by their place in the order', { skip: browserSkip }, async () => {
     // The outline lists four slides; one is written. The agent writes the others into the open page, one out of
@@ -2082,11 +2089,6 @@ describe('slides', { skip: skipFor('slides') }, () => {
     const tab = await browser.load(new URL('index.html', deckPublic).href + '#slide-~three', { ready: `document.querySelectorAll('${rail}').length === 3` });
     const stage = id => `document.querySelector('[data-open-artifact-mode="edit"][data-open-artifact-slide="${id}"]')`;
     const text = id => fs.readFileSync(slideFile(id), 'utf8');
-    const railMenu = async (at, label) => {
-      await tab.rightClick(...(await middle(tab, `document.querySelectorAll('${rail}')[${at}]`)));
-      assert.ok(await tab.waitFor(menuItem(label)), `the slide's menu has no ${label}`);
-      await tab.evaluate(`${menuItem(label)}.click()`);
-    };
     try {
       await showsNumbers(tab, 'one:1 two:2 three:3', 'the deck as written');
       const mac = await tab.evaluate("navigator.platform.includes('Mac')");
@@ -2102,7 +2104,7 @@ describe('slides', { skip: skipFor('slides') }, () => {
       assert.ok(await until(() => text('three') === slideHtml('three', 'Third')), text('three'));
 
       // Moved up from its menu: it is page 2 and the slide it passed page 3, in the rail and on the stage.
-      await railMenu(2, 'Move up');
+      await railMenu(tab, 2, 'Move up');
       await showsNumbers(tab, 'one:1 three:2 two:3', 'after Move up');
       assert.ok(await tab.waitFor(`${stage('three')}?.textContent.includes('Page 2')`), 'the stage kept the old number');
       assert.ok(await until(() => order().join() === 'one,three,two'), `deck.json: ${order()}`);
@@ -2119,16 +2121,113 @@ describe('slides', { skip: skipFor('slides') }, () => {
       await showsNumbers(tab, 'one:1 two:2 three:3', 'after undoing the edit');
 
       // Deleted from its menu: the slides after it move up a page; undo brings it and their numbers back.
-      await railMenu(0, 'Delete');
+      await railMenu(tab, 0, 'Delete');
       await showsNumbers(tab, 'two:1 three:2', 'after deleting the first slide');
       assert.ok(await until(() => !fs.existsSync(slideFile('one'))), 'one.html is still there');
-      // The save has come back before the undo (an undo while a delete is on its way is another matter).
-      assert.ok(await tab.waitFor(`document.querySelector('button[aria-label="All changes synced"]')`), 'the delete never finished saving');
+      // Whether or not the save has come back by now, the file comes back as it was written.
       await undo();
       await showsNumbers(tab, 'one:1 two:2 three:3', 'after undoing the delete');
-      assert.ok(await until(() => fs.existsSync(slideFile('one'))), 'one.html did not come back');
+      assert.ok(await until(() => fs.existsSync(slideFile('one')) && text('one') === slideHtml('one')), `one.html did not come back as it was: ${fs.existsSync(slideFile('one')) ? text('one') : 'no file'}`);
       assert.equal(text('two'), slideHtml('two'));
       assert.equal(text('three'), slideHtml('three'));
+      assert.deepEqual(tab.problems, []);
+    } finally {
+      // Not stopped: the deck under test shares its server (the suite stops it at the end).
+      await tab.close();
+    }
+  });
+
+  it('writes a slide back as its file was when its delete is undone after the save', { skip: browserSkip }, async () => {
+    const { deck, slideFile, slideHtml, order } = numberedDeck('slides-undo-delete', ['one', 'two', 'three'], ['one', 'two', 'three']);
+    const { url: deckPublic } = await run.json(['open', deck, '--json']);
+    const deckUrl = new URL('index.html', deckPublic).href;
+    const tab = await browser.load(deckUrl, { ready: `document.querySelectorAll('${rail}').length === 3` });
+    const file = id => (fs.existsSync(slideFile(id)) ? fs.readFileSync(slideFile(id), 'utf8') : null);
+    try {
+      await showsNumbers(tab, 'one:1 two:2 three:3', 'the deck as written');
+      const mac = await tab.evaluate("navigator.platform.includes('Mac')");
+      await railMenu(tab, 1, 'Delete');
+      await showsNumbers(tab, 'one:1 three:2', 'after deleting the second slide');
+      assert.ok(await until(() => file('two') === null && order().join() === 'one,three'), `the delete was not saved: ${order()}`);
+      assert.ok(await tab.waitFor(synced), 'the delete never finished saving');
+
+      // Undo: the file is the one that was deleted, classes and all, with no page number written into it.
+      await tab.press('z', { meta: mac, ctrl: !mac });
+      await showsNumbers(tab, 'one:1 two:2 three:3', 'after undoing the delete');
+      assert.ok(await until(() => file('two') === slideHtml('two')), `two.html did not come back as it was: ${file('two') ?? 'no file'}`);
+      assert.ok(await until(() => order().join() === 'one,two,three'), `deck.json: ${order()}`);
+      assert.ok(await tab.waitFor(synced), 'the undo never finished saving');
+
+      // Redo deletes the file again, and a second undo brings the same file back.
+      await tab.press('z', { meta: mac, ctrl: !mac, shift: true });
+      await showsNumbers(tab, 'one:1 three:2', 'after redoing the delete');
+      assert.ok(await until(() => file('two') === null), 'two.html is still there after the redo');
+      assert.ok(await tab.waitFor(synced), 'the redo never finished saving');
+      await tab.press('z', { meta: mac, ctrl: !mac });
+      await showsNumbers(tab, 'one:1 two:2 three:3', 'after the second undo');
+      assert.ok(await until(() => file('two') === slideHtml('two')), `two.html did not come back as it was the second time: ${file('two') ?? 'no file'}`);
+      assert.equal(file('one'), slideHtml('one'));
+      assert.equal(file('three'), slideHtml('three'));
+
+      // A page that loads the deck whole shows the three slides.
+      assert.ok(await tab.waitFor(synced), 'the second undo never finished saving');
+      const whole = await browser.load(deckUrl, { ready: `document.querySelectorAll('${rail}').length === 3` });
+      try {
+        await showsNumbers(whole, 'one:1 two:2 three:3', 'the deck loaded whole');
+      } finally {
+        await whole.close();
+      }
+      assert.deepEqual(tab.problems, []);
+    } finally {
+      // Not stopped: the deck under test shares its server (the suite stops it at the end).
+      await tab.close();
+    }
+  });
+
+  it('writes a slide back when its delete is undone while the save is on its way', { skip: browserSkip }, async () => {
+    const { deck, slideFile, slideHtml, order } = numberedDeck('slides-undo-delete-on-its-way', ['one', 'two', 'three'], ['one', 'two', 'three']);
+    const { url: deckPublic } = await run.json(['open', deck, '--json']);
+    const deckUrl = new URL('index.html', deckPublic).href;
+    const tab = await browser.load(deckUrl, { ready: `document.querySelectorAll('${rail}').length === 3` });
+    const file = id => (fs.existsSync(slideFile(id)) ? fs.readFileSync(slideFile(id), 'utf8') : null);
+    try {
+      await showsNumbers(tab, 'one:1 two:2 three:3', 'the deck as written');
+      const mac = await tab.evaluate("navigator.platform.includes('Mac')");
+      // The host's answer to a save is held back from the page until the test lets it through.
+      await tab.evaluate(`(() => {
+        const send = window.fetch;
+        window.heldSaves = [];
+        window.holdSaves = true;
+        window.fetch = async (...args) => {
+          const response = await send(...args);
+          if (window.holdSaves && String(args[0]?.url ?? args[0]).includes('_api/publish')) await new Promise(resolve => window.heldSaves.push(resolve));
+          return response;
+        };
+      })()`);
+      await railMenu(tab, 0, 'Delete');
+      await showsNumbers(tab, 'two:1 three:2', 'after deleting the first slide');
+      // The host has deleted the file; the page has not heard so yet.
+      assert.ok(await until(() => file('one') === null), 'one.html is still there');
+      assert.ok(await tab.waitFor(`window.heldSaves.length === 1`), 'the save was not held');
+      await tab.press('z', { meta: mac, ctrl: !mac });
+      await showsNumbers(tab, 'one:1 two:2 three:3', 'after undoing the delete');
+      assert.equal(file('one'), null);
+      await tab.evaluate(`(() => { window.holdSaves = false; for (const answer of window.heldSaves.splice(0)) answer(); })()`);
+
+      // The slide stays, and its file is written again as it was.
+      assert.ok(await until(() => file('one') === slideHtml('one')), `one.html did not come back as it was: ${file('one') ?? 'no file'}`);
+      assert.ok(await until(() => order().join() === 'one,two,three'), `deck.json: ${order()}`);
+      assert.ok(await tab.waitFor(synced), 'the undo never finished saving');
+      await showsNumbers(tab, 'one:1 two:2 three:3', 'after the save');
+      assert.equal(file('two'), slideHtml('two'));
+      assert.equal(file('three'), slideHtml('three'));
+      // A page that loads the deck whole shows the three slides.
+      const whole = await browser.load(deckUrl, { ready: `document.querySelectorAll('${rail}').length === 3` });
+      try {
+        await showsNumbers(whole, 'one:1 two:2 three:3', 'the deck loaded whole');
+      } finally {
+        await whole.close();
+      }
       assert.deepEqual(tab.problems, []);
     } finally {
       // Not stopped: the deck under test shares its server (the suite stops it at the end).

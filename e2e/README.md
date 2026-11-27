@@ -173,7 +173,12 @@ The harness asks its questions (`waitFor`, `evaluateAll`, `load`'s `ready`) in a
 
 - The third slide's title is retyped on the stage and saved into its own markup. Move up in its rail menu makes it Page 2 and the slide it passed Page 3, in the rail and on the stage; `deck.json` gets the new order and no slide file changes. Before the fix, each slide kept the number it was read with until the page was reloaded.
 - ⌘Z takes the move back (numbers and `deck.json`), and a second ⌘Z the retyped title, with no warning that someone else changed the slide; the file is the one first written, not a flat copy.
-- Delete in the first slide's rail menu makes the others Pages 1 and 2 and removes its file. Once that save has come back, ⌘Z brings the slide and the numbers back, and the other two files are as written.
+- Delete in the first slide's rail menu makes the others Pages 1 and 2 and removes its file. ⌘Z, as soon as the file is gone, brings the slide and the numbers back, its file is the one first written, and the other two files are as written.
+
+**Slides: undoing the delete of a slide** (`slides.test.mjs`, two three-slide source decks of their own with the same sheet, Chrome only)
+
+- After the save: Delete in the second slide's rail menu removes its file and takes it out of `deck.json`. Once the save has come back, ⌘Z brings the slide back and its file is byte for byte the one that was deleted, with its classes and no page number written into it. Before the fix, it was saved flat (`<section data-flat …>`, inline styles, the page number as a literal `<p>Page 2</p>`). ⇧⌘Z deletes the file again, a second ⌘Z writes the same file back, and a tab that loads the deck whole shows three slides.
+- While the save is on its way: the page's `fetch` is wrapped so that the host's answer to `_api/publish` is held back. Delete in the first slide's rail menu; once the host has removed the file, ⌘Z brings the slide back in the rail while the answer is still held. When the answer is let through, the slide stays, its file is written again as it was, `deck.json` lists it, the badge says All changes synced, and a tab that loads the deck whole shows three slides. Before the fix, the slide stayed in the editor with no file on disk, and was gone on the next load.
 
 **Sheets** (`sheets.test.mjs`)
 

@@ -4,11 +4,13 @@
  *
  * Models are immutable; an edit replaces a slide (or the index) with a new
  * object. A slide needs writing when its model is not the one last saved or
- * read (`slide !== saved`); the index likewise. Saves and remote changes go
- * through `services/sync.ts`, which calls the bookkeeping actions here.
+ * read (`slide !== saved`), or when its file is gone (a saved delete that was
+ * undone); the index likewise. Saves and remote changes go through
+ * `services/sync.ts`, which calls the bookkeeping actions here.
  */
 
 import { mergeLines } from '@open-artifact/editor-kit';
+import type { PublishBatch } from '@open-artifact/runtime';
 import { create, type StateCreator } from 'zustand';
 import {
   addSectionAtSlide,
@@ -21,6 +23,7 @@ import {
   patchSourceSlide,
   readSourceSlide,
   setSlideSize,
+  slidePath,
   stripSourcePlaces,
   type SourceDeck,
   heldReason,
@@ -85,6 +88,11 @@ export interface SlideEntry {
   conflict?: SlideConflict;
   /** When this tab last wrote the file (a save made at the same moment may replace it). */
   writtenAt?: number;
+  /**
+   * The file is not there though `saved` is what it held: this tab deleted it, and the delete was taken back after
+   * it reached the host. The next save writes the file again (as it was, when nothing in the slide changed since).
+   */
+  gone?: true;
 }
 
 /** One undo step. */
@@ -144,7 +152,10 @@ interface DeckState {
   /** deck.json could not be parsed: shown read-only until fixed. */
   indexError: string | null;
   slides: Record<string, SlideEntry>;
-  /** Deleted slides whose files still need deleting (keep their hash). */
+  /**
+   * Deleted slides. One whose file still needs deleting keeps its hash; once the file is gone (`hash` null) the entry
+   * stays, so that an undo of the delete writes the file back as it was.
+   */
   trash: Record<string, SlideEntry>;
   undo: HistoryStep[];
   redo: HistoryStep[];
@@ -371,9 +382,27 @@ export function deckFaces(index: DeckIndex): string[] {
   return Object.values(index.faces).map((face) => face.family);
 }
 
-/** True when the slide has edits not yet saved. */
+/** True when the slide has edits not yet saved, or its file is to be written back. */
 export function slideNeedsWrite(entry: SlideEntry): boolean {
-  return !entry.held && entry.slide !== entry.saved && !entry.conflict;
+  return !entry.held && (entry.slide !== entry.saved || Boolean(entry.gone)) && !entry.conflict;
+}
+
+/**
+ * A slide that comes back (an undo, a redo, a new slide) as `slide`. `deleted` is its entry in the trash: when the
+ * delete already reached the host, the file is gone and is written again.
+ */
+function restoredEntry(deleted: SlideEntry | undefined, slide: Slide): SlideEntry {
+  if (!deleted) return { slide, saved: null, savedText: null, hash: null, diagnostics: [] };
+  return deleted.hash === null && deleted.savedText !== null ? { ...deleted, slide, gone: true } : { ...deleted, slide };
+}
+
+/** The trash without what nothing can bring back: slides whose file is gone and that no step of the history holds. */
+function heldTrash(trash: Record<string, SlideEntry>, steps: readonly HistoryStep[]): Record<string, SlideEntry> {
+  const dropped = Object.keys(trash).filter((id) => trash[id]!.hash === null && !steps.some((step) => id in step.slides));
+  if (dropped.length === 0) return trash;
+  const next = { ...trash };
+  for (const id of dropped) delete next[id];
+  return next;
 }
 
 /** True when anything is waiting to be saved. */
@@ -402,6 +431,36 @@ export function slideText(slide: Slide, entry?: Pick<SlideEntry, 'saved' | 'save
   if (sameSlide(slide, saved)) return savedText;
   // The patch is checked against the slide as read, page number included: at the place it was read at.
   return patchSourceSlide(savedText, saved, slide, sourceDeck, { id: slide.id, index: entry?.place ?? sourcePlaces.get(slide.id) ?? 0 }) ?? flattenSlide(slide);
+}
+
+/** What the next save sends, and what it will have saved once it went through ({@link DeckState.acknowledge}). */
+export function saveBatch(state: Pick<DeckState, 'index' | 'indexSaved' | 'indexHash' | 'indexError' | 'slides' | 'trash'>): { batch: PublishBatch; sent: SentBatch } {
+  const batch: PublishBatch = {};
+  const sent: SentBatch = { index: null, slides: {}, deleted: [] };
+  if (state.index !== state.indexSaved && !state.indexError) {
+    const text = indexText(state.index);
+    batch[DECK_PATH] = { content: text, ifMatch: state.indexHash };
+    sent.index = { index: state.index, text };
+  }
+  for (const [id, entry] of Object.entries(state.slides)) {
+    if (!slideNeedsWrite(entry)) continue;
+    // A slide as it was saved is its file as it was, whatever the model would serialize to.
+    const text = entry.slide === entry.saved && entry.savedText !== null ? entry.savedText : slideText(entry.slide, entry);
+    if (text === entry.savedText && !entry.gone) {
+      // Same bytes as the file: nothing to send, just mark it saved.
+      sent.slides[id] = { slide: entry.slide, text };
+      continue;
+    }
+    // A file that is gone is written on the condition that it is still absent (`ifMatch: null`).
+    batch[slidePath(id)] = { content: text, ifMatch: entry.gone ? null : entry.hash };
+    sent.slides[id] = { slide: entry.slide, text };
+  }
+  for (const [id, entry] of Object.entries(state.trash)) {
+    if (entry.hash === null || state.slides[id]) continue;
+    batch[slidePath(id)] = null;
+    sent.deleted.push(id);
+  }
+  return { batch, sent };
 }
 
 /** True when two slide models write the same file (source places aside). */
@@ -508,9 +567,8 @@ export const useDeck = create<DeckState>()(keepingPageNumbers((set, get) => ({
       } else if (current) {
         slides[id] = { ...current, slide: next };
       } else {
-        const restored = trash[id];
+        slides[id] = restoredEntry(trash[id], next);
         delete trash[id];
-        slides[id] = restored ? { ...restored, slide: next } : { slide: next, saved: null, savedText: null, hash: null, diagnostics: [] };
       }
     }
     let index = state.index;
@@ -531,7 +589,8 @@ export const useDeck = create<DeckState>()(keepingPageNumbers((set, get) => ({
     } else {
       undo = [...undo, step].slice(-LIMITS.undo);
     }
-    set({ slides, trash, index, undo, redo: [], undoWarned: null, edits: state.edits + 1, revision: state.revision + 1 });
+    // The redo steps end here, and the oldest undo step may: so do the deleted slides only they could bring back.
+    set({ slides, trash: heldTrash(trash, undo), index, undo, redo: [], undoWarned: null, edits: state.edits + 1, revision: state.revision + 1 });
   },
 
   undoStep() {
@@ -580,11 +639,14 @@ export const useDeck = create<DeckState>()(keepingPageNumbers((set, get) => ({
             if (sameSlide(read.slide, saved)) source = read.slide;
           }
         }
-        slides[id] = { ...entry, saved, savedText: text, hash, source, writtenAt: Date.now() };
+        slides[id] = { ...entry, saved, savedText: text, hash, source, writtenAt: Date.now(), gone: undefined };
       } else if (trash[id]) trash[id] = { ...trash[id]!, saved: slide, savedText: text, hash };
     }
     for (const id of sent.deleted) {
-      if (trash[id]) delete trash[id];
+      // The file is gone. The entry stays in the trash, so that an undo writes the file back as it was.
+      if (trash[id]) trash[id] = { ...trash[id]!, hash: null };
+      // The delete was undone while it was on its way: the slide is here and its file is not.
+      else if (slides[id]) slides[id] = { ...slides[id]!, hash: null, gone: true };
     }
     set({ slides, trash, indexSaved, indexHash });
   },
@@ -674,41 +736,54 @@ export const useDeck = create<DeckState>()(keepingPageNumbers((set, get) => ({
 /** Applies someone else's version of a slide (see {@link DeckState.remoteSlide}). */
 function takeRemoteSlide(get: () => DeckState, set: (partial: Partial<DeckState>) => void, id: string, text: string | null, hash: string | null): RemoteOutcome {
   const state = get();
-  const entry = state.slides[id] ?? state.trash[id];
+  const found = state.slides[id] ?? state.trash[id];
   const inTrash = !state.slides[id] && Boolean(state.trash[id]);
   if (text === null) {
-    if (!entry) return 'same';
-    if (inTrash || entry.slide === entry.saved || entry.held) {
-      const slides = { ...state.slides };
-      const trash = { ...state.trash };
-      delete slides[id];
-      delete trash[id];
-      set({ slides, trash });
+    if (!found) return 'same';
+    if (inTrash) {
+      // Deleted here too: nothing is left to delete. The entry stays, so that an undo writes the file back as it was.
+      if (found.hash === null) return 'same';
+      set({ trash: { ...state.trash, [id]: { ...found, hash: null } } });
       return 'applied';
     }
-    set({ slides: { ...state.slides, [id]: { ...entry, conflict: { theirsText: null, theirsHash: null, theirsSlide: null, reason: 'deleted' } } } });
+    // This tab's own delete, already taken back: the file is about to be written again.
+    if (found.gone) return 'same';
+    if (found.slide === found.saved || found.held) {
+      const slides = { ...state.slides };
+      delete slides[id];
+      set({ slides });
+      return 'applied';
+    }
+    set({ slides: { ...state.slides, [id]: { ...found, conflict: { theirsText: null, theirsHash: null, theirsSlide: null, reason: 'deleted' } } } });
     return 'conflict';
   }
   // A slide that is new here is read at the place it comes to.
   if (!state.slides[id]) sourcePlaces = placesOf(state.index, [...Object.keys(state.slides), id]);
   const read = readSlide(id, text, deckFaces(state.index));
-  if (!entry) {
+  if (!found) {
     set({ slides: { ...state.slides, [id]: { ...read, saved: read.slide, savedText: text, hash } } });
     return 'applied';
   }
+  if (inTrash) {
+    if (found.hash !== null && found.savedText === text) {
+      // The file this tab is about to delete, as it was: it stays deleted.
+      set({ trash: { ...state.trash, [id]: { ...found, hash } } });
+      return 'same';
+    }
+    // They wrote a slide we deleted: theirs comes back.
+    const trash = { ...state.trash };
+    delete trash[id];
+    set({ trash, slides: { ...state.slides, [id]: { ...read, saved: read.slide, savedText: text, hash } } });
+    return 'applied';
+  }
+  // The file is there again, whoever wrote it.
+  const entry: SlideEntry = found.gone ? { ...found, gone: undefined } : found;
   if (entry.savedText === text) {
     set({ slides: { ...state.slides, [id]: { ...entry, hash } } });
     return 'same';
   }
   const dirty = entry.slide !== entry.saved && !entry.held;
-  if (!dirty || inTrash) {
-    if (inTrash) {
-      // They edited a slide we deleted: theirs comes back.
-      const trash = { ...state.trash };
-      delete trash[id];
-      set({ trash, slides: { ...state.slides, [id]: { ...read, saved: read.slide, savedText: text, hash } } });
-      return 'applied';
-    }
+  if (!dirty) {
     // Our version came back (someone put it back): the notice about losing it is settled.
     const settled = state.kept.filter((item) => !(item.reason === 'overwritten' && item.id === id && item.text === text));
     // A save made at the same moment replaced the one this tab just made: keep ours to bring back.
@@ -785,9 +860,8 @@ function travel(get: () => DeckState, set: (partial: Partial<DeckState>) => void
       }
     } else if (current) nextSlides[id] = { ...current, slide };
     else {
-      const restored = trash[id];
+      nextSlides[id] = restoredEntry(trash[id], slide);
       delete trash[id];
-      nextSlides[id] = restored ? { ...restored, slide } : { slide, saved: null, savedText: null, hash: null, diagnostics: [] };
     }
   }
   const undo = direction === 'undo' ? state.undo.slice(0, -1) : [...state.undo, step];
