@@ -6,7 +6,7 @@ can follow along:
 
     state connected | state disconnected
     reattached <session> inbox=<n>
-    returned <session> <n>
+    returned <session> <n> | kept <session> <n>
     open <url> view=<address> [remote=<type>]
     wake <turn|notice> <reason> from <kind> on "<title>"
     shell <type>
@@ -66,11 +66,14 @@ class Host:
         """`inbox.return`: what was taken on a reattach and not handed on waits in the session's inbox again, ahead of
         what came since, for its next tool call, wait or attach. Against a daemon without the feature a real host keeps
         them and adds them to the session's next tool result."""
-        if "inbox.return" not in self.features or self.peer is None:
-            say("kept %s %d" % (ref.get("session"), len(messages)))
-            return
-        answer = self.peer.request("inbox.return", {"session": ref.get("session"), "workspace": ref.get("workspace"), "messages": messages})
-        say("returned %s %d" % (ref.get("session"), (answer or {}).get("returned", 0)))
+        if "inbox.return" in self.features and self.peer is not None:
+            try:
+                answer = self.peer.request("inbox.return", {"session": ref.get("session"), "workspace": ref.get("workspace"), "messages": messages})
+                say("returned %s %d" % (ref.get("session"), (answer or {}).get("returned", 0)))
+                return
+            except Exception as error:  # the bridge is going away again, say: keep them rather than lose them
+                say("inbox.return failed: %s" % error)
+        say("kept %s %d" % (ref.get("session"), len(messages)))
 
     def host_open(self, params):
         """`host.open`: show the artifact's page. A host with a top-level view loads `embed_url` (it carries a

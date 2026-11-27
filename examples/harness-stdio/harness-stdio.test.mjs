@@ -66,10 +66,19 @@ wake = {"kind": "wake", "text": "Bigger", "at": "2026-01-01T00:00:00.000Z", "sou
 host.notify("bridge.reattached", {"params": {"session": "py-1", "workspace": "/w"}, "inbox": [wake]})
 host.notify("bridge.reattached", {"params": {"session": "gone", "workspace": "/w"}, "inbox": [wake]})
 assert done.wait(5)
+for t in threading.enumerate():
+    if t is not threading.current_thread():
+        t.join(5)
 print(calls[0][0], calls[0][1]["session"], calls[0][1]["workspace"], len(calls[0][1]["messages"]), calls[0][1]["messages"][0]["text"])
 print(len(calls))
 host.features = []
 host.notify("bridge.reattached", {"params": {"session": "gone-too", "workspace": "/w"}, "inbox": [wake]})
+class FailingPeer:
+    def request(self, method, params=None, timeout=60.0):
+        raise TimeoutError("no answer")
+host.features = ["inbox.return"]
+host.peer = FailingPeer()
+host.give_back({"session": "gone-3", "workspace": "/w"}, [wake])
 `);
     assert.equal(lines[0], 'reattached py-1 inbox=1');
     assert.equal(lines[1], 'wake turn request from owner on "T"');
@@ -78,6 +87,7 @@ host.notify("bridge.reattached", {"params": {"session": "gone-too", "workspace":
     assert.ok(lines.includes('inbox.return gone /w 1 Bigger'), lines.join('\n'));
     assert.ok(lines.includes('1'), 'one inbox.return, for the session it no longer has');
     assert.ok(lines.includes('kept gone-too 1'), 'a daemon without the feature: the host keeps them');
+    assert.ok(lines.includes('kept gone-3 1'), 'an inbox.return that fails: the host keeps them');
   });
 });
 
