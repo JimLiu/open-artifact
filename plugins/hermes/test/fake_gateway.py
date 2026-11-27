@@ -5,7 +5,7 @@ per step on stdout; the first failure exits non-zero.
 
   routing    only the owner's words reach inject_message; a collaborator, the system or no sender answers failed
   failed-call a tool call that fails (error answer, bridge gone, timeout) is sent once, and what its attach took from
-              the inbox goes back with inbox.return
+              the inbox goes back with inbox.return, or, with the bridge gone, is kept for the next call's result
   register   three tools in the open_artifact toolset and the three hooks; in the "gateway" the bridge comes up
   tools      quickstart (attaches the session), then publish: an artifact this session owns
   live       the page's Ask (artifacts.ask) -> wake.deliver -> inject_message(user, session_key) -> via live
@@ -132,6 +132,33 @@ def main():
         if "error" not in out or methods.count("tools.call") != 1 or len(returned) != 1 or \
                 [m["text"] for m in returned[0]["messages"]] != ["waited"]:
             fail("failed call (%s): %s %s" % (type(failure).__name__, out, methods))
+    # the bridge went away with the call: nothing can be put back now, so it is kept for the next call
+    adapter = module.Adapter(FakeCtx(), data_dir=WORK / "stub2")
+    class GoneBridge(StubBridge):
+        """The bridge process ends during the call: not alive, and hello's features are gone with it."""
+        @property
+        def alive(self):
+            return not any(m == "tools.call" for m, _ in self.calls)
+
+        @property
+        def features(self):
+            return [] if not self.alive else ["inbox.return"]
+    gone = GoneBridge(module.BridgeGone({"message": "gone", "data": {"code": "disconnected"}}))
+    adapter.bridge = gone
+    adapter._features = ["inbox.return"]
+    json.loads(adapter.call_tool("Artifact", {"action": "publish"}, "s3", str(WORK)))
+    if [m["text"] for m in adapter.leftovers.get("s3", [])] != ["waited"]:
+        fail("bridge gone: not kept %s" % adapter.leftovers)
+
+    class OkBridge(StubBridge):
+        def request(self, method, params=None, timeout=60.0):
+            self.calls.append((method, params))
+            return {"inbox": []} if method == "session.attach" else {"content": [], "messages": ["new"]}
+    adapter.bridge = OkBridge(None)
+    adapter.attached.discard("s3")
+    out = json.loads(adapter.call_tool("Artifact", {"action": "list"}, "s3", str(WORK)))
+    if out.get("messages") != ["waited", "new"] or adapter.leftovers.get("s3"):
+        fail("bridge back: kept message not handed over %s" % out)
     say("failed-call ok")
 
     # register

@@ -20,9 +20,11 @@ Outside the gateway (``hermes plugins list``, one-shot CLI, cron) nothing is spa
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -42,6 +44,7 @@ TOOL_NAMES = ("Artifact", "ArtifactData", "ArtifactComments")
 AGENT_NAME = os.environ.get("OPEN_ARTIFACT_HERMES_AGENT_NAME") or "Hermes"
 VERSION = "0.17.0"
 SESSION_TTL_S = 7 * 24 * 3600
+SEEN_SAVE_S = 3600  # how often a session in use refreshes its saved time
 TOOL_TIMEOUT_S = 300.0
 GATEWAY_WAIT_S = 180.0
 
@@ -60,9 +63,15 @@ def _data_dir() -> Path:
 
 def _write_json(path: Path, data: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
-    os.replace(tmp, path)
+    fd, tmp = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as out:
+            json.dump(data, out, ensure_ascii=False, indent=1)
+        os.replace(tmp, path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
+        raise
 
 
 def _read_json(path: Path, default: Any) -> Any:
@@ -95,6 +104,11 @@ class Adapter:
         # session id -> {"workspace", "title", "seen"}; persisted so a gateway restart re-attaches them
         self.sessions: dict[str, dict] = self._load_sessions()
         self.attached: set[str] = set()
+        # session id -> messages taken from the daemon that could not be handed on or put back: they go with the
+        # session's next tool result (or its next turn's notices), as the kit keeps its leftovers.
+        self.leftovers: dict[str, list[dict]] = {}
+        self._features: list[str] = []  # hello's features, kept across a bridge that is gone
+        self._save_lock = threading.Lock()
         self.wakes: list[dict] = []  # recent wake outcomes (for tests and /status-like inspection)
         self._stop = threading.Event()
         hello = {
@@ -119,12 +133,13 @@ class Adapter:
                 if isinstance(v, dict) and now - float(v.get("seen") or 0) < SESSION_TTL_S}
 
     def _save_sessions(self) -> None:
-        with self._lock:
-            snapshot = {"sessions": dict(self.sessions)}
-        try:
-            _write_json(self.sessions_file, snapshot)
-        except OSError:
-            logger.debug("open-artifact: could not save sessions", exc_info=True)
+        with self._save_lock:  # one save at a time, each of the state as it is now
+            with self._lock:
+                snapshot = {"sessions": {k: dict(v) for k, v in self.sessions.items()}}
+            try:
+                _write_json(self.sessions_file, snapshot)
+            except OSError:
+                logger.debug("open-artifact: could not save sessions", exc_info=True)
 
     def caller(self, session: str, workspace: str) -> dict:
         return {"session": session, "workspace": workspace}
@@ -135,8 +150,13 @@ class Adapter:
             self.start_bridge()
         with self._lock:
             if session in self.attached:
-                self.sessions.setdefault(session, {})["seen"] = time.time()
-                return []
+                entry = self.sessions.setdefault(session, {"workspace": workspace, "title": title})
+                stale = time.time() - float(entry.get("seen") or 0) > SEEN_SAVE_S
+                entry["seen"] = time.time()
+        if session in self.attached:
+            if stale:
+                self._save_sessions()  # a chat in use for days is not dropped after a restart
+            return []
         params = {"session": session, "workspace": workspace, "status": "running"}
         if title:
             params["title"] = title[:120]
@@ -149,6 +169,7 @@ class Adapter:
 
     def start_bridge(self) -> dict:
         hello = self.bridge.start()
+        self._features = list(self.bridge.features)
         with self._lock:
             self.attached.clear()
         self._refresh_schema_cache()
@@ -200,12 +221,23 @@ class Adapter:
             else:
                 body = {"error": {"code": "unavailable", "message": f"Open Artifact: {error}"}}
             return json.dumps(body, ensure_ascii=False)
-        if inbox:
-            # What waited for this session before it attached: hand it over in this result, as the kit does.
+        waiting = self._take_leftovers(session) + inbox
+        if waiting:
+            # What waited for this session: hand it over in this result, as the kit does.
             if isinstance(result, dict):
                 result = dict(result)
-                result["messages"] = list(result.get("messages") or []) + [m.get("text", "") for m in inbox]
+                result["messages"] = [m.get("text", "") for m in waiting] + list(result.get("messages") or [])
+            else:
+                self._keep(session, waiting)
         return json.dumps(result, ensure_ascii=False)
+
+    def _keep(self, session: str, messages: list[dict]) -> None:
+        with self._lock:
+            self.leftovers.setdefault(session, []).extend(messages)
+
+    def _take_leftovers(self, session: str) -> list[dict]:
+        with self._lock:
+            return self.leftovers.pop(session, [])
 
     # ---- wakes ----
 
@@ -248,16 +280,16 @@ class Adapter:
         """Puts messages taken from the daemon and not handed on back in the session's inbox (``inbox.return``)."""
         if not messages:
             return
-        if "inbox.return" not in self.bridge.features:
-            logger.warning("open-artifact: the daemon cannot take back %d message(s) for %s; they are lost",
-                           len(messages), session)
-            return
-        try:
-            self.bridge.request("inbox.return", {"session": session, "workspace": workspace, "messages": messages},
-                                timeout=15)
-        except Exception:  # noqa: BLE001
-            logger.warning("open-artifact: inbox.return failed for %s (%d message(s))", session, len(messages),
-                           exc_info=True)
+        if "inbox.return" in (self.bridge.features or self._features) and self.bridge.alive:
+            try:
+                self.bridge.request("inbox.return", {"session": session, "workspace": workspace,
+                                                     "messages": messages}, timeout=15)
+                return
+            except Exception:  # noqa: BLE001
+                logger.info("open-artifact: inbox.return failed for %s", session, exc_info=True)
+        # Not put back: kept here for the session's next tool result or turn.
+        logger.info("open-artifact: keeping %d message(s) for %s", len(messages), session)
+        self._keep(session, messages)
 
     def on_notify(self, method: str, params: dict) -> None:
         if method == "bridge.reattached":
@@ -275,15 +307,17 @@ class Adapter:
 
     def take_notices(self, session: str, workspace: str) -> Optional[str]:
         """``pre_llm_call``: what waits in this session's inbox, framed as data for this turn."""
-        if not session or session not in self.attached or not self.bridge.alive:
+        if not session:
             return None
-        try:
-            self.bridge.request("session.status", {"session": session, "workspace": workspace, "status": "running"},
-                                timeout=5)
-            messages = (self.bridge.request("inbox.take", {"session": session, "workspace": workspace},
-                                            timeout=5) or {}).get("messages") or []
-        except Exception:  # noqa: BLE001
-            return None
+        messages = self._take_leftovers(session)
+        if session in self.attached and self.bridge.alive:
+            try:
+                self.bridge.request("session.status", {"session": session, "workspace": workspace,
+                                                       "status": "running"}, timeout=5)
+                messages += (self.bridge.request("inbox.take", {"session": session, "workspace": workspace},
+                                                 timeout=5) or {}).get("messages") or []
+            except Exception:  # noqa: BLE001
+                pass
         texts = [m.get("text") for m in messages if m.get("text")]
         if not texts:
             return None

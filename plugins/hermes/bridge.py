@@ -137,11 +137,11 @@ class Bridge:
 
     def _request_on(self, proc: subprocess.Popen, method: str, params: dict, timeout: float) -> Any:
         rid = "h%d" % next(self._ids)
-        waiter: dict = {"done": threading.Event()}
+        waiter: dict = {"done": threading.Event(), "proc": proc}
         with self._lock:
             self._pending[rid] = waiter
         try:
-            self._send(proc, {"id": rid, "method": method, "params": params})
+            self._send(proc, {"id": rid, "method": method, "params": params}, timeout)
         except (BrokenPipeError, OSError, ValueError) as exc:
             with self._lock:
                 self._pending.pop(rid, None)
@@ -155,11 +155,22 @@ class Bridge:
             raise cls(waiter["error"])
         return waiter.get("result")
 
-    def _send(self, proc: subprocess.Popen, message: dict) -> None:
+    def _send(self, proc: subprocess.Popen, message: dict, timeout: float = 30.0) -> None:
+        """Writes one line. A child that stops reading its stdin would block the write for good: past ``timeout`` it
+        is killed, which fails this write and every request waiting on it (the next call starts a new bridge)."""
         line = json.dumps(dict(jsonrpc="2.0", **message), ensure_ascii=False, separators=(",", ":"))
-        with self._write:
+        if not self._write.acquire(timeout=timeout):
+            self._kill(proc)
+            raise BrokenPipeError("the bridge did not take a write in %d s" % timeout)
+        watchdog = threading.Timer(timeout, self._kill, args=(proc,))
+        watchdog.daemon = True
+        watchdog.start()
+        try:
             proc.stdin.write(line + "\n")
             proc.stdin.flush()
+        finally:
+            watchdog.cancel()
+            self._write.release()
 
     # ---- reading ----
 
@@ -205,12 +216,17 @@ class Bridge:
         self.connected.clear()
         if self._proc is proc:
             self.hello_result = None
+        # Only what was sent to this process: a new one may already be up, with requests of its own.
         with self._lock:
-            for waiter in self._pending.values():
+            for rid, waiter in list(self._pending.items()):
+                if waiter.get("proc") is not proc:
+                    continue
                 waiter["error"] = {"code": -32000, "message": "the bridge ended", "data": {"code": "disconnected"}}
                 waiter["done"].set()
-            self._pending.clear()
+                del self._pending[rid]
         logger.info("open-artifact: bridge process ended (exit %s)", proc.poll())
+        if self._proc is not proc:
+            return  # an old process: the new one's sessions are attached and stay so
         try:
             self._on_notify("bridge.exited", {"code": proc.poll()})
         except Exception:  # noqa: BLE001

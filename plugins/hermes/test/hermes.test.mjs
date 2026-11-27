@@ -61,6 +61,14 @@ print(json.dumps({"harness": m.HARNESS, "hello": a.bridge._hello}))
   });
 });
 
+describe('the Hermes plugin\'s bridge', { skip: skip ?? false }, () => {
+  it('fails only the requests of the process that ended, and gives up a write the child does not take', { timeout: 60_000 }, () => {
+    const run = spawnSync('python3', [join(here, 'bridge_cases.py')], { encoding: 'utf8', timeout: 50_000, env: { ...process.env, PYTHONDONTWRITEBYTECODE: '1' } });
+    assert.equal(run.status, 0, `${run.stdout}\n${run.stderr}`);
+    assert.deepEqual(run.stdout.trim().split('\n'), ['stale-exit ok', 'stuck-write ok']);
+  });
+});
+
 describe('the Hermes plugin in a fake gateway, against a real daemon', { skip: skip ?? false }, () => {
   let dir;
   let env;

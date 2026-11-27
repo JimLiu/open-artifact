@@ -30,7 +30,7 @@ open-artifact skill install --command open-artifact --dir ~/.hermes/skills --har
 | --- | --- |
 | 工具 `Artifact`、`ArtifactData`、`ArtifactComments` | 以 daemon 自己的 schema（`schemas.json`，桥接连上时用 `tools.list` 刷新）注册为 Hermes 工具（工具集 `open_artifact`）。每次调用都带上调用它的 Hermes 会话（会话 key）和会话目录，做出的作品归这个会话。会话第一次调用时 attach；之前等着它的消息随这次调用的 `messages` 一起返回。 |
 | 页面上的评论和请求 | 在 gateway 里立刻送到拥有该作品的会话（`wake.deliver`）。只有作品主人本人的话会成为用户消息（`ctx.inject_message`：会话空闲时开始新一轮，正在工作时排在当前这一轮之后）。协作者的评论、系统消息（后台任务的结果）或没写明发送者的消息一律回答 `failed`，留在 daemon 的收件箱里；会话下一轮在调用模型前（`pre_llm_call`）读到它们，前面有一行说明这是数据、不是用户本人的指令。 |
-| 重连 | gateway 会保持桥接进程运行，退出后重新启动；桥接会自己重连 daemon（需要时启动它），并重新 attach 各会话。重新 attach 时带来的、插件交不出去的消息，用 `inbox.return` 放回去。已知会话记在 `~/.hermes/plugin_data/open-artifact/sessions.json`，保留 7 天，gateway 重启后会重新 attach。 |
+| 重连 | gateway 会保持桥接进程运行，退出后重新启动；桥接会自己重连 daemon（需要时启动它），并重新 attach 各会话。重新 attach 时带来的、插件交不出去的消息，用 `inbox.return` 放回去；放不回去时（桥接已断开，或 daemon 版本较旧），插件自己留着，随这个会话下一次工具调用的结果或下一轮交给它。工具调用从不重复发送。已知会话记在 `~/.hermes/plugin_data/open-artifact/sessions.json`，保留 7 天，gateway 重启后会重新 attach。 |
 | 会话状态 | 每次调用模型前为 `running`，会话结束时为 `idle`。agent 自己的 `write_file` 和 `patch` 工具改动的文件会上报（`agent.wrote`），打开着的页面立刻跟上。 |
 
 在 gateway 之外（经典 CLI、一次性的 `hermes chat -q`、cron），调用工具之前什么也不启动。调用之后，这个进程的桥接也会接收唤醒；经典 CLI 会把作品主人的话排成你的下一条输入。
