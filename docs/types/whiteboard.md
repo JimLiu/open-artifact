@@ -38,12 +38,30 @@ Or start with no agent: on the home page, click **New artifact**, pick **Whitebo
 
 A shape library is a set of drawings, such as icons for servers, databases, queues or people, that you add to a board
 once and then place as often as you like. Libraries live with the board: everyone who opens it sees the same ones, and
-they travel with it. None come with Open Artifact; icon sets are usually published by the tools, services and design
+they move with its folder and its `.zip` archive. A **Board file** exported from **Share → Export** carries the shapes
+you placed, not the libraries. None come with Open Artifact; icon sets are usually published by the tools, services and design
 systems you already draw, by icon collections under an open licence, or drawn by your own team.
 
 - **Add one**: in the toolbar, open **Shapes**, then **Library** (the last button, after Table). Click **Add library… →
-  From a file…** and pick a `.shapes.json` file, or one or many `.svg` files (they become one library called "My
-  shapes"). You can also drop the files on the panel. A board holds up to 8 libraries.
+  From a file…** and pick a library file, or one or many `.svg` files (they become one library called "My shapes").
+  You can also drop the files on the panel. A board holds up to 8 libraries. These files can be added (the panel tells
+  them apart by what is in them, not by their names):
+  - a `.shapes.json` library (below);
+  - a `.zip` of SVG files: one library named after the zip, one shape per `.svg` named after its file, and the folders
+    it sits in become its tags, so a search for a folder name finds its shapes. Other files in the zip, `__MACOSX/` and
+    hidden files are skipped. A zip may be up to 4 MB; at most 500 drawings are read, each up to 400,000 bytes
+    unpacked and 16 MB in all; encrypted and zip64 entries are left out;
+  - a draw.io library (`.xml` or `.drawio`, the kind that starts with `<mxlibrary>`): entries that are SVG pictures
+    are added with their titles and sizes. Entries drawn with draw.io's own shapes, and raster pictures (PNG, JPEG),
+    cannot be read; the panel says how many were left out and why.
+- **Add from a link**: **Add library… → From a link…** takes an `https://` link to any of the files above. The page
+  reads it, then asks before adding: it shows the site, the library's name and how many shapes it adds and leaves out,
+  and nothing is stored until you click **Add**. The link is kept as the library's source unless the file names its
+  own. The page fetches the link itself, directly from your browser, with no cookies and no referrer; nothing goes
+  through Open Artifact. That only works when the site lets other pages read the file (many file hosts do not) and
+  when the board's host lets pages fetch other sites: a self-hosted Open Artifact site keeps pages from doing that
+  unless it runs with `OA_PAGE_NETWORK=https` (see [Hosting](../hosting.md)), and **From a link…** then says it cannot be used there.
+  When a link cannot be read, download the file and add it with **From a file…**.
 - **Place a shape**: search by name or tag, click a shape, then click the board. It lands as a picture without a frame,
   with an empty label under it that shows the shape's name until you type your own. Arrows attach to it like to any
   picture. An `.svg` dropped on the board itself (not on the panel) still goes in as an ordinary picture.

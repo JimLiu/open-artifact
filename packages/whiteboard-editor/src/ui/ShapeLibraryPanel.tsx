@@ -6,8 +6,9 @@
  * Shapes show as pictures (`<img>` of a data URL, themed for the color
  * scheme), never as markup in the page. Each library has a menu with its
  * source, its licence and "Remove from this board". The footer adds
- * libraries from files (a `.shapes.json` library, or SVG files), which can
- * also be dropped on the panel; afterwards the panel says what was added
+ * libraries from files (a `.shapes.json` library, a zip of SVG files, a
+ * draw.io library, or SVG files), which can also be dropped on the panel,
+ * or from a link (`LibraryLinkForm.tsx`); afterwards the panel says what was added
  * and which shapes were left out, and why.
  *
  * Loaded on first open (`ui/Toolbar.tsx`).
@@ -23,12 +24,13 @@ import { hasRoomForLibrary, importShapeFiles, loadShapeLibrary, removeShapeLibra
 import { useBoard } from '../state/board.ts';
 import { useColorScheme } from '../state/theme.ts';
 import { Tip } from './chrome.tsx';
+import { LibraryLinkForm } from './LibraryLinkForm.tsx';
 
 /** Where people read how shape libraries work. */
 export const SHAPE_LIBRARY_DOCS_URL = 'https://github.com/JimLiu/open-artifact/blob/main/docs/types/whiteboard.md#shape-libraries';
 
 /** Files the "From a file…" picker accepts. */
-const LIBRARY_ACCEPT = '.json,.svg,application/json,image/svg+xml';
+const LIBRARY_ACCEPT = '.json,.svg,.zip,.xml,.drawio,application/json,image/svg+xml,application/zip,application/x-zip-compressed,application/xml,text/xml';
 
 /** Columns of each shape grid (arrow keys move by this much vertically). */
 const COLUMNS = 6;
@@ -70,6 +72,7 @@ export function ShapeLibraryPanel({ onPick }: ShapeLibraryPanelProps) {
   const [open, setOpen] = useState(() => new Set(libraries.map((library) => library.id).filter((id) => !folded.has(id))));
   const [menuFor, setMenuFor] = useState<string | undefined>(undefined);
   const [adding, setAdding] = useState(false);
+  const [linking, setLinking] = useState(false);
   const [busy, setBusy] = useState(false);
   const [report, setReport] = useState<LibraryImport[] | undefined>(undefined);
   const [dropOver, setDropOver] = useState(false);
@@ -187,7 +190,7 @@ export function ShapeLibraryPanel({ onPick }: ShapeLibraryPanelProps) {
       <div ref={listRef} onKeyDown={onGridKeyDown} className="max-h-[min(340px,calc(100vh-200px))] overflow-y-auto overscroll-contain">
         {libraries.length === 0 ? (
           <div className="flex flex-col gap-1.5 px-2 py-2 text-[13px] text-chrome-muted">
-            <p>A shape library is a set of drawings, such as icons for servers, databases or people, kept with this board. Add one from a file, then click a shape and click the board to place it.</p>
+            <p>A shape library is a set of drawings, such as icons for servers, databases or people, kept with this board. Add one from a file or a link, then click a shape and click the board to place it.</p>
             <a href={SHAPE_LIBRARY_DOCS_URL} target="_blank" rel="noopener noreferrer" className="text-chrome-accent underline-offset-2 hover:underline">
               How shape libraries work
             </a>
@@ -261,7 +264,10 @@ export function ShapeLibraryPanel({ onPick }: ShapeLibraryPanelProps) {
           type="button"
           aria-expanded={adding}
           disabled={busy || !room}
-          onClick={() => setAdding(!adding)}
+          onClick={() => {
+            setAdding(!adding);
+            setLinking(false);
+          }}
           className="flex h-8 items-center gap-1.5 rounded-[8px] px-2 text-[13px] text-chrome-fg outline-none hover:bg-chrome-hover focus-visible:ring-2 focus-visible:ring-chrome-accent disabled:text-chrome-muted"
         >
           <Plus className="size-4" aria-hidden="true" />
@@ -275,6 +281,25 @@ export function ShapeLibraryPanel({ onPick }: ShapeLibraryPanelProps) {
           >
             From a file…
           </button>
+        ) : null}
+        {adding ? (
+          <button
+            type="button"
+            aria-expanded={linking}
+            onClick={() => setLinking(!linking)}
+            className="ml-6 flex h-8 items-center rounded-[8px] px-2 text-[13px] text-chrome-fg outline-none hover:bg-chrome-hover focus-visible:ring-2 focus-visible:ring-chrome-accent"
+          >
+            From a link…
+          </button>
+        ) : null}
+        {adding && linking ? (
+          <LibraryLinkForm
+            onResult={setReport}
+            onClose={() => {
+              setLinking(false);
+              setAdding(false);
+            }}
+          />
         ) : null}
       </div>
     </div>

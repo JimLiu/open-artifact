@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import zlib from 'node:zlib';
 import { after, before, describe, it } from 'node:test';
 import { findChrome, launch } from './lib/browser.mjs';
 import { cli, run as runCli } from './lib/cli.mjs';
@@ -1200,10 +1201,173 @@ describe('whiteboard', { skip: skipFor('whiteboard') }, () => {
       } finally { await p.close(); }
     });
 
+    const shapeSvg = title => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"><title>${title}</title><rect x="3" y="3" width="18" height="18" rx="3"/></svg>`;
+    const reportText = () => `document.querySelector('[data-wb-library-report]')?.innerText ?? ''`;
+    /** A zip pack: two drawings in folders, plus what a pack carries that is not a shape. */
+    const networkPack = () => zipOf([
+      ['Network pack/network/Router.svg', shapeSvg('Router')],
+      ['Network pack/storage/Disk.svg', shapeSvg('Disk')],
+      ['__MACOSX/Network pack/network/._Router.svg', 'resource fork'],
+      ['Network pack/.DS_Store', 'finder'],
+      ['Network pack/LICENSE.txt', 'CC0'],
+    ]);
+
+    it('adds a zip pack of SVG files from the picker, its folders as tags', { timeout: 60000 }, async () => {
+      const board = newBoard('whiteboard-library-zip');
+      const file = path.join(tmpDir('whiteboard-library-zip-files'), 'Network pack.zip');
+      fs.writeFileSync(file, networkPack());
+      const { url: boardUrl } = await run.json(['open', board, '--type', 'whiteboard', '--json']);
+      const p = await browser.load(boardUrl, { ready });
+      try {
+        await openPanel(p);
+        await chooseFiles(p, [file]);
+        assert.ok(await p.waitFor(`${cells}.length === 2`, 10000), 'each SVG file in the pack is a shape');
+        assert.ok(await p.waitFor(`(${reportText()}).includes('Added “Network pack”: 2 shapes.')`, 3000), 'files that are not shapes are skipped without a word');
+        assert.ok(await until(() => libraries(board).length === 1));
+        assert.equal(libraries(board)[0].name, 'Network pack');
+        assert.equal(libraries(board)[0].count, 2);
+        await typeIntoSearch(p, 'storage');
+        assert.ok(await p.waitFor(`${cells}.length === 1 && ${cells}[0].getAttribute('aria-label') === 'Pick shape: Disk'`, 3000), 'a folder name finds its shapes');
+        assert.deepEqual(p.problems, []);
+      } finally { await p.close(); }
+    });
+
+    it('adds a draw.io library, saying which shapes it could not read', { timeout: 60000 }, async () => {
+      const board = newBoard('whiteboard-library-drawio');
+      const file = path.join(tmpDir('whiteboard-library-drawio-files'), 'Network.drawio');
+      fs.writeFileSync(file, drawioLibrary());
+      const { url: boardUrl } = await run.json(['open', board, '--type', 'whiteboard', '--json']);
+      const p = await browser.load(boardUrl, { ready });
+      try {
+        await openPanel(p);
+        await chooseFiles(p, [file]);
+        assert.ok(await p.waitFor(`${cells}.length === 2`, 10000), 'the SVG pictures in the library are shapes');
+        assert.ok(await p.waitFor(`(${reportText()}).includes('Added “Network”: 2 shapes, 1 left out.')`, 3000), 'the panel counts what it left out');
+        assert.ok((await p.evaluate(reportText())).includes('Lambda: is drawn in a way boards cannot read'), 'and names it, and why');
+        assert.deepEqual(await p.evaluate(`[...${cells}].map(b => b.getAttribute('aria-label'))`), ['Pick shape: Firewall', 'Pick shape: Shape 2']);
+        assert.ok(await until(() => libraries(board).length === 1 && libraries(board)[0].count === 2));
+        assert.deepEqual(p.problems, []);
+      } finally { await p.close(); }
+    });
+
+    it('adds a library from an https:// link after asking, and explains a link the page cannot read', { timeout: 90000 }, async () => {
+      const board = newBoard('whiteboard-library-link');
+      const { url: boardUrl } = await run.json(['open', board, '--type', 'whiteboard', '--json']);
+      const p = await browser.load(boardUrl, { ready });
+      // Requests to the made-up site are answered here; none reaches the network.
+      const site = 'https://shapes.example.com/';
+      const asked = [];
+      const answers = {
+        'https://shapes.example.com/packs/Network%20pack.zip': { body: networkPack(), cors: true },
+        'https://shapes.example.com/closed.shapes.json': { body: fs.readFileSync(library), cors: false },
+      };
+      const stop = p.onCdp('Fetch.requestPaused', ({ requestId, request }) => {
+        asked.push({ url: request.url, cookie: Object.keys(request.headers).some(h => h.toLowerCase() === 'cookie'), referer: Object.keys(request.headers).some(h => h.toLowerCase() === 'referer') });
+        const answer = answers[request.url];
+        const headers = [{ name: 'Content-Type', value: 'application/octet-stream' }, ...(answer?.cors ?? true ? [{ name: 'Access-Control-Allow-Origin', value: '*' }] : [])];
+        p.cdp('Fetch.fulfillRequest', { requestId, responseCode: answer ? 200 : 404, responseHeaders: headers, body: Buffer.from(answer?.body ?? 'not here').toString('base64') }).catch(() => {});
+      });
+      await p.cdp('Fetch.enable', { patterns: [{ urlPattern: site + '*' }] });
+      const form = '[data-wb-library-link]';
+      const linkTo = async link => {
+        if (await p.evaluate(`!!document.querySelector('${form}')`)) {
+          await p.press('Escape');
+          assert.ok(await p.waitFor(`!document.querySelector('${form}')`, 3000), 'Escape closes the link field');
+        }
+        if (!await p.evaluate(`!!document.querySelector('${panel}')`)) await openPanel(p);
+        await clickOn(p, `[...document.querySelectorAll('${panel} button')].find(b => b.textContent === 'Add library…')`);
+        await clickOn(p, `[...document.querySelectorAll('${panel} button')].find(b => b.textContent === 'From a link…')`);
+        assert.ok(await p.waitFor(`document.activeElement === document.querySelector('${form} input[type="url"]')`, 3000), 'the link field takes focus');
+        await p.type(link);
+        await p.press('Enter');
+      };
+      const linkError = `document.querySelector('[data-wb-library-link-error]')?.innerText ?? ''`;
+      const confirm = '[data-wb-library-confirm]';
+      try {
+        await openPanel(p);
+
+        // Only https:// links, refused before anything is asked for.
+        await linkTo('http://shapes.example.com/packs/Network%20pack.zip');
+        assert.ok(await p.waitFor(`(${linkError}) === 'Only https:// links can be added.'`, 3000), 'an http:// link is refused');
+        assert.equal(asked.length, 0, 'nothing was fetched');
+
+        // A site that does not let other pages read it: say so, and point to adding the file.
+        await linkTo(site + 'closed.shapes.json');
+        assert.ok(await p.waitFor(`(${linkError}).includes('could not be read from this page')`, 20000), 'a link the page cannot read is explained');
+        assert.ok((await p.evaluate(linkError)).includes('Download the file and add it with “From a file…”'), 'and the way around it is named');
+        assert.ok(!await p.evaluate(`!!document.querySelector('${confirm}')`));
+
+        // A missing file names the status.
+        await linkTo(site + 'gone.zip');
+        assert.ok(await p.waitFor(`(${linkError}).includes('The link answered with status 404.')`, 20000), 'a failed status is named');
+
+        // A readable link: asked about first, nothing stored until Add.
+        await linkTo(site + 'packs/Network%20pack.zip');
+        assert.ok(await p.waitFor(`!!document.querySelector('${confirm}')`, 20000), 'the panel asks before adding');
+        const text = await p.evaluate(`document.querySelector('${confirm}').innerText`);
+        assert.ok(text.includes('From shapes.example.com'), 'it says where the library came from');
+        assert.ok(text.includes('“Network pack”: 2 shapes will be added.'), 'and what it holds');
+        await clickOn(p, `[...document.querySelectorAll('${confirm} button')].find(b => b.textContent === 'Cancel')`);
+        assert.ok(await p.waitFor(`!document.querySelector('${confirm}')`, 3000));
+        await new Promise(resolve => setTimeout(resolve, 300));
+        assert.deepEqual(libraries(board), [], 'Cancel adds nothing');
+        assert.equal(await p.evaluate(`${cells}.length`), 0);
+
+        await linkTo(site + 'packs/Network%20pack.zip');
+        assert.ok(await p.waitFor(`!!document.querySelector('${confirm}')`, 20000));
+        await clickOn(p, `[...document.querySelectorAll('${confirm} button')].find(b => b.textContent === 'Add')`);
+        assert.ok(await p.waitFor(`${cells}.length === 2`, 10000), 'Add lists the shapes');
+        assert.ok(await until(() => libraries(board).length === 1));
+        const [entry] = libraries(board);
+        assert.equal(entry.name, 'Network pack');
+        assert.equal(entry.source, site + 'packs/Network%20pack.zip', 'the link is kept as where the library came from');
+        assert.ok(asked.every(request => !request.cookie && !request.referer), 'links are fetched with no cookies and no referrer');
+        const linkProblems = p.problems.filter(problem => !problem.includes('shapes.example.com'));
+        assert.deepEqual(linkProblems, []);
+      } finally {
+        stop();
+        await p.close();
+      }
+    });
+
     /** Types into the panel's search box. */
     async function typeIntoSearch(p, text) {
       await clickOn(p, `document.querySelector('${panel} input[role="searchbox"]')`);
       await p.type(text);
+    }
+
+    /** A zip of `[name, text]` entries, each deflated. */
+    function zipOf(entries) {
+      const locals = [], centrals = [];
+      let offset = 0;
+      for (const [entryName, text] of entries) {
+        const raw = Buffer.from(text), body = zlib.deflateRawSync(raw), name = Buffer.from(entryName);
+        const local = Buffer.alloc(30);
+        local.writeUInt32LE(0x04034b50, 0); local.writeUInt16LE(20, 4); local.writeUInt16LE(0x800, 6); local.writeUInt16LE(8, 8);
+        local.writeUInt32LE(zlib.crc32(raw), 14); local.writeUInt32LE(body.length, 18); local.writeUInt32LE(raw.length, 22); local.writeUInt16LE(name.length, 26);
+        const central = Buffer.alloc(46);
+        central.writeUInt32LE(0x02014b50, 0); central.writeUInt16LE(20, 4); central.writeUInt16LE(20, 6); central.writeUInt16LE(0x800, 8); central.writeUInt16LE(8, 10);
+        central.writeUInt32LE(zlib.crc32(raw), 16); central.writeUInt32LE(body.length, 20); central.writeUInt32LE(raw.length, 24); central.writeUInt16LE(name.length, 28); central.writeUInt32LE(offset, 42);
+        locals.push(local, name, body);
+        centrals.push(central, name);
+        offset += 30 + name.length + body.length;
+      }
+      const directory = Buffer.concat(centrals), end = Buffer.alloc(22);
+      end.writeUInt32LE(0x06054b50, 0); end.writeUInt16LE(entries.length, 8); end.writeUInt16LE(entries.length, 10); end.writeUInt32LE(directory.length, 12); end.writeUInt32LE(offset, 16);
+      return Buffer.concat([...locals, directory, end]);
+    }
+
+    /** A draw.io library: an SVG picture, an SVG picture in a compressed graph, and a stencil boards cannot read. */
+    function drawioLibrary() {
+      const base64 = text => Buffer.from(text).toString('base64');
+      const graph = style => `<mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/><mxCell id="2" value="" style="${style}" vertex="1" parent="1"><mxGeometry width="48" height="48" as="geometry"/></mxCell></root></mxGraphModel>`;
+      const packed = xml => zlib.deflateRawSync(Buffer.from(encodeURIComponent(xml))).toString('base64');
+      const entries = [
+        { data: `data:image/svg+xml;base64,${base64(shapeSvg('Firewall'))}`, w: 48, h: 48, title: 'Firewall' },
+        { xml: packed(graph(`shape=image;aspect=fixed;image=data:image/svg+xml,${base64(shapeSvg('Switch'))};`)), w: 48, h: 48 },
+        { xml: packed(graph('shape=mxgraph.aws4.lambda;fillColor=#F78E04;')), w: 48, h: 48, title: 'Lambda' },
+      ];
+      return `<mxlibrary>${JSON.stringify(entries)}</mxlibrary>`;
     }
   });
 

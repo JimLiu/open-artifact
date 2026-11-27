@@ -1,7 +1,9 @@
 /**
  * The board's shape libraries as the Library panel uses them: reading each
- * library file (an upload), adding libraries from files people pick or drop,
- * and removing one from the board.
+ * library file (an upload), adding libraries from files people pick or drop
+ * (a `.shapes.json` library, a zip of SVG files, a draw.io library, SVG
+ * files; told apart by their content) or from a link
+ * (`shape-library-link.ts`), and removing one from the board.
  *
  * Adding a library cleans every shape first (whiteboard-core's
  * `readShapeLibrary`), uploads the cleaned library once and lists it in
@@ -17,7 +19,9 @@ import {
   refuseShapeLibrary,
   readShapeLibrary,
   serializeShapeLibrary,
+  readShapeLibraryBytes,
   shapeLibraryFromSvgFiles,
+  sniffLibraryBytes,
   withShapeLibraries,
   type BoardShapeLibrary,
   type LeftOutShape,
@@ -71,16 +75,6 @@ function isSvgFile(file: File): boolean {
   return /\.svg$/i.test(file.name) || file.type === 'image/svg+xml';
 }
 
-/** True for a file that is read as a library. */
-function isLibraryFile(file: File): boolean {
-  return /\.json$/i.test(file.name) || file.type === 'application/json';
-}
-
-/** The library name of a `.shapes.json` / `.json` file. */
-function libraryNameOfFile(name: string): string {
-  return name.replace(/\.shapes\.json$/i, '').replace(/\.json$/i, '') || 'Shapes';
-}
-
 /** A name for a library made of loose SVG files that no library on the board has yet. */
 function looseLibraryName(libraries: readonly BoardShapeLibrary[]): string {
   const taken = new Set(libraries.map((library) => library.name));
@@ -91,7 +85,7 @@ function looseLibraryName(libraries: readonly BoardShapeLibrary[]): string {
 }
 
 /** Uploads a cleaned library and lists it on the board. */
-async function addLibrary(read: ShapeLibraryRead): Promise<LibraryImport> {
+export async function addShapeLibrary(read: ShapeLibraryRead): Promise<LibraryImport> {
   const { library, leftOut, overLimit } = read;
   if (library.shapes.length === 0) {
     return { ok: false, name: library.name, reason: leftOut.length === 1 ? 'Its only shape could not be used.' : leftOut.length > 1 ? `None of its ${leftOut.length} shapes could be used.` : 'It has no shapes.', leftOut };
@@ -130,8 +124,9 @@ async function addLibrary(read: ShapeLibraryRead): Promise<LibraryImport> {
 }
 
 /**
- * Adds libraries from files: each `.json` file is one library, and the SVG
- * files together make one more (named "My shapes"). Returns what happened
+ * Adds libraries from files: each library file (`.shapes.json`, a zip of
+ * SVG files, a draw.io library) is one library, and the SVG files together
+ * make one more (named "My shapes"). Returns what happened
  * to each; refuses everything when the board is read-only or cannot store
  * files.
  */
@@ -140,22 +135,25 @@ export async function importShapeFiles(files: readonly File[]): Promise<LibraryI
   if (!maybeSession()?.assets) return [{ ok: false, name: 'Shape library', reason: NO_UPLOADS_MESSAGE, leftOut: [] }];
   const results: LibraryImport[] = [];
   const svgs = files.filter(isSvgFile);
-  const libraries = files.filter((file) => !isSvgFile(file) && isLibraryFile(file));
   for (const file of files) {
-    if (!isSvgFile(file) && !isLibraryFile(file)) results.push({ ok: false, name: file.name, reason: 'Only shape library files (.shapes.json) and SVG files can be added.', leftOut: [] });
-  }
-  for (const file of libraries) {
+    if (isSvgFile(file)) continue;
     if (file.size > SHAPE_LIBRARY_LIMITS.bytes) {
       results.push({ ok: false, name: file.name, reason: `It is larger than ${SHAPE_LIBRARY_LIMITS.bytes / 1024 / 1024} MB.`, leftOut: [] });
       continue;
     }
-    const read = readShapeLibrary(await file.text(), libraryNameOfFile(file.name));
-    results.push(read.ok ? await addLibrary(read) : { ok: false, name: file.name, reason: read.reason, leftOut: [] });
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    // An SVG under another name joins the other SVG files.
+    if (sniffLibraryBytes(bytes) === 'svg') {
+      svgs.push(file);
+      continue;
+    }
+    const read = await readShapeLibraryBytes(bytes, file.name);
+    results.push(read.ok ? await addShapeLibrary(read) : { ok: false, name: file.name, reason: read.reason, leftOut: [] });
   }
   if (svgs.length > 0) {
     const texts = await Promise.all(svgs.slice(0, SHAPE_LIBRARY_LIMITS.shapes).map(async (file) => ({ fileName: file.name, text: file.size > 400_000 ? '' : await file.text() })));
     const read = shapeLibraryFromSvgFiles(texts, looseLibraryName(useBoard.getState().board.content.shapes ?? []));
-    results.push(await addLibrary({ ...read, overLimit: read.overLimit + Math.max(0, svgs.length - SHAPE_LIBRARY_LIMITS.shapes) }));
+    results.push(await addShapeLibrary({ ...read, overLimit: read.overLimit + Math.max(0, svgs.length - SHAPE_LIBRARY_LIMITS.shapes) }));
   }
   announce(importSummary(results));
   return results;

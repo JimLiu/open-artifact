@@ -193,6 +193,9 @@ function libraryOf(name: string, source: string | undefined, license: string | u
   };
 }
 
+/** A library from shapes already read (and the ones left out); other readers (zip packs, draw.io libraries) end here. */
+export const shapeLibraryOf = libraryOf;
+
 /** UTF-8 byte length of a string. */
 function utf8Length(text: string): number {
   return text.length > SHAPE_LIBRARY_LIMITS.bytes ? text.length * 3 : new TextEncoder().encode(text).length;
