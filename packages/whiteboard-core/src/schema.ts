@@ -350,6 +350,8 @@ export interface ArrowElement extends ElementBase, Authorship {
   /** Exact end styles `[start, end]`; wins over `head`. */
   heads?: readonly [ArrowHeadKind, ArrowHeadKind];
   dash: boolean;
+  /** Dashes travel along a dashed line in the arrow's direction; only kept with `dash: true`. */
+  flow?: true;
   color: InkColor;
   label?: string;
 }
@@ -598,8 +600,38 @@ export function arrowHeadFields(heads: readonly [ArrowHeadKind, ArrowHeadKind]):
 
 /** The arrow's ends in reading direction (an arrow drawn backwards reads from its head). */
 export function arrowDirectedEnds(arrow: ArrowElement): { from: ArrowEnd; to: ArrowEnd } {
+  return arrowFlowsBackward(arrow) ? { from: arrow.to, to: arrow.from } : { from: arrow.from, to: arrow.to };
+}
+
+/** An arrow's line styles as people pick them: a plain line, still dashes, moving dashes. */
+export const ARROW_LINE_STYLES = ['solid', 'dashed', 'flowing'] as const;
+export type ArrowLineStyle = (typeof ARROW_LINE_STYLES)[number];
+
+/** The arrow's line style. */
+export function arrowLineStyle(arrow: Pick<ArrowElement, 'dash' | 'flow'>): ArrowLineStyle {
+  return arrow.dash ? (arrow.flow === true ? 'flowing' : 'dashed') : 'solid';
+}
+
+/** The arrow with a line style: `dash` and `flow` written, the arrow itself when it has that style already. */
+export function withArrowLineStyle(arrow: ArrowElement, style: ArrowLineStyle): ArrowElement {
+  if (arrowLineStyle(arrow) === style) return arrow;
+  const { flow: _flow, ...rest } = arrow;
+  return { ...rest, dash: style !== 'solid', ...(style === 'flowing' ? { flow: true as const } : {}) };
+}
+
+/** True when any of the elements is a flowing arrow. */
+export function hasFlowingArrow(elements: readonly BoardElement[]): boolean {
+  return elements.some((element) => element.type === 'arrow' && element.dash && element.flow === true);
+}
+
+/**
+ * True when a flowing arrow's dashes travel from its `to` end back to its
+ * `from` end: the line is drawn from `from` to `to`, and an arrow whose head
+ * sits only at the start reads (and flows) the other way.
+ */
+export function arrowFlowsBackward(arrow: Pick<ArrowElement, 'head' | 'heads'>): boolean {
   const [start, end] = arrowHeads(arrow);
-  return start === 'arrow' && end !== 'arrow' ? { from: arrow.to, to: arrow.from } : { from: arrow.from, to: arrow.to };
+  return start === 'arrow' && end !== 'arrow';
 }
 
 /** The element ids an arrow attaches to. */

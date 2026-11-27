@@ -104,7 +104,8 @@ together as one item. Give a box each to whatever people will drag around, sort,
 brainstorm, say), and put what they will only read top to bottom in one `text`. Anything that looks the same is taken
 for the same kind of thing, so let a colour or an outline mark a single kind, named by a title, label or key. No more
 than four such marks on a board unless asked, since about four is what people hold in mind; with five kinds or more,
-keep them plain under titles. Spend one strong colour, on what matters most.
+keep them plain under titles. Spend one strong colour, on what matters most. Make an arrow flow (its dashes move)
+only when something travelling along it is the point: flowing is one of those marks, and a key or label says what moves.
 
 **Placing things.** The page puts each item exactly where you say, lets items overlap, and you never see them land. So
 place one thing first and work out each next position from it. Steps that don't fit on one row carry on from the left
@@ -300,7 +301,8 @@ pill fit fewer words, so make them larger.
 { "type": "arrow", "from": "e1", "to": "e2", "fromSide": "right", "toSide": "left", "label": "writes" }
   // joins e1 to e2 in right-angle legs, or one straight line when facing sides are under 44 apart; never end one on a pen
   // line, a sticker, an embed or another arrow. A free end is a point: "to": [640, 200]
-  // sides: top | right | bottom | left; "head": end | both | none; "dash": true; left out: head end, color ink.
+  // sides: top | right | bottom | left; "head": end | both | none; "dash": true, with "flow": true its dashes move
+  // towards the head ("flow" is dropped without "dash"); left out: head end, color ink.
   // "heads": [from, to], each none | arrow | circle, wins over "head" (people's arrows carry it); [arrow, none|circle] points
   // to→from. To reverse an arrow, swap from/to and their sides, not its heads, and drop its "bends". "bends" plans its
   // route (below)
@@ -464,7 +466,7 @@ changing the board; what guests comment stays on the page, and only the owner se
 owner, the person at this computer, sends requests to you, saves downloads here and changes the sharing; on this
 computer they stay the owner even when they open a link.
 
-- **Under a host**, the shell’s **Share → Export** tab offers the PNG image and portable board file. Sharing is the person's: `Artifact {action: "open", url, panel: "share"}` opens the Share panel for
+- **Under a host**, the shell’s **Share → Export** tab offers the PNG image, an animated GIF while the board has flowing arrows, and the portable board file. Sharing is the person's: `Artifact {action: "open", url, panel: "share"}` opens the Share panel for
   them, `Artifact {action: "share", url}` tells you how it is shared. Never turn it on yourself.
 - **Standalone**, when the person asks: `open-artifact share <root>` shares it and prints a link per role
   (`open-artifact open <root> --lan` shares as it opens); `--off` stops. `--disable <role>` / `--enable <role>` turn

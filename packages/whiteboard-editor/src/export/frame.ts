@@ -61,14 +61,14 @@ export const PNG_FILENAME_MAX_CHARS = 120;
  * The download name of a board picture: the title (else "whiteboard")
  * without control characters, with characters file systems refuse
  * (`/ \ : * ? " < > | %`) turned into spaces, at most
- * {@link PNG_FILENAME_MAX_CHARS} characters, plus `.png`.
+ * {@link PNG_FILENAME_MAX_CHARS} characters, plus `.png` (or `.<extension>`).
  */
-export function boardPngFilename(title: string): string {
+export function boardPngFilename(title: string, extension = 'png'): string {
   const cleaned = title
     .replace(/\p{Cc}/gu, '')
     .replace(/[/\\:*?"<>|%]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
   const stem = [...cleaned].slice(0, PNG_FILENAME_MAX_CHARS).join('').trim();
-  return `${stem || 'whiteboard'}.png`;
+  return `${stem || 'whiteboard'}.${extension}`;
 }

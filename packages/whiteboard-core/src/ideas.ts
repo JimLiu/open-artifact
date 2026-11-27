@@ -212,7 +212,7 @@ export interface IdeaVersionInput {
 /** Fields a version edit may set on an existing element. */
 export const VERSION_EDIT_FIELDS = [
   'x', 'y', 'w', 'h', 'tilt', 'text', 'label', 'words', 'author', 'size', 'ink', 'textAlign', 'wrap', 'color', 'stroke', 'hollow', 'solid',
-  'kind', 'lay', 'dash', 'head', 'heads', 'from', 'to', 'fromSide', 'toSide', 'jog', 'bends', 'width',
+  'kind', 'lay', 'dash', 'flow', 'head', 'heads', 'from', 'to', 'fromSide', 'toSide', 'jog', 'bends', 'width',
 ] as const;
 
 /** Element types a version may create. */

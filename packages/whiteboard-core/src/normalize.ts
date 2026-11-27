@@ -288,6 +288,7 @@ function normalizeElementFields(raw: unknown, takenIds: ReadonlySet<ElementId>):
       head: parseEnumValue(input.head, ARROW_HEAD_MODES, 'end'),
       ...(heads !== undefined ? { heads } : {}),
       dash: input.dash === true,
+      ...(input.dash === true && input.flow === true ? { flow: true as const } : {}),
       color: ink(input.color),
       ...(label !== '' ? { label } : {}),
       ...pickAuthorshipFields(input),

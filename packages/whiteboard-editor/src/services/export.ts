@@ -1,5 +1,6 @@
 /**
- * Downloads of the whole board: a PNG picture and the board file (JSON).
+ * Downloads of the whole board: a PNG picture, an animated GIF (while the
+ * board has flowing arrows) and the board file (JSON).
  *
  * The Shell's Share panel lists these formats in its Export tab. The board
  * reports availability and progress, and saves the requested file through
@@ -7,9 +8,11 @@
  */
 
 import { saveFile as saveKit } from '@open-artifact/editor-kit';
-import type { ColorScheme } from '@open-artifact/whiteboard-core';
+import { hasFlowingArrow, type ColorScheme } from '@open-artifact/whiteboard-core';
 import { boardPngFilename, EXPORT_MAX_PX, exportFrameFor } from '../export/frame.ts';
 import { exportBoardFile } from '../export/board-file.ts';
+import { exportBoardGif } from '../export/gif.ts';
+import { FLOW_GIF_MAX_PX } from '../export/gif-frames.ts';
 import { exportBoardPng } from '../export/png.ts';
 import { useBoard } from '../state/board.ts';
 import { currentMeasures } from '../state/measures.ts';
@@ -27,7 +30,8 @@ const MIN_RETRY_PX = 512;
 const OBJECT_URL_LIFETIME_MS = 30_000;
 
 /** The formats this board exports. */
-type ExportFormat = 'png' | 'json';
+type ExportFormat = 'png' | 'gif' | 'json';
+const EXPORT_FORMATS: readonly string[] = ['png', 'gif', 'json'] satisfies readonly ExportFormat[];
 
 /** Options of {@link renderBoardPng}. */
 export interface RenderBoardPngOptions {
@@ -47,6 +51,11 @@ let busy = false;
 /** True when the board has nothing to export. */
 function boardIsEmpty(): boolean {
   return useBoard.getState().board.content.elements.length === 0;
+}
+
+/** True when the board has an arrow whose dashes flow: only then is there a GIF to make. */
+function boardFlows(): boolean {
+  return hasFlowingArrow(useBoard.getState().board.content.elements);
 }
 
 /**
@@ -100,6 +109,41 @@ export async function renderBoardPng(options: RenderBoardPngOptions = {}): Promi
   }
 }
 
+/**
+ * Renders the board's flowing arrows as an animated GIF in the board's
+ * current color scheme (framed and painted like {@link renderBoardPng},
+ * longest edge 2048 px); `undefined` for a board without flowing arrows.
+ * A GIF over `maxBytes` is drawn again at three quarters the size until it
+ * fits (or gets small, when the last try is kept whatever its size).
+ */
+export async function renderBoardGif(options: RenderBoardPngOptions = {}): Promise<Blob | undefined> {
+  const { board } = useBoard.getState();
+  if (!hasFlowingArrow(board.content.elements)) return undefined;
+  const maxBytes = options.maxBytes ?? MAX_DOWNLOAD_BYTES;
+  const input = {
+    elements: board.content.elements,
+    title: board.title,
+    measures: currentMeasures(),
+    scheme: options.scheme ?? useTheme.getState().scheme,
+    showAuthors: options.showAuthors ?? true,
+    faceName: faceNameResolver(),
+  };
+  let maxPx = options.maxPx ?? FLOW_GIF_MAX_PX;
+  const frame = exportFrameFor(input.elements, input.measures, maxPx);
+  const painted = await paintLooksForExport(input.elements, input.scheme, frame?.scale ?? 1);
+  try {
+    for (;;) {
+      const next = Math.floor(maxPx * 0.75);
+      const last = next < MIN_RETRY_PX;
+      const { blob } = await exportBoardGif({ ...input, looks: painted.looks, maxPx, ...(last ? {} : { maxBytes }) });
+      if (blob) return blob;
+      maxPx = next;
+    }
+  } finally {
+    painted.release();
+  }
+}
+
 /** Builds a format's file: its name and bytes; `undefined` for an empty board. */
 async function produce(format: ExportFormat): Promise<{ name: string; data: Blob } | undefined> {
   const { board } = useBoard.getState();
@@ -107,6 +151,10 @@ async function produce(format: ExportFormat): Promise<{ name: string; data: Blob
   if (format === 'png') {
     const data = await renderBoardPng();
     return data ? { name: boardPngFilename(board.title), data } : undefined;
+  }
+  if (format === 'gif') {
+    const data = await renderBoardGif();
+    return data ? { name: boardPngFilename(board.title, 'gif'), data } : undefined;
   }
   const { name, data } = await exportBoardFile({ board, measures: currentMeasures() });
   return { name, data };
@@ -116,8 +164,8 @@ async function produce(format: ExportFormat): Promise<{ name: string; data: Blob
 async function runShellExport(request: string, format: string, variant: string | undefined): Promise<void> {
   const shell = maybeSession()?.shell;
   if (!shell) return;
-  if ((format !== 'png' && format !== 'json') || variant !== undefined || boardIsEmpty()) {
-    // Unknown formats, variants and the formats disabled on an empty board.
+  if (!EXPORT_FORMATS.includes(format) || variant !== undefined || boardIsEmpty() || (format === 'gif' && !boardFlows())) {
+    // Unknown formats, variants, the formats disabled on an empty board and a GIF of a board that does not move.
     shell.exportState(request, 'unsupported');
     return;
   }
@@ -128,9 +176,9 @@ async function runShellExport(request: string, format: string, variant: string |
   busy = true;
   shell.exportState(request, 'started');
   try {
-    const file = await produce(format);
+    const file = await produce(format as ExportFormat);
     if (!file) {
-      shell.exportState(request, 'declined', 'The board is empty.');
+      shell.exportState(request, 'declined', format === 'gif' ? 'The board has no flowing arrows.' : 'The board is empty.');
       return;
     }
     await saveKit(maybeSession()?.downloads, file.name, file.data, OBJECT_URL_LIFETIME_MS);
@@ -142,13 +190,14 @@ async function runShellExport(request: string, format: string, variant: string |
   }
 }
 
-/** Reports the export formats to the Shell, disabled while the board is empty. */
+/** Reports the export formats to the Shell, disabled while the board is empty; the GIF only while it has flowing arrows. */
 function reportFormats(): void {
   const empty = boardIsEmpty();
   const state = empty ? { disabled: true, why: 'other' as const } : {};
   setShellReport({
     formats: [
       { format: 'png', label: 'PNG image', ...state },
+      ...(boardFlows() ? [{ format: 'gif', label: 'Animated GIF' }] : []),
       { format: 'json', label: 'Board file', ...state },
     ],
     exports: false,
@@ -158,13 +207,17 @@ function reportFormats(): void {
 
 /**
  * Offers the board's exports to the Shell: reports the formats (again
- * whenever the board becomes empty or not) and answers `export_format`
- * requests. Returns a stop function.
+ * whenever the board becomes empty or not, and gains or loses its last
+ * flowing arrow) and answers `export_format` requests. Returns a stop
+ * function.
  */
 export function startExport(): () => void {
   reportFormats();
   const unsubscribe = useBoard.subscribe((state, previous) => {
-    if ((state.board.content.elements.length === 0) !== (previous.board.content.elements.length === 0)) reportFormats();
+    const elements = state.board.content.elements;
+    const before = previous.board.content.elements;
+    if (elements === before) return;
+    if ((elements.length === 0) !== (before.length === 0) || hasFlowingArrow(elements) !== hasFlowingArrow(before)) reportFormats();
   });
   const stopCommands = onShellCommand((command) => {
     if (command.cmd === 'export_format') void runShellExport(command.request, command.format, command.variant);

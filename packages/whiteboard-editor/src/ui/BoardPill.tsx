@@ -4,11 +4,11 @@
  * “Read-only” badge (“Comment only” for commenters) saying why.
  *
  * The zoom menu also holds going to a section and the view options: follow
- * someone, ask everyone to follow you, single-key tool shortcuts and the
- * timer chime.
+ * someone, ask everyone to follow you, single-key tool shortcuts, the
+ * timer chime and, on a board with flowing arrows, whether they move.
  */
 
-import { LIVE_MESSAGES } from '@open-artifact/whiteboard-core';
+import { LIVE_MESSAGES, hasFlowingArrow } from '@open-artifact/whiteboard-core';
 import { ChevronDown, CloudOff, Loader2, Lock, MessageCircle, TriangleAlert } from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { MAX_ZOOM, ZOOM_PRESETS, zoomPercent } from '../lib/camera.ts';
@@ -101,6 +101,8 @@ function ZoomMenu({ readOnly, corner = false }: { readOnly: boolean; corner?: bo
   const keysOn = usePreferences((state) => state.letterKeys);
   const chime = usePreferences((state) => state.timerChime);
   const timer = useBoard((state) => state.board.content.timer !== undefined);
+  const animateLines = usePreferences((state) => state.animateLines);
+  const flowing = useBoard((state) => hasFlowingArrow(state.board.content.elements));
   const history = useVersionHistoryEntry();
   const mod = modKey();
   const percent = zoomPercent(zoom);
@@ -166,6 +168,11 @@ function ZoomMenu({ readOnly, corner = false }: { readOnly: boolean; corner?: bo
       {timer ? (
         <ChromeMenuItem checked={chime} onSelect={() => usePreferences.getState().setTimerChime(!chime)}>
           Timer chime
+        </ChromeMenuItem>
+      ) : null}
+      {flowing ? (
+        <ChromeMenuItem checked={animateLines} onSelect={() => usePreferences.getState().setAnimateLines(!animateLines)}>
+          Animate lines
         </ChromeMenuItem>
       ) : null}
       {history.shown ? (
