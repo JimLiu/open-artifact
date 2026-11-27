@@ -147,6 +147,14 @@
   border-radius: 4px;
 }
 
+/* The bar of a selected table of contents, at its top right corner */
+.doc-text .contents-actions {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  z-index: 2;
+}
+
 .doc-text .contents-list {
   display: flex;
   flex-direction: column;

@@ -260,10 +260,11 @@ function oneAtATime<T>(job: () => Promise<T>): Promise<T> {
   return run;
 }
 
-function within<T>(work: Promise<T>, ms: number, what: string): Promise<T> {
+/** `work`, or `too_slow` once it has run for `ms`: too much to print in one go (one tab at a time may still be). */
+export function within<T>(work: Promise<T>, ms: number, what: string): Promise<T> {
   let timer: NodeJS.Timeout;
   const late = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`${what} took more than ${Math.round(ms / 1000)} s`)), ms);
+    timer = setTimeout(() => reject(new ExportRefusal('too_slow', `Chrome was still ${what} after ${Math.round(ms / 1000)} s.`, 504)), ms);
   });
   return Promise.race([work, late]).finally(() => clearTimeout(timer));
 }

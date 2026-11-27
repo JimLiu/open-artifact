@@ -9,9 +9,10 @@
  * Blocks are matched by id (versions and restores keep them). A text block's words are compared by their content,
  * since a block written whole gets new character ids. Blocks between matched ones that were replaced are paired up
  * when both hold text and share most of it, so a reworded paragraph reads as its changed words, not as a deleted and an
- * added one. A block both versions hold in another order is a move.
+ * added one; one list, table, quote, code block or embed dropped where one of another kind went in reads as replaced by
+ * it. A block both versions hold in another order is a move.
  */
-import { type Block, type DocState, type Inline, type Marks, isAtom, isContentsLanguage, isText } from '@open-artifact/docs-core';
+import { type Block, type DocState, type Inline, type Marks, isAtom, isContents, isContentsLanguage, isText } from '@open-artifact/docs-core';
 
 export type ChangeOp = 'ins' | 'del';
 
@@ -34,6 +35,8 @@ export interface ChangePart {
   change: string;
   look: ChangeLook;
   summary: string;
+  /** The part says more than its change does ("Replaced by the table below"): its words are drawn on it. */
+  noted?: true;
 }
 
 export interface Comparison extends DocState {
@@ -88,9 +91,9 @@ class Changes {
     return id;
   }
 
-  part(change: string, look: ChangeLook, summary: string): string {
+  part(change: string, look: ChangeLook, summary: string, noted = false): string {
     const key = `${change}.${++this.seq}`;
-    this.parts[key] = { change, look, summary };
+    this.parts[key] = { change, look, summary, ...(noted ? { noted: true as const } : {}) };
     return key;
   }
 
@@ -172,6 +175,10 @@ function mergeRun(
   landed: Map<string, Block>,
 ): Block[] {
   const out: Block[] = [];
+  const pair = replacedPair(gone, added, moved);
+  const drop = (block: Block) => (block === pair?.old ? replacedBlock(block, 'del', pair, changes) : droppedBlock(block, changes));
+  const add = (block: Block) => (block === pair?.fresh ? replacedBlock(block, 'ins', pair, changes) : addedBlock(block, changes));
+  const paired = (block: Block) => block === pair?.old || block === pair?.fresh;
   let g = 0;
   let a = 0;
   while (g < gone.length || a < added.length) {
@@ -192,20 +199,63 @@ function mergeRun(
       continue;
     }
     if (old && fresh) {
-      const merged = isText(old) && isText(fresh) ? mergeText(old, fresh, true, changes) : null;
+      const merged = isText(old) && isText(fresh) && !paired(old) && !paired(fresh) ? mergeText(old, fresh, true, changes) : null;
       if (merged) out.push(merged);
-      else out.push(droppedBlock(old, changes), addedBlock(fresh, changes));
+      else out.push(drop(old), add(fresh));
       g++;
       a++;
     } else if (old) {
-      out.push(droppedBlock(old, changes));
+      out.push(drop(old));
       g++;
     } else if (fresh) {
-      out.push(addedBlock(fresh, changes));
+      out.push(add(fresh));
       a++;
     }
   }
   return out;
+}
+
+/** Blocks of these kinds, one dropped and one of another kind added in the same place, read as one replaced by the other. */
+const REPLACEABLE = new Set(['list', 'table', 'blockquote', 'codeBlock', 'embed']);
+
+interface ReplacedPair {
+  old: Block;
+  fresh: Block;
+  /** Its change, once one of the two is drawn. */
+  id?: string;
+}
+
+/**
+ * The one block of those kinds a run dropped and the one it added, when there is exactly one of each and they are of
+ * different kinds. Two with the same words (a list made a quote) are left as dropped and added.
+ */
+function replacedPair(gone: readonly Block[], added: readonly Block[], moved: ReadonlyMap<string, Block>): ReplacedPair | null {
+  const olds = gone.filter(block => REPLACEABLE.has(block.type) && !moved.has(block.id));
+  const freshes = added.filter(block => REPLACEABLE.has(block.type) && !moved.has(block.id));
+  if (olds.length !== 1 || freshes.length !== 1) return null;
+  const [old, fresh] = [olds[0]!, freshes[0]!];
+  if (old.type === fresh.type) return null;
+  const words = blockWords(old);
+  if (words && words === blockWords(fresh)) return null;
+  return { old, fresh };
+}
+
+function blockWords(block: Block): string {
+  const own = (block.inline ?? []).map(item => (isAtom(item) ? ' ' : item.ch)).join('');
+  return [own, ...(block.children ?? []).map(blockWords)].join(' ').replace(/\s+/g, ' ').trim();
+}
+
+const lowerFirst = (text: string) => text.charAt(0).toLowerCase() + text.slice(1);
+
+/** One of a replaced pair: the change says what replaced what; the dropped one points to the one that replaced it. */
+function replacedBlock(block: Block, op: ChangeOp, pair: ReplacedPair, changes: Changes): Block {
+  const now = lowerFirst(nodeLabel(pair.fresh));
+  const summary = `${nodeLabel(pair.old)} replaced with ${now}`;
+  // The first of the two drawn makes the change: the dropped one drawn first has the new one below it.
+  const below = pair.id === undefined;
+  pair.id ??= changes.change('replace', summary);
+  const words = op === 'del' ? `Replaced by the ${now} ${below ? 'below' : 'above'}` : summary;
+  return marked(block, op, changes.part(pair.id, op, words, op === 'del'));
 }
 
 function movedBlock(old: Block, fresh: Block, changes: Changes): Block {
@@ -248,8 +298,14 @@ function blockChange(old: Block, fresh: Block, changes: Changes): string | null 
 
 function droppedBlock(block: Block, changes: Changes): Block {
   const summary = `${nodeLabel(block)} deleted`;
-  return marked(block, 'del', changes.part(changes.change('del', summary), 'del', summary));
+  const id = changes.change('del', summary);
+  // A table of contents has no words of its own to strike through: the preview draws a card that says it was taken out.
+  if (isContents(block)) return marked(block, 'del', changes.part(id, 'del', CONTENTS_REMOVED));
+  return marked(block, 'del', changes.part(id, 'del', summary));
 }
+
+export const CONTENTS_REMOVED = 'Table of contents removed';
+export const CONTENTS_TEXT_CHANGED = 'Text inside the table of contents changed — edits below';
 
 function addedBlock(block: Block, changes: Changes): Block {
   const summary = `${nodeLabel(block)} added`;
@@ -279,6 +335,7 @@ function mergeText(old: Block, fresh: Block, similar: boolean, changes: Changes)
   const steps = itemSteps(a, b);
   if (similar && steps.filter(step => step.op === 'same').length * 2 < Math.max(a.length, b.length)) return null;
   const head = blockChange(old, fresh, changes);
+  const listed = changes.list.length;
   const items: Inline[] = [];
   let k = 0;
   while (k < steps.length) {
@@ -322,7 +379,11 @@ function mergeText(old: Block, fresh: Block, similar: boolean, changes: Changes)
     }
     for (const item of run) items.push(item.op === 'same' ? b[item.b]! : item.op === 'del' ? tagged(a[item.a]!, delKey, 'del') : tagged(b[item.b]!, insKey, 'ins'));
   }
-  return { ...fresh, ...(head ? { suggest: { id: head, op: 'ins' as const } } : {}), inline: items };
+  const firstChange = changes.list.length > listed ? changes.list[listed]!.id : null;
+  // Words typed in a table of contents make it code: the block says so over the edits to its text.
+  const note = !head && firstChange && fresh.type === 'codeBlock' && isContentsLanguage(fresh.attrs?.language) ? changes.part(firstChange, 'chg', CONTENTS_TEXT_CHANGED, true) : null;
+  const key = head ?? note;
+  return { ...fresh, ...(key ? { suggest: { id: key, op: 'ins' as const } } : {}), inline: items };
 }
 
 /** "Text added", "Text replaced", "Mention deleted", "Image replaced", "Content added". */

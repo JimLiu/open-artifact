@@ -38,6 +38,25 @@ export function refusalAdvice(reason: RefusalReason, kind: RefusedKind): string 
   }
 }
 
+/**
+ * Where the words of a refused reply on a suggestion's card are now: back in its box (still open), kept for the card
+ * (the box was closed, the suggestion is still there: Reply on it again brings them back), or nowhere but the note
+ * (the suggestion is gone).
+ */
+export type SuggestionReplyPlace = 'box' | 'card' | 'gone';
+
+/** What to do about a refused reply on a suggestion, by where its words are. */
+export function suggestionReplyAdvice(place: SuggestionReplyPlace): string {
+  switch (place) {
+    case 'box':
+      return 'Your words are back in the reply box. You can try again, or copy them and reload the page.';
+    case 'card':
+      return 'Your words are kept until you reload or leave this page. To find them, open the suggestion again.';
+    case 'gone':
+      return 'Copy your words to keep them.';
+  }
+}
+
 export interface RefusedDraft {
   id: number;
   title: string;
@@ -57,12 +76,13 @@ export const useRefused = create<{ drafts: RefusedDraft[] }>(() => ({ drafts: []
 
 let serial = 0;
 
-export function showRefused(title: string, text: string, kind: RefusedKind, error: unknown): RefusedDraft {
+/** Shows a refusal; `advice` in place of what {@link refusalAdvice} says for its reason. */
+export function showRefused(title: string, text: string, kind: RefusedKind, error: unknown, advice?: string): RefusedDraft {
   const draft: RefusedDraft = {
     id: ++serial,
     title,
     detail: error instanceof Error ? error.message : String(error),
-    advice: refusalAdvice(refusalReason(error), kind),
+    advice: advice ?? refusalAdvice(refusalReason(error), kind),
     text,
     copy: 'idle',
   };

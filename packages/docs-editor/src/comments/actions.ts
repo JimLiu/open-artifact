@@ -4,7 +4,7 @@
  * the thread.
  */
 import type { CommentThread } from '@open-artifact/runtime';
-import { COMMENT_TEXT_MAX } from '@open-artifact/editor-kit';
+import { COMMENT_TEXT_MAX, announce } from '@open-artifact/editor-kit';
 import { toast } from '@open-artifact/ui';
 import type { EditorState } from 'prosemirror-state';
 import { CellSelection } from 'prosemirror-tables';
@@ -15,15 +15,16 @@ import { showTab } from '../app/start.ts';
 import { getDocs, setDocs, useDocs } from '../app/store.ts';
 import { currentView, useEditor } from '../editor/format.ts';
 import { rangesOf as suggestionRanges } from '../suggest/positions.ts';
-import type { SuggestionReplyTarget } from '../suggest/reply.ts';
+import { type SuggestionReplyTarget, keepReplyDraft, takeReplyDraft } from '../suggest/reply.ts';
 import { commentCells, mixesCellsAndText } from '../tables/comment-cells.ts';
 import { type DocAnchor, anchorLocation, cellsDetail, cellsLabel, quoteDetail, quoteLabel, withoutPlace } from './anchor.ts';
 import { blockIdAt, idsOfRange, textUnits, unitRange } from './anchor-map.ts';
+import { assignText, assigneeOf, assignedLabel } from './assign.ts';
 import { judgeComment, replyWakes } from './judge.ts';
 import { AGENT_KEY, mentionsIn } from './mentions.ts';
 import { CommentOutbox, type OutboxEntry, type OutboxItem, indexedDbOutboxStore, isNetworkError, outboxText } from './outbox.ts';
 import { rangesOf } from './plugin.ts';
-import { showRefused } from './refused.ts';
+import { type SuggestionReplyPlace, refusalReason, showRefused, suggestionReplyAdvice } from './refused.ts';
 import {
   type Composer,
   NEW_THREAD,
@@ -56,6 +57,13 @@ function addressees(text: string): string[] {
   const { threads } = docComments.store.getState();
   const { peers } = useCommentUi.getState();
   return mentionsIn(text, mentionCandidates(threads, peers, myName(), canAskAgent() ? { name: agentName() } : null));
+}
+
+/** The one person the text @mentions, whom sending it can assign the thread to; `null` when it names none or several. */
+export function assignableIn(text: string): string | null {
+  if (!myName()) return null;
+  const people = addressees(text).filter(key => key !== AGENT_KEY);
+  return people.length === 1 ? people[0]! : null;
 }
 
 /** The text @mentions the agent: it goes to the agent whatever "Send to agent" says. */
@@ -212,7 +220,19 @@ export async function commentOnSuggestion(target: SuggestionReplyTarget): Promis
   if (!first || !last) return openComposer(null);
   const from = first.block ? first.from + 1 : first.from;
   const to = last.block ? last.to - 1 : last.to;
-  return openComposer(wordsComposer(view, tab, from, to) ?? blockComposer(view, tab, from));
+  const composer = wordsComposer(view, tab, from, to) ?? blockComposer(view, tab, from);
+  if (!composer) return openComposer(null);
+  return openComposer({ ...composer, suggestion: target.suggestId, text: takeReplyDraft(tab, target.suggestId) ?? '' });
+}
+
+/** Where a refused reply's words are, for the composer Reply on a suggestion opened. */
+function suggestionReplyPlace(composer: Composer & { suggestion: string }): SuggestionReplyPlace {
+  if (useCommentUi.getState().composer?.suggestion === composer.suggestion) return 'box';
+  const tab = composer.anchor.tab;
+  const view = currentView();
+  // On another tab now: the suggestion is taken to be there still (its card can be opened again).
+  const there = !tab || !view || useEditor.getState().tab !== tab || suggestionRanges(view.state.doc, composer.suggestion).length > 0;
+  return there ? 'card' : 'gone';
 }
 
 /**
@@ -296,7 +316,7 @@ if (typeof window !== 'undefined' && !startOutbox()) {
  * Saves the composer's thread (or another new thread's); resolves whether it was saved. `send`: "Send to agent" was
  * checked, so the comment goes out addressed to the agent (an `@agent` in front).
  */
-export async function createThread(text: string, composer: Composer | null = useCommentUi.getState().composer, send = false): Promise<boolean> {
+export async function createThread(text: string, composer: Composer | null = useCommentUi.getState().composer, send = false, assign: string | null = null): Promise<boolean> {
   const comments = capability();
   const typed = bodyOf(text);
   if (!comments || !composer || !typed) return false;
@@ -316,6 +336,7 @@ export async function createThread(text: string, composer: Composer | null = use
     if (useCommentUi.getState().composer === composer) setCommentUi({ composer: null });
     setActive(thread.id);
     await handOver(thread, to);
+    if (assign) await assignThread(threadById(thread.id) ?? thread, assign);
     return true;
   } catch (error) {
     if (await keepForLater(error, { kind: 'create', input })) {
@@ -323,9 +344,20 @@ export async function createThread(text: string, composer: Composer | null = use
       return true;
     }
     if (isNetworkError(error)) failed('The comment could not be saved')(error);
+    else if (composer.suggestion && refusalReason(error) === 'other') refusedSuggestionReply({ ...composer, suggestion: composer.suggestion }, text.trim(), error);
     else showRefused('The comment could not be saved', text.trim(), 'comment', error);
     return false;
   }
+}
+
+/** A reply on a suggestion the server refused: its words go back where it can find them, and the note says where. */
+function refusedSuggestionReply(composer: Composer & { suggestion: string }, text: string, error: unknown): void {
+  const place = suggestionReplyPlace(composer);
+  const open = useCommentUi.getState().composer;
+  // Its box opened again meanwhile, still empty: the words go back in.
+  if (place === 'box' && open && !open.text.trim()) setCommentUi({ composer: { ...open, text } });
+  if (place === 'card' && composer.anchor.tab) keepReplyDraft(composer.anchor.tab, composer.suggestion, text);
+  showRefused('The reply could not be saved', text, 'reply', error, suggestionReplyAdvice(place));
 }
 
 /** Reacts to the selection: a thread whose only message is the emoji. */
@@ -344,7 +376,7 @@ export async function reactOnSelection(emoji: string): Promise<boolean> {
  * would not reach the agent by itself, it goes out addressed to it; unchecked, a reply on a talk with the agent stays
  * with people. Left out, the reply goes where judge.ts says.
  */
-export async function reply(threadId: string, text: string, send?: boolean): Promise<boolean> {
+export async function reply(threadId: string, text: string, send?: boolean, assign: string | null = null): Promise<boolean> {
   const comments = capability();
   const typed = bodyOf(text);
   if (!comments || !typed) return false;
@@ -362,6 +394,7 @@ export async function reply(threadId: string, text: string, send?: boolean): Pro
       return { replies };
     });
     await handOver(thread, to, false, quiet);
+    if (assign) await assignThread(threadById(threadId) ?? thread, assign);
     return true;
   } catch (error) {
     if (await keepForLater(error, { kind: 'reply', threadId, text: body, ...(to.length ? { to } : {}), ...(quiet ? { quiet } : {}) })) {
@@ -373,6 +406,24 @@ export async function reply(threadId: string, text: string, send?: boolean): Pro
     }
     if (isNetworkError(error)) failed('The reply could not be saved')(error);
     else showRefused('The reply could not be saved', text.trim(), 'reply', error);
+    return false;
+  }
+}
+
+/**
+ * Assigns the thread to `name` (`null`: to nobody) with a reply that says so and names them. It stays with people: the
+ * agent reads it with the thread, and is not handed the thread for it.
+ */
+export async function assignThread(thread: CommentThread, name: string | null): Promise<boolean> {
+  const comments = capability();
+  const current = assigneeOf(thread);
+  if (!comments || name === current) return false;
+  try {
+    putThread(await comments.reply(thread.id, assignText(name, current), name === null ? undefined : { to: [name] }));
+    announce(name === null ? 'Comment unassigned' : assignedLabel(name, myName()));
+    return true;
+  } catch (error) {
+    failed('Couldn’t change who this comment is assigned to. Reload the page and try again.')(error);
     return false;
   }
 }

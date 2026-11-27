@@ -3,7 +3,19 @@ import { describe, it } from 'node:test';
 import type { Node as PMNode } from 'prosemirror-model';
 import { EditorState, NodeSelection, TextSelection, type Transaction } from 'prosemirror-state';
 import { filterLanguages, languageLabel } from '../src/code/languages.ts';
-import { contentsBeside, insertContents, isPageContents, pageContents, selectedContents, wholeContents } from '../src/code/contents.ts';
+import {
+  HINT_AGAIN_MS,
+  contentsBeside,
+  contentsSelected,
+  freshLessons,
+  hintsToSay,
+  insertContents,
+  isPageContents,
+  pageContents,
+  selectedContents,
+  stillOnContents,
+  wholeContents,
+} from '../src/code/contents.ts';
 import { schema } from '../src/editor/schema.ts';
 import { languagesFor } from '../src/insert/languages.ts';
 import { slashItems } from '../src/insert/slash-items.ts';
@@ -78,5 +90,42 @@ describe('table of contents on the page', () => {
     assert.equal(contentsBeside(above, 1, true)?.from, at);
     const selected = above.apply(above.tr.setSelection(NodeSelection.create(d, at)));
     assert.equal(selectedContents(selected)?.pos, at);
+  });
+
+  it('says, selected, how to reach its links and its actions', () => {
+    assert.equal(contentsSelected(true, '⌘F6'), 'Table of contents selected, press Enter to reach its links, or ⌘F6 to reach its actions');
+    assert.equal(contentsSelected(true, null), 'Table of contents selected, press Enter to reach its links');
+    assert.equal(contentsSelected(false, 'Ctrl+F6'), 'Table of contents selected, press Ctrl+F6 to reach its actions');
+    assert.equal(contentsSelected(false, null), 'Table of contents selected');
+  });
+
+  it('names a way on until it is used, and again only after two minutes away from tables of contents', () => {
+    const lessons = freshLessons();
+    const both = ['links', 'actions'] as const;
+    const said = (now: number, offered: readonly ('links' | 'actions')[] = both) => [...hintsToSay(lessons, offered, now)].sort();
+    // The first time, both; straight after, neither.
+    assert.deepEqual(said(1000), ['actions', 'links']);
+    assert.deepEqual(said(2000), []);
+    // Two minutes since the last time on one is not yet over; past it, they are named again.
+    assert.deepEqual(said(2000 + HINT_AGAIN_MS), []);
+    assert.deepEqual(said(2001 + 2 * HINT_AGAIN_MS), ['actions', 'links']);
+    // Staying on one keeps the time away from starting.
+    stillOnContents(lessons, 3 * HINT_AGAIN_MS);
+    assert.deepEqual(said(3 * HINT_AGAIN_MS + HINT_AGAIN_MS), []);
+    // Once the bar has been reached, only the links are named again.
+    lessons.actions.learned = true;
+    assert.deepEqual(said(10 * HINT_AGAIN_MS), ['links']);
+    lessons.links.learned = true;
+    assert.deepEqual(said(20 * HINT_AGAIN_MS), []);
+  });
+
+  it('names only the ways on offered, and a way not offered stays untold', () => {
+    const lessons = freshLessons();
+    // Where it can't be changed or the page hasn't the keyboard, nothing is offered: nothing named, nothing told.
+    assert.deepEqual([...hintsToSay(lessons, [], 0)], []);
+    assert.equal(lessons.actions.said, false);
+    // No links: only the bar.
+    assert.deepEqual([...hintsToSay(lessons, ['actions'], 10)], ['actions']);
+    assert.deepEqual([...hintsToSay(lessons, ['links', 'actions'], 20)], ['links']);
   });
 });

@@ -121,6 +121,14 @@ export function useTabNews(tab: string | null): boolean {
   return useReads(state => !!state.reads && tabHasNews(newest, state.reads, tab ?? ''));
 }
 
+/** {@link useTabNews} read once, outside React (the Shell's comments button). */
+export function tabNews(tab: string | null): boolean {
+  const reads = useReads.getState().reads;
+  if (!reads) return false;
+  const newest = newestUnread(onTab(docComments.store.getState().threads, tab), reads, myName());
+  return tabHasNews(newest, reads, tab ?? '');
+}
+
 // Opening a card reads it; so does news coming to the card that is open.
 docComments.store.subscribe((state, before) => {
   if (!state.active) return;

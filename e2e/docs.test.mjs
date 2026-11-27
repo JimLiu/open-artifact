@@ -1568,3 +1568,370 @@ describe(`${TYPE} in Chrome: tables of contents`, { skip: skip() || chromeSkip()
     }
   });
 });
+
+describe(`${TYPE} in Chrome: a table of contents' bar, and what inserting says`, { skip: skip() || chromeSkip() }, () => {
+  const ctx = {};
+
+  before(() => {
+    const { dir } = install(typePath(TYPE), TYPE);
+    ctx.cli = cli(dir, { OPEN_ARTIFACT_TYPE_SERVER_HOME: path.join(tmpDir('docs-toc-bar-state'), 'state'), HOME: tmpDir('docs-toc-bar-home'), OPEN_ARTIFACT_USER: 'E2E' });
+  });
+
+  after(async () => {
+    await ctx.cli?.run(['stop']).catch(() => {});
+    removeTmp();
+  });
+
+  it('a selected table of contents says how to reach its links and its bar, F6 reaches the bar, and its menu takes it out', T, async () => {
+    const root = path.join(tmpDir('docs-toc-bar'), 'handbook');
+    const source = path.join(tmpDir('docs-toc-bar-src'), 'handbook.md');
+    fs.writeFileSync(source, ['# Handbook', '', 'Opening words.', '', '```toc', '```', '', '## Arrival', '', 'Arrival words.', '', '```toc', '```', '', '## Leaving', '', 'Leaving words.', ''].join('\n'));
+    await ctx.cli.json(['create', root, '--markdown', source, '--name', 'Handbook']);
+    const { url } = await ctx.cli.json(['open', root, '--json']);
+    const browser = await launch();
+    try {
+      const page = await browser.load(url, { ready: textIn('Leaving words.'), settle: 1000, ignore: [/\/favicon\.ico$/] });
+      const said = async text => (await page.evaluateAll(`[...document.querySelectorAll('[aria-live]')].some(e => e.textContent.includes(${JSON.stringify(text)}))`)).includes(true);
+      const count = async expression => (await page.evaluateAll(expression)).find(n => n > 0) ?? 0;
+      const second = `document.querySelectorAll('.doc-text .contents-block')[1]`;
+      assert.equal(await count(`document.querySelectorAll('.doc-text .contents-block').length`), 2);
+      // No bar until one is selected.
+      assert.equal(await count(`document.querySelectorAll('[data-contents-bar]').length`), 0);
+
+      // A press beside the second one's links selects it: its bar shows, and the selection says both ways on.
+      const blank = await page.evaluate(`(() => {
+        const frame = document.querySelector('iframe[name="open-artifact-shell"]');
+        const rect = frame.contentDocument.querySelectorAll('.doc-text .contents-list')[1].getBoundingClientRect();
+        const outer = frame.getBoundingClientRect();
+        return [outer.x + rect.right - 24, outer.y + rect.y + rect.height - 6];
+      })()`);
+      await page.click(...blank);
+      assert.ok(await page.waitFor(`${second}?.classList.contains('ProseMirror-selectednode')`, 5000), 'a press did not select the second table of contents');
+      assert.ok(await page.waitFor(`${second}?.querySelector('[role="toolbar"][aria-label="Table of contents actions"]')`, 5000), 'its bar did not show');
+      assert.ok(await until(() => said('Table of contents selected, press Enter to reach its links, or '), 5000), 'the selection did not say how to reach the links and the bar');
+      assert.ok(await said('F6 to reach its actions'), 'the selection did not name the key to the bar');
+
+      // F6 reaches this one's bar; its menu takes it out, says so, and gives the text its keyboard back.
+      await page.press('F6');
+      assert.ok(await page.waitFor(`document.activeElement?.closest('[data-contents-bar]') && ${second}?.contains(document.activeElement)`, 5000), 'F6 did not reach the bar of the selected table of contents');
+      await page.press('Enter');
+      assert.ok(await page.waitFor(`[...document.querySelectorAll('[role^=menuitem]')].some(item => item.textContent.includes('Delete table of contents'))`, 5000), 'the menu did not offer to delete it');
+      await clickInEditor(page, `[...document.querySelectorAll('[role^=menuitem]')].find(item => item.textContent.includes('Delete table of contents'))`);
+      assert.ok(await until(async () => (await count(`document.querySelectorAll('.doc-text .contents-block').length`)) === 1, 5000), 'the menu did not take it out');
+      assert.ok(await until(() => said('Table of contents deleted'), 5000), 'taking it out was not announced');
+      assert.ok(await page.waitFor(`document.activeElement?.classList.contains('ProseMirror')`, 5000), 'the text did not get the keyboard back');
+
+      // The bar has been reached, and the links were named a moment ago: selecting the other one names neither again.
+      const firstContents = `document.querySelector('.doc-text .contents-block')`;
+      const selectFirst = async () => {
+        const at = await page.evaluate(`(() => {
+          const frame = document.querySelector('iframe[name="open-artifact-shell"]');
+          const rect = frame.contentDocument.querySelectorAll('.doc-text .contents-list')[0].getBoundingClientRect();
+          const outer = frame.getBoundingClientRect();
+          return [outer.x + rect.right - 24, outer.y + rect.y + rect.height - 6];
+        })()`);
+        await page.click(...at);
+        assert.ok(await page.waitFor(`${firstContents}?.classList.contains('ProseMirror-selectednode')`, 5000), 'a press did not select the other table of contents');
+      };
+      const saidExactly = async text => (await page.evaluateAll(`[...document.querySelectorAll('[aria-live]')].some(e => e.textContent.trim() === ${JSON.stringify(text)})`)).includes(true);
+      const awhile = () => page.evaluateAll(`(() => { const was = Date.now; Date.now = () => was() + 3 * 60 * 1000; return true; })()`);
+      const leave = async () => {
+        await clickInEditor(page, `[...document.querySelectorAll('.doc-text p')].find(p => p.textContent === 'Arrival words.')`);
+        assert.ok(await page.waitFor(`${firstContents} && !${firstContents}.classList.contains('ProseMirror-selectednode')`, 5000), 'a press in the text did not leave the table of contents');
+      };
+      await selectFirst();
+      assert.ok(await until(() => saidExactly('Table of contents selected'), 5000), 'a way on the reader has used or just heard was named again');
+      // Three minutes later the links, not yet used, are named again; the bar, reached by F6, isn't.
+      await leave();
+      await awhile();
+      await selectFirst();
+      assert.ok(await until(() => saidExactly('Table of contents selected, press Enter to reach its links'), 5000), 'after a while away, the links were not named again, or the bar was');
+      // Enter reaches the links: from then on, neither is named.
+      await page.press('Enter');
+      assert.ok(await page.waitFor(`document.activeElement?.matches('a.contents-line') && ${firstContents}?.contains(document.activeElement)`, 5000), 'Enter did not reach the links');
+      await page.press('Escape');
+      await leave();
+      await awhile();
+      await selectFirst();
+      assert.ok(await until(() => saidExactly('Table of contents selected'), 5000), 'a way on the reader has used was named again');
+
+      // The slash menu says what it put in.
+      const words = `[...document.querySelectorAll('.doc-text p')].find(p => p.textContent === 'Leaving words.')`;
+      const caretIn = `getSelection().anchorNode?.parentElement?.closest('.doc-text p')?.textContent ?? null`;
+      assert.ok(await until(async () => {
+        await clickInEditor(page, words);
+        await new Promise(resolve => setTimeout(resolve, 800));
+        await clickInEditor(page, words);
+        return (await page.evaluateAll(caretIn)).includes('Leaving words.');
+      }, 10000), 'the caret did not land in the last paragraph');
+      await page.press('End');
+      await page.press('Enter');
+      await page.type('/toc');
+      assert.ok(await page.waitFor(`[...document.querySelectorAll('[role="listbox"] [role="option"]')].some(o => o.textContent.includes('Table of contents'))`, 5000), 'the slash menu did not offer a table of contents');
+      await page.press('Enter');
+      assert.ok(await until(async () => (await count(`document.querySelectorAll('.doc-text .contents-block').length`)) === 2, 5000), 'no table of contents went in');
+      assert.ok(await until(() => said('Inserted Table of contents'), 5000), 'inserting it was not announced');
+      assert.deepEqual(page.problems, []);
+    } finally {
+      await Promise.all([browser.close(), ctx.cli.run(['stop', root])]);
+    }
+  });
+});
+
+describe(`${TYPE} in Chrome: the comments button's news, refused replies on suggestions, assigning a comment`, { skip: skip() || chromeSkip() }, () => {
+  const ctx = {};
+  const card = id => `document.querySelector('[data-comment-card="${id}"]')`;
+  const threadOn = async words => (await ctx.cli.json(['comments', ctx.root, '--json'])).threads.find(thread => thread.where?.includes(words));
+  const menuItem = text => `[...document.querySelectorAll('[role="menuitem"]')].find(item => item.textContent.trim() === ${JSON.stringify(text)})`;
+  const unreadButton = `document.querySelector('[data-comments-button] button[aria-description="Has unread comments"]')`;
+  /** Clicks `element` of the editor's frame once it holds still and nothing covers it. */
+  async function clickOnTop(page, element) {
+    const where = () =>
+      page.evaluate(`(() => {
+        const frame = document.querySelector('iframe[name="open-artifact-shell"]');
+        const el = (document => (${element}))(frame.contentDocument);
+        const rect = el?.getBoundingClientRect();
+        if (!rect?.width) return null;
+        const x = rect.x + rect.width / 2, y = rect.y + rect.height / 2;
+        const hit = frame.contentDocument.elementFromPoint(x, y);
+        if (!hit || !(hit === el || el.contains(hit))) return null;
+        const outer = frame.getBoundingClientRect();
+        return [outer.x + x, outer.y + y];
+      })()`);
+    let last = null;
+    let at = null;
+    assert.ok(await until(async () => {
+      [last, at] = [at, await where()];
+      return at && last && at[0] === last[0] && at[1] === last[1];
+    }, 10000), `nothing steady to click: ${element}`);
+    await page.click(...at);
+  }
+
+  before(async () => {
+    const { dir } = install(typePath(TYPE), TYPE);
+    ctx.cli = cli(dir, { OPEN_ARTIFACT_TYPE_SERVER_HOME: path.join(tmpDir('docs-g2-state'), 'state'), HOME: tmpDir('docs-g2-home'), OPEN_ARTIFACT_USER: 'E2E' });
+    ctx.root = path.join(tmpDir('docs-g2-root'), 'trips');
+    const source = path.join(tmpDir('docs-g2-src'), 'trips.md');
+    fs.writeFileSync(source, '# Trips\n\nThe ferry leaves at nine.\n\nThe bus leaves at ten.\n');
+    const created = await ctx.cli.json(['create', ctx.root, '--markdown', source, '--name', 'Trips']);
+    ctx.tab = created.lids.f;
+  });
+
+  after(async () => {
+    await ctx.cli?.run(['stop']).catch(() => {});
+    removeTmp();
+  });
+
+  it('marks the comments button while there is news no one has looked at, until the list is opened', T, async () => {
+    assert.equal((await ctx.cli.run(['comment-add', ctx.root, 'Is nine still right?', '--on', 'ferry'])).code, 0);
+    const ferry = await threadOn('ferry');
+    const { url } = await ctx.cli.json(['open', ctx.root, '--json']);
+    const browser = await launch();
+    try {
+      const page = await browser.load(url, { ready: textIn('The ferry leaves'), settle: 1000, ignore: [/\/favicon\.ico$/] });
+      assert.ok(await page.waitFor(card(ferry.id), 10000), 'no card for the thread');
+      assert.ok(await page.waitFor(`document.querySelector('[data-comments-button]')`, 5000), 'no comments button');
+      assert.equal(await page.evaluate(unreadButton), null, 'the button is marked with nothing new');
+
+      assert.equal((await ctx.cli.run(['comment-reply', ctx.root, ferry.id, 'The timetable says ten now.'])).code, 0);
+      assert.ok(await page.waitFor(`${unreadButton} && document.querySelector('[data-comments-button] [data-comments-unread]')`, 10000), 'the button does not mark the new reply');
+
+      await clickOn(page, buttonNamed('Comment options'));
+      await clickOn(page, `[...document.querySelectorAll('[role="menuitem"]')].find(item => item.textContent.trim().startsWith('Show all comments'))`);
+      assert.ok(await page.waitFor(`document.querySelector('aside[aria-label="Comments"]')`, 5000), 'the list did not open');
+      assert.ok(await page.waitFor(`!${unreadButton} && !document.querySelector('[data-comments-unread]')`, 5000), 'the button stays marked after the list was opened');
+      assert.deepEqual(page.problems, []);
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it('a refused reply on a suggestion says where its words are, and Reply on the card brings them back', T, async () => {
+    const suggested = await ctx.cli.json(['update', ctx.root, JSON.stringify({ tab: ctx.tab, suggest: true, ops: [{ op: 'replace', target: { kind: 'find', text: 'ten' }, source: { text: 'eleven' } }] })]);
+    const suggestion = `document.querySelector('[data-suggest-card="${suggested.suggestId}"]')`;
+    const reply = `[...(${suggestion})?.querySelectorAll('button') ?? []].find(b => b.textContent.trim() === 'Reply')`;
+    const box = `document.querySelector('[data-comment-card="new"] textarea')`;
+    const note = `document.querySelector('[data-testid="refused-draft"]')`;
+    const { url } = await ctx.cli.json(['open', ctx.root, '--json']);
+    const browser = await launch();
+    try {
+      const page = await browser.load(url, { ready: textIn('The bus leaves'), settle: 1000, ignore: [/\/favicon\.ico$/] });
+      assert.ok(await page.waitFor(suggestion, 10000), 'no card for the suggestion');
+      // The server turns new comments down (a conflict: neither a lost connection nor a known reason); `__hold` keeps
+      // the answer back until `__answer()` is called. In every frame: the calls may go out from the Shell's page.
+      await page.evaluateAll(`(() => {
+        if (window.__refusing) return;
+        const send = window.fetch;
+        window.__refusing = true;
+        window.fetch = function (input, init) {
+          const where = typeof input === 'string' ? input : input?.url ?? String(input);
+          if (where.includes('_api/comments/create')) {
+            const no = () => new Response(JSON.stringify({ code: 'conflict', message: 'Try again later.' }), { status: 409, headers: { 'content-type': 'application/json' } });
+            if (!window.__hold) return Promise.resolve(no());
+            return new Promise(done => (window.__answer = () => done(no())));
+          }
+          return send.call(this, input, init);
+        };
+      })()`);
+
+      // Refused with the box still open: the words stay in it. Reply shows on the card once it is picked.
+      await clickInEditor(page, `${suggestion}.querySelector('p, div')`);
+      await clickInEditor(page, reply);
+      assert.ok(await page.waitFor(box, 5000), 'Reply opened no box');
+      await clickInEditor(page, box);
+      assert.ok(await page.waitFor(`document.activeElement === ${box}`, 3000), 'the box has no focus');
+      await page.cdp('Input.insertText', { text: 'Eleven is too late.' });
+      await page.press('Enter');
+      assert.ok(await page.waitFor(`${note}?.innerText.includes('The reply could not be saved') && ${note}.innerText.includes('Your words are back in the reply box')`, 8000), 'no note for the refused reply in its box');
+      assert.ok(await page.waitFor(`${box}?.value === 'Eleven is too late.'`, 2000), 'the box lost the words');
+      await clickInEditor(page, `document.querySelector('[data-testid="refused-draft"] button[aria-label="Close"]')`);
+      assert.ok(await page.waitFor(`!${note}`, 3000), 'the note did not close');
+
+      // Refused after the box was closed: kept for the card, and Reply on it puts them back.
+      await page.evaluateAll(`window.__hold = true`);
+      await clickInEditor(page, box);
+      await page.press('Enter');
+      assert.ok(await page.waitFor(`typeof window.__answer === 'function'`, 5000), 'the reply was not sent');
+      // The box is busy while it sends; its Cancel still closes it.
+      await clickInEditor(page, `[...document.querySelectorAll('[data-comment-card="new"] button')].find(b => b.textContent.trim() === 'Cancel')`);
+      await clickInEditor(page, buttonNamed('Discard'));
+      assert.ok(await page.waitFor(`document.querySelector('.doc-text') && !${box}`, 5000), 'the box did not close');
+      await page.evaluateAll(`window.__answer?.()`);
+      assert.ok(await page.waitFor(`${note}?.innerText.includes('Your words are kept until you reload or leave this page')`, 8000), 'no note for the reply refused after its box closed');
+      await clickInEditor(page, `${suggestion}.querySelector('p, div')`);
+      await clickInEditor(page, reply);
+      assert.ok(await page.waitFor(`${box}?.value === 'Eleven is too late.'`, 5000), 'Reply on the card did not bring the words back');
+      assert.deepEqual(page.problems, []);
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it('assigns a thread from its menu or from a reply naming one person: a mark on the card, a note in the thread, the reply the agent reads; and unassigns it', T, async () => {
+    assert.equal((await ctx.cli.run(['comment-add', ctx.root, 'Who books the bus?', '--on', 'bus'])).code, 0);
+    let bus = await threadOn('bus');
+    // Someone else, Ana, answered in the thread.
+    const file = path.join(ctx.root, 'comments.json');
+    const saved0 = JSON.parse(fs.readFileSync(file, 'utf8'));
+    saved0.threads.find(thread => thread.id === bus.id).messages.push({ id: 'm_ana', author: { kind: 'user', name: 'Ana' }, text: 'I can look at it this week.', at: new Date().toISOString() });
+    fs.writeFileSync(file, JSON.stringify(saved0, null, 2));
+    assert.ok(await until(async () => (bus = await threadOn('bus')).messages.length === 2, 10000), 'the server did not take Ana’s reply');
+    const { url } = await ctx.cli.json(['open', ctx.root, '--json']);
+    const browser = await launch();
+    try {
+      const page = await browser.load(url, { ready: textIn('The bus leaves'), settle: 1000, ignore: [/\/favicon\.ico$/] });
+      assert.ok(await page.waitFor(card(bus.id), 10000), 'no card for the thread');
+      await clickInEditor(page, `${card(bus.id)}.querySelector('[data-comment-message]')`);
+      assert.ok(await page.waitFor(`${card(bus.id)}?.matches('[data-open]')`, 5000), 'the card did not open');
+      const more = `${card(bus.id)}.querySelector('[data-comment-message] button[aria-label="More options"]')`;
+
+      await clickInEditor(page, more);
+      await clickInEditor(page, menuItem('Assign to'));
+      await clickInEditor(page, menuItem('E2E (you)'));
+      assert.ok(await page.waitFor(`${card(bus.id)}?.querySelector('[data-assigned="E2E"]')?.textContent.trim() === 'Assigned to you'`, 8000), 'no mark on the card');
+      assert.ok(await page.waitFor(`${card(bus.id)}.getAttribute('aria-label').includes('. Assigned to you.')`, 2000), 'the card does not say it is assigned');
+      assert.ok(await page.waitFor(`${card(bus.id)}.querySelector('[data-assign-note]')?.textContent.startsWith('You took this on')`, 2000), 'no note in the thread');
+      let saved = await threadOn('bus');
+      assert.deepEqual(saved.messages.at(-1), { ...saved.messages.at(-1), text: 'Assigned to @E2E', to: ['E2E'], from: 'user', name: 'E2E' });
+      assert.deepEqual(saved.agent, bus.agent, 'assigning handed the thread to the agent');
+
+      // The menu checks who has it, and offers Unassign.
+      await clickInEditor(page, more);
+      await clickInEditor(page, menuItem('Assign to'));
+      assert.ok(await page.waitFor(`${menuItem('E2E (you)')}?.querySelector('svg') && ${menuItem('Unassign')}`, 3000), 'the menu does not check the assignee or offer Unassign');
+      await clickInEditor(page, menuItem('Unassign'));
+      assert.ok(await page.waitFor(`!${card(bus.id)}?.querySelector('[data-assigned]') && [...${card(bus.id)}.querySelectorAll('[data-assign-note]')].at(-1)?.textContent.startsWith('You are no longer assigned')`, 8000), 'unassigning left the mark, or wrote no note');
+      saved = await threadOn('bus');
+      assert.equal(saved.messages.at(-1).text, 'This comment is no longer assigned.');
+
+      // A reply that @mentions one person offers to assign them in the checkbox's place.
+      const reply = `${card(bus.id)}.querySelector('[data-comment-composer] textarea')`;
+      const assignBox = `${card(bus.id)}.querySelector('[data-assign-box]')`;
+      await clickInEditor(page, reply);
+      assert.ok(await page.waitFor(`document.activeElement === ${reply}`, 3000), 'the reply box has no focus');
+      await page.cdp('Input.insertText', { text: 'Please book it, @Ana ' });
+      assert.ok(await page.waitFor(`${assignBox}?.textContent.trim() === 'Assign to Ana' && !${assignBox}.querySelector('input').checked`, 5000), 'no Assign to Ana box');
+      // The @ list may still offer Ana, over the box: Escape puts it away (and Enter then sends).
+      const list = `document.querySelector('[data-comment-composer] [role="listbox"]')`;
+      if ((await page.evaluateAll(`!!${list}`)).some(Boolean)) await page.press('Escape');
+      assert.ok(await page.waitFor(`document.querySelector('.doc-text') && !${list}`, 2000), 'the @ list stays open');
+      await clickOnTop(page, `${assignBox}.querySelector('input')`);
+      assert.ok(await page.waitFor(`${assignBox}?.querySelector('input').checked`, 2000), 'the box did not check');
+      // The box keeps the focus in the text, its caret at the end (a click there could land in the mention).
+      assert.ok(await page.waitFor(`document.activeElement === ${reply} && ${reply}.selectionStart === ${reply}.value.length`, 2000), 'the reply box lost the focus');
+      await page.press('Enter');
+      assert.ok(await page.waitFor(`${card(bus.id)}?.querySelector('[data-assigned="Ana"]')?.textContent.trim() === 'Assigned to Ana' && [...${card(bus.id)}.querySelectorAll('[data-assign-note]')].at(-1)?.textContent.startsWith('You assigned Ana')`, 8000), 'the reply did not assign Ana');
+      saved = await threadOn('bus');
+      assert.deepEqual(saved.messages.slice(-2).map(message => [message.text, message.to]), [['Please book it, @Ana', ['Ana']], ['Assigned to @Ana', ['Ana']]]);
+      assert.deepEqual(page.problems, []);
+    } finally {
+      await browser.close();
+    }
+  });
+});
+
+describe(`${TYPE} in Chrome: word count in the More menu`, { skip: skip() || chromeSkip() }, () => {
+  const ctx = {};
+
+  before(() => {
+    const { dir } = install(typePath(TYPE), TYPE);
+    ctx.cli = cli(dir, { OPEN_ARTIFACT_TYPE_SERVER_HOME: path.join(tmpDir('docs-count-state'), 'state'), HOME: tmpDir('docs-count-home'), OPEN_ARTIFACT_USER: 'E2E' });
+  });
+
+  after(async () => {
+    await ctx.cli?.run(['stop']).catch(() => {});
+    removeTmp();
+  });
+
+  it('More tells the words and characters of the tab, and of the selection when there is one, and says them aloud', T, async () => {
+    const root = path.join(tmpDir('docs-count'), 'count');
+    const source = path.join(tmpDir('docs-count-src'), 'count.md');
+    fs.writeFileSync(source, ['# Count', '', 'Alpha beta gamma delta.', '', 'Closing words here.', ''].join('\n'));
+    await ctx.cli.json(['create', root, '--markdown', source, '--name', 'Count']);
+    const { url } = await ctx.cli.json(['open', root, '--json']);
+    const browser = await launch();
+    try {
+      const page = await browser.load(url, { ready: textIn('Alpha beta gamma delta.'), settle: 1000, ignore: [/\/favicon\.ico$/] });
+      const lines = async () => (await page.evaluateAll(`[...(document.querySelector('[data-doc-word-count]')?.children ?? [])].map(line => line.textContent)`)).find(list => list?.length) ?? [];
+      const said = async text => (await page.evaluateAll(`[...document.querySelectorAll('[aria-live]')].some(e => e.textContent.includes(${JSON.stringify(text)}))`)).includes(true);
+      const openMore = async () => {
+        await clickInEditor(page, `document.querySelector('button[aria-label="More"]')`);
+        assert.ok(await until(async () => (await lines()).length === 2, 5000), 'More did not show the count');
+        return lines();
+      };
+
+      // "Count", four words, three words.
+      assert.deepEqual(await openMore(), ['8 words in this tab', '47 characters']);
+      assert.ok(await until(() => said('8 words in this tab, 47 characters'), 5000), 'the count was not said');
+      await page.press('Escape');
+      assert.ok(await until(async () => (await lines()).length === 0, 5000), 'Escape did not close the menu');
+
+      const words = `[...document.querySelectorAll('.doc-text p')].find(p => p.textContent === 'Alpha beta gamma delta.')`;
+      const selectedText = `getSelection().toString() === 'Alpha beta gamma delta.'`;
+      // The page still moves while it settles, and a click can leave the caret where it was: try until the keys
+      // select the paragraph.
+      assert.ok(await until(async () => {
+        await clickInEditor(page, words);
+        // Far enough apart not to make a double click.
+        await new Promise(resolve => setTimeout(resolve, 800));
+        await clickInEditor(page, words);
+        await page.press('Home');
+        await page.press('End', { shift: true });
+        return (await page.evaluateAll(selectedText)).includes(true);
+      }, 15000), 'the keys did not select the paragraph');
+      // The editor takes the selection from the page a moment after the keys.
+      await new Promise(resolve => setTimeout(resolve, 300));
+      assert.deepEqual(await openMore(), ['4 of 8 words selected', '23 of 47 characters']);
+
+      // A locked doc can't be edited: More has no count then.
+      await clickInEditor(page, `[...document.querySelectorAll('[role^=menuitem]')].find(item => item.textContent.includes('Lock document'))`);
+      assert.ok(await page.waitFor(`document.querySelector('.doc-text[contenteditable="false"]')`, 10000), 'locking did not stop editing');
+      await clickInEditor(page, `document.querySelector('button[aria-label="More"]')`);
+      assert.ok(await page.waitFor(`[...document.querySelectorAll('[role^=menuitem]')].some(item => item.textContent.includes('Unlock document'))`, 5000), 'More did not open on the locked doc');
+      assert.deepEqual(await lines(), []);
+      assert.deepEqual(page.problems, []);
+    } finally {
+      await Promise.all([browser.close(), ctx.cli.run(['stop', root])]);
+    }
+  });
+});

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { SHORTCUT_GROUPS, keyLabel } from '../src/topbar/shortcuts.ts';
-import { cleanDocName, defaultPaper, exportedTitle, exportFailure, notesText, otherNotes, printToPdfWords } from '../src/topbar/words.ts';
+import { allTabsFailure, cleanDocName, defaultPaper, exportedTitle, exportFailure, notesText, otherNotes, printToPdfWords } from '../src/topbar/words.ts';
 
 describe('key labels', () => {
   it('writes chords the platform’s way', () => {
@@ -73,5 +73,13 @@ describe('export words', () => {
     // A refusal says the host's own words, or a plain one without them.
     assert.equal(exportFailure('docx', 'doc', 'not_writer', 'The owner has not let viewers download or export this artifact.'), 'The owner has not let viewers download or export this artifact.');
     assert.equal(exportFailure('pdf', 'doc', 'not_granted'), 'You can’t export this document.');
+  });
+  it('says when every tab together failed where one tab may not', () => {
+    assert.equal(allTabsFailure('pdf', 'too_slow'), 'All tabs together take too long to export as a PDF. Export one tab at a time.');
+    assert.equal(allTabsFailure('docx', 'no_tab'), 'At least one tab can’t be exported as Word. Export one tab at a time.');
+    assert.equal(allTabsFailure('markdown', 'weird'), 'Couldn’t export all tabs as Markdown. You can try again in a moment or export one tab at a time.');
+    assert.equal(allTabsFailure('html', undefined), 'Couldn’t export all tabs as HTML. You can try again in a moment or export one tab at a time.');
+    // One tab would fail the same way: the reason for the document stands.
+    for (const code of ['no_chrome', 'no_print', 'renderer_unavailable', 'unsupported', 'unavailable', 'not_writer', 'not_granted', 'not_a_doc']) assert.equal(allTabsFailure('pdf', code), null, code);
   });
 });

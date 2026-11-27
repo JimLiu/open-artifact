@@ -8,8 +8,10 @@ import { actionOf, countText, showsComments } from '../model.ts';
 /**
  * The comments button: comment mode on and off, a filled bubble
  * while on ("Done commenting"), an outlined one with a dot while open
- * comments wait ("N open comments"); and a caret whose menu shows the
- * comments list ("Show all comments N") or hides it ("Hide comments").
+ * comments wait ("N open comments"), and a dot with ", new activity" while
+ * the page says the viewer has comment news they have not looked at; and a
+ * caret whose menu shows the comments list ("Show all comments N") or hides
+ * it ("Hide comments").
  */
 export function CommentsButton({ comments, command, readOnly = false, disabled = false }: {
   comments: ChromeReport['comments'];
@@ -22,13 +24,16 @@ export function CommentsButton({ comments, command, readOnly = false, disabled =
   const on = comments.on;
   const count = Math.max(0, comments.count || 0);
   const waiting = !on && count > 0;
-  const tip = on ? t('doneCommenting') : count === 1 ? t('openComment') : count > 0 ? t('openComments', { count: countText(count) }) : t('comments');
+  const unread = comments.unread === true;
+  const said = on ? t('doneCommenting') : count === 1 ? t('openComment') : count > 0 ? t('openComments', { count: countText(count) }) : t('comments');
+  const tip = unread ? t('newActivity', { label: said }) : said;
   return (
     <span data-comments-button="" className="inline-flex items-center">
       <Tooltip label={tip}>
         <button
           type="button"
           aria-label={t('comments')}
+          aria-description={unread ? t('hasUnreadComments') : undefined}
           disabled={disabled}
           aria-pressed={readOnly ? comments.open : on}
           className={cn(
@@ -40,7 +45,7 @@ export function CommentsButton({ comments, command, readOnly = false, disabled =
         >
           <span className="relative inline-flex">
             <MessageCircle className="size-4" fill={on ? 'currentColor' : 'none'} />
-            {waiting ? <span aria-hidden data-comments-dot="" className="absolute -right-0.5 -top-px size-1.5 rounded-full bg-accent ring-[1.5px] ring-surface" /> : null}
+            {waiting || unread ? <span aria-hidden data-comments-dot="" data-comments-unread={unread ? '' : undefined} className="absolute -right-0.5 -top-px size-1.5 rounded-full bg-accent ring-[1.5px] ring-surface" /> : null}
           </span>
         </button>
       </Tooltip>

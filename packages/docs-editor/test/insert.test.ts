@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { useAnnouncer } from '@open-artifact/editor-kit';
 import type { DocEnum, DocEnumOption, DocFile } from '@open-artifact/runtime/doc-api';
 import type { Node as PMNode } from 'prosemirror-model';
-import { EditorState, TextSelection } from 'prosemirror-state';
+import { EditorState, TextSelection, type Transaction } from 'prosemirror-state';
 import { schema } from '../src/editor/schema.ts';
 import { addMonths, dateFromWords, isoDate, monthGrid, parseIsoDate } from '../src/insert/dates.ts';
 import {
@@ -148,6 +149,33 @@ describe('slash items', () => {
     assert.ok(inTable.includes('Checklist'));
     assert.ok(!labels(slashItems('', { ...anywhere, canPickImage: false })).includes('Image'));
     assert.ok(!labels(slashItems('', { ...anywhere, inQuoteOrItem: true })).includes('Quote'));
+  });
+
+  it('says what went in, and nothing when the page stayed as it was', () => {
+    /** Runs an item at a caret after `text` (its last two characters the typed `/x`); answers what was said. */
+    const run = (query: string, label: string, block: PMNode = para('/x')) => {
+      useAnnouncer.setState({ message: '' });
+      let state = caretAtEnd(block);
+      const view = {
+        get state() {
+          return state;
+        },
+        dispatch(tr: Transaction) {
+          state = state.apply(tr);
+        },
+        focus() {},
+      };
+      const end = state.selection.from;
+      slashItems(query, anywhere).find(item => item.label === label)!.run(view as never, { from: end - 2, to: end });
+      return useAnnouncer.getState().message;
+    };
+    assert.equal(run('toc', 'Table of contents'), 'Inserted Table of contents');
+    assert.equal(run('he', 'Heading 2'), 'Inserted Heading 2');
+    assert.equal(run('code py', 'Code block · Python'), 'Inserted Code block · Python');
+    assert.equal(run('quote', 'Quote'), 'Quote on');
+    assert.equal(run('date', 'Date'), 'Inserted Date');
+    // Inside a code block no code block goes in: nothing is said.
+    assert.equal(run('code', 'Code block', nodes.codeBlock!.create(null, schema.text('/x'))), '');
   });
 
   it('reads the place from the caret', () => {

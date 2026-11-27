@@ -11,8 +11,65 @@ import { headingHref, headingWords } from '../selbar/fragments.ts';
 
 export const CONTENTS_NAME = 'Table of contents';
 export const CONTENTS_EMPTY = 'No headings to list yet';
-export const CONTENTS_SELECTED = `${CONTENTS_NAME} selected, press Enter to reach its links`;
 export const CONTENTS_DELETED = `${CONTENTS_NAME} deleted`;
+/** The bar a selected table of contents has, and its one action. */
+export const CONTENTS_ACTIONS = `${CONTENTS_NAME} actions`;
+export const CONTENTS_DELETE = 'Delete table of contents';
+
+/**
+ * What is said when a table of contents is selected: how to reach its links (when it has any) and its bar (when
+ * there is one, by `keys`).
+ */
+export function contentsSelected(links: boolean, keys: string | null): string {
+  const said = `${CONTENTS_NAME} selected`;
+  if (links && keys) return `${said}, press Enter to reach its links, or ${keys} to reach its actions`;
+  if (links) return `${said}, press Enter to reach its links`;
+  if (keys) return `${said}, press ${keys} to reach its actions`;
+  return said;
+}
+
+/** The two ways on from a selected table of contents a selection can name: Enter to its links, F6 to its bar. */
+export type ContentsHint = 'links' | 'actions';
+
+/** A hint, for one editor: whether the reader has used it, has been told it, and when they were last on a table of contents. */
+export interface HintLesson {
+  learned: boolean;
+  said: boolean;
+  lastOnAt: number;
+}
+
+export type HintLessons = Record<ContentsHint, HintLesson>;
+
+/** Away from tables of contents this long, a reader who hasn't used a hint yet is told it again. */
+export const HINT_AGAIN_MS = 2 * 60 * 1000;
+
+export function freshLessons(): HintLessons {
+  return { links: { learned: false, said: false, lastOnAt: -Infinity }, actions: { learned: false, said: false, lastOnAt: -Infinity } };
+}
+
+/** The selection is still on a table of contents at `now`: the time away starts again. */
+export function stillOnContents(lessons: HintLessons, now: number): void {
+  lessons.links.lastOnAt = now;
+  lessons.actions.lastOnAt = now;
+}
+
+/**
+ * Which of the `offered` hints a new selection of a table of contents names: one the reader hasn't used, the first
+ * time, or again after `HINT_AGAIN_MS` away. Every offered hint counts as seen at `now`.
+ */
+export function hintsToSay(lessons: HintLessons, offered: readonly ContentsHint[], now: number): Set<ContentsHint> {
+  const say = new Set<ContentsHint>();
+  for (const hint of offered) {
+    const lesson = lessons[hint];
+    const tell = !lesson.learned && (!lesson.said || now - lesson.lastOnAt > HINT_AGAIN_MS);
+    lesson.lastOnAt = now;
+    if (tell) {
+      lesson.said = true;
+      say.add(hint);
+    }
+  }
+  return say;
+}
 
 export interface PageContentsLine {
   text: string;

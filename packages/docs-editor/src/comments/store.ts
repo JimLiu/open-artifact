@@ -29,6 +29,8 @@ export interface Composer {
   clamped?: boolean;
   /** "Send to agent" as the person set it for this comment; unset, it is their last choice ({@link rememberedSend}). */
   send?: boolean;
+  /** Opened by Reply on this suggestion's card. */
+  suggestion?: string;
 }
 
 const SEND_KEY = 'oa-docs.comments.sendToAgent';

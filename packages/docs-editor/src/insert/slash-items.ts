@@ -2,6 +2,7 @@
  * What the slash menu (and the page bar's insert menu) puts in: headings, a table and a dropdown first, then the rest
  * from A to Z, plus a code block in a named language and the dropdown templates when the query names them.
  */
+import { announce } from '@open-artifact/editor-kit';
 import { setBlockType } from 'prosemirror-commands';
 import type { EditorState } from 'prosemirror-state';
 import type { EditorView } from 'prosemirror-view';
@@ -36,12 +37,21 @@ export interface SlashItem extends MenuOption {
 
 type Edit = (state: EditorState, dispatch: EditorView['dispatch'], view: EditorView) => boolean;
 
-/** Removes the `/query`, then makes the edit at the caret. */
+/** What is said once an item went in: "Inserted Table", "Inserted Code block · Python". */
+export const insertedWords = (label: string): string => `Inserted ${label}`;
+
+/** Says `words` when an edit changed the page (one Suggesting mode refuses leaves it as it was, and says so itself). */
+function sayIfChanged(view: EditorView, before: EditorState['doc'], words: string): void {
+  if (!view.state.doc.eq(before)) announce(words);
+}
+
+/** Removes the `/query`, then makes the edit at the caret, and says what went in. */
 const after =
-  (edit: Edit) =>
+  (edit: Edit, words: string) =>
   (view: EditorView, range: Range): void => {
     clearRange(view, range);
-    edit(view.state, view.dispatch, view);
+    const before = view.state.doc;
+    if (edit(view.state, view.dispatch, view)) sayIfChanged(view, before, words);
     view.focus();
   };
 
@@ -51,7 +61,7 @@ const heading = (level: 1 | 2 | 3): SlashItem => ({
   icon: `h${level}`,
   keywords: `heading ${level} h${level} title ${'#'.repeat(level)}`,
   noTable: true,
-  run: after(setBlockStyle(`h${level}` as BlockStyle)),
+  run: after(setBlockStyle(`h${level}` as BlockStyle), insertedWords(`Heading ${level}`)),
 });
 
 /** A list of this kind around the caret's paragraph (left as it is when it already is one). */
@@ -86,7 +96,7 @@ const BASE_ITEMS: readonly SlashItem[] = [
     icon: 'table',
     keywords: 'table grid rows columns cells',
     noTable: true,
-    run: after(insertTable(3, 3)),
+    run: after(insertTable(3, 3), insertedWords('Table')),
   },
   {
     id: 'dropdown',
@@ -104,7 +114,7 @@ const BASE_ITEMS: readonly SlashItem[] = [
     icon: 'divider',
     keywords: 'divider horizontal rule line hr ---',
     noTable: true,
-    run: after(insertRule),
+    run: after(insertRule, insertedWords('Divider')),
   },
   {
     id: 'quote',
@@ -113,7 +123,8 @@ const BASE_ITEMS: readonly SlashItem[] = [
     keywords: 'quote blockquote cite >',
     noTable: true,
     when: place => !place.inQuoteOrItem,
-    run: after((state, dispatch) => (inQuote(state) ? false : toggleQuote(state, dispatch))),
+    // The item only makes a quote (it is left out where one can't be made), so it says the quote came on.
+    run: after((state, dispatch) => (inQuote(state) ? false : toggleQuote(state, dispatch)), 'Quote on'),
   },
   {
     id: 'image',
@@ -131,21 +142,21 @@ const BASE_ITEMS: readonly SlashItem[] = [
     label: 'Bulleted list',
     icon: 'bullet',
     keywords: 'bullet list ul unordered - *',
-    run: after(makeList('bullet')),
+    run: after(makeList('bullet'), insertedWords('Bulleted list')),
   },
   {
     id: 'ordered-list',
     label: 'Numbered list',
     icon: 'ordered',
     keywords: 'numbered list ol ordered 1.',
-    run: after(makeList('ordered')),
+    run: after(makeList('ordered'), insertedWords('Numbered list')),
   },
   {
     id: 'checkbox',
     label: 'Checklist',
     icon: 'check',
     keywords: 'checkbox todo task check checklist [] box',
-    run: after(makeList('check')),
+    run: after(makeList('check'), insertedWords('Checklist')),
   },
   {
     id: 'code',
@@ -153,7 +164,7 @@ const BASE_ITEMS: readonly SlashItem[] = [
     icon: 'code',
     keywords: 'code codeblock snippet fence pre monospace block',
     noTable: true,
-    run: after(makeCode(null)),
+    run: after(makeCode(null), insertedWords('Code block')),
   },
   {
     id: 'toc',
@@ -161,7 +172,7 @@ const BASE_ITEMS: readonly SlashItem[] = [
     icon: 'contents',
     keywords: 'toc contents index',
     noTable: true,
-    run: after(insertContents),
+    run: after(insertContents, insertedWords('Table of contents')),
   },
   {
     id: 'date',
@@ -169,7 +180,10 @@ const BASE_ITEMS: readonly SlashItem[] = [
     icon: 'date',
     keywords: 'date calendar due day when',
     run(view, range) {
+      const before = view.state.doc.content.size;
       insertDate(view, isoDate(today()), { range, open: true });
+      // More changed than the `/query` going: the date went in.
+      if (view.state.doc.content.size !== before - (range.to - range.from)) announce(insertedWords('Date'));
     },
   },
 ];
@@ -217,7 +231,7 @@ function languageItems(query: string): SlashItem[] {
     icon: 'code',
     keywords: '',
     noTable: true,
-    run: after(makeCode(language.key)),
+    run: after(makeCode(language.key), insertedWords(`Code block · ${language.label}`)),
   }));
 }
 

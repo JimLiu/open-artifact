@@ -4,7 +4,9 @@ import type { Block, DocState, Inline, Marks } from '@open-artifact/docs-core';
 import type { DocSuggestion, DocVersion } from '@open-artifact/runtime/doc-api';
 import { type Comparison, attrsSummary, compareVersions, diffSequences, hasChanges, marksSummary, shortLink, stepChange, textSummary } from '../src/history/compare.ts';
 import { againstLabel, changesLabel, compareStatus, compareTarget, isFirstSaved } from '../src/history/compare-target.ts';
-import { previewDocOf } from '../src/history/preview-doc.ts';
+import { EditorState } from 'prosemirror-state';
+import type { DecorationSet } from 'prosemirror-view';
+import { changeAttrs, changesPlugin, blockDropped, previewDocOf } from '../src/history/preview-doc.ts';
 import { afterCopy, copyMembers, copyName, safeTabName } from '../src/history/copy.ts';
 import { learnNames } from '../src/app/people.ts';
 import { discardSentence, restoreNote } from '../src/history/restore-note.ts';
@@ -77,6 +79,55 @@ describe('comparing versions', () => {
     const contents: Block = { id: 'toc', type: 'codeBlock', attrs: { language: 'toc' }, inline: [] };
     assert.deepEqual(summaries(compareVersions(doc(para('p1', 'one')), doc(para('p1', 'one'), contents))), ['ins: Table of contents added']);
     assert.deepEqual(summaries(compareVersions(doc(para('p1', 'one'), contents), doc(para('p1', 'one')))), ['del: Table of contents deleted']);
+  });
+
+  it('draws a dropped table of contents as taken out, and words typed into one over its edits', () => {
+    const contents: Block = { id: 'toc', type: 'codeBlock', attrs: { language: 'toc' }, inline: [] };
+    const dropped = previewDocOf(compareVersions(doc(para('p1', 'one'), contents), doc(para('p1', 'one'))));
+    assert.deepEqual(dropped.changes.map(range => [range.look, range.summary, range.noted]), [['del', 'Table of contents removed', undefined]]);
+    // The card it is drawn as says so: no note over it. Its decoration tells the node view it was dropped; an added one's doesn't.
+    assert.equal(changeAttrs(dropped.changes[0]!, false)['data-diff-note'], undefined);
+    const plugin = changesPlugin(dropped.changes);
+    const found = (plugin.props.decorations!.call(plugin, EditorState.create({ doc: dropped.doc, plugins: [plugin] })) as DecorationSet).find();
+    assert.equal(blockDropped(found), true);
+    const added = previewDocOf(compareVersions(doc(para('p1', 'one')), doc(para('p1', 'one'), contents)));
+    const addedPlugin = changesPlugin(added.changes);
+    assert.equal(blockDropped((addedPlugin.props.decorations!.call(addedPlugin, EditorState.create({ doc: added.doc, plugins: [addedPlugin] })) as DecorationSet).find()), false);
+
+    const typed = compareVersions(doc(para('p1', 'one'), contents), doc(para('p1', 'one'), { ...contents, inline: chars('intro') }));
+    assert.deepEqual(summaries(typed), ['ins: Text added']);
+    const drawn = previewDocOf(typed);
+    const note = drawn.changes.find(range => range.block)!;
+    assert.deepEqual([note.look, note.summary, note.noted, note.change], ['chg', 'Text inside the table of contents changed — edits below', true, typed.changes[0]!.id]);
+    // A code block's words changing say nothing more.
+    const code: Block = { id: 'c1', type: 'codeBlock', attrs: { language: 'js' }, inline: chars('let a') };
+    assert.equal(previewDocOf(compareVersions(doc(code), doc({ ...code, inline: chars('let b') }))).changes.some(range => range.block), false);
+  });
+
+  it('reads one block of a kind replaced by one of another kind in its place as one change', () => {
+    const list: Block = { id: 'l1', type: 'list', attrs: { kind: 'bullet' }, children: [{ id: 'i1', type: 'listItem', children: [para('lp', 'first point')] }] };
+    const contents: Block = { id: 'toc', type: 'codeBlock', attrs: { language: 'toc' }, inline: [] };
+    const compared = compareVersions(doc(para('p1', 'one'), list, para('p3', 'three')), doc(para('p1', 'one'), contents, para('p3', 'three')));
+    assert.deepEqual(summaries(compared), ['replace: Bulleted list replaced with table of contents']);
+    const parts = Object.values(compared.parts).map(part => [part.look, part.summary, part.noted ?? false]);
+    assert.deepEqual(parts, [
+      ['del', 'Replaced by the table of contents below', true],
+      ['ins', 'Bulleted list replaced with table of contents', false],
+    ]);
+    // Its words are drawn once, over the list, not over each item in it.
+    assert.deepEqual(previewDocOf(compared).changes.filter(range => range.noted).map(range => range.summary), ['Replaced by the table of contents below']);
+    // The new block drawn first: the dropped one points up to it.
+    const quote: Block = { id: 'q1', type: 'blockquote', children: [para('qp', 'a quote')] };
+    const table: Block = { id: 't1', type: 'table', children: [{ id: 'r1', type: 'tableRow', children: [{ id: 'c1', type: 'cell', children: [para('cp', 'cell')] }] }] };
+    const up = compareVersions(doc(para('p1', 'one'), para('p2', 'gone'), quote), doc(para('p1', 'one'), table, para('p9', 'new words here')));
+    assert.ok(Object.values(up.parts).some(part => part.summary === 'Replaced by the table above'), JSON.stringify(up.parts));
+    assert.ok(summaries(up).includes('replace: Quote replaced with table'));
+    // Two of each, the same kind, or the same words: dropped and added as before.
+    const items = (id: string, text: string): Block => ({ id, type: 'list', attrs: { kind: 'bullet' }, children: [{ id: `${id}i`, type: 'listItem', children: [para(`${id}p`, text)] }] });
+    const asQuote = (id: string, text: string): Block => ({ id, type: 'blockquote', children: [para(`${id}p`, text)] });
+    assert.deepEqual(summaries(compareVersions(doc(items('a', 'x')), doc(items('b', 'y')))), ['del: Bulleted list deleted', 'ins: Bulleted list added']);
+    assert.deepEqual(summaries(compareVersions(doc(items('a', 'same words')), doc(asQuote('b', 'same words')))), ['del: Bulleted list deleted', 'ins: Quote added']);
+    assert.deepEqual(summaries(compareVersions(doc(items('a', 'x'), items('b', 'y')), doc(contents))), ['del: Bulleted list deleted', 'ins: Table of contents added', 'del: Bulleted list deleted']);
   });
 
   it('shows an unrelated paragraph put in place of another as one dropped and one added', () => {

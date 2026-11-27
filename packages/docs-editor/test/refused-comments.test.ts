@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { beforeEach, describe, it } from 'node:test';
 import { ArtifactError } from '@open-artifact/runtime';
-import { copyRefused, dismissRefused, refusalAdvice, refusalReason, showRefused, useRefused } from '../src/comments/refused.ts';
+import { copyRefused, dismissRefused, refusalAdvice, refusalReason, showRefused, suggestionReplyAdvice, useRefused } from '../src/comments/refused.ts';
+import { keepReplyDraft, takeReplyDraft } from '../src/suggest/reply.ts';
 
 const draftOf = (id: number) => useRefused.getState().drafts.find(draft => draft.id === id);
 
@@ -64,5 +65,30 @@ describe('a comment the server refused', () => {
     await copyRefused(second.id, null);
     assert.equal(draftOf(second.id)?.copy, 'manual');
     assert.equal(draftOf(second.id)?.text, 'second draft');
+  });
+});
+
+describe('a reply on a suggestion the server refused', () => {
+  beforeEach(() => useRefused.setState({ drafts: [] }));
+
+  it('says where the words are: back in the box, kept for the suggestion, or only in the note', () => {
+    assert.match(suggestionReplyAdvice('box'), /^Your words are back in the reply box\. You can try again, or copy them and reload the page\.$/);
+    assert.match(suggestionReplyAdvice('card'), /kept until you reload or leave this page\. To find them, open the suggestion again\.$/);
+    assert.equal(suggestionReplyAdvice('gone'), 'Copy your words to keep them.');
+  });
+
+  it('shows that advice in place of the one for its reason', () => {
+    const shown = showRefused('The reply could not be saved', 'Why ten?', 'reply', new ArtifactError('conflict', 'Busy.'), suggestionReplyAdvice('card'));
+    assert.equal(draftOf(shown.id)?.advice, suggestionReplyAdvice('card'));
+    assert.equal(draftOf(shown.id)?.detail, 'Busy.');
+  });
+
+  it('keeps the words for that suggestion of that tab, and hands them back once', () => {
+    keepReplyDraft('t1', 'sg_1', 'Why ten?');
+    keepReplyDraft('t1', 'sg_2', '   ');
+    assert.equal(takeReplyDraft('t2', 'sg_1'), null);
+    assert.equal(takeReplyDraft('t1', 'sg_2'), null);
+    assert.equal(takeReplyDraft('t1', 'sg_1'), 'Why ten?');
+    assert.equal(takeReplyDraft('t1', 'sg_1'), null);
   });
 });

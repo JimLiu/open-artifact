@@ -15,6 +15,6 @@ addEditorExtension({
   plugins: () => [highlightPlugin(), activeBlockPlugin(), contentsPlugin()],
   nodeViews: {
     codeBlock: (node: PMNode, view: EditorView, getPos: () => number | undefined, decorations: readonly Decoration[]) =>
-      isPageContents(node) ? new ContentsView(node, view, getPos) : new CodeBlockView(node, view, getPos, decorations),
+      isPageContents(node) ? new ContentsView(node, view, getPos, decorations) : new CodeBlockView(node, view, getPos, decorations),
   },
 });

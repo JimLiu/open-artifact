@@ -3,11 +3,13 @@ import type { CommentThread } from '@open-artifact/runtime';
 import { draftedText, queuedNote } from '@open-artifact/editor-kit';
 import { Tip } from '@open-artifact/editor-kit/react';
 import { ConfirmDialog, cn } from '@open-artifact/ui';
-import { CircleCheck } from 'lucide-react';
+import { CircleCheck, UserRound } from 'lucide-react';
 import { type ReactNode, type Ref, type RefCallback, useCallback, useEffect, useState } from 'react';
-import { mentionsAgent, pressReactionThread, reply, replyGoesToAgent } from './actions.ts';
-import { Composer, Initial, type SendBoxSpec } from './Composer.tsx';
+import { assignableIn, mentionsAgent, pressReactionThread, reply, replyGoesToAgent } from './actions.ts';
+import { type AssignStep, assignNoteText, assignSteps, assignedLabel, assigneeOf } from './assign.ts';
+import { Composer, Initial, type SendBoxSpec, useAssignBox } from './Composer.tsx';
 import { Message } from './Message.tsx';
+import { commentDate, commentTime } from './time.ts';
 import { seen, useUnread } from './reads.ts';
 import { type Hold, agentName, canAskAgent, canComment, canRemoveAny, docComments, myName, setActive, useCommentUi } from './store.ts';
 import { canDeleteThread, isOwn, reactionCount, resolvedWords } from './threads.ts';
@@ -69,6 +71,7 @@ function ReplyBox({ thread }: { thread: CommentThread }): ReactNode {
   const sendBox: SendBoxSpec | undefined = canAskAgent()
     ? { checked: locked || (choice ?? replyGoesToAgent(thread, draft)), locked, onChange: setChoice }
     : undefined;
+  const assignBox = useAssignBox(sendBox?.checked ? null : assignableIn(draft), assigneeOf(thread));
   return (
     <div className="mt-3" onClick={event => event.stopPropagation()}>
       <Composer
@@ -80,10 +83,11 @@ function ReplyBox({ thread }: { thread: CommentThread }): ReactNode {
         onChange={setDraft}
         busy={busy}
         sendBox={sendBox}
+        assignBox={assignBox?.spec}
         onSubmit={text => {
           setBusy(true);
-          void reply(thread.id, text, sendBox?.checked)
-            .then(sent => sent && setChoice(null))
+          void reply(thread.id, text, sendBox?.checked, assignBox?.spec.checked ? assignBox.spec.who : null)
+            .then(sent => sent && (setChoice(null), assignBox?.reset()))
             .finally(() => setBusy(false));
         }}
         onCancel={() => (draft.trim() ? setDiscard(true) : setActive(null))}
@@ -139,6 +143,20 @@ export function ReactionChip({ thread, open, cardRef, onOpen }: Pick<ThreadCardP
   );
 }
 
+/** A reply that changed who the thread is assigned to, as one line: "Ana assigned Bo · 10:42". */
+function AssignNote({ step }: { step: AssignStep }): ReactNode {
+  return (
+    <div className="pl-[30px] text-[12px] text-chrome-muted" data-assign-note={step.message.id}>
+      {assignNoteText(step, myName())}
+      {step.message.at ? (
+        <Tip label={commentDate(step.message.at)} side="top">
+          <span> · {commentTime(step.message.at)}</span>
+        </Tip>
+      ) : null}
+    </div>
+  );
+}
+
 /** Focuses the card drawn after (`1`) or before (`-1`) `card` on the page. */
 function focusNextCard(card: HTMLElement, step: 1 | -1): void {
   const cards = [...card.ownerDocument.querySelectorAll<HTMLElement>('[data-comment-card]')].sort(
@@ -180,16 +198,21 @@ function useSeenCard(id: string, news: boolean, cardRef: Ref<HTMLDivElement> | u
 export function ThreadCard({ thread, hold, open, inList = false, tabName, removablePlace, cardRef, onOpen }: ThreadCardProps): ReactNode {
   const news = useUnread(thread) > 0;
   const ref = useSeenCard(thread.id, news, cardRef);
-  const [root, ...replies] = thread.messages;
-  if (!root) return null;
+  const [rootStep, ...steps] = assignSteps(thread);
+  if (!rootStep) return null;
+  const root = rootStep.message;
+  const me = myName();
   const resolved = thread.status === 'resolved';
-  const shown = open ? replies : [];
+  const shown = open ? steps : [];
+  const replies = steps.filter(step => !step.note).length;
+  const assignee = steps.at(-1)?.after ?? null;
+  const assigned = assignee === null ? null : assignedLabel(assignee, me);
   const unread = news ? (unreadIsReply(thread) ? '. Has an unread reply.' : '. Unread.') : '';
   return (
     <div
       ref={ref}
       role="article"
-      aria-label={`Comment by ${root.author.name}${thread.label ? ` on “${thread.label}”` : ''}${resolved ? '. Resolved.' : ''}${unread}`}
+      aria-label={`Comment by ${root.author.name}${thread.label ? ` on “${thread.label}”` : ''}${resolved ? '. Resolved.' : ''}${assigned ? `. ${assigned}.` : ''}${unread}`}
       data-comment-card={thread.id}
       data-unread={news ? '' : undefined}
       data-open={open ? '' : undefined}
@@ -225,20 +248,32 @@ export function ThreadCard({ thread, hold, open, inList = false, tabName, remova
       {resolved ? (
         <div className="mb-2 flex items-center gap-1 text-[12px] text-chrome-muted">
           <CircleCheck className="size-3.5 text-chrome-accent" />
-          {resolvedWords(thread, myName(), agentName())}
+          {resolvedWords(thread, me, agentName())}
+        </div>
+      ) : null}
+      {assigned ? (
+        <div className="mb-2 flex" data-assigned={assignee ?? ''}>
+          <span className="inline-flex max-w-full items-center gap-1 rounded-full bg-chrome-hover px-2 py-0.5 text-[12px] text-chrome-fg">
+            <UserRound aria-hidden="true" className="size-3.5 shrink-0 text-chrome-muted" />
+            <span className="truncate">{assigned}</span>
+          </span>
         </div>
       ) : null}
       <Message thread={thread} message={root} root open={open} removablePlace={removablePlace} />
       {shown.length ? (
         <div className="mt-3 flex flex-col gap-3">
-          {shown.map(message => (
-            <Message key={message.id} thread={thread} message={message} root={false} open={open} removablePlace={undefined} />
-          ))}
+          {shown.map(step =>
+            step.note ? (
+              <AssignNote key={step.message.id} step={step} />
+            ) : (
+              <Message key={step.message.id} thread={thread} message={step.message} root={false} open={open} removablePlace={undefined} />
+            ),
+          )}
         </div>
       ) : null}
-      {!open && replies.length ? (
+      {!open && replies ? (
         <div className="mt-2 pl-[30px] text-[12px] font-medium text-chrome-muted">
-          {replies.length === 1 ? '1 reply' : `${replies.length} replies`}
+          {replies === 1 ? '1 reply' : `${replies} replies`}
         </div>
       ) : null}
       {open ? (
