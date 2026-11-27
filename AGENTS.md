@@ -26,6 +26,7 @@ plain folders on disk.
 
 ```bash
 npm run build                  # Build CLI, support.js, all 8 editors, Shell, frame-host, DSH plugin
+npm run desktop                # Fresh local Desktop + Vite React/CSS hot updates; rebuild/restart main and runtime on edits
 npm run build -- --only cli    # Partial build: cli|support|editors|types|shell|frame|dsh (sea: single executable, only when asked)
 node scripts/build-plugins.mjs # Build unified skill + dist/plugins/<name>/
 npm run typecheck              # TypeScript check across the workspace

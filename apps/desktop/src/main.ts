@@ -45,6 +45,7 @@ import { basename, isAbsolute, join } from 'node:path';
 import { wordsFor } from '../renderer/src/words.ts';
 import { electronAppUpdates } from './app-update-electron.ts';
 import { daemonHostGone, daemonHostLive } from './daemon-host.ts';
+import { desktopPage, rendererUrl } from './development.ts';
 import { Downloads } from './downloads.ts';
 import { libraryDefaultFolder, newArtifactFolder } from './folders.ts';
 import { TabHistory } from './history.ts';
@@ -58,7 +59,6 @@ import { openExternal as openExternalLink } from './external.ts';
 import { OriginAllowlist } from './navigation.ts';
 import { Notice } from './notice.ts';
 import { blockOffline } from './offline.ts';
-import { isPageAt, pageUrlOf } from './page-url.ts';
 import { bundleOfExecutable, daemonEnv, daemonOnDefaultPort, resolveProfile } from './profile.ts';
 import { RuntimeUpdates } from './runtime.ts';
 import { Servers } from './servers.ts';
@@ -165,6 +165,7 @@ const startLang = chromiumLang(startLocale);
 if (startLang) app.commandLine.appendSwitch('lang', startLang);
 
 const runtimeDir = app.isPackaged ? join(process.resourcesPath, 'runtime') : join(appRoot, 'resources', 'runtime');
+const development = rendererUrl(process.env.OA_DESKTOP_RENDERER_URL, app.isPackaged);
 
 /** Links out: the one external-link exit. In test mode it is only logged. */
 const openExternal = (url: string) => openExternalLink(url, log, { testMode: profile.testMode });
@@ -304,7 +305,10 @@ async function start() {
     },
   });
   const pagePath = join(here, 'renderer', 'index.html');
-  window.webContents.on('will-navigate', (event) => event.preventDefault());
+  const page = desktopPage(pagePath, development);
+  window.webContents.on('will-navigate', (event, url) => {
+    if (!development || !page.matches(url)) event.preventDefault();
+  });
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   window.webContents.on('will-attach-webview', (event) => event.preventDefault());
   // The thumbnail scheme before the page: a page knows only the schemes its session handled when it loaded.
@@ -313,12 +317,12 @@ async function start() {
   serveThumbnails(library, log);
   // Until the connection is made, the page's question for the state is answered "not yet" (null), so it asks again.
   ipcMain.handle('desktop:state', (event) => {
-    if (event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame || !isPageAt(event.senderFrame?.url, pagePath))
+    if (event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame || !page.matches(event.senderFrame?.url))
       throw new Error('not allowed');
     return null;
   });
   // The page first (it waits for this process's answers), so the window is not empty while the daemon starts.
-  await window.loadURL(pageUrlOf(pagePath));
+  await window.loadURL(page.url);
 
   const allowlist = new OriginAllowlist();
   const t = wordsFor(locale);
@@ -348,9 +352,13 @@ async function start() {
   harness = await createHarness({
     harness: 'open-artifact-desktop',
     // The runtime this app carries; updates are offered, never installed without the person (a later stage).
-    runtime: { dir: runtimeDir, version: info.version, update: 'prompt' },
+    runtime: { dir: runtimeDir, version: info.version, update: development ? 'bundled' : 'prompt' },
     home: profile.home,
-    daemon: { env: daemonEnv(process.env, profile), timeoutMs: 60_000 },
+    daemon: {
+      env: daemonEnv(process.env, profile), timeoutMs: 60_000,
+      // A development run uses this checkout even when another compatible runtime has a higher version.
+      ...(development ? { bin: join(runtimeDir, 'scripts', 'open-artifact.mjs') } : {}),
+    },
     // Views of its own (`view.open` gives a ticket only to `embed: 'view'`); a remote type's page is not shown yet.
     embed: { origins: [], mode: 'view', remote: 'deny' },
     // This app attaches no session: a `host.open` comes only when the person turned on "open agents' artifacts in this
@@ -729,7 +737,7 @@ async function start() {
 
   // ---- the window's calls: only from its own page ----
   const fromChrome = (event: IpcMainInvokeEvent) =>
-    event.sender === window.webContents && event.senderFrame === window.webContents.mainFrame && isPageAt(event.senderFrame?.url, pagePath);
+    event.sender === window.webContents && event.senderFrame === window.webContents.mainFrame && page.matches(event.senderFrame?.url);
   const { handle, answer } = ipcHandlers<DesktopIpc>(fromChrome, log);
 
   ipcMain.removeHandler('desktop:state');
@@ -1402,6 +1410,19 @@ async function start() {
     tabs.closeAll();
     harness.close();
   });
+
+  // The dev runner asks through Node IPC, so automatic restarts use the same save/quit guard as the menu.
+  if (development && process.send) {
+    const quit = () => void confirmQuit().then((allowed) => {
+      if (!allowed && process.connected) process.send?.({ type: 'desktop:dev:cancelled' });
+    });
+    process.on('message', (message: unknown) => {
+      if (objectOf(message).type === 'desktop:dev:quit') quit();
+    });
+    process.on('SIGINT', quit);
+    process.on('SIGTERM', quit);
+    process.send({ type: 'desktop:dev:ready' });
+  }
 
   const state = harness.client.state;
   log(

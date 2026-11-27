@@ -150,6 +150,11 @@ node scripts/build-plugins.mjs
 
 开发时可以用 `dist/plugins/` 代替各插件安装说明中的解压目录。
 
+要用本地最新源码启动 Desktop 并启用热更新，在仓库根目录运行 `npm run desktop`。它会补齐缺失依赖，
+构建 runtime 和应用，并监听修改。React/CSS 原地更新；主进程、preload 和 runtime 修改后重新构建并重启。
+开发配置目录默认为 `.desktop-dev/`，daemon 端口为 4890；可用
+`npm run desktop -- --home /tmp/oa-desktop --port 4891` 覆盖。详见 [Desktop 开发指南](apps/desktop/DEVELOPMENT.zh-CN.md)。
+
 ```bash
 npm run typecheck
 npm test             # 单元测试（node --test）

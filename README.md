@@ -164,6 +164,11 @@ node scripts/build-plugins.mjs
 
 For local plugin development, use `dist/plugins/` wherever the installation guides use the extracted folder.
 
+To run Desktop from the latest local sources with hot updates, use `npm run desktop` at the repository root. It
+installs missing dependencies, builds the runtime and app, and watches changes. React/CSS update in place; main-process,
+preload and runtime changes rebuild and restart. The development profile is `.desktop-dev/`, the daemon port is 4890;
+override them with `npm run desktop -- --home /tmp/oa-desktop --port 4891`. See the [Desktop development guide](apps/desktop/DEVELOPMENT.md).
+
 ```bash
 npm run typecheck
 npm test             # unit tests (node --test)

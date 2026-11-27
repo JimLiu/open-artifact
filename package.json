@@ -12,6 +12,7 @@
     "node": ">=22.18"
   },
   "scripts": {
+    "desktop": "node scripts/dev-desktop.mjs",
     "build": "node scripts/build.mjs",
     "typecheck": "tsc -p tsconfig.json",
     "test": "node --import ./scripts/test-env.mjs --test \"packages/*/test/*.test.ts\" \"plugins/dsh/test/*.test.ts\" \"plugins/zcode/test/*.test.mjs\" \"examples/host-plugins/*.test.mjs\" \"examples/harness-node/*.test.mjs\" \"examples/harness-stdio/*.test.mjs\" \"plugins/pi/test/*.test.ts\" \"plugins/omp/test/*.test.ts\" \"scripts/*.test.mjs\"",
@@ -25,6 +26,7 @@
     "@types/node": "24.19.1",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "5.2.0",
     "esbuild": "0.25.12",
     "tailwindcss": "4.3.3",
     "typescript": "5.9.3",

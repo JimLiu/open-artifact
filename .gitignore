@@ -18,3 +18,5 @@ skills/open-artifact/vendor/
 designs/
 films/
 artifacts/
+# Persistent profile for npm run desktop (development only).
+/.desktop-dev/

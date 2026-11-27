@@ -208,6 +208,14 @@ TypeScript development and validation: [English](DEVELOPMENT.md) · [简体中�
 
 ## Running it in development
 
+From the repository root, `npm run desktop` handles missing dependencies, builds the latest local runtime and app,
+then starts Vite React/CSS hot updates and watches main/preload/runtime changes for rebuilds and restarts. It defaults
+to `<repo>/.desktop-dev/` and daemon port 4890; `npm run desktop -- --home /tmp/oa-desktop --port 4891` overrides them.
+Closing the app or pressing Ctrl+C stops Vite and the development daemon. See [English](DEVELOPMENT.md) ·
+[简体中文](DEVELOPMENT.zh-CN.md) for the update and restart behavior.
+
+For manual runs after building:
+
 A development build (not packaged) always runs on a profile of its own. It refuses to start on the default home
 (`~/.agents/open-artifact`) or on port 4800, so it never connects to, stops or replaces your own daemon:
 

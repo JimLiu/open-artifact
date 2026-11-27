@@ -19,6 +19,6 @@
     "types": ["node", "react", "react-dom", "electron"],
     "erasableSyntaxOnly": true
   },
-  "include": ["src", "renderer", "scripts", "test", "build.ts"],
+  "include": ["src", "renderer", "scripts", "test", "build.ts", "vite.config.ts"],
   "exclude": ["node_modules", "out", "dist", "resources"]
 }

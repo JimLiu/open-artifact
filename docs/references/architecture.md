@@ -77,6 +77,15 @@ packages/daemon (local open-artifact daemon, one per machine)
 its home tab, one view per artifact tab, a service panel, runtime updates, a settings dialog and a servers switcher.
 It is a Harness API host like the examples, built on `@open-artifact/harness-kit`:
 
+- **Source development**: root `npm run desktop` (`scripts/dev-desktop.mjs`) builds the local runtime/skill and app
+  before every launch. `apps/desktop/vite.config.ts` serves `renderer/dev.html` on loopback for React Fast Refresh and
+  CSS hot updates, using Desktop's React for shared components too. Only unpackaged apps accept
+  `OA_DESKTOP_RENDERER_URL`, restricted to `http://127.0.0.1:<port>/dev.html`; IPC accepts only that exact main-frame
+  page. Packaged apps always load the built file with its production CSP. The runner watches authored inputs, ignores
+  generated output, serializes rebuilds, and asks Electron to quit over process IPC through the unsaved-work guard.
+  Runtime rebuilds stop the profile's daemon before replacing its carried files; an explicit `daemon.bin` and bundled
+  update policy plus the development profile's version pin keep the run on this checkout. The gitignored `.desktop-dev/` profile and port 4890 are defaults;
+  the launcher owns its profile through a lock and cleans up Vite and its development daemon on exit.
 - **Runtime**: it carries the built `skills/open-artifact` as `resources/runtime` (`apps/desktop/scripts/build-runtime.ts`)
   and registers it with the kit (`runtime: { dir, version, update: 'prompt' }`); the kit starts the daemon with the
   app's executable and `ELECTRON_RUN_AS_NODE=1`, detached, so no Node.js is installed and the daemon outlives the app.

@@ -1,9 +1,36 @@
 # Desktop TypeScript 开发
 
+[English](DEVELOPMENT.md)
+
 桌面应用单独管理依赖和锁文件，不属于根目录的 npm workspace；根目录的类型检查和单元测试不会覆盖它。
 开发需要 Node.js 22.18 或更新版本。
 
-先从仓库根目录构建运行时，再安装和检查桌面应用：
+日常开发直接在仓库根目录运行：
+
+```bash
+npm run desktop
+```
+
+`scripts/dev-desktop.mjs` 会安装缺失的工作区／Desktop 依赖和 Electron 二进制，然后每次都执行根目录构建、
+skill 构建和 Desktop 构建再启动。daemon 固定使用本次源码构建的 runtime，即使已安装其他同版本或更高版本的
+runtime 也不会替换它：开发配置目录的 `runtime.pin` 跟随当前源码版本，本次运行禁用 runtime 下载。
+
+- React 组件使用 Vite + React Fast Refresh 热更新，在支持的情况下保留状态；CSS 原地更新。共享 UI 和 library
+  页面源码也包含在内。Vite 只监听 `127.0.0.1`，从 5173 开始尝试可用端口。
+- 主进程、preload、独立通知／状态页和主进程使用的 library 依赖修改后，重新构建并重启 Electron。daemon、
+  Shell、编辑器、类型文件及其他 runtime 输入修改后，还会重新构建 runtime，停止开发 daemon，复制最新文件再
+  启动；版本号相同的源码修改也会生效。
+- 默认持久化配置目录为 `<仓库>/.desktop-dev/`（已加入 gitignore），daemon 端口为 4890。可用
+  `npm run desktop -- --home /tmp/oa-desktop --port 4891` 覆盖。拒绝使用默认 home 和端口 4800。
+  同一配置目录只能由一个启动器管理。其他应用参数（如 `--open <id>`）会转发给 Electron。
+- 构建失败时保留运行中的应用，下次保存后重试。重启沿用现有的未保存内容退出确认；取消后应用继续运行，
+  保存并再次修改即可重试。关闭 Desktop 或按 Ctrl+C 会停止监听、Vite 和开发 daemon，保留配置与作品。
+
+修改依赖、Vite 配置或启动脚本后，请重新运行命令；依赖有变化时，按需在根目录或 `apps/desktop` 运行 `npm ci`。
+修改 Rust 源码仍需先运行 `node scripts/build-wasm.mjs`，生成的 WASM 会触发监听。作品编辑器与 Shell 采用
+重新构建并重启的方式更新，不使用 React Fast Refresh。
+
+手动构建和运行 Desktop 检查时，先从仓库根目录构建运行时，再安装和检查桌面应用：
 
 ```bash
 npm run build
@@ -21,7 +48,7 @@ npm run check
 - `npm run package:release` 生成 Developer ID 签名、公证的 ZIP / DMG；`npm run test:release` 无需 Apple 凭据即可
   检查发布验证逻辑。见[签名与 GitHub Actions 发布](RELEASING.zh-CN.md)。
 
-`tsconfig.json` 继承仓库的严格类型配置，并开启 `erasableSyntaxOnly`。Node 直接运行 `.ts` 脚本和测试，
+`tsconfig.json` 包含 `vite.config.ts`，继承仓库的严格类型配置，并开启 `erasableSyntaxOnly`。Node 直接运行 `.ts` 脚本和测试，
 源码导入使用 `.ts` / `.tsx`。Esbuild 将主入口生成为 `out/main.mjs`，沙箱 preload 生成为 `out/*.cjs`，
 页面脚本生成为浏览器 `.js`；Electron 只加载这些构建产物。`out/`、`resources/` 和 `dist/` 均为生成目录，
 不参与类型检查。

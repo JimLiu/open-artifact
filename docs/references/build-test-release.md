@@ -59,6 +59,16 @@ E2E tests copy built `artifact-types/` folders into isolated temporary directori
 
 ### Desktop app
 
+From the root, `npm run desktop` (`scripts/dev-desktop.mjs`) installs missing dependencies/Electron, always builds
+the root runtime and skill plus Desktop, then serves the renderer through loopback Vite with React Fast Refresh and
+CSS hot updates. Main/preload changes rebuild and restart Electron; runtime inputs also rebuild, stop the dedicated
+daemon and copy the runtime before restarting, so same-version source changes take effect. Defaults: gitignored
+`.desktop-dev/`, daemon port 4890; override with `--home` / `--port`. A per-profile launcher lock prevents two watchers
+from restarting each other's daemon. Build errors retry on the next edit; restarts respect the unsaved-work guard.
+Quit or Ctrl+C cleans up Vite, build processes and the development daemon. Dependency/config/launcher changes need a
+new launch; Rust changes need the WASM build. Build subprocesses set `NODE_ENV=production` independently of Vite's
+development environment, so the carried Shell/editors use production React. See `apps/desktop/DEVELOPMENT.md` and `.zh-CN.md`.
+
 `apps/desktop/` has its own `package.json` and lock file (Electron, esbuild, React and React DOM pinned); it is not a
 workspace and not part of `npm test` or `npm run check`. `build.ts` bundles the main process (`src/` → `out/main.mjs`,
 `out/preload.cjs`) and the window's page (`renderer/` → `out/renderer/app.js`, with the library page's `PAGE_CSS` as
