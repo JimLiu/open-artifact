@@ -395,6 +395,17 @@ The harness asks its questions (`waitFor`, `evaluateAll`, `load`'s `ready`) in a
 - Share → Export lists "Animated GIF" only on a board with a flowing arrow; the downloaded `<title>.gif` has ten frames of 5/100 s that loop for ever, each one different from the next.
 - Share → Export lists "MP4 video" after the GIF only on a board with a flowing arrow; the downloaded `<title>.mp4` starts with an `ftyp` box, has a `moov` box, one video track and no sound, and lasts about six seconds. In a browser with no video encoder the case is skipped.
 
+**Whiteboard shape libraries** (`whiteboard.test.mjs`, five cases, Chrome only)
+
+- `fixtures/whiteboard/demo.shapes.json` chosen in **Shapes → Library → Add library… → From a file…** lists its 11 shapes as pictures (no SVG markup in the page), and `db/board/shapes.json` names the upload, which reads back as the library.
+- A shape found by tag and placed with a click becomes an unframed `image` (its own `data:image/svg+xml,` drawing) and an empty `text` under it, grouped with it, whose placeholder is the shape's name; an arrow drawn from it to a box attaches to it.
+- After a reload the library is still listed.
+- **Remove from this board** removes the library; the placed shape, its label and the arrow stay.
+- An `.svg` with a `<script>` is refused: the panel names it and why, and no library or element is added.
+- A `.zip` built in the test (two SVG files in folders, plus `__MACOSX/`, `.DS_Store` and a text file) chosen with **From a file…** becomes one library named after the zip with two shapes and no complaint about the other files; a search for a folder name finds its shape.
+- A draw.io library (`.drawio`: an SVG `data` entry, an SVG picture in a compressed `xml` graph, and a draw.io stencil) adds two shapes and reports the stencil as left out, by name and why.
+- **From a link…**, with the page's requests to a made-up `https://` site answered by the test (DevTools `Fetch.requestPaused`, so nothing reaches the network): an `http://` link is refused before any request; a response without `Access-Control-Allow-Origin` shows the could-not-be-read message that points to **From a file…**; a 404 is named; a zip pack is shown for confirmation (site, name, count), **Cancel** stores nothing, and **Add** lists it with the link as its source. No request carries a cookie or a referrer.
+
 **Moving the view with the right button** (`slides.test.mjs` and `whiteboard.test.mjs`, Chrome only)
 
 - Slides: on the shared deck, ctrl + wheel over the slide zooms the stage once the slide has loaded. Before, the stage's wheel listener was set up while the slide was still loading, so it never was.

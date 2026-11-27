@@ -528,6 +528,22 @@ export interface BoardInk {
   at: number;
 }
 
+/** A shape library added to the board: its file is an upload; placed shapes never point at it. */
+export interface BoardShapeLibrary {
+  /** Key in `board/shapes` (the upload's id when added from the page). */
+  id: string;
+  name: string;
+  /** `/_blob/<32 hex>` of the library file. */
+  file: string;
+  /** How many shapes it holds. */
+  count: number;
+  /** When it was added (epoch ms). */
+  at: number;
+  /** Where it comes from (an `https://` link). */
+  source?: string;
+  license?: string;
+}
+
 /**
  * The agent's claim on part of the board: an area, the ids it will change,
  * or both. Everyone sees it until the agent deletes it (or it expires).
@@ -547,6 +563,8 @@ export interface BoardContent {
   elements: BoardElement[];
   timer?: TimerFields;
   inks?: BoardInk[];
+  /** Shape libraries added to the board, oldest first. */
+  shapes?: BoardShapeLibrary[];
   claimed?: ClaimedArea[];
 }
 

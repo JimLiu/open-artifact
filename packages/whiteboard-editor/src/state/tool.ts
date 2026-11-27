@@ -4,7 +4,7 @@
  */
 
 import { create } from 'zustand';
-import type { FillColor, InkColor, NoteColor, ShapeKind } from '@open-artifact/whiteboard-core';
+import type { FillColor, InkColor, LibraryShape, NoteColor, ShapeKind } from '@open-artifact/whiteboard-core';
 import { NEW_NOTE_TILT_RANGE } from '@open-artifact/whiteboard-core';
 import type { ToolName, ToolPick } from '../lib/tools.ts';
 
@@ -41,6 +41,8 @@ export interface ToolState {
   commentMode: boolean;
   /** What the sticker tool places; unset until one is picked. */
   sticker: StickerChoice | undefined;
+  /** What the Library tool places; unset while the Library panel is open with nothing picked. */
+  libraryShape: LibraryShape | undefined;
   /** The tilt of the next note (drawn ahead by the note tool's ghost). */
   noteTilt: number;
   /** Takes the next note's tilt and draws a new one. */
@@ -53,6 +55,8 @@ export interface ToolState {
   setCommentMode(on: boolean): void;
   /** Arms the sticker tool (`undefined`: the picker is open, no sticker yet). */
   armSticker(sticker: StickerChoice | undefined): void;
+  /** Arms the Library tool (`undefined`: the panel is open, no shape yet). */
+  armLibraryShape(shape: LibraryShape | undefined): void;
   /** Back to select after placing something (unless the tool is sticky). */
   placed(): void;
 }
@@ -69,6 +73,7 @@ export const useTool = create<ToolState>()((set, get) => ({
   handOverride: false,
   commentMode: false,
   sticker: undefined,
+  libraryShape: undefined,
   noteTilt: randomNoteTilt(),
   takeNoteTilt() {
     const tilt = get().noteTilt;
@@ -101,6 +106,9 @@ export const useTool = create<ToolState>()((set, get) => ({
   },
   armSticker(sticker) {
     set({ tool: 'sticker', sticker, sticky: true, commentMode: false });
+  },
+  armLibraryShape(shape) {
+    set({ tool: 'library', libraryShape: shape, sticky: false, commentMode: false });
   },
   placed() {
     if (!get().sticky && get().tool !== 'pen') set({ tool: 'select' });

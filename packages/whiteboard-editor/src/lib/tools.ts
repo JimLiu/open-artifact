@@ -8,7 +8,7 @@ import { isApplePlatform } from '@open-artifact/editor-kit';
 import { SHAPE_KIND_LABELS, type ShapeKind } from '@open-artifact/whiteboard-core';
 
 /** Every tool. `shape` carries a kind in {@link ToolPick}. */
-export type ToolName = 'select' | 'hand' | 'text' | 'note' | 'pen' | 'arrow' | 'sticker' | 'container' | 'shape' | 'table';
+export type ToolName = 'select' | 'hand' | 'text' | 'note' | 'pen' | 'arrow' | 'sticker' | 'container' | 'shape' | 'table' | 'library';
 
 /** A tool choice: a tool, plus the shape kind for `shape`. */
 export interface ToolPick {
@@ -75,9 +75,9 @@ export const BASIC_SHAPE_KINDS: readonly ShapeKind[] = ['rounded', 'ellipse'];
 /** The rest of the Shapes tray. */
 export const MORE_SHAPE_KINDS: readonly ShapeKind[] = ['pill', 'diamond', 'rect', 'hexagon', 'parallelogram', 'database', 'queue', 'document', 'cloud', 'person'];
 
-/** Tools grouped under the Shapes button (the section moves there on touch). */
+/** Tools grouped under the Shapes button (the section moves there on touch; the library places shapes from the board's libraries). */
 export function shapesButtonTools(touch: boolean): readonly ToolName[] {
-  return touch ? ['shape', 'table', 'container'] : ['shape', 'table'];
+  return touch ? ['shape', 'table', 'container', 'library'] : ['shape', 'table', 'library'];
 }
 
 /** The pick a shape-tray entry makes (`text` is the text tool). */

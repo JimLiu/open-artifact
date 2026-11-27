@@ -35,6 +35,7 @@ export function formatBoardHistoryPath(path: string): string {
   if (id !== undefined) return `Element ${id}`;
   if (doc === 'board/meta') return 'Board title and order';
   if (doc === 'board/inks') return 'Recent colors';
+  if (doc === 'board/shapes') return 'Shape libraries';
   if (doc === 'board/timer') return 'Timer';
   return doc;
 }

@@ -385,6 +385,39 @@ describe('whiteboard type server', () => {
     assert.equal(((await refused.json()) as { code: string }).code, 'unknown_action');
   });
 
+  it("tells an agent the board's shape libraries by name, and checks a placed shape", async () => {
+    const board = join(dir, 'Libraries');
+    await mkdir(join(board, 'db', 'board'), { recursive: true });
+    await mkdir(join(board, 'db', 'elements'), { recursive: true });
+    await mkdir(join(board, '_blobs'), { recursive: true });
+    await writeFile(join(board, 'db', 'board', 'meta.json'), JSON.stringify({ v: 1, title: 'Libraries', order: ['s1', 'l1'] }));
+    const id = 'ab'.repeat(16);
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><title>Server</title><rect x="4" y="3" width="16" height="18" rx="2" fill="none" stroke="currentColor"/></svg>';
+    await writeFile(
+      join(board, '_blobs', `${id}.json`),
+      JSON.stringify({ format: 'open-artifact-shapes', version: 1, name: 'Infra', shapes: [{ name: 'Server', w: 24, h: 24, svg }, { name: 'Queue', w: 24, h: 24, svg }] }),
+    );
+    const missing = 'cd'.repeat(16);
+    await writeFile(
+      join(board, 'db', 'board', 'shapes.json'),
+      JSON.stringify({ libs: { [id]: { name: 'Infra', file: `/_blob/${id}`, count: 2, at: 1, license: 'CC0' }, [missing]: { name: 'Gone', file: `/_blob/${missing}`, count: 1, at: 2 } } }),
+    );
+    const context = (await (await action('context', {}, board)).json()) as { shapeLibraries?: unknown };
+    assert.deepEqual(context.shapeLibraries, [
+      { name: 'Infra', file: `_blobs/${id}.json`, license: 'CC0', shapes: ['Server', 'Queue'] },
+      { name: 'Gone', file: `_blobs/${missing}.json`, shapes: null },
+    ]);
+    assert.doesNotMatch(JSON.stringify(context), /<svg/);
+    // A placed shape as an agent writes it: a plain picture without "by", and a label under it.
+    await writeFile(join(board, 'db', 'elements', 's1.json'), JSON.stringify({ type: 'image', x: 0, y: 0, w: 80, h: 80, style: 'plain', src: `data:image/svg+xml,${svg}` }));
+    await writeFile(join(board, 'db', 'elements', 'l1.json'), JSON.stringify({ type: 'text', x: -30, y: 86, wrap: 140, textAlign: 'center', size: 'small', text: 'Server' }));
+    const res = (await (await action('check', {}, board)).json()) as { check: { problems: number; findings: { file: string; level: string; message: string }[] } };
+    assert.deepEqual(res.check.findings.filter((finding) => finding.level !== 'info'), []);
+    // A board without libraries says nothing about them.
+    const plain = (await (await action('context', {}, join(dir, 'Closed board'))).json()) as Record<string, unknown>;
+    assert.equal('shapeLibraries' in plain, false);
+  });
+
   it('checks a board', async () => {
     const board = join(dir, 'Check');
     const docs = join(board, 'db');

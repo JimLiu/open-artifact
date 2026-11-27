@@ -16,7 +16,8 @@
 // paragraph), `page.rightClick` (a context menu), `page.hover` (the mouse over a point, nothing pressed),
 // `page.dragMouse` (pressed, moved, let go), `page.type` (keys, to whatever has focus), `page.press` (a named key or a
 // shortcut) and `page.typeIme` (composed text, as pinyin sends it). E2E_HEADFUL=1 runs Chrome with a window, to watch a
-// case; the default is headless.
+// case; the default is headless. `page.onCdp(method, fn)` hands the tab's own DevTools events of one kind to `fn`
+// (for example `Fetch.requestPaused`, to answer a request in the test) until the function it returns is called.
 //
 // A DevTools call Chrome does not answer within a bound (E2E_CALL_TIMEOUT_MS, default 60 s; `launch({callTimeout})`,
 // or per call) fails naming the call, and is a problem on its page (`unanswered: …`), so a test that would hang fails
@@ -671,7 +672,13 @@ export async function launch({ chrome = findChrome(), width = 1440, height = 900
     }
     /** A raw DevTools call on the page's own session (benchmarks: Input, Performance, Memory). */
     const cdp = (method, params = {}, options) => call(method, params, top, undefined, options);
-    const page = { problems, crashedFrames, urls, evaluate, evaluateAll, evaluateFrames, crashed, waitFor, click, clickTimes, rightClick, hover, dragMouse, type, typeIme, press, close, cdp };
+    /** The tab's own events named `method`, each to `fn` (its params), until the returned function is called. */
+    const onCdp = (method, fn) => {
+      const listener = msg => { if (msg.sessionId === top && msg.method === method) fn(msg.params); };
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    };
+    const page = { problems, crashedFrames, urls, evaluate, evaluateAll, evaluateFrames, crashed, waitFor, click, clickTimes, rightClick, hover, dragMouse, type, typeIme, press, close, cdp, onCdp };
     async function close() {
       closedAt ??= Date.now();
       pagesOpen.delete(page);
