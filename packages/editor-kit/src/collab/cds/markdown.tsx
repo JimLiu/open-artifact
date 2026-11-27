@@ -5,11 +5,14 @@
  * stay text. Block mode is a thread's card; flat mode (one run of text: quotes in italics, list items as "• " / "1. ")
  * is a row in the "All comments" panel. Same limits, flanking rules and class strings.
  *
- * Left out: @mentions (local comments carry no <mention:…> tokens, so no "@agent" chip and no reply that starts
- * with one), and the screen-reader text form (it labels the drawer's hidden "go to comment" button, which the local
- * panel does not have).
+ * `mentions`: the `@names` a message names (the agent's, and the people in its `to`) are drawn in the accent colour
+ * wherever they stand in plain runs of text (not in code).
+ *
+ * Left out: the screen-reader text form (it labels the drawer's hidden "go to comment" button, which the local panel
+ * does not have).
  */
 import { Fragment, type ReactNode } from 'react';
+import { mentionPieces } from '../mentions.ts';
 
 export const COMMENT_MARKDOWN = true;
 
@@ -48,13 +51,46 @@ type Block =
 type Parsed = { blocks: Block[]; endsWithNewline: boolean };
 
 /** A comment's text as React children: Markdown when it has any, else the text itself. flat: a panel row. */
-export function commentMarkdown(text: string, { flat = false }: { flat?: boolean } = {}): ReactNode {
+export function commentMarkdown(text: string, { flat = false, mentions = [] }: { flat?: boolean; mentions?: readonly string[] } = {}): ReactNode {
+  if (mentions.length === 0 || !text.includes('@')) return blocksOf(text, flat);
+  // Plain runs read the names while the blocks render; text with no Markdown is one plain run.
+  const outer = marking;
+  marking = mentions;
+  try {
+    const drawn = blocksOf(text, flat);
+    return typeof drawn === 'string' ? marked(drawn, mentions, 'm') : drawn;
+  } finally {
+    marking = outer;
+  }
+}
+
+function blocksOf(text: string, flat: boolean): ReactNode {
   if (!COMMENT_MARKDOWN || text.length > MAX_LENGTH || !DETECT.test(text)) return text;
   const { blocks, endsWithNewline } = parse(text);
   const out = renderBlocks(blocks, flat, 'b', 0);
   const last = blocks[blocks.length - 1];
   if (endsWithNewline && (last?.t === 'p' || last?.t === 'h')) out.push('\n');
   return out;
+}
+
+/** The names {@link commentMarkdown} is drawing as mentions while it renders. */
+let marking: readonly string[] = [];
+
+const MENTION = 'font-medium text-accent';
+
+/** A plain run with its `@names` in spans. */
+function marked(text: string, names: readonly string[], key: string): ReactNode {
+  const pieces = mentionPieces(text, names);
+  if (!pieces.some((piece) => piece.mention)) return text;
+  return pieces.map((piece, i) =>
+    piece.mention ? (
+      <span key={`${key}@${i}`} data-mention="" className={MENTION}>
+        {piece.text}
+      </span>
+    ) : (
+      piece.text
+    ),
+  );
 }
 
 // ---------- blocks ----------
@@ -547,8 +583,8 @@ function renderBlocks(blocks: Block[], flat: boolean, key: string, level: number
 
 function renderInline(nodes: Inline[], key: string): ReactNode[] {
   return nodes.map((node, i) => {
-    if (typeof node === 'string') return node;
     const k = key + ':' + i;
+    if (typeof node === 'string') return marking.length ? <Fragment key={k}>{marked(node, marking, k)}</Fragment> : node;
     switch (node.t) {
       case 'raw':
         return <Fragment key={k}>{node.raw}</Fragment>;

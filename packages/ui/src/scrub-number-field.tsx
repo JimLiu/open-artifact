@@ -5,7 +5,8 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react';
 import { cn } from './cn.ts';
 import { isComposingKey, shortcutLetter } from './keys.ts';
-import { isMinusSign, leadsNumber, limitsKept, refusesMinus, settleNumber, startsWithMinus, type NumberLimit } from './number-limits.ts';
+import { announceFromField, prepareFieldAnnounce } from './field-announce.ts';
+import { isMinusSign, leadsNumber, limitsKept, numberLimitMessage, refusesMinus, settleNumber, startsWithMinus, type NumberLimit } from './number-entry.ts';
 import { clampNumber, evaluateNumberInput, formatNumber, roundTo, snapToStep, stepDecimals, stepStart } from './numbers.ts';
 
 /** Props of {@link ScrubNumberField}. */
@@ -49,7 +50,8 @@ export interface ScrubNumberFieldProps {
   /**
    * Told when the field changed what the user typed: held it at a bound, or
    * (in a field whose minimum is zero or more) dropped a leading minus sign.
-   * Called once per commit or key with every change, in order.
+   * Called once per commit or key with every change, in order, instead of
+   * the field saying it.
    */
   onLimit?: (limits: readonly NumberLimit[]) => void;
 }
@@ -69,8 +71,8 @@ export interface ScrubNumberFieldProps {
  *   commits, Escape reverts. ⌘S / Ctrl+S commits before the page saves.
  * - When `min` is zero or more, a minus sign can't start the number: the
  *   key does nothing there, and typed text that starts with one keeps its
- *   number without it. `onLimit` hears about that and about typed values
- *   held at `min` or `max`.
+ *   number without it. The field says that, and typed values held at
+ *   `min` or `max`, to screen readers, unless `onLimit` takes them over.
  * - `mixed` shows "Mixed" until something is entered.
  */
 export function ScrubNumberField({
@@ -116,7 +118,9 @@ export function ScrubNumberField({
   const fit = (v: number) => roundTo(clampNumber(v, min, max), decimals);
   const bounds = { min, max };
   const tell = (limits: readonly NumberLimit[]) => {
-    if (limits.length > 0) onLimit?.(limits);
+    if (limits.length === 0) return;
+    if (onLimit) return onLimit(limits);
+    if (inputRef.current) announceFromField<HTMLSpanElement>(inputRef.current, numberLimitMessage(limits, { name: aria['aria-label'], unit, format: (v) => formatNumber(v, decimals) }));
   };
 
   const commitText = () => {
@@ -339,7 +343,10 @@ export function ScrubNumberField({
         disabled={disabled}
         value={draft}
         placeholder={mixed ? 'Mixed' : placeholder}
-        onFocus={(event) => event.currentTarget.select()}
+        onFocus={(event) => {
+          event.currentTarget.select();
+          prepareFieldAnnounce<HTMLSpanElement>(event.currentTarget);
+        }}
         onChange={(event) => {
           editing.current = true;
           setDraft(event.target.value);

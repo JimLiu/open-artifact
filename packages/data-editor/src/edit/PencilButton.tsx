@@ -15,6 +15,7 @@ import { canEditPageByHand, hasPageEntry, isOneWriterPage, isReparseStable, pars
 import { useAgentActivity } from '../platform/agent-activity.ts';
 import { useDocument } from '../state/document.ts';
 import { areDraftsFree, useShown } from '../state/shown.ts';
+import { useSharedDraft } from '../drafts/shared-flow.ts';
 import { CLICK_TOOL_GROUP_LABEL, USE_PAGE_LABEL, pencilReason } from './pencil.ts';
 
 const COARSE_POINTER = '(pointer: coarse)';
@@ -53,10 +54,13 @@ export interface PencilState {
 /** The pencil's state and actions, for a toolbar that draws its own buttons. */
 export function usePencil(): PencilState {
   const editing = useEditFlow((state) => state.phase !== 'off');
-  const unsaved = useEditFlow((state) => state.count > 0);
+  const unsaved = useEditFlow((state) => state.count > 0 && !state.joint);
   const dialog = useEditFlow((state) => state.dialog !== null);
   const viewingVersion = useShown((state) => state.version !== null);
-  const draftShown = useShown((state) => state.draft !== null && areDraftsFree(state));
+  const remixShown = useShown((state) => state.draft !== null && areDraftsFree(state));
+  // The shared draft is ready but the published artifact shows: hand edits would go where they can't be seen.
+  const sharedHidden = useSharedDraft((state) => state.on && state.view.ready && !state.view.showing);
+  const draftShown = remixShown || (sharedHidden && !editing);
   const commenting = useShown((state) => state.commenting);
   const agentWorking = useAgentActivity((state) => state.activity === 'working');
   const files = useDocument((state) => state.content.files);

@@ -10,6 +10,7 @@ import { crashes, findChrome, launch } from './lib/browser.mjs';
 import { cli } from './lib/cli.mjs';
 import { browserOff, install, removeTmp, skipFor, tmpDir, typePath } from './lib/target.mjs';
 import { until } from './lib/http.mjs';
+import { checkFoldCard } from './lib/editor.mjs';
 
 const rail = '[data-open-artifact-thumbs] [data-slide-index]';
 const fileNames = ['cover', 'plan', 'end'];
@@ -610,6 +611,76 @@ describe('slides', { skip: skipFor('slides') }, () => {
     assert.equal(JSON.parse(thread.anchor).item, 1, thread.anchor);
   });
 
+  it('writes a comment on the whole deck from All comments, setting aside one begun on a slide until its pin is pressed', { skip: browserSkip }, async () => {
+    const shell = await browser.load(`${publicUrl}#slide-~plan`, { ready: "document.querySelector('[data-comments-button]')", ignore: [/\/favicon\.ico$/] });
+    const doc = `document.querySelector('iframe[name="open-artifact-shell"]').contentDocument`;
+    // What the comment layers (shadow roots, in the deck's frame or over it) hold.
+    const inLayers = (mark, selector) => `[...${doc}.querySelectorAll('[${mark}]'), ...document.querySelectorAll('[${mark}]')].flatMap((l) => [...(l.shadowRoot?.querySelectorAll('${selector}') ?? [])])`;
+    const panel = `${inLayers('data-comments-panel-layer', '[data-comments-panel]')}[0]`;
+    const box = `${panel}?.querySelector('textarea[aria-label="Add a comment"]')`;
+    const parked = `${inLayers('data-comment-layer', '[data-comment-parked]')}[0]`;
+    const fields = inLayers('data-comment-layer', 'textarea');
+    const comment = `${doc}.querySelector('[role="toolbar"][aria-label="Insert"] button[aria-label="Comment"]')`;
+    const read = async (text) => (await (await fetch(new URL('_api/comments', publicUrl))).json()).threads.find((t) => t.messages.some((m) => m.text === text));
+    const text = 'The deck runs long';
+    try {
+      const heading = `${doc}?.querySelector('[data-open-artifact-mode="edit"][data-open-artifact-slide="plan"] h1')`;
+      assert.ok(await shell.waitFor(`${heading} && ${comment}`, 8000), 'the deck did not open with Comment');
+      await shell.evaluate(`${comment}.click()`);
+      assert.ok(await shell.waitFor(`${panel}?.querySelector('[data-comments-compose]') && ${doc}.querySelector('[data-comment-capture]')`, 5000), 'Comment did not open the panel with Add comment');
+      // A comment begun on the heading, with words in it.
+      const point = await shell.evaluate(`(() => {
+        const outer = document.querySelector('iframe[name="open-artifact-shell"]').getBoundingClientRect(), r = (${heading}).getBoundingClientRect();
+        return [outer.left + r.left + r.width / 2, outer.top + r.top + r.height / 2];
+      })()`);
+      await shell.click(...point);
+      assert.ok(await shell.waitFor(`${fields}.length === 1`, 4000), 'no comment field after the click');
+      await shell.evaluate(`${fields}[0].focus()`);
+      await shell.type('Bigger heading');
+      // "Add comment" sets it aside: its pin stays, and the panel's composer opens empty.
+      await shell.evaluate(`${panel}.querySelector('[data-comments-compose]').click()`);
+      assert.ok(await shell.waitFor(`${box} && ${parked} && ${fields}.length === 0`, 5000), 'the draft was not set aside for the panel composer');
+      assert.equal(await shell.evaluate(`${box}.value`), '');
+      assert.equal(await shell.evaluate(`${parked}.getAttribute('aria-label')`), 'Your draft comment');
+      assert.equal(await shell.evaluate(`${inLayers('data-comments-panel-layer', '[data-comments-compose-refused]')}.length`), 0, 'the panel refused');
+      await shell.evaluate(`${box}.focus()`);
+      await shell.type(text);
+      await shell.press('Enter');
+      assert.ok(await until(() => read(text), 10000), 'the comment was not stored');
+      const thread = await read(text);
+      assert.equal(thread.anchor, '{}');
+      assert.equal(thread.label, 'Whole deck');
+
+      // Its row says what it is on; its card opens beside the panel, the only card; it has no pin.
+      const cards = inLayers('data-comments-panel-layer', '[data-comments-whole-card] [data-comment-card]');
+      assert.ok(await shell.waitFor(`${panel}?.querySelector('[data-comment-whole-artifact]')?.textContent.includes('Whole artifact')`, 5000), 'the row does not say Whole artifact');
+      assert.ok(await shell.waitFor(`${cards}.length === 1 && ${cards}[0].textContent.includes('${text}')`, 5000), 'the new thread opened no card');
+      const place = (selector) => shell.evaluate(`(() => { const r = (${selector}).getBoundingClientRect(); return { left: Math.round(r.left), right: Math.round(r.right), top: Math.round(r.top) }; })()`);
+      const [card, side] = [await place(`${cards}[0]`), await place(panel)];
+      assert.ok(card.right <= side.left && Math.abs(card.top - side.top) < 2, `the card is not beside the panel: ${JSON.stringify({ card, side })}`);
+      assert.equal(await shell.evaluate(`${inLayers('data-comment-layer', '[data-comment-pin]')}.filter((p) => p.getAttribute('aria-label')?.includes('Whole deck')).length`), 0, 'the whole-deck thread has a pin');
+      assert.equal(await shell.evaluate(`${inLayers('data-comment-layer', '[data-comment-card]')}.length`), 0, 'a second card opened at a pin');
+
+      // The pin of the comment set aside takes it up again, with its words.
+      await shell.evaluate(`${parked}.click()`);
+      assert.ok(await shell.waitFor(`${fields}.length === 1 && ${fields}[0].value === 'Bigger heading' && !${parked}`, 5000), 'the comment set aside did not come back with its words');
+      assert.equal(await shell.evaluate(`${cards}.length`), 0, 'the whole-deck card stayed open');
+
+      // With the panel closed, the whole-deck card opens at the right edge, still the only one.
+      await shell.evaluate(`${fields}[0].focus()`);
+      await shell.press('Escape');
+      assert.ok(await shell.waitFor(`${fields}.length === 0`, 3000), 'Escape did not drop the draft');
+      await shell.evaluate(`${panel}.querySelector('[data-comment-whole-artifact]').closest('article').click()`);
+      assert.ok(await shell.waitFor(`${cards}.length === 1`, 5000), 'the row opened no card');
+      await shell.evaluate(`${comment}.click()`);
+      assert.ok(await shell.waitFor(`!${panel} && ${cards}.length === 1`, 5000), 'closing the panel lost the card');
+      const edge = await shell.evaluate(`(() => { const r = (${cards}[0]).getBoundingClientRect(), w = (${doc}).defaultView.innerWidth; return w - r.right; })()`);
+      assert.ok(edge >= 0 && edge < 40, `the card is not at the right edge: ${edge}`);
+      assert.equal(await shell.evaluate(`${inLayers('data-comment-layer', '[data-comment-card]')}.length`), 0, 'a second card opened');
+      assert.deepEqual(shell.problems, []);
+    } finally { await shell.close(); }
+  });
+
   it('opens a guest invite in the global frame with the guest’s original role', { skip: browserSkip }, async () => {
     const { createTypeServer } = await import('../packages/type-server/src/index.ts');
     const server = createTypeServer({
@@ -1188,7 +1259,7 @@ describe('slides', { skip: skipFor('slides') }, () => {
         await tab.click(...(await middle(tab, field)));
         await tab.evaluate(`${field}.select()`);
         await tab.type('-');
-        assert.ok(await tab.waitFor(`${announced} === "Opacity can't be negative"`));
+        assert.ok(await tab.waitFor(`${announced} === "Minus sign ignored. Opacity doesn’t take negative numbers."`));
         assert.equal(await tab.evaluate(`${field}.value`), '100');
         await tab.evaluate(`${field}.select()`);
         await tab.type('50');
@@ -1197,7 +1268,7 @@ describe('slides', { skip: skipFor('slides') }, () => {
         await tab.evaluate(`${field}.select()`);
         await tab.type('250');
         await tab.press('Tab');
-        assert.ok(await tab.waitFor(`${announced} === 'Opacity is now at its maximum, 100%' && ${field}.value === '100'`));
+        assert.ok(await tab.waitFor(`${announced} === 'Changed to 100 %. Opacity can’t go higher.' && ${field}.value === '100'`));
         assert.ok(await until(() => shapes() === SHAPES), shapes());
         assert.deepEqual(tab.problems, []);
       } finally {
@@ -1322,6 +1393,25 @@ describe('slides', { skip: skipFor('slides') }, () => {
         assert.ok(await tab.waitFor(`${strip} && Math.abs(${strip}.getBoundingClientRect().left - ${stage}.getBoundingClientRect().left - 8) <= 1`), JSON.stringify(await tab.evaluate(across)));
         assert.deepEqual(tab.problems, []);
       } finally {
+        await forgetView(tab);
+        await tab.close();
+      }
+    });
+
+    it('folds the format strip into More tools in a narrow view: the keyboard opens the card, Escape closes it and keeps the selection', async () => {
+      const tab = await openDeck();
+      try {
+        await tab.cdp('Emulation.setDeviceMetricsOverride', { width: 360, height: 720, deviceScaleFactor: 1, mobile: false });
+        assert.ok(await tab.waitFor('innerWidth === 360'));
+        await tab.click(...(await middle(tab, caption)));
+        assert.ok(await tab.waitFor(`${selectedCount} === 1`));
+        if (await tab.evaluate(`Boolean(document.querySelector('[data-open-artifact-properties]'))`)) await propertiesKey(tab);
+        assert.ok(await tab.waitFor(strip), 'no format strip over the caption');
+        await checkFoldCard(tab, `${strip}?.querySelector('[role=toolbar]')`);
+        assert.equal(await tab.evaluate(selectedCount), 1, 'Escape from the card kept the selection');
+        assert.deepEqual(tab.problems, []);
+      } finally {
+        await tab.cdp('Emulation.clearDeviceMetricsOverride').catch(() => {});
         await forgetView(tab);
         await tab.close();
       }

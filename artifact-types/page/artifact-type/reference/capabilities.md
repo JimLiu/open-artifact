@@ -96,6 +96,8 @@ Messages are not stored; use `db` for anything that must last.
 
 - `emit(topic, data)` (at most 4 KB) and `on(topic, (data, from) => …)`.
 - `presence(patch)`, `peers()`, `onPeers(fn)`: who has the page open, and what they share about themselves.
+- `participants()` (optional): everyone who has the page, open or not, as `[{ id, name, owner? }]`, the owner first.
+  A host that keeps no such list leaves it out, so check `room.participants` before calling it.
 - `connected()`, `onConnection(fn)`: whether this view reaches the others now (true once the page has loaded).
 - `join(name)`: a sub-room, with topics of its own.
 - `sendToAgentSession(data)`, `canSendToAgentSession()`: hand something to the agent's session.

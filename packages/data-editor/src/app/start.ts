@@ -9,6 +9,7 @@ import { create } from 'zustand';
 import { startDataEngine } from '../data/engine.ts';
 import { startDraftFlow } from '../drafts/flow.ts';
 import { startEditFlow } from '../drafts/edit-flow.ts';
+import { startSharedDraft } from '../drafts/shared-flow.ts';
 import { startDashboardExports } from '../export/index.ts';
 import { startVersionHistory } from '../history/store.ts';
 import { startDataPage } from '../platform/boot.ts';
@@ -52,6 +53,7 @@ export async function startDataApp(): Promise<() => void> {
     () => engine.dispose(),
     startDashboardExports(),
     startDraftFlow(),
+    startSharedDraft(),
     startEditFlow(),
     startVersionHistory(),
     startComments(),

@@ -1,6 +1,7 @@
 /**
- * Asks the stage for the layers of the stretch on show while the Tweaks panel is open and the film is paused, keeps
- * the pick through new readings, and asks for the picked line's text styles. A newer question overtakes an older one
+ * Asks the stage for the layers of the stretch on show while the Tweaks panel is open and the film is paused (in full
+ * screen, only for the line the floating text styles are for), keeps the pick through new readings, and asks for the
+ * picked line's text styles. A newer question overtakes an older one
  * (`seq`); playing ends a reading under way (`stop`).
  */
 
@@ -17,6 +18,7 @@ import { useWorking } from '../stores/working.ts';
 import { tellLapsedHides } from './lapsed-hides.ts';
 import { useLayers } from './store.ts';
 import { layerStretch, stretchTakesRetouch, type LayerStretch } from './stretch.ts';
+import { textBarWanted, useTextBar } from './text-bar.ts';
 import { findLayerAgain, holdersOf } from './tree.ts';
 
 /** The Tweaks panel's id: the layers are read only while it is open. */
@@ -30,6 +32,11 @@ export const RETRY_MS = 1000;
 export function layersActive(): boolean {
   const ui = useUi.getState();
   return ui.panel === TWEAKS_PANEL && !ui.fullscreen && useFilm.getState().stage === 'ready' && !usePlayback.getState().playing;
+}
+
+/** The layers are read now: for the Layers section, or in full screen for the line the floating text styles are for. */
+function layersRead(): boolean {
+  return layersActive() || textBarWanted();
 }
 
 /** The stretch the playhead is in now. */
@@ -82,7 +89,7 @@ export function retryLayers(): void {
 
 /** Looks at the stores and asks the stage again when what it should read changed. */
 export function update(now = false): void {
-  if (!layersActive()) {
+  if (!layersRead()) {
     stop();
     asked = null;
     const playing = usePlayback.getState().playing && useFilm.getState().stage === 'ready';
@@ -131,7 +138,7 @@ function received(report: LayersReport): void {
     if (!retried) {
       retried = true;
       retryTimer = setTimeout(() => {
-        if (layersActive()) send(stretch, t);
+        if (layersRead()) send(stretch, t);
       }, RETRY_MS);
     } else useLayers.setState({ state: 'failed' });
     return;
@@ -227,6 +234,11 @@ export function startLayerReader(): () => void {
     }),
     usePlayback.subscribe((state, previous) => {
       if (state.playing !== previous.playing || state.time !== previous.time) update();
+    }),
+    useTextBar.subscribe((state, previous) => {
+      // Letting the bar go, or moving it to another word, lets go of the layer it picked for its line.
+      if (state.rowId === null && previous.rowId !== null && useLayers.getState().pickedId === previous.rowId) pickLayer(null);
+      if (state.id !== previous.id) update();
     }),
   ];
   let unlisten: (() => void) | null = null;

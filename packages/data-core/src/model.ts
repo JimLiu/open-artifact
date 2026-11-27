@@ -1,4 +1,5 @@
 import type {
+  ConnectorShareMark,
   DashboardContent,
   DashboardFile,
   DashboardUpdates,
@@ -358,10 +359,25 @@ export function parseDashboardContent(value: unknown): DashboardContent {
     datasets,
     files: parseDashboardFiles(getOwnProperty(record, 'files')),
     updates: parseDashboardUpdates(getOwnProperty(settings, 'updates')),
+    autoPublish: getOwnProperty(settings, 'autoPublish') !== false,
     look: getOwnProperty(record, 'look'),
   };
+  const shared = parseConnectorShareMarks(getOwnProperty(settings, 'shared'));
+  if (shared !== null) content.shared = shared;
   parsedContents.add(content);
   return content;
+}
+
+/** `dash/settings.shared`, its well-formed marks only; `null` when there are none. */
+export function parseConnectorShareMarks(value: unknown): Readonly<Record<string, ConnectorShareMark>> | null {
+  const record = asRecord(value);
+  const marks: Record<string, ConnectorShareMark> = {};
+  for (const [connector, mark] of Object.entries(record)) {
+    const { id, name, at } = asRecord(mark);
+    if (connector === '' || typeof id !== 'string' || id === '' || typeof at !== 'number' || !Number.isFinite(at)) continue;
+    marks[connector] = { id, name: typeof name === 'string' ? sanitizeSingleLine(name) : '', at };
+  }
+  return Object.keys(marks).length === 0 ? null : Object.freeze(marks);
 }
 
 export function getDatasetQuery(dataset: Dataset): QuerySource | undefined {

@@ -57,6 +57,7 @@ import {
   type FilesResponse,
   type McpCallRequest,
   type McpToolsResponse,
+  type ParticipantsResponse,
   type PeersResponse,
   type PresenceRequest,
   type RoomEmitRequest,
@@ -64,6 +65,10 @@ import {
   type ServerEventName,
   type ServerEvents,
   type SessionResponse,
+  type DataShareRequest,
+  type DataSharedRequest,
+  type DataSharedResponse,
+  type DataSharesResponse,
 } from '@open-artifact/runtime/http-api';
 import { agentPaths, agentStatus, askedAt, ASKING_MAX_MS, clearAsking, forgetPresence, markAsking, normalizeRequest, readEdits, sendToAgent } from './agent.ts';
 import { runCheck } from './project-check.ts';
@@ -83,6 +88,7 @@ import { LanSharing, assertRoleMay, withShim, type ShareChange } from './sharing
 import { indexedUploads, normalizeSystemIndex } from '@open-artifact/design-system-core';
 import { sendArchive } from './archive.ts';
 import { ConnectorsHost } from './connectors.ts';
+import { ConnectorShares, ShareRefusal } from './connector-shares.ts';
 import { McpError } from './mcp-client.ts';
 import { SHEET_API, SHEET_WALKTHROUGH_EVENT, type SheetReadRequest, type SheetSendRequest, type SheetWalkthrough, type WidgetRequest } from '@open-artifact/runtime/sheet-api';
 import { SheetRefusalError } from '@open-artifact/sheets-core';
@@ -244,6 +250,8 @@ export interface TypeServerHosting {
   appOrigin?: string;
   /** Display name of the artifact's owner (the page's `owner` viewer keeps id `'owner'`). */
   ownerName(id: string): string;
+  /** The people artifact `id` is shared with (the owner aside), for a page's `@` list. Without it a page lists the owner alone. */
+  participants?(id: string): Promise<Array<{ id: string; name: string }>>;
   /**
    * Whether an editor may send to the owner's agent from artifact `id`'s page (a comment's send, Ask agent): the
    * owner's setting. Asked synchronously, for every page an agent status goes to. Only an editor is ever asked about;
@@ -660,6 +668,14 @@ export function createTypeServer(options: TypeServerOptions): TypeServer {
   let lastActivity = Date.now();
   let ownConnectors: ConnectorsHost | null = null;
   const connectors = (): ConnectorsHost => options.connectors ?? (ownConnectors ??= new ConnectorsHost({ log }));
+  let ownShares: ConnectorShares | null = null;
+  /** The connectors owners share on their dashboards: kept beside `connectors.json`, run with its connectors. */
+  const connectorShares = (): ConnectorShares =>
+    (ownShares ??= new ConnectorShares({
+      file: join(dirname(connectors().file), 'connector-shares.json'),
+      call: async (server, tool, callArgs, timeoutMs) => ({ ...(await connectors().callTool(server, tool, callArgs, { timeoutMs })) }),
+      log,
+    }));
 
   /* ---------------------------------------------------------------------- */
   /* Events                                                                 */
@@ -1442,6 +1458,44 @@ export function createTypeServer(options: TypeServerOptions): TypeServer {
         return;
       }
 
+      case API.dataShares: {
+        if (artifact.type !== 'data') throw new HttpError(404, 'not_found', 'Only a Data dashboard shares connectors.');
+        if (hosting) throw unsupported('Sharing connector access');
+        const response: DataSharesResponse = { shares: connectorShares().list(artifact.id) };
+        return sendJson(res, 200, response);
+      }
+
+      case API.dataShare: {
+        if (method !== 'POST') throw new HttpError(405, 'invalid', 'POST only.');
+        if (artifact.type !== 'data') throw new HttpError(404, 'not_found', 'Only a Data dashboard shares connectors.');
+        if (hosting) throw unsupported('Sharing connector access');
+        // Only the owner's computer has the connectors, so only the owner shares them.
+        if (who.role !== 'owner') throw new HttpError(403, 'not_granted', 'Only the owner can share connector access.');
+        const body = await readJson<Partial<DataShareRequest>>(req, MAX_MCP_ARGS);
+        if (typeof body.connector !== 'string' || !Array.isArray(body.calls)) throw new HttpError(400, 'invalid', 'connector and calls are required.');
+        try {
+          return sendJson(res, 200, connectorShares().share(artifact.id, body.connector, body.calls, { id: who.id, name: who.name }));
+        } catch (error) {
+          if (error instanceof ShareRefusal) throw new HttpError(400, 'invalid_argument', error.message);
+          throw error;
+        }
+      }
+
+      case API.dataShared: {
+        if (method !== 'POST') throw new HttpError(405, 'invalid', 'POST only.');
+        if (artifact.type !== 'data') throw new HttpError(404, 'not_found', 'Only a Data dashboard shares connectors.');
+        if (hosting) throw unsupported('Shared connector access');
+        const body = await readJson<Partial<DataSharedRequest>>(req, MAX_MCP_ARGS);
+        if (!Array.isArray(body.calls)) throw new HttpError(400, 'invalid', 'calls is required.');
+        const answers = await connectorShares().run(artifact.id, body.calls, {
+          viewerId: who.id,
+          ...(typeof body.reuseMs === 'number' ? { reuseMs: body.reuseMs } : {}),
+          ...(body.refresh === true ? { refresh: true } : {}),
+        });
+        const response: DataSharedResponse = { answers };
+        return sendJson(res, 200, response);
+      }
+
       case API.dataRefresh: {
         if (method !== 'POST') throw new HttpError(405, 'invalid', 'POST only.');
         if (artifact.type !== 'data') throw new HttpError(404, 'not_found', 'Only a Data dashboard has live data to refresh.');
@@ -1504,6 +1558,15 @@ export function createTypeServer(options: TypeServerOptions): TypeServer {
 
       case API.peers: {
         const body: PeersResponse = { peers: peerList(artifact) };
+        return sendJson(res, 200, body);
+      }
+
+      case API.participants: {
+        const owner = ownerOf(artifact.id);
+        const shared = hosting ? ((await hosting.participants?.(artifact.id)) ?? []) : sharing.members(artifact.id);
+        const body: ParticipantsResponse = {
+          participants: [{ id: owner.id, name: owner.name, owner: true }, ...shared.filter((person) => person.id !== owner.id).map(({ id, name }) => ({ id, name }))],
+        };
         return sendJson(res, 200, body);
       }
 

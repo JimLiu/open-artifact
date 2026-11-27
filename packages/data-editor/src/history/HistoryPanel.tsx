@@ -2,7 +2,9 @@
  * The History panel's content: the versions by day (each earlier one with a
  * Restore that shows on hover or focus), and one version's changes with line
  * diffs and Restore. The version open here is shown on the page with today's
- * data.
+ * data. With shared drafts, the open draft heads the list (its own page shows
+ * what publishing it would change) and discarded drafts sit among the
+ * versions, each with Restore.
  */
 
 import { ArrowLeft, Bot, ChevronRight, LoaderCircle } from 'lucide-react';
@@ -12,6 +14,20 @@ import { Button, ConfirmDialog, cn, diffHunks, diffLines, diffStats, groupVersio
 import { useStyleEditor } from '../design/style.ts';
 import { useEditFlow } from '../drafts/edit-flow.ts';
 import { useDraftFlow } from '../drafts/flow.ts';
+import { usePersonName } from '../drafts/people.ts';
+import { discardFromHistory, restoreSharedDraft, seeShared, useSharedDraft } from '../drafts/shared-flow.ts';
+import { useDocument } from '../state/document.ts';
+import { useDrafts } from '../state/drafts.ts';
+import {
+  DISCARD_LABEL,
+  OPEN_DRAFT_LABEL,
+  PUBLISHED_LABEL,
+  PUBLISHING_LABEL,
+  RESTORE_DRAFT_LABEL,
+  discardedDraftTitle,
+  restoreDraftLabel,
+} from '../drafts/words.ts';
+import { isDraftForArtifact, planSharedPublish, type PastDraftHead } from '@open-artifact/data-core';
 import {
   AGENT_VERSION_LABEL,
   BACK_TO_VERSIONS_LABEL,
@@ -24,12 +40,14 @@ import {
   RESTORE_EARLIER_TITLE,
   RESTORE_LABEL,
   RESTORING_LABEL,
+  SOMEONE_LABEL,
   TOO_MUCH_CHANGED_MESSAGE,
   VERSIONS_LABEL,
   VERSION_CHANGE_LABELS,
   VERSION_MARK_LABELS,
   datasetTitleOf,
   describeDataVersion,
+  describeDraftChanges,
   describeVersionDiffChange,
   describeVersionRowLabel,
   formatVersionDay,
@@ -37,6 +55,7 @@ import {
   hadPageBefore,
   historyPathOf,
   isPageFilePath,
+  listDraftChanges,
   listVersionChanges,
   restoreEarlierDescription,
   restoreVersionLabel,
@@ -45,9 +64,10 @@ import {
   versionDayLabel,
   versionDiffSides,
   versionWho,
+  type DraftChange,
   type VersionChange,
 } from './describe.ts';
-import { historyCapability, openVersion, restoreVersion, restoreVersionNow, useVersionHistory } from './store.ts';
+import { historyCapability, openDraftPage, openVersion, restoreVersion, restoreVersionNow, useVersionHistory } from './store.ts';
 
 /** Lines of context around a change. */
 const DIFF_CONTEXT_LINES = 2;
@@ -79,7 +99,98 @@ function useRestoreHeld(): boolean {
   const styling = useStyleEditor((state) => state.pending !== null);
   const saving = useDraftFlow((state) => state.saving);
   const waiting = useDraftFlow((state) => state.view.waiting);
-  return editing || styling || saving || waiting;
+  const publishing = useSharedDraft((state) => state.publishing !== null);
+  return editing || styling || saving || waiting || publishing;
+}
+
+/** How far ahead of this clock a draft's change time may be and still be told (clocks differ), ms. */
+const DRAFT_WHEN_MS = 600_000;
+
+/** Who changed the shared draft: the first editor's name, with the agent when it did too ("" for no one). */
+function useDraftWho(editors: readonly string[] | undefined, agent: boolean | undefined): string {
+  const first = editors?.[0] ?? '';
+  const name = usePersonName(first);
+  if (first === '') return agent === true ? AGENT_VERSION_LABEL : '';
+  const who = name || SOMEONE_LABEL;
+  return agent === true ? `${who} + ${AGENT_VERSION_LABEL}` : who;
+}
+
+/** Opens the shared draft's own page and puts the draft on the page. */
+function openSharedDraft(): void {
+  openDraftPage(true);
+  seeShared(true);
+}
+
+/** The shared draft's row at the top of the list: when it last changed, who changed it, and Discard on hover. */
+function OpenDraftRow({ now }: { now: number }): ReactNode {
+  const head = useSharedDraft((state) => state.view.head);
+  const publishing = useSharedDraft((state) => state.publishing !== null);
+  const looks = useSharedDraft((state) => state.looks);
+  const who = useDraftWho(head?.editors, head?.agent);
+  if (head === null) return null;
+  const changed = head.changed !== undefined && head.changed <= now + DRAFT_WHEN_MS ? formatVersionDay(head.changed, now) : null;
+  const chip = publishing ? PUBLISHING_LABEL : changed !== null ? OPEN_DRAFT_LABEL : null;
+  const label = changed === null ? describeVersionRowLabel(OPEN_DRAFT_LABEL, false, who) : who === '' ? `${changed}, draft` : `${changed}, draft, ${who}`;
+  return (
+    <li className="group/version relative" data-open-draft="">
+      <button
+        type="button"
+        data-row-main=""
+        aria-label={label}
+        onClick={() => (publishing ? undefined : openSharedDraft())}
+        className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-start outline-none hover:bg-chrome-hover focus-visible:ring-2 focus-visible:ring-chrome-focus"
+      >
+        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <span className="flex items-baseline gap-2 text-[13px] text-chrome-fg">
+            {changed ?? OPEN_DRAFT_LABEL}
+            {chip === null ? null : <span className="text-[11px] text-chrome-muted">{chip}</span>}
+          </span>
+          {who === '' ? null : <span className="truncate text-[12px] text-chrome-muted">{who}</span>}
+        </span>
+      </button>
+      {publishing || looks ? null : (
+        <Button size="sm" onClick={discardFromHistory} className={ROW_RESTORE_CLASS}>
+          {DISCARD_LABEL}
+        </Button>
+      )}
+    </li>
+  );
+}
+
+/** A discarded draft's row, with Restore. */
+function DiscardedDraftRow({ draft, now }: { draft: PastDraftHead; now: number }): ReactNode {
+  const name = usePersonName(draft.by) || SOMEONE_LABEL;
+  const restoring = useSharedDraft((state) => state.restoringIds.has(draft.id));
+  const when = formatVersionDay(draft.at, now);
+  return (
+    <li className="relative flex items-center gap-2 px-2 py-1.5" data-draft={draft.id}>
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="text-[13px] text-chrome-fg">{when}</span>
+        <span className="truncate text-[12px] text-chrome-muted" title={name}>
+          {discardedDraftTitle(name)}
+        </span>
+      </span>
+      <Button size="sm" aria-label={restoreDraftLabel(when)} aria-busy={restoring || undefined} disabled={restoring} onClick={() => void restoreSharedDraft(draft)}>
+        {restoring ? <LoaderCircle className="size-3.5 animate-spin" aria-hidden="true" /> : null}
+        {restoring ? RESTORING_LABEL : RESTORE_DRAFT_LABEL}
+      </Button>
+    </li>
+  );
+}
+
+/** The discarded drafts History lists (to people who can edit), newest first. */
+function useDiscardedDrafts(): PastDraftHead[] {
+  const heads = useDrafts((state) => state.heads);
+  const on = useSharedDraft((state) => state.on);
+  return useMemo(
+    () =>
+      on
+        ? heads
+            .filter((head): head is PastDraftHead => head.kind === 'past' && head.what === 'discarded' && isDraftForArtifact(head, null))
+            .sort((left, right) => right.at - left.at)
+        : [],
+    [heads, on],
+  );
 }
 
 /**
@@ -96,6 +207,7 @@ const ROW_RESTORE_CLASS = cn(
 
 /** Brings version `n` back from its row, staying on the list; a toast says how it went. */
 async function restoreFromList(n: number): Promise<void> {
+  seeShared(false);
   const problem = await restoreVersionNow(n);
   toast.add(problem === null ? { title: RESTORED_MESSAGE } : { title: problem, timeout: 10_000 });
 }
@@ -105,6 +217,7 @@ function VersionRow({ version, now, held }: { version: HistoryVersion; now: numb
   const when = formatVersionDay(at, now);
   const who = versionWho(version.author);
   const current = version.current === true;
+  const draftWaits = useSharedDraft((state) => state.view.ready);
   const canRestore = useVersionHistory((state) => state.canRestore);
   const restoring = useVersionHistory((state) => state.restoring);
   const busy = useVersionHistory((state) => state.restoringN === version.n);
@@ -123,13 +236,17 @@ function VersionRow({ version, now, held }: { version: HistoryVersion; now: numb
         data-version={version.n}
         data-row-main=""
         aria-label={describeVersionRowLabel(when, current, who)}
-        onClick={() => openVersion(version.n)}
+        onClick={() => {
+          // The artifact as it is now: the published one, not the draft.
+          if (current) seeShared(false);
+          openVersion(version.n);
+        }}
         className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-start outline-none hover:bg-chrome-hover focus-visible:ring-2 focus-visible:ring-chrome-focus"
       >
         <span className="flex min-w-0 flex-1 flex-col gap-0.5">
           <span className="flex items-baseline gap-2 text-[13px] text-chrome-fg">
             {formatVersionTime(at)}
-            {current ? <span className="text-[11px] text-chrome-muted">{CURRENT_VERSION_LABEL}</span> : null}
+            {current ? <span className="text-[11px] text-chrome-muted">{draftWaits ? PUBLISHED_LABEL : CURRENT_VERSION_LABEL}</span> : null}
           </span>
           <Who version={version} who={who} />
         </span>
@@ -173,8 +290,16 @@ function VersionRow({ version, now, held }: { version: HistoryVersion; now: numb
 function VersionList({ versions, now }: { versions: readonly HistoryVersion[]; now: number }): ReactNode {
   const days = useMemo(() => groupVersions(versions), [versions]);
   const held = useRestoreHeld();
+  const draftOpen = useSharedDraft((state) => state.view.ready);
+  const discarded = useDiscardedDrafts();
   const none = versions.length === 0 || (versions.length === 1 && versions[0]!.current === true);
-  if (none)
+  // Each discarded draft goes before the first version older than it; what is left goes at the end.
+  const left = [...discarded];
+  const discardedSince = (at: number): ReactNode[] => {
+    const older = left.findIndex((draft) => draft.at < at);
+    return left.splice(0, older < 0 ? left.length : older).map((draft) => <DiscardedDraftRow key={draft.id} draft={draft} now={now} />);
+  };
+  if (none && !draftOpen && discarded.length === 0)
     return (
       <div role="note" className="flex flex-col gap-1 p-4">
         <p className="text-[13px] font-medium text-chrome-fg">{NO_VERSIONS_TITLE}</p>
@@ -183,14 +308,23 @@ function VersionList({ versions, now }: { versions: readonly HistoryVersion[]; n
     );
   return (
     <div aria-label={VERSIONS_LABEL} role="list" className="flex flex-col gap-3 p-2">
-      {days.map((day) => (
+      {draftOpen ? (
+        <ul role="listitem" className="flex flex-col">
+          <OpenDraftRow now={now} />
+        </ul>
+      ) : null}
+      {days.map((day, index) => (
         <section key={day.key} role="listitem" aria-label={versionDayLabel(day.date.getTime(), now)} className="flex flex-col">
           <h4 className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-wide text-chrome-muted">{versionDayLabel(day.date.getTime(), now)}</h4>
           <ul className="flex flex-col">
-            {day.runs.flatMap((run) => run.versions.map((version) => <VersionRow key={version.n} version={version} now={now} held={held} />))}
+            {day.runs.flatMap((run) =>
+              run.versions.flatMap((version) => [...discardedSince(Date.parse(version.at)), <VersionRow key={version.n} version={version} now={now} held={held} />]),
+            )}
+            {index === days.length - 1 ? discardedSince(-Infinity) : null}
           </ul>
         </section>
       ))}
+      {days.length === 0 && left.length > 0 ? <ul className="flex flex-col">{discardedSince(-Infinity)}</ul> : null}
     </div>
   );
 }
@@ -359,11 +493,65 @@ function VersionDetail({ version, versions, now }: { version: HistoryVersion; ve
   );
 }
 
+/** What publishing the shared draft would change, against the published documents. */
+function useDraftChanges(): { changes: DraftChange[]; titles: Record<string, string>; pageBefore: boolean } {
+  const docs = useSharedDraft((state) => state.view.docs);
+  const live = useDocument((state) => state.documents);
+  const content = useDocument((state) => state.content);
+  return useMemo(() => {
+    const changes = listDraftChanges(planSharedPublish(docs).write, live);
+    const titles: Record<string, string> = {};
+    for (const change of changes) {
+      const title = datasetTitleOf(change.after) || datasetTitleOf(change.before);
+      if (title !== '') titles[change.path] = title;
+    }
+    return { changes, titles, pageBefore: content.files.length > 0 };
+  }, [docs, live, content]);
+}
+
+/** The shared draft's own page: when it last changed, who changed it, and what publishing it would change. */
+function DraftDetail({ now }: { now: number }): ReactNode {
+  const head = useSharedDraft((state) => state.view.head);
+  const who = useDraftWho(head?.editors, head?.agent);
+  const { changes, titles, pageBefore } = useDraftChanges();
+  const changed = head?.changed !== undefined && head.changed <= now + DRAFT_WHEN_MS ? formatVersionDay(head.changed, now) : null;
+  const title = describeDraftChanges(changes, { titles, pageBefore });
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3">
+        <div className="flex flex-col gap-0.5">
+          <h3 className="flex items-baseline gap-2 text-[13px] font-medium text-chrome-fg">
+            {changed ?? OPEN_DRAFT_LABEL}
+            {changed === null ? null : <span className="text-[11px] font-normal text-chrome-muted">{OPEN_DRAFT_LABEL}</span>}
+          </h3>
+          <p className="text-[13px] text-chrome-muted">{versionByline(who, title)}</p>
+        </div>
+        {changes.map((change) => (
+          <ChangeDiff
+            key={change.path}
+            change={change}
+            name={versionChangeName(change, titles)}
+            diff={{ path: historyPathOf(change.path), n: 0, op: change.kind === 'removed' ? 'deleted' : change.kind, before: change.before, after: change.after }}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /** The panel's content; the toolbar or app owner frames it (title, close) and opens it with `toggleVersionHistory`. */
 export function HistoryPanel(): ReactNode {
   const versions = useVersionHistory((state) => state.versions);
   const failed = useVersionHistory((state) => state.failed);
   const opened = useVersionHistory((state) => state.opened);
+  const draftOpened = useVersionHistory((state) => state.draftOpened);
+  const draftReady = useSharedDraft((state) => state.view.ready);
+  const publishing = useSharedDraft((state) => state.publishing !== null);
+  // The draft was published or discarded: its page goes back to the list.
+  const draftGone = draftOpened && !draftReady && !publishing;
+  useEffect(() => {
+    if (draftGone) openDraftPage(false);
+  }, [draftGone]);
   const now = Date.now();
   if (versions === null)
     return failed ? (
@@ -374,7 +562,8 @@ export function HistoryPanel(): ReactNode {
       </div>
     );
   const version = opened === null ? undefined : versions.find((item) => item.n === opened);
-  if (version === undefined) return <VersionList versions={versions} now={now} />;
+  const draftShown = draftOpened && draftReady;
+  if (version === undefined && !draftShown) return <VersionList versions={versions} now={now} />;
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="px-2 pt-2">
@@ -383,7 +572,7 @@ export function HistoryPanel(): ReactNode {
           {BACK_TO_VERSIONS_LABEL}
         </Button>
       </div>
-      <VersionDetail key={version.n} version={version} versions={versions} now={now} />
+      {version === undefined ? <DraftDetail now={now} /> : <VersionDetail key={version.n} version={version} versions={versions} now={now} />}
     </div>
   );
 }

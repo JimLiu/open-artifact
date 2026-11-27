@@ -458,11 +458,58 @@ export const readDatabricksResult: ResultReader = async (answer, { call, stale, 
   return parseDatabricksResult(current, meta);
 };
 
+/** The typed fields a sheet cell may carry, tried in this order when it has no `value` and no markdown. */
+const SHEET_TYPED_FIELDS = ['number', 'date', 'time', 'dateTime', 'name', 'error'] as const;
+
+/** A sheet cell's plain value: a list joins its parts, a typed cell gives its first typed field. */
+function sheetCellPlain(cell: unknown): unknown {
+  if (Array.isArray(cell)) return cell.map((part) => sheetCellPlain(part)).join(', ');
+  if (!isPlainObject(cell)) return cell;
+  if (Object.hasOwn(cell, 'value')) return sheetCellPlain(cell.value);
+  const field = SHEET_TYPED_FIELDS.find((key) => Object.hasOwn(cell, key));
+  return field === undefined ? cell : cell[field];
+}
+
+/** A sheet cell as the table shows it: text (and markdown) drop the apostrophe that marks it as typed text. */
+function sheetCellShown(cell: unknown): unknown {
+  const text = typeof cell === 'string' ? cell : isPlainObject(cell) && typeof cell.markdown === 'string' ? cell.markdown : null;
+  return text === null ? sheetCellPlain(cell) : text.replace(/^'/, '');
+}
+
+function isBlankSheetRow(cells: readonly unknown[]): boolean {
+  return cells.every((cell) => cell === null || cell === undefined || cell === '');
+}
+
+/**
+ * Reads a sheet's `readCells` answer: `rows` maps row numbers to cell lists, either at the top or under
+ * `value`. The first row with anything in it names the columns; empty rows are skipped.
+ */
+export const readSheetResult: ResultReader = (input) => {
+  if (!isPlainObject(input)) return null;
+  const inner = nestedRecord(input, 'value');
+  const answer = inner !== null && nestedRecord(inner, 'rows') !== null ? inner : input;
+  const byNumber = nestedRecord(answer, 'rows');
+  if (byNumber === null) return null;
+  if (answer.calculationTookTooLong === true) return { ...queryFailure('tookTooLong'), timedOut: true };
+  const lines: unknown[][] = [];
+  for (const line of Object.values(byNumber)) {
+    if (!Array.isArray(line)) return null;
+    const cells = line.map(sheetCellShown);
+    if (!isBlankSheetRow(cells)) lines.push(cells);
+  }
+  const [header = [], ...body] = lines;
+  const columns = normalizeColumnNames(header);
+  const rows = body.map((cells) => Object.fromEntries(columns.map((column, index) => [column, cells[index] ?? null])));
+  const table = normalizeTable({ columns, rows });
+  return table === null ? null : { table };
+};
+
 export const READERS_BY_KIND: Readonly<Record<ReaderKind, ResultReader>> = {
   bigquery: readBigQueryResult,
   governed: readGovernedBigQueryResult,
   snowflake: readSnowflakeResult,
   databricks: readDatabricksResult,
+  sheet: readSheetResult,
 };
 
 /**
@@ -504,5 +551,6 @@ export function createLoaderResultReaders(
     governed: wrap(READERS_BY_KIND.governed),
     snowflake: wrap(READERS_BY_KIND.snowflake),
     databricks: wrap(READERS_BY_KIND.databricks),
+    sheet: wrap(READERS_BY_KIND.sheet),
   });
 }

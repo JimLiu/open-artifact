@@ -60,6 +60,9 @@ export const filmComments = createComments<VideoAnchor>({
   },
   noun: 'animation',
   maxThreads: MAX_THREADS,
+  // The whole animation: no pin, no moment; written from the "All comments" panel.
+  wholeArtifact: () => FILM_ANCHOR,
+  parksDrafts: true,
 });
 
 export const useComments = filmComments.store;
@@ -80,9 +83,15 @@ export const placing = (): boolean => {
   return on && draft === null && active === null;
 };
 
-/** Opens the composer on an anchor (comment mode on). */
+/** Opens the composer on an anchor (comment mode on); on the whole animation, in the list. */
 export function draftComment(anchor: VideoAnchor): void {
   if (!filmComments.canComment()) return;
+  if (anchor.kind === 'film') {
+    // The whole animation is commented on in the list.
+    useComments.getState().setListOpen(true);
+    filmComments.composeWhole();
+    return;
+  }
   setCommentMode(true);
   const state = useComments.getState();
   state.setActive(null);

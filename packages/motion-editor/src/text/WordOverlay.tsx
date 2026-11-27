@@ -5,6 +5,7 @@ import type { TextBox } from '@open-artifact/motion-core';
 import type { StageOverlayContext } from '../player/overlays.ts';
 import { useUi } from '../stores/ui.ts';
 import { useWorking } from '../stores/working.ts';
+import { useTextBar } from '../layers/text-bar.ts';
 import { TWEAKS_PANEL } from '../tweaks/panel-id.ts';
 import { askForWord, useEditableWords, useText } from './text-store.ts';
 import * as words from './words.ts';
@@ -28,7 +29,10 @@ export function WordOverlay({ filmWidth, filmHeight }: StageOverlayContext): Rea
   const panelOpen = useUi((s) => s.panel === TWEAKS_PANEL);
   const agentWorking = useWorking((s) => s.activity === 'working');
   const agent = useWorking((s) => s.name);
-  const active = useText((s) => s.held?.id ?? null);
+  const held = useText((s) => s.held?.id ?? null);
+  // The word the floating text styles are for stays marked while its field is not focused.
+  const styled = useTextBar((s) => s.id);
+  const active = held ?? styled;
   const near = useText((s) => s.near);
   const { words: list, fieldless } = useEditableWords();
   if (!(filmWidth > 0) || !(filmHeight > 0) || (!panelOpen && agentWorking)) return null;

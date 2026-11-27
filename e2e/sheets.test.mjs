@@ -393,6 +393,87 @@ describe(TYPE, { skip: skip() }, () => {
     }
   });
 
+  // 2026-11-27: a comment begun on the cells is set aside on them while one on the whole workbook is written.
+  it('writes a comment on the whole workbook from All comments, setting aside one begun on a cell until its mark is pressed', { ...T, skip: browserOff }, async () => {
+    const browser = await (ctx.browserPromise ??= launch());
+    const overrides = {
+      HOME: tmpDir('sheets-whole-home'),
+      OPEN_ARTIFACT_HOME: tmpDir('sheets-whole-daemon'),
+      OPEN_ARTIFACT_TYPE_SERVER_HOME: tmpDir('sheets-whole-state'),
+      OPEN_ARTIFACT_USER_TYPES: tmpDir('sheets-whole-types'),
+      OPEN_ARTIFACT_BROWSER: 'none',
+    };
+    const previous = Object.fromEntries(Object.keys(overrides).map(key => [key, process.env[key]]));
+    Object.assign(process.env, overrides);
+    let daemon, shell;
+    try {
+      const { startDaemon } = await import('../packages/daemon/src/daemon.ts');
+      const { api, readDaemon } = await import('../packages/daemon/src/client.ts');
+      daemon = await startDaemon({ port: 0, quiet: true, idleMs: 0, builtinTypesDir: path.dirname(typePath(TYPE)) });
+      const state = await readDaemon();
+      const made = await api(state, 'tools.call', {
+        name: 'Artifact', arguments: { action: 'publish', type_url: 'open-artifact://type/sheets', title: 'Whole workbook' },
+        caller: { harness: 'e2e', session: 'sheet-whole', workspace: tmpDir('sheets-whole-workspace') },
+      });
+      assert.equal(made.error, undefined, JSON.stringify(made));
+      const id = made.url.split('/').at(-1);
+      const root = daemon.store.require(id).root;
+      await ctx.cli.json(['update', root, edits(1, [{ kind: 'writeCells', sheet: 'Sheet1', topLeft: 'A1', rows: [['Item', 'Price'], ['Book', 4]] }])]);
+      shell = await browser.load(state.url + '/a/' + id, { ready: "document.querySelector('[role=gridcell]')?.textContent === 'Item'", ignore: [/\/favicon\.ico$/] });
+      const click = async expr => {
+        assert.ok(await shell.waitFor(expr, 5000), expr);
+        const box = await shell.evaluate(`(${expr}).getBoundingClientRect().toJSON()`);
+        await shell.click(box.x + box.width / 2, box.y + box.height / 2);
+      };
+      // In the sheet's frame: where something is, in the tab's pixels.
+      const frameAt = async expr => {
+        const [offsetX, offsetY] = await shell.evaluate("(() => {const r = document.querySelector('iframe').getBoundingClientRect(); return [r.x, r.y]})()");
+        const [x, y] = (await shell.evaluateAll(`(() => { const r = (${expr})?.getBoundingClientRect(); return r && r.width ? [r.x + r.width / 2, r.y + r.height / 2] : null })()`)).find(Array.isArray);
+        return [x + offsetX, y + offsetY];
+      };
+      const layers = selector => `[...document.querySelectorAll('[data-comments-layer]')].flatMap(layer => [...(layer.shadowRoot?.querySelectorAll(${JSON.stringify(selector)}) ?? [])])`;
+      const panel = "document.querySelector('[data-comments-panel-layer]')?.shadowRoot?.querySelector('[data-comments-panel]')";
+      const box = `${panel}?.querySelector('textarea[aria-label="Add a comment"]')`;
+      const parked = "document.querySelector('[data-comment-corner=\"parked-draft\"]')";
+      await click("document.querySelector('[data-comments-button] button[aria-label=Comments]')");
+      assert.ok(await shell.waitFor("document.documentElement.hasAttribute('data-comment-mode')"));
+      await shell.click(...await frameAt("document.querySelector('[role=gridcell]')"));
+      assert.ok(await shell.waitFor(`${layers('textarea')}.length === 1`, 5000), 'no composer on the cell');
+      await shell.type('Check this price');
+      // The panel's composer opens with nothing refused; the words wait on the cell's mark.
+      await click("document.querySelector('button[aria-label=\"Comment options\"]')");
+      await click("[...document.querySelectorAll('[role=menuitem]')].find(el => el.textContent.includes('Show all comments'))");
+      assert.ok(await shell.waitFor(`${panel}?.querySelector('[data-comments-compose]')`, 5000), 'the panel has no Add comment');
+      await shell.evaluateAll(`${panel}?.querySelector('[data-comments-compose]')?.click()`);
+      assert.ok(await shell.waitFor(`${box} && ${box}.value === '' && ${parked} && ${layers('textarea')}.length === 0`, 5000), 'the comment on the cell was not set aside');
+      assert.ok(!(await shell.evaluateAll(`!!${panel}?.querySelector('[data-comments-compose-refused]')`)).includes(true), 'the panel refused');
+      assert.ok((await shell.evaluateAll(`${parked}?.getAttribute('title') ?? null`)).includes('Your draft comment'));
+      // Set aside, it is not yet a comment the sheet's tab counts.
+      const tabs = (await shell.evaluateAll("(tab => tab ? tab.getAttribute('aria-label') ?? '' : null)(document.querySelector('[data-sheet-tab]'))")).filter(label => label !== null);
+      assert.ok(tabs.length > 0 && tabs.every(label => !/comment/i.test(label)), `the tab counts the comment set aside: ${tabs}`);
+      await shell.evaluateAll(`${box}?.focus()`);
+      await shell.type('The workbook adds up');
+      await shell.press('Enter');
+      const saved = async () => (await ctx.cli.json(['comments', root, '--json'])).threads.find(thread => thread.messages.some(m => m.text === 'The workbook adds up'));
+      assert.ok(await until(saved, 10000), 'the comment on the whole workbook was not saved');
+      const thread = JSON.parse(fs.readFileSync(path.join(root, 'comments.json'), 'utf8')).threads.find(t => t.messages.some(m => m.text === 'The workbook adds up'));
+      assert.equal(thread.anchor, '');
+      assert.equal(thread.label, 'Whole artifact');
+      assert.ok(await shell.waitFor(`${panel}?.querySelector('[data-comment-whole-artifact]')?.textContent.includes('Whole artifact')`, 5000), 'the row does not say Whole artifact');
+      // Its mark takes the comment up again, with its words, on the cell.
+      await shell.click(...await frameAt(parked));
+      assert.ok(await shell.waitFor(`${layers('textarea')}[0]?.value === 'Check this price' && !${parked}`, 5000), 'the comment set aside did not come back with its words');
+      assert.deepEqual(shell.problems, []);
+    } finally {
+      await shell?.close();
+      await daemon?.close();
+      for (const [key, original] of Object.entries(previous)) {
+        if (original === undefined) delete process.env[key];
+        else process.env[key] = original;
+      }
+    }
+  });
+
   // The cases below drive the page as a person does. `open` serves the Shell, and the sheet page runs in its frame.
   const SHELL = "document.querySelector('iframe[name=open-artifact-shell]')";
   /** Statements run in the tab, with `shell` the Shell's frame and `document` the sheet page's own. */

@@ -89,30 +89,7 @@ export function EditBar({
   const handoff = useFocusHandoff<HTMLDivElement>(onGone);
   return (
     <Card ref={handoff} role="group" aria-label={words?.group ?? UNSAVED_CHANGES_GROUP} className="p-1">
-      <TipButton
-        square
-        aria-label={UNDO_LABEL}
-        tip={saving ? CANT_UNDO_WHILE_SAVING : edit.canUndo ? UNDO_LABEL : (words?.noUndo ?? NOTHING_TO_UNDO_YET_LABEL)}
-        shortcut={edit.canUndo && !saving ? `${MOD}Z` : undefined}
-        side={tipSide}
-        disabled={saving || !edit.canUndo}
-        onMouseDown={keepEditFocus}
-        onClick={edit.undo}
-      >
-        <Undo2 className="size-4" />
-      </TipButton>
-      <TipButton
-        square
-        aria-label={REDO_LABEL}
-        tip={saving ? CANT_REDO_WHILE_SAVING : edit.canRedo ? REDO_LABEL : (words?.noRedo ?? NOTHING_TO_REDO_LABEL)}
-        shortcut={edit.canRedo && !saving ? `${SHIFT}${MOD}Z` : undefined}
-        side={tipSide}
-        disabled={saving || !edit.canRedo}
-        onMouseDown={keepEditFocus}
-        onClick={edit.redo}
-      >
-        <Redo2 className="size-4" />
-      </TipButton>
+      <EditHistoryButtons edit={edit} words={words} tipSide={tipSide} />
       <ChromeDivider />
       <TipButton
         square
@@ -145,6 +122,58 @@ export function EditBar({
           </Button>
         </span>
       </Tip>
+    </Card>
+  );
+}
+
+/**
+ * The bar's Undo and Redo. `alone`: drawn on their own (where hand edits and the agent's changes go into a shared
+ * draft, there is no Save or Cancel), in a card that stays usable while the rest of the toolbar waits.
+ */
+export function EditHistoryButtons({
+  edit,
+  words,
+  tipSide = 'bottom',
+  alone = false,
+}: {
+  edit: Pick<EditBarModel, 'phase' | 'canUndo' | 'canRedo' | 'undo' | 'redo'>;
+  words?: Pick<EditBarWords, 'noUndo' | 'noRedo'>;
+  tipSide?: ChromeSide;
+  alone?: boolean;
+}): ReactNode {
+  const saving = edit.phase === 'saving';
+  const buttons = (
+    <>
+      <TipButton
+        square
+        aria-label={UNDO_LABEL}
+        tip={saving ? CANT_UNDO_WHILE_SAVING : edit.canUndo ? UNDO_LABEL : (words?.noUndo ?? NOTHING_TO_UNDO_YET_LABEL)}
+        shortcut={edit.canUndo && !saving ? `${MOD}Z` : undefined}
+        side={tipSide}
+        disabled={saving || !edit.canUndo}
+        onMouseDown={keepEditFocus}
+        onClick={edit.undo}
+      >
+        <Undo2 className="size-4" />
+      </TipButton>
+      <TipButton
+        square
+        aria-label={REDO_LABEL}
+        tip={saving ? CANT_REDO_WHILE_SAVING : edit.canRedo ? REDO_LABEL : (words?.noRedo ?? NOTHING_TO_REDO_LABEL)}
+        shortcut={edit.canRedo && !saving ? `${SHIFT}${MOD}Z` : undefined}
+        side={tipSide}
+        disabled={saving || !edit.canRedo}
+        onMouseDown={keepEditFocus}
+        onClick={edit.redo}
+      >
+        <Redo2 className="size-4" />
+      </TipButton>
+    </>
+  );
+  if (!alone) return buttons;
+  return (
+    <Card data-usable="" className="dash-edit-history gap-0.5 p-1">
+      {buttons}
     </Card>
   );
 }
@@ -182,6 +211,17 @@ export function PageEditBar({ tipSide }: { tipSide?: ChromeSide }): ReactNode {
     else redoPageEdit();
     return true;
   });
+  if (flow.joint && flow.phase !== 'off') {
+    if (flow.canUndo || flow.canRedo)
+      return (
+        <EditHistoryButtons
+          alone
+          tipSide={tipSide}
+          edit={{ phase: flow.phase, canUndo: flow.canUndo, canRedo: flow.canRedo, undo: undoPageEdit, redo: redoPageEdit }}
+        />
+      );
+    return flow.status === null ? null : <EditStatus words={flow.status} />;
+  }
   const shown = flow.phase !== 'off' && (flow.count > 0 || flow.phase === 'saving' || flow.canUndo || flow.canRedo);
   if (shown)
     return (

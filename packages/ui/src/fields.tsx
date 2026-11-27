@@ -13,8 +13,10 @@ import { forwardRef, useEffect, useMemo, useRef, useState, type FocusEvent, type
 import { cn } from './cn.ts';
 import { isComposingKey, preventRepeatedActivation, shortcutLetter } from './keys.ts';
 import { POPUP_CLASS } from './menu.tsx';
-import { isMinusSign, limitsKept, readTypedNumber, refusesMinus, settleNumber, settleTypedText, startsWithMinus, type NumberLimit } from './number-limits.ts';
-import { clampNumber, roundTo } from './numbers.ts';
+import { announceFromField, prepareFieldAnnounce } from './field-announce.ts';
+import { holdNumberTextOnWheel } from './number-wheel.ts';
+import { useEscapeHandoffRef } from './escape-to-popup.ts';
+import { isMinusSign, limitsKept, numberLimitMessage, refusesMinus, settleTypedText, startsWithMinus, stepTypedText, type NumberLimit } from './number-entry.ts';
 import { createSelectAnnouncer } from './select-announce.ts';
 import { DRAG_ENDS, endsDrag, largeStepOf, sliderValueText } from './slider-session.ts';
 
@@ -25,12 +27,26 @@ import { DRAG_ENDS, endsDrag, largeStepOf, sliderValueText } from './slider-sess
 export const INPUT_CLASS =
   'h-7 w-full min-w-0 rounded-control border border-line bg-surface-2 px-2 text-[13px] text-fg outline-none placeholder:text-fg-subtle focus:border-accent focus:bg-surface';
 
-/** A plain text input. */
+/**
+ * A plain text input. As `type="number"`, a wheel turned over it while it has the focus steps the value without the
+ * number sliding sideways in the box.
+ */
 export const TextInput = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(function TextInput(
-  { className, ...rest },
+  { className, onWheel, ...rest },
   ref,
 ) {
-  return <input ref={ref} data-ui-field="" className={cn(INPUT_CLASS, className)} {...rest} />;
+  return (
+    <input
+      ref={ref}
+      data-ui-field=""
+      className={cn(INPUT_CLASS, '[&[data-ui-wheeling]::-webkit-inner-spin-button]:hidden', className)}
+      {...rest}
+      onWheel={(event) => {
+        onWheel?.(event);
+        holdNumberTextOnWheel(event.currentTarget);
+      }}
+    />
+  );
 });
 
 /** Props of {@link CommitInput}. */
@@ -114,8 +130,8 @@ export interface NumberInputProps {
   /**
    * Told when the field changed what the user typed: held it at a bound, or
    * (in a field whose minimum is zero or more) dropped a minus sign. Called
-   * once per commit or key with every change, in order; see
-   * {@link numberLimitMessage} for what to announce.
+   * once per commit or key with every change, in order, instead of the field
+   * saying it ({@link numberLimitMessage}).
    */
   onLimit?: (limits: readonly NumberLimit[]) => void;
 }
@@ -161,7 +177,8 @@ function retype(field: HTMLInputElement, text: string): boolean {
  * Typed text past `min` or `max` is held at the bound. When `min` is zero or
  * more the field takes no negative numbers: the minus key does nothing, and
  * typed or pasted text that starts with a minus sign keeps its number without
- * the sign (`-5` is 5, not the minimum). `onLimit` hears about both. ⌘S /
+ * the sign (`-5` is 5, not the minimum). The field says both to screen
+ * readers, unless `onLimit` takes them over. ⌘S /
  * Ctrl+S commits what is typed before the page saves.
  */
 export function NumberInput({ value, onChange, onCommit, label, unit, min, max, step = 1, placeholder, className, onLimit, ...aria }: NumberInputProps) {
@@ -171,7 +188,10 @@ export function NumberInput({ value, onChange, onCommit, label, unit, min, max, 
   const decimal = useMemo(localeDecimal, []);
   const bounds = { min, max };
   const tell = (limits: readonly NumberLimit[]) => {
-    if (limits.length > 0) onLimit?.(limits);
+    if (limits.length === 0) return;
+    if (onLimit) return onLimit(limits);
+    const name = aria['aria-label'] ?? (typeof label === 'string' ? label : undefined);
+    if (input.current) announceFromField<HTMLSpanElement>(input.current, numberLimitMessage(limits, { name, unit }));
   };
   /**
    * The value to pass on for one the field reports. Typed text that starts with a minus sign the field refuses
@@ -212,6 +232,7 @@ export function NumberInput({ value, onChange, onCommit, label, unit, min, max, 
         ref={input}
         placeholder={placeholder}
         aria-label={aria['aria-label']}
+        onFocus={(event) => prepareFieldAnnounce<HTMLSpanElement>(event.currentTarget)}
         onInput={() => {
           typed.current = true;
         }}
@@ -237,16 +258,15 @@ export function NumberInput({ value, onChange, onCommit, label, unit, min, max, 
             tell([{ reason: 'no-minus', limit: min ?? 0 }]);
           } else if ((event.key === 'ArrowUp' || event.key === 'ArrowDown') && !event.ctrlKey && !event.metaKey && typed.current && refusesMinus(bounds) && startsWithMinus(field.value)) {
             // Left to the field, a step from "-5" would start at -5 and stop at the minimum.
-            const from = readTypedNumber(field.value, decimal);
-            if (from === null) return;
-            event.preventDefault();
             const amount = event.altKey ? SMALL_STEP : event.shiftKey ? LARGE_STEP : step;
-            const settled = settleNumber(Math.abs(from), false, bounds);
-            const next = clampNumber(roundTo(Math.abs(from) + (event.key === 'ArrowUp' ? amount : -amount), 10), min, max);
+            const stepped = stepTypedText(field.value, event.key === 'ArrowUp' ? amount : -amount, bounds, decimal);
+            if (stepped === null) return;
+            event.preventDefault();
+            const next = stepped.value;
             if (!retype(field, new Intl.NumberFormat().format(next))) onChange?.(next);
             typed.current = false;
             onCommit(next);
-            tell([{ reason: 'no-minus', limit: min ?? 0 }, ...limitsKept(settled.limits, next)]);
+            tell(stepped.limits);
           }
         }}
         className={cn('h-full w-full min-w-0 bg-transparent text-[13px] text-fg outline-none', label === undefined && 'pl-2')}
@@ -292,6 +312,7 @@ export function useSelectAnnouncement(label: string): { onFocus(event: FocusEven
 export function SelectInput<T extends string>({ value, options, onChange, placeholder = '—', className, ...aria }: SelectInputProps<T>) {
   const current = options.find((option) => option.value === value);
   const announce = useSelectAnnouncement(current ? (typeof current.label === 'string' ? current.label : (current.title ?? current.value)) : '');
+  const handoffRef = useEscapeHandoffRef();
   return (
     <BaseSelect.Root value={value} onValueChange={(next) => next !== null && onChange(next as T)}>
       <BaseSelect.Trigger
@@ -309,7 +330,7 @@ export function SelectInput<T extends string>({ value, options, onChange, placeh
       </BaseSelect.Trigger>
       <BaseSelect.Portal>
         <BaseSelect.Positioner sideOffset={4} className="z-[1000]" alignItemWithTrigger={false}>
-          <BaseSelect.Popup className={cn(POPUP_CLASS, 'max-h-80 overflow-auto')}>
+          <BaseSelect.Popup ref={handoffRef} className={cn(POPUP_CLASS, 'max-h-80 overflow-auto')}>
             <BaseSelect.List>
               {options.map((option) => (
                 <BaseSelect.Item

@@ -12,8 +12,10 @@ import {
   type LoadResult,
   type Parameters,
   type QuerySource,
+  type UnknownRecord,
 } from '@open-artifact/data-core';
 import { maybeDataEngine } from '../data/engine.ts';
+import { isJointEditing, patchSharedSource, sharedSourceContent } from '../drafts/shared-flow.ts';
 import { createMcpToolClient } from '../data/mcp.ts';
 import { loadDataset } from '../data/query-store.ts';
 import { joinSentences } from '../data/util.ts';
@@ -24,6 +26,8 @@ import { maybeSession } from '../services/session.ts';
 import { useDocument } from '../state/document.ts';
 import { LiveWriteError, writeDataset, writeOwnDocument } from '../sync/index.ts';
 import { datasetWithEditedArgs, type QueryArguments } from './args.ts';
+import { isSharedByMe, reshareAfterSave } from './run-as-actions.ts';
+import { waitForDocumentEcho } from './run-as.ts';
 import type { SavedDataFile } from './files.ts';
 import {
   QUERY_HISTORY_RETENTION_MS,
@@ -75,8 +79,14 @@ export function getQuerySaveError(error: unknown): string {
   return said === null ? SAVE_RETRY_MESSAGE : couldNotSaveMessage(said);
 }
 
+/** Source `id` as a change is checked against: the shared draft's copy while changes go into the draft. */
 function storedDataset(id: string): Dataset | undefined {
-  return useDocument.getState().content.datasets.find((dataset) => dataset.id === id);
+  return sharedSourceContent().datasets.find((dataset) => dataset.id === id);
+}
+
+/** Writes a source's change: into the shared draft while there is one, else to the artifact itself. */
+function writeSource(id: string, patch: UnknownRecord): Promise<void> {
+  return isJointEditing() ? patchSharedSource(id, patch) : writeDataset(id, patch);
 }
 
 function canWrite(): boolean {
@@ -156,7 +166,15 @@ export async function saveQueryArguments(dataset: Dataset, base: string, args: Q
   ]);
   readStored();
   const metaPatch = meta === undefined ? {} : getChangedMetadataPatch(meta, stored);
-  await writeDataset(dataset.id, { ...metaPatch, source, updated: editStamp(savedAt) });
+  const before = useDocument.getState().content;
+  const joint = isJointEditing();
+  await writeSource(dataset.id, { ...metaPatch, source, updated: editStamp(savedAt) });
+  // A connector this viewer shares is shared again for the saved call, once the document has it (a change to the
+  // shared draft goes live only when the draft is published).
+  if (!joint && isSharedByMe(call.connector)) {
+    await waitForDocumentEcho(before);
+    await reshareAfterSave(call.connector);
+  }
 }
 
 /** Saves a source's name and description. Resolves with why it couldn't, or `null` once saved. */
@@ -167,7 +185,7 @@ export async function saveSourceMetadata(dataset: Dataset, patch: QueryMetaPatch
     if (!canWrite() || stored === undefined) failure = SOURCE_CHANGED_MESSAGE;
     else {
       const changed = getChangedMetadataPatch(patch, stored);
-      if (Object.keys(changed).length > 0) await writeDataset(dataset.id, { ...changed, updated: editStamp(Date.now()) });
+      if (Object.keys(changed).length > 0) await writeSource(dataset.id, { ...changed, updated: editStamp(Date.now()) });
       failure = null;
     }
   } catch (error) {
@@ -203,7 +221,7 @@ export async function saveDataFile(dataset: Dataset, url: string, file: SavedDat
   }
   const format = inferDataFileFormat(file.name) === file.format ? DELETE_FIELD : file.format;
   try {
-    await writeDataset(dataset.id, {
+    await writeSource(dataset.id, {
       source: { kind: 'file', url: uploaded.ref, name: file.name, format },
       updated: editStamp(Date.now()),
     });

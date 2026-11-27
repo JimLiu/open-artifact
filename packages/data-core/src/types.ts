@@ -165,6 +165,14 @@ export type DashboardUpdates = 'viewed' | '5min' | 'hour' | 'day' | 'week';
 /** `dash/settings.updates` as stored: a preset, or a whole number of minutes that matches none. */
 export type DashboardUpdateSetting = DashboardUpdates | number;
 
+/** `dash/settings.shared[connector]`: who shares that connector's access with everyone, and since when. */
+export interface ConnectorShareMark {
+  id: string;
+  name: string;
+  /** Milliseconds since the epoch. */
+  at: number;
+}
+
 export interface DashboardContent {
   /** `dash/meta.lang`, or `null` when unset or not a language tag. */
   lang: string | null;
@@ -172,6 +180,10 @@ export interface DashboardContent {
   datasets: Dataset[];
   files: DashboardFile[];
   updates: DashboardUpdateSetting;
+  /** `dash/settings.shared`: the connectors whose access someone shares, by connector name. */
+  shared?: Readonly<Record<string, ConnectorShareMark>>;
+  /** `dash/settings.autoPublish`: the shared draft goes live by itself after the agent's turn (on unless stored false). */
+  autoPublish?: boolean;
   /** `dash/look` as stored; read by `parseDashboardLook`. */
   look?: unknown;
 }

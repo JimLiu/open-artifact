@@ -22,6 +22,7 @@ import {
 import { SourceHeaderActions } from './parts.tsx';
 import { QueryEditorDialog } from './QueryEditorDialog.tsx';
 import { RefreshDataRow } from './RefreshDataMenu.tsx';
+import { ConnectorShareNotes, RunAsMenu } from './RunAsMenu.tsx';
 import { SourceDetail } from './SourceDetail.tsx';
 import { useSourceStepFocus } from './focus.ts';
 import { SourceRow } from './SourceRow.tsx';
@@ -63,6 +64,8 @@ interface SourceGroupView {
   name: string;
   label: string;
   rows: Dataset[];
+  /** The connector a connector group loads from. */
+  connector?: string;
 }
 
 function listGroups(datasets: readonly Dataset[]): SourceGroupView[] {
@@ -71,6 +74,7 @@ function listGroups(datasets: readonly Dataset[]): SourceGroupView[] {
   const groups: SourceGroupView[] = connectors.map((group) => ({
     key: `connector:${group.connector}`,
     name: group.connector,
+    connector: group.connector,
     label: describeConnectorGroupLabel(group.connector, group.rows.length),
     rows: group.rows,
   }));
@@ -237,10 +241,12 @@ export function SourcesPanel({ onAskWhy, usage, onClose }: SourcesPanelProps): R
               return (
                 <li key={group.key} data-source-group="" className="relative flex flex-col">
                   <div className="flex min-h-7 items-center gap-2 pr-1 pl-2 whitespace-nowrap">
-                    <span className="min-w-0 truncate py-1 text-xs font-semibold text-fg" title={group.name}>
+                    <span className="min-w-0 flex-1 truncate py-1 text-xs font-semibold text-fg" title={group.name}>
                       {group.name}
                     </span>
+                    {group.connector === undefined ? null : <RunAsMenu connector={group.connector} datasets={datasets} />}
                   </div>
+                  {group.connector === undefined ? null : <ConnectorShareNotes connector={group.connector} datasets={datasets} />}
                   <ul aria-label={group.label} className="m-0 mt-0.5 flex list-none flex-col gap-0.5 p-0">
                     {rows}
                   </ul>

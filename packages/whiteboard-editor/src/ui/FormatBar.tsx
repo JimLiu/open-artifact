@@ -183,6 +183,7 @@ function wholeControls(item: RichTextItem, side: ChromeSide): FormatControls {
       <ToolButton
         key="link"
         label="Link"
+        data-fold-keep=""
         tip={links[0] !== undefined ? `Edit the link to ${visibleLinkHref(links[0])}` : words ? 'Link the whole text' : 'Add a link'}
         tipSide={side}
         icon={<Link2 aria-hidden="true" />}
@@ -448,6 +449,7 @@ export function FormatBar({ side, cell, whole, children }: FormatBarProps): Reac
       <ToolButton
         key="link"
         label="Link"
+        data-fold-keep=""
         tip={linkTip}
         tipSide={side}
         shortcut={chordLabel('K')}

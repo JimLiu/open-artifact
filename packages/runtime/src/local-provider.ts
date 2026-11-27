@@ -63,6 +63,7 @@ import {
   type McpCallRequest,
   type McpCallResponse,
   type McpToolsResponse,
+  type ParticipantsResponse,
   type PeersResponse,
   type PresenceRequest,
   type PublishRequest,
@@ -377,6 +378,7 @@ export function createLocalProvider(options: LocalProviderOptions = {}): Capabil
           });
         },
         peers: async () => (await json<PeersResponse>(API.peers)).peers,
+        participants: async () => (await json<ParticipantsResponse>(API.participants)).participants,
         onPeers: (listener: (peers: Peer[]) => void) => subscribe('peers', listener),
         emit: async (topic, data) => {
           const body: RoomEmitRequest = { client, topic, data };

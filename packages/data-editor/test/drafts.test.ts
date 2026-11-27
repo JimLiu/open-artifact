@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { EMPTY_DASHBOARD_CONTENT, type DashboardContent, type DraftDocs, type DraftHead, type UnknownRecord } from '@open-artifact/data-core';
+import { EMPTY_DASHBOARD_CONTENT, type DashboardContent, type DraftDocs, type RemixDraftHead, type UnknownRecord } from '@open-artifact/data-core';
 import { DRAFT_OVERDUE_MS, contentHash, deriveDraftView, isDraftBarShown, isDraftWorkingShown, nextDraftAt, type DraftFlowInputs } from '../src/drafts/draft-state.ts';
 import { EDIT_OFF, EDIT_ON, changedElsewhere, editUnavailableReason, reduceEditState, type EditState } from '../src/drafts/edit-state.ts';
 import { editKeyOf } from '../src/drafts/keys.ts';
 import { askDescription, cancelChangesTip, discardDescription, draftQuestionTitle, draftWaitingMessage, saveChangesLabel } from '../src/drafts/words.ts';
 import { areDraftsFree, deriveShownContent, isPencilFree, NO_SHOWN_INPUTS, type ShownInputs } from '../src/state/shown.ts';
 
-const head = (id: string, by: string, at: number, extra: Partial<DraftHead> = {}): DraftHead => ({ id, kind: 'remix', form: 'dashboard', by, at, base: '', ...extra });
+const head = (id: string, by: string, at: number, extra: Partial<RemixDraftHead> = {}): RemixDraftHead => ({ id, kind: 'remix', form: 'dashboard', by, at, base: '', ...extra });
 
 const pageDocs = (text = '<main>Draft</main>'): DraftDocs => new Map<string, UnknownRecord>([['files/index.html', { text }]]);
 

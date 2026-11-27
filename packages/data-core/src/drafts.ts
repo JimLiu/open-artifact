@@ -19,20 +19,53 @@ import { fillDatasetParameters, prepareDashboardContent } from './fill.ts';
 /** One of the dashboard type's own formats a draft can be remixed into. */
 export type RemixForm = DashboardForm;
 
-/** A parsed `drafts/<id>` record. */
-export interface DraftHead {
+/** What every draft head has. */
+interface DraftHeadCommon {
   id: string;
-  kind: 'remix';
-  form: string;
   by: string;
   at: number;
   /** The artifact the draft was made for; drafts of other artifacts are not shown. */
   artifact?: string;
-  /** Hash of the dashboard the draft was made from. */
+  /** Hash of the dashboard the draft was made from ("" until known). */
   base: string;
   saved?: true;
 }
-export type DraftHeadRecord = Omit<DraftHead, 'id'> & { v: 1 };
+
+/** A remix: a draft in another format, asked for by one person. */
+export interface RemixDraftHead extends DraftHeadCommon {
+  kind: 'remix';
+  form: string;
+}
+
+/** The shared draft (`drafts/shared`): every editor's and the agent's changes waiting to be published. */
+export interface SharedDraftHead extends DraftHeadCommon {
+  kind: 'edit';
+  /** Who changed it since it was last published or discarded. */
+  editors?: string[];
+  /** The agent changed it too. */
+  agent?: true;
+  /** Held back from publishing by itself (a publish failed, or someone undid a change). */
+  held?: true;
+  /** When it last changed, ms. */
+  changed?: number;
+}
+
+/** A published or discarded shared draft, kept for History (`drafts/<id>`, its documents beside it when discarded). */
+export interface PastDraftHead extends DraftHeadCommon {
+  kind: 'past';
+  what: 'saved' | 'discarded';
+  editors?: string[];
+  agent?: true;
+  /** Someone changed the draft while it was published or discarded, so their changes stayed in it. */
+  left?: true;
+  /** The size of the kept documents (0 when published). */
+  bytes: number;
+}
+
+/** A parsed `drafts/<id>` record. */
+export type DraftHead = RemixDraftHead | SharedDraftHead | PastDraftHead;
+export type DraftHeadRecord = Omit<RemixDraftHead, 'id'> | Omit<SharedDraftHead, 'id' | 'editors'> | Omit<PastDraftHead, 'id' | 'editors'>;
+export type StoredDraftHead = DraftHeadRecord & { v: 1; editors?: Record<string, true> };
 /** A draft's documents by path under `drafts/<id>/`. */
 export type DraftDocs = Map<string, UnknownRecord>;
 /** A draft composed into dashboard parts; `setsParams` when it has its own `dash/params`. */
@@ -114,43 +147,83 @@ export function remixSelection(form: string, id: string): RemixSelection {
   };
 }
 
+/** The most editors a head lists. */
+export const MAX_DRAFT_EDITORS = 50;
+const MAX_EDITOR_ID_CHARACTERS = 128;
+
+/** The ids set to true in a stored `editors` map, sorted and capped. */
+function readEditors(value: unknown): string[] {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return [];
+  const ids = Object.entries(value as UnknownRecord)
+    .filter(([id, on]) => on === true && id !== '' && id.length <= MAX_EDITOR_ID_CHARACTERS)
+    .map(([id]) => id);
+  return [...new Set(ids)].sort(compareDraftKeys).slice(0, MAX_DRAFT_EDITORS);
+}
+
 /** A `drafts/<id>` record, or `null` when the id or any required field is not valid. */
 export function parseDraftHead(id: string, value: unknown): DraftHead | null {
   if (!DRAFT_ID_PATTERN.test(id) || typeof value !== 'object' || value === null) return null;
-  const { kind, form, by, at, artifact, base, saved } = value as UnknownRecord;
-  const known = findDashboardFormKey(form);
-  if (
-    kind !== 'remix' ||
-    known === undefined ||
-    typeof by !== 'string' ||
-    by === '' ||
-    typeof at !== 'number' ||
-    !Number.isFinite(at) ||
-    at <= 0
-  )
-    return null;
-  return {
+  const record = value as UnknownRecord;
+  const { kind, by, at, artifact, base, saved } = record;
+  if (typeof by !== 'string' || by === '' || typeof at !== 'number' || !Number.isFinite(at) || at <= 0) return null;
+  const common: DraftHeadCommon = {
     id,
-    kind,
-    form: known,
     by,
     at,
     ...(typeof artifact === 'string' && artifact !== '' ? { artifact } : {}),
     base: draftText(base),
     ...(saved === true ? { saved } : {}),
   };
+  if (kind === 'remix') {
+    const form = findDashboardFormKey(record.form);
+    return form === undefined ? null : { ...common, kind, form };
+  }
+  if (kind !== 'edit' && kind !== 'past') return null;
+  const editors = readEditors(record.editors);
+  const people = { ...(editors.length > 0 ? { editors } : {}), ...(record.agent === true ? { agent: true as const } : {}) };
+  if (kind === 'edit') {
+    const { held, changed } = record;
+    return {
+      ...common,
+      ...people,
+      kind,
+      ...(held === true ? { held } : {}),
+      ...(typeof changed === 'number' && Number.isFinite(changed) && changed > 0 ? { changed } : {}),
+    };
+  }
+  const { what, left, bytes } = record;
+  if (what !== 'saved' && what !== 'discarded') return null;
+  return {
+    ...common,
+    ...people,
+    kind,
+    what,
+    ...(left === true ? { left } : {}),
+    bytes: typeof bytes === 'number' && Number.isFinite(bytes) && bytes > 0 ? bytes : 0,
+  };
 }
 
-export function toDraftHeadRecord({ id: _id, ...rest }: DraftHead): DraftHeadRecord {
-  return { v: 1, ...rest };
+/** The record stored for a head; editors as a map, so each one can be set by itself. */
+export function toDraftHeadRecord(head: DraftHead): StoredDraftHead {
+  const { id: _id, ...rest } = head;
+  if (rest.kind === 'remix') return { v: 1, ...rest };
+  const { editors, ...others } = rest;
+  return { v: 1, ...others, ...(editors === undefined ? {} : { editors: Object.fromEntries(editors.map((editor) => [editor, true as const])) }) };
 }
 
-/** The open draft to show: the viewer's newest, else anyone's newest. */
+/** The open draft to show: the viewer's newest remix, else the shared draft, else anyone's newest. */
 export function pickDraftHead(heads: readonly DraftHead[], viewer: string): DraftHead | null {
   const open = heads
-    .filter((head) => head.saved !== true)
+    .filter((head) => head.saved !== true && head.kind !== 'past')
     .sort((left, right) => right.at - left.at || compareDraftKeys(right.id, left.id));
-  return open.find((head) => head.by === viewer) ?? open[0] ?? null;
+  return (
+    open.find((head) => head.kind === 'remix' && head.by === viewer) ?? open.find((head) => head.kind === 'edit') ?? open[0] ?? null
+  );
+}
+
+/** The remix heads among `heads`. */
+export function remixHeads(heads: readonly DraftHead[]): RemixDraftHead[] {
+  return heads.filter((head): head is RemixDraftHead => head.kind === 'remix');
 }
 
 export function isDraftForArtifact(head: DraftHead, artifact: string | null | undefined): boolean {
@@ -182,6 +255,11 @@ function fnv1a(text: string, seed: number): string {
   return (value >>> 0).toString(16).padStart(8, '0');
 }
 
+/** Two FNV-1a hashes of `text`, sixteen hex digits. */
+export function draftTextHash(text: string): string {
+  return fnv1a(text, 2166136261) + fnv1a(text, 19088743);
+}
+
 /** Two FNV-1a hashes of the dashboard's filters, sources and page files: what a draft was made from. */
 export function dashboardContentHash(content: DashboardContent): string {
   const sources = [...content.datasets]
@@ -192,7 +270,7 @@ export function dashboardContentHash(content: DashboardContent): string {
     sources,
     files: content.files.map((file) => [file.name, file.text]),
   });
-  return fnv1a(text, 2166136261) + fnv1a(text, 19088743);
+  return draftTextHash(text);
 }
 
 export function composeDraft(docs: DraftDocs): DraftComposition {

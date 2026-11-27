@@ -118,9 +118,12 @@ export function draftWaitingMessage(name: string): string {
 
 export type DraftQuestion = 'save' | 'discard';
 
-/** The save / discard dialog's title; `whose` is null for the viewer's own draft, "" when the owner's name is unknown. */
+/**
+ * The save / discard dialog's title; `whose` is null for the viewer's own draft (the shared draft asks before it is
+ * published), "" when the owner's name is unknown.
+ */
 export function draftQuestionTitle(what: DraftQuestion, whose: string | null): string {
-  if (what === 'save') return whose ? `Save ${whose}’s draft?` : 'Save someone else’s draft?';
+  if (what === 'save') return whose === null ? 'Publish this draft?' : whose ? `Save ${whose}’s draft?` : 'Save someone else’s draft?';
   if (whose === null) return 'Discard this draft?';
   return whose === '' ? 'Discard someone else’s draft?' : `Discard ${whose}’s draft?`;
 }
@@ -170,3 +173,99 @@ export function describeUneditablePage(misparsed: boolean): { label: string; chi
       ` See ${ONE_WRITER_REFERENCE_PATH}.`,
   };
 }
+
+/** The shared draft: publishing, discarding, seeing it and restoring it. */
+export const PUBLISH_LABEL = 'Publish';
+export const PUBLISHED_LABEL = 'Published';
+export const PUBLISHING_LABEL = 'Publishing…';
+export const SEE_PUBLISHED_LABEL = 'See published';
+export const SEE_DRAFT_LABEL = 'See draft';
+export const SEE_HISTORY_LABEL = 'See history';
+export const AUTO_PUBLISH_LABEL = 'Auto-publish';
+export const DISCARD_DRAFT_LABEL = 'Discard draft';
+export const REVERT_LABEL = 'Revert';
+export const VERSION_OPTIONS_LABEL = 'Version options';
+export const DRAFT_OPTIONS_LABEL = 'Draft options';
+export const DRAFT_SEEN_BY_ALL_LABEL = 'Everyone with access can see this draft';
+export const REVERT_TITLE = 'Revert to the previous version?';
+export const AUTO_PUBLISH_TITLE = 'Turn on auto-publish?';
+export const AUTO_PUBLISH_DESCRIPTION = 'Unpublished changes go live now. After that, edits go live automatically.';
+export const TURN_ON_LABEL = 'Turn on';
+export const AUTO_PUBLISH_FAILED_MESSAGE = 'Couldn’t change auto-publish.';
+export const YOU_LABEL = 'you';
+export const AGENT_LABEL = 'the agent';
+export const SOMEONE_ELSE_LABEL = 'someone else';
+export const SOMEONE_LABEL = 'Someone';
+
+export const SHARED_SHOWN_MESSAGE = 'Showing the draft.';
+export const SHARED_HIDDEN_MESSAGE = 'Showing the published artifact.';
+export const SHARED_READY_MESSAGE = 'The draft is ready to publish or discard.';
+export const SHARED_BEHIND_MESSAGE =
+  'This artifact changed after the draft was started. Look the draft over before you publish, since it may undo that change.';
+export const SHARED_READ_ONLY_MESSAGE = 'You can’t edit this artifact right now, so the draft can’t be published.';
+export const SHARED_UNREADABLE_MESSAGE = 'The draft couldn’t be read, so nothing was published. Try again.';
+export const SHARED_CHANGED_MESSAGE = 'The draft changed since it was shown, so nothing was published. Look it over and publish again.';
+export const SHARED_GONE_MESSAGE = 'This draft was already published or discarded.';
+export const SHARED_PARTLY_PUBLISHED_MESSAGE = 'Publishing stopped partway, so the artifact may be partly changed. Publish again to finish.';
+export const SHARED_AGENT_WORKING_MESSAGE = 'The agent is working. You can publish when it’s done.';
+export const SHARED_OTHERS_HOLD_MESSAGE =
+  'The draft also has someone else’s changes, so it wasn’t published automatically. You can still publish it.';
+export const SHARED_LEFT_MESSAGE = 'Someone changed the draft in the meantime. Their changes are still in it.';
+export const STEP_MOVED_MESSAGE = 'Someone has changed the draft since, so it was left as it is.';
+export const STEP_FAILED_MESSAGE = 'Couldn’t change the draft. Try again.';
+export const CHANGE_UNDONE_LABEL = 'Change undone';
+export const CHANGE_REDONE_LABEL = 'Change redone';
+export const DRAFT_DISCARDED_TOAST = 'Draft discarded.';
+export const DRAFT_RESTORED_MESSAGE = 'Draft restored.';
+export const DRAFT_RESTORE_FAILED_MESSAGE = 'Couldn’t restore the draft. Try again from History.';
+export const DRAFT_RESTORE_GONE_MESSAGE = 'This draft was already restored, or is too old to restore.';
+export const REPLACE_NEWER_TITLE = 'Replace newer changes in the draft?';
+export const REPLACE_NEWER_DESCRIPTION = 'The draft has changes to the same parts. Restoring replaces them, and they can’t be brought back.';
+export const KEEP_NEWER_LABEL = 'Keep newer changes';
+export const RESTORE_DRAFT_LABEL = 'Restore';
+export const UNDO_TOAST_LABEL = 'Undo';
+export const REVERTED_LABEL = 'Restored.';
+export const REVERT_MOVED_MESSAGE = 'This artifact just changed, so nothing was reverted. Try again.';
+export const OPEN_DRAFT_LABEL = 'Draft';
+export const PAGE_CHANGED_ELSEWHERE_MESSAGE = 'Someone else changed this page, so your last change wasn’t kept.';
+
+/** "{when} by {name}" for the version menu's heading. */
+export function versionMadeBy(when: string, name: string): string {
+  return name === '' ? when : `${when} by ${name}`;
+}
+
+/** What the question before reverting says under its title. */
+export function revertDescription(version: string): string {
+  return `${version}. Everyone will see it.`;
+}
+
+/** The toast when someone else settles the shared draft. */
+export function sharedSettledMessage(what: 'saved' | 'discarded', left: boolean, name: string): string {
+  if (what === 'saved') return `${name} published the draft.`;
+  return left ? `${name} discarded the draft. Some changes are still in it.` : `${name} discarded the draft.`;
+}
+
+/** What the publish / discard question says; `names` is null without others' changes, "" when their names are unknown. */
+export function sharedQuestionDescription(what: DraftQuestion, names: string | null): string {
+  if (what === 'save') {
+    return names ? `It holds changes by ${names}. Everyone with access will see them.` : 'It holds other people’s changes. Everyone with access will see them.';
+  }
+  if (names === null) return 'The artifact stays as it is. The draft can be restored from History.';
+  return names === ''
+    ? 'It holds other people’s changes. The artifact stays as it is, and the draft can be restored from History.'
+    : `It holds changes by ${names}. The artifact stays as it is, and the draft can be restored from History.`;
+}
+
+/** A discarded draft's row in History. */
+export function discardedDraftTitle(name: string): string {
+  return `${name} discarded a draft`;
+}
+
+/** The spoken name of a discarded draft's Restore button. */
+export function restoreDraftLabel(when: string): string {
+  return `Restore the draft from ${when}`;
+}
+
+/** Why the remix formats wait. */
+export const REMIX_SHARED_HELD_MESSAGE = 'Publish or discard the draft to pick a format.';
+export const REMIX_STYLE_HELD_MESSAGE = 'Save or cancel your style changes to pick a format or change the design system.';

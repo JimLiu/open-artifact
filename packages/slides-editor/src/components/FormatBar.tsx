@@ -42,6 +42,7 @@ import {
   Link2,
   List,
   ListOrdered,
+  PanelRight,
   Underline,
   Unlink,
 } from 'lucide-react';
@@ -65,7 +66,7 @@ import { updateTable } from './properties/ContentSections.tsx';
 import { useTextStyleMenu } from './properties/shared.tsx';
 import { CHROME_CARD, CHROME_INSET } from './StageChrome.tsx';
 import { isApplePlatform } from '@open-artifact/editor-kit';
-import { ALT, Card, ChromeButton, ChromeDivider, ChromeMenu, ChromeMenuItem, ChromeMenuSeparator, MOD, Tip } from '@open-artifact/editor-kit/react';
+import { ALT, ChromeButton, ChromeMenu, ChromeMenuItem, ChromeMenuSeparator, FoldDivider, FoldGroup, FoldToolbar, MOD, Tip, useFolded, type FoldBand } from '@open-artifact/editor-kit/react';
 
 /** Height of the strip, px. */
 const STRIP_HEIGHT = 40;
@@ -289,6 +290,15 @@ function FormatStrip(): ReactNode {
   useLayoutEffect(() => {
     if (strip.current) setWidth(strip.current.offsetWidth);
   });
+  // The strip also changes width on its own, when it folds into "More tools" or unfolds: it is placed again then.
+  const shown = visible && anchor !== null && Boolean(slide);
+  useLayoutEffect(() => {
+    const node = strip.current;
+    if (!shown || !node) return;
+    const observer = new ResizeObserver(() => setWidth(node.offsetWidth));
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [shown]);
   const spotKey = `${paths.map((p) => p.join('.')).join(',')}|${textEdit?.cell?.join('.') ?? ''}`;
   const middle = useStripMiddle(strip, spotKey, anchor, Boolean(textEdit && !textEdit.cell) || scaleOn);
   // While scaling, the strip stays where it appeared: the preview and the grips move under it.
@@ -314,6 +324,7 @@ function FormatStrip(): ReactNode {
     caret: caretBox,
   });
   const top = scaleOn ? (heldTop.current ??= placed.top) : placed.top;
+  const fold: StripFold = { foldKey: spotKey, placed: placed.placed, band: { top: band.top, bottom: band.bottom }, limit: band.right - band.left - 16 };
 
   return (
     <div
@@ -326,16 +337,24 @@ function FormatStrip(): ReactNode {
       {scaleOn ? (
         <ScaleStrip />
       ) : nodes.length === 1 && nodes[0]!.kind === 'table' && !textEdit ? (
-        <TableStrip table={nodes[0] as TableNode} path={paths[0]!} />
+        <TableStrip table={nodes[0] as TableNode} path={paths[0]!} fold={fold} />
       ) : (
-        <Strip nodes={nodes} />
+        <Strip nodes={nodes} fold={fold} />
       )}
     </div>
   );
 }
 
+/** Where a strip sits, for its "More tools" card: the selection it acts on, its side, the room the card may use and the strip's widest. */
+interface StripFold {
+  foldKey: string;
+  placed: 'above' | 'below';
+  band: FoldBand;
+  limit: number;
+}
+
 /** The controls. */
-function Strip({ nodes }: { nodes: SlideNode[] }): ReactNode {
+function Strip({ nodes, fold }: { nodes: SlideNode[]; fold: StripFold }): ReactNode {
   useSelectionTick();
   const editing = useView((s) => s.textEdit !== null);
   const single = nodes.length === 1 ? nodes[0]! : null;
@@ -359,9 +378,10 @@ function Strip({ nodes }: { nodes: SlideNode[] }): ReactNode {
   };
 
   return (
-    <Card role="toolbar" aria-label="Text format" className="h-10 min-w-0 gap-0.5 overflow-x-auto px-1 [scrollbar-width:none]" onMouseDown={keepTextFocus}>
+    <FoldToolbar aria-label="Text format" className="min-w-0" rowClassName="h-10 gap-0.5 px-1" fold {...fold} onMouseDown={keepTextFocus}>
       {textNode ? (
         <>
+          <FoldGroup>
           <ChromeMenu
             tip={{ label: 'Text style' }}
             trigger={
@@ -384,9 +404,11 @@ function Strip({ nodes }: { nodes: SlideNode[] }): ReactNode {
               </ChromeMenuItem>
             ))}
           </ChromeMenu>
-          <ChromeDivider />
+          </FoldGroup>
+          <FoldDivider />
         </>
       ) : null}
+      <FoldGroup>
       <TextColor value={first.style.color ?? null} />
       <Tip label="Bold" shortcut={`${MOD}B`}>
         <ChromeButton square aria-label="Bold" pressed={markOn('b')} onClick={() => mark('b')}>
@@ -404,7 +426,9 @@ function Strip({ nodes }: { nodes: SlideNode[] }): ReactNode {
         </ChromeButton>
       </Tip>
       <LinkButton node={single} />
-      <ChromeDivider />
+      </FoldGroup>
+      <FoldDivider />
+      <FoldGroup>
       <ChromeMenu
         tip={{ label: 'Alignment' }}
         trigger={
@@ -450,18 +474,22 @@ function Strip({ nodes }: { nodes: SlideNode[] }): ReactNode {
           </ChromeMenuItem>
         </ChromeMenu>
       ) : null}
-      <ChromeDivider />
-      <PropertiesButton />
-    </Card>
+      </FoldGroup>
+      <FoldDivider />
+      <FoldGroup tail>
+        <PropertiesButton />
+      </FoldGroup>
+    </FoldToolbar>
   );
 }
 
 /** The strip shows while the properties panel is closed. */
 function PropertiesButton(): ReactNode {
+  const folded = useFolded();
   return (
     <Tip label="Open the Properties panel" shortcut={`${MOD}\\`}>
-      <ChromeButton square aria-label="Properties" onClick={() => useView.getState().toggle('showProperties', true)}>
-        <Ellipsis {...ICON} />
+      <ChromeButton square aria-label="Properties" data-fold-more="" onClick={() => useView.getState().toggle('showProperties', true)}>
+        {folded ? <PanelRight {...ICON} /> : <Ellipsis {...ICON} />}
       </ChromeButton>
     </Tip>
   );
@@ -486,11 +514,12 @@ function ColumnsIcon(): ReactNode {
 }
 
 /** A selected table (not a cell being typed into): its rows and columns, then the actions. */
-function TableStrip({ table, path }: { table: TableNode; path: NodePath }): ReactNode {
+function TableStrip({ table, path, fold }: { table: TableNode; path: NodePath; fold: StripFold }): ReactNode {
   const rows = table.rows.length;
   const cols = tableColumns(table);
   return (
-    <Card role="toolbar" aria-label="Table" className="h-10 min-w-0 gap-1 overflow-x-auto px-1 [scrollbar-width:none]">
+    <FoldToolbar aria-label="Table" className="min-w-0" rowClassName="h-10 gap-1 px-1" fold {...fold}>
+      <FoldGroup className="gap-1">
       <NumberInput
         aria-label="Rows"
         title="Rows. Fewer rows drop the bottom rows’ text (undoable)"
@@ -511,9 +540,12 @@ function TableStrip({ table, path }: { table: TableNode; path: NodePath }): Reac
         className="w-[76px] shrink-0"
         onCommit={(v) => v && v !== cols && updateTable(path, 'Table columns', (t) => resizeTable(t, t.rows.length, v))}
       />
-      <ChromeDivider />
-      <PropertiesButton />
-    </Card>
+      </FoldGroup>
+      <FoldDivider />
+      <FoldGroup tail>
+        <PropertiesButton />
+      </FoldGroup>
+    </FoldToolbar>
   );
 }
 
@@ -678,7 +710,7 @@ function LinkButton({ node }: { node: SlideNode | null }): ReactNode {
         if (!next) refocusEditor();
       }}
       trigger={
-        <ChromeButton square aria-label="Link" title={`Link (${MOD}K)`} pressed={Boolean(current)}>
+        <ChromeButton square aria-label="Link" title={`Link (${MOD}K)`} pressed={Boolean(current)} data-fold-keep="">
           <Link2 {...ICON} />
         </ChromeButton>
       }

@@ -42,6 +42,7 @@ import {
 import { CommitInput, Segmented } from './fields.tsx';
 import { preventRepeatedActivation } from './keys.ts';
 import { POPUP_CLASS } from './menu.tsx';
+import { useEscapeHandoffRef } from './escape-to-popup.ts';
 
 /** A checkerboard, under translucent colors. */
 export const CHECKERBOARD = 'repeating-conic-gradient(#d4d4d4 0% 25%, #ffffff 0% 50%) 0 0 / 8px 8px';
@@ -780,12 +781,13 @@ export function ColorPicker({
         {alphaText ? <span className="shrink-0 text-[11px] tabular-nums text-fg-subtle">{alphaText}</span> : null}
       </button>
     );
+  const handoffRef = useEscapeHandoffRef();
   return (
     <BasePopover.Root open={open} onOpenChange={onOpenChange ? (next) => onOpenChange(next) : undefined}>
       <BasePopover.Trigger render={element} disabled={disabled} onKeyDown={preventRepeatedActivation} />
       <BasePopover.Portal>
         <BasePopover.Positioner side={side} align={align} sideOffset={6} collisionPadding={8} className="z-[1000]">
-          <BasePopover.Popup aria-label={`${label} color`} className={cn(POPUP_CLASS, 'p-3')}>
+          <BasePopover.Popup ref={handoffRef} aria-label={`${label} color`} className={cn(POPUP_CLASS, 'p-3')}>
             <ColorPickerPanel {...panel} value={mixed ? null : value} />
           </BasePopover.Popup>
         </BasePopover.Positioner>

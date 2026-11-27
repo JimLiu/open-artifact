@@ -144,7 +144,7 @@ export function tabLink(id: string): string {
 export async function copyTabLink(id: string): Promise<void> {
   try {
     await navigator.clipboard.writeText(tabLink(id));
-    toast.add({ title: 'Link copied' });
+    toast.add({ title: 'Link copied', type: 'success' });
   } catch {
     toast.add({ title: 'Couldn’t copy the link', description: tabLink(id), type: 'error' });
   }

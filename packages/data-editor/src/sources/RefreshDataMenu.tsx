@@ -4,8 +4,8 @@ import { Button, Dialog, IconButton, Menu, MenuCheckboxItem, MenuLabel, toast } 
 import type { DashboardUpdateSetting } from '@open-artifact/data-core';
 import { joinSentences } from '../data/util.ts';
 import { useDocument } from '../state/document.ts';
-import { writeSettings } from '../sync/index.ts';
 import { SETTING_NOT_SAVED_MESSAGE, getUpdatesChoices, updatesLabel } from './refresh.ts';
+import { writeSettingsRead } from './run-as-actions.ts';
 import {
   ABOUT_SOURCES_TITLE,
   REFRESH_DATA_LABEL,
@@ -18,9 +18,9 @@ import {
   refreshDataChoiceLabel,
 } from './words.ts';
 
-/** Stores how long results are reused; a refused write says so. */
+/** Stores how long results are reused, settling once the document has it; a refused write says so. */
 export function saveRefreshSetting(updates: DashboardUpdateSetting): Promise<void> {
-  return writeSettings({ updates }).catch((error: unknown) => {
+  return writeSettingsRead({ updates }).catch((error: unknown) => {
     const said = error instanceof Error ? error.message : '';
     toast.add({ title: said === '' ? SETTING_NOT_SAVED_MESSAGE : joinSentences(SETTING_NOT_SAVED_MESSAGE, said) });
   });

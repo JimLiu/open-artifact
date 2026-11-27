@@ -23,7 +23,8 @@ import {
   remixPrompt,
   remixSelection,
   type DashboardFile,
-  type DraftHead,
+  remixHeads,
+  type RemixDraftHead,
   type UnknownRecord,
 } from '@open-artifact/data-core';
 import type { SyncWrite } from '@open-artifact/live-store';
@@ -78,7 +79,7 @@ function viewer(): string {
 function inputsView(state: Omit<DraftFlowState, 'view'>): DraftFlowView {
   const drafts = useDrafts.getState();
   return deriveDraftView({
-    heads: drafts.heads,
+    heads: remixHeads(drafts.heads),
     hidden: state.hidden,
     viewer: viewer(),
     artifact: null,
@@ -141,9 +142,9 @@ function showToast(title: string, timeout = 10_000): void {
 }
 
 /** The heads this page offers. */
-function visibleHeads(): DraftHead[] {
+function visibleHeads(): RemixDraftHead[] {
   const { hidden } = useDraftFlow.getState();
-  return useDrafts.getState().heads.filter((head) => !hidden.has(head.id) && isDraftForArtifact(head, null));
+  return remixHeads(useDrafts.getState().heads).filter((head) => !hidden.has(head.id) && isDraftForArtifact(head, null));
 }
 
 /** Drops drafts and hides them meanwhile; `spent` ones stay hidden even when dropping fails. */

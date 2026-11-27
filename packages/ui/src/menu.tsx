@@ -3,6 +3,7 @@ import { Check, ChevronRight } from 'lucide-react';
 import type { ReactElement, ReactNode } from 'react';
 import { swallowFollowUpClicks } from './clicks.ts';
 import { cn } from './cn.ts';
+import { useEscapeHandoffRef } from './escape-to-popup.ts';
 import { preventRepeatedActivation } from './keys.ts';
 
 /** Shared popup look of menus, popovers and selects. */
@@ -33,12 +34,13 @@ export interface MenuProps {
  * presses the trigger and each row once.
  */
 export function Menu({ trigger, children, side = 'bottom', align = 'start', open, onOpenChange }: MenuProps) {
+  const handoffRef = useEscapeHandoffRef();
   return (
     <BaseMenu.Root open={open} onOpenChange={onOpenChange ? (next) => onOpenChange(next) : undefined}>
       <BaseMenu.Trigger render={trigger} onKeyDown={preventRepeatedActivation} />
       <BaseMenu.Portal>
         <BaseMenu.Positioner side={side} align={align} sideOffset={6} className="z-[1000]">
-          <BaseMenu.Popup className={POPUP_CLASS}>{children}</BaseMenu.Popup>
+          <BaseMenu.Popup ref={handoffRef} className={POPUP_CLASS}>{children}</BaseMenu.Popup>
         </BaseMenu.Positioner>
       </BaseMenu.Portal>
     </BaseMenu.Root>
@@ -102,6 +104,48 @@ export function MenuCheckboxItem({
   );
 }
 
+/**
+ * An on/off row: its label, then a switch that shows the state (the row itself is the checkbox, so the switch is
+ * only drawn). The menu stays open unless `closeOnClick`.
+ */
+export function MenuSwitchItem({
+  children,
+  checked,
+  onCheckedChange,
+  icon,
+  disabled,
+  closeOnClick = false,
+}: {
+  children: ReactNode;
+  checked: boolean;
+  onCheckedChange: (checked: boolean) => void;
+  icon?: ReactNode;
+  disabled?: boolean;
+  /** Close the menu on click (when the click asks something rather than flips the switch). */
+  closeOnClick?: boolean;
+}) {
+  return (
+    <BaseMenu.CheckboxItem
+      className={MENU_ITEM_CLASS}
+      checked={checked}
+      disabled={disabled}
+      closeOnClick={closeOnClick}
+      onCheckedChange={(next) => onCheckedChange(next)}
+      onKeyDown={preventRepeatedActivation}
+    >
+      <span className="flex size-4 items-center justify-center text-fg-muted">{icon}</span>
+      <span className="flex-1">{children}</span>
+      <span
+        aria-hidden="true"
+        data-checked={checked ? '' : undefined}
+        className="relative ml-4 inline-flex h-4 w-7 shrink-0 items-center rounded-full bg-line-strong p-0.5 transition-colors data-[checked]:bg-accent"
+      >
+        <span className={cn('size-3 rounded-full bg-white shadow transition-transform', checked && 'translate-x-3')} />
+      </span>
+    </BaseMenu.CheckboxItem>
+  );
+}
+
 /** A thin rule between groups of items. */
 export function MenuSeparator() {
   return <BaseMenu.Separator className="mx-1 my-1 h-px bg-line" />;
@@ -114,6 +158,7 @@ export function MenuLabel({ children }: { children: ReactNode }) {
 
 /** A nested menu opened from a row. */
 export function MenuSubmenu({ label, icon, children }: { label: ReactNode; icon?: ReactNode; children: ReactNode }) {
+  const handoffRef = useEscapeHandoffRef();
   return (
     <BaseMenu.SubmenuRoot>
       <BaseMenu.SubmenuTrigger className={MENU_ITEM_CLASS} onKeyDown={preventRepeatedActivation}>
@@ -123,7 +168,7 @@ export function MenuSubmenu({ label, icon, children }: { label: ReactNode; icon?
       </BaseMenu.SubmenuTrigger>
       <BaseMenu.Portal>
         <BaseMenu.Positioner sideOffset={4} className="z-[1000]">
-          <BaseMenu.Popup className={POPUP_CLASS}>{children}</BaseMenu.Popup>
+          <BaseMenu.Popup ref={handoffRef} className={POPUP_CLASS}>{children}</BaseMenu.Popup>
         </BaseMenu.Positioner>
       </BaseMenu.Portal>
     </BaseMenu.SubmenuRoot>

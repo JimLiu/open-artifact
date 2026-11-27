@@ -14,6 +14,7 @@ import { AskBox } from './ask/AskBox.tsx';
 import { SourcesNotice } from './data/SourcesNotice.tsx';
 import { maybeDataEngine } from './data/engine.ts';
 import { DraftDialog, EditDialogs } from './drafts/EditDialogs.tsx';
+import { SharedDraftDialogs } from './drafts/PublishControl.tsx';
 import { useCanAskAgent } from './drafts/request.ts';
 import { VersionBar } from './history/VersionBar.tsx';
 import { useVersionHistory } from './history/store.ts';
@@ -163,6 +164,7 @@ function Dashboard(): ReactElement {
       </div>
       <EditDialogs />
       <DraftDialog />
+      <SharedDraftDialogs />
       {inline ? null : (
         <>
           <CommentLayer />

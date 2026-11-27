@@ -26,7 +26,8 @@ import { showingOf, writeToOf } from '../page/shown-page.ts';
 import { useEditFlow } from '../drafts/edit-flow.ts';
 import { useDatasets } from '../state/datasets.ts';
 import { useDocument } from '../state/document.ts';
-import { useShown, useShownContent } from '../state/shown.ts';
+import { SHARED_SHOWN_ID, useShown, useShownContent } from '../state/shown.ts';
+import { useSharedDraft } from '../drafts/shared-flow.ts';
 import { useSourcesUi } from '../state/sources-ui.ts';
 import { unruledFilters, type DashboardData } from './data-view.ts';
 
@@ -66,7 +67,14 @@ export function useViewContext({ data, snapshot, noticeShown, form }: ViewContex
   const loaded = status === 'ready' || status === 'offline';
   const live = shown.mode === 'live';
   const showing = showingOf(shown);
-  const writeTo = writeToOf(shown);
+  // Where people share a draft, the agent's changes go into it (or live, with auto-publish on and nothing waiting),
+  // whatever this viewer looks at; a remix draft on the page takes them itself.
+  const sharedOn = useSharedDraft((state) => state.on);
+  const sharedLooks = useSharedDraft((state) => state.looks);
+  const sharedWriteTo = useSharedDraft((state) => state.writeTo);
+  const remixShown = shown.mode === 'draft' && shown.draftId !== SHARED_SHOWN_ID;
+  // Someone who only looks at the shared draft changes nothing in it.
+  const writeTo = sharedOn && !remixShown ? sharedWriteTo : sharedLooks && !remixShown ? null : writeToOf(shown);
   const files = shown.content.files;
   const settled = files.length > 0 && loading.length === 0 && snapshot?.usage != null;
   const sources = useMemo(() => new Map(datasets.map((dataset) => [dataset.id, dataset])), [datasets]);

@@ -39,7 +39,7 @@ export async function copyBlock(view: EditorView, ref: BlockRef): Promise<void> 
       await navigator.clipboard.write([
         new ClipboardItem({ 'text/html': new Blob([dom.innerHTML], { type: 'text/html' }), 'text/plain': new Blob([text], { type: 'text/plain' }) }),
       ]);
-      toast.add({ title: 'Copied' });
+      toast.add({ title: 'Copied', type: 'success' });
       return;
     }
   } catch {

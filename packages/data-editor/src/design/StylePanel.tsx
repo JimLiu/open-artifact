@@ -9,7 +9,7 @@ import type { ReactNode } from 'react';
 import { getDesignSystemName, parseDashboardLook } from '@open-artifact/data-core';
 import { announce } from '@open-artifact/editor-kit';
 import { Button, NumberInput, SelectInput } from '@open-artifact/ui';
-import { numberLimitMessage } from '@open-artifact/ui/number-limits';
+import { numberLimitMessage } from '@open-artifact/ui/number-entry';
 import { CHART_PALETTES, countStyleTweaks, shownStyleTweaks, withoutStyleTweaks, type StyleTweakChange } from '../page/look.ts';
 import { changeStyle, resetStyle, useStyleEditor } from './style.ts';
 

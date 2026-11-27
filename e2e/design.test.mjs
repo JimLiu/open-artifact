@@ -11,7 +11,7 @@ import path from 'node:path';
 import { it } from 'node:test';
 import { pathToFileURL } from 'node:url';
 import { createTypeServer } from '../packages/type-server/src/server.ts';
-import { buttonNamed, clickOn, editorSuite, middleOf, startWait, textIn, typeInto } from './lib/editor.mjs';
+import { buttonNamed, checkFoldCard, clickOn, editorSuite, middleOf, startWait, textIn, typeInto } from './lib/editor.mjs';
 import { blockFont } from './lib/font.mjs';
 import { zipNames } from './lib/downloads.mjs';
 import { png, until } from './lib/http.mjs';
@@ -1624,6 +1624,83 @@ editorSuite({
         assert.ok(await page.waitFor(`!document.querySelector('[data-measure]')`, 5000), 'the distances stayed after Alt came up');
         assert.deepEqual(page.problems, []);
       } finally { await page.close(); }
+    });
+
+    it('folds the selection bar into More tools in a narrow view: the keyboard opens the card, Escape closes it and keeps the selection', T, async () => {
+      const { url } = await ctx.openNew('fold-strip');
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: textIn('Smoke canvas'), settle: 800 });
+      const bar = `document.querySelector('[data-selection-bar] [role=toolbar]')`;
+      try {
+        await page.click(...await elementAt(page, 'h1'));
+        assert.ok(await page.waitFor(bar, 5000), 'the heading is selected');
+        // The view narrows under the selection: the bar measures again and folds.
+        await page.cdp('Emulation.setDeviceMetricsOverride', { width: 360, height: 720, deviceScaleFactor: 1, mobile: false });
+        assert.ok(await page.waitFor('innerWidth === 360'));
+        assert.ok(await page.waitFor(`${bar}?.hasAttribute('data-folded')`, 5000), 'the bar did not fold');
+        await checkFoldCard(page, bar);
+        assert.ok(await page.evaluate(`Boolean(${bar})`), 'Escape from the card kept the selection');
+        assert.deepEqual(page.problems, []);
+      } finally {
+        await page.cdp('Emulation.clearDeviceMetricsOverride').catch(() => {});
+        await page.close();
+      }
+    });
+
+    it('Enter and Space press the focused button of the selection bar and of its More tools card, leaving the selection where it is', T, async () => {
+      const { url } = await ctx.openNew('bar-keys');
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: textIn('Smoke canvas'), settle: 800 });
+      const bar = `document.querySelector('[data-selection-bar] [role=toolbar]')`;
+      const italic = `[...(${bar}).querySelectorAll('button')].find(b => b.getAttribute('aria-label') === 'Italic')`;
+      const focusOn = async (button, what) => {
+        await page.evaluate(`(${button}).focus(); 1`);
+        assert.ok(await page.waitFor(`document.activeElement === (${button})`, 3000), `${what} did not take the focus`);
+      };
+      // A tap of Space, as a keyboard sends it: down with its character, then up.
+      const space = async () => {
+        await page.cdp('Input.dispatchKeyEvent', { type: 'keyDown', key: ' ', code: 'Space', windowsVirtualKeyCode: 32, text: ' ' });
+        await page.cdp('Input.dispatchKeyEvent', { type: 'keyUp', key: ' ', code: 'Space', windowsVirtualKeyCode: 32 });
+      };
+      const stayed = async (button, what) => {
+        assert.ok(await page.evaluate(`Boolean(${bar})`), `${what} let the selection go`);
+        assert.equal(await page.evaluate(`document.activeElement === (${button})`), true,
+          `${what} moved the focus to ${await page.evaluate('document.activeElement?.outerHTML.slice(0, 80)')}`);
+      };
+      try {
+        await page.click(...await elementAt(page, 'h1'));
+        assert.ok(await page.waitFor(`${bar} && (${italic})`, 5000), 'the heading is selected');
+        assert.equal(await page.evaluate(`(${italic}).getAttribute('aria-pressed')`), 'false');
+        await focusOn(italic, 'Italic');
+        await page.press('Enter');
+        assert.ok(await page.waitFor(`(${italic})?.getAttribute('aria-pressed') === 'true'`, 3000), 'Enter on Italic did not press it');
+        await stayed(italic, 'Enter on Italic');
+        await space();
+        assert.ok(await page.waitFor(`(${italic})?.getAttribute('aria-pressed') === 'false'`, 3000), 'Space on Italic did not press it');
+        await stayed(italic, 'Space on Italic');
+        // Narrowed, the bar folds: a button moved into the card answers the same keys.
+        await page.cdp('Emulation.setDeviceMetricsOverride', { width: 360, height: 720, deviceScaleFactor: 1, mobile: false });
+        assert.ok(await page.waitFor('innerWidth === 360'));
+        assert.ok(await page.waitFor(`${bar}?.hasAttribute('data-folded')`, 5000), 'the bar did not fold');
+        const toggle = `(${bar}).querySelector('[data-fold-toggle]')`;
+        const card = `(${bar}).querySelector('[data-fold-card]')`;
+        await page.evaluate(`(${toggle}).click(); 1`);
+        assert.ok(await page.waitFor(`${card}?.hidden === false`, 3000), 'More tools did not open');
+        const pressed = `[...(${card}).querySelectorAll('button[aria-pressed]')].find(b => !b.disabled)`;
+        assert.ok(await page.evaluate(`Boolean(${pressed})`), `no button to press in the card: ${await page.evaluate(`(${card}).innerHTML.slice(0, 200)`)}`);
+        const name = await page.evaluate(`(${pressed}).getAttribute('aria-label')`);
+        const inCard = `[...(${card}).querySelectorAll('button')].find(b => b.getAttribute('aria-label') === ${JSON.stringify(name)})`;
+        const before = await page.evaluate(`(${inCard}).getAttribute('aria-pressed')`);
+        await focusOn(inCard, name);
+        await page.press('Enter');
+        assert.ok(await page.waitFor(`(${inCard})?.getAttribute('aria-pressed') !== ${JSON.stringify(before)}`, 3000), `Enter on ${name} in the card did not press it`);
+        await stayed(inCard, `Enter on ${name} in the card`);
+        await space();
+        assert.ok(await page.waitFor(`(${inCard})?.getAttribute('aria-pressed') === ${JSON.stringify(before)}`, 3000), `Space on ${name} in the card did not press it`);
+        await stayed(inCard, `Space on ${name} in the card`);
+        assert.deepEqual(page.problems, []);
+      } finally {
+        await page.cdp('Emulation.clearDeviceMetricsOverride').catch(() => {});
+        await page.close();
+      }
     });
 
     it('a right-button drag pans the canvas, keeping the selection and opening no menu; a right-click still opens the menu', T, async () => {

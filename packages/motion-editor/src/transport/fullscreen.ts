@@ -4,7 +4,7 @@ import { FULLSCREEN_REFUSED } from './words.ts';
 
 let target: HTMLElement | null = null;
 
-/** The element that goes full screen (the player with its toolbar). */
+/** The element that goes full screen: the whole page, so the open panel stays beside the player. */
 export function setFullscreenTarget(element: HTMLElement | null): void {
   target = element;
 }

@@ -32,7 +32,8 @@
  */
 
 import { AlignCenterHorizontal, AlignCenterVertical, AlignEndHorizontal, AlignEndVertical, AlignLeft, AlignCenter, AlignRight, AlignStartHorizontal, AlignStartVertical, ArrowUpRight, Check, CircleDot, Crop, Ellipsis, Link2, LocateFixed, Lock, Minus, MoveLeft, MoveRight, Shapes, Trash2, Type } from 'lucide-react';
-import { useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
+import { isValidElement, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { FoldDivider, FoldGroup, FoldToolbar } from '@open-artifact/editor-kit/react';
 import {
   INK_COLOR_NAMES,
   NOTE_COLORS,
@@ -77,7 +78,6 @@ import { linkDisplayUrl } from '../elements/links.ts';
 import { openLink } from '../services/link-card.ts';
 import { isRichTextItem, type RichTextItem } from '../elements/mark-across.ts';
 import { boardToScreen } from '../lib/camera.ts';
-import { barKeyTarget } from '../lib/toolbar-keys.ts';
 import { TABLE_HEAT_LABELS, heatColorFor, heatRampGradient, heatRefusal, takesRowHeat } from '../lib/table-heat.ts';
 import { ALIGN_SHORTCUT_LETTERS, BASIC_SHAPE_KINDS, MORE_SHAPE_KINDS, isApplePlatform, type AlignEdge } from '../lib/tools.ts';
 import { blockKindOf, isKindChangeable, type BlockKind } from '../selection/kind-change.ts';
@@ -112,7 +112,7 @@ import { useSelection } from '../state/selection.ts';
 import { useTableHeat } from '../state/table-heat.ts';
 import { useColorScheme } from '../state/theme.ts';
 import { effectiveTool, useTool } from '../state/tool.ts';
-import { Card, ChromeButton, ChromeDivider, ChromeMenu, ChromeMenuItem, ChromePopover, SwatchRow, TipGroup, ToolButton, type ChromeSide, type Swatch } from './chrome.tsx';
+import { ChromeButton, ChromeMenu, ChromeMenuItem, ChromePopover, SwatchRow, TipGroup, ToolButton, type ChromeSide, type Swatch } from './chrome.tsx';
 import { layeredDrawing, usePickedLayer } from '../services/drawing-layers.ts';
 import { LayerToolbar, LayersMenuButton } from './LayerBar.tsx';
 import { FormatBar } from './FormatBar.tsx';
@@ -173,22 +173,6 @@ export function placeSelectionBar(
   let y = clampBetween(below ? belowTop : aboveTop, EDGE_PX, view.height - bar.height - EDGE_PX);
   y = clampBetween(y, aboveTop, belowTop);
   return { x, y, below };
-}
-
-/**
- * ← / → and Home / End move focus along the bar's own buttons, past
- * disabled ones; not from a field in the bar or from a menu it opened.
- */
-function moveAlongBar(event: ReactKeyboardEvent<HTMLDivElement>): void {
-  const bar = event.currentTarget;
-  const target = event.target;
-  if (event.defaultPrevented || !(target instanceof HTMLButtonElement) || !bar.contains(target)) return;
-  const controls = [...bar.querySelectorAll<HTMLButtonElement>('button')].filter((control) => control.getClientRects().length > 0);
-  const enabled = controls.map((control) => !control.disabled && control.getAttribute('aria-disabled') !== 'true');
-  const next = barKeyTarget({ key: event.key, altKey: event.altKey, ctrlKey: event.ctrlKey, metaKey: event.metaKey, isComposing: event.nativeEvent.isComposing, keyCode: event.keyCode }, controls.indexOf(target), enabled);
-  if (next === undefined) return;
-  event.preventDefault();
-  controls[next]!.focus();
 }
 
 /** The selection's box on the board: every item's rotated bounds, a section's title band and an arrow's route. */
@@ -901,6 +885,7 @@ function PictureLinkButton({ image, side }: SideProps & { image: ImageElement })
       trigger={
         <ToolButton
           label="Link"
+          data-fold-keep=""
           tip={image.href === undefined ? 'Link the picture' : `Edit the link to ${linkDisplayUrl(image.href)}`}
           tipSide={side}
           icon={<Link2 aria-hidden="true" />}
@@ -999,17 +984,25 @@ function AlignItemsPopover({ side, refused }: SideProps & { refused: string | un
 /* The bar                                                                  */
 /* ------------------------------------------------------------------------ */
 
-/** Joins non-empty groups of controls with dividers. */
+/**
+ * Joins non-empty groups of controls with dividers. The last group is the
+ * bar's tail (open link, Delete, More actions): when the bar is too wide
+ * for the view, the other controls fold into "More tools" and it stays.
+ */
 function withDividers(groups: readonly (readonly ReactNode[])[]): ReactNode[] {
-  const out: ReactNode[] = [];
-  groups
-    .map((group) => group.filter((control) => control !== null && control !== false && control !== undefined))
-    .filter((group) => group.length > 0)
-    .forEach((group, index) => {
-      if (index > 0) out.push(<ChromeDivider key={`divider-${index}`} />);
-      out.push(...group);
-    });
-  return out;
+  const shown = groups.map((group) => group.filter((control) => control !== null && control !== false && control !== undefined)).filter((group) => group.length > 0);
+  return shown.flatMap((group, index) => {
+    // Keyed by the group's first control, so a group that comes or goes does not remount the others.
+    const first = group[0];
+    const name = isValidElement(first) && first.key !== null ? first.key : String(index);
+    const tail = index === shown.length - 1 && index > 0;
+    return [
+      ...(index > 0 ? [<FoldDivider key={`divider-${name}`} />] : []),
+      <FoldGroup key={`group-${name}`} tail={tail} className="gap-1">
+        {group}
+      </FoldGroup>,
+    ];
+  });
 }
 
 /** The floating bar of commands for the selection (see the module comment). Mount it once, beside the surface. */
@@ -1126,6 +1119,7 @@ export function SelectionBar(): ReactNode {
       key="more"
       label="More actions"
       tipSide={side}
+      data-fold-more=""
       aria-haspopup="menu"
       aria-expanded={menuOpen}
       icon={<Ellipsis aria-hidden="true" />}
@@ -1217,19 +1211,24 @@ export function SelectionBar(): ReactNode {
 
   return (
     <TipGroup>
-      <Card
+      <FoldToolbar
         ref={barRef}
-        role="toolbar"
         aria-label="Selection actions"
+        data-wb-chrome=""
         data-wb-bar="selection"
         data-wb-region="selection"
         {...(typing ? { 'data-wb-format-bar': '' } : {})}
-        className="fixed z-[30] max-w-[calc(100vw-16px)] overflow-x-auto p-1.5"
+        className="fixed z-[30]"
+        rowClassName="p-1.5"
+        size="xl"
         style={style}
-        onKeyDown={moveAlongBar}
+        fold
+        foldKey={ids.join()}
+        placed={placement.below ? 'below' : 'above'}
+        limit={viewWidth - 16}
       >
         {content}
-      </Card>
+      </FoldToolbar>
     </TipGroup>
   );
 }

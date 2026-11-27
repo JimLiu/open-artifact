@@ -87,7 +87,9 @@ export function PageCommentsLayer(): ReactNode {
   const agent = useCommentCards((cards) => cards.agent);
   const frame = useViewFrame();
   if (!available) return null;
-  const thread = active === null ? undefined : threads.find((listed) => listed.id === active);
+  // One on the whole artifact opens by the list, as its composer is in the list (`AllComments`).
+  const thread = active === null ? undefined : threads.find((listed) => listed.id === active && !pageComments.isWhole(listed));
+  const composing = draft !== null && !pageComments.isWholeAnchor(draft);
   const cardAt = place ?? cardShownAt;
   const viewport = { width: frame.width, height: frame.height };
   const closeTop = (): boolean => {
@@ -108,7 +110,7 @@ export function PageCommentsLayer(): ReactNode {
             )}
           </CommentPopover>
         ) : null}
-        {draft !== null && composerShownAt !== null ? (
+        {composing && draft !== null && composerShownAt !== null ? (
           <CommentPopover key="composer" corner={inView(composerShownAt, frame)} viewport={viewport} width={COMMENT_CARD_WIDTH} onEscape={closeCommentComposer}>
             <CommentComposer comments={pageComments} agent={agent} anchor={draft} onCancel={closeCommentComposer} />
           </CommentPopover>

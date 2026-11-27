@@ -44,22 +44,26 @@ function FormChoice(): ReactElement {
   return (
     <fieldset className="flex w-full flex-col items-center gap-4">
       <legend className="mb-4 w-full text-center text-[14px] text-chrome-muted">{CHOOSE_FORMAT_TEXT}</legend>
-      <div className="dash-forms grid w-full grid-cols-2 gap-3 sm:grid-cols-4">
+      {/* Narrow: one row per format, a small picture beside its name. Wide enough: the formats side by side. */}
+      <div className="dash-forms">
         {DASHBOARD_FORMS.map(({ key, name: label }) => {
           const checked = key === form;
           return (
-            <label key={key} className="group flex cursor-pointer flex-col items-center gap-2 text-[13px]" data-form={key}>
+            <label key={key} className="dash-form group cursor-pointer" data-form={key} data-checked={checked ? '' : undefined}>
               <input type="radio" className="peer sr-only" name={name} value={key} checked={checked} onChange={() => pickForm(key)} />
-              <span
-                className={cn(
-                  'w-full overflow-hidden rounded-xl border border-chrome-line bg-chrome-hover transition-colors',
-                  'group-hover:border-chrome-accent/60 peer-focus-visible:ring-2 peer-focus-visible:ring-chrome-focus',
-                  checked && 'border-chrome-accent ring-2 ring-chrome-accent/40',
-                )}
-              >
-                <FormPicture form={key} className="aspect-[212/146] w-full" />
+              <span className="dash-form-face">
+                <span
+                  className={cn(
+                    'dash-form-picture overflow-hidden border border-chrome-line bg-chrome-hover transition-colors',
+                    'group-hover:border-chrome-accent/60 group-has-[:focus-visible]:ring-2 group-has-[:focus-visible]:ring-chrome-focus',
+                    checked && 'border-chrome-accent ring-2 ring-chrome-accent/40',
+                  )}
+                  aria-hidden="true"
+                >
+                  <FormPicture form={key} className="size-full" />
+                </span>
+                <span className={checked ? 'font-medium text-chrome-fg' : 'text-chrome-muted'}>{label}</span>
               </span>
-              <span className={checked ? 'font-medium text-chrome-fg' : 'text-chrome-muted'}>{label}</span>
             </label>
           );
         })}

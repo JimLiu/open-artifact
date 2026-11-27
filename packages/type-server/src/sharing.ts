@@ -402,6 +402,13 @@ export class LanSharing {
     return guestViewer(guest);
   }
 
+  /** The people an open artifact is shared with whose link still holds: their viewer id and name, nothing else. */
+  members(id: string): Array<{ id: string; name: string }> {
+    const entry = this.entries.get(id);
+    if (!entry) return [];
+    return entry.file.state.guests.filter((g) => entry.file.valid(g)).map((g) => ({ id: `guest-${g.id}`, name: g.name }));
+  }
+
   /** Whether a viewer let in earlier still has access (owners always do). */
   stillIn(id: string, viewer: Viewer): boolean {
     if (viewer.role === 'owner') return true;

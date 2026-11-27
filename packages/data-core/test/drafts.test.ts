@@ -22,9 +22,9 @@ import {
   remixSelection,
   toDraftHeadRecord,
 } from '../src/index.ts';
-import type { DraftDocs, DraftHead, UnknownRecord } from '../src/index.ts';
+import type { DraftDocs, RemixDraftHead, UnknownRecord } from '../src/index.ts';
 
-const head = (id: string, by: string, at: number, extra: Partial<DraftHead> = {}): DraftHead => ({
+const head = (id: string, by: string, at: number, extra: Partial<RemixDraftHead> = {}): RemixDraftHead => ({
   id, kind: 'remix', form: 'dashboard', by, at, base: '', ...extra,
 });
 
@@ -33,7 +33,7 @@ describe('draft heads', () => {
     assert.deepEqual(parseDraftHead('abc123', { v: 1, kind: 'remix', form: 'visual-short', by: 'u1', at: 5, artifact: 'a1', base: 'h', saved: true }), {
       id: 'abc123', kind: 'remix', form: 'visual-short', by: 'u1', at: 5, artifact: 'a1', base: 'h', saved: true,
     });
-    assert.equal(parseDraftHead('abc123', { kind: 'remix', form: 'letter', by: 'u1', at: 5 })?.form, 'letter');
+    assert.equal((parseDraftHead('abc123', { kind: 'remix', form: 'letter', by: 'u1', at: 5 }) as RemixDraftHead | null)?.form, 'letter');
     assert.equal(parseDraftHead('ABC', { kind: 'remix', form: 'dashboard', by: 'u1', at: 5 }), null);
     assert.equal(parseDraftHead('abc', { kind: 'remix', form: 'poster', by: 'u1', at: 5 }), null);
     assert.equal(parseDraftHead('abc', { kind: 'remix', form: 'dashboard', by: '', at: 5 }), null);

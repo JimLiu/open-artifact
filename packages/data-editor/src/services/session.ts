@@ -47,6 +47,9 @@ export const session = slot.session;
 /** The session, or `null` before it started. */
 export const maybeSession = slot.maybeSession;
 
+/** Puts a session in place without a host (the page's flows run over a store made in memory this way). */
+export const provideSession = slot.set;
+
 /**
  * The embedded view's session: the store, read only, and the connectors to load data; nothing that comments,
  * asks, joins the room, saves files or keeps history.

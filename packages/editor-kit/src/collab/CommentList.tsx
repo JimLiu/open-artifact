@@ -4,25 +4,42 @@
  * thread where it is (comment mode on, its anchor in view, its card open). Each row is a flat comment card whose
  * Resolve and ⋯ menu (Reopen, Delete thread) show while it is hovered or current.
  *
+ * A type whose controller has whole-artifact anchors also gets "Add comment" under the header: a composer in the panel
+ * for a comment on the artifact as a whole (no pin, no spot), with the `@` list and "Send to {agent}". Such a thread's
+ * row says "Whole artifact", and its card opens beside the panel, or at the top right while the panel is closed.
+ *
  * What a type supplies is only its threads and anchors (the controller); the panel is the same everywhere.
  */
 
 import { Menu as BaseMenu } from '@base-ui/react/menu';
-import { useId, useState, type ReactNode } from 'react';
+import { useEffect, useId, useState, type ReactNode } from 'react';
+import { isComposingKey } from '@open-artifact/ui';
 import type { CommentThread } from '@open-artifact/runtime';
 import { Button, CheckboxMark, cn, Icon, MENU_ITEM, Menu, MenuPopup, panelClass, panelVars, RobotGlyph, Tooltip, useCdsRoot, type MenuItemSpec } from './cds/cds.tsx';
 import { Actions, Comment, CommentCard, DeleteConfirm, MoreMenu, ResolveAction, useLayerMenu } from './cds/comment-card.tsx';
 import { CommentsLayer } from './cds/layer.tsx';
 import { commentMarkdown } from './cds/markdown.tsx';
+import { sentMentionNames } from './mentions.ts';
 import { commentAgo } from './cds/time.ts';
-import { WAIT_FOR_STATUS_CHANGE, type CommentsController } from './comments.ts';
-import type { AgentBadge } from './CommentViews.tsx';
+import { WAIT_FOR_STATUS_CHANGE, type ComposeRefusal, type CommentsController } from './comments.ts';
+import { CommentComposer, CommentPopover, ThreadCard, type AgentBadge } from './CommentViews.tsx';
 
 /** The panel: 300px, 12px from the right edge and from the bar above it. */
 const PANEL_WIDTH = 300;
 const PANEL_GAP = 12;
 /** The room the open panel takes at the right edge (pins' edge tabs keep clear of it). */
 export const ALL_COMMENTS_RIGHT = PANEL_WIDTH + PANEL_GAP * 2;
+/** A whole-artifact thread's card, beside the panel. */
+const WHOLE_CARD_WIDTH = 330;
+
+/** Why "Add comment" did not open the composer, said under it while the reason holds. */
+const COMPOSE_REFUSED: Record<ComposeRefusal, string> = {
+  posting: 'Wait until the comment finishes posting.',
+  writing: 'Finish or discard the comment you’re writing first.',
+  editing: 'Finish or discard the comment you’re editing first.',
+};
+/** The empty panel's line when it has a composer. */
+const EMPTY_WITH_COMPOSER = 'Add a comment on the whole artifact, or press the comment button to comment on a specific spot.';
 
 export interface AllCommentsProps<A> {
   comments: CommentsController<A>;
@@ -35,13 +52,19 @@ export interface AllCommentsProps<A> {
   fill?: boolean;
 }
 
-/** The "All comments" panel, while the comments store says it is open. */
+/**
+ * The "All comments" panel, while the comments store says it is open; and the open card of a thread on the whole
+ * artifact, which has no pin to open by.
+ */
 export function AllComments<A>({ comments, agent, top = PANEL_GAP, hint, fill = false }: AllCommentsProps<A>): ReactNode {
-  const open = comments.store((s) => s.listOpen && s.available);
-  if (!open) return null;
+  const available = comments.store((s) => s.available);
+  const open = comments.store((s) => s.listOpen);
+  const thread = comments.store((s) => (s.active ? s.threads.find((t) => t.id === s.active && t.messages.length > 0 && comments.isWhole(t)) : undefined));
+  if (!available || (!open && !thread)) return null;
   return (
     <CommentsLayer mark="data-comments-panel-layer">
-      <Panel comments={comments} agent={agent} top={top} hint={hint} fill={fill} />
+      {open ? <Panel comments={comments} agent={agent} top={top} hint={hint} fill={fill} /> : null}
+      {thread ? <WholeCard comments={comments} agent={agent} thread={thread} top={top} beside={open} /> : null}
     </CommentsLayer>
   );
 }
@@ -54,8 +77,17 @@ function Panel<A>({ comments, agent, top, hint, fill }: Required<Omit<AllComment
   const showResolved = comments.store((s) => s.showResolved);
   const on = comments.store((s) => s.on);
   const active = comments.store((s) => s.active);
+  const draft = comments.store((s) => s.draft);
+  const [refused, setRefused] = useState(false);
+  const refusal = comments.store(() => comments.composeRefusal());
   const close = (): void => comments.store.getState().setListOpen(false);
   const all = threads.filter((t) => t.messages.length > 0);
+  const whole = comments.wholeArtifact();
+  const compose = whole !== null && comments.canComment();
+  const composing = compose && draft !== null && comments.isWholeAnchor(draft);
+  // The reason is said until it no longer holds.
+  if (refused && refusal === null) setRefused(false);
+  const startComposing = (): void => setRefused(comments.composeWhole() !== null);
   const shown = all.filter((t) => showResolved || t.status === 'open').sort((a, b) => firstAt(b).localeCompare(firstAt(a)));
   const resolved = all.filter((t) => t.status === 'resolved').length;
 
@@ -89,13 +121,40 @@ function Panel<A>({ comments, agent, top, hint, fill }: Required<Omit<AllComment
         <FilterMenu showResolved={showResolved} onShowResolved={(next) => comments.store.getState().setShowResolved(next)} />
         <Button variant="ghost" iconOnly aria-label="Close" icon={<Icon name="X" size="sm" />} onClick={close} />
       </div>
+      {compose ? (
+        composing ? (
+          <div
+            data-comments-composer=""
+            style={{ padding: '0 12px 8px' }}
+            onKeyDown={(event) => {
+              // Escape closes the composer, not the panel.
+              if (event.key !== 'Escape' || event.defaultPrevented || isComposingKey(event.nativeEvent)) return;
+              event.preventDefault();
+              comments.store.getState().setDraft(null);
+            }}
+          >
+            <CommentComposer comments={comments} agent={agent} anchor={draft} />
+          </div>
+        ) : (
+          <div className="flex shrink-0 flex-col items-start gap-xs" style={{ padding: '0 12px 8px' }}>
+            <Button data-comments-compose="" data-size="sm" variant="secondary" onClick={startComposing}>
+              Add comment
+            </Button>
+            {refused && refusal ? (
+              <span role="status" data-comments-compose-refused="" className="text-caption text-secondary">
+                {COMPOSE_REFUSED[refusal]}
+              </span>
+            ) : null}
+          </div>
+        )
+      ) : null}
       <SendAll comments={comments} agent={agent} threads={all} />
       <div className={cn('flex min-h-0 flex-col gap-xs overflow-y-auto [--cds-comment-card-bg:var(--cds-surface-2)]', fill && 'flex-1')} style={{ padding: '0 12px 12px' }}>
         {all.length === 0 ? (
           <div data-comments-empty="" className="flex flex-1 flex-col items-center justify-center gap-xs px-lg text-center" style={{ paddingBlock: 'var(--cds-pad-xl)' }}>
             <span className="text-body font-medium text-secondary">No comments yet</span>
             <span className="text-caption text-muted">
-              {comments.canComment() ? (hint ?? 'Press the comment button, then click anywhere on the artifact to add one.') : 'Only people with comment access can add one.'}
+              {compose ? EMPTY_WITH_COMPOSER : comments.canComment() ? (hint ?? 'Press the comment button, then click anywhere on the artifact to add one.') : 'Only people with comment access can add one.'}
             </span>
           </div>
         ) : shown.length === 0 ? (
@@ -112,11 +171,40 @@ function Panel<A>({ comments, agent, top, hint, fill }: Required<Omit<AllComment
           </span>
         ) : null}
         {shown.map((thread) => (
-          // The current row is the thread whose card is showing (out of comment mode no card shows).
-          <PanelThread key={thread.id} comments={comments} agent={agent} thread={thread} current={on && active === thread.id} />
+          // The current row is the thread whose card is showing (out of comment mode no card shows, but for one on the whole artifact).
+          <PanelThread key={thread.id} comments={comments} agent={agent} thread={thread} current={(on || comments.isWhole(thread)) && active === thread.id} />
         ))}
       </div>
     </section>
+  );
+}
+
+function useWindowSize(): { width: number; height: number } {
+  const [size, setSize] = useState(() => ({ width: window.innerWidth, height: window.innerHeight }));
+  useEffect(() => {
+    const resize = (): void => setSize({ width: window.innerWidth, height: window.innerHeight });
+    window.addEventListener('resize', resize);
+    return () => window.removeEventListener('resize', resize);
+  }, []);
+  return size;
+}
+
+/** The open card of a thread on the whole artifact: at the top, just left of the open panel, or at the right edge. */
+function WholeCard<A>({ comments, agent, thread, top, beside }: { comments: CommentsController<A>; agent: AgentBadge; thread: CommentThread; top: number; beside: boolean }): ReactNode {
+  const viewport = useWindowSize();
+  const close = (): void => comments.store.getState().setActive(null);
+  return (
+    <div data-comments-whole-card="" style={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 40 }}>
+      <CommentPopover
+        key={thread.id}
+        corner={{ x: viewport.width - (beside ? ALL_COMMENTS_RIGHT : PANEL_GAP) - WHOLE_CARD_WIDTH, y: top }}
+        width={WHOLE_CARD_WIDTH}
+        viewport={viewport}
+        onEscape={close}
+      >
+        {(maxHeight) => <ThreadCard comments={comments} agent={agent} thread={thread} state="ok" maxHeight={maxHeight} />}
+      </CommentPopover>
+    </div>
   );
 }
 
@@ -195,7 +283,7 @@ function SendAll<A>({ comments, agent, threads }: { comments: CommentsController
  */
 function PanelThread<A>({ comments, agent, thread, current }: { comments: CommentsController<A>; agent: AgentBadge; thread: CommentThread; current: boolean }): ReactNode {
   const [confirming, setConfirming] = useState(false);
-  const [deleting, setDeleting] = useState(false);
+  const deleting = comments.store((s) => s.writing.includes(`delete:${thread.id}`));
   const change = comments.store((s) => s.statusChange);
   const nameId = useId();
   const first = thread.messages[0]!;
@@ -218,6 +306,7 @@ function PanelThread<A>({ comments, agent, thread, current }: { comments: Commen
           <>
             {commentAgo(first.at)}
             {resolved && ' · Resolved'}
+            {comments.isWhole(thread) ? <span data-comment-whole-artifact=""> · Whole artifact</span> : null}
             {thread.agent ? (
               <span
                 role="img"
@@ -235,10 +324,7 @@ function PanelThread<A>({ comments, agent, thread, current }: { comments: Commen
             <DeleteConfirm
               busy={deleting}
               onCancel={() => setConfirming(false)}
-              onDelete={() => {
-                setDeleting(true);
-                void comments.remove(thread.id).finally(() => setDeleting(false));
-              }}
+              onDelete={() => void comments.remove(thread.id)}
             />
           ) : undefined
         }
@@ -255,7 +341,7 @@ function PanelThread<A>({ comments, agent, thread, current }: { comments: Commen
           </Actions>
         }
       >
-        <span className="line-clamp-3">{commentMarkdown(first.text, { flat: true })}</span>
+        <span className="line-clamp-3">{commentMarkdown(first.text, { flat: true, mentions: sentMentionNames(first.to, agent.name) })}</span>
       </Comment>
       {replies > 0 && !confirming ? (
         <button type="button" data-cds-part="replies-toggle" className="self-start text-body font-normal text-accent hover:underline">

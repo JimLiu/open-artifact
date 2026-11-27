@@ -27,6 +27,7 @@ import {
   Image as ImageIcon,
   Unlink,
   EllipsisVertical,
+  PanelRight,
   Italic,
   Link,
   List,
@@ -50,7 +51,7 @@ import { crossFileActionLabel, paintRoles, selectionCounts, type MixedSelection,
 import { KEEP_TEXT_EDIT, applyEditedTextLink, cancelEditedTextLink, commitTextEdit, formatEditedText } from '../services/text-edit.ts';
 import { cancelScale, commitScale, setScaleFactor, useScale } from '../services/scale.ts';
 import { parseScaleInput } from '../lib/scale.ts';
-import { Card, ChromeButton, ChromeDivider, ChromeMenu, ChromeMenuItem, MOD, Tip, TipGroup } from '@open-artifact/editor-kit/react';
+import { ChromeButton, ChromeMenu, ChromeMenuItem, FoldDivider, FoldGroup, FoldToolbar, MOD, Tip, TipGroup, useFolded } from '@open-artifact/editor-kit/react';
 import { toggleSelectionLock, useDeleteLockedWhy, useLockedWhy, useSelectionLock } from '../services/locks.ts';
 import { PColor, PIconButton, PInput, PSegments, isTransparent, roundPx, toHex, withoutUnit } from './fields.tsx';
 import { BorderAlignButton } from './BorderAlign.tsx';
@@ -134,9 +135,9 @@ function StripButton({ tip, shortcut, className, ...props }: Parameters<typeof C
   );
 }
 
-/** A group of strip controls. */
+/** A group of strip controls; on a narrow strip each folds into the "More tools" card. */
 function Group({ children }: { children: ReactNode }) {
-  return <span className="flex items-center gap-0.5">{children}</span>;
+  return <FoldGroup>{children}</FoldGroup>;
 }
 
 /** The color square shown in a color trigger. */
@@ -160,6 +161,7 @@ function StripPopup({
   wide,
   pressed,
   address,
+  keep,
   children,
 }: {
   tip: string;
@@ -172,12 +174,14 @@ function StripPopup({
   pressed?: boolean;
   /** An address card: its keys (see `addressCardKeys`), given the saved address. */
   address?: string;
+  /** Stays on the strip when it folds (an address card opens from the strip only). */
+  keep?: boolean;
   children: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const cardKeys = address === undefined ? undefined : addressCardKeys({ saved: address, close: () => setOpen(false), guardDelete: true });
   const button = (
-    <ChromeButton square={!wide} aria-label={tip} pressed={pressed} disabled={disabled} className={cn(wide && 'px-2', open && 'bg-chrome-hover')} />
+    <ChromeButton square={!wide} aria-label={tip} pressed={pressed} disabled={disabled} data-fold-keep={keep ? '' : undefined} className={cn(wide && 'px-2', open && 'bg-chrome-hover')} />
   );
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
@@ -595,7 +599,7 @@ function LinkPopup({ ctx, board, item, single, readOnly }: { ctx: StripContext; 
         : null;
   const tip = reason ?? (own ? (href ? `Edit the link (${href})` : 'Set the link') : 'Link the whole text');
   return (
-    <StripPopup tip={tip} trigger={<Link {...ICON} />} disabled={reason !== null} pressed={own && href !== ''} width="w-[260px]" address={href}>
+    <StripPopup tip={tip} trigger={<Link {...ICON} />} disabled={reason !== null} pressed={own && href !== ''} width="w-[260px]" address={href} keep>
       <Hint>Link</Hint>
       <PInput
         aria-label="Link"
@@ -620,7 +624,7 @@ function EditingLinkPopup({ disabled }: { disabled: boolean }) {
   const pressed = useView((s) => s.textEdit?.formats?.link ?? false);
   const open = link !== null;
   const empty = link !== null && link.collapsed && link.href === '';
-  const button = <ChromeButton square aria-label="Link" pressed={pressed} disabled={disabled} className={cn(open && 'bg-chrome-hover')} />;
+  const button = <ChromeButton square aria-label="Link" pressed={pressed} disabled={disabled} data-fold-keep="" className={cn(open && 'bg-chrome-hover')} />;
   return (
     <Popover.Root
       open={open}
@@ -897,7 +901,7 @@ function LockButton({ readOnly }: { readOnly: boolean }) {
           {locked ? <Lock {...ICON} /> : <LockOpen {...ICON} />}
         </StripButton>
       </Group>
-      <ChromeDivider />
+      <FoldDivider />
     </>
   );
 }
@@ -910,8 +914,9 @@ function Tail({ lead, deletes = true }: { lead?: ReactNode; deletes?: boolean })
   const coarse = useCoarsePointer();
   const readOnly = useDocument((s) => s.readOnly);
   const deleteLocked = useDeleteLockedWhy();
+  const folded = useFolded();
   return (
-    <Group>
+    <FoldGroup tail>
       {lead}
       {deletes && coarse && !readOnly && deleteLocked === null ? (
         <StripButton
@@ -928,11 +933,11 @@ function Tail({ lead, deletes = true }: { lead?: ReactNode; deletes?: boolean })
       ) : null}
       {/* With the side panel open there is nothing to open. */}
       {panelOpen ? null : (
-        <StripButton tip="Open the Properties panel" aria-label="Properties" onClick={() => setPanel('properties', true)}>
-          <EllipsisVertical {...ICON} />
+        <StripButton tip="Open the Properties panel" aria-label="Properties" data-fold-more="" onClick={() => setPanel('properties', true)}>
+          {folded ? <PanelRight {...ICON} /> : <EllipsisVertical {...ICON} />}
         </StripButton>
       )}
-    </Group>
+    </FoldGroup>
   );
 }
 
@@ -969,7 +974,7 @@ function MixedStrip({ selection, readOnly }: { selection: MixedSelection; readOn
               <MixedColorPopup key={role} selection={selection} role={role} disabled={readOnly} />
             ))}
           </Group>
-          <ChromeDivider />
+          <FoldDivider />
         </>
       ) : null}
       <Group>
@@ -980,7 +985,7 @@ function MixedStrip({ selection, readOnly }: { selection: MixedSelection; readOn
           <Trash2 {...ICON} />
         </StripButton>
       </Group>
-      <ChromeDivider />
+      <FoldDivider />
       <Tail deletes={false} />
     </>
   );
@@ -1078,16 +1083,21 @@ export function SelectionBar({ box }: { box: SelectionBarBox }) {
 }
 
 /** Where the strip sits: above the selection, or below it when there is no room. */
-const barTop = (box: SelectionBarBox): number => (box.top - BAR_SPACE >= 8 ? box.top - BAR_SPACE : box.top + box.height + 8);
+const barSide = (box: SelectionBarBox): 'above' | 'below' => (box.top - BAR_SPACE >= 8 ? 'above' : 'below');
+const barTop = (box: SelectionBarBox): number => (barSide(box) === 'above' ? box.top - BAR_SPACE : box.top + box.height + 8);
+
+/** What a mixed selection holds, as text: the "More tools" card closes when it changes. */
+const mixedKey = (selection: MixedSelection): string =>
+  [...selection.boards, ...selection.notes, ...selection.elements.map((entry) => `${entry.board}:${entry.items.map((item) => item.tid).join(',')}`)].join(' ');
 
 function MixedBar({ box, selection, readOnly }: { box: SelectionBarBox; selection: MixedSelection; readOnly: boolean }) {
   return (
     <div className="pointer-events-auto absolute z-10" style={{ left: Math.max(8, box.left), top: barTop(box) }} onPointerDown={(event) => event.stopPropagation()} data-selection-bar="">
       <TipGroup>
-        <Card role="toolbar" aria-label="Selection" data-focus-region="selection" className="gap-1 p-1">
+        <FoldToolbar aria-label="Selection" data-focus-region="selection" rowClassName="gap-1 p-1" fold foldKey={mixedKey(selection)} placed={barSide(box)}>
           <LockButton readOnly={readOnly} />
           <MixedStrip selection={selection} readOnly={readOnly} />
-        </Card>
+        </FoldToolbar>
       </TipGroup>
     </div>
   );
@@ -1162,14 +1172,14 @@ function ElementsBar({ box }: { box: SelectionBarBox }) {
       {...{ [KEEP_TEXT_EDIT]: '' }}
     >
       <TipGroup>
-        <Card role="toolbar" aria-label="Selection" data-focus-region="selection" className="gap-1 p-1" key={key}>
+        <FoldToolbar aria-label="Selection" data-focus-region="selection" rowClassName="gap-1 p-1" key={key} fold foldKey={key} placed={barSide(box)}>
           {scaling || editing ? null : <LockButton readOnly={readOnly} />}
           {scaling ? (
             <ScaleStrip />
           ) : variant === 'import' ? (
             <>
               <ImportActions readOnly={readOnly} />
-              <ChromeDivider />
+              <FoldDivider />
               <Tail />
             </>
           ) : variant === 'vector' ? (
@@ -1178,7 +1188,7 @@ function ElementsBar({ box }: { box: SelectionBarBox }) {
                 {SVG_STROKED.has(ctx.element.tag) ? null : <FillPopup ctx={ctx} />}
                 <StrokePopup ctx={ctx} />
               </Group>
-              <ChromeDivider />
+              <FoldDivider />
               <Tail />
             </>
           ) : variant === 'media' ? (
@@ -1187,12 +1197,12 @@ function ElementsBar({ box }: { box: SelectionBarBox }) {
                 <SourcePopup ctx={ctx} />
                 {element.tag === 'img' ? <CropButton ctx={ctx} board={board} item={first} single={items.length === 1} /> : null}
               </Group>
-              <ChromeDivider />
+              <FoldDivider />
               <Group>
                 <RadiusPopup ctx={ctx} />
                 <BorderPopup ctx={ctx} />
               </Group>
-              <ChromeDivider />
+              <FoldDivider />
               <Tail />
             </>
           ) : variant === 'text' ? (
@@ -1229,7 +1239,7 @@ function ElementsBar({ box }: { box: SelectionBarBox }) {
                 </StripButton>
                 {editing ? <EditingLinkPopup disabled={plain} /> : <LinkPopup ctx={ctx} board={board} item={first} single={items.length === 1} readOnly={readOnly} />}
               </Group>
-              <ChromeDivider />
+              <FoldDivider />
               <Group>
                 <AlignMenu ctx={ctx} />
                 <ListMenu
@@ -1239,7 +1249,7 @@ function ElementsBar({ box }: { box: SelectionBarBox }) {
                   onStart={() => startTextEdit(board, first, 'all') && useView.getState().textEdit?.plain !== true}
                 />
               </Group>
-              <ChromeDivider />
+              <FoldDivider />
               <Tail
                 lead={
                   items.length === 1 && !readOnly && !editing ? (
@@ -1256,16 +1266,16 @@ function ElementsBar({ box }: { box: SelectionBarBox }) {
                 <BackgroundPopup ctx={ctx} />
                 <BorderPopup ctx={ctx} />
               </Group>
-              <ChromeDivider />
+              <FoldDivider />
               <Group>
                 <RadiusPopup ctx={ctx} />
                 <SpacingPopup ctx={ctx} />
               </Group>
-              <ChromeDivider />
+              <FoldDivider />
               <Tail />
             </>
           )}
-        </Card>
+        </FoldToolbar>
       </TipGroup>
     </div>
   );

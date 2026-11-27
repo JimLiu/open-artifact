@@ -61,6 +61,7 @@ import type { McpToolClient } from './mcp.ts';
 import { getToolCacheGcTime } from './tool-cache.ts';
 import { cloneJsonData, errorToMessage, getErrorCode, isNonDataConnector, joinAlternatives, parseJsonOrText, stableStringify } from './util.ts';
 import { RECENTLY_SHOWN_MS, isFlakyLoad, markFlaky } from './retry.ts';
+import { isSharedCallError, sharedErrorToLoadFailure } from './shared-access.ts';
 
 /** What a query runs with: the tool client, and the clock its waits and timings use. */
 export interface QueryEnvironment {
@@ -502,7 +503,7 @@ export function runFileLoader(answer: unknown, loader: DatasetLoader): Promise<C
     () => [answer],
     loader,
     refuse,
-    Object.freeze({ bigquery: refuse, governed: refuse, snowflake: refuse, databricks: refuse }),
+    Object.freeze({ bigquery: refuse, governed: refuse, snowflake: refuse, databricks: refuse, sheet: refuse }),
     {},
   ).then(
     (result) => ('error' in result ? pageCodeFailure(result.error, result.meta) : result),
@@ -569,6 +570,7 @@ export function getQueryRefusalIgnoringValues(query: ExecutableQuery): string | 
 
 /** A tool call failure as a load's failure: the connection to fix, the view's limits, or the connector's own words. */
 export function mcpErrorToLoadFailure(connector: string, error: unknown): LoadFailure {
+  if (isSharedCallError(error)) return sharedErrorToLoadFailure(error);
   const code = getErrorCode(error);
   if (code === 'needs_reauth') return connectorReauthenticationRequired(connector);
   if (code === 'server_not_connected') return connectorMissing(connector);
@@ -645,6 +647,7 @@ export async function executeDatasetQuery(
         governed: (value: unknown) => hold(readers.governed(value)),
         snowflake: (value: unknown) => hold(readers.snowflake(value)),
         databricks: (value: unknown) => hold(readers.databricks(value)),
+        sheet: (value: unknown) => hold(readers.sheet(value)),
       });
       let readItems = false;
       const loaded = await runDatasetLoader(

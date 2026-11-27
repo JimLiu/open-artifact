@@ -5,7 +5,7 @@ import { isPointOnFillHandle } from '../selection/fill-handle.ts';
 import { selectedArea, mergedAreaOrCellOf, moveActiveCellTo, isSameCell } from '../selection/model.ts';
 import { layoutOfView } from '../grid/layout.ts';
 import { withoutOtherRanges } from '../selection/several-ranges.ts';
-import { commentAnchorOfCells, cellsOfCommentAnchor } from './anchors.ts';
+import { commentAnchorOfCells, cellsOfCommentAnchor, PARKED_DRAFT } from './anchors.ts';
 import { areaToA1AsStored } from '../formulas/from-words/where.ts';
 import { ownRowOrderOfSheet, wholeRowSpanIn } from '../model/line-ids.ts';
 import { withNoEffects, type PageEffect, type PageTransition } from '../state/transitions.ts';
@@ -47,9 +47,10 @@ export function isActiveCellInComment(
 }
 export function openCommentCountBySheet({ comments }: Pick<PageState, 'comments'>, reads: WorkbookReads): Map<SheetId, number> {
   let countBySheet = new Map<SheetId, number>();
-  for (let { cells, isResolved } of comments ?? []) {
+  for (let { handle, cells, isResolved } of comments ?? []) {
     let { sheetId } = cells.activeCell;
-    if (!isResolved && selectedAreaAsSeen(cells, reads) !== null) countBySheet.set(sheetId, (countBySheet.get(sheetId) ?? 0) + 1);
+    // A comment set aside is not one yet: its sheet's tab does not count it.
+    if (handle !== PARKED_DRAFT && !isResolved && selectedAreaAsSeen(cells, reads) !== null) countBySheet.set(sheetId, (countBySheet.get(sheetId) ?? 0) + 1);
   }
   return countBySheet;
 }

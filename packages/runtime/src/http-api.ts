@@ -32,6 +32,7 @@ import type {
   JsonValue,
   McpServerEntry,
   McpToolResult,
+  Participant,
   Peer,
   PublishBatch,
   PublishResult,
@@ -53,6 +54,7 @@ export const API = {
   agentSend: '_api/agent/send',
   presence: '_api/presence',
   peers: '_api/peers',
+  participants: '_api/participants',
   downloads: '_api/downloads',
   roomEmit: '_api/room/emit',
   dbGet: '_api/db/get',
@@ -81,7 +83,70 @@ export const API = {
    * run its live queries again (the host queues it; no connector runs there).
    */
   dataRefresh: '_api/data/refresh',
+  /** `GET` → {@link DataSharesResponse}: the connectors whose access the owner shares on this dashboard. */
+  dataShares: '_api/data/shares',
+  /** `POST` {@link DataShareRequest} → {@link DataShareResponse}: the owner shares (or, with no calls, stops sharing) a connector. */
+  dataShare: '_api/data/share',
+  /** `POST` {@link DataSharedRequest} → {@link DataSharedResponse}: runs approved calls with the sharer's connector. */
+  dataShared: '_api/data/shared',
 } as const;
+
+/** One exact call a share approves: its arguments keep their `{{filter}}` blanks. */
+export interface SharedConnectorCall {
+  connector: string;
+  tool: string;
+  /** The source is written `kind: "call"` (filters with rules). */
+  call?: true;
+  args: Record<string, unknown>;
+  rules?: Record<string, unknown>;
+}
+
+/** Who shares a connector, and since when (ms since the epoch). */
+export interface ConnectorShareHolder {
+  sharer: { id: string; name: string };
+  at: number;
+}
+
+/** `GET _api/data/shares`: each shared connector, with the key of every call it approves. */
+export interface DataSharesResponse {
+  shares: (ConnectorShareHolder & { connector: string; keys: string[] })[];
+}
+
+/** `POST _api/data/share`: the calls to approve; none stops sharing. */
+export interface DataShareRequest {
+  connector: string;
+  calls: SharedConnectorCall[];
+}
+
+export interface DataShareResponse {
+  connector: string;
+  /** `null` once sharing stopped. */
+  holder: ConnectorShareHolder | null;
+  count: number;
+}
+
+/** One call a viewer asks to run as the sharer, with the filter values it fills its blanks with. */
+export interface SharedCallRequest extends SharedConnectorCall {
+  params?: Record<string, unknown>;
+}
+
+/** `POST _api/data/shared`. `reuseMs` is how long the page reuses results (never under five minutes here). */
+export interface DataSharedRequest {
+  calls: SharedCallRequest[];
+  reuseMs?: number;
+  refresh?: boolean;
+}
+
+/** Why a shared call gave no result. */
+export type SharedCallCode = 'not_shared' | 'invalid_call' | 'not_approved' | 'value_refused' | 'tool_error' | 'too_large' | 'timeout' | 'connector_unavailable';
+
+export type SharedCallAnswer =
+  | (ConnectorShareHolder & { ok: true; result: Record<string, unknown>; ranAt: number })
+  | { ok: false; code: SharedCallCode; message?: string; sharer?: { id: string; name: string } };
+
+export interface DataSharedResponse {
+  answers: SharedCallAnswer[];
+}
 
 /** `POST _api/data/refresh`: the dataset ids to refresh, all live queries when left out. */
 export interface DataRefreshRequest {
@@ -151,6 +216,11 @@ export interface PresenceRequest {
 /** `GET _api/peers` */
 export interface PeersResponse {
   peers: Peer[];
+}
+
+/** `GET _api/participants`: the owner, then the people the artifact is shared with. */
+export interface ParticipantsResponse {
+  participants: Participant[];
 }
 
 /** `POST _api/room/emit` request body. Relayed to every other client as a `room` event. */

@@ -11,6 +11,7 @@ export * from './collab/HistoryViews.tsx';
 export * from './collab/PresenceViews.tsx';
 export * from './Announcer.tsx';
 export * from './chrome.tsx';
+export { FoldDivider, FoldGroup, FoldToolbar, useFolded, type FoldBand, type FoldGroupProps, type FoldToolbarProps } from './FoldToolbar.tsx';
 export { menuFit } from './menu-fit.ts';
 export * from './FindBar.tsx';
 export * from './PanelEdge.tsx';

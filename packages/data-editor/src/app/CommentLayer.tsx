@@ -86,7 +86,8 @@ export function CommentLayer(): ReactElement | null {
   );
   if (!available) return null;
   const found = active === null ? undefined : threads.find((t) => t.id === active);
-  const unplaced = found !== undefined && place(pageComments.anchorOf(found)) === null && !listOpen ? found : undefined;
+  // One on the whole dashboard opens by the list (`AllComments`).
+  const unplaced = found !== undefined && !pageComments.isWhole(found) && place(pageComments.anchorOf(found)) === null && !listOpen ? found : undefined;
   const close = (): void => {
     const state = useComments.getState();
     state.setDraft(null);

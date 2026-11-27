@@ -25,6 +25,8 @@ import { describeTarget, findTarget, inField, pickElement, readTarget } from './
 /** The store document a comment is about: the page, which the agent changes. */
 export const PAGE_FILE = 'files/index.html';
 export const MAX_THREADS = 500;
+/** What a comment on the whole dashboard is on (the "All comments" panel writes them). */
+export const WHOLE_ARTIFACT_LABEL = 'Whole artifact';
 const MODE_ATTR = 'data-dash-comment-layer';
 const HOST_MODE_ATTR = 'data-comment-mode';
 const HOVER_ATTR = 'data-dash-comment-hover';
@@ -46,7 +48,8 @@ export const pageComments = createComments<PageAnchor>({
   serialize: (anchor) => anchor.selector,
   label: (anchor) => anchor.label ?? 'Page',
   detail: (anchor) => anchor.detail,
-  location: (anchor) => ({ file: PAGE_FILE, selector: anchor.selector }),
+  // A comment on the whole dashboard names the page alone.
+  location: (anchor) => ({ file: PAGE_FILE, ...(anchor.selector ? { selector: anchor.selector } : {}) }),
   state: (anchor) => (typeof document === 'undefined' || findTarget(document, anchor.selector) !== null ? 'ok' : 'orphaned'),
   canComment: () => maybeSession()?.canComment ?? false,
   canSendToAgent: () => (maybeSession()?.canAsk ?? false) && maybeSession()?.agent !== null && useAgentActivity.getState().available,
@@ -57,6 +60,8 @@ export const pageComments = createComments<PageAnchor>({
   noun: 'dashboard',
   maxThreads: MAX_THREADS,
   reveal: (anchor) => revealTarget(anchor.selector),
+  wholeArtifact: () => ({ selector: '', label: WHOLE_ARTIFACT_LABEL }),
+  parksDrafts: true,
 });
 
 export const useComments = pageComments.store;

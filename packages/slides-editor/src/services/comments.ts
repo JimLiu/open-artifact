@@ -52,6 +52,9 @@ export const slidesComments = createComments<SlideAnchor>({
   noun: 'deck',
   maxThreads: 200,
   notify: (message) => toast.add(message),
+  // The whole deck (no slide): no pin; written from the "All comments" panel.
+  wholeArtifact: () => ({}),
+  parksDrafts: true,
 });
 
 /** The comments store. */

@@ -69,6 +69,10 @@ export const systemComments = createComments<CommentTarget>({
   agentWakesIdle: () => useAgent.getState().status.wakesIdle,
   noun: 'design system',
   maxThreads: 500,
+  // The whole system: written from the "All comments" panel, its card beside the panel.
+  wholeArtifact: () => ({ anchor: null }),
+  // A comment set aside shows on its item's badge, and pressing that takes it up again.
+  parksDrafts: true,
 });
 
 /** The comments store. */
@@ -83,6 +87,11 @@ export const canSendToAgent = systemComments.canSendToAgent;
 /** The item whose cards show beside its badge (`null`: the whole system); `undefined`: none. */
 export const useCommentScope = create<{ scope: SystemAnchor | undefined }>()(() => ({ scope: undefined }));
 
+// The panel's composer closes the item's cards; a comment begun there waits on its badge.
+useComments.subscribe((state, previous) => {
+  if (state.draft !== previous.draft && state.draft !== null && systemComments.isWholeAnchor(state.draft)) useCommentScope.setState({ scope: undefined });
+});
+
 /** Loads the threads and keeps them current; `?comment=<id>` (the protocol's `SHELL_PARAMS.comment`) opens one. */
 export async function startComments(): Promise<void> {
   const capability = session().comments ?? null;
@@ -95,12 +104,13 @@ export async function startComments(): Promise<void> {
 
 /**
  * Shows an item's threads beside its badge, with a composer for a new one for those who may comment (`undefined`:
- * opens the "All comments" panel instead).
+ * opens the "All comments" panel instead; `null`, the whole system: the panel, with its composer).
  */
 export function openComments(target?: SystemAnchor): void {
   const comments = useComments.getState();
-  if (target === undefined) {
+  if (target === undefined || target === null) {
     comments.setListOpen(true);
+    if (target === null && canComment()) systemComments.composeWhole();
     return;
   }
   useCommentScope.setState({ scope: target });

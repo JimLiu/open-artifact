@@ -183,6 +183,63 @@ editorSuite({
       }
     });
 
+    // 2026-11-27: a comment begun on an item is set aside on its badge while one on the whole system is written.
+    it('writes a comment on the whole system from All comments, setting aside one begun on a token until its badge is pressed', T, async (t) => {
+      const { startDaemon } = await import('../packages/daemon/src/daemon.ts');
+      const workspace = tmpDir('ds-whole');
+      const root = path.join(workspace, 'system');
+      copyFixture('design-system', root);
+      const previous = process.env.OPEN_ARTIFACT_HOME;
+      process.env.OPEN_ARTIFACT_HOME = path.join(workspace, 'daemon');
+      t.after(() => {
+        if (previous === undefined) delete process.env.OPEN_ARTIFACT_HOME;
+        else process.env.OPEN_ARTIFACT_HOME = previous;
+      });
+      const daemon = await startDaemon({ port: 0, quiet: true, builtinTypesDir: ctx.work });
+      const browser = await ctx.browser();
+      let page;
+      try {
+        const artifact = await daemon.tools.call('Artifact', { action: 'adopt', folder: root, type_url: 'open-artifact://type/design-system' }, { harness: 'cli', session: null, workspace });
+        page = await browser.load(artifact.view_url, { ready: "document.querySelector('[data-comments-button]')" });
+        const shellButton = "document.querySelector('[data-comments-button] button')";
+        const inFrame = async (expression) => (await page.evaluateAll(`document.querySelector('.ds-pages') ? (${expression}) : undefined`)).find((value) => value !== undefined && value !== null);
+        const itemLayer = "document.querySelector('[data-comments-layer]')?.shadowRoot";
+        const panel = "document.querySelector('[data-comments-panel-layer]')?.shadowRoot?.querySelector('[data-comments-panel]')";
+        const box = `${panel}?.querySelector('textarea[aria-label="Add a comment"]')`;
+        const parked = "document.querySelector('[data-comment-badge][data-comment-parked]')";
+        assert.ok(await page.waitFor("document.querySelector('.ds-pages')"));
+        await clickOn(page, shellButton);
+        assert.ok(await page.waitFor("document.querySelector('main[data-commenting]')"));
+        await page.evaluateAll("document.querySelector('button[aria-label^=\"ink in light\"]')?.click()");
+        assert.ok(await page.waitFor(itemLayer + "?.querySelector('[data-comment-card] textarea')"));
+        await page.type('Darker ink');
+        // The panel's composer opens with nothing refused; the words wait on the token's badge.
+        await clickOn(page, buttonNamed('Comment options'));
+        await clickOn(page, "[...document.querySelectorAll('[role=menuitem]')].find(el => el.textContent.includes('Show all comments'))");
+        assert.ok(await page.waitFor(`${panel}?.querySelector('[data-comments-compose]')`, 5000), 'the panel has no Add comment');
+        await page.evaluateAll(`${panel}?.querySelector('[data-comments-compose]')?.click()`);
+        assert.ok(await page.waitFor(`${box} && ${box}.value === '' && ${parked} && !${itemLayer}?.querySelector('[data-comment-card] textarea')`, 5000), 'the comment on the token was not set aside');
+        assert.equal(await inFrame(`${parked}.getAttribute('aria-label')`), 'Your draft comment');
+        assert.ok(!(await page.evaluateAll(`!!${panel}?.querySelector('[data-comments-compose-refused]')`)).includes(true), 'the panel refused');
+        await page.evaluateAll(`${box}?.focus()`);
+        await page.type('The system reads well');
+        await page.press('Enter');
+        const commentFile = path.join(root, 'comments.json');
+        const saved = () => fs.existsSync(commentFile) && JSON.parse(fs.readFileSync(commentFile, 'utf8')).threads.find((thread) => thread.messages.some((m) => m.text === 'The system reads well'));
+        assert.ok(await until(saved, 10000), 'the comment on the whole system was not saved');
+        assert.equal(saved().anchor, '{}');
+        assert.equal(saved().label, 'Whole design system');
+        assert.ok(await page.waitFor(`${panel}?.querySelector('[data-comment-whole-artifact]')?.textContent.includes('Whole artifact')`, 5000), 'the row does not say Whole artifact');
+        // The badge takes the comment up again, with its words, beside the token.
+        await page.evaluateAll(`${parked}?.click()`);
+        assert.ok(await page.waitFor(`${itemLayer}?.querySelector('[data-comment-card] textarea')?.value === 'Darker ink' && !${parked}`, 5000), 'the comment set aside did not come back with its words');
+        assert.deepEqual(page.problems, []);
+      } finally {
+        await page?.close();
+        daemon.close();
+      }
+    });
+
     it('the overview shows the README, and opening the page writes the generated files', T, async () => {
       const page = ctx.page();
       assert.ok(page, 'the page did not open');
@@ -676,6 +733,67 @@ editorSuite({
         assert.ok(await page.waitFor(`${frame}.contentWindow.tries > 12`, 5000));
         assert.equal(await page.evaluate(`document.activeElement?.id`), 'typing-here', 'the preview took focus');
         assert.equal(await page.evaluate(`${frame}.contentDocument.getElementById('pop').open`), true, 'the dialog did not show');
+        assert.deepEqual(page.problems, []);
+      } finally {
+        await page.close();
+      }
+    });
+
+    it('Escape typed outside a font picker open in a dialog closes the picker, and the next Escape the dialog', T, async () => {
+      const { url } = await ctx.openNew('dialog-escape');
+      const page = await (await ctx.browser()).load(url, { ready: textIn('Warm paper surfaces') });
+      const dialog = `!!document.querySelector('[role=dialog] input[placeholder^="Name, e.g. Display"]')`;
+      const picker = `!!document.querySelector('[aria-label="Font of the set fonts"]')`;
+      const openPicker = async () => {
+        await clickOn(page, `document.querySelector('[role=dialog] [aria-label^="Font of the set:"]')`, 'the font picker');
+        assert.ok(await page.waitFor(picker, 5000), 'the font picker did not open');
+      };
+      try {
+        await clickOn(page, `[...document.querySelectorAll('nav button')].find(b => b.textContent.startsWith('Typography'))`, 'Typography');
+        await clickOn(page, `[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Add type set')`, 'Add type set');
+        assert.ok(await page.waitFor(dialog, 5000), 'no dialog');
+        // The focus back in the dialog's name field while the picker stays open.
+        await openPicker();
+        await page.evaluate(`document.querySelector('[role=dialog] input[placeholder^="Name, e.g. Display"]').focus()`);
+        await page.press('Escape');
+        assert.ok(await page.waitFor(`!(${picker})`, 3000), 'the picker stayed open');
+        assert.equal(await page.evaluate(dialog), true, 'Escape closed the dialog with the picker');
+        // The focus on the page itself.
+        await openPicker();
+        await page.evaluate(`document.activeElement.blur()`);
+        await page.press('Escape');
+        assert.ok(await page.waitFor(`!(${picker})`, 3000), 'the picker stayed open');
+        assert.equal(await page.evaluate(dialog), true, 'Escape closed the dialog with the picker');
+        await page.press('Escape');
+        assert.ok(await page.waitFor(`!(${dialog})`, 3000), 'the next Escape left the dialog open');
+        assert.deepEqual(page.problems, []);
+      } finally {
+        await page.close();
+      }
+    });
+
+    it('a number field that takes no negative numbers drops a typed minus sign and says so', T, async () => {
+      const { root, url } = await ctx.openNew('number-minus', (c, dir) => {
+        copyFixture('design-system', dir);
+        const file = path.join(dir, 'project', 'tokens.json');
+        const tokens = JSON.parse(fs.readFileSync(file, 'utf8'));
+        tokens.shadow = { tokens: [{ name: 'shadow-sm', value: '0 1px 2px #00000033', usage: 'Cards.' }] };
+        fs.writeFileSync(file, JSON.stringify(tokens));
+      });
+      const file = path.join(root, 'project', 'tokens.json');
+      const saved = () => JSON.parse(fs.readFileSync(file, 'utf8')).shadow.tokens[0].value;
+      const page = await (await ctx.browser()).load(url, { ready: `document.querySelector('button[aria-label^="Edit shadow-sm"]')` });
+      const blur = `document.querySelector('input[aria-label="Shadow 1 blur"]')`;
+      const said = `[...document.querySelectorAll('[aria-live="polite"]')].map(region => region.textContent).join(' | ')`;
+      try {
+        await page.evaluate(`document.querySelector('button[aria-label^="Edit shadow-sm"]').scrollIntoView({ block: 'center' })`);
+        await clickOn(page, `document.querySelector('button[aria-label^="Edit shadow-sm"]')`, 'the shadow');
+        assert.ok(await page.waitFor(blur, 5000), 'no shadow editor');
+        await page.evaluate(`(() => { const input = ${blur}; input.focus(); input.select(); })()`);
+        await page.type('-7');
+        await page.press('Enter');
+        assert.ok(await until(() => /^0(?:px)? 1px 7px /.test(saved()), 10000), `saved ${saved()}`);
+        assert.ok(await page.waitFor(`(${said}).includes('Minus sign ignored. Shadow 1 blur doesn’t take negative numbers.')`, 3000), `said: ${await page.evaluate(said)}`);
         assert.deepEqual(page.problems, []);
       } finally {
         await page.close();

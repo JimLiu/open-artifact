@@ -24,6 +24,7 @@ import {
 } from './fonts.ts';
 import { isComposingKey, preventRepeatedActivation } from './keys.ts';
 import { POPUP_CLASS } from './menu.tsx';
+import { useEscapeHandoffRef } from './escape-to-popup.ts';
 
 /** A font the design system provides. */
 export interface DesignSystemFont {
@@ -211,12 +212,13 @@ export function FontPicker({
       <ChevronDown className="size-3.5 shrink-0 text-fg-subtle" />
     </button>
   );
+  const handoffRef = useEscapeHandoffRef();
   return (
     <BasePopover.Root open={open} onOpenChange={(next) => setOpen(next)}>
       <BasePopover.Trigger render={element} disabled={disabled} onKeyDown={preventRepeatedActivation} />
       <BasePopover.Portal>
         <BasePopover.Positioner side="bottom" align="start" sideOffset={6} collisionPadding={8} className="z-[1000]">
-          <BasePopover.Popup aria-label={`${label} fonts`} className={cn(POPUP_CLASS, 'w-72 p-0')}>
+          <BasePopover.Popup ref={handoffRef} aria-label={`${label} fonts`} className={cn(POPUP_CLASS, 'w-72 p-0')}>
             {open ? (
               <FontList
                 value={mixed ? null : value}

@@ -9,6 +9,7 @@ import {
   parseGovernedQueryXml,
   readBigQueryResult,
   readDatabricksResult,
+  readSheetResult,
   readSnowflakeResult,
   ResultReaderError,
 } from '../src/index.ts';
@@ -156,6 +157,76 @@ describe('governed XML', () => {
   it('formats scanned bytes', () => {
     assert.equal(formatScannedBytes('512'), '512 bytes');
     assert.equal(formatScannedBytes('1572864'), '1.5 MB');
+  });
+});
+
+describe('sheet cells', () => {
+  const ctx = context([]);
+
+  it('reads value.rows: the first filled row names the columns, blank rows are skipped', async () => {
+    const answer = await readSheetResult(
+      {
+        value: {
+          rows: {
+            '1': [null, ''],
+            '2': ['Region', { markdown: "'Total" }],
+            '3': ["'North", { formula: '=B9*2', value: 12 }],
+            '4': ['', null],
+            '5': ['South', { formula: '=1/0', error: '#DIV/0!' }],
+          },
+        },
+      },
+      ctx,
+    );
+    assert.ok(answer !== null && 'table' in answer);
+    assert.deepEqual(answer.table.columns, ['Region', 'Total']);
+    assert.deepEqual(plain(answer.table.rows), [
+      { Region: 'North', Total: 12 },
+      { Region: 'South', Total: '#DIV/0!' },
+    ]);
+  });
+
+  it('takes typed fields in order and joins lists', async () => {
+    const answer = await readSheetResult(
+      {
+        rows: {
+          '1': ['When', 'Who', 'Amount', 'At'],
+          '2': [{ date: '2026-01-02' }, [{ user: 'u1', name: 'Ana' }, { user: 'u2', name: 'Bo' }], { number: 3, shown: '$3' }, { time: '09:30' }],
+          '3': [{ dateTime: '2026-01-02T09:30' }, { value: { value: 'deep' } }, { number: 4, error: '#N/A' }, 'x'],
+        },
+        revision: 4,
+      },
+      ctx,
+    );
+    assert.ok(answer !== null && 'table' in answer);
+    assert.deepEqual(plain(answer.table.rows), [
+      { When: '2026-01-02', Who: 'Ana, Bo', Amount: 3, At: '09:30' },
+      { When: '2026-01-02T09:30', Who: 'deep', Amount: 4, At: 'x' },
+    ]);
+  });
+
+  it('names blank and repeated headers, and pads short rows', async () => {
+    const answer = await readSheetResult({ value: { rows: { '1': ['a', '', 'a'], '2': ['x'] } } }, ctx);
+    assert.ok(answer !== null && 'table' in answer);
+    assert.deepEqual(answer.table.columns, ['a', 'column_2', 'a_']);
+    assert.deepEqual(plain(answer.table.rows), [{ a: 'x', column_2: null, a_: null }]);
+  });
+
+  it('fails as too slow when the calculation took too long, and declines other shapes', async () => {
+    const slow = await readSheetResult({ value: { rows: {}, calculationTookTooLong: true } }, ctx);
+    assert.ok(slow !== null && 'error' in slow);
+    assert.equal(slow.timedOut, true);
+    assert.equal(await readSheetResult({ value: { rows: [] } }, ctx), null);
+    assert.equal(await readSheetResult({ rows: { '1': 'a' } }, ctx), null);
+    assert.equal(await readSheetResult('rows', ctx), null);
+  });
+
+  it('is a loader reader', async () => {
+    const readers = createLoaderResultReaders(context([]));
+    const rows = await readers.sheet({ value: { rows: { '1': ['n'], '2': [{ number: 1 }] } } });
+    assert.deepEqual(rows.columns, ['n']);
+    assert.deepEqual(plain(rows.data), [{ n: 1 }]);
+    await assert.rejects(readers.sheet({ value: { rows: {}, calculationTookTooLong: true } }), ResultReaderError);
   });
 });
 

@@ -13,16 +13,30 @@ import { redoDraft, remixDraft, useDraftFlow } from './flow.ts';
 import { FormPicture } from './FormPictures.tsx';
 import { usePersonName } from './people.ts';
 import { useCanAskAgent } from './request.ts';
-import { DRAFT_PICK_FORMAT_MESSAGE, DRAFT_PICK_FORMAT_REPLACES_MESSAGE, REMIX_FORMAT_TITLE, VIEW_DRAFT_LABEL, draftWaitingMessage } from './words.ts';
+import { useSharedDraft } from './shared-flow.ts';
+import {
+  DRAFT_PICK_FORMAT_MESSAGE,
+  DRAFT_PICK_FORMAT_REPLACES_MESSAGE,
+  REMIX_FORMAT_TITLE,
+  REMIX_SHARED_HELD_MESSAGE,
+  REMIX_STYLE_HELD_MESSAGE,
+  VIEW_DRAFT_LABEL,
+  draftWaitingMessage,
+} from './words.ts';
 
 /** Asks for a remix once unsaved hand edits are dealt with. */
 function pick(form: string): void {
   askWithEdits(() => void remixDraft(form));
 }
 
-/** The Format section of the Design panel; `titled` heads it "Format". */
-export function RemixPanel({ titled = true, held = false }: { titled?: boolean; held?: boolean }): ReactNode {
+/**
+ * The Format section of the Design panel; `titled` heads it "Format". `held`: unsaved style changes keep the formats
+ * waiting; so does a shared draft holding changes.
+ */
+export function RemixPanel({ titled = true, held: styleHeld = false }: { titled?: boolean; held?: boolean }): ReactNode {
   const canAsk = useCanAskAgent();
+  const sharedHeld = useSharedDraft((state) => state.on && state.view.ready);
+  const held = styleHeld || sharedHeld;
   const flow = useDraftFlow();
   const { view } = flow;
   const owner = usePersonName(view.head !== null && !view.mine ? view.head.by : '');
@@ -71,6 +85,7 @@ export function RemixPanel({ titled = true, held = false }: { titled?: boolean; 
           })}
         </div>
       ) : null}
+      {held && forms.length > 0 ? <p className="text-[13px] text-chrome-fg">{styleHeld ? REMIX_STYLE_HELD_MESSAGE : REMIX_SHARED_HELD_MESSAGE}</p> : null}
       {!view.mine && view.ready && !busy ? (
         <div className="flex flex-col gap-2 text-[13px] text-chrome-fg">
           <p>{draftWaitingMessage(owner)}</p>

@@ -89,6 +89,7 @@ import { clampBetween } from './geometry.ts';
 import { cornerStyleOnTables } from '../agent/agent-at-work.tsx';
 import { changedFromDefaultLabel } from '../messages/defaults-and-limits.ts';
 import { protectionMessages } from '../messages/protection.ts';
+import { PARKED_DRAFT } from '../comments/anchors.ts';
 /** Where the grid's body starts: right of the row numbers and under the column letters. */
 export type BodyOrigin = Pick<PaneRect, 'left' | 'top'>;
 /** A checkbox drawn in a cell: whether it is checked, where its middle is, and whether it can be changed. */
@@ -1181,10 +1182,11 @@ export function GridDrawing({
           <div key={`${edge.table?.key ?? ''} ${edge.side}`} aria-hidden className="sheet-edge-to-move-cells-by" style={boxInBody(edge, body)} />,
       )}{grid.marksOfComments.map(
         ({ key, isOpen, isPointedAt, endsWith, ...box }) =>
-          (<div key={key} aria-hidden className="sheet-comment-mark" data-is-open={isOpen} data-is-comment-pointed-at={isPointedAt || undefined} {...{
+          (<div key={key} aria-hidden className="sheet-comment-mark" data-is-open={isOpen} data-is-comment-pointed-at={isPointedAt || undefined} data-is-parked={key === PARKED_DRAFT || undefined} {...{
                 [COMMENT_LAYER_ATTR]: key,
               }} data-is-corner-under-outline={endsWith !== null} style={clippedBoxStyle(box, body)}>{jsx('div', {
                 [COMMENT_CORNER_ATTR]: key,
+                ...(key === PARKED_DRAFT ? { title: PARKED_DRAFT_TITLE } : {}),
               })}</div>),
       )}{grid.marksOfProtections.map(
         ({ isKeptFromViewer, ...box }, index) =>
@@ -1563,6 +1565,8 @@ export const COMMENT_DESCRIPTION_ID = 'comment-description';
 export const CHANGED_FROM_DEFAULT_ID = 'changed-from-default';
 export const COMMENT_SHORTCUT = IS_APPLE_PLATFORM ? 'Meta+Alt+M' : 'Control+Alt+M';
 export const COMMENT_CORNER_ATTR = 'data-comment-corner';
+/** What the mark of a comment set aside says under the mouse. */
+const PARKED_DRAFT_TITLE = 'Your draft comment';
 export const COMMENT_LAYER_ATTR = 'data-comment-layer';
 export const boxInBody = (box: PaneRect, body: BodyOrigin): PaneRect => ({
   left: body.left + box.left,

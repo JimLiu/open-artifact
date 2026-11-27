@@ -157,6 +157,15 @@ describe('executing queries', () => {
     assert.deepEqual(plain(result.table.rows), [{ n: 10 }, { n: 20 }]);
   });
 
+  it('gives a loader read.sheet for a sheet\'s cells', async () => {
+    const cells = { revision: 3, rows: { '1': ['Team', 'Score'], '2': ["'007", { formula: '=1+1', value: 2 }] } };
+    const { env } = environment(() => text(cells));
+    const result = await executeDatasetQuery(env, query(), undefined, { fn: ({ answer, read }) => read.sheet(answer) });
+    assert.ok(result.ok);
+    assert.deepEqual(result.table.columns, ['Team', 'Score']);
+    assert.deepEqual(plain(result.table.rows), [{ Team: '007', Score: 2 }]);
+  });
+
   it('lets a loader call more tools and fails with its error', async () => {
     const { env, calls } = environment((tool) => (tool === 'next_page' ? text([{ n: 2 }]) : text([{ n: 1 }])));
     const result = await executeDatasetQuery(env, query(), undefined, {

@@ -30,27 +30,30 @@ function useOpenByAnchor(): Map<string, CommentThread[]> {
 export function CommentBadge({ focus, className }: { focus: Focus; className?: string }) {
   const available = useComments((s) => s.available);
   const on = useComments((s) => s.on);
+  const key = serializeAnchor(focus);
+  // A comment begun here and set aside: the badge shows it, and pressing it takes it up again.
+  const parked = useComments((s) => s.parked !== null && serializeAnchor(s.parked.anchor.anchor) === key);
   const byAnchor = useOpenByAnchor();
   if (!available) return null;
-  const key = serializeAnchor(focus);
   const threads = byAnchor.get(key);
   const count = threads?.length ?? 0;
   const canStart = canComment() && (on || !maybeSession()?.shell);
-  if (!count && !canStart) return null;
+  if (!count && !canStart && !parked) return null;
   return (
     <button
       type="button"
       data-comment-badge={key}
-      aria-label={count ? `${count} comments on ${anchorLabel(focus)}` : `Comment on ${anchorLabel(focus)}`}
-      title={count ? `${count} open ${count === 1 ? 'comment' : 'comments'}` : 'Comment'}
+      data-comment-parked={parked ? '' : undefined}
+      aria-label={parked ? 'Your draft comment' : count ? `${count} comments on ${anchorLabel(focus)}` : `Comment on ${anchorLabel(focus)}`}
+      title={parked ? 'Your draft comment' : count ? `${count} open ${count === 1 ? 'comment' : 'comments'}` : 'Comment'}
       onClick={(event) => {
         event.stopPropagation();
-        if (canStart) openComments(focus);
+        if (canStart || parked) openComments(focus);
         else if (threads?.[0]) systemComments.reveal(threads[0]);
       }}
       className={cn(
         'inline-flex h-5 shrink-0 items-center gap-0.5 rounded-full px-1.5 text-[11px] font-semibold tabular-nums transition-opacity',
-        count ? 'bg-warning text-white' : 'text-fg-subtle opacity-0 hover:bg-hover hover:text-fg focus-visible:opacity-100 group-hover:opacity-100',
+        parked ? 'bg-accent text-white' : count ? 'bg-warning text-white' : 'text-fg-subtle opacity-0 hover:bg-hover hover:text-fg focus-visible:opacity-100 group-hover:opacity-100',
         className,
       )}
     >

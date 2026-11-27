@@ -54,6 +54,7 @@ function stageRoom(ctx: StageContext): { width: number; height: number } {
 export function CommentPins({ ctx, slide }: { ctx: StageContext; slide: Slide }): ReactNode {
   const threads = useComments((s) => s.threads);
   const draft = useComments((s) => s.draft);
+  const parked = useComments((s) => s.parked);
   const tick = useStageGesture((s) => s.layoutTick);
   const agent = useAgent((s) => s.status);
   const [layout, setLayout] = useState<{ points: Map<SlideAnchor, Point>; viewport: { width: number; height: number } }>(() => ({
@@ -69,8 +70,9 @@ export function CommentPins({ ctx, slide }: { ctx: StageContext; slide: Slide })
       if (anchor.slide === ctx.slideId) points.set(anchor, pinPoint(ctx, slide, anchor));
     }
     if (draft?.slide === ctx.slideId) points.set(draft, pinPoint(ctx, slide, draft));
+    if (parked?.anchor.slide === ctx.slideId) points.set(parked.anchor, pinPoint(ctx, slide, parked.anchor));
     setLayout({ points, viewport: stageRoom(ctx) });
-  }, [ctx, slide, threads, draft, tick]);
+  }, [ctx, slide, threads, draft, parked, tick]);
 
   const place = useCallback(
     (anchor: SlideAnchor): PinPlace | null => {

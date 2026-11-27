@@ -14,6 +14,7 @@ import { maybeDataEngine } from '../data/engine.ts';
 import { askSnapshotRefresh, snapshotFailure, snapshotLine, snapshotWords, useLiveSnapshot } from '../data/live-snapshot.ts';
 import { joinSentences } from '../data/util.ts';
 import { AgentWorking, DraftBar, EditBar, EditStatus, PageEditBar } from '../drafts/EditBar.tsx';
+import { PublishControl, SharedUndoBar } from '../drafts/PublishControl.tsx';
 import { STYLE_BAR_WORDS } from '../drafts/words.ts';
 import { cancelStyle, saveStyle, useStyleEditor } from '../design/style.ts';
 import { useDraftFlow } from '../drafts/flow.ts';
@@ -232,6 +233,7 @@ export function Toolbar({ data, text, empty, checkWorking }: ToolbarProps): Reac
   const center: ReactNode = (
     <>
       <PageEditBar tipSide="bottom" />
+      <SharedUndoBar tipSide="bottom" />
       <DraftBar tipSide="bottom" />
       <StyleBar />
       {checkWorking ? <AgentWorking /> : null}
@@ -251,6 +253,7 @@ export function Toolbar({ data, text, empty, checkWorking }: ToolbarProps): Reac
       </div>
       {empty ? null : <div className="dash-toolbar-center">{center}</div>}
       <div className="dash-toolbar-end">
+        {empty ? null : <PublishControl />}
         {empty ? null : <EditModeSlot />}
         {empty || !designAvailable ? null : (
           <ToolButton

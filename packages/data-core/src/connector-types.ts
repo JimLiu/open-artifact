@@ -129,7 +129,7 @@ export type ResultReader = (
   context: ReaderContext,
 ) => ConnectorAnswer | null | Promise<ConnectorAnswer | null>;
 
-export type ReaderKind = 'bigquery' | 'governed' | 'snowflake' | 'databricks';
+export type ReaderKind = 'bigquery' | 'governed' | 'snowflake' | 'databricks' | 'sheet';
 
 export interface BigQueryJob {
   jobId: string;

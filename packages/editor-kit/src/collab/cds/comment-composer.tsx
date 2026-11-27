@@ -4,11 +4,16 @@
  * mention it puts in front of the text. Same DOM, data attributes and class strings.
  *
  * Added here: `context`, the line above a new comment that says what it is about (the anchor's label).
+ *
+ * With `mentions`, `@` opens a list of whom the comment can name (see ../mentions/mention-list.tsx). A comment that mentions the
+ * agent goes to it: the checkbox shows ticked and cannot be cleared while the mention is in the text.
  */
 import { useContext, useLayoutEffect, useRef, type KeyboardEvent, type MouseEvent, type Ref } from 'react';
 import { Badge, Button, cn, mergeRefs, panelClass, panelVars, PlainEditor, useCdsRoot } from './cds.tsx';
 import { COMMENT_TEXT_BYTES } from '../comments.ts';
+import { AGENT_KEY } from '../mentions.ts';
 import { ReplyFieldContext, SendBox, type SendBoxSpec } from './comment-card.tsx';
+import { MentionMarks, useMentions, type MentionsSpec } from '../mentions/mention-list.tsx';
 
 /** The footer shown. */
 const FOOTER_SHOWN = 'grid-rows-[1fr] pt-md opacity-100';
@@ -32,8 +37,8 @@ const DRAFT_HEIGHT = 'scroll-thin max-h-[min(8lh,max(2lh,var(--comment-card-room
 export interface CommentComposerProps {
   value: string;
   onChange: (value: string) => void;
-  /** Enter or the send button; `send` is the checkbox. */
-  onSubmit: (text: string, how: { send: boolean }) => void;
+  /** Enter or the send button; `send`: it goes to the agent (the checkbox, or a mention); `to`: whom it names. */
+  onSubmit: (text: string, how: { send: boolean; to: string[] }) => void;
   /** Escape. */
   onCancel?: () => void;
   placeholder?: string;
@@ -44,12 +49,14 @@ export interface CommentComposerProps {
   context?: string;
   label?: string;
   textareaRef?: Ref<HTMLTextAreaElement>;
+  /** Who `@` can name; without it `@` is plain text. */
+  mentions?: MentionsSpec;
 }
 
 export function CommentComposer({
   value,
   onChange,
-  onSubmit,
+  onSubmit: submitWith,
   onCancel,
   placeholder = 'Add your comment',
   sendBox,
@@ -58,14 +65,28 @@ export function CommentComposer({
   context,
   label = 'Comment',
   textareaRef,
+  mentions,
 }: CommentComposerProps) {
   const { dark } = useCdsRoot();
   const inReplyField = useContext(ReplyFieldContext);
   const reply = inReplyField || form === 'reply';
   const standalone = !inReplyField;
+  const editor = useRef<HTMLTextAreaElement | null>(null);
+  const field = useMentions(mentions, value, onChange, editor);
+  const agentName = mentions?.agentName ?? 'agent';
+  const mentionsAgent = sendBox !== undefined && field.mentionsAgent;
+  const sends = mentionsAgent || Boolean(sendBox?.checked);
   const mentionable = !reply && sendBox !== undefined;
-  const tagged = mentionable && sendBox.checked;
+  // The tag stands for a mention the text does not have yet.
+  const tagged = mentionable && sends && !mentionsAgent;
   const hasSendBox = sendBox !== undefined;
+  /** Sends `text`: to the agent when the box is ticked or the text mentions it (and then it names the agent), with whom it names. */
+  const onSubmit = (text: string, _box: { send: boolean }): void => {
+    const named = field.targets(text);
+    submitWith(text, { send: sends, to: sends && !named.includes(AGENT_KEY) ? [AGENT_KEY, ...named] : named });
+  };
+  /** The send button says where the comment goes. */
+  const namedFor = sends && sendBox ? { 'aria-label': sendBox.label } : {};
   const empty = value.trim() === '';
   const idle = inReplyField && !busy && empty;
   const footerIdle = idle && hasSendBox;
@@ -73,7 +94,6 @@ export function CommentComposer({
   const root = useRef<HTMLDivElement>(null);
   const grid = useRef<HTMLDivElement>(null);
   const mention = useRef<HTMLSpanElement>(null);
-  const editor = useRef<HTMLTextAreaElement | null>(null);
 
   // The text starts after the @agent tag: --cc-tag-w is its width.
   useLayoutEffect(() => {
@@ -146,14 +166,15 @@ export function CommentComposer({
       }}
       className="shrink-0"
       data-cds-part="send"
+      {...namedFor}
     />
   );
 
   const entry = (
-    <div ref={grid} className={cn('grid min-w-0', mentionable && 'text-body font-normal')}>
+    <div ref={grid} className={cn('relative grid min-w-0', mentionable && 'text-body font-normal')}>
       {tagged && (
         <span ref={mention} aria-hidden data-cds-part="mention" className="flex h-[1lh] items-center justify-self-start [grid-area:1/1]">
-          <Badge>@agent</Badge>
+          <Badge>@{agentName}</Badge>
         </span>
       )}
       <div className="min-w-0 [grid-area:1/1]">
@@ -162,7 +183,12 @@ export function CommentComposer({
           value={value}
           onChange={onChange}
           onSubmit={submit}
-          onKeyDown={onKeyDown}
+          onKeyDown={(event) => field.onKeyDown(event) || onKeyDown(event)}
+          onKeyUp={field.onKeyUp}
+          onClick={field.onCaret}
+          onFocus={field.onCaret}
+          onBlur={field.onBlur}
+          {...(mentions ? field.aria : {})}
           placeholder={tagged ? undefined : placeholder}
           aria-label={label}
           maxLength={COMMENT_TEXT_BYTES}
@@ -175,6 +201,8 @@ export function CommentComposer({
           )}
         />
       </div>
+      <MentionMarks value={value} names={field.names} field={editor} />
+      {field.parts}
     </div>
   );
 
@@ -221,7 +249,7 @@ export function CommentComposer({
             )}
           >
             <div className="flex min-w-0">
-              <SendBox box={sendBox} disabled={busy} />
+              <SendBox box={sendBox} disabled={busy} lockedBy={mentionsAgent ? agentName : undefined} />
             </div>
             {sendButton}
           </div>

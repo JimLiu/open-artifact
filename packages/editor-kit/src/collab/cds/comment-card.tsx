@@ -35,7 +35,10 @@ import {
   useCdsRoot,
   type MenuItemSpec,
 } from './cds.tsx';
+import { isComposingKey } from '@open-artifact/ui';
 import { COMMENT_TEXT_BYTES } from '../comments.ts';
+import { AGENT_KEY } from '../mentions.ts';
+import { MentionMarks, useMentions, type MentionsSpec } from '../mentions/mention-list.tsx';
 
 const CardContext = createContext({ expanded: false });
 const InRepliesContext = createContext(false);
@@ -51,8 +54,21 @@ export interface SendBoxSpec {
   onCheckedChange: (checked: boolean) => void;
 }
 
-export function SendBox({ box, disabled = false }: { box: SendBoxSpec; disabled?: boolean }) {
-  return <Checkbox label={box.label} checked={box.checked} disabled={disabled} onCheckedChange={box.onCheckedChange} />;
+/**
+ * `lockedBy`: the text mentions the agent by this name, so the comment goes to it whatever the box says. The box shows
+ * ticked and cannot be cleared (it says why); what the viewer had ticked comes back when the mention goes.
+ */
+export function SendBox({ box, disabled = false, lockedBy }: { box: SendBoxSpec; disabled?: boolean; lockedBy?: string }) {
+  if (lockedBy === undefined) return <Checkbox label={box.label} checked={box.checked} disabled={disabled} onCheckedChange={box.onCheckedChange} />;
+  const reason = `Your comment mentions @${lockedBy}. Remove the mention to uncheck.`;
+  return (
+    <Tooltip content={reason}>
+      <span data-send-locked="" className="inline-flex min-w-0">
+        <Checkbox label={box.label} checked disabled onCheckedChange={() => {}} />
+        <span className="sr-only">{reason}</span>
+      </span>
+    </Tooltip>
+  );
 }
 
 /** Hover-revealed action group of a comment that is not pinned. */
@@ -492,49 +508,72 @@ export function EditField({
   onCancel,
   busy = false,
   sendBox,
+  mentions,
+  onChanged,
 }: {
   savedValue: string;
-  onSave: (text: string) => void;
+  /** `send`: hand the thread to the agent (the box, or a mention of it); `to`: whom the message names now. */
+  onSave: (text: string, how: { send: boolean; to: string[] }) => void;
   onCancel: () => void;
+  /** Whether the words now differ from the saved ones, each time that turns. */
+  onChanged?: (changed: boolean) => void;
   busy?: boolean;
   sendBox?: SendBoxSpec;
+  /** Who `@` can name (with `picked`: whom the saved text already names). */
+  mentions?: MentionsSpec;
 }) {
   const [value, setValue] = useState(savedValue);
   const [initialChecked] = useState(sendBox?.checked);
   const part = useRef<HTMLDivElement>(null);
   const box = useRef<HTMLDivElement>(null);
   const editor = useRef<HTMLTextAreaElement>(null);
+  const field = useMentions(mentions, value, setValue, editor);
+  const mentionsAgent = sendBox !== undefined && field.mentionsAgent;
   useFocusPart(part, editor);
+  const changed = value.trim() !== savedValue.trim();
+  useEffect(() => onChanged?.(changed), [changed]);
   const save = () => {
     if (busy) return;
     const text = value.trim();
+    const send = mentionsAgent || Boolean(sendBox?.checked);
     const unchanged = text === savedValue.trim() && sendBox?.checked === initialChecked;
-    if (text === '' || unchanged) onCancel();
-    else onSave(text);
+    if (text === '' || unchanged) return onCancel();
+    const named = field.targets(text);
+    onSave(text, { send, to: send && !named.includes(AGENT_KEY) ? [AGENT_KEY, ...named] : named });
   };
   return (
     <div ref={part} data-cds-part="edit-field" className="flex flex-col gap-xs" onMouseDown={event => focusOnBareClick(event, box.current)}>
       <div ref={box} className={FIELD_CLASS}>
-        <PlainEditor
-          ref={editor}
-          aria-label="Edit comment"
-          maxLength={COMMENT_TEXT_BYTES}
-          value={value}
-          onChange={setValue}
-          onSubmit={save}
-          readOnly={busy}
-          className="scroll-thin max-h-[8lh]"
-          onKeyDown={event => {
-            if (event.key === 'Escape' && !event.nativeEvent.isComposing && event.nativeEvent.keyCode !== 229) {
-              event.preventDefault();
-              event.stopPropagation();
-              if (!busy) onCancel();
-            }
-          }}
-        />
+        <div className="relative min-w-0">
+          <PlainEditor
+            ref={editor}
+            aria-label="Edit comment"
+            maxLength={COMMENT_TEXT_BYTES}
+            value={value}
+            onChange={setValue}
+            onSubmit={save}
+            readOnly={busy}
+            className="scroll-thin max-h-[8lh]"
+            onKeyDown={event => {
+              if (field.onKeyDown(event)) return;
+              if (event.key === 'Escape' && !isComposingKey(event.nativeEvent)) {
+                event.preventDefault();
+                event.stopPropagation();
+                if (!busy) onCancel();
+              }
+            }}
+            onKeyUp={field.onKeyUp}
+            onClick={field.onCaret}
+            onFocus={field.onCaret}
+            onBlur={field.onBlur}
+            {...(mentions ? field.aria : {})}
+          />
+          <MentionMarks value={value} names={field.names} field={editor} />
+        </div>
+        {field.parts}
       </div>
       <div className="flex flex-wrap items-center gap-sm">
-        {sendBox && <SendBox box={sendBox} disabled={busy} />}
+        {sendBox && <SendBox box={sendBox} disabled={busy} lockedBy={mentionsAgent ? mentions?.agentName : undefined} />}
         <div className="ms-auto flex items-center gap-sm">
           <Button variant="secondary" aria-disabled={busy || undefined} onClick={busy ? undefined : onCancel}>
             Cancel

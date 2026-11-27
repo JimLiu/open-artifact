@@ -16,8 +16,9 @@ import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSP
 import { isComposingKey } from '@open-artifact/ui';
 import type { CommentMessage, CommentThread } from '@open-artifact/runtime';
 import { Avatar, Button, cn, Icon, Menu, MenuItems, MenuPopup, Tooltip, type MenuItemSpec } from './cds/cds.tsx';
-import { Actions, Comment, CommentCard, DeleteConfirm, MoreMenu, Replies, ReplyField, ResolveAction, useLayerMenu, type WorkingState } from './cds/comment-card.tsx';
+import { Actions, Comment, CommentCard, DeleteConfirm, EditField, MoreMenu, Replies, ReplyField, ResolveAction, useLayerMenu, type WorkingState } from './cds/comment-card.tsx';
 import { CommentComposer as CdsComposer } from './cds/comment-composer.tsx';
+import { type MentionsSpec } from './mentions/mention-list.tsx';
 import { EdgePiles, edgePiles, stackPins } from './cds/edge-piles.tsx';
 import { CommentsLayer, InLayer } from './cds/layer.tsx';
 import { commentMarkdown } from './cds/markdown.tsx';
@@ -25,6 +26,7 @@ import { commentTime } from './cds/time.ts';
 import { openMessageCount, queuedNote, WAIT_FOR_STATUS_CHANGE, type CommentsController } from './comments.ts';
 import { ALL_COMMENTS_RIGHT } from './CommentList.tsx';
 import { draftedText } from '../agent.ts';
+import { AGENT_KEY, leadsWithAgent, mentionName, sentMentionNames } from './mentions.ts';
 import { screenBox, toScreenPoint, toWorldPoint, type AnchorState, type Box, type Camera, type PinPlace, type Point } from './pins.ts';
 
 /** Pixels the pointer must travel before a press becomes a drag. */
@@ -368,6 +370,7 @@ function PinButton({
   pin,
   avatar,
   draft = false,
+  parked = false,
   label,
   title,
   expanded,
@@ -378,6 +381,8 @@ function PinButton({
   pin: PinBox;
   avatar: ReactNode;
   draft?: boolean;
+  /** A comment set aside: drawn like the one being written, and pressed to take it up again. */
+  parked?: boolean;
   label: string;
   title?: string;
   expanded?: boolean;
@@ -405,11 +410,12 @@ function PinButton({
     <button
       type="button"
       data-comment-pin={pinId}
+      data-comment-parked={parked ? '' : undefined}
       aria-label={label}
       title={title}
       aria-expanded={expanded}
       tabIndex={draft ? -1 : undefined}
-      className={cn(PIN_CLASS, draft ? 'bg-fill-accent' : 'bg-surface-2 shadow-panel-sm')}
+      className={cn(PIN_CLASS, draft || parked ? 'bg-fill-accent' : 'bg-surface-2 shadow-panel-sm')}
       style={style}
       {...events}
     >
@@ -423,6 +429,41 @@ function PinButton({
 function authorName(message: CommentMessage, agent: AgentBadge): string {
   if (message.author.kind === 'agent') return message.author.name || agent.name;
   return message.author.name || 'Someone';
+}
+
+/**
+ * Who a box's `@` can name: the agent (when the viewer may send to it), who has the artifact and who is here (asked for
+ * at the first `@`), then whoever the threads name. `picked`: whom a message being edited already names.
+ */
+export function useMentionsSpec<A>(comments: CommentsController<A>, agent: AgentBadge, sendable: boolean, picked?: readonly string[]): MentionsSpec {
+  const self = comments.store((s) => s.self);
+  // The list draws from these: a change redraws it.
+  comments.store((s) => s.known);
+  comments.store((s) => s.threads);
+  return {
+    agentName: agent.name,
+    agentListed: sendable,
+    people: () => comments.mentionPeople(),
+    self: self ?? { name: comments.viewerName() },
+    onFirstUse: () => comments.followPeople(),
+    avatar: (option) =>
+      option.kind === 'agent' ? <Avatar name={option.label} variant="agent" className="size-[14px]" /> : <Avatar name={option.label} className="size-[14px] text-[7px]" />,
+    ...(picked ? { picked: picked.filter((key) => key !== AGENT_KEY).map((key) => ({ key, name: mentionName(key) })) } : {}),
+  };
+}
+
+/**
+ * A message's text, with the `@names` it was sent to drawn as mentions; one a person sent to the agent without naming it
+ * leads with an `@agent` tag.
+ */
+function messageText(message: CommentMessage, agent: AgentBadge, flat = false): ReactNode {
+  const text = commentMarkdown(message.text, { flat, mentions: sentMentionNames(message.to, agent.name) });
+  if (!leadsWithAgent(message, agent.name)) return text;
+  return (
+    <>
+      <span data-sent-to-agent="" className="font-medium text-accent">{`@${agent.name}`}</span> {text}
+    </>
+  );
 }
 
 function threadAvatar(thread: CommentThread, agent: AgentBadge): ReactNode {
@@ -481,6 +522,7 @@ export function CommentPins<A>({ comments, camera, viewport, place, highlight, a
   const threads = comments.store((s) => s.threads);
   const active = comments.store((s) => s.active);
   const draft = comments.store((s) => s.draft);
+  const parked = comments.store((s) => s.parked);
   const on = comments.store((s) => s.on);
   const showResolved = comments.store((s) => s.showResolved);
   const listOpen = comments.store((s) => s.listOpen);
@@ -494,16 +536,22 @@ export function CommentPins<A>({ comments, camera, viewport, place, highlight, a
     for (const thread of threads) {
       if (thread.messages.length === 0) continue;
       if (thread.status !== 'open' && !showResolved && thread.id !== active) continue;
+      // On the whole artifact: no pin (its card opens by the list, or where the type puts it).
+      if (comments.isWhole(thread)) continue;
       const anchor = comments.anchorOf(thread);
       const at = place(anchor);
       if (at) out.push({ key: thread.id, thread, anchor, state: at.state, world: at.world });
     }
-    if (draft !== null) {
+    if (draft !== null && !comments.isWholeAnchor(draft)) {
       const at = place(draft);
       if (at) out.push({ key: 'draft', thread: null, anchor: draft, state: at.state, world: at.world });
     }
+    if (parked !== null) {
+      const at = place(parked.anchor);
+      if (at) out.push({ key: 'parked', thread: null, anchor: parked.anchor, state: at.state, world: at.world });
+    }
     return out;
-  }, [available, threads, active, draft, showResolved, place, revision, comments, placementCamera]);
+  }, [available, threads, active, draft, parked, showResolved, place, revision, comments, placementCamera]);
 
   const focusKey = draft !== null ? 'draft' : active;
   const focusedAnchor = anchored.find((p) => p.key === focusKey)?.anchor;
@@ -514,6 +562,7 @@ export function CommentPins<A>({ comments, camera, viewport, place, highlight, a
 
   const placed = anchored.map((p) => ({ ...p, screen: toScreenPoint(camera, p.world) }));
   const focus = placed.find((p) => p.key === focusKey);
+  const waiting = placed.find((p) => p.key === 'parked');
   const lit = screenTransform ? cachedHighlight : focus && highlight ? highlight(focus.anchor) : null;
   const pinned = placed.filter((p) => p.thread);
 
@@ -599,6 +648,16 @@ export function CommentPins<A>({ comments, camera, viewport, place, highlight, a
           <CommentPopover key={open.key} pin={pinBox(open.screen, viewport)} viewport={viewport} onEscape={() => select(null)}>
             {(maxHeight) => <ThreadCard comments={comments} agent={agent} thread={open.thread!} state={open.state} maxHeight={maxHeight} />}
           </CommentPopover>
+        ) : null}
+        {waiting && parked ? (
+          <PinButton
+            pin={pinBox(waiting.screen, viewport)}
+            parked
+            screenTransform={screenTransform}
+            label="Your draft comment"
+            avatar={<Avatar name={comments.viewerName()} size="sm" />}
+            onClick={() => comments.store.getState().setDraft(parked.anchor)}
+          />
         ) : null}
         {focus && !focus.thread && draft !== null ? (
           <>
@@ -757,8 +816,21 @@ export function ThreadCard<A>(props: ThreadCardProps<A>): ReactNode {
 
 function ThreadCardBody<A>({ comments, agent, thread, state, maxHeight, onClose }: ThreadCardProps<A>): ReactNode {
   const [confirming, setConfirming] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-  const [replying, setReplying] = useState(false);
+  // What is being edited and what is on its way live in the store: the panel's composer waits for them.
+  const editing = comments.store((s) => (s.editing?.thread === thread.id ? s.editing : null));
+  const deleting = comments.store((s) => s.writing.includes(`delete:${thread.id}`));
+  const replying = comments.store((s) => s.writing.includes(`reply:${thread.id}`));
+  const saving = comments.store((s) => editing !== null && s.writing.includes(`edit:${editing.message}`));
+  const setEditing = (next: { id: string; send: boolean; changed?: boolean } | null): void =>
+    comments.store.getState().setEditing(next && { thread: thread.id, message: next.id, send: next.send, changed: next.changed ?? false });
+  // An edit ends with its card.
+  useEffect(
+    () => () => {
+      const state = comments.store.getState();
+      if (state.editing?.thread === thread.id) state.setEditing(null);
+    },
+    [comments, thread.id],
+  );
   const change = comments.store((s) => s.statusChange);
   const nameId = useId();
   const region = useRef<HTMLDivElement>(null);
@@ -767,16 +839,44 @@ function ThreadCardBody<A>({ comments, agent, thread, state, maxHeight, onClose 
   const sendable = comments.canSendToAgent() && agent.available;
   const commenting = comments.canComment();
   const [top, ...replies] = thread.messages;
+  const mentions = useMentionsSpec(comments, agent, sendable);
+  const editMentions = useMentionsSpec(comments, agent, sendable, thread.messages.find((m) => m.id === editing?.message)?.to);
   if (!top) return null;
   const close = onClose ?? (() => comments.store.getState().setActive(null));
   const note = comments.stateNote(state ?? comments.stateOf(comments.anchorOf(thread)));
   const sendLabel = `Send to ${agent.name}`;
-  const topItems: MenuItemSpec[] = comments.canRemove()
-    ? [{ label: 'Delete thread', icon: 'Trash', variant: 'danger', onSelect: () => setConfirming(true) }]
-    : [];
   const status = thread.status === 'open' ? thread.agent?.status : undefined;
   const working: WorkingState | undefined = status === 'pending' ? 'queued' : status === 'delivered' ? 'working' : undefined;
   const setDraft = (next: { text: string; send: boolean }): void => comments.store.getState().setReply(thread.id, next);
+  const editItem = (message: CommentMessage): MenuItemSpec[] =>
+    comments.canEdit(message.author) ? [{ label: 'Edit', icon: 'Edit', onSelect: () => setEditing({ id: message.id, send: false }) }] : [];
+  const topItems: MenuItemSpec[] = [
+    ...editItem(top),
+    ...(comments.canRemove() ? [{ label: 'Delete thread', icon: 'Trash' as const, variant: 'danger' as const, onSelect: () => setConfirming(true) }] : []),
+  ];
+  /** The edit box in place of a message's text, while it is the one being edited. */
+  const editor = (message: CommentMessage): ReactNode =>
+    editing?.message === message.id ? (
+      <EditField
+        key={message.id}
+        savedValue={message.text}
+        busy={saving}
+        mentions={editMentions}
+        sendBox={sendable ? { label: sendLabel, checked: editing.send, onCheckedChange: (send) => setEditing({ id: editing.message, send, changed: editing.changed }) } : undefined}
+        onChanged={(changed) => {
+          const now = comments.store.getState().editing;
+          if (now?.message === message.id && now.changed !== changed) comments.store.getState().setEditing({ ...now, changed });
+        }}
+        onCancel={() => setEditing(null)}
+        onSave={(text, { send, to }) => {
+          // A message that went to the agent keeps saying so.
+          const named = message.to?.includes(AGENT_KEY) && !to.includes(AGENT_KEY) ? [AGENT_KEY, ...to] : to;
+          void comments.edit(thread.id, message.id, text, { send: sendable && send, to: named }).then((saved) => {
+            if (saved && comments.store.getState().editing?.message === message.id) setEditing(null);
+          });
+        }}
+      />
+    ) : undefined;
 
   return (
     <CommentCard
@@ -797,11 +897,11 @@ function ThreadCardBody<A>({ comments, agent, thread, state, maxHeight, onClose 
               value={draft.text}
               onChange={(text) => setDraft({ ...draft, text })}
               sendBox={sendable ? { label: sendLabel, checked: draft.send, onCheckedChange: (send) => setDraft({ ...draft, send }) } : undefined}
+              mentions={mentions}
               busy={replying}
-              onSubmit={(text, { send }) => {
+              onSubmit={(text, { send, to }) => {
                 follow.start();
-                setReplying(true);
-                void comments.reply(thread.id, text, { send: sendable && send }).finally(() => setReplying(false));
+                void comments.reply(thread.id, text, { send: sendable && send, to });
               }}
               onCancel={close}
             />
@@ -815,15 +915,13 @@ function ThreadCardBody<A>({ comments, agent, thread, state, maxHeight, onClose 
         agent={top.author.kind === 'agent'}
         timestamp={commentTime(top.at)}
         footnote={note ?? undefined}
+        editor={editor(top)}
         confirm={
           confirming ? (
             <DeleteConfirm
               busy={deleting}
               onCancel={() => setConfirming(false)}
-              onDelete={() => {
-                setDeleting(true);
-                void comments.remove(thread.id).finally(() => setDeleting(false));
-              }}
+              onDelete={() => void comments.remove(thread.id)}
             />
           ) : undefined
         }
@@ -846,13 +944,26 @@ function ThreadCardBody<A>({ comments, agent, thread, state, maxHeight, onClose 
           ) : undefined
         }
       >
-        {commentMarkdown(top.text)}
+        {messageText(top, agent)}
       </Comment>
       {replies.length > 0 || working ? (
         <Replies>
           {replies.map((message) => (
-            <Comment key={message.id} authorName={authorName(message, agent)} agent={message.author.kind === 'agent'} timestamp={commentTime(message.at)}>
-              {commentMarkdown(message.text)}
+            <Comment
+              key={message.id}
+              authorName={authorName(message, agent)}
+              agent={message.author.kind === 'agent'}
+              timestamp={commentTime(message.at)}
+              editor={editor(message)}
+              actions={
+                comments.canEdit(message.author) ? (
+                  <Actions>
+                    <MoreMenu items={editItem(message)} />
+                  </Actions>
+                ) : undefined
+              }
+            >
+              {messageText(message, agent)}
             </Comment>
           ))}
           {working ? <Comment authorName={agent.name} agent working={working} footnote={working === 'queued' ? queuedNote(agent) : thread.agent?.drafted ? draftedText(agent.name).label : 'Working…'} /> : null}
@@ -865,6 +976,9 @@ function ThreadCardBody<A>({ comments, agent, thread, state, maxHeight, onClose 
 /* -------------------------------------------------------------------------- */
 /* The new comment's composer                                                  */
 /* -------------------------------------------------------------------------- */
+
+/** The panel composer's prompt and name. */
+const WHOLE_PLACEHOLDER = 'Add a comment';
 
 export interface CommentComposerProps<A> {
   comments: CommentsController<A>;
@@ -887,25 +1001,29 @@ export function CommentComposer<A>(props: CommentComposerProps<A>): ReactNode {
 function ComposerBody<A>({ comments, agent, anchor, onCancel }: CommentComposerProps<A>): ReactNode {
   const text = comments.store((s) => s.draftText);
   const send = comments.store((s) => s.sendNew);
-  const [busy, setBusy] = useState(false);
+  const busy = comments.store((s) => s.writing.includes('new'));
   const field = useRef<HTMLTextAreaElement>(null);
   const sendable = comments.canSendToAgent() && agent.available;
+  const mentions = useMentionsSpec(comments, agent, sendable);
   useEffect(() => {
     field.current?.focus({ preventScroll: true });
   }, [anchor]);
   const cancel = (): void => (onCancel ? onCancel() : comments.store.getState().setDraft(null));
+  // On the whole artifact (the panel's composer): no line saying what it is on.
+  const whole = comments.isWholeAnchor(anchor);
   return (
     <CdsComposer
       textareaRef={field}
-      context={comments.labelOf(anchor)}
+      context={whole ? undefined : comments.labelOf(anchor)}
+      {...(whole ? { placeholder: WHOLE_PLACEHOLDER, label: WHOLE_PLACEHOLDER } : {})}
       value={text}
       onChange={(next) => comments.store.getState().setDraftText(next)}
       sendBox={sendable ? { label: `Send to ${agent.name}`, checked: send, onCheckedChange: (on) => comments.store.getState().setSendNew(on) } : undefined}
+      mentions={mentions}
       busy={busy}
       onSubmit={(body, how) => {
         if (busy) return;
-        setBusy(true);
-        void comments.create(anchor, body, { send: sendable && how.send }).finally(() => setBusy(false));
+        void comments.create(anchor, body, { send: sendable && how.send, to: how.to });
       }}
       onCancel={cancel}
     />

@@ -6,7 +6,7 @@ import zlib from 'node:zlib';
 import { after, before, describe, it } from 'node:test';
 import { findChrome, launch } from './lib/browser.mjs';
 import { cli, run as runCli } from './lib/cli.mjs';
-import { clickOn } from './lib/editor.mjs';
+import { checkFoldCard, clickOn } from './lib/editor.mjs';
 import { png, until } from './lib/http.mjs';
 import { browserOff, fixtures, install, removeTmp, skipFor, tmpDir, typePath } from './lib/target.mjs';
 
@@ -1220,6 +1220,27 @@ describe('whiteboard', { skip: skipFor('whiteboard') }, () => {
       assert.ok(await p.waitFor("!document.querySelector('.wb-crop')", 3000), 'Command-Z leaves crop mode');
       assert.ok(await until(() => saved().crop === undefined), 'the picture gets back its crop from before');
       assert.ok(await p.waitFor("document.querySelector('.wb-announcer')?.textContent === 'Cropping cancelled.'", 2000));
+      assert.deepEqual(p.problems, []);
+    } finally { await p.close(); await run.run(['stop', board]); }
+  });
+
+  it('folds the selection bar into More tools in a narrow view: the keyboard opens the card, Escape closes it and keeps the selection', { skip: noBrowser }, async () => {
+    const board = tmpDir('whiteboard-fold');
+    for (const sub of ['db/elements', 'db/board', '_blobs']) fs.mkdirSync(path.join(board, sub), { recursive: true });
+    fs.writeFileSync(path.join(board, 'db/board/meta.json'), JSON.stringify({ v: 1, title: 'Fold', order: ['box'] }));
+    fs.writeFileSync(path.join(board, 'db/elements/box.json'), JSON.stringify({ type: 'shape', kind: 'rect', x: 0, y: 0, w: 160, h: 100, color: 'blue', text: 'Narrow' }));
+    const { url: boardUrl } = await run.json(['open', board, '--type', 'whiteboard', '--json']);
+    const p = await browser.load('about:blank', { ready: 'true' });
+    const bar = `document.querySelector('[data-wb-bar="selection"]')`;
+    try {
+      await p.cdp('Emulation.setDeviceMetricsOverride', { width: 340, height: 640, deviceScaleFactor: 1, mobile: false });
+      await p.cdp('Page.navigate', { url: boardUrl });
+      assert.ok(await p.waitFor(`${ready} && document.querySelector('#wb-box')`, 10000));
+      // Clicked once the board has fitted itself to the view and the shape holds still.
+      await clickOn(p, "document.querySelector('#wb-box')", 'the shape');
+      assert.ok(await p.waitFor(bar, 5000), 'the shape is selected');
+      await checkFoldCard(p, bar);
+      assert.ok(await p.evaluate(`Boolean(${bar})`), 'Escape from the card kept the selection');
       assert.deepEqual(p.problems, []);
     } finally { await p.close(); await run.run(['stop', board]); }
   });

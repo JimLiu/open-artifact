@@ -8,6 +8,11 @@
  * someone else saved the page since the edit began, the save stops and a
  * notice says so; the next Save overwrites that change (the history keeps
  * it), Cancel shows it.
+ *
+ * Where people share a draft, hand edits go into it instead (joint mode):
+ * the edited page is written to the draft a moment after each change and
+ * again on leaving, there is no Save or Cancel, and the draft's Publish
+ * makes the edits live.
  */
 
 import { create } from 'zustand';
@@ -23,6 +28,9 @@ import { holdLeaveLosesWork, writeFile } from '../sync/index.ts';
 import { EDIT_OFF, changedElsewhere, reduceEditState, type EditAnswer, type EditDialogKind, type EditEvent, type EditState } from './edit-state.ts';
 import { sendPageRequest } from './request.ts';
 import { STATUS_MS } from './draft-state.ts';
+import { SHARED_KEEP_MS, beginJointEdits, discardShared, endJointEdits, isJointEditing, keepJointPage, prepareJointEdits, publishShared, useSharedDraft } from './shared-flow.ts';
+import { getShownContent } from '../state/shown.ts';
+import { SHARED_AGENT_WORKING_MESSAGE } from './words.ts';
 import {
   CANCEL_AND_ASK_MESSAGE,
   CHANGES_DISCARDED_LABEL,
@@ -72,6 +80,10 @@ export interface EditFlowState extends EditState {
   converting: 'asked' | 'working' | null;
   /** The stored page changed since the edit began; the behind notice shows. */
   behind: boolean;
+  /** Hand edits go into the shared draft. */
+  joint: boolean;
+  /** Joint mode: edits wait to be written to the draft. */
+  pending: boolean;
 }
 
 export const useEditFlow = create<EditFlowState>()(() => ({
@@ -82,6 +94,8 @@ export const useEditFlow = create<EditFlowState>()(() => ({
   status: null,
   converting: null,
   behind: false,
+  joint: false,
+  pending: false,
 }));
 
 /** How long a save waits for the dashboard to show the saved page, ms. */
@@ -103,6 +117,11 @@ let afterAsk: () => void = () => {};
 let releaseLeave: (() => void) | null = null;
 let statusTimer: ReturnType<typeof setTimeout> | undefined;
 let behindToast: string | null = null;
+/** Joint mode: the keep timer, the writes in order, and the text last written to the draft. */
+let keepTimer: ReturnType<typeof setTimeout> | undefined;
+let keeping: Promise<boolean> = Promise.resolve(true);
+let kept: string | null = null;
+let jointBegun = false;
 
 /** The stored entry page's text, or `null` without one. */
 export function storedEntryText(): string | null {
@@ -137,6 +156,7 @@ function failToast(reason: string): void {
 function refreshBehind(): void {
   const state = useEditFlow.getState();
   const behind =
+    !state.joint &&
     state.count > 0 && state.phase === 'editing' && (changedElsewhere(storedEntryText(), base, saved) || (stopped !== null && stoppedAt === changes));
   if (behind !== state.behind) useEditFlow.setState({ behind });
   if (behind && behindToast === null) behindToast = toast.add({ title: EDIT_BEHIND_MESSAGE, timeout: 0 });
@@ -149,8 +169,10 @@ function refreshBehind(): void {
 function readSession(): void {
   const count = current?.count() ?? 0;
   useEditFlow.setState({ count, canUndo: current?.canUndo?.() ?? false, canRedo: current?.canRedo?.() ?? false });
-  if (count > 0 && releaseLeave === null) releaseLeave = holdLeaveLosesWork();
-  else if (count === 0 && releaseLeave !== null) {
+  const { joint, pending } = useEditFlow.getState();
+  const unkept = joint ? pending : count > 0;
+  if (unkept && releaseLeave === null) releaseLeave = holdLeaveLosesWork();
+  else if (!unkept && releaseLeave !== null) {
     releaseLeave();
     releaseLeave = null;
   }
@@ -167,6 +189,7 @@ export function registerPageEditSession(session: PageEditSession | null): void {
       : session.subscribe(() => {
           changes += 1;
           if (useEditFlow.getState().status !== null) say(null);
+          if (useEditFlow.getState().joint) scheduleKeep();
           readSession();
         });
   readSession();
@@ -186,11 +209,81 @@ export function startPageEdit(options: { editable: () => boolean; misparsed?: bo
   base = storedEntryText();
   saved = null;
   stopped = null;
+  // Joint mode: the page as shown is what the edits start from, so writing it unchanged is no change.
+  kept = getShownContent().content.files.find((file) => file.name === DASHBOARD_ENTRY_FILENAME)?.text ?? null;
+  jointBegun = false;
+  const joint = isJointEditing();
+  if (joint) prepareJointEdits();
+  useEditFlow.setState({ joint, pending: false });
   dispatch({ type: 'pencil', editable: options.editable() });
 }
 
-/** Leaves edit mode when nothing is unsaved. */
+/** Joint mode: writes the edited page to the draft once edits rest. */
+function scheduleKeep(): void {
+  if (!jointBegun) {
+    jointBegun = true;
+    beginJointEdits();
+  }
+  useEditFlow.setState({ pending: true });
+  if (keepTimer !== undefined) clearTimeout(keepTimer);
+  keepTimer = setTimeout(() => {
+    keepTimer = undefined;
+    if (useEditFlow.getState().phase === 'editing') void keepNow();
+  }, SHARED_KEEP_MS);
+}
+
+/** Joint mode: writes the page as edited now to the draft (after any write under way). Resolves false when it wasn't kept. */
+function keepNow(): Promise<boolean> {
+  const write = async (): Promise<boolean> => {
+    if (current === null) return true;
+    const html = current.text();
+    if (html === kept) return true;
+    if (html !== storedEntryText() && current.readsBack?.(html) === false) {
+      failToast(CANCEL_AND_ASK_MESSAGE);
+      return false;
+    }
+    const outcome = await keepJointPage(html);
+    if (outcome === 'clash') {
+      current?.revert();
+      dispatch(useEditFlow.getState().phase === 'saving' ? { type: 'saved' } : { type: 'leave', dirty: false });
+      return false;
+    }
+    kept = html;
+    return true;
+  };
+  const at = changes;
+  keeping = keeping
+    .then(write)
+    .catch(() => {
+      failToast(TRY_AGAIN_LABEL);
+      return false;
+    })
+    .then((done) => {
+      if (done && at === changes) useEditFlow.setState({ pending: false });
+      readSession();
+      return done;
+    });
+  return keeping;
+}
+
+/** Joint mode: writes what's left to the draft and leaves edit mode. Resolves true once kept. */
+function leaveJoint(pause = true): Promise<boolean> {
+  if (keepTimer !== undefined) clearTimeout(keepTimer);
+  keepTimer = undefined;
+  if (useEditFlow.getState().phase !== 'editing') return Promise.resolve(true);
+  dispatch({ type: 'save' });
+  return keepNow().then((done) => {
+    if (useEditFlow.getState().phase === 'saving') dispatch({ type: done ? 'saved' : 'failed' });
+    if (done) dispatch({ type: 'leave', dirty: false });
+    if (jointBegun) endJointEdits(pause);
+    jointBegun = false;
+    return done;
+  });
+}
+
+/** Leaves edit mode when nothing is unsaved (joint mode: once the edits are in the draft). */
 export function leavePageEdit(): void {
+  if (useEditFlow.getState().joint) return void leaveJoint();
   dispatch({ type: 'leave', dirty: useEditFlow.getState().count > 0 });
 }
 
@@ -199,9 +292,34 @@ export function cancelPageEdits(): void {
   dispatch({ type: 'cancel', dirty: useEditFlow.getState().count > 0 });
 }
 
-/** The bar's Save. */
+/** The bar's Save (joint mode: Publish, once the edits are in the draft). */
 export function savePageEdits(): Promise<SaveOutcome> {
+  if (useEditFlow.getState().joint) {
+    // Publish while editing: only once the draft or the edits hold a change, and not during the agent's turn.
+    const shared = useSharedDraft.getState();
+    if (!shared.view.ready && !useEditFlow.getState().pending) return Promise.resolve('unchanged');
+    if (shared.turn) {
+      toast.add({ title: SHARED_AGENT_WORKING_MESSAGE, timeout: 10_000 });
+      return Promise.resolve('failed');
+    }
+    return leaveJoint(false).then((done) => {
+      if (done) publishShared();
+      return done ? 'saved' : 'failed';
+    });
+  }
   return current === null ? Promise.resolve('failed') : saveEditedPage(current.text());
+}
+
+/** Joint mode: the draft's Discard while editing drops the edits, leaves edit mode and asks about the draft. */
+export function discardFromEdit(): void {
+  if (keepTimer !== undefined) clearTimeout(keepTimer);
+  keepTimer = undefined;
+  current?.revert();
+  useEditFlow.setState({ pending: false });
+  dispatch({ type: 'cancel', dirty: false });
+  if (jointBegun) endJointEdits(false);
+  jointBegun = false;
+  discardShared();
 }
 
 function waitForEntry(text: string): Promise<void> {
@@ -294,6 +412,10 @@ export async function saveEditedPage(html: string, options: { beforeAsk?: boolea
  * Save and ask (once saved) or Discard and ask.
  */
 export function askWithEdits(send: () => void): void {
+  if (useEditFlow.getState().joint && useEditFlow.getState().phase === 'editing') {
+    void keepNow();
+    return send();
+  }
   afterAsk = send;
   if (dispatch({ type: 'ask', dirty: useEditFlow.getState().count > 0 }).dialog === null) send();
 }
@@ -368,5 +490,7 @@ export function startEditFlow(): () => void {
     behindToast = null;
     releaseLeave?.();
     releaseLeave = null;
+    if (keepTimer !== undefined) clearTimeout(keepTimer);
+    keepTimer = undefined;
   };
 }

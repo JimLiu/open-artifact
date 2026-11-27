@@ -64,6 +64,39 @@ export async function clickOn(page, element, what = element) {
   await page.click(at.x, at.y);
 }
 
+/**
+ * A selection strip too wide for the view has folded (`strip`: an expression for it): its "More tools" button shows;
+ * Enter on it opens the card with the focus on the card's first control, and Escape closes the card and gives the
+ * focus back to the button.
+ */
+export async function checkFoldCard(page, strip) {
+  const toggle = `(${strip})?.querySelector('[data-fold-toggle]')`;
+  const card = `(${strip})?.querySelector('[data-fold-card]')`;
+  assert.ok(await page.waitFor(`${toggle}?.getClientRects().length > 0`, 5000),
+    `the strip shows no More tools button: ${await page.evaluate(`(s => s && JSON.stringify({ width: s.offsetWidth, max: getComputedStyle(s).maxWidth, view: innerWidth }))(${strip})`)}`);
+  assert.equal(await page.evaluate(`${toggle}.getAttribute('aria-label')`), 'More tools');
+  assert.ok(await page.evaluate(`${card}.querySelector('button, input') !== null`), 'nothing went into the card');
+  // The focus stays on the button for two looks in a row before Enter: a strip that just moved can take it back.
+  let held = false;
+  for (let tries = 0; tries < 30 && !held; tries++) {
+    await page.evaluate(`${toggle}.focus(); 1`);
+    await new Promise(resolve => setTimeout(resolve, 100));
+    held = await page.evaluate(`document.activeElement === ${toggle}`);
+    if (held) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+      held = await page.evaluate(`document.activeElement === ${toggle}`);
+    }
+  }
+  assert.ok(held, `More tools did not keep the focus: ${await page.evaluate('document.activeElement?.outerHTML.slice(0, 120)')}`);
+  await page.press('Enter');
+  assert.ok(await page.waitFor(`${card}?.hidden === false && ${card}.contains(document.activeElement)`, 3000),
+    `Enter on More tools left the focus on ${await page.evaluate('document.activeElement?.outerHTML.slice(0, 120)')}`);
+  assert.equal(await page.evaluate(`${toggle}.getAttribute('aria-expanded')`), 'true');
+  await page.press('Escape');
+  assert.ok(await page.waitFor(`${card}?.hidden === true && document.activeElement === ${toggle}`, 3000),
+    `Escape left the card open or the focus on ${await page.evaluate('document.activeElement?.outerHTML.slice(0, 120)')}`);
+}
+
 /** Type into the focused field the way a person does. */
 export async function typeInto(page, element, text) {
   await page.evaluate(`(${element}).focus()`);

@@ -5,7 +5,7 @@
 import { Collapsible } from '@base-ui/react/collapsible';
 import { Tabs as BaseTabs } from '@base-ui/react/tabs';
 import { Toast } from '@base-ui/react/toast';
-import { ChevronDown, X } from 'lucide-react';
+import { ChevronDown, CircleCheck, X } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState, type HTMLAttributes, type KeyboardEvent, type ReactNode } from 'react';
 import { cn } from './cn.ts';
 import { scrollStanding } from './focusables.ts';
@@ -54,7 +54,13 @@ export function Tabs<T extends string>({ value, onChange, items, className, trai
         <div className="ml-auto flex items-center gap-1">{trailing}</div>
       </div>
       {items.map((item) => (
-        <BaseTabs.Panel key={item.value} value={item.value} keepMounted={item.keepMounted} className="min-h-0 flex-1 overflow-auto outline-none">
+        // The open panel takes the focus after its tab (Tab from the strip), so it shows the focus ring then.
+        <BaseTabs.Panel
+          key={item.value}
+          value={item.value}
+          keepMounted={item.keepMounted}
+          className="min-h-0 flex-1 overflow-auto outline-none focus-visible:rounded focus-visible:outline-2 focus-visible:-outline-offset-1 focus-visible:outline-accent"
+        >
           {item.content}
         </BaseTabs.Panel>
       ))}
@@ -137,7 +143,11 @@ export function EmptyState({ icon, title, children }: { icon?: ReactNode; title:
 
 /* --------------------------------- Toasts --------------------------------- */
 
-/** The app-wide toast manager: `toast.add({ title, description })`. */
+/**
+ * The app-wide toast manager: `toast.add({ title, description })`. A toast
+ * with `type: 'success'` says something went through: a check mark, in the
+ * success color, on a light tint of it.
+ */
 export const toast = Toast.createToastManager();
 
 /**
@@ -238,8 +248,12 @@ function ToastList({ viewport }: { viewport: HTMLElement | null }) {
       key={item.id}
       toast={item}
       data-toast=""
-      className="pointer-events-auto flex w-80 items-start gap-3 rounded-lg bg-surface p-3 text-fg shadow-popup transition-[opacity,transform] data-[starting-style]:translate-y-2 data-[starting-style]:opacity-0 data-[ending-style]:opacity-0"
+      className={cn(
+        'pointer-events-auto flex w-80 items-start gap-3 rounded-lg bg-surface p-3 text-fg shadow-popup transition-[opacity,transform] data-[starting-style]:translate-y-2 data-[starting-style]:opacity-0 data-[ending-style]:opacity-0',
+        item.type === 'success' && 'bg-[color-mix(in_srgb,var(--color-success)_8%,var(--color-surface))] ring-1 ring-success',
+      )}
     >
+      {item.type === 'success' ? <CircleCheck aria-hidden="true" className="mt-px size-4 shrink-0 text-success" /> : null}
       <ToastBody>
         <Toast.Title className="text-[13px] font-semibold" />
         <Toast.Description className="text-xs text-fg-muted" />

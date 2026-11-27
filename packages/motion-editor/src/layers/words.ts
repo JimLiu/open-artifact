@@ -70,6 +70,15 @@ export const NOTHING_TO_RESET = 'Nothing to reset';
 export const READING_STYLES = 'Reading the styles…';
 export const COULD_NOT_READ_STYLES = 'Couldn’t read these words’ styles.';
 export const OWN_STYLE_REASON = 'The words here set this style themselves, so a change to the whole line wouldn’t show. Ask the agent to change it.';
+// The bar over the words in full screen.
+export const TEXT_STYLE = 'Text style';
+export const CLOSE = 'Close';
+export const WEIGHT_FIXED = 'The weight of these words can’t be changed here';
+export const ONE_WEIGHT = 'Only one weight of this font is available in this animation';
+export const NO_BOLD_WEIGHT = 'No bold weight of this font is available in this animation';
+export const ITALIC_FIXED = 'The italics of these words can’t be changed here';
+export const alignedTo = (side: string): string => `Alignment: ${side}`;
+export const italicName = (weight: string): string => `${weight} Italic`;
 export const WEIGHT_NAMES: Readonly<Record<number, string>> = {
   100: 'Thin',
   200: 'Extra light',

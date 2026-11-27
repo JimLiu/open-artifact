@@ -557,7 +557,7 @@ export async function copyLink(thread: CommentThread): Promise<void> {
   const tab = docComments.anchorOf(thread).tab;
   try {
     await navigator.clipboard.writeText(commentLink(docLinkBase().href, thread.id, tab));
-    toast.add({ title: 'Link copied' });
+    toast.add({ title: 'Link copied', type: 'success' });
   } catch {
     toast.add({ title: 'Couldn’t copy the link' });
   }

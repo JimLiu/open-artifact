@@ -1,6 +1,7 @@
 // End-to-end tests of the installed Motion type: CLI validation and write rules, live playback in Chrome,
 // the toolbar on top or at the bottom, compact Properties / Theme inspector, panel toggle announcements, layer retouching (Esc in Text styles back to the
-// picked row, a line whose words set their own weight) and SVG group hide parts, standalone HTML export after an
+// picked row, a line whose words set their own weight) and SVG group hide parts, the text styles bar over a pressed word
+// in full screen (folding when narrow), standalone HTML export after an
 // editor rebuild, the reload ask when a rebuild took away a part not loaded yet, Export dialog Escape, stray file-drop
 // guard, Read as text from the More menu (saved text, focus back to More), the
 // screen reader scene section, read-only inline iframe (#view-inline), a clip's own sound, captions and a counting
@@ -86,7 +87,7 @@ const SCENES_JSON = {
 
 const BASE_CSS = `:root { --bg: #f5efe6; --ink: #1c2430; --accent: #d98a3d; --muted: #6b7280; }
 .wrap { width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 28px; background: var(--bg); }
-.headline { font-family: var(--font-display, sans-serif); font-size: 72px; color: var(--ink); margin: 0; }`;
+.headline { font-family: var(--font-display, sans-serif); font-size: 72px; color: var(--ink); margin: 0; align-self: stretch; text-align: center; }`;
 
 describe(TYPE, { skip: skip() }, () => {
   let run, root, url, publicUrl, browser, page, editorAssets, downloads;
@@ -314,6 +315,127 @@ describe(TYPE, { skip: skip() }, () => {
         return document.querySelectorAll('[data-layers-tree] [data-layer$="/g"] button[aria-label^="Show "]').length > 0;
       })()`, 20_000),
     );
+  });
+
+  it('in full screen, a pressed word opens its line’s text styles on a bar over the words that folds when narrow', { ...T, skip: browserSkip }, async () => {
+    const BAR = `document.querySelector('[data-video-text-bar]')`;
+    const inBar = (label) => `${BAR}?.querySelector('[aria-label=${JSON.stringify(label)}]')`;
+    const centre = async (expression) => page.evaluate(`(() => { const e = ${expression}; if (!e) return null; const r = e.getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; })()`);
+    // Where an element rests once the page has settled (full screen moves the picture as the page grows).
+    const settled = async (expression) => {
+      let last = null;
+      for (let still = 0, tries = 0; still < 3 && tries < 50; tries++) {
+        const now = await centre(expression);
+        still = now !== null && last !== null && now[0] === last[0] && now[1] === last[1] ? still + 1 : 0;
+        last = now;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      return last;
+    };
+    // Paused at the start, with Properties open.
+    await page.evaluate(`(() => {
+      document.querySelector('[data-video-transport] button[aria-label="Pause"]')?.click();
+      document.querySelector('[data-video-transport] button[aria-label="Back to start"]')?.click();
+      if (!document.querySelector('[data-video-panel]')) document.querySelector('button[aria-label="Properties"]').click();
+    })()`);
+    const PROPERTIES_TAB = `[...document.querySelectorAll('[data-video-panel] [role="tab"]')].find((t) => t.textContent?.trim() === 'Properties')`;
+    assert.ok(await page.waitFor(PROPERTIES_TAB, 10_000));
+    await page.evaluate(`${PROPERTIES_TAB}.click()`);
+    assert.ok(await page.waitFor(`document.querySelector('[data-layers-tree] [role="treeitem"]')`, 20_000));
+    const full = await centre(`document.querySelector('button[aria-label="Full screen"]')`);
+    await page.click(...full);
+    try {
+      assert.ok(await page.waitFor(`document.fullscreenElement === document.documentElement`, 5000), 'the whole page goes full screen');
+      // The panel stays beside the player; its Layers section does not, and no bar shows before a word is pressed.
+      assert.ok(await page.waitFor(`Boolean(document.querySelector('[data-video-tweaks]')) && !document.querySelector('[data-layers-tree]')`, 5000), 'Layers leaves the panel in full screen');
+      assert.equal(await page.evaluate(`Boolean(${BAR})`), false);
+      const word = `document.querySelector('button[aria-label="Hello motion, change"]')`;
+      assert.ok(await page.waitFor(`Boolean(${word})`, 10_000), 'the words can be pressed');
+      await page.click(...(await settled(word)));
+      assert.ok(await page.waitFor(`Boolean(${inBar('Bold')}) && ${BAR}.getAttribute('role') === 'toolbar' && ${BAR}.getAttribute('aria-label') === 'Text styles'`, 15_000), 'the bar shows for the pressed word');
+      // Its field under Text has the focus, as out of full screen.
+      assert.equal(await page.evaluate(`document.activeElement?.getAttribute('aria-label')`), 'Text 1');
+      const layout = await page.evaluate(`(() => {
+        const bar = ${BAR}.getBoundingClientRect();
+        const picture = document.querySelector('[data-video-stage]').getBoundingClientRect();
+        const word = ${word}.getBoundingClientRect();
+        const tail = [...${BAR}.querySelectorAll('[data-fold-tail] [aria-label]')].map((b) => b.getAttribute('aria-label'));
+        return { inside: bar.left >= picture.left && bar.right <= picture.right + 0.5 && bar.top >= picture.top && bar.bottom <= picture.bottom + 0.5, above: bar.bottom <= word.top, tail };
+      })()`);
+      assert.deepEqual(layout, { inside: true, above: true, tail: ['Reset', 'Close'] }, JSON.stringify(layout));
+      // The color set by hand in the case above: Reset puts the line back, and is then off.
+      if ((await page.evaluate(`${inBar('Reset')}.disabled`)) === false) await page.click(...(await settled(inBar('Reset'))));
+      assert.ok(await page.waitFor(`${inBar('Reset')}?.disabled === true`, 15_000), 'Reset puts the line back');
+      // Bold from the bar sets the line's weight by hand: Reset is offered again.
+      const pressed = await page.evaluate(`${inBar('Bold')}.getAttribute('aria-pressed')`);
+      await page.click(...(await settled(inBar('Bold'))));
+      assert.ok(await page.waitFor(`${inBar('Bold')}?.getAttribute('aria-pressed') !== ${JSON.stringify(pressed)} && ${inBar('Reset')}?.disabled === false`, 15_000), 'Bold changes the line');
+      // Cmd+B (Ctrl elsewhere) toggles it back.
+      await page.press('b', process.platform === 'darwin' ? { meta: true } : { ctrl: true });
+      assert.ok(await page.waitFor(`${inBar('Bold')}?.getAttribute('aria-pressed') === ${JSON.stringify(pressed)}`, 15_000), 'Cmd+B toggles Bold');
+      // The style chip opens its fields, and Alignment its menu, over the full-screen page.
+      await page.click(...(await settled(`[...${BAR}.querySelectorAll('button[aria-label]')].find((b) => b.getAttribute('aria-label').startsWith('Text style: '))`)));
+      assert.ok(await page.waitFor(`Boolean(document.querySelector('[data-video-text-bar-fields] [aria-label="Font size"]'))`, 5000), 'the style chip opens its fields');
+      assert.deepEqual(await page.evaluate(`['Weight', 'Font size', 'Line height', 'Letter spacing'].filter((label) => document.querySelector('[data-video-text-bar-fields] [aria-label="' + label + '"]'))`), ['Weight', 'Font size', 'Line height', 'Letter spacing']);
+      await page.press('Escape');
+      assert.ok(await page.waitFor(`!document.querySelector('[data-video-text-bar-fields]')`, 5000), 'Escape closes the fields');
+      await page.click(...(await settled(`[...${BAR}.querySelectorAll('button[aria-label]')].find((b) => b.getAttribute('aria-label').startsWith('Alignment: '))`)));
+      assert.ok(await page.waitFor(`[...document.querySelectorAll('[role="menuitemradio"], [role="menuitemcheckbox"], [role="menuitem"]')].map((m) => m.textContent.trim()).join() === 'Left,Center,Right,Justify'`, 5000), `Alignment opens its menu: ${await page.evaluate(`[...document.querySelectorAll('[role^="menuitem"]')].map((m) => m.textContent.trim()).join()`)}`);
+      await page.press('Escape');
+      assert.ok(await page.waitFor(`!document.querySelector('[role^="menuitem"]')`, 5000), 'Escape closes the menu');
+      // Narrow: what does not fit folds into More tools; Reset and Close stay on the bar. (Not while the focus is on
+      // a control that would move: it goes back to the word's field first.)
+      await page.evaluate(`document.querySelector('[aria-label="Text 1"]').focus()`);
+      await page.cdp('Emulation.setDeviceMetricsOverride', { width: 560, height: 600, deviceScaleFactor: 1, mobile: false });
+      assert.ok(await page.waitFor('innerWidth === 560'));
+      assert.ok(await page.waitFor(`${BAR}?.hasAttribute('data-folded')`, 10_000), 'the bar folds when narrow');
+      const card = `${BAR}.querySelector('[data-fold-card]')`;
+      await page.click(...(await settled(`${BAR}.querySelector('[data-fold-toggle]')`)));
+      assert.ok(await page.waitFor(`${card}?.hidden === false`, 5000), 'More tools opens');
+      const folded = await page.evaluate(`(() => {
+        const stage = document.querySelector('[data-video-stage]').getBoundingClientRect();
+        const bar = ${BAR}.getBoundingClientRect();
+        return {
+          inCard: [...${card}.querySelectorAll('button[aria-label]')].map((b) => b.getAttribute('aria-label')),
+          tail: [...${BAR}.querySelectorAll('[data-fold-tail] [aria-label]')].filter((b) => !${card}.contains(b)).map((b) => b.getAttribute('aria-label')),
+          fits: bar.left >= stage.left - 0.5 && bar.right <= stage.right + 0.5,
+        };
+      })()`);
+      assert.ok(folded.inCard.length > 0 && !folded.inCard.includes('Reset') && !folded.inCard.includes('Close'), JSON.stringify(folded));
+      assert.deepEqual(folded.tail, ['Reset', 'Close'], JSON.stringify(folded));
+      assert.equal(folded.fits, true, JSON.stringify(folded));
+      await page.press('Escape');
+      assert.ok(await page.waitFor(`${card}?.hidden !== false`, 5000), 'Escape closes More tools');
+      assert.ok(await page.evaluate(`Boolean(${BAR})`), 'Escape from the card keeps the bar');
+      await page.cdp('Emulation.clearDeviceMetricsOverride');
+      // Close lets the bar go.
+      assert.ok(await page.waitFor(`Boolean(${inBar('Close')})`, 5000));
+      await page.click(...(await settled(inBar('Close'))));
+      assert.ok(await page.waitFor(`!${BAR}`, 5000), 'Close lets the bar go');
+      // The word's field taking the focus again does not bring it back; pressing the word again does.
+      await page.evaluate(`document.querySelector('[aria-label="Text 1"]').blur(); document.querySelector('[aria-label="Text 1"]').focus()`);
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      assert.equal(await page.evaluate(`Boolean(${BAR})`), false, 'the field’s focus brought the bar back');
+      await page.click(...(await settled(word)));
+      assert.ok(await page.waitFor(`Boolean(${inBar('Close')})`, 10_000), 'pressing the word again brings the bar back');
+    } finally {
+      await page.cdp('Emulation.clearDeviceMetricsOverride').catch(() => {});
+      await page.evaluate(`document.fullscreenElement ? document.exitFullscreen() : null`);
+    }
+    // Out of full screen the bar does not come back, the layers are listed again and nothing is picked.
+    assert.ok(await page.waitFor(`!document.fullscreenElement && Boolean(document.querySelector('[data-layers-tree] [role="treeitem"]'))`, 15_000));
+    assert.equal(await page.evaluate(`Boolean(${BAR}) || Boolean(document.querySelector('[data-layers-tree] [role="treeitem"][aria-selected="true"]'))`), false);
+    // Out of comment mode the comment layer lets presses through: with the panel closed (open, a press picks a
+    // layer), a press on the picture away from the words plays.
+    await page.evaluate(`document.querySelector('button[aria-label="Properties"]').click()`);
+    assert.ok(await page.waitFor(`!document.querySelector('[data-video-panel]')`, 5000));
+    const corner = await page.evaluate(`(() => { const r = document.querySelector('[data-video-stage]').getBoundingClientRect(); return [r.left + 12, r.bottom - 12]; })()`);
+    await page.click(...corner);
+    assert.ok(await page.waitFor(`Boolean(document.querySelector('[data-video-transport] button[aria-label="Pause"]'))`, 5000), 'a press on the picture plays');
+    await page.evaluate(`document.querySelector('[data-video-transport] button[aria-label="Pause"]')?.click()`);
+    assert.ok(await page.waitFor(`Boolean(document.querySelector('[data-video-transport] button[aria-label="Play"]'))`, 5000));
+    await page.evaluate(`document.querySelector('button[aria-label="Properties"]').click()`);
+    assert.ok(await page.waitFor(`Boolean(document.querySelector('[data-video-panel]'))`, 5000));
   });
 
   it('closes Export with Escape and blocks stray external file drops', { ...T, skip: browserSkip }, async () => {

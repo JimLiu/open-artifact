@@ -109,6 +109,9 @@ interface FrameAnchor {
   id?: string;
 }
 
+/** What a comment on the whole page is on: the empty anchor, as the shell stores it. */
+const WHOLE_PAGE: FrameAnchor = { value: '', label: 'Whole artifact' };
+
 /** The shell's pixels are the page's viewport pixels: no camera. */
 const CAMERA = { x: 0, y: 0, zoom: 1 };
 
@@ -128,7 +131,8 @@ function useWindowSize(): { width: number; height: number } {
 function toThread(t: PageThread): CommentThread {
   return {
     id: t.id,
-    anchor: JSON.stringify({ v: t.anchor ?? null, l: t.label ?? '', ...(t.detail ? { d: t.detail } : {}), i: t.id }),
+    // One on the whole page keeps the empty anchor, so the controller knows it.
+    anchor: t.anchor === '' ? '' : JSON.stringify({ v: t.anchor ?? null, l: t.label ?? '', ...(t.detail ? { d: t.detail } : {}), i: t.id }),
     label: t.label ?? '',
     location: {},
     status: t.resolved ? 'resolved' : 'open',
@@ -138,6 +142,7 @@ function toThread(t: PageThread): CommentThread {
 }
 
 function parseFrameAnchor(text: string): FrameAnchor {
+  if (text === '') return WHOLE_PAGE;
   try {
     const raw = JSON.parse(text) as { v?: unknown; l?: unknown; d?: unknown; i?: unknown };
     return {
@@ -220,6 +225,9 @@ export function mount(host: HTMLElement, bridge: FrameCommentsBridge, options: F
       if (!quiet) bridge.modeChanged(on);
     },
     noun: 'page',
+    // The whole page: no pin; written from the "All comments" panel.
+    wholeArtifact: () => WHOLE_PAGE,
+    parksDrafts: true,
   });
   const comments: CommentsController<FrameAnchor> = {
     ...base,
@@ -260,8 +268,9 @@ export function mount(host: HTMLElement, bridge: FrameCommentsBridge, options: F
     for (const l of listeners) l(threads);
   });
 
-  // Where the composer and cards sit when the page placed no pin for them.
+  // Where the composer and cards sit when the page placed no pin for them; and a comment set aside, where it was.
   let draftAt: Point = null;
+  let parkedAt: Point = null;
   const cardPoints = new Map<string, Point>();
   let placed: Record<string, Point> = {};
   let pageButton = false;
@@ -275,6 +284,7 @@ export function mount(host: HTMLElement, bridge: FrameCommentsBridge, options: F
 
   let lastActive: string | null = null;
   base.store.subscribe((state, prev) => {
+    if (state.parked && !prev.parked) parkedAt = placed.composer ?? draftAt;
     // A thread just written opens its card where the composer was.
     if (state.active && prev.draft && !state.draft && !cardPoints.has(state.active)) cardPoints.set(state.active, placed.composer ?? draftAt);
     if (state.active !== lastActive) {
@@ -286,6 +296,8 @@ export function mount(host: HTMLElement, bridge: FrameCommentsBridge, options: F
       bridge.composingChanged(state.draft !== null);
     }
     if (prev.listOpen !== state.listOpen) bridge.listChanged(state.listOpen);
+    // Taken up again: its composer opens where it was.
+    if (prev.parked && !state.parked && state.draft === prev.parked.anchor) draftAt = parkedAt;
   });
 
   function Views() {
@@ -306,7 +318,9 @@ export function mount(host: HTMLElement, bridge: FrameCommentsBridge, options: F
     const place = useCallback(
       (anchor: FrameAnchor): PinPlace | null => {
         // A thread's pin is where the page put it; the open one, until then, where its card was opened.
-        const at = anchor.id
+        const at = anchor === store.getState().parked?.anchor
+          ? parkedAt
+          : anchor.id
           ? (placed[anchor.id] ?? (anchor.id === active ? cardPoints.get(anchor.id) : null))
           : 'composer' in placed
             ? placed.composer
@@ -317,9 +331,10 @@ export function mount(host: HTMLElement, bridge: FrameCommentsBridge, options: F
       // eslint-disable-next-line react-hooks/exhaustive-deps
       [version, viewport.width, active],
     );
-    // An open thread with no place on the page: in the list alone while it is open, else a card near the top.
+    // An open thread with no place on the page: in the list alone while it is open, else a card near the top (one on the
+    // whole page opens by the list).
     const found = active ? all.find((t) => t.id === active) : undefined;
-    const unplaced = found && !place(comments.anchorOf(found)) && !listOpen ? found : undefined;
+    const unplaced = found && !comments.isWhole(found) && !place(comments.anchorOf(found)) && !listOpen ? found : undefined;
     const close = (): void => {
       const state = store.getState();
       state.setDraft(null);

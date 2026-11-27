@@ -2,7 +2,7 @@
 /**
  * Compiles the comments UI's stylesheet (src/collab/cds/comments.css) with the Tailwind classes its views use
  * (src/collab/cds/*.tsx, CommentViews.tsx, CommentList.tsx) into src/collab/cds/comments-css.ts, the string
- * layer.tsx puts in each comments layer's shadow root.
+ * layer.tsx puts in each comments layer's shadow root. The `@` list's views (src/collab/mentions/*.tsx) are scanned too.
  *
  * The output is committed, so building the editors needs no extra step; run this after changing comments.css or a
  * class in those views. `--check` only reports whether the committed file is current (exit code 1 when not).
@@ -28,6 +28,7 @@ export async function buildCommentsCss() {
     sources: [
       { base: cds, pattern: '*.tsx', negated: false },
       { base: collab, pattern: 'Comment{Views,List}.tsx', negated: false },
+      { base: join(collab, 'mentions'), pattern: '*.tsx', negated: false },
     ],
   }).scan();
   return optimize(compiler.build(candidates), { minify: true }).code;

@@ -24,8 +24,10 @@ export function useAgentBadge(): AgentBadge {
 /** Over the picture: pins at their moment, the composer, and clicks that place comments in comment mode. */
 export function CommentLayer(): ReactElement | null {
   const available = useComments((s) => s.available);
+  const on = useComments((s) => s.on);
   const active = useComments((s) => s.active);
   const draft = useComments((s) => s.draft);
+  const parked = useComments((s) => s.parked);
   const listOpen = useComments((s) => s.listOpen);
   const threads = useComments((s) => s.threads);
   const box = useUi((s) => s.stageBox);
@@ -43,24 +45,26 @@ export function CommentLayer(): ReactElement | null {
     (anchor: VideoAnchor): PinPlace | null => {
       const world = pinWorldPoint(anchor, film);
       if (world === null) return null;
-      const open = anchor === draft || anchor === activeAnchor || (activeAnchor !== null && sameAnchor(anchor, activeAnchor));
+      const open = anchor === draft || anchor === parked?.anchor || anchor === activeAnchor || (activeAnchor !== null && sameAnchor(anchor, activeAnchor));
       return open || anchorShowsAt(anchor, time, clock) ? { world, state: 'ok' } : null;
     },
-    [film, draft, activeAnchor, time, clock],
+    [film, draft, parked, activeAnchor, time, clock],
   );
   const highlight = useCallback((anchor: VideoAnchor): Box | null => anchorWorldBox(anchor, film), [film]);
   const anchorAt = useCallback((world: Point): VideoAnchor => pointAnchorAt(world, film, filmMomentOf(clock, usePlayback.getState().time)), [film, clock]);
   const areaAnchor = useCallback((a: Point, b: Point): VideoAnchor => boxAnchorAt(a, b, film, filmMomentOf(clock, usePlayback.getState().time)), [film, clock]);
   if (!available || box === null) return null;
   const found = active === null ? undefined : threads.find((t) => t.id === active);
-  const unplaced = found !== undefined && pinWorldPoint(filmComments.anchorOf(found), film) === null && !listOpen ? found : undefined;
+  // One on the whole animation opens by the list (`AllComments`).
+  const unplaced = found !== undefined && !filmComments.isWhole(found) && pinWorldPoint(filmComments.anchorOf(found), film) === null && !listOpen ? found : undefined;
   const close = (): void => {
     const state = useComments.getState();
     state.setDraft(null);
     state.setActive(null);
   };
   return (
-    <div className="absolute inset-0 z-[5]" data-uncommentable="">
+    // Out of comment mode only the pins and an open thread take presses: the rest reach the words and the picture.
+    <div className="absolute inset-0 z-[5]" style={on ? undefined : { pointerEvents: 'none' }} data-uncommentable="">
       <CommentCapture comments={filmComments} enabled camera={() => camera} anchorAt={anchorAt} areaAnchor={areaAnchor} highlight={highlight} revision={time} />
       <CommentPins comments={filmComments} camera={camera} viewport={viewport} place={place} highlight={highlight} agent={agent} revision={time} movable={false} piles={false} />
       <RangeMarkNote />

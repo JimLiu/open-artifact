@@ -8,6 +8,7 @@ import { recordsWithChanges } from '../engine/records.ts';
 import { LayersSection } from '../layers/LayersSection.tsx';
 import { useFilm } from '../stores/film.ts';
 import { usePlayback } from '../stores/playback.ts';
+import { useUi } from '../stores/ui.ts';
 import { useWorking } from '../stores/working.ts';
 import { TextSection } from '../text/TextSection.tsx';
 import { VoiceoverSection } from '../voiceover/VoiceoverSection.tsx';
@@ -68,7 +69,7 @@ function ResetAll(): ReactElement | null {
   );
 }
 
-/** Tweaks: the scene on show (name, length, pace), its text, its layers, the voiceover, and a way to take it all back. */
+/** Tweaks: the scene on show (name, length, pace), its text, its layers (not in full screen), the voiceover, and a way to take it all back. */
 export function TweaksPanel(): ReactElement {
   const parts = useFilm((s) => s.clock?.parts ?? NO_PARTS);
   const sceneFile = useFilm((s) => s.scenes !== null);
@@ -77,12 +78,13 @@ export function TweaksPanel(): ReactElement {
   const playing = usePlayback((s) => s.playing);
   const commentsOn = useComments((s) => s.on);
   const writable = useWorking((s) => s.readOnlyReason === null);
+  const fullscreen = useUi((s) => s.fullscreen);
   return (
     <div className="flex min-h-full flex-col" data-video-tweaks="">
       <SceneNavigation parts={parts} index={index} />
       {index >= 0 && !commentsOn && writable ? <SceneSection parts={parts} index={index} off={playing} /> : null}
       <TextSection />
-      <LayersSection />
+      {fullscreen ? null : <LayersSection />}
       <VoiceoverSection />
       <ResetAll />
     </div>

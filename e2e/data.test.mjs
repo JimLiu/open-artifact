@@ -7,7 +7,10 @@
 // own tokens in light, dark and under a look.
 // The sources: their count on the Sources button, a linked source's Open in its host, the CSV download's byte order
 // mark and the failure notice's link to what didn’t load. Restoring an earlier version from History. The card of a
-// page link that leads away, the Corners field read out at its bound, and the pencil only with a page to edit.
+// page link that leads away, the Corners field read out at its bound, and the pencil only with a page to edit. Sharing
+// a connector's access from Sources, so a viewer's page loads the query.
+// The shared draft: Publish, Discard draft and its Restore in History, a viewer's See draft, and hand edits kept in
+// the draft as they are made, with Undo and Redo on their own.
 //
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -16,6 +19,7 @@ import path from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { findChrome, launch } from './lib/browser.mjs';
 import { cli, run } from './lib/cli.mjs';
+import { clickOn } from './lib/editor.mjs';
 import { until } from './lib/http.mjs';
 import { browserOff, fixtures, install, removeTmp, tmpDir, typePath } from './lib/target.mjs';
 import { writeTestConnectors } from '../test-artifacts/test-connectors.mjs';
@@ -785,6 +789,317 @@ describe(`${TYPE} in a browser`, { skip: skip() || browserSkip }, () => {
     }
   });
 
+  it('shows the shared draft with Publish, brings a discarded one back from History, and offers a viewer See draft', T, async () => {
+    const { createTypeServer } = await import('../packages/type-server/src/index.ts');
+    const server = createTypeServer({
+      secret: 'data-drafts', idleMs: 0, assetsDir: path.join(typePath(TYPE), 'scripts'),
+      lanAddresses: () => [], isLocal: req => !req.headers['x-test-guest'],
+    });
+    let page, guest;
+    try {
+      const root = path.join(tmpDir('data-drafts'), 'dashboard');
+      const titled = title => ({ text: `<main><h1 id="title">${title}</h1></main>\n` });
+      writeDoc(root, 'dash/meta', { title: 'Drafts' });
+      writeDoc(root, 'files/index.html', titled('Live'));
+      // Someone left a change in the shared draft.
+      writeDoc(root, 'drafts/shared', { v: 1, kind: 'edit', by: 'someone', at: Date.now(), base: '' });
+      writeDoc(root, 'drafts/shared/files/index.html', titled('Draft'));
+      await server.listen();
+      const opened = await server.open({ root, type: TYPE, title: 'Drafts' });
+
+      const shown = `document.querySelector('h1#title')?.textContent ?? null`;
+      const button = label => `[...document.querySelectorAll('button')].find(b => (b.getAttribute('aria-label') ?? b.textContent.trim()) === ${JSON.stringify(label)})`;
+      const has = async (p, expression) => (await p.evaluateAll(`Boolean(${expression})`)).some(Boolean);
+      const title = async p => (await p.evaluateAll(shown)).find(value => value !== null);
+      const showing = (p, text, ms = 15000) => p.waitFor(`(${shown}) === ${JSON.stringify(text)}`, ms);
+
+      // A viewer sees the published page, and See draft shows the draft.
+      const shared = await fetch(new URL('/__open-artifact/share', opened.url), {
+        method: 'POST',
+        headers: { authorization: 'Bearer data-drafts', 'content-type': 'application/json' },
+        body: JSON.stringify({ id: opened.id, lan: true }),
+      });
+      assert.equal(shared.status, 200);
+      const { links } = await shared.json();
+      guest = await browser.load('about:blank');
+      await guest.cdp('Network.setExtraHTTPHeaders', { headers: { 'x-test-guest': '1' } });
+      await guest.cdp('Page.navigate', { url: new URL(new URL(links.viewer.url).pathname, opened.url).href });
+      assert.ok(await guest.waitFor("document.querySelector('input[name=name]')", 5000));
+      await guest.evaluate(`document.querySelector('[name=name]').value = 'Vic'; document.querySelector('form').requestSubmit()`);
+      assert.ok(await guest.waitFor(button('See draft'), 20000), 'a viewer is offered no See draft');
+      assert.equal(await title(guest), 'Live');
+      assert.equal(await has(guest, button('Publish')), false, 'a viewer is offered Publish');
+      await guest.evaluateAll(`${button('See draft')}?.click()`);
+      assert.ok(await showing(guest, 'Draft'), 'See draft did not show the draft');
+      assert.ok(await guest.waitFor(button('See published'), 5000), 'the draft offers no way back');
+
+      // The owner sees the draft, with Publish.
+      page = await browser.load(opened.url, { ready: button('Publish'), ignore: [/\/favicon\.ico$/] });
+      assert.ok(await showing(page, 'Draft'), 'the owner is not shown the draft');
+
+      // Discard draft asks, keeps the page, and leaves the draft in History.
+      await page.evaluateAll(`${button('Draft options')}?.click()`);
+      const item = label => `[...document.querySelectorAll('[role="menuitem"]')].find(i => i.textContent.trim() === ${JSON.stringify(label)})`;
+      assert.ok(await page.waitFor(item('Discard draft'), 5000), 'the draft options offer no Discard draft');
+      await page.evaluateAll(`${item('Discard draft')}?.click()`);
+      const dialog = `document.querySelector('[role="dialog"]')`;
+      assert.ok(await page.waitFor(`${dialog}?.textContent.includes('Discard this draft?')`, 5000), 'Discard draft asked nothing');
+      assert.match((await page.evaluateAll(`${dialog}?.textContent ?? null`)).find(Boolean), /The draft can be restored from History\./);
+      await page.evaluateAll(`[...(${dialog}?.querySelectorAll('button') ?? [])].find(b => b.textContent.trim() === 'Discard')?.click()`);
+      assert.ok(await showing(page, 'Live'), 'the page did not go back to the published one');
+      assert.ok(await page.waitFor(`document.body.innerText.includes('Draft discarded.')`, 10000), 'no "Draft discarded." toast');
+      assert.equal(readDoc(root, 'files/index.html').text, titled('Live').text);
+      assert.equal(fs.existsSync(docPath(root, 'drafts/shared/files/index.html')), false, 'the discarded change is still in the draft');
+      assert.ok(await page.waitFor(button('Published'), 10000), 'no Published menu once the draft is gone');
+
+      // History lists the discarded draft; its Restore puts the change back in the draft.
+      await page.evaluateAll(`${button('History')}?.click()`);
+      const restore = `document.querySelector('[data-draft] button[aria-label^="Restore the draft from "]')`;
+      assert.ok(await page.waitFor(restore, 15000), 'History lists no discarded draft');
+      assert.match((await page.evaluateAll(`document.querySelector('[data-draft]')?.textContent ?? null`)).find(Boolean), /discarded a draft/);
+      await page.evaluateAll(`${restore}?.click()`);
+      assert.ok(await page.waitFor(button('Publish'), 15000), 'restoring brought no draft back');
+      assert.ok(await showing(page, 'Draft'), 'the restored draft is not shown');
+      // The open draft's row opens its own page: what publishing it would change, against the published page.
+      const draftRow = `document.querySelector('[data-open-draft] button[data-row-main]')`;
+      assert.ok(await page.waitFor(draftRow, 10000), 'History lists no open draft');
+      await page.evaluateAll(`${draftRow}?.click()`);
+      assert.ok(await page.waitFor(`${button('All versions')} && [...document.querySelectorAll('h3')].some(h => h.textContent.includes('Draft'))`, 10000), 'the open draft has no page of its own');
+      const draftPage = `[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'All versions')?.closest('div')?.parentElement?.innerText ?? ''`;
+      assert.ok(await has(page, `(${draftPage}).includes('Edited the page') && (${draftPage}).includes('index.html')`), 'the draft’s page shows no change');
+      await page.evaluateAll(`${button('All versions')}?.click()`);
+      assert.ok(await page.waitFor(draftRow, 5000), 'All versions did not go back to the list');
+      await page.evaluateAll(`${button('History')}?.click()`);
+
+      // Publish writes the draft into the dashboard for everyone.
+      await page.evaluateAll(`${button('Publish')}?.click()`);
+      assert.ok(await until(() => readDoc(root, 'files/index.html').text === titled('Draft').text, 15000), 'Publish wrote nothing');
+      assert.ok(await page.waitFor(button('Published'), 15000), 'no Published menu after publishing');
+      assert.equal(fs.existsSync(docPath(root, 'drafts/shared/files/index.html')), false, 'the published change is still in the draft');
+      assert.ok(await until(async () => !(await has(guest, button('See draft'))) && !(await has(guest, button('See published'))), 15000), 'the viewer still has a draft to see');
+      assert.ok(await showing(guest, 'Draft'), 'the viewer does not see what was published');
+
+      // Auto-publish is a switch in the menu, which stays open as it is turned off.
+      await page.evaluateAll(`${button('Published')}?.click()`);
+      const auto = `[...document.querySelectorAll('[role="menuitemcheckbox"]')].find(i => i.textContent.trim() === 'Auto-publish')`;
+      assert.ok(await page.waitFor(`${auto}?.getAttribute('aria-checked') === 'true'`, 5000), 'the menu offers no Auto-publish that is on');
+      await page.evaluateAll(`${auto}?.click()`);
+      assert.ok(await until(() => fs.existsSync(docPath(root, 'dash/settings')) && readDoc(root, 'dash/settings').autoPublish === false, 10000), 'turning Auto-publish off wrote nothing');
+      assert.ok(await page.waitFor(`${auto}?.getAttribute('aria-checked') === 'false'`, 5000), 'the menu closed, or the switch did not turn off');
+      await page.press('Escape');
+      assert.deepEqual(page.problems, []);
+    } finally {
+      await guest?.close();
+      await page?.close();
+      await server.stop();
+    }
+  });
+
+  it('keeps hand edits in the shared draft as they are made, with Undo and Redo on their own, and publishes them once the pencil is put down', T, async () => {
+    const { createTypeServer } = await import('../packages/type-server/src/index.ts');
+    const server = createTypeServer({ secret: 'data-joint', idleMs: 0, assetsDir: path.join(typePath(TYPE), 'scripts'), lanAddresses: () => [] });
+    let page;
+    try {
+      const root = path.join(tmpDir('data-joint'), 'dashboard');
+      writeDoc(root, 'dash/meta', { title: 'Joint' });
+      writeDoc(root, 'files/index.html', { text: '<meta name="dash-one-writer">\n<main><h1 id="title">Live</h1><p id="body">Some words.</p></main>\n' });
+      await server.listen();
+      const opened = await server.open({ root, type: TYPE, title: 'Joint' });
+      page = await browser.load(opened.url, { ready: `document.querySelector('[data-dash-pencil]') && document.querySelector('h1#title')`, ignore: [/\/favicon\.ico$/] });
+      const one = async expression => (await page.evaluateAll(expression)).find(value => value !== null && value !== undefined);
+      const button = label => `[...document.querySelectorAll('button')].find(b => (b.getAttribute('aria-label') ?? b.textContent.trim()) === ${JSON.stringify(label)})`;
+      const draftFile = docPath(root, 'drafts/shared/files/index.html');
+      const draftText = () => (fs.existsSync(draftFile) ? JSON.parse(fs.readFileSync(draftFile, 'utf8')).text ?? null : null);
+
+      await page.evaluateAll(`document.querySelector('[data-dash-pencil]')?.click()`);
+      assert.ok(await page.waitFor(`document.querySelector('[data-dash-mode]')`, 10000), 'the pencil did not start editing');
+      const [x, y] = await one(`(() => { const h = document.querySelector('h1#title'); if (!h) return null; const range = document.createRange(); range.selectNodeContents(h); const r = range.getBoundingClientRect(); return [r.right - 2, r.y + r.height / 2]; })()`);
+      await page.click(x, y);
+      assert.ok(await page.waitFor(`document.querySelector('h1#title')?.isContentEditable || document.activeElement?.closest?.('[contenteditable="true"]')`, 5000), 'clicking the title did not start typing');
+      await page.press('End');
+      await page.type(' now');
+      // Ending the typing makes a step; the step goes into the shared draft a moment later, with no Save.
+      await page.press('Escape');
+      assert.ok(await until(() => draftText()?.includes('Live now'), 10000), `the change did not reach the shared draft: ${draftText()}`);
+      assert.equal(readDoc(root, 'files/index.html').text.includes('Live now'), false, 'the change was published');
+      assert.equal(await one(`Boolean(${button('Save')})`), false, 'editing in the shared draft offers Save');
+      const alone = `document.querySelector('.dash-edit-history[data-usable]')`;
+      assert.ok(await page.waitFor(alone, 5000), 'Undo and Redo do not stand on their own');
+      assert.equal(await one(`${alone}?.querySelector('button[aria-label="Undo"]')?.disabled ?? null`), false);
+
+      // Undo takes the change back out of the draft; Redo puts it back.
+      await page.evaluateAll(`${alone}?.querySelector('button[aria-label="Undo"]')?.click()`);
+      assert.ok(await until(() => !draftText()?.includes('Live now'), 10000), `Undo left the change in the draft: ${draftText()}`);
+      await page.evaluateAll(`${alone}?.querySelector('button[aria-label="Redo"]')?.click()`);
+      assert.ok(await until(() => draftText()?.includes('Live now'), 10000), `Redo did not put the change back: ${draftText()}`);
+
+      // Back to using the page, with auto-publish on and nobody else's changes in the draft, it goes live a moment later.
+      await page.evaluateAll(`document.querySelector('button[aria-label="Use the page"]')?.click()`);
+      assert.ok(await page.waitFor(`!document.querySelector('[data-dash-mode]')`, 10000), 'the pencil did not stop editing');
+      assert.equal(await one(`document.querySelector('h1#title')?.textContent ?? null`), 'Live now');
+      assert.ok(await until(() => readDoc(root, 'files/index.html').text.includes('Live now'), 15000), 'the hand edit was not published after the pencil was put down');
+      assert.ok(await until(() => draftText() === null, 10000), `the published change is still in the draft: ${draftText()}`);
+      assert.ok(await page.waitFor(button('Published'), 10000), 'no Published menu once the draft went live');
+      assert.deepEqual(page.problems, []);
+    } finally {
+      await page?.close();
+      await server.stop();
+    }
+  });
+
+  it('publishes the agent’s changes to the shared draft when its turn ends, and holds them when auto-publish is off', T, async () => {
+    const { dir } = install(typePath(TYPE), 'data-turn-type');
+    const turning = cli(dir, {
+      OPEN_ARTIFACT_TYPE_SERVER_HOME: path.join(tmpDir('data-turn-state'), 'state'),
+      HOME: tmpDir('data-turn-home'),
+      OPEN_ARTIFACT_USER: 'E2E',
+    });
+    const titled = title => ({ text: `<main><h1 id="title">${title}</h1></main>\n` });
+    const button = label => `[...document.querySelectorAll('button')].find(b => (b.getAttribute('aria-label') ?? b.textContent.trim()) === ${JSON.stringify(label)})`;
+    const said = `[...document.querySelectorAll('[role="status"][aria-live]')].map(region => region.textContent).join(' ')`;
+    // A dashboard whose shared draft already holds a change, so the agent's turn writes into the draft.
+    const dashboard = (name, settings) => {
+      const root = path.join(tmpDir(`data-turn-${name}`), 'dashboard');
+      writeDoc(root, 'dash/meta', { title: name });
+      if (settings) writeDoc(root, 'dash/settings', settings);
+      writeDoc(root, 'files/index.html', titled('Live'));
+      writeDoc(root, 'drafts/shared', { v: 1, kind: 'edit', by: 'E2E', at: Date.now(), base: '' });
+      writeDoc(root, 'drafts/shared/files/index.html', titled('Draft'));
+      return root;
+    };
+    const pages = [];
+    const waiters = [];
+    try {
+      for (const [name, settings, expected] of [['on', null, 'Agent'], ['off', { autoPublish: false }, 'Live']]) {
+        const root = dashboard(name, settings);
+        const opened = await turning.json(['open', root, '--json']);
+        const page = await browser.load(opened.url, { ready: button('Publish'), ignore: [/\/favicon\.ico$/] });
+        pages.push(page);
+        // A waiting agent is there to work; its write starts a turn, and a quiet spell after it ends the turn.
+        const waiter = await turning.start(['wait', root, '--timeout', '90'], { firstLine: false });
+        waiters.push(waiter);
+        // Everything read out from here on is kept, since a later message replaces an earlier one in the live region.
+        await page.evaluateAll(`(() => { window.__said = []; new MutationObserver(() => window.__said.push(${said})).observe(document.body, { subtree: true, childList: true, characterData: true }); })()`);
+        await turning.json(['write-db', root, JSON.stringify([{ op: 'set', path: 'drafts/shared/files/index.html', data: titled('Agent') }])]);
+        assert.ok(await page.waitFor(`window.__said?.some(text => text.includes('The agent is working'))`, 15000), `${name}: no turn was read out`);
+        assert.equal(readDoc(root, 'files/index.html').text, titled('Live').text, `${name}: the draft went live during the turn`);
+        if (expected === 'Agent') {
+          assert.ok(await until(() => readDoc(root, 'files/index.html').text === titled('Agent').text, 30000), 'the draft was not published when the turn ended');
+          assert.ok(await page.waitFor(button('Published'), 10000), 'no Published menu once the draft went live');
+        } else {
+          // The host counts the agent busy for 8 s after its write, and the page waits 2 s more before the turn ends.
+          await new Promise(resolve => setTimeout(resolve, 16000));
+          assert.equal(readDoc(root, 'files/index.html').text, titled('Live').text, 'the draft was published with auto-publish off');
+          assert.ok(await page.waitFor(button('Publish'), 5000), 'the held draft offers no Publish');
+        }
+        assert.deepEqual(page.problems, []);
+      }
+    } finally {
+      for (const waiter of waiters) waiter.child.kill();
+      for (const page of pages) await page.close();
+      await turning.run(['stop']).catch(() => {});
+    }
+  });
+
+  it('holds the agent’s changes when the shared draft also has someone else’s, or the dashboard changed after the draft began', T, async () => {
+    const { dir } = install(typePath(TYPE), 'data-hold-type');
+    const turning = cli(dir, {
+      OPEN_ARTIFACT_TYPE_SERVER_HOME: path.join(tmpDir('data-hold-state'), 'state'),
+      HOME: tmpDir('data-hold-home'),
+      OPEN_ARTIFACT_USER: 'E2E',
+    });
+    const titled = title => ({ text: `<main><h1 id="title">${title}</h1></main>\n` });
+    const button = label => `[...document.querySelectorAll('button')].find(b => (b.getAttribute('aria-label') ?? b.textContent.trim()) === ${JSON.stringify(label)})`;
+    const said = `[...document.querySelectorAll('[role="status"][aria-live]')].map(region => region.textContent).join(' ')`;
+    const pages = [];
+    const waiters = [];
+    try {
+      for (const [name, head, notice] of [
+        // Someone else edited the draft before the agent's turn.
+        ['others', { editors: { Someone: true } }, 'The draft also has someone else’s changes, so it wasn’t published automatically.'],
+        // The draft began from a dashboard that isn't the one there now.
+        ['changed', { base: 'an-earlier-dashboard' }, 'This artifact changed after the draft was started.'],
+      ]) {
+        const root = path.join(tmpDir(`data-hold-${name}`), 'dashboard');
+        writeDoc(root, 'dash/meta', { title: name });
+        writeDoc(root, 'files/index.html', titled('Live'));
+        writeDoc(root, 'drafts/shared', { v: 1, kind: 'edit', by: 'Someone', at: Date.now(), base: '', ...head });
+        writeDoc(root, 'drafts/shared/files/index.html', titled('Draft'));
+        const opened = await turning.json(['open', root, '--json']);
+        const page = await browser.load(opened.url, { ready: button('Publish'), ignore: [/\/favicon\.ico$/] });
+        pages.push(page);
+        const waiter = await turning.start(['wait', root, '--timeout', '90'], { firstLine: false });
+        waiters.push(waiter);
+        // What is read out, and whether the notice has shown, are kept: both go again after a while.
+        await page.evaluateAll(`(() => { window.__said = []; new MutationObserver(() => { window.__said.push(${said}); if (document.body.innerText.includes(${JSON.stringify(notice)})) window.__noticed = true; }).observe(document.body, { subtree: true, childList: true, characterData: true }); })()`);
+        await turning.json(['write-db', root, JSON.stringify([{ op: 'set', path: 'drafts/shared/files/index.html', data: titled('Agent') }])]);
+        assert.ok(await page.waitFor(`window.__said?.some(text => text.includes('The agent is working'))`, 15000), `${name}: no turn was read out`);
+        // The turn ends, and the draft is held rather than published.
+        assert.ok(await until(() => readDoc(root, 'drafts/shared').held === true, 30000), `${name}: the draft was not held when the turn ended`);
+        assert.ok(await page.waitFor(`window.__noticed === true || document.body.innerText.includes(${JSON.stringify(notice)})`, 10000), `${name}: no word of why the draft was held`);
+        assert.equal(readDoc(root, 'files/index.html').text, titled('Live').text, `${name}: the held draft went live`);
+        assert.equal(readDoc(root, 'drafts/shared/files/index.html').text, titled('Agent').text, `${name}: the agent's change left the draft`);
+        assert.ok(await page.waitFor(button('Publish'), 5000), `${name}: the held draft offers no Publish`);
+        assert.deepEqual(page.problems, []);
+      }
+    } finally {
+      for (const waiter of waiters) waiter.child.kill();
+      for (const page of pages) await page.close();
+      await turning.run(['stop']).catch(() => {});
+    }
+  });
+
+  it('writes a source edited in Sources into the shared draft, where it waits for Publish with auto-publish off', T, async () => {
+    const { createTypeServer, ConnectorsHost } = await import('../packages/type-server/src/index.ts');
+    const home = tmpDir('data-source-draft-home');
+    const host = new ConnectorsHost({ file: writeTestConnectors(path.join(home, 'connectors')) });
+    const server = createTypeServer({ secret: 'data-source-draft', idleMs: 0, assetsDir: path.join(typePath(TYPE), 'scripts'), lanAddresses: () => [], connectors: host });
+    let page;
+    try {
+      const root = path.join(tmpDir('data-source-draft'), 'dashboard');
+      writeDoc(root, 'dash/meta', { title: 'Source draft' });
+      writeDoc(root, 'dash/settings', { autoPublish: false });
+      writeDoc(root, 'datasets/orders', {
+        title: 'North orders',
+        source: { kind: 'call', connector: 'sales', tool: 'run_sql', args: { query: "select * from orders where region = 'North'" } },
+      });
+      writeDoc(root, 'files/index.html', { text: '<main><h1>Orders</h1><p id="orders" data-source="orders">—</p></main>\n' });
+      await server.listen();
+      const opened = await server.open({ root, type: TYPE, title: 'Source draft' });
+      const button = label => `[...document.querySelectorAll('button')].find(b => (b.getAttribute('aria-label') ?? b.textContent.trim()) === ${JSON.stringify(label)})`;
+      page = await browser.load(opened.url, { ready: "document.querySelector('[data-dash-sources] button')", timeout: 60000, settle: 500, ignore: [/\/favicon\.ico$/] });
+      const draftFile = docPath(root, 'drafts/shared/datasets/orders');
+      const inDraft = () => (fs.existsSync(draftFile) ? JSON.parse(fs.readFileSync(draftFile, 'utf8')) : null);
+
+      // Sources, the orders row, and a description saved from its dialog.
+      await page.evaluate(`document.querySelector('[data-dash-sources] button').click()`);
+      const row = `document.querySelector('[data-source-row]')`;
+      assert.ok(await page.waitFor(row, 10000), 'the Sources list shows no orders');
+      await page.evaluate(`${row}.click()`);
+      assert.ok(await page.waitFor(button('Edit North orders'), 10000), 'the source offers no Edit');
+      await page.evaluate(`${button('Edit North orders')}.click()`);
+      const field = `document.querySelector('[role="dialog"] textarea')`;
+      assert.ok(await page.waitFor(field, 10000), 'the source has no Description field');
+      await page.evaluate(`${field}.focus()`);
+      await page.type('North only.');
+      await page.evaluateAll(`[...(document.querySelector('[role="dialog"]')?.querySelectorAll('button[type="submit"]') ?? [])].find(b => b.textContent.trim() === 'Save')?.click()`);
+      assert.ok(await until(() => inDraft()?.description === 'North only.', 10000), `the edit did not reach the shared draft: ${JSON.stringify(inDraft())}`);
+      assert.equal(inDraft().title, 'North orders', 'the draft holds less than the whole source');
+      assert.equal(readDoc(root, 'datasets/orders').description, undefined, 'the edit went live');
+      assert.ok(await page.waitFor(button('Publish'), 10000), 'the draft with the edit offers no Publish');
+
+      // Publish takes it live and empties the draft.
+      await page.evaluateAll(`${button('Publish')}?.click()`);
+      assert.ok(await until(() => readDoc(root, 'datasets/orders').description === 'North only.', 15000), 'Publish did not take the edit live');
+      assert.ok(await until(() => inDraft() === null, 10000), 'the published edit is still in the draft');
+      assert.deepEqual(page.problems, []);
+    } finally {
+      await page?.close();
+      await server.stop();
+      await host.close();
+    }
+  });
+
   it('shows the card of a page link that leads away, reads out Corners held at its bound, and offers the pencil', T, async () => {
     const { dir } = install(typePath(TYPE), 'data-links-type');
     // The fixture's sales sources call their connector, so the test one runs.
@@ -892,6 +1207,173 @@ dash.draw('no-filter', el => { const d = dash.data('signups_count'); el.textCont
     }
   });
 
+  it('names people in a reply with @: the list, arrows, Escape, a pick, and whom the reply names', T, async () => {
+    const { dir } = install(typePath(TYPE), 'data-mentions-type');
+    const naming = cli(dir, { OPEN_ARTIFACT_TYPE_SERVER_HOME: path.join(tmpDir('data-mentions-state'), 'state'), OPEN_ARTIFACT_USER: 'E2E' });
+    const root = path.join(tmpDir('data-mentions'), 'dashboard');
+    let page;
+    try {
+      const load = await run(path.join(fixtures, 'data', 'load.mjs'), [naming.script, root], { env: naming.env() });
+      assert.equal(load.code, 0, `the fixture did not load: ${load.stderr}`);
+      const at = new Date(0).toISOString();
+      const file = path.join(root, 'comments.json');
+      fs.writeFileSync(file, JSON.stringify({
+        version: 1,
+        threads: [{
+          id: 'c_totals', anchor: '#dash-root', label: 'Page', location: { file: 'files/index.html', selector: '#dash-root' }, status: 'open', createdAt: at, updatedAt: at,
+          messages: [
+            { id: 'm_ana', author: { kind: 'person', name: 'Ana' }, text: 'Check the totals', at },
+            { id: 'm_bob', author: { kind: 'person', name: 'Bob' }, text: 'Agreed', at },
+          ],
+        }],
+      }));
+      const opened = await naming.json(['open', root, '--json']);
+      // No connectors here: the fixture's sales source cannot load, which is not what this is about.
+      page = await browser.load(opened.url, { ready: "document.querySelector('#dash-root [data-source]')", timeout: 60000, settle: 1000, ignore: [/\/favicon\.ico$/, /\/_api\/mcp\/call$/] });
+      const layer = "document.querySelector('[data-comment-layer]')?.shadowRoot";
+      assert.ok(await page.waitFor(`${layer}?.querySelector('[data-comment-pin]')`, 10000), 'the thread has no pin');
+      await page.evaluate(`${layer}.querySelector('[data-comment-pin]').click()`);
+      const box = `${layer}?.querySelector('textarea[aria-label=Reply]')`;
+      assert.ok(await page.waitFor(box, 5000), 'the card has no reply box');
+      await page.evaluate(`${box}.focus()`);
+      const list = `${layer}?.querySelector('[role=listbox][aria-label="Mention suggestions"]')`;
+      const rows = `[...(${list}?.querySelectorAll('[role=option]') ?? [])].map(o => o.lastElementChild.textContent + (o.getAttribute('aria-selected') === 'true' ? '*' : ''))`;
+      const said = `${layer}?.querySelector('[data-mention-status]')?.textContent`;
+
+      // @ lists who the thread names (the viewer left out), the first row highlighted; the box points at it.
+      await page.type('@');
+      assert.ok(await page.waitFor(list, 5000), 'typing @ opened no list');
+      assert.deepEqual(await page.evaluate(rows), ['Ana*', 'Bob']);
+      // Drawn at the @, 288px wide, inside the window.
+      const placed = await page.evaluate(`(() => {
+        const l = ${list}.getBoundingClientRect(), b = ${box}.getBoundingClientRect();
+        return { width: l.width, inside: l.top >= 0 && l.bottom <= innerHeight && l.left >= 0 && l.right <= innerWidth, near: Math.abs(l.left - b.left) < 24, shown: getComputedStyle(${list}).visibility };
+      })()`);
+      assert.deepEqual(placed, { width: 288, inside: true, near: true, shown: 'visible' });
+      assert.equal(await page.evaluate(`${box}.getAttribute('aria-expanded')`), 'true');
+      assert.equal(await page.evaluate(`${layer}.getElementById(${box}.getAttribute('aria-activedescendant'))?.lastElementChild.textContent`), 'Ana');
+      assert.equal(await page.evaluate(said), 'Ana, 1 of 2');
+      // The arrows move the highlight and wrap; the status says where it is.
+      await page.press('ArrowDown');
+      assert.ok(await page.waitFor(`(${said}) === 'Bob, 2 of 2'`, 2000), `ArrowDown: ${await page.evaluate(said)}`);
+      await page.press('ArrowDown');
+      assert.ok(await page.waitFor(`(${said}) === 'Ana, 1 of 2'`, 2000), `ArrowDown wraps: ${await page.evaluate(said)}`);
+      // Escape closes the list only: the card and the draft stay.
+      await page.press('Escape');
+      assert.ok(await page.waitFor(`!${list}`, 2000), 'Escape left the list open');
+      assert.equal(await page.evaluate(`${box}.value`), '@');
+      assert.ok(await page.evaluate(`Boolean(${box})`), 'Escape closed the card');
+
+      // A new @ opens it again; Enter puts the name in instead of sending.
+      await page.press('Backspace');
+      await page.type('@bo');
+      assert.ok(await page.waitFor(`JSON.stringify(${rows}) === '["Bob*"]'`, 2000), `@bo: ${JSON.stringify(await page.evaluate(rows))}`);
+      await page.press('Enter');
+      assert.ok(await page.waitFor(`${box}.value === '@Bob ' && !${list}`, 2000), `the pick: ${await page.evaluate(`${box}.value`)}`);
+      assert.ok(await page.waitFor(`(${said}) === 'Bob added'`, 2000), `after the pick: ${await page.evaluate(said)}`);
+      assert.equal(await page.evaluate(`${layer}.querySelector('[data-mention-marks] .text-accent')?.textContent`), '@Bob', 'the box draws no mention');
+      await page.type('please look');
+      await page.press('Enter');
+
+      const reply = () => JSON.parse(fs.readFileSync(file, 'utf8')).threads[0].messages[2];
+      assert.ok(await until(() => reply()?.text === '@Bob please look', 10000), 'the reply was not saved');
+      assert.deepEqual(reply().to, ['Bob']);
+      // The card draws the name as a mention.
+      assert.ok(await page.waitFor(`[...${layer}.querySelectorAll('[data-mention]')].some(m => m.textContent === '@Bob')`, 5000), 'the reply draws no mention');
+      assert.deepEqual(page.problems, []);
+    } finally {
+      await page?.close();
+      await naming.run(['stop']).catch(() => {});
+    }
+  });
+
+  it('writes a comment on the whole dashboard from All comments, and tags a message sent to the agent', T, async () => {
+    const { dir } = install(typePath(TYPE), 'data-whole-type');
+    const whole = cli(dir, { OPEN_ARTIFACT_TYPE_SERVER_HOME: path.join(tmpDir('data-whole-state'), 'state'), OPEN_ARTIFACT_USER: 'E2E' });
+    const root = path.join(tmpDir('data-whole'), 'dashboard');
+    let page;
+    try {
+      const load = await run(path.join(fixtures, 'data', 'load.mjs'), [whole.script, root], { env: whole.env() });
+      assert.equal(load.code, 0, `the fixture did not load: ${load.stderr}`);
+      const at = new Date(0).toISOString();
+      const file = path.join(root, 'comments.json');
+      fs.writeFileSync(file, JSON.stringify({
+        version: 1,
+        threads: [{
+          id: 'c_totals', anchor: '#dash-root', label: 'Page', location: { file: 'files/index.html', selector: '#dash-root' }, status: 'open', createdAt: at, updatedAt: at,
+          messages: [
+            // Sent to the agent with the box ticked: the card leads with the agent's tag.
+            { id: 'm_ana', author: { kind: 'person', name: 'Ana' }, text: 'Check the totals', at, to: ['agent'] },
+            { id: 'm_bob', author: { kind: 'person', name: 'Bob' }, text: 'Agreed', at },
+          ],
+        }],
+      }));
+      const opened = await whole.json(['open', root, '--json']);
+      page = await browser.load(opened.url, { ready: "document.querySelector('#dash-root [data-source]')", timeout: 60000, settle: 1000, ignore: [/\/favicon\.ico$/, /\/_api\/mcp\/call$/] });
+      const layer = "document.querySelector('[data-comment-layer]')?.shadowRoot";
+      assert.ok(await page.waitFor(`${layer}?.querySelector('[data-comment-pin]')`, 10000), 'the thread has no pin');
+      await page.evaluate(`${layer}.querySelector('[data-comment-pin]').click()`);
+      assert.ok(await page.waitFor(`${layer}?.querySelector('[data-comment-card]')`, 5000), 'the pin opened no card');
+      const tags = `[...${layer}.querySelectorAll('[data-sent-to-agent]')].map(t => t.textContent)`;
+      assert.deepEqual(await page.evaluate(tags), ['@Agent'], 'only the message sent to the agent leads with its tag');
+      await page.evaluate(`${layer}.querySelector('[data-comment-card] button[aria-label="Close"]').click()`);
+      assert.ok(await page.waitFor(`!${layer}?.querySelector('[data-comment-card]')`, 5000), 'the card did not close');
+
+      // All comments: "Add comment" opens a composer in the panel.
+      const button = "document.querySelector('[data-comments-button]')?.shadowRoot";
+      await page.evaluate(`${button}.querySelector('button[aria-label="Comment options"]').click()`);
+      const showAll = `[...(${button}?.querySelectorAll('[role=menuitem]') ?? [])].find(el => el.textContent.includes('Show all comments'))`;
+      assert.ok(await page.waitFor(showAll, 5000), 'the comments menu has no Show all comments');
+      await page.evaluate(`${showAll}.click()`);
+      // The closing menu hands the focus back to its button: let it, before the composer takes it.
+      await page.waitFor(`${button}?.activeElement?.matches('[aria-label="Comment options"]')`, 2000);
+      const panelRoot = "document.querySelector('[data-comments-panel-layer]')?.shadowRoot";
+      const panel = `${panelRoot}?.querySelector('[data-comments-panel]')`;
+      assert.ok(await page.waitFor(`${panel}?.querySelector('[data-comments-compose]')`, 5000), 'the panel has no Add comment');
+      await page.evaluate(`${panel}.querySelector('[data-comments-compose]').click()`);
+      const box = `${panel}?.querySelector('textarea[aria-label="Add a comment"]')`;
+      assert.ok(await page.waitFor(`${box} && ${panelRoot}.activeElement === ${box}`, 5000), 'the composer did not open with the focus in it');
+      // Escape closes the composer, not the panel.
+      await page.press('Escape');
+      assert.ok(await page.waitFor(`!${box} && ${panel}?.querySelector('[data-comments-compose]')`, 2000), 'Escape did not close the composer alone');
+      await page.evaluate(`${panel}.querySelector('[data-comments-compose]').click()`);
+      assert.ok(await page.waitFor(`${box} && ${panelRoot}.activeElement === ${box}`, 5000), 'the composer did not open again');
+
+      // The @ list works here too, drawn over the panel.
+      await page.type('@bo');
+      const list = `${panelRoot}?.querySelector('[role=listbox][aria-label="Mention suggestions"]')`;
+      assert.ok(await page.waitFor(list, 5000), 'typing @ opened no list');
+      assert.ok(await page.evaluate(`${list}.closest('[data-layer-portal]') !== null`), 'the list is not in the layer portal');
+      await page.press('Enter');
+      assert.ok(await page.waitFor(`${box}.value === '@Bob '`, 2000), `the pick: ${await page.evaluate(`${box}.value`)}`);
+      await page.type('the whole page is too busy');
+      await page.press('Enter');
+
+      const made = () => JSON.parse(fs.readFileSync(file, 'utf8')).threads.find((t) => t.id !== 'c_totals');
+      assert.ok(await until(() => made()?.messages[0]?.text === '@Bob the whole page is too busy', 10000), 'the comment was not saved');
+      const thread = made();
+      assert.equal(thread.anchor, '');
+      assert.equal(thread.label, 'Whole artifact');
+      assert.deepEqual(thread.location, { file: 'files/index.html' });
+      assert.deepEqual(thread.messages[0].to, ['Bob']);
+
+      // Its row says what it is on; its card opens beside the panel; it has no pin.
+      assert.ok(await page.waitFor(`${panel}?.querySelector('[data-comment-whole-artifact]')?.textContent.includes('Whole artifact')`, 5000), 'the row does not say Whole artifact');
+      const card = `${panelRoot}?.querySelector('[data-comments-whole-card] [data-comment-card]')`;
+      assert.ok(await page.waitFor(`${card}?.textContent.includes('the whole page is too busy')`, 5000), 'the new thread opened no card');
+      const beside = await page.evaluate(`(() => {
+        const c = ${card}.getBoundingClientRect(), p = ${panel}.getBoundingClientRect();
+        return { left: c.right <= p.left, top: Math.abs(c.top - p.top) < 2 };
+      })()`);
+      assert.deepEqual(beside, { left: true, top: true });
+      assert.equal(await page.evaluate(`${layer}?.querySelectorAll('[data-comment-pin]').length ?? 0`), 1, 'the whole-dashboard thread has a pin');
+      assert.deepEqual(page.problems, []);
+    } finally {
+      await page?.close();
+      await whole.run(['stop']).catch(() => {});
+    }
+  });
+
   it('offers no pencil on a dashboard whose files have no page', T, async () => {
     const { dir } = install(typePath(TYPE), 'data-pageless-type');
     const pageless = cli(dir, { OPEN_ARTIFACT_TYPE_SERVER_HOME: path.join(tmpDir('data-pageless-state'), 'state'), OPEN_ARTIFACT_USER: 'E2E' });
@@ -907,6 +1389,86 @@ dash.draw('no-filter', el => { const d = dash.data('signups_count'); el.textCont
     } finally {
       await page?.close();
       await pageless.run(['stop']).catch(() => {});
+    }
+  });
+
+  it('lets the owner share a connector’s access from Sources, so a viewer’s page loads its query', T, async () => {
+    // A viewer's page has no connectors: its live query stays unavailable until the owner picks Your access for the
+    // sales connector. Then the owner's computer runs the approved query for the viewer, and the page shows its rows.
+    const { createTypeServer, ConnectorsHost } = await import('../packages/type-server/src/index.ts');
+    const home = tmpDir('data-shared-home');
+    const connectors = writeTestConnectors(path.join(home, 'connectors'));
+    const host = new ConnectorsHost({ file: connectors });
+    const server = createTypeServer({
+      secret: 'data-shared', idleMs: 0, assetsDir: path.join(typePath(TYPE), 'scripts'), viewerName: 'Ada Lovelace',
+      lanAddresses: () => [], isLocal: req => !req.headers['x-test-guest'], connectors: host,
+    });
+    const rowsShown = `(window.__orders ?? null)`;
+    const shown = async page => (await page.evaluateAll(rowsShown)).find(value => value !== null) ?? null;
+    let owner;
+    let guest;
+    try {
+      const root = path.join(tmpDir('data-shared'), 'dashboard');
+      writeDoc(root, 'dash/meta', { title: 'Shared' });
+      writeDoc(root, 'datasets/orders', {
+        title: 'North orders',
+        source: { kind: 'call', connector: 'sales', tool: 'run_sql', args: { query: "select * from orders where region = 'North'" } },
+      });
+      writeDoc(root, 'files/index.html', { text: '<main><h1>Orders</h1><p id="orders" data-source="orders">—</p></main>\n<script src="app.js"></script>\n' });
+      writeDoc(root, 'files/app.js', {
+        text: `dash.onData(() => {
+  const orders = dash.data('orders');
+  window.__orders = orders.status === 'ok' ? String(orders.rows.length) : orders.status;
+  document.getElementById('orders').textContent = window.__orders;
+});
+`,
+      });
+      await server.listen();
+      const opened = await server.open({ root, type: TYPE, title: 'Shared' });
+      const invited = await fetch(new URL('/__open-artifact/share', opened.url), {
+        method: 'POST',
+        headers: { authorization: 'Bearer data-shared', 'content-type': 'application/json' },
+        body: JSON.stringify({ id: opened.id, lan: true }),
+      });
+      assert.equal(invited.status, 200);
+      const { links } = await invited.json();
+
+      guest = await browser.load('about:blank');
+      await guest.cdp('Network.setExtraHTTPHeaders', { headers: { 'x-test-guest': '1' } });
+      await guest.cdp('Page.navigate', { url: new URL(new URL(links.viewer.url).pathname, opened.url).href });
+      assert.ok(await guest.waitFor("document.querySelector('input[name=name]')", 5000));
+      await guest.evaluate(`document.querySelector('[name=name]').value = 'Vic'; document.querySelector('form').requestSubmit()`);
+      assert.ok(await until(async () => { const value = await shown(guest); return value !== null && value !== 'loading' && value; }, 30000), 'the viewer’s page never read its source');
+      assert.notEqual(await shown(guest), '4', 'the viewer’s page loaded the query with no shared access');
+
+      owner = await browser.load(opened.url, { ready: "document.querySelector('[data-dash-sources] button')", timeout: 60000, settle: 500, ignore: [/\/favicon\.ico$/] });
+      assert.ok(await until(async () => (await shown(owner)) === '4', 30000), 'the owner’s page did not load the query');
+      await owner.evaluate(`document.querySelector('[data-dash-sources] button').click()`);
+      const trigger = `document.querySelector('[data-run-as="sales"]')`;
+      assert.ok(await owner.waitFor(trigger, 10000), 'the sales group has no Load data using');
+      assert.equal(await owner.evaluate(`${trigger}.getAttribute('aria-label')`), 'sales: Load data using Each viewer');
+      await clickOn(owner, trigger);
+      const yours = `[...document.querySelectorAll('[role="menuitemcheckbox"]')].find(item => item.textContent.startsWith('Your access'))`;
+      await clickOn(owner, yours, 'Your access');
+      assert.ok(await owner.waitFor(`document.querySelector('[data-share-line]')?.textContent === 'You’re sharing access to 1 query.'`, 15000), 'the owner’s page does not say it shares');
+      const mark = () => (fs.existsSync(docPath(root, 'dash/settings')) ? readDoc(root, 'dash/settings').shared?.sales : undefined);
+      assert.ok(await until(mark, 15000), 'the share was not saved in dash/settings');
+      assert.deepEqual({ ...mark(), at: 0 }, { id: 'owner', name: 'Ada Lovelace', at: 0 });
+      // The owner's page loads the query through the share as well.
+      assert.ok(await until(async () => (await shown(owner)) === '4', 30000), `the owner’s page shows ${await shown(owner)}`);
+      // The approval stays beside the connectors, out of the dashboard's folder.
+      assert.ok(fs.existsSync(path.join(path.dirname(connectors), 'connector-shares.json')));
+      assert.equal(fs.readdirSync(root, { recursive: true }).some(name => String(name).includes('connector-shares')), false);
+
+      // The viewer's page hears the share and loads the query with the owner's access.
+      // A page in a tab behind another draws nothing new, so the viewer's comes to the front.
+      await guest.cdp('Page.bringToFront');
+      assert.ok(await until(async () => (await shown(guest)) === '4', 30000), `the viewer’s page shows ${await shown(guest)}`);
+    } finally {
+      await owner?.close();
+      await guest?.close();
+      await server.stop();
+      await host.close();
     }
   });
 });

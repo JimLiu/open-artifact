@@ -13,6 +13,7 @@ import {
   FILES_COLLECTION,
   getCollectionPath,
   getDocumentId,
+  type UnknownRecord,
 } from '@open-artifact/data-core';
 
 export const VERSIONS_LABEL = 'Versions';
@@ -34,6 +35,7 @@ export const BACK_TO_VERSIONS_LABEL = 'All versions';
 export const BACK_TO_LATEST_LABEL = 'Back to latest';
 export const TOO_MUCH_CHANGED_MESSAGE = 'Too much changed to show line by line.';
 export const NO_HISTORY_BEFORE_MESSAGE = 'No version history before this one';
+export const DRAFT_UNCHANGED_TITLE = 'No changes from the published artifact';
 export const VERSION_CHANGE_LABELS: Readonly<Record<VersionChangeKind, string>> = { added: 'Added', removed: 'Removed', edited: 'Edited' };
 export const VERSION_MARK_LABELS: Readonly<Record<'+' | '-', string>> = { '+': 'Added:', '-': 'Removed:' };
 
@@ -342,4 +344,37 @@ export function versionDiffSides(path: string, before: string | null, after: str
 export function datasetTitleOf(json: string | null): string {
   const title = parseDoc(json)?.['title'];
   return typeof title === 'string' ? title.trim() : '';
+}
+
+/* ------------------------------ The shared draft ------------------------------ */
+
+/** A document publishing the shared draft would change, with its JSON now and in the draft (`null`: none). */
+export interface DraftChange extends VersionChange {
+  before: string | null;
+  after: string | null;
+}
+
+/**
+ * What publishing the shared draft would change: each document it writes (`written`, by store path) that differs
+ * from the published one (`live`) by more than its edit stamp, in the order a version lists its changes.
+ */
+export function listDraftChanges(written: readonly (readonly [string, UnknownRecord])[], live: ReadonlyMap<string, UnknownRecord>): DraftChange[] {
+  return written
+    .flatMap(([path, data]): DraftChange[] => {
+      if (!isDashboardPath(path)) return [];
+      const held = live.get(path);
+      const before = held === undefined ? null : JSON.stringify(held);
+      const after = JSON.stringify(data);
+      const [was, now] = versionDiffSides(path, before, after);
+      if (held !== undefined && was === now) return [];
+      return [{ path, kind: held === undefined ? 'added' : 'edited', before, after }];
+    })
+    .sort((left, right) => Number(isPageFilePath(left.path)) - Number(isPageFilePath(right.path)) || (left.path < right.path ? -1 : left.path > right.path ? 1 : 0));
+}
+
+/** The one-line description of the shared draft's changes, as a version made of them would read. */
+export function describeDraftChanges(changes: readonly DraftChange[], options: { titles?: VersionTitles; pageBefore: boolean }): string {
+  if (changes.length === 0) return DRAFT_UNCHANGED_TITLE;
+  const files = changes.map((change) => ({ path: historyPathOf(change.path), op: change.kind === 'removed' ? ('deleted' as const) : change.kind }));
+  return describeDataVersion({ n: 0, at: new Date(0).toISOString(), author: { kind: 'person', id: '', name: '' }, files }, options);
 }

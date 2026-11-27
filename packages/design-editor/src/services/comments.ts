@@ -72,6 +72,9 @@ export const designComments = createComments<DesignAnchor>({
   },
   noun: 'design',
   notify: (message) => toast.add(message),
+  // The whole design: no pin; written from the "All comments" panel.
+  wholeArtifact: () => ({ kind: 'canvas' }),
+  parksDrafts: true,
 });
 
 /** The comments store. */

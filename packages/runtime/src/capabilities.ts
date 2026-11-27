@@ -315,6 +315,14 @@ export interface Peer {
   state: Record<string, unknown>;
 }
 
+/** Someone who has the artifact: its owner, or a person it is shared with. */
+export interface Participant {
+  id: string;
+  name: string;
+  /** The artifact's owner. */
+  owner?: true;
+}
+
 /**
  * An ephemeral message between the pages of one artifact (live strokes,
  * drag previews, reactions). Never stored; a page that is not connected
@@ -344,6 +352,8 @@ export interface RoomCapability {
   presence(patch: Record<string, unknown>): Promise<void>;
   peers(): Promise<Peer[]>;
   onPeers(listener: (peers: Peer[]) => void): () => void;
+  /** Who has the artifact, present or not (names only). A host that keeps no such list leaves it out. */
+  participants?(): Promise<Participant[]>;
   /** Relays an ephemeral message to every other page of the artifact. */
   emit(topic: string, data: JsonValue): Promise<void>;
   /** Subscribes to ephemeral messages from other pages. */

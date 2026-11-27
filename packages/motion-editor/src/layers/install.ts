@@ -1,7 +1,7 @@
 /**
  * Installs the layers: the reading of the stage's layers, the selection over the picture, Esc or a press away from
- * the picture and the panel to let the pick go, and Cmd or Ctrl held to point at the innermost layer. The Properties
- * panel renders `<LayersSection />` itself.
+ * the picture and the panel to let the pick go, Cmd or Ctrl held to point at the innermost layer, and the text styles
+ * bar over the words in full screen. The Properties panel renders `<LayersSection />` itself.
  */
 
 import { createElement } from 'react';
@@ -12,10 +12,14 @@ import { OPEN_POPUP, pressLetsGo } from './press-away.ts';
 import { cancelLive } from './retouch.ts';
 import { SelectionOverlay, refreshHover } from './SelectionOverlay.tsx';
 import { useLayers } from './store.ts';
+import { startTextBar } from './text-bar.ts';
+import { TextStyleBarOverlay } from './TextStyleBar.tsx';
 import { DESELECT_LAYER } from './words.ts';
 
 /** Under the comment layer, over the frames; the text editing overlay may lay itself over it. */
 export const LAYERS_OVERLAY_ORDER = 20;
+/** Over the words that can be pressed, under the comment layer. */
+export const TEXT_BAR_OVERLAY_ORDER = 30;
 
 /** Esc lets the pick go where the focus is on nothing in particular, or in the layers. */
 function escapeApplies(): boolean {
@@ -41,6 +45,8 @@ function watchPressesAway(view: Window): () => void {
 export function installLayers(): () => void {
   const stops: Array<() => void> = [];
   stops.push(startLayerReader());
+  stops.push(startTextBar());
+  stops.push(registerStageOverlay({ id: 'text-styles', order: TEXT_BAR_OVERLAY_ORDER, render: (context) => createElement(TextStyleBarOverlay, context) }));
   stops.push(
     registerStageOverlay({
       id: 'layers',

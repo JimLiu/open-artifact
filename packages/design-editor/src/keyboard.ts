@@ -31,7 +31,7 @@ import { zoomStep, zoomTo, zoomToBoards, zoomToFit } from './services/viewport.t
 import { frameKeyPressed } from './services/follow.ts';
 import { openFind, useFind } from './services/find.ts';
 import { leaveCommentMode, runCollabShortcut } from './services/collab.ts';
-import { isApplePlatform, isTextField } from '@open-artifact/editor-kit';
+import { FOLD_OWNS_ESCAPE, isApplePlatform, isTextField } from '@open-artifact/editor-kit';
 import { copyAs } from './services/capture.ts';
 import { historyShortcutOf, isCopyPngKey, isSaveKey, paintKeyOf, zoomKeyOf } from './lib/physical-keys.ts';
 import { flush } from './services/sync.ts';
@@ -42,7 +42,8 @@ import { isLockKey } from './lib/locks.ts';
 import { toggleSelectionLock } from './services/locks.ts';
 import { unlockedObjects } from '@open-artifact/design-core';
 import { altHeldAfter, spacePanAfter, type HeldKeyEvent } from './lib/held-keys.ts';
-import { DIALOG_SELECTOR, dialogKeepsKey } from './lib/dialog-keys.ts';
+import { DIALOG_SELECTOR, controlTakesKey, dialogKeepsKey } from './lib/dialog-keys.ts';
+import { spacePressesTarget } from '@open-artifact/canvas-engine';
 import { pressAgainMessage } from './lib/card-exit.ts';
 import { cardExit } from './services/card-exit.ts';
 import { announce } from './services/announce.ts';
@@ -348,7 +349,8 @@ export function installKeyboard(): () => void {
     held(event);
     if (event.key === ' ' && !isTextField(event.target) && !inDialog(event.target)) {
       useView.getState().setSpacePan(spacePanAfter(useView.getState().spacePan, event as KeyboardEvent & HeldKeyEvent));
-      event.preventDefault();
+      // A tap of Space still presses the focused button (the canvas keeps the key up from it once the hold has panned).
+      if (event.repeat || !spacePressesTarget(event.target)) event.preventDefault();
       return;
     }
     const press: KeyPress = { key: event.key, code: event.code, meta: event.metaKey || event.ctrlKey, shift: event.shiftKey, alt: event.altKey, repeat: event.repeat, ctrl: event.ctrlKey && !event.metaKey };
@@ -377,6 +379,8 @@ export function installKeyboard(): () => void {
     }
     // Escape in an open menu or popover closes just that, not the selection (or a text edit).
     if (!fromCard && event.key === 'Escape' && (event.target as Element | null)?.closest?.('[role="menu"], [role="dialog"], [role="listbox"]')) return;
+    // Enter on a focused button presses it, not a canvas shortcut (Space did above).
+    if (!fromCard && controlTakesKey(event.key, event.target, event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)) return;
     // In a dialog or popover, Enter or Space presses its button and Delete deletes nothing behind it.
     if (!fromCard && dialogKeepsKey(event.key) && inDialog(event.target)) return;
     if (swallowedAfterCard(event)) {
@@ -400,7 +404,9 @@ export function installKeyboard(): () => void {
   const escapeHome = (event: KeyboardEvent): void => {
     const target = event.target instanceof Element ? event.target : null;
     const press = { key: event.key, meta: event.metaKey || event.ctrlKey, shift: event.shiftKey, alt: event.altKey };
-    if (event.defaultPrevented || !escapeGoesHome(press, { region: regionAt(target), inField: isTextField(target), expanded: target?.getAttribute('aria-expanded') === 'true' })) return;
+    // An open "More tools" card of the strip takes the Escape first.
+    if (event.defaultPrevented || target?.closest(FOLD_OWNS_ESCAPE)) return;
+    if (!escapeGoesHome(press, { region: regionAt(target), inField: isTextField(target), expanded: target?.getAttribute('aria-expanded') === 'true' })) return;
     event.preventDefault();
     event.stopPropagation();
     focusHome();

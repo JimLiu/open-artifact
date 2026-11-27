@@ -7020,6 +7020,10 @@ p[data-list=checkbox][data-is-box-checked=true]:before {
   right: 1px;
 }
 
+.sheet-comment-mark:where([data-is-parked])>[data-comment-corner]:after {
+  background: var(--ui-fill-accent);
+}
+
 .sheet-comment-mark:where([data-is-corner-under-outline=true])>[data-comment-corner]:after {
   bottom: 3px;
   right: 3px;

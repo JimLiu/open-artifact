@@ -23,16 +23,7 @@ import { Tip } from '@open-artifact/editor-kit/react';
 import { CornerIcon, CornersIcon, SideIcon, SidesIcon, type CornerName, type SideName } from './icons.tsx';
 import { captureNumberScrubPointer, SCRUBBED, useNumberScrubGesture } from '../../lib/number-scrub.ts';
 import { NO_LANDING_MARK, ROW_MARK } from '../../lib/focus-landing.ts';
-import {
-  entryAnnouncement,
-  isMinusKey,
-  minusRefusal,
-  refusesMinus,
-  settleEntry,
-  startsWithMinus,
-  stepWithoutMinus,
-  type NumberEntryEvent,
-} from '../../lib/number-entry.ts';
+import { isMinusSign, numberLimitMessage, refusesMinus, settleTypedText, startsWithMinus, stepTypedText, type NumberLimit } from '@open-artifact/ui/number-entry';
 
 /* --------------------------------- layout --------------------------------- */
 
@@ -206,10 +197,10 @@ export interface NumberInputProps {
   inherited?: boolean;
   'aria-label'?: string;
   /**
-   * Told when the field refuses a minus sign or changes a typed value (held at a limit, minus left out),
-   * instead of the field announcing it.
+   * Told when the field changed what was typed (held it at a bound, dropped a minus sign it refuses), with every
+   * change in order, instead of the field announcing it.
    */
-  onLimit?: (event: NumberEntryEvent) => void;
+  onLimit?: (limits: readonly NumberLimit[]) => void;
 }
 
 /** The decimal separator numbers are shown with here. */
@@ -239,11 +230,10 @@ export function NumberInput({ value, onChange, onCommit, label, unit, min, max, 
   const decimal = useMemo(decimalSeparator, []);
   const bounds = { min, max };
   const name = aria['aria-label'] ?? (typeof label === 'string' ? label : undefined);
-  const tell = (event: NumberEntryEvent): void => {
-    if (onLimit) return onLimit(event);
-    const shown = event.kind === 'entry' ? numberText(event.outcome.value) + (unit ? `${unit === '%' ? '' : ' '}${unit}` : '') : '';
-    const message = event.kind === 'minus-key' ? minusRefusal(name) : entryAnnouncement(event.outcome, name, shown);
-    if (message) announce(message);
+  const tell = (limits: readonly NumberLimit[]): void => {
+    if (limits.length === 0) return;
+    if (onLimit) return onLimit(limits);
+    announce(numberLimitMessage(limits, { name, unit, format: numberText }));
   };
   /**
    * The value to pass on for one the field reports. Typed text with a refused minus sign keeps its number
@@ -252,10 +242,10 @@ export function NumberInput({ value, onChange, onCommit, label, unit, min, max, 
   const typedValue = (next: number | null, reason: string, committed: boolean): number | null => {
     const text = input.current?.value;
     if (text === undefined || (reason !== 'input-change' && reason !== 'input-blur')) return next;
-    const outcome = settleEntry(text, bounds, decimal);
-    if (!outcome || (!outcome.minusDropped && outcome.value !== next)) return next;
-    if (committed) tell({ kind: 'entry', outcome });
-    return outcome.value;
+    const settled = settleTypedText(text, bounds, decimal);
+    if (!settled || (!settled.limits.some((limit) => limit.reason === 'no-minus') && settled.value !== next)) return next;
+    if (committed) tell(settled.limits);
+    return settled.value;
   };
   const scrub = useNumberScrubGesture({
     value: value ?? Number.NaN,
@@ -320,18 +310,18 @@ export function NumberInput({ value, onChange, onCommit, label, unit, min, max, 
             // Enter commits what was typed (the field commits on blur), keeping the focus.
             field.blur();
             field.focus();
-          } else if (refusesMinus(bounds) && isMinusKey(event.key) && !event.ctrlKey && !event.metaKey) {
+          } else if (refusesMinus(bounds) && isMinusSign(event.key) && !event.ctrlKey && !event.metaKey) {
             event.preventDefault();
-            tell({ kind: 'minus-key' });
-          } else if ((event.key === 'ArrowUp' || event.key === 'ArrowDown') && !event.ctrlKey && !event.metaKey) {
+            tell([{ reason: 'no-minus', limit: min ?? 0 }]);
+          } else if ((event.key === 'ArrowUp' || event.key === 'ArrowDown') && !event.ctrlKey && !event.metaKey && refusesMinus(bounds) && startsWithMinus(field.value)) {
             // Left to the field, a step from "-5" would start at -5 and stop at the minimum.
             const amount = event.altKey ? 0.1 : event.shiftKey ? 10 : step;
-            const next = stepWithoutMinus(field.value, event.key === 'ArrowUp' ? amount : -amount, bounds, decimal);
-            if (next === null) return;
+            const stepped = stepTypedText(field.value, event.key === 'ArrowUp' ? amount : -amount, bounds, decimal);
+            if (stepped === null) return;
             event.preventDefault();
-            if (!retype(field, numberText(next))) onChange?.(next);
-            onCommit(next);
-            tell({ kind: 'entry', outcome: { value: next, minusDropped: true, limit: null } });
+            if (!retype(field, numberText(stepped.value))) onChange?.(stepped.value);
+            onCommit(stepped.value);
+            tell(stepped.limits);
           }
         }}
         onPaste={(event) => {
@@ -339,11 +329,11 @@ export function NumberInput({ value, onChange, onCommit, label, unit, min, max, 
           const field = event.currentTarget;
           const pasted = event.clipboardData.getData('text/plain');
           const text = field.value.slice(0, field.selectionStart ?? 0) + pasted + field.value.slice(field.selectionEnd ?? field.value.length);
-          const outcome = startsWithMinus(text) ? settleEntry(text, bounds, decimal) : null;
-          if (!outcome) return;
+          const settled = startsWithMinus(text) ? settleTypedText(text, bounds, decimal) : null;
+          if (!settled) return;
           event.preventDefault();
-          if (!retype(field, numberText(outcome.value))) onChange?.(outcome.value);
-          tell({ kind: 'entry', outcome });
+          if (!retype(field, numberText(settled.value))) onChange?.(settled.value);
+          tell(settled.limits);
         }}
         className={cn('h-full w-full min-w-0 bg-transparent text-[13px] tabular-nums text-chrome-fg outline-none', inherited ? 'placeholder:text-chrome-secondary' : 'placeholder:text-chrome-muted', label === undefined && 'pl-2')}
       />

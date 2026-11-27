@@ -9,8 +9,9 @@
  * {@link CommentsController.start}.
  */
 
-import type { CommentSendOptions, CommentsCapability, CommentThread, JsonRecord } from '@open-artifact/runtime';
+import { useCapability, type CommentAuthor, type CommentSendOptions, type CommentsCapability, type CommentThread, type JsonRecord, type Peer } from '@open-artifact/runtime';
 import { create, type StoreApi, type UseBoundStore } from 'zustand';
+import { AGENT_KEY, foldName, MENTION_PEOPLE_LIMIT, mentionLimitText, peopleNamed, type MentionPerson } from './mentions.ts';
 import type { AnchorState } from './pins.ts';
 
 /**
@@ -19,6 +20,9 @@ import type { AnchorState } from './pins.ts';
  * refused when it is sent, with the draft kept.
  */
 export const COMMENT_TEXT_BYTES = 4096;
+
+/** The stored anchor of a comment on the whole artifact (see {@link CommentsAdapter.wholeArtifact}). */
+export const WHOLE_ARTIFACT = '';
 
 /** What the default check says when a comment is over {@link COMMENT_TEXT_BYTES}. */
 export const COMMENT_TOO_LONG = 'That comment is too long.';
@@ -60,6 +64,8 @@ export interface CommentsAdapter<A> {
   agentWakesIdle?(): boolean | undefined;
   /** The viewer's name (the new comment's pin shows their initials; default `You`). */
   viewerName?(): string;
+  /** People the editor knows besides those the host lists and the threads name (listed after the host's, before authors). */
+  people?(): readonly MentionPerson[];
   /** Comment mode turned on or off (end text editing, pick the select tool…). */
   onModeChange?(on: boolean): void;
   /** What the document is called in messages (default `document`). */
@@ -87,6 +93,18 @@ export interface CommentsAdapter<A> {
   heard?(threads: readonly CommentThread[]): void;
   /** A new thread's card opens once it is saved (default: always); `sent`: it went to the agent too. */
   opensCreated?(sent: boolean): boolean;
+  /**
+   * The anchor of a comment on the whole artifact rather than a spot in it: it has no pin and is written from the
+   * "All comments" panel. A thread stored with it, or with the empty string, is on the whole artifact. Without it the
+   * panel has no composer.
+   */
+  wholeArtifact?(): A;
+  /**
+   * The type's pins show a comment set aside ({@link CommentsState.parked}) and take it up again when pressed. Only
+   * then is a comment begun on the page set aside when a card or the panel's composer opens; without it the draft
+   * just closes and its text goes on to the next one. Every type with {@link wholeArtifact} sets it.
+   */
+  parksDrafts?: boolean;
 }
 
 /** The comments store. */
@@ -110,6 +128,19 @@ export interface CommentsState<A> {
   /** Each thread's reply box: text and its "Send to agent" box (kept while the card closes and opens). */
   replies: Record<string, { text: string; send: boolean }>;
   /**
+   * A comment begun on the page and set aside with words in it (a card or the panel's composer opened over it): drawn
+   * as a draft pin, and pressing that takes it up again. While it waits, no other spot starts a comment.
+   */
+  parked: ParkedDraft<A> | null;
+  /** The message being edited in a card, and whether its words differ from the saved ones. */
+  editing: Editing | null;
+  /** Writes on their way to the host, one key each: `new`, `reply:<thread>`, `edit:<message>`, `delete:<thread>`, `send`. */
+  writing: string[];
+  /** People the host knows on this artifact (who has it, then who is here now), once {@link CommentsController.followPeople} ran. */
+  known: MentionPerson[];
+  /** The viewer as the host names them (to leave them out of `@`), once known. */
+  self: { id: string; name: string } | null;
+  /**
    * A resolve or reopen the host has not answered yet. The thread already shows its new status; until the answer
    * comes, no other thread can be resolved or reopened and the thread menus wait.
    */
@@ -122,7 +153,27 @@ export interface CommentsState<A> {
   setSendNew(send: boolean): void;
   setDraftText(text: string): void;
   setReply(id: string, reply: { text: string; send: boolean }): void;
+  /** Starts or ends editing a message, or says whether its words changed. */
+  setEditing(editing: Editing | null): void;
 }
+
+/** A page comment set aside: where it was, its words and its "Send to agent" box. */
+export interface ParkedDraft<A> {
+  anchor: A;
+  text: string;
+  send: boolean;
+}
+
+/** A message being edited: its thread, its "Send to agent" box, and whether its words differ from the saved ones. */
+export interface Editing {
+  thread: string;
+  message: string;
+  send: boolean;
+  changed: boolean;
+}
+
+/** Why the panel's composer did not open: a write on its way, a comment being written, or an edit with changes. */
+export type ComposeRefusal = 'posting' | 'writing' | 'editing';
 
 /** A thread's status, set before the host has confirmed it. */
 export interface StatusChange {
@@ -159,13 +210,35 @@ export interface CommentsController<A> {
   /** The viewer may delete threads. */
   canRemove(): boolean;
   anchorOf(thread: Pick<CommentThread, 'anchor'>): A;
+  /** The anchor of a new comment on the whole artifact, when the type has them (the panel's composer). */
+  wholeArtifact(): A | null;
+  /** The thread is on the whole artifact: no pin, nothing to bring into view. */
+  isWhole(thread: Pick<CommentThread, 'anchor'>): boolean;
+  /** The anchor is the whole artifact's. */
+  isWholeAnchor(anchor: A): boolean;
+  /**
+   * Opens the composer for a comment on the whole artifact; resolves `null`, or why it stays shut while a write is on
+   * its way or an edit has changes. A comment begun on the page is set aside when it has words in it (see
+   * {@link CommentsState.parked}), and dropped when it has none.
+   */
+  composeWhole(): ComposeRefusal | null;
+  /** Why the panel's composer would not open now (the same order the refusal is said in), or `null`. */
+  composeRefusal(): ComposeRefusal | null;
   labelOf(anchor: A): string;
   stateOf(anchor: A): AnchorState;
   stateNote(state: AnchorState | undefined): string | null;
-  /** Starts a thread (`send`: and hands it to the agent); resolves whether it was saved. */
-  create(anchor: A, text: string, options?: { send?: boolean }): Promise<boolean>;
+  /** Starts a thread (`send`: and hands it to the agent; `to`: whom it names); resolves whether it was saved. */
+  create(anchor: A, text: string, options?: MessageOptions): Promise<boolean>;
   /** Replies to a thread (`send`: and hands it to the agent; a resolved thread reopens); resolves whether it was saved. */
-  reply(id: string, text: string, options?: { send?: boolean }): Promise<boolean>;
+  reply(id: string, text: string, options?: MessageOptions): Promise<boolean>;
+  /** Changes the text of one of the viewer's own messages (`send`: and hands the thread to the agent); resolves whether it was saved. */
+  edit(id: string, messageId: string, text: string, options?: MessageOptions): Promise<boolean>;
+  /** The viewer wrote this and may still change it. */
+  canEdit(author: CommentAuthor): boolean;
+  /** Starts following who the host says has the artifact and who is here (once; the `@` list asks for it when it first opens). */
+  followPeople(): void;
+  /** Whom `@` can name besides the agent, in the order the list shows them (the viewer included: the list leaves them out). */
+  mentionPeople(): MentionPerson[];
   /**
    * Resolves or reopens a thread. It shows the new status at once (a resolved card closes); if the host refuses, it
    * goes back and its card reopens. One at a time: ignored while another change is waiting for the host.
@@ -188,7 +261,12 @@ export interface CommentsController<A> {
   viewerName(): string;
 }
 
-/** Open (unresolved) thread count. */
+/** How a message is sent: `send` hands its thread to the agent; `to` is whom it names (`agent` for the agent). */
+export interface MessageOptions {
+  send?: boolean;
+  to?: readonly string[];
+}
+
 /** Under a thread sent to the agent that has not taken it yet; one that is not woken while it idles needs a message. */
 export function queuedNote(agent: { name: string; wakesIdle?: boolean }): string {
   return agent.wakesIdle === false ? `${agent.name} gets this on its next turn: send it a message to start one` : 'Waiting for the agent';
@@ -226,7 +304,15 @@ export function createComments<A>(adapter: CommentsAdapter<A>): CommentsControll
   /** Bumped by {@link CommentsController.stop}: a list arriving after it is dropped. */
   let generation = 0;
 
-  const store = create<CommentsState<A>>()((set) => ({
+  /** The whole artifact's stored anchor, when the type has one. */
+  const wholeKey = (): string | null => (adapter.wholeArtifact ? adapter.serialize(adapter.wholeArtifact()) : null);
+  /** Whole-artifact threads: only a type that has them reads the empty string (or its own anchor for them) so. */
+  const isWholeKey = (key: string): boolean => Boolean(adapter.wholeArtifact) && (key === WHOLE_ARTIFACT || key === wholeKey());
+  const isWhole = (thread: Pick<CommentThread, 'anchor'>): boolean => isWholeKey(thread.anchor);
+  const isWholeAnchor = (anchor: A): boolean => isWholeKey(adapter.serialize(anchor));
+  const sameSpot = (a: A, b: A): boolean => adapter.serialize(a) === adapter.serialize(b);
+
+  const store = create<CommentsState<A>>()((set, get) => ({
     available: false,
     threads: [],
     on: false,
@@ -237,6 +323,11 @@ export function createComments<A>(adapter: CommentsAdapter<A>): CommentsControll
     sendNew: false,
     draftText: '',
     replies: {},
+    parked: null,
+    editing: null,
+    writing: [],
+    known: [],
+    self: null,
     statusChange: null,
     setOn(on) {
       set({ on, draft: null });
@@ -246,11 +337,54 @@ export function createComments<A>(adapter: CommentsAdapter<A>): CommentsControll
       set({ listOpen });
     },
     setActive(active) {
-      set({ active, draft: null });
+      const state = get();
+      const panel = state.draft !== null && isWholeAnchor(state.draft);
+      if (active !== null && active !== state.active) {
+        // Changes being edited in another card, or words in the panel's composer, hold the card where it is.
+        if (state.editing?.changed && state.editing.thread !== active) return;
+        if (panel && state.draftText.trim() !== '') return;
+      }
+      // A comment begun on the page with words in it is set aside for later; the panel's composer, empty, just closes.
+      const page = state.draft !== null && !panel ? state.draft : null;
+      const parks = Boolean(adapter.parksDrafts) && active !== null && page !== null && state.draftText.trim() !== '';
+      set({
+        active,
+        draft: null,
+        ...(state.editing && state.editing.thread !== active ? { editing: null } : {}),
+        ...(parks ? { parked: { anchor: page, text: state.draftText, send: state.sendNew } } : {}),
+        ...(parks || panel ? { draftText: '', sendNew: false } : {}),
+      });
     },
     setDraft(draft) {
-      // Dropped: its text and box go too. Moved to another spot: they stay.
-      set(draft === null ? { draft, active: null, draftText: '', sendNew: false } : { draft, active: null });
+      const state = get();
+      // Dropped: its text and box go too.
+      if (draft === null) return set({ draft, active: null, editing: null, draftText: '', sendNew: false });
+      const panel = state.draft !== null && isWholeAnchor(state.draft);
+      if (isWholeAnchor(draft)) {
+        // The panel's composer: a comment begun on the page is set aside when it has words in it.
+        const page = state.draft !== null && !panel ? state.draft : null;
+        const parks = Boolean(adapter.parksDrafts) && page !== null && state.draftText.trim() !== '';
+        // Where nothing would show it set aside, its words go on into the panel's composer.
+        const carries = page !== null && !adapter.parksDrafts;
+        return set({
+          draft,
+          active: null,
+          editing: null,
+          ...(panel || carries ? {} : { draftText: '', sendNew: false }),
+          ...(parks ? { parked: { anchor: page, text: state.draftText, send: state.sendNew } } : {}),
+        });
+      }
+      // A spot on the page: not while an edit has changes or the panel's composer has words in it.
+      if (state.editing?.changed) return;
+      if (panel && state.draftText.trim() !== '') return;
+      const parked = state.parked;
+      if (parked) {
+        // The comment set aside comes back where it was; until it is sent or dropped, no other spot starts one.
+        if (!sameSpot(parked.anchor, draft)) return;
+        return set({ draft: parked.anchor, active: null, editing: null, parked: null, draftText: parked.text, sendNew: parked.send });
+      }
+      // Moved to another spot: its text and box stay. From the panel's empty composer: a fresh one.
+      set({ draft, active: null, editing: null, ...(panel ? { draftText: '', sendNew: false } : {}) });
     },
     setShowResolved(showResolved) {
       set({ showResolved });
@@ -264,7 +398,23 @@ export function createComments<A>(adapter: CommentsAdapter<A>): CommentsControll
     setReply(id, reply) {
       set((state) => ({ replies: { ...state.replies, [id]: reply } }));
     },
+    setEditing(editing) {
+      set({ editing });
+    },
   }));
+
+  /** Marks a write as on its way to the host until it settles. */
+  const writing = async <T>(key: string, work: () => Promise<T>): Promise<T> => {
+    store.setState((state) => ({ writing: [...state.writing, key] }));
+    try {
+      return await work();
+    } finally {
+      store.setState((state) => {
+        const at = state.writing.indexOf(key);
+        return { writing: at < 0 ? state.writing : [...state.writing.slice(0, at), ...state.writing.slice(at + 1)] };
+      });
+    }
+  };
 
   /** Anchors parsed once per stored string. */
   const parsed = new Map<string, A>();
@@ -283,7 +433,10 @@ export function createComments<A>(adapter: CommentsAdapter<A>): CommentsControll
   const keep = (threads: CommentThread[], also?: Partial<CommentsState<A>>): void => {
     stored = threads;
     const statusChange = also && 'statusChange' in also ? (also.statusChange ?? null) : store.getState().statusChange;
-    store.setState({ ...also, threads: withStatusChange(threads, statusChange) });
+    // An edit whose message is gone ends with it.
+    const editing = store.getState().editing;
+    const gone = editing !== null && !threads.some((t) => t.id === editing.thread && t.messages.some((m) => m.id === editing.message));
+    store.setState({ ...also, threads: withStatusChange(threads, statusChange), ...(gone ? { editing: null } : {}) });
   };
 
   const failed = (error: unknown): void => {
@@ -306,6 +459,17 @@ export function createComments<A>(adapter: CommentsAdapter<A>): CommentsControll
   const canComment = (): boolean => Boolean(capability) && adapter.canComment();
   const canSendToAgent = (): boolean => Boolean(capability) && adapter.canSendToAgent();
   const canRemove = (): boolean => Boolean(capability) && (adapter.canRemove ? adapter.canRemove() : adapter.canComment());
+  /** `to` as the host takes it (none when empty), or `undefined` after saying why a message names too many people. */
+  const recipients = (options: MessageOptions | undefined, verb: 'post' | 'save'): { to?: string[] } | undefined => {
+    const to = [...new Set(options?.to ?? [])];
+    if (peopleNamed(to) > MENTION_PEOPLE_LIMIT) {
+      notify({ title: mentionLimitText(verb) });
+      return undefined;
+    }
+    return to.length ? { to } : {};
+  };
+  let following = false;
+  let unfollowPeople: (() => void) | undefined;
 
   const controller: CommentsController<A> = {
     store,
@@ -336,32 +500,56 @@ export function createComments<A>(adapter: CommentsAdapter<A>): CommentsControll
       generation += 1;
       unfollow?.();
       unfollow = undefined;
+      following = false;
+      unfollowPeople?.();
+      unfollowPeople = undefined;
     },
     capability: () => capability,
     canComment,
     canSendToAgent,
     canRemove,
     anchorOf,
+    wholeArtifact: () => adapter.wholeArtifact?.() ?? null,
+    isWhole,
+    isWholeAnchor,
+    composeWhole() {
+      const whole = adapter.wholeArtifact?.();
+      if (!whole) return null;
+      const refusal = controller.composeRefusal();
+      if (refusal) return refusal;
+      store.getState().setDraft(whole);
+      return null;
+    },
+    composeRefusal() {
+      const state = store.getState();
+      if (state.writing.length > 0 || state.statusChange !== null) return 'posting';
+      if (!state.editing?.changed) return null;
+      return state.draft !== null ? 'writing' : 'editing';
+    },
     labelOf: (anchor) => adapter.label(anchor),
-    stateOf: (anchor) => adapter.state?.(anchor) ?? 'ok',
+    stateOf: (anchor) => (isWholeAnchor(anchor) ? 'ok' : (adapter.state?.(anchor) ?? 'ok')),
     stateNote: (state) => (adapter.stateNote ? adapter.stateNote(state ?? 'ok') : defaultStateNote(state)),
     async create(anchor, text, options) {
       if (!capability) return false;
       const body = checkText(text);
       if (!body) return false;
+      const named = recipients(options, 'post');
+      if (!named) return false;
       if (store.getState().threads.length >= maxThreads) {
         notify({ title: `This ${noun} already has ${maxThreads} comments` });
         return false;
       }
+      const cap = capability;
       try {
         const detail = adapter.detail?.(anchor);
-        const thread = await capability.create({
+        const thread = await writing('new', () => cap.create({
           anchor: adapter.serialize(anchor),
           label: adapter.label(anchor),
           ...(detail !== undefined ? { detail } : {}),
           location: adapter.location?.(anchor) ?? {},
           text: body,
-        });
+          ...named,
+        }));
         const sends = Boolean(options?.send) && canSendToAgent();
         keep(stored.some((t) => t.id === thread.id) ? stored : [...stored, thread], {
           draft: null,
@@ -381,10 +569,15 @@ export function createComments<A>(adapter: CommentsAdapter<A>): CommentsControll
       if (!capability) return false;
       const body = checkText(text);
       if (!body) return false;
+      const named = recipients(options, 'post');
+      if (!named) return false;
+      const cap = capability;
       try {
-        let thread = await capability.reply(id, body);
-        // A reply to a resolved thread reopens it.
-        if (thread.status === 'resolved') thread = await capability.setResolved(id, false);
+        const thread = await writing(`reply:${id}`, async () => {
+          const posted = await (named.to ? cap.reply(id, body, named) : cap.reply(id, body));
+          // A reply to a resolved thread reopens it.
+          return posted.status === 'resolved' ? cap.setResolved(id, false) : posted;
+        });
         put(thread);
         store.setState((state) => {
           const { [id]: _, ...replies } = state.replies;
@@ -396,6 +589,43 @@ export function createComments<A>(adapter: CommentsAdapter<A>): CommentsControll
         failed(error);
         return false;
       }
+    },
+    async edit(id, messageId, text, options) {
+      if (!capability) return false;
+      const body = checkText(text);
+      if (!body) return false;
+      const named = recipients(options, 'save');
+      if (!named) return false;
+      const cap = capability;
+      try {
+        put(await writing(`edit:${messageId}`, () => cap.edit(id, messageId, body, { to: named.to ?? [] })));
+        if (options?.send && canSendToAgent()) await controller.sendToAgent(id);
+        return true;
+      } catch (error) {
+        failed(error);
+        return false;
+      }
+    },
+    canEdit: (author) => canComment() && author.kind === 'person' && author.name === controller.viewerName(),
+    followPeople() {
+      if (following) return;
+      following = true;
+      void followRoom(store, () => !following).then((stop) => {
+        if (following) unfollowPeople = stop;
+        else stop();
+      });
+    },
+    mentionPeople() {
+      const { known, threads } = store.getState();
+      const out: MentionPerson[] = [...known, ...(adapter.people?.() ?? [])];
+      const named: MentionPerson[] = [];
+      for (const thread of threads) {
+        for (const message of thread.messages) {
+          if (message.author.kind === 'person' && message.author.name) out.push({ key: message.author.name, name: message.author.name });
+          for (const key of message.to ?? []) if (key !== AGENT_KEY) named.push({ key, name: key });
+        }
+      }
+      return [...out, ...named];
     },
     async resolve(id, resolved) {
       if (!capability) return;
@@ -422,8 +652,9 @@ export function createComments<A>(adapter: CommentsAdapter<A>): CommentsControll
     },
     async remove(id, messageId) {
       if (!capability || (adapter.canRemove && !adapter.canRemove())) return;
+      const cap = capability;
       try {
-        await capability.remove(id, messageId);
+        await writing(`delete:${messageId ?? id}`, () => cap.remove(id, messageId));
         if (!messageId) keep(stored.filter((t) => t.id !== id), { active: store.getState().active === id ? null : store.getState().active });
       } catch (error) {
         failed(error);
@@ -440,9 +671,11 @@ export function createComments<A>(adapter: CommentsAdapter<A>): CommentsControll
     async sendToAgent(id, parts) {
       if (!capability || !canSendToAgent()) return false;
       const thread = adapter.sendToAgent ? store.getState().threads.find((t) => t.id === id) : undefined;
-      if (adapter.sendToAgent) return thread ? adapter.sendToAgent(thread, anchorOf(thread)) : false;
+      const send = adapter.sendToAgent;
+      if (send) return thread ? writing('send', () => send(thread, anchorOf(thread))) : false;
+      const cap = capability;
       try {
-        put(await (parts?.userText || parts?.selectionSnapshot ? capability.sendToAgent(id, parts) : capability.sendToAgent(id)));
+        put(await writing('send', () => (parts?.userText || parts?.selectionSnapshot ? cap.sendToAgent(id, parts) : cap.sendToAgent(id))));
         notify(sentNotice(adapter.agentName?.() || 'the agent', adapter.agentWakesIdle?.()));
         return true;
       } catch (error) {
@@ -456,12 +689,13 @@ export function createComments<A>(adapter: CommentsAdapter<A>): CommentsControll
       if (!open.length) return;
       // All at once: the host merges what reaches it within a short window into one message, so the agent gets
       // every thread in one turn. One after another, each would wait out the window and arrive (or queue) alone.
-      if (adapter.sendToAgent) {
-        await Promise.all(open.map((thread) => adapter.sendToAgent!(thread, anchorOf(thread))));
+      const send = adapter.sendToAgent;
+      if (send) {
+        await writing('send', () => Promise.all(open.map((thread) => send(thread, anchorOf(thread)))));
         return;
       }
       const cap = capability;
-      const results = await Promise.allSettled(open.map((thread) => cap.sendToAgent(thread.id)));
+      const results = await writing('send', () => Promise.allSettled(open.map((thread) => cap.sendToAgent(thread.id))));
       let sent = 0;
       for (const result of results) {
         if (result.status === 'fulfilled') {
@@ -481,7 +715,7 @@ export function createComments<A>(adapter: CommentsAdapter<A>): CommentsControll
       return !thread.agent || thread.agent.status === 'replied';
     },
     reveal(thread) {
-      adapter.reveal?.(anchorOf(thread));
+      if (!isWhole(thread)) adapter.reveal?.(anchorOf(thread));
       store.getState().setActive(thread.id);
     },
     show(thread) {
@@ -493,4 +727,40 @@ export function createComments<A>(adapter: CommentsAdapter<A>): CommentsControll
     viewerName: () => adapter.viewerName?.() || 'You',
   };
   return controller;
+}
+
+/** A peer is someone the `@` list names when it is a person with a name. */
+const personOf = (peer: Peer): MentionPerson | null => (peer.kind === 'person' && peer.name.trim() ? { key: peer.name, name: peer.name, id: peer.id } : null);
+
+/**
+ * Follows the room: who has the artifact (asked once: its owner first) and who is here now, into the store's `known`;
+ * and who the viewer is, into `self`. Resolves a stop function. Without a room there is no one to add.
+ */
+async function followRoom<A>(store: UseBoundStore<StoreApi<CommentsState<A>>>, stopped: () => boolean): Promise<() => void> {
+  const [room, user] = await Promise.all([useCapability('room'), useCapability('user')]);
+  const me = await user?.me().catch(() => null);
+  if (me) store.setState({ self: { id: me.id, name: me.name } });
+  if (!room || stopped()) return () => {};
+  const [selfPeer, members, peers] = await Promise.all([
+    room.self().catch(() => ''),
+    room.participants ? room.participants().catch(() => []) : Promise.resolve([]),
+    room.peers().catch((): Peer[] => []),
+  ]);
+  const listed: MentionPerson[] = [...members]
+    .sort((a, b) => Number(b.owner === true) - Number(a.owner === true))
+    .filter((member) => member.name.trim())
+    .map((member) => ({ key: member.name, name: member.name, id: member.id }));
+  const update = (present: readonly Peer[]): void => {
+    const here = present.filter((peer) => peer.id !== selfPeer).map(personOf).filter((person): person is MentionPerson => person !== null);
+    const seen = new Set<string>();
+    const known = [...listed, ...here].filter((person) => {
+      const key = foldName(person.key);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    store.setState({ known });
+  };
+  update(peers);
+  return room.onPeers(update);
 }

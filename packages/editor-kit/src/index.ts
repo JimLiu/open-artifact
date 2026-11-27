@@ -26,3 +26,4 @@ export * from './find.ts';
 export * from './file-drop.ts';
 export * from './right-drag-pan.ts';
 export * from './design-systems.ts';
+export { FOLD_OWNS_ESCAPE } from './toolbar-fold.ts';

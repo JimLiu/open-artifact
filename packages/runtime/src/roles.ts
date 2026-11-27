@@ -19,9 +19,9 @@ export const COMMENT_WRITES: ReadonlySet<string> = new Set<string>([API.comments
 /** Page routes that change the artifact. */
 export const EDIT_WRITES: ReadonlySet<string> = new Set<string>([API.publish, API.assets, API.dbWrite, API.commentsRemove, API.roomEmit, API.historyRestore, API.historyDismiss, DOC_API.restore, DOC_API.importFile, SHEET_API.send]);
 /** Page routes that answer with a POST: everyone's, as reads are (a Sheet's widget refuses a write by role itself). */
-export const POSTED_READS: ReadonlySet<string> = new Set<string>([SHEET_API.read, SHEET_API.widget, DOC_API.session, DOC_API.read, DOC_API.history, DOC_API.version, DOC_API.call]);
+export const POSTED_READS: ReadonlySet<string> = new Set<string>([API.dataShared, SHEET_API.read, SHEET_API.widget, DOC_API.session, DOC_API.read, DOC_API.history, DOC_API.version, DOC_API.call]);
 /** Page routes that act on this computer or reach the agent: the owner's alone. */
-export const OWNER_WRITES: ReadonlySet<string> = new Set<string>([API.agentSend, API.commentsSend, API.downloads, API.mcpCall, API.dataRefresh, SHEET_API.importFile]);
+export const OWNER_WRITES: ReadonlySet<string> = new Set<string>([API.agentSend, API.commentsSend, API.downloads, API.mcpCall, API.dataRefresh, API.dataShare, SHEET_API.importFile]);
 
 /** What a type lets roles do beyond the table above. */
 export interface RoleOptions {

@@ -2,9 +2,11 @@
  * What the page shows: the stored dashboard, an open draft, or an earlier
  * version from the history. The page runtime renders `useShownContent()`.
  *
- * A version preview wins. A draft shows only while drafts are free: not
- * while the person edits the page by hand, comments, previews a version or
- * holds unsaved source changes (it waits, and comes back after).
+ * A version preview wins. A remix draft shows only while drafts are free:
+ * not while the person edits the page by hand, comments, previews a version
+ * or holds unsaved source changes (it waits, and comes back after). The
+ * shared draft also shows while the page is edited by hand, since those
+ * edits go into it.
  */
 
 import { create } from 'zustand';
@@ -34,9 +36,14 @@ export interface ShownInputs {
   version: { n: number; content: DashboardContent } | null;
   /** The open, ready draft applied to the dashboard (whether or not drafts are free now). */
   draft: { id: string; content: DashboardContent } | null;
+  /** The shared draft applied to the dashboard, when the viewer is to see it. */
+  shared: { content: DashboardContent } | null;
 }
 
-export const NO_SHOWN_INPUTS: ShownInputs = { editing: false, commenting: false, sourceDirty: false, version: null, draft: null };
+/** The draft id the shared draft shows under. */
+export const SHARED_SHOWN_ID = 'shared';
+
+export const NO_SHOWN_INPUTS: ShownInputs = { editing: false, commenting: false, sourceDirty: false, version: null, draft: null, shared: null };
 
 /** A draft may show (and its bar act). */
 export function areDraftsFree(inputs: ShownInputs): boolean {
@@ -51,6 +58,7 @@ export function isPencilFree(inputs: ShownInputs): boolean {
 export function deriveShownContent(live: DashboardContent, inputs: ShownInputs): ShownContent {
   if (inputs.version !== null) return { mode: 'version', content: inputs.version.content, version: inputs.version.n };
   if (inputs.draft !== null && areDraftsFree(inputs)) return { mode: 'draft', content: inputs.draft.content, draftId: inputs.draft.id };
+  if (inputs.shared !== null && !inputs.commenting && !inputs.sourceDirty) return { mode: 'draft', content: inputs.shared.content, draftId: SHARED_SHOWN_ID };
   return { mode: 'live', content: live };
 }
 
@@ -94,8 +102,8 @@ export function getShownContent(): ShownContent {
 
 /** The inputs now, outside React. */
 export function getShownInputs(): ShownInputs {
-  const { editing, commenting, sourceDirty, version, draft } = useShown.getState();
-  return { editing, commenting, sourceDirty, version, draft };
+  const { editing, commenting, sourceDirty, version, draft, shared } = useShown.getState();
+  return { editing, commenting, sourceDirty, version, draft, shared };
 }
 
 /** Comment mode turned on or off (the comments layer calls this). */
@@ -123,4 +131,11 @@ export function setShownDraft(draft: ShownInputs['draft']): void {
   const was = useShown.getState().draft;
   if (was === draft || (was !== null && draft !== null && was.id === draft.id && was.content === draft.content)) return;
   setInputs({ draft });
+}
+
+/** The shared draft applied to the dashboard (`null`: the published artifact shows). */
+export function setShownShared(shared: ShownInputs['shared']): void {
+  const was = useShown.getState().shared;
+  if (was === shared || (was !== null && shared !== null && was.content === shared.content)) return;
+  setInputs({ shared });
 }

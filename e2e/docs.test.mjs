@@ -384,6 +384,29 @@ describe(TYPE, { skip: skip() }, () => {
     }
   });
 
+  it('restoring a deleted tab says so in a toast marked as done, with a check mark', { ...T, skip: chromeSkip() }, async () => {
+    const root = path.join(tmpDir('docs-restore'), 'plan');
+    const source = path.join(tmpDir('docs-restore-src'), 'plan.md');
+    fs.writeFileSync(source, SOURCE);
+    await ctx.cli.json(['create', root, '--markdown', source, '--name', 'Plan']);
+    const made = await call('batch', root, { batch: [{ verb: 'create', object: 'file', payload: { birthName: 'Spare' } }] });
+    await call('delete', root, { ref: { object: 'file', id: made.acks[0].minted } });
+    const { url } = await ctx.cli.json(['open', root, '--json']);
+    const browser = await launch();
+    const toast = `[...document.querySelector('iframe[name="open-artifact-shell"]').contentDocument.querySelectorAll('[data-toast]')].find(toast => toast.textContent.includes('Tab restored'))`;
+    try {
+      const page = await browser.load(url, { ready: textIn('Intro words'), ignore: [/\/favicon\.ico$/] });
+      await clickInEditor(page, `document.querySelector('button[title="Document tabs"]')`);
+      await clickInEditor(page, `document.querySelector('[data-testid="tabs-deleted-row"]')`);
+      await clickInEditor(page, `document.querySelector('[data-testid="deleted-tab-row"]')`);
+      await clickInEditor(page, `document.querySelector('[data-testid="deleted-tab-restore"]:not([disabled])')`);
+      assert.ok(await page.waitFor(`!!${toast}`, 10000), 'no toast said the tab was restored');
+      assert.equal(await page.evaluate(`!!${toast}.querySelector('svg.text-success')`), true, 'the toast has no check mark');
+      assert.ok((await tabs(root)).some(file => file.name === 'Spare'), 'the tab did not come back');
+      assert.deepEqual(page.problems, []);
+    } finally { await browser.close(); }
+  });
+
   it('opens the tab picker from the phone toolbar and navigates without losing the public address', { ...T, skip: chromeSkip() }, async () => {
     const { url } = await ctx.cli.json(['open', ctx.root, '--json']);
     const browser = await launch();

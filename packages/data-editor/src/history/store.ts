@@ -29,6 +29,8 @@ interface VersionHistoryState {
   canRestore: boolean;
   /** The version open in the panel. */
   opened: number | null;
+  /** The shared draft's own page is open in the panel. */
+  draftOpened: boolean;
   /** The earlier version shown on the page, and when it was made. */
   shown: { n: number; at: number } | null;
   restoring: boolean;
@@ -45,6 +47,7 @@ const INITIAL: VersionHistoryState = {
   failed: false,
   canRestore: false,
   opened: null,
+  draftOpened: false,
   shown: null,
   restoring: false,
   restoringN: null,
@@ -59,6 +62,8 @@ const READ_WORKERS = 12;
 /** Bumped per preview and listing request, so a slow answer never replaces a newer one. */
 let previewRequest = 0;
 let listRequest = 0;
+/** Something besides the panel (the publish control's version menu) keeps the listing read. */
+let followers = 0;
 
 export function historyCapability(): HistoryCapability | null {
   return maybeSession()?.history ?? null;
@@ -131,10 +136,16 @@ export function backToLatest(): void {
  */
 export function openVersion(n: number | null): void {
   const { versions } = useVersionHistory.getState();
-  useVersionHistory.setState({ opened: n, problem: null });
+  useVersionHistory.setState({ opened: n, draftOpened: false, problem: null });
   const version = n === null ? undefined : versions?.find((item) => item.n === n);
   if (version === undefined || version.current === true) return backToLatest();
   void showVersion(version);
+}
+
+/** Opens the shared draft's page in the panel (`false`: back to the list); the page shows the artifact as it is now. */
+export function openDraftPage(open: boolean): void {
+  openVersion(null);
+  if (open) useVersionHistory.setState({ draftOpened: true });
 }
 
 async function showVersion(version: HistoryVersion): Promise<void> {
@@ -191,6 +202,35 @@ export async function restoreVersion(n: number): Promise<void> {
   openVersion(null);
 }
 
+/** Keeps the listing read while the panel is closed (for the version menu). Returns a stop function. */
+export function followVersions(): () => void {
+  followers += 1;
+  if (followers === 1 && !useVersionHistory.getState().open) void reload();
+  let stopped = false;
+  return () => {
+    if (stopped) return;
+    stopped = true;
+    followers -= 1;
+  };
+}
+
+/**
+ * Goes back to the version before `newest`, for everyone. Reads the listing first: when `newest` is no longer the
+ * newest version, nothing is reverted. Resolves to null once reverted, else to why not.
+ */
+export async function revertToBefore(newest: number, previous: number, moved: string): Promise<string | null> {
+  const history = historyCapability();
+  if (history === null) return RESTORE_FAILED_MESSAGE;
+  try {
+    const listing = await history.list();
+    useVersionHistory.setState({ versions: listing.versions, failed: false });
+    if (listing.versions[0]?.n !== newest) return moved;
+  } catch {
+    return RESTORE_FAILED_MESSAGE;
+  }
+  return restoreVersionNow(previous);
+}
+
 /**
  * Finds the history, reports it to the Shell, answers its `history`
  * command and follows new versions. Returns a stop function.
@@ -208,7 +248,7 @@ export function startVersionHistory(): () => void {
     setCanRestore: (canRestore) => useVersionHistory.setState({ canRestore }),
   });
   const stopChanges = history.onChange(() => {
-    if (useVersionHistory.getState().open) void reload();
+    if (useVersionHistory.getState().open || followers > 0) void reload();
     else useVersionHistory.setState({ versions: null });
   });
   return () => {

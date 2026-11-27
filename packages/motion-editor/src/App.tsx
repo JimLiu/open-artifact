@@ -21,7 +21,7 @@ function VideoPage(): ReactElement {
   const agent = useAgentBadge();
   useToolbarRoom(root);
   useEffect(() => {
-    setFullscreenTarget(root.current);
+    setFullscreenTarget(document.documentElement);
     return () => setFullscreenTarget(null);
   }, []);
   return (

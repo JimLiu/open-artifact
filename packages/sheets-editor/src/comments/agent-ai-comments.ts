@@ -1,4 +1,5 @@
 import { isNonNullObject } from '../utils/objects.ts';
+import { PARKED_DRAFT } from './anchors.ts';
 import type { CommentsTold } from '../state/event-reducer.ts';
 import type { PageApi } from '../host/sheets-host.ts';
 import type { CommentCardPlaces } from './card-places.ts';
@@ -150,7 +151,7 @@ export function createHostComments(
     if (sentBox === null) return null;
     let { anchor, listed, turn, sinceMs } = sentBox;
     let newHandle = Object.entries(state.comments).find(
-      ([handle, comment]) => !listed.includes(handle) && comment.anchor === anchor && !comment.resolved,
+      ([handle, comment]) => handle !== PARKED_DRAFT && !listed.includes(handle) && comment.anchor === anchor && !comment.resolved,
     )?.[0];
     if (newHandle === undefined) return null;
     sentBox = null;

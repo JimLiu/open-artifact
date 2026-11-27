@@ -39,6 +39,15 @@ import { connectorSetupRequest, getConnectionFixAction, type ConnectionFixAction
 import { createLiveSnapshotSource, withLiveSnapshot, type LiveSnapshotSource } from './live-snapshot.ts';
 import { createMcpToolClient, type ConnectorTool } from './mcp.ts';
 import {
+  createSharedAccessTransport,
+  dropRunBeforeShare,
+  findSourceCall,
+  loadServerShares,
+  useSharedAccess,
+  withSharedAccess,
+  type SharedAccessTransport,
+} from './shared-access.ts';
+import {
   IDLE_DATASET_RUN,
   applyFetchPriority,
   attachDatasetLoaders,
@@ -102,6 +111,8 @@ export interface DataEngineOptions {
   visibility?: PageVisibility;
   /** Whether the content shown is a draft or a history version rather than the live dashboard. */
   aside?: () => boolean;
+  /** The routes that share connector access (beside the page when left out). */
+  sharedAccess?: SharedAccessTransport;
 }
 
 /** The engine that turns the dashboard's datasets into runs and tables for the page and the panels. */
@@ -144,6 +155,8 @@ export interface DataEngine {
   retryFailed(): void;
   /** Tries again the queries of a connector (or those that failed to connect). */
   retry(connector?: string): void;
+  /** The routes that share connector access. */
+  readonly sharedAccess: SharedAccessTransport;
   /** The viewer moved: queries whose connector failed to connect a while ago try again. */
   nudge(): void;
   canAskAgent(): boolean;
@@ -222,10 +235,20 @@ export function createDataEngine(options: DataEngineOptions = {}): DataEngine {
   const ownsSnapshot = options.snapshot === undefined;
   const snapshot = options.snapshot ?? createLiveSnapshotSource(() => maybeSession()?.db ?? null);
   // Without connectors (a hosted page), the answers the owner's computer took stand in for live calls.
-  const client = withLiveSnapshot(createMcpToolClient({ mcp, cache }), () => mcp() !== null, snapshot);
+  const sharedAccess = options.sharedAccess ?? createSharedAccessTransport();
+  const viewerId = options.viewerId ?? (() => maybeSession()?.viewer.id ?? null);
+  // A connector someone shares runs as them on everyone else's page; else the snapshot stands in, as before.
+  const client = withSharedAccess(withLiveSnapshot(createMcpToolClient({ mcp, cache }), () => mcp() !== null, snapshot), {
+    transport: sharedAccess,
+    isSharer: (mark) => mark.id === viewerId(),
+    markOf: (connector) => content.shared?.[connector],
+    resolve: (connector, tool, args) => findSourceCall(base, connector, tool, args),
+    reuseMs: () => getUpdatesIntervalMs(content.updates),
+    ensureShares: () => (sharesLoading ??= loadServerShares(sharedAccess)),
+  });
+  let sharesLoading: Promise<void> | null = null;
   const ownsSavedRows = options.savedRows === undefined;
   const savedRows = options.savedRows ?? createSavedRowsReader({ db: () => maybeSession()?.db ?? null, clock });
-  const viewerId = options.viewerId ?? (() => maybeSession()?.viewer.id ?? null);
   const savedRowsPath = (path: string): string => {
     const id = viewerId();
     return id === null || id === '' ? path : resolveSavedRowsPath(path, id);
@@ -278,7 +301,29 @@ export function createDataEngine(options: DataEngineOptions = {}): DataEngine {
     const dataset = listedById.get(id);
     if (dataset === undefined) return IDLE_DATASET_RUN;
     if (dataset.source.kind === 'calc') return getCalculationRun(dataset.source, (other) => listedById.get(other), getRun);
-    return live.get(id);
+    const run = live.get(id);
+    return dataset.source.kind === 'query' ? dropRunBeforeShare(run, content.shared?.[dataset.source.connector]) : run;
+  };
+
+  /** A connector's share changed: its sources load again, through the share or without it. */
+  const sharesChanged = (before: DashboardContent['shared'], after: DashboardContent['shared']): void => {
+    const connectors = new Set([...Object.keys(before ?? {}), ...Object.keys(after ?? {})]);
+    let changed = false;
+    for (const connector of connectors) {
+      const was = before?.[connector];
+      const next = after?.[connector];
+      if (was?.at === next?.at && was?.id === next?.id) continue;
+      changed = true;
+      const unshared = useSharedAccess.getState().unshared;
+      if (Object.hasOwn(unshared, connector)) {
+        const { [connector]: _dropped, ...rest } = unshared;
+        useSharedAccess.setState({ unshared: rest });
+      }
+      // Only sources that loaded before: the rest load when the page uses them.
+      for (const dataset of base)
+        if (dataset.source.kind === 'query' && dataset.source.connector === connector && live.get(dataset.id).status !== 'idle') live.refresh(dataset);
+    }
+    if (changed) sharesLoading = loadServerShares(sharedAccess);
   };
 
   const relist = (): void => {
@@ -402,7 +447,7 @@ export function createDataEngine(options: DataEngineOptions = {}): DataEngine {
     if (dataset === undefined) return emptyPageDataResult('missing', `No dataset “${id}” in this dashboard.`);
     if (dataset.source.kind === 'unsupported')
       return emptyPageDataResult('error', `This dashboard can’t read “${dataset.source.rawKind}” sources.`);
-    const run = live.get(id);
+    const run = dataset.source.kind === 'query' ? dropRunBeforeShare(live.get(id), content.shared?.[dataset.source.connector]) : live.get(id);
     const table = getRunTable(run);
     if (table !== null) return successfulPageDataResult(table, getLastSuccessfulRun(run)?.value, run.status === 'running');
     if (run.status === 'idle' || run.status === 'running') return emptyPageDataResult('loading', '');
@@ -570,11 +615,14 @@ export function createDataEngine(options: DataEngineOptions = {}): DataEngine {
       return 'retry';
     },
     listTools: (server) => client.listTools(server),
+    sharedAccess,
     setContent(next) {
       const prepared = prepareDashboardContent(next);
       if (prepared === content) return;
+      const sharedBefore = content.shared;
       content = prepared;
       rebuild();
+      if (sharedBefore !== prepared.shared) sharesChanged(sharedBefore, prepared.shared);
       scheduleSync();
       schedulePublish(true);
     },

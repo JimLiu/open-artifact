@@ -11,10 +11,11 @@ import {
   draftHasPage,
   isDraftForArtifact,
   pickDraftHead,
+  remixHeads,
   type DashboardContent,
   type DraftComposition,
   type DraftDocs,
-  type DraftHead,
+  type RemixDraftHead,
 } from '@open-artifact/data-core';
 
 /** A remix request unanswered for this long is dropped, ms. */
@@ -27,7 +28,7 @@ export const DRAFT_ECHO_MS = 5000;
 export const STATUS_MS = 4000;
 
 export interface DraftFlowInputs {
-  heads: readonly DraftHead[];
+  heads: readonly RemixDraftHead[];
   /** Drafts this page dropped or saved and no longer offers. */
   hidden: ReadonlySet<string>;
   viewer: string;
@@ -56,7 +57,7 @@ export interface DraftFlowInputs {
 }
 
 export interface DraftFlowView {
-  head: DraftHead | null;
+  head: RemixDraftHead | null;
   id: string | null;
   docs: DraftDocs;
   /** The draft has a page. */
@@ -124,8 +125,8 @@ const NO_DOCS: DraftDocs = new Map();
 
 export function deriveDraftView(input: DraftFlowInputs): DraftFlowView {
   const { viewer } = input;
-  const heads = input.heads.filter((head) => !input.hidden.has(head.id) && isDraftForArtifact(head, input.artifact));
-  const head = viewer === '' ? null : pickDraftHead(heads, viewer);
+  const heads = remixHeads(input.heads).filter((head) => !input.hidden.has(head.id) && isDraftForArtifact(head, input.artifact));
+  const head = viewer === '' ? null : (pickDraftHead(heads, viewer) as RemixDraftHead | null);
   const id = head?.id ?? null;
   const docs = id !== null && input.followedId === id ? input.docs : NO_DOCS;
   const heard = id !== null && input.followedId === id && input.heard;
@@ -188,6 +189,6 @@ export function isDraftWorkingShown(view: DraftFlowView, free: boolean): boolean
 }
 
 /** The next head time for a new draft of `viewer`: now, or just after their newest. */
-export function nextDraftAt(heads: readonly DraftHead[], viewer: string, now: number): number {
+export function nextDraftAt(heads: readonly { by: string; at: number }[], viewer: string, now: number): number {
   return Math.max(now, ...heads.filter((head) => head.by === viewer).map((head) => head.at + 1));
 }

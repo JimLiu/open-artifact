@@ -126,7 +126,7 @@ export function shareableHref(href: string): string | null {
 export async function copyText(text: string, done = 'Link copied'): Promise<void> {
   try {
     await navigator.clipboard.writeText(text);
-    toast.add({ title: done });
+    toast.add({ title: done, type: 'success' });
   } catch {
     toast.add({ title: "Couldn't copy to the clipboard" });
   }

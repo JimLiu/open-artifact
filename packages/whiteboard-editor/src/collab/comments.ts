@@ -53,6 +53,9 @@ export const MAX_COMMENT_BYTES = COMMENT_TEXT_BYTES;
 /** Most threads on one board. */
 export const MAX_THREADS = 500;
 
+/** What a comment on the whole board is on. */
+const WHOLE_BOARD = 'Whole board';
+
 /** Screen pixels a press must move in comment mode to comment on an area. */
 const AREA_DRAG_PX = 6;
 
@@ -83,6 +86,9 @@ export const boardComments = createComments<BoardAnchor>({
   },
   noun: 'board',
   maxThreads: MAX_THREADS,
+  // The whole board: no pin; written from the "All comments" panel.
+  wholeArtifact: () => ({ anchor: '', label: WHOLE_BOARD, location: {} }),
+  parksDrafts: true,
   // A row of the "All comments" panel: the thread's place comes into view.
   reveal: (anchor) => {
     const place = anchorPlace(anchor.anchor, useBoard.getState().board.content.elements, currentMeasures(), useCamera.getState().camera.zoom);

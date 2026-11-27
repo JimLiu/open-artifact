@@ -10,6 +10,7 @@
 
 import { loadCanvasWasm, type CanvasCore } from '@open-artifact/wasm-canvas';
 import { screenToWorld, visibleRect, worldToScreen } from './camera.ts';
+import { keepsSpace, spacePressesTarget } from './space-press.ts';
 import {
   CURSORS,
   FRAME_HOLES,
@@ -652,7 +653,10 @@ export class CanvasEngine {
       this.#cleanup.push(() => target.removeEventListener(type, fn as EventListener, opts));
     };
     canvas.style.touchAction = 'none';
+    // The Space press now held: whether it began on a focused control, and whether a pointer went down meanwhile.
+    let space: { onControl: boolean; panned: boolean } | null = null;
     add(canvas, 'pointerdown', (e: PointerEvent) => {
+      if (space !== null) space.panned = true;
       const p = this.#canvasPoint(e, true);
       const handled = this.#core.pointer_down(e.pointerId, p.x, p.y, e.button, modsOf(e), POINTER_TYPES[e.pointerType as 'mouse'] ?? 0);
       if (handled) {
@@ -729,7 +733,9 @@ export class CanvasEngine {
           e.preventDefault();
           return;
         }
-        handled = this.#core.key(KEY_SPACE, down, modsOf(e));
+        if (down) space = { onControl: spacePressesTarget(e.target), panned: false };
+        handled = this.#core.key(KEY_SPACE, down, modsOf(e)) && keepsSpace({ down, repeat: false, onControl: space?.onControl ?? false, panned: space?.panned ?? false });
+        if (!down) space = null;
       } else if (e.key === 'Escape' && down) handled = this.#core.key(KEY_ESCAPE, true, modsOf(e));
       else if (['Shift', 'Control', 'Meta', 'Alt'].includes(e.key)) this.#core.key(KEY_MODIFIER, down, modsOf(e));
       if (handled) e.preventDefault();
@@ -738,6 +744,7 @@ export class CanvasEngine {
     add(window, 'keydown', key(true));
     add(window, 'keyup', key(false));
     add(window, 'blur', () => {
+      space = null;
       this.#core.key(KEY_SPACE, false, 0);
       this.#touch();
     });

@@ -255,6 +255,21 @@ describe('LAN sharing', () => {
     assert.equal((await fetch(new URL('_api/session', page), guest(cookie))).status, 403);
   });
 
+  it('lists who has the artifact for a comment’s @: the owner first, then guests by name, and nothing secret', async () => {
+    const view = await share();
+    const cookie = await joinAs(view.links.commenter!.url, 'Pia');
+    const res = await fetch(new URL('_api/participants', page), guest(cookie));
+    assert.equal(res.status, 200);
+    const text = await res.text();
+    const { participants } = JSON.parse(text) as { participants: { id: string; name: string; owner?: true }[] };
+    assert.equal(participants[0]!.owner, true);
+    assert.ok(participants.some((p) => p.name === 'Pia' && p.id.startsWith('guest-')));
+    for (const p of participants) assert.deepEqual(Object.keys(p).sort(), p.owner ? ['id', 'name', 'owner'] : ['id', 'name']);
+    assert.ok(!text.includes(secret));
+    assert.ok(!text.includes(cookie.slice(cookie.indexOf('=') + 1)));
+    for (const link of Object.values(view.links)) assert.ok(!text.includes(new URL(link.url).pathname.split('/').pop()!));
+  });
+
   it('shuts guests out when it stops sharing, and shares again on the next open', async () => {
     const view = await share();
     const cookie = await joinAs(view.links.editor!.url, 'Kim');

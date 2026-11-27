@@ -4,9 +4,10 @@
 import { Dialog as BaseDialog } from '@base-ui/react/dialog';
 import { Popover as BasePopover } from '@base-ui/react/popover';
 import { X } from 'lucide-react';
-import { useEffect, useRef, type KeyboardEvent, type ReactElement, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactElement, type ReactNode } from 'react';
 import { Button } from './button.tsx';
 import { cn } from './cn.ts';
+import { createEscapeHandoff, EscapeHandoffContext, handEscapeToPopup, useEscapeHandoffRef } from './escape-to-popup.ts';
 import { blocksEarlyPress, guardHeldActivation, preventRepeatedActivation, type EarlyPressTimes } from './keys.ts';
 import { POPUP_CLASS } from './menu.tsx';
 
@@ -28,10 +29,20 @@ export function Popover({ trigger, children, side = 'bottom', align = 'center', 
       <BasePopover.Trigger render={trigger} onKeyDown={preventRepeatedActivation} />
       <BasePopover.Portal>
         <BasePopover.Positioner side={side} align={align} sideOffset={8} className="z-[1000]">
-          <BasePopover.Popup className={cn(POPUP_CLASS, 'p-3', className)}>{children}</BasePopover.Popup>
+          <PopoverPopup className={className}>{children}</PopoverPopup>
         </BasePopover.Positioner>
       </BasePopover.Portal>
     </BasePopover.Root>
+  );
+}
+
+/** A popover's panel: inside a dialog, it takes the Escapes typed outside it while it is open. */
+function PopoverPopup({ className, children }: { className?: string; children: ReactNode }) {
+  const handoffRef = useEscapeHandoffRef();
+  return (
+    <BasePopover.Popup ref={handoffRef} className={cn(POPUP_CLASS, 'p-3', className)}>
+      {children}
+    </BasePopover.Popup>
   );
 }
 
@@ -57,11 +68,13 @@ export interface DialogProps {
 
 /**
  * A modal dialog. Closed by a held Enter, the Enter's repeats don't press
- * what gets the focus next.
+ * what gets the focus next. With a menu or popover open in it, Escape closes
+ * that first, wherever the focus is.
  */
 export function Dialog({ open, onOpenChange, title, description, children, footer, className, onOpenChangeComplete, onKeyCapture, initialFocus, finalFocus }: DialogProps) {
   const enterHeld = useRef(false);
   const wasOpen = useRef(open);
+  const [handoff] = useState(createEscapeHandoff);
   useEffect(() => {
     if (open === wasOpen.current) return;
     wasOpen.current = open;
@@ -73,7 +86,14 @@ export function Dialog({ open, onOpenChange, title, description, children, foote
     if (event.key === 'Enter') enterHeld.current = event.type === 'keydown';
   };
   return (
-    <BaseDialog.Root open={open} onOpenChange={(next) => onOpenChange(next)} onOpenChangeComplete={onOpenChangeComplete}>
+    <EscapeHandoffContext.Provider value={handoff}>
+    <BaseDialog.Root
+      open={open}
+      onOpenChange={(next, details) => {
+        if (!handEscapeToPopup(handoff, details)) onOpenChange(next);
+      }}
+      onOpenChangeComplete={onOpenChangeComplete}
+    >
       <BaseDialog.Portal>
         <BaseDialog.Backdrop className="fixed inset-0 z-[900] bg-black/30 transition-opacity data-[starting-style]:opacity-0 data-[ending-style]:opacity-0" />
         <BaseDialog.Popup
@@ -101,6 +121,7 @@ export function Dialog({ open, onOpenChange, title, description, children, foote
         </BaseDialog.Popup>
       </BaseDialog.Portal>
     </BaseDialog.Root>
+    </EscapeHandoffContext.Provider>
   );
 }
 

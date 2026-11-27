@@ -1,6 +1,9 @@
 import type { CellId } from '../model/workbook.ts';
 import type { CellsOfComment } from '../state/initial-state.ts';
 
+/** The handle a comment set aside is marked with on its cells (no thread has it): pressing the mark takes it up again. */
+export const PARKED_DRAFT = 'parked-draft';
+
 /** The anchor a comment on the cells is stored under, or `null` when their ids cannot make one. */
 export function commentAnchorOfCells(topLeft: CellId, bottomRight: CellId): string | null {
   let cornerPart =

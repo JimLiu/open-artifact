@@ -3,6 +3,7 @@ import type { AgentBadge } from '@open-artifact/editor-kit/react';
 import type { AgentStatus, CommentsCapability, CommentThread } from '@open-artifact/runtime';
 import { create } from 'zustand';
 import { isNonNullObject } from '../utils/objects.ts';
+import { PARKED_DRAFT } from './anchors.ts';
 import { COMMENT_MODE_ATTRIBUTE } from './comment-mode.ts';
 import { AWAITS_KEYBOARD_ATTRIBUTE } from '../ui/keyboard-handoff.ts';
 
@@ -157,6 +158,10 @@ export const pageComments = createComments<CommentAnchor>({
   agentWakesIdle: () => useCommentCards.getState().agent.wakesIdle,
   noun: 'sheet',
   opensCreated: (sent) => sent,
+  // The whole artifact: the page draws nothing for it; it is written and read in the "All comments" panel.
+  wholeArtifact: () => ({ anchor: '', label: 'Whole artifact' }),
+  // A comment set aside is marked on its cells like a comment, and pressing the mark takes it up again.
+  parksDrafts: true,
 });
 
 export const useComments = pageComments.store;
@@ -173,10 +178,11 @@ const listedThreads = (threads: readonly CommentThread[], active: string | null)
 };
 
 export function commentsUiState(): CommentsUiState {
-  const { threads, active, draft, sendNew } = useComments.getState();
+  const { threads, active, draft, sendNew, parked } = useComments.getState();
   const { preview, places, composerAt, hovered, height } = useCommentCards.getState();
   const comments: Record<string, CommentUiEntry> = {};
   for (const thread of listedThreads(threads, active)) {
+    if (pageComments.isWhole(thread)) continue;
     const isOpen = thread.id === active;
     const at = places[thread.id];
     comments[thread.id] = {
@@ -189,10 +195,14 @@ export function commentsUiState(): CommentsUiState {
       ...(isOpen && height !== null ? { size: { height } } : {}),
     };
   }
+  if (parked !== null) {
+    const at = places[PARKED_DRAFT];
+    comments[PARKED_DRAFT] = { anchor: parked.anchor.anchor, resolved: false, display: null, ...(at === undefined ? {} : { at: { ...at } }), hovered: false, messageCount: 0 };
+  }
   return {
     comments,
     composer:
-      draft === null
+      draft === null || pageComments.isWholeAnchor(draft)
         ? null
         : {
             anchor: draft.anchor,
@@ -236,6 +246,16 @@ function openCard(handle: string, win: Window): void {
   if (useCommentCards.getState().places[handle] === undefined) useCommentCards.setState({ cardShownAt: viewCentre(win) });
 }
 
+/** Takes up the comment set aside, with its words, where its mark is. */
+function takeUpParked(at: PagePoint | null, win: Window): void {
+  const state = useComments.getState();
+  const parked = state.parked;
+  if (parked === null) return;
+  state.setDraft(parked.anchor);
+  if (useComments.getState().draft !== parked.anchor) return;
+  useCommentCards.setState({ preview: null, composerAt: at, composerShownAt: at ?? viewCentre(win) });
+}
+
 function openComposer(patch: ComposerPatch, at: PagePoint | null, win: Window): void {
   if (!pageComments.canComment()) {
     notify({ title: 'You can read the comments here', description: 'Adding comments needs a commenter or editor link from the owner.' });
@@ -264,6 +284,11 @@ function applyPatch(patch: CommentsUiPatch, win: Window): void {
       });
     const { active, draft } = useComments.getState();
     if (change.display === undefined) continue;
+    if (handle === PARKED_DRAFT) {
+      // Its mark has no card: opening it takes the comment up again; a preview shows nothing.
+      if (change.display?.type === 'card' && change.display.expanded === true) takeUpParked(at ?? useCommentCards.getState().places[handle] ?? null, win);
+      continue;
+    }
     const display = change.display;
     const { preview, places } = useCommentCards.getState();
     if (display !== null && display.type === 'card') {

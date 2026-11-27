@@ -28,8 +28,8 @@ const LOCK_WAIT_MS = 5_000;
 
 export const AGENT_AUTHOR: Readonly<Author> = Object.freeze({ kind: 'agent', name: 'agent' });
 
-/** At most this many recipients on a message. */
-const TO_MAX = 20;
+/** At most this many recipients on a message: the 32 people a comment may name, and the agent. */
+const TO_MAX = 33;
 /** The longest emoji a reaction may be (a sequence with modifiers). */
 const EMOJI_MAX = 32;
 

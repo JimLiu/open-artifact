@@ -171,7 +171,7 @@ export function CommentsLayer({ className, style, inline = false, onEscape, chil
         </InLayerContext.Provider>
       </CdsRootContext.Provider>
       {/* Menus and tooltips: over everything the layer draws (the All comments panel is z-index 40). */}
-      <div ref={setPortal} style={{ position: 'relative', zIndex: 60 }} />
+      <div ref={setPortal} data-layer-portal="" style={{ position: 'relative', zIndex: 60 }} />
     </div>
   );
 

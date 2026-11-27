@@ -39,6 +39,7 @@
  * commit (`data-wb-committed`) lets it reach the board.
  */
 
+import { FOLD_OWNS_ESCAPE } from '@open-artifact/editor-kit';
 import { shortcutLetter, isComposingKey } from '@open-artifact/ui/keys';
 import { isElementLocked, orderElementsForReading, tableColumnIds, tableRowIds, type BoardElement, type ElementId } from '@open-artifact/whiteboard-core';
 import { panBy, type Point } from '../lib/camera.ts';
@@ -251,10 +252,10 @@ function fieldFactsOf(target: EventTarget | null): FieldFacts | undefined {
   };
 }
 
-/** Whether Escape on a DOM node belongs to it: an expanded control (its menu is open) or a toast. */
+/** Whether Escape on a DOM node belongs to it: an expanded control (its menu is open), a toast, or the selection bar's open "More tools" card. */
 export function keepsOwnEscape(target: EventTarget | null): boolean {
   if (typeof Element === 'undefined' || !(target instanceof Element)) return false;
-  return target.closest('[aria-expanded="true"], [data-toast]') !== null;
+  return target.closest(`[aria-expanded="true"], [data-toast], ${FOLD_OWNS_ESCAPE}`) !== null;
 }
 
 /** Whether a DOM node is in one of the page's bars (an F6 region other than the board). */

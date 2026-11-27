@@ -2,12 +2,17 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
   entryMessage,
+  heldAtLimitMessage,
   isMinusKey,
+  minusIgnoredMessage,
+  notANumberMessage,
+  NUMBER_ENTRY_WORDS,
   parseEntry,
   refusesMinus,
   settleEntry,
   startsWithMinus,
   stepEntry,
+  stepTypedText,
   stepWithoutMinus,
   withinBounds,
   type NumberEntryWords,
@@ -107,5 +112,48 @@ describe('what a number field says, in the editor’s words', () => {
     assert.equal(entryMessage({ kind: 'not-a-number' }, words, context), 'nan:Opacity:%');
     assert.equal(entryMessage({ kind: 'entry', outcome: { value: 100, minusDropped: false, limit: 'max' } }, words, context), 'changed:Opacity:100 %');
     assert.equal(entryMessage({ kind: 'entry', outcome: { value: 40, minusDropped: false, limit: null } }, words, context), null);
+  });
+});
+
+describe('arrow-key steps as limits', () => {
+  it('reports a dropped minus sign first, then the bound the step was held at', () => {
+    assert.deepEqual(stepTypedText('-5', 1, opacity), { value: 6, limits: [{ reason: 'no-minus', limit: 0 }] });
+    assert.deepEqual(stepTypedText('-100', 10, opacity), {
+      value: 100,
+      limits: [
+        { reason: 'no-minus', limit: 0 },
+        { reason: 'max', limit: 100 },
+      ],
+    });
+    assert.deepEqual(stepTypedText('-0.2', -0.1, offset), { value: -0.3, limits: [] });
+    assert.equal(stepTypedText('auto', 1, opacity), null);
+  });
+});
+
+describe('the words every number field says', () => {
+  it('says what was ignored, what a value was held at, and that text which is no number changed nothing', () => {
+    assert.equal(minusIgnoredMessage('Blur'), 'Minus sign ignored. Blur doesn’t take negative numbers.');
+    assert.equal(minusIgnoredMessage(), 'Minus sign ignored. This field doesn’t take negative numbers.');
+    assert.equal(heldAtLimitMessage('max', '100 %', 'Opacity'), 'Changed to 100 %. Opacity can’t go higher.');
+    assert.equal(heldAtLimitMessage('min', '1'), 'Changed to 1. This field can’t go lower.');
+    assert.equal(notANumberMessage('Width', 'px'), 'Nothing changed. Width takes a number in px.');
+    assert.equal(notANumberMessage(' '), 'Nothing changed. This field takes a number only.');
+  });
+
+  it('says the same through the event words', () => {
+    const context = { name: 'Opacity', shown: '100 %', unit: '%' };
+    assert.equal(entryMessage({ kind: 'minus-key' }, NUMBER_ENTRY_WORDS, context), 'Minus sign ignored. Opacity doesn’t take negative numbers.');
+    assert.equal(
+      entryMessage({ kind: 'entry', outcome: { value: 100, minusDropped: true, limit: 'max' } }, NUMBER_ENTRY_WORDS, context),
+      'Minus sign ignored. Opacity doesn’t take negative numbers. Changed to 100 %. Opacity can’t go higher.',
+    );
+    assert.equal(entryMessage({ kind: 'not-a-number' }, NUMBER_ENTRY_WORDS, context), 'Nothing changed. Opacity takes a number in %.');
+    assert.equal(entryMessage({ kind: 'entry', outcome: { value: 40, minusDropped: false, limit: null } }, NUMBER_ENTRY_WORDS, context), null);
+  });
+
+  it('takes the same minus signs as typed text, and no other dashes', () => {
+    for (const sign of ['-', '−', '－', '‒', '–', '—', '﹣']) assert.ok(isMinusKey(sign), sign);
+    assert.equal(isMinusKey('‐'), false);
+    assert.equal(isMinusKey('―'), false);
   });
 });
