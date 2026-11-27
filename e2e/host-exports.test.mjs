@@ -402,26 +402,41 @@ describe('exports on a cloud host, made in the browser', { skip: skip() }, () =>
 
   it('Motion: MP4, GIF, a page and the code from its Export dialog', T, async () => {
     const page = await open(ctx.owner, 'motion');
+    // Toasts are dialogs too (non-modal): the export dialog is the other one.
+    const DIALOG = '[role=dialog]:not([data-toast])';
     const formats = { MP4: ['mp4', 'mp4'], GIF: ['gif', 'gif'], Page: ['html', 'html'], Code: ['zip', 'zip'] };
     const skipped = [];
     for (const [label, [ext, kind]] of Object.entries(formats)) {
       await clickInPage(page, `document.querySelector('button[aria-label="Export"]:not(:disabled)')`, 'Export');
-      await clickInPage(page, `[...document.querySelectorAll('[role=dialog] [aria-label="Format"] button')].find(b => b.textContent.trim() === ${JSON.stringify(label)})`, label);
+      await clickInPage(page, `[...document.querySelectorAll('${DIALOG} [aria-label="Format"] button')].find(b => b.textContent.trim() === ${JSON.stringify(label)})`, label);
       await sleep(1500);
-      const exportButton = `[...document.querySelectorAll('[role=dialog] button')].find(b => b.textContent.trim() === 'Export' && !b.disabled)`;
+      const exportButton = `[...document.querySelectorAll('${DIALOG} button')].find(b => b.textContent.trim() === 'Export' && !b.disabled)`;
       if (label === 'MP4' && !(await until(() => inPage(page, `!!(${exportButton})`), 20000, 250))) {
         // No H.264 encoder in this Chrome (WebCodecs): the dialog says so and offers no export.
-        skipped.push(`MP4 (${(await inPage(page, "document.querySelector('[role=dialog]')?.innerText"))?.replace(/\s+/g, ' ').slice(0, 160)})`);
+        skipped.push(`MP4 (${(await inPage(page, `document.querySelector('${DIALOG}')?.innerText`))?.replace(/\s+/g, ' ').slice(0, 160)})`);
         await page.press('Escape');
-        await until(() => page.evaluateAll("!document.querySelector('[role=dialog]')").then(all => all.every(Boolean)), 10000, 200);
+        await until(() => page.evaluateAll(`!document.querySelector('${DIALOG}')`).then(all => all.every(Boolean)), 10000, 200);
         continue;
       }
+      // Toasts leave after a few seconds and the export may take minutes: keep what they said.
+      await page.evaluateAll(`${IN_PAGE} && (() => {
+        window.__e2eToasts = [];
+        new MutationObserver(() => {
+          for (const card of document.querySelectorAll('[data-toast]')) if (!window.__e2eToasts.includes(card.innerText)) window.__e2eToasts.push(card.innerText);
+        }).observe(document.body, { childList: true, subtree: true, characterData: true });
+      })()`);
       await clickInPage(page, exportButton, `Export ${label}`);
       await expectFile(page, `Motion ${label}`, { ext, kind, min: 1000, ms: 240000 });
-      assert.ok(await until(() => inPage(page, "/Your browser saves it to its downloads/.test(document.querySelector('[role=dialog]')?.innerText ?? '')"), 10000), 'the dialog does not say where the file went');
-      await clickInPage(page, `[...document.querySelectorAll('[role=dialog] button')].find(b => b.textContent.trim() === 'Done')`, 'Done');
+      // A saved file closes the dialog and says where it went in a toast; the dialog stays only when it has more to tell.
+      // The toast names this file, so one left over from the format before does not count.
+      const where = /Your browser saves it to its downloads/.source;
+      const toastSays = `Exported [^\\n]*\\.${ext}\\s[\\s\\S]*${where}`;
+      const toldInToast = `window.__e2eToasts.some(text => new RegExp(${JSON.stringify(toastSays)}).test(text)) || null`;
+      const toldInDialog = `new RegExp(${JSON.stringify(where)}).test(document.querySelector('${DIALOG}')?.innerText ?? '') || null`;
+      assert.ok(await until(() => inPage(page, `(${toldInToast}) || (${toldInDialog})`), 10000), `nothing says where the file went: ${await toasts(page)}`);
+      if (await inPage(page, toldInDialog)) await clickInPage(page, `[...document.querySelectorAll('${DIALOG} button')].find(b => b.textContent.trim() === 'Done')`, 'Done');
       // The dialog fades out; the next Export click must not land on it.
-      assert.ok(await until(() => page.evaluateAll("!document.querySelector('[role=dialog]')").then(all => all.every(Boolean)), 10000, 200), 'the export dialog did not close');
+      assert.ok(await until(() => page.evaluateAll(`!document.querySelector('${DIALOG}')`).then(all => all.every(Boolean)), 10000, 200), 'the export dialog did not close');
     }
     if (skipped.length) console.log(`# skipped in this Chrome: ${skipped.join('; ')}`);
     await pickExport(page, 'Whole folder (.zip)');
