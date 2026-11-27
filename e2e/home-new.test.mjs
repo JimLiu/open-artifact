@@ -3,7 +3,8 @@
 // rather than the empty state with the hand-over prompt; an empty whiteboard made earlier opens on the empty state,
 // and its "Start blank" opens the editor. A blank Design System's "Start by hand" goes to its Colors section. Design stays
 // in the "make with an agent" group. What is sent from a blank doc no session owns waits, and a session that adopts it
-// later gets it; with a session online, the Ask pane hands the artifact to it and it gets the message at once.
+// later gets it; with a session online, the Ask pane hands the artifact to it and it gets the message at once. A message
+// the Ask pane shows as waiting for the session shows as delivered once the session has it.
 //
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -378,6 +379,8 @@ describe('making an artifact without an agent', { skip: skip() }, () => {
     assert.equal(ctx.daemon.store.require(made.id).owner, null);
     return made.id;
   };
+  /** What the Ask pane says under each message it sent ("just now · delivered", ...). */
+  const SENT_STATE = "[...document.querySelectorAll('aside ol li span')].map(s => s.textContent).join(' | ')";
   /** Types `text` in the Ask pane's box and sends it. */
   const sendFromPane = async (page, text) => {
     await clickOn(page, 'aside form textarea');
@@ -427,10 +430,31 @@ describe('making an artifact without an agent', { skip: skip() }, () => {
       assert.match(polled.messages[0].text, /The person picked this session/);
       assert.match(polled.messages[0].text, /Make the title shorter/);
       assert.deepEqual(ctx.daemon.store.require(id).owner, ref);
-      // The pane now shows the owner, not the choice.
+      // The pane now shows the owner, not the choice, and the message as delivered.
       assert.ok(await page.waitFor("!document.querySelector('[data-testid=assign-box]')", 10000), 'the choice is gone');
+      assert.ok(await page.waitFor(`${SENT_STATE}.endsWith('delivered')`, 10000), `the pane says ${await page.evaluate(SENT_STATE)}`);
       assert.equal(waitingFor(id).length, 0);
       ctx.daemon.harnesses.pollDetach(ref);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('the owner session is away: the message waits, and shows as delivered once the session takes it', T, async () => {
+    const id = await blankDoc('Away');
+    const owner = { harness: 'e2e-agent', session: 'away-now', workspace: ctx.workspace };
+    await ctx.daemon.tools.call('Artifact', { action: 'adopt', url: `open-artifact://artifact/${id}` }, owner);
+    const page = await ctx.browser.load(`${ctx.daemon.origin}/a/${id}?ask=1`, { ready: "!!document.querySelector('aside form textarea')", ignore: [/favicon\.ico/] });
+    try {
+      await sendFromPane(page, 'Add a summary at the top');
+      assert.ok(await page.waitFor(`${SENT_STATE}.endsWith('waiting for the session')`, 10000), `the pane says ${await page.evaluate(SENT_STATE)}`);
+      // The session comes back and makes a call: the call's result carries the message.
+      const result = await ctx.daemon.tools.call('Artifact', { action: 'list' }, owner);
+      assert.equal(result.messages?.length, 1);
+      assert.ok(await page.waitFor(`${SENT_STATE}.endsWith('delivered')`, 10000), `the pane says ${await page.evaluate(SENT_STATE)}`);
+      // A reload keeps it.
+      await page.evaluate('location.reload()');
+      assert.ok(await page.waitFor(`!!document.querySelector('aside ol li') && ${SENT_STATE}.endsWith('delivered')`, 15000), `after a reload, the pane says ${await page.evaluate(SENT_STATE).catch(() => '?')}`);
     } finally {
       await page.close();
     }

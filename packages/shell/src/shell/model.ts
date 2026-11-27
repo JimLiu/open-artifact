@@ -371,6 +371,15 @@ export function appendSent(list: SentMessage[], message: SentMessage, limit = 50
   return [...list, message].slice(-limit);
 }
 
+/**
+ * The owner session took what waited in its inbox (`wake/state` with `via: "taken"`): this tab's waiting messages are
+ * delivered now. The same list when none was waiting.
+ */
+export function takenSent(list: SentMessage[]): SentMessage[] {
+  if (!list.some((m) => m.delivery === 'inbox')) return list;
+  return list.map((m) => (m.delivery === 'inbox' ? { ...m, delivery: 'delivered' as const } : m));
+}
+
 /** Parses stored sent messages, dropping anything malformed. */
 export function parseSent(raw: string | null): SentMessage[] {
   if (!raw) return [];

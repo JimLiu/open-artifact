@@ -19,6 +19,7 @@ import {
   givenLink,
   parseSent,
   pendingBoot,
+  takenSent,
   problemBoot,
   sheetPageFragment,
 } from './model.ts';
@@ -676,6 +677,19 @@ export function restoreSent(): void {
   }
 }
 
+/** Marks this tab's waiting messages delivered, here and in session storage. */
+function markSentTaken(): void {
+  const store = useShell.getState();
+  const sent = takenSent(store.sent);
+  if (sent === store.sent) return;
+  store.setSent(sent);
+  try {
+    sessionStorage.setItem(sentKey(), JSON.stringify(sent));
+  } catch {
+    // Not kept across reloads; fine.
+  }
+}
+
 /** Sends a message to the owner agent. Resolves `true` when it was sent. */
 export async function ask(text: string, agent: string): Promise<boolean> {
   const body = text.trim();
@@ -728,7 +742,10 @@ export function startEvents(): () => void {
         void refreshArtifact();
         break;
       case 'wake/state':
-        if (event.artifactId === boot.id) void refreshArtifact();
+        if (event.artifactId !== boot.id) return;
+        // The owner session took what waited for it: what this tab sent is no longer waiting.
+        if (event.via === 'taken') markSentTaken();
+        void refreshArtifact();
         break;
       default:
         break;
