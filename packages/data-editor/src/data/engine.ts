@@ -480,7 +480,8 @@ export function createDataEngine(options: DataEngineOptions = {}): DataEngine {
       };
     },
     version: () => dataVersion,
-    params: () => effective,
+    // Through the calculations, so that one whose `fn` reads the filters runs again when they change.
+    params: () => calculations.params(),
     setParams(values) {
       const parsed = parseParameters(values);
       if (Object.keys(parsed).length === 0) return false;

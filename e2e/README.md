@@ -209,6 +209,11 @@ The harness asks its questions (`waitFor`, `evaluateAll`, `load`'s `ready`) in a
 - `export_format pdf` answers `started` then `done` and saves `Sales and signups.pdf` into the test's own Downloads folder, with no print dialog. The file is a PDF of three US Letter sheets on their side (the print rule applied, the screen one did not; a box that scrolls on screen is printed whole, its 60 rows running onto the third sheet; the dashboard is wider than the paper), and the first sheet's picture is the dashboard's width at two pixels a CSS pixel, mostly light, with ink on it.
 - Afterwards the live page holds neither the export's hidden frame nor a print mark, and reads as it did before.
 
+**Data: a calculation that reads the filters** (`data.test.mjs`, one case, Chrome only)
+
+- The fixture dashboard gets two calcs over the signups file, which no filter reloads: one whose `fn` calls `dash.params()` and returns the region with the row count, one that only counts. Each is drawn once and has run once.
+- The page calls `dash.setParams({region: "South"})`: the first calc shows `South:6` and has run twice, the second still shows 6 and has run once. The page's Clear filters button takes the first back to `all:6` on its third run. Before the fix, `dash.params()` did not go through the calculations, so the first calc kept `all:6` whatever the filter.
+
 **Cloud host** (`host.test.mjs`, Chrome only)
 
 - The real host (`packages/host`) on a free port, with its own data folder and an imported whiteboard. The app is on `localhost`, and each artifact is on its own `*.content.localhost` origin.

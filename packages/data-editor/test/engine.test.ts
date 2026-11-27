@@ -276,6 +276,52 @@ describe('data engine', () => {
     assert.throws(() => engine.registerLoader('orders', { fn: 1 }), /dash\.loader takes a dataset id/);
   });
 
+  it('runs a calculation again when a filter its fn read changes', async () => {
+    const fake = createFakeMcp(() =>
+      rowsAnswer([
+        { region: 'North', n: 2 },
+        { region: 'South', n: 5 },
+      ]),
+    );
+    const engine = engineWith(fake.mcp);
+    engine.setContent(content({ orders: call('orders') }, { params: { region: 'North' } }));
+    let filteredRuns = 0;
+    let plainRuns = 0;
+    engine.registerCalculation('filtered', {
+      inputs: ['orders'],
+      fn: (orders: { region: string; n: number }[]) => {
+        filteredRuns++;
+        const { region } = engine.params();
+        return orders.filter((row) => row.region === region).reduce((sum, row) => sum + row.n, 0);
+      },
+    });
+    engine.registerCalculation('plain', { inputs: ['orders'], fn: (orders: unknown[]) => (plainRuns++, orders.length) });
+    engine.read('filtered');
+    engine.read('plain');
+    await engine.settled();
+    assert.equal(engine.read('filtered').value, 2);
+    assert.equal(engine.read('plain').value, 2);
+    assert.deepEqual([filteredRuns, plainRuns], [1, 1]);
+
+    const before = engine.version();
+    assert.equal(engine.setParams({ region: 'South' }), true);
+    assert.ok(engine.version() > before);
+    assert.equal(engine.read('filtered').value, 5);
+    assert.equal(engine.read('plain').value, 2);
+    await engine.settled();
+    assert.deepEqual([filteredRuns, plainRuns], [2, 1]);
+    assert.equal(fake.calls.length, 1);
+    assert.equal(engine.store.getState().reports.get('filtered')?.result, 5);
+
+    assert.equal(engine.resetParams(), true);
+    assert.equal(engine.read('filtered').value, 2);
+    assert.deepEqual([filteredRuns, plainRuns], [3, 1]);
+
+    // Reading the filters gives a copy: writing to it changes nothing.
+    (engine.params() as Record<string, unknown>).region = 'West';
+    assert.equal(engine.params().region, 'North');
+  });
+
   it('reports the toolbar text while loading and after', async () => {
     let release = (): void => {};
     const fake = createFakeMcp(() => new Promise<FakeAnswer>((resolve) => (release = () => resolve(rowsAnswer([{ n: 1 }])))));

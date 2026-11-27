@@ -838,6 +838,60 @@ describe(`${TYPE} in a browser`, { skip: skip() || browserSkip }, () => {
     }
   });
 
+  it('runs a calculation that reads the filters again when a filter changes, and no other', T, async () => {
+    // A calc over a file (which no filter reloads) that calls dash.params(): only the filters can make it run again.
+    const { dir } = install(typePath(TYPE), 'data-calc-filter-type');
+    const filtering = cli(dir, { OPEN_ARTIFACT_TYPE_SERVER_HOME: path.join(tmpDir('data-calc-filter-state'), 'state'), OPEN_ARTIFACT_USER: 'E2E' });
+    const root = path.join(tmpDir('data-calc-filter'), 'dashboard');
+    let page;
+    try {
+      const load = await run(path.join(fixtures, 'data', 'load.mjs'), [filtering.script, root], { env: filtering.env() });
+      assert.equal(load.code, 0, `the fixture did not load: ${load.stderr}`);
+      const index = readDoc(root, 'files/index.html');
+      writeDoc(root, 'files/index.html', {
+        ...index,
+        text: `${index.text}\n<p id="by-filter"><output data-draw="by-filter" data-source="signups_by_filter">—</output> <output data-draw="no-filter" data-source="signups_count">—</output></p>\n`,
+      });
+      const app = readDoc(root, 'files/app.js');
+      writeDoc(root, 'files/app.js', {
+        ...app,
+        text: `${app.text}
+window.__calcRuns = { filtered: 0, plain: 0 };
+dash.calc('signups_by_filter', {
+  inputs: ['signups'],
+  fn: (signups) => { window.__calcRuns.filtered++; return (dash.params().region || 'all') + ':' + signups.length; },
+});
+dash.calc('signups_count', { inputs: ['signups'], fn: (signups) => { window.__calcRuns.plain++; return signups.length; } });
+dash.draw('by-filter', el => { const d = dash.data('signups_by_filter'); el.textContent = d.status === 'ok' ? d.data : '—'; });
+dash.draw('no-filter', el => { const d = dash.data('signups_count'); el.textContent = d.status === 'ok' ? d.data : '—'; });
+`,
+      });
+      const opened = await filtering.json(['open', root, '--json']);
+      const shown = `document.querySelector('[data-draw="by-filter"]')?.textContent`;
+      page = await browser.load(opened.url, { ready: `/^all:\\d+$/.test(${shown} ?? '')`, timeout: 60000, ignore: [/\/favicon\.ico$/] });
+      const first = await page.evaluate(shown);
+      const rows = Number(first.split(':')[1]);
+      assert.ok(rows > 0, `the calc saw no signups: ${first}`);
+      const runs = async () => JSON.parse((await page.evaluateAll(`window.__calcRuns ? JSON.stringify(window.__calcRuns) : null`)).find(Boolean));
+      const setFilter = region => page.evaluateAll(`typeof dash === 'object' && window.__calcRuns ? (dash.setParams({ region: ${JSON.stringify(region)} }), true) : false`);
+      assert.deepEqual(await runs(), { filtered: 1, plain: 1 });
+
+      // The page sets the filter: the calc that read it shows the new value, and the one that didn't never ran again.
+      assert.ok((await setFilter('South')).includes(true), 'no frame holds the page’s dash');
+      assert.ok(await page.waitFor(`${shown} === 'South:${rows}'`, 10000), `the calc kept its first answer: ${await page.evaluate(shown)}`);
+      assert.deepEqual(await runs(), { filtered: 2, plain: 1 });
+      assert.equal(await page.evaluate(`document.querySelector('[data-draw="no-filter"]').textContent`), String(rows));
+
+      // Clear filters (the page's own button) takes it back.
+      await page.evaluate(`document.getElementById('clear-filters').click()`);
+      assert.ok(await page.waitFor(`${shown} === 'all:${rows}'`, 10000), `clearing the filter left ${await page.evaluate(shown)}`);
+      assert.deepEqual(await runs(), { filtered: 3, plain: 1 });
+    } finally {
+      await page?.close();
+      await filtering.run(['stop']).catch(() => {});
+    }
+  });
+
   it('offers no pencil on a dashboard whose files have no page', T, async () => {
     const { dir } = install(typePath(TYPE), 'data-pageless-type');
     const pageless = cli(dir, { OPEN_ARTIFACT_TYPE_SERVER_HOME: path.join(tmpDir('data-pageless-state'), 'state'), OPEN_ARTIFACT_USER: 'E2E' });
