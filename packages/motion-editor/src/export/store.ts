@@ -18,7 +18,7 @@ export type EstimateState =
 
 /** What the export is doing now: the phase the progress names, and how far it is. */
 export interface Progress {
-  phase: 'probe' | 'audio' | 'frames' | 'mux' | 'files' | null;
+  phase: 'probe' | 'audio' | 'frames' | 'mux' | 'files' | 'save' | null;
   done: number;
   total: number;
 }
@@ -29,9 +29,16 @@ export interface FixableProblem {
   format: ExportFormat;
 }
 
+/** A finished file and what there is to say about it, before it is saved. */
+export interface MadeFile {
+  file: ExportedFile;
+  held: HeldFrames | null;
+  fix: FixableProblem | null;
+  leftOut: { fonts: readonly string[]; files: readonly string[] };
+}
+
 export type ExportStep =
   | { kind: 'options' }
-  | { kind: 'confirm'; seconds: number }
   | { kind: 'running'; format: ExportFormatId; progress: Progress }
   | {
       kind: 'done';
@@ -42,6 +49,8 @@ export type ExportStep =
       fix: FixableProblem | null;
       leftOut: { fonts: readonly string[]; files: readonly string[] };
     }
+  /** The file is made but the save did not go through: it is kept here to save again, download, or discard. */
+  | { kind: 'unsaved'; format: ExportFormatId; made: MadeFile; saving: boolean }
   | {
       kind: 'failed';
       format: ExportFormatId;

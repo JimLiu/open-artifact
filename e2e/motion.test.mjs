@@ -438,13 +438,25 @@ describe(TYPE, { skip: skip() }, () => {
         fs.renameSync(path.join(editorAssets, name), path.join(held, name));
         moved.push(name);
       }
+      // Toasts leave after a few seconds: keep what they said.
+      await page.evaluate(`(() => {
+        window.toastsSeen = [];
+        new MutationObserver(() => {
+          for (const card of document.querySelectorAll('[data-toast]')) if (!window.toastsSeen.includes(card.textContent)) window.toastsSeen.push(card.textContent);
+        }).observe(document.body, { childList: true, subtree: true, characterData: true });
+      })()`);
       await page.evaluate(`[...document.querySelectorAll('[role="dialog"] button')].find((button) => button.textContent.trim() === 'Export').click()`);
+      // A saved export closes the dialog and says so in a toast; a failed one stays open.
       assert.ok(await page.waitFor(`(() => {
         const dialog = document.querySelector('[role="dialog"]');
-        return dialog?.textContent.includes('Exported Smoke film.html') || dialog?.textContent.includes('Try again');
-      })()`, 10_000), 'the export dialog did not report a result');
-      const status = await page.evaluate(`document.querySelector('[role="dialog"]').innerText`);
-      assert.match(status, /Exported Smoke film\.html/, status);
+        const said = window.toastsSeen.some((text) => /^Exported (to .*\\/)?Smoke film\\.html/.test(text.trim()));
+        return (said && !dialog) || dialog?.textContent.includes('Try again') || dialog?.textContent.includes('isn’t saved yet');
+      })()`, 10_000), await page.evaluate(`JSON.stringify({
+        dialog: document.querySelector('[role="dialog"]')?.innerText ?? null,
+        toasts: window.toastsSeen,
+      })`));
+      const status = await page.evaluate(`document.querySelector('[role="dialog"]')?.innerText ?? 'closed'`);
+      assert.equal(status, 'closed', status);
 
       const file = path.join(downloads, 'Smoke film.html');
       const player = await browser.load(pathToFileURL(file).href, {

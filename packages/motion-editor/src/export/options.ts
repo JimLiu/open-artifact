@@ -68,9 +68,6 @@ export function canMakeSmaller(options: VideoOptions, fps: number): boolean {
   return smaller.height !== options.height || smaller.fps !== options.fps || smaller.quality !== options.quality;
 }
 
-/** An export this long is confirmed before it starts. */
-export const asksFirst = (estimate: Pick<ExportEstimate, 'seconds'> | null): boolean => estimate !== null && estimate.seconds > SEND_SETTINGS.askOverS;
-
 /** At the full rate, an export this long gets the advice of half the rate. */
 export const suggestsHalfRate = (estimate: Pick<ExportEstimate, 'seconds'> | null, options: VideoOptions, fps: number): boolean =>
   estimate !== null && estimate.seconds > SEND_SETTINGS.fasterOverS && options.fps === frameRates(fps).full;

@@ -1,11 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { FILM_SHAPES, playSeconds } from '@open-artifact/motion-core';
-import { HOST_SAVE_MAX_BYTES, deliveryRoute } from '../src/export/deliver.ts';
+import { ArtifactError } from '@open-artifact/runtime';
+import { HOST_SAVE_MAX_BYTES, SAVE_RETRY_PAUSE_MS, deliveryRoute, saveRefused, saveWithRetry } from '../src/export/deliver.ts';
 import { StageFrameError, StageGoneError } from '../src/engine/frame-errors.ts';
 import { frameFailure } from '../src/export/frame-source.ts';
 import {
-  asksFirst,
   canMakeSmaller,
   defaultVideoOptions,
   describeEstimate,
@@ -80,11 +80,8 @@ test('smaller settings are 720p and Low, at half the rate over 30 fps', () => {
   assert.equal(canMakeSmaller({ height: 720, fps: 30, quality: 'low', supersample: false }, 30), false);
 });
 
-test('a long export is asked about first, and a very long one at full rate advises half', () => {
+test('a very long export at full rate advises half', () => {
   const picks = defaultVideoOptions(30);
-  assert.equal(asksFirst(null), false);
-  assert.equal(asksFirst({ seconds: 30 }), false);
-  assert.equal(asksFirst({ seconds: 41 }), true);
   assert.equal(suggestsHalfRate({ seconds: 120 }, picks, 30), true);
   assert.equal(suggestsHalfRate({ seconds: 120 }, { ...picks, fps: 15 }, 30), false);
   assert.equal(suggestsHalfRate({ seconds: 60 }, picks, 30), false);
@@ -141,4 +138,41 @@ test('a file over the host’s limit goes to the browser', () => {
   assert.equal(deliveryRoute(10, false), 'browser');
   // A host that saves in the browser (a cloud host) has no cap of its own: a long film still goes through it.
   assert.equal(deliveryRoute(HOST_SAVE_MAX_BYTES + 1, true, true), 'host');
+});
+
+test('a save the host never answered is asked for once more; a refusal is not', async () => {
+  const waited: number[] = [];
+  const wait = async (ms: number): Promise<void> => {
+    waited.push(ms);
+  };
+  const failing = (errors: unknown[]) => {
+    let calls = 0;
+    const save = async (): Promise<string> => {
+      const error = errors[calls++];
+      if (error !== undefined) throw error;
+      return 'saved';
+    };
+    return { save, calls: () => calls };
+  };
+
+  const dropped = failing([new TypeError('Failed to fetch')]);
+  assert.equal(await saveWithRetry(dropped.save, () => true, wait), 'saved');
+  assert.equal(dropped.calls(), 2);
+  assert.deepEqual(waited, [SAVE_RETRY_PAUSE_MS]);
+
+  const twice = failing([new ArtifactError('unavailable', 'no answer'), new ArtifactError('unavailable', 'still no answer')]);
+  await assert.rejects(saveWithRetry(twice.save, () => true, wait), /still no answer/);
+  assert.equal(twice.calls(), 2, 'asked twice, not more');
+
+  const refused = failing([new ArtifactError('not_writer', 'The owner does not let viewers export')]);
+  await assert.rejects(saveWithRetry(refused.save, () => true, wait), /does not let viewers/);
+  assert.equal(refused.calls(), 1);
+
+  const closed = failing([new TypeError('Failed to fetch')]);
+  await assert.rejects(saveWithRetry(closed.save, () => false, wait), /Failed to fetch/);
+  assert.equal(closed.calls(), 1, 'not asked again once the dialog is closed');
+
+  assert.equal(saveRefused(new ArtifactError('invalid', 'too large')), true);
+  assert.equal(saveRefused(new ArtifactError('unavailable', 'gone')), false);
+  assert.equal(saveRefused(new TypeError('Failed to fetch')), false);
 });

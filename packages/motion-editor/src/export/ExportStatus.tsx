@@ -1,8 +1,8 @@
-/** The export dialog past its picks: the long-export question, the progress, what was saved, and what went wrong. */
+/** The export dialog past its picks: the progress, what was saved, a file kept after its save failed, and what went wrong. */
 
 import type { ReactNode } from 'react';
 import { useWorking } from '../stores/working.ts';
-import { formatDuration, heldWhere, progressPercent } from './options.ts';
+import { formatFileSize, heldWhere, progressPercent } from './options.ts';
 import type { ExportStep, Progress } from './store.ts';
 import * as words from './words.ts';
 
@@ -12,7 +12,7 @@ function Line({ tone = 'muted', children }: { tone?: 'muted' | 'warning' | 'plai
 }
 
 function ProgressView({ progress }: { progress: Progress }): ReactNode {
-  const share = progressPercent(progress.done, progress.total);
+  const share = progress.phase === 'save' ? 100 : progressPercent(progress.done, progress.total);
   const phase = progress.phase === null ? words.STARTING : words.PHASES[progress.phase];
   const counted = progress.phase === 'frames' && progress.total > 0 ? words.framesProgress(progress.done, progress.total, share) : progress.total > 0 ? words.percent(share) : '';
   return (
@@ -48,20 +48,28 @@ function DoneView({ step }: { step: Extract<ExportStep, { kind: 'done' }> }): Re
   );
 }
 
+function UnsavedView({ step }: { step: Extract<ExportStep, { kind: 'unsaved' }> }): ReactNode {
+  return (
+    <div className="flex flex-col gap-1" aria-live="polite">
+      <Line tone="plain">{words.notSavedYet(step.format)}</Line>
+      <Line>
+        {step.made.file.filename} · {formatFileSize(step.made.file.blob.size)}
+      </Line>
+      <Line tone="warning">{words.SAVE_DIDNT_GO_THROUGH}</Line>
+      <Line>{words.saveAgainHelp(step.format)}</Line>
+    </div>
+  );
+}
+
 /** The body for every step but the picks. */
 export function ExportStatus({ step }: { step: Exclude<ExportStep, { kind: 'options' }> }): ReactNode {
   switch (step.kind) {
-    case 'confirm':
-      return (
-        <div className="flex flex-col gap-1">
-          <Line tone="plain">{words.LONG_EXPORT_TITLE}</Line>
-          <Line>{words.longExport(formatDuration(step.seconds))}</Line>
-        </div>
-      );
     case 'running':
       return <ProgressView progress={step.progress} />;
     case 'done':
       return <DoneView step={step} />;
+    case 'unsaved':
+      return <UnsavedView step={step} />;
     case 'failed':
       return (
         <div className="flex flex-col gap-1">

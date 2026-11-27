@@ -8,7 +8,7 @@ import { useWorking } from '../stores/working.ts';
 import { ExportOptions } from './ExportOptions.tsx';
 import { ExportStatus } from './ExportStatus.tsx';
 import { movBlocked } from './options.ts';
-import { askToFix, backToOptions, cancelExport, closeExport, downloadInstead, startExport, useSmallerSettings } from './run.ts';
+import { askToFix, backToOptions, cancelExport, closeExport, downloadInstead, downloadKept, saveKeptAgain, startExport, useSmallerSettings } from './run.ts';
 import { chosenShape, shapeIdOf } from './shapes.ts';
 import { useExport, type ExportStep } from './store.ts';
 import * as words from './words.ts';
@@ -43,17 +43,6 @@ function StepFooter({ step }: { step: Exclude<ExportStep, { kind: 'options' }> }
   // Trying again in a page whose parts are gone from the server fails the same way; only a reload helps.
   const stale = useStaleBuild((state) => state.stale);
   switch (step.kind) {
-    case 'confirm':
-      return (
-        <>
-          <Button variant="ghost" onClick={backToOptions}>
-            {words.CANCEL}
-          </Button>
-          <Button variant="primary" onClick={() => void startExport(true)}>
-            {words.EXPORT_ANYWAY}
-          </Button>
-        </>
-      );
     case 'running':
       return <Button onClick={cancelExport}>{words.CANCEL}</Button>;
     case 'done': {
@@ -67,6 +56,20 @@ function StepFooter({ step }: { step: Exclude<ExportStep, { kind: 'options' }> }
         </>
       );
     }
+    case 'unsaved':
+      return (
+        <>
+          <Button variant="ghost" onClick={closeExport}>
+            {words.discardLabel(step.format)}
+          </Button>
+          <Button disabled={step.saving} onClick={downloadKept}>
+            {words.DOWNLOAD}
+          </Button>
+          <Button variant="primary" disabled={step.saving} onClick={saveKeptAgain}>
+            {step.saving ? words.SAVING : words.saveAgainLabel(step.format)}
+          </Button>
+        </>
+      );
     case 'failed': {
       const { fix, file } = step;
       return (

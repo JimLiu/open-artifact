@@ -26,6 +26,7 @@ import {
   type VideoSettings,
 } from '@open-artifact/motion-export';
 import type { FilmSound } from '@open-artifact/motion-audio';
+import { toast } from '@open-artifact/ui';
 import { askShape } from '../agent/requests.ts';
 import { isStaleBuildError } from '../app/stale-build.ts';
 import { sendAgentRequest } from '../agent/send.ts';
@@ -35,10 +36,9 @@ import { useFilm } from '../stores/film.ts';
 import { agentName } from '../stores/working.ts';
 import { formatPlaybackTime } from '../transport/time-format.ts';
 import { exportSourceZip, exportStandalonePage, type CodeInput } from './code-files.ts';
-import { deliverFile, downloadInBrowser, type Delivery } from './deliver.ts';
+import { deliverFile, downloadInBrowser, saveRefused, saveWithRetry, type Delivery } from './deliver.ts';
 import { editorFrameSource, filmFacts } from './frame-source.ts';
 import {
-  asksFirst,
   canMakeSmaller,
   fitVideoOptions,
   isMeasured,
@@ -50,7 +50,7 @@ import {
 } from './options.ts';
 import { scoreMidi } from './score-file.ts';
 import { chosenShape } from './shapes.ts';
-import { OPTIONS_STEP, useExport, type ExportState, type FixableProblem, type NoEstimate, type Progress } from './store.ts';
+import { OPTIONS_STEP, useExport, type ExportState, type FixableProblem, type MadeFile, type NoEstimate, type Progress } from './store.ts';
 import * as words from './words.ts';
 
 const ESTIMATE_DELAY_MS = 300;
@@ -62,6 +62,10 @@ let engine: Promise<ExportEngine | null> | null = null;
 let estimateRun: AbortController | null = null;
 let estimateTimer: ReturnType<typeof setTimeout> | undefined;
 let exportRun: AbortController | null = null;
+/** The save in flight; a later save, a cancel or a close makes its answer moot. */
+let saveRun: object | null = null;
+/** The made file waiting on its save, which Cancel keeps instead of throwing away. */
+let keptForSave: MadeFile | null = null;
 
 const set = (patch: Partial<ExportState>): void => useExport.setState(patch);
 
@@ -155,6 +159,7 @@ export function closeExport(): void {
   stopEstimate();
   exportRun?.abort();
   exportRun = null;
+  saveRun = null;
   const current = engine;
   engine = null;
   void current?.then((exporter) => exporter?.dispose());
@@ -185,7 +190,15 @@ export function backToOptions(): void {
   scheduleEstimate();
 }
 
+/** Stops the export; a file already made and being saved is kept, to save again or download. */
 export function cancelExport(): void {
+  const { step } = useExport.getState();
+  if (step.kind === 'running' && step.progress.phase === 'save' && keptForSave !== null) {
+    saveRun = null;
+    exportRun = null;
+    set({ step: { kind: 'unsaved', format: step.format, made: keptForSave, saving: false } });
+    return;
+  }
   exportRun?.abort();
 }
 
@@ -196,7 +209,72 @@ export async function askToFix(fix: FixableProblem): Promise<void> {
 export function downloadInstead(file: ExportedFile): void {
   const step = useExport.getState().step;
   if (step.kind !== 'failed') return;
-  set({ step: { kind: 'done', format: step.format, filename: file.filename, delivery: downloadInBrowser(file), held: null, fix: null, leftOut: { fonts: [], files: [] } } });
+  finish(step.format, { file, held: null, fix: null, leftOut: { fonts: [], files: [] } }, downloadInBrowser(file));
+}
+
+/** The kept file, through the browser's own downloads. */
+export function downloadKept(): void {
+  const { step } = useExport.getState();
+  if (step.kind !== 'unsaved') return;
+  saveRun = null;
+  finish(step.format, step.made, downloadInBrowser(step.made.file));
+}
+
+/** Asks the host to save the kept file again. */
+export function saveKeptAgain(): void {
+  const { step } = useExport.getState();
+  if (step.kind !== 'unsaved' || step.saving) return;
+  set({ step: { ...step, saving: true } });
+  void save(step.format, step.made, () => useExport.setState((state) => (state.step.kind === 'unsaved' ? { step: { ...state.step, saving: false } } : {})));
+}
+
+/**
+ * Says the file is out: a toast, and the dialog closes. It stays open on what is left to tell (frames that failed and
+ * repeat, a problem the agent may fix, files a ZIP left out).
+ */
+function finish(format: ExportFormatId, made: MadeFile, delivery: Delivery): void {
+  const { file, held, fix, leftOut } = made;
+  if (held !== null || fix !== null || leftOut.fonts.length > 0 || leftOut.files.length > 0) {
+    set({ step: { kind: 'done', format, filename: file.filename, delivery, held, fix, leftOut } });
+    return;
+  }
+  const savedTo = delivery.to === 'host' ? delivery.savedTo : null;
+  toast.add({
+    title: savedTo !== null ? words.exportedTo(savedTo) : words.exported(file.filename),
+    ...(delivery.to === 'browser' ? { description: words.SAVED_BY_BROWSER } : {}),
+  });
+  closeExport();
+}
+
+/**
+ * Saves a made file through the host (asking twice when the first went unanswered). A refusal fails the export, with
+ * the browser download offered where the host allows it; any other failure keeps the file to save again.
+ */
+async function save(format: ExportFormatId, made: MadeFile, settled: () => void): Promise<void> {
+  const token = {};
+  saveRun = token;
+  const current = (): boolean => saveRun === token && useExport.getState().open;
+  const downloads = maybeSession()?.downloads ?? null;
+  let delivery: Delivery;
+  try {
+    delivery = await saveWithRetry(() => deliverFile(made.file, downloads), current);
+  } catch (error) {
+    if (!current()) return;
+    saveRun = null;
+    if (saveRefused(error)) {
+      const message = error instanceof Error && error.message !== '' ? error.message : words.EXPORT_FAILED;
+      // A host that saves in the browser refused the person (a viewer the owner does not let export): no way around it.
+      set({ step: { kind: 'failed', format, title: words.notSaved(format), message, fix: null, smaller: false, file: downloads?.browser === true ? null : made.file } });
+    } else {
+      set({ step: { kind: 'unsaved', format, made, saving: false } });
+    }
+    return;
+  } finally {
+    settled();
+  }
+  if (!current()) return;
+  saveRun = null;
+  finish(format, made, delivery);
 }
 
 function progressOf(update: ExportProgress | { phase: 'files'; done: number; total: number }): Progress {
@@ -285,8 +363,8 @@ async function produce(format: ExportFormatId, state: ExportState, signal: Abort
   }
 }
 
-/** Starts the export picked; a long one is confirmed first unless `confirmed`. */
-export async function startExport(confirmed = false): Promise<void> {
+/** Starts the export picked. How long it may take is said under the picks, so it starts at once. */
+export async function startExport(): Promise<void> {
   const state = useExport.getState();
   const own = filmFacts();
   if (own !== null && state.shape.kind !== 'own') {
@@ -294,11 +372,7 @@ export async function startExport(confirmed = false): Promise<void> {
     if (shape !== null && shape !== 'unusable') makeShape(shape);
     return;
   }
-  const { format, estimate } = state;
-  if (!confirmed && isMeasured(format) && estimate.kind === 'ready' && asksFirst(estimate.estimate)) {
-    set({ step: { kind: 'confirm', seconds: estimate.estimate.seconds } });
-    return;
-  }
+  const { format } = state;
   stopEstimate();
   const run = new AbortController();
   exportRun = run;
@@ -307,21 +381,13 @@ export async function startExport(confirmed = false): Promise<void> {
   };
   report({ phase: null, done: 0, total: 0 });
   try {
-    const made = await produce(format, state, run.signal, report);
+    const made: MadeFile = await produce(format, state, run.signal, report);
     if (run.signal.aborted) throw new DOMException('cancelled', 'AbortError');
-    let delivery: Delivery;
-    const downloads = maybeSession()?.downloads ?? null;
-    try {
-      delivery = await deliverFile(made.file, downloads);
-    } catch (error) {
-      if (exportRun !== run) return;
-      const message = error instanceof Error && error.message !== '' ? error.message : words.EXPORT_FAILED;
-      // A host that saves in the browser refused the person (a viewer the owner does not let export): no way around it.
-      set({ step: { kind: 'failed', format, title: words.notSaved(format), message, fix: null, smaller: false, file: downloads?.browser === true ? null : made.file } });
-      return;
-    }
-    if (exportRun !== run) return;
-    set({ step: { kind: 'done', format, filename: made.file.filename, delivery, held: made.held, fix: made.fix, leftOut: made.leftOut } });
+    report({ phase: 'save', done: 0, total: 0 });
+    keptForSave = made;
+    await save(format, made, () => {
+      keptForSave = null;
+    });
   } catch (error) {
     if (exportRun !== run) return;
     if (run.signal.aborted || isAbortError(error)) {

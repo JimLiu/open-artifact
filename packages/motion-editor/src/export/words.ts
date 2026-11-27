@@ -9,7 +9,6 @@ export const DONE = 'Done';
 export const TRY_AGAIN = 'Try again';
 export const RELOAD = 'Reload';
 export const RELOAD_TO_EXPORT = 'The editor was updated after this page opened. Reload the page, then export again.';
-export const EXPORT_ANYWAY = 'Export anyway';
 export const USE_SMALLER = 'Use smaller settings';
 
 export const FORMAT = 'Format';
@@ -75,8 +74,6 @@ export const NO_VIDEO_HERE = 'This browser can’t export video. Try Chrome on a
 export const NO_MP4_HERE = 'This browser can’t export MP4 video. Try GIF or MOV.';
 export const CHECKING_BROWSER = 'Checking this browser…';
 
-export const LONG_EXPORT_TITLE = 'This export takes a while';
-export const longExport = (time: string): string => `It takes ${time}. Keep this page open and in front until it’s done.`;
 export const GIF_LARGE = 'This GIF will be large.';
 export const gifOverLimit = (mb: number): string => `This GIF would be over the ${mb} MB limit.`;
 export const TRY_SMALL = 'Try Small, or export a video instead.';
@@ -101,18 +98,31 @@ export const scenesMissing = (count: number): string =>
 export const ROUGH_CUT = 'This is a rough cut.';
 
 export const STARTING = 'Starting…';
-export const PHASES: Readonly<Record<ExportPhase | 'files', string>> = {
+export const PHASES: Readonly<Record<ExportPhase | 'files' | 'save', string>> = {
   probe: 'Measuring…',
   audio: 'Rendering sound…',
   frames: 'Rendering frames…',
   mux: 'Writing the file…',
   files: 'Gathering files…',
+  save: 'Saving…',
 };
 export const framesProgress = (done: number, total: number, percent: number): string => `${done} / ${total} frames · ${percent}%`;
 export const percent = (value: number): string => `${value}%`;
 export const KEEP_OPEN = 'Keep this page open and in front until the export is done.';
 
 export const exported = (name: string): string => `Exported ${name}`;
+export const exportedTo = (path: string): string => `Exported to ${path}`;
+export const notSavedYet = (kind: 'video' | 'gif' | 'mov' | 'zip' | 'html'): string =>
+  kind === 'gif' ? 'The GIF is made, but it isn’t saved yet.' : kind === 'video' || kind === 'mov' ? 'The video is made, but it isn’t saved yet.' : 'The file is made, but it isn’t saved yet.';
+export const SAVE_DIDNT_GO_THROUGH = 'The save didn’t go through, so it is kept here until you close this.';
+export const saveAgainHelp = (kind: 'video' | 'gif' | 'mov' | 'zip' | 'html'): string =>
+  `Press ${saveAgainLabel(kind)} to try again, or Download to save it with your browser. If the save keeps failing, reload the page and export again.`;
+export const saveAgainLabel = (kind: 'video' | 'gif' | 'mov' | 'zip' | 'html'): string =>
+  kind === 'gif' ? 'Save GIF' : kind === 'video' || kind === 'mov' ? 'Save video' : 'Save file';
+export const discardLabel = (kind: 'video' | 'gif' | 'mov' | 'zip' | 'html'): string =>
+  kind === 'gif' ? 'Discard GIF' : kind === 'video' || kind === 'mov' ? 'Discard video' : 'Discard file';
+export const DOWNLOAD = 'Download';
+export const SAVING = 'Saving…';
 export const savedTo = (path: string): string => `Saved to ${path}`;
 export const SAVED_BY_BROWSER = 'Your browser saves it to its downloads.';
 export const heldFrames = (count: number, total: number, where: string, kind: 'video' | 'gif', clearAtStart = false): string =>
