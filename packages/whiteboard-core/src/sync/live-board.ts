@@ -22,7 +22,7 @@ export const STICKER_FOLLOW_WRITE_DELAY_MS = 1000;
 
 /**
  * `next` with every part that equals `previous` replaced by the previous
- * object (elements, timer, inks, claims), so renders and memoized geometry
+ * object (elements, timer, inks, shape libraries, claims), so renders and memoized geometry
  * keep their identity. Returns `previous` itself when nothing changed.
  */
 export function shareUnchangedContent(previous: BoardContent, next: BoardContent): BoardContent {
@@ -44,12 +44,14 @@ export function shareUnchangedContent(previous: BoardContent, next: BoardContent
   const share = <V>(a: V | undefined, b: V | undefined): V | undefined => (a === b || (a !== undefined && b !== undefined && canonicalValuesEqual(a, b)) ? a : b);
   const timer = share(previous.timer, next.timer);
   const inks = share(previous.inks, next.inks);
+  const shapes = share(previous.shapes, next.shapes);
   const claimed = share(previous.claimed, next.claimed);
-  if (sameElements && timer === previous.timer && inks === previous.inks && claimed === previous.claimed) return previous;
+  if (sameElements && timer === previous.timer && inks === previous.inks && shapes === previous.shapes && claimed === previous.claimed) return previous;
   return {
     elements: sameElements ? previous.elements : elements,
     ...(timer !== undefined ? { timer } : {}),
     ...(inks !== undefined ? { inks } : {}),
+    ...(shapes !== undefined ? { shapes } : {}),
     ...(claimed !== undefined ? { claimed } : {}),
   };
 }

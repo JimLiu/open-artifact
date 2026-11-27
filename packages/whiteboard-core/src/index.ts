@@ -24,6 +24,7 @@ export * from './table.ts';
 export * from './table-tints.ts';
 export * from './timer.ts';
 export * from './inks.ts';
+export * from './shape-library/index.ts';
 export * from './theme.ts';
 export * from './backdrop.ts';
 

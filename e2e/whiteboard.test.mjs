@@ -1085,6 +1085,128 @@ describe('whiteboard', { skip: skipFor('whiteboard') }, () => {
     } finally { await p.close(); await run.run(['stop', board]); }
   });
 
+  describe('shape libraries', { skip: noBrowser }, () => {
+    const library = path.join(fixtures, 'whiteboard/demo.shapes.json');
+    const panel = '[data-wb-library-panel]';
+    const cells = `document.querySelectorAll('${panel} [data-library-cell]')`;
+    const newBoard = (name, elements = {}) => {
+      const board = tmpDir(name);
+      for (const sub of ['db/elements', 'db/board']) fs.mkdirSync(path.join(board, sub), { recursive: true });
+      fs.writeFileSync(path.join(board, 'db/board/meta.json'), JSON.stringify({ v: 1, title: 'Services', order: Object.keys(elements) }));
+      for (const [id, el] of Object.entries(elements)) fs.writeFileSync(path.join(board, 'db/elements', id + '.json'), JSON.stringify(el));
+      return board;
+    };
+    const saved = board => fs.readdirSync(path.join(board, 'db/elements')).filter(n => n.endsWith('.json'))
+      .map(n => ({ id: n.slice(0, -5), ...JSON.parse(fs.readFileSync(path.join(board, 'db/elements', n))) }));
+    const libraries = board => {
+      const file = path.join(board, 'db/board/shapes.json');
+      return fs.existsSync(file) ? Object.values(JSON.parse(fs.readFileSync(file)).libs ?? {}) : [];
+    };
+    const openPanel = async p => {
+      await clickOn(p, `document.querySelector('[aria-label="Board tools"] button[aria-label="Shapes"]')`);
+      await clickOn(p, `document.querySelector('.wb-tray button[aria-label="Library"]')`);
+      assert.ok(await p.waitFor(`document.querySelector('${panel}')`, 10000), 'the Library panel opens');
+    };
+    const chooseFiles = async (p, files) => {
+      const { root: doc } = await p.cdp('DOM.getDocument', { depth: 0 });
+      const { nodeId } = await p.cdp('DOM.querySelector', { nodeId: doc.nodeId, selector: `${panel} input[type="file"]` });
+      await p.cdp('DOM.setFileInputFiles', { nodeId, files });
+    };
+
+    it('adds a library from a file, places a shape with its name, keeps the library through a reload and the shape after removing it', { timeout: 90000 }, async () => {
+      const board = newBoard('whiteboard-library', { target: { type: 'shape', kind: 'rect', x: 400, y: 0, w: 160, h: 100, color: 'blue', text: 'Orders' } });
+      const { url: boardUrl } = await run.json(['open', board, '--type', 'whiteboard', '--json']);
+      const p = await browser.load(boardUrl, { ready });
+      try {
+        await openPanel(p);
+        assert.ok(await p.waitFor(`document.querySelector('${panel}').innerText.includes('How shape libraries work')`, 3000), 'an empty board explains libraries');
+        await chooseFiles(p, [library]);
+        assert.ok(await p.waitFor(`${cells}.length === 11`, 10000), 'every shape of the library is listed');
+        assert.ok(await p.waitFor(`document.querySelector('[data-wb-library-report]')?.innerText.includes('Added “Demo cloud”: 11 shapes.')`, 3000), 'the panel says what was added');
+        assert.ok(await p.evaluate(`[...${cells}].every(b => b.querySelector('img')?.src.startsWith('data:image/svg+xml') && !b.querySelector('svg'))`), 'shapes show as pictures, not markup');
+        assert.ok(await until(() => libraries(board).length === 1), 'the board lists the library');
+        const [entry] = libraries(board);
+        assert.equal(entry.name, 'Demo cloud');
+        assert.equal(entry.count, 11);
+        assert.equal(entry.license, 'CC0-1.0');
+        assert.match(entry.file, /^\/_blob\/[0-9a-f]+$/);
+        const stored = await (await fetch(new URL(entry.file, boardUrl))).json();
+        assert.equal(stored.format, 'open-artifact-shapes', 'the page reads the stored library back');
+        assert.equal(stored.shapes.length, 11);
+
+        // Search by tag, then pick one and click the board.
+        await typeIntoSearch(p, 'storage');
+        assert.ok(await p.waitFor(`${cells}.length === 1 && ${cells}[0].getAttribute('aria-label') === 'Pick shape: Database'`, 3000), 'a search finds shapes by tag');
+        await clickOn(p, `${cells}[0]`);
+        assert.ok(await p.waitFor(`!document.querySelector('${panel}')`, 3000), 'picking a shape closes the panel');
+        const target = await p.evaluate(`(() => { const r = document.querySelector('[data-wb-id=target]').getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2, left: r.left }; })()`);
+        await p.click(target.left - 220, target.y);
+        assert.ok(await until(() => saved(board).length === 3), 'a picture and its label are added');
+        const image = saved(board).find(el => el.type === 'image');
+        const label = saved(board).find(el => el.type === 'text');
+        assert.equal(image.style, 'plain');
+        assert.match(image.src, /^data:image\/svg\+xml,<svg .*<title>Database<\/title>/, 'the picture carries its own drawing');
+        assert.equal(image.w, 80);
+        assert.equal(image.h, 80);
+        assert.equal(label.text, '');
+        assert.equal(label.placeholder, 'Database');
+        assert.equal(image.groups.length, 1);
+        assert.deepEqual(label.groups, image.groups, 'the picture and its label move together');
+        assert.ok(label.y > image.y + image.h, 'the label sits under the picture');
+        assert.ok(await p.waitFor(`document.querySelector('[data-wb-id="${label.id}"] .wb-text-hint')?.textContent === 'Database'`, 3000), 'the label shows the shape name');
+
+        // An arrow attaches to the placed shape like to any picture.
+        await p.press('Escape');
+        await clickOn(p, `document.querySelector('[aria-label="Board tools"] button[aria-label="Draw"]')`);
+        await clickOn(p, `document.querySelector('.wb-tray button[aria-label="Arrow"]')`);
+        const from = await p.evaluate(`(() => { const r = document.querySelector('[data-wb-id="${image.id}"]').getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; })()`);
+        await p.dragMouse(from, [target.x, target.y]);
+        assert.ok(await until(() => saved(board).some(el => el.type === 'arrow' && el.from === image.id && el.to === 'target')), 'an arrow joins the placed shape to the box');
+
+        // The library is still there after a reload.
+        await p.cdp('Page.reload', {});
+        assert.ok(await p.waitFor(ready, 10000));
+        await openPanel(p);
+        assert.ok(await p.waitFor(`${cells}.length === 11`, 10000), 'the library is listed after a reload');
+
+        // Removing it keeps what was placed.
+        await clickOn(p, `document.querySelector('${panel} button[aria-label="Demo cloud: library menu"]')`);
+        assert.ok(await p.waitFor(`document.querySelector('${panel}').innerText.includes('Licence: CC0-1.0')`, 3000), 'the menu shows the licence');
+        await clickOn(p, `[...document.querySelectorAll('${panel} button')].find(b => b.textContent === 'Remove from this board')`);
+        assert.ok(await until(() => libraries(board).length === 0), 'the library is removed from the board');
+        assert.ok(await p.waitFor(`${cells}.length === 0 && document.querySelector('${panel}').innerText.includes('How shape libraries work')`, 3000));
+        assert.equal(saved(board).length, 4, 'placed shapes and the arrow stay');
+        assert.ok(saved(board).some(el => el.id === image.id && el.src === image.src));
+        assert.deepEqual(p.problems, []);
+      } finally { await p.close(); }
+    });
+
+    it('refuses an SVG with a script and adds nothing', { timeout: 60000 }, async () => {
+      const board = newBoard('whiteboard-library-script');
+      const bad = path.join(tmpDir('whiteboard-library-files'), 'alarm.svg');
+      fs.writeFileSync(bad, '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><script>alert(1)</script><circle cx="12" cy="12" r="9"/></svg>');
+      const { url: boardUrl } = await run.json(['open', board, '--type', 'whiteboard', '--json']);
+      const p = await browser.load(boardUrl, { ready });
+      try {
+        await openPanel(p);
+        await chooseFiles(p, [bad]);
+        assert.ok(await p.waitFor(`document.querySelector('[data-wb-library-report]')?.innerText.includes('was not added')`, 10000), 'the panel says the file was not added');
+        assert.ok(await p.evaluate(`document.querySelector('[data-wb-library-report]').innerText.includes('alarm: uses <script>')`), 'and names the shape and why');
+        assert.equal(await p.evaluate(`${cells}.length`), 0);
+        await new Promise(resolve => setTimeout(resolve, 300));
+        assert.deepEqual(libraries(board), [], 'no library is listed');
+        assert.deepEqual(saved(board), [], 'nothing is placed');
+        assert.deepEqual(p.problems, []);
+      } finally { await p.close(); }
+    });
+
+    /** Types into the panel's search box. */
+    async function typeIntoSearch(p, text) {
+      await clickOn(p, `document.querySelector('${panel} input[role="searchbox"]')`);
+      await p.type(text);
+    }
+  });
+
   // Opt in with the published reference CLI path. The normal suite has no dependency on another checkout.
   const reference = process.env.E2E_WHITEBOARD_REFERENCE;
   it('exchanges an editable shape in both directions with the reference editor', { skip: noBrowser || !reference }, async () => {

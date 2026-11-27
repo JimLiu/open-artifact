@@ -7,17 +7,19 @@
  *
  * Draw and Shapes remember their last pick; while one of their tools is on,
  * a tray above the bar offers the rest (pen/arrow and ink colors; every
- * shape kind and the table). Clicking the active tool again puts it down.
+ * shape kind, the table and the Library, whose panel places shapes from
+ * the board's shape libraries). Clicking the active tool again puts it down.
  */
 
 import { MessageCircle } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import {
   INK_COLOR_NAMES,
   SHAPE_KIND_LABELS,
   capitalizeFirstLetter,
   themedInkColor,
   type HexColor,
+  type LibraryShape,
 } from '@open-artifact/whiteboard-core';
 import { DRAW_TOOLS, MORE_SHAPE_KINDS, BASIC_SHAPE_KINDS, shapesButtonTools, toolPickForShapeKind, modKey, toolShortcutKey, type ToolName, type ToolPick } from '../lib/tools.ts';
 import { addBoardInk, removeBoardInk } from '../services/commands.ts';
@@ -35,6 +37,9 @@ import { ShapeKindIcon, TOOL_ICONS, ToolPickIcon, toolPickLabel } from './icons.
 import { JumpBack } from './JumpChrome.tsx';
 import { StickerPicker } from './StickerPicker.tsx';
 import { Card, ChromeButton, ChromeDivider, ChromePopover, SwatchRow, Tip, TipGroup, ToolButton, type Swatch } from './chrome.tsx';
+
+/** The Library panel, loaded the first time it opens. */
+const ShapeLibraryPanel = lazy(() => import('./ShapeLibraryPanel.tsx').then((module) => ({ default: module.ShapeLibraryPanel })));
 
 /** File types the picture picker accepts. */
 export const PICTURE_ACCEPT = 'image/png,image/jpeg,image/gif,image/webp,image/svg+xml,image/avif,image/bmp,video/mp4,video/webm,video/quicktime';
@@ -403,7 +408,68 @@ function ShapesTray({ touch }: { touch: boolean }) {
           <ToolButton size="lg" label="Section" icon={<TOOL_ICONS.container aria-hidden="true" />} pressed={tool === 'container'} onClick={() => useTool.getState().pick({ tool: 'container' })} />
         ) : null}
         <ToolButton size="lg" label="Table" icon={<TOOL_ICONS.table aria-hidden="true" />} shortcut={toolShortcutKey('table', keysOn)} pressed={tool === 'table'} onClick={() => useTool.getState().pick({ tool: 'table' })} />
+        <LibraryButton />
       </div>
     </Tray>
+  );
+}
+
+/** The Library button (editors only, like the tray) and its panel. */
+function LibraryButton() {
+  const tool = useTool((state) => state.tool);
+  const libraryShape = useTool((state) => state.libraryShape);
+  const [open, setOpen] = useState(false);
+  const on = tool === 'library';
+  const awaiting = on && libraryShape === undefined;
+
+  // The tool went down elsewhere (Escape, another tool): close the panel.
+  useEffect(() => {
+    if (!on) setOpen(false);
+  }, [on]);
+
+  const putDown = () => useTool.getState().pick({ tool: 'select' });
+  const choose = (shape: LibraryShape) => {
+    useTool.getState().armLibraryShape(shape);
+    setOpen(false);
+  };
+
+  return (
+    <ChromePopover
+      open={open || awaiting}
+      onOpenChange={(next) => {
+        if (next) {
+          setOpen(true);
+          if (!on) useTool.getState().armLibraryShape(undefined);
+        } else {
+          setOpen(false);
+          if (useTool.getState().tool === 'library' && useTool.getState().libraryShape === undefined) putDown();
+        }
+      }}
+      side="top"
+      gap={12}
+      label="Shape libraries"
+      className="p-1.5"
+      anchor={() => document.querySelector('.wb-tray')}
+      trigger={
+        <ToolButton
+          size="lg"
+          label="Library"
+          tip={on && !awaiting ? `Click the board to place ${libraryShape?.name ?? 'the shape'}` : 'Shapes from this board\u2019s libraries'}
+          icon={<TOOL_ICONS.library aria-hidden="true" />}
+          pressed={on}
+          onClick={(event) => {
+            // A second click on an armed tool puts it down instead of reopening the panel.
+            if (on && !awaiting && !open) {
+              event.preventDefault();
+              putDown();
+            }
+          }}
+        />
+      }
+    >
+      <Suspense fallback={<p className="px-2 py-1 text-[13px] text-chrome-muted">Loading…</p>}>
+        <ShapeLibraryPanel onPick={choose} />
+      </Suspense>
+    </ChromePopover>
   );
 }

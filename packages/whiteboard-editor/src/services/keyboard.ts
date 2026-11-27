@@ -57,6 +57,7 @@ import { usePreferences } from '../state/preferences.ts';
 import { useSelection, type TextEditTarget } from '../state/selection.ts';
 import { useTool } from '../state/tool.ts';
 import { createNoteAt, createShapeAt, createTableAt, createTextAt, placeElement } from '../tools/place.ts';
+import { placeShapeFromLibrary } from '../tools/library.ts';
 import { placeSticker } from '../tools/sticker.ts';
 import {
   alignSelectionTo,
@@ -467,6 +468,8 @@ function placeWithTool(): boolean {
       return placeElement(createTableAt(center), { label: 'Add table' });
     case 'sticker':
       return tool.sticker !== undefined && placeSticker(tool.sticker, center) !== undefined;
+    case 'library':
+      return tool.libraryShape !== undefined && placeShapeFromLibrary(tool.libraryShape, center);
     default:
       return false;
   }

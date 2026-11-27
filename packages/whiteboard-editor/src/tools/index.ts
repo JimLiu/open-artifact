@@ -9,6 +9,7 @@ import { arrowPress } from './arrow.ts';
 import { containerPress, notePress, shapePress, tablePress, textPress } from './blocks.ts';
 import { penPress } from './pen.ts';
 import { selectPress } from './select.ts';
+import { libraryPress } from './library.ts';
 import { stickerPress } from './sticker.ts';
 
 registerTool('select', selectPress);
@@ -20,6 +21,8 @@ registerTool('table', tablePress);
 registerTool('pen', penPress);
 registerTool('arrow', arrowPress);
 registerTool('sticker', stickerPress);
+registerTool('library', libraryPress);
 
 export { installHover } from './hover.ts';
 export { placeSticker, createStickerAt } from './sticker.ts';
+export { placeShapeFromLibrary } from './library.ts';

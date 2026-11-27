@@ -32,6 +32,52 @@ Or start with no agent: on the home page, click **New artifact**, pick **Whitebo
 - **Link to things on the board**: Right-click an element and pick **Copy link to item**, then paste it onto the board as a link card, onto a picture, or into a text link; in a text link field you can also pick a section from the list. Clicking such a link takes the view to the element and rings it briefly; **Back** at the bottom returns to where you were. A card whose element was removed turns grey. A copied link opened in a browser opens the board at that element.
 - **Ask your agent in context**: Select a cluster of stickies or pin a comment (e.g. *"cluster these by theme and summarize top 3 risks"*), then click **Send to agent**.
 - **Export**: Open **Share → Export** to download a PNG image.
+- **Shape libraries**: Add sets of icons to the board and place them from **Shapes → Library**; see [Shape libraries](#shape-libraries).
+
+## Shape libraries
+
+A shape library is a set of drawings, such as icons for servers, databases, queues or people, that you add to a board
+once and then place as often as you like. Libraries live with the board: everyone who opens it sees the same ones, and
+they travel with it. None come with Open Artifact; icon sets are usually published by the tools, services and design
+systems you already draw, by icon collections under an open licence, or drawn by your own team.
+
+- **Add one**: in the toolbar, open **Shapes**, then **Library** (the last button, after Table). Click **Add library… →
+  From a file…** and pick a `.shapes.json` file, or one or many `.svg` files (they become one library called "My
+  shapes"). You can also drop the files on the panel. A board holds up to 8 libraries.
+- **Place a shape**: search by name or tag, click a shape, then click the board. It lands as a picture without a frame,
+  with an empty label under it that shows the shape's name until you type your own. Arrows attach to it like to any
+  picture. An `.svg` dropped on the board itself (not on the panel) still goes in as an ordinary picture.
+- **Remove one**: open the library's **⋯** menu (it also shows the source and the licence) and choose **Remove from
+  this board**. Shapes you already placed stay, because each placed shape carries its own drawing.
+
+A `.shapes.json` file looks like this (`source`, `license`, `tags`, `w` and `h` are optional):
+
+```json
+{
+  "format": "open-artifact-shapes",
+  "version": 1,
+  "name": "Cloud basics",
+  "source": "https://example.org/cloud-basics",
+  "license": "CC0-1.0",
+  "shapes": [
+    {
+      "name": "Database",
+      "tags": ["storage", "sql"],
+      "w": 48, "h": 48,
+      "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 48 48\" fill=\"none\" stroke=\"currentColor\"><ellipse cx=\"24\" cy=\"11\" rx=\"14\" ry=\"5\"/><path d=\"M10 11v26c0 3 6 5 14 5s14-2 14-5V11\"/></svg>"
+    }
+  ]
+}
+```
+
+Drawings that use `currentColor` follow the board's ink, so they read well in light and dark themes.
+
+**What gets left out, and why.** Every shape is cleaned when it is added, and the panel then says how many shapes were
+added and names each one left out with the reason. A shape is left out when its drawing uses something a board drawing
+cannot have: text (turn it into outlines first), scripts, embedded or linked images, `<use>` references, clip paths
+other than one around the whole drawing, or anything outside plain SVG shapes, groups and gradients. A drawing with no
+size, or over 16,000 characters once cleaned, is left out too. A file over 4 MB is refused; past 500 shapes the rest
+are not read. These limits keep every placed shape small, self-contained and safe to show to everyone on the board.
 
 ## How to use (for agents)
 
@@ -39,6 +85,7 @@ Or start with no agent: on the home page, click **New artifact**, pick **Whitebo
 - **Storage model**: Live JSON document store under `<root>/db/`:
   - `db/board/meta.json` — board title and element stacking order.
   - `db/elements/<id>.json` — one JSON document per board element (sticky, shape, section, text, arrow, ink, image, table, sticker, timer, link card, embed).
+  - `db/board/shapes.json` — the shape libraries people added (each library's file is an upload, `_blobs/<id>.json`); `context` lists them as `shapeLibraries`.
 
 ### Workflow & commands
 
@@ -57,5 +104,6 @@ Or start with no agent: on the home page, click **New artifact**, pick **Whitebo
 3. Respect human edits on existing boards: read fresh before writing, extend in place rather than building duplicate copies beside existing clusters, and shift neighbors/stickers together when resizing.
 4. Use `ArtifactData` `batch` (up to 500 writes per batch) so updates apply atomically; use `{"__delete__": true}` inside `update` to remove fields.
 5. Link to elements of the same board with `#element=<id>` (a link card, a picture's `href`, or `[label](#element=<id>)` in text) for an index or a path through a large board; fix or remove the links when deleting their target (`check` warns).
+6. When the board has shape libraries (`context` → `shapeLibraries`) and one of their shapes fits, place it as a plain `image` with its name in a `text` under it instead of drawing your own; never write `board/shapes` or library files by hand.
 
 For full element schemas, drawing craft, and ideation guidance, read [artifact-types/whiteboard/SKILL.md](../../artifact-types/whiteboard/SKILL.md) and `artifact-types/whiteboard/reference/`.
