@@ -33,7 +33,7 @@ open-artifact skill install --command open-artifact --dir ~/.hermes/skills --har
 | 重连 | gateway 会保持桥接进程运行，退出后重新启动；桥接会自己重连 daemon（需要时启动它），并重新 attach 各会话。重新 attach 时带来的、插件交不出去的消息，用 `inbox.return` 放回去。已知会话记在 `~/.hermes/plugin_data/open-artifact/sessions.json`，保留 7 天，gateway 重启后会重新 attach。 |
 | 会话状态 | 每次调用模型前为 `running`，会话结束时为 `idle`。agent 自己的 `write_file` 和 `patch` 工具改动的文件会上报（`agent.wrote`），打开着的页面立刻跟上。 |
 
-在 gateway 之外（一次性的 `hermes chat -q`、cron），调用工具之前什么也不启动，评论在收件箱里等会话的下一次调用。
+在 gateway 之外（经典 CLI、一次性的 `hermes chat -q`、cron），调用工具之前什么也不启动。调用之后，这个进程的桥接也会接收唤醒；经典 CLI 会把作品主人的话排成你的下一条输入。
 
 Hermes 没有自己的页面视图：agent 会把页面的 `view_url` 给你，或者用 `Artifact {action: "open"}` 在电脑的浏览器里打开。
 
@@ -43,13 +43,15 @@ Hermes 没有自己的页面视图：agent 会把页面的 `view_url` 给你，�
 
 ## Profile
 
-daemon 给 Hermes 用的 profile 是 `packages/daemon/harnesses/hermes.json`（harness 名 `hermes`）。Hermes 在 agent 运行的命令里设置 `HERMES_AGENT` 和 `HERMES_SESSION_KEY`，所以 agent 运行的 `open-artifact` 命令会被认出是 Hermes 的，属于用户本人的命令（发布、站点）在那里会拒绝运行。
+daemon 给 Hermes 用的 profile 是 `packages/daemon/harnesses/hermes.json`（harness 名 `hermes`）。Hermes 在 agent 运行的每条命令里设置 `HERMES_AGENT`，所以 agent 运行的 `open-artifact` 命令会被认出是 Hermes 的，属于用户本人的命令（发布、站点）在那里会拒绝运行。
 
-可选设置：`OPEN_ARTIFACT_CLI`（怎样运行命令行，例如 `npx @open-artifact/cli`）、`OPEN_ARTIFACT_HERMES_AGENT_NAME`（Shell 里怎么称呼这个 agent，默认 `Hermes`）、`OPEN_ARTIFACT_HERMES_DATA`（会话记录放在哪里）、`OPEN_ARTIFACT_HERMES_DISABLE`（什么也不加载）。检查一个会话：`open-artifact doctor --harness hermes --session <会话 key>`。
+工具用 Hermes 的会话 key（`HERMES_SESSION_KEY`，gateway、TUI 和 ACP 会话会设置）标识会话。经典 CLI 会话没有 key，工具改用它的会话 id。
+
+可选设置：`OPEN_ARTIFACT_CLI`（怎样运行命令行，例如 `npx @open-artifact/cli`）、`OPEN_ARTIFACT_HERMES_AGENT_NAME`（Shell 里怎么称呼这个 agent，默认 `Hermes`）、`OPEN_ARTIFACT_HERMES_DATA`（会话记录放在哪里）、`OPEN_ARTIFACT_HERMES_DISABLE`（什么也不加载）。检查一个会话：`open-artifact doctor --harness hermes --session <会话 key 或 id>`。
 
 ## 已知限制
 
-- **用工具，不用命令行。** agent 应当用这三个工具做作品、改作品。它在 shell 里运行的 `open-artifact` 命令，不加 `--harness hermes` 时以 harness `cli` 的身份说话，daemon 会把它当成和会话工具不同的另一个主人，那份作品的评论就会送到那边，而不是这个对话。用 `--harness hermes` 渲染的 skill 会让 agent 使用工具。
+- **用工具，不用命令行。** agent 应当用这三个工具做作品、改作品。它在 shell 里运行的 `open-artifact` 命令，不加 `--harness hermes` 时以 harness `cli` 的身份说话；加了也只有在设置了 `HERMES_SESSION_KEY` 的地方（经典 CLI 会话没有）才能指明会话。daemon 会把它当成和会话工具不同的另一个主人，那份作品的评论就会送到那边，而不是这个对话。用 `--harness hermes` 渲染的 skill 会让 agent 使用工具。
 - **不能恢复会话。** `caps.wake.resume` 是 `false`：发给已经不在线的会话（例如已结束的 `hermes chat -q`）的唤醒，会在收件箱里等到那个会话再次调用工具。
 - **会话 key 就是对话 key。** 在 gateway 里，会话 key 对应一个对话（一个私聊、一个子区）。同一个对话里开新会话（`/new`）key 不变，所以这个对话的作品和评论都还归它。
 - **Hermes 里不显示页面。** 不回答 `host.open`：页面在浏览器里打开，或者以链接给出。

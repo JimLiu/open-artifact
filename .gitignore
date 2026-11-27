@@ -4,6 +4,8 @@ dist/
 artifact-types/*/scripts/
 *.log
 .DS_Store
+__pycache__/
+*.pyc
 # DSH plugin build output (plugins/dsh/scripts/build.mjs)
 plugins/dsh/lib/
 plugins/dsh/vendor/

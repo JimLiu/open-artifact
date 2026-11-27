@@ -47,7 +47,7 @@ spec = importlib.util.spec_from_file_location("oa_hermes", sys.argv[1] + "/__ini
 m = importlib.util.module_from_spec(spec); sys.modules["oa_hermes"] = m; spec.loader.exec_module(m)
 a = m.Adapter(object(), data_dir=sys.argv[2])
 print(json.dumps({"harness": m.HARNESS, "hello": a.bridge._hello}))
-`, plugin, mkdtempSync(join(tmpdir(), 'oa-hermes-hello-'))], { encoding: 'utf8', env: { ...process.env, PYTHONDONTWRITEBYTECODE: '1' } });
+`, plugin, mkdtempSync(join(tmpdir(), 'oa-hermes-hello-'))], { encoding: 'utf8', env: { ...process.env, OPEN_ARTIFACT_HERMES_AGENT_NAME: '', PYTHONDONTWRITEBYTECODE: '1' } });
     assert.equal(run.status, 0, run.stderr);
     const { harness, hello } = JSON.parse(run.stdout);
     assert.equal(harness, shipped.name);
@@ -86,8 +86,12 @@ describe('the Hermes plugin in a fake gateway, against a real daemon', { skip: s
     writeFileSync(join(type, 'index.html'), '<!doctype html><title>note</title><iframe src="note.html"></iframe>\n');
     mkdirSync(join(dir, 'builtin'));
     mkdirSync(join(dir, 'work'));
+    // These tests may run inside an agent's session (a Hermes gateway's tool commands carry HERMES_SESSION_KEY): the
+    // plugin would take that session for the test's own.
+    const outer = { ...process.env };
+    for (const name of Object.keys(outer)) if (/^(HERMES_SESSION_|HERMES_AGENT$|OPEN_ARTIFACT_)/.test(name)) delete outer[name];
     env = {
-      ...process.env,
+      ...outer,
       OPEN_ARTIFACT_HOME: join(dir, 'home'),
       OPEN_ARTIFACT_USER_TYPES: join(dir, 'types'),
       OPEN_ARTIFACT_BUILTIN_TYPES: join(dir, 'builtin'),
@@ -117,9 +121,9 @@ describe('the Hermes plugin in a fake gateway, against a real daemon', { skip: s
     const run = spawnSync('python3', [join(here, 'fake_gateway.py')], { env, encoding: 'utf8', timeout: 110_000 });
     const lines = run.stdout.trim().split('\n');
     assert.equal(run.status, 0, `${run.stdout}\n${run.stderr}`);
-    assert.deepEqual(lines.map((line) => line.split(' ')[0]), ['routing', 'register', 'tools', 'live', 'inbox', 'PASS']);
-    assert.match(lines[1], /^register ok daemon=\S+ inbox\.return=True$/);
-    assert.match(lines[2], /attached=True/);
-    assert.equal(lines[3], 'live ok via=live');
+    assert.deepEqual(lines.map((line) => line.split(' ')[0]), ['routing', 'failed-call', 'register', 'tools', 'live', 'inbox', 'PASS']);
+    assert.match(lines[2], /^register ok daemon=\S+ inbox\.return=True$/);
+    assert.match(lines[3], /attached=True/);
+    assert.equal(lines[4], 'live ok via=live');
   });
 });

@@ -4,6 +4,8 @@ A fake plugin context records register_tool / register_hook / inject_message, as
 per step on stdout; the first failure exits non-zero.
 
   routing    only the owner's words reach inject_message; a collaborator, the system or no sender answers failed
+  failed-call a tool call that fails (error answer, bridge gone, timeout) is sent once, and what its attach took from
+              the inbox goes back with inbox.return
   register   three tools in the open_artifact toolset and the three hooks; in the "gateway" the bridge comes up
   tools      quickstart (attaches the session), then publish: an artifact this session owns
   live       the page's Ask (artifacts.ask) -> wake.deliver -> inject_message(user, session_key) -> via live
@@ -101,6 +103,36 @@ def main():
     if [i["role"] for i in ctx.injected] != ["user"] or ctx.injected[0]["session_key"] != "s1":
         fail("routing: inject calls %s" % ctx.injected)
     say("routing ok")
+
+    # failed call: what the attach took goes back to the inbox; the call is not sent twice
+    class StubBridge:
+        alive = True
+        features = ["inbox.return"]
+        hello_result = {"daemon": "stub"}
+
+        def __init__(self, failure):
+            self.calls, self.failure = [], failure
+
+        def request(self, method, params=None, timeout=60.0):
+            self.calls.append((method, params))
+            if method == "session.attach":
+                return {"inbox": [{"kind": "wake", "text": "waited", "at": "2026-01-01T00:00:00.000Z"}]}
+            if method == "tools.call":
+                raise self.failure
+            return {"ok": True}
+
+    for failure in (module.RpcError({"message": "no", "data": {"code": "invalid_argument"}}),
+                    module.BridgeGone({"message": "gone", "data": {"code": "disconnected"}}),
+                    TimeoutError("slow")):
+        adapter = module.Adapter(FakeCtx(), data_dir=WORK / "stub")
+        adapter.bridge = StubBridge(failure)
+        out = json.loads(adapter.call_tool("Artifact", {"action": "publish"}, "s2", str(WORK)))
+        methods = [m for m, _ in adapter.bridge.calls]
+        returned = [p for m, p in adapter.bridge.calls if m == "inbox.return"]
+        if "error" not in out or methods.count("tools.call") != 1 or len(returned) != 1 or \
+                [m["text"] for m in returned[0]["messages"]] != ["waited"]:
+            fail("failed call (%s): %s %s" % (type(failure).__name__, out, methods))
+    say("failed-call ok")
 
     # register
     ctx = FakeCtx()

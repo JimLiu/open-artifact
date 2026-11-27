@@ -67,7 +67,7 @@ See [docs/references/docs-maintenance.md](docs/references/docs-maintenance.md) f
 Every release gets a `CHANGELOG.md` entry written from commit history; the Publish to npm workflow refuses a tag
 without one and uses the entry as the GitHub release notes.
 
-1. Raise the version everywhere it is kept (`@open-artifact/*` packages, `plugins/dsh`, `plugins/pi`, `plugins/omp`, every plugin
+1. Raise the version everywhere it is kept (`@open-artifact/*` packages, `plugins/dsh`, `plugins/pi`, `plugins/omp`, `plugins/hermes`, every plugin
    manifest, and the marketplaces share one version).
 2. Run `node scripts/changelog.mjs` to list commits since the last `v*` tag (`node scripts/changelog.mjs <from> <to>`
    for another range).

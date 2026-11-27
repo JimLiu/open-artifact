@@ -40,8 +40,8 @@ session on. Without step 2 the tools still work, and comments wait for the sessi
 | Reconnects | The gateway keeps the bridge up and starts it again when it exits; the bridge reconnects to the daemon (starting it when needed) and attaches the sessions again. What a reattach brings for a session the plugin cannot hand on goes back with `inbox.return`. Known sessions are kept in `~/.hermes/plugin_data/open-artifact/sessions.json` for 7 days, so a gateway restart attaches them again. |
 | Session state | `running` before each model call, `idle` when the session ends. Files the agent's own `write_file` and `patch` tools change are reported (`agent.wrote`), so an open page follows at once. |
 
-Outside the gateway (a one-shot `hermes chat -q`, cron) nothing is started until a tool is called, and comments wait
-in the inbox for the session's next call.
+Outside the gateway (the classic CLI, a one-shot `hermes chat -q`, cron) nothing is started until a tool is called.
+After that the process's bridge takes wakes too; the classic CLI queues the owner's words as your next input.
 
 Hermes has no page view of its own: the agent gives you the page's `view_url`, or `Artifact {action: "open"}` opens it
 in the computer's browser.
@@ -55,20 +55,24 @@ New artifacts go under your own Open Artifact folder, one folder per project: `~
 ## The profile
 
 The daemon's profile for Hermes is `packages/daemon/harnesses/hermes.json` (harness `hermes`). Hermes puts
-`HERMES_AGENT` and `HERMES_SESSION_KEY` in the commands its agent runs, so an `open-artifact` command the agent runs
-is known as Hermes's, and the commands that are the person's (publishing, sites) refuse to run there.
+`HERMES_AGENT` in every command its agent runs, so an `open-artifact` command the agent runs is known as Hermes's, and
+the commands that are the person's (publishing, sites) refuse to run there.
+
+The tools name a session by its Hermes session key (`HERMES_SESSION_KEY`, which the gateway, the TUI and ACP sessions
+set). A classic CLI session has no key, and the tools use its session id instead.
 
 Settings, all optional: `OPEN_ARTIFACT_CLI` (how to run the command line, e.g. `npx @open-artifact/cli`),
 `OPEN_ARTIFACT_HERMES_AGENT_NAME` (what the Shell calls the agent, default `Hermes`), `OPEN_ARTIFACT_HERMES_DATA`
 (where it keeps its sessions), `OPEN_ARTIFACT_HERMES_DISABLE` (load nothing). To check a session, run
-`open-artifact doctor --harness hermes --session <session key>`.
+`open-artifact doctor --harness hermes --session <session key or id>`.
 
 ## Known limits
 
 - **Use the tools, not the command line.** The agent should make and change artifacts with the three tools. An
-  `open-artifact` command it runs in a shell speaks for harness `cli` unless it passes `--harness hermes`, so the
-  daemon takes it for another owner than the session's tools, and comments on what it made go there instead of into
-  the chat. The skill rendered with `--harness hermes` says to use the tools.
+  `open-artifact` command it runs in a shell speaks for harness `cli` unless it passes `--harness hermes`; even then
+  it names the session only where `HERMES_SESSION_KEY` is set (not in a classic CLI session). The daemon then takes
+  it for another owner than the session's tools, and comments on what it made go there instead of into the chat. The
+  skill rendered with `--harness hermes` says to use the tools.
 - **No resume.** `caps.wake.resume` is `false`: a wake for a session that is no longer live (a finished
   `hermes chat -q`) waits in the inbox until that session calls a tool again.
 - **Session keys are chat keys.** In the gateway a session key names a chat (a DM, a thread). A new conversation in the

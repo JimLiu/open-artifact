@@ -1,4 +1,4 @@
-"""Open Artifact for Hermes: a level-2 harness adapter (native tools + live wakes) over the stdio bridge.
+"""Open Artifact for Hermes: a full harness adapter (L3: native tools + live wakes) over the stdio bridge.
 
 What it does
 ------------
@@ -39,8 +39,8 @@ PLUGIN_DIR = Path(__file__).resolve().parent
 HARNESS = os.environ.get("OPEN_ARTIFACT_HERMES_HARNESS", "hermes")
 TOOLSET = "open_artifact"
 TOOL_NAMES = ("Artifact", "ArtifactData", "ArtifactComments")
-AGENT_NAME = os.environ.get("OPEN_ARTIFACT_HERMES_AGENT_NAME", "Hermes")
-VERSION = "0.1.0"
+AGENT_NAME = os.environ.get("OPEN_ARTIFACT_HERMES_AGENT_NAME") or "Hermes"
+VERSION = "0.17.0"
 SESSION_TTL_S = 7 * 24 * 3600
 TOOL_TIMEOUT_S = 300.0
 GATEWAY_WAIT_S = 180.0
@@ -179,27 +179,27 @@ class Adapter:
     # ---- tools ----
 
     def call_tool(self, name: str, args: dict, session: str, workspace: str) -> str:
+        """One tool call. Never retried: the daemon may have run it before the answer was lost, and an action such as
+        ``publish`` must not run twice. What the attach took from the inbox goes along with the result, or back to
+        the session's inbox when the call fails, so nothing the person sent is lost."""
+        inbox: list[dict] = []
         try:
             inbox = self.ensure_attached(session, workspace)
             result = self.bridge.request("tools.call", {"name": name, "arguments": args or {},
                                                         "caller": self.caller(session, workspace)},
                                          timeout=TOOL_TIMEOUT_S)
-        except BridgeGone:
-            # The bridge died under us: one fresh start, then the call again.
-            with self._lock:
-                self.attached.discard(session)
-            inbox = self.ensure_attached(session, workspace)
-            result = self.bridge.request("tools.call", {"name": name, "arguments": args or {},
-                                                        "caller": self.caller(session, workspace)},
-                                         timeout=TOOL_TIMEOUT_S)
-        except RpcError as error:
-            body = {"error": {"code": error.code, "message": str(error)}}
-            if error.fix:
-                body["error"]["fix"] = error.fix
+        except Exception as error:  # noqa: BLE001 — the agent gets the error as the tool's result
+            if isinstance(error, BridgeGone):
+                with self._lock:
+                    self.attached.discard(session)
+            self._give_back(session, workspace, inbox)
+            if isinstance(error, RpcError):
+                body = {"error": {"code": error.code, "message": str(error)}}
+                if error.fix:
+                    body["error"]["fix"] = error.fix
+            else:
+                body = {"error": {"code": "unavailable", "message": f"Open Artifact: {error}"}}
             return json.dumps(body, ensure_ascii=False)
-        except Exception as error:  # noqa: BLE001
-            return json.dumps({"error": {"code": "unavailable", "message": f"Open Artifact: {error}"}},
-                              ensure_ascii=False)
         if inbox:
             # What waited for this session before it attached: hand it over in this result, as the kit does.
             if isinstance(result, dict):
@@ -242,13 +242,22 @@ class Adapter:
             route = route_of(message)
             if self._deliver(session, route, message.get("text") or "") != "delivered":
                 left.append(message)
-        if left and "inbox.return" in self.bridge.features:
-            try:
-                self.bridge.request("inbox.return", {"session": session, "workspace": workspace, "messages": left},
-                                    timeout=15)
-            except Exception:  # noqa: BLE001
-                logger.warning("open-artifact: inbox.return failed for %s (%d message(s))", session, len(left),
-                               exc_info=True)
+        self._give_back(session, workspace, left)
+
+    def _give_back(self, session: str, workspace: str, messages: list[dict]) -> None:
+        """Puts messages taken from the daemon and not handed on back in the session's inbox (``inbox.return``)."""
+        if not messages:
+            return
+        if "inbox.return" not in self.bridge.features:
+            logger.warning("open-artifact: the daemon cannot take back %d message(s) for %s; they are lost",
+                           len(messages), session)
+            return
+        try:
+            self.bridge.request("inbox.return", {"session": session, "workspace": workspace, "messages": messages},
+                                timeout=15)
+        except Exception:  # noqa: BLE001
+            logger.warning("open-artifact: inbox.return failed for %s (%d message(s))", session, len(messages),
+                           exc_info=True)
 
     def on_notify(self, method: str, params: dict) -> None:
         if method == "bridge.reattached":

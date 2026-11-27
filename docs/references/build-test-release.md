@@ -162,7 +162,7 @@ demos) and the playground's headless-Chrome checks against it. See `website/READ
 `@open-artifact/cli` is the skill folder: its `files` are `scripts/`, `vendor/`, `reference/` (the skill's guides, such as `new-type.md`) and `SKILL.md`.
 The libraries are compiled with `tsc` (`rewriteRelativeImportExtensions`, which fixes `./x.ts` imports in the emitted JavaScript only); the script then rewrites relative `.ts`/`.tsx`/`.mts`/`.cts` specifiers in every staged `.d.ts` (compiled or authored) to `.js`/`.js`/`.mjs`/`.cjs` (`scripts/declaration-specifiers.mjs`, tested by `scripts/declaration-specifiers.test.mjs`) and fails the build if one is left.
 
-1. **Bump versions in lockstep**: every `@open-artifact/*` package, `plugins/dsh`, `plugins/pi`, `plugins/omp`, every plugin manifest, and marketplace manifests share one version.
+1. **Bump versions in lockstep**: every `@open-artifact/*` package, `plugins/dsh`, `plugins/pi`, `plugins/omp`, `plugins/hermes` (`plugin.yaml` and `VERSION` in `__init__.py`), every plugin manifest, and marketplace manifests share one version.
 2. **Gather commits**: run `node scripts/changelog.mjs` (lists commits since last `v*` tag; pass `<from> <to>` for a custom range).
 3. **Update `CHANGELOG.md`**: add `## [x.y.z] - YYYY-MM-DD` at the top with a one-line summary and user-facing `### Added`, `### Changed`, `### Fixed` (and `### Removed` when applicable) sections. Merge related commits; omit release bookkeeping and purely internal refactors. Add the compare link at the bottom:
    `[x.y.z]: https://github.com/JimLiu/open-artifact/compare/v<prev>...vx.y.z`
