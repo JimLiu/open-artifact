@@ -50,6 +50,7 @@ def main():
             host.woken.set()
 
     peer = Peer(bridge, host.handlers(), host.notify, on_answered, log=lambda line: print(line, file=sys.stderr, flush=True))
+    host.peer = peer
     caller = {"session": args.session, "workspace": workspace}
     try:
         # hello carries no token: the bridge reads daemon.json itself. caps say which calls this host answers.
@@ -58,6 +59,7 @@ def main():
             "caps": {"wake": {"resume": True}, "open": True, "tools": "native", "agentName": "Example", "library": "own"},
             "kit": {"name": "harness-stdio-example", "version": VERSION},
         })
+        host.features = list(hello.get("features") or [])
         say("connected protocol=%s daemon=%s" % (hello["protocol"], hello["daemon"]))
         peer.request("subscribe", {"on": True})
         attached = peer.request("session.attach", {"session": args.session, "workspace": workspace, "title": "Python example"})

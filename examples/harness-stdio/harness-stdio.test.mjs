@@ -32,6 +32,55 @@ function noPython() {
 const skip = noPython();
 if (skip) console.log(`# harness-stdio: skipped: ${skip}`);
 
+/** Runs a Python snippet next to host.py and returns its stdout lines. */
+function python(code) {
+  const run = spawnSync('python3', ['-c', code], { cwd: here, encoding: 'utf8', env: { ...process.env, PYTHONDONTWRITEBYTECODE: '1' } });
+  assert.equal(run.status, 0, run.stderr);
+  return run.stdout.trim().split('\n');
+}
+
+describe('the Python host on its own', { skip: skip ?? false }, () => {
+  it('routes only the owner\'s words as a turn: a collaborator, the system or no sender is a notice', () => {
+    const lines = python(`
+from host import route_of
+for source in [{"from": {"kind": "owner"}}, {"from": {"kind": "collaborator", "name": "Ann", "role": "comment"}}, {"from": {"kind": "system"}}, {}, None]:
+    print(route_of({"source": source}))
+`);
+    assert.deepEqual(lines, ['turn', 'notice', 'notice', 'notice', 'notice']);
+  });
+
+  it('puts back with inbox.return what a reattach brought for a session it no longer has, and only that', () => {
+    const lines = python(`
+import threading
+from host import Host
+calls = []
+done = threading.Event()
+class FakePeer:
+    def request(self, method, params=None, timeout=60.0):
+        calls.append((method, params))
+        done.set()
+        return {"ok": True, "returned": len(params["messages"])}
+host = Host({"py-1": "/w"}, FakePeer())
+host.features = ["inbox.return"]
+wake = {"kind": "wake", "text": "Bigger", "at": "2026-01-01T00:00:00.000Z", "source": {"from": {"kind": "owner"}, "reason": "request", "title": "T"}}
+host.notify("bridge.reattached", {"params": {"session": "py-1", "workspace": "/w"}, "inbox": [wake]})
+host.notify("bridge.reattached", {"params": {"session": "gone", "workspace": "/w"}, "inbox": [wake]})
+assert done.wait(5)
+print(calls[0][0], calls[0][1]["session"], calls[0][1]["workspace"], len(calls[0][1]["messages"]), calls[0][1]["messages"][0]["text"])
+print(len(calls))
+host.features = []
+host.notify("bridge.reattached", {"params": {"session": "gone-too", "workspace": "/w"}, "inbox": [wake]})
+`);
+    assert.equal(lines[0], 'reattached py-1 inbox=1');
+    assert.equal(lines[1], 'wake turn request from owner on "T"');
+    assert.equal(lines[2], 'reattached gone inbox=1');
+    assert.ok(lines.includes('returned gone 1'), lines.join('\n'));
+    assert.ok(lines.includes('inbox.return gone /w 1 Bigger'), lines.join('\n'));
+    assert.ok(lines.includes('1'), 'one inbox.return, for the session it no longer has');
+    assert.ok(lines.includes('kept gone-too 1'), 'a daemon without the feature: the host keeps them');
+  });
+});
+
 describe('the Python host against a real daemon', { skip: skip ?? false }, () => {
   let dir;
   let env;

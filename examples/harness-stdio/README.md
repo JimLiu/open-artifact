@@ -7,9 +7,9 @@ the Python standard library only and runs on Python 3.9 or later.
 | File | What it does |
 | --- | --- |
 | `rpc.py` | JSON-RPC 2.0, one object per line, both ways: the host's requests and their answers, the bridge's requests (answered on a thread each) and notifications. |
-| `host.py` | Answers the daemon's calls (`wake.deliver`, `host.open`, `shell.event`) and handles the bridge's notifications (`bridge.state`, `bridge.reattached`, `event`). Each prints one line. |
+| `host.py` | Answers the daemon's calls (`wake.deliver`, `host.open`, `shell.event`) and handles the bridge's notifications (`bridge.state`, `bridge.reattached`, `event`). Each prints one line. `route_of` says what a wake is to the agent: the owner's words a turn, anyone or anything else a notice. What a reattach brings for a session it no longer has goes back with `inbox.return`. |
 | `main.py` | Spawns the bridge, says `hello`, subscribes, attaches a session, lists the tools, calls `quickstart` and `publish`, then answers the daemon until stopped. |
-| `harness-stdio.test.mjs` | Runs `main.py` against a real daemon in a temporary home (skipped, saying so, without `python3`). |
+| `harness-stdio.test.mjs` | Checks `host.py`'s routing and `inbox.return` on their own, then runs `main.py` against a real daemon in a temporary home (skipped, saying so, without `python3`). |
 
 ## Run it
 
@@ -41,8 +41,12 @@ Options: `--harness` (default `example-stdio`), `--session` (default `py-1`), `-
 4. The bridge's own requests have ids `d1`, `d2`, …; answer each with the same id. They can arrive while one of your
    requests is still waiting (`host.open` during `publish` with `open: "now"`), so read on a thread of its own.
 5. `bridge.state` says when the daemon connection drops and comes back (the bridge starts the daemon again if needed
-   and attaches your sessions again); `bridge.reattached` then hands over what waited for a session meanwhile (what you cannot hand on, put back with
-   `inbox.return`).
+   and attaches your sessions again); `bridge.reattached` then hands over what waited for a session meanwhile. What
+   you cannot hand on, put back with `inbox.return` (when hello's `features` list it), or it is lost: the attach took
+   it out of the daemon.
+
+Only a wake whose `source.from.kind` is `owner` speaks for the person. Show a collaborator's comment, a system message
+or one that names no sender as a notice the agent reads, never as the person's own message.
 
 The bridge ends when its stdin ends; the daemon keeps running. The framing is specified at the top of
 `packages/daemon/src/stdio-bridge.ts`; the methods and their types are in `packages/protocol/src/harness.ts`.
@@ -53,5 +57,7 @@ The bridge ends when its stdin ends; the daemon keeps running. The framing is sp
 node --test examples/harness-stdio/harness-stdio.test.mjs
 ```
 
-It bundles the daemon from source, starts the host against it in a temporary `OPEN_ARTIFACT_HOME`, stops the daemon
-once to see the session attached again, and sends the request a page's **Ask** sends. The root `npm test` runs it too.
+It checks the host's routing (only the owner's words are a turn) and that a reattach's messages for a session the host
+no longer has go back with `inbox.return`. Then it bundles the daemon from source, starts the host against it in a
+temporary `OPEN_ARTIFACT_HOME`, stops the daemon once to see the session attached again, and sends the request a
+page's **Ask** sends. The root `npm test` runs it too.

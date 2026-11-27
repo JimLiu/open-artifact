@@ -6,6 +6,7 @@ can follow along:
 
     state connected | state disconnected
     reattached <session> inbox=<n>
+    returned <session> <n>
     open <url> view=<address> [remote=<type>]
     wake <turn|notice> <reason> from <kind> on "<title>"
     shell <type>
@@ -19,10 +20,21 @@ def say(*words):
     print(*words, flush=True)
 
 
+def route_of(payload):
+    """`turn` when the owner sent it (a user message that starts a turn), else `notice`: a collaborator's comment, a
+    finished task, or a message that does not say who sent it never speaks as the person."""
+    source = payload.get("source") or {}
+    return "turn" if (source.get("from") or {}).get("kind") == "owner" else "notice"
+
+
 class Host:
-    def __init__(self, sessions):
+    def __init__(self, sessions, peer=None):
         # session id -> workspace, for the sessions this host attached
         self.sessions = sessions
+        # The Peer, for the requests the host makes when a notification comes (`inbox.return`); main.py sets it.
+        self.peer = peer
+        # hello's `features`: what the daemon can do (`inbox.return`, ...); main.py sets it.
+        self.features = []
         self.connected = threading.Event()
         self.woken = threading.Event()
         self.reattached = threading.Event()
@@ -39,9 +51,26 @@ class Host:
 
     def take_wake(self, payload):
         source = payload.get("source") or {}
-        sender = (source.get("from") or {}).get("kind", "owner")
-        route = "turn" if sender == "owner" else "notice"
-        say("wake %s %s from %s on \"%s\"" % (route, source.get("reason", "?"), sender, source.get("title", "")))
+        sender = (source.get("from") or {}).get("kind", "unknown")
+        say("wake %s %s from %s on \"%s\"" % (route_of(payload), source.get("reason", "?"), sender, source.get("title", "")))
+
+    def hand_on(self, session, message):
+        """Gives one inbox message to the session's agent, as a wake. False when this host cannot (it no longer has
+        that session): the message then goes back to the daemon."""
+        if session not in self.sessions:
+            return False
+        self.take_wake(message)
+        return True
+
+    def give_back(self, ref, messages):
+        """`inbox.return`: what was taken on a reattach and not handed on waits in the session's inbox again, ahead of
+        what came since, for its next tool call, wait or attach. Against a daemon without the feature a real host keeps
+        them and adds them to the session's next tool result."""
+        if "inbox.return" not in self.features or self.peer is None:
+            say("kept %s %d" % (ref.get("session"), len(messages)))
+            return
+        answer = self.peer.request("inbox.return", {"session": ref.get("session"), "workspace": ref.get("workspace"), "messages": messages})
+        say("returned %s %d" % (ref.get("session"), (answer or {}).get("returned", 0)))
 
     def host_open(self, params):
         """`host.open`: show the artifact's page. A host with a top-level view loads `embed_url` (it carries a
@@ -68,10 +97,14 @@ class Host:
         elif method == "bridge.reattached":
             # The daemon came back (the bridge started it again) and the bridge attached the session again; what
             # waited for it meanwhile comes along, to give to the agent like a wake.
+            ref = params.get("params") or {}
             inbox = params.get("inbox") or []
-            say("reattached %s inbox=%d" % ((params.get("params") or {}).get("session"), len(inbox)))
-            for message in inbox:
-                self.take_wake(message)
+            say("reattached %s inbox=%d" % (ref.get("session"), len(inbox)))
+            left = [message for message in inbox if not self.hand_on(ref.get("session"), message)]
+            if left:
+                # Notifications come on the thread that reads the bridge: a request made here would wait for an answer
+                # that thread can no longer read. Ask on a thread of its own.
+                threading.Thread(target=self.give_back, args=(ref, left), daemon=True).start()
             self.reattached.set()
         elif method == "event":
             say("event %s %s" % (params.get("type"), params.get("id", "")))
