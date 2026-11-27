@@ -17,6 +17,7 @@ import {
   flipSelection,
   groupSelectedNotes,
   noteGroupingFor,
+  renameBoardOnCanvas,
   selectAllSiblings,
   selectionIsPositioned,
   wrapSelection,
@@ -184,6 +185,8 @@ function MenuItems() {
   const free = selection.kind === 'objects' ? unlockedObjects(useDocument.getState().canvas, selection.boards, selection.notes) : null;
   const objectsLocked = objects && free !== null && !free.boards.length && !free.notes.length;
   const blocked = readOnly || Boolean(lockedWhy);
+  // One artboard: its title can be renamed in place.
+  const loneBoard = selection.kind === 'objects' && selection.boards.length === 1 && selection.notes.length === 0 ? selection.boards[0]! : null;
   return (
     <>
       <ChromeMenuItem shortcut="⌘X" disabled={readOnly || Boolean(lockedWhy)} title={lockedWhy} onSelect={() => copyToSystem(true)}>
@@ -199,6 +202,14 @@ function MenuItems() {
       <ChromeMenuItem shortcut="⌘L" disabled={readOnly || !lock.lockable} title={lock.lockable ? undefined : UNLOCKABLE_REASON} onSelect={toggleSelectionLock}>
         {lock.next === false ? 'Unlock' : 'Lock'}
       </ChromeMenuItem>
+      {loneBoard ? (
+        <>
+          <ChromeMenuSeparator />
+          <ChromeMenuItem disabled={readOnly} onSelect={() => renameBoardOnCanvas(loneBoard)}>
+            Rename
+          </ChromeMenuItem>
+        </>
+      ) : null}
       {copyAsItems || elements ? <ChromeMenuSeparator /> : null}
       {copyAsItems}
       {objects ? (

@@ -74,6 +74,8 @@ export interface ViewState {
   textEdit: TextEditState | null;
   /** The note whose text is being edited. */
   noteEdit: string | null;
+  /** The artboard whose title is being renamed on the canvas. */
+  renamingBoard: string | null;
   mode: 'canvas' | 'focused';
   /** The artboard shown in the focused view. */
   focused: string | null;
@@ -130,6 +132,7 @@ export interface ViewActions {
   /** Updates the text edit in progress (nothing when none is). */
   patchTextEdit(patch: Partial<TextEditState>): void;
   setNoteEdit(id: string | null): void;
+  setRenamingBoard(path: string | null): void;
   focus(path: string | null): void;
   play(path: string | null): void;
   setPanel(panel: ViewState['panel'], open?: boolean): void;
@@ -174,6 +177,7 @@ export const useView = create<ViewState & ViewActions>()((set, get) => ({
   peek: null,
   textEdit: null,
   noteEdit: null,
+  renamingBoard: null,
   mode: 'canvas',
   focused: null,
   focusedExportWidth: null,
@@ -234,6 +238,9 @@ export const useView = create<ViewState & ViewActions>()((set, get) => ({
   },
   setNoteEdit(noteEdit) {
     set({ noteEdit });
+  },
+  setRenamingBoard(renamingBoard) {
+    set({ renamingBoard });
   },
   focus(path) {
     set(path ? { mode: 'focused', focused: path, playing: null, hover: null, hoverObject: null } : { mode: 'canvas', focused: null });

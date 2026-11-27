@@ -75,7 +75,7 @@ export function zoomToFit(): void {
   const { canvas } = useDocument.getState();
   const view = useView.getState();
   const rect = unionRect(pageRects(canvas, view.page));
-  if (rect) view.setCamera(fitRect(rect, 48, 2, Math.min(56, viewportSize.height / 4)));
+  if (rect) view.setCamera(fitRect(rect, 48, 2, toolbarInset()));
   else view.setCamera({ x: viewportSize.width / 2, y: viewportSize.height / 2, zoom: 1 });
 }
 
@@ -84,6 +84,41 @@ export function zoomToBoards(paths: readonly string[]): void {
   const { canvas } = useDocument.getState();
   const rect = unionRect(paths.map((path) => canvas.boards[path]).filter(Boolean).map((e) => ({ x: e!.x, y: e!.y, w: e!.w, h: e!.h })));
   if (rect) useView.getState().setCamera(fitRect(rect, 80, 2));
+}
+
+/** Room kept clear for the floating toolbar when fitting or revealing content. */
+export function toolbarInset(): number {
+  return Math.min(56, viewportSize.height / 4);
+}
+
+/** Where an artboard's title and its rename field sit, in world units at `zoom` (the title keeps its screen size). */
+export function boardTitleRect(board: Rect, zoom: number): Rect {
+  return { x: board.x, y: board.y - 32 / zoom, w: Math.min(board.w, 240 / zoom), h: 40 / zoom };
+}
+
+/**
+ * The camera that shows `rect` below `top` without changing the zoom: the
+ * same camera when the rect is already in view (all of it when it fits, its
+ * centre when it does not), otherwise one centred on it.
+ */
+export function revealCamera(camera: Camera, rect: Rect, size: { width: number; height: number }, top: number): Camera {
+  const { zoom } = camera;
+  const view = { x: -camera.x / zoom, y: (top - camera.y) / zoom, w: size.width / zoom, h: (size.height - top) / zoom };
+  const cx = rect.x + rect.w / 2;
+  const cy = rect.y + rect.h / 2;
+  const inView =
+    rect.w <= view.w && rect.h <= view.h
+      ? rect.x >= view.x && rect.x + rect.w <= view.x + view.w && rect.y >= view.y && rect.y + rect.h <= view.y + view.h
+      : cx >= view.x && cx <= view.x + view.w && cy >= view.y && cy <= view.y + view.h;
+  if (inView) return camera;
+  return { zoom, x: size.width / 2 - cx * zoom, y: top + (size.height - top) / 2 - cy * zoom };
+}
+
+/** Glides, at the current zoom, just far enough to bring `rect` into view. */
+export function revealRect(rect: Rect): void {
+  const camera = useView.getState().camera;
+  const next = revealCamera(camera, rect, viewportSize, toolbarInset());
+  if (next !== camera) glideTo(next);
 }
 
 /** The visible world rect. */
