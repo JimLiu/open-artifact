@@ -10,6 +10,7 @@
  *   sheet/version-names.json   the names given to versions in the history pane: {"<revision>": name}, the revision
  *                         being the last of the named version; names past the log's end are not read
  *   sheet/imports/        the .xlsx files people chose to import, for the agent (files.ts)
+ *   sheet/tables/, sheet/refreshes.jsonl   connected tables' records, and refreshes that brought none (tables.ts)
  *
  * The workbook as it stands is kept in an engine session that loaded every edit's operations. A page's edit is applied
  * there first: what the engine refuses (an operation on a row someone deleted meanwhile, an id taken twice) is refused
@@ -67,6 +68,10 @@ import {
   type SheetSendRequest,
   type SheetSendResponse,
   type SheetVersionNameRequest,
+  type SheetRefreshRequest,
+  refreshFailure,
+  refreshRequest,
+  tableFileOf,
   type SheetView,
   sheetsOf,
   type SnapshotFrame,
@@ -89,6 +94,7 @@ import {
 import { sheetsEngine } from '@open-artifact/wasm-sheets/node';
 import type { AgentRequest } from '@open-artifact/runtime/capabilities';
 import { importFileName, looksLikeXlsx, MAX_IMPORT_BYTES, saveImport, zipXlsxParts } from './files.ts';
+import { appendRefreshOutcome, isSnapshotId, SNAPSHOT_EDIT_FORMAT_VERSION, readRefreshOutcomes, refreshesSize, sliceOfTableFile, tableFileText, writeTableFile } from './tables.ts';
 import { type Widget, WidgetStore } from './widgets.ts';
 
 export const SHEET_DIR = 'sheet';
@@ -109,6 +115,8 @@ const MAX_REMEMBERED = 200;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const CLOCK_MS = 60_000;
 const RESCAN_MS = 1_000;
+/** How long a refresh the agent was asked for keeps another of the same call from being asked. */
+const REFRESH_WAIT_MS = 15 * 60_000;
 /** How long the agent's read waits for the formulas to be worked out. */
 const CALCULATION_MS = 20_000;
 const COLORS = ['#3987e5', '#d95926', '#0ca30c', '#8173e3', '#d55181', '#199e70', '#b77700', '#e34948'];
@@ -317,6 +325,10 @@ export class SheetStore {
   private readonly answered = new Map<string, WidgetResponse>();
   /** The names of the people who opened the Sheet, by their server id. */
   private readonly names = new Map<string, string>();
+  /** How far refreshes.jsonl was read: refreshes told of before the store opened are not told again. */
+  private refreshesRead = 0;
+  /** The connected tables the agent was asked to refresh, by sheet id: the call asked for, and until when it is waited for. */
+  private readonly refreshing = new Map<string, { callDigest: string; until: number }>();
 
   constructor(options: SheetStoreOptions) {
     this.root = path.resolve(options.root);
@@ -338,6 +350,7 @@ export class SheetStore {
     this.oldest = oldestFormatVersion(this.engine, this.newest);
     this.workbook = this.engine.session();
     this.reload();
+    this.refreshesRead = refreshesSize(this.dir, this.files);
   }
 
   get revision(): number {
@@ -455,6 +468,7 @@ export class SheetStore {
    * or changed before the end read so far is read again whole, and the pages get a new snapshot.
    */
   rescan(): void {
+    this.rescanRefreshes();
     let size: number;
     try {
       size = fs.statSync(this.files.resolve(path.join(this.dir, EDITS_FILE))).size;
@@ -525,6 +539,8 @@ export class SheetStore {
       newestFormatVersion: this.newest,
       widgets: this.widgets.list().map((w) => ({ id: w.id, pub: w.pub })),
       viewer: { personId: personId(viewer.id), canEdit: viewer.canEdit, isOwner: viewer.isOwner },
+      // Only the owner's pages ask for a refresh: the agent makes the call with the owner's access.
+      ...(viewer.isOwner && this.sendToAgent !== null ? { takesConnectedTables: true } : {}),
     };
   }
 
@@ -592,6 +608,10 @@ export class SheetStore {
   }
 
   private broadcast(edit: StoredEdit): void {
+    for (const op of edit.ops) {
+      if (isObject(op) && op.kind === 'setSnapshots' && Array.isArray(op.snapshots))
+        for (const set of op.snapshots) if (isObject(set) && typeof set.sheetId === 'string') this.refreshing.delete(set.sheetId);
+    }
     const frame: EditFrame = { phase: 'edit', revision: edit.revision, v: edit.v, base: edit.base, ops: edit.ops, actor: this.actorOf(edit.by) };
     const zoneChanged = this.noteTimeZone(edit);
     for (const stream of this.streams) {
@@ -637,8 +657,10 @@ export class SheetStore {
         return { kind: 'versionsWithChanges', rows: rows.map((row) => ({ ...row, content: this.changesOfVersion(row, sheetNames) })) };
       }
       case 'loadTableFile':
-        // Connected tables keep no snapshot files here.
-        return { kind: 'tableFile', isGone: true };
+        if (typeof request.snapshotId !== 'string' || !isCount(request.from)) return refused('unreadableRequest');
+        // An id no snapshot could have names no file here.
+        if (!isSnapshotId(request.snapshotId)) return { kind: 'tableFile', isGone: true };
+        return sliceOfTableFile(this.dir, this.files, request.snapshotId, request.from);
       case 'editsThatRestore':
       case 'editsThatUndo':
       case 'cellHistory':
@@ -766,7 +788,7 @@ export class SheetStore {
     const refuse = (refusal: string): SheetSendResponse => ({ kind: 'refused', refusal });
     if (!viewer.canEdit) return refuse('notWriter');
     if (!isObject(request)) return refuse('unreadableEdit');
-    // An edit has no kind; a request with one is a version's name.
+    // An edit has no kind; a request with one is a version's name (a refresh is asked with refreshConnectedTable).
     if ('kind' in request) return request.kind === 'setVersionName' ? this.setVersionName(request as SheetVersionNameRequest) : refuse('unreadableEdit');
     if ('edits' in request) return this.sendEdits(request as SheetEditsRequest, viewer);
     const { v, base, ops } = request;
@@ -984,6 +1006,7 @@ export class SheetStore {
         session.free();
         throw new Error(`The engine did not load the workbook at revision ${at}.`);
       }
+      this.holdTableFiles(session);
       if (at === this.revision) {
         this.reading?.session.free();
         this.reading = { revision: at, session };
@@ -1248,6 +1271,145 @@ export class SheetStore {
       throw SheetRefusalError.of(new AgentError(refusal, refusal === 'noSheetToWrite' ? 'The Sheet has no sheets yet: write some cells first.' : `The engine did not write the workbook as a file (${refusal}).`));
     }
     return { filename: xlsxFileName(this.meta.title, firstSheet), bytes: zipXlsxParts(parts), notCarriedOver: excelDifferences(answer.notCarriedOver) };
+  }
+
+  // ---------- connected tables ----------
+
+  /**
+   * Hands a session the records of its connected tables, so its cells, formulas and exports hold them. A session that
+   * takes them takes no more operations: only the sessions reads are made in (contents) get them.
+   */
+  private holdTableFiles(session: EngineSession): void {
+    const notHeld = session.answer({ kind: 'readSnapshotsNotHeld' });
+    if (notHeld.kind !== 'snapshotsNotHeld' || !Array.isArray(notHeld.snapshotIds)) return;
+    for (const snapshotId of notHeld.snapshotIds) {
+      if (typeof snapshotId !== 'string') continue;
+      const lines = tableFileText(this.dir, this.files, snapshotId);
+      const answer = lines === null ? null : session.answer({ kind: 'receiveLinesOfTableFile', snapshotId, lines, isLast: true });
+      if (answer?.kind !== 'syncState') {
+        if (lines !== null) this.log(`tables: the file of snapshot ${snapshotId} was not read (${String(answer?.refusal ?? answer?.kind)})`);
+        session.answer({ kind: 'tableFileIsGone', snapshotId });
+      }
+    }
+  }
+
+  /** A sheet's connected table as the workbook stands: its sheet, its call's digest and its columns; null when it is none. */
+  private connectedTable(find: (sheets: SheetView[]) => SheetView | undefined): { view: SheetView; sheetNumber: number; callDigest: string; fields: string[] } | null {
+    const { workbook, session, release } = this.contents();
+    try {
+      const sheets = sheetsOf(workbook);
+      const view = find(sheets);
+      const table = view?.contents.connectedTable;
+      if (!view || !table) return null;
+      const read = session.answer({ kind: 'readConnectedTable', sheetId: view.sheetId });
+      if (read.kind !== 'connectedTable' || typeof read.callDigest !== 'string') return null;
+      const fields = table.columns.flatMap(({ column }) => (isObject(column.from) && typeof column.from.field === 'string' ? [column.from.field] : []));
+      return { view, sheetNumber: sheets.indexOf(view) + 1, callDigest: read.callDigest, fields };
+    } finally {
+      release();
+    }
+  }
+
+  /**
+   * `POST send` {kind: "refreshConnectedTable"}: hands the table's call to the agent, which sends the records back
+   * (agentRefresh). Answers at once; only the owner may ask.
+   */
+  async refreshConnectedTable(request: SheetRefreshRequest, viewer: Viewer): Promise<SheetSendResponse> {
+    this.rescan();
+    const refuse = (refusal: string): SheetSendResponse => ({ kind: 'refused', refusal });
+    if (!viewer.isOwner) return refuse('notOwner');
+    if (!isObject(request) || typeof request.sheetId !== 'string' || typeof request.callDigest !== 'string') return refuse('unreadableEdit');
+    const table = this.connectedTable((sheets) => sheets.find((s) => s.sheetId === request.sheetId));
+    if (table === null) return refuse('notAConnectedTable');
+    if (table.callDigest !== request.callDigest) return refuse('callChanged');
+    const under = this.refreshing.get(request.sheetId);
+    if (under !== undefined && under.until > Date.now() && under.callDigest === request.callDigest) return refuse('refreshUnderWay');
+    if (this.sendToAgent === null) return refuse('agentNotListening');
+    let taken = false;
+    try {
+      taken = await this.sendToAgent(refreshRequest(table.view.name, table.sheetNumber, table.callDigest));
+    } catch (error) {
+      this.log(`refresh: the request did not reach the agent (${(error as Error).message})`);
+    }
+    if (!taken) return refuse('agentNotListening');
+    this.refreshing.set(request.sheetId, { callDigest: request.callDigest, until: Date.now() + REFRESH_WAIT_MS });
+    return { kind: 'refreshAsked' };
+  }
+
+  /**
+   * The agent's refresh: {sheet, callDigest, records, isCutOff?} keeps the records as the table's new snapshot (one
+   * edit by the agent); {sheet, callDigest, failed: {why, toolSaid?}} tells the owner's pages why there are none.
+   * `callDigest` is the call the agent made, as readConnectedTable gave it: a call changed since is refused.
+   */
+  agentRefresh(payload: unknown): EngineMessage {
+    this.rescan();
+    return this.refusing(() => {
+      if (!isObject(payload)) throw new AgentError('unreadableRefresh', 'A refresh is {"sheet", "callDigest", "records": [...]} or {"sheet", "callDigest", "failed": {"why"}}.');
+      const keys = Object.keys(payload).filter((k) => !['sheet', 'callDigest', 'records', 'isCutOff', 'failed'].includes(k));
+      if (keys.length > 0) throw new AgentError('unreadableRefresh', `A refresh takes no "${keys[0]}": its keys are sheet, callDigest, and records (with isCutOff?) or failed.`);
+      if (('records' in payload) === ('failed' in payload)) throw new AgentError('unreadableRefresh', 'A refresh has records, or failed: one of them.');
+      let named: SheetView | undefined;
+      const table = this.connectedTable((sheets) => (named = pickSheet(sheets, payload.sheet)));
+      if (table === null) throw new AgentError('notAConnectedTable', `Sheet "${named?.name ?? String(payload.sheet)}" is no connected table.`);
+      if (payload.callDigest !== table.callDigest) {
+        throw new AgentError('callChanged', `The call of "${table.view.name}" is not the one you made (callDigest ${table.callDigest} now): read it again with readConnectedTable, and make the call as it stands.`, { callDigest: table.callDigest });
+      }
+      const sheetId = table.view.sheetId;
+      if ('failed' in payload) {
+        const failed = refreshFailure(payload.failed);
+        this.refreshing.delete(sheetId);
+        const outcome = { sheetId, callDigest: table.callDigest, ...failed, at: new Date().toISOString() };
+        const size = refreshesSize(this.dir, this.files);
+        const bytes = appendRefreshOutcome(this.dir, this.files, outcome);
+        // Told here at once when nothing else was written meanwhile; a store in another process reads it as it rescans.
+        if (this.refreshesRead === size) {
+          this.refreshesRead = size + bytes;
+          this.tellRefreshOutcome(outcome);
+        }
+        return { sheet: table.view.name, told: failed.why };
+      }
+      if (payload.isCutOff !== undefined && typeof payload.isCutOff !== 'boolean') throw new AgentError('unreadableRefresh', 'isCutOff is true when the records stop short of what the call has (a page limit you did not follow to the end).');
+      const file = tableFileOf(payload.records, payload.isCutOff === true);
+      const snapshotId = randomBytes(16).toString('hex');
+      writeTableFile(this.dir, this.files, snapshotId, file.lines);
+      const snapshot = {
+        snapshotId,
+        rowCount: file.rowCount,
+        fieldCount: file.fieldCount,
+        textInBytes: file.textInBytes,
+        isCutOff: file.isCutOff,
+        fetchedAtInSecondsSince1970: Math.floor(Date.now() / 1000),
+        callDigest: table.callDigest,
+      };
+      const ops: Json[] = [{ kind: 'setSnapshots', snapshots: [{ sheetId, snapshot }] }];
+      const applied = this.applyToWorkbook(ops);
+      if (applied.kind !== 'applied') throw new AgentError(String(applied.refusal ?? 'unreadableRefresh'), `The Sheet refused the records: ${String(applied.refusal ?? applied.kind)}.`);
+      const edit = this.append({ v: SNAPSHOT_EDIT_FORMAT_VERSION, base: this.revision, ops, by: AGENT });
+      const given = new Set(JSON.parse(file.lines[0]!).table.fields as string[]);
+      const fieldsMissing = table.fields.filter((field) => !given.has(field));
+      return {
+        revision: edit.revision,
+        sheet: table.view.name,
+        rowCount: file.rowCount,
+        ...(file.isCutOff ? { isCutOff: true } : {}),
+        ...(fieldsMissing.length ? { fieldsNoRecordHas: fieldsMissing } : {}),
+      };
+    });
+  }
+
+  /** Refreshes another process told of (the agent's command line), sent to the owner's pages. */
+  private rescanRefreshes(): void {
+    if (refreshesSize(this.dir, this.files) === this.refreshesRead) return;
+    const { outcomes, end } = readRefreshOutcomes(this.dir, this.files, this.refreshesRead);
+    this.refreshesRead = end;
+    for (const outcome of outcomes) this.tellRefreshOutcome(outcome);
+  }
+
+  private tellRefreshOutcome({ sheetId, callDigest, why, toolSaid }: { sheetId: string; callDigest: string; why: string; toolSaid?: string }): void {
+    this.refreshing.delete(sheetId);
+    for (const stream of this.streams) {
+      if (stream.viewer.isOwner) stream.emit({ phase: 'tableRefresh', sheetId, callDigest, outcome: { state: 'refused', why, ...(toolSaid ? { toolSaid } : {}) } });
+    }
   }
 
   /** Deleted sheets, the latest first, by the names they had (what restoreSheet can bring back). */

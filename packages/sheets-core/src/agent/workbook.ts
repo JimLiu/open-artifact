@@ -45,6 +45,8 @@ export interface SheetContents {
   protections?: { protectionId: string; protection: SheetProtection }[];
   /** The tab is hidden from the tab bar. */
   isHidden?: boolean;
+  /** The sheet is a connected table (connected-tables.ts): its call, its columns and what was fetched last. */
+  connectedTable?: { call: EngineMessage; columns: { c: string; column: EngineMessage }[]; snapshot: EngineMessage | null };
 }
 
 /** What a protection keeps or leaves open: the cells between two corners, or whole rows or columns, by id. */

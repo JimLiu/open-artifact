@@ -8,6 +8,7 @@ import { type Block, a1, CELL_ADDRESS, overlap, parseRange } from './addresses.t
 import { richTextOfMarkdown } from './cells.ts';
 import { type EngineMessage, isObject } from './engine.ts';
 import { AgentError } from './errors.ts';
+import { CONNECTED_TABLE_EDIT_KINDS, connectedTableEdit } from './connected-tables.ts';
 import { namesAndProtectionsEdit } from './names-and-protections.ts';
 import { conditionalFormatsOf, patternsOf } from './reads.ts';
 import { sheetSettingsEdit } from './sheet-settings.ts';
@@ -53,7 +54,7 @@ export const EDIT_KINDS = [
   'mergeCells', 'unmergeCells', 'setBorders', 'setColumnWidths', 'fitColumns', 'setRowHeights', 'insertRows', 'insertColumns', 'moveRows', 'moveColumns',
   'sortRows', 'sortCells', 'deleteRows', 'deleteColumns', 'deleteSheet', 'setSheetSettings', 'makeDropdown', 'setDropdownOptions', 'setCellTable',
   'replaceConditionalFormats', 'addChart', 'setChart', 'deleteChart', 'addInteractive', 'setTimeZone', 'setLocale', 'saveNamedRange', 'removeNamedRange',
-  'setDefaultValues', 'resetToDefaultValues', 'saveProtection', 'removeProtection',
+  'setDefaultValues', 'resetToDefaultValues', 'saveProtection', 'removeProtection', ...CONNECTED_TABLE_EDIT_KINDS,
 ];
 
 /**
@@ -575,11 +576,13 @@ function replaceConditionalFormats(view: SheetView, inPlaceOf: unknown, rules: u
 }
 
 /**
- * One edit: a named range, default value or protection edit (names-and-protections.ts) makes its one engine edit
- * here; every other kind goes to applyEdit.
+ * One edit: a named range, default value or protection edit (names-and-protections.ts) or a connected table's
+ * (connected-tables.ts) makes its one engine edit here; every other kind goes to applyEdit.
  */
 function applyEditOfAnyKind(edit: unknown, context: EditContext): boolean {
   if (!isObject(edit)) return applyEdit(edit, context);
+  const ofTable = connectedTableEdit(edit, sheetsOf(context.read()));
+  if (ofTable !== null) return queued(context, ofTable);
   const sheet = () => pickSheet(sheetsOf(context.read()), edit.sheet);
   const kept = namesAndProtectionsEdit(edit, { sheet, workbook: context.read, person: context.person });
   return kept === null ? applyEdit(edit, context) : queued(context, kept);

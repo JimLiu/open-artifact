@@ -10,6 +10,7 @@ export * from './cells.ts';
 export * from './chart-code.ts';
 export * from './chart-descriptions.ts';
 export * from './charts.ts';
+export * from './connected-tables.ts';
 export * from './csv.ts';
 export * from './edits.ts';
 export * from './engine.ts';

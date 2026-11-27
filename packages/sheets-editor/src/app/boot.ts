@@ -67,6 +67,7 @@ import { SheetPeers } from '../shell/SheetPeers.tsx';
 import { PageCommentsLayer } from '../comments/PageCommentsLayer.tsx';
 import { followFrameMotion } from '../shell/frame-motion.ts';
 import { createTableRefreshes, NO_TABLE_REFRESHES } from '../tables/connected-table-host.ts';
+import type { SheetId } from '@open-artifact/sheets-core';
 import { isOnPhone } from './media-queries.ts';
 
 export interface BootOptions {
@@ -146,7 +147,10 @@ export async function bootSheetsPage({ host, app }: BootOptions): Promise<void> 
         openSheetStream(Promise.resolve(host.caps.sheet), {
           ...options,
           onEvent(event) {
-            if (event.kind === 'frame') guideFromAgent.heardOnStream(event.frame);
+            if (event.kind === 'frame') {
+              guideFromAgent.heardOnStream(event.frame);
+              tableRefreshes.heard(event.frame);
+            }
             options.onEvent(event);
           },
         }),
@@ -310,12 +314,18 @@ export async function bootSheetsPage({ host, app }: BootOptions): Promise<void> 
     frameDocument: createChartFrameDocumentSource(undefined, INTERACTIVE_FRAME_FILE),
     beingStarted: interactiveBeingStarted(() => sessionStorage),
   };
-  // Refreshes of connected tables ask the host's tools; with none offered to the page they find none.
+  // The Sheet's server hands a connected table's call to the agent, which sends the rows back as a new snapshot.
   let tableRefreshes = createTableRefreshes({
-    findAgent: getPage,
-    whereWorkbookIsKept: () => null,
+    sheet: () => host.caps.sheet,
+    tableNow(sheetId) {
+      let reads = ownWorkbook()?.reads();
+      if (reads === undefined) return null;
+      let table = reads.connectedTableIn(sheetId as SheetId);
+      return { snapshotId: table?.snapshot?.snapshotId ?? null, callDigest: table?.callDigest ?? null };
+    },
     findStorage: () => localStorage,
   });
+  host.onAgentStatus((status) => tableRefreshes.agentStatusChanged(status));
   let chartWidgetNodes = createChartWidgetNodes({ newOpId: () => crypto.randomUUID(), wait, nameOfKind: chartKindName });
   let chartSends = createChartSends(
     createChartEditsByAgent(chartWidgetNodes, createAgentSampler(getPage, reportSoftly, { mendsReplies: true, modelTier: 'default' })),

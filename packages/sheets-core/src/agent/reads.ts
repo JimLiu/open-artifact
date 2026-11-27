@@ -1,6 +1,6 @@
 /**
  * The agent's reads: readSheets, readCells, readCellFormats, readConditionalFormats, readCharts, readInteractive,
- * readNamedRanges and readCellsChangedFromTheirDefaults,
+ * readNamedRanges, readCellsChangedFromTheirDefaults and readConnectedTable,
  * answered from the workbook at a revision, by the same names and keys as the agent's skill describes. showGuide goes
  * through the same command but is no read of the workbook: the host answers it (cell-links.ts checks it).
  */
@@ -11,6 +11,7 @@ import { type EngineMessage, isObject } from './engine.ts';
 import { AgentError } from './errors.ts';
 import { sha256Hex } from './sha256.ts';
 import { linkFragmentOf } from './cell-links.ts';
+import { readConnectedTable } from './connected-tables.ts';
 import { cellsChangedFromTheirDefaults, namedRangesListing, withHiddenProtectedAndNamed } from './names-and-protections.ts';
 import { checkKeys, expand, pickSheet, type SheetContents, type SheetView, sheetsOf, type WorkbookContents } from './workbook.ts';
 
@@ -34,7 +35,7 @@ export interface ReadContext {
   interactive?: (view: SheetView, sheets: SheetView[]) => EngineMessage | null;
 }
 
-export const READ_KINDS = ['readSheets', 'readCells', 'readCellFormats', 'readConditionalFormats', 'readCharts', 'readInteractive', 'readNamedRanges', 'readCellsChangedFromTheirDefaults'];
+export const READ_KINDS = ['readSheets', 'readCells', 'readCellFormats', 'readConditionalFormats', 'readCharts', 'readInteractive', 'readNamedRanges', 'readCellsChangedFromTheirDefaults', 'readConnectedTable'];
 /** What the read command takes besides the reads: a walkthrough the host shows the person. */
 export const GUIDE_KIND = 'showGuide';
 const KINDS_TEXT = [...READ_KINDS, GUIDE_KIND].join(', ');
@@ -88,6 +89,10 @@ export function readWorkbook(payload: unknown, context: ReadContext): EngineMess
       const view = pickSheet(sheets, payload.sheet);
       return { revision, sheet: view.name, cells: cellsChangedFromTheirDefaults(view, context.answer) };
     }
+    case 'readConnectedTable': {
+      keys(['sheet']);
+      return { revision, ...readConnectedTable(pickSheet(sheets, payload.sheet), context.answer) };
+    }
     default:
       throw new AgentError('unknownReadKind', `"${payload.kind}" is not a read: ${KINDS_TEXT}.`);
   }
@@ -118,6 +123,7 @@ function readSheets(context: ReadContext, sheets: SheetView[]): EngineMessage {
     if (table) sheet.cellTable = table;
     const charts = view.contents.placements?.length ?? 0;
     if (charts) sheet.chartCount = charts;
+    if (c.connectedTable) sheet.isConnectedTable = true;
     return sheet;
   });
   return { revision: context.workbook.revision, sheets: out, locale: context.workbook.locale ?? 'en-US', ...(context.timeZone ? { timeZone: context.timeZone } : {}), you: null };

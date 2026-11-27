@@ -1,6 +1,6 @@
 import { withNoEffects } from '../state/transitions.ts';
 import type { PageTransition } from '../state/transitions.ts';
-import { withXlsxFileToldWhenFree } from '../export/xlsx-saved-notice.ts';
+import { isTooBusyForNotice } from '../export/xlsx-saved-notice.ts';
 import { closeDropdownList } from '../chips/dropdowns.ts';
 import type { PageState } from '../state/initial-state.ts';
 import type { CallOfAConnectedTable, WorkbookReads } from '../model/workbook.ts';
@@ -110,7 +110,7 @@ export function connectedTableRefreshAnswered(
         },
       };
     case 'toBeConfirmed': {
-      let isAskedHere = canConfirm && sheetId === state.sheetId && !withXlsxFileToldWhenFree(state),
+      let isAskedHere = canConfirm && sheetId === state.sheetId && !isTooBusyForNotice(state),
         { isMarkedReadOnly } = answer;
       return {
         ...state,

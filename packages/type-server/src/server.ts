@@ -1238,7 +1238,9 @@ export function createTypeServer(options: TypeServerOptions): TypeServer {
       case SHEET_API.read:
         return sendJson(res, 200, sheet.read(await readJson<SheetReadRequest>(req, 64 * 1024 * 1024), person));
       case SHEET_API.send: {
-        const answer = sheet.send(await readJson<SheetSendRequest>(req, 64 * 1024 * 1024), person);
+        const request = await readJson<SheetSendRequest>(req, 64 * 1024 * 1024);
+        // A refresh of a connected table goes to the agent, which the store waits to hand it to.
+        const answer = typeof request === 'object' && request !== null && 'kind' in request && request.kind === 'refreshConnectedTable' ? await sheet.refreshConnectedTable(request, person) : sheet.send(request, person);
         if (answer.kind === 'saved') {
           void reportTouch(daemon, artifact.id, who.role === 'owner' ? 'owner' : who.name, ['sheet/edits.jsonl']);
           artifact.title = sheet.title;

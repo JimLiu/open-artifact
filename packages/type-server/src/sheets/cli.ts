@@ -5,6 +5,8 @@
  * ```
  * read <dir> [payload] [--at <revision>]   one of the reads (readSheets when none is given), or a showGuide
  * update <dir> <payload>                   {"kind": "applyEdits", "base": n, "edits": [...]} ("kind" may be left out)
+ * refresh <dir> <payload>                  a connected table's records: {"sheet", "callDigest", "records": [...]},
+ *                                          or why there are none: {"sheet", "callDigest", "failed": {"why"}}
  * batch <dir> <calls>                      widget creates and one applyEdits, last; a create may give "codeFile"
  * widget <dir> create <code>               a chart's widget (code: a file, or - for stdin)
  * widget <dir> read <id>
@@ -25,20 +27,26 @@ import type { WorkspaceDirectory } from '@open-artifact/protocol/workspace-files
 import { AgentError, GUIDE_KIND, isObject, type Json, type JsonObject, SheetRefusalError, type SheetWalkthrough } from '@open-artifact/sheets-core';
 import { readMeta, SHEET_DIR, SheetStore } from './store.ts';
 
-export const SHEETS_COMMANDS = ['read', 'update', 'batch', 'widget', 'export', 'info'] as const;
+export const SHEETS_COMMANDS = ['read', 'update', 'refresh', 'batch', 'widget', 'export', 'info'] as const;
 export type SheetsCommand = (typeof SHEETS_COMMANDS)[number];
 
 /** The calls as the `call` action lists them for a Sheet. */
 export const SHEET_ACTIONS = [
   {
     name: 'read',
-    title: 'A read of the workbook: readSheets (the default), readCells, readCellFormats, readConditionalFormats, readCharts, readInteractive, readCellsChangedFromTheirDefaults, readNamedRanges; or showGuide, a walkthrough for the owner\'s open page',
+    title: 'A read of the workbook: readSheets (the default), readCells, readCellFormats, readConditionalFormats, readCharts, readInteractive, readCellsChangedFromTheirDefaults, readNamedRanges, readConnectedTable; or showGuide, a walkthrough for the owner\'s open page',
     effect: 'read',
     schema: { type: 'object', properties: { payload: { type: 'object' }, at: { type: 'integer', description: 'A revision to read at.' } } },
   },
   {
     name: 'update',
     title: 'Edits saved as one revision: {kind: "applyEdits", base, edits}',
+    effect: 'write',
+    schema: { type: 'object', properties: { payload: { type: 'object' } }, required: ['payload'] },
+  },
+  {
+    name: 'refresh',
+    title: 'A connected table\'s records, fetched with its call: {sheet, callDigest, records, isCutOff?}; or why none came: {sheet, callDigest, failed: {why, toolSaid?}}',
     effect: 'write',
     schema: { type: 'object', properties: { payload: { type: 'object' } }, required: ['payload'] },
   },
@@ -185,7 +193,7 @@ export interface SheetCall {
 
 /** The calls that only read, and need a Sheet already; the others start one. */
 function needsSheet(call: SheetCall): boolean {
-  if (call.name === 'read' || call.name === 'export' || call.name === 'info') return true;
+  if (call.name === 'read' || call.name === 'export' || call.name === 'info' || call.name === 'refresh') return true;
   return call.name === 'widget' && call.args.verb !== 'create';
 }
 
@@ -229,6 +237,13 @@ export function sheetCallOf(root: string, command: string, args: readonly string
         throw new SheetsCommandError('MISSING_PAYLOAD', `Give the update: ${usage('update', folder, '\'{"kind": "applyEdits", "base": 1, "edits": [{"kind": "writeCells", "sheet": "Sheet1", "topLeft": "A1", "rows": [["Item", "Cost"]]}]}\'')} (or a file, or - for stdin).`);
       }
       return { name: command, args: { payload: payloadOf(given, 'update') as Json } };
+    }
+    case 'refresh': {
+      const given = args[0];
+      if (given === undefined) {
+        throw new SheetsCommandError('MISSING_PAYLOAD', `Give the records: ${usage('refresh', folder, 'records.json')} (or - for stdin), {"sheet": "Customers", "callDigest": "<from readConnectedTable>", "records": [{"id": 1, "name": "Ann"}]}.`);
+      }
+      return { name: command, args: { payload: payloadOf(given, 'refresh') as Json } };
     }
     case 'batch': {
       const given = args[0];
@@ -350,6 +365,8 @@ export function runSheetCall(store: SheetStore, call: SheetCall, host: SheetCall
       if (isObject(payload) && !('kind' in payload) && 'edits' in payload) payload = { kind: 'applyEdits', ...payload };
       return store.agentUpdate(payload);
     }
+    case 'refresh':
+      return store.agentRefresh(args.payload);
     case 'batch':
       return store.agentBatch(withCode(args.calls, process.cwd(), host.workspace));
     case 'widget':

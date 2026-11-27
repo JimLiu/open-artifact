@@ -20,6 +20,7 @@ export function reduceSheetFrame(state: SheetState, frame: SheetFrame): SheetSta
     case 'widget':
       return state.timesPublished.get(frame.id) === frame.pub ? state : { ...state, timesPublished: new Map(state.timesPublished).set(frame.id, frame.pub) };
     case 'clock':
+    case 'tableRefresh':
       return state;
   }
 }

@@ -76,6 +76,11 @@ export type SnapshotFrame = {
   widgets: WidgetVersion[];
   /** The page's person: the id the engine knows them by, whether they may edit, and whether they own the workbook (protections never hold against the owner). */
   viewer: { personId: string; canEdit: boolean; isOwner: boolean };
+  /**
+   * True when this page may ask for a connected table's rows to be fetched again ({@link SheetRefreshRequest}): only
+   * the owner's pages, and only while the agent can be reached.
+   */
+  takesConnectedTables?: boolean;
 };
 
 /** An edit saved to the log (anyone's, the page's own among them). */
@@ -103,7 +108,19 @@ export interface WidgetFrame {
   pub: number;
 }
 
-export type SheetFrame = SnapshotFrame | EditFrame | ClockFrame | WidgetFrame;
+/**
+ * How a refresh of a connected table ended without new rows, sent to the owner's pages. Rows that arrive come as an
+ * ordinary edit (a new snapshot of the sheet), so a refresh that worked sends no frame of its own.
+ */
+export interface TableRefreshFrame {
+  phase: 'tableRefresh';
+  sheetId: string;
+  /** The call the refresh was asked for. */
+  callDigest: string;
+  outcome: { state: 'refused'; why: string; toolSaid?: string };
+}
+
+export type SheetFrame = SnapshotFrame | EditFrame | ClockFrame | WidgetFrame | TableRefreshFrame;
 
 /** A widget and its published version. */
 export type WidgetVersion = {
@@ -143,12 +160,25 @@ export interface SheetVersionNameRequest {
 export const MOST_VERSION_NAMES = 100;
 export const MOST_VERSION_NAME_LENGTH = 100;
 
-export type SheetSendRequest = SheetOpsRequest | SheetEditsRequest | SheetVersionNameRequest;
+/**
+ * `POST send`: asks for a connected table's rows to be fetched again with its call as it stands (`callDigest`, as the
+ * engine reads it). The server hands the call to the agent and answers at once with `refreshAsked`; the rows arrive
+ * later as an edit, or a {@link TableRefreshFrame} tells why they did not. Only the owner may ask.
+ */
+export interface SheetRefreshRequest {
+  kind: 'refreshConnectedTable';
+  sheetId: string;
+  callDigest: string;
+}
+
+export type SheetSendRequest = SheetOpsRequest | SheetEditsRequest | SheetVersionNameRequest | SheetRefreshRequest;
 
 export type SheetSendResponse =
   | { kind: 'saved'; revision: number }
   /** The answer to a {@link SheetVersionNameRequest}: the name as kept (null once taken away). */
   | { kind: 'versionNamed'; revision: number; name: string | null }
+  /** The answer to a {@link SheetRefreshRequest}: the agent was asked to fetch the rows. */
+  | { kind: 'refreshAsked' }
   /** `revision` is where the log stands, for an edits request whose base it is not. */
   | { kind: 'refused'; refusal: SendRefusal; revision?: number };
 
@@ -168,6 +198,15 @@ export type SendRefusal =
   | 'unknownRevision'
   | 'versionNameNotAllowed'
   | 'tooManyVersionNames'
+  /**
+   * Refreshing a connected table: the page's person is not the owner, the sheet is not a connected table, its call
+   * is no longer `callDigest`, the agent cannot be reached, or a refresh of it is already under way.
+   */
+  | 'notOwner'
+  | 'notAConnectedTable'
+  | 'callChanged'
+  | 'agentNotListening'
+  | 'refreshUnderWay'
   | (string & {});
 
 /** The workbook's operations from a revision on, one page (the engine's `receiveLoadPage`). */
@@ -254,8 +293,7 @@ export interface SheetReadAnswers {
   loadAtRevision: LoadPage;
   versions: { kind: 'versions'; rows: VersionRow[] };
   versionsWithChanges: { kind: 'versionsWithChanges'; rows: VersionRowWithChanges[] };
-  /** No connected table keeps a file here: every snapshot's file is gone. */
-  loadTableFile: { kind: 'tableFile'; isGone: true };
+  loadTableFile: TableFileSlice;
   editsThatRestore: EditsToTakeBack;
   editsThatUndo: EditsToTakeBack;
   cellHistory: CellHistory;
@@ -264,6 +302,15 @@ export interface SheetReadAnswers {
   sheets: SheetsList;
   xlsxCharts: { kind: 'xlsxCharts'; descriptions: { viewId: string; description: JsonObject }[] };
 }
+
+/**
+ * A slice of a connected table's file: `bytes` is base64 of the bytes from `from` on, of `byteCount` in all. The file
+ * is gzip; its lines are the table's rows by field. `body` names the file, the same for every slice of it. A file no
+ * longer kept (or never kept) is `isGone`.
+ */
+export type TableFileSlice =
+  | { kind: 'tableFile'; body: string; byteCount: number; from: number; bytes: string }
+  | { kind: 'tableFile'; isGone: true };
 
 /** The workbook's sheets as the engine lists them (`readSheets`), with its locale. */
 export type SheetsList = {

@@ -651,7 +651,7 @@ export class HostTools {
       type.store === 'db' ? `- The document store: ArtifactData (${DATA_ACTIONS.join(', ')}).` : null,
       type.id === 'data' ? `- ${DATA_LIVE_NOTE} Never write data/live yourself.` : null,
       type.store === 'doc' ? '- The doc is written through its actions (create, read, update, batch, delete, export with Artifact call), never with Artifact publish files.' : null,
-      type.store === 'workbook' ? '- The workbook is written through its actions (read, update, batch with Artifact call), never with Artifact publish files.' : null,
+      type.store === 'workbook' ? '- The workbook is written through its actions (read, update, refresh, batch with Artifact call), never with Artifact publish files.' : null,
       '- The person may edit the files from the page: read them again before changing them.',
       type.openEarly
         ? `- Give the person the page right after your first playable batch (never while empty), so they watch changes arrive live: ${SHOW_IT}${check ? '; run check once everything is written' : ''}.`

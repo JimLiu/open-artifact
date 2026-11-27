@@ -10,7 +10,7 @@ A new Sheet (a new Sheets artifact, `open` on a new folder, or a first `update` 
 - `read` AND `update` ARE THIS TYPE'S COMMANDS: `open-artifact read <root> '<payload>'` and `open-artifact update <root> '<payload>'` standalone, where `<root>` is the Sheet's folder, and `Artifact {action: "call", url, name: "read", args: {payload}}` and `Artifact {action: "call", url, name: "update", args: {payload}}` under a host, `payload` the same JSON as an object. The topics write them short, as `read <root> '…'`. While the Sheet's page server runs they go through it, so every open page shows an update at once; with none running they work on the folder itself.
 - THE PAYLOAD IS JSON: standalone, inline in single quotes, or the path of a file that holds it, or `-` to read it from stdin. A payload with a `'` in it, such as the text `'02139`, goes in a file or on stdin: `update <root> - <<'EOF'`, the JSON, then `EOF`.
 - THE ANSWER is JSON on stdout: a read's value, or an update's `{"revision":…}`. A refusal is JSON on stderr, `{"detail":…,"data":{"refusal":…},"hint":…}`, and the command exits with 1.
-- A `read` TAKES A PAYLOAD OF ONE OF THE KINDS IN THE FIRST GROUP BELOW: the six reads and `showGuide`, which shows the person a walkthrough and changes no cell (SKILL.md, "Showing the person around a Sheet"). There is no other. With no payload it is `readSheets`.
+- A `read` TAKES A PAYLOAD OF ONE OF THE KINDS IN THE FIRST GROUP BELOW: the reads and `showGuide`, which shows the person a walkthrough and changes no cell (SKILL.md, "Showing the person around a Sheet"). There is no other. With no payload it is `readSheets`.
 - AN `update` TAKES ONE PAYLOAD, of exactly three keys: `"kind":"applyEdits"`, `"base"`, the `revision` that you last saw, and `"edits"`, a list of edits of the kinds below. An edit never goes by itself as the payload.
 - KINDS AND KEYS ARE EXACT. Any other kind, a key under another name (`range` for `ranges`, `values` for `rows`) and a key too many are each refused.
 - ONE UPDATE AT A TIME. Each needs the `revision` that the one before it returned, so of two sent side by side on one `base` the second is refused. Reads can go side by side. Send each call as its own: only a new chart or a new interactive panel takes a `batch` (charts.md, interactives.md).
@@ -25,6 +25,7 @@ readCharts {sheet}
 readInteractive {sheet}
 readNamedRanges {}
 readCellsChangedFromTheirDefaults {sheet}
+readConnectedTable {sheet}
 showGuide {guide: {stops: [{at, say}]}}
 
 writeCells {sheet, topLeft, rows: [[…]]}
@@ -69,6 +70,10 @@ saveProtection {sheet, protectionId?, range?, open?: [string], editors?: [string
 removeProtection {sheet, protectionId}
 setTimeZone {timeZone: string|null}
 setLocale {locale}
+addConnectedTable {name, call: {…}, columns: [{…}], afterSheet?: string|null}
+setCallOfConnectedTable {sheet, call: {…}}
+addColumnToConnectedTable {sheet, column: {…}, after?: string|null}
+changeColumnOfConnectedTable {sheet, column, to: {…}}
 ```
 - `sheet` is a sheet's name. `range` is `A1:C4` or one address such as `B2`, `rows` is `3:4` or `3`, and `columns` is `B:C` or `B`. None takes a `$` or a sheet's name, and a `range` names both its corners: `A:A` is none.
 
@@ -162,6 +167,7 @@ Each topic is a file beside this one. A topic that you have read in this convers
 | charts | `charts.md` |
 | interactive panels: a tab of controls that read cells and write some of them | `interactives.md` |
 | named ranges for formulas, default values and number limits, protected cells, hidden sheets | `names-defaults-protection.md` |
+| connected tables: a sheet whose rows a call to one of your tools fetches, refreshed when the page asks | `connected-tables.md` |
 
 ### Limits
 

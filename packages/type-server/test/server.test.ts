@@ -336,7 +336,7 @@ describe('type server', () => {
     const list = (await (await call('/__open-artifact/actions')).json()) as { actions: { name: string }[] };
     assert.deepEqual(
       list.actions.map((a) => a.name),
-      ['check', 'upload', 'context', 'asking', 'snapshot', 'read', 'update', 'batch', 'widget', 'info', 'export', 'duplicate', 'create', 'read', 'update', 'delete', 'batch', 'export', 'import'],
+      ['check', 'upload', 'context', 'asking', 'snapshot', 'read', 'update', 'refresh', 'batch', 'widget', 'info', 'export', 'duplicate', 'create', 'read', 'update', 'delete', 'batch', 'export', 'import'],
     );
     const asking = (await (await call('/__open-artifact/actions/asking', { id: 'x', root, args: {} })).json()) as { asking: boolean };
     assert.equal(asking.asking, true);
@@ -729,7 +729,7 @@ describe('actionsOfType', () => {
     const server = SERVER_ACTIONS.map((a) => a.name);
     assert.deepEqual(actionsOfType('whiteboard').map((a) => a.name), server);
     assert.deepEqual(actionsOfType('design').map((a) => a.name), server);
-    assert.deepEqual(actionsOfType('sheets').map((a) => a.name), [...server, 'read', 'update', 'batch', 'widget', 'info', 'export']);
+    assert.deepEqual(actionsOfType('sheets').map((a) => a.name), [...server, 'read', 'update', 'refresh', 'batch', 'widget', 'info', 'export']);
     // A doc's list starts with duplicate: nothing depends on where one list ends any more.
     assert.deepEqual(actionsOfType('docs').map((a) => a.name), [...server, 'duplicate', 'create', 'read', 'update', 'delete', 'batch', 'export', 'import']);
     for (const action of actionsOfType('sheets')) {

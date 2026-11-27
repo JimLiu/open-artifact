@@ -4,7 +4,8 @@
 // In the page as a person uses it: an interactive tab's controls, its defaults kept and brought back, and the keys in and
 // out of it; a link to cells and a walkthrough from the agent; a page opened again on an edited workbook, a copy, and a
 // value cleared from a drawn row; columns of a table dragged and undone; a pivot table and its aggregate; saved views,
-// kept over a reload, updated after their sort was left out; and undo of a sort of one's own.
+// kept over a reload, updated after their sort was left out; undo of a sort of one's own; and a connected table whose
+// rows the agent fetches when the owner asks, and whose failed refresh tells its reason.
 //
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -881,6 +882,58 @@ describe(TYPE, { skip: skip() }, () => {
       assert.ok(!edited, 'the sorts or the undo edited the workbook');
       assert.deepEqual(page.problems, []);
     } finally {
+      await page.close();
+    }
+  });
+
+  it('a connected table is fetched by the agent when the owner presses Load data, and its reason shows when a refresh fails', { ...T, skip: browserOff }, async () => {
+    const root = path.join(tmpDir('sheets-connected'), 'book');
+    const opened = await ctx.cli.json(['open', root, '--type', 'sheets', '--json']);
+    await ctx.cli.json(['update', root, edits(1, [{
+      kind: 'addConnectedTable',
+      name: 'Customers',
+      call: { title: 'All customers', connector: 'Shop', tool: 'list_customers', arguments: { limit: 100 }, transform: '({ answer }) => ({ records: JSON.parse(answer.content[0].text).customers })' },
+      columns: [{ name: 'Id', field: 'id' }, { name: 'Name', field: 'name' }],
+    }])]);
+    const book = await ctx.cli.json(['read', root]);
+    const customers = book.sheets.find(sheet => sheet.name === 'Customers');
+    assert.ok(customers?.isConnectedTable, JSON.stringify(book.sheets));
+    const { callDigest } = await ctx.cli.json(['read', root, JSON.stringify({ kind: 'readConnectedTable', sheet: 'Customers' })]);
+    const bar = "document.querySelector('.sheet-connected-table-bar')";
+    const barButton = label => `[...(${bar}?.querySelectorAll('button') ?? [])].find(b => b.textContent.trim() === ${JSON.stringify(label)})`;
+    /** The agent listening, until the page's request reaches it. */
+    const listen = async () => {
+      fs.rmSync(path.join(root, '_agent', 'waiting'), { force: true });
+      const waiter = await ctx.cli.start(['wait', root, '--timeout', '30'], { firstLine: false });
+      assert.ok(await until(() => fs.existsSync(path.join(root, '_agent', 'waiting'))), 'the agent did not start listening');
+      return waiter;
+    };
+    let waiter = await listen();
+    const page = await openSheet(`${opened.url}#${customers.linkFragment}`, `Boolean(${barButton('Load data')})`);
+    try {
+      await clickOnSheet(page, barButton('Load data'));
+      // The first refresh of a call shows the call, and runs once the person says so.
+      const run = "[...document.querySelectorAll('[role=dialog] button, [role=alertdialog] button')].find(b => b.textContent.trim() === 'Run')";
+      await clickOnSheet(page, run);
+      assert.equal((await waiter.exited).code, 0, waiter.stdout());
+      assert.match(waiter.stdout(), /Refresh/);
+      assert.ok(waiter.stdout().includes(callDigest), waiter.stdout());
+      const records = [{ id: 1, name: 'Ann' }, { id: 2, name: 'Bob' }, { id: 3, name: 'Ann' }];
+      const sent = await ctx.cli.json(['refresh', root, JSON.stringify({ sheet: 'Customers', callDigest, records })]);
+      assert.equal(sent.rowCount, 3);
+      assert.ok(await page.waitFor(`${cellWith('Bob')} && [...document.querySelectorAll('[role=gridcell]')].filter(cell => cell.textContent === 'Ann').length === 2`, 10000), 'the rows the agent sent are not on the page');
+      assert.ok(await page.waitFor(`${bar}?.textContent.includes('3 rows')`, 5000), 'the bar does not count the rows');
+
+      // A refresh that brings no rows: the agent says why, and the bar tells it.
+      waiter = await listen();
+      await clickOnSheet(page, barButton('Refresh'));
+      assert.equal((await waiter.exited).code, 0, waiter.stdout());
+      await ctx.cli.json(['refresh', root, JSON.stringify({ sheet: 'Customers', callDigest, failed: { why: 'toolError', toolSaid: 'Rate limited' } })]);
+      assert.ok(await page.waitFor(`${bar}?.textContent.includes('Shop returned an error')`, 10000), `the bar does not tell why: ${(await page.evaluateAll(`${bar}?.textContent`)).find(Boolean)}`);
+      assert.ok(await page.waitFor(cellWith('Bob'), 1000), 'the rows went away after the failed refresh');
+      assert.deepEqual(page.problems, []);
+    } finally {
+      waiter.child.kill();
       await page.close();
     }
   });

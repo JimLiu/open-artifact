@@ -1,6 +1,6 @@
 /**
  * What a Sheet's page asks the agent for, by what the person pressed: the page's own words for its buttons, and the
- * request a file chosen with "Import from Excel" becomes.
+ * request a file chosen with "Import from Excel" becomes (a connected table's refresh is in connected-tables.ts).
  */
 
 import type { AgentRequest } from '@open-artifact/runtime/capabilities';
@@ -11,6 +11,7 @@ export const PAGE_REQUEST_PRESSED = {
   insertChart: 'Insert chart',
   conditionalFormatting: 'Conditional formatting',
   importFromExcel: 'Import from Excel',
+  refresh: 'Refresh',
 } as const;
 
 export type PageRequestPressed = (typeof PAGE_REQUEST_PRESSED)[keyof typeof PAGE_REQUEST_PRESSED];

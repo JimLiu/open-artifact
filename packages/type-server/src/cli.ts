@@ -13,7 +13,7 @@
  *     open-artifact-type-server context <dir>
  *     open-artifact-type-server stills <dir> --at <t1,t2,…> [--scale n] [--out dir] [--rough]
  *     open-artifact-type-server history <dir> [show|restore <n> [path…]] [--json]
- *     open-artifact-type-server read|update|batch|widget|export|info <dir> …   (a Sheet's calls)
+ *     open-artifact-type-server read|update|refresh|batch|widget|export|info <dir> …   (a Sheet's calls)
  *     open-artifact-type-server share <dir> [--off] [--enable R] [--disable R] [--reset R] [--role G=R] [--remove G] [--json]
  *     open-artifact-type-server status
  *     open-artifact-type-server stop
@@ -478,7 +478,7 @@ class SheetCallRefused extends Error {
 }
 
 /**
- * `read|update|batch|widget|export|info <dir> …`: a Sheet's call, through the running server when it has the Sheet
+ * `read|update|refresh|batch|widget|export|info <dir> …`: a Sheet's call, through the running server when it has the Sheet
  * open, else on the folder. JSON on stdout; a refusal is JSON on stderr and exit 1, a mistake exit 2.
  */
 async function cmdSheet(command: string, argv: string[]): Promise<number> {
