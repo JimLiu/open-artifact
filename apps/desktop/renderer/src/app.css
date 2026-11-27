@@ -1,9 +1,10 @@
 /* The window's look: the home page's tokens (--oa-page-*, the package's README lists them), the sidebar, the tab bar
-   and the new-artifact dialog. Light and dark follow the system (the main process sets data-theme on the root). */
+   and the new-artifact dialog. The first paint follows the system (`color-scheme` and `prefers-color-scheme`) before
+   the page has heard `desktop:state`. `data-theme` is the explicit light or dark choice after that. */
 :root {
   --bar-height: 40px;
   --sidebar-width: 240px;
-  color-scheme: light;
+  color-scheme: light dark;
 
   --oa-page-text-primary: #1a1a1a;
   --oa-page-text-secondary: #4a4a4a;
@@ -94,6 +95,61 @@
   --switch-off: #5a5a5c;
   --dark-button: #ececea;
   --dark-button-text: #1c1c1e;
+}
+
+/* The same tokens before React sets data-theme, and whenever the system is dark and the page has not forced light.
+   Duplicated so an unset data-theme in a light system does not pick these up. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+
+    --oa-page-text-primary: #ececea;
+    --oa-page-text-secondary: #b8b8b4;
+    --oa-page-text-tertiary: #8f8f8a;
+    --oa-page-text-caption: #6b6b67;
+    --oa-page-bg: #1c1c1e;
+    --oa-page-hover-bg: #2a2a2c;
+    --oa-page-accent: #5b84f0;
+    --oa-page-danger: #f06a6e;
+    --oa-page-border-strong: #4a4a4c;
+    --oa-page-border: #333335;
+    --oa-page-border-floating: rgba(255, 255, 255, 0.14);
+    --oa-page-skeleton-bg: #2a2a2c;
+    --oa-page-focus-ring-color: #5b84f0;
+
+    --side-bg: #232325;
+    --side-border: #333335;
+    --side-active: #333336;
+    --side-hover: #2c2c2e;
+    --side-label: #9a9a95;
+    --side-disabled: #5a5a57;
+    --bar-bg: #262628;
+    --bar-border: #333335;
+    --bar-hover: #303032;
+    --tab-active: #3a3a3c;
+    --tab-active-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.1), 0 1px 2px rgba(0, 0, 0, 0.4);
+    --tab-text: #b8b8b4;
+    --tab-close: #9a9a95;
+    --dialog-bg: #2a2a2c;
+    --dialog-shadow: 0 24px 60px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.08);
+    --scrim: rgba(0, 0, 0, 0.4);
+    --picked-bg: #243058;
+    --agent-tile-bg: #1c1c1e;
+    --ok: #3fb760;
+    --warn: #e0a84a;
+    --notice-bg: #3a3220;
+    --notice-text: #e8d9a8;
+    --segment-bg: #1c1c1e;
+    --segment-on: #48484a;
+    --switch-off: #5a5a5c;
+    --dark-button: #ececea;
+    --dark-button-text: #1c1c1e;
+  }
+}
+
+/* A forced light look while the system is dark: the media query above does not apply, and the canvas stays light. */
+:root[data-theme='light'] {
+  color-scheme: light;
 }
 
 * {
@@ -268,6 +324,11 @@ button.section-head {
 :root[data-theme='dark'] .artifact-row .type-glyph {
   color: var(--oa-tint);
 }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .artifact-row .type-glyph {
+    color: var(--oa-tint);
+  }
+}
 .row-title {
   min-width: 0;
   white-space: nowrap;
@@ -353,10 +414,14 @@ button.section-head {
   border-radius: 16px;
   background: var(--dialog-bg);
   box-shadow: var(--dialog-shadow);
-  display: flex;
   flex-direction: column;
   gap: 20px;
 }
+div.new-dialog,
+dialog.new-dialog[open] {
+  display: flex;
+}
+.new-dialog h1,
 .new-dialog h2 {
   margin: 0;
   font-size: 17px;
@@ -798,16 +863,36 @@ button.section-head {
   border-radius: 16px;
   background: var(--dialog-bg);
   box-shadow: var(--dialog-shadow);
-  display: flex;
   flex-direction: column;
   gap: 18px;
   outline: none;
   overflow: hidden;
 }
+div.settings-dialog,
+dialog.settings-dialog[open] {
+  display: flex;
+}
+dialog.new-dialog,
+dialog.settings-dialog {
+  border: none;
+  margin: auto;
+  color: inherit;
+  max-width: calc(100vw - 80px);
+  max-height: calc(100vh - 80px);
+}
+dialog:modal {
+  overscroll-behavior: contain;
+}
+dialog::backdrop {
+  background: var(--scrim);
+  overflow: hidden;
+  overscroll-behavior: contain;
+}
 .settings-head {
   display: flex;
   align-items: center;
 }
+.settings-head h1,
 .settings-head h2 {
   margin: 0;
   flex: 1;
@@ -926,6 +1011,12 @@ button.section-head {
 :root[data-theme='dark'] .row-menu {
   background: #2a2a2c;
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .row-menu {
+    background: #2a2a2c;
+    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
+  }
 }
 .row-menu-item {
   display: block;

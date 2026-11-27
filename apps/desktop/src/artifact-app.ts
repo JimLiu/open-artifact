@@ -82,7 +82,8 @@ import {
   readRecords,
 } from './installed-apps.ts';
 import { libraryClient } from './library.ts';
-import { artifactMenuTemplate, describeMenu, templateCommands } from './menu.ts';
+import { openExternal as openExternalLink } from './external.ts';
+import { artifactMenuTemplate, blockedWhileOverlay, describeMenu, templateCommands } from './menu.ts';
 import { OriginAllowlist } from './navigation.ts';
 import { Notice } from './notice.ts';
 import { isPageAt, pageUrlOf } from './page-url.ts';
@@ -246,10 +247,7 @@ async function start({ manifest, profile, settings, startLocale, settingsDir, se
   const runtimeDir = desktopForDaemon ? runtimeOf(desktopForDaemon) : join(process.resourcesPath, 'runtime');
   const daemonExe = (desktopForDaemon ? exeOf(desktopForDaemon) : null) ?? process.execPath;
 
-  const openExternal = (url: string) => {
-    log(`external ${url}`);
-    if (!profile.testMode) void shell.openExternal(url);
-  };
+  const openExternal = (url: string) => openExternalLink(url, log, { testMode: profile.testMode });
   const system = {
     reveal(path: string) {
       log(`reveal ${path}${profile.testMode ? ' (test mode: not shown)' : ''}`);
@@ -768,7 +766,7 @@ async function start({ manifest, profile, settings, startLocale, settingsDir, se
         window.close();
         return true;
       },
-      reload: () => reloadArtifact(),
+      reload: () => (aw.overlay ? false : reloadArtifact()),
       'zoom-reset': () => zoom(0),
       'zoom-in': () => zoom(0.5),
       'zoom-out': () => zoom(-0.5),
@@ -788,6 +786,7 @@ async function start({ manifest, profile, settings, startLocale, settingsDir, se
     };
     const connected = () => !!harness?.connected;
     const enabled = (name: string) => {
+      if (aw.overlay && blockedWhileOverlay(name)) return false;
       if (name === 'reveal') return connected() && aw?.problem?.kind !== 'not-found' && aw?.problem?.kind !== 'needs-repair';
       if (name === 'reload') return connected() && !aw?.problem && !!aw?.tab.view;
       return true;

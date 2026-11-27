@@ -26,6 +26,34 @@ import { launchApp, library } from './lib/app.ts';
 import { daemonState, freePort, leftovers, makeProfile, stopDaemon, until } from './lib/env.ts';
 
 const T = { timeout: 180_000 };
+/** The canvas with `data-theme` taken off, which is how the page paints before `desktop:state` sets it. */
+const WITHOUT_THEME = `(() => {
+  const root = document.documentElement;
+  const had = root.getAttribute('data-theme');
+  root.removeAttribute('data-theme');
+  const paint = {
+    meta: document.querySelector('meta[name="color-scheme"]')?.getAttribute('content') ?? '',
+    bg: getComputedStyle(document.body).backgroundColor,
+    scheme: getComputedStyle(root).colorScheme,
+    dark: matchMedia('(prefers-color-scheme: dark)').matches,
+    had,
+    media: [...document.styleSheets].some((sheet) => {
+      try { return [...sheet.cssRules].some((rule) => String(rule.cssText).includes('prefers-color-scheme: dark')); }
+      catch (error) { return false; }
+    }),
+  };
+  if (had == null) root.removeAttribute('data-theme');
+  else root.setAttribute('data-theme', had);
+  return paint;
+})()`;
+interface FirstPaint {
+  meta: string;
+  bg: string;
+  scheme: string;
+  dark: boolean;
+  had: string | null;
+  media: boolean;
+}
 const inDocs = (url: string) => /\/docs\/[0-9a-f]+\//.test(url);
 const js = (value: unknown) => JSON.stringify(value);
 
@@ -91,6 +119,15 @@ describe('the look and the language in the artifact views', () => {
     app = await launchApp(profile, port, { defaultLocale: false });
     await app.line(/\[desktop\] ready /);
     await app.connect();
+    // `connect` can attach before the renderer writes `data-theme`; the sidebar means that write has happened.
+    assert.ok(await app.chrome.waitFor(`!!document.querySelector('[data-testid=sidebar]')`), 'no sidebar');
+    const paint = await app.chrome.evaluate<FirstPaint>(WITHOUT_THEME);
+    assert.equal(paint.meta, 'light dark');
+    assert.equal(paint.media, true);
+    assert.equal(paint.had, 'dark');
+    assert.equal(paint.dark, true);
+    assert.equal(paint.bg, 'rgb(28, 28, 30)', 'a dark setting paints before data-theme is required');
+    assert.match(paint.scheme, /dark/);
     doc = await library(daemonState(profile), 'artifacts.create', { type: 'docs', title: 'Ferry', blank: true, folder: join(profile.artifacts, 'ferry') });
     assert.ok(doc.id, js(doc));
 
@@ -157,6 +194,13 @@ describe('the look and the language in the artifact views', () => {
     app = await launchApp(profile, port, { args: ['--locale', 'zh', '--theme', 'dark'] });
     await app.line(/\[desktop\] ready /);
     await app.connect();
+    assert.ok(await app.chrome.waitFor(`!!document.querySelector('[data-testid=sidebar]')`), 'no sidebar');
+    const paint = await app.chrome.evaluate<FirstPaint>(WITHOUT_THEME);
+    assert.equal(paint.meta, 'light dark');
+    assert.equal(paint.had, 'dark');
+    assert.equal(paint.dark, true);
+    assert.equal(paint.bg, 'rgb(28, 28, 30)', '--theme dark paints before data-theme is required');
+    assert.match(paint.scheme, /dark/);
     const state = await app.state();
     assert.deepEqual(state.settings.forced, { theme: 'dark', locale: 'zh-CN' });
     assert.equal(state.settings.restartNeeded, false);

@@ -179,9 +179,7 @@ describe('the servers switcher, with two sites on this computer', () => {
     await closePanel();
     // Settings comes back once the switcher closes; closed here.
     assert.ok(await app.chrome.waitFor(`!!${by('settings-dialog')}`, 5000), 'Settings did not come back');
-    await app.chrome.evaluate<boolean>(
-      `${by('settings-dialog')}.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })), true`,
-    );
+    await app.chrome.evaluate<boolean>(`${by('settings-dialog')}.close(), true`);
     assert.ok(await app.chrome.waitFor(`!${by('settings-dialog')}`, 5000));
   });
 

@@ -23,8 +23,10 @@ export type NavigationDecision = { action: 'allow' | 'home' | 'block' } | { acti
  * - an address on one of the sites (its pages, its sign-in): allowed; only those origins;
  * - a local artifact's Shell: opens a tab of it; the daemon's home page: the first tab; anything else local: blocked;
  * - any other http(s) address: the system browser; anything else: blocked.
- * Its subframes (`serverSubframeAllowed`): any http(s) address but this computer's own pages (the site's content
- * origin is not listed anywhere, its own CSP decides its frames), and the page's own frames.
+ * Its subframes (`serverSubframeAllowed`): the page's own frames, the connected site's origin (even when that origin
+ * is on this computer), that site's content hosts (`*.content.localhost`), and public http(s). Literal loopback,
+ * `::1`, RFC1918, link-local, and any other `localhost` name are refused. This is not `offline.ts`'s `onThisComputer`
+ * turned around: a private address is not "this computer" there, and is still refused here.
  * Pure: the tests check it without Electron.
  */
 
@@ -169,9 +171,125 @@ export function decideServer(address: string, { allowlist }: { allowlist: Origin
   return { action: 'block' };
 }
 
-/** Whether a subframe of a site's page may load this address: its own frames, or any http(s) address not this computer's pages. */
+/** One decimal octet of a parsed host, or null. */
+function octet(part: string): number | null {
+  if (part.length < 1 || part.length > 3) return null;
+  let value = 0;
+  for (let i = 0; i < part.length; i++) {
+    const digit = part.charCodeAt(i) - 48;
+    if (digit < 0 || digit > 9) return null;
+    value = value * 10 + digit;
+  }
+  return value > 255 ? null : value;
+}
+
+/** `a.b.c.d` from a parsed hostname, or null. `new URL` has already folded the odd IPv4 spellings. */
+function ipv4(host: string): [number, number, number, number] | null {
+  const parts = host.split('.');
+  if (parts.length !== 4) return null;
+  const octets: number[] = [];
+  for (const part of parts) {
+    const value = octet(part);
+    if (value === null) return null;
+    octets.push(value);
+  }
+  return [octets[0]!, octets[1]!, octets[2]!, octets[3]!];
+}
+
+/** Four hex digits of an IPv6 group. */
+function hex16(text: string): number | null {
+  if (text.length < 1 || text.length > 4) return null;
+  let value = 0;
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i);
+    const digit = code >= 48 && code <= 57 ? code - 48 : code >= 97 && code <= 102 ? code - 87 : -1;
+    if (digit < 0) return null;
+    value = value * 16 + digit;
+  }
+  return value;
+}
+
+/**
+ * The IPv4 address inside a parsed `::ffff:` host. `new URL('http://[::ffff:127.0.0.1]/')` is `[::ffff:7f00:1]`,
+ * so the dotted form alone would miss it.
+ */
+function mappedIpv4(host: string): [number, number, number, number] | null {
+  const prefix = '::ffff:';
+  if (host.slice(0, prefix.length) !== prefix) return null;
+  const rest = host.slice(prefix.length);
+  const dotted = ipv4(rest);
+  if (dotted) return dotted;
+  const groups = rest.split(':');
+  if (groups.length !== 2) return null;
+  const hi = hex16(groups[0] ?? '');
+  const lo = hex16(groups[1] ?? '');
+  if (hi === null || lo === null) return null;
+  return [(hi >> 8) & 255, hi & 255, (lo >> 8) & 255, lo & 255];
+}
+
+/** A parsed hostname: brackets off an IPv6 literal, lower case, no trailing dot. */
+function hostOf(hostname: string): string {
+  const bare = hostname.charCodeAt(0) === 91 && hostname.charCodeAt(hostname.length - 1) === 93 ? hostname.slice(1, -1) : hostname;
+  const lower = bare.toLowerCase();
+  return lower.charCodeAt(lower.length - 1) === 46 ? lower.slice(0, -1) : lower;
+}
+
+/** `*.content.localhost` with at least one label in front: a site's content host, not every `*.localhost`. */
+function isContentLocalhost(hostname: string): boolean {
+  const labels = hostOf(hostname).split('.');
+  return labels.length >= 3 && labels[labels.length - 1] === 'localhost' && labels[labels.length - 2] === 'content';
+}
+
+function isLocalhostName(hostname: string): boolean {
+  const labels = hostOf(hostname).split('.');
+  return labels[labels.length - 1] === 'localhost';
+}
+
+/**
+ * A literal address of this machine: `127.0.0.0/8`, `::1`, RFC1918 (`10/8`, `172.16/12`, `192.168/16`) and
+ * link-local `169.254.0.0/16`, including IPv4-mapped IPv6. Only used from this file. Not `offline.ts`'s check.
+ */
+function isMachineAddress(hostname: string): boolean {
+  const host = hostOf(hostname);
+  if (host === '::1' || host === '0:0:0:0:0:0:0:1') return true;
+  const v4 = ipv4(host) ?? mappedIpv4(host);
+  if (!v4) return false;
+  const a = v4[0];
+  const b = v4[1];
+  if (a === 127 || a === 10) return true;
+  if (a === 192 && b === 168) return true;
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  if (a === 169 && b === 254) return true;
+  return false;
+}
+
+/**
+ * Whether a subframe of a site's page may load this address. The same predicate answers `will-frame-navigate` and a
+ * subframe `will-redirect`: the page's own frames, the connected site, its `*.content.localhost` hosts, and public
+ * http(s). This computer's other addresses are refused, including a localhost name the site did not declare.
+ */
 export function serverSubframeAllowed(address: string, allowlist: OriginAllowlist) {
-  return ownSubframe(address) || (httpish(address) && !allowlist.allows(address));
+  if (ownSubframe(address)) return true;
+  const url = parse(address);
+  if (!url || (url.protocol !== 'http:' && url.protocol !== 'https:')) return false;
+  // The site this tab is connected to, before the machine-address refusal: a test server may be on localhost.
+  if (allowlist.serverOf(url.origin)) return true;
+  if (isContentLocalhost(url.hostname)) return true;
+  if (isLocalhostName(url.hostname) || isMachineAddress(url.hostname)) return false;
+  return true;
+}
+
+/**
+ * An http(s) link for the system browser, with the userinfo removed. `null` when it cannot be parsed or is not
+ * http(s). `log` is the origin and the path only: a password or a query must not be written down. Loopback is not
+ * refused here; a top-level navigation to it stays `external` (`decide`).
+ */
+export function externalTarget(input: string): { href: string; log: string } | null {
+  const url = parse(input);
+  if (!url || (url.protocol !== 'http:' && url.protocol !== 'https:')) return null;
+  url.username = '';
+  url.password = '';
+  return { href: url.href, log: `${url.origin}${url.pathname}` };
 }
 
 /** Whether a subframe may load this address: the page's own frames, or an allowed origin. */

@@ -52,8 +52,9 @@ import { macosOps } from './installed-apps-macos.ts';
 import { installDirOf, InstalledApps } from './installed-apps.ts';
 import { createArg, idArg, libraryClient, patchArg } from './library.ts';
 import { linkedArtifact, opensOf } from './links.ts';
-import { describeMenu, menuTemplate, templateCommands } from './menu.ts';
+import { blockedWhileOverlay, describeMenu, menuTemplate, templateCommands } from './menu.ts';
 import { moveArtifact } from './move.ts';
+import { openExternal as openExternalLink } from './external.ts';
 import { OriginAllowlist } from './navigation.ts';
 import { Notice } from './notice.ts';
 import { blockOffline } from './offline.ts';
@@ -63,6 +64,7 @@ import { RuntimeUpdates } from './runtime.ts';
 import { Servers } from './servers.ts';
 import { Service } from './service.ts';
 import { CHOICES, chromiumLang, Settings, validSetting } from './settings.ts';
+import { shellListenerCounts } from './artifact-view.ts';
 import { HOME_TAB, PARTITION, SERVER_PARTITION, SITE_TAB, Tabs, unsavedOf } from './tabs.ts';
 import { CAPTURE_PARTITION, Photographer, registerThumbnailScheme, serveThumbnails } from './thumbnails.ts';
 
@@ -165,11 +167,8 @@ if (startLang) app.commandLine.appendSwitch('lang', startLang);
 
 const runtimeDir = app.isPackaged ? join(process.resourcesPath, 'runtime') : join(appRoot, 'resources', 'runtime');
 
-/** Links out: the system browser; in test mode only logged. */
-const openExternal = (url: string) => {
-  log(`external ${url}`);
-  if (!profile.testMode) void shell.openExternal(url);
-};
+/** Links out: the one external-link exit. In test mode it is only logged. */
+const openExternal = (url: string) => openExternalLink(url, log, { testMode: profile.testMode });
 
 /** What reaches the system (a folder opened, a file shown in the Finder): in test mode only logged. */
 const system = {
@@ -813,8 +812,7 @@ async function start() {
       case 'approve-page': {
         // The site's approval page for the sign-in under way, in the system browser (test mode: only logged).
         const link = servers.adding?.state === 'waiting' ? servers.adding.verificationUri : '';
-        if (!/^https?:\/\//.test(link)) throw new Error('no sign-in under way');
-        openExternal(link);
+        if (!link || !openExternal(link)) throw new Error('no sign-in under way');
         return true;
       }
       case 'open-in-desktop':
@@ -1074,6 +1072,7 @@ async function start() {
       return system.reveal(record.root);
     },
     move: async (arg: unknown) => {
+      if (tabs.overlay) return false;
       const id = artifactArg(arg);
       const into = await pick(objectOf(arg).into, { title: t('menu.move') });
       if (!into) return null;
@@ -1097,10 +1096,12 @@ async function start() {
       }
     },
     'close-tab': () => {
+      if (tabs.overlay) return false;
       const id = currentArtifact();
       return id ? requestClose(id) : false;
     },
     reload: () => {
+      if (tabs.overlay) return false;
       const id = currentArtifact();
       return id ? reloadTab(id) : false;
     },
@@ -1158,6 +1159,7 @@ async function start() {
   const NEEDS_ARTIFACT = new Set(['reveal', 'move', 'close-tab', 'reload', 'install-app']);
   const NEEDS_DAEMON = new Set(['new-dialog', 'open-folder', 'import', 'reveal', 'move', 'relocate', 'doctor']);
   const enabled = (name: string) => {
+    if (tabs.overlay && blockedWhileOverlay(name)) return false;
     if (NEEDS_ARTIFACT.has(name) && !currentArtifact()) return false;
     if ((NEEDS_DAEMON.has(name) || name.startsWith('new:')) && !harness.connected) return false;
     return true;
@@ -1177,7 +1179,7 @@ async function start() {
 
   function refreshMenu(force = false) {
     if (!menuReady) return;
-    const key = JSON.stringify([currentArtifact() !== null, harness.connected, menuTypes.map((type) => [type.id, type.title])]);
+    const key = JSON.stringify([currentArtifact() !== null, harness.connected, tabs.overlay, menuTypes.map((type) => [type.id, type.title])]);
     if (!force && key === menuKey) return;
     menuKey = key;
     const template = menuTemplate({ t, types: menuTypes, run: fromMenu, enabled, appName: 'Open Artifact' });
@@ -1309,6 +1311,28 @@ async function start() {
       };
     });
     handle('test:servers', () => ({ view: servers.view(), servers: [...allowlist.servers] }));
+    handle('test:fail-next-load', () => {
+      tabs.failNextLoad = true;
+      return true;
+    });
+    handle('test:views', () => {
+      const counts = shellListenerCounts();
+      return {
+        children: window.contentView.children.length,
+        tabViews: [...tabs.tabs.values()].filter((tab) => tab.view).length,
+        listeners: counts.listeners,
+        attached: counts.attached,
+        closed: tabs.closedViews,
+        current: tabs.current,
+        ids: [...tabs.tabs.keys()],
+      };
+    });
+    handle('test:probe-site', (origin) => {
+      const url = new URL(String(origin));
+      if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error('not a site');
+      allowlist.setServers([url.origin]);
+      return tabs.openSite('probe', url.origin);
+    });
     // "Install as app": hold the next call at a step (`installing`'s state is then what the dialog shows), then let it go.
     handle('test:apps-hold', (step) => {
       appsHold?.release();

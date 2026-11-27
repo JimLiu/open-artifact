@@ -52,6 +52,14 @@ export function newGroups(types: MenuType[]) {
   };
 }
 
+/**
+ * Menu commands that close a tab or replace the page under a modal. They do not run while an overlay is up.
+ * Edit and zoom are not here: while the overlay is up they are sent to the window's page, so the dialog can use them.
+ */
+export function blockedWhileOverlay(name: string): boolean {
+  return name === 'close-tab' || name === 'reload' || name === 'move';
+}
+
 /** A named command's item: `run(name, arg)` on click, `enabled(name)` now. */
 const commandMaker =
   (run: MenuRun, enabled: (name: string) => boolean): Command =>
