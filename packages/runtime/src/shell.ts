@@ -62,6 +62,8 @@ export interface ShellConnection {
   currentDocPlace(hash: string): void;
   currentSlide(hash: string): void;
   copySlideLink(hash: string): void;
+  /** Has the Shell copy the link to a whiteboard element (its address at `#element=<id>`). */
+  copyElementLink(id: string): void;
   // The optional page-defined anchor opens a draft at the context menu's target.
   requestCommentMode(on: boolean, anchor?: string): void;
   /** Handles commands; return the export items for `exports`. */
@@ -215,6 +217,9 @@ export function connectShell(): ShellConnection | null {
     },
     copySlideLink(hash) {
       post({ openArtifact: 'copy_slide_link', hash });
+    },
+    copyElementLink(id) {
+      post({ openArtifact: 'copy_element_link', id });
     },
     currentSheetPage(page) { post({ openArtifact: 'sheet_page', page }); },
     copySheetLink(page) { post({ openArtifact: 'copy_sheet_link', page }); },

@@ -336,6 +336,15 @@ body {
   }
 }
 
+/* Back to the view a link to an element was followed from, above the tool bar. */
+.wb-jump-back {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  animation: wb-tray-in 140ms ease-out;
+}
+
 .wb-pill {
   position: absolute;
   z-index: 30;

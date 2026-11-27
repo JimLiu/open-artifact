@@ -21,9 +21,9 @@
  * the text selected, then run as they would while typing.
  */
 
-import { Bold, Italic, Link2, List } from 'lucide-react';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { DEFAULT_TEXT_PROFILE, MAX_TEXT_CHARS, textProfileForElement, type InlineToken } from '@open-artifact/whiteboard-core';
+import { Bold, Italic, Link2, List, LocateFixed } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { DEFAULT_TEXT_PROFILE, MAX_TEXT_CHARS, anchorTitle, elementAnchor, elementAnchorId, textProfileForElement, type InlineToken } from '@open-artifact/whiteboard-core';
 import { markCoverage, markDisabledReason, type RichTextItem, type TextMark } from '../elements/mark-across.ts';
 import {
   BULLETS_PRESS_EVENT,
@@ -51,9 +51,11 @@ import {
 } from '../elements/rich-text.ts';
 import { isApplePlatform } from '../lib/tools.ts';
 import { LINK_EDIT_MESSAGES, announce, notify } from '../services/announce.ts';
+import { titledSections } from '../services/navigation.ts';
 import { toggleSelectionMark } from '../services/text-marks.ts';
+import { useBoard } from '../state/board.ts';
 import { useSelection } from '../state/selection.ts';
-import { ChromeButton, ToolButton, type ChromeSide } from './chrome.tsx';
+import { ChromeButton, ChromeMenu, ChromeMenuItem, ChromeMenuLabel, ToolButton, type ChromeSide } from './chrome.tsx';
 
 /** Said when the link field opens. */
 export const LINK_FIELD_MESSAGES = {
@@ -202,11 +204,22 @@ function wholeControls(item: RichTextItem, side: ChromeSide): FormatControls {
   };
 }
 
+/** The words a link gets when there are none to link: an element's title for a link to it, else the address. */
+function linkLabel(href: string): string {
+  const id = elementAnchorId(href);
+  const target = id === undefined ? undefined : useBoard.getState().byId.get(id);
+  return target === undefined ? href : anchorTitle(target);
+}
+
 /** The typing bar's format controls, or its link field (see the module comment). */
 export function FormatBar({ side, cell, whole, children }: FormatBarProps): ReactNode {
   const [, rerender] = useState(0);
   const bump = () => rerender((count) => count + 1);
   const [linking, setLinking] = useState<Linking | null>(null);
+  const field = useRef<HTMLInputElement | null>(null);
+  const pickingSection = useRef(false);
+  const elements = useBoard((state) => state.board.content.elements);
+  const sections = useMemo(() => (linking === null ? [] : titledSections(elements)), [linking === null, elements]);
   const linkingRef = useRef(linking);
   linkingRef.current = linking;
   const openLink = useRef(() => {});
@@ -260,7 +273,7 @@ export function FormatBar({ side, cell, whole, children }: FormatBarProps): Reac
     selection?.removeAllRanges();
     selection?.addRange(target.words);
     if (href === null) for (const chip of target.chips) unlinkLink(chip);
-    else if (!(target.chips.length > 0 ? target.chips.map((chip) => relinkLink(chip, href)).some(Boolean) : linkSelectionTo(href))) {
+    else if (!(target.chips.length > 0 ? target.chips.map((chip) => relinkLink(chip, href)).some(Boolean) : linkSelectionTo(href, document, linkLabel(href)))) {
       announce(LINK_EDIT_MESSAGES.kept);
       return;
     }
@@ -291,9 +304,9 @@ export function FormatBar({ side, cell, whole, children }: FormatBarProps): Reac
   openLink.current = startLinking;
 
   if (linking !== null) {
-    const submit = () => {
-      if (linking.chips.length > 0 && linking.url === visibleLinkHref(linking.chips[0]?.dataset.href ?? '')) return finishLinking();
-      const href = normalizeTextLinkUrl(linking.url);
+    const submit = (url = linking.url) => {
+      if (linking.chips.length > 0 && url === visibleLinkHref(linking.chips[0]?.dataset.href ?? '')) return finishLinking();
+      const href = normalizeTextLinkUrl(url);
       const root = editableRootOfRange(linking.words);
       const old = linking.chips[0]?.dataset.href ?? '';
       const growth =
@@ -315,7 +328,10 @@ export function FormatBar({ side, cell, whole, children }: FormatBarProps): Reac
         }}
       >
         <input
-          ref={selectOnMount}
+          ref={(input) => {
+            field.current = input;
+            selectOnMount(input);
+          }}
           type="text"
           inputMode="url"
           autoComplete="off"
@@ -325,7 +341,7 @@ export function FormatBar({ side, cell, whole, children }: FormatBarProps): Reac
           onBlur={(event) => {
             const next = event.relatedTarget;
             if (!event.currentTarget.ownerDocument.hasFocus()) return;
-            if (next instanceof Element && next.closest('[data-link-field]')) return;
+            if (pickingSection.current || (next instanceof Element && next.closest('[data-link-field]'))) return;
             // Focus going back to the text is handled by the focusin listener above.
             if (next === editableRootOfRange(linking.range)) return;
             setLinking(null);
@@ -344,11 +360,40 @@ export function FormatBar({ side, cell, whole, children }: FormatBarProps): Reac
               finishLinking();
             }
           }}
-          placeholder="Paste a web address"
-          aria-label="Web address"
+          placeholder={sections.length > 0 ? 'Paste a link or pick a section' : 'Paste a link'}
+          aria-label="Link address"
           aria-invalid={linking.bad !== '' ? true : undefined}
           className="h-8 w-60 max-w-[calc(100vw-200px)] rounded-[8px] bg-chrome-field px-2 text-[14px] text-chrome-fg outline-none ring-1 ring-inset ring-chrome-line placeholder:text-chrome-muted focus-visible:ring-2 focus-visible:ring-chrome-accent"
         />
+        {sections.length > 0 ? (
+          <ChromeMenu
+            side="bottom"
+            align="end"
+            tip={{ label: 'Link to a section' }}
+            onOpenChange={(open) => {
+              pickingSection.current = open;
+              if (!open) requestAnimationFrame(() => field.current?.focus({ preventScroll: true }));
+            }}
+            trigger={
+              <ChromeButton size="lg" square aria-label="Link to a section">
+                <LocateFixed aria-hidden="true" />
+              </ChromeButton>
+            }
+          >
+            <ChromeMenuLabel>Link to a section</ChromeMenuLabel>
+            {sections.map((section) => (
+              <ChromeMenuItem
+                key={section.id}
+                onSelect={() => {
+                  pickingSection.current = false;
+                  submit(elementAnchor(section.id));
+                }}
+              >
+                {anchorTitle(section)}
+              </ChromeMenuItem>
+            ))}
+          </ChromeMenu>
+        ) : null}
         {linking.bad !== '' ? (
           <span role="status" className="max-w-40 truncate px-1 text-[12px] text-chrome-muted">
             {linking.bad}

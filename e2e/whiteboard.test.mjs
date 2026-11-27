@@ -347,6 +347,29 @@ describe('whiteboard', { skip: skipFor('whiteboard') }, () => {
       }
     });
 
+    it('opens the board at the element its address names, and follows a change of it', async () => {
+      const linksRoot = tmpDir('whiteboard-shell-links');
+      const elements = {
+        s1: { type: 'container', x: 0, y: 0, w: 600, h: 300, text: 'Overview' },
+        s2: { type: 'container', x: 5000, y: 2400, w: 600, h: 300, text: 'Payment DB' },
+      };
+      for (const sub of ['db/elements', 'db/board']) fs.mkdirSync(path.join(linksRoot, sub), { recursive: true });
+      fs.writeFileSync(path.join(linksRoot, 'db/board/meta.json'), JSON.stringify({ v: 1, title: 'Linked board', order: Object.keys(elements) }));
+      for (const [id, el] of Object.entries(elements)) fs.writeFileSync(path.join(linksRoot, 'db/elements', id + '.json'), JSON.stringify(el));
+      const linked = daemon.store.create({ root: linksRoot, type: 'whiteboard', title: 'Linked board' });
+      const inView = id => `(() => {
+        const box = document.querySelector('.wb-elements [data-wb-id="${id}"]')?.getBoundingClientRect();
+        return !!box && box.left >= 0 && box.top >= 0 && box.right <= innerWidth && box.bottom <= innerHeight;
+      })()`;
+      const p = await browser.load(daemon.viewUrl(linked.id) + '#element=s2', { ready });
+      try {
+        assert.ok(await p.waitFor(inView('s2')), 'the board did not open at "Payment DB"');
+        assert.ok(await p.waitFor(`${inView('s2')} && !document.querySelector('[data-wb-jump-back]')`), 'Back shows on a board opened at an element');
+        await p.evaluate("location.hash = '#element=s1'; 1");
+        assert.ok(await p.waitFor(`${inView('s1')} && !!document.querySelector('[data-wb-jump-back]')`), 'a change of the address did not go to "Overview"');
+      } finally { await p.close(); }
+    });
+
     it('opens sharing and downloads PNG and portable JSON from Share → Export', async () => {
       const p = await browser.load(shellUrl, { ready });
       try {
@@ -578,6 +601,94 @@ describe('whiteboard', { skip: skipFor('whiteboard') }, () => {
       // No `stop` here: the board shares the type server with the rest of the suite, which `after` stops.
       await p.close();
     }
+  });
+
+  it('follows links to elements of the board, goes back, opens at one and keeps them through copy and paste', { skip: noBrowser, timeout: 60000 }, async () => {
+    const board = tmpDir('whiteboard-element-links');
+    const elements = {
+      s1: { type: 'container', x: 0, y: 0, w: 600, h: 300, text: 'Overview' },
+      s2: { type: 'container', x: 5000, y: 2400, w: 600, h: 300, text: 'Payment DB' },
+      card: { type: 'link', x: 0, y: 400, href: '#element=s2' },
+      lost: { type: 'link', x: 0, y: 500, href: '#element=gone', title: 'Old place' },
+      words: { type: 'text', x: 0, y: 620, w: 320, text: 'See [the DB](#element=s2)' },
+    };
+    for (const sub of ['db/elements', 'db/board']) fs.mkdirSync(path.join(board, sub), { recursive: true });
+    fs.writeFileSync(path.join(board, 'db/board/meta.json'), JSON.stringify({ v: 1, title: 'Element links', order: Object.keys(elements) }));
+    for (const [id, el] of Object.entries(elements)) fs.writeFileSync(path.join(board, 'db/elements', id + '.json'), JSON.stringify(el));
+    const opened = await run.json(['open', board, '--type', 'whiteboard', '--json']);
+    const state = 'window.__openArtifactWhiteboard?.state()';
+    const inView = id => `(() => {
+      const box = document.querySelector('.wb-elements [data-wb-id="${id}"]')?.getBoundingClientRect();
+      return !!box && box.left >= 0 && box.top >= 0 && box.right <= innerWidth && box.bottom <= innerHeight;
+    })()`;
+    const centre = sel => `(() => { const r = document.querySelector(${JSON.stringify(sel)}).getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; })()`;
+    const back = '[data-wb-jump-back]';
+    const p = await browser.load(opened.url + '?open_artifact_bench=1', { ready });
+    try {
+      assert.ok(await p.waitFor(`${state}?.elementViews === 5`, 10000), 'the board did not draw');
+      // A card to an element shows that element's title and kind; one whose element is gone is greyed with its stored title.
+      assert.ok(await p.waitFor("document.querySelector('[data-wb-id=card]')?.innerText.includes('Payment DB')", 3000), 'the card shows its target');
+      assert.match(await p.evaluate("document.querySelector('[data-wb-id=card]').innerText"), /Section · On this board/);
+      assert.equal(await p.evaluate("!!document.querySelector('.wb-link-gone[data-wb-id=lost], [data-wb-id=lost] .wb-link-gone')"), true, 'the card to a removed element is greyed');
+      assert.match(await p.evaluate("document.querySelector('[data-wb-id=lost]').innerText"), /Old place/);
+
+      // Opening the card takes the view there and rings it; Back returns.
+      const start = await p.evaluate(`${state}.camera`);
+      await p.clickTimes(...await p.evaluate(centre('[data-wb-id=card]')), 2);
+      assert.ok(await p.waitFor(`${inView('s2')} && !!document.querySelector('[data-wb-jump-flash="s2"]')`, 4000),
+        `the card did not go to "Payment DB": ${JSON.stringify(await p.evaluate(`${state}.camera`))}`);
+      assert.ok(await p.waitFor(`!!document.querySelector('${back}')`, 2000), 'no Back after going to it');
+      await clickOn(p, `[...document.querySelectorAll('${back} button')].find(b => b.textContent.trim() === 'Back')`, 'Back');
+      assert.ok(await p.waitFor(`(() => { const c = ${state}.camera; return Math.abs(c.x - ${start.x}) < 1 && Math.abs(c.y - ${start.y}) < 1 && !document.querySelector('${back}'); })()`, 4000),
+        `Back did not return: ${JSON.stringify(await p.evaluate(`${state}.camera`))}`);
+
+      // A text link to an element: its card offers Go to.
+      const link = await p.evaluate(centre('[data-wb-id=words] a[data-wb-link]'));
+      await p.hover(link[0] - 4, link[1]);
+      await p.hover(...link);
+      assert.ok(await p.waitFor("document.querySelector('[data-wb-link-card]')?.innerText.includes('Payment DB')", 3000), 'the text link card names its target');
+      await clickOn(p, "document.querySelector('[data-wb-link-card] button[aria-label=\"Go to\"]')", 'Go to');
+      assert.ok(await p.waitFor(inView('s2'), 4000), 'Go to did not show "Payment DB"');
+
+      // A change of the fragment goes there too, with Back.
+      await p.evaluate("location.hash = '#element=s1'; 1");
+      assert.ok(await p.waitFor(`${inView('s1')} && !!document.querySelector('${back}')`, 4000), 'the fragment did not go to "Overview"');
+
+      // Copying an element with a card to it: the pasted card points at the pasted element.
+      await p.evaluate("history.replaceState(null, '', location.pathname + location.search); 1");
+      const mod = process.platform === 'darwin' ? { meta: true } : { ctrl: true };
+      await p.click(...await p.evaluate(centre('[data-wb-id=card]')));
+      await p.press('a', mod);
+      assert.ok(await p.waitFor(`${state}.selection.length === 5`, 2000), 'select all');
+      const pasted = await p.evaluate(`(() => {
+        const d = new DataTransfer();
+        document.dispatchEvent(new ClipboardEvent('copy', { bubbles: true, cancelable: true, clipboardData: d }));
+        document.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: d }));
+        return true;
+      })()`);
+      assert.equal(pasted, true);
+      assert.ok(await p.waitFor(`${state}.elements === 10`, 4000), 'the copies did not land');
+      const hrefs = await p.evaluate(`(() => {
+        const ids = [...document.querySelectorAll('.wb-elements [data-wb-id]')].map(e => e.dataset.wbId);
+        const els = window.__openArtifactWhiteboard.elements(ids).filter(Boolean);
+        const sections = new Map(els.filter(e => e.type === 'container').map(e => [e.id, e.text]));
+        return els.filter(e => e.type === 'link' && e.id !== 'card' && e.id !== 'lost').map(e => ({ href: e.href, target: sections.get(e.href.replace('#element=', '')) }));
+      })()`);
+      assert.equal(hrefs.length, 2, JSON.stringify(hrefs));
+      const copy = hrefs.find(h => h.href !== '#element=gone');
+      assert.notEqual(copy.href, '#element=s2', 'the pasted card still points at the original');
+      assert.equal(copy.target, 'Payment DB', `the pasted card points at the pasted section: ${JSON.stringify(hrefs)}`);
+      assert.deepEqual(p.problems, []);
+    } finally {
+      // No `stop` here: the board shares the type server with the rest of the suite, which `after` stops.
+      await p.close();
+    }
+    // Opened at an element: it is in view at first, with nothing to go back to.
+    const deep = await browser.load(opened.url + '?open_artifact_bench=1#element=s2', { ready });
+    try {
+      assert.ok(await deep.waitFor(`${state}?.elementViews >= 5 && ${inView('s2')}`, 10000), 'the page did not open at "Payment DB"');
+      assert.equal(await deep.evaluate(`!!document.querySelector('${back}')`), false, 'Back shows on a page opened at an element');
+    } finally { await deep.close(); }
   });
 
   it('recovers after an interrupted load and restores pictures on request', { skip: noBrowser }, async () => {

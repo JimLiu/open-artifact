@@ -849,10 +849,11 @@ function selectWholeNode(node: Node): void {
 /**
  * Links the selection to `href`: each linkable span it covers (words, line
  * by line, never `[`, `]` or across lines) becomes a link chip, replacing
- * links it touches; with nothing to link, the address itself is inserted
- * as a link at the end of the selection. Returns whether a link was made.
+ * links it touches; with nothing to link, `label` (the address itself by
+ * default) is inserted as a link at the end of the selection. Returns
+ * whether a link was made.
  */
-export function linkSelectionTo(href: string, doc: Document = document): boolean {
+export function linkSelectionTo(href: string, doc: Document = document, label: string = href): boolean {
   const selection = doc.getSelection();
   const root = editableRootOf(selection?.anchorNode);
   if (!selection || selection.rangeCount === 0 || !root || !isLinkableHref(href)) return false;
@@ -862,7 +863,7 @@ export function linkSelectionTo(href: string, doc: Document = document): boolean
     selection.collapseToEnd();
     const line = selection.anchorNode === root ? [...root.querySelectorAll('li, :scope > div')].at(-1) : undefined;
     if (line) selection.collapse(line, line.childNodes.length - (line.lastChild?.nodeName === 'BR' ? 1 : 0));
-    return insertEditorLink(root, href, href) !== undefined;
+    return insertEditorLink(root, label.replace(/[[\]\n]/g, ' ').trim() || href, href) !== undefined;
   }
   for (const chip of [...root.querySelectorAll<HTMLElement>('[contenteditable="false"]')].filter((chip) => range.intersectsNode(chip))) {
     if (chip.isConnected) unlinkLink(chip);

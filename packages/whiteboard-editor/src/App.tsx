@@ -19,6 +19,7 @@ import { EmptyState } from '@open-artifact/ui';
 import { LoaderCircle, TriangleAlert } from 'lucide-react';
 import { BoardSurface } from './canvas/BoardSurface.tsx';
 import { CollabBoardLayer, CollabChrome, CollabOverlay, UploadPlaceholders } from './collab/index.ts';
+import { JumpFlash } from './ui/JumpChrome.tsx';
 import { ElementsLayer } from './elements/ElementsLayer.tsx';
 import { FindBar } from './find/FindBar.tsx';
 import { NextItemOffer } from './selection/NextItemOffer.tsx';
@@ -118,7 +119,7 @@ export function App() {
       <div inert={!revealed} className="contents">
         <BoardContextMenu>
           <BoardSurface
-            overlay={ready ? <><SelectionOverlay /><CollabOverlay /></> : null}
+            overlay={ready ? <><SelectionOverlay /><CollabOverlay /><JumpFlash /></> : null}
             elements={<ElementsLayer />}
           >
             {ready && <UploadPlaceholders />}

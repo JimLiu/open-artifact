@@ -59,8 +59,7 @@ import {
   isEmojiStickerArt,
   isSvgBase64DataUrl,
   layoutBoxResolver,
-  linkSubtitle,
-  linkTitle,
+  linkCardFace,
   measureLabelWords,
   measuredArrowGeometry,
   noteAuthorBottomPadding,
@@ -690,10 +689,11 @@ function paintElement(scope: PaintScope, el: BoardElement, turn: number): void {
       ctx.textBaseline = 'middle';
       const measure = (text: string): number => ctx.measureText(text).width;
       ctx.font = canvasFontFor(14, 600);
-      ctx.fillText(truncateToWidth(linkTitle(el), w - 32, measure), el.x + 16, el.y + 20);
+      const face = linkCardFace(el, scope.byId);
+      ctx.fillText(truncateToWidth(face.title, w - 32, measure), el.x + 16, el.y + 20);
       ctx.font = canvasFontFor(11.5, 400);
       ctx.globalAlpha = 0.6;
-      ctx.fillText(truncateToWidth(linkSubtitle(el), w - 32, measure), el.x + 16, el.y + 38);
+      ctx.fillText(truncateToWidth(face.subtitle, w - 32, measure), el.x + 16, el.y + 38);
       ctx.restore();
       return;
     }

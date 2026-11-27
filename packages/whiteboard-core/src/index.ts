@@ -17,6 +17,7 @@ export * from './codec.ts';
 export * from './image-source.ts';
 export * from './image-crop.ts';
 export * from './links.ts';
+export * from './anchors.ts';
 export * from './stickers.ts';
 export * from './sticker-hosts.ts';
 export * from './table.ts';

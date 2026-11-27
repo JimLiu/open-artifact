@@ -8,6 +8,7 @@
  * on its own; info notes are harmless oddities.
  */
 
+import { anchoredIds } from './anchors.ts';
 import {
   BOARD_CLAIM_PREFIX,
   BOARD_INKS_PATH,
@@ -373,6 +374,14 @@ export function checkBoardDocuments(
     taken.add(element.id);
     kept.push(element);
     if (!ordered.has(raw.id)) add(path, 'warning', `Not listed in ${describe(BOARD_META_PATH)} "order": it is drawn on top of everything.`);
+  }
+  const keptIds = new Set(kept.map((element) => element.id));
+  for (const element of kept) {
+    for (const target of anchoredIds(element)) {
+      const path = `${ELEMENTS_COLLECTION}/${element.id}`;
+      if (target === element.id) add(path, 'warning', `It links to itself (#element=${target}): following the link goes nowhere.`);
+      else if (!keptIds.has(target)) add(path, 'warning', `It links to #element=${target}, which is not on the board: point it at an element that is, or remove the link.`);
+    }
   }
   if (kept.length > MAX_BOARD_ELEMENTS) {
     add(`${ELEMENTS_COLLECTION}/`, 'warning', `${kept.length} elements; a board shows at most ${MAX_BOARD_ELEMENTS}.`);

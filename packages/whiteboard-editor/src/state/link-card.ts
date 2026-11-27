@@ -16,6 +16,8 @@ export interface LinkCardView {
   target: string | undefined;
   /** Why it does not open. */
   blocked: LinkBlock | undefined;
+  /** The element of this board it points at (the board goes there instead of opening a tab). */
+  element?: ElementId;
   /** The link's box on screen, viewport pixels. */
   anchor: ScreenBox;
   /** A link on the board, or one in the text being typed. */

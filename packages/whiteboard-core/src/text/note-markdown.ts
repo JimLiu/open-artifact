@@ -18,7 +18,7 @@ export const NUMBERED_LINE_PATTERN = /^ *(\d{1,3})\. (.*)$/;
 /** An escaped list marker (`\- item`, `3\. item`) that keeps a line a paragraph. */
 export const ESCAPED_LIST_MARKER_PATTERN = /^( *(?:\d{1,3})?)\\([-•.](?= ))/;
 
-/** A link target that may be serialized as a Markdown link. */
+/** A web link target that may be serialized as a Markdown link (any board link: `TEXT_LINK_PATTERN`). */
 export const HTTP_LINK_HREF_PATTERN = /^https?:\/\/[^)\s]*$/;
 
 /** A paragraph line. */

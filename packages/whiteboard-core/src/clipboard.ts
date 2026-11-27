@@ -13,6 +13,7 @@
  * artifacts get the structured data back.
  */
 
+import { ARTIFACT_ID } from '@open-artifact/protocol';
 import { parseBoardContent } from './normalize.ts';
 import { arrowEndIds, omitAuthorshipFields, type BoardElement, type ElementId } from './schema.ts';
 import { stripInlineMarkers, stripMarkdownLinks, tableToTsv } from './table.ts';
@@ -33,10 +34,11 @@ export const ARTIFACT_CLIPBOARD_PATTERN = /\bdata-(?:open-artifact|appifact)-obj
 /** The version marker inside every payload (bumped on incompatible changes). */
 export const ARTIFACT_CLIPBOARD_VERSION = 1;
 
-/** A clipboard payload: what kind of thing was copied and its data. */
+/** A clipboard payload: what kind of thing was copied and its data, and the artifact it was copied from when known. */
 export interface ClipboardPayload<T = unknown> {
   kind: string;
   data: T;
+  from?: string;
 }
 
 /** The JSON stored in the payload attribute. */
@@ -45,6 +47,7 @@ interface StoredClipboardPayload {
   appifact?: typeof ARTIFACT_CLIPBOARD_VERSION;
   kind: string;
   data: unknown;
+  from?: string;
 }
 
 /** Bytes per `String.fromCharCode` call, so large payloads do not overflow the stack. */
@@ -83,6 +86,7 @@ export function escapeClipboardHtml(text: string): string {
  */
 export function artifactClipboardHtml(payload: ClipboardPayload, text: string): string {
   const stored: StoredClipboardPayload = { appifact: ARTIFACT_CLIPBOARD_VERSION, openArtifact: ARTIFACT_CLIPBOARD_VERSION, kind: payload.kind, data: payload.data };
+  if (payload.from !== undefined) stored.from = payload.from;
   const encoded = encodeClipboardUtf8(JSON.stringify(stored));
   return `<span ${ARTIFACT_CLIPBOARD_ATTRIBUTE}="${encoded}" data-open-artifact-object="${encoded}">${escapeClipboardHtml(text)}</span>`;
 }
@@ -98,7 +102,7 @@ export function parseArtifactClipboardHtml(html: string): ClipboardPayload | und
     if (typeof value !== 'object' || value === null) return undefined;
     const record = value as Partial<StoredClipboardPayload>;
     if ((record.appifact ?? record.openArtifact) !== ARTIFACT_CLIPBOARD_VERSION || typeof record.kind !== 'string' || !Object.hasOwn(record, 'data')) return undefined;
-    return { kind: record.kind, data: record.data };
+    return { kind: record.kind, data: record.data, ...(typeof record.from === 'string' && ARTIFACT_ID.test(record.from) ? { from: record.from } : {}) };
   } catch {
     return undefined;
   }
@@ -237,9 +241,9 @@ export function readBoardClipboardElements(data: unknown): BoardElement[] {
   return parseBoardContent({ elements: data }).elements;
 }
 
-/** The clipboard payload of a board copy. */
-export function boardClipboardPayload(copy: BoardClipboardCopy): ClipboardPayload<BoardElement[]> {
-  return { kind: BOARD_CLIPBOARD_KIND, data: copy.data };
+/** The clipboard payload of a board copy, from the board `from` (its artifact id) when known. */
+export function boardClipboardPayload(copy: BoardClipboardCopy, from?: string): ClipboardPayload<BoardElement[]> {
+  return { kind: BOARD_CLIPBOARD_KIND, data: copy.data, ...(from !== undefined ? { from } : {}) };
 }
 
 /* Private group helpers (the grouping module owns the public versions). */

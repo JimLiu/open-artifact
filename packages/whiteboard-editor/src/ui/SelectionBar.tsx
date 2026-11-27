@@ -31,7 +31,7 @@
  * bar, the keyboard and the context menu refuse and announce alike.
  */
 
-import { AlignCenterHorizontal, AlignCenterVertical, AlignEndHorizontal, AlignEndVertical, AlignLeft, AlignCenter, AlignRight, AlignStartHorizontal, AlignStartVertical, ArrowUpRight, Check, CircleDot, Crop, Ellipsis, Link2, Lock, Minus, MoveLeft, MoveRight, Shapes, Trash2, Type } from 'lucide-react';
+import { AlignCenterHorizontal, AlignCenterVertical, AlignEndHorizontal, AlignEndVertical, AlignLeft, AlignCenter, AlignRight, AlignStartHorizontal, AlignStartVertical, ArrowUpRight, Check, CircleDot, Crop, Ellipsis, Link2, LocateFixed, Lock, Minus, MoveLeft, MoveRight, Shapes, Trash2, Type } from 'lucide-react';
 import { useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import {
   INK_COLOR_NAMES,
@@ -70,7 +70,8 @@ import {
   type TextSize,
 } from '@open-artifact/whiteboard-core';
 import { surfaceRef } from '../canvas/BoardSurface.tsx';
-import { openBoardLink, linkDisplayUrl } from '../elements/links.ts';
+import { linkDisplayUrl } from '../elements/links.ts';
+import { openLink } from '../services/link-card.ts';
 import { isRichTextItem, type RichTextItem } from '../elements/mark-across.ts';
 import { boardToScreen } from '../lib/camera.ts';
 import { barKeyTarget } from '../lib/toolbar-keys.ts';
@@ -114,7 +115,7 @@ import { LayerToolbar, LayersMenuButton } from './LayerBar.tsx';
 import { FormatBar } from './FormatBar.tsx';
 import { useCoarsePointer } from './hooks.ts';
 import { ShapeKindIcon } from './icons.tsx';
-import { selectionLinks } from './selection-links.ts';
+import { linkAction, selectionLinks } from './selection-links.ts';
 import { VideoControls } from './VideoControls.tsx';
 
 /* ------------------------------------------------------------------------ */
@@ -911,8 +912,8 @@ function PictureLinkButton({ image, side }: SideProps & { image: ImageElement })
           spellCheck={false}
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
-          placeholder="Paste a web address"
-          aria-label="Web address"
+          placeholder="Paste a link"
+          aria-label="Link address"
           className="h-8 w-60 max-w-[calc(100vw-200px)] rounded-[8px] bg-chrome-field px-2 text-[14px] text-chrome-fg outline-none ring-1 ring-inset ring-chrome-line placeholder:text-chrome-muted focus-visible:ring-2 focus-visible:ring-chrome-accent"
         />
         <ChromeButton type="submit" size="lg">
@@ -1128,13 +1129,13 @@ export function SelectionBar(): ReactNode {
     model.links.length === 1 && link !== undefined ? (
       <ToolButton
         key="open-link"
-        label="Open link"
-        tip={`Open link: ${linkDisplayUrl(link)}`}
+        label={linkAction(link).label}
+        tip={`${linkAction(link).label}: ${linkAction(link).description}`}
         tipSide={side}
-        icon={<ArrowUpRight aria-hidden="true" />}
+        icon={linkAction(link).inBoard ? <LocateFixed aria-hidden="true" /> : <ArrowUpRight aria-hidden="true" />}
         onClick={() => {
           leaveTyping();
-          openBoardLink(link);
+          openLink(link);
         }}
       />
     ) : null,

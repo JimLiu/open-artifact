@@ -29,7 +29,6 @@ import {
 } from '@open-artifact/whiteboard-core';
 import { useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { surfaceRef } from '../canvas/BoardSurface.tsx';
-import { linkDisplayUrl, openBoardLink } from '../elements/links.ts';
 import { screenToBoard, type Point } from '../lib/camera.ts';
 import { TABLE_HEAT_LABELS, heatRefusal, takesRowHeat } from '../lib/table-heat.ts';
 import { isApplePlatform, modKey } from '../lib/tools.ts';
@@ -75,7 +74,8 @@ import { TOUCH_LONG_PRESS_MS, movedPastTouchSlop } from '../tools/touch.ts';
 import { ChromeMenuItem, ChromeMenuLabel, ChromeMenuSeparator, ChromeSubmenu, POPUP } from './chrome.tsx';
 import { LayerRows } from './LayerBar.tsx';
 import { useCoarsePointer } from './hooks.ts';
-import { selectionLinks } from './selection-links.ts';
+import { copyElementLink, openLink } from '../services/link-card.ts';
+import { linkAction, selectionLinks } from './selection-links.ts';
 import { severalLinksMessage } from '../lib/link-card.ts';
 
 /* ------------------------------------------------------------------------ */
@@ -200,6 +200,7 @@ function listenForMenu(root: HTMLElement): () => void {
 /** Commands of the item menu. */
 type ItemCommand =
   | 'open-link'
+  | 'copy-element-link'
   | 'rename'
   | 'lock'
   | TableCellCommand
@@ -315,8 +316,13 @@ function layerPickRefusals(picked: PickedDrawingLayer): Partial<Record<ItemComma
 function runItemCommand(command: ItemCommand, cell: MenuCell | null, board: Point | null, link: string | undefined): void {
   switch (command) {
     case 'open-link':
-      if (link !== undefined) openBoardLink(link);
+      if (link !== undefined) openLink(link);
       return;
+    case 'copy-element-link': {
+      const ids = useSelection.getState().ids;
+      if (ids.length === 1) void copyElementLink(ids[0]!);
+      return;
+    }
     case 'rename': {
       const [id] = useSelection.getState().ids;
       if (id !== undefined) requestAnimationFrame(() => useSelection.getState().edit({ kind: 'element', id }));
@@ -492,17 +498,19 @@ function ItemMenuItems({ cell, board }: { cell: MenuCell | null; board: Point | 
 
   const first: ReactNode[] = [];
   if (link !== undefined) {
+    const action = linkAction(link);
     first.push(
       <CommandItem
         key="open-link"
-        label="Open link"
+        label={links.length === 1 ? action.label : 'Open link'}
         refusal={links.length > 1 ? severalLinksMessage(coarse) : undefined}
         onSelect={run('open-link')}
-        {...(links.length === 1 ? { description: linkDisplayUrl(link) } : {})}
+        {...(links.length === 1 ? { description: action.description } : {})}
       />,
     );
   }
   if (section) first.push(item('rename', section.text.trim() === '' ? 'Add a title' : 'Rename'));
+  if (selected.length === 1) first.push(item('copy-element-link', 'Copy link to item'));
   const groups: ReactNode[][] = cell
     ? [
         first,

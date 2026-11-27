@@ -59,6 +59,9 @@ export const SLIDE_FRAGMENT = /^#slide-(?:~[A-Za-z0-9_-]{1,64}(?:\.only(?:\.[0-9
  */
 export const INLINE_VIEW_FRAGMENT = '#view-inline';
 
+/** An element of a whiteboard: `#element=<element id>`. The board shows it when opened at this fragment. */
+export const ELEMENT_FRAGMENT = /^#element=(?!\.{1,40}$)[A-Za-z0-9_.~:@+-]{1,40}$/;
+
 /** A Docs tab, optionally followed by a block id or heading slug in that tab. */
 export const DOC_FRAGMENT = /^#[0-9a-f]{8}-[0-9a-f]{4}(?:\.[^\s#]{1,500})?$/;
 
@@ -250,6 +253,8 @@ export type ChromeCommand =
   | { cmd: 'goto_doc'; hash: string }
   | { cmd: 'goto_sheet'; page: string }
   | { cmd: 'goto_slide'; hash: string }
+  /** A whiteboard shows the element with this id. */
+  | { cmd: 'goto_element'; id: string }
   | { cmd: 'comments_mode'; on?: boolean; anchor?: string }
   | { cmd: 'comments_list'; open?: boolean }
   | { cmd: 'history' }
@@ -352,6 +357,8 @@ export type PageToShell =
   | { openArtifact: 'doc_place'; hash: string }
   | { openArtifact: 'current_slide'; hash: string }
   | { openArtifact: 'copy_slide_link'; hash: string }
+  /** Copy the link to a whiteboard element (the Shell's address at `#element=<id>`). */
+  | { openArtifact: 'copy_element_link'; id: string }
   | { openArtifact: 'request_comment_mode'; on: boolean; anchor?: string }
   | { openArtifact: 'chrome_report'; protocol: number; report: ChromeReport }
   | { openArtifact: 'chrome_exports'; id: string; items: ChromeExportItem[] }

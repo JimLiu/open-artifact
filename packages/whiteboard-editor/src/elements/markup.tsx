@@ -20,6 +20,7 @@ import {
   type NestedTextList,
   type TextProfile,
 } from '@open-artifact/whiteboard-core';
+import { boardLinkTarget } from './links.ts';
 import { PassiveLink } from './PassiveLink.tsx';
 import { hangStyle, type PaperFont } from './style.ts';
 
@@ -42,7 +43,7 @@ function Token({ token }: { token: InlineToken }): ReactNode {
       return <code>{token.text}</code>;
     case 'link':
       return (
-        <PassiveLink href={token.href} className="wb-text-link">
+        <PassiveLink href={boardLinkTarget(token.href) ?? token.href} link={token.href} className="wb-text-link">
           {token.text}
         </PassiveLink>
       );

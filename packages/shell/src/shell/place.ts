@@ -3,7 +3,7 @@
  * slide, a Docs tab or block, a sheet. Pure, so it runs under `node --test`.
  */
 
-import { DOC_FRAGMENT, SLIDE_FRAGMENT, type ChromeCommand, type PageToShell, type ShellBoot } from '@open-artifact/protocol';
+import { DOC_FRAGMENT, ELEMENT_FRAGMENT, SLIDE_FRAGMENT, type ChromeCommand, type PageToShell, type ShellBoot } from '@open-artifact/protocol';
 import { sheetPageFragment } from './model.ts';
 
 /** The fragment a page message reports as its place, or null when it reports none. */
@@ -24,6 +24,7 @@ export function placeOf(type: ShellBoot['type'], message: PageToShell): string |
 export function gotoCommand(type: ShellBoot['type'], hash: unknown): ChromeCommand | null {
   if (typeof hash !== 'string' || hash.length > 1000) return null;
   if (type === 'slides') return SLIDE_FRAGMENT.test(hash) ? { cmd: 'goto_slide', hash } : null;
+  if (type === 'whiteboard') return ELEMENT_FRAGMENT.test(hash) ? { cmd: 'goto_element', id: hash.slice('#element='.length) } : null;
   if (type === 'docs') return DOC_FRAGMENT.test(hash) ? { cmd: 'goto_doc', hash } : null;
   if (type === 'sheets') {
     const page = new URLSearchParams(sheetPageFragment(hash).slice(1)).get('page');

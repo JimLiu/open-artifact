@@ -705,6 +705,17 @@
   color: var(--wbc-fg);
 }
 
+/* A card to an element of this board that is no longer on it. */
+.wb-link-gone .al-face {
+  box-shadow: none;
+  outline: 1px dashed var(--wbc-line);
+  outline-offset: -1px;
+}
+
+.wb-link-gone :is(.al-icon, .al-title, .al-go) {
+  opacity: 0.55;
+}
+
 /* ---- Table ------------------------------------------------------------------ */
 
 .wb-table {

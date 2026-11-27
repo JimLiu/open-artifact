@@ -37,8 +37,16 @@ export interface InlineMarkdownOptions {
   pretty?: boolean;
 }
 
-/** A link target that may become a link: `http(s)://` without spaces, `)` or `[`. */
+/** A web link target that may become a link: `http(s)://` without spaces, `)` or `[`. */
 export const HTTP_LINK_PATTERN = /^https?:\/\/[^\s)[]*$/;
+
+/**
+ * Any link target text may hold: a web address ({@link HTTP_LINK_PATTERN}),
+ * an element of the same board (`#element=<id>`) or an artifact address,
+ * optionally at a place in it (`open-artifact://artifact/<id>#…`).
+ */
+export const TEXT_LINK_PATTERN =
+  /^(?:https?:\/\/[^\s)[]*|#element=[A-Za-z0-9_.~:@+-]{1,40}|open-artifact:\/\/artifact\/art_[0-9a-z]{10,40}(?:#[A-Za-z0-9_.~:@+\-=&%/]{1,200})?)$/;
 
 /** Emphasis and links (code spans are found separately). */
 export const INLINE_MARKDOWN_PATTERN = /(\*\*\*([^*]+)\*\*\*)|(\*\*([^*]+)\*\*)|(\*([^*]+)\*)|(\[([^\][]+)\]\(([^)\s[]+)\))/g;
@@ -71,10 +79,10 @@ export function escapeInlineMarkdown(text: string): string {
   return text.replace(/[*`[\]\\]/g, '\\$&');
 }
 
-/** The `http(s)` targets of every Markdown link in a text. */
+/** The targets of every Markdown link in a text ({@link TEXT_LINK_PATTERN}). */
 export function markdownLinkUrls(text: string): Set<string> {
   const urls = new Set<string>();
-  for (const match of text.matchAll(MARKDOWN_LINK_PATTERN)) if (match[1] !== undefined && HTTP_LINK_PATTERN.test(match[1])) urls.add(match[1]);
+  for (const match of text.matchAll(MARKDOWN_LINK_PATTERN)) if (match[1] !== undefined && TEXT_LINK_PATTERN.test(match[1])) urls.add(match[1]);
   return urls;
 }
 
@@ -171,7 +179,7 @@ export function tokenizeInlineMarkdown(input: string, options?: InlineMarkdownOp
     else if (found[4] !== undefined) tokens.push({ kind: 'bold', text: found[4] });
     else if (found[6] !== undefined) tokens.push({ kind: 'italic', text: found[6] });
     else if (found[8] !== undefined && found[9] !== undefined)
-      if (HTTP_LINK_PATTERN.test(found[9]) && (options?.linksTo === undefined || options.linksTo.has(text === input ? found[9] : decodeMarkdownEscapes(found[9]))))
+      if (TEXT_LINK_PATTERN.test(found[9]) && (options?.linksTo === undefined || options.linksTo.has(text === input ? found[9] : decodeMarkdownEscapes(found[9]))))
         tokens.push({ kind: 'link', text: found[8], href: found[9] });
       else tokens.push({ kind: 'text', text: options?.literalUnsafeLinks === true ? found[0] : found[8] });
     index = found.index + found[0].length;

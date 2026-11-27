@@ -17,6 +17,7 @@ import { announce } from './announce.ts';
 import { startDrawingLayers } from './drawing-layers.ts';
 import { startDrawingLooks } from './drawing-looks.ts';
 import { startAutoFit } from './auto-fit.ts';
+import { openedAtElement, startElementDeepLinks } from './deep-links.ts';
 import { installClipboard } from './clipboard.ts';
 import { startCropMemory } from './crop.ts';
 import { installDrop } from './drop.ts';
@@ -62,7 +63,8 @@ export async function startBoard(): Promise<() => void> {
   };
   const shell = holdShellCover();
   const cameraKey = boardScope();
-  const ownView = restoreCamera(cameraKey);
+  // A page opened at an element shows that element, never a fit of the whole board.
+  const ownView = restoreCamera(cameraKey) || openedAtElement() !== undefined;
   primeAgentState();
   stops.push(followColorScheme());
   stops.push(startTextMetrics());
@@ -90,6 +92,7 @@ function startServices(stops: Array<() => void>, cameraKey: string, ownView: boo
   stops.push(watchAgent());
   stops.push(startSync({ announce }));
   stops.push(startAutoFit({ ownView }));
+  stops.push(startElementDeepLinks());
   stops.push(startCollab());
   stops.push(startExport());
   stops.push(startDrawingLooks());
