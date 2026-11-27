@@ -115,21 +115,32 @@
     var veil = stage.querySelector('[data-stage-veil]');
     var open = stage.querySelector('[data-stage-open]');
     var load = stage.querySelector('[data-stage-load]');
+    var again = stage.querySelector('[data-stage-replay]');
+    var lang = /^zh/i.test(d.documentElement.lang || '') ? 'zh' : 'en';
     var tabs = Array.prototype.slice.call(stage.querySelectorAll('[data-demo]'));
     var base = stage.getAttribute('data-base');
     var KEEP = 3;       // loaded demos kept alive (with what was done in them); the least recently shown one goes
-    var frames = {};    // demo -> { el, ready }
+    var frames = {};    // demo -> { el, ready, replay: what the demo says of its replay ('ready' | 'playing' | 'done') }
     var recent = [];
     var current = (stage.querySelector('[data-demo][aria-current=true]') || tabs[0]).getAttribute('data-demo');
     var wanted = false; // frames may load
     var active = false; // the pointer and keyboard are the demo's
+    var seen = !('IntersectionObserver' in window); // enough of the stage is in view to watch a replay
 
+    function tell(f, what) { try { f.el.contentWindow.postMessage({ openArtifactDemo: what, chip: active }, location.origin); } catch (_) {} }
+    function replaying(f) { return !!f && (f.replay === 'ready' || f.replay === 'playing'); }
+    // A demo plays its replay (the agent's session that makes the artifact) only while it is the one on show and in view.
+    // Its own "Skip" shows (`chip`) once the veil, which skips on a click, is out of the way.
+    function conduct() { for (var k in frames) if (replaying(frames[k])) tell(frames[k], k === current && seen ? 'play' : 'pause'); }
     function tabOf(demo) { return tabs.filter(function (a) { return a.getAttribute('data-demo') === demo; })[0]; }
     function sync() {
       var f = frames[current];
       stage.setAttribute('data-state', f && f.ready ? 'ready' : wanted ? 'loading' : 'idle');
       if (active) stage.setAttribute('data-active', ''); else stage.removeAttribute('data-active');
       veil.hidden = !(f && f.ready) || active;
+      if (replaying(f)) stage.setAttribute('data-replay', 'playing'); else if (f && f.replay === 'done') stage.setAttribute('data-replay', 'done'); else stage.removeAttribute('data-replay');
+      again.hidden = !(f && f.replay === 'done');
+      conduct();
       for (var k in frames) { if (k === current) frames[k].el.setAttribute('data-on', ''); else frames[k].el.removeAttribute('data-on'); }
     }
     function ready(demo) {
@@ -147,8 +158,9 @@
         el.setAttribute('allowfullscreen', '');
         // The Shell greets its parent (shell_hello) once it is up; a page that never does still shows after a while.
         el.addEventListener('load', function () { setTimeout(function () { ready(demo); }, 4000); });
-        el.src = base + demo + '/?embed=1';
-        frames[demo] = { el: el, ready: false };
+        // `replay=hold`: the demo's replay waits for `play` (conduct, above).
+        el.src = base + demo + '/?embed=1&replay=hold&lang=' + lang;
+        frames[demo] = { el: el, ready: false, replay: null };
         view.insertBefore(el, veil);
       }
       recent = recent.filter(function (x) { return x !== demo; });
@@ -193,15 +205,36 @@
     var plain = function (e) { return !(e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button); };
 
     window.addEventListener('message', function (e) {
-      if (e.origin !== location.origin || !e.data || e.data.openArtifact !== 'shell_hello') return;
-      for (var k in frames) if (frames[k].el.contentWindow === e.source) ready(k);
+      if (e.origin !== location.origin || !e.data) return;
+      var hello = e.data.openArtifact === 'shell_hello';
+      var replay = e.data.openArtifactDemo === 'replay' ? e.data.state : null;
+      if (!hello && !replay) return;
+      for (var k in frames) {
+        if (frames[k].el.contentWindow !== e.source) continue;
+        // A demo with a replay is worth showing as soon as its session is up, before its editor.
+        if (replay) frames[k].replay = replay;
+        ready(k);
+        sync();
+      }
     });
     stage.addEventListener('click', function (e) {
       if (!plain(e)) return;
       var tab = e.target.closest('[data-demo]');
       if (tab) { e.preventDefault(); wanted = true; show(tab.getAttribute('data-demo')); return; }
       if (e.target.closest('[data-stage-load]')) { e.preventDefault(); start(); setActive(true); return; }
-      if (e.target.closest('[data-stage-veil]')) setActive(true);
+      if (e.target.closest('[data-stage-replay]')) {
+        var f = frames[current];
+        if (!f) return;
+        f.replay = null;
+        tell(f, 'restart');
+        setActive(false);
+        sync();
+        return;
+      }
+      if (e.target.closest('[data-stage-veil]')) {
+        if (replaying(frames[current])) tell(frames[current], 'skip');
+        setActive(true);
+      }
     });
     // "Try it live" on a type's card: that demo, here.
     d.addEventListener('click', function (e) {
@@ -226,8 +259,12 @@
     var auto = !saving && !small;
     if ('IntersectionObserver' in window) {
       new IntersectionObserver(function (entries) {
-        entries.forEach(function (en) { if (!en.isIntersecting || en.intersectionRatio < 0.25) setActive(false); });
-      }, { threshold: [0, 0.25] }).observe(view);
+        entries.forEach(function (en) {
+          if (!en.isIntersecting || en.intersectionRatio < 0.25) setActive(false);
+          seen = en.isIntersecting && en.intersectionRatio >= 0.3;
+        });
+        conduct();
+      }, { threshold: [0, 0.25, 0.3] }).observe(view);
     }
     sync();
     if (auto) {

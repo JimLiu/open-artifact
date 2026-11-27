@@ -1,0 +1,49 @@
+<!-- @dsCard group="Navigation" height=176 -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tabs</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: var(--space-5); background: var(--surface); color: var(--ink); font: var(--text-body); -webkit-font-smoothing: antialiased; }
+  .stack { display: grid; gap: var(--space-6); justify-items: start; }
+
+  .jp-tabs { display: flex; gap: var(--space-5); width: 100%; border-bottom: 1px solid var(--line); }
+  .jp-tabs__tab { position: relative; height: 44px; padding: 0; border: 0; background: none; color: var(--ink-muted); font: var(--text-label); font-size: 15px; cursor: pointer; }
+  .jp-tabs__tab:hover { color: var(--ink); }
+  .jp-tabs__tab[aria-selected="true"] { color: var(--ink); }
+  .jp-tabs__tab[aria-selected="true"]::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 3px; border-radius: 3px 3px 0 0; background: var(--accent); }
+  .jp-tabs__count { margin-left: var(--space-1); font: var(--text-data); font-size: 12px; color: var(--ink-muted); }
+
+  .jp-segment { display: inline-flex; padding: 3px; border-radius: var(--radius-md); background: var(--surface-sunken); }
+  .jp-segment__option { height: 36px; padding: 0 var(--space-4); border: 0; border-radius: calc(var(--radius-md) - 3px); background: none; color: var(--ink-muted); font: var(--text-label); cursor: pointer; }
+  .jp-segment__option[aria-selected="true"] { background: var(--surface-raised); color: var(--ink); box-shadow: var(--shadow-sm); }
+  .jp-tabs__tab:focus-visible, .jp-segment__option:focus-visible { outline: 2px solid var(--accent-focus); outline-offset: 2px; }
+</style>
+</head>
+<body>
+<div class="stack">
+  <div class="jp-tabs" role="tablist" aria-label="Account">
+    <button class="jp-tabs__tab" role="tab" aria-selected="true" type="button">Subscription</button>
+    <button class="jp-tabs__tab" role="tab" aria-selected="false" type="button">Orders<span class="jp-tabs__count">12</span></button>
+    <button class="jp-tabs__tab" role="tab" aria-selected="false" type="button">Brew guides</button>
+    <button class="jp-tabs__tab" role="tab" aria-selected="false" type="button">Address</button>
+  </div>
+  <div class="jp-segment" role="tablist" aria-label="Grind">
+    <button class="jp-segment__option" role="tab" aria-selected="true" type="button">Whole bean</button>
+    <button class="jp-segment__option" role="tab" aria-selected="false" type="button">Filter</button>
+    <button class="jp-segment__option" role="tab" aria-selected="false" type="button">Espresso</button>
+  </div>
+</div>
+<script>
+  for (const list of document.querySelectorAll('[role=tablist]')) {
+    list.addEventListener('click', (event) => {
+      const tab = event.target.closest('[role=tab]');
+      if (!tab) return;
+      for (const other of list.querySelectorAll('[role=tab]')) other.setAttribute('aria-selected', String(other === tab));
+    });
+  }
+</script>
+</body>
+</html>

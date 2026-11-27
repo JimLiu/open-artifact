@@ -6,14 +6,14 @@ is not an npm workspace and is not part of the repo's `npm test`. Each half has 
 | Path | What it is |
 | --- | --- |
 | [`site/`](site/README.md) | The static site, EN and zh-CN (`/zh/…`). A plain Node build script renders the pages, and the docs are read from `../docs` at build time. It also produces `/llms.txt`, `/llms-full.txt`, `/llms/<repo path>`, the sitemap, robots.txt and `404.html`. |
-| `playground/` | The live demos. The real Shell (`packages/shell`, built with Vite) runs the real prebuilt editors over an in-memory backend, with a scripted simulated agent. The Docs and Sheets demos run the real engines in the page ([`engines/`](playground/engines/README.md)). |
+| `playground/` | The live demos. The real Shell (`packages/shell`, built with Vite) runs the real prebuilt editors over an in-memory backend, with a scripted simulated agent. The Docs and Sheets demos run the real engines in the page ([`engines/`](playground/engines/README.md)). Each demo's artifact is a showcase folder ([`showcase/`](playground/showcase/README.md)), and each can replay the agent session that makes it. |
 | `build.mjs` | Builds both halves into `dist/`: the site at the root and the playground under `playground/`. |
 | `scripts/` | `serve.mjs` (a static server that behaves like a host), `check-links.mjs` (internal links and anchors), `verify-home.mjs` (the home page's live stage, in headless Chrome), and `verify.mjs` (the link check, the home page's checks and the playground's browser checks against `dist/`). |
 
 ## Prerequisites
 
 - Node.js 22.18 or later, and a full checkout. The site reads `docs/`, `README.md`, skills and package versions, and
-  the playground reads `test-artifacts/`, `e2e/fixtures/` and `packages/` sources.
+  the playground reads its own `showcase/` artifacts and `packages/` sources.
 - The repo itself, installed and built: `npm install && npm run build` at the repo root. The playground copies the
   built editors from `dist/server/editors/`, the design runtime from `dist/server/support.js`, and frame-host's client
   from `dist/daemon/frame-host/client/`. It also uses the root `esbuild` to bundle the engines.
@@ -33,12 +33,27 @@ The playground's landing page takes the type colors, icons, mark and each demo's
 matches the site. Its language follows the site's `oa-lang` choice, then
 the site's `/zh/` pages when they linked here, then the browser. The Shell inside a demo follows the browser's language,
 as the product does. Each demo page has a one-line bar above the Shell that says it is a live demo with a simulated
-agent, and links back to the demos and the site.
+agent, and links to the demo's replay, back to the demos and to the site.
+
+### A demo's replay
+
+`/playground/<type>/?replay=1` first plays the session of an agent asked for that artifact, beside the real page
+(`playground/src/replay/`): the person's `/open-artifact <type> …` types itself into a simulated agent session, the
+agent's tool calls build the artifact in the editor a step at a time, a comment is left on it and sent to the agent,
+and the agent changes the artifact and answers. The page cannot be touched while it plays. “Skip” lands everything at
+once, and afterwards it is the usual demo, with the session still showing what the simulated agent does with the
+visitor's own comments. Someone who asked their system for less motion gets the finished artifact instead. The script
+is the `replay` of the demo's `demos/<type>.demo.json`; [`playground/showcase/README.md`](playground/showcase/README.md)
+says how a demo's artifact, agent script and replay are written and checked. `?lang=en|zh` sets the language of the
+session's words.
 
 ### The home page's live stage
 
 The home page shows the demos themselves: a stage under the hero with a tab per type, each one the demo's own page in a
-frame (`/playground/<type>/?embed=1`; `embed=1` leaves out the demo's hint bar, since the home page says what it is).
+frame (`/playground/<type>/?embed=1&replay=hold&lang=<en|zh>`; `embed=1` leaves out the demo's hint bar, since the
+home page says what it is, and `replay=hold` makes the demo's replay wait for the stage). The replay of the demo on
+show plays while enough of the stage is in view, and pauses otherwise; a click on the veil skips it, and “Replay” in
+the stage's bar plays it again.
 The page's HTML holds only the tabs (plain links to the demos' pages, so they work without JavaScript) and a poster.
 `site/src/assets/site.js` makes the frame after the page has loaded and the stage is near the viewport, so the page
 never waits for an editor. A narrow window (760px or less) or a data-saving connection loads nothing until someone

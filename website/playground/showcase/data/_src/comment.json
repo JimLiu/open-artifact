@@ -1,0 +1,10 @@
+{
+  "anchor": "#subscribers-chart",
+  "label": "Chart “Subscribers against the spring goal”",
+  "detail": "Chart \"Subscribers against the spring goal\" · <figure id=\"subscribers-chart\" class=\"jc-card jc-fig\" data-source=\"totals subscriptions goals\">",
+  "location": {
+    "file": "files/index.html",
+    "selector": "#subscribers-chart"
+  },
+  "at": [0.428, 0.765]
+}

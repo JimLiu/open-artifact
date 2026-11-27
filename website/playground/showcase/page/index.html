@@ -1,0 +1,668 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>First Light brew guide</title>
+<style>
+/* The methods run across the top; a quiet recipe sheet sits beside one forest-green brewing bench; the log runs under both. */
+:root {
+  --ground: #f7f2e8;  --surface: #fffdf7;  --ink: #1d1b16;  --ink-quiet: #686353;
+  --line: #e7e2d6;    --edge: #a9a391;     --moss: #5b7f5e;
+  --bench: #20402f;   --on-bench: #f7f2e8; --on-bench-quiet: #b4c5b4; --bench-line: #3f5d4c;
+  --accent: #c2562b;  --on-accent: #ffffff; --honey: #e3a53c; --on-honey: #1d1b16;
+  --font-text: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-display: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  --step: 8px;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ground: #161a15;  --surface: #1e231d;  --ink: #efe9db;  --ink-quiet: #a8a696;
+    --line: #2d342c;    --edge: #5d6658;     --moss: #8fb291;
+    --bench: #23392c;   --on-bench: #f1ebdd; --on-bench-quiet: #a9bca9; --bench-line: #3d5747;
+    --accent: #e0703f;  --on-accent: #1a110b; --honey: #e9b55a; --on-honey: #1d1b16;
+    color-scheme: dark;
+  }
+}
+*, *::before, *::after { box-sizing: border-box; }
+body { margin: 0; background: var(--ground); color: var(--ink); font: 15px/1.5 var(--font-text); -webkit-text-size-adjust: 100%; }
+h1, h2, p, ol, ul, dl, dd { margin: 0; padding: 0; }
+button, input { font: inherit; color: inherit; }
+[hidden] { display: none !important; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.quiet { color: var(--ink-quiet); font-size: 14px; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.wrap { max-width: 980px; margin: 0 auto; padding: calc(var(--step) * 2.5) calc(var(--step) * 2.5) calc(var(--step) * 5); display: grid; gap: calc(var(--step) * 2); }
+
+/* Header */
+.top { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 12px; }
+.mark { width: 30px; height: 30px; flex: none; color: var(--moss); }
+h1 { font: 600 26px/1.15 var(--font-display); letter-spacing: -0.01em; text-wrap: balance; }
+.facts { margin-left: auto; min-height: 21px; }
+.pinned { display: flex; gap: 10px; align-items: baseline; padding: 9px 14px; border-radius: 10px; background: color-mix(in srgb, var(--honey) 24%, var(--ground)); }
+.pinned b { font-weight: 600; white-space: nowrap; }
+.notice { padding: 10px 14px; border-radius: 10px; border: 1px solid var(--edge); }
+
+/* Methods */
+.method-row { display: flex; flex-wrap: wrap; gap: 10px; }
+.ask { flex: none; width: 64px; display: grid; place-items: center; align-content: center; gap: 1px; padding: 6px; border: 1px dashed var(--edge); border-radius: 12px; background: transparent; color: var(--ink-quiet); font-size: 12px; font-weight: 600; cursor: pointer; transition: border-color .15s, color .15s; }
+.ask svg { width: 18px; height: 18px; }
+.ask:hover { border-color: var(--ink); color: var(--ink); }
+.methods { flex: 1 1 0; min-width: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; min-height: 62px; }
+.method { position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 10px; align-items: center; padding: 10px 12px; border: 1px solid var(--edge); border-radius: 12px; cursor: pointer; transition: background-color .15s, border-color .15s, transform .15s; }
+.method > * { pointer-events: none; }
+.method svg { grid-row: span 2; width: 28px; height: 28px; color: var(--moss); }
+.method b { font-weight: 600; line-height: 1.25; }
+.method small { color: var(--ink-quiet); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.method:hover { border-color: var(--ink); }
+.method.is-on { background: var(--surface); border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); }
+.method.is-on svg { color: var(--accent); }
+.method:has(:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+.method .pick { position: absolute; top: -9px; right: 10px; padding: 0 8px; border-radius: 99px; background: var(--honey); color: var(--on-honey); font-size: 11px; font-weight: 700; line-height: 18px; }
+.ask .wide { display: none; }
+.methods .ghost { border: 1px dashed var(--edge); border-radius: 12px; opacity: .5; }
+.methods .empty { grid-column: 1 / -1; align-self: center; padding: 10px 14px; border: 1px dashed var(--edge); border-radius: 12px; color: var(--ink-quiet); }
+
+/* The bench: recipe + brewing */
+.bench { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: calc(var(--step) * 2); }
+h2 { font: 600 18px/1.2 var(--font-display); }
+.recipe { display: grid; gap: 10px; align-content: start; padding: 16px 20px; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; }
+.recipe header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.ratio { font-variant-numeric: tabular-nums; font-weight: 600; }
+.pair { display: flex; align-items: flex-start; gap: 14px; }
+.fig { display: grid; min-width: 0; }
+.fig output { font: 600 40px/1 var(--font-display); font-variant-numeric: tabular-nums lining-nums; }
+.fig .g { margin-left: 4px; font: 600 20px/1 var(--font-display); }
+.fig .cap { color: var(--ink-quiet); font-size: 13px; }
+.pair .arrow { color: var(--accent); font-size: 20px; line-height: 40px; }
+.field { display: flex; align-items: center; gap: 12px; }
+.label { font-size: 13px; font-weight: 600; }
+input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; height: 28px; margin: 0; background: transparent; cursor: pointer; }
+input[type=range]::-webkit-slider-runnable-track { height: 6px; border-radius: 3px; background: linear-gradient(to right, var(--accent) var(--fill, 33%), var(--edge) var(--fill, 33%)); }
+input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 22px; height: 22px; margin-top: -8px; border-radius: 50%; background: var(--surface); border: 2px solid var(--accent); box-shadow: 0 1px 3px rgb(0 0 0 / .2); transition: transform .12s; }
+input[type=range]:active::-webkit-slider-thumb { transform: scale(1.15); }
+input[type=range]::-moz-range-track { height: 6px; border-radius: 3px; background: var(--edge); }
+input[type=range]::-moz-range-progress { height: 6px; border-radius: 3px; background: var(--accent); }
+input[type=range]::-moz-range-thumb { width: 18px; height: 18px; border-radius: 50%; background: var(--surface); border: 2px solid var(--accent); }
+.seg { flex: 1; display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; padding: 3px; border: 1px solid var(--edge); border-radius: 10px; }
+.seg span { display: block; padding: 5px 4px; border-radius: 7px; text-align: center; font-size: 13.5px; cursor: pointer; }
+.seg input:checked + span { background: var(--ink); color: var(--ground); font-weight: 600; }
+.seg input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+.stats { display: flex; flex-wrap: wrap; gap: 6px 24px; padding-top: 10px; border-top: 1px solid var(--line); }
+.stats dt { font-size: 12.5px; color: var(--ink-quiet); }
+.stats dd { font-size: 14.5px; font-weight: 600; white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+.brew { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px 16px; align-items: center; align-content: space-between; padding: 16px 20px; background: var(--bench); color: var(--on-bench); border-radius: 16px; }
+.dial { width: clamp(150px, 18vw, 190px); }
+.dial svg { display: block; width: 100%; height: auto; }
+.ring-track { fill: none; stroke: var(--bench-line); stroke-width: 9; }
+.ring-fill { fill: none; stroke: var(--accent); stroke-width: 9; }
+.ring-gap { stroke: var(--bench); stroke-width: 3; }
+.ring-head { fill: var(--on-bench); }
+.art { fill: none; stroke: var(--on-bench); stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+.art .glass { fill: color-mix(in srgb, var(--on-bench) 9%, transparent); }
+.art .solid { fill: var(--on-bench); }
+.art .coffee { fill: var(--honey); stroke: none; }
+.art .water { fill: color-mix(in srgb, var(--on-bench) 38%, transparent); stroke: none; }
+.art .ice { fill: color-mix(in srgb, var(--on-bench) 30%, transparent); stroke-width: 1.6; }
+.art .drip { fill: var(--honey); stroke: none; }
+.art .steam { stroke: var(--on-bench-quiet); stroke-width: 1.8; opacity: 0; }
+.now { display: grid; gap: 4px; align-content: center; }
+.clock { font: 600 46px/1 var(--font-display); font-variant-numeric: tabular-nums lining-nums; }
+.clock .of { font: 400 14px/1 var(--font-text); color: var(--on-bench-quiet); }
+.step-name { font-weight: 600; font-size: 16px; margin-top: 4px; }
+.step-detail { color: var(--on-bench-quiet); font-size: 13.5px; line-height: 1.4; min-height: 38px; text-wrap: pretty; }
+.controls { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.btn { min-height: 38px; padding: 6px 11px; border-radius: 10px; border: 1px solid var(--on-bench-quiet); background: transparent; color: var(--on-bench); font-size: 13.5px; white-space: nowrap; font-weight: 600; cursor: pointer; transition: transform .1s, background-color .15s; }
+.btn:hover:not(:disabled) { background: color-mix(in srgb, var(--on-bench) 12%, transparent); }
+.btn:active:not(:disabled) { transform: translateY(1px); }
+.btn:disabled { opacity: .45; cursor: default; }
+.btn.icon { width: 38px; padding: 0; display: grid; place-items: center; }
+.btn.icon svg { width: 18px; height: 18px; }
+.btn.primary { border-color: var(--accent); background: var(--accent); color: var(--on-accent); }
+.btn.primary:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 88%, var(--on-bench)); }
+.steps { grid-column: 1 / -1; list-style: none; display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 8px; }
+.steps li { padding: 7px 0 0; border-top: 3px solid var(--bench-line); display: grid; align-content: start; transition: border-color .3s; }
+.steps b { font-size: 13.5px; font-weight: 600; }
+.steps span { font-size: 12.5px; color: var(--on-bench-quiet); font-variant-numeric: tabular-nums; }
+.steps .is-done { border-top-color: var(--moss); }
+.steps .is-now { border-top-color: var(--accent); }
+.steps li:not(.is-now):not(.is-done) b { color: var(--on-bench-quiet); }
+
+/* Tasting log */
+.log { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 10px calc(var(--step) * 2); align-items: start; padding-top: 4px; }
+.log-head { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; }
+.log-form { display: grid; gap: 8px; }
+.rating { display: flex; align-items: center; gap: 2px; }
+.rating label { display: grid; place-items: center; width: 30px; height: 34px; cursor: pointer; }
+.rating label:has(:focus-visible) { outline: 2px solid var(--accent); border-radius: 6px; }
+.rating svg, .beans svg { width: 20px; height: 20px; }
+.bean { fill: var(--bean, none); stroke: var(--bean-edge, var(--edge)); stroke-width: 1.4; }
+.bean-line { fill: none; stroke: var(--bean-crease, var(--edge)); stroke-width: 1.2; stroke-linecap: round; }
+.is-full { --bean: var(--accent); --bean-edge: var(--accent); --bean-crease: var(--ground); }
+.rating label:hover svg { transform: rotate(-12deg) scale(1.1); }
+.rating svg { transition: transform .12s; }
+.rating-word { margin-left: 8px; font-size: 13px; color: var(--ink-quiet); }
+.log-form .row { display: flex; gap: 8px; }
+.log-form input[type=text] { flex: 1; min-width: 0; min-height: 40px; padding: 6px 12px; border: 1px solid var(--edge); border-radius: 10px; background: var(--surface); }
+.btn.dark { border-color: var(--ink); background: var(--ink); color: var(--ground); white-space: nowrap; }
+.btn.dark:hover:not(:disabled) { background: color-mix(in srgb, var(--ink) 86%, var(--ground)); }
+.brews { list-style: none; display: grid; }
+.brews li { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 0 14px; padding: 9px 0; border-top: 1px solid var(--line); }
+.brews li:first-child { border-top: 0; padding-top: 2px; }
+.beans { display: flex; align-items: center; height: 24px; }
+.beans svg { width: 16px; height: 16px; }
+.said { font: 16px/1.4 var(--font-display); overflow-wrap: anywhere; }
+.meta { grid-column: 2; font-size: 12.5px; color: var(--ink-quiet); }
+.brews .none { display: block; color: var(--ink-quiet); }
+
+@media (max-width: 719px) {
+  .wrap { padding: calc(var(--step) * 2) calc(var(--step) * 2) calc(var(--step) * 4); }
+  .bench, .log { grid-template-columns: minmax(0, 1fr); }
+  .facts { margin-left: 0; flex-basis: 100%; }
+  .methods { flex-basis: 100%; }
+  .ask .wide { display: inline; }
+  .ask { width: auto; flex: 1 1 100%; grid-auto-flow: column; justify-content: center; gap: 6px; min-height: 40px; font-size: 13.5px; }
+}
+@media (max-width: 419px) {
+  .brew { grid-template-columns: minmax(0, 1fr); justify-items: center; text-align: center; }
+  .now, .steps { justify-self: stretch; }
+  .controls { justify-content: center; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .method.pop { animation: pop .5s cubic-bezier(.2, 1.4, .4, 1) both; }
+  .brews li.pop { animation: slide .4s ease-out both; }
+  .is-brewing .steam { animation: steam 2.4s ease-in-out infinite; }
+  .is-brewing .steam + .steam { animation-delay: 1.2s; }
+  @keyframes pop { from { opacity: 0; transform: scale(.9); } 60% { background: color-mix(in srgb, var(--honey) 35%, var(--ground)); } to { opacity: 1; transform: none; } }
+  @keyframes slide { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+  @keyframes steam { 0% { opacity: 0; transform: translateY(4px); } 40% { opacity: .9; } 100% { opacity: 0; transform: translateY(-5px); } }
+}
+</style>
+</head>
+<body>
+<svg width="0" height="0" class="sr" aria-hidden="true">
+  <symbol id="i-dripper" viewBox="0 0 28 28"><path d="M5 5h18M7 6l5 8h4l5-8M9 16h10M10 16l-2 8h12l-2-8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-press" viewBox="0 0 28 28"><path d="M14 2v7M11 2h6M7 9h13M8 9v15h11V9M19 12h2a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-2M8 15h11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-aeropress" viewBox="0 0 28 28"><path d="M9 2h10M11 2v6h6V2M8 8h12M10 8v10h8V8M8 18h12M10 21v3a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v-3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-bean" viewBox="0 0 20 20"><ellipse class="bean" cx="10" cy="10" rx="5.4" ry="7.6" transform="rotate(32 10 10)"/><path class="bean-line" d="M6.6 4.4c4.4 2.6 1.2 7.4 6.6 11.2"/></symbol>
+</svg>
+
+<main class="wrap">
+  <header class="top">
+    <svg class="mark" viewBox="0 0 30 30" aria-hidden="true"><path d="M6 26C10 18 15 12 25 5M11 19l-6-2M11 19l1 7M15 14l-7-3M15 14l2 7M19.5 10l-6-3M19.5 10l2 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="23" cy="13" r="2.6" fill="currentColor"/><circle cx="18" cy="4.5" r="2.2" fill="currentColor"/></svg>
+    <h1 id="title">First Light brew guide</h1>
+    <p id="facts" class="facts quiet"></p>
+  </header>
+
+  <p id="status" class="notice" role="status" hidden></p>
+  <p id="pinned" class="pinned" hidden></p>
+
+  <div class="method-row">
+    <div id="methods" class="methods" role="radiogroup" aria-label="Brew method">
+      <span class="ghost"></span><span class="ghost"></span><span class="ghost"></span>
+    </div>
+    <button id="ask" class="ask" type="button" title="Ask the agent for another method" hidden><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4v12M4 10h12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg><span>Ask<span class="wide"> for another method</span></span></button>
+  </div>
+
+  <div class="bench">
+    <section id="recipe" class="recipe" aria-labelledby="recipe-title">
+      <header><h2 id="recipe-title">Recipe</h2><span id="ratio" class="ratio quiet"></span></header>
+      <div class="pair">
+        <div class="fig"><div><output id="dose-out" for="dose">–</output><span class="g">g</span></div><span class="cap">coffee</span></div>
+        <span class="arrow" aria-hidden="true">→</span>
+        <div class="fig"><div><output id="water-out" for="dose">–</output><span class="g">g</span></div><span id="water-unit" class="cap">water</span></div>
+      </div>
+      <input id="dose" type="range" min="10" max="40" step="1" value="20" aria-label="Coffee dose in grams" disabled>
+      <div class="field">
+        <span class="label" id="strength-label">Strength</span>
+        <div id="strength" class="seg" role="radiogroup" aria-labelledby="strength-label">
+          <label><input class="sr" type="radio" name="strength" value="-1"><span>Bolder</span></label>
+          <label><input class="sr" type="radio" name="strength" value="0" checked><span>Classic</span></label>
+          <label><input class="sr" type="radio" name="strength" value="1"><span>Lighter</span></label>
+        </div>
+      </div>
+      <dl id="stats" class="stats"></dl>
+      <p id="method-note" class="quiet"></p>
+    </section>
+
+    <section id="brew" class="brew" aria-labelledby="brew-title">
+      <h2 id="brew-title" class="sr">Brew timer</h2>
+      <div class="dial">
+        <svg id="dial" viewBox="0 0 200 200" role="img" aria-label="Brew progress">
+          <circle class="ring-track" cx="100" cy="100" r="90"/>
+          <circle id="ring" class="ring-fill" cx="100" cy="100" r="90" transform="rotate(-90 100 100)" stroke-dasharray="565.49" stroke-dashoffset="565.49"/>
+          <g id="ring-gaps"></g>
+          <circle id="ring-head" class="ring-head" r="5.5" cx="100" cy="10" hidden/>
+          <svg id="art" class="art" x="46" y="38" width="108" height="126" viewBox="0 0 108 126"></svg>
+        </svg>
+      </div>
+      <div class="now">
+        <p class="clock"><span id="clock">0:00</span> <span id="total" class="of"></span></p>
+        <div aria-live="polite">
+          <p id="step-name" class="step-name">Loading…</p>
+          <p id="step-detail" class="step-detail"></p>
+        </div>
+        <div class="controls">
+          <button id="start" class="btn primary" type="button" disabled>Start brewing</button>
+          <button id="next" class="btn" type="button" disabled>Next step</button>
+          <button id="reset" class="btn icon" type="button" aria-label="Reset the timer" title="Reset" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4.5 10a5.5 5.5 0 1 0 1.7-4M4 3.5V7h3.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        </div>
+      </div>
+      <ol id="steps" class="steps" aria-label="Steps"></ol>
+    </section>
+  </div>
+
+  <section id="log" class="log" aria-labelledby="log-title">
+    <div class="log-head"><h2 id="log-title">Tasting log</h2><p id="log-for" class="quiet"></p></div>
+    <form id="log-form" class="log-form">
+      <div class="rating" id="rating" role="radiogroup" aria-label="How was it?"></div>
+      <label class="sr" for="note">Tasting note</label>
+      <div class="row">
+        <input id="note" name="note" type="text" maxlength="140" autocomplete="off" placeholder="What did you taste?">
+        <button id="save" class="btn dark" type="submit" disabled>Save to log</button>
+      </div>
+      <p id="log-status" class="quiet" role="status"></p>
+    </form>
+    <ul id="brews" class="brews" aria-label="Saved tasting notes"><li class="none">Loading the log…</li></ul>
+  </section>
+</main>
+
+<script>
+// A brew guide that is a small app. Everything it shows is data in the page's own database, so the agent and every
+// open view share it: `guide/main` (the blend, today's pick, a pinned note), `methods/*` (the recipes) and `brews/*`
+// (tasting notes people save here).
+(() => {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  const SVG = 'http://www.w3.org/2000/svg';
+  const RING = 2 * Math.PI * 90;
+  const WORDS = ['', 'Not for me', 'Fine', 'Good', 'Very good', 'Best cup this week'];
+  const clamp = (v, lo = 0, hi = 1) => Math.min(hi, Math.max(lo, v));
+  const clock = (s) => `${Math.floor(Math.round(s) / 60)}:${String(Math.round(s) % 60).padStart(2, '0')}`;
+  const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text !== undefined) n.textContent = text; return n; };
+  const icon = (name, cls) => { const s = document.createElementNS(SVG, 'svg'); s.setAttribute('aria-hidden', 'true'); if (cls) s.setAttribute('class', cls); const u = document.createElementNS(SVG, 'use'); u.setAttribute('href', `#i-${name}`); s.append(u); return s; };
+
+  const state = { methods: [], guide: null, gotMethods: false, gotGuide: false, id: null, wish: null, seen: null, dose: 20, strength: 0, rating: 4, elapsed: 0, base: 0, since: 0, running: false, done: false, me: 'Someone' };
+  let brews = null;
+  let comments = null;
+  let frame = 0;
+
+  /* ---- the recipe maths ---- */
+  const KINDS = ['dripper', 'press', 'aeropress'];
+  function method(id, d) {
+    const steps = (Array.isArray(d.steps) ? d.steps : []).filter((s) => s && s.seconds > 0).map((s) => ({ label: String(s.label ?? 'Step'), detail: String(s.detail ?? ''), seconds: Number(s.seconds), pour: typeof s.pour === 'number' ? clamp(s.pour) : null }));
+    if (!steps.length || !(d.ratio > 0)) return null;
+    return { id, name: String(d.name ?? id), brewer: KINDS.includes(d.brewer) ? d.brewer : 'dripper', ratio: Number(d.ratio), dose: clamp(Math.round(d.dose) || 20, 10, 40), grind: String(d.grind ?? ''), temp: Number(d.temp) || 0, ice: clamp(Number(d.ice) || 0, 0, 0.6), note: String(d.note ?? ''), steps, total: steps.reduce((a, s) => a + s.seconds, 0) };
+  }
+  const current = () => state.methods.find((m) => m.id === state.id) ?? null;
+  /** The recipe for the dose and strength on the page: grams of water, and when each step starts and what it pours to. */
+  function plan(m) {
+    const ratio = m.ratio + state.strength;
+    const water = Math.round(state.dose * ratio);
+    const ice = Math.round(water * m.ice);
+    const hot = water - ice;
+    let at = 0;
+    let poured = 0;
+    const steps = m.steps.map((s) => {
+      const step = { ...s, from: at, to: at + s.seconds, pourFrom: poured, pourTo: s.pour ?? poured, grams: s.pour === null ? null : Math.round(hot * s.pour) };
+      at = step.to;
+      poured = step.pourTo;
+      return step;
+    });
+    return { ratio, water, ice, hot, steps, cup: Math.max(0, water - 2 * state.dose) };
+  }
+
+  /* ---- methods ---- */
+  function drawMethods() {
+    const box = $('methods');
+    if (!state.gotMethods || !state.gotGuide) return;
+    const focused = box.contains(document.activeElement);
+    $('ask').hidden = !comments || !state.methods.length;
+    if (!state.methods.length) {
+      box.replaceChildren(el('p', 'empty', 'No brew methods yet. They show up here the moment they are added.'));
+      state.seen = new Set();
+      return;
+    }
+    box.replaceChildren(...state.methods.map((m) => {
+      const card = el('label', `method${m.id === state.id ? ' is-on' : ''}${state.seen && !state.seen.has(m.id) ? ' pop' : ''}`);
+      card.id = `method-${m.id}`;
+      const radio = el('input', 'sr');
+      radio.type = 'radio';
+      radio.name = 'method';
+      radio.value = m.id;
+      radio.checked = m.id === state.id;
+      radio.addEventListener('change', () => choose(m.id));
+      card.append(radio, icon(m.brewer), el('b', '', m.name), document.createTextNode(' '), el('small', '', `1:${m.ratio} · ${clock(m.total)}`));
+      if (state.guide?.featured === m.id) card.append(document.createTextNode(' '), el('span', 'pick', 'Today’s pick'));
+      return card;
+    }));
+    state.seen = new Set(state.methods.map((m) => m.id));
+    if (focused) box.querySelector('input:checked')?.focus();
+  }
+  function choose(id) {
+    const m = state.methods.find((x) => x.id === id);
+    if (!m) return;
+    state.id = id;
+    state.dose = m.dose;
+    state.strength = 0;
+    resetTimer();
+    draw();
+  }
+  /** Opens on today's pick, and follows it when it changes, unless a brew is running. */
+  function follow() {
+    if (!state.gotMethods || !state.gotGuide) return;
+    if (state.wish && !state.running && state.methods.some((m) => m.id === state.wish)) {
+      const id = state.wish;
+      state.wish = null;
+      if (id !== state.id) return choose(id);
+    }
+    if (!current() && state.methods.length) return choose(state.methods[0].id);
+    draw();
+  }
+
+  /* ---- recipe ---- */
+  function drawRecipe() {
+    const m = current();
+    const dose = $('dose');
+    dose.disabled = !m;
+    for (const r of document.querySelectorAll('input[name=strength]')) { r.disabled = !m; r.checked = Number(r.value) === state.strength; }
+    $('save').disabled = !m || !brews;
+    if (!m) {
+      $('ratio').textContent = '';
+      $('dose-out').textContent = $('water-out').textContent = '–';
+      $('stats').replaceChildren();
+      $('method-note').textContent = '';
+      $('log-for').textContent = '';
+      return;
+    }
+    const p = plan(m);
+    dose.value = String(state.dose);
+    dose.style.setProperty('--fill', `${((state.dose - 10) / 30) * 100}%`);
+    dose.setAttribute('aria-valuetext', `${state.dose} grams of coffee`);
+    $('ratio').textContent = `1 : ${p.ratio}`;
+    $('dose-out').textContent = String(state.dose);
+    $('water-out').textContent = String(p.hot);
+    $('water-unit').textContent = p.ice ? `hot water, over ${p.ice} g ice` : 'water';
+    const stat = (name, value) => { const d = el('div'); d.append(el('dt', '', name), el('dd', '', value)); return d; };
+    $('stats').replaceChildren(
+      stat('In the cup', `≈ ${Math.round(p.cup / 10) * 10} ml`),
+      stat('Grind', m.grind || '–'),
+      stat('Water', m.temp ? `${m.temp} °C` : '–'),
+    );
+    $('method-note').textContent = m.note;
+    $('log-for').textContent = `Saves with what is on the bench: ${m.name}, ${state.dose} g.`;
+  }
+
+  /* ---- the brewer, drawn ---- */
+  const ART = {
+    dripper: (m) => `<path class="steam" d="M44 17c-4-5 4-8 0-13"/><path class="steam" d="M62 17c-4-5 4-8 0-13"/>
+      <polygon id="a-water" class="water"/><polygon id="a-coffee" class="coffee"/>
+      <path class="glass" d="M26 24h56L62 54H46Z"/><path d="M21 22h66M48 54v4M60 54v4M40 58h28"/>
+      <path class="glass" d="M34 62h40l10 50q1 6-5 6H29q-6 0-5-6Z"/>
+      <g id="a-ice"${m.ice ? '' : ' hidden'}><rect class="ice" x="34" y="98" width="13" height="13" rx="2" transform="rotate(-14 40 104)"/><rect class="ice" x="52" y="100" width="13" height="13" rx="2" transform="rotate(10 58 106)"/><rect class="ice" x="44" y="86" width="12" height="12" rx="2" transform="rotate(24 50 92)"/></g>
+      <circle id="a-drip" class="drip" r="1.8" cx="54" cy="62" hidden/>`,
+    press: () => `<rect id="a-coffee" class="coffee" x="32" width="44" rx="2"/>
+      <rect class="glass" x="30" y="56" width="48" height="64" rx="4"/><path d="M78 68q16 0 16 18t-16 18M25 122h58"/>
+      <rect class="solid" x="27" y="50" width="54" height="6" rx="2"/>
+      <g id="a-plunger"><path d="M54 4v62M34 66h40"/><circle class="solid" cx="54" cy="4" r="3.5"/></g>`,
+    aeropress: () => `<rect id="a-coffee" class="coffee" x="42" width="24"/><polygon id="a-cup" class="coffee"/>
+      <rect class="glass" x="40" y="38" width="28" height="48"/><path d="M36 38h36M34 88h40"/>
+      <g id="a-plunger"><rect class="glass" x="43" y="4" width="22" height="40" rx="2"/><path d="M38 4h32"/><path class="solid" d="M43 41h22v3H43z"/></g>
+      <path class="glass" d="M34 94h40l-3 24q0 3-3 3H40q-3 0-3-3Z"/><path d="M74 100q13 0 13 9t-15 9"/>`,
+  };
+  let artFor = '';
+  function drawArt(m, p, t) {
+    const art = $('art');
+    const key = m ? `${m.brewer}/${m.ice ? 1 : 0}` : '';
+    if (key !== artFor) { art.innerHTML = m ? ART[m.brewer](m) : ''; artFor = key; }
+    if (!m) return;
+    const part = (id) => art.querySelector(`#${id}`);
+    const step = p.steps.find((s) => t < s.to) ?? p.steps.at(-1);
+    const within = clamp((t - step.from) / step.seconds);
+    const poured = step.pourFrom + (step.pourTo - step.pourFrom) * (step.pour === null ? 1 : within);
+    const progress = clamp(t / m.total);
+    const last = step === p.steps.at(-1) ? within : 0;
+    if (m.brewer === 'dripper') {
+      // What has dripped through is in the server; what was poured and has not is still in the cone.
+      const top = 116.5 - 48 * progress;
+      const left = (y) => (y <= 112 ? 34 - (y - 62) * 0.2 : 24.5);
+      part('a-coffee').setAttribute('points', progress > 0 ? `${left(top) + 1.5},${top} ${106.5 - left(top)},${top} 82.5,112 81,116.5 27,116.5 25.5,112` : '');
+      const cone = clamp((poured - progress) * 2.4);
+      const y = 53.5 - 27 * cone;
+      part('a-water').setAttribute('points', cone > 0.02 ? `${46.5 - (54 - y) * 0.667},${y} ${61.5 + (54 - y) * 0.667},${y} 61,53.5 47,53.5` : '');
+      const drip = part('a-drip');
+      drip.toggleAttribute('hidden', !(state.running && progress < 1));
+      drip.setAttribute('cy', String(60 + ((t * 1.7) % 1) * (top - 61)));
+      part('a-ice').setAttribute('opacity', String(1 - 0.75 * progress));
+    } else if (m.brewer === 'press') {
+      const h = 48 * poured;
+      part('a-coffee').setAttribute('y', String(118 - h));
+      part('a-coffee').setAttribute('height', String(h));
+      part('a-plunger').setAttribute('transform', `translate(0 ${(m.total && t >= m.total ? 1 : last) * 44})`);
+    } else {
+      const down = (t >= m.total ? 1 : last) * 38;
+      const top = Math.max(44 + down, 86 - 40 * poured);
+      part('a-coffee').setAttribute('y', String(top));
+      part('a-coffee').setAttribute('height', String(Math.max(0, 86 - top)));
+      part('a-plunger').setAttribute('transform', `translate(0 ${down})`);
+      const level = t >= m.total ? 1 : last;
+      const y = 119.5 - 21 * level;
+      const left = (v) => 34 + (v - 94) * (3 / 24);
+      part('a-cup').setAttribute('points', level > 0 ? `${left(y) + 1.5},${y} ${106.5 - left(y)},${y} 69.5,117 68,119.5 40,119.5 38.5,117` : '');
+    }
+  }
+
+  /* ---- the timer ---- */
+  let stepsFor = '';
+  function drawTimer() {
+    const m = current();
+    const p = m ? plan(m) : null;
+    const t = m ? Math.min(state.elapsed, m.total) : 0;
+    const key = m ? `${m.id}/${state.dose}/${state.strength}/${m.total}` : '';
+    if (key !== stepsFor) {
+      stepsFor = key;
+      $('steps').replaceChildren(...(p ? p.steps : []).map((s) => {
+        const li = el('li');
+        li.append(el('b', '', s.label), el('span', '', `${clock(s.from)}${s.grams === null ? '' : ` · to ${s.grams} g`}`));
+        return li;
+      }));
+      $('ring-gaps').replaceChildren(...(p ? p.steps : []).map((s) => {
+        const a = (s.from / m.total) * 2 * Math.PI - Math.PI / 2;
+        const line = document.createElementNS(SVG, 'line');
+        line.setAttribute('class', 'ring-gap');
+        for (const [k, r] of [['1', 84], ['2', 96]]) { line.setAttribute(`x${k}`, (100 + r * Math.cos(a)).toFixed(2)); line.setAttribute(`y${k}`, (100 + r * Math.sin(a)).toFixed(2)); }
+        return line;
+      }));
+      $('total').textContent = m ? `of ${clock(m.total)}` : '';
+    }
+    const progress = m ? clamp(t / m.total) : 0;
+    $('ring').setAttribute('stroke-dashoffset', (RING * (1 - progress)).toFixed(1));
+    const head = $('ring-head');
+    head.toggleAttribute('hidden', !(progress > 0 && progress < 1));
+    const a = progress * 2 * Math.PI - Math.PI / 2;
+    head.setAttribute('cx', (100 + 90 * Math.cos(a)).toFixed(1));
+    head.setAttribute('cy', (100 + 90 * Math.sin(a)).toFixed(1));
+    drawArt(m, p, t);
+    $('brew').classList.toggle('is-brewing', state.running);
+    const text = (id, value) => { const n = $(id); if (n.textContent !== value) n.textContent = value; };
+    text('clock', clock(Math.floor(t)));
+    const index = !m ? -1 : state.done ? p.steps.length : p.steps.findIndex((s) => t < s.to);
+    [...$('steps').children].forEach((li, i) => {
+      li.classList.toggle('is-done', i < index);
+      li.classList.toggle('is-now', i === index);
+      const s = p.steps[i];
+      const grams = s.grams === null ? '' : ` · to ${s.grams} g`;
+      const words = i === index && state.elapsed > 0 ? `${clock(Math.max(0, Math.ceil(s.to - t)))} left` : `${clock(s.from)}${grams}`;
+      if (li.lastChild.textContent !== words) li.lastChild.textContent = words;
+    });
+    if (!m) {
+      text('step-name', state.gotMethods && state.gotGuide ? 'No method yet' : 'Loading…');
+      text('step-detail', '');
+    } else if (state.done) {
+      text('step-name', 'Done. Pour and enjoy.');
+      text('step-detail', `Brewed in ${clock(m.total)}. Save how it tasted in the log below.`);
+    } else {
+      const s = p.steps[index];
+      text('step-name', s.label);
+      text('step-detail', `${s.grams === null ? '' : `Pour to ${s.grams} g. `}${s.detail}`);
+    }
+    text('start', state.running ? 'Pause' : state.done ? 'Brew again' : state.elapsed > 0 ? 'Resume' : 'Start brewing');
+    $('start').disabled = !m;
+    $('next').disabled = !m || state.done;
+    $('reset').disabled = !m || state.elapsed === 0;
+  }
+  function tick() {
+    frame = 0;
+    const m = current();
+    if (!state.running || !m) return;
+    state.elapsed = state.base + (performance.now() - state.since) / 1000;
+    if (state.elapsed >= m.total) finish(m);
+    drawTimer();
+    if (state.running) frame = requestAnimationFrame(tick);
+  }
+  function run(on) {
+    state.running = on;
+    state.base = state.elapsed;
+    state.since = performance.now();
+    cancelAnimationFrame(frame);
+    if (on) frame = requestAnimationFrame(tick);
+    drawTimer();
+  }
+  function finish(m) {
+    state.elapsed = m.total;
+    state.running = false;
+    state.done = true;
+  }
+  function resetTimer() {
+    cancelAnimationFrame(frame);
+    Object.assign(state, { elapsed: 0, base: 0, running: false, done: false });
+  }
+  $('start').addEventListener('click', () => {
+    if (!current()) return;
+    if (state.done) resetTimer();
+    run(!state.running);
+  });
+  $('next').addEventListener('click', () => {
+    const m = current();
+    if (!m || state.done) return;
+    const step = plan(m).steps.find((s) => state.elapsed < s.to);
+    state.elapsed = step.to;
+    if (state.elapsed >= m.total) { finish(m); cancelAnimationFrame(frame); drawTimer(); } else run(state.running);
+  });
+  $('reset').addEventListener('click', () => { resetTimer(); drawTimer(); follow(); });
+  // The page asks the agent itself: a comment on the methods, which the person sends on.
+  $('ask').addEventListener('click', () => { comments?.openComposer({ element: $('methods') }).catch(() => {}); });
+  $('dose').addEventListener('input', (event) => { state.dose = Number(event.target.value); drawRecipe(); drawTimer(); });
+  $('strength').addEventListener('change', (event) => { state.strength = Number(event.target.value); drawRecipe(); drawTimer(); });
+
+  /* ---- the header ---- */
+  function drawGuide() {
+    const g = state.guide ?? {};
+    $('facts').textContent = [g.roast && `${g.roast} roast`, g.origin, Array.isArray(g.tastes) && g.tastes.join(', ')].filter(Boolean).join(' · ');
+    const pinned = $('pinned');
+    const note = g.note && typeof g.note.text === 'string' ? g.note : null;
+    pinned.hidden = !note;
+    if (note) pinned.replaceChildren(el('b', '', `Pinned${note.by ? ` by ${note.by}` : ''}`), el('span', '', `“${note.text}”`));
+  }
+  function draw() { drawGuide(); drawMethods(); drawRecipe(); drawTimer(); }
+
+  /* ---- the tasting log ---- */
+  function beans(n, cls) {
+    const row = el('span', cls);
+    for (let i = 1; i <= 5; i++) row.append(icon('bean', i <= n ? 'is-full' : ''));
+    return row;
+  }
+  function paintRating() {
+    [...$('rating').querySelectorAll('label')].forEach((label, i) => label.classList.toggle('is-full', i < state.rating));
+    $('rating').lastChild.textContent = WORDS[state.rating];
+  }
+  function drawRating() {
+    $('rating').replaceChildren(...[1, 2, 3, 4, 5].map((n) => {
+      const label = el('label');
+      const radio = el('input', 'sr');
+      radio.type = 'radio';
+      radio.name = 'rating';
+      radio.value = String(n);
+      radio.checked = n === state.rating;
+      radio.setAttribute('aria-label', `${n} of 5: ${WORDS[n]}`);
+      radio.addEventListener('change', () => { state.rating = n; paintRating(); });
+      label.append(radio, icon('bean'));
+      return label;
+    }), el('span', 'rating-word'));
+    paintRating();
+  }
+  let shown = null;
+  function drawBrews(docs) {
+    const list = $('brews');
+    if (!docs.length) return list.replaceChildren(el('li', 'none', 'No tasting notes yet. Brew a cup, then save how it tasted.'));
+    list.replaceChildren(...docs.map((doc) => {
+      const b = doc.data();
+      const li = el('li', shown && !shown.has(doc.id) ? 'pop' : '');
+      const stars = beans(clamp(Math.round(b.rating) || 0, 0, 5), 'beans');
+      stars.setAttribute('role', 'img');
+      stars.setAttribute('aria-label', `${b.rating} of 5`);
+      const when = typeof b.at === 'number' ? (Date.now() - b.at < 60000 ? 'just now' : new Date(b.at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })) : '';
+      li.append(stars, el('p', 'said', b.note ? String(b.note) : 'No notes'), el('p', 'meta', [b.methodName, b.dose && `${b.dose} g`, b.by, when].filter(Boolean).join(' · ')));
+      return li;
+    }));
+    shown = new Set(docs.map((d) => d.id));
+  }
+  $('log-form').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const m = current();
+    if (!m || !brews) return;
+    const note = $('note').value.trim();
+    const status = $('log-status');
+    $('save').disabled = true;
+    try {
+      await brews.add({ method: m.id, methodName: m.name, dose: state.dose, water: plan(m).water, rating: state.rating, note, by: state.me, at: Date.now() });
+      $('note').value = '';
+      status.textContent = 'Saved to the log.';
+    } catch (error) {
+      status.textContent = `Not saved (${error.code || error.message}). Your note is still in the box: try again.`;
+    }
+    $('save').disabled = false;
+  });
+
+  /* ---- data ---- */
+  function cannotSave(why) {
+    const status = $('status');
+    status.hidden = false;
+    status.textContent = why;
+    state.gotMethods = state.gotGuide = true;
+    $('brews').replaceChildren(el('li', 'none', 'The log is not available here.'));
+    draw();
+  }
+  async function start() {
+    drawRating();
+    const oa = window.openArtifact;
+    const db = oa ? await oa.use('db') : null;
+    if (!db) return cannotSave('This page cannot reach its data here, so there are no recipes to show and nothing can be saved.');
+    const fail = (error) => cannotSave(`The page lost its data (${error.code || error.message}). Reload to try again.`);
+    oa.use('user').then((user) => user?.me()).then((me) => { if (me?.name) state.me = me.name; }).catch(() => {});
+    oa.use('comments').then((c) => { comments = c; drawMethods(); }).catch(() => {});
+    db.doc('guide/main').onSnapshot((snap) => {
+      const guide = snap.exists ? snap.data() : {};
+      if (guide.featured && guide.featured !== state.guide?.featured) state.wish = guide.featured;
+      state.guide = guide;
+      state.gotGuide = true;
+      follow();
+    }, fail);
+    db.collection('methods').orderBy('order').onSnapshot((snap) => {
+      state.methods = snap.docs.map((doc) => method(doc.id, doc.data())).filter(Boolean);
+      state.gotMethods = true;
+      if (state.id && !current()) { state.id = null; resetTimer(); }
+      follow();
+    }, fail);
+    brews = db.collection('brews');
+    brews.orderBy('at', 'desc').limit(12).onSnapshot((snap) => drawBrews(snap.docs), fail);
+    drawRecipe();
+  }
+  start().catch((error) => cannotSave(`The page did not start (${error.code || error.message}).`));
+})();
+</script>
+</body>
+</html>

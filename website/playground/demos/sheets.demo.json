@@ -2,19 +2,1525 @@
   "id": "sheets",
   "type": "sheets",
   "typeTitle": "Sheets",
-  "source": "test-artifacts/sheets/sales",
+  "title": "Spring launch budget",
+  "source": "website/playground/showcase/sheets",
+  "omit": [
+    "make.mjs"
+  ],
   "agent": {
     "name": "Agent",
     "thinkMs": 2500,
     "responses": [
       {
-        "reply": "Done. I set the Notebook amount (Sales!B2) to {{value}}, so the sales total went from {{was}} to {{now}}.",
-        "edits": [{ "kind": "sheet", "sheet": "Sales", "cell": "B2", "value": 1000, "watch": { "sheet": "Sales", "cell": "B5" } }]
+        "reply": {
+          "en": "Done. Launch party venue (Budget!D5) is now $5,600: $600 over plan, so its variance turned red and Events passed its plan in the chart. Total spend went from {{was}} to {{now}}.",
+          "zh": "改好了。发布派对场地（Budget!D5）的实际支出现在是 $5,600，比计划多 $600，所以差额变红，图表里 Events 也超过了计划。总支出从 {{was}} 变成 {{now}}。"
+        },
+        "edits": [
+          {
+            "kind": "sheet-edits",
+            "edits": [
+              {
+                "kind": "insertRows",
+                "sheet": "Changes",
+                "besideRow": 1,
+                "side": "below",
+                "count": 1
+              },
+              {
+                "kind": "writeCells",
+                "sheet": "Changes",
+                "topLeft": "A2",
+                "rows": [
+                  [
+                    "{{n}}",
+                    "“{{request}}”",
+                    "Budget!D5: Launch party venue actual is $5,600"
+                  ]
+                ]
+              },
+              {
+                "kind": "writeCells",
+                "sheet": "Budget",
+                "topLeft": "D5",
+                "rows": [
+                  [
+                    5600
+                  ]
+                ]
+              }
+            ],
+            "watch": {
+              "sheet": "Budget",
+              "cell": "G1"
+            }
+          }
+        ]
       },
       {
-        "reply": "I raised the Folder amount (Sales!B4) to {{value}}: the total is now {{now}} (it was {{was}}).",
-        "edits": [{ "kind": "sheet", "sheet": "Sales", "cell": "B4", "value": 300, "watch": { "sheet": "Sales", "cell": "B5" } }]
+        "reply": {
+          "en": "Here’s my pass at “{{request}}”: a new Contingency line on Budget, $1,500 planned under Events and nothing spent yet. The totals, the sums by channel and the chart all picked it up, and it’s logged on the Changes sheet.",
+          "zh": "针对“{{request}}”，我先这样处理：在 Budget 里加了一行 Contingency（应急预留），归在 Events 下，计划 $1,500，暂未支出。合计、按渠道汇总和图表都已跟着更新，Changes 工作表里也记了一笔。"
+        },
+        "edits": [
+          {
+            "kind": "sheet-edits",
+            "edits": [
+              {
+                "kind": "insertRows",
+                "sheet": "Changes",
+                "besideRow": 1,
+                "side": "below",
+                "count": 1
+              },
+              {
+                "kind": "writeCells",
+                "sheet": "Changes",
+                "topLeft": "A2",
+                "rows": [
+                  [
+                    "{{n}}",
+                    "“{{request}}”",
+                    "Budget: a Contingency line, $1,500 planned under Events"
+                  ]
+                ]
+              },
+              {
+                "kind": "insertRows",
+                "sheet": "Budget",
+                "besideRow": 11,
+                "side": "above",
+                "count": 1
+              },
+              {
+                "kind": "writeCells",
+                "sheet": "Budget",
+                "topLeft": "A11",
+                "rows": [
+                  [
+                    "Contingency",
+                    "Events",
+                    1500,
+                    0,
+                    "=C11-D11"
+                  ]
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "reply": {
+          "en": "For “{{request}}” I moved $1,000 of plan from Paid social ads to Creator partnerships. The total plan stays put, but Paid social ads is now over plan (red) and Creator partnerships is back under (green).",
+          "zh": "针对“{{request}}”，我把 $1,000 的计划额度从 Paid social ads 挪到了 Creator partnerships。计划总额不变，但 Paid social ads 现在超出计划（红色），Creator partnerships 回到了计划之内（绿色）。"
+        },
+        "edits": [
+          {
+            "kind": "sheet-edits",
+            "edits": [
+              {
+                "kind": "insertRows",
+                "sheet": "Changes",
+                "besideRow": 1,
+                "side": "below",
+                "count": 1
+              },
+              {
+                "kind": "writeCells",
+                "sheet": "Changes",
+                "topLeft": "A2",
+                "rows": [
+                  [
+                    "{{n}}",
+                    "“{{request}}”",
+                    "Budget!C3:C4: $1,000 of plan moved from Paid social ads to Creator partnerships"
+                  ]
+                ]
+              },
+              {
+                "kind": "writeCells",
+                "sheet": "Budget",
+                "topLeft": "C3",
+                "rows": [
+                  [
+                    8000
+                  ],
+                  [
+                    7000
+                  ]
+                ]
+              }
+            ]
+          }
+        ]
       }
     ]
+  },
+  "replay": {
+    "prompt": {
+      "en": "/open-artifact sheets Juniper’s spring launch budget: line items by channel, planned vs actual, a chart, and a 12-month subscriber forecast",
+      "zh": "/open-artifact sheets Juniper 春季发布的预算表：按渠道列出各项的计划与实际支出，配一张图表，再加 12 个月的订阅预测"
+    },
+    "start": {
+      "sheet/sheet.json": "{\n  \"id\": \"ebb4372e-103f-415d-a220-a7b321e9b234\",\n  \"createdAt\": \"2026-11-27T08:27:41.025Z\",\n  \"title\": \"Spring launch budget\"\n}\n",
+      "sheet/edits.jsonl": "{\"revision\":1,\"v\":17,\"base\":0,\"ops\":[{\"kind\":\"insertSheet\",\"sheetId\":\"sht_njgjwknije.0\",\"name\":\"Sheet1\",\"after\":null},{\"kind\":\"insertRows\",\"sheetId\":\"sht_njgjwknije.0\",\"after\":null,\"rows\":{\"base\":\"row_njgjwknije\",\"first\":0,\"count\":1000}},{\"kind\":\"insertColumns\",\"sheetId\":\"sht_njgjwknije.0\",\"after\":null,\"columns\":{\"base\":\"col_njgjwknije\",\"first\":0,\"count\":26}}],\"by\":\"agent\",\"at\":\"2026-11-27T08:27:41.062Z\"}\n"
+    },
+    "steps": [
+      {
+        "say": "Read the sheets type’s guide",
+        "ms": 500
+      },
+      {
+        "say": "ArtifactData · update Budget: title, headers, table",
+        "ms": 800,
+        "edits": [
+          {
+            "kind": "sheet-edits",
+            "edits": [
+              {
+                "kind": "renameSheet",
+                "sheet": "Sheet1",
+                "name": "Budget"
+              },
+              {
+                "kind": "writeCells",
+                "sheet": "Budget",
+                "topLeft": "A1",
+                "rows": [
+                  [
+                    "Spring launch budget"
+                  ]
+                ]
+              },
+              {
+                "kind": "writeCells",
+                "sheet": "Budget",
+                "topLeft": "A2",
+                "rows": [
+                  [
+                    "Line item",
+                    "Channel",
+                    "Planned",
+                    "Actual",
+                    "Variance"
+                  ]
+                ]
+              },
+              {
+                "kind": "mergeCells",
+                "sheet": "Budget",
+                "ranges": [
+                  "A1:E1"
+                ]
+              },
+              {
+                "kind": "formatCells",
+                "sheet": "Budget",
+                "ranges": [
+                  "A1:E1"
+                ],
+                "format": {
+                  "font": {
+                    "bold": true,
+                    "size": 14,
+                    "color": {
+                      "kind": "rgb",
+                      "hex": "#20402f"
+                    }
+                  }
+                }
+              },
+              {
+                "kind": "formatCells",
+                "sheet": "Budget",
+                "ranges": [
+                  "A2:E2"
+                ],
+                "format": {
+                  "fillColor": {
+                    "kind": "rgb",
+                    "hex": "#20402f"
+                  },
+                  "font": {
+                    "color": {
+                      "kind": "rgb",
+                      "hex": "#ffffff"
+                    }
+                  }
+                }
+              },
+              {
+                "kind": "formatCells",
+                "sheet": "Budget",
+                "ranges": [
+                  "C2:E2"
+                ],
+                "format": {
+                  "alignment": {
+                    "horizontal": "right"
+                  }
+                }
+              },
+              {
+                "kind": "setCellTable",
+                "sheet": "Budget",
+                "cellTable": {
+                  "columns": "A:E",
+                  "headerRows": "2",
+                  "footerRows": null
+                }
+              },
+              {
+                "kind": "setColumnWidths",
+                "sheet": "Budget",
+                "columns": "A",
+                "widthInPixels": 152
+              },
+              {
+                "kind": "setColumnWidths",
+                "sheet": "Budget",
+                "columns": "B",
+                "widthInPixels": 92
+              },
+              {
+                "kind": "setColumnWidths",
+                "sheet": "Budget",
+                "columns": "C:E",
+                "widthInPixels": 74
+              },
+              {
+                "kind": "setColumnWidths",
+                "sheet": "Budget",
+                "columns": "F",
+                "widthInPixels": 24
+              },
+              {
+                "kind": "setColumnWidths",
+                "sheet": "Budget",
+                "columns": "G",
+                "widthInPixels": 88
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "say": "ArtifactData · update Budget: 9 line items, channel dropdowns",
+        "ms": 1000,
+        "edits": [
+          {
+            "kind": "sheet-edits",
+            "edits": [
+              {
+                "kind": "writeCells",
+                "sheet": "Budget",
+                "topLeft": "A3",
+                "rows": [
+                  [
+                    "Paid social ads",
+                    "Paid",
+                    9000,
+                    8400
+                  ],
+                  [
+                    "Creator partnerships",
+                    "Paid",
+                    6000,
+                    6750
+                  ],
+                  [
+                    "Launch party venue",
+                    "Events",
+                    5000,
+                    4200
+                  ],
+                  [
+                    "Café pop-ups",
+                    "Events",
+                    3500,
+                    3300
+                  ],
+                  [
+                    "Launch film",
+                    "Content",
+                    7500,
+                    7900
+                  ],
+                  [
+                    "Welcome email series",
+                    "Email",
+                    1200,
+                    950
+                  ],
+                  [
+                    "Referral rewards",
+                    "Email",
+                    2000,
+                    1400
+                  ],
+                  [
+                    "Sample kits",
+                    "Sampling",
+                    4800,
+                    4350
+                  ],
+                  [
+                    "Tasting cards",
+                    "Sampling",
+                    1100,
+                    1240
+                  ]
+                ]
+              },
+              {
+                "kind": "makeDropdown",
+                "sheet": "Budget",
+                "range": "B3:B11",
+                "options": [
+                  {
+                    "label": "Paid",
+                    "color": {
+                      "kind": "standard",
+                      "hue": "blue",
+                      "shade": 200
+                    }
+                  },
+                  {
+                    "label": "Events",
+                    "color": {
+                      "kind": "standard",
+                      "hue": "orange",
+                      "shade": 200
+                    }
+                  },
+                  {
+                    "label": "Content",
+                    "color": {
+                      "kind": "standard",
+                      "hue": "purple",
+                      "shade": 200
+                    }
+                  },
+                  {
+                    "label": "Email",
+                    "color": {
+                      "kind": "standard",
+                      "hue": "teal",
+                      "shade": 200
+                    }
+                  },
+                  {
+                    "label": "Sampling",
+                    "color": {
+                      "kind": "standard",
+                      "hue": "green",
+                      "shade": 200
+                    }
+                  }
+                ]
+              },
+              {
+                "kind": "formatCells",
+                "sheet": "Budget",
+                "ranges": [
+                  "C3:D12"
+                ],
+                "format": {
+                  "numberFormat": {
+                    "pattern": "$#,##0"
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "say": "ArtifactData · update Budget: variance, totals, named ranges, rules",
+        "ms": 1100,
+        "edits": [
+          {
+            "kind": "sheet-edits",
+            "edits": [
+              {
+                "kind": "writeCells",
+                "sheet": "Budget",
+                "topLeft": "E3",
+                "rows": [
+                  [
+                    "=C3-D3"
+                  ],
+                  [
+                    "=C4-D4"
+                  ],
+                  [
+                    "=C5-D5"
+                  ],
+                  [
+                    "=C6-D6"
+                  ],
+                  [
+                    "=C7-D7"
+                  ],
+                  [
+                    "=C8-D8"
+                  ],
+                  [
+                    "=C9-D9"
+                  ],
+                  [
+                    "=C10-D10"
+                  ],
+                  [
+                    "=C11-D11"
+                  ]
+                ]
+              },
+              {
+                "kind": "writeCells",
+                "sheet": "Budget",
+                "topLeft": "A12",
+                "rows": [
+                  [
+                    "Total",
+                    null,
+                    "=SUM(C3:C11)",
+                    "=SUM(D3:D11)",
+                    "=C12-D12"
+                  ]
+                ]
+              },
+              {
+                "kind": "formatCells",
+                "sheet": "Budget",
+                "ranges": [
+                  "E3:E12"
+                ],
+                "format": {
+                  "numberFormat": {
+                    "pattern": "+$#,##0;-$#,##0;$0"
+                  }
+                }
+              },
+              {
+                "kind": "formatCells",
+                "sheet": "Budget",
+                "ranges": [
+                  "A12:E12"
+                ],
+                "format": {
+                  "font": {
+                    "bold": true
+                  }
+                }
+              },
+              {
+                "kind": "setBorders",
+                "sheet": "Budget",
+                "range": "A12:E12",
+                "edges": "top",
+                "border": {
+                  "kind": "line",
+                  "style": "thin",
+                  "color": {
+                    "kind": "none"
+                  }
+                }
+              },
+              {
+                "kind": "setCellTable",
+                "sheet": "Budget",
+                "cellTable": {
+                  "columns": "A:E",
+                  "headerRows": "2",
+                  "footerRows": "12"
+                }
+              },
+              {
+                "kind": "saveNamedRange",
+                "name": "Channels",
+                "sheet": "Budget",
+                "range": "B3:B11"
+              },
+              {
+                "kind": "saveNamedRange",
+                "name": "Planned",
+                "sheet": "Budget",
+                "range": "C3:C11"
+              },
+              {
+                "kind": "saveNamedRange",
+                "name": "Actual",
+                "sheet": "Budget",
+                "range": "D3:D11"
+              },
+              {
+                "kind": "writeCells",
+                "sheet": "Budget",
+                "topLeft": "G1",
+                "rows": [
+                  [
+                    "=TEXT(D12,\"$#,##0\")",
+                    "=\"spent of \"&TEXT(C12,\"$#,##0\")&\" planned · \"&TEXT(D12/C12,\"0%\")"
+                  ]
+                ]
+              },
+              {
+                "kind": "formatCells",
+                "sheet": "Budget",
+                "ranges": [
+                  "G1"
+                ],
+                "format": {
+                  "font": {
+                    "bold": true,
+                    "size": 14,
+                    "color": {
+                      "kind": "rgb",
+                      "hex": "#20402f"
+                    }
+                  }
+                }
+              },
+              {
+                "kind": "formatCells",
+                "sheet": "Budget",
+                "ranges": [
+                  "H1"
+                ],
+                "format": {
+                  "font": {
+                    "color": {
+                      "kind": "rgb",
+                      "hex": "#5b7f5e"
+                    }
+                  },
+                  "alignment": {
+                    "vertical": "center"
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "kind": "sheet-edits",
+            "edits": [
+              {
+                "kind": "replaceConditionalFormats",
+                "sheet": "Budget",
+                "inPlaceOf": "4f53cda18c2baa0c",
+                "rules": [
+                  {
+                    "cells": [
+                      "E3:E12"
+                    ],
+                    "effect": {
+                      "kind": "formatWhere",
+                      "allOf": [
+                        {
+                          "tested": {
+                            "kind": "theCellItself"
+                          },
+                          "condition": {
+                            "kind": "numberIs",
+                            "comparison": "lessThan",
+                            "operand": {
+                              "kind": "number",
+                              "number": 0
+                            }
+                          }
+                        }
+                      ],
+                      "format": {
+                        "fillColor": {
+                          "kind": "standard",
+                          "hue": "red",
+                          "shade": 100
+                        },
+                        "font": {
+                          "color": {
+                            "kind": "standard",
+                            "hue": "red",
+                            "shade": 800
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "cells": [
+                      "E3:E12"
+                    ],
+                    "effect": {
+                      "kind": "formatWhere",
+                      "allOf": [
+                        {
+                          "tested": {
+                            "kind": "theCellItself"
+                          },
+                          "condition": {
+                            "kind": "numberIs",
+                            "comparison": "greaterThan",
+                            "operand": {
+                              "kind": "number",
+                              "number": 0
+                            }
+                          }
+                        }
+                      ],
+                      "format": {
+                        "font": {
+                          "color": {
+                            "kind": "standard",
+                            "hue": "green",
+                            "shade": 800
+                          }
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "say": "ArtifactData · update By channel: SUMIF over the named ranges",
+        "ms": 1000,
+        "edits": [
+          {
+            "kind": "sheet-edits",
+            "edits": [
+              {
+                "kind": "addSheet",
+                "name": "By channel"
+              },
+              {
+                "kind": "writeCells",
+                "sheet": "By channel",
+                "topLeft": "A1",
+                "rows": [
+                  [
+                    "Channel",
+                    "Planned",
+                    "Actual",
+                    "Variance",
+                    "Used",
+                    "Signed off"
+                  ],
+                  [
+                    "Paid",
+                    "=SUMIF(Channels,A2,Planned)",
+                    "=SUMIF(Channels,A2,Actual)",
+                    "=B2-C2",
+                    "=C2/B2",
+                    true
+                  ],
+                  [
+                    "Events",
+                    "=SUMIF(Channels,A3,Planned)",
+                    "=SUMIF(Channels,A3,Actual)",
+                    "=B3-C3",
+                    "=C3/B3",
+                    false
+                  ],
+                  [
+                    "Content",
+                    "=SUMIF(Channels,A4,Planned)",
+                    "=SUMIF(Channels,A4,Actual)",
+                    "=B4-C4",
+                    "=C4/B4",
+                    false
+                  ],
+                  [
+                    "Email",
+                    "=SUMIF(Channels,A5,Planned)",
+                    "=SUMIF(Channels,A5,Actual)",
+                    "=B5-C5",
+                    "=C5/B5",
+                    true
+                  ],
+                  [
+                    "Sampling",
+                    "=SUMIF(Channels,A6,Planned)",
+                    "=SUMIF(Channels,A6,Actual)",
+                    "=B6-C6",
+                    "=C6/B6",
+                    true
+                  ],
+                  [
+                    "Total",
+                    "=SUM(B2:B6)",
+                    "=SUM(C2:C6)",
+                    "=B7-C7",
+                    "=C7/B7",
+                    null
+                  ]
+                ]
+              },
+              {
+                "kind": "formatCells",
+                "sheet": "By channel",
+                "ranges": [
+                  "A1:F1"
+                ],
+                "format": {
+                  "fillColor": {
+                    "kind": "rgb",
+                    "hex": "#20402f"
+                  },
+                  "font": {
+                    "color": {
+                      "kind": "rgb",
+                      "hex": "#ffffff"
+                    }
+                  }
+                }
+              },
+              {
+                "kind": "formatCells",
+                "sheet": "By channel",
+                "ranges": [
+                  "B1:E1"
+                ],
+                "format": {
+                  "alignment": {
+                    "horizontal": "right"
+                  }
+                }
+              },
+              {
+                "kind": "formatCells",
+                "sheet": "By channel",
+                "ranges": [
+                  "F1"
+                ],
+                "format": {
+                  "alignment": {
+                    "horizontal": "center"
+                  }
+                }
+              },
+              {
+                "kind": "formatCells",
+                "sheet": "By channel",
+                "ranges": [
+                  "F2:F6"
+                ],
+                "format": {
+                  "cellControl": {
+                    "kind": "checkbox"
+                  }
+                }
+              },
+              {
+                "kind": "saveProtection",
+                "sheet": "By channel",
+                "range": "B2:E7"
+              },
+              {
+                "kind": "formatCells",
+                "sheet": "By channel",
+                "ranges": [
+                  "B2:C7"
+                ],
+                "format": {
+                  "numberFormat": {
+                    "pattern": "$#,##0"
+                  }
+                }
+              },
+              {
+                "kind": "formatCells",
+                "sheet": "By channel",
+                "ranges": [
+                  "D2:D7"
+                ],
+                "format": {
+                  "numberFormat": {
+                    "pattern": "+$#,##0;-$#,##0;$0"
+                  }
+                }
+              },
+              {
+                "kind": "formatCells",
+                "sheet": "By channel",
+                "ranges": [
+                  "E2:E7"
+                ],
+                "format": {
+                  "numberFormat": {
+                    "pattern": "0%"
+                  }
+                }
+              },
+              {
+                "kind": "formatCells",
+                "sheet": "By channel",
+                "ranges": [
+                  "A7:E7"
+                ],
+                "format": {
+                  "font": {
+                    "bold": true
+                  }
+                }
+              },
+              {
+                "kind": "setBorders",
+                "sheet": "By channel",
+                "range": "A7:F7",
+                "edges": "top",
+                "border": {
+                  "kind": "line",
+                  "style": "thin",
+                  "color": {
+                    "kind": "none"
+                  }
+                }
+              },
+              {
+                "kind": "setCellTable",
+                "sheet": "By channel",
+                "cellTable": {
+                  "columns": "A:F",
+                  "headerRows": "1",
+                  "footerRows": "7"
+                }
+              },
+              {
+                "kind": "setColumnWidths",
+                "sheet": "By channel",
+                "columns": "A",
+                "widthInPixels": 120
+              },
+              {
+                "kind": "setColumnWidths",
+                "sheet": "By channel",
+                "columns": "B:F",
+                "widthInPixels": 88
+              }
+            ]
+          },
+          {
+            "kind": "sheet-edits",
+            "edits": [
+              {
+                "kind": "replaceConditionalFormats",
+                "sheet": "By channel",
+                "inPlaceOf": "4f53cda18c2baa0c",
+                "rules": [
+                  {
+                    "cells": [
+                      "D2:D7"
+                    ],
+                    "effect": {
+                      "kind": "formatWhere",
+                      "allOf": [
+                        {
+                          "tested": {
+                            "kind": "theCellItself"
+                          },
+                          "condition": {
+                            "kind": "numberIs",
+                            "comparison": "lessThan",
+                            "operand": {
+                              "kind": "number",
+                              "number": 0
+                            }
+                          }
+                        }
+                      ],
+                      "format": {
+                        "fillColor": {
+                          "kind": "standard",
+                          "hue": "red",
+                          "shade": 100
+                        },
+                        "font": {
+                          "color": {
+                            "kind": "standard",
+                            "hue": "red",
+                            "shade": 800
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "cells": [
+                      "D2:D7"
+                    ],
+                    "effect": {
+                      "kind": "formatWhere",
+                      "allOf": [
+                        {
+                          "tested": {
+                            "kind": "theCellItself"
+                          },
+                          "condition": {
+                            "kind": "numberIs",
+                            "comparison": "greaterThan",
+                            "operand": {
+                              "kind": "number",
+                              "number": 0
+                            }
+                          }
+                        }
+                      ],
+                      "format": {
+                        "font": {
+                          "color": {
+                            "kind": "standard",
+                            "hue": "green",
+                            "shade": 800
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "cells": [
+                      "E2:E6"
+                    ],
+                    "effect": {
+                      "kind": "colorScale",
+                      "lowest": {
+                        "anchor": {
+                          "kind": "smallestNumber"
+                        },
+                        "color": {
+                          "kind": "none"
+                        }
+                      },
+                      "middle": null,
+                      "highest": {
+                        "anchor": {
+                          "kind": "largestNumber"
+                        },
+                        "color": {
+                          "kind": "standard",
+                          "hue": "orange",
+                          "shade": 200
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "say": "ArtifactData · update Forecast: assumptions, 12 months, defaults and limits",
+        "ms": 1000,
+        "edits": [
+          {
+            "kind": "sheet-edits",
+            "edits": [
+              {
+                "kind": "addSheet",
+                "name": "Forecast"
+              },
+              {
+                "kind": "writeCells",
+                "sheet": "Forecast",
+                "topLeft": "A1",
+                "rows": [
+                  [
+                    "Subscribers at launch",
+                    1200
+                  ],
+                  [
+                    "Monthly growth",
+                    0.09
+                  ],
+                  [
+                    "Monthly churn",
+                    0.035
+                  ],
+                  [
+                    "Price per month",
+                    18
+                  ]
+                ]
+              },
+              {
+                "kind": "saveNamedRange",
+                "name": "LaunchSubscribers",
+                "sheet": "Forecast",
+                "range": "B1"
+              },
+              {
+                "kind": "saveNamedRange",
+                "name": "Growth",
+                "sheet": "Forecast",
+                "range": "B2"
+              },
+              {
+                "kind": "saveNamedRange",
+                "name": "Churn",
+                "sheet": "Forecast",
+                "range": "B3"
+              },
+              {
+                "kind": "saveNamedRange",
+                "name": "Price",
+                "sheet": "Forecast",
+                "range": "B4"
+              },
+              {
+                "kind": "writeCells",
+                "sheet": "Forecast",
+                "topLeft": "A5",
+                "rows": [
+                  [
+                    "Launch cost per new subscriber",
+                    "=Budget!D12/SUM(C8:C19)"
+                  ]
+                ]
+              },
+              {
+                "kind": "writeCells",
+                "sheet": "Forecast",
+                "topLeft": "A7",
+                "rows": [
+                  [
+                    "Month",
+                    "Subscribers",
+                    "New",
+                    "Churned",
+                    "MRR"
+                  ],
+                  [
+                    "Mar",
+                    "=LaunchSubscribers+C8-D8",
+                    "=ROUND(LaunchSubscribers*Growth,0)",
+                    "=ROUND(LaunchSubscribers*Churn,0)",
+                    "=B8*Price"
+                  ],
+                  [
+                    "Apr",
+                    "=B8+C9-D9",
+                    "=ROUND(B8*Growth,0)",
+                    "=ROUND(B8*Churn,0)",
+                    "=B9*Price"
+                  ],
+                  [
+                    "May",
+                    "=B9+C10-D10",
+                    "=ROUND(B9*Growth,0)",
+                    "=ROUND(B9*Churn,0)",
+                    "=B10*Price"
+                  ],
+                  [
+                    "Jun",
+                    "=B10+C11-D11",
+                    "=ROUND(B10*Growth,0)",
+                    "=ROUND(B10*Churn,0)",
+                    "=B11*Price"
+                  ],
+                  [
+                    "Jul",
+                    "=B11+C12-D12",
+                    "=ROUND(B11*Growth,0)",
+                    "=ROUND(B11*Churn,0)",
+                    "=B12*Price"
+                  ],
+                  [
+                    "Aug",
+                    "=B12+C13-D13",
+                    "=ROUND(B12*Growth,0)",
+                    "=ROUND(B12*Churn,0)",
+                    "=B13*Price"
+                  ],
+                  [
+                    "Sep",
+                    "=B13+C14-D14",
+                    "=ROUND(B13*Growth,0)",
+                    "=ROUND(B13*Churn,0)",
+                    "=B14*Price"
+                  ],
+                  [
+                    "Oct",
+                    "=B14+C15-D15",
+                    "=ROUND(B14*Growth,0)",
+                    "=ROUND(B14*Churn,0)",
+                    "=B15*Price"
+                  ],
+                  [
+                    "Nov",
+                    "=B15+C16-D16",
+                    "=ROUND(B15*Growth,0)",
+                    "=ROUND(B15*Churn,0)",
+                    "=B16*Price"
+                  ],
+                  [
+                    "Dec",
+                    "=B16+C17-D17",
+                    "=ROUND(B16*Growth,0)",
+                    "=ROUND(B16*Churn,0)",
+                    "=B17*Price"
+                  ],
+                  [
+                    "Jan",
+                    "=B17+C18-D18",
+                    "=ROUND(B17*Growth,0)",
+                    "=ROUND(B17*Churn,0)",
+                    "=B18*Price"
+                  ],
+                  [
+                    "Feb",
+                    "=B18+C19-D19",
+                    "=ROUND(B18*Growth,0)",
+                    "=ROUND(B18*Churn,0)",
+                    "=B19*Price"
+                  ]
+                ]
+              },
+              {
+                "kind": "formatCells",
+                "sheet": "Forecast",
+                "ranges": [
+                  "A7:E7"
+                ],
+                "format": {
+                  "fillColor": {
+                    "kind": "rgb",
+                    "hex": "#20402f"
+                  },
+                  "font": {
+                    "color": {
+                      "kind": "rgb",
+                      "hex": "#ffffff"
+                    }
+                  }
+                }
+              },
+              {
+                "kind": "formatCells",
+                "sheet": "Forecast",
+                "ranges": [
+                  "B7:E7"
+                ],
+                "format": {
+                  "alignment": {
+                    "horizontal": "right"
+                  }
+                }
+              },
+              {
+                "kind": "formatCells",
+                "sheet": "Forecast",
+                "ranges": [
+                  "B1:B4"
+                ],
+                "format": {
+                  "fillColor": {
+                    "kind": "standard",
+                    "hue": "yellow",
+                    "shade": 100
+                  }
+                }
+              },
+              {
+                "kind": "formatCells",
+                "sheet": "Forecast",
+                "ranges": [
+                  "B1",
+                  "B8:D19"
+                ],
+                "format": {
+                  "numberFormat": {
+                    "pattern": "#,##0"
+                  }
+                }
+              },
+              {
+                "kind": "formatCells",
+                "sheet": "Forecast",
+                "ranges": [
+                  "B2"
+                ],
+                "format": {
+                  "numberFormat": {
+                    "pattern": "0%"
+                  }
+                }
+              },
+              {
+                "kind": "formatCells",
+                "sheet": "Forecast",
+                "ranges": [
+                  "B3"
+                ],
+                "format": {
+                  "numberFormat": {
+                    "pattern": "0.0%"
+                  }
+                }
+              },
+              {
+                "kind": "formatCells",
+                "sheet": "Forecast",
+                "ranges": [
+                  "B4",
+                  "E8:E19"
+                ],
+                "format": {
+                  "numberFormat": {
+                    "pattern": "$#,##0"
+                  }
+                }
+              },
+              {
+                "kind": "formatCells",
+                "sheet": "Forecast",
+                "ranges": [
+                  "B5"
+                ],
+                "format": {
+                  "numberFormat": {
+                    "pattern": "$#,##0.00"
+                  },
+                  "font": {
+                    "bold": true
+                  }
+                }
+              },
+              {
+                "kind": "setDefaultValues",
+                "sheet": "Forecast",
+                "range": "B1",
+                "defaultValue": 1200,
+                "limits": {
+                  "minimum": 0,
+                  "maximum": null
+                }
+              },
+              {
+                "kind": "setDefaultValues",
+                "sheet": "Forecast",
+                "range": "B2",
+                "defaultValue": 0.09,
+                "limits": {
+                  "minimum": 0,
+                  "maximum": 0.5
+                }
+              },
+              {
+                "kind": "setDefaultValues",
+                "sheet": "Forecast",
+                "range": "B3",
+                "defaultValue": 0.035,
+                "limits": {
+                  "minimum": 0,
+                  "maximum": 0.5
+                }
+              },
+              {
+                "kind": "setDefaultValues",
+                "sheet": "Forecast",
+                "range": "B4",
+                "defaultValue": 18,
+                "limits": {
+                  "minimum": 1,
+                  "maximum": 100
+                }
+              },
+              {
+                "kind": "setCellTable",
+                "sheet": "Forecast",
+                "cellTable": {
+                  "columns": "A:E",
+                  "headerRows": "7",
+                  "footerRows": null
+                }
+              },
+              {
+                "kind": "setColumnWidths",
+                "sheet": "Forecast",
+                "columns": "A",
+                "widthInPixels": 208
+              },
+              {
+                "kind": "setColumnWidths",
+                "sheet": "Forecast",
+                "columns": "B:E",
+                "widthInPixels": 88
+              },
+              {
+                "kind": "setColumnWidths",
+                "sheet": "Forecast",
+                "columns": "F",
+                "widthInPixels": 28
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "say": "ArtifactData · batch 2 charts, and a Changes log",
+        "ms": 1000,
+        "edits": [
+          {
+            "kind": "sheet-edits",
+            "edits": [
+              {
+                "kind": "addSheet",
+                "name": "Changes"
+              },
+              {
+                "kind": "writeCells",
+                "sheet": "Changes",
+                "topLeft": "A1",
+                "rows": [
+                  [
+                    "#",
+                    "Asked",
+                    "Changed"
+                  ],
+                  [
+                    0,
+                    "A launch budget by channel, with a chart and a subscriber forecast",
+                    "Built Budget, By channel and Forecast"
+                  ]
+                ]
+              },
+              {
+                "kind": "formatCells",
+                "sheet": "Changes",
+                "ranges": [
+                  "A1:C1"
+                ],
+                "format": {
+                  "fillColor": {
+                    "kind": "rgb",
+                    "hex": "#20402f"
+                  },
+                  "font": {
+                    "color": {
+                      "kind": "rgb",
+                      "hex": "#ffffff"
+                    }
+                  }
+                }
+              },
+              {
+                "kind": "formatCells",
+                "sheet": "Changes",
+                "ranges": [
+                  "B2:C40"
+                ],
+                "format": {
+                  "alignment": {
+                    "wrap": true
+                  }
+                }
+              },
+              {
+                "kind": "setCellTable",
+                "sheet": "Changes",
+                "cellTable": {
+                  "columns": "A:C",
+                  "headerRows": "1",
+                  "footerRows": null
+                }
+              },
+              {
+                "kind": "setSheetSettings",
+                "sheet": "Changes",
+                "settings": {
+                  "lastFrozenRow": 1
+                }
+              },
+              {
+                "kind": "setColumnWidths",
+                "sheet": "Changes",
+                "columns": "A",
+                "widthInPixels": 44
+              },
+              {
+                "kind": "setColumnWidths",
+                "sheet": "Changes",
+                "columns": "B:C",
+                "widthInPixels": 340
+              }
+            ]
+          },
+          {
+            "kind": "sheet-edits",
+            "edits": [
+              {
+                "kind": "addChart",
+                "chart": {
+                  "name": "Planned and actual by channel",
+                  "caption": "Planned and actual spend for each launch channel, summed on the By channel sheet",
+                  "widget": "5b7f5e20-4f2f-4c25-8a3c-c2562b000001",
+                  "inputs": [
+                    {
+                      "name": "rows",
+                      "cells": {
+                        "sheet": "By channel",
+                        "range": "A1:C6"
+                      }
+                    }
+                  ],
+                  "sheet": "Budget",
+                  "topLeft": "G2",
+                  "widthInPixels": 324,
+                  "heightInPixels": 308
+                }
+              },
+              {
+                "kind": "addChart",
+                "chart": {
+                  "name": "Subscribers by month",
+                  "caption": "Forecast subscribers for the twelve months after launch",
+                  "widget": "5b7f5e20-4f2f-4c25-8a3c-c2562b000002",
+                  "inputs": [
+                    {
+                      "name": "rows",
+                      "cells": {
+                        "sheet": "Forecast",
+                        "range": "A7:B43"
+                      }
+                    }
+                  ],
+                  "sheet": "Forecast",
+                  "topLeft": "G1",
+                  "widthInPixels": 480,
+                  "heightInPixels": 300
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "say": "Artifact · call check",
+        "ms": 600
+      }
+    ],
+    "made": {
+      "en": "The launch budget is ready: 9 line items with variance and totals on Budget, sums by channel that feed the chart, and a 12-month subscriber forecast. Comment on any cell you want changed.",
+      "zh": "发布预算做好了：Budget 里有 9 个项目，带差额和合计；按渠道的汇总驱动那张图表；还有 12 个月的订阅预测。想改哪个单元格，直接在上面评论。"
+    },
+    "comment": {
+      "text": {
+        "en": "The venue’s final invoice came to $5,600. Use that here",
+        "zh": "场地的最终账单是 $5,600，这里按这个数改"
+      },
+      "anchor": "cells:sht_njgjwknije.0/row_njgjwknije.4/col_njgjwknije.3",
+      "label": "D5",
+      "detail": "The cells are on sheetNumber 1, where 1 is the first of the sheets that readSheets lists, as the sheets stood when the comment was begun. The numbers in the ids of the path are not positions.",
+      "at": [
+        0.46,
+        0.42
+      ]
+    }
   }
 }

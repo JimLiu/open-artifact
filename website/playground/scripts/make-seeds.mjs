@@ -3,7 +3,7 @@
 // files git tracks there: the artifact, not this machine's `_agent/`, `history/` or `.artifact*` state) and writes
 // `src/seeds/generated/<id>.json` = the demo definition plus `files: {path: {text} | {base64}}`.
 //
-//   node website/playground/scripts/make-seeds.mjs
+//   node website/playground/scripts/make-seeds.mjs [id…]   # every demo, or the ones named
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -19,10 +19,10 @@ const OUT = path.join(PLAYGROUND, 'src', 'seeds', 'generated');
 const NOT_ARTIFACT = /^(?:_agent\/|history\/|\.artifact|\.sharing\.json$|\.gitignore$|.*\.(?:log|tmp)$|.*\.DS_Store$)/;
 const TEXT = /\.(?:json|html?|css|md|txt|svg|js|mjs|csv|tsv|xml|ya?ml)$/i;
 
-/** Artifact-relative paths of the folder's files: git's tracked list, else a walk. */
+/** Artifact-relative paths of the folder's files: the ones git tracks or would (not what it ignores), else a walk. */
 function filesOf(root) {
   try {
-    const out = execFileSync('git', ['ls-files', '-z', '--', '.'], { cwd: root, encoding: 'utf8' });
+    const out = execFileSync('git', ['ls-files', '-z', '--cached', '--others', '--exclude-standard', '--', '.'], { cwd: root, encoding: 'utf8' });
     const listed = out.split('\0').filter(Boolean);
     if (listed.length) return listed.filter((rel) => !NOT_ARTIFACT.test(rel)).sort();
   } catch {
@@ -41,7 +41,8 @@ function filesOf(root) {
 }
 
 fs.mkdirSync(OUT, { recursive: true });
-for (const name of fs.readdirSync(DEMOS).filter((f) => f.endsWith('.demo.json')).sort()) {
+const only = process.argv.slice(2);
+for (const name of fs.readdirSync(DEMOS).filter((f) => f.endsWith('.demo.json') && (!only.length || only.includes(f.replace(/\.demo\.json$/, '')))).sort()) {
   const demo = JSON.parse(fs.readFileSync(path.join(DEMOS, name), 'utf8'));
   const root = path.join(REPO, demo.source);
   if (!fs.existsSync(root)) throw new Error(`${name}: no folder ${demo.source}`);

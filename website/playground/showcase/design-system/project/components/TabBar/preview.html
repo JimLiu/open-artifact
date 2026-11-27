@@ -1,0 +1,47 @@
+<!-- @dsCard group="Navigation" height=128 -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>TabBar</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: var(--space-5); background: var(--surface); color: var(--ink); font: var(--text-body); -webkit-font-smoothing: antialiased; }
+
+  .jp-tabbar { display: grid; grid-template-columns: repeat(4, 1fr); max-width: 390px; padding: var(--space-2) var(--space-2) var(--space-3); border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface-raised); }
+  .jp-tabbar__item { display: grid; justify-items: center; gap: 2px; min-height: 52px; padding: var(--space-2) 0 0; border: 0; border-radius: var(--radius-md); background: none; color: var(--ink-muted); font: var(--text-caption); font-size: 12px; cursor: pointer; }
+  .jp-tabbar__item svg { width: 24px; height: 24px; }
+  .jp-tabbar__item[aria-current="page"] { color: var(--accent-strong); font-weight: 600; }
+  .jp-tabbar__item:focus-visible { outline: 2px solid var(--accent-focus); outline-offset: -2px; }
+</style>
+</head>
+<body>
+<nav class="jp-tabbar" aria-label="Juniper">
+  <button class="jp-tabbar__item" type="button" aria-current="page">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 10.5 12 4l8 6.5V19a1 1 0 0 1-1 1h-4.5v-5.5h-5V20H5a1 1 0 0 1-1-1z"/></svg>
+    Home
+  </button>
+  <button class="jp-tabbar__item" type="button">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 8h11l1 12h-13z"/><path d="M9 8V6.5a3 3 0 0 1 6 0V8"/></svg>
+    Shop
+  </button>
+  <button class="jp-tabbar__item" type="button">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 9h11v5a5 5 0 0 1-5 5h-1a5 5 0 0 1-5-5z"/><path d="M16 10.5h1.5a2.5 2.5 0 0 1 0 5H16"/><path d="M9 3.5v2M12.5 3.5v2"/></svg>
+    Brew
+  </button>
+  <button class="jp-tabbar__item" type="button">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8.5" r="3.5"/><path d="M5 20a7 7 0 0 1 14 0"/></svg>
+    Account
+  </button>
+</nav>
+<script>
+  const bar = document.querySelector('.jp-tabbar');
+  bar.addEventListener('click', (event) => {
+    const item = event.target.closest('.jp-tabbar__item');
+    if (!item) return;
+    for (const other of bar.querySelectorAll('.jp-tabbar__item')) other.toggleAttribute('aria-current', false);
+    item.setAttribute('aria-current', 'page');
+  });
+</script>
+</body>
+</html>

@@ -11,7 +11,7 @@
 
 import type { AgentStatus, CommentAuthor, DbWrite, JsonRecord, JsonValue, PublishBatch } from '@open-artifact/runtime';
 import type { BrowserDoc, BrowserSheet } from '../engines/load.ts';
-import type { AgentEdit, AgentResponse, AgentScript, AppendOrder, DocEdit, SheetEdit } from '../seeds/manifest.ts';
+import type { AgentEdit, AgentResponse, AgentScript, AppendOrder, DocEdit, DocOps, SheetEdit, SheetEdits } from '../seeds/manifest.ts';
 import type { CommentStore } from './comments.ts';
 import { channel, sleep } from './events.ts';
 import type { DemoStore } from './store.ts';
@@ -28,6 +28,27 @@ export interface DemoEngines {
 interface Turn {
   threadId?: string;
   vars: Record<string, string>;
+}
+
+/**
+ * A turn as it goes, for whoever shows the agent's side of it (the replay's session): `asked` when the request
+ * arrives, `read` once the agent has read the thread, `edited` after each change (`what`: the tool call, as a session
+ * would show it), `replied` with the answer, `done` when the agent is idle again.
+ */
+export type TurnEvent =
+  | { phase: 'asked'; turn: number; text: string; threadId?: string }
+  | { phase: 'read'; turn: number }
+  | { phase: 'edited'; turn: number; what: string }
+  | { phase: 'replied'; turn: number; reply: string }
+  | { phase: 'done'; turn: number };
+
+/** The tool call an edit is, as an agent's session shows it. */
+export function toolCall(edit: AgentEdit): string {
+  if (edit.kind === 'files') return `Edit ${Object.keys(edit.files).join(', ')}`;
+  if (edit.kind === 'db') return `ArtifactData · write ${edit.writes.map((w) => w.path).join(', ')}`;
+  if (edit.kind === 'doc' || edit.kind === 'doc-ops') return `ArtifactData · update${edit.tab ? ` “${edit.tab}”` : ' the doc'}`;
+  if (edit.kind === 'sheet') return `ArtifactData · writeCells ${edit.sheet}!${edit.cell}`;
+  return `ArtifactData · applyEdits (${edit.edits.length})`;
 }
 
 const READ_MS = 400;
@@ -48,6 +69,12 @@ export class SimAgent {
   private turn = 0;
   private queue: Promise<void> = Promise.resolve();
   readonly statusChanges = channel<AgentStatus>();
+  /** Every turn, step by step. */
+  readonly turns = channel<TurnEvent>();
+  /** How the agent waits (reading, working): the replay swaps in its own, which a skip cuts short. */
+  pace: (ms: number) => Promise<void> = sleep;
+  /** The language of its replies, where the script has both. */
+  lang: 'en' | 'zh' = 'en';
   private readonly author: CommentAuthor;
 
   constructor(
@@ -69,6 +96,17 @@ export class SimAgent {
     this.statusChanges.emit(this.status());
   }
 
+  /** The agent shows as working (or idle again) outside a turn: while the replay builds the artifact. */
+  working(busy: boolean): void {
+    this.setBusy(busy);
+  }
+
+  /** Applies prepared edits outside a turn, in order (the replay's build steps). */
+  async perform(edits: AgentEdit[]): Promise<void> {
+    const turn: Turn = { vars: { n: '0', request: '' } };
+    for (const edit of edits) await this.apply(edit, turn);
+  }
+
   /** Queues one turn for `text` (from a thread when `threadId` is given). */
   request(text: string, threadId?: string): void {
     this.queue = this.queue.then(() => this.run(text, threadId)).catch((error: unknown) => {
@@ -79,11 +117,14 @@ export class SimAgent {
 
   private async run(text: string, threadId?: string): Promise<void> {
     this.setBusy(true);
-    await sleep(READ_MS);
-    if (threadId) this.comments.markDelivered(threadId);
-    await sleep(Math.max(0, this.script.thinkMs - READ_MS));
-    const responses = this.script.responses;
     this.turn += 1;
+    const n = this.turn;
+    this.turns.emit({ phase: 'asked', turn: n, text, ...(threadId ? { threadId } : {}) });
+    await this.pace(READ_MS);
+    if (threadId) this.comments.markDelivered(threadId);
+    this.turns.emit({ phase: 'read', turn: n });
+    await this.pace(Math.max(0, this.script.thinkMs - READ_MS));
+    const responses = this.script.responses;
     const response: AgentResponse | undefined = responses.length ? responses[(this.turn - 1) % responses.length] : undefined;
     // A comment addressed to the agent starts with its @mention (the docs editor puts one in front): not part of the ask.
     const mention = `@${this.script.name}`;
@@ -91,21 +132,30 @@ export class SimAgent {
     const request = (asked.startsWith(mention) ? asked.slice(mention.length) : asked).trim().replace(/\s+/g, ' ');
     const vars: Record<string, string> = { n: String(this.turn), request: request.length > REQUEST_CHARS ? `${request.slice(0, REQUEST_CHARS - 1)}…` : request };
     const turn: Turn = { ...(threadId ? { threadId } : {}), vars };
-    for (const edit of response?.edits ?? []) await this.apply(edit, turn);
+    for (const edit of response?.edits ?? []) {
+      await this.apply(edit, turn);
+      this.turns.emit({ phase: 'edited', turn: n, what: fill(toolCall(edit), vars) });
+    }
+    const said = response?.reply ?? 'Done.';
+    const reply = fill(typeof said === 'string' ? said : said[this.lang], vars);
     if (threadId) {
       try {
-        this.comments.reply(threadId, fill(response?.reply ?? 'Done.', vars), undefined, this.author);
+        this.comments.reply(threadId, reply, undefined, this.author);
       } catch {
         // The person removed the thread meanwhile.
       }
     }
+    this.turns.emit({ phase: 'replied', turn: n, reply });
     this.setBusy(false);
+    this.turns.emit({ phase: 'done', turn: n });
   }
 
   private async apply(edit: AgentEdit, turn: Turn): Promise<void> {
     const vars = turn.vars;
     if (edit.kind === 'doc') return this.writeDoc(fill(edit, vars), turn);
+    if (edit.kind === 'doc-ops') return this.writeDocOps(fill(edit, vars), turn);
     if (edit.kind === 'sheet') return this.writeSheet(fill(edit, vars), turn);
+    if (edit.kind === 'sheet-edits') return this.writeSheetEdits(fill(edit, vars), turn);
     if (edit.kind === 'db') {
       const writes: DbWrite[] = fill(edit.writes, vars);
       if (edit.appendOrder) {
@@ -127,14 +177,42 @@ export class SimAgent {
     await this.store.publish(batch, 'agent');
   }
 
-  /** A paragraph by the agent, written through the Docs host's agent call (the page hears it as the agent's). */
-  private async writeDoc(edit: DocEdit, turn: Turn): Promise<void> {
+  /** The tab an edit is for: the one it names, else the thread's, else the first. */
+  private docTab(name: string | undefined, turn: Turn) {
     const doc = this.engines?.doc;
     if (!doc) throw new Error('This demo has no doc to write in.');
     const tabs = [...doc.host.project().files].sort((a, b) => (a.order < b.order ? -1 : a.order > b.order ? 1 : 0));
     const location = turn.threadId ? this.threadLocation(turn.threadId) : null;
-    const tab = (edit.tab ? tabs.find((t) => t.name === edit.tab) : tabs.find((t) => t.id === location?.tab)) ?? tabs[0];
+    const tab = (name ? tabs.find((t) => t.name === name) : tabs.find((t) => t.id === location?.tab)) ?? tabs[0];
     if (!tab) throw new Error('The doc has no tab.');
+    return { doc, tab };
+  }
+
+  /** Ops on a tab by the agent, as its `update` call names them. */
+  private async writeDocOps(edit: DocOps, turn: Turn): Promise<void> {
+    const { doc, tab } = this.docTab(edit.tab, turn);
+    const outcome = doc.host.agentCall({ tool: 'update', ref: { object: 'node', id: tab.content.id }, payload: { ops: edit.ops } });
+    if (outcome.status !== 200) throw new Error(`The doc refused the agent's edit: ${JSON.stringify(outcome.body)}`);
+    turn.vars.tab = tab.name;
+    await this.engines?.mirror('agent');
+  }
+
+  /** Edits to the workbook by the agent, in one revision. */
+  private async writeSheetEdits(edit: SheetEdits, turn: Turn): Promise<void> {
+    const sheet = this.engines?.sheet;
+    if (!sheet) throw new Error('This demo has no workbook to write in.');
+    const watched = (): string => (edit.watch ? cellValue(sheet.agentRead({ kind: 'readCells', sheet: edit.watch.sheet, range: edit.watch.cell })) : '');
+    const was = watched();
+    const answer = sheet.store.agentUpdate({ kind: 'applyEdits', base: sheet.store.revision, edits: edit.edits });
+    if (!answer || typeof answer !== 'object' || typeof (answer as { revision?: unknown }).revision !== 'number') throw new Error(`The workbook refused the agent's edits: ${JSON.stringify(answer)}`);
+    turn.vars.was = was;
+    turn.vars.now = watched();
+    await this.engines?.mirror('agent');
+  }
+
+  /** A paragraph by the agent, written through the Docs host's agent call (the page hears it as the agent's). */
+  private async writeDoc(edit: DocEdit, turn: Turn): Promise<void> {
+    const { doc, tab } = this.docTab(edit.tab, turn);
     const blocks = doc.host.read(tab.id, { id: 'agent', name: this.script.name, role: 'owner' }).doc.blocks;
     const paragraph = { as: 'blocks', from: { kind: 'inline', content: [{ type: 'paragraph', content: [{ type: 'text', text: edit.text }] }] } };
     const first = blocks[0];

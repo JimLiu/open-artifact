@@ -1,0 +1,29 @@
+<!-- @dsCard group="Content" height=80 -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tag</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: var(--space-5); background: var(--surface); color: var(--ink); font: var(--text-body); -webkit-font-smoothing: antialiased; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+
+  .jp-tag { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 var(--space-2); border-radius: var(--radius-sm); background: var(--surface-sunken); color: var(--ink); font: var(--text-label); font-size: 13px; white-space: nowrap; }
+  .jp-tag::before { content: ""; width: 6px; height: 6px; border-radius: var(--radius-pill); background: currentColor; }
+  .jp-tag--new { background: var(--accent-soft); color: var(--accent-strong); }
+  .jp-tag--success { background: var(--forest-soft); color: var(--text-success); }
+  .jp-tag--seasonal { background: var(--honey); color: var(--on-honey); }
+  .jp-tag--danger { background: var(--danger-soft); color: var(--text-danger); }
+</style>
+</head>
+<body>
+<div class="row">
+  <span class="jp-tag">Whole bean</span>
+  <span class="jp-tag jp-tag--new">New roast</span>
+  <span class="jp-tag jp-tag--success">In stock</span>
+  <span class="jp-tag jp-tag--seasonal">Limited</span>
+  <span class="jp-tag jp-tag--danger">Paused</span>
+</div>
+</body>
+</html>

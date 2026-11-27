@@ -72,6 +72,7 @@ function liveStage(lang) {
       <div class="stage-bar">
         <span class="stage-live"><i aria-hidden="true"></i>${esc(g.live)}</span>
         <nav class="stage-tabs" aria-label="${esc(g.label)}">${tabs}</nav>
+        <button class="stage-again" type="button" data-stage-replay hidden title="${esc(g.againTitle)}">${icon.replay(14)}<span>${esc(g.again)}</span></button>
         <a class="stage-open" data-stage-open href="${playground(first.id)}" target="_blank" rel="noopener" title="${esc(g.open)}">${icon.external(14)}<span>${esc(g.open)}</span></a>
       </div>
       <div class="stage-view" data-stage-view>
@@ -82,7 +83,7 @@ function liveStage(lang) {
           <p class="stage-status" role="status"><i aria-hidden="true"></i>${esc(g.loading)}</p>
           <a class="btn btn-type stage-load" data-stage-load href="${playground(first.id)}">${icon.play(13)}${esc(g.load)}</a>
         </div>
-        <button class="stage-veil" type="button" data-stage-veil hidden><span>${icon.play(12)}${esc(g.veil)}</span></button>
+        <button class="stage-veil" type="button" data-stage-veil hidden><span class="stage-veil-try">${icon.play(12)}${esc(g.veil)}</span><span class="stage-veil-skip"><i aria-hidden="true"></i>${esc(g.skip)}</span></button>
       </div>
       <div class="stage-foot">
         <ol class="stage-steps">${steps}</ol>

@@ -1,0 +1,229 @@
+/* Juniper Coffee · spring launch: the rules and --variables every slide of this deck shares. */
+
+/* Palette and type. */
+section {
+  --ink: #1d1b16;
+  --cream: #f7f2e8;
+  --fog: #e7e2d6;
+  --forest: #20402f;
+  --moss: #5b7f5e;
+  --terracotta: #c2562b;
+  --honey: #e3a53c;
+  --rust: #a8471f;
+  --muted: #5f5a4e;
+  --rule: #d6cfbe;
+  display: flex;
+  flex-direction: column;
+  gap: 40px;
+  padding: 128px 128px 160px;
+  background: var(--cream);
+  color: var(--ink);
+  font-family: system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif;
+}
+
+h1, h2, h3 {
+  font-family: Georgia, 'Times New Roman', serif;
+  font-weight: 400;
+}
+h1 { font-size: 200px; line-height: 1; letter-spacing: -4px; }
+h2 { font-size: 64px; line-height: 1.1; letter-spacing: -1px; }
+h3 { font-size: 40px; line-height: 1.2; }
+p { font-size: 30px; line-height: 1.4; }
+
+.eyebrow {
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 4px;
+  text-transform: uppercase;
+  color: var(--forest);
+}
+
+/* The footer band: one pinned row, in the same place on every slide. */
+.foot {
+  position: absolute;
+  left: 128px;
+  bottom: 64px;
+  width: 1200px;
+  font-size: 24px;
+  line-height: 1.2;
+  color: var(--muted);
+}
+.brand {
+  position: absolute;
+  right: 128px;
+  bottom: 64px;
+  width: 400px;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 24px;
+  font-style: italic;
+  line-height: 1.2;
+  text-align: right;
+  color: var(--muted);
+}
+
+/* Background tones: forest for the opening and the close, fog for the quote, terracotta for the one number. */
+.dark { background: var(--forest); color: var(--cream); }
+.dark .eyebrow { color: var(--honey); }
+.dark .foot, .dark .brand { color: #c9cfc4; }
+.dark .big, .dark .stat-n, .dark .mark, .warm { color: #f0b955; }
+.dark .stat { border-top: 2px solid #5f7a69; }
+.dark .role { color: #c9cfc4; }
+.dark .avatar { background: var(--honey); }
+.dark .initials { color: var(--ink); }
+.soft { background: var(--fog); }
+.accent { background: var(--terracotta); color: #ffffff; }
+.accent .eyebrow { color: #ffffff; }
+.accent .foot, .accent .brand { color: #ffffff; }
+
+/* Cover and close: a sunrise behind the words. */
+.dawn { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; }
+.cover { justify-content: center; gap: 36px; }
+.lede { width: 860px; font-size: 40px; line-height: 1.3; color: #e9e4d6; }
+.date-pill {
+  align-self: start;
+  padding: 14px 30px;
+  border-radius: 999px;
+  background: var(--honey);
+  color: var(--ink);
+  font-size: 28px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+/* Agenda: three ruled rows. */
+.rows { flex: 1; display: flex; flex-direction: column; justify-content: end; }
+.row {
+  display: flex;
+  align-items: center;
+  gap: 56px;
+  padding: 34px 0;
+  border-top: 2px solid var(--rule);
+}
+.row-num { width: 150px; font-family: Georgia, 'Times New Roman', serif; font-size: 88px; line-height: 1; color: var(--terracotta); }
+.row-text { flex: 1; display: flex; flex-direction: column; gap: 6px; }
+.row-title { font-size: 48px; }
+.row-note { font-size: 28px; color: var(--muted); }
+.row-time { width: 160px; font-size: 28px; font-weight: 600; text-align: right; color: var(--forest); }
+
+/* The one number. */
+.hero { display: flex; flex-direction: column; gap: 20px; }
+.big { font-family: Georgia, 'Times New Roman', serif; font-size: 320px; line-height: 1; letter-spacing: -8px; }
+.hero-line { font-size: 52px; }
+.stats { margin-top: auto; display: grid; grid-template-columns: repeat(3, 1fr); gap: 64px; }
+.stat { display: flex; flex-direction: column; gap: 8px; padding: 28px 0 0; border-top: 2px solid #e8a488; }
+.stat-n { font-family: Georgia, 'Times New Roman', serif; font-size: 88px; line-height: 1; }
+.stat-l { font-size: 30px; line-height: 1.3; }
+
+/* The chart: the drawing, with its labels as text over it. */
+.split { flex: 1; display: flex; gap: 96px; align-items: end; }
+.chart { position: relative; width: 1040px; display: flex; flex-direction: column; gap: 14px; }
+.plot { width: 1040px; height: 480px; }
+.tick { position: absolute; left: 0; width: 120px; font-size: 24px; line-height: 1; color: var(--muted); }
+.peak {
+  position: absolute;
+  left: 846px;
+  top: 4px;
+  width: 136px;
+  padding: 10px 0;
+  border-radius: 10px;
+  background: var(--ink);
+  color: var(--cream);
+  font-size: 30px;
+  font-weight: 600;
+  line-height: 1;
+  text-align: center;
+}
+.months { display: grid; grid-template-columns: repeat(6, 1fr); }
+.month { font-size: 24px; line-height: 1.2; text-align: center; color: var(--muted); }
+.takeaways { flex: 1; display: flex; flex-direction: column; gap: 28px; padding: 0 0 44px; }
+.delta { font-family: Georgia, 'Times New Roman', serif; font-size: 150px; line-height: 1; letter-spacing: -3px; color: var(--terracotta); }
+.delta-note { font-size: 34px; line-height: 1.3; }
+.point { padding: 24px 0 0; border-top: 2px solid var(--rule); font-size: 28px; color: var(--muted); }
+
+/* Two columns, side by side. */
+.pair { flex: 1; display: grid; grid-template-columns: repeat(2, 1fr); gap: 40px; }
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 44px 48px;
+  border-radius: 24px;
+  background: #fffdf8;
+  border: 2px solid var(--rule);
+}
+.card-dark { background: var(--forest); border: 2px solid var(--forest); color: var(--cream); }
+.kicker { font-size: 24px; font-weight: 600; line-height: 1; letter-spacing: 3px; text-transform: uppercase; color: var(--rust); }
+.card-dark .kicker { color: var(--honey); }
+.card-title { font-size: 56px; line-height: 1.1; }
+.card-lede { font-size: 30px; line-height: 1.35; }
+.chips { display: flex; flex-wrap: wrap; gap: 12px; padding: 6px 0 0; }
+.chip { padding: 8px 22px; border-radius: 999px; background: var(--fog); font-size: 26px; line-height: 1.3; white-space: nowrap; }
+.card-dark .chip { background: #36594a; }
+.facts { margin-top: auto; padding: 22px 0 0; border-top: 2px solid var(--rule); font-size: 27px; line-height: 1.5; color: var(--muted); }
+.card-dark .facts { border-top: 2px solid #3f5f4c; color: #d8ddd0; }
+.join { font-size: 28px; color: var(--muted); }
+
+/* The timeline: five stops on one rail. */
+.track { margin-top: auto; display: grid; grid-template-columns: repeat(5, 1fr); }
+.stop { display: flex; flex-direction: column; gap: 12px; padding: 0 36px 0 0; border-top: 4px solid var(--moss); }
+.dot { width: 28px; height: 28px; margin-top: -16px; margin-bottom: 14px; border-radius: 50%; background: var(--forest); }
+.when { font-size: 24px; font-weight: 600; line-height: 1; letter-spacing: 3px; text-transform: uppercase; color: var(--forest); }
+.stop-title { font-size: 38px; }
+.what { font-size: 26px; line-height: 1.4; color: var(--muted); }
+.key .dot { width: 44px; height: 44px; margin-top: -24px; margin-bottom: 6px; background: var(--terracotta); }
+.key .when, .key .stop-title { color: var(--rust); }
+.watch {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  gap: 32px;
+  padding: 30px 40px;
+  border-radius: 20px;
+  background: var(--fog);
+}
+.watch-label { padding: 10px 22px; border-radius: 999px; background: var(--ink); color: var(--cream); font-size: 24px; font-weight: 600; line-height: 1.2; white-space: nowrap; }
+.watch-text { flex: 1; font-size: 28px; }
+
+/* The quote. */
+.center { justify-content: center; gap: 36px; }
+.mark { font-family: Georgia, 'Times New Roman', serif; font-size: 260px; line-height: 0.7; height: 104px; color: var(--terracotta); }
+.quote { width: 1480px; font-size: 76px; font-style: italic; line-height: 1.2; letter-spacing: -1px; }
+.by { display: flex; align-items: center; gap: 24px; margin-top: 12px; }
+.avatar { width: 84px; height: 84px; border-radius: 50%; background: var(--forest); display: flex; align-items: center; justify-content: center; }
+.initials { font-size: 30px; font-weight: 600; line-height: 1; color: var(--cream); }
+.by-text { display: flex; flex-direction: column; gap: 2px; }
+.name { font-size: 32px; font-weight: 600; line-height: 1.2; }
+.role { font-size: 26px; line-height: 1.3; color: var(--muted); }
+
+/* The close: the date, then who does what next. */
+.closing { font-size: 124px; line-height: 1.04; letter-spacing: -3px; }
+.steps { margin-top: auto; display: grid; grid-template-columns: repeat(3, 1fr); gap: 48px; }
+.step { display: flex; flex-direction: column; gap: 10px; padding: 26px 0 0; border-top: 2px solid #5f7a69; }
+.step-when { font-size: 24px; font-weight: 600; line-height: 1; letter-spacing: 3px; text-transform: uppercase; color: var(--honey); }
+.step-what { font-size: 34px; line-height: 1.25; }
+.step-who { font-size: 26px; color: #c9cfc4; }
+
+/* A table: ruled rows, the header and the row that matters filled. */
+.plans { width: 1664px; font-size: 32px; line-height: 1.3; }
+.plans th, .plans td { padding: 24px; text-align: left; }
+.plans th { font-weight: 600; color: var(--forest); }
+.plans-head { background: var(--fog); }
+.plans-key { background: #fbe6d4; }
+
+/* Motion, when presenting: the slide's parts rise in one after another, and the numbers count up. */
+@property --n { syntax: '<integer>'; inherits: false; initial-value: 0; }
+@keyframes rise { from { opacity: 0; transform: translateY(28px); } }
+@keyframes count { from { --n: 0; } }
+@media (prefers-reduced-motion: no-preference) {
+  .eyebrow, h1, h2 { animation: rise 0.5s ease-out both; }
+  h1, h2 { animation-delay: 0.08s; }
+  .lede, .hero-line, .date-pill { animation: rise 0.5s ease-out 0.16s both; }
+  .row, .stat, .card, .stop, .step, .split, .by, .watch { animation: rise 0.55s ease-out 0.24s both; }
+  .row:nth-child(2), .stat:nth-child(2), .card:nth-child(2), .stop:nth-child(2), .step:nth-child(2) { animation-delay: 0.32s; }
+  .row:nth-child(3), .stat:nth-child(3), .stop:nth-child(3), .step:nth-child(3) { animation-delay: 0.4s; }
+  .stop:nth-child(4) { animation-delay: 0.48s; }
+  .stop:nth-child(5) { animation-delay: 0.56s; }
+  .count { animation: count 1.2s ease-out both; }
+  .big.count { animation: count 1.4s ease-out both; }
+}

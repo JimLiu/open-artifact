@@ -1,0 +1,35 @@
+<!-- @dsCard group="Feedback" height=184 -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Toast</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: var(--space-5) var(--space-5) var(--space-6); background: var(--surface); color: var(--ink); font: var(--text-body); -webkit-font-smoothing: antialiased; }
+  .stack { display: grid; gap: var(--space-4); max-width: 440px; }
+
+  .jp-toast { display: flex; align-items: center; gap: var(--space-3); min-height: 52px; padding: var(--space-3) var(--space-3) var(--space-3) var(--space-4); border-radius: var(--radius-md); background: var(--forest); color: var(--on-forest); font: var(--text-body); font-size: 15px; line-height: 22px; box-shadow: var(--shadow-lg); }
+  .jp-toast__icon { flex: none; width: 20px; height: 20px; color: var(--honey); }
+  .jp-toast__text { flex: 1; min-width: 0; margin: 0; }
+  .jp-toast__action { flex: none; height: 32px; padding: 0 var(--space-2); border: 0; border-radius: var(--radius-sm); background: none; color: inherit; font: var(--text-label); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+  .jp-toast__action:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+  .jp-toast--plain { border: 1px solid var(--line); background: var(--surface-raised); color: var(--ink); }
+  .jp-toast--plain .jp-toast__icon { color: var(--ink-muted); }
+</style>
+</head>
+<body>
+<div class="stack">
+  <div class="jp-toast" role="status">
+    <svg class="jp-toast__icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10" cy="10" r="7.5"/><path d="m6.75 10.25 2.25 2.25 4.25-4.75"/></svg>
+    <p class="jp-toast__text">First Light is in your bag.</p>
+    <button class="jp-toast__action" type="button">Undo</button>
+  </div>
+  <div class="jp-toast jp-toast--plain" role="status">
+    <svg class="jp-toast__icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10" cy="10" r="7.5"/><path d="M10 6v4.25l2.5 1.75"/></svg>
+    <p class="jp-toast__text">Next delivery skipped. We roast again on May 1.</p>
+    <button class="jp-toast__action" type="button">Undo</button>
+  </div>
+</div>
+</body>
+</html>

@@ -18,6 +18,7 @@ import { resetBroker } from '../../../../packages/shell/src/shell/broker.ts';
 import '../../../../packages/shell/src/styles.css';
 import { createDemoArtifact, type DemoArtifact } from '../provider/demo-provider.ts';
 import { playgroundRoot } from '../root.ts';
+import { startSeed } from '../replay/plan.ts';
 import { loadSeed } from '../seeds/manifest.ts';
 
 declare global {
@@ -59,12 +60,23 @@ async function start(): Promise<void> {
   // A demo's own page (`<demo>/`) names it on <html>; `demo.html` takes `?type=`.
   const id = document.documentElement.dataset.demo ?? new URLSearchParams(location.search).get('type') ?? 'whiteboard';
   const seed = await loadSeed(id);
+  const root = document.getElementById('root')!;
+  // `?replay=1` plays the demo's replay first (`replay=hold`: once the framing page says so); not for someone who asked
+  // for less motion, who gets the finished artifact.
+  const mode = new URLSearchParams(location.search).get('replay');
+  const replay = !!seed?.replay && (mode === '1' || mode === 'hold') && !matchMedia('(prefers-reduced-motion: reduce)').matches;
   if (!seed) {
     window.__OPEN_ARTIFACT_BOOT__ = null;
     document.title = 'No such demo';
   } else {
-    const demo = await createDemoArtifact(seed);
+    const demo = await createDemoArtifact(seed, replay ? startSeed : undefined);
+    demo.agent.lang = document.documentElement.dataset.lang === 'zh' ? 'zh' : 'en';
     window.__PLAYGROUND__ = demo;
+    if (replay) {
+      // Around the Shell's root before the Shell renders: a frame that moves loads again.
+      const { startReplay } = await import('../replay/replay.ts');
+      void startReplay(demo, root, { hold: mode === 'hold' });
+    }
     // Every framed page's backend is the demo artifact, whatever base the page names.
     resetBroker(() => demo.provider);
     window.__OPEN_ARTIFACT_BOOT__ = bootOf(demo, seed.type, seed.typeTitle);
@@ -72,7 +84,7 @@ async function start(): Promise<void> {
   }
   document.documentElement.lang = locale;
   void loadBoot();
-  createRoot(document.getElementById('root')!).render(
+  createRoot(root).render(
     <StrictMode>
       <TooltipProvider>
         <Toaster>

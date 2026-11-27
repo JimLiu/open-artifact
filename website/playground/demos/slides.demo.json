@@ -2,34 +2,160 @@
   "id": "slides",
   "type": "slides",
   "typeTitle": "Slides",
-  "source": "test-artifacts/slides/browser-smoke",
+  "title": "First Light spring launch",
+  "source": "website/playground/showcase/slides",
   "agent": {
     "name": "Agent",
     "thinkMs": 2500,
     "responses": [
       {
-        "reply": "Done. I rewrote the second slide so its heading says what the deck is about.",
+        "reply": {
+          "en": "Done. The cover now carries the launch date in a honey pill, with pre-orders opening April 1, and the title is in sunrise honey instead of cream.",
+          "zh": "改好了。封面加上了发布日期（蜂蜜色的标签，写明 4 月 1 日开放预订），标题也从米白换成了日出的蜂蜜色。"
+        },
         "edits": [
           {
             "kind": "files",
             "files": {
-              "project/slides/s-u7lxj2.html": "<section id=\"s-u7lxj2\" data-flat style=\"display:flex;flex-direction:column;gap:48px;padding:128px;background:#ffffff;color:#1a1a1a\">\n  <h2>Updated by the agent</h2>\n  <p style=\"max-width:1200px\">You asked: {{request}}</p>\n  <aside>\n    QA speaker notes · 第二页\n  </aside>\n</section>\n"
+              "project/slides/cover.html": "<section id=\"cover\" class=\"dark cover\" data-transition=\"fade\">\n<svg class=\"dawn\" viewBox=\"0 0 1920 1080\">\n<defs>\n<radialGradient id=\"cover-glow\" cx=\"1500\" cy=\"790\" r=\"800\" gradientUnits=\"userSpaceOnUse\"><stop offset=\"0\" stop-color=\"#e3a53c\" stop-opacity=\"0.5\"/><stop offset=\"0.5\" stop-color=\"#e3a53c\" stop-opacity=\"0.12\"/><stop offset=\"1\" stop-color=\"#e3a53c\" stop-opacity=\"0\"/></radialGradient>\n<linearGradient id=\"cover-sun\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#f0b955\"/><stop offset=\"1\" stop-color=\"#c2562b\"/></linearGradient>\n</defs>\n<rect width=\"1920\" height=\"1080\" fill=\"url(#cover-glow)\"/>\n<circle cx=\"1500\" cy=\"790\" r=\"500\" fill=\"none\" stroke=\"#e3a53c\" stroke-opacity=\"0.2\" stroke-width=\"2\"/>\n<circle cx=\"1500\" cy=\"790\" r=\"380\" fill=\"none\" stroke=\"#e3a53c\" stroke-opacity=\"0.36\" stroke-width=\"2\"/>\n<circle cx=\"1500\" cy=\"790\" r=\"250\" fill=\"url(#cover-sun)\"/>\n<path d=\"M0 820 C 300 760 620 770 900 810 S 1520 860 1920 770 V1080 H0 Z\" fill=\"#183325\"/>\n<path d=\"M0 930 C 380 860 800 920 1180 900 S 1700 850 1920 890 V1080 H0 Z\" fill=\"#11261b\"/>\n</svg>\n<p class=\"eyebrow\">Juniper Coffee · Spring launch 2027</p>\n<h1 class=\"warm\">First Light</h1>\n<p class=\"lede\">A new seasonal blend and a new app, arriving on the same morning.</p>\n<p class=\"date-pill\">Ships April 14 · pre-orders open April 1</p>\n<p class=\"foot\">Launch review · March 2027</p>\n<aside>Welcome, everyone. Twenty-five minutes, three parts: where the subscription stands, what ships on launch day, and the six weeks between now and then. Hold questions for the end of each part.</aside>\n</section>\n"
             }
           }
         ]
       },
       {
-        "reply": "Added a closing slide at the end of the deck.",
+        "reply": {
+          "en": "On “{{request}}”: I added a slide at the end, “Launch-week pricing”, with the three plans as a table, so the offer is in the deck too.",
+          "zh": "关于“{{request}}”：我在最后加了一页“Launch-week pricing”，把三档订阅做成表格，发布周的优惠也写进去了。"
+        },
         "edits": [
           {
             "kind": "files",
             "files": {
-              "project/slides/s-agent{{n}}.html": "<section id=\"s-agent{{n}}\" data-flat style=\"display:flex;flex-direction:column;gap:48px;padding:128px;background:#ffffff;color:#1a1a1a\">\n  <h2>Thank you</h2>\n  <p style=\"max-width:1200px\">Added by the agent: {{request}}</p>\n</section>\n"
+              "project/slides/plans-{{n}}.html": "<section id=\"plans-{{n}}\" data-transition=\"fade\">\n<p class=\"eyebrow\">Appendix</p>\n<h2>Launch-week pricing</h2>\n<table class=\"plans\">\n<tr class=\"plans-head\"><th style=\"width:18%\">Plan</th><th style=\"width:38%\">What arrives</th><th style=\"width:14%\">Price</th><th style=\"width:30%\">Launch week</th></tr>\n<tr><td>Taster</td><td>One 340 g bag a month</td><td>$19</td><td>First bag at $12</td></tr>\n<tr class=\"plans-key\"><td><b>Regular</b></td><td>Two bags a month, First Light included</td><td>$34</td><td>A free dripper in the first box</td></tr>\n<tr><td>Household</td><td>Four bags a month, any blends</td><td>$62</td><td>A free dripper and a tasting kit</td></tr>\n</table>\n<div class=\"watch\">\n<p class=\"watch-label\">In the app</p>\n<p class=\"watch-text\">Every plan can be paused, skipped or changed in two taps, from launch day.</p>\n</div>\n<p class=\"foot\">Prices in US dollars. Launch offers run April 14–21.</p>\n<p class=\"brand\">Juniper Coffee</p>\n<aside>Keep this one for questions. Regular is the plan we lead with: it is the only one that always includes First Light.</aside>\n</section>\n"
             },
-            "appendOrder": { "path": "project/deck.json", "field": "order", "value": "s-agent{{n}}" }
+            "appendOrder": {
+              "path": "project/deck.json",
+              "field": "order",
+              "value": "plans-{{n}}"
+            }
+          }
+        ]
+      },
+      {
+        "reply": {
+          "en": "On “{{request}}”: I reworked slide 3. The big number now sits on forest green with the figures in honey, so it reads as one run with the cover.",
+          "zh": "关于“{{request}}”：我重做了第 3 页。大数字现在放在森林绿的底色上，数字用蜂蜜色，和封面连成一气。"
+        },
+        "edits": [
+          {
+            "kind": "files",
+            "files": {
+              "project/slides/numbers.html": "<section id=\"numbers\" class=\"dark\" data-transition=\"fade\">\n<p class=\"eyebrow\">Where we stand</p>\n<div class=\"hero\">\n<p class=\"big count\">4,180</p>\n<p class=\"hero-line\">households start their week with a Juniper delivery.</p>\n</div>\n<div class=\"stats\">\n<div class=\"stat\">\n<p class=\"stat-n count\">38%</p>\n<p class=\"stat-l\">more subscribers than in October</p>\n</div>\n<div class=\"stat\">\n<p class=\"stat-n count\">97%</p>\n<p class=\"stat-l\">stayed with us each month this winter</p>\n</div>\n<div class=\"stat\">\n<p class=\"stat-n count\">3 days</p>\n<p class=\"stat-l\">from the roaster to the doorstep</p>\n</div>\n</div>\n<p class=\"foot\">Active subscriptions, week of March 1</p>\n<p class=\"brand\">Juniper Coffee</p>\n<aside>This is the number to remember. Four thousand one hundred and eighty active subscriptions as of last week. The three below it explain why we think the base can carry a launch: it grew, it stayed, and the coffee still arrives fresh.</aside>\n</section>\n"
+            }
+          }
+        ]
+      },
+      {
+        "reply": {
+          "en": "On “{{request}}”: I moved the quote on slide 7 onto the dark background, so it lands as a pause before the close.",
+          "zh": "关于“{{request}}”：我把第 7 页的引言换到了深色底上，在收尾之前留出一个停顿。"
+        },
+        "edits": [
+          {
+            "kind": "files",
+            "files": {
+              "project/slides/quote.html": "<section id=\"quote\" class=\"dark center\" data-transition=\"fade\">\n<p class=\"mark\">“</p>\n<h2 class=\"quote\">It tastes like the first warm morning of the year. I ordered a second bag before I finished the first cup.</h2>\n<div class=\"by\">\n<div class=\"avatar\"><p class=\"initials\">MO</p></div>\n<div class=\"by-text\">\n<p class=\"name\">Maya Okafor</p>\n<p class=\"role\">Tasting panel · subscriber since 2024</p>\n</div>\n</div>\n<p class=\"brand\">Juniper Coffee</p>\n<aside>Read it out and pause. Maya was one of sixty subscribers on the tasting panel in February; fifty-one of them asked when they could buy it.</aside>\n</section>\n"
+            }
           }
         ]
       }
     ]
+  },
+  "replay": {
+    "prompt": {
+      "en": "/open-artifact slides a launch review deck for First Light, our spring blend, and the new Juniper app",
+      "zh": "/open-artifact slides 给春季新品 First Light 和新的 Juniper App 做一份发布评审演示"
+    },
+    "start": {
+      "project/deck.json": "{\n  \"v\": 5,\n  \"createdOnFiles\": {\n    \"v\": 1,\n    \"at\": \"2026-11-27T09:00:00Z\"\n  },\n  \"lists\": \"css\",\n  \"format\": {\n    \"v\": 1,\n    \"shared\": [\n      \"project/deck.css\"\n    ]\n  },\n  \"title\": \"First Light spring launch\",\n  \"order\": [],\n  \"sections\": {},\n  \"faces\": {},\n  \"designSystems\": [],\n  \"attachments\": {}\n}\n",
+      "project/deck.css": "/* The rules and --variables every slide of this deck shares. */\nsection {\n  background: #ffffff;\n  color: #1a1a1a;\n}\n"
+    },
+    "steps": [
+      {
+        "say": "Read the slides type's guide",
+        "ms": 600
+      },
+      {
+        "say": "Write project/deck.json, project/deck.css",
+        "take": [
+          "project/deck.json",
+          "project/deck.css"
+        ],
+        "ms": 1100
+      },
+      {
+        "say": "Write project/slides/cover.html",
+        "take": [
+          "project/slides/cover.html"
+        ],
+        "ms": 1000
+      },
+      {
+        "say": "Write slides/agenda.html, numbers.html, growth.html",
+        "take": [
+          "project/slides/agenda.html",
+          "project/slides/numbers.html",
+          "project/slides/growth.html"
+        ],
+        "chunks": 3,
+        "ms": 2400
+      },
+      {
+        "say": "Write slides/launch.html, timeline.html, quote.html",
+        "take": [
+          "project/slides/launch.html",
+          "project/slides/timeline.html",
+          "project/slides/quote.html"
+        ],
+        "chunks": 3,
+        "ms": 2400
+      },
+      {
+        "say": "Write project/slides/close.html",
+        "take": [
+          "project/slides/close.html"
+        ],
+        "ms": 900
+      },
+      {
+        "say": "Artifact · call check",
+        "ms": 700
+      }
+    ],
+    "made": {
+      "en": "The deck is ready: 8 slides, from the cover to next steps, with a subscriber chart, the launch timeline and speaker notes on every slide. Comment on anything you want changed.",
+      "zh": "演示做好了：共 8 页，从封面到下一步行动，有订阅增长图表、发布时间线，每页都写了演讲备注。想改哪里，直接在上面评论。"
+    },
+    "comment": {
+      "text": {
+        "en": "Put the launch date on the cover, and make the title warmer",
+        "zh": "把发布日期放到封面上，标题的颜色再暖一点"
+      },
+      "anchor": "{\"slide\":\"cover\",\"el\":\"e0-1ftwghs/1\",\"x\":1010,\"y\":484}",
+      "label": "Slide 1 › First Light",
+      "location": {
+        "slideId": "cover",
+        "slideIndex": 1,
+        "element": "e0-1ftwghs/1",
+        "point": {
+          "x": 1010,
+          "y": 484
+        }
+      },
+      "at": [
+        0.522,
+        0.485
+      ]
+    }
   }
 }

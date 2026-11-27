@@ -32,6 +32,7 @@ const ui = (d, size = 16, extra = '') =>
 
 export const icon = {
   arrow: (s) => ui('<path d="M3 8h10M9 4l4 4-4 4"/>', s),
+  replay: (s) => ui('<path d="M2.8 8a5.2 5.2 0 1 0 1.6-3.75M2.5 2.5v2.75h2.75"/>', s),
   external: (s) => ui('<path d="M9.5 2.5h4v4M13.5 2.5 7.5 8.5M12 9.5V13a.5.5 0 0 1-.5.5h-8A.5.5 0 0 1 3 13V5a.5.5 0 0 1 .5-.5H7"/>', s),
   copy: (s) => ui('<rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 5.5V3.5a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2"/>', s),
   tick: (s) => ui('<path d="m3 8.5 3.25 3.25L13 4.75"/>', s),

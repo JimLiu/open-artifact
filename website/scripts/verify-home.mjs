@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 // Checks the home page's live stage in headless Chrome (the repo's e2e/lib/browser.mjs), against the built website as a
 // static host serves it: the page holds a tab per demo and no frame of its own; the first demo's frame
-// (`playground/<demo>/?embed=1`) arrives after the page has loaded and shows the real Shell without the demo's hint bar;
-// the veil keeps the wheel with the page until someone clicks in; a tab, and a type card's "Try it live", show another
+// (`playground/<demo>/?embed=1&replay=hold&lang=…`) arrives after the page has loaded and shows the real Shell without
+// the demo's hint bar; the demo's replay plays while it is on show, a click on the veil skips it and "Replay" plays it
+// again; the veil keeps the wheel with the page until someone clicks in; a tab, and a type card's "Try it live", show another
 // demo; a narrow window loads nothing until asked.
 //
 //   node website/scripts/verify-home.mjs [site URL, default http://127.0.0.1:4330/]
@@ -35,12 +36,18 @@ export async function verifyHome(site) {
       check('the stage has a tab per demo, each a link to the demo’s own page', tabs.length === DEMOS.length && DEMOS.every((d) => tabs.includes(new URL(`playground/${d}/`, base).href)), `${tabs.length} tabs`);
       const first = await page.evaluate(`${STAGE}.querySelector('[data-demo][aria-current=true]').dataset.demo`);
       check('the first demo’s frame loads by itself', await page.waitFor(SHOWN(first), 40000), first);
-      check('…as the embed page, with no hint bar', await page.evaluate(`(f => new URL(f.src).search === '?embed=1' && getComputedStyle(f.contentDocument.getElementById('pg-hint')).display === 'none' && !!f.contentDocument.querySelector('iframe[name=open-artifact-shell]'))(${FRAMES}[0])`));
+      check('…as the embed page, with no hint bar', await page.evaluate(`(f => new URL(f.src).search === '?embed=1&replay=hold&lang=en' && getComputedStyle(f.contentDocument.getElementById('pg-hint')).display === 'none' && !!f.contentDocument.querySelector('iframe[name=open-artifact-shell]'))(${FRAMES}[0])`));
+      const REPLAY = `${FRAMES}.find(f => f.hasAttribute('data-on')).contentDocument.querySelector('.pg-replay')?.dataset.state`;
+      check('the demo plays its replay, and the stage says so', await page.waitFor(TOP(`${STAGE}.dataset.replay === 'playing' && ${REPLAY} === 'playing' && !!${STAGE}.querySelector('.stage-veil-skip').offsetParent`), 20000));
       check('a veil covers the loaded demo', await page.evaluate(`(v => !v.hidden && v.getBoundingClientRect().height > 100)(${STAGE}.querySelector('[data-stage-veil]'))`));
       await page.evaluate(`${STAGE}.querySelector('[data-stage-veil]').click()`);
       check('a click on the veil hands the demo the pointer', await page.evaluate(`${STAGE}.hasAttribute('data-active') && ${STAGE}.querySelector('[data-stage-veil]').hidden`));
+      check('…and skips the replay', await page.waitFor(TOP(`${STAGE}.dataset.replay === 'done' && ${REPLAY} === 'done' && !${STAGE}.querySelector('[data-stage-replay]').hidden`), 20000));
       await page.evaluate("document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))");
       check('a press outside the stage takes it back', await page.evaluate(`!${STAGE}.hasAttribute('data-active') && !${STAGE}.querySelector('[data-stage-veil]').hidden`));
+
+      await page.evaluate(`${STAGE}.querySelector('[data-stage-replay]').click()`);
+      check('"Replay" plays it again', await page.waitFor(TOP(`${STAGE}.dataset.replay === 'playing' && ${REPLAY} === 'playing' && ${STAGE}.querySelector('[data-stage-replay]').hidden`), 20000));
 
       const other = first === 'whiteboard' ? 'slides' : 'whiteboard';
       await page.evaluate(`${STAGE}.querySelector('[data-demo=${other}]').click()`);

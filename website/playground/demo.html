@@ -13,7 +13,7 @@
       body { display: flex; flex-direction: column; }
       body > #root { flex: 1; min-height: 0; height: auto; }
       .pg-hint { display: flex; align-items: center; gap: 10px; min-height: 32px; padding: 4px 8px 4px 12px; box-sizing: border-box; font: 12.5px/1.4 Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif; background: #eef3fd; color: #1c2a4a; border-bottom: 1px solid rgba(47, 91, 183, 0.18); }
-      .pg-hint[hidden], html[data-embed] .pg-hint { display: none; }
+      .pg-hint[hidden], .pg-hint [hidden], html[data-embed] .pg-hint { display: none; }
       .pg-hint .pg-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .pg-hint b { font-weight: 650; }
       .pg-hint .pg-dot { width: 7px; height: 7px; border-radius: 50%; background: #22a55b; flex: none; box-shadow: 0 0 0 3px rgba(34, 165, 91, 0.18); }
@@ -22,6 +22,7 @@
       .pg-hint .pg-close { color: #4a5675; font-size: 15px; line-height: 1; padding: 2px 7px; }
       html[data-lang='en'] [data-l='zh'], html[data-lang='zh'] [data-l='en'] { display: none; }
       @media (max-width: 720px) { .pg-hint .pg-long { display: none; } }
+      @media (max-width: 520px) { .pg-hint a[data-pg-href='../'] { display: none; } }
       @media (prefers-color-scheme: dark) {
         .pg-hint { background: #1b2233; color: #d9e2f5; border-bottom-color: rgba(126, 163, 236, 0.2); }
         .pg-hint a, .pg-hint button { color: #93c5fd; }
@@ -29,11 +30,12 @@
       }
     </style>
     <script>
-      // The language of the playground's own words (the Shell follows the browser): the site's choice (oa-lang), else
-      // the site's Chinese pages when they sent the visitor here, else the browser.
+      // The language of the playground's own words (the Shell follows the browser): the address's (`?lang=`), else the
+      // site's choice (oa-lang), else
+      // its Chinese pages when they sent the visitor here, else the browser.
       (function () {
-        var d = document.documentElement, l = null;
-        try { l = localStorage.getItem('oa-lang'); } catch (_) {}
+        var d = document.documentElement, l = (/[?&]lang=(en|zh)(&|$)/.exec(location.search) || [])[1] || null;
+        try { l = l || localStorage.getItem('oa-lang'); } catch (_) {}
         if (l !== 'en' && l !== 'zh') {
           var site = new URL('../', new URL(document.querySelector('meta[name="playground-root"]').content, location.href));
           var ref = null;
@@ -54,6 +56,7 @@
         <span data-l="en"><b>Live demo</b>, entirely in your browser: the real editor with a simulated agent.<span class="pg-long"> Leave a comment, tick “Send to Agent”, and watch it answer. Nothing is saved.</span></span>
         <span data-l="zh"><b>在线演示</b>，完全在你的浏览器里运行：真正的编辑器，配一个模拟的 Agent。<span class="pg-long">留一条评论、勾选“发给 Agent”，看它回复并修改。不会保存任何内容。</span></span>
       </span>
+      <a data-pg-replay href="?replay=1"><span data-l="en">▶ Watch an agent make it</span><span data-l="zh">▶ 看 Agent 现场做出来</span></a>
       <a data-pg-href="" href="./"><span data-l="en">All demos</span><span data-l="zh">全部演示</span></a>
       <a data-pg-href="../" href="../"><span data-l="en">Open Artifact site</span><span data-l="zh">Open Artifact 官网</span></a>
       <button type="button" data-pg-lang><span data-l="en">中文</span><span data-l="zh">EN</span></button>
@@ -74,6 +77,12 @@
           }
         }
         sync();
+        // The demo's replay (the agent session that makes this artifact), unless this is it.
+        var replay = bar.querySelector('[data-pg-replay]');
+        var here = new URL(location.href);
+        if (here.searchParams.get('replay')) replay.hidden = true;
+        here.searchParams.set('replay', '1');
+        replay.href = here.href;
         bar.querySelector('[data-pg-lang]').addEventListener('click', function () {
           var l = d.getAttribute('data-lang') === 'zh' ? 'en' : 'zh';
           d.setAttribute('data-lang', l);

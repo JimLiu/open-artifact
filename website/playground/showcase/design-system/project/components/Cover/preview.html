@@ -1,0 +1,64 @@
+<!-- @dsCard height=288 -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Juniper</title>
+<style>
+  html, body { margin: 0; height: 100%; }
+  body { overflow: hidden; background: var(--surface); color: var(--ink); font-family: var(--font-sans); -webkit-font-smoothing: antialiased; }
+  .cover { position: relative; height: 288px; overflow: hidden; }
+  /* the composition: a 480-wide box on the right half of the 960 layout, clear of the name */
+  .art { position: absolute; top: 0; left: 480px; width: 480px; height: 288px; overflow: hidden; }
+  .art svg { display: block; width: 480px; height: 288px; overflow: visible; }
+  .forest { fill: var(--forest); }
+  .accent { fill: var(--accent); }
+  .honey { fill: var(--honey); }
+  .wash { fill: var(--forest-soft); }
+  .blk { rx: var(--radius-lg); }
+  .berry { fill: var(--moss); }
+  .berry.cut { fill: var(--accent-soft); }
+  /* name and tagline in flow, pinned by the block's bottom edge */
+  .words { position: absolute; left: var(--space-7); bottom: var(--space-6); max-width: 440px; }
+  .name { margin: 0; font-family: var(--font-display); font-size: 112px; line-height: .9; font-weight: 400; letter-spacing: -.02em; color: var(--ink); }
+  .tag { margin: var(--space-3) 0 0 4px; font-size: 14px; line-height: 20px; color: var(--ink-muted); }
+</style>
+</head>
+<body>
+<div class="cover">
+<div class="art" aria-hidden="true">
+<svg viewBox="0 0 480 288" width="480" height="288">
+<!--
+  blocks      forest 168×280 bled off the top (the brand's deep green, largest) · accent 120×160 (terracotta, the one accent) · honey disc 80 (First Light, rx = half its side) · forest-soft 152×136 bleeding off the right edge (the tint) : about 30% of 960×288
+  arrangement one tall forest slab with satellites, bottoms on one line space-5 above the edge, space-4 gutters
+  pattern     discs, from "only switches and the roast meter are fully round" and the three berries of the wordmark: space-4 berries at a space-6 pitch, thinning upward over the slab in moss, three cut into the accent block in accent-soft, two on the wash
+  scales      sides in space-2 multiples; gutters space-4; pitch space-6; corners radius-lg; discs rx = half of space-4
+-->
+<rect class="forest blk" x="24" y="-16" width="168" height="280" rx="16"/>
+<rect class="accent blk" x="208" y="104" width="120" height="160" rx="16"/>
+<circle class="honey" cx="384" cy="64" r="40"/>
+<rect class="wash blk" x="344" y="128" width="152" height="136" rx="16"/>
+<circle class="berry" cx="60" cy="228" r="8"/>
+<circle class="berry" cx="92" cy="228" r="8"/>
+<circle class="berry" cx="124" cy="228" r="8"/>
+<circle class="berry" cx="156" cy="228" r="8"/>
+<circle class="berry" cx="60" cy="196" r="8"/>
+<circle class="berry" cx="92" cy="196" r="8"/>
+<circle class="berry" cx="124" cy="196" r="8"/>
+<circle class="berry" cx="60" cy="164" r="8"/>
+<circle class="berry" cx="92" cy="164" r="8"/>
+<circle class="berry" cx="60" cy="132" r="8"/>
+<circle class="berry cut" cx="244" cy="228" r="8"/>
+<circle class="berry cut" cx="276" cy="228" r="8"/>
+<circle class="berry cut" cx="244" cy="196" r="8"/>
+<circle class="berry" cx="380" cy="228" r="8"/>
+<circle class="berry" cx="412" cy="228" r="8"/>
+</svg>
+</div>
+<div class="words">
+<h1 class="name">Juniper</h1>
+<p class="tag">Small-batch coffee. One palette, two type families, one scale.</p>
+</div>
+</div>
+</body>
+</html>

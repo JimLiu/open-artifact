@@ -1,0 +1,648 @@
+{
+  "rev": 2,
+  "blocks": [
+    {
+      "id": "kr0483lpxzq.3092",
+      "type": "paragraph",
+      "attrs": {
+        "heading": 1
+      },
+      "inline": [
+        {
+          "id": "kr0483lpxzq.3093",
+          "text": "Launch checklist"
+        }
+      ]
+    },
+    {
+      "id": "kr0483lpxzq.3109",
+      "type": "paragraph",
+      "inline": [
+        {
+          "id": "kr0483lpxzq.3110",
+          "text": "Everything that has to be true before First Light ships on "
+        },
+        {
+          "id": "kr0483lpxzq.3169",
+          "atom": "date",
+          "attrs": {
+            "ts": "2027-04-14"
+          }
+        },
+        {
+          "id": "kr0483lpxzq.3170",
+          "text": ". Tick a box when it is done; the owner is in bold."
+        }
+      ]
+    },
+    {
+      "id": "kr0483lpxzq.3221",
+      "type": "paragraph",
+      "attrs": {
+        "heading": 2
+      },
+      "inline": [
+        {
+          "id": "kr0483lpxzq.3222",
+          "text": "Blend"
+        }
+      ]
+    },
+    {
+      "id": "kr0483lpxzq.3227",
+      "type": "list",
+      "attrs": {
+        "kind": "check"
+      },
+      "children": [
+        {
+          "id": "kr0483lpxzq.3228",
+          "type": "listItem",
+          "attrs": {
+            "checked": true
+          },
+          "children": [
+            {
+              "id": "kr0483lpxzq.3229",
+              "type": "paragraph",
+              "inline": [
+                {
+                  "id": "kr0483lpxzq.3230",
+                  "text": "Dana",
+                  "marks": {
+                    "bold": true
+                  }
+                },
+                {
+                  "id": "kr0483lpxzq.3234",
+                  "text": " Lock the roast profile"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "kr0483lpxzq.3257",
+          "type": "listItem",
+          "attrs": {
+            "checked": true
+          },
+          "children": [
+            {
+              "id": "kr0483lpxzq.3258",
+              "type": "paragraph",
+              "inline": [
+                {
+                  "id": "kr0483lpxzq.3259",
+                  "text": "Dana",
+                  "marks": {
+                    "bold": true
+                  }
+                },
+                {
+                  "id": "kr0483lpxzq.3263",
+                  "text": " Bring in green coffee for 6,000 bags"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "kr0483lpxzq.3300",
+          "type": "listItem",
+          "attrs": {
+            "checked": false
+          },
+          "children": [
+            {
+              "id": "kr0483lpxzq.3301",
+              "type": "paragraph",
+              "inline": [
+                {
+                  "id": "kr0483lpxzq.3302",
+                  "text": "Dana",
+                  "marks": {
+                    "bold": true
+                  }
+                },
+                {
+                  "id": "kr0483lpxzq.3306",
+                  "text": " Sign off the bag artwork, code panel included"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "kr0483lpxzq.3352",
+          "type": "listItem",
+          "attrs": {
+            "checked": false
+          },
+          "children": [
+            {
+              "id": "kr0483lpxzq.3353",
+              "type": "paragraph",
+              "inline": [
+                {
+                  "id": "kr0483lpxzq.3354",
+                  "text": "Dana",
+                  "marks": {
+                    "bold": true
+                  }
+                },
+                {
+                  "id": "kr0483lpxzq.3358",
+                  "text": " Roast and pack the first 2,000 bags by "
+                },
+                {
+                  "id": "kr0483lpxzq.3398",
+                  "atom": "date",
+                  "attrs": {
+                    "ts": "2027-04-09"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "kr0483lpxzq.3399",
+      "type": "paragraph",
+      "attrs": {
+        "heading": 2
+      },
+      "inline": [
+        {
+          "id": "kr0483lpxzq.3400",
+          "text": "App"
+        }
+      ]
+    },
+    {
+      "id": "kr0483lpxzq.3403",
+      "type": "list",
+      "attrs": {
+        "kind": "check"
+      },
+      "children": [
+        {
+          "id": "kr0483lpxzq.3404",
+          "type": "listItem",
+          "attrs": {
+            "checked": true
+          },
+          "children": [
+            {
+              "id": "kr0483lpxzq.3405",
+              "type": "paragraph",
+              "inline": [
+                {
+                  "id": "kr0483lpxzq.3406",
+                  "text": "Priya",
+                  "marks": {
+                    "bold": true
+                  }
+                },
+                {
+                  "id": "kr0483lpxzq.3411",
+                  "text": " Freeze features"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "kr0483lpxzq.3427",
+          "type": "listItem",
+          "attrs": {
+            "checked": false
+          },
+          "children": [
+            {
+              "id": "kr0483lpxzq.3428",
+              "type": "paragraph",
+              "inline": [
+                {
+                  "id": "kr0483lpxzq.3429",
+                  "text": "Priya",
+                  "marks": {
+                    "bold": true
+                  }
+                },
+                {
+                  "id": "kr0483lpxzq.3434",
+                  "text": " Submit to both stores by "
+                },
+                {
+                  "id": "kr0483lpxzq.3460",
+                  "atom": "date",
+                  "attrs": {
+                    "ts": "2027-03-24"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "kr0483lpxzq.3461",
+          "type": "listItem",
+          "attrs": {
+            "checked": false
+          },
+          "children": [
+            {
+              "id": "kr0483lpxzq.3462",
+              "type": "paragraph",
+              "inline": [
+                {
+                  "id": "kr0483lpxzq.3463",
+                  "text": "Priya",
+                  "marks": {
+                    "bold": true
+                  }
+                },
+                {
+                  "id": "kr0483lpxzq.3468",
+                  "text": " Open the beta to 500 subscribers on "
+                },
+                {
+                  "id": "kr0483lpxzq.3505",
+                  "atom": "date",
+                  "attrs": {
+                    "ts": "2027-03-31"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "kr0483lpxzq.3506",
+          "type": "listItem",
+          "attrs": {
+            "checked": false
+          },
+          "children": [
+            {
+              "id": "kr0483lpxzq.3507",
+              "type": "paragraph",
+              "inline": [
+                {
+                  "id": "kr0483lpxzq.3508",
+                  "text": "Priya",
+                  "marks": {
+                    "bold": true
+                  }
+                },
+                {
+                  "id": "kr0483lpxzq.3513",
+                  "text": " Try the bag code on ten real bags"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "kr0483lpxzq.3547",
+      "type": "paragraph",
+      "attrs": {
+        "heading": 2
+      },
+      "inline": [
+        {
+          "id": "kr0483lpxzq.3548",
+          "text": "Customers"
+        }
+      ]
+    },
+    {
+      "id": "kr0483lpxzq.3557",
+      "type": "list",
+      "attrs": {
+        "kind": "check"
+      },
+      "children": [
+        {
+          "id": "kr0483lpxzq.3558",
+          "type": "listItem",
+          "attrs": {
+            "checked": true
+          },
+          "children": [
+            {
+              "id": "kr0483lpxzq.3559",
+              "type": "paragraph",
+              "inline": [
+                {
+                  "id": "kr0483lpxzq.3560",
+                  "text": "Mina",
+                  "marks": {
+                    "bold": true
+                  }
+                },
+                {
+                  "id": "kr0483lpxzq.3564",
+                  "text": " Pick the 40 writers and cafe partners for press kits"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "kr0483lpxzq.3617",
+          "type": "listItem",
+          "attrs": {
+            "checked": false
+          },
+          "children": [
+            {
+              "id": "kr0483lpxzq.3618",
+              "type": "paragraph",
+              "inline": [
+                {
+                  "id": "kr0483lpxzq.3619",
+                  "text": "Mina",
+                  "marks": {
+                    "bold": true
+                  }
+                },
+                {
+                  "id": "kr0483lpxzq.3623",
+                  "text": " Send the press kits on "
+                },
+                {
+                  "id": "kr0483lpxzq.3647",
+                  "atom": "date",
+                  "attrs": {
+                    "ts": "2027-03-17"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "kr0483lpxzq.3648",
+          "type": "listItem",
+          "attrs": {
+            "checked": false
+          },
+          "children": [
+            {
+              "id": "kr0483lpxzq.3649",
+              "type": "paragraph",
+              "inline": [
+                {
+                  "id": "kr0483lpxzq.3650",
+                  "text": "Leo",
+                  "marks": {
+                    "bold": true
+                  }
+                },
+                {
+                  "id": "kr0483lpxzq.3653",
+                  "text": " Brief the support team by "
+                },
+                {
+                  "id": "kr0483lpxzq.3680",
+                  "atom": "date",
+                  "attrs": {
+                    "ts": "2027-04-07"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "kr0483lpxzq.3681",
+          "type": "listItem",
+          "attrs": {
+            "checked": false
+          },
+          "children": [
+            {
+              "id": "kr0483lpxzq.3682",
+              "type": "paragraph",
+              "inline": [
+                {
+                  "id": "kr0483lpxzq.3683",
+                  "text": "Leo",
+                  "marks": {
+                    "bold": true
+                  }
+                },
+                {
+                  "id": "kr0483lpxzq.3686",
+                  "text": " Load the reply templates from "
+                },
+                {
+                  "id": "kr0483lpxzq.3717",
+                  "atom": "mention",
+                  "attrs": {
+                    "principal": null,
+                    "ref": "file/dc147e4d-abeb"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "kr0483lpxzq.3718",
+          "type": "listItem",
+          "attrs": {
+            "checked": false
+          },
+          "children": [
+            {
+              "id": "kr0483lpxzq.3719",
+              "type": "paragraph",
+              "inline": [
+                {
+                  "id": "kr0483lpxzq.3720",
+                  "text": "Mina",
+                  "marks": {
+                    "bold": true
+                  }
+                },
+                {
+                  "id": "kr0483lpxzq.3724",
+                  "text": " Schedule the launch email for 7:00 on launch day"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "kr0483lpxzq.3773",
+      "type": "paragraph",
+      "attrs": {
+        "heading": 2
+      },
+      "inline": [
+        {
+          "id": "kr0483lpxzq.3774",
+          "text": "Launch morning"
+        }
+      ]
+    },
+    {
+      "id": "kr0483lpxzq.3788",
+      "type": "list",
+      "attrs": {
+        "kind": "ordered"
+      },
+      "children": [
+        {
+          "id": "kr0483lpxzq.3789",
+          "type": "listItem",
+          "children": [
+            {
+              "id": "kr0483lpxzq.3790",
+              "type": "paragraph",
+              "inline": [
+                {
+                  "id": "kr0483lpxzq.3791",
+                  "text": "6:00",
+                  "marks": {
+                    "bold": true
+                  }
+                },
+                {
+                  "id": "kr0483lpxzq.3795",
+                  "text": " Dana confirms the first boxes have left the roastery."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "kr0483lpxzq.3849",
+          "type": "listItem",
+          "children": [
+            {
+              "id": "kr0483lpxzq.3850",
+              "type": "paragraph",
+              "inline": [
+                {
+                  "id": "kr0483lpxzq.3851",
+                  "text": "7:00",
+                  "marks": {
+                    "bold": true
+                  }
+                },
+                {
+                  "id": "kr0483lpxzq.3855",
+                  "text": " The launch email goes to all 4,180 subscribers."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "kr0483lpxzq.3903",
+          "type": "listItem",
+          "children": [
+            {
+              "id": "kr0483lpxzq.3904",
+              "type": "paragraph",
+              "inline": [
+                {
+                  "id": "kr0483lpxzq.3905",
+                  "text": "7:30",
+                  "marks": {
+                    "bold": true
+                  }
+                },
+                {
+                  "id": "kr0483lpxzq.3909",
+                  "text": " Priya releases the app in both stores."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "kr0483lpxzq.3948",
+          "type": "listItem",
+          "children": [
+            {
+              "id": "kr0483lpxzq.3949",
+              "type": "paragraph",
+              "inline": [
+                {
+                  "id": "kr0483lpxzq.3950",
+                  "text": "9:00",
+                  "marks": {
+                    "bold": true
+                  }
+                },
+                {
+                  "id": "kr0483lpxzq.3954",
+                  "text": " Leo opens the launch inbox. First stand-up at noon."
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "kr0483lpxzq.4006",
+      "type": "paragraph",
+      "attrs": {
+        "heading": 2
+      },
+      "inline": [
+        {
+          "id": "kr0483lpxzq.4007",
+          "text": "Follow-ups from review"
+        }
+      ]
+    },
+    {
+      "id": "kr0483lpxzq.4029",
+      "type": "list",
+      "attrs": {
+        "kind": "check"
+      },
+      "children": [
+        {
+          "id": "kr0483lpxzq.4030",
+          "type": "listItem",
+          "attrs": {
+            "checked": false
+          },
+          "children": [
+            {
+              "id": "kr0483lpxzq.4031",
+              "type": "paragraph",
+              "inline": [
+                {
+                  "id": "kr0483lpxzq.4032",
+                  "text": "Dana",
+                  "marks": {
+                    "bold": true
+                  }
+                },
+                {
+                  "id": "kr0483lpxzq.4036",
+                  "text": " Confirm what gift subscriptions get in their first box"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

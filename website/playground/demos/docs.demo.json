@@ -2,19 +2,539 @@
   "id": "docs",
   "type": "docs",
   "typeTitle": "Docs",
-  "source": "test-artifacts/docs/browser-qa",
+  "title": "First Light: spring launch brief",
+  "source": "website/playground/showcase/docs",
+  "omit": [
+    "make.mjs"
+  ],
   "agent": {
     "name": "Agent",
     "thinkMs": 2500,
     "responses": [
       {
-        "reply": "Done. I added a note near the top of “{{tab}}” with what you asked for.",
-        "edits": [{ "kind": "doc", "at": "top", "text": "Updated by the agent: {{request}}" }]
+        "reply": {
+          "en": "Done. Under the summary of “{{tab}}” there is now a panel that says what a good launch looks like by June 30: 5,000 active subscriptions, half of them signed in to the app, and three-day delivery held through launch week.",
+          "zh": "改好了。“{{tab}}”的摘要下面多了一个提示框，写明到 6 月 30 日怎样才算发布成功：5,000 个活跃订阅，其中一半登录了 App，发布周也守住三天送达。"
+        },
+        "edits": [
+          {
+            "kind": "doc-ops",
+            "tab": "Brief",
+            "ops": [
+              {
+                "op": "insert",
+                "target": {
+                  "kind": "blocks",
+                  "ids": [
+                    "kr0483lpxzq.148"
+                  ]
+                },
+                "side": "after",
+                "source": {
+                  "markdown": "> ✅ **A good launch, by June 30:** ==5,000 active subscriptions==, up from 4,180 today, half of them signed in to the app, and three-day delivery held through launch week."
+                }
+              }
+            ]
+          }
+        ]
       },
       {
-        "reply": "I added a follow-up at the end of “{{tab}}” as well.",
-        "edits": [{ "kind": "doc", "tab": "Review Notes", "at": "end", "text": "Follow-up from the agent: {{request}}" }]
+        "reply": {
+          "en": "I pinned “{{request}}” as a review note at the top of “{{tab}}”, right under the summary, so it is settled before the brief is approved.",
+          "zh": "我把“{{request}}”作为评审备注钉在“{{tab}}”顶部、摘要的正下方，简报批准之前要先把它定下来。"
+        },
+        "edits": [
+          {
+            "kind": "doc-ops",
+            "tab": "Brief",
+            "ops": [
+              {
+                "op": "insert",
+                "target": {
+                  "kind": "blocks",
+                  "ids": [
+                    "kr0483lpxzq.148"
+                  ]
+                },
+                "side": "after",
+                "source": {
+                  "markdown": "> ℹ️ **Review note:** {{request}}"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "reply": {
+          "en": "That one needs an owner, so I added “{{request}}” as a task under “Follow-ups from review” on the “{{tab}}” tab.",
+          "zh": "这件事得有人负责，所以我把“{{request}}”加成了一项任务，放在“{{tab}}”标签页的“Follow-ups from review”下面。"
+        },
+        "edits": [
+          {
+            "kind": "doc-ops",
+            "tab": "Launch checklist",
+            "ops": [
+              {
+                "op": "insert",
+                "target": {
+                  "kind": "blocks",
+                  "ids": [
+                    "kr0483lpxzq.4029"
+                  ]
+                },
+                "side": "end",
+                "source": {
+                  "markdown": "- [ ] **You** {{request}}"
+                }
+              }
+            ]
+          }
+        ]
       }
     ]
+  },
+  "replay": {
+    "prompt": {
+      "en": "/open-artifact docs a launch brief for First Light, our spring blend, and the Juniper app: goals, what ships, timeline, risks, plus tabs for the launch checklist and a support FAQ",
+      "zh": "/open-artifact docs 给春季拼配 First Light 和 Juniper App 写一份发布简报：目标、发布内容、时间表、风险，再加上发布清单和客服 FAQ 两个标签页"
+    },
+    "start": {
+      "doc/doc.json": "{\n  \"format\": \"open-artifact-docs\",\n  \"version\": 1,\n  \"id\": \"d4a9c9d7-f848-4b99-84b3-429cfa02586f\",\n  \"name\": \"First Light: spring launch brief\",\n  \"created\": \"2026-11-27T08:25:45.904Z\",\n  \"updated\": \"2026-11-27T08:25:45.909Z\",\n  \"head\": 6,\n  \"tabs\": {\n    \"2fb9c8f9-9f88\": {\n      \"name\": \"Brief\",\n      \"order\": \"V\",\n      \"node\": \"4eae0eff-8043\"\n    },\n    \"40d54ab0-8945\": {\n      \"name\": \"Launch checklist\",\n      \"order\": \"k\",\n      \"node\": \"0c593cc2-574f\"\n    },\n    \"dc147e4d-abeb\": {\n      \"name\": \"FAQ\",\n      \"order\": \"r\",\n      \"node\": \"04c842f9-db66\"\n    }\n  },\n  \"enums\": {\n    \"f80bdb80-166f\": {\n      \"name\": \"Review\",\n      \"options\": [\n        {\n          \"name\": \"Draft\",\n          \"order\": 0,\n          \"color\": \"gray\"\n        },\n        {\n          \"name\": \"In review\",\n          \"order\": 1,\n          \"color\": \"pencil\"\n        },\n        {\n          \"name\": \"Approved\",\n          \"order\": 2,\n          \"color\": \"olive\"\n        }\n      ]\n    },\n    \"690af4c5-c745\": {\n      \"name\": \"Status\",\n      \"options\": [\n        {\n          \"name\": \"Not started\",\n          \"order\": 0,\n          \"color\": \"gray\"\n        },\n        {\n          \"name\": \"On track\",\n          \"order\": 1,\n          \"color\": \"olive\"\n        },\n        {\n          \"name\": \"At risk\",\n          \"order\": 2,\n          \"color\": \"poppy\"\n        },\n        {\n          \"name\": \"Done\",\n          \"order\": 3,\n          \"color\": \"sky\"\n        }\n      ]\n    }\n  }\n}\n",
+      "doc/.sessions.json": "{\n  \"sessions\": {\n    \"kr0483lpxzq\": {\n      \"next\": 3,\n      \"kind\": \"cli\",\n      \"created\": \"2026-11-27T08:25:45.905Z\"\n    }\n  },\n  \"cli\": \"kr0483lpxzq\"\n}\n",
+      "doc/tabs/2fb9c8f9-9f88.json": "{\n  \"rev\": 1,\n  \"blocks\": [\n    {\n      \"id\": \"kr0483lpxzq.0\",\n      \"type\": \"paragraph\",\n      \"inline\": []\n    }\n  ]\n}\n",
+      "doc/tabs/40d54ab0-8945.json": "{\n  \"rev\": 1,\n  \"blocks\": [\n    {\n      \"id\": \"kr0483lpxzq.1\",\n      \"type\": \"paragraph\",\n      \"inline\": []\n    }\n  ]\n}\n",
+      "doc/tabs/dc147e4d-abeb.json": "{\n  \"rev\": 1,\n  \"blocks\": [\n    {\n      \"id\": \"kr0483lpxzq.2\",\n      \"type\": \"paragraph\",\n      \"inline\": []\n    }\n  ]\n}\n"
+    },
+    "steps": [
+      {
+        "say": "Read the docs type's guide",
+        "ms": 600
+      },
+      {
+        "say": "Artifact · call create (the outline, 3 tabs)",
+        "ms": 1100,
+        "edits": [
+          {
+            "kind": "doc-ops",
+            "tab": "Brief",
+            "ops": [
+              {
+                "op": "replace",
+                "target": {
+                  "kind": "blocks",
+                  "ids": [
+                    "kr0483lpxzq.0"
+                  ]
+                },
+                "force": true,
+                "source": {
+                  "markdown": "# First Light: spring launch brief\n\nLast updated <?oa block asof?> · Owner <?oa block me?> · <?oa block review?>\n\n<?oa block summary?>\n\n## Goals\n\n<?oa block goals?>\n\n## What ships\n\n<?oa block ships?>\n\n## Timeline\n\n<?oa block timeline?>\n\n## How the two launches connect\n\n<?oa block connect?>\n\n## Risks\n\n<?oa block risks?>\n\n## Open questions\n\n<?oa block questions?>",
+                  "blocks": {
+                    "asof": {
+                      "type": "date",
+                      "value": "2027-03-08"
+                    },
+                    "me": {
+                      "type": "mention",
+                      "user": "me"
+                    },
+                    "review": {
+                      "type": "dropdown",
+                      "enum": "f80bdb80-166f",
+                      "index": 1
+                    },
+                    "summary": {
+                      "type": "pending",
+                      "intent": "Summary: what ships, when, and what this brief is for"
+                    },
+                    "goals": {
+                      "type": "pending",
+                      "intent": "The three things this launch is for"
+                    },
+                    "ships": {
+                      "type": "pending",
+                      "intent": "A table: each thing that ships, its owner and its status"
+                    },
+                    "timeline": {
+                      "type": "pending",
+                      "intent": "The dates from roast lock to pop-up week, with owners"
+                    },
+                    "connect": {
+                      "type": "pending",
+                      "intent": "A diagram: how the bag leads people into the app"
+                    },
+                    "risks": {
+                      "type": "pending",
+                      "intent": "The one date we do not control, and the other risks"
+                    },
+                    "questions": {
+                      "type": "pending",
+                      "intent": "What is still undecided, and who decides"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "say": "Artifact · call update “Brief” (summary, goals)",
+        "ms": 1200,
+        "edits": [
+          {
+            "kind": "doc-ops",
+            "tab": "Brief",
+            "ops": [
+              {
+                "op": "replace",
+                "target": {
+                  "kind": "blocks",
+                  "ids": [
+                    "kr0483lpxzq.65"
+                  ]
+                },
+                "source": {
+                  "markdown": "On **Wednesday, April 14**, Juniper ships two things on the same morning: **First Light**, our spring seasonal blend, and the **Juniper app** for iPhone and Android. This brief is the one place for what ships, who owns each piece, and what a good launch looks like.\n\nThe day-by-day list is in <?oa block checklist?>, and what we tell customers is in <?oa block faq?>.",
+                  "blocks": {
+                    "checklist": {
+                      "type": "mention",
+                      "ref": "file/40d54ab0-8945"
+                    },
+                    "faq": {
+                      "type": "mention",
+                      "ref": "file/dc147e4d-abeb"
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "kind": "doc-ops",
+            "tab": "Brief",
+            "ops": [
+              {
+                "op": "replace",
+                "target": {
+                  "kind": "blocks",
+                  "ids": [
+                    "kr0483lpxzq.72"
+                  ]
+                },
+                "source": {
+                  "markdown": "1. **Grow the base.** A seasonal blend should bring in subscriptions, not one-off bags.\n2. **Move people into the app.** Skipping or moving a delivery should take two taps, not an email to support.\n3. **Keep the promise.** Three days from the roaster to the doorstep, launch week included."
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "say": "Artifact · call update “Brief” (what ships)",
+        "ms": 1000,
+        "edits": [
+          {
+            "kind": "doc-ops",
+            "tab": "Brief",
+            "ops": [
+              {
+                "op": "replace",
+                "target": {
+                  "kind": "blocks",
+                  "ids": [
+                    "kr0483lpxzq.84"
+                  ]
+                },
+                "source": {
+                  "markdown": "| What | In one line | Owner | Status |\n|---|---|---|---|\n| **First Light** | A light roast of Ethiopia Guji and Colombia Huila: apricot, jasmine, wildflower honey. 340 g, $19, in every box through June. | Dana · Roastery | <?oa block s1?> |\n| **Juniper app** | Skip, pause or move a delivery in two taps, a brew guide with a timer for every bag, roast-day and delivery alerts. | Priya · Product | <?oa block s2?> |\n| **Code on the bag** | Every First Light bag carries a code that opens its brew guide in the app. | Dana · Roastery | <?oa block s3?> |\n| **Support playbook** | Answers and reply templates for launch week. | Leo · Customer care | <?oa block s4?> |\n\n> “It tastes like the first warm morning of the year. I ordered a second bag before I finished the first cup.”\n>\n> Maya Okafor, tasting panel, subscriber since 2024\n\nOf the 60 subscribers on the tasting panel in February, 51 asked when they could buy it.",
+                  "blocks": {
+                    "s1": {
+                      "type": "dropdown",
+                      "enum": "690af4c5-c745",
+                      "index": 1
+                    },
+                    "s2": {
+                      "type": "dropdown",
+                      "enum": "690af4c5-c745",
+                      "index": 2
+                    },
+                    "s3": {
+                      "type": "dropdown",
+                      "enum": "690af4c5-c745",
+                      "index": 1
+                    },
+                    "s4": {
+                      "type": "dropdown",
+                      "enum": "690af4c5-c745",
+                      "index": 0
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "say": "Artifact · call update “Brief” (timeline, diagram)",
+        "ms": 1200,
+        "edits": [
+          {
+            "kind": "doc-ops",
+            "tab": "Brief",
+            "ops": [
+              {
+                "op": "replace",
+                "target": {
+                  "kind": "blocks",
+                  "ids": [
+                    "kr0483lpxzq.94"
+                  ]
+                },
+                "source": {
+                  "markdown": "| When | Milestone | Owner | Status |\n|---|---|---|---|\n| <?oa block d1?> | Roast locked, green coffee in for 6,000 bags | Dana | <?oa block t1?> |\n| <?oa block d2?> | Press kits out: 40 tasting kits to writers and cafe partners | Mina | <?oa block t2?> |\n| <?oa block d3?> | App submitted to both stores | Priya | <?oa block t3?> |\n| <?oa block d4?> | App beta opens to 500 subscribers | Priya | <?oa block t4?> |\n| <?oa block d5?> | Support team briefed | Leo | <?oa block t5?> |\n| <?oa block d6?> | **Launch day:** First Light ships, the app goes live | Everyone | <?oa block t6?> |\n| <?oa block d7?> | Pop-up week begins: tasting bars in three cities | Mina | <?oa block t7?> |",
+                  "blocks": {
+                    "d1": {
+                      "type": "date",
+                      "value": "2027-03-03"
+                    },
+                    "d2": {
+                      "type": "date",
+                      "value": "2027-03-17"
+                    },
+                    "d3": {
+                      "type": "date",
+                      "value": "2027-03-24"
+                    },
+                    "d4": {
+                      "type": "date",
+                      "value": "2027-03-31"
+                    },
+                    "d5": {
+                      "type": "date",
+                      "value": "2027-04-07"
+                    },
+                    "d6": {
+                      "type": "date",
+                      "value": "2027-04-14"
+                    },
+                    "d7": {
+                      "type": "date",
+                      "value": "2027-04-19"
+                    },
+                    "t1": {
+                      "type": "dropdown",
+                      "enum": "690af4c5-c745",
+                      "index": 3
+                    },
+                    "t2": {
+                      "type": "dropdown",
+                      "enum": "690af4c5-c745",
+                      "index": 1
+                    },
+                    "t3": {
+                      "type": "dropdown",
+                      "enum": "690af4c5-c745",
+                      "index": 2
+                    },
+                    "t4": {
+                      "type": "dropdown",
+                      "enum": "690af4c5-c745",
+                      "index": 0
+                    },
+                    "t5": {
+                      "type": "dropdown",
+                      "enum": "690af4c5-c745",
+                      "index": 0
+                    },
+                    "t6": {
+                      "type": "dropdown",
+                      "enum": "690af4c5-c745",
+                      "index": 1
+                    },
+                    "t7": {
+                      "type": "dropdown",
+                      "enum": "690af4c5-c745",
+                      "index": 0
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "kind": "doc-ops",
+            "tab": "Brief",
+            "ops": [
+              {
+                "op": "replace",
+                "target": {
+                  "kind": "blocks",
+                  "ids": [
+                    "kr0483lpxzq.124"
+                  ]
+                },
+                "source": {
+                  "markdown": "The blend gives people a reason to open the box; the app gives them a reason to stay. The code on the bag ties the two together.\n\n```mermaid\nflowchart LR\n    box([First Light in the box]) --> code[Code on the bag]\n    code --> guide[Brew guide in the app]\n    guide --> account[Signed in]\n    account --> stay([Skip, pause or gift in two taps])\n```"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "say": "Artifact · call update “Brief” (risks, open questions)",
+        "ms": 1100,
+        "edits": [
+          {
+            "kind": "doc-ops",
+            "tab": "Brief",
+            "ops": [
+              {
+                "op": "replace",
+                "target": {
+                  "kind": "blocks",
+                  "ids": [
+                    "kr0483lpxzq.131"
+                  ]
+                },
+                "source": {
+                  "markdown": "> ⚠️ **App store review is the one date we do not control.** Submitting by March 24 keeps a three-week buffer. If review slips past April 7, the blend still ships on the 14th and the app follows.\n\n| Risk | How likely | What we do |\n|---|---|---|\n| Store review takes longer than two weeks | <span data-text-color=\"red\">**High**</span> | Submit by March 24 and keep the launch email free of app screenshots until approval. |\n| Launch week doubles the support inbox | <span data-text-color=\"yellow\">**Medium**</span> | Brief the team on April 7 and load the reply templates first. |\n| Green coffee runs short after 6,000 bags | <span data-text-color=\"green\">**Low**</span> | A second lot from Huila is on hold until March 20. |"
+                }
+              },
+              {
+                "op": "replace",
+                "target": {
+                  "kind": "blocks",
+                  "ids": [
+                    "kr0483lpxzq.147"
+                  ]
+                },
+                "source": {
+                  "markdown": "- Do gift subscriptions get First Light in their first box, or the house blend? *Dana decides.*\n- Is the bag code single-use, or can a household share it? *Priya decides.*\n- Who answers the press on launch morning? <?oa block owner?> decides by <?oa block by?>.",
+                  "blocks": {
+                    "owner": {
+                      "type": "mention",
+                      "user": "me"
+                    },
+                    "by": {
+                      "type": "date",
+                      "value": "2027-03-15"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "say": "Artifact · call update “Launch checklist”, “FAQ”",
+        "ms": 1100,
+        "edits": [
+          {
+            "kind": "doc-ops",
+            "tab": "Launch checklist",
+            "ops": [
+              {
+                "op": "replace",
+                "target": {
+                  "kind": "blocks",
+                  "ids": [
+                    "kr0483lpxzq.1"
+                  ]
+                },
+                "force": true,
+                "source": {
+                  "markdown": "# Launch checklist\n\nEverything that has to be true before First Light ships on <?oa block launch?>. Tick a box when it is done; the owner is in bold.\n\n## Blend\n\n- [x] **Dana** Lock the roast profile\n- [x] **Dana** Bring in green coffee for 6,000 bags\n- [ ] **Dana** Sign off the bag artwork, code panel included\n- [ ] **Dana** Roast and pack the first 2,000 bags by <?oa block pack?>\n\n## App\n\n- [x] **Priya** Freeze features\n- [ ] **Priya** Submit to both stores by <?oa block submit?>\n- [ ] **Priya** Open the beta to 500 subscribers on <?oa block beta?>\n- [ ] **Priya** Try the bag code on ten real bags\n\n## Customers\n\n- [x] **Mina** Pick the 40 writers and cafe partners for press kits\n- [ ] **Mina** Send the press kits on <?oa block kits?>\n- [ ] **Leo** Brief the support team by <?oa block brief?>\n- [ ] **Leo** Load the reply templates from <?oa block faq?>\n- [ ] **Mina** Schedule the launch email for 7:00 on launch day\n\n## Launch morning\n\n1. **6:00** Dana confirms the first boxes have left the roastery.\n2. **7:00** The launch email goes to all 4,180 subscribers.\n3. **7:30** Priya releases the app in both stores.\n4. **9:00** Leo opens the launch inbox. First stand-up at noon.\n\n## Follow-ups from review\n\n- [ ] **Dana** Confirm what gift subscriptions get in their first box",
+                  "blocks": {
+                    "launch": {
+                      "type": "date",
+                      "value": "2027-04-14"
+                    },
+                    "pack": {
+                      "type": "date",
+                      "value": "2027-04-09"
+                    },
+                    "submit": {
+                      "type": "date",
+                      "value": "2027-03-24"
+                    },
+                    "beta": {
+                      "type": "date",
+                      "value": "2027-03-31"
+                    },
+                    "kits": {
+                      "type": "date",
+                      "value": "2027-03-17"
+                    },
+                    "brief": {
+                      "type": "date",
+                      "value": "2027-04-07"
+                    },
+                    "faq": {
+                      "type": "mention",
+                      "ref": "file/dc147e4d-abeb"
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "kind": "doc-ops",
+            "tab": "FAQ",
+            "ops": [
+              {
+                "op": "replace",
+                "target": {
+                  "kind": "blocks",
+                  "ids": [
+                    "kr0483lpxzq.2"
+                  ]
+                },
+                "force": true,
+                "source": {
+                  "markdown": "# FAQ\n\nFor the support team in launch week. The answers are written to be pasted: change the greeting, keep the facts. Dates and owners are in <?oa block brief?>.\n\n## First Light\n\n### What does it taste like?\n\nApricot, jasmine and wildflower honey. It is a light roast of two washed coffees, Ethiopia Guji and Colombia Huila, made for filter and pour-over.\n\n### How should I brew it?\n\n| Method | Coffee | Water | Time |\n|---|---|---|---|\n| Pour-over | 20 g, medium-fine | 320 g at 94 °C | 3:00 |\n| French press | 30 g, coarse | 500 g at 94 °C | 4:00 |\n| AeroPress | 15 g, fine | 230 g at 90 °C | 1:45 |\n\nThe same recipes are in the app, with a timer: the code on the bag opens them.\n\n### How long is it around?\n\nIt is in every box through June, and $19 for a 340 g bag on its own.\n\n## The app\n\n### Do I need the app to keep my subscription?\n\nNo. Everything still works by email and on the website. The app makes it faster: skip, pause or move a delivery in two taps.\n\n### The code on my bag does not work\n\n1. Type the code as printed, dashes included. It looks like `FL-7K2Q-9M`.\n2. Update the app to version 1.0.2 or later.\n3. Still stuck? Reply with a photo of the code panel and we open the guide by hand.\n\n## Reply template\n\n```plain\nHi {first name},\n\nThanks for writing in about First Light. {answer}\n\nIf anything else comes up, reply here: launch week has a team on this inbox every day from 9 to 6.\n\n{your name}, Juniper Coffee\n```",
+                  "blocks": {
+                    "brief": {
+                      "type": "mention",
+                      "ref": "file/2fb9c8f9-9f88"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "say": "Artifact · call check",
+        "ms": 700
+      }
+    ],
+    "made": {
+      "en": "The brief is written: “Brief” has the goals, what ships, the timeline, a diagram of how the bag leads into the app, and the risks; “Launch checklist” and “FAQ” are its other two tabs. Select any words and comment to have me change them.",
+      "zh": "简报写好了：“Brief”里有目标、发布内容、时间表、一张从咖啡袋到 App 的流程图和风险；另外两个标签页是“Launch checklist”和“FAQ”。选中任意文字留评论，我就来改。"
+    },
+    "comment": {
+      "text": {
+        "en": "Put numbers on this: what does a good launch look like by the end of June?",
+        "zh": "这里要有数字：到 6 月底，怎样才算发布成功？"
+      },
+      "anchor": "{\"tab\":\"2fb9c8f9-9f88\",\"range\":[\"kr0483lpxzq.372\",\"kr0483lpxzq.400\"]}",
+      "label": "what a good launch looks like",
+      "detail": "On “what a good launch looks like” in: On Wednesday, April 14, Juniper ships two things on the same morning: First Light, our spring seasonal blend, and the Juniper app for iPhone and Android. This brief is the one place for what ships, who owns each piece, and what a good launch looks like.",
+      "location": {
+        "tab": "2fb9c8f9-9f88",
+        "block": "kr0483lpxzq.148"
+      },
+      "at": [
+        0.62,
+        0.42
+      ]
+    }
   }
 }

@@ -1,0 +1,18 @@
+{
+  "v": 3,
+  "createdOnFiles": { "v": 1, "at": "2026-11-27T09:00:00Z" },
+  "title": "Juniper app · Spring launch",
+  "launch": { "view": "canvas" },
+  "pages": [],
+  "boards": {
+    "Main.dc.html": { "x": 0, "y": 0, "w": 1280, "h": 844, "title": "Landing hero", "expand": "fill" },
+    "Welcome.dc.html": { "x": 1360, "y": 0, "w": 390, "h": 844, "title": "Welcome", "radius": 40, "is_interactive": true },
+    "Home.dc.html": { "x": 1830, "y": 0, "w": 390, "h": 844, "title": "Home", "radius": 40, "is_interactive": true }
+  },
+  "order": ["Main.dc.html", "Welcome.dc.html", "Home.dc.html"],
+  "notes": {
+    "title": { "kind": "title1", "x": 0, "y": -240, "text": "Juniper · Spring launch", "maxW": 1280 },
+    "prototype": { "x": 1830, "y": -240, "w": 390, "h": 150, "size": 22, "fill": "orange", "text": "**Welcome → Home is a working prototype.** Press Play on a phone, then tap Get started." }
+  },
+  "designSystems": []
+}

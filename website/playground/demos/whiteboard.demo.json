@@ -2,44 +2,330 @@
   "id": "whiteboard",
   "type": "whiteboard",
   "typeTitle": "Whiteboard",
-  "source": "test-artifacts/whiteboard/elements",
-  "omit": ["db/elements/e19.json"],
+  "title": "First Light launch week",
+  "source": "website/playground/showcase/whiteboard",
   "agent": {
     "name": "Agent",
     "thinkMs": 2500,
     "responses": [
       {
-        "reply": "Done. I added a sticky note next to the shapes that sums up what you asked for.",
+        "reply": {
+          "en": "For “{{request}}”: two risks the board did not have yet, payments getting throttled on launch morning and nobody on support over the weekend. They are the yellow notes in Risks. Say the word and I will put owners on them.",
+          "zh": "针对“{{request}}”：补了两条板上还没有的风险，一是发布当天早上支付被限流，二是周末没人值守客服。就是“Risks”区域里那两张黄色便签。需要的话，我再给它们标上负责人。"
+        },
         "edits": [
           {
             "kind": "db",
             "writes": [
               {
                 "op": "set",
-                "path": "elements/agent-note-{{n}}",
-                "data": { "type": "note", "x": 1220, "y": -200, "w": 200, "h": 140, "color": "green", "tilt": 1, "text": "Fixed by the agent: \"{{request}}\"", "by": "agent" }
+                "path": "elements/e{{n}}01",
+                "data": {
+                  "type": "shape",
+                  "kind": "rounded",
+                  "x": 1012,
+                  "y": 465,
+                  "w": 124,
+                  "h": 103,
+                  "color": "yellow",
+                  "size": "body",
+                  "text": "Payments throttled on launch morning",
+                  "by": "agent"
+                }
               }
             ],
-            "appendOrder": { "path": "board/meta", "field": "order", "value": "agent-note-{{n}}" }
+            "appendOrder": {
+              "path": "board/meta",
+              "field": "order",
+              "value": "e{{n}}01"
+            }
+          },
+          {
+            "kind": "db",
+            "writes": [
+              {
+                "op": "set",
+                "path": "elements/e{{n}}02",
+                "data": {
+                  "type": "shape",
+                  "kind": "rounded",
+                  "x": 1150,
+                  "y": 465,
+                  "w": 124,
+                  "h": 103,
+                  "color": "yellow",
+                  "size": "body",
+                  "text": "Nobody on support over the weekend",
+                  "by": "agent"
+                }
+              }
+            ],
+            "appendOrder": {
+              "path": "board/meta",
+              "field": "order",
+              "value": "e{{n}}02"
+            }
           }
         ]
       },
       {
-        "reply": "Added another note and a label for the flow on the left.",
+        "reply": {
+          "en": "On the board now: I pinned “{{request}}” next to the title as a follow-up and added a row for it to the go / no-go table, so it gets an owner before Tuesday.",
+          "zh": "已经放到白板上：我把“{{request}}”作为跟进事项贴在标题旁边，并在 Go / no-go 表里加了一行，这样周二之前它会有负责人。"
+        },
         "edits": [
           {
             "kind": "db",
             "writes": [
               {
                 "op": "set",
-                "path": "elements/agent-note-{{n}}",
-                "data": { "type": "note", "x": 1460, "y": -200, "w": 200, "h": 140, "color": "blue", "tilt": -1, "text": "Second pass: \"{{request}}\"", "by": "agent" }
+                "path": "elements/e{{n}}01",
+                "data": {
+                  "type": "shape",
+                  "kind": "rounded",
+                  "x": 246,
+                  "y": 150,
+                  "w": 168,
+                  "h": 96,
+                  "color": "blue",
+                  "size": "body",
+                  "text": "Follow-up: “{{request}}”",
+                  "by": "agent"
+                }
               }
             ],
-            "appendOrder": { "path": "board/meta", "field": "order", "value": "agent-note-{{n}}" }
+            "appendOrder": {
+              "path": "board/meta",
+              "field": "order",
+              "value": "e{{n}}01"
+            }
+          },
+          {
+            "kind": "db",
+            "writes": [
+              {
+                "op": "update",
+                "path": "elements/e47",
+                "patch": {
+                  "rows": {
+                    "r7": {
+                      "at": 7,
+                      "c1": "Follow-up",
+                      "c2": "New"
+                    }
+                  },
+                  "fills": {
+                    "r7": {
+                      "c2": "blue"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "reply": {
+          "en": "I put it to a quick vote under the Risks section: “{{request}}”. Click “Do it” or “Not now” right on the board, and the tally is saved with it.",
+          "zh": "我在“Risks”区域下面放了一个小投票：“{{request}}”。直接在白板上点“Do it”或“Not now”，票数会随白板一起保存。"
+        },
+        "edits": [
+          {
+            "kind": "db",
+            "writes": [
+              {
+                "op": "set",
+                "path": "elements/e{{n}}01",
+                "data": {
+                  "type": "html",
+                  "x": 850,
+                  "y": 640,
+                  "w": 300,
+                  "h": 170,
+                  "html": "<title>Quick vote</title>\n<style>\nbody{margin:0;padding:14px 16px;font:14px/1.35 system-ui,sans-serif;color:#1d1b16;background:#f7f2e8}\n#q{margin:0 0 12px;font-weight:600;max-height:57px;overflow:hidden}\n.row{display:flex;gap:8px}\nbutton{flex:1;padding:8px 6px;border:1px solid #20402f;border-radius:999px;background:#fff;color:#20402f;font:inherit;cursor:pointer}\n#yes{background:#20402f;color:#f7f2e8}\nbutton b{margin-left:8px}\n#t{margin:10px 0 0;font-size:12px;color:#5b7f5e}\n</style>\n<p id='q'></p>\n<div class='row'><button type='button' id='yes'>Do it<b id='a'>0</b></button><button type='button' id='no'>Not now<b id='b'>0</b></button></div>\n<p id='t'></p>\n<script>\nvar data = Object.assign({q: 'Do this before launch?', votes: [0, 0]}, boardEmbed.load());\nfunction draw() {\n  var n = data.votes[0] + data.votes[1];\n  document.getElementById('q').textContent = data.q;\n  document.getElementById('a').textContent = data.votes[0];\n  document.getElementById('b').textContent = data.votes[1];\n  document.getElementById('t').textContent = n ? n + (n === 1 ? ' vote' : ' votes') + ' so far' : 'Click to vote: the board keeps the tally.';\n}\nfunction changed() { draw(); boardEmbed.save(data); }\nboardEmbed.onLoad(function (theirs) { if (theirs) { data = theirs; draw(); } });\ndocument.getElementById('yes').addEventListener('click', function () { data.votes[0]++; changed(); });\ndocument.getElementById('no').addEventListener('click', function () { data.votes[1]++; changed(); });\ndraw();\n</script>",
+                  "state": "{\"q\":\"{{request}}\",\"votes\":[0,0]}",
+                  "by": "agent"
+                }
+              }
+            ],
+            "appendOrder": {
+              "path": "board/meta",
+              "field": "order",
+              "value": "e{{n}}01"
+            }
           }
         ]
       }
     ]
+  },
+  "replay": {
+    "prompt": {
+      "en": "/open-artifact whiteboard our First Light launch week: goals, the week day by day, the customer journey, the risks from standup, and who is ready",
+      "zh": "/open-artifact whiteboard 把 First Light 的发布周排到一块白板上：目标、每天的安排、用户旅程、站会上提到的风险，还有各项准备情况"
+    },
+    "order": {
+      "path": "db/board/meta.json",
+      "field": "order",
+      "entry": "db/elements/{id}.json"
+    },
+    "steps": [
+      {
+        "say": "Read the whiteboard type’s guide",
+        "ms": 500
+      },
+      {
+        "say": "ArtifactData · set board/claim-j7k2m9qa",
+        "edits": [
+          {
+            "kind": "db",
+            "writes": [
+              {
+                "op": "set",
+                "path": "board/claim-j7k2m9qa",
+                "data": {
+                  "x": 0,
+                  "y": -34,
+                  "w": 1620,
+                  "h": 626
+                }
+              }
+            ]
+          }
+        ],
+        "ms": 500
+      },
+      {
+        "say": "ArtifactData · write the title and 5 sections",
+        "take": [
+          "db/elements/e1.json",
+          "db/elements/e2.json",
+          "db/elements/e3.json",
+          "db/elements/e4.json",
+          "db/elements/e5.json",
+          "db/elements/e6.json",
+          "db/elements/e7.json"
+        ],
+        "ms": 800
+      },
+      {
+        "say": "ArtifactData · write 22 elements (launch week, goals)",
+        "take": [
+          "db/elements/e8.json",
+          "db/elements/e9.json",
+          "db/elements/e10.json",
+          "db/elements/e11.json",
+          "db/elements/e12.json",
+          "db/elements/e13.json",
+          "db/elements/e14.json",
+          "db/elements/e15.json",
+          "db/elements/e16.json",
+          "db/elements/e17.json",
+          "db/elements/e18.json",
+          "db/elements/e19.json",
+          "db/elements/e20.json",
+          "db/elements/e21.json",
+          "db/elements/e22.json",
+          "db/elements/e23.json",
+          "db/elements/e24.json",
+          "db/elements/e25.json",
+          "db/elements/e26.json",
+          "db/elements/e27.json",
+          "db/elements/e28.json",
+          "db/elements/e29.json"
+        ],
+        "chunks": 5,
+        "ms": 1700
+      },
+      {
+        "say": "ArtifactData · write 13 elements (customer journey)",
+        "take": [
+          "db/elements/e30.json",
+          "db/elements/e31.json",
+          "db/elements/e32.json",
+          "db/elements/e33.json",
+          "db/elements/e34.json",
+          "db/elements/e35.json",
+          "db/elements/e36.json",
+          "db/elements/e37.json",
+          "db/elements/e38.json",
+          "db/elements/e39.json",
+          "db/elements/e40.json",
+          "db/elements/e41.json",
+          "db/elements/e42.json"
+        ],
+        "chunks": 4,
+        "ms": 1400
+      },
+      {
+        "say": "ArtifactData · write 5 elements (risks, go / no-go)",
+        "take": [
+          "db/elements/e43.json",
+          "db/elements/e44.json",
+          "db/elements/e45.json",
+          "db/elements/e46.json",
+          "db/elements/e47.json"
+        ],
+        "chunks": 3,
+        "ms": 1100
+      },
+      {
+        "say": "ArtifactData · write 13 elements (drawing, pen marks, stickers)",
+        "take": [
+          "db/elements/e48.json",
+          "db/elements/e49.json",
+          "db/elements/e50.json",
+          "db/elements/e51.json",
+          "db/elements/e52.json",
+          "db/elements/e53.json",
+          "db/elements/e54.json",
+          "db/elements/e55.json",
+          "db/elements/e56.json",
+          "db/elements/e57.json",
+          "db/elements/e58.json",
+          "db/elements/e59.json",
+          "db/elements/e60.json"
+        ],
+        "chunks": 3,
+        "edits": [
+          {
+            "kind": "db",
+            "writes": [
+              {
+                "op": "set",
+                "path": "board/claim-j7k2m9qa",
+                "data": {}
+              }
+            ]
+          }
+        ],
+        "ms": 1200
+      },
+      {
+        "say": "Artifact · call check",
+        "ms": 700
+      }
+    ],
+    "made": {
+      "en": "The launch week is on one board: the five days as a timeline with the goals beside it, the customer journey as a flow, the standup risks as stickies and a go / no-go table. Comment on anything you want changed.",
+      "zh": "发布周已经排到一块白板上：五天排成时间线，旁边是目标，用户旅程画成流程图，站会上的风险贴成便签，还有一张 Go / no-go 表。想改哪里，直接在上面评论。"
+    },
+    "comment": {
+      "text": {
+        "en": "What risks are we missing?",
+        "zh": "我们还漏了哪些风险？"
+      },
+      "anchor": "wp0000115600000258:nth-of-type(1)",
+      "label": "Board",
+      "detail": "selected: nothing; pin: 1156,258",
+      "location": {
+        "x": 1156,
+        "y": 258
+      },
+      "at": [
+        0.67,
+        0.495
+      ]
+    }
   }
 }

@@ -23,7 +23,30 @@ export type AgentEdit =
   | { kind: 'db'; writes: DbWrite[]; appendOrder?: AppendOrder }
   | { kind: 'files'; files: Record<string, string>; appendOrder?: AppendOrder }
   | DocEdit
-  | SheetEdit;
+  | DocOps
+  | SheetEdit
+  | SheetEdits;
+
+/**
+ * Ops the agent applies to one tab of a doc, as an agent's `update` call names them (`artifact-types/docs/reference/
+ * writing.md`: `insert`, `replace`, `format`, `set`… with `source: {markdown}`), through the Docs host's own agent
+ * call. `tab`: the tab's name; by default the tab the thread is on, else the first tab. Sets `{{tab}}` for the reply.
+ */
+export interface DocOps {
+  kind: 'doc-ops';
+  tab?: string;
+  ops: JsonRecord[];
+}
+
+/**
+ * Edits the agent applies to a workbook, as an agent's `applyEdits` names them (`artifact-types/sheets/`: `writeCells`,
+ * formats, charts…), through the Sheets store's own agent update, in one revision. `watch` as on {@link SheetEdit}.
+ */
+export interface SheetEdits {
+  kind: 'sheet-edits';
+  edits: JsonRecord[];
+  watch?: { sheet: string; cell: string };
+}
 
 /**
  * A paragraph the agent writes into a doc, through the Docs host's own agent call (`host.agentCall`), so the open page
@@ -51,9 +74,9 @@ export interface SheetEdit {
   watch?: { sheet: string; cell: string };
 }
 
-/** One scripted turn: the comment the agent posts and what it changes. */
+/** One scripted turn: the comment the agent posts (in the playground's language, when it has both) and what it changes. */
 export interface AgentResponse {
-  reply: string;
+  reply: string | Words;
   edits: AgentEdit[];
 }
 
@@ -65,14 +88,81 @@ export interface AgentScript {
   responses: AgentResponse[];
 }
 
+/** A line in both of the playground's languages. */
+export interface Words {
+  en: string;
+  zh: string;
+}
+
+/**
+ * One step of a replay's build: a tool call in the agent's session, and what it lands in the artifact. A step with
+ * neither `take` nor `edits` is a line in the session only.
+ */
+export interface ReplayStep {
+  /** The tool call as the session shows it: `Write project/Main.dc.html`, `ArtifactData · write elements`. */
+  say: string;
+  /**
+   * Seed entries written now, as the seed has them: artifact paths (`project/slides/a.html`, `db/elements/e1.json`);
+   * one ending in `*` takes every entry under it not taken by an earlier step.
+   */
+  take?: string[];
+  /** Splits `take` into this many writes, one after the other (elements landing a few at a time). */
+  chunks?: number;
+  /** Prepared edits, applied in order as an agent turn applies its own. */
+  edits?: AgentEdit[];
+  /** The artifact's page shows from this step on (by default from the first step that writes). */
+  open?: boolean;
+  /** How long the step takes, in all (default 700 ms). */
+  ms?: number;
+}
+
+/** A list of ids in a JSON file or document that names, in order, which entries exist (a board's or deck's `order`). */
+export interface ReplayOrder {
+  /** The file or document that holds the list: `db/board/meta.json`, `project/deck.json`. */
+  path: string;
+  /** The array's key. */
+  field: string;
+  /** An id's entry, `{id}` in its place: `db/elements/{id}.json`, `project/slides/{id}.html`. */
+  entry: string;
+}
+
+/**
+ * A demo's replay (`<demo>/?replay=1`): the session of an agent asked for this artifact, played beside the page. The
+ * artifact starts as the seed without what the steps `take` (and with `start` in place of the seed's files), the
+ * steps build it while the session shows each tool call, then the person's `comment` is sent to the agent, whose
+ * first scripted response answers it. Nothing on the page can be touched until it has played (or was skipped).
+ */
+export interface ReplayScript {
+  /** What the person typed: `/open-artifact design a launch card…`. */
+  prompt: Words;
+  /** Files and documents the artifact starts with, in place of the seed's (by artifact path; the file's text). */
+  start?: Record<string, string>;
+  /** Kept in step with the entries that exist while the steps take them. */
+  order?: ReplayOrder;
+  steps: ReplayStep[];
+  /** What the agent says once it has made the artifact. */
+  made: Words;
+  /** The comment the person leaves, and where the replay draws it: `at` is [x, y] as fractions of the page's area. */
+  comment: {
+    text: Words;
+    anchor: string;
+    label: string;
+    detail?: string;
+    location?: JsonRecord;
+    at: [number, number];
+  };
+}
+
 export interface SeedManifest {
   id: string;
   type: string;
   typeTitle: string;
-  /** The test-artifacts folder it was made from. */
+  /** The artifact folder it was made from. */
   source: string;
   title?: string;
   agent: AgentScript;
+  /** The demo's replay, when it has one. */
+  replay?: ReplayScript;
   /** Artifact-relative path → content (`project/…` files, `db/<collection>/<id>.json` documents). */
   files: Record<string, SeedFile>;
 }

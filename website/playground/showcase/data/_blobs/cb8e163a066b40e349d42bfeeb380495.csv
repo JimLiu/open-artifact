@@ -1,0 +1,4 @@
+plan,price_per_month,ships,bags_per_shipment
+Solo,36,1 bag / 2 wks,1
+Duo,64,2 bags / 2 wks,2
+Office,240,4 bags / wk,4

@@ -1,0 +1,46 @@
+<!-- @dsCard group="Forms" height=168 -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>TextField</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: var(--space-5); background: var(--surface); color: var(--ink); font: var(--text-body); -webkit-font-smoothing: antialiased; }
+  .row { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--space-5); align-items: start; }
+
+  .jp-field { display: grid; gap: var(--space-2); }
+  .jp-field__label { font: var(--text-label); }
+  .jp-field__input { width: 100%; height: 44px; padding: 0 var(--space-3); border: 1px solid var(--line-strong); border-radius: var(--radius-md); background: var(--surface-raised); color: var(--ink); font: var(--text-body); transition: border-color var(--duration-fast) var(--ease-settle); }
+  .jp-field__input::placeholder { color: var(--ink-muted); }
+  .jp-field__input:hover { border-color: var(--ink); }
+  .jp-field__input:focus-visible, .jp-field__input.is-focus { border-color: var(--accent); outline: 2px solid var(--accent-focus); outline-offset: 2px; }
+  .jp-field__hint { display: flex; align-items: center; gap: var(--space-1); margin: 0; font: var(--text-caption); color: var(--ink-muted); }
+  .jp-field--error .jp-field__input { border-color: var(--danger); }
+  .jp-field--error .jp-field__hint { color: var(--text-danger); }
+  .jp-field__hint svg { width: 14px; height: 14px; flex: none; }
+</style>
+</head>
+<body>
+<div class="row">
+  <label class="jp-field">
+    <span class="jp-field__label">Email</span>
+    <input class="jp-field__input" type="email" placeholder="you@example.com">
+    <span class="jp-field__hint">One email per delivery. Nothing else.</span>
+  </label>
+  <label class="jp-field">
+    <span class="jp-field__label">Postcode</span>
+    <input class="jp-field__input is-focus" type="text" value="97214">
+    <span class="jp-field__hint">We deliver Thursday to Saturday.</span>
+  </label>
+  <label class="jp-field jp-field--error">
+    <span class="jp-field__label">Bags per delivery</span>
+    <input class="jp-field__input" type="text" inputmode="numeric" value="12" aria-invalid="true">
+    <span class="jp-field__hint">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="6.25"/><path d="M8 4.75v3.75M8 11.1v.15"/></svg>
+      Choose between 1 and 6 bags.
+    </span>
+  </label>
+</div>
+</body>
+</html>

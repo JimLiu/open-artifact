@@ -1,0 +1,56 @@
+<!-- @dsCard group="Actions" height=232 -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Button</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: var(--space-5); background: var(--surface); color: var(--ink); font: var(--text-body); -webkit-font-smoothing: antialiased; }
+  .spec { display: grid; gap: var(--space-5); }
+  .spec__name { margin: 0 0 var(--space-3); color: var(--ink-muted); }
+  .spec__row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
+
+  .jp-btn { display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2); height: 44px; padding: 0 var(--space-5); border: 1px solid transparent; border-radius: var(--radius-md); font: var(--text-label); font-size: 15px; white-space: nowrap; cursor: pointer; transition: background var(--duration-fast) var(--ease-settle), border-color var(--duration-fast) var(--ease-settle), color var(--duration-fast) var(--ease-settle); }
+  .jp-btn svg { width: 16px; height: 16px; flex: none; }
+  .jp-btn:focus-visible, .jp-btn.is-focus { outline: 2px solid var(--accent-focus); outline-offset: 2px; }
+  .jp-btn--primary { background: var(--accent); color: var(--on-accent); }
+  .jp-btn--primary:hover { background: var(--accent-strong); }
+  .jp-btn--secondary { background: var(--surface-raised); border-color: var(--line-strong); color: var(--ink); }
+  .jp-btn--secondary:hover { border-color: var(--ink); }
+  .jp-btn--quiet { padding: 0 var(--space-3); background: transparent; color: var(--accent-strong); }
+  .jp-btn--quiet:hover { background: var(--accent-soft); }
+  .jp-btn--danger { background: transparent; border-color: var(--danger); color: var(--text-danger); }
+  .jp-btn--danger:hover { background: var(--danger-soft); }
+  .jp-btn--sm { height: 32px; padding: 0 var(--space-3); border-radius: var(--radius-sm); font-size: 13px; }
+  .jp-btn--lg { height: 52px; padding: 0 var(--space-6); font-size: 16px; }
+  .jp-btn[disabled] { background: var(--surface-sunken); border-color: transparent; color: var(--ink-muted); cursor: not-allowed; }
+  @media (prefers-reduced-motion: reduce) { .jp-btn { transition: none; } }
+</style>
+</head>
+<body>
+<div class="spec">
+  <section>
+    <p class="spec__name overline">Variants</p>
+    <div class="spec__row">
+      <button class="jp-btn jp-btn--primary" type="button">Start a subscription</button>
+      <button class="jp-btn jp-btn--secondary" type="button">Add to bag</button>
+      <button class="jp-btn jp-btn--quiet" type="button">Skip this delivery</button>
+      <button class="jp-btn jp-btn--danger" type="button">Cancel subscription</button>
+    </div>
+  </section>
+  <section>
+    <p class="spec__name overline">Sizes and states</p>
+    <div class="spec__row">
+      <button class="jp-btn jp-btn--primary jp-btn--sm" type="button">Reorder</button>
+      <button class="jp-btn jp-btn--primary" type="button">Brew guide
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4"/></svg>
+      </button>
+      <button class="jp-btn jp-btn--primary jp-btn--lg" type="button">Checkout</button>
+      <button class="jp-btn jp-btn--secondary is-focus" type="button">Focused</button>
+      <button class="jp-btn jp-btn--primary" type="button" disabled>Sold out</button>
+    </div>
+  </section>
+</div>
+</body>
+</html>

@@ -1,0 +1,40 @@
+<!-- @dsCard group="Brand" height=208 page -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Wordmark</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: var(--space-5); background: var(--surface); color: var(--ink); font: var(--text-body); -webkit-font-smoothing: antialiased; }
+  .row { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: var(--space-4); }
+  .plate { display: grid; place-items: center; min-height: 160px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface-raised); }
+  .plate--forest { border-color: var(--forest); background: var(--forest); color: var(--on-forest); }
+
+  .jp-wordmark { display: inline-flex; align-items: center; gap: var(--space-3); }
+  .jp-wordmark svg { width: 44px; height: 44px; flex: none; }
+  .jp-wordmark__name { display: block; font-family: var(--font-display); font-size: 40px; line-height: 40px; font-weight: 400; letter-spacing: -0.02em; }
+  .jp-wordmark__line { display: block; margin-top: 4px; font: var(--text-overline); letter-spacing: 0.16em; text-transform: uppercase; opacity: 0.8; }
+  .berry-a { fill: var(--forest); }
+  .berry-b { fill: var(--moss); }
+  .berry-c { fill: var(--honey); }
+  .plate--forest .berry-a { fill: var(--on-forest); }
+</style>
+</head>
+<body>
+<div class="row">
+  <div class="plate">
+    <div class="jp-wordmark">
+      <svg viewBox="0 0 44 44" aria-hidden="true"><circle class="berry-a" cx="15" cy="27" r="12"/><circle class="berry-b" cx="31" cy="30" r="9"/><circle class="berry-c" cx="27" cy="12" r="7"/></svg>
+      <span><span class="jp-wordmark__name">Juniper</span><span class="jp-wordmark__line">Coffee roasters</span></span>
+    </div>
+  </div>
+  <div class="plate plate--forest">
+    <div class="jp-wordmark">
+      <svg viewBox="0 0 44 44" aria-hidden="true"><circle class="berry-a" cx="15" cy="27" r="12"/><circle class="berry-b" cx="31" cy="30" r="9"/><circle class="berry-c" cx="27" cy="12" r="7"/></svg>
+      <span><span class="jp-wordmark__name">Juniper</span><span class="jp-wordmark__line">Coffee roasters</span></span>
+    </div>
+  </div>
+</div>
+</body>
+</html>

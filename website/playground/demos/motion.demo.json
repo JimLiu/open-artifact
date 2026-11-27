@@ -2,32 +2,27 @@
   "id": "motion",
   "type": "motion",
   "typeTitle": "Motion",
-  "source": "test-artifacts/motion/playback",
-  "title": "Hello motion",
+  "source": "website/playground/showcase/motion",
+  "title": "First Light teaser",
   "agent": {
     "name": "Agent",
     "thinkMs": 2500,
     "responses": [
       {
-        "reply": "Done. The intro now opens on “Made with your agent” and the badge is a brighter coral. Press play to see it.",
+        "reply": {
+          "en": "Done. The film now opens an hour later: the sun is already over the ridge and the sky is honey instead of night green, with the title in dark green so it still reads. Press play to see it rise from there.",
+          "zh": "改好了。开场往后挪了一个小时：太阳已经越过山脊，天空从夜里的墨绿换成了蜂蜜色，标题改成深绿色，保证看得清。点播放，看它从这里继续升起。"
+        },
         "edits": [
           {
             "kind": "db",
             "writes": [
               {
                 "op": "set",
-                "path": "modules/scene-intro.js",
+                "path": "modules/scene-dawn.js",
                 "data": {
                   "kind": "js",
-                  "text": "let badge;\nkit.scene('intro', {\n  init(kit) {\n    const wrap = kit.h(\n      '<div class=\"wrap\"><h1 class=\"headline\">Made with your agent</h1>' +\n      '<svg aria-label=\"Moving shapes\" viewBox=\"0 0 180 100\" width=\"180\" height=\"100\">' +\n      '<g class=\"badge\"><rect x=\"10\" y=\"20\" width=\"64\" height=\"50\" rx=\"8\" fill=\"var(--accent)\"/>' +\n      '<circle cx=\"110\" cy=\"54\" r=\"22\" fill=\"var(--second)\"/></g></svg></div>'\n    );\n    kit.stage.append(wrap);\n    badge = wrap.querySelector('.badge');\n  },\n  render(t) {\n    badge.setAttribute('transform', 'translate(' + (t * 12).toFixed(2) + ' 0)');\n  },\n});"
-                }
-              },
-              {
-                "op": "set",
-                "path": "modules/base.css",
-                "data": {
-                  "kind": "css",
-                  "text": ":root {\n  --ground: #f5efe6;\n  --main: #1c2430;\n  --second: #4f8a5b;\n  --accent: #e8505b;\n}\n.wrap {\n  width: 100%;\n  height: 100%;\n  display: grid;\n  place-content: center;\n  justify-items: center;\n  background: var(--ground);\n  color: var(--main);\n  font: 600 28px system-ui;\n}\n.headline { margin: 12px; }"
+                  "text": "const { seg, lerp, eo, eio, clamp01, TextFx } = kit;\n// The hour the film opens on, and the hour this scene leaves it at. sky: 0 is the last of the night, 1 full morning.\n// sun: how far over the ridge it stands, 0 still behind it, 1 clear.\nconst OPEN = { sky: 0.95, sun: 0.5 }, CLOSE = { sky: 1, sun: 1 };\nkit.scene('dawn', {\n  init(kit) {\n    const r = kit.rng(4), day = OPEN.sky > 0.5;\n    const stars = Array.from({ length: 46 }, () => '<circle cx=\"' + (r() * 1920).toFixed(0) + '\" cy=\"' + (r() * 600).toFixed(0) + '\" r=\"' + (1.4 + r() * 2.4).toFixed(1) + '\"/>').join('');\n    kit.stage.append(kit.h('<div class=\"ground dawn-root dawn-opens-' + (day ? 'morning' : 'night') + '\" style=\"color:var(' + (day ? '--main' : '--ground') + ')\">' +\n      '<div class=\"sky-night\"></div><div class=\"sky-low dawn-low\"></div><div class=\"sky-day dawn-day\"></div>' +\n      '<svg class=\"art\" viewBox=\"0 0 1920 1080\"><g class=\"dawn-stars\" style=\"fill:var(--ground)\">' + stars + '</g></svg>' +\n      '<div class=\"halo dawn-halo\"></div>' +\n      '<svg class=\"art\" viewBox=\"0 0 1920 1080\"><circle class=\"dawn-sun\" cx=\"1560\" cy=\"800\" r=\"150\" style=\"fill:var(--second)\"/>' + W.hills(kit, 'dawn') + '</svg>' +\n      '<div class=\"words dawn-words\" style=\"left:130px;top:150px;width:1200px\"><p class=\"eyebrow dawn-eyebrow\">Juniper Coffee · Spring blend</p>' +\n      '<h1 class=\"line dawn-title\" style=\"font-size:210px\">First Light</h1><p class=\"sub dawn-sub\">A new roast for slow mornings.</p></div></div>'));\n    const q = (s) => kit.stage.querySelector(s);\n    Object.assign(this, { root: q('.dawn-root'), low: q('.dawn-low'), day: q('.dawn-day'), stars: q('.dawn-stars'), halo: q('.dawn-halo'), sun: q('.dawn-sun'),\n      far: q('.dawn-far'), mid: q('.dawn-mid'), near: q('.dawn-near'), mist: q('.dawn-mist'), haze: q('.dawn-haze'),\n      words: q('.dawn-words'), eyebrow: q('.dawn-eyebrow'), sub: q('.dawn-sub'), title: TextFx.split(q('.dawn-title')) });\n    for (const g of [this.far, this.mid, this.near]) g.style.transformOrigin = '960px 800px';\n  },\n  render(t, kit) {\n    const p = eio(seg(t, 0, kit.dur)), sky = lerp(OPEN.sky, CLOSE.sky, p), sun = lerp(OPEN.sun, CLOSE.sun, eio(seg(t, -0.4, kit.dur + 0.3)));\n    // The sky: night stays under, the glow at the horizon comes first, the whole morning last.\n    this.low.style.opacity = clamp01(sky * 2.2).toFixed(3);\n    this.day.style.opacity = clamp01(sky * 2 - 0.9).toFixed(3);\n    this.stars.style.opacity = clamp01(1 - sky * 2.6).toFixed(3);\n    const y = lerp(820, 470, sun);\n    this.sun.setAttribute('cy', y.toFixed(1));\n    this.halo.style.transform = 'translate(960px,' + (y - 600).toFixed(1) + 'px) scale(' + lerp(0.6, 1.1, sun).toFixed(3) + ')';\n    this.halo.style.opacity = lerp(0.3, 1, sun).toFixed(3);\n    // The hills take the hour's tones: silhouettes at night, pale and far apart by day.\n    this.root.style.setProperty('--hill-far', 'color-mix(in srgb, var(--main) ' + lerp(90, 36, sky).toFixed(1) + '%, var(--ground))');\n    this.root.style.setProperty('--hill-mid', 'color-mix(in srgb, var(--main) ' + lerp(100, 64, sky).toFixed(1) + '%, var(--ground))');\n    this.root.style.setProperty('--hill-near', 'color-mix(in srgb, var(--deep) ' + lerp(100, 0, sky).toFixed(1) + '%, var(--main))');\n    this.mist.style.opacity = this.haze.style.opacity = lerp(0.25, 1, sky).toFixed(3);\n    // One slow move: each ridge travels its own distance, and that is the depth.\n    const push = eio(seg(t, 2.5, 4.1)), drift = t / kit.dur;\n    this.far.style.transform = 'translateX(' + (-8 * drift).toFixed(2) + 'px) scale(' + (1 + 0.012 * push).toFixed(4) + ')';\n    this.mid.style.transform = 'translateX(' + (-22 * drift).toFixed(2) + 'px) scale(' + (1 + 0.028 * push).toFixed(4) + ')';\n    this.near.style.transform = 'translateX(' + (-48 * drift).toFixed(2) + 'px) scale(' + (1 + 0.06 * push).toFixed(4) + ')';\n    this.mist.style.transform = 'translateX(' + (30 * drift).toFixed(2) + 'px)';\n    this.haze.style.transform = 'translateX(' + (-60 * drift).toFixed(2) + 'px)';\n    // The title is nearly in at 0, so the poster reads; it rises like the sun does.\n    this.title.forEach((word, i) => {\n      const a = eo(seg(t, -0.75 + i * 0.22, 0.05 + i * 0.22));\n      word.style.opacity = a.toFixed(3);\n      word.style.transform = 'translateY(' + ((1 - a) * 70).toFixed(1) + 'px)';\n    });\n    this.eyebrow.style.opacity = eo(seg(t, -0.6, 0.2)).toFixed(3);\n    const s = eo(seg(t, 1.1, 1.7));\n    this.sub.style.opacity = s.toFixed(3);\n    this.sub.style.transform = 'translateY(' + ((1 - s) * 28).toFixed(1) + 'px)';\n    this.words.style.transform = 'translateY(' + (-2 * t).toFixed(2) + 'px)';\n  },\n});"
                 }
               }
             ]
@@ -35,17 +30,57 @@
         ]
       },
       {
-        "reply": "Changed the closing title to answer your note.",
+        "reply": {
+          "en": "A pass on “{{request}}”: I moved the whole film to the blue hour, with navy hills in place of the forest green and the same honey sun. Every scene follows, because they all draw from the same four colors.",
+          "zh": "针对“{{request}}”改了一版：整部片子换到了日出前的蓝调时刻，山从森林绿变成藏青，太阳还是蜂蜜色。四个场景都用同一组四个颜色，所以全都跟着变了。"
+        },
         "edits": [
           {
             "kind": "db",
             "writes": [
               {
                 "op": "set",
-                "path": "modules/scene-outro.js",
+                "path": "modules/base.css",
                 "data": {
-                  "kind": "js",
-                  "text": "kit.scene('outro', {\n  init(kit) {\n    kit.stage.append(kit.h('<div class=\"wrap\"><h1 class=\"headline\">Thanks for watching</h1></div>'));\n  },\n  render() {},\n});\n"
+                  "kind": "css",
+                  "text": "#stage { --ground:#f4ede1; --main:#2a3550; --second:#e9b25f; --accent:#b9512f; color:var(--main); font-family:var(--sans, system-ui, sans-serif);\n  --deep:color-mix(in srgb, var(--main) 78%, black); --moss:color-mix(in srgb, var(--main) 58%, var(--ground)); --fog:color-mix(in srgb, var(--ground) 84%, var(--main));\n  --glow:color-mix(in srgb, var(--second) 45%, var(--ground)); --peach:color-mix(in srgb, var(--accent) 30%, var(--ground)); --amber:color-mix(in srgb, var(--accent) 45%, var(--second));\n  --brew:color-mix(in srgb, var(--accent) 45%, var(--deep)); --clay:color-mix(in srgb, var(--accent) 86%, var(--ground)); --clay-shade:color-mix(in srgb, var(--accent) 66%, var(--deep));\n  --wood:color-mix(in srgb, var(--second) 50%, var(--ground)); --steel:color-mix(in srgb, var(--ground) 62%, var(--main)); --steam:color-mix(in srgb, var(--ground) 80%, white);\n  --hill-far:color-mix(in srgb, var(--main) 36%, var(--ground)); --hill-mid:color-mix(in srgb, var(--main) 64%, var(--ground)); --hill-near:var(--main); --mist:var(--ground) }\n.ground { position:absolute; inset:0; background:var(--ground); overflow:hidden }\n.art { position:absolute; inset:0; width:100%; height:100%; overflow:visible }\n.sky-night { position:absolute; inset:0; background:linear-gradient(var(--deep), var(--main) 40%, color-mix(in srgb, var(--main) 72%, var(--ground)) 70%) }\n.sky-low { position:absolute; inset:0; background:radial-gradient(75% 62% at 81% 70%, var(--peach), var(--glow) 34%, transparent 72%) }\n.sky-day { position:absolute; inset:0; background:linear-gradient(var(--glow), var(--ground) 52%, var(--peach) 76%) }\n.halo { position:absolute; left:0; top:0; width:1200px; height:1200px; border-radius:50%; background:radial-gradient(closest-side, color-mix(in srgb, var(--second) 60%, transparent), color-mix(in srgb, var(--second) 22%, transparent) 45%, transparent) }\n.words { position:absolute; margin:0; display:flex; flex-direction:column; gap:26px } .words > * { margin:0 }\n.line { font-family:var(--display, var(--sans, system-ui, sans-serif)); font-size:150px; line-height:1.02; font-weight:600; letter-spacing:-0.015em }\n.sub { font-size:42px; line-height:1.3; font-weight:500 } .eyebrow { font-size:30px; line-height:1.2; font-weight:600; letter-spacing:0.2em; text-transform:uppercase }"
+                }
+              },
+              {
+                "op": "set",
+                "path": "modules/scenes.json",
+                "data": {
+                  "kind": "json",
+                  "text": "{\"v\":1,\"stage\":\"final\",\"look\":\"First light: a drawn hillside of junipers going from the last of the night to full morning, with a clay cup on a sunlit table; flat shapes, soft light, plain\",\"palettes\":[[\"#f7f2e8\",\"#20402f\",\"#e3a53c\",\"#c2562b\"],[\"#f4ede1\",\"#2a3550\",\"#e9b25f\",\"#b9512f\"],[\"#f6efe4\",\"#3b2a20\",\"#d99a3a\",\"#a8442a\"]],\"theirs\":1,\"width\":1920,\"height\":1080,\"fps\":60,\"background\":\"#f7f2e8\",\"lang\":\"en\",\"fonts\":{\"display\":\"fraunces\",\"sans\":\"instrument-sans\"},\"scenes\":[{\"id\":\"dawn\",\"name\":\"First light\",\"dur\":4.5,\"desc\":\"Dark green hills before sunrise; a honey sun climbs over the ridge beside the title First Light.\"},{\"id\":\"pour\",\"name\":\"The pour\",\"dur\":4.5,\"desc\":\"Coffee pours from a kettle into a terracotta cup on a sunlit table, and steam rises; the line reads Roasted at sunrise.\"},{\"id\":\"notes\",\"name\":\"Tasting notes\",\"dur\":4.5,\"desc\":\"Honey, apricot and a juniper sprig arrive one by one, each over its name.\"},{\"id\":\"end\",\"name\":\"Juniper Coffee\",\"dur\":4.5,\"desc\":\"End card: the same hills in full morning, the name Juniper Coffee underlined in terracotta, and where to order.\"}]}"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "reply": {
+          "en": "For “{{request}}” I changed the lettering this time: every headline is now a light italic serif, and the hills are back in Juniper green.",
+          "zh": "这次针对“{{request}}”改的是字体：所有大标题都换成了纤细的斜体衬线，山也换回了 Juniper 的绿色。"
+        },
+        "edits": [
+          {
+            "kind": "db",
+            "writes": [
+              {
+                "op": "set",
+                "path": "modules/base.css",
+                "data": {
+                  "kind": "css",
+                  "text": "#stage { --ground:#f7f2e8; --main:#20402f; --second:#e3a53c; --accent:#c2562b; color:var(--main); font-family:var(--sans, system-ui, sans-serif);\n  --deep:color-mix(in srgb, var(--main) 78%, black); --moss:color-mix(in srgb, var(--main) 58%, var(--ground)); --fog:color-mix(in srgb, var(--ground) 84%, var(--main));\n  --glow:color-mix(in srgb, var(--second) 45%, var(--ground)); --peach:color-mix(in srgb, var(--accent) 30%, var(--ground)); --amber:color-mix(in srgb, var(--accent) 45%, var(--second));\n  --brew:color-mix(in srgb, var(--accent) 45%, var(--deep)); --clay:color-mix(in srgb, var(--accent) 86%, var(--ground)); --clay-shade:color-mix(in srgb, var(--accent) 66%, var(--deep));\n  --wood:color-mix(in srgb, var(--second) 50%, var(--ground)); --steel:color-mix(in srgb, var(--ground) 62%, var(--main)); --steam:color-mix(in srgb, var(--ground) 80%, white);\n  --hill-far:color-mix(in srgb, var(--main) 36%, var(--ground)); --hill-mid:color-mix(in srgb, var(--main) 64%, var(--ground)); --hill-near:var(--main); --mist:var(--ground) }\n.ground { position:absolute; inset:0; background:var(--ground); overflow:hidden }\n.art { position:absolute; inset:0; width:100%; height:100%; overflow:visible }\n.sky-night { position:absolute; inset:0; background:linear-gradient(var(--deep), var(--main) 40%, color-mix(in srgb, var(--main) 72%, var(--ground)) 70%) }\n.sky-low { position:absolute; inset:0; background:radial-gradient(75% 62% at 81% 70%, var(--peach), var(--glow) 34%, transparent 72%) }\n.sky-day { position:absolute; inset:0; background:linear-gradient(var(--glow), var(--ground) 52%, var(--peach) 76%) }\n.halo { position:absolute; left:0; top:0; width:1200px; height:1200px; border-radius:50%; background:radial-gradient(closest-side, color-mix(in srgb, var(--second) 60%, transparent), color-mix(in srgb, var(--second) 22%, transparent) 45%, transparent) }\n.words { position:absolute; margin:0; display:flex; flex-direction:column; gap:26px } .words > * { margin:0 }\n.line { font-family:var(--display, var(--sans, system-ui, sans-serif)); font-size:150px; line-height:1.02; font-weight:400; font-style:italic; letter-spacing:-0.01em }\n.sub { font-size:42px; line-height:1.3; font-weight:500 } .eyebrow { font-size:30px; line-height:1.2; font-weight:600; letter-spacing:0.2em; text-transform:uppercase }"
+                }
+              },
+              {
+                "op": "set",
+                "path": "modules/scenes.json",
+                "data": {
+                  "kind": "json",
+                  "text": "{\"v\":1,\"stage\":\"final\",\"look\":\"First light: a drawn hillside of junipers going from the last of the night to full morning, with a clay cup on a sunlit table; flat shapes, soft light, plain\",\"palettes\":[[\"#f7f2e8\",\"#20402f\",\"#e3a53c\",\"#c2562b\"],[\"#f4ede1\",\"#2a3550\",\"#e9b25f\",\"#b9512f\"],[\"#f6efe4\",\"#3b2a20\",\"#d99a3a\",\"#a8442a\"]],\"theirs\":1,\"width\":1920,\"height\":1080,\"fps\":60,\"background\":\"#f7f2e8\",\"lang\":\"en\",\"fonts\":{\"display\":\"fraunces-display\",\"sans\":\"instrument-sans\"},\"scenes\":[{\"id\":\"dawn\",\"name\":\"First light\",\"dur\":4.5,\"desc\":\"Dark green hills before sunrise; a honey sun climbs over the ridge beside the title First Light.\"},{\"id\":\"pour\",\"name\":\"The pour\",\"dur\":4.5,\"desc\":\"Coffee pours from a kettle into a terracotta cup on a sunlit table, and steam rises; the line reads Roasted at sunrise.\"},{\"id\":\"notes\",\"name\":\"Tasting notes\",\"dur\":4.5,\"desc\":\"Honey, apricot and a juniper sprig arrive one by one, each over its name.\"},{\"id\":\"end\",\"name\":\"Juniper Coffee\",\"dur\":4.5,\"desc\":\"End card: the same hills in full morning, the name Juniper Coffee underlined in terracotta, and where to order.\"}]}"
                 }
               }
             ]
@@ -53,5 +88,116 @@
         ]
       }
     ]
+  },
+  "replay": {
+    "prompt": {
+      "en": "/open-artifact motion an 18-second launch teaser for First Light, Juniper Coffee’s spring blend: sunrise over the hills, a pour, the tasting notes",
+      "zh": "/open-artifact motion 给 Juniper Coffee 的春季拼配 First Light 做一支 18 秒的上市预告：山间日出、一次冲煮、三种风味"
+    },
+    "steps": [
+      {
+        "say": "ArtifactData · batch film/meta, modules/scenes.json, modules/base.css, film/script",
+        "edits": [
+          {
+            "kind": "db",
+            "writes": [
+              {
+                "op": "set",
+                "path": "modules/scenes.json",
+                "data": {
+                  "kind": "json",
+                  "text": "{\"v\":1,\"stage\":\"rough\",\"look\":\"First light: a drawn hillside of junipers going from the last of the night to full morning, with a clay cup on a sunlit table; flat shapes, soft light, plain\",\"palettes\":[[\"#f7f2e8\",\"#20402f\",\"#e3a53c\",\"#c2562b\"],[\"#f4ede1\",\"#2a3550\",\"#e9b25f\",\"#b9512f\"],[\"#f6efe4\",\"#3b2a20\",\"#d99a3a\",\"#a8442a\"]],\"theirs\":1,\"width\":1920,\"height\":1080,\"fps\":60,\"background\":\"#f7f2e8\",\"lang\":\"en\",\"fonts\":{\"display\":\"fraunces\",\"sans\":\"instrument-sans\"},\"scenes\":[{\"id\":\"dawn\",\"name\":\"First light\",\"dur\":4.5,\"desc\":\"Dark green hills before sunrise; a honey sun climbs over the ridge beside the title First Light.\"},{\"id\":\"pour\",\"name\":\"The pour\",\"dur\":4.5,\"desc\":\"Coffee pours from a kettle into a terracotta cup on a sunlit table, and steam rises; the line reads Roasted at sunrise.\"},{\"id\":\"notes\",\"name\":\"Tasting notes\",\"dur\":4.5,\"desc\":\"Honey, apricot and a juniper sprig arrive one by one, each over its name.\"},{\"id\":\"end\",\"name\":\"Juniper Coffee\",\"dur\":4.5,\"desc\":\"End card: the same hills in full morning, the name Juniper Coffee underlined in terracotta, and where to order.\"}]}"
+                }
+              },
+              {
+                "op": "set",
+                "path": "modules/base.css",
+                "data": {
+                  "kind": "css",
+                  "text": "#stage { --ground:#f7f2e8; --main:#20402f; --second:#e3a53c; --accent:#c2562b; color:var(--main); font-family:var(--sans, system-ui, sans-serif) }\n.ground { position:absolute; inset:0; background:var(--ground); overflow:hidden }\n.words { position:absolute; margin:0; display:flex; flex-direction:column; gap:26px } .words > * { margin:0 }\n.line { font-family:var(--display, var(--sans, system-ui, sans-serif)); font-size:150px; line-height:1.02; font-weight:600; letter-spacing:-0.015em }"
+                }
+              },
+              {
+                "op": "set",
+                "path": "film/script",
+                "data": {
+                  "code": "window.CUT = kit.scenes();"
+                }
+              }
+            ]
+          }
+        ],
+        "ms": 1100
+      },
+      {
+        "say": "ArtifactData · batch modules/base.css, modules/shared.js",
+        "take": [
+          "db/modules/base.css.json",
+          "db/modules/shared.js.json",
+          "db/film/script.json"
+        ],
+        "ms": 900
+      },
+      {
+        "say": "ArtifactData · set modules/scene-dawn.js",
+        "take": [
+          "db/modules/scene-dawn.js.json"
+        ],
+        "ms": 1100
+      },
+      {
+        "say": "ArtifactData · set modules/scene-pour.js",
+        "take": [
+          "db/modules/scene-pour.js.json"
+        ],
+        "ms": 1000
+      },
+      {
+        "say": "ArtifactData · set modules/scene-notes.js",
+        "take": [
+          "db/modules/scene-notes.js.json"
+        ],
+        "ms": 1000
+      },
+      {
+        "say": "ArtifactData · set modules/scene-end.js",
+        "take": [
+          "db/modules/scene-end.js.json"
+        ],
+        "ms": 1000
+      },
+      {
+        "say": "ArtifactData · batch modules/score.js, modules/scenes.json",
+        "take": [
+          "db/modules/score.js.json",
+          "db/modules/scenes.json.json"
+        ],
+        "ms": 900
+      },
+      {
+        "say": "Artifact · call check",
+        "ms": 700
+      }
+    ],
+    "made": {
+      "en": "Here’s your animation: First Light, 18 seconds in four scenes, from the last of the night to the end card. Tell me if the music doesn’t fit, or what else to change.",
+      "zh": "动画做好了：First Light，18 秒、四个场景，从夜色将尽一直到片尾卡。音乐不合适，或者还有哪里要改，告诉我。"
+    },
+    "comment": {
+      "text": {
+        "en": "Open on something warmer",
+        "zh": "开场再暖一点"
+      },
+      "anchor": "animation-v1:nth-of-type(1) > at-0ms:nth-of-type(1) > x7200-y2999:nth-of-type(1)",
+      "label": "0:00",
+      "detail": "at 0 s, the point at x 72% y 29.99% of the frame",
+      "location": {
+        "location": "0:00"
+      },
+      "at": [
+        0.675,
+        0.372
+      ]
+    }
   }
 }

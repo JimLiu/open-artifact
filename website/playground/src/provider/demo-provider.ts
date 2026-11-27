@@ -45,6 +45,8 @@ interface Upload {
 }
 
 export interface DemoArtifact {
+  /** The demo's seed, its stored files as this page's `blob:` URLs. */
+  seed: SeedManifest;
   store: DemoStore;
   comments: CommentStore;
   agent: SimAgent;
@@ -72,17 +74,22 @@ export function titleOf(seed: SeedManifest): string {
   return seed.typeTitle;
 }
 
-export async function createDemoArtifact(original: SeedManifest): Promise<DemoArtifact> {
+/**
+ * The demo's artifact and its backend. `startWith` makes what the artifact holds at first from the seed (a replay
+ * starts with less, and builds the rest: `src/replay/`); by default the whole seed.
+ */
+export async function createDemoArtifact(original: SeedManifest, startWith: (seed: SeedManifest) => SeedManifest = (seed) => seed): Promise<DemoArtifact> {
   // Stored files (`_blobs/`) become `blob:` URLs of this page, and the seed points at those.
   const blobUrls = new Map([...seedBlobs(original)].map(([id, blob]) => [id, URL.createObjectURL(blob)]));
   const seed = withBlobUrls(original, blobUrls);
+  const first = startWith(seed);
   const store = new DemoStore(`demo-${seed.id}`, titleOf(seed));
-  await store.load(seedFiles(seed), seedDocuments(seed));
+  await store.load(seedFiles(first), seedDocuments(first));
   const comments = new CommentStore({ kind: 'person', name: VISITOR.name });
-  const { engines, doc, sheet } = await startEngines(seed, store);
+  const { engines, doc, sheet } = await startEngines(first, store);
   const agent = new SimAgent(seed.agent, store, comments, engines);
   const uploads = new Map<string, Upload>();
-  const hasDb = [...store.entries.keys()].some((path) => path.startsWith('db/'));
+  const hasDb = Object.keys(seed.files).some((path) => path.startsWith('db/'));
 
   const artifact: ArtifactCapability = {
     id: store.id,
@@ -198,7 +205,7 @@ export async function createDemoArtifact(original: SeedManifest): Promise<DemoAr
     },
   };
 
-  return { store, comments, agent, provider, uploads, engines };
+  return { seed, store, comments, agent, provider, uploads, engines };
 }
 
 /**

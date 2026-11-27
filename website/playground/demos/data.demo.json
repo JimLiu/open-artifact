@@ -2,307 +2,1756 @@
   "id": "data",
   "type": "data",
   "typeTitle": "Data",
-  "source": "test-artifacts/data/sales-and-signups",
+  "title": "Juniper Coffee subscriptions",
+  "source": "website/playground/showcase/data",
   "omit": [
-    "db/datasets/broken.json",
-    "db/datasets/unused.json"
+    "_src/build.mjs",
+    "_src/app.css",
+    "_src/app.js",
+    "_src/goal.js",
+    "_src/comment.json"
   ],
-  "add": {
-    "db/files/index.html.json": {
-      "text": "<meta name=\"dash-one-writer\">\n<link rel=\"stylesheet\" href=\"app.css\">\n<main class=\"fx\" data-read lang=\"en\">\n  <header class=\"fx-head\" id=\"overview\">\n    <h1 class=\"fx-title\" id=\"title\">Sales and signups</h1>\n    <p class=\"fx-lede\" data-read-step>Signups reached <b data-draw=\"latest\" data-source=\"signups\" data-field=\"signups\" data-where=\"month=2026-10\">—</b> in the latest month, <b data-draw=\"growth\" data-source=\"growth\">—</b> on the month before.</p>\n    <div class=\"fx-filters\">\n      <label>Region\n        <select class=\"dash-select\" data-draw=\"region\" aria-label=\"Region\" data-source=\"regions\"></select>\n      </label>\n      <button type=\"button\" class=\"fx-clear\" id=\"clear-filters\">Clear filters</button>\n    </div>\n  </header>\n\n  <nav class=\"fx-tabs\" role=\"tablist\">\n    <button type=\"button\" role=\"tab\" data-tab=\"revenue\" id=\"tab-revenue\">Revenue</button>\n    <button type=\"button\" role=\"tab\" data-tab=\"signups\" id=\"tab-signups\">Signups</button>\n    <button type=\"button\" role=\"tab\" data-tab=\"support\" id=\"tab-support\">Support</button>\n  </nav>\n\n  <section class=\"fx-page\" id=\"revenue\" data-tab-page=\"revenue\">\n    <div class=\"fx-cards\">\n      <article class=\"fx-card\" id=\"card-revenue\">\n        <h2>Revenue</h2>\n        <p class=\"fx-big\"><span data-draw=\"revenue-total\" data-source=\"revenue_total\" data-fetchpriority=\"high\">—</span></p>\n        <p class=\"fx-note\">All months shown, in dollars.</p>\n      </article>\n      <article class=\"fx-card\" id=\"card-target\">\n        <h2>Target</h2>\n        <p class=\"fx-big\"><span data-draw=\"target-total\" data-source=\"regions\" data-field=\"target\">—</span></p>\n        <p class=\"fx-note\">Sum of the region targets for FY27.</p>\n      </article>\n    </div>\n    <figure class=\"fx-chart\" id=\"revenue-chart\" data-source=\"orders\">\n      <figcaption>Revenue by month</figcaption>\n      <div class=\"fx-chart-body\" data-draw=\"revenue-chart\"></div>\n    </figure>\n    <table class=\"fx-table\" id=\"orders-table\" data-source=\"orders\" data-row-key=\"month\" data-fetchpriority=\"low\">\n      <thead><tr><th data-field=\"region\">Region</th><th data-field=\"month\">Month</th><th data-field=\"revenue\">Revenue</th><th data-field=\"orders\">Orders</th></tr></thead>\n      <tbody data-draw=\"orders-rows\"></tbody>\n    </table>\n  </section>\n\n  <section class=\"fx-page\" id=\"signups\" data-tab-page=\"signups\" hidden>\n    <figure class=\"fx-chart\" id=\"signups-chart\" data-source=\"signups\">\n      <figcaption>Signups per month</figcaption>\n      <div class=\"fx-chart-body\" data-draw=\"signups-chart\"></div>\n    </figure>\n    <p class=\"fx-note\" data-read-step>Click a bar to see that month. Picked: <b data-draw=\"picked\">—</b></p>\n  </section>\n\n  <section class=\"fx-page\" id=\"support\" data-tab-page=\"support\" hidden>\n    <h2>Open tickets</h2>\n    <ul class=\"fx-list\" data-source=\"tickets\" data-draw=\"tickets\"></ul>\n  </section>\n</main>\n<script src=\"app.js\"></script>\n"
-    },
-    "db/files/app.js.json": {
-      "text": "window.fx = {\n  money: d3.format('$,.0f'),\n  pct: d3.format('+.0%'),\n  target: 17800,\n};\n\ndash.calc('growth', {\n  title: 'Signup growth',\n  description: 'Latest month against the month before.',\n  inputs: ['signups'],\n  fn: (signups) => {\n    const rows = signups.slice(-2).map(r => Number(r.signups));\n    return rows.length === 2 ? rows[1] / rows[0] - 1 : null;\n  },\n});\n\ndash.calc('revenue_total', {\n  title: 'Revenue total',\n  description: 'Sum of revenue over the rows shown.',\n  inputs: ['orders'],\n  fn: (orders) => d3.sum(orders, r => Number(r.revenue)),\n});\n\ndash.loader('tickets', {\n  description: 'One ticket per block: id | status | title.',\n  fn: ({ items }) => items.filter(i => typeof i === 'string' && i.startsWith('T-')).map(i => {\n    const [id, status, title] = i.split(' | ');\n    return { id, status, title };\n  }),\n});\n\nfunction showTab(name) {\n  for (const page of document.querySelectorAll('[data-tab-page]')) page.hidden = page.dataset.tabPage !== name;\n  for (const tab of document.querySelectorAll('[data-tab]')) tab.setAttribute('aria-selected', String(tab.dataset.tab === name));\n}\nfor (const tab of document.querySelectorAll('[data-tab]')) {\n  tab.addEventListener('click', () => { showTab(tab.dataset.tab); dash.setLink(tab.dataset.tab); });\n}\nshowTab(location.hash.slice(1) || 'revenue');\nfor (const button of document.querySelectorAll('#clear-filters')) button.addEventListener('click', () => dash.resetParams());\n\ndash.draw('latest', el => {\n  const d = dash.data('signups');\n  const row = d.status === 'ok' ? d.data.find(r => r.month === '2026-10') : null;\n  el.textContent = row ? row.signups : '—';\n});\n\ndash.draw('growth', el => {\n  const g = dash.data('growth');\n  el.textContent = g.status === 'ok' && g.data !== null ? fx.pct(g.data) : '—';\n});\n\ndash.draw('region', sel => {\n  const g = dash.data('regions');\n  sel.replaceChildren(new Option('All regions', ''), ...(g.status === 'ok' ? g.data : []).map(r => new Option(r.region)));\n  sel.value = dash.params().region ?? '';\n  sel.onchange = () => dash.setParams({ region: sel.value });\n});\n\ndash.draw('revenue-total', el => {\n  const t = dash.data('revenue_total');\n  el.textContent = t.status === 'ok' ? fx.money(t.data) : '—';\n});\n\ndash.draw('target-total', el => {\n  const g = dash.data('regions');\n  el.textContent = g.status === 'ok' ? fx.money(d3.sum(g.data, r => Number(r.target))) : '—';\n});\n\ndash.draw('orders-rows', body => {\n  const d = dash.data('orders');\n  body.replaceChildren();\n  if (d.status !== 'ok') return;\n  for (const row of d.data) {\n    const tr = document.createElement('tr');\n    tr.dataset.key = row.month;\n    for (const key of ['region', 'month', 'revenue', 'orders']) {\n      const td = document.createElement('td');\n      td.textContent = key === 'revenue' ? fx.money(Number(row[key])) : row[key];\n      tr.appendChild(td);\n    }\n    body.appendChild(tr);\n  }\n});\n\nfunction barChart(el, rows, { x, y, color, onPick }) {\n  el.replaceChildren();\n  const width = el.clientWidth || 600;\n  const height = 220;\n  const margin = { top: 10, right: 10, bottom: 28, left: 48 };\n  const sx = d3.scaleBand().domain(rows.map(x)).range([margin.left, width - margin.right]).padding(0.2);\n  const sy = d3.scaleLinear().domain([0, d3.max(rows, y) || 1]).nice().range([height - margin.bottom, margin.top]);\n  const svg = d3.select(el).append('svg').attr('width', width).attr('height', height).attr('aria-label', 'Bar chart');\n  svg.append('g').attr('transform', `translate(0,${height - margin.bottom})`).call(d3.axisBottom(sx));\n  svg.append('g').attr('transform', `translate(${margin.left},0)`).call(d3.axisLeft(sy).ticks(4));\n  const tip = d3.select(el).append('div').attr('class', 'fx-tip').style('opacity', 0);\n  svg.append('g').selectAll('rect').data(rows).join('rect')\n    .attr('x', d => sx(x(d))).attr('width', sx.bandwidth())\n    .attr('y', d => sy(y(d))).attr('height', d => sy(0) - sy(y(d)))\n    .attr('fill', color)\n    .on('pointermove', (event, d) => {\n      const [px, py] = d3.pointer(event, el);\n      tip.style('opacity', 1).style('left', `${px + 8}px`).style('top', `${py - 24}px`).text(`${x(d)}: ${y(d)}`);\n    })\n    .on('pointerleave', () => tip.style('opacity', 0))\n    .on('click', (event, d) => onPick?.(d));\n}\n\ndash.draw('revenue-chart', el => {\n  const d = dash.data('orders');\n  if (d.status !== 'ok') { el.textContent = '—'; return; }\n  const byMonth = d3.rollups(d.data, v => d3.sum(v, r => Number(r.revenue)), r => r.month).map(([month, revenue]) => ({ month, revenue }));\n  barChart(el, byMonth, { x: r => r.month, y: r => r.revenue, color: dash.colors[0] });\n});\n\nwindow.fx.picked = null;\ndash.draw('signups-chart', el => {\n  const d = dash.data('signups');\n  if (d.status !== 'ok') { el.textContent = '—'; return; }\n  barChart(el, d.data, { x: r => r.month, y: r => Number(r.signups), color: dash.colors[1], onPick: r => { fx.picked = r.month; dash.draw('picked'); } });\n});\n\ndash.draw('picked', el => { el.textContent = fx.picked ?? '—'; });\n\ndash.draw('tickets', list => {\n  const d = dash.data('tickets');\n  list.replaceChildren();\n  if (d.status !== 'ok') return;\n  for (const t of d.data.filter(r => r.status === 'open')) {\n    const li = document.createElement('li');\n    li.dataset.key = t.id;\n    li.textContent = `${t.id}: ${t.title}`;\n    list.appendChild(li);\n  }\n});\n"
-    },
-    "db/data/live.json": {
-      "at": "2026-11-20T09:00:00Z",
-      "owner": "Sam",
-      "queries": [
-        "orders",
-        "tickets"
-      ]
-    },
-    "db/data/live/answers/orders.json": {
-      "at": "2026-11-20T09:00:00Z",
-      "connector": "sales",
-      "calls": [
-        {
-          "tool": "run_sql",
-          "args": {
-            "query": "SELECT region, month, revenue, orders\nFROM orders\nWHERE ('' = '' OR region = '')\nORDER BY region, month"
-          },
-          "result": {
-            "content": [
-              {
-                "type": "text",
-                "text": "{\"rows\": [{\"region\": \"North\", \"month\": \"2026-07\", \"revenue\": \"1250\", \"orders\": \"20\"}, {\"region\": \"North\", \"month\": \"2026-08\", \"revenue\": \"1400\", \"orders\": \"23\"}, {\"region\": \"North\", \"month\": \"2026-09\", \"revenue\": \"1550\", \"orders\": \"26\"}, {\"region\": \"North\", \"month\": \"2026-10\", \"revenue\": \"1700\", \"orders\": \"29\"}, {\"region\": \"South\", \"month\": \"2026-07\", \"revenue\": \"950\", \"orders\": \"20\"}, {\"region\": \"South\", \"month\": \"2026-08\", \"revenue\": \"1100\", \"orders\": \"23\"}, {\"region\": \"South\", \"month\": \"2026-09\", \"revenue\": \"1250\", \"orders\": \"26\"}, {\"region\": \"South\", \"month\": \"2026-10\", \"revenue\": \"1400\", \"orders\": \"29\"}, {\"region\": \"East\", \"month\": \"2026-07\", \"revenue\": \"840\", \"orders\": \"20\"}, {\"region\": \"East\", \"month\": \"2026-08\", \"revenue\": \"990\", \"orders\": \"23\"}, {\"region\": \"East\", \"month\": \"2026-09\", \"revenue\": \"1140\", \"orders\": \"26\"}, {\"region\": \"East\", \"month\": \"2026-10\", \"revenue\": \"1290\", \"orders\": \"29\"}, {\"region\": \"West\", \"month\": \"2026-07\", \"revenue\": \"1140\", \"orders\": \"20\"}, {\"region\": \"West\", \"month\": \"2026-08\", \"revenue\": \"1290\", \"orders\": \"23\"}, {\"region\": \"West\", \"month\": \"2026-09\", \"revenue\": \"1440\", \"orders\": \"26\"}, {\"region\": \"West\", \"month\": \"2026-10\", \"revenue\": \"1590\", \"orders\": \"29\"}], \"query\": \"SELECT region, month, revenue, orders\\nFROM orders\\nWHERE ('' = '' OR region = '')\\nORDER BY region, month\"}"
-              }
-            ],
-            "structuredContent": {
-              "rows": [
-                {
-                  "region": "North",
-                  "month": "2026-07",
-                  "revenue": "1250",
-                  "orders": "20"
-                },
-                {
-                  "region": "North",
-                  "month": "2026-08",
-                  "revenue": "1400",
-                  "orders": "23"
-                },
-                {
-                  "region": "North",
-                  "month": "2026-09",
-                  "revenue": "1550",
-                  "orders": "26"
-                },
-                {
-                  "region": "North",
-                  "month": "2026-10",
-                  "revenue": "1700",
-                  "orders": "29"
-                },
-                {
-                  "region": "South",
-                  "month": "2026-07",
-                  "revenue": "950",
-                  "orders": "20"
-                },
-                {
-                  "region": "South",
-                  "month": "2026-08",
-                  "revenue": "1100",
-                  "orders": "23"
-                },
-                {
-                  "region": "South",
-                  "month": "2026-09",
-                  "revenue": "1250",
-                  "orders": "26"
-                },
-                {
-                  "region": "South",
-                  "month": "2026-10",
-                  "revenue": "1400",
-                  "orders": "29"
-                },
-                {
-                  "region": "East",
-                  "month": "2026-07",
-                  "revenue": "840",
-                  "orders": "20"
-                },
-                {
-                  "region": "East",
-                  "month": "2026-08",
-                  "revenue": "990",
-                  "orders": "23"
-                },
-                {
-                  "region": "East",
-                  "month": "2026-09",
-                  "revenue": "1140",
-                  "orders": "26"
-                },
-                {
-                  "region": "East",
-                  "month": "2026-10",
-                  "revenue": "1290",
-                  "orders": "29"
-                },
-                {
-                  "region": "West",
-                  "month": "2026-07",
-                  "revenue": "1140",
-                  "orders": "20"
-                },
-                {
-                  "region": "West",
-                  "month": "2026-08",
-                  "revenue": "1290",
-                  "orders": "23"
-                },
-                {
-                  "region": "West",
-                  "month": "2026-09",
-                  "revenue": "1440",
-                  "orders": "26"
-                },
-                {
-                  "region": "West",
-                  "month": "2026-10",
-                  "revenue": "1590",
-                  "orders": "29"
-                }
-              ],
-              "query": "SELECT region, month, revenue, orders\nFROM orders\nWHERE ('' = '' OR region = '')\nORDER BY region, month"
-            }
-          }
-        }
-      ]
-    },
-    "db/data/live/answers/tickets.json": {
-      "at": "2026-11-20T09:00:00Z",
-      "connector": "sales",
-      "calls": [
-        {
-          "tool": "list_tickets",
-          "args": {},
-          "result": {
-            "content": [
-              {
-                "type": "text",
-                "text": "T-101 | open | Login fails on Safari"
-              },
-              {
-                "type": "text",
-                "text": "T-102 | closed | Export button hidden"
-              },
-              {
-                "type": "text",
-                "text": "T-103 | open | Chart colors too light"
-              },
-              {
-                "type": "text",
-                "text": "page 1 of 1 (3 tickets)"
-              }
-            ]
-          }
-        }
-      ]
-    }
-  },
   "agent": {
     "name": "Agent",
     "thinkMs": 2500,
     "responses": [
       {
-        "reply": "Done. I pulled the late October orders into the snapshot (revenue is up about $2,000 for the month) and added a note under the title.",
+        "reply": {
+          "en": "Done. I ran the shop queries again, so the last two weeks of April are in. Launch week shows: 1,943 active subscribers (195 more than on April 13), MRR at $120.3k, and you are now 56 ahead of the goal path. First Light is already the second most shipped roast.",
+          "zh": "好了。我重新跑了一遍店铺的查询，4 月最后两周的订单已经进来。上新那一周很明显：活跃订阅 1,943 人（比 4 月 13 日那周多 195 人），MRR 到了 $120.3k，现在比目标线高出 56 人。First Light 已经是出货量第二的豆子。"
+        },
         "edits": [
           {
             "kind": "db",
             "writes": [
               {
                 "op": "set",
-                "path": "data/live/answers/orders",
+                "path": "data/live/answers/subscriptions",
                 "data": {
-                  "at": "2026-11-26T09:00:00Z",
-                  "connector": "sales",
+                  "at": "2026-05-04T13:00:00Z",
+                  "connector": "shop",
                   "calls": [
                     {
                       "tool": "run_sql",
                       "args": {
-                        "query": "SELECT region, month, revenue, orders\nFROM orders\nWHERE ('' = '' OR region = '')\nORDER BY region, month"
+                        "query": "SELECT s.week, s.plan, s.active, s.new, s.churned, s.mrr, o.orders, o.revenue\nFROM subscription_weeks s\nJOIN (\n  SELECT date_trunc('week', placed_at)::date AS week, plan,\n         count(*) AS orders, sum(total) AS revenue\n  FROM orders\n  WHERE status <> 'cancelled'\n  GROUP BY 1, 2\n) o USING (week, plan)\nWHERE s.week >= DATE '2026-02-02'\nORDER BY s.week, s.plan"
                       },
                       "result": {
-                        "content": [
-                          {
-                            "type": "text",
-                            "text": "{\"rows\": [{\"region\": \"North\", \"month\": \"2026-07\", \"revenue\": \"1250\", \"orders\": \"20\"}, {\"region\": \"North\", \"month\": \"2026-08\", \"revenue\": \"1400\", \"orders\": \"23\"}, {\"region\": \"North\", \"month\": \"2026-09\", \"revenue\": \"1550\", \"orders\": \"26\"}, {\"region\": \"North\", \"month\": \"2026-10\", \"revenue\": \"2200\", \"orders\": \"35\"}, {\"region\": \"South\", \"month\": \"2026-07\", \"revenue\": \"950\", \"orders\": \"20\"}, {\"region\": \"South\", \"month\": \"2026-08\", \"revenue\": \"1100\", \"orders\": \"23\"}, {\"region\": \"South\", \"month\": \"2026-09\", \"revenue\": \"1250\", \"orders\": \"26\"}, {\"region\": \"South\", \"month\": \"2026-10\", \"revenue\": \"1900\", \"orders\": \"35\"}, {\"region\": \"East\", \"month\": \"2026-07\", \"revenue\": \"840\", \"orders\": \"20\"}, {\"region\": \"East\", \"month\": \"2026-08\", \"revenue\": \"990\", \"orders\": \"23\"}, {\"region\": \"East\", \"month\": \"2026-09\", \"revenue\": \"1140\", \"orders\": \"26\"}, {\"region\": \"East\", \"month\": \"2026-10\", \"revenue\": \"1790\", \"orders\": \"35\"}, {\"region\": \"West\", \"month\": \"2026-07\", \"revenue\": \"1140\", \"orders\": \"20\"}, {\"region\": \"West\", \"month\": \"2026-08\", \"revenue\": \"1290\", \"orders\": \"23\"}, {\"region\": \"West\", \"month\": \"2026-09\", \"revenue\": \"1440\", \"orders\": \"26\"}, {\"region\": \"West\", \"month\": \"2026-10\", \"revenue\": \"2090\", \"orders\": \"35\"}], \"query\": \"SELECT region, month, revenue, orders\\nFROM orders\\nWHERE ('' = '' OR region = '')\\nORDER BY region, month\"}"
-                          }
-                        ],
                         "structuredContent": {
                           "rows": [
                             {
-                              "region": "North",
-                              "month": "2026-07",
-                              "revenue": "1250",
-                              "orders": "20"
+                              "week": "2026-02-02",
+                              "plan": "Duo",
+                              "active": 562,
+                              "new": 13,
+                              "churned": 6,
+                              "mrr": 35968,
+                              "orders": 286,
+                              "revenue": 9634
                             },
                             {
-                              "region": "North",
-                              "month": "2026-08",
-                              "revenue": "1400",
-                              "orders": "23"
+                              "week": "2026-02-02",
+                              "plan": "Office",
+                              "active": 128,
+                              "new": 3,
+                              "churned": 1,
+                              "mrr": 30720,
+                              "orders": 127,
+                              "revenue": 7905
                             },
                             {
-                              "region": "North",
-                              "month": "2026-09",
-                              "revenue": "1550",
-                              "orders": "26"
+                              "week": "2026-02-02",
+                              "plan": "Solo",
+                              "active": 858,
+                              "new": 18,
+                              "churned": 9,
+                              "mrr": 30888,
+                              "orders": 435,
+                              "revenue": 8182
                             },
                             {
-                              "region": "North",
-                              "month": "2026-10",
-                              "revenue": "2200",
-                              "orders": "35"
+                              "week": "2026-02-09",
+                              "plan": "Duo",
+                              "active": 568,
+                              "new": 13,
+                              "churned": 7,
+                              "mrr": 36352,
+                              "orders": 284,
+                              "revenue": 9545
                             },
                             {
-                              "region": "South",
-                              "month": "2026-07",
-                              "revenue": "950",
-                              "orders": "20"
+                              "week": "2026-02-09",
+                              "plan": "Office",
+                              "active": 129,
+                              "new": 2,
+                              "churned": 1,
+                              "mrr": 30960,
+                              "orders": 131,
+                              "revenue": 8247
                             },
                             {
-                              "region": "South",
-                              "month": "2026-08",
-                              "revenue": "1100",
-                              "orders": "23"
+                              "week": "2026-02-09",
+                              "plan": "Solo",
+                              "active": 869,
+                              "new": 21,
+                              "churned": 10,
+                              "mrr": 31284,
+                              "orders": 432,
+                              "revenue": 8056
                             },
                             {
-                              "region": "South",
-                              "month": "2026-09",
-                              "revenue": "1250",
-                              "orders": "26"
+                              "week": "2026-02-16",
+                              "plan": "Duo",
+                              "active": 576,
+                              "new": 14,
+                              "churned": 6,
+                              "mrr": 36864,
+                              "orders": 293,
+                              "revenue": 9933
                             },
                             {
-                              "region": "South",
-                              "month": "2026-10",
-                              "revenue": "1900",
-                              "orders": "35"
+                              "week": "2026-02-16",
+                              "plan": "Office",
+                              "active": 130,
+                              "new": 1,
+                              "churned": 0,
+                              "mrr": 31200,
+                              "orders": 131,
+                              "revenue": 8197
                             },
                             {
-                              "region": "East",
-                              "month": "2026-07",
-                              "revenue": "840",
-                              "orders": "20"
+                              "week": "2026-02-16",
+                              "plan": "Solo",
+                              "active": 882,
+                              "new": 22,
+                              "churned": 9,
+                              "mrr": 31752,
+                              "orders": 439,
+                              "revenue": 8147
                             },
                             {
-                              "region": "East",
-                              "month": "2026-08",
-                              "revenue": "990",
-                              "orders": "23"
+                              "week": "2026-02-23",
+                              "plan": "Duo",
+                              "active": 583,
+                              "new": 14,
+                              "churned": 7,
+                              "mrr": 37312,
+                              "orders": 291,
+                              "revenue": 9630
                             },
                             {
-                              "region": "East",
-                              "month": "2026-09",
-                              "revenue": "1140",
-                              "orders": "26"
+                              "week": "2026-02-23",
+                              "plan": "Office",
+                              "active": 131,
+                              "new": 2,
+                              "churned": 1,
+                              "mrr": 31440,
+                              "orders": 129,
+                              "revenue": 8085
                             },
                             {
-                              "region": "East",
-                              "month": "2026-10",
-                              "revenue": "1790",
-                              "orders": "35"
+                              "week": "2026-02-23",
+                              "plan": "Solo",
+                              "active": 892,
+                              "new": 21,
+                              "churned": 11,
+                              "mrr": 32112,
+                              "orders": 439,
+                              "revenue": 8225
                             },
                             {
-                              "region": "West",
-                              "month": "2026-07",
-                              "revenue": "1140",
-                              "orders": "20"
+                              "week": "2026-03-02",
+                              "plan": "Duo",
+                              "active": 589,
+                              "new": 12,
+                              "churned": 6,
+                              "mrr": 37696,
+                              "orders": 292,
+                              "revenue": 9847
                             },
                             {
-                              "region": "West",
-                              "month": "2026-08",
-                              "revenue": "1290",
-                              "orders": "23"
+                              "week": "2026-03-02",
+                              "plan": "Office",
+                              "active": 131,
+                              "new": 1,
+                              "churned": 1,
+                              "mrr": 31440,
+                              "orders": 131,
+                              "revenue": 8132
                             },
                             {
-                              "region": "West",
-                              "month": "2026-09",
-                              "revenue": "1440",
-                              "orders": "26"
+                              "week": "2026-03-02",
+                              "plan": "Solo",
+                              "active": 904,
+                              "new": 22,
+                              "churned": 10,
+                              "mrr": 32544,
+                              "orders": 446,
+                              "revenue": 8461
                             },
                             {
-                              "region": "West",
-                              "month": "2026-10",
-                              "revenue": "2090",
-                              "orders": "35"
+                              "week": "2026-03-09",
+                              "plan": "Duo",
+                              "active": 597,
+                              "new": 15,
+                              "churned": 7,
+                              "mrr": 38208,
+                              "orders": 304,
+                              "revenue": 10275
+                            },
+                            {
+                              "week": "2026-03-09",
+                              "plan": "Office",
+                              "active": 133,
+                              "new": 3,
+                              "churned": 1,
+                              "mrr": 31920,
+                              "orders": 130,
+                              "revenue": 8119
+                            },
+                            {
+                              "week": "2026-03-09",
+                              "plan": "Solo",
+                              "active": 918,
+                              "new": 23,
+                              "churned": 9,
+                              "mrr": 33048,
+                              "orders": 450,
+                              "revenue": 8578
+                            },
+                            {
+                              "week": "2026-03-16",
+                              "plan": "Duo",
+                              "active": 604,
+                              "new": 13,
+                              "churned": 6,
+                              "mrr": 38656,
+                              "orders": 299,
+                              "revenue": 9930
+                            },
+                            {
+                              "week": "2026-03-16",
+                              "plan": "Office",
+                              "active": 134,
+                              "new": 2,
+                              "churned": 1,
+                              "mrr": 32160,
+                              "orders": 132,
+                              "revenue": 8216
+                            },
+                            {
+                              "week": "2026-03-16",
+                              "plan": "Solo",
+                              "active": 929,
+                              "new": 21,
+                              "churned": 10,
+                              "mrr": 33444,
+                              "orders": 459,
+                              "revenue": 8530
+                            },
+                            {
+                              "week": "2026-03-23",
+                              "plan": "Duo",
+                              "active": 611,
+                              "new": 14,
+                              "churned": 7,
+                              "mrr": 39104,
+                              "orders": 308,
+                              "revenue": 10433
+                            },
+                            {
+                              "week": "2026-03-23",
+                              "plan": "Office",
+                              "active": 135,
+                              "new": 2,
+                              "churned": 1,
+                              "mrr": 32400,
+                              "orders": 137,
+                              "revenue": 8628
+                            },
+                            {
+                              "week": "2026-03-23",
+                              "plan": "Solo",
+                              "active": 941,
+                              "new": 23,
+                              "churned": 11,
+                              "mrr": 33876,
+                              "orders": 474,
+                              "revenue": 8806
+                            },
+                            {
+                              "week": "2026-03-30",
+                              "plan": "Duo",
+                              "active": 617,
+                              "new": 13,
+                              "churned": 7,
+                              "mrr": 39488,
+                              "orders": 306,
+                              "revenue": 10175
+                            },
+                            {
+                              "week": "2026-03-30",
+                              "plan": "Office",
+                              "active": 136,
+                              "new": 2,
+                              "churned": 1,
+                              "mrr": 32640,
+                              "orders": 137,
+                              "revenue": 8708
+                            },
+                            {
+                              "week": "2026-03-30",
+                              "plan": "Solo",
+                              "active": 954,
+                              "new": 23,
+                              "churned": 10,
+                              "mrr": 34344,
+                              "orders": 471,
+                              "revenue": 8883
+                            },
+                            {
+                              "week": "2026-04-06",
+                              "plan": "Duo",
+                              "active": 625,
+                              "new": 15,
+                              "churned": 7,
+                              "mrr": 40000,
+                              "orders": 307,
+                              "revenue": 10157
+                            },
+                            {
+                              "week": "2026-04-06",
+                              "plan": "Office",
+                              "active": 137,
+                              "new": 2,
+                              "churned": 1,
+                              "mrr": 32880,
+                              "orders": 138,
+                              "revenue": 8765
+                            },
+                            {
+                              "week": "2026-04-06",
+                              "plan": "Solo",
+                              "active": 966,
+                              "new": 23,
+                              "churned": 11,
+                              "mrr": 34776,
+                              "orders": 497,
+                              "revenue": 9369
+                            },
+                            {
+                              "week": "2026-04-13",
+                              "plan": "Duo",
+                              "active": 632,
+                              "new": 14,
+                              "churned": 7,
+                              "mrr": 40448,
+                              "orders": 315,
+                              "revenue": 10412
+                            },
+                            {
+                              "week": "2026-04-13",
+                              "plan": "Office",
+                              "active": 138,
+                              "new": 2,
+                              "churned": 1,
+                              "mrr": 33120,
+                              "orders": 140,
+                              "revenue": 8807
+                            },
+                            {
+                              "week": "2026-04-13",
+                              "plan": "Solo",
+                              "active": 978,
+                              "new": 24,
+                              "churned": 12,
+                              "mrr": 35208,
+                              "orders": 489,
+                              "revenue": 9151
+                            },
+                            {
+                              "week": "2026-04-20",
+                              "plan": "Duo",
+                              "active": 677,
+                              "new": 51,
+                              "churned": 6,
+                              "mrr": 43328,
+                              "orders": 356,
+                              "revenue": 12662
+                            },
+                            {
+                              "week": "2026-04-20",
+                              "plan": "Office",
+                              "active": 145,
+                              "new": 8,
+                              "churned": 1,
+                              "mrr": 34800,
+                              "orders": 148,
+                              "revenue": 9998
+                            },
+                            {
+                              "week": "2026-04-20",
+                              "plan": "Solo",
+                              "active": 1047,
+                              "new": 78,
+                              "churned": 9,
+                              "mrr": 37692,
+                              "orders": 553,
+                              "revenue": 11130
+                            },
+                            {
+                              "week": "2026-04-27",
+                              "plan": "Duo",
+                              "active": 705,
+                              "new": 33,
+                              "churned": 5,
+                              "mrr": 45120,
+                              "orders": 378,
+                              "revenue": 13545
+                            },
+                            {
+                              "week": "2026-04-27",
+                              "plan": "Office",
+                              "active": 150,
+                              "new": 6,
+                              "churned": 1,
+                              "mrr": 36000,
+                              "orders": 161,
+                              "revenue": 10802
+                            },
+                            {
+                              "week": "2026-04-27",
+                              "plan": "Solo",
+                              "active": 1088,
+                              "new": 49,
+                              "churned": 8,
+                              "mrr": 39168,
+                              "orders": 561,
+                              "revenue": 11398
                             }
-                          ],
-                          "query": "SELECT region, month, revenue, orders\nFROM orders\nWHERE ('' = '' OR region = '')\nORDER BY region, month"
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "op": "set",
+                "path": "data/live/answers/roast_bags",
+                "data": {
+                  "at": "2026-05-04T13:00:00Z",
+                  "connector": "shop",
+                  "calls": [
+                    {
+                      "tool": "run_sql",
+                      "args": {
+                        "query": "SELECT date_trunc('week', o.placed_at)::date AS week, o.plan, i.roast, sum(i.bags) AS bags\nFROM order_items i\nJOIN orders o ON o.id = i.order_id\nWHERE o.status <> 'cancelled'\n  AND o.placed_at >= DATE '2026-02-02'\nGROUP BY 1, 2, 3\nORDER BY 1, 2, 3"
+                      },
+                      "result": {
+                        "structuredContent": {
+                          "rows": [
+                            {
+                              "week": "2026-02-02",
+                              "plan": "Duo",
+                              "roast": "Daybreak",
+                              "bags": 117
+                            },
+                            {
+                              "week": "2026-02-02",
+                              "plan": "Duo",
+                              "roast": "Guest Roast",
+                              "bags": 87
+                            },
+                            {
+                              "week": "2026-02-02",
+                              "plan": "Duo",
+                              "roast": "Homestead",
+                              "bags": 178
+                            },
+                            {
+                              "week": "2026-02-02",
+                              "plan": "Duo",
+                              "roast": "Night Shift Decaf",
+                              "bags": 67
+                            },
+                            {
+                              "week": "2026-02-02",
+                              "plan": "Duo",
+                              "roast": "Ridgeline",
+                              "bags": 134
+                            },
+                            {
+                              "week": "2026-02-02",
+                              "plan": "Office",
+                              "roast": "Daybreak",
+                              "bags": 53
+                            },
+                            {
+                              "week": "2026-02-02",
+                              "plan": "Office",
+                              "roast": "Guest Roast",
+                              "bags": 29
+                            },
+                            {
+                              "week": "2026-02-02",
+                              "plan": "Office",
+                              "roast": "Homestead",
+                              "bags": 224
+                            },
+                            {
+                              "week": "2026-02-02",
+                              "plan": "Office",
+                              "roast": "Night Shift Decaf",
+                              "bags": 53
+                            },
+                            {
+                              "week": "2026-02-02",
+                              "plan": "Office",
+                              "roast": "Ridgeline",
+                              "bags": 159
+                            },
+                            {
+                              "week": "2026-02-02",
+                              "plan": "Solo",
+                              "roast": "Daybreak",
+                              "bags": 112
+                            },
+                            {
+                              "week": "2026-02-02",
+                              "plan": "Solo",
+                              "roast": "Guest Roast",
+                              "bags": 62
+                            },
+                            {
+                              "week": "2026-02-02",
+                              "plan": "Solo",
+                              "roast": "Homestead",
+                              "bags": 130
+                            },
+                            {
+                              "week": "2026-02-02",
+                              "plan": "Solo",
+                              "roast": "Night Shift Decaf",
+                              "bags": 49
+                            },
+                            {
+                              "week": "2026-02-02",
+                              "plan": "Solo",
+                              "roast": "Ridgeline",
+                              "bags": 91
+                            },
+                            {
+                              "week": "2026-02-09",
+                              "plan": "Duo",
+                              "roast": "Daybreak",
+                              "bags": 114
+                            },
+                            {
+                              "week": "2026-02-09",
+                              "plan": "Duo",
+                              "roast": "Guest Roast",
+                              "bags": 93
+                            },
+                            {
+                              "week": "2026-02-09",
+                              "plan": "Duo",
+                              "roast": "Homestead",
+                              "bags": 179
+                            },
+                            {
+                              "week": "2026-02-09",
+                              "plan": "Duo",
+                              "roast": "Night Shift Decaf",
+                              "bags": 66
+                            },
+                            {
+                              "week": "2026-02-09",
+                              "plan": "Duo",
+                              "roast": "Ridgeline",
+                              "bags": 127
+                            },
+                            {
+                              "week": "2026-02-09",
+                              "plan": "Office",
+                              "roast": "Daybreak",
+                              "bags": 50
+                            },
+                            {
+                              "week": "2026-02-09",
+                              "plan": "Office",
+                              "roast": "Guest Roast",
+                              "bags": 30
+                            },
+                            {
+                              "week": "2026-02-09",
+                              "plan": "Office",
+                              "roast": "Homestead",
+                              "bags": 245
+                            },
+                            {
+                              "week": "2026-02-09",
+                              "plan": "Office",
+                              "roast": "Night Shift Decaf",
+                              "bags": 50
+                            },
+                            {
+                              "week": "2026-02-09",
+                              "plan": "Office",
+                              "roast": "Ridgeline",
+                              "bags": 159
+                            },
+                            {
+                              "week": "2026-02-09",
+                              "plan": "Solo",
+                              "roast": "Daybreak",
+                              "bags": 102
+                            },
+                            {
+                              "week": "2026-02-09",
+                              "plan": "Solo",
+                              "roast": "Guest Roast",
+                              "bags": 66
+                            },
+                            {
+                              "week": "2026-02-09",
+                              "plan": "Solo",
+                              "roast": "Homestead",
+                              "bags": 139
+                            },
+                            {
+                              "week": "2026-02-09",
+                              "plan": "Solo",
+                              "roast": "Night Shift Decaf",
+                              "bags": 49
+                            },
+                            {
+                              "week": "2026-02-09",
+                              "plan": "Solo",
+                              "roast": "Ridgeline",
+                              "bags": 85
+                            },
+                            {
+                              "week": "2026-02-16",
+                              "plan": "Duo",
+                              "roast": "Daybreak",
+                              "bags": 118
+                            },
+                            {
+                              "week": "2026-02-16",
+                              "plan": "Duo",
+                              "roast": "Guest Roast",
+                              "bags": 91
+                            },
+                            {
+                              "week": "2026-02-16",
+                              "plan": "Duo",
+                              "roast": "Homestead",
+                              "bags": 194
+                            },
+                            {
+                              "week": "2026-02-16",
+                              "plan": "Duo",
+                              "roast": "Night Shift Decaf",
+                              "bags": 61
+                            },
+                            {
+                              "week": "2026-02-16",
+                              "plan": "Duo",
+                              "roast": "Ridgeline",
+                              "bags": 134
+                            },
+                            {
+                              "week": "2026-02-16",
+                              "plan": "Office",
+                              "roast": "Daybreak",
+                              "bags": 53
+                            },
+                            {
+                              "week": "2026-02-16",
+                              "plan": "Office",
+                              "roast": "Guest Roast",
+                              "bags": 32
+                            },
+                            {
+                              "week": "2026-02-16",
+                              "plan": "Office",
+                              "roast": "Homestead",
+                              "bags": 228
+                            },
+                            {
+                              "week": "2026-02-16",
+                              "plan": "Office",
+                              "roast": "Night Shift Decaf",
+                              "bags": 55
+                            },
+                            {
+                              "week": "2026-02-16",
+                              "plan": "Office",
+                              "roast": "Ridgeline",
+                              "bags": 166
+                            },
+                            {
+                              "week": "2026-02-16",
+                              "plan": "Solo",
+                              "roast": "Daybreak",
+                              "bags": 110
+                            },
+                            {
+                              "week": "2026-02-16",
+                              "plan": "Solo",
+                              "roast": "Guest Roast",
+                              "bags": 69
+                            },
+                            {
+                              "week": "2026-02-16",
+                              "plan": "Solo",
+                              "roast": "Homestead",
+                              "bags": 131
+                            },
+                            {
+                              "week": "2026-02-16",
+                              "plan": "Solo",
+                              "roast": "Night Shift Decaf",
+                              "bags": 51
+                            },
+                            {
+                              "week": "2026-02-16",
+                              "plan": "Solo",
+                              "roast": "Ridgeline",
+                              "bags": 87
+                            },
+                            {
+                              "week": "2026-02-23",
+                              "plan": "Duo",
+                              "roast": "Daybreak",
+                              "bags": 118
+                            },
+                            {
+                              "week": "2026-02-23",
+                              "plan": "Duo",
+                              "roast": "Guest Roast",
+                              "bags": 86
+                            },
+                            {
+                              "week": "2026-02-23",
+                              "plan": "Duo",
+                              "roast": "Homestead",
+                              "bags": 199
+                            },
+                            {
+                              "week": "2026-02-23",
+                              "plan": "Duo",
+                              "roast": "Night Shift Decaf",
+                              "bags": 64
+                            },
+                            {
+                              "week": "2026-02-23",
+                              "plan": "Duo",
+                              "roast": "Ridgeline",
+                              "bags": 127
+                            },
+                            {
+                              "week": "2026-02-23",
+                              "plan": "Office",
+                              "roast": "Daybreak",
+                              "bags": 51
+                            },
+                            {
+                              "week": "2026-02-23",
+                              "plan": "Office",
+                              "roast": "Guest Roast",
+                              "bags": 32
+                            },
+                            {
+                              "week": "2026-02-23",
+                              "plan": "Office",
+                              "roast": "Homestead",
+                              "bags": 238
+                            },
+                            {
+                              "week": "2026-02-23",
+                              "plan": "Office",
+                              "roast": "Night Shift Decaf",
+                              "bags": 51
+                            },
+                            {
+                              "week": "2026-02-23",
+                              "plan": "Office",
+                              "roast": "Ridgeline",
+                              "bags": 154
+                            },
+                            {
+                              "week": "2026-02-23",
+                              "plan": "Solo",
+                              "roast": "Daybreak",
+                              "bags": 114
+                            },
+                            {
+                              "week": "2026-02-23",
+                              "plan": "Solo",
+                              "roast": "Guest Roast",
+                              "bags": 67
+                            },
+                            {
+                              "week": "2026-02-23",
+                              "plan": "Solo",
+                              "roast": "Homestead",
+                              "bags": 129
+                            },
+                            {
+                              "week": "2026-02-23",
+                              "plan": "Solo",
+                              "roast": "Night Shift Decaf",
+                              "bags": 48
+                            },
+                            {
+                              "week": "2026-02-23",
+                              "plan": "Solo",
+                              "roast": "Ridgeline",
+                              "bags": 90
+                            },
+                            {
+                              "week": "2026-03-02",
+                              "plan": "Duo",
+                              "roast": "Daybreak",
+                              "bags": 117
+                            },
+                            {
+                              "week": "2026-03-02",
+                              "plan": "Duo",
+                              "roast": "Guest Roast",
+                              "bags": 91
+                            },
+                            {
+                              "week": "2026-03-02",
+                              "plan": "Duo",
+                              "roast": "Homestead",
+                              "bags": 189
+                            },
+                            {
+                              "week": "2026-03-02",
+                              "plan": "Duo",
+                              "roast": "Night Shift Decaf",
+                              "bags": 68
+                            },
+                            {
+                              "week": "2026-03-02",
+                              "plan": "Duo",
+                              "roast": "Ridgeline",
+                              "bags": 131
+                            },
+                            {
+                              "week": "2026-03-02",
+                              "plan": "Office",
+                              "roast": "Daybreak",
+                              "bags": 55
+                            },
+                            {
+                              "week": "2026-03-02",
+                              "plan": "Office",
+                              "roast": "Guest Roast",
+                              "bags": 32
+                            },
+                            {
+                              "week": "2026-03-02",
+                              "plan": "Office",
+                              "roast": "Homestead",
+                              "bags": 228
+                            },
+                            {
+                              "week": "2026-03-02",
+                              "plan": "Office",
+                              "roast": "Night Shift Decaf",
+                              "bags": 50
+                            },
+                            {
+                              "week": "2026-03-02",
+                              "plan": "Office",
+                              "roast": "Ridgeline",
+                              "bags": 169
+                            },
+                            {
+                              "week": "2026-03-02",
+                              "plan": "Solo",
+                              "roast": "Daybreak",
+                              "bags": 108
+                            },
+                            {
+                              "week": "2026-03-02",
+                              "plan": "Solo",
+                              "roast": "Guest Roast",
+                              "bags": 66
+                            },
+                            {
+                              "week": "2026-03-02",
+                              "plan": "Solo",
+                              "roast": "Homestead",
+                              "bags": 137
+                            },
+                            {
+                              "week": "2026-03-02",
+                              "plan": "Solo",
+                              "roast": "Night Shift Decaf",
+                              "bags": 49
+                            },
+                            {
+                              "week": "2026-03-02",
+                              "plan": "Solo",
+                              "roast": "Ridgeline",
+                              "bags": 95
+                            },
+                            {
+                              "week": "2026-03-09",
+                              "plan": "Duo",
+                              "roast": "Daybreak",
+                              "bags": 117
+                            },
+                            {
+                              "week": "2026-03-09",
+                              "plan": "Duo",
+                              "roast": "Guest Roast",
+                              "bags": 93
+                            },
+                            {
+                              "week": "2026-03-09",
+                              "plan": "Duo",
+                              "roast": "Homestead",
+                              "bags": 206
+                            },
+                            {
+                              "week": "2026-03-09",
+                              "plan": "Duo",
+                              "roast": "Night Shift Decaf",
+                              "bags": 72
+                            },
+                            {
+                              "week": "2026-03-09",
+                              "plan": "Duo",
+                              "roast": "Ridgeline",
+                              "bags": 132
+                            },
+                            {
+                              "week": "2026-03-09",
+                              "plan": "Office",
+                              "roast": "Daybreak",
+                              "bags": 53
+                            },
+                            {
+                              "week": "2026-03-09",
+                              "plan": "Office",
+                              "roast": "Guest Roast",
+                              "bags": 34
+                            },
+                            {
+                              "week": "2026-03-09",
+                              "plan": "Office",
+                              "roast": "Homestead",
+                              "bags": 228
+                            },
+                            {
+                              "week": "2026-03-09",
+                              "plan": "Office",
+                              "roast": "Night Shift Decaf",
+                              "bags": 57
+                            },
+                            {
+                              "week": "2026-03-09",
+                              "plan": "Office",
+                              "roast": "Ridgeline",
+                              "bags": 158
+                            },
+                            {
+                              "week": "2026-03-09",
+                              "plan": "Solo",
+                              "roast": "Daybreak",
+                              "bags": 113
+                            },
+                            {
+                              "week": "2026-03-09",
+                              "plan": "Solo",
+                              "roast": "Guest Roast",
+                              "bags": 68
+                            },
+                            {
+                              "week": "2026-03-09",
+                              "plan": "Solo",
+                              "roast": "Homestead",
+                              "bags": 138
+                            },
+                            {
+                              "week": "2026-03-09",
+                              "plan": "Solo",
+                              "roast": "Night Shift Decaf",
+                              "bags": 49
+                            },
+                            {
+                              "week": "2026-03-09",
+                              "plan": "Solo",
+                              "roast": "Ridgeline",
+                              "bags": 91
+                            },
+                            {
+                              "week": "2026-03-16",
+                              "plan": "Duo",
+                              "roast": "Daybreak",
+                              "bags": 113
+                            },
+                            {
+                              "week": "2026-03-16",
+                              "plan": "Duo",
+                              "roast": "Guest Roast",
+                              "bags": 93
+                            },
+                            {
+                              "week": "2026-03-16",
+                              "plan": "Duo",
+                              "roast": "Homestead",
+                              "bags": 202
+                            },
+                            {
+                              "week": "2026-03-16",
+                              "plan": "Duo",
+                              "roast": "Night Shift Decaf",
+                              "bags": 67
+                            },
+                            {
+                              "week": "2026-03-16",
+                              "plan": "Duo",
+                              "roast": "Ridgeline",
+                              "bags": 135
+                            },
+                            {
+                              "week": "2026-03-16",
+                              "plan": "Office",
+                              "roast": "Daybreak",
+                              "bags": 52
+                            },
+                            {
+                              "week": "2026-03-16",
+                              "plan": "Office",
+                              "roast": "Guest Roast",
+                              "bags": 36
+                            },
+                            {
+                              "week": "2026-03-16",
+                              "plan": "Office",
+                              "roast": "Homestead",
+                              "bags": 237
+                            },
+                            {
+                              "week": "2026-03-16",
+                              "plan": "Office",
+                              "roast": "Night Shift Decaf",
+                              "bags": 53
+                            },
+                            {
+                              "week": "2026-03-16",
+                              "plan": "Office",
+                              "roast": "Ridgeline",
+                              "bags": 161
+                            },
+                            {
+                              "week": "2026-03-16",
+                              "plan": "Solo",
+                              "roast": "Daybreak",
+                              "bags": 116
+                            },
+                            {
+                              "week": "2026-03-16",
+                              "plan": "Solo",
+                              "roast": "Guest Roast",
+                              "bags": 70
+                            },
+                            {
+                              "week": "2026-03-16",
+                              "plan": "Solo",
+                              "roast": "Homestead",
+                              "bags": 141
+                            },
+                            {
+                              "week": "2026-03-16",
+                              "plan": "Solo",
+                              "roast": "Night Shift Decaf",
+                              "bags": 50
+                            },
+                            {
+                              "week": "2026-03-16",
+                              "plan": "Solo",
+                              "roast": "Ridgeline",
+                              "bags": 91
+                            },
+                            {
+                              "week": "2026-03-23",
+                              "plan": "Duo",
+                              "roast": "Daybreak",
+                              "bags": 123
+                            },
+                            {
+                              "week": "2026-03-23",
+                              "plan": "Duo",
+                              "roast": "Guest Roast",
+                              "bags": 89
+                            },
+                            {
+                              "week": "2026-03-23",
+                              "plan": "Duo",
+                              "roast": "Homestead",
+                              "bags": 212
+                            },
+                            {
+                              "week": "2026-03-23",
+                              "plan": "Duo",
+                              "roast": "Night Shift Decaf",
+                              "bags": 70
+                            },
+                            {
+                              "week": "2026-03-23",
+                              "plan": "Duo",
+                              "roast": "Ridgeline",
+                              "bags": 134
+                            },
+                            {
+                              "week": "2026-03-23",
+                              "plan": "Office",
+                              "roast": "Daybreak",
+                              "bags": 57
+                            },
+                            {
+                              "week": "2026-03-23",
+                              "plan": "Office",
+                              "roast": "Guest Roast",
+                              "bags": 32
+                            },
+                            {
+                              "week": "2026-03-23",
+                              "plan": "Office",
+                              "roast": "Homestead",
+                              "bags": 237
+                            },
+                            {
+                              "week": "2026-03-23",
+                              "plan": "Office",
+                              "roast": "Night Shift Decaf",
+                              "bags": 59
+                            },
+                            {
+                              "week": "2026-03-23",
+                              "plan": "Office",
+                              "roast": "Ridgeline",
+                              "bags": 174
+                            },
+                            {
+                              "week": "2026-03-23",
+                              "plan": "Solo",
+                              "roast": "Daybreak",
+                              "bags": 108
+                            },
+                            {
+                              "week": "2026-03-23",
+                              "plan": "Solo",
+                              "roast": "Guest Roast",
+                              "bags": 73
+                            },
+                            {
+                              "week": "2026-03-23",
+                              "plan": "Solo",
+                              "roast": "Homestead",
+                              "bags": 151
+                            },
+                            {
+                              "week": "2026-03-23",
+                              "plan": "Solo",
+                              "roast": "Night Shift Decaf",
+                              "bags": 53
+                            },
+                            {
+                              "week": "2026-03-23",
+                              "plan": "Solo",
+                              "roast": "Ridgeline",
+                              "bags": 98
+                            },
+                            {
+                              "week": "2026-03-30",
+                              "plan": "Duo",
+                              "roast": "Daybreak",
+                              "bags": 119
+                            },
+                            {
+                              "week": "2026-03-30",
+                              "plan": "Duo",
+                              "roast": "Guest Roast",
+                              "bags": 102
+                            },
+                            {
+                              "week": "2026-03-30",
+                              "plan": "Duo",
+                              "roast": "Homestead",
+                              "bags": 191
+                            },
+                            {
+                              "week": "2026-03-30",
+                              "plan": "Duo",
+                              "roast": "Night Shift Decaf",
+                              "bags": 72
+                            },
+                            {
+                              "week": "2026-03-30",
+                              "plan": "Duo",
+                              "roast": "Ridgeline",
+                              "bags": 140
+                            },
+                            {
+                              "week": "2026-03-30",
+                              "plan": "Office",
+                              "roast": "Daybreak",
+                              "bags": 57
+                            },
+                            {
+                              "week": "2026-03-30",
+                              "plan": "Office",
+                              "roast": "Guest Roast",
+                              "bags": 33
+                            },
+                            {
+                              "week": "2026-03-30",
+                              "plan": "Office",
+                              "roast": "Homestead",
+                              "bags": 252
+                            },
+                            {
+                              "week": "2026-03-30",
+                              "plan": "Office",
+                              "roast": "Night Shift Decaf",
+                              "bags": 53
+                            },
+                            {
+                              "week": "2026-03-30",
+                              "plan": "Office",
+                              "roast": "Ridgeline",
+                              "bags": 164
+                            },
+                            {
+                              "week": "2026-03-30",
+                              "plan": "Solo",
+                              "roast": "Daybreak",
+                              "bags": 117
+                            },
+                            {
+                              "week": "2026-03-30",
+                              "plan": "Solo",
+                              "roast": "Guest Roast",
+                              "bags": 76
+                            },
+                            {
+                              "week": "2026-03-30",
+                              "plan": "Solo",
+                              "roast": "Homestead",
+                              "bags": 143
+                            },
+                            {
+                              "week": "2026-03-30",
+                              "plan": "Solo",
+                              "roast": "Night Shift Decaf",
+                              "bags": 50
+                            },
+                            {
+                              "week": "2026-03-30",
+                              "plan": "Solo",
+                              "roast": "Ridgeline",
+                              "bags": 94
+                            },
+                            {
+                              "week": "2026-04-06",
+                              "plan": "Duo",
+                              "roast": "Daybreak",
+                              "bags": 135
+                            },
+                            {
+                              "week": "2026-04-06",
+                              "plan": "Duo",
+                              "roast": "Guest Roast",
+                              "bags": 90
+                            },
+                            {
+                              "week": "2026-04-06",
+                              "plan": "Duo",
+                              "roast": "Homestead",
+                              "bags": 201
+                            },
+                            {
+                              "week": "2026-04-06",
+                              "plan": "Duo",
+                              "roast": "Night Shift Decaf",
+                              "bags": 70
+                            },
+                            {
+                              "week": "2026-04-06",
+                              "plan": "Duo",
+                              "roast": "Ridgeline",
+                              "bags": 130
+                            },
+                            {
+                              "week": "2026-04-06",
+                              "plan": "Office",
+                              "roast": "Daybreak",
+                              "bags": 56
+                            },
+                            {
+                              "week": "2026-04-06",
+                              "plan": "Office",
+                              "roast": "Guest Roast",
+                              "bags": 33
+                            },
+                            {
+                              "week": "2026-04-06",
+                              "plan": "Office",
+                              "roast": "Homestead",
+                              "bags": 238
+                            },
+                            {
+                              "week": "2026-04-06",
+                              "plan": "Office",
+                              "roast": "Night Shift Decaf",
+                              "bags": 59
+                            },
+                            {
+                              "week": "2026-04-06",
+                              "plan": "Office",
+                              "roast": "Ridgeline",
+                              "bags": 177
+                            },
+                            {
+                              "week": "2026-04-06",
+                              "plan": "Solo",
+                              "roast": "Daybreak",
+                              "bags": 124
+                            },
+                            {
+                              "week": "2026-04-06",
+                              "plan": "Solo",
+                              "roast": "Guest Roast",
+                              "bags": 80
+                            },
+                            {
+                              "week": "2026-04-06",
+                              "plan": "Solo",
+                              "roast": "Homestead",
+                              "bags": 154
+                            },
+                            {
+                              "week": "2026-04-06",
+                              "plan": "Solo",
+                              "roast": "Night Shift Decaf",
+                              "bags": 52
+                            },
+                            {
+                              "week": "2026-04-06",
+                              "plan": "Solo",
+                              "roast": "Ridgeline",
+                              "bags": 97
+                            },
+                            {
+                              "week": "2026-04-13",
+                              "plan": "Duo",
+                              "roast": "Daybreak",
+                              "bags": 125
+                            },
+                            {
+                              "week": "2026-04-13",
+                              "plan": "Duo",
+                              "roast": "Guest Roast",
+                              "bags": 97
+                            },
+                            {
+                              "week": "2026-04-13",
+                              "plan": "Duo",
+                              "roast": "Homestead",
+                              "bags": 208
+                            },
+                            {
+                              "week": "2026-04-13",
+                              "plan": "Duo",
+                              "roast": "Night Shift Decaf",
+                              "bags": 66
+                            },
+                            {
+                              "week": "2026-04-13",
+                              "plan": "Duo",
+                              "roast": "Ridgeline",
+                              "bags": 147
+                            },
+                            {
+                              "week": "2026-04-13",
+                              "plan": "Office",
+                              "roast": "Daybreak",
+                              "bags": 59
+                            },
+                            {
+                              "week": "2026-04-13",
+                              "plan": "Office",
+                              "roast": "Guest Roast",
+                              "bags": 34
+                            },
+                            {
+                              "week": "2026-04-13",
+                              "plan": "Office",
+                              "roast": "Homestead",
+                              "bags": 245
+                            },
+                            {
+                              "week": "2026-04-13",
+                              "plan": "Office",
+                              "roast": "Night Shift Decaf",
+                              "bags": 56
+                            },
+                            {
+                              "week": "2026-04-13",
+                              "plan": "Office",
+                              "roast": "Ridgeline",
+                              "bags": 177
+                            },
+                            {
+                              "week": "2026-04-13",
+                              "plan": "Solo",
+                              "roast": "Daybreak",
+                              "bags": 117
+                            },
+                            {
+                              "week": "2026-04-13",
+                              "plan": "Solo",
+                              "roast": "Guest Roast",
+                              "bags": 71
+                            },
+                            {
+                              "week": "2026-04-13",
+                              "plan": "Solo",
+                              "roast": "Homestead",
+                              "bags": 152
+                            },
+                            {
+                              "week": "2026-04-13",
+                              "plan": "Solo",
+                              "roast": "Night Shift Decaf",
+                              "bags": 54
+                            },
+                            {
+                              "week": "2026-04-13",
+                              "plan": "Solo",
+                              "roast": "Ridgeline",
+                              "bags": 105
+                            },
+                            {
+                              "week": "2026-04-20",
+                              "plan": "Duo",
+                              "roast": "Daybreak",
+                              "bags": 112
+                            },
+                            {
+                              "week": "2026-04-20",
+                              "plan": "Duo",
+                              "roast": "First Light",
+                              "bags": 219
+                            },
+                            {
+                              "week": "2026-04-20",
+                              "plan": "Duo",
+                              "roast": "Guest Roast",
+                              "bags": 59
+                            },
+                            {
+                              "week": "2026-04-20",
+                              "plan": "Duo",
+                              "roast": "Homestead",
+                              "bags": 184
+                            },
+                            {
+                              "week": "2026-04-20",
+                              "plan": "Duo",
+                              "roast": "Night Shift Decaf",
+                              "bags": 62
+                            },
+                            {
+                              "week": "2026-04-20",
+                              "plan": "Duo",
+                              "roast": "Ridgeline",
+                              "bags": 119
+                            },
+                            {
+                              "week": "2026-04-20",
+                              "plan": "Office",
+                              "roast": "Daybreak",
+                              "bags": 53
+                            },
+                            {
+                              "week": "2026-04-20",
+                              "plan": "Office",
+                              "roast": "First Light",
+                              "bags": 94
+                            },
+                            {
+                              "week": "2026-04-20",
+                              "plan": "Office",
+                              "roast": "Guest Roast",
+                              "bags": 23
+                            },
+                            {
+                              "week": "2026-04-20",
+                              "plan": "Office",
+                              "roast": "Homestead",
+                              "bags": 248
+                            },
+                            {
+                              "week": "2026-04-20",
+                              "plan": "Office",
+                              "roast": "Night Shift Decaf",
+                              "bags": 56
+                            },
+                            {
+                              "week": "2026-04-20",
+                              "plan": "Office",
+                              "roast": "Ridgeline",
+                              "bags": 154
+                            },
+                            {
+                              "week": "2026-04-20",
+                              "plan": "Solo",
+                              "roast": "Daybreak",
+                              "bags": 100
+                            },
+                            {
+                              "week": "2026-04-20",
+                              "plan": "Solo",
+                              "roast": "First Light",
+                              "bags": 182
+                            },
+                            {
+                              "week": "2026-04-20",
+                              "plan": "Solo",
+                              "roast": "Guest Roast",
+                              "bags": 43
+                            },
+                            {
+                              "week": "2026-04-20",
+                              "plan": "Solo",
+                              "roast": "Homestead",
+                              "bags": 134
+                            },
+                            {
+                              "week": "2026-04-20",
+                              "plan": "Solo",
+                              "roast": "Night Shift Decaf",
+                              "bags": 45
+                            },
+                            {
+                              "week": "2026-04-20",
+                              "plan": "Solo",
+                              "roast": "Ridgeline",
+                              "bags": 82
+                            },
+                            {
+                              "week": "2026-04-27",
+                              "plan": "Duo",
+                              "roast": "Daybreak",
+                              "bags": 129
+                            },
+                            {
+                              "week": "2026-04-27",
+                              "plan": "Duo",
+                              "roast": "First Light",
+                              "bags": 208
+                            },
+                            {
+                              "week": "2026-04-27",
+                              "plan": "Duo",
+                              "roast": "Guest Roast",
+                              "bags": 68
+                            },
+                            {
+                              "week": "2026-04-27",
+                              "plan": "Duo",
+                              "roast": "Homestead",
+                              "bags": 187
+                            },
+                            {
+                              "week": "2026-04-27",
+                              "plan": "Duo",
+                              "roast": "Night Shift Decaf",
+                              "bags": 73
+                            },
+                            {
+                              "week": "2026-04-27",
+                              "plan": "Duo",
+                              "roast": "Ridgeline",
+                              "bags": 136
+                            },
+                            {
+                              "week": "2026-04-27",
+                              "plan": "Office",
+                              "roast": "Daybreak",
+                              "bags": 59
+                            },
+                            {
+                              "week": "2026-04-27",
+                              "plan": "Office",
+                              "roast": "First Light",
+                              "bags": 102
+                            },
+                            {
+                              "week": "2026-04-27",
+                              "plan": "Office",
+                              "roast": "Guest Roast",
+                              "bags": 24
+                            },
+                            {
+                              "week": "2026-04-27",
+                              "plan": "Office",
+                              "roast": "Homestead",
+                              "bags": 251
+                            },
+                            {
+                              "week": "2026-04-27",
+                              "plan": "Office",
+                              "roast": "Night Shift Decaf",
+                              "bags": 61
+                            },
+                            {
+                              "week": "2026-04-27",
+                              "plan": "Office",
+                              "roast": "Ridgeline",
+                              "bags": 186
+                            },
+                            {
+                              "week": "2026-04-27",
+                              "plan": "Solo",
+                              "roast": "Daybreak",
+                              "bags": 99
+                            },
+                            {
+                              "week": "2026-04-27",
+                              "plan": "Solo",
+                              "roast": "First Light",
+                              "bags": 167
+                            },
+                            {
+                              "week": "2026-04-27",
+                              "plan": "Solo",
+                              "roast": "Guest Roast",
+                              "bags": 48
+                            },
+                            {
+                              "week": "2026-04-27",
+                              "plan": "Solo",
+                              "roast": "Homestead",
+                              "bags": 141
+                            },
+                            {
+                              "week": "2026-04-27",
+                              "plan": "Solo",
+                              "roast": "Night Shift Decaf",
+                              "bags": 51
+                            },
+                            {
+                              "week": "2026-04-27",
+                              "plan": "Solo",
+                              "roast": "Ridgeline",
+                              "bags": 89
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "op": "set",
+                "path": "data/live/answers/orders",
+                "data": {
+                  "at": "2026-05-04T13:00:00Z",
+                  "connector": "shop",
+                  "calls": [
+                    {
+                      "tool": "run_sql",
+                      "args": {
+                        "query": "SELECT order_no, placed_at, plan, roast, bags, total, status\nFROM orders\nORDER BY placed_at DESC\nLIMIT 8"
+                      },
+                      "result": {
+                        "structuredContent": {
+                          "rows": [
+                            {
+                              "order_no": "JC-23512",
+                              "placed_at": "2026-05-03T21:52:00Z",
+                              "plan": "Duo",
+                              "roast": "First Light",
+                              "bags": 3,
+                              "total": 51,
+                              "status": "Paid"
+                            },
+                            {
+                              "order_no": "JC-23511",
+                              "placed_at": "2026-05-03T21:30:00Z",
+                              "plan": "Solo",
+                              "roast": "First Light",
+                              "bags": 1,
+                              "total": 18,
+                              "status": "Paid"
+                            },
+                            {
+                              "order_no": "JC-23510",
+                              "placed_at": "2026-05-03T20:49:00Z",
+                              "plan": "Solo",
+                              "roast": "Homestead",
+                              "bags": 2,
+                              "total": 37,
+                              "status": "Paid"
+                            },
+                            {
+                              "order_no": "JC-23509",
+                              "placed_at": "2026-05-03T20:11:00Z",
+                              "plan": "Office",
+                              "roast": "First Light",
+                              "bags": 4,
+                              "total": 60,
+                              "status": "Roasting"
+                            },
+                            {
+                              "order_no": "JC-23508",
+                              "placed_at": "2026-05-03T19:36:00Z",
+                              "plan": "Duo",
+                              "roast": "Ridgeline",
+                              "bags": 2,
+                              "total": 32,
+                              "status": "Roasting"
+                            },
+                            {
+                              "order_no": "JC-23507",
+                              "placed_at": "2026-05-03T18:58:00Z",
+                              "plan": "Solo",
+                              "roast": "Daybreak",
+                              "bags": 1,
+                              "total": 18,
+                              "status": "Roasting"
+                            },
+                            {
+                              "order_no": "JC-23506",
+                              "placed_at": "2026-05-03T18:02:00Z",
+                              "plan": "Duo",
+                              "roast": "First Light",
+                              "bags": 2,
+                              "total": 32,
+                              "status": "Shipped"
+                            },
+                            {
+                              "order_no": "JC-23505",
+                              "placed_at": "2026-05-03T17:15:00Z",
+                              "plan": "Office",
+                              "roast": "Homestead",
+                              "bags": 5,
+                              "total": 79,
+                              "status": "Shipped"
+                            }
+                          ]
                         }
                       }
                     }
@@ -313,19 +1762,13 @@
                 "op": "set",
                 "path": "data/live",
                 "data": {
-                  "at": "2026-11-26T09:00:00Z",
-                  "owner": "Sam",
+                  "at": "2026-05-04T13:00:00Z",
+                  "owner": "",
                   "queries": [
                     "orders",
-                    "tickets"
+                    "roast_bags",
+                    "subscriptions"
                   ]
-                }
-              },
-              {
-                "op": "set",
-                "path": "files/index.html",
-                "data": {
-                  "text": "<meta name=\"dash-one-writer\">\n<link rel=\"stylesheet\" href=\"app.css\">\n<main class=\"fx\" data-read lang=\"en\">\n  <header class=\"fx-head\" id=\"overview\">\n    <h1 class=\"fx-title\" id=\"title\">Sales and signups</h1>\n    <p class=\"fx-lede\" data-read-step>Signups reached <b data-draw=\"latest\" data-source=\"signups\" data-field=\"signups\" data-where=\"month=2026-10\">—</b> in the latest month, <b data-draw=\"growth\" data-source=\"growth\">—</b> on the month before.</p>\n    <p class=\"fx-note\" id=\"agent-note\">Agent: October closed strong, revenue is up in every region. (You asked: {{request}})</p>\n    <div class=\"fx-filters\">\n      <label>Region\n        <select class=\"dash-select\" data-draw=\"region\" aria-label=\"Region\" data-source=\"regions\"></select>\n      </label>\n      <button type=\"button\" class=\"fx-clear\" id=\"clear-filters\">Clear filters</button>\n    </div>\n  </header>\n\n  <nav class=\"fx-tabs\" role=\"tablist\">\n    <button type=\"button\" role=\"tab\" data-tab=\"revenue\" id=\"tab-revenue\">Revenue</button>\n    <button type=\"button\" role=\"tab\" data-tab=\"signups\" id=\"tab-signups\">Signups</button>\n    <button type=\"button\" role=\"tab\" data-tab=\"support\" id=\"tab-support\">Support</button>\n  </nav>\n\n  <section class=\"fx-page\" id=\"revenue\" data-tab-page=\"revenue\">\n    <div class=\"fx-cards\">\n      <article class=\"fx-card\" id=\"card-revenue\">\n        <h2>Revenue</h2>\n        <p class=\"fx-big\"><span data-draw=\"revenue-total\" data-source=\"revenue_total\" data-fetchpriority=\"high\">—</span></p>\n        <p class=\"fx-note\">All months shown, in dollars.</p>\n      </article>\n      <article class=\"fx-card\" id=\"card-target\">\n        <h2>Target</h2>\n        <p class=\"fx-big\"><span data-draw=\"target-total\" data-source=\"regions\" data-field=\"target\">—</span></p>\n        <p class=\"fx-note\">Sum of the region targets for FY27.</p>\n      </article>\n    </div>\n    <figure class=\"fx-chart\" id=\"revenue-chart\" data-source=\"orders\">\n      <figcaption>Revenue by month</figcaption>\n      <div class=\"fx-chart-body\" data-draw=\"revenue-chart\"></div>\n    </figure>\n    <table class=\"fx-table\" id=\"orders-table\" data-source=\"orders\" data-row-key=\"month\" data-fetchpriority=\"low\">\n      <thead><tr><th data-field=\"region\">Region</th><th data-field=\"month\">Month</th><th data-field=\"revenue\">Revenue</th><th data-field=\"orders\">Orders</th></tr></thead>\n      <tbody data-draw=\"orders-rows\"></tbody>\n    </table>\n  </section>\n\n  <section class=\"fx-page\" id=\"signups\" data-tab-page=\"signups\" hidden>\n    <figure class=\"fx-chart\" id=\"signups-chart\" data-source=\"signups\">\n      <figcaption>Signups per month</figcaption>\n      <div class=\"fx-chart-body\" data-draw=\"signups-chart\"></div>\n    </figure>\n    <p class=\"fx-note\" data-read-step>Click a bar to see that month. Picked: <b data-draw=\"picked\">—</b></p>\n  </section>\n\n  <section class=\"fx-page\" id=\"support\" data-tab-page=\"support\" hidden>\n    <h2>Open tickets</h2>\n    <ul class=\"fx-list\" data-source=\"tickets\" data-draw=\"tickets\"></ul>\n  </section>\n</main>\n<script src=\"app.js\"></script>\n"
                 }
               }
             ]
@@ -333,7 +1776,158 @@
         ]
       },
       {
-        "reply": "Updated the note at the top with what you asked for.",
+        "reply": {
+          "en": "Here is a first pass at “{{request}}”: I added a Spring goal bar under the figures and marked the First Light launch on the subscribers chart, so the jump has a date on it.",
+          "zh": "针对“{{request}}”先做了一版：在指标卡下面加了一条“春季目标”进度条，并在订阅曲线上标出了 First Light 的上新日，这样那次跳升就对得上日期了。"
+        },
+        "edits": [
+          {
+            "kind": "db",
+            "writes": [
+              {
+                "op": "set",
+                "path": "files/goal.js",
+                "data": {
+                  "text": "/* The Spring goal bar: how far the latest week is along the way to the goal. */\n\ndash.calc('goal_progress', {\n  title: 'Progress to the spring goal',\n  description: 'Active subscribers in the latest week, on every plan, as a share of the goal the path ends at.',\n  inputs: ['subscriptions', 'goals'],\n  fn: (subscriptions, goals) => {\n    const latest = d3.max(subscriptions, (row) => String(row.week).slice(0, 10));\n    const active = d3.sum(subscriptions.filter((row) => String(row.week).slice(0, 10) === latest), (row) => Number(row.active));\n    const goal = Number(goals.at(-1)?.subscribers);\n    return goal ? active / goal : null;\n  },\n});\n\ndash.draw('goal-now', jc.text(() => {\n  const totals = jc.value('totals');\n  if (!totals) return totals;\n  const last = totals.filter((row) => row.plan === jc.ALL).at(-1);\n  return last ? jc.int(last.subscribers) : null;\n}));\ndash.draw('goal-progress', jc.text(() => {\n  const progress = jc.value('goal_progress');\n  return progress === undefined || progress === null ? progress : jc.share(progress);\n}));\ndash.draw('goal-meter', (el) => {\n  const progress = jc.value('goal_progress');\n  const fill = document.createElement('i');\n  fill.style.width = `${Math.max(0, Math.min(1, progress ?? 0)) * 100}%`;\n  el.replaceChildren(fill);\n});\n"
+                }
+              },
+              {
+                "op": "set",
+                "path": "files/index.html",
+                "data": {
+                  "text": "<meta name=\"dash-one-writer\">\n<link rel=\"stylesheet\" href=\"app.css\">\n<main class=\"jc\" data-read lang=\"en\">\n  <header class=\"jc-head\" id=\"overview\">\n    <p class=\"jc-eyebrow\">Juniper Coffee</p>\n    <h1 class=\"jc-title\" id=\"title\">Subscriptions</h1>\n    <div class=\"jc-filters\">\n      <label class=\"jc-filter\">Plan\n        <select class=\"dash-select\" data-draw=\"plan-filter\" aria-label=\"Plan\" data-source=\"plans\"></select>\n      </label>\n    </div>\n    <p class=\"jc-lede\" id=\"summary\" data-read-step>Week of <b data-draw=\"lede-week\" data-source=\"totals\" data-field=\"week\">—</b>: <b data-draw=\"lede-subscribers\" data-source=\"kpis\" data-field=\"value\" data-where=\"metric=subscribers\">—</b> active subscribers, <span data-draw=\"lede-direction\" data-source=\"standing\" data-field=\"direction\">—</span> <b data-draw=\"lede-growth\" data-source=\"standing\" data-field=\"gained_by\">—</b> since <span data-draw=\"lede-first\" data-source=\"totals\" data-field=\"week\">—</span><span data-all-plans> and <b data-draw=\"lede-gap\" data-source=\"standing\" data-field=\"gap_by\" data-where=\"plan=All plans\">—</b> <b data-draw=\"lede-side\" data-source=\"standing\" data-field=\"side\" data-where=\"plan=All plans\">—</b> the path to <span data-draw=\"lede-goal\" data-source=\"goals\" data-field=\"subscribers\" data-where=\"week=2026-05-25\">—</span> by <span data-draw=\"lede-goal-day\" data-source=\"goals\" data-field=\"week\">—</span></span>.</p>\n  </header>\n\n  <section class=\"jc-tiles\" id=\"figures\" aria-label=\"Key figures\">\n      <article class=\"jc-card jc-tile\" id=\"tile-subscribers\">\n        <h2>Active subscribers</h2>\n        <p class=\"jc-big\"><span data-draw=\"kpi-subscribers\" data-source=\"kpis\" data-field=\"value\" data-where=\"metric=subscribers\" data-fetchpriority=\"high\">—</span></p>\n        <p class=\"jc-delta\"><span data-draw=\"delta-subscribers\" data-source=\"kpis\" data-field=\"change\" data-where=\"metric=subscribers\">—</span> in 4 weeks</p>\n        <div class=\"jc-spark\" data-draw=\"spark-subscribers\" data-source=\"totals\"></div>\n      </article>\n      <article class=\"jc-card jc-tile\" id=\"tile-mrr\">\n        <h2>Monthly recurring revenue</h2>\n        <p class=\"jc-big\"><span data-draw=\"kpi-mrr\" data-source=\"kpis\" data-field=\"value\" data-where=\"metric=mrr\" data-fetchpriority=\"high\">—</span></p>\n        <p class=\"jc-delta\"><span data-draw=\"delta-mrr\" data-source=\"kpis\" data-field=\"change\" data-where=\"metric=mrr\">—</span> in 4 weeks</p>\n        <div class=\"jc-spark\" data-draw=\"spark-mrr\" data-source=\"totals\"></div>\n      </article>\n      <article class=\"jc-card jc-tile\" id=\"tile-churn\">\n        <h2>Churn, last 4 weeks</h2>\n        <p class=\"jc-big\"><span data-draw=\"kpi-churn\" data-source=\"kpis\" data-field=\"value\" data-where=\"metric=churn\" data-fetchpriority=\"high\">—</span></p>\n        <p class=\"jc-delta\"><span data-draw=\"delta-churn\" data-source=\"kpis\" data-field=\"change\" data-where=\"metric=churn\">—</span> vs prior 4 weeks</p>\n        <div class=\"jc-spark\" data-draw=\"spark-churn\" data-source=\"totals\"></div>\n      </article>\n      <article class=\"jc-card jc-tile\" id=\"tile-order\">\n        <h2>Average order, 4 weeks</h2>\n        <p class=\"jc-big\"><span data-draw=\"kpi-order\" data-source=\"kpis\" data-field=\"value\" data-where=\"metric=order\" data-fetchpriority=\"high\">—</span></p>\n        <p class=\"jc-delta\"><span data-draw=\"delta-order\" data-source=\"kpis\" data-field=\"change\" data-where=\"metric=order\">—</span> vs prior 4 weeks</p>\n        <div class=\"jc-spark\" data-draw=\"spark-order\" data-source=\"totals\"></div>\n      </article>\n  </section>\n  <section class=\"jc-card jc-goalbar\" id=\"spring-goal\" data-all-plans>\n    <h2>Spring goal</h2>\n    <p class=\"jc-sub\"><b data-draw=\"goal-now\" data-source=\"kpis\" data-field=\"value\" data-where=\"plan=All plans&amp;metric=subscribers\">—</b> of <span data-draw=\"lede-goal\" data-source=\"goals\" data-field=\"subscribers\" data-where=\"week=2026-05-25\">—</span> subscribers by <span data-draw=\"lede-goal-day\" data-source=\"goals\" data-field=\"week\">—</span></p>\n    <div class=\"jc-meter\" data-draw=\"goal-meter\" data-source=\"goal_progress\"></div>\n    <p class=\"jc-meter-value\"><b data-draw=\"goal-progress\" data-source=\"goal_progress\">—</b></p>\n  </section>\n  <section class=\"jc-grid\">\n    <figure class=\"jc-card jc-fig\" id=\"subscribers-chart\" data-source=\"totals subscriptions goals\">\n      <figcaption>Subscribers against the spring goal</figcaption>\n      <p class=\"jc-legend\"><span><i></i>Subscribers</span><span data-all-plans><i class=\"jc-goal\"></i>Goal path</span><span><i class=\"jc-launch\"></i>First Light launch</span></p>\n      <div class=\"jc-chart\" data-draw=\"trend\" data-mark-week=\"2026-04-20\" data-mark-label=\"First Light\"></div>\n      <p class=\"jc-foot\">In the latest week <b data-draw=\"flow-new\" data-source=\"totals\" data-field=\"new\">—</b> people subscribed and <b data-draw=\"flow-cancelled\" data-source=\"totals\" data-field=\"churned\">—</b> cancelled.</p>\n    </figure>\n    <figure class=\"jc-card jc-fig\" id=\"roasts-chart\" data-source=\"roast_week roast_bags roast_catalog\">\n      <figcaption>Bags shipped by roast</figcaption>\n      <p class=\"jc-sub\">Week of <span data-draw=\"roast-week\" data-source=\"roast_week\" data-field=\"week\">—</span></p>\n      <div class=\"jc-bars\" data-draw=\"roasts\"></div>\n      <p class=\"jc-foot\">The tick on each bar is the week before.</p>\n    </figure>\n  </section>\n  <section class=\"jc-grid\">\n    <div class=\"jc-card jc-fig\" id=\"orders\">\n      <h2>Latest orders</h2>\n      <p class=\"jc-sub\">Straight from the shop, newest first</p>\n      <div class=\"jc-scroll\">\n        <table class=\"jc-table\" id=\"orders-table\" data-source=\"orders\" data-row-key=\"order_no\" data-fetchpriority=\"low\">\n          <thead><tr><th data-field=\"order_no\">Order</th><th data-field=\"placed_at\">Placed</th><th data-field=\"plan\">Plan</th><th data-field=\"roast\">Roast</th><th data-field=\"bags\" class=\"jc-num\">Bags</th><th data-field=\"total\" class=\"jc-num\">Total</th><th data-field=\"status\">Status</th></tr></thead>\n          <tbody data-draw=\"orders-rows\"></tbody>\n        </table>\n      </div>\n    </div>\n    <div class=\"jc-card jc-fig\" id=\"plans\">\n      <h2>Plans</h2>\n      <p class=\"jc-sub\">Pick one to filter the page</p>\n      <div class=\"jc-scroll\">\n        <table class=\"jc-table jc-plans\" id=\"plans-table\" data-source=\"plan_mix\" data-row-key=\"plan\">\n          <thead><tr><th data-field=\"plan\">Plan</th><th data-field=\"price\" class=\"jc-num\">A month</th><th data-field=\"subscribers\" class=\"jc-num\">Subscribers</th><th data-field=\"share\" class=\"jc-num\">Share</th></tr></thead>\n          <tbody data-draw=\"plan-rows\"></tbody>\n        </table>\n      </div>\n    </div>\n  </section>\n\n  <details class=\"jc-notes\" id=\"definitions\">\n    <summary>How these figures are worked out</summary>\n    <dl>\n      <dt>Active subscribers</dt><dd>Subscriptions that are paid up at the end of the week.</dd>\n      <dt>Monthly recurring revenue</dt><dd>Every active subscription at its plan’s monthly price.</dd>\n      <dt>Churn</dt><dd>Cancellations over four weeks, as a share of the subscribers at the start of those weeks. Lower is better.</dd>\n      <dt>Average order</dt><dd>Revenue over orders for four weeks, add-on bags included.</dd>\n      <dt>Goal path</dt><dd>A straight line from where subscribers stood in the first week to the spring goal. It counts every plan, so it steps aside when one plan is picked.</dd>\n    </dl>\n  </details>\n</main>\n<script src=\"app.js\"></script>\n<script src=\"goal.js\"></script>\n"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "reply": {
+          "en": "I took “{{request}}” as a nudge on the look as well: the charts now lead with Juniper’s terracotta instead of forest green. Say the word and I will put the green back.",
+          "zh": "我把“{{request}}”也当成对外观的提醒：图表现在以 Juniper 的陶土色为主，不再是森林绿。想换回绿色，说一声就行。"
+        },
+        "edits": [
+          {
+            "kind": "db",
+            "writes": [
+              {
+                "op": "set",
+                "path": "dash/look",
+                "data": {
+                  "system": {
+                    "name": "Juniper Coffee"
+                  },
+                  "light": {
+                    "ground": "#f7f2e8",
+                    "card": "#fffdf8",
+                    "text": "#1d1b16",
+                    "muted": "#756f62",
+                    "border": "#e7e2d6",
+                    "good": "#2c6140",
+                    "warning": "#8a5a12",
+                    "bad": "#a93a1c",
+                    "charts": [
+                      "#c2562b",
+                      "#e3a53c",
+                      "#8c7355",
+                      "#20402f",
+                      "#5b7f5e",
+                      "#3f6f8a",
+                      "#a8a08c",
+                      "#7a4a5e"
+                    ]
+                  },
+                  "dark": {
+                    "ground": "#15140f",
+                    "card": "#201e18",
+                    "text": "#f7f2e8",
+                    "muted": "#a39c8c",
+                    "border": "#34312a",
+                    "good": "#7fc296",
+                    "warning": "#e3a53c",
+                    "bad": "#ee8b6c",
+                    "charts": [
+                      "#e0764b",
+                      "#e3a53c",
+                      "#bfa27f",
+                      "#7fb08e",
+                      "#b9d0b3",
+                      "#7fb1cc",
+                      "#8f8a7c",
+                      "#c08aa0"
+                    ]
+                  },
+                  "corners": "10px",
+                  "fonts": {
+                    "display": "'Iowan Old Style', 'Palatino Linotype', Georgia, serif"
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "replay": {
+    "prompt": {
+      "en": "/open-artifact data a subscriptions dashboard for Juniper Coffee from our shop database: subscribers, MRR, churn and bags by roast, against the goal in spring-goal.csv",
+      "zh": "/open-artifact data 用店铺数据库给 Juniper Coffee 做一个订阅看板：订阅人数、MRR、流失率和各款豆子的出货，对照 spring-goal.csv 里的目标"
+    },
+    "steps": [
+      {
+        "say": "Read the data type’s guide",
+        "ms": 700,
+        "open": true
+      },
+      {
+        "say": "Artifact · call upload plans.csv, roasts.csv, spring-goal.csv",
+        "ms": 700
+      },
+      {
+        "say": "ArtifactData · write dash/meta, dash/look, 6 datasets",
+        "take": [
+          "db/dash/*",
+          "db/datasets/*",
+          "db/data/live*"
+        ],
+        "ms": 900
+      },
+      {
+        "say": "ArtifactData · write files/app.css, files/app.js, files/index.html",
+        "edits": [
+          {
+            "kind": "db",
+            "writes": [
+              {
+                "op": "set",
+                "path": "files/app.css",
+                "data": {
+                  "text": ".jc { container-type: inline-size; display: grid; gap: var(--dash-gap-md); font-family: var(--font-sans); color: var(--color-fg); }\n.jc h1, .jc h2, .jc p, .jc figure { margin: 0; }\n\n.jc-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px var(--dash-gap-md); align-items: end; }\n.jc-eyebrow { display: flex; align-items: center; gap: 8px; font-size: var(--dash-font-size-caption); font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--color-fg-muted); }\n.jc-eyebrow::before { content: \"\"; width: 9px; height: 9px; border-radius: 50%; background: var(--dash-chart-4); }\n.jc-title { font-family: var(--font-serif); font-weight: 400; font-size: calc(var(--dash-font-size-title) * 1.2); line-height: 1.15; letter-spacing: -0.01em; }\n.jc-filters { grid-row: 1 / span 2; grid-column: 2; display: flex; align-items: center; gap: var(--dash-gap-xs); flex-wrap: wrap; justify-content: flex-end; }\n.jc-filter { display: flex; align-items: center; gap: 8px; font-size: var(--dash-font-size-caption); color: var(--color-fg-muted); }\n.jc-lede { grid-column: 1 / -1; margin-top: 4px; max-width: 120ch; font-size: var(--dash-font-size-body); color: var(--dash-text-secondary); text-wrap: pretty; }\n.jc-lede b { color: var(--color-fg); font-weight: 600; font-variant-numeric: tabular-nums; }\n.jc .jc-up { color: var(--color-ok); }\n.jc .jc-down { color: var(--color-bad); }\n\n.jc-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(168px, 1fr)); gap: var(--dash-gap-sm); }\n.jc-card { min-width: 0; background: var(--color-panel); border: 1px solid var(--color-border-line); border-radius: var(--dash-radius); padding: var(--dash-pad-lg); }\n.jc-tile { position: relative; display: grid; gap: 2px; padding: var(--dash-pad-md) var(--dash-pad-lg); }\n.jc .jc-tile h2 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--dash-font-size-caption); font-weight: var(--dash-font-weight-medium); color: var(--color-fg-muted); }\n.jc-big { font-family: var(--font-serif); font-size: calc(var(--dash-font-size-title) * 1.2); line-height: 1.2; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }\n.jc-delta { font-size: var(--dash-font-size-caption); color: var(--color-fg-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }\n.jc-delta > span { font-weight: 600; font-variant-numeric: tabular-nums; }\n.jc-spark { position: absolute; right: var(--dash-pad-lg); top: 50%; width: 48px; height: 26px; transform: translateY(-50%); pointer-events: none; }\n.jc-spark svg { display: block; overflow: visible; }\n\n.jc-goalbar { display: grid; grid-template-columns: auto minmax(80px, 1fr) auto; align-items: center; gap: 2px var(--dash-gap-md); padding: var(--dash-pad-md) var(--dash-pad-lg); }\n.jc-goalbar h2 { grid-column: 1; }\n.jc-goalbar .jc-sub { grid-column: 1; grid-row: 2; }\n.jc-goalbar .jc-sub b { color: var(--color-fg); font-variant-numeric: tabular-nums; }\n.jc-meter { grid-column: 2; grid-row: 1 / span 2; position: relative; height: 10px; border-radius: 5px; background: color-mix(in srgb, var(--color-fg) 7%, transparent); overflow: hidden; }\n.jc-meter i { position: absolute; inset: 0 auto 0 0; border-radius: 5px; background: var(--dash-chart-4); }\n.jc-meter-value { grid-column: 3; grid-row: 1 / span 2; font-family: var(--font-serif); font-size: var(--dash-font-size-title); font-variant-numeric: tabular-nums; }\n.jc-meter-value b { font-weight: 400; }\n\n.jc-grid { display: grid; gap: var(--dash-gap-sm) 1.25rem; grid-template-columns: minmax(0, 1fr); }\n@container (min-width: 700px) {\n  .jc-grid { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }\n}\n.jc-card h2 { font-size: var(--dash-font-size-heading); font-weight: 600; }\n.jc-fig { display: flex; flex-wrap: wrap; align-items: baseline; align-content: flex-start; justify-content: space-between; gap: 2px var(--dash-gap-sm); }\n.jc-fig > figcaption { font-size: var(--dash-font-size-heading); font-weight: 600; }\n.jc-fig > .jc-chart, .jc-fig > .jc-bars, .jc-fig > .jc-scroll, .jc-fig > .jc-foot { flex: 0 0 100%; min-width: 0; }\n.jc-fig > .jc-chart, .jc-fig > .jc-bars, .jc-fig > .jc-scroll { margin-top: var(--dash-gap-xs); }\n.jc-sub { font-size: var(--dash-font-size-caption); color: var(--color-fg-muted); }\n.jc-legend { display: flex; gap: 14px; font-size: var(--dash-font-size-caption); color: var(--dash-text-secondary); }\n.jc-legend i { display: inline-block; width: 18px; height: 0; margin-right: 6px; vertical-align: middle; border-top: 2px solid var(--dash-chart-1); }\n.jc-legend i.jc-goal { border-top: 2px dashed var(--dash-chart-reference); }\n.jc-legend i.jc-launch { width: 0; height: 12px; border-top: 0; border-left: 2px solid var(--dash-chart-4); }\n\n.jc-chart { position: relative; min-height: 188px; font-size: var(--dash-font-size-caption); color: var(--color-fg-muted); }\n.jc-chart svg { display: block; overflow: visible; }\n.jc-chart .jc-axis text { fill: var(--dash-text-secondary); font-size: var(--dash-font-size-caption); font-family: var(--font-sans); font-variant-numeric: tabular-nums; }\n.jc-chart .jc-axis line, .jc-chart .jc-axis path { stroke: var(--dash-chart-axis); }\n.jc-chart .jc-gridline { stroke: var(--dash-chart-grid); }\n.jc-chart .jc-endlabel { fill: var(--color-fg); font-size: var(--dash-font-size-caption); font-weight: 600; font-variant-numeric: tabular-nums; }\n.jc-chart .jc-goallabel { fill: var(--dash-text-secondary); font-size: var(--dash-font-size-caption); }\n.jc-chart .jc-marklabel { fill: var(--dash-text-secondary); font-size: var(--dash-font-size-caption); font-weight: 600; }\n.jc-tip { position: absolute; z-index: 2; pointer-events: none; min-width: 148px; padding: 8px 10px; background: var(--dash-surface-popover); border: 1px solid var(--dash-border); border-radius: var(--dash-radius); box-shadow: var(--dash-shadow-popover); color: var(--color-fg); font-size: var(--dash-font-size-caption); line-height: 1.5; font-variant-numeric: tabular-nums; }\n.jc-tip[hidden] { display: none; }\n.jc-tip b { display: block; font-weight: 600; }\n.jc-tip span { display: flex; justify-content: space-between; gap: 16px; color: var(--dash-text-secondary); }\n.jc-tip span em { font-style: normal; color: var(--color-fg); }\n\n/* Five roasts or six, the bars take the chart's height: the rows share it. */\n.jc-bars { position: relative; display: grid; grid-auto-rows: 1fr; gap: 5px; min-height: 188px; font-size: var(--dash-font-size-caption); }\n.jc-bar { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 8px; align-items: baseline; align-content: center; cursor: default; }\n.jc-bar-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-fg); font-size: var(--dash-font-size-body); line-height: 1.2; }\n.jc-bar-name small { margin-left: 6px; padding: 1px 6px; border-radius: 999px; background: color-mix(in srgb, var(--dash-chart-4) 16%, transparent); color: var(--color-fg); font-size: 0.6875rem; font-weight: 600; letter-spacing: 0.02em; }\n.jc-bar-val { color: var(--color-fg); font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.2; }\n.jc-bar-val small { margin-left: 6px; color: var(--color-fg-muted); font-weight: 400; font-size: inherit; }\n.jc-bar-track { position: relative; grid-column: 1 / -1; height: 8px; border-radius: 4px; background: color-mix(in srgb, var(--color-fg) 7%, transparent); }\n.jc-bar-fill { position: absolute; inset: 0 auto 0 0; border-radius: 4px; background: var(--dash-chart-1); }\n.jc-bar[data-seasonal] .jc-bar-fill { background: var(--dash-chart-4); }\n.jc-bar-tick { position: absolute; top: -3px; bottom: -3px; width: 2px; border-radius: 1px; background: var(--color-fg); opacity: 0.55; }\n.jc-foot { margin-top: 6px; font-size: var(--dash-font-size-caption); color: var(--color-fg-muted); }\n.jc-foot b { color: var(--color-fg); font-weight: 600; font-variant-numeric: tabular-nums; }\n\n.jc-scroll { overflow-x: auto; }\n.jc-table { width: 100%; border-collapse: collapse; font-size: var(--dash-font-size-body); font-variant-numeric: tabular-nums; }\n.jc-table th { padding: 6px 10px 6px 0; border-bottom: 1px solid var(--color-border-line); color: var(--color-fg-muted); font-size: var(--dash-font-size-caption); font-weight: var(--dash-font-weight-medium); text-align: left; white-space: nowrap; }\n.jc-table td { padding: 7px 10px 7px 0; border-bottom: 1px solid var(--color-border-line); white-space: nowrap; }\n.jc-table tr:last-child td { border-bottom: 0; }\n.jc-table th:last-child, .jc-table td:last-child { padding-right: 0; }\n.jc-table .jc-num { text-align: right; }\n.jc-table .jc-quiet { color: var(--dash-text-secondary); }\n.jc-pill { display: inline-flex; align-items: center; gap: 6px; font-size: var(--dash-font-size-caption); }\n.jc-pill::before { content: \"\"; width: 7px; height: 7px; border-radius: 50%; background: var(--dash-chart-muted); }\n.jc-pill[data-status=\"Shipped\"]::before { background: var(--dash-chart-1); }\n.jc-pill[data-status=\"Roasting\"]::before { background: var(--dash-chart-3); }\n.jc-empty { padding: 14px 0; color: var(--color-fg-muted); }\n\n.jc-plans tr[data-key] { cursor: pointer; }\n.jc-plans tr[data-key]:hover td { background: color-mix(in srgb, var(--color-fg) 4%, transparent); }\n.jc-plans tr[aria-selected=\"true\"] td { background: color-mix(in srgb, var(--dash-chart-1) 9%, transparent); }\n.jc-plans td:first-child { padding-left: 6px; border-radius: 4px 0 0 4px; }\n.jc-plans th:first-child { padding-left: 6px; }\n.jc-plans td small { display: block; color: var(--color-fg-muted); font-size: var(--dash-font-size-caption); }\n.jc-share { display: inline-block; width: 44px; height: 6px; margin-right: 8px; border-radius: 3px; vertical-align: middle; background: color-mix(in srgb, var(--color-fg) 7%, transparent); overflow: hidden; }\n.jc-share i { display: block; height: 100%; background: var(--dash-chart-2); }\n\n.jc-notes { font-size: var(--dash-font-size-caption); color: var(--dash-text-secondary); }\n.jc-notes summary { cursor: pointer; color: var(--color-fg-muted); }\n.jc-notes dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 16px; margin: 10px 0 0; max-width: 84ch; }\n.jc-notes dt { color: var(--color-fg); font-weight: 600; }\n.jc-notes dd { margin: 0; }\n\n.jc [data-dash-source-state=\"refreshing\"], .jc [data-dash-source-state=\"stale\"] { opacity: 0.55; }\n\n@container (max-width: 520px) {\n  .jc-head { grid-template-columns: minmax(0, 1fr); }\n  .jc-filters { grid-row: auto; grid-column: 1; justify-content: flex-start; margin-top: 6px; }\n  .jc-spark { display: none; }\n}\n@media print {\n  .jc-filters { display: none; }\n  .jc-card { break-inside: avoid; }\n}\n"
+                }
+              },
+              {
+                "op": "set",
+                "path": "files/app.js",
+                "data": {
+                  "text": "window.jc = {\n  int: d3.format(','),\n  kusd: (v) => (Math.abs(v) >= 1000 ? `$${d3.format(',.1f')(v / 1000)}k` : d3.format('$,.0f')(v)),\n  usd: d3.format('$,.2f'),\n  pct: d3.format('.1%'),\n  share: d3.format('.0%'),\n  day: d3.utcFormat('%b %-d'),\n  stamp: d3.utcFormat('%b %-d, %-I:%M %p'),\n  week: (text) => new Date(`${text}T00:00:00Z`),\n  ok: (source) => source.status === 'ok',\n  /* The calcs below work every plan out, and all of them together under this name; the drawings show the one picked. */\n  ALL: 'All plans',\n  scope: () => dash.params().plan || 'All plans',\n  scoped: (rows) => rows.filter((row) => row.plan === jc.scope()),\n};\n\n/* ---- what is worked out from the sources ---- */\n\ndash.calc('totals', {\n  title: 'Weekly totals',\n  description: 'Each week for each plan, and summed over all of them beside the goal for that week.',\n  inputs: ['subscriptions', 'goals'],\n  fn: (subscriptions, goals) => {\n    const goal = new Map(goals.map((row) => [row.week, Number(row.subscribers)]));\n    const sum = (rows, key) => d3.sum(rows, (row) => Number(row[key]));\n    const plans = [...new Set(subscriptions.map((row) => row.plan))];\n    return ['All plans', ...plans].flatMap((plan) =>\n      d3\n        .rollups(subscriptions.filter((row) => plan === 'All plans' || row.plan === plan), (rows) => rows, (row) => String(row.week).slice(0, 10))\n        .map(([week, rows]) => ({\n          plan,\n          week,\n          subscribers: sum(rows, 'active'),\n          new: sum(rows, 'new'),\n          churned: sum(rows, 'churned'),\n          mrr: sum(rows, 'mrr'),\n          orders: sum(rows, 'orders'),\n          revenue: sum(rows, 'revenue'),\n          goal: plan === 'All plans' ? goal.get(week) ?? null : null,\n        }))\n        .sort((a, b) => d3.ascending(a.week, b.week)),\n    );\n  },\n});\n\ndash.calc('kpis', {\n  title: 'Key figures',\n  description: 'For each plan and for all of them: the latest week against four weeks earlier. Churn is cancellations over four weeks, as a share of the subscribers at their start. Average order is revenue over orders for four weeks.',\n  inputs: ['totals'],\n  fn: (totals) =>\n    d3.groups(totals, (row) => row.plan).flatMap(([plan, weeks]) => {\n      if (weeks.length < 9) return [];\n      const last = weeks.at(-1);\n      const before = weeks.at(-5);\n      const recent = weeks.slice(-4);\n      const prior = weeks.slice(-8, -4);\n      const sum = (rows, key) => d3.sum(rows, (row) => row[key]);\n      const churn = sum(recent, 'churned') / before.subscribers;\n      const churnBefore = sum(prior, 'churned') / weeks.at(-9).subscribers;\n      const order = sum(recent, 'revenue') / sum(recent, 'orders');\n      const orderBefore = sum(prior, 'revenue') / sum(prior, 'orders');\n      return [\n        { plan, metric: 'subscribers', value: last.subscribers, before: before.subscribers, change: last.subscribers / before.subscribers - 1 },\n        { plan, metric: 'mrr', value: last.mrr, before: before.mrr, change: last.mrr / before.mrr - 1 },\n        { plan, metric: 'churn', value: churn, before: churnBefore, change: (churn - churnBefore) * 100 },\n        { plan, metric: 'order', value: order, before: orderBefore, change: order / orderBefore - 1 },\n      ];\n    }),\n});\n\ndash.calc('standing', {\n  title: 'Where subscribers stand',\n  description: 'For each plan and for all of them: subscribers gained since the first week shown, and for all plans the latest week less the goal for that week (goal_gap; below zero is behind). gained_by and gap_by are the same without their sign, beside the word for it.',\n  inputs: ['totals'],\n  fn: (totals) =>\n    d3.groups(totals, (row) => row.plan).map(([plan, weeks]) => {\n      const last = weeks.at(-1);\n      const gained = last.subscribers - weeks[0].subscribers;\n      const gap = last.goal === null ? null : last.subscribers - last.goal;\n      return {\n        plan,\n        week: last.week,\n        first_week: weeks[0].week,\n        gained,\n        gained_by: Math.abs(gained),\n        direction: gained < 0 ? 'down' : 'up',\n        goal_gap: gap,\n        gap_by: gap === null ? null : Math.abs(gap),\n        side: gap === null ? null : gap < 0 ? 'behind' : 'ahead of',\n      };\n    }),\n});\n\ndash.calc('roast_week', {\n  title: 'Bags by roast, latest week',\n  description: 'For each plan and for all of them: bags shipped in the latest week by roast, beside the week before and the roast’s catalog entry.',\n  inputs: ['roast_bags', 'roast_catalog'],\n  fn: (roast_bags, roast_catalog) => {\n    const all = roast_bags.map((row) => ({ ...row, week: String(row.week).slice(0, 10) }));\n    const weeks = [...new Set(all.map((row) => row.week))].sort();\n    const latest = weeks.at(-1);\n    const previous = weeks.at(-2);\n    const catalog = new Map(roast_catalog.map((row) => [row.roast, row]));\n    const plans = [...new Set(all.map((row) => row.plan))];\n    return ['All plans', ...plans].flatMap((plan) => {\n      const rows = all.filter((row) => plan === 'All plans' || row.plan === plan);\n      const bags = (week) => d3.rollup(rows.filter((row) => row.week === week), (found) => d3.sum(found, (row) => Number(row.bags)), (row) => row.roast);\n      const now = bags(latest);\n      const then = bags(previous);\n      const total = d3.sum(now.values());\n      return [...now]\n        .map(([roast, count]) => ({\n          plan,\n          roast,\n          week: latest,\n          bags: count,\n          share: total ? count / total : 0,\n          week_before: then.get(roast) ?? null,\n          origin: catalog.get(roast)?.origin ?? '',\n          level: catalog.get(roast)?.level ?? '',\n          seasonal: catalog.get(roast)?.seasonal === 'yes',\n        }))\n        .sort((a, b) => d3.descending(a.bags, b.bags));\n    });\n  },\n});\n\ndash.calc('plan_mix', {\n  title: 'Subscribers by plan',\n  description: 'Active subscribers in the latest week by plan, beside the plan’s price.',\n  inputs: ['subscriptions', 'plans'],\n  fn: (subscriptions, plans) => {\n    const latest = d3.max(subscriptions, (row) => String(row.week).slice(0, 10));\n    const rows = subscriptions.filter((row) => String(row.week).slice(0, 10) === latest);\n    const total = d3.sum(rows, (row) => Number(row.active));\n    return plans.map((plan) => {\n      const active = d3.sum(rows.filter((row) => row.plan === plan.plan), (row) => Number(row.active));\n      return { plan: plan.plan, price: Number(plan.price_per_month), ships: plan.ships, subscribers: active, share: total ? active / total : 0 };\n    });\n  },\n});\n\n/* ---- the filter ---- */\n\ndash.draw('plan-filter', (select) => {\n  const plans = dash.data('plans');\n  select.replaceChildren(new Option('All plans', ''), ...(jc.ok(plans) ? plans.data : []).map((row) => new Option(row.plan)));\n  select.value = dash.params().plan ?? '';\n  select.onchange = () => dash.setParams({ plan: select.value });\n});\n\ndash.onData(() => {\n  const picked = Boolean(dash.params().plan);\n  for (const part of document.querySelectorAll('.jc [data-all-plans]')) part.hidden = picked;\n});\n\n/* ---- the sentence and the tiles ---- */\n\njc.kpi = (metric) => {\n  const source = dash.data('kpis');\n  return jc.ok(source) ? jc.scoped(source.data).find((row) => row.metric === metric) ?? null : null;\n};\njc.text = (read) => (el) => {\n  const text = read();\n  el.classList.toggle('dash-skeleton', text === undefined);\n  el.textContent = text ?? '—';\n};\njc.totals = () => {\n  const source = dash.data('totals');\n  if (source.status === 'loading') return undefined;\n  const rows = jc.ok(source) ? jc.scoped(source.data) : [];\n  return rows.length ? rows : null;\n};\njc.value = (id) => {\n  const source = dash.data(id);\n  if (source.status === 'loading') return undefined;\n  return jc.ok(source) ? source.data : null;\n};\n/* The picked plan's row of `standing`: undefined while it loads, null when there is none. */\njc.standing = (field) => {\n  const rows = jc.value('standing');\n  if (!rows) return rows;\n  return jc.scoped(rows)[0]?.[field] ?? null;\n};\n\ndash.draw('lede-week', jc.text(() => {\n  const rows = jc.totals();\n  return rows && jc.day(jc.week(rows.at(-1).week));\n}));\ndash.draw('lede-first', jc.text(() => {\n  const rows = jc.totals();\n  return rows && jc.day(jc.week(rows[0].week));\n}));\ndash.draw('lede-subscribers', jc.text(() => {\n  const rows = jc.totals();\n  return rows && jc.int(rows.at(-1).subscribers);\n}));\ndash.draw('lede-growth', jc.text(() => {\n  const gained = jc.standing('gained_by');\n  return typeof gained === 'number' ? jc.int(gained) : gained;\n}));\ndash.draw('lede-direction', jc.text(() => jc.standing('direction')));\ndash.draw('lede-gap', jc.text(() => {\n  const gap = jc.standing('gap_by');\n  return typeof gap === 'number' ? jc.int(gap) : gap;\n}));\ndash.draw('lede-side', (el) => {\n  const side = jc.standing('side');\n  el.textContent = side ?? '—';\n  el.classList.toggle('jc-up', side === 'ahead of');\n  el.classList.toggle('jc-down', side === 'behind');\n});\ndash.draw('lede-goal', jc.text(() => {\n  const goals = dash.data('goals');\n  if (goals.status === 'loading') return undefined;\n  return jc.ok(goals) && goals.data.length ? jc.int(Number(goals.data.at(-1).subscribers)) : null;\n}));\ndash.draw('lede-goal-day', jc.text(() => {\n  const goals = dash.data('goals');\n  if (goals.status === 'loading') return undefined;\n  return jc.ok(goals) && goals.data.length ? jc.day(jc.week(goals.data.at(-1).week)) : null;\n}));\n\njc.figure = (metric, format) => (el) => {\n  const loading = dash.data('kpis').status === 'loading';\n  const row = jc.kpi(metric);\n  el.classList.toggle('dash-skeleton', loading);\n  el.textContent = row ? format(row.value) : '—';\n};\njc.change = (metric, { points = false, lowerIsBetter = false } = {}) => (el) => {\n  const row = jc.kpi(metric);\n  if (!row || !Number.isFinite(row.change)) {\n    el.textContent = '—';\n    el.classList.remove('jc-up', 'jc-down');\n    return;\n  }\n  const size = Math.abs(row.change);\n  const flat = points ? size < 0.05 : size < 0.0005;\n  el.textContent = `${flat ? '' : row.change > 0 ? '▲ ' : '▼ '}${points ? `${d3.format('.1f')(size)} pt` : jc.pct(size)}`;\n  const good = lowerIsBetter ? row.change < 0 : row.change > 0;\n  el.classList.toggle('jc-up', !flat && good);\n  el.classList.toggle('jc-down', !flat && !good);\n};\ndash.draw('kpi-subscribers', jc.figure('subscribers', jc.int));\ndash.draw('delta-subscribers', jc.change('subscribers'));\ndash.draw('kpi-mrr', jc.figure('mrr', jc.kusd));\ndash.draw('delta-mrr', jc.change('mrr'));\ndash.draw('kpi-churn', jc.figure('churn', jc.pct));\ndash.draw('delta-churn', jc.change('churn', { points: true, lowerIsBetter: true }));\ndash.draw('kpi-order', jc.figure('order', jc.usd));\ndash.draw('delta-order', jc.change('order'));\n\njc.spark = (read) => (el) => {\n  const rows = jc.totals();\n  el.replaceChildren();\n  if (!rows) return;\n  const values = read(rows).filter((value) => Number.isFinite(value));\n  if (values.length < 2) return;\n  const width = el.clientWidth || 56;\n  const height = el.clientHeight || 26;\n  const x = d3.scaleLinear().domain([0, values.length - 1]).range([2, width - 4]);\n  const y = d3.scaleLinear().domain(d3.extent(values)).range([height - 3, 3]);\n  const svg = d3.select(el).append('svg').attr('width', width).attr('height', height).attr('aria-hidden', 'true');\n  svg.append('path').attr('d', d3.line().x((_, i) => x(i)).y((value) => y(value))(values)).attr('fill', 'none').style('stroke', dash.colors[0]).attr('stroke-width', 1.5).attr('stroke-linejoin', 'round').attr('opacity', 0.75);\n  svg.append('circle').attr('cx', x(values.length - 1)).attr('cy', y(values.at(-1))).attr('r', 2.5).style('fill', dash.colors[3]);\n};\njc.rolling = (rows, read) => rows.map((_, i) => (i < 4 ? NaN : read(rows.slice(i - 3, i + 1), rows[i - 4])));\ndash.draw('spark-subscribers', jc.spark((rows) => rows.map((row) => row.subscribers)));\ndash.draw('spark-mrr', jc.spark((rows) => rows.map((row) => row.mrr)));\ndash.draw('spark-churn', jc.spark((rows) => jc.rolling(rows, (recent, base) => d3.sum(recent, (row) => row.churned) / base.subscribers)));\ndash.draw('spark-order', jc.spark((rows) => jc.rolling(rows, (recent) => d3.sum(recent, (row) => row.revenue) / d3.sum(recent, (row) => row.orders))));\n\n/* ---- subscribers against the goal ---- */\n\ndash.draw('trend', (el) => {\n  const source = dash.data('totals');\n  const goals = dash.data('goals');\n  el.classList.toggle('dash-skeleton', source.status === 'loading');\n  el.replaceChildren();\n  if (source.status === 'loading') return;\n  const picked = jc.ok(source) ? jc.scoped(source.data) : [];\n  if (!picked.length) {\n    el.textContent = source.status === 'error' ? 'Failed to load' : '—';\n    return;\n  }\n  const rows = picked.map((row) => ({ ...row, at: jc.week(row.week) }));\n  const withGoal = rows.some((row) => row.goal !== null) && jc.ok(goals);\n  const path = withGoal ? goals.data.map((row) => ({ at: jc.week(row.week), goal: Number(row.subscribers) })) : [];\n  const last = rows.at(-1);\n  const width = el.clientWidth || 560;\n  const height = 188;\n  const svg = d3.select(el).append('svg').attr('width', width).attr('height', height).attr('role', 'img')\n    .attr('aria-label', `Active subscribers by week, from ${jc.int(rows[0].subscribers)} in the week of ${jc.day(rows[0].at)} to ${jc.int(last.subscribers)} in the week of ${jc.day(last.at)}${withGoal ? `, against a goal path that reaches ${jc.int(path.at(-1).goal)} on ${jc.day(path.at(-1).at)}` : ''}.`);\n\n  const values = [...rows.map((row) => row.subscribers), ...path.map((row) => row.goal)];\n  const y = d3.scaleLinear().domain(d3.extent(values)).nice(4).range([height - 26, 20]);\n  const ticks = y.ticks(4);\n  const probe = svg.append('g').attr('class', 'jc-axis');\n  const tickWidth = d3.max(ticks, (tick) => probe.append('text').text(jc.int(tick)).node().getComputedTextLength()) ?? 30;\n  const endText = probe.append('text').attr('class', 'jc-endlabel').text(jc.int(last.subscribers));\n  const goalText = withGoal ? probe.append('text').attr('class', 'jc-goallabel').text(`Goal ${jc.int(path.at(-1).goal)}`) : null;\n  const endWidth = Math.max(endText.node().getComputedTextLength(), goalText ? goalText.node().getComputedTextLength() : 0);\n  probe.remove();\n  const left = Math.ceil(tickWidth) + 10;\n  const right = withGoal ? 12 : Math.ceil(endWidth) + 14;\n  const x = d3.scaleUtc().domain([rows[0].at, withGoal ? path.at(-1).at : last.at]).range([left, width - right]);\n\n  svg.append('g').selectAll('line').data(ticks).join('line').attr('class', 'jc-gridline').attr('x1', left).attr('x2', width - right).attr('y1', (tick) => y(tick)).attr('y2', (tick) => y(tick));\n  svg.append('g').attr('class', 'jc-axis').selectAll('text').data(ticks).join('text').attr('x', left - 8).attr('y', (tick) => y(tick)).attr('dy', '0.32em').attr('text-anchor', 'end').text((tick) => jc.int(tick));\n  const span = x.domain()[1] - x.domain()[0];\n  const every = Math.max(1, Math.ceil(span / 6048e5 / Math.max(2, Math.floor((width - left - right) / 78))));\n  const dates = d3.utcMonday.range(x.domain()[0], new Date(+x.domain()[1] + 1), every);\n  svg.append('g').attr('class', 'jc-axis').selectAll('text').data(dates).join('text').attr('x', (date) => x(date)).attr('y', height - 6).attr('text-anchor', (date, i) => (i === 0 ? 'start' : x(date) > width - right - 20 ? 'end' : 'middle')).text((date) => jc.day(date));\n\n  const mark = el.dataset.markWeek ? jc.week(el.dataset.markWeek) : null;\n  if (mark && mark >= x.domain()[0] && mark <= last.at) {\n    const g = svg.append('g');\n    g.append('line').attr('x1', x(mark)).attr('x2', x(mark)).attr('y1', 20).attr('y2', height - 26).style('stroke', dash.colors[3]).attr('stroke-width', 1.5);\n    g.append('text').attr('class', 'jc-marklabel').attr('x', x(mark) - 6).attr('y', 30).attr('text-anchor', 'end').text(el.dataset.markLabel ?? '');\n  }\n\n  if (withGoal) {\n    svg.append('path').attr('d', d3.line().x((row) => x(row.at)).y((row) => y(row.goal))(path)).attr('fill', 'none').style('stroke', 'var(--dash-chart-reference)').attr('stroke-width', 1.5).attr('stroke-dasharray', '4 4');\n    const end = path.at(-1);\n    svg.append('text').attr('class', 'jc-goallabel').attr('x', x(end.at)).attr('y', y(end.goal) - 8).attr('text-anchor', 'end').text(`Goal ${jc.int(end.goal)}`);\n  }\n  svg.append('path').attr('d', d3.line().x((row) => x(row.at)).y((row) => y(row.subscribers))(rows)).attr('fill', 'none').style('stroke', dash.colors[0]).attr('stroke-width', 2.25).attr('stroke-linejoin', 'round').attr('stroke-linecap', 'round');\n  svg.append('g').selectAll('circle').data(rows.slice(0, -1)).join('circle').attr('cx', (row) => x(row.at)).attr('cy', (row) => y(row.subscribers)).attr('r', 2.25).style('fill', dash.colors[0]);\n  svg.append('circle').attr('cx', x(last.at)).attr('cy', y(last.subscribers)).attr('r', 4.5).style('fill', dash.colors[3]).style('stroke', 'var(--color-panel)').attr('stroke-width', 2);\n  const labelAbove = !withGoal || last.goal === null || last.subscribers >= last.goal;\n  svg.append('text').attr('class', 'jc-endlabel').attr('x', withGoal ? x(last.at) + 8 : x(last.at) + 9).attr('y', y(last.subscribers) + (withGoal ? (labelAbove ? -9 : 17) : 4)).attr('text-anchor', withGoal ? 'middle' : 'start').text(jc.int(last.subscribers));\n\n  const rule = svg.append('line').attr('y1', 20).attr('y2', height - 26).style('stroke', 'var(--dash-chart-axis)').attr('stroke-width', 1).attr('visibility', 'hidden');\n  const dot = svg.append('circle').attr('r', 4).style('fill', dash.colors[0]).style('stroke', 'var(--color-panel)').attr('stroke-width', 2).attr('visibility', 'hidden');\n  const tip = document.createElement('div');\n  tip.className = 'jc-tip';\n  tip.hidden = true;\n  el.append(tip);\n  const line = (label, value) => {\n    const row = document.createElement('span');\n    const figure = document.createElement('em');\n    figure.textContent = value;\n    row.append(label, figure);\n    return row;\n  };\n  svg.on('pointermove', (event) => {\n    const [px] = d3.pointer(event, el);\n    const row = d3.least(rows, (candidate) => Math.abs(x(candidate.at) - px));\n    rule.attr('x1', x(row.at)).attr('x2', x(row.at)).attr('visibility', 'visible');\n    dot.attr('cx', x(row.at)).attr('cy', y(row.subscribers)).attr('visibility', 'visible');\n    const head = document.createElement('b');\n    head.textContent = `Week of ${jc.day(row.at)}`;\n    tip.replaceChildren(head, line('Subscribers', jc.int(row.subscribers)), ...(row.goal !== null ? [line('Goal path', jc.int(row.goal))] : []), line('New', `+${jc.int(row.new)}`), line('Cancelled', `−${jc.int(row.churned)}`));\n    tip.hidden = false;\n    const at = x(row.at) + 14;\n    tip.style.left = `${at + tip.offsetWidth > width ? Math.max(0, x(row.at) - 14 - tip.offsetWidth) : at}px`;\n    tip.style.top = `${Math.max(0, Math.min(y(row.subscribers) - 20, height - tip.offsetHeight))}px`;\n  }).on('pointerleave', () => {\n    tip.hidden = true;\n    rule.attr('visibility', 'hidden');\n    dot.attr('visibility', 'hidden');\n  });\n});\n\ndash.draw('flow-new', jc.text(() => {\n  const rows = jc.totals();\n  return rows && jc.int(rows.at(-1).new);\n}));\ndash.draw('flow-cancelled', jc.text(() => {\n  const rows = jc.totals();\n  return rows && jc.int(rows.at(-1).churned);\n}));\n\n/* ---- roasts ---- */\n\ndash.draw('roast-week', jc.text(() => {\n  const rows = jc.value('roast_week');\n  return rows === undefined ? undefined : rows && rows.length ? jc.day(jc.week(rows[0].week)) : null;\n}));\n\ndash.draw('roasts', (el) => {\n  const source = dash.data('roast_week');\n  el.classList.toggle('dash-skeleton', source.status === 'loading');\n  el.replaceChildren();\n  if (source.status === 'loading') return;\n  const rows = jc.ok(source) ? jc.scoped(source.data) : [];\n  if (!rows.length) {\n    el.textContent = source.status === 'error' ? 'Failed to load' : '—';\n    return;\n  }\n  const most = d3.max(rows, (row) => Math.max(row.bags, row.week_before ?? 0)) || 1;\n  const tip = document.createElement('div');\n  tip.className = 'jc-tip';\n  tip.hidden = true;\n  for (const row of rows) {\n    const bar = document.createElement('div');\n    bar.className = 'jc-bar';\n    if (row.seasonal) bar.dataset.seasonal = '';\n    const name = document.createElement('span');\n    name.className = 'jc-bar-name';\n    name.textContent = row.roast;\n    if (row.week_before === null || row.seasonal) {\n      const badge = document.createElement('small');\n      badge.textContent = row.week_before === null ? 'New' : 'Seasonal';\n      name.append(badge);\n    }\n    const value = document.createElement('span');\n    value.className = 'jc-bar-val';\n    value.textContent = jc.int(row.bags);\n    const share = document.createElement('small');\n    share.textContent = jc.share(row.share);\n    value.append(share);\n    const track = document.createElement('span');\n    track.className = 'jc-bar-track';\n    const fill = document.createElement('span');\n    fill.className = 'jc-bar-fill';\n    fill.style.width = `${(row.bags / most) * 100}%`;\n    track.append(fill);\n    if (row.week_before !== null) {\n      const tick = document.createElement('span');\n      tick.className = 'jc-bar-tick';\n      tick.style.left = `calc(${(row.week_before / most) * 100}% - 1px)`;\n      track.append(tick);\n    }\n    bar.append(name, value, track);\n    bar.addEventListener('pointerenter', () => {\n      const head = document.createElement('b');\n      head.textContent = row.roast;\n      const about = document.createElement('span');\n      about.textContent = [row.origin, row.level].filter(Boolean).join(' · ');\n      const line = (label, text) => {\n        const part = document.createElement('span');\n        const figure = document.createElement('em');\n        figure.textContent = text;\n        part.append(label, figure);\n        return part;\n      };\n      tip.replaceChildren(head, about, line('Bags', jc.int(row.bags)), line('Week before', row.week_before === null ? 'not on sale' : jc.int(row.week_before)), line('Share', jc.pct(row.share)));\n      tip.hidden = false;\n      tip.style.left = '0px';\n      tip.style.top = `${Math.min(bar.offsetTop + bar.offsetHeight + 4, Math.max(0, el.offsetHeight - tip.offsetHeight))}px`;\n    });\n    bar.addEventListener('pointerleave', () => { tip.hidden = true; });\n    el.append(bar);\n  }\n  el.append(tip);\n});\n\n/* ---- tables ---- */\n\ndash.draw('orders-rows', (body) => {\n  const source = dash.data('orders');\n  body.replaceChildren();\n  if (!jc.ok(source)) return;\n  const plan = dash.params().plan || '';\n  const rows = source.data.filter((row) => !plan || row.plan === plan);\n  const cell = (text, name) => {\n    const td = document.createElement('td');\n    if (name) td.className = name;\n    td.textContent = text;\n    return td;\n  };\n  for (const row of rows) {\n    const tr = document.createElement('tr');\n    tr.dataset.key = row.order_no;\n    const status = document.createElement('td');\n    const pill = document.createElement('span');\n    pill.className = 'jc-pill';\n    pill.dataset.status = row.status;\n    pill.textContent = row.status;\n    status.append(pill);\n    tr.append(cell(row.order_no), cell(jc.stamp(new Date(row.placed_at)), 'jc-quiet'), cell(row.plan), cell(row.roast), cell(String(row.bags), 'jc-num'), cell(jc.usd(Number(row.total)), 'jc-num'), status);\n    body.append(tr);\n  }\n  if (!rows.length) {\n    const tr = document.createElement('tr');\n    const td = cell(`None of the latest ${source.data.length} orders is on this plan.`, 'jc-empty');\n    td.colSpan = 7;\n    tr.append(td);\n    body.append(tr);\n  }\n});\n\ndash.draw('plan-rows', (body) => {\n  const source = dash.data('plan_mix');\n  body.replaceChildren();\n  if (!jc.ok(source)) return;\n  const picked = dash.params().plan || '';\n  for (const row of source.data) {\n    const tr = document.createElement('tr');\n    tr.dataset.key = row.plan;\n    tr.tabIndex = 0;\n    tr.setAttribute('aria-selected', String(picked === row.plan));\n    const plan = document.createElement('td');\n    plan.textContent = row.plan;\n    const ships = document.createElement('small');\n    ships.textContent = row.ships;\n    plan.append(ships);\n    const price = document.createElement('td');\n    price.className = 'jc-num';\n    price.textContent = d3.format('$,.0f')(row.price);\n    const subscribers = document.createElement('td');\n    subscribers.className = 'jc-num';\n    subscribers.textContent = jc.int(row.subscribers);\n    const share = document.createElement('td');\n    share.className = 'jc-num';\n    const meter = document.createElement('span');\n    meter.className = 'jc-share';\n    const fill = document.createElement('i');\n    fill.style.width = `${row.share * 100}%`;\n    meter.append(fill);\n    share.append(meter, jc.share(row.share));\n    tr.append(plan, price, subscribers, share);\n    const pick = () => dash.setParams({ plan: picked === row.plan ? '' : row.plan });\n    tr.addEventListener('click', pick);\n    tr.addEventListener('keydown', (event) => {\n      if (event.key === 'Enter' || event.key === ' ') {\n        event.preventDefault();\n        pick();\n      }\n    });\n    body.append(tr);\n  }\n});\n"
+                }
+              },
+              {
+                "op": "set",
+                "path": "files/index.html",
+                "data": {
+                  "text": "<meta name=\"dash-one-writer\">\n<link rel=\"stylesheet\" href=\"app.css\">\n<main class=\"jc\" data-read lang=\"en\">\n  <header class=\"jc-head\" id=\"overview\">\n    <p class=\"jc-eyebrow\">Juniper Coffee</p>\n    <h1 class=\"jc-title\" id=\"title\">Subscriptions</h1>\n    <div class=\"jc-filters\">\n      <label class=\"jc-filter\">Plan\n        <select class=\"dash-select\" data-draw=\"plan-filter\" aria-label=\"Plan\" data-source=\"plans\"></select>\n      </label>\n    </div>\n    <p class=\"jc-lede\" id=\"summary\" data-read-step>Week of <b data-draw=\"lede-week\" data-source=\"totals\" data-field=\"week\">—</b>: <b data-draw=\"lede-subscribers\" data-source=\"kpis\" data-field=\"value\" data-where=\"metric=subscribers\">—</b> active subscribers, <span data-draw=\"lede-direction\" data-source=\"standing\" data-field=\"direction\">—</span> <b data-draw=\"lede-growth\" data-source=\"standing\" data-field=\"gained_by\">—</b> since <span data-draw=\"lede-first\" data-source=\"totals\" data-field=\"week\">—</span><span data-all-plans> and <b data-draw=\"lede-gap\" data-source=\"standing\" data-field=\"gap_by\" data-where=\"plan=All plans\">—</b> <b data-draw=\"lede-side\" data-source=\"standing\" data-field=\"side\" data-where=\"plan=All plans\">—</b> the path to <span data-draw=\"lede-goal\" data-source=\"goals\" data-field=\"subscribers\" data-where=\"week=2026-05-25\">—</span> by <span data-draw=\"lede-goal-day\" data-source=\"goals\" data-field=\"week\">—</span></span>.</p>\n  </header>\n\n  <section class=\"jc-tiles\" id=\"figures\" aria-label=\"Key figures\">\n      <article class=\"jc-card jc-tile\" id=\"tile-subscribers\">\n        <h2>Active subscribers</h2>\n        <p class=\"jc-big\"><span data-draw=\"kpi-subscribers\" data-source=\"kpis\" data-field=\"value\" data-where=\"metric=subscribers\" data-fetchpriority=\"high\">—</span></p>\n        <p class=\"jc-delta\"><span data-draw=\"delta-subscribers\" data-source=\"kpis\" data-field=\"change\" data-where=\"metric=subscribers\">—</span> in 4 weeks</p>\n        <div class=\"jc-spark\" data-draw=\"spark-subscribers\" data-source=\"totals\"></div>\n      </article>\n      <article class=\"jc-card jc-tile\" id=\"tile-mrr\">\n        <h2>Monthly recurring revenue</h2>\n        <p class=\"jc-big\"><span data-draw=\"kpi-mrr\" data-source=\"kpis\" data-field=\"value\" data-where=\"metric=mrr\" data-fetchpriority=\"high\">—</span></p>\n        <p class=\"jc-delta\"><span data-draw=\"delta-mrr\" data-source=\"kpis\" data-field=\"change\" data-where=\"metric=mrr\">—</span> in 4 weeks</p>\n        <div class=\"jc-spark\" data-draw=\"spark-mrr\" data-source=\"totals\"></div>\n      </article>\n      <article class=\"jc-card jc-tile\" id=\"tile-churn\">\n        <h2>Churn, last 4 weeks</h2>\n        <p class=\"jc-big\"><span data-draw=\"kpi-churn\" data-source=\"kpis\" data-field=\"value\" data-where=\"metric=churn\" data-fetchpriority=\"high\">—</span></p>\n        <p class=\"jc-delta\"><span data-draw=\"delta-churn\" data-source=\"kpis\" data-field=\"change\" data-where=\"metric=churn\">—</span> vs prior 4 weeks</p>\n        <div class=\"jc-spark\" data-draw=\"spark-churn\" data-source=\"totals\"></div>\n      </article>\n      <article class=\"jc-card jc-tile\" id=\"tile-order\">\n        <h2>Average order, 4 weeks</h2>\n        <p class=\"jc-big\"><span data-draw=\"kpi-order\" data-source=\"kpis\" data-field=\"value\" data-where=\"metric=order\" data-fetchpriority=\"high\">—</span></p>\n        <p class=\"jc-delta\"><span data-draw=\"delta-order\" data-source=\"kpis\" data-field=\"change\" data-where=\"metric=order\">—</span> vs prior 4 weeks</p>\n        <div class=\"jc-spark\" data-draw=\"spark-order\" data-source=\"totals\"></div>\n      </article>\n  </section>\n</main>\n<script src=\"app.js\"></script>\n"
+                }
+              }
+            ]
+          }
+        ],
+        "ms": 1300
+      },
+      {
+        "say": "ArtifactData · str_replace files/index.html · subscribers against the goal",
         "edits": [
           {
             "kind": "db",
@@ -342,13 +1936,64 @@
                 "op": "set",
                 "path": "files/index.html",
                 "data": {
-                  "text": "<meta name=\"dash-one-writer\">\n<link rel=\"stylesheet\" href=\"app.css\">\n<main class=\"fx\" data-read lang=\"en\">\n  <header class=\"fx-head\" id=\"overview\">\n    <h1 class=\"fx-title\" id=\"title\">Sales and signups</h1>\n    <p class=\"fx-lede\" data-read-step>Signups reached <b data-draw=\"latest\" data-source=\"signups\" data-field=\"signups\" data-where=\"month=2026-10\">—</b> in the latest month, <b data-draw=\"growth\" data-source=\"growth\">—</b> on the month before.</p>\n    <p class=\"fx-note\" id=\"agent-note\">Agent, pass {{n}}: {{request}}</p>\n    <div class=\"fx-filters\">\n      <label>Region\n        <select class=\"dash-select\" data-draw=\"region\" aria-label=\"Region\" data-source=\"regions\"></select>\n      </label>\n      <button type=\"button\" class=\"fx-clear\" id=\"clear-filters\">Clear filters</button>\n    </div>\n  </header>\n\n  <nav class=\"fx-tabs\" role=\"tablist\">\n    <button type=\"button\" role=\"tab\" data-tab=\"revenue\" id=\"tab-revenue\">Revenue</button>\n    <button type=\"button\" role=\"tab\" data-tab=\"signups\" id=\"tab-signups\">Signups</button>\n    <button type=\"button\" role=\"tab\" data-tab=\"support\" id=\"tab-support\">Support</button>\n  </nav>\n\n  <section class=\"fx-page\" id=\"revenue\" data-tab-page=\"revenue\">\n    <div class=\"fx-cards\">\n      <article class=\"fx-card\" id=\"card-revenue\">\n        <h2>Revenue</h2>\n        <p class=\"fx-big\"><span data-draw=\"revenue-total\" data-source=\"revenue_total\" data-fetchpriority=\"high\">—</span></p>\n        <p class=\"fx-note\">All months shown, in dollars.</p>\n      </article>\n      <article class=\"fx-card\" id=\"card-target\">\n        <h2>Target</h2>\n        <p class=\"fx-big\"><span data-draw=\"target-total\" data-source=\"regions\" data-field=\"target\">—</span></p>\n        <p class=\"fx-note\">Sum of the region targets for FY27.</p>\n      </article>\n    </div>\n    <figure class=\"fx-chart\" id=\"revenue-chart\" data-source=\"orders\">\n      <figcaption>Revenue by month</figcaption>\n      <div class=\"fx-chart-body\" data-draw=\"revenue-chart\"></div>\n    </figure>\n    <table class=\"fx-table\" id=\"orders-table\" data-source=\"orders\" data-row-key=\"month\" data-fetchpriority=\"low\">\n      <thead><tr><th data-field=\"region\">Region</th><th data-field=\"month\">Month</th><th data-field=\"revenue\">Revenue</th><th data-field=\"orders\">Orders</th></tr></thead>\n      <tbody data-draw=\"orders-rows\"></tbody>\n    </table>\n  </section>\n\n  <section class=\"fx-page\" id=\"signups\" data-tab-page=\"signups\" hidden>\n    <figure class=\"fx-chart\" id=\"signups-chart\" data-source=\"signups\">\n      <figcaption>Signups per month</figcaption>\n      <div class=\"fx-chart-body\" data-draw=\"signups-chart\"></div>\n    </figure>\n    <p class=\"fx-note\" data-read-step>Click a bar to see that month. Picked: <b data-draw=\"picked\">—</b></p>\n  </section>\n\n  <section class=\"fx-page\" id=\"support\" data-tab-page=\"support\" hidden>\n    <h2>Open tickets</h2>\n    <ul class=\"fx-list\" data-source=\"tickets\" data-draw=\"tickets\"></ul>\n  </section>\n</main>\n<script src=\"app.js\"></script>\n"
+                  "text": "<meta name=\"dash-one-writer\">\n<link rel=\"stylesheet\" href=\"app.css\">\n<main class=\"jc\" data-read lang=\"en\">\n  <header class=\"jc-head\" id=\"overview\">\n    <p class=\"jc-eyebrow\">Juniper Coffee</p>\n    <h1 class=\"jc-title\" id=\"title\">Subscriptions</h1>\n    <div class=\"jc-filters\">\n      <label class=\"jc-filter\">Plan\n        <select class=\"dash-select\" data-draw=\"plan-filter\" aria-label=\"Plan\" data-source=\"plans\"></select>\n      </label>\n    </div>\n    <p class=\"jc-lede\" id=\"summary\" data-read-step>Week of <b data-draw=\"lede-week\" data-source=\"totals\" data-field=\"week\">—</b>: <b data-draw=\"lede-subscribers\" data-source=\"kpis\" data-field=\"value\" data-where=\"metric=subscribers\">—</b> active subscribers, <span data-draw=\"lede-direction\" data-source=\"standing\" data-field=\"direction\">—</span> <b data-draw=\"lede-growth\" data-source=\"standing\" data-field=\"gained_by\">—</b> since <span data-draw=\"lede-first\" data-source=\"totals\" data-field=\"week\">—</span><span data-all-plans> and <b data-draw=\"lede-gap\" data-source=\"standing\" data-field=\"gap_by\" data-where=\"plan=All plans\">—</b> <b data-draw=\"lede-side\" data-source=\"standing\" data-field=\"side\" data-where=\"plan=All plans\">—</b> the path to <span data-draw=\"lede-goal\" data-source=\"goals\" data-field=\"subscribers\" data-where=\"week=2026-05-25\">—</span> by <span data-draw=\"lede-goal-day\" data-source=\"goals\" data-field=\"week\">—</span></span>.</p>\n  </header>\n\n  <section class=\"jc-tiles\" id=\"figures\" aria-label=\"Key figures\">\n      <article class=\"jc-card jc-tile\" id=\"tile-subscribers\">\n        <h2>Active subscribers</h2>\n        <p class=\"jc-big\"><span data-draw=\"kpi-subscribers\" data-source=\"kpis\" data-field=\"value\" data-where=\"metric=subscribers\" data-fetchpriority=\"high\">—</span></p>\n        <p class=\"jc-delta\"><span data-draw=\"delta-subscribers\" data-source=\"kpis\" data-field=\"change\" data-where=\"metric=subscribers\">—</span> in 4 weeks</p>\n        <div class=\"jc-spark\" data-draw=\"spark-subscribers\" data-source=\"totals\"></div>\n      </article>\n      <article class=\"jc-card jc-tile\" id=\"tile-mrr\">\n        <h2>Monthly recurring revenue</h2>\n        <p class=\"jc-big\"><span data-draw=\"kpi-mrr\" data-source=\"kpis\" data-field=\"value\" data-where=\"metric=mrr\" data-fetchpriority=\"high\">—</span></p>\n        <p class=\"jc-delta\"><span data-draw=\"delta-mrr\" data-source=\"kpis\" data-field=\"change\" data-where=\"metric=mrr\">—</span> in 4 weeks</p>\n        <div class=\"jc-spark\" data-draw=\"spark-mrr\" data-source=\"totals\"></div>\n      </article>\n      <article class=\"jc-card jc-tile\" id=\"tile-churn\">\n        <h2>Churn, last 4 weeks</h2>\n        <p class=\"jc-big\"><span data-draw=\"kpi-churn\" data-source=\"kpis\" data-field=\"value\" data-where=\"metric=churn\" data-fetchpriority=\"high\">—</span></p>\n        <p class=\"jc-delta\"><span data-draw=\"delta-churn\" data-source=\"kpis\" data-field=\"change\" data-where=\"metric=churn\">—</span> vs prior 4 weeks</p>\n        <div class=\"jc-spark\" data-draw=\"spark-churn\" data-source=\"totals\"></div>\n      </article>\n      <article class=\"jc-card jc-tile\" id=\"tile-order\">\n        <h2>Average order, 4 weeks</h2>\n        <p class=\"jc-big\"><span data-draw=\"kpi-order\" data-source=\"kpis\" data-field=\"value\" data-where=\"metric=order\" data-fetchpriority=\"high\">—</span></p>\n        <p class=\"jc-delta\"><span data-draw=\"delta-order\" data-source=\"kpis\" data-field=\"change\" data-where=\"metric=order\">—</span> vs prior 4 weeks</p>\n        <div class=\"jc-spark\" data-draw=\"spark-order\" data-source=\"totals\"></div>\n      </article>\n  </section>\n  <section class=\"jc-grid\">\n    <figure class=\"jc-card jc-fig\" id=\"subscribers-chart\" data-source=\"totals subscriptions goals\">\n      <figcaption>Subscribers against the spring goal</figcaption>\n      <p class=\"jc-legend\"><span><i></i>Subscribers</span><span data-all-plans><i class=\"jc-goal\"></i>Goal path</span></p>\n      <div class=\"jc-chart\" data-draw=\"trend\"></div>\n      <p class=\"jc-foot\">In the latest week <b data-draw=\"flow-new\" data-source=\"totals\" data-field=\"new\">—</b> people subscribed and <b data-draw=\"flow-cancelled\" data-source=\"totals\" data-field=\"churned\">—</b> cancelled.</p>\n    </figure>\n  </section>\n</main>\n<script src=\"app.js\"></script>\n"
                 }
               }
             ]
           }
-        ]
+        ],
+        "ms": 1000
+      },
+      {
+        "say": "ArtifactData · str_replace files/index.html · bags by roast",
+        "edits": [
+          {
+            "kind": "db",
+            "writes": [
+              {
+                "op": "set",
+                "path": "files/index.html",
+                "data": {
+                  "text": "<meta name=\"dash-one-writer\">\n<link rel=\"stylesheet\" href=\"app.css\">\n<main class=\"jc\" data-read lang=\"en\">\n  <header class=\"jc-head\" id=\"overview\">\n    <p class=\"jc-eyebrow\">Juniper Coffee</p>\n    <h1 class=\"jc-title\" id=\"title\">Subscriptions</h1>\n    <div class=\"jc-filters\">\n      <label class=\"jc-filter\">Plan\n        <select class=\"dash-select\" data-draw=\"plan-filter\" aria-label=\"Plan\" data-source=\"plans\"></select>\n      </label>\n    </div>\n    <p class=\"jc-lede\" id=\"summary\" data-read-step>Week of <b data-draw=\"lede-week\" data-source=\"totals\" data-field=\"week\">—</b>: <b data-draw=\"lede-subscribers\" data-source=\"kpis\" data-field=\"value\" data-where=\"metric=subscribers\">—</b> active subscribers, <span data-draw=\"lede-direction\" data-source=\"standing\" data-field=\"direction\">—</span> <b data-draw=\"lede-growth\" data-source=\"standing\" data-field=\"gained_by\">—</b> since <span data-draw=\"lede-first\" data-source=\"totals\" data-field=\"week\">—</span><span data-all-plans> and <b data-draw=\"lede-gap\" data-source=\"standing\" data-field=\"gap_by\" data-where=\"plan=All plans\">—</b> <b data-draw=\"lede-side\" data-source=\"standing\" data-field=\"side\" data-where=\"plan=All plans\">—</b> the path to <span data-draw=\"lede-goal\" data-source=\"goals\" data-field=\"subscribers\" data-where=\"week=2026-05-25\">—</span> by <span data-draw=\"lede-goal-day\" data-source=\"goals\" data-field=\"week\">—</span></span>.</p>\n  </header>\n\n  <section class=\"jc-tiles\" id=\"figures\" aria-label=\"Key figures\">\n      <article class=\"jc-card jc-tile\" id=\"tile-subscribers\">\n        <h2>Active subscribers</h2>\n        <p class=\"jc-big\"><span data-draw=\"kpi-subscribers\" data-source=\"kpis\" data-field=\"value\" data-where=\"metric=subscribers\" data-fetchpriority=\"high\">—</span></p>\n        <p class=\"jc-delta\"><span data-draw=\"delta-subscribers\" data-source=\"kpis\" data-field=\"change\" data-where=\"metric=subscribers\">—</span> in 4 weeks</p>\n        <div class=\"jc-spark\" data-draw=\"spark-subscribers\" data-source=\"totals\"></div>\n      </article>\n      <article class=\"jc-card jc-tile\" id=\"tile-mrr\">\n        <h2>Monthly recurring revenue</h2>\n        <p class=\"jc-big\"><span data-draw=\"kpi-mrr\" data-source=\"kpis\" data-field=\"value\" data-where=\"metric=mrr\" data-fetchpriority=\"high\">—</span></p>\n        <p class=\"jc-delta\"><span data-draw=\"delta-mrr\" data-source=\"kpis\" data-field=\"change\" data-where=\"metric=mrr\">—</span> in 4 weeks</p>\n        <div class=\"jc-spark\" data-draw=\"spark-mrr\" data-source=\"totals\"></div>\n      </article>\n      <article class=\"jc-card jc-tile\" id=\"tile-churn\">\n        <h2>Churn, last 4 weeks</h2>\n        <p class=\"jc-big\"><span data-draw=\"kpi-churn\" data-source=\"kpis\" data-field=\"value\" data-where=\"metric=churn\" data-fetchpriority=\"high\">—</span></p>\n        <p class=\"jc-delta\"><span data-draw=\"delta-churn\" data-source=\"kpis\" data-field=\"change\" data-where=\"metric=churn\">—</span> vs prior 4 weeks</p>\n        <div class=\"jc-spark\" data-draw=\"spark-churn\" data-source=\"totals\"></div>\n      </article>\n      <article class=\"jc-card jc-tile\" id=\"tile-order\">\n        <h2>Average order, 4 weeks</h2>\n        <p class=\"jc-big\"><span data-draw=\"kpi-order\" data-source=\"kpis\" data-field=\"value\" data-where=\"metric=order\" data-fetchpriority=\"high\">—</span></p>\n        <p class=\"jc-delta\"><span data-draw=\"delta-order\" data-source=\"kpis\" data-field=\"change\" data-where=\"metric=order\">—</span> vs prior 4 weeks</p>\n        <div class=\"jc-spark\" data-draw=\"spark-order\" data-source=\"totals\"></div>\n      </article>\n  </section>\n  <section class=\"jc-grid\">\n    <figure class=\"jc-card jc-fig\" id=\"subscribers-chart\" data-source=\"totals subscriptions goals\">\n      <figcaption>Subscribers against the spring goal</figcaption>\n      <p class=\"jc-legend\"><span><i></i>Subscribers</span><span data-all-plans><i class=\"jc-goal\"></i>Goal path</span></p>\n      <div class=\"jc-chart\" data-draw=\"trend\"></div>\n      <p class=\"jc-foot\">In the latest week <b data-draw=\"flow-new\" data-source=\"totals\" data-field=\"new\">—</b> people subscribed and <b data-draw=\"flow-cancelled\" data-source=\"totals\" data-field=\"churned\">—</b> cancelled.</p>\n    </figure>\n    <figure class=\"jc-card jc-fig\" id=\"roasts-chart\" data-source=\"roast_week roast_bags roast_catalog\">\n      <figcaption>Bags shipped by roast</figcaption>\n      <p class=\"jc-sub\">Week of <span data-draw=\"roast-week\" data-source=\"roast_week\" data-field=\"week\">—</span></p>\n      <div class=\"jc-bars\" data-draw=\"roasts\"></div>\n      <p class=\"jc-foot\">The tick on each bar is the week before.</p>\n    </figure>\n  </section>\n</main>\n<script src=\"app.js\"></script>\n"
+                }
+              }
+            ]
+          }
+        ],
+        "ms": 900
+      },
+      {
+        "say": "ArtifactData · str_replace files/index.html · latest orders, plans",
+        "take": [
+          "db/files/*"
+        ],
+        "ms": 900
+      },
+      {
+        "say": "Artifact · call check",
+        "ms": 800
       }
-    ]
+    ],
+    "made": {
+      "en": "The dashboard is up: four key figures, subscribers against the spring goal, bags by roast, the latest orders and a plan filter. The shop queries run live on your computer; the three CSV files are stored with it. As of the week of April 13 you have 1,748 subscribers, 83 behind the goal path.",
+      "zh": "看板做好了：四个关键指标、订阅人数对照春季目标、各款豆子的出货、最新订单，还有一个套餐筛选。店铺查询在你的电脑上实时运行，三个 CSV 文件随看板一起保存。截至 4 月 13 日那周，订阅 1,748 人，比目标线少 83 人。"
+    },
+    "comment": {
+      "text": {
+        "en": "This stops at April 19. Pull in the late-April orders so launch week shows",
+        "zh": "这里只到 4 月 19 日。把 4 月下旬的订单也拉进来，我想看到上新那一周"
+      },
+      "anchor": "#subscribers-chart",
+      "label": "Chart “Subscribers against the spring goal”",
+      "detail": "Chart \"Subscribers against the spring goal\" · <figure id=\"subscribers-chart\" class=\"jc-card jc-fig\" data-source=\"totals subscriptions goals\">",
+      "location": {
+        "file": "files/index.html",
+        "selector": "#subscribers-chart"
+      },
+      "at": [
+        0.428,
+        0.765
+      ]
+    }
   }
 }

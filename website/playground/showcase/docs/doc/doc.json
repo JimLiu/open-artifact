@@ -1,0 +1,73 @@
+{
+  "format": "open-artifact-docs",
+  "version": 1,
+  "id": "d4a9c9d7-f848-4b99-84b3-429cfa02586f",
+  "name": "First Light: spring launch brief",
+  "created": "2026-11-27T08:25:45.904Z",
+  "updated": "2026-11-27T08:29:08.823Z",
+  "head": 15,
+  "tabs": {
+    "2fb9c8f9-9f88": {
+      "name": "Brief",
+      "order": "V",
+      "node": "4eae0eff-8043"
+    },
+    "40d54ab0-8945": {
+      "name": "Launch checklist",
+      "order": "k",
+      "node": "0c593cc2-574f"
+    },
+    "dc147e4d-abeb": {
+      "name": "FAQ",
+      "order": "r",
+      "node": "04c842f9-db66"
+    }
+  },
+  "enums": {
+    "f80bdb80-166f": {
+      "name": "Review",
+      "options": [
+        {
+          "name": "Draft",
+          "order": 0,
+          "color": "gray"
+        },
+        {
+          "name": "In review",
+          "order": 1,
+          "color": "pencil"
+        },
+        {
+          "name": "Approved",
+          "order": 2,
+          "color": "olive"
+        }
+      ]
+    },
+    "690af4c5-c745": {
+      "name": "Status",
+      "options": [
+        {
+          "name": "Not started",
+          "order": 0,
+          "color": "gray"
+        },
+        {
+          "name": "On track",
+          "order": 1,
+          "color": "olive"
+        },
+        {
+          "name": "At risk",
+          "order": 2,
+          "color": "poppy"
+        },
+        {
+          "name": "Done",
+          "order": 3,
+          "color": "sky"
+        }
+      ]
+    }
+  }
+}

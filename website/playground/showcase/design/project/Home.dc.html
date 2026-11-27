@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Home</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:#1d1b16}a:hover{color:#c2562b}
+button{font-family:inherit;cursor:pointer}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; display: flex; flex-direction: column; background: #f7f2e8; color: #1d1b16; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif">
+<div style="flex: 1; min-height: 0; box-sizing: border-box; padding: 28px 22px 0; display: flex; flex-direction: column; gap: 24px">
+<header style="display: flex; align-items: center; justify-content: space-between; gap: 12px">
+<div style="display: flex; flex-direction: column; gap: 6px">
+<span style="font-size: 12px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: #48684b">Tuesday, March 17</span>
+<h1 style="margin: 0; font: 600 29px/1.05 'Iowan Old Style', 'Palatino Linotype', Georgia, serif; letter-spacing: -0.015em; white-space: nowrap">Good morning, Maya</h1>
+</div>
+<button type="button" aria-label="Your account" style="flex: none; width: 46px; height: 46px; border: 0; border-radius: 50%; background: #20402f; color: #f7f2e8; font: 600 19px/1 'Iowan Old Style', 'Palatino Linotype', Georgia, serif">M</button>
+</header>
+<button type="button" style="display: flex; align-items: center; gap: 12px; padding: 13px 14px; border: 0; border-radius: 18px; background: #e7e2d6; color: #1d1b16; text-align: left">
+<span style="flex: none; width: 42px; height: 42px; border-radius: 50%; background: #f7f2e8; display: flex; align-items: center; justify-content: center"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#20402f" stroke-width="1.800" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8l9-5 9 5v8l-9 5-9-5V8z"></path><path d="M3 8l9 5 9-5"></path><path d="M12 13v8"></path></svg></span>
+<span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 15px; font-weight: 700">Next box ships Thursday</span><span style="font-size: 13px; color: #575245">2 bags · whole bean · every 2 weeks</span></span>
+<svg aria-hidden="true" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#575245" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"></path></svg>
+</button>
+<section style="position: relative; overflow: hidden; border-radius: 28px; padding: 24px 22px 22px; background: {{card}}; color: {{cardInk}}; display: flex; flex-direction: column; gap: 30px">
+<svg aria-hidden="true" viewBox="0 0 160 160" width="160" height="160" style="position: absolute; top: 0; right: 0"><circle cx="160" cy="0" r="118" fill="{{ring}}" opacity="0.16"></circle><circle cx="160" cy="0" r="88" fill="{{ring}}" opacity="0.2"></circle><circle cx="160" cy="0" r="58" fill="{{sun}}"></circle></svg>
+<div style="position: relative; display: flex; flex-direction: column; align-items: flex-start; gap: 10px">
+<span style="padding: 6px 12px; border: 1.5px solid {{cardInk}}; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase">This week's roast</span>
+<h2 style="margin: 8px 0 0; font: 600 44px/1 'Iowan Old Style', 'Palatino Linotype', Georgia, serif; letter-spacing: -0.02em">First Light</h2>
+<p style="margin: 0; max-width: 240px; font-size: 15px; line-height: 1.45">Spring blend, light roast. Apricot, jasmine and a honeyed finish.</p>
+</div>
+<div style="position: relative; display: flex; align-items: center; justify-content: space-between; gap: 12px">
+<span style="display: flex; flex-direction: column; gap: 3px"><span style="font: 600 26px/1 'Iowan Old Style', 'Palatino Linotype', Georgia, serif">$18</span><span style="font-size: 12px; font-weight: 600">12 oz bag</span></span>
+<button type="button" onClick="{{ toggleAdd }}" aria-pressed="{{ added }}" style="display: flex; align-items: center; gap: 8px; height: 48px; padding: 0 20px; border: 0; border-radius: 999px; background: {{addBg}}; color: {{addInk}}; font-size: 15px; font-weight: 700">{{addLabel}}</button>
+</div>
+</section>
+<section style="display: flex; flex-direction: column; gap: 14px">
+<div style="display: flex; align-items: baseline; justify-content: space-between; gap: 12px">
+<h2 style="margin: 0; font: 600 22px/1.1 'Iowan Old Style', 'Palatino Linotype', Georgia, serif">Brew guide</h2>
+<span style="font-size: 13px; color: #575245">for First Light</span>
+</div>
+<div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px">
+<sc-for list="{{ methods }}" as="m" hint-placeholder-count="3">
+<button type="button" onClick="{{ m.pick }}" aria-pressed="{{ m.on }}" style="height: 44px; padding: 0 6px; border: 1.5px solid {{ m.border }}; border-radius: 999px; background: {{ m.bg }}; color: {{ m.fg }}; font-size: 14px; font-weight: 700">{{ m.label }}</button>
+</sc-for>
+</div>
+<div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px">
+<div style="display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border: 1px solid #d9d3c3; border-radius: 16px"><span style="font-size: 11px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: #575245">Coffee</span><span style="font: 600 24px/1 'Iowan Old Style', 'Palatino Linotype', Georgia, serif">{{dose}}</span></div>
+<div style="display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border: 1px solid #d9d3c3; border-radius: 16px"><span style="font-size: 11px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: #575245">Water</span><span style="font: 600 24px/1 'Iowan Old Style', 'Palatino Linotype', Georgia, serif">{{water}}</span></div>
+<div style="display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border: 1px solid #d9d3c3; border-radius: 16px"><span style="font-size: 11px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: #575245">Time</span><span style="font: 600 24px/1 'Iowan Old Style', 'Palatino Linotype', Georgia, serif">{{time}}</span></div>
+</div>
+<p style="margin: 0; font-size: 14px; line-height: 1.45; color: #575245">{{tip}}</p>
+</section>
+</div>
+<nav aria-label="Sections" style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); padding: 8px 12px 20px; border-top: 1px solid #e7e2d6">
+<a href="Home.dc.html" aria-current="page" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; min-height: 50px; font-size: 11px; font-weight: 700; color: #20402f; text-decoration: none"><svg aria-hidden="true" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11l8-7 8 7"></path><path d="M6 10v10h12V10"></path></svg>Home</a>
+<a href="Home.dc.html" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; min-height: 50px; font-size: 11px; font-weight: 600; color: #6b6557; text-decoration: none"><svg aria-hidden="true" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.800" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8h12l1 12H5L6 8z"></path><path d="M9 8V7a3 3 0 0 1 6 0v1"></path></svg>Shop</a>
+<a href="Home.dc.html" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; min-height: 50px; font-size: 11px; font-weight: 600; color: #6b6557; text-decoration: none"><svg aria-hidden="true" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.800" stroke-linecap="round" stroke-linejoin="round"><path d="M5 9h12v5a5 5 0 0 1-5 5h-2a5 5 0 0 1-5-5V9z"></path><path d="M17 10h1.500a2.500 2.500 0 0 1 0 5H17"></path><path d="M8 3v3"></path><path d="M12 3v3"></path></svg>Brew</a>
+<a href="Welcome.dc.html" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; min-height: 50px; font-size: 11px; font-weight: 600; color: #6b6557; text-decoration: none"><svg aria-hidden="true" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.800" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.500"></circle><path d="M5 20c1-4 4-5.500 7-5.500s6 1.500 7 5.500"></path></svg>Account</a>
+</nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"card":{"editor":"color","label":"Roast card","default":"#20402f","options":["#20402f","#c2562b","#e3a53c"]},"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+state = { method: 'v60', added: false };
+renderVals() {
+const card = this.props.card ?? '#20402f';
+const light = card.toLowerCase() === '#e3a53c';
+const recipes = {
+v60: { label: 'V60', dose: '15 g', water: '250 g', time: '3:00', tip: 'Medium-fine grind. Let it bloom for 30 seconds, then pour in slow circles.' },
+aeropress: { label: 'AeroPress', dose: '15 g', water: '200 g', time: '2:00', tip: 'Fine grind. Stir once, wait a minute and a half, then press gently.' },
+press: { label: 'Press', dose: '30 g', water: '500 g', time: '4:00', tip: 'Coarse grind. Break the crust at four minutes and pour straight away.' }
+};
+const now = recipes[this.state.method];
+const added = this.state.added;
+return {
+card,
+cardInk: light ? '#1d1b16' : '#f7f2e8',
+ring: light ? '#c2562b' : '#f7f2e8',
+sun: light ? '#c2562b' : '#e3a53c',
+added,
+addBg: light ? (added ? '#f7f2e8' : '#1d1b16') : (added ? '#e3a53c' : '#f7f2e8'),
+addInk: light && !added ? '#f7f2e8' : '#1d1b16',
+addLabel: added ? 'Added to Thursday' : 'Add to next box',
+toggleAdd: () => this.setState({ added: !added }),
+methods: Object.keys(recipes).map((id) => ({
+label: recipes[id].label,
+on: id === this.state.method,
+bg: id === this.state.method ? '#20402f' : 'transparent',
+fg: id === this.state.method ? '#f7f2e8' : '#1d1b16',
+border: id === this.state.method ? '#20402f' : '#b9b2a0',
+pick: () => this.setState({ method: id })
+})),
+dose: now.dose,
+water: now.water,
+time: now.time,
+tip: now.tip
+};
+}
+}
+</script>
+</body>
+</html>

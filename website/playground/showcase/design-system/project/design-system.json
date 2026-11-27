@@ -1,0 +1,14 @@
+{
+  "v": 3,
+  "layout": "files",
+  "createdOnFiles": { "v": 1, "at": "2026-03-02T09:00:00Z" },
+  "title": "Juniper",
+  "namespace": "Juniper",
+  "libraries": [],
+  "sections": {},
+  "groups": [],
+  "assetGroups": {},
+  "blobs": {},
+  "docs": { "readme": "project/README.md", "sections": [] },
+  "lastChange": { "by": "Juniper Coffee", "at": "2026-03-02T09:00:00Z", "via": "Agent", "note": "First version: tokens, brand book, nine components and the cover." }
+}

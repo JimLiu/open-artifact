@@ -1,0 +1,43 @@
+{
+  "v": 5,
+  "createdOnFiles": {
+    "v": 1,
+    "at": "2026-11-27T09:00:00Z"
+  },
+  "lists": "css",
+  "format": {
+    "v": 1,
+    "shared": [
+      "project/deck.css"
+    ]
+  },
+  "title": "First Light spring launch",
+  "cover": "cover",
+  "order": [
+    "cover",
+    "agenda",
+    "numbers",
+    "growth",
+    "launch",
+    "timeline",
+    "quote",
+    "close"
+  ],
+  "sections": {
+    "opening": {
+      "description": "What Juniper launches this spring and what this review covers.",
+      "start": "cover"
+    },
+    "momentum": {
+      "description": "Where the subscription stands going into the launch.",
+      "start": "numbers"
+    },
+    "plan": {
+      "description": "What ships on launch day, the six weeks before it, and who does what next.",
+      "start": "launch"
+    }
+  },
+  "faces": {},
+  "designSystems": [],
+  "attachments": {}
+}

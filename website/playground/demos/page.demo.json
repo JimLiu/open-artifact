@@ -2,34 +2,141 @@
   "id": "page",
   "type": "page",
   "typeTitle": "Page",
-  "source": "e2e/fixtures/page-kinds/checklist",
+  "source": "website/playground/showcase/page",
   "prefix": "project/",
-  "title": "Packing list",
+  "title": "First Light brew guide",
   "add": {
-    "db/items/a1.json": {
-      "text": "Passport",
-      "done": true,
-      "at": 1764000000001
+    "db/guide/main.json": {
+      "blend": "First Light",
+      "roast": "Light",
+      "origin": "Ethiopia Guji + Colombia Huila",
+      "tastes": [
+        "apricot",
+        "honey",
+        "black tea"
+      ],
+      "featured": "pour-over"
     },
-    "db/items/a2.json": {
-      "text": "Phone charger",
-      "done": false,
-      "at": 1764000000002
+    "db/methods/pour-over.json": {
+      "name": "Pour-over",
+      "brewer": "dripper",
+      "order": 1,
+      "ratio": 16,
+      "dose": 20,
+      "grind": "Medium-fine",
+      "temp": 94,
+      "note": "Bright and clean: the cup First Light was roasted for.",
+      "steps": [
+        {
+          "label": "Bloom",
+          "seconds": 40,
+          "pour": 0.15,
+          "detail": "Wet all the grounds, then one gentle swirl."
+        },
+        {
+          "label": "First pour",
+          "seconds": 40,
+          "pour": 0.6,
+          "detail": "Slow circles from the centre out."
+        },
+        {
+          "label": "Second pour",
+          "seconds": 30,
+          "pour": 1,
+          "detail": "Keep the stream low and steady."
+        },
+        {
+          "label": "Draw down",
+          "seconds": 70,
+          "detail": "Let it drain. The bed should finish flat."
+        }
+      ]
     },
-    "db/items/a3.json": {
-      "text": "Rain jacket",
-      "done": false,
-      "at": 1764000000003
+    "db/methods/french-press.json": {
+      "name": "French press",
+      "brewer": "press",
+      "order": 2,
+      "ratio": 15,
+      "dose": 30,
+      "grind": "Coarse",
+      "temp": 95,
+      "note": "Rounder and heavier, with the honey up front. Good for two.",
+      "steps": [
+        {
+          "label": "Pour",
+          "seconds": 30,
+          "pour": 1,
+          "detail": "Fill in one go and wet everything."
+        },
+        {
+          "label": "Steep",
+          "seconds": 180,
+          "detail": "Lid on, plunger up. Leave it alone."
+        },
+        {
+          "label": "Stir and skim",
+          "seconds": 20,
+          "detail": "Break the crust, skim off the foam."
+        },
+        {
+          "label": "Press",
+          "seconds": 30,
+          "detail": "Press slowly, then pour right away."
+        }
+      ]
     },
-    "db/items/a4.json": {
-      "text": "Sunscreen",
-      "done": true,
-      "at": 1764000000004
+    "db/methods/aeropress.json": {
+      "name": "AeroPress",
+      "brewer": "aeropress",
+      "order": 3,
+      "ratio": 14,
+      "dose": 15,
+      "grind": "Fine",
+      "temp": 88,
+      "note": "One sweet, short mug in two minutes. Cooler water keeps it soft.",
+      "steps": [
+        {
+          "label": "Pour",
+          "seconds": 15,
+          "pour": 1,
+          "detail": "Fill to the top and start the clock."
+        },
+        {
+          "label": "Stir",
+          "seconds": 10,
+          "detail": "Three gentle stirs."
+        },
+        {
+          "label": "Steep",
+          "seconds": 65,
+          "detail": "Plunger in to hold it. Wait."
+        },
+        {
+          "label": "Press",
+          "seconds": 30,
+          "detail": "Steady pressure until it hisses."
+        }
+      ]
     },
-    "db/items/a5.json": {
-      "text": "A good book",
-      "done": false,
-      "at": 1764000000005
+    "db/brews/cupping-1.json": {
+      "method": "pour-over",
+      "methodName": "Pour-over",
+      "dose": 20,
+      "water": 320,
+      "rating": 5,
+      "note": "Apricot up front, honey as it cools. This is the one for the launch.",
+      "by": "Roastery",
+      "at": 1772528400000
+    },
+    "db/brews/cupping-2.json": {
+      "method": "french-press",
+      "methodName": "French press",
+      "dose": 30,
+      "water": 450,
+      "rating": 4,
+      "note": "Rounder, heavier. A black tea finish, less sparkle.",
+      "by": "Roastery",
+      "at": 1772463600000
     }
   },
   "agent": {
@@ -37,29 +144,96 @@
     "thinkMs": 2500,
     "responses": [
       {
-        "reply": "Done. I retitled the page for the weekend trip and put your note in a tip box at the top.",
-        "edits": [
-          {
-            "kind": "files",
-            "files": {
-              "project/index.html": "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>Packing list</title>\n<style>\n  :root { --bg: #fafaf7; --fg: #1c1c1a; --line: #e3e2dc; --accent: #2f6f4f; }\n  @media (prefers-color-scheme: dark) { :root { --bg: #151514; --fg: #ecebe6; --line: #2c2c29; --accent: #7cc19a; } }\n  body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.5 system-ui, sans-serif; }\n  main { max-width: 480px; margin: 0 auto; padding: 24px 16px; }\n  ul { list-style: none; padding: 0; }\n  li { display: flex; gap: 8px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); }\n  li input { width: 20px; height: 20px; margin: 0; }\n  form { display: flex; gap: 8px; }\n  #text { flex: 1; font: inherit; padding: 8px; }\n  #add { font: inherit; padding: 8px 16px; background: var(--accent); color: var(--bg); border: 0; }\n  li.done span { text-decoration: line-through; }\n  .tip { margin: 0 0 16px; padding: 12px 14px; border-radius: 10px; background: color-mix(in srgb, var(--accent) 14%, var(--bg)); border-left: 4px solid var(--accent); }\n</style>\n</head>\n<body>\n<main>\n  <h1>Weekend trip: packing list</h1>\n  <p class=\"tip\" id=\"agent-tip\">Updated by the agent: {{request}}</p>\n  <form id=\"form\"><input id=\"text\" name=\"text\" autocomplete=\"off\" placeholder=\"Add an item\"><button id=\"add\">Add</button></form>\n  <ul id=\"items\"></ul>\n  <p id=\"status\">Loading…</p>\n</main>\n<script>\n  // A tool someone uses with the mouse and keyboard: items live in db, so every view and the agent see them.\n  (async () => {\n    const status = document.getElementById('status');\n    const db = await window.openArtifact.use('db');\n    if (!db) { status.textContent = 'cannot save here'; return; }\n    const items = db.collection('items');\n    items.orderBy('at').onSnapshot((snap) => {\n      const list = document.getElementById('items');\n      list.replaceChildren(...snap.docs.map((doc) => {\n        const li = document.createElement('li');\n        li.dataset.id = doc.id;\n        li.className = doc.data().done ? 'done' : '';\n        const box = document.createElement('input');\n        box.type = 'checkbox';\n        box.checked = !!doc.data().done;\n        box.addEventListener('change', () => doc.ref.update({ done: box.checked }));\n        const label = document.createElement('span');\n        label.textContent = doc.data().text;\n        li.append(box, label);\n        return li;\n      }));\n      status.textContent = `${snap.size} items`;\n    }, (error) => { status.textContent = `failed: ${error.code}`; });\n    document.getElementById('form').addEventListener('submit', async (event) => {\n      event.preventDefault();\n      const input = document.getElementById('text');\n      const text = input.value.trim();\n      if (!text) return;\n      input.value = '';\n      await items.add({ text, done: false, at: Date.now() });\n    });\n  })().catch((error) => { document.getElementById('status').textContent = `failed: ${error.code || error.message}`; });\n</script>\n</body>\n</html>\n"
-            }
-          }
-        ]
-      },
-      {
-        "reply": "Added the snacks to the list.",
+        "reply": {
+          "en": "On “{{request}}”: I added an iced pour-over beside it. 20 g of coffee, 192 g of hot water brewed straight onto 128 g of ice, done in 2:30. It is today’s pick now, so the page opens on it.",
+          "zh": "关于“{{request}}”：我在旁边加了一个冰手冲。20 克咖啡，192 克热水直接冲在 128 克冰上，2 分 30 秒完成。我把它设成了今日推荐，页面会默认打开它。"
+        },
         "edits": [
           {
             "kind": "db",
             "writes": [
               {
                 "op": "set",
-                "path": "items/agent-{{n}}",
+                "path": "methods/iced-pour-over",
                 "data": {
-                  "text": "Snacks for the road (from the agent)",
-                  "done": false,
-                  "at": 1764000100000
+                  "name": "Iced pour-over",
+                  "brewer": "dripper",
+                  "order": 4,
+                  "ratio": 16,
+                  "dose": 20,
+                  "grind": "Medium-fine",
+                  "temp": 96,
+                  "ice": 0.4,
+                  "note": "Brewed hot onto ice, so the apricot stays bright. Ice goes in the server first.",
+                  "steps": [
+                    {
+                      "label": "Bloom",
+                      "seconds": 40,
+                      "pour": 0.2,
+                      "detail": "Wet all the grounds, then one gentle swirl."
+                    },
+                    {
+                      "label": "Pour",
+                      "seconds": 50,
+                      "pour": 1,
+                      "detail": "One slow pour, centre out."
+                    },
+                    {
+                      "label": "Draw down",
+                      "seconds": 40,
+                      "detail": "It drips straight onto the ice."
+                    },
+                    {
+                      "label": "Swirl",
+                      "seconds": 20,
+                      "detail": "Swirl until the ice is nearly gone, then serve over fresh ice."
+                    }
+                  ]
+                }
+              },
+              {
+                "op": "update",
+                "path": "guide/main",
+                "patch": {
+                  "featured": "iced-pour-over"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "reply": {
+          "en": "For “{{request}}” I rewrote the page itself: the header is now a forest band with a spring launch tag, as on the launch deck. The page reloaded with its new index.html; the recipes and tasting notes are data, so they came through untouched.",
+          "zh": "针对“{{request}}”，这次我改的是页面本身：页头换成了和发布演示稿一致的森林绿横幅，并加上春季发布的标签。页面已用新的 index.html 重新加载；配方和品鉴笔记是数据，原样保留。"
+        },
+        "edits": [
+          {
+            "kind": "files",
+            "files": {
+              "project/index.html": "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>First Light brew guide</title>\n<style>\n/* The methods run across the top; a quiet recipe sheet sits beside one forest-green brewing bench; the log runs under both. */\n:root {\n  --ground: #f7f2e8;  --surface: #fffdf7;  --ink: #1d1b16;  --ink-quiet: #686353;\n  --line: #e7e2d6;    --edge: #a9a391;     --moss: #5b7f5e;\n  --bench: #20402f;   --on-bench: #f7f2e8; --on-bench-quiet: #b4c5b4; --bench-line: #3f5d4c;\n  --accent: #c2562b;  --on-accent: #ffffff; --honey: #e3a53c; --on-honey: #1d1b16;\n  --font-text: system-ui, -apple-system, \"Segoe UI\", \"PingFang SC\", \"Microsoft YaHei\", sans-serif;\n  --font-display: \"Iowan Old Style\", \"Palatino Linotype\", Georgia, serif;\n  --step: 8px;\n  color-scheme: light;\n}\n@media (prefers-color-scheme: dark) {\n  :root {\n    --ground: #161a15;  --surface: #1e231d;  --ink: #efe9db;  --ink-quiet: #a8a696;\n    --line: #2d342c;    --edge: #5d6658;     --moss: #8fb291;\n    --bench: #23392c;   --on-bench: #f1ebdd; --on-bench-quiet: #a9bca9; --bench-line: #3d5747;\n    --accent: #e0703f;  --on-accent: #1a110b; --honey: #e9b55a; --on-honey: #1d1b16;\n    color-scheme: dark;\n  }\n}\n*, *::before, *::after { box-sizing: border-box; }\nbody { margin: 0; background: var(--ground); color: var(--ink); font: 15px/1.5 var(--font-text); -webkit-text-size-adjust: 100%; }\nh1, h2, p, ol, ul, dl, dd { margin: 0; padding: 0; }\nbutton, input { font: inherit; color: inherit; }\n[hidden] { display: none !important; }\n.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }\n.quiet { color: var(--ink-quiet); font-size: 14px; }\n:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }\n\n.wrap { max-width: 980px; margin: 0 auto; padding: calc(var(--step) * 2.5) calc(var(--step) * 2.5) calc(var(--step) * 5); display: grid; gap: calc(var(--step) * 2); }\n\n/* Header */\n.top { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 12px; }\n.mark { width: 30px; height: 30px; flex: none; color: var(--moss); }\nh1 { font: 600 26px/1.15 var(--font-display); letter-spacing: -0.01em; text-wrap: balance; }\n.facts { margin-left: auto; min-height: 21px; }\n.pinned { display: flex; gap: 10px; align-items: baseline; padding: 9px 14px; border-radius: 10px; background: color-mix(in srgb, var(--honey) 24%, var(--ground)); }\n.pinned b { font-weight: 600; white-space: nowrap; }\n.notice { padding: 10px 14px; border-radius: 10px; border: 1px solid var(--edge); }\n\n/* Methods */\n.method-row { display: flex; flex-wrap: wrap; gap: 10px; }\n.ask { flex: none; width: 64px; display: grid; place-items: center; align-content: center; gap: 1px; padding: 6px; border: 1px dashed var(--edge); border-radius: 12px; background: transparent; color: var(--ink-quiet); font-size: 12px; font-weight: 600; cursor: pointer; transition: border-color .15s, color .15s; }\n.ask svg { width: 18px; height: 18px; }\n.ask:hover { border-color: var(--ink); color: var(--ink); }\n.methods { flex: 1 1 0; min-width: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; min-height: 62px; }\n.method { position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 10px; align-items: center; padding: 10px 12px; border: 1px solid var(--edge); border-radius: 12px; cursor: pointer; transition: background-color .15s, border-color .15s, transform .15s; }\n.method > * { pointer-events: none; }\n.method svg { grid-row: span 2; width: 28px; height: 28px; color: var(--moss); }\n.method b { font-weight: 600; line-height: 1.25; }\n.method small { color: var(--ink-quiet); font-size: 12.5px; font-variant-numeric: tabular-nums; }\n.method:hover { border-color: var(--ink); }\n.method.is-on { background: var(--surface); border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); }\n.method.is-on svg { color: var(--accent); }\n.method:has(:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }\n.method .pick { position: absolute; top: -9px; right: 10px; padding: 0 8px; border-radius: 99px; background: var(--honey); color: var(--on-honey); font-size: 11px; font-weight: 700; line-height: 18px; }\n.ask .wide { display: none; }\n.methods .ghost { border: 1px dashed var(--edge); border-radius: 12px; opacity: .5; }\n.methods .empty { grid-column: 1 / -1; align-self: center; padding: 10px 14px; border: 1px dashed var(--edge); border-radius: 12px; color: var(--ink-quiet); }\n\n/* The bench: recipe + brewing */\n.bench { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: calc(var(--step) * 2); }\nh2 { font: 600 18px/1.2 var(--font-display); }\n.recipe { display: grid; gap: 10px; align-content: start; padding: 16px 20px; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; }\n.recipe header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }\n.ratio { font-variant-numeric: tabular-nums; font-weight: 600; }\n.pair { display: flex; align-items: flex-start; gap: 14px; }\n.fig { display: grid; min-width: 0; }\n.fig output { font: 600 40px/1 var(--font-display); font-variant-numeric: tabular-nums lining-nums; }\n.fig .g { margin-left: 4px; font: 600 20px/1 var(--font-display); }\n.fig .cap { color: var(--ink-quiet); font-size: 13px; }\n.pair .arrow { color: var(--accent); font-size: 20px; line-height: 40px; }\n.field { display: flex; align-items: center; gap: 12px; }\n.label { font-size: 13px; font-weight: 600; }\ninput[type=range] { -webkit-appearance: none; appearance: none; width: 100%; height: 28px; margin: 0; background: transparent; cursor: pointer; }\ninput[type=range]::-webkit-slider-runnable-track { height: 6px; border-radius: 3px; background: linear-gradient(to right, var(--accent) var(--fill, 33%), var(--edge) var(--fill, 33%)); }\ninput[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 22px; height: 22px; margin-top: -8px; border-radius: 50%; background: var(--surface); border: 2px solid var(--accent); box-shadow: 0 1px 3px rgb(0 0 0 / .2); transition: transform .12s; }\ninput[type=range]:active::-webkit-slider-thumb { transform: scale(1.15); }\ninput[type=range]::-moz-range-track { height: 6px; border-radius: 3px; background: var(--edge); }\ninput[type=range]::-moz-range-progress { height: 6px; border-radius: 3px; background: var(--accent); }\ninput[type=range]::-moz-range-thumb { width: 18px; height: 18px; border-radius: 50%; background: var(--surface); border: 2px solid var(--accent); }\n.seg { flex: 1; display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; padding: 3px; border: 1px solid var(--edge); border-radius: 10px; }\n.seg span { display: block; padding: 5px 4px; border-radius: 7px; text-align: center; font-size: 13.5px; cursor: pointer; }\n.seg input:checked + span { background: var(--ink); color: var(--ground); font-weight: 600; }\n.seg input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }\n.stats { display: flex; flex-wrap: wrap; gap: 6px 24px; padding-top: 10px; border-top: 1px solid var(--line); }\n.stats dt { font-size: 12.5px; color: var(--ink-quiet); }\n.stats dd { font-size: 14.5px; font-weight: 600; white-space: nowrap; font-variant-numeric: tabular-nums; }\n\n.brew { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px 16px; align-items: center; align-content: space-between; padding: 16px 20px; background: var(--bench); color: var(--on-bench); border-radius: 16px; }\n.dial { width: clamp(150px, 18vw, 190px); }\n.dial svg { display: block; width: 100%; height: auto; }\n.ring-track { fill: none; stroke: var(--bench-line); stroke-width: 9; }\n.ring-fill { fill: none; stroke: var(--accent); stroke-width: 9; }\n.ring-gap { stroke: var(--bench); stroke-width: 3; }\n.ring-head { fill: var(--on-bench); }\n.art { fill: none; stroke: var(--on-bench); stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }\n.art .glass { fill: color-mix(in srgb, var(--on-bench) 9%, transparent); }\n.art .solid { fill: var(--on-bench); }\n.art .coffee { fill: var(--honey); stroke: none; }\n.art .water { fill: color-mix(in srgb, var(--on-bench) 38%, transparent); stroke: none; }\n.art .ice { fill: color-mix(in srgb, var(--on-bench) 30%, transparent); stroke-width: 1.6; }\n.art .drip { fill: var(--honey); stroke: none; }\n.art .steam { stroke: var(--on-bench-quiet); stroke-width: 1.8; opacity: 0; }\n.now { display: grid; gap: 4px; align-content: center; }\n.clock { font: 600 46px/1 var(--font-display); font-variant-numeric: tabular-nums lining-nums; }\n.clock .of { font: 400 14px/1 var(--font-text); color: var(--on-bench-quiet); }\n.step-name { font-weight: 600; font-size: 16px; margin-top: 4px; }\n.step-detail { color: var(--on-bench-quiet); font-size: 13.5px; line-height: 1.4; min-height: 38px; text-wrap: pretty; }\n.controls { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }\n.btn { min-height: 38px; padding: 6px 11px; border-radius: 10px; border: 1px solid var(--on-bench-quiet); background: transparent; color: var(--on-bench); font-size: 13.5px; white-space: nowrap; font-weight: 600; cursor: pointer; transition: transform .1s, background-color .15s; }\n.btn:hover:not(:disabled) { background: color-mix(in srgb, var(--on-bench) 12%, transparent); }\n.btn:active:not(:disabled) { transform: translateY(1px); }\n.btn:disabled { opacity: .45; cursor: default; }\n.btn.icon { width: 38px; padding: 0; display: grid; place-items: center; }\n.btn.icon svg { width: 18px; height: 18px; }\n.btn.primary { border-color: var(--accent); background: var(--accent); color: var(--on-accent); }\n.btn.primary:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 88%, var(--on-bench)); }\n.steps { grid-column: 1 / -1; list-style: none; display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 8px; }\n.steps li { padding: 7px 0 0; border-top: 3px solid var(--bench-line); display: grid; align-content: start; transition: border-color .3s; }\n.steps b { font-size: 13.5px; font-weight: 600; }\n.steps span { font-size: 12.5px; color: var(--on-bench-quiet); font-variant-numeric: tabular-nums; }\n.steps .is-done { border-top-color: var(--moss); }\n.steps .is-now { border-top-color: var(--accent); }\n.steps li:not(.is-now):not(.is-done) b { color: var(--on-bench-quiet); }\n\n/* Tasting log */\n.log { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 10px calc(var(--step) * 2); align-items: start; padding-top: 4px; }\n.log-head { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; }\n.log-form { display: grid; gap: 8px; }\n.rating { display: flex; align-items: center; gap: 2px; }\n.rating label { display: grid; place-items: center; width: 30px; height: 34px; cursor: pointer; }\n.rating label:has(:focus-visible) { outline: 2px solid var(--accent); border-radius: 6px; }\n.rating svg, .beans svg { width: 20px; height: 20px; }\n.bean { fill: var(--bean, none); stroke: var(--bean-edge, var(--edge)); stroke-width: 1.4; }\n.bean-line { fill: none; stroke: var(--bean-crease, var(--edge)); stroke-width: 1.2; stroke-linecap: round; }\n.is-full { --bean: var(--accent); --bean-edge: var(--accent); --bean-crease: var(--ground); }\n.rating label:hover svg { transform: rotate(-12deg) scale(1.1); }\n.rating svg { transition: transform .12s; }\n.rating-word { margin-left: 8px; font-size: 13px; color: var(--ink-quiet); }\n.log-form .row { display: flex; gap: 8px; }\n.log-form input[type=text] { flex: 1; min-width: 0; min-height: 40px; padding: 6px 12px; border: 1px solid var(--edge); border-radius: 10px; background: var(--surface); }\n.btn.dark { border-color: var(--ink); background: var(--ink); color: var(--ground); white-space: nowrap; }\n.btn.dark:hover:not(:disabled) { background: color-mix(in srgb, var(--ink) 86%, var(--ground)); }\n.brews { list-style: none; display: grid; }\n.brews li { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 0 14px; padding: 9px 0; border-top: 1px solid var(--line); }\n.brews li:first-child { border-top: 0; padding-top: 2px; }\n.beans { display: flex; align-items: center; height: 24px; }\n.beans svg { width: 16px; height: 16px; }\n.said { font: 16px/1.4 var(--font-display); overflow-wrap: anywhere; }\n.meta { grid-column: 2; font-size: 12.5px; color: var(--ink-quiet); }\n.brews .none { display: block; color: var(--ink-quiet); }\n\n@media (max-width: 719px) {\n  .wrap { padding: calc(var(--step) * 2) calc(var(--step) * 2) calc(var(--step) * 4); }\n  .bench, .log { grid-template-columns: minmax(0, 1fr); }\n  .facts { margin-left: 0; flex-basis: 100%; }\n  .methods { flex-basis: 100%; }\n  .ask .wide { display: inline; }\n  .ask { width: auto; flex: 1 1 100%; grid-auto-flow: column; justify-content: center; gap: 6px; min-height: 40px; font-size: 13.5px; }\n}\n@media (max-width: 419px) {\n  .brew { grid-template-columns: minmax(0, 1fr); justify-items: center; text-align: center; }\n  .now, .steps { justify-self: stretch; }\n  .controls { justify-content: center; }\n}\n@media (prefers-reduced-motion: no-preference) {\n  .method.pop { animation: pop .5s cubic-bezier(.2, 1.4, .4, 1) both; }\n  .brews li.pop { animation: slide .4s ease-out both; }\n  .is-brewing .steam { animation: steam 2.4s ease-in-out infinite; }\n  .is-brewing .steam + .steam { animation-delay: 1.2s; }\n  @keyframes pop { from { opacity: 0; transform: scale(.9); } 60% { background: color-mix(in srgb, var(--honey) 35%, var(--ground)); } to { opacity: 1; transform: none; } }\n  @keyframes slide { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }\n  @keyframes steam { 0% { opacity: 0; transform: translateY(4px); } 40% { opacity: .9; } 100% { opacity: 0; transform: translateY(-5px); } }\n}\n\n/* Second pass: the header as a forest band, as on the launch deck. */\n.top { padding: 14px 18px; border-radius: 16px; background: var(--bench); color: var(--on-bench); }\n.top .mark { color: var(--honey); }\n.top .facts { color: var(--on-bench-quiet); }\n.edition { padding: 1px 10px; border-radius: 99px; background: var(--honey); color: var(--on-honey); font-size: 12px; font-weight: 700; white-space: nowrap; }\n</style>\n</head>\n<body>\n<svg width=\"0\" height=\"0\" class=\"sr\" aria-hidden=\"true\">\n  <symbol id=\"i-dripper\" viewBox=\"0 0 28 28\"><path d=\"M5 5h18M7 6l5 8h4l5-8M9 16h10M10 16l-2 8h12l-2-8\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></symbol>\n  <symbol id=\"i-press\" viewBox=\"0 0 28 28\"><path d=\"M14 2v7M11 2h6M7 9h13M8 9v15h11V9M19 12h2a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-2M8 15h11\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></symbol>\n  <symbol id=\"i-aeropress\" viewBox=\"0 0 28 28\"><path d=\"M9 2h10M11 2v6h6V2M8 8h12M10 8v10h8V8M8 18h12M10 21v3a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v-3\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></symbol>\n  <symbol id=\"i-bean\" viewBox=\"0 0 20 20\"><ellipse class=\"bean\" cx=\"10\" cy=\"10\" rx=\"5.4\" ry=\"7.6\" transform=\"rotate(32 10 10)\"/><path class=\"bean-line\" d=\"M6.6 4.4c4.4 2.6 1.2 7.4 6.6 11.2\"/></symbol>\n</svg>\n\n<main class=\"wrap\">\n  <header class=\"top\">\n    <svg class=\"mark\" viewBox=\"0 0 30 30\" aria-hidden=\"true\"><path d=\"M6 26C10 18 15 12 25 5M11 19l-6-2M11 19l1 7M15 14l-7-3M15 14l2 7M19.5 10l-6-3M19.5 10l2 6\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\"/><circle cx=\"23\" cy=\"13\" r=\"2.6\" fill=\"currentColor\"/><circle cx=\"18\" cy=\"4.5\" r=\"2.2\" fill=\"currentColor\"/></svg>\n    <h1 id=\"title\">First Light brew guide</h1>\n    <span class=\"edition\">Spring launch edition</span>\n    <p id=\"facts\" class=\"facts quiet\"></p>\n  </header>\n\n  <p id=\"status\" class=\"notice\" role=\"status\" hidden></p>\n  <p id=\"pinned\" class=\"pinned\" hidden></p>\n\n  <div class=\"method-row\">\n    <div id=\"methods\" class=\"methods\" role=\"radiogroup\" aria-label=\"Brew method\">\n      <span class=\"ghost\"></span><span class=\"ghost\"></span><span class=\"ghost\"></span>\n    </div>\n    <button id=\"ask\" class=\"ask\" type=\"button\" title=\"Ask the agent for another method\" hidden><svg viewBox=\"0 0 20 20\" aria-hidden=\"true\"><path d=\"M10 4v12M4 10h12\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\"/></svg><span>Ask<span class=\"wide\"> for another method</span></span></button>\n  </div>\n\n  <div class=\"bench\">\n    <section id=\"recipe\" class=\"recipe\" aria-labelledby=\"recipe-title\">\n      <header><h2 id=\"recipe-title\">Recipe</h2><span id=\"ratio\" class=\"ratio quiet\"></span></header>\n      <div class=\"pair\">\n        <div class=\"fig\"><div><output id=\"dose-out\" for=\"dose\">–</output><span class=\"g\">g</span></div><span class=\"cap\">coffee</span></div>\n        <span class=\"arrow\" aria-hidden=\"true\">→</span>\n        <div class=\"fig\"><div><output id=\"water-out\" for=\"dose\">–</output><span class=\"g\">g</span></div><span id=\"water-unit\" class=\"cap\">water</span></div>\n      </div>\n      <input id=\"dose\" type=\"range\" min=\"10\" max=\"40\" step=\"1\" value=\"20\" aria-label=\"Coffee dose in grams\" disabled>\n      <div class=\"field\">\n        <span class=\"label\" id=\"strength-label\">Strength</span>\n        <div id=\"strength\" class=\"seg\" role=\"radiogroup\" aria-labelledby=\"strength-label\">\n          <label><input class=\"sr\" type=\"radio\" name=\"strength\" value=\"-1\"><span>Bolder</span></label>\n          <label><input class=\"sr\" type=\"radio\" name=\"strength\" value=\"0\" checked><span>Classic</span></label>\n          <label><input class=\"sr\" type=\"radio\" name=\"strength\" value=\"1\"><span>Lighter</span></label>\n        </div>\n      </div>\n      <dl id=\"stats\" class=\"stats\"></dl>\n      <p id=\"method-note\" class=\"quiet\"></p>\n    </section>\n\n    <section id=\"brew\" class=\"brew\" aria-labelledby=\"brew-title\">\n      <h2 id=\"brew-title\" class=\"sr\">Brew timer</h2>\n      <div class=\"dial\">\n        <svg id=\"dial\" viewBox=\"0 0 200 200\" role=\"img\" aria-label=\"Brew progress\">\n          <circle class=\"ring-track\" cx=\"100\" cy=\"100\" r=\"90\"/>\n          <circle id=\"ring\" class=\"ring-fill\" cx=\"100\" cy=\"100\" r=\"90\" transform=\"rotate(-90 100 100)\" stroke-dasharray=\"565.49\" stroke-dashoffset=\"565.49\"/>\n          <g id=\"ring-gaps\"></g>\n          <circle id=\"ring-head\" class=\"ring-head\" r=\"5.5\" cx=\"100\" cy=\"10\" hidden/>\n          <svg id=\"art\" class=\"art\" x=\"46\" y=\"38\" width=\"108\" height=\"126\" viewBox=\"0 0 108 126\"></svg>\n        </svg>\n      </div>\n      <div class=\"now\">\n        <p class=\"clock\"><span id=\"clock\">0:00</span> <span id=\"total\" class=\"of\"></span></p>\n        <div aria-live=\"polite\">\n          <p id=\"step-name\" class=\"step-name\">Loading…</p>\n          <p id=\"step-detail\" class=\"step-detail\"></p>\n        </div>\n        <div class=\"controls\">\n          <button id=\"start\" class=\"btn primary\" type=\"button\" disabled>Start brewing</button>\n          <button id=\"next\" class=\"btn\" type=\"button\" disabled>Next step</button>\n          <button id=\"reset\" class=\"btn icon\" type=\"button\" aria-label=\"Reset the timer\" title=\"Reset\" disabled><svg viewBox=\"0 0 20 20\" aria-hidden=\"true\"><path d=\"M4.5 10a5.5 5.5 0 1 0 1.7-4M4 3.5V7h3.5\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg></button>\n        </div>\n      </div>\n      <ol id=\"steps\" class=\"steps\" aria-label=\"Steps\"></ol>\n    </section>\n  </div>\n\n  <section id=\"log\" class=\"log\" aria-labelledby=\"log-title\">\n    <div class=\"log-head\"><h2 id=\"log-title\">Tasting log</h2><p id=\"log-for\" class=\"quiet\"></p></div>\n    <form id=\"log-form\" class=\"log-form\">\n      <div class=\"rating\" id=\"rating\" role=\"radiogroup\" aria-label=\"How was it?\"></div>\n      <label class=\"sr\" for=\"note\">Tasting note</label>\n      <div class=\"row\">\n        <input id=\"note\" name=\"note\" type=\"text\" maxlength=\"140\" autocomplete=\"off\" placeholder=\"What did you taste?\">\n        <button id=\"save\" class=\"btn dark\" type=\"submit\" disabled>Save to log</button>\n      </div>\n      <p id=\"log-status\" class=\"quiet\" role=\"status\"></p>\n    </form>\n    <ul id=\"brews\" class=\"brews\" aria-label=\"Saved tasting notes\"><li class=\"none\">Loading the log…</li></ul>\n  </section>\n</main>\n\n<script>\n// A brew guide that is a small app. Everything it shows is data in the page's own database, so the agent and every\n// open view share it: `guide/main` (the blend, today's pick, a pinned note), `methods/*` (the recipes) and `brews/*`\n// (tasting notes people save here).\n(() => {\n  'use strict';\n  const $ = (id) => document.getElementById(id);\n  const SVG = 'http://www.w3.org/2000/svg';\n  const RING = 2 * Math.PI * 90;\n  const WORDS = ['', 'Not for me', 'Fine', 'Good', 'Very good', 'Best cup this week'];\n  const clamp = (v, lo = 0, hi = 1) => Math.min(hi, Math.max(lo, v));\n  const clock = (s) => `${Math.floor(Math.round(s) / 60)}:${String(Math.round(s) % 60).padStart(2, '0')}`;\n  const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text !== undefined) n.textContent = text; return n; };\n  const icon = (name, cls) => { const s = document.createElementNS(SVG, 'svg'); s.setAttribute('aria-hidden', 'true'); if (cls) s.setAttribute('class', cls); const u = document.createElementNS(SVG, 'use'); u.setAttribute('href', `#i-${name}`); s.append(u); return s; };\n\n  const state = { methods: [], guide: null, gotMethods: false, gotGuide: false, id: null, wish: null, seen: null, dose: 20, strength: 0, rating: 4, elapsed: 0, base: 0, since: 0, running: false, done: false, me: 'Someone' };\n  let brews = null;\n  let comments = null;\n  let frame = 0;\n\n  /* ---- the recipe maths ---- */\n  const KINDS = ['dripper', 'press', 'aeropress'];\n  function method(id, d) {\n    const steps = (Array.isArray(d.steps) ? d.steps : []).filter((s) => s && s.seconds > 0).map((s) => ({ label: String(s.label ?? 'Step'), detail: String(s.detail ?? ''), seconds: Number(s.seconds), pour: typeof s.pour === 'number' ? clamp(s.pour) : null }));\n    if (!steps.length || !(d.ratio > 0)) return null;\n    return { id, name: String(d.name ?? id), brewer: KINDS.includes(d.brewer) ? d.brewer : 'dripper', ratio: Number(d.ratio), dose: clamp(Math.round(d.dose) || 20, 10, 40), grind: String(d.grind ?? ''), temp: Number(d.temp) || 0, ice: clamp(Number(d.ice) || 0, 0, 0.6), note: String(d.note ?? ''), steps, total: steps.reduce((a, s) => a + s.seconds, 0) };\n  }\n  const current = () => state.methods.find((m) => m.id === state.id) ?? null;\n  /** The recipe for the dose and strength on the page: grams of water, and when each step starts and what it pours to. */\n  function plan(m) {\n    const ratio = m.ratio + state.strength;\n    const water = Math.round(state.dose * ratio);\n    const ice = Math.round(water * m.ice);\n    const hot = water - ice;\n    let at = 0;\n    let poured = 0;\n    const steps = m.steps.map((s) => {\n      const step = { ...s, from: at, to: at + s.seconds, pourFrom: poured, pourTo: s.pour ?? poured, grams: s.pour === null ? null : Math.round(hot * s.pour) };\n      at = step.to;\n      poured = step.pourTo;\n      return step;\n    });\n    return { ratio, water, ice, hot, steps, cup: Math.max(0, water - 2 * state.dose) };\n  }\n\n  /* ---- methods ---- */\n  function drawMethods() {\n    const box = $('methods');\n    if (!state.gotMethods || !state.gotGuide) return;\n    const focused = box.contains(document.activeElement);\n    $('ask').hidden = !comments || !state.methods.length;\n    if (!state.methods.length) {\n      box.replaceChildren(el('p', 'empty', 'No brew methods yet. They show up here the moment they are added.'));\n      state.seen = new Set();\n      return;\n    }\n    box.replaceChildren(...state.methods.map((m) => {\n      const card = el('label', `method${m.id === state.id ? ' is-on' : ''}${state.seen && !state.seen.has(m.id) ? ' pop' : ''}`);\n      card.id = `method-${m.id}`;\n      const radio = el('input', 'sr');\n      radio.type = 'radio';\n      radio.name = 'method';\n      radio.value = m.id;\n      radio.checked = m.id === state.id;\n      radio.addEventListener('change', () => choose(m.id));\n      card.append(radio, icon(m.brewer), el('b', '', m.name), document.createTextNode(' '), el('small', '', `1:${m.ratio} · ${clock(m.total)}`));\n      if (state.guide?.featured === m.id) card.append(document.createTextNode(' '), el('span', 'pick', 'Today’s pick'));\n      return card;\n    }));\n    state.seen = new Set(state.methods.map((m) => m.id));\n    if (focused) box.querySelector('input:checked')?.focus();\n  }\n  function choose(id) {\n    const m = state.methods.find((x) => x.id === id);\n    if (!m) return;\n    state.id = id;\n    state.dose = m.dose;\n    state.strength = 0;\n    resetTimer();\n    draw();\n  }\n  /** Opens on today's pick, and follows it when it changes, unless a brew is running. */\n  function follow() {\n    if (!state.gotMethods || !state.gotGuide) return;\n    if (state.wish && !state.running && state.methods.some((m) => m.id === state.wish)) {\n      const id = state.wish;\n      state.wish = null;\n      if (id !== state.id) return choose(id);\n    }\n    if (!current() && state.methods.length) return choose(state.methods[0].id);\n    draw();\n  }\n\n  /* ---- recipe ---- */\n  function drawRecipe() {\n    const m = current();\n    const dose = $('dose');\n    dose.disabled = !m;\n    for (const r of document.querySelectorAll('input[name=strength]')) { r.disabled = !m; r.checked = Number(r.value) === state.strength; }\n    $('save').disabled = !m || !brews;\n    if (!m) {\n      $('ratio').textContent = '';\n      $('dose-out').textContent = $('water-out').textContent = '–';\n      $('stats').replaceChildren();\n      $('method-note').textContent = '';\n      $('log-for').textContent = '';\n      return;\n    }\n    const p = plan(m);\n    dose.value = String(state.dose);\n    dose.style.setProperty('--fill', `${((state.dose - 10) / 30) * 100}%`);\n    dose.setAttribute('aria-valuetext', `${state.dose} grams of coffee`);\n    $('ratio').textContent = `1 : ${p.ratio}`;\n    $('dose-out').textContent = String(state.dose);\n    $('water-out').textContent = String(p.hot);\n    $('water-unit').textContent = p.ice ? `hot water, over ${p.ice} g ice` : 'water';\n    const stat = (name, value) => { const d = el('div'); d.append(el('dt', '', name), el('dd', '', value)); return d; };\n    $('stats').replaceChildren(\n      stat('In the cup', `≈ ${Math.round(p.cup / 10) * 10} ml`),\n      stat('Grind', m.grind || '–'),\n      stat('Water', m.temp ? `${m.temp} °C` : '–'),\n    );\n    $('method-note').textContent = m.note;\n    $('log-for').textContent = `Saves with what is on the bench: ${m.name}, ${state.dose} g.`;\n  }\n\n  /* ---- the brewer, drawn ---- */\n  const ART = {\n    dripper: (m) => `<path class=\"steam\" d=\"M44 17c-4-5 4-8 0-13\"/><path class=\"steam\" d=\"M62 17c-4-5 4-8 0-13\"/>\n      <polygon id=\"a-water\" class=\"water\"/><polygon id=\"a-coffee\" class=\"coffee\"/>\n      <path class=\"glass\" d=\"M26 24h56L62 54H46Z\"/><path d=\"M21 22h66M48 54v4M60 54v4M40 58h28\"/>\n      <path class=\"glass\" d=\"M34 62h40l10 50q1 6-5 6H29q-6 0-5-6Z\"/>\n      <g id=\"a-ice\"${m.ice ? '' : ' hidden'}><rect class=\"ice\" x=\"34\" y=\"98\" width=\"13\" height=\"13\" rx=\"2\" transform=\"rotate(-14 40 104)\"/><rect class=\"ice\" x=\"52\" y=\"100\" width=\"13\" height=\"13\" rx=\"2\" transform=\"rotate(10 58 106)\"/><rect class=\"ice\" x=\"44\" y=\"86\" width=\"12\" height=\"12\" rx=\"2\" transform=\"rotate(24 50 92)\"/></g>\n      <circle id=\"a-drip\" class=\"drip\" r=\"1.8\" cx=\"54\" cy=\"62\" hidden/>`,\n    press: () => `<rect id=\"a-coffee\" class=\"coffee\" x=\"32\" width=\"44\" rx=\"2\"/>\n      <rect class=\"glass\" x=\"30\" y=\"56\" width=\"48\" height=\"64\" rx=\"4\"/><path d=\"M78 68q16 0 16 18t-16 18M25 122h58\"/>\n      <rect class=\"solid\" x=\"27\" y=\"50\" width=\"54\" height=\"6\" rx=\"2\"/>\n      <g id=\"a-plunger\"><path d=\"M54 4v62M34 66h40\"/><circle class=\"solid\" cx=\"54\" cy=\"4\" r=\"3.5\"/></g>`,\n    aeropress: () => `<rect id=\"a-coffee\" class=\"coffee\" x=\"42\" width=\"24\"/><polygon id=\"a-cup\" class=\"coffee\"/>\n      <rect class=\"glass\" x=\"40\" y=\"38\" width=\"28\" height=\"48\"/><path d=\"M36 38h36M34 88h40\"/>\n      <g id=\"a-plunger\"><rect class=\"glass\" x=\"43\" y=\"4\" width=\"22\" height=\"40\" rx=\"2\"/><path d=\"M38 4h32\"/><path class=\"solid\" d=\"M43 41h22v3H43z\"/></g>\n      <path class=\"glass\" d=\"M34 94h40l-3 24q0 3-3 3H40q-3 0-3-3Z\"/><path d=\"M74 100q13 0 13 9t-15 9\"/>`,\n  };\n  let artFor = '';\n  function drawArt(m, p, t) {\n    const art = $('art');\n    const key = m ? `${m.brewer}/${m.ice ? 1 : 0}` : '';\n    if (key !== artFor) { art.innerHTML = m ? ART[m.brewer](m) : ''; artFor = key; }\n    if (!m) return;\n    const part = (id) => art.querySelector(`#${id}`);\n    const step = p.steps.find((s) => t < s.to) ?? p.steps.at(-1);\n    const within = clamp((t - step.from) / step.seconds);\n    const poured = step.pourFrom + (step.pourTo - step.pourFrom) * (step.pour === null ? 1 : within);\n    const progress = clamp(t / m.total);\n    const last = step === p.steps.at(-1) ? within : 0;\n    if (m.brewer === 'dripper') {\n      // What has dripped through is in the server; what was poured and has not is still in the cone.\n      const top = 116.5 - 48 * progress;\n      const left = (y) => (y <= 112 ? 34 - (y - 62) * 0.2 : 24.5);\n      part('a-coffee').setAttribute('points', progress > 0 ? `${left(top) + 1.5},${top} ${106.5 - left(top)},${top} 82.5,112 81,116.5 27,116.5 25.5,112` : '');\n      const cone = clamp((poured - progress) * 2.4);\n      const y = 53.5 - 27 * cone;\n      part('a-water').setAttribute('points', cone > 0.02 ? `${46.5 - (54 - y) * 0.667},${y} ${61.5 + (54 - y) * 0.667},${y} 61,53.5 47,53.5` : '');\n      const drip = part('a-drip');\n      drip.toggleAttribute('hidden', !(state.running && progress < 1));\n      drip.setAttribute('cy', String(60 + ((t * 1.7) % 1) * (top - 61)));\n      part('a-ice').setAttribute('opacity', String(1 - 0.75 * progress));\n    } else if (m.brewer === 'press') {\n      const h = 48 * poured;\n      part('a-coffee').setAttribute('y', String(118 - h));\n      part('a-coffee').setAttribute('height', String(h));\n      part('a-plunger').setAttribute('transform', `translate(0 ${(m.total && t >= m.total ? 1 : last) * 44})`);\n    } else {\n      const down = (t >= m.total ? 1 : last) * 38;\n      const top = Math.max(44 + down, 86 - 40 * poured);\n      part('a-coffee').setAttribute('y', String(top));\n      part('a-coffee').setAttribute('height', String(Math.max(0, 86 - top)));\n      part('a-plunger').setAttribute('transform', `translate(0 ${down})`);\n      const level = t >= m.total ? 1 : last;\n      const y = 119.5 - 21 * level;\n      const left = (v) => 34 + (v - 94) * (3 / 24);\n      part('a-cup').setAttribute('points', level > 0 ? `${left(y) + 1.5},${y} ${106.5 - left(y)},${y} 69.5,117 68,119.5 40,119.5 38.5,117` : '');\n    }\n  }\n\n  /* ---- the timer ---- */\n  let stepsFor = '';\n  function drawTimer() {\n    const m = current();\n    const p = m ? plan(m) : null;\n    const t = m ? Math.min(state.elapsed, m.total) : 0;\n    const key = m ? `${m.id}/${state.dose}/${state.strength}/${m.total}` : '';\n    if (key !== stepsFor) {\n      stepsFor = key;\n      $('steps').replaceChildren(...(p ? p.steps : []).map((s) => {\n        const li = el('li');\n        li.append(el('b', '', s.label), el('span', '', `${clock(s.from)}${s.grams === null ? '' : ` · to ${s.grams} g`}`));\n        return li;\n      }));\n      $('ring-gaps').replaceChildren(...(p ? p.steps : []).map((s) => {\n        const a = (s.from / m.total) * 2 * Math.PI - Math.PI / 2;\n        const line = document.createElementNS(SVG, 'line');\n        line.setAttribute('class', 'ring-gap');\n        for (const [k, r] of [['1', 84], ['2', 96]]) { line.setAttribute(`x${k}`, (100 + r * Math.cos(a)).toFixed(2)); line.setAttribute(`y${k}`, (100 + r * Math.sin(a)).toFixed(2)); }\n        return line;\n      }));\n      $('total').textContent = m ? `of ${clock(m.total)}` : '';\n    }\n    const progress = m ? clamp(t / m.total) : 0;\n    $('ring').setAttribute('stroke-dashoffset', (RING * (1 - progress)).toFixed(1));\n    const head = $('ring-head');\n    head.toggleAttribute('hidden', !(progress > 0 && progress < 1));\n    const a = progress * 2 * Math.PI - Math.PI / 2;\n    head.setAttribute('cx', (100 + 90 * Math.cos(a)).toFixed(1));\n    head.setAttribute('cy', (100 + 90 * Math.sin(a)).toFixed(1));\n    drawArt(m, p, t);\n    $('brew').classList.toggle('is-brewing', state.running);\n    const text = (id, value) => { const n = $(id); if (n.textContent !== value) n.textContent = value; };\n    text('clock', clock(Math.floor(t)));\n    const index = !m ? -1 : state.done ? p.steps.length : p.steps.findIndex((s) => t < s.to);\n    [...$('steps').children].forEach((li, i) => {\n      li.classList.toggle('is-done', i < index);\n      li.classList.toggle('is-now', i === index);\n      const s = p.steps[i];\n      const grams = s.grams === null ? '' : ` · to ${s.grams} g`;\n      const words = i === index && state.elapsed > 0 ? `${clock(Math.max(0, Math.ceil(s.to - t)))} left` : `${clock(s.from)}${grams}`;\n      if (li.lastChild.textContent !== words) li.lastChild.textContent = words;\n    });\n    if (!m) {\n      text('step-name', state.gotMethods && state.gotGuide ? 'No method yet' : 'Loading…');\n      text('step-detail', '');\n    } else if (state.done) {\n      text('step-name', 'Done. Pour and enjoy.');\n      text('step-detail', `Brewed in ${clock(m.total)}. Save how it tasted in the log below.`);\n    } else {\n      const s = p.steps[index];\n      text('step-name', s.label);\n      text('step-detail', `${s.grams === null ? '' : `Pour to ${s.grams} g. `}${s.detail}`);\n    }\n    text('start', state.running ? 'Pause' : state.done ? 'Brew again' : state.elapsed > 0 ? 'Resume' : 'Start brewing');\n    $('start').disabled = !m;\n    $('next').disabled = !m || state.done;\n    $('reset').disabled = !m || state.elapsed === 0;\n  }\n  function tick() {\n    frame = 0;\n    const m = current();\n    if (!state.running || !m) return;\n    state.elapsed = state.base + (performance.now() - state.since) / 1000;\n    if (state.elapsed >= m.total) finish(m);\n    drawTimer();\n    if (state.running) frame = requestAnimationFrame(tick);\n  }\n  function run(on) {\n    state.running = on;\n    state.base = state.elapsed;\n    state.since = performance.now();\n    cancelAnimationFrame(frame);\n    if (on) frame = requestAnimationFrame(tick);\n    drawTimer();\n  }\n  function finish(m) {\n    state.elapsed = m.total;\n    state.running = false;\n    state.done = true;\n  }\n  function resetTimer() {\n    cancelAnimationFrame(frame);\n    Object.assign(state, { elapsed: 0, base: 0, running: false, done: false });\n  }\n  $('start').addEventListener('click', () => {\n    if (!current()) return;\n    if (state.done) resetTimer();\n    run(!state.running);\n  });\n  $('next').addEventListener('click', () => {\n    const m = current();\n    if (!m || state.done) return;\n    const step = plan(m).steps.find((s) => state.elapsed < s.to);\n    state.elapsed = step.to;\n    if (state.elapsed >= m.total) { finish(m); cancelAnimationFrame(frame); drawTimer(); } else run(state.running);\n  });\n  $('reset').addEventListener('click', () => { resetTimer(); drawTimer(); follow(); });\n  // The page asks the agent itself: a comment on the methods, which the person sends on.\n  $('ask').addEventListener('click', () => { comments?.openComposer({ element: $('methods') }).catch(() => {}); });\n  $('dose').addEventListener('input', (event) => { state.dose = Number(event.target.value); drawRecipe(); drawTimer(); });\n  $('strength').addEventListener('change', (event) => { state.strength = Number(event.target.value); drawRecipe(); drawTimer(); });\n\n  /* ---- the header ---- */\n  function drawGuide() {\n    const g = state.guide ?? {};\n    $('facts').textContent = [g.roast && `${g.roast} roast`, g.origin, Array.isArray(g.tastes) && g.tastes.join(', ')].filter(Boolean).join(' · ');\n    const pinned = $('pinned');\n    const note = g.note && typeof g.note.text === 'string' ? g.note : null;\n    pinned.hidden = !note;\n    if (note) pinned.replaceChildren(el('b', '', `Pinned${note.by ? ` by ${note.by}` : ''}`), el('span', '', `“${note.text}”`));\n  }\n  function draw() { drawGuide(); drawMethods(); drawRecipe(); drawTimer(); }\n\n  /* ---- the tasting log ---- */\n  function beans(n, cls) {\n    const row = el('span', cls);\n    for (let i = 1; i <= 5; i++) row.append(icon('bean', i <= n ? 'is-full' : ''));\n    return row;\n  }\n  function paintRating() {\n    [...$('rating').querySelectorAll('label')].forEach((label, i) => label.classList.toggle('is-full', i < state.rating));\n    $('rating').lastChild.textContent = WORDS[state.rating];\n  }\n  function drawRating() {\n    $('rating').replaceChildren(...[1, 2, 3, 4, 5].map((n) => {\n      const label = el('label');\n      const radio = el('input', 'sr');\n      radio.type = 'radio';\n      radio.name = 'rating';\n      radio.value = String(n);\n      radio.checked = n === state.rating;\n      radio.setAttribute('aria-label', `${n} of 5: ${WORDS[n]}`);\n      radio.addEventListener('change', () => { state.rating = n; paintRating(); });\n      label.append(radio, icon('bean'));\n      return label;\n    }), el('span', 'rating-word'));\n    paintRating();\n  }\n  let shown = null;\n  function drawBrews(docs) {\n    const list = $('brews');\n    if (!docs.length) return list.replaceChildren(el('li', 'none', 'No tasting notes yet. Brew a cup, then save how it tasted.'));\n    list.replaceChildren(...docs.map((doc) => {\n      const b = doc.data();\n      const li = el('li', shown && !shown.has(doc.id) ? 'pop' : '');\n      const stars = beans(clamp(Math.round(b.rating) || 0, 0, 5), 'beans');\n      stars.setAttribute('role', 'img');\n      stars.setAttribute('aria-label', `${b.rating} of 5`);\n      const when = typeof b.at === 'number' ? (Date.now() - b.at < 60000 ? 'just now' : new Date(b.at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })) : '';\n      li.append(stars, el('p', 'said', b.note ? String(b.note) : 'No notes'), el('p', 'meta', [b.methodName, b.dose && `${b.dose} g`, b.by, when].filter(Boolean).join(' · ')));\n      return li;\n    }));\n    shown = new Set(docs.map((d) => d.id));\n  }\n  $('log-form').addEventListener('submit', async (event) => {\n    event.preventDefault();\n    const m = current();\n    if (!m || !brews) return;\n    const note = $('note').value.trim();\n    const status = $('log-status');\n    $('save').disabled = true;\n    try {\n      await brews.add({ method: m.id, methodName: m.name, dose: state.dose, water: plan(m).water, rating: state.rating, note, by: state.me, at: Date.now() });\n      $('note').value = '';\n      status.textContent = 'Saved to the log.';\n    } catch (error) {\n      status.textContent = `Not saved (${error.code || error.message}). Your note is still in the box: try again.`;\n    }\n    $('save').disabled = false;\n  });\n\n  /* ---- data ---- */\n  function cannotSave(why) {\n    const status = $('status');\n    status.hidden = false;\n    status.textContent = why;\n    state.gotMethods = state.gotGuide = true;\n    $('brews').replaceChildren(el('li', 'none', 'The log is not available here.'));\n    draw();\n  }\n  async function start() {\n    drawRating();\n    const oa = window.openArtifact;\n    const db = oa ? await oa.use('db') : null;\n    if (!db) return cannotSave('This page cannot reach its data here, so there are no recipes to show and nothing can be saved.');\n    const fail = (error) => cannotSave(`The page lost its data (${error.code || error.message}). Reload to try again.`);\n    oa.use('user').then((user) => user?.me()).then((me) => { if (me?.name) state.me = me.name; }).catch(() => {});\n    oa.use('comments').then((c) => { comments = c; drawMethods(); }).catch(() => {});\n    db.doc('guide/main').onSnapshot((snap) => {\n      const guide = snap.exists ? snap.data() : {};\n      if (guide.featured && guide.featured !== state.guide?.featured) state.wish = guide.featured;\n      state.guide = guide;\n      state.gotGuide = true;\n      follow();\n    }, fail);\n    db.collection('methods').orderBy('order').onSnapshot((snap) => {\n      state.methods = snap.docs.map((doc) => method(doc.id, doc.data())).filter(Boolean);\n      state.gotMethods = true;\n      if (state.id && !current()) { state.id = null; resetTimer(); }\n      follow();\n    }, fail);\n    brews = db.collection('brews');\n    brews.orderBy('at', 'desc').limit(12).onSnapshot((snap) => drawBrews(snap.docs), fail);\n    drawRecipe();\n  }\n  start().catch((error) => cannotSave(`The page did not start (${error.code || error.message}).`));\n})();\n</script>\n</body>\n</html>\n"
+            }
+          }
+        ]
+      },
+      {
+        "reply": {
+          "en": "I pinned “{{request}}” to the top of the guide, so everyone who opens it sees it, and moved today’s pick to the French press.",
+          "zh": "我把“{{request}}”置顶在指南最上面，打开页面的人都能看到，并把今日推荐换成了法压壶。"
+        },
+        "edits": [
+          {
+            "kind": "db",
+            "writes": [
+              {
+                "op": "update",
+                "path": "guide/main",
+                "patch": {
+                  "note": {
+                    "text": "{{request}}",
+                    "by": "Agent"
+                  },
+                  "featured": "french-press"
                 }
               }
             ]
@@ -67,5 +241,81 @@
         ]
       }
     ]
+  },
+  "replay": {
+    "prompt": {
+      "en": "/open-artifact page a brew guide for First Light: pick a method, set the dose, follow a step timer, keep our tasting notes",
+      "zh": "/open-artifact page 给 First Light 做一个冲煮指南：选冲煮方式、调粉量、跟着分步计时器冲，还能记下我们的品鉴笔记"
+    },
+    "steps": [
+      {
+        "say": "Read the page type’s guide",
+        "ms": 600
+      },
+      {
+        "say": "Write project/index.html",
+        "edits": [
+          {
+            "kind": "files",
+            "files": {
+              "project/index.html": "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>First Light brew guide</title>\n<style>\n/* The methods run across the top; a quiet recipe sheet sits beside one forest-green brewing bench; the log runs under both. */\n:root {\n  --ground: #f7f2e8;  --surface: #fffdf7;  --ink: #1d1b16;  --ink-quiet: #686353;\n  --line: #e7e2d6;    --edge: #a9a391;     --bench: #20402f;  --on-bench: #f7f2e8;\n  --font-text: system-ui, -apple-system, \"Segoe UI\", \"PingFang SC\", \"Microsoft YaHei\", sans-serif;\n  --font-display: \"Iowan Old Style\", \"Palatino Linotype\", Georgia, serif;\n  --step: 8px;\n  color-scheme: light;\n}\n@media (prefers-color-scheme: dark) {\n  :root { --ground: #161a15; --surface: #1e231d; --ink: #efe9db; --ink-quiet: #a8a696; --line: #2d342c; --edge: #5d6658; --bench: #23392c; --on-bench: #f1ebdd; color-scheme: dark; }\n}\n*, *::before, *::after { box-sizing: border-box; }\nbody { margin: 0; background: var(--ground); color: var(--ink); font: 15px/1.5 var(--font-text); }\nh1, h2, p { margin: 0; }\nh1 { font: 600 26px/1.15 var(--font-display); }\nh2 { font: 600 18px/1.2 var(--font-display); }\n.wrap { max-width: 980px; margin: 0 auto; padding: calc(var(--step) * 2.5); display: grid; gap: calc(var(--step) * 2); }\n.methods { min-height: 62px; }\n.bench { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: calc(var(--step) * 2); }\n.methods, .recipe, .brew, .log { padding: 18px 20px; border: 1px dashed var(--edge); border-radius: 16px; display: grid; gap: 6px; align-content: start; }\n.recipe, .brew { min-height: 280px; }\n.brew { border-style: solid; border-color: var(--bench); background: var(--bench); color: var(--on-bench); }\n.plan { color: var(--ink-quiet); font-size: 14px; }\n.brew .plan { color: inherit; opacity: .75; }\n@media (max-width: 719px) { .bench { grid-template-columns: minmax(0, 1fr); } }\n</style>\n</head>\n<body>\n<main class=\"wrap\">\n  <header><h1 id=\"title\">First Light brew guide</h1></header>\n  <div id=\"methods\" class=\"methods\"><p class=\"plan\">Brew methods, from the page's database: one card each.</p></div>\n  <div class=\"bench\">\n    <section id=\"recipe\" class=\"recipe\"><h2>Recipe</h2><p class=\"plan\">Dose slider and strength. Water, yield, grind and temperature follow.</p></section>\n    <section id=\"brew\" class=\"brew\"><h2>Brew timer</h2><p class=\"plan\">A progress ring around the brewer, the step to do now, and the steps ahead.</p></section>\n  </div>\n  <section id=\"log\" class=\"log\"><h2>Tasting log</h2><p class=\"plan\">A rating, a note, and what the team has saved so far.</p></section>\n</main>\n</body>\n</html>\n"
+            }
+          }
+        ],
+        "open": true,
+        "ms": 1300
+      },
+      {
+        "say": "Edit project/index.html",
+        "take": [
+          "project/index.html"
+        ],
+        "ms": 1600
+      },
+      {
+        "say": "ArtifactData · write guide/main, 3 methods",
+        "take": [
+          "db/guide/main.json",
+          "db/methods/*"
+        ],
+        "chunks": 4,
+        "ms": 1700
+      },
+      {
+        "say": "ArtifactData · write 2 brews",
+        "take": [
+          "db/brews/*"
+        ],
+        "chunks": 2,
+        "ms": 900
+      },
+      {
+        "say": "Artifact · call snapshot",
+        "ms": 800
+      }
+    ],
+    "made": {
+      "en": "The brew guide is open: three methods, a dose slider that reworks the water, a step timer and a tasting log. Recipes and notes are data in the page’s own database, so you can save to it and I can add to it. Comment on anything you want changed.",
+      "zh": "冲煮指南已经打开：三种冲煮方式、会重算水量的粉量滑杆、分步计时器和品鉴记录。配方和笔记是页面自带数据库里的数据，你能往里存，我也能往里加。想改哪里，直接在上面评论。"
+    },
+    "comment": {
+      "text": {
+        "en": "Add an iced version of this one",
+        "zh": "给这个加一个冰的版本"
+      },
+      "anchor": "{\"path\":\"#method-pour-over\",\"x\":0.86,\"y\":0.5}",
+      "label": "Pour-over 1:16 · 3:00 Today’s pick",
+      "location": {
+        "custom": {
+          "path": "#method-pour-over",
+          "x": 0.86,
+          "y": 0.5
+        }
+      },
+      "at": [
+        0.261,
+        0.241
+      ]
+    }
   }
 }

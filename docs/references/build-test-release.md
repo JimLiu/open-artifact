@@ -154,7 +154,8 @@ checks the separate desktop-update controls, saved preferences and test-mode ref
 frame-host client that the root `npm run build` produced and bundles the Docs/Sheets engines with the root esbuild.
 `node website/build.mjs` builds both into `website/dist/` (site at the root, playground under `playground/`; `SITE_BASE`,
 `SITE_URL`); `cd website && npm run verify` checks every internal link, the home page's live stage (which frames the
-demos) and the playground's headless-Chrome checks against it. See `website/README.md`.
+demos and plays their replays) and the playground's headless-Chrome checks against it (`playground/scripts/verify.mjs`,
+one file of checks per demo in `scripts/verify/`, each demo's replay included). See `website/README.md`.
 
 ## Releasing
 

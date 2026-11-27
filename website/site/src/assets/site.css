@@ -229,6 +229,9 @@ p { margin: 0 0 1em; }
 @media (prefers-color-scheme: dark) { .stage-tab-icon { background: color-mix(in srgb, var(--tint) 22%, transparent); color: color-mix(in srgb, var(--tint) 70%, white); } }
 .stage-open { flex: none; display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 8px; font-size: 13px; font-weight: 550; color: var(--text-2); }
 .stage-open:hover { color: var(--text); background: var(--accent-wash); text-decoration: none; }
+.stage-again { flex: none; display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border: 0; border-radius: 8px; background: none; font: inherit; font-size: 13px; font-weight: 550; color: var(--text-2); cursor: pointer; }
+.stage-again:hover { color: var(--text); background: var(--accent-wash); }
+.stage-again[hidden] { display: none; }
 .stage-view { position: relative; height: clamp(480px, 76vh, 760px); background: var(--canvas); isolation: isolate; }
 .stage-frame { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; visibility: hidden; background: var(--surface); }
 .stage-frame[data-on] { visibility: visible; }
@@ -264,6 +267,12 @@ p { margin: 0 0 1em; }
   transition: transform .15s;
 }
 .stage-veil:hover span { transform: translateY(-2px) scale(1.03); }
+/* While the demo plays its replay, the click skips it. */
+.stage-veil .stage-veil-skip, .stage[data-replay='playing'] .stage-veil .stage-veil-try { display: none; }
+.stage[data-replay='playing'] .stage-veil .stage-veil-skip { display: inline-flex; bottom: 80px; }
+.stage[data-replay='playing'] .stage-veil { padding-bottom: 80px; }
+.stage-veil-skip i { width: 8px; height: 8px; border-radius: 50%; background: #ff6b5e; animation: stage-rec 1.2s ease-in-out infinite; }
+@keyframes stage-rec { 50% { opacity: .25; } }
 .stage-veil:focus-visible { outline: none; }
 .stage-veil:focus-visible span { outline: 2px solid var(--accent); outline-offset: 3px; }
 .stage-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px 24px; flex-wrap: wrap; padding: 10px 16px; border-top: 1px solid var(--line); background: var(--surface-2); font-size: 13px; color: var(--muted); }
@@ -273,12 +282,12 @@ p { margin: 0 0 1em; }
 .stage-steps b { color: var(--text); font-weight: 620; margin-right: .3em; }
 :lang(zh-CN) .stage-steps b { margin-right: 0; }
 @keyframes stage-pulse { 50% { opacity: .35; } }
-@media (prefers-reduced-motion: reduce) { .stage-status i { animation: none; } .stage-poster, .stage-veil span { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .stage-status i, .stage-veil-skip i { animation: none; } .stage-poster, .stage-veil span { transition: none; } }
 @media (max-width: 760px) {
   .stage-section { padding-bottom: 56px; }
   .stage { border-radius: 12px; }
   .stage-bar { padding-left: 10px; gap: 6px; }
-  .stage-live, .stage-open span { display: none; }
+  .stage-live, .stage-open span, .stage-again span { display: none; }
   .stage-view { height: clamp(420px, 68vh, 620px); }
   .stage-note { display: none; }
   .stage-steps { flex-direction: column; gap: 6px; }

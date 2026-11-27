@@ -1,0 +1,563 @@
+{
+  "rev": 2,
+  "blocks": [
+    {
+      "id": "kr0483lpxzq.4091",
+      "type": "paragraph",
+      "attrs": {
+        "heading": 1
+      },
+      "inline": [
+        {
+          "id": "kr0483lpxzq.4092",
+          "text": "FAQ"
+        }
+      ]
+    },
+    {
+      "id": "kr0483lpxzq.4095",
+      "type": "paragraph",
+      "inline": [
+        {
+          "id": "kr0483lpxzq.4096",
+          "text": "For the support team in launch week. The answers are written to be pasted: change the greeting, keep the facts. Dates and owners are in "
+        },
+        {
+          "id": "kr0483lpxzq.4232",
+          "atom": "mention",
+          "attrs": {
+            "principal": null,
+            "ref": "file/2fb9c8f9-9f88"
+          }
+        },
+        {
+          "id": "kr0483lpxzq.4233",
+          "text": "."
+        }
+      ]
+    },
+    {
+      "id": "kr0483lpxzq.4234",
+      "type": "paragraph",
+      "attrs": {
+        "heading": 2
+      },
+      "inline": [
+        {
+          "id": "kr0483lpxzq.4235",
+          "text": "First Light"
+        }
+      ]
+    },
+    {
+      "id": "kr0483lpxzq.4246",
+      "type": "paragraph",
+      "attrs": {
+        "heading": 3
+      },
+      "inline": [
+        {
+          "id": "kr0483lpxzq.4247",
+          "text": "What does it taste like?"
+        }
+      ]
+    },
+    {
+      "id": "kr0483lpxzq.4271",
+      "type": "paragraph",
+      "inline": [
+        {
+          "id": "kr0483lpxzq.4272",
+          "text": "Apricot, jasmine and wildflower honey. It is a light roast of two washed coffees, Ethiopia Guji and Colombia Huila, made for filter and pour-over."
+        }
+      ]
+    },
+    {
+      "id": "kr0483lpxzq.4418",
+      "type": "paragraph",
+      "attrs": {
+        "heading": 3
+      },
+      "inline": [
+        {
+          "id": "kr0483lpxzq.4419",
+          "text": "How should I brew it?"
+        }
+      ]
+    },
+    {
+      "id": "kr0483lpxzq.4440",
+      "type": "table",
+      "children": [
+        {
+          "id": "kr0483lpxzq.4441",
+          "type": "tableRow",
+          "children": [
+            {
+              "id": "kr0483lpxzq.4442",
+              "type": "cell",
+              "attrs": {
+                "header": true
+              },
+              "children": [
+                {
+                  "id": "kr0483lpxzq.4443",
+                  "type": "paragraph",
+                  "inline": [
+                    {
+                      "id": "kr0483lpxzq.4444",
+                      "text": "Method"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "kr0483lpxzq.4450",
+              "type": "cell",
+              "attrs": {
+                "header": true
+              },
+              "children": [
+                {
+                  "id": "kr0483lpxzq.4451",
+                  "type": "paragraph",
+                  "inline": [
+                    {
+                      "id": "kr0483lpxzq.4452",
+                      "text": "Coffee"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "kr0483lpxzq.4458",
+              "type": "cell",
+              "attrs": {
+                "header": true
+              },
+              "children": [
+                {
+                  "id": "kr0483lpxzq.4459",
+                  "type": "paragraph",
+                  "inline": [
+                    {
+                      "id": "kr0483lpxzq.4460",
+                      "text": "Water"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "kr0483lpxzq.4465",
+              "type": "cell",
+              "attrs": {
+                "header": true
+              },
+              "children": [
+                {
+                  "id": "kr0483lpxzq.4466",
+                  "type": "paragraph",
+                  "inline": [
+                    {
+                      "id": "kr0483lpxzq.4467",
+                      "text": "Time"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "kr0483lpxzq.4471",
+          "type": "tableRow",
+          "children": [
+            {
+              "id": "kr0483lpxzq.4472",
+              "type": "cell",
+              "children": [
+                {
+                  "id": "kr0483lpxzq.4473",
+                  "type": "paragraph",
+                  "inline": [
+                    {
+                      "id": "kr0483lpxzq.4474",
+                      "text": "Pour-over"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "kr0483lpxzq.4483",
+              "type": "cell",
+              "children": [
+                {
+                  "id": "kr0483lpxzq.4484",
+                  "type": "paragraph",
+                  "inline": [
+                    {
+                      "id": "kr0483lpxzq.4485",
+                      "text": "20 g, medium-fine"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "kr0483lpxzq.4502",
+              "type": "cell",
+              "children": [
+                {
+                  "id": "kr0483lpxzq.4503",
+                  "type": "paragraph",
+                  "inline": [
+                    {
+                      "id": "kr0483lpxzq.4504",
+                      "text": "320 g at 94 °C"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "kr0483lpxzq.4518",
+              "type": "cell",
+              "children": [
+                {
+                  "id": "kr0483lpxzq.4519",
+                  "type": "paragraph",
+                  "inline": [
+                    {
+                      "id": "kr0483lpxzq.4520",
+                      "text": "3:00"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "kr0483lpxzq.4524",
+          "type": "tableRow",
+          "children": [
+            {
+              "id": "kr0483lpxzq.4525",
+              "type": "cell",
+              "children": [
+                {
+                  "id": "kr0483lpxzq.4526",
+                  "type": "paragraph",
+                  "inline": [
+                    {
+                      "id": "kr0483lpxzq.4527",
+                      "text": "French press"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "kr0483lpxzq.4539",
+              "type": "cell",
+              "children": [
+                {
+                  "id": "kr0483lpxzq.4540",
+                  "type": "paragraph",
+                  "inline": [
+                    {
+                      "id": "kr0483lpxzq.4541",
+                      "text": "30 g, coarse"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "kr0483lpxzq.4553",
+              "type": "cell",
+              "children": [
+                {
+                  "id": "kr0483lpxzq.4554",
+                  "type": "paragraph",
+                  "inline": [
+                    {
+                      "id": "kr0483lpxzq.4555",
+                      "text": "500 g at 94 °C"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "kr0483lpxzq.4569",
+              "type": "cell",
+              "children": [
+                {
+                  "id": "kr0483lpxzq.4570",
+                  "type": "paragraph",
+                  "inline": [
+                    {
+                      "id": "kr0483lpxzq.4571",
+                      "text": "4:00"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "kr0483lpxzq.4575",
+          "type": "tableRow",
+          "children": [
+            {
+              "id": "kr0483lpxzq.4576",
+              "type": "cell",
+              "children": [
+                {
+                  "id": "kr0483lpxzq.4577",
+                  "type": "paragraph",
+                  "inline": [
+                    {
+                      "id": "kr0483lpxzq.4578",
+                      "text": "AeroPress"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "kr0483lpxzq.4587",
+              "type": "cell",
+              "children": [
+                {
+                  "id": "kr0483lpxzq.4588",
+                  "type": "paragraph",
+                  "inline": [
+                    {
+                      "id": "kr0483lpxzq.4589",
+                      "text": "15 g, fine"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "kr0483lpxzq.4599",
+              "type": "cell",
+              "children": [
+                {
+                  "id": "kr0483lpxzq.4600",
+                  "type": "paragraph",
+                  "inline": [
+                    {
+                      "id": "kr0483lpxzq.4601",
+                      "text": "230 g at 90 °C"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "kr0483lpxzq.4615",
+              "type": "cell",
+              "children": [
+                {
+                  "id": "kr0483lpxzq.4616",
+                  "type": "paragraph",
+                  "inline": [
+                    {
+                      "id": "kr0483lpxzq.4617",
+                      "text": "1:45"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "kr0483lpxzq.4621",
+      "type": "paragraph",
+      "inline": [
+        {
+          "id": "kr0483lpxzq.4622",
+          "text": "The same recipes are in the app, with a timer: the code on the bag opens them."
+        }
+      ]
+    },
+    {
+      "id": "kr0483lpxzq.4700",
+      "type": "paragraph",
+      "attrs": {
+        "heading": 3
+      },
+      "inline": [
+        {
+          "id": "kr0483lpxzq.4701",
+          "text": "How long is it around?"
+        }
+      ]
+    },
+    {
+      "id": "kr0483lpxzq.4723",
+      "type": "paragraph",
+      "inline": [
+        {
+          "id": "kr0483lpxzq.4724",
+          "text": "It is in every box through June, and $19 for a 340 g bag on its own."
+        }
+      ]
+    },
+    {
+      "id": "kr0483lpxzq.4792",
+      "type": "paragraph",
+      "attrs": {
+        "heading": 2
+      },
+      "inline": [
+        {
+          "id": "kr0483lpxzq.4793",
+          "text": "The app"
+        }
+      ]
+    },
+    {
+      "id": "kr0483lpxzq.4800",
+      "type": "paragraph",
+      "attrs": {
+        "heading": 3
+      },
+      "inline": [
+        {
+          "id": "kr0483lpxzq.4801",
+          "text": "Do I need the app to keep my subscription?"
+        }
+      ]
+    },
+    {
+      "id": "kr0483lpxzq.4843",
+      "type": "paragraph",
+      "inline": [
+        {
+          "id": "kr0483lpxzq.4844",
+          "text": "No. Everything still works by email and on the website. The app makes it faster: skip, pause or move a delivery in two taps."
+        }
+      ]
+    },
+    {
+      "id": "kr0483lpxzq.4968",
+      "type": "paragraph",
+      "attrs": {
+        "heading": 3
+      },
+      "inline": [
+        {
+          "id": "kr0483lpxzq.4969",
+          "text": "The code on my bag does not work"
+        }
+      ]
+    },
+    {
+      "id": "kr0483lpxzq.5001",
+      "type": "list",
+      "attrs": {
+        "kind": "ordered"
+      },
+      "children": [
+        {
+          "id": "kr0483lpxzq.5002",
+          "type": "listItem",
+          "children": [
+            {
+              "id": "kr0483lpxzq.5003",
+              "type": "paragraph",
+              "inline": [
+                {
+                  "id": "kr0483lpxzq.5004",
+                  "text": "Type the code as printed, dashes included. It looks like "
+                },
+                {
+                  "id": "kr0483lpxzq.5061",
+                  "text": "FL-7K2Q-9M",
+                  "marks": {
+                    "code": true
+                  }
+                },
+                {
+                  "id": "kr0483lpxzq.5071",
+                  "text": "."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "kr0483lpxzq.5072",
+          "type": "listItem",
+          "children": [
+            {
+              "id": "kr0483lpxzq.5073",
+              "type": "paragraph",
+              "inline": [
+                {
+                  "id": "kr0483lpxzq.5074",
+                  "text": "Update the app to version 1.0.2 or later."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "kr0483lpxzq.5115",
+          "type": "listItem",
+          "children": [
+            {
+              "id": "kr0483lpxzq.5116",
+              "type": "paragraph",
+              "inline": [
+                {
+                  "id": "kr0483lpxzq.5117",
+                  "text": "Still stuck? Reply with a photo of the code panel and we open the guide by hand."
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "kr0483lpxzq.5197",
+      "type": "paragraph",
+      "attrs": {
+        "heading": 2
+      },
+      "inline": [
+        {
+          "id": "kr0483lpxzq.5198",
+          "text": "Reply template"
+        }
+      ]
+    },
+    {
+      "id": "kr0483lpxzq.5212",
+      "type": "codeBlock",
+      "attrs": {
+        "language": "plain"
+      },
+      "inline": [
+        {
+          "id": "kr0483lpxzq.5213",
+          "text": "Hi {first name},\n\nThanks for writing in about First Light. {answer}\n\nIf anything else comes up, reply here: launch week has a team on this inbox every day from 9 to 6.\n\n{your name}, Juniper Coffee"
+        }
+      ]
+    }
+  ]
+}

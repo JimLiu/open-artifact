@@ -1,0 +1,1 @@
+{"title":"Latest orders","description":"The eight most recent orders in the shop.","source":{"kind":"call","connector":"shop","tool":"run_sql","args":{"query":"SELECT order_no, placed_at, plan, roast, bags, total, status\nFROM orders\nORDER BY placed_at DESC\nLIMIT 8"}},"langs":{"query":"sql"}}
