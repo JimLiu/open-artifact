@@ -19,6 +19,7 @@ import { session } from './session.ts';
 import { visibleBoards } from './viewport.ts';
 import { errorsKey, fixRequest, type BoardProblem } from '../lib/board-errors.ts';
 import { designSelectionSnapshot } from '../lib/selection-snapshot.ts';
+import { elementGroupsOf, selectedBoardsOf } from '../lib/selection.ts';
 
 /** Live agent status. */
 export const useAgent = create<{ status: AgentStatus }>()(() => ({
@@ -43,16 +44,17 @@ export function templateOf(source: string): TemplateModel {
 /** The selected elements with their kinds and labels. */
 export function selectedElements(): SelectedElement[] {
   const { selection } = useView.getState();
-  if (selection.kind !== 'elements') return [];
-  const source = useDocument.getState().boards[selection.board]?.source;
-  if (!source) return [];
-  const model = templateOf(source);
   const out: SelectedElement[] = [];
-  for (const item of selection.items) {
-    const element = resolveElement(model, item.tid, item.path);
-    if (!element) continue;
-    const label = elementLabel(element);
-    out.push({ board: selection.board, tid: item.tid, path: item.path, kind: elementKind(element), ...(label ? { label } : {}) });
+  for (const group of elementGroupsOf(selection)) {
+    const source = useDocument.getState().boards[group.board]?.source;
+    if (!source) continue;
+    const model = templateOf(source);
+    for (const item of group.items) {
+      const element = resolveElement(model, item.tid, item.path);
+      if (!element) continue;
+      const label = elementLabel(element);
+      out.push({ board: group.board, tid: item.tid, path: item.path, kind: elementKind(element), ...(label ? { label } : {}) });
+    }
   }
   return out;
 }
@@ -69,7 +71,7 @@ export function currentViewContext(): DesignViewContext {
     mode: view.mode,
     page: page ? { id: page.id, name: page.name } : null,
     visible: view.mode === 'focused' && view.focused ? [view.focused] : visibleBoards(),
-    selectedBoards: view.selection.kind === 'objects' ? view.selection.boards : [],
+    selectedBoards: selectedBoardsOf(view.selection),
     selectedElements: selectedElements(),
     errored,
     dirty: isDirty(doc),

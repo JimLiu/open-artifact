@@ -15,6 +15,21 @@
 import { create } from 'zustand';
 import { emptyCanvas, mergeCanvas, normalizeCanvas, type Canvas } from '@open-artifact/design-core';
 import { applyOp, replayOps, type BoardOp, type OpResult } from '../lib/ops.ts';
+import {
+  boardChanges,
+  canvasChange,
+  closeStep,
+  joinSteps,
+  noteBoard,
+  noteCanvas,
+  openStep,
+  touchesBoard,
+  type BoardHistory,
+  type HistoryEntry,
+  type OpenStep,
+} from '../lib/undo-steps.ts';
+
+export type { HistoryEntry } from '../lib/undo-steps.ts';
 
 /** One artboard file. */
 export interface BoardDoc {
@@ -30,21 +45,6 @@ export interface BoardDoc {
 
 /** Save state shown in the toolbar. */
 export type SaveState = 'saved' | 'dirty' | 'saving' | 'error' | 'offline' | 'readonly';
-
-/** One undo step. */
-interface BoardHistory {
-  scope: 'board';
-  path: string;
-  before: { source: string; pending: BoardOp[] };
-  after: { source: string; pending: BoardOp[] };
-  key?: string;
-}
-
-export type HistoryEntry =
-  | { scope: 'canvas'; before: Canvas; after: Canvas }
-  | BoardHistory
-  | { scope: 'boards'; changes: BoardHistory[] };
-
 
 /** Longest undo history kept. */
 const HISTORY_LIMIT = 200;
@@ -83,6 +83,16 @@ export interface DocumentActions {
    * Consecutive edits with the same `coalesce` key share one undo step.
    */
   editBoard(path: string, op: BoardOp, options?: { coalesce?: string }): OpResult | null;
+  /**
+   * Runs `run` as one undo step: whatever it changes in the canvas and the
+   * artboard files is taken back together. Steps with the same `key` that
+   * follow each other join (a held arrow key). `run` must not wait: the
+   * step closes when it returns. A step inside a step joins the outer one.
+   * During a gesture the canvas part stays with the gesture. `run` may
+   * call `cancel` to take back the artboard and canvas changes it made
+   * (not artboards it created or deleted); no step is recorded then.
+   */
+  transact<T>(run: (cancel: () => void) => T, options?: { key?: string }): T;
   /** Changes the canvas. Outside a gesture each call is one undo step. */
   updateCanvas(recipe: (canvas: Canvas) => Canvas): void;
   /** Starts coalescing canvas changes into one undo step. */
@@ -123,6 +133,19 @@ const parse = (text: string | null): { canvas: Canvas; error: string | null } =>
 };
 
 const push = (list: HistoryEntry[], entry: HistoryEntry): HistoryEntry[] => [...list.slice(-(HISTORY_LIMIT - 1)), entry];
+
+/** The step `transact` has open, if any. Changes made while it is open push no entries of their own. */
+let step: OpenStep | null = null;
+/** The open step is to be taken back when it closes. */
+let cancelled = false;
+const cancelStep = (): void => {
+  if (step) cancelled = true;
+};
+
+/** Notes the canvas for the open step (the gesture keeps it while one runs). */
+const noteCanvasFor = (state: DocumentState): void => {
+  if (step && !state.gesture) noteCanvas(step, state.canvas);
+};
 
 export const useDocument = create<DocumentState & DocumentActions>()((set, get) => ({
   status: 'loading',
@@ -170,6 +193,11 @@ export const useDocument = create<DocumentState & DocumentActions>()((set, get) 
     const result = applyOp(board.source, op);
     if (!result || result.source === board.source) return result;
     const after = { source: result.source, pending: [...board.pending, op] };
+    if (step) {
+      noteBoard(step, path, { source: board.source, pending: board.pending });
+      set({ boards: { ...state.boards, [path]: { ...board, ...after } }, edits: state.edits + 1, revision: state.revision + 1 });
+      return result;
+    }
     const last = state.undo[state.undo.length - 1];
     const merge = options.coalesce && last?.scope === 'board' && last.path === path && last.key === options.coalesce && last.after.source === board.source;
     const before = merge ? last.before : { source: board.source, pending: board.pending };
@@ -184,14 +212,42 @@ export const useDocument = create<DocumentState & DocumentActions>()((set, get) 
     return result;
   },
 
+  transact(run, options = {}) {
+    // A step inside a step joins it; cancelling it cancels the outer one.
+    if (step) return run(cancelStep);
+    const open = openStep();
+    step = open;
+    cancelled = false;
+    try {
+      return run(cancelStep);
+    } finally {
+      step = null;
+      const state = get();
+      if (cancelled) {
+        cancelled = false;
+        // Everything the step changed goes back; there is nothing to undo.
+        const boards = { ...state.boards };
+        for (const [path, before] of open.boards) if (boards[path]) boards[path] = { ...boards[path]!, ...before };
+        set({ boards, ...(open.canvas ? { canvas: open.canvas } : {}), revision: state.revision + 1 });
+      } else {
+        const entry = closeStep(open, { canvas: state.canvas, board: (path) => (state.boards[path]?.source != null ? { source: state.boards[path]!.source!, pending: state.boards[path]!.pending } : null) }, options.key);
+        if (entry) {
+          const joined = joinSteps(state.undo[state.undo.length - 1], entry);
+          set({ undo: joined ? [...state.undo.slice(0, -1), joined] : push(state.undo, entry), redo: [] });
+        }
+      }
+    }
+  },
+
   updateCanvas(recipe) {
     const state = get();
     if (state.readOnly || state.canvasError) return;
     const next = recipe(state.canvas);
     if (next === state.canvas) return;
+    noteCanvasFor(state);
     set({
       canvas: next,
-      ...(state.gesture ? {} : { undo: push(state.undo, { scope: 'canvas', before: state.canvas, after: next }), redo: [] }),
+      ...(state.gesture || step ? {} : { undo: push(state.undo, { scope: 'canvas', before: state.canvas, after: next }), redo: [] }),
       revision: state.revision + 1,
     });
   },
@@ -215,12 +271,12 @@ export const useDocument = create<DocumentState & DocumentActions>()((set, get) 
       boards: { ...state.canvas.boards, [path]: entry },
       order: [...state.canvas.order.filter((p) => p !== path), path],
     };
+    noteCanvasFor(state);
     set({
       boards: { ...state.boards, [path]: { source, saved: existing?.saved ?? null, hash: existing?.hash ?? null, pending: [] } },
       canvas,
       trash: state.trash.filter((p) => p !== path),
-      undo: push(state.undo, { scope: 'canvas', before: state.canvas, after: canvas }),
-      redo: [],
+      ...(step ? {} : { undo: push(state.undo, { scope: 'canvas', before: state.canvas, after: canvas }), redo: [] }),
       edits: state.edits + 1,
       revision: state.revision + 1,
     });
@@ -232,11 +288,11 @@ export const useDocument = create<DocumentState & DocumentActions>()((set, get) 
     const boards = { ...state.canvas.boards };
     for (const path of paths) delete boards[path];
     const canvas: Canvas = { ...state.canvas, boards, order: state.canvas.order.filter((p) => !paths.includes(p)) };
+    noteCanvasFor(state);
     set({
       canvas,
       trash: [...new Set([...state.trash, ...paths])],
-      undo: push(state.undo, { scope: 'canvas', before: state.canvas, after: canvas }),
-      redo: [],
+      ...(step ? {} : { undo: push(state.undo, { scope: 'canvas', before: state.canvas, after: canvas }), redo: [] }),
       edits: state.edits + 1,
       revision: state.revision + 1,
     });
@@ -254,9 +310,10 @@ export const useDocument = create<DocumentState & DocumentActions>()((set, get) 
       if (!result || result.source === board.source) continue;
       const after = { source: result.source, pending: [...board.pending, op] };
       boards[path] = { ...board, ...after };
+      if (step) noteBoard(step, path, { source: board.source, pending: board.pending });
       changes.push({ scope: 'board', path, before: { source: board.source, pending: board.pending }, after });
     }
-    if (changes.length) set({ boards, undo: push(state.undo, { scope: 'boards', changes }), redo: [], edits: state.edits + 1, revision: state.revision + 1 });
+    if (changes.length) set({ boards, ...(step ? {} : { undo: push(state.undo, { scope: 'boards', changes }), redo: [] }), edits: state.edits + 1, revision: state.revision + 1 });
     return changes.length;
   },
 
@@ -264,23 +321,9 @@ export const useDocument = create<DocumentState & DocumentActions>()((set, get) 
     const state = get();
     const entry = state.undo[state.undo.length - 1];
     if (!entry || state.readOnly) return null;
-    if (entry.scope === 'canvas') {
-      // Revert our change on top of whatever else changed since (three-way).
-      const canvas = mergeCanvas(entry.after, entry.before, state.canvas);
-      set({ canvas, undo: state.undo.slice(0, -1), redo: push(state.redo, entry), revision: state.revision + 1 });
-    } else {
-      const boards = { ...state.boards };
-      for (const step of entry.scope === 'board' ? [entry] : entry.changes) {
-        if (!boards[step.path]) return null;
-        boards[step.path] = { ...boards[step.path]!, ...step.before };
-      }
-      set({
-        boards,
-        undo: state.undo.slice(0, -1),
-        redo: push(state.redo, entry),
-        revision: state.revision + 1,
-      });
-    }
+    const files = reverted(state, entry, 'before');
+    if (!files) return null;
+    set({ ...files, undo: state.undo.slice(0, -1), redo: push(state.redo, entry), revision: state.revision + 1 });
     return entry;
   },
 
@@ -288,22 +331,9 @@ export const useDocument = create<DocumentState & DocumentActions>()((set, get) 
     const state = get();
     const entry = state.redo[state.redo.length - 1];
     if (!entry || state.readOnly) return null;
-    if (entry.scope === 'canvas') {
-      const canvas = mergeCanvas(entry.before, entry.after, state.canvas);
-      set({ canvas, redo: state.redo.slice(0, -1), undo: push(state.undo, entry), revision: state.revision + 1 });
-    } else {
-      const boards = { ...state.boards };
-      for (const step of entry.scope === 'board' ? [entry] : entry.changes) {
-        if (!boards[step.path]) return null;
-        boards[step.path] = { ...boards[step.path]!, ...step.after };
-      }
-      set({
-        boards,
-        redo: state.redo.slice(0, -1),
-        undo: push(state.undo, entry),
-        revision: state.revision + 1,
-      });
-    }
+    const files = reverted(state, entry, 'after');
+    if (!files) return null;
+    set({ ...files, redo: state.redo.slice(0, -1), undo: push(state.undo, entry), revision: state.revision + 1 });
     return entry;
   },
 
@@ -311,7 +341,7 @@ export const useDocument = create<DocumentState & DocumentActions>()((set, get) 
     const state = get();
     const board = state.boards[path];
     // Their change rewrites the history of this artboard: our undo steps would revert it.
-    const clear = (list: HistoryEntry[]) => list.filter((entry) => entry.scope === 'canvas' || (entry.scope === 'board' ? entry.path !== path : !entry.changes.some(step => step.path === path)));
+    const clear = (list: HistoryEntry[]) => list.filter((entry) => !touchesBoard(entry, path));
     if (text === null) {
       if (!board) return 0;
       set({ boards: { ...state.boards, [path]: { ...board, saved: null, hash: null, ...(board.pending.length ? {} : { source: null }) } } });
@@ -373,6 +403,27 @@ export const useDocument = create<DocumentState & DocumentActions>()((set, get) 
     set({ title });
   },
 }));
+
+/**
+ * The canvas and artboards with an entry taken back (`before`) or made
+ * again (`after`); `null` when one of its artboards is gone. The canvas
+ * goes three-way, keeping whatever else changed since.
+ */
+function reverted(state: DocumentState, entry: HistoryEntry, side: 'before' | 'after'): Partial<DocumentState> | null {
+  const other = side === 'before' ? 'after' : 'before';
+  const boards = { ...state.boards };
+  const changes = boardChanges(entry);
+  for (const change of changes) {
+    const board = boards[change.path];
+    if (!board) return null;
+    boards[change.path] = { ...board, ...change[side] };
+  }
+  const canvas = canvasChange(entry);
+  return {
+    ...(changes.length ? { boards } : {}),
+    ...(canvas ? { canvas: mergeCanvas(canvas[other], canvas[side], state.canvas) } : {}),
+  };
+}
 
 /** True when something has not reached the server. */
 export function isDirty(state: DocumentState): boolean {

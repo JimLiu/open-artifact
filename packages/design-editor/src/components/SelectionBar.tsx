@@ -4,7 +4,9 @@
  *
  * - boxes: background color, border | corner radius, spacing | ask, more;
  * - text: typography, color, bold, italic, underline, link | alignment |
- *   edit text, ask, more.
+ *   edit text, ask, more;
+ * - a selection across files: the colors its elements share, duplicate,
+ *   delete, more.
  *
  * Each popup edits the inline style of every selected element. The strip
  * hides while text is being edited and while the properties panel is open.
@@ -20,6 +22,7 @@ import {
   Bold,
   ChevronDown,
   Component,
+  Copy,
   Crop,
   Image as ImageIcon,
   Unlink,
@@ -42,7 +45,8 @@ import { useView, type ElementSelection } from '../state/view.ts';
 import { boardApi } from '../services/frames.ts';
 import { templateOf } from '../services/agent.ts';
 import { useCoarsePointer } from '../services/pointer.ts';
-import { attributeSelection, deleteSelection, detachSelection, edit, detachSelectionRefusal, editSelectedComponent, selectedComponentPath, startTextEdit, styleSelection } from '../services/commands.ts';
+import { attributeSelection, deleteSelection, detachSelection, duplicateSelection, edit, detachSelectionRefusal, editSelectedComponent, selectedComponentPath, startTextEdit, styleSelection } from '../services/commands.ts';
+import { crossFileActionLabel, paintRoles, selectionCounts, type MixedSelection, type PaintRole } from '../lib/selection.ts';
 import { KEEP_TEXT_EDIT, applyEditedTextLink, cancelEditedTextLink, commitTextEdit, formatEditedText } from '../services/text-edit.ts';
 import { cancelScale, commitScale, setScaleFactor, useScale } from '../services/scale.ts';
 import { parseScaleInput } from '../lib/scale.ts';
@@ -53,7 +57,7 @@ import { BorderAlignButton } from './BorderAlign.tsx';
 import { alignedLookPatch, readAlignment, SIDES_NEED_INSIDE } from '../lib/border-align.ts';
 import { fillColorPatch } from '../lib/paint.ts';
 import { loneShapeOf } from '../lib/lone-shape.ts';
-import { layerPaint, paintSelection } from '../services/paint.ts';
+import { layerPaint, mixedPaintKinds, paintMixed, paintSelection } from '../services/paint.ts';
 import { addressCardKeys } from './address-card.ts';
 
 /** Screen box of the selection the bar sits on. */
@@ -899,18 +903,20 @@ function LockButton({ readOnly }: { readOnly: boolean }) {
 }
 
 /** Ask about the selection, and open the properties panel; on touch screens, Delete too. */
-function Tail({ lead }: { lead?: ReactNode }) {
+function Tail({ lead, deletes = true }: { lead?: ReactNode; deletes?: boolean }) {
   const setPanel = useView((s) => s.setPanel);
+  const panelOpen = useView((s) => s.panelOpen);
+  const count = useView((s) => selectionCounts(s.selection).elements);
   const coarse = useCoarsePointer();
   const readOnly = useDocument((s) => s.readOnly);
   const deleteLocked = useDeleteLockedWhy();
   return (
     <Group>
       {lead}
-      {coarse && !readOnly && deleteLocked === null ? (
+      {deletes && coarse && !readOnly && deleteLocked === null ? (
         <StripButton
-          tip="Delete this element"
-          aria-label="Delete"
+          tip={count > 1 ? `Delete ${count} elements` : 'Delete this element'}
+          aria-label={count > 1 ? `Delete ${count} elements` : 'Delete'}
           onClick={() => {
             // An open text box is written first, as its own undo step.
             commitTextEdit();
@@ -920,10 +926,63 @@ function Tail({ lead }: { lead?: ReactNode }) {
           <Trash2 {...ICON} />
         </StripButton>
       ) : null}
-      <StripButton tip="Open the Properties panel" aria-label="Properties" onClick={() => setPanel('properties', true)}>
-        <EllipsisVertical {...ICON} />
-      </StripButton>
+      {/* With the side panel open there is nothing to open. */}
+      {panelOpen ? null : (
+        <StripButton tip="Open the Properties panel" aria-label="Properties" onClick={() => setPanel('properties', true)}>
+          <EllipsisVertical {...ICON} />
+        </StripButton>
+      )}
     </Group>
+  );
+}
+
+const ROLE_LABELS: Record<PaintRole, string> = { text: 'Text color', fill: 'Fill color', stroke: 'Stroke color' };
+
+/** One color for every element of a mixed selection that takes it (see `paintProperty`). */
+function MixedColorPopup({ selection, role, disabled }: { selection: MixedSelection; role: PaintRole; disabled: boolean }) {
+  const label = ROLE_LABELS[role];
+  return (
+    <StripPopup tip={label} trigger={<Swatch color={undefined} />} disabled={disabled}>
+      <Hint>{label}</Hint>
+      <ColorPanel label={label} value="" disabled={disabled} onCommit={(next) => paintMixed(selection, role, next)} />
+    </StripPopup>
+  );
+}
+
+/**
+ * The strip of a selection across files: the colors its elements share,
+ * Duplicate and Delete (each artboard does its own part, one undo step),
+ * and the properties panel.
+ */
+function MixedStrip({ selection, readOnly }: { selection: MixedSelection; readOnly: boolean }) {
+  const roles = paintRoles(mixedPaintKinds(selection));
+  const counts = selectionCounts(selection);
+  const deleteLocked = useDeleteLockedWhy();
+  const duplicate = crossFileActionLabel('Duplicate', counts, `${MOD}D`);
+  const remove = crossFileActionLabel('Delete', counts);
+  return (
+    <>
+      {roles.length ? (
+        <>
+          <Group>
+            {roles.map((role) => (
+              <MixedColorPopup key={role} selection={selection} role={role} disabled={readOnly} />
+            ))}
+          </Group>
+          <ChromeDivider />
+        </>
+      ) : null}
+      <Group>
+        <StripButton tip={duplicate} aria-label={duplicate} disabled={readOnly} onClick={() => duplicateSelection()}>
+          <Copy {...ICON} />
+        </StripButton>
+        <StripButton tip={deleteLocked ?? remove} aria-label={remove} disabled={readOnly || deleteLocked !== null} onClick={() => deleteSelection()}>
+          <Trash2 {...ICON} />
+        </StripButton>
+      </Group>
+      <ChromeDivider />
+      <Tail deletes={false} />
+    </>
   );
 }
 
@@ -1013,6 +1072,30 @@ function ScaleStrip() {
 
 export function SelectionBar({ box }: { box: SelectionBarBox }) {
   const selection = useView((s) => s.selection);
+  const readOnly = useDocument((s) => s.readOnly);
+  if (selection.kind === 'mixed') return <MixedBar box={box} selection={selection} readOnly={readOnly} />;
+  return <ElementsBar box={box} />;
+}
+
+/** Where the strip sits: above the selection, or below it when there is no room. */
+const barTop = (box: SelectionBarBox): number => (box.top - BAR_SPACE >= 8 ? box.top - BAR_SPACE : box.top + box.height + 8);
+
+function MixedBar({ box, selection, readOnly }: { box: SelectionBarBox; selection: MixedSelection; readOnly: boolean }) {
+  return (
+    <div className="pointer-events-auto absolute z-10" style={{ left: Math.max(8, box.left), top: barTop(box) }} onPointerDown={(event) => event.stopPropagation()} data-selection-bar="">
+      <TipGroup>
+        <Card role="toolbar" aria-label="Selection" data-focus-region="selection" className="gap-1 p-1">
+          <LockButton readOnly={readOnly} />
+          <MixedStrip selection={selection} readOnly={readOnly} />
+        </Card>
+      </TipGroup>
+    </div>
+  );
+}
+
+/** The strip of elements in one artboard. */
+function ElementsBar({ box }: { box: SelectionBarBox }) {
+  const selection = useView((s) => s.selection);
   const layoutTick = useView((s) => s.layoutTick);
   const board = selection.kind === 'elements' ? selection.board : null;
   const items: ElementSelection[] = selection.kind === 'elements' ? selection.items : [];
@@ -1064,7 +1147,7 @@ export function SelectionBar({ box }: { box: SelectionBarBox }) {
   const canEditText = items.length === 1 && !readOnly && isTextEditable(element);
   const format = (verb: TextFormat, whole: () => void) => (editing ? formatEditedText(verb) : whole());
   const listValue = formats?.ol ? 'number' : formats?.ul ? 'bullet' : 'none';
-  const top = box.top - BAR_SPACE >= 8 ? box.top - BAR_SPACE : box.top + box.height + 8;
+  const top = barTop(box);
 
   return (
     <div

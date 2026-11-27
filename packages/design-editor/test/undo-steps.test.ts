@@ -1,0 +1,111 @@
+import assert from 'node:assert/strict';
+import { describe, it } from 'node:test';
+import { closeStep, joinSteps, noteBoard, noteCanvas, openStep, touchesBoard } from '../src/lib/undo-steps.ts';
+import { useDocument } from '../src/state/document.ts';
+import { emptyCanvas } from '@open-artifact/design-core';
+
+const state = (source: string) => ({ source, pending: [] });
+
+describe('gathering an undo step', () => {
+  it('takes the simplest scope without a key, and files with one', () => {
+    const canvas = emptyCanvas();
+    const later = { ...canvas, title: 'Later' };
+    const step = openStep();
+    noteBoard(step, 'a', state('a0'));
+    noteBoard(step, 'a', state('a1'));
+    const now = { canvas, board: (path: string) => (path === 'a' ? state('a2') : null) };
+    assert.deepEqual(closeStep(step, now), { scope: 'board', path: 'a', before: state('a0'), after: state('a2') });
+    noteCanvas(step, canvas);
+    assert.equal(closeStep(step, { ...now, canvas: later })?.scope, 'files');
+    assert.equal(closeStep(openStep(), now), null);
+    assert.equal(closeStep(step, now, 'nudge')?.scope, 'files');
+  });
+
+  it('joins steps with one key while each picks up where the last left off', () => {
+    const first = { scope: 'files' as const, canvas: null, changes: [{ scope: 'board' as const, path: 'a', before: state('0'), after: state('1') }], key: 'k' };
+    const next = { scope: 'files' as const, canvas: null, changes: [{ scope: 'board' as const, path: 'a', before: state('1'), after: state('2') }, { scope: 'board' as const, path: 'b', before: state('x'), after: state('y') }], key: 'k' };
+    const joined = joinSteps(first, next);
+    assert.deepEqual(joined?.changes.map((change) => [change.path, change.before.source, change.after.source]), [['a', '0', '2'], ['b', 'x', 'y']]);
+    assert.equal(joinSteps(first, { ...next, key: 'other' }), null);
+    assert.equal(joinSteps(first, { ...next, changes: [{ scope: 'board', path: 'a', before: state('9'), after: state('2') }] }), null);
+    assert.equal(touchesBoard(next, 'b'), true);
+  });
+});
+
+describe('one undo step across files', () => {
+  const load = () => {
+    useDocument.getState().load({ title: 'Steps', readOnly: false, canvas: { text: '{}', hash: '1' }, boards: { a: { text: 'A', hash: 'a' }, b: { text: 'B', hash: 'b' } } });
+    useDocument.setState({ undo: [], redo: [] });
+  };
+
+  it('undoes and redoes changes to the canvas and two artboards together', () => {
+    load();
+    const doc = useDocument.getState;
+    const before = doc().undo.length;
+    const title = doc().canvas.title;
+    doc().transact(() => {
+      doc().editBoard('a', { kind: 'source', text: 'A2' });
+      doc().editBoard('b', { kind: 'source', text: 'B2' });
+      doc().updateCanvas((canvas) => ({ ...canvas, title: 'Moved' }));
+    });
+    assert.equal(doc().undo.length, before + 1);
+    doc().undoLast();
+    assert.deepEqual([doc().boards.a!.source, doc().boards.b!.source, doc().canvas.title], ['A', 'B', title]);
+    doc().redoLast();
+    assert.deepEqual([doc().boards.a!.source, doc().boards.b!.source, doc().canvas.title], ['A2', 'B2', 'Moved']);
+  });
+
+  it('joins keyed steps that follow each other (a held arrow) and records nothing for no change', () => {
+    load();
+    const doc = useDocument.getState;
+    const before = doc().undo.length;
+    doc().transact(() => doc().editBoard('a', { kind: 'source', text: 'A1' }), { key: 'nudge' });
+    doc().transact(() => {
+      doc().editBoard('a', { kind: 'source', text: 'A2' });
+      doc().editBoard('b', { kind: 'source', text: 'B2' });
+    }, { key: 'nudge' });
+    doc().transact(() => undefined);
+    assert.equal(doc().undo.length, before + 1);
+    doc().undoLast();
+    assert.deepEqual([doc().boards.a!.source, doc().boards.b!.source], ['A', 'B']);
+  });
+
+  it('closes the step when the work throws', () => {
+    load();
+    const doc = useDocument.getState;
+    assert.throws(() => doc().transact(() => {
+      doc().editBoard('a', { kind: 'source', text: 'A3' });
+      throw new Error('stop');
+    }));
+    doc().editBoard('b', { kind: 'source', text: 'B3' });
+    assert.deepEqual(doc().undo.slice(-2).map((entry) => entry.scope), ['board', 'board']);
+  });
+
+  it('drops a step when someone else changes one of its artboards', () => {
+    load();
+    const doc = useDocument.getState;
+    doc().transact(() => {
+      doc().editBoard('a', { kind: 'source', text: 'A2' });
+      doc().updateCanvas((canvas) => ({ ...canvas, title: 'T' }));
+    });
+    doc().editBoard('b', { kind: 'source', text: 'B2' });
+    doc().remoteBoard('a', 'Theirs', 'z');
+    assert.deepEqual(doc().undo.map((entry) => entry.scope), ['board']);
+  });
+});
+
+describe('cancelling a step', () => {
+  it('takes back what the step changed and records nothing', () => {
+    useDocument.getState().load({ title: 'Steps', readOnly: false, canvas: { text: '{}', hash: '1' }, boards: { a: { text: 'A', hash: 'a' }, b: { text: 'B', hash: 'b' } } });
+    useDocument.setState({ undo: [], redo: [] });
+    const doc = useDocument.getState;
+    const value = doc().transact((cancel) => {
+      doc().editBoard('a', { kind: 'source', text: 'A2' });
+      doc().editBoard('b', { kind: 'source', text: 'B2' });
+      cancel();
+      return 'kept';
+    });
+    assert.equal(value, 'kept');
+    assert.deepEqual([doc().boards.a!.source, doc().boards.b!.source, doc().undo.length], ['A', 'B', 0]);
+  });
+});

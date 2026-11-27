@@ -1494,6 +1494,172 @@ editorSuite({
       } finally { await page.close(); }
     });
 
+    // Where on the page an element of any artboard is (its middle), and its box on the page.
+    const middleIn = (board, selector) => `(() => {
+      const frame = document.querySelector('iframe[data-board=${JSON.stringify(board)}]');
+      const rect = frame.getBoundingClientRect();
+      const box = frame.contentDocument.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();
+      const zoom = rect.width / frame.offsetWidth;
+      return [rect.left + (box.left + box.width / 2) * zoom, rect.top + (box.top + box.height / 2) * zoom];
+    })()`;
+    const boxIn = (board, selector) => `(() => {
+      const box = document.querySelector('iframe[data-board=${JSON.stringify(board)}]').contentDocument.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();
+      return [box.left, box.top, box.width, box.height];
+    })()`;
+    const withBoard = (root, name, template, dx = 1100) => {
+      const canvas = canvasOf(root);
+      const entry = canvas.boards['Main.dc.html'];
+      canvas.boards[name] = { ...entry, title: name.replace('.dc.html', ''), x: entry.x + dx };
+      canvas.order.push(name);
+      fs.writeFileSync(path.join(root, 'project/canvas.json'), JSON.stringify(canvas));
+      const main = fs.readFileSync(path.join(root, BOARD), 'utf8');
+      fs.writeFileSync(path.join(root, 'project', name), main.replace(/<x-dc>[\s\S]*?<\/x-dc>/, template));
+    };
+
+    it('elements of two artboards and a note: the bar offers Duplicate and Delete for all, the panel shows Mixed, and one ⌘Z brings everything back', T, async () => {
+      const { root, url } = await ctx.openNew('mixed-selection', (_ctx, root) => {
+        paintBoard(_ctx, root);
+        withBoard(root, 'Second.dc.html', `<x-dc><helmet><style>body{margin:0}</style></helmet><div style="width: 880px; height: 560px; padding: 40px; box-sizing: border-box"><div id="box" style="width: 160px; height: 80px; background-color: rgb(0, 0, 200)"></div></div></x-dc>`);
+        const canvas = canvasOf(root);
+        canvas.notes = { ...canvas.notes, memo: { x: 0, y: 700, text: 'Mixed note' } };
+        fs.writeFileSync(path.join(root, 'project/canvas.json'), JSON.stringify(canvas));
+      });
+      const ready = `document.querySelector('iframe[data-board="Second.dc.html"]')?.contentDocument?.querySelector('#box') && document.querySelector('iframe[data-board="Main.dc.html"]')?.contentDocument?.querySelector('#box')`;
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready, settle: 800 });
+      const mac = process.platform === 'darwin';
+      const mod = { meta: mac, ctrl: !mac };
+      const text = name => fs.readFileSync(path.join(root, 'project', name), 'utf8');
+      const row = label => `[...document.querySelectorAll('[role=tree][aria-label="Layers"] [role=treeitem]')].find(el => el.textContent.includes(${JSON.stringify(label)}))`;
+      const duplicate = `Duplicate 2 elements on 2 artboards and 1 canvas object (${mac ? '⌘' : 'Ctrl+'}D)`;
+      const remove = 'Delete 2 elements on 2 artboards and 1 canvas object';
+      try {
+        await page.click(...await page.evaluate(middleIn('Main.dc.html', '#box')));
+        assert.ok(await page.waitFor(buttonNamed('Lock')), 'the box of the first artboard is selected');
+        const [x, y] = await page.evaluate(middleIn('Second.dc.html', '#box'));
+        await page.click(x, y, { shift: true });
+        assert.ok(await page.waitFor(buttonNamed('Delete 2 elements on 2 artboards'), 5000), 'Shift adds the box of the other artboard');
+        await page.press('\\', mod);
+        assert.ok(await page.waitFor(row('Mixed note'), 5000), 'the layers list shows the note');
+        const note = await middleOf(page, row('Mixed note'));
+        await page.click(note.x, note.y, { shift: true });
+        // Different fills read Mixed; the bar, and its Properties button, stay away while the panel is open.
+        assert.ok(await page.waitFor(`document.querySelector('input[aria-label="Fill"]')?.placeholder === 'Mixed'`, 5000), 'the fill row reads Mixed');
+        assert.ok(await page.waitFor(textIn('2 elements on 2 artboards and 1 canvas object'), 5000), 'the panel names what is selected');
+        assert.ok(await page.waitFor(buttonNamed(duplicate), 5000), `with the panel open the bar still offers “${duplicate}”`);
+        assert.equal(await page.evaluate(`Boolean(document.querySelector('[data-selection-bar] [aria-label="Properties"]'))`), false, 'no Properties button while the panel is open');
+        await page.press('\\', mod);
+        assert.ok(await page.waitFor(`document.querySelector('[data-selection-bar] [aria-label="Properties"]')`, 5000), 'with the panel closed the bar offers Properties');
+        assert.ok(await page.evaluate(`Boolean(${buttonNamed(remove)})`), `the bar offers “${remove}”`);
+        await clickOn(page, buttonNamed(remove), 'Delete');
+        assert.ok(await until(() => !text('Main.dc.html').includes('id="box"') && !text('Second.dc.html').includes('id="box"') && !canvasOf(root).notes.memo, 10000), 'both boxes and the note are gone');
+        await page.evaluate(`document.querySelector('[data-canvas-surface]').focus()`);
+        await page.press('z', mod);
+        assert.ok(await until(() => text('Main.dc.html').includes('id="box"') && text('Second.dc.html').includes('id="box"') && canvasOf(root).notes.memo, 10000), 'one ⌘Z brings back both boxes and the note');
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
+    it('dragging one member of a selection across files moves all of it, as one undo step', T, async () => {
+      const positioned = id => `<x-dc><helmet><style>body{margin:0}</style></helmet><div style="position: relative; width: 880px; height: 560px"><div id="${id}" style="position: absolute; left: 100px; top: 100px; width: 120px; height: 80px; background-color: rgb(200, 0, 0)"></div></div></x-dc>`;
+      const { root, url } = await ctx.openNew('mixed-drag', (_ctx, root) => {
+        copyFixture('design', root);
+        fs.writeFileSync(path.join(root, BOARD), fs.readFileSync(path.join(root, BOARD), 'utf8').replace(/<x-dc>[\s\S]*?<\/x-dc>/, positioned('a')));
+        withBoard(root, 'Second.dc.html', positioned('c'));
+        const canvas = canvasOf(root);
+        canvas.notes = { ...canvas.notes, memo: { x: 0, y: 700, text: 'Moving note' } };
+        fs.writeFileSync(path.join(root, 'project/canvas.json'), JSON.stringify(canvas));
+      });
+      const ready = `document.querySelector('iframe[data-board="Second.dc.html"]')?.contentDocument?.querySelector('#c') && document.querySelector('iframe[data-board="Main.dc.html"]')?.contentDocument?.querySelector('#a')`;
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready, settle: 800 });
+      const mod = { meta: process.platform === 'darwin', ctrl: process.platform !== 'darwin' };
+      const text = name => fs.readFileSync(path.join(root, 'project', name), 'utf8');
+      const at = (name, id) => {
+        const style = new RegExp(`id="${id}" style="([^"]*)"`).exec(text(name))?.[1] ?? '';
+        return [Number(/left: (-?[\d.]+)px/.exec(style)?.[1]), Number(/top: (-?[\d.]+)px/.exec(style)?.[1])];
+      };
+      const row = label => `[...document.querySelectorAll('[role=tree][aria-label="Layers"] [role=treeitem]')].find(el => el.textContent.includes(${JSON.stringify(label)}))`;
+      try {
+        await page.click(...await page.evaluate(middleIn('Main.dc.html', '#a')));
+        assert.ok(await page.waitFor(buttonNamed('Lock')), 'the first box is selected');
+        const [x, y] = await page.evaluate(middleIn('Second.dc.html', '#c'));
+        await page.click(x, y, { shift: true });
+        await page.press('\\', mod);
+        assert.ok(await page.waitFor(row('Moving note'), 5000), 'the layers list shows the note');
+        const note = await middleOf(page, row('Moving note'));
+        await page.click(note.x, note.y, { shift: true });
+        assert.ok(await page.waitFor(buttonNamed('Delete 2 elements on 2 artboards and 1 canvas object'), 5000), 'both boxes and the note are selected');
+        await page.press('\\', mod);
+        const zoom = await page.evaluate(`(() => { const frame = document.querySelector('iframe[data-board="Main.dc.html"]'); return frame.getBoundingClientRect().width / frame.offsetWidth; })()`);
+        const [fromX, fromY] = await page.evaluate(middleIn('Main.dc.html', '#a'));
+        await page.dragMouse([fromX, fromY], [fromX + 60, fromY + 30]);
+        const dx = 60 / zoom;
+        const dy = 30 / zoom;
+        const near = (value, want) => Math.abs(value - want) <= 2;
+        assert.ok(await until(() => near(at('Main.dc.html', 'a')[0], 100 + dx) && near(at('Second.dc.html', 'c')[0], 100 + dx), 10000), `both boxes moved: ${at('Main.dc.html', 'a')} ${at('Second.dc.html', 'c')} (want ${100 + dx}, ${100 + dy})`);
+        assert.ok(near(at('Main.dc.html', 'a')[1], 100 + dy) && near(at('Second.dc.html', 'c')[1], 100 + dy), `both boxes moved down: ${at('Main.dc.html', 'a')} ${at('Second.dc.html', 'c')}`);
+        const memo = canvasOf(root).notes.memo;
+        assert.ok(near(memo.x, dx) && near(memo.y, 700 + dy), `the note moved with them: ${memo.x}, ${memo.y}`);
+        await page.evaluate(`document.querySelector('[data-canvas-surface]').focus()`);
+        await page.press('z', mod);
+        assert.ok(await until(() => at('Main.dc.html', 'a').join() === '100,100' && at('Second.dc.html', 'c').join() === '100,100' && canvasOf(root).notes.memo.x === 0 && canvasOf(root).notes.memo.y === 700, 10000), `one ⌘Z put everything back: ${at('Main.dc.html', 'a')} ${at('Second.dc.html', 'c')} ${JSON.stringify(canvasOf(root).notes.memo)}`);
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
+    it('⌘G on elements in a flex column makes a group laid out like it', T, async () => {
+      const { root, url } = await ctx.openNew('group-flex', paintBoard);
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: `document.querySelector('iframe[data-board="Main.dc.html"]')?.contentDocument?.querySelector('#box')`, settle: 800 });
+      const mod = { meta: process.platform === 'darwin', ctrl: process.platform !== 'darwin' };
+      const boardText = () => fs.readFileSync(path.join(root, BOARD), 'utf8');
+      try {
+        await page.click(...await page.evaluate(boardMiddle('h1')));
+        assert.ok(await page.waitFor(buttonNamed('Lock')), 'the heading is selected');
+        const [x, y] = await page.evaluate(boardMiddle('p'));
+        await page.click(x, y, { shift: true });
+        await page.press('g', mod);
+        const grouped = /<div data-dc-group(?:="")? style="[^"]*display: flex; flex-direction: column; gap: 24px[^"]*">\s*<h1[\s\S]*<p[\s\S]*?<\/p>\s*<\/div>/;
+        assert.ok(await until(() => grouped.test(boardText()), 10000), `the heading and paragraph sit in a flex column group: ${boardText()}`);
+        assert.ok(await page.waitFor(textIn('Grouped'), 5000), 'grouping is announced');
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
+    it('⌘G and ⇧⌘G keep positioned elements where they are', T, async () => {
+      const { root, url } = await ctx.openNew('group-positioned', (_ctx, root) => {
+        copyFixture('design', root);
+        const file = path.join(root, BOARD);
+        const template = `<x-dc><helmet><style>body{margin:0}</style></helmet><div style="position: relative; width: 880px; height: 560px">
+<div id="a" style="position: absolute; left: 40px; top: 50px; width: 120px; height: 60px; background-color: rgb(200, 0, 0)"></div>
+<div id="b" style="position: absolute; left: 300px; top: 210px; width: 90px; height: 90px; background-color: rgb(0, 0, 200)"></div>
+</div></x-dc>`;
+        fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace(/<x-dc>[\s\S]*?<\/x-dc>/, template));
+      });
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: `document.querySelector('iframe[data-board="Main.dc.html"]')?.contentDocument?.querySelector('#b')`, settle: 800 });
+      const mod = { meta: process.platform === 'darwin', ctrl: process.platform !== 'darwin' };
+      const boardText = () => fs.readFileSync(path.join(root, BOARD), 'utf8');
+      const boxes = async () => [await page.evaluate(boxIn('Main.dc.html', '#a')), await page.evaluate(boxIn('Main.dc.html', '#b'))];
+      const same = (a, b) => a.every((box, i) => box.every((value, j) => Math.abs(value - b[i][j]) <= 1));
+      try {
+        const before = await boxes();
+        await page.click(...await page.evaluate(boardMiddle('#a')));
+        assert.ok(await page.waitFor(buttonNamed('Lock')), 'the first box is selected');
+        const [x, y] = await page.evaluate(boardMiddle('#b'));
+        await page.click(x, y, { shift: true });
+        await page.press('g', mod);
+        assert.ok(await until(() => /data-dc-group[^>]*position: absolute/.test(boardText()), 10000), `a positioned group was made: ${boardText()}`);
+        let after = null;
+        assert.ok(await page.waitFor(`document.querySelector('iframe[data-board="Main.dc.html"]').contentDocument.querySelector('[data-dc-group] #a')`, 10000), 'the artboard shows the group');
+        after = await boxes();
+        assert.ok(same(before, after), `grouping kept the boxes: ${JSON.stringify(before)} → ${JSON.stringify(after)}`);
+        await page.press('g', { ...mod, shift: true });
+        assert.ok(await until(() => !boardText().includes('data-dc-group'), 10000), `the group was taken apart: ${boardText()}`);
+        assert.ok(await page.waitFor(`!document.querySelector('iframe[data-board="Main.dc.html"]').contentDocument.querySelector('[data-dc-group]')`, 10000), 'the artboard shows no group');
+        after = await boxes();
+        assert.ok(same(before, after), `ungrouping kept the boxes: ${JSON.stringify(before)} → ${JSON.stringify(after)}`);
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
     it('the pointer over an artboard’s row in the layers list rings the artboard on the canvas', T, async () => {
       const { root, url } = await ctx.openNew('outline-hover');
       const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: textIn('Smoke canvas'), settle: 800 });

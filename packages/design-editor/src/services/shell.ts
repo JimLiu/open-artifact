@@ -15,6 +15,7 @@ import { exportBusy, pageArtboards, pageOfBoard, pngOptions, runJob } from './ex
 import { useComments, canComment } from './comments.ts';
 import { session } from './session.ts';
 import { collabChromeReport, handleCollabCommand, subscribeCollab } from './collab.ts';
+import { leadMember } from '../lib/selection.ts';
 
 /** What the Export tab (or, without a Shell, the focused view's Export menu) depends on now. */
 export function exportScene(): ExportScene {
@@ -74,7 +75,7 @@ export function startShellBridge(): void {
   const report = chromeReporter(shell, () => {
     const doc = useDocument.getState();
     const { mode, selection } = useView.getState();
-    const hasSelection = selection.kind === 'elements' || (selection.kind === 'objects' && (selection.notes.length || selection.boards.length));
+    const hasSelection = leadMember(selection) !== null;
     return {
       actions: mode === 'canvas' && hasSelection && useComments.getState().available && canComment() ? [{ id: 'comment_selection' }] : [],
       agent: agentChrome(useAgent.getState().status),

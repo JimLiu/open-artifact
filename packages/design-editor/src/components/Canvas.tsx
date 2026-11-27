@@ -41,7 +41,7 @@ import { toast } from '@open-artifact/ui';
 import { useDocument } from '../state/document.ts';
 import { NO_SELECTION, toWorld, useView, type Camera, type ElementSelection, type ViewState } from '../state/view.ts';
 import { boardApi } from '../services/frames.ts';
-import { addBoard, addNote, edit, moveObjects, moveSelectedElements, resizeObject, selectionIsPositioned, selectionPinnedAxes, startTextEdit, editTextAt, type ResizeTarget } from '../services/commands.ts';
+import { addBoard, addNote, edit, moveMixed, moveObjects, moveSelectedElements, resizeObject, selectionIsPositioned, selectionPinnedAxes, startTextEdit, editTextAt, type ResizeTarget } from '../services/commands.ts';
 import { combineSelection, flowDropAt, freezeInherited, marqueeCandidates, marqueeHits, rootAddress, templateRoot, type FlowDrop, type MarqueeCandidate } from '../services/gestures.ts';
 import { pickDepth, type PickMode } from '../lib/pick-depth.ts';
 import { staysTap } from '../lib/touch.ts';
@@ -70,6 +70,8 @@ import { NodeEditor } from './NodeEditor.tsx';
 import { announce } from '../services/announce.ts';
 import { endsMode } from '../lib/mode-keys.ts';
 import { isTextField } from '@open-artifact/editor-kit';
+import { elementsIn, selectedBoardsOf, selectedNotesOf, withBoardElements, withObjects, type Selection } from '../lib/selection.ts';
+import { shiftBoard, shiftElement, shiftNotes } from '../services/selecting.ts';
 
 /** Resize handle directions. */
 export type Handle = 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w' | 'nw';
@@ -78,11 +80,13 @@ export type Handle = 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w' | 'nw';
 type Drag =
   | { kind: 'pan'; startX: number; startY: number; camera: { x: number; y: number; zoom: number } }
   | { kind: 'move'; startX: number; startY: number; base: CanvasModel; boards: string[]; notes: string[]; moved: boolean }
-  | { kind: 'marquee'; startX: number; startY: number; additive: boolean; initial: { boards: string[]; notes: string[] } }
+  | { kind: 'marquee'; startX: number; startY: number; additive: boolean; initial: { boards: string[]; notes: string[] }; base: Selection }
   | { kind: 'create'; tool: 'board' | 'rect' | 'oval' | 'line' | 'arrow' | 'pen'; startX: number; startY: number; points?: [number, number][] }
   | { kind: 'resize'; handle: Handle; target: ResizeTarget; startX: number; startY: number; base: CanvasModel; rect: Rect }
   /** A box dragged inside an artboard selects elements. `click` runs when it stays a click. */
-  | { kind: 'elementMarquee'; board: string; startX: number; startY: number; deep: boolean; toggle: boolean; candidates: MarqueeCandidate[] | null; container: Address | null; initial: ElementSelection[]; click: () => void; moved: boolean }
+  | { kind: 'elementMarquee'; board: string; startX: number; startY: number; deep: boolean; toggle: boolean; candidates: MarqueeCandidate[] | null; container: Address | null; initial: ElementSelection[]; base: Selection; click: () => void; moved: boolean }
+  /** Dragging a selection that spans files: artboards, notes and positioned elements move together, live. */
+  | { kind: 'mixedMove'; startX: number; startY: number; moved: boolean; applied: { x: number; y: number }; key: string; click: (() => void) | null }
   /** Dragging selected elements: positioned ones move live, flow ones land among their siblings. */
   | { kind: 'elementMove'; board: string; startX: number; startY: number; moved: boolean; positioned: boolean; pinned?: { x: boolean; y: boolean }; applied: { x: number; y: number }; drop: FlowDrop | null; key: string; click: (() => void) | null }
   /** The Pen tool: dragging out the handles of the node just placed. */
@@ -158,9 +162,11 @@ function engineHit(point: { x: number; y: number }): Hit {
   return { kind: 'note', note: item.note };
 }
 
-/** The selected artboards and notes (none while elements are selected). */
-const selectedObjects = (view: ViewState): { boards: string[]; notes: string[] } =>
-  view.selection.kind === 'objects' ? view.selection : { boards: [], notes: [] };
+/** The artboards and notes selected whole (elements selected with them aside). */
+const selectedObjects = (view: ViewState): { boards: string[]; notes: string[] } => ({
+  boards: selectedBoardsOf(view.selection),
+  notes: selectedNotesOf(view.selection),
+});
 
 /**
  * Whether a press on the engine's canvas is the engine's: pans, the select
@@ -173,6 +179,10 @@ function engineTakes(event: ReactPointerEvent, hit: Hit, world: { x: number; y: 
   if (event.button === 2) return false;
   if (event.button === 1 || view.spacePan || view.tool === 'hand') return true;
   if (view.tool !== 'select') return false;
+  // A selection that holds elements is not the engine's to change or move:
+  // Shift adds to it here, and a press on one of its members moves all of it.
+  const { selection } = view;
+  if (hit.kind !== 'empty' && (selection.kind === 'mixed' || (event.shiftKey && selection.kind === 'elements'))) return false;
   if (hit.kind === 'note') return hit.note !== view.noteEdit;
   if (hit.kind !== 'board') return true;
   const deep = event.metaKey || event.ctrlKey;
@@ -199,7 +209,7 @@ function pickElement(path: string, world: { x: number; y: number }, mode: PickMo
   }
   if (!chain.length) return null;
   const { selection } = useView.getState();
-  const selected = selection.kind === 'elements' && selection.board === path ? selection.items : [];
+  const selected = elementsIn(selection, path);
   let onChain = -1;
   let holder = -1;
   if (selected.length) {
@@ -505,7 +515,7 @@ export function Canvas() {
       view.select({ kind: 'objects', boards: [board], notes: [] });
       return;
     }
-    const has = selection.kind === 'elements' && selection.board === board && selection.items.some((item) => item.tid === picked.tid);
+    const has = elementsIn(selection, board).some((item) => item.tid === picked.tid);
     if (!has) view.select({ kind: 'elements', board, items: [picked] });
   };
 
@@ -527,9 +537,10 @@ export function Canvas() {
         if (hit.kind === 'note' && objects.notes.includes(hit.note)) return false;
         if ((hit.kind === 'title' || hit.kind === 'board') && objects.boards.includes(hit.board)) return false;
       }
-      if (view.tool === 'select' && hit.kind === 'board' && view.selection.kind === 'elements' && view.selection.board === hit.board) {
-        const picked = pickElement(hit.board, worldOf(event), 'click');
-        if (picked && view.selection.items.some(item => sameElement(item, picked))) return false;
+      if (view.tool === 'select' && hit.kind === 'board') {
+        const items = elementsIn(view.selection, hit.board);
+        const picked = items.length ? pickElement(hit.board, worldOf(event), 'click') : null;
+        if (picked && items.some(item => sameElement(item, picked))) return false;
       }
       touchTap.current = { hit, target, ...point };
     } else touchTap.current = null;
@@ -607,8 +618,8 @@ export function Canvas() {
     if (!hit || event.button !== 0 || event.shiftKey || view.spacePan || view.tool !== 'select') return;
     const objects = selectedObjects(view);
     if (hit.kind === 'empty') {
-      // The engine clears a selection of objects itself; one of elements is not its own.
-      if (view.selection.kind === 'elements') view.select(NO_SELECTION);
+      // The engine clears a selection of objects itself; elements are not its own.
+      if (view.selection.kind === 'elements' || view.selection.kind === 'mixed') view.select(NO_SELECTION);
     } else if (hit.kind === 'board' && !objects.boards.includes(hit.board)) {
       view.select({ kind: 'objects', boards: [hit.board], notes: [] });
     } else if (hit.kind === 'note' && !objects.notes.includes(hit.note)) {
@@ -709,21 +720,25 @@ export function Canvas() {
     const grab = (item: { board?: string; note?: string }): void => {
       const has = item.board ? objects.boards.includes(item.board) : objects.notes.includes(item.note!);
       const notes = item.note ? expandNotesToGroups(groupItems(doc.canvas), [item.note], objects.notes) : [];
-      let next = { boards: objects.boards, notes: objects.notes };
+      // Shift adds or takes away and keeps the elements selected with them.
       if (event.shiftKey) {
-        next = item.board
-          ? { boards: has ? objects.boards.filter((p) => p !== item.board) : [...objects.boards, item.board], notes: objects.notes }
-          : { boards: objects.boards, notes: has ? objects.notes.filter((n) => !notes.includes(n)) : [...new Set([...objects.notes, ...notes])] };
+        if (item.board) shiftBoard(item.board);
+        else shiftNotes(notes, has);
       } else if (!has) {
-        next = item.board ? { boards: [item.board], notes: [] } : { boards: [], notes };
+        view.select(item.board ? { kind: 'objects', boards: [item.board], notes: [] } : { kind: 'objects', boards: [], notes });
       }
-      view.select({ kind: 'objects', ...next });
       if (doc.readOnly) return;
       // A locked item is selected but stays put; locked items in the selection stay behind.
       if (item.board ? isLockedObject(doc.canvas.boards[item.board]) : isLockedObject(doc.canvas.notes[item.note!])) {
         drag.current = null;
         return;
       }
+      const after = useView.getState().selection;
+      if (after.kind === 'mixed') {
+        drag.current = { kind: 'mixedMove', startX: world.x, startY: world.y, moved: false, applied: { x: 0, y: 0 }, key: `drag-${Date.now()}`, click: null };
+        return;
+      }
+      const next = selectedObjects(useView.getState());
       const free = unlockedObjects(doc.canvas, next.boards, next.notes);
       // The engine moves what it draws (snapping, Shift locking the axis) and commits the move.
       const kept = item.board ? next.boards.includes(item.board) : next.notes.includes(item.note!);
@@ -755,11 +770,10 @@ export function Canvas() {
         grab({ board: path });
         return;
       }
-      const current = selection.kind === 'elements' && selection.board === path ? selection.items : [];
+      const current = elementsIn(selection, path);
       const inSelection = current.some((item) => item.tid === picked.tid);
       const toggle = (): void => {
-        const items = inSelection ? current.filter((item) => item.tid !== picked.tid) : [...current, picked];
-        view.select(items.length ? { kind: 'elements', board: path, items } : NO_SELECTION);
+        shiftElement(path, picked);
       };
       const root = rootAddress(path);
       const onRoot = root?.tid === picked.tid;
@@ -781,6 +795,7 @@ export function Canvas() {
           candidates: null,
           container: deep ? null : root,
           initial: current,
+          base: event.shiftKey ? selection : NO_SELECTION,
           click,
           moved: false,
         };
@@ -797,6 +812,12 @@ export function Canvas() {
         drag.current = null;
         return;
       }
+      if (inSelection && selection.kind === 'mixed') {
+        // A press on one member moves them all; a click narrows to it.
+        const only = (): void => view.select({ kind: 'elements', board: path, items: [picked] });
+        drag.current = { kind: 'mixedMove', startX: world.x, startY: world.y, moved: false, applied: { x: 0, y: 0 }, key: `drag-${Date.now()}`, click: only };
+        return;
+      }
       // Pressing one of several selected elements narrows to it on release.
       const narrow = inSelection && current.length > 1 ? () => view.select({ kind: 'elements', board: path, items: [picked] }) : null;
       drag.current = { kind: 'elementMove', board: path, startX: world.x, startY: world.y, moved: false, positioned: false, applied: { x: 0, y: 0 }, drop: null, key: `drag-${Date.now()}`, click: narrow };
@@ -804,7 +825,7 @@ export function Canvas() {
     }
 
     // Empty canvas: marquee.
-    drag.current = { kind: 'marquee', startX: world.x, startY: world.y, additive: event.shiftKey, initial: objects };
+    drag.current = { kind: 'marquee', startX: world.x, startY: world.y, additive: event.shiftKey, initial: objects, base: event.shiftKey ? selection : NO_SELECTION };
     if (!event.shiftKey) view.select(NO_SELECTION);
   };
 
@@ -893,9 +914,8 @@ export function Canvas() {
         const touched = notesOnPage(canvasNow, view.page).filter((id) => intersects(rect, noteBounds(canvasNow.notes[id]!)));
         // A box touching one note of a group selects the whole group.
         const hitNotes = touched.length ? expandNotesToGroups(groupItems(canvasNow), touched, current.initial.notes) : touched;
-        const merge = (a: string[], b: string[]) => (current.additive ? [...new Set([...a, ...b])] : b);
-        const next = { boards: merge(current.initial.boards, hitBoards), notes: merge(current.initial.notes, hitNotes) };
-        view.select(next.boards.length || next.notes.length ? { kind: 'objects', ...next } : NO_SELECTION);
+        // With Shift the box adds to what was selected, elements included.
+        view.select(withObjects(current.base, hitBoards, hitNotes));
         break;
       }
       case 'elementMarquee': {
@@ -908,7 +928,25 @@ export function Canvas() {
         const rect = spanRect({ x: current.startX, y: current.startY }, world);
         setMarquee(rect);
         const items = combineSelection(current.initial, marqueeHits(current.candidates ?? [], rect, current.deep), current.toggle);
-        view.select(items.length ? { kind: 'elements', board: current.board, items } : NO_SELECTION);
+        view.select(withBoardElements(current.base, current.board, items));
+        break;
+      }
+      case 'mixedMove': {
+        let dx = world.x - current.startX;
+        let dy = world.y - current.startY;
+        if (!current.moved && Math.hypot(dx, dy) * camera.zoom < DRAG_THRESHOLD) return;
+        const selection = view.selection;
+        if (selection.kind !== 'mixed') return;
+        if (!current.moved) {
+          current.moved = true;
+          current.click = null;
+          view.setHover(null);
+        }
+        if (event.shiftKey) ({ x: dx, y: dy } = shiftDragDelta(dx, dy));
+        const x = Math.round(dx);
+        const y = Math.round(dy);
+        // Each step joins the drag's one undo step.
+        if ((x !== current.applied.x || y !== current.applied.y) && moveMixed(selection, x - current.applied.x, y - current.applied.y, { key: current.key })) current.applied = { x, y };
         break;
       }
       case 'elementMove': {
@@ -973,6 +1011,11 @@ export function Canvas() {
     if (current.kind === 'pathHandle') return;
     if (current.kind === 'elementMarquee') {
       if (!current.moved) current.click();
+      return;
+    }
+    if (current.kind === 'mixedMove') {
+      if (!current.moved) current.click?.();
+      else view.tick();
       return;
     }
     if (current.kind === 'elementMove') {
@@ -1040,7 +1083,7 @@ export function Canvas() {
       const id = hit.note;
       const note = doc.canvas.notes[id];
       // Double-click on a grouped note steps one group in, then edits it.
-      const selected = view.selection.kind === 'objects' ? view.selection.notes : [];
+      const selected = selectedNotesOf(view.selection);
       const inside = enterNoteGroup(groupItems(doc.canvas), id, selected);
       if (inside) {
         view.select({ kind: 'objects', boards: [], notes: inside });

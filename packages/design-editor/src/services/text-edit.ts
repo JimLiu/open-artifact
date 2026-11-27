@@ -12,6 +12,7 @@ import { useDocument } from '../state/document.ts';
 import { useView } from '../state/view.ts';
 import { attributeSelection, edit } from './commands.ts';
 import { boardApi } from './frames.ts';
+import { elementsIn } from '../lib/selection.ts';
 
 /** Marks chrome that may take focus without ending the text edit (the format bar and its popups). */
 export const KEEP_TEXT_EDIT = 'data-text-edit-keep';
@@ -53,7 +54,7 @@ export function textEditEvent(board: string, event: BoardEvent): boolean {
       return true;
     case 'text-commit': {
       const selection = view.selection;
-      const item = selection.kind === 'elements' && selection.board === board ? selection.items.find((i) => i.tid === event.tid) : undefined;
+      const item = elementsIn(selection, board).find((i) => i.tid === event.tid);
       view.setTextEdit(null);
       if (event.target?.kind === 'prop') {
         const { prop } = event.target;

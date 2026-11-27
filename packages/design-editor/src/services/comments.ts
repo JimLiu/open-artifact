@@ -45,6 +45,7 @@ import { templateOf, useAgent } from './agent.ts';
 import { boardApi } from './frames.ts';
 import { session } from './session.ts';
 import { glideTo, viewportSize } from './viewport.ts';
+import { leadMember } from '../lib/selection.ts';
 
 export { openCount };
 
@@ -213,17 +214,16 @@ export function commentOnSelection(): void {
   const { canvas, boards } = useDocument.getState();
   const selection = view.selection;
   let anchor: DesignAnchor | null = null;
-  if (selection.kind === 'elements' && selection.items[0]) {
-    const item = selection.items[0];
-    const source = boards[selection.board]?.source;
+  const lead = leadMember(selection);
+  if (lead?.kind === 'element') {
+    const { board, item } = lead;
+    const source = boards[board]?.source;
     if (source) {
-      const box = liveElementRect(selection.board, item.tid);
-      anchor = elementAnchor({ page: view.page, board: selection.board, tid: item.tid, path: item.path, model: templateOf(source), box, row: rowAt(selection.board, item.tid, item.instance) });
+      const box = liveElementRect(board, item.tid);
+      anchor = elementAnchor({ page: view.page, board, tid: item.tid, path: item.path, model: templateOf(source), box, row: rowAt(board, item.tid, item.instance) });
     }
-  } else if (selection.kind === 'objects') {
-    if (selection.boards[0] && canvas.boards[selection.boards[0]]) anchor = boardAnchor(view.page, selection.boards[0]);
-    else if (selection.notes[0] && canvas.notes[selection.notes[0]]) anchor = noteAnchor(view.page, selection.notes[0], null);
-  }
+  } else if (lead?.kind === 'board' && canvas.boards[lead.board]) anchor = boardAnchor(view.page, lead.board);
+  else if (lead?.kind === 'note' && canvas.notes[lead.note]) anchor = noteAnchor(view.page, lead.note, null);
   const comments = useComments.getState();
   if (!anchor) {
     comments.setOn(true);

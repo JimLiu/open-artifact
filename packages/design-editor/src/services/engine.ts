@@ -37,6 +37,7 @@ import { commitMove, commitResize } from './commands.ts';
 import { boardIsActive } from './locks.ts';
 import { isLive, useLive, type MotionSource } from './live.ts';
 import { cameraDriver, viewportSize } from './viewport.ts';
+import { elementGroupsOf, selectedBoardsOf, selectedNotesOf, selectionFrom } from '../lib/selection.ts';
 
 /** `?open_artifact_engine=off`: the DOM canvas, for comparing in benchmarks and as a way out. */
 export const engineEnabled = (() => {
@@ -179,8 +180,7 @@ const engineTool = (tool: Tool, spacePan: boolean): 'select' | 'pan' | 'none' =>
 
 /** Engine ids of the selected objects. */
 function selectionIds(selection: Selection): string[] {
-  if (selection.kind !== 'objects') return [];
-  return [...selection.boards.map(boardItemId), ...selection.notes.map(noteItemId)];
+  return [...selectedBoardsOf(selection).map(boardItemId), ...selectedNotesOf(selection).map(noteItemId)];
 }
 
 /**
@@ -434,7 +434,7 @@ export async function startEngine(canvas: HTMLCanvasElement, surface: HTMLElemen
       else if (target) notes.push(target.note);
     }
     const current = useView.getState().selection;
-    const before = current.kind === 'objects' ? current.notes : [];
+    const before = selectedNotesOf(current);
     const groups = groupItems(useDocument.getState().canvas);
     if (!shift) notes = notes.length ? expandNotesToGroups(groups, notes, before) : notes;
     else {
@@ -447,7 +447,8 @@ export async function startEngine(canvas: HTMLCanvasElement, surface: HTMLElemen
         notes = notes.filter((n) => !gone.has(n));
       }
     }
-    return boards.length || notes.length ? { kind: 'objects', boards, notes } : { kind: 'none' };
+    // Shift keeps the elements selected with the objects.
+    return selectionFrom({ boards, notes, elements: shift ? elementGroupsOf(current) : [] });
   };
 
   /* ---- stores ---- */

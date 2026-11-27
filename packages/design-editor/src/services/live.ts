@@ -41,6 +41,7 @@ import { useView } from '../state/view.ts';
 import { frameOf } from './frames.ts';
 import { pageImage } from './capture.ts';
 import { viewportSize, visibleRect } from './viewport.ts';
+import { boardTakesPart, elementGroupsOf, selectedBoardsOf } from '../lib/selection.ts';
 
 /** Below this zoom, artboards on screen stay snapshots (their text is too small to read). */
 export const LIVE_MIN_ZOOM = 0.3;
@@ -163,8 +164,8 @@ export function startLive(motion?: MotionSource): () => void {
     const out = new Set<string>();
     const exists = (path: string) => Boolean(canvas.boards[path]);
     const selection = view.selection;
-    if (selection.kind === 'objects') selection.boards.filter(exists).forEach((p) => out.add(p));
-    if (selection.kind === 'elements' && exists(selection.board)) out.add(selection.board);
+    selectedBoardsOf(selection).filter(exists).forEach((p) => out.add(p));
+    for (const group of elementGroupsOf(selection)) if (exists(group.board)) out.add(group.board);
     if (view.textEdit && exists(view.textEdit.board)) out.add(view.textEdit.board);
     if (view.hover && exists(view.hover.board)) out.add(view.hover.board);
     if (view.playing && exists(view.playing)) out.add(view.playing);
@@ -232,7 +233,7 @@ export function startLive(motion?: MotionSource): () => void {
   const isPinned = (path: string): boolean => {
     const view = useView.getState();
     const s = view.selection;
-    return (s.kind === 'objects' && s.boards.includes(path)) || (s.kind === 'elements' && s.board === path) || view.textEdit?.board === path || view.playing === path;
+    return boardTakesPart(s, path) || view.textEdit?.board === path || view.playing === path;
   };
 
   const schedule = (ms: number): void => {

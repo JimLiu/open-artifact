@@ -4,11 +4,11 @@
  */
 
 import { ContextMenu } from '@base-ui/react/context-menu';
-import type { ReactElement } from 'react';
+import { useMemo, type ReactElement } from 'react';
 import { cn } from '@open-artifact/ui';
 import { boardsOnPage, notesOnPage, unlockedObjects } from '@open-artifact/design-core';
 import { useDocument } from '../state/document.ts';
-import { useView } from '../state/view.ts';
+import { useView, type Selection } from '../state/view.ts';
 import {
   copyProperties,
   deleteSelection,
@@ -24,7 +24,6 @@ import {
   pasteProperties,
   selectAllSiblings,
   selectionIsPositioned,
-  unwrapSelection,
   wrapSelection,
 } from '../services/commands.ts';
 import { canPasteHere, copyToSystem, pasteFromSystem, pasteHere, pasteIntoLocked } from '../services/clipboard.ts';
@@ -35,6 +34,10 @@ import { armScale } from '../services/scale.ts';
 import { swapSelectionPaint } from '../services/paint.ts';
 import { StackingItems } from './StackingItems.tsx';
 import { ChromeMenuItem, ChromeMenuSeparator, menuFit, POPUP } from '@open-artifact/editor-kit/react';
+import { groupSelection, ungroupSelection } from '../services/structure.ts';
+import { resolveElement } from '@open-artifact/dc';
+import { templateOf } from '../services/agent.ts';
+import { describeElement } from '../lib/outline.ts';
 
 /** Wraps the canvas root, which becomes the menu's trigger. */
 export function CanvasMenu({ children }: { children: ReactElement<Record<string, unknown>> }) {
@@ -43,13 +46,34 @@ export function CanvasMenu({ children }: { children: ReactElement<Record<string,
       <ContextMenu.Trigger render={children} />
       <ContextMenu.Portal>
         <ContextMenu.Positioner className="z-[1000]">
-          <ContextMenu.Popup className={cn(POPUP, 'min-w-[220px]')} style={menuFit()}>
-            <MenuItems />
-          </ContextMenu.Popup>
+          <MenuPopup />
         </ContextMenu.Positioner>
       </ContextMenu.Portal>
     </ContextMenu.Root>
   );
+}
+
+function MenuPopup() {
+  const selection = useView((s) => s.selection);
+  // Read when it opens: the layer names come from the artboard file.
+  const sources = useDocument((s) => s.boards);
+  const title = useMemo(() => menuTitle(selection), [selection, sources]);
+  return (
+    <ContextMenu.Popup className={cn(POPUP, 'min-w-[220px]')} style={menuFit()} aria-label={title}>
+      <MenuItems />
+    </ContextMenu.Popup>
+  );
+}
+
+/** What the menu is called: the element's layer name, or what kind of thing it acts on. */
+export function menuTitle(selection: Selection): string {
+  if (selection.kind === 'elements' && selection.items[0]) {
+    const item = selection.items[0];
+    const source = useDocument.getState().boards[selection.board]?.source;
+    const element = source ? resolveElement(templateOf(source), item.tid, item.path) : null;
+    if (element) return `${describeElement(element).name} actions`;
+  }
+  return selection.kind === 'none' ? 'Canvas actions' : 'Object actions';
 }
 
 function MenuItems() {
@@ -64,6 +88,7 @@ function MenuItems() {
   // Delete skips locked artboards and notes; it is off only when all are locked.
   const deleteLocked = useDeleteLockedWhy() ?? undefined;
   const pasteLocked = pasteIntoLocked();
+  const mixed = selection.kind === 'mixed';
 
   const selectAll = () => {
     if (elements) {
@@ -89,6 +114,35 @@ function MenuItems() {
     </>
   );
 
+  // Elements of several artboards with or without canvas objects: what
+  // each file does for its own part, as one undo step.
+  if (mixed) {
+    const blockedMixed = readOnly || Boolean(lockedWhy);
+    return (
+      <>
+        {paste}
+        <ChromeMenuItem shortcut="⌘D" disabled={readOnly} onSelect={duplicateSelection}>
+          Duplicate
+        </ChromeMenuItem>
+        <ChromeMenuItem shortcut="⌘L" disabled={readOnly || !lock.lockable} title={lock.lockable ? undefined : UNLOCKABLE_REASON} onSelect={toggleSelectionLock}>
+          {lock.next === false ? 'Unlock' : 'Lock'}
+        </ChromeMenuItem>
+        <ChromeMenuSeparator />
+        <StackingItems disabled={blockedMixed} reason={lockedWhy} />
+        <ChromeMenuItem shortcut="⇧H" disabled={blockedMixed} title={lockedWhy} onSelect={() => flipSelection('x')}>
+          Flip horizontal
+        </ChromeMenuItem>
+        <ChromeMenuItem shortcut="⇧V" disabled={blockedMixed} title={lockedWhy} onSelect={() => flipSelection('y')}>
+          Flip vertical
+        </ChromeMenuItem>
+        <ChromeMenuSeparator />
+        <ChromeMenuItem shortcut="⌫" danger disabled={readOnly || Boolean(deleteLocked)} title={deleteLocked} onSelect={deleteSelection}>
+          Delete
+        </ChromeMenuItem>
+      </>
+    );
+  }
+
   if (!elements && !objects) {
     return (
       <>
@@ -111,7 +165,6 @@ function MenuItems() {
   ) : null;
 
   const positioned = elements && selectionIsPositioned();
-  const single = elements && selection.items.length === 1;
   const detachable = elements && detachSelectionRefusal() === null;
   // Canvas notes group among themselves; the menu offers only what applies.
   const canGroupNotes = objects && noteGroupingFor('group');
@@ -176,10 +229,10 @@ function MenuItems() {
           <ChromeMenuSeparator />
           <StackingItems disabled={blocked} reason={lockedWhy} flow={!positioned} />
           <ChromeMenuSeparator />
-          <ChromeMenuItem shortcut="⌘G" disabled={blocked} title={lockedWhy} onSelect={() => wrapSelection('block')}>
+          <ChromeMenuItem shortcut="⌘G" disabled={blocked} title={lockedWhy} onSelect={groupSelection}>
             Group
           </ChromeMenuItem>
-          <ChromeMenuItem shortcut="⇧⌘G" disabled={blocked || !single} title={lockedWhy} onSelect={unwrapSelection}>
+          <ChromeMenuItem shortcut="⇧⌘G" disabled={blocked} title={lockedWhy} onSelect={ungroupSelection}>
             Ungroup
           </ChromeMenuItem>
           <ChromeMenuItem shortcut="K" disabled={blocked} title={lockedWhy} onSelect={armScale}>

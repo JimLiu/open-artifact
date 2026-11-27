@@ -42,6 +42,7 @@ import { MAX_ZOOM, MIN_ZOOM } from '../state/view.ts';
 import { Card, ChromeButton, ChromeDivider, ChromeMenu, ChromeMenuItem, ChromeMenuLabel, ChromeMenuSeparator, MOD, Tip, useShellDraw } from '@open-artifact/editor-kit/react';
 import { ErrorsList } from './BoardErrors.tsx';
 import { ArrowIcon, CursorIcon, FrameIcon, LineIcon, NoteIcon, OvalIcon, PencilIcon, RectIcon, TextIcon } from './tool-icons.tsx';
+import { boardsReached } from '../lib/selection.ts';
 
 /* ================================ top left ================================ */
 
@@ -482,8 +483,8 @@ function ZoomMenu() {
         disabled={selection.kind === 'none'}
         title={selection.kind === 'none' ? 'Select something to zoom to it.' : undefined}
         onSelect={() => {
-          if (selection.kind === 'objects') zoomToBoards(selection.boards);
-          else if (selection.kind === 'elements') zoomToBoards([selection.board]);
+          const boards = boardsReached(selection);
+          if (boards.length) zoomToBoards(boards);
         }}
       >
         Zoom to selection

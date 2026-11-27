@@ -32,6 +32,7 @@ import { templateOf } from '../services/agent.ts';
 import { SelectionBar } from './SelectionBar.tsx';
 import { useScale } from '../services/scale.ts';
 import { viewportSize } from '../services/viewport.ts';
+import { boardTakesPart, elementGroupsOf, elementsIn, selectedBoardsOf, selectedNotesOf } from '../lib/selection.ts';
 
 const HANDLES: Handle[] = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
 const HANDLE_CURSOR: Record<Handle, string> = {
@@ -163,14 +164,14 @@ export function Overlay({ boards, engine = false }: OverlayProps) {
   }, [boards, sources]);
 
   const selectedBoxes = useMemo(() => {
-    if (selection.kind !== 'elements') return [];
-    return selection.items.flatMap((item) => elementBoxes(selection.board, [item.tid], item.instance, camera));
+    // One box per element, on every artboard the selection reaches.
+    return elementGroupsOf(selection).flatMap((group) => group.items.flatMap((item) => elementBoxes(group.board, [item.tid], item.instance, camera)));
     // layoutTick: rects move when the artboard re-renders.
   }, [selection, camera, layoutTick, canvas]);
 
   const hoverBoxes = useMemo(() => {
     if (!hover || textEdit) return [];
-    if (selection.kind === 'elements' && selection.board === hover.board && selection.items.some((i) => i.tid === hover.tid)) return [];
+    if (elementsIn(selection, hover.board).some((i) => i.tid === hover.tid)) return [];
     return elementBoxes(hover.board, [hover.tid], null, camera);
   }, [hover, selection, textEdit, camera, layoutTick, canvas]);
 
@@ -184,13 +185,12 @@ export function Overlay({ boards, engine = false }: OverlayProps) {
   }, [hover, hoverBoxes, sources, playing]);
 
   const objectBoxes = useMemo(() => {
-    if (selection.kind !== 'objects') return [];
     const out: { key: string; box: Box; board?: string; note?: string }[] = [];
-    for (const path of selection.boards) {
+    for (const path of selectedBoardsOf(selection)) {
       const e = canvas.boards[path];
       if (e) out.push({ key: `b:${path}`, box: toBox(camera, e.x, e.y, e.w, e.h), board: path });
     }
-    for (const id of selection.notes) {
+    for (const id of selectedNotesOf(selection)) {
       const note = canvas.notes[id];
       if (!note) continue;
       const r = noteBounds(note);
@@ -202,19 +202,19 @@ export function Overlay({ boards, engine = false }: OverlayProps) {
   // The hovered artboard or note, unless it is selected.
   const ring = useMemo(() => {
     if (!hoverObject || tool !== 'select' || textEdit) return null;
-    if (selection.kind === 'objects' && (hoverObject.board !== undefined ? selection.boards.includes(hoverObject.board) : selection.notes.includes(hoverObject.note))) return null;
+    if (hoverObject.board !== undefined ? selectedBoardsOf(selection).includes(hoverObject.board) : selectedNotesOf(selection).includes(hoverObject.note)) return null;
     return hoverRing(canvas, hoverObject, camera);
   }, [hoverObject, tool, textEdit, selection, canvas, camera]);
 
   // Alt held: distances from the selection to the element, artboard or note under the pointer.
   const measures = useMemo(() => {
     if (!altHeld || selection.kind === 'none') return [];
-    const from = unionBox(selection.kind === 'objects' ? objectBoxes.map((o) => o.box) : selectedBoxes);
+    const from = unionBox([...objectBoxes.map((o) => o.box), ...selectedBoxes]);
     if (!from) return [];
     let to: Box | null = null;
-    if (hover && !(selection.kind === 'elements' && selection.board === hover.board && selection.items.some((i) => i.tid === hover.tid))) {
+    if (hover && !elementsIn(selection, hover.board).some((i) => i.tid === hover.tid)) {
       to = unionBox(elementBoxes(hover.board, [hover.tid], hover.instance, camera));
-    } else if (hoverObject && !(selection.kind === 'objects' && (hoverObject.board !== undefined ? selection.boards.includes(hoverObject.board) : selection.notes.includes(hoverObject.note)))) {
+    } else if (hoverObject && !(hoverObject.board !== undefined ? selectedBoardsOf(selection).includes(hoverObject.board) : selectedNotesOf(selection).includes(hoverObject.note))) {
       to = hoverRing(canvas, hoverObject, camera)?.box ?? null;
       if (to && hoverObject.note !== undefined && canvas.notes[hoverObject.note] && isPathNote(canvas.notes[hoverObject.note]!)) {
         const r = noteBounds(canvas.notes[hoverObject.note]!);
@@ -230,7 +230,8 @@ export function Overlay({ boards, engine = false }: OverlayProps) {
   }, [altHeld, selection, objectBoxes, selectedBoxes, hover, hoverObject, canvas, camera]);
   const measuring = measures.length > 0;
 
-  const single = objectBoxes.length === 1 ? objectBoxes[0]! : null;
+  // A mixed selection has no handles: it moves, it doesn't resize.
+  const single = objectBoxes.length === 1 && selection.kind === 'objects' ? objectBoxes[0]! : null;
   const singleNote = single?.note ? canvas.notes[single.note] : undefined;
   // Locked artboards and notes keep their size: no handles.
   const singleLocked = single ? isLockedObject(single.board ? canvas.boards[single.board] : singleNote) : false;
@@ -246,7 +247,7 @@ export function Overlay({ boards, engine = false }: OverlayProps) {
         if (box.left > viewportSize.width + LABEL_MARGIN || box.top > viewportSize.height + LABEL_MARGIN || box.left + box.width < -LABEL_MARGIN || box.top + box.height < -LABEL_MARGIN) return null;
         const problem = problemOf.get(path);
         const closed = problem ? noticeClosed(closedNotices, problem) : false;
-        const selected = selection.kind === 'objects' ? selection.boards.includes(path) : selection.kind === 'elements' && selection.board === path;
+        const selected = boardTakesPart(selection, path);
         return (
           // The engine moves selected artboards without the document until the drag ends: their labels hide meanwhile.
           <div key={path} data-gesture-bound={selected ? '' : undefined}>
@@ -358,7 +359,8 @@ export function Overlay({ boards, engine = false }: OverlayProps) {
           })
         : null}
 
-      {selectedBoxes[0] && (!panelOpen || scaling) ? (
+      {/* A selection across files keeps its strip with the panel open: Duplicate and Delete act on all of it. */}
+      {selectedBoxes[0] && (!panelOpen || scaling || selection.kind === 'mixed') ? (
         // Hidden while the camera moves: it does not scale with the canvas.
         <div data-camera-bound="">
           <SelectionBar box={selectedBoxes[0]} />

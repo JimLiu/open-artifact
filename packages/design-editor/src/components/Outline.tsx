@@ -25,6 +25,9 @@ import { announce } from '../services/announce.ts';
 import { refuseLocked, unlockElement, unlockObjects } from '../services/locks.ts';
 import { isElementLocked } from '../lib/locks.ts';
 import { ancestorTids, buildOutline, carryTids, climbAfter, draggedAncestorSteps, dropLevels, isHiddenLayer, loneLabelOp, renameOp, reorderOp, rowTidOf, visibilityOps, type OutlineDrop, type OutlineGlyph, type OutlineLayout, type OutlineNode } from '../lib/outline.ts';
+import { boardsReached, elementsIn, selectedBoardsOf, selectedNotesOf } from '../lib/selection.ts';
+import { shiftBoard, shiftElement, shiftNotes } from '../services/selecting.ts';
+import { moveLayers } from '../services/structure.ts';
 
 const GLYPH_PROPS = { className: 'size-3.5', strokeWidth: 1.75 } as const;
 
@@ -259,7 +262,7 @@ function BoardTree({ path, flipped, flip, unflip, carry, autoOpen }: { path: str
   const booted = useView((s) => s.frames[path]?.booted ?? false);
 
   const boardKey = `b:${path}`;
-  const boardSelected = selection.kind === 'objects' && selection.boards.includes(path);
+  const boardSelected = selectedBoardsOf(selection).includes(path);
   const open = autoOpen !== flipped.has(boardKey);
 
   // Rows opened or closed by hand stay so when an edit renumbers the elements.
@@ -274,11 +277,11 @@ function BoardTree({ path, flipped, flip, unflip, carry, autoOpen }: { path: str
   const model = useMemo(() => (source && open ? templateOf(source) : null), [source, open]);
   const nodes = useMemo(() => (model ? buildOutline(model, layoutOf) : []), [model, layoutOf]);
 
-  const selectedTids = useMemo(() => new Set(selection.kind === 'elements' && selection.board === path ? selection.items.map((item) => (model ? rowTidOf(model, item.tid) : item.tid)) : []), [selection, path, model]);
+  const selectedTids = useMemo(() => new Set(elementsIn(selection, path).map((item) => (model ? rowTidOf(model, item.tid) : item.tid))), [selection, path, model]);
   const hoveredTid = hover?.board === path && model ? rowTidOf(model, hover.tid) : null;
   const openTids = useMemo(() => {
     const out = new Set<number>();
-    if (model && selection.kind === 'elements' && selection.board === path) for (const item of selection.items) for (const tid of ancestorTids(model, item.path)) out.add(tid);
+    if (model) for (const item of elementsIn(selection, path)) for (const tid of ancestorTids(model, item.path)) out.add(tid);
     return out;
   }, [model, selection, path]);
 
@@ -329,7 +332,7 @@ function BoardTree({ path, flipped, flip, unflip, carry, autoOpen }: { path: str
       setDrop(null);
       if (!dragging || !target) return;
       const op = reorderOp(model, dragged(node.tid), target.tid, target.where);
-      if (op && edit(path, op, { selectCreated: true })) announce(`Moved ${target.where === 'inside' ? 'into' : target.where} the layer`);
+      if (op?.kind === 'move' && moveLayers(path, op)) announce(`Moved ${target.where === 'inside' ? 'into' : target.where} the layer`);
     };
     window.addEventListener('mousemove', move);
     window.addEventListener('mouseup', up);
@@ -349,8 +352,8 @@ function BoardTree({ path, flipped, flip, unflip, carry, autoOpen }: { path: str
     return null;
   };
   const dragged = (tid: number): number[] => {
-    const current = useView.getState().selection;
-    return current.kind === 'elements' && current.board === path && current.items.some((item) => item.tid === tid) ? current.items.map((item) => item.tid) : [tid];
+    const items = elementsIn(useView.getState().selection, path);
+    return items.some((item) => item.tid === tid) ? items.map((item) => item.tid) : [tid];
   };
 
   const rename = (node: OutlineNode) => (name: string) => {
@@ -378,19 +381,15 @@ function BoardTree({ path, flipped, flip, unflip, carry, autoOpen }: { path: str
 
   const view = useView.getState;
   const selectBoard = (additive: boolean) => {
-    const current = view().selection;
-    if (additive && current.kind === 'objects') {
-      const boards = current.boards.includes(path) ? current.boards.filter((b) => b !== path) : [...current.boards, path];
-      view().select({ kind: 'objects', boards, notes: current.notes });
-    } else view().select({ kind: 'objects', boards: [path], notes: [] });
+    if (additive) shiftBoard(path);
+    else view().select({ kind: 'objects', boards: [path], notes: [] });
   };
   const selectNode = (node: OutlineNode, additive: boolean) => {
     const item: ElementSelection = { tid: node.tid, path: node.path, instance: 0 };
     const current = view().selection;
-    if (additive && current.kind === 'elements' && current.board === path) {
-      const has = current.items.some((i) => i.tid === node.tid);
-      const items = has ? current.items.filter((i) => i.tid !== node.tid) : [...current.items, item];
-      view().select(items.length ? { kind: 'elements', board: path, items } : { kind: 'objects', boards: [path], notes: [] });
+    if (additive && current.kind !== 'none') {
+      // Taking out the last element leaves its artboard selected.
+      if (shiftElement(path, item).kind === 'none') view().select({ kind: 'objects', boards: [path], notes: [] });
     } else view().select({ kind: 'elements', board: path, items: [item] });
   };
 
@@ -469,7 +468,8 @@ export function Outline() {
   const [flipped, setFlipped] = useState<Set<string>>(() => new Set());
   const scroller = useRef<HTMLDivElement>(null);
 
-  const activeBoard = selection.kind === 'elements' ? selection.board : selection.kind === 'objects' && selection.boards.length === 1 ? selection.boards[0] : null;
+  const reached = boardsReached(selection);
+  const activeBoard = reached.length === 1 ? reached[0] : null;
 
   // Nothing stays marked on the canvas once the pointer or the list goes.
   const clearHover = () => {
@@ -533,12 +533,10 @@ export function Outline() {
       return next;
     });
 
-  const selectedNotes = selection.kind === 'objects' ? selection.notes : [];
+  const selectedNotes = selectedNotesOf(selection);
   const selectNotes = (ids: string[], additive: boolean) => {
-    const notes = new Set(additive ? selectedNotes : []);
-    const remove = additive && ids.every(id => notes.has(id));
-    for (const id of ids) { if (remove) notes.delete(id); else notes.add(id); }
-    useView.getState().select({ kind: 'objects', boards: additive && selection.kind === 'objects' ? selection.boards : [], notes: [...notes] });
+    if (additive) shiftNotes(ids, ids.every((id) => selectedNotes.includes(id)));
+    else useView.getState().select({ kind: 'objects', boards: [], notes: [...ids] });
   };
   // The canvas rings a note's whole group, so a group row rings it through any of its notes.
   const hoverNote = (id: string | null) => useView.getState().setHoverObject(id === null ? null : { note: id });

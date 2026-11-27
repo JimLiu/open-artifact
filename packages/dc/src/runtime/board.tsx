@@ -19,6 +19,7 @@ import type {
   BoardRect,
   BoardSize,
   ElementInspection,
+  MeasuredBox,
   PickResult,
   ImportTextTargetSpec,
   RepeatedRow,
@@ -48,6 +49,39 @@ const INSPECTED = [
   'right', 'bottom', 'z-index', 'transform', 'rotate', 'scale', 'translate', 'transform-origin', 'border-right-width',
   'border-bottom-width', 'border-left-width', 'box-sizing', 'background-clip',
 ];
+
+/** Computed properties `measure` reports: placement, and the text styles an element inherits. */
+const MEASURED = [
+  'position', 'display', 'z-index', 'transform', 'rotate', 'scale', 'translate', 'margin-left', 'margin-top',
+  'color', 'font-family', 'font-size', 'font-weight', 'font-style', 'line-height', 'letter-spacing', 'text-align',
+  'text-transform',
+];
+
+/** True when a computed transform does more than move. */
+const turnsOrScales = (style: CSSStyleDeclaration): boolean => {
+  if ((style.rotate && style.rotate !== 'none') || (style.scale && style.scale !== 'none')) return true;
+  const transform = style.transform;
+  if (!transform || transform === 'none') return false;
+  const matrix = new DOMMatrixReadOnly(transform);
+  return Math.abs(matrix.a - 1) > 1e-6 || Math.abs(matrix.b) > 1e-6 || Math.abs(matrix.c) > 1e-6 || Math.abs(matrix.d - 1) > 1e-6;
+};
+
+/** How far an element's own transform and `translate` move its centre. */
+const ownShift = (style: CSSStyleDeclaration): { x: number; y: number } => {
+  let x = 0;
+  let y = 0;
+  if (style.transform && style.transform !== 'none') {
+    const matrix = new DOMMatrixReadOnly(style.transform);
+    x += matrix.e;
+    y += matrix.f;
+  }
+  if (style.translate && style.translate !== 'none') {
+    const [tx = '0', ty = '0'] = style.translate.split(/\s+/);
+    x += parseFloat(tx) || 0;
+    y += parseFloat(ty) || 0;
+  }
+  return { x, y };
+};
 
 /* -------------------------------------------------------------------------- */
 /* Error boundary                                                              */
@@ -448,6 +482,41 @@ class Board implements BoardApi {
       parentDisplay: element.parentElement ? getComputedStyle(element.parentElement).display : 'block',
       text: (element.innerText ?? '').slice(0, 200),
     };
+  }
+
+  measure(tids: readonly number[], within: number | null): MeasuredBox[] | null {
+    // The artboard's root is the page: positions count from the document's corner.
+    const container = within === null ? null : (this.instances(within)[0] ?? null);
+    if (within !== null && !container) return null;
+    let originX = -window.scrollX;
+    let originY = -window.scrollY;
+    if (container) {
+      const frame = container.getBoundingClientRect();
+      const frameStyle = getComputedStyle(container);
+      originX = frame.left + parseFloat(frameStyle.borderLeftWidth || '0') - container.scrollLeft;
+      originY = frame.top + parseFloat(frameStyle.borderTopWidth || '0') - container.scrollTop;
+    }
+    const out: MeasuredBox[] = [];
+    for (const tid of tids) {
+      const element = this.instances(tid)[0];
+      if (!element) return null;
+      const style = getComputedStyle(element);
+      const computed: Record<string, string> = {};
+      for (const name of MEASURED) computed[name] = style.getPropertyValue(name);
+      let transformed = false;
+      for (let up = element.parentElement; up && up !== container; up = up.parentElement) if (turnsOrScales(getComputedStyle(up))) transformed = true;
+      // The box before its own transform: its layout size around the centre a
+      // turn or scale keeps, less what the transform moves it by.
+      const rect = this.rectOf(element);
+      const layout = style.display !== 'contents';
+      const width = layout ? element.offsetWidth : rect.width;
+      const height = layout ? element.offsetHeight : rect.height;
+      const shift = ownShift(style);
+      const left = rect.x + rect.width / 2 - width / 2 - shift.x - originX;
+      const top = rect.y + rect.height / 2 - height / 2 - shift.y - originY;
+      out.push({ tid, left, top, width, height, computed, transformed });
+    }
+    return out;
   }
 
   editText(tid: number, instance = 0, options?: TextEditOptions): boolean {

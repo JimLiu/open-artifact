@@ -9,6 +9,7 @@
 
 import type { ChromeReport } from '@open-artifact/runtime';
 import type { Selection } from '../state/view.ts';
+import { boardsReached } from './selection.ts';
 
 type ChromeFormat = NonNullable<ChromeReport['formats']>[number];
 
@@ -57,10 +58,10 @@ export function selectedArtboard(view: { mode: 'canvas' | 'focused'; focused: st
   const path =
     view.mode === 'focused'
       ? view.focused
-      : view.selection.kind === 'objects' && view.selection.boards.length === 1
-        ? view.selection.boards[0]!
-        : view.selection.kind === 'elements'
-          ? view.selection.board
+      : view.selection.kind === 'elements'
+        ? view.selection.board
+        : boardsReached(view.selection).length === 1
+          ? boardsReached(view.selection)[0]!
           : null;
   return path && Object.hasOwn(boards, path) ? path : null;
 }

@@ -29,10 +29,11 @@ export const UNLOCKABLE_REASON = 'This can’t be locked';
 
 /**
  * Why Delete is disabled by locks, or `null`. Canvas objects (artboards,
- * notes) block it only when every one selected is locked: the unlocked ones
- * are deleted and the locked ones stay. Any locked element blocks it.
+ * notes) and mixed selections block it only when every one selected is
+ * locked: the unlocked ones are deleted and the locked ones stay. Among
+ * the elements of one artboard any locked one blocks it.
  */
-export function deleteLockReason(kind: 'objects' | 'elements', lock: { lockable: number; locked: number }): string | null {
+export function deleteLockReason(kind: 'objects' | 'elements' | 'mixed', lock: { lockable: number; locked: number }): string | null {
   if (!lock.locked) return null;
   if (kind === 'elements') return LOCKED_REASON;
   return lock.locked >= lock.lockable ? LOCKED_REASON : null;

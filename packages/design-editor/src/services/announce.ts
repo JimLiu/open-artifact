@@ -10,6 +10,7 @@ import { useDocument } from '../state/document.ts';
 import { useView, type Selection } from '../state/view.ts';
 import { templateOf } from './agent.ts';
 import { describeElement } from '../lib/outline.ts';
+import { selectionCounts } from '../lib/selection.ts';
 import { resolveElement } from '@open-artifact/dc';
 
 export { announce, announcementText, ANNOUNCE_LIMIT, useAnnouncer } from '@open-artifact/editor-kit';
@@ -29,6 +30,14 @@ export function describeSelection(selection: Selection): string {
       return `${note?.kind === 'title1' ? 'Text' : note?.kind ? note.kind : 'Note'}${text ? ` “${text.slice(0, 40)}”` : ''} selected`;
     }
     const parts = [boards.length ? `${boards.length} artboard${boards.length === 1 ? '' : 's'}` : '', notes.length ? `${notes.length} note${notes.length === 1 ? '' : 's'}` : ''].filter(Boolean);
+    return `${parts.join(' and ')} selected`;
+  }
+  if (selection.kind === 'mixed') {
+    const counts = selectionCounts(selection);
+    const parts = [
+      `${counts.elements} element${counts.elements === 1 ? '' : 's'}${counts.elementBoards === 1 ? '' : ` in ${counts.elementBoards} artboards`}`,
+      counts.objects ? `${counts.objects} canvas object${counts.objects === 1 ? '' : 's'}` : '',
+    ].filter(Boolean);
     return `${parts.join(' and ')} selected`;
   }
   const source = useDocument.getState().boards[selection.board]?.source;

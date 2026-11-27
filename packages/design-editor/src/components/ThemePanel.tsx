@@ -23,6 +23,7 @@ import { session } from '../services/session.ts';
 import { announce } from '../services/announce.ts';
 import { PButton, PNote, PRow, PSection, PSegments } from './fields.tsx';
 import { Tip } from '@open-artifact/editor-kit/react';
+import { boardsReached, elementGroupsOf } from '../lib/selection.ts';
 
 type Target = 'fill' | 'text' | 'border';
 
@@ -98,11 +99,11 @@ function CopyStatus({ system }: { system: InstalledSystem }) {
 
 function SystemCard({ system, target, onReadme }: { system: InstalledSystem; target: Target; onReadme(): void }) {
   const readOnly = useDocument((s) => s.readOnly);
-  const hasElements = useView((s) => s.selection.kind === 'elements' && s.selection.items.length > 0);
+  const hasElements = useView((s) => elementGroupsOf(s.selection).length > 0);
   const selection = useView(s => s.selection);
   const page = useView(s => s.page);
   const canvas = useDocument(s => s.canvas);
-  const selected = selection.kind === 'elements' ? [selection.board] : selection.kind === 'objects' ? selection.boards : [];
+  const selected = boardsReached(selection);
   const paths = selected.length ? selected : boardsOnPage(canvas, page);
   const can = hasElements && !readOnly;
   return (

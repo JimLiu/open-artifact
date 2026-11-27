@@ -6,6 +6,7 @@
 import { create } from 'zustand';
 import type { BoardError, BoardRect, BoardSize, TextFormats } from '@open-artifact/dc';
 import type { ClosedNotices } from '../lib/board-errors.ts';
+import { NO_SELECTION, normalSelection, type Selection } from '../lib/selection.ts';
 
 /** Screen = world × zoom + (x, y). */
 export interface Camera {
@@ -32,22 +33,16 @@ export interface TextEditState {
 /** Canvas tools. */
 export type Tool = 'select' | 'hand' | 'board' | 'sticky' | 'title' | 'rect' | 'oval' | 'line' | 'arrow' | 'pen' | 'path' | 'image';
 
-/** A selected element inside an artboard. */
-export interface ElementSelection {
-  tid: number;
-  path: number[];
-  /** Which rendered instance was clicked (repeated templates render several). */
-  instance: number;
-}
-
-export type Selection =
-  | { kind: 'none' }
-  /** Whole artboards and canvas notes. */
-  | { kind: 'objects'; boards: string[]; notes: string[] }
-  /** Elements inside one artboard. */
-  | { kind: 'elements'; board: string; items: ElementSelection[] };
-
-export const NO_SELECTION: Selection = { kind: 'none' };
+export type {
+  BoardElements,
+  ElementSelection,
+  ElementsSelection,
+  MixedSelection,
+  ObjectsSelection,
+  Selection,
+  SelectionMember,
+} from '../lib/selection.ts';
+export { NO_SELECTION } from '../lib/selection.ts';
 
 /** Runtime state of a mounted artboard frame. */
 /** An artboard or a note under the pointer. */
@@ -209,7 +204,7 @@ export const useView = create<ViewState & ViewActions>()((set, get) => ({
     set({ tool, playing: null });
   },
   select(selection) {
-    set({ selection, playing: null, noteEdit: null, ...(get().crop ? { crop: null } : {}) });
+    set({ selection: normalSelection(selection), playing: null, noteEdit: null, ...(get().crop ? { crop: null } : {}) });
   },
   setHover(hover) {
     const current = get().hover;

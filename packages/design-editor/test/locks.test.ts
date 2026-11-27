@@ -198,4 +198,9 @@ describe('delete and locks', () => {
     assert.equal(deleteLockReason('elements', { lockable: 3, locked: 0 }), null);
     assert.equal(deleteLockReason('elements', { lockable: 3, locked: 1 }), 'Locked: unlock first');
   });
+
+  it('in a mixed selection, leaves locked members behind and blocks only when all are locked', () => {
+    assert.equal(deleteLockReason('mixed', { lockable: 3, locked: 1 }), null);
+    assert.equal(deleteLockReason('mixed', { lockable: 2, locked: 2 }), 'Locked: unlock first');
+  });
 });

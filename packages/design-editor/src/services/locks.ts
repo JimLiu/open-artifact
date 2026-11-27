@@ -14,6 +14,7 @@ import { deleteLockReason, isElementLocked, isLockable, LOCKED_MESSAGE, LOCKED_R
 import type { Address } from '../lib/ops.ts';
 import { useDocument, type BoardDoc } from '../state/document.ts';
 import { useView, type Selection } from '../state/view.ts';
+import { boardTakesPart, elementGroupsOf, selectedBoardsOf, selectedNotesOf } from '../lib/selection.ts';
 import { templateOf } from './agent.ts';
 import { announce } from './announce.ts';
 import { boardApi } from './frames.ts';
@@ -30,36 +31,40 @@ export interface SelectionLock {
 
 const NO_LOCK: SelectionLock = { lockable: 0, locked: 0, next: null };
 
-/** The selected elements that resolve in their artboard's source. */
-function resolvedElements(boards: Record<string, BoardDoc>, selection: Selection): { board: string; elements: HtmlElement[]; addresses: Address[] } | null {
-  if (selection.kind !== 'elements') return null;
-  const source = boards[selection.board]?.source;
-  if (!source) return null;
-  const model = templateOf(source);
-  const elements: HtmlElement[] = [];
-  const addresses: Address[] = [];
-  for (const { tid, path } of selection.items) {
-    const element = resolveElement(model, tid, path);
-    if (!element) continue;
-    elements.push(element);
-    addresses.push({ tid, path });
+/** Selected elements of one artboard that resolve in its source. */
+interface ResolvedElements {
+  board: string;
+  elements: HtmlElement[];
+  addresses: Address[];
+}
+
+/** The selected elements that resolve in their artboards' sources, by artboard. */
+function resolvedElements(boards: Record<string, BoardDoc>, selection: Selection): ResolvedElements[] {
+  const out: ResolvedElements[] = [];
+  for (const group of elementGroupsOf(selection)) {
+    const source = boards[group.board]?.source;
+    if (!source) continue;
+    const model = templateOf(source);
+    const resolved: ResolvedElements = { board: group.board, elements: [], addresses: [] };
+    for (const { tid, path } of group.items) {
+      const element = resolveElement(model, tid, path);
+      if (!element) continue;
+      resolved.elements.push(element);
+      resolved.addresses.push({ tid, path });
+    }
+    out.push(resolved);
   }
-  return { board: selection.board, elements, addresses };
+  return out;
 }
 
 /** How locked a selection is, against a document. */
 export function lockOf(canvas: Canvas, boards: Record<string, BoardDoc>, selection: Selection): SelectionLock {
-  let states: boolean[] = [];
-  if (selection.kind === 'objects') {
-    states = [
-      ...selection.boards.filter((path) => canvas.boards[path]).map((path) => isLockedObject(canvas.boards[path])),
-      ...selection.notes.filter((id) => canvas.notes[id]).map((id) => isLockedObject(canvas.notes[id])),
-    ];
-  } else {
-    const resolved = resolvedElements(boards, selection);
-    if (!resolved) return NO_LOCK;
-    states = resolved.elements.filter(isLockable).map(isElementLocked);
-  }
+  const objects = [
+    ...selectedBoardsOf(selection).filter((path) => canvas.boards[path]).map((path) => isLockedObject(canvas.boards[path])),
+    ...selectedNotesOf(selection).filter((id) => canvas.notes[id]).map((id) => isLockedObject(canvas.notes[id])),
+  ];
+  const elements = resolvedElements(boards, selection).flatMap((resolved) => resolved.elements.filter(isLockable).map(isElementLocked));
+  const states = [...objects, ...elements];
   if (!states.length) return NO_LOCK;
   return { lockable: states.length, locked: states.filter(Boolean).length, next: nextLockState(states) };
 }
@@ -90,7 +95,7 @@ export function useLockedWhy(): string | null {
 export function useDeleteLockedWhy(): string | null {
   const lock = useSelectionLock();
   const kind = useView((state) => state.selection.kind);
-  return kind === 'objects' || kind === 'elements' ? deleteLockReason(kind, lock) : null;
+  return kind === 'none' ? null : deleteLockReason(kind, lock);
 }
 
 /** True when anything selected is locked. */
@@ -112,7 +117,7 @@ export function refuseIfLocked(): boolean {
 
 /** True when the artboard is selected, or something in it is. */
 export function boardIsActive(selection: Selection, path: string): boolean {
-  return selection.kind === 'objects' ? selection.boards.includes(path) : selection.kind === 'elements' && selection.board === path;
+  return boardTakesPart(selection, path);
 }
 
 /**
@@ -142,19 +147,23 @@ export function toggleSelectionLock(): void {
     return;
   }
   const locked = lock.next;
-  if (selection.kind === 'objects') {
-    const next = setObjectLocks(doc.canvas, selection.boards, selection.notes, locked);
-    if (next === doc.canvas) return;
-    doc.updateCanvas(() => next);
-  } else {
-    const resolved = resolvedElements(doc.boards, selection);
-    if (!resolved) return;
-    const targets = resolved.addresses.filter((_, i) => isLockable(resolved.elements[i]!));
-    // Words being typed are written first: the edit re-renders the board.
-    if (useView.getState().textEdit?.board === resolved.board) boardApi(resolved.board)?.endTextEdit(true);
-    if (!useDocument.getState().editBoard(resolved.board, { kind: 'lock', targets, locked })) return;
-  }
-  announce(locked ? 'Locked' : 'Unlocked');
+  const resolved = resolvedElements(doc.boards, selection);
+  // Words being typed are written first: the edit re-renders the board.
+  const typing = useView.getState().textEdit?.board;
+  if (typing && resolved.some((group) => group.board === typing)) boardApi(typing)?.endTextEdit(true);
+  let changed = false;
+  doc.transact(() => {
+    const next = setObjectLocks(doc.canvas, selectedBoardsOf(selection), selectedNotesOf(selection), locked);
+    if (next !== doc.canvas) {
+      doc.updateCanvas(() => next);
+      changed = true;
+    }
+    for (const group of resolved) {
+      const targets = group.addresses.filter((_, i) => isLockable(group.elements[i]!));
+      if (targets.length && useDocument.getState().editBoard(group.board, { kind: 'lock', targets, locked })) changed = true;
+    }
+  });
+  if (changed) announce(locked ? 'Locked' : 'Unlocked');
 }
 
 /** Unlocks one element (the outline's lock button). */

@@ -6,14 +6,15 @@
  * locked layers: the lock keeps only their place and size.
  */
 
-import { elementPath, styleMap, type HtmlElement, type StylePatch, type TemplateModel } from '@open-artifact/dc';
+import { attributeValue, elementKind, elementPath, hasDynamicStyle, styleMap, type HtmlElement, type StylePatch, type TemplateModel } from '@open-artifact/dc';
 import { toast } from '@open-artifact/ui';
 import { useDocument } from '../state/document.ts';
 import { useView } from '../state/view.ts';
 import type { Address, BoardOp } from '../lib/ops.ts';
 import { isPaintProperty, loneShapeOf, paintTargetOf } from '../lib/lone-shape.ts';
 import { boxSwap, clipsToText, noteSwap, noteUnfill, REMOVE_FILL_PATCH, shapeSwap, SHAPE_UNFILL_PATCH, NOTHING_TO_UNFILL, SWAP_MESSAGES, swapReport, UNFILL_PATCH, type SwapRefusal } from '../lib/paint.ts';
-import { edit, selectedElements } from './commands.ts';
+import { edit, resolvedGroups, selectedElements, tryEdit, type ResolvedGroup } from './commands.ts';
+import { paintKindOf, paintProperty, type MixedSelection, type PaintKind, type PaintRole } from '../lib/selection.ts';
 import { boardApi } from './frames.ts';
 import { announce } from './announce.ts';
 
@@ -216,4 +217,78 @@ export function layerPaint(svg: HtmlElement, shape: HtmlElement): Record<string,
     return { ...out, ...styleMap(element.attrs.find((attr) => attr.name.toLowerCase() === 'style')?.value ?? '') };
   };
   return { ...own(svg), ...own(shape) };
+}
+
+/* ------------------------- across several files ------------------------- */
+
+/** The paint kind of an element (see `paintKindOf`). */
+const kindOf = (element: HtmlElement): PaintKind => paintKindOf(elementKind(element), element.tag);
+
+/** The elements of a mixed selection whose colors can change: not styled by code (a lock keeps only place and size). */
+function paintableGroups(selection: MixedSelection): ResolvedGroup[] {
+  return resolvedGroups(selection.elements)
+    .map((group) => ({ ...group, elements: group.elements.filter((element) => !hasDynamicStyle(element)) }))
+    .filter((group) => group.elements.length > 0);
+}
+
+/** The paint kinds among a mixed selection's elements whose colors can change. */
+export function mixedPaintKinds(selection: MixedSelection): PaintKind[] {
+  return [...new Set(paintableGroups(selection).flatMap((group) => group.elements.map(kindOf)))];
+}
+
+/** The paint kind of every element of a mixed selection: a merged row lists what all of them have. */
+export function mixedElementKinds(selection: MixedSelection): PaintKind[] {
+  return resolvedGroups(selection.elements).flatMap((group) => group.elements.map(kindOf));
+}
+
+/** The paint written on a drawn element: a single-shape graphic's, overridden by its shape's. */
+function drawnPaint(element: HtmlElement): Record<string, string> {
+  const shape = element.tag === 'svg' ? loneShapeOf(element) : null;
+  if (shape) return layerPaint(element, shape);
+  const out: Record<string, string> = {};
+  for (const attr of element.attrs) if (isPaintProperty(attr.name)) out[attr.name.toLowerCase()] = attr.value ?? '';
+  return { ...out, ...styleMap(attributeValue(element, 'style') ?? '') };
+}
+
+/** Each element's color for a role, for a merged row (elements that take no such color are left out). */
+export function mixedPaintValues(selection: MixedSelection, role: PaintRole): string[] {
+  return resolvedGroups(selection.elements).flatMap((group) => {
+    const api = boardApi(group.board);
+    return group.elements.flatMap((element) => {
+      const kind = kindOf(element);
+      const property = paintProperty(kind, role);
+      if (!property) return [];
+      // Drawn paint is read as written; boxes and text as rendered (borders from one side).
+      if (kind === 'shape' || kind === 'line') return [drawnPaint(element)[property] ?? ''];
+      const read = property === 'border-color' ? 'border-top-color' : property;
+      return [api?.inspect(group.model.tidOf.get(element)!)?.computed[read] ?? styleMap(attributeValue(element, 'style') ?? '')[property] ?? ''];
+    });
+  });
+}
+
+/**
+ * Sets one color across a mixed selection as one undo step: each element
+ * gets the property its kind takes for that role (`paintProperty`), on
+ * the part where it shows (a single-shape graphic's shape or the graphic);
+ * the others are left alone. `null` takes the color away. Returns false
+ * when nothing took it.
+ */
+export function paintMixed(selection: MixedSelection, role: PaintRole, color: string | null): boolean {
+  const doc = useDocument.getState();
+  if (doc.readOnly) return false;
+  let painted = false;
+  doc.transact(() => {
+    for (const group of paintableGroups(selection)) {
+      const edits = group.elements.flatMap((element) => {
+        const property = paintProperty(kindOf(element), role);
+        if (!property) return [];
+        const patch: StylePatch = { [property]: color };
+        // A graphic of several shapes takes it on itself: its shapes inherit it.
+        const subject = paintSubject(element) ?? { box: element };
+        return 'box' in subject ? [{ target: address(group.model, subject.box), patch }] : shapeEdits(group.model, subject.shape, subject.svg, patch);
+      });
+      if (edits.length && tryEdit(group.board, { kind: 'styles', edits }).kind === 'done') painted = true;
+    }
+  });
+  return painted;
 }

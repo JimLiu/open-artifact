@@ -10,6 +10,7 @@ import { Button, IconButton, isComposingKey } from '@open-artifact/ui';
 import { useView } from '../state/view.ts';
 import { selectedElements, sendToAgent, useAgent } from '../services/agent.ts';
 import { MOD } from '@open-artifact/editor-kit';
+import { selectionCounts } from '../lib/selection.ts';
 
 /** What the request is about, in words. */
 function useSubject(): string {
@@ -19,6 +20,12 @@ function useSubject(): string {
     const first = selectedElements()[0];
     if (count === 1 && first) return first.label ? `${first.kind}: “${first.label}”` : `a ${first.kind} element`;
     return `${count} elements in ${selection.board.replace(/\.dc\.html$/, '')}`;
+  }
+  if (selection.kind === 'mixed') {
+    const counts = selectionCounts(selection);
+    const parts = [`${counts.elements} element${counts.elements === 1 ? '' : 's'}${counts.elementBoards === 1 ? '' : ` on ${counts.elementBoards} artboards`}`];
+    if (counts.objects) parts.push(`${counts.objects} canvas object${counts.objects === 1 ? '' : 's'}`);
+    return parts.join(' and ');
   }
   if (selection.kind === 'objects') {
     const parts = [];

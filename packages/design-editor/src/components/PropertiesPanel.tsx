@@ -68,6 +68,8 @@ import { useView } from '../state/view.ts';
 import { boardApi } from '../services/frames.ts';
 import { templateOf } from '../services/agent.ts';
 import { deleteSelection, edit, styleSelection } from '../services/commands.ts';
+import { mixedElementKinds, mixedPaintValues, paintMixed } from '../services/paint.ts';
+import { MIXED, inspectorRoute, mergedValue, selectionCounts, sharedPaintRoles, type MixedSelection, type PaintRole } from '../lib/selection.ts';
 import { zoomToBoards } from '../services/viewport.ts';
 import { NOTE_PALETTE } from '../lib/notes.ts';
 import { describeElement, detailOf, selectorOf } from '../lib/outline.ts';
@@ -1072,13 +1074,59 @@ function CanvasInspector() {
   );
 }
 
+const MIXED_ROW_LABELS: Record<PaintRole, string> = { text: 'Text color', fill: 'Fill', stroke: 'Stroke' };
+
+/**
+ * A selection across files: the color rows every element has, showing
+ * their one value or `Mixed`; a change goes to each element (one undo
+ * step). The rest is edited one artboard at a time.
+ */
+function MixedInspector({ selection }: { selection: MixedSelection }) {
+  const readOnly = useDocument((s) => s.readOnly);
+  // Re-read when the artboards change or re-render.
+  const boards = useDocument((s) => s.boards);
+  const layoutTick = useView((s) => s.layoutTick);
+  const counts = selectionCounts(selection);
+  const rows = useMemo(
+    () => sharedPaintRoles(mixedElementKinds(selection)).map((role) => ({ role, value: mergedValue(mixedPaintValues(selection, role)) })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [selection, boards, layoutTick],
+  );
+  const parts = [`${counts.elements} ${counts.elements === 1 ? 'element' : 'elements'}`];
+  if (counts.elementBoards > 1) parts.push(`on ${counts.elementBoards} artboards`);
+  if (counts.objects) parts.push(`and ${counts.objects} ${counts.objects === 1 ? 'canvas object' : 'canvas objects'}`);
+  return (
+    <PSection title={`${counts.elements + counts.objects} selected`}>
+      <PNote className="py-1">{parts.join(' ')}</PNote>
+      {rows.map(({ role, value }) => (
+        <PRow key={role} label={MIXED_ROW_LABELS[role]}>
+          <PColor
+            aria-label={MIXED_ROW_LABELS[role]}
+            value=""
+            placeholder={value === MIXED ? MIXED : value || undefined}
+            disabled={readOnly}
+            onCommit={(next) => paintMixed(selection, role, next || null)}
+          />
+        </PRow>
+      ))}
+      <div className="px-3 pt-1">
+        <PButton onClick={deleteSelection} disabled={readOnly} className="text-danger">
+          <Trash2 className="size-3.5" /> Delete
+        </PButton>
+      </div>
+    </PSection>
+  );
+}
+
 function PropertiesBody() {
   const selection = useView((s) => s.selection);
   if (selection.kind === 'elements') return <ElementInspector key={selection.board} board={selection.board} />;
+  if (selection.kind === 'mixed') return <MixedInspector selection={selection} />;
   if (selection.kind === 'objects') {
     const count = selection.boards.length + selection.notes.length;
-    if (count === 1 && selection.boards[0]) return <BoardInspector path={selection.boards[0]} />;
-    if (count === 1 && selection.notes[0]) return <NoteInspector id={selection.notes[0]} />;
+    const route = inspectorRoute(selection);
+    if (route === 'board') return <BoardInspector path={selection.boards[0]!} />;
+    if (route === 'note') return <NoteInspector id={selection.notes[0]!} />;
     return (
       <PSection title={`${count} selected`}>
         <PNote className="py-1">

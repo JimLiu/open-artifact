@@ -13,6 +13,7 @@ import { useDocument } from '../state/document.ts';
 import { toWorld, useView } from '../state/view.ts';
 import { liveCamera } from './engine.ts';
 import { projectPath, session } from './session.ts';
+import { elementGroupsOf, selectedBoardsOf, selectedNotesOf } from '../lib/selection.ts';
 
 export { AGENT_COLOR, AGENT_SHOWN_MS, PEER_COLORS, peerColor, peerViews } from '@open-artifact/editor-kit';
 
@@ -49,11 +50,15 @@ export function parseDesignPresence(value: Record<string, unknown>): DesignPrese
 function ownPresence(): DesignPresence {
   const view = useView.getState();
   const selection = view.selection;
-  const elements = selection.kind === 'elements' ? { board: selection.board, tids: selection.items.map((i) => i.tid).slice(0, PRESENCE_LIST_MAX) } : null;
+  // Peers see the elements of one artboard: the one the selection leads with.
+  const groups = elementGroupsOf(selection);
+  const lead = selection.kind === 'mixed' && selection.primary?.kind === 'element' ? selection.primary.board : groups[0]?.board;
+  const group = groups.find((entry) => entry.board === lead);
+  const elements = group ? { board: group.board, tids: group.items.map((i) => i.tid).slice(0, PRESENCE_LIST_MAX) } : null;
   return {
     page: view.page,
-    boards: selection.kind === 'objects' ? selection.boards.slice(0, PRESENCE_LIST_MAX) : [],
-    notes: selection.kind === 'objects' ? selection.notes.slice(0, PRESENCE_LIST_MAX) : [],
+    boards: selectedBoardsOf(selection).slice(0, PRESENCE_LIST_MAX),
+    notes: selectedNotesOf(selection).slice(0, PRESENCE_LIST_MAX),
     elements,
     editing: useDocument.getState().readOnly ? null : (view.textEdit?.board ?? elements?.board ?? null),
   };

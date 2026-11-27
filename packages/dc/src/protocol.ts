@@ -171,6 +171,26 @@ export interface ElementInspection {
   text: string;
 }
 
+/**
+ * Where an element sits inside a container, for writing its layout back
+ * after it moves (grouping, ungrouping, moving to another parent).
+ */
+export interface MeasuredBox {
+  tid: number;
+  /**
+   * Its border box against the container's padding box, in the
+   * container's own pixels (scroll included), before its own transform.
+   */
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  /** Computed values: `position`, `display`, `z-index`, `transform`, and the inherited text styles. */
+  computed: Record<string, string>;
+  /** A box between it and the container is rotated, scaled or skewed. */
+  transformed: boolean;
+}
+
 /** What the runtime exposes as `window.__dc`. */
 export interface BoardApi {
   /** Replace the source (template, script and props are re-read). */
@@ -193,6 +213,12 @@ export interface BoardApi {
   /** The repeated levels (list rows) an instance sits in, outermost first, the instance itself included. */
   repeatedRows(tid: number, instance: number): RepeatedRow[];
   inspect(tid: number): ElementInspection | null;
+  /**
+   * The first instance of each node, measured against `within`'s first
+   * instance (the artboard's root when `null`). `null` when one of them
+   * is not rendered, so nothing is half measured.
+   */
+  measure(tids: readonly number[], within: number | null): MeasuredBox[] | null;
   /**
    * The render values a loaded `<dc-import name>` component computes for
    * these props (its logic's `renderVals()`); `null` when it is not loaded

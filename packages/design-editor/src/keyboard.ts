@@ -22,7 +22,6 @@ import {
   selectSibling,
   stackSelection,
   undo,
-  unwrapSelection,
   wrapSelection,
 } from './services/commands.ts';
 import { boardsOnPage, notesOnPage } from '@open-artifact/design-core';
@@ -50,6 +49,8 @@ import { COMMITTED_ATTRIBUTE, committedFieldPasses, textHandoffMessage, textHand
 import { commitTextEdit } from './services/text-edit.ts';
 import { escapeGoesHome, regionStepOf } from './lib/focus-regions.ts';
 import { focusHome, regionAt, rememberRegionFocus, stepRegion } from './services/focus-regions.ts';
+import { boardsReached, elementGroupsOf } from './lib/selection.ts';
+import { groupSelection, ungroupSelection } from './services/structure.ts';
 
 /** A key press, from the window or from a frame. */
 export interface KeyPress {
@@ -89,6 +90,7 @@ export function runShortcut({ key, code, meta, shift, alt, repeat, ctrl }: KeyPr
   if (runCollabShortcut({ key, code, meta, shift, alt })) return true;
   const letter = code?.startsWith('Key') ? code.slice(3).toLowerCase() : lower;
   const elements = view.selection.kind === 'elements';
+  const anyElements = elementGroupsOf(view.selection).length > 0;
 
   if (key === 'Escape') {
     if (view.composer) view.setComposer(false);
@@ -118,8 +120,8 @@ export function runShortcut({ key, code, meta, shift, alt, repeat, ctrl }: KeyPr
   if (meta && !alt && letter === 'g') {
     if (doc.readOnly) return true;
     if (view.selection.kind === 'objects') groupSelectedNotes(shift ? 'ungroup' : 'group');
-    else if (shift) unwrapSelection();
-    else wrapSelection('block');
+    else if (shift) ungroupSelection();
+    else groupSelection();
     return true;
   }
 
@@ -204,8 +206,7 @@ export function runShortcut({ key, code, meta, shift, alt, repeat, ctrl }: KeyPr
     const s = view.selection;
     if (zoomKey === 'fit') zoomToFit();
     else if (zoomKey === 'actual') zoomTo(1);
-    else if (s.kind === 'objects' && s.boards.length) zoomToBoards(s.boards);
-    else if (s.kind === 'elements') zoomToBoards([s.board]);
+    else if (boardsReached(s).length) zoomToBoards(boardsReached(s));
     return true;
   }
 
@@ -228,9 +229,18 @@ export function runShortcut({ key, code, meta, shift, alt, repeat, ctrl }: KeyPr
       const step = shift ? 10 : 1;
       const dx = key === 'ArrowLeft' ? -step : key === 'ArrowRight' ? step : 0;
       const dy = key === 'ArrowUp' ? -step : key === 'ArrowDown' ? step : 0;
+      // With elements selected, ⌥ and an arrow does not nudge.
+      if (alt && anyElements) return false;
       if (view.selection.kind === 'elements') {
         // Positioned elements move; elements in the flow stay put.
         if (!doc.readOnly) moveSelectedElements(dx, dy, { coalesce: 'nudge' });
+        return true;
+      }
+      if (view.selection.kind === 'mixed') {
+        if (!doc.readOnly) {
+          nudgeSelection(dx, dy);
+          if (!repeat) announce(`Moved ${dx < 0 ? 'left' : dx > 0 ? 'right' : dy < 0 ? 'up' : 'down'}`);
+        }
         return true;
       }
       if (view.selection.kind !== 'objects') return false;
@@ -241,6 +251,10 @@ export function runShortcut({ key, code, meta, shift, alt, repeat, ctrl }: KeyPr
       break;
   }
   if (runPaintKey({ key, code, meta, shift, alt })) return true;
+  if (view.selection.kind === 'mixed' && anyElements && !alt && shift && !doc.readOnly && (letter === 'h' || letter === 'v')) {
+    flipSelection(letter === 'h' ? 'x' : 'y');
+    return true;
+  }
   if (elements && !alt && !doc.readOnly) {
     if (shift && letter === 'h') {
       flipSelection('x');
