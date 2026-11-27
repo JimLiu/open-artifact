@@ -7,7 +7,9 @@
   "exports": {
     ".": "./src/index.ts",
     "./color": "./src/color.ts",
+    "./color": "./src/color.ts",
     "./keys": "./src/keys.ts",
+    "./number-entry": "./src/number-entry.ts",
     "./link-card": "./src/link-card.ts",
     "./number-entry": "./src/number-entry.ts",
     "./number-limits": "./src/number-limits.ts",
