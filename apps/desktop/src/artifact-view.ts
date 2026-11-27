@@ -1,6 +1,6 @@
 import type { Harness } from '@open-artifact/harness-kit';
 import type { EmbedArtifactOptions, EmbedSavedState, EmbedTransport, HostTheme } from '@open-artifact/harness-kit/embed';
-import type { Session, WebContents } from 'electron';
+import type { Session, WebContents, WebFrameMain } from 'electron';
 import type { OriginAllowlist } from './navigation.ts';
 import type { Log } from './types.ts';
 export interface NavigationOptions {
@@ -138,15 +138,27 @@ export function connectShell({
   });
 }
 
+/** The addresses of the frames around `frame`, nearest first (none when Electron gives no frame). */
+function framersOf(frame: WebFrameMain | null | undefined) {
+  const framers: string[] = [];
+  try {
+    for (let parent = frame?.parent; parent; parent = parent.parent) framers.push(parent.url);
+  } catch {
+    // A frame already gone: what was read stands.
+  }
+  return framers;
+}
+
 /**
  * A subframe goes only where `allowed` lets it: when it starts (`will-frame-navigate`) and at each server redirect on
- * the way (`will-redirect`), so an allowed address cannot answer 302 with one that is not.
+ * the way (`will-redirect`), so an allowed address cannot answer 302 with one that is not. `allowed` also hears the
+ * addresses of the frames around it, nearest first.
  */
-function guardSubframes(contents: WebContents, allowed: (url: string) => boolean, log: Log) {
-  const check = (event: Electron.Event & { url?: string; isMainFrame?: boolean }, legacyUrl?: string) => {
+function guardSubframes(contents: WebContents, allowed: (url: string, framers: string[]) => boolean, log: Log) {
+  const check = (event: Electron.Event & { url?: string; isMainFrame?: boolean; frame?: WebFrameMain | null }, legacyUrl?: string) => {
     if (event.isMainFrame !== false) return;
     const url = event.url ?? legacyUrl ?? '';
-    if (allowed(url)) return;
+    if (allowed(url, framersOf(event.frame))) return;
     event.preventDefault();
     log(`blocked frame navigation to ${url}`);
   };
@@ -190,7 +202,7 @@ export function guardArtifactNavigation(
     }
     onTop(event, legacyUrl);
   });
-  guardSubframes(contents, (url) => subframeAllowed(url, allowlist), log);
+  guardSubframes(contents, (url, framers) => subframeAllowed(url, allowlist, framers), log);
   contents.setWindowOpenHandler(({ url }) => {
     // An address this view is allowed to show stays in the app (a new window is never opened). Anything else is the
     // one external-link exit, which refuses what is not http(s).

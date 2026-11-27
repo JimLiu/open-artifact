@@ -44,7 +44,8 @@ a still frame of it (a picture), then write the picture as an `<img>` and name t
 <img src="/_blob/<still>" data-video="/_blob/<clip>" alt="what it shows" style="width:960px;height:540px;object-fit:cover">
 ```
 
-The clip plays, looping, while its slide is presented, and on the page while its frame is selected
+The clip plays, looping, while its slide is presented (with a play button while it is paused, and restart, play
+and sound controls at its bottom-left), and on the page while its frame is selected
 (a click selects it, and pauses or plays it). Everywhere else (thumbnails, the overview, exports) the
 picture shows, so always give it one; without a still the frame is dark. `<video src="/_blob/<clip>"
 poster="/_blob/<still>" aria-label="what it shows">` is read as the same thing and saved as the
@@ -72,9 +73,9 @@ thumbnail, and a placeholder for the others. Give it a still when you have one.
 | `data-video-loom` | the last 32 characters of the link, before any `?` |
 | `data-video-drive` | the characters between `/file/d/` and the next `/`, then `/` and the `resourcekey` value if the link has one |
 
-`data-video-at="90"` starts it at that second (not for Google Drive). A hosted video plays in the
-provider's own player, so it needs a network connection when presenting; one `<img>` holds at most one
-video. Keep `data-video-still` as you find it: the page sets it.
+`data-video-at="90"` starts it at that second (not for Google Drive). A hosted video shows its still and a
+play button while presenting, and plays in the provider's own player once that is clicked, so it needs a
+network connection when presenting; one `<img>` holds at most one video. Keep `data-video-still` as you find it: the page sets it.
 
 If you edit a slide, keep its `data-video…` attributes as they are.
 

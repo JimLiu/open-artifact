@@ -31,22 +31,24 @@ export interface AllCommentsProps<A> {
   top?: number;
   /** What the empty panel says to someone who can comment. */
   hint?: string;
+  /** Run the window's full height (down to the same gap from the bottom) rather than fit the threads. */
+  fill?: boolean;
 }
 
 /** The "All comments" panel, while the comments store says it is open. */
-export function AllComments<A>({ comments, agent, top = PANEL_GAP, hint }: AllCommentsProps<A>): ReactNode {
+export function AllComments<A>({ comments, agent, top = PANEL_GAP, hint, fill = false }: AllCommentsProps<A>): ReactNode {
   const open = comments.store((s) => s.listOpen && s.available);
   if (!open) return null;
   return (
     <CommentsLayer mark="data-comments-panel-layer">
-      <Panel comments={comments} agent={agent} top={top} hint={hint} />
+      <Panel comments={comments} agent={agent} top={top} hint={hint} fill={fill} />
     </CommentsLayer>
   );
 }
 
 const firstAt = (thread: CommentThread): string => thread.messages[0]?.at ?? '';
 
-function Panel<A>({ comments, agent, top, hint }: Required<Omit<AllCommentsProps<A>, 'hint'>> & { hint?: string }): ReactNode {
+function Panel<A>({ comments, agent, top, hint, fill }: Required<Omit<AllCommentsProps<A>, 'hint'>> & { hint?: string }): ReactNode {
   const { dark } = useCdsRoot();
   const threads = comments.store((s) => s.threads);
   const showResolved = comments.store((s) => s.showResolved);
@@ -67,7 +69,7 @@ function Panel<A>({ comments, agent, top, hint }: Required<Omit<AllCommentsProps
         right: PANEL_GAP,
         width: PANEL_WIDTH,
         maxWidth: `calc(100vw - ${PANEL_GAP * 2}px)`,
-        maxHeight: `calc(100dvh - ${top + PANEL_GAP}px)`,
+        [fill ? 'height' : 'maxHeight']: `calc(100dvh - ${top + PANEL_GAP}px)`,
         zIndex: 40,
         // Over a host that lets the pointer through (a frame's comments layer), the panel still takes it.
         pointerEvents: 'auto',
@@ -88,7 +90,7 @@ function Panel<A>({ comments, agent, top, hint }: Required<Omit<AllCommentsProps
         <Button variant="ghost" iconOnly aria-label="Close" icon={<Icon name="X" size="sm" />} onClick={close} />
       </div>
       <SendAll comments={comments} agent={agent} threads={all} />
-      <div className="flex min-h-0 flex-col gap-xs overflow-y-auto [--cds-comment-card-bg:var(--cds-surface-2)]" style={{ padding: '0 12px 12px' }}>
+      <div className={cn('flex min-h-0 flex-col gap-xs overflow-y-auto [--cds-comment-card-bg:var(--cds-surface-2)]', fill && 'flex-1')} style={{ padding: '0 12px 12px' }}>
         {all.length === 0 ? (
           <div data-comments-empty="" className="flex flex-1 flex-col items-center justify-center gap-xs px-lg text-center" style={{ paddingBlock: 'var(--cds-pad-xl)' }}>
             <span className="text-body font-medium text-secondary">No comments yet</span>

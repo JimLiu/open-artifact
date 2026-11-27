@@ -1,6 +1,6 @@
 /**
  * Presence and following, drawn from plain props (no stores): the avatars
- * card with its follow menu ("Follow me" with "N following you", follow the
+ * button with its follow menu ("Follow me" with "N following you", follow the
  * agent, follow a person), the "Following …" pill, and peers' cursors over
  * a tile. Presence.tsx feeds it the slides editor's state.
  */
@@ -8,7 +8,7 @@
 import type { ReactNode } from 'react';
 import { Eye, MousePointer2, Radio, Sparkles, X } from 'lucide-react';
 import { cn } from '@open-artifact/ui';
-import { Card, ChromeButton, ChromeMenu, ChromeMenuItem, ChromeMenuLabel, ChromeMenuSeparator } from '@open-artifact/editor-kit/react';
+import { ChromeButton, ChromeMenu, ChromeMenuItem, ChromeMenuLabel, ChromeMenuSeparator } from '@open-artifact/editor-kit/react';
 import { landAfterDismissPress } from '../lib/focus-landing.ts';
 
 /** A peer as these components draw it. */
@@ -47,18 +47,18 @@ export interface PresenceMenuProps {
   onFollowAgent(on: boolean): void;
 }
 
-/** The avatars card with the follow menu. Hidden when no one else is here and there is no agent. */
+/** The avatars (an eye when no one else is here) with the follow menu, a plain button like the rest of the top-right row. Hidden when no one else is here and there is no agent. */
 export function PresenceMenu({ peers, following, leading, followers, agent, onFollow, onLead, onFollowAgent }: PresenceMenuProps): ReactNode {
   const people = peers.filter((p) => p.kind === 'person');
   if (peers.length === 0 && !agent) return null;
   const shown = peers.slice(0, 3);
   return (
-    <Card className="pointer-events-auto flex items-center p-1">
+    <div data-open-artifact-presence="" className="pointer-events-auto flex h-10 items-center">
       <ChromeMenu
         align="end"
         tip={{ label: followers ? `${followers} following you` : 'People here' }}
         trigger={
-          <ChromeButton size="lg" aria-label="People here and following" className="gap-1.5 px-1.5">
+          <ChromeButton size="lg" square={!shown.length && !leading && !followers} aria-label="People here and following" className={shown.length || leading || followers ? 'gap-1.5 px-1.5' : undefined}>
             {shown.length ? (
               <span className="flex -space-x-1.5">
                 {shown.map((peer) => (
@@ -115,7 +115,7 @@ export function PresenceMenu({ peers, following, leading, followers, agent, onFo
           </>
         ) : null}
       </ChromeMenu>
-    </Card>
+    </div>
   );
 }
 

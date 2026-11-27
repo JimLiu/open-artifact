@@ -60,6 +60,14 @@ export const useComments = slidesComments.store;
 /** True when this viewer may write comments (commenters and up). */
 export const canComment = slidesComments.canComment;
 
+/** Comment mode on with the All comments panel open, or both off (Comment in the toolbar, and C). */
+export function setCommenting(on: boolean): void {
+  if (on && !canComment()) return;
+  useComments.getState().setListOpen(on);
+  // The Shell owns comment mode (its own button shows it too) and hands the change back.
+  maybeSession()?.shell?.requestCommentMode(on);
+}
+
 /** Ask the frame to enter comment mode at the selected slide or element. */
 export function requestAnchoredComment(anchor: SlideAnchor): void {
   if (canComment()) maybeSession()?.shell?.requestCommentMode(true, JSON.stringify(anchor));

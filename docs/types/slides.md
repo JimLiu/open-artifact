@@ -27,11 +27,14 @@
 /open-artifact slides a 10-slide Q3 engineering review in 4:3 using our Acme design system
 ```
 
-Or start with no agent: on the home page, click **New artifact**, pick **Slides**, and name it. A deck with no slides opens in its editor; click **Add slide** and edit it yourself. What you **Send to agent** waits until a session takes the deck.
+Or start with no agent: on the home page, click **New artifact**, pick **Slides**, and name it. A deck with no slides opens in its editor; click **Add slide** in the middle of the stage, pick a layout (Blank, Title, Section, Bullets and more), and edit it yourself. What you **Send to agent** waits until a session takes the deck.
 
 ### Edit, review & export
 - **Direct edits**: Click text to edit inline, rearrange slides in the left rail or section overview, and open speaker notes at the bottom.
+- **Where things are**: **View** heads the left rail; **Add slide**, **Present** and the properties toggle sit at the top-right. The bottom toolbar inserts text, an image or video from your computer, a **Video** (upload a clip or embed a video link), a table or a shape, and its **Comment** button (or **C**) turns comment mode on with the **All comments** panel at the right, the stage narrowing beside it; the card at the bottom-right steps to the previous or next slide, shows which slide you are on (**2 / 9**), and holds the zoom.
+- **Narrow windows**: under about 1000px wide the slide rail hides and **View** moves over the stage (**View › Slide thumbnails** still shows the rail); when the bottom toolbar and the pager card no longer fit side by side, the card moves above the toolbar.
 - **Present**: Use the presenter button in the toolbar for full-screen delivery.
+- **Videos**: a round play button marks a video on the stage and in the thumbnails. While presenting, an uploaded clip starts with its slide; move over it for a bar at its bottom-left (restart, play or pause, sound), and click it to pause or play without turning the slide. A YouTube, Vimeo, Loom or Google Drive video shows its still and a play button, and its player loads, playing, once you click it.
 - **Request changes from your agent**: Pin a comment on a slide (e.g. *"simplify this comparison table into 3 bullets"*), then click **Send to agent**.
 - **Link to a specific slide**: Add `#slide-<number>` to the artifact URL (e.g. `#slide-3`).
 - **Export**: Open **Share → Export** to download PDF, PPTX, HTML, or PNG.

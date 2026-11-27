@@ -29,7 +29,7 @@ import { highlightMatches, useFind } from '../services/find.ts';
 import { resolveSrc } from '../services/session.ts';
 import { ContextMenu } from './ContextMenu.tsx';
 import { NotesEditor } from './NotesPane.tsx';
-import { CHROME_BOTTOM, CHROME_TOP } from './StageChrome.tsx';
+import { CHROME_BOTTOM, CHROME_STACKED, CHROME_TOP } from './StageChrome.tsx';
 import { CommentPins } from './comments/CommentPins.tsx';
 import { activeEditor, setPendingCaret, TextEditor } from './TextEditor.tsx';
 import { toSlidePoint } from './stage/geometry.ts';
@@ -67,6 +67,8 @@ export function Stage(): ReactNode {
   const tool = useView((s) => s.tool);
   const commentsOn = useComments((s) => s.on);
   const showNotes = useView((s) => s.showNotes);
+  // The pager card above the toolbar: the slide keeps clear of both.
+  const bottom = BOTTOM + (useView((s) => s.footStacked) ? CHROME_STACKED : 0);
   const pan = useStageGesture((s) => (s.panning ? 'drag' : s.spaceHeld ? 'ready' : undefined));
   const scroller = useRef<HTMLDivElement>(null);
   // The stage once it is on the page (it is a blank until the slide loads), for the listeners that need it.
@@ -84,9 +86,9 @@ export function Stage(): ReactNode {
   const deckSize = useDeck((s) => s.index.size);
   useEffect(() => {
     if (!size || size.w <= 0 || size.h <= 0) return;
-    const high = size.h - TOP - BOTTOM - (showNotes ? NOTES_ROOM : 0);
+    const high = size.h - TOP - bottom - (showNotes ? NOTES_ROOM : 0);
     useView.getState().setFitScale(Math.max(0.05, Math.min((size.w - SIDE * 2) / SLIDE_WIDTH, high / SLIDE_HEIGHT)));
-  }, [size, showNotes, deckSize]);
+  }, [size, showNotes, deckSize, bottom]);
 
   // The slide's root element (gestures and the overlay measure inside it).
   useLayoutEffect(() => {
@@ -345,7 +347,7 @@ export function Stage(): ReactNode {
       >
         <div
           className="flex min-h-full min-w-full flex-col items-center justify-center"
-          style={{ paddingTop: TOP, paddingBottom: BOTTOM + (showNotes ? NOTES_ROOM : 0), paddingLeft: SIDE, paddingRight: SIDE, width: 'max-content', height: 'max-content' }}
+          style={{ paddingTop: TOP, paddingBottom: bottom + (showNotes ? NOTES_ROOM : 0), paddingLeft: SIDE, paddingRight: SIDE, width: 'max-content', height: 'max-content' }}
         >
           <div className="relative shrink-0 shadow-[0_0_0_1px_rgb(0_0_0/0.06),0_1px_3px_rgb(0_0_0/0.08)]" style={{ width, height }}>
             <div className="absolute left-0 top-0 origin-top-left" style={{ width: SLIDE_WIDTH, height: SLIDE_HEIGHT, transform: `scale(${scale})` }}>
@@ -387,7 +389,7 @@ export function Stage(): ReactNode {
 
 /** The part of the stage the floating cards leave uncovered (client coordinates). */
 function uncoveredStage(scroller: HTMLElement): Box {
-  return insetBox(scroller.getBoundingClientRect(), { top: CHROME_TOP, bottom: CHROME_BOTTOM });
+  return insetBox(scroller.getBoundingClientRect(), { top: CHROME_TOP, bottom: CHROME_BOTTOM + (useView.getState().footStacked ? CHROME_STACKED : 0) });
 }
 
 /** The caret in the text being typed into, or null. */

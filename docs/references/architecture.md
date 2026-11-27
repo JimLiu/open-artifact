@@ -97,7 +97,8 @@ It is a Harness API host like the examples, built on `@open-artifact/harness-kit
 - **Navigation**: a view shows only the daemon's origin and the origins `embed.origins` lists (refreshed on
   `embed/origins`); another artifact's `/a/<id>` (Duplicate, Copy as) opens a tab, `/` goes to the first tab, the web
   goes to the system browser (`external.ts`: only http(s), the userinfo dropped), new windows are denied; subframes
-  are checked at `will-frame-navigate` and again at each `will-redirect`. Permissions are denied except
+  are checked at `will-frame-navigate` and again at each `will-redirect` (allowed origins, plus the video players a
+  slide frames, `VIDEO_PLAYERS` in `navigation.ts`, and the frames inside one). Permissions are denied except
   `clipboard-sanitized-write`.
 - **Reconnect**: when the daemon goes away the views stay and the bar says it is reconnecting; the kit's reconnect
   runs `ensureDaemon`, so a daemon that was stopped (not only restarted) is started again while the app runs. Once

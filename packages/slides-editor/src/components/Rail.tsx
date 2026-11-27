@@ -1,6 +1,6 @@
 /**
- * The slide rail: a 192px column on the left, headed by "+ Add slide" and
- * the View menu, then the slides as 135px thumbnails with their numbers in
+ * The slide rail: a 192px column on the left, on the stage's own ground,
+ * headed by the View menu, then the slides as 135px thumbnails with their numbers in
  * the gutter and skip, held, conflict, comment and presence marks. Slides
  * are multi-selected, dragged to reorder, and have a right-click menu.
  * Sections show in the grid and canvas views, not here.
@@ -121,10 +121,8 @@ export function Rail(): ReactNode {
     drag && dropGap === gap ? <div className="-mt-0.5 mb-0.5 h-0.5 w-[143px] shrink-0 rounded bg-chrome-accent" aria-hidden /> : null;
 
   return (
-    <aside className="relative flex h-full shrink-0 flex-col border-r border-chrome-sep bg-chrome text-chrome-fg" style={{ width: RAIL_WIDTH }} aria-label="Slides">
-      <div className="shrink-0 border-b border-chrome-sep">
-        <StartControls className="flex-wrap justify-between gap-y-1 px-2 py-4" />
-      </div>
+    <aside className="relative flex h-full shrink-0 flex-col bg-stage text-chrome-fg" style={{ width: RAIL_WIDTH }} aria-label="Slides">
+      <StartControls className="shrink-0 px-3 pt-3 pb-2" />
       <div
         ref={scroller}
         role="listbox"

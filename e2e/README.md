@@ -134,6 +134,33 @@ The harness asks its questions (`waitFor`, `evaluateAll`, `load`'s `ready`) in a
 
 - The slide's `<svg>` holds `<style><img src="x" onerror="…"></style>`: in an svg a `<style>` holds markup and `<img>` leaves the svg for HTML, so a check that reads `<style>` as text sees no handler. `check` fails with `<svg> holds <img>`; in Chrome the slide is held ("This slide's file has errors"), no element carries `onerror`, the handler never ran, and every drawn svg (stage and rail) is empty. Before the fix for PR #36, a held slide still drew the drawing's source, and this one ran its handler.
 
+**Slides: an empty deck** (`slides.test.mjs`, a deck of its own with an empty `order`, Chrome only)
+
+- The empty state is one line ("This presentation has no slides yet. Add one…") centred on the whole stage, within 2px; the top-left Add slide / View card is not shown, so its Add slide is the only one. Before, the empty state hugged the stage's left edge under that card.
+- Its Add slide opens the "New slide" layout picker with Blank focused, and `deck.json` still has no slides; picking Title adds one slide to the rail and saves it with the Title layout's text. Before, Add slide added a blank slide at once.
+
+**Slides: where the controls sit** (`slides.test.mjs`, the two-slide inline-style deck, Chrome only)
+
+- View heads the rail; the top-right row has Add slide right before Present, and no other Add slide is on the page.
+- The bottom-right card holds the pager and the zoom, right of the insert toolbar and within 16px of the stage's right and bottom edges. It reads `1 / 2` with Previous slide unavailable; Next slide shows the second slide (`2 / 2`) and Previous slide comes back.
+- Video is a button of its own beside Image or video: its menu has Upload video… and Embed a video link…, which opens the video link dialog. On a deck without slides the waiting insert tools are Text, Image or video, Video, Table and Shapes.
+
+**Slides: who else is here** (`slides.test.mjs`, the two-slide inline-style deck in two tabs, Chrome only)
+
+- With a second viewer on the deck, the "People here and following" button shows at the top-right, level with the row of Add slide and Present, and neither it nor anything around it up to that row has a background or a shadow: it is a plain button on the stage, not a floating card.
+
+**Slides: a narrow window and the Comment button** (`slides.test.mjs`, the two-slide inline-style deck in its Shell, Chrome only)
+
+- At 1400px the rail shows and the pager card sits beside the toolbar. The toolbar's Comment button turns comment mode on (pressed) and opens All comments; the stage ends where the panel's reserved room starts, and the properties panel is not shown under it. Comment again closes both.
+- At 900px the rail hides, View moves over the stage, and the toolbar ends left of the pager card. At 640px the pager card goes above the toolbar (`data-open-artifact-corner="above"`) without overlapping it.
+- View › Slide thumbnails shows the rail in the narrow window; back at 1400px the rail shows and the card is beside the toolbar again.
+
+**Slides: videos** (`slides.test.mjs`, a deck of its own with an uploaded clip recorded in the browser and a YouTube video with an uploaded still, Chrome only)
+
+- In the editor a round play sign covers the clip on the stage, and a larger one each video in the rail.
+- Presenting the clip: it starts with its slide, with no play button over it; moving over it shows the bar at its bottom-left with Restart, Pause and Unmute. A click on the clip pauses it without turning the slide and brings up the play button, which plays it again; Unmute turns the sound on.
+- Presenting the YouTube video: its still and a play button show and no player loads until the button is pressed; then one player frame loads in the presentation with `autoplay=1` and `referrerpolicy="strict-origin-when-cross-origin"` (YouTube refuses an embed with no Referer), and the slide stays. The frame is emptied as it is added, so the test needs no network.
+
 **Sheets** (`sheets.test.mjs`)
 
 - `read` on a folder with no Sheet is refused; a first `update` makes the Sheet (one blank `Sheet1`) and applies its edits.

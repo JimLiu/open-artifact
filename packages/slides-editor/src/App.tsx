@@ -1,24 +1,25 @@
 /**
- * The Slides editor: the slide rail on the left (headed by Add slide and
- * the View menu), the stage in the middle (or the grid / canvas view) with
+ * The Slides editor: the slide rail on the left (headed by the View menu;
+ * hidden in a narrow window), the stage in the middle (or the grid / canvas view) with
  * the speaker notes under the slide and the floating cards and toolbar over
  * it, and the properties panel or the comment list on the right; dialogs
  * and the show on top of everything.
  */
 
 import { useEffect, useRef, type ReactNode } from 'react';
-import { Loader2, Plus, Presentation, TriangleAlert } from 'lucide-react';
+import { Loader2, Presentation, TriangleAlert } from 'lucide-react';
 import { LIMITS } from '@open-artifact/slides-core';
-import { Button, CrashBoundary, EmptyState } from '@open-artifact/ui';
+import { CrashBoundary, EmptyState } from '@open-artifact/ui';
 import { useDeck } from './state/deck.ts';
 import { useOrder } from './state/outline.ts';
-import { useView } from './state/view.ts';
+import { useUi } from './state/ui.ts';
+import { railWanted, useView, watchRailFit } from './state/view.ts';
 import { installKeyboard } from './keyboard.ts';
 import { startPresence, useAgent, usePresence } from './services/agent.ts';
 import { installClipboard } from './services/clipboard.ts';
 import { installLockedSelection } from './services/lock-selection.ts';
-import { addSlide, canChange } from './services/commands.ts';
-import { emptyDeckToolbar } from './lib/empty-deck.ts';
+import { canChange } from './services/commands.ts';
+import { emptyDeckMessage, emptyDeckToolbar } from './lib/empty-deck.ts';
 import { startComments, useComments } from './services/comments.ts';
 import { startCreation, useCreation } from './services/creation.ts';
 import { startCursors } from './services/cursors.ts';
@@ -41,7 +42,7 @@ import { Stage } from './components/Stage.tsx';
 import { StageChrome } from './components/StageChrome.tsx';
 import { Announcer, TipGroup } from '@open-artifact/editor-kit/react';
 import { guardFileDrops } from '@open-artifact/editor-kit';
-import { CommentList } from './components/comments/CommentList.tsx';
+import { COMMENTS_ROOM, CommentList } from './components/comments/CommentList.tsx';
 import { PropertiesPanel } from './components/properties/PropertiesPanel.tsx';
 import { Presenter } from './components/present/Presenter.tsx';
 import { CanvasView } from './components/views/CanvasView.tsx';
@@ -84,7 +85,10 @@ async function boot(): Promise<void> {
 
 let booted = false;
 
-/** The deck has no slides yet. */
+/**
+ * The deck has no slides yet: a faint deck icon, one line, and Add slide
+ * (which opens the layout picker), centred on the whole stage.
+ */
 function EmptyDeck(): ReactNode {
   const editable = useDeck((s) => !s.readOnly) && canChange();
   const agent = useAgent((s) => s.status);
@@ -92,14 +96,21 @@ function EmptyDeck(): ReactNode {
   // The agent is writing this deck: its outline as skeleton cells.
   if (writing) return <CreationView />;
   return (
-    <EmptyState icon={<Presentation className="size-6" />} title="This presentation has no slides yet">
-      <p>{editable ? (agent.available ? `Add one, or ask ${agent.name} to add some.` : 'Add one to get started.') : 'Slides will show here once they are added.'}</p>
-      {editable ? (
-        <Button className="mt-2" variant="primary" icon={<Plus className="size-4" />} onClick={() => addSlide('blank', null)}>
-          Add slide
-        </Button>
-      ) : null}
-    </EmptyState>
+    <div data-open-artifact-empty-deck="" className="flex min-w-0 flex-1 flex-col overflow-y-auto text-center">
+      <div className="m-auto flex flex-col items-center gap-3 p-6">
+        <Presentation className="size-14 text-chrome-fg opacity-25" strokeWidth={1.5} aria-hidden />
+        <p className="max-w-md text-sm text-chrome-muted">{emptyDeckMessage({ editable, agent: agent.available ? agent.name : null })}</p>
+        {editable ? (
+          <button
+            type="button"
+            className="h-7 rounded-[6px] bg-chrome-hover px-2.5 text-[13px] font-control text-chrome-fg outline-none hover:bg-chrome-selected focus-visible:ring-2 focus-visible:ring-chrome-focus"
+            onClick={() => useUi.getState().open('newSlide')}
+          >
+            Add slide
+          </button>
+        ) : null}
+      </div>
+    </div>
   );
 }
 
@@ -112,10 +123,11 @@ export function App(): ReactNode {
   const mode = useView((s) => s.mode);
   const canvasEdit = useView((s) => s.canvasEdit);
   const current = useView((s) => s.current);
-  const showRail = useView((s) => s.showRail);
+  const showRail = useView(railWanted);
   const showProperties = useView((s) => s.showProperties);
   const readOnly = useDeck((s) => s.readOnly);
   const writing = useCreation((s) => s.writing);
+  const commentsOpen = useComments((s) => s.listOpen && s.available);
 
   useEffect(() => {
     if (!booted) {
@@ -126,7 +138,9 @@ export function App(): ReactNode {
     const clipboard = installClipboard();
     const locks = installLockedSelection();
     const drops = guardFileDrops(window);
+    const railFit = watchRailFit();
     return () => {
+      railFit();
       keyboard();
       clipboard();
       locks();
@@ -177,6 +191,7 @@ export function App(): ReactNode {
   const onStage = mode === 'edit' || canvasEdit;
   const empty = order.length === 0;
   const railShown = mode === 'edit' && showRail && !empty;
+  // An empty deck's own Add slide stands in for the top-left card, as nothing else there applies yet.
   const emptyToolbar = mode === 'edit' && emptyDeckToolbar({ editable: !readOnly && canChange(), writing, slides: order.length, maxSlides: LIMITS.slides });
 
   return (
@@ -188,14 +203,16 @@ export function App(): ReactNode {
             <Banners />
             <main className="relative flex min-h-0 min-w-0 flex-1">
               {mode === 'edit' ? empty ? <EmptyDeck /> : <Stage /> : mode === 'grid' ? <GridView /> : <CanvasView />}
-              <StageChrome onStage={onStage && !empty} startCard={!railShown} emptyDeck={emptyToolbar} />
+              <StageChrome onStage={onStage && !empty} startCard={!railShown && !(mode === 'edit' && empty)} emptyDeck={emptyToolbar} />
               <FindBar />
               <CreationStatus />
               <CreationAnnouncer />
               <Announcer />
             </main>
           </div>
-          {onStage && showProperties && !empty ? <PropertiesPanel /> : null}
+          {onStage && showProperties && !empty && !commentsOpen ? <PropertiesPanel /> : null}
+          {/* The All comments panel floats at the right; this keeps its room, so the stage narrows beside it. */}
+          {commentsOpen ? <div data-open-artifact-comments-room="" aria-hidden className="shrink-0" style={{ width: COMMENTS_ROOM }} /> : null}
           <CommentList />
           <Dialogs />
           <HistoryDialog />

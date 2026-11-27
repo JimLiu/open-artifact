@@ -1,18 +1,21 @@
 /**
  * The toolbar floating at the bottom of the stage: the Text tool, Image or
- * video, Table, the Shapes tool and its menu, and the Ask field
- * that hands a request to the agent with what this viewer is looking at.
+ * video (a file from this computer), Video (a file or a link), Table, the
+ * Shapes tool and its menu; Comment, which turns comment mode on with the
+ * All comments panel beside the stage; and the Ask field that hands a
+ * request to the agent with what this viewer is looking at.
  */
 
 import { useId, useState, type KeyboardEvent, type ReactNode } from 'react';
-import { ArrowUp, ChevronDown, Circle, Diamond, Film, Image, Loader2, Minus, MoveRight, RectangleHorizontal, Shapes, Spline, Square, Table, Type } from 'lucide-react';
+import { ArrowUp, ChevronDown, Circle, Diamond, Image, Link, Loader2, MessageCircle, Minus, MoveRight, RectangleHorizontal, Shapes, Spline, Square, Table, Type, Upload, Video } from 'lucide-react';
 import { cn, isComposingKey } from '@open-artifact/ui';
 import { getToolbarKeyTarget, isTextField } from '@open-artifact/editor-kit';
 import { useUi } from '../state/ui.ts';
 import { useView, type Tool } from '../state/view.ts';
 import { sendToAgent, useAgent } from '../services/agent.ts';
-import { MEDIA_ACCEPT, pickFiles, placeFiles } from '../services/assets.ts';
+import { MEDIA_ACCEPT, VIDEO_ACCEPT, pickFiles, placeFiles } from '../services/assets.ts';
 import { insertShape, type InsertShapeKind } from '../services/commands.ts';
+import { setCommenting, useComments } from '../services/comments.ts';
 import { Card, ChromeButton, ChromeDivider, ChromeMenu, ChromeMenuItem, ChromeMenuSeparator, SHIFT, Tip } from '@open-artifact/editor-kit/react';
 
 const ICON = { className: 'size-5', strokeWidth: 1.5 } as const;
@@ -43,9 +46,9 @@ const ARROWS: [InsertShapeKind, string, ReactNode][] = [
   ['arrow-down', 'Arrow down', <MoveRight key="ad" {...SMALL} className="size-4 rotate-90" />],
 ];
 
-/** Picks pictures or clips and places them on the slide. */
-function pickMedia(): void {
-  void pickFiles(MEDIA_ACCEPT, true).then((files) => {
+/** Picks files of `accept` and places them on the slide. */
+function pickMedia(accept: string = MEDIA_ACCEPT): void {
+  void pickFiles(accept, true).then((files) => {
     if (files.length) void placeFiles(files);
   });
 }
@@ -86,26 +89,39 @@ function ShapesMenu(): ReactNode {
   );
 }
 
-/** The Image button: pictures and clips from this computer, or a video link. */
-function MediaMenu(): ReactNode {
+/** The Video button: a clip from this computer, or a link to one online. */
+function VideoMenu(): ReactNode {
   return (
     <ChromeMenu
       side="top"
       align="center"
-      tip={{ label: 'Image or video', side: 'top' }}
+      tip={{ label: 'Video', side: 'top' }}
       trigger={
-        <ChromeButton size="lg" square aria-label="Image or video">
-          <Image {...ICON} />
+        <ChromeButton size="lg" aria-label="Video" className="gap-0 pl-1.5 pr-0.5">
+          <Video {...ICON} />
+          <ChevronDown className="size-3.5 text-chrome-muted" strokeWidth={1.5} />
         </ChromeButton>
       }
     >
-      <ChromeMenuItem icon={<Image {...SMALL} />} onSelect={pickMedia}>
-        Image or video from this computer…
+      <ChromeMenuItem icon={<Upload {...SMALL} />} onSelect={() => pickMedia(VIDEO_ACCEPT)}>
+        Upload video…
       </ChromeMenuItem>
-      <ChromeMenuItem icon={<Film {...SMALL} />} onSelect={() => useUi.getState().open('videoLink')}>
-        Video link…
+      <ChromeMenuItem icon={<Link {...SMALL} />} onSelect={() => useUi.getState().open('videoLink')}>
+        Embed a video link…
       </ChromeMenuItem>
     </ChromeMenu>
+  );
+}
+
+/** Comment: comment mode and the All comments panel, on and off together. */
+function CommentButton(): ReactNode {
+  const on = useComments((s) => s.on);
+  return (
+    <Tip label={on ? 'Done commenting' : 'Comment'} shortcut="C" side="top">
+      <ChromeButton size="lg" square pressed={on} aria-label="Comment" onClick={() => setCommenting(!on)}>
+        <MessageCircle {...ICON} fill={on ? 'currentColor' : 'none'} />
+      </ChromeButton>
+    </Tip>
   );
 }
 
@@ -177,6 +193,8 @@ export interface FootToolbarProps {
   editing: boolean;
   /** Show the Ask field. */
   ask: boolean;
+  /** Show Comment (this viewer may comment). */
+  comment?: boolean;
   /** Why the insert tools can't be used yet (they show disabled), if they can't. */
   insertBlocked?: string;
 }
@@ -190,6 +208,7 @@ function BlockedInsert({ reason }: { reason: string }): ReactNode {
   const tools: [string, ReactNode][] = [
     ['Text', <Type key="t" {...ICON} />],
     ['Image or video', <Image key="i" {...ICON} />],
+    ['Video', <Video key="v" {...ICON} />],
     ['Table', <Table key="tb" {...ICON} />],
     ['Shapes', <Shapes key="s" {...ICON} />],
   ];
@@ -217,10 +236,10 @@ function BlockedInsert({ reason }: { reason: string }): ReactNode {
 }
 
 /** The toolbar (the caller places it). */
-export function FootToolbar({ editing, ask, insertBlocked }: FootToolbarProps): ReactNode {
+export function FootToolbar({ editing, ask, comment = false, insertBlocked }: FootToolbarProps): ReactNode {
   const tool = useView((s) => s.tool);
   const view = useView.getState;
-  if (!editing && !ask) return null;
+  if (!editing && !ask && !comment) return null;
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
     if (isComposingKey(event) || event.metaKey || event.ctrlKey || event.altKey) return;
@@ -238,7 +257,7 @@ export function FootToolbar({ editing, ask, insertBlocked }: FootToolbarProps): 
   };
 
   return (
-    <Card role="toolbar" aria-label={editing ? 'Insert' : 'Ask'} className="max-w-full gap-1 p-1" onKeyDown={onKeyDown}>
+    <Card role="toolbar" aria-label={editing ? 'Insert' : ask ? 'Ask' : 'Comment'} className="max-w-full gap-1 p-1" onKeyDown={onKeyDown}>
       {editing && insertBlocked ? <BlockedInsert reason={insertBlocked} /> : null}
       {editing && !insertBlocked ? (
         <>
@@ -247,7 +266,12 @@ export function FootToolbar({ editing, ask, insertBlocked }: FootToolbarProps): 
               <Type {...ICON} />
             </ChromeButton>
           </Tip>
-          <MediaMenu />
+          <Tip label="Image or video" side="top">
+            <ChromeButton size="lg" square aria-label="Image or video" onClick={() => pickMedia()}>
+              <Image {...ICON} />
+            </ChromeButton>
+          </Tip>
+          <VideoMenu />
           <Tip label="Table" side="top">
             <ChromeButton size="lg" square aria-label="Table" onClick={() => useUi.getState().open('table')}>
               <Table {...ICON} />
@@ -256,12 +280,9 @@ export function FootToolbar({ editing, ask, insertBlocked }: FootToolbarProps): 
           <ShapesMenu />
         </>
       ) : null}
-      {ask ? (
-        <>
-          {editing ? <ChromeDivider className="mx-0" /> : null}
-          <AskField />
-        </>
-      ) : null}
+      {(ask || comment) && editing ? <ChromeDivider className="mx-0" /> : null}
+      {comment ? <CommentButton /> : null}
+      {ask ? <AskField /> : null}
     </Card>
   );
 }

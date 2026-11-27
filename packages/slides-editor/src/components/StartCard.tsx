@@ -1,7 +1,8 @@
 /**
- * "+ Add slide" and the View menu. They head the slide rail; with the rail
- * hidden, and in the grid and canvas views, they float at the top-left of
- * the stage instead.
+ * "+ Add slide" and the View menu. View heads the slide rail; with the rail
+ * hidden, and in the grid and canvas views, it sits at the top-left of the
+ * stage instead. Add slide sits at the top-right, before Present (see
+ * EndCard).
  *
  * Add slide opens the layout picker. The View menu switches between one
  * slide, grid and canvas, and shows or hides the slide thumbnails and the
@@ -11,11 +12,9 @@
 import { type ReactNode } from 'react';
 import { ChevronDown, Keyboard, Plus } from 'lucide-react';
 import { cn } from '@open-artifact/ui';
-import { useDeck } from '../state/deck.ts';
 import { useUi } from '../state/ui.ts';
-import { useView, type ViewMode } from '../state/view.ts';
-import { canChange } from '../services/commands.ts';
-import { Card, ChromeButton, ChromeMenu, ChromeMenuItem, ChromeMenuSeparator, MOD, Tip } from '@open-artifact/editor-kit/react';
+import { railWanted, useView, type ViewMode } from '../state/view.ts';
+import { ChromeButton, ChromeMenu, ChromeMenuItem, ChromeMenuSeparator, MOD, Tip } from '@open-artifact/editor-kit/react';
 
 const VIEWS: [ViewMode, string][] = [
   ['edit', 'One slide'],
@@ -27,7 +26,7 @@ const VIEWS: [ViewMode, string][] = [
 export function AddSlideButton(): ReactNode {
   return (
     <Tip label="Add slide" shortcut={`${MOD}M`}>
-      <ChromeButton className="gap-1 pl-1 pr-2" onClick={() => useUi.getState().open('newSlide')}>
+      <ChromeButton size="lg" className="gap-1 pl-1.5 pr-2.5" onClick={() => useUi.getState().open('newSlide')}>
         <Plus className="size-5" strokeWidth={1.5} />
         Add slide
       </ChromeButton>
@@ -38,7 +37,7 @@ export function AddSlideButton(): ReactNode {
 /** "View ⌄": one slide, grid or canvas, and what shows. */
 export function ViewMenu(): ReactNode {
   const mode = useView((s) => s.mode);
-  const showRail = useView((s) => s.showRail);
+  const showRail = useView(railWanted);
   const showNotes = useView((s) => s.showNotes);
   const view = useView.getState;
   return (
@@ -71,22 +70,11 @@ export function ViewMenu(): ReactNode {
   );
 }
 
-/** The two controls in a row (the rail header, or the floating card). */
+/** View at the top-left: the rail's header, or over the stage when the rail is hidden. */
 export function StartControls({ className }: { className?: string }): ReactNode {
-  const editable = useDeck((s) => !s.readOnly) && canChange();
   return (
-    <div className={cn('flex items-center gap-1', className)}>
-      {editable ? <AddSlideButton /> : null}
+    <div className={cn('flex h-10 items-center', className)}>
       <ViewMenu />
     </div>
-  );
-}
-
-/** The floating card at the stage's top-left. */
-export function StartCard(): ReactNode {
-  return (
-    <Card className="h-10 px-1 py-px">
-      <StartControls />
-    </Card>
   );
 }

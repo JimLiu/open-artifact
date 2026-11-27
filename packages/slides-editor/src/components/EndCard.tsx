@@ -1,17 +1,20 @@
 /**
- * The card at the stage's top-right corner: Present, then the
- * properties-panel toggle, the zoom readout with its menu (which also holds
- * undo and redo) and the sync dot.
+ * The stage's corners: at the top-right, Add slide, Present, the
+ * properties-panel toggle and the sync dot, on the stage's ground; at the
+ * bottom-right, a card with previous / next and the slide count, and the zoom
+ * readout with its menu (which also holds undo and redo).
  */
 
 import { type ReactNode } from 'react';
-import { BookText, ChevronDown, History, Play, SlidersHorizontal } from 'lucide-react';
+import { BookText, ChevronDown, ChevronLeft, ChevronRight, History, Play, SlidersHorizontal } from 'lucide-react';
 import { ZOOM_PRESETS } from '@open-artifact/canvas-engine/camera';
 import { cn } from '@open-artifact/ui';
 import { present, zoomStep } from '../keyboard.ts';
 import { useDeck } from '../state/deck.ts';
 import { stageScale, useView } from '../state/view.ts';
-import { redo, undo } from '../services/commands.ts';
+import { canChange, redo, stepSlide, undo } from '../services/commands.ts';
+import { useOrder } from '../state/outline.ts';
+import { AddSlideButton } from './StartCard.tsx';
 import { slideHistory } from '../services/history.ts';
 import { retryNow } from '../services/sync.ts';
 import { Card, ChromeButton, ChromeDivider, ChromeMenu, ChromeMenuItem, ChromeMenuLabel, ChromeMenuSeparator, MOD, SHIFT, Tip, useShellDraw } from '@open-artifact/editor-kit/react';
@@ -65,7 +68,8 @@ function ZoomMenu(): ReactNode {
   return (
     <ChromeMenu
       align="end"
-      tip={{ label: 'Zoom', shortcut: `${MOD}+ / ${MOD}− / ${MOD}0` }}
+      side="top"
+      tip={{ label: 'Zoom', shortcut: `${MOD}+ / ${MOD}− / ${MOD}0`, side: 'top' }}
       trigger={
         <ChromeButton aria-label="Zoom" size="lg" className="min-w-[68px] justify-between gap-0.5 pl-2 pr-1 tabular-nums">
           {percent}%
@@ -129,41 +133,73 @@ function SyncDot(): ReactNode {
 
 /** Props of {@link EndCard}. */
 export interface EndCardProps {
-  /** A slide is on stage: the properties toggle is live and the zoom shows. */
+  /** A slide is on stage: the properties toggle is live. */
   onStage: boolean;
 }
 
-/** The card. */
+/** The top-right row. */
 export function EndCard({ onStage }: EndCardProps): ReactNode {
   const showProperties = useView((s) => s.showProperties);
   const readOnly = useDeck((s) => s.readOnly);
+  const hasSlides = useDeck((s) => s.index.order.length > 0);
   const historyAvailable = slideHistory.store(s => s.available);
   const label = showProperties ? 'Hide the properties panel' : 'Show the properties panel';
   // In a Shell its Share panel's Export tab lists the formats and its bar shows the save state.
   const shellSaved = useShellDraw(session().shell, 'saved');
+  // A deck without slides has its own Add slide in the middle of the stage.
+  const adding = !readOnly && canChange() && hasSlides;
   return (
-    <Card className="h-10 gap-1 px-1 py-px">
+    <div data-open-artifact-end-row="" className="pointer-events-auto flex h-10 items-center gap-1">
       {!session().shell && historyAvailable ? <Tip label="Version history">
         <ChromeButton size="lg" square aria-label="Version history" onClick={() => slideHistory.toggle(true)}><History {...ICON} /></ChromeButton>
       </Tip> : null}
+      {adding ? <AddSlideButton /> : null}
       <PresentMenu />
       {!readOnly ? (
-        <>
-          <ChromeDivider />
-          <Tip label={onStage ? label : 'Open a slide to edit its properties'} shortcut={onStage ? `${MOD}\\` : undefined}>
-            <ChromeButton size="lg" square pressed={showProperties && onStage} disabled={!onStage} aria-label="Properties" onClick={() => useView.getState().toggle('showProperties')}>
-              <SlidersHorizontal {...ICON} />
-            </ChromeButton>
-          </Tip>
-        </>
-      ) : null}
-      {onStage ? (
-        <>
-          <ChromeDivider />
-          <ZoomMenu />
-        </>
+        <Tip label={onStage ? label : 'Open a slide to edit its properties'} shortcut={onStage ? `${MOD}\\` : undefined}>
+          <ChromeButton size="lg" square pressed={showProperties && onStage} disabled={!onStage} aria-label="Properties" onClick={() => useView.getState().toggle('showProperties')}>
+            <SlidersHorizontal {...ICON} />
+          </ChromeButton>
+        </Tip>
       ) : null}
       {shellSaved ? null : <SyncDot />}
+    </div>
+  );
+}
+
+/** "‹ 2 / 9 ›": the slide on stage among all of them. */
+function Pager(): ReactNode {
+  const order = useOrder();
+  const current = useView((s) => s.current);
+  const at = current ? order.indexOf(current) : -1;
+  const first = at <= 0;
+  const last = at < 0 || at >= order.length - 1;
+  return (
+    <>
+      <Tip label={first ? 'This is the first slide' : 'Previous slide'} shortcut={first ? undefined : '←'} side="top">
+        <ChromeButton size="lg" square aria-label="Previous slide" aria-disabled={first || undefined} className={first ? 'opacity-40 hover:bg-transparent' : undefined} onClick={() => !first && stepSlide(-1)}>
+          <ChevronLeft {...ICON} />
+        </ChromeButton>
+      </Tip>
+      <span data-open-artifact-pager-count="" className="min-w-[44px] px-1 text-center text-[14px] tabular-nums text-chrome-fg" aria-live="polite">
+        {at + 1} / {order.length}
+      </span>
+      <Tip label={last ? 'This is the last slide' : 'Next slide'} shortcut={last ? undefined : '→'} side="top">
+        <ChromeButton size="lg" square aria-label="Next slide" aria-disabled={last || undefined} className={last ? 'opacity-40 hover:bg-transparent' : undefined} onClick={() => !last && stepSlide(1)}>
+          <ChevronRight {...ICON} />
+        </ChromeButton>
+      </Tip>
+    </>
+  );
+}
+
+/** The bottom-right card: the pager and the zoom, while a slide is on stage. */
+export function PagerCard(): ReactNode {
+  return (
+    <Card data-open-artifact-pager="" role="group" aria-label="Slide and zoom" className="h-10 gap-1 px-1 py-px">
+      <Pager />
+      <ChromeDivider />
+      <ZoomMenu />
     </Card>
   );
 }

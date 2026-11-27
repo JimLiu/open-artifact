@@ -919,6 +919,52 @@ describe('slides', { skip: skipFor('slides') }, () => {
     }
   });
 
+  it('centres an empty deck on the stage, and its Add slide opens the layout picker that adds the first slide', { skip: browserSkip }, async () => {
+    const deck = tmpDir('slides-empty');
+    fs.mkdirSync(path.join(deck, 'project', 'slides'), { recursive: true });
+    const index = path.join(deck, 'project', 'deck.json');
+    fs.writeFileSync(index, JSON.stringify({
+      v: 5, lists: 'css', title: 'Empty', order: [], createdOnFiles: { v: 1, at: '2026-11-26T00:00:00Z' },
+      sections: {}, faces: {}, designSystems: [],
+    }));
+    const { url: deckUrl } = await run.json(['open', deck, '--json']);
+    const empty = `document.querySelector('[data-open-artifact-empty-deck]')`;
+    const shown = await browser.load(new URL('index.html', deckUrl).href, { ready: empty });
+    try {
+      const layout = await shown.evaluate(`(() => {
+        const main = document.querySelector('main').getBoundingClientRect();
+        const box = ${empty}.querySelector('p').getBoundingClientRect();
+        return {
+          text: ${empty}.innerText,
+          offset: Math.abs((box.x + box.width / 2) - (main.x + main.width / 2)),
+          startCard: [...document.querySelectorAll('button')].filter(b => b.textContent.trim() === 'Add slide').length,
+          view: !!document.querySelector('button[aria-label="View"]'),
+        };
+      })()`);
+      // One line, centred on the whole stage (before, the empty state hugged the stage's left edge).
+      assert.match(layout.text, /This presentation has no slides yet\. Add one/);
+      assert.ok(layout.offset < 2, `the empty state is ${layout.offset}px off the stage's centre`);
+      // Its Add slide is the only one: the top-left Add slide / View card waits for a slide.
+      assert.equal(layout.startCard, 1);
+      assert.equal(layout.view, false);
+      const add = `[...${empty}.querySelectorAll('button')].find(b => b.textContent.trim() === 'Add slide')`;
+      await shown.click(...(await middle(shown, add)));
+      // The picker, not a blank slide straight away; Blank has the focus, so Enter would pick it.
+      assert.ok(await shown.waitFor(`document.querySelector('[role="dialog"] [role="listbox"][aria-label="Layouts"]')`), 'Add slide did not open the layout picker');
+      assert.equal(await shown.evaluate(`document.activeElement?.lastElementChild?.textContent`), 'Blank');
+      assert.deepEqual(JSON.parse(fs.readFileSync(index, 'utf8')).order, []);
+      const title = `[...document.querySelectorAll('[role="option"]')].find(o => o.lastElementChild.textContent === 'Title')`;
+      await shown.click(...(await middle(shown, title)));
+      assert.ok(await shown.waitFor(`document.querySelectorAll('${rail}').length === 1 && !${empty}`), 'the picked layout did not become the first slide');
+      assert.ok(await until(() => JSON.parse(fs.readFileSync(index, 'utf8')).order.length === 1), 'the first slide was not saved');
+      const [id] = JSON.parse(fs.readFileSync(index, 'utf8')).order;
+      assert.match(fs.readFileSync(path.join(deck, 'project', 'slides', `${id}.html`), 'utf8'), /Presentation title/);
+    } finally {
+      await shown.close();
+      await run.run(['stop', deck]);
+    }
+  });
+
   describe('elements on an inline-style deck', { skip: browserSkip }, () => {
     // Written as the editor saves them, so a save that changes one thing changes nothing else in the file.
     const SHAPES = '<section id="shapes" style="background:#ffffff">\n' +
@@ -1211,7 +1257,7 @@ describe('slides', { skip: skipFor('slides') }, () => {
       const tab = await browser.load(new URL('index.html', opened.url).href, { ready: `document.querySelector('[role="toolbar"][aria-label="Insert"]')` });
       try {
         const tools = `[...document.querySelectorAll('[role="toolbar"][aria-label="Insert"] button')].filter(b => !b.closest('form')).map(b => [b.getAttribute('aria-label'), b.getAttribute('aria-disabled') === 'true'])`;
-        assert.deepEqual(await tab.evaluate(tools), [['Text', true], ['Image or video', true], ['Table', true], ['Shapes', true]]);
+        assert.deepEqual(await tab.evaluate(tools), [['Text', true], ['Image or video', true], ['Video', true], ['Table', true], ['Shapes', true]]);
         const ask = `document.querySelector('[role="toolbar"] input[aria-label^="Ask "]')`;
         assert.ok(await tab.waitFor(`${ask} && !${ask}.disabled`), 'no Ask field while the agent waits');
         await tab.evaluate(`${ask}.focus()`);
@@ -1366,6 +1412,117 @@ describe('slides', { skip: skipFor('slides') }, () => {
         assert.deepEqual(tab.problems, []);
       } finally {
         await tab.close();
+      }
+    });
+
+    it('lays the stage out: View over the rail, Add slide by Present, the pager and zoom at the bottom-right, Video beside Image', async () => {
+      const tab = await openDeck();
+      try {
+        const box = sel => `(() => { const r = (${sel}).getBoundingClientRect(); return { left: r.left, right: r.right, top: r.top, bottom: r.bottom }; })()`;
+        const rail = await tab.evaluate(box(`document.querySelector('aside[aria-label="Slides"]')`));
+        const view = await tab.evaluate(box(`document.querySelector('button[aria-label="View"]')`));
+        assert.ok(view.right <= rail.right && view.top < rail.top + 60, 'View does not head the rail');
+        // Add slide sits in the top-right row, just before Present, and nowhere else.
+        const row = `document.querySelector('[data-open-artifact-end-row]')`;
+        assert.deepEqual(await tab.evaluate(`[...${row}.querySelectorAll('button')].map(b => b.getAttribute('aria-label') ?? b.textContent.trim()).filter(l => l === 'Add slide' || l === 'Present')`), ['Add slide', 'Present']);
+        assert.equal(await tab.evaluate(`[...document.querySelectorAll('button')].filter(b => b.textContent.trim() === 'Add slide').length`), 1);
+        // The pager and the zoom share the bottom-right card, right of the toolbar and clear of it.
+        const pager = `document.querySelector('[data-open-artifact-pager]')`;
+        const card = await tab.evaluate(box(pager));
+        const toolbar = await tab.evaluate(box(`document.querySelector('[role="toolbar"][aria-label="Insert"]')`));
+        const main = await tab.evaluate(box(`document.querySelector('main')`));
+        assert.ok(card.left >= toolbar.right && main.right - card.right < 16 && main.bottom - card.bottom < 16, `the pager card is not at the bottom-right: ${JSON.stringify({ card, toolbar, main })}`);
+        assert.ok(await tab.evaluate(`!!${pager}.querySelector('button[aria-label="Zoom"]')`), 'the zoom is not in the pager card');
+        const count = `${pager}.querySelector('[data-open-artifact-pager-count]').textContent`;
+        assert.equal(await tab.evaluate(count), '1 / 2');
+        assert.equal(await tab.evaluate(`${pager}.querySelector('button[aria-label="Previous slide"]').getAttribute('aria-disabled')`), 'true');
+        await tab.click(...(await middle(tab, `${pager}.querySelector('button[aria-label="Next slide"]')`)));
+        assert.ok(await tab.waitFor(`${count} === '2 / 2' && document.querySelector('[data-open-artifact-mode="edit"][data-open-artifact-slide="grid"]')`), 'Next slide did not show the second slide');
+        await tab.click(...(await middle(tab, `${pager}.querySelector('button[aria-label="Previous slide"]')`)));
+        assert.ok(await tab.waitFor(`${count} === '1 / 2'`), 'Previous slide did not go back');
+        // Video has a menu of its own: a clip from this computer, or a link (which opens the video link dialog).
+        await tab.click(...(await middle(tab, `document.querySelector('[role="toolbar"] button[aria-label="Video"]')`)));
+        assert.ok(await tab.waitFor(menuItem('Embed a video link')), 'the Video menu did not open');
+        assert.ok(await tab.evaluate(`!!${menuItem('Upload video')}`));
+        await tab.evaluate(`${menuItem('Embed a video link')}.click()`);
+        assert.ok(await tab.waitFor(`document.querySelector('[role="dialog"]')`), 'Embed a video link opened no dialog');
+        await tab.press('Escape');
+        assert.deepEqual(tab.problems, []);
+      } finally {
+        await tab.close();
+      }
+    });
+
+    it('shows who else is here as a plain button in the top-right row, not a floating card', async () => {
+      const tab = await openDeck();
+      const other = await browser.load(`${deckUrl}#slide-~shapes`, { ready: `document.querySelector('[data-open-artifact-mode="edit"]')` });
+      try {
+        const people = `document.querySelector('[data-open-artifact-presence]')`;
+        assert.ok(await tab.waitFor(`${people}?.querySelector('button[aria-label="People here and following"]')`, 8000), 'the second viewer did not show up');
+        // Its own background and shadow, up to the row, are none: it sits on the stage like Add slide and Present.
+        const card = await tab.evaluate(`(() => {
+          for (let el = ${people}; el && !el.hasAttribute('data-open-artifact-end-row') && el.tagName !== 'MAIN'; el = el.parentElement) {
+            const style = getComputedStyle(el);
+            if (style.boxShadow !== 'none' || style.backgroundColor !== 'rgba(0, 0, 0, 0)') return el.outerHTML.slice(0, 120);
+          }
+          return null;
+        })()`);
+        assert.equal(card, null, 'the people button is still on a card');
+        const top = sel => tab.evaluate(`Math.round((${sel}).getBoundingClientRect().top)`);
+        assert.equal(await top(people), await top(`document.querySelector('[data-open-artifact-end-row]')`));
+        assert.deepEqual(tab.problems, []);
+      } finally {
+        await other.close();
+        await tab.close();
+      }
+    });
+
+    it('fits a narrow window: the rail hides, the pager card goes above the toolbar, and Comment opens All comments beside the stage', async () => {
+      const shell = await browser.load(`${deckPublic}#slide-~shapes`, { ready: "document.querySelector('[data-comments-button]')" });
+      const doc = `document.querySelector('iframe[name="open-artifact-shell"]').contentDocument`;
+      const box = sel => `(() => { const r = (${sel}).getBoundingClientRect(); return { left: r.left, right: r.right, top: r.top, bottom: r.bottom }; })()`;
+      const rail = `${doc}.querySelector('aside[aria-label="Slides"]')`;
+      const corner = `${doc}.querySelector('[data-open-artifact-corner]')`;
+      const toolbar = `${doc}.querySelector('[role="toolbar"][aria-label="Insert"]')`;
+      const comment = `${toolbar}.querySelector('button[aria-label="Comment"]')`;
+      const panel = `(${doc}.querySelector('[data-comments-panel-layer]') ?? document.querySelector('[data-comments-panel-layer]'))?.shadowRoot?.querySelector('[data-comments-panel]')`;
+      const size = width => shell.cdp('Emulation.setDeviceMetricsOverride', { width, height: 800, deviceScaleFactor: 1, mobile: false });
+      try {
+        await size(1400);
+        assert.ok(await shell.waitFor(`${doc}?.querySelector('[data-open-artifact-mode="edit"][data-open-artifact-slide="shapes"]') && ${rail} && ${comment}`, 8000), 'the deck did not open with the rail and Comment');
+        assert.equal(await shell.evaluate(`${corner}.dataset.openArtifactCorner`), 'beside');
+        // Comment turns comment mode on and opens the All comments panel; the stage narrows beside it.
+        await shell.evaluate(`${comment}.click()`);
+        assert.ok(await shell.waitFor(`${comment}.getAttribute('aria-pressed') === 'true' && ${panel}`, 5000), 'Comment did not open All comments');
+        const room = `${doc}.querySelector('[data-open-artifact-comments-room]')`;
+        assert.ok(await shell.waitFor(`${room} && ${room}.getBoundingClientRect().width > 250 && ${doc}.querySelector('main').getBoundingClientRect().right <= ${room}.getBoundingClientRect().left + 1`), 'the stage did not make room for the panel');
+        assert.equal(await shell.evaluate(`!!${doc}.querySelector('[data-open-artifact-properties]')`), false, 'the properties panel stayed under All comments');
+        await shell.evaluate(`${comment}.click()`);
+        assert.ok(await shell.waitFor(`${comment}.getAttribute('aria-pressed') !== 'true' && !${panel}`, 5000), 'Comment did not close All comments');
+        // Narrower than 1008px: the rail hides and View moves over the stage; the toolbar moves left of the pager card.
+        await size(900);
+        assert.ok(await shell.waitFor(`!${rail}`), 'the rail did not hide in a narrow window');
+        assert.ok(await shell.evaluate(`!!${doc}.querySelector('main button[aria-label="View"]')`), 'View is not over the stage');
+        const beside = await shell.evaluate(box(corner));
+        const bar = await shell.evaluate(box(toolbar));
+        assert.ok(beside.left >= bar.right, `the toolbar is under the pager card: ${JSON.stringify({ beside, bar })}`);
+        // Narrower still: the pager card sits above the toolbar, at the right.
+        await size(640);
+        assert.ok(await shell.waitFor(`${corner}.dataset.openArtifactCorner === 'above'`), 'the pager card did not go above the toolbar');
+        const above = await shell.evaluate(box(corner));
+        const under = await shell.evaluate(box(toolbar));
+        assert.ok(above.bottom <= under.top, `the pager card overlaps the toolbar: ${JSON.stringify({ above, under })}`);
+        // View › Slide thumbnails still shows the rail for now; a wide window again shows it as remembered.
+        await shell.evaluate(`${doc}.querySelector('button[aria-label="View"]').click()`);
+        const thumbs = `[...${doc}.querySelectorAll('[role="menuitemcheckbox"], [role="menuitem"]')].find(el => el.textContent.trim() === 'Slide thumbnails')`;
+        assert.ok(await shell.waitFor(thumbs), 'the View menu did not open');
+        await shell.evaluate(`${thumbs}.click()`);
+        assert.ok(await shell.waitFor(`${rail}`), 'Slide thumbnails did not show the rail');
+        await size(1400);
+        assert.ok(await shell.waitFor(`${rail} && ${corner}.dataset.openArtifactCorner === 'beside'`), 'a wide window did not bring the rail and the row back');
+      } finally {
+        await shell.cdp('Emulation.clearDeviceMetricsOverride', {});
+        await shell.close();
       }
     });
 
@@ -1689,6 +1846,123 @@ describe('slides', { skip: skipFor('slides') }, () => {
         assert.ok(await tab.waitFor(`!${remove}`));
         assert.ok(await tab.waitFor(`document.activeElement !== document.body && document.activeElement?.closest('[data-open-artifact-properties]')`, 2000),
           `the focus went to ${await tab.evaluate('document.activeElement?.outerHTML.slice(0, 120)')}`);
+        assert.deepEqual(tab.problems, []);
+      } finally {
+        await tab.close();
+      }
+    });
+  });
+
+  describe('videos on a slide', { skip: browserSkip }, () => {
+    let deck, deckUrl;
+    const present = id => `document.querySelector('[data-open-artifact-mode="present"][data-open-artifact-slide="${id}"]')`;
+    const presenting = `document.querySelector('[aria-label="Presentation"]')`;
+
+    before(async () => {
+      deck = tmpDir('slides-videos');
+      fs.mkdirSync(path.join(deck, 'project/slides'), { recursive: true });
+      // A short silent WebM, recorded in the browser (the suite needs no ffmpeg), and a still for the hosted video.
+      const maker = await browser.load('about:blank');
+      const base64 = await maker.evaluate(`(async () => {
+        const canvas = Object.assign(document.createElement('canvas'), { width: 160, height: 90 });
+        const g = canvas.getContext('2d');
+        const recorder = new MediaRecorder(canvas.captureStream(30), { mimeType: 'video/webm;codecs=vp8' });
+        const parts = [];
+        recorder.ondataavailable = (e) => parts.push(e.data);
+        let frame = 0;
+        const draw = setInterval(() => { g.fillStyle = 'hsl(' + (frame++ * 7) % 360 + ' 60% 50%)'; g.fillRect(0, 0, 160, 90); }, 33);
+        recorder.start();
+        await new Promise((done) => setTimeout(done, 2000));
+        const stopped = new Promise((done) => { recorder.onstop = done; });
+        recorder.stop();
+        await stopped;
+        clearInterval(draw);
+        const bytes = new Uint8Array(await new Blob(parts).arrayBuffer());
+        let text = '';
+        for (let i = 0; i < bytes.length; i += 0x8000) text += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+        return btoa(text);
+      })()`, { timeout: 20_000 });
+      await maker.close();
+      const media = tmpDir('slides-videos-media');
+      fs.writeFileSync(path.join(media, 'clip.webm'), Buffer.from(base64, 'base64'));
+      fs.writeFileSync(path.join(media, 'still.svg'), '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180"><rect width="320" height="180" fill="#336"/></svg>');
+      const uploaded = await run.run(['upload', deck, path.join(media, 'clip.webm'), path.join(media, 'still.svg')]);
+      assert.equal(uploaded.code, 0, uploaded.stdout + uploaded.stderr);
+      const [clip, still] = uploaded.stdout.trim().split('\n').map(line => line.split('\t')[0]);
+      fs.writeFileSync(path.join(deck, 'project/deck.json'), JSON.stringify({
+        v: 5, lists: 'css', title: 'Videos', order: ['clip', 'link'], cover: 'clip',
+        createdOnFiles: { v: 1, at: '2026-11-15T00:00:00Z' }, sections: {}, faces: {}, designSystems: [],
+      }));
+      fs.writeFileSync(path.join(deck, 'project/slides/clip.html'), `<section id="clip" style="background:#ffffff"><img id="up" data-video="${clip}" alt="A clip" style="position:absolute;left:480px;top:240px;width:960px;height:540px"></section>`);
+      fs.writeFileSync(path.join(deck, 'project/slides/link.html'), `<section id="link" style="background:#ffffff"><img id="yt" src="${still}" data-video-youtube="M7lc1UVf-VE" alt="A hosted video" style="position:absolute;left:480px;top:240px;width:960px;height:540px"></section>`);
+      deckUrl = new URL('index.html', (await run.json(['open', deck, '--json'])).url).href;
+    });
+
+    it('marks a video with a play sign on the stage and in the rail, and presents an uploaded clip with its play button and controls', async () => {
+      const tab = await browser.load(`${deckUrl}#slide-~clip`, { ready: `document.querySelector('[data-open-artifact-mode="edit"][data-open-artifact-slide="clip"] [data-open-artifact-path]')` });
+      try {
+        assert.ok(await tab.waitFor(`document.querySelector('[data-open-artifact-mode="edit"] [data-open-artifact-clip-sign=""] .open-artifact-clip-button')`), 'no play sign over the clip on the stage');
+        assert.ok(await tab.waitFor(`document.querySelectorAll('[data-open-artifact-thumbs] [data-open-artifact-clip-sign="small"]').length === 2`), 'no play sign on the videos in the rail');
+        const mac = await tab.evaluate("navigator.platform.includes('Mac')");
+        await tab.press('Enter', { meta: mac, ctrl: !mac });
+        const clip = `${present('clip')}?.querySelector('video')`;
+        assert.ok(await tab.waitFor(`${presenting} && ${clip} && !${clip}.paused && ${clip}.currentTime > 0`, 8000), 'the clip did not start with its slide');
+        const controls = `${present('clip')}.querySelector('[data-open-artifact-clip-controls]')`;
+        const bar = `${controls}.querySelector('[role="group"][aria-label="Video"]')`;
+        const labels = `[...${bar}.querySelectorAll('button')].map(b => b.getAttribute('aria-label'))`;
+        assert.deepEqual(await tab.evaluate(labels), ['Restart', 'Pause', 'Unmute']);
+        const playButton = `${present('clip')}.querySelector('button[aria-label="Play video"]')`;
+        assert.equal(await tab.evaluate(`!!${playButton}`), false, 'the play button shows over a playing clip');
+        // Moving over the clip shows the bar at its bottom-left.
+        const [x, y] = await middle(tab, controls);
+        await tab.hover(x, y);
+        assert.ok(await tab.waitFor(`${controls}.hasAttribute('data-awake') && getComputedStyle(${bar}).opacity === '1'`), 'moving over the clip did not show its bar');
+        const video = await tab.evaluate(`(() => { const r = ${clip}.getBoundingClientRect(); return { left: r.left, bottom: r.bottom }; })()`);
+        const placed = await tab.evaluate(`(() => { const r = ${bar}.getBoundingClientRect(); return { left: r.left, bottom: r.bottom }; })()`);
+        assert.ok(placed.left - video.left < 80 && video.bottom - placed.bottom < 80, `the bar is not at the clip's bottom-left: ${JSON.stringify({ video, placed })}`);
+        // A click on the clip pauses it (the slide stays) and brings up the play button, which plays it again.
+        await tab.click(x, y);
+        assert.ok(await tab.waitFor(`${clip}?.paused && ${playButton}`), 'a click did not pause the clip: ' + JSON.stringify(await tab.evaluate(`({
+          hash: location.hash, paused: ${clip}?.paused, at: document.elementFromPoint(${x}, ${y})?.outerHTML.slice(0, 120), labels: ${present('clip')} && ${labels},
+        })`)));
+        assert.equal(await tab.evaluate(`!!${present('clip')} && location.hash.startsWith('#slide-~clip')`), true, 'a click on the clip turned the slide');
+        assert.deepEqual(await tab.evaluate(labels), ['Restart', 'Play', 'Unmute']);
+        await tab.click(...(await middle(tab, playButton)));
+        assert.ok(await tab.waitFor(`!${clip}.paused && !${playButton}`), 'the play button did not play the clip');
+        await tab.evaluate(`${bar}.querySelector('button[aria-label="Unmute"]').click()`);
+        assert.ok(await tab.waitFor(`!${clip}.muted && ${bar}.querySelector('button[aria-label="Mute"]')`), 'Unmute left the clip muted');
+        await tab.press('Escape');
+        assert.ok(await tab.waitFor(`!${presenting}`));
+        assert.deepEqual(tab.problems, []);
+      } finally {
+        await tab.close();
+      }
+    });
+
+    it('presents a hosted video as its still and a play button, and loads the player, playing, with the page origin as referrer once clicked', async () => {
+      const tab = await browser.load(`${deckUrl}#slide-~link`, { ready: `document.querySelector('[data-open-artifact-mode="edit"][data-open-artifact-slide="link"] [data-open-artifact-path]')` });
+      try {
+        // The player itself is not loaded here: the frame is noted and emptied as it is added.
+        await tab.evaluate(`window.players = []; new MutationObserver(() => {
+          for (const frame of document.querySelectorAll('iframe[src*="youtube"]')) {
+            window.players.push({ src: frame.src, referrerPolicy: frame.referrerPolicy, inPresenter: !!frame.closest('[aria-label="Presentation"]') });
+            frame.src = 'about:blank';
+          }
+        }).observe(document.body, { childList: true, subtree: true })`);
+        const mac = await tab.evaluate("navigator.platform.includes('Mac')");
+        await tab.press('Enter', { meta: mac, ctrl: !mac });
+        const playButton = `${present('link')}?.querySelector('button[aria-label="Play video"]')`;
+        assert.ok(await tab.waitFor(`${presenting} && ${playButton} && ${present('link')}.querySelector('img')?.complete`), 'no still and play button while presenting');
+        assert.equal(await tab.evaluate(`window.players.length`), 0, 'the player loaded before the play button was pressed');
+        await tab.click(...(await middle(tab, playButton)));
+        assert.ok(await tab.waitFor(`window.players.length === 1`), 'the play button loaded no player');
+        const [player] = await tab.evaluate(`window.players`);
+        assert.equal(player.referrerPolicy, 'strict-origin-when-cross-origin');
+        assert.equal(player.inPresenter, true);
+        assert.match(player.src, /^https:\/\/www\.youtube-nocookie\.com\/embed\/M7lc1UVf-VE\?.*\bautoplay=1\b/);
+        assert.equal(await tab.evaluate(`!!${present('link')} && location.hash.startsWith('#slide-~link')`), true, 'pressing play turned the slide');
+        await tab.press('Escape');
+        assert.ok(await tab.waitFor(`!${presenting}`));
         assert.deepEqual(tab.problems, []);
       } finally {
         await tab.close();
