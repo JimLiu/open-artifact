@@ -1,7 +1,7 @@
 /**
  * Moving the view to things on the board: fit the whole board, zoom to the
- * selection, bring a box into view, and the board point at the middle of
- * the view (where new things go when nothing says otherwise).
+ * selection, go to a section, bring a box into view, and the board point at
+ * the middle of the view (where new things go when nothing says otherwise).
  */
 
 import {
@@ -9,11 +9,14 @@ import {
   elementBoundsWithTitle,
   elementsBounds,
   fitsInViewport,
+  orderElementsForReading,
   panCameraToReveal,
   rotatableSelection,
   unionBounds,
   type Box,
   type BoardElement,
+  type ContainerElement,
+  type ElementId,
   type ElementMeasures,
 } from '@open-artifact/whiteboard-core';
 import { screenToBoard, type Point } from '../lib/camera.ts';
@@ -36,6 +39,21 @@ export function contentBounds(elements: readonly BoardElement[], measures: Eleme
 /** Fits the whole board in the view (an empty board centers on the origin at 100%). */
 export function fitBoard(): void {
   fitTo(contentBounds(useBoard.getState().board.content.elements) ?? null);
+}
+
+/** The sections that have a title, in reading order (outer sections before the ones inside them). */
+export function titledSections(elements: readonly BoardElement[], measures: ElementMeasures = currentMeasures()): ContainerElement[] {
+  return orderElementsForReading(
+    elements.filter((element) => element.type === 'container' && element.text.trim() !== ''),
+    measures,
+  ) as ContainerElement[];
+}
+
+/** Glides the view to a section, its title included (fitted, never past 100%). The selection stays as it is. */
+export function goToSection(id: ElementId): void {
+  const section = useBoard.getState().board.content.elements.find((element) => element.id === id && element.type === 'container');
+  const bounds = section ? contentBounds([section]) : undefined;
+  if (bounds) fitTo(bounds, { glide: true });
 }
 
 /** Room kept below a selection for the turn knob (a finger or stylus turns from it), screen pixels. */

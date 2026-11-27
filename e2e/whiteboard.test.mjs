@@ -540,6 +540,46 @@ describe('whiteboard', { skip: skipFor('whiteboard') }, () => {
     } finally { await p.close(); }
   });
 
+  it('lists the titled sections under "Go to section" and glides the view to the one picked', { skip: noBrowser }, async () => {
+    const board = tmpDir('whiteboard-sections');
+    const elements = {
+      s1: { type: 'container', x: 0, y: 0, w: 600, h: 300, text: 'Overview' },
+      s2: { type: 'container', x: 5000, y: 2400, w: 600, h: 300, text: 'Payment DB' },
+      s3: { type: 'container', x: 5000, y: -3000, w: 600, h: 300, text: '' },
+      n1: { type: 'shape', kind: 'rect', x: 5040, y: 2440, w: 200, h: 100, color: 'blue', text: 'Postgres' },
+    };
+    fs.mkdirSync(path.join(board, 'db/elements'), { recursive: true });
+    fs.mkdirSync(path.join(board, 'db/board'), { recursive: true });
+    fs.writeFileSync(path.join(board, 'db/board/meta.json'), JSON.stringify({ v: 1, title: 'Sections', order: Object.keys(elements) }));
+    for (const [id, el] of Object.entries(elements)) fs.writeFileSync(path.join(board, 'db/elements', id + '.json'), JSON.stringify(el));
+    const opened = await run.json(['open', board, '--type', 'whiteboard', '--json']);
+    const p = await browser.load(opened.url + '?open_artifact_bench=1', { ready });
+    try {
+      const state = 'window.__openArtifactWhiteboard?.state()';
+      assert.ok(await p.waitFor(`${state}?.elementViews === 4`, 10000), 'the board did not draw');
+      const item = name => `[...document.querySelectorAll('[role^=menuitem]')].find(e => e.textContent.trim() === ${JSON.stringify(name)})`;
+      await clickOn(p, "document.querySelector('button[aria-label^=\"Zoom \"]')", 'the zoom readout');
+      await clickOn(p, item('Go to section'), 'Go to section');
+      assert.ok(await p.waitFor(item('Payment DB'), 3000), 'the section list did not open');
+      // Titled sections only, in reading order.
+      const listed = await p.evaluate(`[...document.querySelectorAll('[role=menu]')].at(-1).innerText.split('\\n').map(s => s.trim()).filter(Boolean)`);
+      assert.deepEqual(listed, ['Overview', 'Payment DB']);
+
+      await clickOn(p, item('Payment DB'), 'Payment DB');
+      // The section and its title are in view, no closer than 100%; the selection is untouched.
+      const inView = `(() => {
+        const box = document.querySelector('.wb-elements [data-wb-id="s2"]')?.getBoundingClientRect();
+        return !!box && box.left >= 0 && box.top >= 28 && box.right <= innerWidth && box.bottom <= innerHeight;
+      })()`;
+      assert.ok(await p.waitFor(`${inView} && ${state}.camera.zoom <= 1 && ${state}.camera.zoom > 0.5`, 3000),
+        `"Payment DB" was not brought into view: ${JSON.stringify(await p.evaluate(`${state}.camera`))}`);
+      assert.deepEqual(await p.evaluate(`${state}.selection`), []);
+    } finally {
+      // No `stop` here: the board shares the type server with the rest of the suite, which `after` stops.
+      await p.close();
+    }
+  });
+
   it('recovers after an interrupted load and restores pictures on request', { skip: noBrowser }, async () => {
     const p = await browser.load(url, { ready });
     try {

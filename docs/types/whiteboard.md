@@ -28,6 +28,7 @@ Or start with no agent: on the home page, click **New artifact**, pick **Whitebo
 ### Collaborate & export
 - **Draw & rearrange**: Drag stickies, group ideas into sections, draw arrows or ink sketches, drop stickers to vote, and start a countdown timer.
 - **Move around the board**: Scroll or swipe with two fingers to pan, and **⌘ + scroll** (Ctrl + scroll) or pinch to zoom at the pointer. Drag with the **right** or **middle** mouse button, hold **Space** and drag, or use the **Hand** tool to pan; a right-button drag leaves the selection alone and opens no menu, while a right-click without moving still opens the menu.
+- **Jump to a section**: Open the zoom menu at the top right and pick a section under **Go to section**; the view glides to it, title included, at up to 100%. Sections without a title are not listed.
 - **Ask your agent in context**: Select a cluster of stickies or pin a comment (e.g. *"cluster these by theme and summarize top 3 risks"*), then click **Send to agent**.
 - **Export**: Open **Share → Export** to download a PNG image.
 
