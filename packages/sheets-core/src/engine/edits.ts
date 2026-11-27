@@ -13,9 +13,11 @@
 import type { CellAt, CellBlock, ColumnId, IdRun, RangeCorners, RowId, SheetId } from './ids.ts';
 import type {
   Border,
+  CallOfAConnectedTable,
   CellFormat,
   CellTable,
   Color,
+  ColumnOfAConnectedTable,
   Effect,
   Embed,
   InputOfAWidget,
@@ -24,6 +26,7 @@ import type {
   Mark,
   NamedView,
   OffsetOfAPlacement,
+  Protection,
   SheetSettings,
 } from './ops.ts';
 import type { ColumnReading, ErrorValue } from './utility.ts';
@@ -632,12 +635,92 @@ export interface CellWrittenFromAnInteractive {
   value: InteractiveValue | null;
 }
 
+/**
+ * What made an edit of an interactive view: a person's sitting at it (any
+ * text) and their press in it (a whole number below 2^32). The edits of a
+ * press fold into one step, and a sitting's steps are taken back and made
+ * again together (`queueReversalInASitting`).
+ */
+export interface MadeBy {
+  sitting: string;
+  press: number;
+}
+
 export type InteractiveEdit =
-  | { kind: 'writeFromInteractive'; viewId: string; cells: CellWrittenFromAnInteractive[] }
+  /**
+   * Values written to the view's inputs. Without `madeBy` (or `null`) it is no
+   * step of the history at all.
+   */
+  | { kind: 'writeFromInteractive'; viewId: string; cells: CellWrittenFromAnInteractive[]; madeBy?: MadeBy | null }
   /** The cells of the view's inputs, written back with the values it keeps. */
-  | { kind: 'resetInteractive'; viewId: string }
+  | { kind: 'resetInteractive'; viewId: string; madeBy?: MadeBy | null }
   /** The values of the view's inputs, kept as the ones a reset writes back. */
   | { kind: 'saveDefaultsOfInteractive'; viewId: string };
+
+// ---------------------------------------------------------------------------
+// Default values and limits
+// ---------------------------------------------------------------------------
+
+/** The default value asked for: a text typed (read as each cell reads it), what each cell holds now, or none. */
+export type DefaultValueAsked = { kind: 'typed'; text: string } | { kind: 'whatEachCellHolds' } | { kind: 'none' };
+
+/** The least and most number asked for, typed as the cell `typedIn` reads them (an empty text: no end). */
+export interface LimitsAsked {
+  typedIn: CellAt;
+  minimum: string;
+  maximum: string;
+}
+
+export type DefaultsEdit =
+  /**
+   * A block of cells given a default value, limits, or both. Refused, in this
+   * order: `limitIsNoNumber`, `minimumAboveMaximum`, `defaultValueNotPlain`,
+   * `defaultValueIsNoOption`, `defaultValueTooLong`, `defaultValueOutsideLimits`.
+   */
+  | { kind: 'setDefaultValuesAndLimits'; cells: CellBlock; defaultValue?: DefaultValueAsked; limits?: LimitsAsked }
+  /** The cells that hold something else than their default value given it. */
+  | { kind: 'resetCellsToDefaultValues'; cells: CellBlock }
+  | { kind: 'resetSheetsToDefaultValues'; sheetIds: SheetId[] };
+
+// ---------------------------------------------------------------------------
+// Named ranges
+// ---------------------------------------------------------------------------
+
+export type NamedRangeEdit =
+  /**
+   * A named range saved over the one of an id, or as a new one (`null`). Its
+   * address is typed as a formula on the sheet would be, one reference to
+   * cells; its name is trimmed.
+   */
+  | { kind: 'saveNamedRange'; namedRangeId: string | null; name: string; sheetId: SheetId; address: string }
+  | { kind: 'removeNamedRange'; namedRangeId: string };
+
+// ---------------------------------------------------------------------------
+// Protections
+// ---------------------------------------------------------------------------
+
+export type ProtectionEdit =
+  /** A protection saved over the one of an id, or as a new one (`null`, as `prt_<code>.0`). */
+  | { kind: 'saveProtection'; sheetId: SheetId; protectionId: string | null; protection: Protection }
+  | { kind: 'removeProtection'; sheetId: SheetId; protectionId: string };
+
+// ---------------------------------------------------------------------------
+// Connected tables
+// ---------------------------------------------------------------------------
+
+export type ConnectedTableEdit =
+  /** A new sheet (after one; `null`: first) whose cells are a call's records. */
+  | {
+      kind: 'addConnectedTable';
+      afterSheet: SheetId | null;
+      name: string;
+      call: CallOfAConnectedTable;
+      columns: ColumnOfAConnectedTable[];
+    }
+  | { kind: 'setCallOfConnectedTable'; sheetId: SheetId; call: CallOfAConnectedTable }
+  /** A column added after one (`null`: first). */
+  | { kind: 'addColumnToConnectedTable'; sheetId: SheetId; after: ColumnId | null; column: ColumnOfAConnectedTable }
+  | { kind: 'changeColumnOfConnectedTable'; sheetId: SheetId; c: ColumnId; column: ColumnOfAConnectedTable };
 
 // ---------------------------------------------------------------------------
 // Every edit
@@ -658,7 +741,11 @@ export type Edit =
   | ObjectEdit
   | NamedViewEdit
   | PivotTableEdit
-  | InteractiveEdit;
+  | InteractiveEdit
+  | DefaultsEdit
+  | NamedRangeEdit
+  | ProtectionEdit
+  | ConnectedTableEdit;
 
 export type EditKind = Edit['kind'];
 

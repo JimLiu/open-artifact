@@ -73,15 +73,53 @@ pub enum Reference {
         #[serde(deserialize_with = "crate::workbook::layout::written::maybe_null")]
         left: Option<ColumnPoint>,
     },
+    /// `Customers[Id]`: a column of a connected table, its records, and its heading too when `has_its_heading`
+    /// (`Customers[[#All],[Id]]`).
+    #[serde(rename_all = "camelCase")]
+    TableColumn { sheet_id: String, c: String, has_its_heading: bool },
+    /// `Customers`, `Customers[#All]`, `Customers[[#Headers],[Id]:[Name]]`: some rows of a connected table, in its
+    /// columns from one to another or in all of them (`columns` none).
+    #[serde(rename_all = "camelCase")]
+    TablePart {
+        sheet_id: String,
+        #[serde(deserialize_with = "crate::workbook::layout::written::maybe_null")]
+        columns: Option<TableColumns>,
+        rows: TableRows,
+    },
+    /// A named range's cells, by its id (format 51): written as the range's name, `#REF!` once it is removed.
+    #[serde(rename_all = "camelCase")]
+    NamedRange { named_range_id: String },
+}
+
+/// The columns of a connected table a reference takes, from one to another.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TableColumns {
+    pub left: String,
+    pub right: String,
+}
+
+/// The rows of a connected table a reference takes: its heading, its records, or both.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TableRows {
+    Heading,
+    Records,
+    HeadingAndRecords,
 }
 
 impl Reference {
+    /// The sheet the reference names; none (`""`) for a named range, whose sheet is its cells'
+    /// (`Workbook::sheet_read_by`).
     pub fn sheet_id(&self) -> &str {
         match self {
             Reference::Cell { sheet_id, .. }
             | Reference::Range { sheet_id, .. }
             | Reference::Columns { sheet_id, .. }
-            | Reference::Rows { sheet_id, .. } => sheet_id,
+            | Reference::Rows { sheet_id, .. }
+            | Reference::TableColumn { sheet_id, .. }
+            | Reference::TablePart { sheet_id, .. } => sheet_id,
+            Reference::NamedRange { .. } => "",
         }
     }
 }

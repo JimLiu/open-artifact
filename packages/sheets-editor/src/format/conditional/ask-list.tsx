@@ -1,5 +1,5 @@
 import { ContextMenu } from '../../kit/context-menu.tsx';
-import { AgentMark } from '../../kit/agent-mark.tsx';
+import { AgentMark, usePreloadWorkingMark } from '../../kit/agent-mark.tsx';
 import { Tooltip } from '../../kit/tooltip.tsx';
 import { Icon } from '../../kit/icon.tsx';
 import type { AskFieldStands } from '../../agent/agent-rows.tsx';
@@ -29,7 +29,7 @@ import { RuleSample, SeveralRulesSample } from './rule-samples.tsx';
 import { WordsWithColumnNames } from '../../ui/card-rows.tsx';
 import { joinMessageParts } from '../../i18n/messages.ts';
 import { DrawnAndSaid, AgentWritingRow } from '../../agent/agent-rows.tsx';
-import { goToChatInsteadWords, GoToChatInstead } from './ask-box.tsx';
+import { enterToGoToChatLabel, goToChatInsteadWords, GoToChatInstead } from './ask-box.tsx';
 import { isAskTakenToChat } from './ask-agent-about-rule.tsx';
 import { AskOrPickList } from '../../ui/ask-list/ask-or-pick-list.tsx';
 import { isoDayOfDate } from '../../chips/calendar.ts';
@@ -149,6 +149,7 @@ export function foundRuleWords(rule: RuleDescription | null, isNotComposing: boo
   return isNotComposing ? ruleReadingHint(rule) : joinWithCommas([joinMessageParts(ruleListWhat(rule)), ruleWhereWords(rule)]);
 }
 export function ConditionalAskCard({ pane, onAct, onAskedInChat }: ConditionalAskCardProps) {
+  usePreloadWorkingMark(pane.agent !== null);
   let [typed, setTyped] = React.useState('');
   let [askedWords, setAskedWords] = React.useState<string | null>(null);
   let [hasAsked, setHasAsked] = React.useState(false);
@@ -441,5 +442,5 @@ export const READ_AT_ONCE_ROW_ID = 'readAtOnce';
 export const REST_AFTER_WORDS_MS = 500;
 export const chatInsteadForRules = () => ({
   whyNotHere: CONDITIONAL_FORMATTING_WORDS.rulesAloneCantDoIt(),
-  goThere: CONDITIONAL_FORMATTING_WORDS.goToChatForRules(),
+  goThere: enterToGoToChatLabel(),
 });

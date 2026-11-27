@@ -578,6 +578,30 @@ pub static DESCRIPTIONS: &[Description] = &[
         can_be_not_available_by_itself: false,
     },
     Description {
+        name: "BYCOL",
+        family: Lookup,
+        description: "Applies a formula to each column of a range and lists the results",
+        is_common: false,
+        arguments: &[
+            arg("range", SeveralCells, MayBeCaughtOrNeverRead),
+            arg("lambda", SeveralCells, MayBeCaughtOrNeverRead),
+        ],
+        answers: Answers::AnArray,
+        can_be_not_available_by_itself: true,
+    },
+    Description {
+        name: "BYROW",
+        family: Lookup,
+        description: "Applies a formula to each row of a range and lists the results",
+        is_common: false,
+        arguments: &[
+            arg("range", SeveralCells, MayBeCaughtOrNeverRead),
+            arg("lambda", SeveralCells, MayBeCaughtOrNeverRead),
+        ],
+        answers: Answers::AnArray,
+        can_be_not_available_by_itself: true,
+    },
+    Description {
         name: "CEILING",
         family: Math,
         description: "Rounds a number up to a multiple of a step",
@@ -2620,6 +2644,18 @@ pub static DESCRIPTIONS: &[Description] = &[
         can_be_not_available_by_itself: false,
     },
     Description {
+        name: "LAMBDA",
+        family: Logical,
+        description: "Gives MAP, BYROW, or BYCOL a formula to apply, with names for its inputs",
+        is_common: false,
+        arguments: &[
+            repeats(arg("name", AName, MayBeCaughtOrNeverRead)),
+            arg("formula", SeveralCells, MayBeCaughtOrNeverRead),
+        ],
+        answers: Answers::OneValue,
+        can_be_not_available_by_itself: false,
+    },
+    Description {
         name: "LARGE",
         family: Statistical,
         description: "Finds the number at a position, counted from the largest",
@@ -2816,6 +2852,18 @@ pub static DESCRIPTIONS: &[Description] = &[
         ],
         answers: Answers::OneValue,
         can_be_not_available_by_itself: false,
+    },
+    Description {
+        name: "MAP",
+        family: Lookup,
+        description: "Applies a formula to each cell of a range and lists the results",
+        is_common: false,
+        arguments: &[
+            repeats(arg("range", SeveralCells, MayBeCaughtOrNeverRead)),
+            arg("lambda", SeveralCells, MayBeCaughtOrNeverRead),
+        ],
+        answers: Answers::AnArray,
+        can_be_not_available_by_itself: true,
     },
     Description {
         name: "MATCH",
@@ -3296,6 +3344,19 @@ pub static DESCRIPTIONS: &[Description] = &[
         arguments: &[
             arg("rate", OneValue, IsTheAnswer),
             repeats(arg("value range", SeveralCells, IsTheAnswer)),
+        ],
+        answers: Answers::OneValue,
+        can_be_not_available_by_itself: false,
+    },
+    Description {
+        name: "NUMBERVALUE",
+        family: Text,
+        description: "Turns text such as 1.234,50 into a number, with separators you can set",
+        is_common: false,
+        arguments: &[
+            arg("text", OneValue, IsTheAnswer),
+            optional(arg("decimal separator", OneValue, IsTheAnswer)),
+            optional(arg("group separator", OneValue, IsTheAnswer)),
         ],
         answers: Answers::OneValue,
         can_be_not_available_by_itself: false,
@@ -3982,6 +4043,20 @@ pub static DESCRIPTIONS: &[Description] = &[
         can_be_not_available_by_itself: false,
     },
     Description {
+        name: "SEQUENCE",
+        family: Math,
+        description: "Fills rows and columns with numbers in equal steps",
+        is_common: false,
+        arguments: &[
+            arg("rows", OneValue, IsTheAnswer),
+            optional(arg("columns", OneValue, IsTheAnswer)),
+            optional(arg("start", OneValue, IsTheAnswer)),
+            optional(arg("step", OneValue, IsTheAnswer)),
+        ],
+        answers: Answers::AnArray,
+        can_be_not_available_by_itself: false,
+    },
+    Description {
         name: "SIGN",
         family: Math,
         description: "Gives 1 for a number above 0, −1 for one below, and 0 for 0",
@@ -4591,6 +4666,22 @@ pub static DESCRIPTIONS: &[Description] = &[
         ],
         answers: Answers::OneValue,
         can_be_not_available_by_itself: false,
+    },
+    Description {
+        name: "TEXTSPLIT",
+        family: Text,
+        description: "Splits text into columns or rows at separators",
+        is_common: false,
+        arguments: &[
+            arg("text", OneValue, IsTheAnswer),
+            arg("column separator", SeveralCells, IsTheAnswer),
+            optional(arg("row separator", SeveralCells, IsTheAnswer)),
+            optional(arg("skip empty", OneValue, IsTheAnswer)),
+            optional(arg("ignore case", OneValue, IsTheAnswer)),
+            optional(arg("fill with", OneValue, MayBeCaughtOrNeverRead)),
+        ],
+        answers: Answers::AnArray,
+        can_be_not_available_by_itself: true,
     },
     Description {
         name: "TIME",

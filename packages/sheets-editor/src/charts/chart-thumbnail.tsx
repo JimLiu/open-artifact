@@ -7,12 +7,10 @@ interface ChartThumbnailProps {
 }
 export function ChartThumbnail({ chart, size, isOutOfUse }: ChartThumbnailProps) {
   return <svg viewBox="0 0 20 20" width={size} height={size} aria-hidden className={isOutOfUse ? 'flex-none grayscale' : 'flex-none'}>{chartThumbnailPaths(chart).map(
-      ({ color, path, isLine, opacity }, index) =>
+      ({ color, path, isLine }) =>
         isLine
-          ? <path key={`${color}-${String(index)}`} d={path} fill="none" stroke={color} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
-          : (<path key={`${color}-${String(index)}`} d={path} fill={color} {...(opacity !== undefined && {
-                  fillOpacity: opacity,
-                })} />),
+          ? <path key={color} d={path} fill="none" stroke={color} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
+          : <path key={color} d={path} fill={color} />,
     )}</svg>;
 }
 export const chartThumbnailIcon = (chart: ChartSketch, isOutOfUse: boolean) =>

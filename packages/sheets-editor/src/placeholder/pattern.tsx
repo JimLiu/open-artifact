@@ -1,3 +1,4 @@
+import { useReducedMotion } from '../kit/platform.ts';
 /** Whether a motif of the pattern marks the cell at a column and row. */
 export type PatternMotif = (column: number, row: number) => boolean;
 /** A number from 0 to 1 for each cell, the same each time it is asked. */
@@ -50,7 +51,7 @@ export function shufflePatternMotifs(random: () => number, rowCount: number): Pa
 export function drawPlaceholderPattern(element: HTMLElement, previous: DrawnPattern): DrawnPattern {
   let ownerDocument = element.ownerDocument;
   let view = ownerDocument.defaultView;
-  if (view === null || view.matchMedia('(prefers-reduced-motion:reduce)').matches) return previous;
+  if (view === null) return previous;
   let style = view.getComputedStyle(element);
   let readPixels = (property: string) => Number.parseFloat(style.getPropertyValue(property));
   let headersWidth = readPixels('--sheet-placeholder-headers-width');
@@ -66,7 +67,7 @@ export function drawPlaceholderPattern(element: HTMLElement, previous: DrawnPatt
   let isFirstDraw = previous.cells === '';
   previous.takeOff();
   let stepOfColumn = (column: number) =>
-    Math.round((0.5 + (headersWidth + (column - 0.5) * columnWidth) / width) / 0.16666666666666666);
+    Math.round((0.5 + (headersWidth + (column - 0.5) * columnWidth) / width) / PATTERN_STEP_SECONDS);
   let pens: PatternBand[] = [];
   let fades: Animation[] = [];
   for (let index = 0, endColumn = 0; index < columnCount; index = endColumn + 1) {
@@ -89,12 +90,12 @@ export function drawPlaceholderPattern(element: HTMLElement, previous: DrawnPatt
           },
           {
             opacity: 1,
-            offset: PATTERN_FADE_IN_SECONDS / 2,
+            offset: PATTERN_FADE_IN_SECONDS / PATTERN_CYCLE_SECONDS,
             easing: 'ease-in-out',
           },
           {
             opacity: 0,
-            offset: (PATTERN_FADE_IN_SECONDS + PATTERN_FADE_OUT_SECONDS) / 2,
+            offset: (PATTERN_FADE_IN_SECONDS + PATTERN_FADE_OUT_SECONDS) / PATTERN_CYCLE_SECONDS,
           },
           {
             opacity: 0,
@@ -102,8 +103,8 @@ export function drawPlaceholderPattern(element: HTMLElement, previous: DrawnPatt
           },
         ],
         {
-          duration: 2000,
-          delay: (stepOfColumn(index) * 0.16666666666666666 - PATTERN_FADE_IN_SECONDS - 4) * 1000,
+          duration: PATTERN_CYCLE_SECONDS * 1000,
+          delay: (stepOfColumn(index) * PATTERN_STEP_SECONDS - PATTERN_FADE_IN_SECONDS - 2 * PATTERN_CYCLE_SECONDS) * 1000,
           iterations: 1 / 0,
         },
       ),
@@ -126,7 +127,7 @@ export function drawPlaceholderPattern(element: HTMLElement, previous: DrawnPatt
         })
       : []
   ).filter((animation) => 'animationName' in animation && animation.animationName === 'ui-skeleton-sheen' && animation.playState === 'running');
-  if (isFirstDraw) for (let shimmerOfMount of shimmers) shimmerOfMount.startTime = Number(ownerDocument.timeline.currentTime) - 450;
+  if (isFirstDraw) for (let shimmerOfMount of shimmers) shimmerOfMount.startTime = Number(ownerDocument.timeline.currentTime) - SHIMMER_HEAD_START_SECONDS * 1000;
   let [shimmer] = shimmers;
   shimmer?.ready.then(() => {
     for (let fade of fades) if (fade.playState === 'running') fade.startTime = shimmer.startTime;
@@ -134,11 +135,11 @@ export function drawPlaceholderPattern(element: HTMLElement, previous: DrawnPatt
   }, ignorePatternOutcome);
   let motifs = shufflePatternMotifs(mulberry32Random(PATTERN_SEED), rowCount);
   let secondsIn = () => Number((shimmer ?? fades[0])?.currentTime ?? 0) / 1000;
-  let firstPass = previous.first ?? Math.floor(secondsIn() / 2);
+  let firstPass = previous.first ?? Math.floor(secondsIn() / PATTERN_CYCLE_SECONDS);
   let paint = (isRedraw: boolean) => {
     for (let band of pens) {
-      let cycle = (secondsIn() - (band.step * 0.16666666666666666 - PATTERN_FADE_IN_SECONDS)) / 2;
-      let isHidden = (cycle - Math.floor(cycle)) * 2 < PATTERN_FADE_IN_SECONDS + PATTERN_FADE_OUT_SECONDS;
+      let cycle = (secondsIn() - (band.step * PATTERN_STEP_SECONDS - PATTERN_FADE_IN_SECONDS)) / PATTERN_CYCLE_SECONDS;
+      let isHidden = (cycle - Math.floor(cycle)) * PATTERN_CYCLE_SECONDS < PATTERN_FADE_IN_SECONDS + PATTERN_FADE_OUT_SECONDS;
       let pass = Math.floor(cycle) + (isHidden ? 0 : 1);
       if ((isHidden && !isRedraw) || pass === band.pass) continue;
       let motif = motifs[Math.max(0, pass - firstPass) % motifs.length];
@@ -169,7 +170,7 @@ export function drawPlaceholderPattern(element: HTMLElement, previous: DrawnPatt
   let schedule = () => {
     view.cancelAnimationFrame(frame);
     frame = view.requestAnimationFrame(() => paint(false));
-    timer = view.setTimeout(schedule, ((2 - PATTERN_FADE_IN_SECONDS - PATTERN_FADE_OUT_SECONDS) / 2) * 1000);
+    timer = view.setTimeout(schedule, ((PATTERN_CYCLE_SECONDS - PATTERN_FADE_IN_SECONDS - PATTERN_FADE_OUT_SECONDS) / 2) * 1000);
   };
   paint(true);
   schedule();
@@ -186,10 +187,14 @@ export function drawPlaceholderPattern(element: HTMLElement, previous: DrawnPatt
   };
 }
 export function PlaceholderPattern() {
-  return <div className="sheet-pattern" ref={placeholderPatternRef} aria-hidden />;
+  let isMotionAllowed = !useReducedMotion();
+  return <div className="sheet-pattern" ref={isMotionAllowed ? placeholderPatternRef : null} aria-hidden />;
 }
 export const PATTERN_SEED = Math.floor(Math.random() * 4294967296);
+export const PATTERN_CYCLE_SECONDS = 2;
 [PATTERN_FADE_IN_SECONDS, PATTERN_FADE_OUT_SECONDS] = [0.5, 0.5];
+export const PATTERN_STEP_SECONDS = 0.16666666666666666;
+export const SHIMMER_HEAD_START_SECONDS = 0.45;
 export const mulberry32Random = (seed: number): (() => number) => {
   let state = seed >>> 0;
   return () => {

@@ -66,11 +66,18 @@ export function instantiateSheetsEngine(module: BufferSource | WebAssembly.Modul
   return engineOf();
 }
 
-/** Fetches and instantiates the engine (a page's worker). */
-export async function loadSheetsEngine(url: string | URL): Promise<SheetsEngine> {
+let loading: Promise<void> | null = null;
+
+/**
+ * Instantiates the engine without blocking (once per realm): from where to fetch it, its bytes or a compiled
+ * module. A page's main thread loads it this way, since it may not instantiate a module this large at once.
+ */
+export async function loadSheetsEngine(source: string | URL | BufferSource | WebAssembly.Module): Promise<SheetsEngine> {
   if (!instantiated) {
-    await glue.default({ module_or_path: url });
-    instantiated = true;
+    loading ??= glue.default({ module_or_path: source }).then(() => {
+      instantiated = true;
+    });
+    await loading;
   }
   return engineOf();
 }

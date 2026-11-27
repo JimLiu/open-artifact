@@ -209,6 +209,21 @@ impl Changes {
                             self.cell(sheet_id, &after.bases.text(r), &after.bases.text(c));
                         }
                     }
+                    // And the cells an array fills there, or that an array of a formula there fills.
+                    let inside = |(r, c): (usize, usize)| (rows.0..=rows.1).contains(&r) && (columns.0..=columns.1).contains(&c);
+                    for ((id, r, c), outcome) in &after.outcomes {
+                        let Some(crate::calculate::SpillOutcome::Fills { array, .. }) = &outcome.spill else { continue };
+                        let (true, Some(ar), Some(ac)) = (id == sheet_id, sheet.rows.position(*r), sheet.columns.position(*c))
+                        else {
+                            continue;
+                        };
+                        for ((i, j), _) in array.stored_entries().filter(|(at, _)| *at != (0, 0)) {
+                            let (Some(row), Some(column)) = (sheet.rows.line(ar + i), sheet.columns.line(ac + j)) else { continue };
+                            if inside((ar, ac)) || inside((ar + i, ac + j)) {
+                                self.cell(sheet_id, &after.bases.text(row), &after.bases.text(column));
+                            }
+                        }
+                    }
                 }
             }
             Op::MergeCells { sheet_id, .. }
@@ -219,6 +234,7 @@ impl Changes {
             | Op::SetColumnGroups { sheet_id, .. }
             | Op::SetPlacements { sheet_id, .. }
             | Op::SetNamedViews { sheet_id, .. }
+            | Op::SetProtections { sheet_id, .. }
             | Op::SetCellTables { sheet_id, .. } => self.layout(sheet_id),
             Op::SetDropdowns { sheet_id, dropdowns } => {
                 self.layout(sheet_id);
@@ -262,6 +278,15 @@ impl Changes {
             Op::SetTimeZone { .. } | Op::AdoptTimeZone { .. } => self.is_time_zone_changed = true,
             // Rows or columns inserted, deleted or moved, a sheet renamed: the sheet's layout, the cells of the lines
             // deleted or brought back, and (told as values are, see `Told`) the formulas whose text or value changes.
+            // Columns inserted, deleted or moved in a connected table: the records it shows are read again.
+            Op::InsertColumns { sheet_id, .. }
+            | Op::MoveColumns { sheet_id, .. }
+            | Op::DeleteColumns { sheet_id, .. }
+            | Op::UndeleteColumns { sheet_id, .. }
+                if after.sheet_index(sheet_id).is_some_and(|i| after.sheets[i].connected.table.is_some()) =>
+            {
+                self.everything()
+            }
             Op::InsertRows { sheet_id, .. }
             | Op::InsertColumns { sheet_id, .. }
             | Op::MoveRows { sheet_id, .. }
@@ -308,7 +333,11 @@ impl Changes {
             // column as texts (`.10` before `.2`; not where they stand).
             let mut deleted: Vec<(&String, &String)> = Vec::new();
             for (r, c) in &changes.cells {
-                let (Some(row_id), Some(column_id)) = (workbook.bases.parse(r), workbook.bases.parse(c)) else { continue };
+                // A row or column the workbook does not know, one an edit taken back inserted, is told so too.
+                let (Some(row_id), Some(column_id)) = (workbook.bases.parse(r), workbook.bases.parse(c)) else {
+                    deleted.push((r, c));
+                    continue;
+                };
                 match (sheet.rows.position(row_id), sheet.columns.position(column_id)) {
                     (Some(row), Some(column)) => cells.push((row, column, r, c)),
                     _ => deleted.push((r, c)),

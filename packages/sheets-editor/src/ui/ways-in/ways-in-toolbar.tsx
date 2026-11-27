@@ -117,7 +117,7 @@ export function useWaysInOverflow(toolbar: HTMLDivElement | null) {
     let mutationObserver = new MutationObserver(measure);
     mutationObserver.observe(sheetFoot, {
       attributes: true,
-      attributeFilter: ['style', 'data-keeps-room-of-pane'],
+      attributeFilter: ['style'],
     });
     return () => {
       resizeObserver.disconnect();
@@ -128,6 +128,7 @@ export function useWaysInOverflow(toolbar: HTMLDivElement | null) {
 }
 export interface WaysInToolbarProps extends WaysInImportProps {
   ref: (element: HTMLDivElement | null) => void;
+  isHiddenFromReaders?: boolean;
   onAskAgent: AgentAmongWaysIn;
   onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => void;
   whatHasCaretAfter: () => CaretTarget;
@@ -135,6 +136,7 @@ export interface WaysInToolbarProps extends WaysInImportProps {
 }
 export function WaysInToolbar({
   ref,
+  isHiddenFromReaders,
   onAskAgent,
   onKeyDown,
   whatHasCaretAfter,
@@ -170,7 +172,7 @@ export function WaysInToolbar({
     let frame = requestAnimationFrame(freshPaintGuard.paintedAt);
     return () => cancelAnimationFrame(frame);
   }, [freshPaintGuard, drawnKey]);
-  return <Surface elevation="panel" role="toolbar" aria-label={typeof onAskAgent === 'function' ? sheetMessages.agentOrImportOffered() : sheetMessages.importOffered()} className="sheet-ways-in" data-size={barIconSize} {...rovingToolbar} ref={toolbarRef} onKeyDown={(event) => {
+  return <Surface elevation="panel" role="toolbar" aria-label={typeof onAskAgent === 'function' ? sheetMessages.agentOrImportOffered() : sheetMessages.importOffered()} aria-hidden={isHiddenFromReaders || undefined} className="sheet-ways-in" data-size={barIconSize} {...rovingToolbar} ref={toolbarRef} onKeyDown={(event) => {
       onKeyDown(event);
       rovingToolbar.onKeyDown(event);
     }} onMouseDown={preventMouseDownDefault} onPointerDownCapture={({ timeStamp }) => freshPaintGuard.pointerWentDownAt(timeStamp)} onPointerCancelCapture={freshPaintGuard.pointerWasCanceled} onMouseDownCapture={(event) => {

@@ -18,17 +18,23 @@ export type LimitRefusalKind =
   | 'editingPaused';
 /** Why an undo or a redo is refused, as the page tells it. */
 export type UndoRefusalKind = (typeof UNDO_REFUSAL_KINDS)[keyof typeof UNDO_REFUSAL_KINDS];
-/** What kind of error was thrown, as the page counts it. */
-export type ErrorKind = (typeof ERROR_KINDS)[number];
+/** What kind of one error was thrown. */
+export type OneErrorKind = (typeof BASE_ERROR_KINDS)[number] | (typeof DOM_ERROR_NAMES)[number];
+/** What kind of error was thrown, as the page counts it: an AggregateError counts as many of its first error. */
+export type ErrorKind = OneErrorKind | `many_${OneErrorKind}`;
 /** The shape of a file fetched as the engine's module. */
 export type WasmFileShape = (typeof WASM_FILE_SHAPES)[number];
 export function editRefusalReason(refusal: string): EditRefusalReason | 'fault' {
   let messageKey = refusalMessageKey(refusal);
   return isEditRefusalReason(messageKey) ? messageKey : 'fault';
 }
-export function readErrorKind(error: unknown): ErrorKind {
+export function readErrorKind(error: unknown): OneErrorKind {
   if (!(error instanceof Error)) return 'notAnError';
   let { name, message } = error;
+  if (error instanceof DOMException) {
+    if (name === 'SyntaxError') return 'domSyntaxError';
+    return DOM_ERROR_NAMES.find((domName) => domName === name) ?? 'domOther';
+  }
   switch (name) {
     case 'RuntimeError':
       return WASM_UNREACHABLE_MESSAGE.test(message) ? 'wasmUnreachable' : 'wasmOtherTrap';
@@ -45,14 +51,25 @@ export function readErrorKind(error: unknown): ErrorKind {
       return name === 'RangeError' ? name : 'otherError';
     case 'TypeError':
     case 'Error':
+    case 'SyntaxError':
+    case 'ReferenceError':
+    case 'URIError':
+    case 'EvalError':
+    case 'AggregateError':
       return name;
     default:
       return 'otherError';
   }
 }
+/** An AggregateError counts as many of its first error. */
+export function readErrorKindOfMany(error: unknown): ErrorKind {
+  if (!(error instanceof AggregateError)) return readErrorKind(error);
+  let { errors } = error;
+  return errors.length > 0 ? `many_${readErrorKind(errors[0])}` : readErrorKind(error);
+}
 export function errorKindOf(error: unknown): ErrorKind {
   try {
-    return readErrorKind(error);
+    return readErrorKindOfMany(error);
   } catch {
     return 'otherError';
   }
@@ -90,6 +107,16 @@ export function errorWordOfModule(error: unknown, bytes: ArrayBuffer | null, was
 }
 export const EDIT_REFUSAL_REASONS = ['readOnly', 'savingStopped', 'pageOutOfDate', 'editingPaused', 'earlierVersionShown'] as const;
 export const isEditRefusalReason = (key: string): key is EditRefusalReason => EDIT_REFUSAL_REASONS.some((reason) => reason === key);
+export const DEFAULTS_DIALOG_REFUSALS = [
+  'limitIsNoNumber',
+  'minimumAboveMaximum',
+  'defaultValueNotPlain',
+  'defaultValueIsNoOption',
+  'defaultValueOutsideLimits',
+] as const;
+/** A refusal the default value and limits dialog tells of itself. */
+export type DefaultsDialogRefusal = (typeof DEFAULTS_DIALOG_REFUSALS)[number];
+export const isDefaultsDialogRefusal = (key: string): key is DefaultsDialogRefusal => DEFAULTS_DIALOG_REFUSALS.some((reason) => reason === key);
 export const getOwnEntry = <V>(table: Readonly<Record<string, V>>, key: string): V | undefined => (Object.hasOwn(table, key) ? table[key] : undefined);
 export const REFUSAL_MESSAGE_KEYS = {
   readOnly: 'readOnly',
@@ -122,16 +149,27 @@ export const REFUSAL_MESSAGE_KEYS = {
   tooManyPlacements: 'tooManyCharts',
   tooManyGroups: 'tooManyGroups',
   tooManyConditionalFormats: 'tooManyConditionalFormats',
+  nameOfNamedRangeTaken: 'namedRangeNameTaken',
+  unknownNamedRange: 'namedRangeIsGone',
   nameOfNamedViewTaken: 'namedViewNameTaken',
   namedViewTooLarge: 'namedViewTooLarge',
   tooManyTestsInNamedView: 'namedViewTooLarge',
   tooManyKeysInNamedView: 'namedViewTooLarge',
   unknownNamedView: 'namedViewIsGone',
+  cellsProtected: 'cellsProtected',
+  linesProtected: 'linesProtected',
+  sheetProtected: 'sheetProtected',
+  protectionNotTheirsToChange: 'protectionNotTheirs',
+  unknownProtection: 'protectionIsGone',
+  tooManyOpenRangesInAllProtections: 'noRoomInWorkbook',
   unknownInteractive: 'interactiveCantWrite',
   cellIsNotTheInteractives: 'interactiveCantWrite',
   cellHoldsMoreThanAValue: 'interactiveCantWrite',
   valueDoesNotFitCell: 'interactiveCantWrite',
   interactiveSavesTooMuch: 'interactiveSavesTooMuch',
+  sheetIsAConnectedTable: 'sheetIsAConnectedTable',
+  connectedTableNamedByAddress: 'connectedTableNamedByAddress',
+  columnNotDescribed: 'sheetIsAConnectedTable',
   tooManySheets: 'tooManySheets',
   tableTooLarge: 'tableTooLarge',
   stepTooLarge: 'tableTooLarge',
@@ -140,6 +178,13 @@ export const REFUSAL_MESSAGE_KEYS = {
   cellCoveredByMergedRange: 'pasteCutsMergedCells',
   tooMuchThatNoCellShows: 'pasteHidesTooMuchText',
   cellOfDropdownHoldsNoOption: 'isNoOptionOfDropdown',
+  valueOutsideLimits: 'valueOutsideLimits',
+  limitIsNoNumber: 'limitIsNoNumber',
+  minimumAboveMaximum: 'minimumAboveMaximum',
+  defaultValueNotPlain: 'defaultValueNotPlain',
+  defaultValueIsNoOption: 'defaultValueIsNoOption',
+  defaultValueOutsideLimits: 'defaultValueOutsideLimits',
+  defaultValueTooLong: 'textTooLong',
   tooManyFormulasReadMovedCells: 'tooManyFormulasReadMovedCells',
   formulasNotCalculated: 'formulasNotCalculated',
   pivotTableSourceHasNoHeader: 'pivotTableSourceHasNoHeader',
@@ -198,16 +243,37 @@ export const UNDO_REFUSAL_KINDS = {
   moveTakesEndOfGroup: 'changedSince',
   deleteTakesEndOfGroup: 'changedSince',
   sheetNameTaken: 'changedSince',
+  nameOfNamedRangeTaken: 'changedSince',
   editTooLarge: 'formatsTooMixed',
   tooManyOperations: 'formatsTooMixed',
   cellFormatsTooScattered: 'formatsTooMixed',
   undoTooLarge: 'formatsTooMixed',
   noSheetLeft: 'noOtherSheetLeft',
+  noShownSheetLeft: 'changedSince',
   noRowLeft: 'noOtherRowLeft',
   noColumnLeft: 'noOtherColumnLeft',
 } as const;
 export const undoRefusalKind = (refusal: string): UndoRefusalKind | null => getOwnEntry(UNDO_REFUSAL_KINDS, refusal) ?? null;
-export const ERROR_KINDS = [
+export const DOM_ERROR_NAMES = [
+  'NotFoundError',
+  'HierarchyRequestError',
+  'InvalidStateError',
+  'InvalidCharacterError',
+  'IndexSizeError',
+  'InvalidNodeTypeError',
+  'WrongDocumentError',
+  'NotSupportedError',
+  'InvalidAccessError',
+  'DataCloneError',
+  'QuotaExceededError',
+  'SecurityError',
+  'AbortError',
+  'TimeoutError',
+  'NetworkError',
+  'NotAllowedError',
+  'NotReadableError',
+] as const;
+export const BASE_ERROR_KINDS = [
   'wasmUnreachable',
   'wasmOtherTrap',
   'wasmCompileError',
@@ -218,9 +284,17 @@ export const ERROR_KINDS = [
   'TypeError',
   'RangeError',
   'Error',
+  'SyntaxError',
+  'ReferenceError',
+  'URIError',
+  'EvalError',
+  'AggregateError',
+  'domSyntaxError',
+  'domOther',
   'notAnError',
   'otherError',
 ] as const;
+export const ERROR_KINDS = [...BASE_ERROR_KINDS, ...DOM_ERROR_NAMES].flatMap((kind): ErrorKind[] => [kind, `many_${kind}`]);
 export const WASM_UNREACHABLE_MESSAGE = /^(?:unreachable|unreachable executed|Unreachable code should not be executed\b.*)$/s;
 export const STACK_OVERFLOW_MESSAGE = /^(?:Maximum call stack size exceeded\.?|too much recursion)$/;
 export const OUT_OF_MEMORY_MESSAGE =

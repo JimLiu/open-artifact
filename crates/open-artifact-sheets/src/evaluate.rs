@@ -7,11 +7,16 @@
 //! value there and is #VALUE! when it is more. In a function's argument that takes several cells, both are read
 //! cell by cell: `SUM(A1:A3*2)`.
 //!
-//! IF, IFERROR, IFNA, IFS, SWITCH, CHOOSE and LET are worked out here: they read only the arguments they need, and
-//! answer one of them as it came (a range stays a range).
+//! IF, IFERROR, IFNA, IFS, SWITCH, CHOOSE and LET are worked out here: they answer one of their arguments as it came
+//! (a range stays a range), or, given several cells where they pick by one value, pick cell by cell (`lifted`). An
+//! argument left out that they answer is blank.
 //!
 //! Working an expression out also leaves what number format it brings (`Calculation::brought`, see [`brought`]).
 
+pub(crate) mod lambda;
+mod elements;
+mod lifted;
+pub(crate) use lifted::Several;
 pub(crate) mod pivot;
 
 use std::rc::Rc;
@@ -99,7 +104,7 @@ impl Calculation {
                     self.brought = self.range_brought(place);
                     Operand::Range(place)
                 }
-                None => Operand::error(CellError::Reference),
+                None => Operand::error(self.gone_or_not_held(f, *i)),
             },
             Expr::Name(name) => match self.scopes.iter().rev().find(|(n, ..)| n == name) {
                 Some((_, operand, brought, link)) => {
@@ -117,27 +122,39 @@ impl Calculation {
             Expr::Unary(op, operand) => {
                 let x = self.eval(f, operand);
                 // A sign keeps what the number brings, but a minus a date's or a time's; a percent sign keeps none.
-                let brought = self.brought.take().filter(|b| match op {
+                let keeps = |b: &Brought| match op {
                     UnaryOp::Plus => true,
                     UnaryOp::Negate => !matches!(b.kind, Kind::Date | Kind::Time | Kind::DateAndTime),
                     UnaryOp::Percent => false,
-                });
+                };
+                let brought = self.brought.take();
+                let elements = self.elements(&x, &brought);
                 let grid = self.grid(x);
-                self.brought = brought;
+                self.brought = brought.filter(keeps);
                 self.link = None;
                 let locale = self.locale;
-                self.map(grid, |v| unary(*op, v, locale))
+                let operand = self.map(grid, |v| unary(*op, v, locale));
+                if let Operand::Values(a) = &operand {
+                    self.bring_each(a, &[&elements], |at| at[0].clone().filter(keeps));
+                }
+                operand
             }
             Expr::Binary(op, a, b) => {
                 let x = self.eval(f, a);
                 let p = self.brought.take();
+                let ex = self.elements(&x, &p);
                 let x = self.grid(x);
                 let y = self.eval(f, b);
                 let q = self.brought.take();
+                let ey = self.elements(&y, &q);
                 let y = self.grid(y);
                 self.brought = brought::of_operator(*op, p.as_ref(), q.as_ref());
                 self.link = None;
-                broadcast(x, y, |p, q| binary(*op, p, q, self.locale))
+                let operand = broadcast(x, y, |p, q| binary(*op, p, q, self.locale));
+                if let Operand::Values(a) = &operand {
+                    self.bring_each(a, &[&ex, &ey], |at| brought::of_operator(*op, at[0].as_ref(), at[1].as_ref()));
+                }
+                operand
             }
         }
     }
@@ -176,13 +193,21 @@ impl Calculation {
         }
     }
 
+    /// The error of a reference with no place: #N/A when it reads records not held, #REF! when its cells are gone.
+    fn gone_or_not_held(&self, f: usize, i: usize) -> CellError {
+        match self.formulas[f].records_not_held.get(i) {
+            Some(true) => CellError::NotAvailable,
+            _ => CellError::Reference,
+        }
+    }
+
     fn place_of(&mut self, f: usize, expr: &Expr) -> Arg {
         let operand = match expr {
             Expr::Reference(i) => match self.formulas[f].places.get(*i).copied().flatten() {
                 Some(place) => Operand::Range(place),
-                None => Operand::error(CellError::Reference),
+                None => Operand::error(self.gone_or_not_held(f, *i)),
             },
-            other => self.eval(f, other),
+            other => self.lifting_eval(f, other),
         };
         match operand {
             Operand::Range(place) => Arg::Place(Shape { rows: place.rows(), columns: place.columns(), place: Some(place) }),
@@ -192,9 +217,47 @@ impl Calculation {
     }
 
     fn call(&mut self, f: usize, id: FunctionId, arguments: &[Expr], index: u32) -> Operand {
+        // A call that makes the whole formula #VALUE! tells so (no argument named), unless a call inside it told
+        // something first.
+        let aborted = self.aborted;
+        let operand = crate::told::in_a_call(|| self.call_of(f, id, arguments, index));
+        if self.aborted && !aborted {
+            self.tell(id.description().name, None);
+        }
+        operand
+    }
+
+    /// A call with a number of arguments the function does not take is #N/A, its arguments worked out all the same:
+    /// one for one value (by its position) given several cells makes the whole formula #VALUE! (`=LEN(A1:A2,1)`,
+    /// `=IF(A1:A2)`), where one past those the function takes does not (`=LEN(A1,A1:A2)` is #N/A).
+    fn miscounted(&mut self, f: usize, description: &'static functions::Description, arguments: &[Expr]) -> Operand {
+        let mut several = None;
+        for (i, expr) in arguments.iter().enumerate() {
+            let slot = description.arguments.get(i);
+            let operand = match slot.map(|a| a.takes) {
+                Some(Takes::AName) => continue,
+                Some(Takes::SeveralCells | Takes::OnlyThePlace) => self.lifting_eval(f, expr),
+                _ => self.eval(f, expr),
+            };
+            if let (Some(slot), Grid::Many(_)) = (slot.filter(|a| a.takes == Takes::OneValue), self.grid(operand)) {
+                several.get_or_insert(slot.name);
+            }
+        }
+        self.brought = None;
+        self.link = None;
+        match several {
+            Some(argument) => {
+                self.tell(description.name, Some(argument));
+                self.abort()
+            }
+            None => Operand::error(CellError::NotAvailable),
+        }
+    }
+
+    fn call_of(&mut self, f: usize, id: FunctionId, arguments: &[Expr], index: u32) -> Operand {
         let description = id.description();
         let Some(slots) = functions::match_arguments(description, arguments.len()) else {
-            return Operand::error(CellError::NotAvailable);
+            return self.miscounted(f, description, arguments);
         };
         match description.name {
             "IF" => return self.if_(f, arguments),
@@ -204,21 +267,31 @@ impl Calculation {
             "SWITCH" => return self.switch(f, arguments),
             "CHOOSE" => return self.choose(f, arguments),
             "LET" => return self.let_(f, arguments),
-            _ => {}
+            "LAMBDA" => return self.lambda_alone(arguments),
+            name => {
+                if let Some(walk) = lambda::Walk::of(name) {
+                    return self.apply_lambda(f, walk, arguments);
+                }
+            }
         }
         let mut args = Vec::with_capacity(arguments.len());
         let mut brought: Vec<Option<Brought>> = Vec::with_capacity(arguments.len());
         // Arguments for one value given several cells, where that works cell by cell.
-        let mut lifted: Vec<(usize, Rc<Array>)> = Vec::new();
+        let mut lifted: Vec<(usize, Rc<Array>, elements::Elements)> = Vec::new();
         // These read their numbers before they look at errors in their ranges (not an error written as one value).
         let reads_numbers_first = matches!(description.name, "PROB" | "T.TEST" | "TTEST");
         let mut error_in_range = None;
+        // Every argument is worked out: the first error that is the answer (by its position) is, unless one after it
+        // is several cells for one value, which lifts the call (each cell's answer that error, or an error before
+        // it), or for a function that is not lifted makes the whole formula #VALUE! (`=SEQUENCE(1/0,A1:A2)`).
+        let mut early: Option<(usize, CellError)> = None;
+        let mut refused = None;
         for (i, (expr, &slot)) in arguments.iter().zip(&slots).enumerate() {
             brought.push(None);
             if matches!(expr, Expr::Missing) {
                 // Cells whose errors may be passed over must be given.
                 if slot.takes == Takes::SeveralCells && slot.error_in_it == ErrorInIt::MayBePassedOver {
-                    return Operand::error(CellError::Value);
+                    early.get_or_insert((i, CellError::Value));
                 }
                 args.push(Arg::Missing);
                 continue;
@@ -228,53 +301,43 @@ impl Calculation {
                 Takes::OneValue => {
                     let operand = self.eval(f, expr);
                     brought[i] = self.brought.take();
-                    // Several cells where one value goes is the call's answer, #VALUE!, even for a function that
-                    // looks at errors (ISERROR(A1:A5)).
+                    let elements = self.elements(&operand, &brought[i]);
+                    // Several cells where one value goes are worked out cell by cell (`lifted`), or for a function
+                    // that is not make the whole formula #VALUE!.
                     let v = match self.grid(operand) {
                         Grid::One(v) => v,
-                        Grid::Many(a) if self.lifting => {
-                            lifted.push((i, a));
+                        Grid::Many(a) if lifted::lifts(description) => {
+                            lifted.push((i, a, elements));
                             args.push(Arg::Missing);
                             continue;
                         }
-                        Grid::Many(_) => return Operand::error(CellError::Value),
+                        Grid::Many(_) => {
+                            refused.get_or_insert(slot.name);
+                            args.push(Arg::Missing);
+                            continue;
+                        }
                     };
-                    if let (Value::Error(e), true) = (&v, answers_errors) {
-                        return Operand::error(*e);
-                    }
-                    if let Err(e) = functions::check_early(id, i, &v, self.locale) {
-                        return Operand::error(e);
+                    if early.is_none() {
+                        if let (Value::Error(e), true) = (&v, answers_errors) {
+                            early = Some((i, *e));
+                        } else if let Err(e) = functions::check_early(id, i, &v, self.locale) {
+                            early = Some((i, e));
+                        }
                     }
                     Arg::Value(v)
                 }
                 Takes::SeveralCells => {
-                    let lifting = std::mem::replace(&mut self.lifting, true);
-                    let operand = self.eval(f, expr);
-                    self.lifting = lifting;
+                    let operand = match self.lifting_eval(f, expr) {
+                        // A value a LAMBDA's name is given, picked from an array, is of its value's type.
+                        Operand::Array(a) if description.name == "TYPE" && self.picked.contains_key(&Rc::as_ptr(&a)) => {
+                            Operand::Value(a.get(0, 0).clone())
+                        }
+                        operand => operand,
+                    };
                     brought[i] = self.brought.take();
                     let arg = self.cells(operand);
-                    // An error written as one value (not a range or an array) is the answer even where errors in
-                    // cells may be passed over: COUNTIF(1/0, …), VLOOKUP(1, #N/A, 1).
-                    if let (Arg::Value(Value::Error(e)), ErrorInIt::MayBePassedOver) = (&arg, slot.error_in_it) {
-                        return Operand::error(*e);
-                    }
-                    if answers_errors {
-                        let first_error = match &arg {
-                            Arg::Value(v) => v.error(),
-                            Arg::Cells(cells) => cells.values().find_map(Value::error),
-                            _ => None,
-                        };
-                        if let Some(e) = first_error {
-                            if !reads_numbers_first || matches!(arg, Arg::Value(_)) {
-                                return Operand::error(e);
-                            }
-                            error_in_range = error_in_range.or(Some(e));
-                        }
-                    }
-                    if let Arg::Value(v) = &arg {
-                        if let Err(e) = functions::check_early(id, i, v, self.locale) {
-                            return Operand::error(e);
-                        }
+                    if early.is_none() {
+                        early = self.early_in_cells(id, i, &arg, slot, reads_numbers_first, &mut error_in_range);
                     }
                     arg
                 }
@@ -283,7 +346,21 @@ impl Calculation {
             };
             args.push(arg);
         }
-        if lifted.is_empty() && !self.total_ranges_are_readable(description.name, &args) {
+        if let Some(argument) = refused {
+            self.tell(description.name, Some(argument));
+            return self.abort();
+        }
+        if let Some((_, e)) = early {
+            if lifted.is_empty() {
+                return Operand::error(e);
+            }
+            self.tell_lifted(description, &lifted, &slots);
+            return self.lifted_call(f, id, index, args, &lifted, &brought, &slots, early);
+        }
+        if description.name == "SUBTOTAL" && !self.subtotal_ranges_are_readable(&args[1..]) {
+            return Operand::error(CellError::Value);
+        }
+        if description.name == "AGGREGATE" && !self.aggregate_ranges_are_readable(&args) {
             return Operand::error(CellError::Value);
         }
         if let Some(e) = error_in_range {
@@ -297,9 +374,16 @@ impl Calculation {
                     return Operand::Value(Value::Boolean(matches!(held, Some(Slot::Formula(_)))));
                 }
             }
+            if let Some(Arg::Cells(cells)) = args.first() {
+                if !cells.array.is_single() {
+                    self.tell_first("ISFORMULA");
+                    return self.is_formula_cells(cells);
+                }
+            }
         }
         if !lifted.is_empty() {
-            return self.lifted_call(f, id, index, args, &lifted, &brought, &slots);
+            self.tell_lifted(description, &lifted, &slots);
+            return self.lifted_call(f, id, index, args, &lifted, &brought, &slots, None);
         }
         let cell = {
             let fc = &self.formulas[f];
@@ -314,6 +398,10 @@ impl Calculation {
             Err(e) => Operand::error(e),
         };
         let sources = cx.sources.take();
+        // ROW and COLUMN of several rows or columns answer several cells.
+        if matches!(description.name, "ROW" | "COLUMN") && matches!(&operand, Operand::Values(a) if !a.is_single()) {
+            self.tell_first(description.name);
+        }
         // A function that picks cells of its arguments (SORT, FILTER, …) gives each value what its cell brings.
         let formats: Option<Vec<Option<Brought>>> = match (&operand, sources) {
             (Operand::Value(_) | Operand::Array(_) | Operand::Values(_), Some(from)) => Some(
@@ -348,10 +436,57 @@ impl Calculation {
         operand
     }
 
-    /// A call given several cells where it reads one value, inside an argument that takes several cells:
-    /// the function is called cell by cell, the arrays stretching as an operator's do (`broadcast`), and
-    /// answers the array of what each call gives. `=ARRAYFORMULA(LEN(C1:C3))` spills 3 lengths and
-    /// `=SUM(LEN(C1:C3))` adds them up, where `=LEN(C1:C3)` is #VALUE!.
+    /// The first error an argument that takes several cells makes the answer: an error written as one value (not a
+    /// range or an array) even where errors in cells may be passed over (COUNTIF(1/0, …), VLOOKUP(1, #N/A, 1)); the
+    /// first error in cells whose errors are the answer (for PROB and T.TEST, after their numbers are read); one
+    /// value it does not read.
+    fn early_in_cells(
+        &self,
+        id: FunctionId,
+        i: usize,
+        arg: &Arg,
+        slot: &functions::Argument,
+        reads_numbers_first: bool,
+        error_in_range: &mut Option<CellError>,
+    ) -> Option<(usize, CellError)> {
+        if let (Arg::Value(Value::Error(e)), ErrorInIt::MayBePassedOver) = (arg, slot.error_in_it) {
+            return Some((i, *e));
+        }
+        if slot.error_in_it == ErrorInIt::IsTheAnswer {
+            let first_error = match arg {
+                Arg::Value(v) => v.error(),
+                Arg::Cells(cells) => cells.values().find_map(Value::error),
+                _ => None,
+            };
+            if let Some(e) = first_error {
+                if !reads_numbers_first || matches!(arg, Arg::Value(_)) {
+                    return Some((i, e));
+                }
+                *error_in_range = error_in_range.or(Some(e));
+            }
+        }
+        match arg {
+            Arg::Value(v) => functions::check_early(id, i, v, self.locale).err().map(|e| (i, e)),
+            _ => None,
+        }
+    }
+
+    /// A call lifted outside an argument that takes several cells tells so, naming the first argument lifted.
+    fn tell_lifted(
+        &mut self,
+        description: &functions::Description,
+        lifted: &[(usize, Rc<Array>, elements::Elements)],
+        slots: &[&functions::Argument],
+    ) {
+        if !self.lifting {
+            self.tell(description.name, Some(slots[lifted[0].0].name));
+        }
+    }
+
+    /// A call given several cells where it reads one value (see `lifted`): the function is called cell by cell, the
+    /// arrays stretching together, and answers the array of what each call gives. `=ARRAYFORMULA(LEN(C1:C3))` spills
+    /// 3 lengths and `=SUM(LEN(C1:C3))` adds them up, where `=LEN(C1:C3)` is #VALUE!. An error that is the answer in
+    /// an argument that is not lifted (`early`) is each cell's, unless a lifted argument before it has one there.
     #[allow(clippy::too_many_arguments)]
     fn lifted_call(
         &mut self,
@@ -359,23 +494,38 @@ impl Calculation {
         id: FunctionId,
         index: u32,
         args: Vec<Arg>,
-        lifted: &[(usize, Rc<Array>)],
+        lifted: &[(usize, Rc<Array>, elements::Elements)],
         brought: &[Option<Brought>],
         slots: &[&functions::Argument],
+        early: Option<(usize, CellError)>,
     ) -> Operand {
-        let (rows, columns) = stretched(lifted.iter().map(|(_, a)| a.as_ref()));
+        let Some((rows, columns)) = lifted::stretched(lifted.iter().map(|(_, a, _)| a.as_ref())) else {
+            return self.abort();
+        };
         let cell = {
             let fc = &self.formulas[f];
             Place { sheet: fc.sheet, top: fc.row, left: fc.column, bottom: fc.row, right: fc.column }
         };
         let (now, locale) = (self.now, self.locale);
         let mut values = Vec::with_capacity(rows * columns);
+        let mut formats = Vec::with_capacity(rows * columns);
+        let mut at = brought.to_vec();
+        let name = id.description().name;
+        let time_of_day = self.locale.pattern_of_a_time_of_day;
         let mut one = args;
         for r in 0..rows {
             for c in 0..columns {
                 let mut answer = None;
-                for (i, a) in lifted {
-                    let v = stretched_at(a, r, c).unwrap_or(Value::Error(CellError::NotAvailable));
+                for (i, _, elements) in lifted {
+                    at[*i] = self.element(elements, r, c);
+                }
+                for (i, a, _) in lifted {
+                    if let (Some((k, e)), None) = (early, &answer) {
+                        if k < *i {
+                            answer = Some(Value::Error(e));
+                        }
+                    }
+                    let v = lifted::stretched_at(a, r, c);
                     let checked = match (&v, slots[*i].error_in_it == ErrorInIt::IsTheAnswer) {
                         (Value::Error(e), true) => Err(*e),
                         _ => functions::check_early(id, *i, &v, locale),
@@ -385,7 +535,7 @@ impl Calculation {
                     }
                     one[*i] = Arg::Value(v);
                 }
-                let value = match answer {
+                let value = match answer.or(early.map(|(_, e)| Value::Error(e))) {
                     Some(e) => e,
                     None if !self.total_ranges_are_readable(id.description().name, &one) => Value::Error(CellError::Value),
                     None => {
@@ -396,49 +546,18 @@ impl Calculation {
                     }
                 };
                 values.push(value);
+                // Each value brings what the call makes of what its arguments there bring.
+                let first = match one.first() {
+                    Some(Arg::Value(Value::Number(n))) => Some(*n),
+                    _ => None,
+                };
+                formats.push(brought::of_call(name, &at, first, time_of_day));
             }
         }
-        let first = match one.first() {
-            Some(Arg::Value(Value::Number(n))) => Some(*n),
-            _ => None,
-        };
-        self.brought = brought::of_call(id.description().name, brought, first, self.locale.pattern_of_a_time_of_day);
         self.link = None;
-        Operand::Values(Rc::new(Array::new(rows, columns, values)))
-    }
-
-    /// IF given several tests inside an argument that takes several cells: each test picks from the values beside it.
-    fn lifted_if(&mut self, f: usize, tests: Rc<Array>, arguments: &[Expr]) -> Operand {
-        let mut grid = |k: usize, default: Value| match arguments.get(k) {
-            None | Some(Expr::Missing) if k == 2 && arguments.len() < 3 => Grid::One(Value::Boolean(false)),
-            None | Some(Expr::Missing) => Grid::One(default),
-            Some(e) => {
-                let operand = self.eval(f, e);
-                self.grid(operand)
-            }
-        };
-        let (yes, no) = (grid(1, Value::Number(0.0)), grid(2, Value::Number(0.0)));
-        let as_array = |g: Grid| match g {
-            Grid::One(v) => Rc::new(Array::single(v)),
-            Grid::Many(a) => a,
-        };
-        let (yes, no) = (as_array(yes), as_array(no));
-        let (rows, columns) = stretched([tests.as_ref(), yes.as_ref(), no.as_ref()].into_iter());
-        let mut values = Vec::with_capacity(rows * columns);
-        for r in 0..rows {
-            for c in 0..columns {
-                let pick = |a: &Array| stretched_at(a, r, c).unwrap_or(Value::Error(CellError::NotAvailable));
-                values.push(match stretched_at(&tests, r, c).map(|t| coerce::to_boolean(&t)) {
-                    None => Value::Error(CellError::NotAvailable),
-                    Some(Err(e)) => Value::Error(e),
-                    Some(Ok(true)) => pick(&yes),
-                    Some(Ok(false)) => pick(&no),
-                });
-            }
-        }
-        self.brought = None;
-        self.link = None;
-        Operand::Values(Rc::new(Array::new(rows, columns, values)))
+        let array = Rc::new(Array::new(rows, columns, values));
+        self.keep_formats(&array, formats);
+        Operand::Values(array)
     }
 
     /// What the cell (row, column) of an argument brings to a function that picks it: a range's cell what it brings,
@@ -454,30 +573,55 @@ impl Calculation {
         }
     }
 
-    /// SUBTOTAL and AGGREGATE options 0–3 refuse ranges containing either kind of nested total.
-    fn total_ranges_are_readable(&self, name: &str, args: &[Arg]) -> bool {
-        let ranges = match name {
-            "SUBTOTAL" => &args[1..],
-            "AGGREGATE" if args[1].number(self.locale).is_ok_and(|n| (0.0..4.0).contains(&n.trunc())) => {
-                // LARGE, SMALL and the percentile/quartile functions use the last argument as a parameter.
-                if args[0].number(self.locale).is_ok_and(|n| n.trunc() >= 14.0) {
-                    &args[2..3]
-                } else {
-                    &args[2..]
-                }
-            }
-            _ => return true,
-        };
+    /// SUBTOTAL totals ranges only (not arrays or values), and none with a formula that calls SUBTOTAL in it.
+    fn subtotal_ranges_are_readable(&self, ranges: &[Arg]) -> bool {
         ranges.iter().all(|arg| match arg {
-            Arg::Cells(Cells { place: Some(place), .. }) => self.grids[place.sheet]
-                .slots
-                .range((place.top, 0)..=(place.bottom, usize::MAX))
-                .all(|(&(_, column), slot)| match slot {
-                    Slot::Formula(i) if (place.left..=place.right).contains(&column) => !self.formulas[*i].contains_total,
-                    _ => true,
-                }),
+            Arg::Cells(Cells { place: Some(place), .. }) => self.nested_subtotal_in(*place).is_none(),
             _ => false,
         })
+    }
+
+    /// The same checks for one cell of a lifted call (`=ARRAYFORMULA(SUBTOTAL({9,1},I1:I3))`), whose function is
+    /// known only by its id there.
+    fn total_ranges_are_readable(&self, name: &str, args: &[Arg]) -> bool {
+        match name {
+            "SUBTOTAL" => self.subtotal_ranges_are_readable(args.get(1..).unwrap_or(&[])),
+            "AGGREGATE" => self.aggregate_ranges_are_readable(args),
+            _ => true,
+        }
+    }
+
+    /// AGGREGATE with a skip code below 4 reads no range with a formula that calls SUBTOTAL or AGGREGATE in it
+    /// (`=AGGREGATE(9,0,I1)`, I1 holding `=SUBTOTAL(9,B1:B2)`, is #VALUE!; `=AGGREGATE(9,4,I1)` totals it). The
+    /// ranges are those it totals, or the one it takes a position or fraction of (code 14 to 19).
+    fn aggregate_ranges_are_readable(&self, args: &[Arg]) -> bool {
+        let number = |arg: Option<&Arg>| match arg {
+            Some(Arg::Value(v)) => coerce::to_number(v, self.locale).ok().map(f64::trunc),
+            _ => None,
+        };
+        let (Some(code), Some(skip)) = (number(args.first()), number(args.get(1))) else {
+            return true;
+        };
+        if !(0.0..4.0).contains(&skip) {
+            return true;
+        }
+        let ranges = if code >= 14.0 { args.get(2..3).unwrap_or(&[]) } else { args.get(2..).unwrap_or(&[]) };
+        ranges.iter().all(|arg| match arg {
+            Arg::Cells(Cells { place: Some(place), .. }) => self.nested_subtotal_in(*place).is_none(),
+            _ => true,
+        })
+    }
+
+    /// The first cell of a range, row by row, whose formula calls SUBTOTAL or AGGREGATE.
+    pub(crate) fn nested_subtotal_in(&self, place: Place) -> Option<(usize, usize)> {
+        self.grids[place.sheet]
+            .slots
+            .range((place.top, 0)..=(place.bottom, usize::MAX))
+            .find(|(&(_, column), slot)| match slot {
+                Slot::Formula(i) => (place.left..=place.right).contains(&column) && self.formulas[*i].calls_subtotal,
+                _ => false,
+            })
+            .map(|(&cell, _)| cell)
     }
 
     /// An argument that may be left out, as it came; left out, `default` (which brings nothing).
@@ -492,89 +636,176 @@ impl Calculation {
         }
     }
 
-    fn one(&mut self, f: usize, expr: &Expr) -> Value {
-        let operand = self.eval(f, expr);
-        self.one_value(operand)
-    }
-
     fn if_(&mut self, f: usize, arguments: &[Expr]) -> Operand {
         let test = self.eval(f, &arguments[0]);
         let test = match self.grid(test) {
-            Grid::Many(tests) if self.lifting => return self.lifted_if(f, tests, arguments),
-            Grid::Many(_) => Value::Error(CellError::Value),
+            Grid::Many(tests) => {
+                self.tell_first("IF");
+                return self.lifted_if(f, tests, arguments);
+            }
             Grid::One(v) => v,
         };
         match coerce::to_boolean(&test) {
             Err(e) => Operand::error(e),
-            Ok(true) => self.as_it_came(f, arguments.get(1), Value::Number(0.0)),
+            Ok(true) => self.as_it_came(f, arguments.get(1), Value::Blank),
             Ok(false) => match arguments.get(2) {
                 None => {
                     self.brought = None;
                     self.link = None;
                     Operand::Value(Value::Boolean(false))
                 }
-                Some(e) => self.as_it_came(f, Some(e), Value::Number(0.0)),
+                Some(e) => self.as_it_came(f, Some(e), Value::Blank),
             },
         }
     }
 
     /// IFERROR (`only_not_available` false) and IFNA.
     fn if_error(&mut self, f: usize, arguments: &[Expr], only_not_available: bool) -> Operand {
+        let caught = |v: &Value| match v {
+            Value::Error(e) => !only_not_available || *e == CellError::NotAvailable,
+            _ => false,
+        };
         let value = self.as_it_came(f, arguments.first(), Value::Blank);
         let value = match value {
             Operand::Range(place) if place.is_single() => Operand::Value(self.cell_value(place.sheet, place.top, place.left)),
-            // IFERROR reads its value as one value, and a range of more than one cell is an error it doesn't catch;
-            // IFNA passes a range on.
-            Operand::Range(_) if !only_not_available => return Operand::error(CellError::Value),
+            // Several cells that do not spill: IFERROR tells so, before the rest is worked out (IFNA does not).
+            Operand::Range(place) => {
+                if !only_not_available {
+                    self.tell_first("IFERROR");
+                }
+                let values = Rc::new(self.range_values(place));
+                // A range with no error to catch is the answer as it came.
+                if !values.values().any(caught) {
+                    return Operand::Range(place);
+                }
+                self.brought = None;
+                return self.lifted_if_error(f, values, elements::Elements::Range(place), false, arguments, only_not_available);
+            }
+            Operand::Values(a) if !a.is_single() => {
+                if !only_not_available {
+                    self.tell_first("IFERROR");
+                }
+                let brought = self.brought.take();
+                let elements = self.elements(&Operand::Values(a.clone()), &brought);
+                return self.lifted_if_error(f, a, elements, false, arguments, only_not_available);
+            }
+            // An array that spills with no error to catch is the answer as it came.
+            Operand::Array(a) if !a.is_single() && a.values().any(caught) => {
+                let brought = self.brought.take();
+                let elements = self.elements(&Operand::Values(a.clone()), &brought);
+                return self.lifted_if_error(f, a, elements, true, arguments, only_not_available);
+            }
             other => other,
         };
-        let caught = match &value {
-            Operand::Value(Value::Error(e)) => !only_not_available || *e == CellError::NotAvailable,
+        let is_caught = match &value {
+            Operand::Value(v) => caught(v),
+            Operand::Array(a) | Operand::Values(a) if a.is_single() => caught(a.get(0, 0)),
             _ => false,
         };
-        if caught {
-            self.as_it_came(f, arguments.get(1), Value::Number(0.0))
+        if is_caught {
+            self.as_it_came(f, arguments.get(1), Value::Blank)
         } else {
             value
         }
     }
 
     fn ifs(&mut self, f: usize, arguments: &[Expr]) -> Operand {
+        // Outside an argument that takes several cells, the tests are worked out in order, and one of several cells
+        // is #VALUE! (`=IFS(TRUE,1,A1:A2,2)` is 1, `=ISERROR(IFS(A1:A2,1))` TRUE).
+        if !self.lifting {
+            for pair in arguments.chunks(2) {
+                let test = self.eval(f, &pair[0]);
+                let test = match self.grid(test) {
+                    Grid::One(v) => coerce::to_boolean(&v),
+                    Grid::Many(_) => Err(CellError::Value),
+                };
+                match test {
+                    Err(e) => {
+                        self.brought = None;
+                        self.link = None;
+                        return Operand::error(e);
+                    }
+                    Ok(true) => return self.as_it_came(f, pair.get(1), Value::Blank),
+                    Ok(false) => {}
+                }
+            }
+            self.brought = None;
+            self.link = None;
+            return Operand::error(CellError::NotAvailable);
+        }
+        // Inside one, the tests are all worked out first: one of several cells makes every cell pick (`lifted_ifs`).
+        let mut tests = Vec::with_capacity(arguments.len() / 2);
         for pair in arguments.chunks(2) {
-            let test = self.one(f, &pair[0]);
+            let test = self.eval(f, &pair[0]);
+            tests.push(self.grid(test));
+        }
+        if tests.iter().any(|t| matches!(t, Grid::Many(_))) {
+            let tests = tests.into_iter().map(lifted::as_array).collect();
+            return self.lifted_ifs(f, tests, arguments);
+        }
+        for (pair, test) in arguments.chunks(2).zip(tests) {
+            let Grid::One(test) = test else { unreachable!("tests of one value") };
             match coerce::to_boolean(&test) {
                 Err(e) => return Operand::error(e),
-                Ok(true) => return self.as_it_came(f, pair.get(1), Value::Number(0.0)),
+                Ok(true) => return self.as_it_came(f, pair.get(1), Value::Blank),
                 Ok(false) => {}
             }
         }
+        self.brought = None;
+        self.link = None;
         Operand::error(CellError::NotAvailable)
     }
 
     fn switch(&mut self, f: usize, arguments: &[Expr]) -> Operand {
-        let value = self.one(f, &arguments[0]);
-        if let Value::Error(e) = value {
-            return Operand::error(e);
-        }
+        // The value and the cases are all worked out first: one of several cells makes every cell pick
+        // (`lifted_switch`).
         let rest = &arguments[1..];
         let pairs = rest.len() / 2;
+        let mut grids = Vec::with_capacity(pairs + 1);
+        for expr in std::iter::once(&arguments[0]).chain((0..pairs).map(|i| &rest[2 * i])) {
+            let operand = self.eval(f, expr);
+            grids.push(self.grid(operand));
+        }
+        if grids.iter().any(|g| matches!(g, Grid::Many(_))) {
+            let arrays = grids.into_iter().map(lifted::as_array).collect();
+            return self.lifted_switch(f, arrays, arguments);
+        }
+        let values: Vec<Value> = grids
+            .into_iter()
+            .map(|g| match g {
+                Grid::One(v) => v,
+                Grid::Many(_) => unreachable!("values of one value"),
+            })
+            .collect();
+        self.brought = None;
+        self.link = None;
+        if let Value::Error(e) = &values[0] {
+            return Operand::error(*e);
+        }
         for i in 0..pairs {
-            let case = self.one(f, &rest[2 * i]);
+            let case = &values[1 + i];
             if let Value::Error(e) = case {
-                return Operand::error(e);
+                return Operand::error(*e);
             }
-            if same_value(&value, &case) {
-                return self.as_it_came(f, Some(&rest[2 * i + 1]), Value::Number(0.0));
+            if same_value(&values[0], case) {
+                return self.as_it_came(f, Some(&rest[2 * i + 1]), Value::Blank);
             }
         }
         if rest.len() % 2 == 1 {
-            return self.as_it_came(f, rest.last(), Value::Number(0.0));
+            return self.as_it_came(f, rest.last(), Value::Blank);
         }
         Operand::error(CellError::NotAvailable)
     }
 
     fn choose(&mut self, f: usize, arguments: &[Expr]) -> Operand {
-        let position = self.one(f, &arguments[0]);
+        let position = self.eval(f, &arguments[0]);
+        let position = match self.grid(position) {
+            Grid::Many(positions) => {
+                self.tell_first("CHOOSE");
+                return self.lifted_choose(f, positions, arguments);
+            }
+            Grid::One(v) => v,
+        };
         let n = match coerce::to_number(&position, self.locale) {
             Ok(n) => n.trunc(),
             Err(e) => return Operand::error(e),
@@ -582,7 +813,7 @@ impl Calculation {
         if n < 1.0 || n as usize >= arguments.len() {
             return Operand::error(CellError::Value);
         }
-        self.as_it_came(f, Some(&arguments[n as usize]), Value::Number(0.0))
+        self.as_it_came(f, Some(&arguments[n as usize]), Value::Blank)
     }
 
     fn let_(&mut self, f: usize, arguments: &[Expr]) -> Operand {
@@ -599,7 +830,10 @@ impl Calculation {
                     break;
                 }
             };
+            // A value is worked out as an argument that takes several cells is (IFS given several cells lifts there).
+            let lifting = std::mem::replace(&mut self.lifting, true);
             let value = self.as_it_came(f, Some(&arguments[2 * i + 1]), Value::Blank);
+            self.lifting = lifting;
             let brought = self.brought.take();
             let link = self.link.take();
             names.push(name.clone());
@@ -631,42 +865,21 @@ fn same_value(a: &Value, b: &Value) -> bool {
     kind(a) == kind(b) && coerce::compare(a, b) == std::cmp::Ordering::Equal
 }
 
-/// The size arrays stretch to together, as `broadcast` stretches two.
-fn stretched<'a>(arrays: impl Iterator<Item = &'a Array>) -> (usize, usize) {
-    let size = |m: usize, n: usize| if m == 1 { n } else if n == 1 { m } else { m.max(n) };
-    arrays.fold((1, 1), |(rows, columns), a| (size(rows, a.rows()), size(columns, a.columns())))
-}
-
-/// A stretched array's value at (row, column): `None` past the end of a side that does not stretch.
-fn stretched_at(a: &Array, r: usize, c: usize) -> Option<Value> {
-    let rr = if a.rows() == 1 { 0 } else { r };
-    let cc = if a.columns() == 1 { 0 } else { c };
-    (rr < a.rows() && cc < a.columns()).then(|| a.get(rr, cc).clone())
-}
-
 /// An operator on two grids, cell by cell: a single value or a single row or column stretches across the other;
-/// beyond the smaller of two sizes that do not fit, #N/A.
+/// two of other different sizes are #VALUE! (one value).
 fn broadcast(x: Grid, y: Grid, op: impl Fn(&Value, &Value) -> Value) -> Operand {
     match (x, y) {
         (Grid::One(a), Grid::One(b)) => Operand::Value(op(&a, &b)),
         (Grid::One(a), Grid::Many(b)) => Operand::Values(Rc::new(b.map(|q| op(&a, q)))),
         (Grid::Many(a), Grid::One(b)) => Operand::Values(Rc::new(a.map(|p| op(p, &b)))),
         (Grid::Many(a), Grid::Many(b)) => {
-            let size = |m: usize, n: usize| if m == 1 { n } else if n == 1 { m } else { m.max(n) };
-            let rows = size(a.rows(), b.rows());
-            let columns = size(a.columns(), b.columns());
-            let at = |g: &Array, r: usize, c: usize| -> Option<Value> {
-                let rr = if g.rows() == 1 { 0 } else { r };
-                let cc = if g.columns() == 1 { 0 } else { c };
-                (rr < g.rows() && cc < g.columns()).then(|| g.get(rr, cc).clone())
+            let Some((rows, columns)) = lifted::stretched([a.as_ref(), b.as_ref()].into_iter()) else {
+                return Operand::error(CellError::Value);
             };
             let mut values = Vec::with_capacity(rows * columns);
             for r in 0..rows {
                 for c in 0..columns {
-                    values.push(match (at(&a, r, c), at(&b, r, c)) {
-                        (Some(p), Some(q)) => op(&p, &q),
-                        _ => Value::Error(CellError::NotAvailable),
-                    });
+                    values.push(op(&lifted::stretched_at(&a, r, c), &lifted::stretched_at(&b, r, c)));
                 }
             }
             Operand::Values(Rc::new(Array::new(rows, columns, values)))

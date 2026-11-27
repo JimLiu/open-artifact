@@ -1,7 +1,7 @@
 import type { SheetId } from '@open-artifact/sheets-core';
 import { layoutOfView, findSheetById } from '../grid/layout.ts';
 import type { LayoutView } from '../grid/layout.ts';
-import { heightCoveredByStickyHeaders } from '../grid/sticky-headers.ts';
+import { heightCoveredByStickyHeaders, stickyHeadersOverRow } from '../grid/sticky-headers.ts';
 import { scrollToShowCell, clampScroll } from '../grid/geometry.ts';
 import type { GridScroll } from '../grid/geometry.ts';
 import { cachedSelectedArea } from '../presence/selections.ts';
@@ -12,7 +12,7 @@ import { showSheet } from '../state/sheet-tabs.ts';
 import { changesSpanWholeLines } from './changes-by-agent.ts';
 import type { CellsOfChange } from './changes-by-agent.ts';
 import { unionOfAreas, isSameSelection } from '../selection/model.ts';
-import type { CellArea } from '../selection/model.ts';
+import type { CellArea, CellPosition } from '../selection/model.ts';
 import { shownLineAtOrAfter } from '../model/line-sizes.ts';
 import { pointDoneCardAtSheet, isAgentWorkingOnBlank, isChangeNotYetCounted } from './turn-of-agent.ts';
 import { isNothingOpen, isEffectAnEdit } from '../state/edit-refusals.ts';
@@ -54,22 +54,39 @@ export function scrollAreaIntoView(state: PageState, reads: ReadsWithTextMeasure
     rowIndex: area.topRowIndex + area.rowCount - 1,
     columnIndex: area.leftColumnIndex + area.columnCount - 1,
   };
-  let { scrollLeft, scrollTop } = [bottomRight, view, topLeft].reduce<GridScroll>(
-    (scroll, cell) => {
-      let heightCovered = heightCoveredByStickyHeaders(state, reads, cell, layout);
-      return scrollToShowCell(
-        scroll,
-        {
-          ...cell,
-          heightCovered,
-        },
-        layout,
-        frozenView,
-        'key',
-      );
-    },
-    state,
+  let showCell = (scroll: GridScroll, cell: CellPosition): GridScroll => {
+    let heightCovered = heightCoveredByStickyHeaders(state, reads, cell, layout);
+    return scrollToShowCell(
+      scroll,
+      {
+        ...cell,
+        heightCovered,
+      },
+      layout,
+      frozenView,
+      'key',
+    );
+  };
+  let scrolledToShow = (corner: CellPosition): GridScroll => [bottomRight, corner, topLeft].reduce<GridScroll>(showCell, state);
+  // A row under a sticky header may show the area better than the row above it.
+  let cornersUnderStickyHeaders: CellPosition[] =
+    area.columnCount < layout.columnCount
+      ? []
+      : stickyHeadersOverRow(state, reads, topLeft.rowIndex).map(({ header, columns }) => ({
+          rowIndex: Math.max(header.last + 1, layout.frozenRowCount),
+          columnIndex: columns.first,
+        }));
+  let highestCorner = [view, ...cornersUnderStickyHeaders].reduce((highest, corner) =>
+    corner.rowIndex <= highest.rowIndex ? corner : highest,
   );
+  let scrolledToView = scrolledToShow(view);
+  let scrolledToHighest = scrolledToShow(highestCorner);
+  let showsCellAsIs = (scroll: GridScroll, cell: CellPosition): boolean => isScrollTopSame(showCell(scroll, cell), scroll);
+  let isHighestBetter =
+    !isScrollTopSame(scrolledToView, state) &&
+    showsCellAsIs(scrolledToHighest, highestCorner) &&
+    (showsCellAsIs(scrolledToHighest, bottomRight) || !showsCellAsIs(scrolledToView, bottomRight));
+  let { scrollLeft, scrollTop } = isHighestBetter ? scrolledToHighest : scrolledToView;
   let scrolled = {
     scrollLeft: area.columnCount < layout.columnCount ? scrollLeft : state.scrollLeft,
     scrollTop: area.rowCount < layout.rowCount ? scrollTop : state.scrollTop,
@@ -437,6 +454,8 @@ export const FLOATING_FOOT_HEIGHT = 146;
 export const SCROLLBAR_ROOM = 24;
 export const snapPastFrozenLines = (start: number, length: number, frozenEnd: number): number =>
   start < frozenEnd && start + length > frozenEnd ? frozenEnd : start;
+export const isScrollTopSame = (scroll: Pick<GridScroll, 'scrollTop'>, other: Pick<GridScroll, 'scrollTop'>): boolean =>
+  Math.abs(scroll.scrollTop - other.scrollTop) < 0.5;
 export const isOnSheet =
   (sheetId: SheetId) =>
   ({ activeCell }: Pick<CellsChanged, 'activeCell'>): boolean =>

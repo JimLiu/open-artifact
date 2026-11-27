@@ -5,6 +5,15 @@ import { Menu as BaseMenu } from '@base-ui/react/menu';
 import { ContextMenu as BaseContextMenu } from '@base-ui/react/context-menu';
 import { preventRepeatedActivation } from './closing-guard.ts';
 import { cn } from './cn.ts';
+import {
+  SUBMENU_AIM_MIN_MOVES,
+  countAimMoves,
+  createMenuAim,
+  dropsSubmenuOpenChange,
+  isMouseOrPen,
+  isPointerClick,
+  type MenuAim,
+} from './menu-aim.ts';
 import { Icon, LeadingIcon, type IconName } from './icon.tsx';
 import { useKitLabel } from './labels.tsx';
 import { OVERLAY_ATTRIBUTE, useOverlayLayer } from './layers.tsx';
@@ -24,6 +33,7 @@ import {
   useMergedRefs,
   useOpenerFocusReturn,
   useSheetPresentation,
+  useSheetPageGuards,
   useSwallowSheetEntryTaps,
   type PopupFinalFocus,
 } from './popup-frame.tsx';
@@ -149,6 +159,8 @@ interface MenuLevel {
   nested: boolean;
   open: boolean;
   sheet: boolean;
+  /** A sheet opened from inside another sheet. */
+  stacked: boolean;
   sheetTitle?: React.ReactNode;
   closeLabel?: string;
   openType: React.RefObject<MenuOpenType>;
@@ -196,6 +208,8 @@ interface MenuRootStateOptions<D extends RootChangeDetails> {
 
 function useMenuRootState<D extends RootChangeDetails>({ kind, open, defaultOpen, onOpenChange, actionsRef, sheetTitle, closeLabel }: MenuRootStateOptions<D>) {
   const sheet = useSheetPresentation();
+  const insideSheet = useIsSheet();
+  const stacked = sheet && insideSheet;
   const actions = React.useRef<BaseMenu.Root.Actions | null>(null);
   const [ownOpen, setOwnOpen] = React.useState(defaultOpen ?? false);
   const isOpen = open ?? ownOpen;
@@ -225,8 +239,8 @@ function useMenuRootState<D extends RootChangeDetails>({ kind, open, defaultOpen
   );
 
   const level = React.useMemo<MenuLevel>(
-    () => ({ kind, nested: false, open: isOpen, sheet, sheetTitle, closeLabel, openType, trigger, close }),
-    [kind, isOpen, sheet, sheetTitle, closeLabel, close],
+    () => ({ kind, nested: false, open: isOpen, sheet, stacked, sheetTitle, closeLabel, openType, trigger, close }),
+    [kind, isOpen, sheet, stacked, sheetTitle, closeLabel, close],
   );
   return { level, actions, isOpen, handleOpenChange };
 }
@@ -371,6 +385,7 @@ const MenuPopup = React.forwardRef<HTMLDivElement, MenuPopupProps>(function Menu
   const mergedRef = useMergedRefs<HTMLDivElement>(ref, popupRef, opener.popupRef, setPopupElement);
   const typeaheadGuard = useTypeaheadSpaceGuard(onClickCapture, onKeyDownCapture);
   useSwallowSheetEntryTaps(sheet ? popupElement : null, level.open);
+  useSheetPageGuards(sheet ? popupElement : null, level.open);
 
   const resolvedFinalFocus: PopupFinalFocus = declined
     ? finalFocus === false
@@ -407,7 +422,9 @@ const MenuPopup = React.forwardRef<HTMLDivElement, MenuPopupProps>(function Menu
   const positionerStyle = sheet ? { ...layer.style, ...SHEET_POSITIONER_STYLE } : layer.style;
 
   return (
-    <BaseMenu.Portal>
+    // A sheet over another sheet (a submenu, or a menu opened inside a sheet) covers it rather than
+    // hanging off the row it opened from, so its portal carries no id and is not owned by that row.
+    <BaseMenu.Portal {...(sheet && (!atRoot || level.stacked) ? { id: undefined } : {})}>
       <PopupLayerScope layer={layer} sheet={sheet}>
         {sheet && atRoot && <SheetBackdrop layer={layer} />}
         <BaseMenu.Positioner
@@ -655,30 +672,97 @@ const MenuHeader = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDiv
 
 export interface MenuSubmenuProps extends BaseMenu.SubmenuRoot.Props {}
 
+/** What a submenu's trigger row shares with the submenu around it. */
+interface SubmenuAimState {
+  aim: MenuAim;
+  openRef: React.RefObject<boolean>;
+  /** The submenu was opened by a pointer click (not a hover or a key). */
+  clickOpenedRef: React.RefObject<boolean>;
+  setPressHidden: (hidden: boolean) => void;
+  setTrigger: (node: HTMLElement | null) => void;
+  triggerRef: React.RefObject<HTMLElement | null>;
+}
+
+const SubmenuAimContext = React.createContext<SubmenuAimState | null>(null);
+
+/** After a hover closes a submenu that held focus, focus goes back to the menu it came from. */
+function refocusMenuAfterHoverClose(trigger: HTMLElement | null): void {
+  if (!trigger) return;
+  const doc = trigger.ownerDocument;
+  const submenu = doc.getElementById(trigger.getAttribute('aria-controls') ?? '');
+  if (submenu?.contains(doc.activeElement) !== true) return;
+  const menu = trigger.closest('[role="menu"]');
+  if (menu instanceof HTMLElement) menu.focus({ preventScroll: true });
+}
+
 /** A menu opened from a row of another menu. */
 function MenuSubmenu({ open, defaultOpen, onOpenChange, children, ...rest }: MenuSubmenuProps): React.ReactElement {
   const parent = useMenuLevel();
   const [ownOpen, setOwnOpen] = React.useState(defaultOpen ?? false);
   const isOpen = open ?? ownOpen;
+  const openRef = React.useRef(isOpen);
+  const clickOpenedRef = React.useRef(false);
+  const pressHiddenRef = React.useRef(false);
+  const triggerRef = React.useRef<HTMLElement | null>(null);
+  const [aim] = React.useState(() => createMenuAim());
+  React.useEffect(() => () => aim.release(), [aim]);
   const handleOpenChange = React.useCallback(
     (next: boolean, details: BaseMenu.SubmenuRoot.ChangeEventDetails) => {
+      const trigger = triggerRef.current;
+      const dropped = dropsSubmenuOpenChange(next, details, {
+        open: trigger?.hasAttribute('data-popup-open') === true,
+        pressHidden: pressHiddenRef.current,
+        clickOpened: clickOpenedRef.current,
+      });
+      if (dropped) {
+        details.cancel();
+        return;
+      }
       onOpenChange?.(next, details);
-      if (!details.isCanceled) setOwnOpen(next);
+      if (details.isCanceled) return;
+      openRef.current = next;
+      clickOpenedRef.current = next && isPointerClick(details.event);
+      setOwnOpen(next);
+      if (!next && details.reason === 'trigger-hover') refocusMenuAfterHoverClose(trigger);
     },
     [onOpenChange],
   );
+  React.useLayoutEffect(() => {
+    openRef.current = isOpen;
+    if (!isOpen) {
+      clickOpenedRef.current = false;
+      aim.release();
+    }
+  }, [isOpen, aim]);
   const onCloseRef = React.useRef(onOpenChange);
   onCloseRef.current = onOpenChange;
   const close = React.useCallback(() => {
     setOwnOpen(false);
     onCloseRef.current?.(false, closePressDetails());
   }, []);
+  const aimState = React.useMemo<SubmenuAimState>(
+    () => ({
+      aim,
+      openRef,
+      clickOpenedRef,
+      triggerRef,
+      setPressHidden: (hidden) => {
+        pressHiddenRef.current = hidden;
+      },
+      setTrigger: (node) => {
+        triggerRef.current = node;
+      },
+    }),
+    [aim],
+  );
   const level = React.useMemo<MenuLevel>(() => ({ ...parent, nested: true, open: isOpen, close }), [parent, isOpen, close]);
   return (
     <MenuLevelContext.Provider value={level}>
-      <BaseMenu.SubmenuRoot {...rest} open={isOpen} onOpenChange={handleOpenChange}>
-        {children}
-      </BaseMenu.SubmenuRoot>
+      <SubmenuAimContext.Provider value={aimState}>
+        <BaseMenu.SubmenuRoot {...rest} open={isOpen} onOpenChange={handleOpenChange}>
+          {children}
+        </BaseMenu.SubmenuRoot>
+      </SubmenuAimContext.Provider>
     </MenuLevelContext.Provider>
   );
 }
@@ -713,18 +797,86 @@ export interface MenuSubmenuTriggerProps extends Omit<BaseMenu.SubmenuTrigger.Pr
 }
 
 const MenuSubmenuTrigger = React.forwardRef<HTMLElement, MenuSubmenuTriggerProps>(function MenuSubmenuTrigger(
-  { icon, hint, trailing, className, children, openOnHover, render, onKeyDown, ...rest },
+  { icon, hint, trailing, className, children, openOnHover, render, onKeyDown, onPointerDown, onPointerMove, onPointerUp, onPointerLeave, ...rest },
   ref,
 ) {
   const sheet = useIsSheet();
   const passive = React.useContext(PassiveMenuContext);
+  const overlay = React.useContext(SubmenuAimContext);
+  const opensOnHover = !sheet && openOnHover !== false;
+  const submenuAim = sheet ? undefined : overlay?.aim;
+  const movesOnRow = React.useRef(0);
+  const pointerRun = React.useRef({ moves: 0, lastAt: -Infinity });
+  const setTrigger = overlay?.setTrigger;
+  const mergedRef = useMergedRefs(ref, setTrigger);
+  React.useEffect(() => {
+    const doc = overlay?.triggerRef.current?.ownerDocument;
+    if (!submenuAim || !doc || !overlay) return undefined;
+    const onDocumentPointerMove = (event: PointerEvent): void => {
+      if (event.buttons !== 0 || !isMouseOrPen(event)) return;
+      const coalesced = event.getCoalescedEvents?.() ?? [];
+      const count = Math.max(coalesced.length, 1);
+      const moves = countAimMoves(pointerRun.current, (coalesced[0] ?? event).timeStamp, event.timeStamp, count);
+      if (event.target instanceof Node && overlay.triggerRef.current?.contains(event.target)) {
+        movesOnRow.current = Math.max(movesOnRow.current + count, moves);
+      }
+    };
+    const onDocumentPointerDown = (): void => {
+      pointerRun.current.moves = 0;
+    };
+    doc.addEventListener('pointermove', onDocumentPointerMove, true);
+    doc.addEventListener('pointerdown', onDocumentPointerDown, true);
+    return () => {
+      doc.removeEventListener('pointermove', onDocumentPointerMove, true);
+      doc.removeEventListener('pointerdown', onDocumentPointerDown, true);
+    };
+  }, [submenuAim, overlay]);
+  const holdAim = (event: React.PointerEvent<HTMLElement>): void => {
+    if (
+      submenuAim &&
+      overlay?.openRef.current &&
+      (!opensOnHover || overlay.clickOpenedRef.current) &&
+      movesOnRow.current >= SUBMENU_AIM_MIN_MOVES &&
+      isMouseOrPen(event)
+    )
+      submenuAim.hold(event.currentTarget);
+  };
+  const submenuOpen = useMenuLevel().open;
+  React.useLayoutEffect(() => {
+    const trigger = overlay?.triggerRef.current;
+    if (submenuOpen && trigger && overlay?.clickOpenedRef.current && movesOnRow.current >= SUBMENU_AIM_MIN_MOVES) submenuAim?.hold(trigger);
+  }, [submenuOpen, overlay, submenuAim]);
+  const overlayAim = overlay?.aim;
+  React.useLayoutEffect(() => {
+    if (sheet || opensOnHover) overlayAim?.release();
+  }, [sheet, opensOnHover, overlayAim]);
   return (
     <BaseMenu.SubmenuTrigger
-      ref={ref}
+      ref={mergedRef}
       {...rest}
       onKeyDown={(event) => {
         onKeyDown?.(event);
         preventRepeatedActivation(event);
+      }}
+      onPointerDown={(event) => {
+        onPointerDown?.(event);
+        // A real mouse or pen press on a row that opens on hover does not toggle its submenu.
+        const isVirtual = event.width === 0 && event.height === 0;
+        overlay?.setPressHidden(opensOnHover && isMouseOrPen(event) && !isVirtual);
+      }}
+      onPointerMove={(event) => {
+        onPointerMove?.(event);
+        holdAim(event);
+      }}
+      onPointerUp={(event) => {
+        onPointerUp?.(event);
+        if (movesOnRow.current < SUBMENU_AIM_MIN_MOVES) movesOnRow.current = 0;
+        holdAim(event);
+      }}
+      onPointerLeave={(event) => {
+        onPointerLeave?.(event);
+        movesOnRow.current = 0;
+        submenuAim?.leave(event.nativeEvent, event.currentTarget);
       }}
       openOnHover={sheet ? false : openOnHover}
       render={render ?? (passive ? unfocusable : undefined)}

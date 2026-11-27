@@ -31,12 +31,13 @@ export interface FieldOfChipsPlace {
   clearOfText: StyleWithVariables;
   clipPath?: string;
 }
-/** The box the field of chips takes on the page. */
+/** The box the field of chips takes on the page, and the box of its lines of chips and text. */
 export interface FieldOfChipsBox {
   left: number;
   top: number;
   width: number;
   height: number;
+  lines: { top: number; height: number };
 }
 /** The text typed in the field, and the font it is typed in. */
 export interface TypedInField {
@@ -57,6 +58,8 @@ export interface ChipRemoveClick {
 }
 export interface FieldOfChipsProps {
   place: FieldOfChipsPlace | null;
+  /** The field's corners where it lies on a table's. */
+  corners?: StyleWithVariables;
   mostWidth: number;
   keepsToColumn: boolean;
   within: { left: number; right: number };
@@ -78,8 +81,18 @@ export function isChipRemoveClickGenuine(
   if (click.pointerType === undefined) return click.atMs - fieldShownAtMs > TAP_TOTAL_MS;
   return click.pointerType === '';
 }
+/** The box around the chips, the editor and the caret, without the field's border and padding. */
+export function textLinesBoxOf(lineElements: HTMLElement[], edges: { over: number; under: number }): { top: number; height: number } {
+  let top = Math.min(...lineElements.map(({ offsetTop }) => offsetTop)) - edges.over;
+  let bottom = Math.max(...lineElements.map((element) => element.offsetTop + element.offsetHeight));
+  return {
+    top,
+    height: bottom + edges.under - top,
+  };
+}
 export function FieldOfChips({
   place,
+  corners,
   mostWidth,
   keepsToColumn,
   within,
@@ -113,16 +126,26 @@ export function FieldOfChips({
     let field = fieldRef.current;
     if (field === null || !isPlaced) return;
     let { offsetWidth, offsetHeight } = field;
-    let computedWidth = Number.parseFloat(field.ownerDocument.defaultView?.getComputedStyle(field).width ?? '');
+    let computedStyle = field.ownerDocument.defaultView?.getComputedStyle(field);
+    let pixelsOf = (value: string | undefined) => Number.parseFloat(value ?? '');
+    let computedWidth = pixelsOf(computedStyle?.width);
     if (computedWidth > widestSoFarRef.current) {
       widestSoFarRef.current = computedWidth;
       field.style.setProperty(FIELD_WIDTH_SO_FAR_PROPERTY, `${String(computedWidth)}px`);
     }
+    let linesBox = textLinesBoxOf([...field.querySelectorAll<HTMLElement>(LINE_ELEMENTS_OF_FIELD_SELECTOR)], {
+      over: pixelsOf(computedStyle?.borderTopWidth) + pixelsOf(computedStyle?.paddingTop),
+      under: pixelsOf(computedStyle?.borderBottomWidth) + pixelsOf(computedStyle?.paddingBottom),
+    });
     onSized({
       left: Math.max(withinLeft, Math.min(left, withinRight - offsetWidth)),
       top,
       width: offsetWidth,
       height: offsetHeight,
+      lines: {
+        top: top + field.clientTop + linesBox.top,
+        height: linesBox.height,
+      },
     });
   }, [onSized, isPlaced, left, top, withinLeft, withinRight]);
   React.useLayoutEffect(measure);
@@ -161,7 +184,10 @@ export function FieldOfChips({
             clipPath: place.clipPath,
           }),
         };
-  return <div ref={fieldRef} role="presentation" className={isPlaced ? 'sheet-field-of-chips' : undefined} data-keeps-to-column={(isPlaced && keepsToColumn) || undefined} style={fieldStyle} {...(isPlaced && CHIP_FIELD_EVENT_FENCE)}>{(isPlaced ? chips : []).map(
+  return <div ref={fieldRef} role="presentation" className={isPlaced ? 'sheet-field-of-chips' : undefined} data-keeps-to-column={(isPlaced && keepsToColumn) || undefined} style={{
+        ...fieldStyle,
+        ...corners,
+      }} {...(isPlaced && CHIP_FIELD_EVENT_FENCE)}>{(isPlaced ? chips : []).map(
         ({ key, name, isGoneTo, chip }) =>
           (<span key={key} className="sheet-field-of-chips-chip" data-is-gone-to={isGoneTo || undefined}><CellChip {...chip} after={<button type="button" tabIndex={-1} className="sheet-chip-remove" aria-label={removeItemLabel(name)} onPointerDown={({ pointerType, currentTarget }) => {
                     removePressRef.current = {
@@ -192,6 +218,7 @@ export const CHIPS_AT_ALIGN_CONTENT: Record<VerticalAlignment, string> = {
   center: 'center',
   bottom: 'flex-end',
 };
+export const LINE_ELEMENTS_OF_FIELD_SELECTOR = ':scope > :is(.sheet-field-of-chips-chip, .sheet-cell-editor, .sheet-field-of-chips-caret)';
 export const FIELD_WIDTH_SO_FAR_PROPERTY = '--sheet-width-of-field-so-far';
 export const TYPED_WIDTH_SLACK_PX = 8;
 export const performanceNowOf = (element: Element): number => element.ownerDocument.defaultView?.performance.now() ?? 0;

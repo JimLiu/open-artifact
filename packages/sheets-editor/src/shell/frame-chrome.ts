@@ -1,5 +1,6 @@
 import type { ChromeCommand, ChromePeer, ChromeReport, ShellConnection } from '@open-artifact/runtime';
 import type { ShellBridge } from '@open-artifact/editor-kit';
+import type { SavingState } from '../state/initial-state.ts';
 
 export type ExportFormat = 'csv' | 'xlsx';
 
@@ -20,6 +21,7 @@ export interface FollowedWorkbook {
   hasUnsavedEdits(): boolean;
   unsavedEditCount(): number;
   refusalOfEveryEdit(): string | null;
+  saving(): SavingState;
 }
 
 export interface FrameChrome {
@@ -56,6 +58,8 @@ export function createFrameChrome({ bridge, shell, window: win, exportLabels }: 
   let followed: { workbook: FollowedWorkbook; stop: () => void } | null = null;
   let isReadOnly = false;
   let showsSaving = false;
+  let showsUnsaved = false;
+  let unsavedFlipTimer: number | null = null;
   let leaveLosesWork = false;
   let savingTimers: { left: number; timer: number }[] = [];
   let unsavedCountTimed = 0;
@@ -76,6 +80,7 @@ export function createFrameChrome({ bridge, shell, window: win, exportLabels }: 
   const savedState = (): ChromeSaved | undefined => {
     if (followed === null) return undefined;
     if (isReadOnly) return 'readonly';
+    if (showsUnsaved) return 'unsaved';
     return showsSaving ? 'saving' : 'saved';
   };
 
@@ -140,6 +145,19 @@ export function createFrameChrome({ bridge, shell, window: win, exportLabels }: 
       stopSavingTimers();
       showsSaving = false;
     } else if (!showsSaving) timeUnsavedEdits(unsavedCount);
+    // Saving that keeps retrying shows "unsaved" after UNSAVED_FLIP_AFTER_MS, and saving again for as long takes it back.
+    const saving = isReadOnly ? null : workbook?.saving();
+    if (showsUnsaved && saving !== 'retrying' && saving !== 'saving') showsUnsaved = false;
+    if (saving === (showsUnsaved ? 'saving' : 'retrying'))
+      unsavedFlipTimer ??= win.setTimeout(() => {
+        unsavedFlipTimer = null;
+        showsUnsaved = !showsUnsaved;
+        report();
+      }, UNSAVED_FLIP_AFTER_MS);
+    else {
+      if (unsavedFlipTimer !== null) win.clearTimeout(unsavedFlipTimer);
+      unsavedFlipTimer = null;
+    }
     const atRisk = entryChanged || (workbook?.hasUnsavedEdits() ?? false);
     if (atRisk !== leaveLosesWork) {
       leaveLosesWork = atRisk;
@@ -253,3 +271,4 @@ export function createFrameChrome({ bridge, shell, window: win, exportLabels }: 
 export const OPEN_FIND_ACTION = 'open_find';
 export const IMPORT_FILE_ACTION = 'import_file';
 export const SAVING_SHOWN_AFTER_MS = 500;
+export const UNSAVED_FLIP_AFTER_MS = 5000;

@@ -20,6 +20,8 @@ import { useChartNotice, NoChartNotice, ChartNoticeScope, ChartNoticeGate, Chart
 import { PlacedViewFixOffer, isViewBigEnoughForFix, PlacedViewFixContext, FIX_OF_PLACED_VIEW_CLASS, type PlacedViewFix } from './fix-of-placed-view.tsx';
 import { ChartCellsProblemNotice, ChartOnItsWay, type StyleWithCustomProperties } from './chart-placeholders.tsx';
 import { canAskChartChange, chartCellsProblem, chartChangeOffers } from './change-offers.ts';
+import { useChartKindOffers } from './chart-kind-offers.ts';
+import { dropLastGrapheme } from '../chips/people-list.ts';
 import { stripFrameTimestampParams } from '../shell/frame-token.ts';
 import { ChartFrame, type ChartFrameTold, type PointerToChartFrame } from './chart-frame.tsx';
 import { whenBlurredToNothingChecked } from '../grid/focus-left.ts';
@@ -57,7 +59,6 @@ import { ChartBeingMade } from './chart-being-made.tsx';
 import { useIsTrueForVisibleMs } from '../ui/save-status.tsx';
 import { askWordsOfKind, mostAskedUnitsWithKind, type ChartKindOrAny } from './chart-words.ts';
 import { canSwapChartKind } from './chart-kind-fit.ts';
-import type { StockKind } from './stock-programs.ts';
 import type { SheetId } from '@open-artifact/sheets-core';
 import type { ChartInputs, PointAt } from '../chart-frame/messages.ts';
 import type { PaneRect } from '../grid/geometry.ts';
@@ -249,10 +250,9 @@ export function typeIntoAskBox(key: string, isCharacter: boolean, words: string)
     return {
       words: `${words}${key}`.slice(0, MAX_ASK_WORDS_LENGTH),
     };
-  let lastSegment = [...new Intl.Segmenter().segment(words)].at(-1);
   if (key === 'Backspace')
     return {
-      words: words.slice(0, lastSegment?.index ?? 0),
+      words: dropLastGrapheme(words),
     };
   return key === 'Escape' ? 'shut' : 'nothing';
 }
@@ -293,11 +293,6 @@ interface PlacedViewProps extends PlacedViewsOfPage {
   onKeepPressed: (viewId: string, change: ChartChange | null) => boolean;
   onPreviewCameOut: (viewId: string, cameOut: ChartCameOut) => void;
   lastBlurOfWindowAtMs: () => number;
-}
-/** The kind of the chart a node draws, once read. */
-interface KindOfShownChart {
-  nodeId: string | null;
-  kind: StockKind | null;
 }
 export function PlacedView({
   placedView: {
@@ -414,33 +409,6 @@ export function PlacedView({
   };
   let { showsIn } = box;
   let canAskChange = React.useMemo(() => canAskChartChange(changes, chart, canAgentWrite), [changes, chart, canAgentWrite]);
-  let shownNodeOfChart = chart.kind === 'none' ? null : shownChartNode(chart.nodeId, ask.change ?? null);
-  let [kindOfShown, setKindOfShown] = React.useState<KindOfShownChart>({
-    nodeId: null,
-    kind: null,
-  });
-  React.useEffect(() => {
-    if (!isSelected || changes === null || shownNodeOfChart === null || kindOfShown.nodeId === shownNodeOfChart) return;
-    let isLive = true;
-    changes
-      .kindOf(shownNodeOfChart)
-      .catch(() => null)
-      .then((kind) =>
-        isLive
-          ? setKindOfShown({
-              nodeId: shownNodeOfChart,
-              kind,
-            })
-          : undefined,
-      );
-    return () => {
-      isLive = false;
-    };
-  }, [isSelected, changes, shownNodeOfChart, kindOfShown.nodeId]);
-  let changeOffers = React.useMemo(
-    () => chartChangeOffers(chart, kindOfShown.nodeId === shownNodeOfChart ? kindOfShown.kind : null, canAgentWrite),
-    [chart, kindOfShown, shownNodeOfChart, canAgentWrite],
-  );
   let isCardOffered = (doesChatTakeWords || canAskChange) && askBoxStands?.isRoomEnough === true;
   let isCardOpen = actThatOpenedCard !== null;
   const isCardShown = askBoxStands !== null && isCardOpen;
@@ -559,7 +527,24 @@ export function PlacedView({
     };
   });
   let isChatToBeHad = doesChatTakeWords || onAskAgent !== null;
+  let kindsToOffer = useChartKindOffers({
+    chart,
+    isSelected: isSelected && canAskChange,
+    changes,
+    isCardOpen,
+  });
+  let changeOffers = React.useMemo(() => chartChangeOffers(kindsToOffer.onOffer, chart, canAgentWrite), [kindsToOffer.onOffer, chart, canAgentWrite]);
   let onAsked = (kind: ChartKindOrAny, words: string) => {
+    if (kind === kindsToOffer.kindNow && cleanAskWords(words) === '')
+      return (
+        onAskChanged(
+          viewId,
+          () => ({
+            words: '',
+          }),
+        ),
+        closeCard()
+      );
     let askWords = askWordsOfKind(kind, words);
     if (cleanAskWords(askWords) === '' || askTooLong(words)) return;
     let isKindSwap =
@@ -748,7 +733,10 @@ export function PlacedView({
             }} onFocus={noteCardFocus} onBlur={({ relatedTarget, currentTarget }) => {
               if (relatedTarget === null || currentTarget.contains(relatedTarget)) return;
               if (!isInPlacedViewCardOrTools(relatedTarget)) onCardOpenChange(placementId, false);
-            }}><Surface elevation="popover"><div className="overflow-hidden rounded-[inherit]"><ChartAskMenu changesChart onOffer={changeOffers} whyNot={ask.isOnItsWay ? 'waiting' : !canAgentWrite && !isChatToBeHad ? 'noChat' : null} canPageMakeChart={changeOffers.some(({ isSwap }) => isSwap)} change={chartChangeStage(change)} askedOfAgent={ask.asked ?? ''} isKindAsked={ask.wasAskedByRow === true} onChangeKept={onChangeKept} onSteppedBackFromChange={() => onSteppedBackFromChange(viewId)} noteOnLastAsk={ask.became === 'taken' ? null : noteOnLastAsk} typed={ask.words} onTyped={(words) =>
+            }}><Surface elevation="popover"><div className="overflow-hidden rounded-[inherit]"><ChartAskMenu changesChart onOffer={changeOffers} kindNow={kindsToOffer.kindNow} marksOfMoreKinds={{
+                    ...placementIdAttributes(placementId),
+                    [PLACED_VIEW_ASK_BOX_PART_ATTRIBUTE]: true,
+                  }} whyNot={ask.isOnItsWay ? 'waiting' : !canAgentWrite && !isChatToBeHad ? 'noChat' : null} canPageMakeChart={changeOffers.some(({ isSwap }) => isSwap)} change={chartChangeStage(change)} askedOfAgent={ask.asked ?? ''} isKindAsked={ask.wasAskedByRow === true} onChangeKept={onChangeKept} onSteppedBackFromChange={() => onSteppedBackFromChange(viewId)} noteOnLastAsk={ask.became === 'taken' ? null : noteOnLastAsk} typed={ask.words} onTyped={(words) =>
                     onAskChanged(
                       viewId,
                       () => ({
@@ -1157,8 +1145,9 @@ export const howCaretComesToPlacedView = ({
   hasPageCaret,
   isCaretFreeToGo,
 }: CaretToPlacedView) => (isCaretOfPressOnItsWay ? 'comesByItself' : hasPageCaret && isCaretFreeToGo ? 'isBrought' : 'stays');
+export const PLACED_VIEW_ASK_BOX_PART_ATTRIBUTE = 'data-part-of-ask-box';
 export const isInPlacedViewAskBox = (target: EventTarget | null) =>
-  target instanceof Element && target.closest(`.${PLACED_VIEW_ASK_BOX_CLASS}`) !== null;
+  target instanceof Element && target.closest(`.${PLACED_VIEW_ASK_BOX_CLASS}, [${PLACED_VIEW_ASK_BOX_PART_ATTRIBUTE}]`) !== null;
 export const isInPlacedViewCardOrTools = (target: EventTarget | null) =>
   isInPlacedViewAskBox(target) || (target instanceof Element && target.closest(`.${PLACED_VIEW_TOOLS_CLASS}`) !== null);
 export const isInPlacedViewControls = (target: EventTarget | null) =>

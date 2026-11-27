@@ -66,7 +66,8 @@ import type { ConditionalFormatDone } from '../../messages/conditional-format.ts
 import type { TableOfRecords } from './conditions.ts';
 import type { NumberOperandField } from './editor-view.ts';
 import type { ColorScaleEffect, FormatWhereRule } from './rule-edits.ts';
-import type { ConditionalFormatsPane, RefusedTyping, RuleEditorState, RuleField, RulesPaneAction } from './pane-state.ts';
+import type { ConditionalFormatsPane, RefusedTyping, RuleEditorState, RuleField, RulesOnTheirWay, RulesPaneAction } from './pane-state.ts';
+import { takenFromRulesPane } from './pane-reducer.ts';
 /** A rule, with the table of records its cells lie in. */
 export interface RuleAndTable {
   rule: RuleInIds;
@@ -618,22 +619,48 @@ export function actInRuleEditor(
               column: columnLabelOf(reads, sheetId, tableColumnSummary(table, firstColumnOfRule(rule))),
             };
     let change = rule === null ? null : conditionalFormatChangeEffect(sheetId, conditionalFormatId, currentRule, rule, done);
+    let { previewed, tried } = pane;
+    // A change that is the rule already previewed is kept as on its way, so the preview stays drawn.
+    let rulesOnTheirWay: RulesOnTheirWay | null =
+      change?.kind === 'queueEdit' &&
+      previewed?.asIf === tried &&
+      isSameRulesJson(tried, [
+        {
+          ...rule,
+          inPlaceOf: conditionalFormatId,
+        },
+      ])
+        ? {
+            edit: change.edit,
+            sheetId,
+            gives: previewed.gives,
+            taken: takenFromRulesPane(pane, 'offer' in paneChanges ? ['typed', 'offer'] : ['typed']),
+            cardToBePane: null,
+          }
+        : null;
     let keepsPicked =
       (rule === null || isSameRulesJson(rule.ranges, currentRule.ranges)) &&
       (editor.cellsPickedByPage !== 'movedToNumbers' || rule?.effect.kind !== 'formatWhere');
+    let edited = withEditor(
+      {
+        ...editor,
+        typed: rulesOnTheirWay === null ? null : typed,
+        ...(action.kind === 'removeTest' && {
+          refused: (editor.refused ?? []).filter(({ field }) => !/^\d/.test(field)),
+        }),
+        testBeingAdded: chosenTest ?? (change === null ? testBeingAdded : null),
+        cellsPickedByPage: keepsPicked ? editor.cellsPickedByPage : notice === 'movedToNumbers' ? notice : null,
+      },
+      rulesOnTheirWay === null ? paneChanges : {},
+    );
     return {
-      ...withEditor(
-        {
-          ...editor,
-          typed: null,
-          ...(action.kind === 'removeTest' && {
-            refused: (editor.refused ?? []).filter(({ field }) => !/^\d/.test(field)),
-          }),
-          testBeingAdded: chosenTest ?? (change === null ? testBeingAdded : null),
-          cellsPickedByPage: keepsPicked ? editor.cellsPickedByPage : notice === 'movedToNumbers' ? notice : null,
-        },
-        paneChanges,
-      ),
+      state:
+        rulesOnTheirWay === null
+          ? edited.state
+          : {
+              ...edited.state,
+              rulesOnTheirWay,
+            },
       effects: change === null ? [] : [change],
     };
   };

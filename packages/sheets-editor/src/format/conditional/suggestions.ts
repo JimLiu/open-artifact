@@ -5,6 +5,7 @@ import type {
   DropdownOption,
   Matches,
   RangeCorners,
+  RowId,
   RuleInIds,
   SheetId,
 } from '@open-artifact/sheets-core';
@@ -22,7 +23,7 @@ import {
   withConditionalFormatsPane,
 } from './pane-state.ts';
 import { lightenedFillColor } from '../cell-colors.ts';
-import { matchesOfRules, canRulesRunToSheetEnd, withRuleRangesMapped, originalOfStretchedRules } from './selection-target.ts';
+import { matchesOfRules, canRulesRunToSheetEnd, withRuleRangesMapped, originalOfStretchedRules, rangeStretchedToRow } from './selection-target.ts';
 import { mergedAreaOrCellOf } from '../../selection/model.ts';
 import { tableAtCellIfAny } from '../../model/workbook.ts';
 import { rangesOfAreas } from './editor-edits.ts';
@@ -44,6 +45,8 @@ export interface DropdownSuggestionsCache {
 export interface TableBody {
   range: RangeCorners;
   area: CellArea;
+  /** The table is one made as a table, not one found in the cells. */
+  isTableDeclared: boolean;
 }
 
 /** A rule that colors the cells holding a dropdown option. */
@@ -182,8 +185,9 @@ export function dropdownSuggestionsCacheOf(reads: WorkbookReads, sheetId: SheetI
   return cache;
 }
 export function tableBodyOfCell(reads: WorkbookReads, cell: CellId): TableBody | null {
-  let table = tableAtCellIfAny(reads, cell)?.table;
-  if (table === undefined) return null;
+  let tableAtCell = tableAtCellIfAny(reads, cell);
+  if (tableAtCell === null) return null;
+  let { table, basis } = tableAtCell;
   let bodyRange: RangeCorners = {
     topLeft: {
       r: table.firstRowOfBody,
@@ -200,6 +204,7 @@ export function tableBodyOfCell(reads: WorkbookReads, cell: CellId): TableBody |
     : {
         range: bodyRange,
         area: bodyArea,
+        isTableDeclared: basis.kind === 'declared',
       };
 }
 export function tableBodyRowsWithin(reads: WorkbookReads, sheetId: SheetId, { range, area }: TableBody, within: RangeCorners): RangeCorners | null {
@@ -285,22 +290,23 @@ export function dropdownColorSuggestions(
     if (matches !== null) cache.matches.set(cacheKey, matches);
     let matchTotal = sumMatches(matches ?? []);
     if (!isUsefulSuggestion(reads, sheetId, rules, matchTotal)) return [];
-    let runsToSheetEnd =
-      cache.runOn.has(cacheKey) ||
-      (isSameRulesJson(ruleRange, tableBody.range) && canRulesRunToSheetEnd(reads, sheetId, ruleRange.bottomRight.r, rules, matches));
-    let rulesShown = !runsToSheetEnd
-      ? rules
-      : (cache.runOn.get(cacheKey) ??
-        withRuleRangesMapped(
-          rules,
-          (range) => ({
-            ...range,
-            bottomRight: {
-              ...range.bottomRight,
-              r: lastRowId,
-            },
-          }),
-        ));
+    // A declared table's rules may also run to the last row of its records.
+    let rowToRunTo = (): RowId | null => {
+      if (!isSameRulesJson(ruleRange, tableBody.range)) return null;
+      let canRunTo = (endRowId: RowId | null) => canRulesRunToSheetEnd(reads, sheetId, ruleRange.bottomRight.r, rules, matches, endRowId);
+      if (canRunTo(null)) return lastRowId;
+      let lastRecordRowId = tableBody.isTableDeclared
+        ? reads.conditionalFormatSuggestions(cellWithDropdown, cellWithDropdown)?.table.records.bottomRight.r
+        : undefined;
+      return lastRecordRowId !== undefined &&
+        (reads.rowIndexOf(sheetId, lastRecordRowId) ?? -1) >= ruleArea.topRowIndex + ruleArea.rowCount &&
+        canRunTo(lastRecordRowId)
+        ? lastRecordRowId
+        : null;
+    };
+    let runToRowId = cache.runOn.has(cacheKey) ? null : rowToRunTo();
+    let rulesShown = cache.runOn.get(cacheKey) ?? (runToRowId === null ? rules : withRuleRangesMapped(rules, rangeStretchedToRow(runToRowId)));
+    let runsToSheetEnd = rulesShown !== rules;
     if (runsToSheetEnd) cache.runOn.set(cacheKey, rulesShown);
     if (runsToSheetEnd) originalOfStretchedRules.set(rulesShown, rules);
     dropdownColorRuleLists.add(rulesShown);
@@ -462,8 +468,11 @@ export function openEditorOfTopRule(
   reads: WorkbookReads,
   { cellsPickedByPage }: NonNullable<IfQueued['thenEditorOfTopRule']>,
 ): PageState {
-  let [topFormat] = reads.conditionalFormatsOf(conditionalRulesOfPane(state)?.sheetId ?? state.sheetId);
-  return topFormat === undefined ? state : openRuleEditor(state, reads, topFormat.conditionalFormatId, cellsPickedByPage);
+  let pane = conditionalRulesOfPane(state);
+  let [topFormat] = reads.conditionalFormatsOf(pane?.sheetId ?? state.sheetId);
+  return topFormat === undefined || pane?.editor?.conditionalFormatId === topFormat.conditionalFormatId
+    ? state
+    : openRuleEditor(state, reads, topFormat.conditionalFormatId, cellsPickedByPage);
 }
 export const MOST_COLUMNS_FOR_SUGGESTIONS = 6;
 export const MOST_HELD_CELLS_FOR_COLUMNS = 20000;

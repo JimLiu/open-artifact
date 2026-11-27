@@ -2,7 +2,8 @@ import * as React from 'react';
 import { cn } from './cn.ts';
 import { useKitLabel } from './labels.tsx';
 import { LayerBaseContext, type OverlayLayer } from './layers.tsx';
-import { COARSE_POINTER_MEDIA_QUERY, NARROW_VIEWPORT_MEDIA_QUERY, subscribeSheetMedia, windowMatchesMedia } from './platform.ts';
+import { inertLiveRegionFocusGuards } from './live-regions.ts';
+import { COARSE_POINTER_MEDIA_QUERY, NARROW_VIEWPORT_MEDIA_QUERY, subscribeSheetMedia, useHoldPullToRefresh, useWindowMediaQuery, windowMatchesMedia } from './platform.ts';
 import { PopupScope } from './popup.tsx';
 import { useUiWindow } from './theme.tsx';
 
@@ -238,10 +239,109 @@ export function useSwallowSheetEntryTaps(sheet: HTMLElement | null, open: boolea
   }, [sheet, open]);
 }
 
+const INSIDE_FOCUS_GUARD_SELECTOR = '[data-base-ui-focus-guard][data-type="inside"]';
+const insideFocusGuardRestores = new WeakMap<Element, () => void>();
+
+function isIosLikeNavigator({ platform, maxTouchPoints }: Navigator): boolean {
+  return /^i(os$|p)/i.test(platform) || (platform === 'MacIntel' && maxTouchPoints > 1);
+}
+
+/** iOS VoiceOver reads the focus guards beside a sheet; hides them while it is open. */
+export function hideInsideFocusGuardsOnIos(element: HTMLElement | null): void {
+  const view = element?.ownerDocument.defaultView;
+  const parent = element?.parentElement;
+  if (!view || !parent || insideFocusGuardRestores.has(parent) || !isIosLikeNavigator(view.navigator)) return;
+  const hiddenGuards = new Set<Element>();
+  const hideGuards = (): void => {
+    for (const child of parent.children) {
+      if (!child.matches(INSIDE_FOCUS_GUARD_SELECTOR)) continue;
+      observer.observe(child, { attributeFilter: ['aria-hidden'] });
+      if (!child.hasAttribute('aria-hidden')) {
+        child.setAttribute('aria-hidden', 'true');
+        hiddenGuards.add(child);
+      }
+    }
+  };
+  const observer = new view.MutationObserver(hideGuards);
+  observer.observe(parent, { childList: true });
+  hideGuards();
+  insideFocusGuardRestores.set(parent, () => {
+    observer.disconnect();
+    for (const guard of hiddenGuards) guard.removeAttribute('aria-hidden');
+  });
+}
+
+export function restoreInsideFocusGuards(element: HTMLElement | null): void {
+  const parent = element?.parentElement;
+  if (!parent) return;
+  insideFocusGuardRestores.get(parent)?.();
+  insideFocusGuardRestores.delete(parent);
+}
+
+/**
+ * While a sheet is open: its focus guards stay out of VoiceOver on iOS, the focus guards inside
+ * live regions beside it go inert, and pulling it down does not reload the page.
+ */
+export function useSheetPageGuards(sheet: HTMLElement | null, open: boolean): void {
+  const win = useUiWindow();
+  React.useLayoutEffect(() => {
+    if (sheet === null || !open) return undefined;
+    hideInsideFocusGuardsOnIos(sheet);
+    const releaseGuards = inertLiveRegionFocusGuards(sheet);
+    return () => {
+      restoreInsideFocusGuards(sheet);
+      releaseGuards();
+    };
+  }, [sheet, open]);
+  useHoldPullToRefresh(sheet !== null && open, win);
+}
+
+const POPUP_ROW_HEIGHT = 'max(var(--ui-h-control), var(--ui-leading-body))';
+
+/** On a viewport this short, a popup with a header or footer scrolls as a whole. */
+const SHORT_VIEWPORT_QUERY = 'not all and (min-height: 30rem)';
+const MODIFIER_ONLY_KEYS: ReadonlySet<string> = new Set([
+  'Shift',
+  'Control',
+  'Alt',
+  'Meta',
+  'AltGraph',
+  'CapsLock',
+  'NumLock',
+  'ScrollLock',
+  'Fn',
+  'FnLock',
+  'Hyper',
+  'Super',
+  'Symbol',
+  'SymbolLock',
+]);
+
 /** Sizes a list to show `count` rows before it scrolls. */
 export function visibleRowsMaxHeight(count: number, withHeader: boolean): string {
   const gutter = withHeader ? 'var(--ui-menu-gutter) + 0.25rem' : '2 * var(--ui-menu-gutter)';
-  return `calc(${count} * max(var(--ui-h-control), var(--ui-leading-body)) + ${gutter})`;
+  return `calc(${count} * ${POPUP_ROW_HEIGHT} + ${gutter})`;
+}
+
+function scrollToEdge(scrollArea: HTMLElement, edge: 'top' | 'bottom', item: Element): void {
+  scrollArea.scrollTop = edge === 'top' ? 0 : scrollArea.scrollHeight;
+  item.scrollIntoView?.({ block: 'nearest' });
+}
+
+/** A key that lands on the first or last row brings the header or footer into view with it. */
+function scrollEdgeItemIntoView({ currentTarget, target }: React.FocusEvent<HTMLElement>): void {
+  if (!(target instanceof Element) || !target.matches(':focus-visible')) return;
+  const items = currentTarget.querySelectorAll('[role^="menuitem"]');
+  if (target === items[0]) scrollToEdge(currentTarget, 'top', target);
+  else if (target === items[items.length - 1]) scrollToEdge(currentTarget, 'bottom', target);
+}
+
+/** Typing in the header scrolls back up to it. */
+function scrollHeaderIntoView({ currentTarget, target, key }: React.KeyboardEvent<HTMLElement>): void {
+  if (!(target instanceof Element)) return;
+  if (!MODIFIER_ONLY_KEYS.has(key) && !key.startsWith('Page') && currentTarget.firstElementChild?.contains(target) === true) {
+    scrollToEdge(currentTarget, 'top', target);
+  }
 }
 
 export interface PopupScrollAreaProps {
@@ -256,24 +356,79 @@ export interface PopupScrollAreaProps {
 export function PopupScrollArea({ header, footer, maxVisibleItems, className, children }: PopupScrollAreaProps): React.ReactElement {
   const hasHeader = header !== undefined && header !== null && header !== false;
   const hasFooter = footer !== undefined && footer !== null && footer !== false;
-  return (
+  const sheet = useIsSheet();
+  const short = useWindowMediaQuery(useUiWindow(), SHORT_VIEWPORT_QUERY) && !sheet && (hasHeader || hasFooter);
+  const body = (
+    <div
+      {...{ [POPUP_SCROLL_ATTRIBUTE]: '' }}
+      className={cn(
+        'relative min-h-0 flex-auto overflow-y-auto overflow-x-hidden scroll-fade-y p-[var(--ui-menu-gutter)]',
+        hasHeader && 'pt-0',
+        hasFooter && 'pb-0',
+        short && 'basis-auto [--ui-scroll-fade-size:8px]',
+        className,
+      )}
+      style={maxVisibleItems === undefined ? undefined : { maxHeight: visibleRowsMaxHeight(maxVisibleItems, hasHeader) }}
+    >
+      {children}
+    </div>
+  );
+  const parts = (
     <>
       {hasHeader && <div className="shrink-0 px-[var(--ui-menu-gutter)] pt-[var(--ui-menu-gutter)]">{header}</div>}
-      <div
-        {...{ [POPUP_SCROLL_ATTRIBUTE]: '' }}
-        className={cn(
-          'relative min-h-0 flex-auto overflow-y-auto overflow-x-hidden scroll-fade-y p-[var(--ui-menu-gutter)]',
-          hasHeader && 'pt-0',
-          hasFooter && 'pb-0',
-          className,
-        )}
-        style={maxVisibleItems === undefined ? undefined : { maxHeight: visibleRowsMaxHeight(maxVisibleItems, hasHeader) }}
-      >
-        {children}
-      </div>
+      {short ? (
+        <div className="flex flex-[1_1_content] flex-col" style={{ height: `calc(2 * ${POPUP_ROW_HEIGHT} + 2 * var(--ui-menu-gutter))` }}>
+          {body}
+        </div>
+      ) : (
+        body
+      )}
       {hasFooter && <div className="shrink-0 px-[var(--ui-menu-gutter)] pb-[var(--ui-menu-gutter)]">{footer}</div>}
     </>
   );
+  if (!short) return parts;
+  return (
+    <div
+      className="relative flex min-h-0 flex-col overflow-y-auto scroll-fade-y [--ui-scroll-fade-size:8px] rounded-[inherit]"
+      onFocus={scrollEdgeItemIntoView}
+      onKeyUp={hasHeader ? scrollHeaderIntoView : undefined}
+    >
+      {parts}
+    </div>
+  );
+}
+
+/**
+ * Watches focus for two frames after a popup opens and reports the first element outside it
+ * that took focus, so a late focus move becomes the return target.
+ */
+function watchLateFocusReturn(
+  doc: Document,
+  view: Window,
+  popup: React.RefObject<HTMLElement | null>,
+  onLateFocus: (target: HTMLElement) => void,
+): () => void {
+  const focused: HTMLElement[] = [];
+  const onFocus = (event: FocusEvent): void => {
+    const element = event.target;
+    if (element instanceof HTMLElement && element !== doc.body) focused.push(element);
+  };
+  let frame = 0;
+  let stopped = false;
+  const stop = (): void => {
+    if (stopped) return;
+    stopped = true;
+    view.cancelAnimationFrame(frame);
+    doc.removeEventListener('focus', onFocus, true);
+    const target = focused.find((element) => !popup.current?.contains(element));
+    focused.length = 0;
+    if (target !== undefined) onLateFocus(target);
+  };
+  doc.addEventListener('focus', onFocus, true);
+  frame = view.requestAnimationFrame(() => {
+    frame = view.requestAnimationFrame(stop);
+  });
+  return stop;
 }
 
 /**
@@ -289,11 +444,21 @@ export function useOpenerFocusReturn(
 } {
   const popup = React.useRef<HTMLElement | null>(null);
   const opener = React.useRef<HTMLElement | null>(null);
+  const stopWatching = React.useRef<(() => void) | null>(null);
   const popupRef = React.useCallback((node: HTMLElement | null) => {
+    stopWatching.current?.();
+    stopWatching.current = null;
     popup.current = node;
     if (node === null) return;
-    const active = node.ownerDocument.activeElement;
-    opener.current = active instanceof HTMLElement && active !== node.ownerDocument.body && !node.contains(active) ? active : null;
+    const doc = node.ownerDocument;
+    const active = doc.activeElement;
+    opener.current = active instanceof HTMLElement && active !== doc.body && !node.contains(active) ? active : null;
+    const view = doc.defaultView;
+    if (opener.current === null && view !== null) {
+      stopWatching.current = watchLateFocusReturn(doc, view, popup, (target) => {
+        opener.current = target;
+      });
+    }
   }, []);
   const finalFocus = React.useCallback((): boolean | HTMLElement => {
     const node = popup.current;

@@ -3,11 +3,14 @@
 //! Everything that changes a workbook is an operation (`workbook/load.rs`): the page loads a workbook as the list
 //! of operations that made it, and every edit is more operations.
 
+pub mod connected;
 pub mod formats;
 pub mod grid;
 pub mod layout;
 pub mod load;
+pub mod named_ranges;
 pub mod objects;
+pub mod protections;
 pub mod reorder;
 pub mod rich;
 pub(crate) mod snapshot;
@@ -91,6 +94,8 @@ pub struct Sheet {
     pub last_frozen_row: Option<LineId>,
     pub last_frozen_column: Option<LineId>,
     pub are_gridlines_hidden: bool,
+    /// Whether the sheet is hidden (`isHidden`, format 50): its tab is not shown.
+    pub is_hidden: bool,
     pub row_groups: BTreeMap<layout::IdKey, (String, layout::Group)>,
     pub column_groups: BTreeMap<layout::IdKey, (String, layout::Group)>,
     pub dropdowns: BTreeMap<layout::IdKey, (String, Vec<objects::DropdownOption>)>,
@@ -99,6 +104,10 @@ pub struct Sheet {
     pub named_views: BTreeMap<layout::IdKey, (String, objects::NamedView)>,
     pub placements: BTreeMap<layout::IdKey, (String, objects::Placement)>,
     pub interactive: Option<String>,
+    /// The sheet's connected table (`connected.rs`): its call, its columns and its snapshot.
+    pub connected: connected::OfSheet,
+    /// What of the sheet is protected, and who may still edit it (`setProtections`, format 52).
+    pub protections: BTreeMap<layout::IdKey, (String, protections::Protection)>,
 }
 
 impl Sheet {
@@ -130,6 +139,9 @@ pub struct Workbook {
     /// What random numbers are drawn from.
     pub seed: u32,
     pub views: BTreeMap<layout::IdKey, (String, objects::View)>,
+    /// The table files held for the snapshots of connected tables, by what holds them (`connected.rs`).
+    pub table_files: HashMap<connected::FileKey, connected::Holding>,
+    pub named_ranges: BTreeMap<layout::IdKey, (String, named_ranges::NamedRange)>,
 }
 
 impl Default for Workbook {
@@ -147,6 +159,8 @@ impl Default for Workbook {
             locale: DEFAULT_LOCALE.to_owned(),
             seed: 0,
             views: BTreeMap::new(),
+            table_files: HashMap::new(),
+            named_ranges: BTreeMap::new(),
         }
     }
 }
@@ -203,14 +217,42 @@ impl Workbook {
         self.sheets.iter().position(|s| s.id == sheet_id)
     }
 
+    /// A view as it is read: of the cells an interactive saved, only those whose row and column are there, on its
+    /// input's sheet (none when that sheet is not); deleted lines that come back bring theirs back.
+    pub fn view_as_read(&self, view: &objects::View) -> objects::View {
+        let mut view = view.clone();
+        for element in &mut view.elements {
+            let objects::ViewElement::Interactive { inputs, writes, .. } = element else { continue };
+            for write in writes {
+                let Some(input) = inputs.iter().find(|input| input.name == write.input) else { continue };
+                let sheet = self.sheet_index(&input.range.sheet_id).map(|s| &self.sheets[s]);
+                write.saved.retain(|cell| {
+                    sheet.is_some_and(|sheet| {
+                        let line = |id: &str| self.bases.parse(id);
+                        line(&cell.r).is_some_and(|r| sheet.rows.contains(r)) && line(&cell.c).is_some_and(|c| sheet.columns.contains(c))
+                    })
+                });
+            }
+        }
+        view
+    }
+
     /// A formula's text as it reads now: its references written from where their rows and columns are, with the
     /// sheet's name when they are on another sheet.
     pub fn formula_text(&self, sheet: usize, formula: &StoredFormula) -> String {
+        // A named range whose name a LET or a LAMBDA gives a value to there is written as its cells, every end fixed.
+        let shadowed = crate::typing::formula::names::shadowed(self, formula);
         let mut out = String::new();
         for (i, piece) in formula.text_between_references.iter().enumerate() {
             out.push_str(piece);
             if let Some(reference) = formula.references.get(i) {
-                out.push_str(&self.reference_text(sheet, reference));
+                let cells = match reference {
+                    Reference::NamedRange { named_range_id } if shadowed.contains(&i) => {
+                        self.named_range(named_range_id).map(|range| range.cells.as_fixed_reference())
+                    }
+                    _ => None,
+                };
+                out.push_str(&self.reference_text(sheet, cells.as_ref().unwrap_or(reference)));
             }
         }
         out
@@ -223,6 +265,16 @@ impl Workbook {
     /// A reference's text as `reference_text` writes it, its rows not fixed moved `delta` rows (past the sheet's
     /// end, as they would be written).
     pub(crate) fn reference_text_moved(&self, from_sheet: usize, reference: &Reference, delta: i64) -> String {
+        if let Some(text) = self.table_reference_text(reference) {
+            return text;
+        }
+        // A named range is written by its name as it is now, its cells there or not; removed, `#REF!`.
+        if let Reference::NamedRange { named_range_id } = reference {
+            return match self.named_range(named_range_id) {
+                Some(range) => range.name.clone(),
+                None => CellError::Reference.text().to_owned(),
+            };
+        }
         let Some(at) = self.locate(reference) else {
             return CellError::Reference.text().to_owned();
         };
@@ -243,15 +295,73 @@ impl Workbook {
                 let left = if left.is_some() { column(at.left) } else { String::new() };
                 format!("{}{}:{}", left, row(at.top), row(at.bottom))
             }
+            Reference::TableColumn { .. } | Reference::TablePart { .. } => unreachable!("written above"),
+            Reference::NamedRange { .. } => unreachable!("written by name above"),
         };
         format!("{prefix}{text}")
+    }
+
+    /// A reference to a connected table as it is written (`Customers[Id]`, `Customers[[#All],[Id]:[Name]]`), its
+    /// table's name and its columns' as they are now; `#REF!` when its sheet is no connected table now or a column
+    /// of it is gone. `None` for a reference of another kind.
+    fn table_reference_text(&self, reference: &Reference) -> Option<String> {
+        use formula::TableRows;
+        let (sheet_id, columns, rows) = match reference {
+            Reference::TableColumn { sheet_id, c, has_its_heading } => {
+                (sheet_id, Some((c, c)), has_its_heading.then_some(TableRows::HeadingAndRecords))
+            }
+            Reference::TablePart { sheet_id, columns, rows } => {
+                (sheet_id, columns.as_ref().map(|c| (&c.left, &c.right)), (*rows != TableRows::Records).then_some(*rows))
+            }
+            _ => return None,
+        };
+        let gone = || Some(CellError::Reference.text().to_owned());
+        let Some(sheet) = self.sheet_index(sheet_id).map(|s| &self.sheets[s]).filter(|s| s.connected.table.is_some()) else {
+            return gone();
+        };
+        let name = |line: LineId| Some(connected::column_name_text(&sheet.connected.columns.get(&line)?.name));
+        // A column named must be there; the ends of a part give way, each toward the other, like a range's.
+        let ends = |left: &str, right: &str| -> Option<(LineId, LineId)> {
+            let (l, r) = (self.bases.parse(left)?, self.bases.parse(right)?);
+            if matches!(reference, Reference::TableColumn { .. }) {
+                return sheet.columns.contains(l).then_some((l, l));
+            }
+            let axis = &sheet.columns;
+            Some((axis.line(axis.snap_toward(l, r)?)?, axis.line(axis.snap_toward(r, l)?)?))
+        };
+        let rows = rows.map(|rows| match rows {
+            TableRows::Heading => "#Headers",
+            TableRows::Records => "#Data",
+            TableRows::HeadingAndRecords => "#All",
+        });
+        let table = connected::table_name_text(&sheet.name);
+        Some(match (columns, rows) {
+            (None, None) => table,
+            (None, Some(rows)) => format!("{table}[{rows}]"),
+            (Some((left, right)), rows) => {
+                let Some((left, right)) = ends(left, right) else { return gone() };
+                let (Some(l), Some(r)) = (name(left), name(right)) else { return gone() };
+                let columns = match left == right {
+                    true if rows.is_none() => return Some(format!("{table}[{l}]")),
+                    true => format!("[{l}]"),
+                    false => format!("[{l}]:[{r}]"),
+                };
+                match rows {
+                    None => format!("{table}[{columns}]"),
+                    Some(rows) => format!("{table}[[{rows}],{columns}]"),
+                }
+            }
+        })
     }
 
     /// Where a reference's cells are now. Its ends follow their rows and columns by id; an end whose row or column
     /// is deleted gives way to the nearest one left toward the other end (a cell has none to give way to), and the
     /// ends of each axis are put in order, each keeping its `$`. `None` when the reference has lost all its cells,
-    /// or its sheet.
+    /// or its sheet. A named range's cells are found so (none once it is removed).
     pub fn locate(&self, reference: &Reference) -> Option<Located> {
+        if let Reference::NamedRange { named_range_id } = reference {
+            return self.locate(&self.named_range(named_range_id)?.cells.as_reference());
+        }
         let s = self.sheet_index(reference.sheet_id())?;
         let sheet = &self.sheets[s];
         let line = |id: &str| self.bases.parse(id);
@@ -291,6 +401,36 @@ impl Workbook {
                 };
                 (ends(&sheet.rows, (&top.r, top.is_row_absolute), (&bottom.r, bottom.is_row_absolute))?, columns)
             }
+            // A connected table's rows are its sheet's: the heading first, then the records.
+            Reference::TableColumn { .. } | Reference::TablePart { .. } => {
+                sheet.connected.table.as_ref()?;
+                let (columns, rows) = match reference {
+                    Reference::TableColumn { c, has_its_heading, .. } => {
+                        let rows = if *has_its_heading { formula::TableRows::HeadingAndRecords } else { formula::TableRows::Records };
+                        (Some((c, c)), rows)
+                    }
+                    Reference::TablePart { columns, rows, .. } => (columns.as_ref().map(|c| (&c.left, &c.right)), *rows),
+                    _ => unreachable!(),
+                };
+                let last = sheet.rows.len().checked_sub(1)?;
+                let rows = match rows {
+                    formula::TableRows::Heading => ((0, false), (0, false)),
+                    formula::TableRows::Records if last == 0 => return None,
+                    formula::TableRows::Records => ((1, false), (last, false)),
+                    formula::TableRows::HeadingAndRecords => ((0, false), (last, false)),
+                };
+                // A column of it must be there; the ends of a part give way like a range's.
+                let columns = match columns {
+                    None => whole(&sheet.columns)?,
+                    Some((c, _)) if matches!(reference, Reference::TableColumn { .. }) => {
+                        let p = sheet.columns.position(line(c)?)?;
+                        ((p, false), (p, false))
+                    }
+                    Some((left, right)) => ends(&sheet.columns, (left, false), (right, false))?,
+                };
+                (rows, columns)
+            }
+            Reference::NamedRange { .. } => unreachable!("found through its cells above"),
         };
         Some(Located { sheet: s, top, bottom, left, right })
     }
@@ -362,6 +502,9 @@ impl Workbook {
             if sheet.are_gridlines_hidden {
                 put("areGridlinesHidden", json!(true));
             }
+            if sheet.is_hidden {
+                put("isHidden", json!(true));
+            }
             let mut list = |key: &str, items: Vec<Value>| {
                 if !items.is_empty() {
                     put(key, Value::Array(items));
@@ -376,7 +519,12 @@ impl Workbook {
                 "namedViews",
                 sheet.named_views.values().map(|(id, view)| json!({"namedViewId": id, "namedView": view})).collect(),
             );
+            list("protections", protections::contents(bases, sheet));
             drop(list);
+            // A connected table comes after everything else the sheet has.
+            if let Some(table) = self.connected_table_contents(sheet) {
+                put("connectedTable", table);
+            }
             let head = std::mem::take(&mut out);
             let spilled: Vec<Value> = self.spilled_cells(index, locale).into_iter().map(|(_, cell)| cell).collect();
             if !spilled.is_empty() {
@@ -407,10 +555,13 @@ impl Workbook {
             .views
             .values()
             .filter(|(id, _)| live.contains(id.as_str()) || !deleted.contains(id.as_str()))
-            .map(|(id, view)| json!({"viewId": id, "view": view}))
+            .map(|(id, view)| json!({"viewId": id, "view": self.view_as_read(view)}))
             .collect();
         if !views.is_empty() {
             out.insert("views".into(), Value::Array(views));
+        }
+        if !self.named_ranges.is_empty() {
+            out.insert("namedRanges".into(), Value::Array(self.named_ranges_written()));
         }
         Contents { head, sheets, tail: out }
     }
@@ -471,6 +622,9 @@ impl Workbook {
             Input::DropdownOption { option_id, label } => {
                 let option = sheet.dropdown_option(option_id);
                 let label = option.map_or(label, |o| &o.label);
+                // Out of a dropdown, an option is edited as its label's text is.
+                contents.text_is_edited_after_the_mark = !crate::edited::has_a_dropdown(sheet, (r, c))
+                    && crate::edited::text_is_edited_after_the_mark(label, locale);
                 contents.value = Some(ValueContents::Text(label.clone()));
                 contents.dropdown_option = option.cloned();
             }

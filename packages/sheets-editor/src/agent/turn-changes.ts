@@ -86,7 +86,7 @@ export function createTurnChangesTracker(
     streamChanged: noteMissedChanges,
     changesMayBeMissed: noteMissedChanges,
     revisionStated(revision, isNext) {
-      if (!(isNext ? revision - 1 === statedRevision : revision <= (statedRevision ?? -1))) noteMissedChanges();
+      if (!(isNext ? revision - 1 === statedRevision || revision === statedRevision : revision <= (statedRevision ?? -1))) noteMissedChanges();
       statedRevision = Math.max(statedRevision ?? 0, revision);
     },
     editByAgentStreamed(revision, isOfThisTurn) {

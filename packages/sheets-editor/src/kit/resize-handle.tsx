@@ -21,6 +21,7 @@ export interface ResizeHandleProps {
   'aria-valuenow'?: number;
   'aria-valuemin'?: number;
   'aria-valuemax'?: number;
+  'aria-describedby'?: string;
   className?: string;
   /** A drag or a key press is about to resize. */
   onResizeStart?: () => void;
@@ -31,6 +32,12 @@ export interface ResizeHandleProps {
   onResize?: (delta: number) => void;
   /** The resize is over; `didResize` is false when nothing moved. */
   onResizeEnd?: (didResize: boolean) => void;
+  /** Runs after the handle's own mouse down. */
+  onMouseDown?: (event: React.MouseEvent<HTMLDivElement>) => void;
+  /** Runs after the handle's own keys. */
+  onKeyDown?: (event: React.KeyboardEvent<HTMLDivElement>) => void;
+  onKeyUp?: (event: React.KeyboardEvent<HTMLDivElement>) => void;
+  onBlur?: (event: React.FocusEvent<HTMLDivElement>) => void;
 }
 
 /**
@@ -43,6 +50,8 @@ export function ResizeHandle({
   onResizeStart,
   onResize,
   onResizeEnd,
+  onMouseDown,
+  onKeyDown: onKeyDownAfter,
   ...aria
 }: ResizeHandleProps): React.ReactElement {
   const isVertical = side === 'inline-start' || side === 'inline-end';
@@ -93,7 +102,10 @@ export function ResizeHandle({
         SIDE_CLASSES[side],
         className,
       )}
-      onMouseDown={(event) => event.preventDefault()}
+      onMouseDown={(event) => {
+        event.preventDefault();
+        onMouseDown?.(event);
+      }}
       onPointerDown={(event) => {
         if (event.button !== 0 || dragRef.current !== null) return;
         event.currentTarget.setPointerCapture(event.pointerId);
@@ -112,7 +124,10 @@ export function ResizeHandle({
       onPointerUp={endDrag}
       onPointerCancel={endDrag}
       onLostPointerCapture={endDrag}
-      onKeyDown={onKeyDown}
+      onKeyDown={(event) => {
+        onKeyDown(event);
+        onKeyDownAfter?.(event);
+      }}
     >
       <span
         aria-hidden

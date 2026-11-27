@@ -264,6 +264,7 @@ export const canAllReadAsTrueOrFalse = (texts: string[]) =>
 export const fitOfReading = (reading: ImportReading, texts: string[], workbook: Pick<WorkbookReads, 'fitOfColumnReadings'>) =>
   reading.kind === 'trueOrFalse' ? trueOrFalseFit(texts) : workbook.fitOfColumnReadings([reading], texts)?.[0];
 export const POOR_FIT_RATIO = 10;
+export const fitsTwiceAsMuchAsNot = ({ fitting, notFitting }: Pick<FitOfAColumnReading, 'fitting' | 'notFitting'>): boolean => fitting >= 2 * notFitting;
 export const MISSING_VALUE_TEXT_PATTERN = /^(?:n\/?a|#n\/a|nan|null|none|nil|-+|\?|\.)$/i;
 export const isTrueOrFalseColumn = (texts: string[]) =>
   looksLikeTrueOrFalseColumn(texts) &&

@@ -5,12 +5,13 @@ import type { KeyStep } from '../keys/key-acts.ts';
 import type { IfQueued, PageContext, PageEvent } from '../state/event-reducer.ts';
 import type { SheetShownDone } from '../state/sheet-tabs.ts';
 import type { PageMode, PageTransition } from '../state/transitions.ts';
-import { clampScrollOfView, findSheetById } from '../grid/layout.ts';
+import { clampScrollOfView, findSheetById, layoutOfView } from '../grid/layout.ts';
+import { scrollDeltasToLineStarts } from '../grid/geometry.ts';
 import { activeAnchorCell, areaOfPosition, selectedArea, scrollToShowActiveCell, selectionAtCell } from '../selection/model.ts';
 import { areaToA1AsStored } from './from-words/where.ts';
 import { ownRowOrderOfSheet } from '../model/line-ids.ts';
 import { isPointingPossible, pointAtCell, dragPointedReference } from './reference-pointing.ts';
-import { firstPlaceInSheet, interactiveOfSheet } from '../state/places.ts';
+import { firstPlaceInSheet, interactiveOfSheet, shownSheetTabs } from '../state/places.ts';
 import { isFormulaAskedOrProposed } from './from-words/actions.ts';
 import { selectionAtPointer } from '../selection/pointer.ts';
 import { withNoEffects } from '../state/transitions.ts';
@@ -98,21 +99,27 @@ export function canSwitchSheetWhileEditing(
   if (mode.kind !== 'editing') return false;
   return isBackToEntrySheet || (mayPoint && isPointingPossible(mode, caret));
 }
-export function sheetIdAtOffset(sheetId: SheetId, workbook: WorkbookReads, offset: KeyStep): SheetId | undefined {
-  let sheets = workbook.listSheets();
-  return sheets[sheets.findIndex((sheet) => sheet.sheetId === sheetId) + offset]?.sheetId;
+/** Shows the sheet whose tab is `offset` tabs away from the one shown, where there is one. */
+export function showSheetAtOffset(state: PageState, workbook: ReadsWithTextMeasurer, offset: KeyStep): PageState {
+  let sheets = shownSheetTabs(state, workbook);
+  let sheet = sheets[sheets.findIndex((sheet2) => sheet2.sheetId === state.sheetId) + offset];
+  return sheet === undefined ? state : showSheet(state, workbook, sheet.sheetId);
+}
+export function sheetIdAtOffset(state: PageState, workbook: WorkbookReads, offset: KeyStep): SheetId | undefined {
+  let fromSheetId = state.sheetPointedIn ?? state.sheetId;
+  let sheets = shownSheetTabs(state, workbook);
+  return sheets[sheets.findIndex((sheet) => sheet.sheetId === fromSheetId) + offset]?.sheetId;
 }
 export function sheetsToPointInFor(
   state: PageState,
   workbook: WorkbookReads,
   allowsAnother: boolean,
 ): { before: SheetToPointIn; after: SheetToPointIn } {
-  let { sheetId, sheetPointedIn } = state;
   let targetAt = (offset: KeyStep): SheetToPointIn => {
-    let targetSheetId = sheetIdAtOffset(sheetPointedIn ?? sheetId, workbook, offset);
+    let targetSheetId = sheetIdAtOffset(state, workbook, offset);
     if (targetSheetId === undefined || firstPlaceInSheet(workbook, targetSheetId) === null) return null;
-    if (targetSheetId === sheetId) return 'entrysOwn';
-    return allowsAnother && !isFormulaAskedOrProposed(state) && interactiveOfSheet(workbook, targetSheetId) === null ? 'another' : null;
+    if (targetSheetId === state.sheetId) return 'entrysOwn';
+    return allowsAnother && !isFormulaAskedOrProposed(state) && hasNoInteractive(workbook, targetSheetId) ? 'another' : null;
   };
   return {
     before: targetAt(-1),
@@ -128,7 +135,7 @@ export function switchSheetWhileEditing(
 ): PageState | null {
   let { mode, placesLeft, sheetPointedIn } = state;
   let isBackToEntrySheet = sheetId === state.sheetId && sheetPointedIn !== null;
-  let mayPoint = allowsAnother && !isFormulaAskedOrProposed(state) && interactiveOfSheet(workbook, sheetId) === null;
+  let mayPoint = allowsAnother && !isFormulaAskedOrProposed(state) && hasNoInteractive(workbook, sheetId);
   if (!canSwitchSheetWhileEditing(mode, caret, isBackToEntrySheet, mayPoint)) return null;
   if (sheetId === (sheetPointedIn ?? state.sheetId)) return state;
   if (isBackToEntrySheet) return withSheetPointedIn(state, workbook, null);
@@ -147,7 +154,7 @@ export function switchToNextSheetWhileEditing(
   offset: KeyStep,
   caret: CaretInEntryPlaced | undefined,
 ): PageState {
-  let sheetId = sheetIdAtOffset(state.sheetPointedIn ?? state.sheetId, workbook, offset);
+  let sheetId = sheetIdAtOffset(state, workbook, offset);
   return sheetId === undefined ? state : (switchSheetWhileEditing(state, workbook, sheetId, caret, true) ?? state);
 }
 export function pressCellsInSheetPointedIn(
@@ -202,8 +209,9 @@ export function stepInSheetPointedIn(
     return withNoEffects(restoreEntrySheet(state, shown, dragPointedReference(shown, event, reads)));
   }
   if (event.kind === 'wheelTurned') {
-    let scrollLeft = shown.scrollLeft + event.deltaX;
-    let pointedOrScrollTop = shown.scrollTop + event.deltaY;
+    let { deltaX, deltaY } = event.isPageForReader === true ? scrollDeltasToLineStarts(event, shown, layoutOfView(shown, reads)) : event;
+    let scrollLeft = shown.scrollLeft + deltaX;
+    let pointedOrScrollTop = shown.scrollTop + deltaY;
     let pagesTurnedForReader = shown.pagesTurnedForReader + (event.isPageForReader === true ? 1 : 0);
     let clamped = clampScrollOfView(
       {
@@ -243,3 +251,4 @@ export const withSheetPointedIn = (state: PageState, workbook: WorkbookReads, sh
   dragging: null,
   lastDone: sheetShownLastDone(state, workbook, sheetId),
 });
+export const hasNoInteractive = (workbook: WorkbookReads, sheetId: SheetId): boolean => interactiveOfSheet(workbook, sheetId) === null;

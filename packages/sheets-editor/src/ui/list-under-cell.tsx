@@ -13,7 +13,8 @@ import type { AnchorOnPage, ListboxIds } from '../chips/people-list-view.tsx';
 import type { PointerPoint } from '../formulas/from-words/offer-list.tsx';
 import type { IconName, LeadingIconProps } from '../kit/icon.tsx';
 import { pushTopLayerClose } from '../shell/top-layer-close.ts';
-import { editCardHeadingLabel, deleteCardHeadingLabel, currentColorLabel, cardAndRowLabel } from '../i18n/menu-labels.ts';
+import { editCardHeadingLabel, deleteCardHeadingLabel, currentColorLabel } from '../i18n/menu-labels.ts';
+import { PRESS_LIFT_REPEAT_MAX_MS } from './press-swallow.ts';
 import { useCoveredUnderCells, popupCollisionPadding } from '../shell/bottom-insets.ts';
 import { cachedOptionChipColors, setSwatchColors } from '../format/cell-colors.ts';
 import { fillPaintStyle, textPaintStyle } from '../grid/cell-drawing.tsx';
@@ -245,24 +246,25 @@ export function useLastNonNull<T>(value: T | null): T | null {
   if (value !== null && value !== lastNonNull) setLastNonNull(value);
   return value ?? lastNonNull;
 }
-export function listAnnouncement(list: ListCardDrawn | null): string | null {
+export function highlightedOptionAnnouncement(list: ListCardDrawn | null): string | null {
   let highlightedRow = list?.rows[list.highlightedRow ?? -1];
-  let headingWords = list?.heading !== undefined && list.isAsOpened === true ? editCardHeadingLabel(list.heading) : null;
-  if (list === null || highlightedRow === undefined) return headingWords;
-  let rowLabel = optionLabelText(highlightedRow.label);
-  let isChosenColor = highlightedRow.isChosen && colorOfferedOf(highlightedRow.label) !== null;
-  let rowWords =
-    isRemovingOption(highlightedRow.label) && list.heading !== undefined
-      ? deleteCardHeadingLabel(list.heading)
-      : isChosenColor
-        ? currentColorLabel(rowLabel)
-        : rowLabel;
-  return headingWords === null ? rowWords : cardAndRowLabel(headingWords, rowWords);
+  if (list === null || highlightedRow === undefined) return null;
+  return optionRowName(list, highlightedRow) ?? optionLabelText(highlightedRow.label);
 }
 export function roomForListRows(anchorRect: Pick<DOMRect, 'top' | 'bottom'>, windowHeight: number): number {
   let roomBelow = windowHeight - anchorRect.bottom - LIST_SIDE_OFFSET - LIST_EDGE_PADDING;
   let roomAbove = anchorRect.top - LIST_SIDE_OFFSET - LIST_EDGE_PADDING;
   return roomBelow >= LIST_MIN_ROOM_BELOW ? roomBelow : Math.max(roomBelow, roomAbove);
+}
+/** Of two places to open a list under, the other one when this one leaves too little room and the other gains enough. */
+export function betterListAnchorRect<Rect extends Pick<DOMRect, 'top' | 'bottom'>>(anchorRect: Rect, otherAnchorRect: Rect, windowHeight: number): Rect {
+  let room = roomForListRows(anchorRect, windowHeight);
+  let roomGained = roomForListRows(otherAnchorRect, windowHeight) - room;
+  return room < LIST_MIN_ROOM_BELOW && roomGained >= LIST_ROOM_GAIN_MIN_PX ? otherAnchorRect : anchorRect;
+}
+/** Whether a click comes so soon after the list opened that it is the end of the press that opened it. */
+export function isClickSoonAfterOpened(openedAtMs: number, nowMs: number, press: PressOnList | null): boolean {
+  return !(isPressStillCounting(nowMs, press) && press!.downAtMs >= openedAtMs) && nowMs - openedAtMs <= PRESS_LIFT_REPEAT_MAX_MS;
 }
 export function shouldDropListClick(rows: RowsOfListClicked, press: PressOnList | null, click: ClickOnList): boolean {
   let isPressCounting = isPressStillCounting(click.atMs, press);
@@ -290,8 +292,8 @@ export function shouldDropListClick(rows: RowsOfListClicked, press: PressOnList 
     isTooSoonAfterAct
   );
 }
-export function hasRoomForCardBesideList(listRect: Pick<DOMRect, 'left' | 'right'>, windowWidth: number): boolean {
-  let roomNeeded = LIST_CARD_BESIDE_GAP + LIST_CARD_BESIDE_WIDTH + LIST_EDGE_PADDING;
+export function hasRoomForCardBesideList(listRect: Pick<DOMRect, 'left' | 'right'>, windowWidth: number, cardWidth: number = LIST_CARD_BESIDE_WIDTH): boolean {
+  let roomNeeded = LIST_CARD_BESIDE_GAP + cardWidth + LIST_EDGE_PADDING;
   return listRect.right + roomNeeded <= windowWidth || listRect.left >= roomNeeded;
 }
 export function watchAncestorStyles(element: Element, onStyleChange: () => void): () => void {
@@ -491,6 +493,10 @@ export function ListUnderCell({
             onShut(event.nativeEvent);
             return;
           }
+          if (isClickSoonAfterOpened(openedForRef.current.sinceMs, nowMs, press)) {
+            event.stopPropagation();
+            return;
+          }
           let actBeforeAtMs = lastActAtRef.current;
           let actBeforeBeganAtMs = lastActBeganAtRef.current;
           if (!isPressStillCounting(nowMs, press)) {
@@ -666,7 +672,7 @@ export function OptionsListCard({
   return <ListCard listId={listId} {...cardProps}>{card.rows.flatMap(
       ({ key, label, marks, isChosen }, rowIndex) => [
         ...(isRemovingOption(label) ? [<ListSeparator key="rule" />] : []),
-        (<ListRow key={key} id={listRowIdOf(listId, key)} placeInList={rowIndex + 1} rowsInList={card.rows.length} isHighlighted={rowIndex === card.highlightedRow} tellsOfEveryMove isOnlyTintedByPointer onChosen={() => onRowChosen(key)} onPointedAt={onRowPointedAt}>{optionLead(label) ?? lead}<ListRowLabel>{optionLabelText(label)}</ListRowLabel><ListRowSwatches marks={marks} />{isChosen &&
+        (<ListRow key={key} id={listRowIdOf(listId, key)} name={optionRowName(card, { label, isChosen })} placeInList={rowIndex + 1} rowsInList={card.rows.length} isHighlighted={rowIndex === card.highlightedRow} tellsOfEveryMove isOnlyTintedByPointer onChosen={() => onRowChosen(key)} onPointedAt={onRowPointedAt}>{optionLead(label) ?? lead}<ListRowLabel>{optionLabelText(label)}</ListRowLabel><ListRowSwatches marks={marks} />{isChosen &&
                 <Icon name="Check" size="sm" className="text-accent" />}</ListRow>),
       ],
     )}</ListCard>;
@@ -770,6 +776,13 @@ export const optionLabelText = (label: ListCardRowLabel): string => {
   if (typeof label === 'string') return label;
   return 'removes' in label ? dropdownPaneMessages.deleteOption() : optionColorName(label.colorOffered);
 };
+/** What a row is called when its label alone does not say it: removing the option, or the color chosen now. */
+export const optionRowName = ({ heading }: Pick<ListCardDrawn, 'heading'>, { label, isChosen }: { label: ListCardRowLabel; isChosen: boolean }): string | undefined => {
+  if (isRemovingOption(label) && heading !== undefined) return deleteCardHeadingLabel(heading);
+  return isChosen && colorOfferedOf(label) !== null ? currentColorLabel(optionLabelText(label)) : undefined;
+};
+export const editCardHeadingAnnouncement = (list: ListCardDrawn | null): string | null =>
+  list?.heading !== undefined && list.isAsOpened === true ? editCardHeadingLabel(list.heading) : null;
 export const listCardIdOf = (listId: string): string => `${listId}-card`;
 export const listRowIdOf = (listId: string, rowKey: string): string => `${listCardIdOf(listId)}-${rowKey.replaceAll(' ', '-')}`;
 export const withListCardIds = (listbox: ListboxIds, card: ListCardDrawn | null): ListboxIds => {
@@ -804,6 +817,7 @@ export const SHIFT_ONLY_COLLISION: PopoverPopupProps['collisionAvoidance'] = {
 export const LIST_SIDE_OFFSET = 2;
 export const LIST_EDGE_PADDING = 8;
 export const LIST_MIN_ROOM_BELOW = 260;
+export const LIST_ROOM_GAIN_MIN_PX = 28;
 export const PRESS_TOO_SOON_MS = 300;
 export const isWithinPressGuard = (sinceMs: number, nowMs: number): boolean => nowMs - sinceMs < PRESS_TOO_SOON_MS;
 export const CLICK_AFTER_UP_MS = 1000;
@@ -825,6 +839,8 @@ export const listRowsWithStickyHeadingsProps = {
 };
 export const PlainListBox = ({ id, label, children }: PlainListBoxProps) =>
   <div id={id} role="listbox" aria-label={label}>{children}</div>;
+export const ListboxOfRows = ({ id, label, children }: PlainListBoxProps) =>
+  <div id={id} role="listbox" aria-label={label} className="max-h-[var(--available-height)] overflow-y-auto p-[var(--ui-menu-gutter,0.25rem)]">{children}</div>;
 export const isInListUnderCell = (element: Element | null): boolean => element !== null && element.closest('[data-list-under-cell]') !== null;
 export const isListUnderCellRow = (element: EventTarget | null): boolean =>
   element instanceof HTMLElement && element.matches('[role="option"]') && isInListUnderCell(element);

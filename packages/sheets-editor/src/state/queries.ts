@@ -27,6 +27,8 @@ export const NOTICE_GIVES_WAY = {
   cellHoldsNoMorePeople: true,
   groupsTooDeep: true,
   tooManyNamedViews: true,
+  tooManyProtections: true,
+  tooManyCellsWithADefault: true,
   sheetNameRefused: false,
   dropdownCellsRefused: false,
   mergeWouldClearCells: true,
@@ -60,6 +62,8 @@ export const NOTICE_GIVES_WAY = {
   versionNotTakenBack: true,
   turnOfAgentNotUndone: false,
   versionNotShown: true,
+  versionNameNotSaved: true,
+  tooManyVersionNames: true,
 };
 export const noticeGivesWay = (notice: Notice): boolean =>
   NOTICE_GIVES_WAY[notice.kind] && !(notice.kind === 'editRefused' && notice.isTypingLost);

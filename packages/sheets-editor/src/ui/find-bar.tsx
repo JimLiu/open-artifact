@@ -258,7 +258,7 @@ export function FindBar({
       },
       {
         value: 'allSheets',
-        label: findBarMessages.allSheets(),
+        label: find.isHiddenSheetLeftOut ? findBarMessages.allVisibleSheets() : findBarMessages.allSheets(),
       },
       ...withinChoices.map(
         (cells) => ({

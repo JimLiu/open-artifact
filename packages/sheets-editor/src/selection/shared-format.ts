@@ -58,6 +58,8 @@ export const commonFormatOf = (format: SharedCellFormat, otherFormat: SharedCell
   },
   fillColor: sameJsonOrNull(format.fillColor, otherFormat.fillColor),
   cellControl: sameJsonOrNull(format.cellControl, otherFormat.cellControl),
+  defaultValue: sameJsonOrNull(format.defaultValue, otherFormat.defaultValue),
+  valueLimits: sameJsonOrNull(format.valueLimits, otherFormat.valueLimits),
   border: {
     top: sameJsonOrNull(format.border.top, otherFormat.border.top),
     right: sameJsonOrNull(format.border.right, otherFormat.border.right),

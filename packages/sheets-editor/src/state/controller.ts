@@ -1,5 +1,5 @@
 import { createStore, type StoreApi } from 'zustand/vanilla';
-import type { CellsToCopyAnswer, CopiedValues, IdRun, ReadXlsxFileRequest, SheetId, TextToPaste, XlsxFileAnswer } from '@open-artifact/sheets-core';
+import type { CellContents, CellsToCopyAnswer, CopiedValues, IdRun, ReadXlsxFileRequest, SheetId, TextToPaste, XlsxFileAnswer } from '@open-artifact/sheets-core';
 import type { CellId, WorkbookReads } from '../model/workbook.ts';
 import type { WholeCellFormat } from '../model/cell-format.ts';
 import type { CellArea, CellPosition } from '../selection/model.ts';
@@ -71,6 +71,18 @@ import { showSheetPointedIn } from '../formulas/sheet-pointed-in.ts';
 import { isKeyWritingInEntry } from '../keys/key-acts.ts';
 import { pivotTypingToEnter } from '../tables/pivot-tables.ts';
 import { withPivotTablesOutOfDate } from './pivot-tables-out-of-date.ts';
+import type { NameOfVersionSet } from '../history/version-history.ts';
+import type { VersionNameOutcome } from '../history/requests.ts';
+import type { VersionSummaries } from '../history/history-reader.ts';
+import type { TableRefreshes } from '../tables/connected-table-host.ts';
+import type { TablesForChartNearPerson } from '../presence/chart-place-near-person.ts';
+import { isVersionNameOpen } from '../history/version-history.ts';
+import { versionHistoryOfPane } from './queries.ts';
+import { isNamedRangeFormChanged } from './named-ranges.ts';
+import { isTableRefreshAsked } from '../tables/connected-table-refresh.ts';
+import { withRulesOnTheirWayLanded } from '../format/conditional/pane-reducer.ts';
+import { tablesForChartNearPerson, placeForChartNearPerson } from '../presence/chart-place-near-person.ts';
+import { areaToA1AsStored } from '../formulas/from-words/where.ts';
 export function throwCollectedErrors(errors: readonly unknown[]): void {
   if (errors.length === 1) throw errors[0];
   if (errors.length > 1) throw AggregateError(errors, 'more than one error in one dispatch');
@@ -157,39 +169,44 @@ export function buildClipboardContentForCopy(
     );
   let shownTextOfCell = (cellId: CellId, answeredCell: TextToPaste | null) =>
     answeredCell === null ? fullShownTextOfCell(reads, cellId) : (answeredCell.textShown ?? null);
-  let patternCache = new Map<CellId, string>();
-  let patternOf = (cellId: CellId) =>
-    fullDateBehindMonthDayTime(reads.cellOnShowIn(cellId), () => {
-      let pattern = patternCache.get(cellId) ?? numberFormatOfCell(reads, cellId).pattern;
-      patternCache.set(cellId, pattern);
-      return pattern;
-    });
-  let shownTexts: string[][] = mapCells(
-    (cellId, answeredCell) =>
-      cellTextToCopy(reads.cellOnShowIn(cellId), patternOf(cellId) ?? shownTextOfCell(cellId, answeredCell), reads.decimalSign),
-  );
-  let hasNumbersNotShownWhole =
-    cellsToCopy?.cells.some(({ isNumberShownWhole }) => isNumberShownWhole === false) === true;
+  // One read of every cell: what it shows, whether a formula is left out, rich text kept for links, and the
+  // exact text of numbers not shown whole.
+  let found = {
+    areFormulasLeftOut: false,
+  };
+  let richTextCells = new Map<CellId, CellContents>();
+  let exactTextOfCell = new Map<CellId, string>();
+  let cellsMissingDay = new Set<CellId>();
+  let shownTexts: string[][] = mapCells((cellId, answeredCell) => {
+    let shown = reads.cellOnShowIn(cellId);
+    let cell = shown !== null && 'input' in shown ? shown : null;
+    if (cell?.input.kind === 'formula' && answeredCell?.textToPaste.startsWith('=') === false) found.areFormulasLeftOut = true;
+    if (cell?.input.kind === 'richText') richTextCells.set(cellId, cell);
+    let fullDate = fullDateBehindMonthDayTime(shown, () => numberFormatOfCell(reads, cellId).pattern);
+    let shownText = cellTextToCopy(shown, fullDate ?? shownTextOfCell(cellId, answeredCell), reads.decimalSign);
+    if (answeredCell?.isNumberShownWhole === false && fullDate === null) {
+      exactTextOfCell.set(cellId, cellTextToCopy(shown, null, reads.decimalSign));
+      if (copiedDateMissesDay(shown, shownText, reads.dayTypedAs)) cellsMissingDay.add(cellId);
+    }
+    return shownText;
+  });
   let cellsTakenAsDates: CellPosition[] = [];
-  let exactTexts = !hasNumbersNotShownWhole
-    ? shownTexts
-    : cellIdRows.map(
-        (cellIds, rowOffset) =>
-          cellIds.map((cellId, columnOffset) => {
-            let shownText = shownTexts[rowOffset]?.[columnOffset] ?? '';
-            if (
-              !(cellId !== null && answeredCells[rowOffset * columnCount + columnOffset]?.isNumberShownWhole === false && patternOf(cellId) === null)
-            )
-              return shownText;
-            let cell = reads.cellOnShowIn(cellId);
-            if (copiedDateMissesDay(cell, shownText, reads.dayTypedAs))
-              cellsTakenAsDates.push({
-                rowIndex: rowOffset,
-                columnIndex: columnOffset,
-              });
-            return cellTextToCopy(cell, null, reads.decimalSign);
-          }),
-      );
+  let exactTexts =
+    exactTextOfCell.size === 0
+      ? shownTexts
+      : cellIdRows.map(
+          (cellIds, rowOffset) =>
+            cellIds.map((cellId, columnOffset) => {
+              let shownText = shownTexts[rowOffset]?.[columnOffset] ?? '';
+              if (cellId === null) return shownText;
+              if (cellsMissingDay.has(cellId))
+                cellsTakenAsDates.push({
+                  rowIndex: rowOffset,
+                  columnIndex: columnOffset,
+                });
+              return exactTextOfCell.get(cellId) ?? shownText;
+            }),
+        );
   let trimmedSize = trimToContent ? trimmedCopySize(reads, sheetId, area, shownTexts) : null;
   let trimmedTexts = shownTexts.slice(0, trimmedSize?.rowCount).map((texts) => texts.slice(0, trimmedSize?.columnCount));
   let cellLooks = () => {
@@ -200,11 +217,6 @@ export function buildClipboardContentForCopy(
       return trimmedTexts.map((texts) => texts.map(() => (areGridlinesHidden ? '' : HTML_BORDERED_STYLE_ATTRIBUTE)));
     return copiedCellLooksTable(reads, sheetId, rowIndexes.slice(0, trimmedTexts.length), area.leftColumnIndex, trimmedColumnCount, areGridlinesHidden);
   };
-  let areFormulasLeftOut =
-    cellsToCopy?.cells.some(({ row, column, textToPaste }) => {
-      let cellId = cellIdRows[row]?.[column] ?? null;
-      return cellId !== null && reads.cellOf(cellId)?.input.kind === 'formula' && !textToPaste.startsWith('=');
-    }) === true;
   let content = clipboardContentOf(
     cellsToCopy?.copiedCellsAsText ?? null,
     cellsToCopy === null ? null : valuesOfCopiedCellsAnswer(cellsToCopy),
@@ -219,11 +231,11 @@ export function buildClipboardContentForCopy(
     cellLooks(),
     exactTexts,
     cellsTakenAsDates,
-    cellIdRows.flatMap(
+    (richTextCells.size === 0 ? [] : cellIdRows).flatMap(
       (cellIds, rowOffset) =>
         cellIds.flatMap((cellId, columnOffset) => {
-          let cell = cellId === null ? null : reads.cellOf(cellId);
-          if (cellId === null || cell?.input.kind !== 'richText') return [];
+          let cell = cellId === null ? undefined : richTextCells.get(cellId);
+          if (cellId === null || cell === undefined) return [];
           let shownText = trimmedTexts[rowOffset]?.[columnOffset] ?? '';
           let { parts } = cellTextLinks(cell, reads.formatOf(cellId), shownText, null);
           return [
@@ -236,10 +248,10 @@ export function buildClipboardContentForCopy(
         }),
     ),
   );
-  return areFormulasLeftOut
+  return found.areFormulasLeftOut
     ? {
         ...content,
-        areFormulasLeftOut,
+        areFormulasLeftOut: true,
       }
     : content;
 }
@@ -414,6 +426,42 @@ export function createSheetController(workbook: OpenedWorkbook, browser: Browser
     let answered = await answer;
     if (!isStopped) dispatch(toEvent(answered));
   };
+  // The naming of a version still on its way, waited on before a version is looked at.
+  let versionNameOnItsWay: Promise<void> | null = null;
+  // Names the newest version, once the edits are saved (waiting at most SAVE_BEFORE_VERSION_NAME_WAIT_MS).
+  let nameNewestVersion = async (name: string | null): Promise<Pick<NameOfVersionSet, 'outcome' | 'newest'>> => {
+    if (workbook.hasUnsavedEdits())
+      await new Promise<void>((resolve) => {
+        let finish = () => {
+          stopListening();
+          resolve();
+        };
+        let stopListening = workbook.onSavingChanged(() => {
+          if (!workbook.hasUnsavedEdits()) finish();
+        });
+        browser.afterMs(SAVE_BEFORE_VERSION_NAME_WAIT_MS, finish);
+      });
+    if (workbook.hasUnsavedEdits())
+      return {
+        outcome: 'noAnswer',
+      };
+    let read = await browser.versionHistory.versions(null);
+    if (read.kind === 'notRead') {
+      let { why } = read;
+      return {
+        outcome: why === 'busy' || why === 'noAnswer' ? why : 'refused',
+      };
+    }
+    let revision = read.versions[0]?.revision;
+    return revision === undefined
+      ? {
+          outcome: 'refused',
+        }
+      : {
+          outcome: await browser.versionHistory.setName(revision, name),
+          newest: read,
+        };
+  };
   let showCalculationAfterDelay = (ofOwnView: OwnViewShownAsApplied | null = null) => {
     let timing = {
       isOver: false,
@@ -572,7 +620,7 @@ export function createSheetController(workbook: OpenedWorkbook, browser: Browser
       case 'undoOrRedo': {
         let { kind, ...value } = effect;
         return runAsyncEffect(
-          (answer) => workbook.undoOrRedo(effect.direction, answer),
+          (answer) => workbook.undoOrRedo(effect.direction, answer, effect.ofSitting),
           (outcome: EventOf<'undoOrRedoAnswered'>['outcome']) => ({
             kind: 'undoOrRedoAnswered',
             ...value,
@@ -892,10 +940,20 @@ export function createSheetController(workbook: OpenedWorkbook, browser: Browser
       }
       case 'stopAskingAgentForFixes':
         return browser.agentForFixes.stop();
+      case 'refreshConnectedTable': {
+        let { askId, asked } = effect;
+        return void dispatchWhenSettled(browser.refreshes.refresh(asked), (answer) => ({
+          kind: 'refreshAnswered',
+          askId,
+          answer,
+        }));
+      }
       case 'readVersions': {
         let { askId, before } = effect;
+        let read = browser.versionHistory.versions(before);
+        if (effect.isLookAgain !== true) browser.versionSummaries?.askAbout(read, before);
         return void dispatchWhenSettled(
-          browser.versionHistory.versions(before),
+          read,
           (read) => ({
             kind: 'versionsRead',
             askId,
@@ -905,8 +963,14 @@ export function createSheetController(workbook: OpenedWorkbook, browser: Browser
       }
       case 'lookAtVersion': {
         let { askId, revision, pane } = effect;
+        // While the version is being named, the look waits for the name and goes on only if still asked.
+        let lookOnceNamed = async (): Promise<EventOf<'versionLookedAt'>['whyNot']> => {
+          await versionNameOnItsWay;
+          let paneNow = versionHistoryOfPane(state);
+          return isStopped || paneNow?.look?.awaited?.askId !== askId ? 'calledOff' : browser.versionLooks.lookAt(revision, paneNow, () => state);
+        };
         return void dispatchWhenSettled(
-          browser.versionLooks.lookAt(revision, pane, () => state),
+          pane.isNameOnItsWay ? lookOnceNamed() : browser.versionLooks.lookAt(revision, pane, () => state),
           (whyNot) => ({
             kind: 'versionLookedAt',
             askId,
@@ -916,6 +980,24 @@ export function createSheetController(workbook: OpenedWorkbook, browser: Browser
       }
       case 'endLookAtVersion':
         return browser.versionLooks.end(effect.pane, state, effect.thenRestore, effect.isByPerson === true);
+      case 'setNameOfVersion': {
+        let { of, revision, name, nameBefore } = effect;
+        versionNameOnItsWay = dispatchWhenSettled(
+          revision === null
+            ? nameNewestVersion(name)
+            : browser.versionHistory.setName(revision, name).then((outcome) => ({
+                outcome,
+              })),
+          (answer): PageEvent => ({
+            kind: 'nameOfVersionSet',
+            of,
+            name,
+            nameBefore,
+            ...answer,
+          }),
+        );
+        return;
+      }
       case 'readCellHistory': {
         let { askId, cell, scope } = effect;
         let isStillAwaited = () => isCellHistoryAwaiting(state, askId);
@@ -982,12 +1064,19 @@ export function createSheetController(workbook: OpenedWorkbook, browser: Browser
     hasUnsavedDropdownEdits(state) ||
     hasRulesPaneWorkInProgress(state) ||
     pivotTypingToEnter(state) !== null ||
+    isNamedRangeFormChanged(state) ||
     state.customNumberFormat?.typedIn === 'dialog' ||
     state.pasteThatWaits !== null ||
+    state.callToConfirm !== null ||
     (state.pickForWorkbook !== null && isWorkbookSettingChanged(state.pickForWorkbook)) ||
     state.importOfAFile !== null ||
     (state.sheetBeingRenamed !== null && state.sheetBeingRenamed.typed !== state.sheetBeingRenamed.nameWhenOpened);
-  let doesLeaveLoseWork = (): boolean => isWorkYetToReachWorkbook() || hasRulesPaneRefusedRules(state);
+  let doesLeaveLoseWork = (): boolean =>
+    isWorkYetToReachWorkbook() ||
+    hasRulesPaneRefusedRules(state) ||
+    // A refresh asked, or a version name on its way.
+    isTableRefreshAsked(state) ||
+    isVersionNameOpen(state);
   let notifiedState: PageState = state;
   let notifiedWorkPending: boolean = isWorkYetToReachWorkbook();
   let notifiedWaitedForPeople = false;
@@ -1117,6 +1206,8 @@ export function createSheetController(workbook: OpenedWorkbook, browser: Browser
           ...state,
           heldUntilAnswered: null,
         };
+      // Rules on their way are let go once their edit is answered.
+      if (queued.kind === 'editAnswered' && queued.edit === state.rulesOnTheirWay?.edit) state = withRulesOnTheirWayLanded(state);
       if (state.sortToLookBackOn !== null)
         state = {
           ...state,
@@ -1677,7 +1768,7 @@ export function createSheetController(workbook: OpenedWorkbook, browser: Browser
     return viewCache.view;
   }
   function writeXlsxWithCharts(optionsSheetName: string, charts: readonly ChartOfXlsxFile[], fileTitle: string | null): Promise<XlsxFileOutcome> {
-    let [firstSheet] = reads.listSheets();
+    let firstSheet = reads.listSheets().find(({ isHidden }) => !isHidden);
     let standardColors = listPaletteSwatches();
     let asked = {
       nameOfTheSheetOfOptions: optionsSheetName,
@@ -1814,6 +1905,26 @@ export function createSheetController(workbook: OpenedWorkbook, browser: Browser
         : {
             held,
             ...sample,
+          };
+    },
+    // Chart placement for the agent.
+    tablesForChartByAgent: () => tablesForChartNearPerson(state, reads),
+    placeForChartWhereThePersonIs() {
+      let place = placeForChartNearPerson(state, reads);
+      let cell = place === null ? null : reads.cellIdAt(state.sheetId, place.rowIndex, place.columnIndex);
+      return place === null || cell === null
+        ? null
+        : {
+            cell,
+            written: areaToA1AsStored(
+              {
+                topRowIndex: place.rowIndex,
+                leftColumnIndex: place.columnIndex,
+                rowCount: 1,
+                columnCount: 1,
+              },
+              null,
+            ),
           };
     },
     newChartOfCellsHeld(held) {
@@ -1971,6 +2082,7 @@ export function createSheetController(workbook: OpenedWorkbook, browser: Browser
 export interface SheetPublication {
   published: number;
 }
+export const SAVE_BEFORE_VERSION_NAME_WAIT_MS = 3000;
 export const WORK_SHOWN_AFTER_MS = 150;
 export const CHART_COPY_SLOW_MS = 1000;
 export const PEOPLE_LOOKUP_WAIT_MS = 1500;
@@ -1999,8 +2111,11 @@ export const UNASKED_EVENT_KINDS: ReadonlySet<string> = new Set<string>([
   'peopleLookedUp',
   'askOwedToAgentGivenUp',
   'viewerFound',
+  'personTold',
   'versionsRead',
+  'refreshAnswered',
   'versionLookedAt',
+  'nameOfVersionSet',
   'cellHistoryRead',
   'selectionsOfOthersChanged',
   'agentActivityChanged',
@@ -2064,6 +2179,7 @@ export const isTypingEvent = (event: PageEvent, { mode }: PageState): boolean =>
   (event.kind === 'dropdownEditorActedIn' && (event.act.kind === 'type' || event.act.kind === 'typeCells')) ||
   (event.kind === 'conditionalFormatsActedIn' && event.act.kind === 'type') ||
   (event.kind === 'sortPaneActedIn' && event.act.kind === 'typeCells') ||
+  (event.kind === 'namedRangesPaneActedIn' && event.act.kind === 'type') ||
   (event.kind === 'pivotTablePaneActedIn' && (event.act.kind === 'type' || event.act.kind === 'dropTyped')) ||
   (event.kind === 'sidePaneShut' && event.isGivenUp === true);
 export const isAgentReplyEvent = (event: PageEvent): boolean =>
@@ -2409,7 +2525,10 @@ export interface BrowserSide extends TextMeasurer {
     changesOfRow(cell: EffectOf<'readCellHistory'>['cell'], isStillAwaited: () => boolean): Promise<EventOf<'cellHistoryRead'>['read']>;
     changesOfCell(cell: EffectOf<'readCellHistory'>['cell'], isStillAwaited: () => boolean): Promise<EventOf<'cellHistoryRead'>['read']>;
     editsThatTakeBack(asked: EffectOf<'readEditsThatTakeBack'>['asked']): Promise<EventOf<'editsThatTakeBackRead'>['read']>;
+    setName(revision: number, name: string | null): Promise<VersionNameOutcome>;
   };
+  versionSummaries?: VersionSummaries;
+  refreshes: TableRefreshes;
   versionLooks: {
     lookAt(
       revision: EffectOf<'lookAtVersion'>['revision'],
@@ -2464,6 +2583,8 @@ export interface SheetController {
   whatChartCardOpensOn(): ChartCardOpening;
   startOfAreaToChart(): string | null;
   cellsForChartByAgent(): CellsForChartByAgent | null;
+  tablesForChartByAgent(): TablesForChartNearPerson | null;
+  placeForChartWhereThePersonIs(): { cell: CellId; written: string } | null;
   newChartOfCellsHeld(held: CellsHeldForChart): ReturnType<typeof placeChartForArea>;
   askForEditOfChart(asked: EventOf<'editOfChartAsked'>['asked']): Promise<ChartEditOutcome>;
   isWorkYetToReachWorkbook(): boolean;

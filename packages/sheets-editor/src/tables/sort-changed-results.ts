@@ -2,7 +2,6 @@ import type {
   CellContents,
   ColumnId,
   ColumnPoint,
-  Reference,
   RowId,
   RowPoint,
   SheetId,
@@ -10,7 +9,7 @@ import type {
   StoredFormula,
   ValueContents,
 } from '@open-artifact/sheets-core';
-import { formulaMatchesOutsideReferences, sheetPrefixForFormula } from '../formulas/references.ts';
+import { formulaMatchesOutsideReferences, sheetPrefixForFormula, referencesWithNamedRangesExpanded, type ReferenceOnSheet } from '../formulas/references.ts';
 import { areaOfReference } from '../model/reference-areas.ts';
 import { areasOverlap } from '../model/workbook.ts';
 import { cellValueOf } from '../model/cell-values.ts';
@@ -48,7 +47,8 @@ export interface SortAreaFacts {
 }
 /** A formula of a cell in a sorted area, with its text, its row and whether it draws random numbers. */
 export interface FormulaInSortedArea {
-  formula: StoredFormula;
+  /** The formula, its named ranges read as the cells they name. */
+  formula: Omit<StoredFormula, 'references'> & { references: ReferenceOnSheet[] };
   text: string;
   rowIndex: number;
   drawsRandomNumbers: boolean;
@@ -84,7 +84,7 @@ export interface ColumnMoveLookedBackOn {
 }
 /** A sort or a move of columns whose changed results are still to be looked at. */
 export type SortOrMoveToLookBackOn = SortLookedBackOn | ColumnMoveLookedBackOn;
-export function edgesOfReference(reference: Reference): ReferenceEdges {
+export function edgesOfReference(reference: ReferenceOnSheet): ReferenceEdges {
   switch (reference.kind) {
     case 'cell': {
       let { cell } = reference;
@@ -114,9 +114,44 @@ export function edgesOfReference(reference: Reference): ReferenceEdges {
         ...reference,
         right: null,
       };
+    case 'tableColumn': {
+      let columnEdge: ColumnPoint = {
+        c: reference.c,
+        isColumnAbsolute: true,
+      };
+      return {
+        top: null,
+        bottom: null,
+        left: columnEdge,
+        right: columnEdge,
+      };
+    }
+    case 'tablePart': {
+      let { columns } = reference;
+      let leftEdge: ColumnPoint | null =
+        columns === null
+          ? null
+          : {
+              c: columns.left,
+              isColumnAbsolute: true,
+            };
+      let rightEdge: ColumnPoint | null =
+        columns === null
+          ? null
+          : {
+              c: columns.right,
+              isColumnAbsolute: true,
+            };
+      return {
+        top: null,
+        bottom: null,
+        left: leftEdge,
+        right: rightEdge,
+      };
+    }
   }
 }
-export function isReferenceKeptBySort(reference: Reference, rowId: RowId, facts: SortAreaFacts) {
+export function isReferenceKeptBySort(reference: ReferenceOnSheet, rowId: RowId, facts: SortAreaFacts) {
   let {
     sheetId,
     area,
@@ -249,7 +284,10 @@ export function orderDependentColumns(reads: WorkbookReads, sheetId: SheetId, ar
       hasCells = true;
       if (input.kind !== 'formula') continue;
       let formulaCell: FormulaInSortedArea = {
-        formula: input.formula,
+        formula: {
+          ...input.formula,
+          references: referencesWithNamedRangesExpanded(reads, input.formula),
+        },
         text: formulaText,
         rowIndex,
         drawsRandomNumbers,

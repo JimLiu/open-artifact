@@ -117,17 +117,20 @@ export function restoreWhatCaretLeft(
 }
 export function restoreEntryOfPageBefore(
   state: PageState,
-  { cellId, mode }: EntryOfPageBefore,
+  { cellId, mode, wasLeftLongBefore }: EntryOfPageBefore,
   { reads, refusalOfEveryEdit }: Pick<PageContext, 'reads' | 'refusalOfEveryEdit'>,
 ): PageState {
   if (state.mode.kind !== 'navigating' || refusalOfEveryEdit !== null) return state;
   if (!isSameCell(state.activeCell, cellId) || !isSameCell(activeAnchorCell(state, reads), cellId)) return state;
   let textNow = textToEditAt(state, reads, cellId);
-  if (textNow !== mode.textAtStart && textNow !== mode.text) return state;
-  let cellLooks = mode.isTypedOverCell === true ? undefined : looksOfRichCellText(reads, cellId, textNow);
-  let looks = mode.looks ?? (cellLooks === undefined ? undefined : looksAfterTyping(cellLooks, textNow, mode.text));
+  // An entry left long before comes back only over the text it was left with.
+  let isLeftJustBefore = wasLeftLongBefore !== true;
+  if (textNow !== mode.text && !(isLeftJustBefore && textNow === mode.textAtStart)) return state;
+  let cellLooks = mode.isTypedOverCell === true && isLeftJustBefore ? undefined : looksOfRichCellText(reads, cellId, textNow);
+  let { looks: looksOfEntry, ...modeWithoutLooks } = mode;
+  let looks = (isLeftJustBefore ? looksOfEntry : undefined) ?? (cellLooks === undefined ? undefined : looksAfterTyping(cellLooks, textNow, mode.text));
   let restoredMode: EditingMode = {
-    ...mode,
+    ...modeWithoutLooks,
     textAtStart: textNow,
     mayHoldTextOfOthers: true,
     ...(looks !== undefined && {
@@ -273,4 +276,6 @@ export type WhatCaretLeft = EntryLeftByCaret | PeopleFieldLeftByCaret | SheetNam
 interface EntryOfPageBefore {
   cellId: CellId;
   mode: EditingMode;
+  /** The entry was left long before the page opened, so it comes back only over the text it was left with. */
+  wasLeftLongBefore?: true;
 }

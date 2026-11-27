@@ -97,6 +97,8 @@ export interface ResizingDrag {
   sizeAtPress: number;
   pointerAtPress: number;
   isByFinger?: true;
+  /** Set once the drag passed the slop, so dragging back to the size at press still resizes. */
+  hasMoved?: true;
 }
 /** A row or column header the pointer hit. */
 export type HeaderHit = Extract<GridHit, { kind: 'rowHeader' | 'columnHeader' }>;
@@ -672,7 +674,7 @@ export function pointerDraggedOnGrid(state: PageState, pointer: PointerDragged, 
   if (state.dragging.kind === 'resizing') {
     let { line, sizeAtPress, pointerAtPress } = state.dragging;
     let moved = (line.isA === 'row' ? pointer.y : pointer.x) - pointerAtPress;
-    let isSizeUnchanged = state.dragging.sizeInPixels === sizeAtPress;
+    let isSizeUnchanged = state.dragging.hasMoved !== true;
     let slop = state.dragging.isByFinger === true ? DRAG_START_DISTANCE / state.zoom : DRAG_SLOP;
     if (isSizeUnchanged && Math.abs(moved) < slop) return state;
     let wantedSize = sizeAtPress + moved;
@@ -683,6 +685,7 @@ export function pointerDraggedOnGrid(state: PageState, pointer: PointerDragged, 
       dragging: {
         ...state.dragging,
         sizeInPixels: clampedSize,
+        hasMoved: true,
       },
     };
   }

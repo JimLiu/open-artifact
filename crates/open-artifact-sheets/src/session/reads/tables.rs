@@ -24,7 +24,8 @@ pub(super) mod guess;
 mod live;
 pub(crate) mod values;
 
-pub(super) use guess::{tables_for_formatting, TableForFormatting};
+pub(super) use guess::{declared_areas, tables_for_formatting, TableForFormatting};
+pub(crate) use guess::{bodies_of_tables, TableBody};
 
 pub const KINDS: &[&str] = &[
     "readTableAtCell",

@@ -1,5 +1,6 @@
-import type { ColumnPoint, DecimalSignName, ErrorValue, Reference, RowPoint, SheetId } from '@open-artifact/sheets-core';
-import { findFormulaReferences } from '../references.ts';
+import type { ColumnPoint, DecimalSignName, ErrorValue, RowPoint, SheetId } from '@open-artifact/sheets-core';
+import type { ReferenceOnSheet } from '../references.ts';
+import { findFormulaReferences, referencesWithNamedRangesExpanded } from '../references.ts';
 import { errorCellsOfSheet, isErrorsOfferBlocked, errorsOfferShown } from './errors-offer.ts';
 import type { ErrorCell } from './errors-offer.ts';
 import { errorCodeOfCell, cellKeyOf } from '../error-tells.ts';
@@ -36,7 +37,7 @@ export function shiftFormulaRows(formula: string, rowShift: number, decimalSign:
     }
   return shifted + formula.slice(lastEnd);
 }
-export function relativeReferenceParts(reads: WorkbookReads, reference: Reference, origin: CellPosition): (string | number)[] {
+export function relativeReferenceParts(reads: WorkbookReads, reference: ReferenceOnSheet, origin: CellPosition): (string | number)[] {
   let { sheetId } = reference;
   let rowPart = (point: RowPoint | null) => {
     if (point === null) return '';
@@ -59,6 +60,10 @@ export function relativeReferenceParts(reads: WorkbookReads, reference: Referenc
       return [columnPart(reference.left), columnPart(reference.right), rowPart(reference.top)];
     case 'rows':
       return [rowPart(reference.top), rowPart(reference.bottom), columnPart(reference.left)];
+    case 'tableColumn':
+      return [`$${reference.c}`, String(reference.hasItsHeading)];
+    case 'tablePart':
+      return [`$${reference.columns?.left}`, `$${reference.columns?.right}`, reference.rows];
   }
 }
 export function areFormulasCopies(reads: WorkbookReads, cellId: CellId, otherCellId: CellId): boolean {
@@ -68,13 +73,15 @@ export function areFormulasCopies(reads: WorkbookReads, cellId: CellId, otherCel
   if (input?.kind !== 'formula' || otherInput?.kind !== 'formula') return false;
   if (position === null || otherPosition === null) return false;
   let [formula, otherFormula] = [input.formula, otherInput.formula];
-  return (
+  let isSameText =
     formula.textBetweenReferences.length === otherFormula.textBetweenReferences.length &&
-    formula.textBetweenReferences.every(
-      (textBetweenReference, index) => textBetweenReference === otherFormula.textBetweenReferences[index],
-    ) &&
-    formula.references.every((reference, index) => {
-      let otherReference = otherFormula.references[index];
+    formula.textBetweenReferences.every((textBetweenReference, index) => textBetweenReference === otherFormula.textBetweenReferences[index]);
+  let [references, otherReferences] = [referencesWithNamedRangesExpanded(stored, formula), referencesWithNamedRangesExpanded(stored, otherFormula)];
+  return (
+    isSameText &&
+    references.length === otherReferences.length &&
+    references.every((reference, index) => {
+      let otherReference = otherReferences[index];
       if (otherReference?.kind !== reference.kind || otherReference.sheetId !== reference.sheetId) return false;
       let otherParts = relativeReferenceParts(stored, otherReference, otherPosition);
       return relativeReferenceParts(stored, reference, position).every((part, partIndex) => part === otherParts[partIndex]);
@@ -116,7 +123,7 @@ export function rootErrorCells(reads: WorkbookReads, sheetId: SheetId): ErrorCel
     let input = reads.cellOf(cellId)?.input;
     let rowsByColumn = rowsByColumnByError.get(errorCodeAt(cellId)) ?? new Map<number, number[]>();
     if (
-      !(input?.kind === 'formula' ? input.formula.references : []).some((reference) => {
+      !(input?.kind === 'formula' ? referencesWithNamedRangesExpanded(reads, input.formula) : []).some((reference) => {
         let area = reference.sheetId === sheetId ? areaOfReference(reads, reference) : null;
         if (area === null) return false;
         return [...rowsByColumn].some(

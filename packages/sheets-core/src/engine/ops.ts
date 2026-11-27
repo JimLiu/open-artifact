@@ -11,6 +11,7 @@
 import type { SortDirection } from './edits.ts';
 import type { CellAt, ColumnId, IdRun, RangeCorners, RangeOnASheet, RowId, RunsOfABase, SheetId } from './ids.ts';
 import type { Filter } from './reads.ts';
+import type { ColumnReading } from './utility.ts';
 
 // ---------------------------------------------------------------------------
 // What a cell holds
@@ -43,7 +44,29 @@ export type Reference =
   /** `A:B`, or `A2:B` from a row down (`top`). */
   | { kind: 'columns'; sheetId: SheetId; left: ColumnPoint; right: ColumnPoint; top: RowPoint | null }
   /** `2:3`, or `B2:3` from a column right (`left`). */
-  | { kind: 'rows'; sheetId: SheetId; top: RowPoint; bottom: RowPoint; left: ColumnPoint | null };
+  | { kind: 'rows'; sheetId: SheetId; top: RowPoint; bottom: RowPoint; left: ColumnPoint | null }
+  /**
+   * A column of a connected table (`Customers[Id]`), its heading with it or
+   * not (`Customers[[#All],[Id]]`). Written from format 49.
+   */
+  | { kind: 'tableColumn'; sheetId: SheetId; c: ColumnId; hasItsHeading: boolean }
+  /**
+   * Some rows of a connected table, of some of its columns (`null`: all of
+   * them): `Customers[#Headers]`, `Customers[[#Data],[Id]:[Name]]`. Written
+   * from format 55.
+   */
+  | { kind: 'tablePart'; sheetId: SheetId; columns: TableColumns | null; rows: TableRows }
+  /** A named range, by id: written by its name as it is now, `#REF!` once removed. From format 51. */
+  | { kind: 'namedRange'; namedRangeId: string };
+
+/** The columns of a connected table a reference reads, from one to another. */
+export interface TableColumns {
+  left: ColumnId;
+  right: ColumnId;
+}
+
+/** The rows of a connected table a reference reads: its heading, its records, or both. */
+export type TableRows = 'heading' | 'records' | 'headingAndRecords';
 
 /**
  * A formula as a cell keeps it: its text cut at its references
@@ -177,6 +200,10 @@ export type Wrap = boolean | 'clip';
  */
 export interface CellFormat {
   numberFormat?: NumberFormat;
+  /** The value the cell is reset to (`resetCellsToDefaultValues`), from format 54. */
+  defaultValue?: DefaultValue;
+  /** The least and most number the cell may be given, from format 54. */
+  valueLimits?: ValueLimits;
   alignment?: { horizontal?: HorizontalAlignment; vertical?: VerticalAlignment; wrap?: WrapWritten };
   fillColor?: Color;
   cellControl?: CellControl;
@@ -190,6 +217,28 @@ export interface CellFormat {
     /** 1 to 409 points. */
     size?: number;
   };
+}
+
+/**
+ * A cell's default value: none (the default), blank (the cell is emptied), a
+ * number, a text that is not empty, a boolean, or an option of the cell's
+ * dropdown (its label not empty).
+ */
+export type DefaultValue =
+  | { kind: 'none' }
+  | { kind: 'blank' }
+  | { kind: 'number'; value: number }
+  | { kind: 'text'; value: string }
+  | { kind: 'boolean'; value: boolean }
+  | { kind: 'dropdownOption'; optionId: string; label: string };
+
+/**
+ * The least and most number a cell may be given (`null`: no end; the default
+ * is both `null`). The minimum is not above the maximum.
+ */
+export interface ValueLimits {
+  minimum: number | null;
+  maximum: number | null;
 }
 
 /** Cells to format: every row by every column, and the format they take. */
@@ -229,6 +278,11 @@ export interface SheetSettings {
    * element; while it is set, edits to the sheet's grid are refused.
    */
   interactive?: string | null;
+  /**
+   * Whether the sheet's tab is hidden, from format 50. Never `null`. A sheet
+   * is not hidden when no other is shown (`noShownSheetLeft`).
+   */
+  isHidden?: boolean;
 }
 
 export interface SheetToSet {
@@ -539,6 +593,116 @@ export interface SortedBy {
   direction: SortDirection;
 }
 
+// ---------------------------------------------------------------------------
+// Connected tables
+// ---------------------------------------------------------------------------
+
+/** The call made again for the next records, its cursor written in the arguments as `{{cursor}}`. */
+export interface FollowUpOfACall {
+  tool: string;
+  argumentsAsJson: string;
+}
+
+/** The call a connected table fetches its records with, and the code that makes its answer into records. */
+export interface CallOfAConnectedTable {
+  title: string;
+  connector: string;
+  tool: string;
+  /** A JSON object, as text. */
+  argumentsAsJson: string;
+  followUp: FollowUpOfACall | null;
+  transform: { kind: 'code'; source: string };
+}
+
+export interface ConnectedTable {
+  call: CallOfAConnectedTable;
+}
+
+/** A column of a connected table: its name, and the field it shows (its texts read as they are when `reading` is `null`). */
+export interface ColumnOfAConnectedTable {
+  name: string;
+  from: { kind: 'field'; field: string; reading: ColumnReading | null };
+  /** How the column's records line up; without it, a column lines up by what it holds. */
+  horizontalAlignment?: HorizontalAlignment;
+}
+
+/** What the server fetched last for a connected table. */
+export interface SnapshotOfAConnectedTable {
+  /** 32 digits of lowercase hexadecimal. */
+  snapshotId: string;
+  rowCount: number;
+  fieldCount: number;
+  textInBytes: number;
+  isCutOff: boolean;
+  fetchedAtInSecondsSince1970: number;
+  /** The digest of the call it was fetched with. */
+  callDigest: string;
+}
+
+export interface ConnectedTableToSet {
+  sheetId: SheetId;
+  /** `null` makes the sheet no connected table. */
+  connectedTable: ConnectedTable | null;
+}
+
+export interface ColumnOfAConnectedTableToSet {
+  c: ColumnId;
+  column: ColumnOfAConnectedTable | null;
+}
+
+export interface SnapshotToSet {
+  sheetId: SheetId;
+  snapshot: SnapshotOfAConnectedTable | null;
+}
+
+// ---------------------------------------------------------------------------
+// Named ranges and protections
+// ---------------------------------------------------------------------------
+
+/** The cells a named range names: a range, columns (from a row down), or rows (from a column right). */
+export type CellsOfANamedRange =
+  | { kind: 'range'; sheetId: SheetId; topLeft: CellAt; bottomRight: CellAt }
+  | { kind: 'columns'; sheetId: SheetId; left: ColumnId; right: ColumnId; top: RowId | null }
+  | { kind: 'rows'; sheetId: SheetId; top: RowId; bottom: RowId; left: ColumnId | null };
+
+export interface NamedRange {
+  name: string;
+  cells: CellsOfANamedRange;
+}
+
+export interface NamedRangeToSet {
+  namedRangeId: string;
+  /** `null` removes it. */
+  namedRange: NamedRange | null;
+}
+
+/** A named range by its id, as the workbook holds it. */
+export interface NamedRangeEntry {
+  namedRangeId: string;
+  namedRange: NamedRange;
+}
+
+/** A range of a sheet a protection names: cells, whole rows, or whole columns. */
+export type ProtectedRange =
+  | { kind: 'cells'; topLeft: CellAt; bottomRight: CellAt }
+  | { kind: 'wholeRows'; first: RowId; last: RowId }
+  | { kind: 'wholeColumns'; first: ColumnId; last: ColumnId };
+
+/** What a protection protects: a range of the sheet, or the whole sheet but its open ranges. */
+export type Protects = { kind: 'range'; range: ProtectedRange } | { kind: 'sheet'; openRanges: ProtectedRange[] };
+
+/** A protection: what it protects, and the user ids of who may still edit it (the owner always may). */
+export interface Protection {
+  protects: Protects;
+  editors: string[];
+}
+
+export interface ProtectionToSet {
+  protectionId: string;
+  /** `null` removes it. */
+  protection: Protection | null;
+}
+
 /** Every operation, by `kind`. Lists in an operation are never empty, and runs never of no ids. */
 export type Op =
   | { kind: 'insertSheet'; sheetId: SheetId; name: string; after: SheetId | null }
@@ -579,7 +743,17 @@ export type Op =
   | { kind: 'moveRows'; sheetId: SheetId; moves: RowMove[] }
   | { kind: 'reorderRows'; sheetId: SheetId; rows: RowsInOrder; sortedBy: SortedBy[] }
   | { kind: 'moveColumns'; sheetId: SheetId; moves: ColumnMove[] }
-  | { kind: 'moveSheets'; moves: SheetMove[] };
+  | { kind: 'moveSheets'; moves: SheetMove[] }
+  /** From format 48. */
+  | { kind: 'setConnectedTables'; tables: ConnectedTableToSet[] }
+  /** From format 48. */
+  | { kind: 'setColumnsOfConnectedTable'; sheetId: SheetId; columns: ColumnOfAConnectedTableToSet[] }
+  /** From format 48. */
+  | { kind: 'setSnapshots'; snapshots: SnapshotToSet[] }
+  /** From format 51. */
+  | { kind: 'setNamedRanges'; namedRanges: NamedRangeToSet[] }
+  /** From format 52. */
+  | { kind: 'setProtections'; sheetId: SheetId; protections: ProtectionToSet[] };
 
 export type OpKind = Op['kind'];
 
@@ -589,7 +763,7 @@ export type OpOf<K extends OpKind> = Extract<Op, { kind: K }>;
 /** The oldest version of the operations' format the engine reads. */
 export const OLDEST_FORMAT_VERSION = 17;
 /** The newest version of the operations' format the engine writes. */
-export const NEWEST_FORMAT_VERSION = 47;
+export const NEWEST_FORMAT_VERSION = 55;
 
 /**
  * An edit as recorded for the server: the version of the format its operations

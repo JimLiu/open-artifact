@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { Combobox as BaseCombobox } from '@base-ui/react/combobox';
 import { cn } from './cn.ts';
+import { Badge } from './badge.tsx';
 import { Icon, LeadingIcon, type IconName } from './icon.tsx';
 import { useKitLabel } from './labels.tsx';
 import { useOverlayLayer } from './layers.tsx';
@@ -291,6 +292,204 @@ function ComboboxField<V extends string = string>({
   );
 }
 
+const CHIPS_FIELD_CLASSES =
+  'ui-reset flex min-w-0 w-full items-center gap-1.5 min-h-control ps-[var(--ui-pad-xs)] pe-[var(--ui-pad-xs)] py-[calc((var(--ui-h-control)-var(--ui-h-control-nested))/2-1px)] rounded-control border border-default bg-fill-field text-body font-normal font-control text-primary cursor-text transition-shadow duration-fast hover:border-strong focus-within:shadow-focus data-[disabled]:opacity-disabled data-[disabled]:pointer-events-none data-[invalid]:border-[color:var(--ui-text-danger)]';
+const CHIPS_CLASSES = 'flex min-w-0 flex-1 flex-wrap items-center gap-1';
+const CHIP_CLASSES = 'max-w-full min-w-0 outline-none data-[highlighted]:shadow-focus';
+const CHIPS_INPUT_CLASSES =
+  'ui-reset h-control-nested min-w-[6ch] flex-1 bg-transparent border-0 outline-none px-1 text-body text-primary placeholder:text-muted';
+const CHIP_REMOVE_CLASSES =
+  'ui-reset -me-1 inline-flex size-4 shrink-0 items-center justify-center rounded-full text-muted hover:text-primary cursor-default';
+const STATUS_CLASSES = 'empty:hidden px-md py-2 text-body text-muted';
+
+/** Enter held down does not pick and unpick the highlighted option again and again. */
+function preventRepeatedEnterKeydown(event: React.KeyboardEvent<HTMLInputElement>): void {
+  if (event.key === 'Enter' && event.repeat) event.preventDefault();
+}
+
+export interface MultiComboboxProps<V extends string = string> {
+  multiple: true;
+  /** The picks show as chips inside the field, with the search typed after them. */
+  triggerMode: 'chips';
+  /** Chips wrap onto more lines as they are added. */
+  chipsOverflow?: 'wrap';
+  items: readonly ComboboxOption<V>[];
+  value: readonly V[];
+  onChange: (value: V[]) => void;
+  onOpenChange?: (open: boolean) => void;
+  /** Called as the search changes, for options that come from elsewhere. */
+  onInputChange?: (text: string) => void;
+  /** Whether an option matches what was typed; by default its label or value contains it, ignoring case. */
+  filter?: (item: ComboboxOption<V>, query: string) => boolean;
+  /** Options are still being found; the list says so while it has none. */
+  isLoading?: boolean;
+  emptyMessage?: React.ReactNode;
+  /** Text in the field while nothing is picked. */
+  placeholder?: string;
+  disabled?: boolean;
+  'aria-label'?: string;
+  'aria-labelledby'?: string;
+  'aria-describedby'?: string;
+  className?: string;
+}
+
+/**
+ * A field to pick several options from, shown as removable chips, with a search typed after them.
+ * A picked option that is disabled stays picked; picking keeps the list open and clears the search.
+ */
+function MultiComboboxField<V extends string = string>({
+  items,
+  value,
+  onChange,
+  onOpenChange,
+  onInputChange,
+  filter,
+  isLoading = false,
+  emptyMessage,
+  placeholder,
+  disabled,
+  'aria-label': ariaLabel,
+  'aria-labelledby': ariaLabelledby,
+  'aria-describedby': ariaDescribedby,
+  className,
+}: MultiComboboxProps<V>): React.ReactElement {
+  const layer = useOverlayLayer('combobox');
+  const loadingOptions = useKitLabel('loadingOptions');
+  const removeLabel = useKitLabel('removeItem', { item: '{item}' });
+  const matches = filter ?? optionMatches;
+  const itemsByValue = React.useMemo(() => new Map(items.map((item) => [item.value, item])), [items]);
+  const selected = React.useMemo(
+    () => value.flatMap((picked) => itemsByValue.get(picked) ?? []),
+    [value, itemsByValue],
+  );
+  const selectedRef = React.useRef(selected);
+  selectedRef.current = selected;
+  const valueRef = React.useRef(value);
+  valueRef.current = value;
+  const chipsRef = React.useRef<HTMLDivElement | null>(null);
+  const inputRef = React.useRef<HTMLInputElement | null>(null);
+  const [open, setOpen] = React.useState(false);
+  const [query, setQuery] = React.useState('');
+  const shownCount = React.useMemo(() => items.filter((item) => matches(item, query)).length, [items, matches, query]);
+
+  const changeValue = (next: ComboboxOption<V>[], details: BaseCombobox.Root.ChangeEventDetails): void => {
+    // Escape closes the list (and lets a dialog around it close), not the picks.
+    if (details.reason === 'escape-key') {
+      details.cancel();
+      details.allowPropagation();
+      return;
+    }
+    // A held Backspace removes one chip, not all of them.
+    const event = details.event;
+    if (event instanceof KeyboardEvent && event.key === 'Backspace' && event.repeat && event.target instanceof HTMLInputElement) {
+      details.cancel();
+      return;
+    }
+    let picks = next;
+    const values = new Set(next.map((item) => item.value));
+    const kept = selectedRef.current.filter((item) => item.disabled === true && !values.has(item.value));
+    if (kept.length > 0) {
+      picks = [...next, ...kept];
+      const current = new Set(valueRef.current);
+      if (picks.length === current.size && picks.every((item) => current.has(item.value))) return;
+    }
+    onChange(picks.map((item) => item.value));
+  };
+
+  return (
+    <BaseCombobox.Root<ComboboxOption<V>, true>
+      multiple
+      items={items}
+      value={selected}
+      onValueChange={changeValue}
+      onInputValueChange={(text) => {
+        setQuery(text);
+        onInputChange?.(text);
+      }}
+      open={open}
+      onOpenChange={(isOpen, details) => {
+        // Enter that closes the list does not reach a form or dialog around it.
+        if (!isOpen && details.reason === 'none' && details.event instanceof KeyboardEvent && details.event.key === 'Enter') {
+          details.event.preventDefault();
+        }
+        setOpen(isOpen);
+        onOpenChange?.(isOpen);
+      }}
+      itemToStringLabel={optionLabel}
+      itemToStringValue={optionValue}
+      isItemEqualToValue={sameOption}
+      filter={(item, query) => matches(item, query)}
+      disabled={disabled}
+    >
+      <div
+        data-ui="ComboboxChips"
+        data-disabled={disabled || undefined}
+        className={cn(CHIPS_FIELD_CLASSES, className)}
+        onClick={(event) => {
+          if (disabled === true || open || event.target !== event.currentTarget) return;
+          event.preventDefault();
+          inputRef.current?.focus();
+          setOpen(true);
+          onOpenChange?.(true);
+        }}
+      >
+        <BaseCombobox.Chips ref={chipsRef} className={CHIPS_CLASSES}>
+          {selected.map((item) => (
+            <BaseCombobox.Chip key={item.value} className={CHIP_CLASSES} render={<Badge variant="neutral" className="min-w-0" />}>
+              <span className="min-w-0 truncate">{item.label}</span>
+              {item.disabled !== true && (
+                <BaseCombobox.ChipRemove
+                  nativeButton={false}
+                  render={<span />}
+                  aria-label={removeLabel.replace('{item}', item.label)}
+                  onClick={(event) => event.preventDefault()}
+                  className={CHIP_REMOVE_CLASSES}
+                >
+                  <Icon name="X" size="xs" />
+                </BaseCombobox.ChipRemove>
+              )}
+            </BaseCombobox.Chip>
+          ))}
+          <BaseCombobox.Input
+            ref={inputRef}
+            {...NO_AUTOFILL_PROPS}
+            className={cn(CHIPS_INPUT_CLASSES, selected.length > 0 && 'w-0')}
+            placeholder={selected.length === 0 ? placeholder : undefined}
+            disabled={disabled}
+            onKeyDown={preventRepeatedEnterKeydown}
+            aria-label={ariaLabel}
+            aria-labelledby={ariaLabelledby}
+            aria-describedby={ariaDescribedby}
+          />
+        </BaseCombobox.Chips>
+      </div>
+      <BaseCombobox.Portal>
+        <PopupLayerScope layer={layer}>
+          <BaseCombobox.Positioner
+            className="data-[anchor-hidden]:invisible"
+            style={layer.style}
+            anchor={chipsRef}
+            align="start"
+            sideOffset={4}
+          >
+            <BaseCombobox.Popup data-ui="Combobox" aria-busy={isLoading || undefined} className={POPUP_CLASSES}>
+              <ComboboxEmpty>{isLoading ? null : emptyMessage}</ComboboxEmpty>
+              <ComboboxList>
+                {(item: ComboboxOption<V>) => (
+                  <ComboboxItem key={item.value} value={item} disabled={item.disabled} icon={item.icon} description={item.description}>
+                    {item.label}
+                  </ComboboxItem>
+                )}
+              </ComboboxList>
+              <BaseCombobox.Status className={STATUS_CLASSES}>{isLoading && shownCount === 0 ? loadingOptions : null}</BaseCombobox.Status>
+            </BaseCombobox.Popup>
+          </BaseCombobox.Positioner>
+        </PopupLayerScope>
+      </BaseCombobox.Portal>
+    </BaseCombobox.Root>
+  );
+}
+
 ComboboxPopupSearch.displayName = 'Combobox.PopupSearch';
 ComboboxList.displayName = 'Combobox.List';
 ComboboxItem.displayName = 'Combobox.Item';
@@ -299,7 +498,10 @@ ComboboxGroupLabel.displayName = 'Combobox.GroupLabel';
 ComboboxFooterAction.displayName = 'Combobox.FooterAction';
 ComboboxEmpty.displayName = 'Combobox.Empty';
 
+MultiComboboxField.displayName = 'MultiCombobox';
+
 export {
+  MultiComboboxField as MultiCombobox,
   ComboboxRoot,
   ComboboxPopupSearch,
   ComboboxList,

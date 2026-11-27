@@ -23,6 +23,7 @@ pub mod number_format;
 pub mod session;
 pub mod shown;
 pub mod time_zone;
+pub(crate) mod told;
 pub mod typed_day;
 pub mod typed_text;
 pub mod typing;

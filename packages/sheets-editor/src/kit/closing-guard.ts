@@ -134,3 +134,85 @@ export function guardHeldActivationKey(event: React.KeyboardEvent<Element>, card
   win.addEventListener('keydown', onKey, true);
   win.addEventListener('keyup', onKey, true);
 }
+
+const ENTER_GUARD_WINDOW_MS = 500;
+const ENTER_GUARD_LATE_FOCUS_MS = 1000;
+const ENTER_GUARD_MAX_EVENT_AGE_MS = 3000;
+const MODIFIER_KEYS: ReadonlySet<string> = new Set(['Shift', 'Control', 'Alt', 'Meta']);
+
+/** When the key was pressed: a trusted event's timeStamp, unless it looks stale or bogus. */
+export function keyPressedAt(event: KeyboardEvent): number {
+  const age = (event.view?.performance.now() ?? 0) - event.timeStamp;
+  const usesTimeStamp = event.isTrusted && event.timeStamp > 0 && age > 0 && age <= ENTER_GUARD_MAX_EVENT_AGE_MS;
+  return performance.now() - (usesTimeStamp ? age : 0);
+}
+
+/**
+ * Swallows an Enter pressed in the moment after something opened or closed, and Enter's repeats
+ * while it is held, so the press that did it does not also act on what has focus now. Any other
+ * key ends the guard; with `lateFocus`, a focus move soon after starts the moment again. Returns
+ * a function that ends the guard.
+ */
+export function guardEnterKeyAfterOpen(doc: Document, lateFocus = false): () => void {
+  let guardUntil = performance.now() + ENTER_GUARD_WINDOW_MS;
+  const armedAt = performance.now();
+  const onKeyDown = (event: KeyboardEvent): void => {
+    const plain = !(event.shiftKey || event.metaKey || event.ctrlKey || event.altKey);
+    if (event.key === 'Enter' && (event.repeat || (plain && keyPressedAt(event) < guardUntil))) {
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.repeat) guardUntil = performance.now() + ENTER_GUARD_WINDOW_MS;
+    } else if (!event.repeat && !MODIFIER_KEYS.has(event.key)) stop();
+  };
+  const onFocusIn = (event: FocusEvent): void => {
+    if (isElement(event.target) && event.target.tagName === 'IFRAME') return;
+    if (performance.now() - armedAt <= ENTER_GUARD_LATE_FOCUS_MS) guardUntil = performance.now() + ENTER_GUARD_WINDOW_MS;
+    doc.removeEventListener('focusin', onFocusIn, true);
+  };
+  const stop = (): void => {
+    doc.removeEventListener('keydown', onKeyDown, true);
+    doc.removeEventListener('focusin', onFocusIn, true);
+  };
+  doc.addEventListener('keydown', onKeyDown, true);
+  if (lateFocus) doc.addEventListener('focusin', onFocusIn, true);
+  return stop;
+}
+
+/**
+ * An Enter press that closes a dialog must not land on whatever is under it once it is gone:
+ * when the dialog is gone by the time the key repeats or is let go, Enter stays guarded until
+ * the next pointer press. For the dialog popup's `onKeyDownCapture`.
+ */
+export function guardEnterThroughDialogClose(event: React.KeyboardEvent<Element>): void {
+  if (event.key !== 'Enter' || event.repeat || !event.isTrusted) return;
+  const popup = event.currentTarget;
+  if (popup.hasAttribute('data-closed')) return;
+  const doc = popup.ownerDocument;
+  const armIfClosed = (): boolean => {
+    if (popup.isConnected && !popup.hasAttribute('data-closed') && popup.checkVisibility?.() !== false) return false;
+    stop();
+    const focusWasInside = doc.activeElement === doc.body || popup.contains(doc.activeElement);
+    doc.addEventListener('pointerdown', guardEnterKeyAfterOpen(doc, focusWasInside), { capture: true, once: true });
+    return true;
+  };
+  const onKey = (key: KeyboardEvent): void => {
+    if (MODIFIER_KEYS.has(key.key) || (key.type === 'keyup' && key.key !== 'Enter')) return;
+    if (key.repeat) {
+      if (key.key === 'Enter' && armIfClosed()) {
+        key.preventDefault();
+        key.stopPropagation();
+      }
+      return;
+    }
+    if (key.type === 'keyup') armIfClosed();
+    stop();
+  };
+  const timer = setTimeout(armIfClosed);
+  const stop = (): void => {
+    clearTimeout(timer);
+    doc.removeEventListener('keydown', onKey, true);
+    doc.removeEventListener('keyup', onKey, true);
+  };
+  doc.addEventListener('keydown', onKey, true);
+  doc.addEventListener('keyup', onKey, true);
+}

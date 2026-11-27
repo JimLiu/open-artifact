@@ -1,6 +1,6 @@
 import { Popover } from '../../kit/popover.tsx';
 import { isComposingKey } from '@open-artifact/ui/keys';
-import { AgentMark } from '../../kit/agent-mark.tsx';
+import { AgentMark, usePreloadWorkingMark } from '../../kit/agent-mark.tsx';
 import { Button } from '../../kit/button.tsx';
 import * as React from 'react';
 import { IS_APPLE_PLATFORM, preventMouseDownDefault } from '../../ui/dom-events.ts';
@@ -346,6 +346,7 @@ export const ErrorsOfferNotice = React.memo(function ({
   if (nextSeenWithCount !== seenWithCount) setSeenWithCount(nextSeenWithCount);
   let isShown = mayOpen && !hasLeftView && (isOpen || canAttach);
   if (isShown !== isOpen) setIsOpen(isShown);
+  usePreloadWorkingMark(isShown && stage === 'offered');
   const shownStage: ErrorsNoticeStage | 'chat' | null = useLastNonNull(isShown ? (stage ?? 'chat') : null);
   const isChoiceListShown = shownStage === 'asked' || shownStage === 'waiting';
   let shownFixCount: number = useLastNonNull(areFixesUnderWay ? countOfFixes : null) ?? countOfFixes;

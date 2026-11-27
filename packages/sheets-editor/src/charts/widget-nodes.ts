@@ -4,7 +4,8 @@ import type { WidgetRequest } from '@open-artifact/runtime/sheet-api';
 import { answerOf, isRetryableFailure, refusalOf } from '../store/requests.ts';
 import { isRecord } from '../store/json.ts';
 import type { StoreCall, StoreOutcome } from '../store/sheet-stream.ts';
-import { STOCK_CHART_PROGRAMS, STOCK_KINDS, type StockKind } from './stock-programs.ts';
+import { stockKindOfAnyProgram } from '@open-artifact/sheets-core/stock-charts';
+import type { StockKind } from './stock-programs.ts';
 import type { ChartEditAsked } from '../state/event-reducer.ts';
 import type { ChartEditOutcome } from '../state/controller.ts';
 import type { ChartChangeOutcome } from '../messages/charts.ts';
@@ -129,6 +130,5 @@ export const WIDGET_CREATE_ROUNDS = 3;
 export const WIDGET_CREATE_RETRY_MS = 1000;
 export const WIDGET_READ_ROUNDS = 3;
 export const WIDGET_READ_RETRY_MS = 1000;
-export const stockKindOfChartCode = (code: string): StockKind | null =>
-  STOCK_KINDS.find((kind) => STOCK_CHART_PROGRAMS[kind].trim() === code.trim()) ?? null;
-export const STOCK_CHART_KINDS: readonly StockKind[] = STOCK_KINDS;
+/** The kind of stock chart a chart's code draws, by today's program or one of the earlier ones a chart may still hold; null for any other code. */
+export const stockKindOfChartCode = (code: string): StockKind | null => stockKindOfAnyProgram(code);

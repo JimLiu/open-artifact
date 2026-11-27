@@ -1,4 +1,7 @@
-import { AgentMark } from '../../kit/agent-mark.tsx';
+import { AgentMark, StandaloneWorkingMark, WordsWhileAgentWorks, usePreloadWorkingMark } from '../../kit/agent-mark.tsx';
+import { prefersReducedMotion } from '../../kit/platform.ts';
+import { flushSync } from 'react-dom';
+import { TYPED_SEARCH_ANNOUNCE_DELAY_MS } from '../../ui/search-announcer.tsx';
 import { ShimmerText } from '../../kit/shimmer-text.tsx';
 import { useUiWindow } from '../../kit/theme.tsx';
 import { Tooltip } from '../../kit/tooltip.tsx';
@@ -51,7 +54,6 @@ import { StopKeyHint } from '../../agent/agent-rows.tsx';
 import { isPressTaken } from '../../ui/ask-agent-to-fix-button.tsx';
 import { describeFunction } from '../function-help.ts';
 import { entryEditorOf } from '../../dom/entry-editor.ts';
-import type { AgentMarkState } from '../../kit/agent-mark.tsx';
 import type { FormulaFromWords, FormulaFromWordsStage, FormulaOffered, FormulaCameToNothing } from '../../state/initial-state.ts';
 import type { PageEvent } from '../../state/event-reducer.ts';
 import type { EntryBoxes } from '../../editor/entry-boxes.ts';
@@ -114,6 +116,15 @@ interface OfferSaid {
   ofKind: FormulaFromWordsStage['kind'] | null;
   ofRead: string | null;
   wasAgentOffered: boolean;
+  /** What was typed when the offer was last read out. */
+  ofTyped: string | null;
+  /** How many times the same words were read out again for new typing. */
+  timesAnew: number;
+}
+/** The mark beside the offer now, and whether it took the place of the mark that greeted the offer. */
+interface WandState {
+  now: OfferWandKind;
+  tookPlaceOfWand: boolean;
 }
 /** The handlers that keep a press meant for a row that moved from choosing the row now under it. */
 export interface OfferPressGuard {
@@ -145,25 +156,32 @@ export function highlightedOfferRowId(offer: FormulaFromWordsStage | null): stri
     ),
   );
 }
+/** The mark that greets an offer: it comes in once, then rests. */
+export function WandThatEnters() {
+  let [hasEntered, setHasEntered] = React.useState(false);
+  return <AgentMark size={14} state={hasEntered ? 'idle' : 'entrance'} onEnd={() => setHasEntered(true)} />;
+}
+export function nextWandState(kind: OfferWandKind, before: WandState | null): WandState {
+  if (before?.now === kind) return before;
+  return kind === 'asked'
+    ? {
+        now: kind,
+        tookPlaceOfWand: before !== null,
+      }
+    : {
+        now: kind,
+        tookPlaceOfWand: false,
+      };
+}
 interface OfferWandProps {
   kind: OfferWandKind;
 }
 export function OfferWand({ kind }: OfferWandProps) {
-  let [wand, setWand] = React.useState({
-    of: kind,
-    isOver: false,
-  });
-  if (wand.of !== kind)
-    setWand({
-      of: kind,
-      isOver: false,
-    });
-  let [startState, endState] = OFFER_WAND_STATES[kind];
-  return <span aria-hidden className="flex shrink-0 items-center text-agent"><AgentMark size={14} state={wand.of === kind && wand.isOver ? endState : startState} onEnd={() =>
-        setWand({
-          of: kind,
-          isOver: true,
-        })} /></span>;
+  usePreloadWorkingMark(true);
+  let [wand, setWand] = React.useState<WandState>(() => nextWandState(kind, null));
+  let next = nextWandState(kind, wand);
+  if (next !== wand) setWand(next);
+  return <OfferWandMarks {...next} />;
 }
 interface WordsInTurnProps {
   words: string;
@@ -189,7 +207,7 @@ export function WordsInTurn({ words, isShimmering, takeAPlace, doWordsWrap = fal
   });
   return <span ref={wordsRef} className={doWordsWrap ? 'relative wrap-anywhere whitespace-normal' : 'relative shrink-0 grow whitespace-nowrap'}>{wordsBefore !== null &&
         (<span key={wordsBefore} ref={(element) => {
-              if (prefersReducedMotionAt(element))
+              if (element !== null && prefersReducedMotion())
                 setTurn({
                   now: words,
                   before: null,
@@ -201,7 +219,7 @@ export function WordsInTurn({ words, isShimmering, takeAPlace, doWordsWrap = fal
                 now: words,
                 before: null,
               })}>{wordsBefore}</span>)}<span key={words} className={wordsBefore === null ? undefined : 'sheet-words-in-turn'}>{isShimmering
-            ? <ShimmerText>{words}</ShimmerText>
+            ? <WordsWhileAgentWorks>{words}</WordsWhileAgentWorks>
             : words}</span></span>;
 }
 export function formulaArgumentChunks(formula: string): FormulaChunk[] {
@@ -549,7 +567,7 @@ export function FormulaArriving({
   React.useLayoutEffect(() => {
     if (!isArriving) return;
     let arrival = arrivalRef.current;
-    arrival.isDrawnIn = !hasEditorBox || prefersReducedMotionAt(wordsRef.current);
+    arrival.isDrawnIn = !hasEditorBox || prefersReducedMotion();
     let stopWatching = reportTimeAfterNextPaint(ownWindow, (sinceMs: number) => {
       arrival.sinceMs = sinceMs;
       scheduleArrival();
@@ -664,11 +682,46 @@ export function isOfferSaidAtOnce(stage: FormulaFromWordsStage | null, isWavedOf
     (stage.readOtherwise === undefined || stage.hasCallFailed);
   return (kind !== null && kind !== 'offered') || isRestedOnNoReading || isWavedOff;
 }
+/** Reads the offer out again when typing goes on and the same offer still stands, after a pause in the keys. */
+export function watchToSayTypedAgain(
+  { words, ofKind, ofTyped }: OfferSaid,
+  kind: FormulaFromWordsStage['kind'] | null,
+  typed: string | null,
+  sayAgain: () => void,
+  ownWindow: Window | null,
+): (() => void) | undefined {
+  if (kind !== 'offered' || !(ofKind === 'offered' && words !== null) || typed === null || ofTyped === typed) return;
+  let timer = setTimeout(sayAgain, TYPED_SEARCH_ANNOUNCE_DELAY_MS);
+  let waitAgain = () => {
+    clearTimeout(timer);
+    timer = setTimeout(sayAgain, TYPED_SEARCH_ANNOUNCE_DELAY_MS);
+  };
+  let eventNames = ['keydown', 'pointerdown', 'click'];
+  for (let eventName of eventNames) ownWindow?.addEventListener(eventName, waitAgain, true);
+  return () => {
+    clearTimeout(timer);
+    for (let eventName of eventNames) ownWindow?.removeEventListener(eventName, waitAgain, true);
+  };
+}
+export function saidAgainForTyped(said: OfferSaid, stage: FormulaFromWordsStage | null, typed: string | null): OfferSaid {
+  let words = offerAnnouncement(stage, false);
+  return words === null
+    ? said
+    : {
+        ...said,
+        words,
+        ofTyped: typed,
+        timesAnew: said.timesAnew + 1,
+      };
+}
 interface FormulaOfferAnnouncerProps {
   formulaFromWords: Pick<FormulaFromWords, 'stage' | 'isWavedOff'>;
   isEntryOpen: boolean;
+  typed: string | null;
+  boxes: Pick<EntryBoxes, 'cell' | 'formulaBar'>;
+  isKeyboardLeftOutside: () => boolean;
 }
-export function FormulaOfferAnnouncer({ formulaFromWords: { stage, isWavedOff }, isEntryOpen }: FormulaOfferAnnouncerProps) {
+export function FormulaOfferAnnouncer({ formulaFromWords: { stage, isWavedOff }, isEntryOpen, typed, boxes, isKeyboardLeftOutside }: FormulaOfferAnnouncerProps) {
   let kind = announcedOfferKind(stage);
   let readKey =
     kind === 'offered' && stage?.kind === 'offered' && (isReadingHighlighted(stage.highlighted) || stage.readOtherwise !== undefined)
@@ -682,9 +735,13 @@ export function FormulaOfferAnnouncer({ formulaFromWords: { stage, isWavedOff },
     ofKind: null,
     ofRead: null,
     wasAgentOffered: false,
+    ofTyped: null,
+    timesAnew: 0,
   });
+  let typedNow = React.useEffectEvent(() => typed);
   React.useEffect(() => {
-    let sayNow = () =>
+    let sayNow = () => {
+      let typedWhenSaid = typedNow();
       setSaid(
         (saidBefore) =>
           saidBefore.ofKind === kind && saidBefore.ofRead === readKey && saidBefore.wasAgentOffered === isAgentOffered
@@ -696,13 +753,30 @@ export function FormulaOfferAnnouncer({ formulaFromWords: { stage, isWavedOff },
                 ofKind: kind,
                 ofRead: readKey,
                 wasAgentOffered: isAgentOffered,
+                ofTyped: typedWhenSaid,
+                timesAnew: saidBefore.timesAnew,
               },
       );
+    };
     if (isOfferSaidAtOnce(stage, isWavedOff)) return sayNow();
     let timer = setTimeout(sayNow, OFFER_ANNOUNCE_DELAY_MS);
     return () => clearTimeout(timer);
   }, [kind, readKey, isAgentOffered, stage, isWavedOff, isEntryOpen]);
-  return <LiveAnnouncer words={said.words} />;
+  React.useEffect(() => {
+    let ownerDocument = boxes.formulaBar.current?.ownerDocument ?? null;
+    return watchToSayTypedAgain(
+      said,
+      kind,
+      typed,
+      () => {
+        if (ownerDocument === null || isKeyboardLeftOutside()) return;
+        if (ownerDocument.activeElement !== boxes.cell.current && ownerDocument.activeElement !== boxes.formulaBar.current) return;
+        flushSync(() => setSaid((saidBefore) => (saidBefore === said ? saidAgainForTyped(said, stage, typed) : saidBefore)));
+      },
+      ownerDocument?.defaultView ?? null,
+    );
+  }, [said, kind, stage, typed, boxes, isKeyboardLeftOutside]);
+  return <LiveAnnouncer words={said.words} timesSaid={said.timesAnew} />;
 }
 export function useIsComposing({ formulaBar }: Pick<EntryBoxes, 'formulaBar'>): boolean {
   let [isComposing, setIsComposing] = React.useState(false);
@@ -722,10 +796,12 @@ export function useIsComposing({ formulaBar }: Pick<EntryBoxes, 'formulaBar'>): 
 interface FormulaFromWordsHelpProps extends Omit<FormulaOfferListProps, 'formulaFromWords' | 'anchor' | 'onFixPointedAt' | 'onRoomBesideMeasured'> {
   formulaFromWords: Pick<FormulaFromWords, 'stage' | 'isWavedOff'>;
   typingIn: EditingMode['typingIn'] | null;
+  typed: string | null;
+  isKeyboardLeftOutside: () => boolean;
   isFormulaTyped: boolean;
   cellAnchor: AnchorOnPage;
 }
-export function FormulaFromWordsHelp({ typingIn, isFormulaTyped, cellAnchor, ...props }: FormulaFromWordsHelpProps) {
+export function FormulaFromWordsHelp({ typingIn, typed, isKeyboardLeftOutside, isFormulaTyped, cellAnchor, ...props }: FormulaFromWordsHelpProps) {
   let isInFormulaBar = useLastNonNull(typingIn) === 'formulaBar';
   let barAnchor = useCaretAnchor(props.boxes.formulaBar, 1);
   let { stage } = props.formulaFromWords;
@@ -744,7 +820,7 @@ export function FormulaFromWordsHelp({ typingIn, isFormulaTyped, cellAnchor, ...
     [stage],
   );
   let [isRoomBeside, setIsRoomBeside] = React.useState(true);
-  return <><FormulaOfferList {...props} anchor={isInFormulaBar ? barAnchor : cellAnchor} onFixPointedAt={onFixPointedAt} onRoomBesideMeasured={setIsRoomBeside} /><FixDescriptionTip stage={stage} pointed={pointed} isRoomBeside={isRoomBeside} inPage={props.boxes.formulaBar} /><FormulaOfferAnnouncer formulaFromWords={props.formulaFromWords} isEntryOpen={typingIn !== null} /></>;
+  return <><FormulaOfferList {...props} anchor={isInFormulaBar ? barAnchor : cellAnchor} onFixPointedAt={onFixPointedAt} onRoomBesideMeasured={setIsRoomBeside} /><FixDescriptionTip stage={stage} pointed={pointed} isRoomBeside={isRoomBeside} inPage={props.boxes.formulaBar} /><FormulaOfferAnnouncer formulaFromWords={props.formulaFromWords} isEntryOpen={typingIn !== null} typed={typed} boxes={props.boxes} isKeyboardLeftOutside={isKeyboardLeftOutside} /></>;
 }
 export const FORMULA_FROM_WORDS_LIST_ID = 'formula-from-words';
 export const FORMULA_READ_ROW_ID = `${FORMULA_FROM_WORDS_LIST_ID}-read`;
@@ -765,13 +841,12 @@ export const formulaOfferActiveDescendant = ({ stage }: Pick<FormulaFromWords, '
         id: FORMULA_FROM_WORDS_LIST_ID,
         highlightedRowId: stage.kind === 'offered' && stage.hasRested !== true ? null : highlightedOfferRowId(stage),
       };
-export const prefersReducedMotionAt = (element: Element | null): boolean =>
-  element?.ownerDocument.defaultView?.matchMedia('(prefers-reduced-motion:reduce)').matches === true;
 export const wandKindOf = (kind: FormulaFromWordsStage['kind'] | null): OfferWandKind | null => (kind === 'offered' || kind === 'asked' ? kind : null);
-export const OFFER_WAND_STATES = {
-  offered: ['entrance', 'idle'],
-  asked: ['tickle', 'thinking'],
-} satisfies Record<OfferWandKind, [AgentMarkState, AgentMarkState]>;
+export const OfferWandMarks = ({ now, tookPlaceOfWand }: WandState) =>
+  <span aria-hidden className="relative flex size-3.5 shrink-0 items-center justify-center text-agent">{now === 'offered' && <WandThatEnters />}{tookPlaceOfWand &&
+      <span className="sheet-words-that-go flex"><AgentMark size={14} /></span>}{now === 'asked' &&
+      <span className={tookPlaceOfWand ? 'sheet-words-in-turn flex' : 'flex'}><StandaloneWorkingMark /></span>}</span>;
+export const WandRoom = () => <span aria-hidden className="w-3.5 shrink-0" />;
 interface OfferRowProps {
   row: OfferListRow;
   id: string;
@@ -995,7 +1070,7 @@ export const FormulaOfferList = React.memo(function ({
                               kind: 'formulaOfferRowChosen',
                               row,
                             })}>{wandKind !== null &&
-                              <span aria-hidden className="w-[14px] shrink-0" />}<FormulaAndResult formula={formula} result={formulaResultPreview(comesTo)} /></ListRow>),
+                              <WandRoom />}<FormulaAndResult formula={formula} result={formulaResultPreview(comesTo)} /></ListRow>),
                   )}<ListSeparator /></RowsThatFold>)}{!isAgentLeftOut &&
               (<OfferRow row={offerRows[0]} id={FORMULA_WRITE_ROW_ID} placeInList={readingCount + 1} rowsInList={rowCount} isHighlighted={highlightedRowId === FORMULA_WRITE_ROW_ID} isEveryClickHeard={isProposed || kind === 'asked'} isListNew={isListNew} {...pointingAt(0)}>{wandKind !== null &&
                   <OfferWand kind={wandKind} />}</OfferRow>)}<RowsThatFold isFolded={isAsked} doesEase={doesFoldEase}>{moreFixRows.map(
@@ -1007,7 +1082,7 @@ export const FormulaOfferList = React.memo(function ({
                             onChosen: null,
                           }
                         : offerRows[1]} id={FORMULA_KEEP_TYPING_ROW_ID} placeInList={rowCount} rowsInList={rowCount} isHighlighted={highlightedRowId === FORMULA_KEEP_TYPING_ROW_ID} isEveryClickHeard={isProposed} isListNew={isListNew}>{wandKind !== null &&
-                      <span aria-hidden className="w-[14px] shrink-0" />}</OfferRow></RowsThatFold></div>)}{shownStage?.kind === 'offered' &&
+                      <WandRoom />}</OfferRow></RowsThatFold></div>)}{shownStage?.kind === 'offered' &&
         shownStage.hasCallFailed &&
         <ListHeading>{formulaNotWrittenWords()}</ListHeading>}{shownStage?.kind === 'cameToNothing' &&
         <ListHeading>{formulaNotWrittenReason(shownStage.why)}</ListHeading>}</ListUnderCell>;

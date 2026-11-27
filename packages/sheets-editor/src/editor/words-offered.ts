@@ -4,7 +4,7 @@ import { drawnFormatsOf } from '../format/conditional/drawn-looks.ts';
 import { isHeaderGrayHidden } from '../grid/header-gray-fill.ts';
 import { NO_CELL_COLORS } from '../format/cell-colors.ts';
 import { usersOfCell, cellPlainText } from '../model/cell-values.ts';
-import { placedTablesOfSheet, hasTableHeadings } from '../tables/finding.ts';
+import { placedTablesOfSheet, hasTableHeadings, isTableCertain } from '../tables/finding.ts';
 import { activeAnchorCell, isSameCell } from '../selection/model.ts';
 import { withEntryText } from './text-looks.ts';
 import { addTextPrefixQuote } from '../model/cell-text.ts';
@@ -13,7 +13,6 @@ import type { PageState, WordsOffered } from '../state/initial-state.ts';
 import type { ReadsWithTextMeasurer } from '../state/controller.ts';
 import type { CellEntryTyped, KeyPress, WordsOfferedPressed, WordsOfferedShown } from '../state/event-reducer.ts';
 import type { PlacedTableOnSheet } from '../grid/sticky-headers.ts';
-import type { TableIndexRun } from '../selection/table-select.ts';
 export function isCellPlainForWordsOffer(state: PageState, reads: ReadsWithTextMeasurer, cellRef: CellId): boolean {
   let position = reads.positionOfCell(cellRef);
   if (position === null || entryLooksOf(state.mode) !== undefined) return false;
@@ -44,29 +43,35 @@ export function isWordsOfferFor(typed: string, candidate: string): boolean {
     !RTL_TEXT_PATTERN.test(candidate)
   );
 }
-export function headingRowTest(
+/** A heading row of a table that is certain is skipped; one only assumed gives no offer but is still compared. */
+export function headingRowCertaintyTest(
   state: Pick<PageState, 'tablesRead'>,
   reads: WorkbookReads,
   { sheetId }: Pick<CellId, 'sheetId'>,
   columnIndex: number,
-): (rowIndex: number) => boolean {
-  let headings: TableIndexRun[] = placedTablesOfSheet(state, reads, sheetId).all.flatMap(
-    ({ table, header, columns }: PlacedTableOnSheet) =>
-      hasTableHeadings(table) && columnIndex >= columns.first && columnIndex <= columns.last ? [header] : [],
+): (rowIndex: number) => 'certain' | 'assumed' | null {
+  let tables: PlacedTableOnSheet[] = placedTablesOfSheet(state, reads, sheetId).all.filter(
+    ({ table, columns }: PlacedTableOnSheet) => hasTableHeadings(table) && columnIndex >= columns.first && columnIndex <= columns.last,
   );
-  return (rowIndex: number) => headings.some(({ first, last }) => rowIndex >= first && rowIndex <= last);
+  return (rowIndex: number) => {
+    let placed = tables.find(({ header }) => rowIndex >= header.first && rowIndex <= header.last);
+    if (placed === undefined) return null;
+    return isTableCertain(placed.table) ? 'certain' : 'assumed';
+  };
 }
 export function wordsToOfferAt(typed: string, state: Pick<PageState, 'tablesRead'>, reads: WorkbookReads, cellRef: CellId): string | null {
   let position = reads.positionOfCell(cellRef);
   if (position === null) return null;
-  let isHeadingRow = headingRowTest(state, reads, cellRef, position.columnIndex);
+  let headingRowOf = headingRowCertaintyTest(state, reads, cellRef, position.columnIndex);
   let offered: string | null = null;
   for (let distance = 1; distance <= MAX_ROWS_SEARCHED_FOR_WORDS; distance += 1)
     for (let rowIndex of [position.rowIndex - distance, position.rowIndex + distance]) {
-      let cellId = isHeadingRow(rowIndex) ? null : reads.cellIdAt(cellRef.sheetId, rowIndex, position.columnIndex);
+      let headingRow = headingRowOf(rowIndex);
+      let cellId = headingRow === 'certain' ? null : reads.cellIdAt(cellRef.sheetId, rowIndex, position.columnIndex);
       let text = cellId === null ? null : cellPlainText(reads.cellOf(cellId));
-      if (text !== null && isTypedInFull(typed, text)) return null;
-      if (text !== null && offered === null && isWordsOfferFor(typed, text)) offered = text;
+      if (text === null) continue;
+      if (isTypedInFull(typed, text)) return null;
+      if (headingRow === null && offered === null && isWordsOfferFor(typed, text)) offered = text;
     }
   return offered;
 }

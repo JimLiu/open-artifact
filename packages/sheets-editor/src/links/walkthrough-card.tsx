@@ -27,6 +27,8 @@ interface WalkthroughCardProps {
   anchor: PopoverPopupProps['anchor'];
   areCellsLit: boolean;
   isAtEnd: boolean;
+  /** Whether the card may sit above the bars at the foot of the page. */
+  hasRoomOverBars: boolean;
   isPersonAtWorkInPage: () => boolean;
   onKeyDown: (event: React.KeyboardEvent<Element>) => void;
   giveCaretBack: () => void;
@@ -44,7 +46,7 @@ export function clearCellsLinkedTo(store: StoreOfWalkthrough) {
     });
 }
 
-function WalkthroughCardView({ guide, store, anchor, areCellsLit, isAtEnd, isPersonAtWorkInPage, onKeyDown, giveCaretBack }: WalkthroughCardProps) {
+function WalkthroughCardView({ guide, store, anchor, areCellsLit, isAtEnd, hasRoomOverBars, isPersonAtWorkInPage, onKeyDown, giveCaretBack }: WalkthroughCardProps) {
   let [walk, setWalk] = React.useState<WalkOfGuide | null>(null);
   let [said, setSaid] = React.useState({
     words: '',
@@ -74,7 +76,8 @@ function WalkthroughCardView({ guide, store, anchor, areCellsLit, isAtEnd, isPer
       }),
     [guide, store, isPersonAtWorkInPage],
   );
-  let bottomInset = Math.max(useBottomInset(), useBarsInsetAtFoot());
+  let barsInsetAtFoot = useBarsInsetAtFoot();
+  let bottomInset = Math.max(useBottomInset(), hasRoomOverBars ? barsInsetAtFoot : 0);
   let walkShown = useLastNonNull(walk);
   let stepButtonRef = React.useRef<HTMLElement>(null);
   let mustFocusStepButton = React.useRef(false);

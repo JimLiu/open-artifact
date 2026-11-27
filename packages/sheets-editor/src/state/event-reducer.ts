@@ -42,6 +42,8 @@ import {
   addSheetAfter,
   duplicateSheet,
   deleteSheet,
+  hideSheet,
+  unhideSheet,
   startRenamingSheet,
   finishRenamingSheet,
   markUndoOfferSaved,
@@ -63,7 +65,15 @@ import { stepInSheetPointedIn, switchSheetWhileEditing } from '../formulas/sheet
 import { eventEffectOnDrag } from './drag-events.ts';
 import { stopMovingColumnsOfTable, dropMovedColumnsOfTable } from '../selection/move-table-columns.ts';
 import { cancelMovingCells, noteTableLeftItsPlace, dropMovedCells } from '../selection/move-cells.ts';
-import { endDragKeepingScroll, finishResizeDrag, resetRowHeightOnDoublePress, chooseColumnWidth, chooseRowHeight } from '../grid/resize-lines.ts';
+import {
+  endDragKeepingScroll,
+  finishResizeDrag,
+  resetRowHeightOnDoublePress,
+  chooseColumnWidth,
+  chooseRowHeight,
+  queueResizeEdit,
+  setColumnWidthsEdit,
+} from '../grid/resize-lines.ts';
 import { doesEventCloseTableHandleMenu, markDriftFromTableHandle, tableHandleClicked, openTableHandleMenu } from '../tables/table-handle-menu.ts';
 import {
   moveMarkedLink,
@@ -170,10 +180,12 @@ import {
   editsThatTakeBackRead,
   takeBackAnswered,
   versionAuthorsArrived,
+  nameOfVersionSet,
 } from '../history/version-history.ts';
+import type { NameOfVersionSet } from '../history/version-history.ts';
 import { openConditionalFormatsAs, openConditionalFormatsPane, clearChosenTestBeingAdded } from '../format/conditional/pane-state.ts';
 import { askRulesFromMenuWords, showRulesInMenu, closeRulesMenu, takeAgentAnswerAboutRules } from '../format/conditional/agent-rules.ts';
-import { actInConditionalFormats } from '../format/conditional/pane-reducer.ts';
+import { actInConditionalFormats, withRulesOnTheirWaySettled } from '../format/conditional/pane-reducer.ts';
 import { openSortPane, actInSortPane, sortChosenCells, sortOfSidePane, withSortPaneSortsFor } from '../tables/sort-pane.ts';
 import type { SortPaneActSent } from '../tables/sort-pane.ts';
 import { toggleFormulasShown } from '../grid/formulas-shown.ts';
@@ -202,9 +214,9 @@ import {
   scrollToShowSelection,
 } from '../selection/model.ts';
 import { textToEditAt, startEntryEditing, letArrowsActOnCells, stopArrowsActingOnCells, doesEntryTakeLineBreaks } from '../editor/start-entry.ts';
-import { clampScrollWithFloats, NO_BOXES_AT_FOOT } from '../grid/geometry.ts';
+import { clampScrollWithFloats, NO_BOXES_AT_FOOT, scrollDeltasToLineStarts } from '../grid/geometry.ts';
 import { followCaretAtEnd, keepCaretAtEndInView, addLinesAtEnd } from '../grid/lines-at-end.ts';
-import { isEditingSameText } from '../formulas/reference-pointing.ts';
+import { isEditingSameText, pointAtColumnOfConnectedTable } from '../formulas/reference-pointing.ts';
 import { isFormulaText } from '../chips/dropdown-pane-edits.ts';
 import { closeImportOfAFile, confirmImport, discardImport, escapeImport, keepImport, narrowImportedArea } from '../import/bring-in.ts';
 import { withXlsxFileToldLater, withXlsxFileSaved } from '../export/xlsx-saved-notice.ts';
@@ -273,6 +285,7 @@ import {
   noticeOfStepNotTaken,
   showChangedPlace,
   showUndoneOrRedone,
+  leaveSheetHiddenBySomeone,
 } from './edit-answers.ts';
 import { IF_QUEUED_DEFAULTS } from '../model/edit-effects.ts';
 import { doesRowsActionSort, actOnRowsAsk, takeAgentRowsAnswer, openRowsAsk, scrollToFilterButtonsRow } from '../tables/rows-asked-for.ts';
@@ -343,7 +356,30 @@ import { updatePivotTable } from './pivot-tables-out-of-date.ts';
 import { pickNamedView, changeNamedView } from '../tables/named-view-actions.ts';
 import type { NamedViewChange } from '../tables/named-view-actions.ts';
 import type { NamedViewInHand } from '../tables/named-view-model.ts';
-import { writeFromInteractive, editInteractiveOfSheet } from './places.ts';
+import { writeFromInteractivePress, editInteractiveOfSheet, undoInInteractive, saveDefaultsOfInteractive } from './places.ts';
+import type { PlaceInInteractive, ReversalInInteractive, SittingTiming } from './places.ts';
+import { showNamedRangesPane, actOnNamedRanges } from './named-ranges.ts';
+import type { ActionOnNamedRanges } from './named-ranges.ts';
+import { defaultAndLimitsFormOf, defaultAndLimitsOfMenu, saveDefaultAndLimits, saveHeldValuesAsDefaults, resetSelectionToDefaults } from './defaults-and-limits.ts';
+import { showChangedCellsPane, actOnChangedCells } from './changed-cells.ts';
+import type { ActionOnChangedCells } from './changed-cells.ts';
+import { protectionOfSelection, protectionOfWholeSheet, protectionOfMenu, actOnProtection, isProtectionRefusal } from './protection.ts';
+import {
+  refreshConnectedTableAsked,
+  connectedTableCallConfirmed,
+  connectedTableRefreshAnswered,
+  withoutTableRefusal,
+  withSourceOfTableToggled,
+  withConnectedTableEditRefused,
+} from '../tables/connected-table-refresh.ts';
+import type { TableRefreshAnswered } from '../tables/connected-table-refresh.ts';
+import { stoodOnBoxOfWaiting, bringBackActiveCellForReader } from './formats-to-come.ts';
+import { selectWholeLines } from '../selection/keyboard.ts';
+import type { MenuToOpen } from '../ui/menu.ts';
+import type { ProtectionChosen } from '../ui/protection-dialog.tsx';
+import type { DefaultAndLimitsChosen } from '../ui/defaults-and-limits-dialog.tsx';
+import type { CaretInEntryPlaced } from '../editor/entry-boxes.ts';
+import type { Person } from '../store/frames.ts';
 import type { CellWrittenFromAnInteractive } from '@open-artifact/sheets-core';
 import type { OwnViewShownAsApplied } from '../tables/filter-messages.ts';
 import type { PlaceOfLink } from '../shell/sheet-links.ts';
@@ -585,7 +621,16 @@ export type DoneGivenWhole =
   | 'namedViewPicked'
   | 'namedViewSaved'
   | 'namedViewUpdated'
-  | 'namedViewRenamed';
+  | 'namedViewRenamed'
+  | 'sheetUnhidden'
+  | 'interactiveChangesUndone'
+  | 'namedRangeSaved'
+  | 'defaultsSaved'
+  | 'defaultAndLimitsSaved'
+  | 'defaultsReset'
+  | 'protectionMade'
+  | 'protectionSaved'
+  | 'protectionRemoved';
 /**
  * What an act says it did, when it says more than its name: a whole last-done line, or one still missing what the
  * cells it was done to tell (the labels of lines, the cells formatted or sorted, and the heading rows to leave out).
@@ -737,6 +782,8 @@ export interface GridResized {
   isCoveredMoreByComposer: boolean;
   isCoveredMoreByKeyboard: boolean;
   isCoveredLessByKeyboard: boolean;
+  /** The page itself resized while the caret was in the cells or their entry. */
+  isPageResizedWithCaretInCells?: boolean;
 }
 /** What is done to a chart or other view placed over the cells. */
 export type PlacedViewAct =
@@ -748,7 +795,7 @@ export type PlacedViewAct =
   | { kind: 'delete'; isByKey: boolean };
 /** An edit of the charts asked for: a chart of cells added, or a chart pointed at another node. */
 export type ChartEditAsked =
-  | { kind: 'add'; nodeId: string; name: string; cells: CellsHeldForChart }
+  | { kind: 'add'; nodeId: string; name: string; cells: CellsHeldForChart; at?: CellId | null }
   | { kind: 'pointAtOtherNode'; viewId: string; from: string; to: string; renaming: { from: string; to: string } | null };
 export interface PlacedViewActedOn {
   kind: 'placedViewActedOn';
@@ -847,7 +894,75 @@ export interface SortPaneActedIn {
 export interface PivotTableAsked {
   kind: 'pivotTableAsked';
   nameOfNewSheet: string;
+  /** The pivot table cell the ask is about, when asked from a pivot table's own bar. */
+  of?: CellId;
   chosenIn?: ChosenIn;
+}
+export interface NamedRangesAsked {
+  kind: 'namedRangesAsked';
+  isToAdd: boolean;
+  chosenIn?: ChosenIn;
+}
+export interface NamedRangesPaneActedIn {
+  kind: 'namedRangesPaneActedIn';
+  act: ActionOnNamedRanges;
+}
+/** Asks about defaults made from the cell menu. */
+export interface DefaultsAsked {
+  kind: 'defaultAndLimitsAsked' | 'saveAsDefaultChosen' | 'resetToDefaultChosen' | 'changedCellsAsked';
+  chosenIn?: ChosenIn;
+}
+export interface DefaultAndLimitsChosenEvent {
+  kind: 'defaultAndLimitsChosen';
+  chosen: DefaultAndLimitsChosen | null;
+}
+export interface ChangedCellsPaneActedIn {
+  kind: 'changedCellsPaneActedIn';
+  act: ActionOnChangedCells;
+}
+export interface CallToConfirmAnswered {
+  kind: 'callToConfirmAnswered';
+  nth?: number;
+  isToRun: boolean;
+}
+export interface RefreshAnswered extends TableRefreshAnswered {
+  kind: 'refreshAnswered';
+}
+export interface ColumnOfConnectedTablePicked {
+  kind: 'columnOfConnectedTablePicked';
+  c: string;
+  isExtending?: boolean;
+  caretInEntry?: CaretInEntryPlaced;
+}
+export interface CellOfConnectedTablePicked {
+  kind: 'cellOfConnectedTablePicked';
+  cellId: CellId;
+  isExtending: boolean;
+}
+export interface ColumnOfConnectedTableSized {
+  kind: 'columnOfConnectedTableSized';
+  sheetId: SheetId;
+  c: string;
+  widthInPixels: number;
+}
+export interface ProtectionAsked {
+  kind: 'protectionAsked';
+  of: 'selection' | { sheetId: SheetId };
+}
+export interface ProtectionChosenEvent {
+  kind: 'protectionChosen';
+  chosen: ProtectionChosen | null;
+}
+export interface InteractiveShowedCell {
+  kind: 'interactiveShowedCell';
+  place: PlaceInInteractive;
+}
+export interface InteractiveResetChosen extends SittingTiming {
+  kind: 'interactiveResetChosen';
+}
+export interface ReversalInInteractiveAsked {
+  kind: 'reversalInInteractiveAsked';
+  reversal: ReversalInInteractive;
 }
 export interface PivotTableUpdateAsked {
   kind: 'pivotTableUpdateAsked';
@@ -863,10 +978,12 @@ export interface NamedViewsChanged {
   tableKey: string;
   change: NamedViewChange;
 }
-export interface InteractiveWrote {
+export interface InteractiveWrote extends SittingTiming {
   kind: 'interactiveWrote';
   viewId: string;
   cells: CellWrittenFromAnInteractive[];
+  /** The interactive's own number of this press. */
+  press: number;
 }
 export interface CellsLinkedToAsked {
   kind: 'cellsLinkedTo';
@@ -895,7 +1012,10 @@ export type VersionHistoryAct =
   | { kind: 'endLook'; isFromBar?: true; isByPointer?: true }
   | { kind: 'restore'; revision: number; isFromBar?: true; isByPointer?: true }
   | { kind: 'showOlder' }
-  | { kind: 'tryAgain' };
+  | { kind: 'tryAgain' }
+  | { kind: 'beginName'; of: number }
+  | { kind: 'leaveName' }
+  | { kind: 'setName'; of: number; typed: string };
 /** Why a version could not be shown; `'calledOff'` when the look was given up before it came. */
 export type WhyVersionNotShown = 'calledOff' | 'editsNotSaved' | 'notOffered' | 'unknownRevision' | HistoryWhy;
 /** The versions read from the store, or why they were not. */
@@ -1696,6 +1816,8 @@ export interface LinkCardLeftByPointer {
 export interface OtherThanCellsCopied {
   kind: 'otherThanCellsCopied';
   ofChart?: 'notCut' | 'copied';
+  /** What was copied when it is named, told as copied. */
+  name?: string;
 }
 export interface LinkCardAsked {
   kind: 'linkCardAsked';
@@ -1839,7 +1961,7 @@ export type PageEvent =
   | TimeChosen
   | DropdownListRowChosen
   | DropdownEditorActedIn
-  | { kind: 'dropdownShut' }
+  | { kind: 'dropdownShut'; ifLeftOpenByPress?: true }
   | SidePaneShut
   | { kind: 'waysInWaitedFor' }
   | { kind: 'waysInSentAway' }
@@ -1939,8 +2061,28 @@ export type PageEvent =
   | BorderPenChanged
   | { kind: 'gridlinesToggled' }
   | InteractiveWrote
-  | { kind: 'interactiveResetChosen' }
+  | InteractiveShowedCell
+  | InteractiveResetChosen
+  | ReversalInInteractiveAsked
   | { kind: 'interactiveSaveAsDefaultChosen' }
+  | NamedRangesAsked
+  | NamedRangesPaneActedIn
+  | DefaultsAsked
+  | DefaultAndLimitsChosenEvent
+  | ChangedCellsPaneActedIn
+  | { kind: 'refreshAsked' }
+  | CallToConfirmAnswered
+  | RefreshAnswered
+  | { kind: 'refusalOfRefreshSentAway' }
+  | { kind: 'sourcePaneToggled' }
+  | NameOfVersionSet
+  | ColumnOfConnectedTablePicked
+  | CellOfConnectedTablePicked
+  | ColumnOfConnectedTableSized
+  | { kind: 'personTold'; person: Person }
+  | ProtectionAsked
+  | ProtectionChosenEvent
+  | (OfSheet & { kind: 'sheetHideChosen' | 'sheetUnhideChosen' })
   | CustomNumberFormatTyped
   | TypedInListOfNumberFormats
   | CustomNumberFormatEntered
@@ -2351,7 +2493,15 @@ export function reduceSheetsEvent(state: PageState, event: PageEvent, context: P
           current,
           closePeopleListOnCellClick(
             current,
-            toggleDropdownListOnClick(current, pointerPressedOnGrid(withCalendarShut(current), event, context), isSelectionExtended, reads),
+            toggleDropdownListOnClick(
+              current,
+              pointerPressedOnGrid(withCalendarShut(current), event, context),
+              {
+                ...event,
+                isShiftHeld: isSelectionExtended,
+              },
+              reads,
+            ),
             isSelectionExtended,
             reads,
           ),
@@ -2540,6 +2690,8 @@ export function reduceSheetsEvent(state: PageState, event: PageEvent, context: P
       };
     }
     case 'dropdownShut':
+      // Shut only when left open by a press, if the dropdown still is.
+      if (event.ifLeftOpenByPress === true && current.dropdown?.isLeftOpenByPress !== true) return withNoEffects(current);
       return withNoEffects(closeDropdownList(current));
     case 'sidePaneShut':
       if ((versionHistoryOfPane(current)?.look ?? null) !== null)
@@ -2625,10 +2777,47 @@ export function reduceSheetsEvent(state: PageState, event: PageEvent, context: P
         commitEntryInPlaceIfEditing(current, reads) ??
         (context.areFormulasLeft ? withFormulasLeftToWorkOut(current, event) : withSortForWhomAsked(actInSortPane(current, reads, event.act), 'ofPane'))
       );
+    case 'namedRangesAsked':
+      return leaveRenamingOrEntry(current, reads) ?? withNoEffects(showNamedRangesPane(current, reads, event.isToAdd));
+    case 'namedRangesPaneActedIn':
+      return actOnNamedRanges(current, reads, event.act);
+    case 'defaultAndLimitsAsked': {
+      let left = leaveRenamingOrEntry(current, reads);
+      if (left !== null) return left;
+      let cleared: PageState = {
+        ...current,
+        menu: null,
+        lastDone: null,
+        notice: null,
+      };
+      let form = defaultAndLimitsFormOf(cleared, reads);
+      if (form === null) return withNoEffects(cleared);
+      let holds: MenuToOpen = {
+        holds: 'defaultAndLimits',
+        defaultAndLimits: form,
+      };
+      return withNoEffects(openMenuWith(cleared, reads, current.menu, holds));
+    }
+    case 'defaultAndLimitsChosen':
+      if (defaultAndLimitsOfMenu(current.menu) === null) return withNoEffects(current);
+      return event.chosen === null
+        ? withNoEffects({
+            ...current,
+            menu: null,
+          })
+        : saveDefaultAndLimits(current, reads, event.chosen);
+    case 'saveAsDefaultChosen':
+      return commitEntryInPlaceIfEditing(current, reads) ?? saveHeldValuesAsDefaults(current, reads);
+    case 'resetToDefaultChosen':
+      return commitEntryInPlaceIfEditing(current, reads) ?? resetSelectionToDefaults(current, reads);
+    case 'changedCellsAsked':
+      return leaveRenamingOrEntry(current, reads) ?? withNoEffects(showChangedCellsPane(current));
+    case 'changedCellsPaneActedIn':
+      return commitEntryInPlaceIfEditing(current, reads) ?? actOnChangedCells(current, reads, event.act);
     case 'pivotTableAsked':
       return (
         leaveRenamingOrEntry(current, reads) ??
-        (context.areFormulasLeft ? withFormulasLeftToWorkOut(current, event) : askForPivotTable(current, reads, event.nameOfNewSheet))
+        (context.areFormulasLeft ? withFormulasLeftToWorkOut(current, event) : askForPivotTable(current, reads, event))
       );
     case 'pivotTableUpdateAsked':
       return (
@@ -2643,6 +2832,18 @@ export function reduceSheetsEvent(state: PageState, event: PageEvent, context: P
           ? withFormulasLeftToWorkOut(current, event)
           : actInPivotTablePane(settlePivotTablePane(current, reads, event, false), reads, event.act, event.of))
       );
+    case 'refreshAsked':
+      return commitEntryInPlaceIfEditing(current, reads) ?? refreshConnectedTableAsked(current, reads);
+    case 'callToConfirmAnswered':
+      return connectedTableCallConfirmed(current, reads, event);
+    case 'refreshAnswered': {
+      let canChange = refusalOfEveryEdit === null && !doesCommentModePick(current);
+      return withNoEffects(connectedTableRefreshAnswered(current, reads, event, canChange));
+    }
+    case 'refusalOfRefreshSentAway':
+      return withNoEffects(withoutTableRefusal(current));
+    case 'sourcePaneToggled':
+      return leaveRenamingOrEntry(current, reads) ?? withNoEffects(withSourceOfTableToggled(current));
     case 'agentRepliedAboutConditionalFormats':
       return takeAgentAnswerAboutRules(current, reads, event.askId, event.reply);
     case 'agentForConditionalFormatsChecked':
@@ -2664,6 +2865,8 @@ export function reduceSheetsEvent(state: PageState, event: PageEvent, context: P
       return withNoEffects(carrySessionIntoState(current, event.pane, event.kept));
     case 'versionLookedAt':
       return versionLookAnswered(current, event.askId, event.whyNot);
+    case 'nameOfVersionSet':
+      return nameOfVersionSet(current, event);
     case 'versionsRead':
       return versionsAnswered(current, event.askId, event.read);
     case 'editsThatTakeBackRead':
@@ -2735,23 +2938,32 @@ export function reduceSheetsEvent(state: PageState, event: PageEvent, context: P
       return withNoEffects(event.isByFinger ? startEntryEditing(withPeopleList, reads, '', 'cell', 'pointer') : withPeopleList);
     }
     case 'wheelTurned': {
+      let layout = layoutOfView(current, reads);
+      // A page turned for a screen reader moves by whole pages.
+      let { deltaX, deltaY } = event.isPageForReader === true ? scrollDeltasToLineStarts(event, current, layout) : event;
       let { scrollLeft, scrollTop } = clampScrollWithFloats(
         {
-          scrollLeft: current.scrollLeft + event.deltaX,
-          scrollTop: current.scrollTop + event.deltaY,
+          scrollLeft: current.scrollLeft + deltaX,
+          scrollTop: current.scrollTop + deltaY,
         },
-        layoutOfView(current, reads),
+        layout,
         current,
       );
       let isScrollUnchanged = scrollLeft === current.scrollLeft && scrollTop === current.scrollTop;
       let checkboxDropped = isScrollUnchanged && event.isByFinger !== true ? current : dropPressedCheckbox(current);
       if (isScrollUnchanged) return withNoEffects(checkboxDropped);
-      let pagesTurnedForReader = current.pagesTurnedForReader + (event.isPageForReader === true ? 1 : 0);
+      let turnedForReader =
+        event.isPageForReader === true
+          ? {
+              pagesTurnedForReader: current.pagesTurnedForReader + 1,
+              waitingBoxStoodOn: stoodOnBoxOfWaiting(current, reads, layout),
+            }
+          : null;
       return withNoEffects({
         ...checkboxDropped,
+        ...turnedForReader,
         scrollLeft,
         scrollTop,
-        pagesTurnedForReader,
         calendar: null,
       });
     }
@@ -2794,7 +3006,10 @@ export function reduceSheetsEvent(state: PageState, event: PageEvent, context: P
             : current.gridHeight === 0
               ? revealActiveCellBelow(activeCellKeptAbove, reads)
               : keepActiveCellInViewOnResize(current, activeCellKeptAbove, reads);
-        let scrollNoted = noteScrollForLessRoom(current, activeCellKeptAbove, activeCellRevealed);
+        let scrollNotedFirst = noteScrollForLessRoom(current, activeCellKeptAbove, activeCellRevealed);
+        // A page resized with the caret in the cells brings the active cell back for the reader.
+        let scrollNoted =
+          event.isPageResizedWithCaretInCells === true ? bringBackActiveCellForReader(scrollNotedFirst, reads) : scrollNotedFirst;
         let isMovedByItself =
           current.gridWidth > 0 &&
           current.gridHeight > 0 &&
@@ -2874,6 +3089,7 @@ export function reduceSheetsEvent(state: PageState, event: PageEvent, context: P
         ...withXlsxFileToldLater(current),
         customNumberFormat: null,
         pasteThatWaits: null,
+        callToConfirm: null,
         pickForWorkbook: null,
         isListOfKeysOpen: false,
         cellHistory: null,
@@ -3355,6 +3571,41 @@ export function reduceSheetsEvent(state: PageState, event: PageEvent, context: P
       return (
         commitEntryInPlaceIfEditing(current, reads) ?? withNoEffects(openOwnFilterList(current, reads, event.tableKey, event.c, event.today ?? null))
       );
+    // A column picked over a connected table selects it, or points at it from an entry.
+    case 'columnOfConnectedTablePicked': {
+      let sheetId = current.sheetPointedIn ?? current.sheetId;
+      let rowId = reads.cellIdAt(sheetId, 0, 0)?.rowId;
+      if (rowId === undefined) return withNoEffects(current);
+      let cellId: CellId = {
+        sheetId,
+        rowId,
+        columnId: event.c,
+      };
+      return withNoEffects(
+        current.mode.kind === 'editing'
+          ? pointAtColumnOfConnectedTable(current, reads, cellId, event.caretInEntry, event.isExtending ?? false)
+          : selectWholeLines(moveActiveCellTo(current, reads, cellId), reads, 'columns'),
+      );
+    }
+    case 'cellOfConnectedTablePicked': {
+      let { cellId, isExtending } = event;
+      if (cellId.sheetId !== current.sheetId || reads.positionOfCell(cellId) === null) return withNoEffects(current);
+      return withNoEffects(
+        isExtending
+          ? {
+              ...current,
+              selectionCorner: cellId,
+              rangeWalked: null,
+            }
+          : moveActiveCellTo(current, reads, cellId, 'pointer'),
+      );
+    }
+    // A column left at the table's unsized width is saved one pixel narrower, so it stays told apart.
+    case 'columnOfConnectedTableSized': {
+      let { sheetId, c, widthInPixels } = event;
+      let isUnsized = widthInPixels === reads.connectedTableIn(sheetId)?.widthOfUnsizedColumn;
+      return queueResizeEdit(current, setColumnWidthsEdit(sheetId, c, c, widthInPixels - (isUnsized ? 1 : 0)));
+    }
     case 'ownFilterListShut':
       return withNoEffects({
         ...current,
@@ -3377,6 +3628,71 @@ export function reduceSheetsEvent(state: PageState, event: PageEvent, context: P
         ...current,
         viewerId: event.userId,
       });
+    case 'personTold':
+      return withNoEffects({
+        ...current,
+        person: event.person,
+      });
+    // Protecting the selection or a whole sheet: the menu holds the protection being made or changed.
+    case 'protectionAsked': {
+      let left = leaveRenamingOrEntry(current, reads);
+      if (left !== null) return left;
+      let { of } = event;
+      let refusal =
+        of === 'selection'
+          ? refuseWhenSeveralRanges(
+              {
+                ...current,
+                menu: null,
+              },
+              'protect',
+            )
+          : null;
+      if (refusal !== null) return refusal;
+      let shown = of === 'selection' ? current : showSheet(current, reads, of.sheetId);
+      if (of !== 'selection' && shown.sheetId !== of.sheetId) return withNoEffects(current);
+      let cleared: PageState = {
+        ...shown,
+        menu: null,
+        lastDone: null,
+        notice: null,
+      };
+      let protection = of === 'selection' ? protectionOfSelection(cleared, reads) : protectionOfWholeSheet(reads, of.sheetId);
+      return withNoEffects(
+        protection === null
+          ? {
+              ...cleared,
+              notice: {
+                kind: 'ownSortInTheWay',
+                act: 'otherEdit',
+              },
+            }
+          : openMenuWith(cleared, reads, current.menu, {
+              holds: 'protection',
+              protection,
+            }),
+      );
+    }
+    case 'protectionChosen': {
+      let protection = protectionOfMenu(current.menu);
+      if (protection === null) return withNoEffects(current);
+      let closed: PageState = {
+        ...current,
+        menu: null,
+      };
+      return event.chosen === null
+        ? withNoEffects(closed)
+        : actOnProtection(
+            {
+              ...closed,
+              lastDone: null,
+              notice: null,
+            },
+            reads,
+            protection,
+            event.chosen,
+          );
+    }
     case 'ownFiltersBroughtBack':
       return withNoEffects(bringBackOwnFilters(current, reads, event.kept));
     case 'mergeChangeChosenInToolbar':
@@ -3422,11 +3738,18 @@ export function reduceSheetsEvent(state: PageState, event: PageEvent, context: P
     case 'gridlinesToggled':
       return toggleGridlines(current, reads);
     case 'interactiveWrote':
-      return writeFromInteractive(current, reads, event.viewId, event.cells);
+      return writeFromInteractivePress(current, reads, event);
+    case 'interactiveShowedCell':
+      return withNoEffects({
+        ...current,
+        placeInInteractive: event.place,
+      });
     case 'interactiveResetChosen':
-      return editInteractiveOfSheet(current, reads, 'resetInteractive');
+      return editInteractiveOfSheet(current, reads, event);
+    case 'reversalInInteractiveAsked':
+      return undoInInteractive(current, event.reversal);
     case 'interactiveSaveAsDefaultChosen':
-      return editInteractiveOfSheet(current, reads, 'saveDefaultsOfInteractive');
+      return saveDefaultsOfInteractive(current, reads);
     case 'customNumberFormatTyped':
       return current.customNumberFormat?.typedIn === 'list'
         ? withNoEffects(current)
@@ -3755,6 +4078,10 @@ export function reduceSheetsEvent(state: PageState, event: PageEvent, context: P
       });
     case 'sheetDeleteChosen':
       return leaveRenamingOrEntry(current, reads) ?? deleteSheet(current, reads, event.sheetId);
+    case 'sheetHideChosen':
+      return leaveRenamingOrEntry(current, reads) ?? hideSheet(current, reads, event.sheetId);
+    case 'sheetUnhideChosen':
+      return leaveRenamingOrEntry(current, reads) ?? unhideSheet(current, reads, event.sheetId);
     case 'sheetRenameChosen':
       return leaveRenamingOrEntry(current, reads) ?? withNoEffects(startRenamingSheet(current, reads, event.sheetId));
     case 'sheetMoveChosen':
@@ -3812,11 +4139,15 @@ export function reduceSheetsEvent(state: PageState, event: PageEvent, context: P
         }),
       });
     case 'pasteChosen': {
+      // Nothing is pasted into a connected table.
+      if (reads.connectedTableIn(current.sheetId) !== null) return withNoEffects(withConnectedTableEditRefused(current));
       let pastedInPeopleCell = pasteIntoPeopleCell(current, reads, event);
       return pastedInPeopleCell === null ? pasteIntoSelection(current, reads, event) : withNoEffects(pastedInPeopleCell);
     }
     case 'chartPasteChosen':
-      return pasteChart(current, reads, event.chart);
+      return reads.connectedTableIn(current.sheetId) === null
+        ? pasteChart(current, reads, event.chart)
+        : withNoEffects(withConnectedTableEditRefused(current));
     case 'pasteThatWaitsAnswered':
       return settlePasteThatWaits(current, reads, event);
     case 'workbookChanged': {
@@ -3848,7 +4179,14 @@ export function reduceSheetsEvent(state: PageState, event: PageEvent, context: P
           rowsOutOfViewByOwnFilters: rowsHiddenByOwnFiltersAfterChange(current, event.readsBefore, reads),
         },
       );
-      let selectionKept = keepSelectionOnShownRows(moveSelectionsOutOfNewlyCollapsed(reconciled, reads, newlyCollapsed), reads);
+      let selectionKept = keepSelectionOnShownRows(
+        moveSelectionsOutOfNewlyCollapsed(
+          event.isUnasked ? reconciled : leaveSheetHiddenBySomeone(reconciled, event.readsBefore, reads),
+          reads,
+          newlyCollapsed,
+        ),
+        reads,
+      );
       let ownCellLost = event.isUnasked ? ownCellLostNotice(current, event.readsBefore, selectionKept, reads) : null;
       let withOwnCellLost =
         ownCellLost === null
@@ -4122,6 +4460,14 @@ export function reduceSheetsEvent(state: PageState, event: PageEvent, context: P
         },
       });
     case 'otherThanCellsCopied':
+      if (event.name !== undefined)
+        return withNoEffects({
+          ...current,
+          lastDone: {
+            what: 'copied',
+            cells: event.name,
+          },
+        });
       if (event.ofChart === 'copied')
         return withNoEffects({
           ...clearPassingNotice(current),
@@ -4338,6 +4684,8 @@ export function reduceSheetsEvent(state: PageState, event: PageEvent, context: P
           event,
           context,
         );
+      // Rules on their way are taken in once their edit is answered.
+      if (current.rulesOnTheirWay?.edit === edit) return reduceSheetsEvent(withRulesOnTheirWaySettled(current, reads, true), event, context);
       if (current.heldUntilAnswered?.edit === edit) {
         let heldEventReduced = reduceSheetsEvent(
           {
@@ -4374,6 +4722,7 @@ export function reduceSheetsEvent(state: PageState, event: PageEvent, context: P
       let { pasteOfTextInstead } = ifQueued;
       if (
         pasteOfTextInstead !== null &&
+        !(outcome.kind === 'refused' && isProtectionRefusal(outcome.refusal)) &&
         (edit.kind === 'pasteCellsOfAnotherProgram'
           ? outcome.kind === 'refused' &&
             (outcome.refusal !== 'tooMuchThatNoCellShows' || hasPastedLinks(edit.rows)) &&
@@ -4381,12 +4730,14 @@ export function reduceSheetsEvent(state: PageState, event: PageEvent, context: P
             outcome.refusal !== 'rowNotNamedInTheWay' &&
             outcome.refusal !== 'formulaReadsAnotherRow' &&
             outcome.refusal !== 'cellOfDropdownHoldsNoOption' &&
+            outcome.refusal !== 'valueOutsideLimits' &&
             refusalMessageKey(outcome.refusal) !== 'noRoomInWorkbook'
           : edit.kind === 'pasteValuesOfCopiedCells'
             ? outcome.kind === 'refused' &&
               outcome.refusal !== 'repeatedPasteTooLarge' &&
               outcome.refusal !== 'rowNotNamedInTheWay' &&
               outcome.refusal !== 'cellOfDropdownHoldsNoOption' &&
+              outcome.refusal !== 'valueOutsideLimits' &&
               refusalMessageKey(outcome.refusal) !== 'noRoomInWorkbook'
             : (outcome.kind === 'nothingToChange' && ifQueued.isMadeAroundRowsOutOfView !== true) ||
               (outcome.kind === 'refused' && outcome.refusal === 'unreadableCopiedCells'))
@@ -4507,7 +4858,7 @@ export function reduceSheetsEvent(state: PageState, event: PageEvent, context: P
           : edit.kind === 'moveSheet' && isQueued
             ? {
                 ...stateWithLastDone,
-                lastDone: lastDoneOfSheetMove(reads, edit.sheetId),
+                lastDone: lastDoneOfSheetMove(current, reads, edit.sheetId),
               }
             : edit.kind === 'fillCells' && !isQueued && ifQueued.foundBy !== 'fillHandle'
               ? {
@@ -4605,7 +4956,7 @@ export function reduceSheetsEvent(state: PageState, event: PageEvent, context: P
       let afterStep = ((): PageState => {
         switch (outcome.kind) {
           case 'nothingLeft': {
-            if (isUndo && current.areStepsToUndoLost) {
+            if (isUndo && current.areStepsToUndoLost && event.ofSitting === undefined) {
               let noticeOfLostSteps: Notice = {
                 kind: 'undoStepsLeftInEarlierPage',
               };
@@ -4645,6 +4996,14 @@ export function reduceSheetsEvent(state: PageState, event: PageEvent, context: P
               notice: noticeOfStepNotTaken(outcome, direction),
             };
           case 'made': {
+            // Undoing all the changes of a sitting in an interactive sheet is told as one.
+            if (event.ofSitting?.isOfAll === true)
+              return {
+                ...withoutUndoOffer,
+                lastDone: {
+                  what: 'interactiveChangesUndone',
+                },
+              };
             let stepShown: StepShown = isUndo ? 'undone' : 'redone';
             let { changed, changedBefore = [] } = outcome;
             let changes = [...changedBefore, ...(changed === null ? [] : [changed])];

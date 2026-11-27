@@ -12,21 +12,29 @@
 import type { CellAt, ColumnId, IdRun, RangeCorners, RowId, SheetId } from './ids.ts';
 import type {
   Border,
+  CallOfAConnectedTable,
   CellCondition,
   CellControl,
   CellFormat,
   CellTable,
   Color,
+  ColumnOfAConnectedTable,
   ConditionalFormat,
+  DefaultValue,
   DropdownOption,
   Effect,
   EndsOfGroup,
   HorizontalAlignment,
   Input,
+  NamedRange,
+  NamedRangeEntry,
   NamedView,
   Placement,
+  Protection,
+  SnapshotOfAConnectedTable,
   StoredFormula,
   Underline,
+  ValueLimits,
   VerticalAlignment,
   View,
   Wrap,
@@ -205,6 +213,23 @@ export interface NamedViewContents {
   namedView: NamedView;
 }
 
+/**
+ * A protection of the sheet, its ranges by the lines left of them, in order;
+ * open ranges with no line left are left out, and a protection whose range
+ * has none is not told.
+ */
+export interface ProtectionContents {
+  protectionId: string;
+  protection: Protection;
+}
+
+/** A sheet's connected table: its call, its columns (in the sheet's order) and what was fetched last. */
+export interface ConnectedTableContents {
+  call: CallOfAConnectedTable;
+  columns: { c: ColumnId; column: ColumnOfAConnectedTable }[];
+  snapshot: SnapshotOfAConnectedTable | null;
+}
+
 /** What a sheet holds besides its cells; each list is left out when empty. */
 export interface SheetLayoutContents {
   sheetId: SheetId;
@@ -221,12 +246,16 @@ export interface SheetLayoutContents {
   lastFrozenRow?: RowId;
   lastFrozenColumn?: ColumnId;
   areGridlinesHidden?: true;
+  isHidden?: true;
   rowGroups?: GroupContents[];
   columnGroups?: GroupContents[];
   conditionalFormats?: ConditionalFormatContents[];
   placements?: PlacementContents[];
   cellTables?: CellTableContents[];
   namedViews?: NamedViewContents[];
+  protections?: ProtectionContents[];
+  /** Told after everything else the sheet has. */
+  connectedTable?: ConnectedTableContents;
   spilledCells?: SpilledCell[];
 }
 
@@ -260,6 +289,7 @@ export interface WorkbookContents {
   /** The pattern a time of day is shown with. */
   patternOfATimeOfDay?: string;
   views?: ViewContents[];
+  namedRanges?: NamedRangeEntry[];
 }
 
 export interface ReadWorkbookRequest {
@@ -318,7 +348,27 @@ export type CauseOfError =
   | { kind: 'filterKeepsNothing'; function: string; argumentToAdd: string; hasSeveralConditions: boolean }
   | { kind: 'argumentIsMissing'; function: string; argument: string }
   | { kind: 'tooManyArguments'; function: string; most: number; given: number; takesNoFewer: boolean }
-  | { kind: 'pairIsIncomplete'; function: string; first: string; second: string };
+  | { kind: 'pairIsIncomplete'; function: string; first: string; second: string }
+  /** A name that reads as a cell past the sheet's last row or column (`XFE1`), upper case. */
+  | { kind: 'noSuchCell'; address: string }
+  /** A call given several cells where it takes one value (`argument`: the name of the first such, if told). */
+  | { kind: 'severalCellsForOneValue'; function: string; argument: string | null }
+  | { kind: 'operandsOfDifferentSizes' }
+  /** A word a function does not read (`PIVOT`'s). */
+  | { kind: 'wordIsNotRead'; function: string; word: string }
+  | { kind: 'pivotTotalsNothing' }
+  | { kind: 'pivotWithColumnsTotalsSeveral' }
+  /** A range of SUBTOTAL or AGGREGATE given no reference. */
+  | { kind: 'argumentIsNoReference'; function: string; argument: string }
+  /** A range of SUBTOTAL or AGGREGATE holds a formula that calls one of them. */
+  | { kind: 'holdsANestedSubtotal'; cell: CauseCell }
+  /** A function code that leaves hidden rows out, and the one that counts them. */
+  | { kind: 'functionCodeSkipsHiddenRows'; function: string; functionCode: number; codeThatCountsHiddenRows: number }
+  /** A sort given a column past the range's (`columns` of them, `column` asked for). */
+  | { kind: 'noSuchColumnToSortBy'; function: string; range: string; columns: number; column: number }
+  | { kind: 'sortOrderIsNotRead'; function: string; order: string }
+  /** The formula reads rows of a connected table that this copy of the workbook doesn't hold. */
+  | { kind: 'recordsAreNotHere' };
 
 export interface ReadCauseOfErrorRequest {
   kind: 'readCauseOfError';
@@ -480,6 +530,8 @@ export interface SharedCellFormat {
     color: Color | null;
     size: number | null;
   };
+  defaultValue: DefaultValue | null;
+  valueLimits: ValueLimits | null;
 }
 
 export interface SharedCellFormatAnswer {
@@ -693,6 +745,14 @@ export interface ReadInputsOfViewRequest {
 export interface CellReadByAnInput {
   value: number | string | boolean | null;
   text: string;
+  /** A cell an interactive writes: the least value it takes, when it has one. */
+  min?: number;
+  /** A cell an interactive writes: the greatest value it takes, when it has one. */
+  max?: number;
+  /** A cell an interactive writes, with a default a reset gives it: that default. */
+  default?: number | string | boolean | null;
+  /** With `default`: whether the cell holds another value. */
+  isChanged?: boolean;
 }
 
 export interface InputRead {
@@ -706,6 +766,8 @@ export interface InputsOfViewAnswer {
   elements: { elementId: string; inputs: InputRead[] }[];
   /** An interactive view only: a reset would change some cell of its inputs. */
   canBeReset?: true;
+  /** An interactive view only, with `canBeReset`: how many cells a reset changes. */
+  countOfCellsToReset?: number;
   /** An interactive view only: its inputs hold values other than the ones it keeps. */
   hasDefaultsToSave?: true;
 }
@@ -1034,6 +1096,16 @@ export type NotCarriedOver =
   | 'looksOfCharts'
   /** A sheet that shows an interactive view is written as its cells. */
   | 'interactives'
+  /** Who may edit protected cells: the file keeps the protections, not their editors. */
+  | 'editorsOfProtections'
+  /** Protections as a whole: anyone who opens the file can edit every cell. */
+  | 'protections'
+  /** The lower and upper limits some cells keep to. */
+  | 'limitsOfSomeCells'
+  /** Rows of a connected table, which the file holds only as far as this copy of the workbook does. */
+  | 'rowsOfConnectedTables'
+  /** Default values, told as prompts of the cells. */
+  | 'defaultValues'
   /** Saved views; the engine does not report them yet. */
   | 'namedViews';
 
@@ -1063,6 +1135,115 @@ export interface XlsxFileAnswer {
   parts: { path: string; xml: string }[];
   notCarriedOver: NotCarriedOver[];
   chartsLeftOut: { viewId: string; why: WhyAChartIsLeftOut }[];
+}
+
+// ---------------------------------------------------------------------------
+// Named ranges
+// ---------------------------------------------------------------------------
+
+export interface ReadNamedRangesRequest {
+  kind: 'readNamedRanges';
+}
+
+/**
+ * A named range as `readNamedRanges` tells it: its address now (`Sheet1!A1:B2`,
+ * `#REF!` once its cells are gone) and its cells where they are now (`null`
+ * once gone).
+ */
+export interface NamedRangeRead {
+  namedRangeId: string;
+  namedRange: NamedRange;
+  address: string;
+  liveCells: { sheetId: SheetId; cells: RangeCorners } | null;
+}
+
+/** The named ranges by name whatever its case, then by id. */
+export interface NamedRangesAnswer {
+  kind: 'namedRanges';
+  namedRanges: NamedRangeRead[];
+}
+
+// ---------------------------------------------------------------------------
+// Default values and limits
+// ---------------------------------------------------------------------------
+
+export interface ReadDefaultValueAndLimitsRequest {
+  kind: 'readDefaultValueAndLimits';
+  sheetId: SheetId;
+  cell: CellAt;
+}
+
+/** A value as the cell's format shows it, and as it is edited. */
+export interface ShownAndEdited {
+  shown: string;
+  textToEdit: string;
+}
+
+/** A cell's default value (`null`: none) and its least and most number (`null`: no end). */
+export interface DefaultValueAndLimitsAnswer {
+  kind: 'defaultValueAndLimits';
+  defaultValue: ShownAndEdited | null;
+  minimum: ShownAndEdited | null;
+  maximum: ShownAndEdited | null;
+}
+
+export interface ReadCellsChangedFromTheirDefaultsRequest {
+  kind: 'readCellsChangedFromTheirDefaults';
+  sheetId: SheetId;
+}
+
+/** A cell that holds something else than its default value: what it holds, and the default value, as shown. */
+export interface CellChangedFromItsDefault {
+  r: RowId;
+  c: ColumnId;
+  address: string;
+  held: string;
+  defaultValue: string;
+}
+
+/** Row by row; of the cells with a default value, the first 1000 as they are kept are looked at. */
+export interface CellsChangedFromTheirDefaultsAnswer {
+  kind: 'cellsChangedFromTheirDefaults';
+  cells: CellChangedFromItsDefault[];
+}
+
+// ---------------------------------------------------------------------------
+// Connected tables
+// ---------------------------------------------------------------------------
+
+export interface ReadConnectedTableRequest {
+  kind: 'readConnectedTable';
+  sheetId: SheetId;
+}
+
+/** The records of a connected table the session holds: not fetched yet, its file not streamed yet, gone from the server, or held. */
+export type RowsOfAConnectedTable =
+  | { kind: 'notFetched' }
+  | { kind: 'notHeld' }
+  | { kind: 'notKept' }
+  | { kind: 'held'; rowCount: number; fields: string[] };
+
+/**
+ * A connected table: how fresh its snapshot is next to its call, the call's
+ * digest, its records, and the reference to each of its columns
+ * (`Customers[Id]`). Refused `notAConnectedTable`.
+ */
+export interface ConnectedTableAnswer {
+  kind: 'connectedTable';
+  freshness: 'notFetched' | 'current' | 'stale';
+  callDigest: string;
+  rows: RowsOfAConnectedTable;
+  references: { c: ColumnId; text: string }[];
+}
+
+export interface ReadSnapshotsNotHeldRequest {
+  kind: 'readSnapshotsNotHeld';
+}
+
+/** The snapshots whose table file the page is yet to stream (`receiveLinesOfTableFile`). */
+export interface SnapshotsNotHeldAnswer {
+  kind: 'snapshotsNotHeld';
+  snapshotIds: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -1123,6 +1304,14 @@ export interface ReadKinds {
     answer: ValuesOfFilteredColumnAnswer;
   };
   readXlsxFile: { request: ReadXlsxFileRequest; answer: XlsxFileAnswer };
+  readNamedRanges: { request: ReadNamedRangesRequest; answer: NamedRangesAnswer };
+  readDefaultValueAndLimits: { request: ReadDefaultValueAndLimitsRequest; answer: DefaultValueAndLimitsAnswer };
+  readCellsChangedFromTheirDefaults: {
+    request: ReadCellsChangedFromTheirDefaultsRequest;
+    answer: CellsChangedFromTheirDefaultsAnswer;
+  };
+  readConnectedTable: { request: ReadConnectedTableRequest; answer: ConnectedTableAnswer };
+  readSnapshotsNotHeld: { request: ReadSnapshotsNotHeldRequest; answer: SnapshotsNotHeldAnswer };
 }
 
 export type ReadKind = keyof ReadKinds;

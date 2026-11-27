@@ -34,7 +34,7 @@ export interface ReadingTool {
 /** Asks the agent for answers in JSON, and stops asks. */
 export interface AgentSampler {
   ask(request: SampleRequest, onPartial: (partial: unknown) => void, keepsOtherAsks?: boolean): Promise<SampleReply>;
-  askIfAllowed(request: SampleRequest): Promise<SampleReply | AskNotYetAllowed>;
+  askIfAllowed(request: SampleRequest, onPart?: (partial: unknown) => void): Promise<SampleReply | AskNotYetAllowed>;
   askAheadIfAllowed(words: string, data: Promise<RestOfRowsAsk>): Promise<SampleReply | AskNotYetAllowed>;
   stop(): void;
   isAvailable(): Promise<boolean>;
@@ -239,7 +239,7 @@ ${READ_TYPED_AND_DATA_TOOL_INSTRUCTION}`,
   return {
     ask: (request: SampleRequest, onPartial: (partial: unknown) => void, keepsOtherAsks: boolean = false) =>
       ask<never>(request, onPartial, keepsOtherAsks, null),
-    askIfAllowed: (request: SampleRequest) => ask(request, () => {}, false, refusalUnlessAllowed),
+    askIfAllowed: (request: SampleRequest, onPart: (partial: unknown) => void = () => {}) => ask(request, onPart, false, refusalUnlessAllowed),
     askAheadIfAllowed: (words: string, data: Promise<RestOfRowsAsk>) =>
       ask(
         {

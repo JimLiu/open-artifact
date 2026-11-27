@@ -1,36 +1,20 @@
 import type { CauseCell, CauseOfError, CellAt, ErrorValue, SpillContents } from '@open-artifact/sheets-core';
 import type { ErrorTell } from '../messages/formula-errors.ts';
-import type { CauseOfErrorSaid, CellId } from '../model/workbook.ts';
+import type { CauseOfErrorSaid, CellId, CellOnShow, ConnectedTableRead } from '../model/workbook.ts';
 import type { CellPosition } from '../selection/model.ts';
 import type { ErrorExplained } from '../state/initial-state.ts';
 import { cellValueOf } from '../model/cell-values.ts';
 import { resolvePlaceArea } from '../agent/changes-by-agent.ts';
 import { spanOfIndexes } from '../model/a1-references.ts';
 import { areaToA1AsStored } from './from-words/where.ts';
-import { sheetPrefixForFormula } from './references.ts';
+import { isTableReference, referencesWithNamedRangesExpanded, sheetPrefixForFormula } from './references.ts';
 import { readsAsStored } from '../model/workbook.ts';
 import { findFormulaFault } from './typed-faults.ts';
 import type { WorkbookReads } from '../model/workbook.ts';
 /** A cell to read the error of, as `cellValueOf` reads it. */
 export type CellWithErrorToRead = Parameters<typeof cellValueOf>[0];
-/**
- * A cause of a formula's error to explain: one the engine tells, or one of the kinds it may yet tell, which are
- * explained when they come.
- */
-export type CauseOfErrorToExplain =
-  | CauseOfError
-  | { kind: 'holdsANestedSubtotal'; cell: CauseCell }
-  | { kind: 'noSuchCell'; address: string }
-  | { kind: 'severalCellsForOneValue'; function: string; argument: string | null }
-  | { kind: 'operandsOfDifferentSizes' }
-  | { kind: 'noSuchColumnToSortBy'; function: string; range: string; columns: number; column: number }
-  | { kind: 'sortOrderIsNotRead'; function: string; order: string }
-  | { kind: 'functionCodeSkipsHiddenRows'; function: string; functionCode: number; codeThatCountsHiddenRows: number }
-  | { kind: 'argumentIsNoReference'; function: string; argument: string }
-  | { kind: 'wordIsNotRead'; function: string; word: string }
-  | { kind: 'pivotTotalsNothing' | 'pivotWithColumnsTotalsSeveral' };
 /** A cause that lies in another cell. */
-export type CauseAtCell = Extract<CauseOfErrorToExplain, { cell: CauseCell }>;
+export type CauseAtCell = Extract<CauseOfError, { cell: CauseCell }>;
 /** A cell a formula's error comes from, where it is, and how the formula's sheet writes it. */
 export interface CellWrittenFor {
   cellId: CellId;
@@ -141,7 +125,7 @@ export function cellWrittenFor(
     columnId,
   };
   let position = reads.positionOfCell(cellId);
-  if (position === null) return null;
+  if (position === null || reads.connectedTableIn(sheetId) !== null) return null;
   let address = addressOfPosition(position);
   if (sheetId === formulaCell.sheetId)
     return {
@@ -229,7 +213,7 @@ export function explainCauseOfError(
   reads: WorkbookReads,
   formulaCell: CellId,
   errorCode: ErrorValue,
-  cause: CauseOfErrorToExplain,
+  cause: CauseOfError,
 ): ErrorTell | null {
   switch (cause.kind) {
     case 'showsTheSameError':
@@ -260,6 +244,23 @@ export function explainCauseOfError(
       return {
         cause: cause.kind,
       };
+    case 'recordsAreNotHere': {
+      let input = reads.cellOf(formulaCell)?.input;
+      let references = input?.kind === 'formula' ? input.formula.references : [];
+      let tableNotHeld = reads
+        .listSheets()
+        .filter(({ sheetId }) => references.some((reference) => isTableReference(reference) && reference.sheetId === sheetId))
+        .find(({ sheetId }) => {
+          let { rows, snapshot }: Partial<ConnectedTableRead> = reads.connectedTableIn(sheetId) ?? {};
+          return rows?.kind !== 'held' || rows.rowCount !== snapshot?.rowCount;
+        });
+      return tableNotHeld === undefined
+        ? null
+        : {
+            cause: cause.kind,
+            table: tableNotHeld.name,
+          };
+    }
     case 'noSuchFunction':
     case 'unknownName':
       return {
@@ -391,6 +392,16 @@ export function explainErrorPassedOn(reads: WorkbookReads, formulaCell: CellId, 
   };
   return isTellShortEnough(tell) ? tell : null;
 }
+/** Whether a formula's cells read as gone only because a named range it names is gone (or names no cells now). */
+export function isGoneOnlyByNamedRange(reads: WorkbookReads, shown: CellOnShow | null): boolean {
+  if (shown === null || !('input' in shown) || shown.input.kind !== 'formula') return false;
+  let namedRangeReferences = shown.input.formula.references.filter((reference) => reference.kind === 'namedRange');
+  let areAllNamedRangesLive =
+    referencesWithNamedRangesExpanded(reads, {
+      references: namedRangeReferences,
+    }).length === namedRangeReferences.length;
+  return namedRangeReferences.length > 0 && !(areAllNamedRangesLive && shown.formulaText?.includes('#REF!') === true);
+}
 export function explainCellError(readsSeen: WorkbookReads, cell: CellId): ErrorExplained | null {
   let reads = readsAsStored(readsSeen);
   let shown = reads.cellOnShowIn(cell);
@@ -420,6 +431,7 @@ export function explainCellError(readsSeen: WorkbookReads, cell: CellId): ErrorE
         tell = explainErrorPassedOn(reads, cell, causeSaid.said) ?? explainCauseOfError(reads, cell, errorCode, causeSaid.said.cause);
     }
   }
+  if (tell?.cause === 'cellsAreGone' && isGoneOnlyByNamedRange(reads, shown)) tell = null;
   let explained = {
     code: errorCode,
     tell: tell !== null && isTellShortEnough(tell) ? tell : null,

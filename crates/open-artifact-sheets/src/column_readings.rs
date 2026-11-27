@@ -7,7 +7,7 @@
 //! doesn't, or is blank. The texts are read the same in every locale, but for the names of months and the locale's
 //! own ways of writing a date with one.
 
-use serde::{Deserialize, Deserializer};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{json, Value as Json};
 
 use crate::dates;
@@ -24,7 +24,7 @@ const MOST_LABELS: usize = 101;
 const MOST_NOT_FITTING_LISTED: usize = 5;
 
 /// How a column's texts are to be read.
-#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
 pub enum ColumnReading {
     /// The characters as they are.
@@ -44,7 +44,7 @@ pub enum ColumnReading {
     Dropdown { is_colored: bool },
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum DecimalSign {
     Point,
@@ -52,14 +52,14 @@ pub enum DecimalSign {
 }
 
 /// What a number with no `%` means in a percent column: `23` for 23% (`percents`) or `0.23` (`aShareOfOne`).
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum NumberAloneIs {
     Percents,
     AShareOfOne,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum DateOrder {
     YearMonthDay,
@@ -68,7 +68,7 @@ pub enum DateOrder {
 }
 
 /// How the dates of a column are shown: `yyyy-mm-dd`, or the locale's date with the month named for short.
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum DateShownAs {
     YearMonthDay,
@@ -76,7 +76,8 @@ pub enum DateShownAs {
 }
 
 /// Decimal places shown, 0 to 6.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(transparent)]
 pub struct DecimalPlaces(pub u8);
 
 impl<'de> Deserialize<'de> for DecimalPlaces {
@@ -90,7 +91,8 @@ impl<'de> Deserialize<'de> for DecimalPlaces {
 }
 
 /// A currency's symbol as the cells write it: one to four letters and currency signs (`$`, `€`, `EUR`, `R$`).
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(transparent)]
 pub struct CurrencySymbol(pub String);
 
 impl<'de> Deserialize<'de> for CurrencySymbol {

@@ -193,6 +193,14 @@ export interface SharedLimits {
   mostEditsInAStep: number;
   mostNamedViewsInASheet: number;
   longestNameOfANamedViewInCharacters: number;
+  mostProtections: number;
+  mostOpenRangesInAProtection: number;
+  mostEditorsOfAProtection: number;
+  longestNameInAConnectedTableInCharacters: number;
+  mostNamedRanges: number;
+  longestNameOfANamedRangeInCharacters: number;
+  mostCellsWithADefaultValue: number;
+  longestDefaultValueInCharacters: number;
 }
 
 /** What chart code (SVG) may hold. */

@@ -122,17 +122,56 @@ export function rowsAndColumnsInSight(grid: Pick<GridForReader, 'rowsDrawn' | 'c
     columns: [firstColumn.text, lastColumn.text],
   };
 }
-export function ReaderPageAnnouncer({ grid }: { grid: GridForReader }) {
+/**
+ * Calls back once the view rests READER_SIGHT_SETTLE_MS after the reader was brought back or the room changed;
+ * typing, a new name box text or a scroll by the person call the wait off.
+ */
+export function whenReaderSightSettles(
+  subscribe: SheetController['subscribe'],
+  getView: SheetController['getView'],
+  onSettled: () => void,
+): () => void {
+  let viewBefore = getView();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let unsubscribe = subscribe(() => {
+    let [before, now] = [viewBefore, getView()];
+    viewBefore = now;
+    let isBroughtBack = now.grid.timesBroughtBackForReader !== before.grid.timesBroughtBackForReader;
+    if (timer === undefined && !isBroughtBack) return;
+    let isRoomChanged = now.grid.scroll.rows.room !== before.grid.scroll.rows.room || now.grid.scroll.columns.room !== before.grid.scroll.columns.room;
+    let isScrolled = now.grid.scroll.rows.by !== before.grid.scroll.rows.by || now.grid.scroll.columns.by !== before.grid.scroll.columns.by;
+    let isCalledOff = now.nameBoxText !== before.nameBoxText || now.mode !== before.mode || (isScrolled && !isRoomChanged && !isBroughtBack);
+    if (!isBroughtBack && !isRoomChanged && !isCalledOff) return;
+    clearTimeout(timer);
+    timer = undefined;
+    if (isCalledOff) return;
+    timer = setTimeout(() => {
+      timer = undefined;
+      onSettled();
+    }, READER_SIGHT_SETTLE_MS);
+  });
+  return () => {
+    unsubscribe();
+    clearTimeout(timer);
+  };
+}
+/**
+ * Tells screen readers which rows and columns are in sight after a page is turned, or once the view settles
+ * after the reader was brought back to the active cell.
+ */
+export function ReaderPageAnnouncer({ grid, store }: { grid: GridForReader; store: Pick<SheetController, 'subscribe' | 'getView'> }) {
   let [said, setSaid] = React.useState<SaidOfReaderPage>({
     pagesTurned: grid.pagesTurnedForReader,
     inSight: null,
+    timesSaid: 0,
   });
-  if (said.pagesTurned !== grid.pagesTurnedForReader)
-    setSaid({
-      pagesTurned: grid.pagesTurnedForReader,
-      inSight: rowsAndColumnsInSight(grid),
-    });
-  return <LiveAnnouncer words={said.inSight !== null && cellsInSightText(said.inSight.rows, said.inSight.columns)} timesSaid={said.pagesTurned} />;
+  let toSay = readerSightAfterPagesTurned(said, grid);
+  if (toSay !== said) setSaid(toSay);
+  React.useEffect(
+    () => whenReaderSightSettles(store.subscribe, store.getView, () => setSaid((saidBefore) => readerSightSaid(saidBefore, store.getView().grid))),
+    [store],
+  );
+  return <LiveAnnouncer words={toSay.inSight !== null && cellsInSightText(toSay.inSight.rows, toSay.inSight.columns)} timesSaid={toSay.timesSaid} />;
 }
 export const READER_SCROLL_STEP = {
   rows: DEFAULT_ROW_HEIGHT,
@@ -154,6 +193,14 @@ export const READER_TOUCH_LISTENER_OPTIONS: AddEventListenerOptions = {
   passive: true,
   capture: true,
 };
+export const READER_SIGHT_SETTLE_MS = 2500;
+export const readerSightSaid = (said: SaidOfReaderPage, grid: GridForReader): SaidOfReaderPage => ({
+  pagesTurned: grid.pagesTurnedForReader,
+  inSight: rowsAndColumnsInSight(grid),
+  timesSaid: said.timesSaid + 1,
+});
+export const readerSightAfterPagesTurned = (said: SaidOfReaderPage, grid: GridForReader): SaidOfReaderPage =>
+  said.pagesTurned === grid.pagesTurnedForReader ? said : readerSightSaid(said, grid);
 export interface StepBackIntoCellsProps {
   store: Pick<SheetController, 'dispatch'>;
   gridRef: React.RefObject<HTMLElement | null>;
@@ -201,4 +248,5 @@ export interface CellsInSight {
 interface SaidOfReaderPage {
   pagesTurned: number;
   inSight: CellsInSight | null;
+  timesSaid: number;
 }

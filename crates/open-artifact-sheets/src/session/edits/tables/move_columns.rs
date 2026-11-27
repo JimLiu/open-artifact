@@ -119,7 +119,11 @@ impl Move<'_> {
                         bottom_right.c = b;
                     }
                 }
-                Reference::Columns { .. } | Reference::Rows { .. } => {}
+                Reference::Columns { .. }
+                | Reference::Rows { .. }
+                | Reference::TableColumn { .. }
+                | Reference::TablePart { .. }
+                | Reference::NamedRange { .. } => {}
             }
         }
         (formula != *original).then_some(formula)

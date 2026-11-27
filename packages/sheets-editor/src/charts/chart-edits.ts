@@ -2,7 +2,8 @@ import { CHART_ROWS_INPUT } from './chart-kind-fit.ts';
 export { CHART_ROWS_INPUT };
 import type { Edit } from '@open-artifact/sheets-core';
 import { areaOfHeld } from './cells-held.ts';
-import { placeChartForArea, DEFAULT_CHART_SIZE } from './placement.ts';
+import { placeChartForArea, DEFAULT_CHART_SIZE, roomForChartIn } from './placement.ts';
+import { layoutOfView } from '../grid/layout.ts';
 import { parseA1AreaAsSeen } from '../model/a1-references.ts';
 import { nodeRefOf } from './placed-views.ts';
 import { cellRefOf } from '../model/workbook.ts';
@@ -12,10 +13,14 @@ import { queueEdit, IF_QUEUED_DEFAULTS } from '../model/edit-effects.ts';
 import { refusalMessageKey, isEditRefusalReason } from '../model/refusals.ts';
 import type { PageState } from '../state/initial-state.ts';
 import type { ChartEditAsked, EditOfChartAsked, PageContext } from '../state/event-reducer.ts';
-import type { ChartEditOutcome } from '../state/controller.ts';
+import type { ChartEditOutcome, ReadsWithTextMeasurer } from '../state/controller.ts';
 import type { EditOutcome } from '../store/workbook-sync.ts';
 import type { WorkbookReads } from '../model/workbook.ts';
-export function editToAddChart(reads: WorkbookReads, { nodeId, name, cells }: Extract<ChartEditAsked, { kind: 'add' }>): Edit | null {
+export function editToAddChart(
+  state: PageState,
+  reads: ReadsWithTextMeasurer,
+  { nodeId, name, cells, at }: Extract<ChartEditAsked, { kind: 'add' }>,
+): Edit | null {
   const { sheetId } = cells;
   const sheet = reads.listSheets().find((candidate) => candidate.sheetId === sheetId);
   const area = areaOfHeld(reads, cells);
@@ -29,10 +34,15 @@ export function editToAddChart(reads: WorkbookReads, { nodeId, name, cells }: Ex
     }),
   ];
   if (rangeArea === null || topLeftArea === null) return null;
+  const cellAsked = state.sheetId === sheetId ? (at ?? null) : null,
+    positionAsked = cellAsked === null ? null : reads.positionOfCell(cellAsked),
+    isRoomAtAsked =
+      positionAsked !== null &&
+      roomForChartIn(reads, sheetId, layoutOfView(state, reads))?.isRoomAt(positionAsked.rowIndex, positionAsked.columnIndex, false) === true;
   const [firstCell, lastCell, topLeftCell] = [
     reads.cellIdAt(sheetId, rangeArea.topRowIndex, rangeArea.leftColumnIndex),
     reads.cellIdAt(sheetId, rangeArea.topRowIndex + rangeArea.rowCount - 1, rangeArea.leftColumnIndex + rangeArea.columnCount - 1),
-    reads.cellIdAt(sheetId, topLeftArea.topRowIndex, topLeftArea.leftColumnIndex),
+    isRoomAtAsked ? cellAsked : reads.cellIdAt(sheetId, topLeftArea.topRowIndex, topLeftArea.leftColumnIndex),
   ];
   if (firstCell === null || lastCell === null || topLeftCell === null) return null;
   return {
@@ -91,7 +101,7 @@ export function reduceEditOfChartAsked(
   { asked, askId }: Pick<EditOfChartAsked, 'asked' | 'askId'>,
 ): PageTransition {
   if (refusalOfEveryEdit !== null || doesCommentModePick(state)) return withNoEffects(state);
-  const edit = asked.kind === 'add' ? editToAddChart(reads, asked) : editToPointChartAt(reads, asked);
+  const edit = asked.kind === 'add' ? editToAddChart(state, reads, asked) : editToPointChartAt(reads, asked);
   return edit === null
     ? withNoEffects(state)
     : queueEdit(state, edit, {

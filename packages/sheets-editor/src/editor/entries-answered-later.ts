@@ -7,11 +7,12 @@ import { unansweredEntryOf } from './unanswered-entries.ts';
 import { isOptionText } from '../chips/dropdown-options.ts';
 import { isEffectAnEdit } from '../state/edit-refusals.ts';
 import { activeAnchorCell, isSameCell, areaOfPosition } from '../selection/model.ts';
-import { sheetPrefixForFormula } from '../formulas/references.ts';
+import { sheetPrefixForFormula, findFormulaReferences, resolveFormulaReference } from '../formulas/references.ts';
+import { hasValueLimits } from '../state/defaults-and-limits.ts';
 import { areaToA1AsStored } from '../formulas/from-words/where.ts';
 import { ownRowOrderOfSheet } from '../model/line-ids.ts';
 import { isOfferEmptyWithoutAgent, formulaReadForOffer } from '../formulas/from-words/offer.ts';
-import { formulaReadsAsWords } from '../formulas/word-tokens.ts';
+import { formulaReadsAsWords, namesOfSheetsAndRanges } from '../formulas/word-tokens.ts';
 import { keepsAgentsFormula } from './commit-entry.ts';
 import { isNonNullObject } from '../utils/objects.ts';
 import { canAskAgentForFormat } from '../format/custom-number-format.ts';
@@ -98,6 +99,8 @@ export function canEntryBeAnsweredLater(
   return (
     text.length <= MAX_TEXT_ANSWERED_LATER &&
     (dropdown === null || text === '' || isOptionText(dropdown, text)) &&
+    !hasValueLimits(reads, cellId) &&
+    !formulaReadsConnectedTable(reads, cellId, text) &&
     ifQueued.thenLine === undefined &&
     editsBefore === undefined &&
     (editsThatGoAlong === undefined || ifQueued.formatsToCome !== undefined) &&
@@ -212,8 +215,7 @@ export function actsOfFormulaEntered({ before, made, reads }: ChangeOfPage): Age
           onceQueued: edit,
         },
       ];
-    let sheetNames = reads.listSheets().map(({ name }) => name);
-    return formulaReadsAsWords(text, sheetNames, reads.decimalSign)
+    return formulaReadsAsWords(text, namesOfSheetsAndRanges(reads), reads.decimalSign)
       ? [
           {
             act: actOfWordsSaved(before),
@@ -280,7 +282,8 @@ export function actsOfFormatAsk(change: ChangeOfPage): AgentAskActSeen[] {
       return isAskedByPerson(change) && stopsAskingAgentForFormula(made) ? actsByPerson('format_ask_stopped') : [];
     if (agent?.kind === 'wrote') return actsByPage('format_of_agent_shown');
     if (agent?.kind !== 'cameToNothing') return [];
-    return actsByPage(agent.why === 'noFormat' ? 'format_ask_no_format' : 'format_ask_failed');
+    let isNoFormat = agent.why === 'noFormat' || agent.why === 'beyondFormats';
+    return actsByPage(isNoFormat ? 'format_ask_no_format' : 'format_ask_failed');
   }
   if (agentBefore?.kind !== 'wrote' || event === null || !isAskedByPerson(change)) return [];
   let formatEdit =
@@ -346,6 +349,13 @@ export function createAgentAskActs(whoActs: () => string): (change: ChangeOfPage
   };
 }
 export const MAX_TEXT_ANSWERED_LATER = 250;
+/** An entry whose formula reads a connected table is not drawn before it is answered. */
+export const formulaReadsConnectedTable = (reads: WorkbookReads, { sheetId }: CellId, text: string): boolean =>
+  isFormulaText(text) &&
+  findFormulaReferences(text, reads.decimalSign).references.some((reference) => {
+    let referencedSheetId = resolveFormulaReference(reference, sheetId, reads.listSheets())?.sheet.sheetId;
+    return referencedSheetId !== undefined && reads.connectedTableIn(referencedSheetId) !== null;
+  });
 export const ARROW_OR_TAB_KEY = /^(?:Arrow(?:Up|Down|Left|Right)|Tab)$/;
 export const isMoveOutEvent = (event: QueuedEvent): boolean =>
   event.kind === 'keyPressed'

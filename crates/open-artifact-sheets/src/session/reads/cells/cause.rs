@@ -1,12 +1,15 @@
 //! Why a formula comes to an error (`readCauseOfError`), as far as the workbook can tell: `None` for a cell that holds
 //! no formula, a formula that comes to no error, one that cannot be read (#ERROR!, which the page tells of itself),
-//! one whose array is blocked (#SPILL!, the same), and an error a function comes to by itself (`NA()`, `SQRT(-1)`).
+//! one whose array is blocked (#SPILL!, the same) or spills (`=ARRAYFORMULA(1/{0;1})`), and an error a function comes
+//! to by itself (`NA()`, `SQRT(-1)`).
 //!
 //! A formula in a cycle reads itself (`refersToItself`: a reference holds its cell, before anything else), or a cell
 //! that leads back to it (`leadsBackToTheFormula`): the first of the cells it reads, in the order it names them, that
-//! does, or else in a reference the formula whose array may fill some of its cells. A formula that comes to several
-//! cells without spilling them (`=A1:A3`, `=A1:A3+1`) is told so whatever else it holds. Otherwise the error is
-//! followed down the formula to where it comes from, an operand's error before the operator's:
+//! does, or else in a reference the formula whose array may fill some of its cells. A #VALUE! that a call given
+//! several cells for one value makes is told by the first such call (`severalCellsForOneValue`, see
+//! `evaluate/lifted.rs`), before the count of its arguments. A formula that comes to several cells without spilling
+//! them (`=A1:A3`, `=A1:A3+1`) is told so whatever else it holds. Otherwise the error is followed down the formula to
+//! where it comes from, an operand's error before the operator's:
 //!
 //! - an error written in it (`errorIsWritten`), a reference to cells deleted since (`cellsAreGone`);
 //! - a cell that shows the error (`showsTheSameError`): the cell named, or the first of a range's cells (row by
@@ -14,16 +17,20 @@
 //! - a function called with too few arguments (`argumentIsMissing`: the first not given), too many
 //!   (`tooManyArguments`), or half a pair (`pairIsIncomplete`); a name that is a function written without
 //!   parentheses (`functionWithoutParentheses`), a cell past the sheet's end (`noSuchCell`), one nobody knows
-//!   (`unknownName`, as written), a function nobody knows (`noSuchFunction`);
+//!   (`unknownName`, as written; none told for one a named range has since been given), a function nobody knows
+//!   (`noSuchFunction`);
 //! - a function's argument that comes to the error: the first that does (a function that reads only where a
 //!   reference points reads no cells); else a lookup that finds nothing (`lookupFindsNothing`), a FILTER that keeps
 //!   nothing (`filterKeepsNothing`);
 //! - arithmetic on a cell that holds text that is no number (`holdsTextWhereANumberIsNeeded`), the left operand
-//!   first; a division by a written 0 (`dividesByAWrittenZero`), or by a cell that is blank (`isBlankAndDividedBy`)
-//!   or holds 0 (`isZeroAndDividedBy`).
+//!   first; operands of sizes that do not stretch together (`operandsOfDifferentSizes`); a division by a written 0
+//!   (`dividesByAWrittenZero`), or by a cell that is blank (`isBlankAndDividedBy`) or holds 0 (`isZeroAndDividedBy`).
 //!
 //! A LET's names are followed to the values given them. The cells' values are those the last calculation worked
 //! out; while formulas wait for `calculate`, no cause is told for any cell.
+
+mod lambda;
+mod told;
 
 use hashbrown::HashSet;
 use std::rc::Rc;
@@ -32,7 +39,7 @@ use serde_json::{json, Value as Json};
 
 use crate::calculate::{Calculation, Slot, SpillOutcome, State};
 use crate::coerce;
-use crate::evaluate::{Operand, Place};
+use crate::evaluate::{Operand, Place, Several};
 use crate::formula::{BinaryOp, Expr, UnaryOp};
 use crate::functions::{self, Description, ErrorInIt, FunctionId, Takes};
 use crate::ids::LineId;
@@ -57,7 +64,8 @@ pub fn of(workbook: &Workbook, s: usize, (r, c): (LineId, LineId)) -> Option<Jso
     };
     let outcome = workbook.outcome(&sheet.id, r, c)?;
     let error = outcome.value.error()?;
-    if matches!(outcome.spill, Some(SpillOutcome::Blocked { .. })) {
+    // An array blocked, or one that spills (whose first value is the error), tells nothing.
+    if matches!(outcome.spill, Some(SpillOutcome::Blocked { .. } | SpillOutcome::Fills { .. })) {
         return None;
     }
     let parsed = cell.parsed.clone()?;
@@ -75,7 +83,18 @@ pub fn of(workbook: &Workbook, s: usize, (r, c): (LineId, LineId)) -> Option<Jso
     if finder.calculation.formulas[f].in_cycle {
         return finder.cycle();
     }
-    match finder.calculation.eval(f, expr) {
+    finder.calculation.several = None;
+    let operand = finder.calculation.eval(f, expr);
+    if error == CellError::Value {
+        match finder.calculation.several {
+            Some(Several::Told { function, argument }) => {
+                return Some(json!({"kind": "severalCellsForOneValue", "function": function, "argument": argument}));
+            }
+            Some(Several::Untold) => return None,
+            None => {}
+        }
+    }
+    match operand {
         Operand::Range(place) if !place.is_single() => {
             return Some(json!({"kind": "comesToSeveralCellsThatDoNotSpill"}));
         }
@@ -211,6 +230,8 @@ impl<'a> Finder<'a> {
                 }
                 match functions::find(name) {
                     Some(id) => Some(json!({"kind": "functionWithoutParentheses", "function": id.name()})),
+                    // A name written as text before a named range was given it: nobody can tell why.
+                    None if self.workbook.named_range_named(&self.as_written(name)).is_some() => None,
                     // A cell past the sheet's end, its address in capitals.
                     None if crate::formula::parse::looks_like_a_cell(name) => {
                         Some(json!({"kind": "noSuchCell", "address": name.to_ascii_uppercase()}))
@@ -229,6 +250,12 @@ impl<'a> Finder<'a> {
                 );
                 if let Some(cause) = self.operands(&[a, b], arithmetic) {
                     return Some(cause);
+                }
+                // Each side is one row or column, or as many as the other has.
+                let fit = |m: usize, n: usize| m == n || m == 1 || n == 1;
+                let ((ra, ca), (rb, cb)) = (self.size(a), self.size(b));
+                if self.error == CellError::Value && !(fit(ra, rb) && fit(ca, cb)) {
+                    return Some(json!({"kind": "operandsOfDifferentSizes"}));
                 }
                 if *op == BinaryOp::Divide && self.error == CellError::DivideByZero {
                     return self.divisor(b);
@@ -270,19 +297,34 @@ impl<'a> Finder<'a> {
 
     /// A cell named that holds text where a number is needed.
     fn holds_text(&mut self, expr: &Expr) -> Option<Json> {
-        let Expr::Reference(i) = expr else {
-            return None;
-        };
-        let place = self.place(*i).filter(Place::is_single)?;
+        let i = self.reference_named(expr)?;
+        let place = self.place(i).filter(Place::is_single)?;
         Some(json!({"kind": "holdsTextWhereANumberIsNeeded", "cell": self.cell(place.sheet, place.top, place.left)}))
+    }
+
+    /// The reference an expression is: one written, or one a name is given (a LET's, a LAMBDA's), followed from name
+    /// to name (`LET(x,C1,y,x,y+1)`); not a value a name is given (`LET(x,0,1/x)` tells nothing).
+    fn reference_named(&self, expr: &Expr) -> Option<usize> {
+        let mut expr = expr;
+        let mut before = self.bound.len();
+        loop {
+            match expr {
+                Expr::Reference(i) => return Some(*i),
+                Expr::Name(name) => {
+                    before = self.bound[..before].iter().rposition(|(n, _)| n == name)?;
+                    expr = self.bound[before].1;
+                }
+                _ => return None,
+            }
+        }
     }
 
     /// Why a division is by zero: a 0 written, or a cell that is blank or holds 0.
     fn divisor(&mut self, divisor: &Expr) -> Option<Json> {
         match divisor {
             Expr::Number(n) if *n == 0.0 => Some(json!({"kind": "dividesByAWrittenZero"})),
-            Expr::Reference(i) => {
-                let place = self.place(*i).filter(Place::is_single)?;
+            Expr::Reference(_) | Expr::Name(_) => {
+                let place = self.place(self.reference_named(divisor)?).filter(Place::is_single)?;
                 let cell = self.cell(place.sheet, place.top, place.left);
                 match self.calculation.cell_value(place.sheet, place.top, place.left) {
                     Value::Blank => Some(json!({"kind": "isBlankAndDividedBy", "cell": cell})),
@@ -336,12 +378,20 @@ impl<'a> Finder<'a> {
     fn call(&mut self, call: &'a Expr, id: FunctionId, arguments: &'a [Expr]) -> Option<Json> {
         let description = id.description();
         let Some(slots) = functions::match_arguments(description, arguments.len()) else {
+            if description.name == "LAMBDA" {
+                return (self.error == CellError::NotAvailable).then(|| lambda::too_short(arguments));
+            }
             return (self.error == CellError::NotAvailable).then(|| count_of_arguments(description, arguments.len()))?;
         };
         match description.name {
             "LET" => return self.let_(arguments),
             "FILTER" => return self.filter(arguments),
-            _ => {}
+            "LAMBDA" => return None,
+            name => {
+                if let Some(walk) = crate::evaluate::lambda::Walk::of(name) {
+                    return self.apply_lambda(walk, name, arguments);
+                }
+            }
         }
         for (expr, slot) in arguments.iter().zip(&slots) {
             match (expr, slot.takes) {
@@ -357,7 +407,7 @@ impl<'a> Finder<'a> {
             }
             if slot.takes == Takes::SeveralCells && slot.error_in_it == ErrorInIt::MayBePassedOver {
                 // Of cells whose errors the call may pass over, the one whose error it answers; an error written as
-                // one value is the answer.
+                // one value is the answer, and one in an array worked out is followed.
                 match self.calculation.eval(self.f, expr) {
                     Operand::Range(place) => {
                         if let Some((row, column)) = self.cell_answered(call, place) {
@@ -366,6 +416,10 @@ impl<'a> Finder<'a> {
                         }
                     }
                     Operand::Value(v) if v == Value::Error(self.error) => return self.cause(expr),
+                    // An array worked out, followed down to where its error comes from.
+                    Operand::Array(a) | Operand::Values(a) if a.values().any(|v| v.error() == Some(self.error)) => {
+                        return self.cause(expr);
+                    }
                     _ => {}
                 }
                 continue;
@@ -384,7 +438,7 @@ impl<'a> Finder<'a> {
         if self.error == CellError::NotAvailable && LOOKUPS.contains(&description.name) {
             return Some(json!({"kind": "lookupFindsNothing", "function": description.name}));
         }
-        None
+        self.told_by_the_call(call, description, arguments, &slots)
     }
 
     /// The first of a range's cells, row by row, whose error a call answers: given another error, the call comes
@@ -558,7 +612,8 @@ fn count_of_arguments(description: &Description, given: usize) -> Option<Json> {
             return Some(json!({
                 "kind": "tooManyArguments",
                 "function": name,
-                "most": arguments.len(),
+                // The most the formula help shows: INDEX's hidden area is not counted.
+                "most": arguments.iter().filter(|a| !a.is_hidden).count(),
                 "given": given,
                 "takesNoFewer": takes_no_fewer,
             }));

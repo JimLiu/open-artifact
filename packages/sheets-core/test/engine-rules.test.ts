@@ -594,7 +594,7 @@ test('a sheet that shows an interactive view takes its writes, keeps their defau
     assert.deepEqual(inputs(), {
       kind: 'inputsOfView',
       viewId,
-      elements: [{ elementId: 'vel_baaaaaaaaa.0', inputs: [{ name: 'rate', rows: [[{ value: 1, text: '1' }]] }] }],
+      elements: [{ elementId: 'vel_baaaaaaaaa.0', inputs: [{ name: 'rate', rows: [[{ value: 1, text: '1', default: 1, isChanged: false }]] }] }],
     } satisfies InputsOfViewAnswer);
 
     const written = queue({ kind: 'writeFromInteractive', viewId, cells: [{ input: 'rate', row: 0, column: 0, value: { kind: 'number', value: 5 } }] });
@@ -602,8 +602,9 @@ test('a sheet that shows an interactive view takes its writes, keeps their defau
     assert.deepEqual(inputs(), {
       kind: 'inputsOfView',
       viewId,
-      elements: [{ elementId: 'vel_baaaaaaaaa.0', inputs: [{ name: 'rate', rows: [[{ value: 5, text: '5' }]] }] }],
+      elements: [{ elementId: 'vel_baaaaaaaaa.0', inputs: [{ name: 'rate', rows: [[{ value: 5, text: '5', default: 1, isChanged: true }]] }] }],
       canBeReset: true,
+      countOfCellsToReset: 1,
       hasDefaultsToSave: true,
     } satisfies InputsOfViewAnswer);
 
@@ -615,12 +616,17 @@ test('a sheet that shows an interactive view takes its writes, keeps their defau
       { input: 'rate', saved: [{ ...at(0), value: { kind: 'number', value: 5 } }, { ...at(1), value: null }] },
     ]);
     assert.equal(inputs().canBeReset, undefined);
+    assert.equal(inputs().countOfCellsToReset, undefined);
     assert.equal(inputs().hasDefaultsToSave, undefined);
+    const rateCell = () => inputs().elements[0]?.inputs[0]?.rows[0]?.[0];
+    assert.deepEqual(rateCell(), { value: 5, text: '5', default: 5, isChanged: false });
 
     queue({ kind: 'writeFromInteractive', viewId, cells: [{ input: 'rate', row: 0, column: 0, value: { kind: 'text', value: 'high' } }] });
+    assert.deepEqual(rateCell(), { value: 'high', text: 'high', default: 5, isChanged: true });
     const reset = queue({ kind: 'resetInteractive', viewId });
     assert.deepEqual(reset.ops.map((op) => op.kind), ['setCells']);
     assert.equal(inputs().canBeReset, undefined);
+    assert.deepEqual(rateCell(), { value: 5, text: '5', default: 5, isChanged: false });
 
     const refusal = (edit: Edit) => {
       const { answer } = queue(edit);

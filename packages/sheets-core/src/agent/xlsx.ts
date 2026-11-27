@@ -50,12 +50,45 @@ export function xlsxPartsOf(answer: EngineMessage): XlsxPart[] | null {
   return parts;
 }
 
-/** A file name for the workbook: its title, else its first sheet's name, with what no file name holds taken out. */
+/** How long a file name the page makes can be, extension and all: in characters (code points), and in UTF-8 bytes. */
+export const MOST_FILE_NAME_CHARACTERS = 120;
+export const MOST_FILE_NAME_BYTES = 240;
+
+/** Characters no one sees (soft hyphens, joiners, direction marks), which a file name drops. */
+const UNSEEN = /[\u00AD\u061C\u200B\u200E\u200F\u202A-\u202E\u2060-\u206F\uFEFF]/gu;
+/** Runs of spaces, control characters, blank-looking letters and what a file system or a link reads, which become a space. */
+const NOT_IN_FILE_NAMES = /[\s\p{Cc}\u2800\uFFFC\u{1D159}\u{13441}\u{13442}\u{16910}\u115F\u1160\u3164\uFFA0\\/:*?"<>|%]+/gu;
+const SPACES_AND_DOTS_AT_ENDS = /^[\s.]+|[\s.]+$/gu;
+
+/** A part of a file name, with what no file name holds taken out or turned into a space. */
+export const fileNamePart = (text: string): string =>
+  text.replace(UNSEEN, '').replace(NOT_IN_FILE_NAMES, ' ').replace(SPACES_AND_DOTS_AT_ENDS, '');
+
+/** A text's graphemes (what a person takes for one character), or its code points where Intl.Segmenter is missing. */
+function graphemes(text: string): string[] {
+  if (typeof Intl.Segmenter !== 'function') return Array.from(text);
+  return Array.from(new Intl.Segmenter().segment(text), ({ segment }) => segment);
+}
+
+const utf8Length = (text: string): number => new TextEncoder().encode(text).length;
+
+/**
+ * As much of the title as fits a file name with this extension, cut between graphemes so no letter loses its accent
+ * or an emoji its parts; null when nothing of it is left.
+ */
+export function fileNameStemOf(title: string | null, extension: string): string | null {
+  let stem = '';
+  for (const grapheme of graphemes(fileNamePart(title ?? ''))) {
+    const longer = stem + grapheme;
+    if (Array.from(longer).length > MOST_FILE_NAME_CHARACTERS || utf8Length(longer + extension) > MOST_FILE_NAME_BYTES) break;
+    stem = longer;
+  }
+  return stem.replace(SPACES_AND_DOTS_AT_ENDS, '') || null;
+}
+
+/** A file name for the workbook: its title, else its first sheet's name, else "Sheet". */
 export function xlsxFileName(title: string | null, firstSheet: string): string {
-  const stem = (title ?? '').trim() || firstSheet.trim() || 'Sheet';
-  // eslint-disable-next-line no-control-regex
-  const clean = stem.replace(/[\u0000-\u001f\u007f<>:"/\\|?*]/g, ' ').replace(/\s+/g, ' ').replace(/^[.\s]+|[.\s]+$/g, '').slice(0, 120);
-  return `${clean || 'Sheet'}.xlsx`;
+  return `${fileNameStemOf(title, '.xlsx') ?? (fileNamePart(firstSheet) || 'Sheet')}.xlsx`;
 }
 
 /** What Excel shows differently, in the page's words. */

@@ -146,6 +146,11 @@ impl Axis {
         self.lines.is_empty()
     }
 
+    /// The lines not deleted, in order.
+    pub fn lines(&self) -> &[LineId] {
+        &self.lines
+    }
+
     pub fn line(&self, position: usize) -> Option<LineId> {
         self.lines.get(position).copied()
     }

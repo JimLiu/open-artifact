@@ -39,3 +39,6 @@ export const whenBlurredToNothingChecked = (element: Element, onLeft: OnFocusLef
 export const whenWindowBlurred = (doc: Document, onLeft: OnFocusLeft) => checkWhereFocusWent(doc, null, onLeft);
 export const isFocusWithinSameMenu = (element: Element, relatedTarget: Node | null) =>
   element.closest('[role="menu"]')?.contains(relatedTarget) === true;
+export const GOES_TO_CELL_BEHIND_ATTRIBUTE = 'data-goes-to-cell-behind';
+// The bar is drawn in its own module, as it is drawn with JSX.
+export { CellBehindBar } from './cell-behind-bar.tsx';

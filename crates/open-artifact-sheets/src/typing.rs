@@ -556,6 +556,22 @@ fn change_of(workbook: &Workbook, s: usize, place: (LineId, LineId), text: &str,
     dropdown_change(workbook, s, place, text, locale, how).unwrap_or_else(read)
 }
 
+/// What a text typed gives a cell as it reads (whatever control the cell has): its input (`None` empties it), and
+/// the pattern it brings when the cell's own changes. A default value and limits are read so
+/// (`session/edits/defaults.rs`).
+pub(crate) fn typed_change(workbook: &Workbook, s: usize, place: (LineId, LineId), text: &str) -> (Option<Input>, Option<String>) {
+    let locale = workbook_locale(workbook);
+    let reading = reading::read(text, locales_of(workbook, locale), true);
+    let change = read_change(workbook, s, place, text, reading, locale, How::Entered);
+    (change.input, change.pattern)
+}
+
+/// A text typed into a cell with a dropdown as it names an option, spaces and capitals aside.
+pub(crate) fn option_named(workbook: &Workbook, text: &str) -> String {
+    let locale = workbook_locale(workbook);
+    reading::unquoted(text, locales_of(workbook, locale), true).trim().to_lowercase()
+}
+
 /// What a text pasted in a column given a grouped number too gives its cell: as anywhere, but a plain number that
 /// shows its digits as written grouped (`reading::grouped_alike`: `7`, `7.25`) is read as grouped, bringing
 /// `#,##0` or `#,##0.00`, unless its cell shows text.

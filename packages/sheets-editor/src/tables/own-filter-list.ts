@@ -21,7 +21,10 @@ import {
   applyOwnFilter,
   recordCountsOfOwnFilter,
   columnLabelOfFilterTable,
+  ownFilterForConnectedTable,
+  isOwnFilterOfConnectedTable,
 } from './own-filters.ts';
+import { ownFilterForFoundTableColumn } from './rows-asked-for.ts';
 import { layoutOfView } from '../grid/layout.ts';
 import { filterButtonRowIndex, columnSpanOfIdFinder, stuckHeaderAt, rowSpanInStuckHeader, tablesWithFilterButtons } from './table-drawing.ts';
 import { stuckHeadersOfView } from '../grid/sticky-headers.ts';
@@ -187,10 +190,16 @@ export function ownFilterListAnchor(view: PageState, reads: ReadsWithTextMeasure
     height,
   };
 }
-export function filterButtonAtActiveCell(view: PageState, reads: ReadsWithTextMeasurer, activeCell: CellId): FilterButtonAtCell | null {
+export function filterButtonAtActiveCell(
+  view: PageState,
+  reads: ReadsWithTextMeasurer,
+  activeCell: CellId,
+  withColumnsOfFound: boolean = false,
+): FilterButtonAtCell | null {
   let cellArea = mergedAreaOrCellOf(reads, activeCell);
   if (cellArea === null || activeCell.sheetId !== view.sheetId) return null;
   for (let table of tablesWithFilterButtons(view, reads)) {
+    if (table.areColumnsOfFound === true && !withColumnsOfFound) continue;
     let { rowIndex, table: tableInIds } = table;
     let isInHeaderRow = rowIndex >= cellArea.topRowIndex && rowIndex < cellArea.topRowIndex + cellArea.rowCount;
     let columnsToMatch = table.columnsOfFound === undefined ? 1 : cellArea.columnCount;
@@ -626,6 +635,39 @@ export function dropFilterKeptForColumnsCard(state: PageState, reads: ReadsWithT
     filterKeptOnForColumnsCard: null,
   };
 }
+export function openOwnFilterListAtFoundTable(
+  state: PageState,
+  reads: ReadsWithTextMeasurer,
+  tableKey: string,
+  columnId: ColumnId,
+  today: string | null,
+): PageState | null {
+  let triedEnded = endOwnFilterTrial(state, reads);
+  let withoutKeptFilter = dropFilterKeptForColumnsCard(triedEnded, reads, tableKey);
+  let found = ownFilterForFoundTableColumn(
+    refreshStaleOwnFilters(withoutKeptFilter, reads, withoutKeptFilter.sheetId),
+    reads,
+    tableKey,
+    columnId,
+  );
+  if (found === null) return null;
+  let opened = openOwnFilterList(found.state, reads, found.tableKey, columnId, today);
+  if (!found.isBegun) return opened;
+  let ownFilterList = opened.ownFilterList;
+  let listAtHeading =
+    ownFilterList === null
+      ? null
+      : {
+          ...ownFilterList,
+          isFilterNotDrawnYet: true,
+          isAskedAtHeadingOfFoundTable: true,
+        };
+  return {
+    ...opened,
+    ownFilterList: listAtHeading,
+    filterKeptOnForColumnsCard: found.tableKey,
+  };
+}
 export function openOwnFilterList(
   state: PageState,
   reads: ReadsWithTextMeasurer,
@@ -633,6 +675,24 @@ export function openOwnFilterList(
   columnId: ColumnId,
   today: string | null,
 ): PageState {
+  let connectedState = ownFilterForConnectedTable(state, reads, tableKey);
+  if (connectedState !== null) {
+    let { ownFilterList, ...opened } = openOwnFilterList(connectedState, reads, tableKey, columnId, today);
+    let listNotDrawnYet =
+      ownFilterList === null
+        ? null
+        : {
+            ...ownFilterList,
+            isFilterNotDrawnYet: true,
+          };
+    return {
+      ...opened,
+      ownFilterList: listNotDrawnYet,
+      filterKeptOnForColumnsCard: tableKey,
+    };
+  }
+  let openedAtFoundTable = ownFilterByKey(state, tableKey) === null ? openOwnFilterListAtFoundTable(state, reads, tableKey, columnId, today) : null;
+  if (openedAtFoundTable !== null) return openedAtFoundTable;
   let triedEnded = endOwnFilterTrial(state, reads);
   let sheetId = ownFilterByKey(triedEnded, tableKey)?.table.sheetId;
   let refreshed = sheetId === undefined ? triedEnded : refreshStaleOwnFilters(triedEnded, reads, sheetId);
@@ -661,7 +721,9 @@ export function openOwnFilterList(
   let isForOneself = isOwnFilterSortable(reads, ownFilter);
   let sortRecords = isForOneself
     ? ownFilterRecordsArea(reads, ownFilter)
-    : (sortableRecordsOfOwnFilter(withoutKeptFilter, reads, ownFilter)?.records ?? null);
+    : isOwnFilterOfConnectedTable(reads, ownFilter)
+      ? null
+      : (sortableRecordsOfOwnFilter(withoutKeptFilter, reads, ownFilter)?.records ?? null);
   let [firstSortBy] = ownFilter.sort?.by ?? [];
   return {
     ...clearPassingNotice(withoutKeptFilter),

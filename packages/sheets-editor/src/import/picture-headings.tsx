@@ -7,6 +7,7 @@ import { dataLineNumbers } from './column-readings.ts';
 import { fileLineOfRowNumber } from './picture-lines-and-focus.ts';
 import { importColumnsLeftOut } from './bring-in.ts';
 import { HEADING_FORMAT_ROOM_PX, measureHeadingTextWidth } from './review-in-dialog.tsx';
+import { SCROLLS_AROUND_PICTURE_ATTRIBUTE } from './import-picture.tsx';
 import type { ImportOfAFile, ImportPreviewColumn } from '../state/initial-state.ts';
 import type { ImportChangeByHand } from '../state/event-reducer.ts';
 import type { GridOfPage } from '../view/page-view.ts';
@@ -37,6 +38,8 @@ interface ImportRowNumbersProps {
   place: PlaceOfPicture;
   zoom: number;
   onChangedByHand: ((change: ImportChangeByHand) => void) | null;
+  /** Brings a row of the picture into view whole, as a key moved to it. */
+  onRowWanted: (rowNumber: number) => void;
 }
 interface ImportHeadingsRowProps {
   open: ImportOfAFile;
@@ -92,30 +95,53 @@ export function headingIndexForKey({ key, target }: Pick<React.KeyboardEvent, 'k
   return Math.max(0, Math.min(columnCount - 1, columnNumber + (key === 'ArrowRight' ? 1 : -1)));
 }
 export function ImportRowNumbers(props: ImportRowNumbersProps) {
-  let { open, picture, lastRow, place, zoom, onChangedByHand } = props;
+  let { open, picture, lastRow, place, zoom, onChangedByHand, onRowWanted } = props;
   let { plan } = importPlanSoFar(open);
   let tableRows = React.useMemo(() => dataLineNumbers(open.table, plan), [open.table, plan]);
+  let numbersRef = React.useRef<HTMLDivElement>(null);
+  let rowToFocusRef = React.useRef<number | null>(null);
+  React.useLayoutEffect(() => {
+    if (rowToFocusRef.current === null) return;
+    let rowButton = rowNumberButtonOf(numbersRef.current, rowToFocusRef.current);
+    if (rowButton === null) return;
+    rowToFocusRef.current = null;
+    rowButton.focus({
+      preventScroll: true,
+    });
+    let scroller = rowButton.closest(`[${SCROLLS_AROUND_PICTURE_ATTRIBUTE}]`);
+    if (scroller === null || rowButton.ownerDocument.activeElement !== rowButton) return;
+    let { top, bottom } = rowButton.getBoundingClientRect();
+    let scrollerBox = scroller.getBoundingClientRect();
+    scroller.scrollBy({
+      top: top < scrollerBox.top ? top - scrollerBox.top : Math.max(0, bottom - scrollerBox.bottom),
+    });
+  });
   let headingRowNumber = picture.rowsDrawn.find(
     ({ rowNumber }) => rowNumber <= lastRow && fileLineOfRowNumber(plan.headerLine, tableRows, rowNumber) !== null,
   )?.rowNumber;
-  return <div role="presentation" className="sheet-import-numbers" onKeyDownCapture={(event) => {
+  return <div ref={numbersRef} role="presentation" className="sheet-import-numbers" onKeyDownCapture={(event) => {
       let step = (
         {
           ArrowUp: -1,
           ArrowDown: 1,
         } as Partial<Record<string, number>>
       )[event.key];
-      if (step === undefined || !(event.target instanceof HTMLElement)) return;
-      let rowButtons = [...event.currentTarget.querySelectorAll<HTMLElement>(IMPORT_LINE_NUMBER_SELECTOR)].toSorted(
-        (left, right) => Number(left.dataset.line) - Number(right.dataset.line),
-      );
-      let nextRowButton = rowButtons[rowButtons.indexOf(event.target) + step];
-      if (!event.target.matches(IMPORT_LINE_NUMBER_SELECTOR)) return;
+      if (step === undefined || !(event.target instanceof Element)) return;
+      let numberCell = event.target.matches(IMPORT_LINE_NUMBER_SELECTOR) ? event.target.closest(`[${ROW_NUMBER_ATTRIBUTE}]`) : null;
+      if (numberCell === null) return;
       event.preventDefault();
       event.stopPropagation();
-      nextRowButton?.focus({
+      let rowNumber = Number(numberCell.getAttribute(ROW_NUMBER_ATTRIBUTE));
+      let nextRowNumber =
+        rowNumber + step > lastRow || fileLineOfRowNumber(plan.headerLine, tableRows, rowNumber + step) === null ? rowNumber : rowNumber + step;
+      rowToFocusRef.current = nextRowNumber;
+      setTimeout(() => {
+        if (rowToFocusRef.current === nextRowNumber) rowToFocusRef.current = null;
+      }, 300);
+      rowNumberButtonOf(event.currentTarget, nextRowNumber)?.focus({
         preventScroll: true,
       });
+      onRowWanted(nextRowNumber);
     }} style={{
       left: place.left,
       top: place.top + picture.body.top * zoom,
@@ -133,6 +159,8 @@ export function ImportRowNumbers(props: ImportRowNumbersProps) {
                 ...(isFirstRow && {
                   zIndex: 1,
                 }),
+              }} {...{
+                [ROW_NUMBER_ATTRIBUTE]: rowNumber,
               }}><LineNumberMenu rowNumber={rowNumber} line={headingLine} becomes={isFirstRow ? 'names' : 'row'} isLastRow={headingLine === tableRows.at(-1)} isOnlyRow={tableRows.length === 1} isTabStop={rowNumber === headingRowNumber} onChanged={onChangedByHand} /></div>);
     })}</div>;
 }
@@ -240,3 +268,6 @@ export const importZoomStyle = (zoom: number) => ({
 export const COLUMN_DRAWN_ATTRIBUTE = 'data-column-drawn';
 export const headingCapOfColumn = (headingsRow: ParentNode | null, columnDrawn: number) =>
   headingsRow?.querySelector<HTMLElement>(`[${COLUMN_DRAWN_ATTRIBUTE}="${columnDrawn}"] ${HEADING_CAP_SELECTOR}`) ?? null;
+export const ROW_NUMBER_ATTRIBUTE = 'data-row-number';
+export const rowNumberButtonOf = (numbers: ParentNode | null, rowNumber: number) =>
+  numbers?.querySelector<HTMLElement>(`[${ROW_NUMBER_ATTRIBUTE}="${rowNumber}"] ${IMPORT_LINE_NUMBER_SELECTOR}`) ?? null;

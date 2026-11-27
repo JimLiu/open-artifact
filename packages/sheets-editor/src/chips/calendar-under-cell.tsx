@@ -56,6 +56,7 @@ export interface CalendarUnderCellProps extends Pick<CalendarUnderCellState, 'ca
   onTimeChosen: (time: TimeOfDay, today: string, thenCalendar: CalendarAfterTime) => void;
   onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => void;
   onKeyBroughtCaret: (event: KeyboardEvent) => void;
+  onCaretCame: () => void;
 }
 export function wrapTabInCalendar(event: React.KeyboardEvent<HTMLElement>) {
   if (event.key !== 'Tab') return;
@@ -259,6 +260,7 @@ export const CalendarUnderCell = React.memo(function ({
   onTimeChosen,
   onKeyDown,
   onKeyBroughtCaret,
+  onCaretCame,
 }: CalendarUnderCellProps) {
   let [calendarState, setCalendarState] = React.useState(
     () =>
@@ -300,9 +302,13 @@ export const CalendarUnderCell = React.memo(function ({
     [onKeyDown],
   );
   let isKeyFreshRef = React.useRef(false);
-  let onBlurInCalendar = React.useCallback(({ currentTarget, relatedTarget }: React.FocusEvent<HTMLDivElement>) => {
-    if (relatedTarget instanceof Node && !currentTarget.contains(relatedTarget)) isKeyFreshRef.current = false;
-  }, []);
+  let onBlurInCalendar = React.useCallback(
+    ({ currentTarget, relatedTarget }: React.FocusEvent<HTMLDivElement>) => {
+      if (relatedTarget instanceof Node && !currentTarget.contains(relatedTarget)) isKeyFreshRef.current = false;
+      onCaretCame();
+    },
+    [onCaretCame],
+  );
   let swallowHeldKeys = React.useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
     if (!event.repeat) isKeyFreshRef.current = true;
     else if (!isKeyFreshRef.current) swallowKeyEvent(event);

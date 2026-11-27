@@ -10,6 +10,8 @@ import { ROW_HEADER_WIDTH } from '../grid/cell-metrics-values.ts';
 import { mergedAreaOrCellOf, moveActiveCellTo, selectedArea, isSameCell } from '../selection/model.ts';
 import { layoutOfView } from '../grid/layout.ts';
 import { showSheet } from '../state/sheet-tabs.ts';
+import { isSheetTabShown } from '../state/places.ts';
+import { findSheetById } from '../grid/layout.ts';
 import { withoutOtherRanges } from '../selection/several-ranges.ts';
 import { withCalendarShut } from '../chips/calendar.ts';
 import { stripGroupSeparators, normalizeNoBreakSpaces } from '../format/number-signs.ts';
@@ -55,6 +57,7 @@ type ModalPart =
   | 'menu'
   | 'customNumberFormat'
   | 'pasteThatWaits'
+  | 'callToConfirm'
   | 'pickForWorkbook'
   | 'importOfAFile'
   | 'fileAwaited'
@@ -162,7 +165,9 @@ export function* rowsToFindIn(state: PageState, workbook: WorkbookReads, by: Fin
     let sheetIndex = step === sheetCount ? start.sheetIndex : (start.sheetIndex + by * step + sheets.length) % sheets.length;
     let sheet = sheets[sheetIndex];
     if (sheet === undefined) return;
+    if (!isSheetTabShown(state, sheet)) continue;
     let { sheetId, rowCount, columnCount } = sheet;
+    let rowsOutOfView = workbook.connectedTableIn(sheetId) === null ? undefined : state.rowsOutOfViewByOwnFilters.get(sheetId);
     let wholeSheet = {
       topRowIndex: 0,
       leftColumnIndex: 0,
@@ -174,6 +179,7 @@ export function* rowsToFindIn(state: PageState, workbook: WorkbookReads, by: Fin
     let fromRowIndex = step === 0 ? start.rowIndex : firstRowIndex;
     let toRowIndex = step === sheetCount ? start.rowIndex : lastRowIndex;
     for (let rowIndex = fromRowIndex; by * (toRowIndex - rowIndex) >= 0; rowIndex += by) {
+      if (rowsOutOfView?.has(workbook.cellIdAt(sheetId, rowIndex, 0)?.rowId ?? '') === true) continue;
       let columnIndexes = workbook.columnIndexesOnShowIn(sheetId, rowIndex);
       let isStartRow = sheetIndex === start.sheetIndex && rowIndex === start.rowIndex;
       let isFromStart = by === 1 ? step === 0 : step === sheetCount;
@@ -313,7 +319,7 @@ export function roomNeededUnderFindBar(state: PageState, cellArea: CellArea, lay
 }
 export function makeRoomForFindBar(state: PageState, workbook: ReadsWithTextMeasurer, find: Find): PageState {
   let activeArea = mergedAreaOrCellOf(workbook, state.activeCell);
-  if (activeArea === null)
+  if (activeArea === null || workbook.connectedTableIn(state.sheetId) !== null)
     return {
       ...state,
       find: {
@@ -347,13 +353,13 @@ export function goToFindHit(state: PageState, workbook: ReadsWithTextMeasurer, h
   if (sheetId !== state.sheetId && state.sheetBeingRenamed !== null) return state;
   let shown = showSheet(state, workbook, sheetId);
   if (shown.sheetId !== sheetId) return state;
-  let find =
-    sheetId === state.sheetId
-      ? state.find
-      : {
-          ...state.find,
-          selectedAtFirst: null,
-        };
+  let find = {
+    ...state.find,
+    timesGoneToCell: state.find.timesGoneToCell + 1,
+    ...(sheetId !== state.sheetId && {
+      selectedAtFirst: null,
+    }),
+  };
   let lastDone = state.lastDone?.what === 'replaced' ? state.lastDone : shown.lastDone;
   let nextState = {
     ...shown,
@@ -399,6 +405,7 @@ export function openFind(state: PageState, workbook: WorkbookReads): PageState {
       selectedAtFirst: findWithinOfSelection(state, workbook),
       roomAboveGrid: 0,
       isReplaceShown: false,
+      timesGoneToCell: 0,
       ...NO_FIND_HITS,
     },
   };
@@ -560,6 +567,7 @@ export function settleFind(before: PageState, state: PageState, workbook: ReadsW
     };
     return isInAllSheets &&
       !findOnNewSheet.isCapped &&
+      [before, state].every(({ sheetId }) => findSheetById(workbook, sheetId)?.isHidden !== true) &&
       state.workbookChangeCount === before.workbookChangeCount &&
       state.formulasWorkedOutCount === before.formulasWorkedOutCount &&
       state.areFormulasShown === before.areFormulasShown
@@ -576,7 +584,12 @@ export function settleFind(before: PageState, state: PageState, workbook: ReadsW
         );
   }
   if (state.areFormulasShown !== before.areFormulasShown) return refreshFindHits(state, workbook);
-  if (state.workbookChangeCount === before.workbookChangeCount && state.formulasWorkedOutCount === before.formulasWorkedOutCount) return state;
+  if (
+    !(state.rowsOutOfViewByOwnFilters !== before.rowsOutOfViewByOwnFilters && workbook.connectedTableIn(state.sheetId) !== null) &&
+    state.workbookChangeCount === before.workbookChangeCount &&
+    state.formulasWorkedOutCount === before.formulasWorkedOutCount
+  )
+    return state;
   let { options: findOptions, selectedAtFirst, editsSinceLooked } = state.find;
   let findWithin = findWithinOf(findOptions);
   let within = findWithin === null ? findOptions.within : (relocateFindArea(workbook, state.sheetId, findWithin) ?? findWithin);
@@ -659,6 +672,7 @@ export const isModalOpen = ({
   menu,
   customNumberFormat,
   pasteThatWaits,
+  callToConfirm,
   pickForWorkbook,
   importOfAFile,
   fileAwaited,
@@ -669,6 +683,7 @@ export const isModalOpen = ({
   isMenuHoldingField(menu) ||
   customNumberFormat?.typedIn === 'dialog' ||
   pasteThatWaits !== null ||
+  callToConfirm !== null ||
   pickForWorkbook !== null ||
   importOfAFile !== null ||
   fileAwaited !== null ||
@@ -680,8 +695,6 @@ export const isModalOpenBesidesCellHistory = (state: StateOfModals): boolean =>
     ...state,
     cellHistory: null,
   });
-export const isModalOrVersionLookOpen = (state: StateOfModals & Pick<PageView, 'versionHistory'>): boolean =>
-  isModalOpenBesidesCellHistory(state) || (state.versionHistory?.look ?? null) !== null;
 export const areaFindLooksIn = (state: PageState, workbook: WorkbookReads): CellArea | null =>
   selectedAreaToFindIn(state, workbook) ?? state.find?.selectedAtFirst?.at ?? null;
 export const closeFind = (state: PageState): PageState => ({

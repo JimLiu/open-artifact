@@ -1,3 +1,5 @@
+import { graphemesOf } from '../chips/people-list.ts';
+
 export let MAX_FILE_NAME_CHARACTERS: number;
 export let MAX_FILE_NAME_BYTES: number;
 export function truncatedFileNameStem(title: string | null, suffix: string, extension: string): string | null {
@@ -23,10 +25,6 @@ export function csvFileName(workbookTitle: string | null, sheetName: string): st
 }
 [MAX_FILE_NAME_CHARACTERS, MAX_FILE_NAME_BYTES] = [120, 240];
 export const utf8ByteLength = (text: string): number => new TextEncoder().encode(text).length;
-export const graphemesOf = (text: string): string[] =>
-  'Segmenter' in Intl
-    ? Array.from(new Intl.Segmenter().segment(text), ({ segment }) => segment)
-    : Array.from(text);
 export const EDGE_SPACES_AND_DOTS_PATTERN = /^[\s.]+|[\s.]+$/gu;
 export const INVISIBLE_CHARACTERS_PATTERN = /[\u00AD\u061C\u200B\u200E\u200F\u202A-\u202E\u2060-\u206F\uFEFF]/gu;
 export const UNSAFE_FILE_NAME_CHARACTERS_PATTERN =

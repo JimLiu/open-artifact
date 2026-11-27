@@ -1,5 +1,5 @@
 import { reportErrorSoftly, reportErrorsSoftlyAt, type LoadedSheetsEngine, type SheetsEngineLoad } from '../engine/loader.ts';
-import { EMPTY_SHEET_STATE, describeSheet, reduceSheetFrame, canViewerEdit, viewerOf, describeStore, type SheetContent, type SheetState, type StoreDescription, type StoreSnapshot } from './sheet-state.ts';
+import { EMPTY_SHEET_STATE, describeSheet, reduceSheetFrame, canViewerEdit, viewerOf, isViewerTheOwner, describeStore, type SheetContent, type SheetState, type StoreDescription, type StoreSnapshot } from './sheet-state.ts';
 import { createWorkbookNodeClient, failureOf, type NotedFailure, type WorkbookStore } from './workbook-node.ts';
 import {
   FIRST_LOAD_RESTARTED_TOO_OFTEN,
@@ -29,13 +29,14 @@ import {
   isRetryableFailure,
   readRetryAfterMs,
   askRevisionRequest,
+  readAskedRevision,
   answerOf,
   revisionOfAnswer,
 } from './requests.ts';
 import { isWrittenByAgentAlone, latestVersionsRequest } from '../history/requests.ts';
 import type { EarlierVersionOpened } from '../history/history-reader.ts';
 import { defaultSheetName } from '../i18n/sheet-names.ts';
-import { isSheetJustMade, readClockFrame, readStreamedEdit, type ClockReading, type StreamedEdit } from './frames.ts';
+import { isSheetJustMade, personOfViewer, readClockFrame, readStreamedEdit, type ClockReading, type Person, type StreamedEdit } from './frames.ts';
 import type { SheetStream, SheetStreamOptions, StoreCall, StoreOutcome, StreamEndReason } from './sheet-stream.ts';
 
 export type Connection = { kind: 'connecting' } | { kind: 'open' } | { kind: 'reconnecting' } | { kind: 'ended'; reason: StreamEndReason };
@@ -119,6 +120,7 @@ export interface ConnectionPage {
   content: SheetContent;
   isSheetJustMade(): boolean;
   viewer: string | null;
+  person: Person | null;
   sharedCode: SharedCodeTold;
 }
 
@@ -146,6 +148,7 @@ export function openSheetConnection(
   nowMs: () => number = () => performance.now(),
   wallNowMs: () => number = () => Date.now(),
   agentRest?: AgentActivity['rest'],
+  every?: (call: () => void, everyMs: number) => () => void,
 ): () => void {
   let isEnded = false;
   let hasEnded = (): boolean => isEnded;
@@ -154,6 +157,7 @@ export function openSheetConnection(
     kind: 'connecting',
   };
   let viewer: string | null = null;
+  let person: Person | null = null;
   let storeTold: StoreTold = {
     kind: 'notAsked',
   };
@@ -566,6 +570,7 @@ export function openSheetConnection(
     if (connection.kind === 'ended') workbook.storeClosed();
     workbook.tabVisibilityChanged(isTabHidden);
     if (timeTold !== null) workbook.timeTold(timeTold);
+    if (person !== null) workbook.personTold(person);
     setAvailability(availability);
     for (let { revision, applied } of streamedBeforeOpen?.edits ?? []) workbook.editStreamed(revision, applied);
     streamedBeforeOpen = null;
@@ -594,6 +599,7 @@ export function openSheetConnection(
       content: describeSheet(storeState),
       isSheetJustMade: (): boolean => isSheetJustMade(storeState, timeTold, nowMs() - timeToldAt, wallNowMs()),
       viewer,
+      person,
       sharedCode,
     });
   };
@@ -680,6 +686,8 @@ export function openSheetConnection(
     let content = describeSheet(storeState);
     if (frame.phase === 'snapshot') {
       viewer = viewerOf(storeState);
+      person = personOfViewer(viewer, isViewerTheOwner(storeState));
+      opened?.workbook.personTold(person);
       storeTold = describeStore(frame);
       setAvailability(storeTold.availability);
     }
@@ -749,15 +757,69 @@ export function openSheetConnection(
     if (!isHidden) stream.retryNow();
     if (wasHidden && !isHidden && availabilityWatch !== null) watchAvailability(true);
   });
+  // With the tab shown and nothing else on its way, the page asks for the revision every 30 s.
+  let sendBeat = createBeatSender({
+    next(): Beat | null {
+      let isStreamFree = connection.kind === 'open' && !isCallingNow && callQueue.length === 0;
+      if (opened === null || !isStreamFree || opened.workbook.hasUnsavedEdits()) return null;
+      if (storeState.snapshot === null) return null;
+      if (isTabHidden) return null;
+      return {
+        request: askRevisionRequest(),
+        msAfterTheLast: SLOW_BEAT_MS,
+      };
+    },
+    async send(request: StoreCall): Promise<StoreOutcome> {
+      let outcome = await call(request, true);
+      let revision = readAskedRevision(outcome);
+      if (typeof revision === 'number') opened?.workbook.storeRevisionReported(revision);
+      return outcome;
+    },
+    nowMs,
+  });
+  let stopBeats = every?.((): void => void sendBeat(), BEAT_MS);
   let stopHearingRest = agentRest?.onKnown(bringLocaleIfDue);
   tellPageChanged();
   loadSharedCodeNow();
   return (): void => {
     isEnded = true;
     stopWatchingTabs();
+    stopBeats?.();
     stopHearingRest?.();
     stream.close();
     endWorker?.();
+  };
+}
+
+export const BEAT_MS = 1e4;
+export const SLOW_BEAT_MS = 30000;
+export const MOST_BEAT_WAIT_MS = 300000;
+
+interface Beat {
+  request: StoreCall;
+  msAfterTheLast: number;
+}
+
+interface Beats {
+  next(): Beat | null;
+  send(request: StoreCall): Promise<StoreOutcome>;
+  nowMs(): number;
+}
+
+/** Sends the request next() gives no sooner than its msAfterTheLast, waiting twice as long after each one that did not land (up to 5 min). */
+function createBeatSender(beats: Beats): () => Promise<void> {
+  let lastSentAt = -Infinity;
+  let failuresInARow = 0;
+  return async (): Promise<void> => {
+    let beat = beats.next();
+    if (beat === null) return;
+    let backoffMs = BEAT_MS * 2 ** failuresInARow;
+    let gapMs = Math.max(beat.msAfterTheLast, Math.min(backoffMs, MOST_BEAT_WAIT_MS));
+    if (beats.nowMs() - lastSentAt < gapMs - BEAT_MS / 2) return;
+    lastSentAt = beats.nowMs();
+    let answer = await beats.send(beat.request);
+    if (answer.kind === 'notSent') return;
+    failuresInARow = answer.kind === 'answered' ? 0 : failuresInARow + 1;
   };
 }
 

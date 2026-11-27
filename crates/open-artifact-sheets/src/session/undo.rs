@@ -10,10 +10,11 @@ use crate::workbook::load::Op;
 use crate::workbook::{version, Workbook};
 
 impl WorkbookSession {
-    /// Whether an op id is in use: an edit queued has it (or takes back the action of that id), or an edit of the
-    /// history.
+    /// Whether an op id is in use: an edit queued has it, was queued under it, or takes back the action of that id;
+    /// or an edit or a step of the history has it.
     pub(super) fn is_op_id_in_use(&self, op_id: &str) -> bool {
-        self.queue.iter().any(|q| q.op_id == op_id || q.group_id.as_deref() == Some(op_id)) || self.steps.uses(op_id)
+        self.queue.iter().any(|q| q.op_id == op_id || q.asked_as == op_id || q.action_id.as_deref() == Some(op_id))
+            || self.steps.uses(op_id)
     }
 
     /// A step of the page's own taken back (`queueNextUndo`) or made again (`queueNextRedo`).
@@ -26,7 +27,8 @@ impl WorkbookSession {
         }
         let queue = &self.queue;
         let Some(step) = self.steps.last(stack) else { return json!({"kind": "nothingToReverse"}).to_string() };
-        let (name, is_one_action) = (step.name.clone(), step.is_one_action);
+        let (name, is_one_action, made_by) = (step.name.clone(), step.is_one_action, step.made_by.clone());
+        let moved = step.moved.clone();
         let reverses = history::reverses_of(step, |id| queue.iter().find(|q| q.op_id == id).map(|q| q.reverse.clone()));
         // Of a step made of several edits, which edit each part queued is of: the parts are taken back last first,
         // those with nothing to take back left out.
@@ -60,27 +62,47 @@ impl WorkbookSession {
             let (mut step, place) = self.queue_made(&op_id, false, is_one_action, self.workbook.clone(), made);
             step.name = name.clone();
             step.roles = roles;
+            step.made_by = made_by.clone();
+            self.queued_in_sitting(&op_id, made_by.as_ref());
+            step.moved = moved;
             self.steps.taken_back(stack, step);
             return self.answer_queued(place, Some(&name));
         }
         let mut after = self.workbook.clone();
         // A step whose reverse was never known is given up whatever: no load tells it.
         let known = reverses.is_ok();
-        match reverses.and_then(|parts| history::take_back_step(&mut after, &parts)) {
+        match reverses.and_then(|parts| history::take_back_step(&mut after, &parts, self.person.as_ref(), made_by.is_some())) {
             Err(why @ StepNotTaken::Refused(_)) => why.answer(),
-            // While the workbook is to be loaded, the step is kept, whatever stands in its way (the sheet whose name
-            // does is not told): the load may change that.
-            Err(StepNotTaken::GivenUp(why, _)) if known && (self.loading.is_some() || self.queue.iter().any(|q| q.reverse.is_none())) => refused(why),
+            // While the workbook is to be loaded, or an edit queued is not made on the workbook shown (it undeletes
+            // what the load forgot, or it was sent and no longer applies here), the step is kept, whatever stands in
+            // its way (the sheet whose name does is not told): the load, or what the server says of the edit, may
+            // change that.
+            Err(StepNotTaken::GivenUp(why, _))
+                if known && (self.loading.is_some() || self.queue.iter().any(|q| q.reverse.is_none())) =>
+            {
+                refused(why)
+            }
             Err(why) => {
                 self.steps.pop(stack);
                 why.answer()
             }
             Ok(made) => {
                 self.steps.pop(stack);
-                let places = roles.as_ref().filter(|roles| roles.len() == made.len()).map(|roles| self.places_of(&made, roles));
+                let places = roles
+                    .as_ref()
+                    .filter(|roles| roles.len() == made.len())
+                    .map(|roles| self.places_of(&made, roles, &moved, stack));
                 let (mut step, place) = self.queue_made(&op_id, false, is_one_action, after, made);
                 step.name = name.clone();
                 step.roles = roles;
+                step.made_by = made_by.clone();
+                self.queued_in_sitting(&op_id, made_by.as_ref());
+                // A move of cells is told taken back where the cells were, made again where they went.
+                let place = match moved.iter().find(|(role, _)| *role == Role::Asked) {
+                    Some((_, m)) if step.roles.is_none() => m.told(stack).0.to_json(&self.workbook),
+                    _ => place,
+                };
+                step.moved = moved;
                 self.steps.taken_back(stack, step);
                 match places {
                     Some((changed, before)) => self.answer_reversed(changed, before, &name),
@@ -167,22 +189,22 @@ impl WorkbookSession {
             all.extend(ops.iter().cloned());
             self.queue.push(Queued {
                 op_id: id.clone(),
-                group_id: several.then(|| op_id.to_owned()),
                 action_id: (is_action || several && is_one_action).then(|| op_id.to_owned()),
                 recorded: Recorded { v: version::of_ops(&ops), base: self.confirmed_revision, ops: ops.clone() },
                 acknowledged: None,
                 reverse: reverse.clone(),
                 is_handed_out: false,
+                asked_as: op_id.to_owned(),
             });
             parts.push(Part { op_id: id, ops, reverse });
         }
         if !is_made {
             let place = place::of_ops(&before, &self.workbook, &all).to_json(&self.workbook);
-            return (Step { parts, name: op_id.to_owned(), roles: None, is_one_action }, self.as_shown(place));
+            return (Step { parts, name: op_id.to_owned(), roles: None, is_one_action, made_by: None, moved: Vec::new() }, self.as_shown(place));
         }
         self.applied(&before, &all);
         let place = place::of_ops(&before, &self.workbook, &all).to_json(&self.workbook);
-        (Step { parts, name: op_id.to_owned(), roles: None, is_one_action }, place)
+        (Step { parts, name: op_id.to_owned(), roles: None, is_one_action, made_by: None, moved: Vec::new() }, place)
     }
 
     /// The places a step made of several edits changes as it is taken back or made again (`made`, the edits queued
@@ -191,7 +213,8 @@ impl WorkbookSession {
     /// and when it has nothing to take back, the edits before it do, all their places, unless one is pointed at (as
     /// when the step was made); the edits before it pointed at give the places changed before, in their order, those
     /// on no place or on a sheet gone left out.
-    fn places_of(&self, made: &[(Vec<Op>, Vec<Op>)], roles: &[Role]) -> (Json, Vec<Json>) {
+    /// A move of cells among them tells the place it told then (`history::Moved`).
+    fn places_of(&self, made: &[(Vec<Op>, Vec<Op>)], roles: &[Role], moved: &[(Role, history::Moved)], stack: Stack) -> (Json, Vec<Json>) {
         let mut workbook = self.workbook.clone();
         let mut told: Vec<(Role, place::Told)> = Vec::new();
         let mut place_of_befores = place::Place::Nowhere;
@@ -204,11 +227,18 @@ impl WorkbookSession {
                 ops.extend(made[k].0.iter().cloned());
                 k += 1;
             }
-            let place = place::of_ops(&before, &workbook, &ops);
+            let (place, told_now) = match moved.iter().find(|(r, _)| *r == role) {
+                Some((_, m)) => (m.told(stack).1.clone(), m.told(stack).0.clone()),
+                None => {
+                    let place = place::of_ops(&before, &workbook, &ops);
+                    let told_now = place::Told::of(&place, &workbook);
+                    (place, told_now)
+                }
+            };
             if matches!(role, Role::Before { .. }) {
                 place_of_befores = place_of_befores.and(place.clone());
             }
-            told.push((role, place::Told::of(&place, &workbook)));
+            told.push((role, told_now));
         }
         let is_any_pointed = roles.iter().any(|role| matches!(role, Role::Before { is_pointed_at: true, .. }));
         let changed = match told.iter().find(|(role, _)| *role == Role::Asked) {

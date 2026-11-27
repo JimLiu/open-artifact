@@ -189,19 +189,19 @@ export function choicesOfGroup(group: CellType): NumberFormatChoice[] {
   return groupName === undefined ? [] : NUMBER_FORMAT_GROUPS[groupName];
 }
 export function choicesForCells(workbook: WorkbookReads, sheetId: SheetId, area: CellArea): NumberFormatOrControlChoice[] {
-  let cells = workbook.cellsOnShowIn(sheetId, area).filter((cell) => isFormulaCell(workbook, cell));
+  let cells = workbook.formulasAndSpillsIn(sheetId, area);
   return CELL_FORMAT_CHOICES.filter((choice) =>
     isCurrencyCodeOffered(choice)
       ? choiceOfPattern(patternOfChoice(choice, workbook), workbook) === choice
-      : CHOICE_APPLIES_TO[choice] === 'any' || cells.every((cell) => workbook.formatOf(cell).cellControl.kind === choice),
+      : CHOICE_APPLIES_TO[choice] === 'any' || cells.every((cell) => workbook.formatOf(cell).cellControl.kind === choice || !isFormulaCell(workbook, cell)),
   );
 }
 export function hasCellsNotSpilledIn(workbook: WorkbookReads, sheetId: SheetId, area: CellArea): boolean {
   let isInArea = ({ topRowIndex, leftColumnIndex }: CellArea) =>
     isInSpan(topRowIndex, area.topRowIndex, area.rowCount) && isInSpan(leftColumnIndex, area.leftColumnIndex, area.columnCount);
   return (
-    workbook.cellsOnShowIn(sheetId, area).filter((cell) => {
-      let spillArea = workbook.cellOf(cell) === null ? workbook.spillOver(cell)?.area : undefined;
+    workbook.formulasAndSpillsIn(sheetId, area).filter((cell) => {
+      let spillArea = workbook.spilledCellOf(cell) !== null && workbook.cellOf(cell) === null ? workbook.spillOver(cell)?.area : undefined;
       return spillArea !== undefined && !isInArea(spillArea);
     }).length <
     area.rowCount * area.columnCount
@@ -430,6 +430,7 @@ export const isAgentWrittenListPattern = ({ customNumberFormat }: Pick<PageState
   customNumberFormat?.typedIn === 'list' && customNumberFormat.agent?.kind === 'wrote' && customNumberFormat.reading.kind === 'numberFormat';
 export const shownUnderPatternOf = (state: PageState): ShownUnderPattern | null =>
   isAgentWrittenListPattern(state) ? (state.customNumberFormat?.shownUnderPattern ?? null) : null;
+export const CUSTOM_FORMAT_PRESS = 'Custom format';
 export const CUSTOM_FORMAT_PLACEHOLDERS = {
   withDecimals: '#,##0.00',
   withUnit: '0.0 "kg"',

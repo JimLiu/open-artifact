@@ -4,12 +4,14 @@ import type {
   CellFormat,
   CellFormatContents,
   Color,
+  DefaultValue,
   DropdownContents,
   FormatOfACondition,
   HorizontalAlignment,
   IdRun,
   NumberFormatKind,
   SharedCellFormat,
+  ValueLimits,
   Underline,
   VerticalAlignment,
   Wrap,
@@ -34,8 +36,25 @@ export interface WholeCellFormat {
   border: { top: Border; bottom: Border; left: Border; right: Border };
 }
 
+export type { DefaultValue, ValueLimits } from '@open-artifact/sheets-core';
+
+/** The parts of a format that hold a cell's default value and limits. */
+export type DefaultsOfFormat = Pick<CellFormat, 'defaultValue' | 'valueLimits'>;
+
+/** A cell's whole format with its default value and limits. */
+export interface WholeCellFormatWithDefaults extends WholeCellFormat {
+  defaultValue: DefaultValue;
+  valueLimits: ValueLimits;
+}
+
+/** What some cells share of their formats, their default value and limits too. */
+export interface SharedCellFormatWithDefaults extends SharedCellFormat {
+  defaultValue: DefaultValue | null;
+  valueLimits: ValueLimits | null;
+}
+
 /** The parts of a format some cells are given, the number format with its kind. */
-export interface KindedCellFormat extends Omit<CellFormat, 'numberFormat'> {
+export interface KindedCellFormat extends Omit<CellFormat, 'numberFormat'>, DefaultsOfFormat {
   numberFormat?: KindedNumberFormat;
 }
 
@@ -170,7 +189,7 @@ export function coveredCountWithin(runs: readonly LineSpan[], first: number, cou
     covered += Math.min(edges[index + 1] ?? 0, first + count) - Math.max(edges[index] ?? 0, first);
   return covered;
 }
-export function sharedFormatOfArea(entries: readonly FormatAtIndexes[], area: CellArea): SharedCellFormat {
+export function sharedFormatOfArea(entries: readonly FormatAtIndexes[], area: CellArea): SharedCellFormatWithDefaults {
   let coverage = entries.flatMap(({ rows, columns, format }: FormatAtIndexes) => {
     let columnsCovered = coveredCountWithin(columns, area.leftColumnIndex, area.columnCount);
     let cellsCovered = columnsCovered === 0 ? 0 : columnsCovered * coveredCountWithin(rows, area.topRowIndex, area.rowCount);
@@ -208,6 +227,8 @@ export function sharedFormatOfArea(entries: readonly FormatAtIndexes[], area: Ce
     },
     fillColor: sharedValue((format) => format.fillColor, DEFAULT_CELL_FORMAT.fillColor),
     cellControl: sharedValue((format) => format.cellControl, DEFAULT_CELL_FORMAT.cellControl),
+    defaultValue: sharedValue((format) => format.defaultValue, NO_DEFAULT_VALUE),
+    valueLimits: sharedValue((format) => format.valueLimits, NO_VALUE_LIMITS),
     border: {
       top: sharedValue((format) => format.border?.top, defaultBorder.top),
       right: sharedValue((format) => format.border?.right, defaultBorder.right),
@@ -417,6 +438,32 @@ export const DEFAULT_CELL_FORMAT: WholeCellFormat = {
     },
   },
 };
+export const NO_DEFAULT_VALUE: DefaultValue = {
+  kind: 'none',
+};
+export const NO_VALUE_LIMITS: ValueLimits = {
+  minimum: null,
+  maximum: null,
+};
+export const DEFAULT_WHOLE_CELL_FORMAT: WholeCellFormatWithDefaults = {
+  ...DEFAULT_CELL_FORMAT,
+  defaultValue: NO_DEFAULT_VALUE,
+  valueLimits: NO_VALUE_LIMITS,
+};
+/** Format entries without the default values and limits (what the cells look like). */
+export const lookEntriesOf = <Entry extends { format: CellFormat & DefaultsOfFormat }>(entries: readonly Entry[]): Entry[] =>
+  entries.flatMap((entry) => {
+    let { defaultValue, valueLimits, ...look } = entry.format;
+    if (defaultValue === undefined && valueLimits === undefined) return entry;
+    return Object.keys(look).length === 0
+      ? []
+      : {
+          ...entry,
+          format: look,
+        };
+  });
+export const someEntryHasDefaultValue = (entries: readonly { format: CellFormat & DefaultsOfFormat }[]): boolean =>
+  entries.some(({ format }) => format.defaultValue !== undefined);
 export const wrapOfFormat = ({ alignment }: Pick<KindedCellFormat, 'alignment'>): Wrap | undefined =>
   alignment?.wrap === undefined ? undefined : normalizedWrap(alignment.wrap);
 export const hasFontFormatting = ({ font }: Pick<WholeCellFormat, 'font'>): boolean =>

@@ -9,6 +9,9 @@ import type { IconName } from '../../kit/icon.tsx';
 import type { TextLinkProps } from '../../kit/text-link.tsx';
 import type { Effect } from '@open-artifact/sheets-core';
 import type { MessagePart } from '../../i18n/messages.ts';
+import { translateMessage } from '../../i18n/messages.ts';
+import { usePreloadWorkingMark } from '../../kit/agent-mark.tsx';
+import { prefersReducedMotion } from '../../kit/platform.ts';
 import type { ConditionalFormatsOfPane } from '../../view/page-view.ts';
 import type { PANE_START_ATTRIBUTE } from '../../ui/side-pane/side-pane.tsx';
 import * as React from 'react';
@@ -200,6 +203,7 @@ export function GoToChatInstead({ whyNotHere, goThere, onTaken, ...linkProps }: 
   return <>{whyNotHere}{' '}<TextLink inheritColor className="whitespace-nowrap" onMouseDown={(event) => event.preventDefault()} onClick={onTaken} {...linkProps}>{goThere}</TextLink></>;
 }
 export function RuleAskBox(props: RuleAskBoxProps) {
+  usePreloadWorkingMark(props.agent !== null);
   let {
     words,
     typed,
@@ -377,7 +381,7 @@ export function RuleAskBox(props: RuleAskBoxProps) {
     let lastAnswerKey = answerKeyRef.current;
     answerKeyRef.current = answerKey;
     if (answerKey === '' || answerKey === lastAnswerKey) return;
-    let isMotionReduced = pageWindow?.matchMedia('(prefers-reduced-motion:reduce)').matches === true;
+    let isMotionReduced = prefersReducedMotion();
     return reportTimeAfterNextPaint(pageWindow, (shownAtMs: number) => {
       answerShownAtRef.current = shownAtMs + (isMotionReduced ? 0 : SUGGESTIONS_EASE_IN_MS);
     });
@@ -619,4 +623,9 @@ export const suggestionButtonOf = (target: EventTarget | null): Element | null =
   target instanceof Element ? target.closest('button[data-suggestion]') : null;
 export const undoneWordsFor = (emptied: EmptiedWords | null, changesAskedFor: number): string | null =>
   emptied?.changesAskedFor === changesAskedFor ? emptied.words : null;
+export const enterToGoToChatLabel = (): string =>
+  translateMessage({
+    defaultMessage: 'Enter to go to chat',
+    id: '0VGV882wje',
+  });
 export const goToChatInsteadWords = ({ whyNotHere, goThere }: ChatInsteadWords): string => `${whyNotHere} ${goThere}`;

@@ -1,4 +1,5 @@
 import type { ClockFrame, EditFrame, Json } from '@open-artifact/runtime/sheet-api';
+import type { PersonEditing } from '@open-artifact/sheets-core';
 import { isRecord, isUint32 } from './json.ts';
 import { madeAtUnixSeconds, type SheetState } from './sheet-state.ts';
 
@@ -44,6 +45,17 @@ export function readStreamedEdit(frame: EditFrame, nodeId: string): StreamedEdit
   };
 }
 
+/** Who makes the page's edits, as the engine is told (`receivePerson`): protections are held against them. */
+export type Person = PersonEditing;
+
+/** Who the person on this page is: the owner, a user with an id, or nobody named. */
+export function personOfViewer(viewer: string | null, isOwner: boolean): Person {
+  if (isOwner) return { kind: 'owner' };
+  return viewer !== null && USER_ID_PATTERN.test(viewer) ? { kind: 'user', userId: viewer } : { kind: 'unnamed' };
+}
+
 export const JUST_MADE_WINDOW_SECONDS = 180;
+
+export const USER_ID_PATTERN = /^u_\w{22}$/;
 
 export const LAYOUT_OP_KINDS: ReadonlySet<unknown> = new Set(['setColumnWidths', 'setRowHeights', 'setSheetSettings']);

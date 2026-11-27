@@ -89,6 +89,7 @@ export function newCommentPlace(state: PageState, reads: WorkbookReads): NewComm
     : selectedArea(withoutOtherRanges(state), reads);
   if (filteredArea === null) return null;
   let { sheetId } = state.activeCell;
+  if (reads.connectedTableIn(sheetId) !== null) return null;
   let startCellId = reads.cellIdAt(sheetId, filteredArea.topRowIndex, filteredArea.leftColumnIndex);
   let endCellId = reads.cellIdAt(
     sheetId,

@@ -4,10 +4,16 @@ import { undoableDoneText } from '../i18n/notice-labels.ts';
 import { UncommentableToastText } from '../shell/ui-root.tsx';
 import type { ChartAdded, ChartMaking, WhyChartNotAdded } from './chart-making.ts';
 import { CHART_MESSAGES } from './chart-words.ts';
+import { chartChangeOutcomeWords, type ChartChangeOutcome } from '../messages/charts.ts';
 export function chartAddedAnnouncement(chartOutcome: ChartMaking | null, canAnnounce: boolean) {
   if (chartOutcome?.is === 'notAdded') return chartNotAddedWords(chartOutcome.why);
   if (chartOutcome?.is !== 'added' || !canAnnounce) return null;
   return undoableDoneText(chartAddedWords(chartOutcome.atPress.kind === 'byAgent', chartOutcome.valuesNotShown ?? 0));
+}
+export function chartChangeAnnouncement(outcome: ChartChangeOutcome | null): string | null {
+  if (outcome === null) return null;
+  let words = chartChangeOutcomeWords(outcome);
+  return typeof outcome === 'object' && outcome.step !== null ? undoableDoneText(words) : words;
 }
 interface ChartToastProps {
   title: React.ReactNode;

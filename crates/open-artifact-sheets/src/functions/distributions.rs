@@ -22,6 +22,7 @@ use crate::coerce;
 use crate::functions::{number, numbers_of, Answer, Arg, CallContext};
 use crate::locale::Locale;
 use crate::value::{CellError, Value};
+use crate::told::{self, Told};
 
 const BIG: f64 = 9_007_199_254_740_992.0; // 2⁵³
 
@@ -359,6 +360,7 @@ fn chisq_test(a: &Args) -> Got<f64> {
     let (actual_size, actual) = placed_numbers(&a.args[0])?;
     let (expected_size, expected) = placed_numbers(&a.args[1])?;
     if actual_size != expected_size {
+        told::tell(|| Told::RangesOfDifferentSizes);
         return Err(CellError::NotAvailable);
     }
     let (rows, columns) = (actual_size.0 as f64 - 1.0, actual_size.1 as f64 - 1.0);
@@ -555,6 +557,7 @@ fn prob(a: &Args) -> Got<f64> {
     let (values_size, values) = placed_numbers(&a.args[0])?;
     let (probabilities_size, probabilities) = placed_numbers(&a.args[1])?;
     if values_size != probabilities_size {
+        told::tell(|| Told::RangesOfDifferentSizes);
         return Err(CellError::Value);
     }
     let (lo, hi) = (lower.min(upper), lower.max(upper));
@@ -593,6 +596,7 @@ fn t_test(a: &Args) -> Got<f64> {
     let (difference, variance, df) = match kind as i64 {
         1 => {
             if first_size != second_size {
+                told::tell(|| Told::RangesOfDifferentSizes);
                 return Err(CellError::NotAvailable);
             }
             let d: Vec<f64> = pairs(&first, &second).into_iter().map(|(x, y)| x - y).collect();

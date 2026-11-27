@@ -1153,11 +1153,6 @@ export const CONDITIONAL_FORMATTING_WORDS = {
       defaultMessage: 'Rules alone can’t do this.',
       id: 'Va18jpGe+l',
     }),
-  goToChatForRules: () =>
-    translateMessage({
-      defaultMessage: 'Enter to go to chat',
-      id: 'C1HHduN019',
-    }),
   keep: () =>
     translateMessage({
       defaultMessage: 'Keep',
@@ -1202,6 +1197,11 @@ export const CONDITIONAL_FORMATTING_WORDS = {
     translateMessage({
       defaultMessage: 'Rule added to your message to Agent. Describe the change you want in the message box.',
       id: 'J8O60reAZr',
+    }),
+  ruleAddedWithChatCovered: () =>
+    translateMessage({
+      defaultMessage: 'Rule added to your message to Agent. The message box is hidden behind this Sheet, so open the chat to describe the change.',
+      id: 'mlg/fws3rb',
     }),
   ruleAttached: () =>
     translateMessage({

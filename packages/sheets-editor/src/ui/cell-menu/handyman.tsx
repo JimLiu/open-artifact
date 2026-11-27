@@ -1,6 +1,6 @@
 import { ContextMenu } from '../../kit/context-menu.tsx';
 import { Menu } from '../../kit/menu.tsx';
-import { AgentMark } from '../../kit/agent-mark.tsx';
+import { AgentMark, usePreloadWorkingMark } from '../../kit/agent-mark.tsx';
 import * as React from 'react';
 import type { ReactNode } from 'react';
 import type { MenuCommand } from '../search-menu/matching.ts';
@@ -280,7 +280,7 @@ export function HandymanRows({
         (<AgentWritingRow words={{
             writes: toolSearchMessages.findingTools(),
             stop: CONDITIONAL_FORMATTING_WORDS.stop(),
-          }} isAmongRowsOfList sizeOfWandInList={HANDYMAN_WAND_SIZE} onStopped={handyman.stop} />)}{isHandymanEmptyHanded(state) &&
+          }} isAmongRowsOfList isListAMenu onStopped={handyman.stop} />)}{isHandymanEmptyHanded(state) &&
         <div className="px-md py-sm text-footnote text-muted">{state.is === 'failed' ? toolSearchMessages.couldNotSuggest() : toolSearchMessages.noTool()}</div>}{state.is === 'failed' && askAgainItem}{sections.map(
         ({ heading, commands }) =>
           (<ContextMenu.Group key={heading ?? ''} {...groupProps}>{heading !== null &&
@@ -299,7 +299,7 @@ export function HandymanRows({
                 ? (<AgentWritingRow words={{
                       writes: CONDITIONAL_FORMATTING_WORDS.writingRules(),
                       stop: CONDITIONAL_FORMATTING_WORDS.stop(),
-                    }} isAmongRowsOfList sizeOfWandInList={HANDYMAN_WAND_SIZE} onStopped={onRuleStopped} />)
+                    }} isAmongRowsOfList isListAMenu onStopped={onRuleStopped} />)
                 : <><div className="px-md py-sm text-footnote text-muted">{CONDITIONAL_FORMATTING_WORDS.rulesNotWritten()}</div>{askAgainItem}</>}</ContextMenu.Group>)}{isHandymanEmptyHanded(state) && wayOnToChat}</>;
 }
 export const nowMs = () => performance.now();
@@ -308,7 +308,9 @@ interface SuggestToolsItemProps {
   isUnderEnter: boolean;
   onAsked(): void;
 }
-export const SuggestToolsItem = ({ isUnderEnter, onAsked }: SuggestToolsItemProps) =>
-  <ContextMenu.Item keepOpen icon={<AgentMark size={HANDYMAN_WAND_SIZE} />} {...(isUnderEnter && {
+export function SuggestToolsItem({ isUnderEnter, onAsked }: SuggestToolsItemProps) {
+  usePreloadWorkingMark(true);
+  return <ContextMenu.Item keepOpen icon={<AgentMark size={HANDYMAN_WAND_SIZE} />} {...(isUnderEnter && {
       className: 'sheet-row-under-enter',
     })} onClick={onAsked}>{toolSearchMessages.suggestTools()}</ContextMenu.Item>;
+}

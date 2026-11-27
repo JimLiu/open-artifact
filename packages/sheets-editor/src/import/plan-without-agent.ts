@@ -6,6 +6,7 @@ import {
   notFittingExamples,
   losesPrecisionInAny,
   isFitTooPoor,
+  fitsTwiceAsMuchAsNot,
   decimalSignOfReading,
   importTextAt,
   planWithAnswers,
@@ -16,7 +17,7 @@ import {
 import { READING_DECIMAL_SIGNS, profileImportFile, profileImportColumn } from './file-profile.ts';
 import { dayMonthOrderOf, NEW_SHEET_DESTINATION, MAX_BROUGHT_DOWN_DECIMAL_PLACES } from './import-basics.ts';
 import type { WorkbookReads } from '../model/workbook.ts';
-import type { ColumnReading, DateOrder, DecimalSign } from '@open-artifact/sheets-core';
+import type { ColumnReading, DateOrder, DecimalSign, FitOfAColumnReading } from '@open-artifact/sheets-core';
 import type { ImportFile, ImportPlan, ImportQuestion, ImportReadingWords } from '../state/initial-state.ts';
 import type { ImportReading } from '../state/event-reducer.ts';
 import type { DifferentText, ImportColumnProfile, ImportFileProfile } from './file-profile.ts';
@@ -162,21 +163,29 @@ export function guessColumnReading(
     (differentFits ??= reads.fitOfColumnReadings([...readings], differentTexts) ?? []),
     notFittingExamples(differentFits[index], differentTexts)
   );
-  let candidates = readings.flatMap((reading, index) => {
-    let fit = fits[index];
-    return fit !== undefined &&
-      fit.sameAsReading === null &&
-      fit.fitting > fit.notFitting &&
-      !losesPrecisionInAny(reading, differentTexts) &&
-      !isFitTooPoor(fit, () => notFittingExamplesAt(index))
-      ? [
-          {
-            reading,
-            notFitting: fit.notFitting,
-          },
-        ]
-      : [];
-  });
+  let candidatesWhere = (isFitGood: (fit: FitOfAColumnReading, index: number) => boolean) =>
+    readings.flatMap((reading, index) => {
+      let fit = fits[index];
+      return fit !== undefined &&
+        fit.sameAsReading === null &&
+        fit.fitting > fit.notFitting &&
+        !losesPrecisionInAny(reading, differentTexts) &&
+        isFitGood(fit, index)
+        ? [
+            {
+              reading,
+              notFitting: fit.notFitting,
+            },
+          ]
+        : [];
+    });
+  let wellFittingCandidates = candidatesWhere((fit, index) => !isFitTooPoor(fit, () => notFittingExamplesAt(index)));
+  let filledCount = different.reduce((sum, { count }) => sum + count, 0);
+  let canBeDropdown =
+    different.length >= MIN_GUESSED_DROPDOWN_OPTIONS &&
+    different.length <= MAX_GUESSED_DROPDOWN_OPTIONS &&
+    filledCount >= different.length * MIN_DROPDOWN_REPEATS;
+  let candidates = wellFittingCandidates.length > 0 || canBeDropdown ? wellFittingCandidates : candidatesWhere(fitsTwiceAsMuchAsNot);
   let fewestNotFitting = candidates.reduce(
     (fewest, { notFitting }) => Math.min(fewest, notFitting),
     Number.POSITIVE_INFINITY,
@@ -234,16 +243,8 @@ export function guessColumnReading(
           },
           differentTexts,
         ),
-    )
-  )
-    return textGuess;
-  let filledCount = different.reduce((sum, { count }) => sum + count, 0);
-  if (
-    !(
-      different.length >= MIN_GUESSED_DROPDOWN_OPTIONS &&
-      different.length <= MAX_GUESSED_DROPDOWN_OPTIONS &&
-      filledCount >= different.length * MIN_DROPDOWN_REPEATS
-    )
+    ) ||
+    !canBeDropdown
   )
     return textGuess;
   let dropdownReading: ColumnReading = {
@@ -411,7 +412,9 @@ export function readingKeepingMoreHeld(wayNow: WayOfReading, waysToTry: () => Wa
     let kept = keptBy(way);
     if (kept === null) continue;
     let { left, numbersLost } = kept;
-    if (numbersLost > keptNow.numbersLost || left < keptNow.left + 2) continue;
+    let losesFarFewerNumbers = keptNow.numbersLost * 2 > shared.length && numbersLost + 2 <= keptNow.numbersLost && left >= keptNow.left;
+    if (numbersLost > keptNow.numbersLost) continue;
+    if (left < keptNow.left + 2 && !losesFarFewerNumbers) continue;
     if (
       best === null ||
       left > best.left ||

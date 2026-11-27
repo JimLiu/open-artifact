@@ -891,7 +891,8 @@ export const didCellInputChange =
   (before: WorkbookReads, after: WorkbookReads) =>
   (cellId: CellId): boolean => {
     let [cellBefore, cellAfter] = [before.cellOf(cellId), after.cellOf(cellId)];
-    return cellBefore !== cellAfter && JSON.stringify(cellBefore?.input) !== JSON.stringify(cellAfter?.input);
+    if (cellBefore === cellAfter || JSON.stringify(cellBefore?.input) === JSON.stringify(cellAfter?.input)) return false;
+    return cellAfter?.formulaText === undefined || cellAfter.formulaText !== cellBefore?.formulaText;
   };
 export const MAX_CHANGED_CELLS_LISTED = 1e4;
 export const linesKeptUpToLast = (before: LineIndex, after: LineIndex): boolean =>

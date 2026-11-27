@@ -10,6 +10,7 @@ import {
 } from './column-readings.ts';
 import { parseBooleanText } from '../model/cell-text.ts';
 import { truncateToCleanText } from './import-basics.ts';
+import { graphemesOf } from '../chips/people-list.ts';
 import type { Color, NumberFormatIn, ReadInput } from '@open-artifact/sheets-core';
 import type { WorkbookReads } from '../model/workbook.ts';
 import type { ImportFile, ImportPlanSoFar, ImportPreview, ImportPreviewCell, ImportPreviewColumn, ImportQuestion, ImportQuestionExample } from '../state/initial-state.ts';
@@ -112,15 +113,7 @@ export function exampleOfReading(reading: ImportReading, texts: string[], reads:
     : shortenInMiddle(truncateToCleanText(example.shown, example.shown.length), EXAMPLE_MAX_GRAPHEMES, EXAMPLE_TAIL_GRAPHEMES);
 }
 export function shortenInMiddle(text: string, maxLength: number, tailLength: number) {
-  let graphemes =
-    'Segmenter' in Intl
-      ? Array.from(
-          new Intl.Segmenter(undefined, {
-            granularity: 'grapheme',
-          }).segment(text),
-          ({ segment }) => segment,
-        )
-      : Array.from(text);
+  let graphemes = Array.from(graphemesOf(text));
   if (graphemes.length <= maxLength) return text;
   return `${graphemes
     .slice(0, maxLength - tailLength - 1)

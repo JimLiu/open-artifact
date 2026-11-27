@@ -8,14 +8,14 @@ import {
   MAX_INTERACTIVE_WRITES,
   type InteractiveWritesHost,
 } from '../src/charts/interactive-frame-talk.ts';
-import { cellsAskedFor, inputsWithWritesAwaited, rowsOfSource, type ControlsOfInteractive } from '../src/interactive-frame/cells.ts';
+import { cellsAskedFor, cellsToReset, inputsWithWritesAwaited, placeOfCell, rowsOfSource, type ControlsOfInteractive } from '../src/interactive-frame/cells.ts';
 import type { PageToInteractive } from '../src/interactive-frame/messages.ts';
 import type { ChartInputs } from '../src/chart-frame/messages.ts';
 import { composeFrameDocument } from '../chart-frame-page.ts';
 import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { chartModule } from '@open-artifact/sheets-core';
-import { componentOfCode, handedToCode, ToldContext } from '../src/interactive-frame/code.ts';
+import { Cell, componentOfCode, handedToCode, ToldContext } from '../src/interactive-frame/code.ts';
 import { propsOfInteractive } from '../src/interactive-frame/elements.ts';
 
 const inputs: ChartInputs = {
@@ -30,22 +30,33 @@ const inputs: ChartInputs = {
 
 describe('what an interactive frame tells the page', () => {
   it('takes writes of plain values in reach, and nothing else', () => {
-    assert.deepEqual(parseInteractiveFrameReply({ kind: 'write', cells: [['rate', 0, 0, 0.1]], nth: 1 }), {
+    assert.deepEqual(parseInteractiveFrameReply({ kind: 'write', cells: [['rate', 0, 0, 0.1]], nth: 1, press: 3 }), {
       kind: 'write',
       cells: [['rate', 0, 0, 0.1]],
       nth: 1,
+      press: 3,
     });
-    assert.equal(parseInteractiveFrameReply({ kind: 'write', cells: [['rate', MAX_INTERACTIVE_INDEX, 0, 1]], nth: 1 }), null);
-    assert.equal(parseInteractiveFrameReply({ kind: 'write', cells: [['rate', 0, 0, { x: 1 }]], nth: 1 }), null);
-    assert.equal(parseInteractiveFrameReply({ kind: 'write', cells: [['rate', 0, 0, Number.NaN]], nth: 1 }), null);
-    assert.equal(parseInteractiveFrameReply({ kind: 'write', cells: [['rate', 0, 0, 1]] }), null);
+    assert.equal(parseInteractiveFrameReply({ kind: 'write', cells: [['rate', MAX_INTERACTIVE_INDEX, 0, 1]], nth: 1, press: 1 }), null);
+    assert.equal(parseInteractiveFrameReply({ kind: 'write', cells: [['rate', 0, 0, { x: 1 }]], nth: 1, press: 1 }), null);
+    assert.equal(parseInteractiveFrameReply({ kind: 'write', cells: [['rate', 0, 0, Number.NaN]], nth: 1, press: 1 }), null);
+    assert.equal(parseInteractiveFrameReply({ kind: 'write', cells: [['rate', 0, 0, 1]], press: 1 }), null);
+    assert.equal(parseInteractiveFrameReply({ kind: 'write', cells: [['rate', 0, 0, 1]], nth: 1 }), null);
     const many = Array.from({ length: MAX_INTERACTIVE_WRITES + 1 }, (_, row): [string, number, number, number] => ['rate', row, 0, 1]);
-    assert.equal(parseInteractiveFrameReply({ kind: 'write', cells: many, nth: 1 }), null);
+    assert.equal(parseInteractiveFrameReply({ kind: 'write', cells: many, nth: 1, press: 1 }), null);
   });
 
   it('knows the keys it may hand back, and falls back on what a chart frame says', () => {
     assert.deepEqual(parseInteractiveFrameReply({ kind: 'keyForPage', key: 'nextPart' }), { kind: 'keyForPage', key: 'nextPart' });
+    assert.deepEqual(parseInteractiveFrameReply({ kind: 'keyForPage', key: 'undo' }), { kind: 'keyForPage', key: 'undo' });
     assert.equal(parseInteractiveFrameReply({ kind: 'keyForPage', key: 'Tab' }), null);
+    assert.deepEqual(parseInteractiveFrameReply({ kind: 'cellsOffered', extra: 1 }), { kind: 'cellsOffered' });
+    assert.deepEqual(parseInteractiveFrameReply({ kind: 'cellShown', input: 'rate', row: 0, column: 2 }), {
+      kind: 'cellShown',
+      input: 'rate',
+      row: 0,
+      column: 2,
+    });
+    assert.equal(parseInteractiveFrameReply({ kind: 'cellShown', input: 'rate', row: -1, column: 0 }), null);
     assert.deepEqual(parseInteractiveFrameReply({ kind: 'pressed', at: 5 }), { kind: 'pressed', at: 5 });
     assert.deepEqual(parseInteractiveFrameReply({ kind: 'drawn' }), { kind: 'drawn' });
     assert.equal(parseInteractiveFrameReply({ kind: 'whatever' }), null);
@@ -62,17 +73,19 @@ describe('the writes of an interactive', () => {
   function writesWithHost() {
     const told: PageToInteractive[] = [];
     const written: unknown[][] = [];
+    const presses: number[] = [];
     const timers: (() => void)[] = [];
     let whenWritten: (() => void) | null = null;
     const host: InteractiveWritesHost = {
       tellFrame: (message) => told.push(message),
-      write: (cells, then) => {
+      write: (cells, press, then) => {
         written.push(cells);
+        presses.push(press);
         whenWritten = then;
       },
       later: (act) => void timers.push(act),
     };
-    return { writes: createInteractiveWrites(inputs, host), told, written, timers, answer: () => whenWritten?.() };
+    return { writes: createInteractiveWrites(inputs, host), told, written, presses, timers, answer: () => whenWritten?.() };
   }
 
   it('writes one batch at a time, the last value of a cell winning, and tells the frame what was answered', () => {
@@ -108,6 +121,22 @@ describe('the writes of an interactive', () => {
     assert.deepEqual(later.told.at(-1), { kind: 'inputsChanged', inputs, answered: 1 });
   });
 
+  it('writes with the press that made a write, and acts after every write asked for is answered', () => {
+    const { writes, presses, timers, answer } = writesWithHost();
+    const done: string[] = [];
+    writes.afterWrites(() => done.push('at once'));
+    writes.write([['rate', 0, 0, 1]], 1, 5);
+    writes.afterWrites(() => done.push('after'));
+    assert.deepEqual(done, ['at once']);
+    answer();
+    assert.deepEqual(done, ['at once', 'after']);
+    assert.deepEqual(presses, [5]);
+    for (const timer of timers.splice(0)) timer();
+    writes.hold([['rate', 0, 0, 2]], 2, 6);
+    writes.release();
+    assert.deepEqual(presses, [5, 6]);
+  });
+
   it('tells the frame nothing once it has ended', () => {
     const { writes, told } = writesWithHost();
     writes.end();
@@ -117,7 +146,7 @@ describe('the writes of an interactive', () => {
 });
 
 describe('what the code of an interactive reads and writes', () => {
-  const controls: ControlsOfInteractive = { canWrite: true, setCells: () => {} };
+  const controls: ControlsOfInteractive = { canWrite: true, setCells: () => {}, resetCells: () => {}, showCell: () => {} };
   const told = { inputs, controls, size: { width: 300, height: 200 } };
 
   it('reads an input as rows, the controls from their source, and the size', () => {
@@ -126,6 +155,16 @@ describe('what the code of an interactive reads and writes', () => {
     assert.deepEqual(rowsOfSource('interactive', { kind: 'data', data: [] }, told), [controls]);
     assert.deepEqual(rowsOfSource('chartSize', { kind: 'data', data: [{}] }, told), [{ width: 300, height: 200 }]);
     assert.throws(() => rowsOfSource('x', { kind: 'ref', ref: 'input/none', adapter }, told), { fault: 'inputMissing' });
+  });
+
+  it('knows where each cell it gives the code sits, so <Cell> can offer to show it', () => {
+    const adapter = { kind: 'cells' };
+    const [[, amount]] = rowsOfSource('table', { kind: 'ref', ref: 'input/table', adapter }, told) as unknown[][];
+    assert.deepEqual(placeOfCell(amount), { kind: 'cellShown', input: 'table', row: 0, column: 1 });
+    assert.equal(rowsOfSource('table', { kind: 'ref', ref: 'input/table', adapter }, told)[0], rowsOfSource('table', { kind: 'ref', ref: 'input/table', adapter }, told)[0]);
+    assert.equal(placeOfCell(inputs.table?.[0]?.[1]), undefined);
+    assert.match(renderToStaticMarkup(React.createElement(Cell, { of: amount })), /^<button type="button" class="interactive-cell"[^>]*>1<\/button>$/);
+    assert.equal(renderToStaticMarkup(React.createElement(Cell, { of: { text: 'x' } })), '<span>x</span>');
   });
 
   it('asks for a value or rows of values from an input’s top left, passing over names that are no input', () => {
@@ -145,6 +184,28 @@ describe('what the code of an interactive reads and writes', () => {
       [{ value: null, text: '' }, { value: true, text: 'TRUE' }],
     ]);
     assert.equal(shown.table, inputs.table);
+  });
+
+  it('resets the cells asked for that hold other than their defaults, by input or by cell', () => {
+    const withDefaults: ChartInputs = {
+      rate: [[{ value: 0.2, text: '20%', default: 0.05, isChanged: true }, { value: 3, text: '3', default: 3, isChanged: false }]],
+      table: [[{ value: 'b', text: 'b', default: null, isChanged: true }, { value: 1, text: '1' }]],
+    };
+    assert.deepEqual(cellsToReset('rate', withDefaults), [['rate', 0, 0, 0.05]]);
+    assert.deepEqual(cellsToReset(['rate', 'table'], withDefaults), [
+      ['rate', 0, 0, 0.05],
+      ['table', 0, 0, null],
+    ]);
+    const adapter = { kind: 'cells' };
+    const [[given]] = rowsOfSource('table', { kind: 'ref', ref: 'input/table', adapter }, { ...told, inputs: withDefaults }) as unknown[][];
+    assert.deepEqual(cellsToReset(given, withDefaults), [['table', 0, 0, null]]);
+    assert.deepEqual(cellsToReset('nowhere', withDefaults), []);
+  });
+
+  it('keeps a cell’s default under a write awaited, and whether the write changes it', () => {
+    const withDefault: ChartInputs = { rate: [[{ value: 0.05, text: '5%', default: 0.05, isChanged: false }]] };
+    assert.deepEqual(inputsWithWritesAwaited(withDefault, [{ nth: 1, cells: [['rate', 0, 0, 0.2]] }]).rate, [[{ value: 0.2, text: '0.2', default: 0.05, isChanged: true }]]);
+    assert.deepEqual(inputsWithWritesAwaited(withDefault, [{ nth: 1, cells: [['rate', 0, 0, 0.05]] }]).rate, [[{ value: 0.05, text: '0.05', default: 0.05, isChanged: false }]]);
   });
 });
 
@@ -172,7 +233,7 @@ async function componentOf(code: string): Promise<React.ComponentType | string> 
 function drawPanel(Code: React.ComponentType, canWrite: boolean, setCells: (cells: unknown) => void = () => {}): string {
   const planner: ChartInputs = { quantity: [[{ value: 3, text: '3' }]], total: [[{ value: 36, text: '$36.00' }]] };
   return renderToStaticMarkup(
-    React.createElement(ToldContext.Provider, { value: { inputs: planner, controls: { canWrite, setCells }, size: { width: 400, height: 300 } } }, React.createElement(Code)),
+    React.createElement(ToldContext.Provider, { value: { inputs: planner, controls: { canWrite, setCells, resetCells: () => {}, showCell: () => {} }, size: { width: 400, height: 300 } } }, React.createElement(Code)),
   );
 }
 

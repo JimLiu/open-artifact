@@ -26,7 +26,7 @@ fn check(workbook: &Workbook, sheet: &Sheet, t: &CellTable) -> Result<Result<(),
 
 /// Whether the sheet shows a cell table: some of its header rows and columns are left, and its footer (when left)
 /// is under its header.
-pub(super) fn is_shown(bases: &Bases, s: &Sheet, t: &CellTable) -> bool {
+pub(crate) fn is_shown(bases: &Bases, s: &Sheet, t: &CellTable) -> bool {
     let Some(live) = live_cell_table(bases, s, t) else { return false };
     let row = |id: &str| bases.parse(id).and_then(|l| s.rows.position(l));
     match &live.footer_rows {
@@ -96,37 +96,49 @@ fn set(sheet_id: String, cell_table_id: String, cell_table: Option<CellTable>) -
 /// Where a table declared or changed goes among the others the sheet shows (several tables a sheet):
 /// one whose header shows something is not to be covered; those whose header shows nothing give way to it when it
 /// covers them, a table with no footer reaching down to the end of the sheet. The ids giving way, and whether it is
-/// over another.
+/// over another; a table changed (`except`) is not over one it meets where it is now.
 fn among_others<'a>(workbook: &Workbook, s: &'a Sheet, t: &CellTable, except: Option<&str>) -> (Vec<&'a String>, bool) {
     let bases = &workbook.bases;
     let (new_area, reaching_down) = (area(bases, s, t, false), area(bases, s, t, true));
+    let now_area = except.and_then(|id| s.cell_tables.get(id)).and_then(|(_, now)| area(bases, s, now, false));
     let mut giving_way = Vec::new();
     let mut over_another = false;
     let others = s.cell_tables.values().filter(|(id, other)| Some(id.as_str()) != except && is_shown(bases, s, other));
     for (id, other) in others {
         let other_area = area(bases, s, other, false);
         if shows_header(workbook, s, other) {
-            over_another |= overlap(new_area, other_area);
+            // One the changed table meets where it is now is not one it is over.
+            over_another |= overlap(new_area, other_area) && !overlap(now_area, other_area);
         } else if overlap(reaching_down, other_area) {
             giving_way.push(id);
         }
     }
+    // In the order the page reads them: by place, then by id.
+    let place = |id: &String| {
+        s.cell_tables.values().find(|(i, _)| i == id).and_then(|(_, t)| crate::workbook::objects::shown_cell_table(bases, s, t)).map(|x| x.0)
+    };
+    giving_way.sort_by(|a, b| place(a).cmp(&place(b)).then_with(|| a.cmp(b)));
     (giving_way, over_another)
 }
 
-/// The op setting a table and removing those giving way to it, once their ids, the footer and the place are right.
+/// The op setting a table and removing those giving way to it: with its footer under its header, a
+/// table over another is refused first, then ids not well formed (those giving way, then its own); its footer is
+/// checked last, and one not under its header leaves the others unread.
 fn placed(
-    sheet_id: String,
-    id: String,
+    workbook: &Workbook,
+    s: &Sheet,
+    (sheet_id, id): (String, String),
     t: CellTable,
-    (giving_way, over_another): (Vec<&String>, bool),
+    except: Option<&str>,
     footer: Result<(), Refused>,
 ) -> Result<Made, Refused> {
-    giving_way.iter().try_for_each(|id| well_formed(id))?;
-    footer?;
+    let (giving_way, over_another) = if footer.is_ok() { among_others(workbook, s, &t, except) } else { (Vec::new(), false) };
     if over_another {
         return Err(Refused::Because("cellTableOverAnother"));
     }
+    giving_way.iter().try_for_each(|id| well_formed(id))?;
+    well_formed(&id)?;
+    footer?;
     let mut cell_tables = vec![CellTableToSet { cell_table_id: id, cell_table: Some(t) }];
     cell_tables.extend(giving_way.into_iter().map(|id| CellTableToSet { cell_table_id: id.clone(), cell_table: None }));
     Ok(Made::ops(vec![Op::SetCellTables { sheet_id, cell_tables }]))
@@ -135,8 +147,7 @@ fn placed(
 pub(super) fn declare(workbook: &Workbook, sheet_id: String, t: CellTable, code: &str) -> Result<Made, Refused> {
     let s = sheet(workbook, &sheet_id)?;
     let footer = check(workbook, s, &t)?;
-    let others = among_others(workbook, s, &t, None);
-    placed(sheet_id, format!("ctb_{code}.0"), t, others, footer)
+    placed(workbook, s, (sheet_id, format!("ctb_{code}.0")), t, None, footer)
 }
 
 pub(super) fn change(workbook: &Workbook, sheet_id: String, id: String, t: CellTable) -> Result<Made, Refused> {
@@ -146,9 +157,8 @@ pub(super) fn change(workbook: &Workbook, sheet_id: String, id: String, t: CellT
     if *now == t {
         return Ok(Made::nothing());
     }
-    well_formed(&id)?;
-    let others = among_others(workbook, s, &t, Some(&id));
-    placed(sheet_id, id, t, others, footer)
+    let except = id.clone();
+    placed(workbook, s, (sheet_id, id), t, Some(&except), footer)
 }
 
 pub(super) fn remove(workbook: &Workbook, sheet_id: String, id: String) -> Result<Made, Refused> {

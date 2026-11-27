@@ -49,6 +49,29 @@ use crate::workbook::{rich, Input, Sheet, Workbook};
 
 pub const KINDS: &[&str] = &["readCellsToCopy", "readCellsToCopyInTheOrderOfTheirRows"];
 
+/// Whether a copy works the formulas out first, as `calculate` does, while they wait to be: when a formula of the
+/// workbook may spill, so that the cells its array fills are known. One it does not read
+/// (`unreadableRequest`) works nothing out; one it refuses otherwise does.
+pub fn works_formulas_out(workbook: &Workbook, request: &Json) -> bool {
+    workbook.needs_calculation
+        && Request::deserialize(request).is_ok_and(|request| request.reads())
+        && !crate::calculate::spill_areas(workbook).is_empty()
+}
+
+impl Request {
+    /// Whether the request is read: no run of no rows, and rows to copy in their order.
+    fn reads(&self) -> bool {
+        match self {
+            Request::ReadCellsToCopy { rows_out_of_view, .. } => {
+                rows_out_of_view.as_deref().unwrap_or_default().iter().all(|run| run.count > 0)
+            }
+            Request::ReadCellsToCopyInTheOrderOfTheirRows { cells } => {
+                !cells.rows.is_empty() && cells.rows.iter().all(|run| run.count > 0)
+            }
+        }
+    }
+}
+
 /// Cells between two corners of a sheet, in any order.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -74,19 +97,11 @@ enum Request {
 
 pub fn answer(workbook: &Workbook, request: &Json) -> String {
     let copied = match Request::deserialize(request) {
+        Ok(request) if !request.reads() => return super::unreadable(),
         Ok(Request::ReadCellsToCopy { cells, rows_out_of_view }) => {
-            let out_of_view = rows_out_of_view.unwrap_or_default();
-            if out_of_view.iter().any(|run| run.count == 0) {
-                return super::unreadable();
-            }
-            copied(workbook, &cells, &out_of_view, false)
+            copied(workbook, &cells, &rows_out_of_view.unwrap_or_default(), false)
         }
-        Ok(Request::ReadCellsToCopyInTheOrderOfTheirRows { cells }) => {
-            if cells.rows.is_empty() || cells.rows.iter().any(|run| run.count == 0) {
-                return super::unreadable();
-            }
-            copied_in_order(workbook, &cells)
-        }
+        Ok(Request::ReadCellsToCopyInTheOrderOfTheirRows { cells }) => copied_in_order(workbook, &cells),
         Err(_) => return super::unreadable(),
     };
     match copied {
@@ -374,22 +389,17 @@ fn copied_rows(
         }
     }
 
-    // Group the formats inside the copied rectangle before dropping rows omitted
-    // from a sorted or filtered selection. Only formatted gaps can affect a block.
-    let selected_rows = area_rows.len();
-    let mut area_rows = area_rows;
-    if !in_order {
-        let selected: HashSet<usize> = area_rows.iter().copied().collect();
-        let mut gaps: Vec<usize> = sheet.formats.iter()
-            .filter_map(|(_, (row, _), _)| sheet.rows.position(row))
-            .filter(|r| (top..=bottom).contains(r) && !selected.contains(r))
-            .collect();
-        gaps.sort_unstable();
-        gaps.dedup();
-        area_rows.extend(gaps);
-    }
-    let in_view = |i: usize| i < selected_rows && !is_hidden(area_rows[i]);
-    let formats = copied_formats(sheet, &area_rows, in_view, &columns, |_| true, &copied_brought);
+    // A copy takes the cells' limits, not their default values. The formats are made into blocks over the rows of the sheet from the top row copied to the bottom one (blank
+    // rows left out at the end not counted): the rows
+    // between that are not copied, or are out of view, still part them; each row copied is placed
+    // where the copy has it.
+    let (first, last) = (area_rows.iter().min().copied().unwrap_or(top), area_rows.iter().max().copied().unwrap_or(top));
+    let block_rows: Vec<usize> = (first..=last).collect();
+    let in_copy: Vec<Option<u32>> = {
+        let at: HashMap<usize, u32> = rows.iter().enumerate().map(|(i, &p)| (p, i as u32)).collect();
+        block_rows.iter().map(|p| at.get(p).copied()).collect()
+    };
+    let formats = copied_formats_placed(sheet, &block_rows, &in_copy, &columns, |leaf| leaf != Leaf::DefaultValue, &copied_brought);
     let copy = |cells: Vec<CopiedCell>, formats: Vec<CopiedFormat>| CopiedCells {
         version: VERSION,
         top_row_position: top as u32,
@@ -406,10 +416,10 @@ fn copied_rows(
     } else if !has_values {
         CopiedValues::WrittenAsTheCopiedCells
     } else {
-        let number_formats = copied_formats(
+        let number_formats = copied_formats_placed(
             sheet,
-            &area_rows,
-            in_view,
+            &block_rows,
+            &in_copy,
             &columns,
             |leaf| leaf == Leaf::NumberFormat,
             &values_brought,
@@ -475,7 +485,7 @@ fn copied_input(
 }
 
 /// A value as a copied input: an error as its text; nothing for a blank or an empty text.
-fn value_input(value: &Value) -> Option<CopiedInput> {
+pub(in crate::session) fn value_input(value: &Value) -> Option<CopiedInput> {
     Some(match value {
         Value::Number(n) => CopiedInput::Number { value: *n },
         Value::Boolean(b) => CopiedInput::Boolean { value: *b },
@@ -520,7 +530,7 @@ fn text_shown(to_paste: &mut Json, sheet: &Sheet, place: (LineId, LineId), t: &s
 }
 
 /// The values that formulas spill into cells besides their own, by position, with the position of the formula.
-fn spilled_values<'a>(workbook: &'a Workbook, sheet: &Sheet) -> HashMap<(usize, usize), ((usize, usize), &'a Value)> {
+pub(in crate::session) fn spilled_values<'a>(workbook: &'a Workbook, sheet: &Sheet) -> HashMap<(usize, usize), ((usize, usize), &'a Value)> {
     let mut out = HashMap::new();
     for ((sheet_id, r, c), outcome) in &workbook.outcomes {
         if *sheet_id != sheet.id {
@@ -663,19 +673,39 @@ pub(in crate::session) fn copied_formats(
     leaves: impl Fn(Leaf) -> bool,
     brought: &HashMap<(u32, u32), Json>,
 ) -> Vec<CopiedFormat> {
+    // Each row as counted in the copy, if it is copied.
+    let mut in_copy = Vec::new();
+    let mut count = 0;
+    for i in 0..rows.len() {
+        in_copy.push(kept(i).then_some(count));
+        if kept(i) {
+            count += 1;
+        }
+    }
+    copied_formats_placed(sheet, rows, &in_copy, columns, leaves, brought)
+}
+
+/// The formats of copied cells as `copied_formats` gives them, each of the `rows` given its row in the copy (or none,
+/// when it is not copied), in whatever order the copy has them.
+fn copied_formats_placed(
+    sheet: &Sheet,
+    rows: &[usize],
+    in_copy: &[Option<u32>],
+    columns: &[usize],
+    leaves: impl Fn(Leaf) -> bool,
+    brought: &HashMap<(u32, u32), Json>,
+) -> Vec<CopiedFormat> {
     let mut bases = Bases::default();
     let base = bases.intern("");
     let row_of: HashMap<LineId, u32> =
         rows.iter().enumerate().map(|(i, &p)| (sheet.rows.line(p).expect("a row"), i as u32)).collect();
     let column_of: HashMap<LineId, u32> =
         columns.iter().enumerate().map(|(j, &p)| (sheet.columns.line(p).expect("a column"), j as u32)).collect();
-    // Each row as counted in the copy, if it is copied; and the copy's rows among all.
-    let mut in_copy = Vec::new();
-    let mut copied_rows = Vec::new();
-    for i in 0..rows.len() {
-        in_copy.push(kept(i).then_some(copied_rows.len() as u32));
-        if kept(i) {
-            copied_rows.push(i as u32);
+    // The copy's rows among all.
+    let mut copied_rows = vec![0u32; in_copy.iter().flatten().count()];
+    for (i, at) in in_copy.iter().enumerate() {
+        if let Some(at) = at {
+            copied_rows[*at as usize] = i as u32;
         }
     }
     let cells = sheet.formats.iter().filter(|&(leaf, ..)| leaves(leaf)).filter_map(|(leaf, (r, c), v)| {
@@ -690,7 +720,9 @@ pub(in crate::session) fn copied_formats(
     // A block's rows out of view are left out, and those left run on; a block of them alone goes.
     let copied_spans = |runs: Vec<IdRun>| {
         let mut spans: Vec<Span> = Vec::new();
-        let copied = runs.iter().flat_map(|run| run.first..run.first + run.count).filter_map(|i| in_copy[i as usize]);
+        let mut copied: Vec<u32> =
+            runs.iter().flat_map(|run| run.first..run.first + run.count).filter_map(|i| in_copy[i as usize]).collect();
+        copied.sort_unstable();
         for i in copied {
             match spans.last_mut() {
                 Some(span) if span.first + span.count == i => span.count += 1,

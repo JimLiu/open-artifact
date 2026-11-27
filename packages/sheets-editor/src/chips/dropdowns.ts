@@ -113,6 +113,7 @@ export function openDropdownList(state: PageState, reads: WorkbookReads): PageSt
       cueForCards: 'toCome',
       isNewOptionBeingNamed: false,
       timesNewOptionAsked: 0,
+      isLeftOpenByPress: false,
     },
   };
 }

@@ -636,7 +636,7 @@ ${mode.text.slice(end)}`;
       },
     };
   }
-  return withEntryLooksChanged(state, reads, selection, (looks) => {
+  let changed = withEntryLooksChanged(state, reads, selection, (looks) => {
     if (key === 'tab') return indentLists(looks, mode.text, start, end, 1);
     if (key === 'shiftTab') return indentLists(looks, mode.text, start, end, -1);
     let { list } = listAtCaret(looks, mode.text, start);
@@ -644,6 +644,19 @@ ${mode.text.slice(end)}`;
       ? indentLists(looks, mode.text, start, end, -1)
       : clearListAt(looks, mode.text, start);
   });
+  // A list ended by a key is told like one turned off.
+  let listBefore = mode.looks === undefined ? NO_LIST : listAtCaret(mode.looks, mode.text, start).list;
+  let isListGone = listAtCaret(changed.mode.looks, mode.text, start).list.kind === 'none';
+  return listBefore.kind !== 'none' && isListGone
+    ? {
+        ...changed,
+        lastDone: {
+          what: 'listSetInEntry',
+          list: listBefore.kind,
+          isOn: false,
+        },
+      }
+    : changed;
 }
 export function readListStarterTyped(modeBefore: EditingMode, state: PageState, reads: WorkbookReads, caret: number): PageState {
   let { mode } = state;
@@ -695,11 +708,17 @@ export function readListStarterTyped(modeBefore: EditingMode, state: PageState, 
   return {
     ...changed,
     mode: withListTextNotFormula(changed.mode, lineStart),
-    lastDone: {
-      what: 'listSetInEntry',
-      list: list.kind,
-      isOn: true,
-    },
+    lastDone:
+      listOfLine.kind === 'checkbox' && list.kind === 'checkbox'
+        ? {
+            what: 'boxOfLineSet',
+            isChecked: list.isChecked,
+          }
+        : {
+            what: 'listSetInEntry',
+            list: list.kind,
+            isOn: true,
+          },
   };
 }
 export function readListSignsTyped(

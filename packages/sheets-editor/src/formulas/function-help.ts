@@ -2,7 +2,7 @@ import type { DecimalSignName } from '@open-artifact/sheets-core';
 import type { BracketPair } from '../state/initial-state.ts';
 import type { CatalogFunction, FunctionArgument } from './function-catalog.ts';
 import { formulaArgumentSeparator } from '../format/number-signs.ts';
-import { upperCaseAsciiLetters } from './tokenizer.ts';
+import { endOfTableColumnBrackets, upperCaseAsciiLetters } from './tokenizer.ts';
 import { FUNCTION_CATALOG } from './function-catalog.ts';
 /** A `(` not yet closed: where it is, and where the separators between its arguments are. */
 export interface OpenBracket {
@@ -14,6 +14,16 @@ export interface BracketScan {
   open: OpenBracket[];
   quotedBy: string | null;
   isBetweenCurlyBrackets: boolean;
+  /** Where the brackets of the table column reference the scan is in end. */
+  endOfColumn?: number;
+}
+/** A table column being typed at the end of a text (`Sales[Am`): where it starts, the table and what is typed of the column. */
+export interface TableColumnTyped {
+  start: number;
+  table: string;
+  typed: string;
+  /** What is typed starts with `#`, as a part of the table (`#Headers`) does. */
+  mayBeAWord: boolean;
 }
 /** A function's name, upper-cased, and where it starts. */
 export interface FunctionNameAt {
@@ -58,6 +68,8 @@ export function describedArgumentAt(
 }
 export function scanBracketChar(scan: BracketScan, text: string, position: number, argumentSeparator: string | null): void {
   let char = text[position];
+  if (scan.quotedBy === null && char === '[' && position >= (scan.endOfColumn ?? 0)) scan.endOfColumn = endOfTableColumnBrackets(text, position);
+  if (position < (scan.endOfColumn ?? 0)) return;
   if (scan.quotedBy !== null) {
     if (char === scan.quotedBy) scan.quotedBy = null;
   } else if (char === '"' || char === "'") scan.quotedBy = char;
@@ -80,8 +92,23 @@ export function scanBrackets(text: string, argumentSeparator: string | null): Br
   return scan;
 }
 export function isOutsideQuotesAndArrays(text: string): boolean {
-  let { quotedBy, isBetweenCurlyBrackets } = scanBrackets(text, null);
-  return quotedBy === null && !isBetweenCurlyBrackets;
+  let { quotedBy, isBetweenCurlyBrackets, endOfColumn } = scanBrackets(text, null);
+  return quotedBy === null && !isBetweenCurlyBrackets && endOfColumn !== text.length;
+}
+export function tableColumnBeingTyped(textBeforeCaret: string): TableColumnTyped | null {
+  let lookFrom = Math.max(0, textBeforeCaret.length - TABLE_TEXT_LOOKBACK);
+  let lookedAt = textBeforeCaret.slice(lookFrom);
+  let match = lookedAt.includes('[') ? TABLE_COLUMN_TYPED_AT_END.exec(lookedAt) : null;
+  if (match === null) return null;
+  let start = lookFrom + match.index;
+  if (!expectsOperandAtEnd(textBeforeCaret.slice(0, start))) return null;
+  let [, quotedTable, bareTable = '', typed = ''] = match;
+  return {
+    start,
+    table: quotedTable?.replaceAll("''", "'") ?? bareTable,
+    typed: typed.replaceAll(/'(.)/gsu, '$1'),
+    mayBeAWord: typed.startsWith('#'),
+  };
 }
 export function functionNameBefore(text: string, bracketAt: number): FunctionNameAt | null {
   let nameEnd = bracketAt;
@@ -135,12 +162,12 @@ export function isTypingNameArgument(
         takesNameAt(currentArgumentIndex) &&
         argumentTextBefore(currentArgumentIndex, typedStart) === '' &&
         (currentArgumentIndex === 0 || NEXT_NON_SPACE_CHAR.exec(textAfterCaret)?.[1] === argumentSeparator);
-      let repeatsEarlierName = dividedAt
-        .slice(0, -1)
-        .some(
-          (dividerAt, argumentIndex) =>
-            takesNameAt(argumentIndex) && upperCaseAsciiLetters(argumentTextBefore(argumentIndex, dividerAt)) === upperCaseAsciiLetters(typed),
-        );
+      let repeatsEarlierName = dividedAt.some(
+        (dividerAt, argumentIndex) =>
+          takesNameAt(argumentIndex) &&
+          (argumentIndex + 1 < currentArgumentIndex || takesNameAt(argumentIndex + 1)) &&
+          upperCaseAsciiLetters(argumentTextBefore(argumentIndex, dividerAt)) === upperCaseAsciiLetters(typed),
+      );
       return isTypingCurrentName || repeatsEarlierName;
     });
 }
@@ -219,6 +246,8 @@ export const BARE_NAME_OR_EMPTY = new RegExp(
   'u',
 );
 export const isInsideArrayLiteral = (text: string): boolean => scanBrackets(text, null).isBetweenCurlyBrackets;
+export const TABLE_TEXT_LOOKBACK = 1000;
+export const TABLE_COLUMN_TYPED_AT_END = /(?:'((?:''|[^'])+)'|([\w.\P{ASCII}]+))\[((?:'.|[^[\]'])*)$/su;
 export const expectsOperandAtEnd = (textBeforeCaret: string): boolean =>
   OPERAND_EXPECTED_AT_END.test(textBeforeCaret) && isOutsideQuotesAndArrays(textBeforeCaret);
 export const openBracketAhead = (textAfterCaret: string): string | null => OPEN_BRACKET_AHEAD.exec(textAfterCaret)?.[0] ?? null;

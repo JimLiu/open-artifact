@@ -255,7 +255,8 @@ export const checkboxCentreInCell = (width: number, height: number, hiddenAtFoot
     y: Math.ceil((height - CHECKBOX_BASELINE_NUDGE - footOffset) / 2),
   };
 };
-export const CHECKBOX_HIT_SLOP = 10;
+/** A little more room around a checkbox for a mouse press. */
+export const CHECKBOX_HIT_SLOP = 12;
 export const CHECKBOX_FINGER_HIT_SLOP = 20;
 export const isWithinShownSpan = (position: number, { end, showFrom }: Pick<SpanOnScreen, 'end' | 'showFrom'>, limit: number): boolean =>
   position >= showFrom && position <= Math.min(end, limit);

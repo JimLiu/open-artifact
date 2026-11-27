@@ -113,6 +113,8 @@ pub struct SheetSettings {
     pub last_frozen_column: Option<Option<String>>,
     #[serde(default, deserialize_with = "written::not_null", skip_serializing_if = "Option::is_none")]
     pub are_gridlines_hidden: Option<bool>,
+    #[serde(default, deserialize_with = "written::not_null", skip_serializing_if = "Option::is_none")]
+    pub is_hidden: Option<bool>,
     #[serde(default, deserialize_with = "written::read", skip_serializing_if = "Option::is_none")]
     pub interactive: Option<Option<String>>,
 }
@@ -120,7 +122,7 @@ pub struct SheetSettings {
 impl SheetSettings {
     fn is_empty(&self) -> bool {
         self.last_frozen_row.is_none() && self.last_frozen_column.is_none()
-            && self.are_gridlines_hidden.is_none() && self.interactive.is_none()
+            && self.are_gridlines_hidden.is_none() && self.is_hidden.is_none() && self.interactive.is_none()
     }
 }
 
@@ -273,6 +275,9 @@ impl Workbook {
                     }
                     if let Some(hidden) = hidden {
                         old.are_gridlines_hidden = Some(std::mem::replace(&mut sheet.are_gridlines_hidden, hidden));
+                    }
+                    if let Some(is_hidden) = s.settings.is_hidden {
+                        old.is_hidden = Some(std::mem::replace(&mut sheet.is_hidden, is_hidden));
                     }
                     if let Some(interactive) = &s.settings.interactive {
                         old.interactive = Some(std::mem::replace(&mut sheet.interactive, interactive.clone()));

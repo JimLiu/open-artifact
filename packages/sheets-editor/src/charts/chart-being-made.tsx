@@ -41,13 +41,28 @@ export function barSketch(nth: number): SketchMark[] {
     };
   });
 }
-export function stackedBarSketch(nth: number): SketchMark[] {
+export function horizontalBarSketch(nth: number): SketchMark[] {
+  let heights = SKETCH_BAR_HEIGHTS[nth] ?? SKETCH_BAR_HEIGHTS[0];
+  let [slotHeight, barHeight] = [SKETCH_HEIGHT / SKETCH_HORIZONTAL_BAR_ROWS.length, 22];
+  return SKETCH_HORIZONTAL_BAR_ROWS.map((column, index) => {
+    let [y, width] = [index * slotHeight + (slotHeight - barHeight) / 2, (SKETCH_WIDTH * (heights[column] ?? 0)) / 100];
+    return {
+      id: String(index),
+      at: (index + 0.5) / SKETCH_HORIZONTAL_BAR_ROWS.length,
+      risesFromFoot: false,
+      drawn: <path d={`M0 ${y}H${width - SKETCH_BAR_CORNER_RADIUS}q${SKETCH_BAR_CORNER_RADIUS} 0 ${SKETCH_BAR_CORNER_RADIUS} ${SKETCH_BAR_CORNER_RADIUS}V${y + barHeight - SKETCH_BAR_CORNER_RADIUS}q0 ${SKETCH_BAR_CORNER_RADIUS} ${-SKETCH_BAR_CORNER_RADIUS} ${SKETCH_BAR_CORNER_RADIUS}H0z`} fillOpacity={SKETCH_OPACITIES[0]} />,
+    };
+  });
+}
+export function stackedBarSketch(nth: number, isFullStack = false): SketchMark[] {
   let heights = SKETCH_BAR_HEIGHTS[nth] ?? SKETCH_BAR_HEIGHTS[0];
   let [slotWidth, barWidth] = [SKETCH_WIDTH / SKETCH_STACK_COLUMNS.length, 44];
   return SKETCH_STACK_COLUMNS.map((column, index) => {
     let x = index * slotWidth + (slotWidth - barWidth) / 2;
-    let columnHeight = (SKETCH_HEIGHT * (heights[column] ?? 0)) / 100;
-    let shares = SKETCH_STACK_SHARES[(index + nth) % SKETCH_STACK_SHARES.length] ?? SKETCH_STACK_SHARES[0];
+    let columnHeight = (SKETCH_HEIGHT * (isFullStack ? SKETCH_FULL_STACK_HEIGHT : (heights[column] ?? 0))) / 100;
+    let shares = isFullStack
+      ? fullStackSharesOfHeight(heights[column] ?? 0)
+      : (SKETCH_STACK_SHARES[(index + nth) % SKETCH_STACK_SHARES.length] ?? SKETCH_STACK_SHARES[0]);
     let top = SKETCH_HEIGHT;
     return {
       id: String(index),
@@ -80,6 +95,33 @@ export function lineSketch(nth: number): SketchMark[] {
         };
       });
     },
+  );
+}
+export function areaSketch(nth: number): SketchMark[] {
+  let first = SKETCH_BAR_HEIGHTS[nth] ?? SKETCH_BAR_HEIGHTS[0];
+  let second = SKETCH_SECOND_LINE[nth] ?? SKETCH_SECOND_LINE[0];
+  let step = SKETCH_WIDTH / (first.length - 1);
+  return first.slice(1).map((unused, index) => {
+    let [left, right] = [index * step, (index + 1) * step];
+    return {
+      id: String(index),
+      at: (left + right) / 2 / SKETCH_WIDTH,
+      risesFromFoot: false,
+      drawn: <><path d={`M${left} ${SKETCH_HEIGHT}V${sketchYOfValue(second[index])}L${right} ${sketchYOfValue(second[index + 1])}V${SKETCH_HEIGHT}z`} fillOpacity={SKETCH_OPACITIES[0]} /><path d={`M${left} ${sketchYOfValue(second[index])}V${sketchYOfValue(first[index])}L${right} ${sketchYOfValue(first[index + 1])}V${sketchYOfValue(second[index + 1])}z`} fillOpacity={SKETCH_OPACITIES[2]} /></>,
+    };
+  });
+}
+export function scatterSketch(nth: number): SketchMark[] {
+  return [SKETCH_BAR_HEIGHTS[nth] ?? SKETCH_BAR_HEIGHTS[0], SKETCH_SECOND_LINE[nth] ?? SKETCH_SECOND_LINE[0]].flatMap((values, lineIndex) =>
+    values.map((value, index) => {
+      let at = (index + 0.5 + 0.4 * lineIndex) / values.length;
+      return {
+        id: `${String(lineIndex)}-${String(index)}`,
+        at,
+        risesFromFoot: false,
+        drawn: <path d={`M${at * SKETCH_WIDTH} ${SKETCH_HEIGHT * (1 - value / 100)}h0`} className="sheet-line-of-chart-being-made sheet-point-of-chart-being-made" strokeOpacity={SKETCH_OPACITIES[0]} />,
+      };
+    }),
   );
 }
 export function pieMarksOfChartBeingMade(nth: number): SketchMark[] {
@@ -120,7 +162,7 @@ export function ChartBeingMadeShape({ shape: { kind, nth }, stands, hasFoot }: C
   return <svg viewBox={`0 0 ${String(SKETCH_WIDTH)} ${String(SKETCH_HEIGHT)}`} data-stands={stands} {...(kind !== 'pie' && {
       preserveAspectRatio: 'none',
     })}>{hasFoot &&
-        kind !== 'pie' &&
+        hasChartKindFoot(kind) &&
         <g style={changeReachesMarkStyle(0.5)}>{chartBeingMadeFootLine}</g>}{marksOfChartBeingMade(kind, nth).map(
         (mark) =>
           <g key={mark.id} data-rises-from-foot={mark.risesFromFoot} style={changeReachesMarkStyle(mark.at)}>{mark.drawn}</g>,
@@ -142,7 +184,7 @@ export function ChartBeingMadePass({ kind, pass }: ChartBeingMadePassProps) {
   let showsFootAlone = isChartShapeWithFoot(currentShape) && (previousShape === null || isChartShapeWithFoot(previousShape));
   return <>{showsFootAlone &&
         <svg viewBox={`0 0 ${String(SKETCH_WIDTH)} ${String(SKETCH_HEIGHT)}`} preserveAspectRatio="none"><g>{chartBeingMadeFootLine}</g></svg>}{previousShape !== null &&
-        <ChartBeingMadeShape key={pass - 1} shape={previousShape} stands={previousShape.kind === currentShape.kind && isChartShapeWithFoot(currentShape) ? 'going' : 'fading'} hasFoot={!showsFootAlone} />}<ChartBeingMadeShape key={pass} shape={currentShape} stands={previousShape === null ? 'atRest' : 'coming'} hasFoot={!showsFootAlone} /></>;
+        <ChartBeingMadeShape key={pass - 1} shape={previousShape} stands={previousShape.kind === currentShape.kind && currentShape.kind !== 'pie' ? 'going' : 'fading'} hasFoot={!showsFootAlone} />}<ChartBeingMadeShape key={pass} shape={currentShape} stands={previousShape === null ? 'atRest' : 'coming'} hasFoot={!showsFootAlone} /></>;
 }
 interface ChartBeingMadeProps {
   beingMade: ChartBeingMadeShown | null;
@@ -251,6 +293,7 @@ export const SKETCH_STACK_SHARES = [
   [0.36, 0.38, 0.26],
 ];
 export const SKETCH_STACK_COLUMNS = [0, 1, 2, 4, 5, 7];
+export const SKETCH_FULL_STACK_HEIGHT = 92;
 export const SKETCH_OPACITIES = [0.53, 0.37, 0.24, 0.37, 0.24, 0.37];
 export const SKETCH_LINE_OPACITIES = [0.8, 0.45];
 export const SKETCH_FOOT_OPACITY = 0.45;
@@ -296,16 +339,20 @@ export const sketchBarPath = (x: number, width: number, top: number, bottom: num
   isRoundedTop
     ? `M${x} ${bottom}V${top + SKETCH_BAR_CORNER_RADIUS}q0 ${-SKETCH_BAR_CORNER_RADIUS} ${SKETCH_BAR_CORNER_RADIUS} ${-SKETCH_BAR_CORNER_RADIUS}H${x + width - SKETCH_BAR_CORNER_RADIUS}q${SKETCH_BAR_CORNER_RADIUS} 0 ${SKETCH_BAR_CORNER_RADIUS} ${SKETCH_BAR_CORNER_RADIUS}V${bottom}z`
     : `M${x} ${bottom}V${top}H${x + width}V${bottom}z`;
+export const SKETCH_HORIZONTAL_BAR_ROWS = [0, 2, 4, 5, 7];
+export const fullStackSharesOfHeight = (height: number): number[] => [0.2 + height / 250, 0.25, 0.55 - height / 250];
+export const sketchYOfValue = (value = 0) => SKETCH_HEIGHT * (1 - value / 100);
 export const marksOfChartBeingMade = (kind: StockKind, nth: number): SketchMark[] =>
   (
     ({
       bar: barSketch,
+      horizontalBar: horizontalBarSketch,
       stackedBar: stackedBarSketch,
+      stackedBar100: (n: number) => stackedBarSketch(n, true),
       line: lineSketch,
+      area: areaSketch,
+      scatter: scatterSketch,
       pie: pieMarksOfChartBeingMade,
-      area: lineSketch,
-      horizontalBar: barSketch,
-      scatter: lineSketch,
     }) satisfies Record<StockKind, (nth: number) => SketchMark[]>
   )[kind](nth);
 export const secondsUntilChangeReaches = (at: number) =>
@@ -325,8 +372,9 @@ export const shapesOfChartKind = (kind: ChartKindOrAny): readonly ChartSketchSha
 export const changeReachesMarkStyle = (at: number): StyleWithCustomProperties => ({
   '--sheet-change-reaches-mark': `${secondsUntilChangeReaches(at).toFixed(3)}s`,
 });
+export const hasChartKindFoot = (kind: StockKind) => kind !== 'pie' && kind !== 'horizontalBar';
 export const chartBeingMadeFootLine = <path d={`M0 ${String(SKETCH_HEIGHT)}H${String(SKETCH_WIDTH)}`} className="sheet-foot-of-chart-being-made" strokeOpacity={SKETCH_FOOT_OPACITY} />;
-export const isChartShapeWithFoot = ({ kind }: ChartSketchShape) => kind !== 'pie';
+export const isChartShapeWithFoot = ({ kind }: ChartSketchShape) => hasChartKindFoot(kind);
 export const CHART_BEING_MADE_CLOCK_ANIMATION = 'sheet-clock-of-chart-being-made';
 interface ChartBeingMadeSketchProps {
   kind: ChartKindOrAny;

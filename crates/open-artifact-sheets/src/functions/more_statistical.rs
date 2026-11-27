@@ -19,6 +19,7 @@ use crate::criteria::Criterion;
 use crate::functions::{array, number, Answer, Arg, CallContext, Cells};
 use crate::locale::Locale;
 use crate::value::{significant_digits, Array, CellError, Value};
+use crate::told::{self, Told};
 
 /// Calls one of these functions by name; `None` for any other name.
 pub fn call(name: &str, args: &[Arg], cx: &mut CallContext) -> Option<Answer> {
@@ -444,6 +445,7 @@ fn permutations(args: &[Arg], locale: &Locale) -> Answer {
 fn pairs(a: &Arg, b: &Arg) -> Result<Vec<(f64, f64)>, CellError> {
     let (a, b) = (range_of(a)?, range_of(b)?);
     if a.rows() != b.rows() || a.columns() != b.columns() {
+        told::tell(|| Told::RangesOfDifferentSizes);
         return Err(CellError::Value);
     }
     for cells in [&a, &b] {

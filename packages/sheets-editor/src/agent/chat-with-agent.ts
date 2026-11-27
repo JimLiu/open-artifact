@@ -6,6 +6,7 @@ import type { ChartKindOrAny } from '../charts/chart-words.ts';
 import type { RuleNumber } from '../format/conditional/ask-agent-about-rule.tsx';
 import type { SelectionForAgent } from '../state/initial-state.ts';
 import type { ErrorsToldToAgent } from './ask-agent-menu.tsx';
+import type { ConnectedTableRefusalWhy } from '../tables/connected-table-host.ts';
 /** The room the agent's session is reached through, as the agent gives it. */
 type RoomOfAgent = Record<PropertyKey, unknown>;
 /** A blank sheet put in the chat. */
@@ -29,6 +30,12 @@ export interface AboutRule extends RuleNumber {
   label: string;
   sheetNumber: number;
 }
+/** A connected table that was not refreshed put in the chat, with why. */
+export interface AboutRefresh {
+  label: string;
+  whyNotRefreshed: ConnectedTableRefusalWhy;
+  sheetNumber: number;
+}
 /** Cells put in the chat, labelled by their range. */
 export type AboutCells = SelectionForAgent & { label: string };
 /** What goes with a press that takes cells to the chat: the person's words, the chart asked for, the errors to fix. */
@@ -39,7 +46,7 @@ export interface AskBesidePress extends ErrorsToldToAgent {
 /** Cells put in the chat by a press, with what the press was. */
 export type WithWhatWasPressed = AskBesidePress & AboutCells & { pressed: string };
 /** What the page puts in the chat with the agent. */
-export type ChatPayload = AboutBlankSheet | AboutChart | AskAboutChart | AboutRule | AboutCells | WithWhatWasPressed;
+export type ChatPayload = AboutBlankSheet | AboutChart | AskAboutChart | AboutRule | AboutRefresh | AboutCells | WithWhatWasPressed;
 /** How a payload goes to the session: sent, or left for the person to send; and whether the page's presence goes with it. */
 interface SendOptions {
   deliver?: 'send' | 'stage';
@@ -79,6 +86,7 @@ export interface ChatWithAgent {
   openAboutBlankSheet(label: string, sheetNumber: number): Promise<boolean>;
   openAboutChart(label: string, chartId: string, sheetNumber: number): Promise<boolean>;
   openAboutRule(label: string, rule: RuleNumber & { sheetNumber: number }): Promise<boolean>;
+  openAboutRefresh(label: string, whyNotRefreshed: ConnectedTableRefusalWhy, sheetNumber: number): Promise<boolean>;
   openAboutCells(cells: SelectionForAgent): Promise<boolean>;
   openWithWhatWasPressed(label: string, cells: SelectionForAgent, pressed: string, ask: AskBesidePress): Promise<boolean>;
   onPressRefused(listener: PressRefusedListener): () => void;
@@ -374,6 +382,12 @@ export function createChatWithAgent(
           attachPresence: false,
         },
       ),
+    openAboutRefresh: (label: string, whyNotRefreshed: ConnectedTableRefusalWhy, sheetNumber: number) =>
+      sendToSession({
+        label,
+        whyNotRefreshed,
+        sheetNumber,
+      }),
     openAboutCells: (cells: SelectionForAgent) =>
       isNotBeside && leavingLosesWork()
         ? Promise.resolve(false)
@@ -432,6 +446,7 @@ export const NO_CHAT_WITH_AGENT: ChatWithAgent = {
   openAboutBlankSheet: () => Promise.resolve(false),
   openAboutChart: () => Promise.resolve(false),
   openAboutRule: () => Promise.resolve(false),
+  openAboutRefresh: () => Promise.resolve(false),
   openAboutCells: () => Promise.resolve(false),
   openWithWhatWasPressed: () => Promise.resolve(false),
   onPressRefused: () => () => {},

@@ -34,12 +34,14 @@ export type ContextToolsShape =
   | 'number'
   | 'checkbox'
   | 'person'
+  | 'cellOfSeveralPeople'
   | 'dropdown'
   | 'numbers'
   | 'dates'
   | 'dropdowns'
   | 'checkboxes'
   | 'people'
+  | 'cellsWithSeveralPeople'
   | 'severalTrueOrFalse'
   | 'emptyCells'
   | 'cells'
@@ -71,15 +73,16 @@ export function contextToolsShapeOf({
   cellsAre,
   isSoOfEveryCell,
   areAllRead,
+  hasCellOfSeveralPeople,
   shape,
 }: SelectionSeen): ContextToolsShape {
   if (shape === 'cells') {
     let severalShape = SEVERAL_CELLS_SHAPE_OF_KIND[cellsAre];
-    return severalShape !== undefined && (isSoOfEveryCell || severalShape === 'numbers' || (severalShape === 'checkboxes' && areAllRead))
-      ? severalShape
-      : 'cells';
+    if (severalShape === undefined || !(isSoOfEveryCell || severalShape === 'numbers' || (severalShape === 'checkboxes' && areAllRead))) return 'cells';
+    return severalShape === 'people' && hasCellOfSeveralPeople ? 'cellsWithSeveralPeople' : severalShape;
   }
   if (shape !== 'cell') return shape;
+  if (cellsAre === 'person' && hasCellOfSeveralPeople) return 'cellOfSeveralPeople';
   if (cellsAre === 'trueOrFalse' && !isSoOfEveryCell) return 'neverWraps';
   return cellsAre === 'mixed' ? 'text' : cellsAre;
 }
@@ -173,13 +176,15 @@ export const CONTEXT_TOOLS_OF_SHAPE: Record<ContextToolsShape, ContextTool[]> = 
   date: ['fontSize'],
   number: ['fewerDecimalPlaces', 'moreDecimalPlaces', 'currency', 'percent'],
   checkbox: [],
-  person: ['wrapText'],
+  person: [],
+  cellOfSeveralPeople: ['wrapText'],
   dropdown: ['optionsOfDropdown'],
   numbers: ['fewerDecimalPlaces', 'moreDecimalPlaces', 'sum'],
   dates: ['fontSize', 'mergeCells'],
   dropdowns: ['optionsOfDropdown'],
   checkboxes: ['checkAll', 'uncheckAll'],
-  people: ['wrapText'],
+  people: [],
+  cellsWithSeveralPeople: ['wrapText'],
   severalTrueOrFalse: ['fontSize', 'asCheckbox', 'mergeCells'],
   emptyCells: ['insertDropdown', 'insertPerson', 'insertDate', 'insertCheckbox'],
   cells: ['fontSize', 'wrapText', 'mergeCells'],

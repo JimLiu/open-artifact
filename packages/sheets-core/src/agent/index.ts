@@ -15,6 +15,8 @@ export * from './edits.ts';
 export * from './engine.ts';
 export * from './errors.ts';
 export * from './history.ts';
+export * from './names-and-protections.ts';
+export * from './sheet-settings.ts';
 export * from './page-requests.ts';
 export * from './person-ids.ts';
 export * from './reads.ts';

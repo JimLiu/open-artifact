@@ -49,15 +49,21 @@ pub fn make(workbook: &Workbook, edit: Edit, context: &Context) -> Result<Made, 
     let code = context.code;
     match edit {
         Edit::AddSheet { after_sheet, name_stem } => add_sheet(workbook, after_sheet, &name_stem, code),
-        Edit::RenameSheet { sheet_id, name } => rename_sheet(workbook, sheet_id, name),
-        Edit::MoveSheet { sheet_id, after_sheet } => move_sheet(workbook, sheet_id, after_sheet),
+        Edit::RenameSheet { sheet_id, name } => rename_sheet(workbook, sheet_id, name, context),
+        Edit::MoveSheet { sheet_id, after_sheet } => move_sheet(workbook, sheet_id, after_sheet, context),
         Edit::DeleteSheet { sheet_id } => {
             workbook.sheet_index(&sheet_id).ok_or(Refused::Because("unknownSheet"))?;
-            // No other sheet left with a row and a column: none left to show.
-            if !workbook.sheets.iter().any(|s| s.id != sheet_id && s.rows.len() > 0 && s.columns.len() > 0) {
-                return Err(Refused::Because("noSheetLeft"));
+            let ops = vec![Op::DeleteSheet { sheet_id: sheet_id.clone() }];
+            // No other sheet left with a row and a column: none left to show. No other sheet not hidden: none shown.
+            // A protection of the sheet refuses before either. A connected sheet's rows are those it shows, its heading
+            // and its records.
+            if !workbook.with_tables().sheets.iter().any(|s| s.id != sheet_id && s.rows.len() > 0 && s.columns.len() > 0) {
+                return Err(super::protected::refuse(workbook, context, &ops, "noSheetLeft"));
             }
-            Ok(Made { ops: vec![Op::DeleteSheet { sheet_id }], place: Some(Place::Nowhere) })
+            if !workbook.sheets.iter().any(|s| s.id != sheet_id && !s.is_hidden) {
+                return Err(super::protected::refuse(workbook, context, &ops, "noShownSheetLeft"));
+            }
+            Ok(Made { ops, place: Some(Place::Nowhere) })
         }
         Edit::SetLocale { locale } => {
             if crate::locale::find(&locale).is_none() {
@@ -91,8 +97,9 @@ fn is_sheet_name_taken(workbook: &Workbook, name: &str, but: Option<&str>) -> bo
 
 /// A new sheet, named its stem and the first number from one more than there are sheets that no sheet has.
 fn add_sheet(workbook: &Workbook, after: Option<String>, stem: &str, code: &str) -> Result<Made, Refused> {
-    if let Some(after) = &after {
-        workbook.sheet_index(after).ok_or(Refused::Because("unknownSheet"))?;
+    // A sheet may follow a deleted one: it goes where that one was.
+    if after.as_ref().is_some_and(|after| !workbook.sheet_order.contains(after)) {
+        return Err(Refused::Because("unknownSheet"));
     }
     let mut n = workbook.sheets.len() + 1;
     let name = loop {
@@ -121,7 +128,7 @@ fn add_sheet(workbook: &Workbook, after: Option<String>, stem: &str, code: &str)
     ]))
 }
 
-fn rename_sheet(workbook: &Workbook, sheet_id: String, name: String) -> Result<Made, Refused> {
+fn rename_sheet(workbook: &Workbook, sheet_id: String, name: String, context: &Context) -> Result<Made, Refused> {
     let i = workbook.sheet_index(&sheet_id).ok_or(Refused::Because("unknownSheet"))?;
     if workbook.sheets[i].name == name {
         return Ok(Made::nothing());
@@ -129,13 +136,14 @@ fn rename_sheet(workbook: &Workbook, sheet_id: String, name: String) -> Result<M
     if !is_allowed_sheet_name(&name) {
         return Err(Refused::Because("sheetNameNotAllowed"));
     }
+    let ops = vec![Op::SetSheetNames { names: vec![SheetName { sheet_id: sheet_id.clone(), name: name.clone() }] }];
     if is_sheet_name_taken(workbook, &name, Some(&sheet_id)) {
-        return Err(Refused::Because("sheetNameTaken"));
+        return Err(super::protected::refuse(workbook, context, &ops, "sheetNameTaken"));
     }
-    Ok(Made::ops(vec![Op::SetSheetNames { names: vec![SheetName { sheet_id, name }] }]))
+    Ok(Made::ops(ops))
 }
 
-fn move_sheet(workbook: &Workbook, sheet_id: String, after: Option<String>) -> Result<Made, Refused> {
+fn move_sheet(workbook: &Workbook, sheet_id: String, after: Option<String>, context: &Context) -> Result<Made, Refused> {
     let i = workbook.sheet_index(&sheet_id).ok_or(Refused::Because("unknownSheet"))?;
     if let Some(after) = &after {
         workbook.sheet_index(after).ok_or(Refused::Because("unknownSheet"))?;
@@ -145,5 +153,6 @@ fn move_sheet(workbook: &Workbook, sheet_id: String, after: Option<String>) -> R
     if after == now_after || after.as_deref() == Some(sheet_id.as_str()) {
         return Ok(Made::nothing());
     }
+    context.may_move()?;
     Ok(Made::ops(vec![Op::MoveSheets { moves: vec![SheetMove { sheet_ids: vec![sheet_id], after }] }]))
 }

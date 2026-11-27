@@ -15,7 +15,7 @@ use hashbrown::HashSet;
 use serde::Deserialize;
 use serde_json::Value as Json;
 
-use super::{Context, Made, Refused};
+use super::{protected, Context, Made, Refused};
 use crate::ids::{is_well_formed, runs_of, Axis, Bases, IdRun, LineId};
 use crate::session::place::{self, Place};
 use crate::workbook::formats::sorted_runs;
@@ -28,6 +28,7 @@ use crate::workbook::{Sheet, Workbook};
 pub(in crate::session) mod fit;
 pub(super) mod follow;
 pub(super) mod groups;
+mod grow;
 
 /// The narrowest and widest a column may be, and the lowest and highest a row, in pixels.
 pub(super) const NARROWEST_COLUMN: u32 = 8;
@@ -135,6 +136,14 @@ impl Edit {
     pub fn measures_values(&self) -> bool {
         matches!(self, Edit::FitColumns { .. })
     }
+
+    /// Whether the edit reads the sheet's tables, to grow the references at the ends of a body (`grow`): the formulas
+    /// waiting for `calculate` are worked out first.
+    pub fn reads_tables_first(&self, workbook: &Workbook) -> bool {
+        let Edit::InsertRows { sheet_id, after_row: Some(after), .. } = self else { return false };
+        let Some(sheet) = workbook.sheet_index(sheet_id).map(|s| &workbook.sheets[s]) else { return false };
+        workbook.bases.parse(after).is_some_and(|after| grow::reads_tables_first(workbook, sheet, after))
+    }
 }
 
 /// Whether runs read: some, none of no ids or of ids past the largest.
@@ -154,6 +163,7 @@ pub fn read(edit: &Json) -> Option<Edit> {
             settings.last_frozen_row.is_some()
                 || settings.last_frozen_column.is_some()
                 || settings.are_gridlines_hidden.is_some()
+                || settings.is_hidden.is_some()
                 || settings.interactive.is_some()
         }
         Edit::InsertRows { count, values_from_filter, .. } => *count > 0 && values_from_filter.is_none(),
@@ -277,31 +287,31 @@ fn make_ops(workbook: &Workbook, edit: Edit, context: &Context) -> Result<Made, 
             fit_columns(workbook, sheet_of(workbook, &sheet_id)?, (&one_column, &other_column), &no_narrower_than)
         }
         Edit::SetSheetSettings { sheet_id, settings } => {
-            set_sheet_settings(workbook, sheet_of(workbook, &sheet_id)?, settings)
+            set_sheet_settings(workbook, sheet_of(workbook, &sheet_id)?, settings, context)
         }
         Edit::InsertRows { sheet_id, after_row, count, formats_from_row, groups_from_row, formulas_from_row, .. } => {
             let from = From { formats: formats_from_row, groups: groups_from_row, formulas: formulas_from_row };
-            insert(workbook, sheet_of(workbook, &sheet_id)?, rows, after_row, count, from, code)
+            insert(workbook, sheet_of(workbook, &sheet_id)?, rows, after_row, count, from, context)
         }
         Edit::InsertColumns { sheet_id, after_column, count, formats_from_column, groups_from_column } => {
             let from = From { formats: formats_from_column, groups: groups_from_column, formulas: None };
-            insert(workbook, sheet_of(workbook, &sheet_id)?, columns, after_column, count, from, code)
+            insert(workbook, sheet_of(workbook, &sheet_id)?, columns, after_column, count, from, context)
         }
         Edit::DeleteRows { sheet_id, rows: runs } => {
             let sheet = sheet_of(workbook, &sheet_id)?;
             let named = named(&workbook.bases, &sheet.rows, &runs);
-            delete(workbook, sheet, rows, named)
+            delete(workbook, sheet, rows, named, context)
         }
         Edit::DeleteColumns { sheet_id, one_column, other_column } => {
             let sheet = sheet_of(workbook, &sheet_id)?;
             let (a, b) = span(workbook, sheet, columns, (&one_column, &other_column))?;
-            delete(workbook, sheet, columns, (a..=b).map(|p| at(&sheet.columns, p)).collect())
+            delete(workbook, sheet, columns, (a..=b).map(|p| at(&sheet.columns, p)).collect(), context)
         }
         Edit::MoveRows { sheet_id, one_row, other_row, after_row } => {
-            move_lines(workbook, sheet_of(workbook, &sheet_id)?, rows, (&one_row, &other_row), after_row, context.is_among_several)
+            move_lines(workbook, sheet_of(workbook, &sheet_id)?, rows, (&one_row, &other_row), after_row, context)
         }
         Edit::MoveColumns { sheet_id, one_column, other_column, after_column } => {
-            move_lines(workbook, sheet_of(workbook, &sheet_id)?, columns, (&one_column, &other_column), after_column, context.is_among_several)
+            move_lines(workbook, sheet_of(workbook, &sheet_id)?, columns, (&one_column, &other_column), after_column, context)
         }
         Edit::HideRows { sheet_id, rows: runs } => {
             let sheet = sheet_of(workbook, &sheet_id)?;
@@ -314,10 +324,10 @@ fn make_ops(workbook: &Workbook, edit: Edit, context: &Context) -> Result<Made, 
             hide(workbook, sheet, columns, &(a..=b).map(|p| at(&sheet.columns, p)).collect::<Vec<_>>(), code)
         }
         Edit::GroupRows { sheet_id, one_row, other_row } => {
-            group(workbook, sheet_of(workbook, &sheet_id)?, rows, (&one_row, &other_row), code)
+            group(workbook, sheet_of(workbook, &sheet_id)?, rows, (&one_row, &other_row), context)
         }
         Edit::GroupColumns { sheet_id, one_column, other_column } => {
-            group(workbook, sheet_of(workbook, &sheet_id)?, columns, (&one_column, &other_column), code)
+            group(workbook, sheet_of(workbook, &sheet_id)?, columns, (&one_column, &other_column), context)
         }
         Edit::UngroupRows { sheet_id, one_row, other_row } => {
             ungroup(workbook, sheet_of(workbook, &sheet_id)?, rows, (&one_row, &other_row))
@@ -466,7 +476,7 @@ pub(super) fn column_width_runs(workbook: &Workbook, widths: impl IntoIterator<I
 }
 
 /// The settings asked for that are not as they are.
-fn set_sheet_settings(workbook: &Workbook, sheet: &Sheet, asked: SheetSettings) -> Result<Made, Refused> {
+fn set_sheet_settings(workbook: &Workbook, sheet: &Sheet, asked: SheetSettings, context: &Context) -> Result<Made, Refused> {
     let mut settings = SheetSettings::default();
     let frozen = |lines: Lines, id: &Option<String>| -> Result<Option<LineId>, Refused> {
         id.as_deref().map(|id| position(workbook, sheet, lines, id).map(|p| at(lines.axis(sheet), p))).transpose()
@@ -498,14 +508,24 @@ fn set_sheet_settings(workbook: &Workbook, sheet: &Sheet, asked: SheetSettings) 
         }
         settings.interactive = Some(view);
     }
+    if let Some(hidden) = asked.is_hidden.filter(|hidden| *hidden != sheet.is_hidden) {
+        settings.is_hidden = Some(hidden);
+    }
     let is_any_set = settings.last_frozen_row.is_some()
         || settings.last_frozen_column.is_some()
         || settings.are_gridlines_hidden.is_some()
+        || settings.is_hidden.is_some()
         || settings.interactive.is_some();
     if !is_any_set {
         return Ok(Made::nothing());
     }
-    Ok(Made::ops(vec![Op::SetSheetSettings { sheets: vec![SheetToSet { sheet_id: sheet.id.clone(), settings }] }]))
+    let hides = settings.is_hidden == Some(true);
+    let ops = vec![Op::SetSheetSettings { sheets: vec![SheetToSet { sheet_id: sheet.id.clone(), settings }] }];
+    // A sheet hidden leaves another shown (`noShownSheetLeft`), unless a protection refuses first.
+    if hides && !workbook.sheets.iter().any(|s| s.id != sheet.id && !s.is_hidden) {
+        return Err(protected::refuse(workbook, context, &ops, "noShownSheetLeft"));
+    }
+    Ok(Made::ops(ops))
 }
 
 /// The lines new ones take from: their formats, the groups they are in, their formulas (rows only).
@@ -516,25 +536,33 @@ struct From {
 }
 
 /// New lines after one (deleted or not; first of all when `None`), named `row_<code>.0` … (or `col_…`).
-fn insert(workbook: &Workbook, sheet: &Sheet, lines: Lines, after: Option<String>, count: u32, from: From, code: &str)
+fn insert(workbook: &Workbook, sheet: &Sheet, lines: Lines, after: Option<String>, count: u32, from: From, context: &Context)
     -> Result<Made, Refused> {
+    let code = context.code;
     let axis = lines.axis(sheet);
+    let new = IdRun { base: format!("{}_{code}", lines.line_prefix()), first: 0, count };
+    let op = |after: Option<String>| match lines {
+        Lines::Rows => Op::InsertRows { sheet_id: sheet.id.clone(), after, rows: new.clone() },
+        Lines::Columns => Op::InsertColumns { sheet_id: sheet.id.clone(), after, columns: new.clone() },
+    };
     let after_line = match &after {
-        Some(id) => Some(workbook.bases.parse(id).filter(|l| axis.knows(*l)).ok_or(lines.unknown())?),
+        Some(id) => Some(workbook.bases.parse(id).filter(|l| axis.knows(*l)).ok_or_else(|| {
+            let Refused::Because(why) = lines.unknown() else { unreachable!() };
+            protected::refuse(workbook, context, &[op(after.clone())], why)
+        })?),
         None => None,
     };
     let live = |id: Option<String>| -> Result<Option<LineId>, Refused> {
         id.map(|id| position(workbook, sheet, lines, &id).map(|p| at(axis, p))).transpose()
     };
     let (formats_from, groups_from, formulas_from) = (live(from.formats)?, live(from.groups)?, live(from.formulas)?);
-    let new = IdRun { base: format!("{}_{code}", lines.line_prefix()), first: 0, count };
-    let sheet_id = sheet.id.clone();
-    let mut ops = vec![match lines {
-        Lines::Rows => Op::InsertRows { sheet_id, after, rows: new.clone() },
-        Lines::Columns => Op::InsertColumns { sheet_id, after, columns: new.clone() },
-    }];
+    let mut ops = vec![op(after)];
     let mut inserted = workbook.clone();
-    inserted.apply(&ops)?;
+    // New ids held already are refused after the protections that refuse the lines inserted.
+    inserted.apply(&ops).map_err(|refusal| match Refused::from(refusal) {
+        Refused::Because(why) => protected::refuse(workbook, context, &ops, why),
+        refused => refused,
+    })?;
     if let Some(from) = formats_from {
         ops.extend(follow::formats_of_new(workbook, sheet, lines, from, after_line, &new));
     }
@@ -553,6 +581,9 @@ fn insert(workbook: &Workbook, sheet: &Sheet, lines: Lines, after: Option<String
     if let Some(from) = formulas_from {
         ops.extend(follow::formulas_of_new(workbook, sheet, from, &inserted, &new));
     }
+    if let (Lines::Rows, Some(after)) = (lines, after_line) {
+        ops.extend(grow::formulas_growing(workbook, sheet, after, &new));
+    }
     let sheet_after = &inserted.sheets[inserted.sheet_index(&sheet.id).expect("the sheet inserted in")];
     let base = inserted.bases.find(&new.base).expect("the new lines' base");
     let axis_after = lines.axis(sheet_after);
@@ -562,20 +593,13 @@ fn insert(workbook: &Workbook, sheet: &Sheet, lines: Lines, after: Option<String
 }
 
 /// Deletes lines, and first what they take with them.
-fn delete(workbook: &Workbook, sheet: &Sheet, lines: Lines, deleted: Vec<LineId>) -> Result<Made, Refused> {
+fn delete(workbook: &Workbook, sheet: &Sheet, lines: Lines, deleted: Vec<LineId>, context: &Context) -> Result<Made, Refused> {
     if deleted.is_empty() {
         return Err(lines.unknown());
     }
     let set: HashSet<LineId> = deleted.iter().copied().collect();
     let mut ops = follow::of_delete(workbook, sheet, lines, &set);
-    // What the lines take with them is worked out, and its ids checked, before whether any line is left.
-    if deleted.len() == lines.axis(sheet).len() {
-        return Err(Refused::Because(match lines {
-            _ if !ids_well_formed(&ops) => "idNotWellFormed",
-            Lines::Rows => "noRowLeft",
-            Lines::Columns => "noColumnLeft",
-        }));
-    }
+    let is_all = deleted.len() == lines.axis(sheet).len();
     let mut ids = deleted;
     let runs = sorted_runs(&workbook.bases, &mut ids);
     let sheet_id = sheet.id.clone();
@@ -583,6 +607,19 @@ fn delete(workbook: &Workbook, sheet: &Sheet, lines: Lines, deleted: Vec<LineId>
         Lines::Rows => Op::DeleteRows { sheet_id, rows: crate::ids::listed_runs::RowRuns::written(runs) },
         Lines::Columns => Op::DeleteColumns { sheet_id, columns: runs },
     };
+    // What the lines take with them is worked out, and its ids checked, before whether any line is left; a
+    // protection refuses the deletion before that.
+    if is_all {
+        if !ids_well_formed(&ops) {
+            return Err(Refused::Because("idNotWellFormed"));
+        }
+        let why = match lines {
+            Lines::Rows => "noRowLeft",
+            Lines::Columns => "noColumnLeft",
+        };
+        ops.push(op);
+        return Err(protected::refuse(workbook, context, &ops, why));
+    }
     ops.push(op.clone());
     // And before whether any line is left in sight.
     if !ids_well_formed(&ops) {
@@ -623,7 +660,7 @@ fn is_filled_only_first(sheet: &Sheet, (top, bottom, left, right): (usize, usize
 }
 
 /// Moves the lines from one end to the other after a line (first of all when `None`).
-fn move_lines(workbook: &Workbook, sheet: &Sheet, lines: Lines, ends: (&str, &str), after: Option<String>, among_several: bool)
+fn move_lines(workbook: &Workbook, sheet: &Sheet, lines: Lines, ends: (&str, &str), after: Option<String>, context: &Context)
     -> Result<Made, Refused> {
     let (a, b) = span(workbook, sheet, lines, ends)?;
     let axis = lines.axis(sheet);
@@ -635,9 +672,7 @@ fn move_lines(workbook: &Workbook, sheet: &Sheet, lines: Lines, ends: (&str, &st
     if stays || (a == 0 && b + 1 == axis.len()) {
         return Ok(Made::nothing());
     }
-    if among_several {
-        return Err(Refused::Because("moveAmongSeveralEdits"));
-    }
+    context.may_move()?;
     let moved: Vec<LineId> = (a..=b).map(|p| at(axis, p)).collect();
     let after_line = to.map(|p| at(axis, p));
     let (mut ops, after_ops) = follow::of_move(workbook, sheet, lines, &moved, after_line);
@@ -653,6 +688,20 @@ fn move_lines(workbook: &Workbook, sheet: &Sheet, lines: Lines, ends: (&str, &st
     let mut moved_axis = axis.clone();
     moved_axis.move_lines(&[(moved.clone(), after_line)]);
     let bases = &workbook.bases;
+    let move_op = || {
+        let runs = runs_of(&moved, bases);
+        let sheet_id = sheet.id.clone();
+        match lines {
+            Lines::Rows => Op::MoveRows { sheet_id, moves: vec![RowMove { rows: runs, after: after.clone() }] },
+            Lines::Columns => Op::MoveColumns { sheet_id, moves: vec![ColumnMove { columns: runs, after: after.clone() }] },
+        }
+    };
+    // A protection refuses the move before a merged range does.
+    let splits = || {
+        let mut tried = ops.clone();
+        tried.push(move_op());
+        protected::refuse(workbook, context, &tried, "moveSplitsMergedRange")
+    };
     let mut remerged: Vec<((usize, usize, usize, usize), &RangeIds)> = Vec::new();
     for range in &sheet.merged_ranges {
         let Some(live) = sheet.live_box(bases, range) else { continue };
@@ -671,7 +720,7 @@ fn move_lines(workbook: &Workbook, sheet: &Sheet, lines: Lines, ends: (&str, &st
         let (first, last) = (at(axis, first), at(axis, last));
         let is_kept = lines_left_between(axis, first, last) == lines_left_between(&moved_axis, first, last);
         if !(is_kept && is_filled_only_first(sheet, live)) {
-            return Err(Refused::Because("moveSplitsMergedRange"));
+            return Err(splits());
         }
         remerged.push((live, range));
     }
@@ -686,7 +735,7 @@ fn move_lines(workbook: &Workbook, sheet: &Sheet, lines: Lines, ends: (&str, &st
         for &(live, range) in remerged.iter().filter(|(live, _)| !is_one_cell(live)) {
             let others = sheet.merged_ranges.iter().filter(|other| !std::ptr::eq(*other, range));
             if others.filter_map(|other| sheet.live_box(bases, other)).any(|other| overlaps(live, other)) {
-                return Err(Refused::Because("moveSplitsMergedRange"));
+                return Err(splits());
             }
         }
         let unmerged = remerged.iter().map(|(_, range)| (*range).clone()).collect();
@@ -700,12 +749,7 @@ fn move_lines(workbook: &Workbook, sheet: &Sheet, lines: Lines, ends: (&str, &st
             ops.push(Op::MergeCells { sheet_id: sheet.id.clone(), ranges: merged });
         }
     }
-    let runs = runs_of(&moved, &workbook.bases);
-    let sheet_id = sheet.id.clone();
-    let op = match lines {
-        Lines::Rows => Op::MoveRows { sheet_id, moves: vec![RowMove { rows: runs, after }] },
-        Lines::Columns => Op::MoveColumns { sheet_id, moves: vec![ColumnMove { columns: runs, after }] },
-    };
+    let op = move_op();
     ops.push(op.clone());
     ops.extend(after_ops);
     let mut moved_workbook = workbook.clone();
@@ -739,9 +783,13 @@ fn hide(workbook: &Workbook, sheet: &Sheet, lines: Lines, named: &[LineId], code
 }
 
 /// A new group from one end to the other; the place is its lines in sight.
-fn group(workbook: &Workbook, sheet: &Sheet, lines: Lines, ends: (&str, &str), code: &str) -> Result<Made, Refused> {
+fn group(workbook: &Workbook, sheet: &Sheet, lines: Lines, ends: (&str, &str), context: &Context) -> Result<Made, Refused> {
     let span = span(workbook, sheet, lines, ends)?;
-    let grouped = groups::group(workbook, sheet, lines, span, code)?;
+    // Groups that cannot be are refused once a protection of the sheet lets their groups be set.
+    let grouped = groups::group(workbook, sheet, lines, span, context.code).map_err(|refused| match refused {
+        Refused::Because(why) => protected::refuse(workbook, context, &[lines.set_groups(&sheet.id, Vec::new())], why),
+        refused => refused,
+    })?;
     grouped_made(sheet, lines, grouped)
 }
 

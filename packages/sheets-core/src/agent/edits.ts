@@ -8,7 +8,9 @@ import { type Block, a1, CELL_ADDRESS, overlap, parseRange } from './addresses.t
 import { richTextOfMarkdown } from './cells.ts';
 import { type EngineMessage, isObject } from './engine.ts';
 import { AgentError } from './errors.ts';
+import { namesAndProtectionsEdit } from './names-and-protections.ts';
 import { conditionalFormatsOf, patternsOf } from './reads.ts';
+import { sheetSettingsEdit } from './sheet-settings.ts';
 import { checkKeys, pickSheet, runsBetween, type SheetView, sheetsOf, type WorkbookContents } from './workbook.ts';
 
 /** The most edits in one applyEdits. */
@@ -34,6 +36,8 @@ export interface EditContext {
   deletedSheets(): { sheetId: string; name: string }[];
   /** Charts: their edits and reads (charts.ts); null where charts are not made here. */
   charts?: ChartEdits | null;
+  /** Who the edits are made as (an engine person id), when the session was told. */
+  person?: string;
 }
 
 export interface ChartEdits {
@@ -48,7 +52,8 @@ export const EDIT_KINDS = [
   'writeCells', 'addSheet', 'renameSheet', 'restoreSheet', 'moveSheets', 'formatCells', 'groupRows', 'groupColumns', 'ungroupRows', 'ungroupColumns',
   'mergeCells', 'unmergeCells', 'setBorders', 'setColumnWidths', 'fitColumns', 'setRowHeights', 'insertRows', 'insertColumns', 'moveRows', 'moveColumns',
   'sortRows', 'sortCells', 'deleteRows', 'deleteColumns', 'deleteSheet', 'setSheetSettings', 'makeDropdown', 'setDropdownOptions', 'setCellTable',
-  'replaceConditionalFormats', 'addChart', 'setChart', 'deleteChart', 'addInteractive', 'setTimeZone', 'setLocale',
+  'replaceConditionalFormats', 'addChart', 'setChart', 'deleteChart', 'addInteractive', 'setTimeZone', 'setLocale', 'saveNamedRange', 'removeNamedRange',
+  'setDefaultValues', 'resetToDefaultValues', 'saveProtection', 'removeProtection',
 ];
 
 /**
@@ -63,7 +68,7 @@ export function applyEdits(edits: unknown, context: EditContext): { changedNothi
   edits.forEach((edit, i) => {
     try {
       if (isObject(edit) && edit.kind === 'setTimeZone' && edits.length > 1) throw new AgentError('timeZoneNotSetAlone', 'setTimeZone goes alone, in an applyEdits of its own.');
-      if (!applyEdit(edit, context)) changedNothing.push(i);
+      if (!applyEditOfAnyKind(edit, context)) changedNothing.push(i);
     } catch (error) {
       if (error instanceof AgentError) throw new AgentError(error.code, error.message, { ...error.extra, editIndex: i }, error.hint);
       throw error;
@@ -262,25 +267,8 @@ function applyEdit(edit: unknown, context: EditContext): boolean {
       checkKeys(edit, ['sheet']);
       if (sheets.length === 1) throw new AgentError('noSheetLeft', 'A workbook keeps one sheet: to replace the only one, addSheet first.');
       return queued(context, { kind: 'deleteSheet', sheetId: sheet().sheetId });
-    case 'setSheetSettings': {
-      checkKeys(edit, ['sheet', 'settings']);
-      const view = sheet();
-      if (!isObject(edit.settings)) throw new AgentError('unreadableEdit', 'settings is {"lastFrozenRow"?: number|null, "lastFrozenColumn"?: "A"|null, "areGridlinesHidden"?: true|false}.');
-      const settings: EngineMessage = {};
-      for (const [key, value] of Object.entries(edit.settings)) {
-        if (key === 'lastFrozenRow') {
-          if (value !== null && (!Number.isInteger(value) || (value as number) < 1 || (value as number) > view.rowIds.length)) throw new AgentError('unreadableEdit', 'lastFrozenRow is a row number, or null to unfreeze.');
-          settings.lastFrozenRow = value === null ? null : view.rowIds[(value as number) - 1];
-        } else if (key === 'lastFrozenColumn') {
-          settings.lastFrozenColumn = value === null ? null : view.columnIds[view.columns(value, 'lastFrozenColumn')[0]];
-        } else if (key === 'areGridlinesHidden') {
-          if (typeof value !== 'boolean') throw new AgentError('unreadableEdit', 'areGridlinesHidden is true or false.');
-          settings.areGridlinesHidden = value;
-        } else throw new AgentError('unreadableEdit', `settings takes no "${key}": lastFrozenRow, lastFrozenColumn, areGridlinesHidden.`);
-      }
-      if (Object.keys(settings).length === 0) throw new AgentError('unreadableEdit', 'settings names at least one of lastFrozenRow, lastFrozenColumn, areGridlinesHidden.');
-      return queued(context, { kind: 'setSheetSettings', sheetId: view.sheetId, settings });
-    }
+    case 'setSheetSettings':
+      return queued(context, sheetSettingsEdit(edit, sheet));
     case 'makeDropdown': {
       checkKeys(edit, ['sheet', 'range', 'options']);
       const view = sheet();
@@ -584,4 +572,15 @@ function replaceConditionalFormats(view: SheetView, inPlaceOf: unknown, rules: u
   for (const rule of listed) if (!kept.has(rule)) context.queue({ kind: 'removeConditionalFormat', sheetId: view.sheetId, conditionalFormatId: rule.conditionalFormatId });
   if (ids.length) context.queue({ kind: 'addConditionalFormats', sheetId: view.sheetId, rules: ids });
   return true;
+}
+
+/**
+ * One edit: a named range, default value or protection edit (names-and-protections.ts) makes its one engine edit
+ * here; every other kind goes to applyEdit.
+ */
+function applyEditOfAnyKind(edit: unknown, context: EditContext): boolean {
+  if (!isObject(edit)) return applyEdit(edit, context);
+  const sheet = () => pickSheet(sheetsOf(context.read()), edit.sheet);
+  const kept = namesAndProtectionsEdit(edit, { sheet, workbook: context.read, person: context.person });
+  return kept === null ? applyEdit(edit, context) : queued(context, kept);
 }

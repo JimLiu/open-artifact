@@ -5,8 +5,11 @@ const scrollsOn = (overflow: string): boolean => !/visible|hidden|clip/.test(ove
 /**
  * Whether an element's content runs past it on an axis it scrolls along. It is measured again
  * whenever the element or anything inside it changes size, and when children come or go.
+ *
+ * With `verticalSlack`, only the height counts, whatever the element's overflow style: it starts
+ * to overflow once its content is taller by more than the slack, and stops as soon as it fits.
  */
-export function useScrollableOverflow(element: HTMLElement | null): boolean {
+export function useScrollableOverflow(element: HTMLElement | null, verticalSlack?: number): boolean {
   const [overflows, setOverflows] = React.useState(false);
   const overflowsRef = React.useRef(false);
   React.useLayoutEffect(() => {
@@ -15,8 +18,10 @@ export function useScrollableOverflow(element: HTMLElement | null): boolean {
     const measure = (): void => {
       const { overflowX, overflowY } = win.getComputedStyle(element);
       const next =
-        (element.scrollWidth > element.clientWidth + 1 && scrollsOn(overflowX)) ||
-        (element.scrollHeight > element.clientHeight + 1 && scrollsOn(overflowY));
+        verticalSlack === undefined
+          ? (element.scrollWidth > element.clientWidth + 1 && scrollsOn(overflowX)) ||
+            (element.scrollHeight > element.clientHeight + 1 && scrollsOn(overflowY))
+          : element.scrollHeight > element.clientHeight + (overflowsRef.current ? 0 : verticalSlack);
       if (overflowsRef.current === next) return;
       overflowsRef.current = next;
       setOverflows(next);
@@ -58,6 +63,6 @@ export function useScrollableOverflow(element: HTMLElement | null): boolean {
       resizes.disconnect();
       mutations.disconnect();
     };
-  }, [element]);
+  }, [element, verticalSlack]);
   return overflows;
 }

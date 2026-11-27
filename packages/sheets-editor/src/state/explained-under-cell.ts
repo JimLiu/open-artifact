@@ -35,7 +35,7 @@ export function linkPlacementKey(state: PageState, reads: ReadsWithTextMeasurer,
   return JSON.stringify([across, down, text, reads.formatOf(cellId)]);
 }
 export function cellExplained(state: PageState, reads: WorkbookReads): CellExplained | null {
-  if (isExplainingBlocked(state)) return null;
+  if (isExplainingBlocked(state) || reads.connectedTableIn(state.sheetId) !== null) return null;
   let {
     pointedAt,
     isHiddenForSelection,
@@ -270,7 +270,9 @@ export function updateExplainedUnderCell(
     (state.zoom !== stateBefore.zoom ||
       state.gridWidth !== stateBefore.gridWidth ||
       linkPlacementKey(state, reads, pointedAt.cellId) !== pointedAt.wordsPlacedBy);
-  let isPointedAtGone = pointedAt !== null && (!isIdleOrTapping(state) || !isStillPointedAt || isSelectionMoved || isLinkMoved);
+  let isResizing = state.dragging?.kind === 'resizing';
+  let isBusy = !isIdleOrTapping(state) || isResizing;
+  let isPointedAtGone = pointedAt !== null && (isBusy || !isStillPointedAt || isSelectionMoved || isLinkMoved);
   let anchorCell: CellId = activeAnchorCell(state, reads);
   let isHidingOver = isSelectionMoved || (state.dragging !== null && stateBefore.dragging === null);
   let isDragged = state.dragging !== null || stateBefore.dragging !== null;
@@ -280,7 +282,8 @@ export function updateExplainedUnderCell(
       : state.explainedUnderCell.isSelectionByMouse && (!isSelectionMoved || isDragged);
   let isMarkedLinkGone =
     markedLink !== null &&
-    (state.sheetId !== stateBefore.sheetId ||
+    (isResizing ||
+      state.sheetId !== stateBefore.sheetId ||
       !isSameCell(state.activeCell, stateBefore.activeCell) ||
       cellExplained(state, reads)?.by !== 'selection' ||
       !isCellInSight(state, reads, anchorCell) ||

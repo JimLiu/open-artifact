@@ -35,7 +35,7 @@ export function openTableHandleMenu(
   { reads, refusalOfEveryEdit }: Pick<PageContext, 'reads' | 'refusalOfEveryEdit'>,
 ): PageState {
   let handle = tableHandles(tablesToOutline(state, reads), state, reads, refusalOfEveryEdit !== null).find(
-    ({ table }) => table.key === tableKey,
+    ({ table, takesPress }) => takesPress && table.key === tableKey,
   );
   if (handle === undefined) return state;
   let place = {

@@ -1,5 +1,6 @@
 /**
- * The agent's reads: readSheets, readCells, readCellFormats, readConditionalFormats, readCharts and readInteractive,
+ * The agent's reads: readSheets, readCells, readCellFormats, readConditionalFormats, readCharts, readInteractive,
+ * readNamedRanges and readCellsChangedFromTheirDefaults,
  * answered from the workbook at a revision, by the same names and keys as the agent's skill describes. showGuide goes
  * through the same command but is no read of the workbook: the host answers it (cell-links.ts checks it).
  */
@@ -10,6 +11,7 @@ import { type EngineMessage, isObject } from './engine.ts';
 import { AgentError } from './errors.ts';
 import { sha256Hex } from './sha256.ts';
 import { linkFragmentOf } from './cell-links.ts';
+import { cellsChangedFromTheirDefaults, namedRangesListing, withHiddenProtectedAndNamed } from './names-and-protections.ts';
 import { checkKeys, expand, pickSheet, type SheetContents, type SheetView, sheetsOf, type WorkbookContents } from './workbook.ts';
 
 /** The most cells one readCells answers. */
@@ -32,7 +34,7 @@ export interface ReadContext {
   interactive?: (view: SheetView, sheets: SheetView[]) => EngineMessage | null;
 }
 
-export const READ_KINDS = ['readSheets', 'readCells', 'readCellFormats', 'readConditionalFormats', 'readCharts', 'readInteractive'];
+export const READ_KINDS = ['readSheets', 'readCells', 'readCellFormats', 'readConditionalFormats', 'readCharts', 'readInteractive', 'readNamedRanges', 'readCellsChangedFromTheirDefaults'];
 /** What the read command takes besides the reads: a walkthrough the host shows the person. */
 export const GUIDE_KIND = 'showGuide';
 const KINDS_TEXT = [...READ_KINDS, GUIDE_KIND].join(', ');
@@ -52,7 +54,7 @@ export function readWorkbook(payload: unknown, context: ReadContext): EngineMess
   switch (payload.kind) {
     case 'readSheets':
       keys([]);
-      return readSheets(context, sheets);
+      return withHiddenProtectedAndNamed(readSheets(context, sheets), sheets, context.workbook, context.answer);
     case 'readCells': {
       keys(['sheet', 'range']);
       const view = pickSheet(sheets, payload.sheet);
@@ -77,6 +79,14 @@ export function readWorkbook(payload: unknown, context: ReadContext): EngineMess
       keys(['sheet']);
       const view = pickSheet(sheets, payload.sheet);
       return { revision, sheet: view.name, interactive: context.interactive?.(view, sheets) ?? null };
+    }
+    case 'readNamedRanges':
+      keys([]);
+      return { revision, namedRanges: namedRangesListing(context.workbook, context.answer) };
+    case 'readCellsChangedFromTheirDefaults': {
+      keys(['sheet']);
+      const view = pickSheet(sheets, payload.sheet);
+      return { revision, sheet: view.name, cells: cellsChangedFromTheirDefaults(view, context.answer) };
     }
     default:
       throw new AgentError('unknownReadKind', `"${payload.kind}" is not a read: ${KINDS_TEXT}.`);

@@ -14,6 +14,7 @@ import {
   ownDatePatternOf,
   SAMPLE_DATE_SERIAL,
   readPatternAnswer,
+  isPatternAnswerForChat,
 } from './custom-format-agent.ts';
 import { dayMonthOrderOf } from '../import/import-basics.ts';
 import { DEFAULT_TIME_OF_DAY_PATTERN } from '../model/workbook.ts';
@@ -33,7 +34,7 @@ export type CustomPatternReading =
   | { kind: 'refused'; why: CustomFormatProblem }
   | { kind: 'numberFormat'; numberFormat: NumberFormat; example: string | null };
 /** Why an ask of the agent for a number format gave no pattern. */
-export type WhyAgentCameToNothing = 'notAvailable' | 'callFailed' | 'noFormat';
+export type WhyAgentCameToNothing = 'notAvailable' | 'callFailed' | 'noFormat' | 'beyondFormats';
 /**
  * Where the agent stands with a custom pattern: asked to write it from the typed words, wrote it, came to nothing,
  * had its pattern typed on, or was waved off.
@@ -100,7 +101,8 @@ export function readTypedPattern(state: PageState, reads: WorkbookReads, typed: 
 }
 export function nextAnswerHold(agent: CustomFormatAgent | null, hold: AnswerHold | null, typedIn: CustomPatternTypedIn): AnswerHold | null {
   if (agent?.kind === 'asked') return hold?.answerId === agent.askId ? hold : newAwaitedHold(agent.askId);
-  if (!(agent?.kind === 'wrote' || (agent?.kind === 'cameToNothing' && (agent.why === 'callFailed' || typedIn === 'list')))) return null;
+  if (!(agent?.kind === 'wrote' || (agent?.kind === 'cameToNothing' && (agent.why === 'callFailed' || agent.why === 'beyondFormats' || typedIn === 'list'))))
+    return null;
   return hold?.stands === 'seen' ? hold : asLandedHold(hold ?? newAwaitedHold(0));
 }
 export function sharedCustomPatternOf({ formatOfSelection }: Pick<PageState, 'formatOfSelection'>): string | null {
@@ -109,12 +111,29 @@ export function sharedCustomPatternOf({ formatOfSelection }: Pick<PageState, 'fo
 }
 export function listAskOfPattern({ customNumberFormat }: Pick<PageState, 'customNumberFormat'>, pattern: string): CustomFormatAgent | null {
   if (customNumberFormat?.typedIn !== 'list' || customNumberFormat.pattern.trim() !== pattern) return null;
-  return customNumberFormat.agent?.kind === 'cameToNothing' && customNumberFormat.agent.why === 'noFormat'
+  let { agent } = customNumberFormat;
+  return agent?.kind === 'cameToNothing' && (agent.why === 'noFormat' || agent.why === 'beyondFormats')
     ? {
-        ...customNumberFormat.agent,
+        ...agent,
         isOfAskInList: true,
       }
     : null;
+}
+/** The list's answer is told already; the dialog opened from it waits for an answer of its own. */
+export function withAnswerHoldMovedOn(state: PageState): PageState {
+  let customNumberFormat = state.customNumberFormat;
+  return customNumberFormat === null || customNumberFormat.hold === null
+    ? state
+    : {
+        ...state,
+        customNumberFormat: {
+          ...customNumberFormat,
+          hold: {
+            ...asLandedHold(customNumberFormat.hold),
+            answerId: customNumberFormat.hold.answerId + 0.5,
+          },
+        },
+      };
 }
 export function openCustomFormatDialog(state: PageState, reads: WorkbookReads, pattern: string | null = null) {
   let opened = {
@@ -127,7 +146,7 @@ export function openCustomFormatDialog(state: PageState, reads: WorkbookReads, p
     return checkAgentForFormulas(
       withNoEffects(
         withCustomPatternTyped(
-          opened,
+          withAnswerHoldMovedOn(opened),
           reads,
           sanitizeCellText(pattern),
           {
@@ -336,7 +355,7 @@ export function takeNumberFormatAnswer(state: PageState, reads: WorkbookReads, a
       return cameToNothing('callFailed');
     case 'answered': {
       let pattern = readPatternAnswer(reply.answer);
-      if (pattern === null) return cameToNothing('noFormat');
+      if (pattern === null) return cameToNothing(isPatternAnswerForChat(reply.answer) ? 'beyondFormats' : 'noFormat');
       let wrote: CustomFormatAgent = {
         kind: 'wrote',
         words: customNumberFormat.pattern,
@@ -533,3 +552,8 @@ export const isCustomPatternApplied = (customNumberFormat: CustomNumberFormat, e
   customNumberFormat.reading.kind === 'numberFormat' &&
   edit.kind === 'formatCells' &&
   edit.format.numberFormat?.pattern === customNumberFormat.reading.numberFormat.pattern;
+export const isDialogAskBeyondFormats = (customNumberFormat: CustomNumberFormat | null, pattern: string): boolean =>
+  customNumberFormat?.typedIn === 'dialog' &&
+  customNumberFormat.pattern === pattern &&
+  customNumberFormat.agent?.kind === 'cameToNothing' &&
+  customNumberFormat.agent.why === 'beyondFormats';

@@ -22,6 +22,8 @@ export function isEffectAnEdit(effect: PageEffect) {
     case 'undoOrRedo':
     case 'queueEditsThatTakeBack':
       return true;
+    case 'refreshConnectedTable':
+      return true;
     case 'readEditsThatTakeBack':
       return true;
     case 'copyChartNodes':
@@ -70,6 +72,8 @@ export function isEffectAnEdit(effect: PageEffect) {
     case 'lookAtVersion':
     case 'endLookAtVersion':
       return false;
+    case 'setNameOfVersion':
+      return false;
   }
 }
 export function isNoticeOfEditAttempt(notice: Notice | NewsOfLoss) {
@@ -78,6 +82,8 @@ export function isNoticeOfEditAttempt(notice: Notice | NewsOfLoss) {
     case 'cellHoldsNoMorePeople':
     case 'groupsTooDeep':
     case 'tooManyNamedViews':
+    case 'tooManyProtections':
+    case 'tooManyCellsWithADefault':
     case 'dropdownCellsRefused':
     case 'fileNotImported':
     case 'alreadySorted':
@@ -88,6 +94,8 @@ export function isNoticeOfEditAttempt(notice: Notice | NewsOfLoss) {
     case 'chartNotCut':
       return true;
     case 'versionNotShown':
+    case 'versionNameNotSaved':
+    case 'tooManyVersionNames':
       return false;
     case 'oneRangeNeeded':
     case 'rowsOutOfViewInTheWay':
@@ -136,6 +144,7 @@ export function triesToEdit(state: PageState, { state: transition, effects }: Pa
     (transition.sheetBeingRenamed !== null && state.sheetBeingRenamed === null) ||
     (transition.customNumberFormat?.typedIn === 'dialog' && state.customNumberFormat?.typedIn !== 'dialog') ||
     (transition.pasteThatWaits !== null && state.pasteThatWaits === null) ||
+    (transition.callToConfirm !== null && state.callToConfirm === null) ||
     (transition.pickForWorkbook !== null && state.pickForWorkbook === null) ||
     (transition.importOfAFile !== null && state.importOfAFile === null) ||
     (transition.fileAwaited !== null && state.fileAwaited === null) ||
@@ -208,6 +217,7 @@ export function closeEverythingOpen(state: PageState, why: EditRefusalWhy, menu:
     menu,
     customNumberFormat: null,
     pasteThatWaits: null,
+    callToConfirm: null,
     pickForWorkbook: null,
     importOfAFile: null,
     fileAwaited: null,
@@ -246,16 +256,18 @@ export function refuseEditsOfTransition(state: PageState, transition: PageTransi
         };
   let isEarlierVersionShown = why === 'earlierVersionShown';
   let sidePaneKept = ({ sidePane }: Pick<PageState, 'sidePane'>) =>
-    isEarlierVersionShown && sidePane?.kind === 'versionHistory' ? sidePane : null;
+    (isEarlierVersionShown && sidePane?.kind === 'versionHistory') || sidePane?.kind === 'sourceOfTable' ? sidePane : null;
   if (triesToEdit(state, transition)) {
     let heldEdits = stopArrowsActingOnCells(state);
     let heldUntilAnswered = transition.state.heldUntilAnswered === null ? null : state.heldUntilAnswered;
+    let rulesOnTheirWay = transition.state.rulesOnTheirWay === null ? null : state.rulesOnTheirWay;
     return withStopImportAskEffect(state, {
       state: closeEverythingOpen(
         {
           ...heldEdits,
           notice,
           heldUntilAnswered,
+          rulesOnTheirWay,
         },
         why,
         null,
@@ -279,7 +291,10 @@ export function refuseEditsOfTransition(state: PageState, transition: PageTransi
   let isListKeptShut =
     ((transition.state.dropdown !== null && state.dropdown === null) ||
       (transition.state.peopleList !== null && state.peopleList === null) ||
-      (transition.state.sidePane !== null && state.sidePane === null && !isEarlierVersionShown)) &&
+      (transition.state.sidePane !== null &&
+        state.sidePane === null &&
+        !isEarlierVersionShown &&
+        sidePaneKept(transition.state) === null)) &&
     transition.state.dragging === null &&
     transition.state.mode.kind === 'navigating';
   let isHistoryKeptShut = transition.state.cellHistory !== null && state.cellHistory === null;
@@ -299,7 +314,7 @@ export function refuseEditsOfTransition(state: PageState, transition: PageTransi
         kind !== 'askAgentForAFormula' &&
         kind !== 'askAgentForANumberFormat' &&
         kind !== 'askAgentForAFix' &&
-        (kind !== 'readVersions' || isEarlierVersionShown) &&
+        ((kind !== 'readVersions' && kind !== 'setNameOfVersion') || isEarlierVersionShown) &&
         !(isEarlierVersionShown && EFFECTS_KEPT_IN_VERSION_HISTORY.has(kind)),
     ),
   });
@@ -318,6 +333,7 @@ export const isNothingOpen = (state: PageState) =>
   state.menu === null &&
   state.customNumberFormat === null &&
   state.pasteThatWaits === null &&
+  state.callToConfirm === null &&
   state.pickForWorkbook === null &&
   state.importOfAFile === null &&
   state.fileAwaited === null &&

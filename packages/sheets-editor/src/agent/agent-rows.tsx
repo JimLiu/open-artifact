@@ -1,6 +1,6 @@
-import { ShimmerText } from '../kit/shimmer-text.tsx';
-import { AgentMark } from '../kit/agent-mark.tsx';
+import { AgentMark, StandaloneWorkingMark, WordsWhileAgentWorks } from '../kit/agent-mark.tsx';
 import { useUiWindow } from '../kit/theme.tsx';
+import { prefersReducedMotion } from '../kit/platform.ts';
 import { Shortcut } from '../kit/shortcut.tsx';
 import { Button } from '../kit/button.tsx';
 import * as React from 'react';
@@ -53,10 +53,9 @@ export interface AgentWritingWords {
 interface AgentWritingRowProps {
   words: AgentWritingWords;
   isAmongRowsOfList?: boolean;
-  sizeOfWandInList?: number;
+  /** Whether the list the row is among is a menu. */
+  isListAMenu?: boolean;
   onStopped: () => void;
-  /** Whether, among the rows of a list, the stop is a row of its own. */
-  isStopARow?: boolean;
 }
 interface KeepOrDiscardBarProps {
   words: { keep: string; discard: string };
@@ -146,8 +145,7 @@ export function SuggestedHeading(props: SuggestedHeadingProps) {
       : <span>{words.suggested}</span>}</CardSectionHeading>;
 }
 export function AgentWritingRow(props: AgentWritingRowProps) {
-  let { words, isAmongRowsOfList = false, sizeOfWandInList = 14, onStopped } = props;
-  let { isStopARow = false } = props;
+  let { words, isAmongRowsOfList = false, isListAMenu = false, onStopped } = props;
   let isCoarsePointer = useCoarsePointer();
   let win = useUiWindow();
   let nowMs2 = () => (win ?? globalThis).performance.now();
@@ -172,17 +170,14 @@ export function AgentWritingRow(props: AgentWritingRowProps) {
       if (isTaken) onStopped();
     },
   };
-  let writingText = <ShimmerText>{words.writes}</ShimmerText>;
+  let writingText = <WordsWhileAgentWorks>{words.writes}</WordsWhileAgentWorks>;
   let stopButton = <Button variant="ghost" {...(!isCoarsePointer &&
       !isAmongRowsOfList && {
         size: 'xs',
       })} shortcut="esc" {...stopPressProps}>{words.stop}</Button>;
-  let writingLine = <div className="flex min-h-control w-full items-center gap-2 px-md py-1 text-body text-primary"><span className="flex w-5 flex-none justify-center"><AgentMark size={sizeOfWandInList} /></span><span className="min-w-0 flex-1 truncate">{writingText}</span>{!isStopARow &&
-        <span className="-my-1 -me-1.25 flex flex-none">{stopButton}</span>}</div>;
-  if (isAmongRowsOfList && isStopARow)
-    return <>{writingLine}<button type="button" className="flex min-h-control w-full items-center gap-2 rounded px-md py-1 text-start font-control text-body font-normal text-primary select-none outline-fill-accent hover:bg-fill-ghost-hover focus-visible:outline-2 focus-visible:-outline-offset-2" {...stopPressProps}><span className="w-5 flex-none" /><span className="min-w-0 flex-1 truncate">{words.stop}</span><span className="shrink-0 text-footnote text-muted"><Shortcut aria-hidden keys="esc" variant="text" className="pointer-coarse:hidden" /></span></button></>;
-  if (isAmongRowsOfList) return writingLine;
-  return <div className={cardRowFrameProps.className}><div className={agentRowClassProps.className}><AgentRowContent icon={<AgentMark size={AGENT_ROW_WAND_SIZE} />} end={stopButton}>{writingText}</AgentRowContent></div></div>;
+  if (isAmongRowsOfList)
+    return <div className={`flex min-h-control w-full items-center py-1 pe-md text-body text-primary ${isListAMenu ? 'gap-xs ps-2.5' : 'gap-2 ps-md'}`}><span className={`flex ${isListAMenu ? 'size-icon' : 'h-5 w-5'} flex-none items-center justify-center`}><StandaloneWorkingMark /></span><span className="min-w-0 flex-1 truncate">{writingText}</span><span className="-my-1 -me-1.25 flex flex-none">{stopButton}</span></div>;
+  return <div className={cardRowFrameProps.className}><div className={agentRowClassProps.className}><AgentRowContent icon={<StandaloneWorkingMark />} end={stopButton}>{writingText}</AgentRowContent></div></div>;
 }
 export function KeepOrDiscardBar({ words, onKept, onDiscarded }: KeepOrDiscardBarProps) {
   return <div className="sheet-comes-in-pane flex items-center justify-end gap-xs"><Button variant="ghost" shortcut="esc" onClick={onDiscarded}>{words.discard}</Button><Button variant="primary" shortcut="enter" onClick={onKept}>{words.keep}</Button></div>;
@@ -251,10 +246,9 @@ export function useClickGuardOnComingRows({ rows, whereRowsCome, easeInMs }: Cli
       let isOnComingRows =
         target instanceof Node &&
         (target === rowsStart || ((rowsStart?.compareDocumentPosition(target) ?? 0) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0);
-      let prefersReducedMotion2 = win?.matchMedia('(prefers-reduced-motion:reduce)').matches === true;
       let isGuarded = isRowsEaseInGuarded(rowsCameAtRef.current, {
         atMs: press.atMs,
-        easeInMs: prefersReducedMotion2 ? 0 : easeInMs,
+        easeInMs: prefersReducedMotion() ? 0 : easeInMs,
       });
       if (isOnComingRows && isGuarded) event.stopPropagation();
     },

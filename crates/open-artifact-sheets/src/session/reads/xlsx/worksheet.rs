@@ -23,6 +23,7 @@ use std::fmt::Write;
 use super::formula;
 use super::styles::{height, width, Look, StandardColors, Styles};
 use super::xml::{attribute, number, text, text_element, SharedStrings, DECLARATION};
+use super::validations::Validation;
 use super::{Flags, RELATIONSHIP};
 use crate::brought::Brought;
 use crate::calculate::SpillOutcome;
@@ -58,11 +59,6 @@ pub const BUDGET: u64 = 500_000;
 /// The links a sheet writes at most.
 const LINKS: usize = 65_530;
 
-/// A dropdown's list in the sheet of options: the cells it is offered in, and where its options are.
-pub struct Validation {
-    pub sqref: String,
-    pub formula: String,
-}
 
 /// What a cell holds, as the file writes it.
 enum Content {
@@ -416,15 +412,24 @@ impl Writing<'_> {
                     continue;
                 }
                 let quote = content.as_ref().is_some_and(|c| c.1);
+                // A text kept as text has its look numbered as it is first (a cell holding lines of lists wraps only
+                // now: its look, not kept as text, gets a number of its own).
                 let s = match (look, quote) {
                     (None, false) => 0,
-                    (look, quote) => self.styles.xf(look.unwrap_or(&Look::default()), quote),
+                    (look, quote) => {
+                        let look = look.unwrap_or(&Look::default()).clone();
+                        if quote {
+                            self.styles.xf(&look, false);
+                        }
+                        self.styles.xf(&look, quote)
+                    }
                 };
                 self.cell(&mut out, row, column, s, content.map(|c| c.0));
             }
             out.push_str("</row>");
         }
         out.push_str("</sheetData>");
+        out.push_str(&super::protections::part(&workbook.bases, sheet));
 
         let merged = merged_contents(&workbook.bases, sheet);
         if !merged.is_empty() {
@@ -444,13 +449,7 @@ impl Writing<'_> {
         if !validations.is_empty() {
             let _ = write!(out, "<dataValidations count=\"{}\">", validations.len());
             for v in validations {
-                let _ = write!(
-                    out,
-                    "<dataValidation type=\"list\" allowBlank=\"1\" sqref=\"{}\"><formula1>{}</formula1>\
-                     </dataValidation>",
-                    attribute(&v.sqref),
-                    text(&v.formula)
-                );
+                v.write(&mut out);
             }
             out.push_str("</dataValidations>");
         }

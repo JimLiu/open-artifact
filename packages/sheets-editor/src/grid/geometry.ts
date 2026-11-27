@@ -124,6 +124,23 @@ export interface PaneRect {
   width: number;
   height: number;
 }
+/** A scroll by a delta lands on the start of a line (or the frozen edge), not inside one. */
+export function deltaToLineStart(delta: number, scroll: number, axis: GridAxis): number {
+  let { edges, frozenCount } = axis;
+  let position = scroll + frozenSizeOf(axis);
+  if (delta === 0 || position >= edges.totalSize) return delta;
+  let lineIndex = edges.indexAt(position);
+  let lineStart = edges.startOf(lineIndex);
+  let target = lineStart + delta;
+  if (delta > 0) {
+    if (target >= edges.totalSize) return delta;
+    let targetIndex = edges.indexAt(target);
+    return targetIndex > lineIndex ? edges.startOf(targetIndex) - lineStart : edges.startOf(lineIndex + 1) - position;
+  }
+  let indexAtTarget = Math.max(edges.indexAt(target), 0);
+  let lineToShow = Math.min(edges.startOf(indexAtTarget) < target ? indexAtTarget + 1 : indexAtTarget, shownLineAtOrBefore(edges, lineIndex - 1));
+  return lineToShow <= frozenCount ? 0 - scroll : edges.startOf(lineToShow) - lineStart;
+}
 export function contentOffsetAt(offset: number, scroll: number, axis: GridAxis, frozenPart: FrozenPart | null = null): number {
   let frozenSize = frozenSizeOf(axis);
   if (offset >= frozenSize) return offset + scroll;
@@ -813,3 +830,11 @@ export const isSpanEndInSight = ({
   showTo,
   isEndUnderFrozenLines,
 }: Omit<SpanOnScreen, 'start'>): boolean => !isEndUnderFrozenLines && end > showFrom && end <= showTo;
+export const scrollDeltasToLineStarts = (
+  deltas: { deltaX: number; deltaY: number },
+  { scrollLeft, scrollTop }: Pick<PageState, 'scrollLeft' | 'scrollTop'>,
+  layout: RowLines & ColumnLines,
+): { deltaX: number; deltaY: number } => ({
+  deltaX: deltaToLineStart(deltas.deltaX, scrollLeft, columnAxisOf(layout)),
+  deltaY: deltaToLineStart(deltas.deltaY, scrollTop, rowAxisOf(layout)),
+});

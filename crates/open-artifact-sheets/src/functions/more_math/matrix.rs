@@ -6,6 +6,7 @@
 use crate::coerce::add;
 use crate::functions::{array, number, Answer, Arg, Cells};
 use crate::value::{Array, CellError, Value};
+use crate::told::{self, Told};
 
 pub fn call(name: &str, args: &[Arg]) -> Option<Answer> {
     Some(match name {
@@ -148,6 +149,7 @@ fn sum_of_pairs(args: &[Arg], term: fn(f64, f64) -> f64) -> Answer {
     let x: Cells = args[0].cells();
     let y: Cells = args[1].cells();
     if x.rows() != y.rows() || x.columns() != y.columns() {
+        told::tell(|| Told::RangesOfDifferentSizes);
         return Err(CellError::Value);
     }
     let mut sum = 0.0;

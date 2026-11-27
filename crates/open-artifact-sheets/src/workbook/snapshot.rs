@@ -38,6 +38,9 @@ enum Piece {
     Views {
         entries: Vec<Json>,
     },
+    NamedRanges {
+        entries: Vec<super::named_ranges::NamedRangeEntry>,
+    },
     Sheet {
         sheet_id: String,
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -51,8 +54,14 @@ enum Piece {
         last_frozen_column: Option<String>,
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         are_gridlines_hidden: bool,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        is_hidden: bool,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         interactive: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        connected_table: Option<super::connected::ConnectedTable>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        snapshot: Option<super::connected::Snapshot>,
     },
     MergedRanges {
         entries: Vec<RangeIds>,
@@ -78,6 +87,10 @@ enum Piece {
     ColumnGroups {
         entries: Vec<Json>,
     },
+    /// The columns of a connected table, those not deleted.
+    ColumnsOfConnectedTable {
+        entries: Vec<super::connected::ColumnToSet>,
+    },
     ConditionalFormats {
         entries: Vec<Json>,
     },
@@ -88,6 +101,9 @@ enum Piece {
         entries: Vec<Json>,
     },
     NamedViews {
+        entries: Vec<Json>,
+    },
+    Protections {
         entries: Vec<Json>,
     },
     Cells {
@@ -161,6 +177,7 @@ impl Snapshot {
         let mut row_ids = HashSet::new();
         let mut column_ids = HashSet::new();
         let mut deleted = Vec::new();
+        let mut named_range_ids = HashSet::new();
         for piece in self.pieces {
             match piece {
                 Piece::Workbook {
@@ -186,6 +203,16 @@ impl Snapshot {
                 Piece::Views { entries } if current_sheet.is_none() => {
                     apply_entries(&mut workbook, "", "setViews", "views", entries)?;
                 }
+                // Named ranges may come anywhere, in as many lines as there are, but each but once.
+                Piece::NamedRanges { entries } => {
+                    if !entries.iter().all(|entry| named_range_ids.insert(entry.named_range_id.clone())) {
+                        return None;
+                    }
+                    if !entries.is_empty() {
+                        let named_ranges = entries.into_iter().map(Into::into).collect();
+                        workbook.apply_in_place(&[Op::SetNamedRanges { named_ranges }]).ok()?;
+                    }
+                }
                 Piece::Sheet {
                     sheet_id,
                     is_deleted,
@@ -195,7 +222,10 @@ impl Snapshot {
                     last_frozen_row,
                     last_frozen_column,
                     are_gridlines_hidden,
+                    is_hidden,
                     interactive,
+                    connected_table,
+                    snapshot,
                 } => {
                     if workbook.sheet_order.contains(&sheet_id) {
                         return None;
@@ -232,12 +262,23 @@ impl Snapshot {
                         rows,
                         columns,
                         are_gridlines_hidden,
+                        is_hidden,
                         interactive,
                         ..Sheet::default()
                     };
-                    workbook.sheet_order.push(sheet_id);
+                    workbook.sheet_order.push(sheet_id.clone());
                     workbook.sheets.push(sheet);
                     current_sheet = Some(workbook.sheets.len() - 1);
+                    // A connected table, and the snapshot it holds, as the operations that set them read them.
+                    use super::connected::{ConnectedTableToSet, SnapshotToSet};
+                    if connected_table.is_some() {
+                        let tables = vec![ConnectedTableToSet { sheet_id: sheet_id.clone(), connected_table }];
+                        workbook.apply_in_place(&[Op::SetConnectedTables { tables }]).ok()?;
+                    }
+                    if snapshot.is_some() {
+                        let snapshots = vec![SnapshotToSet { sheet_id, snapshot }];
+                        workbook.apply_in_place(&[Op::SetSnapshots { snapshots }]).ok()?;
+                    }
                 }
                 Piece::End { .. } => break,
                 piece => {
@@ -354,6 +395,10 @@ fn read_sheet_piece(workbook: &mut Workbook, index: usize, id: &str, piece: Piec
             "conditionalFormats",
             nest_entries(entries, "conditionalFormatId", "conditionalFormat")?,
         ),
+        Piece::ColumnsOfConnectedTable { entries } => {
+            let op = Op::SetColumnsOfConnectedTable { sheet_id: id.to_owned(), columns: entries };
+            workbook.apply_in_place(&[op]).ok().map(|_| ())
+        }
         Piece::Placements { entries } => {
             apply_entries(workbook, id, "setPlacements", "placements", entries)
         }
@@ -362,6 +407,9 @@ fn read_sheet_piece(workbook: &mut Workbook, index: usize, id: &str, piece: Piec
         }
         Piece::NamedViews { entries } => {
             apply_entries(workbook, id, "setNamedViews", "namedViews", entries)
+        }
+        Piece::Protections { entries } => {
+            apply_entries(workbook, id, "setProtections", "protections", entries)
         }
         Piece::Cells { grid } => grid.read(&mut workbook.sheets[index], &workbook.bases),
         _ => None,
@@ -379,6 +427,10 @@ pub(crate) fn lines_of_load(ops: &[Op]) -> Result<String, Refusal> {
         seed: (workbook.seed != Workbook::default().seed).then_some(workbook.seed),
     });
     write_views(&workbook, &mut pieces);
+    // Every named range, by its id, those whose cells are on a deleted sheet too.
+    if !workbook.named_ranges.is_empty() {
+        pieces.push(Piece::NamedRanges { entries: workbook.named_range_entries() });
+    }
     for id in &workbook.sheet_order {
         let (sheet, is_deleted) = match workbook.sheets.iter().find(|sheet| &sheet.id == id) {
             Some(sheet) => (sheet, false),
@@ -405,7 +457,10 @@ pub(crate) fn lines_of_load(ops: &[Op]) -> Result<String, Refusal> {
             last_frozen_row: sheet.last_frozen_row.map(|line| bases.text(line)),
             last_frozen_column: sheet.last_frozen_column.map(|line| bases.text(line)),
             are_gridlines_hidden: sheet.are_gridlines_hidden,
+            is_hidden: sheet.is_hidden,
             interactive: sheet.interactive.clone().filter(|_| !is_deleted),
+            connected_table: sheet.connected.table.clone().filter(|_| !is_deleted),
+            snapshot: sheet.connected.snapshot.clone().filter(|_| !is_deleted),
         });
         write_sheet_pieces(sheet, is_deleted, &workbook, &mut pieces);
     }
@@ -435,7 +490,9 @@ fn write_views(workbook: &Workbook, pieces: &mut Vec<Piece>) {
         .views
         .values()
         .filter(|(id, _)| live.contains(id.as_str()) || !deleted.contains(id.as_str()))
-        .map(|(id, view)| json!({"viewId": id, "view": view}))
+        // A view is written as it is read: the cells an interactive saved on lines the workbook does not have are
+        // left out.
+        .map(|(id, view)| json!({"viewId": id, "view": workbook.view_as_read(view)}))
         .collect::<Vec<_>>();
     if !entries.is_empty() {
         pieces.push(Piece::Views { entries });
@@ -556,6 +613,20 @@ fn write_sheet_pieces(
             entries: groups(&sheet.column_groups),
         });
     }
+    // The columns of a connected table, in order; those deleted are left out.
+    let columns_of_table: Vec<super::connected::ColumnToSet> = sheet
+        .columns
+        .lines()
+        .iter()
+        .filter(|_| !is_deleted)
+        .filter_map(|c| {
+            let column = Some(sheet.connected.columns.get(c)?.clone());
+            Some(super::connected::ColumnToSet { c: bases.text(*c), column })
+        })
+        .collect();
+    if !columns_of_table.is_empty() {
+        pieces.push(Piece::ColumnsOfConnectedTable { entries: columns_of_table });
+    }
     if !is_deleted && !sheet.conditional_formats.is_empty() {
         let entries = sheet.conditional_formats.values().map(|(id, format)| json!({
             "conditionalFormatId": id, "ranges": format.ranges, "priority": format.priority, "effect": format.effect
@@ -585,6 +656,9 @@ fn write_sheet_pieces(
             .map(|(id, view)| json!({"namedViewId": id, "namedView": view}))
             .collect();
         pieces.push(Piece::NamedViews { entries });
+    }
+    if !is_deleted && !sheet.protections.is_empty() {
+        pieces.push(Piece::Protections { entries: super::protections::entries(sheet) });
     }
     if !is_deleted {
         pieces.extend(

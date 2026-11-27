@@ -1,12 +1,13 @@
 import type { SheetId, ColumnId } from '@open-artifact/sheets-core';
 import type { CellArea } from '../selection/model.ts';
-import type { CellId, SheetRead } from '../model/workbook.ts';
+import type { CellId, SheetRead, SheetSummary } from '../model/workbook.ts';
 import type { HeadedColumn } from './from-words/plain-table.ts';
 import { areaOfReference } from '../model/reference-areas.ts';
 import { cellValueOf, cellPlainText } from '../model/cell-values.ts';
 import { headingsInFirstRow } from '../chips/dropdown-editor.ts';
 import { readsAsStored } from '../model/workbook.ts';
-import { findFormulaReferences } from './references.ts';
+import { findFormulaReferences, referencesWithNamedRangesExpanded, sheetNameForFormula } from './references.ts';
+import type { TableColumnTyped } from './function-help.ts';
 import { areaToA1AsStored } from './from-words/where.ts';
 import type { WorkbookReads } from '../model/workbook.ts';
 /** A column with a heading in row 1, and where it is. */
@@ -20,6 +21,10 @@ export interface ColumnWithHeading {
  * the index of the first row under the headings, and the index of the row after the last one formulas of the
  * heading rows read.
  */
+/** A column of a connected table (or a part of one, as `#Data`) offered as a formula is typed, with the table's name. */
+export interface TableColumnOffered extends HeadedColumn {
+  table: string;
+}
 export interface HeadedColumnsOfSheet {
   inRow1: number[];
   headed: ColumnWithHeading[];
@@ -35,7 +40,7 @@ export function lastRowReadInOwnColumn(reads: WorkbookReads, cellId: CellId): nu
   let input = reads.cellOf(cellId)?.input;
   let position = reads.positionOfCell(cellId);
   if (input?.kind !== 'formula' || position === null) return null;
-  let sameSheetReferences = input.formula.references.filter((reference) => reference.sheetId === sheetId);
+  let sameSheetReferences = referencesWithNamedRangesExpanded(reads, input.formula).filter((reference) => reference.sheetId === sheetId);
   let rowsInOwnColumn = sameSheetReferences.flatMap(
     (reference) => (reference.kind === 'cell' && reference.cell.c === columnId ? [reference.cell.r] : []),
   );
@@ -166,7 +171,7 @@ export function isAddressWordInSheet(word: string, sheetId: SheetId, reads: Work
 export function headedColumnsMatchingWord(typed: string, cellId: CellId, readsSeen: WorkbookReads): HeadedColumn[] {
   let reads = readsAsStored(readsSeen);
   let position = reads.positionOfCell(cellId);
-  if (position === null || TRUE_OR_FALSE_PATTERN.test(typed) || findFormulaReferences(typed, reads.decimalSign).references.length > 0) return [];
+  if (position === null || isTrueFalseOrReference(typed, reads)) return [];
   let { inRow1, headed, top: headingTop, end } = headedColumnsOfSheet(reads, cellId.sheetId);
   let ownArea: CellArea = reads.spillOver(cellId)?.area ??
     reads.mergedAreaAt(cellId.sheetId, position) ?? {
@@ -210,6 +215,28 @@ export function headedColumnsMatchingWord(typed: string, cellId: CellId, readsSe
       };
     });
 }
+/** Connected tables, and their columns, a word typed in a formula may mean: by a word of the table's name or the column's heading. */
+export function tableColumnsMatchingWord(typed: string, reads: WorkbookReads): TableColumnOffered[] {
+  let typedLower = typed.toLowerCase();
+  return typed.length < 2 || isTrueFalseOrReference(typed, reads)
+    ? []
+    : [
+        ...sheetsWithConnectedTable(reads, (name) => hasWordStartingWith(name, typedLower)).map((sheet) => tableColumnOffer(sheet, '#Data', sheet.name)),
+        ...connectedTableColumnsMatching(reads, (table, heading) => hasWordStartingWith(table, typedLower) || hasWordStartingWith(heading, typedLower)),
+      ];
+}
+/** The columns (and parts, after `#`) of the connected table being typed between its brackets. */
+export function columnsOfTableTyped({ table, typed, mayBeAWord }: TableColumnTyped, reads: WorkbookReads): TableColumnOffered[] {
+  let [tableLower, typedLower] = [table.toLowerCase(), typed.toLowerCase()];
+  let columnsWhere = (isHeadingMatching: (heading: string) => boolean) =>
+    connectedTableColumnsMatching(reads, (name, heading) => name === tableLower && isHeadingMatching(heading));
+  let specialItems = TABLE_SPECIAL_ITEMS.filter((item) => mayBeAWord && item.toLowerCase().startsWith(typedLower));
+  return [
+    ...sheetsWithConnectedTable(reads, (name) => name === tableLower).flatMap((sheet) => specialItems.map((item) => tableColumnOffer(sheet, item, item))),
+    ...columnsWhere((heading) => heading.startsWith(typedLower)),
+    ...columnsWhere((heading) => !heading.startsWith(typedLower) && hasWordStartingWith(heading, typedLower)),
+  ];
+}
 export const NO_HEADED_COLUMNS: HeadedColumnsOfSheet = {
   inRow1: [],
   headed: [],
@@ -223,3 +250,33 @@ export const ADDRESS_WORD_PATTERN = /^[a-z]{1,3}[1-9]\d*$/;
 export const MAX_CELLS_SCANNED_FOR_ADDRESS_WORDS = 5000;
 export const addressWordsCache = new WeakMap<SheetRead, Set<string>>();
 export const TRUE_OR_FALSE_PATTERN = /^(?:true|false)$/i;
+export const isTrueFalseOrReference = (typed: string, reads: Pick<WorkbookReads, 'decimalSign'>): boolean =>
+  TRUE_OR_FALSE_PATTERN.test(typed) || findFormulaReferences(typed, reads.decimalSign).references.length > 0;
+export const connectedTableColumnsMatching = (reads: WorkbookReads, isMatching: (table: string, heading: string) => boolean): TableColumnOffered[] =>
+  reads.listSheets().flatMap(({ sheetId, name, isHidden }) => {
+    let connectedTable = isHidden ? null : reads.connectedTableIn(sheetId);
+    return (connectedTable?.columns ?? []).flatMap(({ c: columnId, column }): TableColumnOffered[] => {
+      let cells = connectedTable?.references.find((reference) => reference.c === columnId)?.text;
+      return cells !== undefined && isMatching(name.toLowerCase(), column.name.toLowerCase())
+        ? [
+            {
+              columnId,
+              heading: column.name,
+              cells,
+              table: name,
+            },
+          ]
+        : [];
+    });
+  });
+export const hasWordStartingWith = (text: string, start: string): boolean =>
+  text.split(NON_WORD_CHARACTERS_PATTERN).some((word) => word.startsWith(start));
+export const tableColumnOffer = ({ sheetId, name }: Pick<SheetSummary, 'sheetId' | 'name'>, item: string, heading: string): TableColumnOffered => ({
+  columnId: `${sheetId}${item}`,
+  heading,
+  cells: `${sheetNameForFormula(name)}[${item}]`,
+  table: name,
+});
+export const sheetsWithConnectedTable = (reads: WorkbookReads, isMatching: (name: string) => boolean): SheetSummary[] =>
+  reads.listSheets().filter(({ sheetId, name, isHidden }) => !isHidden && reads.connectedTableIn(sheetId) !== null && isMatching(name.toLowerCase()));
+export const TABLE_SPECIAL_ITEMS = ['#All', '#Data', '#Headers'];

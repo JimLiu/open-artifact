@@ -1,3 +1,5 @@
+import { graphemesOf } from '../chips/people-list.ts';
+import { likelyHasKeyboard } from '../kit/platform.ts';
 import type { SortDirection } from '@open-artifact/sheets-core';
 import type { LinesAxisName } from '../grid/geometry.ts';
 import type { WordSetApart } from './messages.ts';
@@ -60,11 +62,29 @@ export function sortOrderLabel(valuesKind: SortedValuesKind, direction: SortDire
   }
 }
 export function truncateGraphemes(text: string, maxCharacters: number): string {
-  let graphemes = Array.from(
-    new Intl.Segmenter().segment(text),
-    ({ segment }) => segment,
-  );
+  let graphemes = Array.from(graphemesOf(text));
   return graphemes.length <= maxCharacters ? text : `${graphemes.slice(0, maxCharacters).join('').trimEnd()}…`;
+}
+export function keysPausedByUpdateText(wereKeysMissed: boolean, hasKeyboard: boolean = likelyHasKeyboard()): string {
+  if (wereKeysMissed)
+    return hasKeyboard
+      ? translateMessage({
+          defaultMessage: 'Sheets was updated and may have missed keys. Click the cell or press F2 to type.',
+          id: 'toiomoBwGR',
+        })
+      : translateMessage({
+          defaultMessage: 'Sheets was updated and may have missed keys. Tap the cell to keep typing.',
+          id: 'iO1iC+Uty+',
+        });
+  return hasKeyboard
+    ? translateMessage({
+        defaultMessage: 'Sheets was updated and typing is paused. Click a cell or press an arrow key.',
+        id: 'L8cBdNa5gm',
+      })
+    : translateMessage({
+        defaultMessage: 'Sheets was updated and typing is paused. Tap a cell to continue.',
+        id: 'cSQrn2VSMq',
+      });
 }
 /** The words before and after the row count field, split where the field goes. */
 export function rowsFieldTextParts(count: number): [string, string] {

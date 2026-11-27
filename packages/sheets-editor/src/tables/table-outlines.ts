@@ -3,6 +3,7 @@ import { rangeSpansOnScreen, frozenColumnsWidth, frozenRowsHeight } from '../gri
 import { cutSidesOfTableSpans } from './table-drawing.ts';
 import { drawnOwnFiltersOfSheet, ownFilterNotDrawnYet } from './own-filters.ts';
 import { areaOfFilteredTable } from './finding.ts';
+import { FILTER_BUTTON_HIT_MARGIN } from './filter-buttons-place.ts';
 import { isAreaWithin } from '../selection/several-ranges.ts';
 import type { WorkbookReads } from '../model/workbook.ts';
 import type { ReadsWithTextMeasurer } from '../state/controller.ts';
@@ -41,7 +42,7 @@ export interface GridWithTableOutlines {
   body: Pick<PaneRect, 'left' | 'top' | 'width'>;
   filteredTableOutlines: readonly TableOutline[];
   outlineOfFilterNotDrawnYet?: TableOutline | null;
-  filterButtons?: readonly Pick<PlacedFilterButton, 'isOfFoundTable' | 'isListOpen' | 'cell' | 'r' | 'c'>[];
+  filterButtons?: readonly Pick<PlacedFilterButton, 'isOfFoundTable' | 'isListOpen' | 'left' | 'cell' | 'r' | 'c'>[];
 }
 /** The filter button a table's card hangs by: the height of the row under it, and the button by its row and column. */
 export interface CardByButton {
@@ -159,7 +160,7 @@ export function tableCardPlacement(
     outline === outlineNotDrawnYet
       ? filterButtons.find(({ isOfFoundTable, isListOpen }) => isOfFoundTable && isListOpen)
       : undefined;
-  let x = Math.max(outline.left + outline.width, (openButton?.cell.left ?? 0) + (openButton?.cell.width ?? 0)) + gap;
+  let x = Math.max(outline.left + outline.width + gap, openButton === undefined ? 0 : openButton.left - FILTER_BUTTON_HIT_MARGIN);
   let fitsBeside = x + cardWidth / zoom + gap <= body.width;
   let y = openButton === undefined ? 0 : body.top + openButton.cell.top + (fitsBeside ? -gap : openButton.cell.height);
   return {

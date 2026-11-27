@@ -51,6 +51,9 @@ import { formatToggleShortcut } from '../toolbar/text-menus.tsx';
 import { CONDITIONAL_FORMATTING_WORDS } from '../../messages/conditional-format.ts';
 import { cellHistoryMessages } from '../../history/cell-history-popover.tsx';
 import { pivotTableMessages } from '../../tables/pivot-table-messages.tsx';
+import { protectionMessages } from '../../messages/protection.ts';
+import { namedRangeMessages } from '../../messages/named-ranges.ts';
+import { defaultsAndLimitsMessages } from '../../messages/defaults-and-limits.ts';
 /** What the cell menu offers, as the page sees it, and what it does when a command is chosen. */
 export interface CellMenuCommandsProps
   extends Pick<
@@ -108,6 +111,11 @@ export interface CellMenuCommandsProps
   onCellHistoryAsked(): void;
   isActiveCellOfPivotTable: boolean;
   onPivotTableAsked(): void;
+  onProtectionAsked(): void;
+  onNamedRangesAsked(isNaming: boolean): void;
+  /** The label of the reset of the selection to its defaults, or null when there is none to reset. */
+  labelOfReset: string | null;
+  onDefaultsAsked(kind: 'resetToDefaultChosen' | 'saveAsDefaultChosen' | 'defaultAndLimitsAsked' | 'changedCellsAsked'): void;
 }
 /** Where a sort goes: the whole sheet's table, or the selected range alone. */
 export type SortScope = SortPaneAsked['of'];
@@ -531,6 +539,15 @@ export function cellMenuCommands(props: CellMenuCommandsProps): MenuCommand[] {
           }),
         ]
       : []),
+    {
+      id: 'menu.protect',
+      label: protectionMessages.protectCells(),
+      otherWords: commandSearchSynonyms('protect'),
+      icon: 'Lock',
+      actsOn: 'opens',
+      whyNot: isOneRangeNeeded ? oneRangeNeededText('protect') : null,
+      run: props.onProtectionAsked,
+    } satisfies MenuCommand,
     ...(formatOfSelection === null
       ? []
       : [
@@ -596,6 +613,61 @@ export function cellMenuCommands(props: CellMenuCommandsProps): MenuCommand[] {
                 }),
             whyNot: null,
             run: props.onPivotTableAsked,
+          } satisfies MenuCommand,
+          ...[true, false].map(
+            (isNaming): MenuCommand => ({
+              id: isNaming ? 'menu.nameRange' : 'menu.namedRanges',
+              label: isNaming ? namedRangeMessages.nameThisRange() : namedRangeMessages.manage(),
+              otherWords: commandSearchSynonyms(isNaming ? 'nameRange' : 'namedRanges'),
+              icon: 'Bookmark',
+              actsOn: 'opens',
+              home: 'pane',
+              whyNot: null,
+              run: () => props.onNamedRangesAsked(isNaming),
+            }),
+          ),
+          ...(props.labelOfReset === null
+            ? []
+            : [
+                {
+                  id: 'menu.resetToDefault',
+                  label: props.labelOfReset,
+                  otherWords: commandSearchSynonyms('resetToDefault'),
+                  icon: 'ArrowCounterClockwise',
+                  actsOn: 'cells',
+                  whyNot: null,
+                  isWeighty: true,
+                  run: () => props.onDefaultsAsked('resetToDefaultChosen'),
+                } satisfies MenuCommand,
+              ]),
+          {
+            id: 'menu.saveAsDefault',
+            label: defaultsAndLimitsMessages.saveAsDefault(),
+            otherWords: commandSearchSynonyms('saveAsDefault'),
+            icon: 'Sliders',
+            actsOn: 'cells',
+            whyNot: null,
+            isWeighty: true,
+            run: () => props.onDefaultsAsked('saveAsDefaultChosen'),
+          } satisfies MenuCommand,
+          {
+            id: 'menu.defaultAndLimits',
+            label: defaultsAndLimitsMessages.defaultAndLimits(),
+            otherWords: commandSearchSynonyms('defaultAndLimits'),
+            icon: 'Sliders',
+            actsOn: 'opens',
+            whyNot: null,
+            run: () => props.onDefaultsAsked('defaultAndLimitsAsked'),
+          } satisfies MenuCommand,
+          {
+            id: 'menu.changedCells',
+            label: defaultsAndLimitsMessages.changedCells(),
+            otherWords: commandSearchSynonyms('changedCells'),
+            icon: 'Sliders',
+            actsOn: 'opens',
+            home: 'pane',
+            whyNot: null,
+            run: () => props.onDefaultsAsked('changedCellsAsked'),
           } satisfies MenuCommand,
         ]),
     ...(props.isCellHistoryOffered

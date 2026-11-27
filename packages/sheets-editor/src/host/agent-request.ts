@@ -24,9 +24,11 @@ export function agentRequestOf(payload: unknown): AgentRequest | null {
           ? 'About this chart.'
           : typeof rest.ruleNumber === 'number'
             ? 'About this conditional formatting rule.'
-            : typeof rest.range === 'string'
-              ? 'About these cells.'
-              : '');
+            : typeof rest.whyNotRefreshed === 'string'
+              ? 'About why this connected table did not refresh.'
+              : typeof rest.range === 'string'
+                ? 'About these cells.'
+                : '');
   if (text === '') return null;
   let context: Record<string, unknown> = { ...rest };
   let contextText = JSON.stringify(context);
@@ -49,7 +51,8 @@ export function agentRequestOf(payload: unknown): AgentRequest | null {
 
 /**
  * What a request to the agent is about, as its `selectionSnapshot` (taken as the page sends it): the chart, the
- * conditional formatting rule, the blank sheet, or the cells (labelled by their range); `null` for none of them.
+ * conditional formatting rule, the blank sheet, the connected table that did not refresh, or the cells (labelled by
+ * their range); `null` for none of them.
  */
 export function sheetsSelectionSnapshot(payload: Record<string, unknown>, label: string): SelectionSnapshot | null {
   const sheet = typeof payload.sheetNumber === 'number' ? `Sheet ${payload.sheetNumber}` : undefined;
@@ -57,6 +60,7 @@ export function sheetsSelectionSnapshot(payload: Record<string, unknown>, label:
   if (typeof payload.chartId === 'string') return selectionSnapshotOf({ kind: 'chart', count: 1, label: label || 'A chart', items: [{ id: payload.chartId, kind: 'chart' }], ...at });
   if (typeof payload.ruleNumber === 'number') return selectionSnapshotOf({ kind: 'rule', count: 1, label: label || `Conditional formatting rule ${payload.ruleNumber}`, ...at });
   if (payload.isSheetBlank === true) return selectionSnapshotOf({ kind: 'sheet', count: 1, label: label || sheet || 'A blank sheet' });
+  if (typeof payload.whyNotRefreshed === 'string') return selectionSnapshotOf({ kind: 'sheet', count: 1, label: label || 'A connected table', ...at });
   if (typeof payload.range === 'string' && payload.range !== '') return selectionSnapshotOf({ kind: 'cells', count: 1, label: payload.range, items: [{ id: payload.range, kind: 'range' }], ...at });
   return null;
 }

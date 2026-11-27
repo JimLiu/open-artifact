@@ -74,7 +74,8 @@ export type SnapshotFrame = {
   /** The newest format version the server takes. */
   newestFormatVersion: number;
   widgets: WidgetVersion[];
-  viewer: { personId: string; canEdit: boolean };
+  /** The page's person: the id the engine knows them by, whether they may edit, and whether they own the workbook (protections never hold against the owner). */
+  viewer: { personId: string; canEdit: boolean; isOwner: boolean };
 };
 
 /** An edit saved to the log (anyone's, the page's own among them). */
@@ -128,10 +129,26 @@ export interface SheetEditsRequest {
   edits: JsonObject[];
 }
 
-export type SheetSendRequest = SheetOpsRequest | SheetEditsRequest;
+/**
+ * `POST send`: names the version that ends at `revision` in the history pane, or takes its name away (`name` empty).
+ * The log does not move. Line breaks and runs of spaces in the name become one space; at most
+ * {@link MOST_VERSION_NAME_LENGTH} characters, and at most {@link MOST_VERSION_NAMES} named versions.
+ */
+export interface SheetVersionNameRequest {
+  kind: 'setVersionName';
+  revision: number;
+  name: string;
+}
+
+export const MOST_VERSION_NAMES = 100;
+export const MOST_VERSION_NAME_LENGTH = 100;
+
+export type SheetSendRequest = SheetOpsRequest | SheetEditsRequest | SheetVersionNameRequest;
 
 export type SheetSendResponse =
   | { kind: 'saved'; revision: number }
+  /** The answer to a {@link SheetVersionNameRequest}: the name as kept (null once taken away). */
+  | { kind: 'versionNamed'; revision: number; name: string | null }
   /** `revision` is where the log stands, for an edits request whose base it is not. */
   | { kind: 'refused'; refusal: SendRefusal; revision?: number };
 
@@ -139,7 +156,19 @@ export type SheetSendResponse =
  * Why a save is refused: the engine's refusal, or one of the store's own.
  * `changedSince` means the edit no longer applies on the edits made since its base.
  */
-export type SendRefusal = 'changedSince' | 'pageIsBehind' | 'unknownFormatVersion' | 'unreadableEdit' | 'tooLarge' | 'notWriter' | (string & {});
+export type SendRefusal =
+  | 'changedSince'
+  | 'pageIsBehind'
+  | 'unknownFormatVersion'
+  | 'unreadableEdit'
+  | 'tooLarge'
+  | 'notWriter'
+  /** Naming a version: the name is not text, the revision is not one of the log's, the name is too long, or a new name would be one too many. */
+  | 'unreadableVersionName'
+  | 'unknownRevision'
+  | 'versionNameNotAllowed'
+  | 'tooManyVersionNames'
+  | (string & {});
 
 /** The workbook's operations from a revision on, one page (the engine's `receiveLoadPage`). */
 export type LoadPage = {
@@ -155,9 +184,21 @@ export type LoadPage = {
 export type VersionRow = {
   revision: number;
   firstRevision: number;
+  /** Where its first edit stands in the log: a page of versions asked for `beforeSeq` ends before it. */
+  firstSeq: number;
   /** When its last edit was made, ISO 8601. */
   at: string;
   authors: EditActor[];
+  /** The name it was given in the history pane; a named version ends there, the edits after it start the next one. */
+  name?: string;
+};
+
+/**
+ * A version with what its edits did, for the one-line summary the history pane may ask the agent for: `acts` counts
+ * each kind of operation by sheet (a setCells by its cells), at most 40 of them, `areActsLeftOut` telling of more.
+ */
+export type VersionRowWithChanges = VersionRow & {
+  content: { acts: { kind: string; sheet?: string; count: number }[]; areActsLeftOut?: true };
 };
 
 /** Edits a page saves as one edit to take others back (restoring a version, undoing an agent's turn). */
@@ -193,7 +234,11 @@ export type SheetReadRequest =
   | { kind: 'snapshot' }
   | { kind: 'load'; from?: number }
   | { kind: 'loadAtRevision'; revision: number }
-  | { kind: 'versions'; limit?: number; before?: number }
+  | { kind: 'versions'; limit?: number; before?: number; beforeSeq?: number }
+  /** The same rows as `versions`: what a summary of each version would be written from. */
+  | { kind: 'versionsWithChanges'; limit?: number; before?: number; beforeSeq?: number }
+  /** A slice of the file a connected table's snapshot keeps (`snapshotId`), from byte `from`. */
+  | { kind: 'loadTableFile'; snapshotId: string; from: number }
   | { kind: 'editsThatRestore'; revision: number }
   | { kind: 'editsThatUndo'; ranges: RevisionRange[] }
   | { kind: 'cellHistory'; sheetId: string; r: string; c: string }
@@ -208,6 +253,9 @@ export interface SheetReadAnswers {
   load: LoadPage;
   loadAtRevision: LoadPage;
   versions: { kind: 'versions'; rows: VersionRow[] };
+  versionsWithChanges: { kind: 'versionsWithChanges'; rows: VersionRowWithChanges[] };
+  /** No connected table keeps a file here: every snapshot's file is gone. */
+  loadTableFile: { kind: 'tableFile'; isGone: true };
   editsThatRestore: EditsToTakeBack;
   editsThatUndo: EditsToTakeBack;
   cellHistory: CellHistory;

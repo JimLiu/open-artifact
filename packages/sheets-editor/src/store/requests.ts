@@ -148,6 +148,50 @@ export function readLoadedOps(outcome: StoreOutcome): LoadOutcome {
   return isUint32(revision) && isUint32(v) && Array.isArray(ops) ? { revision, v, ops } : null;
 }
 
+/** Where a read of a file stands: the file it reads, and the bytes of it held. */
+export interface FileCursor {
+  bodyName: string;
+  byteCountHeld: number;
+}
+/** A slice of a file as the server sends it, in base64. */
+export interface BytesOfAFile extends FileCursor {
+  byteCountOfBody: number;
+  base64: string;
+}
+/** A slice of a connected table's file, or why there is none: gone, busy, to be read again from the start, or no answer. */
+export type TableFileSlice = BytesOfAFile | 'isGone' | { busyForMs: number } | 'startOver' | null;
+
+/** The file of a connected table's snapshot, read in slices like a body. */
+export const loadTableFileRequest = (snapshotId: string, from: number): StoreCall => ({ route: 'read', request: { kind: 'loadTableFile', snapshotId, from } });
+
+/** The bytes of a slice that starts at `from`, or null when the answer does not hold them. */
+export function readBodyBytes(value: JsonObject, from: number): BytesOfAFile | null {
+  const { body: bodyName, byteCount, from: fromInAnswer, bytes } = value;
+  if (typeof bodyName !== 'string' || typeof bytes !== 'string' || bytes === '') return null;
+  if (!isUint32(byteCount) || fromInAnswer !== from) return null;
+  const padding = bytes.endsWith('==') ? 2 : bytes.endsWith('=') ? 1 : 0;
+  const byteCountHeld = from + (bytes.length / 4) * 3 - padding;
+  if (!isUint32(byteCountHeld) || byteCountHeld > byteCount) return null;
+  return {
+    bodyName,
+    byteCountOfBody: byteCount,
+    byteCountHeld,
+    base64: bytes,
+  };
+}
+
+/** What a read of a connected table's file came to: a slice, `'isGone'`, `{busyForMs}`, `'startOver'` or null. */
+export function readTableFileSlice(outcome: StoreOutcome, held: FileCursor | null, from: number): TableFileSlice {
+  const answer = answerOf(outcome);
+  const value = answer?.kind === 'tableFile' ? answer : null;
+  if (value?.isGone === true) return 'isGone';
+  const bytesRead = value === null ? null : readBodyBytes(value, from);
+  if (bytesRead !== null && bytesRead.bodyName === (held?.bodyName ?? bytesRead.bodyName)) return bytesRead;
+  const busy = readBusyFor(outcome);
+  if (busy !== null) return busy;
+  return outcome.kind === 'answered' ? 'startOver' : null;
+}
+
 export const askRevisionRequest = (): StoreCall => ({ route: 'read', request: { kind: 'snapshot' } });
 
 export function readAskedRevision(outcome: StoreOutcome): number | 'notSent' | null {

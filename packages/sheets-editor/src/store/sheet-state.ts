@@ -32,22 +32,31 @@ export const canViewerEdit = ({ snapshot }: SheetState): boolean => snapshot?.vi
 
 export const viewerOf = ({ snapshot }: SheetState): string | null => snapshot?.viewer.personId ?? null;
 
+/** Whether the page's person is the workbook's owner. */
+export const isViewerTheOwner = ({ snapshot }: SheetState): boolean => snapshot?.viewer.isOwner === true;
+
 /** When the workbook was made, in Unix seconds. */
 export function madeAtUnixSeconds({ snapshot }: SheetState): number | null {
   const at = snapshot === null ? Number.NaN : Date.parse(snapshot.createdAt);
   return Number.isNaN(at) ? null : Math.floor(at / 1000);
 }
 
-/** What the server tells of itself in the snapshot: the newest format version it takes, and whether this page may edit. */
+/** What the server tells of itself in the snapshot: the newest format version it takes, whether it takes connected tables, and whether this page may edit. */
 export interface StoreDescription {
   kind: 'stated';
   newestFormatVersion: number;
+  takesConnectedTables: boolean;
   availability: 'open' | 'viewOnly';
 }
 
 /** The parts of a snapshot that tell of the server and of the page's person. */
-export type StoreSnapshot = Pick<SnapshotFrame, 'newestFormatVersion' | 'viewer'>;
+export type StoreSnapshot = Pick<SnapshotFrame, 'newestFormatVersion' | 'viewer'> & { takesConnectedTables?: boolean };
 
 export function describeStore(snapshot: StoreSnapshot): StoreDescription {
-  return { kind: 'stated', newestFormatVersion: snapshot.newestFormatVersion, availability: snapshot.viewer.canEdit ? 'open' : 'viewOnly' };
+  return {
+    kind: 'stated',
+    newestFormatVersion: snapshot.newestFormatVersion,
+    takesConnectedTables: snapshot.takesConnectedTables === true,
+    availability: snapshot.viewer.canEdit ? 'open' : 'viewOnly',
+  };
 }

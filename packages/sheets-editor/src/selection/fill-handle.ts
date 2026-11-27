@@ -36,7 +36,7 @@ import { COLUMN_HEADER_HEIGHT } from '../grid/cell-metrics.ts';
 import { isPointerOverFrozenRows, dragPositionClearOfStuckHeaders, pointedPositionClearOfStuckHeaders } from '../grid/sticky-headers.ts';
 import { shownLineAtOrBefore } from '../model/line-sizes.ts';
 import { shownCellBlockOfCorners, shownRowRunsOfSpan } from '../model/cell-blocks.ts';
-import { selectedRangeOf, queueEdit, IF_QUEUED_DEFAULTS } from '../model/edit-effects.ts';
+import { selectedRangeOf, queueEdit, IF_QUEUED_DEFAULTS, holdUntilAnswered } from '../model/edit-effects.ts';
 import { trimAreaToShownRows, lastShownRowIndex } from '../tables/filtered-rows.ts';
 import { areaToA1AsStored } from '../formulas/from-words/where.ts';
 import { ownRowOrderOfSheet } from '../model/line-ids.ts';
@@ -64,6 +64,7 @@ export type FrozenOfAxes = Record<LinesAxisName, LinesUnderFrozen>;
 export function fillHandleBox(state: PageState, reads: ReadsWithTextMeasurer, isReadOnly: boolean, size: number = FILL_HANDLE_SIZE): FillHandleBox | null {
   let isOneArea = isIdleOrTapping(state) || state.dragging?.kind === 'filling';
   if (isReadOnly || !isOneArea || state.mode.kind !== 'navigating' || state.menu !== null) return null;
+  if (state.heldUntilAnswered !== null) return null;
   if (isPeopleListOnActiveCell(state, reads)) return null;
   if (state.otherRanges.length > 0) return null;
   let area = selectedArea(state, reads);
@@ -378,13 +379,14 @@ export function finishFill(
           cells: areaToA1AsStored(filled, ownRowOrderOfSheet(reads, state.sheetId)),
         }
       : null;
-  return queueEdit(stopped, edit, {
+  let queued = queueEdit(stopped, edit, {
     ...IF_QUEUED_DEFAULTS,
     select: filled,
     foundBy: 'fillHandle',
     done: 'filled',
     undoOffer,
   });
+  return state.dragging?.kind === 'filling' ? holdUntilAnswered(queued, state.dragging) : queued;
 }
 export function fillDownToTableEnd(state: PageState, workbook: FillContext): PageTransition {
   let area: CellArea | null = selectedArea(state, workbook.reads);

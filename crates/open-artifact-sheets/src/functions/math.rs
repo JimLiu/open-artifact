@@ -13,6 +13,7 @@ use crate::evaluate::power;
 use crate::functions::{number, numbers_of, Answer, Arg, CallContext, Cells};
 use crate::locale::Locale;
 use crate::value::{significant_digits, CellError, Value};
+use crate::told::{self, Told};
 
 /// Calls a math function by name; `None` for one it doesn't have.
 pub fn call(name: &str, args: &[Arg], cx: &mut CallContext) -> Option<Answer> {
@@ -297,6 +298,7 @@ fn sum_product(args: &[Arg]) -> Answer {
     let arrays: Vec<Cells> = args.iter().map(Arg::cells).collect();
     let (rows, columns) = (arrays[0].rows(), arrays[0].columns());
     if arrays.iter().any(|a| a.rows() != rows || a.columns() != columns) {
+        told::tell(|| Told::RangesOfDifferentSizes);
         return Err(CellError::Value);
     }
     if let Some(e) = arrays.iter().find_map(|a| a.values().find_map(Value::error)) {

@@ -22,7 +22,8 @@ import {
   lookAtOwnSort,
   addOwnFilter,
   ownFilterFromAnswer,
-  nextOwnFilterKey,
+  ownFilterKeyForTable,
+  isOwnFilterOfConnectedTable,
   takeOwnRowOrderFromSorts,
   saidOfSortBy,
   NEVER_LOOKED_AT,
@@ -65,7 +66,7 @@ export function declareCellTableOfNewFilter(before: PageState, state: PageState,
     ({ cellTableId, cellTable }) =>
       cellTableId === null && !ownFiltersBefore.some((filterBefore) => isSameByJson(filterBefore.cellTable, cellTable)),
   );
-  if (newFilter === undefined || !isAllowed || !isCellTableUndeclaredButSure(reads, newFilter))
+  if (newFilter === undefined || !isAllowed || isOwnFilterOfConnectedTable(reads, newFilter) || !isCellTableUndeclaredButSure(reads, newFilter))
     return {
       state,
       effects: [],
@@ -359,22 +360,23 @@ export function bringBackOwnFilter(
             null,
           );
     let ownFilter: OwnFilter = {
-        ...ownFilterFromAnswer(state, reads, nextOwnFilterKey(state), looked, sort),
+        ...ownFilterFromAnswer(state, reads, ownFilterKeyForTable(state, reads, held), looked, sort),
         namedViewInHand,
       },
       next = addOwnFilter(state, reads, ownFilter);
     return takeOwnRowOrderFromSorts(next, held.table.sheetId);
   }
   const isWorthKeeping = looked.why === 'dayIsNotKnown' || looked.why === 'tookTooLong';
+  let isOfConnectedTable = looked.why === null && isOwnFilterOfConnectedTable(reads, held);
   const ownFilter: OwnFilter = {
     ...ownFilterFromAnswer(
       state,
       reads,
-      nextOwnFilterKey(state),
+      ownFilterKeyForTable(state, reads, held),
       {
         kind: 'answered',
         found: held,
-        filter: isWorthKeeping ? filter : null,
+        filter: isWorthKeeping || isOfConnectedTable ? filter : null,
         rows: null,
       },
       sortBy === null

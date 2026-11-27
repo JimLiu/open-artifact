@@ -4,8 +4,9 @@ import type { PageTransition } from './transitions.ts';
 import type { WorkbookReads } from '../model/workbook.ts';
 import { withNoEffects } from './transitions.ts';
 import { queueEdit, IF_QUEUED_DEFAULTS } from '../model/edit-effects.ts';
+import { shownSheetTabs } from './places.ts';
 export function moveSheetToPlace(state: PageState, reads: WorkbookReads, sheetId: SheetId, toIndex: number): PageTransition {
-  let sheets = reads.listSheets();
+  let sheets = shownSheetTabs(state, reads);
   let otherSheets = sheets.filter((sheet) => sheet.sheetId !== sheetId);
   if (otherSheets.length === sheets.length) return withNoEffects(state);
   let afterSheet = otherSheets[Math.min(toIndex, otherSheets.length) - 1]?.sheetId ?? null;
@@ -23,8 +24,9 @@ export function moveSheetToPlace(state: PageState, reads: WorkbookReads, sheetId
     },
   );
 }
-export function lastDoneOfSheetMove(reads: WorkbookReads, sheetId: SheetId): SheetMoved | null {
-  let sheets = reads.listSheets();
+/** Places count among the sheet tabs shown, so hidden sheets are left out. */
+export function lastDoneOfSheetMove(state: PageState, reads: WorkbookReads, sheetId: SheetId): SheetMoved | null {
+  let sheets = shownSheetTabs(state, reads);
   let sheetIndex = sheets.findIndex((sheet) => sheet.sheetId === sheetId);
   let name = sheets[sheetIndex]?.name;
   return name === undefined

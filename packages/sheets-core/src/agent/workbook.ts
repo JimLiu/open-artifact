@@ -41,6 +41,19 @@ export interface SheetContents {
   placements?: { placementId: string; placement: Placement; liveTopLeft?: CellIds | null }[];
   /** The view this sheet shows as an interactive panel (charts.ts), when the whole tab is one. */
   interactive?: string | null;
+  /** Who may edit where (names-and-protections.ts). */
+  protections?: { protectionId: string; protection: SheetProtection }[];
+  /** The tab is hidden from the tab bar. */
+  isHidden?: boolean;
+}
+
+/** What a protection keeps or leaves open: the cells between two corners, or whole rows or columns, by id. */
+export type CellsOrLines = { kind: 'cells'; topLeft: CellIds; bottomRight: CellIds } | { kind: 'wholeRows' | 'wholeColumns'; first: string; last: string };
+
+/** A protection: the whole sheet but its open ranges, or one range; only its editors (person ids) may edit there. */
+export interface SheetProtection {
+  protects: { kind: 'sheet'; openRanges: CellsOrLines[] } | { kind: 'range'; range: CellsOrLines };
+  editors: string[];
 }
 
 export interface CellIds {
@@ -93,6 +106,8 @@ export interface WorkbookContents {
   timeZone?: string | null;
   sheets: SheetContents[];
   views?: { viewId: string; view: ChartView }[];
+  /** The workbook's named ranges; `address` is what each names now ("Sheet1!A2:A9"), null once its cells are gone. */
+  namedRanges?: { namedRangeId: string; namedRange: { name: string }; address?: string | null }[];
 }
 
 

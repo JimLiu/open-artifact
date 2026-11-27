@@ -3,7 +3,7 @@ import { cellKeyOf } from '../error-tells.ts';
 import { isFormulaText } from '../../chips/dropdown-pane-edits.ts';
 import { MAX_FORMULA_FROM_WORDS_TEXT_LENGTH } from '../agent-prompt.ts';
 import { activeAnchorCell } from '../../selection/model.ts';
-import { formulaReadsAsWords } from '../word-tokens.ts';
+import { formulaReadsAsWords, namesOfSheetsAndRanges } from '../word-tokens.ts';
 import { keepsAgentsFormula } from '../../editor/commit-entry.ts';
 import { refreshProposedFormula, cellOfFixNotice, withFixNoticeDown } from '../fix/ask.ts';
 import { headedColumnsMatchingWord } from '../column-headings.ts';
@@ -113,7 +113,7 @@ export function shouldOfferFormula(state: PageState, workbook: WorkbookReads): b
   if (workbook.dropdownOf(activeAnchorCell(state, workbook)) !== null) return false;
   return formulaReadsAsWords(
     mode.text,
-    workbook.listSheets().map(({ name }) => name),
+    namesOfSheetsAndRanges(workbook),
     workbook.decimalSign,
   );
 }

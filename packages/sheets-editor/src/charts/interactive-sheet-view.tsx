@@ -45,8 +45,15 @@ export type InteractiveFault = ChartFrameFault | 'misbehaved';
 /** A key the frame handed back that the page acts on; leaving is the frame's own. */
 export type InteractiveKeyForPage = Exclude<PageKeyFromInteractive, 'leave'>;
 
-/** Writes cells from an interactive; `whenWritten` once the sheet has taken them. */
-export type InteractiveWrite = (cells: CellWrittenFromAnInteractive[], whenWritten: () => void) => void;
+/** Writes cells from an interactive, made by the person's press numbered `press`; `whenWritten` once the sheet has taken them. */
+export type InteractiveWrite = (cells: CellWrittenFromAnInteractive[], press: number, whenWritten: () => void) => void;
+
+/** A cell an interactive asks to show in the formula bar: the input's name, and its row and column within the input's range. */
+export interface InteractiveCellShown {
+  input: string;
+  row: number;
+  column: number;
+}
 
 type InteractiveStands = 'onItsWay' | 'drawn' | InteractiveFault;
 
@@ -71,6 +78,8 @@ interface InteractiveFrameProps {
   isDrawn: boolean;
   zoom: number;
   onWrite: InteractiveWrite;
+  onCellShown: (cell: InteractiveCellShown) => void;
+  onCellsOffered: () => void;
   onKeyForPage: (key: PageKeyFromInteractive) => void;
   onDrawn: () => void;
   onFailed: (fault: InteractiveFault) => void;
@@ -99,6 +108,8 @@ export function InteractiveFrame({
   isDrawn,
   zoom,
   onWrite,
+  onCellShown,
+  onCellsOffered,
   onKeyForPage,
   onDrawn,
   onFailed,
@@ -126,6 +137,8 @@ export function InteractiveFrame({
   );
   let canWriteNow = React.useEffectEvent(() => canWrite && !pageInputHoldBack.isHeldBack());
   let write = React.useEffectEvent(onWrite);
+  let cellShown = React.useEffectEvent(onCellShown);
+  let cellsOffered = React.useEffectEvent(onCellsOffered);
   let keyForPage = React.useEffectEvent(onKeyForPage);
   let drawn = React.useEffectEvent(onDrawn);
   let failed = React.useEffectEvent(onFailed);
@@ -163,6 +176,14 @@ export function InteractiveFrame({
     };
     let isActivationFresh = () =>
       performance.now() - activatedAt < INTERACTIVE_ACTIVATION_LASTS_MS && performance.now() - touchedAt < INTERACTIVE_TOUCH_LASTS_MS;
+    let keyForPageAfterWrites = (key: PageKeyFromInteractive): boolean => {
+      noteActivation();
+      if (isGone || !canWriteNow() || !isActivationFresh()) return false;
+      talkRef.current?.writes.afterWrites(() => {
+        if (keyboard.owner() === INTERACTIVE_EMBED_ID) keyForPage(key);
+      });
+      return true;
+    };
     let [checksUnanswered, messagesThisCheck] = [0, 0];
     let checksToDraw = INTERACTIVE_CHECKS_TO_DRAW;
     let checkTimer = setInterval(() => {
@@ -206,11 +227,22 @@ export function InteractiveFrame({
           );
           return keyboard.blurred(INTERACTIVE_EMBED_ID);
         case 'keyForPage':
-          return keyboard.owner() === INTERACTIVE_EMBED_ID ? keyForPage(reply.key) : undefined;
+          if (keyboard.owner() !== INTERACTIVE_EMBED_ID) return;
+          if (reply.key !== 'undo' && reply.key !== 'redo') return keyForPage(reply.key);
+          if (!keyForPageAfterWrites(reply.key)) setTimeout(() => keyForPageAfterWrites(reply.key), INTERACTIVE_ACTIVATION_WAIT_MS);
+          return;
+        case 'cellsOffered':
+          return cellsOffered();
+        case 'cellShown':
+          return cellShown({
+            input: reply.input,
+            row: reply.row,
+            column: reply.column,
+          });
         case 'write':
           noteActivation();
-          if (canWriteNow() && isActivationFresh()) return talkRef.current?.writes.write(reply.cells, reply.nth);
-          if (canWriteNow() && isActivationAwaited) return talkRef.current?.writes.hold(reply.cells, reply.nth);
+          if (canWriteNow() && isActivationFresh()) return talkRef.current?.writes.write(reply.cells, reply.nth, reply.press);
+          if (canWriteNow() && isActivationAwaited) return talkRef.current?.writes.hold(reply.cells, reply.nth, reply.press);
           return talkRef.current?.writes.write([], reply.nth);
       }
     });
@@ -303,6 +335,10 @@ interface InteractiveSheetShared {
   isViewOnly: boolean;
   zoom: number;
   onWrite: InteractiveWrite;
+  onCellShown: (cell: InteractiveCellShown) => void;
+  onCellsOffered: () => void;
+  /** Told whether the interactive is drawn now, and that it is not once it goes. */
+  onDrawnOrNot: (isDrawn: boolean) => void;
   onKeyForPage: (key: InteractiveKeyForPage) => void;
   onGoneWithKeyboard: () => void;
 }
@@ -326,6 +362,9 @@ export function InteractiveRunning({
   sectionId,
   enterRef,
   onWrite,
+  onCellShown,
+  onCellsOffered,
+  onDrawnOrNot,
   onKeyForPage,
   onGoneWithKeyboard,
 }: InteractiveRunningProps) {
@@ -374,13 +413,18 @@ export function InteractiveRunning({
     }),
   );
   let isDrawn = stands === 'drawn';
-  React.useEffect(
-    () => (
-      (enterRef.current = isDrawn ? (keyAt?: number) => keyboard.enter(INTERACTIVE_EMBED_ID, keyAt) : null),
-      () => void (enterRef.current = null)
-    ),
-    [enterRef, isDrawn, keyboard],
-  );
+  React.useEffect(() => {
+    let enter = (keyAt?: number) => {
+      keyboard.enter(INTERACTIVE_EMBED_ID, keyAt);
+      let frame = sectionRef.current?.querySelector('iframe');
+      if (document.activeElement !== frame)
+        frame?.focus({
+          preventScroll: true,
+        });
+    };
+    enterRef.current = isDrawn ? enter : null;
+    return () => void (enterRef.current = null);
+  }, [enterRef, isDrawn, keyboard, sectionRef]);
   let artifactToRun = artifact !== null && trouble === null && typeof frameDocument === 'object' && frameDocument !== null ? artifact : null;
   React.useLayoutEffect(() => {
     if (artifactToRun === null) return;
@@ -397,6 +441,7 @@ export function InteractiveRunning({
   React.useEffect(() => {
     if (isDrawn) count?.('interactive_shown');
   }, [isDrawn, count]);
+  React.useEffect(() => (onDrawnOrNot(isDrawn), () => onDrawnOrNot(false)), [isDrawn, onDrawnOrNot]);
   let countNotShown = () => count?.('interactive_not_shown');
   if (compiled.kind === 'none') return <InteractiveTrouble why={INTERACTIVE_CODE_TROUBLES[compiled.why]} onShown={countNotShown} />;
   if (trouble !== null) {
@@ -416,7 +461,12 @@ export function InteractiveRunning({
   if (frameDocument === 'notFetched' || !stripFrameTimestampParams()) return <InteractiveTrouble why="notLoaded" onShown={countNotShown} />;
   return <>{artifact !== null &&
       frameDocument !== null &&
-      <InteractiveFrame key={artifact} frameDocument={frameDocument.text} artifact={artifact} inputs={inputs} name={name} canWrite={!isViewOnly && canTellUserActivation()} keyboard={keyboard} isDrawn={isDrawn} zoom={zoom} onWrite={onWrite} onKeyForPage={(key) => (keyboard.release(), focusSection(), key === 'leave' ? undefined : onKeyForPage(key))} onDrawn={() =>
+      <InteractiveFrame key={artifact} frameDocument={frameDocument.text} artifact={artifact} inputs={inputs} name={name} canWrite={!isViewOnly && canTellUserActivation()} keyboard={keyboard} isDrawn={isDrawn} zoom={zoom} onWrite={onWrite} onCellShown={onCellShown} onCellsOffered={onCellsOffered} onKeyForPage={(key) => {
+          if (key === 'undo' || key === 'redo') return onKeyForPage(key);
+          keyboard.release();
+          focusSection();
+          return key === 'leave' ? undefined : onKeyForPage(key);
+        }} onDrawn={() =>
           setStand({
             of: artifact,
             stands: 'drawn',
@@ -462,19 +512,21 @@ export function InteractiveSheetSection({ onKeyDown, fix, wasKeyPressedLast, ...
 }
 
 /** What the person chose on the interactive sheet's bar. */
-export type InteractiveSheetBarChoice = 'interactiveResetChosen' | 'interactiveSaveAsDefaultChosen';
+export type InteractiveSheetBarChoice = 'reset' | 'saveAsDefault' | 'undoAll';
 
 interface InteractiveSheetBarProps {
   ref?: React.Ref<HTMLDivElement>;
-  canBeReset: boolean;
+  /** How many cells of the interactive's inputs differ from their defaults. */
+  countOfCellsToReset: number;
   hasDefaultsToSave: boolean;
+  hasChangesToUndo: boolean;
   comment: React.ReactNode;
   onChosen: (kind: InteractiveSheetBarChoice) => void;
   onKeyDown: React.KeyboardEventHandler<HTMLDivElement>;
 }
 
-export function InteractiveSheetBar({ ref, canBeReset, hasDefaultsToSave, comment, onChosen, onKeyDown }: InteractiveSheetBarProps) {
-  return <div className="sheet-context-bar" data-stands="footBar"><div className="sheet-scroller" data-size={useCoarseBarIconSize()}><div ref={ref} role="presentation" className="sheet-row-of-tools w-max min-w-full" onKeyDown={onKeyDown}><Toolbar flush className="py-0" label={interactiveSheetMessages.bar()} divider={false}><Button variant="ghost" disabled={!canBeReset} onClick={() => onChosen('interactiveResetChosen')}>{interactiveSheetMessages.reset()}</Button><Button variant="ghost" disabled={!hasDefaultsToSave} onClick={() => onChosen('interactiveSaveAsDefaultChosen')}>{interactiveSheetMessages.saveAsDefault()}</Button>{comment !== null && <span data-before="end" data-after="end" className="flex flex-none">{comment}</span>}</Toolbar></div></div></div>;
+export function InteractiveSheetBar({ ref, countOfCellsToReset, hasDefaultsToSave, hasChangesToUndo, comment, onChosen, onKeyDown }: InteractiveSheetBarProps) {
+  return <div className="sheet-context-bar" data-stands="footBar"><div className="sheet-scroller" data-size={useCoarseBarIconSize()}><div ref={ref} role="presentation" className="sheet-row-of-tools w-max min-w-full" onKeyDown={onKeyDown}><Toolbar flush className="py-0" label={interactiveSheetMessages.bar()} divider={false}>{countOfCellsToReset > 0 && <span className="flex flex-none items-center px-sm text-footnote text-secondary">{interactiveSheetMessages.changedFromDefault(countOfCellsToReset)}</span>}<Button variant="ghost" disabled={countOfCellsToReset === 0} onClick={() => onChosen('reset')}>{interactiveSheetMessages.reset()}</Button><Button variant="ghost" disabled={!hasDefaultsToSave} onClick={() => onChosen('saveAsDefault')}>{interactiveSheetMessages.saveAsDefault()}</Button><Button variant="ghost" disabled={!hasChangesToUndo} onClick={() => onChosen('undoAll')}>{interactiveSheetMessages.undoYourChanges()}</Button>{comment !== null && <span data-before="end" data-after="end" className="flex flex-none">{comment}</span>}</Toolbar></div></div></div>;
 }
 
 export const INTERACTIVE_CODE_TROUBLES: Record<WhyNoChartCode, InteractiveTroubleWhy> = {

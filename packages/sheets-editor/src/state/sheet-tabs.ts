@@ -13,6 +13,7 @@ import { queueEdit, IF_QUEUED_PLACE_CHANGED, IF_QUEUED_DEFAULTS } from '../model
 import { copyChartNodesThen } from './copy-paste.ts';
 import { isFormulaUnfinishedInEntry } from '../editor/formula-closing.ts';
 import { commitEntryInPlaceIfEditing } from '../editor/commit-entry.ts';
+import { graphemesOf } from '../chips/people-list.ts';
 import { embedRefsOfView } from '../model/workbook.ts';
 import type { ReadsWithTextMeasurer } from './controller.ts';
 export function showSheet(state: PageState, workbook: ReadsWithTextMeasurer, sheetId: SheetId): PageState {
@@ -40,11 +41,6 @@ export function showSheet(state: PageState, workbook: ReadsWithTextMeasurer, she
     },
   };
   return clampScrollOfView(shownState, workbook);
-}
-export function showSheetAtOffset(state: PageState, workbook: ReadsWithTextMeasurer, offset: number): PageState {
-  let sheets = workbook.listSheets();
-  let sheet: SheetSummary | undefined = sheets[sheets.findIndex((listed: SheetSummary) => listed.sheetId === state.sheetId) + offset];
-  return sheet === undefined ? state : showSheet(state, workbook, sheet.sheetId);
 }
 export function finishDuplicateSheet(
   state: PageState,
@@ -115,7 +111,7 @@ export function duplicateSheet(
   let mostCharacters =
     workbook.longestSheetNameInCharacters() - Array.from<string>(`${beforeName}${afterName}`).length - DUPLICATE_NAME_SLACK;
   let keptName: string = '';
-  for (let { segment } of new Intl.Segmenter().segment(sheetName)) {
+  for (let segment of graphemesOf(sheetName)) {
     if (Array.from<string>(`${keptName}${segment}`).length > mostCharacters) break;
     keptName += segment;
   }
@@ -154,6 +150,52 @@ export function deleteSheet(state: PageState, workbook: WorkbookReads, sheetId: 
       select: null,
       done: null,
       undoOffer,
+    },
+  );
+}
+/** Hiding a sheet; the last shown sheet with cells stays shown. */
+export function hideSheet(state: PageState, workbook: WorkbookReads, sheetId: SheetId): PageTransition {
+  let sheet = findSheetById(workbook, sheetId);
+  if (sheet === undefined || sheet.isHidden || !hasOtherSheetWithCells(workbook, sheetId)) return withNoEffects(state);
+  return queueEdit(
+    state,
+    {
+      kind: 'setSheetSettings',
+      sheetId,
+      settings: {
+        isHidden: true,
+      },
+    },
+    {
+      ...IF_QUEUED_DEFAULTS,
+      select: null,
+      done: null,
+      undoOffer: {
+        kind: 'sheetHidden',
+        name: sheet.name,
+        isSaved: false,
+      },
+    },
+  );
+}
+export function unhideSheet(state: PageState, workbook: WorkbookReads, sheetId: SheetId): PageTransition {
+  let sheet = findSheetById(workbook, sheetId);
+  if (sheet?.isHidden !== true) return withNoEffects(state);
+  return queueEdit(
+    state,
+    {
+      kind: 'setSheetSettings',
+      sheetId,
+      settings: {
+        isHidden: false,
+      },
+    },
+    {
+      ...IF_QUEUED_PLACE_CHANGED,
+      done: {
+        what: 'sheetUnhidden',
+        name: sheet.name,
+      },
     },
   );
 }
@@ -223,7 +265,7 @@ export const chartNodesOfSheet = (workbook: WorkbookReads, sheetId: SheetId): st
     (viewId: string) => embedRefsOfView(workbook.viewAsItStands(viewId)),
   );
 export const hasOtherSheetWithCells = (workbook: WorkbookReads, sheetId: SheetId): boolean =>
-  workbook.listSheets().some((sheet: SheetSummary) => sheet.sheetId !== sheetId && sheet.rowCount > 0 && sheet.columnCount > 0);
+  workbook.listSheets().some((sheet: SheetSummary) => sheet.sheetId !== sheetId && !sheet.isHidden && sheet.rowCount > 0 && sheet.columnCount > 0);
 export const markUndoOfferSaved = (undoOffer: UndoOffer | null, saving: SavingState): UndoOffer | null =>
   undoOffer !== null && 'isSaved' in undoOffer && !undoOffer.isSaved && saving === 'allSaved'
     ? {
@@ -253,6 +295,17 @@ export interface DuplicateRefusedNotice {
   kind: 'editRefused';
   why: 'chartsNotCopied' | 'interactiveNotCopied' | 'interactiveNeverCopied';
   asked: 'duplicateOfSheet';
+}
+/** What the page last did when it showed a hidden sheet again, and the sheet's name. */
+export interface SheetUnhiddenDone {
+  what: 'sheetUnhidden';
+  name: string;
+}
+/** The offer to undo hiding a sheet. */
+export interface SheetHiddenUndoOffer {
+  kind: 'sheetHidden';
+  name: string;
+  isSaved: boolean;
 }
 /** The offer to undo the deletion of a sheet, and the formulas that read it. */
 export interface SheetDeletedUndoOffer {

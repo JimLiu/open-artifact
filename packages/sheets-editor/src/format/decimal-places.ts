@@ -36,7 +36,7 @@ export type DecimalPatternOfSelection = { why: 'noNumbers' | 'formatHasNone' | '
 export function numberFormatsBroughtIn(reads: WorkbookReads, { sheetId, ranges }: Pick<SelectionForDecimalPlaces, 'sheetId' | 'ranges'>): string[] {
   let patterns = new Set<string>();
   for (let range of ranges)
-    for (let cellId of reads.cellsOnShowIn(sheetId, range)) {
+    for (let cellId of reads.formulasAndSpillsIn(sheetId, range)) {
       let pattern = reads.cellOnShowIn(cellId)?.numberFormatBrought?.pattern;
       if (pattern !== undefined && isNumberShownIn(reads, cellId)) patterns.add(pattern);
     }

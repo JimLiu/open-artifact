@@ -11,11 +11,11 @@ use crate::formula::Reference;
 /// The first version, and the oldest still read.
 pub const OLDEST: u32 = 17;
 /// The newest version.
-pub const NEWEST: u32 = 47;
+pub const NEWEST: u32 = 55;
 
 /// Whether the module reads a released version.
 pub fn is_known(v: u32) -> bool {
-    matches!(v, 17 | 20..=30 | 32..=34 | 36..=39 | 42..=47)
+    matches!(v, 17 | 20..=30 | 32..=34 | 36..=39 | 42..=55)
 }
 
 /// The version an edit of these operations is written in.
@@ -48,6 +48,12 @@ fn of_op(op: &Op) -> u32 {
             if super::grid::uses_formula_dictionary(cells) { 46 } else { 39 }
         }
         Op::SetCells { cells, .. } => cells.iter().filter_map(|c| c.input.as_ref()).map(of_input).max().unwrap_or(OLDEST),
+        // Default values and limits of values came in 54.
+        Op::SetCellFormats { formats, .. }
+            if formats.iter().any(|f| f.format.get("defaultValue").is_some() || f.format.get("valueLimits").is_some()) =>
+        {
+            54
+        }
         // Rows to format written as lists of runs came in 43.
         Op::SetCellFormats { formats, .. } if formats.iter().any(|f| f.rows.len() >= crate::ids::listed_runs::FEWEST) => 43,
         // Rows deleted or undeleted as lists of runs (read so, or written so from 100 runs on).
@@ -67,7 +73,8 @@ fn of_op(op: &Op) -> u32 {
         Op::SetSheetSettings { sheets } => sheets
             .iter()
             .map(|s| {
-                if s.settings.interactive.is_some() { 47 }
+                if s.settings.is_hidden.is_some() { 50 }
+                else if s.settings.interactive.is_some() { 47 }
                 else if s.settings.are_gridlines_hidden.is_some() { 29 }
                 else { 20 }
             })
@@ -91,6 +98,9 @@ fn of_op(op: &Op) -> u32 {
         Op::SetCellTables { .. } => 36,
         Op::ReorderRows { .. } => 42,
         Op::SetNamedViews { .. } => 45,
+        Op::SetConnectedTables { .. } | Op::SetColumnsOfConnectedTable { .. } | Op::SetSnapshots { .. } => 48,
+        Op::SetNamedRanges { .. } => 51,
+        Op::SetProtections { .. } => 52,
         _ => OLDEST,
     }
 }
@@ -102,6 +112,9 @@ fn of_input(input: &Input) -> u32 {
             .iter()
             .map(|r| match r {
                 Reference::Columns { .. } | Reference::Rows { .. } => 34,
+                Reference::TableColumn { .. } => 49,
+                Reference::TablePart { .. } => 55,
+                Reference::NamedRange { .. } => 51,
                 _ => OLDEST,
             })
             .max()

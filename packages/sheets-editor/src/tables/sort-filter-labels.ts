@@ -290,6 +290,11 @@ export const sortAndFilterMessages = {
       defaultMessage: 'Couldn’t understand that. Try naming a column.',
       id: '2jBU8SX6lY',
     }),
+  onlyFiltersAndSorts: () =>
+    translateMessage({
+      defaultMessage: 'This only filters and sorts rows.',
+      id: 'B4ffHHuHYt',
+    }),
   agentIsWorking: () =>
     translateMessage({
       defaultMessage: 'Agent is working…',

@@ -314,7 +314,11 @@ impl<'a> Grid<'a> {
                         }
                     }
                 }
-                Reference::Columns { .. } | Reference::Rows { .. } => {}
+                Reference::Columns { .. }
+                | Reference::Rows { .. }
+                | Reference::TableColumn { .. }
+                | Reference::TablePart { .. }
+                | Reference::NamedRange { .. } => {}
             }
         }
         spots
@@ -383,6 +387,16 @@ impl<'a> Grid<'a> {
             return (row, column);
         }
         self.merge_over(row, column).map_or((row, column), |m| (m.top, m.left))
+    }
+
+    /// Whether a merged range hides a cell: one of its cells right of its left column.
+    pub(super) fn is_hidden(&self, row: usize, column: usize) -> bool {
+        self.by_left.range(..column).flat_map(|(_, ms)| ms).any(|m| m.top <= row && row <= m.bottom && column <= m.right)
+    }
+
+    /// Whether a merged range carries down to a cell in its left column from a row above.
+    pub(super) fn is_carried(&self, row: usize, column: usize) -> bool {
+        self.merge_over(row, column).is_some()
     }
 
     /// The merged ranges, by left column and then from the top.

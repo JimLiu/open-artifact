@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { cn } from './cn.ts';
+import { ShimmerText } from './shimmer-text.tsx';
 import { useReducedMotion } from './platform.ts';
 
 /**
@@ -143,3 +144,19 @@ export const WorkingMark = React.memo(function WorkingMark({ state = 'working', 
     </span>
   );
 });
+
+/** A working mark on its own, not handed on from another mark that was showing before it. */
+export function StandaloneWorkingMark(): React.ReactElement {
+  return <WorkingMark />;
+}
+
+/** The words of a row the agent is working on, with a sheen passing over them. */
+export function WordsWhileAgentWorks({ children }: { children?: React.ReactNode }): React.ReactElement {
+  return <ShimmerText>{children}</ShimmerText>;
+}
+
+/**
+ * Gets the working mark ready once a view that will show it is up. The mark here is drawn
+ * inline, so there is nothing to load; views call it where the mark will soon show.
+ */
+export function usePreloadWorkingMark(_active: boolean): void {}

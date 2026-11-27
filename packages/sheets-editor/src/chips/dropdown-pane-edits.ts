@@ -131,7 +131,14 @@ export function hasUnsavedSidePaneTyping(state: PageState): boolean {
       let { typed } = state.sidePane.pivotTable;
       return typed !== null && typed.isRefused !== true;
     }
+    case 'namedRanges': {
+      let { form } = state.sidePane.namedRanges;
+      return form !== null && form.isChanged && form.refused === null;
+    }
     case 'versionHistory':
+      return state.sidePane.history.nameTypedFor !== null;
+    case 'changedCells':
+    case 'sourceOfTable':
     case undefined:
       return false;
   }

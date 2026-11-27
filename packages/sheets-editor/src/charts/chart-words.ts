@@ -23,25 +23,30 @@ export function chartKindName(chartKind: StockKind): string {
         defaultMessage: 'Line chart',
         id: 'RZzs6837Hn',
       });
-    case 'pie':
+    case 'horizontalBar':
       return translateMessage({
-        defaultMessage: 'Pie chart',
-        id: 'EGV7QC2EPp',
+        defaultMessage: 'Horizontal bar chart',
+        id: 'KH4GEIq7SJ',
+      });
+    case 'stackedBar100':
+      return translateMessage({
+        defaultMessage: '100% stacked bar chart',
+        id: 'E3OzqYaD/J',
       });
     case 'area':
       return translateMessage({
         defaultMessage: 'Area chart',
-        id: 'oaAreaKnd1',
-      });
-    case 'horizontalBar':
-      return translateMessage({
-        defaultMessage: 'Horizontal bar chart',
-        id: 'oaHBarKnd1',
+        id: 'oHD1yR2fg6',
       });
     case 'scatter':
       return translateMessage({
         defaultMessage: 'Scatter chart',
-        id: 'oaScatKnd1',
+        id: 'JlhAD1md/O',
+      });
+    case 'pie':
+      return translateMessage({
+        defaultMessage: 'Pie chart',
+        id: 'EGV7QC2EPp',
       });
   }
 }
@@ -62,25 +67,30 @@ export function makeThisChartKindPrompt(chartKind: StockKind): string {
         defaultMessage: 'Make this a line chart.',
         id: 'JBVkeM+k+u',
       });
-    case 'pie':
+    case 'horizontalBar':
       return translateMessage({
-        defaultMessage: 'Make this a pie chart.',
-        id: 'C965sMjdo4',
+        defaultMessage: 'Make this a horizontal bar chart.',
+        id: '4qDMpXxGZS',
+      });
+    case 'stackedBar100':
+      return translateMessage({
+        defaultMessage: 'Make this a 100% stacked bar chart.',
+        id: '7H2e0Yaxcr',
       });
     case 'area':
       return translateMessage({
         defaultMessage: 'Make this an area chart.',
-        id: 'oaAreaMk01',
-      });
-    case 'horizontalBar':
-      return translateMessage({
-        defaultMessage: 'Make this a horizontal bar chart.',
-        id: 'oaHBarMk01',
+        id: 'mUJFW2x3/r',
       });
     case 'scatter':
       return translateMessage({
         defaultMessage: 'Make this a scatter chart.',
-        id: 'oaScatMk01',
+        id: '5vpMbWf3SZ',
+      });
+    case 'pie':
+      return translateMessage({
+        defaultMessage: 'Make this a pie chart.',
+        id: 'C965sMjdo4',
       });
   }
 }
@@ -101,25 +111,30 @@ export function insertChartKindLabel(chartKind: StockKind): string {
         defaultMessage: 'Insert a line chart',
         id: 'DZXCpZpNx9',
       });
-    case 'pie':
+    case 'horizontalBar':
       return translateMessage({
-        defaultMessage: 'Insert a pie chart',
-        id: '52tvPvpPcD',
+        defaultMessage: 'Insert a horizontal bar chart',
+        id: 'oTe1GCgS//',
+      });
+    case 'stackedBar100':
+      return translateMessage({
+        defaultMessage: 'Insert a 100% stacked bar chart',
+        id: 'YVYyB0QwMV',
       });
     case 'area':
       return translateMessage({
         defaultMessage: 'Insert an area chart',
-        id: 'oaAreaIn01',
-      });
-    case 'horizontalBar':
-      return translateMessage({
-        defaultMessage: 'Insert a horizontal bar chart',
-        id: 'oaHBarIn01',
+        id: '8h2oVT8Irs',
       });
     case 'scatter':
       return translateMessage({
         defaultMessage: 'Insert a scatter chart',
-        id: 'oaScatIn01',
+        id: 'p2TEopyUcL',
+      });
+    case 'pie':
+      return translateMessage({
+        defaultMessage: 'Insert a pie chart',
+        id: '52tvPvpPcD',
       });
   }
 }
@@ -218,7 +233,7 @@ export const CHART_MESSAGES = {
   makingChart: () =>
     translateMessage({
       defaultMessage: 'Making the chart…',
-      id: 'Q2SwCk3jbm',
+      id: 'es90R4zGXk',
     }),
   chartAddedByAgent: () =>
     translateMessage({
@@ -249,6 +264,11 @@ export const CHART_MESSAGES = {
     translateMessage({
       defaultMessage: 'Chart',
       id: 'wLYh8d3bvc',
+    }),
+  moreTypes: () =>
+    translateMessage({
+      defaultMessage: 'More types',
+      id: 'FnlSEzttQE',
     }),
   noAgent: () =>
     translateMessage({

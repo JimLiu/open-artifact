@@ -1,4 +1,5 @@
-import type { CellPoint, ColumnId, Reference, RowId, SheetId } from '@open-artifact/sheets-core';
+import type { CellPoint, ColumnId, RowId, SheetId } from '@open-artifact/sheets-core';
+import type { ReferenceOnSheet } from './references.ts';
 import { holdsOneNumber, isYearCell, isSumWithFormulaCell, figuresOfSelection, insertFigureFormula } from '../selection/figures.ts';
 import { selectedArea, selectionAreaAndKind, activeAnchorCell } from '../selection/model.ts';
 import { hasOtherRanges } from '../selection/several-ranges.ts';
@@ -9,6 +10,7 @@ import { wholeAreaToA1AsStored } from '../model/a1-references.ts';
 import { ownRowOrderOfSheet } from '../model/line-ids.ts';
 import type { PageState } from '../state/initial-state.ts';
 import type { WorkbookReads } from '../model/workbook.ts';
+import { referencesWithNamedRangesExpanded } from './references.ts';
 import type { ReadsWithTextMeasurer } from '../state/controller.ts';
 import type { CellArea, CellPosition } from '../selection/model.ts';
 /** Which way a sum runs: along a row (numbers on the left) or a column (numbers above). */
@@ -19,7 +21,7 @@ export interface AutoSumRun {
   along: SumAlong;
 }
 /** The ids of the lines (rows, or columns) a reference starts and ends at along `along`; `null` when it covers whole lines the other way. */
-export function lineIdsOfReference(reference: Reference, along: SumAlong): (RowId | ColumnId)[] | null {
+export function lineIdsOfReference(reference: ReferenceOnSheet, along: SumAlong): (RowId | ColumnId)[] | null {
   let lineIdOf = ({ r, c }: CellPoint) => (along === 'column' ? c : r);
   switch (reference.kind) {
     case 'cell':
@@ -30,16 +32,22 @@ export function lineIdsOfReference(reference: Reference, along: SumAlong): (RowI
       return along === 'column' ? [reference.left.c, reference.right.c] : null;
     case 'rows':
       return along === 'row' ? [reference.top.r, reference.bottom.r] : null;
+    case 'tableColumn':
+      return along === 'column' ? [reference.c] : null;
+    case 'tablePart': {
+      let { columns } = reference;
+      return along === 'column' && columns !== null ? [columns.left, columns.right] : null;
+    }
   }
 }
 export function isSumOfOwnLine(workbook: WorkbookReads, sheetId: SheetId, position: CellPosition, along: SumAlong): boolean {
   let cellId = workbook.cellIdAt(sheetId, position.rowIndex, position.columnIndex);
   let input = cellId === null ? undefined : workbook.cellOf(cellId)?.input;
   if (cellId === null || input?.kind !== 'formula') return false;
-  let { textBetweenReferences, references } = input.formula;
+  let { textBetweenReferences } = input.formula;
   if (!SUM_FORMULA_START_PATTERN.test(textBetweenReferences[0] ?? '')) return false;
   let lineId = along === 'column' ? cellId.columnId : cellId.rowId;
-  return references.some(
+  return referencesWithNamedRangesExpanded(workbook, input.formula).some(
     (reference) =>
       reference.sheetId === sheetId && lineIdsOfReference(reference, along)?.every((id) => id === lineId) === true,
   );

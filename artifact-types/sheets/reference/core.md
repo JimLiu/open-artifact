@@ -23,6 +23,8 @@ readCellFormats {sheet, range}
 readConditionalFormats {sheet}
 readCharts {sheet}
 readInteractive {sheet}
+readNamedRanges {}
+readCellsChangedFromTheirDefaults {sheet}
 showGuide {guide: {stops: [{at, say}]}}
 
 writeCells {sheet, topLeft, rows: [[…]]}
@@ -50,7 +52,7 @@ sortCells {sheet, range, byColumn, direction: ascending|descending}
 deleteRows {sheet, rows}
 deleteColumns {sheet, columns}
 deleteSheet {sheet}
-setSheetSettings {sheet, settings: {lastFrozenRow?: number|null, lastFrozenColumn?: string|null, areGridlinesHidden?: true|false}}
+setSheetSettings {sheet, settings: {lastFrozenRow?: number|null, lastFrozenColumn?: string|null, areGridlinesHidden?: true|false, isHidden?: true|false}}
 makeDropdown {sheet, range, options: [{label, color: …}]}
 setDropdownOptions {sheet, dropdownId, options: [{optionId: string|null, label, color: …}]}
 setCellTable {sheet, cellTable: {columns, headerRows, footerRows: string|null}|null}
@@ -59,6 +61,12 @@ addChart {chart: {name, caption, widget, inputs: [{…}], sheet, topLeft, offset
 setChart {chartId, chart: {name, caption, widget, inputs: [{…}], sheet, topLeft, offsetFromAnchorCell?: {…}, widthInPixels: number, heightInPixels: number}}
 deleteChart {chartId}
 addInteractive {interactive: {sheet, name, caption, widget, inputs: [{…}], writable: [string]}}
+saveNamedRange {name, sheet, range, inPlaceOf?}
+removeNamedRange {name}
+setDefaultValues {sheet, range, defaultValue?: number|string|null, limits?: {minimum?: number|null, maximum?: number|null}|null}
+resetToDefaultValues {sheet, range?}
+saveProtection {sheet, protectionId?, range?, open?: [string], editors?: [string]}
+removeProtection {sheet, protectionId}
 setTimeZone {timeZone: string|null}
 setLocale {locale}
 ```
@@ -109,7 +117,7 @@ read <root> '{"kind":"readCells","sheet":"Budget","range":"A1:B4"}'
 - A CELL HOLDS NO TIME ZONE. A `Z` or a `+02:00` at the end of a date with a time is dropped, and the clock stays as written: `"2026-03-15T14:30:00Z"` and `"2026-03-15T14:30:00-07:00"` are both 14:30 on March 15. Bring moments to one zone before you write them.
 - YOU WRITE NUMBERS, DATES AND FORMULAS THE US WAY IN EVERY LOCALE: a point before decimals, the month before the day, commas between thousands and between a formula's arguments. They read back the same way, and people see them in the signs of the Sheet's locale, which `readSheets` names. A person's `3/4/2027` is in the Sheet's order: April 3 if days come first. Only a `shown`, read and written, and text in a formula's quotation marks (functions.md) are in those signs: `"1.234,50"` for 1234.5 where decimals follow a comma.
 - `you`, in `readSheets`, is the person you act for, as a person cell ("put me as owner"), or `null`.
-- A READ ALSO LISTS WHAT LIES OVER ITS CELLS, each only if there is any. `readCells`: `mergedRanges` (only the first cell of one holds anything), `dropdowns`, `checkboxes` and `columnsTooNarrowForTheirNumbers`. A merged range is given whole, and the ranges of a dropdown and of checkboxes only as far as the range that was read. `readSheets`: `lastFrozenRow`, `lastFrozenColumn`, `areGridlinesHidden`, `rowGroups`, `columnGroups`, `cellTable`, `chartCount` (`readCharts` gives them), `interactiveId` (the tab is an interactive panel, which `readInteractive` gives) and `timeZone`. The topic on each says what to do with it.
+- A READ ALSO LISTS WHAT LIES OVER ITS CELLS, each only if there is any. `readCells`: `mergedRanges` (only the first cell of one holds anything), `dropdowns`, `checkboxes` and `columnsTooNarrowForTheirNumbers`. A merged range is given whole, and the ranges of a dropdown and of checkboxes only as far as the range that was read. `readSheets`: `lastFrozenRow`, `lastFrozenColumn`, `areGridlinesHidden`, `isHidden`, `rowGroups`, `columnGroups`, `cellTable`, `chartCount` (`readCharts` gives them), `protections`, `namedRanges`, `interactiveId` (the tab is an interactive panel, which `readInteractive` gives) and `timeZone`. The topic on each says what to do with it.
 - `"calculationTookTooLong":true` says that the formulas took too long to work out, so each formula's `value` is `{"error":"#TIMEOUT!"}` and spilled cells read as blank. Nothing is wrong with those formulas: do not rewrite them. A smaller range is no help: read once more, and if that times out too, tell the person.
 
 ### The rules of an update
@@ -153,6 +161,7 @@ Each topic is a file beside this one. A topic that you have read in this convers
 | renaming, deleting, bringing back and moving sheets | `whole-sheets.md` |
 | charts | `charts.md` |
 | interactive panels: a tab of controls that read cells and write some of them | `interactives.md` |
+| named ranges for formulas, default values and number limits, protected cells, hidden sheets | `names-defaults-protection.md` |
 
 ### Limits
 

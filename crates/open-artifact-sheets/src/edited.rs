@@ -120,7 +120,16 @@ fn written(n: f64, shift: i32, locale: &Locale) -> String {
 
 /// Whether a cell's text is written after a `'` to be edited.
 pub fn text_is_edited_after_the_mark(text: &str, locale: &Locale) -> bool {
-    crate::typing::is_read_otherwise(text, locale)
+    // An empty text is not: the page writes it as nothing.
+    !text.is_empty() && crate::typing::is_read_otherwise(text, locale)
+}
+
+/// Whether a cell is under a dropdown (its control): a dropdown option there is picked, not typed.
+pub fn has_a_dropdown(sheet: &crate::workbook::Sheet, cell: (crate::ids::LineId, crate::ids::LineId)) -> bool {
+    sheet
+        .formats
+        .get(crate::workbook::formats::Leaf::CellControl, cell)
+        .is_some_and(|control| control.get("kind").and_then(|k| k.as_str()) == Some("dropdown"))
 }
 
 #[cfg(test)]

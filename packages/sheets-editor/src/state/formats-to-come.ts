@@ -1,4 +1,7 @@
-import type { DropdownOption, Edit, NumberFormatKind } from '@open-artifact/sheets-core';
+import type { DropdownOption, Edit, Entry, NumberFormatKind } from '@open-artifact/sheets-core';
+import type { GridLayout } from '../grid/layout.ts';
+import type { AreaSpansOnScreen } from '../grid/geometry.ts';
+import type { ReadsWithTextMeasurer } from './controller.ts';
 import type { CellId, WorkbookReads } from '../model/workbook.ts';
 import type { WholeCellFormat } from '../model/cell-format.ts';
 import type { EnterEdit } from '../model/edit-effects.ts';
@@ -20,6 +23,13 @@ import { formatsToComeOf } from '../presence/follow-person.ts';
 import { isFormulaText } from '../chips/dropdown-pane-edits.ts';
 import { MAX_TEXT_ANSWERED_LATER } from '../editor/entries-answered-later.ts';
 import { editsOfQueued } from '../engine/cause-of-error-cache.ts';
+import { plainTextOfEntry } from '../editor/unanswered-entries.ts';
+import { mergedAreaOrCellOf, scrollToShowActiveCell } from '../selection/model.ts';
+import { rangeSpansOnScreen, isSpanInSight, cellsAreaWidth, cellsAreaHeight } from '../grid/geometry.ts';
+import { isAutoScrollHeld } from '../selection/keep-in-view.ts';
+import { layoutOfView } from '../grid/layout.ts';
+/** Whether an entry carries looks of its own. */
+export type LooksKindOfEntry = 'marks' | 'list' | 'none';
 export function followedPartsOfFormat(format: WholeCellFormat): FollowedFormat {
   let { numberFormat, font, border, ...rest } = format;
   let pattern = {
@@ -126,7 +136,13 @@ export function formatRunsOfRow({ first, last }: LinesFromTo, rowIndex: number, 
   }
   return runs;
 }
-export function formatsToComeOfEntry(state: PageState, reads: WorkbookReads, cellId: CellId, text: string): FormatsToComeOfEntry {
+export function formatsToComeOfEntry(
+  state: PageState,
+  reads: WorkbookReads,
+  cellId: CellId,
+  text: string,
+  looksKind: LooksKindOfEntry,
+): FormatsToComeOfEntry {
   let { sheetId } = state;
   let position = reads.positionOfCell(cellId);
   let columns = position === null ? null : tableColumnsAboveEntry(state, reads, position);
@@ -154,12 +170,18 @@ export function formatsToComeOfEntry(state: PageState, reads: WorkbookReads, cel
     let [own, above, twoAbove] = [cellAt(0), cellAt(1), cellAt(2)];
     if (own === null || above === null || twoAbove === null) return {};
     let { cellControl, ...rest } = formatOfRowsAbove(reads, own, [above, twoAbove]);
-    return cellControl !== undefined && (column !== position.columnIndex || fitsControlAbove)
-      ? {
-          ...rest,
-          cellControl,
-        }
-      : rest;
+    if (cellControl !== undefined && (column !== position.columnIndex || fitsControlAbove))
+      return {
+        ...rest,
+        cellControl,
+      };
+    // Marks typed in the entry itself win over the bold, italic, underline and strikethrough above.
+    if (looksKind !== 'marks' || column !== position.columnIndex || rest.font === undefined) return rest;
+    let { bold: _bold, italic: _italic, underline: _underline, strikethrough: _strikethrough, ...fontLeft } = rest.font;
+    return {
+      ...rest,
+      font: fontLeft,
+    };
   };
   let formatEditsOf = (area: CellArea, format: PartsFollowed): Edit[] => {
     let selection = Object.keys(format).length === 0 ? null : selectionOfArea(state, reads, area);
@@ -213,7 +235,6 @@ export function formatsToComeOfEntry(state: PageState, reads: WorkbookReads, cel
       numberFormat: numberFormatOfCellAbove,
       alignment,
       fillColor,
-      font,
       cellControl,
     } = reads.formatOf(above);
     let look: LookToCome = {
@@ -228,8 +249,8 @@ export function formatsToComeOfEntry(state: PageState, reads: WorkbookReads, cel
       }),
       ...(format.font !== undefined && {
         font: {
-          ...font,
-          strikethrough: false,
+          ...reads.formatOf(cell).font,
+          ...format.font,
         },
       }),
       ...(format.cellControl !== undefined && {
@@ -248,7 +269,7 @@ export function formatsToComeOfEntry(state: PageState, reads: WorkbookReads, cel
       }),
     });
   }
-  let isTypedAsText = !isKeptAsText || text.startsWith(addTextPrefixQuote(''));
+  let isTypedAsText = !isKeptAsText || looksKind !== 'none' || text.startsWith(addTextPrefixQuote(''));
   let entered = isOptionOfDropdown ? textKeptAsText(optionChosen!.label) : isTypedAsText ? null : textKeptAsText(text);
   return {
     formats,
@@ -256,6 +277,12 @@ export function formatsToComeOfEntry(state: PageState, reads: WorkbookReads, cel
     toCome,
   };
 }
+/** Whether an entry carries looks of its own: "marks" (marks or links on some run), "list", or "none" (plain text). */
+export function looksKindOfEntry(entry: Entry): LooksKindOfEntry {
+  if (entry.kind !== 'textWithLooks') return 'none';
+  return entry.paragraphs.some(({ runs }) => runs.some(({ marks, link }) => marks.length > 0 || link !== null)) ? 'marks' : 'list';
+}
+/** A text entered at once under a table also formats its row like the rows above it. */
 export function withFormatsOfRowsAbove(transition: PageTransition, state: PageState, reads: WorkbookReads): PageTransition {
   let [effect, otherEntry] = transition.effects.filter(
     (candidate: PageEffect) => candidate.kind === 'queueEdit' && candidate.edit.kind === 'enter',
@@ -263,9 +290,10 @@ export function withFormatsOfRowsAbove(transition: PageTransition, state: PageSt
   if (otherEntry !== undefined || effect?.kind !== 'queueEdit' || effect.edit.kind !== 'enter') return transition;
   let { edit, ifQueued } = effect as QueueEditEffect & { edit: EnterEdit };
   if (ifQueued.endsEntryAtOnce !== true) return transition;
-  if (edit.entry.kind !== 'text' || edit.entry.text.trim() === '') return transition;
-  if (isFormulaText(edit.entry.text)) return transition;
-  if (edit.entry.text.length > MAX_TEXT_ANSWERED_LATER) return transition;
+  let text = plainTextOfEntry(edit.entry);
+  if (text.trim() === '') return transition;
+  if (isFormulaText(text)) return transition;
+  if (text.length > MAX_TEXT_ANSWERED_LATER) return transition;
   if (editsOfQueued(effect).length > 1) return transition;
   if (ifQueued.thenLine !== undefined) return transition;
   let cellId: CellId = {
@@ -274,8 +302,8 @@ export function withFormatsOfRowsAbove(transition: PageTransition, state: PageSt
     columnId: edit.cell.c,
   };
   let dropdown = reads.dropdownOf(cellId);
-  if (dropdown !== null && !isOptionText(dropdown, edit.entry.text)) return transition;
-  let { formats, entered, toCome } = formatsToComeOfEntry(state, reads, cellId, edit.entry.text);
+  if (dropdown !== null && !isOptionText(dropdown, text)) return transition;
+  let { formats, entered, toCome } = formatsToComeOfEntry(state, reads, cellId, text, looksKindOfEntry(edit.entry));
   if (formats.length === 0 || formats.length > MOST_FORMAT_EDITS_OF_ENTRY) return transition;
   let editEntered: EnterEdit =
     entered === null
@@ -301,6 +329,41 @@ export function withFormatsOfRowsAbove(transition: PageTransition, state: PageSt
     effects: transition.effects.map((candidate: PageEffect) => (candidate === effect ? effectWithFormats : candidate)),
   };
 }
+/** The active cell's spans on screen, when it is on this sheet and in sight. */
+export function activeCellBoxInSight(state: PageState, reads: WorkbookReads, layout: GridLayout): AreaSpansOnScreen | null {
+  let area = state.activeCell.sheetId === state.sheetId ? mergedAreaOrCellOf(reads, state.activeCell) : null;
+  let spans = area === null ? null : rangeSpansOnScreen(area, state, layout, state);
+  return spans !== null && isSpanInSight(spans.across) && isSpanInSight(spans.down) ? spans : null;
+}
+/** Where a waiting box stands: on the active cell when it is in sight, else where it stood last. */
+export function stoodOnBoxOfWaiting(state: PageState, reads: WorkbookReads, layout: GridLayout): AreaSpansOnScreen | null {
+  return activeCellBoxInSight(state, reads, layout) ?? state.waitingBoxStoodOn;
+}
+/** Forgets where a waiting box stood once that place left the cells area or the active cell is back in sight. */
+export function withWaitingBoxStillStoodOn(state: PageState, reads: ReadsWithTextMeasurer): PageState {
+  let stoodOn = state.waitingBoxStoodOn;
+  if (stoodOn === null) return state;
+  return stoodOn.across.start < cellsAreaWidth(state) &&
+    stoodOn.down.start < cellsAreaHeight(state) &&
+    activeCellBoxInSight(state, reads, layoutOfView(state, reads)) === null
+    ? state
+    : {
+        ...state,
+        waitingBoxStoodOn: null,
+      };
+}
+/** Scrolls the active cell back into sight for the reader while a waiting box stands on it. */
+export function bringBackActiveCellForReader(state: PageState, reads: ReadsWithTextMeasurer): PageState {
+  if (state.waitingBoxStoodOn === null || isAutoScrollHeld(state)) return state;
+  let { scrollLeft, scrollTop } = scrollToShowActiveCell(state, reads);
+  if (scrollLeft === state.scrollLeft && scrollTop === state.scrollTop) return state;
+  return {
+    ...state,
+    scrollLeft,
+    scrollTop,
+    timesBroughtBackForReader: state.timesBroughtBackForReader + 1,
+  };
+}
 export const DEFAULT_FOLLOWED_FORMAT: FollowedFormat = followedPartsOfFormat(DEFAULT_CELL_FORMAT);
 export const isSamePartOfFormat = (format: FollowedFormat, otherFormat: FollowedFormat, part: keyof FollowedFormat): boolean =>
   JSON.stringify(format[part]) === JSON.stringify(otherFormat[part]);
@@ -314,7 +377,10 @@ export interface FollowedFormat extends Omit<WholeCellFormat, 'numberFormat' | '
   numberFormat: { pattern: string };
 }
 /** The parts of a cell's format taken from the rows above it. */
-export type PartsFollowed = Partial<FollowedFormat>;
+export type PartsFollowed = Partial<Omit<FollowedFormat, 'font'>> & {
+  /** The font taken; without its marks when the entry carries marks of its own. */
+  font?: Partial<FollowedFormat['font']>;
+};
 /** A run of cells of a row that take the same format from the rows above. */
 export interface FormatRun {
   format: PartsFollowed;

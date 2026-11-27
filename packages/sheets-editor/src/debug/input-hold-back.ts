@@ -1,3 +1,5 @@
+import { isComposingKey } from '@open-artifact/ui/keys';
+
 /** What input is held back on: the page's window, or a stand-in where there is none. */
 export interface HoldBackTarget extends EventTarget {
   document?: Document;
@@ -13,12 +15,21 @@ interface PointerPressed {
 
 /** Holds back the person's input to the page for a while, and lets it through again. */
 export interface InputHoldBack {
-  /** Holds input back; `onInput` hears of the first key or press that would start input. */
-  holdBack(onInput: () => void): void;
+  /** Holds input back; `onInput` hears of the first key or press that would start input, and whether it was for the cells. */
+  holdBack(onInput: (isForCells: boolean) => void): void;
   letThrough(): void;
   isHeldBack(): boolean;
-  /** Typing keeps going for a second: its keys are held back, though input is not. */
-  typingRunsOn(): void;
+}
+
+/** Whether a held-back key is one for the cells (typing, moving, editing, pasting) rather than a shortcut or another named key. */
+export function isKeyForCells(event: Event): boolean {
+  let key: unknown = Reflect.get(event, 'key');
+  if (typeof key !== 'string') return false;
+  let isSet = (flag: string) => Reflect.get(event, flag) === true;
+  let isComposing = isComposingKey({ isComposing: isSet('isComposing'), keyCode: Number(Reflect.get(event, 'keyCode')) });
+  if (KEYS_FOR_CELLS.has(key) || isComposing) return true;
+  if (NAMED_KEY_PATTERN.test(key)) return false;
+  return !(isSet('metaKey') || (isSet('ctrlKey') && !isSet('altKey'))) || key.toLowerCase() === 'v';
 }
 
 export function createInputHoldBack(
@@ -26,7 +37,7 @@ export function createInputHoldBack(
   makePointerEvent: (kind: string, init: PointerEventInit) => Event = (kind, init) => new PointerEvent(kind, init),
   nowMs: () => number = () => performance.now(),
 ): InputHoldBack {
-  let letGo: (() => void) | null = null;
+  let letGo: ((isForCells: boolean) => void) | null = null;
   let pointerDown: PointerPressed | null = null;
   let pointerTarget: PointerPressed | null = null;
   let typingUntil = -1 / 0;
@@ -56,13 +67,13 @@ export function createInputHoldBack(
       if (!isKey && EVENTS_THAT_START_INPUT.has(event.type) && Reflect.get(event, 'isReplay') !== true) typingUntil = -1 / 0;
       if (!isKey || at >= typingUntil) return;
     }
-    let startsInput = EVENTS_THAT_START_INPUT.has(event.type) && !MODIFIER_KEYS.has(String(Reflect.get(event, 'key')));
+    let startsInput = EVENTS_THAT_START_INPUT.has(event.type) && !HOLD_BACK_MODIFIER_KEYS.has(String(Reflect.get(event, 'key')));
     if (event.type === 'keydown' && startsInput) typingUntil = at + 1000;
     if (event.type === 'blur' && event.target === target && wasUnfocused) return;
     if (event.type === 'blur' && event.target === target) wasBlurred = true;
     event.stopImmediatePropagation();
     event.preventDefault();
-    if (startsInput) letGo?.();
+    if (startsInput) letGo?.(!isKey || isKeyForCells(event));
   };
   for (let kind of HELD_BACK_EVENT_KINDS)
     target.addEventListener(kind, onEvent, {
@@ -105,7 +116,6 @@ export function createInputHoldBack(
       if (wasBlurred && target.document?.hasFocus() === false) target.dispatchEvent(new Event('blur'));
     },
     isHeldBack: () => letGo !== null,
-    typingRunsOn: () => void (typingUntil = nowMs() + 1000),
   };
 }
 export const HELD_BACK_EVENT_KINDS = [
@@ -136,5 +146,25 @@ export const HELD_BACK_EVENT_KINDS = [
 ];
 export const EVENT_KINDS_HELD_WHILE_HOLDING = ['wheel', 'touchstart', 'gesturestart', 'gesturechange'];
 export const EVENTS_THAT_START_INPUT = new Set(['keydown', 'pointerdown', 'mousedown']);
-export const MODIFIER_KEYS = new Set(['Shift', 'Control', 'Alt', 'AltGraph', 'Meta', 'CapsLock']);
+export const HOLD_BACK_MODIFIER_KEYS = new Set(['Shift', 'Control', 'Alt', 'AltGraph', 'Meta', 'CapsLock']);
+export const NAMED_KEY_PATTERN = /^[A-Z][A-Za-z0-9]+$/;
+export const KEYS_FOR_CELLS = new Set([
+  'Backspace',
+  'Delete',
+  'Enter',
+  'Tab',
+  'F2',
+  'F6',
+  'ArrowUp',
+  'ArrowDown',
+  'ArrowLeft',
+  'ArrowRight',
+  'Home',
+  'End',
+  'PageUp',
+  'PageDown',
+  'Process',
+  'Dead',
+  'Unidentified',
+]);
 export const pageInputHoldBack = createInputHoldBack(typeof window > 'u' ? new EventTarget() : window);

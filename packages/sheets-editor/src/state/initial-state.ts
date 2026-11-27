@@ -35,7 +35,7 @@ import type { CellId, WorkbookReads } from '../model/workbook.ts';
 import type { CellArea, CellSelection } from '../selection/model.ts';
 import type { CaretSpan } from '../keys/key-acts.ts';
 import type { CellDensity } from '../grid/cell-metrics-values.ts';
-import type { GridPoint, GridScroll, LinesAxisName } from '../grid/geometry.ts';
+import type { AreaSpansOnScreen, GridPoint, GridScroll, LinesAxisName } from '../grid/geometry.ts';
 import type { SelectionHandle } from '../kit/selection-frame.tsx';
 import type { FillingDrag } from '../selection/fill-handle.ts';
 import type { MovingCellsDrag } from '../selection/move-cells.ts';
@@ -47,7 +47,7 @@ import type { ColumnsOfTableMoving } from '../selection/move-table-columns.ts';
 import type { RowsAndColumnsOfTableToSort } from '../selection/table-select.ts';
 import type { LabelEnds } from '../model/a1-references.ts';
 import type { RefusalMessageKey } from '../model/refusals.ts';
-import type { WorkbookVersion } from '../history/requests.ts';
+import type { VersionNameOutcome, WorkbookVersion } from '../history/requests.ts';
 import type { TakingBackAsked } from '../history/version-history.ts';
 import type {
   AskedKindOfEdit,
@@ -55,6 +55,8 @@ import type {
   EditAnswerRefusedNotice,
   GroupsTooDeepNotice,
   TooManyNamedViewsNotice,
+  TooManyProtectionsNotice,
+  TooManyCellsWithADefaultNotice,
   LinesInTheWayNotice,
   SheetNameRefusal,
   SheetNameRefusedNotice,
@@ -63,10 +65,14 @@ import type {
 } from './edit-answers.ts';
 import type { EditRefusedNotice } from './edit-refusals.ts';
 import type { ChartPastedDone, CopiedOrCutDone, PasteRefusedNotice } from './copy-paste.ts';
-import type { DuplicateRefusedNotice, SheetDeletedUndoOffer, SheetShownDone } from './sheet-tabs.ts';
+import type { DuplicateRefusedNotice, SheetDeletedUndoOffer, SheetHiddenUndoOffer, SheetShownDone, SheetUnhiddenDone } from './sheet-tabs.ts';
 import type { SheetMoved } from './sheet-move.ts';
 import type { OwnCellLost } from './own-cell-lost.ts';
 import type { InteractiveDone } from './places.ts';
+import type { NamedRangeDeletedUndoOffer, NamedRangeSavedDone, NamedRangesInPane } from './named-ranges.ts';
+import type { ProtectionDoneOnPage, ProtectionOpened } from './protection.ts';
+import type { DefaultsDone } from '../messages/defaults-and-limits.ts';
+import type { DefaultAndLimitsShown } from '../ui/defaults-and-limits-dialog.tsx';
 import type { OwnSortChoice } from '../tables/own-filters.ts';
 import type { PivotTableDone, PivotTableOfPane } from '../tables/pivot-tables.ts';
 import type { NamedViewDeletedOffer, NamedViewDone } from '../tables/named-view-actions.ts';
@@ -87,7 +93,11 @@ import type {
   RowsAsked,
   WhyVersionNotShown,
 } from './event-reducer.ts';
-import type { Place } from './places.ts';
+import type { Place, PlaceInInteractive, SittingInInteractive } from './places.ts';
+import type { PivotTableOutOfDate } from './pivot-tables-out-of-date.ts';
+import type { CallToConfirm, RefreshOfTable } from '../tables/connected-table-refresh.ts';
+import type { RulesOnTheirWay } from '../format/conditional/pane-state.ts';
+import type { Person } from '../store/frames.ts';
 import type { PageMode } from './transitions.ts';
 import type { FiguresOfSelection } from './figures-of-selection.ts';
 import type { FormatOfSelection, SelectionSeen } from './selection-seen.ts';
@@ -132,7 +142,7 @@ import type { HeldOwnFilterSnapshot as HeldOwnFilterSnapshotOfTable, OwnFilter a
 import { numberFormatExamples, CELL_FORMAT_CHOICES } from '../format/number-format-choices.ts';
 import { NO_FIGURES_OF_SELECTION, updateFiguresOfSelection } from './figures-of-selection.ts';
 import { makeFormatOfSelection, settleSelectionSeen } from './selection-seen.ts';
-import { DEFAULT_CELL_FORMAT } from '../model/cell-format.ts';
+import { DEFAULT_WHOLE_CELL_FORMAT } from '../model/cell-format.ts';
 import { NO_AREA_BORDERS } from '../grid/borders.ts';
 import { DEFAULT_BORDER_PEN } from '../format/borders.ts';
 import type { BorderLine } from '../format/borders.ts';
@@ -281,6 +291,8 @@ export interface ReadyFilter {
 export interface OwnFilterList {
   tableKey: string;
   isFilterNotDrawnYet: boolean;
+  /** The list was asked at the heading of a table found in the cells. */
+  isAskedAtHeadingOfFoundTable?: boolean;
   isTableGuessed: boolean;
   c: ColumnId;
   values: OwnFilterValues | null;
@@ -328,7 +340,8 @@ export type AgentForRowsAsk =
   | { kind: 'isAsked'; askId: number; columns: RowsAskColumnTold[] }
   | { kind: 'hasRead'; askId: number }
   | { kind: 'hasFailed'; askId: number; isRateLimited: boolean }
-  | { kind: 'hasNotRead' };
+  | { kind: 'hasNotRead' }
+  | { kind: 'saysNoFilterOrSort'; askId: number };
 /** The ask of the agent made ahead of the person's words: its id, held back, or failed. */
 export type RowsAskAheadStands = number | 'isHeldBack' | 'hasFailed';
 /** The table the rows are asked of. */
@@ -353,6 +366,8 @@ export interface RowsAskedFor {
   isFilterNotDrawnYet: boolean;
   isTableGuessed: boolean;
   hasStopped: boolean;
+  /** The words read are tried only once the person rests. */
+  isTryPutOff: boolean;
   table: RowsAskTable | null;
   tableUnderLetters: TableUnderLetters | null;
   placeBefore: SelectionPlace;
@@ -428,7 +443,16 @@ export interface HeldUntilAnswered {
   held: Dragging;
   edit: Edit;
 }
-export type MenuHolds = 'all' | 'cellsToSort' | 'chart' | 'columnWidthField' | 'figures' | 'noEdits' | 'rowHeightField';
+export type MenuHolds =
+  | 'all'
+  | 'cellsToSort'
+  | 'chart'
+  | 'columnWidthField'
+  | 'defaultAndLimits'
+  | 'figures'
+  | 'noEdits'
+  | 'protection'
+  | 'rowHeightField';
 export interface SortColumnsPointedAt {
   range: ColumnId | null;
   sheet: ColumnId | null;
@@ -458,6 +482,10 @@ export interface Menu {
   isOfContextBar?: true;
   /** Whom the menu's sorts of the sheet and of the range are for, once worked out (`null`: they sort nothing). */
   sortsFor?: { sheet: SortsFor | null; range: SortsFor | null };
+  /** The default value and limits form, while the menu holds it (state/defaults-and-limits.ts). */
+  defaultAndLimits?: DefaultAndLimitsShown;
+  /** The protection the menu's pane opened on (state/protection.ts). */
+  protection?: ProtectionOpened;
 }
 export interface CustomNumberFormat extends HowPatternIsTyped {
   pattern: string;
@@ -844,6 +872,10 @@ export interface VersionHistoryInPane {
   isCaretForCells: boolean;
   /** The version picked before the look at it ended, to put the caret back on. */
   pickedLast: number | null;
+  /** The first revision of the version whose name is being typed. */
+  nameTypedFor: number | null;
+  /** Set while a name set is on its way to the store. */
+  isNameOnItsWay: boolean;
 }
 /** The sort open in the side pane. */
 export type SortInPane = SortOfPane;
@@ -868,7 +900,25 @@ export interface PivotTableSidePane {
   kind: 'pivotTable';
   pivotTable: PivotTableOfPane;
 }
-export type SidePane = DropdownPane | ConditionalFormatsPane | VersionHistoryPane | SortPane | PivotTableSidePane;
+export interface NamedRangesPane {
+  kind: 'namedRanges';
+  namedRanges: NamedRangesInPane;
+}
+export interface ChangedCellsSidePane {
+  kind: 'changedCells';
+}
+export interface SourceOfTablePane {
+  kind: 'sourceOfTable';
+}
+export type SidePane =
+  | DropdownPane
+  | ConditionalFormatsPane
+  | VersionHistoryPane
+  | SortPane
+  | PivotTableSidePane
+  | NamedRangesPane
+  | ChangedCellsSidePane
+  | SourceOfTablePane;
 export type SidePaneKind = SidePane['kind'];
 /** Whose history is shown: the whole row of the cell, or the cell alone. */
 export type CellHistoryScope = 'row' | 'cell';
@@ -914,6 +964,12 @@ export interface CaretInText {
 /** A headed column offered in the function list. */
 export interface FunctionListColumn extends AutocompleteColumn {
   columnId: ColumnId;
+  /** The table the column heads, when it is a column of a table. */
+  table?: string;
+}
+/** A named range offered in the function list. */
+export interface FunctionListNamedRange extends AutocompleteColumn {
+  namedRangeId: string;
 }
 /** Where a family of functions starts in the names of the list. */
 export interface FunctionFamilyInList {
@@ -921,11 +977,12 @@ export interface FunctionFamilyInList {
   from: number;
 }
 /** A row of the function list: a function's name, or a column. */
-export type FunctionListRow = string | FunctionListColumn;
+export type FunctionListRow = string | FunctionListColumn | FunctionListNamedRange;
 export interface FunctionList {
   typedFrom: number;
   typedTo: number;
   columns: FunctionListColumn[];
+  namedRanges: FunctionListNamedRange[];
   names: string[];
   families: FunctionFamilyInList[];
   highlighted: FunctionListRow;
@@ -1187,6 +1244,7 @@ export interface EditRefusedOnPage {
   asked: AskedKindOfEdit;
   mergedCells?: EditAnswerRefusedNotice['mergedCells'];
   isTypingLost?: boolean;
+  limits?: EditAnswerRefusedNotice['limits'];
 }
 /** The sort asked for left the rows as they were; the column is its letters. */
 export interface AlreadySortedNotice {
@@ -1246,7 +1304,8 @@ export type OneRangeAct =
   | 'deleteColumns'
   | 'sortCells'
   | 'dropdown'
-  | 'askAgent';
+  | 'askAgent'
+  | 'protect';
 /** An act takes one range, and several are selected. */
 export interface OneRangeNeededNotice {
   kind: 'oneRangeNeeded';
@@ -1300,6 +1359,8 @@ export type Notice =
   | CellHoldsNoMorePeopleNotice
   | GroupsTooDeepNotice
   | TooManyNamedViewsNotice
+  | TooManyProtectionsNotice
+  | TooManyCellsWithADefaultNotice
   | LinesInTheWayNotice
   | SheetNameRefusedNotice
   | StepNotTakenNotice
@@ -1317,7 +1378,18 @@ export type Notice =
   | OwnSortIsOverNotice
   | TextsNotConvertedNotice
   | VersionNotTakenNotice
+  | VersionNameNotSavedNotice
+  | TooManyVersionNamesNotice
   | NoticeWithoutDetail;
+/** The notice that a version's name was not saved, and why. */
+export interface VersionNameNotSavedNotice {
+  kind: 'versionNameNotSaved';
+  why: Exclude<VersionNameOutcome, 'saved' | 'tooManyNames'>;
+}
+/** The notice that the workbook holds as many version names as it may. */
+export interface TooManyVersionNamesNotice {
+  kind: 'tooManyVersionNames';
+}
 /** The news that an entry being typed was dropped, by a merge or by the removal of its cell. */
 export interface EntryDropped {
   kind: 'entryDroppedByMerge' | 'entryDroppedByRemoval';
@@ -1440,6 +1512,7 @@ export interface VersionRestoredOffer {
 /** An offer to undo what was just done. */
 export type UndoOffer =
   | SheetDeletedUndoOffer
+  | SheetHiddenUndoOffer
   | SortedWithNoKeyboardOffer
   | SortChangedResultsOffer
   | MoveOfColumnsChangedResultsOffer
@@ -1456,7 +1529,8 @@ export type UndoOffer =
   | TableImportedAsNewSheetOffer
   | TableImportedIntoSheetOffer
   | VersionRestoredOffer
-  | NamedViewDeletedOffer;
+  | NamedViewDeletedOffer
+  | NamedRangeDeletedUndoOffer;
 /** What the page stood at when the marks of an import were set. */
 export type StateWhenImportMarked = Pick<
   PageState,
@@ -1539,6 +1613,8 @@ export interface Find {
   isReplaceShown: boolean;
   isCapped: boolean;
   editsSinceLooked: number;
+  /** How many times the find went to a cell. */
+  timesGoneToCell: number;
 }
 export type FontMark = 'bold' | 'italic' | 'underline' | 'strikethrough';
 export interface StretchOfLooks {
@@ -1613,6 +1689,8 @@ export interface DropdownOpen {
   cueForCards: CueForCards;
   isNewOptionBeingNamed: boolean;
   timesNewOptionAsked: number;
+  /** Left open by the press that opened it, to be shut when that press ends elsewhere. */
+  isLeftOpenByPress: boolean;
 }
 /** Every edit since a version, taken back to restore that version. */
 export interface TakingBackAllSinceVersion {
@@ -1944,6 +2022,7 @@ export type LastDone =
   | CopiedOrCutDone
   | ChartPastedDone
   | (SheetShownDone & { isFormulaOfAgentDiscarded?: true })
+  | SheetUnhiddenDone
   | LinkAddressShown
   | SteppedOutOfCells
   | DoneWithoutDetail
@@ -1986,7 +2065,10 @@ export type LastDone =
   | OfferedWordsEnteredDone
   | NamedViewDone
   | InteractiveDone
-  | PivotTableDone;
+  | PivotTableDone
+  | NamedRangeSavedDone
+  | DefaultsDone
+  | ProtectionDoneOnPage;
 /** The cells a link to the workbook points at: asked for until the grid can show them, then lit. */
 export type CellsLinkedTo = { kind: 'asked'; place: PlaceOfLink } | { kind: 'lit'; place: PlaceOfLink; cells: CellsChanged[] };
 export interface CutJustMoved {
@@ -2093,6 +2175,9 @@ export interface PageState extends CellSelection {
   movedClearOfColumnsTo: CellId | null;
   tabRun: TabRun | null;
   pagesTurnedForReader: number;
+  /** Where a waiting box stood on screen while the active cell was in sight. */
+  waitingBoxStoodOn: AreaSpansOnScreen | null;
+  timesBroughtBackForReader: number;
   scrolledForEntry: ScrolledForEntry | null;
   scrolledForNewChart: ScrolledForNewChart | null;
   gridWidth: number;
@@ -2118,13 +2203,16 @@ export interface PageState extends CellSelection {
   rowsAskedFor: RowsAskedFor | null;
   filterKeptOnForColumnsCard: string | null;
   viewerId: string | null;
+  person: Person | null;
   dragging: Dragging | null;
   placementSelected: string | null;
   heldUntilAnswered: HeldUntilAnswered | null;
+  rulesOnTheirWay: RulesOnTheirWay | null;
   pressesOnFillHandle: number;
   menu: Menu | null;
   customNumberFormat: CustomNumberFormat | null;
   pasteThatWaits: PasteThatWaits | null;
+  callToConfirm: CallToConfirm | null;
   pickForWorkbook: PickForWorkbook | null;
   examplesOfNumberFormats: ExamplesOfNumberFormats;
   isListOfKeysOpen: boolean;
@@ -2163,7 +2251,9 @@ export interface PageState extends CellSelection {
   readySets: ReadySet[] | null;
   timesSidePaneAsked: number;
   /** The pivot tables of the sheet in view whose source changed since they were last worked out. */
-  pivotTablesOutOfDateAt: CellId[];
+  pivotTablesOutOfDate: PivotTableOutOfDate[];
+  refreshOfTable: RefreshOfTable | null;
+  refreshAskCount: number;
   timesCalendarAsked: number;
   waysIn: WaysIn;
   areWaysInOutOfSight: boolean;
@@ -2210,6 +2300,7 @@ export interface PageState extends CellSelection {
   marksOfImportToCome: MarksOfImportToCome | null;
   stepsToUndo: number;
   stepsToRedo: number;
+  sittingInInteractive: SittingInInteractive | null;
   formatAsTableChosenLast: FormatAsTableChosenLast | null;
   /** The own sort of a table chosen last, to undo it while the sheet stays in view. */
   ownSortChosenLast: OwnSortChoice | null;
@@ -2258,6 +2349,7 @@ export interface PageState extends CellSelection {
   followed: Followed | null;
   shownByAgent: ShownByAgent | null;
   cellsLinkedTo: CellsLinkedTo | null;
+  placeInInteractive: PlaceInInteractive | null;
   changesAskedFor: number;
   turnOfAgent: TurnOfAgent;
   doneByAgent: DoneByAgent | null;
@@ -2290,6 +2382,8 @@ export function createInitialPageState(
     tabRun: null,
     rangeWalked: null,
     pagesTurnedForReader: 0,
+    waitingBoxStoodOn: null,
+    timesBroughtBackForReader: 0,
     scrolledForEntry: null,
     scrolledForNewChart: null,
     gridWidth: 0,
@@ -2315,13 +2409,16 @@ export function createInitialPageState(
     rowsAskedFor: null,
     filterKeptOnForColumnsCard: null,
     viewerId: null,
+    person: null,
     dragging: null,
     placementSelected: null,
     heldUntilAnswered: null,
+    rulesOnTheirWay: null,
     pressesOnFillHandle: 0,
     menu: null,
     customNumberFormat: null,
     pasteThatWaits: null,
+    callToConfirm: null,
     pickForWorkbook: null,
     examplesOfNumberFormats: numberFormatExamples(reads),
     isListOfKeysOpen: false,
@@ -2337,16 +2434,18 @@ export function createInitialPageState(
       cellsAre: 'empty',
       isSoOfEveryCell: true,
       areAllRead: true,
+      hasCellOfSeveralPeople: false,
       shape: 'cell',
     },
     selectionLeftByPerson: {
       cellsAre: 'empty',
       isSoOfEveryCell: true,
       areAllRead: true,
+      hasCellOfSeveralPeople: false,
       shape: 'cell',
     },
     chartsOnOffer: [],
-    formatOfSelection: makeFormatOfSelection(DEFAULT_CELL_FORMAT, reads, CELL_FORMAT_CHOICES, true, 'left', {
+    formatOfSelection: makeFormatOfSelection(DEFAULT_WHOLE_CELL_FORMAT, reads, CELL_FORMAT_CHOICES, true, 'left', {
       lines: NO_AREA_BORDERS,
       isFromSample: false,
     }),
@@ -2380,7 +2479,9 @@ export function createInitialPageState(
     hasViewNoAgentForRules: false,
     readySets: null,
     timesSidePaneAsked: 0,
-    pivotTablesOutOfDateAt: [],
+    pivotTablesOutOfDate: [],
+    refreshOfTable: null,
+    refreshAskCount: 0,
     timesCalendarAsked: 0,
     waysIn: waysInAtOpening(reads, canImportFiles),
     areWaysInOutOfSight: false,
@@ -2427,6 +2528,7 @@ export function createInitialPageState(
     marksOfImportToCome: null,
     stepsToUndo: 0,
     stepsToRedo: 0,
+    sittingInInteractive: null,
     formatAsTableChosenLast: null,
     ownSortChosenLast: null,
     chartBeingMade: null,
@@ -2473,6 +2575,7 @@ export function createInitialPageState(
     followed: null,
     shownByAgent: null,
     cellsLinkedTo: null,
+    placeInInteractive: null,
     changesAskedFor: 0,
     turnOfAgent: 'nothingSaid',
     doneByAgent: null,

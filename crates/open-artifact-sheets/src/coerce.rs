@@ -15,7 +15,10 @@ pub fn to_number(v: &Value, locale: &Locale) -> Result<f64, CellError> {
         Value::Blank => Ok(0.0),
         Value::Number(n) => Ok(*n),
         Value::Boolean(b) => Ok(if *b { 1.0 } else { 0.0 }),
-        Value::Text(s) => typed_text::number_of_text_in(s, locale).ok_or(CellError::Value),
+        Value::Text(s) => typed_text::number_of_text_in(s, locale).ok_or_else(|| {
+            crate::told::tell(|| crate::told::Told::TextNotANumber(s.clone()));
+            CellError::Value
+        }),
         Value::Error(e) => Err(*e),
     }
 }

@@ -1,4 +1,4 @@
-import { instantiateSheetsEngine, type PackedCellBlock, type SheetsEngine } from '@open-artifact/wasm-sheets';
+import { loadSheetsEngine, type PackedCellBlock, type SheetsEngine } from '@open-artifact/wasm-sheets';
 import type {
   AnswerOf,
   CellBlockIndex,
@@ -59,10 +59,11 @@ interface CellsOfAnAnswer {
   cells: (CellBlockIndex | CellsPacked)[];
 }
 
-const engineOf = (module: WebAssembly.Module | BufferSource): SheetsEngine => instantiateSheetsEngine(module);
+// The engine is instantiated without blocking: a page's main thread may not instantiate a module this large at once.
+const engineOf = (module: WebAssembly.Module | BufferSource): Promise<SheetsEngine> => loadSheetsEngine(module);
 
 export async function createWorkbookSessionCore(module: WebAssembly.Module | BufferSource): Promise<WorkbookCore> {
-  const session = engineOf(module).session();
+  const session = (await engineOf(module)).session();
   return {
     answer(request) {
       let blocks: CellsPacked[] = [];
@@ -82,7 +83,7 @@ export async function createWorkbookSessionCore(module: WebAssembly.Module | Buf
 }
 
 export async function createSheetsUtilities(module: WebAssembly.Module | BufferSource): Promise<SheetsUtilities> {
-  const engine = engineOf(module);
+  const engine = await engineOf(module);
   return {
     answer: (request) => JSON.parse(engine.utilityJson(JSON.stringify(request))),
   };

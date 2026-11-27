@@ -181,6 +181,7 @@ export const mayTapBeTold = ({
 }: Pick<GridToTap, 'isFillHandleHeld' | 'isFillHandleOnlyTouched' | 'isFingerSelecting' | 'isTapYetToBeTold'>): boolean => (!isFillHandleHeld || isFillHandleOnlyTouched) && (!isFingerSelecting || isTapYetToBeTold);
 export const isTapOnGrid = (point: GridPoint, grid: GridToTap): boolean => tapOnGrid(point, grid) !== null;
 export const SOON_AFTER_CELL_TAP_MS = 500;
+export const isWithinCellTapWindow = (ms: number): boolean => ms <= SOON_AFTER_CELL_TAP_MS;
 export const isSoonAfterCellTap = ({ last }: Pick<Taps, 'last'>, atMs: number): boolean =>
   last?.on.startsWith('cell-') === true && atMs - last.endedAtMs <= SOON_AFTER_CELL_TAP_MS;
 export const tapsPressedOnLastTap = ({ last }: Pick<Taps, 'last'>, { pointerId, atMs, at }: Pick<PressToTap, 'pointerId' | 'atMs' | 'at'>): Taps =>

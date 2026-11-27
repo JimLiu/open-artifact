@@ -274,6 +274,9 @@ fn check_copy(bases: &Bases, s: &Sheet) -> Result<(), Refused> {
     Ok(())
 }
 
+/// The most connected tables a workbook has for one of them to be copied.
+const MOST_CONNECTED_TABLES_COPIED: usize = 5;
+
 pub(super) fn duplicate(
     workbook: &Workbook,
     sheet_id: &str,
@@ -297,6 +300,22 @@ pub(super) fn duplicate(
         _ => (Vec::new(), Vec::new(), None),
     };
     let copy_name = copy_name(workbook, name).ok_or(Refused::Because("sheetNameNotAllowed"))?;
+    if let Some(table) = &s.connected.table {
+        // A connected table is copied while the workbook has fewer than five (adding one has no such limit); a copy
+        // whose sheet or column ids are held already is refused for that first.
+        let every_sheet = || workbook.sheets.iter().chain(&workbook.deleted_sheets);
+        let column_held = |n: usize| {
+            let line = bases.parse(&format!("col_{code}.{n}"));
+            line.is_some_and(|l| every_sheet().any(|s| s.columns.knows(l)))
+        };
+        if every_sheet().any(|s| s.id == new_id) || (0..s.columns.total()).any(column_held) {
+            return Err(Refused::Because("idAlreadyHeld"));
+        }
+        if workbook.sheets.iter().filter(|s| s.connected.table.is_some()).count() >= MOST_CONNECTED_TABLES_COPIED {
+            return Err(Refused::Because("tooManyConnectedTables"));
+        }
+        return Ok(connected_copy(s, table, &new_id, copy_name, sheet_id, &columns));
+    }
 
     let mut ops = vec![
         Op::InsertSheet { sheet_id: new_id.clone(), name: copy_name, after: Some(sheet_id.to_owned()) },
@@ -436,6 +455,7 @@ pub(super) fn duplicate(
             last_frozen_row: frozen_row.map(|r| Some(rows.line(r))),
             last_frozen_column: frozen_column.map(|c| Some(columns.line(c))),
             are_gridlines_hidden: s.are_gridlines_hidden.then_some(true),
+            is_hidden: None,
             interactive: None,
         };
         ops.push(Op::SetSheetSettings { sheets: vec![SheetToSet { sheet_id: new_id.clone(), settings }] });
@@ -605,6 +625,21 @@ pub(super) fn duplicate(
                                     }
                                     *id = sheet_id_of(id);
                                 }
+                                Reference::TableColumn { sheet_id: id, c, .. } => {
+                                    if id == sheet_id {
+                                        *c = columns.id(bases, c);
+                                    }
+                                    *id = sheet_id_of(id);
+                                }
+                                Reference::TablePart { sheet_id: id, columns: spanned, .. } => {
+                                    if let Some(spanned) = spanned.as_mut().filter(|_| id == sheet_id) {
+                                        spanned.left = columns.id(bases, &spanned.left);
+                                        spanned.right = columns.id(bases, &spanned.right);
+                                    }
+                                    *id = sheet_id_of(id);
+                                }
+                                // The copy reads the named range as the sheet does.
+                                Reference::NamedRange { .. } => {}
                             }
                             reference
                         })
@@ -636,4 +671,51 @@ pub(super) fn duplicate(
     }
     check_copy(bases, s)?;
     Ok(Made { ops, place: Some(Place::sheet(&new_id)) })
+}
+
+/// The copy of a connected sheet: its columns (the deleted ones deleted) and their widths, the table they show and the
+/// snapshot it holds, the copy's rows those of the same snapshot. Nothing else of the sheet is copied: it has no cells,
+/// formats or rows of its own.
+fn connected_copy(
+    s: &Sheet,
+    table: &crate::workbook::connected::ConnectedTable,
+    new_id: &str,
+    copy_name: String,
+    sheet_id: &str,
+    columns: &Lines,
+) -> Made {
+    use crate::workbook::connected::{ColumnToSet, ConnectedTableToSet, SnapshotToSet};
+    let mut ops = vec![
+        Op::InsertSheet { sheet_id: new_id.to_owned(), name: copy_name, after: Some(sheet_id.to_owned()) },
+        Op::InsertColumns { sheet_id: new_id.to_owned(), after: None, columns: columns.run(0, s.columns.total() as u32) },
+    ];
+    // Column widths are copied as for any sheet; the rows are the view's, so their heights are not.
+    let widths = sizes(columns, s.columns.every_line(), &s.column_widths);
+    if !widths.is_empty() {
+        let widths =
+            widths.into_iter().map(|(columns, w)| ColumnsToSize { columns, width_in_pixels: Some(w) }).collect();
+        ops.push(Op::SetColumnWidths { sheet_id: new_id.to_owned(), widths });
+    }
+    // The deleted columns are copied deleted.
+    let every = s.columns.every_line();
+    let deleted: Vec<u32> = (0..every.len() as u32).filter(|&i| s.columns.is_deleted(every[i as usize])).collect();
+    if !deleted.is_empty() {
+        ops.push(Op::DeleteColumns { sheet_id: new_id.to_owned(), columns: runs(&columns.base, deleted.into_iter()) });
+    }
+    let copied: Vec<ColumnToSet> = s
+        .columns
+        .lines()
+        .iter()
+        .filter_map(|c| Some(ColumnToSet { c: columns.line(*c), column: Some(s.connected.columns.get(c)?.clone()) }))
+        .collect();
+    if !copied.is_empty() {
+        ops.push(Op::SetColumnsOfConnectedTable { sheet_id: new_id.to_owned(), columns: copied });
+    }
+    let connected_table = Some(table.clone());
+    ops.push(Op::SetConnectedTables { tables: vec![ConnectedTableToSet { sheet_id: new_id.to_owned(), connected_table }] });
+    if let Some(snapshot) = &s.connected.snapshot {
+        let snapshot = Some(snapshot.clone());
+        ops.push(Op::SetSnapshots { snapshots: vec![SnapshotToSet { sheet_id: new_id.to_owned(), snapshot }] });
+    }
+    Made { ops, place: Some(Place::sheet(new_id)) }
 }

@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { prefersReducedMotion } from '../kit/platform.ts';
 import { CHANGE_HOLD_BASE_MS, CHANGE_HOLD_MAX_GROWTH_MS, CHANGE_HOLD_PER_CELL_MS, CHANGE_HOLD_TAIL_MS } from './changes-by-agent.ts';
 import { ariaIndex } from '../grid/cell-drawing.tsx';
 import { NO_CELLS_AS_BEFORE } from '../grid/grid-drawing.tsx';
@@ -335,8 +336,7 @@ export function useChangesComingIn(containerRef: React.RefObject<HTMLElement | n
         runningByCell.current.delete(cellElement);
       }
       let newMarks = drawn.marksOnChangesByAgent.filter((mark) => mark.revision > drawnBefore.latestRevisionByAgent);
-      if (newMarks.length === 0 || container.ownerDocument.hidden) return;
-      if (container.ownerDocument.defaultView?.matchMedia('(prefers-reduced-motion:reduce)')?.matches !== false) return;
+      if (newMarks.length === 0 || container.ownerDocument.hidden || prefersReducedMotion()) return;
       let cellsBefore = drawnCellsByKey(drawnBefore.rows);
       let cellsComing = new Set<Element>();
       newMarks.reverse();

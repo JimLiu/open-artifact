@@ -21,6 +21,7 @@ import {
   ownFilterKeyNotDrawnYet,
   isOwnFilterDrawn,
   ownSortToUndo,
+  applyOwnFiltersOfLoadedConnectedTables,
 } from '../tables/own-filters.ts';
 import {
   tableKeyOfFilterBarTurnedOn,
@@ -89,10 +90,15 @@ import { updateFiguresOfSelection } from './figures-of-selection.ts';
 import { withXlsxFileToldWhenFree } from '../export/xlsx-saved-notice.ts';
 import { withoutEntryOfPressedCell } from '../chips/list-on-press.ts';
 import { reduceSheetsEvent } from './event-reducer.ts';
-import { cellWithListOfEntry, unansweredEntryOf } from '../editor/unanswered-entries.ts';
+import { cellWithListOfEntry, unansweredEntryDrawn } from '../editor/unanswered-entries.ts';
 import { triesToEdit, refuseEditsOfTransition, refuseEditsInCommentMode, isEffectAnEdit } from './edit-refusals.ts';
 import { endVersionLook, endLookEffects, dropStaleTakingBack } from '../history/version-history.ts';
-import { withFormatsOfRowsAbove } from './formats-to-come.ts';
+import { withFormatsOfRowsAbove, withWaitingBoxStillStoodOn } from './formats-to-come.ts';
+import { sittingAfterEvent } from './places.ts';
+import { closeDefaultsMenuWhenAnswered } from './defaults-and-limits.ts';
+import { closeNamedRangeFormWhenSaved } from './named-ranges.ts';
+import { refuseEntryInProtectedCell, closeProtectionThatIsGone } from './protection.ts';
+import { withoutEditingConnectedTable, withoutSourceOfTablePaneIfNoCall, withoutOutdatedTableRefusal } from '../tables/connected-table-refresh.ts';
 import { guardEditsAgainstRowsOutOfView } from '../edits/rows-out-of-view.ts';
 import { addFilterValuesToInserts } from '../tables/insert-filter-values.ts';
 import { keepCalendarInStep } from '../chips/calendar.ts';
@@ -174,7 +180,7 @@ export function reduceEventWithFollowUps(state: PageState, event: PageEvent, con
     let { ownFilterList } = eventResult.state;
     let isFilterNotDrawnYet = filterKeptOnForColumnsCard !== null && state.rowsAskedFor.isFilterNotDrawnYet;
     let { isTableGuessed, tableUnderLetters, table } = state.rowsAskedFor;
-    let isListOfGuessedTable = isTableGuessed && ownFilterList?.tableKey === table?.key;
+    let isListOfGuessedTable = isTableGuessed && event.kind === 'ownFilterListAsked' && event.tableKey === table?.key;
     let sort = isListOfGuessedTable && tableUnderLetters === null ? null : (ownFilterList?.sort ?? null);
     let nextOwnFilterList =
       ownFilterList === null
@@ -269,8 +275,11 @@ export function reduceEventWithFollowUps(state: PageState, event: PageEvent, con
   let stateAfterFollowUps = updateImportMarks(
     updateSelectionJustImported(
       stateIn,
-      dropStaleMovedClearOfColumns(
-        dropStaleRangeWalked(dropCaretAtEndOfOtherSheet(stateIn, keepTabRun(stateIn, reduced.state, event)), context.reads),
+      withWaitingBoxStillStoodOn(
+        dropStaleMovedClearOfColumns(
+          dropStaleRangeWalked(dropCaretAtEndOfOtherSheet(stateIn, keepTabRun(stateIn, reduced.state, event)), context.reads),
+          context.reads,
+        ),
         context.reads,
       ),
       event,
@@ -291,6 +300,7 @@ export function reduceEventWithFollowUps(state: PageState, event: PageEvent, con
   let offersAtSelection = stepOffersAtSelection(stateIn, withWaysIn.state, event, context.reads);
   let stepsToUndo = stepsToUndoAfter(stateIn.stepsToUndo, event);
   let stepsToRedo = stepsToRedoAfterEvent(stateIn.stepsToRedo, event);
+  let sittingInInteractive = sittingAfterEvent(withWaysIn.state, event, context.reads);
   let areStepsUnchanged = stepsToUndo === stateIn.stepsToUndo && stepsToRedo === stateIn.stepsToRedo;
   let isSameSheetAsBefore = areStepsUnchanged && withWaysIn.state.sheetId === stateIn.sheetId;
   let formatAsTableChosenLast = isSameSheetAsBefore ? withWaysIn.state.formatAsTableChosenLast : null;
@@ -307,6 +317,7 @@ export function reduceEventWithFollowUps(state: PageState, event: PageEvent, con
         offersAtSelection === withWaysIn.state.offersAtSelection &&
         formatAsTableChosenLast === withWaysIn.state.formatAsTableChosenLast &&
         ownSortChosenLast === withWaysIn.state.ownSortChosenLast &&
+        sittingInInteractive === withWaysIn.state.sittingInInteractive &&
         areStepsUnchanged
         ? withWaysIn.state
         : {
@@ -315,6 +326,7 @@ export function reduceEventWithFollowUps(state: PageState, event: PageEvent, con
             offersAtSelection,
             stepsToUndo,
             stepsToRedo,
+            sittingInInteractive,
             formatAsTableChosenLast,
             ownSortChosenLast,
             chartBeingMade,
@@ -728,7 +740,8 @@ export function answerEntriesEndedAtOnce(transition: PageTransition, context: Pa
       let { formatsToCome } = ifQueuedRest;
       let cellWithList = cellWithListOfEntry(edit, context.reads);
       let entryUnanswered = {
-        ...unansweredEntryOf(edit),
+        // The entry as it is drawn until answered.
+        ...unansweredEntryDrawn(edit, context.reads),
         ...(cellWithList !== null && {
           cellWithList,
         }),
@@ -772,15 +785,42 @@ export function reduceEventWithDerivedState(state: PageState, event: PageEvent, 
           state: noteEntryError(reduced.state, context, event),
         }
       : reduced;
+  // Connected tables loaded since, or met on another sheet, get their own filters applied.
+  let withConnectedFilters =
+    event.kind === 'workbookChanged' || withAnswerTracked.state.sheetId !== state.sheetId
+      ? applyOwnFiltersOfLoadedConnectedTables(withAnswerTracked.state, reads)
+      : withAnswerTracked.state;
   let withFiltersReapplied = {
     ...withAnswerTracked,
-    state: takeSavedNamedView(reapplyOwnFiltersAfterAnswer(withAnswerTracked.state, reads, event, cellsOfColumnsWentToAfter(state, event)), reads, event),
+    state: takeSavedNamedView(
+      reapplyOwnFiltersAfterAnswer(
+        closeDefaultsMenuWhenAnswered(closeNamedRangeFormWhenSaved(withConnectedFilters, event), event),
+        reads,
+        event,
+        cellsOfColumnsWentToAfter(state, event),
+      ),
+      reads,
+      event,
+    ),
   };
   let guarded =
     refusalOfEveryEdit === null
       ? endVersionLookWhenEditsLost(
           state,
-          guardEditsAgainstRowsOutOfView(state, addFilterValuesToInserts(withFiltersReapplied, reads), reads, event.kind === 'editAnswered'),
+          guardEditsAgainstRowsOutOfView(
+            state,
+            addFilterValuesToInserts(
+              refuseEntryInProtectedCell(
+                state,
+                // Entering a cell of a connected table is refused.
+                withoutEditingConnectedTable(state, withFiltersReapplied, reads),
+                reads,
+              ),
+              reads,
+            ),
+            reads,
+            event.kind === 'editAnswered',
+          ),
         )
       : refuseEditsOfTransition(state, withFiltersReapplied, refusalOfEveryEdit);
   let { state: nextState, effects } =
@@ -928,7 +968,17 @@ export function reduceEventWithDerivedState(state: PageState, event: PageEvent, 
   );
   let finalState = noteSelectionLeftByPerson(
     state,
-    updateErrorsAtOpening(state, settleSelectionSeen(settledState, settlePivotTablePane(settleSortPane(resultWithAsks.state, reads), reads, event, context.areFormulasLeft), reads), event),
+    updateErrorsAtOpening(state, settleSelectionSeen(settledState, settlePivotTablePane(
+          settleSortPane(
+            // A refused refresh is forgotten once the call or the table changed, and the source pane closes
+            // when the sheet has no call left.
+            withoutSourceOfTablePaneIfNoCall(withoutOutdatedTableRefusal(resultWithAsks.state, reads), reads),
+            reads,
+          ),
+          reads,
+          event,
+          context.areFormulasLeft,
+        ), reads), event),
     event,
   );
   let finalResult = askForCellHistory(
@@ -942,19 +992,26 @@ export function reduceEventWithDerivedState(state: PageState, event: PageEvent, 
   let isMenuStillFitting =
     event.kind !== 'workbookChanged' ||
     isMenuHoldingSizeField(finalState.menu) ||
+    finalState.menu.holds === 'protection' ||
+    finalState.menu.holds === 'defaultAndLimits' ||
     (finalState.menu.ofChart !== undefined && placementById(finalState, reads, finalState.menu.ofChart.placementId) !== null) ||
     ((finalState.menu.holds === 'all' || finalState.menu.holds === 'noEdits') &&
       finalState.textToEditOfEntryCell === state.textToEditOfEntryCell &&
       isSelectionUnchangedAcross(state, event.readsBefore, reads));
-  return finalState.mode === state.mode && isMenuStillFitting && isSameSelection(state, finalState)
-    ? finalResult
-    : {
+  if (!(finalState.mode === state.mode && isMenuStillFitting && isSameSelection(state, finalState)))
+    return {
+      ...finalResult,
+      state: {
+        ...finalResult.state,
+        menu: null,
+      },
+    };
+  return event.kind === 'workbookChanged'
+    ? {
         ...finalResult,
-        state: {
-          ...finalResult.state,
-          menu: null,
-        },
-      };
+        state: closeProtectionThatIsGone(finalResult.state, event.readsBefore, reads),
+      }
+    : finalResult;
 }
 export function updateCalculatingShown(state: PageState, reads: WorkbookReads): PageState {
   let isCalculatingShown = state.isActShownAsCalculated || state.areFormulasShownAsLeft;

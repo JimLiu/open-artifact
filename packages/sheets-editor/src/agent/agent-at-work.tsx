@@ -4,6 +4,10 @@ import { agentBubbleTips, agentIsWorkingText } from '../i18n/agent-turn-labels.t
 import { useCoarsePointer } from '../app/media-queries.ts';
 import { frameSchedulerOf } from '../grid/frame-scheduler.ts';
 import type { FrameScheduler } from '../grid/frame-scheduler.ts';
+import { useReducedMotion } from '../kit/platform.ts';
+import type { StyleWithVariables } from '../grid/cell-drawing.tsx';
+import type { PaneRect } from '../grid/geometry.ts';
+import type { TableOutline } from '../tables/table-outlines.ts';
 /** Gives a number from 0 up to but not including 1. */
 type Random = () => number;
 /** A point of the cursor, measured from the middle of where it roams. */
@@ -297,6 +301,33 @@ export function useWorkingLineIndex(lineCount: number): number {
   }, [lineCount]);
   return lineIndex;
 }
+/** The rounded corners a box takes where its corners lie on those of a found or filtered table. */
+export function cornerStyleOnTables(
+  box: PaneRect,
+  {
+    foundTableOutlines,
+    filteredTableOutlines,
+  }: {
+    foundTableOutlines: readonly TableOutline[];
+    filteredTableOutlines: readonly TableOutline[];
+  },
+): StyleWithVariables {
+  let style: StyleWithVariables = {};
+  for (let outline of [...foundTableOutlines, ...filteredTableOutlines]) {
+    let isTopTogether = areEdgesTogether(box.top, outline.top);
+    let isFootTogether = areEdgesTogether(box.top + box.height, outline.top + outline.height);
+    let isLeftTogether = areEdgesTogether(box.left, outline.left);
+    let isRightTogether = areEdgesTogether(box.left + box.width, outline.left + outline.width);
+    let sidesCut = outline.sidesCut?.split(' ') ?? [];
+    let cornerRadius = (side: string, otherSide: string) =>
+      sidesCut.includes(side) || sidesCut.includes(otherSide) ? '0px' : 'var(--sheet-radius-outside-table)';
+    if (isTopTogether && isLeftTogether) style['--sheet-top-left-on-table'] = cornerRadius('top', 'left');
+    if (isTopTogether && isRightTogether) style['--sheet-top-right-on-table'] = cornerRadius('top', 'right');
+    if (isFootTogether && isLeftTogether) style['--sheet-bottom-left-on-table'] = cornerRadius('foot', 'left');
+    if (isFootTogether && isRightTogether) style['--sheet-bottom-right-on-table'] = cornerRadius('foot', 'right');
+  }
+  return style;
+}
 export function AgentAtWork({ style }: AgentAtWorkProps) {
   let areaRef = React.useRef<HTMLDivElement | null>(null);
   let cursorRef = React.useRef<SVGSVGElement | null>(null);
@@ -304,6 +335,7 @@ export function AgentAtWork({ style }: AgentAtWorkProps) {
   let widthBubbleRef = React.useRef<HTMLSpanElement | null>(null);
   let lines = agentBubbleTips(useCoarsePointer());
   let lineIndex = useWorkingLineIndex(lines.length);
+  let isMotionReduced = useReducedMotion();
   React.useLayoutEffect(() => {
     let [area, cursor, bubble] = [areaRef.current, cursorRef.current, bubbleRef.current];
     let widthBubble = widthBubbleRef.current;
@@ -311,18 +343,8 @@ export function AgentAtWork({ style }: AgentAtWorkProps) {
     let frames = frameSchedulerOf(area);
     if (area === null || cursor === null || bubble === null || widthBubble === null) return;
     if (view === null || frames === null) return;
-    let reducedMotionQuery = view.matchMedia('(prefers-reduced-motion:reduce)');
-    let stopMotion = runAgentCursorMotion(view, frames, area, cursor, bubble, widthBubble, reducedMotionQuery.matches);
-    let restartMotion = () => {
-      stopMotion();
-      stopMotion = runAgentCursorMotion(view, frames, area, cursor, bubble, widthBubble, reducedMotionQuery.matches);
-    };
-    reducedMotionQuery.addEventListener('change', restartMotion);
-    return () => {
-      reducedMotionQuery.removeEventListener('change', restartMotion);
-      stopMotion();
-    };
-  }, []);
+    return runAgentCursorMotion(view, frames, area, cursor, bubble, widthBubble, isMotionReduced);
+  }, [isMotionReduced]);
   return <div aria-hidden className="sheet-agent-at-work" style={style}><div ref={areaRef}><span ref={widthBubbleRef} className="sheet-bubble-of-agent" data-is-for-width>{lines.map(
             (line) =>
               <span key={line}>{line}</span>,
@@ -400,3 +422,4 @@ export const AgentWordsCrossfade = React.memo(function ({ words }: AgentWordsCro
       width: measured?.width,
     }}><span ref={measureRef}>{words}</span><span data-is-shown={pair.isFirstShown}>{pair.first}</span><span data-is-shown={!pair.isFirstShown}>{pair.second}</span></span>;
 });
+export const areEdgesTogether = (edge: number, other: number): boolean => Math.abs(edge - other) < 0.01;

@@ -101,7 +101,7 @@ export function ruleWordRewrites(
       let letteredName = holds.columns.find((column) => column.c === letteredC)?.name ?? null;
       if (letteredName !== null) rewrites.set(word, '').set(nextWord, letteredName);
     }
-    let named = columnNamedAt(holds, words, at, true);
+    let named = columnNamedAt(holds, words, at, 'evenAWord');
     if (named?.column.kind !== 'checkbox') continue;
     let afterName = at + named.wordCount;
     let linkingWords: TypedWord[] = [];
@@ -136,7 +136,7 @@ export function columnAfterWord(
   word: TypedWord,
 ): { column: ColumnHolds; end: number } | null {
   let at = ['a', 'an', 'the'].includes(words[word.at + 1]?.plain ?? '') ? word.at + 2 : word.at + 1;
-  let named = columnNamedAt(holds, words, at, true);
+  let named = columnNamedAt(holds, words, at, 'evenAWord');
   return named === null
     ? null
     : {

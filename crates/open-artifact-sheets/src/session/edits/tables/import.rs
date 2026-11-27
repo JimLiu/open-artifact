@@ -341,11 +341,13 @@ pub fn look_ops(workbook: &Workbook, look: LookToGive) -> Vec<Op> {
     }
     let Some(s) = workbook.sheet_index(&sheet_id) else { return ops };
     let sheet = &workbook.sheets[s];
-    // The columns the table reaches: to the last with a cell.
+    // The columns the table reaches: to the last with a cell. A column with none is left as it is.
     let reached = sheet.cells.keys().filter_map(|&(_, c)| sheet.columns.position(c)).max().map_or(0, |c| c + 1);
     let columns: Vec<LineId> = (0..least.len().min(reached)).filter_map(|i| sheet.columns.line(i)).collect();
+    let with_a_cell: hashbrown::HashSet<LineId> = sheet.cells.keys().map(|&(_, c)| c).collect();
     let needed = fit::widths_needed_with_texts_held_to(workbook, sheet, &columns, widest);
-    let sizes = columns.into_iter().enumerate().map(|(i, column)| {
+    // Neighbouring columns of one width are one run; a width is held between the narrowest and the widest.
+    let sizes = columns.iter().enumerate().filter(|(_, c)| with_a_cell.contains(*c)).map(|(i, &column)| {
         let width = least[i].max(needed.get(&column).copied().unwrap_or(0));
         (column, width.clamp(super::super::lines::NARROWEST_COLUMN, super::super::lines::WIDEST_COLUMN))
     });

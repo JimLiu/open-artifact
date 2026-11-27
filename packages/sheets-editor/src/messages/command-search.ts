@@ -255,6 +255,41 @@ export const COMMAND_SEARCH_SYNONYMS = {
         'pivot, pivottable, summarize, summary, summary table, group by, totals by, subtotals, breakdown, crosstab, cross tab, roll up, rollup, aggregate',
       id: 'juVz+WyTiT',
     }),
+  nameRange: () =>
+    translateMessage({
+      defaultMessage: 'define name, create name, new name, add named range, name cells',
+      id: '049Li6sbQn',
+    }),
+  namedRanges: () =>
+    translateMessage({
+      defaultMessage: 'name manager, defined names, manage names, edit name, delete name',
+      id: '/x3oFs4zGq',
+    }),
+  defaultAndLimits: () =>
+    translateMessage({
+      defaultMessage: 'default value, minimum, maximum, min, max, allowed values, restrict numbers',
+      id: 'T2AVNW4HWr',
+    }),
+  saveAsDefault: () =>
+    translateMessage({
+      defaultMessage: 'set default, make default, default value, base case, baseline',
+      id: 'AwVJiRa9u8',
+    }),
+  resetToDefault: () =>
+    translateMessage({
+      defaultMessage: 'back to default, restore default, revert to default, base case',
+      id: 'DkBgbT0MlL',
+    }),
+  changedCells: () =>
+    translateMessage({
+      defaultMessage: 'changed from default, changed inputs, overrides, what changed, reset all',
+      id: 'eRjZHQycWZ',
+    }),
+  protect: () =>
+    translateMessage({
+      defaultMessage: 'protect range, protect cells, protected ranges, protection, lock cells, unlock, unprotect, read only, restrict editing, permissions, who can edit',
+      id: 'YOViaT3FBv',
+    }),
   cellHistory: () =>
     translateMessage({
       defaultMessage:

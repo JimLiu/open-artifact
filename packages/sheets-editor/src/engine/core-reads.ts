@@ -52,19 +52,26 @@ import type {
   ValuesOfFilteredColumnAnswer,
   WhatATableChangesAnswer,
   XlsxFileAnswer,
+  CellChangedFromItsDefault,
+  DefaultValueAndLimitsAnswer,
 } from '@open-artifact/sheets-core';
-import type { KindOfPattern } from '../model/cell-format.ts';
-import { areaRefBetween, cellRefOf, readWorkbook, applyWorkbookChanges, createWorkbookAccessor } from '../model/workbook.ts';
+import { someEntryHasDefaultValue, type KindOfPattern } from '../model/cell-format.ts';
+import { areaRefBetween, cellRefOf, readWorkbook, applyWorkbookChanges, createWorkbookAccessor, NO_CELLS_CHANGED_FROM_DEFAULTS } from '../model/workbook.ts';
 import type {
   CauseOfErrorRead,
   CellId,
+  CellsChangedFromDefaultsOfSheet,
   CellTablesRead,
+  ConnectedTableAnswer,
+  ConnectedTableContents,
   FormatsGivenOfSheet,
   InputsOfViewRead,
   LocalePatterns,
+  NamedRangeRead,
   PatternRead,
   RowsToSort,
   SheetChangesRead,
+  SheetLayoutToRead,
   SheetToRead,
   ViewChangesRead,
   WorkbookRead,
@@ -97,6 +104,7 @@ export interface WorkbookQueries {
   dropdownOptionsToOffer(oneCorner: CellId, otherCorner: CellId): DropdownOptionsToOfferAnswer['options'] | null;
   cellsThatADropdownWouldClear(oneCorner: CellId, otherCorner: CellId, dropdown: DropdownToPointAt): CellsThatADropdownWouldClearAnswer | null;
   cellsOfTheDropdownAt(cell: CellId): CellsOfDropdownAnswer | null;
+  defaultValueAndLimitsOf(cell: CellId): DefaultValueAndLimitsAnswer | null;
   whatATableChanges(table: TableIntoSheet): WhatATableChangesAnswer | Refused;
   formatsGivenAsIf(sheetId: SheetId, asIf: Iterable<ConditionalFormatAsIf>): FormatsGivenAnswer | null;
   conditionalFormatSuggestions(oneCorner: CellId, otherCorner: CellId): ConditionalFormatSuggestionsAnswer | null;
@@ -131,6 +139,8 @@ export interface EverythingRead {
   contents: WorkbookContentsWithBlocks;
   given: FormatsGivenOfSheet[];
   inputsOfViews: InputsOfViewRead[];
+  namedRanges: NamedRangeRead[];
+  changedFromDefaults: CellsChangedFromDefaultsOfSheet[];
 }
 
 /** A sheet's changes as the engine reads them: its rows read again, their cells packed. */
@@ -143,6 +153,7 @@ export interface ChangedRead {
   sheets: SheetChangesPacked[];
   views: ViewChangesRead | null;
   timeZone: TimeZoneAnswer | null;
+  namedRanges: NamedRangeRead[] | null;
 }
 
 /** A reading from the engine: everything, or what changed. */
@@ -165,6 +176,11 @@ interface SizeRead {
 export interface ReadSizes {
   note(read: CoreRead): void;
   mayBeTwiceWhatIsNeededIn(sheetId: SheetId): boolean;
+}
+/** What notes how the connected table of each sheet stood when last read, and says when a layout's stands otherwise. */
+export interface ConnectedTableStandings {
+  note(read: CoreRead): void;
+  differIn(layout: SheetLayoutToRead): boolean;
 }
 /** What reads a workbook from the engine: all of it, then what changed. */
 export interface WorkbookReader {
@@ -397,6 +413,18 @@ export function createWorkbookQueries(core: SessionAnswers, makeIdCode: () => st
     if (answer.kind === 'refused') return null;
     throw Error('sheets-core did not say what a dropdown would clear');
   };
+  /** The default value of a cell and the limits of what it takes. */
+  let defaultValueAndLimitsOf: WorkbookQueries['defaultValueAndLimitsOf'] = (cell) => {
+    let { sheetId } = cell;
+    let answer = core.answer({
+      kind: 'readDefaultValueAndLimits',
+      sheetId,
+      cell: cellRefOf(cell),
+    });
+    if (answer.kind === 'defaultValueAndLimits') return answer;
+    if (answer.kind === 'refused') return null;
+    throw Error('sheets-core did not read the default value and the limits of a cell');
+  };
   let cellsOfTheDropdownAt: WorkbookQueries['cellsOfTheDropdownAt'] = (cell) => {
     let answer = core.answer({
       kind: 'readCellsOfTheDropdownAt',
@@ -628,6 +656,7 @@ export function createWorkbookQueries(core: SessionAnswers, makeIdCode: () => st
     dropdownOptionsToOffer,
     cellsThatADropdownWouldClear,
     cellsOfTheDropdownAt,
+    defaultValueAndLimitsOf,
     whatATableChanges,
   };
 }
@@ -638,6 +667,38 @@ export function readFormatsGiven(core: SessionAnswers, sheetId: SheetId): Format
   });
   if (answer.kind !== 'formatsGiven') throw Error('sheets-core did not say what conditional formats give');
   return answer;
+}
+/** The cells of a sheet whose value is not their default one. */
+export function readCellsChangedFromDefaults(core: SessionAnswers, sheetId: SheetId): CellChangedFromItsDefault[] {
+  let answer = core.answer({
+    kind: 'readCellsChangedFromTheirDefaults',
+    sheetId,
+  });
+  if (answer.kind !== 'cellsChangedFromTheirDefaults') throw Error('sheets-core did not say which cells are changed from their defaults');
+  return answer.cells;
+}
+export function readNamedRanges(core: SessionAnswers): NamedRangeRead[] {
+  let answer = core.answer({
+    kind: 'readNamedRanges',
+  });
+  if (answer.kind !== 'namedRanges') throw Error('sheets-core did not read the named ranges');
+  return answer.namedRanges;
+}
+/** A sheet (or the layout of one) with a connected table gets `howItsTableStands`. */
+export function withConnectedTableRead<Sheet extends { sheetId: SheetId; connectedTable?: ConnectedTableContents }>(
+  core: SessionAnswers,
+  sheet: Sheet,
+): Sheet & { howItsTableStands?: ConnectedTableAnswer } {
+  if (sheet.connectedTable === undefined) return sheet;
+  let answer = core.answer({
+    kind: 'readConnectedTable',
+    sheetId: sheet.sheetId,
+  });
+  if (answer.kind !== 'connectedTable') throw Error('sheets-core did not read a connected table');
+  return {
+    ...sheet,
+    howItsTableStands: answer,
+  };
 }
 export function readInputsOfView(core: SessionAnswers, viewId: string): InputsOfViewRead {
   let answer = core.answer({
@@ -676,9 +737,23 @@ export function readEverythingFromCore(core: SessionAnswers, sharedCore: SheetsU
     kind: 'everything',
     description,
     localeOfANewWorkbook,
-    contents,
+    contents: {
+      ...contents,
+      sheets: contents.sheets.map((sheet) => withConnectedTableRead(core, sheet)),
+    },
     given,
     inputsOfViews,
+    namedRanges: contents.namedRanges === undefined ? [] : readNamedRanges(core),
+    changedFromDefaults: contents.sheets.flatMap(({ sheetId, cellFormats = [] }): CellsChangedFromDefaultsOfSheet[] =>
+      someEntryHasDefaultValue(cellFormats)
+        ? [
+            {
+              sheetId,
+              cells: readCellsChangedFromDefaults(core, sheetId),
+            },
+          ]
+        : [],
+    ),
   };
 }
 export function readViewsFromCore(core: SessionAnswers, viewIds: readonly string[]): ViewChangesRead {
@@ -719,14 +794,17 @@ export function readRowsFromCore(core: SessionAnswers, sheetId: SheetId, rowIds:
 }
 /**
  * Reads the rows of the cells listed, or the whole sheet when what was read of it since it was read whole may be
- * twice what it needs; and the time zone too when it changed.
+ * twice what it needs or when its connected table stands otherwise (`isReadWhole(sheetId, layout)`); the time zone
+ * too when it changed; the cells changed from their defaults where a sheet has (or had, `hadDefaultValue`) a
+ * default value; and the named ranges when a layout changed.
  */
 export function readChangedFromCore(
   core: SessionAnswers,
   changedSheets: readonly SheetChanges[],
   changedViewIds: readonly string[],
   isTimeZoneChanged: boolean,
-  mayBeTwiceWhatIsNeededIn: (sheetId: SheetId) => boolean,
+  isReadWhole: (sheetId: SheetId, layout: SheetLayoutToRead | null) => boolean,
+  hadDefaultValue: (sheetId: SheetId) => boolean,
 ): ChangedRead {
   let readSheet = ({
     sheetId,
@@ -734,21 +812,24 @@ export function readChangedFromCore(
     isLayoutChanged,
     areFormatsGivenChanged,
   }: SheetChanges): SheetChangesPacked => {
-    let rowIds: RowId[] | 'all' = mayBeTwiceWhatIsNeededIn(sheetId) ? 'all' : [...new Set(cells.map(({ r: rowId }) => rowId))];
-    let rowsRead = readRowsFromCore(core, sheetId, rowIds, null);
-    if (rowsRead === null) throw Error('sheets-core did not read rows');
-    let layout = isLayoutChanged
+    let layoutAnswer = isLayoutChanged
       ? core.answer({
           kind: 'readSheetLayout',
           sheetId,
         })
       : null;
-    if (layout !== null && layout.kind !== 'sheetLayout') throw Error('sheets-core did not read the layout of a sheet');
+    if (layoutAnswer !== null && layoutAnswer.kind !== 'sheetLayout') throw Error('sheets-core did not read the layout of a sheet');
+    let layout: SheetLayoutToRead | null = layoutAnswer === null ? null : withConnectedTableRead(core, layoutAnswer);
+    let rowIds: RowId[] | 'all' = isReadWhole(sheetId, layout) ? 'all' : [...new Set(cells.map(({ r: rowId }) => rowId))];
+    let rowsRead = readRowsFromCore(core, sheetId, rowIds, null);
+    if (rowsRead === null) throw Error('sheets-core did not read rows');
+    let hasDefaultValue = layout === null ? hadDefaultValue(sheetId) : someEntryHasDefaultValue(layout.cellFormats ?? []);
     return {
       sheetId,
       ...rowsRead,
       layoutNow: layout,
       formatsGivenNow: areFormatsGivenChanged === true ? readFormatsGiven(core, sheetId) : null,
+      cellsChangedFromDefaultsNow: hasDefaultValue ? readCellsChangedFromDefaults(core, sheetId) : NO_CELLS_CHANGED_FROM_DEFAULTS,
     };
   };
   let timeZoneAnswer = isTimeZoneChanged
@@ -762,6 +843,7 @@ export function readChangedFromCore(
     sheets: changedSheets.map(readSheet),
     views: changedViewIds.length === 0 ? null : readViewsFromCore(core, changedViewIds),
     timeZone: timeZoneAnswer,
+    namedRanges: changedSheets.some(({ isLayoutChanged }) => isLayoutChanged) ? readNamedRanges(core) : null,
   };
 }
 export function applyCoreReadout(readout: WorkbookRead | null, read: CoreRead, sharedCore: SheetsUtilities): WorkbookRead {
@@ -779,16 +861,17 @@ export function applyCoreReadout(readout: WorkbookRead | null, read: CoreRead, s
       readNumberFormatKindWith(sharedCore),
       read.given,
       read.inputsOfViews,
+      read.namedRanges,
+      read.changedFromDefaults,
     );
   }
   if (readout === null) throw Error('changes were listed to a page that has read nothing');
   let changed = applyWorkbookChanges(readout, read.sheets.map(withRowsOfCellsNow), read.views);
-  return read.timeZone === null
-    ? changed
-    : {
-        ...changed,
-        timeZone: read.timeZone.timeZone,
-      };
+  return {
+    ...changed,
+    timeZone: read.timeZone === null ? changed.timeZone : read.timeZone.timeZone,
+    namedRanges: read.namedRanges ?? changed.namedRanges,
+  };
 }
 export function createReadSizes(): ReadSizes {
   let sizes = new Map<SheetId, SizeRead>();
@@ -830,6 +913,22 @@ export function createReadSizes(): ReadSizes {
     },
   };
 }
+/** What stands of the connected table of a sheet (null without one). */
+export function connectedTableStanding({ connectedTable, howItsTableStands }: Pick<SheetLayoutToRead, 'connectedTable' | 'howItsTableStands'>): string | null {
+  return connectedTable === undefined ? null : JSON.stringify([connectedTable.snapshot?.snapshotId, connectedTable.columns, howItsTableStands?.rows]);
+}
+/** How the connected table of each sheet stood when last read. */
+export function createConnectedTableStandings(): ConnectedTableStandings {
+  let standings = new Map<SheetId, string | null>();
+  return {
+    note(read) {
+      let sheets: Pick<SheetLayoutToRead, 'sheetId' | 'connectedTable' | 'howItsTableStands'>[] =
+        read.kind === 'everything' ? read.contents.sheets : read.sheets.flatMap(({ layoutNow }) => layoutNow ?? []);
+      for (let sheet of sheets) standings.set(sheet.sheetId, connectedTableStanding(sheet));
+    },
+    differIn: (layout) => connectedTableStanding(layout) !== (standings.get(layout.sheetId) ?? null),
+  };
+}
 /**
  * `onRead` hears each read with its packed cells (the readout gets them as rows); with an `onRead` the read is
  * kept without its cells. `readWithCellsIn` reads some rows (some columns of them) into a workbook of its own,
@@ -842,9 +941,12 @@ export function createWorkbookReader(
   onRead?: (read: CoreRead) => void,
 ): WorkbookReader {
   let readout: WorkbookRead | null = null;
-  let readSizes = createReadSizes();
+  let [readSizes, tableStandings] = [createReadSizes(), createConnectedTableStandings()];
+  let isReadWhole = (sheetId: SheetId, layout: SheetLayoutToRead | null): boolean =>
+    readSizes.mayBeTwiceWhatIsNeededIn(sheetId) || (layout !== null && tableStandings.differIn(layout));
   let take = (read: CoreRead): WorkbookReads => {
     readSizes.note(read);
+    tableStandings.note(read);
     let kept = onRead === undefined ? read : withoutCells(read);
     readout = applyCoreReadout(readout, kept, sharedCore);
     onRead?.(read);
@@ -854,7 +956,12 @@ export function createWorkbookReader(
     readEverything: () => take(readEverythingFromCore(core, sharedCore)),
     readChanged(changedSheets, changedViewIds, isTimeZoneChanged) {
       if (readout === null) throw Error('changes were listed to a page that has read nothing');
-      return take(readChangedFromCore(core, changedSheets, changedViewIds, isTimeZoneChanged, readSizes.mayBeTwiceWhatIsNeededIn));
+      let { sheets } = readout;
+      return take(
+        readChangedFromCore(core, changedSheets, changedViewIds, isTimeZoneChanged, isReadWhole, (sheetId) =>
+          sheets.some((sheet) => sheet.summary.sheetId === sheetId && sheet.hasDefaultValue),
+        ),
+      );
     },
     readWithCellsIn(sheetId, rowIds, columnIds) {
       let rowsRead = readRowsFromCore(core, sheetId, rowIds, columnIds);
@@ -862,8 +969,11 @@ export function createWorkbookReader(
       let sheetRead = withRowsOfCellsNow({
         sheetId,
         ...rowsRead,
-        layoutNow: null,
-        formatsGivenNow: null,
+        ...{
+          layoutNow: null,
+          formatsGivenNow: null,
+          cellsChangedFromDefaultsNow: null,
+        },
       });
       return createWorkbookAccessor(applyWorkbookChanges(readout, [sheetRead]), utilities);
     },

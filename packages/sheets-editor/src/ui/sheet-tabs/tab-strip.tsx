@@ -18,7 +18,7 @@ import { sheetNameRefusedText } from '../../i18n/notice-labels.ts';
 import { SheetNameField, SheetTabMenuItems } from './tab-menu.tsx';
 import { usePopupRoomAtFoot } from '../../shell/bottom-insets.ts';
 import { useReorderRows } from '../reorder-rows.ts';
-import { othersOnSheetDescription, TabFaces, sheetTabLabel, BetaBadge } from './tab-badges.tsx';
+import { othersOnSheetDescription, TabFaces, sheetTabLabel, BetaBadge, isBetaSheet } from './tab-badges.tsx';
 import { isTouchBelowSm } from '../../app/media-queries.ts';
 import { swallowRestOfPress, swallowPressAfterItemPress } from '../press-swallow.ts';
 import { opensMenuAtPointer, preventMouseDownDefault } from '../dom-events.ts';
@@ -162,6 +162,8 @@ export function SheetNameOverTab({ sheetId, isOpen, renaming, dispatch }: SheetN
 }
 export interface SheetTabStripProps {
   listedSheets: ListedSheet[];
+  /** Whether the workbook has one sheet only, counting the sheets without a tab. */
+  isOnlySheet: boolean;
   viewOnlyBecause: ViewOnlyBecause | null;
   tabListRef: React.RefObject<HTMLDivElement | null>;
   isListOpen: boolean;
@@ -177,6 +179,7 @@ export interface SheetTabStripProps {
 }
 export function SheetTabStrip({
   listedSheets,
+  isOnlySheet,
   viewOnlyBecause,
   tabListRef,
   isListOpen,
@@ -382,10 +385,14 @@ export function SheetTabStrip({
         kind: 'sheetChosen',
         sheetId,
       });
+      let toIndexAmongShown = listedSheets
+        .filter((sheet) => sheet.sheetId !== sheetId)
+        .slice(0, toIndex)
+        .filter(({ isHidden }) => !isHidden).length;
       dispatchAfterEntry({
         kind: 'sheetMoveChosen',
         sheetId,
-        toIndex,
+        toIndex: toIndexAmongShown,
       });
       lookOnceEventsAreFinished(() => onDone(true));
     },
@@ -470,8 +477,8 @@ export function SheetTabStrip({
                               if (!(event.key === 'ContextMenu' || (event.key === 'F10' && event.shiftKey))) return;
                               event.preventDefault();
                               openSheetMenu(sheetId, event.nativeEvent, true);
-                            }}><span aria-hidden className="sheet-tab-card" /><span className={`flex items-center gap-xs ${renamingSheet?.sheetId === sheetId ? 'invisible' : ''}`}>{restOfSheet.isInteractive && <Icon name="Sliders" size="sm" className="flex-none text-secondary" />}<span className="sheet-tab-name grid min-w-0"><span aria-hidden className={`invisible col-start-1 row-start-1 truncate ${SHEET_TAB_BOLD_CLASS}`}>{sheetName}</span><OverflowTooltip className={`col-start-1 row-start-1 ${isShown ? SHEET_TAB_BOLD_CLASS : ''} ${areTooltipsOff ? 'pointer-events-none' : ''}`} sideOffset={({ side }: { side: TooltipSide }) =>
-                                          sheetTabTooltipOffset(findSheetTab(scrollerRef.current, sheetId), side, facesOfOthers.length > 0)}><SheetTabName name={sheetName} shimmers={restOfSheet.isWhereAgentWorks} /></OverflowTooltip></span>{restOfSheet.isInteractive && <BetaBadge />}<Counter aria-hidden value={restOfSheet.openCommentCount} variant="neutral" size="xxs" /><span className="sheet-tab-chevron">{MENU_CARETS.tab}</span></span></Tabs.Tab>} /><PreviewCard.Popup side="top" align="center" sideOffset={4} padding="none" className="sheet-faces-over-tab [--ui-page-bg:var(--ui-surface-2)] [--preview-card-min-w:0px]"><TabFaces faces={facesOfOthers} /></PreviewCard.Popup></PreviewCard.Root>),
+                            }}><span aria-hidden className="sheet-tab-card" /><span className={`flex items-center gap-xs ${renamingSheet?.sheetId === sheetId ? 'invisible' : ''}`}>{restOfSheet.isHidden && <Icon name="EyeSlash" size="sm" className="flex-none text-secondary" />}{restOfSheet.isInteractive && <Icon name="Sliders" size="sm" className="flex-none text-secondary" />}{restOfSheet.isConnectedTable && <Icon name="Database" size="sm" className="flex-none text-secondary" />}{restOfSheet.isProtected && <Icon name="Lock" size="sm" className="flex-none text-secondary" />}<span className="sheet-tab-name grid min-w-0"><span aria-hidden className={`invisible col-start-1 row-start-1 truncate ${SHEET_TAB_BOLD_CLASS}`}>{sheetName}</span><OverflowTooltip className={`col-start-1 row-start-1 ${isShown ? SHEET_TAB_BOLD_CLASS : ''} ${areTooltipsOff ? 'pointer-events-none' : ''}`} sideOffset={({ side }: { side: TooltipSide }) =>
+                                          sheetTabTooltipOffset(findSheetTab(scrollerRef.current, sheetId), side, facesOfOthers.length > 0)}><SheetTabName name={sheetName} shimmers={restOfSheet.isWhereAgentWorks} /></OverflowTooltip></span>{isBetaSheet(restOfSheet) && <BetaBadge />}<Counter aria-hidden value={restOfSheet.openCommentCount} variant="neutral" size="xxs" /><span className="sheet-tab-chevron">{MENU_CARETS.tab}</span></span></Tabs.Tab>} /><PreviewCard.Popup side="top" align="center" sideOffset={4} padding="none" className="sheet-faces-over-tab [--ui-page-bg:var(--ui-surface-2)] [--preview-card-min-w:0px]"><TabFaces faces={facesOfOthers} /></PreviewCard.Popup></PreviewCard.Root>),
               )}</Tabs.List>{renamingSheet !== undefined &&
               renamingSheet.renaming !== null &&
               <SheetNameOverTab sheetId={renamingSheet.sheetId} isOpen={renamingSheet.isShown} renaming={renamingSheet.renaming} dispatch={dispatch} />}</div></div>{renamingSheet === undefined &&
@@ -503,7 +510,7 @@ export function SheetTabStrip({
               if (currentTarget.contains(relatedTarget)) return;
               currentTarget.querySelector<HTMLElement>('[role^="menuitem"]')?.focus();
             }}>{shownMenuSheet !== undefined &&
-              (<SheetTabMenuItems sheet={shownMenuSheet} isOnlySheet={shownMenuAmong.length === 1} placeAmongTabs={{
+              (<SheetTabMenuItems sheet={shownMenuSheet} isOnlySheet={isOnlySheet} placeAmongTabs={{
                   index: shownMenuAmong.indexOf(shownMenuSheet),
                   count: shownMenuAmong.length,
                 }} viewOnlyBecause={viewOnlyBecause} dispatch={dispatch} />)}</Menu.Popup></Menu.Root></Tabs.Root>;

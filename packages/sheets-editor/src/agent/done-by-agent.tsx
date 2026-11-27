@@ -5,7 +5,8 @@ import { Button } from '../kit/button.tsx';
 import * as React from 'react';
 import { pointInZoomedElement } from '../grid/zoom.ts';
 import { Fragment } from 'react/jsx-runtime';
-import { RidingRowsDrawing } from '../grid/grid-drawing.tsx';
+import { RidingRowsDrawing, boxInBody } from '../grid/grid-drawing.tsx';
+import { cornerStyleOnTables } from './agent-at-work.tsx';
 import { agentUpdatedCellsText } from '../i18n/agent-turn-labels.ts';
 import { MODIFIER_KEYS } from '../state/escape.ts';
 import { CELLS_AREA_SELECTOR } from '../ui/leave-cells-hint.tsx';
@@ -31,7 +32,7 @@ interface ColumnGripCalledArgs {
   zoom: number;
 }
 interface ColumnGripsProps {
-  grid: Pick<GridView, 'headingsOfColumns' | 'body'>;
+  grid: Pick<GridView, 'headingsOfColumns' | 'body' | 'foundTableOutlines' | 'filteredTableOutlines'>;
   calledFor: string | null;
 }
 interface ColumnsRidingProps {
@@ -55,6 +56,7 @@ interface PersonAct extends Pick<Event, 'type'> {
 export type UndoOfferOnCard = Pick<UndoOfferShown, 'key' | 'title' | 'undoLabel'>;
 interface UndoAgentTurnSurfaceProps {
   ref?: React.Ref<HTMLDivElement>;
+  isHiddenFromReaders: boolean;
   offer: UndoOfferOnCard;
   isLeaving: boolean;
   isBeingTaken: boolean;
@@ -129,20 +131,26 @@ export function useColumnGripCalled({ drawn, gridRef, zoom }: ColumnGripCalledAr
     pointerMovedTo,
   };
 }
-export function ColumnGrips({ grid: { headingsOfColumns, body }, calledFor }: ColumnGripsProps) {
+export function ColumnGrips({ grid, calledFor }: ColumnGripsProps) {
+  let { headingsOfColumns, body } = grid;
   return <>{headingsOfColumns.map((heading) => {
       let isCalled = heading.key === calledFor;
       let { left, top } = gripPlaceOfHeading(heading);
+      let { from, to } = heading.extent;
+      let extentBox = {
+        left: heading.left,
+        top: from,
+        width: heading.width,
+        height: to - from,
+      };
       return (<React.Fragment key={heading.key}><div aria-hidden className="sheet-grip-of-column" data-is-called={isCalled ? '' : undefined} {...(isCalled && {
                 [GRIP_OF_HEADING_ATTRIBUTE]: heading.key,
               })} style={{
                 left: body.left + left,
                 top: body.top + top,
               }} /><div aria-hidden className="sheet-extent-of-column" style={{
-                left: body.left + heading.left,
-                width: heading.width,
-                top: body.top + heading.extent.from,
-                height: heading.extent.to - heading.extent.from,
+                ...boxInBody(extentBox, body),
+                ...cornerStyleOnTables(extentBox, grid),
               }} /></React.Fragment>);
     })}</>;
 }
@@ -312,6 +320,7 @@ export function UndoAgentTurnCard({ offer, ...cardProps }: UndoAgentTurnCardProp
 }
 export function UndoAgentTurnSurface({
   ref,
+  isHiddenFromReaders,
   offer,
   isLeaving,
   isBeingTaken,
@@ -349,7 +358,7 @@ export function UndoAgentTurnSurface({
     if (isLeaving) tellIfCaretGone();
     return tellIfCaretGone;
   }, [isLeaving]);
-  return <Surface ref={ref} elevation="panel" className="sheet-done-by-agent" data-has-undo data-is-leaving={isLeaving || undefined} onKeyDown={onKeyDown} onPointerEnter={() => setIsPointerIn(true)} onPointerLeave={() => {
+  return <Surface ref={ref} elevation="panel" className="sheet-done-by-agent" aria-hidden={isHiddenFromReaders || void 0} data-has-undo data-is-leaving={isLeaving || undefined} onKeyDown={onKeyDown} onPointerEnter={() => setIsPointerIn(true)} onPointerLeave={() => {
       setIsPointerIn(false);
       onLeftAlone();
     }} onFocus={() => setIsFocusIn(true)} onBlur={() => {

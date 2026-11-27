@@ -1,4 +1,28 @@
 import * as React from 'react';
+import { askTooLong } from '@open-artifact/editor-kit';
+import { cleanAskWords } from '../agent/ask-words.ts';
+import type { ChatWithAgent } from '../agent/chat-with-agent.ts';
+import type { SheetController } from '../state/controller.ts';
+import type { SelectionForAgent } from '../state/initial-state.ts';
+/** Asks the agent in the person's words about the cells, with what was pressed; resolves to whether the chat took it. */
+export function askAgentInWords(
+  controller: Pick<SheetController, 'isEventUnfinished'>,
+  chat: Pick<ChatWithAgent, 'openWithWhatWasPressed'>,
+  { words, cells, pressed }: { words: string; cells: SelectionForAgent | null; pressed: string },
+): Promise<boolean> {
+  let request = cleanAskWords(words);
+  let isTooSoon = performance.now() - (lastAskInWordsAtMs.get(chat) ?? Number.NEGATIVE_INFINITY) < ASK_IN_WORDS_AGAIN_GAP_MS;
+  if (controller.isEventUnfinished() || cells === null || request === '' || isTooSoon || askTooLong(words)) return Promise.resolve(false);
+  let shownWords = cleanAskWords(request.slice(0, PRESSED_ASK_WORDS_MAX_CHARS));
+  let opening = chat.openWithWhatWasPressed(shownWords, cells, pressed, {
+    request,
+  });
+  let askedAtMs = performance.now();
+  lastAskInWordsAtMs.set(chat, askedAtMs);
+  return opening.finally(() => {
+    if (lastAskInWordsAtMs.get(chat) === askedAtMs) lastAskInWordsAtMs.delete(chat);
+  });
+}
 /** What a live region says: words to say (none when `false`, `null` or empty), and how many times they were said before, so the same words can be said again. */
 export interface LiveAnnouncerProps {
   words?: string | false | null;
@@ -72,3 +96,6 @@ export const NO_SAYINGS: Sayings = {
   before: null,
   count: 0,
 };
+export const PRESSED_ASK_WORDS_MAX_CHARS = 60;
+export const lastAskInWordsAtMs = new WeakMap<object, number>();
+export const ASK_IN_WORDS_AGAIN_GAP_MS = 4000;

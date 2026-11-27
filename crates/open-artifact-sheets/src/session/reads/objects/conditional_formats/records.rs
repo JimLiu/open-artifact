@@ -1,9 +1,10 @@
 //! The records the conditional formats of some cells are suggested for, and what each of their columns holds.
 //!
-//! The records are those of a classified table the cells meet, when just one of those has a body; else the cells
-//! themselves. With none met, they are guessed: the block of cells showing something within the cells, or else
-//! around a single cell, grown a row or a column at a time while the next one shows something across it, short of
-//! other tables. A single cell showing nothing can pick up a table immediately above or below it.
+//! The records are those of the cell table the sheet declares that the cells meet, else of the one classified table
+//! the cells meet, when it has a body; else the cells themselves when they meet two declared ones. Else they are
+//! guessed: the block of cells showing something within the cells, grown a column at a time down its rows while a
+//! cell of the next column shows something beside one of its edge, short of declared cell tables (else the cells
+//! themselves). A single cell showing nothing can pick up a table immediately above or below it.
 //!
 //! A column tells its name, how many of its records show something, how many numbers and how many nothing, the texts
 //! that come most (whatever their capitals), the smallest number, the middle one and the largest, and its kind as the
@@ -18,9 +19,10 @@ use serde_json::{json, Value as Json};
 
 use crate::calculate::SpillOutcome;
 use crate::number_format::{Kind as FormatKind, NumberFormat};
-use crate::session::reads::tables::{tables_for_formatting, TableForFormatting};
+use crate::session::reads::tables::{declared_areas, tables_for_formatting, TableForFormatting};
 use crate::value::Value;
 use crate::workbook::formats::Leaf;
+use crate::workbook::layout::merged_boxes;
 use crate::workbook::{Input, Sheet, Workbook};
 
 /// The most columns told.
@@ -36,7 +38,7 @@ const MANY_TEXTS: usize = 9;
 enum Shown {
     Text(Rc<str>),
     Number(f64),
-    Boolean,
+    Boolean(bool),
     Error,
 }
 
@@ -47,7 +49,7 @@ impl Shown {
             Value::Text(t) if t.is_empty() => None,
             Value::Text(t) => Some(Shown::Text(t.clone())),
             Value::Number(n) => Some(Shown::Number(*n)),
-            Value::Boolean(_) => Some(Shown::Boolean),
+            Value::Boolean(b) => Some(Shown::Boolean(*b)),
             Value::Error(_) => Some(Shown::Error),
         }
     }
@@ -69,6 +71,16 @@ impl Block {
 
     fn of((top, left, bottom, right): (usize, usize, usize, usize)) -> Block {
         Block { top, left, bottom, right }
+    }
+
+    /// The smallest block that holds both.
+    fn spanning(&self, other: &Block) -> Block {
+        Block {
+            top: self.top.min(other.top),
+            left: self.left.min(other.left),
+            bottom: self.bottom.max(other.bottom),
+            right: self.right.max(other.right),
+        }
     }
 
     /// How many rows it takes.
@@ -97,7 +109,10 @@ impl Records {
     fn in_table(found: TableForFormatting) -> Option<Records> {
         let block = Block::of(found.records?);
         let area = |(top, bottom)| Block { top, bottom, ..block };
-        let gaps = found.non_records.iter().filter(|(_, kind)| *kind == "blank")
+        // The blank rows of a table of one column that the sheet does not declare are told, but its blanks count
+        // them.
+        let one_column = !found.declared && found.cells.1 == found.cells.3;
+        let gaps = found.non_records.iter().filter(|(_, kind)| *kind == "blank" && !one_column)
             .map(|&(rows, _)| area(rows).rows()).sum();
         let non_records = found.non_records.into_iter().map(|(rows, kind)| (area(rows), kind)).collect();
         Some(Records {
@@ -201,7 +216,7 @@ impl Tally {
                 self.numbers.push(*n);
                 *self.formats.entry(Kind::of_format(format())).or_default() += 1;
             }
-            Shown::Boolean => self.booleans += 1,
+            Shown::Boolean(_) => self.booleans += 1,
             Shown::Text(text) => {
                 if text.chars().count() > MOST_CHARACTERS || text.chars().any(char::is_control) {
                     self.long = true;
@@ -352,14 +367,13 @@ impl<'a> Values<'a> {
         !self.cells.contains_key(&(row, column))
     }
 
-    /// Whether a row shows something from one column to another.
-    fn row_shows(&self, row: usize, left: usize, right: usize) -> bool {
-        self.rows.get(&row).is_some_and(|columns| shows_within(columns, left, right))
-    }
-
-    /// Whether a column shows something from one row to another.
-    fn column_shows(&self, column: usize, top: usize, bottom: usize) -> bool {
-        self.columns.get(&column).is_some_and(|rows| shows_within(rows, top, bottom))
+    /// Whether a cell is a checkbox that shows FALSE.
+    fn is_unticked(&self, row: usize, column: usize) -> bool {
+        let (Some(r), Some(c)) = (self.sheet.rows.line(row), self.sheet.columns.line(column)) else {
+            return false;
+        };
+        matches!(self.cells.get(&(row, column)), Some(Shown::Boolean(false)))
+            && self.sheet.formats.get(Leaf::CellControl, (r, c)).is_some_and(|control| control["kind"] == "checkbox")
     }
 
     /// The kind of number format a cell's number shows in: its own, or else the one its formula or array brings.
@@ -378,91 +392,158 @@ impl<'a> Values<'a> {
         self.spilled_formats.get(&(row, column)).copied().unwrap_or(FormatKind::General)
     }
 
+    /// Whether a cell shows something to a block of records: not a cell a merged range hides, all of it but its top
+    /// left, nor a checkbox that is not ticked.
+    fn showing(&self) -> impl Fn(usize, usize) -> bool + '_ {
+        let merged = merged_boxes(&self.workbook.bases, self.sheet);
+        move |row, column| {
+            !self.is_blank(row, column)
+                && !merged.iter().any(|&(t, b, l, r)| t <= row && row <= b && l <= column && column <= r && (row, column) != (t, l))
+                && !self.is_unticked(row, column)
+        }
+    }
+
     /// The cells showing something within a block, as tight a block as holds them all.
     fn bounds(&self, block: Block) -> Option<Block> {
         let Block { top, left, bottom, right } = block;
-        let rows = || self.rows.range(top..=bottom).filter(|(_, c)| shows_within(c, left, right));
-        let columns = || self.columns.range(left..=right).filter(|(_, r)| shows_within(r, top, bottom));
+        if top > bottom || left > right {
+            return None;
+        }
+        let shows = self.showing();
+        let rows = || {
+            self.rows.range(top..=bottom).filter(|&(&row, c)| c.range(left..=right).any(|&column| shows(row, column)))
+        };
+        let columns = || {
+            self.columns.range(left..=right).filter(|&(&column, r)| r.range(top..=bottom).any(|&row| shows(row, column)))
+        };
         let (top, bottom) = (*rows().next()?.0, *rows().next_back()?.0);
         let (left, right) = (*columns().next()?.0, *columns().next_back()?.0);
         Some(Block { top, left, bottom, right })
     }
 
-    /// A block grown a row up or down, then a column left or right, at a time, while the next shows something across
-    /// it and meets none of the blocks that bound it, until it grows no more.
-    fn grown(&self, mut block: Block, bounds: &[Block]) -> Block {
-        loop {
-            let Block { top, left, bottom, right } = block;
-            let row_bounded = |row: usize| {
-                bounds.iter().any(|b| b.top <= row && row <= b.bottom && b.left <= right && left <= b.right)
-            };
-            let mut new_top = top;
-            while new_top > 0 && self.row_shows(new_top - 1, left, right) && !row_bounded(new_top - 1) {
-                new_top -= 1;
-            }
-            let mut new_bottom = bottom;
-            while let Some(next) = new_bottom.checked_add(1) {
-                if !self.row_shows(next, left, right) || row_bounded(next) {
-                    break;
+    /// A block grown over the cells that show something beside, above or under (in its own columns and the cells'
+    /// rows), from those of some cells that do, down the block's own rows, to the columns they reach. None when a cell
+    /// reached beside another is a declared cell table's.
+    fn grown(&self, block: Block, cells: Block, declared: &[Block]) -> Option<Block> {
+        let Block { top, mut left, bottom, mut right } = block;
+        let shows = self.showing();
+        let in_declared = |row: usize, column: usize| {
+            declared.iter().any(|d| d.top <= row && row <= d.bottom && d.left <= column && column <= d.right)
+        };
+        let mut reached: HashSet<(usize, usize)> = HashSet::new();
+        let mut next: Vec<(usize, usize)> = Vec::new();
+        // The cells it grows from are those of the cells themselves, not of the merged ranges it spans.
+        for (&row, columns) in self.rows.range(cells.top..=cells.bottom) {
+            for &column in columns.range(cells.left..=cells.right) {
+                if shows(row, column) && reached.insert((row, column)) {
+                    next.push((row, column));
                 }
-                new_bottom = next;
             }
-            let (low, high) = (new_top.min(new_bottom), new_top.max(new_bottom));
-            let column_bounded =
-                |c: usize| bounds.iter().any(|b| b.top <= high && low <= b.bottom && b.left <= c && c <= b.right);
-            let mut new_left = left;
-            while new_left > 0 {
-                if !self.column_shows(new_left - 1, new_top, new_bottom) || column_bounded(new_left - 1) {
-                    break;
-                }
-                new_left -= 1;
-            }
-            let mut new_right = right;
-            while let Some(next) = new_right.checked_add(1) {
-                if !self.column_shows(next, new_top, new_bottom) || column_bounded(next) {
-                    break;
-                }
-                new_right = next;
-            }
-            let grown = Block { top: new_top, left: new_left, bottom: new_bottom, right: new_right };
-            if grown == block {
-                return Block { top: low, left: left.min(right), bottom: high, right: left.max(right) };
-            }
-            block = grown;
         }
+        while let Some((row, column)) = next.pop() {
+            let beside = [column.checked_sub(1), column.checked_add(1)].into_iter().flatten().map(|c| (row, c, true));
+            // Above and under only in the block's own columns and the cells' own rows: a cell reached beside grows
+            // on beside it alone.
+            let inside = block.left <= column && column <= block.right;
+            let over = [row.checked_sub(1).filter(|&r| inside && r >= cells.top), row.checked_add(1).filter(|&r| inside && r <= cells.bottom)];
+            for (r, c, is_beside) in beside.chain(over.into_iter().flatten().map(|r| (r, column, false))) {
+                if reached.contains(&(r, c)) || !shows(r, c) {
+                    continue;
+                }
+                if is_beside && in_declared(r, c) {
+                    return None;
+                }
+                reached.insert((r, c));
+                next.push((r, c));
+                left = left.min(c);
+                right = right.max(c);
+            }
+        }
+        // Nor when, in a row of the block, a cell of a column it grows to is a declared cell table's and shows
+        // something, reached or not.
+        for (&row, columns) in self.rows.range(top..=bottom) {
+            for &column in columns.range(left..=right) {
+                let grown = column > block.right || column < block.left;
+                if grown && shows(row, column) && in_declared(row, column) {
+                    return None;
+                }
+            }
+        }
+        Some(Block { top, left, bottom, right })
     }
 
     /// The records suggestions for some cells are made for.
     pub fn records(&self, cells: Block) -> Records {
-        let adjacent = cells.top == cells.bottom && cells.left == cells.right && self.is_blank(cells.top, cells.left);
+        // A single cell showing nothing (an unticked checkbox, a cell a merged range hides) picks up a table right
+        // above or below it.
+        let adjacent = cells.top == cells.bottom && cells.left == cells.right && !self.showing()(cells.top, cells.left);
         let candidate_area = (cells.top, cells.left, cells.bottom, cells.right);
         let relevant = tables_for_formatting(self.workbook, self.sheet, candidate_area, adjacent);
-        let recognized: Vec<_> = relevant.iter().filter(|t| !t.assumed).collect();
-        let meets = |t: &TableForFormatting| Block::of(t.cells).meets(&cells);
-        let mut named = recognized.iter().filter(|t| meets(t));
-        let known_area = match (named.next(), named.next()) {
-            (Some(first), None) => Some(first.cells),
+        let meets = |t: &TableForFormatting| Block::of(t.cells).meets(&cells) || Block::of(t.own).meets(&cells);
+        // A cell table the sheet declares that the cells meet is theirs; of more than one, the only one with a body
+        // is, else none.
+        let named: Vec<&TableForFormatting> = relevant.iter().filter(|t| t.declared && meets(t)).collect();
+        let mut named = match named.len() {
+            0 | 1 => named,
+            _ => named.into_iter().filter(|t| t.records.is_some()).collect(),
+        }.into_iter();
+        match (named.next(), named.next()) {
+            (Some(first), None) => {
+                let known_area = first.cells;
+                return relevant.into_iter().find(|t| t.declared && t.cells == known_area)
+                    .and_then(Records::in_table).unwrap_or_else(|| Records::of(cells));
+            }
             (Some(_), Some(_)) => return Records::of(cells),
-            _ => None,
-        };
-        let known_bounds: Vec<_> = recognized.iter().map(|t| Block::of(t.cells)).collect();
-        if let Some(known_area) = known_area {
-            return relevant.into_iter().find(|t| !t.assumed && t.cells == known_area)
-                .and_then(Records::in_table).unwrap_or_else(|| Records::of(cells));
+            _ => {}
         }
         let mut directly_met = relevant.iter().filter(|t| meets(t));
         let one = match (directly_met.next(), directly_met.next()) {
             (Some(first), None) => Some(first.cells),
             (None, None) if adjacent => relevant.first().map(|t| t.cells),
+            // Of more than one, the one taking the most rows (the earliest of those as long) is theirs: when it is
+            // the only one wider than a column, or when it is of one column, the first of them, and in the columns
+            // of all the others.
+            (Some(_), Some(_)) => {
+                let met: Vec<&TableForFormatting> = relevant.iter().filter(|t| meets(t)).collect();
+                let rows = |t: &TableForFormatting| t.cells.2 - t.cells.0;
+                let wide = |t: &TableForFormatting| t.cells.1 != t.cells.3;
+                let best = met.iter().copied().fold(met[0], |best, t| if rows(t) > rows(best) { t } else { best });
+                let chosen = if wide(best) {
+                    met.iter().filter(|t| wide(t)).count() == 1
+                } else {
+                    let column = best.cells.1;
+                    std::ptr::eq(best, met[0]) && !best.declared
+                        && met.iter().all(|t| t.cells.1 <= column && column <= t.cells.3)
+                };
+                chosen.then_some(best.cells)
+            }
             _ => None,
         };
         if let Some(one) = one {
-            let found = relevant.into_iter().find(|t| t.cells == one).and_then(Records::in_table);
-            if let Some(records) = found {
+            let found = relevant.into_iter().find(|t| t.cells == one);
+            let column = found.as_ref().filter(|t| !t.declared && t.cells.1 == t.cells.3).map(|t| t.cells.1);
+            if let Some(mut records) = found.and_then(Records::in_table) {
+                // A table of one column that the sheet does not declare runs on down to the last of the cells under
+                // it that shows something in its column.
+                let under = column.filter(|_| cells.bottom > records.table.bottom).and_then(|column| {
+                    self.bounds(Block { top: records.table.bottom + 1, left: column, bottom: cells.bottom, right: column })
+                });
+                if let Some(under) = under {
+                    records.table.bottom = under.bottom;
+                    records.block.bottom = records.block.bottom.max(under.bottom);
+                }
                 return records;
             }
         }
-        let loose = self.bounds(cells).map_or(cells, |found| self.grown(found, &known_bounds));
+        let declared: Vec<Block> = declared_areas(self.workbook, self.sheet).into_iter().map(Block::of).collect();
+        // A merged range the cells meet shows across all of it what its top left shows, an unticked checkbox
+        // showing nothing; not one meeting a declared cell table.
+        let merged = merged_boxes(&self.workbook.bases, self.sheet).into_iter()
+            .map(|(top, bottom, left, right)| Block { top, left, bottom, right })
+            .filter(|m| m.meets(&cells) && !self.is_blank(m.top, m.left) && !self.is_unticked(m.top, m.left))
+            .filter(|m| !declared.iter().any(|d| d.meets(m)));
+        let shown = merged.fold(self.bounds(cells), |found, m| Some(found.map_or(m, |f| f.spanning(&m))));
+        let loose = shown.map_or(Some(cells), |found| self.grown(found, cells, &declared)).unwrap_or(cells);
         Records::of(loose)
     }
 
@@ -533,7 +614,3 @@ impl<'a> Around<'a> {
     }
 }
 
-/// Whether some lines show something from one to another.
-fn shows_within(lines: &BTreeSet<usize>, from: usize, to: usize) -> bool {
-    from <= to && lines.range(from..=to).next().is_some()
-}

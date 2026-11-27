@@ -11,9 +11,10 @@ import {
   describedArgumentAt,
   isBareNameArgumentAtCaret,
   bracketPairAtCaret,
+  tableColumnBeingTyped,
 } from './function-help.ts';
-import { formulaReadsAsWords } from './word-tokens.ts';
-import { headedColumnsMatchingWord } from './column-headings.ts';
+import { formulaReadsAsWords, namesOfSheetsAndRanges } from './word-tokens.ts';
+import { columnsOfTableTyped, headedColumnsMatchingWord, tableColumnsMatchingWord } from './column-headings.ts';
 import { isFormulaText } from '../chips/dropdown-pane-edits.ts';
 import { stepListIndex } from '../ui/list-cards.ts';
 import { startEntryEditing } from '../editor/start-entry.ts';
@@ -25,6 +26,7 @@ import type {
   FunctionGuide,
   FunctionList,
   FunctionListColumn,
+  FunctionListNamedRange,
   FunctionListRow,
   GuideSaid,
   PageState,
@@ -38,7 +40,7 @@ import type { CallAtEnd } from './function-help.ts';
 /** The guide to the call the caret is in: the call, the argument count to tell of, and when it is read out. */
 export interface FunctionGuideAtCall extends CallAtEnd, FunctionGuide {}
 /** A row picked from the function list: a function by its name, or a column by its id. */
-export type FunctionListPick = { name: string } | { columnId: ColumnId };
+export type FunctionListPick = { name: string } | { columnId: ColumnId } | { namedRangeId: string };
 /** The fresh list with the row highlighted in the old one kept highlighted, where the fresh list still has it. */
 export function keepFunctionListHighlight(oldList: FunctionList | null, list: FunctionList | null): FunctionList | null {
   if (oldList === null || list === null || list === oldList) return list;
@@ -46,7 +48,7 @@ export function keepFunctionListHighlight(oldList: FunctionList | null, list: Fu
   let match =
     typeof highlighted === 'string'
       ? list.names.find((name) => name === highlighted)
-      : list.columns.find(({ columnId }) => columnId === highlighted.columnId);
+      : ('columnId' in highlighted ? list.columns : list.namedRanges).find((row) => idOfOfferedRow(row) === idOfOfferedRow(highlighted));
   return match === undefined
     ? list
     : {
@@ -65,6 +67,25 @@ export function functionNamesOffered(typed: string): string[] {
   let others = typed.length === 1 ? [] : functionNamesMatching(OTHER_FUNCTION_NAMES, typed);
   return others[0] === typed ? [typed, ...common, ...others.slice(1)] : [...common, ...others];
 }
+/** The list of a connected table's columns, while one is typed between the table's brackets (`Sales[Am`). */
+export function tableColumnListAt(text: string, caretAt: number, workbook: WorkbookReads): FunctionList | null {
+  let typed = tableColumnBeingTyped(text.slice(0, caretAt));
+  if (typed === null || !TABLE_COLUMN_ENDS_PATTERN.test(text.slice(caretAt))) return null;
+  let columns = columnsOfTableTyped(typed, workbook);
+  let [highlighted] = columns;
+  if (highlighted === undefined) return null;
+  let [typedFrom, typedTo, families] = [typed.start, caretAt, NO_FUNCTION_FAMILIES];
+  return {
+    typedFrom,
+    typedTo,
+    namedRanges: [],
+    columns,
+    names: [],
+    families,
+    highlighted,
+    isHighlightedByKey: false,
+  };
+}
 export function functionListAt(
   text: string,
   caretAt: number,
@@ -74,6 +95,8 @@ export function functionListAt(
   workbook: WorkbookReads,
 ): FunctionList | null {
   if (NAME_GOES_ON_PATTERN.test(text.slice(caretAt))) return null;
+  let tableColumnList = isAllAskedFor ? null : tableColumnListAt(text, caretAt, workbook);
+  if (tableColumnList !== null) return keptListIfSame(tableColumnList, list);
   let textToCaret = text.slice(0, caretAt);
   if (isAllAskedFor && !expectsOperandAtEnd(textToCaret)) return null;
   let nameTyped = isAllAskedFor
@@ -86,34 +109,47 @@ export function functionListAt(
   if (!isAllAskedFor && isTypingNameArgument(textToCaret, text.slice(caretAt), nameTyped, workbook.decimalSign)) return null;
   let typedUpper = nameTyped.typed.toUpperCase();
   let hasBracketAhead = openBracketAhead(text.slice(caretAt)) !== null;
-  let sheetNames = workbook.listSheets().map((sheet) => sheet.name);
-  let readsAsWords = formulaReadsAsWords(text, sheetNames, workbook.decimalSign);
+  let namedRangesOfWorkbook = isAllAskedFor || hasBracketAhead ? [] : workbook.namedRanges();
+  if (namedRangesOfWorkbook.some(({ namedRange }) => namedRange.name.toUpperCase() === typedUpper)) return null;
+  let readsAsWords = formulaReadsAsWords(text, namesOfSheetsAndRanges(workbook), workbook.decimalSign);
+  let namedRanges = (/^(?:[A-Z]|[A-Z]{1,3}[0-9]+|TRUE|FALSE)$/.test(typedUpper) || readsAsWords ? [] : namedRangesOfWorkbook).flatMap(
+    ({ namedRangeId, namedRange, address, liveCells }): FunctionListNamedRange[] =>
+      liveCells !== null && namedRange.name.toUpperCase().startsWith(typedUpper)
+        ? [
+            {
+              namedRangeId,
+              heading: namedRange.name,
+              cells: address,
+            },
+          ]
+        : [],
+  );
   let isOffered = (name: string) =>
     (isCommonFunction(name) || !readsAsWords) && (!isBooleanLiteralName(name) || (name !== typedUpper && !hasBracketAhead));
   let names = isAllAskedFor ? FUNCTION_NAMES_BY_FAMILY.names : functionNamesOffered(typedUpper).filter(isOffered);
-  let columns =
-    isAllAskedFor || activeCell === null || enclosingCallAtEnd(textToCaret, workbook.decimalSign) === null
+  let columns: FunctionListColumn[] =
+    isAllAskedFor || enclosingCallAtEnd(textToCaret, workbook.decimalSign) === null
       ? []
-      : headedColumnsMatchingWord(nameTyped.typed, activeCell, workbook);
+      : [
+          ...(activeCell === null ? [] : headedColumnsMatchingWord(nameTyped.typed, activeCell, workbook)),
+          ...(hasBracketAhead || /^[[!]/.test(text.slice(caretAt)) ? [] : tableColumnsMatchingWord(nameTyped.typed, workbook)),
+        ];
   let exactName =
     typedUpper.length > 1 && isCommonFunction(typedUpper) ? names.find((name) => name === typedUpper) : undefined;
-  let highlighted = columns.length === 0 ? names[0] : (exactName ?? columns[0]);
+  let firstRow = columns.find(({ table, heading }) => table === heading && table.toUpperCase() === typedUpper) ?? namedRanges[0] ?? columns[0];
+  let highlighted = firstRow === undefined ? names[0] : (exactName ?? firstRow);
   if (highlighted === undefined) return null;
-  return list !== null &&
-    list.typedFrom === nameTyped.start &&
-    list.typedTo === caretAt &&
-    areSameFunctionNames(names, list.names) &&
-    areSameColumnOffers(columns, list.columns)
-    ? list
-    : {
-        typedFrom: nameTyped.start,
-        typedTo: caretAt,
-        columns,
-        names,
-        families: isAllAskedFor ? FUNCTION_NAMES_BY_FAMILY.families : NO_FUNCTION_FAMILIES,
-        highlighted,
-        isHighlightedByKey: false,
-      };
+  let nextList: FunctionList = {
+    typedFrom: nameTyped.start,
+    typedTo: caretAt,
+    namedRanges,
+    columns,
+    names,
+    families: isAllAskedFor ? FUNCTION_NAMES_BY_FAMILY.families : NO_FUNCTION_FAMILIES,
+    highlighted,
+    isHighlightedByKey: false,
+  };
+  return keptListIfSame(nextList, list);
 }
 export function functionGuideAt(
   text: string,
@@ -247,7 +283,7 @@ export function setFormulaHelpCaret(state: PageState, caret: CaretInText): PageS
 export function moveFunctionListHighlight(state: PageState, step: KeyStep): PageState {
   let { list } = state.formulaHelp;
   if (list === null) return state;
-  let rows: FunctionListRow[] = [...list.columns, ...list.names];
+  let rows: FunctionListRow[] = [...list.namedRanges, ...list.columns, ...list.names];
   let highlighted = rows[stepListIndex(rows.indexOf(list.highlighted), step, rows.length) ?? -1];
   if (highlighted === undefined) return state;
   let nextList: FunctionList = {
@@ -343,7 +379,21 @@ export function pickFunctionListRow(state: PageState, workbook: ReadsWithTextMea
       : highlighted);
   if ('columnId' in picked) {
     let column = list.columns.find(({ columnId }) => columnId === picked.columnId);
-    return column === undefined ? state : writeFunctionListPick(state, workbook, column.cells, 0, column);
+    if (column === undefined) return state;
+    let written = writeFunctionListPick(state, workbook, column.cells, 0, column);
+    return column.table === undefined || written.mode.kind !== 'editing'
+      ? written
+      : {
+          ...written,
+          mode: {
+            ...written.mode,
+            mayHoldTextOfOthers: true,
+          },
+        };
+  }
+  if ('namedRangeId' in picked) {
+    let namedRange = list.namedRanges.find((row) => row.namedRangeId === picked.namedRangeId);
+    return namedRange === undefined ? state : writeFunctionListPick(state, workbook, namedRange.heading, 0, namedRange);
   }
   if (!list.names.includes(picked.name)) return state;
   let bracketAhead = openBracketAhead(mode.text.slice(list.typedTo));
@@ -419,12 +469,29 @@ export const FUNCTION_NAMES_BY_FAMILY = (() => {
 export const NO_FUNCTION_FAMILIES: FunctionFamilyInList[] = [];
 export const areSameFunctionNames = (names: readonly string[], otherNames: readonly string[]): boolean =>
   names.length === otherNames?.length && names.every((name, index) => name === otherNames[index]);
-export const areSameColumnOffers = (columns: readonly FunctionListColumn[], otherColumns: readonly FunctionListColumn[]): boolean =>
-  columns.length === otherColumns.length &&
-  columns.every(
-    ({ columnId, heading, cells }, index) =>
-      columnId === otherColumns[index]?.columnId && heading === otherColumns[index].heading && cells === otherColumns[index].cells,
+export const idOfOfferedRow = (row: FunctionListColumn | FunctionListNamedRange): string => ('columnId' in row ? row.columnId : row.namedRangeId);
+export const areSameOfferedRows = (
+  rows: readonly (FunctionListColumn | FunctionListNamedRange)[],
+  otherRows: readonly (FunctionListColumn | FunctionListNamedRange)[],
+): boolean =>
+  rows.length === otherRows.length &&
+  rows.every(
+    (row, index) =>
+      otherRows[index] !== undefined &&
+      idOfOfferedRow(row) === idOfOfferedRow(otherRows[index]) &&
+      row.heading === otherRows[index].heading &&
+      row.cells === otherRows[index].cells,
   );
+export const keptListIfSame = (nextList: FunctionList, list: FunctionList | null): FunctionList =>
+  list !== null &&
+  list.typedFrom === nextList.typedFrom &&
+  list.typedTo === nextList.typedTo &&
+  areSameFunctionNames(nextList.names, list.names) &&
+  areSameOfferedRows(nextList.namedRanges, list.namedRanges) &&
+  areSameOfferedRows(nextList.columns, list.columns)
+    ? list
+    : nextList;
+export const TABLE_COLUMN_ENDS_PATTERN = /^(?:[),;]|$)(?!(?:'.|[^[\]'])*\])/su;
 export const NAME_GOES_ON_PATTERN = /^[A-Za-z0-9_.]/;
 export const SEARCH_INSIDE_NAMES_PATTERN = /^[A-Z]{3,}$/;
 export const eventsToPickFunction = (name: string): PageEvent[] => [
@@ -436,5 +503,7 @@ export const eventsToPickFunction = (name: string): PageEvent[] => [
     name,
   },
 ];
-export const isColumnPick = (state: PageState, pick: FunctionListPick | null): boolean =>
-  pick === null ? typeof state.formulaHelp.list?.highlighted === 'object' : 'columnId' in pick;
+export const isColumnPick = (state: PageState, pick: FunctionListPick | null): boolean => {
+  let picked = pick ?? state.formulaHelp.list?.highlighted;
+  return typeof picked === 'object' && 'columnId' in picked;
+};

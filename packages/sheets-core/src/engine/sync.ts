@@ -5,8 +5,9 @@
  * server makes. Reads (`reads.ts`) are taken by every session.
  *
  * A session is direct until its first request of syncing (any but `load`,
- * `apply`, `undo`, `replay`, the reads and the history reads); from then on it
- * syncs, and those four are refused (`syncInUse`).
+ * `apply`, `undo`, `replay`, the reads, the history reads and a table file's
+ * lines or loss); from then on it syncs, and those four are refused
+ * (`syncInUse`).
  */
 
 import type { CellAt, ColumnId, IdRun, PlaceChanged, RowId, SheetId } from './ids.ts';
@@ -319,6 +320,24 @@ export interface QueueNextRedoRequest {
   opId: string;
 }
 
+/**
+ * What is taken back or made again of a sitting at an interactive view: its
+ * last press, every last step of it as one, or the last step taken back.
+ */
+export type ReversalInASitting = 'undoOfAPress' | 'undoOfAll' | 'redo';
+
+/**
+ * A step of a sitting (`madeBy.sitting` of interactive edits) taken back or
+ * made again, when the last step of its stack is of the sitting; otherwise
+ * `nothingToReverse`.
+ */
+export interface QueueReversalInASittingRequest {
+  kind: 'queueReversalInASitting';
+  opId: string;
+  sitting: string;
+  reversal: ReversalInASitting;
+}
+
 /** A step taken back or made again, queued. */
 export interface StepReversedAnswer {
   kind: 'editQueued';
@@ -359,6 +378,38 @@ export interface QueueEditsThatTakeBackRequest {
 }
 
 export type QueueEditsThatTakeBackAnswer = EditQueuedAnswer | NothingToChangeAnswer | Refused;
+
+// ---------------------------------------------------------------------------
+// Connected tables' files and the person editing
+// ---------------------------------------------------------------------------
+
+/**
+ * Lines of a snapshot's table file, streamed in order; the last ones with
+ * `isLast`. Refused `tableFileUnreadable` (and the file read so far dropped)
+ * when they do not read.
+ */
+export interface ReceiveLinesOfTableFileRequest {
+  kind: 'receiveLinesOfTableFile';
+  /** 32 digits of lowercase hexadecimal. */
+  snapshotId: string;
+  lines: string;
+  isLast: boolean;
+}
+
+/** A snapshot's table file is gone from the server: its table's records are not kept. */
+export interface TableFileIsGoneRequest {
+  kind: 'tableFileIsGone';
+  snapshotId: string;
+}
+
+/** Who makes the page's edits: the workbook's owner, someone not named, or a person by user id. */
+export type PersonEditing = { kind: 'owner' } | { kind: 'unnamed' } | { kind: 'user'; userId: string };
+
+/** Protections are held against the person told; until one is, edits are made as the owner's. */
+export interface ReceivePersonRequest {
+  kind: 'receivePerson';
+  person: PersonEditing;
+}
 
 // ---------------------------------------------------------------------------
 // History reads (a direct session at the newest revision)
@@ -450,11 +501,15 @@ export interface SessionKinds extends ReadKinds, PackedReadKinds {
   queueEdit: { request: QueueEditRequest; answer: QueueEditAnswer };
   queueNextUndo: { request: QueueNextUndoRequest; answer: QueueReverseAnswer };
   queueNextRedo: { request: QueueNextRedoRequest; answer: QueueReverseAnswer };
+  queueReversalInASitting: { request: QueueReversalInASittingRequest; answer: QueueReverseAnswer };
   queueEditsThatTakeBack: { request: QueueEditsThatTakeBackRequest; answer: QueueEditsThatTakeBackAnswer };
   editsThatTakeBackAllSince: { request: EditsThatTakeBackAllSinceRequest; answer: EditsThatTakeBackAnswer };
   editsThatUndo: { request: EditsThatUndoRequest; answer: EditsThatTakeBackAnswer };
   historyOfACell: { request: HistoryOfACellRequest; answer: HistoryOfACellAnswer };
   historyOfARow: { request: HistoryOfARowRequest; answer: HistoryOfARowAnswer };
+  receiveLinesOfTableFile: { request: ReceiveLinesOfTableFileRequest; answer: SyncStateAnswer };
+  tableFileIsGone: { request: TableFileIsGoneRequest; answer: SyncStateAnswer };
+  receivePerson: { request: ReceivePersonRequest; answer: SyncStateAnswer };
 }
 
 export type SessionKind = keyof SessionKinds;

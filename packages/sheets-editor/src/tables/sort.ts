@@ -1,4 +1,4 @@
-import { layoutOfView, sheetOfViewOrEmpty } from '../grid/layout.ts';
+import { layoutOfView, rowsHiddenByOwnFilters, sheetOfViewOrEmpty } from '../grid/layout.ts';
 import { columnLetters } from '../model/a1-references.ts';
 import { selectionPositionsOf, selectedArea, selectionAreaAndKind, selectionAtCell } from '../selection/model.ts';
 import { withNoEffects } from '../state/transitions.ts';
@@ -10,16 +10,22 @@ import { currentRegionAround } from '../selection/jumps.ts';
 import { areaToA1AsStored } from '../formulas/from-words/where.ts';
 import { ownRowOrderOfSheet } from '../model/line-ids.ts';
 import { areaRefBetween, numberFormatOfCell } from '../model/workbook.ts';
-import { rowBelowOwnFilterButtonsAt } from './own-filters.ts';
+import { ownFilterByKey, rowBelowOwnFilterButtonsAt } from './own-filters.ts';
+import { collapseLineSizes, createLineSizes } from '../model/line-sizes.ts';
+import { cellValueOf } from '../model/cell-values.ts';
+import { cellShownText } from '../clipboard/text-escaping.ts';
+import { isColumnFiltered } from './filter-model.ts';
 import { isAreaWithin } from '../selection/several-ranges.ts';
 import { headedTableBoundsAtCell } from './table-to-sort.ts';
-import type { ColumnId, Edit } from '@open-artifact/sheets-core';
+import type { ColumnId, Edit, HorizontalAlignment, RowId, SheetId, SortDirection } from '@open-artifact/sheets-core';
 import type { CellId, SheetRead, WorkbookReads } from '../model/workbook.ts';
 import type { PageState, SortHoldsOfColumn } from '../state/initial-state.ts';
 import type { ReadsWithTextMeasurer } from '../state/controller.ts';
 import type { SheetChange } from '../state/event-reducer.ts';
 import type { PageTransition } from '../state/transitions.ts';
 import type { CellArea } from '../selection/model.ts';
+import type { LayoutView } from '../grid/layout.ts';
+import type { OwnFilter } from './own-filters.ts';
 /** The sorts of a whole sheet by a column. */
 export type SheetSortChange = Extract<SheetChange, 'sortAscending' | 'sortDescending'>;
 /** The sorts of the selected range by a column. */
@@ -61,6 +67,42 @@ export interface RangeSortPlan {
   headingRowCount: number;
   topLeftWithHeadings: CellId;
 }
+/** A column of a connected table as its records show it. */
+export interface RecordColumn {
+  columnId: ColumnId;
+  name: string;
+  /** How formulas name the column. */
+  reference: string;
+  widthInPixels: number;
+  /** Whether the width is fitted to the column's texts, as the column was never sized. */
+  isFitted: boolean;
+  alignment: HorizontalAlignment;
+  isFiltered: boolean;
+  sorted: SortDirection | null;
+}
+/** A connected table as its records view shows it: line 0 is the names, a record's line is its index plus one. */
+export interface RecordsOfTable {
+  sheetId: SheetId;
+  name: string;
+  columns: RecordColumn[];
+  recordCount: number;
+  canBeFiltered: boolean;
+  /** Whether the snapshot's rows are fetched but not held yet. */
+  areOnTheirWay: boolean;
+  areAllFilteredOut: boolean;
+  textsOf(record: number): string[];
+  lineOf(cell: CellId): number | null;
+  cellAt(line: number, columnIndex: number): CellId | null;
+  linesOf(rows: { topRowIndex: number; rowCount: number }): { first: number; end: number };
+}
+/** The records last made of the reads, with what they were made from. */
+export interface RecordsViewCached {
+  records: RecordsOfTable;
+  outOfView: Set<RowId> | undefined;
+  filtered: OwnFilter | null;
+}
+/** The view the records are made for. */
+export type ViewOfRecords = LayoutView & Pick<PageState, 'ownFilters' | 'ownCollapsing' | 'rowsOutOfViewByOwnFilters'>;
 export function sheetSortColumnLetters(state: PageState, reads: ReadsWithTextMeasurer, columnId: ColumnId | null): string | null {
   let columnIndex = sortColumnIndex(state, reads, columnId);
   let hasRowsBelow = layoutOfView(state, reads).rowCount > headingRowCountByFilter(state, reads);
@@ -394,6 +436,83 @@ export function sortHoldsForMenu(
         span,
       );
 }
+export function recordsOfConnectedTable(view: ViewOfRecords, reads: ReadsWithTextMeasurer): RecordsOfTable | null {
+  let { sheetId } = view;
+  let connectedTable = reads.connectedTableIn(sheetId);
+  if (connectedTable === null) return null;
+  let cached = recordsViewCache.get(reads);
+  let outOfView = view.rowsOutOfViewByOwnFilters.get(sheetId);
+  let ownFilter = ownFilterByKey(view, sheetId);
+  if (cached?.records.sheetId === sheetId && cached.outOfView === outOfView && cached.filtered === ownFilter) return cached.records;
+  let rowCount = connectedTable.rows.kind === 'held' ? connectedTable.rows.rowCount : 0;
+  let lines = collapseLineSizes(createLineSizes(rowCount + 1, [], 1), rowsHiddenByOwnFilters(view, reads, sheetId));
+  let cellIdAt = (line: number, columnIndex: number): CellId | null => reads.cellIdAt(sheetId, lines.indexAt(line), columnIndex);
+  let cellOfRecord = (record: number, columnIndex: number) => {
+    let cellId = cellIdAt(record + 1, columnIndex);
+    return cellId === null ? null : reads.cellOnShowIn(cellId);
+  };
+  let stored = reads.asStored() ?? reads;
+  let sampleCells = (columnIndex: number) =>
+    Array.from(
+      {
+        length: Math.min(rowCount, RECORDS_VIEW_SAMPLE_ROWS),
+      },
+      (input, offset) => {
+        let cellId = stored.cellIdAt(sheetId, offset + 1, columnIndex);
+        return cellId === null ? null : reads.cellOnShowIn(cellId);
+      },
+    );
+  let holdsNumbers = (columnIndex: number): boolean =>
+    sampleCells(columnIndex)
+      .map(cellValueOf)
+      .find((value) => value !== null)?.kind === 'number';
+  let fittedWidth = (name: string, columnIndex: number): number =>
+    Math.min(
+      RECORDS_VIEW_COLUMN_WIDTHS.widest,
+      Math.max(
+        name.length * RECORDS_VIEW_COLUMN_WIDTHS.ofCharacter + RECORDS_VIEW_COLUMN_WIDTHS.besideName,
+        ...sampleCells(columnIndex).map(
+          (cell) => cellShownText(cell, reads.decimalSign).length * RECORDS_VIEW_COLUMN_WIDTHS.ofCharacter + RECORDS_VIEW_COLUMN_WIDTHS.besideText,
+        ),
+      ),
+    );
+  let { columnEdges } = layoutOfView(view, reads);
+  let isUnsized = (columnIndex: number): boolean => columnEdges.sizeOf(columnIndex) === connectedTable.widthOfUnsizedColumn;
+  let records: RecordsOfTable = {
+    sheetId,
+    name: reads.listSheets().find((sheet) => sheet.sheetId === sheetId)?.name ?? '',
+    columns: connectedTable.columns.map(({ c: columnId, column }, columnIndex) => ({
+      columnId,
+      name: column.name,
+      reference: connectedTable.references.find((reference) => reference.c === columnId)?.text ?? '',
+      widthInPixels: isUnsized(columnIndex) ? fittedWidth(column.name, columnIndex) : columnEdges.sizeOf(columnIndex),
+      isFitted: isUnsized(columnIndex),
+      alignment: column.horizontalAlignment ?? (holdsNumbers(columnIndex) ? 'right' : 'left'),
+      isFiltered: isColumnFiltered(ownFilter?.filter ?? null, columnId),
+      sorted: ownFilter?.sort?.by.find((key) => key.c === columnId)?.direction ?? null,
+    })),
+    recordCount: lines.totalSize - 1,
+    canBeFiltered: rowCount > 0,
+    areOnTheirWay: connectedTable.snapshot !== null && connectedTable.rows.kind === 'notHeld',
+    areAllFilteredOut: rowCount > 0 && lines.totalSize === 1,
+    textsOf: (record) => connectedTable.columns.map((input, columnIndex) => cellShownText(cellOfRecord(record, columnIndex), reads.decimalSign)),
+    lineOf(cell) {
+      let position = cell.sheetId === sheetId ? reads.positionOfCell(cell) : null;
+      return position === null || lines.sizeOf(position.rowIndex) === 0 ? null : lines.startOf(position.rowIndex);
+    },
+    cellAt: cellIdAt,
+    linesOf: ({ topRowIndex, rowCount: count }) => ({
+      first: lines.startOf(topRowIndex),
+      end: lines.startOf(topRowIndex + count),
+    }),
+  };
+  recordsViewCache.set(reads, {
+    records,
+    outOfView,
+    filtered: ownFilter,
+  });
+  return records;
+}
 export const MIN_SORT_HEADING_ROWS = 1;
 export const headingRowCountByFreeze = (state: PageState, reads: WorkbookReads): number =>
   Math.max(MIN_SORT_HEADING_ROWS, sheetOfViewOrEmpty(state, reads).frozenRowCount);
@@ -405,3 +524,11 @@ export const canSortRange = (state: PageState, reads: ReadsWithTextMeasurer): bo
 export const rangeSortColumnLetters = (state: PageState, reads: ReadsWithTextMeasurer, columnId: ColumnId | null): string | null =>
   rangeSortPlan(state, reads, 'selection', columnId)?.column ?? null;
 export const sortHoldsCache = new WeakMap<SheetRead, Map<string, SortHoldsOfColumn | null>>();
+export const RECORDS_VIEW_SAMPLE_ROWS = 20;
+export const RECORDS_VIEW_COLUMN_WIDTHS = {
+  ofCharacter: 8,
+  besideText: 28,
+  besideName: 72,
+  widest: 320,
+};
+export const recordsViewCache = new WeakMap<WorkbookReads, RecordsViewCached>();

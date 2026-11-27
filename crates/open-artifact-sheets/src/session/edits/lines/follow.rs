@@ -175,6 +175,8 @@ pub fn of_delete(workbook: &Workbook, sheet: &Sheet, lines: Lines, deleted: &Has
     if !tables.is_empty() {
         ops.push(Op::SetCellTables { sheet_id: sheet.id.clone(), cell_tables: tables });
     }
+    // Protections come before conditional formats: an end deleted takes the nearest line left toward the other.
+    ops.extend(crate::workbook::protections::after_deleting(bases, sheet, lines == Lines::Rows, &left));
     let mut formats = Vec::new();
     // An end deleted before is read as the line nearest it toward the other: deleting that line deletes the end.
     let ends_deleted = |range: &RangeIds| {
@@ -318,21 +320,28 @@ pub fn of_move(workbook: &Workbook, sheet: &Sheet, lines: Lines, moved: &[LineId
         after_ops.push(lines.set_groups(&sheet.id, groups));
     }
     after_ops.extend(formulas_after_move(workbook, sheet, lines, &moving));
-    if matches!(lines, Lines::Columns) {
-        let tables: Vec<_> = sheet.cell_tables.values().filter_map(|(id, table)| {
-            if !is_table_shown(bases, sheet, table) {
-                return None;
+    // The columns of a cell table the sheet shows go as a reference's do (one not shown, its footer not under its
+    // header, is left as it is); moving rows leaves its rows as they are.
+    if let Lines::Columns = lines {
+        let mut tables = Vec::new();
+        for (table_id, t) in sheet.cell_tables.values() {
+            if !crate::session::edits::tables::is_cell_table_shown(bases, sheet, t) {
+                continue;
             }
-            let (first, last) = ends(&table.first_column, &table.last_column)?;
-            let mut table = table.clone();
-            table.first_column = bases.text(first);
-            table.last_column = bases.text(last);
-            Some(CellTableToSet { cell_table_id: id.clone(), cell_table: Some(table) })
-        }).collect();
+            let Some((a, b)) = ends(&t.first_column, &t.last_column) else { continue };
+            let at = |id: &str, axis: &Axis| bases.parse(id).and_then(|l| axis.position(l)).unwrap_or(usize::MAX);
+            let place = (at(&t.header_rows.first_row, &sheet.rows), at(&t.first_column, &sheet.columns));
+            let cell_table = CellTable { first_column: bases.text(a), last_column: bases.text(b), ..t.clone() };
+            tables.push((place, CellTableToSet { cell_table_id: table_id.clone(), cell_table: Some(cell_table) }));
+        }
+        tables.sort_by_key(|(place, _)| *place);
         if !tables.is_empty() {
-            after_ops.push(Op::SetCellTables { sheet_id: sheet.id.clone(), cell_tables: tables });
+            let cell_tables = tables.into_iter().map(|(_, t)| t).collect();
+            after_ops.push(Op::SetCellTables { sheet_id: sheet.id.clone(), cell_tables });
         }
     }
+    // Protections come after the formulas, before conditional formats.
+    after_ops.extend(crate::workbook::protections::after_moving(bases, sheet, lines == Lines::Rows, &moving.after, &moving.moved));
     let mut formats = Vec::new();
     for (format_id, f) in sheet.conditional_formats.values() {
         let mut changed = false;
@@ -444,6 +453,10 @@ fn formulas_after_move(workbook: &Workbook, sheet: &Sheet, lines: Lines, moving:
                     (Reference::Columns { sheet_id, top: Some(top), .. }, Lines::Rows) if here(sheet_id) => {
                         to_the_end(&mut top.r)
                     }
+                    // A part of a connected table, its columns from one to another.
+                    (Reference::TablePart { sheet_id, columns: Some(columns), .. }, Lines::Columns) if here(sheet_id) => {
+                        ends(&mut columns.left, &mut columns.right)
+                    }
                     _ => false,
                 };
             }
@@ -454,7 +467,7 @@ fn formulas_after_move(workbook: &Workbook, sheet: &Sheet, lines: Lines, moving:
         }
         if !cells.is_empty() {
             cells.sort_by(|x, y| (&x.r, &x.c).cmp(&(&y.r, &y.c)));
-            ops.push(Op::SetCells { sheet_id: other.id.clone(), cells, form: CellForm::Auto });
+            ops.push(Op::SetCells { sheet_id: other.id.clone(), cells, form: CellForm::List });
         }
     }
     ops
@@ -502,7 +515,10 @@ pub fn formats_of_new(
     let is_left_out = |leaf: Leaf, (r, c): (LineId, LineId), v: &serde_json::Value| {
         let across = if lines == Lines::Rows { c } else { r };
         let runs_on = || neighbours.iter().any(|&n| sheet.formats.value(leaf, cell(n, across)) == *v);
-        (Some(leaf) == border && !runs_on()) || (lines == Lines::Columns && leaf == Leaf::CellControl)
+        (Some(leaf) == border && !runs_on())
+            || (lines == Lines::Columns && leaf == Leaf::CellControl)
+            // Nor a default value or limits.
+            || matches!(leaf, Leaf::DefaultValue | Leaf::ValueLimits)
     };
     let cells = sheet.formats.iter().filter(|&(leaf, at, v)| !is_left_out(leaf, at, v)).filter_map(|(leaf, (r, c), v)| {
         match lines {
@@ -553,7 +569,7 @@ pub fn checkboxes_of_new(sheet: &Sheet, from: LineId, formatted: &Workbook, new:
             }
         }
     }
-    (!cells.is_empty()).then(|| Op::SetCells { sheet_id: sheet.id.clone(), cells, form: CellForm::Auto })
+    (!cells.is_empty()).then(|| Op::SetCells { sheet_id: sheet.id.clone(), cells, form: CellForm::List })
 }
 
 /// The groups that take in new lines: one that ends with the line given, when they go right after it, or starts
@@ -697,6 +713,9 @@ fn moved_down(workbook: &Workbook, sheet: &Sheet, axis: &Axis, formula: &StoredF
                     top.r = row(&top.r, top.is_row_absolute, sheet_id)?;
                     bottom.r = row(&bottom.r, bottom.is_row_absolute, sheet_id)?;
                 }
+                Reference::TableColumn { .. } | Reference::TablePart { .. } => {}
+                // A name reads the same cells wherever it is written.
+                Reference::NamedRange { .. } => {}
             }
             Some(reference)
         })
@@ -721,6 +740,8 @@ fn points_at_own_row(bases: &Bases, sheet: &Sheet, formula: &StoredFormula, row:
         Reference::Rows { sheet_id, top, bottom, .. } => {
             own(&top.r, top.is_row_absolute, sheet_id) && own(&bottom.r, bottom.is_row_absolute, sheet_id)
         }
+        Reference::TableColumn { .. } | Reference::TablePart { .. } => true,
+        Reference::NamedRange { .. } => true,
     })
 }
 
@@ -780,5 +801,5 @@ pub fn formulas_of_new(workbook: &Workbook, sheet: &Sheet, from: LineId, after_i
             })
         })
         .collect();
-    (!cells.is_empty()).then(|| Op::SetCells { sheet_id: sheet.id.clone(), cells, form: CellForm::Auto })
+    (!cells.is_empty()).then(|| Op::SetCells { sheet_id: sheet.id.clone(), cells, form: CellForm::List })
 }

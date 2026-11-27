@@ -7,6 +7,8 @@
  *                         is the workbook after the first n lines; `ops` are the engine's operations, `v` the format
  *                         version they were written in, `by` the server's id of who made it ("agent" for the agent)
  *   sheet/widgets/        the chart widgets (widgets.ts)
+ *   sheet/version-names.json   the names given to versions in the history pane: {"<revision>": name}, the revision
+ *                         being the last of the named version; names past the log's end are not read
  *   sheet/imports/        the .xlsx files people chose to import, for the agent (files.ts)
  *
  * The workbook as it stands is kept in an engine session that loaded every edit's operations. A page's edit is applied
@@ -48,6 +50,8 @@ import {
   type JsonObject,
   type LoadPage,
   MAX_EDIT_BYTES,
+  MOST_VERSION_NAME_LENGTH,
+  MOST_VERSION_NAMES,
   oldestFormatVersion,
   personId,
   pickSheet,
@@ -62,11 +66,14 @@ import {
   type SheetEditsRequest,
   type SheetSendRequest,
   type SheetSendResponse,
+  type SheetVersionNameRequest,
   type SheetView,
   sheetsOf,
   type SnapshotFrame,
   undeleted,
   versionsOf,
+  type VersionRow,
+  type VersionRowWithChanges,
   type WidgetRequest,
   type WidgetResponse,
   type WidgetState,
@@ -87,6 +94,7 @@ import { type Widget, WidgetStore } from './widgets.ts';
 export const SHEET_DIR = 'sheet';
 export const META_FILE = 'sheet.json';
 export const EDITS_FILE = 'edits.jsonl';
+export const VERSION_NAMES_FILE = 'version-names.json';
 export const DEFAULT_TITLE = 'Untitled sheet';
 /** Who the log names for the agent's edits. */
 export const AGENT = 'agent';
@@ -94,6 +102,8 @@ export const AGENT = 'agent';
 export const OWNER = 'owner';
 /** The most calls in one batch. */
 const MAX_BATCH = 16;
+/** The most kinds of acts told of one version for its summary. */
+const MOST_ACTS_OF_A_VERSION = 40;
 /** How many widget creates are remembered by their opId (a page sends one again when it did not hear the answer). */
 const MAX_REMEMBERED = 200;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -173,6 +183,11 @@ export interface SheetInfo {
 }
 
 const refused = (refusal: string): SheetReadRefusal => ({ kind: 'refused', refusal });
+
+/** A version's name as it is kept: control characters, line breaks and runs of spaces made one space, the ends trimmed. */
+export function versionNameOf(given: string): string {
+  return given.replace(/[\p{Cc}\s]+/gu, ' ').trim();
+}
 
 export function readMeta(sheetDir: string, files?: WorkspaceDirectory): SheetMeta | null {
   const file = path.resolve(sheetDir, META_FILE);
@@ -509,7 +524,7 @@ export class SheetStore {
       revision: this.revision,
       newestFormatVersion: this.newest,
       widgets: this.widgets.list().map((w) => ({ id: w.id, pub: w.pub })),
-      viewer: { personId: personId(viewer.id), canEdit: viewer.canEdit },
+      viewer: { personId: personId(viewer.id), canEdit: viewer.canEdit, isOwner: viewer.isOwner },
     };
   }
 
@@ -614,7 +629,16 @@ export class SheetStore {
         return this.loadPage(0, revision);
       }
       case 'versions':
-        return this.versions(request.limit, request.before);
+        return { kind: 'versions', rows: this.versionRows(request.limit, request.before ?? request.beforeSeq) };
+      case 'versionsWithChanges': {
+        // The same rows, each with what its edits did; the summary itself is the agent's to write.
+        const rows = this.versionRows(request.limit, request.before ?? request.beforeSeq);
+        const sheetNames = this.sheetNames();
+        return { kind: 'versionsWithChanges', rows: rows.map((row) => ({ ...row, content: this.changesOfVersion(row, sheetNames) })) };
+      }
+      case 'loadTableFile':
+        // Connected tables keep no snapshot files here.
+        return { kind: 'tableFile', isGone: true };
       case 'editsThatRestore':
       case 'editsThatUndo':
       case 'cellHistory':
@@ -648,14 +672,76 @@ export class SheetStore {
     return { kind: 'loadPage', from, revision, v, ops: edits.flatMap((e) => e.ops), next: null };
   }
 
-  private versions(limit: unknown, before: unknown): SheetReadAnswers['versions'] {
+  /**
+   * The versions, newest first, that end before `before`. A version's first edit stands in the log at its revision,
+   * so `firstSeq` is `firstRevision`, and a page asked for `beforeSeq` is the one asked for `before`.
+   */
+  private versionRows(limit: unknown, before: unknown): VersionRow[] {
     const most = isCount(limit) && limit > 0 ? Math.min(limit, 200) : 50;
     const until = isCount(before) ? before : this.revision + 1;
-    const rows = versionsOf(this.edits)
+    const names = this.versionNames();
+    return versionsOf(this.edits, new Set(names.keys()))
       .filter((version) => version.last < until)
       .slice(0, most)
-      .map(({ first, last, by }) => ({ revision: last, firstRevision: first, at: this.edits[last - 1]!.at, authors: by.map((who) => this.actorOf(who)) }));
-    return { kind: 'versions', rows };
+      .map(({ first, last, by }) => {
+        const name = names.get(last);
+        return { revision: last, firstRevision: first, firstSeq: first, at: this.edits[last - 1]!.at, authors: by.map((who) => this.actorOf(who)), ...(name === undefined ? {} : { name }) };
+      });
+  }
+
+  /** The sheets' names now, by sheet id. */
+  private sheetNames(): Map<string, string> {
+    const { workbook, release } = this.contents();
+    try {
+      return new Map(workbook.sheets.map(({ sheetId, name }) => [sheetId, name]));
+    } finally {
+      release();
+    }
+  }
+
+  /** What a version's edits did: each kind of operation by the sheet it is on, as its name stands now, and how many. */
+  private changesOfVersion({ firstRevision, revision }: VersionRow, sheetNames: Map<string, string>): VersionRowWithChanges['content'] {
+    const acts = new Map<string, { kind: string; sheet?: string; count: number }>();
+    for (const { ops } of this.edits.slice(firstRevision - 1, revision))
+      for (const op of ops) {
+        if (!isObject(op) || typeof op.kind !== 'string') continue;
+        const sheet = typeof op.sheetId === 'string' ? sheetNames.get(op.sheetId) : undefined;
+        const key = JSON.stringify([op.kind, sheet ?? null]);
+        const act = acts.get(key) ?? { kind: op.kind, ...(sheet === undefined ? {} : { sheet }), count: 0 };
+        act.count += op.kind === 'setCells' && Array.isArray(op.cells) ? op.cells.length : 1;
+        acts.set(key, act);
+      }
+    const told = [...acts.values()];
+    return { acts: told.slice(0, MOST_ACTS_OF_A_VERSION), ...(told.length > MOST_ACTS_OF_A_VERSION ? { areActsLeftOut: true as const } : {}) };
+  }
+
+  /** The names given to versions, by the revision each named version ends at (only revisions the log has). */
+  versionNames(): Map<number, string> {
+    const kept = this.files.readJson<unknown>(path.join(this.dir, VERSION_NAMES_FILE), {});
+    const names = new Map<number, string>();
+    if (!isObject(kept)) return names;
+    for (const [key, name] of Object.entries(kept)) {
+      const revision = Number(key);
+      if (String(revision) === key && isCount(revision) && revision >= 1 && revision <= this.revision && typeof name === 'string' && name !== '') names.set(revision, name);
+    }
+    return names;
+  }
+
+  /** Names the version that ends at a revision, or takes its name away (an empty name). The log does not move. */
+  private setVersionName(request: SheetVersionNameRequest): SheetSendResponse {
+    const refuse = (refusal: string): SheetSendResponse => ({ kind: 'refused', refusal });
+    if (typeof request.name !== 'string') return refuse('unreadableVersionName');
+    const { revision } = request;
+    if (!isCount(revision) || revision < 1 || revision > this.revision) return refuse('unknownRevision');
+    const name = versionNameOf(request.name);
+    if ([...name].length > MOST_VERSION_NAME_LENGTH) return refuse('versionNameNotAllowed');
+    const names = this.versionNames();
+    if (name === '') names.delete(revision);
+    else if (!names.has(revision) && names.size >= MOST_VERSION_NAMES) return refuse('tooManyVersionNames');
+    else names.set(revision, name);
+    const kept = Object.fromEntries([...names].sort(([a], [b]) => a - b).map(([at, given]) => [String(at), given]));
+    this.files.writeJson(path.join(this.dir, VERSION_NAMES_FILE), kept);
+    return { kind: 'versionNamed', revision, name: name === '' ? null : name };
   }
 
   /** The owner, the people who opened the Sheet, the people the server names, and whoever made an edit. */
@@ -680,6 +766,8 @@ export class SheetStore {
     const refuse = (refusal: string): SheetSendResponse => ({ kind: 'refused', refusal });
     if (!viewer.canEdit) return refuse('notWriter');
     if (!isObject(request)) return refuse('unreadableEdit');
+    // An edit has no kind; a request with one is a version's name.
+    if ('kind' in request) return request.kind === 'setVersionName' ? this.setVersionName(request as SheetVersionNameRequest) : refuse('unreadableEdit');
     if ('edits' in request) return this.sendEdits(request as SheetEditsRequest, viewer);
     const { v, base, ops } = request;
     if (!isCount(v) || !isCount(base) || !Array.isArray(ops) || ops.length === 0) return refuse('unreadableEdit');
@@ -942,7 +1030,7 @@ export class SheetStore {
 
   /**
    * One of the agent's reads (readSheets, readCells, readCellFormats, readConditionalFormats, readCharts,
-   * readInteractive), from the workbook as it stands, or as it stood at `atRevision`.
+   * readInteractive, readCellsChangedFromTheirDefaults, readNamedRanges), from the workbook as it stands, or as it stood at `atRevision`.
    */
   agentRead(payload: unknown = { kind: 'readSheets' }, atRevision?: number): EngineMessage {
     this.rescan();
@@ -1020,8 +1108,10 @@ export class SheetStore {
   /** Edits recorded in the engine and logged as one edit by `by`. */
   private applyEditsAs(base: number, edits: unknown, by: string, opId?: string): { revision: number; changedNothing: number[] } {
     let changedNothing: number[] = [];
+    // The agent edits as the owner, whom the owner's pages name by the same id: its protections leave the owner in.
+    const person = personId(by === AGENT ? this.ownerId : by);
     const recorded = recordEdits(
-      { engine: this.engine, steps: this.edits.map((e) => e.ops), newest: this.newest, oldest: this.oldest, localeOfANewWorkbook: this.localeOfANewWorkbook, widgets: this.widgets },
+      { engine: this.engine, steps: this.edits.map((e) => e.ops), newest: this.newest, oldest: this.oldest, localeOfANewWorkbook: this.localeOfANewWorkbook, widgets: this.widgets, person },
       (context) => {
         changedNothing = applyEdits(edits, context).changedNothing;
       },

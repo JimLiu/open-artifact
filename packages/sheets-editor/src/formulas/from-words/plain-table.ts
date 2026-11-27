@@ -1,6 +1,7 @@
 import type { ColumnId, RowId, SheetId } from '@open-artifact/sheets-core';
 import { cellValueOf } from '../../model/cell-values.ts';
 import { areaOfReference } from '../../model/reference-areas.ts';
+import { referencesWithNamedRangesExpanded } from '../references.ts';
 import { MOST_CELLS_LOOKED_AT, holdsOfEachColumn, holdsOfArea } from './area-holds.ts';
 import { headedColumnsMatchingWord } from '../column-headings.ts';
 import { parseA1Area } from '../../model/a1-references.ts';
@@ -117,7 +118,7 @@ export function rowBelowBreaksTable(
   if (filled.filter(({ input }) => input?.kind === 'text' || input?.kind === 'richText').length > 1) return true;
   return filled.some(
     ({ input, columnIndex }) =>
-      (input?.kind === 'formula' ? input.formula.references : []).some((reference) => {
+      (input?.kind === 'formula' ? referencesWithNamedRangesExpanded(workbook, input.formula) : []).some((reference) => {
         if (reference.kind !== 'cell' && reference.sheetId !== sheetId) return true;
         let area = reference.kind === 'cell' ? null : areaOfReference(workbook, reference);
         return (
@@ -131,7 +132,7 @@ export function rowBelowBreaksTable(
 }
 export function formulaReadsRowsAbove(workbook: WorkbookReads, cellId: CellId, rowIndex: number) {
   let input = workbook.cellOf(cellId)?.input;
-  return (input?.kind === 'formula' ? input.formula.references : []).some(
+  return (input?.kind === 'formula' ? referencesWithNamedRangesExpanded(workbook, input.formula) : []).some(
     (reference) =>
       reference.kind !== 'cell' && reference.sheetId === cellId.sheetId && (areaOfReference(workbook, reference)?.topRowIndex ?? rowIndex) < rowIndex,
   );
@@ -247,7 +248,7 @@ export function isOddFormulaBesideTable(workbook: WorkbookReads, cellId: CellId,
   if (cell?.input.kind !== 'formula') return false;
   return (
     /"|IFS?\(|FILTER\(/i.test(cell.formulaText ?? '') ||
-    cell.input.formula.references.some((reference) => {
+    referencesWithNamedRangesExpanded(workbook, cell.input.formula).some((reference) => {
       let area = areaOfReference(workbook, reference);
       return (
         reference.kind === 'cell' ||
@@ -290,7 +291,7 @@ export function isCellTiedToTableRows(workbook: WorkbookReads, cellId: CellId, r
       .some((columnCellId) => {
         let input = workbook.cellOf(columnCellId)?.input;
         let rowIndex = workbook.positionOfCell(columnCellId)?.rowIndex;
-        return (input?.kind === 'formula' ? input.formula.references : []).some((reference) => {
+        return (input?.kind === 'formula' ? referencesWithNamedRangesExpanded(workbook, input.formula) : []).some((reference) => {
           let area = reference.sheetId === sheetId ? areaOfReference(workbook, reference) : null;
           if (area === null || area.topRowIndex !== rowIndex) return false;
           return reference.kind === 'cell' || area.rowCount === 1;

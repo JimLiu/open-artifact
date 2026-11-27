@@ -7,12 +7,14 @@ import { clearKeptOwnFilters, keepOwnFiltersAcrossReloads } from '../tables/kept
 import {
   forgetStoredCaretPlace,
   takeStoredCaretPlace,
-  doCellsTakeCaretAtStart,
-  isKeyboardHandedOverAtStart,
-  shouldFocusEntryAtStart,
-  isKeyForCellsAtStart,
+  doCellsTakeCaretOnOpen,
+  isKeyboardHandedOverOnOpen,
+  shouldFocusEntryOnOpen,
+  isKeyForCellsOnOpen,
   keepCaretPlaceStored,
+  storeCaretInCells,
 } from '../state/caret-memory.ts';
+import { prefersReducedMotion } from '../kit/platform.ts';
 import { forgetKeptEntry, takeKeptEntry, bringBackKeptEntry, keepEntryWhilePageIsLeft } from '../editor/kept-entry.ts';
 import { renderInSheetsRoot } from '../shell/ui-root.tsx';
 import { createDomTextMeasurer } from '../grid/dom-text-measurer.ts';
@@ -59,6 +61,9 @@ import type { ViewShownByAgentFeed } from '../agent/view-shown-feed.ts';
 import type { ChartsRunOn } from '../charts/placed-views-layer.tsx';
 import type { PersonInputWatch } from './input-watch.ts';
 import type { SheetsPageProps, SheetsPageShell } from './sheet-page.tsx';
+import type { ConnectionPage } from '../store/sheet-connection.ts';
+/** Who the person viewing is to the workbook: its owner, a named user, or someone unnamed. */
+export type PersonOfPage = NonNullable<ConnectionPage['person']>;
 /** What the frame around the page gives a drawn workbook, and hears from it. */
 export interface WorkbookShell
   extends SheetsPageShell,
@@ -74,11 +79,18 @@ export interface WorkbookShell
       | 'agentForCommands'
       | 'chartsAreDescribedBy'
       | 'versionHistory'
+      | 'refreshes'
+      | 'versionSummaries'
       | 'chartNodes'
     >,
-    Pick<SheetsPageProps, 'chartsMadeByPage' | 'interactivesRunOn' | 'changesOfCharts' | 'chartsWrittenByAgent' | 'filesForAgent' | 'commentsLayer'> {
+    Pick<SheetsPageProps, 'chartsMadeByPage' | 'interactivesRunOn' | 'changesOfCharts' | 'chartsWrittenByAgent' | 'filesForAgent' | 'commentsLayer' | 'isRefreshOffered'> {
   /** The person viewing, once known. */
   viewer(): string | null;
+  /** Who the person viewing is to the workbook, once known, and word when that may have changed. */
+  person: {
+    now(): PersonOfPage | null;
+    onMayHaveChanged(listener: () => void): () => void;
+  };
   links: SheetLinks;
   versionLooks: EarlierVersionLooks;
   comments: HostComments;
@@ -186,7 +198,6 @@ export function mountSheetsApp(
   let afterNextPaint = (callback: () => void) =>
     pageWindow === null ? void setTimeout(callback) : afterNextFrameOrTimeout(pageWindow, callback);
   let pressTracker = pageWindow === null ? null : createPressTracker(pageWindow);
-  let reducedMotion = pageWindow?.matchMedia('(prefers-reduced-motion:reduce)');
   let commentActions = createSheetCommentActions(shell.comments, () => readGridPlace());
   let commentCardOnTap = createCommentCardOnTap({
     cardAskedFor: () => shell.comments.cardAskedFor(),
@@ -200,7 +211,7 @@ export function mountSheetsApp(
     ...textMeasurer,
     afterMs: (ms, callback) => void setTimeout(callback, ms),
     nowMs: () => performance.now(),
-    framesToGlideOn: () => (mountElement.ownerDocument.hidden || reducedMotion?.matches !== false ? null : pageWindow),
+    framesToGlideOn: () => (mountElement.ownerDocument.hidden || prefersReducedMotion() ? null : pageWindow),
     keyboard: {
       timesLeft: () => pressTracker?.timesFocusLeft() ?? 0,
       timesPressed: () => pressTracker?.timesBegun() ?? 0,
@@ -229,6 +240,10 @@ export function mountSheetsApp(
     agentForCommands: shell.agentForCommands,
     chartsAreDescribedBy: shell.chartsAreDescribedBy,
     versionHistory: shell.versionHistory,
+    refreshes: shell.refreshes,
+    ...(shell.versionSummaries !== undefined && {
+      versionSummaries: shell.versionSummaries,
+    }),
     versionLooks: shell.versionLooks,
     chartNodes: shell.chartNodes,
     copyLinkToSheet(sheetId) {
@@ -333,15 +348,18 @@ export function mountSheetsApp(
   };
   let pageTree: React.ReactNode;
   try {
-    pageTree = (<><AnnounceActiveCellContext value={IS_APPLE_PLATFORM}><SheetsPage store={controller} clipboard={clipboard} reloadPage={null} shell={shell} oncePlaceholderIsOff={shell.oncePlaceholderIsOff} connectionNews={shell.connectionNews} wordsOfLoad={shell.wordsOfLoad} caretAtFirst={{
-              mayCellsTake: () => pageWindow !== null && doCellsTakeCaretAtStart(caretAtFirst, false),
-              isKeyboardHandedOver: (pressesHeard) =>
-                paneAtFirst === null &&
-                isKeyboardHandedOverAtStart(storedCaretPlace, false, performance.now() - pageScriptStartedAt, pressesHeard),
-              mustCellsWait: () => shouldFocusEntryAtStart(caretAtFirst, shell.actsHeard.hasAnyCome(), isFirstEntryStillOpen()),
+    pageTree = (<><AnnounceActiveCellContext value={IS_APPLE_PLATFORM}><SheetsPage store={controller} people={people} clipboard={clipboard} reloadPage={null} shell={shell} oncePlaceholderIsOff={shell.oncePlaceholderIsOff} connectionNews={shell.connectionNews} isRefreshOffered={shell.isRefreshOffered} wordsOfLoad={shell.wordsOfLoad} caretAtFirst={{
+              // A page here is never swapped in for an older one, so it is never the first mount after a restart.
+              mayCellsTake: () => pageWindow !== null && doCellsTakeCaretOnOpen(caretAtFirst, false, false),
+              doRulesStillHold: (rules) => isKeyboardHandedOverOnOpen(storedCaretPlace, false, rules),
+              mustCellsWait: () => shouldFocusEntryOnOpen(caretAtFirst, shell.actsHeard.hasAnyCome(), isFirstEntryStillOpen()),
+              wasActForCellsLost: () => false,
+              waitAfterLossHasBegun: () => {
+                if (storedCaretPlace === 'inCells') storeCaretInCells(findTabStorage);
+              },
               doCellsTakeOncePainted: () => caretAtFirst === 'inSpreadsheetTakenOff',
               wasPointerPressedLast: paneAtFirst !== null && shell.actsHeard.wasPointerPressedLast(),
-              mayKeyEndWait: (key) => isKeyForCellsAtStart(caretAtFirst, key, isFirstEntryStillOpen()),
+              mayKeyEndWait: (key, isHandedOver) => isKeyForCellsOnOpen(caretAtFirst, key, isFirstEntryStillOpen(), isHandedOver),
               actsHeard: shell.actsHeard,
             }} isEarlierVersionLeft={paneAtFirst !== null && (paneAtFirst.pane?.look ?? null) === null && paneAtFirst.thenRestore === null} chatWithAgent={shell.chatWithAgent} {...(!isEarlierVersionShown && {
               guide: {
@@ -350,6 +368,8 @@ export function mountSheetsApp(
               },
             })} {...(shell.chartsMadeByPage !== undefined && {
               chartsMadeByPage: shell.chartsMadeByPage,
+            })} {...(shell.versionSummaries !== undefined && {
+              versionSummaries: shell.versionSummaries,
             })} commentsOfHost={shell.comments} commentsLayer={shell.commentsLayer ?? null} mouseAroundComments={mouseAroundComments} chartsRunOn={shell.chartsRunOn} {...(shell.interactivesRunOn !== undefined && {
               interactivesRunOn: shell.interactivesRunOn,
             })} {...(shell.changesOfCharts !== undefined && {
@@ -417,6 +437,18 @@ export function mountSheetsApp(
         }),
       }),
   });
+  let personTold: PersonOfPage | null = null;
+  let tellPerson = () => {
+    let person = shell.person.now();
+    if (person === null || JSON.stringify(person) === JSON.stringify(personTold)) return;
+    personTold = person;
+    controller.dispatch({
+      kind: 'personTold',
+      person,
+    });
+  };
+  tellPerson();
+  let stopHearingPerson = shell.person.onMayHaveChanged(tellPerson);
   let stopKeepingPlace = keepPlaceAcrossReloads(
     storagesForViewer(shell.viewer),
     controller,
@@ -528,6 +560,7 @@ export function mountSheetsApp(
     stopKeepingOwnFilters?.();
     stopViewShownByAgent();
     stopComments();
+    stopHearingPerson();
     stopHearingPreviewMouse();
     stopTellingPlaces();
     mouseAroundComments.stop();
@@ -565,7 +598,6 @@ export function AgentActivityListener({ activity, afterNextPaint, hear }: AgentA
   return null;
 }
 export const wallClockAtTimeOrigin = Date.now() - performance.now();
-export const pageScriptStartedAt = performance.now();
 export const findTabStorage = () => sessionStorage;
 export const storagesForViewer = (viewer: () => string | null): KeptOwnFiltersStorages => ({
   findTabs: findTabStorage,

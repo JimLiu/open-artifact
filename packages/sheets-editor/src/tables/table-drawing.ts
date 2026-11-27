@@ -7,11 +7,19 @@ import {
   frozenRowsHeight,
   rangeSpansOnScreen,
   cellsAreaWidth,
+  isSpanInSight,
 } from '../grid/geometry.ts';
 import { ROW_HEADER_WIDTH, firstLineHeight } from '../grid/cell-metrics-values.ts';
 import { areaOfFilteredTable } from './finding.ts';
 import { shownLineAtOrAfter, shownLineAtOrBefore } from '../model/line-sizes.ts';
-import { FILTER_BUTTON_SIZE, filterButtonsOfTable, ROOM_AT_TABLE_END_FOR_FILTER_BUTTONS, FILTER_BUTTON_GAP } from './filter-buttons-place.ts';
+import {
+  FILTER_BUTTON_SIZE,
+  filterButtonsOfTable,
+  ROOM_AT_TABLE_END_FOR_FILTER_BUTTONS,
+  FILTER_BUTTON_GAP,
+  FILTER_BUTTON_HIT_MARGIN,
+  MAX_FILTER_BUTTON_FADE,
+} from './filter-buttons-place.ts';
 import { layoutOfView } from '../grid/layout.ts';
 import { drawnOwnFiltersOfSheet, ownFiltersOfSheet, ownFilterNotDrawnYet } from './own-filters.ts';
 import { tablesToOutline } from './tables-in-view.ts';
@@ -27,7 +35,6 @@ import type { LineSpan } from '../model/line-ids.ts';
 import type { GridLayout } from '../grid/layout.ts';
 import type { AreaSpansOnScreen, GridPoint, PaneRect, SpanOnScreen } from '../grid/geometry.ts';
 import type { StickyHeaderInView, StuckHeader } from '../grid/sticky-headers.ts';
-import type { FadingBox, GroundUnderButton } from '../grid/grid-drawing.tsx';
 import type { PaintPair } from '../grid/cell-drawing.tsx';
 import type { RuleColumn } from '../messages/conditional-format.ts';
 import type { OutlinableTable } from './tables-in-view.ts';
@@ -42,6 +49,7 @@ export interface OwnFilterWithButtons extends OwnFilter {
   rowIndex: number;
   /** Only a table found in sight has its columns spanned. */
   columnsOfFound?: undefined;
+  areColumnsOfFound?: undefined;
 }
 /** A table found in sight, with the one button to filter it by on the last row of its header. */
 export interface FoundTableWithButton {
@@ -50,10 +58,21 @@ export interface FoundTableWithButton {
   columns: { c: ColumnId; name: null }[];
   filter: null;
   columnsOfFound: LineSpan;
+  areColumnsOfFound?: undefined;
+  rowIndex: number;
+}
+/** A table found in sight, with a button on each column of the last row of its header. */
+export interface ColumnsOfFoundTableWithButtons {
+  key: string;
+  table: FoundTableWithButton['table'];
+  columns: Pick<TableOfASheet['columns'][number], 'c' | 'name'>[];
+  filter: null;
+  columnsOfFound?: undefined;
+  areColumnsOfFound: true;
   rowIndex: number;
 }
 /** A table whose header row has filter buttons. */
-export type TableWithFilterButtons = OwnFilterWithButtons | FoundTableWithButton;
+export type TableWithFilterButtons = OwnFilterWithButtons | FoundTableWithButton | ColumnsOfFoundTableWithButtons;
 /** The room a header cell has beside its filter button: its width, and the room its text keeps at its left. */
 export interface RoomOfHeaderCell {
   cellWidth: number;
@@ -98,6 +117,8 @@ export interface LooksUnderFilterButton {
   ink: PaintPair | null;
   ground: string | PaintPair | null;
   groundOverText: string | PaintPair;
+  /** How much of the cell's width its words leave beside them. */
+  roomBesideWords: number;
   givesWayToText: boolean;
   isInActiveCell: boolean;
   atRest: PaintPair | null;
@@ -114,6 +135,7 @@ export interface PlacedFilterButton {
   tableKey: string;
   r: RowId;
   isOfFoundTable: boolean;
+  isOfColumnOfFoundTable: boolean;
   c: ColumnId;
   columnIndex: number;
   column: RuleColumn;
@@ -123,10 +145,15 @@ export interface PlacedFilterButton {
   cell: PaneRect;
   isOn: boolean;
   isListOpen: boolean;
-  heldInView: FadingBox | null;
+}
+/** The ground of a column under a button held over it. */
+export interface GroundUnderButton {
+  left: number;
+  width: number;
+  ground: string | PaintPair | null;
 }
 /** A filter button as the grid draws it: placed, with the looks of the cell under it and the header it is kept in. */
-export interface FilterButtonInView extends PlacedFilterButton, Omit<LooksUnderFilterButton, 'text' | 'groundOverText'> {
+export interface FilterButtonInView extends PlacedFilterButton, Omit<LooksUnderFilterButton, 'text' | 'groundOverText' | 'roomBesideWords'> {
   headerKept: string | null;
   groundsWhereHeld: GroundUnderButton[];
 }
@@ -136,14 +163,9 @@ interface TablesWithButtonsCached {
   reads: ReadsWithTextMeasurer;
   tables: TableWithFilterButtons[];
 }
-export function columnsUnderHeldButton(
-  heldInView: Pick<FadingBox, 'left' | 'width'> | null,
-  view: PageState,
-  layout: GridLayout,
-): ColumnUnderHeldButton[] {
+export function columnsUnderHeldButton(from: number, to: number, view: PageState, layout: GridLayout): ColumnUnderHeldButton[] {
   let columns: ColumnUnderHeldButton[] = [];
-  let end = heldInView === null ? 0 : heldInView.left + heldInView.width;
-  for (let left = heldInView?.left ?? 0; left < end; ) {
+  for (let left = from; left < to; ) {
     let hit = hitTestGrid(
       {
         x: ROW_HEADER_WIDTH + left + 0.5,
@@ -163,7 +185,7 @@ export function columnsUnderHeldButton(
       layout,
       view,
     );
-    let width = Math.min(end, columnSpan.end) - left;
+    let width = Math.min(to, columnSpan.end) - left;
     if (width <= 0) break;
     columns.push({
       left,
@@ -206,7 +228,7 @@ export function tablesWithFilterButtons(view: PageState, reads: ReadsWithTextMea
           },
         ];
   });
-  let foundTables = tablesToOutline(view, reads).flatMap((foundTable): FoundTableWithButton[] => {
+  let foundTables = tablesToOutline(view, reads).flatMap((foundTable): (FoundTableWithButton | ColumnsOfFoundTableWithButtons)[] => {
     let { key, area, rowCountOfHeader } = foundTable;
     let table = {
       sheetId,
@@ -232,6 +254,14 @@ export function tablesWithFilterButtons(view: PageState, reads: ReadsWithTextMea
         columns,
         filter: null,
         columnsOfFound,
+        rowIndex,
+      },
+      {
+        key,
+        table,
+        columns: foundTable.table.columns,
+        filter: null,
+        areColumnsOfFound: true,
         rowIndex,
       },
     ];
@@ -296,6 +326,7 @@ export function makeHasFilterButton(view: PageState, reads: ReadsWithTextMeasure
   if (tables.length === 0) return matchesNoCell;
   let columnIdsByRow = new Map<number, Set<ColumnId | null>>();
   for (let table of tables) {
+    if (table.columnsOfFound !== undefined || table.areColumnsOfFound === true) continue;
     let { rowIndex } = table;
     let { start, end } = rowRunSpanOnScreen(
       {
@@ -472,13 +503,16 @@ export function filterButtonsInView(
   if (tables.length === 0) return NO_FILTER_BUTTONS;
   let columnSpanOf = columnSpanOfIdFinder(view, reads, layout);
   let filterNotDrawnYet: OwnFilter | null = view.rowsAskedFor?.isOfFilterBar === false ? null : ownFilterNotDrawnYet(view);
+  let ownFilterList = view.ownFilterList;
+  let isListAskedAtFoundHeading = ownFilterList?.isAskedAtHeadingOfFoundTable === true;
+  let foundButtonLeftOfRow = new Map<string, number>();
   return tables.flatMap((table) => {
     let { rowIndex } = table;
-    let ownFilterList = view.ownFilterList;
     let { columnsOfFound } = table;
     let firstColumnId = columnsOfFound === undefined ? undefined : table.columns[0]?.c;
     let isNotDrawnYet =
       filterNotDrawnYet !== null &&
+      !isListAskedAtFoundHeading &&
       columnsOfFound !== undefined &&
       filterNotDrawnYet.table.header.lastRow === table.table.header.lastRow &&
       filterNotDrawnYet.columns.some(({ c: columnId }) => {
@@ -486,21 +520,51 @@ export function filterButtonsInView(
         return columnIndex !== undefined && isInSpan(columnIndex, columnsOfFound.firstIndex, columnsOfFound.count);
       });
     let foundColumnsSpan = columnsOfFound === undefined ? null : columnRunSpanOnScreen(columnsOfFound, view, layout, view);
-    let buttonsAcross = (rowSpan: SpanOnScreen): PlacedFilterButton[] =>
-      filterButtonsOfTable(
+    let tableKeyOfList =
+      isListAskedAtFoundHeading && table.areColumnsOfFound === true && filterNotDrawnYet?.table.header.lastRow === table.table.header.lastRow
+        ? filterNotDrawnYet.key
+        : table.key;
+    let placeOfMergedColumn = (columnId: ColumnId): ColumnSpanOfId | null => {
+      let place = columnSpanOf(columnId);
+      if (place === null) return null;
+      let { columnIndex } = place;
+      let merged = reads.mergedAreaAt(view.sheetId, {
+        rowIndex,
+        columnIndex,
+      });
+      if (merged === null) return place;
+      if (merged.leftColumnIndex !== columnIndex) return null;
+      let columns = {
+        firstIndex: columnIndex,
+        count: merged.columnCount,
+      };
+      return {
+        columnIndex,
+        across: columnRunSpanOnScreen(columns, view, layout, view),
+      };
+    };
+    let buttonsAcross = (rowSpan: SpanOnScreen): PlacedFilterButton[] => {
+      let rowKey = `${table.key} ${rowSpan.start}`;
+      let buttons = filterButtonsOfTable(
         table,
-        columnSpanOf,
+        table.areColumnsOfFound === true ? placeOfMergedColumn : columnSpanOf,
         rowSpan,
         view.density,
-        isNotDrawnYet ? (firstColumnId ?? null) : ownFilterList?.tableKey === table.key ? ownFilterList.c : null,
+        isNotDrawnYet ? (firstColumnId ?? null) : ownFilterList?.tableKey === tableKeyOfList ? ownFilterList.c : null,
         (columnIndex: number) => cellLooks(rowIndex, columnIndex).text,
         foundColumnsSpan === null
           ? null
           : {
               table: foundColumnsSpan,
-              takenAtEnd: foundColumnsSpan.showTo === cellsAreaWidth(view) ? ROOM_AT_TABLE_END_FOR_FILTER_BUTTONS / view.zoom : 0,
+              endOfView: cellsAreaWidth(view),
+              takenAtEnd: ROOM_AT_TABLE_END_FOR_FILTER_BUTTONS / view.zoom,
             },
+        foundButtonLeftOfRow.get(rowKey) ?? null,
       );
+      let [first] = buttons;
+      if (first?.isOfFoundTable === true) foundButtonLeftOfRow.set(rowKey, first.left);
+      return buttons;
+    };
     let headerKeyOf = ({ columnIndex }: Pick<PlacedFilterButton, 'columnIndex'>) => stuckHeaderAt(stuckHeaders, rowIndex, columnIndex)?.key ?? null;
     let buttons = [
       ...stuckHeaders.flatMap(
@@ -523,14 +587,28 @@ export function filterButtonsInView(
     ];
     buttons.sort((first, second) => first.columnIndex - second.columnIndex);
     return buttons.map((button): FilterButtonInView => {
-      let { text, groundOverText, ...looks } = cellLooks(rowIndex, button.columnIndex);
-      let heldColumns = columnsUnderHeldButton(button.heldInView, view, layout);
-      let middle = button.left + FILTER_BUTTON_SIZE / 2;
-      let heldColumnIndex = heldColumns.find((held) => middle < held.left + held.width)?.columnIndex;
+      let { text, groundOverText, roomBesideWords, ...looks } = cellLooks(rowIndex, button.columnIndex);
+      let hasRoomBesideWords = button.cell.left + button.cell.width - button.left > roomBesideWords;
+      let heldFrom = button.left - FILTER_BUTTON_HIT_MARGIN;
+      let heldColumns =
+        foundColumnsSpan === null || heldFrom >= Math.min(foundColumnsSpan.end, foundColumnsSpan.showTo)
+          ? []
+          : columnsUnderHeldButton(
+              Math.max(foundColumnsSpan.start, foundColumnsSpan.showFrom, heldFrom - MAX_FILTER_BUTTON_FADE),
+              Math.min(foundColumnsSpan.end, foundColumnsSpan.showTo + 1),
+              view,
+              layout,
+            );
       return Object.assign({}, button, looks, {
-        ...(heldColumnIndex !== undefined && {
-          ink: cellLooks(rowIndex, heldColumnIndex).ink,
+        ...(button.isOfFoundTable && {
+          ink: null,
+          atRest: null,
           ground: null,
+          givesWayToText: false,
+        }),
+        ...(button.isOfColumnOfFoundTable && {
+          givesWayToText: true,
+          ground: hasRoomBesideWords ? groundOverText : null,
         }),
         headerKept: headerKeyOf(button),
         groundsWhereHeld: heldColumns.map(

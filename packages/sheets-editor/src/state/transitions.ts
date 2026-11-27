@@ -1,5 +1,7 @@
 import type { CopiedWidgetNode, Edit, EngineCellTable, EngineRecordedEdit, IdRun, SheetId, TextThatNoCellShows } from '@open-artifact/sheets-core';
 import type { CellId } from '../model/workbook.ts';
+import type { OfSitting } from '../store/workbook-sync.ts';
+import type { CallToRefresh } from '../tables/connected-table-refresh.ts';
 import type { LineSpan } from '../model/line-ids.ts';
 import type { CellArea, SelectionPositions } from '../selection/model.ts';
 import type { NewCommentPlace } from '../comments/comment-state.ts';
@@ -23,6 +25,8 @@ export interface QueueEditEffect {
 export interface UndoOrRedoEffect {
   kind: 'undoOrRedo';
   direction: 'undo' | 'redo';
+  /** Undo or redo inside an interactive sheet's sitting, not of the workbook. */
+  ofSitting?: OfSitting;
   takesBackFor?: PageState['notice'];
 }
 /** An ask of the agent, known by `askId` when its answer comes. */
@@ -72,9 +76,15 @@ export type PageEffect =
   | { kind: 'stopAskingAgentForAFormula' }
   | ({ kind: 'askAgentForAFix'; asked: AgentPrompt } & AskOfAgent)
   | { kind: 'stopAskingAgentForFixes' }
-  | ({ kind: 'readVersions'; before: { firstRevision: number } | null } & AskOfAgent)
+  | ({ kind: 'readVersions'; before: { firstRevision: number; firstSeq: number } | null; isLookAgain?: true } & AskOfAgent)
   | ({ kind: 'lookAtVersion'; revision: number; pane: VersionHistoryInPane } & AskOfAgent)
   | { kind: 'endLookAtVersion'; pane: VersionHistoryInPane | null; thenRestore: number | null; isByPerson?: true }
+  | { kind: 'setNameOfVersion'; of: number; revision: number | null; name: string | null; nameBefore: string | null }
+  | {
+      kind: 'refreshConnectedTable';
+      askId: number;
+      asked: CallToRefresh & { sheetId: SheetId; viewerId: string | null; isConfirmedNow: boolean };
+    }
   | ({ kind: 'readCellHistory'; cell: CellId; scope: CellHistoryScope } & AskOfAgent)
   | ({ kind: 'readEditsThatTakeBack'; asked: EditsToTakeBack; afterMs: number } & AskOfAgent)
   | { kind: 'seeRowsInOwnOrder'; sheetId: SheetId; rows: readonly IdRun[] | null; staysAt: StaysAt }
@@ -90,7 +100,8 @@ export interface PageTransition {
   effects: PageEffect[];
 }
 export const isMenuHoldingSizeField = (menu: PageState['menu']): boolean => menu?.holds === 'columnWidthField' || menu?.holds === 'rowHeightField';
-export const isMenuHoldingField = (menu: PageState['menu']): boolean => isMenuHoldingSizeField(menu) || menu?.holds === 'cellsToSort';
+export const isMenuHoldingField = (menu: PageState['menu']): boolean =>
+  isMenuHoldingSizeField(menu) || menu?.holds === 'cellsToSort' || menu?.holds === 'protection' || menu?.holds === 'defaultAndLimits';
 export const cellsToSortOfMenu = (menu: PageState['menu']) => (menu?.holds === 'cellsToSort' ? (menu.cellsToSort ?? null) : null);
 export const sortColumnOfMenu = (menu: PageState['menu'], key: 'sheet' | 'range') =>
   (key === 'sheet' ? menu?.sortColumnPicked : undefined) ?? menu?.sortColumnsPointedAt?.[key] ?? null;
@@ -105,7 +116,8 @@ export const withNoEffects = (state: PageState): PageTransition => ({
   state,
   effects: [],
 });
-export const isIdleOrTapping = ({ dragging }: Pick<PageState, 'dragging'>): boolean => dragging === null || dragging.kind === 'tapping';
+export const isIdleOrTapping = ({ dragging }: Pick<PageState, 'dragging'>): boolean =>
+  dragging === null || dragging.kind === 'tapping' || (dragging.kind === 'resizing' && dragging.hasMoved !== true);
 export const lastDoneWorthKeeping = ({ lastDone }: Pick<PageState, 'lastDone'>) =>
   (lastDone?.what === 'formatted' && lastDone.cellEnteredIn !== undefined) ||
   lastDone?.what === 'typedTextEntered' ||

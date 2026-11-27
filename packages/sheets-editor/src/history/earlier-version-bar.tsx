@@ -1,6 +1,7 @@
 import { Toolbar } from '../kit/toolbar.tsx';
 import { Button } from '../kit/button.tsx';
 import * as React from 'react';
+import { useLatestCallback } from '../ui/latest-callback.ts';
 import { restoreOfVersion } from './version-history-pane.tsx';
 import { versionHistoryMessages, versionTimeText } from './version-text.ts';
 import { useStartOfToday } from './cell-history-popover.tsx';
@@ -85,7 +86,7 @@ interface EarlierVersionBarProps {
 }
 export const EarlierVersionBar = React.memo(function (props: EarlierVersionBarProps) {
   let { look, barRef, onRoomForRestore } = props;
-  let onGoneWithKeyboardEvent = React.useEffectEvent(props.onGoneWithKeyboard);
+  let onGoneWithKeyboardEvent = useLatestCallback(props.onGoneWithKeyboard);
   let todayMs = useStartOfToday();
   let [barWidthRem, setBarWidthRem] = React.useState(1 / 0);
   React.useLayoutEffect(() => {
@@ -106,13 +107,13 @@ export const EarlierVersionBar = React.memo(function (props: EarlierVersionBarPr
       onRoomForRestore(false);
       if (bar.contains(ownerDocument.activeElement)) onGoneWithKeyboardEvent();
     };
-  }, [barRef, onRoomForRestore]);
+  }, [barRef, onRoomForRestore, onGoneWithKeyboardEvent]);
   let { restore, goBack } = earlierVersionBarActions(props);
   let isWide = barWidthRem >= 556;
   let isMedium = barWidthRem >= 464;
   let atText = look.isOpening ? null : versionTimeText(look.atMs, todayMs);
   let barTitle = look.isOpening ? versionHistoryMessages.openingVersion() : versionHistoryMessages.viewOnly();
-  return <Toolbar ref={barRef} flush className="w-140 max-w-full py-0" label={versionHistoryMessages.title()} divider={false} onKeyDownCapture={(event) => {
+  return <Toolbar ref={barRef} flush className="w-140 max-w-full min-w-0 shrink py-0" label={versionHistoryMessages.title()} divider={false} onKeyDownCapture={(event) => {
       if (event.key !== 'Escape') return;
       event.preventDefault();
       event.stopPropagation();

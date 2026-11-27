@@ -15,7 +15,9 @@ export type ToolOfBarLine =
   | 'chart'
   | 'numberFormat'
   | 'section'
-  | 'more';
+  | 'more'
+  /** The line between the tools and the comment button, folded away first when the bar has no room for it. */
+  | 'lineBeforeComment';
 /** A tool drawn in the toolbar: one of its lines, or a context tool. */
 export type ToolInBar = ToolOfBarLine | ContextTool;
 /** What is beside a side of a tool: another tool, a line between tools, or the end of the bar. */
@@ -31,8 +33,8 @@ export interface BarSpacing {
   /** The room a line between groups of tools takes. */
   acrossLine: number;
 }
-/** How much of the toolbar is shown: all of it, without some tools, or without most. */
-export type BarForm = 'bar_whole' | 'bar_small' | 'bar_fewer';
+/** How much of the toolbar is shown: all of it, all but the context tools, without some tools, or without most. */
+export type BarForm = 'bar_whole' | 'bar_most' | 'bar_small' | 'bar_fewer';
 export type BarEndKind = 'bar_end_icon' | 'bar_end_ask_and_comment' | 'bar_end_ask_agent';
 export interface BarToolProps {
   tool: ToolInBar;
@@ -57,7 +59,6 @@ export interface BarToolsProviderProps extends BarToolsInView {
   isHidden: boolean;
   children?: React.ReactNode;
 }
-export let FIRST_TOOLS_TO_FOLD: ToolOfBarLine[];
 export function toolNeighbours(lines: ToolInBar[][], afterLast: BesideTool): Map<ToolInBar, NeighboursOfTool> {
   let filledLines = lines.filter(({ length }) => length > 0);
   return new Map(
@@ -103,7 +104,10 @@ export function toolsToFoldForWidth(
     if (barWidthWithout(widths, folded, spacing) <= room) break;
     for (let tool of step) if (widths.has(tool)) folded.add(tool);
   }
-  return [...folded];
+  let lineBeforeComment = widths.get('lineBeforeComment');
+  return lineBeforeComment !== undefined && barWidthWithout(widths, folded, spacing) + lineBeforeComment > room
+    ? ['lineBeforeComment', ...folded]
+    : [...folded];
 }
 export function toolsToFoldKeepingFolded(
   folded: ToolOfBarLine[],
@@ -113,14 +117,16 @@ export function toolsToFoldKeepingFolded(
   foldOrder: ToolOfBarLine[][],
 ): ToolOfBarLine[] {
   let toFold = toolsToFoldForWidth(widths, spacing, room, foldOrder);
-  return folded.some((tool) => !toFold.includes(tool))
+  return folded.some((tool) => widths.has(tool) && !toFold.includes(tool))
     ? toolsToFoldForWidth(widths, spacing, room - REFOLD_ROOM_MARGIN, foldOrder)
     : toFold;
 }
 export function barForm(folded: ToolOfBarLine[], isHidden: boolean): BarForm | null {
   if (isHidden) return null;
-  if (folded.length === 0) return 'bar_whole';
-  return folded.every((tool) => FIRST_TOOLS_TO_FOLD.includes(tool)) ? 'bar_small' : 'bar_fewer';
+  let toolsFolded = folded.filter((tool) => tool !== 'lineBeforeComment');
+  if (toolsFolded.length === 0) return 'bar_whole';
+  if (toolsFolded.every((tool) => tool === 'section')) return 'bar_most';
+  return toolsFolded.some(isNeverFoldedTool) ? 'bar_fewer' : 'bar_small';
 }
 export function barEndKind(isAskShown: boolean, isCommentShown: boolean): BarEndKind {
   if (!isAskShown) return 'bar_end_icon';
@@ -168,6 +174,8 @@ export function measureFoldedTools(
   let lineStyle = getComputedStyle(lineInBar);
   let toolbarStyle = getComputedStyle(toolbar);
   let acrossLine = 2 * gap + pixelsOf(lineStyle.marginLeft) + pixelsOf(lineStyle.borderLeftWidth) + pixelsOf(lineStyle.marginRight);
+  if (elementWidthOrZero(toolbar.querySelector('[data-comment-pass]')) > 0) widths.set('lineBeforeComment', acrossLine - gap);
+  else widths.delete('lineBeforeComment');
   let room = roomForBarTools(toolbar, footRow, gap);
   if (room === null) return null;
   return toolsToFoldKeepingFolded(
@@ -216,19 +224,11 @@ export function useFoldedTools({ scroller, isBusy, isSwipedRow }: FoldedToolsOpt
       if (newFolded !== null && newFolded.join() !== folded.join()) setFolded(newFolded);
     };
     measure();
-    let measureNow = () => ReactDOM.flushSync(() => measure());
-    let resizeObserver = new ResizeObserver(measureNow);
+    let resizeObserver = new ResizeObserver(() => ReactDOM.flushSync(() => measure()));
     resizeObserver.observe(footRow);
     let footChild = scrollerElement.closest('.sheet-foot > *');
     if (footChild !== null) resizeObserver.observe(footChild);
     resizeObserver.observe(scrollerElement);
-    let mutationObserver = new MutationObserver(measureNow);
-    let foot = scrollerElement.closest('.sheet-foot');
-    if (foot !== null)
-      mutationObserver.observe(foot, {
-        attributes: true,
-        attributeFilter: ['data-keeps-room-of-pane'],
-      });
     let elementOrNull = (node: EventTarget | null) => (node instanceof view.Element ? node : null);
     let onFocusOut = ({ target, relatedTarget }: FocusEvent) => {
       lastCaretRef.current = scrollerElement.contains(elementOrNull(relatedTarget)) ? elementOrNull(target) : null;
@@ -246,7 +246,6 @@ export function useFoldedTools({ scroller, isBusy, isSwipedRow }: FoldedToolsOpt
     scrollerElement.ownerDocument.addEventListener('focusin', onDocumentFocusIn);
     return () => {
       resizeObserver.disconnect();
-      mutationObserver.disconnect();
       scrollerElement.removeEventListener('focusout', onFocusOut);
       scrollerElement.removeEventListener('focusin', onFocusIn);
       scrollerElement.ownerDocument.removeEventListener('focusin', onDocumentFocusIn);
@@ -270,8 +269,10 @@ export const TOOLBAR_LINES: ToolOfBarLine[][] = [
   ['numberFormat', 'section', 'more'],
 ];
 export const NEVER_FOLDED_TOOLS = new Set<ToolOfBarLine>(['bold', 'italic', 'underline', 'numberFormat', 'more']);
+export const isNeverFoldedTool = (tool: ToolOfBarLine): boolean => NEVER_FOLDED_TOOLS.has(tool);
 export const TOOL_FOLD_ORDER: ToolOfBarLine[][] = [
-  TOOLBAR_LINES.flat().filter((tool) => !NEVER_FOLDED_TOOLS.has(tool)),
+  ['section'],
+  TOOLBAR_LINES.flat().filter((tool) => !NEVER_FOLDED_TOOLS.has(tool) && tool !== 'section'),
   ['underline'],
   ['italic'],
   ['bold'],
@@ -283,7 +284,7 @@ export const REFOLD_ROOM_MARGIN = 0.1;
 export const BAR_FORM_ATTRIBUTE = 'data-form-of-bar';
 export const BAR_END_ATTRIBUTE = 'data-end-of-bar';
 export const SMALL_BAR_SELECTOR = `[${BAR_FORM_ATTRIBUTE}=bar_small],[${BAR_FORM_ATTRIBUTE}=bar_fewer]`;
-[FIRST_TOOLS_TO_FOLD = []] = toolFoldOrderKeeping([]);
+export const MOST_BAR_SELECTOR = `[${BAR_FORM_ATTRIBUTE}=bar_most]`;
 export const NO_FOLDED_TOOLS: ToolOfBarLine[] = [];
 export const SECTION_TOOL_ONLY: ToolOfBarLine[] = ['section'];
 export const TOOLS_OF_BAR = TOOLBAR_LINES.flat().filter((tool) => tool !== 'section');

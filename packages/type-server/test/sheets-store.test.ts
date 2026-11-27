@@ -4,8 +4,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { inflateRawSync } from 'node:zlib';
 import { after, describe, it } from 'node:test';
-import { isObject, type Json, type JsonObject, type SheetFrame } from '@open-artifact/sheets-core';
-import { STOCK_CHART_PROGRAMS } from '@open-artifact/sheets-core/stock-charts';
+import { type Engine, engineOf, isObject, type Json, type JsonObject, type SheetFrame } from '@open-artifact/sheets-core';
+import { sheetsEngine } from '@open-artifact/wasm-sheets/node';
+import { EARLIER_STOCK_CHART_PROGRAMS, STOCK_CHART_PROGRAMS } from '@open-artifact/sheets-core/stock-charts';
 import { runSheetsCommand } from '../src/sheets/cli.ts';
 import { EDITS_FILE, readEdits, SHEET_DIR, SheetStore, type Viewer } from '../src/sheets/store.ts';
 
@@ -174,6 +175,132 @@ describe('SheetStore', () => {
     assert.deepEqual(again.rows.map((r) => [r.firstRevision, r.revision, r.authors.map((a) => a.isAgent)]), [[3, 3, [false]], [1, 2, [true]]]);
   });
 
+  it('names a version, which then ends where it was named', () => {
+    const { root, store } = budget();
+    const { v } = idsOf(root);
+    assert.deepEqual(store.send({ kind: 'setVersionName', revision: 2, name: '  First\n\tdraft ' }, owner), { kind: 'versionNamed', revision: 2, name: 'First draft' });
+    assert.deepEqual(store.send({ opId: 'later', v, base: 2, ops: setCell(root, 1, 1, 1300) }, owner), { kind: 'saved', revision: 3 });
+    const versions = store.read({ kind: 'versions' }, owner);
+    assert.ok(versions.kind === 'versions');
+    assert.deepEqual(versions.rows.map((r) => [r.firstRevision, r.revision, r.name ?? null]), [[3, 3, null], [1, 2, 'First draft']]);
+    assert.deepEqual(versions.rows.map((r) => r.firstSeq), [3, 1]);
+    const withChanges = store.read({ kind: 'versionsWithChanges' }, owner);
+    assert.ok(withChanges.kind === 'versionsWithChanges');
+    assert.deepEqual(withChanges.rows.map(({ content: _content, ...row }) => row), versions.rows);
+    assert.deepEqual(withChanges.rows[0]?.content, { acts: [{ kind: 'setCells', sheet: 'Sheet1', count: 1 }] });
+    assert.ok(withChanges.rows[1]?.content.acts.some((act) => act.kind === 'setCells' && act.sheet === 'Sheet1' && act.count > 1));
+    // The next page starts before the first edit of the oldest version listed.
+    const older = store.read({ kind: 'versions', before: 3, beforeSeq: 3 }, owner);
+    assert.ok(older.kind === 'versions');
+    assert.deepEqual(older.rows.map((r) => [r.firstRevision, r.revision, r.firstSeq, r.name ?? null]), [[1, 2, 1, 'First draft']]);
+    const olderWithChanges = store.read({ kind: 'versionsWithChanges', beforeSeq: 3 }, owner);
+    assert.ok(olderWithChanges.kind === 'versionsWithChanges');
+    assert.deepEqual(olderWithChanges.rows.map((r) => r.revision), [2]);
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(root, SHEET_DIR, 'version-names.json'), 'utf8')), { 2: 'First draft' });
+
+    // An empty name takes it away; the versions run together again.
+    assert.deepEqual(store.send({ kind: 'setVersionName', revision: 2, name: ' ' }, owner), { kind: 'versionNamed', revision: 2, name: null });
+    const merged = store.read({ kind: 'versions' }, owner);
+    assert.ok(merged.kind === 'versions');
+    assert.deepEqual(merged.rows.map((r) => [r.firstRevision, r.revision, r.name ?? null]), [[1, 3, null]]);
+  });
+
+  it('refuses version names it cannot keep', () => {
+    const { store } = budget();
+    const refusal = (request: Parameters<SheetStore['send']>[0], viewer = owner) => {
+      const answer = store.send(request, viewer);
+      return answer.kind === 'refused' ? answer.refusal : answer.kind;
+    };
+    assert.equal(refusal({ kind: 'setVersionName', revision: 2, name: 'x' }, reader), 'notWriter');
+    assert.equal(refusal({ kind: 'setVersionName', revision: 3, name: 'x' }), 'unknownRevision');
+    assert.equal(refusal({ kind: 'setVersionName', revision: 0, name: 'x' }), 'unknownRevision');
+    assert.equal(refusal(JSON.parse('{"kind": "setVersionName", "revision": 1, "name": 7}')), 'unreadableVersionName');
+    assert.equal(refusal({ kind: 'setVersionName', revision: 1, name: '名'.repeat(101) }), 'versionNameNotAllowed');
+    assert.equal(refusal({ kind: 'setVersionName', revision: 1, name: '名'.repeat(100) }), 'versionNamed');
+  });
+
+  it('keeps at most a hundred version names, and reads none past the log', () => {
+    const { root, store } = budget();
+    const { v } = idsOf(root);
+    for (let i = 0; i < 100; i++) store.send({ opId: `edit-${i}`, v, base: store.revision, ops: setCell(root, 1, 1, i) }, owner);
+    assert.equal(store.revision, 102);
+    const file = path.join(root, SHEET_DIR, 'version-names.json');
+    fs.writeFileSync(file, JSON.stringify({ ...Object.fromEntries(Array.from({ length: 100 }, (_, i) => [String(i + 1), `v${i + 1}`])), 200: 'past the log' }));
+    assert.equal(store.versionNames().size, 100);
+    assert.equal(store.versionNames().has(200), false);
+    // A new name would be the 101st; a name already given may still change.
+    assert.deepEqual(store.send({ kind: 'setVersionName', revision: 101, name: 'new' }, owner), { kind: 'refused', refusal: 'tooManyVersionNames' });
+    assert.deepEqual(store.send({ kind: 'setVersionName', revision: 1, name: 'changed' }, owner), { kind: 'versionNamed', revision: 1, name: 'changed' });
+    const versions = store.read({ kind: 'versions', limit: 200 }, owner);
+    assert.ok(versions.kind === 'versions');
+    // Each named revision ends a version of its own: 1 to 100 one each, then 101 to 102 together.
+    assert.equal(versions.rows.length, 101);
+    assert.deepEqual(versions.rows.at(-1), { ...versions.rows.at(-1)!, firstRevision: 1, revision: 1, name: 'changed' });
+  });
+
+  it('makes the agent\'s edits as the owner, by the id the owner\'s page has', () => {
+    // The engine, with every person a session is told of written down.
+    const real = engineOf(sheetsEngine());
+    const told: unknown[] = [];
+    const engine: Engine = {
+      utility: (request) => real.utility(request),
+      session() {
+        const session = real.session();
+        return {
+          answer: (request) => {
+            if (request.kind === 'receivePerson') told.push(request.person);
+            return session.answer(request);
+          },
+          free: () => session.free(),
+        };
+      },
+    };
+    const store = new SheetStore({ root: folder(), engine, ownerId: 'owner-7', log: () => {} });
+    stores.push(store);
+    store.agentUpdate({ kind: 'applyEdits', base: 0, edits: [{ kind: 'writeCells', sheet: 'Sheet1', topLeft: 'A1', rows: [['x']] }] });
+    const ownerPage = store.snapshotFor({ id: 'owner-7', name: 'Owner', canEdit: true, isOwner: true });
+    assert.ok(told.length > 0);
+    assert.deepEqual(new Set(told.map((person) => JSON.stringify(person))), new Set([JSON.stringify({ kind: 'user', userId: ownerPage.viewer.personId })]));
+  });
+
+  it('keeps a protection, a named range and default values, reads them back, and tells a page whether its person owns the Sheet', () => {
+    const { store } = budget();
+    assert.deepEqual(store.agentUpdate({ kind: 'applyEdits', base: 2, edits: [
+      { kind: 'saveProtection', sheet: 'Sheet1', range: 'B2:B3' },
+      { kind: 'saveNamedRange', name: 'Costs', sheet: 'Sheet1', range: 'B2:B3' },
+      { kind: 'setDefaultValues', sheet: 'Sheet1', range: 'B2', defaultValue: 1000 },
+    ] }), { revision: 3 });
+    const ownerPage = store.snapshotFor(owner);
+    assert.equal(ownerPage.viewer.isOwner, true);
+    assert.equal(store.snapshotFor(reader).viewer.isOwner, false);
+
+    const sheets = store.agentRead({ kind: 'readSheets' });
+    assert.ok(Array.isArray(sheets.sheets) && isObject(sheets.sheets[0]), JSON.stringify(sheets));
+    const protections = sheets.sheets[0].protections;
+    assert.ok(Array.isArray(protections) && protections.length === 1 && isObject(protections[0]), JSON.stringify(sheets));
+    const { protectionId, ...protection } = protections[0];
+    assert.equal(typeof protectionId, 'string');
+    // The agent's protection names the owner, the person its edits are made for, as the one who may edit there.
+    assert.deepEqual(protection, { protects: 'B2:B3', editors: [ownerPage.viewer.personId] });
+    assert.deepEqual(sheets.namedRanges, [{ name: 'Costs', address: 'Sheet1!B2:B3' }]);
+    assert.deepEqual(store.agentRead({ kind: 'readNamedRanges' }), { revision: 3, namedRanges: [{ name: 'Costs', address: 'Sheet1!B2:B3' }] });
+
+    // Rent holds 1200, not its default of 1000; Food has no default.
+    assert.deepEqual(store.agentRead({ kind: 'readCellsChangedFromTheirDefaults', sheet: 'Sheet1' }), {
+      revision: 3,
+      sheet: 'Sheet1',
+      cells: [{ cell: 'B2', holds: '1200', defaultValue: '1000' }],
+    });
+    store.agentUpdate({ kind: 'applyEdits', base: 3, edits: [{ kind: 'resetToDefaultValues', sheet: 'Sheet1', range: 'B2' }] });
+    assert.deepEqual(cells(store, 'B2:B4'), [[1000], [300], [{ formula: '=SUM(B2:B3)', value: 1300 }]]);
+    assert.deepEqual(store.agentRead({ kind: 'readCellsChangedFromTheirDefaults', sheet: 'Sheet1' }), { revision: 4, sheet: 'Sheet1', cells: [] });
+  });
+
+  it('answers that a connected table\'s file is gone', () => {
+    const { store } = budget();
+    assert.deepEqual(store.read({ kind: 'loadTableFile', snapshotId: 'snap', from: 0 }, owner), { kind: 'tableFile', isGone: true });
+  });
+
   it('gives the edits that restore a version, and a cell\'s history', () => {
     const { root, store } = budget();
     const { v, sheetId, r, c } = idsOf(root);
@@ -245,8 +372,38 @@ describe('SheetStore', () => {
     assert.equal(store.revision, 0);
   });
 
-  it('writes the stock area, horizontal bar and scatter charts into the .xlsx file as charts of their own kinds', () => {
+  it('writes the stock area, horizontal bar and 100% stacked bar charts into the .xlsx file, and leaves a scatter out', () => {
     const store = storeIn(folder(), 'Kinds');
+    const rows = [['Month', 'Online', 'Stores'], ['Jan', 120, 80], ['Feb', 150, 95], ['Mar', 170, 90]];
+    const points = [['Price', 'Sold'], [10, 300], [12, 260], [15, 210]];
+    assert.deepEqual(store.agentUpdate({ kind: 'applyEdits', base: 0, edits: [
+      { kind: 'writeCells', sheet: 'Sheet1', topLeft: 'A1', rows },
+      { kind: 'writeCells', sheet: 'Sheet1', topLeft: 'A10', rows: points },
+    ] }), { revision: 2 });
+    const add = (kind: 'area' | 'horizontalBar' | 'stackedBar100' | 'scatter', range: string, topLeft: string, base: number) => {
+      const chart = { name: kind, caption: '', widget: `$lid:${kind}`, inputs: [{ name: 'rows', cells: { sheet: 'Sheet1', range } }], sheet: 'Sheet1', topLeft, widthInPixels: 480, heightInPixels: 280 };
+      const answer = store.agentBatch([
+        { $lid: kind, verb: 'create', payload: { code: STOCK_CHART_PROGRAMS[kind] } },
+        { verb: 'update', payload: { kind: 'applyEdits', base, edits: [{ kind: 'addChart', chart }] } },
+      ]);
+      assert.deepEqual((answer.acks as JsonObject[]).map((ack) => ack.outcome), ['published', 'applied'], kind);
+    };
+    const charts = [['area', 'A1:C4', 'E1'], ['horizontalBar', 'A1:C4', 'E20'], ['stackedBar100', 'A1:C4', 'E40']] as const;
+    charts.forEach(([kind, range, topLeft], k) => add(kind, range, topLeft, 2 + k));
+    const xlsx = store.exportFile('xlsx');
+    assert.equal(xlsx.notCarriedOver.some((what) => /charts aren’t included/.test(what)), false, JSON.stringify(xlsx.notCarriedOver));
+    const written = [...zippedTexts(xlsx.bytes, /^xl\/charts\/chart\d+\.xml$/).values()].join('\n');
+    assert.match(written, /<c:areaChart>/);
+    assert.match(written, /<c:barDir val="bar"\/>/);
+    assert.match(written, /<c:grouping val="percentStacked"\/>/);
+    add('scatter', 'A10:B13', 'E60', 5);
+    const withScatter = store.exportFile('xlsx');
+    assert.equal(withScatter.notCarriedOver.some((what) => /charts aren’t included/.test(what)), true, JSON.stringify(withScatter.notCarriedOver));
+    assert.doesNotMatch([...zippedTexts(withScatter.bytes, /^xl\/charts\/chart\d+\.xml$/).values()].join('\n'), /<c:scatterChart>/);
+  });
+
+  it('still writes the charts of the earlier area, horizontal bar and scatter programs into the .xlsx file', () => {
+    const store = storeIn(folder(), 'Earlier');
     const rows = [['Month', 'Online', 'Stores'], ['Jan', 120, 80], ['Feb', 150, 95], ['Mar', 170, 90]];
     const points = [['Price', 'Sold'], [10, 300], [12, 260], [15, 210]];
     assert.deepEqual(store.agentUpdate({ kind: 'applyEdits', base: 0, edits: [
@@ -255,9 +412,11 @@ describe('SheetStore', () => {
     ] }), { revision: 2 });
     const charts = [['area', 'A1:C4', 'E1'], ['horizontalBar', 'A1:C4', 'E20'], ['scatter', 'A10:B13', 'E40']] as const;
     charts.forEach(([kind, range, topLeft], k) => {
+      const [code] = EARLIER_STOCK_CHART_PROGRAMS[kind] ?? [];
+      assert.ok(code, kind);
       const chart = { name: kind, caption: '', widget: `$lid:${kind}`, inputs: [{ name: 'rows', cells: { sheet: 'Sheet1', range } }], sheet: 'Sheet1', topLeft, widthInPixels: 480, heightInPixels: 280 };
       const answer = store.agentBatch([
-        { $lid: kind, verb: 'create', payload: { code: STOCK_CHART_PROGRAMS[kind] } },
+        { $lid: kind, verb: 'create', payload: { code } },
         { verb: 'update', payload: { kind: 'applyEdits', base: 2 + k, edits: [{ kind: 'addChart', chart }] } },
       ]);
       assert.deepEqual((answer.acks as JsonObject[]).map((ack) => ack.outcome), ['published', 'applied'], kind);

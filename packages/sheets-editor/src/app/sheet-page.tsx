@@ -9,7 +9,7 @@ import { likelyHasKeyboard, subscribeSheetMedia } from '../kit/platform.ts';
 import { Button } from '../kit/button.tsx';
 import { Icon, type IconName } from '../kit/icon.tsx';
 import { TooltipGroup } from '../kit/tooltip.tsx';
-import type { SheetController } from '../state/controller.ts';
+import type { BrowserSide, CellsHeldForChart, SheetController } from '../state/controller.ts';
 import type { SheetClipboard } from '../clipboard/page-clipboard.ts';
 import type { FrameChrome } from '../shell/frame-chrome.ts';
 import type { ConnectionNews } from '../shell/connection-news.ts';
@@ -63,6 +63,10 @@ import type { MenuOpenChange } from '../ui/sheet-tabs/add-sheet.tsx';
 import type { CellAt } from '@open-artifact/sheets-core';
 import type { ActInDropdownPane } from '../chips/dropdown-pane.tsx';
 import type { ActInRulesPane } from '../format/conditional/pane-state.ts';
+import { connectedTableMessages, connectedTableStandsWordParts } from '../tables/connected-table-messages.ts';
+import { ConnectedTableBar } from '../tables/connected-table-bar.tsx';
+import { CallConfirmDialog } from '../tables/call-confirm-dialog.tsx';
+import { SourceOfTablePane } from '../tables/table-source-pane.tsx';
 import type { ActInSortPane } from '../tables/sort-pane-view.tsx';
 import type { SortPaneAsked, VersionHistoryAct } from '../state/event-reducer.ts';
 import type { ItemLitInMenu } from '../tables/table-handle-menu.ts';
@@ -101,7 +105,7 @@ import type { MenuCommand } from '../ui/search-menu/matching.ts';
 import type { CommandsUnderHeading } from '../ui/search-menu/command-groups.ts';
 import type { CommandsOfTypedWords } from '../ui/cell-menu/cell-menu.tsx';
 import type { LinkExplainedView } from '../view/page-view.ts';
-import type { StyleWithVariables } from '../grid/cell-drawing.tsx';
+import type { BlankCellWords, StyleWithVariables } from '../grid/cell-drawing.tsx';
 import type { CalendarUnderCellProps } from '../chips/calendar-under-cell.tsx';
 import type { DropdownListUnderCellProps } from '../chips/dropdown-list.tsx';
 import type { PeopleListProps } from '../chips/people-list-view.tsx';
@@ -140,10 +144,13 @@ import {
   ARE_ROWS_NAMED_HERE,
   boxInBody,
   zoomedEntryBox,
+  entryTextLinesBox,
+  boxClampedBetween,
   cellEntryBoxStyle,
   entryGridlineOverlap,
   gridlinesDataAttribute,
   outlineBoxInBody,
+  ColumnButtonsShownContext,
 } from '../grid/grid-drawing.tsx';
 import { pointInZoomedElement, unzoomLength, boxOnScreen, clampZoom, zoomToFit, zoomForFitting, withFitZoom, zoomedStyle, useZoom } from '../grid/zoom.ts';
 import { Fragment } from 'react/jsx-runtime';
@@ -162,11 +169,11 @@ import {
 } from '../grid/cell-drawing.tsx';
 import { useCellsAsBefore, useChangesComingIn } from '../agent/changes-coming-in.ts';
 import { useLingeringRows } from '../ui/lingering-rows.ts';
-import { IS_IOS_BROWSER } from '../grid/cell-drawing-values.ts';
+import { IS_IOS_BROWSER, IS_MAC_SAFARI } from '../grid/cell-drawing-values.ts';
 import { useLineKeys } from '../grid/line-keys.ts';
 import { NO_WORDS_OF_LOAD } from '../shell/load-announcer.ts';
 import { NO_CHAT_WITH_AGENT, cleanAskWords } from '../agent/chat-with-agent.ts';
-import { NO_CHART_MAKER, insertChartWrittenByAgent } from '../charts/new-charts.ts';
+import { NO_CHART_MAKER, insertChartWrittenByAgent, insertChartWrittenForTables } from '../charts/new-charts.ts';
 import { NO_AGENT_AI_COMMENTS } from '../comments/agent-ai-comments.ts';
 import { noMouseAroundComments } from '../comments/mouse-around.ts';
 import {
@@ -244,7 +251,6 @@ import {
   useWaysInFocusKeeping,
 } from '../ui/ways-in/ways-in-state.ts';
 import { setWaysInShown } from '../ui/toolbar/ways-in-shown.ts';
-import { useRoomKeptForGonePane } from '../ui/gone-pane-room.ts';
 import {
   TOAST_SELECTOR,
   OPEN_DIALOG_SELECTOR,
@@ -315,7 +321,19 @@ import {
   FormulaFromWordsHelp,
 } from '../formulas/from-words/offer-list.tsx';
 import { watchWindowFocusLeft, createScrollGestureTimer, holdProgrammaticFocus, isTrustedPointerDownEvent } from './focus-guards.ts';
-import { areFocusLeftChecksHeld, whenWindowBlurred, isFocusWithinSameMenu, whenBlurredToNothing } from '../grid/focus-left.ts';
+import { areFocusLeftChecksHeld, whenWindowBlurred, isFocusWithinSameMenu, whenBlurredToNothing, GOES_TO_CELL_BEHIND_ATTRIBUTE, CellBehindBar } from '../grid/focus-left.ts';
+import { RecordsTable } from '../tables/records-view.tsx';
+import { cornerStyleOnTables } from '../agent/agent-at-work.tsx';
+import { joinMessageParts } from '../i18n/messages.ts';
+import type { RecordsTableProps } from '../tables/records-view.tsx';
+import { ProtectionDialog } from '../ui/protection-dialog.tsx';
+import type { ProtectionDialogProps } from '../ui/protection-dialog.tsx';
+import { DefaultAndLimitsDialog } from '../ui/defaults-and-limits-dialog.tsx';
+import type { DefaultAndLimitsDialogProps } from '../ui/defaults-and-limits-dialog.tsx';
+import { NamedRangesPane } from '../ui/side-pane/named-ranges-pane.tsx';
+import type { NamedRangesPaneProps } from '../ui/side-pane/named-ranges-pane.tsx';
+import { ChangedCellsPane } from '../ui/side-pane/changed-cells-pane.tsx';
+import type { ChangedCellsPaneProps } from '../ui/side-pane/changed-cells-pane.tsx';
 import { hasElementAwaitingKeyboard, offerKeyboardWhenReady } from '../ui/keyboard-handoff.ts';
 import { focusMoveOfKey, isActLeftToCtrlAlt, keyActOf, doesPopupLetLineBreak, listKindOfShortcut, movesCaretInEntry } from '../keys/key-acts.ts';
 import { slideOffsetNow, useTabsAway, watchKeyboardSlides } from '../shell/tabs-away.ts';
@@ -326,6 +344,7 @@ import {
   subscribeBottomInsets,
   useCoveredUnderCellsProperty,
   useFootInsetOf,
+  getCoveredUnderCells,
 } from '../shell/bottom-insets.ts';
 import {
   isOnPhone,
@@ -347,7 +366,7 @@ import { watchAnotherRangeKey } from '../selection/another-range-key.ts';
 import { useAnnouncedLastDone, announcementOfLastDone } from '../ui/last-done-announcer.ts';
 import { afterNextFrameOrTimeout } from '../utils/next-frame.ts';
 import { useNameFlagsAtPointer } from '../presence/flags-at-pointer-hook.ts';
-import { useFilterButtonPointedAt, FilterTableOutlines, FilterButtonsLayer } from '../tables/filter-buttons-layer.tsx';
+import { useFilterButtonPointedAt, useOfFoundTablesShown, FilterTableOutlines, FilterButtonsLayer } from '../tables/filter-buttons-layer.tsx';
 import {
   useTableHandleCall,
   tableKeyOfHandleAt,
@@ -440,7 +459,9 @@ import {
   TAP_SLOP_PX,
   mayTapBeTold,
   tapsAfterLift,
+  isWithinCellTapWindow,
 } from '../selection/finger-taps.ts';
+import { keyActOnOpenedPage } from '../state/caret-memory.ts';
 import { armCellMenuTouchGuard, MENU_ON_CELLS_ATTRIBUTE, CellContextMenu } from '../ui/cell-menu/cell-menu.tsx';
 import { isSumWithFormulaCell } from '../selection/figures.ts';
 import { historyStepOfInputType, isHistoryOrDropInputType, isTypingInputType } from '../editor/commit-entry.ts';
@@ -450,11 +471,12 @@ import { SORT_BUTTON_ATTRIBUTE, CustomSortPane } from '../tables/sort-pane-view.
 import { contextBarMenuHandlers } from '../ui/context-bar-menus.ts';
 import { isFormatMenuKeepingEntrySelection, isFormatChoiceKeepingEntrySelection } from '../ui/toolbar-entry-selection.ts';
 import { sheetPrefixForFormula } from '../formulas/references.ts';
-import { GUESS_TABLE_FOR_ROWS_ASK } from '../tables/rows-asked-for.ts';
+import { GUESS_TABLE_FOR_ROWS_ASK, ROWS_ASK_PRESSED_LABEL } from '../tables/rows-asked-for.ts';
 import { keyTargetAtTableMenu } from '../tables/table-handle-menu.ts';
 import { DEFAULT_CELL_FORMAT } from '../model/cell-format.ts';
 import { POPUP_EDGE_GAP } from '../ui/popup-placement.ts';
-import { exampleOfChoice } from '../format/number-format-choices.ts';
+import { exampleOfChoice, CUSTOM_FORMAT_PRESS } from '../format/number-format-choices.ts';
+import { isDialogAskBeyondFormats } from '../format/custom-number-format.ts';
 import { browserTimeZone } from './browser-locale.ts';
 import {
   doesSelectionShowError,
@@ -477,14 +499,16 @@ import { EVENTS_BEFORE_FILE_IMPORT } from '../import/text-file.ts';
 import { useImportFilePicker, importFileChoices } from '../import/csv-file.tsx';
 import { PageFileDrop, canTakeDroppedFile, isExcelFileName } from '../import/page-file-drop.tsx';
 import { NO_FILES_FOR_AGENT, type AgentFileSource } from '../agent/files-for-agent.ts';
-import { trackCellsAddedToChat, CellsAddedAnnouncer, AddedToMessageToast } from '../agent/added-to-message-notices.tsx';
+import { trackCellsAddedToChat, CellsAddedAnnouncer, AddedToMessageToast, isGridHiddenFromVoiceOver, HiddenFromVoiceOverOnIos } from '../agent/added-to-message-notices.tsx';
+import { newInteractiveSitting } from '../charts/interactive-frame-talk.ts';
+import { resetToDefaultsLabel } from '../messages/defaults-and-limits.ts';
 import { askAgentForRulesInChat, askAgentAboutRule } from '../format/conditional/ask-agent-about-rule.tsx';
 import { createPressForFixesTracker } from '../formulas/fix/press-for-fixes.ts';
 import { chartMessages, chartChangeOutcomeWords } from '../messages/charts.ts';
 import { tabStopBefore } from '../ui/last-tab-stop-focus.ts';
 import { GUIDE_CARD_ATTRIBUTE, GUIDE_STEP_ON_ATTRIBUTE, WalkthroughCard } from '../links/walkthrough-card.tsx';
 import { pageInputHoldBack } from '../debug/input-hold-back.ts';
-import { pivotTableMessages, PivotTableOutOfDateBar } from '../tables/pivot-table-messages.tsx';
+import { pivotTableMessages, PivotTableOutOfDateBar, pivotOutOfDateWords } from '../tables/pivot-table-messages.tsx';
 import { PivotTablePane } from '../tables/pivot-table-pane.tsx';
 import type { PivotTablePaneProps } from '../tables/pivot-table-pane.tsx';
 import { personChipLinesInRowHeight } from '../grid/chip-metrics.ts';
@@ -497,7 +521,7 @@ import type { PlacedViewFix } from '../charts/fix-of-placed-view.tsx';
 import { SettledWordsAnnouncer, OpenedWordsAnnouncer, UndoOfferAnnouncer } from '../ui/settled-announcers.tsx';
 import { areFixesOnOffer, ErrorsAtOpeningAnnouncer, ErrorsAtOpeningToast } from '../formulas/fix/errors-at-opening.tsx';
 import { askChatAfterNoFix, NoFixAnnouncer, NoFixToast } from '../formulas/fix/no-fix-notice.tsx';
-import { undoOfferOfChartAdded, ChartNotAddedToast, chartAddedAnnouncement } from '../charts/chart-added-toast.tsx';
+import { undoOfferOfChartAdded, ChartNotAddedToast, chartAddedAnnouncement, chartChangeAnnouncement } from '../charts/chart-added-toast.tsx';
 import {
   chartKindName,
   chartCaptionOrName,
@@ -533,19 +557,26 @@ import {
 } from '../i18n/notice-labels.ts';
 import { noticeGivesWay } from '../state/queries.ts';
 import {
-  listAnnouncement,
-  withHighlightedRowIdOr,
+  highlightedOptionAnnouncement,
+  betterListAnchorRect,
   comboboxAriaProps,
   listenForListUnderCellEvents,
   isListUnderCellRow,
   isRowFocusOnIos,
   isInListUnderCell,
 } from '../ui/list-under-cell.tsx';
-import { dropdownListIds, firstDropdownListRowId, dropdownListSpokenWords, DropdownListUnderCell } from '../chips/dropdown-list.tsx';
-import { peopleListCardIds, peopleListLabel, peopleListRowWords, PeopleList } from '../chips/people-list-view.tsx';
+import { dropdownListIds, dropdownListIdsForVoiceOver, dropdownListWordsToSay, DropdownListUnderCell } from '../chips/dropdown-list.tsx';
+import {
+  peopleListCardIds,
+  peopleListIdsForVoiceOver,
+  isPeopleListShown,
+  peopleListLabel,
+  peopleListRowWords,
+  PeopleList,
+} from '../chips/people-list-view.tsx';
 import { timeListActiveDescendant, TimeListPopup } from '../editor/time-list-popup.tsx';
 import { functionListActiveDescendant, OPENS_FUNCTION_LIST_ATTRIBUTE, FunctionHelp } from '../formulas/function-list.tsx';
-import { editingCellLabel, editingCellOnSheetLabel } from '../i18n/grid-action-labels.ts';
+import { editingCellLabel, editingCellOnSheetLabel, keysPausedByUpdateText } from '../i18n/grid-action-labels.ts';
 import { calendarCellComboboxProps, CalendarUnderCell } from '../chips/calendar-under-cell.tsx';
 import { entryEditorLineStyle, entryEditorStyle } from '../editor/ios-grown-editor.ts';
 import { CHIP_FIELD_LINE_HEIGHT } from '../chips/field-of-chips.tsx';
@@ -578,7 +609,7 @@ import { EarlierVersionAnnouncer, EarlierVersionBar } from '../history/earlier-v
 import { WaysInHintAnnouncer, WaysInToolbar } from '../ui/ways-in/ways-in-toolbar.tsx';
 import { describeLastDone } from '../i18n/last-done-labels.ts';
 import { shortcutListMessages } from '../messages/shortcut-labels.ts';
-import { LiveAnnouncer } from '../ui/live-announcer.tsx';
+import { LiveAnnouncer, askAgentInWords } from '../ui/live-announcer.tsx';
 import { formulasTookTooLongWords, ERROR_DESCRIPTION_ID, errorExplanationWords } from '../messages/formula-errors.ts';
 import { PeopleListAnnouncer } from '../chips/people-list-announcer.tsx';
 import { linkPositionText, commentModeHint, builtLinkAddressLabel } from '../i18n/status-labels.ts';
@@ -851,21 +882,46 @@ export function scheduleWorkShownLongEnough(wait: Wait | null, store: SheetContr
   );
   return () => clearTimeout(timer);
 }
-export function useZoomedVirtualAnchor(anchorRef: React.RefObject<Element | null>, zoom: number, fallbackRect: PointBox | null): AnchorOnPage {
-  let lastRectRef = React.useRef<PointBox | null>(fallbackRect);
+export function useZoomedVirtualAnchor(
+  anchorRef: React.RefObject<Element | null>,
+  zoom: number,
+  fallbackRect: PointBox | null,
+  placeOfLines: PointBox | null = null,
+): AnchorOnPage {
+  let lastPlaceRef = React.useRef<{ place: PointBox | null; placeOfLines: PointBox | null }>({
+    place: fallbackRect,
+    placeOfLines,
+  });
   React.useLayoutEffect(() => {
-    if (fallbackRect !== null) lastRectRef.current = fallbackRect;
-  }, [fallbackRect]);
+    if (fallbackRect !== null)
+      lastPlaceRef.current = {
+        place: fallbackRect,
+        placeOfLines,
+      };
+  }, [fallbackRect, placeOfLines]);
   return React.useMemo(
     () => ({
       getBoundingClientRect() {
         let element = anchorRef.current;
         if (element === null) return new DOMRect();
-        let box = boxOnScreen(element, zoom, fallbackRect ?? lastRectRef.current ?? new DOMRect());
-        return new DOMRect(box.x, box.y, box.width, box.height);
+        let rectOnScreen = (rect: PointBox) => {
+          let box = boxOnScreen(element, zoom, rect);
+          return new DOMRect(box.x, box.y, box.width, box.height);
+        };
+        let places =
+          fallbackRect === null
+            ? lastPlaceRef.current
+            : {
+                place: fallbackRect,
+                placeOfLines,
+              };
+        let placeRect = rectOnScreen(places.place ?? new DOMRect());
+        if (places.placeOfLines === null) return placeRect;
+        let viewportHeight = element.ownerDocument.documentElement.clientHeight;
+        return betterListAnchorRect(placeRect, rectOnScreen(places.placeOfLines), viewportHeight - getCoveredUnderCells());
       },
     }),
-    [anchorRef, zoom, fallbackRect],
+    [anchorRef, zoom, fallbackRect, placeOfLines],
   );
 }
 export interface ReloadPageButtonProps {
@@ -886,7 +942,8 @@ export function ReloadPageButton({ reload }: ReloadPageButtonProps) {
 export interface SheetGridDrawingProps extends Omit<GridDrawingProps, 'cellsAsBefore' | 'rows' | 'keysOfColumns' | 'areRowsNamed'> {}
 export function SheetGridDrawing(props: SheetGridDrawingProps) {
   let { rowsDrawn, columnHeaders, pagesTurnedForReader } = props.grid;
-  return <BlankCellWordsContext value={BLANK_CELL_WORDS_BY_PLATFORM}><GridDrawing {...props} cellsAsBefore={useCellsAsBefore(props.grid)} rows={useLingeringRows(rowsDrawn, pagesTurnedForReader, IS_IOS_BROWSER)} keysOfColumns={useLineKeys(keysOfLines(columnHeaders), pagesTurnedForReader, IS_IOS_BROWSER)} areRowsNamed={ARE_ROWS_NAMED_HERE} /></BlankCellWordsContext>;
+  let blankCellWords: BlankCellWords = BLANK_CELL_WORDS_BY_PLATFORM === 'all' && pagesTurnedForReader > 0 ? 'allAndText' : BLANK_CELL_WORDS_BY_PLATFORM;
+  return <BlankCellWordsContext value={blankCellWords}><GridDrawing {...props} cellsAsBefore={useCellsAsBefore(props.grid)} rows={useLingeringRows(rowsDrawn, pagesTurnedForReader, IS_IOS_BROWSER)} keysOfColumns={useLineKeys(keysOfLines(columnHeaders), pagesTurnedForReader, IS_IOS_BROWSER)} areRowsNamed={ARE_ROWS_NAMED_HERE} /></BlankCellWordsContext>;
 }
 /** Where typing goes: into an entry box, or onto the grid. */
 export type TypingTarget = EditingMode['typingIn'] | 'grid';
@@ -897,8 +954,13 @@ interface CaretKept {
   selected: [number, number, 'forward' | 'backward' | 'none'];
 }
 /** Text typed into the waiting box ahead of the cell it goes onto. */
-interface TypingHeldAhead {
+/** Text typed into the waiting box, and how it came. */
+interface TypedIntoWaitingBox {
   text: string;
+  isOfInputMethod: boolean;
+  isNotTyped: boolean;
+}
+interface TypingHeldAhead extends TypedIntoWaitingBox {
   typeOntoCell: () => void;
 }
 /** Which field of the page an entry box is. */
@@ -925,17 +987,26 @@ export interface SheetsPageShell extends Pick<FrameChrome, 'drawsHistory' | 'off
 export interface CaretAtFirst {
   mayCellsTake(): boolean;
   mustCellsWait(): boolean;
-  /** Whether the keyboard came over from the page before, with nothing pressed since the page started. */
-  isKeyboardHandedOver(pressesHeard: PressesHeardAtStart): boolean;
+  /** Whether the rules that let the cells take the keyboard at the start still hold, with nothing pressed since the page started. */
+  doRulesStillHold(rules: PressesHeardAtStart): boolean;
   doCellsTakeOncePainted(): boolean;
   wasPointerPressedLast: boolean;
-  mayKeyEndWait(key: Pick<KeyboardEvent, 'key' | 'altKey' | 'ctrlKey' | 'metaKey' | 'shiftKey'>): boolean;
+  /** Whether something the person did for the cells was lost while the page opened. */
+  wasActForCellsLost(): boolean;
+  /** The page has begun to wait for a key after something was lost. */
+  waitAfterLossHasBegun(): void;
+  mayKeyEndWait(key: Pick<KeyboardEvent, 'key' | 'altKey' | 'ctrlKey' | 'metaKey' | 'shiftKey'>, isHandedOver: boolean): boolean;
   actsHeard: PersonInputWatch;
 }
 /** What the page has heard of the person since it started, as the keyboard comes to it. */
 export interface PressesHeardAtStart {
   pressesBegun: number;
-  timesFocusLeft: number;
+  hasAnythingHadCaret: boolean;
+}
+/** Whether a connected table may be refreshed now, and word when that changes. */
+export interface RefreshOffered {
+  now(): boolean;
+  onChanged(listener: () => void): () => void;
 }
 /** The walkthrough the agent hands this page, and whether the person is at work in it. */
 export interface GuideOfPage {
@@ -944,6 +1015,7 @@ export interface GuideOfPage {
 }
 export interface SheetsPageProps {
   store: SheetController;
+  people: BrowserSide['people'];
   clipboard: SheetClipboard;
   reloadPage: (() => void) | null;
   shell: SheetsPageShell;
@@ -951,6 +1023,7 @@ export interface SheetsPageProps {
   isInStaffTrials?: () => boolean;
   isAgentForToolsExpected?: boolean;
   connectionNews: ConnectionNews;
+  isRefreshOffered?: RefreshOffered;
   wordsOfLoad?: Pick<WordsOfLoad, 'areWordsToCome' | 'onChanged'>;
   caretAtFirst?: CaretAtFirst;
   isEarlierVersionLeft?: boolean;
@@ -958,6 +1031,7 @@ export interface SheetsPageProps {
   chatWithAgent?: ChatWithAgent;
   guide?: GuideOfPage;
   chartsMadeByPage?: StockChartMaker;
+  versionSummaries?: BrowserSide['versionSummaries'];
   chartCardCounted?: (card: ChartCardCount) => void;
   ownToolOfFormatCounted?: (format: 'currency' | 'percent') => void;
   commentsOfHost?: HostComments;
@@ -973,6 +1047,7 @@ export interface SheetsPageProps {
 }
 export function SheetsPage({
   store,
+  people,
   clipboard,
   reloadPage,
   shell,
@@ -980,6 +1055,7 @@ export function SheetsPage({
   isInStaffTrials = isNeverInStaffTrials,
   isAgentForToolsExpected = false,
   connectionNews,
+  isRefreshOffered = NO_REFRESH_OFFER,
   wordsOfLoad = NO_WORDS_OF_LOAD,
   caretAtFirst,
   isEarlierVersionLeft = false,
@@ -987,6 +1063,7 @@ export function SheetsPage({
   chatWithAgent = NO_CHAT_WITH_AGENT,
   guide,
   chartsMadeByPage = NO_CHART_MAKER,
+  versionSummaries,
   chartCardCounted = countsNothing,
   ownToolOfFormatCounted = countsNothing,
   commentsOfHost = NO_AGENT_AI_COMMENTS,
@@ -1097,9 +1174,11 @@ export function SheetsPage({
   }, []);
   let gridFocusRef = React.useRef<HTMLDivElement | null>(null);
   let interactiveSectionRef = React.useRef<HTMLDivElement | null>(null);
+  let recordsScrollerRef = React.useRef<HTMLTableElement | null>(null);
   let getGridOrEditorElement = React.useCallback(() => {
     let currentView = store.getView();
     if (currentView.interactive !== null) return interactiveSectionRef.current;
+    if (currentView.recordsOfTable !== null && currentView.sheetPointedIn === null) return recordsScrollerRef.current;
     return (areCellsOffLimits(currentView) ? gridFocusRef : cellEditorRef).current;
   }, [store]);
   let getSelectedPlacementId = React.useCallback(
@@ -1186,12 +1265,6 @@ export function SheetsPage({
   let heldBackLayersRef = React.useRef(new Set<HeldBackLayer>());
   let [isAnyLayerHeldBack, setIsAnyLayerHeldBack] = React.useState(false);
   let [isNonWaysInLayerHeldBack, setIsNonWaysInLayerHeldBack] = React.useState(false);
-  let isRoomKeptForGonePane = useRoomKeptForGonePane({
-    isPaneDrawn: isSidePaneDrawn,
-    isChatOverBar: false,
-    isMenuOpen: isAnyLayerHeldBack || view.menu?.isOfContextBar === true,
-    bar: footBar,
-  });
   let [headerExtra, setHeaderExtra] = React.useState<HTMLFieldSetElement | null>(null);
   let [footerExtra, setFooterExtra] = React.useState<HTMLFieldSetElement | null>(null);
   let toastResizeObserverRef = React.useRef<ResizeObserver | null>(null);
@@ -1397,6 +1470,7 @@ export function SheetsPage({
   let chooseFileButtonRef = React.useRef<HTMLElement | null>(null);
   let ownFilterBarRef = React.useRef<HTMLFieldSetElement | null>(null);
   let pivotTableBarRef = React.useRef<HTMLFieldSetElement | null>(null);
+  let connectedTableBarRef = React.useRef<HTMLFieldSetElement | null>(null);
   let isNotComeToByTabRef = React.useRef(true);
   let [isComeToByTab, setIsComeToByTab] = React.useState(false);
   let forgetComeToByTab = () => {
@@ -1421,7 +1495,7 @@ export function SheetsPage({
         formulaBar: () => {
           let isFocused = focusFirstMatching(formulaBarRef.current, ':scope');
           if (isFocused) wasFormulaBarFocusedRef.current = true;
-          return isFocused;
+          return isFocused || focusFirstMatching(formulaRowRef.current, `[${GOES_TO_CELL_BEHIND_ATTRIBUTE}]`);
         },
         viewTools: () => focusFirstMatching(viewToolsRef.current, 'button'),
         findBar: () => store.getView().find?.isReplaceShown !== true && focusFirstMatching(findBarRef.current, ':scope'),
@@ -1449,6 +1523,7 @@ export function SheetsPage({
           ),
         ownFilterBar: () => focusFirstMatching(ownFilterBarRef.current, 'button'),
         pivotTableBar: () => focusFirstMatching(pivotTableBarRef.current, 'button'),
+        connectedTableBar: () => focusFirstMatching(connectedTableBarRef.current, 'button:enabled'),
         sheets: () => focusFirstMatching(sheetTabsRef.current, '[role="tab"][aria-selected="true"]'),
         sidePane: () => focusPaneStart(sidePaneRef.current, 'lastUsed'),
       };
@@ -1737,6 +1812,7 @@ export function SheetsPage({
   let bottomInsetRef = React.useRef(0);
   let keyboardInsetRef = React.useRef(0);
   let wasPaneFullWidthRef = React.useRef(false);
+  let pageSizeKeyRef = React.useRef<string | null>(null);
   let measureGridRef = React.useRef<(() => void) | null>(null);
   React.useEffect(() => {
     let [cells, zoomedGrid] = [cellsRef.current, zoomedGridRef.current];
@@ -1805,6 +1881,9 @@ export function SheetsPage({
       let topOfFloating = Math.min(topOfCards, topOfNotices);
       let isPaneFullWidth = (sidePaneRef.current?.offsetWidth ?? 0) >= Math.max(1, root.clientWidth - 1);
       setBarsInsetAtFoot(isPaneFullWidth ? 0 : heightUnderFoot);
+      let pageSizeKey = `${root.clientWidth} ${root.clientHeight}`;
+      let isPageResized = (pageSizeKeyRef.current ?? pageSizeKey) !== pageSizeKey;
+      pageSizeKeyRef.current = pageSizeKey;
       store.dispatch({
         kind: 'gridResized',
         width: Math.floor(unzoomLength(cells.clientWidth, zoomNow)),
@@ -1830,6 +1909,7 @@ export function SheetsPage({
         isCoveredLessByKeyboard,
         zoom: zoomNow,
         isZoomAboutPointer,
+        isPageResizedWithCaretInCells: isPageResized && cells.ownerDocument.hasFocus() && cells.ownerDocument.activeElement === getGridOrEditorElement(),
         isOnPhone: isOnPhone(),
         isNarrowByTouch: isNarrowByTouch(),
         ...(footBox !== null &&
@@ -1851,12 +1931,6 @@ export function SheetsPage({
       shell.cellsAreMeasured();
     };
     let resizeObserver = new ResizeObserver((entries) => measure(entries));
-    let footObserver = new MutationObserver(() => measure([]));
-    if (footBar !== null)
-      footObserver.observe(footBar, {
-        attributes: true,
-        attributeFilter: ['data-keeps-room-of-pane'],
-      });
     let remeasure = () => measure([]);
     let modeObserver = new MutationObserver(remeasure);
     modeObserver.observe(cells.ownerDocument.documentElement, {
@@ -1924,7 +1998,6 @@ export function SheetsPage({
       });
     return () => {
       resizeObserver.disconnect();
-      footObserver.disconnect();
       modeObserver.disconnect();
       for (let mediaQuery of mediaQueries) mediaQuery?.removeEventListener('change', remeasureNextFrame);
       win?.cancelAnimationFrame(frameId);
@@ -1949,6 +2022,7 @@ export function SheetsPage({
     footerExtra,
     shell,
     mouseAroundComments,
+    getGridOrEditorElement,
   ]);
   let caretKeptBeforeEntryEndsRef = React.useRef<CaretKept | null>(null);
   React.useLayoutEffect(() => {
@@ -2066,7 +2140,7 @@ export function SheetsPage({
   let zoomSettleCountRef = React.useRef(0);
   let markZoomSettling = React.useCallback(() => {
     let win = cellsRef.current?.ownerDocument.defaultView ?? null;
-    if (win === null) return;
+    if (win === null) return setIsZoomSettling(false);
     zoomSettleCountRef.current += 1;
     let count = zoomSettleCountRef.current;
     setIsZoomSettling(true);
@@ -2103,6 +2177,7 @@ export function SheetsPage({
     gridRef: cellsRef,
     zoom,
   });
+  let ofFoundTablesShown = useOfFoundTablesShown(view.grid, filterButtonPointedAt, zoom);
   let tableHandleCall = useTableHandleCall({
     drawn: view.grid,
     gridRef: cellsRef,
@@ -2335,11 +2410,24 @@ export function SheetsPage({
     };
     return true;
   };
+  let isFirstKeyAwaitedRef = React.useRef<false | 'atFirst' | 'underTypist' | 'afterLoss'>(false);
+  let [typingWaitsWords, setTypingWaitsWords] = React.useState<string | null>(null);
+  let setFirstKeyAwaited = (how: false | 'atFirst' | 'underTypist' | 'afterLoss') => {
+    if (how === isFirstKeyAwaitedRef.current) return;
+    isFirstKeyAwaitedRef.current = how;
+    if (how === 'afterLoss') caretAtFirst?.waitAfterLossHasBegun();
+    if (how === false) caretAtFirst?.actsHeard.nothingIsLostAnyMore();
+    setTypingWaitsWords(how === 'afterLoss' ? keysPausedByUpdateText(store.getView().mode.kind === 'editing') : null);
+  };
+  let stopAwaitingFirstKey = () => {
+    setFirstKeyAwaited(false);
+    caretAtFirst?.actsHeard.nothingIsLostAnyMore();
+  };
   let loseFocus = (mayComeBack: boolean, isOfWindow: boolean = false) => {
     let { mode: latestMode, openUnderCell, isListOfKeysOpen, linkForm } = store.getView();
     if (latestMode.kind !== 'editing' && openUnderCell === null) return;
     if (isListOfKeysOpen) return;
-    if (isOfWindow && linkForm?.inEntry !== undefined)
+    if (isOfWindow && (linkForm?.inEntry !== undefined || isFirstKeyAwaitedRef.current === 'afterLoss'))
       return store.dispatch({
         kind: 'pageMayBeEnded',
       });
@@ -2514,7 +2602,7 @@ export function SheetsPage({
     return () => ownerDocument.removeEventListener('keydown', onKeyDown, true);
   }, [store]);
   React.useEffect(() => (shell.offerFind(openFindByScrollEvent), () => shell.offerFind(null)), [shell]);
-  let isInteractiveWritable = view.interactive?.doesWrite === true && view.viewOnlyBecause === null;
+  let isInteractiveWritable = view.interactive?.hasBar === true && view.viewOnlyBecause === null;
   let isPointerPressedLastRef = React.useRef(caretAtFirst?.wasPointerPressedLast === true);
   React.useLayoutEffect(
     () => () => caretAtFirst?.actsHeard.notePointerPressedLast(isPointerPressedLastRef.current),
@@ -2575,7 +2663,6 @@ export function SheetsPage({
                 kind: 'findClosed',
               });
             }} />;
-  let isFirstKeyAwaitedRef = React.useRef<false | 'atFirst' | 'underTypist'>(false);
   let cancelKeyboardOfferRef = React.useRef<(() => void) | null>(null);
   let isKeyboardOfferedRef = React.useRef(false);
   let wasPressInAskBoxRef = React.useRef(false);
@@ -2602,9 +2689,9 @@ export function SheetsPage({
   };
   let restoreFocus = (retry?: () => void, beforeRestore?: () => void) => {
     let ownerDocument = cellsRef.current?.ownerDocument;
-    if (ownerDocument === undefined) return;
+    if (ownerDocument === undefined || isFirstKeyAwaitedRef.current === 'afterLoss') return;
     isFocusLostUntouchedRef.current = false;
-    isFirstKeyAwaitedRef.current = false;
+    setFirstKeyAwaited(false);
     if (ownerDocument.activeElement !== ownerDocument.body && ownerDocument.activeElement?.matches(':disabled') !== true) return;
     let noteFocusLost = () => {
       isFocusLostUntouchedRef.current =
@@ -2628,8 +2715,10 @@ export function SheetsPage({
       !focusOpenModal() &&
       !refocusInContextBar(focusAfterModal, () => ownerDocument.activeElement, contextBarField) &&
       !(isUntouchedSinceModal && focusSidePaneOrTitle(sidePaneRef.current, focusAfterModal))
-    )
+    ) {
+      if (ownerDocument.hasFocus() && caretAtFirst?.wasActForCellsLost() === true) return awaitFirstKey('afterLoss');
       refocusTypingTarget();
+    }
     noteFocusLost();
   };
   let isCellsCopyTarget = () => {
@@ -2638,7 +2727,15 @@ export function SheetsPage({
     if (active === cellEditorRef.current) return whereTypingGoes(store.getView()) === 'grid';
     if (active === activeEditorRef.current) return store.getView().mode.kind !== 'editing';
     if (active instanceof HTMLInputElement) return false;
+    if (active === recordsScrollerRef.current) return true;
     return active === gridFocusRef.current || calendarPopupRef.current?.contains(active) === true;
+  };
+  let isTextPicked = () => (cellsRef.current?.ownerDocument.getSelection()?.toString() ?? '') !== '';
+  let isFormatToolsCopyTarget = () => {
+    let active = getActiveElement();
+    if (!(active !== null && formatToolsRef.current?.contains(active) === true) || active instanceof HTMLInputElement || isTextPicked())
+      return false;
+    return store.getView().mode.kind !== 'editing' && getSelectedPlacementId() === null;
   };
   let isFocusInEntryField = () => {
     let active = getActiveElement();
@@ -2646,13 +2743,12 @@ export function SheetsPage({
   };
   let mayEntryTakeClipboard = () => isFocusInEntryField() && store.mayAnEntryOpenOrEnd();
   let isPlacedViewFocused = () => placementIdOfElement(getActiveElement()) !== null && !isPlacedViewAskInput(getActiveElement());
-  let isPlacedViewFocusedWithoutText = () =>
-    isPlacedViewFocused() && (cellsRef.current?.ownerDocument.getSelection()?.toString() ?? '') === '';
+  let isPlacedViewFocusedWithoutText = () => isPlacedViewFocused() && !isTextPicked();
   let onCopyOrCut = React.useEffectEvent((event: ClipboardEvent) => {
     let { clipboardData } = event;
     let isEntryCopy = event.type === 'copy' && isFocusInEntryField() && store.mayWhatACopyHoldsChange();
     let isEntryCut = event.type === 'cut' && store.getView().mode.kind === 'editing';
-    let isCellsTarget = isCellsCopyTarget() && !isEntryCut;
+    let isCellsTarget = (isCellsCopyTarget() && !isEntryCut) || isFormatToolsCopyTarget();
     if (!(clipboard.isBrowserAskedForCells() || isCellsTarget || isEntryCopy) || clipboardData === null) {
       clipboard.somethingElseCopiedHere();
       if (!isPlacedViewFocusedWithoutText() || clipboardData === null)
@@ -2712,6 +2808,7 @@ export function SheetsPage({
     if (
       clipboard.isBrowserAskedForCells() ||
       (isCellsCopyTarget() && !isEntryCut) ||
+      (event.type !== 'beforepaste' && isFormatToolsCopyTarget()) ||
       isEntryTarget ||
       (event.type === 'beforepaste' ? isPlacedViewFocused() : isPlacedViewFocusedWithoutText())
     )
@@ -2844,7 +2941,10 @@ export function SheetsPage({
     let ownerDocument = cellsRef.current?.ownerDocument;
     if (ownerDocument !== undefined) whenWindowBlurred(ownerDocument, () => onWindowLeft());
   });
-  let restoreFocusOnClick = React.useEffectEvent(() => restoreFocus());
+  let restoreFocusOnClick = React.useEffectEvent((isTrusted: boolean) => {
+    if (isTrusted) stopAwaitingFirstKey();
+    restoreFocus();
+  });
   let { noteCommentChosen, isCaretLeft: isCaretLeftForComment } = useCaretAfterComment(restoreFocus);
   let isModalOpenNow = React.useEffectEvent(() => isModalOpen(store.getView()));
   let onWindowFocus = React.useEffectEvent(() => {
@@ -2877,8 +2977,8 @@ export function SheetsPage({
     if (activeCellBox === undefined) return false;
     return activeCellBox.left <= clientX && clientX <= activeCellBox.right && activeCellBox.top <= clientY && clientY <= activeCellBox.bottom;
   };
-  let awaitFirstKey = (how: 'atFirst' | 'underTypist') => {
-    isFirstKeyAwaitedRef.current = how;
+  let awaitFirstKey = (how: 'atFirst' | 'underTypist' | 'afterLoss') => {
+    setFirstKeyAwaited(how);
     caretAtFirst?.actsHeard.restBeginsNow();
   };
   let awaitKeyUnderTypist = React.useEffectEvent(() => {
@@ -2892,7 +2992,9 @@ export function SheetsPage({
   };
   let offerCaretAtFirst = () => {
     if (cellsRef.current?.ownerDocument.hasFocus() !== true) return;
-    if (caretAtFirst === undefined || !caretAtFirst.mayCellsTake()) return;
+    if (caretAtFirst === undefined) return;
+    if (caretAtFirst.wasActForCellsLost()) return awaitFirstKey('afterLoss');
+    if (!caretAtFirst.mayCellsTake()) return;
     if (caretAtFirst.mustCellsWait()) return awaitFirstKey('atFirst');
     let caret = cancelKeyboardOfferRef.current === null && caretAtFirst.doCellsTakeOncePainted() ? getCaretElement() : null;
     if (caret === null) return takeCaretAtFirst();
@@ -2904,11 +3006,15 @@ export function SheetsPage({
     });
   };
   let offerCaretAtFirstEvent = React.useEffectEvent(offerCaretAtFirst);
+  let hasAnythingHadCaretRef = React.useRef(false);
+  let noteNothingLostUnlessAwaited = React.useEffectEvent(() => {
+    if (isFirstKeyAwaitedRef.current === false) caretAtFirst?.actsHeard.nothingIsLostAnyMore();
+  });
   let checkWindowFocus = React.useEffectEvent(() => {
     if (
-      caretAtFirst?.isKeyboardHandedOver({
+      caretAtFirst?.doRulesStillHold({
         pressesBegun: focusTrackerRef.current?.timesBegun() ?? 0,
-        timesFocusLeft: focusTrackerRef.current?.timesFocusLeft() ?? 0,
+        hasAnythingHadCaret: hasAnythingHadCaretRef.current,
       }) === true
     )
       offerCaretAtFirst();
@@ -2933,21 +3039,48 @@ export function SheetsPage({
     if (viewOnlyBecause !== null || !isFillDownOrRightKey(event, IS_APPLE_PLATFORM)) return;
     event.preventDefault();
     let isSyntheticOnCaret = !event.isTrusted && event.target === getCaretElement();
-    if (!event.repeat && (latestMode.kind === 'editing' || !(isCellsCopyTarget() || isSyntheticOnCaret)))
+    let isOnCells = (isCellsCopyTarget() && event.target !== recordsScrollerRef.current) || isSyntheticOnCaret;
+    if (!event.repeat && (latestMode.kind === 'editing' || !isOnCells))
       store.dispatch({
         kind: 'fillKeyPressedOutsideCells',
       });
   });
   let onWindowKeyDownFirst = React.useEffectEvent((event: KeyboardEvent) => {
     if (!event.isTrusted || MODIFIER_KEYS.has(event.key)) return;
-    if (event.target !== cellsRef.current?.ownerDocument.body) isFirstKeyAwaitedRef.current = false;
+    if (event.target !== cellsRef.current?.ownerDocument.body) stopAwaitingFirstKey();
     let isFirstKeyForCells =
       caretAtFirst !== undefined &&
       isFirstKeyAwaitedRef.current !== false &&
       event.key !== 'Escape' &&
       caretAtFirst.actsHeard.hadRestedBeforeLast() &&
-      (isFirstKeyAwaitedRef.current === 'underTypist' || caretAtFirst.mayKeyEndWait(event));
+      (isFirstKeyAwaitedRef.current === 'underTypist' || caretAtFirst.mayKeyEndWait(event, isFirstKeyAwaitedRef.current === 'afterLoss'));
     if (isFirstKeyAwaitedRef.current === 'underTypist' && !isFirstKeyForCells && event.key === 'Tab') event.preventDefault();
+    let isFreeKeyOnBody =
+      isFirstKeyAwaitedRef.current === false &&
+      event.target === cellsRef.current?.ownerDocument.body &&
+      cellsRef.current.ownerDocument.hasFocus() &&
+      !isFocusLostUntouchedRef.current &&
+      !isModalOpen(store.getView()) &&
+      !hasElementAwaitingKeyboard(cellsRef.current.ownerDocument) &&
+      !event.defaultPrevented;
+    let isMoveKey = event.key === 'Tab' || event.key === 'F6';
+    if (isFreeKeyOnBody && isMoveKey) stopAwaitingFirstKey();
+    if (
+      (isFirstKeyAwaitedRef.current === 'atFirst' || (isFreeKeyOnBody && !isMoveKey)) &&
+      !isFirstKeyForCells &&
+      caretAtFirst?.wasActForCellsLost() === true
+    )
+      setFirstKeyAwaited('afterLoss');
+    let actOnOpenedPage =
+      isFirstKeyAwaitedRef.current === 'afterLoss' && !isFirstKeyForCells && event.target === cellsRef.current?.ownerDocument.body
+        ? keyActOnOpenedPage(event, store.getView().mode.kind === 'editing')
+        : 'nothing';
+    if (actOnOpenedPage !== 'nothing') event.preventDefault();
+    if (actOnOpenedPage === 'caretToEntry') {
+      event.stopImmediatePropagation();
+      setFirstKeyAwaited(false);
+      return restoreFocus();
+    }
     let isEscapeWhileEditing = isFirstKeyAwaitedRef.current !== false && event.key === 'Escape' && store.getView().mode.kind === 'editing';
     let isForOpenModal = event.target === cellsRef.current?.ownerDocument.body && isModalOpen(store.getView());
     let isKeyboardOffered = isKeyboardOfferedRef.current && event.target === cellsRef.current?.ownerDocument.body;
@@ -2955,13 +3088,22 @@ export function SheetsPage({
       event.preventDefault();
       return event.stopImmediatePropagation();
     }
-    if (!isFocusLostUntouchedRef.current && !isFirstKeyForCells && !isForOpenModal && !isEscapeWhileEditing && !isKeyboardOffered) return;
+    if (
+      !(isFocusLostUntouchedRef.current && isFirstKeyAwaitedRef.current !== 'afterLoss') &&
+      !isFirstKeyForCells &&
+      !isForOpenModal &&
+      !isEscapeWhileEditing &&
+      !isKeyboardOffered
+    )
+      return;
     if (isKeyboardOffered) {
       cancelKeyboardOfferRef.current?.();
       measureGridRef.current?.();
     }
     isFocusLostUntouchedRef.current = false;
-    isFirstKeyAwaitedRef.current = false;
+    let isEscapeKeepingWait =
+      isFirstKeyAwaitedRef.current === 'afterLoss' && isEscapeWhileEditing && !isForOpenModal && store.getView().find === null;
+    if (!isEscapeKeepingWait) stopAwaitingFirstKey();
     let ownerDocument = cellsRef.current?.ownerDocument;
     if (event.target !== ownerDocument?.body) return;
     let isComposingKey = event.isComposing || event.keyCode === 229 || event.key === 'Dead';
@@ -2990,9 +3132,12 @@ export function SheetsPage({
     }
     if (isEscapeWhileEditing) {
       forwardTo(getCaretElement());
+      let isStillEditing = isEscapeKeepingWait && store.getView().mode.kind === 'editing';
       ReactDOM.flushSync(() => {
         return;
       });
+      if (isStillEditing) return;
+      setFirstKeyAwaited(false);
       return restoreFocus();
     }
     return restoreFocus(undefined, () => {
@@ -3008,12 +3153,16 @@ export function SheetsPage({
     let onBlur = () => onWindowBlur();
     let onFocusMove = ({ type, target, relatedTarget }: FocusEvent) => {
       isDialogOwedCaretRef.current = false;
-      if (type === 'focusin') isKeyboardOfferedRef.current = false;
+      if (type === 'focusin') {
+        isKeyboardOfferedRef.current = false;
+        hasAnythingHadCaretRef.current = true;
+        noteNothingLostUnlessAwaited();
+      }
       focusLostToNothingRef.current = type === 'focusout' && relatedTarget === null ? target : null;
       if (focusLostToNothingRef.current !== null) isPointerHeldOutsideRef.current = false;
     };
     let check = () => checkWindowFocus();
-    let onClick = () => restoreFocusOnClick();
+    let onClick = ({ isTrusted }: MouseEvent) => restoreFocusOnClick(isTrusted);
     let pressTracker = createPressTracker(win);
     focusTrackerRef.current = pressTracker;
     let stopHoldingFocus = holdProgrammaticFocus(
@@ -3633,6 +3782,7 @@ export function SheetsPage({
   let [isPointerHeldInCells, setIsPointerHeldInCells] = React.useState(false);
   let heldPointerIdRef = React.useRef<number | null>(null);
   let isPointerKeptRef = React.useRef(true);
+  let mayEndDoubleClickRef = React.useRef(false);
   let isPressForMenuRef = React.useRef(false);
   let wasLastPressByMouseRef = React.useRef(false);
   let wasPressOnOfferRef = React.useRef(false);
@@ -3819,6 +3969,7 @@ export function SheetsPage({
     else if (event.button !== 0 || event.ctrlKey || !isOnCommentCorner) putAwayCommentsRef.current = mouseAroundComments.putAway();
     setIsLinkCardPressedAway(event.pointerType === 'mouse');
     pressPointerIdRef.current = null;
+    mayEndDoubleClickRef.current = false;
     chartTaps.forget();
     fingerTapCaret.forget();
     setPlacedViewTap(null);
@@ -3952,6 +4103,8 @@ export function SheetsPage({
     }
     clicksSinceCaretMovedRef.current = isLineBoxPress ? 0 : clicksSinceCaretMovedRef.current + 1;
     let isByFinger = event.pointerType === 'touch';
+    mayEndDoubleClickRef.current =
+      !isByFinger && !isPressForMenuRef.current && isWithinCellTapWindow(event.timeStamp - lastPointerRef.current.atMs);
     isPressForMenuRef.current = isByFinger;
     wasLastPressByMouseRef.current = event.pointerType === 'mouse';
     let at = pointInGrid(event);
@@ -3992,7 +4145,7 @@ export function SheetsPage({
     if (event.pointerType === 'mouse') errorCardHover.mouseIsPressed();
     let tableHandleKey = tableKeyOfHandleAt(event.target);
     wasPressOnOfferRef.current = tableHandleKey !== undefined;
-    if (event.pointerType === 'mouse') tableHandleCall.pointerMovedTo(event);
+    if (event.pointerType === 'mouse') tableHandleCall.pointerMovedTo(event, true);
     if (placementId === null)
       dispatchPointerEvent({
         kind: 'pointerPressed',
@@ -4002,6 +4155,9 @@ export function SheetsPage({
         isByFinger,
         ...(event.pointerType === 'mouse' && {
           isByMouse: true,
+        }),
+        ...(mayEndDoubleClickRef.current && {
+          mayEndDoubleClick: true,
         }),
         ...(isInEntryBox && {
           isOnBoxOfEntry: isInEntryBox,
@@ -4331,6 +4487,13 @@ export function SheetsPage({
         : {}),
     });
   };
+  let shutDropdownLeftOpenByPress = () => {
+    if (mayEndDoubleClickRef.current && store.getView().dropdownList !== null)
+      store.dispatch({
+        kind: 'dropdownShut',
+        ifLeftOpenByPress: true,
+      });
+  };
   let onGridPointerCancel = (event: React.PointerEvent<HTMLDivElement>) => {
     if (event.pointerType === 'mouse') mouseAroundComments.isPressLost();
     pinchZoom.fingerLifted(event.pointerId, event.timeStamp);
@@ -4347,6 +4510,7 @@ export function SheetsPage({
       store.dispatch({
         kind: 'pointerCanceled',
       });
+    shutDropdownLeftOpenByPress();
   };
   let fitPlacedViewInSight = (placementId: string, isForced: boolean) => {
     let {
@@ -4411,6 +4575,7 @@ export function SheetsPage({
   let onGridPointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
     if (event.currentTarget.hasPointerCapture(event.pointerId) || isSecondFinger(event)) return;
     if (event.pointerType === 'mouse') mouseAroundComments.isPressLost();
+    if (event.pointerType === 'mouse') tableHandleCall.buttonLetGo();
     if (event.pointerId === firstFingerIdRef.current) firstFingerIdRef.current = null;
     clearTimeout(tapHoldTimerRef.current);
     tapHoldEndRef.current = null;
@@ -4426,6 +4591,7 @@ export function SheetsPage({
         }),
       });
     }
+    if (!isPointerKeptRef.current) shutDropdownLeftOpenByPress();
     let { pointerId } = event;
     if (fingerPresses.noteLift(pointerId, isFocusNowhere() ? null : getActiveElement())) refocusAfterPress('atLift', null);
     let point = {
@@ -4498,14 +4664,16 @@ export function SheetsPage({
     if (ownerDocument.activeElement === ownerDocument.body && ownerDocument.hasFocus()) refocusTypingTargetEvent();
   }, [store, entryPlaceKey]);
   let [waitingBoxText, setWaitingBoxText] = React.useState('');
-  let typeIntoWaitingBox = (text: string) => {
+  let typeIntoWaitingBox = (typed: TypedIntoWaitingBox) => {
     let pending = pendingTypingRef.current;
     if (pending !== null && store.isMoreHeldBehind(pending.typeOntoCell)) return;
-    setWaitingBoxText(text);
+    setWaitingBoxText(typed.text);
     if (pending !== null)
       return void (pendingTypingRef.current = {
         ...pending,
-        text,
+        text: typed.text,
+        isOfInputMethod: pending.isOfInputMethod || typed.isOfInputMethod,
+        isNotTyped: pending.isNotTyped || typed.isNotTyped,
       });
     let clear = () => {
       pendingTypingRef.current = null;
@@ -4514,21 +4682,26 @@ export function SheetsPage({
     let typeOntoCell = afterFocusLeaves(
       () => {
         if (pendingTypingRef.current === null) throw Error('the text kept in the waiting box was gone before its turn to be typed');
-        let { text: textHeld } = pendingTypingRef.current;
+        let { text: textHeld, isOfInputMethod, isNotTyped } = pendingTypingRef.current;
         clear();
         let { mode: latestMode } = store.getView();
         if (textHeld === '') return;
         if (latestMode.kind === 'navigating')
           dispatchEditText('cell', textHeld, {
-            isInBoxOfOneLine: true,
+            ...(isOfInputMethod && {
+              isInBoxOfOneLine: true,
+            }),
+            ...(isNotTyped && {
+              isNotTyped: true,
+            }),
           });
-        if (latestMode.kind === 'editing') completeEditText(latestMode, (textBefore) => textBefore + textHeld);
+        if (latestMode.kind === 'editing') completeEditText(latestMode, (textBefore) => textBefore + textHeld, isNotTyped);
       },
       clear,
       () => true,
     );
     pendingTypingRef.current = {
-      text,
+      ...typed,
       typeOntoCell,
     };
     store.onceEventsAreFinished(typeOntoCell, clear, 'asTypedAhead');
@@ -4536,16 +4709,31 @@ export function SheetsPage({
   let onFieldInput = (typingIn: EditingMode['typingIn'], { target, nativeEvent }: FieldInput) => {
     forgetComeToByTab();
     wasFormulaBarFocusedRef.current = false;
-    let isTypedBeforeEntryEnds = target === cellEditorRef.current && store.getView().isCaretWithCellsBeforeEntryEnds;
-    if (isTypedBeforeEntryEnds) store.endWaitForPeople('goOn');
-    if (store.mayAnEntryOpenOrEnd()) return isTypedBeforeEntryEnds ? typeIntoWaitingBox(target.value) : undefined;
+    let isInWaitingBox = target === cellEditorRef.current;
+    let { isCaretWithCellsBeforeEntryEnds } = store.getView();
+    if (isInWaitingBox && isCaretWithCellsBeforeEntryEnds) store.endWaitForPeople('goOn');
     let isComposingText = isComposingRef.current || ('isComposing' in nativeEvent && nativeEvent.isComposing === true);
+    let inputType = 'inputType' in nativeEvent && typeof nativeEvent.inputType === 'string' ? nativeEvent.inputType : undefined;
+    let isNotTyped = !isTypingInputType(inputType) || isPastingIntoEntryNow();
     const { mode: latestMode } = store.getView();
     const isEditing = latestMode.kind === 'editing';
-    let isInGridFocus = target === cellEditorRef.current && !isEditing;
-    if (target === cellEditorRef.current && isEditing && latestMode.isInBoxOfOneLine !== true) return;
-    if (typingIn === 'cell' && target !== cellEditorRef.current && !isEditing) return;
-    if (isInGridFocus && (target.value === ' ' || target.value === '　')) {
+    if (store.mayAnEntryOpenOrEnd())
+      return isKeptInWaitingBox({
+        isInWaitingBox,
+        isCaretWithCellsBeforeEntryEnds,
+        isEntryOpen: isEditing,
+        text: target.value,
+      })
+        ? typeIntoWaitingBox({
+            text: target.value,
+            isOfInputMethod: isComposingText,
+            isNotTyped,
+          })
+        : undefined;
+    let isInGridFocus = isInWaitingBox && !isEditing;
+    if (isInWaitingBox && isEditing && latestMode.isInBoxOfOneLine !== true) return;
+    if (typingIn === 'cell' && !isInWaitingBox && !isEditing) return;
+    if (isInGridFocus && isSpaceText(target.value)) {
       if (isSpaceHeldRef.current) return;
       isSpaceHeldRef.current = true;
       if (isShiftHeldRef.current) {
@@ -4561,7 +4749,6 @@ export function SheetsPage({
         kind: 'entryLooksChanged',
         looks: target.looks,
       });
-    let inputType = 'inputType' in nativeEvent && typeof nativeEvent.inputType === 'string' ? nativeEvent.inputType : undefined;
     let signsInLastInput = isEntryEditor(target) ? target.signsInLastInput : null;
     let areSignsRead = signsInLastInput === 'read';
     let stepInHistory = historyStepOfInputType(inputType);
@@ -4576,7 +4763,7 @@ export function SheetsPage({
       ...(isHistoryOrDropInputType(inputType) && {
         isOfHistory: true,
       }),
-      ...((!isTypingInputType(inputType) || isPastingIntoEntryNow()) && {
+      ...(isNotTyped && {
         isNotTyped: true,
       }),
       ...(isEntryEditor(target) &&
@@ -4605,7 +4792,8 @@ export function SheetsPage({
     let tabStep = openUnderCell === null ? partStepOfTabInEntry(event, latestMode, wasFormulaBarFocusedRef.current) : null;
     let focusMove = isComposingKey || isReplayedOutsideEdit ? null : (tabStep ?? focusMoveOfKey(normalizedKeyEvent(event)));
     let moveCaretOn = tabStep === null ? moveCaretTo : moveCaretFromCells;
-    if ((focusMove === 'nextPart' || (focusMove === 'partBefore' && !isViewOnly)) && !isKeyForLayer(event, null)) {
+    let isFunctionsButtonGone = functionsButtonRef.current === null;
+    if ((focusMove === 'nextPart' || (focusMove === 'partBefore' && !isFunctionsButtonGone)) && !isKeyForLayer(event, null)) {
       event.preventDefault();
       lastTypingTargetRef.current = 'grid';
       store.dispatch({
@@ -4675,6 +4863,13 @@ export function SheetsPage({
         return formulaBarRef.current;
     }
   }, [store, getGridOrEditorElement]);
+  let giveCaretBackToTyping = React.useCallback(
+    () =>
+      getTypingTargetElement()?.focus({
+        preventScroll: true,
+      }),
+    [getTypingTargetElement],
+  );
   let dispatchThenFocusTyping = React.useCallback(
     (kind: 'entryExpandedOrCollapsed' | 'expandedEntryFinished') =>
       store.onceEventsAreFinished(() => {
@@ -4927,6 +5122,11 @@ export function SheetsPage({
   let { body: gridBody } = view.grid;
   let entryBox = view.grid.editorBox ?? view.grid.activeCellBox;
   let isCalendarShown = view.calendar !== null && entryBox !== null;
+  let [isCalendarOpenedByTouch, setIsCalendarOpenedByTouch] = React.useState(false);
+  if (view.calendar === null && isCalendarOpenedByTouch) setIsCalendarOpenedByTouch(false);
+  let noteCalendarOpenedOnIos = React.useCallback(() => {
+    if (IS_IOS_BROWSER) setIsCalendarOpenedByTouch(true);
+  }, []);
   let {
     left: entryBoxLeft,
     top: entryBoxTop,
@@ -4939,6 +5139,26 @@ export function SheetsPage({
         height: 0,
       }
     : zoomedEntryBox(entryBox, gridBody, view.grid.editorScale);
+  let { top: entryLinesTop, height: entryLinesHeight } =
+    entryBox === null
+      ? {
+          top: entryBoxTop,
+          height: 0,
+        }
+      : entryTextLinesBox(entryBox, gridBody, view.grid.editorFormat, view.grid.editorKeepsClear, {
+          lineCount: view.grid.editorLineCount,
+          scale: view.grid.editorScale,
+          footOfView: view.grid.clearBodyHeight,
+        });
+  let entryLinesBox = React.useMemo(
+    () => ({
+      x: entryBoxLeft,
+      y: entryLinesTop,
+      width: entryBoxWidth,
+      height: entryLinesHeight,
+    }),
+    [entryBoxLeft, entryLinesTop, entryBoxWidth, entryLinesHeight],
+  );
   let calendarAnchor = useZoomedVirtualAnchor(
     cellsRef,
     zoom,
@@ -4994,6 +5214,7 @@ export function SheetsPage({
     ),
   );
   let { dropdownAnchorBox, editorScale } = view.grid;
+  let { editorFormat, editorKeepsClear, editorLineCount, clearBodyHeight: bodyHeightClear } = view.grid;
   let dropdownAnchor = useZoomedVirtualAnchor(
     cellsRef,
     zoom,
@@ -5001,6 +5222,16 @@ export function SheetsPage({
       () => (dropdownAnchorBox === null ? null : toDomRect(zoomedEntryBox(dropdownAnchorBox, gridBody, editorScale))),
       [dropdownAnchorBox, gridBody, editorScale],
     ),
+    React.useMemo(() => {
+      if (dropdownAnchorBox === null) return null;
+      return toDomRect(
+        entryTextLinesBox(dropdownAnchorBox, gridBody, editorFormat, editorKeepsClear, {
+          lineCount: editorLineCount,
+          scale: editorScale,
+          footOfView: bodyHeightClear,
+        }),
+      );
+    }, [dropdownAnchorBox, gridBody, editorFormat, editorKeepsClear, editorLineCount, editorScale, bodyHeightClear]),
   );
   let onDropdownRowChosen = React.useCallback(
     (rowKey: string) => {
@@ -5145,6 +5376,59 @@ export function SheetsPage({
       ...CHOSEN_IN_MENU,
     });
   }, [store]);
+  let onNamedRangesPaneAct = React.useCallback<NamedRangesPaneProps['onAct']>(
+    (act) => {
+      if (act.kind === 'goTo' && store.getView().mode.kind === 'editing')
+        store.dispatch({
+          kind: 'entryLeft',
+        });
+      dispatchThenNoteChange({
+        kind: 'namedRangesPaneActedIn',
+        act,
+      });
+    },
+    [store, dispatchThenNoteChange],
+  );
+  let askNamedRanges = React.useCallback(
+    (isToAdd: boolean) => {
+      if (store.getView().mode.kind === 'editing')
+        store.dispatch({
+          kind: 'entryLeft',
+        });
+      store.dispatch({
+        kind: 'namedRangesAsked',
+        isToAdd,
+        ...CHOSEN_IN_MENU,
+      });
+    },
+    [store],
+  );
+  let askFromMenuLeavingEntry = React.useCallback<CellContextMenuProps['onDefaultsAsked']>(
+    (kind) => {
+      if (store.getView().mode.kind === 'editing')
+        store.dispatch({
+          kind: 'entryLeft',
+        });
+      store.dispatch({
+        kind,
+        ...CHOSEN_IN_MENU,
+      });
+    },
+    [store],
+  );
+  let onChangedCellsPaneAct = React.useCallback<ChangedCellsPaneProps['onAct']>(
+    (act) => {
+      if (store.getView().mode.kind === 'editing')
+        store.dispatch({
+          kind: 'entryLeft',
+        });
+      dispatchThenNoteChange({
+        kind: 'changedCellsPaneActedIn',
+        act,
+      });
+    },
+    [store, dispatchThenNoteChange],
+  );
   let onVersionHistoryAct = React.useCallback(
     (act: VersionHistoryAct) =>
       store.dispatch({
@@ -5182,6 +5466,18 @@ export function SheetsPage({
   );
   let returnFocusFromVersionHistory = React.useCallback(
     () => returnFocusFromSidePaneWhen(({ versionHistory }) => versionHistory === null),
+    [returnFocusFromSidePaneWhen],
+  );
+  let returnFocusFromSourcePane = React.useCallback(
+    () => returnFocusFromSidePaneWhen(({ sourcePane }) => sourcePane === null),
+    [returnFocusFromSidePaneWhen],
+  );
+  let returnFocusFromNamedRanges = React.useCallback(
+    () => returnFocusFromSidePaneWhen(({ namedRangesPane }) => namedRangesPane?.form !== null),
+    [returnFocusFromSidePaneWhen],
+  );
+  let returnFocusFromChangedCells = React.useCallback(
+    () => returnFocusFromSidePaneWhen(({ changedCellsPane }) => changedCellsPane === null),
     [returnFocusFromSidePaneWhen],
   );
   let askRulesFromCells = React.useCallback(() => {
@@ -5244,7 +5540,6 @@ export function SheetsPage({
     [store],
   );
   let { dropdownList } = view;
-  let highlightedDropdownRow = dropdownList?.rows[dropdownList.highlightedRow ?? -1];
   let isEntryHelperShown =
     view.peopleList !== null ||
     view.timeList !== null ||
@@ -5330,26 +5625,44 @@ export function SheetsPage({
     }),
     [gridBody.left, gridBody.width],
   );
-  let [entryHelperRect, setEntryHelperRect] = React.useState<DOMRect | null>(null);
+  let [entryHelperRect, setEntryHelperRect] = React.useState<{ box: DOMRect; lines: DOMRect } | null>(null);
   let noteEntryHelperRect = React.useCallback(
     (box: FieldOfChipsBox | null) =>
       setEntryHelperRect((rectBefore) => {
         if (box === null) return null;
-        let { left, top, width, height } = box;
-        return rectBefore?.x === left && rectBefore.y === top && rectBefore.width === width && rectBefore.height === height
-          ? rectBefore
-          : new DOMRect(left, top, width, height);
+        let { left, top, width, height, lines } = box;
+        if (
+          rectBefore?.box.x === left &&
+          rectBefore.box.y === top &&
+          rectBefore.box.width === width &&
+          rectBefore.box.height === height &&
+          rectBefore.lines.y === lines.top &&
+          rectBefore.lines.height === lines.height
+        )
+          return rectBefore;
+        return {
+          box: new DOMRect(left, top, width, height),
+          lines: new DOMRect(left, lines.top, width, lines.height),
+        };
       }),
     [],
   );
+  let peopleListRect = peopleListPlacement === null ? null : entryHelperRect;
+  let peopleListShownTop = peopleListCellBox?.showsIn.top ?? 0;
   let entryHelperAnchor = useZoomedVirtualAnchor(
     cellsRef,
     zoom,
     React.useMemo(() => {
       if (!isEntryHelperShown) return null;
-      if (peopleListPlacement !== null && entryHelperRect !== null) return entryHelperRect;
+      if (peopleListRect !== null) return peopleListRect.box;
       return new DOMRect(entryBoxLeft, entryBoxTop, entryBoxWidth, entryBoxHeight);
-    }, [isEntryHelperShown, peopleListPlacement, entryHelperRect, entryBoxLeft, entryBoxTop, entryBoxWidth, entryBoxHeight]),
+    }, [isEntryHelperShown, peopleListRect, entryBoxLeft, entryBoxTop, entryBoxWidth, entryBoxHeight]),
+    React.useMemo(() => {
+      if (!isEntryHelperShown) return null;
+      if (peopleListRect === null) return entryLinesBox;
+      let topInView = gridBody.top + peopleListShownTop;
+      return toDomRect(boxClampedBetween(peopleListRect.lines, topInView, gridBody.top + clearBodyHeight));
+    }, [isEntryHelperShown, peopleListRect, entryLinesBox, gridBody.top, peopleListShownTop, clearBodyHeight]),
   );
   let removePersonFromField = React.useCallback(
     (userId: string) => {
@@ -5557,6 +5870,34 @@ export function SheetsPage({
       clicksSinceCaretMovedRef.current = 0;
       store.dispatch({
         kind: 'rowHeightChosen',
+        chosen,
+      });
+    },
+    [store],
+  );
+  let askProtectionOfSelection = React.useCallback(
+    () =>
+      store.dispatch({
+        kind: 'protectionAsked',
+        of: 'selection',
+      }),
+    [store],
+  );
+  let chooseProtection = React.useCallback<ProtectionDialogProps['onChosen']>(
+    (chosen) => {
+      clicksSinceCaretMovedRef.current = 0;
+      store.dispatch({
+        kind: 'protectionChosen',
+        chosen,
+      });
+    },
+    [store],
+  );
+  let chooseDefaultAndLimits = React.useCallback<DefaultAndLimitsDialogProps['onChosen']>(
+    (chosen) => {
+      clicksSinceCaretMovedRef.current = 0;
+      store.dispatch({
+        kind: 'defaultAndLimitsChosen',
         chosen,
       });
     },
@@ -6423,18 +6764,70 @@ export function SheetsPage({
     [onPartKeyDown, onToolsKeyDownForCells],
   );
   let updatePivotTableOutOfDate = React.useCallback(() => {
-    let { pivotTableOutOfDateAt: of, mode: latestMode } = store.getView();
-    if (of === null) return;
+    let { pivotTableOutOfDate: outOfDate, mode: latestMode } = store.getView();
+    if (outOfDate === null) return;
     if (latestMode.kind === 'editing')
       store.dispatch({
         kind: 'entryLeft',
       });
-    store.dispatch({
-      kind: 'pivotTableUpdateAsked',
-      of,
-    });
+    let { at: of, isTableClear } = outOfDate;
+    store.dispatch(
+      isTableClear
+        ? {
+            kind: 'pivotTableUpdateAsked',
+            of,
+          }
+        : {
+            kind: 'pivotTableAsked',
+            nameOfNewSheet: pivotTableMessages.nameOfNewSheet(),
+            of,
+          },
+    );
     focusCaret();
   }, [store, focusCaret]);
+  let onConnectedTableBarKeyDown = React.useCallback(
+    (event: React.KeyboardEvent) => {
+      onPartKeyDown(event, 'connectedTableBar', null);
+      onToolsKeyDownForCells(event, null, null);
+    },
+    [onPartKeyDown, onToolsKeyDownForCells],
+  );
+  let connectedTableActs = React.useMemo(() => {
+    let act = (kind: 'refreshAsked' | 'refusalOfRefreshSentAway' | 'sourcePaneToggled') => {
+      if (store.getView().mode.kind === 'editing')
+        store.dispatch({
+          kind: 'entryLeft',
+        });
+      store.dispatch({
+        kind,
+      });
+      if (kind !== 'sourcePaneToggled') focusCaret();
+    };
+    return {
+      refresh: () => act('refreshAsked'),
+      sendRefusalAway: () => act('refusalOfRefreshSentAway'),
+      toggleSource: () => act('sourcePaneToggled'),
+    };
+  }, [store, focusCaret]);
+  let answerCallToConfirm = React.useCallback(
+    (nth: number, isToRun: boolean) =>
+      store.dispatch({
+        kind: 'callToConfirmAnswered',
+        nth,
+        isToRun,
+      }),
+    [store],
+  );
+  let { connectedTableBar } = view;
+  let isRefreshOfferedNow =
+    React.useSyncExternalStore(isRefreshOffered.onChanged, isRefreshOffered.now, isRefreshOffered.now) && view.viewOnlyBecause === null;
+  let connectedTableStandsWords = React.useMemo(
+    () =>
+      connectedTableBar === null
+        ? []
+        : connectedTableStandsWordParts(connectedTableBar.stands, connectedTableBar.connector ?? '', isRefreshOfferedNow),
+    [connectedTableBar, isRefreshOfferedNow],
+  );
   let onFiguresKeyDown = React.useCallback(
     (event: React.KeyboardEvent<HTMLElement>) => {
       onPartKeyDown(event, 'sheets', 'ofFigures');
@@ -7099,6 +7492,24 @@ export function SheetsPage({
     ),
     [store, cellsAddedToChat],
   );
+  let askForNumberFormatInChat = React.useCallback(
+    (words: string) => {
+      lastProgrammaticActMsRef.current = performance.now();
+      let cells = store.getView().selectionByAddress;
+      askAgentInWords(store, cellsAddedToChat, {
+        words,
+        cells,
+        pressed: CUSTOM_FORMAT_PRESS,
+      }).then((isAsked) => {
+        if (isAsked && isDialogAskBeyondFormats(store.getView().customNumberFormat, words))
+          store.dispatch({
+            kind: 'customNumberFormatDropped',
+          });
+        return;
+      });
+    },
+    [store, cellsAddedToChat],
+  );
   let newestChatPressCount = React.useSyncExternalStore(
     cellsAddedToChat.subscribe,
     cellsAddedToChat.newestThatTellsPress,
@@ -7122,6 +7533,7 @@ export function SheetsPage({
   let isMenuOpen = view.menu !== null;
   let isRuleEditorOpen = view.conditionalFormats !== null && view.conditionalFormats.editor !== null;
   let isChartMenuOpen = view.contextBarMenu === 'chart';
+  let isConnectedTableWayOutAsk = connectedTableBar?.wayOut === 'askAgent';
   let isPeopleListOpen = view.peopleList !== null;
   React.useEffect(() => {
     if (
@@ -7130,6 +7542,7 @@ export function SheetsPage({
         isMenuOpen ||
         isChartMenuOpen ||
         isRuleEditorOpen ||
+        isConnectedTableWayOutAsk ||
         (isPeopleListOpen && !chatWithAgent.isKeptFromLeaving())) &&
       !areWaysInToComeSoon
     )
@@ -7141,6 +7554,7 @@ export function SheetsPage({
     isMenuOpen,
     isChartMenuOpen,
     isRuleEditorOpen,
+    isConnectedTableWayOutAsk,
     isPeopleListOpen,
     areWaysInToComeSoon,
   ]);
@@ -7208,6 +7622,13 @@ export function SheetsPage({
     () => void chatWithAgent.openAboutBlankSheet(sheetMessages.blankSheet(), shownSheetNumber()),
     [chatWithAgent, shownSheetNumber],
   );
+  let openChatAboutRefresh = React.useCallback(() => {
+    let { connectedTableBar: bar, hasUnsavedEdits } = store.getView();
+    let stands = bar?.stands;
+    if (stands?.kind !== 'refused' || hasUnsavedEdits || store.isEventUnfinished()) return;
+    let label = connectedTableMessages.connectedTable();
+    chatWithAgent.openAboutRefresh(label, stands.why, shownSheetNumber());
+  }, [store, chatWithAgent, shownSheetNumber]);
   let [chartMaking, setChartMaking] = React.useState<ChartMaking | null>(null);
   let openChatAboutChart = React.useCallback(
     (chart: string) => {
@@ -7484,9 +7905,10 @@ export function SheetsPage({
       if (chartsWrittenByAgent === null || isMakingChartRef.current) return ['busy', 'agent'];
       let latestView = store.getView();
       let chartMenuOpensBefore = chartMenuOpenCountRef.current;
-      let cellsForChart = store.cellsForChartByAgent();
       let isByRow = words === '';
-      let isSingleCell = cellsForChart !== null && isSingleCellSample(cellsForChart) && latestView.selectionSeen.cellsAre !== 'number';
+      let cellsForChart = (isByRow ? null : store.tablesForChartByAgent()) ?? store.cellsForChartByAgent();
+      let heldCells = cellsForChart !== null && 'held' in cellsForChart ? cellsForChart : null;
+      let isSingleCell = heldCells !== null && isSingleCellSample(heldCells) && latestView.selectionSeen.cellsAre !== 'number';
       if (cellsForChart === null || (isSingleCell && isByRow))
         return (
           setChartAskFault({
@@ -7508,8 +7930,11 @@ export function SheetsPage({
         asked: chartCaptionOrName(chartKind, words),
         sheetId: shownSheetIdOf(latestView),
       });
-      let { held, ...chartCells } = cellsForChart;
-      let [topLeft, sheetId] = [store.newChartOfCellsHeld(held)?.topLeft, shownSheetIdOf(latestView)];
+      let placeAtPerson = heldCells === null ? store.placeForChartWhereThePersonIs() : null;
+      let [topLeft, sheetId] = [
+        heldCells === null ? placeAtPerson?.written : store.newChartOfCellsHeld(heldCells.held)?.topLeft,
+        shownSheetIdOf(latestView),
+      ];
       if (topLeft !== undefined && sheetId !== null)
         store.dispatch({
           kind: 'chartBeingMadeTold',
@@ -7520,40 +7945,64 @@ export function SheetsPage({
             kind: isByRow ? chartKind : 'any',
           },
         });
-      let outcome = await insertChartWrittenByAgent(
-        {
-          agent: chartsWrittenByAgent,
-          add(nodeId: string) {
-            store.dispatch({
-              kind: 'chartBeingMadeTold',
-              nth,
-              chart: {
-                nodeSent: nodeId,
-              },
-            });
-            isChartBeingPlacedRef.current = true;
-            let chartName = chartKindNameOrAny(chartKind);
-            return store
-              .askForEditOfChart({
-                kind: 'add',
-                nodeId,
-                name: chartName,
-                cells: held,
-              })
-              .finally(() => {
-                isChartBeingPlacedRef.current = false;
-              });
+      let addChart = (nodeId: string, cells: CellsHeldForChart | null) => {
+        if (cells === null) return Promise.resolve('notMade' as const);
+        store.dispatch({
+          kind: 'chartBeingMadeTold',
+          nth,
+          chart: {
+            nodeSent: nodeId,
           },
-        },
-        {
-          program: STOCK_CHART_PROGRAMS[chartKind === 'any' ? 'bar' : chartKind],
-          ...chartCells,
-        },
-        {
-          asked: chartKind === 'any' && words === '' ? null : askWordsOfKind(chartKind, words),
-          mostUnitsOfAsked: mostAskedUnitsWithKind(),
-        },
-      ).catch(() => (chartWritingGivenUpNthRef.current >= nth ? 'stopped' : 'notChanged'));
+        });
+        isChartBeingPlacedRef.current = true;
+        let chartName = chartKindNameOrAny(chartKind);
+        return store
+          .askForEditOfChart({
+            kind: 'add',
+            nodeId,
+            name: chartName,
+            cells,
+            at: placeAtPerson?.cell ?? null,
+          })
+          .finally(() => {
+            isChartBeingPlacedRef.current = false;
+          });
+      };
+      let program = STOCK_CHART_PROGRAMS[chartKind === 'any' ? 'bar' : chartKind];
+      let [agent, mostUnitsOfAsked] = [chartsWrittenByAgent, mostAskedUnitsWithKind()];
+      let outcome = await (() => {
+        let asked = askWordsOfKind(chartKind, words);
+        if (!('held' in cellsForChart))
+          return insertChartWrittenForTables(
+            {
+              agent,
+              add: (nodeId: string, tableId: string) => addChart(nodeId, cellsForChart.heldOf(tableId)),
+            },
+            {
+              program,
+              tables: cellsForChart.tables,
+            },
+            {
+              asked,
+              mostUnitsOfAsked,
+            },
+          );
+        let { held, ...chartCells } = cellsForChart;
+        return insertChartWrittenByAgent(
+          {
+            agent,
+            add: (nodeId: string) => addChart(nodeId, held),
+          },
+          {
+            program,
+            ...chartCells,
+          },
+          {
+            asked: chartKind === 'any' && words === '' ? null : asked,
+            mostUnitsOfAsked,
+          },
+        );
+      })().catch(() => (chartWritingGivenUpNthRef.current >= nth ? 'stopped' : 'notChanged'));
       if (chartMakingNthRef.current !== nth) return ['stopped', 'agent'];
       let isChartMenuOpenNow = store.getView().contextBarMenu === 'chart';
       isMakingChartRef.current = false;
@@ -7655,18 +8104,19 @@ export function SheetsPage({
         return ['refused', 'page'];
       }
       let whyNothing = pageOutcome === null ? store.whyNothingToChart() : null;
+      let areTablesForAgent = whyNothing === 'noCells' && askWords !== '' && store.tablesForChartByAgent() !== null;
       let cellsForChart = pageOutcome === null && whyNothing === null ? store.cellsForChartByAgent() : null;
       let isSingleCell = cellsForChart !== null && isSingleCellSample(cellsForChart) && store.getView().selectionSeen.cellsAre !== 'number';
       if (whyNothing === 'tablesNotFoundYet') return ['waiting', 'page'];
-      if (whyNothing !== null || (isSingleCell && askWords === ''))
-        return (
-          setChartAskFault({
-            why: whyNothing ?? 'noCells',
-            wasByRow: askWords === '',
-            tableAtPress: store.getView().selectionSeen.shape === 'cell' ? store.startOfAreaToChart() : null,
-          }),
-          [whyNothing === 'filterCutsTable' ? 'filter' : 'no_cells', 'page']
-        );
+      let showFault = (): [ChartEndWord, ChartLane] => (
+        setChartAskFault({
+          why: whyNothing ?? 'noCells',
+          wasByRow: askWords === '',
+          tableAtPress: store.getView().selectionSeen.shape === 'cell' ? store.startOfAreaToChart() : null,
+        }),
+        [whyNothing === 'filterCutsTable' ? 'filter' : 'no_cells', 'page']
+      );
+      if ((whyNothing !== null && !areTablesForAgent) || (isSingleCell && askWords === '')) return showFault();
       let isToAskInChat = shouldAskInChatInstead(chartAskFault?.why ?? null, chatWithAgent.isToBeHad() === true);
       let isToWriteByAgent =
         pageOutcome === null &&
@@ -7676,6 +8126,7 @@ export function SheetsPage({
         (await chartsWrittenByAgent.isToBeHad().catch(() => false));
       if (store.isStopped()) return pageOutcome === null ? ['left', 'agent'] : [pageOutcome ? 'by_page' : whyChartNotMadeByPageRef.current, 'page'];
       if (isToWriteByAgent) return writeChartByAgent(chartKind, askWords);
+      if (areTablesForAgent && !isToAskInChat) return showFault();
       let outcome = isByPageFirst
         ? pageOutcome
         : await makeChartByPage(chartKind, askWords, {
@@ -7781,10 +8232,11 @@ export function SheetsPage({
         what: store.whatChartCardOpensOn(),
       });
   }, [isChartMenuOpen, chartCardCounted, store]);
+  let canChartBeScattered = view.chartsOnOffer.some(({ series }) => series.length > 1);
   let chartAskMenu = React.useMemo(
     () =>
       isChartMenuOpen
-        ? <ChartAskMenu onOffer={chartOffers} whyNot={chartWhyNot} canPageMakeChart={canPageMakeChart} areKindsForPage={areChartKindsForPage} onAsked={askChartCounted} change={chartBeingWritten === null ? null : 'agentWrites'} askedOfAgent={chartBeingWritten?.asked ?? ''} isKindAsked={isChartKindAsked} onSteppedBackFromChange={stepBackFromChartWriting} noteOnLastAsk={chartFaultShown === null ? null : chartRefusalText(chartFaultShown)} isNoteOfFault={chartFaultShown !== 'forChat' &&
+        ? <ChartAskMenu onOffer={chartOffers} whyNot={chartWhyNot} canPageMakeChart={canPageMakeChart} areKindsForPage={areChartKindsForPage} canBeScattered={canChartBeScattered} onAsked={askChartCounted} change={chartBeingWritten === null ? null : 'agentWrites'} askedOfAgent={chartBeingWritten?.asked ?? ''} isKindAsked={isChartKindAsked} onSteppedBackFromChange={stepBackFromChartWriting} noteOnLastAsk={chartFaultShown === null ? null : chartRefusalText(chartFaultShown)} isNoteOfFault={chartFaultShown !== 'forChat' &&
               chartFaultShown !== 'notHere' &&
               chartFaultShown !== 'noCells' &&
               chartFaultShown !== 'filterCutsTable'} isLastAskNotToBeRepeated={isLastAskNotToBeRepeated} typed={chartAskTyped} onTyped={(typed) => {
@@ -7798,6 +8250,7 @@ export function SheetsPage({
       chartWhyNot,
       canPageMakeChart,
       areChartKindsForPage,
+      canChartBeScattered,
       askChartCounted,
       chartBeingWritten,
       isChartKindAsked,
@@ -7808,12 +8261,48 @@ export function SheetsPage({
     ],
   );
   const { rowsAskedFor } = view;
+  let askRowsInChat = React.useCallback(
+    (words: string) => {
+      lastProgrammaticActMsRef.current = performance.now();
+      let { selectionByAddress: selection, rowsAskedFor: asked } = store.getView();
+      let cellsOfTable = asked?.cellsOfTable ?? null;
+      let cells =
+        selection === null || cellsOfTable === null
+          ? null
+          : {
+              ...selection,
+              range: cellsOfTable,
+            };
+      return askAgentInWords(store, cellsAddedToChat, {
+        words,
+        cells,
+        pressed: ROWS_ASK_PRESSED_LABEL,
+      }).then((isAsked) => {
+        if (isAsked && store.getView().rowsAskedFor?.wordsThatAreNoFilterOrSort === words)
+          store.dispatch({
+            kind: 'contextBarMenuChanged',
+            menu: 'sort',
+            isOpen: false,
+          });
+        return isAsked;
+      });
+    },
+    [store, cellsAddedToChat],
+  );
+  let onRowsAskedInChat =
+    (isChatToBeHad ?? wasChatToBeHad) && view.selectionByAddress !== null && (rowsAskedFor?.cellsOfTable ?? null) !== null
+      ? askRowsInChat
+      : null;
+  let [isRowsCardOpen, isRowsAgentAsked] = [rowsAskedFor !== null, rowsAskedFor?.isAgentAsked === true];
+  React.useEffect(() => {
+    if ((isRowsCardOpen || isRowsAgentAsked) && !areWaysInToComeSoon) chatWithAgent.look();
+  }, [chatWithAgent, isRowsCardOpen, isRowsAgentAsked, areWaysInToComeSoon]);
   let sortFilterCards = React.useMemo(
     () =>
       rowsAskedFor === null
         ? null
-        : <SortFilterCardList card={rowsAskedFor} onAct={actOnRowsAskedFor} onCustomSortAsked={askCustomSort} />,
-    [rowsAskedFor, actOnRowsAskedFor, askCustomSort],
+        : <SortFilterCardList card={rowsAskedFor} onAct={actOnRowsAskedFor} onCustomSortAsked={askCustomSort} onAskedInChat={onRowsAskedInChat} />,
+    [rowsAskedFor, actOnRowsAskedFor, askCustomSort, onRowsAskedInChat],
   );
   let { tableThatFilterBarAddsTo } = view;
   const isFilterNotDrawnYet = rowsAskedFor?.isFilterNotDrawnYet === true;
@@ -7840,7 +8329,7 @@ export function SheetsPage({
             hangBeside: tableCardSpot !== null,
           },
     );
-  let hangsBesideTable = tableCardHang?.hangBeside ?? tableCardSpot !== null;
+  let hangsBesideTable = view.recordsOfTable === null && (tableCardHang?.hangBeside ?? tableCardSpot !== null);
   let [tableCardX, tableCardY] = tableCardSpot === null ? [null, 0] : [tableCardSpot.x, tableCardSpot.y];
   let tableCardAnchor = useZoomedVirtualAnchor(
     cellsRef,
@@ -7900,6 +8389,7 @@ export function SheetsPage({
             onOpenChange: (isOpen: boolean, event: Event | null) => onMenuOpenChange('sort', isOpen, event, tableThatFilterBarAddsTo),
             onAct: actOnRowsAskedFor,
             onCustomSortAsked: askCustomSort,
+            onAskedInChat: onRowsAskedInChat,
           },
     [
       tableThatFilterBarAddsTo,
@@ -7913,6 +8403,7 @@ export function SheetsPage({
       onMenuOpenChange,
       actOnRowsAskedFor,
       askCustomSort,
+      onRowsAskedInChat,
     ],
   );
   let filterNotDrawnCard = React.useMemo(
@@ -7925,10 +8416,21 @@ export function SheetsPage({
       onOpenChange: (isOpen: boolean, event: Event | null) => onMenuOpenChange('sort', isOpen, event),
       onAct: actOnRowsAskedFor,
       onCustomSortAsked: askCustomSort,
+      onAskedInChat: onRowsAskedInChat,
     }),
-    [isFilterNotDrawnYet, rowsAskedFor, besideTableAnchor, clearAtFoot, noteFirstCardDrawn, onMenuOpenChange, actOnRowsAskedFor, askCustomSort],
+    [
+      isFilterNotDrawnYet,
+      rowsAskedFor,
+      besideTableAnchor,
+      clearAtFoot,
+      noteFirstCardDrawn,
+      onMenuOpenChange,
+      actOnRowsAskedFor,
+      askCustomSort,
+      onRowsAskedInChat,
+    ],
   );
-  let isFilterListFromButton = filterListOpener?.isChip === false;
+  let isFilterListFromButton = filterListOpener?.isChip === false && view.recordsOfTable === null;
   let owedAfterSortCardRef = React.useRef<OpenerOwed | null>(null);
   let askSortCardFromFilterList = React.useCallback(
     (isByKey: boolean) => {
@@ -7979,6 +8481,7 @@ export function SheetsPage({
     chartsMadeByPage.isToBeHad
       ? chartOnOffer
       : undefined;
+  let resetToDefaultsWords = view.resetOffered === null || view.viewOnlyBecause !== null ? null : resetToDefaultsLabel(view.resetOffered);
   let offersAtSelection = React.useMemo(
     (): OfferAtSelection[] => [
       ...(isWrapOffered
@@ -8185,7 +8688,7 @@ export function SheetsPage({
   let { peopleList } = view;
   let highlightedPerson = peopleList?.rows[peopleList.highlightedRow];
   let personChipGoneTo = peopleList?.inField?.find(({ userId }) => userId === peopleList.chipGoneTo);
-  let peopleListAnnouncement = listAnnouncement(peopleList?.card ?? null);
+  let peopleListAnnouncement = highlightedOptionAnnouncement(peopleList?.card ?? null);
   let [isEntryLiveRegionOn, setIsEntryLiveRegionOn] = React.useState(true);
   let [isListLiveRegionOn, setIsListLiveRegionOn] = React.useState(true);
   let isEditorACombobox = gridNow.isEditorAComboBox || gridNow.isEditorOverCalendar || isInBoxOfOneLine;
@@ -8202,10 +8705,24 @@ export function SheetsPage({
             : typingTarget === 'cell'
               ? formulaOfferActiveDescendant(formulaFromWords)
               : null;
+  let peopleListAriaForVoiceOver =
+    mode.kind === 'navigating' && dropdownList === null && peopleList !== null ? peopleListIdsForVoiceOver(peopleList) : null;
   let dropdownAriaOnIos =
-    mode.kind === 'navigating' && IS_IOS_BROWSER && dropdownList !== null
-      ? withHighlightedRowIdOr(dropdownListIds(dropdownList), firstDropdownListRowId(dropdownList))
-      : null;
+    mode.kind === 'navigating' && dropdownList !== null ? dropdownListIdsForVoiceOver(dropdownList) : peopleListAriaForVoiceOver;
+  let isGridHiddenFromReaders = isGridHiddenFromVoiceOver({
+    isListOpen: dropdownList !== null || (peopleList !== null && isPeopleListShown(peopleList)) || view.timeList !== null,
+    calendar: view.calendar === null ? 'shut' : isCalendarOpenedByTouch ? 'hasTakenCaret' : 'open',
+    hasEntryTheCaret: typingTarget !== 'grid',
+    isWaitingBoxTiedToList: dropdownAriaOnIos !== null,
+    doesGridTakeKeys: isGridFocusHeld,
+  });
+  let isListTiedOnMacSafari = dropdownAriaOnIos !== null && IS_MAC_SAFARI;
+  let [wasListTiedOnMacSafari, setWasListTiedOnMacSafari] = React.useState(isListTiedOnMacSafari);
+  if (wasListTiedOnMacSafari !== isListTiedOnMacSafari) {
+    setWasListTiedOnMacSafari(isListTiedOnMacSafari);
+    if (!isListTiedOnMacSafari) setIsZoomSettling(true);
+  }
+  React.useLayoutEffect(() => (isListTiedOnMacSafari ? markZoomSettling : undefined), [isListTiedOnMacSafari, markZoomSettling]);
   let entryOverlapOfGridlines = gridNow.editorBox === null ? NO_OFFSET : entryGridlineOverlap(gridNow.editorBox, gridNow.editorScale);
   let sheetBesidePaneProps = sheetBesideSidePaneProps(sidePaneWidth, isSidePaneDrawn);
   let sheetBehindSidePaneClass = isSidePaneDrawn ? SHEET_BEHIND_SIDE_PANE_CLASS : '';
@@ -8265,6 +8782,7 @@ export function SheetsPage({
       'aria-label':
         view.entrySheetName === null ? editingCellLabel(view.entryCellText) : editingCellOnSheetLabel(view.entryCellText, view.entrySheetName),
       'aria-busy': formulaFromWords.stage?.kind === 'asked' || undefined,
+      'aria-hidden': (isGridHiddenFromReaders && typingTarget === 'formulaBar') || undefined,
       ...(gridNow.isEditorOverCalendar
         ? calendarCellComboboxProps(view.calendar !== null, activeDescendantId)
         : comboboxAriaProps(gridNow.isEditorAComboBox || isWaitingBox, activeDescendantId)),
@@ -8345,15 +8863,15 @@ export function SheetsPage({
               gridFocusRef.current?.focus({
                 preventScroll: true,
               });
-          }} hidden={isViewOnly} readOnly={isViewOnly || doCellsTakeNoText} aria-hidden={typingTarget !== 'grid' || undefined} tabIndex={-1} aria-label={shownSheetName} aria-describedby={cellEditorDescribedBy} {...(dropdownAriaOnIos === null ? cellEntryComboboxProps(activeCellElementId) : comboboxAriaProps(true, dropdownAriaOnIos))} {...PLAIN_TEXT_FIELD_PROPS} {...cellFieldKeyProps} style={peopleListPlacement !== null
+          }} hidden={isViewOnly} readOnly={isViewOnly || doCellsTakeNoText} aria-hidden={typingTarget !== 'grid' || undefined} tabIndex={-1} aria-label={shownSheetName} aria-describedby={cellEditorDescribedBy} {...(dropdownAriaOnIos === null ? cellEntryComboboxProps(isGridHiddenFromReaders ? null : activeCellElementId) : comboboxAriaProps(true, dropdownAriaOnIos))} {...PLAIN_TEXT_FIELD_PROPS} {...cellFieldKeyProps} style={peopleListPlacement !== null
               ? entryEditorLineStyle(CHIP_FIELD_LINE_HEIGHT, DEFAULT_CELL_FORMAT.font)
               : entryEditorStyle(
-                  gridNow.activeCellBox === null
+                  gridNow.boxUnderWaitingBox === null
                     ? {
                         left: gridNow.body.left,
                         top: gridNow.body.top,
                       }
-                    : cellEntryBoxStyle(gridNow.activeCellBox, gridNow.body, gridNow.editorFormat, gridNow.editorKeepsClear),
+                    : cellEntryBoxStyle(gridNow.boxUnderWaitingBox, gridNow.body, gridNow.editorFormat, gridNow.waitingBoxKeepsClear),
                   gridNow.editorFormat.font,
                   false,
                 )} value={waitingBoxText} onChange={(event) => onFieldInput('cell', event)} onKeyDown={(event) => {
@@ -8423,19 +8941,138 @@ export function SheetsPage({
   let readerBar = isInteractiveWritable && view.interactive !== null && (
     <InteractiveSheetBar
       ref={readerBarRef}
-      canBeReset={view.interactive.canBeReset}
+      countOfCellsToReset={view.interactive.countOfCellsToReset}
+      hasChangesToUndo={view.interactive.hasChangesToUndo}
       hasDefaultsToSave={view.interactive.hasDefaultsToSave}
       comment={null}
-      onChosen={(kind) => {
-        store.dispatch({ kind });
+      onChosen={(chosen) => {
+        store.dispatch(
+          chosen === 'reset'
+            ? {
+                kind: 'interactiveResetChosen',
+                ...newInteractiveSitting(),
+              }
+            : chosen === 'undoAll'
+              ? {
+                  kind: 'reversalInInteractiveAsked',
+                  reversal: 'undoOfAll',
+                }
+              : {
+                  kind: 'interactiveSaveAsDefaultChosen',
+                },
+        );
         focusCaret();
       }}
       onKeyDown={onToolbarKeyDown}
     />
   );
   let interactiveViewId = view.interactive?.viewId ?? null;
+  let [cellsOfferedFor, setCellsOfferedFor] = React.useState<string | null>(null);
+  let [isInteractiveDrawn, setIsInteractiveDrawn] = React.useState(false);
+  let isRecordsPointedIn = view.recordsOfTable !== null && view.sheetPointedIn !== null;
+  let { at: pointedAt, anchor: pointedAnchor } = view.pointedReference ?? {};
+  let pointedColumnId = pointedAt?.sheetId === view.sheetPointedIn ? pointedAt.columnId : null;
+  let sheetOfOwnBar = interactiveViewId ?? (isRecordsPointedIn ? null : view.recordsOfTable?.sheetId) ?? null;
+  let pickColumnOfTable = React.useCallback<RecordsTableProps['onNamePressed']>(
+    (c, element, isExtending) => {
+      let { recordsOfTable, sheetPointedIn, ownFilterList } = store.getView();
+      if (sheetPointedIn !== null)
+        store.dispatch({
+          kind: 'columnOfConnectedTablePicked',
+          c,
+          isExtending,
+          ...caretInEntryNow(),
+        });
+      else if (ownFilterList?.c === c) shutOwnFilterList();
+      else if (recordsOfTable !== null) openFilterListAt(recordsOfTable.sheetId, c, element);
+    },
+    [store, caretInEntryNow, shutOwnFilterList, openFilterListAt],
+  );
+  let pickCellOfTable = React.useCallback<RecordsTableProps['onCellPicked']>(
+    (cellId, isExtending, look) => {
+      store.dispatch({
+        kind: 'cellOfConnectedTablePicked',
+        cellId,
+        isExtending,
+      });
+      if (look !== undefined) store.lookOnceEventsAreFinished(look);
+    },
+    [store],
+  );
+  let isTableEventUnfinished = React.useCallback(() => store.isEventUnfinished(), [store]);
+  let onRecordsKeyDown: RecordsTableProps['onKeyForCells'] = (event, look) => {
+    let key = normalizedKeyEvent(event);
+    let { mode: latestMode, escapeInCells, notice: latestNotice } = store.getView();
+    let act = keyActOf(latestMode, key, null, escapeInCells === 'letsGo' ? escapeInCells : 'leaves');
+    let keyOnRecords = act === null ? undefined : KEY_ACTS_ON_RECORDS.get(act.kind);
+    if (act === null || keyOnRecords === undefined || isComposingKey(event) || event.key === 'Tab') return;
+    if (!mayKeyActHere(event, act, latestMode) || isKeyOfMenu(event)) return;
+    event.preventDefault();
+    if (latestNotice !== null && doesStepOutLeaveNotice(act, latestNotice, saveCard)) {
+      if (!event.repeat)
+        store.dispatch({
+          kind: 'noticeDismissed',
+          notice: latestNotice,
+        });
+    } else if (keyOnRecords === 'opens' || event.key === 'F2') {
+      if (!event.repeat) focusTypingTarget('formulaBar');
+    } else {
+      store.dispatch({
+        kind: 'keyPressed',
+        ...key,
+      });
+      if (keyOnRecords === 'moves') store.lookOnceEventsAreFinished(look);
+    }
+  };
+  let sizeColumnOfTable = React.useCallback<RecordsTableProps['onColumnSized']>(
+    (sheetId, c, widthInPixels, look) => {
+      store.dispatch({
+        kind: 'columnOfConnectedTableSized',
+        sheetId,
+        c,
+        widthInPixels,
+      });
+      store.lookOnceEventsAreFinished(look);
+    },
+    [store],
+  );
+  let copyOtherText = React.useCallback(
+    (text: string, name: string) => {
+      let ownerDocument = cellsRef.current?.ownerDocument;
+      let isCopied = ownerDocument !== undefined && copyTextWithExecCommand(ownerDocument, text);
+      if (isCopied) clipboard.somethingElseCopiedHere();
+      store.dispatch(
+        isCopied
+          ? {
+              kind: 'otherThanCellsCopied',
+              name,
+            }
+          : {
+              kind: 'copyRefused',
+              asked: 'copy',
+              keyInstead: null,
+            },
+      );
+      return isCopied;
+    },
+    [store, clipboard],
+  );
+  let copyFromTableColumn = React.useCallback<RecordsTableProps['onCopyChosen']>(
+    ({ columnId, reference }, what) => {
+      if (what === 'column')
+        return (
+          store.dispatch({
+            kind: 'columnOfConnectedTablePicked',
+            c: columnId,
+          }),
+          askCopyOrCutFromMenu('copy')
+        );
+      return void copyOtherText(reference, reference);
+    },
+    [store, copyOtherText, askCopyOrCutFromMenu],
+  );
   let onInteractiveChanged = React.useEffectEvent(() => {
-    if (((interactiveViewId !== null && isFocusInCells()) || isFocusNowhere()) && document.hasFocus()) focusCaret();
+    if (((sheetOfOwnBar !== null && isFocusInCells()) || isFocusNowhere()) && document.hasFocus()) focusCaret();
   });
   let isInteractiveAskOffered = !isViewOnly && isChatToBeHadOrWas;
   let interactiveChartAsk = React.useMemo<PlacedViewFix>(
@@ -8450,12 +9087,12 @@ export function SheetsPage({
     }),
     [isInteractiveAskOffered, interactiveViewId, isViewOnly, lookAtChatUnlessComingSoon, sendToChatAboutChart, focusCaret],
   );
-  let interactiveViewIdBeforeRef = React.useRef(interactiveViewId);
+  let interactiveViewIdBeforeRef = React.useRef(sheetOfOwnBar);
   React.useLayoutEffect(() => {
-    if (interactiveViewIdBeforeRef.current !== interactiveViewId) onInteractiveChanged();
-    interactiveViewIdBeforeRef.current = interactiveViewId;
-  }, [interactiveViewId]);
-  let onInteractiveKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
+    if (interactiveViewIdBeforeRef.current !== sheetOfOwnBar) onInteractiveChanged();
+    interactiveViewIdBeforeRef.current = sheetOfOwnBar;
+  }, [sheetOfOwnBar]);
+  let onInteractiveKeyDown = (event: React.KeyboardEvent) => {
     if (event.key === 'F6') {
       if (moveCaretTo('cells', event.shiftKey ? -1 : 1)) event.preventDefault();
       return;
@@ -8607,8 +9244,9 @@ export function SheetsPage({
   let viewMenu = <ViewMenu gridZoom={gridZoom} side={areViewToolsAtFoot ? 'top' : 'bottom'} onOpenChange={onZoomLayerOpenChange} whatHasCaretAfter={whatHasCaretAfter} wasPointerPressedLast={wasPointerPressedLast} onFitChartAsked={selectedPlacementIdOnPhone === undefined ? null : () => fitPlacedViewInSight(selectedPlacementIdOnPhone, false)} areFormulasShown={view.areFormulasShown} isEntryOpen={view.mode.kind !== 'navigating'} onFormulasShownToggled={toggleFormulasShown} density={view.density} onDensityChosen={chooseDensity} undoAndRedo={view.undoAndRedo} onUndoOrRedoChosen={chooseUndoOrRedo} onFindAsked={openFindEmpty} onFindAndReplaceAsked={view.viewOnlyBecause === null ? openReplace : null} onListOfKeysAsked={askListOfKeys} />;
   let commandsOfBar = (): MenuCommand[] => {
     let root = cellsRef.current?.ownerDocument.documentElement;
-    let shownIndex = view.listedSheets.findIndex(({ isShown }) => isShown);
-    let shownListedSheet = view.listedSheets[shownIndex];
+    let sheetsWithTabs = view.listedSheets.filter(({ hasTab }) => hasTab);
+    let shownIndex = sheetsWithTabs.findIndex(({ isShown }) => isShown);
+    let shownListedSheet = sheetsWithTabs[shownIndex];
     return [
       ...menuBarCommands(),
       ...viewCommands(
@@ -8647,7 +9285,7 @@ export function SheetsPage({
               isOnlySheet: view.listedSheets.length === 1,
               placeAmongTabs: {
                 index: shownIndex,
-                count: view.listedSheets.length,
+                count: sheetsWithTabs.length,
               },
               viewOnlyBecause: view.viewOnlyBecause,
               isVersionHistoryOpen: view.versionHistory !== null,
@@ -9025,11 +9663,21 @@ export function SheetsPage({
         loseFocus(isLeftByPress);
         if (wasStillFocused) restoreFocus();
       });
-    }}><div ref={formulaRowRef} className="sheet-formula-row" style={headerRoomStyle} hidden={interactiveViewId !== null && areViewToolsAtFoot} data-is-over-interactive={interactiveViewId !== null || undefined}><span id={CELL_ADDRESS_ID} hidden>{view.allSelectedText}</span>{isViewOnly
+    }}><div ref={formulaRowRef} className="sheet-formula-row" aria-hidden={(isGridHiddenFromReaders && typingTarget !== 'formulaBar') || undefined} style={headerRoomStyle} data-is-over-interactive={interactiveViewId !== null || undefined}><span id={CELL_ADDRESS_ID} hidden>{view.allSelectedText}</span>{isViewOnly || sheetOfOwnBar !== null
             ? <span aria-hidden className="sheet-formula-sign"><Icon name={FUNCTION_ICON_PROPS.icon} size="auto" /></span>
             : (<span ref={functionsButtonRef} role="presentation" className="sheet-formula-sign" onMouseDown={preventMouseDownDefault} onKeyDown={onFunctionsButtonKeyDown} onKeyDownCapture={onFunctionListKeyDown}><Button variant="ghost" iconOnly icon={FUNCTION_ICON_PROPS.icon} className="text-muted" aria-label={functionListLabel()} aria-haspopup="listbox" aria-expanded={view.functionList !== null} tooltipSide="bottom" {...{
                     [OPENS_FUNCTION_LIST_ATTRIBUTE]: true,
-                  }} onClick={askAllFunctions} /></span>)}<WaitForFormula stage={formulaFromWords.stage} /><textarea key={formulaBarKey} ref={setFormulaBarElement} rows={Math.min(formulaBarLines.lineCountWithCaret, isNarrowPhone ? FORMULA_FIELD_MAX_ROWS_OPENED : FORMULA_FIELD_MAX_ROWS)} data-has-lines={formulaBarLines.opensAsCard || undefined} data-folds-lines={formulaBarLines.areLinesFolded || undefined} data-is-first-line-cut={formulaBarLines.isFirstLineCut || undefined} data-is-first-line-of-several={formulaBarLines.widthOfFirstLineOfSeveral !== null || undefined} style={formulaFirstLineStyle} id={FORMULA_FIELD_ID} data-comment-target="" className="sheet-formula-field" data-is-under-hues={areReferencesWritten || undefined} aria-label={sheetMessages.formulaBar()} aria-describedby={CELL_ADDRESS_ID} aria-busy={formulaFromWords.stage?.kind === 'asked' || undefined} {...comboboxAriaProps(
+                  }} onClick={askAllFunctions} /></span>)}{interactiveViewId !== null &&
+                <CellBehindBar cell={view.cellBehindInteractive} areCellsOffered={cellsOfferedFor === interactiveViewId} canWrite={isInteractiveWritable} isDrawn={isInteractiveDrawn} onGoneTo={({ sheetId, address }) => {
+                    store.dispatch({
+                      kind: 'cellsLinkedTo',
+                      place: {
+                        sheetId,
+                        ranges: [address],
+                      },
+                    });
+                    focusCaret();
+                  }} onKeyDown={(event: React.KeyboardEvent<HTMLElement>) => onPartKeyDown(event, 'formulaBar', null)} />}<WaitForFormula stage={formulaFromWords.stage} /><textarea key={formulaBarKey} ref={setFormulaBarElement} rows={Math.min(formulaBarLines.lineCountWithCaret, isNarrowPhone ? FORMULA_FIELD_MAX_ROWS_OPENED : FORMULA_FIELD_MAX_ROWS)} data-has-lines={formulaBarLines.opensAsCard || undefined} data-folds-lines={formulaBarLines.areLinesFolded || undefined} data-is-first-line-cut={formulaBarLines.isFirstLineCut || undefined} data-is-first-line-of-several={formulaBarLines.widthOfFirstLineOfSeveral !== null || undefined} style={formulaFirstLineStyle} id={FORMULA_FIELD_ID} data-comment-target="" className="sheet-formula-field" data-is-under-hues={areReferencesWritten || undefined} aria-label={sheetMessages.formulaBar()} aria-describedby={CELL_ADDRESS_ID} aria-busy={formulaFromWords.stage?.kind === 'asked' || undefined} {...comboboxAriaProps(
                 false,
                 peopleList?.under === 'formulaBar'
                   ? peopleListCardIds(peopleList)
@@ -9092,17 +9740,19 @@ export function SheetsPage({
             <FormulaBarReferenceHues key={`${formulaBarKey} ${typingTarget} ${JSON.stringify(formulaBarLines)} ${isNarrowPhone}`} text={view.formulaBarText} references={view.referencesInEntry} brackets={view.matchingBrackets} box={formulaBarRef} />}{!areViewToolsAtFoot &&
             (<div ref={setViewToolsInRowElement} role="presentation" className="sheet-view-tools" onMouseDown={preventMouseDownDefault} onKeyDown={onViewToolsKeyDown}><TooltipGroup>{viewMenu}{view.viewOnlyBecause !== 'readOnly' &&
                     !isHistoryControlInHeader &&
-                    <Button variant="ghost" iconOnly icon="History" aria-label={versionHistoryMessages.title()} pressed={view.versionHistory !== null} {...historyButtonDisabled} onClick={askVersionHistory} />}</TooltipGroup></div>)}</div><ThemeChangeNotice zoomButton={getViewToolsButton} side={areViewToolsAtFoot ? 'top' : 'bottom'} isEntryOpen={view.mode.kind !== 'navigating'} whatHasCaretAfter={whatHasCaretAfter} /><SelectedRangeAnnouncer selectedRange={view.selectedRange} /><PointedCellsAnnouncer pointedCells={view.pointedCells} isEntryOpen={mode.kind === 'editing'} /><AgentSaidAnnouncer said={view.saidOfAgent} doneByAgent={view.doneByAgent} /><EarlierVersionAnnouncer look={versionLook} isEarlierVersionLeft={isEarlierVersionLeft} /><CellsAddedAnnouncer store={store} chat={cellsAddedToChat} placeOfKeyboard={whereIsFocus} /><WaysInHintAnnouncer areUp={areWaysInSeen} canAskAgent={typeof askAgentFromWaysInOffer === 'function'} wordsOfLoad={wordsOfLoad} /><span id={FORMULAS_SHOWN_ID} hidden>{describeLastDone({
+                    <Button variant="ghost" iconOnly icon="History" aria-label={versionHistoryMessages.title()} pressed={view.versionHistory !== null} {...historyButtonDisabled} onClick={askVersionHistory} />}</TooltipGroup></div>)}</div><ThemeChangeNotice zoomButton={getViewToolsButton} side={areViewToolsAtFoot ? 'top' : 'bottom'} isEntryOpen={view.mode.kind !== 'navigating'} whatHasCaretAfter={whatHasCaretAfter} /><SelectedRangeAnnouncer selectedRange={view.selectedRange} /><PointedCellsAnnouncer pointedCells={view.pointedCells} isEntryOpen={mode.kind === 'editing'} /><AgentSaidAnnouncer said={view.saidOfAgent} doneByAgent={view.doneByAgent} /><EarlierVersionAnnouncer look={versionLook} isEarlierVersionLeft={isEarlierVersionLeft} /><CellsAddedAnnouncer store={store} chat={cellsAddedToChat} placeOfKeyboard={whereIsFocus} isChatCovered={false} /><WaysInHintAnnouncer areUp={areWaysInSeen} canAskAgent={typeof askAgentFromWaysInOffer === 'function'} wordsOfLoad={wordsOfLoad} /><span id={FORMULAS_SHOWN_ID} hidden>{describeLastDone({
           what: 'formulasShown',
         })}</span><span id={KEY_TO_LIST_OF_KEYS_ID} hidden>{shortcutListMessages.keyThatOpensIt(IS_APPLE_PLATFORM)}</span>{IS_IOS_BROWSER &&
-        <ReaderPageAnnouncer grid={gridNow} />}<LiveAnnouncer words={lastDoneWords !== null && lastDoneWords.what !== 'replaced' && describeLastDone(lastDoneWords)} timesSaid={view.lastDone === null ? 0 : objectKey(view.lastDone)} /><LiveAnnouncer words={saveLineWords ?? (connectionBackSay === 'backSaid' ? reconnectedText() : null)} />{isRetryingLong &&
+        <ReaderPageAnnouncer grid={gridNow} store={store} />}<LiveAnnouncer words={lastDoneWords !== null && lastDoneWords.what !== 'replaced' && describeLastDone(lastDoneWords)} timesSaid={view.lastDone === null ? 0 : objectKey(view.lastDone)} /><LiveAnnouncer words={saveLineWords ?? (connectionBackSay === 'backSaid' ? reconnectedText() : null)} />{isRetryingLong &&
         <div role="alert" className="sr-only">{saveStatus}</div>}<LiveAnnouncer words={view.calculating === 'wrong'
             ? formulasTookTooLongWords()
             : view.isLongCalculationTold
               ? calculatingWords(view.ownViewShownAsApplied)
               : longCalculationSay === 'endSaid' && view.ownViewShownAsApplied === null && formulasCalculatedText()} /><OpenedWordsAnnouncer words={dropdownList !== null &&
-          ((mode.kind === 'navigating' && (dropdownAriaOnIos?.highlightedRowId ?? null) === null) || highlightedDropdownRow?.kind === 'add') &&
-          (listAnnouncement(dropdownList.card) ?? dropdownListSpokenWords(dropdownList))} isEntryOpen={mode.kind !== 'navigating'} store={store} inPageOf={cellsRef} /><FilterBarAnnouncer bar={filterBarAnnounced} isCleared={isFilterCleared} /><WordsOfferedAnnouncer words={view.wordsOfferedSaid} hasGone={view.isOfferGoneToBeSaid} isKeyDrawn={isOfferKeyDrawn} /><PeopleListAnnouncer list={peopleList} /><LiveAnnouncer words={peopleList !== null && peopleList.inField !== null && peopleListLabel(peopleList)} /><LiveAnnouncer words={view.linkExplained !== null &&
+          dropdownListWordsToSay(dropdownList, {
+            isEntryOpen: mode.kind !== 'navigating',
+            doesGridHaveFocus: isGridFocusHeld,
+          })} isEntryOpen={mode.kind !== 'navigating'} store={store} inPageOf={cellsRef} /><FilterBarAnnouncer bar={filterBarAnnounced} isCleared={isFilterCleared} /><WordsOfferedAnnouncer words={view.wordsOfferedSaid} hasGone={view.isOfferGoneToBeSaid} isKeyDrawn={isOfferKeyDrawn} /><PeopleListAnnouncer list={peopleList} /><LiveAnnouncer words={peopleList !== null && peopleList.inField !== null && peopleListLabel(peopleList)} /><LiveAnnouncer words={view.linkExplained !== null &&
           view.linkExplained.marked !== null &&
           linkPositionText(
             view.linkExplained.marked + 1,
@@ -9112,13 +9762,15 @@ export function SheetsPage({
           )} /><LiveAnnouncer words={personChipGoneTo !== undefined && personChipRemoveHint(personChipGoneTo.name)} /><LiveAnnouncer words={peopleListAnnouncement !== null
             ? !isComboboxInCell && peopleListAnnouncement
             : highlightedPerson !== undefined &&
+              peopleListAriaForVoiceOver === null &&
               (mode.kind === 'navigating' || !isComboboxInCell || highlightedPerson.kind === 'keepAsText') &&
               peopleListRowWords(highlightedPerson)} />{(saveCard !== null ||
+        typingWaitsWords !== null ||
         view.fractionSavedToShow !== null ||
         isLongSaveToldNow ||
         view.isLongCalculationTold ||
         allSavedSay === 'said') &&
-        (<SaveStatusToast card={saveCard} fractionSaved={view.fractionSavedToShow} isLongSaveTold={isLongSaveToldNow} isLongCalculationTold={view.isLongCalculationTold} ownViewShownAsApplied={view.ownViewShownAsApplied} isAllSavedSaid={allSavedSay === 'said'} action={saveCard?.offersReload === true && reloadPage !== null
+        (<SaveStatusToast card={saveCard} typingWaits={typingWaitsWords} fractionSaved={view.fractionSavedToShow} isLongSaveTold={isLongSaveToldNow} isLongCalculationTold={view.isLongCalculationTold} ownViewShownAsApplied={view.ownViewShownAsApplied} isAllSavedSaid={allSavedSay === 'said'} action={saveCard?.offersReload === true && reloadPage !== null
               ? <ReloadPageButton reload={reloadPage} />
               : undefined} onUp={() => {
             setAnnouncedConnectionWords(connectionWords);
@@ -9156,7 +9808,7 @@ export function SheetsPage({
             })} staysUntilClosed={false} onOver={({ byUser }) => {
               setChartChangeUndoNotice(null);
               if (byUser) whenFocusStays(closeToastIfFocusLeft, 'dispatchesNothing');
-            }} onTakenDown={closeToastIfInsideUnpinned} />)}<UndoOfferAnnouncer store={store} inPageOf={cellsRef} /><SettledWordsAnnouncer words={chartAddedAnnouncement(chartMaking?.is === 'notAdded' ? chartMaking : addedChartOnCard, true)} about={chartMaking === null ? null : String(chartMaking.nth)} store={store} inPageOf={cellsRef} /><SettledWordsAnnouncer words={chartChangeUndoNotice === null ? null : chartChangeOutcomeWords(chartChangeUndoNotice.says)} about={chartChangeUndoNotice?.nodes.to ?? null} store={store} inPageOf={cellsRef} />{notice !== null &&
+            }} onTakenDown={closeToastIfInsideUnpinned} />)}<SettledWordsAnnouncer words={typingWaitsWords} about="typingWaits" store={store} inPageOf={cellsRef} /><UndoOfferAnnouncer store={store} inPageOf={cellsRef} /><SettledWordsAnnouncer words={chartAddedAnnouncement(chartMaking?.is === 'notAdded' ? chartMaking : addedChartOnCard, true)} about={chartMaking === null ? null : String(chartMaking.nth)} store={store} inPageOf={cellsRef} /><SettledWordsAnnouncer words={chartChangeAnnouncement(chartChangeUndoNotice?.says ?? null)} about={chartChangeUndoNotice?.nodes.to ?? null} store={store} inPageOf={cellsRef} />{notice !== null &&
         <div key={`said ${objectKey(notice)}`} role="alert" className="sr-only">{(isSavingStoppedRefusal(notice) ? saveStatus : null) ?? noticeText(notice)}</div>}{notice !== null &&
         !isNoticeShown &&
         (<MountedToast key={`toast ${objectKey(notice)}`} words={noticeText(notice)} {...(notice.kind === 'callsForFixesFailed' && WARNING_TOAST_ICON_PROPS)} action={notice.kind === 'fileNotImported' && notice.why === 'excelFileDropped'
@@ -9182,7 +9834,7 @@ export function SheetsPage({
           }} onTakenDown={closeToastIfInsideUnpinned} />)}<AgentUnavailableToast store={store} chat={chatWithAgent} placeOfKeyboard={whereIsFocus} hasWindowFocus={hasPageFocus} isSaidElsewhere={({ pressed, chartId, request }) =>
           pressed === INSERT_CHART_LABEL
             ? chatWithAgent.isToBeHad() !== true
-            : chartId !== undefined && request !== undefined && chatWithAgent.isToBeHad() !== false} standInFor={commentInsteadOfChat} onToastUp={() => observeToasts()} onGone={closeToastIfInsideUnpinned} /><AddedToMessageToast store={store} chat={cellsAddedToChat} placeOfKeyboard={whereIsFocus} hasWindowFocus={hasPageFocus} isAgentWorking={view.isAgentWorking} onGone={closeToastIfInsideUnpinned} />{commentsLayer}<LiveAnnouncer words={doesCommentModePickCells && commentModeHint(isKeyboardLikely)} />{doesCommentModePickCells &&
+            : chartId !== undefined && request !== undefined && chatWithAgent.isToBeHad() !== false} standInFor={commentInsteadOfChat} onToastUp={() => observeToasts()} onGone={closeToastIfInsideUnpinned} /><AddedToMessageToast store={store} chat={cellsAddedToChat} placeOfKeyboard={whereIsFocus} hasWindowFocus={hasPageFocus} isAgentWorking={view.isAgentWorking} isChatCovered={false} onGone={closeToastIfInsideUnpinned} />{commentsLayer}<LiveAnnouncer words={doesCommentModePickCells && commentModeHint(isKeyboardLikely)} />{doesCommentModePickCells &&
         !view.hasCommentModeRefused &&
         <MountedToast words={commentModeHint(isKeyboardLikely)} staysUntilClosed={false} onOver={closeToastIfInsideUnpinned} onTakenDown={closeToastIfInsideUnpinned} />}{newsOfLoss !== null &&
         <div key={`said ${objectKey(newsOfLoss)}`} role="alert" className="sr-only">{noticeText(newsOfLoss)}</div>}{newsOfLoss !== null &&
@@ -9192,14 +9844,15 @@ export function SheetsPage({
                 notice: newsOfLoss,
               });
               closeToastIfInsideUnpinned();
-            }} onTakenDown={closeToastIfInsideUnpinned} />)}<SortFilterCardPopover cardToAdd={filterNotDrawnCard} whatHasCaretAfterCard={whatHasCaretAfterFilterBarCard} onColumnAsked={openFilterListAt} timesPressed={timesFocusBegun} crossPressed={null} />{view.ownFilterBar !== null &&
-        <OwnFilterBarView bar={view.ownFilterBar} cardToAdd={filterBarCard} whatHasCaretAfterCard={whatHasCaretAfterFilterBarCard} onColumnAsked={openFilterListAt} columnOpen={filterListChip} timesPressed={timesFocusBegun} onLineRemoved={removeOwnFilterLine} onSortRemoved={removeOwnSort} onSortMadeForEveryone={view.viewOnlyBecause === null ? makeOwnSortForEveryone : null} actsOnNamedViews={actsOnNamedViews} onRefreshed={refreshOwnFilters} onCleared={clearOwnFiltersOfSheet} onLookAgain={lookAtOwnFiltersAgain} onGoingWithCaret={focusCaret} onKeyDown={onOwnFilterBarKeyDown} className={sheetBehindSidePaneClass} style={headerRoomStyle} ref={ownFilterBarRef} />}{view.pivotTableOutOfDateAt !== null &&
-        <PivotTableOutOfDateBar onUpdate={view.viewOnlyBecause === null ? updatePivotTableOutOfDate : null} onKeyDown={onPivotTableBarKeyDown} className={sheetBehindSidePaneClass} style={headerRoomStyle} ref={pivotTableBarRef} />}<LiveAnnouncer words={view.pivotTableOutOfDateAt !== null && pivotTableMessages.outOfDate()} />{findBar}<div ref={watchKeyboardSlides} {...edgeStretchPressProps} className="sheet-with-group-margins" data-are-tabs-away={areTabsAway || undefined} data-is-frame-shortened={isFrameShortened || undefined} data-is-bar-of-phone={isNarrowWithFormatBar || undefined} style={{
+            }} onTakenDown={closeToastIfInsideUnpinned} />)}<SortFilterCardPopover cardToAdd={filterNotDrawnCard} whatHasCaretAfterCard={whatHasCaretAfterFilterBarCard} onColumnAsked={openFilterListAt} timesPressed={timesFocusBegun} crossPressed={null} />{connectedTableBar !== null &&
+          <ConnectedTableBar bar={connectedTableBar} howItStandsInWords={connectedTableStandsWords} onRefresh={isRefreshOfferedNow ? connectedTableActs.refresh : null} onRefusalSentAway={connectedTableActs.sendRefusalAway} onAgentAsked={isChatToBeHadOrWas ? openChatAboutRefresh : null} hasUnsavedEdits={view.hasUnsavedEdits} onSourceToggled={connectedTableActs.toggleSource} onKeyDown={onConnectedTableBarKeyDown} className={sheetBehindSidePaneClass} style={headerRoomStyle} ref={connectedTableBarRef} />}{view.ownFilterBar !== null &&
+        <OwnFilterBarView bar={view.ownFilterBar} cardToAdd={filterBarCard} whatHasCaretAfterCard={whatHasCaretAfterFilterBarCard} onColumnAsked={openFilterListAt} columnOpen={filterListChip} timesPressed={timesFocusBegun} onLineRemoved={removeOwnFilterLine} onSortRemoved={removeOwnSort} onSortMadeForEveryone={view.viewOnlyBecause === null ? makeOwnSortForEveryone : null} actsOnNamedViews={actsOnNamedViews} onRefreshed={refreshOwnFilters} onCleared={clearOwnFiltersOfSheet} onLookAgain={lookAtOwnFiltersAgain} onGoingWithCaret={focusCaret} onKeyDown={onOwnFilterBarKeyDown} className={sheetBehindSidePaneClass} style={headerRoomStyle} ref={ownFilterBarRef} />}{view.pivotTableOutOfDate !== null &&
+        <PivotTableOutOfDateBar isTableClear={view.pivotTableOutOfDate.isTableClear} onPress={view.viewOnlyBecause === null ? updatePivotTableOutOfDate : null} onKeyDown={onPivotTableBarKeyDown} className={sheetBehindSidePaneClass} style={headerRoomStyle} ref={pivotTableBarRef} />}<LiveAnnouncer words={view.pivotTableOutOfDate !== null && pivotOutOfDateWords(view.pivotTableOutOfDate.isTableClear)} /><LiveAnnouncer words={connectedTableBar !== null && joinMessageParts(connectedTableStandsWords)} />{findBar}<div ref={watchKeyboardSlides} {...edgeStretchPressProps} className="sheet-with-group-margins" data-are-tabs-away={areTabsAway || undefined} data-is-frame-shortened={isFrameShortened || undefined} data-is-bar-of-phone={isNarrowWithFormatBar || undefined} style={{
           marginBlockStart: (view.find?.roomAboveGrid ?? 0) * zoom,
           ...groupMarginRoomStyle(view.groupMargins, zoom),
         }}>{view.groupMargins.columns !== null &&
-            <GroupMargin ref={setFooterExtra} margin={view.groupMargins.columns} zoom={zoom} onMarkPressed={onGroupMarkPressed} onLevelChosen={chooseGroupLevel} />}{view.groupMargins.rows !== null &&
-            <GroupMargin ref={setHeaderExtra} margin={view.groupMargins.rows} zoom={zoom} onMarkPressed={onGroupMarkPressed} onLevelChosen={chooseGroupLevel} />}<div className="sheet-under-find-bar relative flex min-h-0 flex-col overflow-clip"><LeaveCellsHint cells={cellsRef} doesEscapeStepOut={view.escapeInCells === 'stepsOut' && view.openUnderCell === null && !view.isEscapeForFix} isCardUnderCell={view.errorExplained !== null || view.linkExplained !== null} hasEscapeSteppedOut={view.lastDone?.what === 'steppedOutOfCells'} /><div ref={cellsRef} className="sheet-grid min-h-0 flex-1" inert={interactiveViewId !== null} role="presentation" {...gridlinesDataAttribute(gridNow)} data-is-stepped-out-of={view.isSteppedOutOfCells} data-is-come-to-by-tab={isComeToByTab || undefined} data-holds-edge-of={gridNow.edgeHeldOf ?? undefined} data-holds-fill-handle={gridNow.isFillHandleHeld} data-is-grabbed={isPointerHeldInCells ||
+            <GroupMargin ref={setFooterExtra} isHiddenFromReaders={isGridHiddenFromReaders} margin={view.groupMargins.columns} zoom={zoom} onMarkPressed={onGroupMarkPressed} onLevelChosen={chooseGroupLevel} />}{view.groupMargins.rows !== null &&
+            <GroupMargin ref={setHeaderExtra} isHiddenFromReaders={isGridHiddenFromReaders} margin={view.groupMargins.rows} zoom={zoom} onMarkPressed={onGroupMarkPressed} onLevelChosen={chooseGroupLevel} />}<div className="sheet-under-find-bar relative flex min-h-0 flex-col overflow-clip"><LeaveCellsHint cells={cellsRef} doesEscapeStepOut={view.escapeInCells === 'stepsOut' && view.openUnderCell === null && !view.isEscapeForFix} isCardUnderCell={view.errorExplained !== null || view.linkExplained !== null} hasEscapeSteppedOut={view.lastDone?.what === 'steppedOutOfCells'} /><div ref={cellsRef} className="sheet-grid min-h-0 flex-1" inert={interactiveViewId !== null} data-shows-entry-alone={isRecordsPointedIn || undefined} role="presentation" {...gridlinesDataAttribute(gridNow)} data-is-stepped-out-of={view.isSteppedOutOfCells} data-is-chart-asked-in-words={(isChartMenuOpen && chartAskTyped.trim() !== '') || undefined} data-is-come-to-by-tab={isComeToByTab || undefined} data-holds-edge-of={gridNow.edgeHeldOf ?? undefined} data-holds-fill-handle={gridNow.isFillHandleHeld} data-is-grabbed={isPointerHeldInCells ||
                   gridNow.areLinesDragged ||
                   gridNow.columnsRiding !== null ||
                   gridNow.areCellsHeld ||
@@ -9330,6 +9983,7 @@ export function SheetsPage({
                   if (isClickToSwallowRef.current && event.detail > 0) event.stopPropagation();
                   isClickToSwallowRef.current = false;
                 }} onClick={(event) => {
+                  if (event.detail !== 2) shutDropdownLeftOpenByPress();
                   if (isOnSkipTarget(event) && gridNow.selectionSummary?.opensMenu === true) askFigures();
                   let commentHandle = commentCornerKeyAtTarget(event);
                   if (commentHandle !== null)
@@ -9339,18 +9993,23 @@ export function SheetsPage({
                     });
                 }} onContextMenu={onGridContextMenu} onPointerCancel={onGridPointerCancel} onLostPointerCapture={onGridPointerUp} onDoubleClick={(event) => {
                   if (
-                    isInAtEndOfSheet(event.target) ||
-                    isInPlacedViewControls(event.target) ||
-                    isInOffersAtSelection(event.target) ||
-                    isInExpandedEntry(event.target) ||
-                    wasPressOnOfferRef.current ||
-                    commentCornerKeyAtTarget(event) !== null
+                    !(
+                      isInAtEndOfSheet(event.target) ||
+                      isInPlacedViewControls(event.target) ||
+                      isInOffersAtSelection(event.target) ||
+                      isInExpandedEntry(event.target) ||
+                      wasPressOnOfferRef.current ||
+                      commentCornerKeyAtTarget(event) !== null
+                    ) &&
+                    !isPressForMenuRef.current &&
+                    !event.metaKey &&
+                    !event.ctrlKey
                   )
-                    return;
-                  if (!isPressForMenuRef.current && !event.metaKey && !event.ctrlKey) onPressedTwice(pointInGrid(event), false);
+                    onPressedTwice(pointInGrid(event), false);
+                  shutDropdownLeftOpenByPress();
                 }}><span id={ERROR_DESCRIPTION_ID} hidden>{view.errorOfActiveCell !== null && errorExplanationWords(view.errorOfActiveCell, canPersonEdit)}</span><span id={LINK_ADDRESS_ID} hidden>{view.whereWordsOfActiveCellLink !== null && view.isAddressOfActiveCellBuilt
                         ? builtLinkAddressLabel(view.whereWordsOfActiveCellLink)
-                        : view.whereWordsOfActiveCellLink}</span><div ref={zoomedGridRef} role="presentation" className="sheet-grid-zoomed" style={zoomedStyle(zoom)}><TextWidthProvider within={cellsRef}><ReadersScroller store={store} grid={gridNow} isOn={IS_IOS_BROWSER}><div ref={gridFocusRef} id={SHEET_ROWS_ID} className="sheet-rows" role="grid" tabIndex={typingTarget === 'grid' ? 0 : -1} onFocus={({ target, currentTarget, relatedTarget }) => {
+                        : view.whereWordsOfActiveCellLink}</span><div ref={zoomedGridRef} role="presentation" className="sheet-grid-zoomed" style={zoomedStyle(zoom)}><TextWidthProvider within={cellsRef}><ReadersScroller store={store} grid={gridNow} isOn={IS_IOS_BROWSER}><div ref={gridFocusRef} id={SHEET_ROWS_ID} className="sheet-rows" role="grid" tabIndex={typingTarget === 'grid' && !isGridHiddenFromReaders ? 0 : -1} aria-hidden={isGridHiddenFromReaders || undefined} onFocus={({ target, currentTarget, relatedTarget }) => {
                                 if (target !== currentTarget) return;
                                 if (didFocusLeaveByTabNow(relatedTarget) && !store.getView().isSteppedOutOfCells) markComeToByTab();
                                 if (whereTypingGoes(store.getView()) !== 'formulaBar') {
@@ -9363,14 +10022,14 @@ export function SheetsPage({
                                   kind: 'entryLeft',
                                 });
                                 whenFocusStays(refocusTypingTarget);
-                              }} aria-label={shownSheetName} aria-describedby={cellEditorDescribedBy} aria-readonly={isViewOnly} aria-multiselectable aria-rowcount={gridNow.rowCount + 1} aria-colcount={gridNow.columnCount + 1} aria-activedescendant={activeCellElementId ?? undefined}><SheetGridDrawing grid={gridNow} linesOnShow={store.linesOnShow()} cornerOnTop={nameFlagsAtPointer.cornerOnTop} cornersCalledUp={nameFlagsAtPointer.cornersCalledUp} flagsHidden={nameFlagsAtPointer.flagsHidden} rowNumberUnderHandle={rowNumberUnderTableHandle(gridNow, tableHandleCalledFor)} /></div></ReadersScroller><AddAtEndOfSheet key={shownSheet?.sheetId} grid={gridNow} isColumnCountCardOpen={isColumnCountCardOpen} onAdd={askLinesAtEnd} onColumnCountAsked={askColumnCountCard} onCaretAtEnd={setCaretAtEnd} onCaretLost={() => {
+                              }} aria-label={shownSheetName} aria-describedby={cellEditorDescribedBy} aria-readonly={isViewOnly} aria-multiselectable aria-rowcount={gridNow.rowCount + 1} aria-colcount={gridNow.columnCount + 1} aria-activedescendant={activeCellElementId ?? undefined}><ColumnButtonsShownContext value={ofFoundTablesShown}><SheetGridDrawing grid={gridNow} linesOnShow={store.linesOnShow()} cornerOnTop={nameFlagsAtPointer.cornerOnTop} cornersCalledUp={nameFlagsAtPointer.cornersCalledUp} flagsHidden={nameFlagsAtPointer.flagsHidden} rowNumberUnderHandle={rowNumberUnderTableHandle(gridNow, tableHandleCalledFor)} /></ColumnButtonsShownContext></div></ReadersScroller><HiddenFromVoiceOverOnIos isHidden={isGridHiddenFromReaders}><AddAtEndOfSheet key={shownSheet?.sheetId} grid={gridNow} isColumnCountCardOpen={isColumnCountCardOpen} onAdd={askLinesAtEnd} onColumnCountAsked={askColumnCountCard} onCaretAtEnd={setCaretAtEnd} onCaretLost={() => {
                                 setCaretAtEnd(null);
                                 if (cellsRef.current?.ownerDocument.hasFocus() === true) focusCaret();
-                              }} /><FilterTableOutlines outlines={gridNow.foundTableOutlines} body={gridNow.body} areOfFoundTables latestRevisionByAgent={gridNow.latestRevisionByAgent} /><React.Fragment key={`filters-${shownSheet?.sheetId}`}><FilterTableOutlines outlines={gridNow.filteredTableOutlines} body={gridNow.body} filteredTablesDrawn={gridNow.filteredTablesDrawn} /><FilterButtonsLayer buttons={gridNow.filterButtons} filteredTablesDrawn={gridNow.filteredTablesDrawn} pointedAt={filterButtonPointedAt.pointedAt} body={gridNow.body} onListAsked={onFilterButtonPressed} onGoingWithCaret={focusCaret} /></React.Fragment><TableHandle grid={gridNow} calledFor={tableHandleCalledFor} isMenuOpen={view.menu?.ofHandleOfTable !== undefined} /><ColumnGrips grid={gridNow} calledFor={columnHeadingsCall.calledFor} /><ColumnsRiding grid={gridNow} gridRef={cellsRef} zoom={zoom} /><CellsHeld held={gridNow.cellsHeld} body={gridNow.body} density={gridNow.density} /><OffersAtSelection grid={gridNow} zoom={zoom} offers={offersAtSelection} isHeldBack={isAnyLayerHeldBack} wasLastPressByMouse={() => wasLastPressByMouseRef.current} onCaretLost={focusCaret} /><PlacedViewsLayer placedViews={gridNow.placedViews} chartBeingMade={gridNow.chartBeingMade} sheetOnShow={shownSheetIdOf(view)} onChartBeingMadeGone={forgetChartBeingMade} body={gridNow.body} zoom={zoom} runsOn={chartsRunOn} tap={placedViewTap} hearPresses={chartTaps.hear} onAct={actOnPlacedView} onAskAgent={isChatToBeHad === true ? openChatAboutChart : null} doesChatTakeWords={doesChatTakeWordsAtOnce} onSendToAgent={sendAboutChart} onFixAsked={(isChatToBeHad ?? wasChatToBeHad) ? sendPressAboutChart : null} onNoticeWithFixCame={lookAtChatUnlessComingSoon} changes={changesOfCharts} pointChart={store.askForEditOfChart} onKeepAnswered={(nodes, says) =>
+                              }} /><FilterTableOutlines outlines={gridNow.foundTableOutlines} body={gridNow.body} areOfFoundTables latestRevisionByAgent={gridNow.latestRevisionByAgent} /><React.Fragment key={`filters-${shownSheet?.sheetId}`}><FilterTableOutlines outlines={gridNow.filteredTableOutlines} body={gridNow.body} filteredTablesDrawn={gridNow.filteredTablesDrawn} /><FilterButtonsLayer buttons={gridNow.filterButtons} filteredTablesDrawn={gridNow.filteredTablesDrawn} pointedAt={filterButtonPointedAt.pointedAt} ofFoundTablesShown={ofFoundTablesShown} body={gridNow.body} onListAsked={onFilterButtonPressed} onGoingWithCaret={focusCaret} /></React.Fragment><TableHandle grid={gridNow} calledFor={tableHandleCalledFor} isMenuOpen={view.menu?.ofHandleOfTable !== undefined} onWentFromSight={tableHandleCall.handleWentFromSight} /><ColumnGrips grid={gridNow} calledFor={columnHeadingsCall.calledFor} /><ColumnsRiding grid={gridNow} gridRef={cellsRef} zoom={zoom} /><CellsHeld held={gridNow.cellsHeld} body={gridNow.body} density={gridNow.density} /><OffersAtSelection grid={gridNow} zoom={zoom} offers={offersAtSelection} isHeldBack={isAnyLayerHeldBack} wasLastPressByMouse={() => wasLastPressByMouseRef.current} onCaretLost={focusCaret} /><PlacedViewsLayer placedViews={gridNow.placedViews} chartBeingMade={gridNow.chartBeingMade} sheetOnShow={shownSheetIdOf(view)} onChartBeingMadeGone={forgetChartBeingMade} body={gridNow.body} zoom={zoom} runsOn={chartsRunOn} tap={placedViewTap} hearPresses={chartTaps.hear} onAct={actOnPlacedView} onAskAgent={isChatToBeHad === true ? openChatAboutChart : null} doesChatTakeWords={doesChatTakeWordsAtOnce} onSendToAgent={sendAboutChart} onFixAsked={(isChatToBeHad ?? wasChatToBeHad) ? sendPressAboutChart : null} onNoticeWithFixCame={lookAtChatUnlessComingSoon} changes={changesOfCharts} pointChart={store.askForEditOfChart} onKeepAnswered={(nodes, says) =>
                               setChartChangeUndoNotice({
                                 says,
                                 nodes,
-                              })} isKeyOfMenu={isKeyOfMenu} onCardOpened={onChartMadeLastOvertaken} cardUnderChart={cardUnderChartRef} onCaret={onPlacedViewCaret} onSidesPressed={notePlacedViewPress} onCaretTaken={closeMenuAndRefocus} saidAtRest={renderSettledWordsAnnouncer} /><GridScrollbars grid={gridNow} store={store} zoom={zoom} /><ExpandedEntryFinishButton grid={gridNow} onFinished={() => dispatchThenFocusTyping('expandedEntryFinished')} /><PeopleField people={peopleListField} chipGoneTo={view.peopleList?.chipGoneTo ?? null} place={peopleListPlacement} keepsToColumn={doesPeopleListKeepToColumn} within={popupBounds} onPersonRemoved={removePersonFromField} onSized={noteEntryHelperRect} typed={entryTextLooks}><CellEntryHint grid={gridNow} /><WordsOffered grid={gridNow} offered={view.wordsOffered} isKeyDrawn={isOfferKeyDrawn} store={store} /><FormulaArriving grid={gridNow} stage={formulaFromWords.stage} actsHeld={formulaFromWords.actsHeld} text={mode.kind === 'editing' ? mode.text : ''} isInFontOfFormulas={isEditingFormula} dispatch={dispatchFromEntryHelper} />{cellEditor}</PeopleField><WordsOfferedButton grid={gridNow} offered={view.wordsOffered} isKeyDrawn={isOfferKeyDrawn} onPressed={pressWordsOffered} /><ExpandButtonAtSelection grid={gridNow} entryBoxRef={typingFieldRef} zoom={zoom} isHeldBack={isAnyLayerHeldBack || isWrapOffered} wasLastPressByMouse={() => wasLastPressByMouseRef.current} onPressed={() => dispatchThenFocusTyping('entryExpandedOrCollapsed')} /></TextWidthProvider>{gridNow.editorBox !== null &&
+                              })} isKeyOfMenu={isKeyOfMenu} onCardOpened={onChartMadeLastOvertaken} cardUnderChart={cardUnderChartRef} onCaret={onPlacedViewCaret} onSidesPressed={notePlacedViewPress} onCaretTaken={closeMenuAndRefocus} saidAtRest={renderSettledWordsAnnouncer} /><GridScrollbars grid={gridNow} store={store} zoom={zoom} /><ExpandedEntryFinishButton grid={gridNow} onFinished={() => dispatchThenFocusTyping('expandedEntryFinished')} /></HiddenFromVoiceOverOnIos><PeopleField people={peopleListField} chipGoneTo={view.peopleList?.chipGoneTo ?? null} place={peopleListPlacement} corners={entryBox === null ? undefined : cornerStyleOnTables(entryBox, gridNow)} keepsToColumn={doesPeopleListKeepToColumn} within={popupBounds} onPersonRemoved={removePersonFromField} onSized={noteEntryHelperRect} typed={entryTextLooks}><CellEntryHint grid={gridNow} /><WordsOffered grid={gridNow} offered={view.wordsOffered} isKeyDrawn={isOfferKeyDrawn} store={store} /><FormulaArriving grid={gridNow} stage={formulaFromWords.stage} actsHeld={formulaFromWords.actsHeld} text={mode.kind === 'editing' ? mode.text : ''} isInFontOfFormulas={isEditingFormula} dispatch={dispatchFromEntryHelper} />{cellEditor}</PeopleField><HiddenFromVoiceOverOnIos isHidden={isGridHiddenFromReaders}><WordsOfferedButton grid={gridNow} offered={view.wordsOffered} isKeyDrawn={isOfferKeyDrawn} onPressed={pressWordsOffered} /><ExpandButtonAtSelection grid={gridNow} entryBoxRef={typingFieldRef} zoom={zoom} isHeldBack={isAnyLayerHeldBack || isWrapOffered} wasLastPressByMouse={() => wasLastPressByMouseRef.current} onPressed={() => dispatchThenFocusTyping('entryExpandedOrCollapsed')} /></HiddenFromVoiceOverOnIos></TextWidthProvider>{gridNow.editorBox !== null &&
                         gridNow.editorFlagStands !== null &&
                         entryCellLabel !== null &&
                         (<div aria-hidden className="sheet-name-flags-of-others sheet-flag-on-editor" data-stands={gridNow.editorFlagStands} style={outlineBoxInBody(gridNow.editorBox, gridNow.body)}><div><span style={{
@@ -9378,13 +10037,16 @@ export function SheetsPage({
                               }}><bdi>{entryCellLabel.sheet}</bdi>{entryCellLabel.cell}</span></div></div>)}</div></div>{importOnGrid.pictureOverGrid}<AddColumnsPopover isOpen={isColumnCountCardOpen} columnCount={gridNow.columnCount} opener={getAddColumnsButton} onShut={() => setIsColumnCountCardOpen(false)} onKeyPressed={noteCaretAtEndOnKey} onCountChosen={(count) => {
                   askLinesAtEnd('columns', count);
                   forgetComeToByTab();
-                }} whatHasCaretAfter={whatHasCaretAfter} /><CalendarUnderCell popupRef={calendarPopupRef} calendar={view.calendar} anchor={calendarAnchor} isEntryOpen={mode.kind === 'editing'} timesAsked={view.timesCalendarAsked} whatHasCaretAfter={whatHasCaretAfter} isKeyboardLeftOutside={isPageLeftWithoutPointer} onGivenUp={closeCalendarIfStill} onShut={closeCalendar} onDayChosen={chooseDay} onTimeChosen={chooseTime} onKeyDown={onCalendarKeyDown} onKeyBroughtCaret={redispatchKeyToFocused} />{view.interactive !== null &&
-                <InteractiveSheetSection key={interactiveViewId} sectionRef={interactiveSectionRef} wasKeyPressedLast={wasKeyPressedLast} runsOn={interactivesRunOn} interactive={view.interactive} zoom={zoom} isViewOnly={isViewOnly} onWrite={(cells, whenWritten) => {
+                }} whatHasCaretAfter={whatHasCaretAfter} /><CalendarUnderCell popupRef={calendarPopupRef} calendar={view.calendar} anchor={calendarAnchor} isEntryOpen={mode.kind === 'editing'} timesAsked={view.timesCalendarAsked} whatHasCaretAfter={whatHasCaretAfter} isKeyboardLeftOutside={isPageLeftWithoutPointer} onGivenUp={closeCalendarIfStill} onShut={closeCalendar} onDayChosen={chooseDay} onTimeChosen={chooseTime} onKeyDown={onCalendarKeyDown} onKeyBroughtCaret={redispatchKeyToFocused} onCaretCame={noteCalendarOpenedOnIos} />{view.recordsOfTable !== null &&
+                <RecordsTable key={view.recordsOfTable.sheetId} records={view.recordsOfTable} found={view.foundInTable} selected={view.selectedInTable} onCellPicked={pickCellOfTable} isEventUnfinished={isTableEventUnfinished} onKeyForCells={onRecordsKeyDown} isLoading={connectedTableBar?.isLoading === true} zoom={zoom} onKeyDown={onInteractiveKeyDown} wasKeyPressedLast={wasKeyPressedLast} scrollerRef={recordsScrollerRef} isPointedIn={isRecordsPointedIn} columnInUse={isRecordsPointedIn ? pointedColumnId : filterListColumn} inUseFrom={isRecordsPointedIn ? (pointedAnchor?.columnId ?? null) : null} onNamePressed={pickColumnOfTable} onCopyChosen={copyFromTableColumn} isViewOnly={isViewOnly} onColumnSized={sizeColumnOfTable} />}{view.interactive !== null &&
+                <InteractiveSheetSection key={interactiveViewId} sectionRef={interactiveSectionRef} wasKeyPressedLast={wasKeyPressedLast} runsOn={interactivesRunOn} interactive={view.interactive} zoom={zoom} isViewOnly={isViewOnly} onWrite={(cells, press, whenWritten) => {
                     if (interactiveViewId !== null)
                       store.dispatch({
                         kind: 'interactiveWrote',
                         viewId: interactiveViewId,
                         cells,
+                        press,
+                        ...newInteractiveSitting(),
                       });
                     store.lookOnceEventsAreFinished(() => {
                       ReactDOM.flushSync(() => {
@@ -9392,18 +10054,33 @@ export function SheetsPage({
                       });
                       whenWritten();
                     });
-                  }} onKeyForPage={(focusMove) => void moveCaretTo('cells', focusMove === 'nextPart' ? 1 : -1)} onKeyDown={onInteractiveKeyDown} onGoneWithKeyboard={focusCaret} fix={interactiveChartAsk} />}</div><ErrorsOfferNotice count={canPersonEdit && !isErrorsAtOpeningOffered && ((isChatToBeHad ?? wasChatToBeHad) || view.fixesOnCells !== null)
+                  }} onCellsOffered={() => setCellsOfferedFor(interactiveViewId)} onDrawnOrNot={setIsInteractiveDrawn} onCellShown={(place) => {
+                    if (interactiveViewId !== null)
+                      store.dispatch({
+                        kind: 'interactiveShowedCell',
+                        place: {
+                          ...place,
+                          viewId: interactiveViewId,
+                        },
+                      });
+                  }} onKeyForPage={(focusMove) =>
+                    focusMove === 'undo' || focusMove === 'redo'
+                      ? store.dispatch({
+                          kind: 'reversalInInteractiveAsked',
+                          reversal: focusMove === 'undo' ? 'undoOfAPress' : 'redo',
+                        })
+                      : void moveCaretTo('cells', focusMove === 'nextPart' ? 1 : -1)} onKeyDown={onInteractiveKeyDown} onGoneWithKeyboard={focusCaret} fix={interactiveChartAsk} />}</div><ErrorsOfferNotice count={canPersonEdit && !isErrorsAtOpeningOffered && ((isChatToBeHad ?? wasChatToBeHad) || view.fixesOnCells !== null)
                 ? (view.errorsOffered?.count ?? null)
-                : null} countOffered={view.countOfErrorsOffered} isHeldBack={isAnyLayerHeldBack || isErrorsAtOpeningOffered || cornerOfErrorsOffered === null} areItsCellsInView={view.grid.areCellsOfErrorsOfferInView} canAttach={view.selectionByAddress !== null || view.isOneRangeNeeded} isChatToBeHad={isChatToBeHad ?? wasChatToBeHad} anchor={errorCornerAnchor} place={`${errorCornerLeft} ${errorCornerTop}`} stageOfFixes={view.fixesOnCells?.stage ?? null} countOfFixes={view.fixesOnCells?.count ?? 0} pressForFixes={pressForFixesTracker} holdOnFixes={view.holdsOnAgentsAnswers.fixes} onActHeldAtFixes={holdActAtFixes} onFixesActedOn={onFixesAct} onFixAsked={askAgentToFixAfterEdit} onPutAway={putAwayErrorsOffer} onWheelTurned={forwardWheelToCells} onKeyPressed={onErrorsNoticeKeyDown} onGoneWithFocus={returnFocusAfterErrorsNotice} /><FixPill cellKey={actableFixPillKey} shown={pillOfFix?.shown ?? null} formulaIfCut={pillOfFix?.formulaIfCut ?? null} cellHeight={(fixPillHeight ?? 0) * zoom} came={fixKeyCameAt} anchor={fixPillAnchor} side={pillOfFix?.side ?? null} hold={view.holdsOnAgentsAnswers.fixes} onActHeld={holdActAtFixes} onActedOn={onFixActedOn} onPointed={fixPointer.isOnPill} /><div className={`sheet-bar ${sheetBehindSidePaneClass}`} style={headerRoomStyle} onPointerDownCapture={({ pointerType }) => {
+                : null} countOffered={view.countOfErrorsOffered} isHeldBack={isAnyLayerHeldBack || isErrorsAtOpeningOffered || cornerOfErrorsOffered === null} areItsCellsInView={view.grid.areCellsOfErrorsOfferInView} canAttach={view.selectionByAddress !== null || view.isOneRangeNeeded} isChatToBeHad={isChatToBeHad ?? wasChatToBeHad} anchor={errorCornerAnchor} place={`${errorCornerLeft} ${errorCornerTop}`} stageOfFixes={view.fixesOnCells?.stage ?? null} countOfFixes={view.fixesOnCells?.count ?? 0} pressForFixes={pressForFixesTracker} holdOnFixes={view.holdsOnAgentsAnswers.fixes} onActHeldAtFixes={holdActAtFixes} onFixesActedOn={onFixesAct} onFixAsked={askAgentToFixAfterEdit} onPutAway={putAwayErrorsOffer} onWheelTurned={forwardWheelToCells} onKeyPressed={onErrorsNoticeKeyDown} onGoneWithFocus={returnFocusAfterErrorsNotice} /><FixPill cellKey={actableFixPillKey} shown={pillOfFix?.shown ?? null} formulaIfCut={pillOfFix?.formulaIfCut ?? null} cellHeight={(fixPillHeight ?? 0) * zoom} came={fixKeyCameAt} anchor={fixPillAnchor} side={pillOfFix?.side ?? null} hold={view.holdsOnAgentsAnswers.fixes} onActHeld={holdActAtFixes} onActedOn={onFixActedOn} onPointed={fixPointer.isOnPill} /><div className={`sheet-bar ${sheetBehindSidePaneClass}`} aria-hidden={isGridHiddenFromReaders || undefined} style={headerRoomStyle} onPointerDownCapture={({ pointerType }) => {
               isSheetPointingBlockedRef.current = pointerType === 'touch';
             }} onKeyDownCapture={() => {
               isSheetPointingBlockedRef.current = false;
             }}><SheetPicker ref={sheetTabsRef} addSheetButton={addSheetButtonRef} listedSheets={importOnGrid.listedSheets} viewOnlyBecause={view.viewOnlyBecause} isUnfinishedFormulaOpen={view.isUnfinishedFormulaOpen} onListOpenChange={onSheetsLayerOpenChange} whatHasCaretAfterList={whatHasCaretAfter} timesRenameBegunElsewhere={timesRenameBegunElsewhere} onKeyDown={onSheetsTabsKeyDown} isChosenForFormula={canSwitchSheet} onImportChosen={chooseImportFile} filesForAgent={filesOfferedToAgent} onFileForAgentChosen={askFilesForAgent} lookOnceEventsAreFinished={lookOnceEventsAreFinished} dispatch={dispatchFromSheetTabs} />{view.viewOnlyBecause === null && importFilePicker.input}{view.calculating !== null &&
                 <CalculatingSpinner isTurning={view.calculating === 'underWay'} />}<ContentsBox onMouseDown={preventMouseDownDefault} onKeyDown={onFiguresKeyDown}><SelectionFigures kept={view.figuresOfSelection} signsOfNumbers={view.signsOfNumbers} store={store} inPage={cellsRef} onMenuOpenChange={onFiguresLayerOpenChange} whatHasCaretAfter={whatHasCaretAfter} /></ContentsBox><ContentsBox onMouseDown={preventMouseDownDefault} onKeyDown={onSheetsBarKeyDown}>{atEndOfSheetBar}</ContentsBox>{areViewToolsAtFoot &&
                 <div ref={shownViewToolsRef} role="presentation" className="sheet-view-tools" onMouseDown={preventMouseDownDefault} onKeyDown={onViewToolsKeyDown}><TooltipGroup>{viewMenu}</TooltipGroup></div>}</div><div ref={overGridRef} className="sheet-over-grid">{(view.formatOfSelection !== null || isInteractiveWritable || versionLook !== null) &&
-              (<div ref={setFootBar} className={`sheet-foot ${sheetBehindSidePaneClass}`} data-has-format-tools={contextBar !== false || undefined} data-is-entry-open={mode.kind === 'editing' || undefined} data-keeps-room-of-pane={isRoomKeptForGonePane ? 'of-gone-pane' : undefined} role="presentation">{areWaysInSeen &&
+              (<div ref={setFootBar} className={`sheet-foot ${sheetBehindSidePaneClass}`} data-has-format-tools={contextBar !== false || undefined} data-is-entry-open={mode.kind === 'editing' || undefined} role="presentation">{areWaysInSeen &&
                     versionLook === null &&
-                    <ContentsBox {...waysInFocus}><WaysInToolbar ref={setFootNoticeElement} onAskAgent={askAgentFromWaysInOffer} onImportChosen={chooseImportFile} filesForAgent={filesOfferedToAgent} onFileForAgentChosen={askFilesForAgent} whatHasCaretAfter={whatHasCaretAfter} onMenuOpenChange={onWaysInLayerOpenChange} onKeyDown={onWaysInKeyDown} /></ContentsBox>}<UndoAgentTurnCard offer={undoOfferOnCard} isBeingTaken={addedChartOnCard === null && !isPlainUndoOfferShown && view.isUndoOfTurnAwaited} onTaken={addedChartOnCard === null ? takeUndoOfferShown : undoAddedChart} ref={setUndoOfTurnCard} onKeyDown={onUndoOfTurnKeyDown} onGoneWithKeyboard={focusCaret} onLeftAlone={liftUndoCardNextFrame} wait={addedChartOnCard === null ? (undoOfferShown?.wait ?? null) : null} onSeenLongEnough={(wait) =>
+                    <ContentsBox {...waysInFocus}><WaysInToolbar ref={setFootNoticeElement} isHiddenFromReaders={isGridHiddenFromReaders} onAskAgent={askAgentFromWaysInOffer} onImportChosen={chooseImportFile} filesForAgent={filesOfferedToAgent} onFileForAgentChosen={askFilesForAgent} whatHasCaretAfter={whatHasCaretAfter} onMenuOpenChange={onWaysInLayerOpenChange} onKeyDown={onWaysInKeyDown} /></ContentsBox>}<UndoAgentTurnCard offer={undoOfferOnCard} isBeingTaken={addedChartOnCard === null && !isPlainUndoOfferShown && view.isUndoOfTurnAwaited} onTaken={addedChartOnCard === null ? takeUndoOfferShown : undoAddedChart} ref={setUndoOfTurnCard} isHiddenFromReaders={isGridHiddenFromReaders} onKeyDown={onUndoOfTurnKeyDown} onGoneWithKeyboard={focusCaret} onLeftAlone={liftUndoCardNextFrame} wait={addedChartOnCard === null ? (undoOfferShown?.wait ?? null) : null} onSeenLongEnough={(wait) =>
                       store.dispatch(
                         isPlainUndoOfferShown
                           ? {
@@ -9413,16 +10090,16 @@ export function SheetsPage({
                               kind: 'workShownLongEnough',
                               wait,
                             },
-                      )} /><UiRoot render={<Surface elevation="panel" className="sheet-card-of-tools flex max-w-full items-center gap-1 p-1" onMouseDownCapture={leavePlacedViewOnPress} onClickCapture={leavePlacedViewOnPress} />}>{versionLook !== null &&
+                      )} /><UiRoot render={<Surface elevation="panel" className="sheet-card-of-tools flex max-w-full items-center gap-1 p-1" aria-hidden={(isGridHiddenFromReaders && !(isNarrowWithFormatBar && areTabsAway && view.calendar === null)) || undefined} onMouseDownCapture={leavePlacedViewOnPress} onClickCapture={leavePlacedViewOnPress} />}>{versionLook !== null &&
                         view.versionHistory !== null &&
                         <EarlierVersionBar history={view.versionHistory} look={versionLook} onAct={onVersionHistoryAct} barRef={versionBarRef} onRoomForRestore={setIsRestoreInBar} onKeyDown={onFormatToolsKeyDown} onGoneWithKeyboard={focusCaret} />}{versionLook === null && contextBar}{versionLook === null &&
                         isNarrowWithFormatBar &&
                         areTabsAway &&
                         !isFormulaAskedOrProposed(view) &&
-                        <HideKeyboardButton onPressed={leaveMenuAndEntryOnPress} />}{versionLook === null && readerBar}</UiRoot><DoneByAgentCard done={addedChartOnCard === null && view.doneByAgent?.isCardUp === true ? view.doneByAgent : null} /></div>)}</div></div><CellContextMenu isOpen={view.menu !== null && !isMenuHoldingField(view.menu)} isAskedByKey={view.menu?.isAskedByKey === true} placeAsked={menuAt} onWindowLeftWithMenuAskedAt={closeMenuIfAskedAt} staysOpenAsWindowIsLeft={isBlurPending} isAskedToSearch={view.menu?.isToSearch === true} isOfContextBar={view.menu?.isOfContextBar === true} isOfHandleOfTable={view.menu?.ofHandleOfTable !== undefined} ofChart={chartMenuOf} cardUnderChart={cardUnderChartRef} onChartCopyChosen={chooseChartCopy} onChartDeleteChosen={chooseChartDelete} canInsertChart={chartNotice === null && areFormatToolsInView} canCellsMakeChart={view.chartsOnOffer.length > 0 && (canChartBeAsked !== false || areChartKindsForPage)} onChartCardAsked={askChartFromMenu} onKeyDownInMenuOfHandle={onTableMenuKeyDown} anchor={menuAnchor} side={view.menu?.side ?? null} whatHasCaretAfter={whatHasCaretAfterContextBarMenu} linkUrl={view.linkOfActiveCell} linkInWordsUrl={view.linkInWordsOfActiveCell?.url ?? null} isLinkInWordsBuilt={view.isAddressOfActiveCellBuilt} selectionIsOf={view.selectionIsOf} selectedRowCount={view.selectedRowCount} selectedColumnCount={view.selectedColumnCount} selectedCellCount={view.selectedCellCount} rowCountToSize={view.rowCountToSize} columnCountToSize={view.columnCountToSize} isOneRangeNeeded={view.isOneRangeNeeded} isSelectionCutByOwnFilters={view.isSelectionCutByOwnFilters} isSelectionCutByOwnSort={view.isSelectionCutByOwnSort} heldToPaste={lastPutHereHolds} canPasteValuesOnly={valuesOfLastPutHere !== null} canMergeSelection={view.canMergeSelection} canUnmergeSelection={view.canUnmergeSelection} canMoveSelectionBack={view.canMoveSelectionBack} canMoveSelectionOn={view.canMoveSelectionOn} freezeChoices={view.freezeChoices} groupChoices={view.groupChoices} canDeleteSelectedRows={view.canDeleteSelectedRows} canDeleteSelectedColumns={view.canDeleteSelectedColumns} areWholeRowsSelected={view.areWholeRowsSelected} areWholeColumnsSelected={view.areWholeColumnsSelected} columnToSortBy={view.columnToSortBy} canSortSelectedRange={view.canSortSelectedRange} columnToSortSelectedRangeBy={view.columnToSortSelectedRangeBy} columnsOfferedToSortBy={view.columnsOfferedToSortBy} headingToSortBy={view.headingToSortBy} headingToSortSelectedRangeBy={view.headingToSortSelectedRangeBy} keysToSortBy={view.keysToSortBy} canSortTableAtCell={view.canSortTableAtCell} menuSortsFor={view.menuSortsFor} keysToSortSelectedRangeBy={view.keysToSortSelectedRangeBy} formatOfSelection={view.menu === null ? null : view.formatOfSelection} holdsOnlyFigures={view.menu?.holds === 'figures'} holdsNoEdits={view.menu?.holds === 'noEdits'} ownFilterOffers={view.ownFilterOffers} formatAsTableOffer={view.formatAsTableOffer} figures={view.figures} isChatToBeHad={isChatToBeHad} wasChatToBeHad={wasChatToBeHad} hasAddressForAgent={view.selectionByAddress !== null} doCellsShowError={canPersonEdit && doesSelectionShowError(view)} canActiveCellBeFixedHere={fixOfferOfMenu === 'ofActiveCell' || fixOfferOfMenu === 'ofSelectedCells'} isFixOfActiveCellYetToBeKnown={fixOfferOfMenu === 'yetToBeKnown'} onFixAsked={fixOfferOfMenu === 'ofSelectedCells' ? askFixesOfSelectedCells : askFixFromCellMenu} onClosed={closeMenu} onLinkOpened={openLinkFromMenu} onLinkCopied={copyLinkAddress} linkByHandOffered={view.linkByHandOffered} doesKeyOpenLinkForm={view.doesKeyOpenLinkForm} onLinkFormAsked={askLinkForm} onLinkCardAsked={askLinkCard} isCommentOffered={view.isCommentOffered && versionLook === null} onCopyOrCutChosen={askCopyOrCutFromMenu} keyThatPastes={isKeyboardLikely ? PRIMARY_MODIFIER_NAME : null} onPasteChosen={pasteFromMenu} onPasteMeantForCells={notePasteEvent} onCommentChosen={chooseComment} onClearChosen={clearCellsFromMenu} onChangeChosen={chooseSheetChange} onOwnFilterAsked={askOwnFilter} onSortAndFilterAsked={askSortFromMenu} onOwnFilterByCellChosen={chooseOwnFilterByCell} onOwnFilterRemoved={clearOwnFiltersOfTable} onFormatAsTableChosen={chooseFormatAsTable} onColumnToSortByChosen={chooseColumnToSortBy} onFreezeChosen={chooseFreeze} onGroupLevelChosen={chooseGroupLevelFromMenu} onFormatChosen={chooseCellFormatInMenu} cellTypes={cellTypes} onConditionalFormatsAsked={askRulesFromCells} onSortPaneAsked={askSortPaneFromMenu} onFigureChosen={chooseFigure} areDropdownsSelected={view.canDropdownBeRemoved} onInsertChosen={insertCellControlFromMenu} isCellHistoryOffered={view.canCellHistoryBeAsked} onCellHistoryAsked={askCellHistory} isActiveCellOfPivotTable={view.isActiveCellOfPivotTable} onPivotTableAsked={askPivotTable} onAgentAsked={askAgentAboutSelectionFromMenu} onAgentAskedInComment={chooseCommentForAgent} onFindAskedFor={view.menu === null ? ignoreFindAsked : openFind} addressOfActiveCell={view.menu === null ? null : (view.selectionByAddress?.activeCell ?? null)} commandsOfBar={view.menu === null ? noCommandsOfBar : commandsOfBar} commandsOfTyped={view.menu === null ? noCommandsOfTyped : commandsOfTyped} commandsByName={view.menu === null ? noCommandsByName : commandsByName} onSearchBegun={askCostsInMenu} askForCommands={askForCommands} canAskForCommands={store.canAskForCommands} isAgentForToolsExpected={isAgentForToolsExpected} onOpened={askWhetherAgentCanBeSent} couldCommentGoToAgent={couldSendToAgent} mightChatLeaveSheet={isChatOfferedInMenu} canRuleBeAskedInWords={view.doRulesOpenInCard && view.formatOfSelection !== null} rulesInMenu={conditionalFormatsInMenu?.isAboutWords === true ? conditionalFormatsInMenu : null} rulesSuggested={conditionalFormatsInMenu?.suggestions ?? null} onSuggestedRulesWanted={suggestRulesInMenu} onSuggestedRulePointedAt={pointAtRuleSuggestion} onSuggestedRuleTaken={takeRuleSuggestion} onRulesAsked={startOrShowRules} onRuleAskedInWords={askRuleInMenu} onRuleLetGo={letGoOfRuleInMenu} onRuleKept={keepRulesOffer} onRuleStopped={stepBackInRules} onCommandTaken={withMenuOpenedBy} /><DropdownListUnderCell list={dropdownList} anchor={dropdownAnchor} cellElementId={dropdownList === null ? null : gridNow.activeCellElementId} isCardBeside={isListLiveRegionOn} onRoomBesideMeasured={setIsListLiveRegionOn} onRowChosen={onDropdownRowChosen} onCardAsked={askCardByRestingPointer} onCardOfOptionAsked={askCardOfOption} onOptionsNamed={nameOptionsInList} onNewOptionNoLongerNamed={stopNamingNewOption} onOptionMoved={moveOptionInList} onCaretGivenBack={giveCaretBackToCells} onCardRowChosen={chooseCardRow} onCardShut={shutCard} onShut={onDropdownBlur} /><ConditionalFormattingPane pane={view.conditionalFormats} timesAsked={view.timesSidePaneAsked} changesAskedFor={view.grid.changesAskedFor} paneRef={sidePaneRef} takesNoTyping={sidePaneTakesNoTyping} paneWidth={sidePaneWidth} onPaneWidthChange={setSidePaneWidth} onKeyDownInPane={onSidePaneKeyDown} whatHasCaretAfter={whatHasCaretAfter} wasPointerPressedLast={wasPointerPressedLast} whatColorPickerShows={store.whatColorPickerShows} onAct={onConditionalFormatsAct} lookOnceEventsAreFinished={lookOnceEventsAreFinished} onPressed={returnFocusFromConditionalFormats} onShut={shutSidePane} onAskAgent={isChatToBeHadOrWas ? askAgentAboutPaneRule : null} onAskedInChat={canAskInChatAboutRules ? askForRulesInChat : null} /><DropdownPane isOpen={view.isSidePaneAboutDropdown} editor={view.dropdownEditor} timesAsked={view.timesSidePaneAsked} paneRef={sidePaneRef} takesNoTyping={sidePaneTakesNoTyping} paneWidth={sidePaneWidth} onPaneWidthChange={setSidePaneWidth} onKeyDownInPane={onSidePaneKeyDown} whatHasCaretAfter={whatHasCaretAfter} wasPointerPressedLast={wasPointerPressedLast} whatColorPickerShows={store.whatColorPickerShows} onAct={onDropdownEditorAct} onShut={shutSidePane} /><CustomSortPane pane={view.sortPane} timesAsked={view.timesSidePaneAsked} paneRef={sidePaneRef} takesNoTyping={sidePaneTakesNoTyping} paneWidth={sidePaneWidth} onPaneWidthChange={setSidePaneWidth} onKeyDownInPane={onSidePaneKeyDown} whatHasCaretAfter={whatHasCaretAfter} wasPointerPressedLast={wasPointerPressedLast} onAct={onSortPaneAct} onShut={shutSidePane} /><PivotTablePane pane={view.pivotTablePane} timesAsked={view.timesSidePaneAsked} paneRef={sidePaneRef} takesNoTyping={sidePaneTakesNoTyping} paneWidth={sidePaneWidth} onPaneWidthChange={setSidePaneWidth} onKeyDownInPane={onSidePaneKeyDown} whatHasCaretAfter={whatHasCaretAfter} wasPointerPressedLast={wasPointerPressedLast} onAct={onPivotTablePaneAct} onShut={shutSidePane} /><VersionHistoryPane history={view.versionHistory} timesAsked={view.timesSidePaneAsked} paneRef={sidePaneRef} takesNoTyping={sidePaneTakesNoTyping} paneWidth={sidePaneWidth} onPaneWidthChange={setSidePaneWidth} onKeyDownInPane={onSidePaneKeyDown} whatHasCaretAfter={whatHasCaretAfter} wasPointerPressedLast={wasPointerPressedLast} onAct={onVersionHistoryAct} isRestoreInBar={isRestoreInBar} onPressed={returnFocusFromVersionHistory} onLookAgain={lookAtVersionsAgain} onShut={shutSidePane} /><ErrorCard error={gridNow.explainedCellBox === null ? null : (view.errorExplained?.error ?? null)} by={view.errorExplained?.by ?? null} cellKey={view.errorExplained?.cellKey ?? null} canPersonEdit={canPersonEdit} isHeldBack={isAnyLayerHeldBack} anchor={errorExplainedAnchor} side={view.errorExplained === null || gridNow.explainedCellBox === null ? null : gridNow.sideOfExplainedCell} placeOfCell={`${explainedCellLeft} ${explainedCellTop} ${gridBody.width} ${gridNow.clearBodyHeight}`} isFixOffered={canPersonEdit && isChatToBeHad === true} isFixedHere={canPersonEdit && view.errorExplained?.canBeFixedHere === true} canAttach={view.selectionByAddress !== null || view.isOneRangeNeeded} mouse={errorCardHover} onFixAsked={askFixFromErrorCard} onPutAway={putAwayErrorCard} onWheelTurned={forwardWheelToCells} /><LinkCard urls={linkExplainedRect === null ? null : (view.linkExplained?.urls ?? null)} urlsOnWords={view.linkExplained?.urlsOnWords ?? NO_URLS_ON_WORDS} isInWords={view.linkExplained?.isInWords ?? null} isBuilt={view.linkExplained?.isBuilt ?? null} by={view.linkExplained?.by ?? null} cellKey={view.linkExplained?.cellKey ?? null} marked={view.linkExplained?.marked ?? null} isHeldBack={isAnyLayerHeldBack} isBroughtByFingerOrPen={(view.linkExplained?.by !== 'pointer' || view.linkExplained.isByPress) && !isLinkCardPressedAway} anchor={linkExplainedAnchor} roomAbove={gridNow.roomAboveExplainedCell} seen={linkCardSeen} mouse={linkCardHover} onLinkOpened={openLinkFromCard} onLinkCopied={copyLinkIfSeen} onEditChosen={view.viewOnlyBecause === null ? chooseLinkEdit : null} onRemoveChosen={view.viewOnlyBecause === null && (view.linkExplained?.canBeTakenOff === true || (view.linkExplained?.urlsOnWords.length ?? 0) > 0)
+                        <HideKeyboardButton onPressed={leaveMenuAndEntryOnPress} />}{versionLook === null && readerBar}</UiRoot><DoneByAgentCard done={addedChartOnCard === null && view.doneByAgent?.isCardUp === true ? view.doneByAgent : null} /></div>)}</div></div><CellContextMenu isOpen={view.menu !== null && !isMenuHoldingField(view.menu)} isAskedByKey={view.menu?.isAskedByKey === true} placeAsked={menuAt} onWindowLeftWithMenuAskedAt={closeMenuIfAskedAt} staysOpenAsWindowIsLeft={isBlurPending} isAskedToSearch={view.menu?.isToSearch === true} isOfContextBar={view.menu?.isOfContextBar === true} isOfHandleOfTable={view.menu?.ofHandleOfTable !== undefined} ofChart={chartMenuOf} cardUnderChart={cardUnderChartRef} onChartCopyChosen={chooseChartCopy} onChartDeleteChosen={chooseChartDelete} canInsertChart={chartNotice === null && areFormatToolsInView} canCellsMakeChart={view.chartsOnOffer.length > 0 && (canChartBeAsked !== false || areChartKindsForPage)} onChartCardAsked={askChartFromMenu} onKeyDownInMenuOfHandle={onTableMenuKeyDown} anchor={menuAnchor} side={view.menu?.side ?? null} whatHasCaretAfter={whatHasCaretAfterContextBarMenu} linkUrl={view.linkOfActiveCell} linkInWordsUrl={view.linkInWordsOfActiveCell?.url ?? null} isLinkInWordsBuilt={view.isAddressOfActiveCellBuilt} selectionIsOf={view.selectionIsOf} selectedRowCount={view.selectedRowCount} selectedColumnCount={view.selectedColumnCount} selectedCellCount={view.selectedCellCount} rowCountToSize={view.rowCountToSize} columnCountToSize={view.columnCountToSize} isOneRangeNeeded={view.isOneRangeNeeded} isSelectionCutByOwnFilters={view.isSelectionCutByOwnFilters} isSelectionCutByOwnSort={view.isSelectionCutByOwnSort} heldToPaste={lastPutHereHolds} canPasteValuesOnly={valuesOfLastPutHere !== null} canMergeSelection={view.canMergeSelection} canUnmergeSelection={view.canUnmergeSelection} canMoveSelectionBack={view.canMoveSelectionBack} canMoveSelectionOn={view.canMoveSelectionOn} freezeChoices={view.freezeChoices} groupChoices={view.groupChoices} canDeleteSelectedRows={view.canDeleteSelectedRows} canDeleteSelectedColumns={view.canDeleteSelectedColumns} areWholeRowsSelected={view.areWholeRowsSelected} areWholeColumnsSelected={view.areWholeColumnsSelected} columnToSortBy={view.columnToSortBy} canSortSelectedRange={view.canSortSelectedRange} columnToSortSelectedRangeBy={view.columnToSortSelectedRangeBy} columnsOfferedToSortBy={view.columnsOfferedToSortBy} headingToSortBy={view.headingToSortBy} headingToSortSelectedRangeBy={view.headingToSortSelectedRangeBy} keysToSortBy={view.keysToSortBy} canSortTableAtCell={view.canSortTableAtCell} menuSortsFor={view.menuSortsFor} keysToSortSelectedRangeBy={view.keysToSortSelectedRangeBy} formatOfSelection={view.menu === null ? null : view.formatOfSelection} holdsOnlyFigures={view.menu?.holds === 'figures'} holdsNoEdits={view.menu?.holds === 'noEdits'} ownFilterOffers={view.ownFilterOffers} formatAsTableOffer={view.formatAsTableOffer} figures={view.figures} isChatToBeHad={isChatToBeHad} wasChatToBeHad={wasChatToBeHad} hasAddressForAgent={view.selectionByAddress !== null} doCellsShowError={canPersonEdit && doesSelectionShowError(view)} canActiveCellBeFixedHere={fixOfferOfMenu === 'ofActiveCell' || fixOfferOfMenu === 'ofSelectedCells'} isFixOfActiveCellYetToBeKnown={fixOfferOfMenu === 'yetToBeKnown'} onFixAsked={fixOfferOfMenu === 'ofSelectedCells' ? askFixesOfSelectedCells : askFixFromCellMenu} onClosed={closeMenu} onLinkOpened={openLinkFromMenu} onLinkCopied={copyLinkAddress} linkByHandOffered={view.linkByHandOffered} doesKeyOpenLinkForm={view.doesKeyOpenLinkForm} onLinkFormAsked={askLinkForm} onLinkCardAsked={askLinkCard} isCommentOffered={view.isCommentOffered && versionLook === null} onCopyOrCutChosen={askCopyOrCutFromMenu} keyThatPastes={isKeyboardLikely ? PRIMARY_MODIFIER_NAME : null} onPasteChosen={pasteFromMenu} onPasteMeantForCells={notePasteEvent} onCommentChosen={chooseComment} onClearChosen={clearCellsFromMenu} onChangeChosen={chooseSheetChange} onOwnFilterAsked={askOwnFilter} onSortAndFilterAsked={askSortFromMenu} onOwnFilterByCellChosen={chooseOwnFilterByCell} onOwnFilterRemoved={clearOwnFiltersOfTable} onFormatAsTableChosen={chooseFormatAsTable} onColumnToSortByChosen={chooseColumnToSortBy} onFreezeChosen={chooseFreeze} onGroupLevelChosen={chooseGroupLevelFromMenu} onFormatChosen={chooseCellFormatInMenu} cellTypes={cellTypes} onConditionalFormatsAsked={askRulesFromCells} onSortPaneAsked={askSortPaneFromMenu} onFigureChosen={chooseFigure} areDropdownsSelected={view.canDropdownBeRemoved} onInsertChosen={insertCellControlFromMenu} isCellHistoryOffered={view.canCellHistoryBeAsked} onCellHistoryAsked={askCellHistory} onProtectionAsked={askProtectionOfSelection} isActiveCellOfPivotTable={view.isActiveCellOfPivotTable} onPivotTableAsked={askPivotTable} onNamedRangesAsked={askNamedRanges} labelOfReset={resetToDefaultsWords} onDefaultsAsked={askFromMenuLeavingEntry} onAgentAsked={askAgentAboutSelectionFromMenu} onAgentAskedInComment={chooseCommentForAgent} onFindAskedFor={view.menu === null ? ignoreFindAsked : openFind} addressOfActiveCell={view.menu === null ? null : (view.selectionByAddress?.activeCell ?? null)} commandsOfBar={view.menu === null ? noCommandsOfBar : commandsOfBar} commandsOfTyped={view.menu === null ? noCommandsOfTyped : commandsOfTyped} commandsByName={view.menu === null ? noCommandsByName : commandsByName} onSearchBegun={askCostsInMenu} askForCommands={askForCommands} canAskForCommands={store.canAskForCommands} isAgentForToolsExpected={isAgentForToolsExpected} onOpened={askWhetherAgentCanBeSent} couldCommentGoToAgent={couldSendToAgent} mightChatLeaveSheet={isChatOfferedInMenu} canRuleBeAskedInWords={view.doRulesOpenInCard && view.formatOfSelection !== null} rulesInMenu={conditionalFormatsInMenu?.isAboutWords === true ? conditionalFormatsInMenu : null} rulesSuggested={conditionalFormatsInMenu?.suggestions ?? null} onSuggestedRulesWanted={suggestRulesInMenu} onSuggestedRulePointedAt={pointAtRuleSuggestion} onSuggestedRuleTaken={takeRuleSuggestion} onRulesAsked={startOrShowRules} onRuleAskedInWords={askRuleInMenu} onRuleLetGo={letGoOfRuleInMenu} onRuleKept={keepRulesOffer} onRuleStopped={stepBackInRules} onCommandTaken={withMenuOpenedBy} /><DropdownListUnderCell list={dropdownList} anchor={dropdownAnchor} cellElementId={dropdownList === null ? null : gridNow.activeCellElementId} isCardBeside={isListLiveRegionOn} onRoomBesideMeasured={setIsListLiveRegionOn} onRowChosen={onDropdownRowChosen} onCardAsked={askCardByRestingPointer} onCardOfOptionAsked={askCardOfOption} onOptionsNamed={nameOptionsInList} onNewOptionNoLongerNamed={stopNamingNewOption} onOptionMoved={moveOptionInList} onCaretGivenBack={giveCaretBackToCells} onCardRowChosen={chooseCardRow} onCardShut={shutCard} onShut={onDropdownBlur} /><ConditionalFormattingPane pane={view.conditionalFormats} timesAsked={view.timesSidePaneAsked} changesAskedFor={view.grid.changesAskedFor} paneRef={sidePaneRef} takesNoTyping={sidePaneTakesNoTyping} isChatCovered={false} paneWidth={sidePaneWidth} onPaneWidthChange={setSidePaneWidth} onKeyDownInPane={onSidePaneKeyDown} whatHasCaretAfter={whatHasCaretAfter} wasPointerPressedLast={wasPointerPressedLast} whatColorPickerShows={store.whatColorPickerShows} onAct={onConditionalFormatsAct} lookOnceEventsAreFinished={lookOnceEventsAreFinished} onPressed={returnFocusFromConditionalFormats} onShut={shutSidePane} onAskAgent={isChatToBeHadOrWas ? askAgentAboutPaneRule : null} onAskedInChat={canAskInChatAboutRules ? askForRulesInChat : null} /><DropdownPane isOpen={view.isSidePaneAboutDropdown} editor={view.dropdownEditor} timesAsked={view.timesSidePaneAsked} paneRef={sidePaneRef} takesNoTyping={sidePaneTakesNoTyping} paneWidth={sidePaneWidth} onPaneWidthChange={setSidePaneWidth} onKeyDownInPane={onSidePaneKeyDown} whatHasCaretAfter={whatHasCaretAfter} wasPointerPressedLast={wasPointerPressedLast} whatColorPickerShows={store.whatColorPickerShows} onAct={onDropdownEditorAct} onShut={shutSidePane} /><CustomSortPane pane={view.sortPane} timesAsked={view.timesSidePaneAsked} paneRef={sidePaneRef} takesNoTyping={sidePaneTakesNoTyping} paneWidth={sidePaneWidth} onPaneWidthChange={setSidePaneWidth} onKeyDownInPane={onSidePaneKeyDown} whatHasCaretAfter={whatHasCaretAfter} wasPointerPressedLast={wasPointerPressedLast} onAct={onSortPaneAct} onShut={shutSidePane} /><NamedRangesPane pane={view.namedRangesPane} timesAsked={view.timesSidePaneAsked} paneRef={sidePaneRef} takesNoTyping={sidePaneTakesNoTyping} paneWidth={sidePaneWidth} onPaneWidthChange={setSidePaneWidth} onKeyDownInPane={onSidePaneKeyDown} whatHasCaretAfter={whatHasCaretAfter} wasPointerPressedLast={wasPointerPressedLast} onAct={onNamedRangesPaneAct} onPressed={returnFocusFromNamedRanges} onShut={shutSidePane} /><ChangedCellsPane pane={view.changedCellsPane} timesAsked={view.timesSidePaneAsked} paneRef={sidePaneRef} takesNoTyping={sidePaneTakesNoTyping} paneWidth={sidePaneWidth} onPaneWidthChange={setSidePaneWidth} onKeyDownInPane={onSidePaneKeyDown} whatHasCaretAfter={whatHasCaretAfter} wasPointerPressedLast={wasPointerPressedLast} onAct={onChangedCellsPaneAct} onPressed={returnFocusFromChangedCells} onShut={shutSidePane} /><PivotTablePane pane={view.pivotTablePane} timesAsked={view.timesSidePaneAsked} paneRef={sidePaneRef} takesNoTyping={sidePaneTakesNoTyping} paneWidth={sidePaneWidth} onPaneWidthChange={setSidePaneWidth} onKeyDownInPane={onSidePaneKeyDown} whatHasCaretAfter={whatHasCaretAfter} wasPointerPressedLast={wasPointerPressedLast} onAct={onPivotTablePaneAct} onShut={shutSidePane} /><SourceOfTablePane call={view.sourcePane} timesAsked={view.timesSidePaneAsked} paneRef={sidePaneRef} takesNoTyping={sidePaneTakesNoTyping} paneWidth={sidePaneWidth} onPaneWidthChange={setSidePaneWidth} onKeyDownInPane={onSidePaneKeyDown} whatHasCaretAfter={whatHasCaretAfter} wasPointerPressedLast={wasPointerPressedLast} onPressed={returnFocusFromSourcePane} copy={copyOtherText} onShut={shutSidePane} /><VersionHistoryPane history={view.versionHistory} summaries={versionSummaries} timesAsked={view.timesSidePaneAsked} paneRef={sidePaneRef} takesNoTyping={sidePaneTakesNoTyping} paneWidth={sidePaneWidth} onPaneWidthChange={setSidePaneWidth} onKeyDownInPane={onSidePaneKeyDown} whatHasCaretAfter={whatHasCaretAfter} wasPointerPressedLast={wasPointerPressedLast} onAct={onVersionHistoryAct} isRestoreInBar={isRestoreInBar} onPressed={returnFocusFromVersionHistory} onLookAgain={lookAtVersionsAgain} onShut={shutSidePane} /><ErrorCard error={gridNow.explainedCellBox === null ? null : (view.errorExplained?.error ?? null)} by={view.errorExplained?.by ?? null} cellKey={view.errorExplained?.cellKey ?? null} canPersonEdit={canPersonEdit} isHeldBack={isAnyLayerHeldBack} anchor={errorExplainedAnchor} side={view.errorExplained === null || gridNow.explainedCellBox === null ? null : gridNow.sideOfExplainedCell} placeOfCell={`${explainedCellLeft} ${explainedCellTop} ${gridBody.width} ${gridNow.clearBodyHeight}`} isFixOffered={canPersonEdit && isChatToBeHad === true} isFixedHere={canPersonEdit && view.errorExplained?.canBeFixedHere === true} canAttach={view.selectionByAddress !== null || view.isOneRangeNeeded} mouse={errorCardHover} onFixAsked={askFixFromErrorCard} onPutAway={putAwayErrorCard} onWheelTurned={forwardWheelToCells} /><LinkCard urls={linkExplainedRect === null ? null : (view.linkExplained?.urls ?? null)} urlsOnWords={view.linkExplained?.urlsOnWords ?? NO_URLS_ON_WORDS} isInWords={view.linkExplained?.isInWords ?? null} isBuilt={view.linkExplained?.isBuilt ?? null} by={view.linkExplained?.by ?? null} cellKey={view.linkExplained?.cellKey ?? null} marked={view.linkExplained?.marked ?? null} isHeldBack={isAnyLayerHeldBack} isBroughtByFingerOrPen={(view.linkExplained?.by !== 'pointer' || view.linkExplained.isByPress) && !isLinkCardPressedAway} anchor={linkExplainedAnchor} roomAbove={gridNow.roomAboveExplainedCell} seen={linkCardSeen} mouse={linkCardHover} onLinkOpened={openLinkFromCard} onLinkCopied={copyLinkIfSeen} onEditChosen={view.viewOnlyBecause === null ? chooseLinkEdit : null} onRemoveChosen={view.viewOnlyBecause === null && (view.linkExplained?.canBeTakenOff === true || (view.linkExplained?.urlsOnWords.length ?? 0) > 0)
             ? chooseLinkRemove
-            : null} onPressedTooSoon={leaveLinkCard} onWheelTurned={forwardWheelToCells} onFingerCameDown={stopOnFingerDown} onSwipedByFinger={captureSwipe} /><LinkEditPopup form={isLinkFormShown ? view.linkForm : null} anchor={linkFormAnchor} whatHasCaretAfter={whatHasCaretAfter} onSaved={giveLink} onShut={shutLinkForm} /><PeopleList list={peopleList} cellAnchor={entryHelperAnchor} formulaBarAnchor={formulaBarTextStartAnchor} cellElementId={peopleList === null ? null : gridNow.activeCellElementId} isCardBeside={isEntryLiveRegionOn} onRoomBesideMeasured={setIsEntryLiveRegionOn} onRowChosen={choosePeopleListRow} onCardAsked={askCardByRestingPointer} onCardRowChosen={chooseCardRow} onCardShut={shutCard} onShut={onPeopleListBlur} /><TimeListPopup list={view.timeList} anchor={entryHelperAnchor} cellElementId={view.timeList === null ? null : gridNow.activeCellElementId} onRowChosen={chooseTimeListRow} onRowPointedAt={pointAtTimeListRow} onShut={onTimeListBlur} /><FunctionHelp list={view.functionList} guide={view.functionGuide} caretAfterPick={view.caretAfterPick} writtenWhole={view.functionWrittenWhole} typingIn={mode.kind === 'editing' ? mode.typingIn : null} isBoxInSight={typingTarget === 'formulaBar' || gridNow.editorBox !== null} isCellBoxAComboBox={isEditorACombobox} isReferencePointedAt={view.pointedCells !== null} cellAnchor={entryHelperAnchor} cellElementId={view.functionList === null ? null : gridNow.activeCellElementId} decimalSign={view.decimalSign} boxes={entryFieldRefs} dispatch={dispatchFromEntryHelper} /><FormulaFromWordsHelp formulaFromWords={formulaFromWords} typingIn={mode.kind === 'editing' ? mode.typingIn : null} cellAnchor={entryHelperAnchor} cellElementId={formulaFromWords.stage === null ? null : gridNow.activeCellElementId} boxes={entryFieldRefs} dispatch={dispatchFromEntryHelper} isFormulaTyped={mode.kind === 'editing' && mode.text.startsWith('=')} /><KeyboardShortcutsDialog isOpen={view.isListOfKeysOpen} isViewOnly={isViewOnly} hasComments={view.hasCommentsOnCells} whatHasCaretAfter={whatHasCaretAfterKeysList} onShut={shutListOfKeys} />{guide !== undefined &&
-        <WalkthroughCard guide={guide.from} store={store} anchor={guideAnchor} areCellsLit={boxesLitByLink.length > 0} isAtEnd={isGuideAtEnd} isPersonAtWorkInPage={guide.isPersonAtWorkInPage} onKeyDown={onGuideKeyDown} giveCaretBack={returnFocusAfterErrorsNotice} />}<CellHistoryPopover history={view.cellHistory} anchor={cellHistoryAnchor} decimalSign={view.decimalSign} whatHasCaretAfter={whatHasCaretAfterLayer} onScopeChosen={chooseCellHistoryScope} onTryAgain={askCellHistoryAgain} onLookAgain={lookAtCellHistoryAgain} onShut={shutCellHistory} /><OwnFilterList list={view.ownFilterList} clearAtFoot={!isFilterListOpenerShown ? filterListClearAtFoot : hangsBesideTable ? clearAtFoot : 0} onDrawn={!isFilterListOpenerShown ? noteFilterListDrawn : hangsBesideTable ? noteColumnsCardDrawn : null} anchor={!isFilterListOpenerShown ? filterListAnchor : hangsBesideTable ? besideTableAnchor : filterListOpener.anchor} whatHasCaretAfter={whatHasCaretAfterOwnFilterList} onGone={forgetClosedFilterListOpener} onBack={isFilterListFromButton ? askSortCardFromFilterList : null} onAct={onFilterListAct} onSort={view.viewOnlyBecause === null || view.ownFilterList?.sort?.isForOneself === true ? chooseFilterListSort : null} onShut={shutOwnFilterList} onActedWithin={clearFilterListLeftByPress} /><ColumnWidthDialog isOpen={isColumnWidthFieldOpen} columnCount={view.columnCountToSize} widthInPixels={view.selectedColumnWidth} whatHasCaretAfter={whatHasCaretAfterLayer} onWidthChosen={chooseColumnWidth} /><RowHeightDialog isOpen={isRowHeightFieldOpen} rowCount={view.rowCountToSize} heightInPixels={view.selectedRowHeight} isHeightGiven={view.isSelectedRowHeightGiven} density={view.density} onDensityChosen={chooseDensity} whatHasCaretAfter={whatHasCaretAfterLayer} onHeightChosen={chooseRowHeight} /><SortScopeDialog asked={view.cellsToSortAsked} whatHasCaretAfter={whatHasCaretAfterPaneLayer} onChosen={chooseCellsToSort} /><CustomNumberFormatDialog entry={view.customNumberFormat?.typedIn === 'dialog' ? view.customNumberFormat : null} isAgentOffered={view.isAgentOfferedForPattern && !isComposing} whatHasCaretAfter={whatHasCaretAfterLayer} onTyped={typeCustomNumberFormat} onEntered={enterCustomNumberFormat} onDropped={dropCustomNumberFormat} onEscaped={escapeCustomNumberFormat} onAgentAsked={askAgentForNumberFormat} onActHeld={holdActAtNumberFormat} /><AgentsAnswerHolds holds={view.holdsOnAgentsAnswers} store={store} /><HiddenTextPasteDialog shown={view.pasteThatWaits} whatHasCaretAfter={whatHasCaretAfterLayer} onAnswered={answerPasteThatWaits} /><LocaleTimeZoneDialog pick={view.pickForWorkbook} whatHasCaretAfter={whatHasCaretAfterLayer} onPicked={pickForWorkbook} onEntered={enterPickForWorkbook} onDropped={dropPickForWorkbook} /><ImportDialog importOfAFile={view.importOfAFile} fileAwaited={view.fileAwaited} whatHasCaretAfter={whatHasCaretAfterLayer} onAnswered={answerImportQuestion} onDestinationPicked={chooseImportDestination} onChangedByHand={changeImportByHand} onKindsWanted={askImportKinds} onWished={sendImportWish} onAskedAgain={askImportPlanAgain} onAwaitedNoLonger={stopAwaitingImportPlan} {...importOnGrid.dialog} onKept={keepImport} onFileAsked={chooseImportFileOfAnyKind} onFileDropped={takeDroppedFile} chooseButtonRef={chooseFileButtonRef} isKeyboardLeftOutside={callLatestAfterDialog} wasKeyPressedLast={wasKeyPressedLast} onCaretOwed={noteDialogReturn} /><ExportReadyDialog file={view.xlsxFileReady} whatHasCaretAfter={whatHasCaretAfterLayer} onShut={shutXlsxFileDialog} /><PageFileDrop isTaken={canTakeDroppedFile(view) && !isAnyLayerHeldBack} wayInByKeyboard={addSheetButtonRef} onDropped={takeDroppedImport} /></div>;
+            : null} onCaretGivenBack={giveCaretBackToTyping} onPressedTooSoon={leaveLinkCard} onWheelTurned={forwardWheelToCells} onFingerCameDown={stopOnFingerDown} onSwipedByFinger={captureSwipe} /><LinkEditPopup form={isLinkFormShown ? view.linkForm : null} anchor={linkFormAnchor} whatHasCaretAfter={whatHasCaretAfter} onSaved={giveLink} onShut={shutLinkForm} /><PeopleList list={peopleList} cellAnchor={entryHelperAnchor} formulaBarAnchor={formulaBarTextStartAnchor} cellElementId={peopleList === null ? null : gridNow.activeCellElementId} isCardBeside={isEntryLiveRegionOn} onRoomBesideMeasured={setIsEntryLiveRegionOn} onRowChosen={choosePeopleListRow} onCardAsked={askCardByRestingPointer} onCardRowChosen={chooseCardRow} onCardShut={shutCard} onShut={onPeopleListBlur} /><TimeListPopup list={view.timeList} anchor={entryHelperAnchor} cellElementId={view.timeList === null ? null : gridNow.activeCellElementId} onRowChosen={chooseTimeListRow} onRowPointedAt={pointAtTimeListRow} onShut={onTimeListBlur} /><FunctionHelp list={view.functionList} guide={view.functionGuide} caretAfterPick={view.caretAfterPick} writtenWhole={view.functionWrittenWhole} typingIn={mode.kind === 'editing' ? mode.typingIn : null} isBoxInSight={typingTarget === 'formulaBar' || gridNow.editorBox !== null} isCellBoxAComboBox={isEditorACombobox} isReferencePointedAt={view.pointedCells !== null} cellAnchor={entryHelperAnchor} cellElementId={view.functionList === null ? null : gridNow.activeCellElementId} decimalSign={view.decimalSign} boxes={entryFieldRefs} dispatch={dispatchFromEntryHelper} /><FormulaFromWordsHelp formulaFromWords={formulaFromWords} typingIn={mode.kind === 'editing' ? mode.typingIn : null} typed={mode.kind === 'editing' ? mode.text : null} isKeyboardLeftOutside={isPageLeftUntouched} cellAnchor={entryHelperAnchor} cellElementId={formulaFromWords.stage === null ? null : gridNow.activeCellElementId} boxes={entryFieldRefs} dispatch={dispatchFromEntryHelper} isFormulaTyped={mode.kind === 'editing' && mode.text.startsWith('=')} /><KeyboardShortcutsDialog isOpen={view.isListOfKeysOpen} isViewOnly={isViewOnly} hasComments={view.hasCommentsOnCells} whatHasCaretAfter={whatHasCaretAfterKeysList} onShut={shutListOfKeys} />{guide !== undefined &&
+        <WalkthroughCard guide={guide.from} store={store} anchor={guideAnchor} areCellsLit={boxesLitByLink.length > 0} isAtEnd={isGuideAtEnd} hasRoomOverBars={gridBody.height * zoom > GUIDE_CARD_HEIGHT} isPersonAtWorkInPage={guide.isPersonAtWorkInPage} onKeyDown={onGuideKeyDown} giveCaretBack={returnFocusAfterErrorsNotice} />}<CellHistoryPopover history={view.cellHistory} anchor={cellHistoryAnchor} decimalSign={view.decimalSign} whatHasCaretAfter={whatHasCaretAfterLayer} onScopeChosen={chooseCellHistoryScope} onTryAgain={askCellHistoryAgain} onLookAgain={lookAtCellHistoryAgain} onShut={shutCellHistory} /><OwnFilterList list={view.ownFilterList} clearAtFoot={!isFilterListOpenerShown ? filterListClearAtFoot : hangsBesideTable ? clearAtFoot : 0} onDrawn={!isFilterListOpenerShown ? noteFilterListDrawn : hangsBesideTable ? noteColumnsCardDrawn : null} anchor={!isFilterListOpenerShown ? filterListAnchor : hangsBesideTable ? besideTableAnchor : filterListOpener.anchor} whatHasCaretAfter={whatHasCaretAfterOwnFilterList} onGone={forgetClosedFilterListOpener} onBack={isFilterListFromButton ? askSortCardFromFilterList : null} onAct={onFilterListAct} onSort={view.viewOnlyBecause === null || view.ownFilterList?.sort?.isForOneself === true ? chooseFilterListSort : null} onShut={shutOwnFilterList} onActedWithin={clearFilterListLeftByPress} /><ColumnWidthDialog isOpen={isColumnWidthFieldOpen} columnCount={view.columnCountToSize} widthInPixels={view.selectedColumnWidth} whatHasCaretAfter={whatHasCaretAfterLayer} onWidthChosen={chooseColumnWidth} /><RowHeightDialog isOpen={isRowHeightFieldOpen} rowCount={view.rowCountToSize} heightInPixels={view.selectedRowHeight} isHeightGiven={view.isSelectedRowHeightGiven} density={view.density} onDensityChosen={chooseDensity} whatHasCaretAfter={whatHasCaretAfterLayer} onHeightChosen={chooseRowHeight} /><ProtectionDialog shown={view.protectionDialog} people={people} whatHasCaretAfter={whatHasCaretAfterLayer} onChosen={chooseProtection} /><DefaultAndLimitsDialog shown={view.defaultAndLimitsDialog} whatHasCaretAfter={whatHasCaretAfterLayer} onChosen={chooseDefaultAndLimits} /><SortScopeDialog asked={view.cellsToSortAsked} whatHasCaretAfter={whatHasCaretAfterPaneLayer} onChosen={chooseCellsToSort} /><CustomNumberFormatDialog entry={view.customNumberFormat?.typedIn === 'dialog' ? view.customNumberFormat : null} isAgentOffered={view.isAgentOfferedForPattern && !isComposing} whatHasCaretAfter={whatHasCaretAfterLayer} onTyped={typeCustomNumberFormat} onEntered={enterCustomNumberFormat} onDropped={dropCustomNumberFormat} onEscaped={escapeCustomNumberFormat} onAgentAsked={askAgentForNumberFormat} onAskedInChat={canAskInChatAboutRules ? askForNumberFormatInChat : null} onActHeld={holdActAtNumberFormat} /><AgentsAnswerHolds holds={view.holdsOnAgentsAnswers} store={store} /><HiddenTextPasteDialog shown={view.pasteThatWaits} whatHasCaretAfter={whatHasCaretAfterLayer} onAnswered={answerPasteThatWaits} /><CallConfirmDialog shown={view.callToConfirm} whatHasCaretAfter={whatHasCaretAfterLayer} onAnswered={answerCallToConfirm} /><LocaleTimeZoneDialog pick={view.pickForWorkbook} whatHasCaretAfter={whatHasCaretAfterLayer} onPicked={pickForWorkbook} onEntered={enterPickForWorkbook} onDropped={dropPickForWorkbook} /><ImportDialog importOfAFile={view.importOfAFile} fileAwaited={view.fileAwaited} whatHasCaretAfter={whatHasCaretAfterLayer} onAnswered={answerImportQuestion} onDestinationPicked={chooseImportDestination} onChangedByHand={changeImportByHand} onKindsWanted={askImportKinds} onWished={sendImportWish} onAskedAgain={askImportPlanAgain} onAwaitedNoLonger={stopAwaitingImportPlan} {...importOnGrid.dialog} onKept={keepImport} onFileAsked={chooseImportFileOfAnyKind} onFileDropped={takeDroppedFile} chooseButtonRef={chooseFileButtonRef} isKeyboardLeftOutside={callLatestAfterDialog} wasKeyPressedLast={wasKeyPressedLast} onCaretOwed={noteDialogReturn} /><ExportReadyDialog file={view.xlsxFileReady} whatHasCaretAfter={whatHasCaretAfterLayer} onShut={shutXlsxFileDialog} /><PageFileDrop isTaken={canTakeDroppedFile(view) && !isAnyLayerHeldBack} wayInByKeyboard={addSheetButtonRef} onDropped={takeDroppedImport} /></div>;
   return <CanTakeFocusContext value={isPageReallyLeft}><SidePaneShutContext value={giveUpSidePane}><DateInputLocaleContext value={dateExample}>{sheetsPage}</DateInputLocaleContext></SidePaneShutContext></CanTakeFocusContext>;
 }
 export const DRAG_HELD_STILL_TICK_MS = 60;
@@ -9457,6 +10134,7 @@ export type PagePart =
   | 'functionsButton'
   | 'formulaBar'
   | 'viewTools'
+  | 'connectedTableBar'
   | 'ownFilterBar'
   | 'pivotTableBar'
   | 'findBar'
@@ -9472,10 +10150,24 @@ export type PagePart =
   | 'formatTools'
   | 'sheets'
   | 'sidePane';
+/** The keys for cells that also act on the records of a connected table: those that move the selection, those that keep it where it is, and the one that opens the cell. */
+export const KEY_ACTS_ON_RECORDS: ReadonlyMap<KeyAct['kind'], 'moves' | 'stays' | 'opens'> = new Map([
+  ['move', 'moves'],
+  ['extendSelection', 'moves'],
+  ['jump', 'moves'],
+  ['selectAll', 'stays'],
+  ['selectTableOrAll', 'stays'],
+  ['selectWhole', 'stays'],
+  ['startEditing', 'stays'],
+  ['clearCells', 'stays'],
+  ['letGo', 'stays'],
+  ['openCell', 'opens'],
+]);
 export const PAGE_PARTS_IN_F6_ORDER: readonly PagePart[] = [
   'functionsButton',
   'formulaBar',
   'viewTools',
+  'connectedTableBar',
   'ownFilterBar',
   'pivotTableBar',
   'findBar',
@@ -9607,6 +10299,10 @@ export const isMacCtrlLetterWhileEditing = (keyEvent: KeyEventFields, mode: Page
 export const todayDate = () => isoDayOfDate(new Date());
 export const isOnSkipTarget = ({ target }: Pick<Event, 'target'>) => target instanceof Element && target.id === SELECTION_SUMMARY_ID;
 export const RELOAD_BUTTON_BUSY_MS = 60000;
+export const NO_REFRESH_OFFER: RefreshOffered = {
+  now: () => false,
+  onChanged: () => () => {},
+};
 export const isNeverInStaffTrials = () => false;
 export const ignoreFindAsked = () => {
   return;
@@ -9628,3 +10324,15 @@ export const isAgentNeverWorking = () => false;
 export const GUIDE_EDGE_GAP = 20;
 export const GUIDE_ROOM_ABOVE_OR_BELOW = 240;
 export const GUIDE_CARD_HEIGHT = 286;
+export const isSpaceText = (text: string) => text === ' ' || text === '　';
+export const isKeptInWaitingBox = ({
+  isInWaitingBox,
+  isCaretWithCellsBeforeEntryEnds,
+  isEntryOpen,
+  text,
+}: {
+  isInWaitingBox: boolean;
+  isCaretWithCellsBeforeEntryEnds: boolean;
+  isEntryOpen: boolean;
+  text: string;
+}) => isInWaitingBox && (isCaretWithCellsBeforeEntryEnds || (!isEntryOpen && !isSpaceText(text)));

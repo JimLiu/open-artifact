@@ -8,6 +8,8 @@ import { FILE_UPLOAD_ICON, IMPORT_FILE_SOURCES, type ImportFileSource } from '..
 import { importFileChoices } from '../../import/csv-file.tsx';
 import { shortcutFor } from '../../keys/key-press.ts';
 import { copiedSheetNameAffixes } from '../../i18n/sheet-names.ts';
+import { sheetNotDeletableReason } from '../../i18n/change-labels.ts';
+import { protectionMessages } from '../../messages/protection.ts';
 import { toolLabelWithValue } from '../../tools/search-words.ts';
 import type { IconName } from '../../kit/icon.tsx';
 import type { MenuCommand } from './matching.ts';
@@ -15,6 +17,7 @@ import type { ImportFileChoice } from '../../import/csv-file.tsx';
 import type { ListedSheet, PageView } from '../../view/page-view.ts';
 import type {
   KeyPressed,
+  ProtectionAsked,
   SheetDeleteChosen,
   SheetDuplicateChosen,
   SheetLinkCopyChosen,
@@ -23,7 +26,7 @@ import type {
 } from '../../state/event-reducer.ts';
 /** What the sheet commands of the search menu read of the page. */
 export interface SheetSearchState {
-  sheet: Pick<ListedSheet, 'sheetId' | 'canBeDeleted'>;
+  sheet: Pick<ListedSheet, 'sheetId' | 'areAllOthersHidden' | 'isAnotherLeftToShow'>;
   isOnlySheet: boolean;
   placeAmongTabs: { index: number; count: number };
   viewOnlyBecause: PageView['viewOnlyBecause'];
@@ -38,6 +41,7 @@ export type SheetSearchEvent =
   | SheetRenameChosen
   | SheetDuplicateChosen
   | SheetDeleteChosen
+  | ProtectionAsked
   | KeyPressed;
 /** What the sheet commands of the search menu do when they are taken. */
 export interface SheetSearchActions {
@@ -56,7 +60,8 @@ export interface FillCommand {
   key: string;
 }
 export function sheetSearchCommands(state: SheetSearchState, actions: SheetSearchActions): MenuCommand[] {
-  let { sheetId, canBeDeleted } = state.sheet;
+  let { sheetId, areAllOthersHidden, isAnotherLeftToShow } = state.sheet;
+  let whyNotDeletable = sheetNotDeletableReason(state.isOnlySheet, areAllOthersHidden);
   let { index: tabIndex, count: tabCount } = state.placeAmongTabs;
   let { onAllSheetsAsked } = actions;
   let canEdit = state.viewOnlyBecause === null;
@@ -189,10 +194,25 @@ export function sheetSearchCommands(state: SheetSearchState, actions: SheetSearc
           wordsAroundName: copiedSheetNameAffixes(),
         }),
     },
+    {
+      id: 'sheet.tab.protect',
+      label: sheetCommandLabel(protectionMessages.protect()),
+      otherWords: sheetCommandSynonyms('protect'),
+      icon: 'Lock',
+      actsOn: 'opens',
+      whyNot: null,
+      run: () =>
+        actions.dispatch({
+          kind: 'protectionAsked',
+          of: {
+            sheetId,
+          },
+        }),
+    },
     copyLinkCommand,
     ...(tabIndex > 0 ? [moveCommand('sheet.tab.moveLeft', sheetMessages.moveSheetLeft(), 'ArrowLeft', tabIndex - 1)] : []),
     ...(tabIndex < tabCount - 1 ? [moveCommand('sheet.tab.moveRight', sheetMessages.moveSheetRight(), 'ArrowRight', tabIndex + 1)] : []),
-    ...(canBeDeleted || state.isOnlySheet
+    ...(isAnotherLeftToShow || whyNotDeletable !== null
       ? [
           {
             id: 'sheet.tab.delete',
@@ -200,7 +220,7 @@ export function sheetSearchCommands(state: SheetSearchState, actions: SheetSearc
             otherWords: sheetCommandSynonyms('delete'),
             icon: 'Trash',
             actsOn: 'file',
-            whyNot: canBeDeleted ? null : sheetMessages.onlySheet(),
+            whyNot: isAnotherLeftToShow ? null : whyNotDeletable,
             isWeighty: true,
             run: () =>
               actions.dispatch({

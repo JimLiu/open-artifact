@@ -9,6 +9,7 @@ import {
   originalRulesOf,
   matchesOfRules,
   originalOfStretchedRules,
+  rangeStretchedToRow,
 } from './selection-target.ts';
 import { tintFormatOf, defaultRuleForRanges, ruleWithEffectKind } from './rule-edits.ts';
 import {
@@ -41,12 +42,12 @@ import { rangesOfAreas, actInRuleEditor } from './editor-edits.ts';
 import { areasOfAllRanges } from '../../selection/several-ranges.ts';
 import { firstColumnOfRule } from './conditions.ts';
 import { columnLabelOf, tableColumnSummary, conditionalFormatEditorView, conditionalFormatFieldValue } from './editor-view.ts';
-import { openRuleEditor, PAGE_SUGGESTIONS_BESIDE_AGENT, PAGE_SUGGESTIONS_FOR_BLOCK, columnNameOfAbout } from './suggestions.ts';
+import { openEditorOfTopRule, openRuleEditor, PAGE_SUGGESTIONS_BESIDE_AGENT, PAGE_SUGGESTIONS_FOR_BLOCK, columnNameOfAbout } from './suggestions.ts';
 import { conditionalRulesOfPane } from '../../state/queries.ts';
 import { areasOfRuleRanges, describeRules, describeRule } from './descriptions.ts';
 import { areasToA1AsStored } from '../../formulas/from-words/where.ts';
 import { ownRowOrderOfSheet } from '../../model/line-ids.ts';
-import type { ConditionalFormatAsIf, ConditionalFormatSuggestion, Edit, Matches, RangeCorners, RuleInIds } from '@open-artifact/sheets-core';
+import type { ConditionalFormatAsIf, ConditionalFormatSuggestion, Edit, Matches, RangeCorners, RowId, RuleInIds } from '@open-artifact/sheets-core';
 import type { FormatsGiven, WorkbookReads } from '../../model/workbook.ts';
 import type { CellArea } from '../../selection/model.ts';
 import type { PageEffect, PageTransition } from '../../state/transitions.ts';
@@ -57,6 +58,9 @@ import type {
   KeptRulesOfAgent,
   RuleEditorState,
   RulesInWords,
+  RulesOnTheirWay,
+  TakenFromRulesPane,
+  TakenFromRulesPaneKey,
   RulesPaneAction,
   ShownRulesWithEach,
   ShownSuggestion,
@@ -64,6 +68,26 @@ import type {
 import type { PageState } from '../../state/initial-state.ts';
 /** What settling the pane after an event needs to know of the page. */
 export type PaneSettling = Pick<PageContext, 'reads' | 'refusalOfEveryEdit'>;
+/** Rules sent to the workbook wait in `rulesOnTheirWay`; once they land, what they took from the pane is cleared. */
+export function withRulesOnTheirWayLanded(state: PageState): PageState {
+  if (state.rulesOnTheirWay === null) return state;
+  let [pane, stateNow] = [
+    conditionalRulesOfPane(state),
+    {
+      ...state,
+      rulesOnTheirWay: null,
+    },
+  ];
+  if (pane === null) return stateNow;
+  let paneNow = withTakenCleared(pane, state.rulesOnTheirWay.taken);
+  return {
+    ...stateNow,
+    sidePane: {
+      kind: 'conditionalFormats',
+      rules: paneNow,
+    },
+  };
+}
 export function inWordsOfPane(
   state: PageState,
   reads: WorkbookReads,
@@ -101,7 +125,7 @@ export function inWordsOfPane(
     };
   }
   let keptRead = mayKeepRead ? (inWords?.read ?? null) : null;
-  if (keptRead !== null && isSameRulesJson(keptRead.asSaid, read.rules))
+  if (keptRead !== null && isSameRulesJson(keptRead.asSaid, read))
     return {
       words,
       today: todayAsIso,
@@ -117,20 +141,25 @@ export function inWordsOfPane(
       stillTried: null,
     };
   let matches = given.matches.slice(0, read.rules.length);
-  let rules =
+  let lastRowId = read.rules[0].ranges[0].bottomRight.r;
+  let canRunTo = (end: RowId | null) =>
     read.endAtLastRecord &&
     forSelection !== null &&
     forSelection.isInPlaceOfWhatIsSelected !== true &&
     forSelection.isOverSeveralTables !== true &&
-    canRulesRunToSheetEnd(reads, sheetId, read.rules[0].ranges[0].bottomRight.r, read.rules, matches)
-      ? withRuleRangesMapped(read.rules, stretchRangeToAreaEnd(reads, sheetId, selected))
-      : read.rules;
+    canRulesRunToSheetEnd(reads, sheetId, lastRowId, read.rules, matches, end);
+  let rulesToAreaEnd = canRunTo(null) ? withRuleRangesMapped(read.rules, stretchRangeToAreaEnd(reads, sheetId, selected)) : read.rules;
+  // Rules read as "to row N" run that far when nothing stretches them to the area's end.
+  let rules =
+    rulesToAreaEnd === read.rules && read.rowsReadyTo !== null && canRunTo(read.rowsReadyTo)
+      ? withRuleRangesMapped(read.rules, rangeStretchedToRow(read.rowsReadyTo))
+      : rulesToAreaEnd;
   return {
     words,
     today: todayAsIso,
     read: {
       rules,
-      asSaid: read.rules,
+      asSaid: read,
       gives: given,
     },
     stillTried: null,
@@ -140,44 +169,57 @@ export function actInRulesList(state: PageState, reads: WorkbookReads, pane: Con
   let { sheetId } = pane;
   let addRules = (
     rules: RuleInIds[],
-    paneChanges: Partial<ConditionalFormatsPane>,
+    takenKeys: TakenFromRulesPaneKey[],
     then?: Partial<IfQueued>,
     done: ConditionalFormatDone = {
       what: 'rulesAdded',
       ruleCount: rules.length,
     },
-  ): PageTransition => ({
-    state:
-      pane.drawnAs === 'pane'
-        ? withConditionalFormatsPane(state, {
-            ...pane,
-            ...paneChanges,
-          })
-        : then === undefined
-          ? closeSidePane(
-              pane.drawnAs === 'menu'
-                ? {
-                    ...state,
-                    menu: null,
-                  }
-                : state,
-            )
-          : showRulesInPane(state, {
-              ...pane,
-              ...paneChanges,
-            }),
-    effects: [
-      queueRuleEditEffect(
-        {
-          kind: 'addConditionalFormats',
-          sheetId,
-          rules,
-        },
-        done,
-        then,
-      ),
-    ],
-  });
+  ): PageTransition => {
+    let edit: Edit = {
+      kind: 'addConditionalFormats',
+      sheetId,
+      rules,
+    };
+    let { previewed, tried } = pane;
+    let isPreviewed = previewed?.asIf === tried && isSameRulesJson(tried, asNewRules(rules));
+    let editorToOpen = pane.drawnAs === 'pane' ? undefined : then?.thenEditorOfTopRule;
+    // The pane stays as it is until the rules are in; what they replace is cleared then.
+    let keepsPane = editorToOpen !== undefined || (pane.drawnAs === 'pane' && then === undefined);
+    let taken = takenFromRulesPane(pane, takenKeys);
+    let stateNow = keepsPane
+      ? state
+      : pane.drawnAs === 'pane'
+        ? withConditionalFormatsPane(state, withTakenCleared(pane, taken))
+        : closeSidePane(
+            pane.drawnAs === 'menu'
+              ? {
+                  ...state,
+                  menu: null,
+                }
+              : state,
+          );
+    let rulesOnTheirWay: RulesOnTheirWay = {
+      edit,
+      sheetId,
+      gives: isPreviewed ? previewed!.gives : null,
+      taken: keepsPane ? taken : {},
+      cardToBePane:
+        editorToOpen === undefined
+          ? null
+          : {
+              card: pane,
+              editor: editorToOpen,
+            },
+    };
+    return {
+      state: {
+        ...stateNow,
+        rulesOnTheirWay,
+      },
+      effects: [queueRuleEditEffect(edit, done, then)],
+    };
+  };
   let suggestedRulesOf = (rules: RuleInIds[] | null) =>
     rules === null
       ? null
@@ -201,9 +243,7 @@ export function actInRulesList(state: PageState, reads: WorkbookReads, pane: Con
       let suggestionTaken = suggestedRulesOf(action.rules);
       return suggestionTaken === null
         ? withNoEffects(state)
-        : addRules(suggestionTaken, {
-            pointedAt: null,
-          });
+        : addRules(suggestionTaken, ['pointedAt']);
     }
     case 'showInPane': {
       if (pane.drawnAs === 'pane') return withNoEffects(state);
@@ -256,27 +296,20 @@ export function actInRulesList(state: PageState, reads: WorkbookReads, pane: Con
         null;
       return readNow === null
         ? askAgentForRulesFromWords(state, reads, action.words, action.canChatTakeIt ?? false)
-        : addRules(readNow.rules, {
-            inWords: null,
-            pointedAt: null,
-          });
+        : addRules(readNow.rules, ['inWords', 'pointedAt']);
     }
     case 'askAgent':
       return askAgentForRulesFromWords(state, reads, action.words, action.canChatTakeIt ?? false);
     case 'keepOffer':
       return pane.offer === null
         ? withNoEffects(state)
-        : addRules(pane.offer, {
-            offer: null,
-          });
+        : addRules(pane.offer, ['offer']);
     case 'editOffer':
       return pane.offer === null
         ? withNoEffects(state)
         : addRules(
             pane.offer,
-            {
-              offer: null,
-            },
+            ['offer'],
             {
               thenEditorOfTopRule: {
                 cellsPickedByPage: null,
@@ -302,10 +335,7 @@ export function actInRulesList(state: PageState, reads: WorkbookReads, pane: Con
       let isMovedToNumbers = firstColumnOfRule(ruleStarted) !== firstColumnOfRule(ruleToStartFrom);
       return addRules(
         [ruleStarted],
-        {
-          offer: null,
-          pointedAt: null,
-        },
+        ['offer', 'pointedAt'],
         {
           thenEditorOfTopRule: {
             cellsPickedByPage: isMovedToNumbers ? 'movedToNumbers' : null,
@@ -516,7 +546,7 @@ export function refreshConditionalFormatsPane(
   });
   let tried = isSameRulesJson(pane.tried, rulesToTry) ? pane.tried : rulesToTry;
   let isPreviewOfTried = pane.previewed?.asIf === tried;
-  let isOnlyWords = editor === null && pane.offer === null && pane.pointedAt === null;
+  let isOnlyWords = pane.offer !== null || (editor === null && pane.pointedAt === null);
   let previewed =
     tried.length === 0
       ? null
@@ -525,7 +555,7 @@ export function refreshConditionalFormatsPane(
         : isPreviewOfTried || isOnlyWords
           ? {
               asIf: tried,
-              gives: (isOnlyWords ? inWords?.read?.gives : undefined) ?? reads.formatsGivenAsIf(sheetId, tried),
+              gives: (isOnlyWords && pane.offer === null ? inWords?.read?.gives : undefined) ?? reads.formatsGivenAsIf(sheetId, tried),
             }
           : null;
   let isPreviewCurrent = previewed?.asIf === tried;
@@ -747,9 +777,18 @@ export function dropSettledRefusals(pane: ConditionalFormatsPane | null, reads: 
 }
 export function settleConditionalFormatsPane(
   stateBefore: PageState,
-  afterEvent: PageTransition,
+  resultOfEvent: PageTransition,
   { reads, refusalOfEveryEdit }: PaneSettling,
 ): PageTransition {
+  // Once the workbook changed, rules on their way are in (or refused) and land in the pane.
+  let afterEvent =
+    stateBefore.workbookChangeCount !== resultOfEvent.state.workbookChangeCount ||
+    stateBefore.formulasWorkedOutCount !== resultOfEvent.state.formulasWorkedOutCount
+      ? {
+          ...resultOfEvent,
+          state: withRulesOnTheirWaySettled(resultOfEvent.state, reads, false),
+        }
+      : resultOfEvent;
   let [paneBefore, paneAfter]: [ConditionalFormatsPane | null, ConditionalFormatsPane | null] = [
     conditionalRulesOfPane(stateBefore),
     conditionalRulesOfPane(afterEvent.state),
@@ -797,7 +836,9 @@ export function settleConditionalFormatsPane(
   let pane = dropSettledRefusals(paneWithEditor, reads);
   const editorBefore = paneBefore?.editor ?? null;
   const isEditorLeft = editorBefore !== null && pane?.editor?.conditionalFormatId !== editorBefore.conditionalFormatId;
-  let typedRuleLeft = isEditorLeft ? (editorBefore.typed?.rule ?? null) : null;
+  let typedBefore = editorBefore?.typed ?? null;
+  let isTypedOnItsWay = typedBefore !== null && stateBefore.rulesOnTheirWay?.taken.typed === typedBefore;
+  let typedRuleLeft = isEditorLeft && !isTypedOnItsWay ? (editorBefore.typed?.rule ?? null) : null;
   let ruleLeft =
     paneBefore === null || editorBefore === null ? null : conditionalFormatRuleById(reads, paneBefore.sheetId, editorBefore.conditionalFormatId);
   let saveLeftTyping =
@@ -964,8 +1005,31 @@ export function hasRulesPaneRefusedRules(state: PageState): boolean {
   return (conditionalRulesOfPane(state)?.editor?.refused ?? []).length > 0;
 }
 export function conditionalFormatsGivenNow(state: PageState, reads: WorkbookReads): FormatsGiven {
-  let [pane, { sheetId }]: [ConditionalFormatsPane | null, PageState] = [conditionalRulesOfPane(state), state];
-  return (pane !== null && pane.sheetId === sheetId ? pane.previewed?.gives : null) ?? reads.formatsGivenIn(sheetId);
+  let [pane, { sheetId, rulesOnTheirWay }]: [ConditionalFormatsPane | null, PageState] = [conditionalRulesOfPane(state), state];
+  return (
+    (rulesOnTheirWay?.sheetId === sheetId ? rulesOnTheirWay.gives : null) ??
+    (pane !== null && pane.sheetId === sheetId ? pane.previewed?.gives : null) ??
+    reads.formatsGivenIn(sheetId)
+  );
+}
+/** Lands rules on their way; a card that was to become the pane opens as the pane, with the editor of the top rule once that rule is in. */
+export function withRulesOnTheirWaySettled(state: PageState, reads: WorkbookReads, isCardToBePaneAnyway: boolean): PageState {
+  let [onTheirWay, landed] = [state.rulesOnTheirWay, withRulesOnTheirWayLanded(state)];
+  if (onTheirWay === null || onTheirWay.cardToBePane === null) return landed;
+  let [topFormat] = reads.conditionalFormatsOf(onTheirWay.sheetId);
+  let topRuleSent = onTheirWay.edit.kind === 'addConditionalFormats' ? onTheirWay.edit.rules[0] : undefined;
+  let isTopRuleIn = topFormat !== undefined && topRuleSent !== undefined && isSameRulesJson(ruleOfConditionalFormat(topFormat), topRuleSent);
+  if (!isTopRuleIn && !isCardToBePaneAnyway)
+    return {
+      ...state,
+      rulesOnTheirWay: {
+        ...onTheirWay,
+        gives: null,
+      },
+    };
+  let { card, editor } = onTheirWay.cardToBePane;
+  let shown = showRulesInPane(landed, conditionalRulesOfPane(landed) ?? withTakenCleared(card, onTheirWay.taken));
+  return isTopRuleIn ? openEditorOfTopRule(shown, reads, editor) : shown;
 }
 export function areasOfRuleBeingEdited(state: PageState, reads: WorkbookReads): CellArea[] {
   let [pane, { sheetId }]: [ConditionalFormatsPane | null, PageState] = [conditionalRulesOfPane(state), state];
@@ -973,6 +1037,42 @@ export function areasOfRuleBeingEdited(state: PageState, reads: WorkbookReads): 
   let rule = pane.editor.typed?.rule ?? conditionalFormatRuleById(reads, sheetId, pane.editor.conditionalFormatId);
   return rule === null ? [] : areasOfRuleRanges(reads, sheetId, rule.ranges);
 }
+export const takenFromRulesPane = (pane: ConditionalFormatsPane, keys: TakenFromRulesPaneKey[]): TakenFromRulesPane => ({
+  ...(keys.includes('offer') && {
+    offer: pane.offer,
+  }),
+  ...(keys.includes('pointedAt') && {
+    pointedAt: pane.pointedAt,
+  }),
+  ...(keys.includes('inWords') && {
+    inWords: pane.inWords,
+  }),
+  ...(keys.includes('typed') && {
+    typed: pane.editor?.typed ?? null,
+  }),
+});
+export const withTakenCleared = (pane: ConditionalFormatsPane, taken: TakenFromRulesPane): ConditionalFormatsPane => ({
+  ...pane,
+  ...('offer' in taken &&
+    pane.offer === taken.offer && {
+      offer: null,
+    }),
+  ...('pointedAt' in taken &&
+    pane.pointedAt === taken.pointedAt && {
+      pointedAt: null,
+    }),
+  ...('inWords' in taken &&
+    pane.inWords === taken.inWords && {
+      inWords: null,
+    }),
+  ...('typed' in taken &&
+    pane.editor?.typed === taken.typed && {
+      editor: {
+        ...pane.editor!,
+        typed: null,
+      },
+    }),
+});
 export const ACTIONS_IN_ANY_MENU = new Set<RulesPaneAction['kind']>(['keepOffer', 'discardOffer', 'stepBack', 'previewRested']);
 export const ACTIONS_IN_PLAIN_MENU = new Set<RulesPaneAction['kind']>(['pointAtSuggestion', 'takeSuggestion', 'startRule', 'showInPane']);
 export const isActionForMenu = ({ wordsOfMenu }: Pick<ConditionalFormatsPane, 'wordsOfMenu'>, { kind }: Pick<RulesPaneAction, 'kind'>): boolean =>

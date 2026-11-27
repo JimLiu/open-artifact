@@ -122,7 +122,7 @@ export const findBarMessages = {
   searchIn: () =>
     translateMessage({
       defaultMessage: 'Search in',
-      id: 'D64RliqaNm',
+      id: 'OuWUTb2XuO',
     }),
   thisSheet: () =>
     translateMessage({
@@ -133,6 +133,11 @@ export const findBarMessages = {
     translateMessage({
       defaultMessage: 'All sheets',
       id: 'RkfyweuDCN',
+    }),
+  allVisibleSheets: () =>
+    translateMessage({
+      defaultMessage: 'All visible sheets',
+      id: 'vUDHbyQzbg',
     }),
   matchCase: () =>
     translateMessage({
@@ -167,7 +172,7 @@ export const findBarMessages = {
   replaceAllInSheet: () =>
     translateMessage({
       defaultMessage: 'Replace all in sheet',
-      id: 'CyHZ52mtka',
+      id: '92Y+XBSl5t',
     }),
   replaceAll: () =>
     translateMessage({
@@ -194,7 +199,7 @@ export const searchInButtonLabel = (chosen: string): string =>
   translateMessage(
     {
       defaultMessage: 'Search in: {chosen}',
-      id: 'sm0Pl92YNe',
+      id: 'Vo0ZJf/tSw',
     },
     {
       chosen,

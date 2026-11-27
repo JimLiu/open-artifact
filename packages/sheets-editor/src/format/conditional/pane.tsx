@@ -40,7 +40,7 @@ import { NO_LIST_ANSWER_TIMES, isTooSoonAfterListAnswer, isWithinPressGuard } fr
 import { LiveAnnouncer } from '../../ui/live-announcer.tsx';
 import { ConditionalRuleEditor } from './rule-editor.tsx';
 import { ContentsBox } from '../../ui/contents-box.tsx';
-import { RuleAskBox } from './ask-box.tsx';
+import { enterToGoToChatLabel, RuleAskBox } from './ask-box.tsx';
 /** What the status words of the pane are worked out from, besides the pane. */
 interface RulesPaneStatus {
   isForChat: boolean;
@@ -78,6 +78,7 @@ export interface ConditionalFormattingPaneProps {
   onPressed: () => void;
   onShut: () => void;
   onAskAgent: ((rule: RuleNumber) => Promise<boolean>) | null;
+  isChatCovered: boolean;
   onAskedInChat: ((words: string) => Promise<boolean>) | null;
 }
 export function conditionalPaneStatusWords(
@@ -209,6 +210,7 @@ export const ConditionalFormattingPane = React.memo(function ({
   onPressed,
   onShut,
   onAskAgent,
+  isChatCovered,
   onAskedInChat,
 }: ConditionalFormattingPaneProps) {
   let paneShown = pane?.drawnAs === 'pane' ? pane : null;
@@ -305,12 +307,10 @@ export const ConditionalFormattingPane = React.memo(function ({
       caretTargetRef.current =
         isMakingRule || wasSteppingBack
           ? 'startOfView'
-          : isTakingAnswerRef.current
-            ? null
-            : {
-                ruleAt: 0,
-              };
-    if (wasMakingRule && !isMakingRule && !isTakingAnswerRef.current)
+          : {
+              ruleAt: 0,
+            };
+    if (wasMakingRule && !isMakingRule)
       onAct({
         kind: 'pointAtSuggestion',
         rules: null,
@@ -473,7 +473,7 @@ export const ConditionalFormattingPane = React.memo(function ({
             conditionalFormatId: editor.conditionalFormatId,
           })} />}><div className="contents [--sheet-pane-gutter:var(--ui-pad-lg)]"><ConditionalRuleEditor editor={editor} whatColorPickerShows={whatColorPickerShows} onAct={onAct} /></div>{statusAnnouncer}{onAskAgent !== null &&
           editedRule !== null &&
-          <AskAgentAboutRuleSection key={editor.conditionalFormatId} rule={editedRule} onAskAgent={onAskAgent} />}</SidePane>;
+          <AskAgentAboutRuleSection key={editor.conditionalFormatId} rule={editedRule} onAskAgent={onAskAgent} isChatCovered={isChatCovered} />}</SidePane>;
   if (!isMakingRule)
     return <SidePane {...paneFrameProps} title={CONDITIONAL_FORMATTING_WORDS.conditionalFormatting()} view="list"><ContentsBox {...pressGuardHandlers(false)} onKeyDownCapture={(event: React.KeyboardEvent<HTMLDivElement>) => {
             endPressGuard();
@@ -542,10 +542,10 @@ export const ConditionalFormattingPane = React.memo(function ({
       answerShownAtMs: takenAtMs,
       lastActAtMs: takenAtMs,
     };
-    clearAskField();
     onAct(answer);
     lookOnceEventsAreFinished(() => {
       isTakingAnswerRef.current = false;
+      clearAskField();
       answerTimesRef.current = {
         ...answerTimesRef.current,
         answerShownAtMs: performance.now(),
@@ -581,7 +581,7 @@ export const ConditionalFormattingPane = React.memo(function ({
                 : 'canBeAsked'} own={ownSuggestions.map(ruleSuggestionEntry)} ofAgentRef={agentRowsRef} chatInstead={isForChat && onAskedInChat !== null
             ? {
                 whyNotHere: CONDITIONAL_FORMATTING_WORDS.rulesAloneCantDoIt(),
-                goThere: CONDITIONAL_FORMATTING_WORDS.goToChatForRules(),
+                goThere: enterToGoToChatLabel(),
                 onAsked: (words: string) =>
                   void onAskedInChat(words).then((isAdded) => {
                     if (isAdded) setTyped((typedNow) => (typedNow === typed ? '' : typedNow));

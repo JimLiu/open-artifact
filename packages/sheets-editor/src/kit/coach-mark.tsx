@@ -6,14 +6,18 @@ import { Icon } from './icon.tsx';
 import { useKitLabel } from './labels.tsx';
 import { useOverlayLayer } from './layers.tsx';
 import { PopupLayerScope, useMergedRefs, useOpenerFocusReturn, type PopupFinalFocus } from './popup-frame.tsx';
+import { useScrollableOverflow } from './scrollable-overflow.ts';
 
 type PositionerProps = BasePopover.Positioner.Props;
 type OpenChangeDetails = BasePopover.Root.ChangeEventDetails;
 
 export type CoachMarkVariant = 'accent' | 'neutral';
 
+/** How much taller than its room a coach mark's content may be before it scrolls. */
+const COACH_MARK_SCROLL_SLACK_PX = 6;
+
 const COACH_MARK_POPUP_CLASSES =
-  'ui-reset relative max-w-[280px] cursor-default rounded-panel p-lg text-body font-normal shadow-popover outline-none focus-visible:outline-hidden origin-[var(--transform-origin)] transition-[opacity,scale] duration-base ease-snap motion-reduce:transition-none data-[starting-style]:opacity-0 data-[starting-style]:scale-[0.97] data-[ending-style]:opacity-0 data-[ending-style]:scale-[0.97]';
+  'ui-reset relative flex max-h-[var(--available-height)] max-w-[280px] flex-col cursor-default rounded-panel p-lg text-body font-normal shadow-popover outline-none focus-visible:outline-hidden origin-[var(--transform-origin)] transition-[opacity,scale] duration-base ease-snap motion-reduce:transition-none data-[starting-style]:opacity-0 data-[starting-style]:scale-[0.97] data-[ending-style]:opacity-0 data-[ending-style]:scale-[0.97]';
 
 const COACH_MARK_VARIANT_CLASSES: Readonly<Record<CoachMarkVariant, string>> = {
   neutral: 'bg-surface-popover border border-[var(--ui-ring-color)] text-primary',
@@ -84,6 +88,9 @@ export const CoachMark = React.forwardRef<HTMLDivElement, CoachMarkProps>(functi
   const dismiss = useKitLabel('dismiss');
   const opener = useOpenerFocusReturn(finalFocus === undefined);
   const mergedRef = useMergedRefs<HTMLDivElement>(ref, opener.popupRef);
+  // A tall coach mark scrolls its content inside the available height.
+  const [scrollBox, setScrollBox] = React.useState<HTMLDivElement | null>(null);
+  const scrolls = useScrollableOverflow(scrollBox, COACH_MARK_SCROLL_SLACK_PX);
   const needsExplicitClose = showClose || (action !== undefined && action !== null);
   const shownRef = React.useRef(false);
 
@@ -154,24 +161,26 @@ export const CoachMark = React.forwardRef<HTMLDivElement, CoachMarkProps>(functi
               className={cn(COACH_MARK_POPUP_CLASSES, COACH_MARK_VARIANT_CLASSES[variant], className)}
             >
               <BasePopover.Arrow className={cn(ARROW_CLASSES, ARROW_VARIANT_CLASSES[variant])} />
-              <div className="flex flex-col gap-xs [overflow-wrap:anywhere]">
-                {hasTitle ? (
-                  <>
+              <div ref={setScrollBox} className={cn('min-h-0 flex-auto', scrolls && '-m-1.5 overflow-y-auto p-1.5')}>
+                <div className="flex flex-col gap-xs [overflow-wrap:anywhere]">
+                  {hasTitle ? (
+                    <>
+                      <div className="flex items-start gap-sm">
+                        <BasePopover.Title className="min-w-0 font-semibold break-words">{title}</BasePopover.Title>
+                        {closeButton}
+                      </div>
+                      {children}
+                    </>
+                  ) : closeButton !== null ? (
                     <div className="flex items-start gap-sm">
-                      <BasePopover.Title className="min-w-0 font-semibold break-words">{title}</BasePopover.Title>
+                      <div className="flex min-w-0 flex-1 flex-col gap-xs">{children}</div>
                       {closeButton}
                     </div>
-                    {children}
-                  </>
-                ) : closeButton !== null ? (
-                  <div className="flex items-start gap-sm">
-                    <div className="flex min-w-0 flex-1 flex-col gap-xs">{children}</div>
-                    {closeButton}
-                  </div>
-                ) : (
-                  children
-                )}
-                {action !== undefined && action !== null && <div className="mt-xs flex justify-end">{action}</div>}
+                  ) : (
+                    children
+                  )}
+                  {action !== undefined && action !== null && <div className="mt-xs flex justify-end">{action}</div>}
+                </div>
               </div>
             </BasePopover.Popup>
           </BasePopover.Positioner>

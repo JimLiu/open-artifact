@@ -46,7 +46,13 @@ import type {
   RulesRead,
   CauseCell,
   CauseOfError,
+  CellChangedFromItsDefault,
   CellFormatContents,
+  ConnectedTableAnswer,
+  ConnectedTableContents,
+  DefaultValueAndLimitsAnswer,
+  NamedRangeRead,
+  ProtectionContents,
   SharedCellFormat,
   SharedCodeDescription,
   SheetId,
@@ -66,7 +72,7 @@ import type {
   WhatATableChangesAnswer,
 } from '@open-artifact/sheets-core';
 import type { CellArea, CellPosition } from '../selection/model.ts';
-import type { CellFormatLookup, FormatAtIndexes, IndexRunsOfEntry, KindedNumberFormat, KindOfPattern, NumberFormatAtIndexes, WholeCellFormat } from './cell-format.ts';
+import type { CellFormatLookup, FormatAtIndexes, SharedCellFormatWithDefaults, IndexRunsOfEntry, KindedNumberFormat, KindOfPattern, NumberFormatAtIndexes, WholeCellFormat } from './cell-format.ts';
 import type { LineIndex, LineSpan, OwnRowOrder } from './line-ids.ts';
 import type { LineSizes } from './line-sizes.ts';
 import {
@@ -83,6 +89,8 @@ import {
   borderEdgesNear,
   numberFormatPatternsWithin,
   clipsWithin,
+  lookEntriesOf,
+  someEntryHasDefaultValue,
 } from './cell-format.ts';
 import { usersOfCell, listLinesOfCell, cellValueOf } from './cell-values.ts';
 import { reuseLineIndex, createCachedLineIndex, createLineIndex, coveringRowSpanIn } from './line-ids.ts';
@@ -123,7 +131,7 @@ export type ViewInputs = Refused | { byElement: Map<string, Record<string, Input
 export interface ViewWithInputs {
   view: View;
   inputs: ViewInputs;
-  canBeReset?: true;
+  countOfCellsToReset?: number;
   hasDefaultsToSave?: true;
 }
 export interface InputsOfViewRead {
@@ -161,12 +169,47 @@ export interface PlacementOnGrid {
   widthInPixels: number;
   heightInPixels: number;
 }
+export type {
+  CellAt as CellAtIds,
+  CellsOfANamedRange,
+  NamedRange,
+  NamedRangeRead,
+  ProtectedRange,
+  Protects,
+  Protection,
+  ProtectionContents,
+  CallOfAConnectedTable,
+  ConnectedTableContents,
+  ConnectedTableAnswer,
+} from '@open-artifact/sheets-core';
+/** A sheet's connected table as the page reads it. */
+export interface ConnectedTableRead extends ConnectedTableContents, ConnectedTableAnswer {
+  widthOfUnsizedColumn: number;
+}
+export interface CellsChangedFromDefaultsOfSheet {
+  sheetId: SheetId;
+  cells: CellChangedFromItsDefault[];
+}
+/** What a layout is read with beyond its contents: how its connected table stands (`readConnectedTable`). */
+export interface LayoutWithItsOwn {
+  howItsTableStands?: ConnectedTableAnswer;
+}
+/** The limits the engine describes beyond sheets-core's. */
+export interface LimitsOfItsOwn {
+  mostNamedRanges: number;
+  longestNameOfANamedRangeInCharacters: number;
+  mostProtections: number;
+  mostOpenRangesInAProtection: number;
+  mostEditorsOfAProtection: number;
+  mostCellsWithADefaultValue: number;
+  longestDefaultValueInCharacters: number;
+}
 /** The rows of a sheet seen in an order of the page's own, as a layout tells them. */
 export interface OwnRowOrderToRead extends LineSpan {
   asStored: Partial<SheetLayoutContents> & Pick<SheetLayoutContents, 'rows'>;
 }
 /** A sheet's layout to read, with the order its rows are seen in when that is the page's own. */
-export interface SheetLayoutToRead extends SheetLayoutContents {
+export interface SheetLayoutToRead extends SheetLayoutContents, LayoutWithItsOwn {
   ownRowOrder?: OwnRowOrderToRead | 'givenUp';
 }
 export interface SheetToRead extends SheetLayoutToRead {
@@ -175,7 +218,8 @@ export interface SheetToRead extends SheetLayoutToRead {
 export interface WorkbookToRead extends Omit<EngineWorkbookContents, 'kind' | 'sheets'> {
   sheets: SheetToRead[];
 }
-export interface WorkbookDescription extends Pick<SharedCodeDescription, 'defaultColumnWidthInPixels' | 'limits'> {
+export interface WorkbookDescription extends Pick<SharedCodeDescription, 'defaultColumnWidthInPixels'> {
+  limits: SharedCodeDescription['limits'] & LimitsOfItsOwn;
   localeOfANewWorkbook: string;
 }
 export type FormatsGiven = Omit<FormatsGivenAnswer, 'kind'>;
@@ -193,6 +237,7 @@ export interface SheetSummary {
   frozenRowCount: number;
   frozenColumnCount: number;
   areGridlinesHidden: boolean;
+  isHidden: boolean;
   /** The interactive view the sheet shows in place of its grid. */
   interactive: string | null;
   rowGroups: GroupOnGrid[];
@@ -213,18 +258,24 @@ export interface SheetLayoutRead {
   entriesThatWrapText(): IndexRunsOfEntry[];
   numberFormats(): NumberFormatAtIndexes[];
   formats(): FormatAtIndexes[];
+  /** The formats without default values and limits. */
+  looks(): FormatAtIndexes[];
+  hasDefaultValue: boolean;
   hexColors(): string[];
   dropdownsById: Map<string, DropdownContents>;
   conditionalFormats: ConditionalFormatContents[];
   placements: PlacementOnGrid[];
   cellTables: CellTableContents[];
   namedViews: NamedViewContents[];
+  connectedTable: ConnectedTableRead | null;
+  protections: ProtectionContents[];
   /** The layout with its rows in the order they are stored in; `null` where they are seen in that order. */
   asStored(): SheetLayoutRead | null;
   mergedAreas: CellArea[];
 }
 export interface SheetRead extends SheetLayoutRead, SheetCells {
   formatsGiven: FormatsGiven;
+  cellsChangedFromDefaults: CellChangedFromItsDefault[];
 }
 export interface SignsOfNumbers {
   decimalSign: DecimalSignName;
@@ -245,6 +296,9 @@ export interface LimitsOfNamedViews {
   mostNamedViewsInASheet: number;
   longestNameOfANamedViewInCharacters: number;
 }
+export type LimitsOfNamedRanges = Pick<LimitsOfItsOwn, 'mostNamedRanges' | 'longestNameOfANamedRangeInCharacters'>;
+export type LimitsOfProtections = Pick<LimitsOfItsOwn, 'mostProtections' | 'mostOpenRangesInAProtection' | 'mostEditorsOfAProtection'>;
+export type LimitsOfDefaultValues = Pick<LimitsOfItsOwn, 'mostCellsWithADefaultValue' | 'longestDefaultValueInCharacters'>;
 /** The workbook as the page has read it. */
 export interface WorkbookRead {
   sheets: SheetRead[];
@@ -261,6 +315,10 @@ export interface WorkbookRead {
   longestSheetNameInCharacters: number;
   mostCells: number;
   limitsOfNamedViews: LimitsOfNamedViews;
+  limitsOfNamedRanges: LimitsOfNamedRanges;
+  namedRanges: NamedRangeRead[];
+  limitsOfProtections: LimitsOfProtections;
+  limitsOfDefaultValues: LimitsOfDefaultValues;
   deepestGroup: number;
   mostCheckboxesOfOneInsert: number;
   mostEditsInAStep: number;
@@ -277,6 +335,7 @@ export interface SheetChangesRead {
   spilledCellsNow: SpilledCell[];
   layoutNow: SheetLayoutToRead | null;
   formatsGivenNow: FormatsGiven | null;
+  cellsChangedFromDefaultsNow: CellChangedFromItsDefault[] | null;
 }
 export interface ViewChangesRead {
   viewsNow: ViewContents[];
@@ -329,6 +388,7 @@ export interface WorkbookServices {
   dropdownOptionsToOffer(oneCorner: CellId, otherCorner: CellId): { label: string }[] | null;
   cellsThatADropdownWouldClear(oneCorner: CellId, otherCorner: CellId, dropdown: DropdownToPointAt): CellsThatADropdownWouldClearAnswer | null;
   cellsOfTheDropdownAt(cell: CellId): CellsOfDropdownAnswer | null;
+  defaultValueAndLimitsOf(cell: CellId): DefaultValueAndLimitsAnswer | null;
   whatATableChanges(table: TableIntoSheet): WhatATableChangesAnswer | Refused | null;
   formatsGivenAsIf(sheetId: SheetId, asIf: Iterable<ConditionalFormatAsIf>): FormatsGivenAnswer | null;
   conditionalFormatSuggestions(oneCorner: CellId, otherCorner: CellId): ConditionalFormatSuggestionsAnswer | null;
@@ -384,6 +444,10 @@ export interface WorkbookReads extends WorkbookServices, LocaleHelpers {
   longestSheetNameInCharacters(): number;
   mostFilledCells(): number;
   limitsOfNamedViews(): LimitsOfNamedViews;
+  limitsOfNamedRanges(): LimitsOfNamedRanges;
+  namedRanges(): NamedRangeRead[];
+  limitsOfProtections(): LimitsOfProtections;
+  limitsOfDefaultValues(): LimitsOfDefaultValues;
   deepestGroup(): number;
   mostCheckboxesOfOneInsert(): number;
   mostEditsInAStep(): number;
@@ -398,13 +462,16 @@ export interface WorkbookReads extends WorkbookServices, LocaleHelpers {
   spilledCellOf(cell: CellId): SpilledCell | null;
   cellOnShowIn(cell: CellId): CellOnShow | null;
   formatOf(cell: CellId): WholeCellFormat;
-  sharedFormatBetween(oneCorner: CellId, otherCorner: CellId): SharedCellFormat | null;
+  sharedFormatBetween(oneCorner: CellId, otherCorner: CellId): SharedCellFormatWithDefaults | null;
   lookOfRow(sheetId: SheetId, rowIndex: number): string;
   conditionalFormatsOf(sheetId: SheetId): ConditionalFormatContents[];
   formatsGivenIn(sheetId: SheetId): FormatsGiven;
   placementsIn(sheetId: SheetId): PlacementOnGrid[];
   cellTablesDeclaredIn(sheetId: SheetId): CellTableContents[];
   namedViewsIn(sheetId: SheetId): NamedViewContents[];
+  connectedTableIn(sheetId: SheetId): ConnectedTableRead | null;
+  protectionsIn(sheetId: SheetId): ProtectionContents[];
+  cellsChangedFromDefaultsIn(sheetId: SheetId): CellChangedFromItsDefault[];
   viewAsItStands(viewId: string): ViewWithInputs | null;
   rowSizingOf(sheetId: SheetId): RowSizing[];
   whereTextWraps(sheetId: SheetId): IndexRunsOfEntry[];
@@ -419,6 +486,8 @@ export interface WorkbookReads extends WorkbookServices, LocaleHelpers {
   spillOver(cell: CellId): SpillOver | null;
   filledCellsIn(sheetId: SheetId, area: CellArea): CellId[];
   cellsOnShowIn(sheetId: SheetId, area: CellArea): CellId[];
+  formulasAndSpillsIn(sheetId: SheetId, area: CellArea): CellId[];
+  cellsEditedAfterTheMarkIn(sheetId: SheetId, area: CellArea): CellId[];
   areaOnShowIn(sheetId: SheetId, area: CellArea): CellArea | null;
   columnIndexesOnShowIn(sheetId: SheetId, rowIndex: number): number[];
   mergedAreaAt(sheetId: SheetId, position: CellPosition): CellArea | null;
@@ -658,6 +727,9 @@ export function readSheetLayout(
   let entriesThatWrapText: IndexRunsOfEntry[] | null = null;
   let numberFormats: NumberFormatAtIndexes[] | null = null;
   let formats: FormatAtIndexes[] | null = null;
+  let looks: FormatAtIndexes[] | null = null;
+  /** The formats without default values and limits: what the cells look like. */
+  let lookEntries = lookEntriesOf(cellFormats);
   let layoutAsStored: SheetLayoutRead | null = null;
   return {
     summary: {
@@ -669,6 +741,7 @@ export function readSheetLayout(
       frozenRowCount: lastFrozenRowIndex + 1,
       frozenColumnCount: lastFrozenColumnIndex + 1,
       areGridlinesHidden: layout.areGridlinesHidden === true,
+      isHidden: layout.isHidden === true,
       interactive: layout.interactive ?? null,
       rowGroups: groupsOnGrid(rowGroups, rows),
       columnGroups: groupsOnGrid(columnGroups, columns),
@@ -689,23 +762,35 @@ export function readSheetLayout(
       layout.lastFrozenRow === undefined &&
       layout.lastFrozenColumn === undefined &&
       layout.areGridlinesHidden !== true &&
+      layout.isHidden !== true &&
       layout.interactive === undefined &&
       [mergedRanges, columnWidths, rowHeights, cellFormats, rowGroups, columnGroups, conditionalFormats, placements].every(
         ({ length }) => length === 0,
       ),
-    cellFormats: createCellFormatLookup(cellFormats, kindOfPattern),
+    cellFormats: createCellFormatLookup(lookEntries, kindOfPattern),
     rowSizing: () => (rowSizing ??= rowSizingRuns(rows, rowHeights, cellFormats)),
     hasBorderLine: () => (hasBorderLine ??= anyEntryHasBorderLine(cellFormats)),
     entriesWithBorders: () => (entriesWithBorders ??= borderEntryRuns(cellFormats, rows, columns)),
     entriesThatWrapText: () => (entriesThatWrapText ??= wrapEntryRuns(cellFormats, rows, columns)),
     numberFormats: () => (numberFormats ??= numberFormatEntryRuns(cellFormats, rows, columns)),
     formats: () => (formats ??= formatEntryRuns(cellFormats, rows, columns, kindOfPattern)),
+    looks: () => (looks ??= formatEntryRuns(lookEntries, rows, columns, kindOfPattern)),
+    hasDefaultValue: someEntryHasDefaultValue(cellFormats),
     hexColors: () => (hexColors ??= customHexColorsOfSheet(cellFormats, dropdowns)),
     dropdownsById: new Map(dropdowns.map((dropdown) => [dropdown.dropdownId, dropdown])),
     conditionalFormats,
     placements: placementsOnGrid(placements, rows, columns),
     cellTables,
     namedViews: layout.namedViews ?? NO_NAMED_VIEWS,
+    connectedTable:
+      layout.connectedTable === undefined || layout.howItsTableStands === undefined
+        ? null
+        : {
+            ...layout.connectedTable,
+            ...layout.howItsTableStands,
+            widthOfUnsizedColumn: defaultColumnWidth,
+          },
+    protections: layout.protections ?? NO_PROTECTIONS,
     asStored() {
       if (ownRowOrder === undefined || ownRowOrder === 'givenUp') return null;
       let { ownRowOrder: _ownRowOrder, ...layoutAsSeen } = layout;
@@ -747,11 +832,17 @@ export function columnIndexesOnShow(sheet: SheetRead, rowIndex: number): number[
   sheet.columnIndexesOnShowByRow.set(rowId, columnIndexes);
   return columnIndexes;
 }
-export function cellsInArea(sheet: SheetRead, cellsByRow: ReadonlyMap<RowId, ReadonlyMap<ColumnId, unknown>>, area: CellArea): CellId[] {
+export function cellsInArea<Cells extends ReadonlyMap<ColumnId, unknown>>(
+  sheet: SheetRead,
+  cellsByRow: ReadonlyMap<RowId, Cells>,
+  area: CellArea,
+  /** Which columns of a row to list (every column with a cell by default). */
+  columnsOfRow: (cells: Cells) => Iterable<ColumnId> = (cells) => cells.keys(),
+): CellId[] {
   let { sheetId } = sheet.summary;
   let cellIds: CellId[] = [];
-  let addRow = (rowId: RowId, cellsOfRow: ReadonlyMap<ColumnId, unknown>) => {
-    for (let columnId of cellsOfRow.keys()) {
+  let addRow = (rowId: RowId, cellsOfRow: Cells) => {
+    for (let columnId of columnsOfRow(cellsOfRow)) {
       let columnIndex = sheet.columns.indexOf(columnId);
       if (columnIndex !== null && isIndexWithin(columnIndex, area.leftColumnIndex, area.columnCount))
         cellIds.push({
@@ -866,6 +957,13 @@ export function readWorkbook(
       mostCells,
       mostNamedViewsInASheet,
       longestNameOfANamedViewInCharacters,
+      mostNamedRanges,
+      longestNameOfANamedRangeInCharacters,
+      mostProtections,
+      mostOpenRangesInAProtection,
+      mostEditorsOfAProtection,
+      mostCellsWithADefaultValue,
+      longestDefaultValueInCharacters,
       deepestGroup,
       mostCheckboxesOfOneInsert,
       mostEditsInAStep,
@@ -880,12 +978,16 @@ export function readWorkbook(
   kindOfPattern: KindOfPattern,
   formatsGivenBySheet: readonly FormatsGivenOfSheet[] = [],
   viewInputs: readonly InputsOfViewRead[] = [],
+  namedRanges: NamedRangeRead[] = [],
+  cellsChangedFromDefaultsBySheet: readonly CellsChangedFromDefaultsOfSheet[] = [],
 ): WorkbookRead {
   return {
     sheets: sheets.map((sheet) => ({
       ...readSheetLayout(sheet, defaultColumnWidthInPixels, kindOfPattern),
       ...applyRowChanges(EMPTY_SHEET_CELLS, [], sheet.cells, sheet.spilledCells ?? [], false),
       formatsGiven: formatsGivenBySheet.find(({ sheetId }) => sheetId === sheet.sheetId)?.formatsGiven ?? NO_FORMATS_GIVEN,
+      cellsChangedFromDefaults:
+        cellsChangedFromDefaultsBySheet.find(({ sheetId }) => sheetId === sheet.sheetId)?.cells ?? NO_CELLS_CHANGED_FROM_DEFAULTS,
     })),
     views: viewsWithInputs(new Map(), views, viewInputs),
     calculationTookTooLong: calculationTookTooLong === true,
@@ -906,6 +1008,20 @@ export function readWorkbook(
     limitsOfNamedViews: {
       mostNamedViewsInASheet,
       longestNameOfANamedViewInCharacters,
+    },
+    limitsOfNamedRanges: {
+      mostNamedRanges,
+      longestNameOfANamedRangeInCharacters,
+    },
+    namedRanges,
+    limitsOfProtections: {
+      mostProtections,
+      mostOpenRangesInAProtection,
+      mostEditorsOfAProtection,
+    },
+    limitsOfDefaultValues: {
+      mostCellsWithADefaultValue,
+      longestDefaultValueInCharacters,
     },
     deepestGroup,
     mostCheckboxesOfOneInsert,
@@ -940,6 +1056,7 @@ export function applyWorkbookChanges(
       ...(layoutNow === null ? sheet : readSheetLayout(layoutNow, defaultColumnWidth, kindOfPattern, sheet)),
       ...applyRowChanges(sheet, rowsListed, cellsNow, spilledCellsNow, layoutNow === null),
       formatsGiven: formatsGivenNow ?? sheet.formatsGiven,
+      cellsChangedFromDefaults: entry.cellsChangedFromDefaultsNow ?? sheet.cellsChangedFromDefaults,
     };
   });
   if (changesBySheet.size > 0) throw Error('sheets-core listed a sheet that the page has not read');
@@ -997,6 +1114,10 @@ export function createWorkbookAccessor(workbook: WorkbookRead, services: Workboo
     longestSheetNameInCharacters: () => workbook.longestSheetNameInCharacters,
     mostFilledCells: () => workbook.mostCells,
     limitsOfNamedViews: () => workbook.limitsOfNamedViews,
+    limitsOfNamedRanges: () => workbook.limitsOfNamedRanges,
+    namedRanges: () => workbook.namedRanges,
+    limitsOfProtections: () => workbook.limitsOfProtections,
+    limitsOfDefaultValues: () => workbook.limitsOfDefaultValues,
     deepestGroup: () => workbook.deepestGroup,
     mostCheckboxesOfOneInsert: () => workbook.mostCheckboxesOfOneInsert,
     mostEditsInAStep: () => workbook.mostEditsInAStep,
@@ -1050,19 +1171,22 @@ export function createWorkbookAccessor(workbook: WorkbookRead, services: Workboo
         columnCount: columnSpan.count,
       });
     },
-    lookOfRow: (sheetId, rowIndex) => rowLookKey(sheetsById.get(sheetId)?.formats() ?? [], rowIndex),
+    lookOfRow: (sheetId, rowIndex) => rowLookKey(sheetsById.get(sheetId)?.looks() ?? [], rowIndex),
     conditionalFormatsOf: (sheetId) => sheetsById.get(sheetId)?.conditionalFormats ?? [],
     formatsGivenIn: (sheetId) => sheetsById.get(sheetId)?.formatsGiven ?? NO_FORMATS_GIVEN,
     placementsIn: (sheetId) => sheetsById.get(sheetId)?.placements ?? NO_PLACEMENTS,
     cellTablesDeclaredIn: (sheetId) => sheetsById.get(sheetId)?.cellTables ?? NO_CELL_TABLES,
     namedViewsIn: (sheetId) => sheetsById.get(sheetId)?.namedViews ?? NO_NAMED_VIEWS,
+    connectedTableIn: (sheetId) => sheetsById.get(sheetId)?.connectedTable ?? null,
+    protectionsIn: (sheetId) => sheetsById.get(sheetId)?.protections ?? NO_PROTECTIONS,
+    cellsChangedFromDefaultsIn: (sheetId) => sheetsById.get(sheetId)?.cellsChangedFromDefaults ?? NO_CELLS_CHANGED_FROM_DEFAULTS,
     viewAsItStands: (viewId) => workbook.views.get(viewId) ?? null,
     rowSizingOf: (sheetId) => sheetsById.get(sheetId)?.rowSizing() ?? [],
     whereTextWraps: (sheetId) => sheetsById.get(sheetId)?.entriesThatWrapText() ?? [],
     cellsWithListsIn: (sheetId) => sheetsById.get(sheetId)?.cellsWithListsByRow ?? EMPTY_SHEET_CELLS.cellsWithListsByRow,
     hasBorderLine: (sheetId) => sheetsById.get(sheetId)?.hasBorderLine() ?? false,
     bordersMayChangeBefore: (sheetId, area) => borderEdgesNear(sheetsById.get(sheetId)?.entriesWithBorders() ?? [], area),
-    isTextClippedIn: (sheetId, area) => clipsWithin(sheetsById.get(sheetId)?.formats() ?? [], area),
+    isTextClippedIn: (sheetId, area) => clipsWithin(sheetsById.get(sheetId)?.looks() ?? [], area),
     numberFormatPatternsIn: (sheetId, area) => numberFormatPatternsWithin(sheetsById.get(sheetId)?.numberFormats() ?? [], area),
     hexColorsOf: (sheetId) => sheetsById.get(sheetId)?.hexColors() ?? [],
     dropdownOf({ sheetId, rowId, columnId }) {
@@ -1113,6 +1237,20 @@ export function createWorkbookAccessor(workbook: WorkbookRead, services: Workboo
       if (entry === undefined) return [];
       let cellIds = cellsInArea(entry, entry.cellsByRow, area);
       return entry.spilledCellsByRow.size === 0 ? cellIds : [...cellIds, ...cellsInArea(entry, entry.spilledCellsByRow, area)];
+    },
+    /** The cells holding a formula, and the cells spilled into. */
+    formulasAndSpillsIn(sheetId, area) {
+      let entry = sheetsById.get(sheetId);
+      if (entry === undefined) return [];
+      return [
+        ...cellsInArea(entry, entry.cellsByRow, area, (cells) => cells.columnsWithAFormula()),
+        ...cellsInArea(entry, entry.spilledCellsByRow, area),
+      ];
+    },
+    cellsEditedAfterTheMarkIn(sheetId, area) {
+      let entry = sheetsById.get(sheetId);
+      if (entry === undefined) return [];
+      return cellsInArea(entry, entry.cellsByRow, area, (cells) => cells.columnsWithATextEditedAfterTheMark());
     },
     areaOnShowIn(sheetId, area) {
       let entry = sheetsById.get(sheetId);
@@ -1231,8 +1369,8 @@ export const inputsOfAnswer = ({ answer }: InputsOfViewRead, view: View): ViewIn
 export const viewInputsFromAnswer = (view: View, entry: InputsOfViewRead): ViewWithInputs => ({
   view,
   inputs: inputsOfAnswer(entry, view),
-  ...('canBeReset' in entry.answer && {
-    canBeReset: true,
+  ...('countOfCellsToReset' in entry.answer && {
+    countOfCellsToReset: entry.answer.countOfCellsToReset,
   }),
   ...('hasDefaultsToSave' in entry.answer && {
     hasDefaultsToSave: true,
@@ -1277,6 +1415,8 @@ export const DEFAULT_LOCALE_PATTERNS: LocalePatterns = {
 export const NO_PLACEMENTS: PlacementOnGrid[] = [];
 export const NO_CELL_TABLES: CellTableContents[] = [];
 export const NO_NAMED_VIEWS: NamedViewContents[] = [];
+export const NO_PROTECTIONS: ProtectionContents[] = [];
+export const NO_CELLS_CHANGED_FROM_DEFAULTS: CellChangedFromItsDefault[] = [];
 export const NO_FORMATS_GIVEN: FormatsGiven = {
   notWorkedOut: null,
   formats: [],

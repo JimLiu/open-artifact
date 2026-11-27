@@ -20,6 +20,21 @@ pub(super) struct Header<'g> {
 impl<'g> Sheet<'g> {
     /// The header of a block, or why it has none.
     pub(super) fn header(&self, block: &Rect) -> Result<Header<'g>, Reason> {
+        self.header_or_rows(block).map_err(|(reason, _)| reason)
+    }
+
+    /// The header rows an assumed table takes: its header's, or, where the block's columns miss a heading or name
+    /// two alike, the rows it was found over, pushed down by merged ranges as a header's are; else its top row.
+    pub(super) fn assumed_header_rows(&self, block: &Rect) -> (usize, usize) {
+        match self.header_or_rows(block) {
+            Ok(h) => (h.first, h.last),
+            Err((_, Some(rows))) => rows,
+            Err((_, None)) => (block.top, block.top),
+        }
+    }
+
+    /// The header of a block, or why it has none with the rows it was found over when it went that far.
+    fn header_or_rows(&self, block: &Rect) -> Result<Header<'g>, (Reason, Option<(usize, usize)>)> {
         let Rect { top, left, bottom, right } = *block;
         let mut seen: BTreeSet<usize> = BTreeSet::new();
         let mut names: BTreeMap<String, u32> = BTreeMap::new();
@@ -51,7 +66,7 @@ impl<'g> Sheet<'g> {
             }
             let above = (top < row).then(|| row - 1);
             if !self.is_heading_row(row, left, right, above, Skip::Texts) {
-                return Err(Reason::NoHeadings);
+                return Err((Reason::NoHeadings, None));
             }
             let area = Rect { top: row.min(top), left: left.min(right), bottom: row.max(top), right: left.max(right) };
             let mut end = row;
@@ -62,25 +77,17 @@ impl<'g> Sheet<'g> {
             break;
         }
         if last > bottom {
-            return Err(Reason::NoHeadings);
+            return Err((Reason::NoHeadings, None));
         }
         for (&r, cells) in self.cells.range(row.saturating_add(1)..) {
             if r > last {
                 break;
             }
             if cells.iter().any(|c| left <= c.column && c.column <= right) {
-                return Err(Reason::NoHeadings);
+                return Err((Reason::NoHeadings, None));
             }
         }
-        if (left.saturating_add(1)..=right).any(|c| !columns.contains_key(&c)) {
-            return Err(Reason::ColumnWithoutAHeading);
-        }
-        let name_paths: BTreeSet<Vec<u32>> = columns.values().map(|v| v.iter().map(|&(_, id)| id).collect()).collect();
-        let cell_paths: BTreeSet<Vec<(usize, usize)>> =
-            columns.values().map(|v| v.iter().map(|(c, _)| (c.row, c.column)).collect()).collect();
-        if name_paths.len() < cell_paths.len() {
-            return Err(Reason::TwoColumnsOfOneName);
-        }
+        // A date or time under a heading other than a text means no headings, before a column without one does.
         let first_body = last.saturating_add(1);
         let mut under: Vec<&Cell> = Vec::new();
         for v in columns.values() {
@@ -91,7 +98,16 @@ impl<'g> Sheet<'g> {
             under.extend(self.cells_in(first_body, heading.column, heading.column));
         }
         if under.iter().any(|c| self.is_dated(c)) || self.is_time_run(&under) {
-            return Err(Reason::NoHeadings);
+            return Err((Reason::NoHeadings, None));
+        }
+        if (left.saturating_add(1)..=right).any(|c| !columns.contains_key(&c)) {
+            return Err((Reason::ColumnWithoutAHeading, Some((top, last))));
+        }
+        let name_paths: BTreeSet<Vec<u32>> = columns.values().map(|v| v.iter().map(|&(_, id)| id).collect()).collect();
+        let cell_paths: BTreeSet<Vec<(usize, usize)>> =
+            columns.values().map(|v| v.iter().map(|(c, _)| (c.row, c.column)).collect()).collect();
+        if name_paths.len() < cell_paths.len() {
+            return Err((Reason::TwoColumnsOfOneName, Some((top, last))));
         }
         let headings = columns.into_iter().filter_map(|(c, v)| Some((c, v.last()?.0))).collect();
         Ok(Header { first: top, last, headings })

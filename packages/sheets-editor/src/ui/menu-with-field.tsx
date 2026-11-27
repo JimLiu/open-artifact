@@ -191,9 +191,11 @@ export function MenuKeyboardTaker({ onShut, isRowToTakeKeyboard }: MenuKeyboardT
   }, []);
   return <span ref={markerRef} hidden />;
 }
-export function pointerAtRest(restPoint: PointerRest, point: PagePoint): PagePoint | null {
+export const menuItemOf = (node: EventTarget | null): Element | null => (node instanceof Element ? node.closest('[role^="menuitem"]') : null);
+export function pointerAtRest(restPoint: PointerRest, point: PagePoint, staysAtRest = false): PointerRest {
   if (restPoint === null) return null;
   if (restPoint === 'somewhere') return point;
+  if (staysAtRest) return restPoint;
   return Math.hypot(point.x - restPoint.x, point.y - restPoint.y) < POINTER_REST_DISTANCE ? restPoint : null;
 }
 export function menuFieldKeyAction(press: MenuFieldKeyPress): MenuFieldKeyAction | null {
@@ -249,6 +251,7 @@ export function MenuWithField({
   const heldMenuRef = React.useRef<HTMLElement | null>(null);
   const pointerRef = React.useRef<PagePoint | null>(null);
   const restPointRef = React.useRef<PointerRest>(null);
+  const hasPointerLeftItemRef = React.useRef(false);
   const forgetPointer = React.useCallback(() => {
     pointerRef.current = null;
     restPointRef.current = null;
@@ -256,6 +259,10 @@ export function MenuWithField({
   const markPointerAtRest = (menu: Element, restPoint: PointerRest) => {
     restPointRef.current = restPoint;
     menu.toggleAttribute(POINTER_AT_REST_ATTRIBUTE, restPoint !== null);
+  };
+  const markRestWherePointerIs = (menu: Element) => {
+    hasPointerLeftItemRef.current = false;
+    markPointerAtRest(menu, pointerRef.current ?? 'somewhere');
   };
   const ownWindow = useUiWindow();
   const isPointerCoarse = useCoarsePointerMedia();
@@ -328,18 +335,25 @@ export function MenuWithField({
           x,
           y,
         };
+        const isOnHighlightedItem = !hasPointerLeftItemRef.current && menuItemOf(event.target)?.hasAttribute('data-highlighted') === true;
         markPointerAtRest(
           event.currentTarget,
-          pointerAtRest(restPointRef.current, {
-            x,
-            y,
-          }),
+          pointerAtRest(
+            restPointRef.current,
+            {
+              x,
+              y,
+            },
+            isOnHighlightedItem,
+          ),
         );
         if (restPointRef.current !== null) event.stopPropagation();
+      }} onPointerOutCapture={({ target, relatedTarget }) => {
+        if (menuItemOf(target) !== menuItemOf(relatedTarget)) hasPointerLeftItemRef.current = true;
       }} onMouseMoveCapture={(event) => {
         if (restPointRef.current !== null) event.stopPropagation();
       }} onInputCapture={({ currentTarget: menu, target }) => {
-        markPointerAtRest(menu, pointerRef.current ?? 'somewhere');
+        markRestWherePointerIs(menu);
         heldMenuRef.current = menu;
         if (isAtTool) return;
         const isFieldEmpty = target instanceof HTMLInputElement && target.value === '';
@@ -355,7 +369,7 @@ export function MenuWithField({
         popupProps.onFocus?.(event);
         const fieldElement = event.currentTarget.querySelector('input');
         if (event.target === fieldElement && event.relatedTarget instanceof Element && event.relatedTarget.closest('[role^="menuitem"]') !== null)
-          markPointerAtRest(event.currentTarget, pointerRef.current ?? 'somewhere');
+          markRestWherePointerIs(event.currentTarget);
         if (event.target !== event.currentTarget) return setFocusedField(fieldElement);
         const cameFromOpenPopup = event.relatedTarget instanceof Element && event.relatedTarget.hasAttribute('data-popup-open');
         if (takesCaretNow || (typed !== '' && !cameFromOpenPopup && !isPointerCoarse))

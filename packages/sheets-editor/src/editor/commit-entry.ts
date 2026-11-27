@@ -16,6 +16,7 @@ import { usersOfCell, listLinesOfCell } from '../model/cell-values.ts';
 import { doesCellTakeCalendar } from '../chips/calendar.ts';
 import { isTimeCell, takeTimeFromList } from './time-list.ts';
 import { formulaHasMoreReferencesThan } from '../formulas/references.ts';
+import { textNamesARange } from '../model/reference-areas.ts';
 import { cellHasPicker, doesEntryReadSigns, isSelectionMoreThanActiveCell } from './start-entry.ts';
 import { areaToA1AsStored } from '../formulas/from-words/where.ts';
 import { ownRowOrderOfSheet } from '../model/line-ids.ts';
@@ -69,7 +70,10 @@ export function isEntryRefusedByCell(state: PageState, reads: WorkbookReads): bo
 export function doesEntryExceedReferences(text: string, { activeCell }: Pick<PageState, 'activeCell'>, reads: WorkbookReads): boolean {
   let input = reads.cellOf(activeCell)?.input;
   if (input?.kind !== 'formula') return false;
-  return formulaHasMoreReferencesThan(text, reads.decimalSign, activeCell.sheetId, reads.listSheets(), input.formula.references);
+  return (
+    formulaHasMoreReferencesThan(text, reads.decimalSign, activeCell.sheetId, reads.listSheets(), input.formula.references) ||
+    textNamesARange(reads, input.formula)
+  );
 }
 export function isPlainValueText(text: string): boolean {
   let cleaned = cleanEnteredCellText(text);

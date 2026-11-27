@@ -15,13 +15,18 @@ import { translateMessage, MESSAGE_LOCALE } from './messages.ts';
 import { savingStoppedText, readOnlyText, commentModeHint } from './status-labels.ts';
 import { fixFailureText } from './formula-fix-labels.ts';
 import { filterNoticeText, ownSortNoticeText } from '../tables/filter-messages.ts';
-import { versionNotRestoredText, versionNotShownText } from '../history/version-text.ts';
+import { versionNotRestoredText, versionNotShownText, versionNameNotSavedText, versionHistoryMessages } from '../history/version-text.ts';
 import { agentUndoRefusalText } from './agent-turn-labels.ts';
 import { filterHidesRowsRefusal } from '../messages/filter-refusals.ts';
 import { dropdownCellsRefusalText } from './chip-labels.ts';
 import { truncateGraphemes, SHEET_NAME_IN_NOTICE_MAX_CHARACTERS } from './grid-action-labels.ts';
 import { namedViewRefusalLabel, namedViewLimitRefusalLabel } from '../tables/named-view-messages.ts';
 import { interactiveNotWritableText, interactiveWritesTooLargeText, interactiveNotDuplicatedText } from '../messages/import.ts';
+import { namedRangeMessages } from '../messages/named-ranges.ts';
+import { cellProtectedText, protectionRefusalText, tooManyProtectionsText } from '../messages/protection.ts';
+import type { WrittenValueLimits } from '../messages/defaults-and-limits.ts';
+import { outsideLimitsText, defaultsAndLimitsMessages, defaultsRefusalText, tooManyDefaultsText } from '../messages/defaults-and-limits.ts';
+import { connectedTableMessages } from '../tables/connected-table-messages.ts';
 /** The modifier key to press instead of a menu command, or null when there is no keyboard. */
 export type KeyInstead = Exclude<CopyRefused['keyInstead'], 'sameInAMoment'>;
 /** Why edits already made were dropped by the workbook, when it said. */
@@ -126,7 +131,7 @@ export function tooLargeTextForAct(act: AskedKindOfEdit): string {
   if (act === 'sortOfRange') return sortRangeTooLargeText();
   return act === 'removalOfOneOption' ? optionRemovalTooLargeText() : changeTooLargeText();
 }
-export function editRefusedText(refusal: EditRefusedOnPage['why'], act: AskedKindOfEdit, mergedCells?: string): string {
+export function editRefusedText(refusal: EditRefusedOnPage['why'], act: AskedKindOfEdit, mergedCells?: string, limits?: WrittenValueLimits): string {
   switch (refusal) {
     case 'readOnly':
       return readOnlyText();
@@ -284,10 +289,29 @@ export function editRefusedText(refusal: EditRefusedOnPage['why'], act: AskedKin
           'That change wasn’t made, because this Sheet can’t hold any more conditional formatting rules. To make room, remove rules you don’t need.',
         id: 'LwHDk5S7Gy',
       });
+    case 'namedRangeNameTaken':
+      return namedRangeMessages.nameTaken();
+    case 'namedRangeIsGone':
+      return namedRangeMessages.isGone();
     case 'namedViewNameTaken':
     case 'namedViewTooLarge':
     case 'namedViewIsGone':
       return namedViewRefusalLabel(refusal, act);
+    case 'cellsProtected':
+    case 'linesProtected':
+    case 'sheetProtected':
+    case 'protectionNotTheirs':
+    case 'protectionIsGone':
+      return act === 'entryInOneCell' ? cellProtectedText() : protectionRefusalText(refusal);
+    case 'valueOutsideLimits':
+      return outsideLimitsText(limits);
+    case 'defaultValueNotPlain':
+      return defaultsAndLimitsMessages.onlyPlainValues();
+    case 'limitIsNoNumber':
+    case 'minimumAboveMaximum':
+    case 'defaultValueIsNoOption':
+    case 'defaultValueOutsideLimits':
+      return defaultsRefusalText(refusal);
     case 'interactiveCantWrite':
       return interactiveNotWritableText();
     case 'interactiveSavesTooMuch':
@@ -295,6 +319,10 @@ export function editRefusedText(refusal: EditRefusedOnPage['why'], act: AskedKin
     case 'interactiveNotCopied':
     case 'interactiveNeverCopied':
       return interactiveNotDuplicatedText(refusal);
+    case 'sheetIsAConnectedTable':
+      return connectedTableMessages.takesNoEdit();
+    case 'connectedTableNamedByAddress':
+      return connectedTableMessages.hasNoAddresses();
     case 'tableTooLarge':
       return tooLargeTextForAct(act);
     case 'pasteDoesNotFit':
@@ -419,8 +447,9 @@ export function editRefusedText(refusal: EditRefusedOnPage['why'], act: AskedKin
       });
     case 'pivotTableSourceRecordsNotClear':
       return translateMessage({
-        defaultMessage: 'It isn’t clear which rows belong to this table. Unmerge cells and remove repeated headings, then try again.',
-        id: 'MWbybwsHru',
+        defaultMessage:
+          'It isn’t clear which rows belong to this table. Unmerge cells, remove repeated headings, and make sure any total covers all the rows. Then try again.',
+        id: 'QIVqFV1gZn',
       });
     case 'pivotTableSourceHasSectionsOrSubtotals':
       return translateMessage({
@@ -765,6 +794,11 @@ export function oneRangeNeededText(act: OneRangeAct): string {
         defaultMessage: 'Select just one group to merge.',
         id: 'vWotAUi07W',
       });
+    case 'protect':
+      return translateMessage({
+        defaultMessage: 'Select just one group of cells to protect.',
+        id: '3t/HyOgJND',
+      });
     case 'unmergeCells':
       return translateMessage({
         defaultMessage: 'Select just one group of cells to unmerge.',
@@ -867,6 +901,10 @@ export function noticeText(notice: NoticeTold): string | undefined {
       return agentUndoRefusalText(notice);
     case 'versionNotShown':
       return versionNotShownText(notice);
+    case 'versionNameNotSaved':
+      return versionNameNotSavedText(notice);
+    case 'tooManyVersionNames':
+      return versionHistoryMessages.tooManyNames();
     case 'oneRangeNeeded':
       return oneRangeNeededText(notice.act);
     case 'rowsOutOfViewInTheWay':
@@ -877,7 +915,7 @@ export function noticeText(notice: NoticeTold): string | undefined {
         id: 'SfKM/14KGG',
       });
     case 'editRefused':
-      return editRefusedText(notice.why, notice.asked, notice.mergedCells);
+      return editRefusedText(notice.why, notice.asked, notice.mergedCells, notice.limits);
     case 'cellHoldsNoMorePeople':
       return translateMessage(
         {
@@ -891,6 +929,10 @@ export function noticeText(notice: NoticeTold): string | undefined {
       );
     case 'tooManyNamedViews':
       return namedViewLimitRefusalLabel(notice.most);
+    case 'tooManyProtections':
+      return tooManyProtectionsText(notice.most);
+    case 'tooManyCellsWithADefault':
+      return tooManyDefaultsText(notice.most);
     case 'groupsTooDeep':
       return translateMessage(
         {
@@ -1090,7 +1132,7 @@ export function cellsInSightText([firstRow, lastRow]: readonly [string, string],
     return translateMessage(
       {
         defaultMessage: 'Row {firstRow}, column {firstColumn}',
-        id: 'Sc1kqnNpcY',
+        id: '6oSW5cq74q',
       },
       {
         firstRow,
@@ -1101,7 +1143,7 @@ export function cellsInSightText([firstRow, lastRow]: readonly [string, string],
     return translateMessage(
       {
         defaultMessage: 'Row {firstRow}, columns {firstColumn} to {lastColumn}',
-        id: '/r7tXixVPX',
+        id: 'VpnczCfumo',
       },
       {
         firstRow,
@@ -1113,7 +1155,7 @@ export function cellsInSightText([firstRow, lastRow]: readonly [string, string],
     return translateMessage(
       {
         defaultMessage: 'Rows {firstRow} to {lastRow}, column {firstColumn}',
-        id: 'jDaYKhmDJC',
+        id: 'MQkuBiF2l0',
       },
       {
         firstRow,
@@ -1124,7 +1166,7 @@ export function cellsInSightText([firstRow, lastRow]: readonly [string, string],
   return translateMessage(
     {
       defaultMessage: 'Rows {firstRow} to {lastRow}, columns {firstColumn} to {lastColumn}',
-      id: 'WHDsQWT4PB',
+      id: 'ZeKNQFbcIr',
     },
     {
       firstRow,
@@ -1154,6 +1196,11 @@ export const agentMissedMessageText = (): string =>
     defaultMessage:
       'Agent didn’t get that because the message box wasn’t selected. Click the message box and try again, or press Esc to go back to the cells.',
     id: 'Dl+OZNW/Px',
+  });
+export const agentMissedMessageWithChatCoveredText = (): string =>
+  translateMessage({
+    defaultMessage: 'Agent didn’t get that because the message box is hidden behind this Sheet. Press Esc or click a cell to type in the Sheet again.',
+    id: 'mIH38oq69F',
   });
 export const savingChangesText = (): string =>
   translateMessage({

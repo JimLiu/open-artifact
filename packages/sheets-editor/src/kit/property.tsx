@@ -62,19 +62,70 @@ export interface PropertyRowProps extends Omit<React.HTMLAttributes<HTMLDivEleme
   className?: string;
 }
 
+const FOCUSABLE_SELECTOR = 'input:not([aria-hidden="true"]),textarea,select,button,[tabindex="0"]';
+const UNFOCUSABLE_SELECTOR = ':disabled,[aria-disabled="true"],[data-disabled],[tabindex="-1"],[data-ui-disabled-reason-wrapper]';
+const OWN_POPUP_SELECTOR = '[popover],[role="dialog"],[role="listbox"],[role="menu"],[data-ui-part="property-row-trailing"]';
+const TEXT_ENTRY_SELECTOR =
+  'input:not([type="button"],[type="checkbox"],[type="color"],[type="file"],[type="image"],[type="radio"],[type="range"],[type="reset"],[type="submit"]),textarea,[contenteditable]:not([contenteditable="false"]),[role="textbox"]';
+
 /** One labelled property: a label column, the control, and an optional trailing control. */
 export const PropertyRow = React.forwardRef<HTMLDivElement, PropertyRowProps>(function PropertyRow(
-  { label, trailing, disabled = false, className, children, ...props },
+  { label, trailing, disabled = false, className, children, onPointerDown, onClick, onKeyDownCapture, ...props },
   ref,
 ) {
   const hasLabel = isShown(label);
   const hasTrailing = isShown(trailing);
+  const controlsRef = React.useRef<HTMLDivElement | null>(null);
+  const touchPressRef = React.useRef(false);
+  const silentlyFocusedRef = React.useRef<HTMLElement | null>(null);
+
+  // A press on the row that focused nothing moves focus to its first usable control; a touch
+  // does not put the keyboard up for a text field this way.
+  const focusFirstControl = (): void => {
+    const byTouch = touchPressRef.current;
+    touchPressRef.current = false;
+    const controls = controlsRef.current;
+    const doc = controls?.ownerDocument;
+    if (!controls || !doc || disabled || doc.activeElement !== doc.body) return;
+    for (const candidate of controls.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)) {
+      const popup = candidate.closest(OWN_POPUP_SELECTOR);
+      if (candidate.matches(UNFOCUSABLE_SELECTOR) || (popup !== null && controls.contains(popup))) continue;
+      const entersText = candidate.matches(TEXT_ENTRY_SELECTOR);
+      if (byTouch && entersText) return;
+      candidate.focus(entersText ? undefined : { focusVisible: false });
+      if (doc.activeElement === candidate) {
+        silentlyFocusedRef.current = entersText ? null : candidate;
+        return;
+      }
+    }
+  };
+
   return (
     <BaseField.Root
       ref={ref}
       data-ui="PropertyRow"
       disabled={disabled}
       {...props}
+      onPointerDown={(event) => {
+        onPointerDown?.(event);
+        touchPressRef.current = event.pointerType === 'touch';
+      }}
+      onClick={(event) => {
+        onClick?.(event);
+        if (event.defaultPrevented) return;
+        focusFirstControl();
+      }}
+      onKeyDownCapture={(event) => {
+        onKeyDownCapture?.(event);
+        // The first key after a silent focus shows the focus ring.
+        const focused = silentlyFocusedRef.current;
+        if (focused === null || event.ctrlKey || event.metaKey || event.altKey || event.key === 'Shift') return;
+        silentlyFocusedRef.current = null;
+        if (event.target === focused && !focused.matches(':focus-visible')) {
+          focused.blur();
+          focused.focus({ focusVisible: true });
+        }
+      }}
       className={cn(
         'group/property-row grid min-h-[max(2rem,calc(var(--ui-h-control)+0.25rem))] min-w-0 shrink-0 items-center gap-0 gap-x-sm py-px touch:min-h-10',
         PAD_CLASSES,
@@ -88,6 +139,7 @@ export const PropertyRow = React.forwardRef<HTMLDivElement, PropertyRowProps>(fu
         </div>
       )}
       <div
+        ref={controlsRef}
         className={cn(
           'flex min-w-0 items-center gap-2',
           !hasTrailing && 'pe-[calc(var(--cmp-property-trailing,-0.25rem)+0.25rem)] touch:pe-[calc(var(--cmp-property-trailing,-0.5rem)+0.5rem)]',

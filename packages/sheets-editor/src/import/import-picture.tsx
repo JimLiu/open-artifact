@@ -1,7 +1,8 @@
 import * as React from 'react';
 import { translateMessage, MESSAGE_LOCALE } from '../i18n/messages.ts';
 import { createInitialPageState } from '../state/initial-state.ts';
-import { clampScrollOfView } from '../grid/layout.ts';
+import { clampScrollOfView, layoutOfView } from '../grid/layout.ts';
+import { scrollToShowCell } from '../grid/geometry.ts';
 import { showSheet } from '../state/sheet-tabs.ts';
 import { pageViewOf } from '../view/page-view.ts';
 import { loadSheetsEngineOnce } from '../engine/loader.ts';
@@ -18,6 +19,8 @@ import type { Edit, SheetId } from '@open-artifact/sheets-core';
 import type { ImportOfAFile, PageState } from '../state/initial-state.ts';
 import type { ReadsWithTextMeasurer, TextMeasurer } from '../state/controller.ts';
 import type { GridOfPage } from '../view/page-view.ts';
+import type { GridScroll } from '../grid/geometry.ts';
+import type { GridLayout } from '../grid/layout.ts';
 import type { ImportTextOnRow } from './csv-file.tsx';
 import type { ImportColumnQuestion } from './settings-to-check.ts';
 /** A workbook made to draw the picture of an import in, and the sheet of it that holds the picture. */
@@ -449,6 +452,20 @@ export function useImportPicture({ open, locale, size, zoom, unfolded, isPlayed 
     scrollTopBeforeShowRowRef.current = null;
     redraw();
   }, [redraw]);
+  let showWholeRow = React.useCallback(
+    (rowNumber: number) => {
+      let filled = filledRef.current;
+      let view = filled === null ? null : importPictureView(filled, sizeRef.current, scrollRef.current);
+      if (filled === null || view === null) return;
+      scrollTopBeforeShowRowRef.current = null;
+      scrollRef.current = {
+        ...scrollRef.current,
+        scrollTop: scrollTopShowingRow(view, rowNumber, endAtRef.current.row, layoutOfView(view, filled.reads), view),
+      };
+      redraw();
+    },
+    [redraw],
+  );
   let pictureFromTheTop = React.useCallback((pictureSize: ImportPictureSize) => {
     let filled = filledRef.current;
     let view = filled === null ? null : importPictureView(filled, pictureSize, TOP_LEFT_SCROLL);
@@ -538,6 +555,7 @@ export function useImportPicture({ open, locale, size, zoom, unfolded, isPlayed 
     cellsThatStayText: isPictureOfOpen ? drawnPicture.cellsThatStayText : NO_CELLS_THAT_STAY_TEXT,
     showRow,
     showRowNoLonger,
+    showWholeRow,
     endAt,
     cannotBeDrawn: open !== null && cannotDraw?.table === open.table,
   };
@@ -921,6 +939,30 @@ export const TOP_LEFT_SCROLL: ScrollOfPicture = {
   scrollLeft: 0,
 };
 export const NO_CELLS_THAT_STAY_TEXT: CellThatStaysText[] = [];
+export const scrollTopShowingRow = (
+  scroll: GridScroll,
+  rowNumber: number,
+  lastRow: number,
+  layout: GridLayout,
+  view: Parameters<typeof scrollToShowCell>[3],
+): number =>
+  scrollToShowCell(
+    scroll,
+    {
+      rowIndex: rowNumber - 1,
+      columnIndex: 0,
+    },
+    layout,
+    view,
+    'key',
+    false,
+    rowNumber === lastRow
+      ? {
+          length: layout.rowEdges.sizeOf(rowNumber - 1) + PICTURE_END_SLACK_PX,
+          around: 0,
+        }
+      : undefined,
+  ).scrollTop;
 export const isSameImportOpen = (first: ImportOfAFile | null, second: ImportOfAFile | null) =>
   first === second ||
   (first !== null &&

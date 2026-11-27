@@ -122,7 +122,7 @@ export const isExpandOfferedAtActiveCell = (state: PageState, reads: ReadsWithTe
   !state.isOnPhone &&
   cellPlainText(reads.cellOf(state.activeCell)) !== null &&
   canCellEntryExpand(reads, state.activeCell) &&
-  filterButtonAtActiveCell(state, reads, state.activeCell) === null;
+  filterButtonAtActiveCell(state, reads, state.activeCell, true) === null;
 export const EXPAND_BUTTON_SIZE = 20;
 export const EXPAND_BUTTON_ROOM = EXPAND_BUTTON_SIZE + 3;
 export const EXPANDED_ENTRY_MIN_WIDTH = 480;

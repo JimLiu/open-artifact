@@ -158,7 +158,13 @@ fn text_to_edit(workbook: &Workbook, s: usize, at: (LineId, LineId), locale: &Lo
         Input::Text { value } => value.clone(),
         Input::Boolean { value } => if *value { "TRUE" } else { "FALSE" }.to_owned(),
         Input::DropdownOption { option_id, label } => {
-            sheet.dropdown_option(option_id).map_or(label, |o| &o.label).clone()
+            let label = sheet.dropdown_option(option_id).map_or(label, |o| &o.label);
+            // Out of a dropdown, an option is edited as its label's text is.
+            if !edited::has_a_dropdown(sheet, at) && edited::text_is_edited_after_the_mark(label, locale) {
+                format!("'{label}")
+            } else {
+                label.clone()
+            }
         }
         Input::User { .. } | Input::Users { .. } | Input::RichText { .. } => {
             let text = cell.input.reads_as_text().unwrap_or_default();

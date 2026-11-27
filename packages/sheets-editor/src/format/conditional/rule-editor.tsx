@@ -362,7 +362,7 @@ export function RuleFormatSection({
   onAct,
 }: RuleFormatSectionProps) {
   let [fillColor, textColor] = [format.fillColor ?? NO_COLOR, format.font?.color ?? NO_COLOR];
-  return <PaneSection title={CONDITIONAL_FORMATTING_WORDS.format()}><PaneRow label={CONDITIONAL_FORMATTING_WORDS.preview()}><span aria-hidden className="sheet-rule-sample sheet-rule-preview" {...ruleFormatSampleProps(format)}>{CONDITIONAL_FORMATTING_WORDS.sample()}</span></PaneRow><PaneRow label={CONDITIONAL_FORMATTING_WORDS.presetsLabel()}><fieldset aria-label={CONDITIONAL_FORMATTING_WORDS.presets()} className="m-0 grid min-w-0 flex-1 grid-cols-6 gap-1 border-0 p-0"><TooltipGroup>{RULE_FORMAT_PRESETS.map(
+  return <PaneSection title={CONDITIONAL_FORMATTING_WORDS.format()}><PaneRow label={CONDITIONAL_FORMATTING_WORDS.preview()}><span aria-hidden className="sheet-rule-sample sheet-rule-preview" {...ruleFormatSampleProps(format)}>{CONDITIONAL_FORMATTING_WORDS.sample()}</span></PaneRow><PaneRow label={CONDITIONAL_FORMATTING_WORDS.presetsLabel()} leavesKeysToCells><fieldset aria-label={CONDITIONAL_FORMATTING_WORDS.presets()} className="m-0 grid min-w-0 flex-1 grid-cols-6 gap-1 border-0 p-0"><TooltipGroup>{RULE_FORMAT_PRESETS.map(
               (formatPreset) =>
                 (<Tooltip key={formatPreset.key} content={rulePresetLabel(formatPreset.key)}><button type="button" aria-label={rulePresetLabel(formatPreset.key)} aria-pressed={preset === formatPreset.key} className="sheet-rule-sample sheet-rule-preset" {...ruleFormatSampleProps(formatPreset.format)} onClick={() =>
                         onAct({
@@ -379,7 +379,7 @@ export function RuleFormatSection({
               kind: 'chooseColor',
               property: 'textColor',
               color: chosenColor,
-            })} /></PaneRow><PaneRow label={CONDITIONAL_FORMATTING_WORDS.style()}><span className="flex items-center gap-0.5"><TooltipGroup>{RULE_TEXT_STYLES.map(
+            })} /></PaneRow><PaneRow label={CONDITIONAL_FORMATTING_WORDS.style()} leavesKeysToCells><span className="flex items-center gap-0.5"><TooltipGroup>{RULE_TEXT_STYLES.map(
               (style) =>
                 (<Button key={style} variant="ghost" iconOnly icon={TEXT_TOGGLE_ICONS[style].icon} aria-label={textStyleLabel(style)} pressed={isFontStyleOn(format, style)} onClick={() =>
                       onAct({
@@ -520,7 +520,7 @@ export function ConditionalRuleEditor({ editor, whatColorPickerShows, onAct }: C
         preventScroll: true,
       }),
   );
-  return <><div className="shrink-0 pt-md pb-xs"><PaneRow><SegmentedControl fullWidth aria-label={CONDITIONAL_FORMATTING_WORDS.kindOfRule()} value={does.kind} segments={[
+  return <><div className="shrink-0 pt-md pb-xs"><PaneRow leavesKeysToCells><SegmentedControl fullWidth aria-label={CONDITIONAL_FORMATTING_WORDS.kindOfRule()} value={does.kind} segments={[
               {
                 value: 'formatWhere',
                 label: CONDITIONAL_FORMATTING_WORDS.highlight(),

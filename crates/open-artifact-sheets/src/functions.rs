@@ -28,18 +28,20 @@ pub mod lookup;
 pub mod math;
 pub mod more_math;
 pub mod more_statistical;
+pub mod sequence_and_text;
 pub mod statistical;
 pub mod text;
 
 /// The function groups added later, each in a module of its own: `call` and `early_reads`.
 type Call = fn(&str, &[Arg], &mut CallContext) -> Option<Answer>;
-const ADDED: [(Call, fn(&str) -> Option<&'static str>); 6] = [
+const ADDED: [(Call, fn(&str) -> Option<&'static str>); 7] = [
     (more_math::call, more_math::early_reads),
     (database::call, database::early_reads),
     (distributions::call, distributions::early_reads),
     (more_statistical::call, more_statistical::early_reads),
     (bonds::call, bonds::early_reads),
     (arrays_and_tests::call, arrays_and_tests::early_reads),
+    (sequence_and_text::call, sequence_and_text::early_reads),
 ];
 
 use std::rc::Rc;
@@ -424,7 +426,7 @@ mod tests {
     fn finds_functions() {
         assert_eq!(find("sum").map(FunctionId::name), Some("SUM"));
         assert_eq!(find("MODE.SNGL").map(FunctionId::name), Some("MODE.SNGL"));
-        assert!(find("SEQUENCE").is_none());
+        assert!(find("REDUCE").is_none());
     }
 
     #[test]

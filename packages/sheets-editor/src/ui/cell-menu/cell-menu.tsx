@@ -99,6 +99,9 @@ import { cellControlInsertChoices, cellControlsInMenuOrder, NumberFormatMenuItem
 import { cellTypeOfChoice } from '../../format/number-format-choices.ts';
 import { cellTypeLabel } from '../../i18n/format-labels.ts';
 import { pivotTableMessages } from '../../tables/pivot-table-messages.tsx';
+import { protectionMessages } from '../../messages/protection.ts';
+import { namedRangeMessages } from '../../messages/named-ranges.ts';
+import { defaultsAndLimitsMessages } from '../../messages/defaults-and-limits.ts';
 import { labelWithCount } from '../ask-list/ask-or-pick-list.tsx';
 import { useBottomInsetWhileOpen, popupCollisionPadding } from '../../shell/bottom-insets.ts';
 import { CONTEXT_BAR_PART_ATTRIBUTE } from '../toolbar-tooltip.tsx';
@@ -171,7 +174,7 @@ export function passWheelThroughMenu(menu: HTMLElement, close: () => void) {
     let target = event.target instanceof Element && !event.ctrlKey ? event.target : null;
     for (let element = target; element !== null && element !== portal; element = element.parentElement) {
       if (canScrollVertically(element)) return;
-      if (Array.from(element.children).some(canScrollVertically)) return event.preventDefault();
+      if (holdsScrollerWithin(element)) return event.preventDefault();
     }
     if (!event.ctrlKey) event.preventDefault();
     let isOpen = menu.hasAttribute('data-open');
@@ -333,8 +336,10 @@ export const isOnlyAltPressed = ({ altKey, shiftKey, ctrlKey, metaKey }: Pick<Ke
 export const WHEEL_SLACK_BEFORE_CLOSE_PX = 8;
 export const canScrollVertically = (element: Element) =>
   element.scrollHeight > element.clientHeight + 1 && /auto|scroll/.test(getComputedStyle(element).overflowY);
+export const holdsScrollerWithin = (element: Element) =>
+  Array.from(element.children).some((child) => canScrollVertically(child) || Array.from(child.children).some(canScrollVertically));
 export const CELL_MENU_TOUCH_GUARD: TouchGuardKey = {};
-export const FORMATTING_MENU_MAX_VISIBLE_ITEMS = 22;
+export const FORMATTING_MENU_MAX_VISIBLE_ITEMS = 26;
 export const MENU_ON_CELLS_ATTRIBUTE = 'data-menu-on-cells';
 export const armCellMenuTouchGuard = (menu: Element) => armTouchOpenGuard(CELL_MENU_TOUCH_GUARD, menu.ownerDocument, menu);
 /** The chart a menu opened on, and the attributes that mark the menu as its. */
@@ -417,7 +422,10 @@ export interface CellContextMenuProps
       | 'onConditionalFormatsAsked'
       | 'onSortPaneAsked'
       | 'onCellHistoryAsked'
+      | 'onProtectionAsked'
       | 'onPivotTableAsked'
+      | 'onNamedRangesAsked'
+      | 'onDefaultsAsked'
     > {
   isOpen: boolean;
   isAskedByKey: boolean;
@@ -558,7 +566,10 @@ export const CellContextMenu = React.memo(function ({
   onSortPaneAsked,
   onFigureChosen,
   onCellHistoryAsked,
+  onProtectionAsked,
   onPivotTableAsked,
+  onNamedRangesAsked,
+  onDefaultsAsked,
   onAgentAsked,
   onFixAsked,
   onAgentAskedInComment,
@@ -640,6 +651,7 @@ export const CellContextMenu = React.memo(function ({
     keptMenuProps.figures === menuProps.figures &&
     keptMenuProps.areDropdownsSelected === menuProps.areDropdownsSelected &&
     keptMenuProps.isCellHistoryOffered === menuProps.isCellHistoryOffered &&
+    keptMenuProps.labelOfReset === menuProps.labelOfReset &&
     keptMenuProps.isActiveCellOfPivotTable === menuProps.isActiveCellOfPivotTable &&
     keptMenuProps.isChatToBeHad === menuProps.isChatToBeHad &&
     keptMenuProps.hasAddressForAgent === menuProps.hasAddressForAgent &&
@@ -769,6 +781,7 @@ export const CellContextMenu = React.memo(function ({
     canMoveSelectionOn,
     areDropdownsSelected,
     isCellHistoryOffered,
+    labelOfReset,
     isActiveCellOfPivotTable,
     isChatToBeHad,
     hasAddressForAgent,
@@ -995,7 +1008,10 @@ export const CellContextMenu = React.memo(function ({
       onConditionalFormatsAsked,
       onSortPaneAsked,
       onCellHistoryAsked,
+      onProtectionAsked,
       onPivotTableAsked,
+      onNamedRangesAsked,
+      onDefaultsAsked,
     });
   const areRulesSuggested = isFieldOnTop && rulesSuggested !== null;
   let ruleSuggestionCommands = suggestedRuleCommands(areRulesSuggested ? rulesSuggested : [], {
@@ -1610,9 +1626,7 @@ export const CellContextMenu = React.memo(function ({
                                             ({ count, isInForce, isRoom }) =>
                                               <MenuItemWithWhyOff key={count} checked={isInForce} checkedRole="radio" disabled={!isRoom} whyOff={isRoom ? null : whyNoRoom()} isPointerCoarse={isPointerCoarse} onClick={() => onFreezeChosen(what, count)}>{inWords(count)}</MenuItemWithWhyOff>,
                                           )}</ContextMenu.Group></React.Fragment>),
-                              )}</ContextMenu.SubmenuPopup></ContextMenu.Submenu></>)}{!isOfContextBar &&
-                    (canMergeSelection || canUnmergeSelection) &&
-                    <><ContextMenu.Separator />{canMergeSelection && changeItem('mergeCells', sheetMessages.mergeCells())}{canUnmergeSelection && changeItem('unmergeCells', sheetMessages.unmergeCells())}</>}{formatOfSelection !== null &&
+                              )}</ContextMenu.SubmenuPopup></ContextMenu.Submenu></>)}<ContextMenu.Separator />{!isOfContextBar && canMergeSelection && changeItem('mergeCells', sheetMessages.mergeCells())}{!isOfContextBar && canUnmergeSelection && changeItem('unmergeCells', sheetMessages.unmergeCells())}<MenuItemWithWhyOff icon="Lock" disabled={isOneRangeNeeded} whyOff={isOneRangeNeeded ? oneRangeNeededText('protect') : null} isPointerCoarse={isPointerCoarse} onClick={onProtectionAsked}>{protectionMessages.protectCells()}</MenuItemWithWhyOff>{formatOfSelection !== null &&
                     (<><ContextMenu.Separator />{!isOfContextBar &&
                       cellTypeMenu !== null &&
                       <ContextMenu.Submenu><ContextMenu.SubmenuTrigger icon="Dropdown" {...(cellTypeMenu.typeOfCells !== null && {
@@ -1627,10 +1641,10 @@ export const CellContextMenu = React.memo(function ({
                                           onFormatChosen({
                                             toggle: mark,
                                           })}>{textStyleLabel(mark)}</ContextMenu.Item>),
-                                )}<ContextMenu.Separator /><TextWrappingItems shared={formatOfSelection.shared} onChosen={onFormatChosen} hasHeading />{formatAsTableOffer !== null && <ContextMenu.Separator />}{formatAsTableItem}</ContextMenu.SubmenuPopup></ContextMenu.Submenu>{!isOfContextBar &&
+                                )}<ContextMenu.Separator /><TextWrappingItems shared={formatOfSelection.shared} onChosen={onFormatChosen} hasHeading />{formatAsTableOffer !== null && <ContextMenu.Separator />}{formatAsTableItem}<ContextMenu.Separator />{labelOfReset !== null && <ContextMenu.Item onClick={() => onDefaultsAsked('resetToDefaultChosen')}>{labelOfReset}</ContextMenu.Item>}<ContextMenu.Item onClick={() => onDefaultsAsked('saveAsDefaultChosen')}>{defaultsAndLimitsMessages.saveAsDefault()}</ContextMenu.Item><ContextMenu.Item onClick={() => onDefaultsAsked('defaultAndLimitsAsked')}>{defaultsAndLimitsMessages.defaultAndLimits()}</ContextMenu.Item><ContextMenu.Item onClick={() => onDefaultsAsked('changedCellsAsked')}>{defaultsAndLimitsMessages.changedCells()}</ContextMenu.Item></ContextMenu.SubmenuPopup></ContextMenu.Submenu>{!isOfContextBar &&
                           !areRulesSuggested &&
                           <ContextMenu.Item icon="ConditionalFormat" onClick={() => onConditionalFormatsAsked('menu')}>{CONDITIONAL_FORMATTING_WORDS.conditionalFormatting()}</ContextMenu.Item>}{areRulesSuggested &&
-                          <SuggestedRulesSubmenu icon="ConditionalFormat" label={CONDITIONAL_FORMATTING_WORDS.conditionalFormatting()} headingOfSuggestions={CONDITIONAL_FORMATTING_WORDS.suggested()} suggestions={ruleSuggestionCommands} openers={ruleCommandsOfMenu} isPointerCoarse={isPointerCoarse} onTaken={takeCommand} />}</>)}{figures !== null &&
+                          <SuggestedRulesSubmenu icon="ConditionalFormat" label={CONDITIONAL_FORMATTING_WORDS.conditionalFormatting()} headingOfSuggestions={CONDITIONAL_FORMATTING_WORDS.suggested()} suggestions={ruleSuggestionCommands} openers={ruleCommandsOfMenu} isPointerCoarse={isPointerCoarse} onTaken={takeCommand} />}<ContextMenu.Submenu><ContextMenu.SubmenuTrigger icon="Bookmark">{namedRangeMessages.namedRanges()}</ContextMenu.SubmenuTrigger><ContextMenu.SubmenuPopup {...contextBarPartProps}><ContextMenu.Item onClick={() => onNamedRangesAsked(true)}>{namedRangeMessages.nameThisRange()}</ContextMenu.Item><ContextMenu.Item onClick={() => onNamedRangesAsked(false)}>{namedRangeMessages.manage()}</ContextMenu.Item></ContextMenu.SubmenuPopup></ContextMenu.Submenu></>)}{figures !== null &&
                     (<><ContextMenu.Separator /><ContextMenu.Submenu><ContextMenu.SubmenuTrigger icon="Sigma">{addFormulaUnderNumbersLabel(null)}</ContextMenu.SubmenuTrigger><ContextMenu.SubmenuPopup {...contextBarPartProps}>{figures.heading === null
                                   ? figureItems
                                   : <ContextMenu.Group><Menu.GroupLabel><bdi>{shortHeadingLabel(figures.heading)}</bdi></Menu.GroupLabel>{figureItems}</ContextMenu.Group>}</ContextMenu.SubmenuPopup></ContextMenu.Submenu></>)}{isCellHistoryOffered &&

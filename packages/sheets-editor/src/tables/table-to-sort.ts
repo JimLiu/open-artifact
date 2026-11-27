@@ -5,6 +5,7 @@ import { cellsHeightAboveFloats, rowPanes, shownRowIndicesInPane, columnPanes, s
 import { formulaTextOf, cellValueOf } from '../model/cell-values.ts';
 import { findFormulaReferences, formulaMatchesOutsideReferences, resolveFormulaReference } from '../formulas/references.ts';
 import { areasOverlap, tableAtCellIfAny } from '../model/workbook.ts';
+import { namedRangeAreasInSheet } from '../model/reference-areas.ts';
 import { isAreaWithin, hasOtherRanges } from '../selection/several-ranges.ts';
 import { cachedSelectedArea } from '../presence/selections.ts';
 import { isSameArea, selectedArea } from '../selection/model.ts';
@@ -161,7 +162,14 @@ export function isFormulaRunTiedToRecords(
     return false;
   let resolvedReferences = references.map((reference) => resolveFormulaReference(reference, sheetId, sheets));
   if (resolvedReferences.includes(null)) return false;
-  let areasOnSheet = resolvedReferences.flatMap((resolved) => (resolved?.sheet.sheetId === sheetId ? [resolved.area] : []));
+  let namedAreas = cells.flatMap((cell) =>
+    cell !== null && 'input' in cell && cell.input.kind === 'formula' ? namedRangeAreasInSheet(workbook, sheetId, cell.input.formula) : [],
+  );
+  if (namedAreas.includes(null)) return false;
+  let areasOnSheet = [
+    ...resolvedReferences.flatMap((resolved) => (resolved?.sheet.sheetId === sheetId ? [resolved.area] : [])),
+    ...namedAreas.filter((namedArea) => namedArea !== null),
+  ];
   let areasInRecords = areasOnSheet.filter((areaOnSheet) => areasOverlap(areaOnSheet, records));
   let spansRecordRows = ({ topRowIndex, rowCount }: RowsToSort) =>
     topRowIndex <= records.topRowIndex && topRowIndex + rowCount >= records.topRowIndex + records.rowCount;
@@ -294,6 +302,14 @@ export function areFormulasBesideUntied(workbook: WorkbookReads, sheetId: SheetI
         })
       )
         return false;
+      if (
+        namedRangeAreasInSheet(workbook, sheetId, cell.input.formula).some(
+          (namedArea) =>
+            namedArea === null ||
+            (namedArea.topRowIndex < area.topRowIndex + area.rowCount && area.topRowIndex < namedArea.topRowIndex + namedArea.rowCount),
+        )
+      )
+        return false;
     }
   return true;
 }
@@ -308,22 +324,28 @@ export function doFormulasInAreaReachOut(workbook: WorkbookReads, sheetId: Sheet
       if (cell === null || !('input' in cell) || cell.input.kind !== 'formula') continue;
       cellsChecked += 1;
       if (cellsChecked > MAX_CELLS_CHECKED_FOR_TIED_FORMULAS) return null;
+      let reachesOut = (referenceArea: CellArea): boolean => {
+        let isWithinColumns =
+          referenceArea.leftColumnIndex >= area.leftColumnIndex &&
+          referenceArea.leftColumnIndex + referenceArea.columnCount <= area.leftColumnIndex + area.columnCount;
+        let overlapsRows =
+          referenceArea.topRowIndex < area.topRowIndex + area.rowCount && area.topRowIndex < referenceArea.topRowIndex + referenceArea.rowCount;
+        return !isWithinColumns && overlapsRows;
+      };
       if (
         findFormulaReferences(formulaTextOf(cell), workbook.decimalSign).references.some((reference) => {
           let resolved = resolveFormulaReference(reference, sheetId, sheets);
           if (resolved?.sheet.sheetId !== sheetId) return false;
           let { area: referenceArea } = resolved;
-          let isWithinColumns =
-            referenceArea.leftColumnIndex >= area.leftColumnIndex &&
-            referenceArea.leftColumnIndex + referenceArea.columnCount <= area.leftColumnIndex + area.columnCount;
-          let isOwnRowOnly =
-            referenceArea.rowCount === 1 &&
-            referenceArea.topRowIndex === rowIndex &&
-            reference.ends.every(({ dollarOfRow }) => dollarOfRow === '');
-          let overlapsRows =
-            referenceArea.topRowIndex < area.topRowIndex + area.rowCount && area.topRowIndex < referenceArea.topRowIndex + referenceArea.rowCount;
-          return !isWithinColumns && !isOwnRowOnly && overlapsRows;
-        })
+          return (
+            !(
+              referenceArea.rowCount === 1 &&
+              referenceArea.topRowIndex === rowIndex &&
+              reference.ends.every(({ dollarOfRow }) => dollarOfRow === '')
+            ) && reachesOut(referenceArea)
+          );
+        }) ||
+        namedRangeAreasInSheet(workbook, sheetId, cell.input.formula).some((namedArea) => namedArea === null || reachesOut(namedArea))
       )
         return true;
     }

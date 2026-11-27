@@ -458,6 +458,7 @@ export const scrollDeltaToReveal = (
 ): number =>
   Math.max(Math.min(wanted.bottom - bounds.bottom, wanted.top - bounds.top), 0) -
   Math.max(Math.min(bounds.top - wanted.top, bounds.bottom - wanted.bottom), 0);
+export const isInLinkCard = (element: Element | null): boolean => element instanceof Element && element.closest(`[${LINK_CARD_ATTRIBUTE}]`) !== null;
 export const preventDefaultEvent = (event: Event): void => event.preventDefault();
 export const onlyForMouse =
   (action: () => void) =>
@@ -510,6 +511,8 @@ interface LinkCardProps {
   onLinkCopied: (url: string) => void;
   onEditChosen: ((url: string) => void) | null;
   onRemoveChosen: ((url: string) => void) | null;
+  /** The card closed while the caret was in it: the caret goes back to the cells. */
+  onCaretGivenBack: () => void;
   onPressedTooSoon: () => void;
   /** Takes a turn of the wheel the card does not scroll; answers whether it was used. */
   onWheelTurned: (event: WheelEvent) => boolean;
@@ -535,6 +538,7 @@ export const LinkCard = React.memo(function ({
   onLinkCopied,
   onEditChosen,
   onRemoveChosen,
+  onCaretGivenBack,
   onPressedTooSoon,
   onWheelTurned,
   onFingerCameDown,
@@ -605,6 +609,9 @@ export const LinkCard = React.memo(function ({
     if (markedRow !== null && markedRow !== undefined && addressList !== null)
       addressList.scrollTop += scrollDeltaToReveal(addressList.getBoundingClientRect(), markedRow.getBoundingClientRect());
   }, [marked, isOpen, cardHeight]);
+  React.useLayoutEffect(() => {
+    if (!isOpen && isInLinkCard(cardRef.current?.ownerDocument.activeElement ?? null)) onCaretGivenBack();
+  }, [isOpen, onCaretGivenBack]);
   let wholeRef = React.useRef<HTMLDivElement>(null);
   let rowElementRef = React.useRef<HTMLDivElement>(null);
   let [rowHeight, setRowHeight] = React.useState(0);

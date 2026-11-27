@@ -42,7 +42,10 @@ import {
   columnFreezeGripSpan,
 } from './geometry.ts';
 import { ownRowOrderOfSheet, lowerBoundIndex } from '../model/line-ids.ts';
-import { layoutOfView, hiddenByBorderAtFoot, lineResizeOfView, sheetOfView, rowsHiddenByOwnFilters } from './layout.ts';
+import { layoutOfView, hiddenByBorderAtFoot, lineResizeOfView, sheetOfView, rowsHiddenByOwnFilters, draggingOrHeld } from './layout.ts';
+import { protectedAreasOf } from '../state/protection.ts';
+import { defaultValueOfActiveCell, cellsChangedFromDefaults } from '../state/defaults-and-limits.ts';
+import { filterButtonCellKey } from '../tables/filter-buttons-place.ts';
 import {
   mergedAreaOrCellOf,
   selectedArea,
@@ -99,7 +102,7 @@ import { cellValueOf, usersOfCell, listLinesOfCell, NO_LIST_LINES } from '../mod
 import { readCellLink } from '../links/cell-links.ts';
 import { resolvedHorizontalAlignment } from '../format/toolbar-choices.ts';
 import { shownCellText } from '../format/shown-text.ts';
-import { textOverflowAround, cellTextLayout, cellsJoinForOverflow, shareOverflowWidth, NO_TEXT_OVERFLOW, mayCellTextFade, wrappingOfWrapText } from './text-overflow.ts';
+import { textOverflowAround, cellTextLayout, cellsJoinForOverflow, shareOverflowWidth, NO_TEXT_OVERFLOW, mayCellTextFade, wrappingOfWrapText, flattenLineBreaks } from './text-overflow.ts';
 import {
   chipPersonOf,
   doColumnSpansOverlap,
@@ -218,8 +221,6 @@ import type {
   BoxLitByLink,
   DrawnCell,
   DrawnRow,
-  FadingBox,
-  GroundUnderButton,
   KeptHeaderDrawn,
   ReferenceMark,
   TableOutlineDrawn,
@@ -238,13 +239,6 @@ export interface FixPillText {
   left: number;
   width: number;
   room: number;
-}
-/** A filter button as the grid places it, with the box it is held in while its column scrolls on and the grounds under it. */
-export interface FilterButtonHeldInView {
-  tableKey: string;
-  headerKept: string | null;
-  heldInView: FadingBox | null;
-  groundsWhereHeld: readonly GroundUnderButton[];
 }
 /** The rows of a header kept in sight over the cells being moved. */
 export interface HeaderKeptOverMovedCells extends LineSpan {
@@ -296,6 +290,7 @@ export function gridViewOf(
   let activeArea = isActiveCellInSheet ? mergedAreaOrCellOf(readsNow, state.activeCell) : null;
   const areaOfSelection = isActiveCellInSheet ? selectedArea(state, readsNow) : null;
   let selectedAreas = isActiveCellInSheet ? areasOfAllRanges(state, readsNow) : [];
+  let defaultOfActiveCell = defaultValueOfActiveCell(state, readsNow);
   let shownUnderPattern = shownUnderPatternOf(state);
   let isRowSelected = (rowIndex: number) =>
     selectedAreas.some(({ topRowIndex, rowCount }: CellArea) => isInSpan(rowIndex, topRowIndex, rowCount));
@@ -303,6 +298,10 @@ export function gridViewOf(
     selectedAreas.some(
       ({ leftColumnIndex, columnCount }: CellArea) => isInSpan(columnIndex, leftColumnIndex, columnCount),
     );
+  // Protected areas kept from viewers (not drawn as such when the sheet is read only).
+  let areasKeptFromViewer = protectedAreasOf(state, readsNow, sheetId).flatMap((protection) =>
+    protection.isKeptFromViewer && !isReadOnly ? [protection.area] : [],
+  );
   let commentAreas = (state.comments ?? []).flatMap(
     ({ cells, isResolved }) =>
       isResolved || cells.activeCell.sheetId !== sheetId ? [] : (selectedAreaAsSeen(cells, readsNow) ?? []),
@@ -366,15 +365,6 @@ export function gridViewOf(
   let fixPillTexts: FixPillText[] = [];
   let fixTextEnds = new Map<string, number>();
   let doesTextOverflowCell = (rowIndex: number, columnIndex: number) => {
-    if (
-      isInTableHeader({
-        topRowIndex: rowIndex,
-        leftColumnIndex: columnIndex,
-        rowCount: 1,
-        columnCount: 1,
-      })
-    )
-      return false;
     let cellId = cellIdAt(rowIndex, columnIndex);
     let cell = readsNow.cellOf(cellId);
     let format = formatAt(rowIndex, columnIndex);
@@ -400,6 +390,56 @@ export function gridViewOf(
         clearAtLeft: cellTextInsets(rowHeight, format.font.size, state.density, alignment).left,
       })
     );
+  };
+  // In the last header row of a found table, a one-line text that fits beside the
+  // column button gets room for it, and moves aside by `move` while the button shows.
+  let columnButtonRoomOfHeaderText = (rowIndex: number, columnIndex: number): { room: number; move: number } | null => {
+    if (
+      !outlinedTables.some(
+        ({ area, rowCountOfHeader }) =>
+          rowIndex === area.topRowIndex + rowCountOfHeader - 1 && isInSpan(columnIndex, area.leftColumnIndex, area.columnCount),
+      ) ||
+      readsNow.mergedAreaAt(sheetId, {
+        rowIndex,
+        columnIndex,
+      }) !== null
+    )
+      return null;
+    let cellId = cellIdAt(rowIndex, columnIndex);
+    let cell = readsNow.cellOf(cellId);
+    let format = formatAt(rowIndex, columnIndex);
+    let cellOrSpill = cell ?? readsNow.spilledCellOf(cellId);
+    let value = cellValueOf(cellOrSpill);
+    if (
+      !(
+        value?.kind === 'text' &&
+        cell?.input.kind !== 'richText' &&
+        cellAsShown(cell, format) === cell &&
+        readCellLink(cell, format) === null &&
+        format.cellControl.kind !== 'dropdown' &&
+        usersOfCell(cell).length === 0 &&
+        !fixByCellKey.has(cellKeyText(cellId))
+      ) ||
+      format.alignment.wrap === true
+    )
+      return null;
+    let alignment = resolvedHorizontalAlignment(format.alignment.horizontal, value);
+    let cellWidth = layout.columnEdges.sizeOf(columnIndex);
+    let insets = cellTextInsets(layout.rowEdges.sizeOf(rowIndex), format.font.size, state.density, alignment);
+    let room = filterButtonRoomInCell(cellWidth);
+    let { text } = shownCellText(cellOrSpill, 0, readsNow.decimalSign);
+    let textWidth = readsNow.widthOfCharacters(flattenLineBreaks(text), format.font);
+    if (room === 0 || insets.left + textWidth + room + 1 > cellWidth) return null;
+    let moveAtRight = room - (insets.right - 1);
+    let moveAtCenter = (cellWidth - 1 - insets.left - textWidth - (room - moveAtRight)) / 2 >= moveAtRight ? 0 : moveAtRight / 2;
+    return {
+      room,
+      move: {
+        left: 0,
+        center: moveAtCenter,
+        right: moveAtRight,
+      }[alignment],
+    };
   };
   let columnIndexes = columnPaneSpans.flatMap((columnPane: GridPane) => shownColumnIndicesInPane(columnPane, layout));
   let rowsToDraw =
@@ -461,6 +501,7 @@ export function gridViewOf(
     let mergedAreasInRow = mergedAreas.filter(
       (mergedArea: CellArea) => isInSpan(rowIndex, mergedArea.topRowIndex, mergedArea.rowCount),
     );
+    let areasKeptFromViewerInRow = areasKeptFromViewer.filter((area: CellArea) => isInSpan(rowIndex, area.topRowIndex, area.rowCount));
     let commentAreasInRow = commentAreas.filter(
       (commentArea: CellArea) => isInSpan(rowIndex, commentArea.topRowIndex, commentArea.rowCount),
     );
@@ -783,6 +824,7 @@ export function gridViewOf(
         }
       }
       let isHeading = isFilterHeaderArea(area) || isInTableHeader(area);
+      let moveForColumnButton = isHeading && !isOverflowing ? (columnButtonRoomOfHeaderText(rowIndex, columnIndex)?.move ?? 0) : 0;
       let indentToCenter =
         alignment === 'center'
           ? indentToCenterIn(
@@ -865,6 +907,14 @@ export function gridViewOf(
         textCutByViewAt,
         cutByViewAt,
         takenAtRight: textFlow === 'wrap' && format.alignment.wrap === true ? 0 : filterButtonRoom,
+        moveForColumnButton,
+        keyOfColumnButton:
+          moveForColumnButton === 0
+            ? null
+            : filterButtonCellKey({
+                r: cellId.rowId,
+                c: cellId.columnId,
+              }),
         hasTintOfFilterHeader: isFilterHeaderArea(area),
         hasGroundOfFoundHeader: isInTableHeader(area),
         isInTable: isCellInTable,
@@ -925,9 +975,11 @@ export function gridViewOf(
         frozenBy: rowPane.areFrozen && columnPane.areFrozen ? 'both' : rowPane.areFrozen ? 'row' : columnPane.areFrozen ? 'column' : null,
         isActive,
         elementId: isActive ? `cell-${cellId.rowId}-${cellId.columnId}` : null,
+        isKeptFromViewer: someAreaHasCell(mergedArea === undefined ? areasKeptFromViewerInRow : areasKeptFromViewer, position.rowIndex, position.columnIndex),
         isSaidToHaveComment: isActive
           ? commentAtActiveCell(state, readsNow) !== null
           : someAreaHasCell(mergedArea === undefined ? commentAreasInRow : commentAreas, position.rowIndex, position.columnIndex),
+        isSaidToBeChangedFromDefault: isActive && defaultOfActiveCell !== null,
         isSelected: someAreaHasCell(selectedAreas, rowIndex, columnIndex),
         isError: fixFormula === null && errorCodeOfCell(cell ?? valueSource) !== null,
         looksLikeError,
@@ -991,6 +1043,9 @@ export function gridViewOf(
           }),
       );
   let activeCellBox = activeArea === null ? null : drawnBoxOfSpans(spansOfArea(activeArea), BIG_BOX_MARGIN_PAST_SIGHT);
+  // With no active cell, the box under the waiting box it stood on.
+  let boxUnderWaitingBox =
+    activeCellBox ?? (state.waitingBoxStoodOn === null ? null : drawnBoxOfSpans(state.waitingBoxStoodOn, BIG_BOX_MARGIN_PAST_SIGHT));
   let explainedCell = cellExplained(state, readsNow);
   let explainedArea = explainedCell === null ? null : mergedAreaOrCellOf(readsNow, explainedCell.cellId);
   let selectionBox =
@@ -1297,6 +1352,10 @@ export function gridViewOf(
       ...state,
       isSteppedOutOfCells: false,
     }) || state.newCommentOn !== null;
+  let stateWithDragHeld = {
+    ...state,
+    dragging: draggingOrHeld(state),
+  };
   let fillHandle = fillHandleBox(state, readsNow, isReadOnly);
   let isSelectionInOpenComment = [
     ...(state.newCommentOn === null ? [] : [state.newCommentOn]),
@@ -1404,6 +1463,9 @@ export function gridViewOf(
   let outlinesOfOthers = [...selectionsOfOthers];
   outlinesOfOthers.reverse();
   let lineResize = lineResizeOfView(state, readsNow);
+  let { dragging } = state;
+  // The line whose edge is pressed but not moved yet (not by finger).
+  let lineHeldStill = dragging?.kind === 'resizing' && dragging.hasMoved !== true && dragging.isByFinger !== true ? dragging.line : null;
   let heldEdgeAt =
     lineResize === null
       ? null
@@ -1411,11 +1473,11 @@ export function gridViewOf(
         ? resizedRowEndOnScreen(lineResize, state, layout, state)
         : resizedColumnEndOnScreen(lineResize, state, layout, state);
   let areGripsShown = !isReadOnly && state.mode.kind !== 'editing';
-  let dropIndexOfMovingLines = movingLinesDropIndex(state, readsNow);
+  let dropIndexOfMovingLines = movingLinesDropIndex(stateWithDragHeld, readsNow);
   let landingLine =
-    dropIndexOfMovingLines === null || state.dragging?.kind !== 'movingLines'
+    dropIndexOfMovingLines === null || stateWithDragHeld.dragging?.kind !== 'movingLines'
       ? null
-      : state.dragging.what === 'rows'
+      : stateWithDragHeld.dragging.what === 'rows'
         ? {
             between: 'rows',
             offset: rowEdgeOnScreen(dropIndexOfMovingLines, state, layout, state),
@@ -1495,12 +1557,14 @@ export function gridViewOf(
     height: cellsHeightAboveFloats(withRoomUnderNoticesAtFoot(state, readsNow)),
   };
   let editorScale = editorScaleOf(state, readsNow, editorFormat.font.size);
-  let editorTextInsets = editorTextInsetsImported(
-    (activeCellBox?.height ?? 0) / editorScale,
-    editorFormat.font.size,
-    state.density,
-    activeArea === null ? 0 : hiddenByBorderAtFoot(state, readsNow, layout, activeArea),
-  );
+  let editorTextInsetsIn = (box: DrawnBox | null) =>
+    editorTextInsetsImported(
+      (box?.height ?? 0) / editorScale,
+      editorFormat.font.size,
+      state.density,
+      activeArea === null ? 0 : hiddenByBorderAtFoot(state, readsNow, layout, activeArea),
+    );
+  let editorTextInsets = editorTextInsetsIn(activeCellBox);
   let areWordsOffered = !isReadOnly && wordsOfferedNow(state) !== null;
   let isExpandOfferedInEntry = !isReadOnly && !areWordsOffered && isExpandOfferedInEntryImported(state, readsNow);
   let expandButtonRoom = isExpandOfferedInEntry ? EXPAND_BUTTON_ROOM : 0;
@@ -1510,6 +1574,7 @@ export function gridViewOf(
         ...editorTextInsets,
         right: editorTextInsets.right + expandButtonRoom,
       };
+  let waitingBoxKeepsClear = boxUnderWaitingBox === activeCellBox ? editorKeepsClear : editorTextInsetsIn(boxUnderWaitingBox);
   let expandedLayout =
     state.mode.kind === 'editing' && isExpanded && activeArea !== null
       ? expandedEntryLayout(
@@ -1566,8 +1631,8 @@ export function gridViewOf(
           height: Math.min(pageSize.height, addRowsControl.top),
         };
   let summaryPlace = selectionSummary === null || selectionBox === null ? null : selectionSummaryPlace(selectionBox, roomForSummary);
-  let fillArea = fillAreaOfDrag(state, readsNow);
-  let landingAreaOfCells = landingAreaOfMovingCells(state, readsNow);
+  let fillArea = fillAreaOfDrag(stateWithDragHeld, readsNow);
+  let landingAreaOfCells = landingAreaOfMovingCells(stateWithDragHeld, readsNow);
   let explainedCellBoxUnclipped = explainedArea === null ? null : drawnBoxOfSpans(spansOfArea(explainedArea));
   let offeredErrors = isReadOnly ? null : errorsOfferShown(state, readsNow);
   let lastErrorArea = offeredErrors === null ? null : mergedAreaOrCellOf(readsNow, offeredErrors.endOfTable ?? offeredErrors.last);
@@ -1720,13 +1785,16 @@ export function gridViewOf(
       if (grip === null) return [];
       let { start, end, edge } = grip;
       let isOfFrozen = columnNumber <= layout.frozenColumnCount;
+      let isHeldStill = lineHeldStill?.isA === 'column' && lineHeldStill.columnId === key;
+      let [left, width, edgeFromLeft] = [start, end - start, edge - start];
       return [
         {
-          key,
+          key: `${key} ${layout.columnEdges.startOf(columnNumber)}`,
           isOfFrozen,
-          left: start,
-          width: end - start,
-          edgeFromLeft: edge - start,
+          isHeldStill,
+          left,
+          width,
+          edgeFromLeft,
         },
       ];
     }),
@@ -1737,8 +1805,9 @@ export function gridViewOf(
         ? []
         : [
             {
-              key,
+              key: `${key} ${layout.rowEdges.startOf(rowNumber)}`,
               isOfFrozen: rowNumber <= layout.frozenRowCount,
+              isHeldStill: lineHeldStill?.isA === 'row' && lineHeldStill.rowId === key,
               top: grip.start,
               height: grip.end - grip.start,
               edgeFromTop: grip.edge - grip.start,
@@ -1812,8 +1881,12 @@ export function gridViewOf(
         ink: defaultTextColorsOnFill(fill),
         ground: hasGround ? (fill ?? headerGroundOf(area)) : null,
         groundOverText: fill ?? headerGroundOf(area),
+        roomBesideWords: columnButtonRoomOfHeaderText(rowIndex, columnIndex)?.room ?? 0,
         givesWayToText: doesTextOverflow,
-        isInActiveCell: activeArea?.topRowIndex === rowIndex && activeArea.leftColumnIndex === columnIndex,
+        isInActiveCell:
+          activeArea !== null &&
+          isInSpan(rowIndex, activeArea.topRowIndex, activeArea.rowCount) &&
+          isInSpan(columnIndex, activeArea.leftColumnIndex, activeArea.columnCount),
         atRest: fill === null ? null : contrastingShades(fill),
       };
     }),
@@ -1827,6 +1900,7 @@ export function gridViewOf(
       columns: hiddenLineSeamPositions(state, layout, 'columns'),
     },
     pagesTurnedForReader: state.pagesTurnedForReader,
+    timesBroughtBackForReader: state.timesBroughtBackForReader,
     scroll: {
       rows: {
         by: state.scrollTop,
@@ -1858,6 +1932,7 @@ export function gridViewOf(
     placedViewHeldBy: state.dragging?.kind === 'movingPlacedView' ? 'all' : state.dragging?.kind === 'sizingPlacedView' ? state.dragging.sides : null,
     borderLines,
     activeCellBox,
+    boxUnderWaitingBox,
     selectionBox,
     isSelectionJustImported: state.isSelectionJustImported,
     isSelectionInOpenComment,
@@ -1929,6 +2004,7 @@ export function gridViewOf(
     areEditorLooksSeen: entryLooksOfMode !== undefined,
     marksOfEntryCell: fontMarksOfStyle(readsNow.formatOf(entryCellId)),
     editorKeepsClear,
+    waitingBoxKeepsClear,
     editorPaints,
     isEditorAComboBox,
     isEntryAmongPeople: isEntryAmongPeople(state, readsNow),
@@ -2022,6 +2098,30 @@ export function gridViewOf(
       COMMENT_CARD_ROOM_AT_FOOT / state.zoom,
     wouldCommentBeInTheWay,
     mayCommentBePreviewed: !wouldCommentBeInTheWay && !(state.comments ?? []).some(({ isOpen }) => isOpen),
+    marksOfProtections: protectedAreasOf(state, readsNow, state.sheetId).flatMap((protection) => {
+      let { area, isKeptFromViewer, isOfWholeSheet } = protection;
+      let box = isOfWholeSheet && !isKeptFromViewer ? null : drawnBoxOfSpans(spansOfArea(area));
+      return box === null || box.height === 0
+        ? []
+        : [
+            {
+              ...box,
+              isKeptFromViewer,
+            },
+          ];
+    }),
+    marksOfChangedCells: cellsChangedFromDefaults(readsNow, state.sheetId).flatMap(({ cellId, area }) => {
+      let box = drawnBoxOfSpans(spansOfArea(area));
+      return box === null || box.height === 0 || box.width === 0
+        ? []
+        : [
+            {
+              ...box,
+              key: cellDrawKey(cellId),
+            },
+          ];
+    }),
+    defaultThatActiveCellIsChangedFrom: defaultOfActiveCell,
     tintsOfFind: (state.find?.hits ?? []).flatMap(({ cellId }) => {
       let area = cellId.sheetId === state.sheetId ? mergedAreaOrCellOf(readsNow, cellId) : null;
       let box = area === null ? null : drawnBoxOfSpans(spansOfArea(area));
@@ -2067,7 +2167,6 @@ export function keptHeaderViewsOf(
   state: PageState,
   reads: ReadsWithTextMeasurer,
   isReadOnly: boolean,
-  filterButtonsOfView: readonly Pick<FilterButtonHeldInView, 'headerKept'>[],
   shift: ShiftOfView | null,
 ): KeptHeaderDrawn[] {
   let outlinedTables = tablesToOutline(state, reads);
@@ -2082,7 +2181,6 @@ export function keptHeaderViewsOf(
       selectionBox,
       otherRangeBoxes,
       marksOfReferences,
-      filterButtons,
     } = gridViewOf(
       {
         ...state,
@@ -2132,19 +2230,6 @@ export function keptHeaderViewsOf(
         ...otherRangeBoxes,
       ].filter(({ box }) => box.top < stuckHeader.showFrom + stuckHeader.height),
       marksOfReferences: marksOfReferences.filter(({ box }) => box.top < stuckHeader.showFrom + stuckHeader.height),
-      groundsOfButtonsHeld: filterButtons.flatMap(
-        ({ tableKey, heldInView, groundsWhereHeld }: FilterButtonHeldInView) =>
-          tableKey === stuckHeader.key &&
-          heldInView !== null &&
-          filterButtonsOfView.some(({ headerKept }) => headerKept === stuckHeader.key)
-            ? [
-                {
-                  box: heldInView,
-                  grounds: groundsWhereHeld,
-                },
-              ]
-            : [],
-      ),
     };
   });
 }
@@ -2188,9 +2273,14 @@ export function linesOfPaneWithin(pane: GridPane, firstIndex: number, count: num
       }
     : null;
 }
-export function movedCellsView(state: PageState, reads: ReadsWithTextMeasurer, isReadOnly: boolean) {
-  let { dragging } = state;
+export function movedCellsView(stateAsGiven: PageState, reads: ReadsWithTextMeasurer, isReadOnly: boolean) {
+  // Cells held until answered are drawn as still moving.
+  let dragging = draggingOrHeld(stateAsGiven);
   if (dragging?.kind !== 'movingCells' || dragging.landing === null) return null;
+  let state = {
+    ...stateAsGiven,
+    dragging,
+  };
   let heldArea = selectedArea(state, reads);
   if (heldArea === null) return null;
   let start = movedCellsStartByPress.get(dragging.press) ?? startOfMovedCells(state, dragging, heldArea, reads);

@@ -5,6 +5,11 @@
 //! that hold something; a range with nothing left, on a sheet not there, reads no rows. A date or a time is read as
 //! ISO text (`2024-01-02`, `13:45:00`, `2024-01-02T13:45:00`) when the cell's format shows it as one.
 //!
+//! An input an interactive writes tells each cell's limits (`min`, `max`, the ends it has; none for a checkbox's or a
+//! dropdown's), and each cell a reset can give a default that default (`default`) and whether the cell holds another
+//! (`isChanged`). An interactive's view tells whether it can be reset (`canBeReset`) and how many cells that changes
+//! (`countOfCellsToReset`), and whether it has defaults to save (`hasDefaultsToSave`).
+//!
 //! An input reads at most 2000 rows (`tooManyRowsInAnInput`), and its rows, written as JSON, at most 256 KiB
 //! (`inputTooLarge`); the first input of the view that reads more is refused. Charts in the file read their inputs
 //! the same way (`xlsx/charts.rs`).
@@ -17,12 +22,12 @@ use super::Answer;
 use crate::calculate::SpillOutcome;
 use crate::dates::date_from_serial;
 use crate::number_format::{Kind, NumberFormat, Room};
-use crate::session::interactive::{reset_changes, with_current_defaults};
+use crate::session::interactive::{count_to_reset, defaults_of_input, limits_held, with_current_defaults};
 use crate::shown::{shown, ShownValue};
 use crate::value::Value;
 use crate::workbook::formats::Leaf;
 use crate::workbook::layout::RangeIds;
-use crate::workbook::objects::RangeOnASheet;
+use crate::workbook::objects::{InputOfAWidget, InteractiveValue, InteractiveWrite, RangeOnASheet, ViewElement};
 use crate::workbook::{Input, Sheet, Workbook};
 
 /// The most rows an input reads.
@@ -30,14 +35,15 @@ const ROWS: usize = 2000;
 /// The most bytes an input's rows take written as JSON.
 const BYTES: usize = 262_144;
 
-/// The workbook's views, as `readWorkbook` gives them: a view placed only on deleted sheets is left out.
+/// The workbook's views, as `readWorkbook` gives them: a view placed only on deleted sheets is left out, and an
+/// interactive's cells saved on lines not there (`Workbook::view_as_read`).
 pub fn views(workbook: &Workbook) -> Json {
     let is_there = is_there(workbook);
     let views: Vec<Json> = workbook
         .views
         .values()
         .filter(|(id, _)| is_there(id))
-        .map(|(id, view)| json!({"viewId": id, "view": view}))
+        .map(|(id, view)| json!({"viewId": id, "view": workbook.view_as_read(view)}))
         .collect();
     json!({"kind": "views", "views": views})
 }
@@ -57,23 +63,75 @@ pub fn inputs_of_view(workbook: &Workbook, view_id: &str) -> Answer {
     let mut elements: Vec<Json> = Vec::new();
     for element in &view.elements {
         let (element_id, _, inputs) = element.parts();
+        let written: &[_] = match element {
+            ViewElement::Interactive { writes, .. } => writes,
+            ViewElement::Widget { .. } => &[],
+        };
         let mut read = Vec::new();
         for input in inputs {
-            let (_, rows) = read_input(workbook, &input.range).map_err(TooMuch::refusal)?;
+            let (cells, mut rows) = read_input(workbook, &input.range).map_err(TooMuch::refusal)?;
+            if written.iter().any(|write| write.input == input.name) {
+                with_limits(workbook, &cells, &mut rows);
+                with_defaults(workbook, input, written, &cells, &mut rows);
+            }
             read.push(json!({"name": input.name, "rows": rows}));
         }
         elements.push(json!({"elementId": element_id, "inputs": read}));
     }
     let mut answer = json!({"kind": "inputsOfView", "viewId": view_id, "elements": elements});
     if view.is_interactive() {
-        if !reset_changes(workbook, view).is_empty() {
+        let to_reset = count_to_reset(workbook, view);
+        if to_reset > 0 {
             answer["canBeReset"] = json!(true);
+            answer["countOfCellsToReset"] = json!(to_reset);
         }
-        if !with_current_defaults(workbook, view).is_ok_and(|current| current == *view) {
+        if with_current_defaults(workbook, view).is_some() {
             answer["hasDefaultsToSave"] = json!(true);
         }
     }
     Ok(answer)
+}
+
+/// Each cell an interactive writes told with the limits its values are held to (`min`, `max`: the ends it has).
+fn with_limits(workbook: &Workbook, read: &Read, rows: &mut Json) {
+    let Some((s, top, left)) = read.at else { return };
+    let sheet = &workbook.sheets[s];
+    let Some(rows) = rows.as_array_mut() else { return };
+    for (i, row) in rows.iter_mut().enumerate() {
+        let Some(row) = row.as_array_mut() else { continue };
+        for (j, cell) in row.iter_mut().enumerate() {
+            let ids = sheet.rows.line(top + i).zip(sheet.columns.line(left + j));
+            let Some((minimum, maximum)) = ids.and_then(|ids| limits_held(sheet, ids)) else { continue };
+            if let Some(n) = minimum {
+                cell["min"] = json!(n);
+            }
+            if let Some(n) = maximum {
+                cell["max"] = json!(n);
+            }
+        }
+    }
+}
+
+/// Each cell of an interactive's input that a reset can give a default told with it (`default`, as the interactive
+/// writes it) and with whether its value is another (`isChanged`).
+fn with_defaults(workbook: &Workbook, input: &InputOfAWidget, writes: &[InteractiveWrite], read: &Read, rows: &mut Json) {
+    let Some((s, top, left)) = read.at else { return };
+    let Some((sheet, defaults)) = defaults_of_input(workbook, input, writes) else { return };
+    if sheet != s {
+        return;
+    }
+    let Some(rows) = rows.as_array_mut() else { return };
+    for ((row, column), default, is_changed) in defaults {
+        let (Some(i), Some(j)) = (row.checked_sub(top), column.checked_sub(left)) else { continue };
+        let Some(cell) = rows.get_mut(i).and_then(Json::as_array_mut).and_then(|cells| cells.get_mut(j)) else { continue };
+        cell["default"] = match default {
+            None => Json::Null,
+            Some(InteractiveValue::Number { value }) => json!(value),
+            Some(InteractiveValue::Text { value }) => json!(value),
+            Some(InteractiveValue::Boolean { value }) => json!(value),
+        };
+        cell["isChanged"] = json!(is_changed);
+    }
 }
 
 /// Why an input is not read: it reads too many rows, or too much.

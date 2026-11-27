@@ -18,7 +18,9 @@ import {
   useLastNonNull,
   useListCardHover,
   ListUnderCell,
+  withHighlightedRowIdOr,
 } from '../ui/list-under-cell.tsx';
+import { IS_IOS_BROWSER } from '../grid/cell-drawing-values.ts';
 import {
   personAlreadyInCellText,
   keepAsTextLabel,
@@ -96,6 +98,15 @@ export function peopleListCardIds({ rows, highlightedRow, card }: Pick<PeopleLis
     },
     card,
   );
+}
+// On iOS the first person is highlighted while typing in the field, so VoiceOver reads it.
+export function peopleListIdsForVoiceOver(
+  list: Pick<PeopleListView, 'rows' | 'highlightedRow' | 'card' | 'inField'>,
+  isOnIos = IS_IOS_BROWSER,
+): ListboxIds | null {
+  let [firstRow] = list.rows;
+  if (!isOnIos || list.inField === null || firstRow === undefined) return null;
+  return withHighlightedRowIdOr(peopleListCardIds(list), peopleListRowElementId(firstRow));
 }
 export function peopleListNote({
   isNothingFound,

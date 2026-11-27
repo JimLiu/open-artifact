@@ -15,7 +15,8 @@ import {
   withoutOfferWhenTyping,
   CustomFormatAgentRow,
   formatCallFailedAnnouncement,
-  formatWritingProblemText,
+  formatProblemWordsToSay,
+  enterActOfFormatStage,
   CustomFormatAnnouncer,
 } from './custom-format-row.tsx';
 import type { ActHoldAtAnswer } from './custom-format-row.tsx';
@@ -82,6 +83,7 @@ export interface CustomNumberFormatDialogProps {
   onDropped: () => void;
   onEscaped: () => void;
   onAgentAsked: (howActBegan: HowActBegan) => void;
+  onAskedInChat: ((words: string) => void) | null;
   onActHeld: () => void;
 }
 export const CustomNumberFormatDialog = React.memo(function ({
@@ -93,6 +95,7 @@ export const CustomNumberFormatDialog = React.memo(function ({
   onDropped,
   onEscaped,
   onAgentAsked,
+  onAskedInChat,
   onActHeld,
 }: CustomNumberFormatDialogProps) {
   let [lastEntry, setLastEntry] = React.useState(CLOSED_CUSTOM_FORMAT_ENTRY);
@@ -110,25 +113,37 @@ export const CustomNumberFormatDialog = React.memo(function ({
     isNoAct: (target: EventTarget) => target === patternFieldRef.current,
   });
   let applyButtonRef = React.useRef<HTMLElement>(null);
-  let focusPatternField = () => {
+  let focusPatternField = (isFromApply: boolean) => {
     let activeElement = patternFieldRef.current?.ownerDocument.activeElement ?? null;
-    if (activeElement !== null && (activeElement.id === CUSTOM_FORMAT_LINE_ID || activeElement === applyButtonRef.current))
+    if (
+      activeElement?.closest(`#${CUSTOM_FORMAT_LINE_ID}`) instanceof Element ||
+      (isFromApply && activeElement !== null && activeElement === applyButtonRef.current)
+    )
       patternFieldRef.current?.focus({
         preventScroll: true,
       });
   };
   let askAgent = () => {
-    if (!heldAct.isActRefused()) focusPatternField();
+    if (!heldAct.isActRefused()) focusPatternField(true);
     onAgentAsked(heldAct.howActBegan());
   };
+  // An ask beyond formats goes to the chat with the typed words.
+  let goToChat = () => {
+    if (entry === null || heldAct.isActRefused()) return false;
+    focusPatternField(false);
+    onAskedInChat?.(pattern);
+    return true;
+  };
   let onKeyForAgent = (key: string) => {
-    if (key !== 'Enter' || (stageKind !== 'offered' && stageKind !== 'asked')) return false;
-    if (isAgentOffered) askAgent();
-    else heldAct.noteKeyThatTakesNothing();
+    let act = key === 'Enter' ? enterActOfFormatStage(agentStage, onAskedInChat !== null) : 'applies';
+    if (act === 'applies') return false;
+    if (act === 'asks') askAgent();
+    else if (act === 'nothing' || !goToChat()) heldAct.noteKeyThatTakesNothing();
     return true;
   };
   return <Dialog.Root open={entry !== null} onOpenChange={(isOpen, { reason }) => {
       if (isOpen) return;
+      if (reason === 'escape-key') focusPatternField(false);
       if (reason === 'escape-key') onEscaped();
       else onDropped();
     }}><Dialog.Popup size="sm" initialFocus={patternFieldRef} finalFocus={whatHasCaretAfter}><Form className="contents" onSubmit={() => onEntered(heldAct.howActBegan())} {...heldAct.handlers} onKeyDown={(event) => {
@@ -136,8 +151,9 @@ export const CustomNumberFormatDialog = React.memo(function ({
         }}><Dialog.Header>{sheetMessages.customFormat()}</Dialog.Header><div className="sheet-field-over-line flex flex-col gap-1.5"><CustomFormatPatternInput ref={patternFieldRef} pattern={pattern} isInvalid={refusalWords !== null || (stageOnLine?.kind === 'cameToNothing' && stageOnLine.why === 'noFormat')} opensOnPatternOfCells={(entry ?? lastEntry).hasHeldTextOfOthers} isHeldAsItIs={stageKind === 'asked'} onKeyForAgent={onKeyForAgent} onKeyHeld={(key) => {
                   if (key === 'Enter') heldAct.noteKeyThatTakesNothing();
                 }} onTyped={onTyped} />{stageOnLine !== null
-                ? <CustomFormatAgentRow id={CUSTOM_FORMAT_LINE_ID} stage={stageOnLine} onAgentAsked={askAgent} onStopped={onEscaped} />
+                ? <CustomFormatAgentRow id={CUSTOM_FORMAT_LINE_ID} stage={stageOnLine} onAgentAsked={askAgent} onStopped={onEscaped} onTakenToChat={onAskedInChat === null ? null : goToChat} />
                 : <p id={CUSTOM_FORMAT_LINE_ID} className={`sheet-line-under-field box-content min-h-[1lh] text-footnote wrap-anywhere ${refusalWords === null ? 'text-secondary' : 'text-danger'}`}>{refusalWords ?? (exampleText !== '' && formatPreviewText(exampleText))}</p>}</div><p role="alert" className="sr-only">{refusalWords ??
-              (agent?.kind === 'cameToNothing' &&
-                (agent.why === 'callFailed' ? formatCallFailedAnnouncement() : formatWritingProblemText(agent.why)))}</p><CustomFormatAnnouncer entry={entry ?? lastEntry} isOfferSaid={isAgentOffered} example={exampleText} /><Dialog.Footer align="end"><Dialog.Close render={<Button variant="secondary">{sheetMessages.cancel()}</Button>} /><Button ref={applyButtonRef} type="submit" variant="primary" disabled={reading.kind === 'nothingTyped' || stageKind === 'asked'}>{sheetMessages.apply()}</Button></Dialog.Footer></Form></Dialog.Popup></Dialog.Root>;
+              (agent?.kind === 'cameToNothing' && agent.why === 'callFailed'
+                ? formatCallFailedAnnouncement()
+                : agentStage?.kind === 'cameToNothing' && formatProblemWordsToSay(agentStage.why, onAskedInChat !== null))}</p><CustomFormatAnnouncer entry={entry ?? lastEntry} isOfferSaid={isAgentOffered} example={exampleText} /><Dialog.Footer align="end"><Dialog.Close render={<Button variant="secondary">{sheetMessages.cancel()}</Button>} /><Button ref={applyButtonRef} type="submit" variant="primary" disabled={reading.kind === 'nothingTyped' || stageKind === 'asked'}>{sheetMessages.apply()}</Button></Dialog.Footer></Form></Dialog.Popup></Dialog.Root>;
 });

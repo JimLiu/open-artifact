@@ -6,8 +6,8 @@ import type { SheetController } from '../state/controller.ts';
 import type { StorageOf, StoredCaretPlace } from '../state/caret-memory.ts';
 /** An entry kept in the tab's storage while the page was left, to open again once it is back. */
 export type KeptEntry = EntryOfPageBeforeFound['entry'];
-/** A kept entry as taken back, marked when it was kept while its edits were not yet saved. */
-export type TakenKeptEntry = KeptEntry & { isUnsaved?: true };
+/** A kept entry as taken back, marked when it was kept while its edits were not yet saved, or when it was left long before. */
+export type TakenKeptEntry = KeptEntry & { isUnsaved?: true; wasLeftLongBefore?: true };
 /** What the page tells of the caret leaving it and coming back, and of its edits being saved. */
 export interface PageOfKeptEntry {
   hasCaret(): boolean;
@@ -112,7 +112,12 @@ export function parseKeptEntry(saved: unknown): KeptEntry | null {
     },
   };
 }
-export function takeKeptEntry(getStorage: StorageOf, wallNowMs: number, keepWhenUndated: boolean): TakenKeptEntry | null {
+export function takeKeptEntry(
+  getStorage: StorageOf,
+  wallNowMs: number,
+  keepWhenUndated: boolean,
+  keepWhenTooOld?: boolean,
+): TakenKeptEntry | null {
   try {
     let storage = getStorage();
     let savedText = storage.getItem(KEPT_ENTRY_STORAGE_KEY);
@@ -121,14 +126,17 @@ export function takeKeptEntry(getStorage: StorageOf, wallNowMs: number, keepWhen
     let saved: unknown = JSON.parse(savedText);
     let leftAtWallMs = isEntryRecord(saved) ? saved.leftAtWallMs : undefined;
     let isUnsaved = isEntryRecord(saved) && saved.isUnsaved === true;
-    let entry = (
-      typeof leftAtWallMs === 'number'
-        ? leftAtWallMs + (isUnsaved ? KEPT_UNSAVED_ENTRY_MAX_AGE_MS : KEPT_ENTRY_MAX_AGE_MS) >= wallNowMs
-        : keepWhenUndated
-    )
-      ? parseKeptEntry(saved)
-      : null;
-    return entry !== null && isUnsaved
+    let isTooOld =
+      typeof leftAtWallMs === 'number' && leftAtWallMs + (isUnsaved ? KEPT_UNSAVED_ENTRY_MAX_AGE_MS : KEPT_ENTRY_MAX_AGE_MS) < wallNowMs;
+    if (isTooOld ? !keepWhenTooOld : typeof leftAtWallMs !== 'number' && !keepWhenUndated) return null;
+    let entry = parseKeptEntry(saved);
+    if (entry === null) return null;
+    if (isTooOld)
+      return {
+        ...entry,
+        wasLeftLongBefore: true,
+      };
+    return isUnsaved
       ? {
           ...entry,
           isUnsaved,

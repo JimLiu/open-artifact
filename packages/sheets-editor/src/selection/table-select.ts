@@ -54,7 +54,7 @@ export function isLexicallyLess(keys: readonly number[], otherKeys: readonly num
   let matchIndex = keys.findIndex((key, index) => key !== otherKeys[index]);
   return matchIndex !== -1 && (keys[matchIndex] ?? 0) < (otherKeys[matchIndex] ?? 0);
 }
-export function nearestArea(target: CellArea, areas: readonly CellArea[]): CellArea | null {
+export function areasByNearness<Item>(target: CellArea, items: readonly Item[], areaOf: (item: Item) => CellArea): Item[] {
   let sortKeyOf = (area: CellArea): number[] => [
     distanceOutsideIndexRun(target.topRowIndex, area.topRowIndex, area.rowCount) +
       distanceOutsideIndexRun(target.leftColumnIndex, area.leftColumnIndex, area.columnCount),
@@ -63,10 +63,13 @@ export function nearestArea(target: CellArea, areas: readonly CellArea[]): CellA
     area.topRowIndex,
     area.leftColumnIndex,
   ];
-  return areas.reduce<CellArea | null>(
-    (nearest, area) => (nearest === null || isLexicallyLess(sortKeyOf(area), sortKeyOf(nearest)) ? area : nearest),
-    null,
-  );
+  return items
+    .map((item) => ({
+      each: item,
+      ranked: sortKeyOf(areaOf(item)),
+    }))
+    .toSorted((one, other) => (isLexicallyLess(one.ranked, other.ranked) ? -1 : Number(isLexicallyLess(other.ranked, one.ranked))))
+    .map(({ each }) => each);
 }
 export function boundsOfTableToSort(
   reads: WorkbookReads,
@@ -98,8 +101,13 @@ export function boundsOfTableToSort(
     },
   };
 }
-export function selectableTablesInSight(state: PageState, reads: ReadsWithTextMeasurer): PartsOfPlacedTable[] {
-  let tables = tablesInSightOf(state, reads);
+export function selectableTablesInSight(state: PageState, reads: ReadsWithTextMeasurer): PartsOfPlacedTable[];
+export function selectableTablesInSight<Table extends PartsOfPlacedTable>(state: PageState, reads: ReadsWithTextMeasurer, tables: Table[]): Table[];
+export function selectableTablesInSight(
+  state: PageState,
+  reads: ReadsWithTextMeasurer,
+  tables: PartsOfPlacedTable[] = tablesInSightOf(state, reads),
+): PartsOfPlacedTable[] {
   if (tablesReadState(state, state.sheetId) !== 'behind') return tables;
   let hasCellsOnShowInRow = (rowIndex: number, first: number, last: number = first): boolean =>
     reads.columnIndexesOnShowIn(state.sheetId, rowIndex).some((columnIndex) => columnIndex >= first && columnIndex <= last);
@@ -271,6 +279,7 @@ export function selectTableOrAll(state: PageState, reads: ReadsWithTextMeasurer)
 }
 export const distanceOutsideIndexRun = (index: number, start: number, count: number): number =>
   index < start ? start - index : Math.max(0, index - (start + count - 1));
+export const nearestArea = (target: CellArea, areas: readonly CellArea[]): CellArea | null => areasByNearness(target, areas, (area) => area)[0] ?? null;
 export const fullAreaOfTable = ({ header, body, columns }: Pick<PartsOfPlacedTable, 'header' | 'body' | 'columns'>): CellArea =>
   areaOfRowsAndColumns(
     {

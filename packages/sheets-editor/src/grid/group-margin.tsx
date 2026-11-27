@@ -11,6 +11,7 @@ import type { CellDensity } from './cell-metrics-values.ts';
 import type { LinesAxisName } from './geometry.ts';
 export interface GroupMarginProps {
   ref: React.Ref<HTMLFieldSetElement>;
+  isHiddenFromReaders: boolean;
   margin: OutlineGutter;
   zoom: number;
   onMarkPressed: (of: LinesAxisName, group: OutlineMark) => void;
@@ -57,6 +58,7 @@ export const isSameMarginGroup = (group: OutlineMark, previous: OutlineMark | un
 export const areGroupMarginPropsEqual = (props: GroupMarginProps, previousProps: GroupMarginProps): boolean =>
   props.zoom === previousProps.zoom &&
   props.ref === previousProps.ref &&
+  props.isHiddenFromReaders === previousProps.isHiddenFromReaders &&
   props.onMarkPressed === previousProps.onMarkPressed &&
   props.onLevelChosen === previousProps.onLevelChosen &&
   props.margin.levelCount === previousProps.margin.levelCount &&
@@ -65,6 +67,7 @@ export const areGroupMarginPropsEqual = (props: GroupMarginProps, previousProps:
   props.margin.groups.every((group: OutlineMark, index: number) => isSameMarginGroup(group, previousProps.margin.groups[index]));
 export const GroupMargin = React.memo(function ({
   ref,
+  isHiddenFromReaders,
   margin,
   zoom,
   onMarkPressed,
@@ -72,7 +75,7 @@ export const GroupMargin = React.memo(function ({
 }: GroupMarginProps) {
   let { of, beforeBody, levelCount, hasLevelButtons, groups } = margin;
   let tooltipSide: TooltipSide = of === 'rows' ? 'right' : 'bottom';
-  return <fieldset ref={ref} aria-label={lineGroupsLabel(of)} className="sheet-group-margin" data-of={of}><div role="presentation" className="sheet-group-margin-zoomed" style={zoomedStyle(zoom)}><TooltipGroup><div role="presentation" className="sheet-group-levels" style={of === 'rows'
+  return <fieldset ref={ref} aria-label={lineGroupsLabel(of)} aria-hidden={isHiddenFromReaders || undefined} className="sheet-group-margin" data-of={of}><div role="presentation" className="sheet-group-margin-zoomed" style={zoomedStyle(zoom)}><TooltipGroup><div role="presentation" className="sheet-group-levels" style={of === 'rows'
                 ? {
                     height: beforeBody,
                   }

@@ -203,8 +203,11 @@ pub(crate) struct FormulaCell {
     pub parsed: Rc<Result<Expr, ParseError>>,
     /// Where each of the formula's references points now; `None` when a row, column or sheet of it is gone.
     pub places: Vec<Option<Place>>,
-    /// Whether the formula contains a subtotal or aggregate, including inside a conditional branch.
-    pub contains_total: bool,
+    /// Which of its references read the records of a connected table whose rows are not held: each is #N/A.
+    pub records_not_held: Vec<bool>,
+    /// Whether the formula calls SUBTOTAL or AGGREGATE anywhere: a SUBTOTAL whose range holds such a cell is
+    /// #VALUE!, and an AGGREGATE's whose skip code is below 4.
+    pub calls_subtotal: bool,
     pub pivot_records: Option<Rc<[RangeInclusive<usize>]>>,
     /// The places whose cells the formula reads.
     pub reads: Vec<Place>,
@@ -246,9 +249,16 @@ pub struct Calculation {
     pub(crate) may_fill: Vec<(usize, Place)>,
     /// The names LET has given values, what each brings and the link it is, innermost last.
     pub(crate) scopes: Vec<(Rc<str>, Operand, Option<Brought>, Option<Rc<str>>)>,
-    /// Whether the expression being worked out is inside an argument that takes several cells (ARRAYFORMULA's,
-    /// SUM's, FILTER's, …), where a function given several cells for one value works cell by cell (`evaluate.rs`).
+    /// Whether the formula being worked out is #VALUE! whatever this part of it is inside: arrays of sizes that do
+    /// not fit worked out cell by cell, or a LAMBDA answering several cells for one (`evaluate/lifted.rs`).
+    pub(crate) aborted: bool,
+    /// Whether the expression being worked out is inside an argument that takes several cells (SUM's, ROWS's,
+    /// ARRAYFORMULA's, …), a LET's value or a LAMBDA's, where IFS given several cells for a test works cell by cell
+    /// (`evaluate/lifted.rs`).
     pub(crate) lifting: bool,
+    /// What the first call in the formula being worked out given several cells for one value told, for
+    /// `readCauseOfError` (`evaluate/lifted.rs`).
+    pub(crate) several: Option<crate::evaluate::Several>,
     /// What the expression last worked out in the formula being worked out brings.
     pub(crate) brought: Option<Brought>,
     /// The link the expression last worked out is: a HYPERLINK's, passed on by IF, CHOOSE, LET and the like.
@@ -258,6 +268,9 @@ pub struct Calculation {
     /// What each value of the arrays functions picked from cells brings (see `CallContext::sources`), by array, while
     /// a formula is worked out (the array is kept so that no other is made where it is).
     pub(crate) array_formats: HashMap<*const Array, (Rc<Array>, SpillFormats)>,
+    /// The arrays of one value a LAMBDA's name is given, picked from an array: TYPE reads one as its value. Kept,
+    /// as `array_formats` is, while a formula is worked out.
+    pub(crate) picked: HashMap<*const Array, Rc<Array>>,
     pub(crate) now: Option<f64>,
     /// The workbook's seed, which RAND's numbers are drawn from.
     pub(crate) seed: u32,
@@ -299,23 +312,28 @@ impl Calculation {
                     }
                     Input::Formula { formula } => {
                         let parsed = cell.parsed.clone().expect("a formula is read when it is set");
-                        let places: Vec<Option<Place>> =
-                            formula.references.iter().map(|reference| resolve(workbook, reference)).collect();
+                        let records_not_held: Vec<bool> =
+                            formula.references.iter().map(|reference| reads_records_not_held(workbook, reference)).collect();
+                        let places: Vec<Option<Place>> = formula
+                            .references
+                            .iter()
+                            .zip(&records_not_held)
+                            .map(|(reference, &not_held)| if not_held { None } else { resolve(workbook, reference) })
+                            .collect();
                         let pivot = parsed.as_ref().as_ref().ok()
                             .and_then(PivotFormula::from_expr).and_then(Result::ok);
                         let pivot_records = pivot.as_ref()
                             .and_then(|pivot| pivot_records(workbook, pivot, formula, &mut pivot_sources))
                             .map(Rc::from);
-                        let (contains_total, reads) = match &*parsed {
+                        let (calls_subtotal, reads) = match &*parsed {
                             Ok(expr) => {
                                 let mut read = Vec::new();
                                 read_references(expr, &mut read);
-                                let contains_total = calls(expr, "SUBTOTAL") || calls(expr, "AGGREGATE");
-                                let places_read = match (&pivot, &pivot_records) {
+                                let reads = match (&pivot, &pivot_records) {
                                     (Some(pivot), Some(records)) => pivot_reads(pivot, records, &places),
                                     _ => read.into_iter().filter_map(|i| places.get(i).copied().flatten()).collect(),
                                 };
-                                (contains_total, places_read)
+                                (calls(expr, "SUBTOTAL") || calls(expr, "AGGREGATE"), reads)
                             }
                             Err(_) => (false, Vec::new()),
                         };
@@ -325,7 +343,8 @@ impl Calculation {
                             column: c,
                             parsed,
                             places,
-                            contains_total,
+                            records_not_held,
+                            calls_subtotal,
                             pivot_records,
                             reads,
                             reads_formulas: Vec::new(),
@@ -396,11 +415,14 @@ impl Calculation {
             covered_before: SpillCoverage::default(),
             may_fill,
             scopes: Vec::new(),
+            aborted: false,
             lifting: false,
+            several: None,
             brought: None,
             link: None,
             working: Vec::new(),
             array_formats: HashMap::new(),
+            picked: HashMap::new(),
             now,
             seed: workbook.seed,
             locale: locale::find(&workbook.locale).unwrap_or_else(locale::en_us),
@@ -581,21 +603,30 @@ impl Calculation {
                 // What the formula that reads this one has worked out so far brings stays as it was.
                 let reader_brought = self.brought.take();
                 let reader_link = self.link.take();
+                let reader_aborted = std::mem::replace(&mut self.aborted, false);
                 let reader_lifting = std::mem::replace(&mut self.lifting, false);
+                let reader_several = self.several.take();
                 let parsed = self.formulas[i].parsed.clone();
-                let operand = match &*parsed {
+                let mut operand = match &*parsed {
                     Ok(expr) => self.eval(i, expr),
                     Err(_) => Operand::Value(Value::Error(CellError::Error)),
                 };
+                if std::mem::replace(&mut self.aborted, reader_aborted) {
+                    operand = Operand::Value(Value::Error(CellError::Value));
+                    self.brought = None;
+                    self.link = None;
+                }
                 let brought = std::mem::replace(&mut self.brought, reader_brought);
                 let link = std::mem::replace(&mut self.link, reader_link);
                 self.lifting = reader_lifting;
+                self.several = reader_several;
                 let mut outcome = self.settle(i, operand);
                 outcome.brought = brought.filter(|_| matches!(outcome.value, Value::Number(_)));
                 outcome.links_to = link.filter(|_| !matches!(outcome.value, Value::Error(_)));
                 self.working.pop();
                 if self.working.is_empty() {
                     self.array_formats.clear();
+                    self.picked.clear();
                 }
                 self.formulas[i].state = State::Done(outcome);
             }
@@ -920,6 +951,26 @@ pub(crate) fn spill_area(workbook: &Workbook, s: usize, (r, c): (LineId, LineId)
     Some(Place { sheet: s, top: row, left: column, bottom, right })
 }
 
+/// The cells a formula written at a place of sheet `s` (not yet in it) could fill at most, from what is written,
+/// when it may spill (see `reach`).
+pub(crate) fn written_spill_area(
+    workbook: &Workbook,
+    s: usize,
+    formula: &crate::formula::StoredFormula,
+    (row, column): (usize, usize),
+) -> Option<Place> {
+    let sheet = &workbook.sheets[s];
+    let expr = crate::formula::parse(&formula.text_between_references).ok()?;
+    let places: Vec<Option<Place>> = formula.references.iter().map(|reference| resolve(workbook, reference)).collect();
+    let reach = reach::reach(&expr, &places);
+    if !reach.spills || !reach.is_several() || row >= sheet.rows.len() || column >= sheet.columns.len() {
+        return None;
+    }
+    let bottom = row.saturating_add(reach.rows - 1).min(sheet.rows.len() - 1);
+    let right = column.saturating_add(reach.columns - 1).min(sheet.columns.len() - 1);
+    Some(Place { sheet: s, top: row, left: column, bottom, right })
+}
+
 /// The cells each formula that may spill could fill at most (as a calculation gives them), by sheet in order of
 /// position, and whether an earlier one's could fill one of them (it is kept out).
 pub(crate) fn spill_areas(workbook: &Workbook) -> Vec<(Place, bool)> {
@@ -936,6 +987,22 @@ pub(crate) fn spill_areas(workbook: &Workbook) -> Vec<(Place, bool)> {
     areas
 }
 
+/// Whether a reference reads the records of a connected table whose rows are not held (none fetched, or their
+/// file not here). One whose columns are gone is not: it is #REF!.
+fn reads_records_not_held(workbook: &Workbook, reference: &Reference) -> bool {
+    let reads_records = match reference {
+        Reference::TableColumn { .. } => true,
+        Reference::TablePart { rows, .. } => *rows != crate::formula::TableRows::Heading,
+        _ => false,
+    };
+    reads_records
+        && workbook.sheet_index(reference.sheet_id()).map(|s| &workbook.sheets[s]).is_some_and(|sheet| {
+            sheet.connected.table.is_some()
+                && !matches!(workbook.holding(sheet), Some(crate::workbook::connected::Holding::Held(_)))
+        })
+        && workbook.locate(reference).is_some()
+}
+
 /// Where a reference points now.
 fn resolve(workbook: &Workbook, reference: &Reference) -> Option<Place> {
     let at = workbook.locate(reference)?;
@@ -944,14 +1011,17 @@ fn resolve(workbook: &Workbook, reference: &Reference) -> Option<Place> {
 
 /// Works out a workbook's formulas and keeps their outcomes in it.
 pub fn calculate(workbook: &mut Workbook, now: Option<f64>) {
-    let outcomes = Calculation::new(workbook, now).run();
+    // Formulas read connected tables with their rows made.
+    let shown = workbook.with_tables();
+    let outcomes = Calculation::new(&shown, now).run();
     let mut kept = HashMap::with_capacity(outcomes.len());
     for ((s, r, c), outcome) in outcomes {
-        let sheet = &workbook.sheets[s];
+        let sheet = &shown.sheets[s];
         if let (Some(row), Some(column)) = (sheet.rows.line(r), sheet.columns.line(c)) {
             kept.insert((sheet.id.clone(), row, column), outcome);
         }
     }
+    drop(shown);
     workbook.outcomes = kept;
     workbook.needs_calculation = false;
     workbook.calculated_at = now;

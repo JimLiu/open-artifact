@@ -6,6 +6,7 @@ import { isPeopleCell, refreshPeopleList } from './people-list.ts';
 import { commentAtActiveCell, isActiveCellInOpenComment, doesCommentModePick } from '../comments/comment-state.ts';
 import { asOneCellSelection, editEndsOnAnotherCell } from '../editor/commit-moves.ts';
 import { hitTestGrid } from '../grid/geometry.ts';
+import { isPositionKeptFromViewer } from '../state/protection.ts';
 import { layoutOfView } from '../grid/layout.ts';
 import { withNoEffects, type PageEffect, type PageTransition } from '../state/transitions.ts';
 import { textToEditAt, startEntryEditing } from '../editor/start-entry.ts';
@@ -44,7 +45,8 @@ export function openListOnPress(
   { reads, refusalOfEveryEdit }: Pick<PageContext, 'reads' | 'refusalOfEveryEdit'>,
 ): PageTransition {
   if (refusalOfEveryEdit !== null || !editEndsOnAnotherCell(before, step, event.isShiftHeld)) return step;
-  if (hitTestGrid(event, before, layoutOfView(before, reads))?.kind !== 'cell') return step;
+  let hit = hitTestGrid(event, before, layoutOfView(before, reads));
+  if (hit?.kind !== 'cell' || isPositionKeptFromViewer(before, reads, hit)) return step;
   let { state, effects } = step;
   return effects.length > 0
     ? {
@@ -87,7 +89,8 @@ export function openEntryOnPress(
     !editEndsOnAnotherCell(before, step, event.isShiftHeld)
   )
     return step;
-  if (hitTestGrid(event, before, layoutOfView(before, reads))?.kind !== 'cell') return step;
+  let hit = hitTestGrid(event, before, layoutOfView(before, reads));
+  if (hit?.kind !== 'cell' || isPositionKeptFromViewer(before, reads, hit)) return step;
   let { state, effects } = step;
   return effects.length > 0
     ? {

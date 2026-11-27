@@ -30,9 +30,13 @@ import type {
   WentAlong,
   XlsxFileAnswer,
   IdRun,
+  QueueReversalInASittingRequest,
+  ReceiveLinesOfTableFileRequest,
+  ReceivePersonRequest,
+  TableFileIsGoneRequest,
 } from '@open-artifact/sheets-core';
 import { createOwnRowOrderSession } from '../tables/own-row-order.ts';
-import { createPagedLoader } from './paged-load.ts';
+import { createPagedLoader, createTableFileLoader } from './paged-load.ts';
 import { errorKindOf, type ErrorKind } from '../model/refusals.ts';
 import {
   createCoreUtilities,
@@ -51,7 +55,7 @@ import type { SavingState } from '../state/initial-state.ts';
 import type { PlaceAreaChanged } from '../state/event-reducer.ts';
 import type { WorkbookStore } from './workbook-node.ts';
 import type { WhyRefused } from './requests.ts';
-import type { ClockReading } from './frames.ts';
+import type { ClockReading, Person } from './frames.ts';
 
 /** An edit the workbook sends to the server to be saved; `isLastSend` when a refusal for now is not to be tried again. */
 export interface EditToSave {
@@ -70,6 +74,7 @@ export type SyncFault =
   | 'loadRefusedAsOutOfDate'
   | 'timeToldNotReadable'
   | 'editsThatTakeBackInUnknownFormatVersion'
+  | 'tableFileNotRead'
   | StopReason
   | Fault;
 
@@ -165,7 +170,7 @@ export interface SyncedWorkbook {
   readsWithCellsIn: WorkbookReader['readWithCellsIn'];
   queueEdit(edit: Edit, restOfAct?: RestOfAct): EditOutcome;
   refusalOfEveryEdit(): RefusalOfEveryEdit | null;
-  undoOrRedo(which: 'undo' | 'redo'): UndoOrRedoOutcome;
+  undoOrRedo(which: 'undo' | 'redo', ofSitting?: OfSitting): UndoOrRedoOutcome;
   queueEditsThatTakeBack(builtOnRevision: number, edits: Iterable<EngineRecordedEdit>): TakeBackOutcome;
   seeRowsInOwnOrder(sheetId: SheetId, rows: readonly IdRun[] | null): void;
   tableAt(cell: CellId): TableWithColumns | null;
@@ -186,6 +191,8 @@ export interface SyncedWorkbook {
   editStreamed(revision: number, applied: StreamedEdit): void;
   storeRevisionReported(revision: number): void;
   timeTold(clockReading: ClockReading): void;
+  /** Who the viewer is (owner, a user, or unnamed), from the store. */
+  personTold(person: Person): void;
   availabilityStated(availability: Availability): void;
   storeReconnected(): void;
   storeClosed(): void;
@@ -204,8 +211,15 @@ type SyncStateRequest =
   | ReceiveServerRevisionRequest
   | ReceiveLoadPageRequest
   | ReceiveStreamedEditRequest
-  | ReceiveSendOutcomeRequest;
+  | ReceiveSendOutcomeRequest
+  | ReceivePersonRequest
+  | TableFileIsGoneRequest;
 
+/** A step of one sitting (an interactive's) to reverse: the last press, or all of them (`isOfAll`). */
+export interface OfSitting {
+  sitting: string;
+  isOfAll: boolean;
+}
 /** Where syncing stands, with two fields read here that the engine does not send. */
 interface SyncStateAsRead extends SyncState {
   droppedEditsWereNoSteps?: boolean;
@@ -270,6 +284,8 @@ export async function openSyncedWorkbook(host: SyncedWorkbookOptions): Promise<S
   let loadRestartTries = 0;
   let isStartingOver = false;
   let firstLoadStartCount = 0;
+  let letOthersRun = (): Promise<void> =>
+    isTabHidden ? Promise.resolve() : new Promise<void>((resolve) => host.calculateLater(resolve));
   let pagedLoader = createPagedLoader({
     store: host.store,
     isWanted: () => !isStopped && nextStep !== null && nextStep.kind !== 'stop',
@@ -277,8 +293,7 @@ export async function openSyncedWorkbook(host: SyncedWorkbookOptions): Promise<S
       resetRetries();
       reportSavingChanged();
     },
-    letOthersRun: () =>
-      isTabHidden ? Promise.resolve() : new Promise<void>((resolve) => host.calculateLater(resolve)),
+    letOthersRun,
   });
   let firstLoadWaitedMs = 0;
   let isStopped = false;
@@ -286,7 +301,6 @@ export async function openSyncedWorkbook(host: SyncedWorkbookOptions): Promise<S
   let storeContactCount = 0;
   let revisionPollFailures = 0;
   let isTabHidden = false;
-  let revisionPollToken: object | null = null;
   let stopReason: 'stoppedOutOfDate' | 'stoppedOutOfDateWithUnsavedEdits' | null = null;
   let availability: Availability = 'open';
   let resolveLoaded: ((isLoadedNow: boolean) => void) | null = null;
@@ -371,6 +385,7 @@ export async function openSyncedWorkbook(host: SyncedWorkbookOptions): Promise<S
       dropdownOptionsToOffer: unlessBroken(coreUtilities.dropdownOptionsToOffer),
       cellsThatADropdownWouldClear: unlessBroken(coreUtilities.cellsThatADropdownWouldClear),
       cellsOfTheDropdownAt: unlessBroken(coreUtilities.cellsOfTheDropdownAt),
+      defaultValueAndLimitsOf: unlessBroken(coreUtilities.defaultValueAndLimitsOf),
       whatATableChanges: unlessBroken(coreUtilities.whatATableChanges),
       fitOfColumnReadingsInLocale: unlessBroken(coreUtilities.fitOfColumnReadingsInLocale),
       textsUnderAColumnReadingInLocale: unlessBroken(coreUtilities.textsUnderAColumnReadingInLocale),
@@ -418,6 +433,42 @@ export async function openSyncedWorkbook(host: SyncedWorkbookOptions): Promise<S
   function applyRequest(request: SyncStateRequest, why: WhyRefused = null, load: { revisionBefore: number | null } | null = null) {
     if (!isStopped) applySyncState(askSyncState(request), why, load);
   }
+  /** The files of the connected tables are loaded once the workbook is, after every change that is read (see applySyncState). */
+  let loadTableFiles = createTableFileLoader({
+    store: host.store,
+    wanted() {
+      let isConnected = ({ sheetId }: { sheetId: SheetId }): boolean => reads.connectedTableIn(sheetId) !== null;
+      if (isStopped || !isLoaded || !reads.listSheets().some(isConnected)) return [];
+      let answer = callCore(() =>
+        core.answer({
+          kind: 'readSnapshotsNotHeld',
+        }),
+      );
+      if (answer.kind !== 'snapshotsNotHeld') throw Error('sheets-core did not say which files of records it lacks');
+      return answer.snapshotIds;
+    },
+    handOver(snapshotId, lines, isLast) {
+      if (isStopped) return 'read';
+      let request: ReceiveLinesOfTableFileRequest = {
+        kind: 'receiveLinesOfTableFile',
+        snapshotId,
+        lines,
+        isLast,
+      };
+      let answer = callCore(() => core.answer(request));
+      if (answer.kind !== 'syncState') return 'unreadable';
+      applySyncState(answer);
+      return 'read';
+    },
+    giveUp: (snapshotId) =>
+      applyRequest({
+        kind: 'tableFileIsGone',
+        snapshotId,
+      }),
+    waitToRetry: (tries, busyForMs) => host.wait(Math.max(Math.min(busyForMs, MAX_BUSY_FIRST_LOAD_WAIT_MS), syncRetryDelayMs(tries))),
+    letOthersRun,
+    reportFault: host.reportFault,
+  });
   function takeSyncState(syncState: SyncState) {
     nextStep = syncState.nextStep;
     ({ isLoaded } = syncState);
@@ -496,6 +547,7 @@ export async function openSyncedWorkbook(host: SyncedWorkbookOptions): Promise<S
       });
     takeNextStep();
     if (isLoaded) resolveLoaded?.(true);
+    if (isChanged) loadTableFiles();
     notifyChanged(isChanged, !hasChanges);
     if (load !== null) {
       let [revisionBefore, revisionNow] = [load.revisionBefore, revisionHeld()];
@@ -776,28 +828,36 @@ export async function openSyncedWorkbook(host: SyncedWorkbookOptions): Promise<S
       ...note,
     };
   }
-  function undoOrRedo(which: 'undo' | 'redo'): UndoOrRedoOutcome {
+  /** `ofSitting` reverses a step of one sitting (an interactive's). */
+  function undoOrRedo(which: 'undo' | 'redo', ofSitting?: OfSitting): UndoOrRedoOutcome {
     let refusal = refusalOfEveryEdit();
     if (refusal !== null)
       return {
         kind: 'refused',
         refusal,
       };
-    let requestKind: 'queueNextUndo' | 'queueNextRedo' = which === 'undo' ? 'queueNextUndo' : 'queueNextRedo';
+    let opId = host.newEditId();
+    let undoKind: 'undoOfAll' | 'undoOfAPress' = ofSitting?.isOfAll === true ? 'undoOfAll' : 'undoOfAPress';
+    let request: { kind: 'queueNextUndo' | 'queueNextRedo'; opId: string } | QueueReversalInASittingRequest =
+      ofSitting === undefined
+        ? {
+            kind: which === 'undo' ? 'queueNextUndo' : 'queueNextRedo',
+            opId,
+          }
+        : {
+            kind: 'queueReversalInASitting',
+            opId,
+            sitting: ofSitting.sitting,
+            reversal: which === 'undo' ? undoKind : 'redo',
+          };
     let unconfirmedBefore = unconfirmedCount;
-    let answer = callCore(
-      () =>
-        core.answer({
-          kind: requestKind,
-          opId: host.newEditId(),
-        }),
-    );
+    let answer = callCore(() => core.answer(request));
     if (answer.kind === 'nothingToReverse')
       return {
         kind: 'nothingLeft',
       };
     if (answer.kind === 'refused' || answer.kind === 'stepGivenUp') return answer;
-    if (answer.kind !== 'editQueued') throw (stop(), Error(`sheets-core answered ${requestKind} with ${(answer as { kind: string }).kind}`));
+    if (answer.kind !== 'editQueued') throw (stop(), Error(`sheets-core answered ${request.kind} with ${(answer as { kind: string }).kind}`));
     let note = sentAsSeveralEditsNote(answer.syncState, unconfirmedBefore);
     applySyncState(answer.syncState);
     let { placeChanged, placesChangedBefore, stepReversed } = answer;
@@ -856,9 +916,8 @@ export async function openSyncedWorkbook(host: SyncedWorkbookOptions): Promise<S
     kind: 'receiveServerRevision',
     revision: host.revision,
   });
-  let revisionPollDelay = () => revisionPollDelayMs(isTabHidden, revisionPollFailures);
-  async function pollRevision(): Promise<void> {
-    if (isStopped || host.nowMs() - lastStoreContactAtMs < revisionPollDelay()) return;
+  async function pollRevision(gapMs: number): Promise<void> {
+    if (isStopped || host.nowMs() - lastStoreContactAtMs < gapMs) return;
     noteStoreContact();
     if (isStoreCallOpen || pendingWait !== null) return;
     let contactCount = storeContactCount;
@@ -874,13 +933,13 @@ export async function openSyncedWorkbook(host: SyncedWorkbookOptions): Promise<S
       revision,
     });
   }
+  /** The store is asked for its revision 5 minutes after the last contact at most; the stream tells edits sooner. */
   async function keepPollingRevision(): Promise<void> {
-    let token: object = {};
-    revisionPollToken = token;
-    await host.wait(jitterSyncDelay(Math.max(0, lastStoreContactAtMs + revisionPollDelay() - host.nowMs())));
-    if (isStopped || revisionPollToken !== token) return;
-    await pollRevision();
-    if (revisionPollToken === token) keepPollingRevision();
+    let dueAtMs = lastStoreContactAtMs + FALLBACK_REVISION_POLL_MS;
+    await host.wait(jitterSyncDelay(Math.max(0, dueAtMs - host.nowMs())));
+    if (isStopped) return;
+    await pollRevision(FALLBACK_REVISION_POLL_MS);
+    keepPollingRevision();
   }
   function resendIfWaiting() {
     if (pendingWait === null || pendingWait.isForBusyStore || isLastSendNotSent) return;
@@ -961,6 +1020,12 @@ export async function openSyncedWorkbook(host: SyncedWorkbookOptions): Promise<S
       if (!hasToldTime) workOutFormulas('allThatAreLeft');
       hasToldTime = true;
     },
+    personTold(person: Person) {
+      applyRequest({
+        kind: 'receivePerson',
+        person,
+      });
+    },
     availabilityStated(stated: Availability) {
       let isReopened = availability === 'closed' && stated !== 'closed';
       availability = stated;
@@ -981,9 +1046,8 @@ export async function openSyncedWorkbook(host: SyncedWorkbookOptions): Promise<S
       if (isHidden) workOutFormulas('allThatAreLeft');
       if (!isHidden) {
         resendIfWaiting();
-        pollRevision();
+        pollRevision(revisionPollDelayMs(false, revisionPollFailures));
       }
-      keepPollingRevision();
     },
   };
 }
@@ -1001,6 +1065,7 @@ export const MAX_FIRST_LOAD_WAIT_MS = 180000;
 export const MAX_BUSY_FIRST_LOAD_WAIT_MS = 60000;
 export const REVISION_POLL_MS = 30000;
 export const HIDDEN_TAB_REVISION_POLL_MS = 300000;
+export const FALLBACK_REVISION_POLL_MS = 300000;
 export const revisionPollDelayMs = (isTabHidden: boolean, failureCount: number) =>
   Math.min(HIDDEN_TAB_REVISION_POLL_MS, (isTabHidden ? HIDDEN_TAB_REVISION_POLL_MS : REVISION_POLL_MS) * 2 ** failureCount);
 export const jitterSyncDelay = (delayMs: number) => delayMs * (1 + Math.random() / 3);

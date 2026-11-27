@@ -42,7 +42,7 @@ export function* convertibleTextCells(state: PageState, reads: WorkbookReads): G
   let areas = areasOfAllRanges(state, reads);
   let seen = areas.length > 1 ? new Set<string>() : null;
   for (let area of areas)
-    for (let cellId of reads.filledCellsIn(state.sheetId, area)) {
+    for (let cellId of reads.cellsEditedAfterTheMarkIn(state.sheetId, area)) {
       let key = seen === null ? '' : `${cellId.rowId} ${cellId.columnId}`;
       if (seen?.has(key) === true || !isConvertibleText(reads, cellId)) continue;
       seen?.add(key);

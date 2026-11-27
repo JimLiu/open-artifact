@@ -516,7 +516,8 @@ describe(TYPE, { skip: skip() }, () => {
       await pressStep();
       await expectCount(8);
       await clickOnSheet(page, footButton('Save as default'));
-      assert.ok(await page.waitFor(`${footButton('Save as default')}?.disabled`, 8000), 'Save as default stayed on after saving');
+      // Saving the defaults ends the sitting: nothing left to reset, save or undo, so the bar goes.
+      assert.ok(await page.waitFor(`${panelFrame} !== null && document.querySelector('[data-stands=footBar]') === null`, 8000), 'the bar stayed after saving the defaults');
       await pressStep();
       await expectCount(9);
       await clickOnSheet(page, footButton('Reset'));
@@ -700,6 +701,11 @@ describe(TYPE, { skip: skip() }, () => {
       assert.ok(await until(() => viewsSaved().length === 1, 10000), 'the view was not saved to the workbook');
       await clickOnSheet(page, "document.querySelector('[aria-label=\"Clear all filters\"]')");
       assert.ok(await page.waitFor(cellWith('York'), 5000), 'clearing the filter did not bring York back');
+      // The page keeps its own filters for the next opening after it paints: open it again once the cleared one is kept.
+      assert.ok(
+        await page.waitFor("!(localStorage.getItem('sheets-own-filters') ?? '').includes('Leeds')", 5000),
+        'the cleared filter was not kept for the next opening',
+      );
       await page.close();
 
       page = await openSheet(opened.url, cellWith('Leeds'));

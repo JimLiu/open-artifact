@@ -22,6 +22,7 @@ import {
   CHECKED_RULE_WORDS,
   UNCHECKED_WORDS,
   WORDS_NOT_TAKEN_AS_VALUES,
+  wordSetWith,
 } from './vocabulary.ts';
 import { valuesOfUserInColumn, isPeopleColumn, measureOfColumn } from './column-holds.ts';
 import { columnNameWords } from './numbers.ts';
@@ -32,12 +33,11 @@ export interface ColumnNamed {
   name: string[];
   wordCount: number;
   isPart: boolean;
-  isUnsure: boolean;
-  /** The name is a single word the words also use to ask for something. */
-  isAWord: boolean;
-  /** The name is a single filler word, passed over unless asked for. */
-  isPassedOver: boolean;
+  /** How far a lookup has to reach for the name to count: a name that is also a word, or a part that may name values, only counts when asked for. */
+  countsFrom: ColumnNameCounting;
 }
+/** Which column names a lookup counts, from only the sure ones to every one. */
+export type ColumnNameCounting = 'sureOnes' | 'evenAWord' | 'evenIfUnsure' | 'never';
 /** Words that name values of a column, before it is known how they may be read. */
 interface WordsForValues {
   words: string[];
@@ -86,21 +86,19 @@ export function columnNamesOf(columns: ColumnHolds[]): ColumnNamed[] {
   let names = columns.flatMap((column): ColumnNamed[] => {
     let nameWords = nameWordsWithBreaks(column.name ?? '');
     let [firstWord, ...otherWords] = nameWords;
-    let isAWord = firstWord !== undefined && otherWords.length === 0 && COMMAND_WORDS.has(firstWord);
-    let isPassedOver = isAWord && FILTER_FILLER_WORDS.has(firstWord) && !EQUALS_WORDS.has(firstWord) && !SHOW_VERBS.has(firstWord);
-    return firstWord === undefined
-      ? []
-      : [
-          {
-            column,
-            name: nameWords,
-            wordCount: nameWords.length,
-            isPart: false,
-            isUnsure: false,
-            isAWord,
-            isPassedOver,
-          },
-        ];
+    if (firstWord === undefined) return [];
+    let isAWord = otherWords.length === 0 && COMMAND_WORDS.has(firstWord);
+    let isPassedOver = FILTER_FILLER_WORDS.has(firstWord) && !EQUALS_WORDS.has(firstWord) && !SHOW_VERBS.has(firstWord);
+    let countsFrom: ColumnNameCounting = !isAWord ? 'sureOnes' : isPassedOver ? 'evenAWord' : 'never';
+    return [
+      {
+        column,
+        name: nameWords,
+        wordCount: nameWords.length,
+        isPart: false,
+        countsFrom,
+      },
+    ];
   });
   columnNamesCache.set(columns, names);
   return names;
@@ -136,14 +134,17 @@ export function columnNamePartsOf(columns: ColumnHolds[]): ColumnNamed[] {
       }
     for (let partText of partTexts) {
       let partWords = partText.split(' ');
-      let isUnsure =
-        (partWords.length === 1 && QUESTION_FILLER_WORDS.has(partText)) || partWords.some((word) => valueWords.has(word));
+      let countsFrom: ColumnNameCounting =
+        ((partWords.length === 1 && QUESTION_FILLER_WORDS.has(partText)) || partWords.some((word) => valueWords.has(word))) &&
+        nameEntry.countsFrom !== 'never'
+          ? 'evenIfUnsure'
+          : nameEntry.countsFrom;
       let partEntry = {
         ...nameEntry,
         name: partWords,
         wordCount: partWords.length,
         isPart: true,
-        isUnsure,
+        countsFrom,
       };
       parts.set(partText, parts.has(partText) ? null : partEntry);
     }
@@ -164,7 +165,6 @@ export function columnNamePartsOf(columns: ColumnHolds[]): ColumnNamed[] {
       name: ['date'],
       wordCount: 1,
       isPart: true,
-      isUnsure: false,
     });
   let found = [...parts.values()].filter((partEntry) => partEntry !== null);
   columnNamePartsCache.set(columns, found);
@@ -187,12 +187,10 @@ export function columnNamedAt(
   { columns }: Pick<TableHolds, 'columns'>,
   words: readonly TypedWord[],
   at: number,
-  allowWords: boolean = false,
-  allowUnsure: boolean = false,
+  countingFrom: ColumnNameCounting = 'sureOnes',
 ): ColumnNamed | null {
   let sameStart = (columnNamesByStart(columns).get((words[at]?.plain ?? '').slice(0, 2)) ?? []).filter(
-    ({ isAWord, isPassedOver, isUnsure }) =>
-      (!isAWord || (allowWords && isPassedOver)) && (!isUnsure || allowUnsure),
+    ({ countsFrom }) => COUNTS_FROM_RANK[countsFrom] <= COUNTS_FROM_RANK[countingFrom],
   );
   if (sameStart.length === 0) return null;
   let [wholeNames, partNames] = [
@@ -426,8 +424,14 @@ export const nameMatchesAt = (words: readonly TypedWord[], at: number, name: str
   isWordOrItsPlural(words[at + name.length - 1]?.plain ?? '', name.at(-1) ?? '') &&
   isUnbrokenAt(words, at, name);
 export const columnNamesCache = new WeakMap<ColumnHolds[], ColumnNamed[]>();
-export const ESTIMATE_WORDS = new Set<string>(['est', 'estimated', 'approx']);
-export const NEGATING_PREFIXES = new Set<string>(['non', 'un', 'ex', 'never', 'dont']);
+export const COUNTS_FROM_RANK: Record<ColumnNameCounting, number> = {
+  sureOnes: 0,
+  evenAWord: 1,
+  evenIfUnsure: 2,
+  never: 3,
+};
+export const ESTIMATE_WORDS = wordSetWith('est estimated approx');
+export const NEGATING_PREFIXES = wordSetWith('non un ex never dont');
 export const isNameAlike = (nameWords: string[], word: string): boolean =>
   nameWords.some((nameWord) => nameWord === word || isAbbreviationOf(nameWord, word) || isAbbreviationOf(word, nameWord));
 export const MOST_NAME_WORDS = 8;
@@ -439,6 +443,12 @@ export const hasZeroValues = cachedPerObject(
   (column: ColumnHolds) =>
     measureOfColumn(column) === 'numbers' && column.values.some(({ value }) => value?.value === 0),
 );
+export const BLANK_LIKE_TEXT_PATTERN = /^(?:[-–—]+|n\/a|none)$/i;
+export const blankValuesOfColumn = cachedPerObject((column: ColumnHolds): (ValueContents | null)[] => {
+  let texts = column.values.flatMap(({ value }) => (value?.kind === 'text' ? [value] : []));
+  if (texts.some(({ value }) => /^\++$/.test(value.trim()))) return [null];
+  return [null, ...texts.filter(({ value }) => BLANK_LIKE_TEXT_PATTERN.test(value.trim()))];
+});
 export const dateLikeTextPattern =
   /^\d{1,4}([-/.])\d{1,2}\1\d{1,4}(?:[ T]\d{1,2}:\d{2}.*)?$|^\d{1,2}\/\d{1,2}$|^(?=.*\d)(?:\d{1,2} )?(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.? ?\d{0,2}(?:,? ?\d{4})?$/i;
 export const looksLikeDateColumn = cachedPerObject(
@@ -450,17 +460,7 @@ export const looksLikeDateColumn = cachedPerObject(
         .slice(0, 50)
         .some(({ value }) => value?.kind === 'text' && dateLikeTextPattern.test(value.value.slice(0, 20)))),
 );
-export const CROSS_MARK_EMOJI = new Set<string>([
-  '❌',
-  '❎',
-  '\uD83D\uDEAB',
-  '⛔',
-  '\uD83D\uDED1',
-  '✖',
-  '➖',
-  '\uD83D\uDC4E',
-  '\uD83D\uDE45',
-]);
+export const CROSS_MARK_EMOJI = wordSetWith('❌ ❎ \uD83D\uDEAB ⛔ \uD83D\uDED1 ✖ ➖ \uD83D\uDC4E \uD83D\uDE45');
 export const emojiInText = (text: string): string[] => text.match(/\p{Extended_Pictographic}/gu) ?? [];
 export const emojiInColumn = cachedPerObject(
   ({ values, optionsOfDropdown }: ColumnHolds) =>

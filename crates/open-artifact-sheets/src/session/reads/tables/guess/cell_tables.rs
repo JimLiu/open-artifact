@@ -94,16 +94,28 @@ struct Reading {
     under: Option<usize>,
     tells_gaps: bool,
     non_records: Option<Vec<Run>>,
+    /// The rows its columns' kinds are told from, when not its whole body: a table found on the sheet's records.
+    records: Option<Vec<Run>>,
 }
 
 impl Reading {
     fn of_found(found: &Found, grid: &Grid) -> Reading {
         let table = found.reading(grid);
         let under = found.row_under_reading(grid, table.as_ref());
+        let records = table.as_ref().map(|_| {
+            found.body.iter().filter(|r| r.role == recognize::Role::Record).map(|r| Run { first: r.first, last: r.last, role: Role::Record }).collect()
+        });
         let (body, non_records) = match table {
             // Its subtotals are told, and the rows showing nothing as spacers (its own blank runs where they meet
-            // them); not its sections.
-            Some(t) => (Some((t.from, t.to)), Some(t.runs.into_iter().filter(|r| matches!(r.role, Role::Spacer | Role::Subtotal | Role::HeaderAgain)).collect())),
+            // them); not the sections its lone texts title, but the labels its body reads below
+            // blank rows.
+            Some(t) => {
+                let mut runs: Vec<Run> = t.runs.into_iter().filter(|r| matches!(r.role, Role::Spacer | Role::Subtotal | Role::HeaderAgain)).collect();
+                let labels = found.body.iter().filter(|r| r.role == recognize::Role::SectionLabel && t.from <= r.first && r.last <= t.to);
+                runs.extend(labels.map(|r| Run { first: r.first, last: r.last, role: Role::Section }));
+                runs.sort_by_key(|r| r.first);
+                (Some((t.from, t.to)), Some(runs))
+            }
             // A body showing nothing is its rows told as a spacer.
             None => match (found.body.first(), found.body.last()) {
                 (Some(first), Some(last)) if found.body.iter().all(|r| r.role == recognize::Role::Blank) => {
@@ -112,7 +124,7 @@ impl Reading {
                 _ => (None, None),
             },
         };
-        Reading { header: found.header, is_sure: true, columns: found.columns, body, under, tells_gaps: true, non_records }
+        Reading { header: found.header, is_sure: true, columns: found.columns, body, under, tells_gaps: true, non_records, records }
     }
 
     /// Whether a cell is in the table, its header to its body's last row or its footer's, whichever is lower.
@@ -150,17 +162,23 @@ impl<'a> CellTables<'a> {
             .collect();
         declared.sort_by_key(|d| (d.placed.header.0, d.placed.columns.0));
         let mut tables = CellTables { workbook, sheet, grid, declared: Vec::new() };
-        for d in declared {
+        declared.retain(|d| !tables.gives_way(&d.placed));
+        // One meeting a cell table read before it is not read.
+        let mut kept: Vec<Area> = Vec::new();
+        declared.retain(|d| {
             let area = d.placed.area();
-            if !tables.gives_way(&d.placed) && !tables.declared.iter().any(|other| other.placed.area().meets(&area)) {
-                tables.declared.push(d);
+            let meets = kept.iter().any(|k| k.meets(&area));
+            if !meets {
+                kept.push(area);
             }
-        }
+            !meets
+        });
+        tables.declared = declared;
         tables
     }
 
     /// Whether a cell table is not read: its header's rows hold no input in its columns (an empty text counts) and
-    /// show nothing there (a merged range's top left neither).
+    /// show nothing there (a merged range's top left neither; a merged range shows only on the header's first row).
     fn gives_way(&self, placed: &Placed) -> bool {
         let (top, bottom) = placed.header;
         let (left, right) = placed.columns;
@@ -169,7 +187,7 @@ impl<'a> CellTables<'a> {
             rows.position(r).is_some_and(|r| top <= r && r <= bottom)
                 && columns.position(c).is_some_and(|c| left <= c && c <= right)
         });
-        !holds && self.grid.rows_showing(top, bottom, left, right).is_empty()
+        !holds && !recognize::header_shows(&self.grid, placed.header, placed.columns)
     }
 
     /// The table a cell table holds, the other declared ones (all but the one named) bounding it.
@@ -203,6 +221,7 @@ impl<'a> CellTables<'a> {
             under,
             tells_gaps,
             non_records: None,
+            records: None,
         };
         if let Some((footer, _)) = placed.footer {
             return reading(footer.checked_sub(1).map(|to| (from, to)), Some(footer), true);
@@ -253,8 +272,8 @@ impl<'a> CellTables<'a> {
     }
 
     /// A cell table as the page reads it: its id (none for one guessed), as declared, where it is now, and the table
-    /// it holds with its columns (none without a body).
-    fn answer(&self, id: Option<&str>, cell_table: &CellTable, placed: &Placed, reading: &Reading, basis: &Basis) -> Json {
+    /// it holds with its columns (none without a body), named as a declared table's when `declared`.
+    fn answer(&self, id: Option<&str>, cell_table: &CellTable, placed: &Placed, reading: &Reading, basis: &Basis, declared: bool) -> Json {
         let (workbook, sheet) = (self.workbook, self.sheet);
         let table = reading.body.map(|(from, to)| {
             let header = Some(HeaderRows { first: reading.header.0, last: reading.header.1, is_sure: reading.is_sure });
@@ -266,8 +285,9 @@ impl<'a> CellTables<'a> {
                 runs.sort_by_key(|r| r.first);
             }
             let shown = Table { header, first_column, last_column, from, to, runs };
-            let records = Table { runs: vec![Run { first: from, last: to, role: Role::Record }], ..shown.clone() };
-            let columns = columns_in_ids(workbook, sheet, &self.grid, &records);
+            let whole = || vec![Run { first: from, last: to, role: Role::Record }];
+            let records = Table { runs: reading.records.clone().unwrap_or_else(whole), ..shown.clone() };
+            let columns = columns_in_ids(workbook, sheet, &self.grid, &records, declared);
             json!({"basis": basis.in_json(), "table": table_in_ids(workbook, sheet, &shown, reading.under), "columns": columns})
         });
         json!({
@@ -280,36 +300,57 @@ impl<'a> CellTables<'a> {
 
     /// The cell table made of a header's rows and a guessed table's columns, when it holds the cell and meets no
     /// declared one; with a footer from under the guessed body to the end of its own, when no gap lies between.
-    fn guessed(&self, guess: &Table, header: HeaderRows, row: usize, column: usize, basis: &Basis) -> Option<Json> {
+    /// `end` is the last row of the table read at the cell, `found_footer` its footer.
+    fn guessed(
+        &self, guess: &Table, (end, found_footer): (usize, Option<(usize, usize)>), header: HeaderRows,
+        (row, column): (usize, usize), basis: &Basis,
+    ) -> Option<Json> {
         // Its reading is a declared cell table's of its header and columns: through the blocks below
         // blank rows that go on from the rows above, the rows of totals at its end its footer.
         let build = |footer: Option<(usize, usize)>| {
             let placed = Placed { header: (header.first, header.last), columns: (guess.first_column, guess.last_column), footer };
             let cell_table = placed.in_ids(self.workbook, self.sheet)?;
+            // Its lone texts are records, as a declared table's, not sections' titles.
             let found = recognize::read_declaration(&self.grid, self.sheet, placed.header, placed.columns, footer);
-            Some((cell_table, placed, Reading::of_found(&found, &self.grid)))
+            let found = Found { basis: Basis::Declared(String::new()), ..found };
+            Some((cell_table, placed, Reading::of_found(&found, &self.grid), found.footer))
         };
-        let (mut cell_table, mut placed, mut reading) = build(None)?;
+        let (mut cell_table, mut placed, mut reading, read_footer) = build(None)?;
         let area = placed.area();
         if self.declared.iter().any(|d| d.placed.area().meets(&area)) {
             return None;
         }
-        // Its footer is as before: the rows after the guessed block that the placed reading of it runs on through, when
-        // no gap lies between.
+        // Its footer is the rows after the guessed block that the placed reading of it runs on through, when no gap
+        // lies between; or, when its reading finds a footer right under the guessed block (its rows of totals), that
+        // footer down to its first row showing nothing.
         let footer_first = guess.to.saturating_add(1);
         let mut footer = None;
         let run_on = self.reading(&placed, None);
         if let Some((from, to)) = run_on.body {
-            if from < footer_first && footer_first <= to && self.gaps(&run_on).iter().all(|g| g.1 < footer_first) {
+            // Only rows the table itself has past the guessed block: the reading runs on through
+            // rows under the table as records.
+            let own = footer_first <= end;
+            if own && from < footer_first && footer_first <= to && self.gaps(&run_on).iter().all(|g| g.1 < footer_first) {
                 footer = Some((footer_first, to));
-                (cell_table, placed, reading) = build(footer)?;
             }
+        }
+        // The footer the table read at the cell ends in (a bold last row) is its footer too.
+        if let Some(own) = found_footer.filter(|f| f.0 == footer_first) {
+            footer = Some(own);
+        }
+        if let Some((first, last)) = read_footer.filter(|f| f.0 == footer_first) {
+            let (left, right) = placed.columns;
+            let shown = self.grid.rows_showing(first, last, left, right).first().filter(|run| run.0 == first).map_or(first, |run| run.1);
+            footer = Some((first, shown));
+        }
+        if footer.is_some() {
+            (cell_table, placed, reading, _) = build(footer)?;
         }
         reading.is_sure = header.is_sure;
         // It holds the cells of its reading and those of the guessed block, a last row of sums its reading leaves
         // under the body too.
         let in_block = header.first <= row && row <= guess.to && guess.first_column <= column && column <= guess.last_column;
-        (in_block || reading.holds(row, column, footer)).then(|| self.answer(None, &cell_table, &placed, &reading, basis))
+        (in_block || reading.holds(row, column, footer)).then(|| self.answer(None, &cell_table, &placed, &reading, basis, false))
     }
 }
 
@@ -362,7 +403,7 @@ pub(in super::super) fn cell_tables(workbook: &Workbook, sheet: &Sheet) -> Vec<J
             let basis = Basis::Declared(d.id.to_string());
             let matched = found.iter().find(|t| t.basis == basis);
             let reading = matched.map_or_else(|| tables.reading(&d.placed, Some(d.id)), |t| Reading::of_found(t, &tables.grid));
-            tables.answer(Some(d.id), d.table, &d.placed, &reading, &basis)
+            tables.answer(Some(d.id), d.table, &d.placed, &reading, &basis, true)
         })
         .collect()
 }
@@ -381,13 +422,20 @@ pub(in super::super) fn cell_table_at(workbook: &Workbook, sheet: &Sheet, row: u
         let reading = matched.map_or_else(|| tables.reading(p, Some(d.id)), |t| Reading::of_found(t, &tables.grid));
         let footer = matched.and_then(|t| t.footer).or(p.footer);
         if reading.holds(row, column, footer) {
-            return tables.answer(Some(d.id), d.table, p, &reading, &basis);
+            return tables.answer(Some(d.id), d.table, p, &reading, &basis, true);
         }
     }
     // A recognized table is read as a declared cell table of its header and columns, and holds
     // the cells of its reading, those of a table found below it that its reading runs on through too.
     for found in found.iter().filter(|t| matches!(t.basis, Basis::Recognized)) {
         let read = recognize::read_declaration(&tables.grid, sheet, found.header, found.columns, None);
+        // With the footer it is found with, a bold last row, when its reading finds no such one.
+        let read = match found.footer {
+            Some(footer) if read.footer != Some(footer) => {
+                recognize::read_declaration(&tables.grid, sheet, found.header, found.columns, Some(footer))
+            }
+            _ => read,
+        };
         let reading = Reading::of_found(&read, &tables.grid);
         // The section titles its reading leaves out at the end of its body are its footer.
         let left_out = reading.under.zip(read.last_record()).filter(|&(under, last)| reading.body.is_some_and(|b| b.1 < under) && under <= last);
@@ -397,12 +445,16 @@ pub(in super::super) fn cell_table_at(workbook: &Workbook, sheet: &Sheet, row: u
         }
         let placed = Placed { header: found.header, columns: found.columns, footer };
         let Some(cell_table) = placed.in_ids(workbook, sheet) else { return Json::Null };
-        return tables.answer(None, &cell_table, &placed, &reading, &found.basis);
+        return tables.answer(None, &cell_table, &placed, &reading, &found.basis, false);
     }
-    let Some(found) = found.iter().find(|table| table.area().holds(row, column)) else { return Json::Null };
+    let Some(found) = found.iter().map(|t| t.at_cell(&tables.grid, sheet, &found)).find(|t| t.area().holds(row, column)) else {
+        return Json::Null;
+    };
+    let found = &found;
     let Some(guess) = found.reading(&tables.grid) else { return Json::Null };
     let header = guess.header.unwrap_or(HeaderRows { first: guess.from, last: guess.from, is_sure: false });
-    if let Some(answer) = tables.guessed(&guess, header, row, column, &found.basis) {
+    let basis = found.basis_at(&tables.grid, &guess);
+    if let Some(answer) = tables.guessed(&guess, (found.area().bottom, found.footer), header, (row, column), &basis) {
         return answer;
     }
     // Else the header is the first row of the block of rows holding the cell, below the guess's header and the
@@ -421,7 +473,7 @@ pub(in super::super) fn cell_table_at(workbook: &Workbook, sheet: &Sheet, row: u
     match tables.grid.rows_showing(top, row, left, right).last() {
         Some(&(first, last)) if last == row && first != next => {
             let header = HeaderRows { first, last: first, is_sure: false };
-            tables.guessed(&guess, header, row, column, &found.basis).unwrap_or(Json::Null)
+            tables.guessed(&guess, (found.area().bottom, found.footer), header, (row, column), &basis).unwrap_or(Json::Null)
         }
         _ => Json::Null,
     }
@@ -432,9 +484,12 @@ pub(in super::super) fn cell_table_declared_as(workbook: &Workbook, sheet: &Shee
     let tables = CellTables::of(workbook, sheet);
     match Placed::of(workbook, sheet, t) {
         Some(placed) if !tables.gives_way(&placed) => {
+            // Its lone texts are read as a declared table's, records, not sections' titles.
             let found = recognize::read_declaration(&tables.grid, sheet, placed.header, placed.columns, placed.footer);
+            let found = Found { basis: Basis::Declared(String::new()), ..found };
             let reading = Reading::of_found(&found, &tables.grid);
-            tables.answer(None, t, &placed, &reading, &Basis::Recognized)
+            // Its columns are named as a declared table's: a last header row of units kept.
+            tables.answer(None, t, &placed, &reading, &Basis::Recognized, true)
         }
         _ => Json::Null,
     }

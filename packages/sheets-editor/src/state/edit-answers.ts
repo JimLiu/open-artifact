@@ -1,4 +1,4 @@
-import type { Edit, OptionInAnEditor, StepGivenUpAnswer } from '@open-artifact/sheets-core';
+import type { Edit, OptionInAnEditor, SheetId, StepGivenUpAnswer } from '@open-artifact/sheets-core';
 import type { CellId, SheetSummary, WorkbookReads } from '../model/workbook.ts';
 import type { LineSizes } from '../model/line-sizes.ts';
 import type { OwnRowOrder } from '../model/line-ids.ts';
@@ -49,6 +49,9 @@ import { areasOverlap } from '../model/workbook.ts';
 import { showPlacedViewChange } from '../charts/placed-views.ts';
 import { IF_QUEUED_DEFAULTS } from '../model/edit-effects.ts';
 import type { ReadsWithTextMeasurer } from './controller.ts';
+import type { WrittenValueLimits } from '../messages/defaults-and-limits.ts';
+import { noteDefaultsRefused, valueLimitsOfEntry } from './defaults-and-limits.ts';
+import { noteNamedRangeRefused } from './named-ranges.ts';
 export function keepSelectionInShownLines(
   selection: SelectionToRead,
   previousState: Place,
@@ -75,6 +78,16 @@ export function keepSelectionInShownLines(
         activeCell,
         selectionCorner,
       };
+}
+/** Someone hid the sheet the person stands on: they move to the last shown sheet they left. */
+export function leaveSheetHiddenBySomeone(state: PageState, previousWorkbook: WorkbookReads, workbook: ReadsWithTextMeasurer): PageState {
+  let sheetIdToShow =
+    findSheetById(workbook, state.sheetId)?.isHidden === true &&
+    findSheetById(previousWorkbook, state.sheetId)?.isHidden === false &&
+    state.mode.kind === 'navigating'
+      ? shownSheetToReturnTo(state, workbook)
+      : undefined;
+  return sheetIdToShow === undefined ? state : showSheet(state, workbook, sheetIdToShow);
 }
 export function reconcileWithWorkbook(
   state: PageState,
@@ -159,12 +172,10 @@ export function reconcileWithWorkbook(
   if (remappedHere !== null) return remappedHere;
   let sheetExists = ({ sheetId }: Pick<Place, 'sheetId'>) =>
     workbook.listSheets().some((sheet: SheetSummary) => sheet.sheetId === sheetId);
-  let sheetHasPlace = ({ sheetId }: Pick<Place, 'sheetId'>) => firstPlaceInSheet(workbook, sheetId) !== null;
-  let sheetIdToShow = (
-    remapped.placesLeft.find((place: Place) => place.sheetId === remapped.sheetPointedIn && sheetHasPlace(place)) ??
-    remapped.placesLeft.findLast(sheetHasPlace) ??
-    firstPlaceInWorkbook(workbook)
-  )?.sheetId;
+  let sheetIdToShow =
+    remapped.placesLeft.find(
+      (place: Place) => place.sheetId === remapped.sheetPointedIn && firstPlaceInSheet(workbook, place.sheetId) !== null,
+    )?.sheetId ?? shownSheetToReturnTo(remapped, workbook);
   if (sheetIdToShow === undefined) return remapped;
   let shownState = showSheet(stateWithoutEntry, workbook, sheetIdToShow);
   let entryReset = wasEditing ? selectionAtCell(shownState.activeCell) : {};
@@ -228,10 +239,12 @@ export function lastDoneForArea(done: DoneToArea | DoneWithDetail, area: CellAre
     }
     case 'rowsFrozen':
     case 'columnsFrozen':
+    case 'sheetUnhidden':
     case 'gridlinesHidden':
     case 'gridlinesShown':
     case 'interactiveReset':
     case 'interactiveDefaultsSaved':
+    case 'interactiveChangesUndone':
     case 'pivotTableAdded':
     case 'pivotTableUpdated':
     case 'formattedAsTable':
@@ -283,6 +296,13 @@ export function lastDoneForArea(done: DoneToArea | DoneWithDetail, area: CellAre
     case 'namedViewSaved':
     case 'namedViewUpdated':
     case 'namedViewRenamed':
+    case 'namedRangeSaved':
+    case 'defaultsSaved':
+    case 'defaultAndLimitsSaved':
+    case 'defaultsReset':
+    case 'protectionMade':
+    case 'protectionSaved':
+    case 'protectionRemoved':
       return done;
   }
 }
@@ -577,7 +597,31 @@ export function noticeOfRefusedEdit(state: PageState, workbook: WorkbookReads, e
       },
     };
   }
+  if (reason === 'tooManyProtections') {
+    let most = workbook.limitsOfProtections().mostProtections;
+    return {
+      ...state,
+      notice: {
+        kind: 'tooManyProtections',
+        most,
+      },
+    };
+  }
+  if (reason === 'tooManyCellsWithADefaultValue') {
+    let most = workbook.limitsOfDefaultValues().mostCellsWithADefaultValue;
+    return {
+      ...state,
+      notice: {
+        kind: 'tooManyCellsWithADefault',
+        most,
+      },
+    };
+  }
   if (reason === 'unknownNamedView' && edit.kind === 'removeNamedView') return state;
+  if (reason === 'unknownNamedRange' && edit.kind === 'removeNamedRange') return state;
+  // A refusal the named range form or the default-and-limits form shows itself.
+  let shownInForm = edit.kind === 'saveNamedRange' ? noteNamedRangeRefused(state, reason) : noteDefaultsRefused(state, reason);
+  if (shownInForm !== null) return shownInForm;
   if (reason === 'formulaReadsAnotherRow') {
     let act: OwnSortInTheWayNotice['act'] = edit.kind === 'fillCells' ? 'fillOfFormula' : 'pasteOfFormula';
     return {
@@ -617,10 +661,15 @@ export function noticeOfRefusedEdit(state: PageState, workbook: WorkbookReads, e
     };
   if (edit.kind !== 'renameSheet') {
     let isTypingLost = state.customNumberFormat !== null && customNumberFormat === null;
+    let limits = why === 'valueOutsideLimits' ? valueLimitsOfEntry(workbook, edit) : null;
+    let asked = askedKindOfEdit(edit, state, ifQueued);
     let noticeOfRefusal: EditAnswerRefusedNotice = {
       kind: 'editRefused',
       why,
-      asked: askedKindOfEdit(edit, state, ifQueued),
+      asked,
+      ...(limits !== null && {
+        limits,
+      }),
     };
     let mergeBroken =
       why === 'moveSplitsMergedCells' && (edit.kind === 'moveRows' || edit.kind === 'moveColumns') ? mergeBrokenByMove(workbook, edit) : null;
@@ -776,18 +825,18 @@ export function showChangedPlace(
   let chartShown =
     placementId === undefined ? null : showPlacedViewChange(showSheet(stateNotDragging, workbook, sheetId), workbook, placementId, what);
   if (chartShown !== null) return chartShown;
-  let { area } = place;
+  // A connected table's sheet is shown without selecting the changed area.
+  let area = workbook.connectedTableIn(sheetId) === null ? place.area : null;
   if (area === null) {
-    let shownState = selectAfterEdit(
-      stateNotDragging,
-      workbook,
-      {
-        ...IF_QUEUED_DEFAULTS,
-        select: 'placeChanged',
-        done: what,
-      },
-      place,
-    );
+    let ifQueued: IfQueued = {
+      ...IF_QUEUED_DEFAULTS,
+      select: 'placeChanged',
+      done: what,
+    };
+    let shownState = selectAfterEdit(stateNotDragging, workbook, ifQueued, {
+      ...place,
+      area,
+    });
     let sheetShown = shownState.sheetId === state.sheetId ? undefined : findSheetById(workbook, shownState.sheetId)?.name;
     return {
       ...shownState,
@@ -876,6 +925,13 @@ export function showUndoneOrRedone(state: PageState, workbook: ReadsWithTextMeas
     },
   };
 }
+/** The last place left on a shown sheet that has cells, else the first place in the workbook. */
+export const shownSheetToReturnTo = (state: Pick<PageState, 'placesLeft'>, workbook: WorkbookReads): SheetId | undefined =>
+  (
+    state.placesLeft.findLast(
+      ({ sheetId }) => firstPlaceInSheet(workbook, sheetId) !== null && findSheetById(workbook, sheetId)?.isHidden === false,
+    ) ?? firstPlaceInWorkbook(workbook)
+  )?.sheetId;
 export const ROWS_SHOWN_ABOVE_PLACE = 3;
 export const LINE_COUNT_EDIT_KINDS = new Set<Edit['kind']>(['insertRows', 'insertColumns', 'deleteRows', 'deleteColumns']);
 export const PASTE_EDIT_KINDS = new Set<Edit['kind']>([
@@ -920,7 +976,8 @@ export type AskedKindOfEdit =
   | 'moveOfColumnsOfTable'
   | 'moveOfColumnsOfTablePastOne'
   | 'newPivotTable'
-  | 'changeOfPivotTable';
+  | 'changeOfPivotTable'
+  | 'entryInOneCell';
 /** The notice that the workbook refused an edit, why, and what was asked. */
 export interface EditAnswerRefusedNotice {
   kind: 'editRefused';
@@ -930,6 +987,18 @@ export interface EditAnswerRefusedNotice {
   mergedCells?: ReturnType<typeof areaToA1AsStored>;
   /** Set when the custom number format typed is lost with the refusal. */
   isTypingLost?: boolean;
+  /** The limits a value typed outside them was held to. */
+  limits?: WrittenValueLimits;
+}
+/** The notice that a sheet holds as many protections as it may. */
+export interface TooManyProtectionsNotice {
+  kind: 'tooManyProtections';
+  most: number;
+}
+/** The notice that the workbook holds as many cells with a default value as it may. */
+export interface TooManyCellsWithADefaultNotice {
+  kind: 'tooManyCellsWithADefault';
+  most: number;
 }
 /** The notice that a cell takes no more people. */
 export interface CellHoldsNoMorePeopleNotice {
@@ -975,6 +1044,8 @@ export type RefusedEditNotice =
   | CellHoldsNoMorePeopleNotice
   | GroupsTooDeepNotice
   | TooManyNamedViewsNotice
+  | TooManyProtectionsNotice
+  | TooManyCellsWithADefaultNotice
   | LinesInTheWayNotice
   | SheetNameRefusedNotice;
 /** The notice that an undo or a redo was not taken, and why. */

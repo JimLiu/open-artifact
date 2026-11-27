@@ -19,22 +19,27 @@
 //! that answers an array, gives several cells where one value is taken (an operator's operand, an argument that
 //! takes one value), or may answer several cells itself (`=A1:A3`, `=IF(1,A1:A3)`).
 
+mod lambda;
+
 use std::fmt::Write;
 
 use crate::formula::{column_letters, BinaryOp, Expr, Reference, StoredFormula, UnaryOp};
+use crate::evaluate::lambda::Walk;
 use crate::functions::{self, Answers, Takes};
 use crate::value::{CellError, Value};
 use crate::workbook::Workbook;
 
 /// The last row and column Excel has.
-const LAST_ROW: usize = 1_048_576;
-const LAST_COLUMN: &str = "XFD";
+pub(super) const LAST_ROW: usize = 1_048_576;
+pub(super) const LAST_COLUMN: &str = "XFD";
 
 /// Functions Excel has only with a prefix in the file.
 const NEWER: &[&str] = &[
     "CONCAT", "DAYS", "HSTACK", "IFNA", "IFS", "ISOWEEKNUM", "LET", "MAXIFS", "MINIFS", "MODE.SNGL", "PERCENTILE.INC",
     "QUARTILE.INC", "RANK.EQ", "STDEV.P", "STDEV.S", "SWITCH", "TEXTJOIN", "UNICHAR", "UNICODE", "UNIQUE", "VAR.P",
     "VAR.S", "VSTACK", "XLOOKUP", "XMATCH", "XOR",
+    // The newer functions.
+    "BYCOL", "BYROW", "LAMBDA", "MAP", "NUMBERVALUE", "SEQUENCE", "TEXTSPLIT",
 ];
 
 /// Functions Excel has only in its worksheet namespace.
@@ -82,7 +87,7 @@ pub fn write(
 ) -> Option<Written> {
     let mut writer = Writer { workbook, sheet, formula, names, scopes: Vec::new() };
     let written = writer.expr(expr)?;
-    let is_array = calls_an_array(expr) || gives_several_where_one_is_taken(expr, formula) || is_several(expr, formula);
+    let is_array = calls_an_array(expr) || gives_several_where_one_is_taken(expr, formula, workbook) || is_several(expr, formula, workbook);
     Some(Written { text: written.text, is_array })
 }
 
@@ -112,6 +117,9 @@ fn any(expr: &Expr, test: &dyn Fn(&Expr) -> bool) -> bool {
 /// The error a LET is written as, as it works out: #N/A when its arguments do not pair up, #NAME? when one it
 /// gives a value to is not a name or is given one twice.
 fn let_fault(f: functions::FunctionId, arguments: &[Expr]) -> Option<CellError> {
+    if f.name() == "LAMBDA" {
+        return lambda::fault(arguments);
+    }
     if f.name() != "LET" {
         return None;
     }
@@ -121,7 +129,10 @@ fn let_fault(f: functions::FunctionId, arguments: &[Expr]) -> Option<CellError> 
     let mut given: Vec<&str> = Vec::new();
     for i in 0..(arguments.len() - 1) / 2 {
         match &arguments[2 * i] {
-            Expr::Name(n) if !given.iter().any(|g| g.eq_ignore_ascii_case(n)) => given.push(n),
+            // A cell past the sheet's end is no name (`LET(cr1,1,cr1)` is `#NAME?`).
+            Expr::Name(n) if !given.iter().any(|g| g.eq_ignore_ascii_case(n)) && !crate::formula::parse::looks_like_a_cell(n) => {
+                given.push(n)
+            }
             _ => return Some(CellError::Name),
         }
     }
@@ -137,17 +148,24 @@ fn calls_an_array(expr: &Expr) -> bool {
 }
 
 /// Whether an expression may be several cells: a range, an array of more than one value, a function's array, or
-/// one of its arguments as it came when that is.
-fn is_several(expr: &Expr, formula: &StoredFormula) -> bool {
+/// one of its arguments as it came when that is. A named range is several unless it is one cell (its corners the
+/// same) or removed.
+fn is_several(expr: &Expr, formula: &StoredFormula, workbook: &Workbook) -> bool {
     match expr {
-        Expr::Reference(i) => !matches!(formula.references[*i], Reference::Cell { .. }),
+        Expr::Reference(i) => match &formula.references[*i] {
+            Reference::Cell { .. } => false,
+            Reference::NamedRange { named_range_id } => workbook
+                .named_range(named_range_id)
+                .is_some_and(|range| !matches!(range.cells.as_reference(), Reference::Cell { .. })),
+            _ => true,
+        },
         Expr::Array(a) => a.rows() * a.columns() > 1,
-        Expr::Unary(_, x) => is_several(x, formula),
-        Expr::Binary(_, a, b) => is_several(a, formula) || is_several(b, formula),
+        Expr::Unary(_, x) => is_several(x, formula, workbook),
+        Expr::Binary(_, a, b) => is_several(a, formula, workbook) || is_several(b, formula, workbook),
         Expr::Call { function: Some(f), arguments, .. } if let_fault(*f, arguments).is_none() => {
             match f.description().answers {
                 Answers::AnArray => true,
-                Answers::AnArgumentAsItCame => arguments.iter().any(|a| is_several(a, formula)),
+                Answers::AnArgumentAsItCame => arguments.iter().any(|a| is_several(a, formula, workbook)),
                 _ => false,
             }
         }
@@ -157,8 +175,8 @@ fn is_several(expr: &Expr, formula: &StoredFormula) -> bool {
 
 /// Whether an expression is several cells where one value is taken: an operator's operand, an argument that takes
 /// one value, or the cells of ROW or COLUMN.
-fn gives_several_where_one_is_taken(expr: &Expr, formula: &StoredFormula) -> bool {
-    let several = |e: &Expr| is_several(e, formula);
+fn gives_several_where_one_is_taken(expr: &Expr, formula: &StoredFormula, workbook: &Workbook) -> bool {
+    let several = |e: &Expr| is_several(e, formula, workbook);
     any(expr, &|e| match e {
         Expr::Unary(_, x) => several(x),
         Expr::Binary(_, a, b) => several(a) || several(b),
@@ -226,7 +244,7 @@ impl Writer<'_> {
             Expr::Error(e) => Text::primary(error_text(*e)?.to_owned()),
             Expr::Reference(i) => Text::primary(self.reference(*i)),
             Expr::Name(name) => Text::primary(if self.scopes.contains(name) {
-                format!("_xlpm.{name}")
+                lambda::parameter(name)
             } else {
                 CellError::Name.text().to_owned()
             }),
@@ -309,7 +327,7 @@ impl Writer<'_> {
                         self.scopes.truncate(depth);
                         return None;
                     };
-                    written.push(format!("_xlpm.{n}"));
+                    written.push(lambda::parameter(n));
                     written.push(value.text);
                     self.scopes.push(n.clone());
                 }
@@ -318,6 +336,9 @@ impl Writer<'_> {
                 written.push(last?.text);
             }
             "FILTER" if arguments.len() > 2 => written = self.filter(arguments)?,
+            // A LAMBDA is written only as MAP's, BYROW's or BYCOL's.
+            "LAMBDA" => return None,
+            "MAP" | "BYROW" | "BYCOL" => written = self.apply_lambda(Walk::of(name)?, arguments)?,
             _ => {
                 for a in arguments {
                     written.push(self.expr(a)?.text);
@@ -394,6 +415,13 @@ impl Writer<'_> {
     /// A reference as Excel reads it.
     fn reference(&self, i: usize) -> String {
         let reference = &self.formula.references[i];
+        // A named range is written as its name, whether or not its cells are there; once removed, as `#REF!`.
+        if let Reference::NamedRange { named_range_id } = reference {
+            return match self.workbook.named_range(named_range_id) {
+                Some(range) => range.name.clone(),
+                None => CellError::Reference.text().to_owned(),
+            };
+        }
         let Some(at) = self.workbook.locate(reference) else {
             return CellError::Reference.text().to_owned();
         };
@@ -418,6 +446,11 @@ impl Writer<'_> {
                 let right = format!("{}{LAST_COLUMN}", dollar(at.left.1));
                 write!(out, "{}{}:{right}{}", column(at.left), row(at.top), row(at.bottom))
             }
+            // A connected table's cells, as a range.
+            Reference::TableColumn { .. } | Reference::TablePart { .. } => {
+                write!(out, "{}{}:{}{}", column(at.left), row(at.top), column(at.right), row(at.bottom))
+            }
+            Reference::NamedRange { .. } => unreachable!("written as its name above"),
         };
         out
     }
@@ -461,6 +494,6 @@ fn constant(v: &Value) -> Option<String> {
 }
 
 /// A sheet's name as a reference in the file writes it: always quoted, whatever the name.
-fn sheet_name(name: &str) -> String {
+pub(super) fn sheet_name(name: &str) -> String {
     format!("'{}'", name.replace('\'', "''"))
 }

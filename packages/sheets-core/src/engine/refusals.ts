@@ -58,7 +58,10 @@ export type OpRefusal =
   | 'addressLinkedToTooLong'
   | 'addressLinkedToNotOfTheWeb'
   | 'richTextTooLarge'
-  | 'rowNotNamedInTheWay';
+  | 'rowNotNamedInTheWay'
+  | 'connectedTableNamedTwice'
+  | 'namedRangeNamedTwice'
+  | 'protectionNamedTwice';
 
 /** Why a reverse (`undo`) or a step taken back is refused. */
 export type TakeBackRefusal =
@@ -85,7 +88,11 @@ export type QueueRefusal =
   /** Rows, columns or sheets moved (by a move or a sort) among other edits of one request. */
   | 'moveAmongSeveralEdits'
   /** The edit would leave the workbook holding more cells than it may (500 000). */
-  | 'tooManyCells';
+  | 'tooManyCells'
+  /** The edit would leave more than 1000 cells with a default value, and more than there were. */
+  | 'tooManyCellsWithADefaultValue'
+  /** `receiveLinesOfTableFile`: the lines do not read as a table file. */
+  | 'tableFileUnreadable';
 
 /**
  * Why a pivot table edit (`insertPivotTable`, `changePivotTable`) is refused,
@@ -158,6 +165,76 @@ export type NamedViewRefusal =
   | 'namedViewTooLarge'
   | 'valueInNamedViewNotAllowed';
 
+/** Why `setDefaultValuesAndLimits` is refused, or a cell edit once made. */
+export type DefaultsRefusal =
+  | 'limitIsNoNumber'
+  | 'minimumAboveMaximum'
+  /** A default value typed that is not a plain value (a formula, say). */
+  | 'defaultValueNotPlain'
+  /** A default value for a cell with a dropdown that is none of its options. */
+  | 'defaultValueIsNoOption'
+  | 'defaultValueTooLong'
+  | 'defaultValueOutsideLimits'
+  /** A cell with limits given a value that is neither a number within them nor a formula. */
+  | 'valueOutsideLimits';
+
+/** Why `saveNamedRange` or `removeNamedRange` is refused, besides an unknown sheet. */
+export type NamedRangeRefusal =
+  | 'unknownNamedRange'
+  | 'tooManyNamedRanges'
+  /** The address is not one reference to cells. */
+  | 'addressOfNamedRangeNamesNoCells'
+  | 'nameOfNamedRangeNotAllowed'
+  | 'nameOfNamedRangeTaken';
+
+/**
+ * Why `saveProtection` or `removeProtection` is refused, and why an edit, an
+ * undo or a redo is, under protections held against the person
+ * (`receivePerson`).
+ */
+export type ProtectionRefusal =
+  | 'unknownProtection'
+  | 'tooManyProtections'
+  | 'tooManyEditorsOfProtection'
+  | 'tooManyOpenRangesInProtection'
+  /** A protection held against the person, saved or removed. */
+  | 'protectionNotTheirsToChange'
+  /** A protection saved that leaves out the person saving it (anyone but the owner). */
+  | 'protectionLeavesOutWhoeverSetsIt'
+  /** What changes a protected sheet itself, or deletes, hides or shows it. */
+  | 'sheetProtected'
+  /** Cells of a protected range, or of a protected sheet outside its open ranges. */
+  | 'cellsProtected'
+  /** Lines inserted within, deleted from, moved out of or sorted among a protected range's. */
+  | 'linesProtected';
+
+/** Why an edit of a connected table, or of its sheet, is refused. */
+export type ConnectedTableRefusal =
+  | 'notAConnectedTable'
+  /** Cells, rows or formats of a connected table's sheet, which come from its records. */
+  | 'sheetIsAConnectedTable'
+  /** A column added with nothing it shows. */
+  | 'columnNotDescribed'
+  /** A formula naming a connected table's cells by their address, not by its columns. */
+  | 'connectedTableNamedByAddress'
+  | 'argumentsNotAJsonObject'
+  /** A placeholder other than `{{cursor}}` in a follow-up's texts. */
+  | 'placeholderNotAllowed'
+  | 'fieldShownTwice'
+  | 'fieldReadAsDropdown'
+  | 'nameOfColumnNotAllowed'
+  | 'nameOfColumnTaken'
+  | 'nameOfFieldNotAllowed'
+  | 'tooManyConnectedTables';
+
+/** Why hiding a sheet, or deleting lines, would leave none. */
+export type NothingLeftRefusal =
+  /** Hiding or deleting the last sheet shown. */
+  | 'noShownSheetLeft'
+  /** Deleting every row, or every column, of a sheet. */
+  | 'noRowLeft'
+  | 'noColumnLeft';
+
 /**
  * Every refusal the engine is known to answer with. Edits and reads add
  * refusals of their own (`unknownSheet`, `sheetNameTaken`, `noCellsToSort`, …);
@@ -170,7 +247,12 @@ export type Refusal =
   | PivotTableRefusal
   | InteractiveRefusal
   | MoveColumnsOfCellsRefusal
-  | NamedViewRefusal;
+  | NamedViewRefusal
+  | DefaultsRefusal
+  | NamedRangeRefusal
+  | ProtectionRefusal
+  | ConnectedTableRefusal
+  | NothingLeftRefusal;
 
 /** A refused request. */
 export interface Refused<R extends string = string> {

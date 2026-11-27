@@ -735,22 +735,10 @@ impl Workbook {
                 for v in views {
                     let key = id_key(&v.view_id);
                     let old = match &v.view {
-                        Some(view) => {
-                            let mut view = view.clone();
-                            for element in &mut view.elements {
-                                let ViewElement::Interactive { inputs, writes, .. } = element else { continue };
-                                for write in writes {
-                                    let sheet = inputs.iter().find(|input| input.name == write.input)
-                                        .and_then(|input| self.sheets.iter().chain(&self.deleted_sheets)
-                                            .find(|sheet| sheet.id == input.range.sheet_id));
-                                    write.saved.retain(|cell| sheet.is_some_and(|sheet| {
-                                        self.known_line(sheet, Lines::Rows, &cell.r).is_ok()
-                                            && self.known_line(sheet, Lines::Columns, &cell.c).is_ok()
-                                    }));
-                                }
-                            }
-                            self.views.insert(key, (v.view_id.clone(), view))
-                        }
+                        // The cells an interactive saved are kept as given, those of lines or sheets the workbook
+                        // does not have yet too: a snapshot gives its views before its sheets, and a line inserted
+                        // later brings its cell back. `view_as_read` leaves out the ones not there.
+                        Some(view) => self.views.insert(key, (v.view_id.clone(), view.clone())),
                         None => self.views.remove(&key),
                     };
                     reverse.push(ViewToSet { view_id: v.view_id.clone(), view: old.map(|(_, v)| v) });

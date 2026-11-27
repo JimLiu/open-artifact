@@ -53,7 +53,7 @@ import { ownRowOrderOfSheet } from '../model/line-ids.ts';
 import { unbrokenCellBlockOfCorners, landingRowsSkippingFilters, rowCountOfRuns } from '../model/cell-blocks.ts';
 import { areaRefBetween, cellRefOf } from '../model/workbook.ts';
 import { noticeRowsOutOfViewInTheWay } from '../edits/rows-out-of-view.ts';
-import { queueEdit, IF_QUEUED_DEFAULTS } from '../model/edit-effects.ts';
+import { queueEdit, IF_QUEUED_DEFAULTS, holdUntilAnswered } from '../model/edit-effects.ts';
 import type { ReadsWithTextMeasurer } from '../state/controller.ts';
 /** Which edge of an area a strip to grab it by runs along. */
 export type EdgeSide = 'top' | 'left' | 'bottom' | 'right';
@@ -84,6 +84,8 @@ export interface TableHandleBox extends PaneRect {
 /** A table's handle as drawn: its box, the box near the table that takes the pointer, and the way between them. */
 export interface TableHandle extends PaneRect {
   table: TableOfStrip;
+  /** Whether the handle takes a press now: it is drawn all the same while it cannot. */
+  takesPress: boolean;
   near: PaneRect;
   wayThere: PaneRect;
   isOverRowNumbers: boolean;
@@ -176,33 +178,27 @@ export function edgeStripsOfArea(area: CellArea, table: TableOfStrip | null, sta
           ],
   );
 }
-export function moveGrabStrips(state: PageState, reads: ReadsWithTextMeasurer, isEditRefused: boolean, tables?: readonly TableToOutline[]): MoveGrabStrip[] {
+export function canGrabCellsToMove(state: PageState, reads: ReadsWithTextMeasurer, isEditRefused: boolean): boolean {
   let isIdle = isIdleOrTapping(state) || state.dragging?.kind === 'movingCells';
-  if (isEditRefused || !isIdle || state.mode.kind !== 'navigating') return [];
-  if (isPeopleListOnActiveCell(state, reads)) return [];
-  if (state.menu !== null && state.menu.ofHandleOfTable === undefined) return [];
+  if (isEditRefused || !isIdle || state.mode.kind !== 'navigating') return false;
+  if (isPeopleListOnActiveCell(state, reads)) return false;
+  return state.menu === null || state.menu.ofHandleOfTable !== undefined;
+}
+export function moveGrabStrips(state: PageState, reads: ReadsWithTextMeasurer, isEditRefused: boolean, tables?: readonly TableToOutline[]): MoveGrabStrip[] {
+  if (!canGrabCellsToMove(state, reads, isEditRefused)) return [];
   let layout = layoutOfView(state, reads);
   let selectionArea: CellArea | null = state.otherRanges.length > 0 ? null : selectedArea(state, reads);
   return [
-    ...(tablesReadState(state, state.sheetId) === 'asTheyAre' && state.entriesUnanswered.length === 0
-      ? (tables ?? tablesToOutline(state, reads))
-      : []
-    ).flatMap(
-      ({ key, area, comesLater }: TableToOutline) =>
-        comesLater !== null ||
-        areaGrownOverMerges(reads, state.sheetId, area) !== area ||
-        cutsTableHeaderOrFooter(area, state.sheetId, reads) ||
-        filteredRowRunsIn(state, reads, area).length > 0
-          ? []
-          : edgeStripsOfArea(
-              area,
-              {
-                key,
-                area,
-              },
-              state,
-              layout,
-            ),
+    ...(areTablesReadyToMove(state) ? tablesThatCanMove(tables ?? tablesToOutline(state, reads), state, reads) : []).flatMap(({ key, area }: TableToOutline) =>
+      edgeStripsOfArea(
+        area,
+        {
+          key,
+          area,
+        },
+        state,
+        layout,
+      ),
     ),
     ...(selectionArea === null ? [] : edgeStripsOfArea(selectionArea, null, state, layout)),
   ];
@@ -212,19 +208,22 @@ export function tableHandleBox(
   firstRowHeight: number,
   { topRowIndex, leftColumnIndex }: Pick<CellArea, 'topRowIndex' | 'leftColumnIndex'>,
 ): TableHandleBox {
-  let centredInset = Math.ceil((firstRowHeight - 1 - TABLE_HANDLE_HEIGHT) / 2);
+  let rowRoom = firstRowHeight - 1;
+  let height = clampNumber(rowRoom - 2, TABLE_HANDLE_LEAST_HEIGHT, TABLE_HANDLE_HEIGHT);
+  let centredInset = Math.ceil((rowRoom - height) / 2);
   let isAtRowNumbers = leftColumnIndex === 0 && across.start === 0;
   let width = isAtRowNumbers ? TABLE_HANDLE_NARROW_WIDTH : TABLE_HANDLE_WIDTH;
   return {
     left: across.start - 1 - (isAtRowNumbers ? TABLE_HANDLE_NARROW_GAP : TABLE_HANDLE_GAP) - width,
     top: Math.max(down.showFrom, Math.max(down.start, down.showFrom) + Math.min(centredInset, TABLE_HANDLE_TOP_INSET)),
     width,
-    height: TABLE_HANDLE_HEIGHT,
+    height,
     isAtRowNumbers,
     rowNumberUnder: isAtRowNumbers && String(topRowIndex + 1).length > ROW_NUMBER_DIGITS_UNDER_HANDLE ? topRowIndex + 1 : null,
   };
 }
 export function tableHandles(tables: readonly TableToOutline[], state: PageState, reads: ReadsWithTextMeasurer, isEditRefused: boolean): TableHandle[] {
+  if (isEditRefused) return [];
   let unscrolledState = {
     ...state,
     scrollLeft: 0,
@@ -232,12 +231,27 @@ export function tableHandles(tables: readonly TableToOutline[], state: PageState
     gridWidth: 1e9,
     gridHeight: 1e9,
   };
-  let stripTables = new Map(
-    moveGrabStrips(unscrolledState, reads, isEditRefused, tables).flatMap(
-      ({ table }): [string, TableOfStrip][] => (table === null ? [] : [[table.key, table]]),
-    ),
+  let unscrolledLayout = layoutOfView(unscrolledState, reads);
+  let stripTables = tablesThatCanMove(tables, state, reads).flatMap(({ key, area }): TableOfStrip[] =>
+    edgeStripsOfArea(
+      area,
+      {
+        key,
+        area,
+      },
+      unscrolledState,
+      unscrolledLayout,
+    ).length === 0
+      ? []
+      : [
+          {
+            key,
+            area,
+          },
+        ],
   );
-  if (stripTables.size === 0) return [];
+  if (stripTables.length === 0) return [];
+  let takesPress = canGrabCellsToMove(state, reads, isEditRefused) && areTablesReadyToMove(state);
   let layout = layoutOfView(state, reads);
   let spansOf = (area: CellArea): SpansOfArea => rangeSpansOnScreen(area, state, layout, state);
   let nearBoxOf = (area: CellArea): PaneRect => boxOfSpans(spansOf(area), 1 + TABLE_HANDLE_GAP, TABLE_HANDLE_GAP);
@@ -263,7 +277,7 @@ export function tableHandles(tables: readonly TableToOutline[], state: PageState
     let area: CellArea | null = selectedArea(range, reads);
     return area === null ? [] : [boxOfSpans(spansOf(area))];
   });
-  return [...stripTables.values()].flatMap((table): TableHandle[] => {
+  return stripTables.flatMap((table): TableHandle[] => {
     let { across, down } = spansOf(table.area);
     let firstRowDown = spansOf({
       ...table.area,
@@ -282,8 +296,8 @@ export function tableHandles(tables: readonly TableToOutline[], state: PageState
       firstRowDown.end - firstRowDown.start,
       table.area,
     );
-    let { left, top } = box;
-    if ((headerKept !== null && headerKept.top < headerKept.showFrom) || top + TABLE_HANDLE_HEIGHT > down.showTo) return [];
+    let { left, top, height } = box;
+    if ((headerKept !== null && headerKept.top < headerKept.showFrom) || top + height > down.showTo) return [];
     if (headerKept === null && firstRowDown.end <= down.showFrom) return [];
     if (isOverRowNumbers && headerKept?.areRowNumbersItsOwn === false) return [];
     if (!isOverRowNumbers && left < across.showFrom) return [];
@@ -301,6 +315,7 @@ export function tableHandles(tables: readonly TableToOutline[], state: PageState
     return [
       {
         table,
+        takesPress,
         ...box,
         near,
         wayThere,
@@ -316,8 +331,8 @@ export function tableHandleUnderPointer(pointer: GridPoint, grid: GridOfTableHan
   let held = grid.handlesOfTables.find(({ table }) => table.key === heldKey);
   if (held !== undefined && isPointInBox(x, y, held)) return heldKey;
   if (grid.areCellsHeld) return null;
-  if (held !== undefined && isPointInBox(x, y, held.wayThere)) return heldKey;
-  return grid.handlesOfTables.find(({ near }) => isPointInBox(x, y, near))?.table.key ?? null;
+  if (held !== undefined && (isPointInBox(x, y, held.wayThere) || isPointInBox(x, y, held.near))) return heldKey;
+  return grid.handlesOfTables.find(({ near, takesPress }) => takesPress && isPointInBox(x, y, near))?.table.key ?? null;
 }
 export function gripOffsetInSpan({ start, end, showFrom, showTo }: StartAndEnd & ShownStretch, position: number): number {
   let [from, to] = [Math.max(start, showFrom), Math.min(end, showTo)];
@@ -333,7 +348,7 @@ export function handleUnderPress(
   if ((press.isShiftHeld || press.isModifierHeld === true) && press.x < ROW_HEADER_WIDTH) return;
   let [x, y] = [press.x - ROW_HEADER_WIDTH, press.y - COLUMN_HEADER_HEIGHT];
   return tableHandles(tablesToOutline(state, reads), state, reads, refusalOfEveryEdit !== null).find(
-    (handle) => handle.table.key === press.onHandleOfTable && isPointInBox(x, y, handle),
+    (handle) => handle.takesPress && handle.table.key === press.onHandleOfTable && isPointInBox(x, y, handle),
   );
 }
 export function startMovingCells(
@@ -670,7 +685,7 @@ export function dropMovedCells(
     cells === null ? null : landingRowsSkippingFilters(state, reads, state.sheetId, drag.landing.rowId, rowCountOfRuns(cells.rows));
   if (cells === null || landingRows === null) return noticeRowsOutOfViewInTheWay(view, 'moveCells');
   let replaced = cellsReplacedByMove(state, reads);
-  return queueEdit(
+  let queued = queueEdit(
     {
       ...state,
       dragging: null,
@@ -703,6 +718,7 @@ export function dropMovedCells(
       scrollIfRefused: drag.scrollAtPress,
     },
   );
+  return holdUntilAnswered(queued, drag);
 }
 export function holdMoveAtRowNumbers(state: PageState, event: PageEvent) {
   let { dragging } = state;
@@ -806,7 +822,22 @@ export const cutsTableHeaderOrFooter = (
     );
     return touchesHeaderOrFooter && !(coversAllColumns && coversHeaderAndFooter);
   });
-[TABLE_HANDLE_WIDTH, TABLE_HANDLE_HEIGHT, TABLE_HANDLE_GAP] = [18, 22, 3];
+export const areTablesReadyToMove = (state: PageState): boolean =>
+  tablesReadState(state, state.sheetId) === 'asTheyAre' && state.entriesUnanswered.length === 0;
+export const tablesThatCanMove = <Table extends TableOfStrip & Pick<TableToOutline, 'comesLater'>>(
+  tables: readonly Table[],
+  state: PageState,
+  reads: ReadsWithTextMeasurer,
+): Table[] =>
+  tables.filter(
+    ({ area, comesLater }) =>
+      comesLater === null &&
+      areaGrownOverMerges(reads, state.sheetId, area) === area &&
+      !cutsTableHeaderOrFooter(area, state.sheetId, reads) &&
+      filteredRowRunsIn(state, reads, area).length === 0,
+  );
+[TABLE_HANDLE_WIDTH, TABLE_HANDLE_HEIGHT, TABLE_HANDLE_GAP] = [16, 22, 3];
+export const TABLE_HANDLE_LEAST_HEIGHT = 18;
 export const TABLE_HANDLE_TOP_INSET = 3;
 export const TABLE_HANDLE_REACH = 1 + TABLE_HANDLE_GAP + TABLE_HANDLE_WIDTH;
 [TABLE_HANDLE_NARROW_WIDTH, TABLE_HANDLE_NARROW_GAP, ROW_NUMBER_DIGITS_UNDER_HANDLE] = [13, 1, 2];

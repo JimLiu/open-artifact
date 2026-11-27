@@ -22,6 +22,8 @@ import { MOST_CHARACTERS_OF_WORDS } from '../words/vocabulary.ts';
 import { SIDE_PANE_DEFAULT_WIDTH } from '../ui/side-pane/side-pane.tsx';
 import { isoDayOfDate } from '../chips/calendar.ts';
 import { namedViewMessages } from './named-view-messages.ts';
+import { enterToGoToChatLabel, goToChatInsteadWords, GoToChatInstead } from '../format/conditional/ask-box.tsx';
+import type { ChatInsteadWords } from '../format/conditional/ask-box.tsx';
 import type { NamedViewOfTable } from './named-view-model.ts';
 /** A column of the table offered on the card, and whether the filter asks of it. */
 export interface ColumnOnSortFilterCard {
@@ -58,6 +60,10 @@ export interface SortFilterCard {
   isAgentAsked: boolean;
   askThatAnswered: number | null;
   callToAgent: 'failed' | 'rateLimited' | null;
+  /** The words the agent said are no filter or sort, so the card can say so while they are still typed. */
+  wordsThatAreNoFilterOrSort: string | null;
+  /** The cells of the table in A1 form, for asking in chat; `null` when there is no table or some of its rows are filtered out. */
+  cellsOfTable: string | null;
   areWordsNotRead: boolean;
   wordsNotKnown: string[];
 }
@@ -66,7 +72,11 @@ export interface SortFilterCardListProps {
   onAct: (act: RowsAskedForAct) => void;
   onCustomSortAsked: () => void;
   onColumnAsked?: (tableKey: string, c: ColumnId) => void;
+  /** Takes the words to the chat; `null` when the chat cannot take them. */
+  onAskedInChat: ((words: string) => void) | null;
 }
+/** How a card says the words are no filter or sort: with a way to the chat, alone, or not at all. */
+export type NoFilterOrSortSaid = 'withWayToChat' | 'alone' | null;
 export let SORT_FILTER_ANSWER_ROW_ID: string;
 export let CUSTOM_SORT_ROW_ID: string;
 export function SortFilterCardList({
@@ -74,6 +84,7 @@ export function SortFilterCardList({
   onAct,
   onCustomSortAsked,
   onColumnAsked,
+  onAskedInChat,
 }: SortFilterCardListProps) {
   let [text, setText] = React.useState('');
   let whyOutOfUseId = React.useId();
@@ -158,7 +169,21 @@ export function SortFilterCardList({
     }),
   );
   let isColumnFoundOnly = hasText && answer === null && columnRows.length > 0;
-  let whyNoAnswer = !hasTable
+  let noFilterOrSortSaid = howNoFilterOrSortIsSaid(card, {
+    typed: text,
+    isColumnFound: isColumnFoundOnly,
+    canChatTakeWords: onAskedInChat !== null,
+  });
+  let noFilterOrSortNote = noFilterOrSortSaid === null ? null : sortAndFilterMessages.onlyFiltersAndSorts();
+  let wayToChat: ChatInsteadWords | null =
+    noFilterOrSortNote !== null && noFilterOrSortSaid === 'withWayToChat'
+      ? {
+          whyNotHere: noFilterOrSortNote,
+          goThere: enterToGoToChatLabel(),
+        }
+      : null;
+  let askInChat = () => void onAskedInChat?.(text);
+  let whyNoAnswerOfCard = !hasTable
     ? sortAndFilterMessages.noTable()
     : !hasText
       ? null
@@ -177,6 +202,7 @@ export function SortFilterCardList({
               : card.sortLeftOutBecause === 'hasSections'
                 ? sortAndFilterMessages.tableHasSections()
                 : sortAndFilterMessages.tableHasBlankRows(card.sortLeftOutBecause.blankRows);
+  let whyNoAnswer = wayToChat !== null ? goToChatInsteadWords(wayToChat) : (noFilterOrSortNote ?? whyNoAnswerOfCard);
   let answerGroups =
     answerRow !== null || whyNoAnswer !== null
       ? [
@@ -226,7 +252,7 @@ export function SortFilterCardList({
       idOfWhyFieldIsOutOfUse: whyOutOfUseId,
     })} mostCharacters={MOST_CHARACTERS_OF_WORDS} stands="atRest" isAgentAtWork={card.isAgentAsked} said={card.isAgentAsked ? sortAndFilterMessages.agentIsWorking() : hasText ? null : whyNoAnswer} foundSaid={hasText ? sortFilterFoundSaid(answer, columnFound ?? null, whyNoAnswer) : askListFoundSaid(null)} note={whyNoAnswer === null
         ? null
-        : <div id={whyOutOfUseId} className="px-md py-1 text-footnote text-secondary">{whyNoAnswer}</div>} idOfAgentsNote={card.callToAgent === null ? null : `call ${card.askThatAnswered}`} sections={groups} doesFirstRowAnswer={hasText && (answer !== null || isColumnFoundOnly)} {...(card.columnCameBackFrom !== null && {
+        : <div id={whyOutOfUseId} className="px-md py-1 text-footnote text-secondary">{wayToChat === null ? whyNoAnswer : <GoToChatInstead {...wayToChat} onTaken={askInChat} />}</div>} idOfAgentsNote={card.callToAgent === null && wayToChat === null ? null : `call ${card.askThatAnswered}`} sections={groups} doesFirstRowAnswer={hasText && (answer !== null || isColumnFoundOnly)} {...(card.columnCameBackFrom !== null && {
       rowPointedAtFirst: `column ${card.columnCameBackFrom}`,
     })} foot={null} wordsOfFoot={{
       keep: '',
@@ -277,7 +303,7 @@ export function SortFilterCardList({
             kind: 'take',
             asked,
           });
-    }} onEntered={takeAnswer} onKept={() => {}} onSteppedBack={() => {}} />;
+    }} onEntered={wayToChat === null ? takeAnswer : askInChat} onKept={() => {}} onSteppedBack={() => {}} />;
 }
 [SORT_FILTER_ANSWER_ROW_ID, CUSTOM_SORT_ROW_ID] = ['answer', 'customSort'];
 export const sortFilterCardHeight = (rowCount: number): string => `calc(3.625rem + ${rowCount} * max(var(--ui-h-control), 1.75rem))`;
@@ -288,3 +314,10 @@ export const sortFilterFoundSaid = (answer: SortFilterAnswer | null, foundColumn
     count: answer === null || answer.records === null ? null : rowCountWords(answer.records),
     note,
   });
+export const howNoFilterOrSortIsSaid = (
+  { wordsThatAreNoFilterOrSort }: Pick<SortFilterCard, 'wordsThatAreNoFilterOrSort'>,
+  { typed, isColumnFound, canChatTakeWords }: { typed: string; isColumnFound: boolean; canChatTakeWords: boolean },
+): NoFilterOrSortSaid => {
+  if (isColumnFound || wordsThatAreNoFilterOrSort !== typed) return null;
+  return canChatTakeWords ? 'withWayToChat' : 'alone';
+};

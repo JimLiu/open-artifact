@@ -113,7 +113,12 @@ pub(super) struct CellLook {
 pub(super) struct Looks {
     of_cells: HashMap<(u32, u32), CellLook>,
     pub(super) all_given: bool,
+    /// The cells that hold something as another program gives them (they show something, have a value but an
+    /// empty text, or a formula), whether or not they are pasted as anything: where they land, a formula by offsets
+    /// that may spill over one is not written: the cell is what it shows.
+    pub(super) holding: HashSet<(u32, u32)>,
 }
+
 
 impl PasteCellsOfAnotherProgram {
     /// Whether the edit reads: runs that read, and each look's format one setting something.
@@ -138,7 +143,7 @@ impl PasteCellsOfAnotherProgram {
             return None;
         }
         let mut cells = Vec::new();
-        let mut looks = Looks { of_cells: HashMap::new(), all_given: true };
+        let mut looks = Looks { of_cells: HashMap::new(), all_given: true, holding: HashSet::new() };
         for (row, cells_of_row) in self.rows.iter().enumerate() {
             for (column, cell) in cells_of_row.iter().enumerate() {
                 let look = cell.look.and_then(|k| self.looks.get(k as usize));
@@ -153,6 +158,10 @@ impl PasteCellsOfAnotherProgram {
                     None => input,
                 };
                 let place = (row as u32, column as u32);
+                let has_value = cell.value.as_ref().is_some_and(|v| !matches!(v, ValueOfAnotherProgram::Text(t) if t.is_empty()));
+                if !cell.shown.is_empty() || has_value || cell.formula_by_offsets.is_some() {
+                    looks.holding.insert(place);
+                }
                 if let Some(input) = input {
                     cells.push(CopiedCell { row: place.0, column: place.1, input });
                 }
@@ -648,7 +657,7 @@ pub(super) fn looks_given(
 ) -> Vec<Op> {
     let what = What::Cells { colors: true };
     let (rows, columns) = (landing.area_rows(), landing.area_columns());
-    let taken = taken_away(bases, sheet, ids, &rows, &columns, |leaf| what.pastes(leaf));
+    let taken = taken_away(bases, sheet, ids, &rows, &columns, |leaf| what.takes_away(leaf));
     let (top, left) = (rows[0], columns[0]);
     // The leaves by place, counted from the top left of the cells pasted on.
     let mut counted = Bases::default();
@@ -674,5 +683,5 @@ pub(super) fn looks_given(
         .map(|(rows, columns, format)| CopiedFormat { rows: spans(rows), columns: spans(columns), format })
         .collect();
     let once = Landing { rows: vec![top], columns: vec![left], row_count: 1, column_count: 1 };
-    taken.into_iter().chain(formats_given(bases, sheet, ids, &once, &formats, what)).collect()
+    taken.into_iter().chain(formats_given(bases, sheet, ids, &once, &formats, what, true)).collect()
 }

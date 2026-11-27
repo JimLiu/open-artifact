@@ -40,6 +40,7 @@ import type {
 } from '../../messages/conditional-format.ts';
 import type { AgentPrompt } from './agent-prompts.ts';
 import type { TableOfRecords } from './conditions.ts';
+import type { RulesReadInTable } from '../../words/rule-in-table.ts';
 import type { NumberOperandField, RuleEditorView } from './editor-view.ts';
 
 /** How the conditional formats are drawn: in the side pane, on a card by the cells, or in the menu. */
@@ -172,8 +173,27 @@ export interface RuleEditorState {
 /** Rules read from the person's words: the rules (stretched where they may be), as said, and what they give. */
 export interface RulesReadFromWords {
   rules: RuleInIds[];
-  asSaid: RuleInIds[];
+  asSaid: Extract<RulesReadInTable, { kind: 'read' }>;
   gives: FormatsGivenAnswer;
+}
+/** What adding rules took from the pane, cleared once the rules are in (unless it changed meanwhile). */
+export interface TakenFromRulesPane {
+  offer?: RuleInIds[] | null;
+  pointedAt?: RuleInIds[] | null;
+  inWords?: RulesInWords | null;
+  typed?: TypedInEditor | null;
+}
+export type TakenFromRulesPaneKey = keyof TakenFromRulesPane;
+/** Rules sent to the workbook and not in yet: what they give meanwhile, what they took from the pane, and the card to become the pane. */
+export interface RulesOnTheirWay {
+  edit: Edit;
+  sheetId: SheetId;
+  gives: FormatsGivenAnswer | null;
+  taken: TakenFromRulesPane;
+  cardToBePane: {
+    card: ConditionalFormatsPane;
+    editor: NonNullable<IfQueued['thenEditorOfTopRule']>;
+  } | null;
 }
 
 /** The words typed for rules, the day they were read on, and the rules read from them. */

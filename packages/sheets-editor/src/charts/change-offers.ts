@@ -1,9 +1,9 @@
 import type { ChartInputs } from '../chart-frame/messages.ts';
 import type { ChartCellsProblem } from '../messages/charts.ts';
-import { canSwapChartKind, readsRowsAlone } from './chart-kind-fit.ts';
+import { canSwapChartKind } from './chart-kind-fit.ts';
 import type { ChartSketch } from './chart-thumbnail-paths.ts';
 import type { ChartOfView } from './placed-views.ts';
-import { STOCK_KINDS, type StockKind } from './stock-programs.ts';
+import { STOCK_CHART_KINDS } from './stock-programs.ts';
 
 // What "Change chart type" offers for a chart. It lives apart from the layer that draws the menu, so that it can be
 // tested without the layer's components.
@@ -35,71 +35,16 @@ export const canAskChartChange = (changes: object | null, chart: ChartOfView, ca
   changes !== null &&
   chart.kind !== 'none' &&
   chartCellsProblem(chart.inputs) === null &&
-  (canAgentWrite || STOCK_KINDS.some((kind) => canSwapChartKind(chart.inputs, kind)));
+  (canAgentWrite || STOCK_CHART_KINDS.some((kind) => canSwapChartKind(chart.inputs, kind)));
 /**
- * The kinds offered under "Change chart type": each kind the page can swap this chart to by itself, leaving out the
- * kind it is now. A chart the page cannot swap (one that reads inputs other than `rows`) is offered the first four
- * kinds, for the agent to write, and none when no agent can.
+ * The kinds offered under "Change chart type", marked with whether the page swaps to each alone. With the agent at hand
+ * every kind offered stays; with none, only the kinds the page can swap this chart to by itself, none when there are none.
  */
-export function chartChangeOffers(chart: ChartOfView, kindNow: StockKind | null, canAgentWrite: boolean): ChartChangeOffer[] {
+export function chartChangeOffers(offers: readonly ChartSketch[], chart: ChartOfView, canAgentWrite: boolean): ChartChangeOffer[] {
   if (chart.kind === 'none') return [];
-  const offerOf = (kind: StockKind, isSwap: boolean): ChartChangeOffer => ({
-    // Every kind offered is one of CHART_CHANGE_OFFERS.
-    ...CHART_CHANGE_OFFERS.find((offer) => offer.kind === kind)!,
-    isSwap,
-  });
-  if (!readsRowsAlone(chart.inputs)) return canAgentWrite ? AGENT_CHANGE_KINDS.map((kind) => offerOf(kind, false)) : [];
-  return CHART_CHANGE_OFFERS.filter(({ kind }) => kind !== kindNow && canSwapChartKind(chart.inputs, kind)).map(
-    ({ kind }) => offerOf(kind, true),
-  );
+  let marked = offers.map((offer) => ({
+    ...offer,
+    isSwap: canSwapChartKind(chart.inputs, offer.kind),
+  }));
+  return canAgentWrite ? marked : marked.filter(({ isSwap }) => isSwap);
 }
-export const AGENT_CHANGE_KINDS: readonly StockKind[] = ['bar', 'stackedBar', 'line', 'pie'];
-export const CHART_CHANGE_OFFERS: readonly ChartSketch[] = [
-  {
-    kind: 'bar',
-    series: [
-      [3, 5, 4, 7],
-      [2, 3, 5, 4],
-    ],
-  },
-  {
-    kind: 'horizontalBar',
-    series: [
-      [7, 5, 4],
-      [4, 6, 2],
-    ],
-  },
-  {
-    kind: 'stackedBar',
-    series: [
-      [3, 4, 3, 5, 4],
-      [2, 2, 3, 2, 4],
-      [1, 2, 1, 2, 2],
-    ],
-  },
-  {
-    kind: 'line',
-    series: [
-      [2, 4, 3, 6, 5, 8],
-      [1, 2, 4, 3, 5, 4],
-    ],
-  },
-  {
-    kind: 'area',
-    series: [
-      [2, 4, 3, 6, 5, 8],
-      [1, 2, 3, 2, 4, 3],
-    ],
-  },
-  {
-    kind: 'pie',
-    series: [[5, 3, 2, 1]],
-  },
-  {
-    kind: 'scatter',
-    series: [
-      [1, 2, 3, 4, 5, 6, 7],
-      [2, 5, 3, 6, 4, 8, 7],
-    ],
-  },
-];

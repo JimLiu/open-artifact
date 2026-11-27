@@ -354,7 +354,7 @@ export function LineNumberMenu(props: LineNumberMenuProps) {
     isTabStop,
     onChanged,
   } = props;
-  return <><Menu.Root><Menu.Trigger render={<button type="button" className="sheet-import-line-number" data-line={line} tabIndex={isTabStop ? 0 : -1} disabled={onChanged === null || (becomes === 'row' && isOnlyRow === true)} data-has-no-menu={(becomes === 'row' && isOnlyRow === true) || undefined} aria-label={rowAndLineOfFileLabel(rowNumber, line)}>{rowNumber}<Icon name="CaretRight" size="xs" className="sheet-import-line-caret" /></button>} /><Menu.Popup align="start" side="inline-end" className="min-w-[13rem]"><Menu.Group><Menu.GroupLabel>{lineOfFileLabel(line)}</Menu.GroupLabel>{becomes === 'names'
+  return <><Menu.Root><Menu.Trigger render={<button type="button" className="sheet-import-line-number" tabIndex={isTabStop ? 0 : -1} disabled={onChanged === null || (becomes === 'row' && isOnlyRow === true)} data-has-no-menu={(becomes === 'row' && isOnlyRow === true) || undefined} aria-label={rowAndLineOfFileLabel(rowNumber, line)}>{rowNumber}<Icon name="CaretRight" size="xs" className="sheet-import-line-caret" /></button>} /><Menu.Popup align="start" side="inline-end" className="min-w-[13rem]"><Menu.Group><Menu.GroupLabel>{lineOfFileLabel(line)}</Menu.GroupLabel>{becomes === 'names'
                 ? (<Menu.Item onClick={() =>
                       onChanged?.({
                         kind: 'headings',

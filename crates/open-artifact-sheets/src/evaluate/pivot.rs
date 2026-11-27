@@ -65,10 +65,8 @@ impl Calculation {
                 read.push(argument.clone());
                 continue;
             }
-            // Worked out as an argument that takes several cells (`IF(A1:A6="",0,A1:A6)` cell by cell).
-            let lifting = std::mem::replace(&mut self.lifting, true);
-            let operand = self.eval(f, argument);
-            self.lifting = lifting;
+            // Worked out as an argument that takes several cells is (`IF(A1:A6="",0,A1:A6)` cell by cell).
+            let operand = self.lifting_eval(f, argument);
             let value = match operand {
                 Operand::Value(value) => value,
                 Operand::Range(place) if in_a_field => {

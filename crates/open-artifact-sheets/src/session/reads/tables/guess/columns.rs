@@ -131,11 +131,12 @@ impl Tally {
 }
 
 impl Grid<'_> {
-    /// The columns of a table, 500 at most: each one's name and kind.
-    pub(super) fn columns(&self, table: &Table) -> Vec<Column> {
+    /// The columns of a table, 500 at most: each one's name and kind. A declared table's header rows all name
+    /// them, a last row of units too.
+    pub(super) fn columns_of(&self, table: &Table, declared: bool) -> Vec<Column> {
         let first = table.first_column;
         let last = if table.last_column > first { table.last_column.min(first.saturating_add(MOST_COLUMNS - 1)) } else { first };
-        let names = self.names(table, last);
+        let names = self.names(table, last, declared);
         let records: Vec<(usize, usize)> = table.runs.iter().filter(|r| r.role == Role::Record).map(|r| (r.first, r.last)).collect();
         self.told(first, last, names, &records)
     }
@@ -178,7 +179,7 @@ impl Grid<'_> {
 
     /// The names the header's rows give the columns from the table's first to one, by column; those it gives none
     /// left out. A last header row naming units is left out when the names tell as many apart without it.
-    fn names(&self, table: &Table, last_column: usize) -> BTreeMap<usize, String> {
+    fn names(&self, table: &Table, last_column: usize, declared: bool) -> BTreeMap<usize, String> {
         let Some(header) = table.header else { return BTreeMap::new() };
         let (first, last) = (table.first_column, table.last_column);
         let mut under = None;
@@ -190,7 +191,7 @@ impl Grid<'_> {
             row += 1;
             under = Some(row);
         }
-        let units = header.first < header.last && self.names_units(header.last, first, last, under.unwrap_or(table.to));
+        let units = !declared && header.first < header.last && self.names_units(header.last, first, last, under.unwrap_or(table.to));
         let top = header.first.max(header.last.saturating_sub(MOST_HEADER_ROWS - 1));
         let texts = HeaderTexts::of(self, top, header.last, first, last_column);
         let names = texts.names(header.last, first, last_column);

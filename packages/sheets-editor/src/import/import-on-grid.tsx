@@ -1,4 +1,4 @@
-import { prefersReducedMotion } from '../kit/platform.ts';
+import { useReducedMotion } from '../kit/platform.ts';
 import * as React from 'react';
 import { isImportPlanComing, importPlanSoFar } from './import-review.ts';
 import { isCompactLayout, useCoarsePointerMedia } from '../app/media-queries.ts';
@@ -42,6 +42,7 @@ export interface ImportOnGrid {
   onColumnsPointedAt: (columns: number[]) => void;
   onNoRowPointedAt: () => void;
   onColumnWanted: (columnIndex: number) => void;
+  onRowWanted: (rowNumber: number) => void;
   /** The first cells of each column that would stay text, by column. */
   firstTextCells: ReadonlyMap<number, CellThatStaysText[]>;
   columnsUnfolded: number[];
@@ -95,9 +96,10 @@ export function useColumnsReveal(open: ImportOfAFile | null) {
   let [tableRevealed, setTableRevealed] = React.useState<ImportFile | null>(null);
   let table = open?.table ?? null;
   let isAwaited = open !== null && isImportPlanComing(open);
+  let isMotionReduced = useReducedMotion();
   if (reveal !== null && reveal.of !== table) setReveal(null);
   if (table !== null && table !== tableRevealed && reveal?.of !== table)
-    if (isAwaited && !prefersReducedMotion())
+    if (isAwaited && !isMotionReduced)
       setReveal({
         of: table,
         revealed: 0,
@@ -106,7 +108,7 @@ export function useColumnsReveal(open: ImportOfAFile | null) {
         lastColumnByMs: null,
       });
     else setTableRevealed(table);
-  let isPlanByHand = reveal !== null && open !== null && !isAwaited && !open.isPlanByAgent;
+  let isPlanByHand = reveal !== null && open !== null && ((!isAwaited && !open.isPlanByAgent) || isMotionReduced);
   if (isPlanByHand) {
     setReveal(null);
     setTableRevealed(table);
@@ -204,6 +206,7 @@ export function useImportOnGrid({
     showColumn,
     showRow,
     showRowNoLonger,
+    showWholeRow,
     endAt,
     isPlanDrawn,
     plainPicture,
@@ -279,6 +282,8 @@ export function useImportOnGrid({
         ? importPlanSoFar(sheetToCome).plan.sheetName
         : (sheetToCome.newSheet?.name ?? importPlanSoFar(sheetToCome).plan.sheetName),
       isShown: true,
+      isHidden: false,
+      hasTab: true,
       holdsOpenEntry: false,
       renaming: null,
       facesOfOthers: [],
@@ -382,6 +387,7 @@ export function useImportOnGrid({
             onColumnsPointedAt: setColumnsPointedAt,
             onNoRowPointedAt: showRowNoLonger,
             onColumnWanted: showColumn,
+            onRowWanted: showWholeRow,
             firstTextCells,
             columnsUnfolded: unfoldedInPicture.columns,
             hasLinesUnfolded: unfoldedInPicture.lines.length > 0,
@@ -401,6 +407,7 @@ export function useImportOnGrid({
       unfoldedInPicture,
       showColumn,
       showRowNoLonger,
+      showWholeRow,
       firstTextCells,
     ],
   );
@@ -457,6 +464,7 @@ export const IMPORT_ON_GRID_IDLE: ImportOnGrid = {
   onColumnsPointedAt: importOnGridNoop,
   onNoRowPointedAt: importOnGridNoop,
   onColumnWanted: importOnGridNoop,
+  onRowWanted: importOnGridNoop,
   firstTextCells: new Map(),
   columnsUnfolded: [],
   hasLinesUnfolded: false,

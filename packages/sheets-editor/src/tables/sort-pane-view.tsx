@@ -84,7 +84,7 @@ export function SortKeyRow(props: SortKeyRowProps) {
   let { className: rowClassName, ...rowProps } = reorder.ofRow(keyId, index);
   let { className: handleClassName, ...handleProps } = reorder.ofHandle(keyId, index);
   return <li {...rowProps} className={`group/key py-1.5 first:pt-0 ${rowClassName}`}><span {...REORDER_LIFT_PROPS} className={`${REORDER_LIFT_PROPS.className} ${index > 0 ? 'top-[22px]' : ''}`} />{index > 0 &&
-        <p className={`${isPointerCoarse ? 'ps-[calc(var(--ui-pad-lg)+40px)]' : 'ps-[calc(var(--ui-pad-lg)+32px)]'} pb-1 text-footnote text-secondary select-none ${reorder.isRowHeld ? 'invisible' : ''}`}>{sortByWords}</p>}<TooltipGroup closeDelay={0}><PaneRow {...(!isAlone && {
+        <p className={`${isPointerCoarse ? 'ps-[calc(var(--ui-pad-lg)+40px)]' : 'ps-[calc(var(--ui-pad-lg)+32px)]'} pb-1 text-footnote text-secondary select-none ${reorder.isRowHeld ? 'invisible' : ''}`}>{sortByWords}</p>}<TooltipGroup closeDelay={0}><PaneRow leavesKeysToCells={!isAlone} {...(!isAlone && {
             trailing: (<TooltipGroup closeDelay={0}><Button variant="ghost" iconOnly icon="Minus" aria-label={removeSortColumnLabel(columnLabel)} className="text-secondary" onClick={() =>
                   reorder.gliding(
                     (onGlided: (isDone: boolean) => void) =>
@@ -284,7 +284,7 @@ export const CustomSortPane = React.memo(function ({
                 (<SortKeyRow key={sortKey.keyId} sortKey={sortKey} index={index} columns={columns.filter(
                       ({ columnId }) => columnId === sortKey.columnId || !keyColumnIds.has(columnId),
                     )} isAlone={sortKeys.length === 1} reorder={reorder} keysThatMoveSaidBy={keysThatMoveId} onAct={onAct} onRemoved={(removedIndex) => void (focusAfterChangeRef.current = removedIndex)} />),
-            )}</ul><span id={keysThatMoveId} hidden>{customSortMessages.keysThatMove()}</span><div className="pt-1"><PaneRow><Button variant="secondary" className="w-full" disabled={!pane.canSort && !pane.isLargeEditBeingSaved} busy={pane.isLargeEditBeingSaved} busyLabel={savingChangesText()} {...{
+            )}</ul><span id={keysThatMoveId} hidden>{customSortMessages.keysThatMove()}</span><div className="pt-1"><PaneRow leavesKeysToCells><Button variant="secondary" className="w-full" disabled={!pane.canSort && !pane.isLargeEditBeingSaved} busy={pane.isLargeEditBeingSaved} busyLabel={savingChangesText()} {...{
                   [SORT_BUTTON_ATTRIBUTE]: true,
                 }} onClick={() =>
                   onAct({

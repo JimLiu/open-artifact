@@ -1,7 +1,8 @@
 //! Cell formats: what `setCellFormats` sets and `readWorkbook` reads back.
 //!
 //! A format is kept property by property (a leaf: the number format, each of the three alignments, the fill,
-//! the cell control, each of the four border edges, each of the six font properties), each cell holding a value
+//! the cell control, each of the four border edges, each of the six font properties, the default value and the
+//! limits of the value), each cell holding a value
 //! for some of them; setting a property to its default takes it away. A format written to it (`{"font": {"bold":
 //! true}}`) sets only the properties it names, so `{"font": {"italic": true}}` on a bold cell leaves it bold too.
 //!
@@ -39,9 +40,13 @@ pub enum Leaf {
     Strikethrough,
     FontColor,
     FontSize,
+    /// The value a cell is reset to (`resetCellsToDefaultValues`), from 54.
+    DefaultValue,
+    /// The least and most number a cell may be given (`valueLimits`), from 54.
+    ValueLimits,
 }
 
-pub const LEAVES: [Leaf; 16] = [
+pub const LEAVES: [Leaf; 18] = [
     Leaf::NumberFormat,
     Leaf::Horizontal,
     Leaf::Vertical,
@@ -58,6 +63,8 @@ pub const LEAVES: [Leaf; 16] = [
     Leaf::Strikethrough,
     Leaf::FontColor,
     Leaf::FontSize,
+    Leaf::DefaultValue,
+    Leaf::ValueLimits,
 ];
 
 impl Leaf {
@@ -91,6 +98,8 @@ impl Leaf {
             Leaf::Strikethrough => ("font", Some("strikethrough")),
             Leaf::FontColor => ("font", Some("color")),
             Leaf::FontSize => ("font", Some("size")),
+            Leaf::DefaultValue => ("defaultValue", None),
+            Leaf::ValueLimits => ("valueLimits", None),
         }
     }
 
@@ -105,6 +114,8 @@ impl Leaf {
             Leaf::BorderTop | Leaf::BorderBottom | Leaf::BorderLeft | Leaf::BorderRight => json!({"kind": "none"}),
             Leaf::Underline => json!("none"),
             Leaf::FontSize => json!(10),
+            Leaf::DefaultValue => json!({"kind": "none"}),
+            Leaf::ValueLimits => json!({"minimum": null, "maximum": null}),
         }
     }
 
@@ -158,7 +169,52 @@ impl Leaf {
                 let n = v.as_u64()?;
                 (1..=409).contains(&n).then(|| json!(n))
             }
+            Leaf::DefaultValue => read_default_value(v),
+            // Both ends are written, each a number or `null` (no end), the least no more than the most.
+            Leaf::ValueLimits => {
+                let o = v.as_object().filter(|o| o.len() == 2)?;
+                let end = |key: &str| match o.get(key)? {
+                    Value::Null => Some(None),
+                    n => n.as_f64().map(Some),
+                };
+                let (minimum, maximum) = (end("minimum")?, end("maximum")?);
+                if let (Some(a), Some(b)) = (minimum, maximum) {
+                    if a > b {
+                        return None;
+                    }
+                }
+                Some(json!({"minimum": minimum, "maximum": maximum}))
+            }
         }
+    }
+}
+
+/// A cell's default value as it is read: none (the leaf's default), a number, a text that is not empty, a
+/// boolean, blank (the cell is emptied), or an option of a dropdown (its id and its label, which is not empty).
+fn read_default_value(v: &Value) -> Option<Value> {
+    match v.get("kind")?.as_str()? {
+        "none" => only_keys(v, &["kind"]).map(|_| json!({"kind": "none"})),
+        "blank" => only_keys(v, &["kind"]).map(|_| json!({"kind": "blank"})),
+        "number" => {
+            let o = only_keys(v, &["kind", "value"])?;
+            Some(json!({"kind": "number", "value": o.get("value")?.as_f64()?}))
+        }
+        "text" => {
+            let o = only_keys(v, &["kind", "value"])?;
+            let text = o.get("value")?.as_str().filter(|t| !t.is_empty())?;
+            Some(json!({"kind": "text", "value": text}))
+        }
+        "boolean" => {
+            let o = only_keys(v, &["kind", "value"])?;
+            Some(json!({"kind": "boolean", "value": o.get("value")?.as_bool()?}))
+        }
+        "dropdownOption" => {
+            let o = only_keys(v, &["kind", "optionId", "label"])?;
+            let id = o.get("optionId")?.as_str()?;
+            let label = o.get("label")?.as_str().filter(|l| !l.is_empty())?;
+            Some(json!({"kind": "dropdownOption", "optionId": id, "label": label}))
+        }
+        _ => None,
     }
 }
 
@@ -200,7 +256,8 @@ pub fn read_color(v: &Value) -> Option<Value> {
 
 /// The leaves a written format sets, with their values; `None` when it does not read.
 pub fn read_format(v: &Value) -> Option<Vec<(Leaf, Value)>> {
-    let o = only_keys(v, &["numberFormat", "alignment", "fillColor", "cellControl", "border", "font"])?;
+    let parts = ["numberFormat", "alignment", "fillColor", "cellControl", "border", "font", "defaultValue", "valueLimits"];
+    let o = only_keys(v, &parts)?;
     let mut leaves = Vec::new();
     for leaf in LEAVES {
         let (part, key) = leaf.keys();

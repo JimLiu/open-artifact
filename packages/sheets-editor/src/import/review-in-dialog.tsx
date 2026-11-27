@@ -147,6 +147,7 @@ interface ImportReviewInDialogProps {
   onColumnsPointedAt: (columns: number[]) => void;
   onNoRowPointedAt: () => void;
   onColumnWanted: (columnNumber: number) => void;
+  onRowWanted: (rowNumber: number) => void;
   /** The first cells of each column that would stay text, by column. */
   firstTextCells: ReadonlyMap<number, ImportTextOnRow[]>;
   columnsUnfolded: number[];
@@ -346,6 +347,7 @@ export function ImportReviewInDialog({
   onColumnsPointedAt,
   onNoRowPointedAt,
   onColumnWanted,
+  onRowWanted,
   firstTextCells,
   columnsUnfolded,
   onLeftOutShown,
@@ -608,7 +610,7 @@ export function ImportReviewInDialog({
         <Tabs.Root value={tab} onValueChange={(chosen: ImportReviewTab) => setTabChosen(chosen)} onFocus={() => setTabChosen((chosen) => chosen ?? tab)} className="shrink-0 pb-md"><Tabs.List flush aria-label={importReviewMessages.settingsOrPreview()}><Tabs.Tab value="settings" id={`${tabsId}-settings`} aria-controls={`${tabsId}-panel-settings`}>{importReviewMessages.settingsTab()}</Tabs.Tab><Tabs.Tab value="preview" id={`${tabsId}-preview`} aria-controls={`${tabsId}-panel-preview`}>{importReviewMessages.previewTab()}</Tabs.Tab></Tabs.List></Tabs.Root>}<div role="presentation" className="sheet-import-in-dialog -mx-[var(--ui-pad-xl)]" data-is-in-tabs={isInTabs || undefined}><div ref={previewRef} {...tabPanelPropsOf('preview')} className={PICTURE_BOX_CLASS}>{proposal}{picture !== null &&
                 <ImportHeadingsRow open={open} picture={picture} place={PICTURE_ORIGIN} zoom={zoom} columnsRevealed={columnsRevealed} columnsUnfolded={columnsUnfolded} onKindsWanted={onKindsWanted} onChangedByHand={changeByHand} onColumnWanted={onColumnWanted} />}{picture !== null &&
                 !hasLinesUnfolded &&
-                <ImportRowNumbers open={open} picture={picture} lastRow={lastRow} place={PICTURE_ORIGIN} zoom={zoom} onChangedByHand={isOff ? null : (change: ImportChangeByHand) => (isPlanDrawn ? changeByHand(change) : undefined)} />}{shimmer}</div><div {...tabPanelPropsOf('settings')} className={IMPORT_PANE_CLASS} data-is-read={isRead || undefined} data-comes-in-turn={(hasBeenRead && !isRead && !isTurnSettled) || undefined}><SidePane ref={paneRef} title={importDialogLabels.importTitle()} takesNoTyping={false} width={SIDE_PANE_DEFAULT_WIDTH} onWidthChange={() => {
+                <ImportRowNumbers open={open} picture={picture} lastRow={lastRow} place={PICTURE_ORIGIN} zoom={zoom} onChangedByHand={isOff ? null : (change: ImportChangeByHand) => (isPlanDrawn ? changeByHand(change) : undefined)} onRowWanted={onRowWanted} />}{shimmer}</div><div {...tabPanelPropsOf('settings')} className={IMPORT_PANE_CLASS} data-is-read={isRead || undefined} data-comes-in-turn={(hasBeenRead && !isRead && !isTurnSettled) || undefined}><SidePane ref={paneRef} title={importDialogLabels.importTitle()} takesNoTyping={false} width={SIDE_PANE_DEFAULT_WIDTH} onWidthChange={() => {
                 return;
               }} onClose={() => {
                 return;

@@ -4,13 +4,11 @@ import type { ConditionalFormatsOfPane, ListedSheet, PageView } from '../../view
 import type { RuleDescription } from '../../messages/conditional-format.ts';
 import type { ShownRule } from './pane-state.ts';
 import * as React from 'react';
-import { askTooLong } from '@open-artifact/editor-kit';
 import { CONDITIONAL_FORMATTING_WORDS } from '../../messages/conditional-format.ts';
-import { cleanAskWords } from '../../agent/chat-with-agent.ts';
 import { CONDITIONAL_FORMATTING_PRESS } from './pane-state.ts';
 import { cardRowFrameProps, CARD_ROW_HOVER_CLASSES } from '../../ui/card-rows.tsx';
 import { agentRowClassProps, AgentRowContent } from '../../agent/agent-rows.tsx';
-import { LiveAnnouncer } from '../../ui/live-announcer.tsx';
+import { askAgentInWords, LiveAnnouncer } from '../../ui/live-announcer.tsx';
 import { isNonNullObject } from '../../utils/objects.ts';
 /** Which rule of the open sheet's list a rule is, counting only the rules that can be used. */
 export interface RuleNumber {
@@ -37,6 +35,12 @@ export interface AskForChat {
 interface AskAgentAboutRuleSectionProps {
   rule: RuleNumber;
   onAskAgent: (rule: RuleNumber) => Promise<boolean>;
+  isChatCovered: boolean;
+}
+/** The rule last added to the message, and whether the chat was covered then. */
+interface RuleAdded {
+  place: string;
+  wasChatCovered: boolean;
 }
 export function sheetNumberOfOpenSheet(sheets: Pick<ListedSheet, 'holdsOpenEntry' | 'isShown'>[]): number {
   let openIndex = sheets.findIndex(({ holdsOpenEntry }) => holdsOpenEntry);
@@ -72,25 +76,22 @@ export function askAgentAboutRule(store: StoreForRules, chat: Pick<ChatForRules,
     sheetNumber: sheetNumberOfOpenSheet(store.getView().listedSheets),
   });
 }
-export function askAgentForRulesInChat(
-  store: StoreForRules,
-  chat: Pick<ChatForRules, 'openWithWhatWasPressed'>,
-  words: string,
-): Promise<boolean> {
-  let selectionByAddress = store.getView().selectionByAddress;
-  let request = cleanAskWords(words);
-  if (store.isEventUnfinished() || selectionByAddress === null || request === '' || askTooLong(words)) return Promise.resolve(false);
-  return chat.openWithWhatWasPressed(cleanAskWords(request.slice(0, MOST_PRESSED_WORDS_CHARS)), selectionByAddress, CONDITIONAL_FORMATTING_PRESS, {
-    request,
-  });
-}
-export function AskAgentAboutRuleSection({ rule, onAskAgent }: AskAgentAboutRuleSectionProps) {
+export function AskAgentAboutRuleSection({ rule, onAskAgent, isChatCovered }: AskAgentAboutRuleSectionProps) {
   let ruleKey = `${rule.ruleNumber}/${rule.ruleCount}`;
-  let [addedRuleKey, setAddedRuleKey] = React.useState<string | null>(null);
-  if (addedRuleKey !== null && addedRuleKey !== ruleKey) setAddedRuleKey(null);
+  let [added, setAdded] = React.useState<RuleAdded | null>(null);
+  if (added !== null && added.place !== ruleKey) setAdded(null);
   return <section className="flex min-w-0 shrink-0 flex-col border-t border-alpha-2 py-1.5"><div className={`${cardRowFrameProps.className} ${CARD_ROW_HOVER_CLASSES}`}><button type="button" className={agentRowClassProps.className} onClick={() => {
-            onAskAgent(rule).then((isAdded) => setAddedRuleKey((keyBefore) => (isAdded ? ruleKey : keyBefore)));
-          }}><AgentRowContent icon={<AgentMark size={14} />}>{CONDITIONAL_FORMATTING_WORDS.askAgentForEdits()}</AgentRowContent></button></div><LiveAnnouncer words={addedRuleKey === null ? null : CONDITIONAL_FORMATTING_WORDS.ruleAddedToMessage()} /></section>;
+            onAskAgent(rule).then((isAdded) =>
+              setAdded((addedBefore) =>
+                isAdded
+                  ? {
+                      place: ruleKey,
+                      wasChatCovered: isChatCovered,
+                    }
+                  : addedBefore,
+              ),
+            );
+          }}><AgentRowContent icon={<AgentMark size={14} />}>{CONDITIONAL_FORMATTING_WORDS.askAgentForEdits()}</AgentRowContent></button></div><LiveAnnouncer words={added === null ? null : ruleAddedWords(added.wasChatCovered)} /></section>;
 }
 export const isGoneReference = (reference: unknown): boolean => isNonNullObject(reference) && reference.kind === 'gone';
 export const isRuleUsable = ({ cells, does }: Pick<RuleDescription, 'cells' | 'does'>): boolean =>
@@ -106,4 +107,16 @@ export const isAskTakenToChat = (
   offer: AskForChat,
 ): boolean =>
   agent === 'hasFailed' && isAskBeyondRules && offer.areWordsAsAsked && offer.isChatToBeHad;
-export const MOST_PRESSED_WORDS_CHARS = 60;
+/** Takes words asked of the rules pane to the chat, with the selected cells. */
+export const askAgentForRulesInChat = (
+  store: StoreForRules,
+  chat: Pick<ChatForRules, 'openWithWhatWasPressed'>,
+  words: string,
+): Promise<boolean> =>
+  askAgentInWords(store, chat, {
+    words,
+    cells: store.getView().selectionByAddress,
+    pressed: CONDITIONAL_FORMATTING_PRESS,
+  });
+export const ruleAddedWords = (wasChatCovered: boolean): string =>
+  wasChatCovered ? CONDITIONAL_FORMATTING_WORDS.ruleAddedWithChatCovered() : CONDITIONAL_FORMATTING_WORDS.ruleAddedToMessage();

@@ -325,6 +325,9 @@ export function editAsStored(edit: Edit, ownRowOrderOf: OwnRowOrderLookup): Edit
     case 'clearCells':
     case 'unmergeCells':
     case 'formatCells':
+    case 'setDefaultValuesAndLimits':
+    case 'resetCellsToDefaultValues':
+    case 'resetSheetsToDefaultValues':
     case 'setColumnWidths':
     case 'fitColumns':
     case 'setRowHeights':
@@ -348,6 +351,14 @@ export function editAsStored(edit: Edit, ownRowOrderOf: OwnRowOrderLookup): Edit
     case 'changePivotTable':
     case 'saveNamedView':
     case 'removeNamedView':
+    case 'saveProtection':
+    case 'removeProtection':
+    case 'saveNamedRange':
+    case 'removeNamedRange':
+    case 'addConnectedTable':
+    case 'setCallOfConnectedTable':
+    case 'addColumnToConnectedTable':
+    case 'changeColumnOfConnectedTable':
     case 'addSheet':
     case 'importTableAsNewSheet':
     case 'duplicateSheet':
@@ -501,15 +512,20 @@ export function requestAsStored(request: SessionRequest, ownRowOrderOf: OwnRowOr
       return request;
     case 'queueNextUndo':
     case 'queueNextRedo':
+    case 'queueReversalInASitting':
     case 'queueEditsThatTakeBack':
     case 'receiveStreamedEdit':
     case 'receiveSendOutcome':
     case 'receiveServerRevision':
-    case 'receiveLoadPage':
     case 'receiveLinesOfLoad':
+    case 'receiveLinesOfTableFile':
+    case 'tableFileIsGone':
+    case 'readSnapshotsNotHeld':
+    case 'readConnectedTable':
     case 'answerBeforeCalculating':
     case 'calculate':
     case 'receiveClockReading':
+    case 'receivePerson':
     case 'readWorkbook':
     case 'readCells':
     case 'readWorkbookWithCellsPacked':
@@ -519,6 +535,7 @@ export function requestAsStored(request: SessionRequest, ownRowOrderOf: OwnRowOr
     case 'readXlsxFile':
     case 'readTimeZone':
     case 'readViews':
+    case 'readNamedRanges':
     case 'readInputsOfView':
     case 'readTableAtCell':
     case 'readCellTables':
@@ -531,8 +548,11 @@ export function requestAsStored(request: SessionRequest, ownRowOrderOf: OwnRowOr
     case 'readCellsOfTheDropdownAt':
     case 'readTypedFormula':
     case 'readTextToEdit':
+    case 'readDefaultValueAndLimits':
+    case 'readCellsChangedFromTheirDefaults':
     case 'readCellsToCopyInTheOrderOfTheirRows':
       return request;
+    case 'receiveLoadPage':
     case 'readSharedCellFormat':
     default:
       throw new RowNotNamedInTheWayError();
@@ -785,7 +805,10 @@ export function answerAsSeen(
     case 'sheetLayout':
     case 'xlsxFile':
     case 'views':
+    case 'namedRanges':
     case 'inputsOfView':
+    case 'snapshotsNotHeld':
+    case 'connectedTable':
     case 'tablesOfSheet':
     case 'pivotTableAt':
     case 'conditionalFormatsByAddress':
@@ -796,6 +819,8 @@ export function answerAsSeen(
     case 'causeOfError':
     case 'proposedFormulaValue':
     case 'textToEdit':
+    case 'defaultValueAndLimits':
+    case 'cellsChangedFromTheirDefaults':
     case 'cellsToCopy':
     case 'dropdownOptionsToOffer':
     case 'cellsThatADropdownWouldClear':

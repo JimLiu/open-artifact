@@ -24,7 +24,7 @@ import type {
   VersionsReadOutcome,
   WhyVersionNotShown,
 } from '../state/event-reducer.ts';
-import type { EditAuthor } from './requests.ts';
+import type { EditAuthor, VersionNameOutcome } from './requests.ts';
 import type { ProfileOfPerson } from '../chips/people-list.ts';
 import type { AgentUndoRefusalWhy } from '../i18n/agent-turn-labels.ts';
 
@@ -47,6 +47,8 @@ export interface ShownVersion {
   revision: number;
   firstRevision: number;
   atMs: number;
+  /** The name it was given, or null. */
+  name: string | null;
   authors: ShownAuthor[];
   isCurrent: boolean;
   isBeingRestored: boolean;
@@ -68,8 +70,21 @@ export interface ShownVersionHistory {
   picked: number | null;
   isCaretForCells: boolean;
   pickedLast: number | null;
+  /** The first revision of the version whose name is being typed. */
+  nameTypedFor: number | null;
+  canBeNamed: boolean;
   /** The change count the history is behind at, while it waits to be read again. */
   behindAtChangeCount: number | null;
+}
+/** The store answered the naming of a version: saved, or why not; a name saved for the newest version comes with the newest versions read. */
+export interface NameOfVersionSet {
+  kind: 'nameOfVersionSet';
+  /** The first revision of the version named. */
+  of: number;
+  name: string | null;
+  nameBefore: string | null;
+  outcome: VersionNameOutcome;
+  newest?: Extract<VersionsReadOutcome, { kind: 'read' }>;
 }
 /** The version history last shown, and what it was worked out from. */
 interface ShownVersionHistoryKept {
@@ -80,11 +95,10 @@ interface ShownVersionHistoryKept {
   shown: ShownVersionHistory;
 }
 
-export let lastShownVersionHistory: ShownVersionHistoryKept | null;
 export function askForVersions(state: PageState, history: VersionHistoryInPane, of: VersionsAwaited['of']): PageTransition {
   let askId = state.versionHistoryAskCount + 1;
-  let { firstRevision }: Partial<VersionOfWorkbook> = (of === 'older' ? history.versions?.at(-1) : null) ?? {};
-  let before = firstRevision === undefined ? null : { firstRevision };
+  let { firstRevision, firstSeq }: Partial<VersionOfWorkbook> = (of === 'older' ? history.versions?.at(-1) : null) ?? {};
+  let before = firstRevision === undefined || firstSeq === undefined ? null : { firstRevision, firstSeq };
   return {
     state: {
       ...state,
@@ -107,6 +121,10 @@ export function askForVersions(state: PageState, history: VersionHistoryInPane, 
         kind: 'readVersions',
         askId,
         before,
+        ...(of === 'newest' &&
+          history.versions !== null && {
+            isLookAgain: true,
+          }),
       },
     ],
   };
@@ -150,6 +168,8 @@ export function toggleVersionHistory(state: PageState): PageTransition {
       picked: null,
       isCaretForCells: false,
       pickedLast: null,
+      nameTypedFor: null,
+      isNameOnItsWay: false,
     },
     'newest',
   );
@@ -195,6 +215,15 @@ export function versionsAnswered(state: PageState, askId: number, answer: Versio
     );
   }
   let { versions, hasOlder } = answer;
+  let isTypedFor = ({ firstRevision }: VersionOfWorkbook): boolean => firstRevision === history.nameTypedFor;
+  // While a name is typed, newest versions that no longer hold that version wait.
+  if (awaitedOf === 'newest' && history.nameTypedFor !== null && mergeNewestVersions(history, answer).versions?.some(isTypedFor) !== true)
+    return withNoEffects(
+      setVersionHistoryPane(state, {
+        ...historyAnswered,
+        readAtChangeCount: atChangeCount,
+      }),
+    );
   let userIdsToLookUp = authorsToLookUp(
     state,
     history,
@@ -258,6 +287,8 @@ export function isVersionHistoryBehind(state: PageState): boolean {
     history.versions !== null &&
     history.awaited === null &&
     state.takingBack === null &&
+    history.nameTypedFor === null &&
+    !history.isNameOnItsWay &&
     history.look === null &&
     history.looksInVainInARow < MOST_LOOKS_IN_VAIN &&
     history.readAtChangeCount !== state.workbookChangeCount &&
@@ -383,6 +414,8 @@ export function carrySessionIntoState(
         readAtChangeCount: null,
         authorsLookedUp,
         authorsAwaited: new Set(),
+        nameTypedFor: null,
+        isNameOnItsWay: false,
       },
     },
     timesSidePaneAsked: state.timesSidePaneAsked + 1,
@@ -456,6 +489,94 @@ export function versionLookAnswered(state: PageState, askId: number, failure: Wh
         },
   );
 }
+/** The versions with the version of firstRevision named name (null: no name). */
+export function withVersionName(history: VersionHistoryInPane, firstRevision: number, name: string | null): VersionHistoryInPane {
+  let named = ({ name: _nameBefore, ...version }: VersionOfWorkbook): VersionOfWorkbook =>
+    name === null
+      ? version
+      : {
+          ...version,
+          name,
+        };
+  return {
+    ...history,
+    versions: history.versions?.map((version) => (version.firstRevision === firstRevision ? named(version) : version)) ?? null,
+  };
+}
+export function versionNameTyped(typed: string): string | null {
+  let name = typed.replace(/[\p{Cc}\s]+/gu, ' ').trim();
+  return name === '' ? null : name;
+}
+export function isVersionNameOpen(state: PageState): boolean {
+  let history = versionHistoryOfPane(state);
+  return history !== null && (history.nameTypedFor !== null || history.isNameOnItsWay);
+}
+/**
+ * The store answered a setNameOfVersion effect. A name saved for the newest version comes with the versions read
+ * after it (newest), which name the version they now begin with.
+ */
+export function nameOfVersionSet(state: PageState, event: NameOfVersionSet): PageTransition {
+  let { of, name, nameBefore, outcome, newest } = event;
+  let history = versionHistoryOfPane(state);
+  let newestVersion = newest?.versions[0];
+  if (history !== null && outcome === 'saved' && newest !== undefined && newestVersion !== undefined) {
+    let awaited: VersionsAwaited = {
+      askId: -1,
+      of: 'newest',
+      atChangeCount: null,
+    };
+    let answered = versionsAnswered(
+      setVersionHistoryPane(state, {
+        ...withVersionName(history, of, nameBefore),
+        awaited,
+      }),
+      awaited.askId,
+      newest,
+    );
+    let historyAnswered = {
+      ...(versionHistoryOfPane(answered.state) ?? history),
+      awaited: history.awaited,
+    };
+    let { state: stateNamed } = nameOfVersionSet(setVersionHistoryPane(answered.state, historyAnswered), {
+      kind: event.kind,
+      of: newestVersion.firstRevision,
+      name,
+      nameBefore,
+      outcome,
+    });
+    return {
+      state: stateNamed,
+      effects: answered.effects,
+    };
+  }
+  let nameNow = outcome === 'saved' ? name : nameBefore;
+  let isLookGone = outcome !== 'saved' && history?.look?.shown === null;
+  let stateNamed =
+    history === null
+      ? state
+      : setVersionHistoryPane(state, {
+          ...withVersionName(history, of, nameNow),
+          isNameOnItsWay: false,
+          readAtChangeCount: null,
+          ...(isLookGone && {
+            look: null,
+            picked: null,
+          }),
+        });
+  if (outcome === 'saved') return withNoEffects(stateNamed);
+  return withNoEffects({
+    ...stateNamed,
+    notice:
+      outcome === 'tooManyNames'
+        ? {
+            kind: 'tooManyVersionNames',
+          }
+        : {
+            kind: 'versionNameNotSaved',
+            why: outcome,
+          },
+  });
+}
 export function versionHistoryActed(state: PageState, workbook: ReadsWithTextMeasurer, action: VersionHistoryAct): PageTransition {
   let history = versionHistoryOfPane(state);
   if (history === null) return withNoEffects(state);
@@ -510,6 +631,53 @@ export function versionHistoryActed(state: PageState, workbook: ReadsWithTextMea
             kind: 'allSinceVersion',
             version: versionToRestore,
           });
+    }
+    case 'beginName': {
+      if (!canNameVersions(history)) return withNoEffects(state);
+      let committed = commitEntryInPlaceIfEditing(state, workbook) ?? withNoEffects(state);
+      return {
+        ...committed,
+        state: setVersionHistoryPane(committed.state, {
+          ...history,
+          nameTypedFor: action.of,
+        }),
+      };
+    }
+    case 'leaveName':
+      return withNoEffects(
+        setVersionHistoryPane(state, {
+          ...history,
+          nameTypedFor: null,
+          readAtChangeCount: null,
+        }),
+      );
+    case 'setName': {
+      let version = history.versions?.find(({ firstRevision }) => firstRevision === action.of);
+      let [name, nameBefore] = [versionNameTyped(action.typed), version?.name ?? null];
+      let historyLeft = {
+        ...history,
+        nameTypedFor: null,
+        readAtChangeCount: null,
+      };
+      if (version === undefined || name === nameBefore || !canNameVersions(history)) return withNoEffects(setVersionHistoryPane(state, historyLeft));
+      // The newest version without a name is named by its first revision alone (revision null): it may still grow.
+      let isNewestUnnamed = version === history.versions?.[0] && nameBefore === null;
+      return {
+        state: setVersionHistoryPane(state, {
+          ...withVersionName(historyLeft, action.of, name),
+          isNameOnItsWay: true,
+          awaited: history.awaited?.of === 'newest' ? null : history.awaited,
+        }),
+        effects: [
+          {
+            kind: 'setNameOfVersion',
+            of: action.of,
+            revision: isNewestUnnamed ? null : version.revision,
+            name,
+            nameBefore,
+          },
+        ],
+      };
     }
     case 'showOlder':
       return history.hasOlder && history.awaited?.of !== 'older' ? askForVersions(state, history, 'older') : withNoEffects(state);
@@ -699,6 +867,7 @@ export function shownVersionHistory(state: PageState): ShownVersionHistory | nul
           revision: version.revision,
           firstRevision: version.firstRevision,
           atMs: version.atMs,
+          name: version.name ?? null,
           authors: version.authors.map((author) => authorShown(author, profilesById, history.authorsAwaited)),
           isCurrent: index === 0,
           isBeingRestored: versionBeingRestored?.firstRevision === version.firstRevision,
@@ -712,6 +881,8 @@ export function shownVersionHistory(state: PageState): ShownVersionHistory | nul
     picked: history.picked,
     isCaretForCells: history.isCaretForCells,
     pickedLast: history.pickedLast,
+    nameTypedFor: history.nameTypedFor,
+    canBeNamed: canNameVersions(history),
     behindAtChangeCount,
   };
   lastShownVersionHistory = {
@@ -723,6 +894,9 @@ export function shownVersionHistory(state: PageState): ShownVersionHistory | nul
   };
   return shown;
 }
+export const MOST_VERSION_NAME_LENGTH = 100;
+export const MOST_VERSION_NAMES = 100;
+export const versionKey = ({ firstRevision, revision }: Pick<VersionOfWorkbook, 'firstRevision' | 'revision'>): string => `${firstRevision}-${revision}`;
 export const MOST_LOOKS_IN_VAIN = 3;
 export const MOST_TIMES_MOVED_ON = 3;
 export const TAKE_BACK_RETRY_MS = 1000;
@@ -760,4 +934,5 @@ export const paneWithLookEnded = (
 });
 export const RETRYABLE_TAKE_BACK_FAULTS = new Set<AgentUndoRefusalWhy>(['busy', 'noAnswer', 'storeMovedOn']);
 export const FATAL_TAKE_BACK_FAULTS = new Set<AgentUndoRefusalWhy>(['storeDoesNotKnowHow', 'recordDoesNotMatch', 'tookTooLong']);
-lastShownVersionHistory = null;
+export let lastShownVersionHistory: ShownVersionHistoryKept | null = null;
+export const canNameVersions = (history: VersionHistoryInPane): boolean => !history.isNameOnItsWay && (history.look?.awaited ?? null) === null;

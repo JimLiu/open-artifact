@@ -12,12 +12,7 @@ export function withXlsxFileSaved(state: PageState, saved: XlsxFileSaved): PageS
 }
 export function withXlsxFileToldWhenFree(state: PageState): PageState {
   let { xlsxFileYetToBeToldOf } = state;
-  if (xlsxFileYetToBeToldOf === null) return state;
-  return state.mode.kind === 'editing' ||
-    state.dragging !== null ||
-    hasUnsavedSidePaneTyping(state) ||
-    isModalOpen(state) ||
-    !isNothingOpenButPane(state)
+  return xlsxFileYetToBeToldOf === null || isTooBusyForNotice(state)
     ? state
     : {
         ...state,
@@ -25,6 +20,12 @@ export function withXlsxFileToldWhenFree(state: PageState): PageState {
         xlsxFileYetToBeToldOf: null,
       };
 }
+export const isTooBusyForNotice = (state: PageState): boolean =>
+  state.mode.kind === 'editing' ||
+  state.dragging !== null ||
+  hasUnsavedSidePaneTyping(state) ||
+  isModalOpen(state) ||
+  !isNothingOpenButPane(state);
 export const withXlsxFileToldLater = (state: PageState): PageState =>
 
   state.xlsxFileReady === null

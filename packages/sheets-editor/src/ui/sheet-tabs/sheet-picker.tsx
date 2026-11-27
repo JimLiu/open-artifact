@@ -14,7 +14,7 @@ import { sheetNameRefusedText } from '../../i18n/notice-labels.ts';
 import { defaultSheetName } from '../../i18n/sheet-names.ts';
 import { swallowRestOfPress, swallowPressAfterItemPress } from '../press-swallow.ts';
 import { createPressTracker } from '../../app/press-tracker.ts';
-import { isSheetNameLeftForWindow, othersOnSheetDescription, TabCommentCount, TabFaces, OthersOnSheetText, sheetTabLabel, BetaBadge } from './tab-badges.tsx';
+import { isSheetNameLeftForWindow, othersOnSheetDescription, TabCommentCount, TabFaces, OthersOnSheetText, sheetTabLabel, BetaBadge, isBetaSheet } from './tab-badges.tsx';
 import { centerCheckedItemRef, MENU_MAX_VISIBLE_ITEMS } from '../menu-scroll.ts';
 import { ListRowTooltip } from '../list-under-cell.tsx';
 import { usePopupRoomAtFoot } from '../../shell/bottom-insets.ts';
@@ -112,8 +112,13 @@ export const isSameListedSheet = (sheet: ListedSheet, other: ListedSheet | undef
   sheet.name === other.name &&
   sheet.isShown === other.isShown &&
   sheet.isInteractive === other.isInteractive &&
+  sheet.isConnectedTable === other.isConnectedTable &&
+  sheet.isProtected === other.isProtected &&
   sheet.holdsOpenEntry === other.holdsOpenEntry &&
-  sheet.canBeDeleted === other.canBeDeleted &&
+  sheet.isHidden === other.isHidden &&
+  sheet.hasTab === other.hasTab &&
+  sheet.areAllOthersHidden === other.areAllOthersHidden &&
+  sheet.isAnotherLeftToShow === other.isAnotherLeftToShow &&
   sheet.isWhereAgentWorks === other.isWhereAgentWorks &&
   sheet.openCommentCount === other.openCommentCount &&
   sheet.renaming?.typed === other.renaming?.typed &&
@@ -206,21 +211,25 @@ export const SheetListMenu = React.memo(function ({
         preventScroll: true,
       });
   });
-  return <Menu.Group ref={groupRef} aria-label={sheetMessages.sheets()} onFocusCapture={() => {
-      isBlurringByPressRef.current = false;
-    }} onBlurCapture={(event) => {
-      isBlurringByPressRef.current = isSheetNameLeftForWindow(event, pressTrackerRef.current?.isUnderWay() === true);
-    }}>{listedSheets.map(
+  let rowsOf = (sheetsInGroup: ListedSheet[]) =>
+    sheetsInGroup.map(
       (sheet, index) =>
-        (<div key={sheet.sheetId} role="presentation" data-sheet-row={sheet.sheetId} className="flex items-center gap-xs"><div role="presentation" className="grid min-w-0 flex-1"><Menu.Item {...sheetListPositionProps(listedSheets, index)} {...othersOnSheetDescription(sheet.sheetId, sheet.facesOfOthers)} aria-label={sheetTabLabel(sheet)} ref={sheet.isShown ? centerCheckedItemRef : undefined} className={`col-start-1 row-start-1 min-w-0 self-start ${sheet.renaming === null ? '' : 'invisible'}`} checked={sheet.isShown} checkedRole="radio" checkPosition="trailing" label={sheet.name} onClick={() =>
+        (<div key={sheet.sheetId} role="presentation" data-sheet-row={sheet.sheetId} className="flex items-center gap-xs"><div role="presentation" className="grid min-w-0 flex-1"><Menu.Item {...sheetListPositionProps(sheetsInGroup, index)} {...othersOnSheetDescription(sheet.sheetId, sheet.facesOfOthers)} aria-label={sheetTabLabel(sheet)} ref={sheet.isShown ? centerCheckedItemRef : undefined} className={`col-start-1 row-start-1 min-w-0 self-start ${sheet.renaming === null ? '' : 'invisible'}`} checked={sheet.isShown} checkedRole="radio" checkPosition="trailing" label={sheet.name} onClick={() =>
                       dispatch({
                         kind: 'sheetChosen',
                         sheetId: sheet.sheetId,
                         isPickedInList: true,
-                      })}><span className="flex items-center gap-sm"><ListRowTooltip className="block max-w-64">{sheet.name}</ListRowTooltip>{sheet.isInteractive && <BetaBadge />}<TabCommentCount count={sheet.openCommentCount} />{sheet.facesOfOthers.length > 0 &&
+                      })}><span className="flex items-center gap-sm"><ListRowTooltip className="block max-w-64">{sheet.name}</ListRowTooltip>{isBetaSheet(sheet) && <BetaBadge />}<TabCommentCount count={sheet.openCommentCount} />{sheet.facesOfOthers.length > 0 &&
                           <TabFaces faces={sheet.facesOfOthers} />}</span></Menu.Item>{sheet.renaming !== null &&
-                    <SheetRowRenameField renaming={sheet.renaming} dispatch={dispatch} />}</div><SheetRowMenu sheet={sheet} placeAmongSheets={sheetListPositionProps(listedSheets, index)} isOnlySheet={listedSheets.length === 1} viewOnlyBecause={viewOnlyBecause} onRenameChosen={onRenameChosen} dispatch={dispatch} /></div>),
-    )}</Menu.Group>;
+                    <SheetRowRenameField renaming={sheet.renaming} dispatch={dispatch} />}</div><SheetRowMenu sheet={sheet} placeAmongSheets={sheetListPositionProps(sheetsInGroup, index)} isOnlySheet={listedSheets.length === 1} viewOnlyBecause={viewOnlyBecause} onRenameChosen={onRenameChosen} dispatch={dispatch} /></div>),
+    );
+  let hiddenSheets = listedSheets.filter(({ isHidden }) => isHidden);
+  return <div ref={groupRef} role="presentation" onFocusCapture={() => {
+      isBlurringByPressRef.current = false;
+    }} onBlurCapture={(event) => {
+      isBlurringByPressRef.current = isSheetNameLeftForWindow(event, pressTrackerRef.current?.isUnderWay() === true);
+    }}><Menu.Group aria-label={sheetMessages.sheets()}>{rowsOf(listedSheets.filter(({ isHidden }) => !isHidden))}</Menu.Group>{hiddenSheets.length > 0 &&
+      <><Menu.Separator /><Menu.Group><Menu.GroupLabel>{sheetMessages.hiddenSheets()}</Menu.GroupLabel>{rowsOf(hiddenSheets)}</Menu.Group></>}</div>;
 }, areSheetListMenuPropsSame);
 export const SheetPicker = React.memo(function ({
   ref,
@@ -242,6 +251,7 @@ export const SheetPicker = React.memo(function ({
     whatHasCaretAfterList,
     dispatch,
   } = listProps;
+  let sheetsWithTabs = React.useMemo(() => listedSheets.filter(({ hasTab }) => hasTab), [listedSheets]);
   let leaveSheetRenaming = () => {
     if (listedSheets.some(({ renaming }) => renaming !== null))
       dispatch({
@@ -369,7 +379,7 @@ export const SheetPicker = React.memo(function ({
                   event.preventDefault();
                   event.stopPropagation();
                   if (event.key === 'Tab') setListOpenAndTell(false, event.nativeEvent, true);
-                }}><SheetListMenu {...listProps} listedSheets={isListOpen ? listedSheets : withoutSheetRenaming(listedSheets)} tabListRef={tabListRef} onRenameChosen={chooseSheetAfterRename} /></Menu.Popup></Menu.Root><SheetTabStrip listedSheets={listedSheets} viewOnlyBecause={viewOnlyBecause} tabListRef={tabListRef} isListOpen={isListOpen} isAddMenuOpen={isAddMenuOpen} isUnfinishedFormulaOpen={isUnfinishedFormulaOpen} whatHasCaretAfterMenu={whatHasCaretAfterList} timesRenameBegunElsewhere={timesRenameBegunElsewhere} onMenuOpenChange={(isOpen, event) => {
+                }}><SheetListMenu {...listProps} listedSheets={isListOpen ? listedSheets : withoutSheetRenaming(listedSheets)} tabListRef={tabListRef} onRenameChosen={chooseSheetAfterRename} /></Menu.Popup></Menu.Root><SheetTabStrip listedSheets={sheetsWithTabs} isOnlySheet={listedSheets.length === 1} viewOnlyBecause={viewOnlyBecause} tabListRef={tabListRef} isListOpen={isListOpen} isAddMenuOpen={isAddMenuOpen} isUnfinishedFormulaOpen={isUnfinishedFormulaOpen} whatHasCaretAfterMenu={whatHasCaretAfterList} timesRenameBegunElsewhere={timesRenameBegunElsewhere} onMenuOpenChange={(isOpen, event) => {
               if (isOpen) setAddMenuOpen(false);
               onListOpenChange(isOpen, event);
             }} dispatchAfterEntry={dispatchFromAddMenu} lookOnceEventsAreFinished={lookOnceEventsAreFinished} isChosenForFormula={isChosenForFormula} dispatch={dispatch} /></TooltipGroup>{listedSheets.map(

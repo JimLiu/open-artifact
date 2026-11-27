@@ -4,6 +4,7 @@ use serde::Deserialize;
 use serde_json::Value as Json;
 
 use super::{Made, Refused};
+use crate::session::sitting::MadeBy;
 use crate::session::interactive::{reset_changes, with_current_defaults, Binding};
 use crate::workbook::grid::CellForm;
 use crate::workbook::layout::written;
@@ -15,9 +16,18 @@ use crate::workbook::Workbook;
 #[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
 pub enum Edit {
     #[serde(rename_all = "camelCase")]
-    WriteFromInteractive { view_id: String, cells: Vec<CellWrite> },
+    WriteFromInteractive {
+        view_id: String,
+        cells: Vec<CellWrite>,
+        #[serde(default, deserialize_with = "written::maybe_null")]
+        made_by: Option<MadeBy>,
+    },
     #[serde(rename_all = "camelCase")]
-    ResetInteractive { view_id: String },
+    ResetInteractive {
+        view_id: String,
+        #[serde(default, deserialize_with = "written::maybe_null")]
+        made_by: Option<MadeBy>,
+    },
     #[serde(rename_all = "camelCase")]
     SaveDefaultsOfInteractive { view_id: String },
 }
@@ -83,7 +93,9 @@ fn get_view<'a>(workbook: &'a Workbook, id: &str) -> Result<&'a View, Refused> {
         .ok_or(Refused::Because("unknownInteractive"))
 }
 
-fn write_cells(workbook: &Workbook, view: &View, writes: Vec<CellWrite>) -> Result<Vec<CellChange>, Refused> {
+/// The cells written, each as it is to be: one an interactive writes (its input's, saved, not under a merged cell; in
+/// a sitting, any of its input's range).
+fn write_cells(workbook: &Workbook, view: &View, writes: Vec<CellWrite>, is_in_a_sitting: bool) -> Result<Vec<CellChange>, Refused> {
     writes
         .into_iter()
         .map(|asked| {
@@ -98,10 +110,9 @@ fn write_cells(workbook: &Workbook, view: &View, writes: Vec<CellWrite>) -> Resu
                     let range = &inputs.iter().find(|input| input.name == asked.input)?.range;
                     let binding = Binding::new(workbook, range)?;
                     let at = binding.at_offset(asked.row, asked.column)?;
-                    (!binding.is_covered(at) && input
-                        .saved
-                        .iter()
-                        .any(|cell| binding.position(&cell.r, &cell.c) == Some(at)))
+                    (!binding.is_covered(at)
+                        && (is_in_a_sitting
+                            || input.saved.iter().any(|cell| binding.position(&cell.r, &cell.c) == Some(at))))
                         .then_some((binding, at, asked.value.clone()))
                 })
                 .ok_or(Refused::Because("cellIsNotTheInteractives"))?;
@@ -160,27 +171,16 @@ fn make_changes(workbook: &Workbook, changes: Vec<CellChange>) -> Made {
 
 pub fn make(workbook: &Workbook, edit: Edit) -> Result<Made, Refused> {
     let out = match edit {
-        Edit::WriteFromInteractive { view_id, cells } => {
-            make_changes(workbook, write_cells(workbook, get_view(workbook, &view_id)?, cells)?)
+        Edit::WriteFromInteractive { view_id, cells, made_by } => {
+            make_changes(workbook, write_cells(workbook, get_view(workbook, &view_id)?, cells, made_by.is_some())?)
         }
-        Edit::ResetInteractive { view_id } => {
+        Edit::ResetInteractive { view_id, .. } => {
             make_changes(workbook, reset_changes(workbook, get_view(workbook, &view_id)?))
         }
-        Edit::SaveDefaultsOfInteractive { view_id } => {
-            let before = get_view(workbook, &view_id)?;
-            let view =
-                with_current_defaults(workbook, before).map_err(|_| Refused::Because("interactiveSavesTooMuch"))?;
-            if view == *before {
-                Made::nothing()
-            } else {
-                Made::ops(vec![Op::SetViews {
-                    views: vec![ViewToSet {
-                        view_id,
-                        view: Some(view),
-                    }],
-                }])
-            }
-        }
+        Edit::SaveDefaultsOfInteractive { view_id } => match with_current_defaults(workbook, get_view(workbook, &view_id)?) {
+            None => Made::nothing(),
+            Some(view) => Made::ops(vec![Op::SetViews { views: vec![ViewToSet { view_id, view: Some(view) }] }]),
+        },
     };
     Ok(out)
 }

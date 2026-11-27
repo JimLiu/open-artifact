@@ -54,11 +54,6 @@ export function formulaBreakParts(formula: string): FormulaBreakPart[] {
     return part;
   });
 }
-export function fixWaitingUnderPointer({ target, clientX }: Pick<MouseEvent, 'target' | 'clientX'>): Element | null {
-  let fixWaiting = target instanceof Element ? target.closest('[data-fix-waits]') : null;
-  let isBesideText = target instanceof Element && target.closest('.sheet-lines-beside-text') !== null;
-  return fixWaiting === null || !isBesideText || clientX < fixWaiting.getBoundingClientRect().right ? fixWaiting : null;
-}
 export function createFixPointer(store: Pick<SheetController, 'dispatch'>): FixPointer {
   let cellPointedAt: Element | null | undefined = null;
   let pending: PointingLater | null = null;
@@ -199,6 +194,8 @@ export function FixPillView({
 export const FIX_PILL_SIDE_OFFSET = 4;
 export const FIX_PILL_ROW_HEIGHT = 28;
 export const FIX_POINTED_AT_DELAY_MS = 150;
+export const fixWaitingUnderPointer = ({ target }: Pick<MouseEvent, 'target'>): Element | null =>
+  target instanceof Element ? target.closest('[data-fix-waits]') : null;
 export const pointClampedToRight = (element: Element, { clientX, clientY }: Pick<MouseEvent, 'clientX' | 'clientY'>) => ({
   clientX: Math.min(clientX, element.getBoundingClientRect().right - 1),
   clientY,

@@ -1,3 +1,4 @@
+import { graphemesOf } from '../chips/people-list.ts';
 import { translateMessage } from '../i18n/messages.ts';
 
 /** A formula and the value it comes to, as shown. */
@@ -8,7 +9,7 @@ export type FormulaNotWrittenWhy = 'noFormula' | 'makesAnAddress' | 'ranOutOfTim
 
 export function truncateShownValue(text: string): string {
   let [shown, count] = ['', 0];
-  for (let { segment } of new Intl.Segmenter().segment(text)) {
+  for (let segment of graphemesOf(text)) {
     if (count === MAX_SHOWN_VALUE_GRAPHEMES) return `${shown}…`;
     shown += segment;
     count += 1;

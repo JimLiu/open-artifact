@@ -768,6 +768,31 @@ export const sheetMessages = {
       defaultMessage: 'This is the only sheet, so it can’t be deleted.',
       id: 'SblI/UGTs2',
     }),
+  hideSheet: () =>
+    translateMessage({
+      defaultMessage: 'Hide',
+      id: 'ZaUVbtU6OT',
+    }),
+  unhideSheet: () =>
+    translateMessage({
+      defaultMessage: 'Unhide',
+      id: '+QmDSAfDv5',
+    }),
+  hiddenSheets: () =>
+    translateMessage({
+      defaultMessage: 'Hidden',
+      id: 'cFZvRF+JXs',
+    }),
+  onlyVisibleSheetIsNotHidden: () =>
+    translateMessage({
+      defaultMessage: 'This is the only visible sheet, so it can’t be hidden.',
+      id: 'b4eGaQwdUa',
+    }),
+  onlyVisibleSheetIsNotDeleted: () =>
+    translateMessage({
+      defaultMessage: 'This is the only visible sheet, so it can’t be deleted.',
+      id: 'tpuOjPvDyz',
+    }),
   figures: () =>
     translateMessage({
       defaultMessage: 'Sum, average and more',

@@ -3,28 +3,35 @@
 use std::rc::Rc;
 
 use crate::functions::{math, number, statistical, Answer, Arg, CallContext, Cells};
-use crate::value::{CellError, Value};
+use crate::value::{Array, CellError, Value};
 
 /// The function code (cut to a whole number) picks the function: 1 to 13 total ranges (AVERAGE, COUNT, COUNTA,
 /// MAX, MIN, PRODUCT, STDEV.S, STDEV.P, SUM, VAR.S, VAR.P, MEDIAN, MODE.SNGL), 14 to 19 take one range and a
 /// position or fraction (LARGE, SMALL, PERCENTILE.INC, QUARTILE.INC, PERCENTILE.EXC, QUARTILE.EXC). The skip code,
-/// 0 to 7, skips errors when it is 2 or 6; the odd ones, which skip hidden rows, are #VALUE!.
-/// The ranges must be written as ranges (not arrays or values), else #VALUE!.
+/// 0 to 7, skips errors when it is 2, 3, 6 or 7; the odd ones, which skip hidden rows, are #VALUE! of a range
+/// (an array has no hidden rows: `=AGGREGATE(14,7,{1,2;3,#N/A},1)` is 3).
+/// The ranges 1 to 13 total must be written as ranges (not arrays or values), else #VALUE!; 14 to 19 take an array
+/// or a value too (`=AGGREGATE(14,0,{1,2},1)` is 2).
 pub fn aggregate(args: &[Arg], cx: &mut CallContext) -> Answer {
     let locale = cx.locale;
     let code = args[0].number(locale)?.trunc();
     let skip = args[1].number(locale)?.trunc();
-    if !(1.0..=19.0).contains(&code) || !(0.0..=7.0).contains(&skip) || skip % 2.0 == 1.0 {
+    if !(1.0..=19.0).contains(&code) || !(0.0..=7.0).contains(&skip) {
         return Err(CellError::Value);
     }
-    let skip_errors = skip == 2.0 || skip == 6.0;
+    let skips_hidden_rows = skip % 2.0 == 1.0;
+    let skip_errors = matches!(skip as u8, 2 | 3 | 6 | 7);
     let rest = &args[2..];
     let code = code as usize;
     if code >= 14 {
         let [range, position] = rest else {
             return Err(CellError::Value);
         };
-        let range = Arg::Cells(cells_of(range, skip_errors)?);
+        let range = cells_or_array_of(range, skip_errors)?;
+        if skips_hidden_rows && range.is_range() {
+            return Err(CellError::Value);
+        }
+        let range = Arg::Cells(range);
         let k = match position {
             Arg::Missing | Arg::Place(_) => return Err(CellError::Value),
             Arg::Value(v) => v.clone(),
@@ -42,6 +49,9 @@ pub fn aggregate(args: &[Arg], cx: &mut CallContext) -> Answer {
             _ => quartile_exc(numbers(&pair[0])?, k),
         };
     }
+    if skips_hidden_rows {
+        return Err(CellError::Value);
+    }
     let ranges = rest.iter().map(|r| cells_of(r, skip_errors).map(Arg::Cells)).collect::<Result<Vec<Arg>, _>>()?;
     let name = [
         "AVERAGE", "COUNT", "COUNTA", "MAX", "MIN", "PRODUCT", "STDEV.S", "STDEV.P", "SUM", "VAR.S", "VAR.P", "MEDIAN",
@@ -57,15 +67,29 @@ pub fn aggregate(args: &[Arg], cx: &mut CallContext) -> Answer {
 /// A range AGGREGATE totals, its errors made blank when they are skipped.
 fn cells_of(arg: &Arg, skip_errors: bool) -> Result<Cells, CellError> {
     match arg {
-        Arg::Cells(cells) if cells.is_range() => {
-            if !skip_errors || !cells.values().any(Value::is_error) {
-                return Ok(cells.clone());
-            }
-            let array = cells.array.map(|v| if v.is_error() { Value::Blank } else { v.clone() });
-            Ok(Cells { array: Rc::new(array), place: cells.place })
-        }
+        Arg::Cells(cells) if cells.is_range() => Ok(skipped(cells.clone(), skip_errors)),
         _ => Err(CellError::Value),
     }
+}
+
+/// A range, an array or a value AGGREGATE takes a position or fraction of, its errors made blank when they are
+/// skipped; left out, #VALUE!.
+fn cells_or_array_of(arg: &Arg, skip_errors: bool) -> Result<Cells, CellError> {
+    let cells = match arg {
+        Arg::Cells(cells) => cells.clone(),
+        Arg::Value(v) => Cells { array: Rc::new(Array::single(v.clone())), place: None },
+        Arg::Missing | Arg::Place(_) => return Err(CellError::Value),
+    };
+    Ok(skipped(cells, skip_errors))
+}
+
+/// Cells with their errors made blank when they are skipped.
+fn skipped(cells: Cells, skip_errors: bool) -> Cells {
+    if !skip_errors || !cells.values().any(Value::is_error) {
+        return cells;
+    }
+    let array = cells.array.map(|v| if v.is_error() { Value::Blank } else { v.clone() });
+    Cells { array: Rc::new(array), place: cells.place }
 }
 
 /// The numbers of a range; an error in it is the answer.

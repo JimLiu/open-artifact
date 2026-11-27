@@ -11,12 +11,13 @@ import { Menu } from '../kit/menu.tsx';
 import { Popover } from '../kit/popover.tsx';
 import { Tooltip, TooltipGroup } from '../kit/tooltip.tsx';
 import { CHART_FRAME_PORT_MESSAGE } from '../charts/frame-messages.ts';
+import { MAX_INTERACTIVE_WRITES } from '../charts/interactive-frame-talk.ts';
 import { VIEWER_FONT_ATTRIBUTE } from '../shell/root-theme.ts';
 import { isObject } from '../chart-frame/chart-runtime.ts';
 import type { ChartInputs, ChartLook } from '../chart-frame/messages.ts';
-import { cellsAskedFor, inputsWithWritesAwaited, type ControlsOfInteractive, type WriteAwaited } from './cells.ts';
-import { componentOfCode, faultOf, handedToCode, ToldContext, type InteractiveFault } from './code.ts';
-import type { InteractiveToPage, PageToInteractive } from './messages.ts';
+import { cellsAskedFor, cellsToReset, inputsWithWritesAwaited, type ControlsOfInteractive, type WriteAwaited } from './cells.ts';
+import { Cell, componentOfCode, faultOf, handedToCode, showCell, tellOfCellsTo, ToldContext, type InteractiveFault } from './code.ts';
+import type { InteractiveRawWrite, InteractiveToPage, PageToInteractive } from './messages.ts';
 import './frame.css';
 
 type Fault = InteractiveFault;
@@ -28,6 +29,8 @@ const GLOBALS_TAKEN_AWAY = ['RTCPeerConnection', 'webkitRTCPeerConnection', 'RTC
 const FIRST_CONTROL = 'button, input, select, textarea, [tabindex="0"]';
 /** What, while open, takes Escape for itself. */
 const OPEN_LAYER = '[role="menu"], [role="dialog"]';
+/** Where keys type text, so Ctrl+Z and the like are theirs rather than the sheet's, and count no press. */
+const TEXT_FIELD = 'textarea, [contenteditable], input:not([type="range" i], [type="checkbox" i], [type="radio" i], [type="button" i], [type="submit" i], [type="color" i])';
 
 interface NavigationEvents {
   addEventListener(type: 'navigate', listener: (event: Event) => void): void;
@@ -93,6 +96,7 @@ async function runInteractive(
   container: HTMLElement,
   tell: (message: InteractiveToPage) => void,
   fail: (fault: Fault) => void,
+  press: () => number,
 ): Promise<RunningInteractive | null> {
   const address = URL.createObjectURL(new Blob([artifact], { type: 'text/javascript' }));
   let module: unknown;
@@ -106,7 +110,7 @@ async function runInteractive(
     URL.revokeObjectURL(address);
   }
   const init: unknown = isObject(module) && 'init' in module ? module.init : undefined;
-  const made = componentOfCode(init, handedToCode({ Tooltip, Button, Menu, Popover }));
+  const made = componentOfCode(init, handedToCode({ Tooltip, Button, Cell, Menu, Popover }));
   if (typeof made === 'string') {
     fail(made);
     return null;
@@ -122,16 +126,23 @@ async function runInteractive(
     hasToldDrawn = true;
     tell({ kind: 'drawn' });
   };
-  const setCells = (asked: unknown): void => {
-    if (!canWrite || isEnded) return;
-    const cells = cellsAskedFor(asked, inputs);
+  const write = (cells: InteractiveRawWrite[]): void => {
     if (cells.length === 0) return;
     writesMade += 1;
     awaited = [...awaited, { nth: writesMade, cells }];
-    tell({ kind: 'write', cells, nth: writesMade });
+    tell({ kind: 'write', cells, nth: writesMade, press: press() });
     draw();
   };
-  let controls: ControlsOfInteractive = Object.freeze({ canWrite, setCells });
+  const setCells = (asked: unknown): void => {
+    if (canWrite && !isEnded) write(cellsAskedFor(asked, inputs));
+  };
+  const resetCells = (asked: unknown): void => {
+    if (!canWrite || isEnded) return;
+    const cells = cellsToReset(asked, inputsWithWritesAwaited(inputs, awaited));
+    if (cells.length <= MAX_INTERACTIVE_WRITES) write(cells);
+  };
+  const controlsWith = (canWriteNow: boolean): ControlsOfInteractive => Object.freeze({ canWrite: canWriteNow, setCells, resetCells, showCell });
+  let controls = controlsWith(canWrite);
   function Shown(): React.ReactNode {
     React.useEffect(drawn, []);
     return null;
@@ -161,7 +172,7 @@ async function runInteractive(
     canWrite(next) {
       if (next === canWrite) return;
       canWrite = next;
-      controls = Object.freeze({ canWrite, setCells });
+      controls = controlsWith(canWrite);
       draw();
     },
     end() {
@@ -173,14 +184,45 @@ async function runInteractive(
   };
 }
 
-/** The keys the frame hands back to the page, and the person's own presses, told before the write they may make. */
-function listenToPerson(tell: (message: InteractiveToPage) => void): void {
+/**
+ * The keys the frame hands back to the page, and the person's own presses, told before the write they may make. Each
+ * press is counted, so the page undoes the writes of one press together: a pointer's press, a click or focus that
+ * comes without one, and a key that does not type text.
+ */
+function listenToPerson(tell: (message: InteractiveToPage) => void): { press: () => number } {
+  let [presses, keysUnderway, isPointerDown] = [0, 0, false];
   const pressed = (event: Event): void => {
     if (event.isTrusted) tell({ kind: 'pressed', at: Date.now() });
   };
   for (const type of ['pointerdown', 'pointerup', 'click']) window.addEventListener(type, pressed, { capture: true });
+  const listen = (type: string, listener: (event: Event) => void): void =>
+    window.addEventListener(type, (event) => event.isTrusted && listener(event), { capture: true });
+  listen('pointerdown', () => {
+    isPointerDown = true;
+    presses += 1;
+  });
+  for (const type of ['pointerup', 'pointercancel']) listen(type, () => setTimeout(() => (isPointerDown = false)));
+  listen('click', () => {
+    if (!isPointerDown && keysUnderway === 0) presses += 1;
+  });
+  listen('focusin', () => {
+    if (!isPointerDown) presses += 1;
+  });
+  for (const type of ['keydown', 'keypress', 'keyup'])
+    listen(type, () => {
+      keysUnderway += 1;
+      setTimeout(() => (keysUnderway -= 1));
+    });
   window.addEventListener('keydown', (event) => {
     if (!event.isTrusted) return;
+    const isInTextField = event.target instanceof Element && event.target.closest(TEXT_FIELD) !== null;
+    if (!isInTextField && !event.repeat) presses += 1;
+    const withCommand = (event.ctrlKey || event.metaKey) && !event.altKey ? event.key : '';
+    const isZ = withCommand === 'z' || withCommand === 'Z';
+    if (!isInTextField && (isZ || withCommand === 'y')) {
+      event.preventDefault();
+      tell({ kind: 'keyForPage', key: isZ && !event.shiftKey ? 'undo' : 'redo' });
+    }
     if (event.key === 'F6') {
       event.preventDefault();
       tell({ kind: 'keyForPage', key: event.shiftKey ? 'previousPart' : 'nextPart' });
@@ -188,6 +230,7 @@ function listenToPerson(tell: (message: InteractiveToPage) => void): void {
       tell({ kind: 'keyForPage', key: 'leave' });
   });
   window.addEventListener('blur', () => tell({ kind: 'keyboardLost' }));
+  return { press: () => presses };
 }
 
 const isEnabled = (element: Element): boolean => !element.matches(':disabled') && element.closest('[inert]') === null;
@@ -206,7 +249,8 @@ function listenToPage(port: MessagePort): void {
     if (error !== null && error !== undefined) fail('threw');
   });
   window.addEventListener('unhandledrejection', () => fail('threw'));
-  listenToPerson(tell);
+  const person = listenToPerson(tell);
+  tellOfCellsTo(tell);
   const container = document.getElementById('interactive');
   port.addEventListener('message', ({ data }: MessageEvent<PageToInteractive>) => {
     switch (data.kind) {
@@ -214,7 +258,7 @@ function listenToPage(port: MessagePort): void {
         if (hasBegun || hasFailed || container === null) return;
         hasBegun = true;
         applyLook(data.look);
-        void runInteractive(data.artifact, data, container, tell, fail).then((made) => {
+        void runInteractive(data.artifact, data, container, tell, fail, person.press).then((made) => {
           if (hasFailed) made?.end();
           else running = made;
         });

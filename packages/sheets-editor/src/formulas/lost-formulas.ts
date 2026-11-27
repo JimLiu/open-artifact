@@ -140,8 +140,8 @@ export function formulasLostToSort(before: WorkbookReads, after: WorkbookReads, 
   let rowsBefore = before.cellsHeldByRow(sheetId);
   for (let [rowId, cells] of after.cellsHeldByRow(sheetId)) {
     if (rowsBefore.get(rowId) === cells) continue;
-    for (let [columnId, cell] of cells) {
-      if (!isFormulaWithRefError(cell)) continue;
+    for (let columnId of cells.columnsWithAFormula()) {
+      if (!isFormulaWithRefError(cells.get(columnId) ?? null)) continue;
       let cellId = {
         sheetId,
         rowId,
@@ -187,8 +187,8 @@ export function formulasLostToLineEdit(before: WorkbookReads, after: WorkbookRea
   let rowsBefore = before.cellsHeldByRow(sheetId);
   for (let [rowId, cells] of after.cellsHeldByRow(sheetId)) {
     if (rowsBefore.get(rowId) === cells) continue;
-    for (let [columnId, cell] of cells) {
-      if (!isFormulaWithRefError(cell)) continue;
+    for (let columnId of cells.columnsWithAFormula()) {
+      if (!isFormulaWithRefError(cells.get(columnId) ?? null)) continue;
       let cellId = {
         sheetId,
         rowId,
@@ -241,7 +241,7 @@ export const WORD_OF_LINE_ACT: Partial<Record<EditKind, Exclude<ActThatLosesForm
   moveColumns: 'move',
 };
 export const LOST_REF_ERROR_TEXT = '#REF!';
-export const isFormulaWithRefError = (cell: CellContents): boolean =>
+export const isFormulaWithRefError = (cell: CellContents | null): boolean =>
   cell?.input.kind === 'formula' && cell.formulaText?.includes(LOST_REF_ERROR_TEXT) === true;
 export const REFERENCE_OR_REF_ERROR_PATTERN = /\$?[A-Z]+\$?\d+(?::\$?[A-Z]+\$?\d+)?|#REF!/g;
 export const isSameFormulaShape = (formula: string, otherFormula: string): boolean =>

@@ -1,7 +1,7 @@
 import { Tooltip } from '../kit/tooltip.tsx';
 import type { TooltipProps, TooltipSide } from '../kit/tooltip.tsx';
 import * as React from 'react';
-import { SMALL_BAR_SELECTOR } from './toolbar/fold.tsx';
+import { SMALL_BAR_SELECTOR, MOST_BAR_SELECTOR } from './toolbar/fold.tsx';
 import { MODIFIER_KEYS } from '../state/escape.ts';
 import { sheetMessages } from '../i18n/sheet-messages.ts';
 import { TOAST_SELECTOR } from '../shell/ui-root.tsx';
@@ -21,7 +21,7 @@ export type TouchPlaceOfHolder =
   | 'undo_card'
   | 'cells';
 /** Where the person last touched the page: a part of it, or how they did it when no part holds it. */
-export type TouchPlace = TouchPlaceOfHolder | 'menu_search' | 'bar_small' | 'card' | 'key' | 'other' | 'dropped_file' | 'host';
+export type TouchPlace = TouchPlaceOfHolder | 'menu_search' | 'bar_small' | 'bar_most' | 'card' | 'key' | 'other' | 'dropped_file' | 'host';
 /** The arrow key that moves on to the next tool. */
 export type NextToolArrowKey = 'left' | 'right';
 export function touchPlaceOf(target: Element, isKey: boolean, lastPlace: TouchPlace): TouchPlace {
@@ -32,7 +32,9 @@ export function touchPlaceOf(target: Element, isKey: boolean, lastPlace: TouchPl
   const isMoreOpen = () =>
     lastPlace === 'bar_more' || (target.closest(':root')?.querySelector(`${MORE_TOOLS_SELECTOR}:not([data-ending-style])`) ?? null) !== null;
   if (place === 'bar' && target.closest(PORTAL_SELECTOR) !== null && isMoreOpen()) return 'bar_more';
-  if (place === 'bar' && (target.closest(':root')?.querySelector(SMALL_BAR_SELECTOR) ?? null) !== null) return 'bar_small';
+  let isOnPage = (selector: string) => (target.closest(':root')?.querySelector(selector) ?? null) !== null;
+  if (place === 'bar' && isOnPage(SMALL_BAR_SELECTOR)) return 'bar_small';
+  if (place === 'bar' && isOnPage(MOST_BAR_SELECTOR)) return 'bar_most';
   if (place !== undefined && !(place === 'cells' && isKey)) return place;
   if (target.closest(PORTAL_SELECTOR) !== null) return lastPlace === 'cells' || lastPlace === 'key' ? 'card' : lastPlace;
   return isKey ? 'key' : 'other';
@@ -138,7 +140,7 @@ export const TOUCH_PLACES: [TouchPlaceOfHolder, string][] = [
   ['bar', '.sheet-menu-at-tool'],
   ['menu', '.sheet-menu-with-field'],
   ['bar', `.sheet-context-bar,[${CONTEXT_BAR_PART_ATTRIBUTE}]`],
-  ['top', '.sheet-formula-row,.sheet-view-tools,.sheet-pivot-table-bar'],
+  ['top', '.sheet-formula-row,.sheet-view-tools,.sheet-pivot-table-bar,.sheet-connected-table-bar'],
   ['tabs', '.sheet-bar'],
   ['filter_bar', '.sheet-own-filter-bar'],
   ['find_box', '.sheet-find-over-grid'],

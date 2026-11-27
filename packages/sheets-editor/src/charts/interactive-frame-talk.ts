@@ -6,23 +6,34 @@ import { parseChartFrameReply } from './frame-messages.ts';
 /** What the page gives the writes of one interactive: its port to the frame, the write to the sheet, and a timer. */
 export interface InteractiveWritesHost {
   tellFrame(message: PageToInteractive): void;
-  /** Writes the cells; `whenWritten` is called once the sheet has taken them (or turned them down). */
-  write(cells: CellWrittenFromAnInteractive[], whenWritten: () => void): void;
+  /**
+   * Writes the cells, made by the person's press numbered `press`; `whenWritten` is called once the sheet has taken
+   * them (or turned them down).
+   */
+  write(cells: CellWrittenFromAnInteractive[], press: number, whenWritten: () => void): void;
   later(act: () => void, ms: number): void;
 }
 
 export interface InteractiveWrites {
   inputsAre(next: ChartInputs): void;
-  write(cells: InteractiveRawWrite[], nth: number): void;
+  write(cells: InteractiveRawWrite[], nth: number, press?: number): void;
   /** Keeps a write until the press that made it is known to be the person's own, or for a while at most. */
-  hold(cells: InteractiveRawWrite[], nth: number): void;
+  hold(cells: InteractiveRawWrite[], nth: number, press?: number): void;
   release(): void;
+  /** Calls `then` once every write asked for so far has been answered. */
+  afterWrites(then: () => void): void;
   end(): void;
 }
 
 export const interactiveCellKey = ([input, row, column]: InteractiveRawWrite): string =>
   `${input} ${row} ${column}`;
-export const PAGE_KEYS_FROM_INTERACTIVE: readonly PageKeyFromInteractive[] = ['leave', 'nextPart', 'previousPart'];
+export const PAGE_KEYS_FROM_INTERACTIVE: readonly PageKeyFromInteractive[] = [
+  'leave',
+  'nextPart',
+  'previousPart',
+  'undo',
+  'redo',
+];
 export const MAX_INTERACTIVE_WRITES = 1000;
 export const MAX_INTERACTIVE_INDEX = 1e4;
 export const MAX_INTERACTIVE_TEXT_LENGTH = 32767;
@@ -61,6 +72,7 @@ export function parseInteractiveFrameReply(reply: unknown): InteractiveToPage | 
   switch (reply.kind) {
     case 'here':
     case 'keyboardLost':
+    case 'cellsOffered':
       return {
         kind: reply.kind,
       };
@@ -84,12 +96,32 @@ export function parseInteractiveFrameReply(reply: unknown): InteractiveToPage | 
             key,
           };
     }
+    case 'cellShown': {
+      let [input, row, column] = [
+        'input' in reply && reply.input,
+        'row' in reply && reply.row,
+        'column' in reply && reply.column,
+      ];
+      return isInteractiveText(input) &&
+        isInteractiveIndex(row) &&
+        isInteractiveIndex(column)
+        ? {
+            kind: 'cellShown',
+            input,
+            row,
+            column,
+          }
+        : null;
+    }
     case 'write': {
       let [cells, nth] = [
         'cells' in reply && reply.cells,
         'nth' in reply && reply.nth,
       ];
-      return typeof nth === 'number' && areInteractiveWrites(cells)
+      let press = 'press' in reply && reply.press;
+      return typeof nth === 'number' &&
+        typeof press === 'number' &&
+        areInteractiveWrites(cells)
         ? {
             kind: 'write',
             cells: cells.map(
@@ -101,6 +133,7 @@ export function parseInteractiveFrameReply(reply: unknown): InteractiveToPage | 
               ],
             ),
             nth,
+            press,
           }
         : null;
     }
@@ -111,6 +144,11 @@ export function parseInteractiveFrameReply(reply: unknown): InteractiveToPage | 
 
 export const INTERACTIVE_WRITE_SPACING_MS = 250;
 export const INTERACTIVE_HELD_WRITE_MS = 1e4;
+/** A new sitting of the person's writes in an interactive, for undoing them together: when it starts, and its id if it does. */
+export const newInteractiveSitting = (): { atMs: number; idIfSittingStarts: string } => ({
+  atMs: Date.now(),
+  idIfSittingStarts: crypto.randomUUID(),
+});
 
 export function interactiveCellWrite([input, row, column, value]: InteractiveRawWrite): CellWrittenFromAnInteractive {
   let cell = {
@@ -152,17 +190,19 @@ export function createInteractiveWrites(inputs: ChartInputs, host: InteractiveWr
   let inputsNow = inputs;
   let waiting = new Map<string, InteractiveRawWrite>();
   let isWriting = false;
-  let [asked, answered] = [0, 0];
+  let [asked, answered, press] = [0, 0, 0];
   let isEnded = false;
-  let tellInputs = (): void =>
-    void (
-      isEnded ||
+  let afterAllWritten: (() => void)[] = [];
+  let tellInputs = (): void => {
+    if (!isEnded)
       host.tellFrame({
         kind: 'inputsChanged',
         inputs: inputsNow,
         answered,
-      })
-    );
+      });
+    if (answered === asked)
+      for (let then of afterAllWritten.splice(0)) then();
+  };
   let writeWaiting = (): void => {
     if (isWriting || answered === asked) return;
     let [cells, nth] = [[...waiting.values()], asked];
@@ -180,15 +220,20 @@ export function createInteractiveWrites(inputs: ChartInputs, host: InteractiveWr
       writeWaiting();
     };
     host.later(stepDone, INTERACTIVE_WRITE_SPACING_MS);
-    host.write(cells.map(interactiveCellWrite), () => {
+    host.write(cells.map(interactiveCellWrite), press, () => {
       answered = nth;
       tellInputs();
       stepDone();
     });
   };
-  let held: { cells: InteractiveRawWrite[]; nth: number } | null = null;
-  let write = (cells: InteractiveRawWrite[], nth: number): void => {
+  let held: [cells: InteractiveRawWrite[], nth: number, press?: number] | null = null;
+  let write = (
+    cells: InteractiveRawWrite[],
+    nth: number,
+    pressOfWrite: number = press,
+  ): void => {
     held = null;
+    press = pressOfWrite;
     for (let cell of cells) waiting.set(interactiveCellKey(cell), cell);
     asked = nth;
     writeWaiting();
@@ -199,18 +244,16 @@ export function createInteractiveWrites(inputs: ChartInputs, host: InteractiveWr
       tellInputs();
     },
     write,
-    hold(cells, nth) {
-      let hold = {
-        cells,
-        nth,
-      };
+    hold(...hold) {
       held = hold;
       host.later(
-        () => held === hold && write([], nth),
+        () => held === hold && write([], hold[1]),
         INTERACTIVE_HELD_WRITE_MS,
       );
     },
-    release: () => void (held !== null && write(held.cells, held.nth)),
+    release: () => void (held !== null && write(...held)),
+    afterWrites: (then) =>
+      void (answered === asked ? then() : afterAllWritten.push(then)),
     end() {
       isEnded = true;
     },

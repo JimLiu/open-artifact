@@ -27,12 +27,12 @@ import type { InsertLinesCommand } from '../edits/insert-lines.ts';
 import type { CellControlInPlaceOfFormat, CellControlInsertChoice, WorkbookInFormatMenu } from '../format/number-format-search.tsx';
 import type { BarPicker, InsertRowsOrColumnsTools } from './search-menu/bar-commands.tsx';
 import type { ContextTool, ContextToolsShape } from './toolbar/context-tools.ts';
-import type { ToolOfBarLine } from './toolbar/fold.tsx';
+import type { BesideTool, ToolOfBarLine } from './toolbar/fold.tsx';
 import type { DockedBarChoice } from './docked-bar.tsx';
 import { usePopupRoomAtFoot, popupPropsUnderHeader } from '../shell/bottom-insets.ts';
 import { isTrustedEscapeClose } from '../app/page-guards.ts';
 import { swallowPressAfterItemPress, swallowPressAfterTriggerPress, swallowRestOfPress } from './press-swallow.ts';
-import { menuTakesCaretOnSmallTouch } from './menu-initial-focus.ts';
+import { menuTakesCaretOnSmallTouch, menuTakesInitialCaret } from './menu-initial-focus.ts';
 import { isTouchBelowSm, useCoarsePointerMedia } from '../app/media-queries.ts';
 import { isGridOrGridPopupTrigger } from '../dom/grid-role.ts';
 import { toolbarTabStopOf, useToolbarArrowKeysHint } from './toolbar/keys-hint.tsx';
@@ -126,12 +126,19 @@ export interface ToolbarPopupFocusAsked {
   opensListUnderCell?: () => boolean;
   /** A picker opened from this menu is open in its place; shutting the menu then moves the caret only if it was opened by key. */
   isPickerInItsPlace?: boolean;
+  /** Opening by a press lends the caret to the menu when it would go back to the cells, so keys go to the menu; Tab shuts it and the caret goes back to the button. */
+  takesKeysAtPress?: boolean;
   toolbar: React.RefObject<HTMLElement | null>;
   anchor?: React.RefObject<HTMLElement | null>;
   isAskedByKey?: () => boolean;
   isAskedByKeyFromCells?: () => boolean;
   takesCaretAtOnce?: boolean;
   isMenu?: boolean;
+}
+/** The button the caret was lent from when a press opened a menu, and whether it showed its focus ring. */
+export interface LentButton {
+  button: HTMLElement;
+  hadRing: boolean;
 }
 /** The field of a toolbar menu, before the menu adds what only it knows. */
 export interface ToolbarMenuField extends Omit<MenuField, 'takesCaretAtFirst' | 'onShutByEnter'> {
@@ -256,6 +263,7 @@ export function useToolbarPopupFocus({
   onOpenChange,
   whatHasCaretAfter,
   opensListUnderCell = () => false,
+  takesKeysAtPress,
   isPickerInItsPlace = false,
   toolbar,
   anchor,
@@ -270,6 +278,8 @@ export function useToolbarPopupFocus({
   let wasOpenedByKeyRef = React.useRef(false);
   let wasAskedFromCellsRef = React.useRef(false);
   let wasOutsidePressRef = React.useRef(false);
+  let isLentAtPressRef = React.useRef(false);
+  let lentButtonRef = React.useRef<LentButton | null>(null);
   let closeOnUnmount = React.useEffectEvent(() => {
     if (isOpen) onOpenChange(false, null);
   });
@@ -290,6 +300,7 @@ export function useToolbarPopupFocus({
   return {
     timesLeftOpen,
     wasOpenedByKey: () => wasOpenedByKeyRef.current,
+    isLentAtPress: () => isLentAtPressRef.current,
     aboveComposer: aboveComposer ?? popupPropsUnderHeader(),
     onRootOpenChange: (open: boolean, { reason, event }: PopupOpenChangeDetails) => {
       pressedTargetRef.current = isTrustedEscapeClose(reason, event) ? event.target : null;
@@ -303,8 +314,19 @@ export function useToolbarPopupFocus({
       wasOutsidePressRef.current = false;
       wasAskedFromCellsRef.current = isAskedByKeyFromCells();
       wasOpenedByKeyRef.current = openedBy === 'keyboard' || isAskedByKey() || wasAskedFromCellsRef.current;
-      if (wasOpenedByKeyRef.current || takesCaretAtOnce) return true;
-      return menuTakesCaretOnSmallTouch(toolbar.current);
+      isLentAtPressRef.current = false;
+      lentButtonRef.current = null;
+      if (wasOpenedByKeyRef.current || takesCaretAtOnce || menuTakesCaretOnSmallTouch(toolbar.current)) return true;
+      isLentAtPressRef.current = takesKeysAtPress === true && menuTakesInitialCaret(toolbar.current, whatHasCaretAfter());
+      let focused = toolbar.current?.ownerDocument.activeElement;
+      lentButtonRef.current =
+        isLentAtPressRef.current && focused instanceof HTMLElement && focused.matches('button')
+          ? {
+              button: focused,
+              hadRing: focused.matches(':focus-visible'),
+            }
+          : null;
+      return isLentAtPressRef.current;
     },
     finalFocus: () => {
       if (isPickerInItsPlace && !wasOpenedByKeyRef.current) return false;
@@ -314,7 +336,21 @@ export function useToolbarPopupFocus({
       let goesBackToGrid = wasOpenedByKeyRef.current && !wasOutsidePressRef.current && isCaretBackToGrid(caretAfter, opensListUnderCell());
       let caretGoesElsewhere = (pressedTarget !== null && pressedTarget !== caretAfter) || goesBackToGrid;
       let isNotGridElement = caretAfter !== false && !isGridOrGridPopupTrigger(caretAfter);
-      let isTakenAtOnce = takesCaretAtOnce && !wasOpenedByKeyRef.current;
+      let isTakenAtOnce = (takesCaretAtOnce && !wasOpenedByKeyRef.current) || isLentAtPressRef.current;
+      let lentButton = caretAfter !== false && isGridOrGridPopupTrigger(caretAfter) ? lentButtonRef.current : null;
+      isLentAtPressRef.current = false;
+      lentButtonRef.current = null;
+      if (lentButton !== null) {
+        let doc = lentButton.button.ownerDocument;
+        let focused = doc.activeElement;
+        let isFocusElsewhere = focused !== null && focused !== doc.body && focused.closest('[role=menu]') === null;
+        if (wasOutsidePressRef.current && isFocusElsewhere) return false;
+        lentButton.button.focus({
+          preventScroll: true,
+          focusVisible: lentButton.hadRing,
+        });
+        if (lentButton.button === doc.activeElement) return lentButton.button;
+      }
       if (!caretGoesElsewhere || isTakenAtOnce || (isNotGridElement && !wasOpenedByKeyRef.current)) return caretAfter;
       if (!wasOpenedByKeyRef.current) return anchor?.current ?? true;
       return toolbarTabStopOf(toolbar.current) ?? true;
@@ -335,10 +371,12 @@ export function ToolbarMenu({
   ...rest
 }: ToolbarMenuProps) {
   let isPointerCoarse = useCoarsePointerMedia();
+  let isTypingRef = React.useRef(false);
   let {
     timesLeftOpen,
     onRootOpenChange,
     wasOpenedByKey,
+    isLentAtPress,
     aboveComposer,
     ...focusProps
   } = useToolbarPopupFocus({
@@ -360,13 +398,27 @@ export function ToolbarMenu({
   let typed = field?.typed ?? '';
   let [shownTyped, setShownTyped] = React.useState(typed);
   if (isOpen && shownTyped !== typed) setShownTyped(typed);
-  return <Menu.Root key={timesLeftOpen} modal={false} open={isOpen} onOpenChange={onRootOpenChange} onOpenChangeComplete={(isNowOpen) => {
+  return <Menu.Root key={timesLeftOpen} modal={false} open={isOpen} onOpenChange={(open, details) => {
+        isTypingRef.current = false;
+        onRootOpenChange(open, details);
+      }} onOpenChangeComplete={(isNowOpen) => {
         if (!isNowOpen) setShownTyped('');
       }}>{field !== undefined &&
           <TypedSearchAnnouncer typed={field.typed} found={(isNotComposing) => isOpen && field.saidOf(field.typed, isNotComposing)} />}{tooltip === null
           ? button
           : <ToolbarTooltip name={tooltip} side={tooltipSide} isShut={isOpen || isTooltipShut}>{button}</ToolbarTooltip>}{field === undefined
-          ? <Menu.Popup {...popupProps} onMouseDown={preventMouseDownDefault} onKeyDownCapture={blockRepeatedEnterOrSpace}>{children}</Menu.Popup>
+          ? <Menu.Popup {...popupProps} onMouseDown={preventMouseDownDefault} onKeyDownCapture={(event) => {
+                blockRepeatedEnterOrSpace(event);
+                if (!isLentAtPress()) return;
+                let isPrintable = event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey;
+                if (/^(?:Arrow|Home$|End$|Enter$)/.test(event.key)) isTypingRef.current = false;
+                else if (isPrintable && event.key !== ' ') isTypingRef.current = true;
+                else if (isPrintable && isTypingRef.current) event.preventDefault();
+                if (event.key !== 'Tab') return;
+                event.preventDefault();
+                event.stopPropagation();
+                rest.onOpenChange(false, null);
+              }}>{children}</Menu.Popup>
           : (<MenuWithField {...popupProps} isAtTool {...field.handlers} field={{
                 ...field,
                 renderRowsFor: (typedNow: string, ...restArgs: []) =>
@@ -792,7 +844,9 @@ export const FormattingToolbar = React.memo(function ({
       ),
     [toolsOffBar, sectionTools],
   );
-  let besides = React.useMemo(() => toolNeighbours(barRows, hasComment ? 'tool' : 'end'), [barRows, hasComment]);
+  let hasLineBeforeComment = hasComment && !toolsOffBar.includes('lineBeforeComment');
+  let beforeComment: BesideTool = hasLineBeforeComment ? 'line' : 'tool';
+  let besides = React.useMemo(() => toolNeighbours(barRows, hasComment ? beforeComment : 'end'), [barRows, hasComment, beforeComment]);
   let separatorBefore = (tool: ToolOfBarLine) => {
     let rowIndex = TOOLBAR_LINES.findIndex((row) => row.includes(tool));
     let rowsShown = barRows.map(({ length: rowLength }) => rowLength > 0);
@@ -1032,6 +1086,6 @@ export const FormattingToolbar = React.memo(function ({
                       }} rowsThatInsertLines={rowsThatInsertLines} whyNoChart={whyNoChartNow} onSheetMenuAsked={(isByKey) => {
                         if (moreButtonRef.current !== null) onSheetMenuAsked(moreButtonRef.current, isByKey);
                       }} /></ToolbarMenu></BarTool>{comment !== null &&
-                  <span data-before="tool" data-after="end" className="flex flex-none">{comment}</span>}</BarToolsProvider></Toolbar>{isSwipedRow &&
+                  <><BarSeparator isHidden={!hasLineBeforeComment} /><span data-before={beforeComment} data-after="end" className="flex flex-none">{comment}</span></>}</BarToolsProvider></Toolbar>{isSwipedRow &&
           <MoreOfRowCaret at="end" />}</div></div>;
 });

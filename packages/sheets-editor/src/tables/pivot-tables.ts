@@ -1,5 +1,6 @@
 import { readsAsStored, cellRefOf } from '../model/workbook.ts';
-import { isSameCell, areaOfPosition } from '../selection/model.ts';
+import { isSameCell, areaOfPosition, moveActiveCellTo } from '../selection/model.ts';
+import { withoutOtherRanges } from '../selection/several-ranges.ts';
 import { withNoEffects } from '../state/transitions.ts';
 import { queueEdit, IF_QUEUED_DEFAULTS, IF_QUEUED_PLACE_CHANGED } from '../model/edit-effects.ts';
 import { cellShownText } from '../clipboard/text-escaping.ts';
@@ -30,7 +31,8 @@ import type {
   ValuesOfFilteredColumnAnswer,
 } from '@open-artifact/sheets-core';
 import type { EditRefusedOnPage, PageState } from '../state/initial-state.ts';
-import type { PageEvent } from '../state/event-reducer.ts';
+import type { PageEvent, PivotTableAsked } from '../state/event-reducer.ts';
+import type { ReadsWithTextMeasurer } from '../state/controller.ts';
 import type { CellId, WorkbookReads } from '../model/workbook.ts';
 import type { PageTransition } from '../state/transitions.ts';
 /** A section of the pivot table pane. */
@@ -267,13 +269,27 @@ export function isCellInTableOfPivot(reads: WorkbookReads, table: TableOfASheet,
     position.columnIndex <= bottomRight.columnIndex
   );
 }
-export function askForPivotTable(state: PageState, reads: WorkbookReads, sheetName: string): PageTransition {
+export function askForPivotTable(
+  state: PageState,
+  reads: ReadsWithTextMeasurer,
+  { nameOfNewSheet: sheetName, of: pivotCellAsked }: Pick<PivotTableAsked, 'nameOfNewSheet' | 'of'>,
+): PageTransition {
   let menuShut: PageState = {
       ...state,
       menu: null,
       dropdown: null,
     },
-    pivotCellId = pivotTableCellAt(reads, state.activeCell);
+    pivotCellAtActive = pivotTableCellAt(reads, state.activeCell);
+  if (pivotCellAsked !== undefined && pivotCellAtActive !== null && !isSameCell(pivotCellAtActive, pivotCellAsked))
+    return {
+      state: withPivotTablePane(withoutOtherRanges(moveActiveCellTo(menuShut, reads, pivotCellAsked)), freshPivotTablePane(pivotCellAsked)),
+      effects: [
+        {
+          kind: 'dropWhatIsHeld',
+        },
+      ],
+    };
+  let pivotCellId = pivotCellAsked ?? pivotCellAtActive;
   if (pivotCellId !== null) {
     const pane = pivotTableOfSidePane(state),
       timesSidePaneAsked = state.timesSidePaneAsked + (pane === null ? 0 : 1),

@@ -25,6 +25,6 @@ export const isTouchOrPenPointer = ({ nativeEvent }: Pick<React.MouseEvent, 'nat
   'pointerType' in nativeEvent && (nativeEvent.pointerType === 'touch' || nativeEvent.pointerType === 'pen');
 export const opensMenuAtPointer = (event: React.MouseEvent): boolean => isContextMenuClick(event) || isTouchOrPenPointer(event);
 export const tabbableControlsIn = (container: ParentNode): HTMLElement[] =>
-  [...container.querySelectorAll<HTMLElement>('button:enabled:not([tabindex="-1"]), input:enabled:not([tabindex="-1"]), [role="listbox"][tabindex="0"]')].filter(
+  [...container.querySelectorAll<HTMLElement>('button:enabled:not([tabindex="-1"]), input:enabled:not([tabindex="-1"]), [role="listbox"][tabindex="0"], [role="button"][tabindex="0"]:not([data-base-ui-focus-guard])')].filter(
     (control) => control.getClientRects().length > 0,
   );

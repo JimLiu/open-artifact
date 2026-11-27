@@ -4,7 +4,7 @@ import type { OwnFilter, PageState } from '../state/initial-state.ts';
 import type { PageContext, PointerPressed } from '../state/event-reducer.ts';
 import type { PageTransition } from '../state/transitions.ts';
 import type { GridPoint } from '../grid/geometry.ts';
-import type { CellArea, CellSelection } from './model.ts';
+import type { CellArea, CellPosition, CellSelection } from './model.ts';
 import type { LinesLanding } from './move-lines.ts';
 import type { TableIndexRun } from './table-select.ts';
 import { layoutOfView } from '../grid/layout.ts';
@@ -12,7 +12,8 @@ import { areasOverlap } from '../model/workbook.ts';
 import { areasOfRuleRanges } from '../format/conditional/descriptions.ts';
 import { tablesToOutline } from '../tables/tables-in-view.ts';
 import { drawnOwnFiltersOfSheet, ownFilterTableArea } from '../tables/own-filters.ts';
-import { areaOfFilteredTable } from '../tables/finding.ts';
+import { areaOfFilteredTable, placedTablesOfSheet } from '../tables/finding.ts';
+import type { PlacedTable } from '../tables/finding.ts';
 import { isInSpan, rangeSpansOnScreen, dropIndexAtPointer } from '../grid/geometry.ts';
 import { selectedArea, scrollToShowPosition, isSameCell, selectionBetweenPositions, isSameArea } from './model.ts';
 import { ROW_HEADER_WIDTH } from '../grid/cell-metrics-values.ts';
@@ -33,6 +34,16 @@ export interface TableHeaderArea {
 /** A table's header area, and whether something stands right under it that its rows would leave behind. */
 export interface TableToFindColumnsFreeIn extends TableHeaderArea {
   hasSomethingRightUnder: boolean;
+}
+/** What sits outside a table's rows over its columns: which columns are clear there, and the cells shown below the first blank row under it. */
+export interface ColumnsOutsideArea {
+  clear: boolean[];
+  shownPastBlankRow: CellPosition[];
+}
+/** Whether the data may go on below a table, for the tables of the sheet it was found with. */
+interface DataGoesOnBelowCached {
+  tablesOfSheet: readonly PlacedTable[];
+  mayGoOn: boolean;
 }
 /** Which columns of a table may move as whole columns, and which may move as the table's cells only. */
 export interface ColumnsFreeToMove {
@@ -115,10 +126,10 @@ export function columnsEmptyOutsideArea(
   view: PageState,
   reads: ReadsWithTextMeasurer,
   { topRowIndex, rowCount, leftColumnIndex, columnCount }: CellArea,
-): boolean[] {
+): ColumnsOutsideArea {
   let { sheetId } = view;
   let key = [sheetId, topRowIndex, rowCount, leftColumnIndex, columnCount].join(' ');
-  let byArea = columnsFreeToMoveCache.get(reads) ?? new Map<string, boolean[]>();
+  let byArea = columnsFreeToMoveCache.get(reads) ?? new Map<string, ColumnsOutsideArea>();
   columnsFreeToMoveCache.set(reads, byArea);
   let cached = byArea.get(key);
   if (cached !== undefined) return cached;
@@ -128,6 +139,7 @@ export function columnsEmptyOutsideArea(
     },
     () => true,
   );
+  let shownBelow: CellPosition[] = [];
   let rowAfter = topRowIndex + rowCount;
   for (let outside of [
     {
@@ -146,7 +158,9 @@ export function columnsEmptyOutsideArea(
     if (outside.rowCount <= 0) continue;
     for (let cellId of reads.cellsOnShowIn(sheetId, outside)) {
       let position = reads.positionOfCell(cellId);
-      if (position !== null) isEmpty[position.columnIndex - leftColumnIndex] = false;
+      if (position === null) continue;
+      isEmpty[position.columnIndex - leftColumnIndex] = false;
+      if (position.rowIndex >= rowAfter) shownBelow.push(position);
     }
     for (let merged of reads.mergedAreasIn(sheetId, outside))
       for (let offset = 0; offset < merged.columnCount; offset += 1) {
@@ -154,12 +168,51 @@ export function columnsEmptyOutsideArea(
         if (index >= 0 && index < columnCount) isEmpty[index] = false;
       }
   }
-  return (byArea.set(key, isEmpty), isEmpty);
+  let rowsShownBelow = new Set(shownBelow.map(({ rowIndex }) => rowIndex));
+  let blankRow = rowAfter;
+  while (rowsShownBelow.has(blankRow)) blankRow += 1;
+  let outside: ColumnsOutsideArea = {
+    clear: isEmpty,
+    shownPastBlankRow: shownBelow.filter(({ rowIndex }) => rowIndex > blankRow),
+  };
+  return (byArea.set(key, outside), outside);
+}
+/** Whether a row past the blank row holds two cells or more that no titled table takes in, so the data may go on there. */
+export function doesDataGoOnBelow(outside: ColumnsOutsideArea, tablesOfSheet: readonly PlacedTable[]): boolean {
+  let cached = dataGoesOnBelowCache.get(outside);
+  if (cached?.tablesOfSheet === tablesOfSheet) return cached.mayGoOn;
+  let { shownPastBlankRow } = outside;
+  let cellsInRow = new Map<number, number>();
+  for (let { rowIndex } of shownPastBlankRow) cellsInRow.set(rowIndex, (cellsInRow.get(rowIndex) ?? 0) + 1);
+  let titledTables = tablesOfSheet.filter(({ area }) => {
+    let rowAbove = -1;
+    for (let rowIndex of cellsInRow.keys()) if (rowIndex < area.topRowIndex && rowIndex > rowAbove) rowAbove = rowIndex;
+    return cellsInRow.get(rowAbove) === 1;
+  });
+  let rowsSeen = new Set<number>();
+  let mayGoOn = shownPastBlankRow.some(({ rowIndex, columnIndex }) => {
+    if (
+      titledTables.some(
+        ({ area }) => isInSpan(rowIndex, area.topRowIndex, area.rowCount) && isInSpan(columnIndex, area.leftColumnIndex, area.columnCount),
+      )
+    )
+      return false;
+    if (rowsSeen.has(rowIndex)) return true;
+    return (rowsSeen.add(rowIndex), false);
+  });
+  return (
+    dataGoesOnBelowCache.set(outside, {
+      tablesOfSheet,
+      mayGoOn,
+    }),
+    mayGoOn
+  );
 }
 export function columnsFreeToMove(
   view: PageState,
   reads: ReadsWithTextMeasurer,
   { area, rowCountOfHeader, hasSomethingRightUnder }: TableToFindColumnsFreeIn = {} as TableToFindColumnsFreeIn,
+  tablesOfSheet: readonly PlacedTable[],
   columnsReadAcrossRows: ReadonlySet<number>,
 ): ColumnsFreeToMove {
   let { columnEdges } = layoutOfView(view, reads);
@@ -189,12 +242,15 @@ export function columnsFreeToMove(
       spillArea.topRowIndex + spillArea.rowCount <= area.topRowIndex + area.rowCount;
     if (spillArea !== undefined && !isOneColumnWithinRows && areasOverlap(spillArea, area)) holdColumnsOf(spillArea);
   }
-  let isEmptyOutside = columnsEmptyOutsideArea(view, reads, area);
-  let wholeColumns = mayMove.map((isFree, offset) => isFree && isEmptyOutside[offset] === true);
-  let cells = mayMove.map(
-    (isFree, offset) =>
-      isFree && rowCountOfHeader === 1 && !hasSomethingRightUnder && !columnsReadAcrossRows.has(area.leftColumnIndex + offset),
-  );
+  let outside = columnsEmptyOutsideArea(view, reads, area);
+  let wholeColumns = mayMove.map((isFree, offset) => isFree && outside.clear[offset] === true);
+  /** Cells alone do not move when the data may go on below or another table sits right above. */
+  let mayMoveCells =
+    rowCountOfHeader === 1 &&
+    !hasSomethingRightUnder &&
+    !doesDataGoOnBelow(outside, tablesOfSheet) &&
+    !isUnderAnotherTable(reads, view.sheetId, area, tablesOfSheet);
+  let cells = mayMove.map((isFree, offset) => isFree && mayMoveCells && !columnsReadAcrossRows.has(area.leftColumnIndex + offset));
   return {
     wholeColumns,
     cells,
@@ -205,21 +261,21 @@ export function tablesToMoveColumnsOf(view: PageState, reads: ReadsWithTextMeasu
     effect,
     ranges: areasOfRuleRanges(reads, view.sheetId, liveRanges),
   }));
-  return [
+  /** A found table without a footer also counts what sits right under it. */
+  let hasSomethingRightUnderArea = ({ topRowIndex, rowCount, leftColumnIndex, columnCount }: CellArea): boolean =>
+    reads.columnIndexesOnShowIn(view.sheetId, topRowIndex + rowCount).some((columnIndex: number) => isInSpan(columnIndex, leftColumnIndex, columnCount));
+  let tables: TableToFindColumnsFreeIn[] = [
     ...tablesToOutline(view, reads).map(
-      ({ area, rowCountOfHeader }: TableHeaderArea): TableToFindColumnsFreeIn => ({
+      ({ area, rowCountOfHeader, table }): TableToFindColumnsFreeIn => ({
         area,
         rowCountOfHeader,
-        hasSomethingRightUnder: false,
+        hasSomethingRightUnder: table.footerRows === null && hasSomethingRightUnderArea(area),
       }),
     ),
     ...drawnOwnFiltersOfSheet(view, view.sheetId).flatMap((ownFilter: OwnFilter): TableToFindColumnsFreeIn[] => {
       let [filteredArea, tableArea] = [areaOfFilteredTable(reads, ownFilter), ownFilterTableArea(reads, ownFilter)];
       if (filteredArea === null || tableArea === null) return [];
-      let columnsUnder = reads.columnIndexesOnShowIn(view.sheetId, tableArea.topRowIndex + tableArea.rowCount);
-      let hasSomethingRightUnder =
-        ownFilter.liveCellTable!.footerRows === null &&
-        columnsUnder.some((columnIndex: number) => isInSpan(columnIndex, tableArea.leftColumnIndex, tableArea.columnCount));
+      let hasSomethingRightUnder = ownFilter.liveCellTable!.footerRows === null && hasSomethingRightUnderArea(tableArea);
       let rowCountOfHeader = filteredArea.rowIndexOfButtons - tableArea.topRowIndex + 1;
       return [
         {
@@ -229,7 +285,9 @@ export function tablesToMoveColumnsOf(view: PageState, reads: ReadsWithTextMeasu
         },
       ];
     }),
-  ].map(({ area, rowCountOfHeader, hasSomethingRightUnder }: TableToFindColumnsFreeIn): TableToMoveColumnsOf => {
+  ];
+  let tablesOfSheet = placedTablesOfSheet(view, reads, view.sheetId).certain;
+  return tables.map(({ area, rowCountOfHeader, hasSomethingRightUnder }: TableToFindColumnsFreeIn): TableToMoveColumnsOf => {
     let rowAfter = area.topRowIndex + area.rowCount;
     let isAmongRows = ({ topRowIndex, rowCount }: CellArea): boolean => topRowIndex < rowAfter && topRowIndex + rowCount > area.topRowIndex;
     let goesPastRows = ({ topRowIndex, rowCount }: CellArea): boolean => topRowIndex < area.topRowIndex || topRowIndex + rowCount > rowAfter;
@@ -249,6 +307,7 @@ export function tablesToMoveColumnsOf(view: PageState, reads: ReadsWithTextMeasu
           rowCountOfHeader,
           hasSomethingRightUnder,
         },
+        tablesOfSheet,
         new Set(columnsReadAcrossRows),
       ),
       rangesThatStop: {
@@ -711,7 +770,29 @@ export function columnGripsOfTables(view: PageState, reads: ReadsWithTextMeasure
     ).flat();
   });
 }
-export const columnsFreeToMoveCache = new WeakMap<WorkbookReads, Map<string, boolean[]>>();
+export const columnsFreeToMoveCache = new WeakMap<WorkbookReads, Map<string, ColumnsOutsideArea>>();
+export const dataGoesOnBelowCache = new WeakMap<ColumnsOutsideArea, DataGoesOnBelowCached>();
+/** A table right above whose last shown row has two cells or more over these columns. */
+export const isUnderAnotherTable = (
+  reads: WorkbookReads,
+  sheetId: SheetId,
+  { topRowIndex, leftColumnIndex, columnCount }: CellArea,
+  tablesOfSheet: readonly PlacedTable[],
+): boolean => {
+  if (
+    !tablesOfSheet.some(
+      ({ area }) =>
+        area.topRowIndex + area.rowCount <= topRowIndex &&
+        Math.min(area.leftColumnIndex + area.columnCount, leftColumnIndex + columnCount) - Math.max(area.leftColumnIndex, leftColumnIndex) >= 2,
+    )
+  )
+    return false;
+  let cellsShownInRow = (rowIndex: number): number =>
+    reads.columnIndexesOnShowIn(sheetId, rowIndex).filter((columnIndex: number) => isInSpan(columnIndex, leftColumnIndex, columnCount)).length;
+  let rowIndex = topRowIndex - 1;
+  while (rowIndex >= 0 && cellsShownInRow(rowIndex) === 0) rowIndex -= 1;
+  return rowIndex >= 0 && cellsShownInRow(rowIndex) > 1;
+};
 export const MOST_CELLS_IN_A_MOVE = 2800;
 export const columnsReadByEffect = (effect: Effect): ColumnId[] =>
   effect.kind === 'colorScale'

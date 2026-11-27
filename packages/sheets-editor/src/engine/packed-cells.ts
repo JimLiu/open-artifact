@@ -67,7 +67,7 @@ export function rowsOfPackedCells(blocks: Iterable<CellsPacked>): Map<RowId, Pac
   return rows;
 }
 
-export const NO_CELLS: readonly CellContents[] = Object.freeze([]);
+export const NO_CELLS: readonly never[] = Object.freeze([]);
 export const copiedThroughJson = <T>(input: T): T => JSON.parse(JSON.stringify(input));
 export const keptRows: (KeptRow | undefined)[] = [];
 export let firstKeptRow: number, keptRowCount: number, keptCellCount: number;
@@ -373,6 +373,23 @@ export const PackedRowCells = class PackedRowCells implements ReadonlyMap<Column
   }
   hasAnError(): boolean {
     return this.#anyFormHas(128);
+  }
+  /** The columns of the row whose form has (bits under mask) === bits. */
+  #columnsWhereForm(mask: number, bits: number): readonly ColumnId[] {
+    let { forms } = this.#block;
+    let columnIds: readonly ColumnId[] = NO_CELLS;
+    for (let index = this.#start; index < this.#end; index += 1) {
+      if ((forms[index] & mask) !== bits) continue;
+      if (columnIds === NO_CELLS) columnIds = [];
+      (columnIds as ColumnId[]).push(this.#block.columnIdAt(index));
+    }
+    return columnIds;
+  }
+  columnsWithAFormula(): readonly ColumnId[] {
+    return this.#columnsWhereForm(7, 3);
+  }
+  columnsWithATextEditedAfterTheMark(): readonly ColumnId[] {
+    return this.#columnsWhereForm(32, 32);
   }
   cellsWithUsersARichTextOrASpill(): readonly CellContents[] {
     if (!this.#anyFormHas(64)) return NO_CELLS;

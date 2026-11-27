@@ -1,4 +1,5 @@
-import type { ColumnOfATable, RowId, SheetId, TableWithColumns } from '@open-artifact/sheets-core';
+import type { ColumnOfATable, RowId, RowsOfACellTable, SheetId, TableWithColumns } from '@open-artifact/sheets-core';
+import { referencesWithNamedRangesExpanded } from '../formulas/references.ts';
 import type { ColumnHolds, TableHolds } from '../state/initial-state.ts';
 import type { CellArea } from '../selection/model.ts';
 import type { RuleWordsNotRead } from './rule-formats.ts';
@@ -85,6 +86,24 @@ export function tableAtCellCached(reads: WorkbookReads, cell: CellId): TableWith
   if (sheet !== null && table !== null) tableAtCellCache.set(sheet, (tableAtCellCache.get(sheet) ?? new Map<string, TableWithColumns | 'nowhere'>()).set(key, table));
   return table === 'nowhere' ? null : table;
 }
+export function footerRowsOfTableCached(reads: WorkbookReads, cell: CellId, tableAt: TableWithColumns): RowsOfACellTable | null {
+  if (tableAt.table.rowUnderTheBody === null) return null;
+  let cached = footerRowsCache.get(tableAt);
+  if (cached !== undefined) return cached;
+  let cellTable = reads.cellTableAt(cell);
+  if (cellTable === null) return null;
+  footerRowsCache.set(tableAt, cellTable.liveCellTable!.footerRows);
+  return cellTable.liveCellTable!.footerRows;
+}
+export function lastRecordRowOfDeclaredTable(reads: WorkbookReads, cell: CellId, tableAt: TableWithColumns): RowId | null {
+  if (tableAt.basis.kind !== 'declared') return null;
+  let cached = lastRecordRowCache.get(tableAt);
+  if (cached !== undefined) return cached;
+  let suggestions = reads.conditionalFormatSuggestions(cell, cell);
+  if (suggestions === null) return null;
+  lastRecordRowCache.set(tableAt, suggestions.table.records.bottomRight.r);
+  return suggestions.table.records.bottomRight.r;
+}
 export function rowsThatAreNotRecords(
   reads: WorkbookReads,
   sheetId: SheetId,
@@ -118,7 +137,7 @@ export function rowsThatAreNotRecords(
     isOneEmpty ||= cells.length === 0;
     let sumsReferencedRows = ({ columnIndex, shown }: CellShownInRow): boolean => {
       if (!('input' in shown) || shown.input.kind !== 'formula') return false;
-      let spans = shown.input.formula.references.slice(0, MOST_REFERENCES_READ).flatMap((reference) => {
+      let spans = referencesWithNamedRangesExpanded(reads, shown.input.formula).slice(0, MOST_REFERENCES_READ).flatMap((reference) => {
         let area = reference.sheetId === sheetId ? areaOfReference(reads, reference) : null;
         let coversColumn = area !== null && area.leftColumnIndex <= columnIndex && columnIndex < area.leftColumnIndex + area.columnCount;
         let from = Math.max(area?.topRowIndex ?? 0, topRowIndex);
@@ -194,6 +213,8 @@ export const MOST_DROPDOWN_OPTIONS_HELD = 500;
 export const MOST_TEXT_CHARACTERS_HELD = 500000;
 export const tooMuchToReadCache = new WeakMap<TableHolds, boolean>();
 export const tableAtCellCache = new WeakMap<SheetRead, Map<string, TableWithColumns | 'nowhere'>>();
+export const footerRowsCache = new WeakMap<TableWithColumns, RowsOfACellTable | null>();
+export const lastRecordRowCache = new WeakMap<TableWithColumns, RowId>();
 export const MOST_CELLS_SCANNED_FOR_TOTALS = 1e5;
 export const MOST_REFERENCES_READ = 100;
 export const MOST_NAME_CHARACTERS = 100;

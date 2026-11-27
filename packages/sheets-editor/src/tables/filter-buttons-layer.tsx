@@ -1,24 +1,28 @@
 import { Button } from '../kit/button.tsx';
 import { Icon } from '../kit/icon.tsx';
+import { Surface } from '../kit/surface.tsx';
 import { TooltipGroup } from '../kit/tooltip.tsx';
 import * as React from 'react';
 import { filterButtonAtPoint } from './table-drawing.ts';
 import { pointInZoomedElement } from '../grid/zoom.ts';
-import { FILTER_BUTTON_SIZE } from './filter-buttons-place.ts';
+import { FILTER_BUTTON_SIZE, FILTER_BUTTON_HIT_MARGIN, filterButtonCellKey, foundTableKeyAtPointer } from './filter-buttons-place.ts';
 import { Fragment } from 'react/jsx-runtime';
 import { isElementFocused } from './own-filter-bar-view.tsx';
 import { ContentsBox } from '../ui/contents-box.tsx';
 import { preventMouseDownDefault } from '../ui/dom-events.ts';
-import { FilterButtonGround } from '../grid/grid-drawing.tsx';
+import { boxInBody } from '../grid/grid-drawing.tsx';
+import { isSelectionOfferCovered } from '../state/offers-at-selection.ts';
 import { sortAndFilterMessages } from './sort-filter-labels.ts';
 import { filterByColumnLabel } from './filter-messages.ts';
 import { textPaintStyle, fillPaintStyle } from '../grid/cell-drawing.tsx';
 import type { PaintPair, StyleWithVariables } from '../grid/cell-drawing.tsx';
 import type { BodyOrigin } from '../grid/grid-drawing.tsx';
+import type { GridView } from '../grid/grid-view.ts';
+import type { PaneRect } from '../grid/geometry.ts';
+import type { GridWithFoundTables } from './filter-buttons-place.ts';
 import type { ButtonProps } from '../kit/button.tsx';
-import type { CustomIcon } from '../kit/icon.tsx';
 import type { OwnFilter } from './own-filters.ts';
-import type { ClearAroundButton, FilterButtonAt, FilterButtonInView, PlacedFilterButton } from './table-drawing.ts';
+import type { ClearAroundButton, FilterButtonAt, FilterButtonInView, GroundUnderButton, PlacedFilterButton } from './table-drawing.ts';
 import type { FoundTableOutline, TableOutline } from './table-outlines.ts';
 import type { OutlineHeldBack } from './tables-in-view.ts';
 /** A table drawn, known by its key. */
@@ -36,13 +40,29 @@ export interface GridWithFilterButtons {
 /** Where the pointer is in the window. */
 export type PointerAt = Pick<MouseEvent, 'clientX' | 'clientY'>;
 export interface FilterButtonPointedAtWatch {
-  drawn: GridWithFilterButtons;
+  drawn: GridWithFilterButtons & GridWithFoundTables;
   gridRef: React.RefObject<Element | null>;
   zoom: number;
 }
 export interface FilterButtonPointedAt {
   pointedAt: FilterButtonAt | null;
+  /** The found table the pointer is over or near the button of, if any. */
+  tablePointedAt: string | null;
   pointerMovedTo: (pointer: PointerAt | null) => void;
+}
+/** What the grid holds that tells which buttons of found tables are shown. */
+export type GridWithFoundTablesShown = Pick<GridView, 'filterButtons' | 'foundTableOutlines' | 'activeCellBox' | 'offersAtSelection'>;
+export interface TablesButtonGroundProps {
+  grounds: readonly GroundUnderButton[];
+  row: PaneRect;
+  body: BodyOrigin;
+  isShown: boolean;
+  isOverHeaderKept: boolean;
+}
+/** A touch press, on what, and when it was lifted. */
+interface TouchPress {
+  on: EventTarget | null;
+  liftedAtMs: number;
 }
 /** What an element that comes in place is given: the mark of its coming, and the end of it. */
 export interface ComesInPlaceProps {
@@ -77,6 +97,8 @@ export interface FilterButtonsLayerProps {
   buttons: readonly FilterButtonInView[];
   filteredTablesDrawn: readonly TableDrawnWithKey[];
   pointedAt: FilterButtonAt | null;
+  /** Keys of the found tables' buttons that are shown, and of the cells whose column buttons are. */
+  ofFoundTablesShown?: readonly string[];
   body: BodyOrigin;
   onListAsked: (pressed: FilterButtonPressed) => void;
   onGoingWithCaret: () => void;
@@ -115,6 +137,7 @@ export function delayOfLaterOutline(
 export function useFilterButtonPointedAt({ drawn, gridRef, zoom }: FilterButtonPointedAtWatch): FilterButtonPointedAt {
   let pointerRef = React.useRef<PointerAt | null>(null);
   let [pointedAt, setPointedAt] = React.useState<FilterButtonAt | null>(null);
+  let [tablePointedAt, setTablePointedAt] = React.useState<string | null>(null);
   let lookAtPointer = React.useCallback(() => {
     let [pointer, grid] = [pointerRef.current, gridRef.current];
     let buttonPointedAt =
@@ -125,6 +148,8 @@ export function useFilterButtonPointedAt({ drawn, gridRef, zoom }: FilterButtonP
       (previous) =>
         previous?.tableKey === buttonPointedAt?.tableKey && previous?.c === buttonPointedAt?.c ? previous : buttonPointedAt,
     );
+    let point = pointer === null || grid === null || drawn.filterButtons.length === 0 ? null : pointInZoomedElement(grid, zoom, pointer);
+    setTablePointedAt((previous) => (point === null ? null : foundTableKeyAtPointer(point, drawn, previous)));
   }, [drawn, gridRef, zoom]);
   React.useLayoutEffect(lookAtPointer, [lookAtPointer]);
   let pointerMovedTo = React.useCallback(
@@ -142,8 +167,70 @@ export function useFilterButtonPointedAt({ drawn, gridRef, zoom }: FilterButtonP
   );
   return {
     pointedAt,
+    tablePointedAt,
     pointerMovedTo,
   };
+}
+export function useOfFoundTablesShown(
+  { filterButtons, foundTableOutlines, activeCellBox, offersAtSelection }: GridWithFoundTablesShown,
+  { pointedAt, tablePointedAt }: Pick<FilterButtonPointedAt, 'pointedAt' | 'tablePointedAt'>,
+  zoom: number,
+): readonly string[] {
+  let [isPressNotByMouse, setIsPressNotByMouse] = React.useState(false);
+  React.useEffect(() => {
+    let notePress = ({ pointerType }: PointerEvent) => setIsPressNotByMouse(pointerType !== 'mouse');
+    document.addEventListener('pointerdown', notePress, true);
+    return () => document.removeEventListener('pointerdown', notePress, true);
+  }, []);
+  let tableOfActiveCell = isPressNotByMouse ? foundTableOutlines.find((outline) => isActiveCellInBox(outline, activeCellBox))?.tableKey : undefined;
+  let shown = filterButtons
+    .flatMap((button): string[] => {
+      if (button.isOfColumnOfFoundTable)
+        return button.isListOpen || isFilterButtonPointedAt(button, pointedAt) || (button.isInActiveCell && isPressNotByMouse)
+          ? [filterButtonCellKey(button)]
+          : [];
+      if (!button.isOfFoundTable) return [];
+      return button.tableKey === tableOfActiveCell ||
+        (button.tableKey === tablePointedAt && !isTableButtonCoveredByOffer(button, offersAtSelection, zoom))
+        ? [tableButtonKey(button.tableKey)]
+        : [];
+    })
+    .join('\n');
+  return React.useMemo(() => shown.split('\n'), [shown]);
+}
+export function TablesButtonGround(props: TablesButtonGroundProps) {
+  let { grounds, row, body } = props;
+  let [first, last] = [grounds[0], grounds.at(-1)];
+  if (first === undefined || last === undefined) return null;
+  return (
+    <div
+      aria-hidden
+      className="sheet-ground-of-tables-button"
+      data-is-called-for={props.isShown || undefined}
+      data-is-over-header-kept={props.isOverHeaderKept || undefined}
+      style={boxInBody(
+        {
+          left: first.left,
+          top: row.top,
+          width: last.left + last.width - first.left,
+          height: row.height - 1,
+        },
+        body,
+      )}
+    >
+      {grounds.map(({ left, width, ground }) => (
+        <div
+          key={left}
+          data-ground={typeof ground === 'string' ? ground : 'fill'}
+          style={{
+            left: left - first.left,
+            width,
+            ...fillPaintStyle(typeof ground === 'string' ? null : ground),
+          }}
+        />
+      ))}
+    </div>
+  );
 }
 export function filterButtonClearAtStyle({ top, right, bottom, left }: ClearAroundButton): StyleWithVariables {
   let halfButton = FILTER_BUTTON_SIZE / 2;
@@ -169,6 +256,33 @@ export function useComesInPlaceProps(comesInPlace: boolean): ComesInPlaceProps {
       if (target === currentTarget) setIsComingInPlace(false);
     },
   };
+}
+export function useIsClickRightAfterTouch(): (clickEvent: React.MouseEvent) => boolean {
+  let touchRef = React.useRef<TouchPress | null>(null);
+  React.useEffect(() => {
+    let notePress = ({ pointerType, target }: PointerEvent) => {
+      touchRef.current =
+        pointerType === 'mouse'
+          ? null
+          : {
+              on: target,
+              liftedAtMs: 1 / 0,
+            };
+    };
+    let noteLift = ({ timeStamp }: PointerEvent) => {
+      if (touchRef.current !== null) touchRef.current.liftedAtMs = timeStamp;
+    };
+    document.addEventListener('pointerdown', notePress, true);
+    document.addEventListener('pointerup', noteLift, true);
+    return () => {
+      document.removeEventListener('pointerdown', notePress, true);
+      document.removeEventListener('pointerup', noteLift, true);
+    };
+  }, []);
+  return React.useCallback(({ currentTarget, timeStamp }: React.MouseEvent) => {
+    let touch = touchRef.current;
+    return touch !== null && Math.abs(timeStamp - touch.liftedAtMs) < TOUCH_CLICK_AFTER_LIFT_MS && !(touch.on instanceof Node && currentTarget.contains(touch.on));
+  }, []);
 }
 export function ButtonThatComesInPlace({ comesInPlace, ...buttonProps }: ButtonThatComesInPlaceProps) {
   return <Button {...buttonProps} {...useComesInPlaceProps(comesInPlace)} />;
@@ -215,21 +329,6 @@ export function FilterTableOutline({
             animationDelay: `${animationDelayMs}ms`,
           }} />;
 }
-export const FILTER_ADD_ICON: CustomIcon & { name: string } = {
-  name: 'FilterAdd',
-  viewBox: 16,
-  paths: [
-    {
-      d: 'M2.625 4.375L6.375 4.375M4.625 8.875L11.375 8.875M6.125 13.375L9.875 13.375',
-      strokeWidth: 1,
-    },
-    {
-      d: 'M11.625 2.625L11.625 6.125M9.875 4.375L13.375 4.375',
-      strokeWidth: 1,
-    },
-  ],
-};
-export const filterAddIconElement = <Icon customIcon={FILTER_ADD_ICON} size="xs" />;
 export const NO_KEYS_NEWLY_DRAWN: readonly string[] = [];
 export const keysOfList = (list: readonly TableDrawnWithKey[]): string[] => list.map(({ key }) => key);
 export const startRevisionTimes = (revision: number): RevisionTime[] => [
@@ -238,7 +337,48 @@ export const startRevisionTimes = (revision: number): RevisionTime[] => [
     atMs: -1 / 0,
   },
 ];
+export const isFilterButtonPointedAt = ({ tableKey, c }: FilterButtonAt, pointedAt: FilterButtonAt | null): boolean =>
+  pointedAt?.tableKey === tableKey && pointedAt.c === c;
+export const tableButtonKey = (tableKey: string): string => `table ${tableKey}`;
+export const isActiveCellInBox = ({ left, top, width, height }: PaneRect, activeCellBox: Pick<PaneRect, 'left' | 'top'> | null): boolean =>
+  activeCellBox !== null &&
+  activeCellBox.left + 1 >= left &&
+  activeCellBox.left + 1 < left + width &&
+  activeCellBox.top + 1 >= top &&
+  activeCellBox.top + 1 < top + height;
+export const isTableButtonCoveredByOffer = (
+  { left, top }: Pick<PlacedFilterButton, 'left' | 'top'>,
+  offersAtSelection: GridView['offersAtSelection'],
+  zoom: number,
+): boolean =>
+  offersAtSelection?.isTextCutOff === true &&
+  offersAtSelection.besideIfShort !== null &&
+  isSelectionOfferCovered(
+    offersAtSelection.besideIfShort,
+    [
+      filterButtonHitBox({
+        left,
+        top,
+      }),
+    ],
+    zoom,
+    'short',
+  );
+export const filterButtonHitBox = ({ left, top }: Pick<PlacedFilterButton, 'left' | 'top'>): PaneRect => ({
+  left: left - FILTER_BUTTON_HIT_MARGIN,
+  top: top - FILTER_BUTTON_HIT_MARGIN,
+  width: FILTER_BUTTON_SIZE + 2 * FILTER_BUTTON_HIT_MARGIN,
+  height: FILTER_BUTTON_SIZE + 2 * FILTER_BUTTON_HIT_MARGIN,
+});
+export const TABLE_BUTTON_CLIP_MAX_PX = 40;
+export const tableButtonClipPath = ({ top, right, bottom, left }: ClearAroundButton): string =>
+  `inset(${[top, right, bottom, left].map((room) => `${-Math.min(room - FILTER_BUTTON_HIT_MARGIN, TABLE_BUTTON_CLIP_MAX_PX)}px`).join(' ')})`;
+export const NO_FOUND_TABLES_SHOWN: readonly string[] = [];
 export const stopFilterButtonEvent = (buttonEvent: React.SyntheticEvent): void => buttonEvent.stopPropagation();
+export const stopContextMenuOutsideFoundTable = (menuEvent: React.MouseEvent): void => {
+  let { target } = menuEvent;
+  if (!(target instanceof Element) || target.closest('[data-is-of-found-table]') === null) menuEvent.stopPropagation();
+};
 export const stopEnterOrSpacePropagation = (keyEvent: React.KeyboardEvent): void => {
   if (keyEvent.key === 'Enter' || keyEvent.key === ' ') keyEvent.stopPropagation();
 };
@@ -254,35 +394,50 @@ export const groundBesideButtonStyle = ({ left, cell }: Pick<PlacedFilterButton,
   '--sheet-ground-before-button': `${Math.max(0, Math.min(8, left - cell.left))}px`,
 });
 export const NO_FILTERED_TABLES_DRAWN: readonly TableDrawnWithKey[] = [];
+export const TOUCH_CLICK_AFTER_LIFT_MS = 700;
 export const FilterButtonsLayer = React.memo(function ({
   buttons,
   filteredTablesDrawn,
   pointedAt,
+  ofFoundTablesShown = NO_FOUND_TABLES_SHOWN,
   body,
   onListAsked,
   onGoingWithCaret,
 }: FilterButtonsLayerProps) {
+  let [tableWithCaret, setTableWithCaret] = React.useState<string | null>(null);
   let caretGoesOnRef = React.useCallback(
     (button: HTMLElement) =>
       () => {
+        if (button === button.ownerDocument.activeElement) setTableWithCaret(null);
         if (isElementFocused(button)) onGoingWithCaret();
       },
     [onGoingWithCaret],
   );
   let tablesNewlyDrawn = useKeysNewlyDrawn(filteredTablesDrawn);
-  return <ContentsBox onPointerDown={stopFilterButtonEvent} onMouseDown={(mouseEvent: React.MouseEvent) => {
-      stopFilterButtonEvent(mouseEvent);
-      preventMouseDownDefault(mouseEvent);
-    }} onPointerUp={stopFilterButtonEvent} onClick={stopFilterButtonEvent} onDoubleClick={stopFilterButtonEvent} onContextMenu={stopFilterButtonEvent} onKeyDown={stopEnterOrSpacePropagation} onKeyUp={stopEnterOrSpacePropagation}>{buttons.map(
-        ({ r, c, heldInView, groundsWhereHeld, headerKept }) =>
-          heldInView !== null &&
-          headerKept === null &&
-          <FilterButtonGround key={`${r} ${c}`} box={heldInView} grounds={groundsWhereHeld} body={body} />,
-      )}<TooltipGroup>{buttons.map(
+  let isClickRightAfterTouch = useIsClickRightAfterTouch();
+  let isTableButtonShown = (tableKey: string, isListOpen: boolean): boolean =>
+    !isListOpen && (tableKey === tableWithCaret || ofFoundTablesShown.includes(tableButtonKey(tableKey)));
+  return (
+    <ContentsBox
+      onPointerDown={stopFilterButtonEvent}
+      onMouseDown={(mouseEvent: React.MouseEvent) => {
+        stopFilterButtonEvent(mouseEvent);
+        preventMouseDownDefault(mouseEvent);
+      }}
+      onPointerUp={stopFilterButtonEvent}
+      onClick={stopFilterButtonEvent}
+      onDoubleClick={stopFilterButtonEvent}
+      onContextMenu={stopContextMenuOutsideFoundTable}
+      onKeyDown={stopEnterOrSpacePropagation}
+      onKeyUp={stopEnterOrSpacePropagation}
+    >
+      <TooltipGroup>
+        {buttons.map(
           ({
             tableKey,
             r,
             isOfFoundTable,
+            isOfColumnOfFoundTable,
             c,
             column,
             left,
@@ -297,10 +452,75 @@ export const FilterButtonsLayer = React.memo(function ({
             isInActiveCell,
             atRest,
             headerKept,
-          }) =>
-            (<ButtonThatComesInPlace key={`${r} ${c}`} ref={caretGoesOnRef} comesInPlace={tablesNewlyDrawn.includes(tableKey)} variant="ghost" size="xxs" iconOnly icon={isOfFoundTable
-                  ? filterAddIconElement
-                  : <Icon name="FilterLines" size="xs" />} tabIndex={-1} className="sheet-own-filter-button" aria-label={isOfFoundTable ? sortAndFilterMessages.sortAndFilter() : filterByColumnLabel(column, isOn)} aria-haspopup="dialog" aria-expanded={isListOpen} data-is-on={isOn || undefined} data-is-of-found-table={isOfFoundTable || undefined} data-gives-way-to-text={givesWayToText || undefined} data-is-called-for={isInActiveCell || (pointedAt?.tableKey === tableKey && pointedAt.c === c) || undefined} data-has-text-paint={ink !== null || undefined} data-is-over-header-kept={headerKept !== null || undefined} data-ground={ground === null ? undefined : typeof ground === 'string' ? ground : 'fill'} style={{
+            groundsWhereHeld,
+          }) => (
+            <React.Fragment key={isOfFoundTable ? `${r} ${c} table` : `${r} ${c}`}>
+              <TablesButtonGround
+                grounds={groundsWhereHeld}
+                row={cell}
+                body={body}
+                isShown={isTableButtonShown(tableKey, isListOpen)}
+                isOverHeaderKept={headerKept !== null}
+              />
+              {isOfFoundTable && (
+                <Surface
+                  aria-hidden
+                  elevation="popover"
+                  className="sheet-holder-of-tables-button"
+                  data-is-called-for={isTableButtonShown(tableKey, isListOpen) || undefined}
+                  data-is-over-header-kept={headerKept !== null || undefined}
+                  style={{
+                    ...boxInBody(
+                      filterButtonHitBox({
+                        left,
+                        top,
+                      }),
+                      body,
+                    ),
+                    clipPath: tableButtonClipPath(clearAt),
+                  }}
+                />
+              )}
+              <ButtonThatComesInPlace
+                ref={caretGoesOnRef}
+                comesInPlace={tablesNewlyDrawn.includes(tableKey)}
+                variant="ghost"
+                size="xxs"
+                iconOnly
+                icon={isOfFoundTable ? <Icon name="FilterAdd" size="sm" /> : <Icon name="FilterLines" size="xs" />}
+                tabIndex={-1}
+                className="sheet-own-filter-button"
+                aria-label={isOfFoundTable ? sortAndFilterMessages.sortAndFilter() : filterByColumnLabel(column, isOn)}
+                aria-haspopup="dialog"
+                aria-expanded={isListOpen}
+                data-is-on={isOn || undefined}
+                data-is-of-found-table={isOfFoundTable || isOfColumnOfFoundTable || undefined}
+                data-is-beside-table={isOfFoundTable || undefined}
+                data-is-of-column-of-found-table={isOfColumnOfFoundTable || undefined}
+                data-gives-way-to-text={givesWayToText || undefined}
+                data-is-called-for={
+                  (isOfFoundTable
+                    ? isTableButtonShown(tableKey, isListOpen)
+                    : isOfColumnOfFoundTable
+                      ? ofFoundTablesShown.includes(
+                          filterButtonCellKey({
+                            r,
+                            c,
+                          }),
+                        )
+                      : isInActiveCell ||
+                        isFilterButtonPointedAt(
+                          {
+                            tableKey,
+                            c,
+                          },
+                          pointedAt,
+                        )) || undefined
+                }
+                data-has-text-paint={ink !== null || undefined}
+                data-is-over-header-kept={headerKept !== null || undefined}
+                data-ground={ground === null ? undefined : typeof ground === 'string' ? ground : 'fill'}
+                style={{
                   left: body.left + left + FILTER_BUTTON_SIZE / 2,
                   top: body.top + top + FILTER_BUTTON_SIZE / 2,
                   ...filterButtonClearAtStyle(clearAt),
@@ -312,15 +532,26 @@ export const FilterButtonsLayer = React.memo(function ({
                   ...textPaintStyle(ink),
                   ...atRestMarkStyle(atRest),
                   ...fillPaintStyle(typeof ground === 'string' ? null : ground),
-                }} onClick={() =>
+                }}
+                onFocus={isOfFoundTable ? () => setTableWithCaret(tableKey) : undefined}
+                onBlur={isOfFoundTable ? () => setTableWithCaret(null) : undefined}
+                onClick={(clickEvent: React.MouseEvent) => {
+                  if ((isOfFoundTable || isOfColumnOfFoundTable) && isClickRightAfterTouch(clickEvent)) return;
                   onListAsked({
                     tableKey,
                     r,
                     c,
                     isOfFoundTable,
                     isListOpen,
-                  })} />),
-        )}</TooltipGroup></ContentsBox>;
+                  });
+                }}
+              />
+            </React.Fragment>
+          ),
+        )}
+      </TooltipGroup>
+    </ContentsBox>
+  );
 });
 export const FilterTableOutlines = React.memo(function ({
   outlines,

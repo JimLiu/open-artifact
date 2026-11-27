@@ -106,6 +106,14 @@ pub enum Op {
     #[serde(rename_all = "camelCase")]
     MoveColumns { sheet_id: String, moves: Vec<ColumnMove> },
     MoveSheets { moves: Vec<SheetMove> },
+    SetConnectedTables { tables: Vec<super::connected::ConnectedTableToSet> },
+    #[serde(rename_all = "camelCase")]
+    SetColumnsOfConnectedTable { sheet_id: String, columns: Vec<super::connected::ColumnToSet> },
+    SetSnapshots { snapshots: Vec<super::connected::SnapshotToSet> },
+    #[serde(rename_all = "camelCase")]
+    SetNamedRanges { named_ranges: Vec<super::named_ranges::NamedRangeToSet> },
+    #[serde(rename_all = "camelCase")]
+    SetProtections { sheet_id: String, protections: Vec<super::protections::ProtectionToSet> },
 }
 
 /// Rows to move, and the row they go after (`None`: to the top).
@@ -137,7 +145,7 @@ impl Op {
     /// Whether the operation reads: no list left empty, no run of no ids or of ids past the
     /// largest (`base.4294967295`). One that is not makes the whole request unreadable, whatever comes before it.
     pub fn is_well_formed(&self) -> bool {
-        if let Some(ok) = self.layout_well_formed().or_else(|| self.objects_well_formed()) {
+        if let Some(ok) = self.layout_well_formed().or_else(|| self.objects_well_formed()).or_else(|| self.connected_well_formed()) {
             return ok;
         }
         let run = |r: &IdRun| r.count > 0 && r.first as u64 + r.count as u64 <= 1 << 32;
@@ -168,6 +176,8 @@ impl Op {
             Op::ReorderRows { rows, .. } => rows.is_well_formed(),
             Op::MoveColumns { moves, .. } => !moves.is_empty() && moves.iter().all(|m| runs(&m.columns)),
             Op::MoveSheets { moves } => !moves.is_empty() && moves.iter().all(|m| !m.sheet_ids.is_empty()),
+            Op::SetNamedRanges { named_ranges } => !named_ranges.is_empty(),
+            Op::SetProtections { protections, .. } => super::protections::are_well_formed(protections),
             _ => unreachable!("answered by layout_well_formed or objects_well_formed"),
         }
     }
@@ -258,6 +268,9 @@ pub enum Refusal {
     AddressLinkedToNotOfTheWeb,
     RichTextTooLarge,
     RowNotNamedInTheWay,
+    ConnectedTableNamedTwice,
+    NamedRangeNamedTwice,
+    ProtectionNamedTwice,
 }
 
 /// Rows or columns: what tells them apart in refusals.
@@ -357,10 +370,11 @@ impl Workbook {
         }
         reverse.reverse();
         self.needs_calculation = true;
+        self.drop_files_not_held();
         Ok(reverse)
     }
 
-    fn sheet_mut(&mut self, sheet_id: &str) -> Result<&mut Sheet, Refusal> {
+    pub(super) fn sheet_mut(&mut self, sheet_id: &str) -> Result<&mut Sheet, Refusal> {
         let i = self.sheet_index(sheet_id).ok_or(Refusal::UnknownSheet)?;
         Ok(&mut self.sheets[i])
     }
@@ -620,6 +634,11 @@ impl Workbook {
             | Op::SetNamedViews { .. }
             | Op::SetViews { .. }
             | Op::SetPlacements { .. } => self.apply_objects(op),
+            Op::SetConnectedTables { .. } | Op::SetColumnsOfConnectedTable { .. } | Op::SetSnapshots { .. } => {
+                self.apply_connected(op)
+            }
+            Op::SetNamedRanges { named_ranges } => self.apply_named_ranges(named_ranges),
+            Op::SetProtections { sheet_id, protections } => self.apply_protections(sheet_id, protections),
         }
     }
 
@@ -666,7 +685,7 @@ impl Workbook {
     }
 
     /// A row or column id whose base the workbook knows.
-    pub(super) fn line(&self, id: &str) -> Option<LineId> {
+    pub(crate) fn line(&self, id: &str) -> Option<LineId> {
         split_id(id)?;
         self.bases.parse(id)
     }

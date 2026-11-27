@@ -30,6 +30,8 @@ import { matchesNotReplacedText } from './notice-labels.ts';
 import { placedViewDeletedNotice } from '../messages/charts.ts';
 import { importDoneWords } from '../messages/import.ts';
 import { agentUpdatedCellsText } from './agent-turn-labels.ts';
+import { sheetMessages } from './sheet-messages.ts';
+import { namedRangeDeletedNotice, formulasOnSeveralSheetsText } from '../messages/named-ranges.ts';
 /** A format chosen for cells, one property at a time. */
 export interface CellFormatChoice {
   bold?: boolean;
@@ -664,8 +666,44 @@ export function columnsMovedResultsText({ count, errorCount, firstCell }: Result
         },
       );
 }
+export function sheetNotDeletableReason(isOnlySheet: boolean, isOnlyVisibleSheet: boolean): string | null {
+  if (isOnlySheet) return sheetMessages.onlySheet();
+  return isOnlyVisibleSheet ? sheetMessages.onlyVisibleSheetIsNotDeleted() : null;
+}
 export function describeUndoOffer(offer: UndoOffer): UndoOfferWords {
   if (offer.kind === 'versionRestored') return versionRestoredToast(offer, Date.now());
+  if (offer.kind === 'sheetHidden') {
+    let sheetName = truncateGraphemes(offer.name, SHEET_NAME_IN_NOTICE_MAX_CHARACTERS);
+    return {
+      title: offer.isSaved
+        ? translateMessage(
+            {
+              defaultMessage: 'Hid “{name}” for everyone',
+              id: 'fsuz3JkBNh',
+            },
+            {
+              name: sheetName,
+            },
+          )
+        : translateMessage(
+            {
+              defaultMessage: 'Hiding “{name}”…',
+              id: 'TjtE8ytyQp',
+            },
+            {
+              name: sheetName,
+            },
+          ),
+      description: translateMessage({
+        defaultMessage: 'Anyone with access can still open it from the All sheets list.',
+        id: '2O/wA5OYtn',
+      }),
+      undoLabel: translateMessage({
+        defaultMessage: 'Undo hide',
+        id: 'gmiBsohSU/',
+      }),
+    };
+  }
   if (offer.kind === 'sheetDeleted') {
     let sheetName = truncateGraphemes(offer.name, SHEET_NAME_IN_NOTICE_MAX_CHARACTERS);
     return {
@@ -755,6 +793,18 @@ export function describeUndoOffer(offer: UndoOffer): UndoOfferWords {
       ...offer,
       name: truncateGraphemes(offer.name, PLACED_VIEW_NAME_IN_NOTICE_MAX_CHARACTERS),
     });
+  if (offer.kind === 'namedRangeDeleted') {
+    let { formulas } = offer;
+    return {
+      ...namedRangeDeletedNotice({
+        ...offer,
+        name: truncateGraphemes(offer.name, PLACED_VIEW_NAME_IN_NOTICE_MAX_CHARACTERS),
+      }),
+      ...(formulas !== null && {
+        description: formulas.sheetNames.length === 1 ? formulasAffectedText(formulas) : formulasOnSeveralSheetsText(formulas.count),
+      }),
+    };
+  }
   if (offer.kind === 'tableImportedIntoSheet')
     return {
       title: importDoneWords({

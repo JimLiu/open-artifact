@@ -18,7 +18,7 @@ import type { CopiedValues } from '@open-artifact/sheets-core';
 import type { ErrorKind } from '../model/refusals.ts';
 import type { WorkbookReads } from '../model/workbook.ts';
 import type { ClockReading } from '../store/frames.ts';
-import type { SaveOutcome, LoadOutcome } from '../store/requests.ts';
+import type { SaveOutcome, LoadOutcome, FileCursor, TableFileSlice } from '../store/requests.ts';
 import type {
   AnswerOfQuestion,
   CauseOfWorkbookChange,
@@ -46,7 +46,11 @@ export interface WorkbookHostOptions {
   writeCopy: WriteCopy;
 }
 
-export type StoreQuestion = { kind: 'save'; edit: EditToSave } | { kind: 'loadOps' } | { kind: 'askRevision' };
+export type StoreQuestion =
+  | { kind: 'save'; edit: EditToSave }
+  | { kind: 'loadOps' }
+  | { kind: 'loadSliceOfTableFile'; snapshotId: string; after: FileCursor | null }
+  | { kind: 'askRevision' };
 
 /**
  * A copy written on the worker as it is sent to the page: its values beside its contents, and the text with numbers
@@ -204,6 +208,7 @@ const QUESTION_ANSWERERS: QuestionAnswerers = {
   dropdownOptionsToOffer: (reads, q) => reads.dropdownOptionsToOffer(q.oneCorner, q.otherCorner),
   cellsThatADropdownWouldClear: (reads, q) => reads.cellsThatADropdownWouldClear(q.oneCorner, q.otherCorner, q.dropdown),
   cellsOfTheDropdownAt: (reads, q) => reads.cellsOfTheDropdownAt(q.cellId),
+  defaultValueAndLimitsOf: (reads, q) => reads.defaultValueAndLimitsOf(q.cellId),
   whatATableChanges: (reads, q, rows) => (rows?.rowsId === q.rowsId ? reads.whatATableChanges({ ...q.table, rows: rows.rows }) : null),
   formatsGivenAsIf: (reads, q) => reads.formatsGivenAsIf(q.sheetId, q.asIf),
   conditionalFormatSuggestions: (reads, q) => reads.conditionalFormatSuggestions(q.oneCorner, q.otherCorner),
@@ -288,6 +293,11 @@ export function hostWorkbook(options: WorkbookHostOptions): void {
       const answer = await askStore({ kind: 'loadOps' });
       if (answer.kind !== 'loadOps') throw wrongAnswerKind(answer);
       return answer.loaded;
+    },
+    async loadSliceOfTableFile(snapshotId: string, after: FileCursor | null): Promise<TableFileSlice> {
+      const answer = await askStore({ kind: 'loadSliceOfTableFile', snapshotId, after });
+      if (answer.kind !== 'loadSliceOfTableFile') throw wrongAnswerKind(answer);
+      return answer.slice;
     },
     async askRevision(): Promise<number | 'notSent' | null> {
       const answer = await askStore({ kind: 'askRevision' });
@@ -401,7 +411,7 @@ export function hostWorkbook(options: WorkbookHostOptions): void {
       case 'queueEdit':
         return tell({ kind: 'editAnswered', outcome: runOwnEdit(opened, () => opened.queueEdit(message.edit, message.restOfAct)) });
       case 'undoOrRedo':
-        return tell({ kind: 'undoOrRedoAnswered', outcome: runOwnEdit(opened, () => opened.undoOrRedo(message.direction)) });
+        return tell({ kind: 'undoOrRedoAnswered', outcome: runOwnEdit(opened, () => opened.undoOrRedo(message.direction, message.ofSitting)) });
       case 'queueEditsThatTakeBack':
         return tell({
           kind: 'takeBackAnswered',
@@ -444,6 +454,8 @@ export function hostWorkbook(options: WorkbookHostOptions): void {
         return opened.storeRevisionReported(message.revision);
       case 'timeTold':
         return opened.timeTold(message.time);
+      case 'personTold':
+        return opened.personTold(message.person);
       case 'availabilityStated':
         return opened.availabilityStated(message.availability);
       case 'workOutFormulasLeft':

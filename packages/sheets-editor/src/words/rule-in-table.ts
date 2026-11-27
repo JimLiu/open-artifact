@@ -5,6 +5,7 @@ import type {
   DecimalSignName,
   FormatOfACondition,
   RangeCorners,
+  RowId,
   RuleInIds,
   SheetId,
   Test,
@@ -22,6 +23,8 @@ import {
   MOST_NAME_CHARACTERS,
   RULE_WORDS_NOT_READ,
   tableAtCellCached,
+  footerRowsOfTableCached,
+  lastRecordRowOfDeclaredTable,
   tableHoldsOf,
   isTooMuchToRead,
   MOST_RULE_RANGES,
@@ -49,7 +52,13 @@ export interface RuleWordsPlace {
   lookToStartFrom: FormatOfACondition;
 }
 /** The rules read from words, and whether they may run on to the last record of the table. */
-export type RulesReadInTable = { kind: 'read'; rules: RuleInIds[]; endAtLastRecord: boolean } | RuleWordsNotRead;
+/** Where rules read from words end: at the last record as it grows, and the rows a declared table is ready to fill. */
+export interface RangeEnds {
+  endAtLastRecord: boolean;
+  /** The last record row of a declared table when its records run past the body, else `null`. */
+  rowsReadyTo: RowId | null;
+}
+export type RulesReadInTable = ({ kind: 'read'; rules: RuleInIds[] } & RangeEnds) | RuleWordsNotRead;
 /** Rows around a table that are not its records, and whether the sheet holds more than the table. */
 export interface RecordsAroundTable {
   noRecords: RowsNotRecords;
@@ -216,11 +225,14 @@ export function readConditionalFormatFromWords(reads: WorkbookReads, words: stri
   const lines = reads.linesOf(sheetId);
   if (bodyArea === undefined || headerRowIndex === null || lines === null) return RULE_WORDS_NOT_READ;
   let bodyEndRow = bodyArea.topRowIndex + bodyArea.rowCount;
+  let lastRecordRowId = lastRecordRowOfDeclaredTable(reads, inTable, tableAt);
+  let lastRecordRowIndex = lastRecordRowId === null ? null : reads.rowIndexOf(sheetId, lastRecordRowId);
+  let recordsEndRow = Math.max(bodyEndRow, (lastRecordRowIndex ?? -1) + 1);
   const isTargetInTable =
     targetArea !== null &&
     targetArea.leftColumnIndex >= bodyArea.leftColumnIndex &&
     targetArea.leftColumnIndex + targetArea.columnCount <= bodyArea.leftColumnIndex + bodyArea.columnCount &&
-    targetArea.topRowIndex < bodyEndRow &&
+    targetArea.topRowIndex < recordsEndRow &&
     targetArea.topRowIndex + targetArea.rowCount > headerRowIndex;
   let selectedColumnIds = isTargetInTable
     ? Array.from(
@@ -256,10 +268,14 @@ export function readConditionalFormatFromWords(reads: WorkbookReads, words: stri
   let isColumnNamedInWords = namesAColumn(wordsToRead, holds) || namesAColumn(wordsToRead, withoutParenthesesInColumnNames(holds));
   if (!header.isSure && !isColumnNamedInWords) return RULE_WORDS_NOT_READ;
   if (rangeAreaSaid !== null && !readUsed.isAboutSelected) return RULE_WORDS_NOT_READ;
+  let footerRows = footerRowsOfTableCached(reads, inTable, tableAt);
+  let [footerFirstRowIndex, footerLastRowIndex] =
+    footerRows === null ? [null, null] : [reads.rowIndexOf(sheetId, footerRows.firstRow), reads.rowIndexOf(sheetId, footerRows.lastRow)];
+  if (rangeAreaSaid !== null && rangeAreaSaid.topRowIndex + rangeAreaSaid.rowCount > (footerFirstRowIndex ?? Infinity)) return RULE_WORDS_NOT_READ;
   let recordsArea = {
     ...bodyArea,
     topRowIndex: headerRowIndex,
-    rowCount: bodyArea.topRowIndex + bodyArea.rowCount - headerRowIndex,
+    rowCount: Math.max(recordsEndRow, (footerLastRowIndex ?? -1) + 1) - headerRowIndex,
   };
   let recordsAround = recordsAroundTableCached(reads, sheetId, bodyArea, recordsArea);
   let goesPastRecords = targetArea !== null && targetArea.topRowIndex + targetArea.rowCount > recordsArea.topRowIndex + recordsArea.rowCount;
@@ -268,14 +284,14 @@ export function readConditionalFormatFromWords(reads: WorkbookReads, words: stri
   let firstRowIndex = rangeAreaSaid?.topRowIndex ?? Math.max(bodyArea.topRowIndex, targetArea?.topRowIndex ?? 0);
   let endRowIndex =
     rangeAreaSaid === null
-      ? Math.min(bodyEndRow, (targetArea?.topRowIndex ?? 0) + (targetArea?.rowCount ?? 0))
+      ? Math.min(recordsEndRow, (targetArea?.topRowIndex ?? 0) + (targetArea?.rowCount ?? 0))
       : firstRowIndex + rangeAreaSaid.rowCount;
   let isPartOfColumn =
     !isOneCellOnly &&
     isTargetInTable &&
     wordsToRead === wordsWithoutRange &&
     firstRowIndex < endRowIndex &&
-    (firstRowIndex !== bodyArea.topRowIndex || endRowIndex !== bodyEndRow);
+    (rangeAreaSaid !== null || firstRowIndex !== bodyArea.topRowIndex || endRowIndex !== recordsEndRow);
   let [firstRowId, lastRowId] = isPartOfColumn
     ? [lines.rows.idAt(firstRowIndex), lines.rows.idAt(endRowIndex - 1)]
     : [lines.rows.idAt(bodyArea.topRowIndex), lines.rows.idAt(bodyEndRow - 1)];
@@ -302,7 +318,10 @@ export function readConditionalFormatFromWords(reads: WorkbookReads, words: stri
           c: lastColumnId,
         },
       };
-  let endAtLastRecord = rangeAreaSaid === null && !isPartOfColumn;
+  let rangeEnds: RangeEnds = {
+    endAtLastRecord: rangeAreaSaid === null && !isPartOfColumn,
+    rowsReadyTo: recordsEndRow > bodyEndRow ? lastRecordRowId : null,
+  };
   const { rule } = readUsed;
   let columnsUsed =
     rule.kind === 'colorScale' ? [] : [...(readUsed.isAboutSelected ? selectedColumnIds : []), ...rule.allOf.flatMap(columnsOfConditionClause)];
@@ -359,7 +378,7 @@ export function readConditionalFormatFromWords(reads: WorkbookReads, words: stri
     return {
       kind: 'read',
       rules: [suggestedRulesFor([ruleRange]).scale],
-      endAtLastRecord,
+      ...rangeEnds,
     };
   if (rule.allOf.length > reads.limitsOfConditionalFormats().mostTestsInAConditionalFormat) return RULE_WORDS_NOT_READ;
   let toTest = ({ c, condition }: ColumnTest): Test => ({
@@ -426,7 +445,7 @@ export function readConditionalFormatFromWords(reads: WorkbookReads, words: stri
     return {
       kind: 'read',
       rules: [ruleToAdd],
-      endAtLastRecord,
+      ...rangeEnds,
     };
   let bodyColumnsRange = {
     topLeft: {
@@ -500,7 +519,7 @@ export function readConditionalFormatFromWords(reads: WorkbookReads, words: stri
     ? {
         kind: 'read',
         rules: [ruleToAdd],
-        endAtLastRecord,
+        ...rangeEnds,
       }
     : RULE_WORDS_NOT_READ;
 }

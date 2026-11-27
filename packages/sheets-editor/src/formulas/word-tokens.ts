@@ -2,7 +2,8 @@ import type { DecimalSignName } from '@open-artifact/sheets-core';
 import type { CatalogFunction } from './function-catalog.ts';
 import { formulaArgumentSeparator } from '../format/number-signs.ts';
 import { describeFunction, describedArgumentAt } from './function-help.ts';
-import { upperCaseAsciiLetters } from './tokenizer.ts';
+import { endOfTableColumnBrackets, upperCaseAsciiLetters } from './tokenizer.ts';
+import type { WorkbookReads } from '../model/workbook.ts';
 export type WordTokenKind = 'operand' | 'call' | 'word' | 'close' | 'sign';
 /** A piece of a formula read for words: a word is a run of letters that names nothing a formula knows. */
 export interface WordToken {
@@ -39,6 +40,8 @@ export function tokenizeFormulaWords(text: string): WordToken[] {
     isAfterSpace = false;
   };
   let takeSheetBang = () => {
+    let before = position;
+    if (((position = endOfTableColumnBrackets(text, position)), position > before)) return true;
     if (text[position] !== '!' || text[position + 1] === '=') return false;
     position += 1;
     takeMatch(WORD_NAME_AT);
@@ -139,3 +142,8 @@ export const KINDS_BEFORE_SPACE = new Set<WordTokenKind>(['word', 'operand', 'cl
 export const KINDS_AFTER_SPACE = new Set<WordTokenKind>(['word', 'operand', 'call']);
 export const isSpaceBetweenOperands = (previousToken: WordToken | undefined, token: WordToken): boolean =>
   previousToken !== undefined && token.isAfterSpace && KINDS_BEFORE_SPACE.has(previousToken.kind) && KINDS_AFTER_SPACE.has(token.kind);
+/** The names a formula's words may name as a whole: sheets' and named ranges'. */
+export const namesOfSheetsAndRanges = (reads: Pick<WorkbookReads, 'listSheets' | 'namedRanges'>): string[] => [
+  ...reads.listSheets().map(({ name }) => name),
+  ...reads.namedRanges().map(({ namedRange }) => namedRange.name),
+];

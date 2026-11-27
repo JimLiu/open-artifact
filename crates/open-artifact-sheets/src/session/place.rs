@@ -28,27 +28,44 @@ pub enum Place {
 pub struct Told {
     sheet_id: Option<String>,
     json: Json,
-    whole_rows: bool,
-    whole_columns: bool,
+    /// The cells' corners by id, and whether they span every row and every column of the sheet then.
+    ends: Option<Ends>,
+}
+
+/// The corners of a place's cells by id (top, left, bottom, right), and whether they spanned every row and every
+/// column of the sheet when told.
+#[derive(Clone, Debug)]
+struct Ends {
+    corners: (LineId, LineId, LineId, LineId),
+    every_row: bool,
+    every_column: bool,
 }
 
 impl Told {
     pub fn of(place: &Place, workbook: &Workbook) -> Told {
         match place {
-            Place::Nowhere => Told::nowhere(),
-            Place::Gone(sheet_id) => Told { sheet_id: Some(sheet_id.clone()), json: json!({"sheetId": sheet_id, "cells": null}), ..Told::nowhere() },
+            Place::Nowhere => Told { sheet_id: None, json: Json::Null, ends: None },
+            Place::Gone(sheet_id) => {
+                Told { sheet_id: Some(sheet_id.clone()), json: json!({"sheetId": sheet_id, "cells": null}), ends: None }
+            }
             Place::Sheet { sheet_id, cells, .. } => {
-                let sheet = workbook.sheet_index(sheet_id).map(|i| &workbook.sheets[i]);
-                let (whole_rows, whole_columns) = cells.zip(sheet).map_or((false, false), |((t,l,b,r), s)| {
-                    (t == 0 && b + 1 == s.rows.len(), l == 0 && r + 1 == s.columns.len())
+                // The corners are those the page reads, a connected table's rows as they are shown.
+                let shown = workbook.with_tables();
+                let ends = cells.and_then(|(t, l, b, r)| {
+                    let sheet = &shown.sheets[shown.sheet_index(sheet_id)?];
+                    Some(Ends {
+                        corners: (sheet.rows.line(t)?, sheet.columns.line(l)?, sheet.rows.line(b)?, sheet.columns.line(r)?),
+                        every_row: t == 0 && b + 1 == sheet.rows.len(),
+                        every_column: l == 0 && r + 1 == sheet.columns.len(),
+                    })
                 });
-                Told { sheet_id: Some(sheet_id.clone()), json: place.to_json(workbook), whole_rows, whole_columns }
+                Told { sheet_id: Some(sheet_id.clone()), json: place.to_json(workbook), ends }
             }
         }
     }
 
     pub fn nowhere() -> Told {
-        Told { sheet_id: None, json: Json::Null, whole_rows: false, whole_columns: false }
+        Told { sheet_id: None, json: Json::Null, ends: None }
     }
 
     /// Whether the place's sheet is in the workbook (a place on no sheet is).
@@ -70,12 +87,13 @@ impl Told {
             let range: RangeIds = serde_json::from_value(range.clone()).expect("a range written by Place");
             let sheet = &workbook.sheets[sheet];
             let mut live = sheet.live_range(&workbook.bases, &range);
+            let every = |of: fn(&Ends) -> bool| self.ends.as_ref().is_some_and(of);
             if let Some(range) = &mut live {
-                if self.whole_rows {
+                if every(|ends| ends.every_row) {
                     range.top_left.r = workbook.bases.text(sheet.rows.line(0).unwrap());
                     range.bottom_right.r = workbook.bases.text(sheet.rows.line(sheet.rows.len() - 1).unwrap());
                 }
-                if self.whole_columns {
+                if every(|ends| ends.every_column) {
                     range.top_left.c = workbook.bases.text(sheet.columns.line(0).unwrap());
                     range.bottom_right.c = workbook.bases.text(sheet.columns.line(sheet.columns.len() - 1).unwrap());
                 }
@@ -83,6 +101,45 @@ impl Told {
             place["cells"] = json!(live);
         }
         place
+    }
+
+    /// The place told once all the edits of a request are made: cells that spanned every row (or
+    /// every column) span every one there is by then, and others are the rows and columns between their corners
+    /// still there, each corner gone snapped toward the other; none left, its cells are none. Rows are read as the page
+    /// reads them, a connected table's rows as they are shown.
+    pub fn at_the_end(&self, workbook: &Workbook) -> Json {
+        let mut json = self.to_json(workbook);
+        let (Some(sheet_id), Some(ends)) = (self.sheet_id.as_deref(), &self.ends) else { return json };
+        if json.get("cells").is_none_or(Json::is_null) {
+            return json;
+        }
+        let shown = workbook.with_tables();
+        let workbook = &*shown;
+        let Some(sheet) = workbook.sheet_index(sheet_id).map(|i| &workbook.sheets[i]) else { return json };
+        let (top, left, bottom, right) = ends.corners;
+        let span = |axis: &crate::ids::Axis, every: bool, a: LineId, b: LineId| match every {
+            true => (!axis.is_empty()).then(|| (0, axis.len() - 1)),
+            // Each corner is kept where it was (the first one is below the other in an order of the person's own).
+            false => Some((axis.snap_toward(a, b)?, axis.snap_toward(b, a)?)),
+        };
+        let rows = span(&sheet.rows, ends.every_row, top, bottom);
+        let columns = span(&sheet.columns, ends.every_column, left, right);
+        json["cells"] = match (rows, columns) {
+            (Some((t, b)), Some((l, r))) => {
+                let id = |row: usize, column: usize| -> Option<Json> {
+                    Some(json!({
+                        "r": workbook.bases.text(sheet.rows.line(row)?),
+                        "c": workbook.bases.text(sheet.columns.line(column)?),
+                    }))
+                };
+                match (id(t, l), id(b, r)) {
+                    (Some(top_left), Some(bottom_right)) => json!({"topLeft": top_left, "bottomRight": bottom_right}),
+                    _ => Json::Null,
+                }
+            }
+            _ => Json::Null,
+        };
+        json
     }
 }
 
@@ -107,8 +164,11 @@ impl Place {
         }
     }
 
-    /// The place as the page reads it, its corners by id in the workbook as it is.
+    /// The place as the page reads it, its corners by id in the workbook as it is (a connected table's rows as they
+    /// are shown).
     pub fn to_json(&self, workbook: &Workbook) -> Json {
+        let shown = workbook.with_tables();
+        let workbook = &*shown;
         match self {
             Place::Nowhere | Place::Gone(_) => Json::Null,
             Place::Sheet { sheet_id, cells, placement } => {
@@ -209,6 +269,8 @@ fn whole_columns(sheet: &Sheet, columns: (usize, usize), id: &str) -> Place {
 /// sheet inserted or undeleted (one shown) makes the place the sheet first named, as a whole. A sheet gone
 /// afterwards, named first, leaves no place.
 pub fn of_ops(before: &Workbook, after: &Workbook, ops: &[Op]) -> Place {
+    let (before, after) = (before.with_tables(), after.with_tables());
+    let (before, after) = (&*before, &*after);
     let names_only = |op: &Op| {
         matches!(
             op,
@@ -218,10 +280,9 @@ pub fn of_ops(before: &Workbook, after: &Workbook, ops: &[Op]) -> Place {
                 | Op::SetDropdowns { .. }
         )
     };
-    let weak = |op: &Op| {
-        matches!(op, Op::SetConditionalFormats { .. } | Op::SetRowGroups { .. } | Op::SetColumnGroups { .. })
-    };
-    // Where conditional formats and groups are: the place when nothing else is.
+    let weak = is_weak;
+    // Where conditional formats, groups, the columns of a connected table and protections are: the place when nothing
+    // else is.
     let mut weakly = Place::Nowhere;
     // Lines undeleted that the page does not know (a load forgot them) name their sheet only; lines inserted or
     // deleted there make it the place as a whole.
@@ -293,6 +354,70 @@ pub fn of_ops(before: &Workbook, after: &Workbook, ops: &[Op]) -> Place {
     }
 }
 
+/// Whether an operation's place is the place only when nothing else is: conditional formats, groups, protections.
+fn is_weak(op: &Op) -> bool {
+    matches!(
+        op,
+        Op::SetConditionalFormats { .. }
+            | Op::SetRowGroups { .. }
+            | Op::SetColumnGroups { .. }
+            | Op::SetColumnsOfConnectedTable { .. }
+            | Op::SetProtections { .. }
+    )
+}
+
+/// The place of several edits made one after another (each edit's place, and its operations), as the place of one
+/// edit's operations is (`of_ops`), each edit taken as one operation: an edit only naming a sheet (its name,
+/// settings, place among the sheets, dropdowns), only giving conditional formats, groups, the columns of a connected table or protections, only
+/// moving rows or columns, or inserting or undeleting a sheet shown, counts as such an operation does.
+pub fn of_edits(after: &Workbook, edits: &[(&Place, &[Op])]) -> Place {
+    let names_only = |op: &Op| {
+        matches!(op, Op::SetSheetNames { .. } | Op::SetSheetSettings { .. } | Op::MoveSheets { .. } | Op::SetDropdowns { .. })
+    };
+    let moves = |op: &Op| matches!(op, Op::MoveRows { .. } | Op::ReorderRows { .. } | Op::MoveColumns { .. });
+    let shows_sheet = |op: &Op| match op {
+        Op::InsertSheet { sheet_id, .. } | Op::UndeleteSheet { sheet_id } => after.sheet_index(sheet_id).is_some(),
+        _ => false,
+    };
+    let (mut place, mut moved, mut weakly, mut is_named_only) = (Place::Nowhere, Place::Nowhere, Place::Nowhere, false);
+    for &(here, ops) in edits {
+        let here = here.clone();
+        if ops.iter().all(is_weak) {
+            weakly = weakly.and(here);
+            continue;
+        }
+        if ops.iter().all(moves) {
+            moved = moved.and(here);
+            continue;
+        }
+        let named = ops.iter().all(names_only);
+        match &place {
+            Place::Nowhere => {
+                is_named_only = named;
+                place = here;
+            }
+            Place::Sheet { sheet_id, .. } if ops.iter().any(shows_sheet) => {
+                place = Place::sheet(&sheet_id.clone());
+                is_named_only = false;
+            }
+            _ if named && is_named_only => place = place.and(here),
+            _ if named => {}
+            Place::Sheet { sheet_id: a, .. } if is_named_only => {
+                if matches!(&here, Place::Sheet { sheet_id: b, .. } if a == b) {
+                    place = here;
+                    is_named_only = false;
+                }
+            }
+            _ => place = place.and(here),
+        }
+    }
+    match (moved, place) {
+        (Place::Nowhere, Place::Nowhere) => weakly,
+        (Place::Nowhere, place) => place,
+        (moved, _) => moved,
+    }
+}
+
 /// The sheet whose rows or columns an operation inserts, deletes or undeletes.
 fn lines_of_sheet(op: &Op) -> Option<&str> {
     match op {
@@ -309,6 +434,8 @@ fn lines_of_sheet(op: &Op) -> Option<&str> {
 fn of_op(before: &Workbook, after: &Workbook, op: &Op) -> Place {
     let sheet_after = |id: &str| after.sheet_index(id).map(|i| &after.sheets[i]);
     let line = |id: &str| after.bases.parse(id);
+    let sheet_or_gone =
+        |id: &str| if after.sheet_index(id).is_some() { Place::sheet(id) } else { Place::Gone(id.to_owned()) };
     match op {
         // Cells, formats and sizes: of the lines left (none when a later operation deleted them all).
         Op::SetCells { sheet_id, cells, .. } => {
@@ -435,7 +562,15 @@ fn of_op(before: &Workbook, after: &Workbook, op: &Op) -> Place {
         }
         Op::InsertSheet { sheet_id, .. } | Op::UndeleteSheet { sheet_id } => Place::sheet(sheet_id),
         Op::SetSheetNames { names } => names.first().map_or(Place::Nowhere, |n| Place::sheet(&n.sheet_id)),
-        Op::SetSheetSettings { sheets } => sheets.first().map_or(Place::Nowhere, |s| Place::sheet(&s.sheet_id)),
+        // A connected table's call, columns and snapshot: its whole sheet, gone when a later operation deleted it.
+        Op::SetConnectedTables { tables } => tables.first().map_or(Place::Nowhere, |t| sheet_or_gone(&t.sheet_id)),
+        Op::SetSnapshots { snapshots } => snapshots.first().map_or(Place::Nowhere, |s| sheet_or_gone(&s.sheet_id)),
+        Op::SetColumnsOfConnectedTable { sheet_id, .. } => sheet_or_gone(sheet_id),
+        // A sheet the op hides is no place.
+        Op::SetSheetSettings { sheets } => sheets
+            .first()
+            .filter(|s| s.settings.is_hidden != Some(true))
+            .map_or(Place::Nowhere, |s| Place::sheet(&s.sheet_id)),
         Op::MoveSheets { moves } => moves
             .first()
             .and_then(|m| m.sheet_ids.first())
@@ -502,6 +637,7 @@ fn of_op(before: &Workbook, after: &Workbook, op: &Op) -> Place {
                 .or_sheet(sheet_id)
         }
         Op::SetDropdowns { sheet_id, .. } | Op::SetNamedViews { sheet_id, .. } => Place::sheet(sheet_id),
+        Op::SetProtections { sheet_id, .. } => Place::sheet(sheet_id),
         Op::DeleteSheet { sheet_id } if after.sheet_index(sheet_id).is_none() => Place::Gone(sheet_id.clone()),
         Op::DeleteSheet { .. }
         | Op::SetViews { .. }
@@ -509,5 +645,6 @@ fn of_op(before: &Workbook, after: &Workbook, op: &Op) -> Place {
         | Op::SetTimeZone { .. }
         | Op::AdoptTimeZone { .. }
         | Op::SetLocale { .. } => Place::Nowhere,
+        Op::SetNamedRanges { .. } => Place::Nowhere,
     }
 }

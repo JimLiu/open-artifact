@@ -9,6 +9,7 @@ import type { decodeChartFromClipboard } from '../clipboard/chart-marker.ts';
 import { selectedArea, selectionOfArea, isSameCell } from '../selection/model.ts';
 import { withNoEffects, clearPassingNotice } from './transitions.ts';
 import { refuseWhenSeveralRanges, hasOtherRanges } from '../selection/several-ranges.ts';
+import { connectedTableColumnsName, withConnectedTableEditRefused } from '../tables/connected-table-refresh.ts';
 import { refuseIfRowsOutOfViewInTheWay, noticeRowsOutOfViewInTheWay, actOfEdit } from '../edits/rows-out-of-view.ts';
 import { filteredRowRunsIn } from '../tables/filtered-rows.ts';
 import { areaToA1AsStored } from '../formulas/from-words/where.ts';
@@ -33,7 +34,14 @@ import type { ReadsWithTextMeasurer } from './controller.ts';
 export function copyOrCutSelection(state: PageState, workbook: WorkbookReads, cutToken: string | null): PageTransition {
   let area = selectedArea(state, workbook);
   if (area === null) return withNoEffects(state);
-  let refusal = cutToken === null ? null : (refuseWhenSeveralRanges(state, 'cut') ?? refuseIfRowsOutOfViewInTheWay(state, workbook, 'cut'));
+  // On a connected table the cells are told by column names, and cutting is refused.
+  let columnsOfTable = connectedTableColumnsName(workbook, state.sheetId, area);
+  let refusal =
+    cutToken === null
+      ? null
+      : ((columnsOfTable === null ? null : withNoEffects(withConnectedTableEditRefused(state))) ??
+        refuseWhenSeveralRanges(state, 'cut') ??
+        refuseIfRowsOutOfViewInTheWay(state, workbook, 'cut'));
   if (refusal !== null)
     return {
       ...refusal,
@@ -51,7 +59,7 @@ export function copyOrCutSelection(state: PageState, workbook: WorkbookReads, cu
       ...clearPassingNotice(state),
       lastDone: {
         what: done,
-        cells: areaToA1AsStored(area, ownRowOrderOfSheet(workbook, state.sheetId)),
+        cells: columnsOfTable ?? areaToA1AsStored(area, ownRowOrderOfSheet(workbook, state.sheetId)),
       },
     },
     effects: [

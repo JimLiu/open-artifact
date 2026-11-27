@@ -7,6 +7,7 @@ import {
   profileLineNumbers,
   filledCellCountOfLine,
   IMPORT_ELLIPSIS,
+  profileImportColumn,
 } from './file-profile.ts';
 import type { ImportFileProfile } from './file-profile.ts';
 import {
@@ -17,6 +18,7 @@ import {
   looksLikeTrueOrFalseColumn,
   readingFittingTexts,
   isFitTooPoor,
+  fitsTwiceAsMuchAsNot,
   notFittingExamples,
   isTrueOrFalseColumn,
   losesPrecisionInAny,
@@ -335,10 +337,14 @@ export function createReadingChecker(
         ? [`only ${fit.fitting} of ${filledCount} filled cells are TRUE or FALSE: most have to be, and the rest a few words for nothing`]
         : ["a cell that is neither TRUE nor FALSE has a digit in it or starts with = or ', so the column is text or a dropdown"];
     }
-    let fitsTooPoorly = isFitTooPoor(fit, () => {
-      let distinctTexts = [...new Set(texts.map((text) => text.trim()))];
-      return notFittingExamples(fitOfReading(reading, distinctTexts, core), distinctTexts);
-    });
+    let fitsBestOfAllReadings = (): boolean =>
+      fitsTwiceAsMuchAsNot(fit) &&
+      profileImportColumn(file, lineNumbers, columnIndex, core).fits.every(({ fitting }) => fitting <= fit.fitting);
+    let fitsTooPoorly =
+      isFitTooPoor(fit, () => {
+        let distinctTexts = [...new Set(texts.map((text) => text.trim()))];
+        return notFittingExamples(fitOfReading(reading, distinctTexts, core), distinctTexts);
+      }) && !fitsBestOfAllReadings();
     return [
       ...(!followsAWish && (reading.kind === 'text' || reading.kind === 'dropdown') && isTrueOrFalseColumn(texts)
         ? ['the filled cells are TRUE or FALSE, so the column is trueOrFalse']

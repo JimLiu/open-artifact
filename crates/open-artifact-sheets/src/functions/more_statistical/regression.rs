@@ -6,6 +6,7 @@ use crate::coerce;
 use crate::functions::{array, value, Answer, Arg, Cells};
 use crate::locale::Locale;
 use crate::value::{Array, CellError, Value};
+use crate::told::{self, Told};
 
 /// The known values: y (row by row) and the x variables, each as long as y.
 struct Known {
@@ -114,6 +115,7 @@ fn known(y: &Arg, x: Option<&Arg>, constant: Option<&Arg>) -> Result<(Known, boo
             } else if rows == 1 && x.columns() == columns {
                 (Layout::Rows, values.chunks(columns).map(<[f64]>::to_vec).collect())
             } else {
+                told::tell(|| Told::RangesOfDifferentSizes);
                 return Err(CellError::Reference);
             }
         }

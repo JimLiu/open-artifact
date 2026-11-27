@@ -119,5 +119,7 @@ pub fn reads_another_row(formula: &StoredFormula, own: &str) -> bool {
         }
         Reference::Columns { top, .. } => top.as_ref().is_some_and(|top| other(&top.r, top.is_row_absolute)),
         Reference::Rows { top, bottom, .. } => other(&top.r, top.is_row_absolute) || other(&bottom.r, bottom.is_row_absolute),
+        Reference::TableColumn { .. } | Reference::TablePart { .. } => false,
+        Reference::NamedRange { .. } => false,
     })
 }

@@ -67,8 +67,10 @@ export function UndoToast({
 export function undoOfferKey(offer: UndoOfferInToast): string {
   switch (offer.kind) {
     case 'sheetDeleted':
+    case 'sheetHidden':
     case 'placedViewDeleted':
     case 'namedViewDeleted':
+    case 'namedRangeDeleted':
       return offer.name;
     case 'tableImportedIntoSheet':
       return `${offer.sheetName} ${offer.addedCount} ${offer.changedCount}`;

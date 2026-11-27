@@ -8,7 +8,11 @@
 //! The ends of a range are put in order, each keeping its `$`. A number with an end glued to it, and what `:` joins
 //! to that end (`99.A1:A3`), is no reference either. Everything else stays as typed.
 
-use crate::formula::{column_index, column_letters, CellPoint, ColumnPoint, Reference, RowPoint, StoredFormula};
+pub(crate) mod names;
+
+use crate::formula::{
+    column_index, column_letters, CellPoint, ColumnPoint, Reference, RowPoint, StoredFormula, TableColumns, TableRows,
+};
 use crate::locale::{DecimalSign, Locale};
 use crate::workbook::{Sheet, Workbook};
 
@@ -151,7 +155,7 @@ enum Found {
     One(Reference, usize),
 }
 
-/// The formula's text the en-US way and its references.
+/// The formula's text the en-US way and its references, names of named ranges among them (`names`).
 pub fn stored(text: &str, workbook: &Workbook, sheet: usize, locale: &Locale) -> StoredFormula {
     let text = from_locale(text, locale);
     let chars: Vec<char> = text.chars().collect();
@@ -161,7 +165,11 @@ pub fn stored(text: &str, workbook: &Workbook, sheet: usize, locale: &Locale) ->
     let mut last = 0;
     let mut i = 0;
     while i < tokens.len() {
-        match reference_at(&tokens, i, workbook, sheet) {
+        let found = match table_reference_at(&chars, &tokens, i, workbook) {
+            Found::Nothing => reference_at(&tokens, i, workbook, sheet),
+            found => found,
+        };
+        match found {
             Found::Nothing => i += 1,
             Found::Text(next) => i = next,
             Found::One(reference, next) => {
@@ -174,7 +182,227 @@ pub fn stored(text: &str, workbook: &Workbook, sheet: usize, locale: &Locale) ->
         }
     }
     pieces.push(chars[last..].iter().collect());
-    StoredFormula { text_between_references: pieces, references }
+    names::named(workbook, StoredFormula { text_between_references: pieces, references })
+}
+
+/// A reference to a connected table at token `i`: its name (capitals aside), alone (its records) or with what of it
+/// is taken between brackets: `[]` (its records), `[Id]` (a column's records), `[#Headers]`, `[#Data]`, `[#All]`,
+/// or a list of those and a column or two columns joined by `:` (`[[#All],[Id]:[Name]]`). A name followed by
+/// brackets that take nothing it has (`Customers[Nope]`, `Customers[#Totals]`) is text, brackets and all.
+fn table_reference_at(chars: &[char], tokens: &[(Token, usize, usize)], i: usize, workbook: &Workbook) -> Found {
+    let name = match &tokens[i].0 {
+        Token::Word(w) => w,
+        Token::Quoted(q) if chars.get(tokens[i].2) == Some(&'[') => q,
+        _ => return Found::Nothing,
+    };
+    if i > 0 && tokens[i - 1].0 == Token::Punctuation('[') {
+        return Found::Nothing;
+    }
+    // The token that starts where the brackets end, when one does.
+    let token_at = |end: usize| tokens.iter().position(|t| t.1 >= end).unwrap_or(tokens.len());
+    let fits = |k: usize, end: usize| k == tokens.len() && tokens.last().is_some_and(|t| t.2 == end) || tokens.get(k).is_some_and(|t| t.1 == end);
+    let at = tokens[i].2;
+    let lower = name.to_lowercase();
+    let Some(sheet) = workbook.sheets.iter().find(|s| s.connected.table.is_some() && s.name.to_lowercase() == lower) else {
+        // A word right before brackets, a cell's name too (`A1[x]`), is a name no table has: text, brackets and all;
+        // not one after a sheet's name or `:`, nor one with a `$`.
+        let after_sheet_or_colon = i > 0 && matches!(tokens[i - 1].0, Token::Punctuation('!' | ':'));
+        if matches!(tokens[i].0, Token::Word(_)) && !name.contains('$') && !after_sheet_or_colon && chars.get(at) == Some(&'[') {
+            if let Some(end) = closing_bracket(chars, at).filter(|&end| fits(token_at(end), end)) {
+                return Found::Text(token_at(end));
+            }
+        }
+        return Found::Nothing;
+    };
+    let sheet_id = sheet.id.clone();
+    if chars.get(at) != Some(&'[') {
+        let is_token = |k: Option<usize>, token: Token| k.and_then(|k| tokens.get(k)).is_some_and(|t| t.0 == token);
+        // A name of letters alone beside `:` is read as a column's letters (see `reference_at`).
+        let beside_colon = is_token(i.checked_sub(1), Token::Punctuation(':')) || is_token(Some(i + 1), Token::Punctuation(':'));
+        if !matches!(tokens[i].0, Token::Word(_))
+            || calls(tokens, i + 1)
+            || is_token(Some(i + 1), Token::Punctuation('!'))
+            || (beside_colon && name.bytes().all(|b| b.is_ascii_alphabetic()))
+        {
+            return Found::Nothing;
+        }
+        // Brackets after spaces take nothing of it: the name and they are text.
+        if is_token(Some(i + 1), Token::Space) && chars.get(tokens[i + 1].2) == Some(&'[') {
+            let k = closing_bracket(chars, tokens[i + 1].2).map_or(i + 1, |end| {
+                tokens.iter().position(|t| t.1 >= end).filter(|&k| tokens[k].1 == end).unwrap_or(i + 1)
+            });
+            return Found::Text(k.max(i + 1));
+        }
+        return Found::One(Reference::TablePart { sheet_id, columns: None, rows: TableRows::Records }, i + 1);
+    }
+    match table_part(chars, at, workbook, sheet) {
+        Some((reference, end)) => {
+            let k = token_at(end);
+            if !fits(k, end) {
+                return Found::Nothing;
+            }
+            Found::One(reference(sheet_id), k)
+        }
+        None => match closing_bracket(chars, at) {
+            Some(end) if fits(token_at(end), end) => Found::Text(token_at(end)),
+            _ => Found::Nothing,
+        },
+    }
+}
+
+/// Whether a word is letters alone, too many of them for a column's.
+fn is_past_the_sheet(word: &str) -> bool {
+    word.len() > 7 && word.bytes().all(|b| b.is_ascii_alphabetic())
+}
+
+/// The character past the bracket that closes the one at `at`, brackets inside counted.
+fn closing_bracket(chars: &[char], at: usize) -> Option<usize> {
+    let mut depth = 0;
+    let mut k = at;
+    while k < chars.len() {
+        match chars[k] {
+            '\'' => k += 1,
+            '[' => depth += 1,
+            ']' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(k + 1);
+                }
+            }
+            _ => {}
+        }
+        k += 1;
+    }
+    None
+}
+
+/// What of a connected table the brackets at `at` take, and the character past them.
+#[allow(clippy::type_complexity)]
+fn table_part(chars: &[char], at: usize, workbook: &Workbook, sheet: &Sheet) -> Option<(Box<dyn Fn(String) -> Reference>, usize)> {
+    #[derive(Clone, Copy, PartialEq)]
+    enum Item {
+        Rows(TableRows, bool),
+        Columns(usize, usize),
+    }
+    // A column's name between brackets (`'` takes the character after it as it is), and the character past them.
+    let column = |k: usize| -> Option<(usize, usize)> {
+        if chars.get(k) != Some(&'[') {
+            return None;
+        }
+        let mut name = String::new();
+        let mut k = k + 1;
+        loop {
+            match *chars.get(k)? {
+                '\'' => {
+                    name.push(*chars.get(k + 1)?);
+                    k += 2;
+                }
+                ']' => break,
+                '[' | '#' => return None,
+                c => {
+                    name.push(c);
+                    k += 1;
+                }
+            }
+        }
+        let lower = name.to_lowercase();
+        let p = sheet.columns.lines().iter().position(|l| {
+            sheet.connected.columns.get(l).is_some_and(|c| c.name.to_lowercase() == lower)
+        })?;
+        Some((p, k + 1))
+    };
+    let keyword = |k: usize| -> Option<(Item, usize)> {
+        if chars.get(k) != Some(&'[') || chars.get(k + 1) != Some(&'#') {
+            return None;
+        }
+        let end = (k + 2..chars.len()).find(|&e| chars[e] == ']')?;
+        let word: String = chars[k + 2..end].iter().collect::<String>().to_lowercase();
+        let item = match word.as_str() {
+            "headers" => Item::Rows(TableRows::Heading, false),
+            "data" => Item::Rows(TableRows::Records, true),
+            "all" => Item::Rows(TableRows::HeadingAndRecords, false),
+            _ => return None,
+        };
+        Some((item, end + 1))
+    };
+    // A column, or two joined by `:`.
+    let columns = |k: usize| -> Option<(Item, usize)> {
+        let (a, k) = column(k)?;
+        let mut colon = k;
+        while chars.get(colon).is_some_and(|&c| is_space(c)) {
+            colon += 1;
+        }
+        if chars.get(colon) == Some(&':') {
+            let mut k = colon + 1;
+            while chars.get(k).is_some_and(|&c| is_space(c)) {
+                k += 1;
+            }
+            let (b, k) = column(k)?;
+            return Some((Item::Columns(a.min(b), a.max(b)), k));
+        }
+        Some((Item::Columns(a, a), k))
+    };
+    let spaces = |mut k: usize| {
+        while chars.get(k).is_some_and(|&c| is_space(c)) {
+            k += 1;
+        }
+        k
+    };
+    let mut items = Vec::new();
+    let end = match chars.get(at + 1)? {
+        ']' => at + 2,
+        '#' => {
+            let (item, k) = keyword(at)?;
+            items.push(item);
+            k
+        }
+        // A list between brackets: spaces may stand around its items, its `,` and its `:`.
+        _ if chars.get(spaces(at + 1)) == Some(&'[') => {
+            let mut k = spaces(at + 1);
+            loop {
+                let (item, next) = keyword(k).or_else(|| columns(k))?;
+                items.push(item);
+                k = spaces(next);
+                match chars.get(k)? {
+                    ',' => k = spaces(k + 1),
+                    ']' => break k + 1,
+                    _ => return None,
+                }
+            }
+        }
+        _ => {
+            let (p, k) = column(at)?;
+            items.push(Item::Columns(p, p));
+            k
+        }
+    };
+    // The rows first, `#Headers` and `#Data` together or one of the three alone, then the columns, once.
+    let (spanned, kinds) = match items.split_last() {
+        Some((&Item::Columns(a, b), kinds)) => (Some((a, b)), kinds),
+        _ => (None, &items[..]),
+    };
+    let kinds: Vec<TableRows> =
+        kinds.iter().map(|item| match item { Item::Rows(rows, _) => Some(*rows), Item::Columns(..) => None }).collect::<Option<_>>()?;
+    let rows = match kinds[..] {
+        [] | [TableRows::Records] => TableRows::Records,
+        [TableRows::Heading] => TableRows::Heading,
+        [TableRows::HeadingAndRecords] | [TableRows::Heading, TableRows::Records] => TableRows::HeadingAndRecords,
+        _ => return None,
+    };
+    let id = |p: usize| workbook.bases.text(sheet.columns.line(p).expect("a column"));
+    let reference: Box<dyn Fn(String) -> Reference> = match spanned {
+        None => Box::new(move |sheet_id| Reference::TablePart { sheet_id, columns: None, rows }),
+        Some((a, b)) if a == b && rows != TableRows::Heading => {
+            let c = id(a);
+            let has_its_heading = rows == TableRows::HeadingAndRecords;
+            Box::new(move |sheet_id| Reference::TableColumn { sheet_id, c: c.clone(), has_its_heading })
+        }
+        Some((a, b)) => {
+            let columns = TableColumns { left: id(a), right: id(b) };
+            Box::new(move |sheet_id| Reference::TablePart { sheet_id, columns: Some(columns.clone()), rows })
+        }
+    };
+    Some((reference, end))
 }
 
 /// Whether a word before `!` names a sheet: not with a `$` in it, nor starting with `.`, nor a number (`1`,
@@ -264,7 +492,14 @@ fn reference_at(tokens: &[(Token, usize, usize)], i: usize, workbook: &Workbook,
         Some(Token::Word(w)) => end_of(w),
         _ => None,
     };
-    let Some(first) = word(j) else {
+    // Letters alone, however many, are a column's when `:` joins them: past the sheet's last column when they are
+    // too many (`A1:Customers`, `Customers:A1`).
+    let letters = |k: usize| match tokens.get(k).map(|t| &t.0) {
+        Some(Token::Word(w)) if is_past_the_sheet(w) => Some(End::Column(usize::MAX, false)),
+        _ => None,
+    };
+    let joins = tokens.get(j + 1).map(|t| &t.0) == Some(&Token::Punctuation(':'));
+    let Some(first) = word(j).or_else(|| letters(j).filter(|_| joins)) else {
         // A sheet's name and `!` with no reference after them.
         return Found::Nothing;
     };
@@ -276,7 +511,7 @@ fn reference_at(tokens: &[(Token, usize, usize)], i: usize, workbook: &Workbook,
             Some((other, k)) => (Some(other), k),
             None => (None, j + 2),
         };
-        if let Some(second) = word(k) {
+        if let Some(second) = word(k).or_else(|| letters(k)) {
             let next = k + 1;
             // Two ends that make no reference together (`A:1000`) are text, both of them.
             if !joined(first, second) {
@@ -539,6 +774,12 @@ pub fn from_locale(text: &str, locale: &Locale) -> String {
                 i += 1;
                 after_value = false;
             }
+            // A column's name in brackets is copied as it is, and a table reference's list has its separators
+            // written `,` (see `formula_text::bracketed`).
+            '[' if crate::formula_text::bracketed(&chars, i).is_some() => {
+                i = crate::formula_text::copy_bracketed(&chars, i, &mut out);
+                after_value = true;
+            }
             '{' => {
                 in_braces = true;
                 out.push(c);
@@ -551,7 +792,7 @@ pub fn from_locale(text: &str, locale: &Locale) -> String {
                 i += 1;
                 after_value = true;
             }
-            ')' | '%' | '!' => {
+            ')' | ']' | '%' | '!' => {
                 out.push(c);
                 i += 1;
                 after_value = true;

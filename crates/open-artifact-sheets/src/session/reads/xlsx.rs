@@ -10,13 +10,18 @@
 //! numbers (which Excel draws again), people (written as their labels), links of parts of texts, links Excel does
 //! not take, checkboxes, the colors of dropdown options, sheet names Excel does not take, blank cells' looks past
 //! the file's room for them, sizes past Excel's largest, conditional formats, views placed on sheets, the charts'
-//! looks, and interactives (a sheet that shows one is written as its cells). A placed
+//! looks, the editors of protections (`protections.rs`), interactives (a sheet that shows one is written as its
+//! cells), and default values (told as the cells' prompts, `validations.rs`). A hidden sheet is hidden in the file
+//! too, and the first sheet shown is the one selected. A placed
 //! view is a chart in the file only when it is described (`charts`); every other one is in `chartsLeftOut`, with why.
 
 mod charts;
+mod defined_names;
 mod formula;
 mod names;
+mod protections;
 mod styles;
+mod validations;
 mod worksheet;
 mod xml;
 
@@ -28,11 +33,11 @@ use serde_json::{json, Value as Json};
 
 use self::charts::DescribedChart;
 use self::styles::{Look, StandardColors, Styles};
-use self::worksheet::{address, Validation, Writing};
+use self::validations::{Rule, Validation};
+use self::worksheet::{address, Writing};
 use self::xml::{SharedStrings, DECLARATION};
 use crate::formula::column_letters;
-use crate::ids::LineId;
-use crate::workbook::formats::{blocks, Leaf, HUES, SHADES};
+use crate::workbook::formats::{HUES, SHADES};
 use crate::workbook::Workbook;
 
 pub const KINDS: &[&str] = &["readXlsxFile"];
@@ -85,22 +90,22 @@ pub fn answer(workbook: &Workbook, request: &Json) -> String {
         return json!({"kind": "refused", "refusal": "noSheetToWrite"}).to_string();
     }
 
-    // The dropdowns cells use, each a column of the sheet of options, in the order of the sheets.
+    // The dropdowns cells use, each a column of the sheet of options, in the order of the sheets; and the cells
+    // held to limits or telling a default value (`validations.rs`).
     let mut lists: Vec<Vec<String>> = Vec::new();
-    let mut sqrefs: Vec<Vec<(usize, String)>> = Vec::new();
+    let mut sqrefs: Vec<Vec<(usize, Vec<(Option<String>, String)>)>> = Vec::new();
+    let mut others: Vec<Vec<Validation>> = Vec::new();
     let mut dropdown_colors = false;
     for sheet in &workbook.sheets {
+        let held = validations::held(workbook, sheet);
         let mut here = Vec::new();
-        for (id, options) in sheet.dropdowns.values() {
-            let sqref = sqref_of(workbook, sheet, id);
-            if sqref.is_empty() {
-                continue;
-            }
+        for (options, groups) in held.lists {
             dropdown_colors |= options.iter().any(|o| o.color.get("kind").and_then(Json::as_str) != Some("none"));
-            here.push((lists.len(), sqref));
+            here.push((lists.len(), groups));
             lists.push(options.iter().map(|o| o.label.clone()).collect());
         }
         sqrefs.push(here);
+        others.push(held.others);
     }
 
     let names: Vec<&str> = workbook.sheets.iter().map(|s| s.name.as_str()).collect();
@@ -118,18 +123,23 @@ pub fn answer(workbook: &Workbook, request: &Json) -> String {
         sheet_links: Vec::new(),
         drawings: charts.drawings.iter().map(|d| d.as_ref().map(|d| d.number)).collect(),
     };
+    // The sheet selected, and the first tab shown: the first sheet not hidden.
+    let first_shown = workbook.sheets.iter().position(|s| !s.is_hidden).unwrap_or(0);
     let mut sheets: Vec<String> = Vec::new();
-    for (i, here) in sqrefs.iter().enumerate() {
+    let mut default_values = false;
+    for (i, (here, others)) in sqrefs.into_iter().zip(others).enumerate() {
         let quoted = format!("'{}'", options_name.as_deref().unwrap_or_default().replace('\'', "''"));
-        let validations: Vec<Validation> = here
-            .iter()
-            .map(|(k, sqref)| {
-                let column = column_letters(*k);
-                let formula = format!("{quoted}!${column}$1:${column}${}", lists[*k].len());
-                Validation { sqref: sqref.clone(), formula }
-            })
-            .collect();
-        sheets.push(writing.sheet(i, i == 0, &validations));
+        let mut validations: Vec<Validation> = Vec::new();
+        for (k, groups) in here {
+            let column = column_letters(k);
+            let formula = format!("{quoted}!${column}$1:${column}${}", lists[k].len());
+            for (prompt, sqref) in groups {
+                validations.push(Validation { sqref, rule: Rule::List(formula.clone()), prompt });
+            }
+        }
+        validations.extend(others);
+        default_values |= validations.iter().any(|v| v.prompt.is_some());
+        sheets.push(writing.sheet(i, i == first_shown, &validations));
     }
     if options_name.is_some() {
         sheets.push(options_sheet(&lists, &mut writing.strings, &mut writing.styles));
@@ -182,15 +192,22 @@ pub fn answer(workbook: &Workbook, request: &Json) -> String {
     let _ = write!(
         book,
         "<workbook xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" xmlns:r=\"{RELATIONSHIP}\">\
-         <bookViews><workbookView/></bookViews><sheets>"
+         <bookViews><workbookView"
     );
+    if first_shown > 0 {
+        let _ = write!(book, " firstSheet=\"{first_shown}\" activeTab=\"{first_shown}\"");
+    }
+    book.push_str("/></bookViews><sheets>");
     let all_names = names.iter().map(String::as_str).chain(options_name.as_deref());
     for (i, name) in all_names.enumerate() {
-        let hidden = if i == names.len() { " state=\"hidden\"" } else { "" };
+        let is_hidden = i == names.len() || workbook.sheets.get(i).is_some_and(|s| s.is_hidden);
+        let hidden = if is_hidden { " state=\"hidden\"" } else { "" };
         let name = xml::attribute(name);
         let _ = write!(book, "<sheet name=\"{name}\" sheetId=\"{}\"{hidden} r:id=\"rId{}\"/>", i + 1, i + 1);
     }
-    book.push_str("</sheets><calcPr fullCalcOnLoad=\"1\"/></workbook>");
+    book.push_str("</sheets>");
+    book.push_str(&defined_names::defined_names(workbook, &names));
+    book.push_str("<calcPr fullCalcOnLoad=\"1\"/></workbook>");
     parts.push(("xl/workbook.xml".into(), book));
     let mut rels = String::from(DECLARATION);
     rels.push_str("<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">");
@@ -245,8 +262,11 @@ pub fn answer(workbook: &Workbook, request: &Json) -> String {
         (workbook.sheets.iter().any(|s| !s.conditional_formats.is_empty()), "conditionalFormats"),
         (!charts.left_out.is_empty(), "placedViews"),
         (drawn, "looksOfCharts"),
+        (workbook.sheets.iter().any(|s| protections::is_written(&workbook.bases, s)), "editorsOfProtections"),
         // A sheet that shows an interactive is written as its cells, without it.
         (workbook.sheets.iter().any(|s| s.interactive.is_some()), "interactives"),
+        // Default values are told as prompts, which Excel does not put in the cells.
+        (default_values, "defaultValues"),
     ]
     .into_iter()
     .filter_map(|(on, name)| on.then_some(name))
@@ -282,47 +302,6 @@ fn standard_colors(given: &HashMap<String, HashMap<String, String>>) -> Option<S
         }
     }
     Some(out)
-}
-
-/// The cells a dropdown is offered in, as the file lists them: blocks of cell controls (the columns
-/// whose controls are the same in every row together, so that a checkbox in one column parts it from the next) that
-/// offer it, in the order of their ids, each such block's rectangles by their rows, then their columns.
-fn sqref_of(workbook: &Workbook, sheet: &crate::workbook::Sheet, dropdown_id: &str) -> String {
-    let cells = sheet.formats.iter().filter(|(leaf, _, _)| *leaf == Leaf::CellControl);
-    let offers = |format: &Json| format["cellControl"]["dropdownId"].as_str() == Some(dropdown_id);
-    let mut out: Vec<String> = Vec::new();
-    for (rows, columns, _) in blocks(&workbook.bases, cells).into_iter().filter(|(_, _, format)| offers(format)) {
-        let positions = |runs: &[crate::ids::IdRun], axis: &crate::ids::Axis| -> Vec<(usize, usize)> {
-            let mut p: Vec<usize> = runs
-                .iter()
-                .flat_map(|run| {
-                    let base = workbook.bases.find(&run.base);
-                    (run.first..run.first + run.count).filter_map(move |n| Some(LineId { base: base?, n }))
-                })
-                .filter_map(|line| axis.position(line))
-                .collect();
-            p.sort_unstable();
-            let mut runs: Vec<(usize, usize)> = Vec::new();
-            for x in p {
-                match runs.last_mut() {
-                    Some((_, last)) if *last + 1 == x => *last = x,
-                    _ => runs.push((x, x)),
-                }
-            }
-            runs
-        };
-        let (rows, columns) = (positions(&rows, &sheet.rows), positions(&columns, &sheet.columns));
-        for &(top, bottom) in &rows {
-            for &(left, right) in &columns {
-                if (top, left) == (bottom, right) {
-                    out.push(address(top, left));
-                } else {
-                    out.push(format!("{}:{}", address(top, left), address(bottom, right)));
-                }
-            }
-        }
-    }
-    out.join(" ")
 }
 
 /// The hidden sheet of dropdown options: each dropdown's labels down a column.

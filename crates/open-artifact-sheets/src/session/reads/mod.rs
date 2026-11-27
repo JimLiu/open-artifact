@@ -7,9 +7,12 @@ use serde_json::Value as Json;
 use crate::workbook::Workbook;
 
 mod cells;
+mod connected;
 pub(super) mod clipboard;
+mod defaults;
 pub(super) mod formats;
 mod lines;
+mod named_ranges;
 mod objects;
 pub(crate) mod pivot;
 pub(crate) mod tables;
@@ -17,14 +20,14 @@ mod xlsx;
 
 /// Whether a request is one of the reads.
 pub fn is_read(kind: &str) -> bool {
-    [cells::KINDS, clipboard::KINDS, formats::KINDS, lines::KINDS, tables::KINDS, objects::KINDS, pivot::KINDS, xlsx::KINDS].iter().any(|kinds| kinds.contains(&kind))
+    [cells::KINDS, connected::KINDS, clipboard::KINDS, formats::KINDS, lines::KINDS, tables::KINDS, objects::KINDS, pivot::KINDS, xlsx::KINDS, named_ranges::KINDS, defaults::KINDS].iter().any(|kinds| kinds.contains(&kind))
 }
 
 /// Whether a read works the formulas out first, even when the page asked to be answered before calculating: the
 /// .xlsx file holds every value as it comes to (a request that does not read is refused as it is), and a proposed
-/// formula reads the others as they come to.
+/// formula reads the others as they come to, and a copy needs the cells arrays fill while a formula may spill.
 pub fn works_formulas_out(workbook: &Workbook, request: &Json) -> bool {
-    xlsx::reads(request) || cells::works_formulas_out(workbook, request)
+    xlsx::reads(request) || cells::works_formulas_out(workbook, request) || clipboard::works_formulas_out(workbook, request)
 }
 
 /// A read answered, the workbook as it is shown (its formulas worked out as far as the session has).
@@ -44,6 +47,12 @@ pub fn answer(workbook: &Workbook, request: &Json) -> String {
         objects::answer(workbook, request)
     } else if pivot::KINDS.contains(&kind) {
         pivot::answer(workbook, request)
+    } else if connected::KINDS.contains(&kind) {
+        connected::answer(workbook, request)
+    } else if named_ranges::KINDS.contains(&kind) {
+        named_ranges::answer(workbook, request)
+    } else if defaults::KINDS.contains(&kind) {
+        defaults::answer(workbook, request)
     } else {
         xlsx::answer(workbook, request)
     }

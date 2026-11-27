@@ -33,3 +33,11 @@ test('a chart, a rule, a blank sheet', () => {
   const blank = agentRequestOf({ label: '', isSheetBlank: true, sheetNumber: 3 })!;
   assert.deepEqual(blank.selectionSnapshot, { kind: 'sheet', label: 'Sheet 3', count: 1 });
 });
+
+test('a connected table that did not refresh: why, as context, with the sheet as the snapshot', () => {
+  const refresh = agentRequestOf({ label: 'Connected table', whyNotRefreshed: 'answerTooLarge', sheetNumber: 2 })!;
+  assert.equal(refresh.text, 'About why this connected table did not refresh.');
+  assert.equal(refresh.userText, undefined);
+  assert.deepEqual(refresh.context, { whyNotRefreshed: 'answerTooLarge', sheetNumber: 2 });
+  assert.deepEqual(refresh.selectionSnapshot, { kind: 'sheet', label: 'Connected table', count: 1, where: 'Sheet 2' });
+});

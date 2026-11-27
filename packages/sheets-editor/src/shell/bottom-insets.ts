@@ -92,6 +92,21 @@ export function onActsWhileFootCovered(
     for (let eventType of eventTypes) target.removeEventListener(eventType, actIfCovered, true);
   };
 }
+/** Acts on each press or key until the foot is known to be clear of a bottom safe area. */
+export function onActsWhileFootMayBeCovered(
+  target: EventTarget,
+  act: () => void,
+  hasSafeArea: () => boolean | null = hasBottomSafeArea,
+  subscribe: (listener: () => void) => () => void = subscribeBottomInsets,
+): () => void {
+  let isKnownUncovered = false;
+  let noteSafeArea = () => void (isKnownUncovered ||= hasSafeArea() === false);
+  let unsubscribe = subscribe(noteSafeArea);
+  let stopActing = onActsWhileFootCovered(target, act, () => (noteSafeArea(), !isKnownUncovered));
+  return () => {
+    (unsubscribe(), stopActing());
+  };
+}
 export function callAgainOnQuickReturn(
   win: Window,
   call: () => void,

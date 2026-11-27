@@ -295,7 +295,7 @@ export function DropdownOptionRow({
             });
           if (event.relatedTarget !== null) enterOption();
           else whenBlurredToNothing(event.target, enterOption);
-        }}><TooltipGroup closeDelay={0}><PaneRow trailing={<TooltipGroup closeDelay={0}><Button variant="ghost" iconOnly icon="Minus" aria-label={removeOptionLabel(optionNumber, option.label)} className="text-secondary" disabled={isAlone} onClick={() =>
+        }}><TooltipGroup closeDelay={0}><PaneRow leavesKeysToCells={isMovable} trailing={<TooltipGroup closeDelay={0}><Button variant="ghost" iconOnly icon="Minus" aria-label={removeOptionLabel(optionNumber, option.label)} className="text-secondary" disabled={isAlone} onClick={() =>
                     reorder.gliding(
                       (onDone: (isDone: boolean) => void) =>
                         onAct(

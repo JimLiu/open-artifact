@@ -1,13 +1,13 @@
 import { cellValueOf } from '../model/cell-values.ts';
 import { shownCellText } from '../format/shown-text.ts';
 import { formulaInPointNotation } from './point-notation.ts';
-import { formulaReadsAsWords } from './word-tokens.ts';
+import { formulaReadsAsWords, namesOfSheetsAndRanges } from './word-tokens.ts';
 import { findFormulaReferences, resolveFormulaReference } from './references.ts';
 import { areaToA1AsStored } from './from-words/where.ts';
 import { taggedJson } from '../format/conditional/agent-prompts.ts';
 import { SHEET_DATA_DESCRIPTION_BRIEF, blockAroundCell, formulaWritingRules, namesAddressesOutsideTables } from './agent-prompt.ts';
 import type { AgentPrompt } from '../format/conditional/agent-prompts.ts';
-import type { DecimalSignName, ErrorValue, SheetId } from '@open-artifact/sheets-core';
+import type { CellContents, DecimalSignName, ErrorValue, SheetId } from '@open-artifact/sheets-core';
 import type { CellId, WorkbookReads } from '../model/workbook.ts';
 import type { CellArea, CellPosition } from '../selection/model.ts';
 import type { ErrorTell } from '../messages/formula-errors.ts';
@@ -188,7 +188,7 @@ export function describeNeighborCell(
       ...neighbor,
       holds,
     };
-  if (readsAnotherSheet(formulaText, reads.decimalSign))
+  if (readsAnotherSheetOrTable(formulaText, reads.decimalSign, cell.input))
     return {
       ...neighbor,
       holds: 'a formula that reads another sheet',
@@ -209,6 +209,15 @@ export function describeNeighborCell(
         formula,
       };
 }
+/** Whether a formula reads another sheet or a connected table (by a column of it, or a part of it). */
+export function readsAnotherSheetOrTable(formulaText: string, decimalSign: DecimalSignName, input?: CellContents['input']): boolean {
+  let { references, columnsOfTables } = findFormulaReferences(formulaText, decimalSign);
+  return (
+    columnsOfTables.length > 0 ||
+    references.some(({ sheetName }) => sheetName !== null) ||
+    (input?.kind === 'formula' && input.formula.references.some(({ kind }) => kind === 'tablePart'))
+  );
+}
 export function isFormulaWrittenInWords(reads: WorkbookReads, formulaText: string): boolean {
   let sheetNames = reads.listSheets().map(({ name }) => name);
   let namesASheet =
@@ -217,7 +226,11 @@ export function isFormulaWrittenInWords(reads: WorkbookReads, formulaText: strin
       (sheetName) =>
         simplifyForNameMatch(sheetName) !== '' && ` ${simplifyForNameMatch(formulaText)} `.includes(` ${simplifyForNameMatch(sheetName)} `),
     );
-  return !readsAnotherSheet(formulaText, reads.decimalSign) && !namesASheet && formulaReadsAsWords(formulaText, sheetNames, reads.decimalSign);
+  return (
+    !readsAnotherSheetOrTable(formulaText, reads.decimalSign) &&
+    !namesASheet &&
+    formulaReadsAsWords(formulaText, namesOfSheetsAndRanges(reads), reads.decimalSign)
+  );
 }
 export function fixRequestData(
   reads: WorkbookReads,
@@ -231,7 +244,7 @@ export function fixRequestData(
   let formula = formulaInPointNotation(cell, reads.decimalSign, reads.formulaAsTyped);
   if (formula === null) return null;
   let { references, quoted } = findFormulaReferences(formulaText, reads.decimalSign);
-  if (readsAnotherSheet(formulaText, reads.decimalSign)) return null;
+  if (readsAnotherSheetOrTable(formulaText, reads.decimalSign, cell.input)) return null;
   if (formulaBefore !== null && !isFormulaBeforeFixable(formulaBefore, reads)) return null;
   let sheets = reads.listSheets();
   let areas = references
@@ -417,14 +430,12 @@ export const addressOfCellPosition = ({ rowIndex, columnIndex }: CellPosition): 
     null,
   );
 export const MAX_ROWS_UP_TO_COLUMN_HEADER = 200;
-export const readsAnotherSheet = (formulaText: string, decimalSign: DecimalSignName): boolean =>
-  findFormulaReferences(formulaText, decimalSign).references.some(({ sheetName }) => sheetName !== null);
 export const isFormulaBeforeFixable = (
   { text, input }: Pick<LostFormula, 'text' | 'input'>,
   { decimalSign, formulaAsTyped }: Pick<WorkbookReads, 'decimalSign' | 'formulaAsTyped'>,
 ): boolean =>
   isFormulaShortEnoughToFix(text) &&
-  !readsAnotherSheet(text, decimalSign) &&
+  !readsAnotherSheetOrTable(text, decimalSign, input) &&
   formulaInPointNotation(
     {
       input,

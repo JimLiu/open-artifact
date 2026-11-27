@@ -671,6 +671,16 @@ export const interactiveSheetMessages = {
       defaultMessage: 'Interactive sheet tools',
       id: 'KIIscWluCD',
     }),
+  wayToCell: () =>
+    translateMessage({
+      defaultMessage: 'Select a number to see its cell',
+      id: 'gNN2GpJ7KX',
+    }),
+  wayToWrittenCell: () =>
+    translateMessage({
+      defaultMessage: 'Use a control to see its cell',
+      id: 'eHHwWwW2j1',
+    }),
   reset: () =>
     translateMessage({
       defaultMessage: 'Reset',
@@ -681,12 +691,37 @@ export const interactiveSheetMessages = {
       defaultMessage: 'Save as default',
       id: 'hznlpI0F/s',
     }),
+  undoYourChanges: () =>
+    translateMessage({
+      defaultMessage: 'Undo your changes',
+      id: 'DDt+mrat56',
+    }),
+  changedFromDefault: (count: number) =>
+    translateMessage(
+      {
+        defaultMessage: '{count, number} changed from default',
+        id: 'rbLBt7uZR2',
+      },
+      {
+        count,
+      },
+    ),
   runAgain: () =>
     translateMessage({
       defaultMessage: 'Run again',
       id: '4J21ZOpvFM',
     }),
 };
+export const goToAddressLabel = (address: string): string =>
+  translateMessage(
+    {
+      defaultMessage: 'Go to {address}',
+      id: 'pon8eSjQg9',
+    },
+    {
+      address,
+    },
+  );
 export const interactiveStoppedTitle = (): string =>
   translateMessage({
     defaultMessage: 'This interactive sheet was stopped',
@@ -712,13 +747,20 @@ export const interactiveNotDuplicatedText = (why: InteractiveNotDuplicatedWhy): 
         defaultMessage: 'Nothing was duplicated, because that interactive sheet can’t be copied. You can ask Agent to make a new one.',
         id: '5ORD0glPds',
       });
-export const interactiveDoneText = ({ what }: { what: 'interactiveReset' | 'interactiveDefaultsSaved' }): string =>
-  what === 'interactiveReset'
-    ? translateMessage({
-        defaultMessage: 'Interactive sheet reset',
-        id: 'aA2jRCp7YB',
-      })
-    : translateMessage({
-        defaultMessage: 'Saved as default',
-        id: 't46TGIzzNq',
-      });
+export const interactiveChangesUndoneText = (): string =>
+  translateMessage({
+    defaultMessage: 'Your changes were undone',
+    id: 'bQFCxaC0rN',
+  });
+export const interactiveDoneText = ({ what }: { what: 'interactiveChangesUndone' | 'interactiveReset' | 'interactiveDefaultsSaved' }): string =>
+  what === 'interactiveChangesUndone'
+    ? interactiveChangesUndoneText()
+    : what === 'interactiveReset'
+      ? translateMessage({
+          defaultMessage: 'Interactive sheet reset',
+          id: 'aA2jRCp7YB',
+        })
+      : translateMessage({
+          defaultMessage: 'Saved as default',
+          id: 't46TGIzzNq',
+        });

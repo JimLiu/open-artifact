@@ -136,9 +136,11 @@ export function SegmentedMenuRow<Value extends string>({
               )} value={value} onChange={onChange} /></div><div className="absolute inset-px grid auto-cols-fr grid-flow-col">{segments.map(
               (segment) =>
                 (<Tooltip key={segment.value} content={segment.icon === undefined ? undefined : segment.name} anchor={rowRef} side="left"><Menu.Item keepOpen role="menuitemradio" aria-checked={segment.value === value} aria-label={segment.name} label={segment.name} className={cn(
-                        'min-w-0 not-aria-checked:hover:bg-fill-ghost-hover data-[highlighted]:bg-transparent active:bg-transparent active:bg-none',
+                        'sheet-segment-in-menu min-w-0 not-aria-checked:hover:bg-fill-ghost-hover data-[highlighted]:bg-transparent active:bg-transparent active:bg-none',
                         isFocusShown && 'focus:shadow-focus',
-                      )} onClick={() => onChange(segment.value)} onFocus={() => setFocusShown(!wasPointerPressedLast())} onPointerDown={() => setFocusShown(false)} onPointerUp={({ pointerType, currentTarget }) => {
+                      )} {...(isFocusShown && {
+                        'data-is-focus-by-key': '',
+                      })} onClick={() => onChange(segment.value)} onFocus={() => setFocusShown(!wasPointerPressedLast())} onPointerDown={() => setFocusShown(false)} onPointerUp={({ pointerType, currentTarget }) => {
                         if (pointerType !== 'mouse')
                           currentTarget.focus({
                             preventScroll: true,
@@ -221,7 +223,7 @@ export function ViewMenu({
           }}><ZoomPercent zoom={zoom} /></MenuTriggerButton>} tooltip={sheetMessages.zoom()} onOpenChange={(isNowOpen: boolean, event: Event | null) => {
           if (isNowOpen && event instanceof UIEvent && event.detail === 2) return;
           setOpen(isNowOpen, event);
-        }} whatHasCaretAfter={whatHasCaretAfter} toolbar={buttonRef} side={side}><Menu.Item keepOpen disabled={zoom >= MAX_ZOOM} onClick={() => gridZoom.set(nextZoomStep(zoom, 1))}>{sheetMessages.zoomIn()}</Menu.Item><Menu.Item keepOpen disabled={zoom <= MIN_ZOOM} onClick={() => gridZoom.set(nextZoomStep(zoom, -1))}>{sheetMessages.zoomOut()}</Menu.Item><Menu.Item onClick={menuItemPicked(() => gridZoom.set(1))}>{sheetMessages.zoomReset()}</Menu.Item>{onFitChartAsked !== null &&
+        }} whatHasCaretAfter={whatHasCaretAfter} takesKeysAtPress toolbar={buttonRef} side={side}><Menu.Item keepOpen disabled={zoom >= MAX_ZOOM} onClick={() => gridZoom.set(nextZoomStep(zoom, 1))}>{sheetMessages.zoomIn()}</Menu.Item><Menu.Item keepOpen disabled={zoom <= MIN_ZOOM} onClick={() => gridZoom.set(nextZoomStep(zoom, -1))}>{sheetMessages.zoomOut()}</Menu.Item><Menu.Item onClick={menuItemPicked(() => gridZoom.set(1))}>{sheetMessages.zoomReset()}</Menu.Item>{onFitChartAsked !== null &&
             <Menu.Item onClick={menuItemPicked(onFitChartAsked)}>{sheetMessages.zoomToChart()}</Menu.Item>}<Menu.Separator /><Menu.Group aria-label={sheetMessages.zoom()}>{!isStepZoom &&
                 <Menu.GroupLabel><span className="tabular-nums">{sheetMessages.zoomNow(zoomPercent(zoom))}</span></Menu.GroupLabel>}{ZOOM_STEPS.map(
                 (step) =>
@@ -229,7 +231,7 @@ export function ViewMenu({
               )}</Menu.Group><Menu.Separator /><Menu.Item checkedRole="checkbox" checked={areFormulasShown} {...(!isEntryOpen && {
               shortcut: 'ctrl+`',
             })} onClick={menuItemPicked(onFormulasShownToggled)}>{sheetMessages.showFormulas()}</Menu.Item><ThemeMenuRow wasPointerPressedLast={wasPointerPressedLast} /><DensitySubmenu density={density} onDensityChosen={onDensityChosen} picked={menuItemPicked} /><Menu.Separator />{undoAndRedo !== null &&
-            <><MenuItemWithWhyOff disabled={undoAndRedo.undo !== null} whyOff={undoAndRedo.undo === null ? null : WHY_NO_UNDO_OR_REDO.undo[undoAndRedo.undo]()} shortcut="cmd+z" onClick={menuItemPicked(() => onUndoOrRedoChosen('undo'))}>{sheetMessages.undoInZoomMenu()}</MenuItemWithWhyOff><MenuItemWithWhyOff disabled={undoAndRedo.redo !== null} whyOff={undoAndRedo.redo === null ? null : WHY_NO_UNDO_OR_REDO.redo[undoAndRedo.redo]()} shortcut="shift+cmd+z" onClick={menuItemPicked(() => onUndoOrRedoChosen('redo'))}>{sheetMessages.redoInZoomMenu()}</MenuItemWithWhyOff><Menu.Separator /></>}{findKind === 'find' &&
+            <><MenuItemWithWhyOff label="" disabled={undoAndRedo.undo !== null} whyOff={undoAndRedo.undo === null ? null : WHY_NO_UNDO_OR_REDO.undo[undoAndRedo.undo]()} shortcut="cmd+z" onClick={menuItemPicked(() => onUndoOrRedoChosen('undo'))}>{sheetMessages.undoInZoomMenu()}</MenuItemWithWhyOff><MenuItemWithWhyOff label="" disabled={undoAndRedo.redo !== null} whyOff={undoAndRedo.redo === null ? null : WHY_NO_UNDO_OR_REDO.redo[undoAndRedo.redo]()} shortcut="shift+cmd+z" onClick={menuItemPicked(() => onUndoOrRedoChosen('redo'))}>{sheetMessages.redoInZoomMenu()}</MenuItemWithWhyOff><Menu.Separator /></>}{findKind === 'find' &&
             <Menu.Item onClick={menuItemPicked(onFindAsked)}>{findBarMessages.find()}</Menu.Item>}{findKind === 'findAndReplace' &&
             onFindAndReplaceAsked !== null &&
             <Menu.Item shortcut={REPLACE_SHORTCUT} onClick={menuItemPicked(onFindAndReplaceAsked)}>{findBarMessages.findAndReplace()}</Menu.Item>}<Menu.Item shortcut="cmd+/" onClick={menuItemPicked(onListOfKeysAsked)}>{shortcutListMessages.title()}</Menu.Item></ToolbarMenu><LiveAnnouncer words={zoomSaid !== null && sheetMessages.zoomSaid(zoomSaid)} /></>;

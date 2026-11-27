@@ -12,7 +12,7 @@ import { cellsHeightAboveFloats, frozenRowsHeight, cellsAreaWidth, frozenColumns
 import { heightCoveredByStuckHeaders, bottomOfStuckHeadersInSheet, dragPositionClearOfStuckHeaders } from '../grid/sticky-headers.ts';
 import { withNoEffects } from '../state/transitions.ts';
 import { isLineShown, shownLineAtOrBefore, shownLineAtOrAfter } from '../model/line-sizes.ts';
-import { queueEdit, IF_QUEUED_DEFAULTS } from '../model/edit-effects.ts';
+import { queueEdit, IF_QUEUED_DEFAULTS, holdUntilAnswered } from '../model/edit-effects.ts';
 import type { ReadsWithTextMeasurer } from '../state/controller.ts';
 /** The whole rows or columns selected: which, the first of them, how many, and how many the sheet has. */
 export interface SelectedLines {
@@ -324,7 +324,7 @@ export function finishMovingLines(
       },
     });
   let edit = moveLinesEdit(view, reads, lines, drag.landing.after);
-  return edit === null ? withNoEffects(view) : queueEdit(view, edit, MOVED_IF_QUEUED);
+  return edit === null ? withNoEffects(view) : holdUntilAnswered(queueEdit(view, edit, MOVED_IF_QUEUED), drag);
 }
 export const selectedWholeLines = (state: PageState, reads: ReadsWithTextMeasurer): SelectedLines | null =>
   selectionAreaAndKind(state, reads)?.kind === 'cells' ? null : selectedLines(state, reads);

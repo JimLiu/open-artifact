@@ -56,6 +56,7 @@ import {
   RANK_WORDS,
   SORT_DIRECTION_PHRASES,
   RANGE_DIRECTION_PHRASES,
+  NONE_OR_ANY_WORDS,
 } from './vocabulary.ts';
 import {
   columnNamedAt,
@@ -77,6 +78,7 @@ import {
   emojiInColumn,
   emojiInText,
   CROSS_MARK_EMOJI,
+  blankValuesOfColumn,
 } from './column-names.ts';
 import { measureOfColumn, isPeopleColumn, valuesOfUserInColumn } from './column-holds.ts';
 import {
@@ -179,7 +181,7 @@ export function readSortKeys(
     const direction = sortDirectionAt(words, at, lastColumn);
     const onTopPhrase = ON_TOP_PHRASES.find((phrase) => wordsMatchAt(words, at + 1, phrase));
     const superlativeDirection = onTopPhrase === undefined ? undefined : SUPERLATIVE_DIRECTIONS.get(word.plain);
-    const named: ColumnNamed | null = joiner === null ? null : columnNamedAt(holds, words, at, true, true);
+    const named: ColumnNamed | null = joiner === null ? null : columnNamedAt(holds, words, at, 'evenIfUnsure');
     if (lastKey !== undefined && direction !== undefined) {
       keys[keys.length - 1] = {
         ...lastKey,
@@ -394,10 +396,10 @@ export function readWordsAsFilter(
   };
   const startsSortByAt = (at: number) => {
     const phrase = SORT_BY_PHRASES.find((sortByPhrase) => wordsMatchAt(words, at, sortByPhrase));
-    return phrase !== undefined && columnNamedAt(holds, words, at + phrase.length, true, true) !== null;
+    return phrase !== undefined && columnNamedAt(holds, words, at + phrase.length, 'evenIfUnsure') !== null;
   };
   const startsColumnTestAt = (at: number) => {
-    const named = columnNamedAt(holds, words, at, true);
+    const named = columnNamedAt(holds, words, at, 'evenAWord');
     if (named === null) return false;
     let testAt = at + named.wordCount;
     while (EQUALS_WORDS.has(words[testAt]?.plain ?? '')) testAt += 1;
@@ -443,7 +445,7 @@ export function readWordsAsFilter(
     if (plain === 'or' || plain === 'but' || NEGATING_WORDS.has(plain) || FIRST_PERSON_WORDS.has(plain)) return true;
     if (startsNumberComparisonAt(words, at) || startsSortByAt(at)) return true;
     if (LARGEST_SMALLEST_WORDS.has(plain) && /^\d/.test(words[at + 1]?.plain ?? '')) return true;
-    if (LIST_JOINERS.has(plain) && (columnNamedAt(holds, words, at + 1, true) !== null || mayBeUnfinishedNameAt(at + 1))) return true;
+    if (LIST_JOINERS.has(plain) && (columnNamedAt(holds, words, at + 1, 'evenAWord') !== null || mayBeUnfinishedNameAt(at + 1))) return true;
     return at === words.length - 1 && !/\s$/.test(typed) && !isQuoted && 'and'.startsWith(plain);
   };
   const readTextOrColumnTest = (column: ColumnHolds, at: number): ConditionRead | null => {
@@ -467,7 +469,7 @@ export function readWordsAsFilter(
         [COMMAND_WORDS, BLANK_WORDS, FILLED_WORDS, TASK_NOUNS, NUMBER_CONDITION_WORDS, DATE_CONDITION_WORDS].some(
           (wordSet) => wordSet.has(plain) && !SET_STATE_WORDS.has(plain),
         ) ||
-        columnNamedAt(holds, words, at, true)?.isPart === false ||
+        columnNamedAt(holds, words, at, 'evenAWord')?.isPart === false ||
         valuesNamedAt(holds, words, at, {
           only: onlyColumn,
           rather: null,
@@ -477,7 +479,7 @@ export function readWordsAsFilter(
       (measureOfColumn(column) !== null || isNotText ? null : readTextCondition(words, at, endsTextAt, stopsTextAt)) ??
       readCellTestCondition(words, at);
     if (test !== null) return test;
-    const otherColumn = comparison === null ? null : columnNamedAt(holds, words, at + comparison.wordCount, true, true);
+    const otherColumn = comparison === null ? null : columnNamedAt(holds, words, at + comparison.wordCount, 'evenIfUnsure');
     if (comparison === null || otherColumn === null || otherColumn.column === column) return null;
     if (measureOfColumn(otherColumn.column) !== measureOfColumn(column)) return null;
     return {
@@ -541,22 +543,23 @@ export function readWordsAsFilter(
     if (unassignedLength > 0)
       return {
         kind: 'values',
-        values: [null],
+        values: blankValuesOfColumn(column),
         wordCount: unassignedLength,
       };
     const isSetState = SET_STATE_WORDS.has(plain) && (onlyColumn !== null || words[at]?.isInQuotes === true);
     const isAnythingBut = plain === 'anything' && words[at + 1]?.plain === 'but';
     const isBlankOrFilled = column.kind !== 'checkbox' && !isSetState && !isAnythingBut;
+    const blankValues = NONE_OR_ANY_WORDS.has(plain) ? blankValuesOfColumn(column) : [null];
     if (isBlankOrFilled && BLANK_WORDS.has(plain))
       return {
         kind: 'values',
-        values: [null],
+        values: blankValues,
         wordCount: 1,
       };
     if (isBlankOrFilled && FILLED_WORDS.has(plain))
       return {
         kind: 'values',
-        values: [null],
+        values: blankValues,
         wordCount: 1,
         isNot: true,
       };
@@ -649,7 +652,7 @@ export function readWordsAsFilter(
     return null;
   };
   const columnTestAt = (at: number): ColumnNamed | null => {
-    const named = columnNamedAt(holds, words, at, true, true);
+    const named = columnNamedAt(holds, words, at, 'evenIfUnsure');
     if (named === null) return null;
     let testAt = at + named.wordCount;
     if (sortDirectionAt(words, testAt, named.column) !== undefined) return named;
@@ -664,7 +667,7 @@ export function readWordsAsFilter(
       only: null,
       rather: null,
     });
-  const namesSomethingAt = (at: number) => columnNamedAt(holds, words, at, true) !== null || valuesNamedHere(at).length > 0;
+  const namesSomethingAt = (at: number) => columnNamedAt(holds, words, at, 'evenAWord') !== null || valuesNamedHere(at).length > 0;
   const namesPersonAt = (at: number) => {
     const nameAt = words[at]?.plain === 'to' ? at + 1 : at;
     const valueNamed = valueNamedAt(holds, words, nameAt, {
@@ -749,7 +752,7 @@ export function readWordsAsFilter(
     const { plain } = words[at] ?? NO_WORD_TOKEN;
     const direction = SUPERLATIVE_DIRECTIONS.get(plain);
     if (direction === undefined) return null;
-    const named = columnNamedAt(holds, words, at + 1, true, true);
+    const named = columnNamedAt(holds, words, at + 1, 'evenIfUnsure');
     const saysDate = named?.column.kind === 'date' && words[at + 1 + named.wordCount]?.plain === 'date';
     const wordCount = 1 + (named?.wordCount ?? 0) + Number(saysDate);
     const onTopPhrase = ON_TOP_PHRASES.find((phrase) => wordsMatchAt(words, at + wordCount, phrase));
@@ -833,7 +836,7 @@ export function readWordsAsFilter(
       return (saysMonthOrSlash && !isNearToday) || plain === 'starting' || !isNearDates || holds.columns.some(looksLikeDateColumn) ? null : only;
     }
     const letterWords = slice.filter((word) => /^\p{L}/u.test(word.plain) && !NUMBER_CONDITION_WORDS.has(word.plain));
-    const named = columnNamedAt(holds, words, letterWords[0]?.at ?? -1, true, true);
+    const named = columnNamedAt(holds, words, letterWords[0]?.at ?? -1, 'evenIfUnsure');
     const namesOtherColumn = letterWords.length > 0 && (named?.column !== only.column || named.wordCount !== letterWords.length);
     const isFollowedByNoun =
       [RECORD_NOUNS, TABLE_SUBJECT_NOUNS, TASK_NOUNS, FIRST_PERSON_WORDS].some((wordSet) => wordSet.has(wordAfter.plain)) ||
@@ -1035,11 +1038,11 @@ export function readWordsAsFilter(
       } else if (havingWord !== null && (negationWord === null || negationWord.at < havingWord.at)) {
         if (hasZeroValues(column)) notPlaced.push(havingWord);
         negation = null;
-        addValuesFor(column, [null], negationWord === null);
+        addValuesFor(column, blankValuesOfColumn(column), negationWord === null);
       } else if (havingWord === null && saysNoOrWithout) {
         if (hasZeroValues(column)) notPlaced.push(negationWord);
         negation = null;
-        addValuesFor(column, [null]);
+        addValuesFor(column, blankValuesOfColumn(column));
       } else if (!isSameColumn) {
         notPlaced.push(...words.slice(word.at, afterColumn));
         for (const nameWord of words.slice(word.at, afterColumn)) wordsNamingColumns.add(nameWord);
@@ -1080,7 +1083,7 @@ export function readWordsAsFilter(
       );
     } else if (sortByPhrase !== undefined) at = readSortAt(at + sortByPhrase.length);
     else if (SORT_VERBS.has(word.plain)) {
-      if (columnNamedAt(holds, words, at + 1, true, true) !== null) at = readSortAt(at + 1);
+      if (columnNamedAt(holds, words, at + 1, 'evenIfUnsure') !== null) at = readSortAt(at + 1);
       else {
         pendingSortVerb = word;
         resetCurrentColumn();
@@ -1112,7 +1115,7 @@ export function readWordsAsFilter(
         const followsBlankAsk = [1, 2, 3].some(
           (wordCount) =>
             [at, phraseStart].some((end) => {
-              const named = columnNamedAt(holds, words, end - wordCount, true);
+              const named = columnNamedAt(holds, words, end - wordCount, 'evenAWord');
               return named?.wordCount === wordCount && asksByColumn.get(named.column.c)?.oneOf.includes(null) === true;
             }),
         );
@@ -1148,7 +1151,7 @@ export function readWordsAsFilter(
         if (peopleColumn === undefined || isFollowedByIsHas || isNegated(peopleColumn)) {
           notPlaced.push(...words.slice(at, at + unassignedLength));
           resetCurrentColumn();
-        } else addValuesFor(peopleColumn, [null]);
+        } else addValuesFor(peopleColumn, blankValuesOfColumn(peopleColumn));
         at += unassignedLength;
         continue;
       }
@@ -1162,7 +1165,7 @@ export function readWordsAsFilter(
       }
       const isAfterOr = words[at - 1]?.plain === 'or' && currentColumn?.kind !== 'checkbox';
       if (currentColumn !== null && isAfterOr && !isNegated(currentColumn) && BLANK_WORDS.has(word.plain)) {
-        addValuesFor(currentColumn, [null]);
+        addValuesFor(currentColumn, NONE_OR_ANY_WORDS.has(word.plain) ? blankValuesOfColumn(currentColumn) : [null]);
         at += 1;
         continue;
       }
@@ -1192,7 +1195,7 @@ export function readWordsAsFilter(
             only: currentColumn,
             rather: null,
           }) !== null;
-        columnForKnownWords = columnNamedAt(holds, words, at, true)?.column ?? columnForKnownWords;
+        columnForKnownWords = columnNamedAt(holds, words, at, 'evenAWord')?.column ?? columnForKnownWords;
         if (isBeforeNegation) resetCurrentColumn();
         else if (HAVING_WORDS.has(word.plain)) havingWord = word;
         else if (ALL_WORDS.has(word.plain) || (ANYONE_WORDS.has(word.plain) && (isBeforeBut || !LIST_JOINERS.has(words[at - 1]?.plain ?? ''))))

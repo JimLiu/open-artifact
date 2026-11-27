@@ -1,8 +1,9 @@
 /**
  * The Sheet's charts described for an .xlsx file. The engine checks each description against the cells and writes the
  * file's own chart from it (readXlsxFile's `charts`). No model is asked here: a chart that one of the page's stock
- * programs draws (bar, stacked bar, line, pie, area, horizontal bar, scatter) is described from that program's own
- * rules, and any other chart (code the agent wrote) is left out of the file.
+ * programs draws (bar, horizontal bar, stacked bar, 100% stacked bar, line, area, pie) is described from that program's
+ * own rules. So is a chart of an earlier stock program (area, horizontal bar, scatter), whose rules are known here too.
+ * Any other chart is left out of the file: one whose code the agent wrote, and a scatter of today's program.
  *
  * The stock programs read one input, `rows`. Of its first 100 rows, those with a text in them are looked at: the first
  * is a heading row when it holds no number, the first column holds labels when it holds no number (or only years), and
@@ -13,7 +14,7 @@
  */
 
 import { type EngineMessage, isObject } from './engine.ts';
-import { STOCK_CHART_PROGRAMS, STOCK_INPUT, STOCK_KINDS, type StockKind } from './stock-charts.ts';
+import { STOCK_INPUT, type StockKind, stockProgramOf } from './stock-charts.ts';
 import type { WorkbookContents } from './workbook.ts';
 
 /** A cell of a chart's input as the engine reads it (readInputsOfView): its value and the text it shows. */
@@ -34,11 +35,14 @@ export interface DescribedChart {
 /** How many rows of the input a stock program looks at to tell headings, labels and series. */
 const ROWS_LOOKED_AT = 100;
 
-/** The stock program this chart code is, by its text, or null. */
+/**
+ * The kind of stock chart this code is, by its text, as the file describes it: today's programs and the earlier ones,
+ * but for today's scatter, which is left out of the file (null). An earlier scatter is described by its own rules.
+ */
 export function stockKindOf(code: string | null | undefined): StockKind | null {
-  if (typeof code !== 'string') return null;
-  const trimmed = code.trim();
-  return STOCK_KINDS.find((kind) => STOCK_CHART_PROGRAMS[kind].trim() === trimmed) ?? null;
+  const program = typeof code === 'string' ? stockProgramOf(code) : null;
+  if (program === null || (program.kind === 'scatter' && !program.isEarlier)) return null;
+  return program.kind;
 }
 
 const isNumber = (cell: ChartCell | undefined): boolean => typeof cell?.value === 'number';
@@ -76,15 +80,39 @@ export function describeStockChart(kind: StockKind, rows: ChartCell[][]): ChartD
     return { kind: 'doughnut', data: table(leftOut) };
   }
   if (kind === 'line') return { kind: 'line', stacking: 'none', data: table([]) };
+  // Each area runs down to zero by itself, drawn over the ones before it: they are not stacked.
   if (kind === 'area') return { kind: 'area', stacking: 'none', data: table([]) };
-  const direction = kind === 'horizontalBar' ? 'horizontal' : 'vertical';
-  return { kind: 'bar', direction, stacking: kind === 'stackedBar' ? 'stacked' : 'none', data: table([]) };
+  const bars = BAR_SHAPES[kind];
+  if (bars.stacking === 'stackedToTheWhole' && holdsANegative(rows.slice(1), drawn)) return null;
+  return { kind: 'bar', ...bars, data: table([]) };
+}
+
+/** How each bar kind lies and stacks in the file's grammar. */
+const BAR_SHAPES: Readonly<Record<'bar' | 'horizontalBar' | 'stackedBar' | 'stackedBar100', { direction: 'vertical' | 'horizontal'; stacking: 'none' | 'stacked' | 'stackedToTheWhole' }>> = {
+  bar: { direction: 'vertical', stacking: 'none' },
+  horizontalBar: { direction: 'horizontal', stacking: 'none' },
+  stackedBar: { direction: 'vertical', stacking: 'stacked' },
+  stackedBar100: { direction: 'vertical', stacking: 'stackedToTheWhole' },
+};
+
+/**
+ * Whether a drawn column holds a number below zero in these rows. The 100% stacked bar program skips such a value and
+ * says so under the chart; Excel's 100% stack would draw it, so the chart is left out of the file instead.
+ */
+function holdsANegative(rows: readonly ChartCell[][], columns: readonly number[]): boolean {
+  for (const row of rows) {
+    for (const i of columns) {
+      const value = row[i]?.value;
+      if (typeof value === 'number' && value < 0) return true;
+    }
+  }
+  return false;
 }
 
 /**
- * The scatter program reads the first column as the numbers each point lies along and each other column with a number
- * as a series, leaving out the rows with no number in the first column. The file's table form draws every row, so a
- * scatter is described only when every row under the headings has a number there.
+ * The earlier scatter program reads the first column as the numbers each point lies along and each other column with a
+ * number as a series, leaving out the rows with no number in the first column. The file's table form draws every row,
+ * so such a scatter is described only when every row under the headings has a number there.
  */
 function describeStockScatter(rows: ChartCell[][], probe: ChartCell[][], width: number): ChartDescription | null {
   const below = rows.slice(1).filter(isFilled);

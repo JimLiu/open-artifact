@@ -81,7 +81,8 @@ ${patternKept === null ? '' : patternNowWords(patternKept, sheet.ownDate)}
 The person wrote: ${JSON.stringify(cleanTextForAgent(typed))}
 
 If what they wrote is a pattern with a slip in it, such as text with no quotation marks, write it as they meant it. Never answer with their whole text in quotation marks: every number would show it. The name of a month or of a day of the week, such as March or Sunday, asks for such names: mmmm for a month, dddd for a day.
-Answer with this JSON alone, and nothing before or after it: {"pattern":"…"}. If no pattern can give what they ask for, or you cannot tell what they mean, answer {"pattern":null}.`,
+Answer with this JSON alone, and nothing before or after it: {"pattern":"…"}. If no pattern can give what they ask for, or you cannot tell what they mean, answer {"pattern":null}.
+${FOR_CHAT_ANSWER_WORDS}`,
     data: null,
   };
 }
@@ -150,3 +151,6 @@ export const NUMBER_SIGN_WORDS = {
 };
 export const INDIAN_GROUPING_WORDS = `
 - This Sheet groups the digits before the last three in twos, by itself: #,##0 shows 12,34,567. No pattern changes that.`;
+/** The agent may answer that the ask is for the chat rather than for a pattern. */
+export const FOR_CHAT_ANSWER_WORDS = `Answer {"pattern":null,"forChat":true} where what they ask for is plainly something other than how each cell shows its own value: it takes another value than the cell holds, such as a conversion at a rate, a sum or a difference; or it depends on other cells, such as red when over budget, the largest three or a share of the total; or it is another tool's work, such as bold, a fill, borders, alignment, sorting, filtering, a formula or a chart. A look that patterns lack, such as a quarter, 1st and 2nd or orange text, is {"pattern":null} alone, and so is what you cannot make out.`;
+export const isPatternAnswerForChat = (answer: unknown): boolean => isNonNullObject(answer) && answer.pattern === null && answer.forChat === true;

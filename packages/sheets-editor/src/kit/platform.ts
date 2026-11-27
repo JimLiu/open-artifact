@@ -9,9 +9,15 @@ const DESKTOP_SHELL_USER_AGENT_TOKEN = ' Electron/';
 
 const browserWindow = (win?: Window | null): Window | undefined => win ?? (typeof window === 'undefined' ? undefined : window);
 
+/** The window's list for a media query; some embedded browsers hand back nothing. */
+function mediaList(target: Window | undefined, query: string): MediaQueryList | undefined {
+  if (typeof target?.matchMedia !== 'function') return undefined;
+  const list: MediaQueryList | undefined = target.matchMedia(query);
+  return list ?? undefined;
+}
+
 export function windowMatchesMedia(query: string, win?: Window | null): boolean {
-  const target = browserWindow(win);
-  return typeof target?.matchMedia === 'function' && target.matchMedia(query).matches;
+  return mediaList(browserWindow(win), query)?.matches === true;
 }
 
 export function ownerWindowOf(element: Element | null | undefined): Window & typeof globalThis {
@@ -33,8 +39,9 @@ export function likelyHasKeyboard(win?: Window | null): boolean {
 /** Calls back whenever the pointer, viewport width or keyboard guess may have changed. */
 export function subscribeSheetMedia(onChange: () => void, win?: Window | null): () => void {
   const target = browserWindow(win);
-  if (typeof target?.matchMedia !== 'function') return () => {};
-  const lists = [COARSE_OR_HOVERLESS_MEDIA_QUERY, NARROW_VIEWPORT_MEDIA_QUERY, COARSE_POINTER_MEDIA_QUERY].map((query) => target.matchMedia(query));
+  const lists = [COARSE_OR_HOVERLESS_MEDIA_QUERY, NARROW_VIEWPORT_MEDIA_QUERY, COARSE_POINTER_MEDIA_QUERY].flatMap(
+    (query) => mediaList(target, query) ?? [],
+  );
   for (const list of lists) list.addEventListener('change', onChange);
   return () => {
     for (const list of lists) list.removeEventListener('change', onChange);
@@ -47,7 +54,7 @@ export function prefersReducedMotion(): boolean {
 }
 
 function subscribeReducedMotion(onChange: () => void): () => void {
-  const list = typeof window.matchMedia === 'function' ? window.matchMedia(REDUCED_MOTION_QUERY) : undefined;
+  const list = mediaList(window, REDUCED_MOTION_QUERY);
   list?.addEventListener('change', onChange);
   const observer = new MutationObserver(onChange);
   observer.observe(document.documentElement, { attributes: true, attributeFilter: [REDUCED_MOTION_ATTRIBUTE] });
@@ -62,8 +69,8 @@ export function useReducedMotion(): boolean {
 }
 
 function subscribeCoarsePointer(onChange: () => void): () => void {
-  if (typeof window.matchMedia !== 'function') return () => {};
-  const list = window.matchMedia(COARSE_OR_HOVERLESS_MEDIA_QUERY);
+  const list = mediaList(window, COARSE_OR_HOVERLESS_MEDIA_QUERY);
+  if (list === undefined) return () => {};
   list.addEventListener('change', onChange);
   return () => list.removeEventListener('change', onChange);
 }
@@ -72,8 +79,60 @@ export function useCoarsePointerMedia(): boolean {
   return React.useSyncExternalStore(subscribeCoarsePointer, () => usesCoarsePointer(), () => false);
 }
 
+/** Whether a media query matches in the window, kept current as it changes. */
+export function useWindowMediaQuery(win: Window | null | undefined, query: string): boolean {
+  const subscribe = React.useCallback(
+    (onChange: () => void) => {
+      const list = mediaList(browserWindow(win), query);
+      list?.addEventListener('change', onChange);
+      return () => list?.removeEventListener('change', onChange);
+    },
+    [win, query],
+  );
+  return React.useSyncExternalStore(subscribe, () => windowMatchesMedia(query, win), () => false);
+}
+
 const isMacLike = (): boolean => typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent);
 
 export function isApplePlatform(): boolean {
   return isMacLike();
+}
+
+const PULL_TO_REFRESH_RELEASE_MS = 500;
+const pullToRefreshHolds = new WeakMap<HTMLElement, number>();
+
+/** Only a top-level page on an Android touch screen reloads when pulled down. */
+function canHoldPullToRefresh(view: Window): boolean {
+  return /android/i.test(view.navigator.userAgent) && usesCoarsePointer(view) && view.parent === view;
+}
+
+function holdPullToRefresh(view: Window): () => void {
+  const root = view.document.documentElement;
+  const change = (delta: number): void => {
+    const count = (pullToRefreshHolds.get(root) ?? 0) + delta;
+    pullToRefreshHolds.set(root, count);
+    root.style.overscrollBehaviorY = count > 0 ? 'contain' : '';
+  };
+  change(1);
+  return () => {
+    view.setTimeout(() => change(-1), PULL_TO_REFRESH_RELEASE_MS);
+  };
+}
+
+/** Keeps a pull-down inside an open overlay from reloading the page. */
+export function useHoldPullToRefresh(open: boolean, win?: Window | null): void {
+  React.useEffect(() => {
+    const view = browserWindow(win);
+    if (!open || view === undefined || !canHoldPullToRefresh(view)) return undefined;
+    let release: (() => void) | undefined;
+    let frame = view.requestAnimationFrame(() => {
+      frame = view.requestAnimationFrame(() => {
+        release = holdPullToRefresh(view);
+      });
+    });
+    return () => {
+      view.cancelAnimationFrame(frame);
+      release?.();
+    };
+  }, [open, win]);
 }

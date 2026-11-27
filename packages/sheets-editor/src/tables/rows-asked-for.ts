@@ -20,6 +20,8 @@ import {
   saidOfSortColumn,
   recordCountsOfOwnFilter,
 } from './own-filters.ts';
+import { hasFilteredRowsIn } from './filtered-rows.ts';
+import { ownRowOrderOfSheet } from '../model/line-ids.ts';
 import { tablesToOutline } from './tables-in-view.ts';
 import { isInSpan, rowPanes, shownRowIndicesInPane } from '../grid/geometry.ts';
 import { filterTableForSelection, ownFilterRecordsArea, clearOwnFilters } from './own-filter-actions.ts';
@@ -34,8 +36,8 @@ import { asLandedHold, newAwaitedHold } from '../format/answer-holds.ts';
 import { withNoEffects } from '../state/transitions.ts';
 import { sortOwnFilterTableForEveryone } from './own-filter-list.ts';
 import { readWordsAsFilter } from '../words/read-filter.ts';
-import { columnLetters } from '../model/a1-references.ts';
-import { rowsFromWordsPrompt, ROWS_FROM_WORDS_INSTRUCTIONS, readRowsAnswer } from './rows-from-words.ts';
+import { columnLetters, wholeAreaToA1AsStored } from '../model/a1-references.ts';
+import { rowsFromWordsPrompt, ROWS_FROM_WORDS_INSTRUCTIONS, readRowsAnswer, isNotAFilterOrSortAnswer } from './rows-from-words.ts';
 import { cleanTextForAgent } from '../agent/prompt-text.ts';
 import { openSortPane } from './sort-pane.ts';
 import { pickNamedView } from './named-view-actions.ts';
@@ -134,6 +136,45 @@ export function filterTableEndingAbove(workbook: WorkbookReads, cellId: CellId):
   let cellAbove = position === null ? null : workbook.cellIdAt(cellId.sheetId, position.rowIndex - 1, position.columnIndex);
   let filterTable = cellAbove === null ? null : filterTableAtCell(workbook, cellAbove);
   return filterTable?.table.rowUnderTheBody === cellId.rowId ? filterTable : null;
+}
+export function ownFilterForFoundTableColumn(
+  state: PageState,
+  workbook: ReadsWithTextMeasurer,
+  tableKey: string,
+  columnId: ColumnId,
+): { state: PageState; tableKey: string; isBegun: boolean } | null {
+  let foundTable = tablesToOutline(state, workbook).find(({ key }) => key === tableKey);
+  if (foundTable === undefined) return null;
+  let headingCell: CellId = {
+    sheetId: foundTable.sheetId,
+    rowId: foundTable.table.headerRows.lastRow,
+    columnId,
+  };
+  let ownFilter = ownFilterAtCell(state, workbook, headingCell);
+  if (ownFilter !== null)
+    return {
+      state,
+      tableKey: ownFilter.key,
+      isBegun: false,
+    };
+  let filterTable = filterTableAroundCell(state, workbook, headingCell);
+  if (filterTable === null) return null;
+  let overlapping = ownFilterOverlappingTable(state, workbook, filterTable);
+  if (overlapping !== null)
+    return {
+      state,
+      tableKey: overlapping.key,
+      isBegun: false,
+    };
+  let begunState = keepActiveCellClearOfStuckHeaders(state, addOwnFilterForTable(state, workbook, filterTable), workbook);
+  let begun = ownFiltersOfSheet(begunState, foundTable.sheetId).find(({ table }) => table === filterTable.table);
+  return begun === undefined
+    ? null
+    : {
+        state: begunState,
+        tableKey: begun.key,
+        isBegun: true,
+      };
 }
 export function filterTableAroundCell(state: PageState, workbook: ReadsWithTextMeasurer, cellId: CellId): FilterTable | null {
   let position = workbook.positionOfCell(cellId);
@@ -288,6 +329,7 @@ export function openRowsAsk(state: PageState, workbook: ReadsWithTextMeasurer, a
     words: '',
     read: null,
     hasStopped: false,
+    isTryPutOff: false,
     today: null,
     agent: null,
     askAhead: null,
@@ -858,6 +900,11 @@ export function takeAgentRowsAnswer(
     today: rowsAskedFor.today,
     limits: workbook.limitsOfConditionalFormats(),
   });
+  if (isNotAFilterOrSortAnswer(outcome.answer))
+    return withAgent({
+      kind: 'saysNoFilterOrSort',
+      askId,
+    });
   if (asked === null)
     return withAgent({
       kind: 'hasNotRead',
@@ -895,6 +942,10 @@ export function actOnRowsAsk(state: PageState, workbook: ReadsWithTextMeasurer, 
         ],
       }
     : outcome;
+}
+export function showsNoRecordsInView(state: PageState, workbook: ReadsWithTextMeasurer, tableKey: string): boolean {
+  let ownFilter = ownFilterByKey(state, tableKey);
+  return ownFilter !== null && recordCountsOfOwnFilter(state, workbook, ownFilter)?.inView === 0;
 }
 export function reduceRowsAsk(
   state: PageState,
@@ -946,19 +997,35 @@ export function reduceRowsAsk(
           : rowsAskedFor.table;
       let read = action.words.trim() === '' ? null : readRowsAskWords(state, workbook, table, action.words, action.today);
       let { words, today } = action;
+      let typedAsk = {
+        ...rowsAskedFor,
+        table,
+        words,
+        today,
+        read,
+        hasStopped: false,
+        isTryPutOff: false,
+        agent: null,
+      };
       let typedState = {
         ...state,
-        rowsAskedFor: {
-          ...rowsAskedFor,
-          table,
-          words,
-          today,
-          read,
-          hasStopped: false,
-          agent: null,
-        },
+        rowsAskedFor: typedAsk,
       };
-      if (read?.kind === 'read') return withNoEffects(tryRowsFilter(typedState, workbook, filterToTryForAsk(read.asked, typedState)));
+      if (read?.kind === 'read') {
+        let triedState = tryRowsFilter(typedState, workbook, filterToTryForAsk(read.asked, typedState));
+        let wouldShowNoRows = showsNoRecordsInView(triedState, workbook, table.key) && !showsNoRecordsInView(typedState, workbook, table.key);
+        return withNoEffects(
+          wouldShowNoRows
+            ? {
+                ...typedState,
+                rowsAskedFor: {
+                  ...typedAsk,
+                  isTryPutOff: true,
+                },
+              }
+            : triedState,
+        );
+      }
       let shownState =
         read?.isOnItsWay === true && action.words.startsWith(rowsAskedFor.words) ? typedState : undoRowsTry(typedState, workbook);
       return read?.kind === 'notRead' && read.wordsNotPlaced.length > 0 && !read.isOnItsWay
@@ -966,6 +1033,16 @@ export function reduceRowsAsk(
         : withNoEffects(shownState);
     }
     case 'rest': {
+      if (rowsAskedFor.read?.kind === 'read' && rowsAskedFor.isTryPutOff) {
+        let restedState = holdBackRowsAskAhead({
+          ...state,
+          rowsAskedFor: {
+            ...rowsAskedFor,
+            isTryPutOff: false,
+          },
+        });
+        return withNoEffects(tryRowsFilter(restedState, workbook, filterToTryForAsk(rowsAskedFor.read.asked, restedState)));
+      }
       if (rowsAskedFor.read?.kind !== 'notRead') return withNoEffects(holdBackRowsAskAhead(state));
       let stoppedState = {
         ...state,
@@ -992,6 +1069,7 @@ export function reduceRowsAsk(
     }
     case 'pointAt': {
       if (action.asked !== null) return withNoEffects(tryRowsFilter(state, workbook, filterToTryForAsk(action.asked, state)));
+      if (rowsAskedFor.isTryPutOff) return withNoEffects(state);
       return withNoEffects(
         rowsAskedFor.read?.kind === 'read' ? tryAskedRows(state, workbook, rowsAskedFor.read.asked) : undoRowsTry(state, workbook),
       );
@@ -1123,6 +1201,8 @@ export function drawnRowsAsk(state: PageState, workbook: WorkbookReads, canSort:
   let isSortLeftOut = read?.kind === 'read' && read.asked.sortBy.length > 0 && !canSortHere;
   let isAgentAsked = rowsAskedFor.agent?.kind === 'isAsked';
   const hasAgentFailed = rowsAskedFor.agent?.kind === 'hasFailed';
+  const saysNoFilterOrSort = rowsAskedFor.agent?.kind === 'saysNoFilterOrSort';
+  let areaOfTable = areaOfFilteredTable(workbook, ownFilter);
   const areWordsNotRead = read?.kind === 'notRead' && rowsAskedFor.hasStopped && !isAgentAsked && !hasAgentFailed;
   return {
     isOfFilterBar,
@@ -1186,8 +1266,14 @@ export function drawnRowsAsk(state: PageState, workbook: WorkbookReads, canSort:
               blankRows: table.rowsThatAreNoRecords,
             },
     isAgentAsked,
-    askThatAnswered: hasAgentFailed || (rowsAskedFor.agent?.kind === 'hasRead' && isTaken) ? rowsAskedFor.agent.askId : null,
+    askThatAnswered:
+      hasAgentFailed || saysNoFilterOrSort || (rowsAskedFor.agent?.kind === 'hasRead' && isTaken) ? rowsAskedFor.agent.askId : null,
     callToAgent: !hasAgentFailed ? null : rowsAskedFor.agent.isRateLimited ? 'rateLimited' : 'failed',
+    wordsThatAreNoFilterOrSort: saysNoFilterOrSort ? rowsAskedFor.words : null,
+    cellsOfTable:
+      areaOfTable === null || hasFilteredRowsIn(state, workbook, areaOfTable)
+        ? null
+        : wholeAreaToA1AsStored(areaOfTable, ownRowOrderOfSheet(workbook, ownFilter.table.sheetId)),
     areWordsNotRead,
     wordsNotKnown: areWordsNotRead ? read.wordsNotKnown : [],
   };
@@ -1213,6 +1299,7 @@ export function ownFiltersBeforeRowsTry({ ownFilters, rowsAskedFor }: Pick<PageS
   });
   return kept;
 }
+export const ROWS_ASK_PRESSED_LABEL = 'Filter';
 export const GUESS_TABLE_FOR_ROWS_ASK = '';
 export const rowsAskPlaceOf = ({
   sheetId,
@@ -1272,6 +1359,8 @@ export const DRAWN_ROWS_ASK_WITHOUT_TABLE: Omit<SortFilterCard, 'isOfFilterBar' 
   isAgentAsked: false,
   askThatAnswered: null,
   callToAgent: null,
+  wordsThatAreNoFilterOrSort: null,
+  cellsOfTable: null,
   areWordsNotRead: false,
   wordsNotKnown: [],
 };

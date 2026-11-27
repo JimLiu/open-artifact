@@ -117,6 +117,30 @@ export const UI_LABEL_MESSAGES: ReadonlyMap<string, (values: UiLabelValues) => s
       }),
   ],
   [
+    'discard',
+    (): string =>
+      translateMessage({
+        defaultMessage: 'Discard',
+        id: 'nmpevlUATU',
+      }),
+  ],
+  [
+    'discardChangesDescription',
+    (): string =>
+      translateMessage({
+        defaultMessage: 'Your changes will be lost.',
+        id: 'mpVnLGVEpR',
+      }),
+  ],
+  [
+    'discardChangesTitle',
+    (): string =>
+      translateMessage({
+        defaultMessage: 'Discard unsaved changes?',
+        id: '/QXeK7VsCe',
+      }),
+  ],
+  [
     'dismiss',
     (): string =>
       translateMessage({
@@ -279,6 +303,14 @@ export const UI_LABEL_MESSAGES: ReadonlyMap<string, (values: UiLabelValues) => s
       translateMessage({
         defaultMessage: 'This item couldn’t be read.',
         id: 'TKHyD1SJvE',
+      }),
+  ],
+  [
+    'keepEditing',
+    (): string =>
+      translateMessage({
+        defaultMessage: 'Keep editing',
+        id: 'nZCHBxEAlK',
       }),
   ],
   [

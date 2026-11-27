@@ -125,7 +125,7 @@ export function reconcileDropdownPane(previousState: PageState, state: PageState
 export function toggleDropdownListOnClick(
   previousState: PageState,
   { state, effects }: PageTransition,
-  isSelectionExtended: boolean,
+  event: { isShiftHeld: boolean; mayEndDoubleClick?: boolean },
   reads: WorkbookReads,
 ): PageTransition {
   if (
@@ -134,7 +134,7 @@ export function toggleDropdownListOnClick(
         state,
         effects,
       },
-      isSelectionExtended,
+      event.isShiftHeld,
     )
   )
     return {
@@ -142,6 +142,15 @@ export function toggleDropdownListOnClick(
       effects,
     };
   let isOnOpenCell = previousState.dropdown !== null && isSameCell(state.activeCell, previousState.activeCell);
+  // A press that may end a double click leaves the list open.
+  if (isOnOpenCell && state.dropdown !== null && event.mayEndDoubleClick === true)
+    return withNoEffects({
+      ...state,
+      dropdown: {
+        ...state.dropdown,
+        isLeftOpenByPress: true,
+      },
+    });
   return withNoEffects(isOnOpenCell ? closeDropdownList(state) : openDropdownList(state, reads));
 }
 export const hasLeftDropdownPane = (previousState: PageState, state: PageState): boolean =>

@@ -38,6 +38,7 @@ export type ErrorTell =
     }
   | { cause: 'spilledTextInArithmetic'; cell: string; from: string }
   | { cause: 'filledByANestedSubtotal'; cells: string }
+  | { cause: 'recordsAreNotHere'; table: string }
   | { cause: 'filledCellsInTheWay'; count: number; cells: string }
   | { cause: 'fewFilledCellsOnTwoSidesInTheWay'; cells: string[] }
   | { cause: 'manyFilledCellsOnTwoSidesInTheWay'; count: number }
@@ -389,6 +390,16 @@ export function errorTellExplanation(tell: ErrorTell, code: ErrorValue): string 
         {
           name: tell.name,
           word: tell.word,
+        },
+      );
+    case 'recordsAreNotHere':
+      return translateMessage(
+        {
+          defaultMessage: 'This formula needs rows from “{table}” that aren’t loaded. Open the table to see why.',
+          id: 'r1f3HaDzEP',
+        },
+        {
+          table: tell.table,
         },
       );
     case 'pivotTotalsNothing':

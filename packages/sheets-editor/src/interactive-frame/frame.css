@@ -37,3 +37,27 @@ body,
 .interactive-root svg {
   max-width: 100%;
 }
+
+/* A cell the code shows with <Cell>: pressed, the page shows it in the formula bar. */
+.interactive-root .interactive-cell {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: inherit;
+  cursor: pointer;
+  border-radius: 4px;
+  margin: -1px -3px;
+  padding: 1px 3px;
+}
+
+.interactive-root .interactive-cell:hover {
+  background: var(--ui-fill-ghost-hover);
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+
+.interactive-root .interactive-cell:focus-visible {
+  outline: 2px solid var(--ui-fill-accent);
+  box-shadow: none;
+}

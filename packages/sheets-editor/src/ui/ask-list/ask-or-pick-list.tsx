@@ -23,6 +23,9 @@ import type { LiveAnnouncerProps } from '../live-announcer.tsx';
 import { TypedSearchAnnouncer } from '../search-announcer.tsx';
 import type { FoundWords } from '../search-announcer.tsx';
 import { joinWithDots } from '../../messages/conditional-format.ts';
+import { prefersReducedMotion } from '../../kit/platform.ts';
+import { swallowRestOfPress } from '../press-swallow.ts';
+import { ListRowsPopup, listRowsPopupKeyAction, useListRowsPopup, useRoomBesideMeasured } from './rows-popup.tsx';
 /** A row of an ask-or-pick list. */
 export interface AskListRow<RowId extends string = string> {
   id: RowId;
@@ -41,8 +44,15 @@ export interface AskListRow<RowId extends string = string> {
   isOutOfUse?: boolean;
   easesIn?: boolean;
   isOfAgent?: boolean;
-  /** The row stands where a row the user may have meant to press stood before. */
-  isLikeWhatStoodThere?: boolean;
+  /** Pressing the row puts more rows in place of the list, so the rest of the press is swallowed. */
+  givesPlaceToRows?: boolean;
+}
+/** Rows a row of the list opens in a card beside it. */
+export interface AskListRowsBeside<RowId extends string = string> {
+  ofRow: RowId;
+  name: string;
+  rows: readonly AskListRow<RowId>[];
+  marks: Record<`data-${string}`, string | boolean | undefined>;
 }
 /** A section of rows of an ask-or-pick list, with rows that come late and rows under them. */
 export interface AskListSection<RowId extends string = string> {
@@ -85,7 +95,6 @@ export interface RowClick {
   isHeld: boolean;
   isLitAsEnters: boolean;
   isWhereStopStood: boolean;
-  isLikeWhatStoodThere: boolean;
 }
 /** The field of an ask-or-pick list now, as a key pressed in it finds it. */
 export interface AskListFieldNow {
@@ -138,6 +147,12 @@ export interface AskOrPickListProps<RowId extends string = string> {
   idOfAgentsNote?: string | null;
   overList?: readonly OverListSection[];
   sections: readonly AskListSection<RowId>[];
+  /** Rows one row opens in a card beside the list. */
+  rowsBeside?: AskListRowsBeside<RowId>;
+  /** Told whether there is room for a card beside the list. */
+  onRoomBesideMeasured?: (hasRoom: boolean) => void;
+  /** A row to point at now, as if the pointer moved onto it. */
+  rowToPointAt?: RowId | null;
   /** What is shown in place of the rows. */
   inPlaceOfList?: React.ReactNode;
   doesFirstRowAnswer: boolean;
@@ -146,6 +161,8 @@ export interface AskOrPickListProps<RowId extends string = string> {
   wordsOfFoot: AskListFootWords;
   isFootUnderRows?: boolean;
   height: string | { atMost: string };
+  /** The height eases when it changes. */
+  doesHeightEase?: boolean;
   width: number;
   isUnderTitle?: boolean;
   /** Whether a key is meant for something other than the list, which then leaves it alone. */
@@ -175,9 +192,8 @@ export function askListRowState<RowId extends string>(list: AskListRowsNow<RowId
   };
 }
 export function isRowClickAllowed(click: RowClick) {
-  let { isWhereStopStood = false, isLikeWhatStoodThere = false } = click;
-  if (click.isHeld || (isWhereStopStood && !isLikeWhatStoodThere)) return false;
-  if (click.by !== 'mouse' || click.isLitAsEnters || isLikeWhatStoodThere) return true;
+  if (click.isHeld || click.isWhereStopStood === true) return false;
+  if (click.by !== 'mouse' || click.isLitAsEnters) return true;
   return click.lastMovedOnTo === null ? !click.haveRowsChanged : click.lastMovedOnTo.row === click.row;
 }
 export function askListKeyAction(event: KeyInAskField, field: AskListFieldNow): AskListKeyAction {
@@ -286,6 +302,9 @@ export function AskOrPickList<RowId extends string = string>({
   idOfAgentsNote = null,
   overList = NO_OVER_LIST_SECTIONS,
   sections,
+  rowsBeside,
+  onRoomBesideMeasured,
+  rowToPointAt = null,
   inPlaceOfList,
   doesFirstRowAnswer,
   rowPointedAtFirst,
@@ -293,6 +312,7 @@ export function AskOrPickList<RowId extends string = string>({
   wordsOfFoot,
   isFootUnderRows = false,
   height,
+  doesHeightEase = false,
   width,
   isUnderTitle = false,
   isKeyOfAnother,
@@ -377,6 +397,23 @@ export function AskOrPickList<RowId extends string = string>({
   });
   let rowElementId = (rowId: RowId) =>
     `${listId}-${String(allRows.findIndex((row) => row.id === rowId))}`;
+  useRoomBesideMeasured(boxRef, onRoomBesideMeasured);
+  const openerRow = allRows.find(({ id }) => id === rowsBeside?.ofRow);
+  const opensRowsBeside = areLive && openerRow !== undefined && openerRow.isOutOfUse !== true;
+  let rowsBesidePopup = useListRowsPopup(
+    opensRowsBeside
+      ? [...allRows, ...(rowsBeside?.rows ?? [])].map(({ id }) => id).join()
+      : null,
+  );
+  let besideId = `${listId}-beside`;
+  let besideRowElementId = (index: number) => `${besideId}-${String(index)}`;
+  let besideHighlighted = rowsBesidePopup.stands?.highlighted ?? null;
+  let activeDescendant =
+    besideHighlighted !== null
+      ? besideRowElementId(besideHighlighted)
+      : active === null
+        ? undefined
+        : rowElementId(active);
   let rowIdOfTarget = (target: EventTarget | null) => {
     let option = target instanceof Element ? target.closest('[role="option"]') : null;
     return allRows.find(({ id }) => rowElementId(id) === option?.id)?.id ?? null;
@@ -394,10 +431,14 @@ export function AskOrPickList<RowId extends string = string>({
     let { at: lastAt } = pointerStateRef.current;
     let hasMoved = lastAt === null || lastAt[0] !== event.clientX || lastAt[1] !== event.clientY;
     pointerStateRef.current.at = [event.clientX, event.clientY];
-    if (hasMoved)
-      pointerStateRef.current.lastMovedOnTo = {
-        row: rowIdOfTarget(event.target),
-      };
+    if (!hasMoved) return;
+    let rowId = rowIdOfTarget(event.target);
+    pointerStateRef.current.lastMovedOnTo = {
+      row: rowId,
+    };
+    if (!opensRowsBeside) return;
+    if (rowId === openerRow.id) rowsBesidePopup.pointer.overOpener(rowId);
+    else rowsBesidePopup.pointer.overOtherRow();
   };
   let answerTimingRef = React.useRef(NO_LIST_ANSWER_TIMES);
   let lastActBeforePressRef = React.useRef(NO_LIST_ANSWER_TIMES.lastActAtMs);
@@ -438,9 +479,9 @@ export function AskOrPickList<RowId extends string = string>({
     let hasNewAgentRow = agentRowIds.some((rowId) => !seenAgentRowIdsRef.current.has(rowId));
     seenAgentRowIdsRef.current = new Set([...seenAgentRowIdsRef.current, ...agentRowIds]);
     if (!hasNewAgentRow) return;
-    let prefersReducedMotion = pageWindow?.matchMedia('(prefers-reduced-motion:reduce)').matches === true;
+    let isMotionReduced = prefersReducedMotion();
     return reportTimeAfterNextPaint(pageWindow, (paintedAtMs) => {
-      agentRowsEaseEndMsRef.current = paintedAtMs + (prefersReducedMotion ? 0 : ROW_EASE_IN_MS);
+      agentRowsEaseEndMsRef.current = paintedAtMs + (isMotionReduced ? 0 : ROW_EASE_IN_MS);
     });
   }, [agentRowIdsKey, seenAgentRowIdsRef, agentRowsEaseEndMsRef, pageWindow]);
   let answerTiming = () => ({
@@ -503,21 +544,17 @@ export function AskOrPickList<RowId extends string = string>({
       event.stopPropagation();
     }
     if (rowId === null) return;
-    if (
-      isRowClickAllowed({
-        by: isByMouse ? 'mouse' : 'other',
-        row: rowId,
-        lastMovedOnTo,
-        haveRowsChanged: rowsAtFirst !== allRows.map(({ id }) => id).join(),
-        isHeld,
-        isLitAsEnters: highlighted === null && rowId === filled,
-        isWhereStopStood,
-        isLikeWhatStoodThere: allRows.some(
-          ({ id, isLikeWhatStoodThere }) => id === rowId && isLikeWhatStoodThere === true,
-        ),
-      })
-    )
-      return;
+    let isAllowed = isRowClickAllowed({
+      by: isByMouse ? 'mouse' : 'other',
+      row: rowId,
+      lastMovedOnTo,
+      haveRowsChanged: rowsAtFirst !== allRows.map(({ id }) => id).join(),
+      isHeld,
+      isLitAsEnters: highlighted === null && rowId === filled,
+      isWhereStopStood,
+    });
+    if (isAllowed && allRows.some(({ id, givesPlaceToRows }) => id === rowId && givesPlaceToRows === true)) swallowRestOfPress(event);
+    if (isAllowed) return;
     event.preventDefault();
     event.stopPropagation();
   };
@@ -530,8 +567,12 @@ export function AskOrPickList<RowId extends string = string>({
   let [answerTakenWithText, setAnswerTakenWithText] = React.useState<string | null>(null);
   if (answerTakenWithText !== null && answerTakenWithText !== text) setAnswerTakenWithText(null);
   let takeRow = (rowId: RowId) => {
+    if (opensRowsBeside && rowId === openerRow.id)
+      return rowsBesidePopup.set({
+        highlighted: null,
+      });
     if (rowId === ofEnter) setAnswerTakenWithText(text);
-    onRowTaken(rowId);
+    return onRowTaken(rowId);
   };
   let doesListGrow = doesAskListGrow({
     stands,
@@ -557,6 +598,60 @@ export function AskOrPickList<RowId extends string = string>({
   usePointAtRowFirst(boxRef, rowPointedAtFirst === undefined || isTouch ? null : rowElementId(rowPointedAtFirst), () => {
     if (rowPointedAtFirst !== undefined && baseHighlightedRef.current === rowPointedAtFirst) pointAtRow(rowPointedAtFirst);
   });
+  let pointAtRowNow = (rowId: RowId) => {
+    let rowElement = boxRef.current?.ownerDocument.getElementById(rowElementId(rowId));
+    rowElement?.dispatchEvent(
+      new MouseEvent('mousemove', {
+        bubbles: true,
+        movementX: 1,
+      }),
+    );
+    if (baseHighlightedRef.current === rowId) pointAtRow(rowId);
+    rowElement?.scrollIntoView({
+      block: 'nearest',
+    });
+  };
+  let pointAtRowNowEvent = React.useEffectEvent(pointAtRowNow);
+  React.useLayoutEffect(() => {
+    if (rowToPointAt !== null && !isTouch) pointAtRowNowEvent(rowToPointAt);
+  }, [rowToPointAt, isTouch]);
+  let takeRowBeside = (rowId: RowId) => {
+    rowsBesidePopup.set(null);
+    onRowTaken(rowId);
+  };
+  let onKeyDownBeside = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!opensRowsBeside || rowsBeside === undefined || event.target !== fieldRef.current) return false;
+    let { key, repeat, altKey, ctrlKey, metaKey, shiftKey } = event;
+    let besideAction = listRowsPopupKeyAction(
+      {
+        key,
+        repeat,
+        hasModifier: altKey || ctrlKey || metaKey || shiftKey,
+      },
+      {
+        stands: rowsBesidePopup.stands,
+        rowCount: rowsBeside.rows.length,
+        isOpenerHighlighted: highlighted === openerRow.id,
+      },
+    );
+    if (besideAction === null) return false;
+    if (besideAction === 'shutAndPassOn') {
+      rowsBesidePopup.set(null);
+      return false;
+    }
+    stopKeyEvent(event);
+    if (typeof besideAction === 'number')
+      rowsBesidePopup.set({
+        highlighted: besideAction,
+      });
+    if (besideAction === 'shut') {
+      rowsBesidePopup.set(null);
+      pointAtRowNow(openerRow.id);
+    }
+    let rowTaken = besideAction === 'take' ? rowsBeside.rows[besideHighlighted ?? -1] : undefined;
+    if (rowTaken !== undefined) takeRowBeside(rowTaken.id);
+    return true;
+  };
   let moveBetweenArrowStops = (event: React.KeyboardEvent<HTMLDivElement>) => {
     let arrowStops = [...(boxRef.current?.querySelectorAll<HTMLElement>('[data-stop-of-arrows]:enabled') ?? [])];
     let stopIndex = arrowStops.findIndex((stop) => stop === event.target);
@@ -608,7 +703,7 @@ export function AskOrPickList<RowId extends string = string>({
   let onKeyDownCapture = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.nativeEvent.isComposing || event.keyCode === 229) return event.stopPropagation();
     if (isKeyOfAnother?.(event) === true) return;
-    if (moveBetweenArrowStops(event)) return;
+    if (onKeyDownBeside(event) || moveBetweenArrowStops(event)) return;
     if (event.target !== fieldRef.current && event.key !== 'Escape') return;
     pointerStateRef.current.wentDownAtMs = null;
     pointerStateRef.current.isPressing = false;
@@ -636,6 +731,7 @@ export function AskOrPickList<RowId extends string = string>({
       case 'nothing':
         return;
       case 'empty':
+        focusField();
         return onTextChange('');
       case 'stepBack':
         focusField();
@@ -649,28 +745,15 @@ export function AskOrPickList<RowId extends string = string>({
     }
   };
   let rowHighlightClass = (rowId: RowId) => {
+    if (rowsBesidePopup.stands !== null && rowId === openerRow?.id) return 'bg-fill-ghost-hover';
+    if (besideHighlighted !== null) return 'data-[highlighted]:bg-transparent!';
     if (highlighted !== null) return '';
     return rowId === filled ? agentRowHighlightProps.className : 'data-[highlighted]:bg-transparent!';
   };
-  let renderRow = ({
-    id,
-    drawn,
-    laysItselfOut = false,
-    second,
-    mark,
-    atEnd,
-    inFull,
-    isChecked = false,
-    isTicked,
-    isOutOfUse = false,
-    easesIn = false,
-  }: AskListRow<RowId>) => {
-    let item = <Combobox.Item key={id} render={<div id={rowElementId(id)} />} value={id} aria-selected={isChecked || undefined} aria-checked={isTicked === 'some' ? 'mixed' : isTicked} disabled={isOutOfUse || !areLive} description={second} className={`${!areLive && !isOutOfUse ? 'opacity-100!' : ''} ${easesIn ? 'sheet-row-eases-in' : ''} ${rowHighlightClass(id)}`}><span className={`flex w-full items-center gap-2 ${laysItselfOut ? 'whitespace-normal' : ''}`}>{mark !== undefined &&
-              <span data-mark-of-row="" className="contents">{mark}</span>}{laysItselfOut
-              ? drawn
-              : <span className="min-w-0 flex-1 truncate">{drawn}</span>}{atEnd !== undefined &&
-              <span className="max-w-[60%] shrink-0 truncate text-footnote text-muted">{atEnd}</span>}{isChecked &&
-              <span className="flex shrink-0 text-accent"><Icon name="Check" size="md" /></span>}</span></Combobox.Item>;
+  let renderRow = (row: AskListRow<RowId>) => {
+    let { id, drawn, second, inFull, isTicked } = row;
+    let { isChecked = false, isOutOfUse = false, easesIn = false } = row;
+    let item = <Combobox.Item key={id} render={<div id={rowElementId(id)} />} value={id} aria-selected={isChecked || undefined} aria-checked={isTicked === 'some' ? 'mixed' : isTicked} disabled={isOutOfUse || !areLive} description={second} className={`${!areLive && !isOutOfUse ? 'opacity-100!' : ''} ${easesIn ? 'sheet-row-eases-in' : ''} ${rowHighlightClass(id)}`}>{RowInside(row)}</Combobox.Item>;
     let tooltipText = inFull ?? (typeof drawn === 'string' ? drawn : undefined);
     return tooltipText === undefined
       ? item
@@ -682,17 +765,26 @@ export function AskOrPickList<RowId extends string = string>({
     focusField();
     onSteppedBack();
   };
-  return <div ref={boxRef} role="presentation" className={`flex max-h-[var(--available-height)] max-w-[var(--available-width)] flex-col p-[var(--ui-menu-gutter,0.25rem)] [[data-presentation=sheet]_&]:w-full! [[data-presentation=sheet]_&]:max-w-none ${isUnderTitle ? 'min-h-0' : ''}`} style={typeof height === 'string'
+  let box = <div ref={boxRef} role="presentation" className={`flex max-h-[var(--available-height)] max-w-[var(--available-width)] flex-col p-[var(--ui-menu-gutter,0.25rem)] [[data-presentation=sheet]_&]:w-full! [[data-presentation=sheet]_&]:max-w-none ${isUnderTitle ? 'min-h-0' : ''}${doesHeightEase ? ' transition-[height] duration-base ease-out motion-reduce:duration-0 data-is-height-easing:**:[scrollbar-width:none]' : ''}`} style={typeof height === 'string'
         ? {
             height,
             width,
+            ...(doesHeightEase &&
+              stands === 'whileAgentWrites' && {
+                transitionDelay: `${HEIGHT_EASE_DELAY_MS}ms`,
+              }),
           }
         : {
             maxHeight: `min(${height.atMost}, var(--available-height))`,
             width,
-          }} onKeyDownCapture={onKeyDownCapture} onCompositionStartCapture={onCompositionBegun} onPointerMoveCapture={onPointerMoveCapture} onWheelCapture={spentInputGuard.onWheel} onPointerCancelCapture={spentInputGuard.forget} onPointerDownCapture={(event) => {
+          }} {...(doesHeightEase && {
+        onTransitionRun: markHeightEasing,
+        onTransitionEnd: markHeightEasing,
+        onTransitionCancel: markHeightEasing,
+      })} onKeyDownCapture={onKeyDownCapture} onCompositionStartCapture={onCompositionBegun} onPointerMoveCapture={onPointerMoveCapture} onPointerLeave={rowsBesidePopup.pointer.overOtherRow} onWheelCapture={spentInputGuard.onWheel} onPointerCancelCapture={spentInputGuard.forget} onPointerDownCapture={(event) => {
       pointerStateRef.current.isPressing = event.pointerType === 'mouse';
       pointerStateRef.current.wentDownAtMs = event.timeStamp;
+      if (rowsBesidePopup.stands !== null && rowIdOfTarget(event.target) !== openerRow?.id) rowsBesidePopup.set(null);
       wasPressOnFieldRef.current = event.target === fieldRef.current;
       if (wasPressOnFieldRef.current) return;
       lastActBeforePressRef.current = answerTimingRef.current.lastActAtMs;
@@ -729,7 +821,9 @@ export function AskOrPickList<RowId extends string = string>({
           details.cancel();
           if (rowId !== null) takeRow(rowId);
         }}>{!isFieldLeftOut &&
-            (<div className={`relative -mx-[var(--ui-menu-gutter,0.25rem)] -mt-[var(--ui-menu-gutter,0.25rem)] sheet-divider-under-field shrink-0 ${inPlaceOfList === undefined ? 'mb-1' : ''}`}><Combobox.PopupSearch ref={searchFieldRef} aria-label={nameOfField} aria-activedescendant={active === null ? undefined : rowElementId(active)} {...(inPlaceOfList !== undefined && {
+            (<div className={`relative -mx-[var(--ui-menu-gutter,0.25rem)] -mt-[var(--ui-menu-gutter,0.25rem)] sheet-divider-under-field shrink-0 ${inPlaceOfList === undefined ? 'mb-1' : ''}`}><Combobox.PopupSearch ref={searchFieldRef} aria-label={nameOfField} aria-activedescendant={activeDescendant} {...(besideHighlighted !== null && {
+                    'aria-controls': besideId,
+                  })} {...(inPlaceOfList !== undefined && {
                     'aria-expanded': false,
                     'aria-controls': undefined,
                   })} aria-describedby={idOfWhyFieldIsOutOfUse} placeholder={placeholder} readOnly={!areLive || idOfWhyFieldIsOutOfUse !== undefined} maxLength={mostCharacters} spellCheck={false} onKeyDown={(event) => {
@@ -744,7 +838,10 @@ export function AskOrPickList<RowId extends string = string>({
             ? withOverList(
                 (<Combobox.List ref={listRef} aria-label={nameOfList} {...(isFieldLeftOut && {
                     tabIndex: 0,
-                    'aria-activedescendant': active === null ? undefined : rowElementId(active),
+                    'aria-activedescendant': activeDescendant,
+                    ...(besideHighlighted !== null && {
+                      'aria-controls': besideId,
+                    }),
                   })} className={shownOverList.length > 0 ? 'max-h-none! flex-none! overflow-visible!' : doesListGrow ? undefined : 'flex-initial'} {...lateRowsEaseIn}>{sections.map((section, sectionIndex) => {
                     let { id: sectionId, heading, rows, lateRows = [] } = section;
                     let lateRowsGroup =
@@ -774,6 +871,15 @@ export function AskOrPickList<RowId extends string = string>({
                   focusField();
                   onKept();
                 }} onDiscarded={stepBack} /></Combobox.Footer>)}</Combobox.Root></div>;
+  return <>{box}{rowsBesidePopup.stands !== null &&
+      rowsBeside !== undefined &&
+      <ListRowsPopup id={besideId} idOfRow={besideRowElementId} name={rowsBeside.name} rows={rowsBeside.rows.map((row) => ({
+          id: row.id,
+          inside: RowInside(row),
+        }))} highlighted={besideHighlighted} card={boxRef} idOfOpener={rowElementId(rowsBeside.ofRow)} marks={rowsBeside.marks} onPointedAt={(index) =>
+          rowsBesidePopup.set({
+            highlighted: index,
+          })} onPointerInOrOut={(isIn) => (isIn ? rowsBesidePopup.pointer.overCard() : rowsBesidePopup.pointer.overOtherRow())} onRowTaken={takeRowBeside} />}</>;
 }
 export const doesAskListGrow = (list: { stands: AskFieldStands; isFootUnderRows: boolean }) =>
   list.stands === 'atRest' || !list.isFootUnderRows;
@@ -796,5 +902,18 @@ export const ARROW_STOP_ATTRIBUTES = {
 };
 export const TOOLTIP_ROOM_PX = 256;
 export const ROW_EASE_IN_MS = 240;
+export const HEIGHT_EASE_DELAY_MS = 500;
+export const markHeightEasing = (event: React.TransitionEvent<HTMLDivElement>) => {
+  if (event.target === event.currentTarget && event.nativeEvent.propertyName === 'height')
+    event.currentTarget.toggleAttribute('data-is-height-easing', event.type === 'transitionrun');
+};
 export const makeInputReadOnly = (field: HTMLInputElement | null) => field?.setAttribute('readonly', '');
 export const SCROLL_FOLLOW_STOP_EVENTS = ['wheel', 'pointerdown', 'keydown', 'touchstart'];
+/** What a row draws inside it: its mark, what it shows, what is at its end, and its check. */
+export const RowInside = ({ drawn, laysItselfOut = false, mark, atEnd, isChecked = false }: Pick<AskListRow, 'drawn' | 'laysItselfOut' | 'mark' | 'atEnd' | 'isChecked'>) =>
+  <span className={`flex w-full items-center gap-2 ${laysItselfOut ? 'whitespace-normal' : ''}`}>{mark !== undefined &&
+      <span data-mark-of-row="" className="contents">{mark}</span>}{laysItselfOut
+      ? drawn
+      : <span className="min-w-0 flex-1 truncate">{drawn}</span>}{atEnd !== undefined &&
+      <span className="max-w-[60%] shrink-0 truncate text-footnote text-muted">{atEnd}</span>}{isChecked &&
+      <span className="flex shrink-0 text-accent"><Icon name="Check" size="md" /></span>}</span>;

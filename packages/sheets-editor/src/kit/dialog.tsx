@@ -2,11 +2,15 @@ import * as React from 'react';
 import { Dialog as BaseDialog } from '@base-ui/react/dialog';
 import { AlertDialog as BaseAlertDialog } from '@base-ui/react/alert-dialog';
 import { Button } from './button.tsx';
-import { guardWhileClosing } from './closing-guard.ts';
+import { guardEnterThroughDialogClose, guardWhileClosing } from './closing-guard.ts';
 import { cn } from './cn.ts';
 import { useKitLabel } from './labels.tsx';
 import { LayerBaseContext, OVERLAY_ATTRIBUTE, useOverlayLayer } from './layers.tsx';
+import { useHideBesideLiveRegions } from './live-regions.ts';
+import { useHoldPullToRefresh } from './platform.ts';
 import { PopupScope } from './popup.tsx';
+import { hideInsideFocusGuardsOnIos, restoreInsideFocusGuards } from './popup-frame.tsx';
+import { useUiWindow } from './theme.tsx';
 
 export type DialogSize = 'sm' | 'md' | 'lg' | 'xl' | '2xl' | '3xl';
 export type DialogFooterAlign = 'start' | 'center' | 'end' | 'between';
@@ -44,30 +48,104 @@ const AlertContext = React.createContext(false);
 
 const keepSelection = (event: React.MouseEvent<HTMLDivElement>): void => event.preventDefault();
 
+const REPEAT_CLICK_OPEN_MS = 1000;
+
 /**
  * The rest of a double click that opened a dialog lands on its backdrop, which would close it
- * again. From the moment the backdrop appears, presses that continue a multi-click on it or on the
- * page root are swallowed, until a fresh single press or the window regaining focus.
+ * again, or on whatever in the dialog came up under the pointer. From the moment the dialog
+ * appears, presses that continue a multi-click on the backdrop or the page root are swallowed,
+ * and so are those inside the dialog when the multi-click began within a second of opening, until
+ * a fresh single press, a press on a disabled control, or the window regaining focus.
  */
-function useSwallowRepeatClicksOnBackdrop(backdrop: HTMLDivElement | null): void {
+function useSwallowRepeatClicksOnBackdrop(backdrop: HTMLDivElement | null, popupRef: React.RefObject<HTMLDivElement | null>): void {
   React.useLayoutEffect(() => {
-    const win = backdrop?.ownerDocument.defaultView;
-    if (!backdrop || !win) return undefined;
+    const win = (backdrop ?? popupRef.current)?.ownerDocument.defaultView;
+    if (!win) return undefined;
     const root = win.document.documentElement;
     const watching = new win.AbortController();
-    const onPress = (event: MouseEvent): void => {
-      if (event.detail > 1) {
-        if (event.target !== backdrop && event.target !== root) return;
-        event.preventDefault();
-        event.stopPropagation();
-      } else if (event.type === 'mousedown') watching.abort();
+    const { signal } = watching;
+    const openedAt = new win.Event('open').timeStamp;
+    let swallowing = false;
+    let swallowed: Event | undefined;
+    const stopSwallowed = (event: Event): void => {
+      if (event === swallowed) event.stopPropagation();
     };
-    win.addEventListener('mousedown', onPress, { capture: true, signal: watching.signal });
-    win.addEventListener('click', onPress, { capture: true, signal: watching.signal });
-    win.addEventListener('focus', () => watching.abort(), { signal: watching.signal });
+    const onPress = (event: MouseEvent): void => {
+      const target = event.target;
+      const inPopup = target instanceof win.Node && popupRef.current?.contains(target) === true;
+      if (event.detail > 1) {
+        const onBackdrop = target === backdrop || target === root;
+        if (event.type === 'mousedown') swallowing = onBackdrop || event.timeStamp - openedAt < REPEAT_CLICK_OPEN_MS;
+        if (onBackdrop || (inPopup && swallowing)) {
+          event.preventDefault();
+          swallowed = event;
+          if (onBackdrop) event.stopPropagation();
+          else popupRef.current?.addEventListener(event.type, stopSwallowed, { capture: true, signal });
+        }
+      } else if (event.type === 'mousedown' || inPopup) watching.abort();
+    };
+    win.addEventListener('mousedown', onPress, { capture: true, signal });
+    win.addEventListener('click', onPress, { capture: true, signal });
+    win.addEventListener('dblclick', onPress, { capture: true, signal });
+    win.addEventListener(
+      'pointerdown',
+      (event) => {
+        if (event.target instanceof win.Element && event.target.closest(':disabled') !== null) watching.abort();
+      },
+      { capture: true, signal },
+    );
+    win.addEventListener('focus', () => watching.abort(), { signal });
     return () => watching.abort();
-  }, [backdrop]);
+  }, [backdrop, popupRef]);
 }
+
+function isShownForFocus(element: Element): boolean {
+  if (typeof element.checkVisibility === 'function') return element.checkVisibility({ visibilityProperty: true });
+  return element.getClientRects().length > 0;
+}
+
+/**
+ * When the control that had focus inside a modal dialog goes away (removed or hidden), focus
+ * would fall to the page body behind the dialog; it is put back on the dialog instead.
+ */
+function useRefocusDialogWhenFocusVanishes(popup: HTMLDivElement | null, modal: boolean): void {
+  const lastFocused = React.useRef<Element | null>(null);
+  React.useEffect(() => {
+    if (popup === null) return undefined;
+    const track = (): void => {
+      const active = popup.ownerDocument.activeElement;
+      if (active !== null && popup.contains(active)) lastFocused.current = active;
+    };
+    track();
+    popup.addEventListener('focusin', track);
+    return () => popup.removeEventListener('focusin', track);
+  }, [popup]);
+  React.useEffect(() => {
+    const win = popup?.ownerDocument.defaultView;
+    if (!popup || !win || !modal) return undefined;
+    const check = (): void => {
+      const focused = lastFocused.current;
+      if (focused === null || (focused.isConnected && isShownForFocus(focused))) return;
+      lastFocused.current = null;
+      win.requestAnimationFrame(() => {
+        win.requestAnimationFrame(() => {
+          const doc = popup.ownerDocument;
+          if (doc.activeElement === doc.body && !popup.hasAttribute('data-closed') && doc.hasFocus()) popup.focus({ preventScroll: true });
+        });
+      });
+    };
+    const observer = new win.MutationObserver(check);
+    observer.observe(popup, { subtree: true, childList: true, attributeFilter: ['class', 'hidden', 'style'] });
+    check();
+    return () => {
+      observer.disconnect();
+      check();
+    };
+  }, [popup, modal]);
+}
+
+/** Whether the dialog around is modal; a non-modal one leaves focus where it falls. */
+const ModalContext = React.createContext(true);
 
 export type DialogRootProps = BaseDialog.Root.Props;
 export type AlertDialogRootProps = BaseAlertDialog.Root.Props;
@@ -75,7 +153,9 @@ export type AlertDialogRootProps = BaseAlertDialog.Root.Props;
 function DialogRoot(props: DialogRootProps): React.ReactElement {
   return (
     <AlertContext.Provider value={false}>
-      <BaseDialog.Root {...props} />
+      <ModalContext.Provider value={props.modal !== false}>
+        <BaseDialog.Root {...props} />
+      </ModalContext.Provider>
     </AlertContext.Provider>
   );
 }
@@ -112,18 +192,46 @@ const DialogPopup = React.forwardRef<HTMLDivElement, DialogPopupProps>(function 
 ) {
   const layer = useOverlayLayer('modal');
   const guards = guardWhileClosing(
-    { onPointerDownCapture, onMouseDownCapture, onClickCapture, onAuxClickCapture, onKeyDownCapture, onSubmitCapture },
+    {
+      onPointerDownCapture,
+      onMouseDownCapture,
+      onClickCapture,
+      onAuxClickCapture,
+      onKeyDownCapture: (event: Parameters<NonNullable<DialogPopupProps['onKeyDownCapture']>>[0]) => {
+        guardEnterThroughDialogClose(event);
+        onKeyDownCapture?.(event);
+      },
+      onSubmitCapture,
+    },
     'data-closed',
   );
+  const modal = React.useContext(ModalContext);
+  const popupRef = React.useRef<HTMLDivElement | null>(null);
+  // The popup element only exists while the dialog is open, so the hooks that watch it follow it in state.
+  const [popupElement, setPopupElement] = React.useState<HTMLDivElement | null>(null);
+  const setPopup = React.useCallback(
+    (element: HTMLDivElement | null) => {
+      if (element === null) restoreInsideFocusGuards(popupRef.current);
+      else if (modal) hideInsideFocusGuardsOnIos(element);
+      popupRef.current = element;
+      setPopupElement(element);
+      if (typeof ref === 'function') ref(element);
+      else if (ref !== null) ref.current = element;
+    },
+    [ref, modal],
+  );
   const [backdrop, setBackdrop] = React.useState<HTMLDivElement | null>(null);
-  useSwallowRepeatClicksOnBackdrop(backdrop);
+  useSwallowRepeatClicksOnBackdrop(backdrop, popupRef);
+  useRefocusDialogWhenFocusVanishes(popupElement, modal);
+  useHoldPullToRefresh(modal && backdrop !== null, useUiWindow());
+  useHideBesideLiveRegions(popupElement, modal);
   return (
     <BaseDialog.Portal>
       <PopupScope className="relative" style={layer.style}>
         <LayerBaseContext.Provider value={layer.base}>
           <BaseDialog.Backdrop ref={setBackdrop} forceRender className={BACKDROP_CLASSES} onMouseDown={keepSelection} />
           <BaseDialog.Popup
-            ref={ref}
+            ref={setPopup}
             data-ui="Dialog"
             {...{ [OVERLAY_ATTRIBUTE]: '' }}
             {...rest}

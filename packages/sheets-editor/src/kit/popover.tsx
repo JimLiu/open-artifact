@@ -22,6 +22,7 @@ import {
   useMergedRefs,
   useOpenerFocusReturn,
   useSheetPresentation,
+  useSheetPageGuards,
   useSwallowSheetEntryTaps,
   useTallSheet,
   type PopupFinalFocus,
@@ -166,6 +167,7 @@ const PopoverPopup = React.forwardRef<HTMLDivElement, PopoverPopupProps>(functio
   const [popupElement, setPopupElement] = React.useState<HTMLDivElement | null>(null);
   const mergedRef = useMergedRefs<HTMLDivElement>(ref, opener.popupRef, setPopupElement);
   useSwallowSheetEntryTaps(sheet ? popupElement : null, root?.open ?? false);
+  useSheetPageGuards(sheet ? popupElement : null, root?.open ?? false);
 
   // Opened by touch, or with nothing inside to tab to, focus goes to the popover itself.
   const openedByPointer = React.useRef(false);

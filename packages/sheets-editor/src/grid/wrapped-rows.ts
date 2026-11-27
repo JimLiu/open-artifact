@@ -254,14 +254,12 @@ export function measureWrappedRowGrowth(
       continue;
     }
     let rowIndex = book.rowIndexOf(sheet.sheetId, rowId);
-    let textsAndPeople =
-      rowIndex === null
-        ? {
-            texts: [],
-            heightForPeople: 0,
-          }
-        : wrappedTextsAndPeopleInRow(rowId, rowIndex, wrapAreas, sheet, book, density);
-    if (rowIndex === null || (textsAndPeople.texts.length === 0 && textsAndPeople.heightForPeople === 0)) cache.set(row, NO_ROW_GROWTH);
+    if (rowIndex === null) {
+      cache.set(row, NO_ROW_GROWTH);
+      continue;
+    }
+    let textsAndPeople = wrappedTextsAndPeopleInRow(rowId, rowIndex, wrapAreas, sheet, book, density);
+    if (textsAndPeople.texts.length === 0 && textsAndPeople.heightForPeople === 0) cache.set(row, NO_ROW_GROWTH);
     else
       toMeasure.push({
         row,

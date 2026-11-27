@@ -173,9 +173,9 @@ export function CellHistoryChange({
   decimalSign,
 }: CellHistoryChangeProps) {
   let authorName = editAuthorName(author);
-  return <li className="col-span-3 grid min-w-0 grid-cols-subgrid items-baseline"><span aria-hidden className="row-span-2 flex self-start pt-0.5">{author?.kind === 'agent'
+  return <li className="col-span-3 grid min-w-0 grid-cols-subgrid items-baseline gap-y-1"><span aria-hidden className="flex h-[1lh] items-center self-start text-body">{author?.kind === 'agent'
             ? <Avatar size="xs" variant="agent" name={authorName} />
-            : <Avatar {...PERSON_AVATAR_LOOK} size="xs" name={authorName} src={author?.avatarUrl ?? ''} />}</span><span className="col-span-2 flex min-h-[1lh] min-w-0 flex-wrap justify-between gap-x-sm text-footnote text-secondary"><span className="wrap-anywhere">{authorName}</span><span className="shrink-0 tabular-nums">{formatEditTime(atMs, nowMs)}</span></span>{cells.map(
+            : <Avatar {...PERSON_AVATAR_LOOK} size="xs" name={authorName} src={author?.avatarUrl ?? ''} />}</span><span className="col-span-2 flex min-h-[1lh] min-w-0 flex-wrap items-center justify-between gap-x-sm text-body"><bdi className="text-body-semibold wrap-anywhere text-primary">{authorName}</bdi><span className="shrink-0 text-footnote text-secondary tabular-nums">{formatEditTime(atMs, nowMs)}</span></span>{cells.map(
         (cell) =>
           <CellHistoryCellLine key={cell.columnId} cell={cell} isNamed={areCellsNamed} decimalSign={decimalSign} />,
       )}</li>;
@@ -183,7 +183,7 @@ export function CellHistoryChange({
 export function CellHistorySkeleton() {
   return <SkeletonGroup label={cellHistoryMessages.loading()} className="flex flex-col gap-md">{HISTORY_SKELETON_ROWS.map(
       (row) =>
-        <div key={row} className="flex items-start gap-sm"><Skeleton className="size-5 shrink-0 rounded-full" /><div className="flex flex-1 flex-col gap-xs"><Skeleton width="70%" className="text-footnote" /><Skeleton width="40%" className="text-body" /></div></div>,
+        <div key={row} className="flex items-start gap-sm"><Skeleton className="size-5 shrink-0 rounded-full" /><div className="flex flex-1 flex-col gap-xs"><Skeleton width="70%" className="text-body" /><Skeleton width="40%" className="text-body" /></div></div>,
     )}</SkeletonGroup>;
 }
 interface CellHistoryScopeSwitchProps {
@@ -235,7 +235,7 @@ export function CellHistoryList({
             <span>{isAskedAgain ? blankWhileAwaited(notice.hint) : notice.hint}</span>}</output>{failureWords?.canTryAgain === true &&
         <Button variant="secondary" size="sm" className="self-start" busy={isAwaited} busyLabel={cellHistoryMessages.loading()} onClick={onTryAgain}>{cellHistoryMessages.tryAgain()}</Button>}{changes !== null &&
         changes.length > 0 &&
-        (<ul className="grid min-w-0 grid-cols-[auto_fit-content(40%)_minmax(0,1fr)] gap-x-sm gap-y-md">{changes.map(
+        (<ul className="grid min-w-0 grid-cols-[auto_fit-content(min(8rem,40%))_minmax(0,1fr)] gap-x-sm gap-y-md">{changes.map(
             (change) =>
               <CellHistoryChange key={change.revision} change={change} areCellsNamed={scope === 'row'} nowMs={todayMs} decimalSign={decimalSign} />,
           )}</ul>)}{areEarlierLeftOut &&
@@ -386,7 +386,7 @@ export const CellHistoryPopover = React.memo(function ({
       if (!isOpen) onShut();
     }}><Popover.Popup {...{
         [CELL_HISTORY_CARD_ATTRIBUTE]: '',
-      }} anchor={anchor} align="start" collisionPadding={popupCollisionPadding(collisionPad)} className="flex max-h-[min(360px,var(--available-height))] w-80 flex-col gap-md" finalFocus={whatHasCaretAfter} onKeyDown={(event) => {
+      }} anchor={anchor} align="start" collisionPadding={popupCollisionPadding(collisionPad)} className="flex max-h-[min(360px,var(--available-height))] w-120 max-w-[var(--available-width)] flex-col gap-md [@media(max-height:560px)]:w-80 [[data-presentation=sheet]_&]:w-full!" finalFocus={whatHasCaretAfter} onKeyDown={(event) => {
         if (event.repeat && (event.key === 'Enter' || event.key === ' ')) event.preventDefault();
       }}>{shownHistory !== null &&
         (<><div className="flex min-w-0 items-center justify-between gap-sm"><Popover.Title className="min-w-0 text-body-medium">{cellHistoryMessages.title()}</Popover.Title><Popover.Close render={<Button variant="ghost" size="sm" iconOnly icon={<Icon name="X" size="sm" />} aria-label={cellHistoryMessages.close()} tooltip={false} className="shrink-0 text-secondary" />} /></div>{shownHistory.canRowBeRead &&

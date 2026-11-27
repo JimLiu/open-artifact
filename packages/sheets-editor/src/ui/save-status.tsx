@@ -52,6 +52,8 @@ export interface SaveToastSituation {
   words: string | null;
   isWarning: boolean;
   areWordsDue: boolean;
+  /** Words saying what typing waits for, shown in place of the saving words. */
+  typingWaits?: string | null;
   under: SaveToastUnder;
   isLongSaveTold: boolean;
   isLongCalculationTold: boolean;
@@ -148,6 +150,7 @@ export function saveToastContent({
   words,
   isWarning,
   areWordsDue,
+  typingWaits = null,
   under,
   isLongSaveTold,
   isLongCalculationTold,
@@ -159,6 +162,12 @@ export function saveToastContent({
       words,
       isWarning,
       under,
+    };
+  if (typingWaits !== null)
+    return {
+      words: typingWaits,
+      isWarning: false,
+      under: 'nothing',
     };
   if (under === 'bar')
     return {
@@ -188,6 +197,7 @@ export function saveToastContent({
 }
 export interface SaveStatusToastProps {
   card: SaveStatusCard | null;
+  typingWaits: string | null;
   fractionSaved: number | null;
   isLongSaveTold: boolean;
   isLongCalculationTold: boolean;
@@ -201,6 +211,7 @@ export interface SaveStatusToastProps {
 }
 export function SaveStatusToast({
   card,
+  typingWaits,
   fractionSaved,
   isLongSaveTold,
   isLongCalculationTold,
@@ -243,6 +254,7 @@ export function SaveStatusToast({
         words: cardWords,
         isWarning: isCardWarning,
         areWordsDue: isDueNow,
+        typingWaits,
         under,
         isLongSaveTold,
         isLongCalculationTold,
@@ -258,7 +270,7 @@ export function SaveStatusToast({
     if (cardWords === null || areWordsDue) return;
     const timer = pageWindow.setTimeout(() => showToast(true), wordsDueAtRef.current - now);
     return () => pageWindow.clearTimeout(timer);
-  }, [pageWindow, cardWords, waitMs, under, isCardWarning, isLongSaveTold, isLongCalculationTold, ownViewShownAsApplied, isAllSavedSaid]);
+  }, [pageWindow, cardWords, waitMs, typingWaits, under, isCardWarning, isLongSaveTold, isLongCalculationTold, ownViewShownAsApplied, isAllSavedSaid]);
   const isBarShown = under === 'bar';
   React.useEffect(() => {
     if (isBarShown) callOnBarUp();

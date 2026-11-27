@@ -219,8 +219,9 @@ pub(super) fn sort_rows(
     one: &str,
     other: &str,
     keys: &[(String, Direction)],
-    code: &str,
+    context: &crate::session::edits::Context,
 ) -> Result<Made, Refused> {
+    let code = context.code;
     let s = sheet(workbook, sheet_id)?;
     let (_, a) = live_row(workbook, s, one)?;
     let (_, b) = live_row(workbook, s, other)?;
@@ -233,6 +234,7 @@ pub(super) fn sort_rows(
     check_spilled_keys(workbook, s, top, bottom, 0, &keys)?;
     let order = sorted(s, &SheetValues::of(workbook, s), top, bottom, &keys);
     let Some(i) = order.iter().enumerate().position(|(k, &p)| p != top + k) else { return Ok(Made::nothing()) };
+    context.may_move()?;
     let j = order.iter().enumerate().rposition(|(k, &p)| p != top + k).expect("a row that moves");
     // What else the sheet holds goes along (its ids checked before anything else is).
     let moved = Moved::new(s, top, &order, true);
@@ -244,17 +246,25 @@ pub(super) fn sort_rows(
         new_place[p - top] = top + k;
     }
     let place = |p: usize| if (top..=bottom).contains(&p) { new_place[p - top] } else { p };
+    // The rows from the first that moves to the last, in their new order; they keep the places they take.
+    let in_order: Vec<LineId> = order[i..=j].iter().map(|&p| s.rows.line(p).expect("a live row")).collect();
+    // A protection refuses the sort before a merged range does.
+    let splits = || {
+        let op = reorder::op_for(workbook, sheet_id, &in_order, Vec::new());
+        crate::session::edits::protected::refuse(workbook, context, &[op], "moveSplitsMergedRange")
+    };
     for range in &s.merged_ranges {
         let Some((t, b, _, _)) = s.live_box(&workbook.bases, range) else { continue };
         if (t..b).any(|p| place(p + 1) != place(p) + 1) {
-            return Err(Refused::Because("moveSplitsMergedRange"));
+            return Err(splits());
         }
     }
-    // The rows from the first that moves to the last, in their new order; they keep the places they take.
-    let in_order: Vec<LineId> = order[i..=j].iter().map(|&p| s.rows.line(p).expect("a live row")).collect();
     let mut rows_after = s.rows.clone();
     rows_after.reorder(&in_order);
-    let mut ops = merged_again(workbook, s, &rows_after)?;
+    let mut ops = merged_again(workbook, s, &rows_after).map_err(|refused| match refused {
+        Refused::Because("moveSplitsMergedRange") => splits(),
+        refused => refused,
+    })?;
     // A formula among them one of whose references would leave the sheet as its row moves is written again first,
     // that reference as text (the move moves the rest).
     let index = workbook.sheet_index(sheet_id).expect("a sheet");
@@ -270,7 +280,7 @@ pub(super) fn sort_rows(
             continue;
         }
         let delta = place(at_r) as i64 - at_r as i64;
-        if let Some(new) = reorder::unshiftable(workbook, formula, index, delta) {
+        if let Some(new) = reorder::unshiftable(workbook, formula, index, delta, &rows_after) {
             let (r, c) = (workbook.bases.text(r), workbook.bases.text(c));
             cells.push(((at_r, at_c), CellToSet { r, c, input: Some(Input::Formula { formula: new }) }));
         }

@@ -212,7 +212,7 @@ export const chartMessages = {
   changingChart: () =>
     translateMessage({
       defaultMessage: 'Changing the chart…',
-      id: 'JeISFtmifq',
+      id: 'JQ6oItIO40',
     }),
   changeIsPreview: () =>
     translateMessage({
@@ -222,7 +222,7 @@ export const chartMessages = {
   stopChange: () =>
     translateMessage({
       defaultMessage: 'Stop',
-      id: '2I+53rkxvc',
+      id: 'nsGk7sgf13',
     }),
   keepChange: () =>
     translateMessage({

@@ -4,6 +4,10 @@ import type { ChartFrameFault } from '../charts/frame-messages.ts';
 export interface ChartCell {
   value: number | string | boolean | null;
   text: string;
+  /** A cell an interactive writes, with a default a reset gives it: that default. */
+  default?: number | string | boolean | null;
+  /** With `default`: whether the cell holds another value. */
+  isChanged?: boolean;
 }
 
 export type ChartRow = readonly ChartCell[];

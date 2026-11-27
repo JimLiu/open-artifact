@@ -502,6 +502,7 @@ export const stopSayingWorkingWhenCursorGone = (state: PageState, turnContext: T
 export const EVENTS_THAT_DROP_DONE_CARD = new Set<PageEvent['kind']>([
   'keyPressed',
   'pointerPressed',
+  'cellOfConnectedTablePicked',
   'copyChosen',
   'cutChosen',
   'pasteChosen',

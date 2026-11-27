@@ -1,6 +1,6 @@
 import type { ChartEditOutcome } from '../state/controller.ts';
 import { askAgentForChartCode, type ChartCodeAgent, type WhyNoChartCodeFromAgent } from './agent-edits.ts';
-import { newChartRequest, type CellsForNewChart } from './chart-code-ask.ts';
+import { newChartRequest, readChartCodeAnswer, tableChartRequest, tableIdOfAnswer, type CellsForNewChart, type ChartCodeAsk, type TablesForNewChart } from './chart-code-ask.ts';
 import { STOCK_CHART_PROGRAMS, type StockKind } from './stock-programs.ts';
 import type { ChartWidgetNodes } from './widget-nodes.ts';
 /** Asks the page to place a chart that shows this node. */
@@ -11,6 +11,7 @@ export type ChartAddedOutcome = ({ nodeId: string } & Extract<ChartEditOutcome, 
 export interface ChartWriterByAgent {
   isToBeHad(): Promise<boolean>;
   write(inputs: CellsForNewChart, asked: string | null, mostUnits: number): Promise<WhyNoChartCodeFromAgent | { nodeId: string }>;
+  writeOfTables(inputs: TablesForNewChart, asked: string, mostUnits: number): Promise<WhyNoChartCodeFromAgent | { nodeId: string; tableId: string }>;
   giveUp(): void;
   discard(nodeId: string): void;
 }
@@ -31,19 +32,40 @@ export async function addChartOfNode(nodeId: string, add: AddChartNode, discard:
 }
 export function createChartWriterByAgent(charts: ChartWidgetNodes, agent: ChartCodeAgent): ChartWriterByAgent {
   let writeNumber = 0;
+  async function writeFor<More extends object>(
+    request: ChartCodeAsk | null,
+    moreOfAnswer: (answer: unknown) => More | null,
+  ): Promise<WhyNoChartCodeFromAgent | ({ nodeId: string } & More)> {
+    writeNumber += 1;
+    let thisWrite = writeNumber;
+    let reply = await askAgentForChartCode(agent, request);
+    if (thisWrite !== writeNumber) return 'stopped';
+    if ('whyNone' in reply) return reply.whyNone;
+    let [code, more] = [readChartCodeAnswer(reply.answer), moreOfAnswer(reply.answer)];
+    if (code === null || more === null) return 'notChanged';
+    let preview = await charts.makePreview(code);
+    if (thisWrite === writeNumber)
+      return typeof preview === 'string'
+        ? 'notChanged'
+        : {
+            ...preview,
+            ...more,
+          };
+    if (typeof preview !== 'string') charts.discard(preview.nodeId);
+    return 'stopped';
+  }
   return {
     isToBeHad: async () => charts.isToBeHad && (await agent.isAvailable()),
-    async write(inputs, asked, mostUnits) {
-      writeNumber += 1;
-      const thisWrite = writeNumber;
-      const code = await askAgentForChartCode(agent, newChartRequest(inputs, asked, mostUnits));
-      if (thisWrite !== writeNumber) return 'stopped';
-      if (typeof code !== 'string') return code.whyNone;
-      const preview = await charts.makePreview(code);
-      if (thisWrite === writeNumber) return typeof preview === 'string' ? 'notChanged' : preview;
-      if (typeof preview !== 'string') charts.discard(preview.nodeId);
-      return 'stopped';
-    },
+    write: (inputs, asked, mostUnits) => writeFor(newChartRequest(inputs, asked, mostUnits), () => ({})),
+    writeOfTables: (inputs, asked, mostUnits) =>
+      writeFor(tableChartRequest(inputs, asked, mostUnits), (answer) => {
+        let tableId = tableIdOfAnswer(answer, inputs.tables);
+        return tableId === null
+          ? null
+          : {
+              tableId,
+            };
+      }),
     giveUp() {
       writeNumber += 1;
       agent.stop();
@@ -59,6 +81,19 @@ export async function insertChartWrittenByAgent(
   const preview = await deps.agent.write(inputs, asked, mostUnitsOfAsked);
   if (typeof preview === 'string') return preview;
   return addChartOfNode(preview.nodeId, deps.add, (nodeId) => deps.agent.discard(nodeId));
+}
+export async function insertChartWrittenForTables(
+  deps: { agent: Pick<ChartWriterByAgent, 'writeOfTables' | 'discard'>; add: (nodeId: string, tableId: string) => Promise<ChartEditOutcome> },
+  inputs: TablesForNewChart,
+  { asked, mostUnitsOfAsked }: { asked: string; mostUnitsOfAsked: number },
+): Promise<WhyNoChartCodeFromAgent | ChartAddedOutcome> {
+  const preview = await deps.agent.writeOfTables(inputs, asked, mostUnitsOfAsked);
+  if (typeof preview === 'string') return preview;
+  return addChartOfNode(
+    preview.nodeId,
+    (nodeId) => deps.add(nodeId, preview.tableId),
+    (nodeId) => deps.agent.discard(nodeId),
+  );
 }
 export const NO_CHART_MAKER: StockChartMaker = {
   isToBeHad: false,

@@ -43,6 +43,9 @@ import { placedViewMovedWords, placedViewChangeUndoneWords } from '../messages/c
 import { frozeRowsText, frozeColumnsText } from './agent-turn-labels.ts';
 import { listKindOnOffWords, checkedStateWords, interactiveDoneText } from '../messages/import.ts';
 import { namedViewDoneLabel } from '../tables/named-view-messages.ts';
+import { namedRangeSavedText } from '../messages/named-ranges.ts';
+import { defaultsDoneText } from '../messages/defaults-and-limits.ts';
+import { protectionDoneText } from '../messages/protection.ts';
 import { dropdownPresetChosenText, dropdownOptionRemovedText, dropdownOptionsAddedText } from './chip-labels.ts';
 import { errorExplanationWords } from '../messages/formula-errors.ts';
 import { agentFixLabel } from './formula-fix-labels.ts';
@@ -249,6 +252,16 @@ export function describeLastDone(givenDone: LastDoneTold): string {
     case 'namedViewUpdated':
     case 'namedViewRenamed':
       return namedViewDoneLabel(lastDone);
+    case 'namedRangeSaved':
+      return namedRangeSavedText(lastDone.name);
+    case 'defaultsSaved':
+    case 'defaultAndLimitsSaved':
+    case 'defaultsReset':
+      return defaultsDoneText(lastDone);
+    case 'protectionMade':
+    case 'protectionSaved':
+    case 'protectionRemoved':
+      return protectionDoneText(lastDone);
     case 'moreOfCellShown':
       return translateMessage(
         {
@@ -435,6 +448,7 @@ export function describeLastDone(givenDone: LastDoneTold): string {
       });
     case 'interactiveReset':
     case 'interactiveDefaultsSaved':
+    case 'interactiveChangesUndone':
       return interactiveDoneText(lastDone);
     case 'pivotTableAdded':
       return translateMessage({
@@ -564,7 +578,9 @@ export function describeLastDone(givenDone: LastDoneTold): string {
         return description === undefined ? headerRowText : `${headerRowText} ${description}`;
       }
       let isTitleAlone =
-        lastDone.offer.kind === 'dropdownOptionDeleted' ? lastDone.offer.isSaved : lastDone.offer.kind === 'sheetDeleted' && !lastDone.offer.isSaved;
+        lastDone.offer.kind === 'dropdownOptionDeleted'
+          ? lastDone.offer.isSaved
+          : (lastDone.offer.kind === 'sheetDeleted' || lastDone.offer.kind === 'sheetHidden' || lastDone.offer.kind === 'namedRangeDeleted') && !lastDone.offer.isSaved;
       return description === undefined || isTitleAlone
         ? title
         : `${title}${title.endsWith('…') ? '' : '.'} ${description}`;
@@ -929,6 +945,16 @@ export function describeLastDone(givenDone: LastDoneTold): string {
         {
           defaultMessage: 'Renamed to “{name}”',
           id: '7pTvo6jl2H',
+        },
+        {
+          name: lastDone.name,
+        },
+      );
+    case 'sheetUnhidden':
+      return translateMessage(
+        {
+          defaultMessage: 'Unhid “{name}” for everyone',
+          id: 'Y4CN52OncW',
         },
         {
           name: lastDone.name,

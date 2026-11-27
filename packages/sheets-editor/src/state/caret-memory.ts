@@ -1,7 +1,7 @@
 import type { PressesHeardAtStart } from '../app/sheet-page.tsx';
 /** Finds the storage of this tab, which may throw where storage is blocked. */
 export type StorageOf = () => Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
-export function takeStoredCaretPlace(storageOf: StorageOf, pageStartMs: number, wallNowMs: number): StoredCaretPlace | null {
+export function takeStoredCaretPlace(storageOf: StorageOf, pageStartMs: number, wallNowMs: number, keepsPlaceLeft?: boolean): StoredCaretPlace | null {
   try {
     let storage = storageOf();
     let raw = storage.getItem('sheets-caret');
@@ -11,6 +11,8 @@ export function takeStoredCaretPlace(storageOf: StorageOf, pageStartMs: number, 
     if (!isPlainObjectValue(stored)) return 'outsideCells';
     let { isInCells, isInEntry, leftAtMs, leftAtWallMs } = stored;
     let placeIfLeft: StoredCaretPlace = isInEntry === true ? 'inEntry' : 'outsideCells';
+    // Asked to keep it: a place left outside the cells stays stored for the next page.
+    if (isInCells === false && keepsPlaceLeft) return (storage.setItem('sheets-caret', raw), placeIfLeft);
     if (isInCells === false && typeof leftAtWallMs === 'number') return leftAtWallMs + 1000 < wallNowMs ? null : placeIfLeft;
     if (isInCells === false) return placeIfLeft;
     if (isInCells !== true) return 'outsideCells';
@@ -78,36 +80,52 @@ export function keepCaretPlaceStored(storageOf: StorageOf, afterEvents: (run: ()
     for (let unsubscribe of unsubscribers) unsubscribe();
   };
 }
+/** What a key does on a page just opened: F2 opens the entry, Tab and F6 are claimed. */
+export function keyActOnOpenedPage(
+  keyEvent: Pick<KeyboardEvent, 'key' | 'altKey' | 'ctrlKey' | 'metaKey' | 'shiftKey'>,
+  mayOpenEntry: boolean,
+): 'caretToEntry' | 'claimed' | 'nothing' {
+  let isPlain = !(keyEvent.altKey || keyEvent.ctrlKey || keyEvent.metaKey || keyEvent.shiftKey);
+  if (keyEvent.key === 'F2' && isPlain && mayOpenEntry) return 'caretToEntry';
+  return CARET_TAB_OR_F6_PATTERN.test(keyEvent.key) ? 'claimed' : 'nothing';
+}
+export function storeCaretInCells(storageOf: StorageOf): void {
+  try {
+    storageOf().setItem(
+      'sheets-caret',
+      JSON.stringify({
+        isInCells: true,
+        isInEntry: false,
+      }),
+    );
+  } catch {}
+}
 export const isPlainObjectValue = (candidate: unknown): candidate is Partial<Record<string, unknown>> => typeof candidate === 'object' && candidate !== null;
-export const doCellsTakeCaretAtStart = (storedPlace: CaretAtStart | null, haveActsCome: boolean): boolean =>
-  storedPlace === 'inSpreadsheetTakenOff' || storedPlace === 'inCells' || storedPlace === 'inEntry' || (storedPlace === null && !haveActsCome);
-/** How soon after the page starts a keyboard may still be handed over to the cells. */
-export const KEYBOARD_HANDED_OVER_WITHIN_MS = 1e4;
-/** Whether the page took the keyboard from the page it was opened from: a place was kept, and nothing was pressed or left since. */
-export const isKeyboardHandedOverAtStart = (
-  storedPlace: CaretAtStart | null,
-  hasKeyboard: boolean,
-  msSinceStart: number,
-  pressesHeard: PressesHeardAtStart,
-): boolean =>
-  hasKeyboard &&
-  storedPlace !== null &&
-  msSinceStart < KEYBOARD_HANDED_OVER_WITHIN_MS &&
-  pressesHeard.pressesBegun === 0 &&
-  pressesHeard.timesFocusLeft === 0;
-export const shouldFocusEntryAtStart = (storedPlace: CaretAtStart | null, haveActsCome: boolean, isFirstEntryOpen: boolean): boolean =>
-  storedPlace !== 'inSpreadsheetTakenOff' && (haveActsCome || (storedPlace === 'inEntry' && !isFirstEntryOpen));
+export const doCellsTakeCaretOnOpen = (storedPlace: CaretAtStart | null, wasHotRestarted: boolean, takesCaretFromOutside: boolean): boolean =>
+  storedPlace === 'inSpreadsheetTakenOff' ||
+  storedPlace === 'inCells' ||
+  storedPlace === 'inEntry' ||
+  (storedPlace === 'outsideCells' && takesCaretFromOutside) ||
+  (storedPlace === null && !wasHotRestarted);
+/** Whether the page took the keyboard from the page it was opened from: a place was kept, and nothing was pressed or had the caret since. */
+export const isKeyboardHandedOverOnOpen = (storedPlace: CaretAtStart | null, wasHotRestarted: boolean, pressesHeard: PressesHeardAtStart): boolean =>
+  wasHotRestarted && storedPlace !== null && pressesHeard.pressesBegun === 0 && !pressesHeard.hasAnythingHadCaret;
+export const shouldFocusEntryOnOpen = (storedPlace: CaretAtStart | null, hasAnyActCome: boolean, isFirstEntryStillOpen: boolean): boolean =>
+  storedPlace !== 'inSpreadsheetTakenOff' && (hasAnyActCome || storedPlace === 'outsideCells' || (storedPlace === 'inEntry' && !isFirstEntryStillOpen));
 export const CARET_ARROW_KEY_PATTERN = /^Arrow(?:Up|Down|Left|Right)$/;
 export const CARET_TAB_OR_F6_PATTERN = /^(?:Tab|F6)$/;
-export const isKeyForCellsAtStart = (
+export const isKeyForCellsOnOpen = (
   storedPlace: CaretAtStart | null,
   keyEvent: Pick<KeyboardEvent, 'key' | 'altKey' | 'ctrlKey' | 'metaKey' | 'shiftKey'>,
-  isFirstEntryOpen: boolean,
-): boolean =>
-  storedPlace !== 'inEntry' ||
-  isFirstEntryOpen ||
-  (!(keyEvent.altKey || keyEvent.ctrlKey || keyEvent.metaKey) &&
-    (CARET_TAB_OR_F6_PATTERN.test(keyEvent.key) || (CARET_ARROW_KEY_PATTERN.test(keyEvent.key) && !keyEvent.shiftKey)));
+  isFirstEntryStillOpen: boolean,
+  isHandedOver: boolean,
+): boolean => {
+  let isMovingKey =
+    !(keyEvent.altKey || keyEvent.ctrlKey || keyEvent.metaKey) &&
+    (CARET_TAB_OR_F6_PATTERN.test(keyEvent.key) || (CARET_ARROW_KEY_PATTERN.test(keyEvent.key) && !keyEvent.shiftKey));
+  if (isHandedOver) return !isFirstEntryStillOpen && isMovingKey;
+  return (storedPlace !== 'inEntry' && storedPlace !== 'outsideCells') || isFirstEntryStillOpen || isMovingKey;
+};
 /** Where the caret was when this tab last left the spreadsheet: in the cells, in an entry, or elsewhere. */
 export type StoredCaretPlace = 'inCells' | 'inEntry' | 'outsideCells';
 /** Where the caret goes as the spreadsheet opens: as stored, or into the cells when the spreadsheet took it off a pane. */

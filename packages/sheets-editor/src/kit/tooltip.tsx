@@ -51,11 +51,28 @@ export function isEmptyTooltipContent(content: unknown): boolean {
   );
 }
 
+/**
+ * An overflow label inside a popup trigger reports that trigger's expanded state, except inside
+ * a menu row, whose own submenu is not what the label is about.
+ */
+function expandedStateElement(element: Element): Element {
+  if (element.getAttribute('data-ui') !== 'OverflowTooltip') return element;
+  const owner = element.closest(FOCUS_OWNER_SELECTOR);
+  return owner === null || owner.matches('[role="menu"] [role="menuitem"]') ? element : owner;
+}
+
 /** A trigger whose menu or popover is open; its tooltip would cover what it opened. */
 export function isExpandedPopupTrigger(target: unknown): boolean {
   if (!(target instanceof Element)) return false;
-  const popup = target.getAttribute('aria-haspopup');
-  return popup !== null && popup !== 'false' && target.getAttribute('aria-expanded') === 'true';
+  const owner = expandedStateElement(target);
+  const popup = owner.getAttribute('aria-haspopup');
+  return popup !== null && popup !== 'false' && owner.getAttribute('aria-expanded') === 'true';
+}
+
+/** A hover that a touch screen made up, which should not bring up a tooltip never shown yet. */
+function isTouchHover(details: { reason: string; event: Event | undefined }): boolean {
+  const event = details.event as (Event & { sourceCapabilities?: { firesTouchEvents?: boolean } | null }) | undefined;
+  return details.reason === 'trigger-hover' && event?.sourceCapabilities?.firesTouchEvents === true;
 }
 
 interface ActiveTooltip {
@@ -214,6 +231,7 @@ export function Tooltip({
   const hasBody = !isEmptyTooltipContent(body);
   const isOpen = (open ?? view.open) && (!readsLater || hasBody);
   if (!readsLater && hasContent && isOpen && !Object.is(view.body, content)) setView(holding(content));
+  const neverShown = open !== true && !view.open && view.body === undefined;
 
   const handleOpenChange = React.useCallback(
     (next: boolean, details: OpenChangeDetails) => {
@@ -222,6 +240,10 @@ export function Tooltip({
         return;
       }
       if (next && details.reason === 'trigger-hover' && isExpandedPopupTrigger(details.trigger ?? details.event.target)) {
+        details.cancel();
+        return;
+      }
+      if (!next && neverShown && isTouchHover(details)) {
         details.cancel();
         return;
       }
@@ -240,7 +262,7 @@ export function Tooltip({
       setHoveredTrigger(next && details.reason === 'trigger-hover' ? (details.trigger ?? null) : null);
       if (next || isOpen || details.reason !== 'none') onOpenChange?.(next);
     },
-    [content, isOpen, onOpenChange, openOnHandedBackFocus],
+    [content, isOpen, onOpenChange, openOnHandedBackFocus, neverShown],
   );
 
   const handleOpenChangeComplete = React.useCallback((next: boolean) => {
@@ -272,7 +294,7 @@ export function Tooltip({
         : new view.MutationObserver(() => {
             if (isExpandedPopupTrigger(hoveredTrigger)) handle.current.closeInstant();
           });
-    observer?.observe(hoveredTrigger, { attributes: true, attributeFilter: ['aria-expanded'] });
+    observer?.observe(expandedStateElement(hoveredTrigger), { attributes: true, attributeFilter: ['aria-expanded'] });
     return () => {
       doc.removeEventListener('scroll', onScroll, { capture: true });
       observer?.disconnect();

@@ -136,6 +136,55 @@ impl<'g> Sheet<'g> {
         }
     }
 
+    /// Whether a record from one row to another sums a range of its own column that starts at the header or above.
+    pub(super) fn sums_from_the_header(&self, frame: &Frame, from: usize, to: usize) -> bool {
+        self.records(frame, from, to).iter().any(|rec| rec.sums.iter().any(|s| s.first <= frame.header.1))
+    }
+
+    /// Whether a record from one row to another, but the last, sums its own column over records from the first, or
+    /// from the header, down to the row above it.
+    pub(super) fn sums_the_records_above(&self, frame: &Frame, from: usize, to: usize) -> bool {
+        let recs = self.records(frame, from, to);
+        let last = recs.last().map(|rec| rec.row);
+        let first = frame.header.1.saturating_add(1);
+        recs.iter().any(|rec| {
+            Some(rec.row) != last
+                && rec.sums.iter().any(|s| s.first <= first && first <= s.last && s.last.saturating_add(1) == rec.row)
+        })
+    }
+
+    /// Whether a record from one row to another, past a row, sums a range of its own column: the last, a lone label
+    /// aside, any such range, and any other one from a cell above the header that shows something on to the header.
+    pub(super) fn sums_past(&self, frame: &Frame, from: usize, to: usize, past: usize) -> bool {
+        let recs = self.records(frame, from, to);
+        let head = frame.header.0;
+        let over = |s: &Sum| {
+            s.first < head && head <= s.last && self.first_content_row(s.first, head - 1, s.column, s.column).is_some()
+        };
+        let last = recs.iter().rev().find(|r| !self.is_lone_label(frame, r)).map(|r| r.row);
+        recs.iter().any(|r| r.row > past && ((Some(r.row) == last && !r.sums.is_empty()) || r.sums.iter().any(over)))
+    }
+
+    /// Whether a record from one row to another sums a range of its own column, ending above it, over every cell of
+    /// that column in the records above it, one at least.
+    pub(super) fn sums_its_cells_above(&self, frame: &Frame, from: usize, to: usize) -> bool {
+        let recs = self.records(frame, from, to);
+        recs.iter().any(|rec| {
+            rec.sums.iter().any(|s| {
+                let mut above = recs.iter().filter(|r| r.row < rec.row && r.cells.iter().any(|c| c.column == s.column));
+                let Some(first) = above.next().map(|r| r.row) else { return false };
+                let last = above.last().map_or(first, |r| r.row);
+                s.last < rec.row && s.first <= first && last <= s.last
+            })
+        })
+    }
+
+    /// Whether the last record from one row to another, a lone label aside, sums a range of its own column.
+    pub(super) fn last_record_sums(&self, frame: &Frame, from: usize, to: usize) -> bool {
+        let recs = self.records(frame, from, to);
+        recs.iter().rev().find(|r| !self.is_lone_label(frame, r)).is_some_and(|r| !r.sums.is_empty())
+    }
+
     /// The rows under a header from one row to another that show something, with their references and sums.
     fn records<'s>(&'s self, frame: &Frame, from: usize, to: usize) -> Vec<Rec<'s, 'g>> {
         let (c0, c1) = frame.columns;
@@ -264,8 +313,8 @@ impl<'g> Sheet<'g> {
         view.next_not_label[i].map(|j| view.recs[j].row)
     }
 
-    /// Whether records start a heading again: lone labels, then (with no blank rows between) a row full across a
-    /// table three columns wide or more that is not a row of years or dates.
+    /// Whether records start a heading again: lone labels, then (with no blank rows between) a row filled in three
+    /// columns or more and in more than half of a table three columns wide or more, not a row of years or dates.
     fn starts_heading_again(&self, frame: &Frame, recs: &[Rec]) -> bool {
         let (c0, c1) = frame.columns;
         let n = recs.len();
@@ -280,7 +329,7 @@ impl<'g> Sheet<'g> {
         if recs[1..k].iter().any(|r| r.gap_before) {
             return false;
         }
-        if k == n || recs[k].gap_before || width != recs[k].cells.len() {
+        if k == n || recs[k].gap_before || recs[k].cells.len() < 3 || recs[k].cells.len() * 2 <= width {
             return false;
         }
         !self.is_heading_row(recs[k].row, c0, c1, None, Skip::LabelLike)
@@ -382,8 +431,10 @@ impl<'g> Sheet<'g> {
                     })
                     || view.read_above.contains(&rec.row)
                     || sums_later(rec.row, &|s| subtotal_rows.contains(&s.first));
+                // A row tied to the subtotals above is one more of them; one under the first total of the records
+                // keeps it the first.
                 if evidence {
-                    Act::Subtotal(by_sums && a_sum)
+                    Act::Subtotal(kept.fresh_subtotal || (by_sums && a_sum))
                 } else {
                     open = true;
                     if rec.cells.len() == 1 {
@@ -555,8 +606,8 @@ impl<'g> Sheet<'g> {
 
     /// The body of a recognized table from a block's last row on: through the blocks below the heading does not come
     /// again in, cut at the first one nothing ties to the rows above, its rows given their parts, down to its footer
-    /// (f235); or why it can't be a table's.
-    pub(super) fn recognized_body(&self, frame: &Frame, from: usize, limit: usize) -> Result<Body, Reason> {
+    /// (f235); or why it can't be a table's. A bold last row is a footer only when the header is not declared.
+    pub(super) fn recognized_body(&self, frame: &Frame, from: usize, limit: usize, declared: bool) -> Result<Body, Reason> {
         let (hf, hl) = frame.header;
         let (c0, c1) = frame.columns;
         let mut end = from;
@@ -668,7 +719,8 @@ impl<'g> Sheet<'g> {
                 && rec.row == last_row
                 && records_before(last_row)
                 && (refers_to_all(rec)
-                    || (rec.cells.len() >= 2
+                    || (!declared
+                        && rec.cells.len() >= 2
                         && self.cells_in(last_row, c0, c1).iter().all(|c| self.styled(0, c.row, c.column))
                         && no_bold_record(rec)));
             if !footer_like && (!kept.fresh_subtotal || rec.sums.is_empty()) && rows[i].1 == Role::Record {

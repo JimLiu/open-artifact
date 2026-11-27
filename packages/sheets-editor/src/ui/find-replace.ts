@@ -77,6 +77,7 @@ export function replacementOfCell(
 ): ReplacementOfCell {
   let cell = reads.cellOf(cellId);
   if (cell === null || reads.formatOf(cellId).cellControl.kind !== 'none') return 'skipped';
+  if (reads.connectedTableIn(cellId.sheetId) !== null) return 'skipped';
   let { kind: inputKind } = cell.input;
   if (inputKind === 'formula' && state.areFormulasShown) return replaceInFormulaText(formulaTextOf(cell), pattern, replacement);
   if (isMatchInHiddenFormula(state, reads, cellId, find)) return replaceInFormulaText(formulaTextOf(cell), pattern, replacement);
@@ -328,6 +329,15 @@ export function replaceFound(state: PageState, context: PageContext, { text, whe
   let { mode, dragging, find } = state;
   if (mode.kind !== 'navigating' || isModalOpen(state) || dragging !== null || find === null || find.text === '') return withNoEffects(state);
   let [findInSheet, replacement] = [findQueryOf(find, reads, state.sheetId), sanitizeCellText(text)];
+  if (where === 'everyCell' && reads.connectedTableIn(state.sheetId) !== null)
+    return withNoEffects({
+      ...state,
+      notice: {
+        kind: 'editRefused',
+        why: 'sheetIsAConnectedTable',
+        asked: 'otherEdit',
+      },
+    });
   if (where === 'everyCell') return replaceInEveryCell(state, context, find, replacement);
   let stateLooked = findHitsReadyToStep(state, 1, reads);
   let outcome =

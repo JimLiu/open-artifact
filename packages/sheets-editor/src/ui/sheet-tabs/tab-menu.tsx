@@ -9,6 +9,8 @@ import { copiedSheetNameAffixes } from '../../i18n/sheet-names.ts';
 import { MenuItemWithWhyOff } from '../menu-item-why-off.tsx';
 import { offerKeyboardWhenReady } from '../keyboard-handoff.ts';
 import { whenBlurredToNothing } from '../../grid/focus-left.ts';
+import { sheetNotDeletableReason } from '../../i18n/change-labels.ts';
+import { protectionMessages } from '../../messages/protection.ts';
 /** Where a tab stands among the tabs. */
 export interface PlaceAmongTabs {
   index: number;
@@ -23,7 +25,7 @@ export interface SheetTabMenuItemsProps {
   dispatch: SheetController['dispatch'];
 }
 export function SheetTabMenuItems({
-  sheet: { sheetId, canBeDeleted, isShown },
+  sheet: { sheetId, isHidden, areAllOthersHidden, isAnotherLeftToShow, isShown },
   isOnlySheet,
   placeAmongTabs,
   viewOnlyBecause,
@@ -31,13 +33,15 @@ export function SheetTabMenuItems({
   dispatch,
 }: SheetTabMenuItemsProps) {
   let editAction = disabledByViewOnly(viewOnlyBecause);
-  let deleteAction =
-    editAction.disabled || canBeDeleted
+  let unlessLastShown = (reason: string | null) =>
+    editAction.disabled || isAnotherLeftToShow
       ? editAction
       : {
           disabled: true,
-          disabledReason: isOnlySheet ? sheetMessages.onlySheet() : null,
+          disabledReason: reason,
         };
+  let hideAction = isHidden ? editAction : unlessLastShown(areAllOthersHidden ? sheetMessages.onlyVisibleSheetIsNotHidden() : null);
+  let deleteAction = unlessLastShown(sheetNotDeletableReason(isOnlySheet, areAllOthersHidden));
   let canEdit = viewOnlyBecause !== 'readOnly';
   return <>{canEdit &&
         (<Menu.Item icon="Edit" {...editAction} keepOpen={onRenameChosenInList !== undefined} onClick={(event) => {
@@ -53,7 +57,14 @@ export function SheetTabMenuItems({
               kind: 'sheetDuplicateChosen',
               sheetId,
               wordsAroundName: copiedSheetNameAffixes(),
-            })}>{sheetMessages.duplicateSheet()}</Menu.Item>)}<Menu.Item icon="Link" {...(isShown
+            })}>{sheetMessages.duplicateSheet()}</Menu.Item>)}{canEdit &&
+        (<Menu.Item icon="Lock" {...editAction} onClick={() =>
+            dispatch({
+              kind: 'protectionAsked',
+              of: {
+                sheetId,
+              },
+            })}>{protectionMessages.protect()}</Menu.Item>)}<Menu.Item icon="Link" {...(isShown
           ? {
               shortcut: 'alt+cmd+l',
             }
@@ -74,6 +85,11 @@ export function SheetTabMenuItems({
                   sheetId,
                   toIndex: placeAmongTabs.index + 1,
                 })}>{sheetMessages.moveSheetRight()}</Menu.Item></>)}{canEdit &&
+        (<MenuItemWithWhyOff icon={isHidden ? 'Eye' : 'EyeSlash'} disabled={hideAction.disabled} whyOff={hideAction.disabledReason} onClick={() =>
+            dispatch({
+              kind: isHidden ? 'sheetUnhideChosen' : 'sheetHideChosen',
+              sheetId,
+            })}>{isHidden ? sheetMessages.unhideSheet() : sheetMessages.hideSheet()}</MenuItemWithWhyOff>)}{canEdit &&
         (<MenuItemWithWhyOff variant="danger" icon="Trash" disabled={deleteAction.disabled} whyOff={deleteAction.disabledReason} onClick={() =>
             dispatch({
               kind: 'sheetDeleteChosen',

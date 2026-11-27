@@ -1,5 +1,6 @@
-import type { DecimalSignName, Reference, SheetId } from '@open-artifact/sheets-core';
-import type { SheetSummary } from '../model/workbook.ts';
+import type { CellPoint, ColumnId, ColumnPoint, DecimalSignName, Reference, RowId, RowPoint, SheetId, StoredFormula } from '@open-artifact/sheets-core';
+import type { CellAtIds, CellsOfANamedRange, NamedRangeRead, SheetSummary, WorkbookReads } from '../model/workbook.ts';
+import { areSquareBracketsBalanced, endOfTableColumnBrackets } from './tokenizer.ts';
 import type { CellArea, CellPosition } from '../selection/model.ts';
 import { areaAsSeen, areasAsSeen } from '../model/a1-references.ts';
 /** A run of text between quotes, from the opening quote to after the closing one (or to the end, where none closes it). */
@@ -43,9 +44,15 @@ export interface ReferenceParsed {
   end: number;
   reference: WrittenReference | null;
 }
+/** A reference to cells: a cell, a range, whole columns or whole rows (not a name or a table). */
+export type CellReference = Extract<Reference, { kind: 'cell' | 'range' | 'columns' | 'rows' }>;
+/** A reference to cells of a sheet: any but a named range, which is read as the cells it names. */
+export type ReferenceOnSheet = Exclude<Reference, { kind: 'namedRange' }>;
 export interface FormulaReferencesFound {
   references: WrittenReference[];
   quoted: QuotedSpan[];
+  /** Table column references (`Table[Column]`), from the table's name to the closing bracket. */
+  columnsOfTables: QuotedSpan[];
 }
 /** A written reference on its sheet: the area it covers as seen, and that area in pieces of rows as stored. */
 export interface ResolvedReference {
@@ -145,7 +152,7 @@ export function commaDecimalsToDots(formula: string): string {
         ? index + numberText.length
         : char === '"' || char === "'"
           ? quotedSpanAt(formula, index, char).end
-          : Math.max(endOfNameChars(formula, index), index + 1);
+          : Math.max(endOfNameChars(formula, index), endOfTableColumnBrackets(formula, index), index + 1);
     let piece = formula.slice(index, pieceEnd);
     withDots += numberText === undefined ? piece : piece.replace(',', '.');
     lastChar = LAST_NON_SPACE_CHAR.exec(piece)?.[0] ?? lastChar;
@@ -157,8 +164,11 @@ export function findFormulaReferences(formula: string, decimalSign: DecimalSignN
   let dotted = decimalSign === 'comma' ? commaDecimalsToDots(formula) : formula;
   let references: WrittenReference[] = [];
   let quoted: QuotedSpan[] = [];
-  let index = 0;
+  let columnsOfTables: QuotedSpan[] = [];
+  let [index, pieceStart] = [0, 0];
   while (index < dotted.length) {
+    let previousPieceStart = pieceStart;
+    pieceStart = index;
     let parsed = parseReferenceAt(dotted, index);
     let char = dotted[index];
     if (parsed !== null) {
@@ -168,6 +178,20 @@ export function findFormulaReferences(formula: string, decimalSign: DecimalSignN
       let piece = quotedSpanAt(dotted, index, char);
       quoted.push(piece);
       index = piece.end;
+    } else if (endOfTableColumnBrackets(dotted, index) > index) {
+      let bracketsEnd = endOfTableColumnBrackets(dotted, index);
+      let isClosed = areSquareBracketsBalanced(dotted.slice(index, bracketsEnd));
+      quoted.push({
+        start: index,
+        end: bracketsEnd,
+        isClosed,
+      });
+      columnsOfTables.push({
+        start: previousPieceStart,
+        end: bracketsEnd,
+        isClosed,
+      });
+      index = bracketsEnd;
     } else {
       let piece = index + (execStickyAt(DOT_DECIMAL_NUMBER_AT, dotted, index)?.[0].length ?? 0);
       index = piece > index ? piece : Math.max(endOfNameChars(dotted, index), index + 1);
@@ -176,6 +200,7 @@ export function findFormulaReferences(formula: string, decimalSign: DecimalSignN
   return {
     references,
     quoted,
+    columnsOfTables,
   };
 }
 export function formulaMatchesOutsideReferences(formula: string, pattern: RegExp, decimalSign: DecimalSignName): boolean {
@@ -227,7 +252,57 @@ export function formulaHasMoreReferencesThan(
     (reference) => resolveFormulaReference(reference, ownSheetId, sheets) !== null,
   );
   let knownWholeLines = knownReferences.filter(({ kind }) => kind === 'columns' || kind === 'rows');
-  return resolved.length > knownReferences.length || resolved.filter(isWholeLineReference).length > knownWholeLines.length;
+  let knownCellReferences = knownReferences.filter((reference) => reference.kind !== 'namedRange' && !isTableReference(reference));
+  return resolved.length > knownCellReferences.length || resolved.filter(isWholeLineReference).length > knownWholeLines.length;
+}
+/** A named range's cells as a reference with every end absolute; one cell for a range of one. */
+export function absoluteReferenceOf(cells: CellsOfANamedRange): CellReference {
+  switch (cells.kind) {
+    case 'range': {
+      let { sheetId, topLeft, bottomRight } = cells;
+      return topLeft.r === bottomRight.r && topLeft.c === bottomRight.c
+        ? {
+            kind: 'cell',
+            sheetId,
+            cell: absoluteCell(topLeft),
+          }
+        : {
+            ...cells,
+            topLeft: absoluteCell(topLeft),
+            bottomRight: absoluteCell(bottomRight),
+          };
+    }
+    case 'columns': {
+      let { left, right, top } = cells;
+      return {
+        ...cells,
+        left: absoluteColumn(left),
+        right: absoluteColumn(right),
+        top: top === null ? null : absoluteRow(top),
+      };
+    }
+    case 'rows': {
+      let { top, bottom, left } = cells;
+      return {
+        ...cells,
+        top: absoluteRow(top),
+        bottom: absoluteRow(bottom),
+        left: left === null ? null : absoluteColumn(left),
+      };
+    }
+  }
+}
+/** A formula's references with each named range read as the cells it names (dropped once they are gone). */
+export function referencesWithNamedRangesExpanded(reads: WorkbookReads, { references }: Pick<StoredFormula, 'references'>): ReferenceOnSheet[] {
+  return references.flatMap((reference) => {
+    if (reference.kind !== 'namedRange') return reference;
+    let namedRanges = reads.namedRanges();
+    let referenceById =
+      namedRangeReferencesCache.get(namedRanges) ??
+      new Map(namedRanges.map((namedRange) => [namedRange.namedRangeId, absoluteReferenceOf(namedRange.namedRange.cells)]));
+    namedRangeReferencesCache.set(namedRanges, referenceById);
+    return referenceById.get(reference.namedRangeId) ?? [];
+  });
 }
 export const NAME_CHARS_AT = /[A-Za-z0-9_.$\u0080-\uffff]*/y;
 export const SHEET_NAME_AT = /[A-Za-z_\u0080-\uffff][A-Za-z0-9_.\u0080-\uffff]*/y;
@@ -251,7 +326,7 @@ export const rowIndexOfReferenceEnd = ({ digits }: WrittenReferenceEnd): number 
 export const columnIndexOfReferenceEnd = ({ letters }: WrittenReferenceEnd): number | null =>
   letters === '' ? null : Number(columnLettersToBigInt(letters)) - 1;
 export const endsReferenceAt = (formula: string, index: number): boolean =>
-  endOfNameChars(formula, index) === index && execStickyAt(REFERENCE_CALL_BRACKET_AT, formula, index) === null;
+  endOfNameChars(formula, index) === index && formula[index] !== '[' && execStickyAt(REFERENCE_CALL_BRACKET_AT, formula, index) === null;
 export const lineSpanOfEnds = (oneIndex: number | null, otherIndex: number | null): WrittenLineSpan =>
   oneIndex === null || otherIndex === null
     ? {
@@ -264,15 +339,31 @@ export const lineSpanOfEnds = (oneIndex: number | null, otherIndex: number | nul
       };
 export const sheetPrefixForFormula = (sheetName: string): string =>
   execStickyAt(SHEET_NAME_AT, sheetName, 0)?.[0] === sheetName ? `${sheetName}!` : `'${sheetName.replaceAll("'", "''")}'!`;
+export const sheetNameForFormula = (sheetName: string): string => sheetPrefixForFormula(sheetName).slice(0, -1);
 export const lowerCaseAsciiLetters = (text: string): string =>
   text.replaceAll(/[A-Z]/g, (letter) => letter.toLowerCase());
 export const findSheetNamed = (name: string, sheets: readonly SheetSummary[]): SheetSummary | undefined =>
   sheets.find((sheet) => sheet.name === name) ??
   sheets.find((sheet) => lowerCaseAsciiLetters(sheet.name) === lowerCaseAsciiLetters(name));
 export const isWholeLineReference = ({ rows, columns }: WrittenReference): boolean => rows.count === null || columns.count === null;
+export const isTableReference = (reference: Reference): reference is Extract<Reference, { kind: 'tableColumn' | 'tablePart' }> =>
+  reference.kind === 'tableColumn' || reference.kind === 'tablePart';
 export const isIndexInLineSpan = (index: number, { first, count }: WrittenLineSpan): boolean =>
   index >= first && (count === null || index < first + count);
 export const referenceCoversCell = (
   { rows, columns }: WrittenReference,
   { rowIndex, columnIndex }: CellPosition,
 ): boolean => isIndexInLineSpan(rowIndex, rows) && isIndexInLineSpan(columnIndex, columns);
+export const absoluteRow = (r: RowId): RowPoint => ({
+  r,
+  isRowAbsolute: true,
+});
+export const absoluteColumn = (c: ColumnId): ColumnPoint => ({
+  c,
+  isColumnAbsolute: true,
+});
+export const absoluteCell = ({ r, c }: CellAtIds): CellPoint => ({
+  ...absoluteRow(r),
+  ...absoluteColumn(c),
+});
+export const namedRangeReferencesCache = new WeakMap<readonly NamedRangeRead[], Map<string, CellReference>>();

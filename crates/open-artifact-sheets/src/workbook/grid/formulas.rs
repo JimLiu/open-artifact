@@ -3,7 +3,7 @@
 use hashbrown::HashMap;
 use serde::{Deserialize, Serialize};
 
-use crate::formula::{CellPoint, ColumnPoint, Reference, RowPoint, StoredFormula};
+use crate::formula::{CellPoint, ColumnPoint, Reference, RowPoint, StoredFormula, TableColumns, TableRows};
 use crate::ids::split_id;
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Hash)]
@@ -52,6 +52,21 @@ enum CompactReference {
         top: End,
         bottom: End,
         left: Option<End>,
+    },
+    /// A reference to a connected table names no rows: it is written as it is.
+    TableColumn {
+        sheet_id: String,
+        c: String,
+        has_its_heading: bool,
+    },
+    TablePart {
+        sheet_id: String,
+        columns: Option<TableColumns>,
+        rows: TableRows,
+    },
+    /// A named range, by its id as it is.
+    NamedRange {
+        named_range_id: String,
     },
 }
 
@@ -142,6 +157,17 @@ impl CompactReference {
                     None => None,
                 },
             },
+            Reference::TableColumn { sheet_id, c, has_its_heading } => Self::TableColumn {
+                sheet_id: sheet_id.clone(),
+                c: c.clone(),
+                has_its_heading: *has_its_heading,
+            },
+            Reference::TablePart { sheet_id, columns, rows } => Self::TablePart {
+                sheet_id: sheet_id.clone(),
+                columns: columns.clone(),
+                rows: *rows,
+            },
+            Reference::NamedRange { named_range_id } => Self::NamedRange { named_range_id: named_range_id.clone() },
         })
     }
 
@@ -214,6 +240,17 @@ impl CompactReference {
                     None => None,
                 },
             },
+            Self::TableColumn { sheet_id, c, has_its_heading } => Reference::TableColumn {
+                sheet_id: sheet_id.clone(),
+                c: c.clone(),
+                has_its_heading: *has_its_heading,
+            },
+            Self::TablePart { sheet_id, columns, rows } => Reference::TablePart {
+                sheet_id: sheet_id.clone(),
+                columns: columns.clone(),
+                rows: *rows,
+            },
+            Self::NamedRange { named_range_id } => Reference::NamedRange { named_range_id: named_range_id.clone() },
         })
     }
 }
@@ -239,6 +276,8 @@ impl Formula {
             Reference::Rows {
                 top, bottom, left, ..
             } => row(top) && row(bottom) && left.as_ref().is_none_or(column),
+            Reference::TableColumn { .. } | Reference::TablePart { .. } => true,
+            Reference::NamedRange { .. } => true,
         })
     }
 

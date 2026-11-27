@@ -2,7 +2,8 @@ import * as React from 'react';
 import { getKeptOffCount } from '../app/keys-off-cells.ts';
 import { ANNOUNCEMENT_HOLD_MS } from './agent-said-announcer.tsx';
 import { LiveAnnouncer } from '../ui/live-announcer.tsx';
-import { cellsAddedToMessageText } from '../i18n/menu-labels.ts';
+import { cellsAddedToMessageText, cellsAddedWithChatCoveredText } from '../i18n/menu-labels.ts';
+import { IS_IOS_BROWSER } from '../grid/cell-drawing-values.ts';
 import { MountedToast } from '../ui/mounted-toast.tsx';
 import { sheetMessages } from '../i18n/sheet-messages.ts';
 import { LAST_DONE_SETTLE_MS } from '../ui/last-done-announcer.ts';
@@ -19,6 +20,7 @@ export interface CellsAddedByPress {
 /** Cells added to the message as they are told, and whether to tell that keys are paused at the cells. */
 interface CellsAddedTold extends CellsAddedByPress {
   isPauseToBeTold: boolean;
+  isChatCovered: boolean;
 }
 /** Takes cells to the chat and keeps the newest cells it took. */
 export interface CellsAddedToChat extends Pick<ChatWithAgent, 'openAboutCells' | 'openWithWhatWasPressed'> {
@@ -33,6 +35,7 @@ interface CellsAddedAnnouncerProps {
   store: StoreToSettle;
   chat: Pick<CellsAddedToChat, 'subscribe' | 'newestAdded'>;
   placeOfKeyboard: () => PlaceOfKeyboard;
+  isChatCovered: boolean;
 }
 interface AddedToMessageToastProps {
   store: StoreToSettle;
@@ -40,7 +43,21 @@ interface AddedToMessageToastProps {
   placeOfKeyboard: () => PlaceOfKeyboard;
   hasWindowFocus: () => boolean;
   isAgentWorking: boolean;
+  isChatCovered: boolean;
   onGone: () => void;
+}
+/** What of the page tells whether VoiceOver on iOS is to skip the grid. */
+interface GridForVoiceOver {
+  isListOpen: boolean;
+  calendar: 'shut' | 'open' | 'hasTakenCaret';
+  hasEntryTheCaret: boolean;
+  isWaitingBoxTiedToList: boolean;
+  doesGridTakeKeys: boolean;
+}
+interface HiddenFromVoiceOverOnIosProps {
+  isHidden: boolean;
+  isOnIos?: boolean;
+  children?: React.ReactNode;
 }
 export function trackCellsAddedToChat(chatWithAgent: Pick<ChatWithAgent, 'openAboutCells' | 'openWithWhatWasPressed'>): CellsAddedToChat {
   let newestAdded: CellsAddedByPress | null = null;
@@ -119,10 +136,11 @@ export function whenKeyboardPlaceSettles(
     clearTimeout(timer);
   };
 }
-export function CellsAddedAnnouncer({ store, chat, placeOfKeyboard }: CellsAddedAnnouncerProps) {
+export function CellsAddedAnnouncer({ store, chat, placeOfKeyboard, isChatCovered }: CellsAddedAnnouncerProps) {
   const newestAdded = React.useSyncExternalStore(chat.subscribe, chat.newestAdded, chat.newestAdded);
   let [told, setTold] = React.useState<CellsAddedTold | null>(null);
   let placeOfKeyboardNow = React.useEffectEvent(placeOfKeyboard);
+  let isChatCoveredNow = React.useEffectEvent(() => isChatCovered);
   React.useEffect(() => {
     if (newestAdded === null) return;
     let holdTimer: ReturnType<typeof setTimeout> | undefined;
@@ -134,6 +152,7 @@ export function CellsAddedAnnouncer({ store, chat, placeOfKeyboard }: CellsAdded
         setTold({
           ...newestAdded,
           isPauseToBeTold: isPausedAtCells,
+          isChatCovered: isChatCoveredNow(),
         });
         holdTimer = setTimeout(() => setTold(null), ANNOUNCEMENT_HOLD_MS);
       },
@@ -143,7 +162,10 @@ export function CellsAddedAnnouncer({ store, chat, placeOfKeyboard }: CellsAdded
       clearTimeout(holdTimer);
     };
   }, [store, newestAdded]);
-  return <LiveAnnouncer words={told !== null && cellsAddedToMessageText(told.cells, told.isPauseToBeTold)} timesSaid={told?.press ?? 0} />;
+  return <LiveAnnouncer words={told !== null &&
+        (told.isPauseToBeTold && told.isChatCovered
+          ? cellsAddedWithChatCoveredText(told.cells)
+          : cellsAddedToMessageText(told.cells, told.isPauseToBeTold))} timesSaid={told?.press ?? 0} />;
 }
 export function whenUnfocusedFor(isFocused: () => boolean, onUnfocusedLong: () => void): () => void {
   let lastFocusedAt = Date.now();
@@ -161,6 +183,7 @@ export function AddedToMessageToast({
   placeOfKeyboard,
   hasWindowFocus,
   isAgentWorking,
+  isChatCovered,
   onGone,
 }: AddedToMessageToastProps) {
   let pressToTell = React.useSyncExternalStore(chat.subscribe, chat.newestThatTellsPress, chat.newestThatTellsPress);
@@ -184,6 +207,7 @@ export function AddedToMessageToast({
     setWasAgentWorking(isAgentWorking);
     if (isAgentWorking) setPressDismissed(Math.max(pressDismissed, pressToTell));
   }
+  if (isChatCovered && pressToTell > pressDismissed) setPressDismissed(pressToTell);
   let isToastUp = pressToTell !== 0 && pressToTell === pressSettled && pressToTell > pressDismissed;
   let hasWindowFocusNow = React.useEffectEvent(hasWindowFocus);
   React.useEffect(
@@ -201,6 +225,19 @@ export function AddedToMessageToast({
         setPressDismissed((dismissedBefore) => Math.max(dismissedBefore, pressToTell));
         onGone();
       }} onTakenDown={onGone} />;
+}
+/** On iOS, VoiceOver is kept off the grid while a list or the calendar under a cell has the caret's attention. */
+export function isGridHiddenFromVoiceOver(
+  { isListOpen, calendar, hasEntryTheCaret, isWaitingBoxTiedToList, doesGridTakeKeys }: GridForVoiceOver,
+  isOnIos: boolean = IS_IOS_BROWSER,
+): boolean {
+  if (!isOnIos || doesGridTakeKeys) return false;
+  if (hasEntryTheCaret) return isListOpen || calendar !== 'shut';
+  return isWaitingBoxTiedToList || calendar === 'hasTakenCaret';
+}
+export function HiddenFromVoiceOverOnIos({ isHidden, isOnIos = IS_IOS_BROWSER, children }: HiddenFromVoiceOverOnIosProps) {
+  if (!isOnIos) return <>{children}</>;
+  return <div role="presentation" aria-hidden={isHidden || void 0}>{children}</div>;
 }
 export const newerPressOf = (newest: CellsAddedByPress | null, candidate: CellsAddedByPress, isOpened: boolean): CellsAddedByPress | null =>
   isOpened && candidate.press > (newest?.press ?? 0) ? candidate : newest;

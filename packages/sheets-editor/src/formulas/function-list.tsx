@@ -26,6 +26,7 @@ import {
   formulaAutocompleteLabel,
 } from '../messages/formula-autocomplete.ts';
 import { LiveAnnouncer } from '../ui/live-announcer.tsx';
+import { namedRangeMessages } from '../messages/named-ranges.ts';
 import { rememberCaretAtEnd } from '../editor/entry-boxes.ts';
 import { entryEditorOf } from '../dom/entry-editor.ts';
 import { useCoveredUnderCells, popupCollisionPadding } from '../shell/bottom-insets.ts';
@@ -286,9 +287,9 @@ export function argumentAnnouncement(call: FunctionGuideAtCall, withFunctionName
     isOptional: argument.isOptional,
   });
 }
-export function functionListHeadingOf({ columns, names, families }: FunctionListState, highlighted: FunctionListRow): string | null {
-  if (typeof highlighted !== 'string') return autocompleteColumnsHeading();
-  if (columns.length > 0) return autocompleteFunctionsHeading();
+export function functionListHeadingOf({ namedRanges, columns, names, families }: FunctionListState, highlighted: FunctionListRow): string | null {
+  if (typeof highlighted !== 'string') return 'columnId' in highlighted ? autocompleteColumnsHeading() : namedRangeMessages.namedRanges();
+  if (namedRanges.length + columns.length > 0) return autocompleteFunctionsHeading();
   let family = families.findLast(({ from }) => from <= names.indexOf(highlighted));
   return family === undefined ? null : functionCategoryLabel(family.family);
 }
@@ -308,12 +309,14 @@ export function nextFunctionAnnouncement(
       heading,
     };
   }
-  if (writtenWhole !== null && typeof writtenWhole !== 'string')
+  if (writtenWhole !== null && typeof writtenWhole !== 'string') {
+    let words = 'columnId' in writtenWhole ? writtenWhole.cells : writtenWhole.heading;
     return {
       ...NO_FUNCTION_ANNOUNCEMENT,
-      words: writtenWhole.cells,
+      words,
       call: guide,
     };
+  }
   if (guide === null)
     return writtenWhole === null
       ? NO_FUNCTION_ANNOUNCEMENT
@@ -404,9 +407,13 @@ export function FunctionHelp({
             ? {
                 name: row,
               }
-            : {
-                columnId: row.columnId,
-              }),
+            : 'columnId' in row
+              ? {
+                  columnId: row.columnId,
+                }
+              : {
+                  namedRangeId: row.namedRangeId,
+                }),
         }),
       shut: (event: Event) => {
         let isInBox = entryEditorOf(event.target) === boxes.cell.current || event.target === boxes.formulaBar.current;
@@ -424,7 +431,11 @@ export function FunctionHelp({
 export const FUNCTION_LIST_ID = 'function-list';
 export const OPENS_FUNCTION_LIST_ATTRIBUTE = 'data-opens-function-list';
 export const functionListRowId = (row: FunctionListRow): string =>
-  typeof row === 'string' ? `${FUNCTION_LIST_ID}-${row}` : `${FUNCTION_LIST_ID}-column-${row.columnId}`;
+  typeof row === 'string'
+    ? `${FUNCTION_LIST_ID}-${row}`
+    : 'columnId' in row
+      ? `${FUNCTION_LIST_ID}-column-${row.columnId}`
+      : `${FUNCTION_LIST_ID}-named-range-${row.namedRangeId}`;
 export const functionListActiveDescendant = ({ highlighted }: Pick<FunctionListState, 'highlighted'>): ListboxIds => ({
   id: FUNCTION_LIST_ID,
   highlightedRowId: functionListRowId(highlighted),
@@ -468,7 +479,9 @@ export const FunctionList = React.memo(function ({
 }: FunctionListProps) {
   let shownList: FunctionListState | null = useLastNonNull(list);
   let names = shownList?.names ?? [];
+  let namedRanges = shownList?.namedRanges ?? [];
   let columns = shownList?.columns ?? [];
+  let offeredRowCount = namedRanges.length + columns.length;
   let families = shownList?.families ?? [];
   let [hasRoomBeside, setHasRoomBeside] = React.useState(true);
   let insets = useCoveredUnderCells();
@@ -488,7 +501,7 @@ export const FunctionList = React.memo(function ({
     [isOpen, rowToDescribe, inPage],
   );
   let renderRow = (row: FunctionListRow, index: number) =>
-    <ListRow key={functionListRowId(row)} id={functionListRowId(row)} placeInList={index + 1} rowsInList={columns.length + names.length} isHighlighted={row === shownList?.highlighted} onChosen={() => onRowChosen(row)} onPointedAt={() =>
+    <ListRow key={functionListRowId(row)} id={functionListRowId(row)} placeInList={index + 1} rowsInList={offeredRowCount + names.length} isHighlighted={row === shownList?.highlighted} onChosen={() => onRowChosen(row)} onPointedAt={() =>
           setPointed(
             (pointedNow) =>
               list === null || (pointedNow?.at === row && pointedNow.in === list)
@@ -499,14 +512,15 @@ export const FunctionList = React.memo(function ({
                   },
           )} isOnlyTintedByPointer tellsOfEveryMove onPointerLeave={() => setPointed(null)}><span className="sr-only">{autocompleteColumnWords(row)}</span>{typeof row === 'string'
             ? <FunctionRowName name={row} isAlone={hasRoomBeside} />
-            : <span aria-hidden className="flex min-w-0 flex-1 items-baseline gap-md"><span className="min-w-0 flex-1 break-words">{row.heading}</span><ListRowQuietText>{row.cells}</ListRowQuietText></span>}</ListRow>;
-  let functionRows = names.map((row, index) => renderRow(row, columns.length + index));
-  let hasBothKinds = columns.length > 0 && names.length > 0;
+            : <span aria-hidden className="flex min-w-0 flex-1 items-baseline gap-md"><span className="min-w-0 flex-1 break-words">{row.heading}</span><ListRowQuietText>{'table' in row && row.table !== row.heading ? row.table : row.cells}</ListRowQuietText></span>}</ListRow>;
+  let functionRows = names.map((row, index) => renderRow(row, offeredRowCount + index));
+  let hasBothKinds = offeredRowCount > 0 && names.length > 0;
   let functionRowsGroup = hasBothKinds
     ? <ListGroup headingId={`${FUNCTION_LIST_ID}-heading-functions`} heading={autocompleteFunctionsHeading()}>{functionRows}</ListGroup>
     : functionRows;
-  return <><ListUnderCell id={FUNCTION_LIST_ID} isOpen={isOpen} anchor={anchor} cellElementId={cellElementId} label={formulaAutocompleteLabel(columns.length > 0)} className={hasRoomBeside ? 'w-[200px]' : 'w-[400px] max-w-[calc(100vw-16px)]'} mostHeightOfRows={families.length === 0 ? '264px' : '376px'} doHeadingsStayInSight={families.length > 0} onShut={onShut} onRoomBesideMeasured={measureRoomBeside}>{columns.length > 0 &&
-            <ListGroup headingId={`${FUNCTION_LIST_ID}-heading-columns`} heading={autocompleteColumnsHeading()}>{columns.map(renderRow)}</ListGroup>}{hasBothKinds && <ListSeparator />}{families.length === 0
+  return <><ListUnderCell id={FUNCTION_LIST_ID} isOpen={isOpen} anchor={anchor} cellElementId={cellElementId} label={columns.length + names.length === 0 && namedRanges.length > 0 ? namedRangeMessages.namedRanges() : formulaAutocompleteLabel(columns.length > 0)} className={hasRoomBeside ? 'w-[200px]' : 'w-[400px] max-w-[calc(100vw-16px)]'} mostHeightOfRows={families.length === 0 ? '264px' : '376px'} doHeadingsStayInSight={families.length > 0} onShut={onShut} onRoomBesideMeasured={measureRoomBeside}>{namedRanges.length > 0 &&
+            <ListGroup headingId={`${FUNCTION_LIST_ID}-heading-named-ranges`} heading={namedRangeMessages.namedRanges()}>{namedRanges.map(renderRow)}</ListGroup>}{namedRanges.length > 0 && columns.length > 0 && <ListSeparator />}{columns.length > 0 &&
+            <ListGroup headingId={`${FUNCTION_LIST_ID}-heading-columns`} heading={autocompleteColumnsHeading()}>{columns.map((row, index) => renderRow(row, namedRanges.length + index))}</ListGroup>}{hasBothKinds && <ListSeparator />}{families.length === 0
             ? functionRowsGroup
             : families.map(
                 ({ family, from }, index) =>

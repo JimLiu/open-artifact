@@ -56,12 +56,20 @@ fn op_is_well_formed(op: &Op) -> bool {
             is_id(&entry.named_view_id, "nvw")
                 && entry.named_view.as_ref().is_none_or(|view| is_id(&view.cell_table_id, "ctb"))
         }),
+        // A named range's id, and the sheet, rows and columns of its cells.
+        Op::SetNamedRanges { named_ranges } => named_ranges.iter().all(|entry| {
+            is_id(&entry.named_range_id, "nrg")
+                && entry.named_range.as_ref().is_none_or(|range| reference_is_well_formed(&range.cells.as_reference()))
+        }),
         _ => true,
     }
 }
 
 fn reference_is_well_formed(reference: &Reference) -> bool {
     let (row, column) = (|r: &str| is_id(r, "row"), |c: &str| is_id(c, "col"));
+    if let Reference::NamedRange { named_range_id } = reference {
+        return is_id(named_range_id, "nrg");
+    }
     is_id(reference.sheet_id(), "sht")
         && match reference {
             Reference::Cell { cell, .. } => row(&cell.r) && column(&cell.c),
@@ -74,6 +82,9 @@ fn reference_is_well_formed(reference: &Reference) -> bool {
             Reference::Rows { top, bottom, left, .. } => {
                 row(&top.r) && row(&bottom.r) && left.as_ref().is_none_or(|l| column(&l.c))
             }
+            Reference::TableColumn { c, .. } => column(c),
+            Reference::TablePart { columns, .. } => columns.as_ref().is_none_or(|s| column(&s.left) && column(&s.right)),
+            Reference::NamedRange { .. } => unreachable!("checked above"),
         }
 }
 

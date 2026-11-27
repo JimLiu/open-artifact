@@ -36,6 +36,15 @@ export interface ArrayLiteralOpen {
 export interface ArrayLiteral extends ArrayLiteralOpen {
   to: number;
 }
+/** Where the brackets of a table column reference (`Table[Column]`, `Table[[#Headers],[A]:[B]]`) starting at `at` end; `at` when none start there. */
+export function endOfTableColumnBrackets(text: string, at: number): number {
+  return (TABLE_COLUMN_BRACKETS_PATTERN.lastIndex = at), at + (TABLE_COLUMN_BRACKETS_PATTERN.exec(text)?.[0].length ?? 0);
+}
+/** Whether every `[` has its `]`, leaving out characters escaped with `'`. */
+export function areSquareBracketsBalanced(text: string): boolean {
+  let unquoted = text.replaceAll(/'./gsu, '');
+  return unquoted.split('[').length === unquoted.split(']').length;
+}
 export function tokenizeFormula(text: string, decimalSign: DecimalSignName): TokenizedFormula {
   let tokens: FormulaToken[] = [];
   let position = 0;
@@ -58,6 +67,14 @@ export function tokenizeFormula(text: string, decimalSign: DecimalSignName): Tok
       tokens.push({
         kind: 'text',
         text: textMatch[0],
+      });
+      continue;
+    }
+    let tableName = readMatch(QUOTED_TABLE_NAME_PATTERN)?.[0] ?? readMatch(TABLE_COLUMN_BRACKETS_PATTERN)?.[0];
+    if (tableName !== undefined) {
+      tokens.push({
+        kind: 'name',
+        text: tableName,
       });
       continue;
     }
@@ -156,6 +173,7 @@ export function findArrayLiterals(tokens: readonly FormulaToken[]): { arrays: Ar
 export const FORMULA_SPACE_PATTERN = /[ \t\n\r]+/y;
 export const FORMULA_TEXT_PATTERN = /"(?:[^"]|"")*"/y;
 export const QUOTED_SHEET_NAME_PATTERN = /'((?:[^']|'')+)'!/y;
+export const QUOTED_TABLE_NAME_PATTERN = /'(?:[^']|'')+'(?=\[)/y;
 export const FORMULA_ERROR_PATTERN = /#(?:NULL!|DIV\/0!|VALUE!|REF!|NAME\?|NUM!|N\/A|ERROR!|TIMEOUT!)/iy;
 export const FORMULA_NAME_PATTERN = /[$\p{L}_][\p{L}\p{N}_.$]*/uy;
 export const FORMULA_NUMBER_PATTERNS: Record<DecimalSignName, RegExp> = {
@@ -168,6 +186,8 @@ export const FORMULA_FRACTION_PATTERNS: Record<DecimalSignName, RegExp> = {
 };
 export const VALUE_ENDING_TOKEN_KINDS = new Set<FormulaTokenKind>(['text', 'name', 'number', 'error', 'close']);
 export const FORMULA_ANY_CHARACTER_PATTERN = /./suy;
+export const TABLE_COLUMN_BRACKETS_PATTERN =
+  /(?<=[\w.$'\P{ASCII}])\[(?:\s*(?:\[(?:'.|[^[\]'])*(?:\]\s*[,:]\s*(?=\[|$)|\])?){1,4}(?:\s*\])?|(?:'.|[^[\]'])*\]?)/suy;
 export const PARENTHESIS_TOKEN_KINDS: { readonly [sign: string]: 'open' | 'close' | undefined } = {
   '(': 'open',
   ')': 'close',

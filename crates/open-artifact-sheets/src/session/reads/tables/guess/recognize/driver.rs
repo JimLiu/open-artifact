@@ -7,7 +7,8 @@ use std::collections::BTreeMap;
 
 use super::blocks::{blocks, Block};
 use super::body::{Body, Frame};
-use super::sheet::{Rect, Sheet, Skip, Value};
+use super::check::Refusal;
+use super::sheet::{Cell, Rect, Sheet, Skip, Value};
 use super::super::cell_tables::{declared_places, holds_input};
 use super::{Basis, Found, Reason, Role};
 use crate::workbook::Sheet as WorkbookSheet;
@@ -91,7 +92,7 @@ impl Sheet<'_> {
 
         // Pass 1: the blocks recognized as tables.
         let mut claimed = taken.clone();
-        let mut refused: BTreeMap<Rect, Reason> = BTreeMap::new();
+        let mut refused: BTreeMap<Rect, Refusal> = BTreeMap::new();
         let mut q = queue(blocks(self.pieces()));
         while let Some((_, block)) = q.pop_first() {
             claimed.retain(|r| r.bottom >= block.area.top);
@@ -108,8 +109,8 @@ impl Sheet<'_> {
                             claimed.push(area);
                             around(&block, &area)
                         }
-                        Err(reason) => {
-                            refused.insert(block.area, reason);
+                        Err(refusal) => {
+                            refused.insert(block.area, refusal);
                             Vec::new()
                         }
                     },
@@ -154,27 +155,36 @@ impl Sheet<'_> {
                 requeue(&mut q, around(&block, &t));
                 continue;
             }
-            let (hf, hl) = self.header(&b).map_or((b.top, b.top), |h| (h.first, h.last));
+            // A block with no cell of its own, only merged ranges cut off from the cells showing them, is a table
+            // only when one of them is cut short of its bottom row too.
+            let own = self.cells.range(b.top..=b.bottom).any(|(_, cells)| cells.iter().any(|c| b.left <= c.column && c.column <= b.right));
+            if !own && !block.pieces.iter().any(|p| self.merges_meeting(*p).any(|m| m.holds(p.top, p.left) && m.holds(p.bottom, p.right) && p.bottom < m.bottom)) {
+                continue;
+            }
+            let (hf, hl) = self.assumed_header_rows(&b);
             if hl >= b.bottom {
                 continue;
             }
-            let reason = match wide {
+            let refusal = match wide {
                 None => {
-                    if self.is_heading_row(b.top, b.left, b.right, None, Skip::LabelLike) {
+                    let reason = if self.is_heading_row(b.top, b.left, b.right, None, Skip::LabelLike) {
                         Reason::OneColumn
                     } else {
                         Reason::NoHeadings
-                    }
+                    };
+                    Refusal { reason, header: None }
                 }
                 Some(_) => match refused.get(&b) {
-                    Some(&reason) => reason,
+                    Some(&refusal) => refusal,
                     None => {
                         let below = b.bottom.saturating_add(1);
                         let sentinel = Rect { top: below, left: b.left.min(b.right), bottom: below, right: b.left.max(b.right) };
-                        self.recognize(&block, &[sentinel]).err().unwrap_or(Reason::NoHeadings)
+                        self.recognize(&block, &[sentinel]).err().unwrap_or(Refusal { reason: Reason::NoHeadings, header: None })
                     }
                 },
             };
+            let reason = refusal.reason;
+            let (hf, hl) = refusal.header.unwrap_or((hf, hl));
             let frame = Frame { header: (hf, hl), columns: (b.left, b.right) };
             let body = self.plain_body(&frame, b.bottom);
             let n = b.right.min(b.left.saturating_add(MOST_COLUMNS - 1)).wrapping_sub(b.left).saturating_add(1);
@@ -182,7 +192,7 @@ impl Sheet<'_> {
                 break;
             }
             room -= n;
-            assumed.push(Found { header: (hf, hl), columns: (b.left, b.right), body: body.runs, footer: None, basis: Basis::Assumed(reason) });
+            assumed.push(Found { header: (hf, hl), columns: (b.left, b.right), body: body.runs, footer: None, basis: Basis::Assumed(reason), proved_over: None });
         }
         tables.append(&mut assumed);
         tables.sort_by_key(|t| {
@@ -222,14 +232,35 @@ impl Sheet<'_> {
     }
 
     pub(super) fn read_declaration(
-        &self, header: (usize, usize), (left, mut right): (usize, usize),
+        &self, header: (usize, usize), columns: (usize, usize),
         footer: Option<(usize, usize)>, neighbors: &[Rect], basis: Basis,
+    ) -> Found {
+        self.read_declared(header, columns, footer, neighbors, neighbors, basis, false)
+    }
+
+    /// Read a declaration, its widening bounded by the tables `beside` and its body by its `neighbors`.
+    pub(super) fn read_declaration_beside(
+        &self, header: (usize, usize), columns: (usize, usize),
+        footer: Option<(usize, usize)>, neighbors: &[Rect], beside: &[Rect], basis: Basis,
+    ) -> Found {
+        self.read_declared(header, columns, footer, neighbors, beside, basis, false)
+    }
+
+    /// An assumed table's header and columns read as a declared table's at a cell: its body is not recognized past
+    /// the rows its open body reaches when that goes on to no block below.
+    pub(super) fn read_assumed_at_cell(&self, header: (usize, usize), columns: (usize, usize), neighbors: &[Rect]) -> Found {
+        self.read_declared(header, columns, None, neighbors, neighbors, Basis::Recognized, true)
+    }
+
+    fn read_declared(
+        &self, header: (usize, usize), (left, mut right): (usize, usize),
+        footer: Option<(usize, usize)>, neighbors: &[Rect], beside: &[Rect], basis: Basis, assumed: bool,
     ) -> Found {
         let (first_header, last_header) = header;
         let bottom = footer.map_or(last_header, |(_, last)| last);
         let mut column = right.saturating_add(1);
         while self.has_content(last_header, column, column)
-            && !neighbors.iter().any(|r| r.top <= bottom && first_header <= r.bottom && r.left <= column && column <= r.right)
+            && !beside.iter().any(|r| r.top <= bottom && first_header <= r.bottom && r.left <= column && column <= r.right)
         {
             right = column;
             column += 1;
@@ -242,17 +273,39 @@ impl Sheet<'_> {
                 body.footer = Some((first, last));
                 body
             }
-            None => self.open_body(&frame, neighbors),
+            None => self.open_body(&frame, neighbors, assumed),
         };
-        Found { header, columns: frame.columns, body: body.runs, footer: body.footer, basis }
+        Found { header, columns: frame.columns, body: body.runs, footer: body.footer, basis, proved_over: None }
+    }
+
+    /// The row of headings two rows above a table read with no header, over a blank row: cells side by side over
+    /// the table's columns, two or more, up to its last and from its first or the one after, that read as headings
+    /// (texts, and runs of years or dates), in no table of the sheet; a single column of cells above them does not
+    /// make them a table's.
+    pub(super) fn headings_above(&self, top: usize, (c0, c1): (usize, usize), tables: &[Rect]) -> Option<usize> {
+        let row = top.checked_sub(2)?;
+        if !self.cells_in(row + 1, c0, c1).is_empty() {
+            return None;
+        }
+        let cells = self.cells_in(row, c0, c1);
+        let side_by_side = cells.windows(2).all(|w| w[0].column + 1 == w[1].column);
+        let from_first = cells.first().is_some_and(|c| c.column <= c0.saturating_add(1));
+        if cells.len() < 2 || !side_by_side || !from_first || cells.last().map(|c| c.column) != Some(c1) || !self.is_heading_row(row, c0, c1, None, Skip::Texts) {
+            return None;
+        }
+        let headings = Rect { top: row, left: cells[0].column, bottom: row, right: c1 };
+        (!tables.iter().any(|t| t.meets(&headings))).then_some(row)
     }
 
     /// Whether the first row of a block below blank rows goes on from the last row above them: the first cell
     /// each shows is in the same column, and both or neither is a text (a number, a date, a
-    /// boolean and an error alike).
+    /// boolean and an error alike), and the row below shows more than half as many cells. A row
+    /// above showing only what a merged range carries down shows no first cell: nothing goes on from it.
     pub(super) fn goes_on(&self, above: usize, below: usize, c0: usize, c1: usize) -> bool {
-        match (self.cells_in(above, c0, c1).first(), self.cells_in(below, c0, c1).first()) {
-            (Some(a), Some(b)) => a.column == b.column && a.is_text() == b.is_text(),
+        let (over, under) = (self.cells_in(above, c0, c1), self.cells_in(below, c0, c1));
+        match (over.first(), under.first()) {
+            (Some(a), Some(b)) => a.column == b.column && a.is_text() == b.is_text() && 2 * under.len() > over.len(),
+            (None, Some(_)) => false,
             _ => true,
         }
     }
@@ -260,24 +313,72 @@ impl Sheet<'_> {
     /// The body of a declared table with no footer: down through the blocks under it the heading does not come
     /// again in, each going on from the row above the blank ones before it, then rows of unticked checkboxes
     /// only.
-    fn open_body(&self, frame: &Frame, rects: &[Rect]) -> Body {
+    fn open_body(&self, frame: &Frame, rects: &[Rect], assumed: bool) -> Body {
         let hl = frame.header.1;
         let (c0, c1) = frame.columns;
         let limit = self.limit(frame, rects);
-        let mut end = self.last_filled_row(hl.saturating_add(1), limit, c0, c1).unwrap_or(hl);
-        while let Some((None, first, last)) = self.block_below(frame, end, limit) {
+        // The rows right under the header run on while they show something in its columns or the one beside
+        // each side, then end at the last that shows something in its columns.
+        let wide = self.last_filled_row(hl.saturating_add(1), limit, c0.saturating_sub(1), c1.saturating_add(1));
+        let mut end = wide.and_then(|w| (hl + 1..=w).rev().find(|&r| self.has_content(r, c0, c1))).unwrap_or(hl);
+        // When another table beside them carries them over blank rows, something beside, not in another table, under
+        // the first row of the last block they run on to ends them at the rows right under the header instead.
+        let sides = [c0.checked_sub(1), c1.checked_add(1)];
+        let under = (hl + 1..=limit).take_while(|&r| self.has_content(r, c0, c1)).last().unwrap_or(hl);
+        if end > under {
+            let start = (under + 1..=end).rev().take_while(|&r| self.has_content(r, c0, c1)).last().unwrap_or(end);
+            let theirs = |r: usize, s: usize| rects.iter().any(|x| x.top <= r && r <= x.bottom && x.left <= s && s <= x.right);
+            let carried = (under + 1..start).all(|r| sides.iter().flatten().any(|&s| self.has_content(r, s, s) && theirs(r, s)));
+            let beside = (start + 1..=wide.unwrap_or(end))
+                .any(|r| sides.iter().flatten().any(|&s| self.has_content(r, s, s) && !theirs(r, s)));
+            if carried && beside {
+                end = under;
+            }
+        }
+        // Nor past blank rows into a block the heading comes again in, though what is beside runs on over them.
+        let mut kept = under;
+        while kept < end {
+            let Some(first) = self.first_content_row(kept + 1, end, c0, c1) else { break };
+            let last = self.last_filled_row(first, end, c0, c1).unwrap_or(first);
+            let again = self.heading_again(first, last, c0, c1);
+            if first > kept + 1 && again.is_some_and(|x| !self.past_heading_again(frame, kept, x, first, last)) {
+                end = kept;
+                break;
+            }
+            kept = last;
+        }
+        let before = end;
+        // Read at a cell, an assumed table whose rows end in a footer (a bold last row) does not go on to the blocks
+        // below them.
+        let footed = assumed && self.recognized_body(frame, end, end, false).is_ok_and(|body| body.footer.is_some());
+        while let Some((again, first, last)) = self.block_below(frame, end, limit).filter(|_| !footed) {
+            // Something beside at a corner of the block does not keep it from going on, and a first row holding an
+            // unticked checkbox in the table's columns goes on from any row, the heading again in it or not.
+            if !self.unticked_in(first, c0, c1).is_empty() {
+                end = last;
+                continue;
+            }
+            // A block the heading comes again in goes on only from records.
+            if again.is_some_and(|x| !(end > hl && self.past_heading_again(frame, end, x, first, last))) {
+                break;
+            }
+            // A lone boolean goes on from any row.
             let cells = self.cells_in(first, c0, c1);
             let ok = match cells.len() {
                 0 => false,
-                1 => matches!(cells[0].value, Value::Boolean) || !self.unticked_in(first, c0, c1).is_empty(),
-                _ => true,
-            } && (end <= hl || self.goes_on(end, first, c0, c1));
+                1 => matches!(cells[0].value, Value::Boolean),
+                _ => end <= hl || self.goes_on(end, first, c0, c1),
+            };
             if !ok {
                 break;
             }
             end = last;
         }
-        let mut body = self.recognized_body(frame, end, limit).unwrap_or_else(|_| self.plain_body(frame, end));
+        // An assumed table read at a cell whose rows go on to no block below does not take the blocks under them
+        // that start the heading again either.
+        let reach = if assumed && end == before { end } else { limit };
+        // A bold last row is a footer, as a recognized table's: its header is not declared.
+        let mut body = self.recognized_body(frame, end, reach, !assumed).unwrap_or_else(|_| self.plain_body(frame, end));
         let from = match body.footer {
             Some((_, last)) => last,
             None => body.runs.last().map_or(hl, |r| r.last),
@@ -332,12 +433,56 @@ impl Sheet<'_> {
                 return None;
             }
         }
-        let area = Rect { top: first.min(last), left: c0.min(c1), bottom: first.max(last), right: c0.max(c1) };
-        let again = match self.first_wide_row(&area) {
-            Some(x) if x < last && self.is_heading_row(x, c0, c1, None, Skip::LabelLike) => Some(x),
+        Some((self.heading_again(first, last, c0, c1), first, last))
+    }
+
+    /// Whether a body goes on from a row past a block the heading comes again in on another: when the row shows
+    /// texts alone across the table's columns, over the block's or not, the block's records under its headings are
+    /// not typed, and its headings are not the table's own, case aside.
+    fn past_heading_again(&self, frame: &Frame, row: usize, again: usize, first: usize, last: usize) -> bool {
+        let (c0, c1) = frame.columns;
+        if !self.texts_over(row, c0, c1) {
+            return false;
+        }
+        let lower = |c: &Cell| match c.value {
+            Value::Text(t) => Some(t.chars().flat_map(char::to_lowercase).collect::<String>()),
             _ => None,
         };
-        Some((again, first, last))
+        let texts = |r: usize| self.cells_in(r, c0, c1).iter().map(|c| (c.column, lower(c))).collect::<Vec<_>>();
+        if texts(again) == texts(frame.header.1) {
+            return false;
+        }
+        let (left, right) = self.shown_columns(first, last, c0, c1);
+        let (top, hl) = self.assumed_header_rows(&Rect { top: again, left, bottom: last, right });
+        let rows: Vec<usize> = (hl.saturating_add(1)..=last).filter(|&r| self.has_content(r, left, right)).collect();
+        let kinds = self.kinds_of(&rows, left, right);
+        let heading = |col: usize| (top..=hl).rev().find_map(|r| self.cells_in(r, col, col).first().map(|c| (c.row, c.column)));
+        !self.typed(&kinds, heading)
+    }
+
+    /// The first and last columns some row of a block shows something in.
+    fn shown_columns(&self, first: usize, last: usize, c0: usize, c1: usize) -> (usize, usize) {
+        let shown = (first..=last).flat_map(|r| self.cells_in(r, c0, c1)).map(|c| c.column);
+        shown.fold((usize::MAX, 0), |(l, r), c| (l.min(c), r.max(c)))
+    }
+
+    /// Whether a row shows texts alone across some columns, over a block below it or beside it.
+    fn texts_over(&self, row: usize, c0: usize, c1: usize) -> bool {
+        self.cells_in(row, c0, c1).iter().all(|c| c.is_text())
+    }
+
+    /// The row the heading comes again on in a block of rows across some columns: where a header is found over the
+    /// block's own columns from its first wide row, one naming two columns alike too.
+    fn heading_again(&self, first: usize, last: usize, c0: usize, c1: usize) -> Option<usize> {
+        let area = Rect { top: first.min(last), left: c0.min(c1), bottom: first.max(last), right: c0.max(c1) };
+        match self.first_wide_row(&area) {
+            Some(x) if x < last => {
+                let (left, right) = self.shown_columns(first, last, c0, c1);
+                let header = |area: Rect| matches!(self.header(&area), Ok(_) | Err(Reason::TwoColumnsOfOneName));
+                (left <= right && header(Rect { top: x, left, bottom: last, right })).then_some(x)
+            }
+            _ => None,
+        }
     }
 }
 

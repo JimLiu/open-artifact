@@ -21,6 +21,7 @@ use crate::workbook::{Sheet, Workbook};
 
 pub(super) use crate::session::edits::objects::conditional_formats::Rule as RuleInIds;
 
+mod colors;
 mod records;
 mod suggested;
 mod told;
@@ -60,21 +61,6 @@ pub(super) fn by_address(workbook: &Workbook, sheet_id: &str, rules: &[RuleInIds
         })
         .collect();
     Ok(json!({"kind": "conditionalFormatsByAddress", "rules": rules}))
-}
-
-/// RGB colors in rules written by address accept three or six hex digits and an optional leading #.
-fn normalize_written_color(effect: &mut Json, pointer: &str) {
-    let Some(color) = effect.pointer_mut(pointer) else { return };
-    if color["kind"] != "rgb" { return; }
-    let Some(hex) = color["hex"].as_str() else { return };
-    let digits = hex.strip_prefix('#').unwrap_or(hex);
-    if !matches!(digits.len(), 3 | 6) || !digits.bytes().all(|b| b.is_ascii_hexdigit()) { return; }
-    let mut full = String::from("#");
-    for digit in digits.chars() {
-        full.push(digit.to_ascii_lowercase());
-        if digits.len() == 3 { full.push(digit.to_ascii_lowercase()); }
-    }
-    color["hex"] = Json::String(full);
 }
 
 /// Rules written by address read into ids: the rules, or what is wrong with them.
@@ -197,15 +183,15 @@ impl Reading<'_> {
 
     /// A rule's effect: a color scale read whole; of a `formatWhere`, its tests (some, not too many, the first so
     /// many each read) and its format.
+    /// Its colors are read loosely first (`colors`).
     fn effect(&mut self, i: usize, effect: Option<&Json>) -> Option<Effect> {
-        let mut effect = effect.cloned().unwrap_or(Json::Null);
-        for pointer in ["/lowest/color", "/middle/color", "/highest/color", "/format/fillColor", "/format/font/color"] {
-            normalize_written_color(&mut effect, pointer);
-        }
-        let object = effect.as_object();
+        let mut effect = effect.cloned();
+        effect.as_mut().map(colors::loosened);
+        let object = effect.as_ref().and_then(Json::as_object);
         match object.and_then(|o| o.get("kind")).and_then(Json::as_str) {
             Some("formatWhere") => self.format_where(i, object.expect("an object")),
             Some("colorScale") => {
+                let effect = effect.clone().expect("an effect");
                 let scale = serde_json::from_value::<Effect>(effect).ok().filter(Effect::is_readable);
                 if scale.is_none() {
                     self.problem(i, json!({"kind": "effect"}), NOT_READ);

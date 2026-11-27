@@ -8,7 +8,7 @@
 //! checkbox is as wide as a checkbox, whatever it holds; a merged range across columns is left out. A column a
 //! conditional format may make bold is measured all in bold, whether the condition holds or not, and so is text with
 //! looks with a bold run anywhere in it. A dropdown option shows its label in a chip: in bold, on one line, with more
-//! room beside it. Text with lines of lists is measured line by line, each line of a list with room for its mark and
+//! room beside it. A cell with a dropdown keeps room for its arrow beside whatever it shows. Text with lines of lists is measured line by line, each line of a list with room for its mark and
 //! its level before it (`LIST_INDENT` an em for each, the mark taking one).
 
 use hashbrown::{HashMap, HashSet};
@@ -54,6 +54,10 @@ const WIDTH_OF_ANY_OTHER_CHARACTER: f64 = 1.75;
 const AROUND_THE_TEXT: u32 = 8;
 /// The room beside a dropdown option's label: the chip's, and the cell's around it.
 const AROUND_A_CHIP: u32 = 19;
+/// The room a cell with a dropdown keeps for its arrow, beside what it shows.
+const WIDTH_OF_A_DROPDOWN_ARROW: u32 = 15;
+/// The room beside a dropdown option's label held to a width, in a cell with a dropdown: the chip's and the arrow's.
+const AROUND_A_CHIP_WITH_AN_ARROW: u32 = 23;
 /// The most characters a General number shows in a cell.
 const MOST_CHARACTERS_OF_A_NUMBER: u32 = 11;
 /// How wide a cell with a checkbox is.
@@ -298,6 +302,11 @@ fn is_a_checkbox(control: &serde_json::Value) -> bool {
     control.get("kind").and_then(|k| k.as_str()) == Some("checkbox")
 }
 
+/// Whether what a cell does when clicked is a dropdown.
+fn is_a_dropdown(control: &serde_json::Value) -> bool {
+    control.get("kind").and_then(|k| k.as_str()) == Some("dropdown")
+}
+
 /// How wide each of the columns must be to show its cells, of the ones with a cell to show.
 pub fn widths_needed(workbook: &Workbook, sheet: &Sheet, columns: &[LineId]) -> HashMap<LineId, u32> {
     widths_needed_with_texts_held_to(workbook, sheet, columns, u32::MAX)
@@ -323,6 +332,7 @@ pub fn widths_needed_with_texts_held_to(workbook: &Workbook, sheet: &Sheet, colu
         (!is_hidden_by_merge(row, column)).then_some((row, column))
     };
     let is_checkbox = |cell: (LineId, LineId)| sheet.formats.get(Leaf::CellControl, cell).is_some_and(is_a_checkbox);
+    let is_dropdown = |cell: (LineId, LineId)| sheet.formats.get(Leaf::CellControl, cell).is_some_and(is_a_dropdown);
     let width_of = |column: LineId| sheet.column_widths.get(&column).copied().unwrap_or(DEFAULT_WIDTH);
     let mut widths: HashMap<LineId, u32> = HashMap::new();
     let mut note = |column: LineId, width: u32| {
@@ -341,8 +351,17 @@ pub fn widths_needed_with_texts_held_to(workbook: &Workbook, sheet: &Sheet, colu
             _ => needed(sheet, cell, value, width_of(cell.1), has_bold_run || bold.contains(&cell.1), locale),
         };
         if let Some(width) = width {
+            // A cell with a dropdown shows its arrow beside what it holds, and a chip there has only the room a text
+            // has around it before the arrow and the chip's own are added.
+            let has_dropdown = is_dropdown(cell);
+            let (width, beside) = match (has_dropdown, is_chip && matches!(value, Value::Text(_))) {
+                (true, true) => (width - (AROUND_A_CHIP - AROUND_THE_TEXT), AROUND_A_CHIP_WITH_AN_ARROW),
+                (true, false) => (width, WIDTH_OF_A_DROPDOWN_ARROW),
+                (false, _) => (width, 0),
+            };
             // The room around the text is kept, however narrow the text is held to.
-            note(cell.1, if matches!(value, Value::Number(_)) { width } else { width.min(widest_text.max(AROUND_THE_TEXT)) });
+            let held = if matches!(value, Value::Number(_)) { width } else { width.min(widest_text.max(AROUND_THE_TEXT)) };
+            note(cell.1, held.saturating_add(beside));
         }
     };
     for (&cell, contents) in &sheet.cells {

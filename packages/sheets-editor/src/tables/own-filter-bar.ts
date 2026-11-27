@@ -6,6 +6,8 @@ import {
   areOwnFiltersInForce,
   areSortedRowsInOrder,
   isFilterTableEmpty,
+  isConnectedTableFilterUnlooked,
+  isOwnFilterOfConnectedTable,
 } from './own-filters.ts';
 import { columnsOfFilterItem } from './filter-model.ts';
 import { namedViewsOfFilterBar } from './named-view-model.ts';
@@ -73,11 +75,13 @@ export function ownFilterBar(state: PageState, reads: WorkbookReads): OwnFilterB
 }
 export function buildOwnFilterBar(state: PageState, reads: WorkbookReads, ownFilters: OwnFilter[]): OwnFilterBar {
   const { sheetId } = state;
-  const rowsOfFilters = ownFilters.flatMap(({ rows }) => rows ?? []);
+  let isConnectedTableUnlooked = ownFilters.some((ownFilter) => isConnectedTableFilterUnlooked(reads, ownFilter));
+  const rowsOfFilters = isConnectedTableUnlooked ? [] : ownFilters.flatMap(({ rows }) => rows ?? []);
   const isRefreshOffered =
-    ownFilters.some(({ unanswered, sort }) => unanswered !== null || sort?.isRefused === true) ||
-    !areOwnFiltersInForce(state, reads, sheetId, ownFilters) ||
-    !areSortedRowsInOrder(state, reads, sheetId, ownFilters);
+    !isConnectedTableUnlooked &&
+    (ownFilters.some(({ unanswered, sort }) => unanswered !== null || sort?.isRefused === true) ||
+      !areOwnFiltersInForce(state, reads, sheetId, ownFilters) ||
+      !areSortedRowsInOrder(state, reads, sheetId, ownFilters));
   const [sort = null] = ownFilters.flatMap((ownFilter): OwnFilterBarSort | OwnFilterBarSort[] => {
     if (ownFilter.sort === null) return [];
     const { by, said } = ownFilter.sort;
@@ -85,7 +89,7 @@ export function buildOwnFilterBar(state: PageState, reads: WorkbookReads, ownFil
       tableKey: ownFilter.key,
       c: by[0].c,
       said,
-      canBeForEveryone: isFilterTableEmpty(ownFilter),
+      canBeForEveryone: isFilterTableEmpty(ownFilter) && !isOwnFilterOfConnectedTable(reads, ownFilter),
     };
   });
   const dayTries = ownFilters.flatMap(

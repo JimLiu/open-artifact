@@ -287,6 +287,22 @@ export function withFreezeBeingDragged(view: Pick<PageState, 'dragging' | 'heldU
         frozenColumnCount: dragging.count,
       };
 }
+/** A line counts as resized only once the drag has moved. */
+export function lineResizeOfView(
+  view: Pick<PageState, 'dragging' | 'heldUntilAnswered' | 'sheetId' | 'density'>,
+  book: ReadsWithTextMeasurer,
+): LineResize | null {
+  let dragging = draggingOrHeld(view);
+  return dragging?.kind === 'resizing' && dragging.hasMoved === true
+    ? lineBeingResized(
+        {
+          ...view,
+          dragging,
+        },
+        book,
+      )
+    : null;
+}
 export function lineBeingResized(
   { dragging, sheetId, density }: Pick<PageState, 'dragging' | 'sheetId' | 'density'>,
   book: ReadsWithTextMeasurer,
@@ -558,14 +574,6 @@ export const rowEdgesWithHiddenRowsCache = new WeakMap<LineSizes, RowEdgesWithHi
 export const sheetOfViewOrEmpty = (view: Pick<PageState, 'sheetId'>, book: WorkbookReads): SheetSummary | GridLayout => sheetOfView(view, book) ?? EMPTY_GRID_LAYOUT;
 export const draggingOrHeld = ({ dragging, heldUntilAnswered }: Pick<PageState, 'dragging' | 'heldUntilAnswered'>): Dragging | null =>
   dragging ?? heldUntilAnswered?.held ?? null;
-export const lineResizeOfView = (view: Pick<PageState, 'dragging' | 'heldUntilAnswered' | 'sheetId' | 'density'>, book: ReadsWithTextMeasurer): LineResize | null =>
-  lineBeingResized(
-    {
-      ...view,
-      dragging: draggingOrHeld(view),
-    },
-    book,
-  );
 export const reachOfFloatsCache = new WeakMap<readonly PlacementOnGrid[], ReachOfFloatsCacheEntry>();
 export const viewWithDensity = <V extends AnchoredView & Pick<PageState, 'heightUnderWhatFloats'>>(view: V, book: ReadsWithTextMeasurer, density: CellDensity): V =>
   clampScrollOfView(

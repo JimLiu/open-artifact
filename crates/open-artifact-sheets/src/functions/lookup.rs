@@ -23,6 +23,7 @@ use crate::criteria::Wildcard;
 use crate::evaluate::Operand;
 use crate::functions::{array, number, text, value, Answer, Arg, CallContext, Cells, Sources};
 use crate::locale::Locale;
+use crate::told::{self, Told};
 use crate::value::{Array, CellError, Value};
 
 /// Calls a lookup function by name; `None` for one it doesn't have.
@@ -111,17 +112,30 @@ fn boolean_or_false(args: &[Arg], i: usize) -> Result<bool, CellError> {
 
 // ROW, COLUMN, ROWS, COLUMNS
 
-/// ROW and COLUMN: of the formula's own cell, or of a reference one row (column) high; else #VALUE!.
+/// ROW and COLUMN: of the formula's own cell, or of a reference; of a reference several rows high (columns wide),
+/// each row's (column's) number down a column (along a row), an array worked out cell by cell. An array gives #VALUE!
+/// for each of its rows (columns).
 fn place_number(args: &[Arg], own: usize, row: bool) -> Answer {
     let Some(arg) = args.first() else {
         return number((own + 1) as f64);
     };
     match arg {
-        Arg::Place(shape) => match shape.place {
-            Some(p) if row && p.rows() == 1 => number((p.top + 1) as f64),
-            Some(p) if !row && p.columns() == 1 => number((p.left + 1) as f64),
-            _ => Err(CellError::Value),
-        },
+        Arg::Place(shape) => {
+            let count = if row { shape.rows } else { shape.columns };
+            let at = |k: usize| match shape.place {
+                Some(p) => Value::number(((if row { p.top } else { p.left }) + k + 1) as f64),
+                None => Value::Error(CellError::Value),
+            };
+            if count == 1 {
+                return match at(0) {
+                    Value::Error(e) => Err(e),
+                    v => Ok(Operand::Value(v)),
+                };
+            }
+            let values = (0..count).map(at).collect();
+            let (rows, columns) = if row { (count, 1) } else { (1, count) };
+            Ok(Operand::Values(Rc::new(Array::new(rows, columns, values))))
+        }
         Arg::Value(Value::Error(e)) => Err(*e),
         _ => Err(CellError::Value),
     }
@@ -572,7 +586,8 @@ fn sort_order(a: &Value, b: &Value, descending: bool) -> Ordering {
     }
 }
 
-/// A sort order argument: 1 (or TRUE, the default) ascending, 0 (FALSE) or -1 descending; else #VALUE!.
+/// A sort order argument: 1 (or TRUE, the default) ascending, 0 (FALSE) or -1 descending; another number is
+/// #VALUE!, which the call tells.
 fn descending(args: &[Arg], i: usize, locale: &Locale) -> Result<bool, CellError> {
     let n = number_or(args, i, 1.0, locale)?;
     if n == 1.0 {
@@ -580,14 +595,19 @@ fn descending(args: &[Arg], i: usize, locale: &Locale) -> Result<bool, CellError
     } else if n == 0.0 || n == -1.0 {
         Ok(true)
     } else {
+        told::tell(|| Told::SortOrderIsNotRead { argument: i });
         Err(CellError::Value)
     }
 }
 
-/// A column (or row) to sort by, counted from 1: one past `count` is #VALUE!.
-fn sort_key(args: &[Arg], i: usize, count: usize, locale: &Locale) -> Result<usize, CellError> {
+/// A column (or row) to sort by, counted from 1: one past `count` is #VALUE!, which the call tells of a column
+/// (`tells`).
+fn sort_key(args: &[Arg], i: usize, count: usize, tells: bool, locale: &Locale) -> Result<usize, CellError> {
     let n = number_or(args, i, 1.0, locale)?.trunc();
     if n < 1.0 || n > count as f64 {
+        if tells {
+            told::tell(|| Told::NoSuchColumnToSortBy { argument: 0, columns: count, column: n });
+        }
         return Err(CellError::Value);
     }
     Ok(n as usize - 1)
@@ -623,7 +643,8 @@ fn sort(args: &[Arg], cx: &mut CallContext) -> Answer {
     let range = cells_of(&args[0])?;
     let by_column = boolean_or_false(args, 3)?;
     let cells = if by_column { Cells { array: Rc::new(range.array.transposed()), place: None } } else { range };
-    let key = sort_key(args, 1, cells.columns(), locale)?;
+    // A row to sort by, of a range sorted by its columns, is not told.
+    let key = sort_key(args, 1, cells.columns(), !by_column, locale)?;
     let descending = descending(args, 2, locale)?;
     rows_of(&cells, &sorted_rows(&cells, key, descending), by_column).answer(cx)
 }
@@ -636,11 +657,11 @@ fn sortn(args: &[Arg], cx: &mut CallContext) -> Answer {
     let cells = cells_of(&args[0])?;
     let count = number_or(args, 1, 1.0, locale)?.trunc();
     let ties = number_or(args, 2, 0.0, locale)?.trunc();
-    let key = sort_key(args, 3, cells.columns(), locale)?;
-    let descending = descending(args, 4, locale)?;
     if count < 1.0 || !(0.0..=3.0).contains(&ties) {
         return Err(CellError::Value);
     }
+    let key = sort_key(args, 3, cells.columns(), true, locale)?;
+    let descending = descending(args, 4, locale)?;
     let order = sorted_rows(&cells, key, descending);
     let count = if count >= order.len() as f64 { order.len() } else { count as usize };
     let same = |p: usize, q: usize| sort_order(cells.get(p, key), cells.get(q, key), descending) == Ordering::Equal;

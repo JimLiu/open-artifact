@@ -22,8 +22,10 @@ export type AnnouncerStore = Pick<SheetController, 'subscribe' | 'getView'>;
 export function isUndoOfferAnnounced({ kind }: Pick<UndoOffer, 'kind'>): boolean {
   switch (kind) {
     case 'sheetDeleted':
+    case 'sheetHidden':
     case 'placedViewDeleted':
     case 'namedViewDeleted':
+    case 'namedRangeDeleted':
     case 'rowsDeleted':
     case 'columnsDeleted':
     case 'mergeClearedCells':
@@ -133,29 +135,12 @@ export function SettledWordsAnnouncer({ words, about, store, inPageOf }: Settled
 }
 /** Words to say as something opens, or `false` while there are none. */
 export type OpenedWords = string | false;
-export interface OpenedWordsState {
-  wasSilent: boolean;
-  /** The words said when it opened, said again once the page settles; `false` when there are none. */
-  openedWith: OpenedWords;
-}
 export interface OpenedWordsAnnouncerProps extends UndoOfferAnnouncerProps {
   words: OpenedWords;
   isEntryOpen: boolean;
 }
 export function OpenedWordsAnnouncer({ words, isEntryOpen, store, inPageOf }: OpenedWordsAnnouncerProps) {
-  const [openedState, setOpenedState] = React.useState<OpenedWordsState>({
-    wasSilent: words === false,
-    openedWith: false,
-  });
-  const stateNow = openedWordsState(
-    {
-      words,
-      isEntryOpen,
-    },
-    openedState,
-  );
-  if (stateNow.wasSilent !== openedState.wasSilent || stateNow.openedWith !== openedState.openedWith) setOpenedState(stateNow);
-  return <><SettledWordsAnnouncer words={stateNow.openedWith === false ? null : stateNow.openedWith} about={null} store={store} inPageOf={inPageOf} /><LiveAnnouncer words={stateNow.openedWith === false && words} /></>;
+  return <><SettledWordsAnnouncer words={isEntryOpen || words === false ? null : words} about={null} store={store} inPageOf={inPageOf} /><LiveAnnouncer words={isEntryOpen && words} /></>;
 }
 export const subscribeToFocusIn =
   (pageRef: React.RefObject<Element | null>): SubscribeToChange =>
@@ -183,10 +168,3 @@ export const announceUndoOffers = (
     say,
     subscribeToFocus,
   );
-export const openedWordsState = (
-  { words, isEntryOpen }: Pick<OpenedWordsAnnouncerProps, 'words' | 'isEntryOpen'>,
-  { wasSilent, openedWith }: OpenedWordsState,
-): OpenedWordsState => ({
-  wasSilent: words === false,
-  openedWith: !isEntryOpen && (wasSilent ? words : openedWith === words && words),
-});

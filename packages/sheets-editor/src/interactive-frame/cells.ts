@@ -4,7 +4,7 @@
  */
 import { ChartFault, isObject } from '../chart-frame/chart-runtime.ts';
 import type { ChartCell, ChartInputs, ChartRow } from '../chart-frame/messages.ts';
-import type { InteractiveRawWrite, InteractiveWrittenValue } from './messages.ts';
+import type { InteractiveRawWrite, InteractiveToPage, InteractiveWrittenValue } from './messages.ts';
 import {
   MAX_INTERACTIVE_INDEX,
   MAX_INTERACTIVE_TEXT_LENGTH,
@@ -17,10 +17,16 @@ const CHART_SIZE_SOURCE = 'chartSize';
 const MOST_ROWS_OF_AN_INPUT = 2000;
 const INPUT_REF = /^input\/(.+)$/;
 
-/** What `interactive.at(0)` is: whether the person may write now, and the write itself. */
+/**
+ * What `interactive.at(0)` is: whether the person may write now, the write itself, the reset of cells to their
+ * defaults (`resetCells`, given input names or cells the code was given), and `showCell`, which shows a cell the code
+ * was given in the formula bar.
+ */
 export interface ControlsOfInteractive {
   readonly canWrite: boolean;
   readonly setCells: (cells: unknown) => void;
+  readonly resetCells: (inputsOrCells: unknown) => void;
+  readonly showCell: (cell: unknown) => void;
 }
 
 export interface WhatTheCodeIsTold {
@@ -28,6 +34,30 @@ export interface WhatTheCodeIsTold {
   controls: ControlsOfInteractive;
   size: { width: number; height: number };
 }
+
+/** Where a cell the code is given sits: its input, and its row and column within the input's range. */
+export type PlaceOfCell = Extract<InteractiveToPage, { kind: 'cellShown' }>;
+
+const placesOfCells = new WeakMap<object, PlaceOfCell>();
+const rowsWithPlaces = new WeakMap<readonly ChartRow[], readonly ChartRow[]>();
+
+/** The rows of an input as the code gets them: the same cells, each one knowing its place, so <Cell> can show it. */
+function rowsKnowingPlaces(input: string, rows: readonly ChartRow[]): readonly ChartRow[] {
+  const known =
+    rowsWithPlaces.get(rows) ??
+    rows.map((cells, row) =>
+      cells.map((cell, column) => {
+        const own = { ...cell };
+        placesOfCells.set(own, { kind: 'cellShown', input, row, column });
+        return own;
+      }),
+    );
+  rowsWithPlaces.set(rows, known);
+  return known;
+}
+
+/** The place of a cell the code was given from an input, or `undefined` for any other value. */
+export const placeOfCell = (cell: unknown): PlaceOfCell | undefined => (isObject(cell) ? placesOfCells.get(cell) : undefined);
 
 const isCellsAdapter = (adapter: unknown): boolean => isObject(adapter) && Object.keys(adapter).join() === 'kind' && adapter.kind === 'cells';
 const rowsOrOneBlank = (rows: readonly ChartRow[]): readonly ChartRow[] =>
@@ -47,7 +77,7 @@ export function rowsOfSource(name: string, source: unknown, { inputs, controls, 
   const rows = Object.hasOwn(inputs, inputName) ? inputs[inputName] : undefined;
   if (rows === undefined) throw new ChartFault('inputMissing');
   if (rows.length > MOST_ROWS_OF_AN_INPUT) throw new ChartFault('tooManyRows');
-  return rowsOrOneBlank(rows);
+  return rowsOrOneBlank(rowsKnowingPlaces(inputName, rows));
 }
 
 const isWrittenValue = (value: unknown): value is InteractiveWrittenValue =>
@@ -79,11 +109,32 @@ export function cellsAskedFor(asked: unknown, inputs: ChartInputs): InteractiveR
   return cells;
 }
 
-/** What a written cell shows until the page sends it back as the sheet holds it. */
-export function cellAsWritten(value: InteractiveWrittenValue): ChartCell {
-  if (value === null) return { value: null, text: '' };
-  if (typeof value === 'boolean') return { value, text: value ? 'TRUE' : 'FALSE' };
-  return { value, text: String(value) };
+/**
+ * The cells `resetCells` asks for: of the inputs named and the cells given, each that holds a value other than its
+ * default, written back to that default.
+ */
+export function cellsToReset(asked: unknown, inputs: ChartInputs): InteractiveRawWrite[] {
+  const given: unknown[] = (Array.isArray(asked) ? asked : [asked]).flat();
+  const places = given.map(placeOfCell);
+  const isAsked = (input: string, row: number, column: number): boolean =>
+    given.includes(input) || places.some((place) => place?.input === input && place.row === row && place.column === column);
+  return Object.entries(inputs).flatMap(([input, rows]) =>
+    rows.flatMap((cells, row) =>
+      cells.flatMap((cell, column): InteractiveRawWrite[] =>
+        cell.isChanged === true && cell.default !== undefined && isAsked(input, row, column) ? [[input, row, column, cell.default]] : [],
+      ),
+    ),
+  );
+}
+
+/**
+ * What a written cell shows until the page sends it back as the sheet holds it: the value written, still knowing the
+ * default the cell had, and whether the value is another.
+ */
+export function cellAsWritten(value: InteractiveWrittenValue, before?: ChartCell): ChartCell {
+  const text = value === null ? '' : typeof value === 'boolean' ? (value ? 'TRUE' : 'FALSE') : String(value);
+  if (before?.default === undefined) return { value, text };
+  return { ...before, value, text, isChanged: before.default !== value };
 }
 
 /** A write sent to the page and not answered yet. */
@@ -103,7 +154,7 @@ export function inputsWithWritesAwaited(inputs: ChartInputs, awaited: readonly W
       while (rows.length <= row) rows.push([]);
       for (const cellsOfRow of rows) while (cellsOfRow.length < width) cellsOfRow.push({ value: null, text: '' });
       const cellsOfRow = rows[row];
-      if (cellsOfRow !== undefined) cellsOfRow[column] = cellAsWritten(value);
+      if (cellsOfRow !== undefined) cellsOfRow[column] = cellAsWritten(value, cellsOfRow[column]);
     }
   return { ...inputs, ...laid };
 }

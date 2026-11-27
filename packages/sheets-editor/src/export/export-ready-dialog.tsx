@@ -280,6 +280,58 @@ export const EXPORT_DIFFERENCES: Record<NotCarriedOver, ExportDifference> = {
         id: '+OW7ed+B7o',
       }),
   },
+  editorsOfProtections: {
+    icon: 'Lock',
+    sentence: () =>
+      translateMessage({
+        defaultMessage: 'Protected cells are locked with no password, so anyone who opens the file can unlock them.',
+        id: 'gJ37qGePuP',
+      }),
+    name: () =>
+      translateMessage({
+        defaultMessage: 'protection',
+        id: 'vwQ1Pg+1np',
+      }),
+  },
+  protections: {
+    icon: 'Lock',
+    sentence: () =>
+      translateMessage({
+        defaultMessage: 'Protection isn’t included, so anyone who opens the file can edit every cell.',
+        id: 'jmD17p9J+k',
+      }),
+    name: () =>
+      translateMessage({
+        defaultMessage: 'protection',
+        id: 'vwQ1Pg+1np',
+      }),
+  },
+  defaultValues: {
+    icon: 'ArrowCounterClockwise',
+    sentence: () =>
+      translateMessage({
+        defaultMessage: 'Cells can’t be reset to their defaults.',
+        id: 'IwyPvOXCqx',
+      }),
+    name: () =>
+      translateMessage({
+        defaultMessage: 'defaults',
+        id: '0E7nRB6ShV',
+      }),
+  },
+  limitsOfSomeCells: {
+    icon: 'ArrowCounterClockwise',
+    sentence: () =>
+      translateMessage({
+        defaultMessage: 'Some minimums and maximums aren’t included.',
+        id: 'Jc+LWNNTAg',
+      }),
+    name: () =>
+      translateMessage({
+        defaultMessage: 'some limits',
+        id: 't0x6nl3dcM',
+      }),
+  },
   interactives: {
     icon: 'Sliders',
     sentence: () =>
@@ -291,6 +343,19 @@ export const EXPORT_DIFFERENCES: Record<NotCarriedOver, ExportDifference> = {
       translateMessage({
         defaultMessage: 'interactive sheets',
         id: '0y/m+iBQwo',
+      }),
+  },
+  rowsOfConnectedTables: {
+    icon: 'Database',
+    sentence: () =>
+      translateMessage({
+        defaultMessage: 'Some rows from connected tables aren’t included.',
+        id: 'AeUCpB8vDR',
+      }),
+    name: () =>
+      translateMessage({
+        defaultMessage: 'some connected table rows',
+        id: 'KOuAQu86Vo',
       }),
   },
   placedViews: {

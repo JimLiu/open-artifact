@@ -20,7 +20,7 @@ export function SelectedRangeAnnouncer({ selectedRange }: SelectedRangeAnnouncer
   const summaryOf = () => selectedRange?.summary ?? null;
   const words = useDelayedAnnouncement(selectedRange?.cells ?? null, (cells) => {
     const several = selectedRange?.ofSeveral;
-    return several === undefined ? cellsSelectedText(cells, summaryOf(), selectedRange?.outOfSight) : severalRangesSelectedText(several, summaryOf());
+    return several === undefined ? cellsSelectedText(selectedRange?.columnsOfTable ?? cells, summaryOf(), selectedRange?.outOfSight) : severalRangesSelectedText(several, summaryOf());
   });
   return <LiveAnnouncer words={words} />;
 }

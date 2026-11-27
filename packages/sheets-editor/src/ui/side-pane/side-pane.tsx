@@ -21,6 +21,8 @@ import { HIDDEN_SCROLLBAR_CLASSES, OverlayScrollbar } from '../overlay-scrollbar
 import { storeSidePaneWidth, readStoredSidePaneWidth } from './stored-width.ts';
 import { useCoarsePointer } from '../../app/media-queries.ts';
 import { blockRepeatedEnterOrSpace } from '../repeated-key-guards.ts';
+import { prefersReducedMotion } from '../../kit/platform.ts';
+import { useLatestCallback } from '../latest-callback.ts';
 import type { CaretTarget } from '../../tables/own-filter-bar-view.tsx';
 /** An element measured in the nearest scroller around it: its box and the scroller's view, in client pixels. */
 export interface MeasuredInScroller {
@@ -79,6 +81,8 @@ export interface PaneRowProps {
   hasDot?: boolean;
   trailing?: React.ReactNode;
   isPointedAt?: boolean;
+  /** Whether a press on the row, off its controls, leaves the keys with the cells. */
+  leavesKeysToCells?: boolean;
   children: React.ReactNode;
 }
 export interface PaneTableButtonProps {
@@ -173,9 +177,8 @@ export function revealInSidePane(container: Element | null, element: Element, is
   if (measured === null) return;
   let scrollNeeded = scrollNeededToReveal(measured, isInstant);
   if (scrollNeeded === 0) return;
-  let prefersReducedMotion = measured.scroller.ownerDocument.defaultView?.matchMedia('(prefers-reduced-motion:reduce)').matches;
   let isFocusInside = element.contains(element.ownerDocument.activeElement);
-  let isSmooth = prefersReducedMotion === false && !isFocusInside;
+  let isSmooth = !prefersReducedMotion() && !isFocusInside;
   measured.scroller.scrollBy({
     top: scrollNeeded,
     behavior: isSmooth ? 'smooth' : 'instant',
@@ -216,7 +219,7 @@ export function useKeepCaretInView(
   isCaretMovedByUser: () => boolean,
 ) {
   let caretPlaceRef = React.useRef<CaretPlace | null>(null);
-  let keepCaret = React.useEffectEvent((isWindowResize: boolean) => {
+  let keepCaret = useLatestCallback((isWindowResize: boolean) => {
     let pane = paneRef.current;
     if (pane === null) return;
     caretPlaceRef.current = isCaretMovedByUser() ? caretPlaceInPane(pane) : keepCaretInPlace(pane, caretPlaceRef.current, isWindowResize);
@@ -244,7 +247,7 @@ export function useKeepCaretInView(
       });
       view?.removeEventListener('resize', onWindowResize);
     };
-  }, [isOpen, paneRef]);
+  }, [isOpen, paneRef, keepCaret]);
 }
 export function useRevealCaretOnShrink(paneRef: React.RefObject<HTMLElement | null>) {
   React.useEffect(() => {
@@ -356,7 +359,7 @@ export function useSidePaneCaret({
 }: SidePaneCaret) {
   let wasJustOpened = useWasJustOpened(isOpen, isOpenInAnotherForm);
   let onSidePaneShut = React.useContext(SidePaneShutContext);
-  let putCaretWhereToStartEvent = React.useEffectEvent(putCaretWhereToStart);
+  let putCaretWhereToStartEvent = useLatestCallback(putCaretWhereToStart);
   let lastTimesAskedRef = React.useRef<number | null>(null);
   let callOffHandoffRef = React.useRef<(() => void) | null>(null);
   React.useEffect(() => {
@@ -509,10 +512,16 @@ export function PaneSection(props: PaneSectionProps) {
                       [PANE_SECTION_ACTIONS_ATTRIBUTE]: true,
                     }} className="-my-1 flex shrink-0 items-center gap-0.5">{actions}</span>)}</div></>)}{children}</PropertySection>;
 }
+export function keepFocusUnlessPressedOnControl(event: React.MouseEvent<HTMLElement>): void {
+  let control = event.target instanceof Element ? event.target.closest(':is(button,input,a,[role])') : null;
+  if (control === null || control === event.currentTarget || !event.currentTarget.contains(control)) event.preventDefault();
+}
 export function PaneRow(props: PaneRowProps) {
   let { label, labelInFull, labelEnd, hasDot = false, trailing } = props;
-  let { isPointedAt = false, children } = props;
-  return <PropertyRow className={`relative ${PANE_PROPERTY_PAD_VARS} ${label === undefined ? '' : PANE_ROW_LABEL_COLUMNS} ${trailing === undefined ? '[--cmp-property-trailing:initial]' : '[--cmp-property-trailing:var(--ui-h-control)]'}`} {...(label !== undefined && {
+  let { isPointedAt = false, leavesKeysToCells = false, children } = props;
+  return <PropertyRow {...(leavesKeysToCells && {
+      onClick: keepFocusUnlessPressedOnControl,
+    })} className={`relative ${PANE_PROPERTY_PAD_VARS} ${label === undefined ? '' : PANE_ROW_LABEL_COLUMNS} ${trailing === undefined ? '[--cmp-property-trailing:initial]' : '[--cmp-property-trailing:var(--ui-h-control)]'}`} {...(label !== undefined && {
       label: (<span className="flex min-w-0 gap-1" title={labelInFull}>{hasDot &&
             <span className="absolute inset-y-0 start-[7px] my-auto size-0 rounded-full border-[3px] border-[color:var(--ui-fill-accent)]" />}<span dir="auto" className="min-w-0 truncate">{label}</span>{labelEnd !== undefined &&
             <span className="shrink-0">{labelEnd}</span>}</span>),

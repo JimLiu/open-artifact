@@ -78,10 +78,12 @@ export const isUndoShowingSheet = (lastDone: LastDone | null): lastDone is UndoS
   (lastDone?.what === 'undone' || lastDone?.what === 'redone') && lastDone.sheetShown !== undefined;
 export const isFixesDecision = (lastDone: LastDone | null): lastDone is FixesCountedDone =>
   lastDone?.what === 'fixesKept' || lastDone?.what === 'fixesDiscarded';
+export const isProtectionDone = (lastDone: LastDone | null): boolean =>
+  lastDone?.what === 'protectionMade' || lastDone?.what === 'protectionSaved' || lastDone?.what === 'protectionRemoved';
 export const isAlwaysAnnounced = (lastDone: LastDone | null): boolean =>
-  isLastDoneAboutCells(lastDone) || isUndoShowingSheet(lastDone) || isFixesDecision(lastDone);
+  isLastDoneAboutCells(lastDone) || isUndoShowingSheet(lastDone) || isFixesDecision(lastDone) || isProtectionDone(lastDone);
 export const isAnnounceableLastDone = (lastDone: LastDone | null): boolean =>
   isAlwaysAnnounced(lastDone) || lastDone?.what === 'ownCellMoved' || lastDone?.what === 'ownCellRemoved';
-export const isUnsavedEmptying = (lastDone: LastDone): boolean => lastDone.what === 'entryEmptiedCell' && !lastDone.isSaved;
+export const isUnsavedEmptying = (lastDone: LastDone): boolean => 'isSaved' in lastDone && !lastDone.isSaved;
 export const shouldAnnounceInFull = (lastDone: LastDone, announced: LastDone | null): boolean =>
   !isAnnounceableLastDone(lastDone) || lastDone === announced;

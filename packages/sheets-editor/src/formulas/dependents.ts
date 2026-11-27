@@ -2,7 +2,9 @@ import { areaOfReference } from '../model/reference-areas.ts';
 import { mightFormulaSpill } from './agent-answer-checks.ts';
 import type { CellId, WorkbookReads } from '../model/workbook.ts';
 import type { CellArea, CellPosition } from '../selection/model.ts';
-import type { Reference, SheetId } from '@open-artifact/sheets-core';
+import type { CellContents, SheetId } from '@open-artifact/sheets-core';
+import type { ReferenceOnSheet } from './references.ts';
+import { referencesWithNamedRangesExpanded } from './references.ts';
 /** The cells of a sheet that hang on the formulas followed: by column, the rows they are in, and those a formula could spill from. */
 export interface CellsHangingInSheet {
   rowsByColumn: Map<number, Set<number>>;
@@ -58,7 +60,7 @@ export function areaTouchesHangingCells(
     if (columnIndex >= leftColumn && columnIndex <= rightColumn && hasRowInArea(rows)) return true;
   return false;
 }
-export function areaOfReferenceOrSheet(reads: WorkbookReads, reference: Reference): CellArea | null {
+export function areaOfReferenceOrSheet(reads: WorkbookReads, reference: ReferenceOnSheet): CellArea | null {
   let area = areaOfReference(reads, reference);
   if (area !== null || reference.kind === 'cell') return area;
   let sheet = reads.listSheets().find(({ sheetId }) => sheetId === reference.sheetId);
@@ -96,17 +98,15 @@ export function findCellsHangingOn(
   let formulas: FormulaToFollow[] = [];
   for (let { sheetId } of reads.listSheets())
     for (let [rowId, cells] of reads.cellsHeldByRow(sheetId))
-      for (let [columnId, { input, formulaText = '' }] of cells) {
-        let position =
-          input.kind === 'formula'
-            ? reads.positionOfCell({
-                sheetId,
-                rowId,
-                columnId,
-              })
-            : null;
-        if (input.kind !== 'formula' || position === null) continue;
-        let readAreas = input.formula.references.flatMap((reference): AreaRead[] => {
+      for (let columnId of cells.columnsWithAFormula()) {
+        let { input, formulaText = '' }: Partial<CellContents> = cells.get(columnId) ?? {};
+        let position = reads.positionOfCell({
+          sheetId,
+          rowId,
+          columnId,
+        });
+        if (input?.kind !== 'formula' || position === null) continue;
+        let readAreas = referencesWithNamedRangesExpanded(reads, input.formula).flatMap((reference): AreaRead[] => {
           let area = areaOfReferenceOrSheet(reads, reference);
           return area === null
             ? []
@@ -156,13 +156,15 @@ export function cellsHangingOnFormulasWhere(
   let startCells: CellId[] = [];
   for (let { sheetId } of reads.listSheets())
     for (let [rowId, cellsByColumn] of reads.cellsHeldByRow(sheetId))
-      for (let [columnId, { formulaText }] of cellsByColumn)
+      for (let columnId of cellsByColumn.columnsWithAFormula()) {
+        let formulaText = cellsByColumn.get(columnId)?.formulaText;
         if (formulaText !== undefined && isWanted(formulaText))
           startCells.push({
             sheetId,
             rowId,
             columnId,
           });
+      }
   return startCells.length === 0 ? new Map<SheetId, CellsHangingInSheet>() : findCellsHangingOn(reads, startCells);
 }
 export const MAX_DEPENDENT_STEPS = 20000000;

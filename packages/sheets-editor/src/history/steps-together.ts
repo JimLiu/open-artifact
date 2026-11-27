@@ -15,7 +15,6 @@ export type WhyStepUnavailable = 'nothingLeft' | 'somethingUnderWay';
 export type UndoAndRedoAvailability = { undo: WhyStepUnavailable | null; redo: WhyStepUnavailable | null } | null;
 
 export function stepsToRedoAfterEvent(stepsToRedo: number, event: PageEvent): number {
-  if (event.kind === 'editAnswered' && event.edit.kind === 'writeFromInteractive') return stepsToRedo;
   if (event.kind === 'editAnswered') return event.outcome.kind === 'editQueued' ? 0 : stepsToRedo;
   if (event.kind === 'takeBackAnswered') return event.outcome.kind === 'made' ? 0 : stepsToRedo;
   if (event.kind === 'editsDropped') return 0;
@@ -23,6 +22,7 @@ export function stepsToRedoAfterEvent(stepsToRedo: number, event: PageEvent): nu
   let { direction, outcome } = event;
   if (outcome.kind === 'made') return direction === 'undo' ? stepsToRedo + 1 : Math.max(0, stepsToRedo - 1);
   if (direction === 'undo' || outcome.kind === 'refused') return stepsToRedo;
+  if (outcome.kind === 'nothingLeft' && event.ofSitting !== undefined) return stepsToRedo;
   return outcome.kind === 'nothingLeft' ? 0 : Math.max(0, stepsToRedo - 1);
 }
 export function whyUndoRedoUnavailable(state: PageState, viewOnlyBecause: ViewOnlyBecause | null): UndoAndRedoAvailability {

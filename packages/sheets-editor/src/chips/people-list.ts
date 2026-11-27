@@ -1060,3 +1060,8 @@ export const withProfilesLearned = (state: PageState, profiles: readonly Profile
       };
 };
 export const isTypingInFormulaBar = ({ mode }: Pick<PageState, 'mode'>): boolean => mode.kind === 'editing' && mode.typingIn === 'formulaBar';
+export function* graphemesOf(text: string): Generator<string> {
+  if (typeof Intl.Segmenter !== 'function') yield* text;
+  else for (let { segment } of new Intl.Segmenter().segment(text)) yield segment;
+}
+export const dropLastGrapheme = (text: string): string => Array.from(graphemesOf(text)).slice(0, -1).join('');

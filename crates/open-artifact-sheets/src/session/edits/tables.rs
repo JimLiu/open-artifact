@@ -13,6 +13,7 @@ use crate::workbook::objects::CellTable;
 use crate::workbook::{Sheet, Workbook};
 
 mod cell_tables;
+pub(crate) use cell_tables::is_shown as is_cell_table_shown;
 pub(super) mod duplicate;
 mod import;
 mod move_columns;
@@ -212,7 +213,7 @@ pub fn make(workbook: &Workbook, edit: Edit, context: &Context) -> Result<Made, 
     match edit {
         Edit::SortRows { sheet_id, one_row, other_row, by_column, direction, then_by } => {
             let keys = keys(by_column, direction, then_by);
-            sort::sort_rows(workbook, &sheet_id, &one_row, &other_row, &keys, context.code)
+            sort::sort_rows(workbook, &sheet_id, &one_row, &other_row, &keys, context)
         }
         Edit::SortCells { cells, by_column, direction, then_by } => {
             let keys = keys(by_column, direction, then_by);
@@ -252,10 +253,37 @@ pub(crate) fn rows_in_sorted_order(
 ) -> Result<Vec<crate::ids::IdRun>, &'static str> {
     let keys = keys(by_column, direction, then_by);
     match sort::rows_in_sorted_order(workbook, sheet_id, one_row, other_row, &keys, is_calculation_due) {
-        Ok(rows) => Ok(crate::ids::runs_of(&rows, &workbook.bases)),
+        Ok(rows) => Ok(sorted_runs(workbook, sheet_id, &rows)),
         Err(Refused::Because(why)) => Err(why),
         Err(_) => Err("unreadableRequest"),
     }
+}
+
+/// The sorted rows as runs. Rows the sort puts in another order make runs of consecutive ids; rows
+/// it leaves in their order are given as the sheet keeps them, consecutive ids one run only when they are next to
+/// each other with deleted rows counted, so a deleted row a move left between them keeps two runs apart.
+fn sorted_runs(workbook: &Workbook, sheet_id: &str, rows: &[LineId]) -> Vec<crate::ids::IdRun> {
+    let Some(i) = workbook.sheet_index(sheet_id) else { return crate::ids::runs_of(rows, &workbook.bases) };
+    let axis = &workbook.sheets[i].rows;
+    let positions: Vec<Option<usize>> = rows.iter().map(|&r| axis.position(r)).collect();
+    if !positions.windows(2).all(|w| matches!((w[0], w[1]), (Some(a), Some(b)) if a < b)) {
+        return crate::ids::runs_of(rows, &workbook.bases);
+    }
+    let mut runs: Vec<crate::ids::IdRun> = Vec::new();
+    let mut last: Option<LineId> = None;
+    for &line in rows {
+        let joins = last.is_some_and(|prev| {
+            prev.base == line.base
+                && prev.n.checked_add(1) == Some(line.n)
+                && matches!((axis.index(prev), axis.index(line)), (Some(a), Some(b)) if a + 1 == b)
+        });
+        match runs.last_mut() {
+            Some(run) if joins => run.count += 1,
+            _ => runs.push(crate::ids::IdRun { base: workbook.bases.name(line.base).to_owned(), first: line.n, count: 1 }),
+        }
+        last = Some(line);
+    }
+    runs
 }
 
 fn keys(by_column: String, direction: Direction, then_by: Vec<FurtherKey>) -> Vec<(String, Direction)> {

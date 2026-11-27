@@ -233,6 +233,7 @@ impl Workbook {
             .collect();
         let rewrites = formulas_kept_in_place(self, index, &deltas, &after);
         self.objects_kept_in_place(index, &after);
+        super::protections::kept_in_place(&self.bases, &mut self.sheets[index], &after);
         self.sheets[index].rows = after;
         for (k, at, formula) in rewrites {
             let sheet = match k {
@@ -352,12 +353,12 @@ enum Failure {
 /// Where a reference to sheet `sheet` would go, moved `delta` rows, when it cannot: its rows not fixed leaving the
 /// sheet.
 fn failure(workbook: &Workbook, reference: &Reference, delta: i64) -> Option<Failure> {
-    let at = workbook.locate(reference)?;
-    let n = workbook.sheets[at.sheet].rows.len() as i64;
+    let (sheet, top, bottom) = located_rows(workbook, reference)?;
+    let n = workbook.sheets[sheet].rows.len() as i64;
     let ends = match reference {
         Reference::Columns { top: None, .. } => vec![],
-        Reference::Columns { .. } => vec![at.top],
-        _ => vec![at.top, at.bottom],
+        Reference::Columns { .. } => vec![top],
+        _ => vec![top, bottom],
     };
     let moved: Vec<i64> = ends.into_iter().filter(|&(_, fixed)| !fixed).map(|(p, _)| p as i64 + delta).collect();
     if moved.iter().any(|&p| p < 0) {
@@ -369,17 +370,56 @@ fn failure(workbook: &Workbook, reference: &Reference, delta: i64) -> Option<Fai
     }
 }
 
+/// Where a reference's rows are now, as `Workbook::locate` finds them, its columns there or not (a
+/// reference whose columns are all deleted still leaves the sheet as its rows move).
+fn located_rows(workbook: &Workbook, reference: &Reference) -> Option<(usize, super::End, super::End)> {
+    if let Some(at) = workbook.locate(reference) {
+        return Some((at.sheet, at.top, at.bottom));
+    }
+    let sheet = workbook.sheet_index(reference.sheet_id())?;
+    let rows = &workbook.sheets[sheet].rows;
+    let line = |id: &str| workbook.bases.parse(id);
+    let ends = |a: (&str, bool), b: (&str, bool)| -> Option<(super::End, super::End)> {
+        let (la, lb) = (line(a.0)?, line(b.0)?);
+        let (pa, pb) = (rows.snap_toward(la, lb)?, rows.snap_toward(lb, la)?);
+        Some(if pb < pa { ((pb, b.1), (pa, a.1)) } else { ((pa, a.1), (pb, b.1)) })
+    };
+    let last = (rows.len().checked_sub(1)?, false);
+    let (top, bottom) = match reference {
+        Reference::Cell { cell, .. } => ends((&cell.r, cell.is_row_absolute), (&cell.r, cell.is_row_absolute))?,
+        Reference::Range { top_left: a, bottom_right: b, .. } => {
+            ends((&a.r, a.is_row_absolute), (&b.r, b.is_row_absolute))?
+        }
+        Reference::Columns { top: Some(t), .. } => ((rows.snap_forward(line(&t.r)?)?, t.is_row_absolute), last),
+        Reference::Columns { top: None, .. } => ((0, false), last),
+        Reference::Rows { top, bottom, .. } => ends((&top.r, top.is_row_absolute), (&bottom.r, bottom.is_row_absolute))?,
+        Reference::NamedRange { .. } | Reference::TableColumn { .. } | Reference::TablePart { .. } => return None,
+    };
+    Some((sheet, top, bottom))
+}
+
 /// A reference to sheet `sheet` whose ends not fixed on deleted rows are put on the rows they give way to (toward the
 /// other end; the top of columns, forward), as putting the rows in order would not move them; `None` when it has
-/// none such (or a cell's, which gives way to nothing).
-fn given_way(workbook: &Workbook, reference: &Reference, sheet: usize) -> Option<Reference> {
+/// none such (or a cell's, which gives way to nothing). An end fixed on a deleted row gives way so too when the other
+/// end, not fixed, would be on its other side once it moves `delta` rows, with the rows as they are after (`after`):
+/// it would give way the other way then.
+fn given_way(workbook: &Workbook, reference: &Reference, sheet: usize, delta: i64, after: &Axis) -> Option<Reference> {
     let (rows, bases) = (&workbook.sheets[sheet].rows, &workbook.bases);
     let deleted = |r: &str| bases.parse(r).is_some_and(|l| rows.is_deleted(l));
     let toward = |a: &str, b: &str| Some(bases.text(rows.line(rows.snap_toward(bases.parse(a)?, bases.parse(b)?)?)?));
+    // Whether the other end `b`, not fixed, crosses the deleted row `a` as it moves.
+    let crosses = |a: &str, b: &str| -> Option<bool> {
+        let (la, lb) = (bases.parse(a)?, bases.parse(b)?);
+        let now = rows.index(lb)? > rows.index(la)?;
+        let moved = rows.snap_toward(lb, la)? as i64 + delta;
+        let moved = after.line(usize::try_from(moved).ok()?)?;
+        Some(now != (after.index(moved)? > after.index(la)?))
+    };
     let mut r = reference.clone();
     let mut changed = false;
-    let mut end = |at: &mut String, fixed: bool, to: Option<String>| {
-        if !fixed && deleted(at) {
+    let mut end = |at: &mut String, fixed: bool, other_fixed: bool, other: &str, to: Option<String>| {
+        let gives_way = if fixed { !other_fixed && crosses(at, other) == Some(true) } else { true };
+        if gives_way && deleted(at) {
             if let Some(to) = to {
                 *at = to;
                 changed = true;
@@ -390,19 +430,25 @@ fn given_way(workbook: &Workbook, reference: &Reference, sheet: usize) -> Option
         Reference::Cell { .. } => {}
         Reference::Range { top_left: a, bottom_right: b, .. } => {
             let (ta, tb) = (toward(&a.r, &b.r), toward(&b.r, &a.r));
-            end(&mut a.r, a.is_row_absolute, ta);
-            end(&mut b.r, b.is_row_absolute, tb);
+            let (ar, br) = (a.r.clone(), b.r.clone());
+            end(&mut a.r, a.is_row_absolute, b.is_row_absolute, &br, ta);
+            end(&mut b.r, b.is_row_absolute, a.is_row_absolute, &ar, tb);
         }
         Reference::Rows { top: a, bottom: b, .. } => {
             let (ta, tb) = (toward(&a.r, &b.r), toward(&b.r, &a.r));
-            end(&mut a.r, a.is_row_absolute, ta);
-            end(&mut b.r, b.is_row_absolute, tb);
+            let (ar, br) = (a.r.clone(), b.r.clone());
+            end(&mut a.r, a.is_row_absolute, b.is_row_absolute, &br, ta);
+            end(&mut b.r, b.is_row_absolute, a.is_row_absolute, &ar, tb);
         }
         Reference::Columns { top: Some(t), .. } => {
             let to = bases.parse(&t.r).and_then(|l| rows.snap_forward(l)).and_then(|p| rows.line(p)).map(|l| bases.text(l));
-            end(&mut t.r, t.is_row_absolute, to);
+            let at = t.r.clone();
+            end(&mut t.r, t.is_row_absolute, true, &at, to);
         }
-        Reference::Columns { top: None, .. } => {}
+        Reference::Columns { top: None, .. }
+        | Reference::TableColumn { .. }
+        | Reference::TablePart { .. }
+        | Reference::NamedRange { .. } => {}
     }
     changed.then_some(r)
 }
@@ -412,13 +458,19 @@ fn given_way(workbook: &Workbook, reference: &Reference, sheet: usize) -> Option
 /// above the first row; below the last, the reference moved, its rows past the end), one with an end not fixed on a
 /// deleted row with that end on the row it gives way to, and the other references as they are (the rows' move moves
 /// those to the sheet; keeps those to other sheets too, which an older format wrote as text). `None` when the
-/// move moves every reference.
-pub(crate) fn unshiftable(workbook: &Workbook, formula: &StoredFormula, sheet: usize, delta: i64) -> Option<StoredFormula> {
+/// move moves every reference. `after` is the sheet's rows as they are once put in order.
+pub(crate) fn unshiftable(
+    workbook: &Workbook,
+    formula: &StoredFormula,
+    sheet: usize,
+    delta: i64,
+    after: &Axis,
+) -> Option<StoredFormula> {
     let own = |r: &Reference| workbook.sheet_index(r.sheet_id()) == Some(sheet);
     let failures: Vec<Option<Failure>> =
         formula.references.iter().map(|r| if own(r) { failure(workbook, r, delta) } else { None }).collect();
     let given: Vec<Option<Reference>> =
-        formula.references.iter().map(|r| if own(r) { given_way(workbook, r, sheet) } else { None }).collect();
+        formula.references.iter().map(|r| if own(r) { given_way(workbook, r, sheet, delta, after) } else { None }).collect();
     if failures.iter().all(Option::is_none) && given.iter().all(Option::is_none) {
         return None;
     }
@@ -544,6 +596,9 @@ fn moved_reference(
                 row(&mut a.r, a.is_row_absolute, pa)?;
                 row(&mut b.r, b.is_row_absolute, pb)?;
             }
+            // A connected table's rows are no sheet's to sort.
+            Reference::TableColumn { .. } | Reference::TablePart { .. } => {}
+            Reference::NamedRange { .. } => {}
         }
         Some(())
     })();

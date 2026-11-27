@@ -7,15 +7,19 @@ import {
   readLoadedOps,
   readAskedRevision,
   askRevisionRequest,
+  loadTableFileRequest,
+  readTableFileSlice,
   type FailureCause,
+  type FileCursor,
   type LoadOutcome,
   type SaveOutcome,
+  type TableFileSlice,
 } from './requests.ts';
 import type { StoreCall, StoreOutcome } from './sheet-stream.ts';
 
 /** A failure the page keeps in mind (it decides whether opening failed for good, or may pass). */
 export interface NotedFailure {
-  action: 'save' | 'load' | 'loadChart' | 'readHistory' | 'bringLocale';
+  action: 'save' | 'load' | 'loadChart' | 'loadTableFile' | 'readHistory' | 'nameVersion' | 'bringLocale';
   cause: FailureCause;
   word: string;
 }
@@ -46,8 +50,17 @@ export function createWorkbookNodeClient(call: StoreCaller, noteFailure: (failur
       if (failure !== null) noteFailure({ ...failure, action: 'load' });
       return loaded;
     },
+    /** Slices of a connected table's snapshot file. */
+    async loadSliceOfTableFile(snapshotId: string, held: FileCursor | null): Promise<TableFileSlice> {
+      const from = held?.byteCountHeld ?? 0;
+      const outcome = await call(loadTableFileRequest(snapshotId, from));
+      const slice = readTableFileSlice(outcome, held, from);
+      const failure = failureOf(outcome, slice !== null && slice !== 'startOver');
+      if (failure !== null) noteFailure({ ...failure, action: 'loadTableFile' });
+      return slice;
+    },
     askRevision: async (): Promise<number | 'notSent' | null> => readAskedRevision(await call(askRevisionRequest())),
   };
 }
 
-export type WorkbookStore = Pick<ReturnType<typeof createWorkbookNodeClient>, 'save' | 'loadOps' | 'askRevision'>;
+export type WorkbookStore = Pick<ReturnType<typeof createWorkbookNodeClient>, 'save' | 'loadOps' | 'loadSliceOfTableFile' | 'askRevision'>;

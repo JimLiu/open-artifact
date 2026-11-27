@@ -45,6 +45,11 @@ export const SHEET_COMMAND_SYNONYM_MESSAGES = {
       defaultMessage: 'copy sheet, copy tab, clone',
       id: '0g/mstwdIr',
     }),
+  protect: () =>
+    translateMessage({
+      defaultMessage: 'protect sheet, lock sheet, unlock sheet, unprotect sheet, protect tab, lock tab',
+      id: '8Qjm42cnp5',
+    }),
   copyLink: () =>
     translateMessage({
       defaultMessage: 'share link, url, address, link to sheet',

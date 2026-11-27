@@ -8,6 +8,7 @@ use crate::coerce::{compare_numbers, compare_texts, to_number};
 use crate::evaluate::Operand;
 use crate::functions::{array, value, Answer, Arg, CallContext, Cells, Sources};
 use crate::locale::Locale;
+use crate::told::{self, Told};
 use crate::value::{Array, CellError, Value};
 
 /// An argument's cells; a left-out one is #VALUE!.
@@ -234,7 +235,8 @@ fn sort_order(a: &Value, b: &Value, descending: bool) -> Ordering {
 
 /// A sort order: 1 (or TRUE; the default, also when left out or blank) ascending, 0 (FALSE) or -1 descending;
 /// else #VALUE!.
-fn descending(arg: Option<&Arg>, locale: &Locale) -> Result<bool, CellError> {
+fn descending(args: &[Arg], i: usize, locale: &Locale) -> Result<bool, CellError> {
+    let arg = args.get(i);
     if not_given(arg) {
         return Ok(false);
     }
@@ -244,6 +246,7 @@ fn descending(arg: Option<&Arg>, locale: &Locale) -> Result<bool, CellError> {
     } else if n == 0.0 || n == -1.0 {
         Ok(true)
     } else {
+        told::tell(|| Told::SortOrderIsNotRead { argument: i });
         Err(CellError::Value)
     }
 }
@@ -255,13 +258,16 @@ pub fn sort_by(args: &[Arg], cx: &mut CallContext) -> Answer {
     let locale = cx.locale;
     let cells = cells_of(&args[0])?;
     let (rows, columns) = (cells.rows(), cells.columns());
+    // The orders are read before the sort ranges (`=SORTBY(B1:B2,B1:B3,2)` tells its order is not read).
+    let orders = (1..args.len()).step_by(2).map(|i| descending(args, i + 1, locale)).collect::<Result<Vec<_>, _>>()?;
     let mut keys: Vec<(Cells, bool)> = Vec::new();
     let mut by_rows = None;
-    for i in (1..args.len()).step_by(2) {
+    for (i, descending) in (1..args.len()).step_by(2).zip(orders) {
         let key = cells_of(&args[i])?;
         let these_rows = if key.columns() == 1 && key.rows() == rows {
             true
-        } else if key.rows() == 1 && key.columns() == columns {
+        } else if key.rows() == 1 && key.columns() == columns && columns > 1 {
+            // A single cell is no row to sort a column's cells by (`=SORTBY(B1:B2,B1)` is #VALUE!).
             false
         } else {
             return Err(CellError::Value);
@@ -270,7 +276,7 @@ pub fn sort_by(args: &[Arg], cx: &mut CallContext) -> Answer {
             return Err(CellError::Value);
         }
         by_rows = Some(these_rows);
-        keys.push((key, descending(args.get(i + 1), locale)?));
+        keys.push((key, descending));
     }
     let by_rows = by_rows.unwrap_or(true);
     let count = if by_rows { rows } else { columns };

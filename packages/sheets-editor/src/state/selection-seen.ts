@@ -1,5 +1,6 @@
 import type { CellControl, SharedCellFormat, SheetId } from '@open-artifact/sheets-core';
 import type { WholeCellFormat } from '../model/cell-format.ts';
+import { DEFAULT_WHOLE_CELL_FORMAT } from '../model/cell-format.ts';
 import type { CellId, WorkbookReads } from '../model/workbook.ts';
 import type { CellArea, CellPosition, SelectionKind } from '../selection/model.ts';
 import type { CheckboxesToSet, PageState } from './initial-state.ts';
@@ -59,7 +60,10 @@ export function settleSelectionSeen(before: PageState | null, state: PageState, 
   let formatsThatFit = area === null ? [] : choicesForCells(workbook, state.sheetId, area);
   let formatsThatFitHere = hasOtherRanges(state) ? formatsThatFit.filter((kind: FormatOfSelection['formatsThatFit'][number]) => kind !== 'dropdown') : formatsThatFit;
   let shownSelection = selectionOfShownPieces(state, workbook, 'theFirstParts');
-  let sharedFormat = sharedFormatOfAllRanges(shownSelection, workbook) ?? workbook.formatOf(activeCell);
+  let sharedFormat = sharedFormatOfAllRanges(shownSelection, workbook) ?? {
+    ...DEFAULT_WHOLE_CELL_FORMAT,
+    ...workbook.formatOf(activeCell),
+  };
   let sharedWithEntries = formatOfSelectionWithEntries(shownSelection, workbook, sharedFormat);
   let selectionSeen = selectionSeenOf(state, workbook, area);
   let formatOfSelection = makeFormatOfSelection(
@@ -90,6 +94,7 @@ export function settleSelectionSeen(before: PageState | null, state: PageState, 
     selectionSeen.cellsAre === state.selectionSeen.cellsAre &&
     selectionSeen.isSoOfEveryCell === state.selectionSeen.isSoOfEveryCell &&
     selectionSeen.areAllRead === state.selectionSeen.areAllRead &&
+    selectionSeen.hasCellOfSeveralPeople === state.selectionSeen.hasCellOfSeveralPeople &&
     selectionSeen.shape === state.selectionSeen.shape;
   let chartArea = hasOtherRanges(state) ? null : areaToChart(state, workbook, selectionSeen.shape === 'cell');
   let chartsOnOffer = chartArea === null ? [] : chartKindsOfferedForCells(workbook, state.sheetId, chartArea);
@@ -174,6 +179,7 @@ export interface SelectionSeen {
   cellsAre: SeenKindOfCells;
   isSoOfEveryCell: boolean;
   areAllRead: boolean;
+  hasCellOfSeveralPeople: boolean;
   shape: SelectionShape;
 }
 /** The borders of the block selected, and whether they were read from a sample of its cells. */

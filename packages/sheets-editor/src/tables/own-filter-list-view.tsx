@@ -608,7 +608,7 @@ export const withTwoLineDrawing = (row: { id: string; inFull: string }, words: R
   drawn: <span className="flex min-w-0 flex-1 flex-col"><span className="line-clamp-2 min-w-0 wrap-anywhere">{words}</span>{atEnd}</span>,
 });
 export const FILTER_OPENER_SELECTOR =
-  '.sheet-own-filter-button, .sheet-own-filter-bar :is([aria-haspopup="dialog"], .sheet-own-filter-line-remove)';
+  '.sheet-own-filter-button, .sheet-records-name, .sheet-own-filter-bar :is([aria-haspopup="dialog"], .sheet-own-filter-line-remove)';
 export const whatHasCaretAfterFilterList = (caretReturn: CaretAfterFilterList): CaretTarget => {
   if (caretReturn.isOtherCardOpen) return false;
   return caretReturn.opener !== null && !caretReturn.isLeftByPress ? caretReturn.opener : caretReturn.otherwise();

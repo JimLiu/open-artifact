@@ -15,6 +15,7 @@ export function selectionForAgent(state: PageState, context: SelectionContext): 
   const { reads, revisionHeld } = context;
   if (revisionHeld === null || !canTellAgentSelection(state, context) || hasOtherRanges(state)) return null;
   let { sheetId } = state.activeCell;
+  if (reads.connectedTableIn(sheetId) !== null) return null;
   let sheetIndex = reads.listSheets().findIndex((sheet) => sheet.sheetId === sheetId);
   let selected = selectedArea(state, reads);
   let entryPosition = reads.positionOfCell(activeAnchorCell(state, reads));
@@ -35,7 +36,7 @@ export function ownSortOfViewForAgent(
   { reads }: Pick<SelectionContext, 'reads'> = {} as Pick<SelectionContext, 'reads'>,
 ): OwnSortToldToAgent | null {
   let { sheetId } = state;
-  if (!state.ownRowOrders.has(sheetId)) return null;
+  if (!state.ownRowOrders.has(sheetId) || reads.connectedTableIn(sheetId) !== null) return null;
   let by = (ownFiltersOfSheet(state, sheetId).find((filter) => filter.sort !== null)?.sort?.by ?? []).flatMap(({ c: columnId, direction }) => {
     let index = reads.columnIndexOf(sheetId, columnId);
     return index === null ? [] : [`${columnLetters(index)} ${direction}`];

@@ -4,7 +4,7 @@ import type { ChartChangeOutcome } from '../messages/charts.ts';
 import type { AgentAskedByPage, AgentThatMayBeAway } from '../state/controller.ts';
 import type { ChartNodeCopies } from '../state/copy-paste.ts';
 import { stockKindOfChartCode, type AskForEditOfChart, type ChartNodeSwap, type ChartWidgetNodes } from './widget-nodes.ts';
-import { canSwapChartKind, readsRowsAlone } from './chart-kind-fit.ts';
+import { CHART_ROWS_INPUT, canSwapChartKind, doesChartKindSuitRows, readsRowsAlone } from './chart-kind-fit.ts';
 export { canSwapChartKind, readsRowsAlone };
 import { STOCK_CHART_PROGRAMS, type StockKind } from './stock-programs.ts';
 import { chartEditRequest, isForChatAnswer, readChartCodeAnswer, type ChartCodeAsk } from './chart-code-ask.ts';
@@ -57,12 +57,17 @@ export async function editChartWithAgent(
   if (isStopped()) return 'stopped';
   if (source === null) return 'notChanged';
   const stockKind = stockKindOfChartCode(source.code);
-  if (wantedKind !== null && stockKind === wantedKind) return 'notChanged';
-  const isKindSwap = wantedKind !== null && canSwapChartKind(inputs, wantedKind);
+  // A chart of other code is swapped by the page alone only when no agent can write it: a stock chart always is.
+  const isKindSwap =
+    wantedKind !== null &&
+    stockKind !== wantedKind &&
+    (stockKind !== null
+      ? doesChartKindSuitRows(wantedKind, inputs[CHART_ROWS_INPUT] ?? [])
+      : canSwapChartKind(inputs, wantedKind) && !(await agent.isAvailable()));
   if (isKindSwap) agent.stop();
   const newCode =
     (isKindSwap ? STOCK_CHART_PROGRAMS[wantedKind] : null) ??
-    (await askAgentForChartCode(
+    (await askAgentForChartCodeText(
       agent,
       chartEditRequest(
         {
@@ -87,7 +92,7 @@ export async function editChartWithAgent(
 export async function askAgentForChartCode(
   agent: AgentAskedByPage<ChartCodeAsk, AgentSampleReply>,
   request: ChartCodeAsk | null,
-): Promise<string | NoChartCodeFromAgent> {
+): Promise<{ answer: unknown } | NoChartCodeFromAgent> {
   if (request === null)
     return {
       whyNone: 'tooLarge',
@@ -103,15 +108,28 @@ export async function askAgentForChartCode(
     return {
       whyNone: 'noAgent',
     };
-  if (reply.kind === 'answered' && isForChatAnswer(reply.answer))
+  if (reply.kind !== 'answered')
     return {
-      whyNone: 'forChat',
-    };
-  return (
-    (reply.kind === 'answered' ? readChartCodeAnswer(reply.answer) : null) ?? {
       whyNone: 'notChanged',
-    }
-  );
+    };
+  return isForChatAnswer(reply.answer)
+    ? {
+        whyNone: 'forChat',
+      }
+    : {
+        answer: reply.answer,
+      };
+}
+export async function askAgentForChartCodeText(
+  agent: AgentAskedByPage<ChartCodeAsk, AgentSampleReply>,
+  request: ChartCodeAsk | null,
+): Promise<string | NoChartCodeFromAgent> {
+  const reply = await askAgentForChartCode(agent, request);
+  return 'whyNone' in reply
+    ? reply
+    : (readChartCodeAnswer(reply.answer) ?? {
+        whyNone: 'notChanged',
+      });
 }
 export function createChartEditsByAgent(charts: ChartWidgetNodes, agent: ChartCodeAgent): ChartEditsByAgent {
   let askNumber = 0;

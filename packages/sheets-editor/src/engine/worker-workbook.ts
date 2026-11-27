@@ -32,6 +32,7 @@ import {
   type CaughtUpByLoad,
   type EditOutcome,
   type EditsDropped,
+  type OfSitting,
   type RefusalOfEveryEdit,
   type RestOfAct,
   type SyncedWorkbook,
@@ -46,8 +47,8 @@ import type { CopyWritten } from './written-copy.ts';
 import type { ErrorKind } from '../model/refusals.ts';
 import type { SavingState, TableRead } from '../state/initial-state.ts';
 import type { WorkbookStore } from '../store/workbook-node.ts';
-import type { ClockReading } from '../store/frames.ts';
-import type { LoadOutcome, SaveOutcome } from '../store/requests.ts';
+import type { ClockReading, Person } from '../store/frames.ts';
+import type { LoadOutcome, SaveOutcome, TableFileSlice } from '../store/requests.ts';
 
 /** What changed the workbook: formulas worked out alone, an edit of the page's own, or something unasked. */
 export type CauseOfWorkbookChange = 'formulasAlone' | 'ownEdit' | 'unasked';
@@ -72,6 +73,7 @@ export interface WorkbookQuestionFields {
   dropdownOptionsToOffer: { oneCorner: CellId; otherCorner: CellId };
   cellsThatADropdownWouldClear: { oneCorner: CellId; otherCorner: CellId; dropdown: DropdownToPointAt };
   cellsOfTheDropdownAt: { cellId: CellId };
+  defaultValueAndLimitsOf: { cellId: CellId };
   whatATableChanges: { rowsId: number; table: Omit<TableIntoSheet, 'rows'> };
   formatsGivenAsIf: { sheetId: SheetId; asIf: Iterable<ConditionalFormatAsIf> };
   conditionalFormatSuggestions: { oneCorner: CellId; otherCorner: CellId };
@@ -111,6 +113,7 @@ export type AnswerOfQuestion<K extends QuestionKind> = K extends 'writtenCopy'
 export type StoreAnswer =
   | { kind: 'save'; outcome: SaveOutcome }
   | { kind: 'loadOps'; loaded: LoadOutcome }
+  | { kind: 'loadSliceOfTableFile'; slice: TableFileSlice }
   | { kind: 'askRevision'; revision: number | 'notSent' | null };
 
 /** The rows of a table to import, sent once and known by `rowsId` in the questions about it. */
@@ -133,7 +136,7 @@ export interface OpenMessage {
 export type MessageToHost =
   | OpenMessage
   | { kind: 'queueEdit'; edit: Edit; restOfAct: RestOfAct }
-  | { kind: 'undoOrRedo'; direction: 'undo' | 'redo' }
+  | { kind: 'undoOrRedo'; direction: 'undo' | 'redo'; ofSitting?: OfSitting }
   | { kind: 'queueEditsThatTakeBack'; builtOnRevision: number; edits: EngineRecordedEdit[] }
   | { kind: 'seeRowsInOwnOrder'; sheetId: SheetId; rows: readonly IdRun[] | null }
   | { kind: 'writeXlsxFile'; asked: XlsxFileAsked }
@@ -145,6 +148,7 @@ export type MessageToHost =
   | { kind: 'editStreamed'; revision: number; applied: StreamedEdit }
   | { kind: 'storeRevisionReported'; revision: number }
   | { kind: 'timeTold'; time: ClockReading }
+  | { kind: 'personTold'; person: Person }
   | { kind: 'availabilityStated'; availability: Availability }
   | { kind: 'workOutFormulasLeft' }
   | { kind: 'storeReconnected' }
@@ -173,7 +177,7 @@ export interface OpenedWorkbook {
   isOnAnotherThread: boolean;
   reads(): WorkbookReads;
   queueEdit(edit: Edit, answer: (outcome: EditOutcome) => void, restOfAct?: RestOfAct): void;
-  undoOrRedo(direction: 'undo' | 'redo', answer: (outcome: UndoOrRedoOutcome) => void): void;
+  undoOrRedo(direction: 'undo' | 'redo', answer: (outcome: UndoOrRedoOutcome) => void, ofSitting?: OfSitting): void;
   queueEditsThatTakeBack(builtOnRevision: number, edits: EngineRecordedEdit[], answer: (outcome: TakeBackOutcome) => void): void;
   seeRowsInOwnOrder(sheetId: SheetId, rows: readonly IdRun[] | null, answer: () => void): void;
   xlsxFile(asked: XlsxFileAsked, answer: (file: XlsxFileAnswer | 'threw' | null) => void): void;
@@ -206,6 +210,7 @@ export interface OpenedWorkbook {
   editStreamed(revision: number, applied: StreamedEdit): void;
   storeRevisionReported(revision: number): void;
   timeTold(time: ClockReading): void;
+  personTold(person: Person): void;
   availabilityStated(availability: Availability): void;
   storeReconnected(): void;
   storeClosed(): void;
@@ -265,7 +270,7 @@ export function asSameThreadWorkbook(workbook: SyncedWorkbook): OpenedWorkbook {
       ),
     queueEdit: (edit, answer, restOfAct) =>
       runOnThisThread(() => workbook.queueEdit(edit, restOfAct), answer),
-    undoOrRedo: (direction, answer) => runOnThisThread(() => workbook.undoOrRedo(direction), answer),
+    undoOrRedo: (direction, answer, ofSitting) => runOnThisThread(() => workbook.undoOrRedo(direction, ofSitting), answer),
     queueEditsThatTakeBack: (builtOnRevision, edits, answer) =>
       runOnThisThread(() => workbook.queueEditsThatTakeBack(builtOnRevision, edits), answer),
     seeRowsInOwnOrder: (sheetId, rows, answer) =>
@@ -434,6 +439,13 @@ export function openWorkbookOnWorker(options: WorkerWorkbookOptions): Promise<Op
           cellId,});
         return answer?.about === 'cellsOfTheDropdownAt' ? answer.answer : null;
       },
+      defaultValueAndLimitsOf(cellId) {
+        let answer = answerTo({
+          kind: 'defaultValueAndLimitsOf',
+          cellId,
+        });
+        return answer?.about === 'defaultValueAndLimitsOf' ? answer.answer : null;
+      },
       whatATableChanges({ rows, ...table }) {
         let rowsId = tableRowsIds.get(rows);
         if (rowsId === undefined) {
@@ -584,6 +596,11 @@ export function openWorkbookOnWorker(options: WorkerWorkbookOptions): Promise<Op
         return {
           kind: 'loadOps',
           loaded: await options.store.loadOps(),
+        };
+      case 'loadSliceOfTableFile':
+        return {
+          kind: 'loadSliceOfTableFile',
+          slice: await options.store.loadSliceOfTableFile(question.snapshotId, question.after),
         };
       case 'askRevision':
         return {
@@ -820,7 +837,7 @@ export function openWorkbookOnWorker(options: WorkerWorkbookOptions): Promise<Op
                 restOfAct,
               });
             },
-            undoOrRedo(direction, answer) {
+            undoOrRedo(direction, answer, ofSitting) {
               if (hasEnded)
                 return answer({
                   kind: 'refused',
@@ -830,6 +847,9 @@ export function openWorkbookOnWorker(options: WorkerWorkbookOptions): Promise<Op
               return send({
                 kind: 'undoOrRedo',
                 direction,
+                ...(ofSitting !== undefined && {
+                  ofSitting,
+                }),
               });
             },
             queueEditsThatTakeBack(builtOnRevision, edits, answer) {
@@ -950,6 +970,11 @@ export function openWorkbookOnWorker(options: WorkerWorkbookOptions): Promise<Op
                   time,
                 })
               ),
+            personTold: (person) =>
+              send({
+                kind: 'personTold',
+                person,
+              }),
             availabilityStated: (availability) =>
               send({
                 kind: 'availabilityStated',

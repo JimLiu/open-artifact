@@ -6,8 +6,11 @@ export type InteractiveWrittenValue = number | string | boolean | null;
 /** One cell an interactive writes: the input's name, the row and column within its range (from 0), and the value. */
 export type InteractiveRawWrite = [input: string, row: number, column: number, value: InteractiveWrittenValue];
 
-/** The keys an interactive hands back to the page: Escape leaves it, F6 and Shift+F6 go to the next or last part. */
-export type PageKeyFromInteractive = 'leave' | 'nextPart' | 'previousPart';
+/**
+ * The keys an interactive hands back to the page: Escape leaves it, F6 and Shift+F6 go to the next or last part, and
+ * Ctrl or Cmd with Z, Shift+Z or Y undo or redo on the sheet.
+ */
+export type PageKeyFromInteractive = 'leave' | 'nextPart' | 'previousPart' | 'undo' | 'redo';
 
 /**
  * What the page tells an interactive's frame over its port. `answered` is the number of the last write the page has
@@ -24,12 +27,16 @@ export type PageToInteractive =
 
 /**
  * What an interactive's frame tells the page. `pressed` comes at once on the person's own press, before the write it
- * may cause; `nth` counts the frame's writes from 1.
+ * may cause; `nth` counts the frame's writes from 1, and `press` counts the person's presses in the frame, so writes
+ * of one press are undone together. `cellsOffered` comes once the interactive shows a cell that can be shown in the
+ * formula bar, and `cellShown` when the person asks to see one.
  */
 export type InteractiveToPage =
   | { kind: 'here' }
   | { kind: 'keyboardLost' }
   | { kind: 'pressed'; at: number }
   | { kind: 'keyForPage'; key: PageKeyFromInteractive }
-  | { kind: 'write'; cells: InteractiveRawWrite[]; nth: number }
+  | { kind: 'cellsOffered' }
+  | { kind: 'cellShown'; input: string; row: number; column: number }
+  | { kind: 'write'; cells: InteractiveRawWrite[]; nth: number; press: number }
   | FrameToPage;

@@ -14,8 +14,30 @@ import type {
   HeldContent,
   VersionsReadOutcome,
 } from '../state/event-reducer.ts';
-export function versionsRequest(before: { firstRevision: number } | null, limit: number = VERSIONS_PAGE_SIZE): StoreCall {
-  return { route: 'read', request: { kind: 'versions', limit, ...(before !== null && { before: before.firstRevision }) } };
+/** Where a page of versions starts: before the first edit of the oldest version already listed. */
+export type VersionsBefore = Pick<WorkbookVersion, 'firstRevision' | 'firstSeq'>;
+
+export function versionsRequest(before: VersionsBefore | null, limit: number = VERSIONS_PAGE_SIZE): StoreCall {
+  return { route: 'read', request: { kind: 'versions', limit, ...(before !== null && { before: before.firstRevision, beforeSeq: before.firstSeq }) } };
+}
+
+/** The versions with each one's changes, to write the summaries of versions from. */
+export function versionsWithChangesRequest(before: VersionsBefore | null, limit: number = VERSIONS_PAGE_SIZE): StoreCall {
+  return { route: 'read', request: { kind: 'versionsWithChanges', limit, ...(before !== null && { before: before.firstRevision, beforeSeq: before.firstSeq }) } };
+}
+/** Names a version (an empty name takes the name away). */
+export function setVersionNameRequest(revision: number, name: string): StoreCall {
+  return { route: 'send', request: { kind: 'setVersionName', revision, name } };
+}
+/** What came of naming a version. */
+export type VersionNameOutcome = 'saved' | 'noAnswer' | 'tooManyNames' | 'busy' | 'refused';
+
+export function versionNameOutcome(outcome: StoreOutcome): VersionNameOutcome {
+  let failure = classifyStoreFailure(outcome);
+  if (failure === null) return answerOf(outcome)?.kind === 'versionNamed' ? 'saved' : 'noAnswer';
+  if (failure.word === 'tooManyVersionNames') return 'tooManyNames';
+  let why = historyFailureWhy(failure);
+  return why === 'busy' || why === 'noAnswer' ? why : 'refused';
 }
 
 /** The edits asked for to take back; the same as the effect's. */
@@ -53,25 +75,58 @@ export function parseEditAuthor(actor: unknown): EditAuthor | null {
 export interface WorkbookVersion {
   revision: number;
   firstRevision: number;
+  /** Where its first edit stands in the store's log; the next page of versions starts before it. */
+  firstSeq: number;
   atMs: number;
   authors: EditAuthor[];
+  /** The name it was given in the history pane. */
+  name?: string;
 }
 
 export function parseVersionRow(row: unknown): WorkbookVersion | null {
   if (!isRecord(row)) return null;
-  let { revision, firstRevision, at: atStored, authors } = row;
+  let { revision, firstRevision, firstSeq, at: atStored, authors, name } = row;
   let atMs = typeof atStored === 'string' ? Date.parse(atStored) : Number.NaN;
-  if (!isUint32(revision) || !isUint32(firstRevision)) return null;
+  if (!isUint32(revision) || !isUint32(firstRevision) || !isUint32(firstSeq)) return null;
   if (firstRevision < 1 || firstRevision > revision || Number.isNaN(atMs)) return null;
   return {
     revision,
     firstRevision,
+    firstSeq,
     atMs,
     authors: dedupeAgentAuthors(
       asArrayOrEmpty(authors)
         .map(parseEditAuthor)
         .filter((author) => author !== null),
     ),
+    ...(typeof name === 'string' && {
+      name,
+    }),
+  };
+}
+/** A version with its changes, as the summaries of versions are written from. */
+export interface VersionWithChanges {
+  revision: number;
+  firstRevision: number;
+  changes: unknown;
+}
+/** The versions with their changes, or why they were not read. */
+export type VersionsWithChangesOutcome = { kind: 'read'; versions: VersionWithChanges[] } | { kind: 'notRead'; why: HistoryWhy };
+
+export function readVersionsWithChanges(outcome: StoreOutcome): VersionsWithChangesOutcome {
+  let read = readVersions(outcome);
+  if (read.kind === 'notRead') return read;
+  let rows = asArrayOrEmpty((answerOf(outcome) ?? {}).rows);
+  return {
+    kind: 'read',
+    versions: read.versions.map(({ revision, firstRevision }, index) => {
+      let row = rows[index];
+      return {
+        revision,
+        firstRevision,
+        changes: isRecord(row) ? row.content : undefined,
+      };
+    }),
   };
 }
 export function readVersions(outcome: StoreOutcome): VersionsReadOutcome {

@@ -1,5 +1,8 @@
 import { Menu } from '../kit/menu.tsx';
 import { ShimmerText } from '../kit/shimmer-text.tsx';
+import { WordsWhileAgentWorks } from '../kit/agent-mark.tsx';
+import { enterToGoToChatLabel, goToChatInsteadWords, GoToChatInstead } from './conditional/ask-box.tsx';
+import type { ChatInsteadWords } from './conditional/ask-box.tsx';
 import { useUiWindow } from '../kit/theme.tsx';
 import { parseSingleShortcut } from '../kit/shortcut.tsx';
 import * as React from 'react';
@@ -88,6 +91,11 @@ export function formatWritingProblemText(why: WhyAgentCameToNothing): string {
         defaultMessage: 'Couldn’t turn that into a format. Try other words.',
         id: '4wKXsuLlqF',
       });
+    case 'beyondFormats':
+      return translateMessage({
+        defaultMessage: 'This only changes how a cell’s own value looks.',
+        id: 'Garpt5wy3f',
+      });
     case 'callFailed':
       return translateMessage({
         defaultMessage: 'Couldn’t write a format. Try again.',
@@ -129,21 +137,30 @@ export function useOfferTakesEnter(isOfferSaid: boolean) {
   }, [isOfferSaid]);
   return isOfferSaid && isReady;
 }
+/** What Enter does in the format field while the agent's row shows. */
+export function enterActOfFormatStage(stage: CustomFormatStage | null, canGoToChat: boolean): 'asks' | 'nothing' | 'goesToChat' | 'applies' {
+  if (stage?.kind === 'offered') return 'asks';
+  if (stage?.kind === 'asked') return 'nothing';
+  return stage?.why === 'beyondFormats' && canGoToChat ? 'goesToChat' : 'applies';
+}
 export interface CustomFormatAgentRowProps {
   id: string;
   stage: CustomFormatStage;
   onAgentAsked: () => void;
   onStopped: () => void;
+  onTakenToChat: (() => void) | null;
 }
-export function CustomFormatAgentRow({ id, stage, onAgentAsked, onStopped }: CustomFormatAgentRowProps) {
+export function CustomFormatAgentRow({ id, stage, onAgentAsked, onStopped, onTakenToChat }: CustomFormatAgentRowProps) {
   if (stage.kind === 'cameToNothing')
-    return <p id={id} className={`sheet-line-under-field box-content min-h-[1lh] text-footnote ${stage.why === 'noFormat' ? 'text-danger' : 'text-secondary'}`}>{formatWritingProblemText(stage.why)}</p>;
+    return <p id={id} className={`sheet-line-under-field box-content min-h-[1lh] text-footnote ${stage.why === 'noFormat' ? 'text-danger' : 'text-secondary'}`}>{stage.why === 'beyondFormats' && onTakenToChat !== null
+        ? <GoToChatInstead {...chatInsteadForFormats()} onTaken={onTakenToChat} />
+        : formatWritingProblemText(stage.why)}</p>;
   let isOffered = stage.kind === 'offered';
   let hasCallFailed = isOffered && stage.hasCallFailed;
   let offerText = hasCallFailed ? formatWritingProblemText('callFailed') : writeThisFormatLabel();
   return <button id={id} type="button" tabIndex={-1} className={`sheet-line-under-field flex w-full cursor-default items-start gap-1.5 text-start text-footnote text-primary *:min-h-[1lh] ${isOffered ? 'sheet-line-under-enter' : ''}`} onMouseDown={(event) => event.preventDefault()} onClick={isOffered ? onAgentAsked : onStopped}><OfferWand kind={stage.kind} /><span className={hasCallFailed ? 'min-w-0 flex-1' : 'min-w-0 flex-1 truncate'}>{isOffered
           ? offerText
-          : <ShimmerText>{writingFormatLabel()}</ShimmerText>}</span><StopKeyHint word={stopWritingFormulaLabel()} isSmall keyInWords={escapeKeyHint()} isShown={!isOffered} /></button>;
+          : <WordsWhileAgentWorks>{writingFormatLabel()}</WordsWhileAgentWorks>}</span><StopKeyHint word={stopWritingFormulaLabel()} isSmall keyInWords={escapeKeyHint()} isShown={!isOffered} /></button>;
 }
 export interface CustomFormatAnnouncerProps {
   entry: Pick<CustomNumberFormat, 'pattern' | 'agent'>;
@@ -347,6 +364,12 @@ export const agentWroteFormatAnnouncement = (pattern: string) =>
       pattern,
     },
   );
+export const chatInsteadForFormats = (): ChatInsteadWords => ({
+  whyNotHere: formatWritingProblemText('beyondFormats'),
+  goThere: enterToGoToChatLabel(),
+});
+export const formatProblemWordsToSay = (why: Exclude<WhyAgentCameToNothing, 'callFailed'>, canGoToChat: boolean): string =>
+  why === 'beyondFormats' && canGoToChat ? goToChatInsteadWords(chatInsteadForFormats()) : formatWritingProblemText(why);
 export const withoutOfferWhenTyping = (stage: CustomFormatStage | null, isRefusalTold: boolean | undefined) =>
   isRefusalTold && stage?.kind === 'offered' ? null : stage;
 export const OFFER_ENTER_DELAY_MS = 300;

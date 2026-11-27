@@ -6,6 +6,10 @@ import { likelyHasKeyboard } from '../kit/platform.ts';
 import { Button } from '../kit/button.tsx';
 import { Icon } from '../kit/icon.tsx';
 import * as React from 'react';
+import { flushSync } from 'react-dom';
+import { isComposingKey } from '@open-artifact/ui/keys';
+import { TextInput } from '../kit/text-input.tsx';
+import { LiveAnnouncer } from '../ui/live-announcer.tsx';
 import { versionAuthorName, versionTimeText, versionHistoryMessages, versionAuthorsText, versionHistoryFailureText } from './version-text.ts';
 import { showTitleIfTextOverflows } from '../ui/card-rows.tsx';
 import { blockRepeatedEnterOrSpace } from '../ui/repeated-key-guards.ts';
@@ -14,7 +18,8 @@ import { wasFocusDroppedWith } from '../ui/focus-rescue.ts';
 import { revealInSidePane, useSidePaneCaret, focusPaneStart, useKeepCaretInView, SidePane, PaneEmptyState } from '../ui/side-pane/side-pane.tsx';
 import { LOOK_AGAIN_MAX_DELAY_MS, useStartOfToday, blankWhileAwaited } from './cell-history-popover.tsx';
 import type { VersionHistoryAct } from '../state/event-reducer.ts';
-import type { ShownAuthor, ShownVersion, ShownVersionHistory } from './version-history.ts';
+import { MOST_VERSION_NAME_LENGTH, versionKey, type ShownAuthor, type ShownVersion, type ShownVersionHistory } from './version-history.ts';
+import type { VersionSummaries, VersionSummary } from './history-reader.ts';
 
 type ActInVersionHistory = (act: VersionHistoryAct) => void;
 /** The restore offered for a version: whether it is under way, whether it is off for now, and how to start it. */
@@ -65,8 +70,12 @@ export function restoreOfVersion({
 }
 interface VersionRowProps {
   version: ShownVersion;
+  /** The summary of a version without a name, once asked for. */
+  summary: VersionSummary | null;
   nowMs: number;
   isFirst: boolean;
+  isBeingNamed: boolean;
+  canBeNamed: boolean;
   isPicked: boolean;
   isAnotherPicked: boolean;
   isRestoreInBar: boolean;
@@ -78,8 +87,9 @@ interface VersionRowProps {
   onAct: ActInVersionHistory;
 }
 export function VersionRow(props: VersionRowProps) {
-  let { version, nowMs, isFirst, onPicked, onMenuOpenChange } = props;
-  let { atMs, authors, firstRevision, isCurrent } = version;
+  let { version, nowMs, isFirst, isBeingNamed, onPicked, onMenuOpenChange, onAct } = props;
+  let { summary } = props;
+  let { atMs, authors, firstRevision, isCurrent, name } = version;
   const restore = restoreOfVersion(props);
   const isExpanded = props.isPicked && restore !== null;
   let menuTriggerId = React.useId();
@@ -88,6 +98,26 @@ export function VersionRow(props: VersionRowProps) {
   let changeMenuOpen = (isOpen: boolean) => {
     setMenuOpen(isOpen);
     onMenuOpenChange(firstRevision, isOpen);
+  };
+  let rowRef = React.useRef<HTMLLIElement | null>(null);
+  // Typing a name ends with the name typed (null: left as it was); after Enter or Escape the caret goes back to the row's menu button.
+  let endName = (typed: string | null, isByKey: boolean): void => {
+    let action: VersionHistoryAct =
+      typed === null || typed === (name ?? '')
+        ? {
+            kind: 'leaveName',
+          }
+        : {
+            kind: 'setName',
+            of: firstRevision,
+            typed,
+          };
+    if (!isByKey) return onAct(action);
+    flushSync(() => onAct(action));
+    rowRef.current?.querySelector('button')?.focus({
+      preventScroll: true,
+    });
+    return;
   };
   let unpickIfCurrent = React.useEffectEvent(() => {
     if (props.isPicked)
@@ -98,34 +128,89 @@ export function VersionRow(props: VersionRowProps) {
   React.useEffect(() => {
     if (isCurrent) unpickIfCurrent();
   }, [isCurrent]);
-  let rowContents = <><span className="relative block text-body text-primary tabular-nums">{versionTimeText(atMs, nowMs)}{isCurrent && ' '}{isCurrent &&
-            <span className="ms-xs text-caption text-secondary">{versionHistoryMessages.currentVersion()}</span>}</span><span className="relative mt-1 flex min-h-4 min-w-0 items-start gap-1.5 text-caption leading-4 text-secondary"><VersionAuthorAvatars authors={authors} /><span className={isExpanded || isCurrent ? 'min-w-0 wrap-anywhere' : 'truncate'} onPointerEnter={showTitleIfTextOverflows}>{versionAuthorsText(authors)}</span></span></>;
-  return <li {...{
+  let rowContents = <>{name !== null &&
+        !isBeingNamed &&
+        <span className="relative block pe-6 text-body font-medium wrap-anywhere text-primary">{name}{' '}</span>}<span className={`relative block tabular-nums ${name !== null || isBeingNamed ? 'mt-1 text-caption text-secondary' : 'text-body text-primary'}`}>{versionTimeText(atMs, nowMs)}{isCurrent && ' '}{isCurrent &&
+            <span className="ms-xs text-caption text-secondary">{versionHistoryMessages.currentVersion()}</span>}</span>{summary?.kind === 'awaited' &&
+        !isBeingNamed &&
+        <span className="mt-1 flex min-h-[1lh] items-center text-caption"><Skeleton as="span" decorative width="70%" /></span>}{summary?.kind === 'written' &&
+        !isBeingNamed &&
+        <span className={`relative mt-1 block text-caption text-primary ${isExpanded || isCurrent ? 'wrap-anywhere' : 'truncate'}`} onPointerEnter={showTitleIfTextOverflows}><span className="sr-only">{versionHistoryMessages.summaryByAgent()}{' '}</span><bdi>{summary.text}</bdi>{' '}</span>}<span className="relative mt-1 flex min-h-4 min-w-0 items-start gap-1.5 text-caption leading-4 text-secondary"><VersionAuthorAvatars authors={authors} /><span className={isExpanded || isCurrent ? 'min-w-0 wrap-anywhere' : 'truncate'} onPointerEnter={showTitleIfTextOverflows}>{versionAuthorsText(authors)}</span></span></>;
+  return <li ref={rowRef} onKeyDownCapture={(event) => event.key === 'Enter' && blockRepeatedEnterOrSpace(event)} {...{
       [VERSION_ROW_ATTRIBUTE]: firstRevision,
-    }} className={`group/version relative px-sm py-0.5 focus-visible:outline-hidden ${isFirst || isExpanded ? '' : 'before:absolute before:inset-x-4 before:top-0 before:h-px before:bg-alpha-1 hover:before:hidden has-focus-visible:before:hidden'}`}><div className={isExpanded ? 'rounded-lg bg-fill-ghost-hover outline-1 -outline-offset-1 outline-transparent' : undefined}><div className={`relative flex rounded-lg py-2.5 ps-sm pe-sm -outline-offset-2 outline-transparent group-focus-visible/version:shadow-focus group-focus-visible/version:outline-2 has-[>[data-picks-version]:focus-visible]:shadow-focus has-[>[data-picks-version]:focus-visible]:outline-2 ${isExpanded || isCurrent ? '' : 'group-hover/version:bg-fill-ghost-hover'}`}>{restore === null && props.isAnotherPicked
-              ? (<button type="button" {...{
-                    [PICKS_VERSION_ATTRIBUTE]: true,
-                  }} className="min-w-0 flex-1 cursor-(--ui-cursor-interactive) text-start outline-none before:absolute before:inset-0" onKeyDown={blockRepeatedEnterOrSpace} onClick={() => onPicked(false)}>{rowContents}</button>)
-              : restore === null
-                ? <div className="min-w-0 flex-1">{rowContents}</div>
-                : (<button type="button" {...{
+    }} className={`group/version relative px-sm py-0.5 focus-visible:outline-hidden ${isFirst || isExpanded ? '' : 'before:absolute before:inset-x-4 before:top-0 before:h-px before:bg-alpha-1 hover:before:hidden has-focus-visible:before:hidden'}`}><div className={isExpanded ? 'rounded-lg bg-fill-ghost-hover outline-1 -outline-offset-1 outline-transparent' : undefined}><div role="presentation" onContextMenu={(event) => {
+            if (isBeingNamed) return;
+            event.preventDefault();
+            changeMenuOpen(true);
+          }} className={`relative flex rounded-lg py-2.5 ps-sm pe-sm -outline-offset-2 outline-transparent group-focus-visible/version:shadow-focus group-focus-visible/version:outline-2 has-[>[data-picks-version]:focus-visible]:shadow-focus has-[>[data-picks-version]:focus-visible]:outline-2 ${isExpanded || isCurrent ? '' : 'group-hover/version:bg-fill-ghost-hover'}`}>{isBeingNamed
+              ? <div className="min-w-0 flex-1"><VersionNameInput name={name} offered={summary?.kind === 'written' ? summary.text : null} onEnd={endName} />{rowContents}</div>
+              : restore === null && props.isAnotherPicked
+                ? (<button type="button" {...{
                       [PICKS_VERSION_ATTRIBUTE]: true,
-                    }} aria-expanded={isExpanded} aria-controls={isExpanded ? menuTriggerId : undefined} className="min-w-0 flex-1 cursor-(--ui-cursor-interactive) text-start outline-none before:absolute before:inset-0" onContextMenu={(event) => {
-                      if (isRestoreInRow) return;
-                      event.preventDefault();
-                      changeMenuOpen(true);
-                    }} onKeyDown={blockRepeatedEnterOrSpace} onClick={(event) => {
-                      swallowRestOfPress(event);
-                      onPicked(!isExpanded);
-                    }}>{rowContents}</button>)}{restore !== null &&
-              !isRestoreInRow &&
-              <VersionRowMenu id={menuTriggerId} restore={restore} isRowPicked={isExpanded} isOpen={isMenuOpen} onOpenChange={changeMenuOpen} whatHasCaretAfter={props.whatHasCaretAfter} wasPointerPressedLast={props.wasPointerPressedLast} />}</div>{isRestoreInRow &&
+                    }} className="min-w-0 flex-1 cursor-(--ui-cursor-interactive) text-start outline-none before:absolute before:inset-0" onKeyDown={blockRepeatedEnterOrSpace} onClick={() => onPicked(false)}>{rowContents}</button>)
+                : restore === null
+                  ? <div className="min-w-0 flex-1">{rowContents}</div>
+                  : (<button type="button" {...{
+                        [PICKS_VERSION_ATTRIBUTE]: true,
+                      }} aria-expanded={isExpanded} aria-controls={isExpanded ? menuTriggerId : undefined} className="min-w-0 flex-1 cursor-(--ui-cursor-interactive) text-start outline-none before:absolute before:inset-0" onKeyDown={blockRepeatedEnterOrSpace} onClick={(event) => {
+                        swallowRestOfPress(event);
+                        onPicked(!isExpanded);
+                      }}>{rowContents}</button>)}{!isBeingNamed &&
+              <VersionRowMenu id={isRestoreInRow ? undefined : menuTriggerId} restore={isRestoreInRow ? null : restore} isNamed={name !== null} canBeNamed={props.canBeNamed} onNameAsked={() => {
+                  changeMenuOpen(false);
+                  onAct({
+                    kind: 'beginName',
+                    of: firstRevision,
+                  });
+                }} onNameRemoved={() =>
+                  onAct({
+                    kind: 'setName',
+                    of: firstRevision,
+                    typed: '',
+                  })} isAlwaysShown={isExpanded || isCurrent} isOpen={isMenuOpen} onOpenChange={changeMenuOpen} whatHasCaretAfter={props.whatHasCaretAfter} wasPointerPressedLast={props.wasPointerPressedLast} />}</div>{isRestoreInRow &&
           <div id={menuTriggerId} className="flex px-sm pb-2"><Button variant="secondary" size="xs" busy={restore.isBusy} disabled={restore.isOff} onClick={restore.go}>{versionHistoryMessages.restore()}</Button></div>}</div></li>;
 }
+interface VersionNameInputProps {
+  name: string | null;
+  /** The summary on offer as a name, if any. */
+  offered: string | null;
+  onEnd: (typed: string | null, isByKey: boolean) => void;
+}
+// The field a version's name is typed in; it starts with the name, else the summary on offer, and ends once (Enter, Escape or leaving it).
+export function VersionNameInput({ name, offered, onEnd }: VersionNameInputProps) {
+  let inputRef = React.useRef<HTMLInputElement | null>(null);
+  let [startingText] = React.useState(name ?? offered ?? '');
+  let hasEnded = React.useRef(false);
+  let end = (...ended: Parameters<VersionNameInputProps['onEnd']>) => {
+    if (hasEnded.current) return;
+    hasEnded.current = true;
+    onEnd(...ended);
+  };
+  React.useEffect(() => {
+    inputRef.current?.focus({
+      preventScroll: true,
+    });
+    inputRef.current?.select();
+  }, []);
+  return <TextInput ref={inputRef} fullWidth size="sm" aria-label={versionHistoryMessages.versionName()} placeholder={versionHistoryMessages.versionName()} autoComplete="off" maxLength={MOST_VERSION_NAME_LENGTH} defaultValue={startingText} onBlur={({ currentTarget: input }) => {
+      if (input.ownerDocument.activeElement !== input) end(input.value === startingText ? null : input.value, false);
+    }} onKeyDown={(event) => {
+      if (isComposingKey(event.nativeEvent)) return;
+      if (event.key !== 'Enter' && event.key !== 'Escape') return;
+      event.preventDefault();
+      event.stopPropagation();
+      end(event.key === 'Enter' ? event.currentTarget.value : null, true);
+    }} />;
+}
 interface VersionRowMenuProps {
-  id: string;
-  restore: VersionRestore;
-  isRowPicked: boolean;
+  id: string | undefined;
+  restore: VersionRestore | null;
+  isNamed: boolean;
+  canBeNamed: boolean;
+  onNameAsked: () => void;
+  onNameRemoved: () => void;
+  /** Whether the menu's button shows without the row being hovered. */
+  isAlwaysShown: boolean;
   isOpen: boolean;
   onOpenChange: (isOpen: boolean) => void;
   whatHasCaretAfter: () => HTMLElement | false;
@@ -134,7 +219,11 @@ interface VersionRowMenuProps {
 export function VersionRowMenu({
   id,
   restore,
-  isRowPicked,
+  isNamed,
+  canBeNamed,
+  onNameAsked,
+  onNameRemoved,
+  isAlwaysShown,
   isOpen,
   onOpenChange,
   whatHasCaretAfter,
@@ -142,6 +231,7 @@ export function VersionRowMenu({
 }: VersionRowMenuProps) {
   let triggerRef = React.useRef<HTMLElement | null>(null);
   let isOpenRef = React.useRef(isOpen);
+  let isNamingAsked = React.useRef(false);
   let [isTriggerShown, setTriggerShown] = React.useState(false);
   if (isOpen && !isTriggerShown) setTriggerShown(true);
   let closeOnUnmount = React.useEffectEvent(() => onOpenChange(false));
@@ -154,12 +244,21 @@ export function VersionRowMenu({
       setTimeout(() => {
         if (triggerRef.current?.ownerDocument.activeElement !== triggerRef.current) setTriggerShown(false);
       });
-    }}><Menu.Trigger render={<Button ref={triggerRef} id={id} variant="ghost" size="xs" iconOnly icon={<Icon name="DotsHorizontal" size="sm" />} aria-label={versionHistoryMessages.moreActions()} busy={restore.isBusy} className={`absolute end-2 top-2 text-secondary ${isTriggerShown || isRowPicked || restore.isBusy ? '' : 'invisible group-hover/version:visible'}`} onFocus={() => setTriggerShown(true)} onBlur={() => {
+    }}><Menu.Trigger render={<Button ref={triggerRef} id={id} variant="ghost" size="xs" iconOnly icon={<Icon name="DotsHorizontal" size="sm" />} aria-label={versionHistoryMessages.moreActions()} busy={restore?.isBusy === true} className={`absolute end-2 top-2 text-secondary ${isTriggerShown || isAlwaysShown || restore?.isBusy === true ? '' : 'invisible group-hover/version:visible'}`} onFocus={() => setTriggerShown(true)} onBlur={() => {
             if (!isOpenRef.current) setTriggerShown(false);
-          }} />} /><Menu.Popup align="end" finalFocus={() => (wasPointerPressedLast() ? whatHasCaretAfter() : true)} onKeyDownCapture={blockRepeatedEnterOrSpace}><Menu.Item disabled={restore.isOff || restore.isBusy} onClick={(event) => {
+          }} />} /><Menu.Popup align="end" finalFocus={() => (isNamingAsked.current ? false : wasPointerPressedLast() ? whatHasCaretAfter() : true)} onKeyDownCapture={blockRepeatedEnterOrSpace}>{restore !== null &&
+          <Menu.Item disabled={restore.isOff || restore.isBusy} onClick={(event) => {
+              swallowRestOfPress(event);
+              restore.go();
+            }}>{versionHistoryMessages.restore()}</Menu.Item>}<Menu.Item disabled={!canBeNamed} onClick={(event) => {
             swallowRestOfPress(event);
-            restore.go();
-          }}>{versionHistoryMessages.restore()}</Menu.Item></Menu.Popup></Menu.Root>;
+            isNamingAsked.current = true;
+            onNameAsked();
+          }}>{isNamed ? versionHistoryMessages.renameVersion() : versionHistoryMessages.nameVersion()}</Menu.Item>{isNamed &&
+          <Menu.Item disabled={!canBeNamed} onClick={(event) => {
+              swallowRestOfPress(event);
+              onNameRemoved();
+            }}>{versionHistoryMessages.removeName()}</Menu.Item>}</Menu.Popup></Menu.Root>;
 }
 export function VersionListSkeleton() {
   return <SkeletonGroup label={versionHistoryMessages.loading()} className="flex flex-col gap-5 py-5 ps-lg pe-md">{VERSION_SKELETON_ROWS.map(
@@ -225,12 +324,21 @@ export const VERSION_AUTHOR_AVATAR_LIMIT = 3;
 export const VERSION_SKELETON_ROWS = [0, 1, 2, 3];
 export const VERSION_ROW_ATTRIBUTE = 'data-row-of-version';
 export const PICKS_VERSION_ATTRIBUTE = 'data-picks-version';
+export const NO_SUMMARIES: ReadonlyMap<string, VersionSummary> = new Map();
+export const NO_SUMMARIES_STORE: SummariesOfPane = {
+  now: () => NO_SUMMARIES,
+  onChanged: () => () => {},
+};
 export const wasPointerUsedWithKeyboard = (wasPointerPressedLast?: () => boolean): boolean =>
   wasPointerPressedLast?.() === true && likelyHasKeyboard();
 export const isHoveredByMouse = (element: Element | null): boolean =>
   element?.matches(':hover') === true && element.ownerDocument.defaultView?.matchMedia('(hover:hover)').matches === true;
+/** The summaries the pane shows, and word when they change. */
+type SummariesOfPane = Pick<VersionSummaries, 'now' | 'onChanged'>;
 interface VersionHistoryPaneProps {
   history: ShownVersionHistory | null;
+  /** The summaries of unnamed versions, when the agent may write them. */
+  summaries?: SummariesOfPane;
   timesAsked: number;
   paneRef: React.RefObject<HTMLElement | null>;
   takesNoTyping: boolean;
@@ -284,6 +392,7 @@ export const VersionHistoryPane = React.memo(function (props: VersionHistoryPane
     if (isOpen) openMenuRowRef.current = revision;
     else if (openMenuRowRef.current === revision) openMenuRowRef.current = null;
   }, []);
+  let isNameBeingTyped = (versionHistory?.nameTypedFor ?? null) !== null;
   let behindAtChangeCount = versionHistory?.behindAtChangeCount ?? null;
   React.useEffect(() => {
     if (behindAtChangeCount === null) return;
@@ -307,8 +416,12 @@ export const VersionHistoryPane = React.memo(function (props: VersionHistoryPane
     let pickedRow = paneRef.current?.querySelector(`[${VERSION_ROW_ATTRIBUTE}="${pickedRevision}"]`);
     if (pickedRow !== null && pickedRow !== undefined) revealInSidePane(paneRef.current, pickedRow);
   }, [pickedRevision, paneRef]);
+  let { now: summariesNow, onChanged: onSummariesChanged } = props.summaries ?? NO_SUMMARIES_STORE;
+  let summaries = React.useSyncExternalStore(onSummariesChanged, summariesNow, summariesNow);
   if (versionHistory === null) return null;
   let { versions, whyNotRead, isTakingBack } = versionHistory;
+  let summaryOf = (version: ShownVersion): VersionSummary | null => (version.name === null ? (summaries.get(versionKey(version)) ?? null) : null);
+  let summaryKinds = new Set(versions?.map((version) => summaryOf(version)?.kind));
   let whyNotWords = whyNotRead === null ? null : versionHistoryFailureText(whyNotRead);
   return <SidePane ref={paneRef} title={versionHistoryMessages.title()} takesNoTyping={props.takesNoTyping} width={props.paneWidth} onWidthChange={props.onPaneWidthChange} onClose={props.onShut} onKeyDown={(event: React.KeyboardEvent) => {
       if (event.key === 'Escape' && pickedRevision !== null) {
@@ -319,16 +432,17 @@ export const VersionHistoryPane = React.memo(function (props: VersionHistoryPane
       }
       return props.onKeyDownInPane(event);
     }} onPressed={() => {
-      if (openMenuRowRef.current === null) props.onPressed();
+      if (openMenuRowRef.current === null && !isNameBeingTyped) props.onPressed();
     }} wasPointerPressedLast={wasPointerPressedLast}>{versions === null && whyNotWords === null && <VersionListSkeleton />}{versions === null &&
         (<PaneEmptyState isSaid title={versionHistory.awaited === null ? (whyNotWords?.title ?? '') : blankWhileAwaited(whyNotWords?.title)} hint={versionHistory.awaited === null ? (whyNotWords?.hint ?? '') : blankWhileAwaited(whyNotWords?.hint)} action={whyNotWords?.canTryAgain === true &&
             (<Button {...focusKeepingProps} variant="secondary" size="sm" busy={versionHistory.awaited !== null} busyLabel={versionHistoryMessages.loading()} onClick={() =>
                 onAct({
                   kind: 'tryAgain',
-                })}>{versionHistoryMessages.tryAgain()}</Button>)} />)}{versions !== null &&
+                })}>{versionHistoryMessages.tryAgain()}</Button>)} />)}{(summaryKinds.has('written') || summaryKinds.has('awaited')) &&
+        <p className="shrink-0 ps-lg pe-md pt-md text-caption text-secondary">{versionHistoryMessages.noteOnSummaries()}</p>}<LiveAnnouncer words={summaryKinds.has('awaited') ? versionHistoryMessages.loadingSummaries() : ''} />{versions !== null &&
         (<ul className="flex min-w-0 shrink-0 flex-col py-3">{versions.map(
             (version, index) =>
-              (<VersionRow key={version.firstRevision} version={version} nowMs={todayMs} isFirst={index === 0} isPicked={pickedRevision === version.firstRevision} isAnotherPicked={pickedRevision !== null && pickedRevision !== version.firstRevision} isRestoreInBar={props.isRestoreInBar} isTakingBack={isTakingBack} onPicked={(isPicked) =>
+              (<VersionRow key={version.firstRevision} version={version} summary={summaryOf(version)} nowMs={todayMs} isFirst={index === 0} isPicked={pickedRevision === version.firstRevision} isAnotherPicked={pickedRevision !== null && pickedRevision !== version.firstRevision} isRestoreInBar={props.isRestoreInBar} isTakingBack={isTakingBack} onPicked={(isPicked) =>
                     onAct(
                       isPicked
                         ? {
@@ -341,7 +455,7 @@ export const VersionHistoryPane = React.memo(function (props: VersionHistoryPane
                               isByPointer: true,
                             }),
                           },
-                    )} onMenuOpenChange={onRowMenuOpenChange} whatHasCaretAfter={whatHasCaretAfter} wasPointerPressedLast={wasPointerPressedLast} onAct={onAct} />),
+                    )} isBeingNamed={versionHistory.nameTypedFor === version.firstRevision} canBeNamed={versionHistory.canBeNamed} onMenuOpenChange={onRowMenuOpenChange} whatHasCaretAfter={whatHasCaretAfter} wasPointerPressedLast={wasPointerPressedLast} onAct={onAct} />),
           )}</ul>)}{versions !== null &&
         (whyNotWords !== null || versionHistory.hasOlder) &&
         (<div className={`flex shrink-0 flex-col items-start border-t border-alpha-2 py-md ps-lg pe-md ${whyNotWords?.canTryAgain === true ? 'gap-sm' : ''}`}><output className={`text-footnote text-secondary ${whyNotWords?.canTryAgain === true ? 'min-h-[1lh]' : ''}`}>{whyNotWords !== null && !isAwaitingOlder && versionHistoryMessages.olderVersionsNotLoaded()}</output>{whyNotWords?.canTryAgain !== false &&

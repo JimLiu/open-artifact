@@ -32,7 +32,7 @@ export type SheetsCommand = (typeof SHEETS_COMMANDS)[number];
 export const SHEET_ACTIONS = [
   {
     name: 'read',
-    title: 'A read of the workbook: readSheets (the default), readCells, readCellFormats, readConditionalFormats, readCharts, readInteractive; or showGuide, a walkthrough for the owner\'s open page',
+    title: 'A read of the workbook: readSheets (the default), readCells, readCellFormats, readConditionalFormats, readCharts, readInteractive, readCellsChangedFromTheirDefaults, readNamedRanges; or showGuide, a walkthrough for the owner\'s open page',
     effect: 'read',
     schema: { type: 'object', properties: { payload: { type: 'object' }, at: { type: 'integer', description: 'A revision to read at.' } } },
   },

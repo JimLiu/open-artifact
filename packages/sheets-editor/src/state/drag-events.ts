@@ -31,8 +31,21 @@ export function eventEffectOnDrag(message: PageEvent): EffectOnDrag {
     case 'conditionalFormatsActedIn':
     case 'sortPaneAsked':
     case 'sortPaneActedIn':
+    case 'namedRangesAsked':
+    case 'namedRangesPaneActedIn':
+    case 'defaultAndLimitsAsked':
+    case 'defaultAndLimitsChosen':
+    case 'saveAsDefaultChosen':
+    case 'resetToDefaultChosen':
+    case 'changedCellsAsked':
+    case 'changedCellsPaneActedIn':
     case 'pivotTableAsked':
     case 'pivotTableUpdateAsked':
+    case 'refreshAsked':
+    case 'callToConfirmAnswered':
+    case 'refreshAnswered':
+    case 'refusalOfRefreshSentAway':
+    case 'sourcePaneToggled':
     case 'pivotTablePaneActedIn':
     case 'agentRepliedAboutConditionalFormats':
     case 'agentForConditionalFormatsChecked':
@@ -40,6 +53,7 @@ export function eventEffectOnDrag(message: PageEvent): EffectOnDrag {
     case 'versionsLookedAtAgain':
     case 'versionsRead':
     case 'versionLookedAt':
+    case 'nameOfVersionSet':
     case 'versionHistoryCarriedOn':
     case 'editsThatTakeBackRead':
     case 'takeBackAnswered':
@@ -101,6 +115,7 @@ export function eventEffectOnDrag(message: PageEvent): EffectOnDrag {
     case 'offersUnderAtRead':
     case 'peopleLookedUp':
     case 'viewerFound':
+    case 'personTold':
     case 'selectionsOfOthersChanged':
     case 'tablesRead':
     case 'borderPenChanged':
@@ -172,6 +187,9 @@ export function eventEffectOnDrag(message: PageEvent): EffectOnDrag {
     case 'ownFilterAsked':
     case 'ownFilterByCellChosen':
     case 'ownFilterLineRemoved':
+    case 'columnOfConnectedTablePicked':
+    case 'cellOfConnectedTablePicked':
+    case 'columnOfConnectedTableSized':
     case 'ownSortRemoved':
     case 'ownSortMadeForEveryone':
     case 'namedViewPicked':
@@ -204,7 +222,9 @@ export function eventEffectOnDrag(message: PageEvent): EffectOnDrag {
     case 'bordersChosen':
     case 'gridlinesToggled':
     case 'interactiveWrote':
+    case 'interactiveShowedCell':
     case 'interactiveResetChosen':
+    case 'reversalInInteractiveAsked':
     case 'interactiveSaveAsDefaultChosen':
     case 'customNumberFormatTyped':
     case 'typedInListOfNumberFormats':
@@ -245,6 +265,8 @@ export function eventEffectOnDrag(message: PageEvent): EffectOnDrag {
     case 'allFunctionsAskedFor':
     case 'columnWidthChosen':
     case 'rowHeightChosen':
+    case 'protectionAsked':
+    case 'protectionChosen':
     case 'cellsToSortChosen':
     case 'figureChosen':
     case 'sheetChosen':
@@ -255,6 +277,8 @@ export function eventEffectOnDrag(message: PageEvent): EffectOnDrag {
     case 'fileToImportNotRead':
     case 'sheetDuplicateChosen':
     case 'sheetDeleteChosen':
+    case 'sheetHideChosen':
+    case 'sheetUnhideChosen':
     case 'sheetRenameChosen':
     case 'sheetMoveChosen':
     case 'sheetNameTyped':

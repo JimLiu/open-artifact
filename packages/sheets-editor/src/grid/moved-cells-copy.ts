@@ -307,8 +307,12 @@ export function drawnHeldCells(
           ];
     }),
     filterButtons: filterButtons.filter(
-      ({ headerKept, heldInView, columnIndex, cell }: FilterButtonDrawn = {} as FilterButtonDrawn) =>
-        headerKept === null && heldInView === null && cell.width > 0 && isInSpan(columnIndex, window.columns.firstIndex, window.columns.count),
+      ({ headerKept, isOfFoundTable, isOfColumnOfFoundTable, columnIndex, cell }: FilterButtonDrawn = {} as FilterButtonDrawn) =>
+        !isOfFoundTable &&
+        !isOfColumnOfFoundTable &&
+        headerKept === null &&
+        cell.width > 0 &&
+        isInSpan(columnIndex, window.columns.firstIndex, window.columns.count),
     ),
     width: held.state.gridWidth - ROW_HEADER_WIDTH - COPY_ROOM_AT_RIGHT,
     leftOfColumn: (columnIndex: number) => columnEdges.startOf(columnIndex) - held.state.scrollLeft,

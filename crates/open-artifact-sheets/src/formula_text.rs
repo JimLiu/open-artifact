@@ -20,6 +20,70 @@ fn is_space(c: char) -> bool {
     matches!(c, ' ' | '\t' | '\n' | '\u{b}' | '\u{c}' | '\r')
 }
 
+/// What a `[` starts, as a locale's separators are read or written: brackets copied as they are, up to the first `]`
+/// (a column's name: `[a,b]`, `[1.5]`), or the list of a table reference (`[[#All],[Id]]`), copied as it is but for
+/// the separators between its items, written `,` in any locale. A `[` with no `]`, or spaces and another `[` after
+/// it that make no such list, starts neither.
+pub(crate) enum Bracketed {
+    AsTheyAre { end: usize },
+    List { end: usize, separators: Vec<usize> },
+}
+
+/// What the `[` at `i` starts (see `Bracketed`). A list is of two items or three: two when the first is `[#Headers]`,
+/// `[#Data]` or `[#All]` (capitals aside), three when the first two are `[#Headers]` and `[#Data]`; the last item is
+/// any brackets, or two joined by `:`. Spaces may stand around the items, their `,` or `;`, and their `:`.
+pub(crate) fn bracketed(chars: &[char], i: usize) -> Option<Bracketed> {
+    // Not a vertical tab or a form feed, here.
+    let spaces = |mut k: usize| {
+        while chars.get(k).is_some_and(|&c| matches!(c, ' ' | '\t' | '\n' | '\r')) {
+            k += 1;
+        }
+        k
+    };
+    // One item's brackets: from its `[` to its `]`, with no `[` between.
+    let item = |k: usize| -> Option<(String, usize)> {
+        if chars.get(k) != Some(&'[') {
+            return None;
+        }
+        let close = k + 1 + chars[k + 1..].iter().position(|&c| c == ']' || c == '[')?;
+        (chars[close] == ']').then(|| (chars[k + 1..close].iter().collect(), close + 1))
+    };
+    let k = spaces(i + 1);
+    if chars.get(k) != Some(&'[') {
+        let close = i + 1 + chars[i + 1..].iter().position(|&c| c == ']')?;
+        return Some(Bracketed::AsTheyAre { end: close + 1 });
+    }
+    let (mut items, mut separators, mut k) = (Vec::new(), Vec::new(), k);
+    let end = loop {
+        let (text, next) = item(k)?;
+        let after = spaces(next);
+        let (next, is_range) = match chars.get(after) {
+            Some(':') => (item(spaces(after + 1))?.1, true),
+            _ => (next, false),
+        };
+        items.push((text, is_range));
+        k = spaces(next);
+        match chars.get(k)? {
+            ',' | ';' => {
+                separators.push(k);
+                k = spaces(k + 1);
+            }
+            ']' => break k + 1,
+            _ => return None,
+        }
+    };
+    let keyword = |n: usize, words: &[&str]| {
+        let (text, is_range) = &items[n];
+        !is_range && words.iter().any(|w| text.eq_ignore_ascii_case(w))
+    };
+    let is_list = match items.len() {
+        2 => keyword(0, &["#Headers", "#Data", "#All"]),
+        3 => keyword(0, &["#Headers"]) && keyword(1, &["#Data"]),
+        _ => false,
+    };
+    is_list.then_some(Bracketed::List { end, separators })
+}
+
 /// The formula text written the locale's way.
 pub fn in_locale(text: &str, locale: &Locale) -> String {
     if locale.decimal_sign == DecimalSign::Point {
@@ -72,6 +136,10 @@ pub fn in_locale(text: &str, locale: &Locale) -> String {
                 i += 1;
                 after_value = false;
             }
+            '[' if bracketed(&chars, i).is_some() => {
+                i = copy_bracketed(&chars, i, &mut out);
+                after_value = true;
+            }
             '{' => {
                 in_braces = true;
                 out.push(c);
@@ -84,7 +152,7 @@ pub fn in_locale(text: &str, locale: &Locale) -> String {
                 i += 1;
                 after_value = true;
             }
-            ')' | '%' | '!' => {
+            ')' | ']' | '%' | '!' => {
                 out.push(c);
                 i += 1;
                 after_value = true;
@@ -118,6 +186,21 @@ pub fn in_locale(text: &str, locale: &Locale) -> String {
         }
     }
     out
+}
+
+/// Copies what the `[` at `i` starts (`bracketed`), a list's separators as `,`: where it ends.
+pub(crate) fn copy_bracketed(chars: &[char], i: usize, out: &mut String) -> usize {
+    match bracketed(chars, i) {
+        Some(Bracketed::AsTheyAre { end }) => {
+            out.extend(&chars[i..end]);
+            end
+        }
+        Some(Bracketed::List { end, separators }) => {
+            out.extend((i..end).map(|k| if separators.contains(&k) { ',' } else { chars[k] }));
+            end
+        }
+        None => i,
+    }
 }
 
 /// Copies a number from `i` with its point as `point`: digits, a point, digits, and an exponent with digits.

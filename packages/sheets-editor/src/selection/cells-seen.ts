@@ -16,10 +16,11 @@ import { cellBlockOfSelection } from '../model/cell-blocks.ts';
 import { queueEdit, IF_QUEUED_DEFAULTS } from '../model/edit-effects.ts';
 import { isEntryWorkPending } from '../editor/unanswered-entries.ts';
 import { clearSelectedCells } from '../editor/start-entry.ts';
+import { usersOfCell } from '../model/cell-values.ts';
 /** What a cell is seen as: its control, a person, a date, a number, text, a true or false, or a value that never wraps. */
 export type SeenKindOfCell = Exclude<SeenKindOfCells, 'empty' | 'mixed'>;
 /** What the cells of a selection are seen as, and whether every cell was read. */
-export type CellsSeen = Pick<SelectionSeen, 'cellsAre' | 'isSoOfEveryCell' | 'areAllRead'>;
+export type CellsSeen = Pick<SelectionSeen, 'cellsAre' | 'isSoOfEveryCell' | 'areAllRead' | 'hasCellOfSeveralPeople'>;
 /** How cells are cleared: by a key, or from a menu with or without the keyboard. */
 export type ClearHow = 'key' | 'menu' | 'menuWithNoKeyboard';
 export function seenKindOfCell(reads: WorkbookReads, cellId: CellId): SeenKindOfCell | null {
@@ -53,6 +54,7 @@ export function cellsSeenIn(reads: WorkbookReads, sheetId: SheetId, areas: reado
   let kind: SeenKindOfCells = 'empty';
   let hasHeadingText = false;
   let [isCut, hasUnseenKind, hasSpillOrUnshownCell]: [boolean, boolean, boolean] = [false, false, false];
+  let hasCellOfSeveralPeople = false;
   let dropdownIds = new Set<string | undefined>();
   let cellsLeft = MAX_CELLS_SEEN;
   for (let { topRowIndex, leftColumnIndex, rowCount, columnCount } of areas) {
@@ -71,6 +73,7 @@ export function cellsSeenIn(reads: WorkbookReads, sheetId: SheetId, areas: reado
         hasSpillOrUnshownCell ||= reads.spilledCellOf(cellId) !== null || (cellKind === null && reads.cellOf(cellId) !== null);
         if (cellKind === null || isHeading) continue;
         if (cellKind === 'dropdown') dropdownIds.add(reads.dropdownOf(cellId)?.dropdownId);
+        hasCellOfSeveralPeople ||= cellKind === 'person' && usersOfCell(reads.cellOf(cellId)).length > 1;
         if (kind === 'empty' || kind === cellKind) kind = cellKind;
         else if (NON_WRAPPING_SEEN_KINDS.has(kind) && NON_WRAPPING_SEEN_KINDS.has(cellKind)) kind = 'neverWraps';
         else
@@ -78,6 +81,7 @@ export function cellsSeenIn(reads: WorkbookReads, sheetId: SheetId, areas: reado
             cellsAre: 'mixed',
             isSoOfEveryCell: false,
             areAllRead: false,
+            hasCellOfSeveralPeople,
           };
       }
   }
@@ -85,6 +89,7 @@ export function cellsSeenIn(reads: WorkbookReads, sheetId: SheetId, areas: reado
     cellsAre: kind === 'empty' && hasHeadingText ? 'text' : kind,
     isSoOfEveryCell: !isCut && !hasHeadingText && !hasSpillOrUnshownCell && (kind === 'empty' || !hasUnseenKind) && dropdownIds.size <= 1,
     areAllRead: !isCut,
+    hasCellOfSeveralPeople,
   };
 }
 export function removeDropdownOfSelection(state: PageState, reads: WorkbookReads, how: ClearHow | null = null): PageTransition {

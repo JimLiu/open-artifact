@@ -8,6 +8,8 @@ import type { ChartCell, ChartInputs, ChartRow } from '../chart-frame/messages.t
 export const CHART_ROWS_INPUT = 'rows';
 export const PIE_MAX_SLICES = 6;
 export const BAR_CHART_MAX_POINTS = 50;
+export const HORIZONTAL_BAR_MAX_POINTS = 12;
+export const HORIZONTAL_BAR_MAX_BARS = 36;
 export const isNumberValuedCell = (cell: ChartCell | undefined): boolean => typeof cell?.value === 'number';
 export const isYearValuedCell = (cell: ChartCell | undefined): boolean =>
   typeof cell?.value === 'number' && Number.isInteger(cell.value) && cell.value > 1800 && cell.value < 2200;
@@ -34,20 +36,22 @@ export function doesChartKindSuitRows(chartKind: StockKind, rows: readonly Chart
   );
   let fitsParts =
     numbers.every((number) => number >= 0) && numbers.filter((number) => number > 0).length > 1;
-  if (chartKind === 'pie') return numberColumns.length === 1 && fitsParts && dataRows.length <= PIE_MAX_SLICES;
-  // A stack adds up its columns: numbers down the first column are where scatter points lie, not a part to stack.
-  let isScatterShaped = !firstColumnIsLabels && dataRows.length > 1 && dataRows.every((row) => isNumberValuedCell(row[0]));
-  if (chartKind === 'stackedBar')
-    return !isScatterShaped && numberColumns.length > 1 && fitsParts && dataRows.length <= BAR_CHART_MAX_POINTS;
-  // A scatter places each row by the number in its first column: every row needs one, and another column of numbers.
-  if (chartKind === 'scatter')
-    return (
-      dataRows.length > 1 &&
-      dataRows.every((row) => isNumberValuedCell(row[0])) &&
-      numberColumns.some((columnIndex) => columnIndex > 0)
-    );
-  // bar, horizontalBar: a bar for each row; line, area: a point for each.
-  return chartKind === 'line' || chartKind === 'area' || dataRows.length <= BAR_CHART_MAX_POINTS;
+  switch (chartKind) {
+    case 'bar':
+      return dataRows.length <= BAR_CHART_MAX_POINTS;
+    case 'horizontalBar':
+      return dataRows.length <= HORIZONTAL_BAR_MAX_POINTS && dataRows.length * numberColumns.length <= HORIZONTAL_BAR_MAX_BARS;
+    case 'stackedBar':
+    case 'stackedBar100':
+      return numberColumns.length > 1 && fitsParts && dataRows.length <= BAR_CHART_MAX_POINTS;
+    case 'line':
+    case 'area':
+      return true;
+    case 'scatter':
+      return numberColumns.length === 2;
+    case 'pie':
+      return numberColumns.length === 1 && fitsParts && dataRows.length <= PIE_MAX_SLICES;
+  }
 }
 /**
  * Whether a chart drawn from these inputs can become a stock chart of this kind by the page alone, with no agent: the

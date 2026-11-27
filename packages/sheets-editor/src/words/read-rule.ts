@@ -106,7 +106,7 @@ export function readColorScaleRule(
   while (SCALE_LEAD_WORDS.has(words[start]?.plain ?? '')) start += 1;
   let scalePhraseLength = (at: number): number =>
     COLOR_SCALE_PHRASES.find((phrase) => wordsMatchAt(words, at, phrase))?.length ?? 0;
-  let columnNamedFrom = (at: number) => columnNamedAt(holds, words, at, true);
+  let columnNamedFrom = (at: number) => columnNamedAt(holds, words, at, 'evenAWord');
   let colorScaleRule = (c: ColumnId, isAboutSelected: boolean): RuleRead | null => {
     let column = holds.columns.find((eachColumn) => eachColumn.c === c);
     return column === undefined || measureOfColumn(column) === null || hasNumbersAsText(column) || isRankLikeColumn(column)
@@ -168,7 +168,7 @@ export function valueWordsOfTable(holds: TableHolds): Map<string, string[][]> {
 export function columnsNamedIn(words: readonly TypedWord[], holds: TableHolds): ColumnNamedIn[] {
   let named: ColumnNamedIn[] = [];
   for (let at = 0; at < words.length; ) {
-    let found = isUnquotedWord(words[at]) ? columnNamedAt(holds, words, at, true) : null;
+    let found = isUnquotedWord(words[at]) ? columnNamedAt(holds, words, at, 'evenAWord') : null;
     if (found !== null)
       named.push({
         c: found.column.c,
@@ -368,7 +368,7 @@ export function readRuleFromWords(typed: string, holds: TableHolds, viewerId: st
     (word) =>
       isUnquotedWord(word) &&
       RECORD_KIND_NOUNS.has(word.plain) &&
-      columnNamedAt(holds, words, word.at, true) === null &&
+      columnNamedAt(holds, words, word.at, 'evenAWord') === null &&
       isSameAsJson(readOfWords, readRuleWords(textWithout(word), holds, viewerId, situation)),
   )
     ? FORMAT_PARTS_NOT_READ

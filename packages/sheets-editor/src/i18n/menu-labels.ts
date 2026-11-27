@@ -182,17 +182,6 @@ export const editCardHeadingLabel = (option: string): string =>
       option,
     },
   );
-export const cardAndRowLabel = (card: string, row: string): string =>
-  translateMessage(
-    {
-      defaultMessage: '{card}. {row}',
-      id: 'fSKAM1cnMI',
-    },
-    {
-      card,
-      row,
-    },
-  );
 export const deleteCardHeadingLabel = (option: string): string =>
   translateMessage(
     {
@@ -207,7 +196,7 @@ export const optionPlaceInListLabel = (option: string, place: number, optionCoun
   translateMessage(
     {
       defaultMessage: '{option}, {place, number} of {optionCount, number}',
-      id: '4kKFlX4npa',
+      id: '4BZsJQ12cs',
     },
     {
       option,
@@ -215,18 +204,11 @@ export const optionPlaceInListLabel = (option: string, place: number, optionCoun
       optionCount,
     },
   );
-export const optionRightArrowToEditLabel = (option: string, place: number, optionCount: number): string =>
-  translateMessage(
-    {
-      defaultMessage: '{option}, {place, number} of {optionCount, number}. Right arrow to edit',
-      id: 'QwfwnEkvai',
-    },
-    {
-      option,
-      place,
-      optionCount,
-    },
-  );
+export const rightArrowToEditLabel = (): string =>
+  translateMessage({
+    defaultMessage: 'Right arrow to edit',
+    id: 'MX3JCC/W+m',
+  });
 export const currentColorLabel = (label: string): string =>
   translateMessage(
     {
@@ -298,6 +280,17 @@ export const cellsAddedToMessageText = (cells: string, isPauseToBeTold: boolean)
           cells,
         },
       );
+export const cellsAddedWithChatCoveredText = (cells: string): string =>
+  translateMessage(
+    {
+      defaultMessage:
+        '{cells} added to your message to Agent. Typing in the Sheet is paused. The message box is hidden behind this Sheet. Press Escape to type in the Sheet again.',
+      id: 'UFqAnSFyju',
+    },
+    {
+      cells,
+    },
+  );
 export const removeItemLabel = (item: string): string =>
   translateMessage(
     {

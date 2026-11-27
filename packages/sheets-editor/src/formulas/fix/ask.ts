@@ -1,4 +1,5 @@
-import type { DecimalSignName } from '@open-artifact/sheets-core';
+import type { DecimalSignName, Reference } from '@open-artifact/sheets-core';
+import { textNamesARange } from '../../model/reference-areas.ts';
 import { cellKeyOf, errorCodeOfCell, explainCellError } from '../error-tells.ts';
 import { findFormulaFault } from '../typed-faults.ts';
 import { isSameCell, anchorCellOf, areaOfPosition, moveActiveCellTo, activeAnchorCell } from '../../selection/model.ts';
@@ -115,7 +116,9 @@ export function fixableErrorAt(state: PageState, workbook: ReadsWithTextMeasurer
   let cell = workbook.cellOf(origin);
   if (cell?.input.kind !== 'formula' || !isFormulaShortEnoughToFix(cell.formulaText)) return null;
   if (usesFunctionAgentMayNotWrite(cell.formulaText, workbook.decimalSign) || ADDRESS_LIKE_PATTERN.test(cell.formulaText)) return null;
-  if (cell.input.formula.references.some(({ sheetId }) => sheetId !== origin.sheetId)) return null;
+  let isOwnSheetCellReference = (reference: Reference): boolean => reference.kind !== 'namedRange' && reference.sheetId === origin.sheetId;
+  let { formula } = cell.input;
+  if (!formula.references.every(isOwnSheetCellReference) || textNamesARange(workbook, formula)) return null;
   let fixThatCameToNothing = state.formulaFromWords.fixThatCameToNothing;
   if (
     fixThatCameToNothing !== null &&

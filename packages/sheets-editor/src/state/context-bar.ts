@@ -32,6 +32,7 @@ export const isSomethingOverContextBar = (state: PageState): boolean =>
   (state.menu !== null && !(state.menu.isOfContextBar === true && state.menu.holds === 'all')) ||
   state.customNumberFormat?.typedIn === 'dialog' ||
   state.pasteThatWaits !== null ||
+  state.callToConfirm !== null ||
   state.pickForWorkbook !== null ||
   state.importOfAFile !== null ||
   state.fileAwaited !== null ||
@@ -44,6 +45,7 @@ export const isPointerOrMenuEvent = (event: PageEvent): boolean =>
   event.kind === 'pointerPressed' ||
   event.kind === 'pointerDragged' ||
   event.kind === 'pointerReleased' ||
+  event.kind === 'cellOfConnectedTablePicked' ||
   (event.kind === 'menuAsked' && event.at !== null) ||
   (event.kind === 'editAnswered' && event.ifQueued.foundBy !== 'key');
 export const isMergeAnswered = (event: PageEvent): boolean =>

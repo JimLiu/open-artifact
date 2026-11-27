@@ -15,6 +15,7 @@ import { isWithinPressGuard, isWithinClickAfterUp } from './list-under-cell.tsx'
 import { clipBoxToShown } from '../grid/view-boxes.ts';
 import { EXPAND_BUTTON_SIZE } from '../editor/expanded-entry.ts';
 import { outlineBoxInBody } from '../grid/grid-drawing.tsx';
+import { cornerStyleOnTables } from '../agent/agent-at-work.tsx';
 import { shortcutKeysFor } from '../keys/shortcut-list.ts';
 import { stopEnterOrSpacePropagation } from '../tables/filter-buttons-layer.tsx';
 import { contrastingShades } from '../format/cell-colors.ts';
@@ -164,7 +165,7 @@ export function OffersAtSelectionBar({
     wasLastPressByMouse,
     isAfterPressOnCells: comes === 'atOnce' && !isBackAfterOwnPress,
   });
-  return <Surface ref={barRef} elevation="popover" className={`sheet-offers-at-selection flex-col gap-0.5 ${isShort ? 'rounded-lg p-0.5' : 'p-1'}`} {...{
+  return <Surface ref={barRef} elevation="popover" className={`sheet-offers-at-selection flex-col gap-0.5 ${isShort ? 'p-0.5' : 'p-1'}`} {...{
       [OFFERS_AT_SELECTION_ATTRIBUTE]: true,
     }} data-is-short={isShort || undefined} data-comes={comes} style={isHeldAfterPress
       ? {
@@ -210,12 +211,16 @@ export function useEntryWidth(entryBoxRef: React.RefObject<HTMLElement | null>, 
   return width;
 }
 export interface ExpandedEntryFinishButtonProps {
-  grid: Pick<GridView, 'body' | 'expandedEntryCard'>;
+  grid: Pick<GridView, 'body' | 'expandedEntryCard' | 'foundTableOutlines' | 'filteredTableOutlines'>;
   onFinished: () => void;
 }
-export function ExpandedEntryFinishButton({ grid: { body, expandedEntryCard }, onFinished }: ExpandedEntryFinishButtonProps) {
+export function ExpandedEntryFinishButton({ grid, onFinished }: ExpandedEntryFinishButtonProps) {
+  let { body, expandedEntryCard } = grid;
   if (expandedEntryCard === null) return null;
-  return <div className="sheet-expanded-entry" style={outlineBoxInBody(expandedEntryCard, body)} {...{
+  return <div className="sheet-expanded-entry" style={{
+      ...outlineBoxInBody(expandedEntryCard, body),
+      ...cornerStyleOnTables(expandedEntryCard, grid),
+    }} {...{
       [EXPANDED_ENTRY_ATTRIBUTE]: '',
     }}><Button variant="ghost" size="xs" tabIndex={-1} shortcut={shortcutKeysFor('finishExpandedCell')} onKeyDown={stopEnterOrSpacePropagation} onKeyUp={stopEnterOrSpacePropagation} onClick={pressSwallowingRest(onFinished)}>{expandCellMessages.finish()}</Button></div>;
 }

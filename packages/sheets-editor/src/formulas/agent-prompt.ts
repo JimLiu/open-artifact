@@ -10,7 +10,7 @@ import { areaToA1AsStored } from './from-words/where.ts';
 import { describeFunction, takesNameArgument } from './function-help.ts';
 import { cellValueOf } from '../model/cell-values.ts';
 import { isOverByteLimit, isPromptDataTooLong, cleanTextForAgent } from '../agent/prompt-text.ts';
-import { findFormulaReferences, resolveFormulaReference } from './references.ts';
+import { findFormulaReferences, referencesWithNamedRangesExpanded, resolveFormulaReference } from './references.ts';
 import { FUNCTION_CATALOG } from './function-catalog.ts';
 import { ARRAY_FUNCTION_NAMES } from './agent-prompt-values.ts';
 import type { CellId, CellOnShow, SheetSummary, WorkbookReads } from '../model/workbook.ts';
@@ -160,7 +160,7 @@ export function describeFormulaForAgent(reads: WorkbookReads, sheetId: SheetId, 
   let tokens = tokenizeFormulaWithReferences(formula);
   let firstCall = tokens.find((_, index) => isFunctionCallAt(tokens, index));
   let calls = firstCall?.kind === 'name' ? upperCaseAsciiLetters(firstCall.text) : null;
-  let sameSheetReferences = formula.references.filter((reference) => reference.sheetId === sheetId);
+  let sameSheetReferences = referencesWithNamedRangesExpanded(reads, formula).filter((reference) => reference.sheetId === sheetId);
   let readAreas = new Set(
     sameSheetReferences.flatMap((reference) => {
       let area = areaOfReference(reads, reference);
@@ -661,7 +661,9 @@ export const SHEET_DATA_DESCRIPTION_FULL = sheetDataDescription(
 export const TOTALS_ROWS_NOTE =
   ', but for rows of totals: where the first or the last rows of the records are such rows, a range leaves them out.';
 export const RECORDS_ONLY_NOTE = `. A record is one more of the things that the table lists. A row that sums up other rows (a total, a subtotal, All regions, a team over its members), that is there to compare them with (a target, last year's total), or that says something about the table (a note, a source, a date, an answer key, an opening balance, a second row of headings) is no record, in whatever language; in doubt, a row is a record. No range takes in a row that is none: at an end of the records the range stops short of it, and among the records the formula names the ranges around it, as SUM(B2:B4,B6:B9), or has a condition that only records meet, as SUMIF(A2:A9,"<>All regions",B2:B9).`;
-export const COLUMN_MEANING_NOTES = `- Go by what a column's numbers are, not by its name alone. A number that only names a thing (an order, receipt or invoice number, an id, a year) is never added up, averaged or ranked: "average order" and "biggest receipt" mean the amounts. Only words that name the number itself, as "highest invoice number" does, go by it. A running total, a balance, or a count of what there is at each date (followers, headcount) isn't added up over the dates: its total is its latest value. "How many" of the goods or things that a column of quantities counts (eggs, boxes) is the sum of those quantities; how many of a status, a person or a group is the number of rows. Amounts kept as negative numbers are ranked and compared by their size.
+export const OWN_OCCASION_ROWS_NOTE =
+  'But where each row is an occasion or an item of its own (a lunch, a class, a shift, a bill), its count or balance is added up like any amount.';
+export const COLUMN_MEANING_NOTES = `- Go by what a column's numbers are, not by its name alone. A number that only names a thing (an order, receipt or invoice number, an id, a year) is never added up, averaged or ranked: "average order" and "biggest receipt" mean the amounts. Only words that name the number itself, as "highest invoice number" does, go by it. A running total, a balance, or a count of what there is at each date (followers, headcount) isn't added up over the dates: its total is its latest value. ${OWN_OCCASION_ROWS_NOTE} "How many" of the goods or things that a column of quantities counts (eggs, boxes) is the sum of those quantities; how many of a status, a person or a group is the number of rows. Amounts kept as negative numbers are ranked and compared by their size.
 - Where a column writes the thing that the person names in more than one way (NYC and New York, Book and Books, Yes and Y, Sr. and Senior, & and and), they mean all of them: add up one condition for each way, as SUMIF(B2:B9,"NYC",D2:D9)+SUMIF(B2:B9,"New York",D2:D9), or use a wildcard that fits these and nothing else.`;
 export const ownRowFormulaNote = (cellAddress: string): string => `
 - Where ${cellAddress} stands in the row of one of a table's records, and the words ask for no total, count, average or the like over the table, the formula is for that record alone and names cells of its own row, as D2-E2 in H2.`;

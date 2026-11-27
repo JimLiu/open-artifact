@@ -20,7 +20,7 @@ import { morePeopleCountText } from '../i18n/chip-labels.ts';
 import { MENU_CARETS } from '../ui/menu-trigger.tsx';
 import { chipBeyondLine, cellMarkSpacing } from './cell-metrics.ts';
 import { DEFAULT_CELL_FORMAT } from '../model/cell-format.ts';
-import { IS_IOS_BROWSER } from './cell-drawing-values.ts';
+import { IS_IOS_BROWSER, IS_MAC_SAFARI } from './cell-drawing-values.ts';
 import { IS_APPLE_PLATFORM } from '../ui/dom-events.ts';
 /** A color as it shows on a light page and on a dark one. */
 export interface PaintPair {
@@ -51,7 +51,7 @@ export interface CellFontStyle {
 /** The name of a tint a cell's text can be drawn in. */
 export type TextTintName = keyof typeof TEXT_TINT_COLORS;
 /** Which blank cells are given words for a screen reader: none, all, or those where a press does something. */
-export type BlankCellWords = 'none' | 'all' | 'whereAPressActs' | 'whereAPressActsByCss';
+export type BlankCellWords = 'none' | 'all' | 'allAndText' | 'whereAPressActs' | 'whereAPressActsByCss';
 /** Of a drawn cell, what tells where its text fades. */
 export type CellTextToFade = Pick<
   DrawnCell,
@@ -114,11 +114,13 @@ interface TextThatRunsOnProps {
   cell: Pick<DrawnCell, 'textWidth' | 'alignment' | 'indentToCenter' | 'linesInTextBox'>;
   left: number;
   hasTextPaint: boolean;
+  letsPointerThroughWords?: boolean;
   style: StyleWithVariables;
   children: ReactNode;
 }
 interface WordsForScreenReaderProps {
   words: string;
+  isOnTop?: boolean;
 }
 export function preloadMonoFont(element: Element) {
   let ownerDocument = element.ownerDocument;
@@ -321,7 +323,7 @@ export function TextThatRunsOn(props: TextThatRunsOnProps) {
     alignment === 'right' || (alignment === 'center' && line < (lastPixel + indentToCenter) / 2);
   let outsideAtLeft = Math.max(0, -indentToCenter);
   let outsideAtRight = Math.max(0, indentToCenter);
-  return <div className="sheet-text-that-runs-on" data-has-text-paint={props.hasTextPaint || undefined} style={{
+  return <div className="sheet-text-that-runs-on" data-has-text-paint={props.hasTextPaint || undefined} data-lets-pointer-through-words={props.letsPointerThroughWords || undefined} style={{
       left: props.left,
       width: textWidth,
       ...props.style,
@@ -467,9 +469,13 @@ export const BLANK_CELL_WORDS_BY_PLATFORM: BlankCellWords = IS_IOS_BROWSER
   ? 'all'
   : !IS_APPLE_PLATFORM || typeof CSS > 'u' || CSS.supports('-moz-appearance', 'none')
     ? 'none'
-    : CSS.supports('font', '-apple-system-body')
+    : IS_MAC_SAFARI
       ? 'whereAPressActs'
       : 'whereAPressActsByCss';
-export const WordsForScreenReader = ({ words }: WordsForScreenReaderProps) =>
-  <span role="text" aria-label={words} className="absolute inset-0" />;
-export { IS_IOS_BROWSER } from './cell-drawing-values.ts';
+export const WordsForScreenReader = ({ words, isOnTop = false }: WordsForScreenReaderProps) =>
+  <span role="text" aria-label={words} className="absolute inset-0" style={isOnTop
+      ? {
+          zIndex: 1,
+        }
+      : undefined} />;
+export { IS_IOS_BROWSER, IS_MAC_SAFARI } from './cell-drawing-values.ts';

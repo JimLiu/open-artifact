@@ -518,3 +518,5 @@ export const meetsConditionAsked = (condition: CellCondition | null): ConditionA
         condition,
       };
 export const isSortDirection = (value: unknown): value is SortDirection => value === 'ascending' || value === 'descending';
+export const isNotAFilterOrSortAnswer = (answer: unknown): boolean =>
+  isNonNullObject(answer) && hasExactlyKeys(answer, 'cannot') && answer.cannot === 'notAFilterOrSort';

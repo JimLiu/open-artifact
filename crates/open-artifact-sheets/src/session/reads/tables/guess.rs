@@ -28,17 +28,59 @@ use grid::Grid;
 use recognize::Basis;
 use runs::{HeaderRows, Table};
 
+/// A table of a sheet as it is read, by positions: its header's first row, its body's first and last rows, and its
+/// columns (first to last). Only tables read with a header.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct TableBody {
+    pub header_first: usize,
+    pub header_last: usize,
+    pub from: usize,
+    pub to: usize,
+    pub columns: (usize, usize),
+}
+
+/// The tables of a sheet, declared or guessed, that are read with a header (what insertRows grows references by).
+pub(crate) fn bodies_of_tables(workbook: &Workbook, sheet: &Sheet) -> Vec<TableBody> {
+    let grid = Grid::of(workbook, sheet);
+    let tables = recognize::found_tables(&grid, sheet);
+    tables
+        .iter()
+        .filter_map(|found| {
+            let table = found.reading(&grid)?;
+            let header = table.header?;
+            let read = found.body_read(&grid, &table)?;
+            // A body that ends higher read at a cell, over the footer that reading finds, ends there too.
+            let at = found.at_cell(&grid, sheet, &tables);
+            let to = match at.reading(&grid) {
+                Some(t) if at.header == found.header => table.to.min(t.to).max(table.from),
+                _ => table.to,
+            }
+            .min(read)
+            .max(table.from);
+            Some(TableBody {
+                header_first: header.first,
+                header_last: header.last,
+                from: table.from,
+                to,
+                columns: (table.first_column, table.last_column),
+            })
+        })
+        .collect()
+}
+
 /// The table guessed around a cell, with its columns: null when there is none.
 pub(super) fn read_at(workbook: &Workbook, sheet: &Sheet, row: usize, column: usize) -> Json {
     let grid = Grid::of(workbook, sheet);
     let tables = recognize::found_tables(&grid, sheet);
-    let Some(found) = tables.iter().find(|t| t.area().holds(row, column)) else { return Json::Null };
+    let Some(found) = tables.iter().map(|t| t.at_cell(&grid, sheet, &tables)).find(|t| t.area().holds(row, column)) else {
+        return Json::Null;
+    };
     let Some(table) = found.reading(&grid) else { return Json::Null };
-    read_table(workbook, sheet, &grid, &found.basis, &table, found.row_under_reading(&grid, Some(&table)))
+    read_table(workbook, sheet, &grid, &found.basis_at(&grid, &table), &table, found.row_under_reading(&grid, Some(&table)))
 }
 
 fn read_table(workbook: &Workbook, sheet: &Sheet, grid: &Grid, basis: &Basis, table: &Table, under: Option<usize>) -> Json {
-    let columns = columns_in_ids(workbook, sheet, grid, table);
+    let columns = columns_in_ids(workbook, sheet, grid, table, matches!(basis, Basis::Declared(_)));
     json!({"basis": basis.in_json(), "table": table_in_ids(workbook, sheet, table, under), "columns": columns})
 }
 
@@ -47,9 +89,14 @@ type Area = (usize, usize, usize, usize);
 
 /// The classified table around a conditional-format selection.
 pub(in crate::session::reads) struct TableForFormatting {
+    /// Where it is as read.
     pub cells: Area,
+    /// Where it is as the sheet's tables tell it, before it is read at a cell: the cells meet it there or where it
+    /// is read.
+    pub own: Area,
     pub records: Option<Area>,
-    pub assumed: bool,
+    /// Whether it is a cell table the sheet declares.
+    pub declared: bool,
     pub footer: Option<Span>,
     pub non_records: Vec<(Span, &'static str)>,
     pub names: BTreeMap<usize, String>,
@@ -62,15 +109,39 @@ pub(in crate::session::reads) fn tables_for_formatting(
     adjacent: bool,
 ) -> Vec<TableForFormatting> {
     let grid = Grid::of(workbook, sheet);
-    recognize::found_tables(&grid, sheet).into_iter().filter_map(|found| {
-        let area = found.area();
-        let near = usize::from(adjacent);
-        if top > area.bottom.saturating_add(near) || area.top > bottom.saturating_add(near)
-            || left > area.right || area.left > right
-        {
+    let classified = recognize::found_tables(&grid, sheet);
+    // A table the cells meet, as classified, is read as the table at its top left cell: the first that holds it as
+    // read at a cell, a recognized one running on and one with no headings taking its header for records, but none
+    // joined to the tables beside it unless the cells meet more than one table. Tables read as the
+    // same one are that one.
+    let near = usize::from(adjacent);
+    let apart = |(t, l, b, r): Area| top > b.saturating_add(near) || t > bottom.saturating_add(near) || left > r || l > right;
+    // The cells meet it as classified or as read at a cell.
+    let meets = |classified: &recognize::Found, read: &recognize::Found| {
+        let (a, b) = (classified.area(), read.area());
+        !apart((a.top, a.left, a.bottom, a.right)) || !apart((b.top, b.left, b.bottom, b.right))
+    };
+    let alone: Vec<_> = classified.iter().map(|t| t.at_cell_alone(&grid, sheet, &classified)).collect();
+    let several = classified.iter().zip(&alone).filter(|(c, a)| meets(c, a)).count() > 1;
+    let at = if several { classified.iter().map(|t| t.at_cell(&grid, sheet, &classified)).collect() } else { alone };
+    let mut read = Vec::new();
+    classified.iter().enumerate().filter_map(|(i, classified)| {
+        let area = classified.area();
+        if !meets(classified, &at[i]) {
             return None;
         }
+        let j = at.iter().position(|t| t.area().holds(area.top, area.left)).unwrap_or(i);
+        if read.contains(&j) {
+            return None;
+        }
+        read.push(j);
+        Some(((area.top, area.left, area.bottom, area.right), &at[j]))
+    }).collect::<Vec<_>>().into_iter().map(|(own, found)| {
+        let area = found.area();
         let table = found.reading(&grid);
+        // Blank rows at the end of its body, which its reading leaves out, are among its records, told as blank, but not after titles the reading ends above.
+        let trailing = table.as_ref().filter(|t| found.last_record().is_none_or(|last| last <= t.to))
+            .and_then(|t| found.body.last().filter(|run| run.role == recognize::Role::Blank && run.last > t.to));
         let non_records = table.as_ref().into_iter().flat_map(|t| &t.runs).filter_map(|r| {
             match r.role {
                 Role::Spacer => Some(((r.first, r.last), "blank")),
@@ -78,25 +149,43 @@ pub(in crate::session::reads) fn tables_for_formatting(
                 Role::Subtotal => Some(((r.first, r.last), "subtotal")),
                 Role::Record => None,
             }
-        }).collect();
-        let names = table.as_ref().into_iter().flat_map(|t| grid.columns(t)).filter_map(|c| Some((c.column, c.name?))).collect();
-        Some(TableForFormatting {
+        }).chain(trailing.map(|run| ((run.first, run.last), "blank"))).collect();
+        let names = table.as_ref().into_iter().flat_map(|t| grid.columns_of(t, matches!(found.basis, Basis::Declared(_)))).filter_map(|c| Some((c.column, c.name?))).collect();
+        TableForFormatting {
+            own,
             cells: (area.top, area.left, area.bottom, area.right),
-            // The records run to the last of them: titles at the end, which the table read at a cell leaves out,
-            // are among them here.
-            records: table.map(|t| (t.from, area.left, found.last_record().map_or(t.to, |last| last.max(t.to)), area.right)),
-            assumed: matches!(found.basis, Basis::Assumed(_)),
-            footer: found.footer,
+            // The records are those of the table read at a cell: titles at the end, which its reading leaves out,
+            // are its footer here.
+            records: table.as_ref().map(|t| (t.from, area.left, trailing.map_or(t.to, |run| t.to.max(run.last)), area.right)),
+            declared: matches!(found.basis, Basis::Declared(_)),
+            footer: found.footer.or_else(|| {
+                let t = table.as_ref()?;
+                let last = found.last_record().filter(|&last| last > t.to && trailing.is_none())?;
+                Some((found.first_left_out(t.to)?, last))
+            }),
             non_records,
             names,
-        })
+        }
     }).collect()
 }
 
-/// A table's columns by ids, each with its name and kind.
-fn columns_in_ids(workbook: &Workbook, sheet: &Sheet, grid: &Grid, table: &Table) -> Vec<Json> {
+/// Where the cell tables a sheet declares are, as read: those that give way left out.
+pub(in crate::session::reads) fn declared_areas(workbook: &Workbook, sheet: &Sheet) -> Vec<Area> {
+    let grid = Grid::of(workbook, sheet);
+    recognize::found_tables(&grid, sheet)
+        .into_iter()
+        .filter(|found| matches!(found.basis, Basis::Declared(_)))
+        .map(|found| {
+            let area = found.area();
+            (area.top, area.left, area.bottom, area.right)
+        })
+        .collect()
+}
+
+/// A table's columns by ids, each with its name and kind; a declared table's header keeps a last row of units.
+fn columns_in_ids(workbook: &Workbook, sheet: &Sheet, grid: &Grid, table: &Table, declared: bool) -> Vec<Json> {
     let id = |c: usize| sheet.columns.line(c).map(|l| workbook.bases.text(l));
-    grid.columns(table).into_iter().map(|c| json!({"c": id(c.column), "name": c.name, "kind": c.kind.name()})).collect()
+    grid.columns_of(table, declared).into_iter().map(|c| json!({"c": id(c.column), "name": c.name, "kind": c.kind.name()})).collect()
 }
 
 /// A role as the page names it.

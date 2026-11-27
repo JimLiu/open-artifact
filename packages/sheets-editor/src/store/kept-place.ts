@@ -114,8 +114,10 @@ export function takePlaceToOpenOn(
   let json = tryOrNull(() => storages.findTabs().getItem(KEPT_PLACE_KEY));
   if (!isEarlierVersionShown) resetTabPlace(storages);
   let tabsPlace = json === null ? null : tryOrNull(() => parseKeptPlace(JSON.parse(json)));
-  let sheetToOpen = sheetOfNewLink ?? (json === null ? tryOrNull(() => takeSheetLastOpenedByViewer(storages)) : null);
-  let toOpenOn: SavedPlace | null = savedPlaceForLinkedSheet(reads, sheetToOpen, tabsPlace);
+  let sheetLastOpened = sheetOfNewLink === null && json === null ? tryOrNull(() => takeSheetLastOpenedByViewer(storages)) : null;
+  // A sheet last opened that is hidden now is not opened on.
+  let isLastOpenedHidden = reads.listSheets().some(({ sheetId, isHidden }) => sheetId === sheetLastOpened && isHidden);
+  let toOpenOn: SavedPlace | null = savedPlaceForLinkedSheet(reads, sheetOfNewLink ?? (isLastOpenedHidden ? null : sheetLastOpened), tabsPlace);
   return {
     toOpenOn,
     isTabsOwn: tabsPlace !== null && toOpenOn === tabsPlace,

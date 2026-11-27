@@ -1,4 +1,4 @@
-import type { DecimalSignName, SheetId } from '@open-artifact/sheets-core';
+import type { ColumnId, DecimalSignName, SheetId } from '@open-artifact/sheets-core';
 import type { CaretInEntryPlaced } from '../editor/entry-boxes.ts';
 import type { GridHit } from '../grid/geometry.ts';
 import type { CaretSpan, FormulaKeyAct } from '../keys/key-acts.ts';
@@ -7,7 +7,7 @@ import type { CellArea } from '../selection/model.ts';
 import type { PointerDragged, PointerPressed } from '../state/event-reducer.ts';
 import type { EditingMode, PageMode } from '../state/transitions.ts';
 import type { FormulaReferencesFound, WrittenReference } from './references.ts';
-import { findFormulaReferences, resolveFormulaReference, sheetPrefixForFormula, isWholeLineReference } from './references.ts';
+import { findFormulaReferences, resolveFormulaReference, sheetPrefixForFormula, sheetNameForFormula, isWholeLineReference } from './references.ts';
 import { hasSpaceBetweenOperands } from './word-tokens.ts';
 import { areasToA1AsStored } from './from-words/where.ts';
 import { isFormulaText } from '../chips/dropdown-pane-edits.ts';
@@ -62,6 +62,8 @@ export interface EntryCaretInText extends EntryCaret {
 /** Where a reference may be written in a formula: over one written there, or in a gap that takes one. */
 export interface ReferenceSlot extends CaretSpan {
   written: WrittenReference | null;
+  /** The slot is a column of a connected table (`Sales[Amount]`), which pointing writes over whole. */
+  isOfTable?: true;
 }
 /** The tip shown of the cells a pointed reference covers. */
 export interface PointedCellsTip {
@@ -72,7 +74,11 @@ export interface PointedCellsTip {
 }
 export type PointAtCellsAct = Extract<FormulaKeyAct, { kind: 'pointAtCells' }>;
 export function referencesInFormula(formula: string, decimalSign: DecimalSignName): FormulaReferencesFound {
-  let parsed = findFormulaReferences(formula, decimalSign);
+  let found = findFormulaReferences(formula, decimalSign);
+  let parsed = {
+    ...found,
+    references: found.references.filter((reference) => !isLongBareColumnLetters(reference)),
+  };
   return hasSpaceBetweenOperands(formula)
     ? {
         ...parsed,
@@ -123,7 +129,7 @@ export function syncReferencesInEntry(previousState: PageState, state: PageState
 }
 export function referenceSlotAt(text: string, caret: EntryCaret): ReferenceSlot | null {
   if (!isFormulaText(text) || isInsideArrayLiteral(text.slice(0, caret.start))) return null;
-  let { references, quoted } = referencesInFormula(text, 'point');
+  let { references, quoted, columnsOfTables } = referencesInFormula(text, 'point');
   let enclosing = references.find(({ start, end }) => start <= caret.start && caret.end <= end);
   if (enclosing !== undefined)
     return {
@@ -131,6 +137,16 @@ export function referenceSlotAt(text: string, caret: EntryCaret): ReferenceSlot 
       end: enclosing.end,
       written: enclosing,
     };
+  let columnOfTable = columnsOfTables.find(({ start, end }) => start <= caret.start && caret.end <= end);
+  if (columnOfTable !== undefined)
+    return columnOfTable.isClosed
+      ? {
+          start: columnOfTable.start,
+          end: columnOfTable.end,
+          written: null,
+          isOfTable: true,
+        }
+      : null;
   return !quoted.some(
     ({ start, end, isClosed }) => start < caret.start && (caret.start < end || !isClosed),
   ) &&
@@ -174,6 +190,18 @@ export function writtenAddress(area: CellArea, whole: PointedWhole | null, ownRo
   let { first, last } = whole === 'rows' ? rowLabelEnds(area, ownRowOrder) : columnLabelEnds(area);
   return `${first}:${last}`;
 }
+/** A connected table's columns from the anchor's to the one pointed at, as a formula names them (`Sales[[Region]:[Amount]]`, `Sales[Amount]` for one). */
+export function connectedTableColumnsWritten(
+  sheetName: string,
+  columnReferences: readonly { c: ColumnId; text: string }[],
+  anchorColumnId: ColumnId,
+  atColumnId: ColumnId,
+): string | undefined {
+  let [first, last] = columnReferences.filter(({ c: columnId }) => columnId === anchorColumnId || columnId === atColumnId);
+  if (anchorColumnId === atColumnId || first === undefined) return first?.text;
+  let tableName = sheetNameForFormula(sheetName);
+  return last === undefined ? undefined : `${tableName}[${first.text.slice(tableName.length)}:${last.text.slice(tableName.length)}]`;
+}
 /** Writes the cells pointed at over the slot, after `lead` (a separator, when the reference is added after another). */
 export function writeReferenceIntoEntry(
   state: PageState,
@@ -193,9 +221,13 @@ export function writeReferenceIntoEntry(
   let tookPlaceOf =
     (live?.start === slot.start && live.end === slot.end ? live.tookPlaceOf : null) ?? state.mode.text.slice(slot.start, slot.end);
   let address = written === null ? tookPlaceOf : `${isSameSheet ? '' : sheetPrefixForFormula(sheetName)}${written}`;
+  let connectedTable = reads.connectedTableIn(anchor.sheetId);
+  let addressOrColumns =
+    connectedTable === null ? address : connectedTableColumnsWritten(sheetName, connectedTable.references, anchor.columnId, pointing.at.columnId);
+  if (addressOrColumns === undefined) return state;
   let otherNotice = state.notice?.kind === 'ownSortInTheWay' ? null : state.notice;
   let writtenStart = slot.start + lead.length;
-  let text = `${state.mode.text.slice(0, slot.start)}${lead}${address}${state.mode.text.slice(slot.end)}`;
+  let text = `${state.mode.text.slice(0, slot.start)}${lead}${addressOrColumns}${state.mode.text.slice(slot.end)}`;
   return {
     ...state,
     mode: {
@@ -205,7 +237,7 @@ export function writeReferenceIntoEntry(
       }),
     },
     notice:
-      written === null
+      written === null && connectedTable === null
         ? {
             kind: 'ownSortInTheWay',
             act: 'referTo',
@@ -213,12 +245,40 @@ export function writeReferenceIntoEntry(
         : otherNotice,
     pointedReference: {
       start: writtenStart,
-      end: writtenStart + address.length,
+      end: writtenStart + addressOrColumns.length,
       text,
       tookPlaceOf,
       ...pointing,
     },
   };
+}
+/** Points at a column of a connected table from the entry: writes the column (or the columns from the anchor's, when extending) into the slot at the caret. */
+export function pointAtColumnOfConnectedTable(
+  state: PageState,
+  reads: WorkbookReads,
+  cellId: CellId,
+  caretInEntry: CaretInEntryPlaced | undefined,
+  isExtending: boolean,
+): PageState {
+  if (state.mode.kind !== 'editing' || caretInEntry?.isComposing === true) return state;
+  let caret = caretOrEnd(state.mode.text, caretInEntry);
+  let live = livePointedReference(state);
+  let isWithinLive = live !== null && live.start <= caret.start && caret.end <= live.end;
+  let slot = isWithinLive ? live : referenceSlotAt(state.mode.text, caret);
+  let anchor =
+    isExtending && isWithinLive && live!.anchor.sheetId === cellId.sheetId
+      ? {
+          ...cellId,
+          columnId: live!.anchor.columnId,
+        }
+      : cellId;
+  return slot === null
+    ? state
+    : writeReferenceIntoEntry(state, reads, slot, '', {
+        anchor,
+        at: cellId,
+        whole: null,
+      });
 }
 export function areaOfWrittenReference(
   reference: WrittenReference | null,
@@ -335,7 +395,8 @@ export function shouldArrowsMoveText(mode: EditingMode, caret: EntryCaret, point
   if (arrowsActOn === 'text' || caret.isPlacedByHand === true || caret.start !== caret.end) return false;
   let atCaret = pointedReferenceAtCaret(pointedReference, text, caret);
   if (atCaret !== null && atCaret.whole === null) return true;
-  return !isEntryUntouchedAt(mode, caret) && referenceSlotAt(text, caret)?.written === null;
+  let slot = referenceSlotAt(text, caret);
+  return !isEntryUntouchedAt(mode, caret) && slot?.written === null && slot.isOfTable !== true;
 }
 export function movePointedReference(
   state: PageState,
@@ -413,7 +474,7 @@ export function pickUpReferenceAtCaret(state: PageState, reads: ReadsWithTextMea
   if (state.mode.kind !== 'editing') return null;
   let { text } = state.mode;
   let slot = referenceSlotAt(text, caret);
-  if (slot === null) return null;
+  if (slot === null || slot.isOfTable === true) return null;
   let { written } = slot;
   if (written === null) {
     let { start, end } = caret;
@@ -555,6 +616,9 @@ export const REFERENCE_HUES: readonly string[] = ['violet', 'green', 'magenta', 
 export const referenceHue = (index: number): string => REFERENCE_HUES[index % REFERENCE_HUES.length] ?? REFERENCE_HUES[0];
 export const NO_REFERENCES: ReferenceInEntry[] = [];
 export const hasLetteredEnd = ({ ends }: WrittenReference): boolean => ends.some(({ letters }) => letters !== '');
+/** A reference of more than three bare letters (`SALES`), which reads as a name rather than a column. */
+export const isLongBareColumnLetters = ({ sheetName, ends: [oneEnd, otherEnd] }: WrittenReference): boolean =>
+  sheetName === null && otherEnd === undefined && oneEnd.letters.length > 3 && `${oneEnd.dollarOfColumn}${oneEnd.dollarOfRow}` === '';
 export const REFERENCE_MAY_FOLLOW_PATTERN = /[=+\-*/(,;:^<>&]\s*$/;
 export const REFERENCE_MAY_PRECEDE_PATTERN = /^\s*(?:$|[=+\-*/),;:^<>&%])/;
 export const caretOrEnd = (text: string, caret: EntryCaretInText | undefined): EntryCaret =>

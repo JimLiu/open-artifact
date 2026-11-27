@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { STOCK_CHART_PROGRAMS, STOCK_KINDS } from '@open-artifact/sheets-core/stock-charts';
-import type { StockKind } from '@open-artifact/sheets-core/stock-charts';
 import { canSwapChartKind, doesChartKindSuitRows } from '../src/charts/chart-kind-fit.ts';
 import { canAskChartChange, chartChangeOffers } from '../src/charts/change-offers.ts';
 import { chartThumbnailPaths } from '../src/charts/chart-thumbnail-paths.ts';
@@ -18,34 +17,35 @@ const POINTS = table(['Price', 'Sold'], [10, 300], [12, 260], [15, 210]);
 // The page swaps a chart's kind with no agent (agent-edits.ts). Those modules load the page's components, which the
 // tests cannot, so what is tested here is the choosing of kinds; the swap itself is checked in the page.
 describe('changing a chart’s kind', () => {
-  it('offers the kinds the rows suit, leaving out the kind it is now', () => {
+  it('keeps, with no agent, only the kinds the page swaps to', () => {
     const chart: ChartOfView = { kind: 'code', nodeId: 'n1', inputs: { rows: MONTHS } };
-    const kinds = (kindNow: StockKind | null, canAgentWrite: boolean) => chartChangeOffers(chart, kindNow, canAgentWrite).map((offer: { kind: string }) => offer.kind);
-    assert.deepEqual(kinds('stackedBar', false), ['bar', 'horizontalBar', 'line', 'area']);
-    assert.deepEqual(kinds(null, true), ['bar', 'horizontalBar', 'stackedBar', 'line', 'area']);
-    assert.ok(chartChangeOffers(chart, null, false).every((offer: { isSwap: boolean }) => offer.isSwap));
+    const offers = STOCK_KINDS.map((kind) => ({ kind, series: [[1, 2, 3]] }));
+    assert.deepEqual(
+      chartChangeOffers(offers, chart, false).map(({ kind }) => kind),
+      STOCK_KINDS.filter((kind) => doesChartKindSuitRows(kind, MONTHS)),
+    );
+    assert.equal(chartChangeOffers(offers, chart, true).length, offers.length);
     assert.equal(canAskChartChange({}, chart, false), true);
     // A chart that reads other inputs is the agent's to change, and is offered nothing without it.
     const other: ChartOfView = { kind: 'code', nodeId: 'n1', inputs: { costs: MONTHS } };
-    assert.deepEqual(chartChangeOffers(other, null, false), []);
+    assert.deepEqual(chartChangeOffers(offers, other, false), []);
     assert.equal(canAskChartChange({}, other, false), false);
-    assert.deepEqual(
-      chartChangeOffers(other, null, true).map((offer: { kind: string; isSwap: boolean }) => [offer.kind, offer.isSwap]),
-      [['bar', false], ['stackedBar', false], ['line', false], ['pie', false]],
-    );
+    assert.ok(chartChangeOffers(offers, other, true).every(({ isSwap }) => !isSwap));
   });
 
-  it('suits a scatter only to rows that each hold a number first', () => {
-    assert.equal(doesChartKindSuitRows('scatter', MONTHS), false);
+  it('suits a scatter to two columns of numbers', () => {
+    assert.equal(doesChartKindSuitRows('scatter', MONTHS), true);
     assert.equal(doesChartKindSuitRows('scatter', POINTS), true);
-    assert.equal(canSwapChartKind({ rows: POINTS }, 'scatter'), true);
-    assert.equal(canSwapChartKind({ rows: POINTS, more: POINTS }, 'scatter'), false);
+    assert.equal(doesChartKindSuitRows('scatter', table(['Month', 'Online'], ['Jan', 120], ['Feb', 150])), false);
+    assert.equal(canSwapChartKind({ rows: MONTHS }, 'scatter'), true);
+    assert.equal(canSwapChartKind({ rows: MONTHS, more: MONTHS }, 'scatter'), false);
   });
 
-  it('does not stack the numbers a scatter lies along', () => {
-    assert.equal(doesChartKindSuitRows('stackedBar', POINTS), false);
+  it('stacks two or more columns of numbers', () => {
+    assert.equal(doesChartKindSuitRows('stackedBar', table(['Month', 'Online'], ['Jan', 120], ['Feb', 150])), false);
     assert.equal(doesChartKindSuitRows('bar', POINTS), true);
     assert.equal(doesChartKindSuitRows('stackedBar', MONTHS), true);
+    assert.equal(doesChartKindSuitRows('stackedBar100', MONTHS), true);
     // Years down the first column are labels, not points along a line: their columns still stack.
     const YEARS = table(['Year', 'Online', 'Stores'], [2023, 120, 80], [2024, 150, 95], [2025, 170, 90]);
     assert.equal(doesChartKindSuitRows('stackedBar', YEARS), true);

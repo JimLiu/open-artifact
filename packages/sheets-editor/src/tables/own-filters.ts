@@ -48,6 +48,8 @@ export interface FilterTableInIds extends TableInIds {
   header: NonNullable<TableInIds['header']>;
 }
 /** A table to filter, with the cell table it was read from: as declared, and where it is now. */
+/** Where a number shows in a column, by the number: the first place it does, or the first place any number does. */
+export type PlaceOfNumber = (number?: number) => RulePlace;
 export interface FilterTable {
   cellTableId: string | null;
   cellTable: EngineCellTable;
@@ -240,7 +242,7 @@ export function rowBelowOwnFilterButtonsAt(state: StateOfOwnFilters, reads: Work
   });
   return Math.max(0, ...rowsBelowButtons);
 }
-export function filterValueText(place: RulePlace, column: ColumnId, value: ValueAskedFor): string {
+export function filterValueText(placeOfNumber: PlaceOfNumber, column: ColumnId, value: ValueAskedFor): string {
   switch (value.kind) {
     case 'text':
     case 'error':
@@ -248,7 +250,7 @@ export function filterValueText(place: RulePlace, column: ColumnId, value: Value
     case 'boolean':
       return booleanText(value.value);
     case 'number':
-      return showNumberInColumnFormat(place, value.value, column);
+      return showNumberInColumnFormat(placeOfNumber(value.value), value.value, column);
   }
 }
 export function asDayEqualityTest(test: RuleTest, condition: CellCondition): RuleTest {
@@ -265,25 +267,33 @@ export function asDayEqualityTest(test: RuleTest, condition: CellCondition): Rul
     },
   };
 }
-export function startAtFirstNumberRow(place: RulePlace, column: ColumnId): RulePlace {
+export function nextOwnFilterKey(state: StateOfOwnFilters): string {
+  let keys = allOwnFilters(state).map(({ key }) => Number(key));
+  return String(1 + Math.max(0, ...keys.filter((key) => !Number.isNaN(key))));
+}
+export function placesOfNumbersInColumn(place: RulePlace, column: ColumnId): PlaceOfNumber {
   const { reads, sheetId, topRowIndex } = place;
   const columnIndex = reads.columnIndexOf(sheetId, column);
-  if (topRowIndex === null || columnIndex === null) return place;
+  if (topRowIndex === null || columnIndex === null) return () => place;
+  let placeByNumber = new Map<number, RulePlace>();
   for (let offset = 0; offset < NUMBER_ROW_SEARCH_LIMIT; offset += 1) {
     const cellId = reads.cellIdAt(sheetId, topRowIndex + offset, columnIndex);
-    if (cellId === null) return place;
-    if (cellValueOf(reads.cellOnShowIn(cellId))?.kind === 'number')
-      return {
+    if (cellId === null) break;
+    let value = cellValueOf(reads.cellOnShowIn(cellId));
+    if (value?.kind === 'number' && !placeByNumber.has(value.value))
+      placeByNumber.set(value.value, {
         ...place,
         topRowIndex: topRowIndex + offset,
-      };
+      });
   }
-  return place;
+  let [firstNumberPlace = place] = placeByNumber.values();
+  return (number) => (number === undefined ? firstNumberPlace : (placeByNumber.get(number) ?? firstNumberPlace));
 }
 export function describeFilterItem(place: RulePlace, ownFilter: TableToFilter, { c: column, asked }: FilterTerm): SaidOfFilterItem {
   const columnLabel = columnLabelOfFilterTable(place.reads, ownFilter, column);
+  let placeOfNumber = placesOfNumbersInColumn(place, column);
   if (asked.kind === 'meets') {
-    const test = describeColumnCondition(startAtFirstNumberRow(place, column), column, columnLabel, asked.condition);
+    const test = describeColumnCondition(placeOfNumber(), column, columnLabel, asked.condition);
     const { condition } = asked;
     if (condition.kind === 'numberIs' && condition.operand.kind === 'sameRowInColumn' && test.condition.kind === 'numberIs') {
       const operand: RuleOperand = {
@@ -312,9 +322,9 @@ export function describeFilterItem(place: RulePlace, ownFilter: TableToFilter, {
     return {
       kind: asked.kind,
       column: columnLabel,
-      values: asked.values.map((value) => (value === null ? null : filterValueText(place, column, value))),
+      values: asked.values.map((value) => (value === null ? null : filterValueText(placeOfNumber, column, value))),
     };
-  const valueText = firstValue === null ? null : filterValueText(place, column, firstValue);
+  const valueText = firstValue === null ? null : filterValueText(placeOfNumber, column, firstValue);
   return {
     kind: 'test',
     test: {
@@ -361,7 +371,7 @@ export function canSortOwnFilterTable(reads: WorkbookReads, ownFilter: TableToFi
   };
   const isTallAndInRows = (area: CellArea | undefined) => area !== undefined && area.rowCount > 1 && areasOverlap(area, rowsAcross);
   return (
-    rows.count > 1 &&
+    (rows.count > 1 || isOwnFilterOfConnectedTable(reads, ownFilter)) &&
     !isInSpan(sheet.frozenRowCount - 1, rows.firstIndex, rows.count) &&
     !cutsRowGroup(rows, sheet.rowGroups) &&
     !reads.mergedAreasIn(sheetId, rowsAcross).some(isTallAndInRows) &&
@@ -531,6 +541,7 @@ export function refreshFilterTable(
   ownFilter: FilterTable,
   cellTables: CellTablesRead,
 ): FilterTable | 'tookTooLong' | 'nowhere' | 'hasNoRecord' | null {
+  if (isOwnFilterOfConnectedTable(reads, ownFilter)) return filterTableOfConnectedTable(reads, ownFilter.table.sheetId);
   if (cellTables === null || cellTables === 'tookTooLong') return cellTables;
   const sameCellTable =
     cellTables.find(({ cellTableId }) => cellTableId === ownFilter.cellTableId) ??
@@ -555,6 +566,50 @@ export function refreshFilterTable(
     table: isSameByJson(table, ownFilter.table) ? ownFilter.table : table,
     columns: isSameByJson(filterTable.columns, ownFilter.columns) ? ownFilter.columns : filterTable.columns,
   };
+}
+export function hasConnectedTableRowsHeld(reads: WorkbookReads, sheetId: SheetId): boolean {
+  let rows = reads.connectedTableIn(sheetId)?.rows;
+  return rows?.kind === 'held' && rows.rowCount > 0;
+}
+export function filterTableOfConnectedTable(reads: WorkbookReads, sheetId: SheetId): FilterTable | null {
+  let rows = reads.connectedTableIn(sheetId)?.rows;
+  if (rows?.kind !== 'held' || rows.rowCount === 0) return null;
+  let tablesAnswer = reads.tablesOfSheet(sheetId);
+  let [cellTable] = tablesAnswer?.kind === 'tablesOfSheet' ? tablesAnswer.tables : [];
+  let [firstRowId, lastRowId] = [1, rows.rowCount].map((rowIndex) => reads.cellIdAt(sheetId, rowIndex, 0)?.rowId);
+  if (cellTable === undefined || firstRowId === undefined || lastRowId === undefined) return null;
+  let { headerRows, firstColumn, lastColumn, columns } = cellTable;
+  let declared = {
+    headerRows,
+    firstColumn,
+    lastColumn,
+    footerRows: null,
+  };
+  let table = {
+    sheetId,
+    header: {
+      ...headerRows,
+      isSure: true,
+    },
+    firstColumn,
+    lastColumn,
+    firstRowOfBody: firstRowId,
+    lastRowOfBody: lastRowId,
+    rowUnderTheBody: null,
+    runs: [],
+  };
+  return {
+    cellTableId: null,
+    cellTable: declared,
+    liveCellTable: declared,
+    table,
+    columns,
+  };
+}
+export function ownFilterForConnectedTable(state: PageState, reads: ReadsWithTextMeasurer, key: string): PageState | null {
+  if (key !== state.sheetId || ownFilterByKey(state, key) !== null) return null;
+  let filterTable = filterTableOfConnectedTable(reads, state.sheetId);
+  return filterTable === null ? null : addOwnFilterForTable(state, reads, filterTable);
 }
 export function lookAtOwnSort(
   reads: WorkbookReads,
@@ -659,6 +714,18 @@ export function applyOwnFilter(state: PageState, reads: ReadsWithTextMeasurer, o
         kind: 'filteredTableIsGone',
       });
     case 'notNow':
+      if (filter !== null && isConnectedTableFilterUnlooked(reads, ownFilter)) {
+        let lines = describeFilterLines(reads, ownFilter, filter);
+        return setOwnFiltersOfSheet(
+          state,
+          sheetId,
+          replaceOwnFilter(state, ownFilter, {
+            ...ownFilter,
+            filter,
+            lines,
+          }),
+        );
+      }
       if (filter !== null) return looked.why === null ? state : noticeFilterNotWorkedOut(state, looked.why);
       return putOwnFiltersInForce(
         state,
@@ -746,7 +813,8 @@ export function sortOwnFilter(state: PageState, reads: WorkbookReads, ownFilter:
     },
     columnIndex = sort === null ? null : reads.columnIndexOf(sheetId, sort.by[0].c);
   if (sort === null || columnIndex === null) return next;
-  const column = columnLetters(columnIndex);
+  let [firstSaid] = sort.said;
+  const column = firstSaid!.column.kind === 'named' && isOwnFilterOfConnectedTable(reads, ownFilter) ? firstSaid!.column.name : columnLetters(columnIndex);
   return {
     ...next,
     lastDone: {
@@ -916,6 +984,7 @@ export function lookAgainAtOwnFilters(
 ): PageState {
   const heldFilters = ownFiltersOfSheet(state, sheetId);
   if (heldFilters.length === 0) return state;
+  let howNow = reads.connectedTableIn(sheetId) === null ? how : 'apply';
   const cellTables = reads.cellTables(sheetId);
   const looked = heldFilters.map((ownFilter) => {
     let moved = columnsMoved === undefined ? ownFilter : ownFilterAfterColumnsMoved(reads, ownFilter, columnsMoved);
@@ -928,7 +997,7 @@ export function lookAgainAtOwnFilters(
     if (asked.kind === 'tableIsGone') return [];
     if (asked.kind === 'answered') {
       const sortKept = haveFilterColumnsChanged(asked.found, held) ? null : held.sort;
-      const sort = sortKept === null ? null : lookAtOwnSort(reads, asked.found, sortKept, how === 'apply' ? null : sortKept.rows);
+      const sort = sortKept === null ? null : lookAtOwnSort(reads, asked.found, sortKept, howNow === 'apply' ? null : sortKept.rows);
       return [
         {
           ...ownFilterFromAnswer(state, reads, held.key, asked, sort),
@@ -952,9 +1021,9 @@ export function lookAgainAtOwnFilters(
       rows !== null && heldFilters.some((held) => held.key === key && held.unanswered !== null),
   );
   const missesRow =
-    typeof how === 'object' && missesRowOutOfViewInArea(state, reads, sheetId, rowIdsOutOfViewOf(refreshed), how.applyIfARowIsMissedAmong);
+    typeof howNow === 'object' && missesRowOutOfViewInArea(state, reads, sheetId, rowIdsOutOfViewOf(refreshed), howNow.applyIfARowIsMissedAmong);
   const next =
-    how === 'apply' || missesRow || isNewlyAnswered
+    howNow === 'apply' || missesRow || isNewlyAnswered
       ? putOwnFiltersInForce(state, reads, sheetId, refreshed)
       : keepOwnFiltersWhileUnanswered(
           state,
@@ -967,7 +1036,7 @@ export function lookAgainAtOwnFilters(
           ),
         );
   const hasSortUnanswered = heldFilters.some(({ sort }) => sort?.rows === null);
-  const withRowOrder = how === 'apply' || hasSortUnanswered ? takeOwnRowOrderFromSorts(next, sheetId) : next;
+  const withRowOrder = howNow === 'apply' || hasSortUnanswered ? takeOwnRowOrderFromSorts(next, sheetId) : next;
   const sorted = heldFilters.find(({ sort }) => sort !== null);
   const gone = heldFilters.find(({ key }) => !refreshed.some((refreshedFilter) => refreshedFilter.key === key));
   if (gone !== undefined)
@@ -995,7 +1064,7 @@ export function lookAgainAtOwnFilters(
   const whyNotWorkedOut = looked.flatMap(
     ({ asked }) => (asked.kind === 'notNow' && asked.why !== null ? [asked.why] : []),
   )[0];
-  return how !== 'apply' || whyNotWorkedOut === undefined ? withRowOrder : noticeFilterNotWorkedOut(withRowOrder, whyNotWorkedOut);
+  return howNow !== 'apply' || whyNotWorkedOut === undefined ? withRowOrder : noticeFilterNotWorkedOut(withRowOrder, whyNotWorkedOut);
 }
 export function recordAndTableRows(reads: WorkbookReads, ownFilter: FilterTable): { records: TableIndexRun; all: TableIndexRun } | null {
   const [recordsArea, tableArea] = [ownFilterRecordsArea(reads, ownFilter), ownFilterTableArea(reads, ownFilter)];
@@ -1035,8 +1104,6 @@ export const ownFiltersWithoutKeyCache = new WeakMap<
 export const allOwnFilters = ({ ownFilters }: StateOfOwnFilters): OwnFilter[] => [...ownFilters.values()].flat();
 export const ownFilterByKey = (state: StateOfOwnFilters, key: string): OwnFilter | null =>
   allOwnFilters(state).find((ownFilter) => ownFilter.key === key) ?? null;
-export const nextOwnFilterKey = (state: StateOfOwnFilters): string =>
-  String(1 + Math.max(0, ...allOwnFilters(state).map(({ key }) => Number(key))));
 export const lookStampOfWorkbook = ({
   workbookChangeCount,
   formulasWorkedOutCount,
@@ -1077,6 +1144,9 @@ export const filterOnKnownColumns = (reads: WorkbookReads, sheetId: SheetId, fil
   keepFilterClausesWhereColumns(filter, (columnId) => reads.columnIndexOf(sheetId, columnId) !== null);
 /** Whether two values read the same once written as JSON. */
 export const isSameByJson = <Compared>(value: Compared, otherValue: Compared): boolean => JSON.stringify(value) === JSON.stringify(otherValue);
+export const isOwnFilterOfConnectedTable = (reads: WorkbookReads, { table }: Pick<TableToFilter, 'table'>): boolean => reads.connectedTableIn(table.sheetId) !== null;
+export const ownFilterKeyForTable = (state: StateOfOwnFilters, reads: WorkbookReads, filterTable: Pick<TableToFilter, 'table'>): string =>
+  isOwnFilterOfConnectedTable(reads, filterTable) ? filterTable.table.sheetId : nextOwnFilterKey(state);
 export const haveFilterColumnsChanged = (found: Pick<FilterTable, 'cellTable'>, ownFilter: Pick<FilterTable, 'cellTable' | 'columns'>): boolean =>
   found.cellTable.firstColumn !== ownFilter.cellTable.firstColumn &&
   found.cellTable.lastColumn !== ownFilter.cellTable.lastColumn &&
@@ -1149,6 +1219,15 @@ export const missesRowOutOfViewInArea = (
     const rowIndex = rowIdsStillOut.has(rowId) ? null : reads.rowIndexOf(sheetId, rowId);
     return rowIndex !== null && rowIndex >= topRowIndex && rowIndex < topRowIndex + rowCount;
   });
+export const isConnectedTableFilterUnlooked = (reads: WorkbookReads, ownFilter: Pick<OwnFilter, 'table' | 'lookedAtAsOf'>): boolean =>
+  isOwnFilterOfConnectedTable(reads, ownFilter) &&
+  (!hasConnectedTableRowsHeld(reads, ownFilter.table.sheetId) ||
+    reads.rowIndexOf(ownFilter.table.sheetId, ownFilter.table.header.firstRow) === null ||
+    ownFilter.lookedAtAsOf === NEVER_LOOKED_AT);
+export const applyOwnFiltersOfLoadedConnectedTables = (state: PageState, reads: ReadsWithTextMeasurer): PageState =>
+  allOwnFilters(state)
+    .filter((ownFilter) => hasConnectedTableRowsHeld(reads, ownFilter.table.sheetId) && isConnectedTableFilterUnlooked(reads, ownFilter))
+    .reduce((next: PageState, { table }) => lookAgainAtOwnFilters(next, reads, 'apply', table.sheetId), state);
 export const refreshStaleOwnFilters = (state: PageState, reads: ReadsWithTextMeasurer, sheetId: SheetId): PageState =>
   ownFiltersOfSheet(state, sheetId).some(({ lookedAtAsOf }) => lookedAtAsOf !== lookStampOfWorkbook(state))
     ? lookAgainAtOwnFilters(state, reads, 'look', sheetId)
@@ -1164,7 +1243,7 @@ export const addOwnFilterForTable = (state: PageState, reads: ReadsWithTextMeasu
     ownFilterFromAnswer(
       state,
       reads,
-      nextOwnFilterKey(state),
+      ownFilterKeyForTable(state, reads, filterTable),
       {
         kind: 'answered',
         found: filterTable,

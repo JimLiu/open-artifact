@@ -1,7 +1,8 @@
 import { AGENT_NAME } from '../agent/agent-name.ts';
 import { translateMessage, MESSAGE_LOCALE } from '../i18n/messages.ts';
 import type { HistoryWhy, VersionNotTakenNotice, VersionRestoredOffer } from '../state/initial-state.ts';
-import type { ShownAuthor } from './version-history.ts';
+import { MOST_VERSION_NAMES, type ShownAuthor } from './version-history.ts';
+import type { VersionNameOutcome } from './requests.ts';
 
 /** Why a history could not be read, in words: a title, a hint under it, and whether trying again may help. */
 export interface HistoryFailureWords {
@@ -250,6 +251,22 @@ export function versionNotShownText({ why }: Pick<VersionNotTakenNotice, 'why'>)
       });
   }
 }
+/** The notice of a version name the store did not save. */
+export function versionNameNotSavedText({ why }: { why: Exclude<VersionNameOutcome, 'saved' | 'tooManyNames'> }): string {
+  switch (why) {
+    case 'busy':
+    case 'noAnswer':
+      return translateMessage({
+        defaultMessage: 'Couldn’t change the version name right now. Try again in a few minutes.',
+        id: 'YIxxC2SLKd',
+      });
+    case 'refused':
+      return translateMessage({
+        defaultMessage: 'Couldn’t change the version name.',
+        id: 'c5MJT4Tn96',
+      });
+  }
+}
 export function versionRestoredToast(
   restored: Pick<VersionRestoredOffer, 'atMs' | 'isSaved'>,
   nowMs: number,
@@ -334,6 +351,36 @@ export const versionHistoryMessages = {
       defaultMessage: 'Restore this version',
       id: 'RTgaY8vlvo',
     }),
+  nameVersion: () =>
+    translateMessage({
+      defaultMessage: 'Name this version',
+      id: 'vijrPdrK13',
+    }),
+  renameVersion: () =>
+    translateMessage({
+      defaultMessage: 'Rename',
+      id: 'Y0shl40SZ6',
+    }),
+  removeName: () =>
+    translateMessage({
+      defaultMessage: 'Remove name',
+      id: 'gyvFuT8jkD',
+    }),
+  versionName: () =>
+    translateMessage({
+      defaultMessage: 'Version name',
+      id: 'IS8JkAabJE',
+    }),
+  tooManyNames: () =>
+    translateMessage(
+      {
+        defaultMessage: 'This Sheet already has {most} named versions. Remove a name to add another.',
+        id: 'gAfXEB7oA5',
+      },
+      {
+        most: MOST_VERSION_NAMES,
+      },
+    ),
   moreActions: () =>
     translateMessage({
       defaultMessage: 'More actions',
@@ -383,6 +430,21 @@ export const versionHistoryMessages = {
     translateMessage({
       defaultMessage: 'Loading version history…',
       id: 'VgznJWBw/f',
+    }),
+  noteOnSummaries: () =>
+    translateMessage({
+      defaultMessage: 'Summaries by Agent can be incomplete or wrong.',
+      id: '79fH2q5yw+',
+    }),
+  summaryByAgent: () =>
+    translateMessage({
+      defaultMessage: 'Summary by Agent:',
+      id: 'fl1IqQGtWr',
+    }),
+  loadingSummaries: () =>
+    translateMessage({
+      defaultMessage: 'Loading summaries…',
+      id: 'H0f6BU9kLT',
     }),
   tryAgain: () =>
     translateMessage({

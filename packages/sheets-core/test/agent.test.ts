@@ -19,8 +19,11 @@ import {
   type RecordingLog,
   serverIdOf,
   sha256Hex,
+  EARLIER_STOCK_CHART_PROGRAMS,
   STOCK_CHART_PROGRAMS,
   STOCK_KINDS,
+  stockKindOfAnyProgram,
+  stockProgramOf,
   sheetsOf,
   stockKindOf,
   versionsOf,
@@ -156,6 +159,17 @@ test('versions group edits by pauses and spans', () => {
   ]);
 });
 
+test('a named version ends where it was named', () => {
+  const at = (minutes: number): string => new Date(Date.UTC(2026, 0, 1) + minutes * 60_000).toISOString();
+  const edits = [1, 2, 3, 4].map((revision) => ({ revision, by: 'local', at: at(revision) }));
+  assert.deepEqual(versionsOf(edits, new Set([2])), [
+    { first: 3, last: 4, by: ['local'] },
+    { first: 1, last: 2, by: ['local'] },
+  ]);
+  // The newest revision named, or one the log does not have: nothing to split.
+  assert.deepEqual(versionsOf(edits, new Set([4, 9])), [{ first: 1, last: 4, by: ['local'] }]);
+});
+
 test('chart code: faults, the projection, and stock charts', () => {
   assert.deepEqual(chartCodeErrors(STOCK_CHART_PROGRAMS.bar), []);
   const faults = chartCodeErrors("import x from 'y';\nexport default () => <sheet.Embed />;");
@@ -171,20 +185,39 @@ test('chart code: faults, the projection, and stock charts', () => {
   assert.deepEqual(describeStockChart('bar', rows), { kind: 'bar', direction: 'vertical', stacking: 'none', data: { from: 'table', input: 'rows', seriesAre: 'columns', labelsLeftOut: [] } });
 });
 
-test('stock charts: every kind passes the code checks, is known by its text, and is described for the file', () => {
+test('stock charts: every kind passes the code checks, is known by its text, and is described for the file but today\'s scatter', () => {
   for (const kind of STOCK_KINDS) {
     assert.deepEqual(chartCodeErrors(STOCK_CHART_PROGRAMS[kind]), [], kind);
-    assert.equal(stockKindOf(STOCK_CHART_PROGRAMS[kind]), kind);
+    assert.equal(stockKindOf(STOCK_CHART_PROGRAMS[kind]), kind === 'scatter' ? null : kind);
+    assert.equal(stockKindOfAnyProgram(STOCK_CHART_PROGRAMS[kind]), kind);
   }
   assert.equal(new Set(STOCK_KINDS.map((kind) => STOCK_CHART_PROGRAMS[kind])).size, STOCK_KINDS.length);
+  // A chart made with an earlier program is still that kind, and is told apart from today's.
+  for (const kind of STOCK_KINDS) {
+    for (const program of EARLIER_STOCK_CHART_PROGRAMS[kind] ?? []) {
+      assert.deepEqual(chartCodeErrors(program), [], kind);
+      assert.equal(stockKindOfAnyProgram(` ${program}\n`), kind);
+      assert.equal(stockKindOf(program), kind);
+      assert.deepEqual(stockProgramOf(program), { kind, isEarlier: true });
+    }
+    assert.deepEqual(stockProgramOf(STOCK_CHART_PROGRAMS[kind]), { kind, isEarlier: false });
+  }
+  // Today's scatter is known on the page and left out of the file.
+  assert.equal(stockKindOfAnyProgram(STOCK_CHART_PROGRAMS.scatter), 'scatter');
+  assert.equal(stockKindOf(STOCK_CHART_PROGRAMS.scatter), null);
+  assert.equal(stockKindOfAnyProgram('export default () => null;'), null);
   const cell = (value: unknown, text: string) => ({ value, text });
   const table = { from: 'table', input: 'rows', seriesAre: 'columns', labelsLeftOut: [] };
   const rows = [[cell('Week', 'Week'), cell('Signups', 'Signups')], [cell('W1', 'W1'), cell(3, '3')], [cell('W2', 'W2'), cell(5, '5')]];
   assert.deepEqual(describeStockChart('area', rows), { kind: 'area', stacking: 'none', data: table });
   assert.deepEqual(describeStockChart('horizontalBar', rows), { kind: 'bar', direction: 'horizontal', stacking: 'none', data: table });
-  // A scatter needs a number in the first column of every row under the headings.
-  assert.equal(describeStockChart('scatter', rows), null);
+  assert.deepEqual(describeStockChart('stackedBar100', rows), { kind: 'bar', direction: 'vertical', stacking: 'stackedToTheWhole', data: table });
+  // The 100% stack skips a value below zero, which the file would draw.
+  assert.equal(describeStockChart('stackedBar100', [...rows, [cell('W3', 'W3'), cell(-2, '-2')]]), null);
+  assert.deepEqual(describeStockChart('stackedBar', [...rows, [cell('W3', 'W3'), cell(-2, '-2')]]), { kind: 'bar', direction: 'vertical', stacking: 'stacked', data: table });
+  // A scatter (the earlier program's: today's never gets here) needs a number in the first column of every row under the headings.
   const points = [[cell('Price', 'Price'), cell('Sold', 'Sold')], [cell(10, '10'), cell(300, '300')], [cell(12, '12'), cell(260, '260')]];
   assert.deepEqual(describeStockChart('scatter', points), { kind: 'scatter', data: table });
+  assert.equal(describeStockChart('scatter', rows), null);
   assert.equal(describeStockChart('scatter', [...points, [cell('n/a', 'n/a'), cell(1, '1')]]), null);
 });

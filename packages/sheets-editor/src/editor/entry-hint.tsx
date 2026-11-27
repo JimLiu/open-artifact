@@ -13,8 +13,14 @@ export function formulaBarPlaceholder({
   openUnderCell,
   calendar,
   viewOnlyBecause,
-}: Pick<PageView, 'formulaBarText' | 'mode' | 'openUnderCell' | 'calendar' | 'viewOnlyBecause'>): string | undefined {
-  return formulaBarText === '' && !isCellEntryBlank(mode) && openUnderCell === null && calendar === null && viewOnlyBecause === null
+  connectedTableBar,
+}: Pick<PageView, 'formulaBarText' | 'mode' | 'openUnderCell' | 'calendar' | 'viewOnlyBecause' | 'connectedTableBar'>): string | undefined {
+  return formulaBarText === '' &&
+    !isCellEntryBlank(mode) &&
+    openUnderCell === null &&
+    calendar === null &&
+    viewOnlyBecause === null &&
+    connectedTableBar === null
     ? cellEditorHint()
     : undefined;
 }

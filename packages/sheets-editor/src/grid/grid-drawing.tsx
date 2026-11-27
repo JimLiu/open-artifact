@@ -85,6 +85,10 @@ import { ERROR_DESCRIPTION_ID } from '../messages/formula-errors.ts';
 import { turnsChipsWhite } from '../format/cell-colors.ts';
 import { MENU_CARETS } from '../ui/menu-trigger.tsx';
 import { flagTop } from '../presence/flags.ts';
+import { clampBetween } from './geometry.ts';
+import { cornerStyleOnTables } from '../agent/agent-at-work.tsx';
+import { changedFromDefaultLabel } from '../messages/defaults-and-limits.ts';
+import { protectionMessages } from '../messages/protection.ts';
 /** Where the grid's body starts: right of the row numbers and under the column letters. */
 export type BodyOrigin = Pick<PaneRect, 'left' | 'top'>;
 /** A checkbox drawn in a cell: whether it is checked, where its middle is, and whether it can be changed. */
@@ -150,6 +154,8 @@ export interface DrawnCell {
   textCutByViewAt: number | null;
   cutByViewAt: number | null;
   takenAtRight: number;
+  moveForColumnButton: number;
+  keyOfColumnButton: string | null;
   hasTintOfFilterHeader: boolean;
   hasGroundOfFoundHeader: boolean;
   isInTable: boolean;
@@ -174,7 +180,9 @@ export interface DrawnCell {
   frozenBy: 'both' | 'row' | 'column' | null;
   isActive: boolean;
   elementId: string | null;
+  isKeptFromViewer: boolean;
   isSaidToHaveComment: boolean;
+  isSaidToBeChangedFromDefault: boolean;
   isSelected: boolean;
   isError: boolean;
   looksLikeError: boolean;
@@ -295,17 +303,6 @@ export interface EntryLines {
 export interface FadingBox extends PaneRect {
   fade: number;
 }
-/** The ground under a filter button held over a column. */
-export interface GroundUnderButton {
-  left: number;
-  width: number;
-  ground: string | PaintPair | null;
-}
-/** Filter buttons held over the columns of a table, and the grounds of the columns under them. */
-export interface ButtonGroundsHeld {
-  box: FadingBox;
-  grounds: readonly GroundUnderButton[];
-}
 /** A part of a header kept in sight, in one pane of columns, and whether it goes on past the pane. */
 export interface KeptHeaderPart {
   startOfPane: number;
@@ -327,7 +324,6 @@ export interface KeptHeaderDrawn {
   borderLines: readonly BorderLinesInBox[];
   selectionBoxes: readonly OutlinedBox[];
   marksOfReferences: readonly ReferenceMark[];
-  groundsOfButtonsHeld: readonly ButtonGroundsHeld[];
 }
 export interface CellCheckboxProps {
   checkbox: CheckboxInCell;
@@ -378,17 +374,22 @@ export interface LinesAsBeforeProps {
 export interface BorderLinesProps {
   grid: GridOfBorderLines;
 }
+/** The tables in sight whose outlines round the corners of boxes on them. */
+export type TablesOfCorners = Pick<GridOfPage, 'foundTableOutlines' | 'filteredTableOutlines'>;
 export interface CellsLitByLinkProps {
   boxes: readonly BoxLitByLink[];
   body: BodyOrigin;
+  tables?: TablesOfCorners;
 }
 export interface ReferenceMarksProps {
   marks: readonly ReferenceMark[];
   body: BodyOrigin;
+  tables?: TablesOfCorners;
 }
 export interface CommentWashProps {
   mark: CommentMark;
   body: BodyOrigin;
+  tables?: TablesOfCorners;
 }
 export interface HeaderKeptProps {
   kept: KeptHeaderDrawn;
@@ -431,8 +432,10 @@ export interface GridCellProps extends Omit<DrawnCell, 'key'> {
 export interface AriaPlaceKeeperProps {
   role: 'rowheader' | 'gridcell';
 }
-export interface FilterButtonGroundProps extends ButtonGroundsHeld {
-  body: BodyOrigin;
+export interface WordsThatMakeRoomProps {
+  forButton: string;
+  by: number;
+  children: ReactNode;
 }
 export interface RowsDrawingProps {
   rows: readonly DrawnRow[];
@@ -497,6 +500,18 @@ export function partsByLine(parts: readonly PartDrawn[]): LineOfParts[] {
       });
     else lines.at(-1)?.ofLine.push(part);
   return lines;
+}
+// Words in a cell under a shown column button move aside to make room for it.
+export function WordsThatMakeRoom(props: WordsThatMakeRoomProps) {
+  let isButtonShown = React.use(ColumnButtonsShownContext).includes(props.forButton);
+  return <span className="sheet-words-that-make-room" style={{
+      translate: isButtonShown ? `${-props.by}px` : undefined,
+    }}>{props.children}</span>;
+}
+// A row keeps the blank-cell words it was first drawn with.
+export function RowWithSteadyBlankWords(props: GridRowProps) {
+  let [blankCellWords] = React.useState(React.use(BlankCellWordsContext));
+  return <BlankCellWordsContext value={blankCellWords}><GridRow {...props} /></BlankCellWordsContext>;
 }
 export function GridRow(props: GridRowProps) {
   let { row, body, density, cellsAsBefore, isNumberUnderHandle } = props;
@@ -705,11 +720,7 @@ export function cellEntryBoxStyle(
   let alignShift =
     (scale > 1 && roomToAlignIn < 0
       ? 0.5
-      : {
-          top: 0,
-          center: 0.5,
-          bottom: 1,
-        }[alignment.vertical]) * roomToAlignIn;
+      : SHARE_OF_SLACK_BY_VERTICAL[alignment.vertical]) * roomToAlignIn;
   let lineLeading = marginDown + firstLineLeading(font.size);
   let zoomedLeading = isOneLineRowZoomed ? lineLeading : 0;
   let hiddenInset = hiddenInsetOfBox(box, lineOverlap);
@@ -742,6 +753,37 @@ export function zoomedEntryBox(box: DrawnBox, body: BodyOrigin, scale: number): 
     width: (box.width + 2 * zoomedEditorMargin(scale, 'along')) * scale,
     height: (box.height + 2 * zoomedEditorMargin(scale, 'down')) * scale,
   };
+}
+export function boxClampedBetween(box: PaneRect, top: number, bottom: number): PaneRect {
+  let clamp = (at: number) => clampBetween(at, top, bottom);
+  let height = clamp(box.top + box.height) - clamp(box.top);
+  return {
+    left: box.left,
+    top: clamp(box.top),
+    width: box.width,
+    height,
+  };
+}
+// The box of the entry's text lines (without the slack of a taller row), kept inside the view.
+export function entryTextLinesBox(
+  box: DrawnBox,
+  body: BodyOrigin,
+  { font, alignment }: Pick<WholeCellFormat, 'font' | 'alignment'>,
+  keepsClear: TextInsets,
+  { lineCount, scale, footOfView }: { lineCount: number; scale: number; footOfView: number },
+): PaneRect {
+  let zoomed = zoomedEntryBox(box, body, scale);
+  let slack = Math.max(0, box.height - rowHeightForLines(lineCount, font.size, keepsClear)) * scale;
+  let top = zoomed.top + SHARE_OF_SLACK_BY_VERTICAL[alignment.vertical] * slack;
+  return boxClampedBetween(
+    {
+      ...zoomed,
+      top,
+      height: zoomed.height - slack,
+    },
+    body.top + box.showsIn.top,
+    body.top + footOfView,
+  );
 }
 export function BorderLinesInBands(props: BorderLinesInBandsProps) {
   let { grid, axis, bands, asBefore } = props;
@@ -831,19 +873,19 @@ export function BorderLines({ grid }: BorderLinesProps) {
           )}</svg>,
   );
 }
-export function CellsLitByLink({ boxes, body }: CellsLitByLinkProps) {
+export function CellsLitByLink({ boxes, body, tables }: CellsLitByLinkProps) {
   let maskId = React.useId();
   return <><svg aria-hidden className="sheet-veil-round-cells-lit" style={body}><mask id={maskId}><rect width="100%" height="100%" fill="white" />{boxes.map(({ key, box }) => {
             let { left, top, width, height } = clipBoxToShown(box);
             return <rect key={key} x={left} y={top} width={width} height={height} />;
           })}</mask><rect width="100%" height="100%" mask={`url(#${maskId})`} /></svg>{boxes.map(({ key, box }) =>
-        <div key={key} aria-hidden className="sheet-cells-lit-by-link" style={clippedBoxStyle(box, body)} />,
+        <div key={key} aria-hidden className="sheet-cells-lit-by-link" style={clippedBoxStyle(box, body, tables)} />,
     )}</>;
 }
-export function ReferenceMarks({ marks, body }: ReferenceMarksProps) {
+export function ReferenceMarks({ marks, body, tables }: ReferenceMarksProps) {
   return marks.map(({ cells, box, hue, leavesTextAsItIs, arrivesAtPart }) => {
     let markStyle = {
-      ...clippedBoxStyle(box, body),
+      ...clippedBoxStyle(box, body, tables),
       ...referenceTintStyle(hue),
       ...(arrivesAtPart !== null && {
         '--sheet-part-of-arrival': String(arrivesAtPart),
@@ -857,12 +899,13 @@ export function ReferenceMarks({ marks, body }: ReferenceMarksProps) {
 export function CommentWash({
   mark: { key, isOpen, isPointedAt, isWithAgent, ...box },
   body,
+  tables,
 }: CommentWashProps) {
   return <div aria-hidden className="sheet-comment-wash" data-is-open={isOpen} data-is-comment-pointed-at={isPointedAt || undefined} data-is-with-agent={isWithAgent || undefined} {...{
       [COMMENT_LAYER_ATTR]: key,
     }} style={{
       ...useSheenDelayStyle(isWithAgent),
-      ...clippedBoxStyle(box, body),
+      ...clippedBoxStyle(box, body, tables),
     }} />;
 }
 export function HeaderKept({
@@ -887,12 +930,8 @@ export function HeaderKept({
         width: body.left + body.width,
       }}>{rows.map(
           (keptRow) =>
-            <GridRow key={keptRow.key} row={keptRow} body={body} density={density} cellsAsBefore={NO_CELLS_AS_BEFORE} isNumberUnderHandle={keptRow.rowNumber === rowNumberUnderHandle} />,
-        )}{ring !== null &&
-          kept.groundsOfButtonsHeld.map(
-            ({ box, grounds }) =>
-              <FilterButtonGround key={box.left} box={box} grounds={grounds} body={body} />,
-          )}{ring}<BorderLines grid={{
+            <RowWithSteadyBlankWords key={keptRow.key} row={keptRow} body={body} density={density} cellsAsBefore={NO_CELLS_AS_BEFORE} isNumberUnderHandle={keptRow.rowNumber === rowNumberUnderHandle} />,
+        )}{ring}<BorderLines grid={{
             body,
             borderLines: kept.borderLines,
           }} /><ReferenceMarks marks={kept.marksOfReferences} body={body} />{kept.selectionBoxes.map(
@@ -1060,12 +1099,13 @@ export function GridDrawing({
     : undefined;
   let activeCellAddress = activeDrawnCell === undefined ? null : `${columnLetters(activeDrawnCell.columnNumber - 1)}${activeDrawnCell.rowNumberWritten},`;
   return <>{activeCellAddress !== null &&
-        <span id={ACTIVE_CELL_ADDRESS_ID} hidden>{activeCellAddress}</span>}<span id={LINK_DESCRIPTION_ID} hidden>{sheetMessages.link()}</span><span id={COMMENT_DESCRIPTION_ID} hidden>{sheetMessages.hasComment()}</span>{LINK_COUNTS_IN_TEXT.map(
+        <span id={ACTIVE_CELL_ADDRESS_ID} hidden>{activeCellAddress}</span>}<span id={LINK_DESCRIPTION_ID} hidden>{sheetMessages.link()}</span><span id={COMMENT_DESCRIPTION_ID} hidden>{sheetMessages.hasComment()}</span>{grid.defaultThatActiveCellIsChangedFrom !== null &&
+        <span id={CHANGED_FROM_DEFAULT_ID} hidden>{changedFromDefaultLabel(grid.defaultThatActiveCellIsChangedFrom)}</span>}<span id={PROTECTED_DESCRIPTION_ID} hidden>{protectionMessages.saidOfCell()}</span>{LINK_COUNTS_IN_TEXT.map(
         (linkCount) =>
           <span key={linkCount} id={linksInTextDescriptionId(linkCount)} hidden>{linkCountLabel(linkCount)}</span>,
-      )}<ColumnHeaderRow columnHeaders={columnHeaders} body={body} keysOfColumns={keysOfColumns} />{grid.columnEdgeGrips.map(
-        ({ key, isOfFrozen, left, width, edgeFromLeft }) =>
-          (<div key={key} aria-hidden className="sheet-column-edge-grip" data-is-of-frozen={isOfFrozen || undefined} style={{
+      )}{grid.columnEdgeGrips.map(
+        ({ key, isOfFrozen, isHeldStill, left, width, edgeFromLeft }) =>
+          (<div key={key} aria-hidden className="sheet-column-edge-grip" data-is-of-frozen={isOfFrozen || undefined} data-is-held-still={isHeldStill || undefined} style={{
                 left: body.left + left,
                 width,
                 height: body.top,
@@ -1077,8 +1117,8 @@ export function GridDrawing({
             left: body.left + grid.gripOfColumnsForFingerAt,
             height: body.top,
           }} />)}{grid.rowEdgeGrips.map(
-        ({ key, isOfFrozen, top, height, edgeFromTop }) =>
-          (<div key={key} aria-hidden className="sheet-row-edge-grip" data-is-of-frozen={isOfFrozen || undefined} style={{
+        ({ key, isOfFrozen, isHeldStill, top, height, edgeFromTop }) =>
+          (<div key={key} aria-hidden className="sheet-row-edge-grip" data-is-of-frozen={isOfFrozen || undefined} data-is-held-still={isHeldStill || undefined} style={{
                 top: body.top + top,
                 height,
                 width: body.left,
@@ -1111,32 +1151,32 @@ export function GridDrawing({
                 }
               : {
                   left: body.left + grid.landingLine.offset,
-                }} />)}<LinesAsBefore grid={grid} linesOnShow={linesOnShow} slideTold={slideTold} /><TooltipGroup>{rows.map(
+                }} />)}<LinesAsBefore grid={grid} linesOnShow={linesOnShow} slideTold={slideTold} />{/* The column headers are drawn after the lines as before, over them. */}<ColumnHeaderRow columnHeaders={columnHeaders} body={body} keysOfColumns={keysOfColumns} /><TooltipGroup>{rows.map(
           (bodyRow) =>
-            (<GridRow key={bodyRow.key} keysOfColumns={keysOfColumns} row={bodyRow} body={body} density={grid.density} cellsAsBefore={cellsAsBefore.length === 0
+            (<RowWithSteadyBlankWords key={bodyRow.key} keysOfColumns={keysOfColumns} row={bodyRow} body={body} density={grid.density} cellsAsBefore={cellsAsBefore.length === 0
                     ? NO_CELLS_AS_BEFORE
                     : cellsAsBefore.filter(({ rowKey }) => rowKey === bodyRow.key)} isNumberUnderHandle={bodyRow.rowNumber === rowNumberUnderHandle} arePlacesHeld={arePlacesHeld} isNamed={areRowsNamed} />),
         )}</TooltipGroup><BorderLinesOfSlide grid={grid} slideTold={slideTold} /><EndOfFrozenLines isOf="rows" end={grid.endOfFrozenRows} isHeld={grid.freezeBarHeld === 'rows'} body={body} /><EndOfFrozenLines isOf="columns" end={grid.endOfFrozenColumns} crossedBy={grid.endOfFrozenRows} isHeld={grid.freezeBarHeld === 'columns'} body={body} />{freezeBars !== null &&
         <TooltipGroup><FreezeBar isOf="columns" bar={freezeBars.columns} isHeld={grid.freezeBarHeld === 'columns'} body={body} /><FreezeBar isOf="rows" bar={freezeBars.rows} isHeld={grid.freezeBarHeld === 'rows'} body={body} /></TooltipGroup>}{grid.boxesReachedByEditor.map(
         (box) =>
-          <div key={`${box.left} ${box.top}`} className="sheet-reach-of-editor" style={clippedBoxStyle(box, body)} />,
+          <div key={`${box.left} ${box.top}`} className="sheet-reach-of-editor" style={clippedBoxStyle(box, body, grid)} />,
       )}{grid.marksOfFixes.map(
         ({ key, box, isAwaited }) =>
-          <div key={key} aria-hidden className={isAwaited ? 'sheet-outline-of-other sheet-fix-awaited' : 'sheet-spill-outline'} data-is-if-kept={!isAwaited || undefined} style={clippedBoxStyle(box, body)} />,
+          <div key={key} aria-hidden className={isAwaited ? 'sheet-outline-of-other sheet-fix-awaited' : 'sheet-spill-outline'} data-is-if-kept={!isAwaited || undefined} style={clippedBoxStyle(box, body, grid)} />,
       )}{grid.spillOutline !== null &&
-        <div aria-hidden className="sheet-spill-outline" data-is-blocked={grid.spillOutline.isBlocked || undefined} data-is-if-kept={grid.spillOutline.isIfKept || undefined} style={clippedBoxStyle(grid.spillOutline.box, body)} />}{grid.tableOutline !== null &&
-        <div aria-hidden className="sheet-table-outline" data-is-of-formula={grid.tableOutline.isOfFormula} style={clippedBoxStyle(grid.tableOutline, body)} />}{grid.boxesLitByLink.length > 0 &&
-        <CellsLitByLink boxes={grid.boxesLitByLink} body={body} />}<ReferenceMarks marks={grid.marksOfReferences} body={body} />{grid.outlinesOfOthers.map(
+        <div aria-hidden className="sheet-spill-outline" data-is-blocked={grid.spillOutline.isBlocked || undefined} data-is-if-kept={grid.spillOutline.isIfKept || undefined} style={clippedBoxStyle(grid.spillOutline.box, body, grid)} />}{grid.tableOutline !== null &&
+        <div aria-hidden className="sheet-table-outline" data-is-of-formula={grid.tableOutline.isOfFormula} style={clippedBoxStyle(grid.tableOutline, body, grid)} />}{grid.boxesLitByLink.length > 0 &&
+        <CellsLitByLink boxes={grid.boxesLitByLink} body={body} tables={grid} />}<ReferenceMarks marks={grid.marksOfReferences} body={body} tables={grid} />{grid.outlinesOfOthers.map(
         ({ key, box, color }) =>
           (<div key={key} aria-hidden className="sheet-outline-of-other" style={{
-                ...clippedBoxStyle(box, body),
+                ...clippedBoxStyle(box, body, grid),
                 color,
               }} />),
       )}{grid.marksOfComments.map(
         (mark) =>
-          <CommentWash key={mark.key} mark={mark} body={body} />,
+          <CommentWash key={mark.key} mark={mark} body={body} tables={grid} />,
       )}{grid.markOfNewComment !== null &&
-        <div aria-hidden className="sheet-comment-wash" data-is-open style={clippedBoxStyle(grid.markOfNewComment, body)} />}{grid.edgesToMoveCellsBy.map(
+        <div aria-hidden className="sheet-comment-wash" data-is-open style={clippedBoxStyle(grid.markOfNewComment, body, grid)} />}{grid.edgesToMoveCellsBy.map(
         (edge) =>
           <div key={`${edge.table?.key ?? ''} ${edge.side}`} aria-hidden className="sheet-edge-to-move-cells-by" style={boxInBody(edge, body)} />,
       )}{grid.marksOfComments.map(
@@ -1146,22 +1186,28 @@ export function GridDrawing({
               }} data-is-corner-under-outline={endsWith !== null} style={clippedBoxStyle(box, body)}>{jsx('div', {
                 [COMMENT_CORNER_ATTR]: key,
               })}</div>),
+      )}{grid.marksOfProtections.map(
+        ({ isKeptFromViewer, ...box }, index) =>
+          <div key={index} aria-hidden className="sheet-protected" data-is-kept-from-viewer={isKeptFromViewer} style={clippedBoxStyle(box, body)} />,
+      )}{grid.marksOfChangedCells.map(
+        ({ key, ...box }) =>
+          <div key={key} aria-hidden className="sheet-changed-from-default" style={clippedBoxStyle(box, body)} />,
       )}{grid.tintsOfFind.map(
         ({ key, isCellFound, ...box }) =>
-          <div key={key} aria-hidden className="sheet-found" data-is-cell-found={isCellFound} style={clippedBoxStyle(box, body)} />,
+          <div key={key} aria-hidden className="sheet-found" data-is-cell-found={isCellFound} style={clippedBoxStyle(box, body, grid)} />,
       )}{grid.marksOnChangesByAgent.map(
         ({ key, fadeBeginsAtMs, box, ...mark }) =>
-          <ChangeByAgentMark key={key} keyOfMark={key} fadeBeginsAtMs={fadeBeginsAtMs} isWithoutSheen={mark.isOfWholeLines || mark.isOfPlaceShown} place={clippedBoxStyle(box, body)} />,
+          <ChangeByAgentMark key={key} keyOfMark={key} fadeBeginsAtMs={fadeBeginsAtMs} isWithoutSheen={mark.isOfWholeLines || mark.isOfPlaceShown} place={clippedBoxStyle(box, body, grid)} />,
       )}{selectionBox !== null &&
-        <div className="sheet-selection" data-is-just-imported={grid.isSelectionJustImported || undefined} data-is-in-open-comment={grid.isSelectionInOpenComment || undefined} style={clippedBoxStyle(selectionBox, body)} />}{grid.otherRangeBoxes.map(
+        <div className="sheet-selection" data-is-just-imported={grid.isSelectionJustImported || undefined} data-is-in-open-comment={grid.isSelectionInOpenComment || undefined} style={clippedBoxStyle(selectionBox, body, grid)} />}{grid.otherRangeBoxes.map(
         ({ key, box }) =>
-          <div key={key} className="sheet-selection" style={clippedBoxStyle(box, body)} />,
+          <div key={key} className="sheet-selection" style={clippedBoxStyle(box, body, grid)} />,
       )}{activeCellBox !== null &&
-        <div className="sheet-active-cell-outline" style={clippedBoxStyle(activeCellBox, body)} />}{grid.copiedCellsBox !== null &&
-        <div className="sheet-copied-cells" style={clippedBoxStyle(grid.copiedCellsBox, body)} />}{grid.fillPreviewBox !== null &&
-        <div className="sheet-fill-preview" style={clippedBoxStyle(grid.fillPreviewBox, body)} />}{grid.landingOfCellsBox !== null &&
+        <div className="sheet-active-cell-outline" style={clippedBoxStyle(activeCellBox, body, grid)} />}{grid.copiedCellsBox !== null &&
+        <div className="sheet-copied-cells" style={clippedBoxStyle(grid.copiedCellsBox, body, grid)} />}{grid.fillPreviewBox !== null &&
+        <div className="sheet-fill-preview" style={clippedBoxStyle(grid.fillPreviewBox, body, grid)} />}{grid.landingOfCellsBox !== null &&
         grid.cellsHeld === null &&
-        <div className="sheet-fill-preview" style={clippedBoxStyle(grid.landingOfCellsBox, body)} />}{grid.headersKept.map(
+        <div className="sheet-fill-preview" style={clippedBoxStyle(grid.landingOfCellsBox, body, grid)} />}{grid.headersKept.map(
         (headerKept) =>
           <HeaderKept key={headerKept.key} kept={headerKept} body={body} density={grid.density} marks={outlinedBoxes} tableOutline={grid.tableOutline} endOfFrozenColumns={grid.endOfFrozenColumns} rowNumberUnderHandle={rowNumberUnderHandle} />,
       )}{grid.nameFlagsOfOthers.length > 0 &&
@@ -1169,15 +1215,18 @@ export function GridDrawing({
             clipPath: activeCellCutout,
           }}>{grid.nameFlagsOfOthers.map(
             ({ key, box, stands, end, flags, countFolded, ...group }) =>
-              (<div key={key} aria-hidden className="sheet-name-flags-of-others" data-stands={stands} data-end={end} data-is-on-top={key === cornerOnTop || undefined} data-is-hidden={flagsHidden.corners.includes(key) || undefined} style={nameFlagsStyle(
-                    key,
-                    {
-                      stands,
-                      box,
-                    },
-                    grid.outlinesOfOthers,
-                    body,
-                  )}><FlagsAtRest lastMoveAtMs={group.lastMoveAtMs} isKeptUp={group.isAllThatShows || cornersCalledUp.includes(key)}>{flags.map(
+              (<div key={key} aria-hidden className="sheet-name-flags-of-others" data-stands={stands} data-end={end} data-is-on-top={key === cornerOnTop || undefined} data-is-hidden={flagsHidden.corners.includes(key) || undefined} style={{
+                    ...nameFlagsStyle(
+                      key,
+                      {
+                        stands,
+                        box,
+                      },
+                      grid.outlinesOfOthers,
+                      body,
+                    ),
+                    ...cornerStyleOnTables(box, grid),
+                  }}><FlagsAtRest lastMoveAtMs={group.lastMoveAtMs} isKeptUp={group.isAllThatShows || cornersCalledUp.includes(key)}>{flags.map(
                       ({ key: flagKey, name, color, inkColor }, flagIndex) =>
                         (<span key={flagKey} style={{
                               background: color,
@@ -1189,7 +1238,10 @@ export function GridDrawing({
         }}>{grid.marksOnChangesByAgent.map(
           ({ key, fadeBeginsAtMs, name, box }) =>
             name !== null &&
-            <ChangeByAgentMark key={key} keyOfMark={key} fadeBeginsAtMs={fadeBeginsAtMs} place={flagPlaceStyle(name, box, body)} nameStands={name.stands} isHidden={flagsHidden.isOfAgent} />,
+            <ChangeByAgentMark key={key} keyOfMark={key} fadeBeginsAtMs={fadeBeginsAtMs} place={{
+                ...flagPlaceStyle(name, box, body),
+                ...cornerStyleOnTables(name.box, grid),
+              }} nameStands={name.stands} isHidden={flagsHidden.isOfAgent} />,
         )}</div>{selectionSummary !== null &&
         <Surface aria-hidden id={SELECTION_SUMMARY_ID} elevation="popover" className="sheet-selection-summary" data-opens-menu={selectionSummary.opensMenu} style={selectionSummaryStyle(selectionSummary, body)}><span className="sheet-selection-summary-words">{selectionSummaryText(selectionSummary.summary)}</span></Surface>}{grid.fillHandleBox !== null &&
         (<div aria-hidden className="sheet-fill-handle" data-has-flag-beside={grid.isFlagInSquareOfFillHandle || undefined} style={{
@@ -1219,6 +1271,7 @@ export const isSameLinkPart = (part: LinkPart, other: LinkPart | undefined): boo
   part.url === other.url &&
   part.isLinkOnWords === other.isLinkOnWords &&
   part.marks.join() === other.marks.join();
+export const ColumnButtonsShownContext = React.createContext<readonly string[]>([]);
 export const CheckboxOfLine = ({ isChecked }: CheckboxOfLineProps) =>
   <span role="presentation" aria-hidden className="sheet-box-of-line" onMouseDown={preventMouseDownDefault}><Checkbox checked={isChecked} animated tabIndex={-1} aria-label={sheetMessages.checkboxCells()} /></span>;
 export const LINE_WITHOUT_LIST: LineOfAList = {
@@ -1283,13 +1336,21 @@ export const GridCell = React.memo(function (props: GridCellProps) {
   let { checkbox, isError, looksLikeError, isErrorMuted } = props;
   let announcesActiveCell = React.use(AnnounceActiveCellContext) && elementId !== null;
   let blankCellWords = React.use(BlankCellWordsContext);
-  let hasWordsForReader =
-    text.trim() === '' &&
+  // "allAndText" also says the text of plain cells through the reader words.
+  let saysAllCells = blankCellWords === 'all' || blankCellWords === 'allAndText';
+  let isBlankForReader = text.trim() === '' && linkUrl === null && !isPerson;
+  let isTextBoxOffCell = textLeft !== left || textWidth !== width;
+  let saysTextAsWords =
+    (blankCellWords === 'allAndText' || (blankCellWords === 'all' && isTextBoxOffCell)) &&
+    !isBlankForReader &&
     linkUrl === null &&
     !isPerson &&
-    blankCellWords !== 'none' &&
-    (blankCellWords === 'all' || checkbox !== null || opensDropdownList || props.isActive);
-  let areWordsInsteadOfLabel = hasWordsForReader && blankCellWords !== 'all';
+    listLines.length === 0 &&
+    partsWithLinks.every(({ url }) => url === null);
+  let hasWordsForReader =
+    saysTextAsWords ||
+    (isBlankForReader && blankCellWords !== 'none' && (saysAllCells || checkbox !== null || opensDropdownList || props.isActive));
+  let areWordsInsteadOfLabel = hasWordsForReader && !saysAllCells;
   let cellLabel =
     props.shownForFixThatWaits !== null
       ? agentFixLabel(text, props.shownForFixThatWaits, props.areKeysForFix)
@@ -1303,10 +1364,10 @@ export const GridCell = React.memo(function (props: GridCellProps) {
         strikethrough: false,
       }
     : format.font;
-  let isTextBoxOffCell = textLeft !== left || textWidth !== width;
   let isPillFillingCell = checkbox === null && !isTextBoxOffCell && linkUrl === null && !isPerson && (pill !== null || opensDropdownList);
   let hasChip =
     isPerson || (isPillFillingCell && pill !== null) || (linkUrl !== null && props.linkDrawnAs !== 'words' && githubLinkFace(linkUrl) !== null);
+  let cutByViewAt = hasChip || isPillFillingCell ? null : props.cutByViewAt;
   let textClearance = cellTextInsets(
     height,
     format.font.size,
@@ -1375,8 +1436,14 @@ export const GridCell = React.memo(function (props: GridCellProps) {
               <React.Fragment key={ofLine[0]?.startsAt ?? `empty ${line}`}>{!isTextWrapped && breakBefore?.drawn}<LineInCell line={line} drawnBefore={listLines[line]} whereCut={lineFadeStyle(listLines[line])}>{drawParts(ofLine)}</LineInCell></React.Fragment>,
           );
   let needsOwnSpan = isStruckWithDoubleUnderline || indentToCenter !== 0 || linkParts.length > 0;
+  // When the reader words say the text, the drawn text is hidden from the reader.
+  let hiddenFromReader = saysTextAsWords
+    ? {
+        'aria-hidden': true,
+      }
+    : undefined;
   let textInBox = isTextWrapped
-    ? <span className="sheet-wrapped-text" data-cuts-lines={props.areLinesCut || undefined} style={{
+    ? <span {...hiddenFromReader} className="sheet-wrapped-text" data-cuts-lines={props.areLinesCut || undefined} style={{
           textDecorationLine,
           textAlign: alignment,
           ...wrappedTextLineStyle(format.font.size),
@@ -1384,8 +1451,8 @@ export const GridCell = React.memo(function (props: GridCellProps) {
             overflow: 'clip',
           }),
         }}>{textDrawn}</span>
-    : needsOwnSpan
-      ? <span style={{
+    : needsOwnSpan || saysTextAsWords
+      ? <span {...hiddenFromReader} style={{
             textDecorationLine,
             marginLeft: indentToCenter === 0 ? undefined : indentToCenter,
           }}>{textDrawn}</span>
@@ -1424,8 +1491,10 @@ export const GridCell = React.memo(function (props: GridCellProps) {
     announcesActiveCell ? ACTIVE_CELL_ADDRESS_ID : null,
     describedById,
     props.isSaidToHaveComment ? COMMENT_DESCRIPTION_ID : null,
+    props.isSaidToBeChangedFromDefault ? CHANGED_FROM_DEFAULT_ID : null,
+    props.isKeptFromViewer ? PROTECTED_DESCRIPTION_ID : null,
   ].filter(Boolean);
-  return <div role="gridcell" aria-hidden={props.isBehindBars || undefined} id={elementId ?? undefined} aria-rowindex={mergedFromRowNumber === null ? undefined : ariaIndex(mergedFromRowNumber)} aria-colindex={ariaIndex(columnNumber)} aria-rowspan={mergedRowCount ?? undefined} aria-colspan={mergedColumnCount ?? undefined} aria-describedby={describedByIds.length === 0 ? undefined : describedByIds.join(' ')} data-is-error={isError || undefined} data-looks-like-error={looksLikeError || undefined} data-is-error-muted={isErrorMuted || undefined} data-fix-waits={props.shownForFixThatWaits !== null || undefined} aria-keyshortcuts={keyShortcuts.length === 0 ? undefined : keyShortcuts.join(' ')} aria-selected={isSelected} aria-label={areWordsInsteadOfLabel ? undefined : cellLabel} aria-haspopup={opensDropdownList || opensPeopleList ? 'listbox' : opensCalendar ? 'dialog' : undefined} aria-expanded={opensDropdownList ? isDropdownListOpen : opensPeopleList ? isPeopleListOpen : opensCalendar ? isCalendarOpen : undefined} {...ariaRowIndexText(props.rowNumberWritten)} {...ariaColIndexText(columnLetters(columnNumber - 1))} className="sheet-cell" data-is-active={props.isActive || undefined} data-comes-at-key={props.comesAtKey} data-frozen-by={frozenBy ?? undefined} data-has-no-line-at-right={!hasLineAtRight || undefined} data-text-runs-on={isTextBoxOffCell || undefined} data-is-cut-at-end-only={isCutAtEndOnly || undefined} data-chips-wrap={chipLineCount > 1 || undefined} data-may-text-fade={props.mayTextFade || fadesCutLines || undefined} data-is-cut-by-view={props.cutByViewAt !== null || undefined} data-has-fill={paints.fill !== null || undefined} data-turns-chips-white={(usesTextPaint && turnsChipsWhite(paints)) || undefined} data-has-text-paint={(!isTextBoxOffCell && usesTextPaint) || undefined} data-has-tint-of-filter-header={props.hasTintOfFilterHeader || undefined} data-has-ground-of-found-header={props.hasGroundOfFoundHeader || undefined} data-is-in-table={props.isInTable || undefined} data-is-in-hand={props.isInHand || undefined} data-corners-of-table={props.cornersOfTable ?? undefined} data-has-color-of-heading={props.hasColorOfHeading || undefined} data-has-weight-of-heading={(props.isHeadingOfTable && !format.font.bold && !isTextWrapped) || undefined} data-mark-of-import={props.markOfImport ?? undefined} data-words-for-voiceover={hasWordsForReader && blankCellWords === 'whereAPressActsByCss' ? (cellLabel ?? sheetMessages.blankCell()) : undefined} style={{
+  return <div role="gridcell" aria-hidden={props.isBehindBars || undefined} id={elementId ?? undefined} aria-rowindex={mergedFromRowNumber === null ? undefined : ariaIndex(mergedFromRowNumber)} aria-colindex={ariaIndex(columnNumber)} aria-rowspan={mergedRowCount ?? undefined} aria-colspan={mergedColumnCount ?? undefined} aria-describedby={describedByIds.length === 0 ? undefined : describedByIds.join(' ')} data-is-error={isError || undefined} data-looks-like-error={looksLikeError || undefined} data-is-error-muted={isErrorMuted || undefined} data-fix-waits={props.shownForFixThatWaits !== null || undefined} aria-keyshortcuts={keyShortcuts.length === 0 ? undefined : keyShortcuts.join(' ')} aria-selected={isSelected} aria-label={areWordsInsteadOfLabel ? undefined : cellLabel} aria-haspopup={opensDropdownList || opensPeopleList ? 'listbox' : opensCalendar ? 'dialog' : undefined} aria-expanded={opensDropdownList ? isDropdownListOpen : opensPeopleList ? isPeopleListOpen : opensCalendar ? isCalendarOpen : undefined} {...ariaRowIndexText(props.rowNumberWritten)} {...ariaColIndexText(columnLetters(columnNumber - 1))} className="sheet-cell" data-is-active={props.isActive || undefined} data-comes-at-key={props.comesAtKey} data-frozen-by={frozenBy ?? undefined} data-has-no-line-at-right={!hasLineAtRight || undefined} data-text-runs-on={isTextBoxOffCell || undefined} data-is-cut-at-end-only={isCutAtEndOnly || undefined} data-chips-wrap={chipLineCount > 1 || undefined} data-may-text-fade={props.mayTextFade || fadesCutLines || undefined} data-is-cut-by-view={cutByViewAt !== null || undefined} data-has-fill={paints.fill !== null || undefined} data-turns-chips-white={(usesTextPaint && turnsChipsWhite(paints)) || undefined} data-has-text-paint={(!isTextBoxOffCell && usesTextPaint) || undefined} data-has-tint-of-filter-header={props.hasTintOfFilterHeader || undefined} data-has-ground-of-found-header={props.hasGroundOfFoundHeader || undefined} data-is-in-table={props.isInTable || undefined} data-is-in-hand={props.isInHand || undefined} data-corners-of-table={props.cornersOfTable ?? undefined} data-has-color-of-heading={props.hasColorOfHeading || undefined} data-has-weight-of-heading={(props.isHeadingOfTable && !format.font.bold && !isTextWrapped) || undefined} data-mark-of-import={props.markOfImport ?? undefined} data-words-for-voiceover={hasWordsForReader && blankCellWords === 'whereAPressActsByCss' ? (cellLabel ?? sheetMessages.blankCell()) : undefined} style={{
       ...(props.markOfImport !== null && importMarkDelayStyle(props.markOfImportDelayMs)),
       left: bodyLeft + left,
       width,
@@ -1444,15 +1513,15 @@ export const GridCell = React.memo(function (props: GridCellProps) {
         right: 0,
         bottom: 0,
       }),
-      ...(props.cutByViewAt !== null && cutByViewStyle(props.cutByViewAt)),
+      ...(cutByViewAt !== null && cutByViewStyle(cutByViewAt)),
       ...fillPaintStyle(paints.fill),
       ...(isTextBoxOffCell ? undefined : cellStyle),
     }}>{hasWordsForReader &&
         blankCellWords !== 'whereAPressActsByCss' &&
-        <WordsForScreenReader words={cellLabel ?? sheetMessages.blankCell()} />}{checkbox !== null
+        <WordsForScreenReader words={cellLabel ?? (saysTextAsWords ? textAsDrawn(text) : sheetMessages.blankCell())} isOnTop={blankCellWords === 'allAndText' && checkbox !== null} />}{checkbox !== null
         ? <CellCheckbox checkbox={checkbox} />
         : isTextBoxOffCell
-          ? (<TextThatRunsOn left={textLeft - left} cell={props} style={cellStyle} hasTextPaint={usesTextPaint}><span style={{
+          ? (<TextThatRunsOn left={textLeft - left} cell={props} style={cellStyle} hasTextPaint={usesTextPaint} letsPointerThroughWords={saysTextAsWords && props.shownForFixThatWaits === null && !isError}><span {...hiddenFromReader} style={{
                   textDecorationLine,
                 }}>{withFade(textDrawn)}</span></TextThatRunsOn>)
           : linkUrl !== null && props.linkDrawnAs === 'words'
@@ -1475,6 +1544,8 @@ export const GridCell = React.memo(function (props: GridCellProps) {
                           textAlign: alignment,
                         },
                       }} after={opensDropdownList && MENU_CARETS.chipInCell}>{textInBox}</CellChip>)
+                  : props.keyOfColumnButton !== null
+                    ? <WordsThatMakeRoom forButton={props.keyOfColumnButton} by={props.moveForColumnButton}>{textInBox}</WordsThatMakeRoom>
                   : props.takenAtRight > 0 && !isTextWrapped
                     ? <span className="sheet-text-short-of-button" data-ends-at-button={(textFade !== null && fadesFromRightButton(props)) || undefined}>{withFade(textInBox)}</span>
                     : withFade(textInBox)}</div>;
@@ -1487,7 +1558,9 @@ export const AriaPlaceKeeper = ({ role }: AriaPlaceKeeperProps) =>
     }} />;
 export const ARE_ROWS_NAMED_HERE =
   IS_APPLE_PLATFORM && !IS_IOS_BROWSER && typeof CSS < 'u' && !CSS.supports('-moz-appearance', 'none') && !CSS.supports('font', '-apple-system-body');
+export const PROTECTED_DESCRIPTION_ID = 'protected-description';
 export const COMMENT_DESCRIPTION_ID = 'comment-description';
+export const CHANGED_FROM_DEFAULT_ID = 'changed-from-default';
 export const COMMENT_SHORTCUT = IS_APPLE_PLATFORM ? 'Meta+Alt+M' : 'Control+Alt+M';
 export const COMMENT_CORNER_ATTR = 'data-comment-corner';
 export const COMMENT_LAYER_ATTR = 'data-comment-layer';
@@ -1536,8 +1609,10 @@ export const NO_GRIDLINE_OVERLAP: GridPoint = {
   x: 0,
   y: 0,
 };
-export const clippedBoxStyle = (box: DrawnBox, body: BodyOrigin) => ({
+export const clippedBoxStyle = (box: DrawnBox, body: BodyOrigin, tables?: TablesOfCorners) => ({
   ...outlineBoxInBody(box, body),
+  // Boxes on a found or filtered table take its rounded corners.
+  ...(tables !== undefined && cornerStyleOnTables(box, tables)),
   ...clipInsetStyle({
     ...hiddenInsetOfBox(box, gridlineOverlap(box)),
     right: Math.max(0, box.left + box.width - (box.showsIn.left + box.showsIn.width)),
@@ -1546,6 +1621,11 @@ export const clippedBoxStyle = (box: DrawnBox, body: BodyOrigin) => ({
 });
 export const ENTRY_CLIP_OVERSHOOT = 12;
 export const ENTRY_TEXT_NUDGE = 2;
+export const SHARE_OF_SLACK_BY_VERTICAL: Record<WholeCellFormat['alignment']['vertical'], number> = {
+  top: 0,
+  center: 0.5,
+  bottom: 1,
+};
 export const SUMMARY_EDGE_GAP = 1;
 export const selectionSummaryStyle = ({ center, top, height }: SelectionSummaryPlace, body: Pick<PaneRect, 'left' | 'top' | 'width'>) => ({
   left: body.left + center,
@@ -1557,27 +1637,6 @@ export const selectionSummaryStyle = ({ center, top, height }: SelectionSummaryP
 export const NO_CELLS_AS_BEFORE: readonly CellAsBefore[] = [];
 export const gridlinesDataAttribute = ({ areGridlinesHidden }: { areGridlinesHidden: boolean }) => ({
   'data-hides-gridlines': areGridlinesHidden || undefined,
-});
-export const FilterButtonGround = React.memo(function ({
-  box: { left: boxLeft, top: boxTop, width: boxWidth, height: boxHeight, fade: fadeWidth },
-  grounds,
-  body,
-}: FilterButtonGroundProps) {
-  let groundBox = {
-    left: body.left + boxLeft,
-    top: body.top + boxTop,
-    width: boxWidth,
-    height: boxHeight,
-    '--sheet-fade-of-ground': `${fadeWidth}px`,
-  };
-  return <div aria-hidden className="sheet-ground-of-filter-button-held" style={groundBox}>{grounds.map(
-      ({ left, width, ground }) =>
-        (<div key={left} data-ground={typeof ground === 'string' ? ground : 'fill'} style={{
-              left: left - boxLeft,
-              width,
-              ...fillPaintStyle(typeof ground === 'string' ? null : ground),
-            }} />),
-    )}</div>;
 });
 export const HEADER_KEPT_SHADOW = 32;
 export const CopiedRowsDrawing = React.memo(function ({

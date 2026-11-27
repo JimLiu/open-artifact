@@ -32,6 +32,8 @@ const localWordsOf = (name: string): Record<string, string> => ({
   '{cells} added to your message to Agent. Typing in the Sheet is paused. The message box is outside the Sheet. Press Escape to go back to the cells.': `{cells} sent to ${name}.`,
   'Added to your message to Agent. Send it when you’re ready.': `Sent to ${name}.`,
   'Rule added to your message to Agent. Describe the change you want in the message box.': `Rule sent to ${name}. Tell ${name} the change you want.`,
+  '{cells} added to your message to Agent. Typing in the Sheet is paused. The message box is hidden behind this Sheet. Press Escape to type in the Sheet again.': `{cells} sent to ${name}.`,
+  'Rule added to your message to Agent. The message box is hidden behind this Sheet, so open the chat to describe the change.': `Rule sent to ${name}. Tell ${name} the change you want.`,
 });
 const AGENT_IN_WORDS = /\bAgent\b(?! Sheets?\b| Docs?\b)/g;
 const agentWordsCache = new Map<string, string>();

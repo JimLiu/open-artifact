@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { Field as BaseField } from '@base-ui/react/field';
 import { cn } from './cn.ts';
+import { Combobox, MultiCombobox, type ComboboxProps, type MultiComboboxProps } from './combobox.tsx';
 import { Icon } from './icon.tsx';
 import { TextInput, type TextInputProps } from './text-input.tsx';
 
@@ -125,3 +126,44 @@ export const FieldTextInput = React.forwardRef<HTMLInputElement, FieldTextInputP
     </Field>
   );
 });
+
+interface FieldComboboxParts {
+  label?: React.ReactNode;
+  hint?: React.ReactNode;
+  error?: React.ReactNode;
+  fieldClassName?: string;
+}
+
+export type FieldComboboxProps<V extends string = string> = FieldComboboxParts &
+  ((ComboboxProps<V> & { multiple?: false }) | MultiComboboxProps<V>);
+
+/** A labelled combobox; with nothing around it (no label, hint or error, one pick) it is the bare combobox. */
+export function FieldCombobox<V extends string = string>(props: FieldComboboxProps<V>): React.ReactElement {
+  const { label, hint, error, fieldClassName, ...rest } = props;
+  const labelId = React.useId();
+  const named = isShown(label);
+  if (rest.multiple !== true && !named && !isShown(hint) && !isShown(error) && fieldClassName === undefined) {
+    const { multiple: _single, ...single } = rest;
+    return <Combobox {...single} />;
+  }
+  const naming = named && rest['aria-label'] === undefined ? { 'aria-labelledby': rest['aria-labelledby'] ?? labelId } : {};
+  let control: React.ReactElement;
+  if (rest.multiple === true) {
+    control = <MultiCombobox {...rest} {...naming} />;
+  } else {
+    const { multiple: _single, ...single } = rest;
+    control = <Combobox {...single} {...naming} />;
+  }
+  return (
+    <FieldRoot invalid={isShown(error) || undefined} disabled={rest.disabled} className={fieldClassName}>
+      {named && (
+        <FieldLabel id={labelId} render={<span />}>
+          {label}
+        </FieldLabel>
+      )}
+      {control}
+      {isShown(hint) && <FieldDescription>{hint}</FieldDescription>}
+      {isShown(error) && <FieldError match>{error}</FieldError>}
+    </FieldRoot>
+  );
+}

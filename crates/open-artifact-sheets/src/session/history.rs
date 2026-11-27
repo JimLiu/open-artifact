@@ -118,6 +118,7 @@ pub fn holds(workbook: &Workbook, op: &Op) -> bool {
             kept(sheet.last_frozen_row, &s.last_frozen_row)
                 && kept(sheet.last_frozen_column, &s.last_frozen_column)
                 && s.are_gridlines_hidden.is_none_or(|h| h == sheet.are_gridlines_hidden)
+                && s.is_hidden.is_none_or(|h| h == sheet.is_hidden)
                 && s.interactive.as_ref().is_none_or(|view| *view == sheet.interactive)
         }),
         // A table not shown (its footer not under its header) is not there to take back.
@@ -160,6 +161,13 @@ pub fn edit_holds(workbook: &Workbook, ops: &[Op]) -> bool {
             &restored.as_ref().expect("just restored").1
         };
         match op {
+            // A sheet inserted holds no snapshot and no protection, unless the edit set it itself (columns added to
+            // one later are no matter).
+            Op::InsertSheet { sheet_id, .. }
+                if has_snapshot_set_since(workbook, sheet_id, later) || has_protections_set_since(workbook, sheet_id, later) =>
+            {
+                false
+            }
             Op::InsertRows { sheet_id, .. } | Op::InsertColumns { sheet_id, .. } => {
                 match set_later_left_out(workbook, sheet_id, later) {
                     Some(without) => holds(&without, op),
@@ -173,6 +181,20 @@ pub fn edit_holds(workbook: &Workbook, ops: &[Op]) -> bool {
             _ => left_to_hold(workbook, op, later).is_none_or(|left| holds(workbook, &left)),
         }
     })
+}
+
+/// Whether a sheet holds a snapshot that none of an edit's later operations set.
+fn has_snapshot_set_since(workbook: &Workbook, sheet_id: &str, later: &[Op]) -> bool {
+    let is_set_later = |op: &Op| matches!(op, Op::SetSnapshots { snapshots } if snapshots.iter().any(|s| s.sheet_id == sheet_id));
+    workbook.sheet_index(sheet_id).is_some_and(|i| workbook.sheets[i].connected.snapshot.is_some())
+        && !later.iter().any(is_set_later)
+}
+
+/// Whether a sheet holds protections that none of an edit's later operations set.
+fn has_protections_set_since(workbook: &Workbook, sheet_id: &str, later: &[Op]) -> bool {
+    let is_set_later = |op: &Op| matches!(op, Op::SetProtections { sheet_id: id, .. } if id == sheet_id);
+    workbook.sheet_index(sheet_id).is_some_and(|i| !workbook.sheets[i].protections.is_empty())
+        && !later.iter().any(is_set_later)
 }
 
 /// A sheet with what later operations of an edit set on it left out: the cells they set, the formats and sizes,
@@ -267,8 +289,10 @@ fn sets_alike(op: &Op, other: &Op) -> bool {
         | Op::SetConditionalFormats { sheet_id, .. }
         | Op::SetPlacements { sheet_id, .. }
         | Op::SetNamedViews { sheet_id, .. }
+        | Op::SetProtections { sheet_id, .. }
         | Op::SetCellTables { sheet_id, .. } => Some(Some(sheet_id.clone())),
         Op::SetViews { .. } => Some(None),
+        Op::SetNamedRanges { .. } => Some(None),
         _ => None,
     };
     std::mem::discriminant(op) == std::mem::discriminant(other) && sheet(op).is_some() && sheet(op) == sheet(other)
@@ -385,6 +409,9 @@ fn left_to_hold<'a>(workbook: &Workbook, op: &'a Op, later: &[Op]) -> Option<Cow
                     }
                     if set_later(&set.sheet_id, |s| s.are_gridlines_hidden.is_some()) {
                         settings.are_gridlines_hidden = None;
+                    }
+                    if set_later(&set.sheet_id, |s| s.is_hidden.is_some()) {
+                        settings.is_hidden = None;
                     }
                     if set_later(&set.sheet_id, |s| s.interactive.is_some()) {
                         settings.interactive = None;
@@ -529,8 +556,10 @@ fn same_set(op: &Op, workbook: &Workbook, again: &Workbook) -> bool {
         | Op::SetConditionalFormats { sheet_id, .. }
         | Op::SetPlacements { sheet_id, .. }
         | Op::SetNamedViews { sheet_id, .. }
+        | Op::SetProtections { sheet_id, .. }
         | Op::SetCellTables { sheet_id, .. } => sheet_id,
         Op::SetViews { .. } => return workbook.views == again.views,
+        Op::SetNamedRanges { .. } => return workbook.named_ranges == again.named_ranges,
         _ => return false,
     };
     let (Some(i), Some(j)) = (workbook.sheet_index(sheet_id), again.sheet_index(sheet_id)) else { return false };
@@ -557,6 +586,7 @@ fn same_set(op: &Op, workbook: &Workbook, again: &Workbook) -> bool {
         Op::SetConditionalFormats { .. } => was.conditional_formats == is.conditional_formats,
         Op::SetPlacements { .. } => was.placements == is.placements,
         Op::SetNamedViews { .. } => was.named_views == is.named_views,
+        Op::SetProtections { .. } => was.protections == is.protections,
         _ => was.cell_tables == is.cell_tables,
     }
 }
@@ -696,7 +726,8 @@ pub fn take_back(workbook: &mut Workbook, ops: &[Op], reverse: &[Op]) -> Result<
 
 /// Applies a reverse, what it takes back known to hold: the reverse's own reverse, or why it is not taken.
 pub fn put_back(workbook: &mut Workbook, reverse: &[Op]) -> Result<Vec<Op>, NotTaken> {
-    if lines_in_the_way(workbook, reverse) {
+    // A protection of some of a connected table's cells is not brought back: its sheet refuses one.
+    if lines_in_the_way(workbook, reverse) || reverse.iter().any(|op| workbook.saves_ranges_on_connected(op)) {
         return Err(NotTaken::ChangedSince);
     }
     let mut next = workbook.clone();
@@ -834,6 +865,29 @@ pub struct Step {
     /// Whether its parts are one action (`actionId`): an edit too large to send whole, or edits taking others back;
     /// not the edits of a step made of several, nor an edit and what it adds once made.
     pub is_one_action: bool,
+    /// The sitting and press that made it, for a step of a sitting (`sitting`).
+    pub made_by: Option<super::sitting::MadeBy>,
+    /// The moves of cells among its edits (`moveCells`), by the role of each (`Role::Asked` for a step of one edit):
+    /// what each tells as the step is taken back and made again.
+    pub moved: Vec<(Role, Moved)>,
+}
+
+/// A move of cells as its step tells it taken back, where the cells were (the block moved), and made again, the
+/// place the move changed: each as it was told then, by ids, and as the place it was.
+#[derive(Clone, Debug)]
+pub struct Moved {
+    pub back: (super::place::Told, super::place::Place),
+    pub forth: (super::place::Told, super::place::Place),
+}
+
+impl Moved {
+    /// The place told as a step is taken back (`Stack::Undo`) or made again.
+    pub fn told(&self, stack: Stack) -> &(super::place::Told, super::place::Place) {
+        match stack {
+            Stack::Undo => &self.back,
+            Stack::Redo => &self.forth,
+        }
+    }
 }
 
 /// Which of its steps the page takes back: the last it made (undo), or the last it took back (redo).
@@ -860,14 +914,14 @@ impl Steps {
     pub fn push_undo(&mut self, step: Step) {
         self.undo.push(step);
         if self.undo.len() > STEPS_KEPT {
-            self.undo.remove(0);
+            super::sitting::leave_out_first(&mut self.undo);
         }
     }
 
     pub fn push_redo(&mut self, step: Step) {
         self.redo.push(step);
         if self.redo.len() > STEPS_KEPT {
-            self.redo.remove(0);
+            super::sitting::leave_out_first(&mut self.redo);
         }
     }
 
@@ -903,7 +957,8 @@ impl Steps {
         }
     }
 
-    /// Whether an op id is one of an edit of the history.
+    /// Whether an op id is one of an edit of the history, or the name of one of its steps (the op id of the edit
+    /// that first made it).
     pub fn uses(&self, op_id: &str) -> bool {
         self.undo.iter().chain(&self.redo).any(|s| s.name == op_id || s.parts.iter().any(|p| p.op_id == op_id))
     }
@@ -991,22 +1046,62 @@ pub fn zone_kept(ops: &[Op], reverse: &[Op]) -> (Vec<Op>, Vec<Op>) {
 /// the edits to queue, in that order: each one's operations (the reverse) and how to take them back in turn. A sheet
 /// whose name is in the way of one brought back is not named (the page has it in the sheets it shows); one in the way
 /// of a sheet named is. A reverse that names an id not well formed gives the step up before anything else is looked
-/// at. A workbook left with no sheet gives it up (`noSheetLeft`), unless it had none before.
+/// at. A workbook left with no sheet gives it up (`noSheetLeft`), unless it had none before; one left with no sheet
+/// shown (`noShownSheetLeft`), unless it had none shown. A protection held against the person (`person`) gives it up
+/// when it refuses an edit's operations taken back, as it refuses them made (`edits::protected`). A step of a sitting
+/// (`as_one`) is looked at as one edit, all its edits' operations together, before any is taken back: what an edit of it did and a later one did again need not be so.
+/// Whether operations applied merge cells in a sheet where a merged range now covers a cell holding something (not
+/// its top left cell). A step of several edits whose edit taken back does so is given up (`cellCoveredByMergedRange`);
+/// a step of one edit is not.
+fn merges_over_input(workbook: &Workbook, ops: &[Op]) -> bool {
+    ops.iter().any(|op| {
+        let Op::MergeCells { sheet_id, .. } = op else { return false };
+        let Some(sheet) = workbook.sheet_index(sheet_id).map(|i| &workbook.sheets[i]) else { return false };
+        let boxes = crate::workbook::layout::merged_boxes(&workbook.bases, sheet);
+        sheet.cells.keys().any(|&(r, c)| {
+            let (Some(r), Some(c)) = (sheet.rows.position(r), sheet.columns.position(c)) else { return false };
+            boxes.iter().any(|&(top, bottom, left, right)| {
+                (top..=bottom).contains(&r) && (left..=right).contains(&c) && (r, c) != (top, left)
+            })
+        })
+    })
+}
+
 pub fn take_back_step(
     workbook: &mut Workbook,
     parts: &[(Vec<Op>, Vec<Op>)],
+    person: Option<&super::person::Person>,
+    as_one: bool,
 ) -> Result<Vec<(Vec<Op>, Vec<Op>)>, StepNotTaken> {
     if !parts.iter().all(|(_, reverse)| new_ids::are_well_formed(reverse)) {
         return Err(StepNotTaken::GivenUp("idNotWellFormed", Json::Null));
     }
+    if as_one {
+        let all: Vec<Op> = parts.iter().flat_map(|(ops, reverse)| zone_kept(ops, reverse).0).collect();
+        if !edit_holds(workbook, &all) {
+            return Err(StepNotTaken::GivenUp(NotTaken::ChangedSince.refusal(), Json::Null));
+        }
+    }
     let had_sheets = !workbook.sheets.is_empty();
+    let had_shown = workbook.sheets.iter().any(|s| !s.is_hidden);
     let mut made = Vec::with_capacity(parts.len());
     for (ops, reverse) in parts.iter().rev() {
         let (ops, reverse) = zone_kept(ops, reverse);
         if reverse.is_empty() {
             continue;
         }
-        match take_back(workbook, &ops, &reverse) {
+        // What the edit did no longer so gives the step up before a protection refuses it.
+        if !as_one && !edit_holds(workbook, &ops) {
+            return Err(StepNotTaken::GivenUp(NotTaken::ChangedSince.refusal(), Json::Null));
+        }
+        if let Err(why) = super::edits::protected::check_step(workbook, &reverse, person) {
+            return Err(StepNotTaken::GivenUp(why, Json::Null));
+        }
+        let taken = put_back(workbook, &reverse);
+        match taken {
+            Ok(_) if parts.len() > 1 && merges_over_input(workbook, &reverse) => {
+                return Err(StepNotTaken::GivenUp("cellCoveredByMergedRange", Json::Null));
+            }
             Ok(again) => made.push((reverse, again)),
             Err(NotTaken::SheetNameTaken(mut way)) => {
                 if way["kind"] == "ofSheetToBringBack" {
@@ -1019,6 +1114,9 @@ pub fn take_back_step(
     }
     if had_sheets && workbook.sheets.is_empty() {
         return Err(StepNotTaken::GivenUp("noSheetLeft", Json::Null));
+    }
+    if had_shown && !workbook.sheets.iter().any(|s| !s.is_hidden) {
+        return Err(StepNotTaken::GivenUp("noShownSheetLeft", Json::Null));
     }
     Ok(made)
 }

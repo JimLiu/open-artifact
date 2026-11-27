@@ -192,10 +192,12 @@ export function canRulesRunToSheetEnd(
   lastRowId: RowId,
   rules: RuleInIds[],
   matches: (Matches | null)[] | null,
+  endRowId: RowId | null = null,
 ): boolean {
   let lastRowIndex = reads.rowIndexOf(sheetId, lastRowId);
   let rows = reads.linesOf(sheetId)?.rows;
-  let sheetEndRowId = rows?.idAt(rows.count - 1) ?? null;
+  // endRowId: the row said in words; the cells below it then need not be empty.
+  let sheetEndRowId = endRowId ?? rows?.idAt(rows.count - 1) ?? null;
   if (rows === undefined || sheetEndRowId === null || matches === null) return false;
   if (
     !areasOfRuleRanges(
@@ -209,20 +211,11 @@ export function canRulesRunToSheetEnd(
         topRowIndex: endRowIndex,
         rowCount: rows.count - endRowIndex,
       };
-      return endRowIndex - 1 === lastRowIndex && reads.cellsOnShowIn(sheetId, areaBelow).length === 0;
+      return endRowIndex - 1 === lastRowIndex && (endRowId !== null || reads.cellsOnShowIn(sheetId, areaBelow).length === 0);
     })
   )
     return false;
-  let rulesToSheetEnd = withRuleRangesMapped(
-    rules,
-    (range) => ({
-      ...range,
-      bottomRight: {
-        ...range.bottomRight,
-        r: sheetEndRowId,
-      },
-    }),
-  );
+  let rulesToSheetEnd = withRuleRangesMapped(rules, rangeStretchedToRow(sheetEndRowId));
   return isSameRulesJson(matches, matchesOfRules(reads, sheetId, rulesToSheetEnd));
 }
 export function doesSelectionGoPastTable(
@@ -316,5 +309,14 @@ export const withRuleRangesMapped = (rules: RuleInIds[], mapRange: (range: Range
 };
 export const matchesOfRules = (reads: WorkbookReads, sheetId: SheetId, rules: RuleInIds[]): (Matches | null)[] | null =>
   reads.formatsGivenAsIf(sheetId, asNewRules(rules))?.matches.slice(0, rules.length) ?? null;
+export const rangeStretchedToRow =
+  (rowId: RowId) =>
+  (range: RangeCorners): RangeCorners => ({
+    ...range,
+    bottomRight: {
+      ...range.bottomRight,
+      r: rowId,
+    },
+  });
 export const spanGapLength = (start: number, length: number, otherStart: number, otherLength: number): number =>
   Math.max(0, otherStart - (start + length), start - (otherStart + otherLength));

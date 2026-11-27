@@ -8,8 +8,10 @@ import type { PivotOrder, PivotPeriod, PivotTotal } from '@open-artifact/sheets-
 import type { StyleWithVariables } from '../grid/cell-drawing.tsx';
 import type { PivotFilterBy, PivotSectionName } from './pivot-tables.ts';
 export interface PivotTableOutOfDateBarProps {
-  /** `null` when the pivot table cannot be updated from here. */
-  onUpdate: (() => void) | null;
+  /** Whether the rows of the pivot table's data are clear, so it can be updated; when not, the button says how to fix it. */
+  isTableClear: boolean;
+  /** `null` when there is nothing to press from here. */
+  onPress: (() => void) | null;
   onKeyDown: (keyEvent: React.KeyboardEvent) => void;
   className: string;
   style: StyleWithVariables;
@@ -279,6 +281,16 @@ export const pivotTableMessages = {
       defaultMessage: 'Update',
       id: 'q6LI88ju6I',
     }),
+  mayBeOutOfDate: (): string =>
+    translateMessage({
+      defaultMessage: 'This pivot table may be out of date because its data rows aren’t clear.',
+      id: 'UB4igbQqKS',
+    }),
+  howToFix: (): string =>
+    translateMessage({
+      defaultMessage: 'How to fix',
+      id: 'inxV+06Ud9',
+    }),
   notRead: (): string =>
     translateMessage({
       defaultMessage: 'This pivot table can’t be shown right now. Try again in a moment.',
@@ -287,8 +299,8 @@ export const pivotTableMessages = {
   tableNotClear: (): string =>
     translateMessage({
       defaultMessage:
-        'The pane can’t edit this pivot table, because it isn’t clear which rows belong to its data. Unmerge cells and remove repeated headings and subtotals, then try again.',
-      id: 'ViataDfmF5',
+        'The pane can’t edit this pivot table, because it isn’t clear which rows belong to its data. Unmerge cells, remove repeated headings and subtotals, and make sure any total covers all the rows. Then try again.',
+      id: '2A97dXq/i2',
     }),
   cannotEdit: (): string =>
     translateMessage({
@@ -341,7 +353,9 @@ export const pivotFieldLabel = (label: string, column: string): string =>
       column,
     },
   );
-export const PivotTableOutOfDateBar = React.memo(function ({ onUpdate, onKeyDown, className, style, ref }: PivotTableOutOfDateBarProps) {
+export const pivotOutOfDateWords = (isTableClear: boolean): string =>
+  isTableClear ? pivotTableMessages.outOfDate() : pivotTableMessages.mayBeOutOfDate();
+export const PivotTableOutOfDateBar = React.memo(function ({ isTableClear, onPress, onKeyDown, className, style, ref }: PivotTableOutOfDateBarProps) {
   let labelId = React.useId();
   return (
     <fieldset ref={ref} aria-labelledby={labelId} className={`sheet-own-filter-bar sheet-pivot-table-bar ${className}`} style={style}>
@@ -351,11 +365,11 @@ export const PivotTableOutOfDateBar = React.memo(function ({ onUpdate, onKeyDown
             <Icon name="Table" customSize={14} />
           </span>
           <span id={labelId} className="min-w-0 self-center">
-            {pivotTableMessages.outOfDate()}
+            {pivotOutOfDateWords(isTableClear)}
           </span>
-          {onUpdate !== null && (
-            <Button variant="secondary" size="xs" className="shrink-0 text-accent" onClick={onUpdate}>
-              {pivotTableMessages.update()}
+          {onPress !== null && (
+            <Button variant="secondary" size="xs" className="shrink-0 text-accent" onClick={onPress}>
+              {isTableClear ? pivotTableMessages.update() : pivotTableMessages.howToFix()}
             </Button>
           )}
         </div>

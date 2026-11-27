@@ -46,6 +46,12 @@ pub struct Cells {
     other_column: String,
 }
 
+impl Cells {
+    pub(super) fn sheet_id(&self) -> &str {
+        &self.sheet_id
+    }
+}
+
 /// The edges of cells a border is set on: every edge of every cell, those between the cells (both ways, or one), those
 /// around them, or one side of them.
 #[derive(Clone, Copy, PartialEq, Deserialize)]
@@ -194,6 +200,8 @@ fn format_cells(workbook: &Workbook, cells: &Cells, format: &Json) -> Result<Mad
     let block = block(workbook, cells)?;
     let sheet = block.sheet;
     let mut leaves: BTreeMap<Leaf, Json> = read_format(format).unwrap_or_default().into_iter().collect();
+    // A default value and limits are read here but set only by `setDefaultValuesAndLimits`.
+    leaves.retain(|leaf, _| !matches!(leaf, Leaf::DefaultValue | Leaf::ValueLimits));
     if let Some(id) = leaves.get(&Leaf::CellControl).and_then(|control| control.get("dropdownId")) {
         if !sheet.dropdowns.contains_key(id.as_str().unwrap_or_default()) {
             return Err(Refused::Because("unknownDropdown"));

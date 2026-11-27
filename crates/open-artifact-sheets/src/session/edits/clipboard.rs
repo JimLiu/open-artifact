@@ -64,7 +64,7 @@ use crate::ids::{self, split_id, Axis, Bases, IdRun, LineId};
 use crate::locale::{self, Locale};
 use crate::number_format::{names, Kind, NumberFormat};
 use crate::session::place::Place;
-use crate::session::reads::clipboard::{copied, copied_formats, CellsBetween};
+use crate::session::reads::clipboard::{copied, copied_formats, spilled_values, value_input, CellsBetween};
 use crate::typing::{formula, unseen, were_shown, TextThatNoCellShows};
 use crate::workbook::grid::CellForm;
 use crate::workbook::formats::{read_format, sorted_runs, write_format, Leaf};
@@ -174,6 +174,11 @@ impl Edit {
     /// worked out first.
     pub fn measures_values(&self) -> bool {
         matches!(self, Edit::PasteValuesOfCells(_))
+    }
+
+    /// Whether the edit copies cells of the sheet as they are (a fill, a move): it reads the cells arrays fill.
+    pub fn copies_cells(&self) -> bool {
+        matches!(self, Edit::FillCells(_) | Edit::MoveCells(_))
     }
 }
 
@@ -440,7 +445,8 @@ fn grown<'a>(workbook: &'a Workbook, s: usize, bottom: u64, right: u64, code: &s
         let base = grown.bases.intern(&base_name);
         let sheet = &mut grown.sheets[s];
         let axis = if prefix == "row" { &mut sheet.rows } else { &mut sheet.columns };
-        let last = axis.line(axis.len().wrapping_sub(1));
+        // After the last line the sheet has had, deleted or not.
+        let last = axis.all().last().copied();
         axis.insert_after(last, base, 0, added).expect("ids of the edit's own");
         let after = last.map(|l| workbook.bases.text(l));
         let run = IdRun { base: base_name, first: 0, count: added };
@@ -467,6 +473,12 @@ impl What {
             What::Cells { colors } => colors || !matches!(leaf, Leaf::FillColor | Leaf::FontColor),
             What::Values => leaf == Leaf::NumberFormat,
         }
+    }
+
+    /// Whether a paste takes a leaf away from the cells pasted over: as it gives it, but never their default values
+    /// or their limits.
+    fn takes_away(self, leaf: Leaf) -> bool {
+        self.pastes(leaf) && !matches!(leaf, Leaf::DefaultValue | Leaf::ValueLimits)
     }
 }
 
@@ -582,6 +594,32 @@ fn paste(
     let mut given: HashMap<(usize, usize), Input> = HashMap::new();
     // The cells a formula by offsets landed on as one.
     let mut by_offsets: HashSet<(usize, usize)> = HashSet::new();
+    // Where the cells of another program that hold something land: a formula by offsets that may spill over another
+    // is the cell's text instead. A copy of one row pasted on every row selected is looked at with those rows one
+    // below the other (the second row selected is the one below the first, wherever it is).
+    let row_among = |row: usize| match landing.rows.len() > 1 {
+        true => landing.rows.binary_search(&row).unwrap_or(row),
+        false => row,
+    };
+    let holding: HashSet<(usize, usize)> = match looks {
+        Some(looks) => landing
+            .rows
+            .iter()
+            .flat_map(|&top| landing.columns.iter().map(move |&left| (top, left)))
+            .flat_map(|(top, left)| {
+                looks.holding.iter().map(move |&(r, c)| (row_among(top) + r as usize, left + c as usize))
+            })
+            .collect(),
+        None => HashSet::new(),
+    };
+    let blocked = |formula: &crate::formula::StoredFormula, place: (usize, usize)| {
+        crate::calculate::written_spill_area(&grown, s, formula, place).is_some_and(|area| {
+            let (top, bottom) = (row_among(place.0), row_among(place.0) + (area.bottom - area.top));
+            holding.iter().any(|&(r, c)| {
+                (r, c) != (top, place.1) && top <= r && r <= bottom && area.left <= c && c <= area.right
+            })
+        })
+    };
     for &top in &landing.rows {
         for &left in &landing.columns {
             let rows_moved = top as i64 - copy.top_row_position as i64;
@@ -590,7 +628,7 @@ fn paste(
                 let place = (top + cell.row as usize, left + cell.column as usize);
                 let input = match (&cell.input, what) {
                     (CopiedInput::FormulaByOffsets { text, otherwise }, _) => {
-                        match another_program::formula_by_offsets(&grown, s, text, place) {
+                        match another_program::formula_by_offsets(&grown, s, text, place).filter(|f| !blocked(f, place)) {
                             Some(formula) => {
                                 by_offsets.insert(place);
                                 Some(Input::Formula { formula })
@@ -704,8 +742,20 @@ fn paste(
     Ok(Made { ops, place: Some(place) })
 }
 
-/// Moves a block of cells: what they hold (inputs alone, not values spilled into them), their formats, and the tables
-/// on them, the formulas of the workbook following the cells they name.
+/// The block a move takes its cells from (`moveCells`), on the workbook before it: the place told as the move is taken
+/// back, where the cells go back to. None for any other edit, or a block not there.
+pub fn moved_from(workbook: &Workbook, edit: &super::Edit) -> Option<Place> {
+    let super::Edit::Clipboard(Edit::MoveCells(edit)) = edit else { return None };
+    let (s, left, right) = selected_columns(workbook, &edit.cells).ok()?;
+    let sheet = &workbook.sheets[s];
+    let rows = positions(&workbook.bases, &sheet.rows, &edit.cells.rows);
+    let (&top, &bottom) = (rows.first()?, rows.last()?);
+    Some(Place::cells(&sheet.id, top, left, bottom, right))
+}
+
+/// Moves a block of cells: what they hold, their formats, and the tables on them, the formulas of the workbook following
+/// the cells they name. A value a formula outside the block spills into it is moved as the value (as a copy has it,
+/// an error as its text); one a formula in the block spills is not.
 fn move_cells(workbook: &Workbook, edit: &MoveCells, context: &Context) -> Result<Made, Refused> {
     let bases = &workbook.bases;
     let (s, left, right) = selected_columns(workbook, &edit.cells)?;
@@ -782,6 +832,14 @@ fn move_cells(workbook: &Workbook, edit: &MoveCells, context: &Context) -> Resul
         };
         given.insert((to_top + place.0 - top, to_left + place.1 - left), input);
     }
+    for (place, (from, value)) in spilled_values(workbook, sheet) {
+        if !in_block(place) || in_block(from) {
+            continue;
+        }
+        if let Some(input) = value_input(value) {
+            given.insert((to_top + place.0 - top, to_left + place.1 - left), pasted_input(&grown, t, &input, 0, 0)?);
+        }
+    }
     let covered = covered_cells(workbook, target);
     if given.keys().any(|place| covered.contains(place)) {
         return Err(Refused::Because("pasteCutsMergedCells"));
@@ -835,7 +893,7 @@ fn move_cells(workbook: &Workbook, edit: &MoveCells, context: &Context) -> Resul
     let copied = copied_formats(sheet, &block_rows, |_| true, &block_columns, |_| true, &HashMap::new());
     let landing =
         Landing { rows: vec![to_top], columns: vec![to_left], row_count: height as u64, column_count: width as u64 };
-    formats.extend(formats_given(gb, target, &grown.sheets[t], &landing, &copied, What::Cells { colors: true }));
+    formats.extend(formats_given(gb, target, &grown.sheets[t], &landing, &copied, What::Cells { colors: true }, false));
 
     // The tables shown all on the block move with it (to another sheet, they are deleted).
     let mut tables = Vec::new();
@@ -1127,19 +1185,22 @@ fn fill_cells(workbook: &Workbook, edit: &FillCells, context: &Context) -> Resul
             (r, left + tile(c, left) as usize)
         }
     };
-    let leaves: BTreeSet<Leaf> = sheet.formats.iter().map(|(leaf, ..)| leaf).collect();
+    // A fill gives no default value, and limits only to the cells without any (`defaults.rs`).
+    let leaves: BTreeSet<Leaf> = sheet.formats.iter().map(|(leaf, ..)| leaf).filter(|&leaf| What::Cells { colors: true }.takes_away(leaf)).collect();
     let formats_change = area_rows.iter().any(|&r| {
         area_columns.iter().any(|&c| {
             let (cell, from) = (ids((r, c)), ids(filled_from((r, c))));
-            leaves.iter().any(|&leaf| sheet.formats.get(leaf, cell) != sheet.formats.get(leaf, from))
+            let limits_given = sheet.formats.get(Leaf::ValueLimits, cell).is_none() && sheet.formats.get(Leaf::ValueLimits, from).is_some();
+            limits_given || leaves.iter().any(|&leaf| sheet.formats.get(leaf, cell) != sheet.formats.get(leaf, from))
         })
     });
     if !formats_change {
         return Ok(if ops.is_empty() { Made::nothing() } else { Made { ops, place: Some(place_filled) } });
     }
-    ops.extend(taken_away(bases, sheet, sheet, area_rows, area_columns, |_| true));
+    ops.extend(taken_away(bases, sheet, sheet, area_rows, area_columns, |leaf| What::Cells { colors: true }.takes_away(leaf)));
     let mut formats = Vec::new();
-    for format in copied_formats(sheet, block_rows, |_| true, block_columns, |_| true, &HashMap::new()) {
+    let given = |leaf| leaf != Leaf::DefaultValue;
+    for format in copied_formats(sheet, block_rows, |_| true, block_columns, given, &HashMap::new()) {
         let within = |spans: &[Span], i: u32| spans.iter().any(|span| span.first <= i && i - span.first < span.count);
         let mut rows: Vec<LineId> = area_rows
             .iter()
@@ -1154,8 +1215,15 @@ fn fill_cells(workbook: &Workbook, edit: &FillCells, context: &Context) -> Resul
         if rows.is_empty() || columns.is_empty() {
             continue;
         }
+        let mut leaves: BTreeMap<Leaf, Json> = read_format(&format.format).expect("a format read").into_iter().collect();
+        if let Some(limits) = leaves.remove(&Leaf::ValueLimits) {
+            formats.extend(super::defaults::limits_given(bases, sheet, &rows, &columns, &limits));
+            if leaves.is_empty() {
+                continue;
+            }
+        }
         let (rows, columns) = (sorted_runs(bases, &mut rows), sorted_runs(bases, &mut columns));
-        formats.push(CellsToFormat { rows, columns, format: format.format });
+        formats.push(CellsToFormat { rows, columns, format: write_format(&leaves) });
     }
     if !formats.is_empty() {
         ops.push(Op::SetCellFormats { sheet_id: sheet.id.clone(), formats });
@@ -1533,8 +1601,8 @@ fn pasted_formats(
     formats: &[CopiedFormat],
     what: What,
 ) -> Vec<Op> {
-    let taken = taken_away(bases, sheet, ids, &landing.area_rows(), &landing.area_columns(), |leaf| what.pastes(leaf));
-    taken.into_iter().chain(formats_given(bases, sheet, ids, landing, formats, what)).collect()
+    let taken = taken_away(bases, sheet, ids, &landing.area_rows(), &landing.area_columns(), |leaf| what.takes_away(leaf));
+    taken.into_iter().chain(formats_given(bases, sheet, ids, landing, formats, what, true)).collect()
 }
 
 /// The leaves of formats some of the cells hold (by position in a sheet; that the edit takes away) set back to their
@@ -1575,7 +1643,8 @@ fn taken_away(
     })
 }
 
-/// The copy's formats set where it lands, a dropdown only where the sheet has that dropdown.
+/// The copy's formats set where it lands, a dropdown only where the sheet has that dropdown. `pasted` (not moved),
+/// they give no default value, and their limits only to the cells without any, before the rest (`defaults.rs`).
 fn formats_given(
     bases: &Bases,
     sheet: &Sheet,
@@ -1583,16 +1652,18 @@ fn formats_given(
     landing: &Landing,
     formats: &[CopiedFormat],
     what: What,
+    pasted: bool,
 ) -> Option<Op> {
     let mut given = Vec::new();
     for format in formats {
-        let leaves: BTreeMap<Leaf, Json> = read_format(&format.format)
+        let mut leaves: BTreeMap<Leaf, Json> = read_format(&format.format)
             .expect("a format read")
             .into_iter()
-            .filter(|&(leaf, _)| what.pastes(leaf))
+            .filter(|&(leaf, _)| what.pastes(leaf) && !(pasted && leaf == Leaf::DefaultValue))
             .filter(|(leaf, value)| *leaf != Leaf::CellControl || control_kept(sheet, value))
             .collect();
-        if leaves.is_empty() {
+        let limits = if pasted { leaves.remove(&Leaf::ValueLimits) } else { None };
+        if leaves.is_empty() && limits.is_none() {
             continue;
         }
         let spread = |tiles: &[usize], spans: &[Span]| -> Vec<usize> {
@@ -1607,6 +1678,12 @@ fn formats_given(
         let mut rows: Vec<LineId> = rows.into_iter().map(|p| ids.rows.line(p).expect("a row pasted on")).collect();
         let mut columns: Vec<LineId> =
             columns.into_iter().map(|p| ids.columns.line(p).expect("a column pasted on")).collect();
+        if let Some(limits) = &limits {
+            given.extend(super::defaults::limits_given(bases, sheet, &rows, &columns, limits));
+        }
+        if leaves.is_empty() {
+            continue;
+        }
         given.push(CellsToFormat {
             rows: sorted_runs(bases, &mut rows),
             columns: sorted_runs(bases, &mut columns),

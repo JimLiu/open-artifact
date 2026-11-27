@@ -16,12 +16,15 @@ import {
   PlainListBox,
   OptionsListCard,
   listRowIdOf,
+  highlightedOptionAnnouncement,
+  editCardHeadingAnnouncement,
+  withHighlightedRowIdOr,
 } from '../ui/list-under-cell.tsx';
 import { CellChip } from '../grid/cell-drawing.tsx';
 import { cachedOptionChipColors } from '../format/cell-colors.ts';
 import { dropdownPaneMessages } from '../i18n/format-labels.ts';
 import { optionListForCellLabel, addOptionText, optionAlreadyExistsText, dropdownOptionsForCellLabel } from '../i18n/chip-labels.ts';
-import { optionRightArrowToEditLabel, optionPlaceInListLabel, opensMoreRowsLabel, editCardHeadingLabel } from '../i18n/menu-labels.ts';
+import { rightArrowToEditLabel, optionPlaceInListLabel, opensMoreRowsLabel, editCardHeadingLabel } from '../i18n/menu-labels.ts';
 import { optionIdOfMenuKey, menuItemKey, MAX_DROPDOWN_OPTIONS, optionMenuKey } from './dropdown-options.ts';
 import { IS_IOS_BROWSER } from '../grid/cell-drawing-values.ts';
 import { isOptionLabelTaken } from './dropdowns.ts';
@@ -201,21 +204,35 @@ export function dropdownListCardHandlers(
     },
   };
 }
-export function dropdownListSpokenWords({
-  cell,
-  rows,
-  highlightedRow,
-  isCueForCardsDue,
-}: Pick<DropdownListView, 'cell' | 'rows' | 'highlightedRow' | 'isCueForCardsDue'>): string {
+export function dropdownListSpokenWords(
+  { cell, rows, highlightedRow, isCueForCardsDue, card }: Pick<DropdownListView, 'cell' | 'rows' | 'highlightedRow' | 'isCueForCardsDue' | 'card'>,
+  isRowHighlightedForVoiceOver: boolean,
+): string | false {
+  let wordsOfCard = (isRowHighlightedForVoiceOver ? null : highlightedOptionAnnouncement(card)) ?? editCardHeadingAnnouncement(card);
+  if (wordsOfCard !== null || (isRowHighlightedForVoiceOver && card !== null)) return wordsOfCard ?? false;
   let optionRows = rows.filter(({ kind }) => kind === 'option');
   let highlighted = rows[highlightedRow ?? -1];
   if (highlighted === undefined) return optionListForCellLabel(cell, optionRows.length);
-  if (highlighted.kind !== 'option') return dropdownListRowWords(highlighted);
-  return (isCueForCardsDue ? optionRightArrowToEditLabel : optionPlaceInListLabel)(
-    highlighted.label,
-    optionRows.indexOf(highlighted) + 1,
-    optionRows.length,
-  );
+  if (isRowHighlightedForVoiceOver) return isCueForCardsDue && highlighted.kind === 'option' && rightArrowToEditLabel();
+  return highlighted.kind === 'option'
+    ? optionPlaceInListLabel(highlighted.label, optionRows.indexOf(highlighted) + 1, optionRows.length)
+    : dropdownListRowWords(highlighted);
+}
+// On iOS VoiceOver reads the highlighted row itself, so the first row is highlighted from the start.
+export function dropdownListIdsForVoiceOver(list: DropdownListView, isOnIos = IS_IOS_BROWSER): ListboxIds | null {
+  let firstRowId = isOnIos ? firstDropdownListRowId(list) : null;
+  let listIds = withHighlightedRowIdOr(dropdownListIds(list), firstRowId);
+  return listIds.highlightedRowId === null ? null : listIds;
+}
+export function dropdownListWordsToSay(
+  list: DropdownListView,
+  { isEntryOpen, doesGridHaveFocus }: { isEntryOpen: boolean; doesGridHaveFocus: boolean },
+  isOnIos = IS_IOS_BROWSER,
+): string | false {
+  let highlighted = list.rows[list.highlightedRow ?? -1];
+  if (isEntryOpen) return highlighted?.kind === 'add' && dropdownListRowWords(highlighted);
+  let isHighlightedForVoiceOver = dropdownListIdsForVoiceOver(list, isOnIos) !== null;
+  return (!isOnIos || !isHighlightedForVoiceOver) && dropdownListSpokenWords(list, isHighlightedForVoiceOver && !doesGridHaveFocus);
 }
 export const DROPDOWN_LIST_ID = 'dropdown-list';
 export const dropdownListRowId = (row: DropdownMenuItem): string =>

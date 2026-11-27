@@ -92,6 +92,7 @@ export function createEarlierVersionWorkbook(firstVersion: ViewOnlyVersion): Ear
       editStreamed: ignoreWorkbookCall,
       storeRevisionReported: ignoreWorkbookCall,
       timeTold: ignoreWorkbookCall,
+      personTold: ignoreWorkbookCall,
       storeReconnected: ignoreWorkbookCall,
       storeClosed: ignoreWorkbookCall,
       availabilityStated: ignoreWorkbookCall,
@@ -148,6 +149,7 @@ export function createChartSends(changes: ChartEditsByAgent, made: StockChartMak
     written: {
       isToBeHad: () => written.isToBeHad(),
       write: (...asked) => send(() => written.write(...asked)),
+      writeOfTables: (...asked) => send(() => written.writeOfTables(...asked)),
       giveUp: () => written.giveUp(),
       discard: (nodeId) => written.discard(nodeId),
     },

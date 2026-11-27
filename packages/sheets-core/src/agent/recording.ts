@@ -62,12 +62,17 @@ export function oldestFormatVersion(engine: Engine, newest: number): number {
   return oldest;
 }
 
-/** A sync-mode session of the workbook after `ops`, told it is at `revision`: the page's own start. */
-export function syncSession(engine: Engine, ops: unknown[], revision: number, newest: number): EngineSession {
+/**
+ * A sync-mode session of the workbook after `ops`, told it is at `revision`: the page's own start. With `person` (an
+ * engine person id) it is also told who makes the edits, as a page tells it who its viewer is: the engine then refuses
+ * what that person's protections keep from them.
+ */
+export function syncSession(engine: Engine, ops: unknown[], revision: number, newest: number, person?: string): EngineSession {
   const session = engine.session();
   session.answer({ kind: 'answerBeforeCalculating' });
   session.answer({ kind: 'receiveServerRevision', revision });
   if (revision > 0) session.answer({ kind: 'receiveLoadPage', from: 0, revision, v: newest, ops, next: null });
+  if (person !== undefined) session.answer({ kind: 'receivePerson', person: { kind: 'user', userId: person } });
   return session;
 }
 
@@ -129,6 +134,8 @@ export interface RecordingLog {
   oldest: number;
   localeOfANewWorkbook: string;
   widgets: WidgetLookup;
+  /** Who the edits are made as (an engine person id): the editor a new protection names when it names none. */
+  person?: string;
 }
 
 /** One edit for the log: its operations and their format version. */
@@ -146,7 +153,7 @@ export function recordEdits(log: RecordingLog, make: (context: EditContext) => v
   const { engine } = log;
   const revision = log.steps.length;
   const before = log.steps.flat();
-  let session = syncSession(engine, before, revision, log.newest);
+  let session = syncSession(engine, before, revision, log.newest, log.person);
   try {
     const ops: unknown[] = [];
     let version = 0;
@@ -196,11 +203,12 @@ export function recordEdits(log: RecordingLog, make: (context: EditContext) => v
         version = Math.max(version, v);
         saved++;
         session.free();
-        session = syncSession(engine, [...before, ...ops], revision + saved, log.newest);
+        session = syncSession(engine, [...before, ...ops], revision + saved, log.newest, log.person);
       },
       answer: (request) => session.answer(request),
       utility: (request) => engine.utility(request),
       deletedSheets: () => deletedSheets(engine, [...log.steps, ops]),
+      ...(log.person === undefined ? {} : { person: log.person }),
     };
     const host: ChartHost = {
       context,

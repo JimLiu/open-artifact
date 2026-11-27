@@ -385,6 +385,7 @@ export function trimAreaToShownRows(selection: PageState, reads: WorkbookReads, 
 }
 export function unhideRowsUnderActiveCell(before: Pick<PageState, 'activeCell'>, selection: PageState, reads: ReadsWithTextMeasurer): PageState {
   if (selection.rowsOutOfViewByOwnFilters.size === 0 || selection.activeCell.sheetId !== selection.sheetId) return selection;
+  if (reads.connectedTableIn(selection.sheetId) !== null) return selection;
   const cellArea = mergedAreaOrCellOf(reads, selection.activeCell);
   const area = selectedArea(selection, reads);
   if (cellArea === null || area === null) return selection;

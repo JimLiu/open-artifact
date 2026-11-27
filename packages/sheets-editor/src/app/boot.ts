@@ -41,12 +41,12 @@ import { createSheetAnchorLinks, createGuideFromStream } from '../shell/sheet-li
 import { createCsvExport, type FileExportDeps } from '../export/file-export.ts';
 import { createXlsxDownload } from '../export/xlsx-download.ts';
 import { deflateRawCompressor } from '../export/zip.ts';
-import { createAgentSampler, createCommandsSamplerWithoutAgent, askSamplingPermission } from '../agent/sampling.ts';
+import { createAgentSampler, createCommandsSamplerWithoutAgent, askSamplingPermission, isSamplingGranted } from '../agent/sampling.ts';
 import { createChatWithAgent } from '../agent/chat-with-agent.ts';
 import { createHostComments, commentsForOtherSheet } from '../comments/agent-ai-comments.ts';
 import { createChangesByAgentTracker } from '../agent/changes-by-agent.ts';
 import { createChartCodeStore, waitForChartCode } from '../charts/chart-code.ts';
-import { createVersionHistoryReader } from '../history/history-reader.ts';
+import { createVersionHistoryReader, createVersionSummaries } from '../history/history-reader.ts';
 import { createEarlierVersionLooks, createChartSends } from '../history/earlier-version.ts';
 import { createChartWidgetNodes } from '../charts/widget-nodes.ts';
 import { chartKindName } from '../charts/chart-words.ts';
@@ -65,6 +65,9 @@ import { createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { SheetPeers } from '../shell/SheetPeers.tsx';
 import { PageCommentsLayer } from '../comments/PageCommentsLayer.tsx';
+import { followFrameMotion } from '../shell/frame-motion.ts';
+import { createTableRefreshes, NO_TABLE_REFRESHES } from '../tables/connected-table-host.ts';
+import { isOnPhone } from './media-queries.ts';
 
 export interface BootOptions {
   host: SheetsHost;
@@ -80,6 +83,8 @@ export async function bootSheetsPage({ host, app }: BootOptions): Promise<void> 
   const people = createPeopleDirectory(host.page);
   const otherViewers = createRoomPresence(window, host.page, people);
   const agentActivity = createAgentActivityWatcher(host, window);
+  // Whether motion is to be reduced comes from the browser's own setting.
+  followFrameMotion(window, app.ownerDocument.documentElement);
   let keepKeysOffCells = createKeysOffCellsGuard(window, {
     isField: (element) =>
       element instanceof HTMLElement && (element.isContentEditable || element.matches('input, textarea')) && !isGridOrGridPopupTrigger(element),
@@ -129,6 +134,8 @@ export async function bootSheetsPage({ host, app }: BootOptions): Promise<void> 
   installPageGuards(window);
   let showSheetStatus = throttleViewChanges(mountSheetStatusAnnouncer(app), window);
   let page: ConnectionPage | null = null;
+  let takesConnectedTables = false;
+  let pageAsShownListeners = new Set<() => void>();
   let guideFromAgent = createGuideFromStream(() => sessionStorage);
   host.onWalkthrough((walkthrough) => guideFromAgent.heardOnStream({ phase: 'guide', guide: walkthrough }));
   let stopConnection: (() => void) | null = null;
@@ -146,6 +153,7 @@ export async function bootSheetsPage({ host, app }: BootOptions): Promise<void> 
       loadSheetsEngineOnce,
       (nextPage) => {
         page = nextPage;
+        if (nextPage.storeTold.kind === 'stated') takesConnectedTables = nextPage.storeTold.takesConnectedTables;
         let openWorkbook = nextPage.workbook.kind === 'open' ? nextPage.workbook.workbook : null;
         frameChrome.follow(openWorkbook);
         painter.ownIs(earlierVersionLooks.drawnInPlaceOf(openWorkbook));
@@ -187,6 +195,7 @@ export async function bootSheetsPage({ host, app }: BootOptions): Promise<void> 
       {
         workbookOpened(node) {
           versionHistoryReader.workbookOpened(node);
+          versionSummaries.forgetAll();
           chartWidgetNodes.workbookOpened(node);
         },
         asItWas: (asked, answer) => versionHistoryReader.asItWas(asked, answer),
@@ -194,6 +203,10 @@ export async function bootSheetsPage({ host, app }: BootOptions): Promise<void> 
       undefined,
       undefined,
       agentActivity.rest,
+      (call, everyMs) => {
+        let interval = setInterval(call, everyMs);
+        return () => clearInterval(interval);
+      },
     );
   };
   let connectionNews: ConnectionNews = createConnectionNews();
@@ -218,6 +231,7 @@ export async function bootSheetsPage({ host, app }: BootOptions): Promise<void> 
       if (statusKind === 'onItsWay') wordsOfLoad.loadIsOnItsWay(inWords);
       else if (pageState.workbook.kind !== 'open') wordsOfLoad.loadHasStopped();
     }
+    for (let listener of pageAsShownListeners) listener();
     connectionNews.tell(problemSummary);
   };
   let problemToShow = (pageState: ConnectionPage | null): PlaceholderNotice | null => {
@@ -234,6 +248,8 @@ export async function bootSheetsPage({ host, app }: BootOptions): Promise<void> 
   host.bridge.startShell();
   if (host.shell) watchPeersHere(host.page, (peers) => frameChrome.peersHere(peers));
   offerOverlayClosing(stage, frameChrome);
+  // With the Shell round the page, history is in its header and the placeholder draws no view tools.
+  placeholderMount.toggleAttribute('data-has-no-view-tools', frameChrome.drawsHistory() && !isOnPhone());
   setTopLayerCloseOfferer((closeOffer) => frameChrome.offerCloseOfTopLayer('ofPage', closeOffer));
   let sheetLinks = createSheetAnchorLinks(window, () => sessionStorage, host.shell);
   let reportSoftly = reportErrorsSoftlyAt(null);
@@ -257,6 +273,13 @@ export async function bootSheetsPage({ host, app }: BootOptions): Promise<void> 
   let changesByAgent = createChangesByAgentTracker(agentActivity);
   let chartCode = createChartCodeStore({ newOpId: () => crypto.randomUUID(), wait });
   let versionHistoryReader = createVersionHistoryReader({ newOpId: () => crypto.randomUUID(), wait });
+  let agentForVersionSummaries = createAgentSampler(getPage, reportSoftly, { mendsReplies: true });
+  let versionSummaries = createVersionSummaries({
+    agent: agentForVersionSummaries,
+    canAskAgent: async () => (await agentForVersionSummaries.isAvailable()) && isSamplingGranted(getPage),
+    changesOf: (asked, revision) => versionHistoryReader.changesOf(asked, revision),
+    report: (error) => reportErrorSoftly(error, 'versionHistory'),
+  });
   let ownWorkbook = () => (page?.workbook.kind === 'open' ? page.workbook.workbook : null);
   let earlierVersionLooks = createEarlierVersionLooks({
     history: versionHistoryReader,
@@ -287,6 +310,12 @@ export async function bootSheetsPage({ host, app }: BootOptions): Promise<void> 
     frameDocument: createChartFrameDocumentSource(undefined, INTERACTIVE_FRAME_FILE),
     beingStarted: interactiveBeingStarted(() => sessionStorage),
   };
+  // Refreshes of connected tables ask the host's tools; with none offered to the page they find none.
+  let tableRefreshes = createTableRefreshes({
+    findAgent: getPage,
+    whereWorkbookIsKept: () => null,
+    findStorage: () => localStorage,
+  });
   let chartWidgetNodes = createChartWidgetNodes({ newOpId: () => crypto.randomUUID(), wait, nameOfKind: chartKindName });
   let chartSends = createChartSends(
     createChartEditsByAgent(chartWidgetNodes, createAgentSampler(getPage, reportSoftly, { mendsReplies: true, modelTier: 'default' })),
@@ -328,6 +357,13 @@ export async function bootSheetsPage({ host, app }: BootOptions): Promise<void> 
           changedInTurnOfAgent: turnChanges.changedInTurn,
           isSheetJustMade: () => page?.isSheetJustMade() === true,
           viewer: () => page?.viewer ?? null,
+          person: {
+            now: () => page?.person ?? null,
+            onMayHaveChanged(listener) {
+              pageAsShownListeners.add(listener);
+              return () => void pageAsShownListeners.delete(listener);
+            },
+          },
           agentForImport,
           agentForConditionalFormats,
           agentForRowsAskedFor,
@@ -346,7 +382,9 @@ export async function bootSheetsPage({ host, app }: BootOptions): Promise<void> 
             },
           },
           versionHistory: withTurnTakeBackGuard(versionHistoryReader, turnChanges.changedInTurn),
+          versionSummaries,
           versionLooks: earlierVersionLooks,
+          refreshes: workbook === ownWorkbook() ? tableRefreshes : NO_TABLE_REFRESHES,
           chatWithAgent,
           chartsMadeByPage: workbook !== ownWorkbook() ? NO_CHART_MAKER : chartSends.made,
           comments: workbook === ownWorkbook() ? hostComments : commentsForOtherSheet(hostComments),
@@ -360,6 +398,13 @@ export async function bootSheetsPage({ host, app }: BootOptions): Promise<void> 
           guideFromAgent,
           keepKeysOffCells: makeKeepKeysOffCells(() => keepKeysOffCells(true, true)),
           connectionNews,
+          isRefreshOffered: {
+            now: () => takesConnectedTables,
+            onChanged(listener) {
+              pageAsShownListeners.add(listener);
+              return () => void pageAsShownListeners.delete(listener);
+            },
+          },
           wordsOfLoad,
           actsHeard,
           oncePlaceholderIsOff: (whenOff) => placeholder.onceOff(whenOff),
