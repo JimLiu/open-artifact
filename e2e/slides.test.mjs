@@ -2018,51 +2018,117 @@ describe('slides', { skip: skipFor('slides') }, () => {
     }
   });
 
-  it('numbers the pages of slides that arrive while the deck is open by their place in the order', { skip: browserSkip }, async () => {
-    // A source deck whose sheet numbers its pages. The outline lists four slides; one is written. The agent writes
-    // the others into the open page, one out of order, then deletes the first.
-    const deck = tmpDir('slides-numbering');
+  /** A source deck of its own whose sheet numbers its pages ("Page N" at the foot of each slide), with `written` on disk. */
+  function numberedDeck(label, order, written) {
+    const deck = tmpDir(label);
     const project = path.join(deck, 'project');
     fs.mkdirSync(path.join(project, 'slides'), { recursive: true });
     fs.writeFileSync(path.join(project, 'deck.json'), JSON.stringify({
-      v: 5, lists: 'css', title: 'Numbered', order: ['one', 'two', 'three', 'four'],
+      v: 5, lists: 'css', title: 'Numbered', order,
       format: { v: 1, shared: ['project/deck.css'] }, createdOnFiles: { v: 1, at: '2026-11-27T00:00:00Z' },
       sections: {}, faces: {}, designSystems: [],
     }));
     fs.writeFileSync(path.join(project, 'deck.css'), 'section { counter-increment: page; padding: 96px; } .folio { position: absolute; right: 96px; bottom: 64px; } .folio::after { content: "Page " counter(page); }');
     const slideFile = id => path.join(project, 'slides', id + '.html');
-    const slideHtml = id => `<section id="${id}"><h1>Slide ${id}</h1><div class="folio"></div></section>`;
+    const slideHtml = (id, title = `Slide ${id}`) => `<section id="${id}"><h1>${title}</h1><div class="folio"></div></section>`;
     const write = id => fs.writeFileSync(slideFile(id), slideHtml(id));
-    write('one');
+    for (const id of written) write(id);
+    return { deck, slideFile, slideHtml, write, order: () => JSON.parse(fs.readFileSync(path.join(project, 'deck.json'), 'utf8')).order };
+  }
+  /** The page number each slide of the rail shows, in rail order: `one:1 two:2`. */
+  const railNumbers = `[...document.querySelectorAll('${rail}')].map(item => { const slide = item.querySelector('[data-open-artifact-slide]') ?? item; return (slide.getAttribute('data-open-artifact-slide') ?? '?') + ':' + (/Page (\\d+)/.exec(slide.textContent)?.[1] ?? '-'); }).join(' ')`;
+  const showsNumbers = async (tab, expected, why) => assert.ok(await tab.waitFor(`${railNumbers} === ${JSON.stringify(expected)}`, 15000), `${why}: ${(await tab.evaluateAll(railNumbers)).find(Boolean)}`);
+
+  it('numbers the pages of slides that arrive while the deck is open by their place in the order', { skip: browserSkip }, async () => {
+    // The outline lists four slides; one is written. The agent writes the others into the open page, one out of
+    // order, then deletes the first.
+    const { deck, slideFile, slideHtml, write, order } = numberedDeck('slides-numbering', ['one', 'two', 'three', 'four'], ['one']);
     const { url: deckPublic } = await run.json(['open', deck, '--json']);
     const deckUrl = new URL('index.html', deckPublic).href;
-    /** The page number each slide of the rail shows, in rail order: `one:1 two:2`. */
-    const numbers = `[...document.querySelectorAll('${rail}')].map(item => { const slide = item.querySelector('[data-open-artifact-slide]') ?? item; return (slide.getAttribute('data-open-artifact-slide') ?? '?') + ':' + (/Page (\\d+)/.exec(slide.textContent)?.[1] ?? '-'); }).join(' ')`;
-    const shows = async (tab, expected, why) => assert.ok(await tab.waitFor(`${numbers} === ${JSON.stringify(expected)}`, 15000), `${why}: ${(await tab.evaluateAll(numbers)).find(Boolean)}`);
     const tab = await browser.load(deckUrl, { ready: `document.querySelectorAll('${rail}').length === 1` });
     try {
-      await shows(tab, 'one:1', 'the slide that was there');
+      await showsNumbers(tab, 'one:1', 'the slide that was there');
       write('two');
-      await shows(tab, 'one:1 two:2', 'a slide written into the open page');
+      await showsNumbers(tab, 'one:1 two:2', 'a slide written into the open page');
       // Out of order: among the slides there are, it is the third page, until the one before it comes.
       write('four');
-      await shows(tab, 'one:1 two:2 four:3', 'a slide written ahead of the one before it');
+      await showsNumbers(tab, 'one:1 two:2 four:3', 'a slide written ahead of the one before it');
       write('three');
-      await shows(tab, 'one:1 two:2 three:3 four:4', 'the slide after one that came late');
+      await showsNumbers(tab, 'one:1 two:2 three:3 four:4', 'the slide after one that came late');
       // The stage shows the number too.
       await tab.evaluate(`location.hash = '#slide-~four'`);
       assert.ok(await tab.waitFor(`document.querySelector('[data-open-artifact-mode="edit"][data-open-artifact-slide="four"]')?.textContent.includes('Page 4')`), 'the stage shows another number');
       fs.rmSync(slideFile('one'));
-      await shows(tab, 'two:1 three:2 four:3', 'the slides after one that was deleted');
+      await showsNumbers(tab, 'two:1 three:2 four:3', 'the slides after one that was deleted');
       // A page that loads the deck whole reads the same numbers, and nothing was written back.
       const whole = await browser.load(deckUrl, { ready: `document.querySelectorAll('${rail}').length === 3` });
       try {
-        await shows(whole, 'two:1 three:2 four:3', 'the deck loaded whole');
+        await showsNumbers(whole, 'two:1 three:2 four:3', 'the deck loaded whole');
       } finally {
         await whole.close();
       }
       for (const id of ['two', 'three', 'four']) assert.equal(fs.readFileSync(slideFile(id), 'utf8'), slideHtml(id), `${id}.html was rewritten`);
-      assert.deepEqual(JSON.parse(fs.readFileSync(path.join(project, 'deck.json'), 'utf8')).order, ['one', 'two', 'three', 'four']);
+      assert.deepEqual(order(), ['one', 'two', 'three', 'four']);
+      assert.deepEqual(tab.problems, []);
+    } finally {
+      // Not stopped: the deck under test shares its server (the suite stops it at the end).
+      await tab.close();
+    }
+  });
+
+  it('renumbers the pages when a slide is moved or deleted in the editor, and takes each step back on undo', { skip: browserSkip }, async () => {
+    const { deck, slideFile, slideHtml, order } = numberedDeck('slides-renumbering', ['one', 'two', 'three'], ['one', 'two', 'three']);
+    const { url: deckPublic } = await run.json(['open', deck, '--json']);
+    const tab = await browser.load(new URL('index.html', deckPublic).href + '#slide-~three', { ready: `document.querySelectorAll('${rail}').length === 3` });
+    const stage = id => `document.querySelector('[data-open-artifact-mode="edit"][data-open-artifact-slide="${id}"]')`;
+    const text = id => fs.readFileSync(slideFile(id), 'utf8');
+    const railMenu = async (at, label) => {
+      await tab.rightClick(...(await middle(tab, `document.querySelectorAll('${rail}')[${at}]`)));
+      assert.ok(await tab.waitFor(menuItem(label)), `the slide's menu has no ${label}`);
+      await tab.evaluate(`${menuItem(label)}.click()`);
+    };
+    try {
+      await showsNumbers(tab, 'one:1 two:2 three:3', 'the deck as written');
+      const mac = await tab.evaluate("navigator.platform.includes('Mac')");
+      const undo = () => tab.press('z', { meta: mac, ctrl: !mac });
+      // An edit first, so there is a step behind the move: the third slide's title, saved into its own markup.
+      assert.ok(await tab.waitFor(`${stage('three')}?.querySelector('h1')`));
+      const [x, y] = await tab.evaluate(`(() => { const box = ${stage('three')}.querySelector('h1').getBoundingClientRect(); return [box.x + 24, box.y + box.height / 2]; })()`);
+      await tab.clickTimes(x, y, 2);
+      assert.ok(await tab.waitFor(`document.activeElement?.isContentEditable`));
+      await tab.press('a', { meta: mac, ctrl: !mac, commands: ['selectAll'] });
+      await tab.type('Third');
+      await tab.press('Escape');
+      assert.ok(await until(() => text('three') === slideHtml('three', 'Third')), text('three'));
+
+      // Moved up from its menu: it is page 2 and the slide it passed page 3, in the rail and on the stage.
+      await railMenu(2, 'Move up');
+      await showsNumbers(tab, 'one:1 three:2 two:3', 'after Move up');
+      assert.ok(await tab.waitFor(`${stage('three')}?.textContent.includes('Page 2')`), 'the stage kept the old number');
+      assert.ok(await until(() => order().join() === 'one,three,two'), `deck.json: ${order()}`);
+      // Only the order was saved: a new number is not a change to a slide's file.
+      assert.equal(text('three'), slideHtml('three', 'Third'));
+      assert.equal(text('two'), slideHtml('two'));
+
+      // Undo takes the move back, then the edit, with no warning that someone else changed the slide in between.
+      await undo();
+      await showsNumbers(tab, 'one:1 two:2 three:3', 'after undoing the move');
+      assert.ok(await until(() => order().join() === 'one,two,three'), `deck.json: ${order()}`);
+      await undo();
+      assert.ok(await until(() => text('three') === slideHtml('three')), `the edit was not undone, or the slide was saved flat: ${text('three')}`);
+      await showsNumbers(tab, 'one:1 two:2 three:3', 'after undoing the edit');
+
+      // Deleted from its menu: the slides after it move up a page; undo brings it and their numbers back.
+      await railMenu(0, 'Delete');
+      await showsNumbers(tab, 'two:1 three:2', 'after deleting the first slide');
+      assert.ok(await until(() => !fs.existsSync(slideFile('one'))), 'one.html is still there');
+      // The save has come back before the undo (an undo while a delete is on its way is another matter).
+      assert.ok(await tab.waitFor(`document.querySelector('button[aria-label="All changes synced"]')`), 'the delete never finished saving');
+      await undo();
+      await showsNumbers(tab, 'one:1 two:2 three:3', 'after undoing the delete');
+      assert.ok(await until(() => fs.existsSync(slideFile('one'))), 'one.html did not come back');
+      assert.equal(text('two'), slideHtml('two'));
+      assert.equal(text('three'), slideHtml('three'));
       assert.deepEqual(tab.problems, []);
     } finally {
       // Not stopped: the deck under test shares its server (the suite stops it at the end).

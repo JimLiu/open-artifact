@@ -9,7 +9,7 @@
  */
 
 import { mergeLines } from '@open-artifact/editor-kit';
-import { create } from 'zustand';
+import { create, type StateCreator } from 'zustand';
 import {
   addSectionAtSlide,
   compileSlide,
@@ -24,6 +24,7 @@ import {
   stripSourcePlaces,
   type SourceDeck,
   heldReason,
+  isGenerated,
   LIMITS,
   mergeDeckIndex,
   newDeckIndex,
@@ -36,6 +37,7 @@ import {
   type DeckIndex,
   type Diagnostic,
   type Slide,
+  type SlideNode,
 } from '@open-artifact/slides-core';
 
 /* -------------------------------------------------------------------------- */
@@ -194,8 +196,8 @@ export const OVERWRITE_WINDOW_MS = 3_000;
  * The deck's shared sheet when it is a source deck (deck.json `format`), and
  * each slide's place in it (for `counter()`). Set from the index and
  * `project/deck.css` by {@link configureDeck}; slides are read and written
- * through it. The places follow the slides that come and go afterwards
- * ({@link renumberSlides}).
+ * through it. The places follow every later change of the store's slides and
+ * order ({@link numbered}).
  */
 let sourceDeck: SourceDeck | undefined;
 let sourcePlaces = new Map<string, number>();
@@ -246,24 +248,123 @@ function canReread(entry: SlideEntry): entry is SlideEntry & { savedText: string
 }
 
 /**
- * Takes each slide's place from the order and the slides there are now, and reads again the unchanged slides whose
- * place is no longer the one they were read at: a page number (`counter()`) is that place. Returns `slides`, or a copy
- * with those slides read again. A slide with unsaved edits keeps its number until it is next read.
+ * `slide` with the lines the sheet writes (`::before` / `::after`, a page number among them) as `from` has them:
+ * the same slide read at the place it has now. Boxes are matched by their place in the file; one whose generated
+ * lines do not line up with the file's is left as it is. Returns `slide` itself when nothing differs.
  */
-function renumberSlides(index: DeckIndex, slides: Record<string, SlideEntry>): Record<string, SlideEntry> {
-  if (!sourceDeck) return slides;
-  sourcePlaces = placesOf(index, Object.keys(slides));
-  const faces = deckFaces(index);
-  let next = slides;
-  for (const [id, entry] of Object.entries(slides)) {
-    if (entry.place === undefined || entry.place === sourcePlaces.get(id) || !canReread(entry)) continue;
-    const read = readSlide(id, entry.savedText, faces);
-    if (next === slides) next = { ...slides };
-    // A slide that shows no number reads the same: it stays the slide it was (an undo step still knows it).
-    next[id] = !read.held && !entry.held && sameSlide(read.slide, entry.slide) ? { ...entry, place: read.place } : { ...entry, ...read, saved: read.slide, source: undefined };
-  }
-  return next;
+export function withGeneratedLines(slide: Slide, from: Slide): Slide {
+  const theirs = new Map<number | 'slide', SlideNode[]>();
+  const collect = (key: number | 'slide', children: readonly SlideNode[]): void => {
+    theirs.set(key, children.filter(isGenerated));
+    for (const child of children) if (child.kind === 'box' && child.origin !== undefined && child.origin >= 0) collect(child.origin, child.children);
+  };
+  collect('slide', from.children);
+  const take = (key: number | 'slide', children: SlideNode[]): SlideNode[] => {
+    const lines = theirs.get(key);
+    const linedUp = lines !== undefined && lines.length === children.filter(isGenerated).length;
+    let line = 0;
+    let changed = false;
+    const next = children.map((child) => {
+      if (isGenerated(child)) {
+        const other = linedUp ? lines[line++]! : child;
+        if (other === child || JSON.stringify(other) === JSON.stringify(child)) return child;
+        changed = true;
+        return other;
+      }
+      if (child.kind !== 'box' || child.origin === undefined || child.origin < 0) return child;
+      const inner = take(child.origin, child.children);
+      if (inner === child.children) return child;
+      changed = true;
+      return { ...child, children: inner };
+    });
+    return changed ? next : children;
+  };
+  const children = take('slide', slide.children);
+  return children === slide.children ? slide : { ...slide, children };
 }
+
+function sameSlideIds(a: Record<string, SlideEntry>, b: Record<string, SlideEntry>): boolean {
+  if (a === b) return true;
+  const ids = Object.keys(a);
+  return ids.length === Object.keys(b).length && ids.every((id) => Object.hasOwn(b, id));
+}
+
+/**
+ * What a change to the store becomes, so that a source deck's page numbers are right after it. A page number
+ * (`counter()`) is written into a slide's model when its file is read, at the slide's place in the deck:
+ *
+ * - A slide whose place is not the one it was read at (slides came or went, the order changed) is read again at its
+ *   place. One with unsaved edits keeps them and takes only the lines the sheet writes; one waiting for a decision
+ *   between two versions is left until the decision.
+ * - A model put back from before (an undo, a kept version) takes those lines from the slide as saved.
+ *
+ * The undo history and the kept versions follow each model that was replaced, so an undo still knows its slide.
+ */
+function numbered(state: DeckState, partial: Partial<DeckState>): Partial<DeckState> {
+  if (!sourceDeck || (partial.slides === undefined && partial.index === undefined)) return partial;
+  const slides = partial.slides ?? state.slides;
+  const index = partial.index ?? state.index;
+  const replaced = new Map<Slide, Slide>();
+  let next = slides;
+  const put = (id: string, entry: SlideEntry, was: SlideEntry): void => {
+    if (next === slides) next = { ...slides };
+    next[id] = entry;
+    if (entry.slide !== was.slide) replaced.set(was.slide, entry.slide);
+    if (was.saved && entry.saved && entry.saved !== was.saved) replaced.set(was.saved, entry.saved);
+  };
+  const moved = index.order !== state.index.order || !sameSlideIds(slides, state.slides);
+  if (moved) sourcePlaces = placesOf(index, Object.keys(slides));
+  const faces = deckFaces(index);
+  for (const [id, entry] of Object.entries(slides)) {
+    const was = state.slides[id];
+    if ((!moved && entry === was) || entry.place === undefined || entry.savedText === null || entry.conflict) continue;
+    if (entry.place !== sourcePlaces.get(id)) {
+      const read = readSlide(id, entry.savedText, faces);
+      if (canReread(entry)) {
+        // A slide that shows no number reads the same: it stays the slide it was.
+        const same = !read.held && !entry.held && sameSlide(read.slide, entry.slide);
+        put(id, same ? { ...entry, place: read.place } : { ...entry, ...read, saved: read.slide, source: undefined }, entry);
+      } else if (!read.held) {
+        put(id, { ...entry, slide: withGeneratedLines(entry.slide, read.slide), saved: read.slide, source: undefined, place: read.place }, entry);
+      }
+      continue;
+    }
+    const base = entry.source ?? entry.saved;
+    if (!base || entry.slide === base || entry.slide === was?.slide) continue;
+    const slide = withGeneratedLines(entry.slide, base);
+    if (slide !== entry.slide) put(id, { ...entry, slide }, entry);
+  }
+  if (next === slides) return partial;
+  const out: Partial<DeckState> = { ...partial, slides: next };
+  if (replaced.size === 0) return out;
+  const now = (slide: Slide | null): Slide | null => (slide && replaced.get(slide)) ?? slide;
+  const steps = new Map<HistoryStep, HistoryStep>();
+  const follow = (stack: HistoryStep[]): HistoryStep[] => {
+    let changed = false;
+    const followed = stack.map((step) => {
+      const sides = Object.entries(step.slides);
+      if (sides.every(([, side]) => now(side.before) === side.before && now(side.after) === side.after)) return step;
+      changed = true;
+      const current = { ...step, slides: Object.fromEntries(sides.map(([id, side]) => [id, { before: now(side.before), after: now(side.after) }])) };
+      steps.set(step, current);
+      return current;
+    });
+    return changed ? followed : stack;
+  };
+  out.undo = follow(partial.undo ?? state.undo);
+  out.redo = follow(partial.redo ?? state.redo);
+  const warned = partial.undoWarned !== undefined ? partial.undoWarned : state.undoWarned;
+  if (warned && steps.has(warned)) out.undoWarned = steps.get(warned)!;
+  const kept = partial.kept ?? state.kept;
+  if (kept.some((item) => replaced.has(item.slide))) out.kept = kept.map((item) => (replaced.has(item.slide) ? { ...item, slide: replaced.get(item.slide)! } : item));
+  return out;
+}
+
+/** Passes every change the store makes of itself through {@link numbered}. */
+const keepingPageNumbers =
+  (creator: StateCreator<DeckState>): StateCreator<DeckState> =>
+  (set, get, api) =>
+    creator((partial) => set(numbered(get(), typeof partial === 'function' ? partial(get()) : partial)), get, api);
 
 /** Families the deck declares. */
 export function deckFaces(index: DeckIndex): string[] {
@@ -331,7 +432,7 @@ function adoptSections(index: DeckIndex, slides: Record<string, SlideEntry>): De
 /* Store                                                                       */
 /* -------------------------------------------------------------------------- */
 
-export const useDeck = create<DeckState>()((set, get) => ({
+export const useDeck = create<DeckState>()(keepingPageNumbers((set, get) => ({
   status: 'loading',
   error: null,
   title: '',
@@ -470,11 +571,16 @@ export const useDeck = create<DeckState>()((set, get) => ({
       if (entry) {
         // A source slide re-read from what was written knows where its new elements live.
         let source: Slide | undefined;
+        let saved = slide;
         if (sourceDeck && !isFlatSlideHtml(text)) {
           const read = readSlide(id, text, deckFaces(state.index), entry.place);
-          if (!read.held && sameSlide(read.slide, slide)) source = read.slide;
+          if (!read.held) {
+            // Its place may have moved while the save was on its way: what is saved has the numbers of the place now.
+            saved = withGeneratedLines(slide, read.slide);
+            if (sameSlide(read.slide, saved)) source = read.slide;
+          }
         }
-        slides[id] = { ...entry, saved: slide, savedText: text, hash, source, writtenAt: Date.now() };
+        slides[id] = { ...entry, saved, savedText: text, hash, source, writtenAt: Date.now() };
       } else if (trash[id]) trash[id] = { ...trash[id]!, saved: slide, savedText: text, hash };
     }
     for (const id of sent.deleted) {
@@ -504,12 +610,7 @@ export const useDeck = create<DeckState>()((set, get) => ({
   },
 
   remoteSlide(id, text, hash) {
-    const outcome = takeRemoteSlide(get, set, id, text, hash);
-    // A slide came or went: the ones whose place moved show their new page number.
-    const state = get();
-    const slides = renumberSlides(state.index, state.slides);
-    if (slides !== state.slides) set({ slides });
-    return outcome;
+    return takeRemoteSlide(get, set, id, text, hash);
   },
 
   bringBack(position) {
@@ -568,7 +669,7 @@ export const useDeck = create<DeckState>()((set, get) => ({
   dismissKept(position) {
     set({ kept: get().kept.filter((_, i) => i !== position) });
   },
-}));
+})));
 
 /** Applies someone else's version of a slide (see {@link DeckState.remoteSlide}). */
 function takeRemoteSlide(get: () => DeckState, set: (partial: Partial<DeckState>) => void, id: string, text: string | null, hash: string | null): RemoteOutcome {

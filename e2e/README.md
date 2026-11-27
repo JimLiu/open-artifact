@@ -167,6 +167,12 @@ The harness asks its questions (`waitFor`, `evaluateAll`, `load`'s `ready`) in a
 - The second slide is written to disk: the rail shows it as Page 2. The fourth is written before the third: it is Page 3, the third page among the slides there are. The third is written: it is Page 3 and the fourth becomes Page 4, on the stage too. Before the fix, every slide that arrived in the open page showed Page 1.
 - The first slide's file is deleted: the others become Pages 1 to 3. A second tab that loads the deck whole shows the same numbers, and the slide files and `deck.json` are as they were written.
 
+**Slides: page numbers after a move or a delete in the editor** (`slides.test.mjs`, a three-slide source deck of its own with the same sheet, Chrome only)
+
+- The third slide's title is retyped on the stage and saved into its own markup. Move up in its rail menu makes it Page 2 and the slide it passed Page 3, in the rail and on the stage; `deck.json` gets the new order and no slide file changes. Before the fix, each slide kept the number it was read with until the page was reloaded.
+- ⌘Z takes the move back (numbers and `deck.json`), and a second ⌘Z the retyped title, with no warning that someone else changed the slide; the file is the one first written, not a flat copy.
+- Delete in the first slide's rail menu makes the others Pages 1 and 2 and removes its file. Once that save has come back, ⌘Z brings the slide and the numbers back, and the other two files are as written.
+
 **Sheets** (`sheets.test.mjs`)
 
 - `read` on a folder with no Sheet is refused; a first `update` makes the Sheet (one blank `Sheet1`) and applies its edits.
