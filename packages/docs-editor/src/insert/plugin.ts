@@ -37,6 +37,7 @@ export type InsertIcon =
   | 'bullet'
   | 'check'
   | 'code'
+  | 'contents'
   | 'date'
   | 'divider'
   | 'image'

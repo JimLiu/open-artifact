@@ -10,7 +10,7 @@ export const PAGE_VERSIONS = 50;
 export interface Preview {
   tab: string;
   rev: number;
-  /** The version it is compared with (`null`: the oldest kept, nothing before it). */
+  /** The version it is compared with: for the oldest, the tab as first saved (FIRST_REV); `null`: nothing before it. */
   base: number | null;
   at: string;
   /** The tab as it is now. */

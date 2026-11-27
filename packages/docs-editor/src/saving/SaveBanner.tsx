@@ -1,7 +1,8 @@
 /**
  * The banner over the text when saving is in trouble: offline, edits waiting too long, or stopped. Once saving has
  * stopped the text can't be edited any more (what is typed would be lost); the banner offers to copy the page, to
- * reload, or to restore the document from its versions. Over it, while an owner has the doc locked, who locked it.
+ * reload, or to restore the document from its versions. Over it, while an owner has the doc locked, who locked it;
+ * under it, after a reload that came before all edits were saved, a word to check that nothing is missing.
  */
 import { Button, Dialog, toast } from '@open-artifact/ui';
 import { CircleAlert, Lock, WifiOff } from 'lucide-react';
@@ -9,6 +10,7 @@ import { type ReactNode, useState } from 'react';
 import { setDocs, useDocs } from '../app/store.ts';
 import { useEditor } from '../editor/format.ts';
 import { mayLock, setLocked } from './lock.ts';
+import { ReloadNotice } from './ReloadNotice.tsx';
 import { BANNER_WORDS, bannerFor, LOCK_MENU_WORDS, LOCKED_WORDS, lockedByWords, READ_ONLY_WORDS, RELOAD_WORDS } from './words.ts';
 
 /** The open tab's text on the clipboard, as rich text and plain text. */
@@ -62,6 +64,7 @@ export function SaveBanner(): ReactNode {
     <div className="pointer-events-none absolute inset-x-0 top-3 z-30 flex flex-col items-center gap-2 px-4">
       <LockBanner />
       <SaveStateBanner />
+      <ReloadNotice />
     </div>
   );
 }

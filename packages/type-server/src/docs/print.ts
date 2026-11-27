@@ -22,9 +22,11 @@ import {
   ExportNotes,
   ExportRefusal,
   type ExportSource,
+  type FileContentsLine,
   headingOf,
   hexColor,
   type Inline,
+  isContents,
   linkOf,
   noteEmbed,
   notePending,
@@ -80,6 +82,12 @@ blockquote { margin: 0 0 8pt; padding-left: 12pt; border-left: 2.5pt solid #d9d8
 pre { margin: 0 0 10pt; padding: 8pt 10pt; background: #f5f4f0; border-radius: 4pt; font: 9.5pt/1.45 ${FACES.mono}; white-space: pre-wrap; overflow-wrap: anywhere; }
 code { font-family: ${FACES.mono}; font-size: .88em; background: #f5f4f0; border-radius: 3pt; padding: .08em .3em; }
 pre code { font: inherit; background: none; padding: 0; }
+nav.contents { margin: 0 0 10pt; }
+nav.contents div { margin: 0 0 2pt; }
+nav.contents .step-1 { padding-left: 14pt; }
+nav.contents .step-2 { padding-left: 28pt; }
+nav.contents .group { font-weight: 600; }
+nav.contents a { text-decoration: none; }
 /* A collapsed border stands half outside its table: a full-width table would lose its right edge to the page margin. */
 table { width: calc(100% - 1pt); margin: 0 0 10pt .5pt; border-collapse: collapse; font-size: 10.5pt; line-height: 1.45; }
 table.sized { table-layout: fixed; }
@@ -142,6 +150,7 @@ function blockHtml(block: Block, source: ExportSource, notes: ExportNotes): stri
       return level ? `<h${level}${id}>${html}</h${level}>` : `<p${id}>${html}</p>`;
     }
     case 'codeBlock': {
+      if (isContents(block)) return contentsHtml(source.anchors?.contents?.get(block.id), idOf(block, source));
       const text = segmentsOf(block.inline ?? [], source, notes).map(segment => segment.text).join('');
       return `<pre${id}><code>${escapeXml(text)}</code></pre>`;
     }
@@ -162,6 +171,17 @@ function blockHtml(block: Block, source: ExportSource, notes: ExportNotes): stri
     default:
       return id ? `<div${id}>${children()}</div>` : children();
   }
+}
+
+/** A table of contents: a line for each heading it lists, a link to it; nothing when there are none. */
+function contentsHtml(lines: FileContentsLine[] | undefined, id: string): string {
+  if (!lines?.length) return '';
+  const items = lines.map(line => {
+    const words = escapeXml(line.text);
+    const classes = [`step-${line.indent}`, ...(line.group ? ['group'] : [])].join(' ');
+    return `<div class="${classes}">${line.anchor ? `<a href="#${escapeAttr(line.anchor.id)}">${words}</a>` : words}</div>`;
+  });
+  return `<nav${id} class="contents" aria-label="Table of contents">${items.join('')}</nav>`;
 }
 
 const blocksHtml = (blocks: Block[], source: ExportSource, notes: ExportNotes) => blocks.map(block => blockHtml(block, source, notes)).join('');
@@ -240,10 +260,11 @@ function oneAtATime<T>(job: () => Promise<T>): Promise<T> {
   return run;
 }
 
-function within<T>(work: Promise<T>, ms: number, what: string): Promise<T> {
+/** `work`, or `too_slow` once it has run for `ms`: too much to print in one go (one tab at a time may still be). */
+export function within<T>(work: Promise<T>, ms: number, what: string): Promise<T> {
   let timer: NodeJS.Timeout;
   const late = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`${what} took more than ${Math.round(ms / 1000)} s`)), ms);
+    timer = setTimeout(() => reject(new ExportRefusal('too_slow', `Chrome was still ${what} after ${Math.round(ms / 1000)} s.`, 504)), ms);
   });
   return Promise.race([work, late]).finally(() => clearTimeout(timer));
 }

@@ -2,9 +2,10 @@
  * Suggestions a folded heading hides: their words can't be seen, so their cards gather at the heading, and looking at
  * one unfolds what hides it.
  */
+import type { Node as PMNode } from 'prosemirror-model';
 import type { EditorState } from 'prosemirror-state';
 import type { EditorView } from 'prosemirror-view';
-import { foldedIds, foldHiding, unfoldTo } from '../editor/fold.ts';
+import { foldedIds, foldHiding, headingPos, unfoldTo } from '../editor/fold.ts';
 import { rangesOf } from './positions.ts';
 
 /** The suggestions under one folded heading, in the order given. */
@@ -16,6 +17,18 @@ export interface FoldedGroup {
 
 /** The id a folded heading's gathered suggestions go by beside the text: never a suggestion's. */
 export const foldedGroupId = (heading: string): string => `folded:${heading}`;
+
+/** The words of folded heading `heading` in `doc`, trimmed: empty for a heading with none, or one not there. */
+export function foldedHeadingWords(doc: PMNode, heading: string): string {
+  const at = headingPos(doc, heading);
+  return at === null ? '' : (doc.nodeAt(at)?.textContent ?? '').replace(/\s+/g, ' ').trim();
+}
+
+/** What a folded section's gathered suggestions are called: by the heading's words, or "this section" without any. */
+export function foldedGroupLabel(count: number, words: string): string {
+  const many = count === 1 ? '1 suggestion' : `${count} suggestions`;
+  return words ? `${many} in the section “${words}”` : `${many} in this section`;
+}
 
 /**
  * Of `ids`, the suggestions every part of which a fold hides, gathered by the folded heading in sight above the first

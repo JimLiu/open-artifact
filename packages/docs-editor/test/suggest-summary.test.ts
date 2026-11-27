@@ -160,3 +160,19 @@ describe('blocks', () => {
     assert.equal(sentenceText(describeParts({ blocks: [part, part], runs: [] })), 'Add 2 paragraph breaks');
   });
 });
+
+describe('tables of contents', () => {
+  const base = docOf('# Plan\n\nFirst paragraph.\n\n## Steps');
+
+  it('names an added table of contents', () => {
+    const doc = suggest(base, [{ op: 'insert', target: { kind: 'root' }, side: 'end', with: { as: 'markdown', from: { kind: 'inline', content: '```toc\n```' } } }]);
+    assert.equal(text(doc), 'Add table of contents');
+  });
+
+  it('names a struck table of contents', () => {
+    const withContents = docOf('Intro\n\n```toc\n```\n\n## Steps');
+    const contents = withContents.blocks.find(block => block.type === 'codeBlock')!;
+    const doc = suggest(withContents, [{ op: 'delete', target: { kind: 'blocks', ids: [contents.id] } }]);
+    assert.equal(text(doc), 'Delete table of contents');
+  });
+});

@@ -2,10 +2,9 @@
 import { cn } from '@open-artifact/ui';
 import { ChevronRight, ListChecks } from 'lucide-react';
 import { type CSSProperties, forwardRef, type ReactNode } from 'react';
-import { headingPos } from '../editor/fold.ts';
 import { useEditor } from '../editor/format.ts';
 import { revealSuggestion } from './decide.ts';
-import type { FoldedGroup } from './folded.ts';
+import { type FoldedGroup, foldedGroupLabel, foldedHeadingWords } from './folded.ts';
 
 /** Opens the folded section and looks at the first of the suggestions in it. */
 export function revealFolded(group: FoldedGroup): void {
@@ -19,17 +18,15 @@ export const FoldedSuggestionsCard = forwardRef<HTMLButtonElement, { group: Fold
   { group, className, style },
   ref,
 ): ReactNode {
-  const heading = useEditor(hold => {
-    const doc = hold.state?.doc;
-    const at = doc ? headingPos(doc, group.heading) : null;
-    return doc && at !== null ? (doc.nodeAt(at)?.textContent ?? '') : '';
-  });
+  const words = useEditor(hold => (hold.state ? foldedHeadingWords(hold.state.doc, group.heading) : ''));
   const count = countOf(group.ids.length);
+  const label = foldedGroupLabel(group.ids.length, words);
   return (
     <button
       ref={ref}
       type="button"
-      aria-label={heading ? `${count} in the folded section ${heading}: show them` : `${count} in a folded section: show them`}
+      aria-label={`${label}: show them`}
+      title={label}
       data-folded-suggestions={group.ids.join(' ')}
       style={style}
       className={cn(
@@ -45,7 +42,7 @@ export const FoldedSuggestionsCard = forwardRef<HTMLButtonElement, { group: Fold
       </span>
       <span className="flex min-w-0 flex-1 flex-col leading-4">
         <span className="truncate text-[13px] font-medium">{count}</span>
-        <span className="truncate text-[12px] text-chrome-muted">In this folded section</span>
+        <span className="truncate text-[12px] text-chrome-muted">{words ? `In the section “${words}”` : 'In this folded section'}</span>
       </span>
       <ChevronRight aria-hidden="true" className="size-4 shrink-0 text-chrome-muted" strokeWidth={1.75} />
     </button>

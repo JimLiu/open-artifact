@@ -1,5 +1,7 @@
 /** Reading threads: links to them, whose messages are the viewer's, and threads that are a single reaction. */
 import type { CommentAuthor, CommentMessage, CommentReaction, CommentThread } from '@open-artifact/runtime';
+import { mentionsIn } from './mentions.ts';
+import type { CommentFilter } from './store.ts';
 
 /** The address parameter naming a thread to open. */
 export const COMMENT_PARAM = 'comment';
@@ -67,6 +69,40 @@ export const canDeleteThread = (thread: CommentThread, me: string | null, canCom
 export function byRecent(a: CommentThread, b: CommentThread): number {
   const at = (thread: CommentThread) => Date.parse(thread.messages[0]?.at ?? '') || 0;
   return at(b) - at(a);
+}
+
+/** Whether a message names the viewer: in who it asks, or as an `@name` in its words. */
+function namesMe(message: CommentMessage, me: string): boolean {
+  if (message.to?.includes(me)) return true;
+  return mentionsIn(message.text, [{ key: me, name: me, kind: 'person' }]).length > 0;
+}
+
+/** Whether an open thread concerns the viewer: one of its messages is theirs or names them. A lone reaction does not. */
+export function involvesMe(thread: CommentThread, me: string | null): boolean {
+  if (!me || thread.status !== 'open' || isReactionThread(thread)) return false;
+  return thread.messages.some(message => isOwn(message.author, me) || namesMe(message, me));
+}
+
+/** Whether the list shows a thread under `filter` (`mine` shows nothing while the viewer is not known). */
+export function inFilter(thread: CommentThread, filter: CommentFilter, me: string | null): boolean {
+  if (filter === 'mine') return involvesMe(thread, me);
+  return filter === 'all' || thread.status === filter;
+}
+
+/** What the list says when a filter leaves nothing in it. */
+export const EMPTY_FILTER: Readonly<Record<CommentFilter, string>> = {
+  open: 'No open comments',
+  mine: 'No comments involving you',
+  resolved: 'No resolved comments',
+  all: 'No comments',
+};
+
+/** What the list holds under `filter`, said when the filter is picked: "3 comments involving you", "1 open comment". */
+export function filterSaid(filter: CommentFilter, count: number): string {
+  if (count === 0) return EMPTY_FILTER[filter];
+  const noun = count === 1 ? 'comment' : 'comments';
+  if (filter === 'mine') return `${count} ${noun} involving you`;
+  return filter === 'all' ? `${count} ${noun}` : `${count} ${filter} ${noun}`;
 }
 
 /** "Resolved", "Resolved by you", "Resolved by Ana": who closed the thread, when the server says. */

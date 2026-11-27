@@ -6,7 +6,7 @@ import type { EditorView } from 'prosemirror-view';
 import { isComposingKey } from '@open-artifact/ui/keys';
 
 const PAGE_BAR = '[role="toolbar"][aria-label="Page"]';
-const CURSOR_BARS = ['[data-selbar]', '[data-image-bar]', '[role="toolbar"][aria-label="Cell actions"]'];
+const CURSOR_BARS = ['[data-selbar]', '[data-image-bar]', '[role="toolbar"][aria-label="Cell actions"]', '[role="toolbar"][data-contents-bar]'];
 const CONTROL = 'button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 function isBarKey(event: KeyboardEvent): boolean {
@@ -26,9 +26,10 @@ function focusFirstControl(bar: Element | null): boolean {
 }
 
 function cursorBar(doc: Document): HTMLElement | null {
+  // A page can hold several of a kind (one table of contents' bar shows, the others' don't).
   for (const selector of CURSOR_BARS) {
-    const bar = doc.querySelector<HTMLElement>(selector);
-    if (bar && shown(bar)) return bar;
+    const bar = [...doc.querySelectorAll<HTMLElement>(selector)].find(shown);
+    if (bar) return bar;
   }
   return null;
 }

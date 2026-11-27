@@ -34,6 +34,25 @@ export function copyMembers(name: string, version: DocState): DocMember[] {
   ];
 }
 
+/** The version a copy was made of: which tab, which rev, which row of the list. */
+export interface CopiedFrom {
+  tab: string;
+  rev: number;
+  row: string;
+  /** How many versions the row holds (the copy is of its newest). */
+  count: number;
+}
+
+/**
+ * What follows a copy: when the person still has that version open, the copy opens in its place; when they went on to
+ * something else meanwhile, the page only says it is made, with a way to open it.
+ */
+export function afterCopy(from: CopiedFrom, shown: Pick<CopiedFrom, 'tab' | 'rev' | 'row'> | null): { open: boolean; title: string } {
+  const open = !!shown && shown.tab === from.tab && shown.rev === from.rev && shown.row === from.row;
+  if (open) return { open, title: from.count > 1 ? `Opened a copy of the newest of ${from.count} versions` : 'Copy opened in a new tab' };
+  return { open, title: from.count > 1 ? `Copied the newest of ${from.count} versions` : 'Copy created' };
+}
+
 /** The new tab's id, from the answer to {@link copyMembers}. */
 export function mintedTab(answer: Record<string, unknown>): string | null {
   const acks = Array.isArray(answer.acks) ? (answer.acks as unknown[]) : [];

@@ -104,3 +104,33 @@ export function exportFailure(format: DocExportFormat, scope: 'tab' | 'doc', cod
       return `Couldn’t export ${what} as ${name}. Try again in a moment.`;
   }
 }
+
+export const EXPORT_THIS_TAB = 'Export this tab';
+
+/**
+ * Why a file of every tab of a doc with several failed, when one tab could still make it: then the failure says so
+ * and offers {@link EXPORT_THIS_TAB}. Null where exporting one tab would fail the same way (no Chrome, no server, not
+ * allowed), so the reason of {@link exportFailure} stands.
+ */
+export function allTabsFailure(format: DocExportFormat, code: string | undefined): string | null {
+  const name = TITLE_NAMES[format];
+  switch (code) {
+    case 'too_slow':
+      return `All tabs together take too long to export as ${name}. Export one tab at a time.`;
+    case 'no_node':
+    case 'no_tab':
+    case 'not_found':
+      return `At least one tab can’t be exported as ${name}. Export one tab at a time.`;
+    case 'no_chrome':
+    case 'no_print':
+    case 'renderer_unavailable':
+    case 'unsupported':
+    case 'not_a_doc':
+    case 'unavailable':
+    case 'not_writer':
+    case 'not_granted':
+      return null;
+    default:
+      return `Couldn’t export all tabs as ${name}. You can try again in a moment or export one tab at a time.`;
+  }
+}

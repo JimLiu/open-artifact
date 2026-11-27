@@ -108,3 +108,41 @@
 .doc-version-text [data-change-id] {
   scroll-margin-block: 30vh;
 }
+
+/* A block that says more than its change ("Replaced by the table below"): the words over
+   it, kept clear of its strike-through (an inline-block takes no text decoration from the block). */
+.doc-version-text .vh-block[data-diff-note]:not(table, tr, td, th, hr)::before {
+  content: attr(data-diff-note);
+  display: inline-block;
+  margin-bottom: 2px;
+  font-family: var(--doc-sans);
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--vh-quiet);
+}
+
+/* A table of contents the version dropped: a card that says so, struck through, in place of its links (under the note of
+   what replaced it, when something did). */
+.doc-version-text .contents-block.contents-gone {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 180px;
+  padding: 10px 14px;
+  border: 2px solid var(--doc-del);
+  border-radius: 8px;
+  background: none;
+  box-shadow: none;
+  text-decoration-line: none;
+}
+
+.doc-version-text .contents-gone .contents-list {
+  padding: 0;
+}
+
+.doc-version-text .contents-gone-label {
+  font-size: 14px;
+  color: var(--vh-quiet);
+  text-decoration-line: line-through;
+  text-decoration-color: var(--doc-del);
+}

@@ -1,5 +1,6 @@
 
 import type { CommentMessage, CommentThread } from '@open-artifact/runtime';
+import { assignNotes } from './assign.ts';
 import { AGENT_KEY } from './mentions.ts';
 
 /** `asked`: the message @mentions the agent; `wake`: it goes to the agent unasked; `nothing`: it stays with people. */
@@ -32,7 +33,9 @@ export function judgeComment({ thread, to, edited = false }: JudgeCase): JudgeVe
   const lastAgent = earlier.findLastIndex(item => item.author.kind === 'agent');
   if (lastAgent < 0 && !thread.agent) return { choice: 'nothing', why: 'the agent took no part in the thread' };
   if (thread.agent?.status === 'pending') return { choice: 'nothing', why: 'the thread already waits for the agent, who reads it whole' };
-  if (earlier.slice(lastAgent + 1).some(item => item.author.kind === 'person' && item.author.name !== message.author.name)) {
+  // Who the thread was assigned to is a note, not someone talking.
+  const notes = assignNotes(thread);
+  if (earlier.slice(lastAgent + 1).some(item => item.author.kind === 'person' && item.author.name !== message.author.name && !notes.has(item.id))) {
     return { choice: 'nothing', why: 'other people are talking in the thread' };
   }
   // A thanks or an OK closes a talk, unless it answers what the agent asked.

@@ -5,7 +5,7 @@ import { ChevronRight } from 'lucide-react';
 import { type ReactNode } from 'react';
 import { useDocs } from '../app/store.ts';
 import { canCopyVersions, canRestoreVersions, copyPreview, selectPreview, toggleExpanded } from './data.ts';
-import { type VersionRow, editsLabel, fullTime, restoredLabel, timeLabel, versionBefore, whoOf } from './groups.ts';
+import { type VersionRow, compareBase, editsLabel, fullTime, restoredLabel, timeLabel, whoOf } from './groups.ts';
 import { type Preview, setHistory, useVersionHistory } from './store.ts';
 
 interface RowProps {
@@ -28,7 +28,7 @@ export function HistoryRow({ row, tab, versions }: RowProps): ReactNode {
         row={row}
         tab={tab}
         versions={versions}
-        base={versionBefore(versions, oldest.rev)?.rev ?? null}
+        base={compareBase(versions, oldest.rev)}
         lead={
           <button
             type="button"
@@ -71,7 +71,7 @@ function VersionItem({ version, row, tab, versions, base, lead }: ItemProps): Re
   const preview: Preview = {
     tab,
     rev: version.rev,
-    base: base === undefined ? (versionBefore(versions, version.rev)?.rev ?? null) : base,
+    base: base === undefined ? compareBase(versions, version.rev) : base,
     at: version.at,
     current: row.kind === 'current',
     count,

@@ -1,7 +1,8 @@
 /**
  * Links inside the doc. A heading is linked as `#<block id>~<slug>` (`#<block id>` when its words make no plain
  * slug), a tab as `#<tab id>`, a heading of another tab as `#<tab id>.<block id>~<slug>`; a bare `#<slug>` names a
- * heading of the open tab by its words.
+ * heading of the open tab by its words. Words in a block are linked as `#<block id>~<first id>-<last id>`, by the ids
+ * of their first and last characters (a slug has no dots, so the two never meet).
  */
 import { pageSlug } from '@open-artifact/docs-core';
 import type { Node as PMNode } from 'prosemirror-model';
@@ -10,6 +11,7 @@ const BLOCK_ID = /^([A-Za-z0-9]{1,16}\.\d{1,8})(?:~(.*))?$/;
 const TAB_ID = /^[0-9a-f]{8}-[0-9a-f]{4}$/;
 const TAB_PLACE = /^([0-9a-f]{8}-[0-9a-f]{4})\.(.+)$/;
 const SLUG_HINT = /^[A-Za-z0-9._-]{1,80}$/;
+const WORDS = /^([A-Za-z0-9]{1,16}\.\d{1,8})-([A-Za-z0-9]{1,16}\.\d{1,8})$/;
 
 export interface DocHeading {
   bid: string;
@@ -61,11 +63,23 @@ export function matchTargets(query: string, headings: readonly DocHeading[], tab
   };
 }
 
-/** What an in-doc link names: a tab, a block (with the slug it was linked by), or a heading's slug. */
+/** What an in-doc link names: a tab, a block (with the slug it was linked by, or words in it), or a heading's slug. */
 export interface DocPlace {
   tab?: string;
   block?: string;
   slug?: string;
+  /** Words the link names, by the ids of their first and last characters. */
+  words?: [string, string];
+}
+
+/** The link to a block, or to words starting in it (by their first and last characters' ids). */
+export const blockPlaceHref = (block: string, words?: readonly [string, string]): string => (words ? `#${block}~${words[0]}-${words[1]}` : `#${block}`);
+
+/** A place inside its tab, as a link writes it after `#` or `#<tab id>.`: empty for the tab itself. */
+export function placeFragment(place: DocPlace): string {
+  if (!place.block) return place.slug ?? '';
+  if (place.words) return `${place.block}~${place.words[0]}-${place.words[1]}`;
+  return place.slug ? `${place.block}~${place.slug}` : place.block;
 }
 
 export function parseDocHref(href: string): DocPlace | null {
@@ -85,8 +99,11 @@ export function parseDocHref(href: string): DocPlace | null {
 
 function inTab(fragment: string): DocPlace {
   const id = BLOCK_ID.exec(fragment);
-  if (id) return id[2] ? { block: id[1]!, slug: id[2].toLowerCase() } : { block: id[1]! };
-  return { slug: fragment.toLowerCase() };
+  if (!id) return { slug: fragment.toLowerCase() };
+  if (!id[2]) return { block: id[1]! };
+  const words = WORDS.exec(id[2]);
+  if (words) return { block: id[1]!, words: [words[1]!, words[2]!] };
+  return { block: id[1]!, slug: id[2].toLowerCase() };
 }
 
 /** Where in a tab's doc a place is: the block by its id, else the first heading its slug names. */

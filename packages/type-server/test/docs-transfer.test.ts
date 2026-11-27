@@ -14,6 +14,8 @@ import { birth, type DocPerson } from '../src/docs/calls.ts';
 import { readDocBlob } from '../src/docs/blobs.ts';
 import { findChrome } from '../src/docs/chrome.ts';
 import { DocHost } from '../src/docs/host.ts';
+import { ExportRefusal } from '../src/docs/export.ts';
+import { within } from '../src/docs/print.ts';
 import { DocStore, docDirOf } from '../src/docs/store.ts';
 import { DocTransferError, exportDocFile, formatOfFile, importDocFile, importIntoFolder } from '../src/docs/transfer.ts';
 
@@ -226,5 +228,20 @@ describe('a long web link in every export', () => {
   it('keeps the full address in a PDF', { skip: findChrome() ? false : 'no Chrome here (set OPEN_ARTIFACT_CHROME)', timeout: 120_000 }, async () => {
     const pdf = (await exportDocFile(store, person, { format: 'pdf' })).bytes.toString('latin1');
     assert.ok(pdf.includes(href), 'the link annotation holds the whole address');
+  });
+});
+
+describe('a PDF that takes too long to print', () => {
+  it('is refused as too_slow', async () => {
+    await assert.rejects(within(new Promise<never>(() => {}), 10, 'printing'), (error: unknown) => {
+      assert.ok(error instanceof ExportRefusal);
+      assert.equal(error.code, 'too_slow');
+      assert.equal(error.message, 'Chrome was still printing after 0 s.');
+      return true;
+    });
+  });
+
+  it('answers in time when the work does', async () => {
+    assert.equal(await within(Promise.resolve('done'), 1000, 'printing'), 'done');
   });
 });

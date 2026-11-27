@@ -29,6 +29,13 @@ export interface SendBoxSpec {
   tag?: boolean;
 }
 
+/** "Assign to {who}": the text @mentions one person, and does not go to the agent. */
+export interface AssignBoxSpec {
+  who: string;
+  checked: boolean;
+  onChange(checked: boolean): void;
+}
+
 export interface ComposerProps {
   value: string;
   onChange(text: string): void;
@@ -43,13 +50,15 @@ export interface ComposerProps {
   compact?: boolean;
   /** Omitted when no agent can take comments: no checkbox. */
   sendBox?: SendBoxSpec;
+  /** "Assign to {who}", on a line of its own above the buttons ("Send to agent" is unchecked while it shows). */
+  assignBox?: AssignBoxSpec;
 }
 
 const MAX_HEIGHT = 240;
 /** From here on the composer counts what is left. */
 const COUNT_FROM = COMMENT_TEXT_MAX - 500;
 
-export function Composer({ value, onChange, onSubmit, onCancel, label, placeholder, submitLabel, busy = false, autoFocus = false, compact = false, sendBox }: ComposerProps): ReactNode {
+export function Composer({ value, onChange, onSubmit, onCancel, label, placeholder, submitLabel, busy = false, autoFocus = false, compact = false, sendBox, assignBox }: ComposerProps): ReactNode {
   const field = useRef<HTMLTextAreaElement>(null);
   const tagRef = useRef<HTMLSpanElement>(null);
   const tagged = !!sendBox?.tag && sendBox.checked && !sendBox.locked;
@@ -212,6 +221,7 @@ export function Composer({ value, onChange, onSubmit, onCancel, label, placehold
           ))}
         </ul>
       ) : null}
+      {assignBox ? <AssignBox box={assignBox} disabled={busy} /> : null}
       {showButtons ? (
         <div className="mt-1.5 flex items-center justify-end gap-1">
           {sendBox ? <SendBox box={sendBox} disabled={busy} /> : null}
@@ -241,6 +251,17 @@ export function Composer({ value, onChange, onSubmit, onCancel, label, placehold
   );
 }
 
+/**
+ * The "Assign to {who}" box for `who`, the one person a comment being written @mentions (`null`: none, or it goes to
+ * the agent). It starts checked when the thread is theirs already; the person's own choice lasts while `who` does.
+ */
+export function useAssignBox(who: string | null, current: string | null): { spec: AssignBoxSpec; reset(): void } | null {
+  const [choice, setChoice] = useState<{ who: string; checked: boolean } | null>(null);
+  if (who === null) return null;
+  const checked = choice?.who === who ? choice.checked : who === current;
+  return { spec: { who, checked, onChange: next => setChoice({ who, checked: next }) }, reset: () => setChoice(null) };
+}
+
 /** A person's first letter, or the agent's mark. */
 export function Initial({ name, agent = false, size = 'sm' }: { name: string; agent?: boolean; size?: 'sm' | 'md' }): ReactNode {
   const box = size === 'md' ? 'size-6 text-[12px]' : 'size-5 text-[11px]';
@@ -248,6 +269,26 @@ export function Initial({ name, agent = false, size = 'sm' }: { name: string; ag
     <span aria-hidden="true" className={cn('inline-flex shrink-0 items-center justify-center rounded-full font-medium', box, agent ? 'bg-chrome-pressed text-chrome-pressed-fg' : 'bg-chrome-hover text-chrome-fg')}>
       {agent ? <Bot className="size-3.5" /> : (name.trim()[0] ?? '?').toUpperCase()}
     </span>
+  );
+}
+
+/** "Assign to Ana": the comment, once sent, assigns its thread to the one person it @mentions. */
+function AssignBox({ box, disabled }: { box: AssignBoxSpec; disabled: boolean }): ReactNode {
+  return (
+    <label
+      className={cn('mt-1.5 flex h-6 min-w-0 items-center gap-1.5 text-[12px] text-chrome-muted select-none', disabled ? 'cursor-default' : 'cursor-pointer hover:text-chrome-fg')}
+      onMouseDown={event => event.preventDefault()}
+      data-assign-box=""
+    >
+      <input
+        type="checkbox"
+        className="size-3.5 shrink-0 accent-[var(--color-chrome-accent)]"
+        checked={box.checked}
+        disabled={disabled}
+        onChange={event => box.onChange(event.target.checked)}
+      />
+      <span className="truncate">Assign to {box.who}</span>
+    </label>
   );
 }
 

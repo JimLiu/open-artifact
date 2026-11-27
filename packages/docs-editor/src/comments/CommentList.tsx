@@ -1,22 +1,29 @@
-/** Every thread of the doc in one list beside the page, by tab, filtered to the open, the resolved or all of them. */
+/**
+ * Every thread of the doc in one list beside the page, by tab, filtered to the open, those involving the viewer, the
+ * resolved or all of them.
+ */
+import { announce } from '@open-artifact/editor-kit';
 import { PanelEdge, usePanelWidth } from '@open-artifact/editor-kit/react';
 import type { CommentThread } from '@open-artifact/runtime';
 import { Segmented } from '@open-artifact/ui';
 import { X } from 'lucide-react';
-import { type ReactNode, useLayoutEffect, useMemo, useRef } from 'react';
+import { type ReactNode, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { PHONE_QUERY, useMedia } from '../app/media.ts';
 import { setDocs, useDocs } from '../app/store.ts';
 import { revealThread } from './actions.ts';
 import { NewThreadCard } from './NewThreadCard.tsx';
-import { type CommentFilter, docComments, setCommentUi, useCommentUi, useThreads } from './store.ts';
+import { lookedAt, useNewestOnTab } from './reads.ts';
+import { type CommentFilter, docComments, myName, setCommentUi, useCommentUi, useThreads } from './store.ts';
 import { ReactionChip, ThreadCard } from './ThreadCard.tsx';
-import { byRecent, isReactionThread } from './threads.ts';
+import { byRecent, EMPTY_FILTER, filterSaid, inFilter, isReactionThread } from './threads.ts';
 
-const FILTERS: Array<{ value: CommentFilter; label: string }> = [
+// Four filters share the narrowest list: their names may be cut short there rather than spill out of it.
+const FILTERS: Array<{ value: CommentFilter; label: ReactNode }> = [
   { value: 'open', label: 'Open' },
+  { value: 'mine', label: 'Involving you' },
   { value: 'resolved', label: 'Resolved' },
   { value: 'all', label: 'All' },
-];
+].map(({ value, label }) => ({ value: value as CommentFilter, label: <span className="truncate">{label}</span> }));
 
 interface TabGroup {
   tab: string | null;
@@ -48,7 +55,11 @@ const LIST_MAX = 600;
 export function CommentList(): ReactNode {
   const threads = useThreads(state => state.threads);
   const active = useThreads(state => state.active);
-  const filter = useCommentUi(state => state.filter);
+  const chosen = useCommentUi(state => state.filter);
+  // "Involving you" needs to know who is looking; until then the list falls back to the open threads.
+  const me = myName();
+  const filter: CommentFilter = chosen === 'mine' && !me ? 'open' : chosen;
+  const filters = useMemo(() => (me ? FILTERS : FILTERS.filter(each => each.value !== 'mine')), [me]);
   const holds = useCommentUi(state => state.placed);
   const files = useDocs(state => state.project?.files);
   const activeTab = useDocs(state => state.activeTab);
@@ -57,11 +68,21 @@ export function CommentList(): ReactNode {
   useLayoutEffect(() => {
     if (writing && list.current) list.current.scrollTop = 0;
   }, [writing]);
+  // The list open on a shown page: the tab's news has been looked at, as it comes.
+  const newest = useNewestOnTab(activeTab);
+  useEffect(() => {
+    const look = () => {
+      if (document.visibilityState === 'visible') lookedAt(activeTab ?? '');
+    };
+    look();
+    document.addEventListener('visibilitychange', look);
+    return () => document.removeEventListener('visibilitychange', look);
+  }, [activeTab, newest]);
 
   const groups = useMemo(() => {
-    const shown = threads.filter(thread => filter === 'all' || (filter === 'open' ? thread.status === 'open' : thread.status === 'resolved'));
+    const shown = threads.filter(thread => inFilter(thread, filter, me));
     return groupByTab(shown, files ?? []);
-  }, [threads, filter, files]);
+  }, [threads, filter, me, files]);
   const several = groups.length > 1;
   const panel = usePanelWidth('docs.comments.width', LIST_WIDTH, LIST_MIN, LIST_MAX);
   const phone = useMedia(PHONE_QUERY, false);
@@ -87,15 +108,18 @@ export function CommentList(): ReactNode {
         <Segmented<CommentFilter>
           aria-label="Filter comments"
           value={filter}
-          options={FILTERS}
-          onChange={value => setCommentUi({ filter: value })}
-          className="w-full [&>*]:flex-1"
+          options={filters}
+          onChange={value => {
+            setCommentUi({ filter: value });
+            announce(filterSaid(value, threads.filter(thread => inFilter(thread, value, me)).length));
+          }}
+          className="w-full text-[12px] [&>*]:min-w-0 [&>*]:flex-auto [&>*]:px-1"
         />
       </div>
       <div ref={list} className="min-h-0 flex-1 overflow-y-auto px-3 pb-6">
         {writing && <NewThreadCard />}
         {groups.length === 0 && !writing ? (
-          <div className="py-10 text-center text-[13px] text-chrome-muted">No comments</div>
+          <div className="py-10 text-center text-[13px] text-chrome-muted">{EMPTY_FILTER[filter]}</div>
         ) : (
           groups.map(group => (
             <section key={group.tab ?? ''} className="mt-2 flex flex-col gap-2" aria-label={group.name ?? 'Doc'}>

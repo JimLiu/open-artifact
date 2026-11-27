@@ -2,7 +2,7 @@
  * What a suggestion does, in one short sentence for its card: "Add “…”", "Delete paragraph", "Replace “…” with “…”",
  * "Format: Bold “…”". Pure: it reads the tab's model and nothing else.
  */
-import { isAtom, MARK_ORDER, type AtomType, type Block, type DocState, type Inline, type MarkName, type Marks } from '@open-artifact/docs-core';
+import { isAtom, isContents, MARK_ORDER, type AtomType, type Block, type DocState, type Inline, type MarkName, type Marks } from '@open-artifact/docs-core';
 
 /** A piece of a sentence: plain words, or a quote of the doc's words (drawn in “…”). */
 export interface SentencePart {
@@ -83,6 +83,7 @@ export type BlockName =
   | 'paragraph'
   | 'heading'
   | 'code block'
+  | 'table of contents'
   | 'list'
   | 'list item'
   | 'quote'
@@ -97,6 +98,7 @@ const PLURAL: Record<BlockName, string> = {
   paragraph: 'paragraphs',
   heading: 'headings',
   'code block': 'code blocks',
+  'table of contents': 'tables of contents',
   list: 'lists',
   'list item': 'list items',
   quote: 'quotes',
@@ -118,7 +120,7 @@ export function blockName(block: Block): BlockName {
     case 'paragraph':
       return headingOf(block) ? 'heading' : 'paragraph';
     case 'codeBlock':
-      return 'code block';
+      return isContents(block) ? 'table of contents' : 'code block';
     case 'list':
       return 'list';
     case 'listItem':

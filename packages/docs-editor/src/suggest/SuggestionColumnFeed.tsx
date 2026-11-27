@@ -7,7 +7,7 @@ import { setDocs, useDocs } from '../app/store.ts';
 import { headingPos } from '../editor/fold.ts';
 import { currentView } from '../editor/format.ts';
 import { type ColumnCard, feedColumn, unfeedColumn, useMarginColumn } from '../margin/column.ts';
-import { type FoldedGroup, foldedGroupId, shownWords } from './folded.ts';
+import { type FoldedGroup, foldedGroupId, foldedGroupLabel, foldedHeadingWords, shownWords } from './folded.ts';
 import { FoldedSuggestionsCard, revealFolded } from './FoldedSuggestionsCard.tsx';
 import { useOpenSuggestions } from './model.ts';
 import { SuggestionCardView } from './SuggestionCard.tsx';
@@ -64,6 +64,10 @@ function foldedCard(group: FoldedGroup): ColumnCard {
   return {
     id: foldedGroupId(group.heading),
     count: group.ids.length,
+    label() {
+      const view = currentView();
+      return foldedGroupLabel(group.ids.length, view ? foldedHeadingWords(view.state.doc, group.heading) : '');
+    },
     anchor(page) {
       const view = currentView();
       const at = view ? headingPos(view.state.doc, group.heading) : null;

@@ -8,3 +8,4 @@ export * from './decisions.ts';
 export * from './history.ts';
 export * from './export-source.ts';
 export * from './chip-text.ts';
+export * from './contents.ts';
