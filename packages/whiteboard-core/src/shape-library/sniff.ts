@@ -23,7 +23,7 @@ export function libraryText(bytes: Uint8Array): string {
 /** True when `text`'s root element (after an XML declaration, comments and a doctype) is `<svg`. */
 function isSvgText(text: string): boolean {
   const body = text
-    .replace(/^﻿/, '')
+    .replace(/^\uFEFF/, '')
     .replace(/^\s*<\?xml[\s\S]*?\?>/, '')
     .replace(/^(?:\s*<!--[\s\S]*?-->|\s*<!DOCTYPE[^>]*>)*/i, '');
   return /^\s*<svg[\s>]/.test(body);
@@ -35,7 +35,7 @@ export function sniffLibraryBytes(bytes: Uint8Array): LibraryFileKind {
   const text = libraryText(bytes.subarray(0, Math.min(bytes.length, 4096)));
   if (isMxLibraryText(text)) return 'mxlibrary';
   if (isSvgText(text)) return 'svg';
-  if (/^﻿?\s*[{[]/.test(text)) {
+  if (/^\uFEFF?\s*[{[]/.test(text)) {
     try {
       JSON.parse(libraryText(bytes));
       return 'json';

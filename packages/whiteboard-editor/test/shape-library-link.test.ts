@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readShapeLibrary, SHAPE_LIBRARY_LIMITS, type ShapeLibraryRead } from '@open-artifact/whiteboard-core';
-import { checkLibraryLink, linkFileName, readCapped, withLinkSource } from '../src/services/shape-library-link.ts';
+import { checkLibraryLink, finalLinkUrl, linkFileName, readCapped, withLinkSource } from '../src/services/shape-library-link.ts';
 
 const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/></svg>';
 
@@ -36,6 +36,14 @@ describe('links to shape libraries', () => {
     assert.equal(withLinkSource(read('https://example.com/home'), url).library.source, 'https://example.com/home');
     const long = new URL(`https://example.org/${'a'.repeat(SHAPE_LIBRARY_LIMITS.source)}`);
     assert.equal(withLinkSource(read(), long).library.source, undefined);
+  });
+
+  it('refuses a link that a redirect led off https://', () => {
+    const asked = new URL('https://example.org/lib.zip');
+    assert.equal(finalLinkUrl('https://cdn.example.net/lib.zip', asked)?.host, 'cdn.example.net');
+    assert.equal(finalLinkUrl('', asked), asked);
+    assert.equal(finalLinkUrl('http://example.org/lib.zip', asked), undefined);
+    assert.equal(finalLinkUrl('not a url', asked), undefined);
   });
 
   it('reads a body in pieces and stops once it passes the cap, whatever the server claims', async () => {

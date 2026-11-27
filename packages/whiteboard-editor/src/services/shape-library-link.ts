@@ -57,6 +57,17 @@ export function linkFileName(url: URL): string {
   }
 }
 
+/** Where a response really came from (after redirects; `asked` when the response does not say): `undefined` unless it is `https://`. */
+export function finalLinkUrl(responseUrl: string, asked: URL): URL | undefined {
+  if (responseUrl === '') return asked;
+  try {
+    const url = new URL(responseUrl);
+    return url.protocol === 'https:' ? url : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /** A library read from a link keeps the link as its source unless it names its own. */
 export function withLinkSource(read: ShapeLibraryRead, url: URL): ShapeLibraryRead {
   if (read.library.source !== undefined) return read;
@@ -108,6 +119,9 @@ export async function readLibraryLink(text: string): Promise<LinkLibrary | LinkR
       return { ok: false, reason: `The link could not be read from this page (the site may not allow it). ${LINK_FALLBACK_HINT}` };
     }
     if (!response.ok) return { ok: false, reason: `The link answered with status ${response.status}. ${LINK_FALLBACK_HINT}` };
+    // A redirect may have left https; the rule holds for where the file really came from.
+    const from = finalLinkUrl(response.url, url);
+    if (from === undefined) return { ok: false, reason: `The link led to an address that is not https://. ${LINK_FALLBACK_HINT}` };
     let bytes: Uint8Array | 'too_large';
     try {
       bytes = await readCapped(response.body, SHAPE_LIBRARY_LIMITS.bytes);
@@ -117,7 +131,7 @@ export async function readLibraryLink(text: string): Promise<LinkLibrary | LinkR
     if (bytes === 'too_large') return { ok: false, reason: `This shape library is larger than ${SHAPE_LIBRARY_LIMITS.bytes / 1024 / 1024} MB: split it into smaller libraries.` };
     const read = await readShapeLibraryBytes(bytes, linkFileName(url));
     if (!read.ok) return read;
-    return { ok: true, host: url.host, read: withLinkSource(read, url) };
+    return { ok: true, host: from.host, read: withLinkSource(read, url) };
   } finally {
     clearTimeout(timer);
     document.removeEventListener('securitypolicyviolation', onViolation);

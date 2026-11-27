@@ -22,7 +22,7 @@ export const MX_RASTER_REASON = 'is a raster picture (PNG, JPEG or similar), not
 
 /** True when `text` (after a BOM and white space) starts a draw.io library. */
 export function isMxLibraryText(text: string): boolean {
-  return /^﻿?\s*<mxlibrary[\s>]/.test(text);
+  return /^\uFEFF?\s*<mxlibrary[\s>]/.test(text);
 }
 
 /** The library name a draw.io file's name gives (without `.xml` / `.drawio`). */
@@ -120,7 +120,7 @@ export function svgOfGraph(text: string): { svg: string; w?: number; h?: number 
 
 /** The entries list inside `<mxlibrary>…</mxlibrary>`, or `undefined`. */
 function entriesOf(text: string): unknown[] | undefined {
-  const match = /^﻿?\s*<mxlibrary(?:\s[^>]*)?>([\s\S]*)<\/mxlibrary>\s*$/.exec(text);
+  const match = /^\uFEFF?\s*<mxlibrary(?:\s[^>]*)?>([\s\S]*)<\/mxlibrary>\s*$/.exec(text);
   if (!match) return undefined;
   const inner = match[1]!.trim();
   for (const candidate of [inner, inner.replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&apos;/g, "'").replace(/&amp;/g, '&')]) {
