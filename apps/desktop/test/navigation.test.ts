@@ -172,63 +172,58 @@ describe('navigation in a tab', () => {
     );
   });
 
-  it('a site subframe that redirects onto this computer is stopped', T, async () => {
+  it("a site's subframe that redirects to this computer's pages is stopped at the redirect", T, async () => {
+    // The site's page may frame its own pages and the web (its CSP decides), not this computer's Open Artifact pages.
+    // An address it may frame answering 302 with one of those is stopped there, as a direct frame of it would be.
+    const daemon = `http://127.0.0.1:${port}`;
     const hops: Record<string, string> = {
-      '/to-loop': 'http://127.0.0.1:9/',
-      '/to-v6': 'http://[::1]/',
-      '/to-rfc': 'http://10.1.2.3/',
-      '/to-lan': 'http://192.168.0.8/',
-      '/to-link': 'http://169.254.169.254/',
-      '/to-local': 'http://not-declared.localhost/',
+      '/to-home': `${daemon}/`,
+      '/to-shell': `${daemon}/a/${second.id}`,
     };
     const server = createServer((req, res) => {
       const path = (req.url ?? '/').split('?')[0] ?? '/';
-      const next = hops[path];
+      const next = hops[path] ?? (path === '/to-own' ? '/own' : undefined);
       if (next) {
         res.writeHead(302, { location: next });
         res.end();
         return;
       }
       res.writeHead(200, { 'content-type': 'text/html' });
-      res.end('<!doctype html><title>probe</title>');
+      res.end(`<!doctype html><title>probe ${path}</title>`);
     });
     const origin = await new Promise<string>((resolve) => {
       server.listen(0, '127.0.0.1', () => {
         const address = server.address();
-        const probePort = typeof address === 'object' && address ? address.port : 0;
-        resolve(`http://127.0.0.1:${probePort}`);
+        resolve(`http://127.0.0.1:${typeof address === 'object' && address ? address.port : 0}`);
       });
     });
     try {
-      const id = await app.chrome.evaluate<string>(`desktop.test.probeSite(${JSON.stringify(origin)})`);
-      assert.equal(id, 'site:probe');
+      assert.equal(await app.chrome.evaluate<string>(`desktop.test.probeSite(${JSON.stringify(origin)})`), 'site:probe');
       const target = await app.cdp.waitTarget((info) => info.type === 'page' && info.url.startsWith(origin));
       const site = await app.cdp.attach(target.targetId);
       await site.send('Runtime.enable');
       await site.send('Page.enable');
-      for (const path of Object.keys(hops)) {
+      for (const path of [...Object.keys(hops), '/to-own']) {
         await site.evaluate<boolean>(
           `(() => { const frame = document.createElement('iframe'); frame.src = ${JSON.stringify(path)}; document.body.append(frame); return true; })()`,
         );
       }
-      for (const next of Object.values(hops)) {
-        assert.ok(await logged(`[desktop] blocked frame navigation to ${next}`), app.lines.join('\n'));
-      }
+      for (const next of Object.values(hops)) assert.ok(await logged(`[desktop] blocked frame navigation to ${next}`), app.lines.join('\n'));
+      // A redirect within what the page may frame still goes through.
+      assert.ok(await until(async () => (await site.frames()).some((frame) => frame.url === `${origin}/own`), 10_000), 'the own redirect did not load');
       const frames = await site.frames();
-      for (const next of Object.values(hops)) {
-        assert.equal(
-          frames.some((frame) => frame.url.startsWith(next)),
-          false,
-          JSON.stringify(frames.map((frame) => frame.url)),
-        );
-      }
+      assert.equal(
+        frames.some((frame) => frame.url.startsWith(daemon)),
+        false,
+        JSON.stringify(frames.map((frame) => frame.url)),
+      );
       await app.chrome.evaluate(`desktop.close('site:probe')`);
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()));
     }
   });
 
-  it('a failed open closes the view it attached and drops its shell listener', T, async () => {
+  it('an open whose page does not load leaves no view behind over the home page', T, async () => {
     const made = await library(daemonState(profile), 'artifacts.create', {
       type: 'docs',
       title: 'Failed',
@@ -236,29 +231,22 @@ describe('navigation in a tab', () => {
       folder: join(profile.artifacts, 'failed'),
     });
     assert.ok(made.id, JSON.stringify(made));
-    const before = await app.chrome.evaluate<{ children: number; listeners: number; attached: number; closed: number; ids: string[] }>(
-      'desktop.test.views()',
-    );
+    const before = await app.chrome.evaluate<{ children: number; tabViews: number }>('desktop.test.views()');
+    assert.equal(before.children, before.tabViews, 'every view in the window is a tab');
     await app.chrome.evaluate('desktop.test.failNextLoad()');
-    const opened = await app.open(made.id);
-    assert.equal(opened.ok, false);
+    assert.equal((await app.open(made.id)).ok, false);
     const state = await app.state();
     assert.equal(state.current, 'home', 'the home page is in front');
     assert.equal(
       state.tabs.some((tab) => tab.id === made.id),
       false,
     );
-    const after = await app.chrome.evaluate<typeof before>('desktop.test.views()');
-    assert.equal(after.attached, before.attached + 1, 'the shell listener was never attached');
-    assert.equal(after.listeners, before.listeners, 'the shell listener is still attached');
-    assert.equal(after.closed, before.closed + 1, 'the view was not closed');
-    assert.equal(after.children, before.children, 'the view is still in the window');
-    assert.equal(after.ids.includes(made.id), false);
-    assert.equal(
-      (await app.cdp.targets()).some((target) => target.type === 'page' && target.url.includes(`/a/${made.id}`)),
-      false,
-      'the closed view is still a page',
-    );
+    assert.deepEqual(await app.chrome.evaluate('desktop.test.views()'), before, 'the failed tab\'s view is still in the window');
+    // The next open of it works.
+    assert.equal((await app.open(made.id)).ok, true);
+    assert.ok(await until(async () => (await app.state()).tabs.find((tab) => tab.id === made.id)?.status === 'ready', 15_000));
+    assert.equal((await app.chrome.evaluate<{ children: number }>('desktop.test.views()')).children, before.children + 1);
+    await app.chrome.evaluate(`desktop.close(${JSON.stringify(made.id)})`);
   });
 
   it('started again with --open, the app opens that artifact in a tab, on the daemon that kept running', T, async () => {

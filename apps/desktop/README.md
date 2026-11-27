@@ -10,8 +10,10 @@ switcher for the Open Artifact sites (servers) the daemon knows.
 - It connects with `createHarness({ harness: 'open-artifact-desktop' })` from `@open-artifact/harness-kit`: no
   session, no wake, `embed: 'view'`. The daemon's token stays in the main process; pages get no Node, no preload and
   no bridge.
-- A view may only show the daemon's origin and the page origins the daemon lists (`embed.origins`). Links to the web
-  go to the system browser; new windows are denied; another artifact's Shell address opens a tab of its own; the
+- A view may only show the daemon's origin and the page origins the daemon lists (`embed.origins`); its frames are
+  checked again at each server redirect, so an allowed address cannot redirect a frame elsewhere. Links to the web
+  go to the system browser (only http(s), without a user name or password; the log keeps the origin and the path);
+  new windows are denied; another artifact's Shell address opens a tab of its own; the
   daemon's home page goes to the first tab; the Shell's `close` closes the tab (asked first when its work is not
   saved, as the bar's close is).
 - One app per profile: Electron's single-instance lock, on the userData folder (`<home>/desktop/user-data` in a
@@ -51,7 +53,9 @@ The window's page (`renderer/`, a React app bundled into `out/renderer/app.js`) 
   tab, then names them and asks with Quit anyway and Cancel. Reload of a tab kept as it was (`stale`) with unsaved
   work asks first; the service panel's Restart and Stop questions name the tabs with unsaved work. A tab whose Shell
   never said anything of its saving (`saved` null) is never asked about. The question is drawn by the window's page
-  (the service panel's look, `Confirm`), with the artifact's view hidden while it shows (the overlay).
+  (the service panel's look, `Confirm`), with the artifact's view hidden while it shows (the overlay). While the
+  overlay is up the window's page has the keyboard focus (the tab in front gets it back after), and Close Tab, Reload
+  and Move To… are off: they would act on a tab the person cannot see.
 - **A folder that is gone**: the library still lists an artifact whose folder was moved, renamed or deleted outside
   the app (the Library API's `folderMissing`). Its tab loads no Shell; it shows "The folder of this artifact cannot be
   found", the folder the library had, Relocate… (the system's folder dialog, then `artifacts.relocate`; the tab opens

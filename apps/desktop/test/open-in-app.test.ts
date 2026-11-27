@@ -98,7 +98,9 @@ describe("agents' artifacts open in this app (the setting)", () => {
     await app.chrome.clickOn(by('open-in-desktop'));
     assert.ok(await app.chrome.waitFor(`${by('open-in-desktop')}.getAttribute('aria-checked') === 'true'`, 10_000), 'the switch did not turn on');
     assert.ok(await until(() => setting() === true, 10_000), "not saved in the daemon's settings.json");
-    await app.chrome.evaluate<boolean>(`${by('settings-dialog')}.close(), true`);
+    await app.chrome.evaluate<boolean>(
+      `${by('settings-dialog')}.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })), true`,
+    );
     assert.ok(await app.chrome.waitFor(`!${by('settings-dialog')}`, 5000), 'Settings did not close');
 
     const id = await make('On note');

@@ -110,10 +110,8 @@ export class Tabs {
   testMode: boolean;
   requestClose: NonNullable<TabsOptions['requestClose']>;
   overlay = false;
-  /** Test mode: the next `load` rejects after the view is attached, so the failure path can be seen. */
+  /** Test mode only (`test:fail-next-load`): the next artifact load fails after its view is in the window. */
   failNextLoad = false;
-  /** How many views `dropView` has closed. A failed open must close the view it just added. */
-  closedViews = 0;
   tabs = new Map<string, ArtifactTab>();
   current: string = HOME_TAB;
   connected: boolean;
@@ -242,7 +240,10 @@ export class Tabs {
     return id;
   }
 
-  /** An open that did not finish: close the view (if one was added), drop the tab, and show the home page again. */
+  /**
+   * An open that did not finish: its view (made and put in the window by `load`, or `loadSite`) is closed too, or it
+   * would stay drawn over the home page with nothing to lay it out, its Shell's channel still listening.
+   */
   abandon(id: string) {
     const failed = this.tabs.get(id);
     if (failed) this.dropView(failed);
@@ -255,9 +256,6 @@ export class Tabs {
   /** Asks the daemon for a view of the tab's artifact and loads it (into the tab's view, made on first use). */
   async load(tab: ArtifactTab) {
     if (tab.kind === 'site') return this.loadSite(tab);
-    // One armed failure applies to this load only, even when the daemon refuses the ticket before a view exists.
-    const forced = this.failNextLoad;
-    this.failNextLoad = false;
     const request = await requestView(this.harness, this.allowlist, tab.id);
     tab.title = request.title ?? tab.title;
     tab.ticket = request.view;
@@ -265,61 +263,54 @@ export class Tabs {
     if (tab.view && tab.kind !== 'local') this.dropView(tab);
     tab.kind = 'local';
     tab.server = null;
-    let created = false;
-    try {
-      if (!tab.view) {
-        tab.view = this.makeView(PARTITION);
-        this.guardNavigation(tab);
-        this.window.contentView.addChildView(tab.view);
-        created = true;
-      }
-      tab.embed?.destroy();
-      tab.embed = connectShell({
-        harness: this.harness,
-        ticket: request.view,
-        url: request.embedUrl,
-        harnessName: 'open-artifact-desktop',
-        onReady: () => {
-          tab.status = 'ready';
-          this.changed();
-        },
-        onPlace: ({ hash }) => {
-          tab.place = hash;
-        },
-        onSaved: (saved) => {
-          tab.saved = saved;
-          this.changed();
-        },
-        onClose: () =>
-          void Promise.resolve(this.requestClose(tab.id)).catch((error: unknown) => this.log(`close ${tab.id}: ${errorInfo(error).message ?? error}`)),
-        onOpenExternal: (url) => this.external(url),
-        onSavedFile: (path) => this.onSavedFile(path, tab.id),
-        // A window that is not on screen (test mode, minimized) has nothing to capture.
-        capture: async () =>
-          tab.view && !tab.view.webContents.isDestroyed() && this.window.isVisible() && this.current === tab.id
-            ? (await tab.view.webContents.capturePage()).toJPEG(70)
-            : null,
-        saveThumbnail: (jpeg, artifact) => this.harness.saveThumbnail(artifact, jpeg),
-        onError: (error) => this.log(`tab ${tab.id}: ${errorInfo(error).message ?? error}`),
-      });
-      tab.status = 'loading';
-      this.layout();
-      this.changed();
-      const target = viewTarget(request.embedUrl, tab.place);
-      const contents = tab.view.webContents;
-      // After the view is in the window and the Shell is listening: a failure here must close both.
-      const attempt = forced ? Promise.reject(new Error('the page did not load')) : contents.loadURL(target);
-      await attempt.catch((error: unknown) => {
-        // The daemon redirected it to the artifact's site: the tab went to a view of the servers' partition.
-        if (tab.kind === 'server' || tab.view?.webContents !== contents) return;
-        throw error;
-      });
-    } catch (error) {
-      // A view this call added is not left on screen, and its Shell listener goes with it. A reload of a view that
-      // was already showing keeps that view (the tab is marked stale by the caller).
-      if (created) this.dropView(tab);
-      throw error;
+    if (!tab.view) {
+      tab.view = this.makeView(PARTITION);
+      this.guardNavigation(tab);
+      this.window.contentView.addChildView(tab.view);
     }
+    tab.embed?.destroy();
+    tab.embed = connectShell({
+      harness: this.harness,
+      ticket: request.view,
+      url: request.embedUrl,
+      harnessName: 'open-artifact-desktop',
+      onReady: () => {
+        tab.status = 'ready';
+        this.changed();
+      },
+      onPlace: ({ hash }) => {
+        tab.place = hash;
+      },
+      onSaved: (saved) => {
+        tab.saved = saved;
+        this.changed();
+      },
+      onClose: () =>
+        void Promise.resolve(this.requestClose(tab.id)).catch((error: unknown) => this.log(`close ${tab.id}: ${errorInfo(error).message ?? error}`)),
+      onOpenExternal: (url) => this.external(url),
+      onSavedFile: (path) => this.onSavedFile(path, tab.id),
+      // A window that is not on screen (test mode, minimized) has nothing to capture.
+      capture: async () =>
+        tab.view && !tab.view.webContents.isDestroyed() && this.window.isVisible() && this.current === tab.id
+          ? (await tab.view.webContents.capturePage()).toJPEG(70)
+          : null,
+      saveThumbnail: (jpeg, artifact) => this.harness.saveThumbnail(artifact, jpeg),
+      onError: (error) => this.log(`tab ${tab.id}: ${errorInfo(error).message ?? error}`),
+    });
+    tab.status = 'loading';
+    this.layout();
+    this.changed();
+    const target = viewTarget(request.embedUrl, tab.place);
+    const contents = tab.view!.webContents;
+    // Test mode can make this one load fail (`failNextLoad`), after the view is in the window: what a page that does
+    // not load leaves behind is what `open` has to clean up.
+    const loading = this.failNextLoad ? Promise.reject(new Error('the page did not load (test)')) : contents.loadURL(target);
+    this.failNextLoad = false;
+    await loading.catch((error: unknown) => {
+      // The daemon redirected it to the artifact's site: the tab went to a view of the servers' partition.
+      if (tab.kind === 'server' || tab.view?.webContents !== contents) return;
+      throw error;
+    });
   }
 
   /** A sandboxed view with no Node and no preload, in `partition`. */
@@ -332,17 +323,9 @@ export class Tabs {
     tab.embed?.destroy();
     tab.embed = null;
     if (tab.view) {
-      const view = tab.view;
+      this.window.contentView.removeChildView(tab.view);
+      if (!tab.view.webContents.isDestroyed()) tab.view.webContents.close();
       tab.view = null;
-      try {
-        this.window.contentView.removeChildView(view);
-      } catch {
-        // addChildView did not finish: the view was never a child, and it is still closed below.
-      }
-      if (!view.webContents.isDestroyed()) {
-        view.webContents.close();
-        this.closedViews += 1;
-      }
     }
   }
 
@@ -407,24 +390,15 @@ export class Tabs {
       this.changed();
       throw new Error(`not a site this computer is connected to: ${tab.server}`);
     }
-    let created = false;
-    try {
-      if (!tab.view) {
-        tab.view = this.makeView(SERVER_PARTITION);
-        this.guardServerNavigation(tab);
-        this.window.contentView.addChildView(tab.view);
-        created = true;
-      }
-      tab.status = 'loading';
-      this.layout();
-      this.changed();
-      // A site that does not answer stays as an offline tab (`did-fail-load`). Only a throw after the view was added
-      // closes it: the page is then gone, and the tab must not keep a view that nothing will lay out.
-      await tab.view.webContents.loadURL(`${tab.server}/`).catch((error: unknown) => this.log(`tab ${tab.id}: ${errorInfo(error).message ?? error}`));
-    } catch (error) {
-      if (created) this.dropView(tab);
-      throw error;
+    if (!tab.view) {
+      tab.view = this.makeView(SERVER_PARTITION);
+      this.guardServerNavigation(tab);
+      this.window.contentView.addChildView(tab.view);
     }
+    tab.status = 'loading';
+    this.layout();
+    this.changed();
+    await tab.view.webContents.loadURL(`${tab.server}/`).catch((error: unknown) => this.log(`tab ${tab.id}: ${errorInfo(error).message ?? error}`));
   }
 
   /** Navigation in a view of a site's page: see `navigation.mjs` (`decideServer`). New windows are never opened. */

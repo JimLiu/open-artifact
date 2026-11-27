@@ -108,26 +108,11 @@ export async function requestView(harness: Harness, allowlist: OriginAllowlist, 
 export const viewTarget = (embedUrl: string, place: string | null) =>
   place ? `${embedUrl.replace(/#.*$/, '')}${place.startsWith('#') ? place : `#${place}`}` : embedUrl;
 
-/** How many Shell listeners are attached, and how many `onEvent` calls have run. A failed open must leave the first unchanged. */
-let shellListeners = 0;
-let shellAttached = 0;
-export function shellListenerCounts() {
-  return { listeners: shellListeners, attached: shellAttached };
-}
-
 /** Host messages to one view's Shell, through the daemon: the view's ticket names it. */
 export function shellTransport(harness: Harness, ticket: string): EmbedTransport {
   return {
     send: (command) => harness.shellCommand(ticket, command),
-    onEvent: (listener) => {
-      shellAttached += 1;
-      shellListeners += 1;
-      const stop = harness.on('shell', (event) => event.view === ticket && listener(event.event));
-      return () => {
-        shellListeners = Math.max(0, shellListeners - 1);
-        stop();
-      };
-    },
+    onEvent: (listener) => harness.on('shell', (event) => event.view === ticket && listener(event.event)),
   };
 }
 
@@ -151,6 +136,22 @@ export function connectShell({
     theme: themeOf(),
     ...callbacks,
   });
+}
+
+/**
+ * A subframe goes only where `allowed` lets it: when it starts (`will-frame-navigate`) and at each server redirect on
+ * the way (`will-redirect`), so an allowed address cannot answer 302 with one that is not.
+ */
+function guardSubframes(contents: WebContents, allowed: (url: string) => boolean, log: Log) {
+  const check = (event: Electron.Event & { url?: string; isMainFrame?: boolean }, legacyUrl?: string) => {
+    if (event.isMainFrame !== false) return;
+    const url = event.url ?? legacyUrl ?? '';
+    if (allowed(url)) return;
+    event.preventDefault();
+    log(`blocked frame navigation to ${url}`);
+  };
+  contents.on('will-frame-navigate', (event) => check(event));
+  contents.on('will-redirect', (event, legacyUrl) => check(event, legacyUrl));
 }
 
 /**
@@ -178,15 +179,9 @@ export function guardArtifactNavigation(
   };
   contents.on('will-navigate', onTop);
   contents.on('will-redirect', (event, legacyUrl) => {
-    const url = event.url ?? legacyUrl;
-    // A subframe redirect uses the same predicate as will-frame-navigate. Stopping only the first hop leaves a 302.
-    if (event.isMainFrame === false) {
-      if (subframeAllowed(url, allowlist)) return;
-      event.preventDefault();
-      log(`blocked frame navigation to ${url}`);
-      return;
-    }
+    if (event.isMainFrame === false) return;
     // The daemon's redirect of a published artifact to its site: the caller's.
+    const url = event.url ?? legacyUrl;
     const origin = allowlist.serverOf(url);
     if (origin && live()) {
       event.preventDefault();
@@ -195,12 +190,7 @@ export function guardArtifactNavigation(
     }
     onTop(event, legacyUrl);
   });
-  contents.on('will-frame-navigate', (event) => {
-    if (event.isMainFrame) return;
-    if (subframeAllowed(event.url, allowlist)) return;
-    event.preventDefault();
-    log(`blocked frame navigation to ${event.url}`);
-  });
+  guardSubframes(contents, (url) => subframeAllowed(url, allowlist), log);
   contents.setWindowOpenHandler(({ url }) => {
     // An address this view is allowed to show stays in the app (a new window is never opened). Anything else is the
     // one external-link exit, which refuses what is not http(s).
@@ -240,21 +230,10 @@ export function guardSiteNavigation(
   };
   contents.on('will-navigate', onTop);
   contents.on('will-redirect', (event, legacyUrl) => {
-    const url = event.url ?? legacyUrl;
-    if (event.isMainFrame === false) {
-      if (serverSubframeAllowed(url, allowlist)) return;
-      event.preventDefault();
-      log(`blocked frame navigation to ${url}`);
-      return;
-    }
+    if (event.isMainFrame === false) return;
     onTop(event, legacyUrl);
   });
-  contents.on('will-frame-navigate', (event) => {
-    if (event.isMainFrame) return;
-    if (serverSubframeAllowed(event.url, allowlist)) return;
-    event.preventDefault();
-    log(`blocked frame navigation to ${event.url}`);
-  });
+  guardSubframes(contents, (url) => serverSubframeAllowed(url, allowlist), log);
   contents.setWindowOpenHandler(({ url }) => {
     external(url);
     return { action: 'deny' };

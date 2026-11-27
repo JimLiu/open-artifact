@@ -152,7 +152,7 @@ Electron 示例（`examples/harness-electron/src/pane.mjs`）逐条照做了；�
 - [ ] 只加载 `embedOrigins()`，并跟随 `embed/origins`。绝不放行整个回环地址。
 - [ ] 有自己的白名单时，只在人同意之后（`ask` 下的 `allowRemote`）、只对那个视图放行远程源，或者永不放行（`deny`）。只有面板本来就是通用浏览器时才用 `allow`。
 - [ ] 不给 Node、不加你自己的 preload、开启 sandbox、开启 context isolation、页面使用独立的存储分区。
-- [ ] 允许 `blob:` 和 `about:srcdoc` 子框架；除剪贴板写入外不授予任何权限，且只授予允许的源。
+- [ ] 允许 `blob:` 和 `about:srcdoc` 子框架；子框架每次服务器重定向都要再检查一遍，不只是开始加载时；除剪贴板写入外不授予任何权限，且只授予允许的源。
 - [ ] 新窗口和列表外的导航在系统浏览器里打开；视图本身永远不跳走。
 - [ ] 隐藏视图而不是销毁；用 `goto` 发回保存的位置。
 - [ ] 主题变化时再发一次 `host_hello`。

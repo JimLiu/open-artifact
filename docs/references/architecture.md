@@ -87,7 +87,9 @@ It is a Harness API host like the examples, built on `@open-artifact/harness-kit
   (`embedArtifact` with a transport over `shellCommand` and the `shell` events). The token stays in the main process.
 - **Navigation**: a view shows only the daemon's origin and the origins `embed.origins` lists (refreshed on
   `embed/origins`); another artifact's `/a/<id>` (Duplicate, Copy as) opens a tab, `/` goes to the first tab, the web
-  goes to the system browser, new windows are denied. Permissions are denied except `clipboard-sanitized-write`.
+  goes to the system browser (`external.ts`: only http(s), the userinfo dropped), new windows are denied; subframes
+  are checked at `will-frame-navigate` and again at each `will-redirect`. Permissions are denied except
+  `clipboard-sanitized-write`.
 - **Reconnect**: when the daemon goes away the views stay and the bar says it is reconnecting; the kit's reconnect
   runs `ensureDaemon`, so a daemon that was stopped (not only restarted) is started again while the app runs. Once
   connected, each tab without unsaved work is loaded again with a new view (the view's key and the type servers' ports

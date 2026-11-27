@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
 import type { SettingsSnapshot } from '../../src/contracts.ts';
 import { errorInfo } from '../../src/errors.ts';
 import type { RuntimeView } from '../../src/runtime.ts';
@@ -11,7 +11,6 @@ import type { DialogProps, WordsProps } from './types.ts';
 // and the switcher too) (the service's state and its panel, the runtime and Check, the
 // "check for updates" setting when this app may change it), Advanced (the profile folder, the versions).
 import { useEffect, useRef, useState } from 'react';
-import { bindModal } from './dialog.ts';
 import { defaultOf, serversDo } from './ServerSwitcher.tsx';
 import { RuntimeRow } from './ServicePanel.tsx';
 import { AppUpdateSettings } from './AppUpdate.tsx';
@@ -102,14 +101,8 @@ export function SettingsDialog({
   onServers(): void;
 }) {
   const [error, setError] = useState('');
-  const dialog = useRef<HTMLDialogElement>(null);
-  const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
-  useEffect(() => {
-    const node = dialog.current;
-    if (!node) return;
-    return bindModal(node, { onClose: () => onCloseRef.current() });
-  }, []);
+  const dialog = useRef<HTMLDivElement>(null);
+  useEffect(() => dialog.current?.focus(), []);
   useEffect(() => {
     void window.desktop.runtime.get(true);
   }, []);
@@ -130,6 +123,13 @@ export function SettingsDialog({
       await window.desktop.settings.chooseFolder();
     } catch (failure) {
       setError(t('settings.failed', { message: String(errorInfo(failure).message ?? failure) }));
+    }
+  };
+
+  const onKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      onClose();
     }
   };
 
@@ -160,10 +160,20 @@ export function SettingsDialog({
   const versions = settings.versions ?? {};
 
   return (
-    <dialog className="settings-dialog" aria-labelledby="settings-title" data-testid="settings-dialog" ref={dialog} closedby="any">
+    <div className="scrim" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <div
+        className="settings-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="settings-title"
+        data-testid="settings-dialog"
+        tabIndex={-1}
+        ref={dialog}
+        onKeyDown={onKeyDown}
+      >
         <div className="settings-head">
-          <h1 id="settings-title">{t('settings.title')}</h1>
-          <button type="button" className="button-primary" data-testid="settings-done" autoFocus onClick={() => dialog.current?.close()}>
+          <h2 id="settings-title">{t('settings.title')}</h2>
+          <button type="button" className="button-primary" data-testid="settings-done" onClick={onClose}>
             {t('settings.done')}
           </button>
         </div>
@@ -329,6 +339,7 @@ export function SettingsDialog({
             </p>
           )}
         </div>
-    </dialog>
+      </div>
+    </div>
   );
 }

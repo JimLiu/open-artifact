@@ -76,6 +76,8 @@ describe('the settings dialog', () => {
     assert.equal(await ui.run<boolean>(`matchMedia('(prefers-color-scheme: dark)').matches`), true);
     assert.equal(await ui.click('[data-testid=look] [data-value=light]'), true);
     assert.ok(await ui.waitFor(`document.documentElement.dataset.theme === 'light'`));
+    // What theme.js reads to start in before the first state: it follows the setting, not only the system.
+    assert.equal(await ui.run<boolean>(`matchMedia('(prefers-color-scheme: dark)').matches`), false);
     assert.equal((JSON.parse(readFileSync(join(profile.oaHome, 'desktop', 'user-data', 'settings.json'), 'utf8')) as SettingsValues).theme, 'light');
   });
 

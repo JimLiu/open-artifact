@@ -1,8 +1,9 @@
 // Bundles the app's main process (src/start.ts) into out/main.mjs (the workspace packages it uses, @open-artifact/harness-kit,
 // @open-artifact/protocol and @open-artifact/library-page/library, are compiled in from their TypeScript sources;
 // `electron` is left to Electron), bundles the sandbox preloads beside it, builds the window's page into out/renderer/
-// (a React app: renderer/src/main.tsx → app.js, the home page's CSS → page.css, the window's own → app.css, the
-// Tailwind utilities of the UI kit's components it uses → ui.css, and index.html), and bundles the probe the no-Node
+// (a React app: renderer/src/main.tsx → app.js, the look it starts in: theme.ts → theme.js, the home page's CSS →
+// page.css, the window's own → app.css, the Tailwind utilities of the UI kit's components it uses → ui.css, and
+// index.html), and bundles the probe the no-Node
 // test runs (out/test/chain-probe.mjs). It also writes the app's icon as out/icon.png, which a development run puts
 // in the Dock.
 //
@@ -70,6 +71,18 @@ buildSync({
   define: { 'process.env.NODE_ENV': '"production"' },
   minify: true,
   charset: 'utf8',
+  legalComments: 'none',
+  logLevel: 'warning',
+});
+// The look before the first state arrives: a classic script in the head, so it runs before the first paint.
+buildSync({
+  entryPoints: [join(here, 'renderer', 'src', 'theme.ts')],
+  outfile: join(out, 'renderer', 'theme.js'),
+  bundle: true,
+  platform: 'browser',
+  format: 'iife',
+  target: 'chrome140',
+  minify: true,
   legalComments: 'none',
   logLevel: 'warning',
 });

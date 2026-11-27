@@ -766,7 +766,7 @@ async function start({ manifest, profile, settings, startLocale, settingsDir, se
         window.close();
         return true;
       },
-      reload: () => (aw.overlay ? false : reloadArtifact()),
+      reload: () => reloadArtifact(),
       'zoom-reset': () => zoom(0),
       'zoom-in': () => zoom(0.5),
       'zoom-out': () => zoom(-0.5),
@@ -786,7 +786,7 @@ async function start({ manifest, profile, settings, startLocale, settingsDir, se
     };
     const connected = () => !!harness?.connected;
     const enabled = (name: string) => {
-      if (aw.overlay && blockedWhileOverlay(name)) return false;
+      if (aw?.overlay && blockedWhileOverlay(name)) return false;
       if (name === 'reveal') return connected() && aw?.problem?.kind !== 'not-found' && aw?.problem?.kind !== 'needs-repair';
       if (name === 'reload') return connected() && !aw?.problem && !!aw?.tab.view;
       return true;

@@ -20,34 +20,6 @@ import { launchApp, library } from './lib/app.ts';
 import { daemonState, freePort, leftovers, makeProfile, stopDaemon, until } from './lib/env.ts';
 
 const T = { timeout: 120_000 };
-/** The canvas with `data-theme` taken off, which is how the page paints before `desktop:state` sets it. */
-const WITHOUT_THEME = `(() => {
-  const root = document.documentElement;
-  const had = root.getAttribute('data-theme');
-  root.removeAttribute('data-theme');
-  const paint = {
-    meta: document.querySelector('meta[name="color-scheme"]')?.getAttribute('content') ?? '',
-    bg: getComputedStyle(document.body).backgroundColor,
-    scheme: getComputedStyle(root).colorScheme,
-    dark: matchMedia('(prefers-color-scheme: dark)').matches,
-    had,
-    media: [...document.styleSheets].some((sheet) => {
-      try { return [...sheet.cssRules].some((rule) => String(rule.cssText).includes('prefers-color-scheme: dark')); }
-      catch (error) { return false; }
-    }),
-  };
-  if (had == null) root.removeAttribute('data-theme');
-  else root.setAttribute('data-theme', had);
-  return paint;
-})()`;
-interface FirstPaint {
-  meta: string;
-  bg: string;
-  scheme: string;
-  dark: boolean;
-  had: string | null;
-  media: boolean;
-}
 
 describe('language, look and thumbnails', () => {
   let profile: TestProfile;
@@ -99,19 +71,32 @@ describe('language, look and thumbnails', () => {
     assert.equal(look.home, '作品库');
     assert.equal(look.bg, 'rgb(28, 28, 30)');
     assert.equal(look.pageTheme, 'dark');
-    const paint = await page.evaluate<FirstPaint>(WITHOUT_THEME);
-    assert.equal(paint.meta, 'light dark');
-    assert.equal(paint.media, true);
-    assert.equal(paint.had, 'dark');
-    assert.equal(paint.dark, true);
-    assert.equal(paint.bg, 'rgb(28, 28, 30)', 'without data-theme the dark tokens are already applied');
-    assert.match(paint.scheme, /dark/);
     // The page's own words are Chinese too (its tile groups are the app's).
     assert.ok(
       await page.waitFor(
         `[...document.querySelectorAll('.oa-tile-group .oa-section-title')].map((h) => h.textContent).join('|') === '直接开始|和 agent 一起做'`,
       ),
     );
+  });
+
+  it('starts in the look of the setting before the first state arrives', T, async () => {
+    // theme.js is a classic script at the head's top, so it runs before the style sheets and before the first paint;
+    // run again with data-theme taken off, it gives the look of the setting (--theme dark here, whatever the system's).
+    const first = await page.evaluate<{ head: string[]; theme: string | undefined; bg: string }>(`new Promise((done) => {
+      const root = document.documentElement;
+      const head = [...document.head.children]
+        .filter((el) => el.matches('script, link[rel=stylesheet]'))
+        .map((el) => el.localName === 'script' ? 'script ' + el.getAttribute('src') + (el.defer || el.async || el.type === 'module' ? ' deferred' : '') : 'css');
+      delete root.dataset.theme;
+      const script = document.createElement('script');
+      script.src = 'theme.js';
+      script.onload = () => done({ head, theme: root.dataset.theme, bg: getComputedStyle(document.body).backgroundColor });
+      script.onerror = () => done({ head, theme: 'theme.js did not load', bg: '' });
+      document.head.append(script);
+    })`);
+    assert.equal(first.head[0], 'script theme.js', first.head.join(', '));
+    assert.equal(first.theme, 'dark');
+    assert.equal(first.bg, 'rgb(28, 28, 30)');
   });
 
   it("takes a new artifact's thumbnail, saves it at its version, and shows it", T, async () => {
@@ -145,17 +130,5 @@ describe('language, look and thumbnails', () => {
       `new Promise((done) => { const img = new Image(); img.onload = () => done('loaded'); img.onerror = () => done('refused'); img.src = 'oa-thumbnail://artifact/..%2F..%2Fdaemon.json'; })`,
     );
     assert.equal(status, 'refused');
-  });
-
-  it('with no theme switch, the canvas follows the system before data-theme is set', T, async () => {
-    await app.quit();
-    app = await launchApp(profile, port);
-    await app.line(/\[desktop\] ready /);
-    await app.connect();
-    const paint = await app.chrome.evaluate<FirstPaint>(WITHOUT_THEME);
-    assert.equal(paint.meta, 'light dark');
-    assert.equal(paint.media, true);
-    assert.equal(paint.bg, paint.dark ? 'rgb(28, 28, 30)' : 'rgb(255, 255, 255)');
-    if (paint.dark) assert.match(paint.scheme, /dark/);
   });
 });

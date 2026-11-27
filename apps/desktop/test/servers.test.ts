@@ -179,7 +179,9 @@ describe('the servers switcher, with two sites on this computer', () => {
     await closePanel();
     // Settings comes back once the switcher closes; closed here.
     assert.ok(await app.chrome.waitFor(`!!${by('settings-dialog')}`, 5000), 'Settings did not come back');
-    await app.chrome.evaluate<boolean>(`${by('settings-dialog')}.close(), true`);
+    await app.chrome.evaluate<boolean>(
+      `${by('settings-dialog')}.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })), true`,
+    );
     assert.ok(await app.chrome.waitFor(`!${by('settings-dialog')}`, 5000));
   });
 
@@ -314,6 +316,33 @@ describe('the servers switcher, with two sites on this computer', () => {
       ),
     );
     assert.ok(Date.now() - t0 < 30_000);
+  });
+
+  it("a local tab's frame that the daemon redirects to the site is stopped at the redirect", T, async () => {
+    // The daemon answers the Shell address of a published artifact with a 302 to its site: allowed where it starts
+    // (the daemon's origin), not where it ends. A frame of a local view stops there; only a whole tab follows it.
+    const remote = present((await record(published)).remote) as { url: string };
+    const id = replyValue(await app.command('new:docs')).id;
+    assert.ok(await until(async () => (await tab(id))?.status === 'ready', 30_000), `the new doc did not load: ${js(await tab(id))}`);
+    assert.equal((await tab(id))?.kind, 'local');
+    const page = await pageOf((url: string) => url.startsWith(present(state).url) && url.includes(`/a/${id}`));
+    await page.evaluate<boolean>(
+      `(() => { const f = document.createElement('iframe'); f.id = 'hop'; f.src = '/a/${published}'; document.body.append(f); return true; })()`,
+    );
+    assert.ok(
+      await until(() => app.lines.some((line) => line.includes(`[desktop] blocked frame navigation to ${remote.url}`)), 10_000),
+      app.lines.filter((line) => line.includes('frame')).join('\n'),
+    );
+    const site = new URL(remote.url).origin;
+    const frames = await page.frames();
+    assert.equal(
+      frames.some((frame) => frame.url.startsWith(site)),
+      false,
+      js(frames.map((frame) => frame.url)),
+    );
+    assert.equal((await tab(id))?.kind, 'local', 'the tab stayed here');
+    assert.equal((await tab(published))?.kind, 'server');
+    await app.chrome.evaluate(`desktop.close(${js(id)})`);
   });
 
   it("a site that stops: the published artifact's tab shows the working copy here, and it can be edited", T, async () => {

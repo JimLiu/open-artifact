@@ -53,8 +53,9 @@ export function newGroups(types: MenuType[]) {
 }
 
 /**
- * Menu commands that close a tab or replace the page under a modal. They do not run while an overlay is up.
- * Edit and zoom are not here: while the overlay is up they are sent to the window's page, so the dialog can use them.
+ * The commands that act on the tab in front, which cannot run while the window's page covers it (a dialog, a panel,
+ * the unsaved-work question): ⌘W would close a tab the person cannot see. Edit and zoom are not among them: they go
+ * to the window's page then, where the dialog is.
  */
 export function blockedWhileOverlay(name: string): boolean {
   return name === 'close-tab' || name === 'reload' || name === 'move';

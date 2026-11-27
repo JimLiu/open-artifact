@@ -196,7 +196,7 @@ The Electron example (`examples/harness-electron/src/pane.mjs`) follows each ite
 - [ ] Load only `embedOrigins()` and follow `embed/origins`. Never all of loopback.
 - [ ] With an allowlist of your own, let a remote origin in only after the person agreed (`allowRemote`, under `ask`), for that view, or never (`deny`). `allow` only if your pane is already a general browser.
 - [ ] No Node, no preload of yours, sandbox on, context isolation on, a storage partition of the pages' own.
-- [ ] Allow `blob:` and `about:srcdoc` subframes; grant no permission but clipboard writes, and only to allowed origins.
+- [ ] Allow `blob:` and `about:srcdoc` subframes; check a subframe again at each server redirect, not only where it starts; grant no permission but clipboard writes, and only to allowed origins.
 - [ ] Open new windows and navigations outside the list in the system browser; the view never navigates away.
 - [ ] Hide views instead of destroying them; send the kept place back with `goto`.
 - [ ] Send `host_hello` again on a theme change.

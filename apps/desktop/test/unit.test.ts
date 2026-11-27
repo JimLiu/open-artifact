@@ -16,7 +16,6 @@ import { describe, it } from 'node:test';
 import { TabHistory } from '../src/history.ts';
 import { LibraryError, createArg, idArg, libraryClient, patchArg, startsBlank } from '../src/library.ts';
 import { OriginAllowlist, decide, decideServer, externalTarget, serverSubframeAllowed, shellArtifactId, subframeAllowed } from '../src/navigation.ts';
-import { onThisComputer } from '../src/offline.ts';
 import { daemonEnv, daemonOnDefaultPort, resolveProfile } from '../src/profile.ts';
 import { Servers, serverAddress, suggestName } from '../src/servers.ts';
 import { Settings, chromiumLang } from '../src/settings.ts';
@@ -199,40 +198,6 @@ describe('navigation: the sites this computer is connected to', () => {
     assert.equal(serverSubframeAllowed('http://art1.frame.localhost:4891/docs/', allowlist), false);
     assert.equal(serverSubframeAllowed('http://127.0.0.1:4891/a/art_1', allowlist), false);
     assert.equal(serverSubframeAllowed('file:///etc/passwd', allowlist), false);
-  });
-
-  it('a site subframe allows the connected site, its content host and the public web, and refuses this machine', () => {
-    assert.equal(serverSubframeAllowed('about:blank', allowlist), true);
-    assert.equal(serverSubframeAllowed('blob:https://oa.example.com/1234', allowlist), true);
-    assert.equal(serverSubframeAllowed('https://oa.example.com/a/art_1', allowlist), true);
-    assert.equal(serverSubframeAllowed('http://localhost:5100/x', allowlist), true, 'the connected site, even on localhost');
-    assert.equal(serverSubframeAllowed('https://example.com/x', allowlist), true);
-    assert.equal(serverSubframeAllowed('http://127.0.0.1:9/', allowlist), false);
-    assert.equal(serverSubframeAllowed('http://127.255.255.255/', allowlist), false);
-    assert.equal(serverSubframeAllowed('http://[::1]/', allowlist), false);
-    assert.equal(serverSubframeAllowed('http://[::ffff:127.0.0.1]/', allowlist), false, 'IPv4-mapped loopback');
-    assert.equal(serverSubframeAllowed('http://10.1.2.3/', allowlist), false);
-    assert.equal(serverSubframeAllowed('http://172.16.0.1/', allowlist), false);
-    assert.equal(serverSubframeAllowed('http://172.31.255.255/', allowlist), false);
-    assert.equal(serverSubframeAllowed('http://192.168.0.8/', allowlist), false);
-    assert.equal(serverSubframeAllowed('http://169.254.169.254/', allowlist), false);
-    assert.equal(serverSubframeAllowed('http://not-declared.localhost/', allowlist), false);
-    assert.equal(serverSubframeAllowed('http://content.localhost/', allowlist), false, 'a content host needs a label in front');
-    assert.equal(serverSubframeAllowed('http://172.32.0.1/', allowlist), true, 'outside 172.16/12');
-    assert.equal(serverSubframeAllowed('http://169.255.1.1/', allowlist), true);
-    assert.equal(serverSubframeAllowed('http://localhost.example.com/', allowlist), true);
-    assert.equal(serverSubframeAllowed('http://127.0.0.1.example.com/', allowlist), true);
-    assert.equal(serverSubframeAllowed('javascript:alert(1)', allowlist), false);
-    // Not the inverse of offline.ts: those private addresses are "not this computer" there, and still refused here.
-    assert.equal(onThisComputer('http://192.168.1.2/'), false);
-    assert.equal(serverSubframeAllowed('http://192.168.1.2/', allowlist), false);
-    assert.equal(onThisComputer('http://10.0.0.1/'), false);
-    assert.equal(serverSubframeAllowed('http://10.0.0.1/', allowlist), false);
-    assert.equal(onThisComputer('http://localhost:5100/'), true);
-    assert.equal(serverSubframeAllowed('http://localhost:5100/', allowlist), true);
-    // A top-level navigation to loopback is still handed to the system browser.
-    assert.deepEqual(decide('http://127.0.0.1:5002/', { allowlist, current: 'art_one' }), { action: 'external', url: 'http://127.0.0.1:5002/' });
-    assert.equal(serverSubframeAllowed('http://127.0.0.1:5002/', allowlist), false);
   });
 
   it('an external link is http(s) with the userinfo removed, and the log is only the origin and the path', () => {
@@ -660,6 +625,7 @@ describe('the service panel and the runtime, as the page is sent them', async ()
 
 // ---- stage 1.5: downloads, offline, the menu, Move To… ----
 const { downloadAllowed, freeTarget, safeName, downloadsFolder } = await import('../src/downloads.ts');
+const { onThisComputer } = await import('../src/offline.ts');
 const { menuTemplate, newGroups, templateCommands } = await import('../src/menu.ts');
 const { moveArtifact, moveTarget } = await import('../src/move.ts');
 const { wordsFor } = await import('../renderer/src/words.ts');

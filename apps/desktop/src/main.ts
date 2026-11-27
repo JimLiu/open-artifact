@@ -64,7 +64,6 @@ import { RuntimeUpdates } from './runtime.ts';
 import { Servers } from './servers.ts';
 import { Service } from './service.ts';
 import { CHOICES, chromiumLang, Settings, validSetting } from './settings.ts';
-import { shellListenerCounts } from './artifact-view.ts';
 import { HOME_TAB, PARTITION, SERVER_PARTITION, SITE_TAB, Tabs, unsavedOf } from './tabs.ts';
 import { CAPTURE_PARTITION, Photographer, registerThumbnailScheme, serveThumbnails } from './thumbnails.ts';
 
@@ -1072,7 +1071,6 @@ async function start() {
       return system.reveal(record.root);
     },
     move: async (arg: unknown) => {
-      if (tabs.overlay) return false;
       const id = artifactArg(arg);
       const into = await pick(objectOf(arg).into, { title: t('menu.move') });
       if (!into) return null;
@@ -1096,12 +1094,10 @@ async function start() {
       }
     },
     'close-tab': () => {
-      if (tabs.overlay) return false;
       const id = currentArtifact();
       return id ? requestClose(id) : false;
     },
     reload: () => {
-      if (tabs.overlay) return false;
       const id = currentArtifact();
       return id ? reloadTab(id) : false;
     },
@@ -1315,18 +1311,11 @@ async function start() {
       tabs.failNextLoad = true;
       return true;
     });
-    handle('test:views', () => {
-      const counts = shellListenerCounts();
-      return {
-        children: window.contentView.children.length,
-        tabViews: [...tabs.tabs.values()].filter((tab) => tab.view).length,
-        listeners: counts.listeners,
-        attached: counts.attached,
-        closed: tabs.closedViews,
-        current: tabs.current,
-        ids: [...tabs.tabs.keys()],
-      };
-    });
+    // The views in the window (its own page's not counted), and how many of them belong to a tab.
+    handle('test:views', () => ({
+      children: window.contentView.children.length,
+      tabViews: [...tabs.tabs.values()].filter((tab) => tab.view).length,
+    }));
     handle('test:probe-site', (origin) => {
       const url = new URL(String(origin));
       if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error('not a site');

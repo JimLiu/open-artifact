@@ -1,6 +1,6 @@
 import type { TypeTile } from '@open-artifact/library-page';
+import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { errorInfo } from '../../src/errors.ts';
-import { bindModal } from './dialog.ts';
 import type { DialogProps, WordsProps } from './types.ts';
 // The new-artifact dialog: the types that go straight to their editor (made blank, then opened to write in), the types
 // an agent builds (made empty, then opened: the Shell says how to hand it to an agent), and a name. A create that did
@@ -51,21 +51,15 @@ export function NewDialog({ t, onClose }: DialogProps) {
   const [title, setTitle] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const dialog = useRef<HTMLDialogElement>(null);
+  const dialog = useRef<HTMLDivElement>(null);
   const name = useRef<HTMLInputElement>(null);
-  const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
-  const busyRef = useRef(busy);
-  busyRef.current = busy;
 
   // The first type is picked to start with.
   useEffect(() => {
     if (type === null && (blank[0] || agent[0])) setType((blank[0] || agent[0]).id);
   }, [type, blank, agent]);
   useEffect(() => {
-    const node = dialog.current;
-    if (!node) return;
-    return bindModal(node, { onClose: () => onCloseRef.current(), canClose: () => !busyRef.current });
+    dialog.current?.querySelector<HTMLElement>('[aria-pressed="true"], .new-type')?.focus();
   }, []);
 
   const submit = async (picked = type) => {
@@ -82,6 +76,25 @@ export function NewDialog({ t, onClose }: DialogProps) {
     }
   };
 
+  const onKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      if (!busy) onClose();
+    } else if (event.key === 'Tab') {
+      // Focus stays in the dialog.
+      const items = [...(dialog.current?.querySelectorAll<HTMLElement>('button:not([disabled]), input') ?? [])];
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last?.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first?.focus();
+      }
+    }
+  };
+
   const group = (id: string, label: string, tiles: TypeTile[]) =>
     tiles.length > 0 && (
       <div className="new-group" data-group={id}>
@@ -95,8 +108,9 @@ export function NewDialog({ t, onClose }: DialogProps) {
     );
 
   return (
-    <dialog className="new-dialog" aria-labelledby="new-title" data-testid="new-dialog" ref={dialog} closedby="any">
-        <h1 id="new-title">{t('new.title')}</h1>
+    <div className="scrim" onMouseDown={(event) => event.target === event.currentTarget && !busy && onClose()}>
+      <div className="new-dialog" role="dialog" aria-modal="true" aria-labelledby="new-title" data-testid="new-dialog" ref={dialog} onKeyDown={onKeyDown}>
+        <h2 id="new-title">{t('new.title')}</h2>
         {types.length === 0 && <p className="new-empty">{t('new.none')}</p>}
         {group('blank', t('new.blank'), blank)}
         {group('agent', t('new.agent'), agent)}
@@ -127,13 +141,14 @@ export function NewDialog({ t, onClose }: DialogProps) {
         )}
         <div className="new-actions">
           <span className="new-spacer" />
-          <button type="button" className="button-quiet" data-testid="new-cancel" autoFocus disabled={busy} onClick={() => dialog.current?.close()}>
+          <button type="button" className="button-quiet" onClick={onClose} disabled={busy}>
             {t('new.cancel')}
           </button>
           <button type="button" className="button-primary" data-testid="new-create" onClick={() => void submit()} disabled={busy || !type}>
             {busy ? t('new.creating') : t('new.create')}
           </button>
         </div>
-    </dialog>
+      </div>
+    </div>
   );
 }

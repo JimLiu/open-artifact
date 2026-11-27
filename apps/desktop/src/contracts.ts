@@ -204,8 +204,8 @@ export interface DesktopBridge {
     servers(): Promise<{ view: ServersView; servers: string[] }>;
     /** The next artifact load fails after its view is attached. */
     failNextLoad(): Promise<boolean>;
-    /** Views in the window, and whether a failed open closed the one it added. */
-    views(): Promise<{ children: number; tabViews: number; listeners: number; attached: number; closed: number; current: string; ids: string[] }>;
+    /** The views in the window, and how many of them belong to a tab. */
+    views(): Promise<{ children: number; tabViews: number }>;
     /** Opens `origin` as a site tab. Test mode only. */
     probeSite(origin: string): Promise<string>;
     appsHold(step: string): Promise<boolean>;
