@@ -159,6 +159,28 @@ def main():
     out = json.loads(adapter.call_tool("Artifact", {"action": "list"}, "s3", str(WORK)))
     if out.get("messages") != ["waited", "new"] or adapter.leftovers.get("s3"):
         fail("bridge back: kept message not handed over %s" % out)
+    # another thread attaches the same session between this call's two looks at `attached`: the call still goes out
+    adapter = module.Adapter(FakeCtx(), data_dir=WORK / "race")
+    adapter.bridge = OkBridge(None)
+    real_lock = adapter._lock
+
+    class RacingLock:
+        fired = False
+
+        def __enter__(self):
+            return real_lock.__enter__()
+
+        def __exit__(self, *exc):
+            out = real_lock.__exit__(*exc)
+            if not RacingLock.fired:
+                RacingLock.fired = True
+                with real_lock:
+                    adapter.attached.add("s4")
+            return out
+    adapter._lock = RacingLock()
+    out = json.loads(adapter.call_tool("Artifact", {"action": "list"}, "s4", str(WORK)))
+    if "error" in out or [m for m, _ in adapter.bridge.calls].count("tools.call") != 1:
+        fail("attach race: %s" % out)
     say("failed-call ok")
 
     # register

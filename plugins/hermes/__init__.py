@@ -149,11 +149,14 @@ class Adapter:
         if not self.bridge.alive:
             self.start_bridge()
         with self._lock:
-            if session in self.attached:
+            # Decided once, under the lock: another thread may attach this session right after.
+            already = session in self.attached
+            stale = False
+            if already:
                 entry = self.sessions.setdefault(session, {"workspace": workspace, "title": title})
                 stale = time.time() - float(entry.get("seen") or 0) > SEEN_SAVE_S
                 entry["seen"] = time.time()
-        if session in self.attached:
+        if already:
             if stale:
                 self._save_sessions()  # a chat in use for days is not dropped after a restart
             return []
@@ -285,7 +288,7 @@ class Adapter:
                 self.bridge.request("inbox.return", {"session": session, "workspace": workspace,
                                                      "messages": messages}, timeout=15)
                 return
-            except Exception:  # noqa: BLE001
+            except Exception:  # noqa: BLE001 — kept below: at least once, never lost (a timeout may have landed)
                 logger.info("open-artifact: inbox.return failed for %s", session, exc_info=True)
         # Not put back: kept here for the session's next tool result or turn.
         logger.info("open-artifact: keeping %d message(s) for %s", len(messages), session)

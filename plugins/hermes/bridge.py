@@ -213,8 +213,8 @@ class Bridge:
                 waiter["result"] = message.get("result")
             waiter["done"].set()
         # stdout ended: this bridge is gone; nothing waiting on it will be answered.
-        self.connected.clear()
         if self._proc is proc:
+            self.connected.clear()
             self.hello_result = None
         # Only what was sent to this process: a new one may already be up, with requests of its own.
         with self._lock:

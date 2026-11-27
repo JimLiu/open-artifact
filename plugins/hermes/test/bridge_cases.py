@@ -28,15 +28,16 @@ class Ended:
         return 0
 
 
-b = bridge.Bridge("x", {}, {}, lambda method, params: None)
+notices = []
+b = bridge.Bridge("x", {}, {}, lambda method, params: notices.append(method))
 old, new = Ended(), object()
 b._proc = new
 b._pending["h1"] = {"done": threading.Event(), "proc": old}
 replacement = {"done": threading.Event(), "proc": new}
 b._pending["h2"] = replacement
 b._read(old)
-if "h1" in b._pending or "h2" not in b._pending or replacement["done"].is_set():
-    fail("stale-exit: %s" % sorted(b._pending))
+if "h1" in b._pending or "h2" not in b._pending or replacement["done"].is_set() or "bridge.exited" in notices:
+    fail("stale-exit: %s %s" % (sorted(b._pending), notices))
 print("stale-exit ok", flush=True)
 
 child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], stdin=subprocess.PIPE,
