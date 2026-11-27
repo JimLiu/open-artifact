@@ -1773,6 +1773,44 @@ editorSuite({
       } finally { await page.close(); }
     });
 
+    it('a block pasted next to words in a paragraph lands after the paragraph, a link pasted in a link after the link', T, async () => {
+      const { root, url } = await ctx.openNew('paste-climb', (_ctx, root) => {
+        copyFixture('design', root);
+        const main = fs.readFileSync(path.join(root, BOARD), 'utf8');
+        const template = `<x-dc><helmet><style>body{margin:0}</style></helmet><div style="width: 880px; height: 560px; padding: 40px; box-sizing: border-box">
+<p id="para" style="margin: 0; font-size: 32px">Hello <span id="word" style="display: inline-block; padding: 8px">world</span> again</p>
+<a id="link" href="#top" style="display: block; margin-top: 40px; font-size: 32px"><span id="inlink" style="display: inline-block; padding: 8px">Linked</span></a>
+</div></x-dc>`;
+        fs.writeFileSync(path.join(root, BOARD), main.replace(/<x-dc>[\s\S]*?<\/x-dc>/, template));
+      });
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: `document.querySelector('iframe[data-board="Main.dc.html"]')?.contentDocument?.querySelector('#inlink')`, settle: 800 });
+      const deep = { meta: process.platform === 'darwin', ctrl: process.platform !== 'darwin' };
+      const boardText = () => fs.readFileSync(path.join(root, BOARD), 'utf8');
+      const paste = text => page.evaluate(`(() => {
+        const dt = new DataTransfer();
+        dt.setData('text/plain', ${JSON.stringify(text)});
+        document.body.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+      })()`);
+      try {
+        await page.click(...await page.evaluate(boardMiddle('#word')), deep);
+        await new Promise(resolve => setTimeout(resolve, 300));
+        await paste('<div>Pasted block</div>');
+        assert.ok(await until(() => boardText().includes('Pasted block'), 10000), 'the block was pasted');
+        const text = boardText();
+        assert.ok(text.indexOf('Pasted block') > text.indexOf('again</p>'), `the block went after the paragraph: ${text}`);
+
+        await page.click(...await page.evaluate(boardMiddle('#inlink')), deep);
+        await new Promise(resolve => setTimeout(resolve, 300));
+        await paste('<a href="https://example.com/">Site</a>');
+        assert.ok(await until(() => boardText().includes('>Site<'), 10000), 'the link was pasted');
+        const after = boardText();
+        const link = after.indexOf('id="link"');
+        assert.ok(!after.slice(link, after.indexOf('</a>', link)).includes('Site'), `the link went after the link: ${after}`);
+        assert.ok(after.indexOf('>Site<') > link, `the link went after the link: ${after}`);
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
     it('stacking keys move an element one step or to the end, ⌘Z undoes by the physical key, and a locked element stays', T, async () => {
       const { root, url } = await ctx.openNew('stacking', paintBoard);
       const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: `document.querySelector('iframe[data-board="Main.dc.html"]')?.contentDocument?.querySelector('#box')`, settle: 800 });
@@ -2188,6 +2226,296 @@ editorSuite({
         const heldCopy = notes()[others()[0]];
         assert.ok(!heldCopy.locked && Math.abs(heldCopy.y - (700 + 120 / zoom)) <= 2, `the copy is unlocked and below: ${JSON.stringify(heldCopy)}`);
         assert.deepEqual([notes().held.x, notes().held.y, notes().held.locked], [400, 700, true], 'the locked note stayed');
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
+    // Copy and paste through the page's own clipboard events, as ⌘C and ⌘V do.
+    const copyEvent = page => page.evaluate(`(() => {
+      const dt = new DataTransfer();
+      document.querySelector('[data-canvas-surface]').dispatchEvent(new ClipboardEvent('copy', { clipboardData: dt, bubbles: true, cancelable: true }));
+      return dt.getData('text/html');
+    })()`);
+    const pasteEvent = (page, html) => page.evaluate(`(() => {
+      const dt = new DataTransfer();
+      dt.setData('text/html', ${JSON.stringify(html)});
+      document.querySelector('[data-canvas-surface]').dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+    })()`);
+    const titleOf = (page, board) => page.evaluate(`(() => { const r = document.querySelector('[data-board-title="${board}"]').getBoundingClientRect(); return [r.left + 6, r.top + r.height / 2]; })()`);
+
+    it('copied grouped notes pasted on a selected artboard become positioned layers in a group box; pasting again goes into it too; an artboard of two roots lands on the canvas', T, async () => {
+      const { root, url } = await ctx.openNew('paste-into-board', (_ctx, root) => {
+        copyFixture('design', root);
+        const main = fs.readFileSync(path.join(root, BOARD), 'utf8');
+        fs.writeFileSync(path.join(root, 'project/Two.dc.html'), main.replace(/<x-dc>[\s\S]*?<\/x-dc>/, '<x-dc><div style="width: 200px; height: 80px">One</div><div style="width: 200px; height: 80px">Two</div></x-dc>'));
+        const canvas = canvasOf(root);
+        canvas.boards['Two.dc.html'] = { x: 1000, y: 0, w: 200, h: 160 };
+        canvas.order.push('Two.dc.html');
+        canvas.notes = { a: { x: 0, y: 700, w: 200, text: 'Alpha', groups: ['g1'] }, b: { x: 260, y: 760, w: 200, text: 'Beta', groups: ['g1'] } };
+        fs.writeFileSync(path.join(root, 'project/canvas.json'), JSON.stringify(canvas));
+      });
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: `document.querySelector('[data-note="a"]') && document.querySelector('iframe[data-board="Two.dc.html"]')?.contentDocument?.body?.textContent.includes('Two')`, settle: 800 });
+      const boardText = () => fs.readFileSync(path.join(root, BOARD), 'utf8');
+      const groups = () => (boardText().match(/data-dc-group/g) ?? []).length;
+      try {
+        const a = await noteBox(page, 'a');
+        await page.click(a.x + a.w / 2, a.y + a.h / 2);
+        await pause(300);
+        const copied = await copyEvent(page);
+        assert.ok(copied.includes('data-open-artifact-design'), 'the notes were copied');
+
+        await page.click(...await titleOf(page, 'Main.dc.html'));
+        await pause(300);
+        await pasteEvent(page, copied);
+        assert.ok(await until(() => groups() === 1, 10000), `a group box was written: ${boardText()}`);
+        const text = boardText();
+        assert.match(text, /<div data-dc-group style="box-sizing: border-box; position: absolute; margin: 0px; left: [\d.]+px; top: [\d.]+px; width: [\d.]+px; height: [\d.]+px">/);
+        assert.ok(text.includes('Alpha') && text.includes('Beta'), 'both notes went in');
+        assert.match(text, /position: relative/, 'the root anchors the layers');
+        assert.ok(await page.waitFor(textIn('Pasted into Main'), 5000), 'it says where it pasted');
+        assert.equal(Object.keys(canvasOf(root).notes).length, 2, 'the notes stay on the canvas');
+
+        // The pasted layers are selected: pasting the same again goes into the same artboard.
+        await pasteEvent(page, copied);
+        assert.ok(await until(() => groups() === 2, 10000), `the second paste went in too: ${boardText()}`);
+
+        // An artboard with two roots can't be one layer: its copy goes on the canvas.
+        await page.click(...await titleOf(page, 'Two.dc.html'));
+        await pause(300);
+        const two = await copyEvent(page);
+        await page.click(...await titleOf(page, 'Main.dc.html'));
+        await pause(300);
+        await pasteEvent(page, two);
+        assert.ok(await until(() => Object.keys(canvasOf(root).boards).length === 3, 10000), `the copy went on the canvas: ${JSON.stringify(canvasOf(root).boards)}`);
+        assert.equal(groups(), 2, 'nothing more went into the artboard');
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
+    it('a note dragged onto an artboard glows it and joins it in flow as one undo step; Ctrl keeps it in place; a link card is refused', T, async () => {
+      const { root, url } = await ctx.openNew('join-board', (_ctx, root) => {
+        copyFixture('design', root);
+        const canvas = canvasOf(root);
+        canvas.notes = {
+          memo: { x: 0, y: 700, w: 240, text: 'Join me' },
+          kept: { x: 300, y: 700, w: 240, text: 'Stay here' },
+          card: { kind: 'link', x: 600, y: 700, w: 240, h: 80, href: 'https://example.com', text: 'Example' },
+        };
+        fs.writeFileSync(path.join(root, 'project/canvas.json'), JSON.stringify(canvas));
+      });
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: `document.querySelector('[data-note="memo"]') && document.querySelector('[data-note="card"]') && document.querySelector('iframe[data-board="Main.dc.html"]')?.contentDocument?.querySelector('p')`, settle: 800 });
+      const mod = { meta: process.platform === 'darwin', ctrl: process.platform !== 'darwin' };
+      const mouse = pointer(page);
+      const notes = () => canvasOf(root).notes;
+      const boardText = () => fs.readFileSync(path.join(root, BOARD), 'utf8');
+      const middleOf = async id => {
+        const box = await noteBox(page, id);
+        return { x: box.x + box.w / 2, y: box.y + box.h / 2 };
+      };
+      try {
+        const [px, py] = await page.evaluate(boardMiddle('p'));
+        let glowed = false;
+        await mouse.drag(await middleOf('memo'), { x: px, y: py + 4 }, { before: async () => { glowed = await page.evaluate(`Boolean(document.querySelector('[data-join-target="Main.dc.html"]'))`); } });
+        assert.ok(glowed, 'the artboard glowed while the note hovered it');
+        assert.ok(await until(() => !('memo' in notes()) && boardText().includes('Join me'), 10000), `the note went into the artboard: ${JSON.stringify(notes())}`);
+        const joined = boardText().slice(boardText().indexOf('An artboard the smoke test opens.'));
+        assert.ok(joined.includes('Join me') && !/position: absolute[^>]*>[^<]*Join me/.test(boardText()), `it went in the flow after the paragraph: ${boardText()}`);
+        assert.ok(await page.waitFor(textIn('Moved into Main'), 5000), 'it says where it went');
+        assert.equal(await page.evaluate(`Boolean(document.querySelector('[data-join-target]'))`), false, 'the glow is gone');
+
+        await page.evaluate(`document.querySelector('[data-canvas-surface]').focus()`);
+        await page.press('z', mod);
+        assert.ok(await until(() => 'memo' in notes() && !boardText().includes('Join me'), 10000), `one ⌘Z put the note back and took it out of the artboard: ${JSON.stringify(notes())}`);
+        assert.deepEqual([notes().memo.x, notes().memo.y], [0, 700], 'the note is where it was');
+
+        // Ctrl held on the way: the note stays where it is dropped, as a positioned layer.
+        const from = await middleOf('kept');
+        await mouse.move(from.x, from.y);
+        await mouse.down(from.x, from.y);
+        for (let n = 1; n <= 10; n++) await mouse.move(from.x + ((px - from.x) * n) / 10, from.y + ((py - 60 - from.y) * n) / 10, 2, 1);
+        await mouse.up(px, py - 60, 2);
+        assert.ok(await until(() => !('kept' in notes()) && boardText().includes('Stay here'), 10000), `the note joined: ${JSON.stringify(notes())}`);
+        assert.match(boardText(), /<div[^>]*position: absolute[^>]*>[\s\S]{0,200}Stay here/, 'kept in place as a positioned layer');
+
+        // A link card has no artboard form: nothing moves.
+        const card = { ...notes().card };
+        await mouse.drag(await middleOf('card'), { x: px, y: py });
+        assert.ok(await page.waitFor(textIn('Nothing moved. This note has nothing that can go into an artboard.'), 5000), 'it says why');
+        await pause(600);
+        assert.deepEqual(notes().card, card, 'the card stayed on the canvas');
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
+    it('a paragraph dragged off its artboard becomes a frameless piece in one undo step, and dragged back it joins the artboard', T, async () => {
+      const { root, url } = await ctx.openNew('make-piece', (_ctx, root) => copyFixture('design', root));
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: `document.querySelector('iframe[data-board="Main.dc.html"]')?.contentDocument?.querySelector('p')`, settle: 800 });
+      const mod = { meta: process.platform === 'darwin', ctrl: process.platform !== 'darwin' };
+      const boardText = () => fs.readFileSync(path.join(root, BOARD), 'utf8');
+      const piecePath = path.join(root, 'project/Piece.dc.html');
+      const words = 'An artboard the smoke test opens.';
+      const toScreen = (x, y) => page.evaluate(`(() => { const r = document.querySelector('iframe[data-board="Main.dc.html"]').getBoundingClientRect(); const zoom = r.width / 880; return [r.left + ${x} * zoom, r.top + ${y} * zoom]; })()`);
+      try {
+        // Zoomed out, so there is empty canvas in view below the artboard.
+        await page.evaluate(`document.querySelector('[data-canvas-surface]').focus()`);
+        for (let n = 0; n < 3; n++) {
+          await page.evaluate(`document.querySelector('[data-canvas-surface]').dispatchEvent(new KeyboardEvent('keydown', { key: '-', code: 'Minus', metaKey: ${mod.meta}, ctrlKey: ${mod.ctrl}, bubbles: true, cancelable: true }))`);
+          await pause(300);
+        }
+        await pause(400);
+        const [px, py] = await page.evaluate(boardMiddle('p'));
+        await page.click(px, py);
+        assert.ok(await page.waitFor(buttonNamed('Lock')), 'the paragraph is selected');
+        const [, below] = await toScreen(0, 640);
+        await page.dragMouse([px, py], [px, below]);
+        assert.ok(await until(() => canvasOf(root).boards['Piece.dc.html'] && fs.existsSync(piecePath) && !boardText().includes(words), 10000), `the paragraph became a piece: ${JSON.stringify(canvasOf(root).boards)}`);
+        const entry = canvasOf(root).boards['Piece.dc.html'];
+        assert.equal(entry.frameless, true, 'the piece has no frame');
+        assert.equal(entry.title, 'P', 'it is named for its tag');
+        assert.ok(entry.y > 560, `it sits where it was dropped: ${JSON.stringify(entry)}`);
+        assert.ok(fs.readFileSync(piecePath, 'utf8').includes(words), 'its file holds the paragraph');
+        assert.equal(await page.evaluate(`Boolean(document.querySelector('[data-board-title="Piece.dc.html"]'))`), false, 'a piece has no label');
+
+        await page.evaluate(`document.querySelector('[data-canvas-surface]').focus()`);
+        await page.press('z', mod);
+        assert.ok(await until(() => !canvasOf(root).boards['Piece.dc.html'] && !fs.existsSync(piecePath) && boardText().includes(words), 10000), 'one ⌘Z put the paragraph back and deleted the piece’s file');
+        await page.press('z', { ...mod, shift: true });
+        assert.ok(await until(() => canvasOf(root).boards['Piece.dc.html'] && fs.existsSync(piecePath) && !boardText().includes(words), 10000), 'redo made the piece again');
+
+        // The piece dragged back over the artboard joins it.
+        const piece = canvasOf(root).boards['Piece.dc.html'];
+        const [fromX, fromY] = await toScreen(piece.x + piece.w / 2, piece.y + piece.h / 2);
+        await page.dragMouse([fromX, fromY], [px, py]);
+        assert.ok(await until(() => !canvasOf(root).boards['Piece.dc.html'] && !fs.existsSync(piecePath) && boardText().includes(words), 10000), `the piece joined the artboard: ${JSON.stringify(canvasOf(root).boards)}`);
+        assert.ok(await page.waitFor(textIn('Moved into Main'), 5000), 'it says where it went');
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
+    it('a layers-list row dropped on another artboard’s row moves the element there as one undo step, a note’s row joins it; a locked artboard’s row takes nothing', T, async () => {
+      const { root, url } = await ctx.openNew('outline-into', (_ctx, root) => {
+        copyFixture('design', root);
+        fs.writeFileSync(path.join(root, BOARD), fs.readFileSync(path.join(root, BOARD), 'utf8').replace(/<x-dc>[\s\S]*?<\/x-dc>/, `<x-dc><helmet><style>body{margin:0}</style></helmet><div style="width: 880px; height: 560px; padding: 40px; box-sizing: border-box"><div id="a" style="width: 160px; height: 80px; background-color: rgb(0, 0, 200)"></div><p>Stays</p></div></x-dc>`));
+        const plain = `<x-dc><helmet><style>body{margin:0}</style></helmet><div style="width: 880px; height: 560px"><p>Other</p></div></x-dc>`;
+        withBoard(root, 'Second.dc.html', plain);
+        withBoard(root, 'Shut.dc.html', plain, 2200);
+        const canvas = canvasOf(root);
+        canvas.boards['Shut.dc.html'].locked = true;
+        canvas.notes = { memo: { x: 0, y: 700, w: 240, text: 'Row note' } };
+        fs.writeFileSync(path.join(root, 'project/canvas.json'), JSON.stringify(canvas));
+      });
+      const ready = `document.querySelector('iframe[data-board="Main.dc.html"]')?.contentDocument?.querySelector('#a') && document.querySelector('iframe[data-board="Second.dc.html"]')?.contentDocument?.querySelector('p')`;
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready, settle: 800 });
+      const mod = { meta: process.platform === 'darwin', ctrl: process.platform !== 'darwin' };
+      const mouse = pointer(page);
+      const text = name => fs.readFileSync(path.join(root, 'project', name), 'utf8');
+      const boardRow = name => `document.querySelector('[data-outline-board="${name}"]')`;
+      const into = name => `Boolean(document.querySelector('[data-outline-board="${name}"][data-drop-into]'))`;
+      try {
+        await page.click(...await page.evaluate(middleIn('Main.dc.html', '#a')));
+        assert.ok(await page.waitFor(buttonNamed('Lock')), 'the box is selected');
+        await page.press('\\', mod);
+        const selectedRow = `document.querySelector('[data-outline-row="Main.dc.html"][aria-selected="true"]')`;
+        assert.ok(await page.waitFor(`${selectedRow} && ${boardRow('Second.dc.html')} && ${boardRow('Shut.dc.html')}`, 5000), 'the layers list shows the box’s row and the other artboards');
+        const from = await middleOf(page, selectedRow);
+        const shut = await middleOf(page, boardRow('Shut.dc.html'));
+        const second = await middleOf(page, boardRow('Second.dc.html'));
+        await mouse.move(from.x, from.y);
+        await mouse.down(from.x, from.y);
+        for (let n = 1; n <= 8; n++) await mouse.move(from.x + ((shut.x - from.x) * n) / 8, from.y + ((shut.y - from.y) * n) / 8, 0, 1);
+        assert.equal(await page.evaluate(into('Shut.dc.html')), false, 'the locked artboard’s row does not offer to take it');
+        for (let n = 1; n <= 8; n++) await mouse.move(shut.x + ((second.x - shut.x) * n) / 8, shut.y + ((second.y - shut.y) * n) / 8, 0, 1);
+        assert.equal(await page.evaluate(into('Second.dc.html')), true, 'the other artboard’s row shows it would take it');
+        await mouse.up(second.x, second.y);
+        assert.ok(await until(() => !text('Main.dc.html').includes('id="a"') && /id="a"[^>]*position: absolute/.test(text('Second.dc.html')), 10000), `the box moved into the other artboard as a positioned layer: ${text('Second.dc.html')}`);
+        assert.ok(await page.waitFor(textIn('Moved into Second'), 5000), 'it says where it went');
+        assert.equal(await page.evaluate(`Boolean(document.querySelector('[data-drop-into]'))`), false, 'no row stays marked');
+        assert.ok(text('Main.dc.html').includes('Stays'), 'the rest of the first artboard stays');
+
+        await page.evaluate(`document.querySelector('[data-canvas-surface]').focus()`);
+        await page.press('z', mod);
+        assert.ok(await until(() => text('Main.dc.html').includes('id="a"') && !text('Second.dc.html').includes('id="a"'), 10000), 'one ⌘Z puts the box back and takes it out of the other artboard');
+
+        // A note's row dropped on an artboard's row: the note joins it as a positioned layer.
+        const noteRow = `[...document.querySelectorAll('[role=tree][aria-label="Layers"] [role=treeitem]')].find(el => el.textContent.includes('Row note'))`;
+        assert.ok(await page.waitFor(noteRow, 5000), 'the layers list shows the note');
+        const note = await middleOf(page, noteRow);
+        const target = await middleOf(page, boardRow('Second.dc.html'));
+        await mouse.drag(note, target);
+        assert.ok(await until(() => !canvasOf(root).notes.memo && /position: absolute[^>]*>[\s\S]{0,200}Row note/.test(text('Second.dc.html')), 10000), `the note joined the artboard: ${text('Second.dc.html')}`);
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
+    it('double-clicking an artboard path with an arrow head edits its points; a rectangle and a path drawn from values don’t', T, async () => {
+      const { root, url } = await ctx.openNew('path-points', (_ctx, root) => {
+        copyFixture('design', root);
+        const drawing = `<x-dc><helmet><style>body{margin:0}</style></helmet><div style="position: relative; width: 880px; height: 560px">
+<svg id="arrow" width="400" height="200" viewBox="0 0 200 100" style="position: absolute; left: 100px; top: 60px"><defs><marker id="head" markerWidth="6" markerHeight="6" refX="3" refY="3" orient="auto"><path d="M0 0 L6 3 L0 6 Z"></path></marker></defs><path d="M10 50 L190 50" fill="none" stroke="black" stroke-width="4" marker-end="url(#head)"></path></svg>
+<svg id="box" width="200" height="100" style="position: absolute; left: 100px; top: 300px"><rect x="10" y="10" width="180" height="80" fill="blue"></rect></svg>
+<svg id="held" width="200" height="100" style="position: absolute; left: 400px; top: 300px"><path d="M10 50 L{{end}} 50" fill="none" stroke="black" stroke-width="4"></path></svg>
+</div></x-dc>`;
+        const file = path.join(root, BOARD);
+        fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace(/<x-dc>[\s\S]*?<\/x-dc>/, drawing).replace(/return \{ accent:[^\n]*/, "return { accent: '#666666', end: 190 };"));
+      });
+      const ready = `document.querySelector('iframe[data-board="Main.dc.html"]')?.contentDocument?.querySelector('#held path')?.getAttribute('d') === 'M10 50 L190 50'`;
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready, settle: 800 });
+      const mod = { meta: process.platform === 'darwin', ctrl: process.platform !== 'darwin' };
+      const text = () => fs.readFileSync(path.join(root, BOARD), 'utf8');
+      const points = `document.querySelector('[data-path-points]')`;
+      const point = n => `document.querySelector('[data-path-points] [aria-label="Point ${n}"]')`;
+      try {
+        // A rectangle has no points to edit here.
+        await page.clickTimes(...await page.evaluate(middleIn('Main.dc.html', '#box rect')), 2);
+        await pause(400);
+        assert.equal(await page.evaluate(`Boolean(${points})`), false, 'a double-clicked rectangle shows no points');
+
+        // A path drawn from the page's values is refused, with why.
+        await page.clickTimes(...await page.evaluate(middleIn('Main.dc.html', '#held path')), 2);
+        assert.ok(await page.waitFor(textIn('This path can’t be edited point by point'), 5000), 'it says the path can’t be edited point by point');
+        assert.equal(await page.evaluate(`Boolean(${points})`), false, 'no points show for it');
+
+        // The arrow: its points show, and dragging the end writes the path data.
+        await page.clickTimes(...await page.evaluate(middleIn('Main.dc.html', '#arrow > path')), 2);
+        assert.ok(await page.waitFor(`${point(1)} && ${point(2)}`, 5000), 'the arrow’s two points show');
+        const end = await middleOf(page, point(2));
+        await page.dragMouse([end.x, end.y], [end.x, end.y + 60]);
+        assert.ok(await until(() => /<path d="M10 50L190 (\d+(\.\d+)?)" fill="none" stroke="black" stroke-width="4" marker-end="url\(#head\)">/.test(text()) && !text().includes('L190 50"'), 10000), `the end point moved and the arrow head stayed: ${text().slice(text().indexOf('<svg id="arrow"'), text().indexOf('<svg id="box"'))}`);
+        const moved = Number(/M10 50L190 (\d+(?:\.\d+)?)"/.exec(text())[1]);
+        assert.ok(moved > 60, `it moved down in the drawing’s units: ${moved}`);
+        assert.ok(await page.evaluate(`Boolean(${points})`), 'the points stay while editing');
+
+        await page.press('Escape');
+        assert.ok(await page.waitFor(`!${points}`, 5000), 'Escape ends the edit');
+        await page.evaluate(`document.querySelector('[data-canvas-surface]').focus()`);
+        await page.press('z', mod);
+        assert.ok(await until(() => text().includes('d="M10 50 L190 50"'), 10000), 'one ⌘Z puts the path back');
+        // The browser reads the template before its values fill the hole.
+        assert.deepEqual(page.problems.filter(problem => !problem.includes('{{end}}')), []);
+      } finally { await page.close(); }
+    });
+
+    it('a selected line note shows its points, and dragging one moves that end', T, async () => {
+      const { root, url } = await ctx.openNew('note-points', (_ctx, root) => {
+        copyFixture('design', root);
+        const canvas = canvasOf(root);
+        canvas.notes = { wire: { kind: 'line', x: 0, y: 700, points: [[0, 0], [300, 0]] } };
+        fs.writeFileSync(path.join(root, 'project/canvas.json'), JSON.stringify(canvas));
+      });
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: `document.querySelector('iframe[data-board="Main.dc.html"]')?.contentDocument?.querySelector('p')`, settle: 800 });
+      const point = n => `document.querySelector('[role=group][aria-label="Path points"] [aria-label="Point ${n}"]')`;
+      const row = `[...document.querySelectorAll('[role=tree][aria-label="Layers"] [role=treeitem]')].find(el => el.textContent.trim() === 'line')`;
+      const mod = { meta: process.platform === 'darwin', ctrl: process.platform !== 'darwin' };
+      try {
+        await page.press('\\', mod);
+        assert.ok(await page.waitFor(row, 5000), 'the layers list shows the line');
+        await clickOn(page, row, 'the line’s row');
+        await page.press('\\', mod);
+        assert.ok(await page.waitFor(`${point(1)} && ${point(2)}`, 5000), 'the line’s two points show');
+        const end = await middleOf(page, point(2));
+        await page.dragMouse([end.x, end.y], [end.x, end.y + 50]);
+        assert.ok(await until(() => (canvasOf(root).notes.wire?.y2 ?? 700) > 720, 10000), `the end moved down: ${JSON.stringify(canvasOf(root).notes.wire)}`);
+        assert.deepEqual([canvasOf(root).notes.wire.x, canvasOf(root).notes.wire.y], [0, 700], 'the start stayed');
         assert.deepEqual(page.problems, []);
       } finally { await page.close(); }
     });

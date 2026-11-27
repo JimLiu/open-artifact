@@ -55,6 +55,7 @@ export function BoardFrame({ path, mode, width, height, interactive, onNavigate,
   swipe.current = { onSwipe, canSwipe };
   const swipes = Boolean(onSwipe);
   const source = useDocument((s) => s.boards[path]?.source ?? null);
+  const frameless = useDocument((s) => s.canvas.boards[path]?.frameless === true);
   const overrides = useView((s) => s.overrides[path]);
   const hasSource = source !== null;
   const booted = useView((s) => s.frames[path]?.booted ?? false);
@@ -168,7 +169,7 @@ export function BoardFrame({ path, mode, width, height, interactive, onNavigate,
       title={path}
       data-board={path}
       sandbox="allow-scripts allow-same-origin allow-popups"
-      className="block border-0 bg-white"
+      className={frameless ? 'block border-0 bg-transparent' : 'block border-0 bg-white'}
       style={{ width, height, pointerEvents: interactive ? 'auto' : 'none', ...(hideUntilBooted && !booted ? { opacity: 0 } : {}), ...(hidden ? { visibility: 'hidden' } : {}) }}
     />
   );

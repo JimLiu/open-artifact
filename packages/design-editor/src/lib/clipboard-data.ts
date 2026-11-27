@@ -25,12 +25,27 @@ export type ClipboardPayload =
       /** Style rules of the artboard that apply to the elements, carried into another artboard's helmet. */
       css?: string[];
       /**
+       * Per element, where it sat in its artboard when copied (against the
+       * root), with what it computed: pastes into an artboard keep them apart
+       * as they were. Missing when the page could not be measured.
+       */
+      boxes?: CopiedBox[];
+      /**
        * The elements as standalone HTML (computed styles inline), for other
        * apps. Written to the clipboard, not kept in the marker.
        */
       standalone?: string;
     }
   | { kind: 'objects'; externalCode?: boolean; boards: { path: string; entry: BoardEntry; source: string }[]; notes: CanvasNote[] };
+
+/** A copied element's border box against its artboard's root, and its computed layout. */
+export interface CopiedBox {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  computed: Record<string, string>;
+}
 
 export const MARKER = 'data-open-artifact-design';
 

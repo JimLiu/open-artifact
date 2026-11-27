@@ -188,6 +188,8 @@ function BoardChrome({ boards, renamingBoard, onRenameDone }: Omit<OverlayProps,
       {boards.map((path) => {
         const entry = canvas.boards[path]!;
         const problem = problemOf.get(path);
+        // A piece has no label (it is a loose element on the canvas) unless it has a problem to show.
+        if (entry.frameless && !problem) return null;
         const closed = problem ? noticeClosed(closedNotices, problem) : false;
         const selected = boardTakesPart(selection, path);
         const name = entry.title || path.replace(/\.dc\.html$/, '');

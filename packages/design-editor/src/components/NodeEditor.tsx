@@ -79,9 +79,49 @@ export function NodeEditor() {
     window.addEventListener('pointercancel', up);
   };
 
-  const segments = closed && nodes.length > 2 ? nodes.length : nodes.length - 1;
   return (
     <svg className="pointer-events-none absolute inset-0 size-full" role="group" aria-label="Path points">
+      <NodePoints
+        nodes={nodes}
+        closed={closed}
+        curves={path}
+        at={at}
+        onGrab={(index, part, event) => begin(index, part)(event)}
+        onSplit={(index) => {
+          writeNodes(id, splitSegment(nodes, index, closed));
+          announce('Point added');
+        }}
+        onRemove={(index) => {
+          writeNodes(id, removeNode(nodes, index));
+          announce('Point removed');
+        }}
+      />
+    </svg>
+  );
+}
+
+/** The points of one run of nodes, drawn through `at` (screen pixels), with what can be done to them. */
+export function NodePoints({
+  nodes,
+  closed,
+  curves,
+  at,
+  onGrab,
+  onSplit,
+  onRemove,
+}: {
+  nodes: readonly BezierNode[];
+  closed: boolean;
+  /** Handles are shown (paths; lines and arrows have none). */
+  curves: boolean;
+  at(x: number, y: number): { x: number; y: number };
+  onGrab(index: number, part: NodePart, event: ReactPointerEvent): void;
+  onSplit(index: number): void;
+  onRemove(index: number): void;
+}) {
+  const segments = closed && nodes.length > 2 ? nodes.length : nodes.length - 1;
+  return (
+    <g>
       <path d={bezierPathData(nodes, closed, at)} fill="none" stroke="var(--color-accent)" strokeWidth={1} />
       {/* Segment midpoints: click to add a point. */}
       {Array.from({ length: segments }, (_, i) => {
@@ -103,8 +143,7 @@ export function NodeEditor() {
             onPointerDown={(event) => {
               if (event.button !== 0) return;
               event.stopPropagation();
-              writeNodes(id, splitSegment(nodes, i, closed));
-              announce('Point added');
+              onSplit(i);
             }}
           />
         );
@@ -115,12 +154,12 @@ export function NodeEditor() {
           <g key={i}>
             {(['in', 'out'] as const).map((part) => {
               const handle = node[part];
-              if (!handle || !path) return null;
+              if (!handle || !curves) return null;
               const h = at(node.x + handle[0], node.y + handle[1]);
               return (
                 <g key={part}>
                   <line x1={p.x} y1={p.y} x2={h.x} y2={h.y} stroke="var(--color-accent)" strokeWidth={1} />
-                  <circle role="slider" aria-label={`Point ${i + 1} ${part === 'in' ? 'incoming' : 'outgoing'} handle`} aria-valuenow={0} cx={h.x} cy={h.y} r={4} fill="white" stroke="var(--color-accent)" strokeWidth={1.5} className="pointer-events-auto cursor-move" onPointerDown={begin(i, part)} />
+                  <circle role="slider" aria-label={`Point ${i + 1} ${part === 'in' ? 'incoming' : 'outgoing'} handle`} aria-valuenow={0} cx={h.x} cy={h.y} r={4} fill="white" stroke="var(--color-accent)" strokeWidth={1.5} className="pointer-events-auto cursor-move" onPointerDown={(event) => onGrab(i, part, event)} />
                 </g>
               );
             })}
@@ -136,17 +175,16 @@ export function NodeEditor() {
               stroke="var(--color-accent)"
               strokeWidth={1.5}
               className="pointer-events-auto cursor-move"
-              onPointerDown={begin(i, 'anchor')}
+              onPointerDown={(event) => onGrab(i, 'anchor', event)}
               onDoubleClick={(event) => {
                 event.stopPropagation();
                 if (nodes.length <= 2) return;
-                writeNodes(id, removeNode(nodes, i));
-                announce('Point removed');
+                onRemove(i);
               }}
             />
           </g>
         );
       })}
-    </svg>
+    </g>
   );
 }

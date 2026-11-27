@@ -52,6 +52,12 @@ describe('scene items', () => {
     assert.equal(image.z, 3);
   });
 
+  it('draws a piece without the artboard’s page, edge and shadow', () => {
+    const piece = boardItem('Piece.dc.html', { ...entry, frameless: true }, { hole: false, texture: 'snap:l:1:Piece.dc.html', z: 0, editable: true });
+    assert.equal(piece.kind, 'image');
+    assert.ok(piece.kind === 'image' && piece.fill === 'rgba(0,0,0,0)' && !piece.stroke && !piece.shadow && piece.texture === 'snap:l:1:Piece.dc.html');
+  });
+
   it('sizes stickies, titles and links by their rendered text', () => {
     const sticky = { kind: 'sticky', x: 0, y: 0, text: 'long' } as CanvasNote;
     assert.deepEqual(noteRect(sticky), { x: 0, y: 0, w: 240, h: 80 });

@@ -184,6 +184,34 @@ export function flowDropAt(board: string, items: readonly ElementSelection[], po
   return drop ? { ...drop, outline } : null;
 }
 
+/**
+ * Where something new dropped at a world point would go in flow: next to
+ * the nearest child of the innermost container under the point that can
+ * take it, or at the end of an empty one. `null` when the artboard is not
+ * loaded or has no single root.
+ */
+export function flowSpotAt(board: string, point: { x: number; y: number }): FlowDrop | null {
+  const source = useDocument.getState().boards[board]?.source;
+  const entry = useDocument.getState().canvas.boards[board];
+  const api = boardApi(board);
+  if (!source || !entry || !api) return null;
+  const model = templateOf(source);
+  let picks: ReturnType<typeof api.pickAll> = [];
+  try {
+    picks = api.pickAll(point.x - entry.x, point.y - entry.y);
+  } catch {
+    picks = [];
+  }
+  const container = picks.map((pick) => model.elements[pick.tid]).find((element): element is HtmlElement => Boolean(element && canContain(element))) ?? templateRoot(model);
+  if (!container) return null;
+  const tid = model.tidOf.get(container)!;
+  const target = { tid, path: elementPath(model, container) };
+  const outline = worldRects(board, [tid])[tid]?.[0];
+  const context = contextIn(board, model, [], container, null);
+  const drop = context.siblings.length ? flowDrop(context, point) : null;
+  return drop ? { ...drop, outline } : { target, position: 'last-child', line: null, outline };
+}
+
 /** Inherited text styles to keep on elements moving to another parent, so they look the same there. */
 const INHERITED_TEXT = ['color', 'font-family', 'font-size', 'font-weight', 'font-style', 'line-height', 'letter-spacing', 'text-align', 'text-transform'];
 

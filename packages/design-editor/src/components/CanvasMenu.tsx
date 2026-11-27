@@ -22,7 +22,7 @@ import {
   selectionIsPositioned,
   wrapSelection,
 } from '../services/commands.ts';
-import { canPasteHere, copyToSystem, pasteFromSystem, pasteHere, pasteIntoLocked } from '../services/clipboard.ts';
+import { canPasteHere, copyToSystem, menuPasteRefusal, pasteFromSystem, pasteHere, pasteIntoLocked } from '../services/clipboard.ts';
 import { toggleSelectionLock, useDeleteLockedWhy, useSelectionLock } from '../services/locks.ts';
 import { LOCKED_REASON, UNLOCKABLE_REASON } from '../lib/locks.ts';
 import { canCaptureSelection, canCopyAs, copyAs } from '../services/capture.ts';
@@ -85,6 +85,7 @@ function MenuItems() {
   // Delete skips locked artboards and notes; it is off only when all are locked.
   const deleteLocked = useDeleteLockedWhy() ?? undefined;
   const pasteLocked = pasteIntoLocked();
+  const pasteOff = pasteLocked ? LOCKED_REASON : menuPasteRefusal();
   const mixed = selection.kind === 'mixed';
 
   const selectAll = () => {
@@ -100,7 +101,7 @@ function MenuItems() {
 
   const paste = (
     <>
-      <ChromeMenuItem shortcut="⌘V" disabled={readOnly || pasteLocked} title={pasteLocked ? LOCKED_REASON : undefined} onSelect={() => void pasteFromSystem()}>
+      <ChromeMenuItem shortcut="⌘V" disabled={readOnly || Boolean(pasteOff)} title={pasteOff ?? undefined} onSelect={() => void pasteFromSystem(true)}>
         Paste
       </ChromeMenuItem>
       {here ? (

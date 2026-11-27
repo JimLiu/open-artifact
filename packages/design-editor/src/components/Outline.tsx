@@ -7,8 +7,9 @@
  * operations (undoable, replayed over remote changes): double-click a name
  * to rename it (`data-label`), the eye hides or shows it (inline
  * `display: none`), and dragging rows moves the elements before, after or
- * into another layer of the same artboard. Locked layers show a lock;
- * clicking it unlocks that layer alone.
+ * into another layer of the same artboard. Dropped on another artboard's
+ * rows, elements move into that artboard, and notes and pieces join it.
+ * Locked layers show a lock; clicking it unlocks that layer alone.
  */
 
 import { Box, ChevronRight, Eye, EyeOff, GitBranch, Hash, Image, LayoutGrid, Lock, Repeat, Shapes, StretchHorizontal, StretchVertical, Type } from 'lucide-react';
@@ -28,6 +29,9 @@ import { ancestorTids, buildOutline, carryTids, climbAfter, draggedAncestorSteps
 import { boardsReached, elementsIn, selectedBoardsOf, selectedNotesOf } from '../lib/selection.ts';
 import { shiftBoard, shiftElement, shiftNotes } from '../services/selecting.ts';
 import { moveLayers } from '../services/structure.ts';
+import { canTakeRows, joinFromOutline, moveElementsInto, useOutlineInto } from '../services/outline-move.ts';
+import type { LooseObjects } from '../lib/join.ts';
+import { rowsCanLeave } from '../lib/outline-into.ts';
 
 const GLYPH_PROPS = { className: 'size-3.5', strokeWidth: 1.75 } as const;
 
@@ -60,6 +64,8 @@ function TreeRow({
   onSelect,
   onHover,
   row,
+  board,
+  into = false,
   label,
   hidden = false,
   drop = null,
@@ -86,6 +92,10 @@ function TreeRow({
   onHover(on: boolean): void;
   /** Marks the row as a drop target (`data-outline-row`, `data-outline-tid`). */
   row?: { board: string; tid: number };
+  /** An artboard's own row (`data-outline-board`): rows dropped on it go into the artboard. */
+  board?: string;
+  /** Rows dragged from elsewhere would drop into this artboard. */
+  into?: boolean;
   /** The layer's own name (`data-label`), edited by Rename. */
   label?: string;
   /** Hidden with `display: none`: the row dims and its eye stays shown. */
@@ -110,6 +120,8 @@ function TreeRow({
       aria-label={locked ? `${detail ? `${name} ${detail}` : name}, Locked` : undefined}
       data-outline-row={row?.board}
       data-outline-tid={row?.tid}
+      data-outline-board={board}
+      data-drop-into={into || undefined}
       role="treeitem"
       aria-level={level + 1}
       aria-selected={selected}
@@ -135,7 +147,7 @@ function TreeRow({
       className={cn(
         'group/row relative flex h-6 cursor-default select-none items-center rounded-[6px] pr-1 text-[12px] leading-4',
         selected ? cn('bg-chrome-selected text-chrome-fg', bold && 'font-medium') : cn('text-chrome-secondary', hovered ? 'bg-chrome-hover' : 'hover:bg-chrome-hover'),
-        drop === 'inside' && 'outline outline-2 -outline-offset-2 outline-chrome-accent',
+        (drop === 'inside' || into) && 'outline outline-2 -outline-offset-2 outline-chrome-accent',
       )}
       style={{ paddingLeft: 6 + level * 16 }}
     >
@@ -254,6 +266,57 @@ function useLayouts(board: string, source: string | null, enabled: boolean): (ti
 }
 
 /** The tree of one artboard. */
+/** The artboard of the layers-list row under a point: its own row or one of its elements' rows. */
+function rowBoardAt(x: number, y: number): string | null {
+  const row = (document.elementFromPoint(x, y) as HTMLElement | null)?.closest<HTMLElement>('[data-outline-board], [data-outline-row]');
+  return row?.dataset.outlineBoard ?? row?.dataset.outlineRow ?? null;
+}
+
+/** Marks the artboard rows dragged from `from` would drop into, at a point; returns it. */
+function markInto(x: number, y: number, from: string | null): string | null {
+  const board = rowBoardAt(x, y);
+  const into = board && board !== from && canTakeRows(board, from) ? board : null;
+  if (useOutlineInto.getState().into !== into) useOutlineInto.setState({ into });
+  return into;
+}
+
+/**
+ * A press on a note, group or piece row: past a few pixels it drags them,
+ * and dropped on an artboard's row they join that artboard.
+ */
+function pressLoose(members: () => LooseObjects, from: string | null) {
+  return (event: ReactMouseEvent): void => {
+    if (useDocument.getState().readOnly || event.shiftKey || event.metaKey || event.ctrlKey) return;
+    const startX = event.clientX;
+    const startY = event.clientY;
+    let dragging = false;
+    let refused = false;
+    let into: string | null = null;
+    const move = (e: MouseEvent): void => {
+      if (refused || (!dragging && Math.hypot(e.clientX - startX, e.clientY - startY) < 4)) return;
+      if (!dragging) {
+        const { canvas } = useDocument.getState();
+        const { boards, notes } = members();
+        if (boards.some((path) => isLockedObject(canvas.boards[path])) || notes.some((id) => isLockedObject(canvas.notes[id]))) {
+          refused = true;
+          refuseLocked();
+          return;
+        }
+      }
+      dragging = true;
+      into = markInto(e.clientX, e.clientY, from);
+    };
+    const up = (): void => {
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', up);
+      useOutlineInto.setState({ into: null });
+      if (dragging && into) joinFromOutline(members(), into);
+    };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+  };
+}
+
 function BoardTree({ path, flipped, flip, unflip, carry, autoOpen }: { path: string; flipped: Set<string>; flip(key: string): void; unflip(keys: string[]): void; carry(path: string, before: string, after: string): void; autoOpen: boolean }) {
   const entry = useDocument((s) => s.canvas.boards[path]);
   const source = useDocument((s) => s.boards[path]?.source ?? null);
@@ -291,6 +354,7 @@ function BoardTree({ path, flipped, flip, unflip, carry, autoOpen }: { path: str
   }, [openTids, path]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const readOnly = useDocument((s) => s.readOnly);
+  const into = useOutlineInto((s) => s.into === path);
   /** The drop: target row and side, and the row the line shows on (`at`, `shift` levels in). */
   const [drop, setDrop] = useState<{ tid: number; where: OutlineDrop; at: number; shift: number } | null>(null);
 
@@ -301,7 +365,10 @@ function BoardTree({ path, flipped, flip, unflip, carry, autoOpen }: { path: str
     const startY = event.clientY;
     let dragging = false;
     let target: { tid: number; where: OutlineDrop; at: number; shift: number } | null = null;
+    let into: string | null = null;
     let refused = false;
+    const sourceAtStart = source;
+    const leaves = rowsCanLeave(model, dragged(node.tid));
     const move = (e: MouseEvent): void => {
       if (refused || (!dragging && Math.hypot(e.clientX - startX, e.clientY - startY) < 4)) return;
       if (!dragging && dragged(node.tid).some((tid) => { const element = model.elements[tid]; return element ? isElementLocked(element) : false; })) {
@@ -311,8 +378,9 @@ function BoardTree({ path, flipped, flip, unflip, carry, autoOpen }: { path: str
         return;
       }
       dragging = true;
+      into = leaves ? markInto(e.clientX, e.clientY, path) : null;
       const row = (document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null)?.closest<HTMLElement>('[data-outline-tid]');
-      if (!row || row.dataset.outlineRow !== path) {
+      if (into || !row || row.dataset.outlineRow !== path) {
         target = null;
         setDrop(null);
         return;
@@ -330,6 +398,11 @@ function BoardTree({ path, flipped, flip, unflip, carry, autoOpen }: { path: str
       window.removeEventListener('mousemove', move);
       window.removeEventListener('mouseup', up);
       setDrop(null);
+      useOutlineInto.setState({ into: null });
+      if (dragging && into && sourceAtStart) {
+        moveElementsInto(path, items(node), into, sourceAtStart);
+        return;
+      }
       if (!dragging || !target) return;
       const op = reorderOp(model, dragged(node.tid), target.tid, target.where);
       if (op?.kind === 'move' && moveLayers(path, op)) announce(`Moved ${target.where === 'inside' ? 'into' : target.where} the layer`);
@@ -354,6 +427,11 @@ function BoardTree({ path, flipped, flip, unflip, carry, autoOpen }: { path: str
   const dragged = (tid: number): number[] => {
     const items = elementsIn(useView.getState().selection, path);
     return items.some((item) => item.tid === tid) ? items.map((item) => item.tid) : [tid];
+  };
+  /** The elements a drag from `node`'s row moves: the selected ones, when it is one of them. */
+  const items = (node: OutlineNode): ElementSelection[] => {
+    const selected = elementsIn(useView.getState().selection, path);
+    return selected.some((item) => item.tid === node.tid) ? [...selected] : [{ tid: node.tid, path: node.path, instance: 0 }];
   };
 
   const rename = (node: OutlineNode) => (name: string) => {
@@ -444,7 +522,10 @@ function BoardTree({ path, flipped, flip, unflip, carry, autoOpen }: { path: str
         onToggle={() => flip(boardKey)}
         onSelect={selectBoard}
         onHover={(on) => view().setHoverObject(on ? { board: path } : null)}
+        board={path}
+        into={into}
         editable={!readOnly}
+        onPress={entry.frameless ? pressLoose(() => ({ boards: [path], notes: [] }), path) : undefined}
         locked={isLockedObject(entry)}
         onUnlock={() => unlockObjects([path], [])}
       />
@@ -540,13 +621,18 @@ export function Outline() {
   };
   // The canvas rings a note's whole group, so a group row rings it through any of its notes.
   const hoverNote = (id: string | null) => useView.getState().setHoverObject(id === null ? null : { note: id });
+  /** The notes a drag from a note or group row moves: the selected ones, when those include the row's. */
+  const draggedNotes = (ids: string[]) => (): LooseObjects => {
+    const selected = selectedNotesOf(useView.getState().selection);
+    return { boards: [], notes: ids.every((id) => selected.includes(id)) ? [...selected] : ids };
+  };
   const noteRow = (id: string, level: number) => {
     const note = canvas.notes[id]!;
     const name = note.title || note.text?.split('\n')[0] || note.alt || note.href || note.kind || 'Sticky';
     const glyph = note.kind === 'image' ? 'image' : !note.kind || ['link', 'title1', 'sticky'].includes(note.kind) ? 'text' : 'shape';
     return <TreeRow key={id} level={level} name={name} glyph={glyph} selected={selectedNotes.includes(id)}
       hovered={false} open={false} hasChildren={false} onHover={on => hoverNote(on ? id : null)} onToggle={() => {}} onSelect={add => selectNotes([id], add)}
-      editable={!readOnly} locked={isLockedObject(note)} onUnlock={() => unlockObjects([], [id])} />;
+      editable={!readOnly} onPress={pressLoose(draggedNotes([id]), null)} locked={isLockedObject(note)} onUnlock={() => unlockObjects([], [id])} />;
   };
 
   return (
@@ -558,7 +644,7 @@ export function Outline() {
         const open = flipped.has(key);
         return <div key={key} role="group">
           <TreeRow level={0} name="Group" detail={String(ids.length)} glyph="frame" selected={ids.every(id => selectedNotes.includes(id))}
-            hovered={false} open={open} hasChildren onHover={on => hoverNote(on ? ids[0]! : null)} onToggle={() => flip(key)} onSelect={add => selectNotes(ids, add)} />
+            hovered={false} open={open} hasChildren onHover={on => hoverNote(on ? ids[0]! : null)} onToggle={() => flip(key)} onSelect={add => selectNotes(ids, add)} onPress={pressLoose(draggedNotes(ids), null)} />
           {open && ids.map(id => noteRow(id, 1))}
         </div>;
       })}

@@ -94,6 +94,35 @@ describe('one undo step across files', () => {
   });
 });
 
+describe('artboard files through undo', () => {
+  it('deletes a made artboard’s file again when its making is undone, and keeps it when redone', () => {
+    useDocument.getState().load({ title: 'Steps', readOnly: false, canvas: { text: '{}', hash: '1' }, boards: {} });
+    useDocument.setState({ undo: [], redo: [] });
+    const doc = useDocument.getState;
+    doc().createBoard('Piece.dc.html', '<div></div>', { x: 0, y: 0, w: 10, h: 10, frameless: true });
+    // Saved: the server has it now.
+    useDocument.setState({ boards: { 'Piece.dc.html': { ...doc().boards['Piece.dc.html']!, saved: '<div></div>', hash: 'h' } } });
+    doc().undoLast();
+    assert.deepEqual(doc().trash, ['Piece.dc.html']);
+    doc().redoLast();
+    assert.deepEqual(doc().trash, []);
+    assert.ok('Piece.dc.html' in doc().canvas.boards);
+  });
+
+  it('brings back an artboard deleted in a step with other changes', () => {
+    useDocument.getState().load({ title: 'Steps', readOnly: false, canvas: { text: JSON.stringify({ boards: { 'p.dc.html': { x: 0, y: 0, w: 5, h: 5 } }, order: ['p.dc.html'] }), hash: '1' }, boards: { 'p.dc.html': { text: '<i></i>', hash: 'p' }, a: { text: 'A', hash: 'a' } } });
+    useDocument.setState({ undo: [], redo: [] });
+    const doc = useDocument.getState;
+    doc().transact(() => {
+      doc().editBoard('a', { kind: 'source', text: 'A2' });
+      doc().deleteBoards(['p.dc.html']);
+    });
+    assert.deepEqual(doc().trash, ['p.dc.html']);
+    doc().undoLast();
+    assert.deepEqual([doc().trash, doc().boards.a!.source, 'p.dc.html' in doc().canvas.boards], [[], 'A', true]);
+  });
+});
+
 describe('cancelling a step', () => {
   it('takes back what the step changed and records nothing', () => {
     useDocument.getState().load({ title: 'Steps', readOnly: false, canvas: { text: '{}', hash: '1' }, boards: { a: { text: 'A', hash: 'a' }, b: { text: 'B', hash: 'b' } } });

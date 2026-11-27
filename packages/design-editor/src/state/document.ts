@@ -419,9 +419,14 @@ function reverted(state: DocumentState, entry: HistoryEntry, side: 'before' | 'a
     boards[change.path] = { ...board, ...change[side] };
   }
   const canvas = canvasChange(entry);
+  const next = canvas ? mergeCanvas(canvas[other], canvas[side], state.canvas) : null;
+  // Artboards the step takes off the canvas are deleted again; those it puts back are kept.
+  const trash = next
+    ? [...new Set([...state.trash.filter((path) => !(path in next.boards)), ...Object.keys(state.canvas.boards).filter((path) => !(path in next.boards) && state.boards[path])])]
+    : state.trash;
   return {
     ...(changes.length ? { boards } : {}),
-    ...(canvas ? { canvas: mergeCanvas(canvas[other], canvas[side], state.canvas) } : {}),
+    ...(next ? { canvas: next, trash } : {}),
   };
 }
 

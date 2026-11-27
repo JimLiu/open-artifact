@@ -30,7 +30,7 @@ import { freeBoardName } from '../lib/frame.ts';
 import { looksLikeHtml, sanitizeHtml, textParagraphs } from '../lib/sanitize.ts';
 import { pasteRoute, type PasteContext, type PasteField } from '../lib/paste-route.ts';
 import type { Address } from '../lib/ops.ts';
-import { isElementLocked, withoutLocks } from '../lib/locks.ts';
+import { isElementLocked, LOCKED_REASON, withoutLocks } from '../lib/locks.ts';
 import { useDocument } from '../state/document.ts';
 import { useView, type ElementSelection } from '../state/view.ts';
 import { templateOf } from './agent.ts';
@@ -43,6 +43,9 @@ import { isTextField, writeClipboard, writeClipboardText } from '@open-artifact/
 import { refuseIfLocked, refuseLocked } from './locks.ts';
 import { noteTextOf, staggeredSpot, textNoteSize } from '../lib/notes.ts';
 import { announce } from './announce.ts';
+import { settledInsert } from './insert-place.ts';
+import { layerPasteBoard, pasteAsLayers, type LayerPlace } from './paste-into.ts';
+import { boundsOf } from '../lib/paste-layers.ts';
 
 export { clipboardData, payloadFromHtml, type ClipboardPayload };
 
@@ -84,7 +87,7 @@ const here = () => location.pathname;
 const MAX_STANDALONE = 2 * 1024 * 1024;
 
 /** The payload of copied elements, with what they need to look the same elsewhere. */
-function elementsPayload(board: string, model: TemplateModel, elements: HtmlElement[], items: readonly ElementSelection[]): ClipboardPayload {
+export function elementsPayload(board: string, model: TemplateModel, elements: HtmlElement[], items: readonly ElementSelection[]): ClipboardPayload {
   // Copies never carry a lock.
   const html = elements.map((el) => withoutLocks(elementSource(model, el)));
   const payload: Extract<ClipboardPayload, { kind: 'elements' }> = { kind: 'elements', board, html, from: here() };
@@ -99,6 +102,8 @@ function elementsPayload(board: string, model: TemplateModel, elements: HtmlElem
     const present = lives.filter((live): live is Element => live !== null);
     const css = carriedCss(present);
     if (css.length) payload.css = css;
+    const boxes = boardApi(board)?.measure(elements.map((el) => model.tidOf.get(el)!), null);
+    if (boxes && boxes.length === elements.length) payload.boxes = boxes.map(({ left, top, width, height, computed }) => ({ left, top, width, height, computed }));
     const shown = elements.map((el) => liveElementOf(board, itemOf(el), { descend: false })).filter((live): live is Element => live !== null);
     if (shown.length === elements.length) {
       const standalone = shown.map((live) => standaloneHtml(live)).join('\n');
@@ -230,12 +235,18 @@ function pasteElements(payload: Extract<ClipboardPayload, { kind: 'elements' }>)
     return false;
   }
   const { html, helmet } = markupFor(payload, where.board);
-  return edit(where.board, { kind: 'insert', target: where.target, position: where.position, html, helmet }, { selectCreated: true });
+  const at = settledInsert(where.board, where, html);
+  return edit(where.board, { kind: 'insert', target: at.target, position: at.position, html, helmet }, { selectCreated: true });
 }
 
-/** Adds copies of artboards and notes to the current page, offset from the originals. */
-function pasteObjects(payload: Extract<ClipboardPayload, { kind: 'objects' }>): void {
+/**
+ * Adds copies of artboards and notes to the current page, offset from the
+ * originals, or centred on `at` (a world point).
+ */
+function pasteObjects(payload: Extract<ClipboardPayload, { kind: 'objects' }>, at?: { x: number; y: number }): void {
   const doc = useDocument.getState();
+  const all = at ? boundsOf([...payload.boards.map(({ entry }) => ({ x: entry.x, y: entry.y, w: entry.w, h: entry.h })), ...payload.notes.map((note) => ({ x: note.x, y: note.y, w: note.w ?? 0, h: note.h ?? 0 }))]) : null;
+  const shift = all && at ? { x: Math.round(at.x - all.x - all.w / 2), y: Math.round(at.y - all.y - all.h / 2) } : null;
   const view = useView.getState();
   const firstPage = doc.canvas.pages[0]?.id;
   const page = view.page && view.page !== firstPage ? view.page : undefined;
@@ -250,7 +261,7 @@ function pasteObjects(payload: Extract<ClipboardPayload, { kind: 'objects' }>): 
   for (const { path, entry, source } of payload.boards) {
     const name = names.get(path)!;
     const { page: _page, ...rest } = withoutLock(entry);
-    useDocument.getState().createBoard(name, remapBoardReferences(source, path, names), { ...rest, x: entry.x + 40, y: entry.y + 40, ...(page ? { page } : {}) });
+    useDocument.getState().createBoard(name, remapBoardReferences(source, path, names), { ...rest, x: entry.x + (shift?.x ?? 40), y: entry.y + (shift?.y ?? 40), ...(page ? { page } : {}) });
     boards.push(name);
   }
   let notes: string[] = [];
@@ -259,7 +270,7 @@ function pasteObjects(payload: Extract<ClipboardPayload, { kind: 'objects' }>): 
       // Copies of a group form a new group of their own.
       const copied = addNoteCopies(canvas, payload.notes, (note) => {
         const { page: _page, ...rest } = withoutLock(note);
-        return { ...rest, x: note.x + 24, y: note.y + 24, ...(page ? { page } : {}) };
+        return { ...rest, x: note.x + (shift?.x ?? 24), y: note.y + (shift?.y ?? 24), ...(page ? { page } : {}) };
       });
       notes = copied.ids;
       return copied.canvas;
@@ -276,9 +287,22 @@ export function finishBoardPaste(accept: boolean): void {
   if (accept && pending && !useDocument.getState().readOnly) pasteObjects(pending);
 }
 
-/** Pastes a payload. */
-export function pastePayload(payload: ClipboardPayload): void {
+/**
+ * Pastes a payload: into an artboard as positioned layers when there is one
+ * to paste into (`menuBoard`, the artboard the context menu was opened on,
+ * comes first), else where an ordinary paste goes.
+ */
+export function pastePayload(payload: ClipboardPayload, menuBoard: string | null = null): void {
   if (useDocument.getState().readOnly) return;
+  const board = payload.kind === 'objects' && payload.externalCode ? null : layerPasteBoard(payload, menuBoard);
+  if (board) {
+    const outcome = pasteAsLayers(payload, board, layerPlace(board));
+    if (outcome.kind === 'done') return;
+    if (outcome.kind === 'canvas' && payload.kind === 'objects') {
+      pasteObjects(payload, outcome.at);
+      return;
+    }
+  }
   if (payload.kind === 'elements') pasteElements(payload);
   else if (payload.externalCode) useBoardPaste.setState({ pending: payload });
   else pasteObjects(payload);
@@ -307,7 +331,8 @@ export function pasteText(text: string): void {
   const where = pasteTarget(null, html);
   if (where === 'locked') refuseLocked();
   else if (where) {
-    edit(where.board, { kind: 'insert', target: where.target, position: where.position, html }, { selectCreated: true });
+    const at = settledInsert(where.board, where, html);
+    edit(where.board, { kind: 'insert', target: at.target, position: at.position, html }, { selectCreated: true });
   } else {
     pasteTextNote(text);
   }
@@ -350,9 +375,14 @@ function pasteTextNote(text: string): void {
   announce('Text added');
 }
 
-/** Paste for callers without a clipboard event (context menu, frame keys). */
-export async function pasteFromSystem(): Promise<void> {
+/**
+ * Paste for callers without a clipboard event (context menu, frame keys).
+ * `fromMenu`: the context menu's Paste, which pastes into the artboard it
+ * was opened on.
+ */
+export async function pasteFromSystem(fromMenu = false): Promise<void> {
   if (useDocument.getState().readOnly) return;
+  const menuBoard = fromMenu ? (menuPoint?.board ?? null) : null;
   try {
     const items = await navigator.clipboard.read();
     for (const item of items) {
@@ -360,7 +390,7 @@ export async function pasteFromSystem(): Promise<void> {
         const payload = payloadFromHtml(await (await item.getType('text/html')).text());
         if (payload) {
           memory = payload;
-          pastePayload(payload);
+          pastePayload(payload, menuBoard);
           return;
         }
       }
@@ -384,7 +414,31 @@ export async function pasteFromSystem(): Promise<void> {
   } catch {
     // No permission to read: fall back to what this tab copied.
   }
-  if (memory) pastePayload(memory);
+  if (memory) pastePayload(memory, menuBoard);
+}
+
+/** Why the context menu's Paste is off for the artboard it was opened on, or null. */
+export function menuPasteRefusal(): string | null {
+  if (!menuPoint) return null;
+  if (isLockedObject(useDocument.getState().canvas.boards[menuPoint.board])) return LOCKED_REASON;
+  // The menu reads the system clipboard where the browser lets it; otherwise only what this tab copied.
+  if (memory || typeof navigator.clipboard?.read === 'function') return null;
+  return `No artboard or object copied in this tab yet. Press ${navigator.platform.startsWith('Mac') ? '⌘V' : 'Ctrl+V'} to paste anything else.`;
+}
+
+/** Where layers pasted into an artboard go: its freeform container, else its root. */
+export function layerPlace(board: string): LayerPlace | null {
+  const source = useDocument.getState().boards[board]?.source;
+  const api = boardApi(board);
+  if (!source || !api) return null;
+  const model = templateOf(source);
+  const container = freeformContainer(board)?.container ?? rootElement(model);
+  const info = container ? api.inspect(model.tidOf.get(container)!) : null;
+  const border = (side: string) => parseFloat(info?.computed[`border-${side}-width`] ?? '0') || 0;
+  const box = info
+    ? { x: info.rect.x + border('left'), y: info.rect.y + border('top'), w: info.rect.width - border('left') - border('right'), h: info.rect.height - border('top') - border('bottom') }
+    : { x: 0, y: 0, w: useDocument.getState().canvas.boards[board]?.w ?? 0, h: useDocument.getState().canvas.boards[board]?.h ?? 0 };
+  return { model, container, box, anchor: Boolean(info && info.computed.position === 'static') };
 }
 
 /* ------------------------------- paste here ------------------------------- */

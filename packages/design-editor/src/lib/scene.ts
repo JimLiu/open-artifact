@@ -106,6 +106,8 @@ export function boardItem(path: string, entry: BoardEntry, look: BoardLook): Can
     ...(look.passThrough ? { hittable: false, selectable: false } : {}),
   };
   if (look.hole) return { ...base, kind: 'hole' };
+  // A piece is drawn without the artboard's page, edge and shadow.
+  if (entry.frameless) return { ...base, kind: 'image', fill: 'rgba(0,0,0,0)', ...(look.texture ? { texture: look.texture } : {}) };
   return {
     ...base,
     kind: 'image',

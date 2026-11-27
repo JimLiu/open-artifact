@@ -38,7 +38,7 @@ import {
   type CanvasNote,
   type Rect,
 } from '@open-artifact/design-core';
-import { toast } from '@open-artifact/ui';
+import { cn, toast } from '@open-artifact/ui';
 import { useDocument } from '../state/document.ts';
 import { NO_SELECTION, toWorld, useView, type Camera, type ElementSelection, type ViewState } from '../state/view.ts';
 import { boardApi } from '../services/frames.ts';
@@ -71,12 +71,17 @@ import { useLiveCamera } from '../services/camera-frame.ts';
 import { projectBox } from '../lib/overlay.ts';
 import { bezierPathData, relativeNodes, sampleBezier, type BezierNode } from '../lib/bezier.ts';
 import { CropOverlay } from './CropOverlay.tsx';
+import { JoinPreview } from './JoinPreview.tsx';
+import { PathPoints } from './PathPoints.tsx';
+import { startPathEdit } from '../services/path-edit.ts';
+import { canJoin, endJoinHover, joinHover, joinInto, useJoin } from '../services/join.ts';
+import { makePieces, onEmptyCanvas } from '../services/piece.ts';
 import { NodeEditor } from './NodeEditor.tsx';
 import { announce } from '../services/announce.ts';
 import { endsMode } from '../lib/mode-keys.ts';
 import { installRightDragPan, isTextField } from '@open-artifact/editor-kit';
 import { elementsIn, selectedBoardsOf, selectedNotesOf, withBoardElements, withObjects, type Selection } from '../lib/selection.ts';
-import { shiftBoard, shiftElement, shiftNotes } from '../services/selecting.ts';
+import { isFragmentBoard, shiftBoard, shiftElement, shiftNotes } from '../services/selecting.ts';
 
 /** Resize handle directions. */
 export type Handle = 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w' | 'nw';
@@ -99,7 +104,7 @@ type Drag =
   /** Dragging a selection that spans files: artboards, notes and positioned elements move together, live. */
   | { kind: 'mixedMove'; startX: number; startY: number; moved: boolean; applied: Offset; key: string; click: (() => void) | null; copy: boolean; offset: Offset; ghostBase: Rect[] | null }
   /** Dragging selected elements: positioned ones move live, flow ones land among their siblings. */
-  | { kind: 'elementMove'; board: string; startX: number; startY: number; moved: boolean; positioned: boolean; pinned?: { x: boolean; y: boolean }; applied: Offset; drop: FlowDrop | null; key: string; click: (() => void) | null; copy: boolean; locked: boolean; offset: Offset; ghostBase: Rect[] | null }
+  | { kind: 'elementMove'; board: string; startX: number; startY: number; moved: boolean; positioned: boolean; pinned?: { x: boolean; y: boolean }; applied: Offset; drop: FlowDrop | null; key: string; click: (() => void) | null; copy: boolean; locked: boolean; offset: Offset; ghostBase: Rect[] | null; outside?: boolean }
   /** The Pen tool: dragging out the handles of the node just placed. */
   | { kind: 'pathHandle'; startX: number; startY: number };
 
@@ -115,9 +120,14 @@ interface DragKeys {
   alt: boolean;
   /** ⌘ or Ctrl: no snapping while drawing. */
   meta: boolean;
+  /** Ctrl alone: notes dragged into an artboard stay where they are dropped. */
+  ctrl: boolean;
 }
 
-const keysOf = (event: { shiftKey: boolean; altKey: boolean; metaKey: boolean; ctrlKey: boolean }): DragKeys => ({ shift: event.shiftKey, alt: event.altKey, meta: event.metaKey || event.ctrlKey });
+const keysOf = (event: { shiftKey: boolean; altKey: boolean; metaKey: boolean; ctrlKey: boolean }): DragKeys => ({ shift: event.shiftKey, alt: event.altKey, meta: event.metaKey || event.ctrlKey, ctrl: event.ctrlKey });
+
+/** An artboard's page: white, with a faint edge and shadow (pieces go without). */
+const BOARD_PAGE = 'bg-white shadow-[0_0_0_1px_rgba(0,0,0,0.08),0_2px_8px_rgba(0,0,0,0.06)]';
 
 /** Tools that draw by dragging and snap while they do. */
 const DRAW_TOOLS: ReadonlySet<string> = new Set<DrawTool>(['board', 'rect', 'oval', 'line', 'arrow']);
@@ -268,7 +278,8 @@ function engineTakes(event: ReactPointerEvent, hit: Hit, world: { x: number; y: 
   if (hit.kind === 'note') return hit.note !== view.noteEdit;
   if (hit.kind !== 'board') return true;
   const deep = event.metaKey || event.ctrlKey;
-  if (selectedObjects(view).boards.includes(hit.board) && !deep) return true;
+  // A piece is picked up like a note; ⌘ reaches into it.
+  if ((selectedObjects(view).boards.includes(hit.board) || isFragmentBoard(hit.board)) && !deep) return true;
   return !pickElement(hit.board, world, deep ? 'deep' : 'plain');
 }
 
@@ -879,8 +890,8 @@ export function Canvas() {
     if (hit.kind === 'board') {
       const path = hit.board;
       const deep = event.metaKey || event.ctrlKey;
-      // A selected artboard moves as a whole; otherwise a click selects inside it.
-      if (objects.boards.includes(path) && !deep) {
+      // A selected artboard, or a piece, moves as a whole; otherwise a click selects inside it.
+      if ((objects.boards.includes(path) || isFragmentBoard(path)) && !deep) {
         grab({ board: path });
         return;
       }
@@ -975,11 +986,14 @@ export function Canvas() {
         current.offset = { x: Math.round(dx), y: Math.round(dy) };
         current.copy = keys.alt;
         if (keys.alt) {
+          endJoinHover();
           doc.updateCanvas(() => current.base);
           setGhosts(shifted(current.ghostBase, current.offset));
         } else {
           setGhosts(null);
           doc.updateCanvas(() => moveObjects(current.base, current.boards, current.notes, dx, dy));
+          const members = { boards: current.boards, notes: current.notes };
+          if (canJoin(members)) joinHover(members, shifted(objectRects(current.base, current.boards, current.notes), current.offset), world, keys.ctrl);
         }
         break;
       }
@@ -1029,6 +1043,21 @@ export function Canvas() {
           }
         }
         current.copy = keys.alt;
+        // Over the empty canvas the elements would become pieces: they stay put meanwhile and ghosts show where.
+        current.outside = !keys.alt && !current.locked && !doc.canvas.boards[current.board]?.frameless && onEmptyCanvas(world);
+        if (current.outside) {
+          current.offset = { x: Math.round(dx), y: Math.round(dy) };
+          if (current.applied.x || current.applied.y) {
+            const last = doc.undo[doc.undo.length - 1];
+            if (last?.scope === 'board' && last.key === current.key) doc.undoLast();
+            else moveSelectedElements(-current.applied.x, -current.applied.y, { coalesce: current.key });
+            current.applied = { x: 0, y: 0 };
+          }
+          current.drop = null;
+          setDropLine(null);
+          setGhosts(shifted(current.ghostBase ?? [], current.offset));
+          break;
+        }
         if (current.positioned) {
           // Shift keeps the move on one of eight directions; an element set
           // from both sides on an axis never moves along it.
@@ -1081,6 +1110,7 @@ export function Canvas() {
     const doc = useDocument.getState();
     const { selection } = useView.getState();
     if (current.kind === 'move' && current.moved) {
+      endJoinHover();
       doc.updateCanvas(() => current.base);
       doc.endGesture();
     } else if (current.kind === 'mixedMove' && selection.kind === 'mixed' && (current.applied.x || current.applied.y)) {
@@ -1267,6 +1297,10 @@ export function Canvas() {
       }
       const selection = view.selection;
       if (selection.kind !== 'elements' || selection.board !== current.board) return;
+      if (current.outside && !current.copy) {
+        makePieces(current.board, selection.items, current.offset);
+        return;
+      }
       if (current.drop) {
         // Moving to another parent keeps the inherited text styles (one undo step with the move).
         const frozen = freezeInherited(current.board, selection.items, current.drop);
@@ -1282,6 +1316,18 @@ export function Canvas() {
       return;
     }
     if (current.kind === 'move') {
+      // Let go over an artboard: the notes and pieces join it instead of moving.
+      if (current.moved && !current.copy && event.type === 'pointerup' && useJoin.getState().preview) {
+        doc.updateCanvas(() => current.base);
+        doc.endGesture();
+        if (joinInto({ boards: current.boards, notes: current.notes }, current.offset, worldOf(event), event.ctrlKey, measuredNoteSize)) {
+          view.tick();
+          return;
+        }
+        doc.beginGesture();
+        doc.updateCanvas(() => moveObjects(current.base, current.boards, current.notes, current.offset.x, current.offset.y));
+      }
+      endJoinHover();
       doc.endGesture();
       if (current.moved && current.copy && offsetSet(current.offset)) copyObjects(current.all.boards, current.all.notes, current.offset.x, current.offset.y);
       view.tick();
@@ -1378,6 +1424,8 @@ export function Canvas() {
       // level, so a double-click on the one selected text element edits it;
       // anywhere else it goes one level deeper under the pointer.
       const plain = pickElement(board, world, deep ? 'deep' : 'click');
+      // A path, or a drawing of one: its points.
+      if (single && plain && sameElement(plain, single) && startPathEdit(board, single)) return;
       if (single && plain && sameElement(plain, single) && textEditable(board, single)) {
         startTextEdit(board, single);
         return;
@@ -1463,11 +1511,13 @@ export function Canvas() {
         <CommentPins />
         {marquee ? <Marquee rect={marquee} /> : null}
         {dropLine ? <DropLine drop={dropLine} /> : null}
+        <JoinPreview />
         {draft ? <Draft draft={draft} /> : null}
         {ghosts ? <Ghosts rects={ghosts} /> : null}
         {renderer === 'dom' && domGuides.length ? <SnapGuides guides={domGuides} /> : null}
         {pathShown ? <PathDraftView draft={pathShown} /> : null}
         <NodeEditor />
+        <PathPoints />
         <CropOverlay />
       </div>
       {boards.length === 0 && notes.length === 0 ? (
@@ -1524,7 +1574,7 @@ function DomWorld({ boards, notes }: { boards: string[]; notes: string[] }) {
             <div
               key={path}
               data-board={path}
-              className="absolute overflow-hidden bg-white shadow-[0_0_0_1px_rgba(0,0,0,0.08),0_2px_8px_rgba(0,0,0,0.06)]"
+              className={cn('absolute overflow-hidden', !entry.frameless && BOARD_PAGE)}
               style={{ left: entry.x, top: entry.y, width: entry.w, height: entry.h, borderRadius: entry.radius }}
             >
               {snapshot && !(shown && frames[path]?.booted && !rests) ? (
@@ -1571,7 +1621,7 @@ function LiveBoard({ path, entry, interactive, playing }: { path: string; entry:
       ref={element}
       data-board={path}
       data-live-board=""
-      className="absolute left-0 top-0 origin-top-left overflow-hidden bg-white shadow-[0_0_0_1px_rgba(0,0,0,0.08),0_2px_8px_rgba(0,0,0,0.06)]"
+      className={cn('absolute left-0 top-0 origin-top-left overflow-hidden', !entry.frameless && BOARD_PAGE)}
       style={{ width: entry.w, height: entry.h, borderRadius: entry.radius, ...(interactive ? { zIndex: 2, pointerEvents: 'auto' } : {}) }}
     >
       <BoardFrame path={path} mode={playing ? 'play' : 'edit'} onNavigate={playTarget} width={entry.w} height={entry.h} interactive={interactive} />

@@ -325,4 +325,20 @@ describe('artboard stacking', () => {
     const files = new Map([['canvas.json', serializeCanvas(canvas)], ['Main.dc.html', MAIN], ['Over.dc.html', MAIN]]);
     assert.deepEqual(checkDesignProject(files).filter((d) => /overlap/.test(d.message)), []);
   });
+
+  it('takes a frameless piece over an artboard, and a layer group the editor marks, without a word', () => {
+    const canvas = emptyCanvas('T');
+    canvas.boards['Main.dc.html'] = { x: 0, y: 0, w: 800, h: 600 };
+    canvas.boards['Piece.dc.html'] = { x: 40, y: 40, w: 120, h: 60, title: 'Div', frameless: true };
+    canvas.order = ['Main.dc.html', 'Piece.dc.html'];
+    const grouped = MAIN.replace(
+      '<div><h1>Hi</h1></div>',
+      '<div style="position: relative"><div data-dc-group style="box-sizing: border-box; position: absolute; margin: 0px; left: 10px; top: 20px; width: 200px; height: 80px"><p style="position: absolute; left: 0px; top: 0px; margin: 0px">A</p></div></div>',
+    );
+    const piece = MAIN.replace('<div><h1>Hi</h1></div>', '<div style="width: 120px; height: 60px">Piece</div>').replace('"width":800,"height":600', '"width":120,"height":60');
+    const files = new Map([['canvas.json', serializeCanvas(canvas)], ['Main.dc.html', grouped], ['Piece.dc.html', piece]]);
+    const found = checkDesignProject(files);
+    assert.deepEqual(found, []);
+    assert.equal(normalizeCanvas(JSON.parse(files.get('canvas.json')!)).boards['Piece.dc.html']?.frameless, true);
+  });
 });

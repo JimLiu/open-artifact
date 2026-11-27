@@ -26,11 +26,12 @@
 
 import { CanvasEngine, parseColor, type CanvasItem, type HoleRect, type Theme } from '@open-artifact/canvas-engine';
 import { boardsOnPage, expandNotesToGroups, groupItems, isLockedObject, notesOnPage } from '@open-artifact/design-core';
-import { boardItem, boardItemId, fromEngineCamera, imageKey, itemTarget, noteItem, noteItemId, smallSnapshot, SMALL_SNAPSHOT_WIDTH, toEngineCamera } from '../lib/scene.ts';
+import { boardItem, boardItemId, fromEngineCamera, imageKey, itemTarget, noteItem, noteItemId, noteRect, smallSnapshot, SMALL_SNAPSHOT_WIDTH, toEngineCamera } from '../lib/scene.ts';
 import { useDocument } from '../state/document.ts';
-import { MAX_ZOOM, MIN_ZOOM, useView, type Camera, type Selection, type Tool } from '../state/view.ts';
+import { MAX_ZOOM, MIN_ZOOM, toWorld, useView, type Camera, type Selection, type Tool } from '../state/view.ts';
 import { commitMove, commitResize, copyObjects } from './commands.ts';
 import { boardIsActive } from './locks.ts';
+import { canJoin, endJoinHover, joinHover, joinInto } from './join.ts';
 import { isLive, useLive, type MotionSource } from './live.ts';
 import { cameraDriver, viewportSize } from './viewport.ts';
 import { elementGroupsOf, selectedBoardsOf, selectedNotesOf, selectionFrom } from '../lib/selection.ts';
@@ -210,6 +211,8 @@ export async function startEngine(canvas: HTMLCanvasElement, surface: HTMLElemen
     snap: true,
     // Alt held at the end of a drag copies (locked items too); see the `commit` handler.
     altCopy: true,
+    // Each step of a drag is reported, so notes and pieces can show where they would join an artboard.
+    dragEvents: true,
     grid: 'dots',
     gridSpacing: 24,
     // Every frame: layers in the DOM follow the camera in the frame it is drawn.
@@ -358,6 +361,30 @@ export async function startEngine(canvas: HTMLCanvasElement, surface: HTMLElemen
 
   /* ---- events ---- */
 
+  /** Where the pointer is, in the surface's client coordinates (drags report only their offset). */
+  let pointer: { x: number; y: number } | null = null;
+  const trackPointer = (event: PointerEvent): void => {
+    pointer = { x: event.clientX, y: event.clientY };
+  };
+  surface.addEventListener('pointerdown', trackPointer, true);
+  surface.addEventListener('pointermove', trackPointer, true);
+  const pointerWorld = (): { x: number; y: number } | null => {
+    if (!pointer) return null;
+    const rect = surface.getBoundingClientRect();
+    return toWorld(fromEngineCamera(engine.camera), pointer.x - rect.left, pointer.y - rect.top);
+  };
+  /** The boards and notes some engine items are. */
+  const objectsOf = (ids: readonly string[]): { boards: string[]; notes: string[] } => {
+    const boards: string[] = [];
+    const notes: string[] = [];
+    for (const id of ids) {
+      const target = itemTarget(id);
+      if (target && 'board' in target) boards.push(target.board);
+      else if (target) notes.push(target.note);
+    }
+    return { boards, notes };
+  };
+
   let lastStoreWrite = -Infinity;
   /** Set while the engine's camera is written to the store (so the store does not write it back). */
   let echo = false;
@@ -390,7 +417,19 @@ export async function startEngine(canvas: HTMLCanvasElement, surface: HTMLElemen
         refreshTextures();
       }
     }),
+    engine.on('dragging', (event) => {
+      const members = objectsOf(event.ids);
+      const at = pointerWorld();
+      if (event.modifiers.alt || !at || !canJoin(members)) return endJoinHover();
+      const { canvas } = useDocument.getState();
+      const rects = [
+        ...members.boards.flatMap((path) => (canvas.boards[path] ? [canvas.boards[path]!] : [])),
+        ...members.notes.flatMap((id) => (canvas.notes[id] ? [noteRect(canvas.notes[id]!, measuredNoteSize(id))] : [])),
+      ].map(({ x, y, w, h }) => ({ x: x + event.dx, y: y + event.dy, w, h }));
+      joinHover(members, rects, at, event.modifiers.ctrl);
+    }),
     engine.on('gesture', (event) => {
+      if (event.kind === 'move' && event.phase !== 'start') endJoinHover();
       if (event.kind === 'marquee') marqueeing = event.phase === 'start';
       surface.toggleAttribute('data-gesture', event.phase === 'start' && event.kind !== 'pan' && event.kind !== 'pinch');
     }),
@@ -414,13 +453,14 @@ export async function startEngine(canvas: HTMLCanvasElement, surface: HTMLElemen
       }
       const before = doc.canvas;
       if (intent.op === 'move') {
-        const boards: string[] = [];
-        const notes: string[] = [];
-        for (const id of intent.ids) {
-          const target = itemTarget(id);
-          if (target && 'board' in target) boards.push(target.board);
-          else if (target) notes.push(target.note);
+        const { boards, notes } = objectsOf(intent.ids);
+        const at = pointerWorld();
+        // Notes and pieces let go over an artboard join it (or stay put when they can't).
+        if (!intent.copy && at && canJoin({ boards, notes }) && joinInto({ boards, notes }, { x: intent.dx, y: intent.dy }, at, intent.modifiers.ctrl, measuredNoteSize)) {
+          if (useDocument.getState().canvas === before) resend(intent.ids);
+          return;
         }
+        endJoinHover();
         // An Alt-drag left everything in place: the copies go where it ended.
         if (intent.copy) copyObjects(boards, notes, intent.dx, intent.dy);
         else commitMove(boards, notes, intent.dx, intent.dy);
@@ -541,6 +581,9 @@ export async function startEngine(canvas: HTMLCanvasElement, surface: HTMLElemen
   return () => {
     stopped = true;
     for (const unsubscribe of off) unsubscribe();
+    surface.removeEventListener('pointerdown', trackPointer, true);
+    surface.removeEventListener('pointermove', trackPointer, true);
+    endJoinHover();
     unsubscribeView();
     unsubscribeDocument();
     unsubscribeLive();

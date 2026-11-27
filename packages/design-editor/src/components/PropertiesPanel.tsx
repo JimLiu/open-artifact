@@ -216,12 +216,14 @@ const POSITIONS: POption[] = [
 function SizeSection({ ctx }: { ctx: ElementContext }) {
   const position = ctx.inline.position ?? ctx.computed.position ?? 'static';
   const parentFlex = (ctx.inspection?.parentDisplay ?? '').includes('flex');
+  // A piece's element is placed by the piece itself.
+  const piece = useDocument((s) => s.canvas.boards[ctx.board]?.frameless === true);
   return (
     <PSection title="Size">
       <SizeRow ctx={ctx} axis="width" />
       <SizeRow ctx={ctx} axis="height" />
       <PRow label="Position">
-        <PSelect aria-label="Position" value={position} options={POSITIONS} disabled={ctx.locked} onChange={(next) => ctx.set({ position: next === 'static' ? null : next })} />
+        <PSelect aria-label="Position" value={position} options={POSITIONS} disabled={ctx.locked || piece} onChange={(next) => ctx.set({ position: next === 'static' ? null : next })} />
       </PRow>
       {parentFlex ? (
         <PRow label="Grow">
