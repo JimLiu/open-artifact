@@ -35,8 +35,11 @@ import {
   isElementLocked,
   isPastingCutItems,
   isUploadedBlobSource,
+  anchorTitle,
+  elementAnchorId,
   linkCardFromPaste,
   normalizeHttpUrl,
+  normalizeImageHref,
   parseArtifactClipboardHtml,
   pasteElements,
   pastePlacementOffset,
@@ -54,7 +57,7 @@ import {
 import { screenToBoard, visibleRect, type Point } from '../lib/camera.ts';
 import { isBoardMediaFile } from '../lib/media.ts';
 import { modKey } from '../lib/tools.ts';
-import { resolveAssetUrl } from '../elements/links.ts';
+import { resolveAssetUrl, storedLinkOf, thisBoardId } from '../elements/links.ts';
 import { useBoard } from '../state/board.ts';
 import { useCamera } from '../state/camera.ts';
 import { currentMeasures } from '../state/measures.ts';
@@ -176,7 +179,7 @@ function writeCopy(event: ClipboardEvent, copy: BoardClipboardCopy): boolean {
   if (!data) return false;
   try {
     data.setData('text/plain', copy.text);
-    data.setData('text/html', artifactClipboardHtml(boardClipboardPayload(copy), copy.text));
+    data.setData('text/html', artifactClipboardHtml(boardClipboardPayload(copy, thisBoardId()), copy.text));
   } catch {
     return false;
   }
@@ -309,9 +312,10 @@ async function withoutForeignUploads(items: readonly BoardElement[]): Promise<{ 
  * Pastes board elements centered on `at` (default: the pointer or the
  * middle of the view). `imageFile` is a picture that came along on the
  * clipboard: it is pasted instead when the elements are just that picture
- * from another board.
+ * from another board. `from` is the board they were copied from (its
+ * artifact id), so links to elements left there keep pointing at them.
  */
-export async function pasteBoardElements(items: readonly BoardElement[], at?: Point | null, imageFile?: File): Promise<boolean> {
+export async function pasteBoardElements(items: readonly BoardElement[], at?: Point | null, imageFile?: File, from: string | undefined = thisBoardId()): Promise<boolean> {
   const cut = cutIds;
   cutIds = undefined;
   if (items.length === 0 || !ensureEditable()) return false;
@@ -331,10 +335,12 @@ export async function pasteBoardElements(items: readonly BoardElement[], at?: Po
   const placed = pastePlacementOffset(kept, existing, center, step, measures);
   const free = findFreePasteOffset(kept, existing, placed, step, measures);
   let newIds: ElementId[] = [];
+  const here = thisBoardId();
   editContent(
     (content) => {
       const asMove = isPastingCutItems(kept, cut, content.elements);
-      const result = pasteElements(content, stickersForPaste(kept, cut, content.elements, viewerAuthor().id, measures), free.dx, free.dy, asMove);
+      const boards = { ...(from !== undefined ? { from } : {}), ...(here !== undefined ? { here } : {}) };
+      const result = pasteElements(content, stickersForPaste(kept, cut, content.elements, viewerAuthor().id, measures), free.dx, free.dy, asMove, boards);
       newIds = result.newIds;
       return result.content;
     },
@@ -371,15 +377,18 @@ function linkablePicture(): (BoardElement & { type: 'image' }) | undefined {
 }
 
 /**
- * Pastes text: a web address on a selected picture becomes its link;
- * otherwise an artifact address becomes a link card, tab-separated rows a
- * table, and anything else a block of text in the middle of the view.
+ * Pastes text: a link on a selected picture becomes its link; otherwise a
+ * link to an element of this board or to an artifact (an address, or a
+ * page URL of the Shell) becomes a link card, tab-separated rows a table,
+ * and anything else a block of text in the middle of the view.
  */
 export function pasteText(text: string): boolean {
   if (!ensureEditable()) return false;
   const picture = linkablePicture();
-  if (picture && isWebAddress(text)) {
-    const href = normalizeHttpUrl(text.trim());
+  const stored = storedLinkOf(text.trim());
+  const ours = normalizeImageHref(stored) !== undefined && !isWebAddress(stored);
+  if (picture && (ours || isWebAddress(text))) {
+    const href = ours ? stored : normalizeHttpUrl(text.trim());
     if (href !== undefined) return setImageLink(picture.id, href);
   }
   const content = useBoard.getState().board.content;
@@ -389,7 +398,10 @@ export function pasteText(text: string): boolean {
   const measures = currentMeasures();
   const table = tableFromPaste(text, content.elements, center, step, measures);
   if (typeof table === 'string') return refuse(TABLE_PASTE_MESSAGES[table]);
-  const element: BoardElement = linkCardFromPaste(text, content.elements, center, step, measures) ?? table?.el ?? pastedTextShape(text, center);
+  const anchored = elementAnchorId(stored);
+  const target = anchored === undefined ? undefined : useBoard.getState().byId.get(anchored);
+  const card = linkCardFromPaste(stored, content.elements, center, step, measures, target === undefined ? undefined : anchorTitle(target));
+  const element: BoardElement = card ?? table?.el ?? pastedTextShape(text, center);
   const label = element.type === 'link' ? 'Paste link' : element.type === 'table' ? 'Paste table' : 'Paste text';
   if (!addElements([element], label)) return false;
   announce(addedMessage(element.type));
@@ -448,7 +460,7 @@ export function installClipboard(): () => void {
       if (payload.kind !== BOARD_CLIPBOARD_KIND) return;
       event.preventDefault();
       const picture = files.find((file) => file.type.startsWith('image/'));
-      void pasteBoardElements(readBoardClipboardElements(payload.data), null, picture);
+      void pasteBoardElements(readBoardClipboardElements(payload.data), null, picture, payload.from);
       return;
     }
     // Some clipboards keep only the text: a copy made here pastes as elements still.

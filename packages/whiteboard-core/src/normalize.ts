@@ -71,7 +71,7 @@ import {
 import { clampElementText, isSvgImageSource, isUploadedBlobSource, normalizeImageSource } from './image-source.ts';
 import { normalizeImageCrop } from './image-crop.ts';
 import { normalizeStrokeWidths } from './stroke-widths.ts';
-import { normalizeHttpUrl, normalizeLinkFields, sanitizeShortLabel } from './links.ts';
+import { normalizeImageHref, normalizeLinkFields, sanitizeShortLabel } from './links.ts';
 import { isStickerArt, normalizeStickerGlyph, stickerGlyphForArt } from './stickers.ts';
 import { normalizeTable } from './table.ts';
 import { sliceChars, truncateAuthorName } from './text-limits.ts';
@@ -387,7 +387,7 @@ function normalizeElementFields(raw: unknown, takenIds: ReadonlySet<ElementId>):
       if (src === undefined) return undefined;
       const crop = normalizeImageCrop(input.crop);
       const video = typeof input.video === 'string' && isUploadedBlobSource(input.video) ? normalizeImageSource(input.video) : undefined;
-      const href = video === undefined ? normalizeHttpUrl(input.href) : undefined;
+      const href = video === undefined ? normalizeImageHref(input.href) : undefined;
       const style = isSvgImageSource(src) && typeof input.style === 'string' && DRAWING_STYLE_PATTERN.test(input.style) ? input.style : undefined;
       return {
         type: 'image',

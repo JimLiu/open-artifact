@@ -23,6 +23,7 @@ describe('the place the host is told about', () => {
     assert.deepEqual(gotoCommand('docs', '#0123abcd-4567.intro'), { cmd: 'goto_doc', hash: '#0123abcd-4567.intro' });
     assert.deepEqual(gotoCommand('sheets', '#page=Budget'), { cmd: 'goto_sheet', page: 'Budget' });
     assert.deepEqual(gotoCommand('sheets', '#sheet-s2'), { cmd: 'goto_sheet', page: 's2' });
+    assert.deepEqual(gotoCommand('whiteboard', '#element=e12'), { cmd: 'goto_element', id: 'e12' });
   });
 
   it('turns down a place that is not one of this type', () => {
@@ -30,6 +31,9 @@ describe('the place the host is told about', () => {
     assert.equal(gotoCommand('slides', 7), null);
     assert.equal(gotoCommand('docs', '#slide-~7'), null);
     assert.equal(gotoCommand('design', '#page=a'), null);
+    assert.equal(gotoCommand('whiteboard', '#element=..'), null);
+    assert.equal(gotoCommand('whiteboard', '#element=a b'), null);
+    assert.equal(gotoCommand('slides', '#element=e1'), null);
     assert.equal(gotoCommand('slides', '#slide-~' + 'a'.repeat(2000)), null);
   });
 });

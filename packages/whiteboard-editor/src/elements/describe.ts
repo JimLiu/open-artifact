@@ -20,7 +20,7 @@ import {
   htmlDocumentTitle,
   isTimerRunning,
   linkKindLabel,
-  linkTitle,
+  linkCardFace,
   showsTextPlaceholder,
   stickerLabel,
   tableColumnIds,
@@ -160,7 +160,7 @@ export function describeElement(element: BoardElement, byId: ElementsById, measu
       return title ? `${kind}, ${quoteSpokenText(title) ?? ''}` : kind;
     }
     case 'link':
-      return `${kind}, ${quoteSpokenText(linkTitle(element)) ?? ''}`.replace(/, $/, '');
+      return `${kind}, ${quoteSpokenText(linkCardFace(element, byId).title) ?? ''}`.replace(/, $/, '');
     case 'table': {
       const rows = tableRowIds(element).length;
       const cols = tableColumnIds(element).length;

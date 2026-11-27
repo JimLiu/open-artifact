@@ -1,7 +1,8 @@
 /**
  * Moving the view to things on the board: fit the whole board, zoom to the
- * selection, go to a section, bring a box into view, and the board point at
- * the middle of the view (where new things go when nothing says otherwise).
+ * selection, go to an element or a section (a link to an element follows
+ * it; Back returns), bring a box into view, and the board point at the
+ * middle of the view (where new things go when nothing says otherwise).
  */
 
 import {
@@ -19,9 +20,10 @@ import {
   type ElementId,
   type ElementMeasures,
 } from '@open-artifact/whiteboard-core';
-import { screenToBoard, type Point } from '../lib/camera.ts';
+import { sameCamera, screenToBoard, type Camera, type Point } from '../lib/camera.ts';
 import { useBoard } from '../state/board.ts';
 import { useCamera } from '../state/camera.ts';
+import { MAX_JUMP_BACK, useJump } from '../state/jump.ts';
 import { currentMeasures } from '../state/measures.ts';
 import { useSelection } from '../state/selection.ts';
 import { fitTo, glideCamera, setCamera } from './viewport.ts';
@@ -36,8 +38,9 @@ export function contentBounds(elements: readonly BoardElement[], measures: Eleme
   return unionBounds([elementsBounds(elements, measures), ...titles].filter((box): box is Box => box !== undefined));
 }
 
-/** Fits the whole board in the view (an empty board centers on the origin at 100%). */
+/** Fits the whole board in the view (an empty board centers on the origin at 100%). Back has nowhere left to go. */
 export function fitBoard(): void {
+  clearJumpBack();
   fitTo(contentBounds(useBoard.getState().board.content.elements) ?? null);
 }
 
@@ -49,11 +52,66 @@ export function titledSections(elements: readonly BoardElement[], measures: Elem
   ) as ContainerElement[];
 }
 
-/** Glides the view to a section, its title included (fitted, never past 100%). The selection stays as it is. */
+/** How long the ring around the element the view went to shows, ms. */
+export const JUMP_FLASH_MS = 1400;
+
+/** Told when a link points at an element that is no longer on the board. */
+export const MISSING_LINK_TARGET_MESSAGE = "That item isn't on this board anymore";
+
+let flashTimer: ReturnType<typeof setTimeout> | undefined;
+let flashSerial = 0;
+
+/** Rings `id` briefly (see `state/jump.ts`). */
+function flashElement(id: ElementId): void {
+  clearTimeout(flashTimer);
+  flashSerial += 1;
+  useJump.setState({ flash: { id, serial: flashSerial } });
+  flashTimer = setTimeout(() => useJump.setState({ flash: null }), JUMP_FLASH_MS);
+}
+
+/** Remembers `camera` for Back (the same view twice in a row once). */
+function pushJumpBack(camera: Camera): void {
+  const back = useJump.getState().back;
+  const last = back.at(-1);
+  if (last !== undefined && sameCamera(last, camera)) return;
+  useJump.setState({ back: [...back, camera].slice(-MAX_JUMP_BACK) });
+}
+
+/**
+ * Takes the view to an element of the board: fitted with its title (never
+ * past 100%), gliding unless `glide` is false, then rings it briefly. The
+ * view it leaves is remembered for Back unless `back` is false. The
+ * selection stays as it is. Returns `false` when the element is not on
+ * the board.
+ */
+export function goToElement(id: ElementId, options: { glide?: boolean; back?: boolean } = {}): boolean {
+  const element = useBoard.getState().byId.get(id);
+  const bounds = element ? contentBounds([element]) : undefined;
+  if (!bounds) return false;
+  if (options.back !== false) pushJumpBack(useCamera.getState().camera);
+  fitTo(bounds, { glide: options.glide !== false });
+  flashElement(id);
+  return true;
+}
+
+/** Glides the view to a section, its title included (see {@link goToElement}). */
 export function goToSection(id: ElementId): void {
-  const section = useBoard.getState().board.content.elements.find((element) => element.id === id && element.type === 'container');
-  const bounds = section ? contentBounds([section]) : undefined;
-  if (bounds) fitTo(bounds, { glide: true });
+  if (useBoard.getState().byId.get(id)?.type === 'container') goToElement(id);
+}
+
+/** Glides back to the view the viewer last went to an element from. Returns whether there was one. */
+export function jumpBack(): boolean {
+  const back = useJump.getState().back;
+  const camera = back.at(-1);
+  if (camera === undefined) return false;
+  useJump.setState({ back: back.slice(0, -1) });
+  glideCamera(camera);
+  return true;
+}
+
+/** Forgets the views Back would return to. */
+export function clearJumpBack(): void {
+  if (useJump.getState().back.length > 0) useJump.setState({ back: [] });
 }
 
 /** Room kept below a selection for the turn knob (a finger or stylus turns from it), screen pixels. */

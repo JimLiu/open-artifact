@@ -18,6 +18,9 @@ import {
   ESCAPED_LIST_MARKER_PATTERN,
   HTTP_LINK_HREF_PATTERN,
   HTTP_LINK_PATTERN,
+  TEXT_LINK_PATTERN,
+  normalizeArtifactAddress,
+  normalizeElementAnchor,
   breakMarkdownLinkSyntax,
   canWrapInlineCode,
   drawArrowsInLines,
@@ -41,6 +44,7 @@ import {
   type TextProfile,
   type TextTransform,
 } from '@open-artifact/whiteboard-core';
+import { storedLinkOf } from './links.ts';
 
 /* ------------------------------------------------------------------------ */
 /* Nodes                                                                    */
@@ -318,7 +322,7 @@ export function serializeNoteMarkdown(root: RichNode, options?: SerializeOptions
     const text = richTextOf(node).replace(/[\n\u00A0]/g, ' ');
     const href = attributeOf(node, 'data-href') ?? '';
     const atomic: Run | null =
-      tag === 'A' && HTTP_LINK_HREF_PATTERN.test(href) && text !== ''
+      tag === 'A' && (HTTP_LINK_HREF_PATTERN.test(href) || TEXT_LINK_PATTERN.test(href)) && text !== ''
         ? { k: 'link', text, href }
         : tag === 'CODE' && text !== '' && canWrapInlineCode(text)
           ? { k: 'code', text }
@@ -676,12 +680,17 @@ export function visibleLinkHref(href: string): string {
 export const MAX_TEXT_LINK_CHARS = 2048;
 
 /**
- * The web address typed into the link field as text links to it: `https://`
- * added when no scheme is given, Markdown-breaking characters escaped;
- * `null` for anything but a plain `http(s)` address of a named host
- * without credentials.
+ * The address typed into the link field as text links to it: a link to an
+ * element of this board (`#element=<id>`) or to an artifact as it is (a
+ * page URL of the Shell becomes one of those); a web address with
+ * `https://` added when no scheme is given, Markdown-breaking characters
+ * escaped. `null` for anything else (other schemes, hosts without a name,
+ * credentials).
  */
 export function normalizeTextLinkUrl(input: string): string | null {
+  const stored = storedLinkOf(input.trim());
+  const board = normalizeElementAnchor(stored) ?? normalizeArtifactAddress(stored);
+  if (board !== undefined) return board;
   if (/^\s*(?!https?:\/\/)[a-z][a-z0-9+.-]*:\/\//i.test(input)) return null;
   const trimmed = input.trim();
   const withScheme = (/^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`).replace(/^https?:\/\//i, (scheme) => scheme.toLowerCase());
@@ -698,6 +707,6 @@ export function normalizeTextLinkUrl(input: string): string | null {
 }
 
 /** Told when the link field holds no web address. */
-export const INVALID_LINK_MESSAGE = 'Enter a web address (http or https)';
+export const INVALID_LINK_MESSAGE = 'Enter a web address or pick a section';
 /** Told when a link would take the text over its limit. */
 export const LINK_TOO_LONG_MESSAGE = 'The text is too long to hold this link';

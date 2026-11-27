@@ -29,6 +29,7 @@ Or start with no agent: on the home page, click **New artifact**, pick **Whitebo
 - **Draw & rearrange**: Drag stickies, group ideas into sections, draw arrows or ink sketches, drop stickers to vote, and start a countdown timer.
 - **Move around the board**: Scroll or swipe with two fingers to pan, and **⌘ + scroll** (Ctrl + scroll) or pinch to zoom at the pointer. Drag with the **right** or **middle** mouse button, hold **Space** and drag, or use the **Hand** tool to pan; a right-button drag leaves the selection alone and opens no menu, while a right-click without moving still opens the menu.
 - **Jump to a section**: Open the zoom menu at the top right and pick a section under **Go to section**; the view glides to it, title included, at up to 100%. Sections without a title are not listed.
+- **Link to things on the board**: Right-click an element and pick **Copy link to item**, then paste it onto the board as a link card, onto a picture, or into a text link; in a text link field you can also pick a section from the list. Clicking such a link takes the view to the element and rings it briefly; **Back** at the bottom returns to where you were. A card whose element was removed turns grey. A copied link opened in a browser opens the board at that element.
 - **Ask your agent in context**: Select a cluster of stickies or pin a comment (e.g. *"cluster these by theme and summarize top 3 risks"*), then click **Send to agent**.
 - **Export**: Open **Share → Export** to download a PNG image.
 
@@ -55,5 +56,6 @@ Or start with no agent: on the home page, click **New artifact**, pick **Whitebo
 2. Target roughly `1500×750` for a new board so text opens at a readable zoom level, keeping clear spacing (24 px between neighbors, 64 px for arrows, 144 px for labeled arrows).
 3. Respect human edits on existing boards: read fresh before writing, extend in place rather than building duplicate copies beside existing clusters, and shift neighbors/stickers together when resizing.
 4. Use `ArtifactData` `batch` (up to 500 writes per batch) so updates apply atomically; use `{"__delete__": true}` inside `update` to remove fields.
+5. Link to elements of the same board with `#element=<id>` (a link card, a picture's `href`, or `[label](#element=<id>)` in text) for an index or a path through a large board; fix or remove the links when deleting their target (`check` warns).
 
 For full element schemas, drawing craft, and ideation guidance, read [artifact-types/whiteboard/SKILL.md](../../artifact-types/whiteboard/SKILL.md) and `artifact-types/whiteboard/reference/`.

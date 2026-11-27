@@ -35,6 +35,7 @@ import {
   isElementLocked,
   moveElementsWithScope,
   normalizeHttpUrl,
+  normalizeImageHref,
   planGroupSelection,
   planUngroupSelection,
   rebindStickersToHosts,
@@ -65,6 +66,7 @@ import {
 import type { LayerMove } from '../lib/tools.ts';
 import { blockKindOf, isKindChangeable, setKindForElements, setShapeFillMode, type BlockKind } from '../selection/kind-change.ts';
 import { changeBoard, useBoard, type ChangeOptions } from '../state/board.ts';
+import { storedLinkOf } from '../elements/links.ts';
 import { currentMeasures } from '../state/measures.ts';
 import { useSelection } from '../state/selection.ts';
 import {
@@ -625,15 +627,23 @@ export function resetArrowRoute(): boolean {
   );
 }
 
-/** Sets, changes or removes the web link of the selected image (`null` or empty: remove). */
+/** Told when a picture's link is not one it can follow. */
+export const NOT_A_LINK_MESSAGE = 'That address is not a link';
+
+/**
+ * Sets, changes or removes the link of the selected image (`null` or
+ * empty: remove): a web address, an artifact address or an element of this
+ * board (`#element=<id>`; a page URL of the Shell becomes one of those).
+ */
 export function setImageLink(id: ElementId, href: string | null): boolean {
   if (!ensureEditable()) return false;
   const image = useBoard.getState().byId.get(id);
   if (image?.type !== 'image') return false;
   if (isElementLocked(image)) return refuse(LOCKED_MESSAGE);
   const trimmed = href?.trim() ?? '';
-  const next = trimmed === '' ? undefined : normalizeHttpUrl(/^[a-z][a-z0-9+.-]*:/i.test(trimmed) ? trimmed : 'https://' + trimmed);
-  if (trimmed !== '' && next === undefined) return refuse('That address is not a web link');
+  const next =
+    trimmed === '' ? undefined : (normalizeImageHref(storedLinkOf(trimmed)) ?? normalizeHttpUrl(/^[a-z][a-z0-9+.-]*:/i.test(trimmed) || trimmed.startsWith('#') ? trimmed : 'https://' + trimmed));
+  if (trimmed !== '' && next === undefined) return refuse(NOT_A_LINK_MESSAGE);
   if (next === image.href) {
     announce(LINK_EDIT_MESSAGES.kept);
     return false;

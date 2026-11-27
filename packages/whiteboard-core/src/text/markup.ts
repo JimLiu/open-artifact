@@ -136,7 +136,7 @@ export function flattenListIndents(text: string): { flat: string; levels: number
   return { flat, levels };
 }
 
-/** The `http(s)` link targets of a text, both as written and unescaped. */
+/** The link targets of a text, both as written and unescaped. */
 export function linkTargetsInText(text: string): Set<string> {
   return new Set([...markdownLinkUrls(text)].flatMap((href) => [href, unescapeMarkdownChars(href)]));
 }

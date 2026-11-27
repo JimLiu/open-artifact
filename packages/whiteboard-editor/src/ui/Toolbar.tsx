@@ -32,6 +32,7 @@ import { useColorScheme } from '../state/theme.ts';
 import { useTool, type StickerChoice } from '../state/tool.ts';
 import { useNarrowTouch } from './hooks.ts';
 import { ShapeKindIcon, TOOL_ICONS, ToolPickIcon, toolPickLabel } from './icons.tsx';
+import { JumpBack } from './JumpChrome.tsx';
 import { StickerPicker } from './StickerPicker.tsx';
 import { Card, ChromeButton, ChromeDivider, ChromePopover, SwatchRow, Tip, TipGroup, ToolButton, type Swatch } from './chrome.tsx';
 
@@ -59,6 +60,7 @@ export function BoardFoot() {
   return (
     <div className="wb-foot" data-wb-chrome="" data-wb-region="toolbar">
       <TipGroup>
+        <JumpBack />
         {trayDraw ? <DrawTray /> : null}
         {trayShapes ? <ShapesTray touch={touch} /> : null}
         <BoardToolbar touch={touch} />

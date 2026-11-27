@@ -1,14 +1,17 @@
 /**
- * The link card (see `services/link-card.ts`): the link's site and path,
+ * The link card (see `services/link-card.ts`): the link's site and path
+ * (for a link to an element of this board, the element's title and kind),
  * Copy link, Edit link (for links in words the viewer may edit) and an
- * open control. A link the board does not open says so instead; one
+ * open control (Go to, for a link to an element of this board). A link the board does not open says so instead; one
  * with a user name or password shows greyed out.
  */
 
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
-import { ArrowUpRight, Check, Copy, Pencil } from 'lucide-react';
+import { ArrowUpRight, Check, Copy, LocateFixed, Pencil } from 'lucide-react';
+import { anchorSubtitle, anchorTitle, NOT_ON_THIS_BOARD } from '@open-artifact/whiteboard-core';
 import { cn, isComposingKey } from '@open-artifact/ui';
 import { LINK_COPIED_MS, linkAddressParts, linkCardPlace, type LinkCardPlace } from '../lib/link-card.ts';
+import { useBoard } from '../state/board.ts';
 import { useLinkCard, type LinkCardView } from '../state/link-card.ts';
 import { copyLinkAddress, editCardLink, hideLinkCard, installLinkCards, openCardLink, returnToLinkText, tabOutOfLinkCard } from '../services/link-card.ts';
 import { Card, ToolButton } from './chrome.tsx';
@@ -37,7 +40,11 @@ function LinkCardBody({ card }: { card: LinkCardView }) {
   const [place, setPlace] = useState<LinkCardPlace | null>(null);
   const [copied, setCopied] = useState(false);
   const [cut, setCut] = useState(false);
-  const parts = linkAddressParts(card.href);
+  const target = useBoard((state) => (card.element === undefined ? undefined : state.byId.get(card.element)));
+  const inBoard = card.element !== undefined;
+  const parts = inBoard
+    ? { host: target === undefined ? NOT_ON_THIS_BOARD : anchorTitle(target), path: target === undefined ? '' : anchorSubtitle(target), full: '' }
+    : linkAddressParts(card.href);
   const disabled = card.blocked === 'credentials';
 
   useLayoutEffect(() => {
@@ -80,8 +87,8 @@ function LinkCardBody({ card }: { card: LinkCardView }) {
     >
       <span
         ref={address}
-        className={cn('flex min-w-0 flex-1 items-baseline text-[13px] leading-5', disabled ? 'text-chrome-muted line-through' : 'text-chrome-fg')}
-        title={cut ? parts.full : undefined}
+        className={cn('flex min-w-0 flex-1 items-baseline gap-1.5 text-[13px] leading-5', disabled ? 'text-chrome-muted line-through' : inBoard && target === undefined ? 'text-chrome-muted' : 'text-chrome-fg')}
+        title={cut ? parts.full || `${parts.host} · ${parts.path}` : undefined}
         aria-disabled={disabled ? true : undefined}
         data-wb-link-address=""
       >
@@ -101,7 +108,9 @@ function LinkCardBody({ card }: { card: LinkCardView }) {
         }}
       />
       {card.editable ? <ToolButton size="lg" label="Edit link" tipSide="bottom" icon={<Pencil aria-hidden="true" />} onClick={() => editCardLink()} /> : null}
-      {card.target !== undefined ? (
+      {inBoard ? (
+        target !== undefined ? <ToolButton size="lg" label="Go to" tip="Shows it on this board" tipSide="bottom" icon={<LocateFixed aria-hidden="true" />} onClick={() => openCardLink()} /> : null
+      ) : card.target !== undefined ? (
         <ToolButton size="lg" label="Open link" tip="Opens in a new tab" tipSide="bottom" aria-description="Opens in a new tab" icon={<ArrowUpRight aria-hidden="true" />} onClick={() => openCardLink()} />
       ) : null}
     </Card>

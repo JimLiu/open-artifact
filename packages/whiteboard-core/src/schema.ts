@@ -371,7 +371,7 @@ export interface ImageElement extends ElementBase, BoxGeometry {
   crop?: ImageCrop;
   /** `/_blob/<id>` of an uploaded video; the image is its poster. */
   video?: string;
-  /** A web link the image opens. */
+  /** What the image links to: a web page, an element of the board or an artifact (as a link card's `href`). */
   href?: string;
   /** How an SVG drawing is drawn; only SVG drawings carry it. */
   style?: string;
@@ -424,12 +424,12 @@ export interface TimerElement extends ElementBase, TimerFields {
   y: number;
 }
 
-/** A card linking to another artifact or a web page. */
+/** A card linking to an element of the same board, another artifact (or a place in it) or a web page. */
 export interface LinkElement extends ElementBase {
   type: 'link';
   x: number;
   y: number;
-  /** `open-artifact://artifact/<id>` or an `http(s)` URL. */
+  /** `#element=<id>`, `open-artifact://artifact/<id>` (optionally `#<place>`) or an `http(s)` URL. */
   href: string;
   title?: string;
   kind?: LinkKind;

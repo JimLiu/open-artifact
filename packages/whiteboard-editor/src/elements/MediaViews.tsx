@@ -29,7 +29,7 @@ import { StickerGlyph } from '../ui/StickerGlyph.tsx';
 import { useIsFeatured } from './hooks.ts';
 import { useStickerPlay } from '../lib/sticker-party.ts';
 import { useItemProps } from './item.tsx';
-import { boardLinkTarget, linkDisplayUrl, resolveAssetUrl } from './links.ts';
+import { boardLinkElement, boardLinkTarget, linkDisplayUrl, resolveAssetUrl } from './links.ts';
 import { PassiveLink } from './PassiveLink.tsx';
 import { rotationStyle, type ViewStyle } from './style.ts';
 import {
@@ -140,7 +140,7 @@ export const ImageView = memo(function ImageView({ element }: { element: ImageEl
         </>
       )}
       {target !== undefined ? (
-        <PassiveLink href={target} link={element.href} className="wb-image-link" aria-label={`Open ${linkDisplayUrl(target)}`}>
+        <PassiveLink href={target} link={element.href} className="wb-image-link" aria-label={boardLinkElement(element.href!) !== undefined ? 'Go to the linked item' : `Open ${linkDisplayUrl(target)}`}>
           <span className="wb-image-go" data-wb-opens="" aria-hidden="true">
             <ArrowUpRight size={14} />
           </span>

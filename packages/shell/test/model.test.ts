@@ -95,6 +95,14 @@ describe('shell model', () => {
     assert.equal(new URL(pageAddress({ ...boot, type: 'design' }, address + '#slide-1')!).hash, '');
   });
 
+  it('opens a board at the element a link points at, and nothing else', () => {
+    const boot = { id: 'board', page: 'http://localhost:8000/', type: 'whiteboard' };
+    const address = 'http://localhost:8100/a/board';
+    assert.equal(new URL(pageAddress(boot, address + '#element=e12')!).hash, '#element=e12');
+    assert.equal(new URL(pageAddress(boot, address + '#element=a/b')!).hash, '');
+    assert.equal(new URL(pageAddress({ ...boot, type: 'slides' }, address + '#element=e12')!).hash, '');
+  });
+
   it('hands a design its page or a readable place link, and nothing else', () => {
     const boot = { id: 'canvas', page: 'http://localhost:8000/', type: 'design' };
     const address = 'http://localhost:8100/a/canvas';

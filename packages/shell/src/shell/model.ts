@@ -3,7 +3,7 @@
  * store, so it runs under `node --test`.
  */
 
-import { INLINE_VIEW_FRAGMENT, SLIDE_FRAGMENT, hostToShellOf } from '@open-artifact/protocol';
+import { ELEMENT_FRAGMENT, INLINE_VIEW_FRAGMENT, SLIDE_FRAGMENT, hostToShellOf } from '@open-artifact/protocol';
 import {
   CHROME_PEER_KEY,
   FRAME_DENIED_REASONS,
@@ -261,6 +261,7 @@ export function pageAddress(boot: Pick<ShellBoot, 'page' | 'id'> & Partial<Pick<
       at.hash = shell.hash;
     }
     if (boot.type === 'sheets') at.hash = sheetPageFragment(shell.hash);
+    if (boot.type === 'whiteboard' && ELEMENT_FRAGMENT.test(shell.hash)) at.hash = shell.hash;
     if (boot.type === 'design') {
       const hash = DESIGN_PLACE_FRAGMENT.test(shell.hash) ? shell.hash : designPageFragment(shell.hash);
       if (hash) at.hash = hash;

@@ -6,11 +6,13 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AppWindow,
+  ArrowRight,
   ArrowUpRight,
   Clapperboard,
   FileText,
   Globe,
   LayoutDashboard,
+  LocateFixed,
   Palette,
   Pause,
   PenTool,
@@ -24,6 +26,7 @@ import { IconButton } from '@open-artifact/ui';
 import {
   LINK_CARD_SIZE,
   TABLE_CELL_PADDING,
+  linkCardFace,
   TEXT_PROFILES,
   TIMER_HEIGHT,
   TIMER_WIDTH,
@@ -35,8 +38,6 @@ import {
   isTimerEnded,
   isTimerRunning,
   isTimerUnstarted,
-  linkSubtitle,
-  linkTitle,
   tableCellPaints,
   tableCellValue,
   tableColumnIds,
@@ -44,6 +45,8 @@ import {
   tableRowIds,
   tableWidth,
   timerRemainingMs,
+  type BoardElement,
+  type ElementId,
   type LinkElement,
   type LinkKind,
   type TableCellPaint,
@@ -54,11 +57,11 @@ import { TABLE_LINE_COLORS, TABLE_RADIUS, tableHeadColors, tableHeadWeight, tabl
 import { announce } from '../services/announce.ts';
 import { TABLE_EDITOR_HINT, flushTableCell, pasteTableCells, typeTableCell } from '../services/table-edits.ts';
 import { maybeSession } from '../services/session.ts';
-import { updateElements } from '../state/board.ts';
+import { updateElements, useBoard } from '../state/board.ts';
 import { useColorScheme } from '../state/theme.ts';
 import { useMeasureNode } from './hooks.ts';
 import { useItemProps } from './item.tsx';
-import { boardLinkTarget } from './links.ts';
+import { boardLinkElement, boardLinkTarget, thisBoardId } from './links.ts';
 import { RichText } from './markup.tsx';
 import { PassiveLink } from './PassiveLink.tsx';
 import { rotationStyle, type ViewStyle } from './style.ts';
@@ -68,6 +71,9 @@ import { TextEditor, useEditing } from './TextEditor.tsx';
 /* ------------------------------------------------------------------------ */
 /* Link card                                                                */
 /* ------------------------------------------------------------------------ */
+
+/** No elements: what a card's face reads when the element it points at is gone. */
+const EMPTY_BY_ID: ReadonlyMap<ElementId, BoardElement> = new Map<ElementId, BoardElement>();
 
 /** The icon of each kind of linked artifact. */
 const LINK_ICONS: Readonly<Record<LinkKind, LucideIcon>> = {
@@ -81,10 +87,19 @@ const LINK_ICONS: Readonly<Record<LinkKind, LucideIcon>> = {
   web: Globe,
 };
 
-/** A link card: the kind's icon, the title and address, and an open arrow. */
+/**
+ * A link card: the kind's icon, the title and address, and an open arrow.
+ * A card to an element of this board shows that element's title and kind
+ * as they are now (the stored title, greyed, once it is gone) and an arrow
+ * that goes there.
+ */
 export const LinkView = memo(function LinkView({ element }: { element: LinkElement }) {
   const item = useItemProps(element);
-  const Icon = (element.kind !== undefined ? LINK_ICONS[element.kind] : undefined) ?? AppWindow;
+  const anchored = boardLinkElement(element.href);
+  const linked = useBoard((state) => (anchored === undefined ? undefined : state.byId.get(anchored)));
+  const { title, subtitle, gone } = linkCardFace(element, anchored === undefined || linked === undefined ? EMPTY_BY_ID : new Map([[anchored, linked]]), thisBoardId());
+  const Icon = anchored !== undefined ? LocateFixed : ((element.kind !== undefined ? LINK_ICONS[element.kind] : undefined) ?? AppWindow);
+  const Go = anchored !== undefined ? ArrowRight : ArrowUpRight;
   const target = boardLinkTarget(element.href);
   const style: ViewStyle = { left: element.x, top: element.y, width: LINK_CARD_SIZE.w, height: LINK_CARD_SIZE.h, ...rotationStyle(element) };
   const face = (
@@ -93,16 +108,16 @@ export const LinkView = memo(function LinkView({ element }: { element: LinkEleme
         <Icon size={18} />
       </span>
       <span className="al-text">
-        <span className="al-title">{linkTitle(element)}</span>
-        <span className="al-sub">{linkSubtitle(element)}</span>
+        <span className="al-title">{title}</span>
+        <span className="al-sub">{subtitle}</span>
       </span>
       <span className="al-go" data-wb-opens="" aria-hidden="true">
-        <ArrowUpRight size={16} />
+        <Go size={16} />
       </span>
     </>
   );
   return (
-    <div {...item} className="wb-el wb-link" style={style}>
+    <div {...item} className={gone ? 'wb-el wb-link wb-link-gone' : 'wb-el wb-link'} {...(anchored !== undefined ? { 'data-wb-anchor': anchored } : {})} style={style}>
       {target !== undefined ? (
         <PassiveLink href={target} link={element.href} className="al-face">
           {face}

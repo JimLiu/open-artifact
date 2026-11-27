@@ -31,7 +31,7 @@
  */
 
 import { copyGivenLink, frameDenied } from './actions.ts';
-import { DOC_FRAGMENT, HOST_PROTOCOL, SLIDE_FRAGMENT, pinHostTheme } from '@open-artifact/protocol';
+import { DOC_FRAGMENT, ELEMENT_FRAGMENT, HOST_PROTOCOL, SLIDE_FRAGMENT, pinHostTheme } from '@open-artifact/protocol';
 import type { ChromeCommand, ChromeExportItem, ChromeExportState, PageToShell, ShellToHost, ShellToPage } from '@open-artifact/protocol';
 import { CHROME_DRAWS, CHROME_READY_TIMEOUT_MS, isShellMessage } from '@open-artifact/protocol';
 import { toast } from '@open-artifact/ui';
@@ -337,6 +337,11 @@ function onPageMessage(message: PageToShell, event: MessageEvent): void {
         void copyGivenLink(message.hash);
       }
       break;
+    case 'copy_element_link':
+      if (store.boot?.type === 'whiteboard' && typeof message.id === 'string' && ELEMENT_FRAGMENT.test('#element=' + message.id)) {
+        void copyGivenLink('#element=' + message.id);
+      }
+      break;
     case 'copy_sheet_link':
       if (store.boot?.type === 'sheets' && typeof message.page === 'string') {
         void copyGivenLink('#' + new URLSearchParams({ page: message.page }).toString());
@@ -496,6 +501,7 @@ export function startBridge(): () => void {
       if (page) command({ cmd: 'goto_sheet', page });
     }
     if (useShell.getState().boot?.type === 'slides' && SLIDE_FRAGMENT.test(location.hash)) command({ cmd: 'goto_slide', hash: location.hash });
+    if (useShell.getState().boot?.type === 'whiteboard' && ELEMENT_FRAGMENT.test(location.hash)) command({ cmd: 'goto_element', id: location.hash.slice('#element='.length) });
   };
   window.addEventListener('hashchange', followPage);
   window.addEventListener('message', onMessage);

@@ -3,6 +3,8 @@
  *
  * - A click on a link (`[data-wb-link]`: a link in text, a link card, a
  *   linked picture's corner) opens it after {@link LINK_OPEN_DELAY_MS}
+ *   (a link to an element of this board takes the view there instead of
+ *   opening a tab)
  *   unless a double click follows; Mod-click, a click on an open arrow
  *   (`[data-wb-opens]`) and a viewer's click open at once. A link the
  *   board does not open shows its card instead.
@@ -18,7 +20,7 @@
 import { isElementLocked, type ElementId } from '@open-artifact/whiteboard-core';
 import { writeClipboardText } from '@open-artifact/editor-kit';
 import { useAreaPick } from '../collab/area-pick.ts';
-import { boardLinkTarget, openBoardLink } from '../elements/links.ts';
+import { boardLinkElement, boardLinkTarget, elementPageUrl, openBoardLink } from '../elements/links.ts';
 import { LINK_CHORD_EVENT, caretLinkChip, editableRootOf, placeCaretAfter } from '../elements/rich-dom.ts';
 import {
   LINK_CARD_COOLDOWN_MS,
@@ -40,6 +42,7 @@ import type { PointerSample } from '../tools/gesture.ts';
 import { pressKind } from '../tools/pen-input.ts';
 import { canEditBoard } from './actions.ts';
 import { announce, notify } from './announce.ts';
+import { goToElement, MISSING_LINK_TARGET_MESSAGE } from './navigation.ts';
 import { maybeSession } from './session.ts';
 
 /** The same link opening twice within this long (ms) is one open (a ghost click). */
@@ -49,6 +52,9 @@ const LEAVE_WINDOW_MS = 1000;
 
 /** Selector of the card's root. */
 export const LINK_CARD_SELECTOR = '[data-wb-link-card]';
+
+/** Told when a link was copied. */
+export const LINK_COPIED_MESSAGE = 'Link copied';
 
 /** Told when copying the address fails. */
 export const LINK_COPY_FAILED_MESSAGE = "The link couldn't be copied. Try again.";
@@ -126,19 +132,40 @@ function resumeTypingOnReturn(target: TextEditTarget): void {
   stopResume = stop;
 }
 
+/** True (and remembered) when `key` opened a moment ago: a ghost click opens nothing more. */
+function openedJustNow(key: string): boolean {
+  const now = performance.now();
+  if (lastOpen !== null && lastOpen.url === key && now - lastOpen.at < SAME_OPEN_MS) return true;
+  lastOpen = { url: key, at: now };
+  lastOpenedAt = now;
+  return false;
+}
+
+/** Follows a link to an element of this board: the view goes there (or says it is gone). */
+function followElementLink(id: ElementId): boolean {
+  cancelPendingLinkOpen();
+  if (openedJustNow(`element:${id}`)) return true;
+  hideLinkCard();
+  if (!goToElement(id)) {
+    announce(MISSING_LINK_TARGET_MESSAGE);
+    notify(MISSING_LINK_TARGET_MESSAGE);
+  }
+  return true;
+}
+
 /**
- * Opens a board link in a new tab, at most once for one click (a ghost
- * click opens nothing more). `resume` is the text being typed it was
+ * Opens a board link, at most once for one click (a ghost click opens
+ * nothing more): a link to an element of this board takes the view there,
+ * any other opens in a new tab. `resume` is the text being typed it was
  * opened from. Returns `false` for a link the board does not open.
  */
 export function openLink(href: string, resume?: TextEditTarget | null): boolean {
+  const element = boardLinkElement(href);
+  if (element !== undefined) return followElementLink(element);
   const target = boardLinkTarget(href);
   if (target === undefined || linkBlock(href, target) !== undefined) return false;
   cancelPendingLinkOpen();
-  const now = performance.now();
-  if (lastOpen !== null && lastOpen.url === target && now - lastOpen.at < SAME_OPEN_MS) return true;
-  lastOpen = { url: target, at: now };
-  lastOpenedAt = now;
+  if (openedJustNow(target)) return true;
   hideLinkCard();
   openBoardLink(target);
   if (resume) resumeTypingOnReturn(resume);
@@ -206,6 +233,7 @@ function showLinkCard(node: HTMLElement, origin: 'board' | 'editor'): void {
   const href = (origin === 'board' ? node.dataset.wbLink : node.dataset.href) ?? '';
   const target = boardLinkTarget(href);
   const blocked = linkBlock(href, target);
+  const element = boardLinkElement(href);
   const editing = useSelection.getState().editing;
   const id = origin === 'editor' ? (editing?.id ?? null) : (node.closest<HTMLElement>('[data-wb-id]')?.dataset.wbId ?? null);
   anchor = node;
@@ -215,6 +243,7 @@ function showLinkCard(node: HTMLElement, origin: 'board' | 'editor'): void {
       href: target ?? href,
       target: blocked === undefined ? target : undefined,
       blocked,
+      ...(element !== undefined ? { element } : {}),
       anchor: boxOf(node),
       origin,
       id,
@@ -267,19 +296,36 @@ export function tabOutOfLinkCard(from: Element, backwards: boolean): boolean {
   return true;
 }
 
-/** Copies the card's address; says so (or that it failed). Resolves to whether it copied. */
-export async function copyLinkAddress(): Promise<boolean> {
-  const card = useLinkCard.getState().card;
-  if (card === null) return false;
+/** Copies `text` (or, in the Shell, has the Shell copy the link it gives out to element `id`); says so, or that it failed. */
+async function copyLink(text: string, element: ElementId | undefined, toast: boolean): Promise<boolean> {
+  const shell = maybeSession()?.shell;
   try {
-    await writeClipboardText(card.href, maybeSession()?.shell);
-    announce('Link copied');
+    if (element !== undefined && shell?.artifactId) {
+      // The Shell copies the link it gives out for this board (an invite link when it is shared) and says so.
+      shell.copyElementLink(element);
+      return true;
+    }
+    await writeClipboardText(text, shell);
+    announce(LINK_COPIED_MESSAGE);
+    if (toast) notify(LINK_COPIED_MESSAGE);
     return true;
   } catch {
     announce(LINK_COPY_FAILED_MESSAGE);
     notify(LINK_COPY_FAILED_MESSAGE);
     return false;
   }
+}
+
+/** Copies the card's address; says so (or that it failed). Resolves to whether it copied. */
+export async function copyLinkAddress(): Promise<boolean> {
+  const card = useLinkCard.getState().card;
+  if (card === null) return false;
+  return copyLink(card.element !== undefined ? elementPageUrl(card.element) : card.href, card.element, false);
+}
+
+/** Copies a link that opens this board at element `id` (Copy link to item). Resolves to whether it copied. */
+export async function copyElementLink(id: ElementId): Promise<boolean> {
+  return copyLink(elementPageUrl(id), id, true);
 }
 
 /** Opens the card's link (focus goes back to the text it was typed in, if any). */

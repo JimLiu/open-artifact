@@ -9,6 +9,7 @@
  * copied hosts and stay within {@link MAX_BOARD_ELEMENTS}.
  */
 
+import { followPastedLinks, relinkCopies, type CopiedLinkBoards } from './anchors.ts';
 import { carriedArrowEnds, findStickerHost, gridArrangePositions, type CarriedArrowEnds } from './attachments.ts';
 import { normalizeElementOrKeep } from './derived.ts';
 import { elementsBounds, rotatedBoundingBox, type Box, type ElementMeasures, type Point } from './geometry.ts';
@@ -16,7 +17,7 @@ import { copiedGroupFate, everyArrowEndId, groupBoundsCells, remapCopiedGroups }
 import { clampElementText } from './image-source.ts';
 import { escapedJsonByteLength } from './json.ts';
 import { withStrokeWidths } from './stroke-widths.ts';
-import { normalizeArtifactAddress } from './links.ts';
+import { normalizeArtifactAddress, normalizeElementAnchor, sanitizeLinkTitle } from './links.ts';
 import { parseBoardContent, pickAuthorshipFields } from './normalize.ts';
 import {
   FACE_STICKER_ART,
@@ -555,7 +556,7 @@ export function duplicateSelection<T extends BoardContent>(
     const copy = copyArrowWithEnds(element, idMap, offset, offset);
     if (copy) copies.push(copy);
   }
-  const complete = keepCompleteCopies(reattachCopiedStickers(copies, source, idMap, measures), room);
+  const complete = keepCompleteCopies(relinkCopies(reattachCopiedStickers(copies, source, idMap, measures), idMap), room);
   const added = remapCopiedGroups(complete, copiedGroupFate(content.elements, selectedIds));
   if (added.length === 0) return { content, newIds: [] };
   return { content: { ...content, elements: [...content.elements, ...added] }, newIds: added.map((element) => element.id) };
@@ -564,7 +565,11 @@ export function duplicateSelection<T extends BoardContent>(
 /**
  * Pastes elements moved by (dx, dy) with fresh ids. `keepState` keeps locks
  * and groups (pasting what was cut); otherwise every copied group becomes a
- * new group. Returns the content and the pasted ids.
+ * new group. `boards` says which board the elements were copied from and
+ * which they land on, so their links keep pointing where they did
+ * ({@link relinkCopies}); pasting what was cut back onto its own board also
+ * moves the board's links to it onto the pasted copies. Returns the content
+ * and the pasted ids.
  */
 export function pasteElements<T extends BoardContent>(
   content: T,
@@ -572,6 +577,7 @@ export function pasteElements<T extends BoardContent>(
   dx: number,
   dy: number,
   keepState = false,
+  boards: CopiedLinkBoards = {},
 ): { content: T; newIds: ElementId[] } {
   const room = MAX_BOARD_ELEMENTS - content.elements.length;
   const { copies, idMap } = copyElements(elements, dx, dy, (element) => (keepState ? omitAuthorshipFields(element) : copyableElementFields(element)));
@@ -580,10 +586,13 @@ export function pasteElements<T extends BoardContent>(
     const copy = copyArrowWithEnds(element, idMap, dx, dy, keepState);
     if (copy) copies.push(copy);
   }
-  const complete = keepCompleteCopies(reattachCopiedStickers(copies, elements, idMap), room);
+  const complete = keepCompleteCopies(relinkCopies(reattachCopiedStickers(copies, elements, idMap), idMap, boards), room);
   const added = remapCopiedGroups(complete, () => 'new');
   if (added.length === 0) return { content, newIds: [] };
-  return { content: { ...content, elements: [...content.elements, ...added] }, newIds: added.map((element) => element.id) };
+  const sameBoard = boards.from === undefined || boards.here === undefined || boards.from === boards.here;
+  const kept = new Map([...idMap].filter(([, copy]) => added.some((element) => element.id === copy)));
+  const existing = keepState && sameBoard && kept.size > 0 ? followPastedLinks(content.elements, kept) : content.elements;
+  return { content: { ...content, elements: [...existing, ...added] }, newIds: added.map((element) => element.id) };
 }
 
 /**
@@ -733,21 +742,22 @@ export function pastePlacementOffset(
   return { dx, dy };
 }
 
-/** A link card for pasted text that is an artifact address, placed like a paste; `undefined` otherwise. */
+/** A link card (titled `title`, when given) for pasted text that is an artifact address or a `#element=<id>` link, placed like a paste; `undefined` otherwise. */
 export function linkCardFromPaste(
   text: string,
   existing: readonly BoardElement[],
   center: Point,
   step: number,
   measures?: ElementMeasures,
+  title?: string,
 ): LinkElement | undefined {
-  const href = normalizeArtifactAddress(text.trim());
+  const href = normalizeElementAnchor(text) ?? normalizeArtifactAddress(text.trim());
   if (href === undefined) return undefined;
-  const card: LinkElement = { type: 'link', id: createElementId(), x: 0, y: 0, href };
+  const label = sanitizeLinkTitle(title);
+  const card: LinkElement = { type: 'link', id: createElementId(), x: 0, y: 0, href, ...(label !== '' ? { title: label } : {}) };
   const { dx, dy } = pastePlacementOffset([card], existing, center, step, measures);
   return { ...card, x: Math.round(dx), y: Math.round(dy) };
 }
-
 
 /** Pasted cells with Markdown markers escaped and capped like element text; `cut` when a cell was cut. */
 export function trimPastedTableCells(rows: readonly (readonly string[])[]): { lists: string[][]; cut: boolean } {

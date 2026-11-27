@@ -4,11 +4,11 @@
  * the selected text, wrapping it in link elements).
  */
 
-import { HTTP_LINK_PATTERN } from './inline-markdown.ts';
+import { TEXT_LINK_PATTERN } from './inline-markdown.ts';
 
-/** Whether text may link to a target: `http(s)` and nothing that would break its Markdown. */
+/** Whether text may link to a target ({@link TEXT_LINK_PATTERN}) with nothing that would break its Markdown. */
 export function isLinkableHref(href: string): boolean {
-  return HTTP_LINK_PATTERN.test(href) && !/[`*[\]]/.test(href);
+  return TEXT_LINK_PATTERN.test(href) && !/[`*[\]]/.test(href);
 }
 
 /**
