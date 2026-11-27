@@ -1,6 +1,7 @@
 /**
  * The side panel beside the page: Sources, Design or History, one at a time,
- * at a width the viewer drags (kept in this browser). Sources and History
+ * at a width the viewer drags or clicks through (kept in this browser, with
+ * the last width dragged to as a stop of its own). Sources and History
  * keep their own open flags (`state/sources-ui.ts`, `history/store.ts`);
  * this module keeps them exclusive and closes Sources and Design while
  * comments are on.
@@ -28,6 +29,43 @@ export const PANEL_DEFAULT_WIDTH = 380;
 /** The page keeps at least this much room beside the panel. */
 export const PAGE_MIN_WIDTH = 320;
 const WIDTH_KEY = 'open-artifact:data:panel-width';
+/** The viewer's own width: the last one dragged to that is none of the other stops. */
+const OWN_WIDTH_KEY = 'open-artifact:data:panel-width-own';
+/** A press on the resize handle that moves less than this (px) along it is a click; past it, a drag. */
+export const RESIZE_DRAG_PX = 3;
+/** A click may drift this far (px) across the handle. */
+export const RESIZE_CLICK_DRIFT_PX = 8;
+/** A click on the handle waits this long (ms) for a double click before it steps. */
+export const RESIZE_CLICK_WAIT_MS = 500;
+
+/** The widths a click on the resize handle steps through. */
+export interface PanelStops {
+  home: number;
+  max: number;
+  min: number;
+  /** The viewer's own width, when there is one. */
+  own: number | null;
+}
+
+/** The width after `width` when the handle is clicked: home, max, min, the viewer's own, then home again. */
+export function nextPanelStop(width: number, stops: PanelStops): number {
+  const order = [stops.home, stops.max, stops.min, ...(stops.own === null ? [] : [stops.own])].filter(
+    (stop, index, all) => all.indexOf(stop) === index,
+  );
+  const at = order.indexOf(width);
+  return order[(at + 1) % order.length] ?? stops.home;
+}
+
+/** What a press on the handle became once it moved `dx` along and `dy` across it: still a click, a drag, or neither. */
+export function resizePress(dx: number, dy: number): 'click' | 'drag' | 'none' {
+  if (Math.abs(dx) > RESIZE_DRAG_PX) return 'drag';
+  return Math.abs(dy) > RESIZE_CLICK_DRIFT_PX ? 'none' : 'click';
+}
+
+/** A dragged width is the viewer's own when it is none of the other stops. */
+export function ownPanelWidth(width: number, stops: Omit<PanelStops, 'own'>): number | null {
+  return width === stops.home || width === stops.max || width === stops.min ? null : width;
+}
 
 /** A panel width kept between the bounds and clear of the page's least room. */
 export function clampPanelWidth(width: number, viewport = Number.POSITIVE_INFINITY): number {
@@ -53,12 +91,23 @@ function readWidth(): number {
   }
 }
 
+function readOwnWidth(): number | null {
+  try {
+    const stored = Number(globalThis.localStorage?.getItem(OWN_WIDTH_KEY));
+    return stored > 0 ? clampPanelWidth(stored) : null;
+  } catch {
+    return null;
+  }
+}
+
 interface PanelsState {
   design: boolean;
   width: number;
+  /** The viewer's own width (see {@link OWN_WIDTH_KEY}). */
+  own: number | null;
 }
 
-export const usePanels = create<PanelsState>()(() => ({ design: false, width: readWidth() }));
+export const usePanels = create<PanelsState>()(() => ({ design: false, width: readWidth(), own: readOwnWidth() }));
 
 /** The open panel. */
 export function usePanel(): PanelId | null {
@@ -99,6 +148,23 @@ export function setPanelWidth(width: number): void {
   } catch {
     // Kept for this visit only.
   }
+}
+
+/** Keeps a dragged width as the viewer's own stop. */
+export function setOwnPanelWidth(width: number | null): void {
+  if (width === usePanels.getState().own) return;
+  usePanels.setState({ own: width });
+  try {
+    if (width === null) globalThis.localStorage?.removeItem(OWN_WIDTH_KEY);
+    else globalThis.localStorage?.setItem(OWN_WIDTH_KEY, String(width));
+  } catch {
+    // Kept for this visit only.
+  }
+}
+
+/** Draws the panel no wider than `max` (the room left changed), keeping the width the viewer chose for later. */
+export function fitPanelWidth(max: number): void {
+  if (usePanels.getState().width > max) usePanels.setState({ width: Math.max(PANEL_MIN_WIDTH, Math.round(max)) });
 }
 
 const OPEN_WORDS: Record<PanelId, [string, string]> = {

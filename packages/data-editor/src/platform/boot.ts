@@ -4,6 +4,7 @@
  * the page still renders, empty and read-only, saying why.
  */
 
+import { guardComposingKeys } from '@open-artifact/ui/keys';
 import { startSession, type Session } from '../services/session.ts';
 import { startShell } from '../services/shell.ts';
 import { useDocument } from '../state/document.ts';
@@ -22,7 +23,8 @@ export function showUnavailable(reason: string): void {
  * fallback is shown. Returns a function that stops everything.
  */
 export async function startDataPage(): Promise<() => void> {
-  const stops: (() => void)[] = [followColorScheme(), blockHeldKeyActivation(window)];
+  // First on the window, so an input method's Enter, Escape or Tab reaches no shortcut.
+  const stops: (() => void)[] = [guardComposingKeys(window), followColorScheme(), blockHeldKeyActivation(window)];
   const stopAll = (): void => {
     for (const stop of stops.reverse()) stop();
     stops.length = 0;

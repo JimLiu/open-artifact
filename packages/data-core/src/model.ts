@@ -32,6 +32,7 @@ import {
   sanitizeText,
 } from './text.ts';
 import { isValidDashboardFilename, isValidDatasetId } from './paths.ts';
+import { parseHttpsLink } from './links.ts';
 import { isSavedRowsPath } from './saved-rows.ts';
 import { DATA_FILE_FORMATS, inferDataFileFormatOrCsv } from './tables.ts';
 
@@ -302,6 +303,8 @@ export function parseDataset(id: string, value: unknown): Dataset | null {
   if (source.kind === 'file' && getOwnProperty(record, 'fixed') === true) dataset.fixed = true;
   const langs = source.kind === 'query' ? parseDatasetLangs(getOwnProperty(record, 'langs')) : undefined;
   if (langs !== undefined) dataset.langs = langs;
+  const link = parseHttpsLink(getOwnProperty(record, 'link'));
+  if (link !== undefined) dataset.link = link;
   if (typeof value === 'object' && value !== null) parsedDatasets.set(value, dataset);
   return dataset;
 }

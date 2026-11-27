@@ -15,11 +15,22 @@ export interface ResultMetadata {
   lang?: string;
 }
 
+/** A tool's own word that its answer is certified (`{type: "certified", by?, at?, url?}` in `meta`). */
+export interface ResultCertification {
+  /** Who certified it, on one line. */
+  by?: string;
+  /** When, in epoch milliseconds; a bare date is read as its noon. */
+  at?: number;
+  /** Where to see the certification, an https address. */
+  url?: string;
+}
+
 export interface Table {
   columns: string[];
   rows: Row[];
   cut?: 'rows';
   meta?: ResultMetadata[];
+  certified?: ResultCertification;
 }
 
 /** One argument's constraints in a query source's `rules`; a list argument has `type: "array"` and `items`. */
@@ -140,6 +151,8 @@ export interface Dataset {
   fixed?: true;
   /** A query's `langs`: the code language of each argument that is code, lower-cased. */
   langs?: Record<string, string>;
+  /** The https address of the sheet, file or table the source reads, shown as a button in Sources. */
+  link?: string;
 }
 
 export interface DashboardFile {

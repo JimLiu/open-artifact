@@ -1,4 +1,5 @@
 import {
+  BUSY_PAUSE_MS,
   STORED_FILE_URL_PATTERN,
   SYSTEM_CLOCK,
   fileLoaderAnswer,
@@ -15,6 +16,7 @@ import {
   type WordedMessage,
 } from '@open-artifact/data-core';
 import { finalizeQueryResult, runFileLoader } from './queries.ts';
+import { RECENTLY_SHOWN_MS, markFlaky, type PageVisibility } from './retry.ts';
 
 /** A stored file is given this long to arrive. */
 export const FILE_FETCH_TIMEOUT_MS = 120_000;
@@ -32,6 +34,8 @@ export interface FileEnvironment {
   base?: () => string | undefined;
   clock?: PollClock;
   timeoutMs?: number;
+  /** When the page was last shown: a missing file is asked for again while the page was shown only just now. */
+  visibility?: PageVisibility;
 }
 
 /** Whether a url is a file stored with the dashboard (`/_blob/<id>`) or a browser `blob:` url. */
@@ -74,15 +78,47 @@ export async function fetchDataFileText(url: string, env: FileEnvironment = {}):
       signal: controller.signal,
     });
     const status = String(response.status);
-    if (!response.ok)
-      return { ok: false, kind: 'failed', message: `Couldn’t load the file (${status}).`, wording: { code: 'fileStatus', status } };
+    if (!response.ok) {
+      const failure: LoadFailure = { ok: false, kind: 'failed', message: `Couldn’t load the file (${status}).`, wording: { code: 'fileStatus', status } };
+      // Too many requests and server errors are likely passing.
+      return response.status === 429 || response.status >= 500 ? markFlaky(failure) : failure;
+    }
     const blob = await response.blob();
     return { text: await blob.text(), bytes: blob.size };
   } catch {
-    return { ok: false, kind: 'failed', message: 'Couldn’t load the file.', wording: { code: 'fileFailed' } };
+    const failure: LoadFailure = { ok: false, kind: 'failed', message: 'Couldn’t load the file.', wording: { code: 'fileFailed' } };
+    // A network failure is likely passing; running out of time is not.
+    return controller.signal.aborted ? failure : markFlaky(failure);
   } finally {
     clearTimeout(timeout);
   }
+}
+
+function isMissingFile(fetched: FetchedDataFile | LoadFailure): boolean {
+  return 'ok' in fetched && fetched.wording?.code === 'fileStatus' && fetched.wording.status === '404';
+}
+
+/**
+ * Fetches a file, asking again for one not found (404) while the page was shown only just now (a file still being
+ * stored): each try waits for a hidden page to be shown, then 2 s; it stops once the load is stale.
+ */
+async function fetchUntilFound(
+  url: string,
+  env: FileEnvironment,
+  clock: PollClock,
+  isStale: () => boolean,
+): Promise<FetchedDataFile | LoadFailure> {
+  let fetched = await fetchDataFileText(url, env);
+  const visibility = env.visibility;
+  if (visibility === undefined) return fetched;
+  while (isMissingFile(fetched)) {
+    if (visibility.hidden()) await visibility.whenShown();
+    if (clock.now() - visibility.shownAt() > RECENTLY_SHOWN_MS) break;
+    await clock.sleep(BUSY_PAUSE_MS);
+    if (isStale()) break;
+    fetched = await fetchDataFileText(url, env);
+  }
+  return fetched;
 }
 
 /** Loads an attached file: its rows, its value, or what its loader makes of its text; a JSON file's `meta` labels its table. */
@@ -91,10 +127,11 @@ export async function loadDatasetFile(
   format: DataFileFormat,
   loader?: DatasetLoader,
   env: FileEnvironment = {},
+  isStale: () => boolean = () => false,
 ): Promise<LoadResult> {
   const clock = env.clock ?? SYSTEM_CLOCK;
   const startedAt = clock.now();
-  const fetched = await fetchDataFileText(url, env);
+  const fetched = await fetchUntilFound(url, env, clock, isStale);
   if ('ok' in fetched) return fetched;
   const elapsed = (): number => Math.round(clock.now() - startedAt);
   const answer = fileLoaderAnswer(fetched.text, format);

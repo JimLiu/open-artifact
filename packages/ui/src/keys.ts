@@ -121,6 +121,46 @@ export function guardHeldActivation(
   return end;
 }
 
+/** The parts of a window {@link guardComposingKeys} listens on. */
+export interface ComposingGuardWindow {
+  addEventListener(type: 'keydown', listener: (event: ComposingGuardEvent) => void, capture: boolean): void;
+  removeEventListener(type: 'keydown', listener: (event: ComposingGuardEvent) => void, capture: boolean): void;
+}
+
+/** The parts of a keydown {@link guardComposingKeys} reads. */
+export interface ComposingGuardEvent extends ComposingLike {
+  key: string;
+  target: unknown;
+  stopImmediatePropagation(): void;
+}
+
+/** The keys an input method uses to pick, drop or move between candidates. */
+export const COMPOSING_COMMIT_KEYS: readonly string[] = ['Enter', 'Escape', 'Tab'];
+
+/** True when `target` is an element inside one that matches `selector`. */
+function insideSelector(target: unknown, selector: string): boolean {
+  const closest = (target as { closest?: unknown } | null)?.closest;
+  return typeof closest === 'function' && (closest as (selector: string) => unknown).call(target, selector) !== null;
+}
+
+/**
+ * Keeps the page's shortcuts off the keys an input method composes with:
+ * an Enter, Escape or Tab pressed while it composes (see {@link isComposingKey})
+ * is stopped at the window, before any other handler sees it, so it only
+ * picks or drops the candidate. Its default is left alone. Keys inside
+ * `skip` (a rich-text editor that reads composition itself) pass. Returns a
+ * function that removes the guard.
+ */
+export function guardComposingKeys(win: ComposingGuardWindow, skip = '.ProseMirror'): () => void {
+  const onKey = (event: ComposingGuardEvent) => {
+    if (!COMPOSING_COMMIT_KEYS.includes(event.key) || !isComposingKey(event)) return;
+    if (skip && insideSelector(event.target, skip)) return;
+    event.stopImmediatePropagation();
+  };
+  win.addEventListener('keydown', onKey, true);
+  return () => win.removeEventListener('keydown', onKey, true);
+}
+
 /** The fields of a keyboard event {@link shortcutLetter} reads. */
 export interface ShortcutKeyLike {
   key: string;

@@ -12,13 +12,26 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from 'react';
 import { isComposingKey } from '@open-artifact/ui/keys';
 import { createPortal, flushSync } from 'react-dom';
-import { announce, isApplePlatform } from '@open-artifact/editor-kit';
+import { announce, isApplePlatform, writeClipboardText } from '@open-artifact/editor-kit';
+import { LinkCard, LinkDetailsCard, LINK_COPIED_MESSAGE, LINK_COPY_FAILED_MESSAGE, toast } from '@open-artifact/ui';
+import { canOpenLink, screenBox, type ScreenBox } from '@open-artifact/ui/link-card';
 import { describeElementSelection, type ElementSelection } from '../page/selection.ts';
 import { createCardMover } from './cards.ts';
 import type { PageDraft } from './draft.ts';
 import { CARD_DRAG_THRESHOLD, createHoverIntent, isContextMenuKey, type CardDropMark } from './drops.ts';
 import { inflateBox, rectOf } from './geometry.ts';
-import { describeClickThrough, describePieceKeys, pieceKeyAction } from './keys.ts';
+import {
+  describeClickThrough,
+  describePieceKeys,
+  editLinkKind,
+  hasEditLinkCard,
+  isArrowKey,
+  LINK_CARET_CARD_MS,
+  LINK_CARET_MOVED_MS,
+  linkEnterAction,
+  pieceKeyAction,
+  type EditLinkKind,
+} from './keys.ts';
 import { DELETE_CARD, EDIT_GROUP_LABEL, MOVE_CARD_EARLIER, MOVE_CARD_LATER } from './labels.ts';
 import {
   CARD_GRIP_CLASS,
@@ -33,7 +46,7 @@ import {
   clipRectToBounds,
   cutOutClipPath,
   isRowInRoom,
-  pickTipSide,
+  placeEditTip,
   toLayerBox,
   type EditMarkLook,
   type LayerBox,
@@ -51,7 +64,7 @@ import {
   isShown,
   listLineRects,
 } from './marks.tsx';
-import { PieceToolbar, type PieceToolbarRow } from './PieceToolbar.tsx';
+import { isModK, PieceToolbar, type PieceToolbarRow } from './PieceToolbar.tsx';
 import {
   TAB_LIKE_SELECTOR,
   asDrawingPiece,
@@ -74,9 +87,9 @@ import {
   isSwappedPiece,
   type PagePiece,
 } from './pieces.ts';
-import { FORM_CONTROL_SELECTOR } from './runs.ts';
+import { FORM_CONTROL_SELECTOR, isWordsAtom, normalizeLinkHref } from './runs.ts';
 import { useLinedMarks, type SourceNameOf } from './SourceMarksLayer.tsx';
-import { CHROME_SELECTOR, describeUneditable, uneditableRefusal, visitWords, type WordsHost, type WordsPoint, type WordsStart, type WordsVisit } from './words.ts';
+import { CHROME_SELECTOR, isLinkableHost, describeUneditable, uneditableRefusal, visitWords, type WordsHost, type WordsPoint, type WordsStart, type WordsVisit } from './words.ts';
 
 export const EDIT_MODE_ATTRIBUTE = 'data-dash-mode';
 
@@ -106,6 +119,8 @@ interface EditTip {
   at: Element;
   words: ReactNode;
   refusal: boolean;
+  /** Where the pointer was when the tip came up. */
+  pointer?: { x: number; y: number } | null;
 }
 
 /** The wash over one editable run of words, in the washes layer's coordinates. */
@@ -123,6 +138,82 @@ interface EditPress {
   words: PagePiece | null;
   box: DOMRect | null;
   on: Element;
+  /** A link in the words pressed: released, it shows its card; held, it opens. */
+  link?: HTMLAnchorElement;
+  /** A link (not in words) whose piece the press picks; its card shows with it. */
+  select?: HTMLAnchorElement;
+}
+
+/** How long (ms) a press on a link in the words is held to open it. */
+export const LINK_HOLD_MS = 250;
+/** A second press on the same link this soon (ms) after the first edits its words as usual. */
+export const LINK_REPRESS_MS = 500;
+/** How far (px) the card keeps clear of the piece toolbar. */
+const LINK_CARD_AVOID_PAD = 4;
+
+/** The card of a link on the page. */
+interface EditLinkCard {
+  link: HTMLAnchorElement;
+  /** The piece the link is in: its words, or the piece a select link picked. */
+  words: PagePiece;
+  /** The link's words may take another address or lose the link. */
+  editable: boolean;
+  /** The piece picked when the card opened; another pick puts the card away. */
+  under: Element | null;
+  /** Opened by a press, or by the caret (Mod+K, an arrow key) in the words being typed. */
+  by: 'press' | 'caret';
+  /** Opens on the address input. */
+  edit: boolean;
+  /** Tells one opening from the next. */
+  n: number;
+}
+
+let cardOpenings = 0;
+const nextCardOpening = (): number => (cardOpenings += 1);
+
+/** What edit mode does with `link`, in `piece`. */
+function editLinkKindOf(link: HTMLAnchorElement, piece: PagePiece | null): EditLinkKind {
+  const text = link.textContent ?? '';
+  const whole = piece !== null && (link === piece.el || link.contains(piece.el) || (text.trim() !== '' && text.trim() === (piece.el.textContent ?? '').trim()));
+  return editLinkKind({ live: link.closest(TAB_LIKE_SELECTOR) !== null, whole, text, inWords: piece?.kind === 'words' && piece.el.contains(link) });
+}
+
+/**
+ * A link that is part of the words of `words` (not the whole of them: a piece that is all one link is picked as
+ * usual), or null.
+ */
+function textLinkIn(target: EventTarget | null, words: PagePiece | null): HTMLAnchorElement | null {
+  if (words === null || !(target instanceof Element)) return null;
+  const link = target.closest<HTMLAnchorElement>('a[href]');
+  return link !== null && words.el.contains(link) && editLinkKindOf(link, words) === 'edit' ? link : null;
+}
+
+/** The link the caret is in, in `words`: a collapsed selection inside a link there. */
+function caretLink(words: Element): HTMLAnchorElement | null {
+  const selection = document.getSelection();
+  if (selection === null || !selection.isCollapsed || selection.anchorNode === null || !words.contains(selection.anchorNode)) return null;
+  const node = selection.anchorNode;
+  const link = (node instanceof Element ? node : node.parentElement)?.closest<HTMLAnchorElement>('a[href]') ?? null;
+  return link !== null && words.contains(link) ? link : null;
+}
+
+/** A link in words whose host can hold links, kept whole by nothing, with no link inside it. */
+const isEditableLink = (link: HTMLAnchorElement, words: PagePiece): boolean =>
+  isLinkableHost(words.el) && !isWordsAtom(link) && link.querySelector('a') === null;
+
+function openPageLink(href: string): void {
+  if (canOpenLink(href)) window.open(href, '_blank', 'noopener,noreferrer');
+}
+
+async function copyLink(href: string): Promise<boolean> {
+  try {
+    await writeClipboardText(href);
+    announce(LINK_COPIED_MESSAGE);
+    return true;
+  } catch {
+    toast.add({ title: LINK_COPY_FAILED_MESSAGE });
+    return false;
+  }
 }
 
 type EditPointer = Pick<MouseEvent, 'clientX' | 'clientY' | 'metaKey' | 'ctrlKey' | 'target'>;
@@ -155,6 +246,7 @@ export function PageEditMode({ root, draft, off, onAsk, adopts = never, sourceOf
   const [hoveredCell, setHoveredCell] = useState<Element | null>(null);
   const [dropMarks, setDropMarks] = useState<CardDropMark[]>([]);
   const [tip, setTip] = useState<EditTip | null>(null);
+  const [linkCard, setLinkCard] = useState<EditLinkCard | null>(null);
   const [, redraw] = useReducer((count: number) => count + 1, 0);
   const toolbarRef = useRef<HTMLDivElement>(null);
   const pressedRef = useRef<WordsPoint | null>(null);
@@ -209,6 +301,33 @@ export function PageEditMode({ root, draft, off, onAsk, adopts = never, sourceOf
   );
 
   useEffect(() => draft.subscribe(redraw), [draft]);
+  const linkCardRef = useRef(linkCard);
+  linkCardRef.current = linkCard;
+  // Another piece picked, or edit mode off: the link card goes.
+  useEffect(() => {
+    if (off || (linkCard !== null && (picked?.el ?? null) !== linkCard.under)) setLinkCard(null);
+  }, [picked, off, linkCard]);
+  // So does any change to the draft once the card is up (the pick that opened it came before).
+  useEffect(() => {
+    if (linkCard === null) return;
+    const stateOf = (): string => {
+      const visiting = draft.visit();
+      const typed = visiting === null ? '' : visiting.el === linkCard.words.el ? visiting.el.innerHTML : '*';
+      return `${draft.count()}|${draft.canUndo()}|${draft.canRedo()}|${typed}`;
+    };
+    const opened = stateOf();
+    return draft.subscribe(() => {
+      if (stateOf() !== opened) setLinkCard(null);
+    });
+  }, [linkCard, draft]);
+  // The card of a link that can't change is placed once; a scroll puts it away rather than leave it behind.
+  const fixedCard = linkCard !== null && !linkCard.editable;
+  useEffect(() => {
+    if (!fixedCard) return;
+    const controller = new AbortController();
+    window.addEventListener('scroll', () => setLinkCard(null), { capture: true, passive: true, signal: controller.signal });
+    return () => controller.abort();
+  }, [fixedCard]);
 
   const adoptedRef = useRef(false);
   useEffect(() => {
@@ -252,7 +371,12 @@ export function PageEditMode({ root, draft, off, onAsk, adopts = never, sourceOf
       tipped = element;
       clearTimeout(tipTimer);
       host.tip(null);
-      if (words !== null && element !== null) tipTimer = setTimeout(() => host.tip(element, words), EDIT_TIP_DELAY);
+      if (words !== null && element !== null)
+        tipTimer = setTimeout(() => {
+          host.tip(element, words);
+          const at = pointer === null ? null : { x: pointer.clientX, y: pointer.clientY };
+          setTip((current) => (current === null || current.at !== element || current.refusal ? current : { ...current, pointer: at }));
+        }, EDIT_TIP_DELAY);
     };
     const setIbeam = (element: Element | null): void => {
       if (element === ibeam) return;
@@ -296,7 +420,10 @@ export function PageEditMode({ root, draft, off, onAsk, adopts = never, sourceOf
         event.timeStamp,
       );
       const control = piece === null || piece.kind === 'block' || event.target.closest(TAB_LIKE_SELECTOR) !== null ? null : event.target.closest(USABLE_CONTROL_SELECTOR);
-      if (control !== null) tipFor(control, describeClickThrough(control.getAttribute('href'), isApplePlatform()));
+      const linkKind = control instanceof HTMLAnchorElement && control.hasAttribute('href') ? editLinkKindOf(control, piece) : null;
+      // A link with a card says nothing on hover; one with no words has its tip on its picture.
+      if (control !== null && (linkKind === null || !hasEditLinkCard(linkKind)))
+        tipFor(linkKind === 'card' ? (control.querySelector('svg') ?? control) : control, describeClickThrough(control.getAttribute('href'), isApplePlatform()));
       else if (piece?.kind === 'drawing') tipFor(piece.el, sourceTip(event.target) ?? describeUneditable(piece.el));
       else tipFor(null);
       const card = findBlockBox(event.target, root);
@@ -314,6 +441,8 @@ export function PageEditMode({ root, draft, off, onAsk, adopts = never, sourceOf
     };
 
     let press: EditPress | null = null;
+    let linkHold: ReturnType<typeof setTimeout> | undefined;
+    let linkPressed: { link: Element; at: number } | null = null;
     let lastSourceClick = { t: -Infinity, x: 0, y: 0 };
     let doubleClick = false;
     let swallowing = false;
@@ -338,6 +467,7 @@ export function PageEditMode({ root, draft, off, onAsk, adopts = never, sourceOf
         return;
       }
       if (event.button !== 0 || hasOpenOverlay() || !(event.target instanceof Element) || !scroller.contains(event.target) || event.target.closest(CHROME_SELECTOR) !== null) return;
+      setLinkCard(null);
       passThrough = isPassThroughClick(event, root);
       if (passThrough && event.target.closest(TYPING_CONTROL_SELECTOR) !== null) draft.settle(true);
       if (passThrough) return;
@@ -354,6 +484,30 @@ export function PageEditMode({ root, draft, off, onAsk, adopts = never, sourceOf
         box: piece === null ? null : getPieceRect(piece),
         on: event.target,
       };
+      const link = textLinkIn(event.target, press.words);
+      const plain = !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey;
+      // A select link picks its piece as usual and shows its card; pressed again once picked, it only picks.
+      const anchor = event.target.closest<HTMLAnchorElement>('a[href]');
+      if (anchor !== null && plain && piece !== null && pickedRef.current?.el !== piece.el && editLinkKindOf(anchor, piece) === 'select') press.select = anchor;
+      const again = linkPressed !== null && linkPressed.link === link && event.timeStamp - linkPressed.at < LINK_REPRESS_MS;
+      if (link !== null && plain && !again && pickedRef.current?.el !== press.words?.el) {
+        press.link = link;
+        linkPressed = { link, at: event.timeStamp };
+        try {
+          link.setPointerCapture(event.pointerId);
+        } catch {
+          // The press goes on without capture.
+        }
+        clearTimeout(linkHold);
+        const held = press;
+        linkHold = setTimeout(() => {
+          if (press !== held) return;
+          press = null;
+          setLinkCard(null);
+          openPageLink(link.href);
+        }, LINK_HOLD_MS);
+        return;
+      }
       draft.settle(true);
       const card = piece === null || press.words !== null || isStagedPiece(piece.el, root) ? null : (findBlockBox(piece.el, root) ?? piece.el);
       if (card !== null) mover.press(event, card, false);
@@ -381,7 +535,17 @@ export function PageEditMode({ root, draft, off, onAsk, adopts = never, sourceOf
       const pressed = press;
       press = null;
       if (swallowing) event.stopPropagation();
+      clearTimeout(linkHold);
       if (pressed === null || draft.holding() || mover.dragging()) return;
+      if (pressed.link !== undefined && pressed.words !== null) {
+        const moved = Math.hypot(event.clientX - pressed.x, event.clientY - pressed.y) > CARD_DRAG_THRESHOLD;
+        if (moved || !pressed.link.isConnected) return;
+        // A link released where it was pressed shows its card; nothing stays picked under it.
+        pick(null);
+        propsRef.current.onSource(null);
+        setLinkCard({ link: pressed.link, words: pressed.words, editable: isEditableLink(pressed.link, pressed.words), under: null, by: 'press', edit: false, n: nextCardOpening() });
+        return;
+      }
       const piece = pressed.piece?.el.isConnected === false ? findPieceAt(document.elementFromPoint(event.clientX, event.clientY), root, event) : pressed.piece;
       const selection = document.getSelection();
       if (piece?.kind === 'words' && selection !== null && !selection.isCollapsed && piece.el.contains(selection.anchorNode)) {
@@ -411,11 +575,14 @@ export function PageEditMode({ root, draft, off, onAsk, adopts = never, sourceOf
               : piece.el;
       if (source !== null && propsRef.current.sourceOf(source) !== null) lastSourceClick = { t: event.timeStamp, x: event.clientX, y: event.clientY };
       propsRef.current.onSource(source);
+      const select = pressed.select;
+      if (select !== undefined && select.isConnected && piece !== null && piece.el === pressed.piece?.el)
+        setLinkCard({ link: select, words: piece, editable: false, under: piece.el, by: 'press', edit: false, n: nextCardOpening() });
     };
 
     const onMouseButton = (event: MouseEvent): void => {
       if (swallowing) event.stopPropagation();
-      if (event.type === 'mousedown' && (doubleClick || (passThrough && draft.visit() !== null))) event.preventDefault();
+      if (event.type === 'mousedown' && (doubleClick || (passThrough && draft.visit() !== null) || press?.link !== undefined)) event.preventDefault();
     };
 
     const refuseDrawing = (drawing: Element): void => {
@@ -495,9 +662,80 @@ export function PageEditMode({ root, draft, off, onAsk, adopts = never, sourceOf
       return true;
     };
 
+    let arrowAt = -Infinity;
+    let caretTimer: ReturnType<typeof setTimeout> | undefined;
+    let caretFor: HTMLAnchorElement | null = null;
+    const caretCard = (link: HTMLAnchorElement, words: PagePiece, edit: boolean): void => {
+      const editable = isEditableLink(link, words);
+      setLinkCard({ link, words, editable, under: words.el, by: 'caret', edit: edit && editable, n: nextCardOpening() });
+    };
+    /** The caret's words: the words being typed, while they have the focus. */
+    const caretWords = (): PagePiece | null => {
+      const typing = draft.visit()?.el ?? null;
+      const words = pickedRef.current;
+      return typing !== null && words?.el === typing && document.activeElement === typing ? words : null;
+    };
+    // A caret an arrow key moved into a link shows the link's card once it rests there; moved out, the card goes.
+    const onCaretMoved = (): void => {
+      const words = caretWords();
+      if (words === null) return;
+      const link = caretLink(words.el);
+      const card = linkCardRef.current;
+      if (card?.by === 'caret' && card.link !== link) setLinkCard(null);
+      if (link === caretFor) return;
+      clearTimeout(caretTimer);
+      caretFor = null;
+      if (link === null || link === card?.link || performance.now() - arrowAt > LINK_CARET_MOVED_MS || editLinkKindOf(link, words) !== 'edit') return;
+      caretFor = link;
+      caretTimer = setTimeout(() => {
+        caretFor = null;
+        if (caretWords() === words && caretLink(words.el) === link) caretCard(link, words, false);
+      }, LINK_CARET_CARD_MS);
+    };
+    /** Enter, Alt+Enter and Mod+K on links; true when the key was taken. */
+    const onLinkKey = (event: KeyboardEvent, target: Element): boolean => {
+      const typing = draft.visit()?.el ?? null;
+      if (isModK(event)) {
+        const card = linkCardRef.current;
+        if (target.closest('[data-edit-link-card]') !== null) {
+          if (card === null || !card.editable || target.closest('input') !== null) return false;
+          setLinkCard({ ...card, edit: true, n: nextCardOpening() });
+          return true;
+        }
+        const words = caretWords();
+        const link = words === null || target !== words.el ? null : caretLink(words.el);
+        if (words === null || link === null || editLinkKindOf(link, words) !== 'edit') return false;
+        clearTimeout(caretTimer);
+        caretFor = null;
+        caretCard(link, words, true);
+        return true;
+      }
+      if (isArrowKey(event.key)) {
+        if (typing !== null && target === typing) arrowAt = performance.now();
+        return false;
+      }
+      const focused = target instanceof HTMLAnchorElement && target.hasAttribute('href') && root.contains(target) && typing?.contains(target) !== true ? target : null;
+      const opens = focused !== null && (event.altKey || !['live', 'select'].includes(editLinkKindOf(focused, findPieceAt(focused, root))));
+      const action = linkEnterAction(event, opens);
+      if (action === 'focused' && focused !== null) openPageLink(focused.href);
+      else if (action === 'caret') {
+        const words = caretWords();
+        const link = words === null || target !== words.el ? null : caretLink(words.el);
+        if (link === null) return false;
+        if (!event.repeat) openPageLink(link.href);
+      }
+      return action !== null;
+    };
+
     const onKeyDown = (event: KeyboardEvent): void => {
       setTip(null);
       tabbing = event.key === 'Tab';
+      if (!event.defaultPrevented && !isComposingKey(event) && !draft.holding() && !hasOpenOverlay() && event.target instanceof Element && onLinkKey(event, event.target)) {
+        // Taken here, the key reaches neither the words being typed nor the piece toolbar.
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        return;
+      }
       if (event.defaultPrevented || isComposingKey(event) || event.altKey || draft.holding() || hasOpenOverlay() || !(event.target instanceof Element)) return;
       const current = pickedRef.current?.el.isConnected === true ? pickedRef.current : null;
       const typingIn = draft.visit()?.el;
@@ -659,6 +897,7 @@ export function PageEditMode({ root, draft, off, onAsk, adopts = never, sourceOf
         if (inRoot(event)) event.preventDefault();
       }),
       addTrustedWindowListener('selectionchange', keepSelectionInWords),
+      addTrustedWindowListener('selectionchange', onCaretMoved),
       addTrustedWindowListener('keydown', onKeyDown),
       addTrustedWindowListener('focusin', onFocusIn),
       draft.subscribe(() => scheduleWashes(true)),
@@ -678,8 +917,11 @@ export function PageEditMode({ root, draft, off, onAsk, adopts = never, sourceOf
       clearTimeout(tipTimer);
       mover.stop();
       leave();
+      clearTimeout(linkHold);
+      clearTimeout(caretTimer);
       draft.settle(true);
       setTip(null);
+      setLinkCard(null);
     };
   }, [root, draft, off, host, mover, pick, sourceTip]);
 
@@ -695,10 +937,11 @@ export function PageEditMode({ root, draft, off, onAsk, adopts = never, sourceOf
   const grips = holding ? [] : [...new Set([card, hoveredCard])].flatMap((box) => (box?.isConnected === true ? [box] : []));
   const tipBox = !holding && tip?.at.isConnected === true && isShown(tip.at, tip.refusal ? EXPORT_VISIBILITY_OPTIONS : undefined) ? rectOf(tip.at.getBoundingClientRect()) : null;
   const strip = document.querySelector('[data-mc-strip]')?.getBoundingClientRect();
+  const tipPlace = tipBox === null ? null : placeEditTip(tipBox, toolbarRoom, strip === undefined ? null : rectOf(strip), tip?.pointer ?? null);
   const tipSide =
-    tipBox === null
+    tipBox === null || tipPlace === null
       ? null
-      : (pickTipSide(tipBox, toolbarRoom, strip === undefined ? null : rectOf(strip)) ?? (tip?.refusal === true ? (tipBox.top < room.top + 48 ? 'bottom' : 'top') : null));
+      : (tipPlace.side ?? (tip?.refusal === true ? (tipBox.top < room.top + 48 ? 'bottom' : 'top') : null));
   const rows: PieceToolbarRow[] =
     shown?.kind !== 'block'
       ? []
@@ -725,7 +968,7 @@ export function PageEditMode({ root, draft, off, onAsk, adopts = never, sourceOf
           <CardGrip key={grip === card ? 'home' : 'under'} card={grip} full={grip === shown?.el} room={room} onPress={(event) => mover.press(event, grip, true)} />
         ))}
         {tipBox !== null && tipSide !== null && (
-          <EditTipView box={tipBox} room={room} side={tipSide}>
+          <EditTipView box={tipPlace?.anchor ?? tipBox} room={room} side={tipSide} follow={tipPlace?.follow === true}>
             {tip?.words}
           </EditTipView>
         )}
@@ -740,6 +983,37 @@ export function PageEditMode({ root, draft, off, onAsk, adopts = never, sourceOf
             visit={visit}
             onAsk={onAsk === null ? null : () => onAsk(() => describeElementSelection(shown.el, root))}
             rows={rows}
+          />
+        </div>
+      )}
+      {linkCard !== null && !holding && linkCard.link.isConnected && (
+        <div data-mc-chrome="" data-uncommentable="" data-edit-link-card="">
+          <EditLinkCardView
+            key={linkCard.n}
+            card={linkCard}
+            avoid={() => {
+              const bar = toolbarRef.current?.querySelector('.dash-edit-toolbar')?.getBoundingClientRect();
+              return bar === undefined ? null : screenBox(inflateBox(rectOf(bar), LINK_CARD_AVOID_PAD));
+            }}
+            onEdit={(href) => {
+              const { link, words } = linkCard;
+              const range = document.createRange();
+              range.selectNodeContents(link);
+              pick(words, range);
+              const visit = visitRef.current;
+              if (visit === null) return false;
+              visit.link(href);
+              const took = href === null ? !link.isConnected || !words.el.contains(link) : link.getAttribute('href') === normalizeLinkHref(href);
+              if (took) setLinkCard(null);
+              return took;
+            }}
+            onClose={() => {
+              setLinkCard(null);
+              // The focus goes back where it was: the words being typed for a card the caret opened, else the page.
+              const typing = draft.visit()?.el;
+              if (linkCard.by === 'caret' && typing === linkCard.words.el && typing instanceof HTMLElement) typing.focus({ preventScroll: true });
+              else root.focus({ preventScroll: true });
+            }}
           />
         </div>
       )}
@@ -759,3 +1033,34 @@ export function PageEditMode({ root, draft, off, onAsk, adopts = never, sourceOf
   );
 }
 
+
+interface EditLinkCardViewProps {
+  card: EditLinkCard;
+  avoid: () => ScreenBox | null;
+  /** Writes an address into the link (null takes the link away); false when it could not. */
+  onEdit(href: string | null): boolean;
+  onClose(): void;
+}
+
+/** A link's card in edit mode: Copy link, and Edit link and Remove link when its words can change. */
+function EditLinkCardView({ card, avoid, onEdit, onClose }: EditLinkCardViewProps): ReactNode {
+  const { link, editable } = card;
+  const target = link.getAttribute('href') ?? '';
+  if (!editable)
+    return <LinkDetailsCard href={link.href} anchor={screenBox(link.getBoundingClientRect())} avoid={avoid()} onCopy={copyLink} onClose={onClose} />;
+  return (
+    <LinkCard
+      link={link}
+      target={target}
+      href={link.href}
+      normalize={normalizeLinkHref}
+      onCopy={(address) => void copyLink(address)}
+      onEdit={(next) => onEdit(next)}
+      onRemove={() => void onEdit(null)}
+      onReturn={onClose}
+      above
+      avoid={avoid}
+      editOnOpen={card.edit}
+    />
+  );
+}

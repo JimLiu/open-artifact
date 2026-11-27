@@ -141,6 +141,10 @@ export interface DashboardPresenceInput {
   form: string | null;
   /** The shown draft's id (`null`: the stored dashboard). */
   draft: string | null;
+  /** What the page shows when it isn't the dashboard itself (`drafts/<id>`, `history/<n>`). */
+  showing?: string | null;
+  /** The draft the viewer's changes go to (`drafts/<id>`; `null`: the dashboard itself). */
+  writeTo?: string | null;
 }
 
 /**
@@ -174,20 +178,23 @@ export function useDashboardPresence(input: DashboardPresenceInput): {
 
   const hooks = useMemo(() => collectPagePresenceHooks(input.files), [input.files]);
   const blurReports = useRef(false);
-  const { loading, report, sources, data, dirty, shown, filters, form, draft } = input;
+  const { loading, report, sources, data, dirty, shown, filters, form, draft, showing = null, writeTo = null } = input;
   useEffect(() => {
     if (!hasRoom || loading) return;
     const send = (): void =>
-      reporter.current?.report(buildDashboardPresenceContext(report(), hooks, sources, { data, dirty, place, pointed, shown, filters, form, draft }));
+      reporter.current?.report(
+        buildDashboardPresenceContext(report(), hooks, sources, { data, dirty, place, pointed, shown, filters, form, draft, showing, writeTo }),
+      );
     send();
-    blurReports.current ||= form !== null || draft !== null;
+    // While the agent is told a format, a draft or an earlier version, the context stays when the window loses focus.
+    blurReports.current ||= form !== null || draft !== null || showing !== null || writeTo !== null;
     if (blurReports.current) window.addEventListener('blur', send);
     const unsubscribe = useDocument.subscribe(send);
     return () => {
       window.removeEventListener('blur', send);
       unsubscribe();
     };
-  }, [hasRoom, loading, report, hooks, sources, data, dirty, place, pointed, shown, filters, form, draft]);
+  }, [hasRoom, loading, report, hooks, sources, data, dirty, place, pointed, shown, filters, form, draft, showing, writeTo]);
 
   return { onLink: setPlace, onPoint: hasRoom ? onPoint : undefined };
 }

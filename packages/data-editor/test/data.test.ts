@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { describe, it } from 'node:test';
-import type { Dataset, DatasetRun } from '@open-artifact/data-core';
+import type { Dataset, DatasetRun, LoadResult } from '@open-artifact/data-core';
+import { isFlakyLoad } from '../src/data/retry.ts';
 import { connectionFixAriaLabel, connectionFixLabel, connectorSetupRequest, getConnectionFixAction } from '../src/data/fixes.ts';
 import { fetchDataFileText, loadDatasetFile, resolveStoredFileUrl } from '../src/data/files.ts';
 import { sha256Hex } from '../src/data/hash.ts';
@@ -113,6 +114,33 @@ describe('stored files', () => {
     assert.equal('ok' in refused && refused.kind, 'refused');
   });
 
+  it('counts a network failure or a server error as likely passing, and a missing file not', async () => {
+    const { fetcher } = fakeFetch({ [`https://example.test${BLOB}`]: 0 });
+    const env = { fetch: fetcher, base: () => 'https://example.test/' };
+    assert.equal(isFlakyLoad((await fetchDataFileText(BLOB, env)) as LoadResult), true);
+    assert.equal(isFlakyLoad((await fetchDataFileText('/_blob/ffffffffffffffffffffffffffffffff', env)) as LoadResult), false);
+    for (const status of [429, 503]) {
+      const busy = (async () => new Response('', { status })) as unknown as typeof fetch;
+      assert.equal(isFlakyLoad((await fetchDataFileText(BLOB, { fetch: busy })) as LoadResult), true);
+    }
+  });
+
+  it('asks again for a missing file while the page was shown only just now', async () => {
+    let time = 0;
+    let asked = 0;
+    const fetcher = (async () => (++asked < 3 ? new Response('', { status: 404 }) : new Response('[{"n":1}]'))) as unknown as typeof fetch;
+    const clock = { now: () => time, sleep: async (ms: number) => void (time += ms), random: () => 0 };
+    const visibility = { shownAt: () => 0, hidden: () => false, whenShown: async () => undefined };
+    const loaded = await loadDatasetFile(BLOB, 'json', undefined, { fetch: fetcher, clock, visibility });
+    assert.ok(loaded.ok);
+    assert.equal(asked, 3);
+    asked = -100;
+    time = 0;
+    const late = await loadDatasetFile(BLOB, 'json', undefined, { fetch: fetcher, clock, visibility });
+    assert.equal(!late.ok && late.message, 'Couldn’t load the file (404).');
+    assert.equal(time, 26_000);
+  });
+
   it('keys a file load on its url, format and loader', () => {
     assert.equal(getDatasetLoadKey(fileDataset()), `f|${BLOB}|csv`);
     assert.equal(getDatasetLoadKey(fileDataset({ loader: { description: '', fn: () => 1, code: 'x' } })), `f|${BLOB}|csv|x`);
@@ -207,6 +235,25 @@ describe('statuses and words', () => {
     const notice = getDashboardNotice([query], () => run);
     assert.ok(notice !== null);
     assert.deepEqual(notice.fix, { connector: 'sales', fix: getConnectionFix(run) });
+  });
+
+  it('counts the sources that didn’t load and lists them', () => {
+    const orders: Dataset = { ...fileDataset({ id: 'orders' }), source: { kind: 'query', call: true, connector: 'sales', tool: 'run', args: '{}' } };
+    const prices: Dataset = fileDataset({ id: 'prices' });
+    const run: DatasetRun = { status: 'failed', at: NOW, message: 'It broke.' };
+    const one = getDashboardNotice([orders], () => run);
+    assert.equal(one?.text, '1 source didn’t load.');
+    assert.deepEqual(one?.failed?.map((ds) => ds.id), ['orders']);
+    assert.deepEqual(one?.ask?.map((ds) => ds.id), ['orders']);
+    const two = getDashboardNotice([orders, prices], () => run);
+    assert.equal(two?.text, '2 sources didn’t load.');
+    assert.deepEqual(two?.failed?.map((ds) => ds.id), ['orders', 'prices']);
+  });
+
+  it('says it is retrying ahead of anything else in the toolbar', () => {
+    assert.equal(getToolbarText({ loading: 'again', loadingNow: 1, updatedAt: NOW, now: NOW, retrying: 1 }), '1 source didn’t load. Retrying…');
+    assert.equal(getToolbarText({ loading: null, loadingNow: 0, updatedAt: NOW, now: NOW, retrying: 3 }), '3 sources didn’t load. Retrying…');
+    assert.equal(getToolbarText({ loading: null, loadingNow: 0, updatedAt: null, now: NOW, retrying: 0 }), null);
   });
 });
 

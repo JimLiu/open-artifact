@@ -32,7 +32,9 @@ interface VersionHistoryState {
   /** The earlier version shown on the page, and when it was made. */
   shown: { n: number; at: number } | null;
   restoring: boolean;
-  /** Why the last restore did not happen. */
+  /** The version being restored. */
+  restoringN: number | null;
+  /** Why the last restore from the version's own page did not happen. */
   problem: string | null;
 }
 
@@ -45,6 +47,7 @@ const INITIAL: VersionHistoryState = {
   opened: null,
   shown: null,
   restoring: false,
+  restoringN: null,
   problem: null,
 };
 
@@ -156,21 +159,36 @@ function restoreProblem(error: unknown): string {
   return RESTORE_FAILED_MESSAGE;
 }
 
-/** Brings version `n` back for everyone; on success the panel goes back to the list. */
-export async function restoreVersion(n: number): Promise<void> {
+/**
+ * Brings version `n` back for everyone and reads the listing again. Resolves to null once restored, else to why not;
+ * one restore runs at a time.
+ */
+export async function restoreVersionNow(n: number): Promise<string | null> {
   const history = historyCapability();
   const state = useVersionHistory.getState();
-  if (history === null || !state.canRestore || state.restoring) return;
-  useVersionHistory.setState({ restoring: true, problem: null });
+  if (history === null || state.restoring) return RESTORE_FAILED_MESSAGE;
+  if (!state.canRestore) return RESTORE_NOT_ALLOWED_MESSAGE;
+  useVersionHistory.setState({ restoring: true, restoringN: n });
   try {
     await history.restore(n);
-    useVersionHistory.setState({ restoring: false });
-    announce(RESTORED_MESSAGE);
-    openVersion(null);
     void reload();
+    return null;
   } catch (error) {
-    useVersionHistory.setState({ restoring: false, problem: restoreProblem(error) });
+    return restoreProblem(error);
+  } finally {
+    useVersionHistory.setState({ restoring: false, restoringN: null });
   }
+}
+
+/** Brings version `n` back from its own page: on success the panel goes back to the list, else the page says why. */
+export async function restoreVersion(n: number): Promise<void> {
+  const state = useVersionHistory.getState();
+  if (historyCapability() === null || !state.canRestore || state.restoring) return;
+  useVersionHistory.setState({ problem: null });
+  const problem = await restoreVersionNow(n);
+  if (problem !== null) return void useVersionHistory.setState({ problem });
+  announce(RESTORED_MESSAGE);
+  openVersion(null);
 }
 
 /**

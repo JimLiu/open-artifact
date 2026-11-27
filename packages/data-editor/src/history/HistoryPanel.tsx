@@ -1,13 +1,17 @@
 /**
- * The History panel's content: the versions by day, and one version's
- * changes with line diffs and Restore. The version open here is shown on
- * the page with today's data.
+ * The History panel's content: the versions by day (each earlier one with a
+ * Restore that shows on hover or focus), and one version's changes with line
+ * diffs and Restore. The version open here is shown on the page with today's
+ * data.
  */
 
 import { ArrowLeft, Bot, ChevronRight, LoaderCircle } from 'lucide-react';
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { HistoryFileDiff, HistoryVersion } from '@open-artifact/runtime';
-import { Button, cn, diffHunks, diffLines, diffStats, groupVersions, type DiffHunk } from '@open-artifact/ui';
+import { Button, ConfirmDialog, cn, diffHunks, diffLines, diffStats, groupVersions, toast, type DiffHunk } from '@open-artifact/ui';
+import { useStyleEditor } from '../design/style.ts';
+import { useEditFlow } from '../drafts/edit-flow.ts';
+import { useDraftFlow } from '../drafts/flow.ts';
 import {
   AGENT_VERSION_LABEL,
   BACK_TO_VERSIONS_LABEL,
@@ -16,6 +20,8 @@ import {
   IS_NOW_MESSAGE,
   NO_VERSIONS_MESSAGE,
   NO_VERSIONS_TITLE,
+  RESTORED_MESSAGE,
+  RESTORE_EARLIER_TITLE,
   RESTORE_LABEL,
   RESTORING_LABEL,
   TOO_MUCH_CHANGED_MESSAGE,
@@ -32,6 +38,8 @@ import {
   historyPathOf,
   isPageFilePath,
   listVersionChanges,
+  restoreEarlierDescription,
+  restoreVersionLabel,
   versionByline,
   versionChangeName,
   versionDayLabel,
@@ -39,7 +47,7 @@ import {
   versionWho,
   type VersionChange,
 } from './describe.ts';
-import { historyCapability, openVersion, restoreVersion, useVersionHistory } from './store.ts';
+import { historyCapability, openVersion, restoreVersion, restoreVersionNow, useVersionHistory } from './store.ts';
 
 /** Lines of context around a change. */
 const DIFF_CONTEXT_LINES = 2;
@@ -62,8 +70,109 @@ function Who({ version, who }: { version: HistoryVersion; who: string }): ReactN
   );
 }
 
+/**
+ * Restoring from the list waits while something else holds the page: hand edits, unsaved style changes, a draft
+ * being saved, or the agent's turn on the draft held here. (A version's own page still offers Restore.)
+ */
+function useRestoreHeld(): boolean {
+  const editing = useEditFlow((state) => state.phase !== 'off');
+  const styling = useStyleEditor((state) => state.pending !== null);
+  const saving = useDraftFlow((state) => state.saving);
+  const waiting = useDraftFlow((state) => state.view.waiting);
+  return editing || styling || saving || waiting;
+}
+
+/**
+ * Shown on a precise pointer while the row is hovered, holds focus or restores; never on touch, where the version's
+ * own page has Restore. Invisible, it still takes focus, so the keyboard reaches it.
+ */
+const ROW_RESTORE_CLASS = cn(
+  'absolute end-2 top-1/2 -translate-y-1/2 opacity-0 pointer-events-none',
+  'group-hover/version:opacity-100 group-hover/version:pointer-events-auto',
+  'group-focus-within/version:opacity-100 group-focus-within/version:pointer-events-auto',
+  'aria-busy:opacity-100 aria-busy:pointer-events-auto',
+  '[@media(hover:none)]:hidden [@media(pointer:coarse)]:hidden',
+);
+
+/** Brings version `n` back from its row, staying on the list; a toast says how it went. */
+async function restoreFromList(n: number): Promise<void> {
+  const problem = await restoreVersionNow(n);
+  toast.add(problem === null ? { title: RESTORED_MESSAGE } : { title: problem, timeout: 10_000 });
+}
+
+function VersionRow({ version, now, held }: { version: HistoryVersion; now: number; held: boolean }): ReactNode {
+  const at = Date.parse(version.at);
+  const when = formatVersionDay(at, now);
+  const who = versionWho(version.author);
+  const current = version.current === true;
+  const canRestore = useVersionHistory((state) => state.canRestore);
+  const restoring = useVersionHistory((state) => state.restoring);
+  const busy = useVersionHistory((state) => state.restoringN === version.n);
+  const offered = canRestore && !current && !held;
+  const [confirming, setConfirming] = useState(false);
+  const confirmed = useRef(false);
+  const rowButton = useRef<HTMLButtonElement | null>(null);
+  const restoreButton = useRef<HTMLButtonElement | null>(null);
+  // Something took hold of the page while the question was open: it goes away unanswered.
+  if (confirming && !offered) setConfirming(false);
+  return (
+    <li className="group/version relative">
+      <button
+        ref={rowButton}
+        type="button"
+        data-version={version.n}
+        data-row-main=""
+        aria-label={describeVersionRowLabel(when, current, who)}
+        onClick={() => openVersion(version.n)}
+        className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-start outline-none hover:bg-chrome-hover focus-visible:ring-2 focus-visible:ring-chrome-focus"
+      >
+        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <span className="flex items-baseline gap-2 text-[13px] text-chrome-fg">
+            {formatVersionTime(at)}
+            {current ? <span className="text-[11px] text-chrome-muted">{CURRENT_VERSION_LABEL}</span> : null}
+          </span>
+          <Who version={version} who={who} />
+        </span>
+        <ChevronRight className="size-3.5 flex-none text-chrome-muted" aria-hidden="true" />
+      </button>
+      {offered || busy ? (
+        <Button
+          ref={restoreButton}
+          size="sm"
+          data-version-restore={version.n}
+          aria-label={restoreVersionLabel(when)}
+          aria-busy={busy || undefined}
+          disabled={restoring}
+          onClick={() => setConfirming(true)}
+          className={ROW_RESTORE_CLASS}
+        >
+          {busy ? <LoaderCircle className="size-3.5 animate-spin" aria-hidden="true" /> : null}
+          {busy ? RESTORING_LABEL : RESTORE_LABEL}
+        </Button>
+      ) : null}
+      <ConfirmDialog
+        open={confirming && offered}
+        onOpenChange={(open) => {
+          if (open) confirmed.current = false;
+          setConfirming(open);
+        }}
+        title={RESTORE_EARLIER_TITLE}
+        description={restoreEarlierDescription(when)}
+        confirmLabel={RESTORE_LABEL}
+        initialFocus="cancel"
+        finalFocus={() => (confirmed.current ? rowButton.current : restoreButton.current)}
+        onConfirm={() => {
+          confirmed.current = true;
+          void restoreFromList(version.n);
+        }}
+      />
+    </li>
+  );
+}
+
 function VersionList({ versions, now }: { versions: readonly HistoryVersion[]; now: number }): ReactNode {
   const days = useMemo(() => groupVersions(versions), [versions]);
+  const held = useRestoreHeld();
   const none = versions.length === 0 || (versions.length === 1 && versions[0]!.current === true);
   if (none)
     return (
@@ -78,33 +187,7 @@ function VersionList({ versions, now }: { versions: readonly HistoryVersion[]; n
         <section key={day.key} role="listitem" aria-label={versionDayLabel(day.date.getTime(), now)} className="flex flex-col">
           <h4 className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-wide text-chrome-muted">{versionDayLabel(day.date.getTime(), now)}</h4>
           <ul className="flex flex-col">
-            {day.runs.flatMap((run) =>
-              run.versions.map((version) => {
-                const at = Date.parse(version.at);
-                const who = versionWho(version.author);
-                const current = version.current === true;
-                return (
-                  <li key={version.n}>
-                    <button
-                      type="button"
-                      data-version={version.n}
-                      aria-label={describeVersionRowLabel(formatVersionDay(at, now), current, who)}
-                      onClick={() => openVersion(version.n)}
-                      className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-start outline-none hover:bg-chrome-hover focus-visible:ring-2 focus-visible:ring-chrome-focus"
-                    >
-                      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                        <span className="flex items-baseline gap-2 text-[13px] text-chrome-fg">
-                          {formatVersionTime(at)}
-                          {current ? <span className="text-[11px] text-chrome-muted">{CURRENT_VERSION_LABEL}</span> : null}
-                        </span>
-                        <Who version={version} who={who} />
-                      </span>
-                      <ChevronRight className="size-3.5 flex-none text-chrome-muted" aria-hidden="true" />
-                    </button>
-                  </li>
-                );
-              }),
-            )}
+            {day.runs.flatMap((run) => run.versions.map((version) => <VersionRow key={version.n} version={version} now={now} held={held} />))}
           </ul>
         </section>
       ))}

@@ -9,7 +9,15 @@ import { DASH_LOOK_PATH } from '@open-artifact/data-core';
 import { announce } from '@open-artifact/editor-kit';
 import { toast } from '@open-artifact/ui';
 import { SAVED_LABEL } from '../drafts/words.ts';
-import { STYLE_TWEAK_KEYS, keepChangedTweaks, readStyleTweaks, type StyleTweakChange, type StyleTweaks } from '../page/look.ts';
+import {
+  STYLE_TWEAK_KEYS,
+  keepChangedTweaks,
+  mergeStyleTweaks,
+  readStyleTweaks,
+  styleAfterSave,
+  type StyleTweakChange,
+  type StyleTweaks,
+} from '../page/look.ts';
 import { DELETE_FIELD, mergeDocument } from '../sync/index.ts';
 
 export const STYLE_SAVE_FAILED_TEXT = 'The style couldn’t be saved. Your changes are still here, so try again.';
@@ -32,8 +40,11 @@ let stored: unknown = undefined;
 let storedTweaks: StyleTweaks = {};
 let clearing = new Set<string>();
 let statusTimer: ReturnType<typeof setTimeout> | undefined;
+/** The tweaks as a save in flight (or just done, until the stored look follows) leaves them. */
+let landing: StyleTweaks | null = null;
 
-const keepChanged = (change: StyleTweakChange): StyleTweakChange | null => keepChangedTweaks(change, storedTweaks);
+/** Changes are kept against what the stored tweaks are, or are about to be. */
+const keepChanged = (change: StyleTweakChange): StyleTweakChange | null => keepChangedTweaks(change, landing ?? storedTweaks);
 
 /** Follows the stored `dash/look`: counts stored tweaks that went away without this viewer clearing them. */
 export function followStoredLook(look: unknown): void {
@@ -42,7 +53,8 @@ export function followStoredLook(look: unknown): void {
   const next = readStyleTweaks(look);
   const lost = STYLE_TWEAK_KEYS.filter((key) => storedTweaks[key] !== undefined && next[key] === undefined && !clearing.delete(key)).length;
   storedTweaks = next;
-  const { pending } = useStyleEditor.getState();
+  const { pending, phase } = useStyleEditor.getState();
+  if (phase !== 'saving') landing = null;
   const kept = pending === null ? null : keepChanged(pending);
   useStyleEditor.setState({ pending: kept, ...(lost > 0 ? { cleared: lost } : {}) });
 }
@@ -79,17 +91,21 @@ function say(words: string | null): void {
 function saveNow(): void {
   const { pending, phase } = useStyleEditor.getState();
   if (pending === null || phase === 'saving') return;
+  const before = storedTweaks;
+  landing = mergeStyleTweaks(before, pending);
   useStyleEditor.setState({ phase: 'saving' });
   clearing = new Set(Object.keys(pending).filter((key) => pending[key as keyof StyleTweaks] === null));
   const written = Object.fromEntries(Object.entries(pending).map(([key, value]) => [key, value ?? DELETE_FIELD]));
+  // The rows stay open while it saves: what changes meanwhile stays unsaved once the save is done.
   mergeDocument(DASH_LOOK_PATH, { tweaks: written })
     .then(() => {
-      useStyleEditor.setState({ pending: null, cleared: 0 });
+      useStyleEditor.setState((state) => ({ pending: styleAfterSave(state.pending, pending, before, true), cleared: 0 }));
       say(SAVED_LABEL);
     })
     .catch(() => {
+      landing = null;
       clearing.clear();
-      useStyleEditor.setState({ cleared: 0 });
+      useStyleEditor.setState((state) => ({ pending: styleAfterSave(state.pending, pending, before, false), cleared: 0 }));
       toast.add({ title: STYLE_SAVE_FAILED_TEXT, timeout: 10_000 });
     })
     .finally(() => useStyleEditor.setState({ phase: 'editing' }));

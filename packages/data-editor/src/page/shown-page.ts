@@ -1,5 +1,5 @@
 import type { Parameters } from '@open-artifact/data-core';
-import { SOURCE_ATTRIBUTE } from '@open-artifact/data-core';
+import { DRAFTS_COLLECTION, SOURCE_ATTRIBUTE } from '@open-artifact/data-core';
 import { MAX_RUN_REPORT_BYTES, escapedJsonByteSize } from './runs.ts';
 import { DERIVED_SOURCE_ATTRIBUTE } from './sources.ts';
 
@@ -7,6 +7,8 @@ import { DERIVED_SOURCE_ATTRIBUTE } from './sources.ts';
 export interface ShownPageRecord {
   v: 1;
   at: string;
+  /** What the page showed when it wasn't the dashboard itself (see {@link showingOf}). */
+  showing?: string;
   width: number;
   filters: Parameters;
   html: string;
@@ -16,6 +18,31 @@ export interface ShownPageRecord {
 export interface ShownPage {
   html: string;
   width: number;
+}
+
+/** What the page shows, as {@link showingOf} reads it. */
+export interface ShownView {
+  mode: 'live' | 'draft' | 'version';
+  draftId?: string;
+  version?: number;
+}
+
+/** The prefix of an earlier version's `showing`: `history/<n>`, the `n` that `open-artifact history` lists. */
+export const HISTORY_SHOWING_PREFIX = 'history/';
+
+/**
+ * What the agent is told the page shows when it isn't the dashboard itself: a draft as `drafts/<id>`, an earlier
+ * version as `history/<n>`; null for the dashboard.
+ */
+export function showingOf(shown: ShownView): string | null {
+  if (shown.mode === 'draft' && shown.draftId !== undefined && shown.draftId !== '') return `${DRAFTS_COLLECTION}/${shown.draftId}`;
+  if (shown.mode === 'version' && shown.version !== undefined && Number.isSafeInteger(shown.version)) return `${HISTORY_SHOWING_PREFIX}${shown.version}`;
+  return null;
+}
+
+/** Where the viewer's changes go when it isn't the dashboard itself: the draft shown (`drafts/<id>`). An earlier version is only looked at. */
+export function writeToOf(shown: ShownView): string | null {
+  return shown.mode === 'draft' ? showingOf(shown) : null;
 }
 
 const XHTML_NAMESPACE = 'http://www.w3.org/1999/xhtml';

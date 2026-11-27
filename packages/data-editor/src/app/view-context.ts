@@ -3,7 +3,9 @@
  * (what is shown, the filters, the open source), the run report
  * (`data/users/<me>/runs`), the page check after the agent writes
  * (`.../check`) and, during its turn, the page as shown (`.../page`).
- * Also which check notice shows above the page.
+ * Each says what the page shows when it isn't the dashboard itself
+ * (`showing`: a draft or an earlier version). Also which check notice shows
+ * above the page.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -20,6 +22,7 @@ import {
 import { buildDashboardRunReport, getChangedFilterNames } from '../page/runs.ts';
 import { currentPage, readShownPage, type PageSnapshot } from '../page/runtime.ts';
 import type { SelectionPoint } from '../page/selection.ts';
+import { showingOf, writeToOf } from '../page/shown-page.ts';
 import { useEditFlow } from '../drafts/edit-flow.ts';
 import { useDatasets } from '../state/datasets.ts';
 import { useDocument } from '../state/document.ts';
@@ -62,6 +65,8 @@ export function useViewContext({ data, snapshot, noticeShown, form }: ViewContex
   const dirty = useEditFlow((state) => state.count > 0);
   const loaded = status === 'ready' || status === 'offline';
   const live = shown.mode === 'live';
+  const showing = showingOf(shown);
+  const writeTo = writeToOf(shown);
   const files = shown.content.files;
   const settled = files.length > 0 && loading.length === 0 && snapshot?.usage != null;
   const sources = useMemo(() => new Map(datasets.map((dataset) => [dataset.id, dataset])), [datasets]);
@@ -83,13 +88,25 @@ export function useViewContext({ data, snapshot, noticeShown, form }: ViewContex
     filters,
     form,
     draft: shown.mode === 'draft' ? (shown.draftId ?? null) : null,
+    showing,
+    writeTo,
   });
+
+  // Another version or draft put on the page: the source picked and the marks pointed at were the last one's. Keyed on
+  // what is put there, not on what shows, so a draft that only waits (while a source is edited) changes nothing.
+  const putOn = useShown((state) => `${state.draft?.id ?? ''}\u0000${state.version?.n ?? ''}`);
+  const putOnBefore = useRef(putOn);
+  useEffect(() => {
+    if (putOnBefore.current === putOn) return;
+    putOnBefore.current = putOn;
+    useSourcesUi.setState({ selected: null, pick: null, hovered: null });
+  }, [putOn]);
 
   const [reporter] = useState(() => createRunReporter());
   useEffect(() => () => reporter.dispose(), [reporter]);
   useEffect(() => {
-    if (!loaded || !live || reportRef.current === null) return;
-    reporter.report(reportRef.current);
+    if (!loaded || reportRef.current === null) return;
+    reporter.report(reportRef.current, showing);
   });
 
   const unruled = useMemo(() => unruledFilters(data.used), [data.used]);
@@ -98,7 +115,8 @@ export function useViewContext({ data, snapshot, noticeShown, form }: ViewContex
       files,
       stored: storedFiles,
       faults: snapshot?.faults ?? [],
-      on: loaded && canWrite && live,
+      on: loaded && canWrite && (live || shown.mode === 'draft'),
+      showing,
       settled,
       output: () => {
         const page = currentPage();
@@ -111,7 +129,7 @@ export function useViewContext({ data, snapshot, noticeShown, form }: ViewContex
     WORKING_GRACE_MS,
   );
 
-  useShownPageReport({ loaded, on: live, settled, files, filters: params, shown: readShownPage }, { graceMs: WORKING_GRACE_MS });
+  useShownPageReport({ loaded, on: canWrite, showing, settled, files, filters: params, shown: readShownPage }, { graceMs: WORKING_GRACE_MS });
 
   const broke = useMemo(() => (snapshot?.broke === true ? JSON.stringify(snapshot.faults) : null), [snapshot?.broke, snapshot?.faults]);
   const [closed, setClosed] = useState<string | null>(null);

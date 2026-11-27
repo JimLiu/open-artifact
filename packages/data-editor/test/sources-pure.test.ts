@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { Dataset, DatasetRun, Table } from '@open-artifact/data-core';
+import { getCertificationWords } from '../src/sources/certified.ts';
 import { describeCalculationArguments, getFunctionParameterNames, splitCalculationCodeArguments } from '../src/sources/calc-args.ts';
 import {
   datasetWithEditedArgs,
@@ -25,6 +26,7 @@ import {
   getSourceFailureLabel,
   getSourceRowAccessibleLabel,
   getSourceRowCaption,
+  getSettledRun,
   getSourceRowStatus,
   getUnavailableConnectors,
   groupSourcesByConnector,
@@ -142,9 +144,14 @@ describe('result rows', () => {
     const download = createCsvDownload('sales', table);
     assert.equal(download.filename, 'sales.csv');
     const csv = download.text();
-    assert.match(csv, /^name,amount/);
+    assert.match(csv, /^﻿name,amount/);
     assert.ok(!csv.includes('\n=cmd()'), 'a formula cell is neutralised');
     assert.ok(csv.includes('"a,""b"""'), 'commas and quotes are escaped');
+  });
+
+  it('leaves the byte order mark off a CSV whose first cell is quoted', () => {
+    const csv = createCsvDownload('pairs', { columns: ['a,b'], rows: [{ 'a,b': 1 }] } as Table).text();
+    assert.match(csv, /^"a,b"/);
   });
 
   it('copies rows as TSV', () => {
@@ -210,12 +217,12 @@ describe('row status', () => {
     assert.equal(isDatasetLoading(calc('c'), idle), false);
   });
 
-  it('labels failures and offers Retry for a failed live query', () => {
+  it('labels failures and offers Retry for a failed query or file', () => {
     assert.equal(getSourceFailureLabel(calc('c')), 'Didn’t run');
     assert.equal(getSourceFailureLabel(query('q', 'pg')), 'Didn’t load');
     assert.equal(isLiveQueryFailure(query('q', 'pg'), failed), true);
     assert.equal(isLiveQueryFailure(query('q', 'pg'), reauth), false);
-    assert.equal(isLiveQueryFailure(file('f'), failed), false);
+    assert.equal(isLiveQueryFailure(file('f'), failed), true);
   });
 
   it('captions a row with its connector and age', () => {
@@ -498,5 +505,30 @@ describe('calculation formula', () => {
         ['b', false],
       ],
     );
+  });
+});
+
+describe('source detail', () => {
+  it('describes the run before while a source loads again', () => {
+    assert.equal(getSettledRun({ status: 'running', startedAt: NOW, prev: failed } as DatasetRun), failed);
+    const first = { status: 'running', startedAt: NOW, prev: null } as DatasetRun;
+    assert.equal(getSettledRun(first), first);
+    assert.equal(getSettledRun(ok), ok);
+  });
+
+  it('words a certified answer of a query', () => {
+    const at = NOW - 2 * 86_400_000;
+    const certified = (fields: Record<string, unknown>): DatasetRun => ({ ...ok, table: { ...table, certified: fields } }) as DatasetRun;
+    const full = getCertificationWords(query('q', 'Sales'), certified({ by: 'Ada', at, url: 'https://docs.example.com/x' }), NOW);
+    assert.ok(full !== null);
+    assert.equal(full.words, 'Certified in Sales');
+    assert.match(full.tip, /^Certified by Ada · /);
+    assert.match(full.detail ?? '', /^By Ada · /);
+    assert.deepEqual(full.link, { href: 'https://docs.example.com/x', host: 'docs.example.com', label: 'Open in Sales' });
+    const bare = getCertificationWords(query('q', 'Sales'), certified({}), NOW);
+    assert.deepEqual(bare, { words: 'Certified in Sales', tip: 'Certified in Sales', detail: null, link: null });
+    assert.equal(getCertificationWords(query('q', ''), certified({}), NOW), null);
+    assert.equal(getCertificationWords(file('f'), certified({}), NOW), null);
+    assert.equal(getCertificationWords(query('q', 'Sales'), ok, NOW), null);
   });
 });

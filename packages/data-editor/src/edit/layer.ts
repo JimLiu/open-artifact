@@ -1,6 +1,6 @@
 /** The geometry of edit mode's layer: marks, washes, the card grip and tips (pure: plain boxes). */
 
-import type { Box, Rect } from './geometry.ts';
+import { rectOf, type Box, type Rect } from './geometry.ts';
 
 export type EditMarkLook = 'over' | 'picked' | 'caret';
 export type TipSide = 'top' | 'bottom';
@@ -10,7 +10,9 @@ export type LayerBox = { left: number; top: number; width: number; height: numbe
 
 export const EDIT_REFUSAL_MS = 4000;
 export const EDIT_TIP_DELAY = 100;
-export const EDIT_TIP_SIZE = { width: 240, height: 84 } as const;
+export const EDIT_TIP_SIZE = { width: 240, height: 84, least: 28 } as const;
+/** How far around the pointer a tip that follows it keeps clear. */
+export const TIP_NEAR_PAD = 12;
 export const EDIT_PORT_SLACK = 8;
 export const EDIT_MARK_INFLATE: Readonly<Record<EditMarkLook, number>> = { over: 0, picked: 2, caret: 1.5 };
 
@@ -69,6 +71,30 @@ export function pickTipSide(box: Rect, room: Box, strip: Rect | null): TipSide |
   };
   const other: TipSide = side === 'top' ? 'bottom' : 'top';
   return !blocked(side) ? side : !blocked(other) ? other : null;
+}
+
+/** Where a tip goes: against the box, or against the pointer when no side of the box has room for it. */
+export interface EditTipPlace {
+  anchor: Rect;
+  side: TipSide | null;
+  /** The tip follows the pointer (and can't be hovered into). */
+  follow: boolean;
+}
+
+/**
+ * Places a tip for `box`. A tip that would be forced above a box near the room's top, or that has no side of the box
+ * left, goes by the pointer instead: around a {@link TIP_NEAR_PAD} box at `pointer`, on a side picked inside the part
+ * of the box in the room. With no pointer, or no side by the pointer either, the box's own pick stands.
+ */
+export function placeEditTip(box: Rect, room: Box, strip: Rect | null, pointer: { x: number; y: number } | null): EditTipPlace {
+  const side = pickTipSide(box, room, strip);
+  const stick =
+    side === 'top' && box.top < room.top + 48 ? box.bottom + EDIT_TIP_SIZE.least > room.top + room.height : side !== null;
+  const own: EditTipPlace = { anchor: box, side, follow: false };
+  if (stick || pointer === null) return own;
+  const near = rectOf({ left: pointer.x - TIP_NEAR_PAD, top: pointer.y - TIP_NEAR_PAD, width: 2 * TIP_NEAR_PAD, height: 2 * TIP_NEAR_PAD });
+  const nearSide = pickTipSide(near, clipRectToBounds(box, room) ?? room, strip);
+  return nearSide === null ? own : { anchor: near, side: nearSide, follow: true };
 }
 
 /** An inline run's client rects merged into one per line (rects whose middle falls in the last line join it). */

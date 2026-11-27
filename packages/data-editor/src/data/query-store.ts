@@ -3,7 +3,6 @@ import {
   SYSTEM_CLOCK,
   createAdaptiveLimiter,
   getSourceConnectorSpec,
-  retryWhileBusy,
   type AdaptiveLimiter,
   type ConnectionFix,
   type Dataset,
@@ -22,11 +21,15 @@ import {
 } from '@open-artifact/data-core';
 import { loadDatasetFile, type FileEnvironment } from './files.ts';
 import { executeDatasetQuery, type QueryEnvironment } from './queries.ts';
+import { FLAKY_RETRY_DELAY_MS, QUIET_RETRY_DELAY_MS, getRetryWait, isFlakyLoad, jitterDelay } from './retry.ts';
 
 export const IDLE_DATASET_RUN: IdleRun = Object.freeze({ status: 'idle' }) as IdleRun;
 
 /** After a connection failure the connector's queries are tried again on the viewer's next move, at most this often. */
 export const CONNECTOR_NUDGE_INTERVAL_MS = 5000;
+
+/** How many versions of a source's loads (besides the live one) keep their result, to show again at once. */
+export const KEPT_RUN_VERSIONS = 2;
 
 export interface LiveStoreOptions {
   load: LoadDataset;
@@ -40,6 +43,12 @@ export interface LiveStoreOptions {
   clock?: PollClock;
   /** Wall-clock time for run stamps. */
   now?: () => number;
+  /** While the agent works (and may be changing what sources reach), a likely passing failure isn't tried again by itself. */
+  isAgentWorking?: () => boolean;
+  /** The loads now run for a version the page shows aside (a draft, a history version): they don't replace the live one's kept result. */
+  aside?: () => boolean;
+  /** Resolves once the page is shown: a failure isn't tried again by itself while the page is hidden. */
+  whenShown?: () => Promise<void>;
 }
 
 export interface LiveDatasetStore {
@@ -54,6 +63,10 @@ export interface LiveDatasetStore {
   retryFailed(): void;
   retry(connector?: string, dataset?: Dataset): void;
   nudge(now?: number): void;
+  /** Whether a source failed and waits to be tried again by itself. */
+  retrying(id: string): boolean;
+  /** The loader code the source's current run loads with: null for none, undefined when it never loaded. */
+  loaderOf(id: string): string | null | undefined;
   /** How many loads are in flight. */
   pending(): number;
   /** Resolves once no load is in flight. */
@@ -145,6 +158,17 @@ export function getDatasetLoadKey(dataset: Dataset): string {
   return source.kind === 'file' ? ['f', source.url, source.format, ...loaderKey].join('|') : '';
 }
 
+/**
+ * Which version of a source a load is for: its id and what it loads, a template query by its template (so its
+ * filter values don't count as versions).
+ */
+export function getDatasetRunKey(dataset: Dataset): string {
+  const source = dataset.source;
+  if (source.kind === 'query' && source.template !== undefined)
+    return `${dataset.id}\n${getDatasetLoadKey({ ...dataset, source: { ...source, args: source.template } })}`;
+  return `${dataset.id}\n${getDatasetLoadKey(dataset)}`;
+}
+
 /** The datasets with the page's `dash.loader`s attached (queries and files only). */
 export function attachDatasetLoaders(datasets: Dataset[], loaders: ReadonlyMap<string, DatasetLoader>): Dataset[] {
   if (loaders.size === 0) return datasets;
@@ -190,7 +214,7 @@ export function loadDataset(
   const source = dataset.source;
   const loader = dataset.loader as DatasetLoader | undefined;
   if (source.kind === 'query') return executeDatasetQuery(env, source, isStale, loader, context);
-  if (source.kind === 'file') return loadDatasetFile(source.url, source.format, loader, env);
+  if (source.kind === 'file') return loadDatasetFile(source.url, source.format, loader, env, isStale);
   if (source.kind === 'store') return env.savedRows === undefined ? Promise.resolve(NO_SAVED_ROWS) : env.savedRows(source.path);
   return Promise.resolve({ ok: false, kind: 'refused', message: 'Nothing to load.' });
 }
@@ -201,6 +225,9 @@ function isReusedLoad(result: LoadResult): result is LoadSuccess & { at: number 
 
 const isBusyLoad = (result: LoadResult): boolean => !result.ok && result.busy === true;
 const isCrowdedLoad = (result: LoadResult): boolean => !result.ok && result.crowded === true;
+const isBusyOrCrowdedLoad = (result: LoadResult): boolean => isBusyLoad(result) || isCrowdedLoad(result);
+const isSameFailure = (first: LoadResult, second: LoadResult): boolean =>
+  !first.ok && !second.ok && first.kind === second.kind && first.message === second.message;
 const isConnectionLoadFailure = (result: LoadResult): boolean => !result.ok && (result.kind === 'reauth' || result.kind === 'absent');
 const isConnectionFailureStatus = (status: DatasetRun['status']): boolean => status === 'reauth' || status === 'absent';
 
@@ -248,9 +275,14 @@ export function createLiveDatasetStore({
   reuse,
   clock = SYSTEM_CLOCK,
   now = Date.now,
+  isAgentWorking = () => false,
+  aside = () => false,
+  whenShown = () => Promise.resolve(),
 }: LiveStoreOptions): LiveDatasetStore {
   const runs = new Map<string, DatasetRun>();
   const loadKeys = new Map<string, string>();
+  /** The loader code each source's current run loads with. */
+  const runLoaders = new Map<string, string | null>();
   const templateKeys = new Map<string, string | undefined>();
   const pendingLoads = new Map<string, Promise<void>>();
   const rerunRequested = new Set<string>();
@@ -260,8 +292,19 @@ export function createLiveDatasetStore({
   const connectorFailures = new Map<string, LoadResult>();
   const connectorNudgeTimes = new Map<string, number>();
   const nudgedConnectors = new Set<string>();
+  /** Each source's loaded versions, the latest last: a version shown again shows its result at once. */
+  const keptRuns = new Map<string, { runKey: string; loadKey: string; run: OkRun }[]>();
+  /** Each source's live version: its kept result stays however many other versions load. */
+  const pinnedRunKeys = new Map<string, string>();
   let datasets: Dataset[] = [];
   let version = 0;
+  // Load bookkeeping, all keyed by source id except the last: each source's current load (an older one still running
+  // is stale), the load that waits to try again by itself, the load that shows its failure while it tries once more
+  // quietly, and when each connector's sources were last tried again (a source that failed before then loads again
+  // on sync).
+  const byId = (): Map<string, number> => new Map();
+  const loadTokens = byId(), retryingLoads = byId(), quietLoads = byId(), connectorRetriedAt = byId();
+  let loadCount = 0;
 
   const getLimiter = (connector: string): AdaptiveLimiter => {
     let limiter = limiters.get(connector);
@@ -311,30 +354,87 @@ export function createLiveDatasetStore({
     return result;
   };
 
+  const keepRun = (dataset: Dataset, loadKey: string, run: DatasetRun, pin: boolean): void => {
+    // Saved rows change by themselves, so only what a load reads alone is kept.
+    if (run.status !== 'ok' || dataset.source.kind === 'store') return;
+    const runKey = getDatasetRunKey(dataset);
+    if (pin) pinnedRunKeys.set(dataset.id, runKey);
+    const pinned = pinnedRunKeys.get(dataset.id);
+    const kept = [...(keptRuns.get(dataset.id) ?? []).filter((entry) => entry.runKey !== runKey), { runKey, loadKey, run }];
+    let others = kept.filter((entry) => entry.runKey !== pinned).length;
+    keptRuns.set(
+      dataset.id,
+      kept.filter((entry) => {
+        if (entry.runKey === pinned || others <= KEPT_RUN_VERSIONS) return true;
+        others--;
+        return false;
+      }),
+    );
+  };
+  /** Shows a version's kept result again, without loading it; `false` when it has none for exactly this load. */
+  const showKeptRun = (dataset: Dataset, loadKey: string): boolean => {
+    const entry = keptRuns.get(dataset.id)?.find((kept) => kept.loadKey === loadKey);
+    if (entry === undefined) return false;
+    // The load in flight for the version shown before stops.
+    loadTokens.set(dataset.id, ++loadCount);
+    pendingLoads.delete(dataset.id);
+    quietLoads.delete(dataset.id);
+    rerunRequested.delete(dataset.id);
+    loadKeys.set(dataset.id, loadKey);
+    runLoaders.set(dataset.id, dataset.loader?.code ?? null);
+    templateKeys.set(dataset.id, dataset.source.kind === 'query' ? dataset.source.template : undefined);
+    if (!aside()) pinnedRunKeys.set(dataset.id, entry.runKey);
+    setRun(dataset.id, entry.run);
+    return true;
+  };
+
+  const setRetrying = (id: string, token: number, on: boolean): void => {
+    if (on) {
+      if (retryingLoads.get(id) === token) return;
+      retryingLoads.set(id, token);
+    } else {
+      if (retryingLoads.get(id) !== token) return;
+      retryingLoads.delete(id);
+    }
+    notify();
+  };
+
   const runDataset = (dataset: Dataset): Promise<void> => {
     const key = getDatasetLoadKey(dataset);
     if (key === '') return Promise.resolve();
     const sameKey = loadKeys.get(dataset.id) === key;
     const pending = pendingLoads.get(dataset.id);
-    if (pending !== undefined && sameKey) {
+    const quiet = quietLoads.has(dataset.id) && quietLoads.get(dataset.id) === loadTokens.get(dataset.id);
+    // A load that tries again quietly gives way to one asked for now, which shows as running at once.
+    if (pending !== undefined && sameKey && !quiet) {
       rerunRequested.add(dataset.id);
       return pending;
     }
     rerunRequested.delete(dataset.id);
+    const pin = !aside();
+    const token = ++loadCount;
+    loadTokens.set(dataset.id, token);
+    quietLoads.delete(dataset.id);
     const template = dataset.source.kind === 'query' ? dataset.source.template : undefined;
     const keepsPrevious = sameKey || (template !== undefined && templateKeys.get(dataset.id) === template);
     loadKeys.set(dataset.id, key);
+    runLoaders.set(dataset.id, dataset.loader?.code ?? null);
     templateKeys.set(dataset.id, template);
     const current = keepsPrevious ? runs.get(dataset.id) : undefined;
     const previous = current === undefined || current.status === 'idle' ? null : current.status === 'running' ? current.prev : current;
     const kept = sameKey && previous !== null ? getLastSuccessfulRun(previous) : null;
     setRun(dataset.id, { status: 'running', startedAt: now(), prev: previous });
-    const isStale = (): boolean => loadKeys.get(dataset.id) !== key;
+    const isStale = (): boolean => loadKeys.get(dataset.id) !== key || loadTokens.get(dataset.id) !== token;
     const onCached = (result: LoadResult, at: number): void => {
       const running = runs.get(dataset.id);
       const cached = toRunState(result, at, null, false);
       if (isStale() || running?.status !== 'running' || running.prev !== null || cached.status !== 'ok') return;
       setRun(dataset.id, { ...running, cached });
+    };
+    const show = (result: LoadResult): void => {
+      const run = toRunState(result, (isReusedLoad(result) ? result.at : undefined) ?? now(), kept, !result.ok && previous?.status === result.kind);
+      keepRun(dataset, key, run, pin);
+      setRun(dataset.id, run);
     };
     const task = (async (): Promise<void> => {
       const reuseMs = reuse === undefined || dataset.source.kind !== 'query' ? 0 : await reuse().catch(() => 0);
@@ -346,7 +446,21 @@ export function createLiveDatasetStore({
         calledTools.add(toolKey);
         await limiter.enter();
       }
+      let holding = true;
       let outcome: LimiterOutcome = 'other';
+      const mayRetryFlaky = (result: LoadResult): boolean => isFlakyLoad(result) && !isAgentWorking();
+      /** Gives the slot back while waiting, then takes one at the front of the queue; `false` once the load went stale. */
+      const pause = async (result: LoadResult, base: number): Promise<boolean> => {
+        holding = false;
+        limiter.release(isBusyOrCrowdedLoad(result) ? 'busy' : 'other');
+        await clock.sleep(Math.max(jitterDelay(clock, base), getRetryWait(result)));
+        // A hidden page tries again once it is shown.
+        await whenShown();
+        if (isStale()) return false;
+        await limiter.acquire(true);
+        holding = true;
+        return !isStale();
+      };
       try {
         if (isStale()) return;
         const cacheable = mayBeCached(dataset, reuseMs);
@@ -354,27 +468,37 @@ export function createLiveDatasetStore({
           ...(previous === null && cacheable ? { onCached } : {}),
           ...(reuseMs > 0 ? { reuse: { ms: reuseMs, refresh: sameKey || rerunRequested.has(dataset.id) || !cacheable } } : {}),
         };
-        const attempt = await retryWhileBusy(
-          () => loadWithConnectorFailureCache(dataset, isStale, context),
-          isBusyLoad,
-          isStale,
-          limiter,
-          clock,
-        );
-        outcome = isCrowdedLoad(attempt.result) ? 'busy' : attempt.outcome;
-        let result = attempt.result;
+        const attempt = (): Promise<LoadResult> => loadWithConnectorFailureCache(dataset, isStale, context);
+        let result = await attempt();
+        if (!isStale() && (isBusyOrCrowdedLoad(result) || mayRetryFlaky(result))) {
+          setRetrying(dataset.id, token, true);
+          if (!(await pause(result, FLAKY_RETRY_DELAY_MS))) return;
+          result = await attempt();
+          if (!isStale() && mayRetryFlaky(result)) {
+            // Failed twice: the failure shows while one more try goes quietly, and stays as it is if that fails alike.
+            show(result);
+            quietLoads.set(dataset.id, token);
+            if (!(await pause(result, QUIET_RETRY_DELAY_MS))) return;
+            const again = await attempt();
+            if (isStale()) return;
+            quietLoads.delete(dataset.id);
+            outcome = isBusyOrCrowdedLoad(again) ? 'busy' : again.ok && !isReusedLoad(again) ? 'ok' : 'other';
+            if (!isSameFailure(result, again)) show(again);
+            return;
+          }
+        }
+        outcome = isBusyOrCrowdedLoad(result) ? 'busy' : 'other';
         if (result.ok && result.at !== undefined && rerunRequested.has(dataset.id) && !isStale()) {
           result = await loadWithConnectorFailureCache(dataset, isStale, { reuse: { ms: reuseMs, refresh: true } });
-          if (isBusyLoad(result) || isCrowdedLoad(result)) outcome = 'busy';
+          if (isBusyOrCrowdedLoad(result)) outcome = 'busy';
         }
         if (result.ok && !isReusedLoad(result)) outcome = 'ok';
         if (isStale()) return;
-        setRun(
-          dataset.id,
-          toRunState(result, (isReusedLoad(result) ? result.at : undefined) ?? now(), kept, !result.ok && previous?.status === result.kind),
-        );
+        show(result);
       } finally {
-        releaseLimiter(connector, outcome);
+        if (quietLoads.get(dataset.id) === token) quietLoads.delete(dataset.id);
+        setRetrying(dataset.id, token, false);
+        if (holding) releaseLimiter(connector, outcome);
       }
     })().finally(() => {
       if (pendingLoads.get(dataset.id) === task) pendingLoads.delete(dataset.id);
@@ -393,6 +517,12 @@ export function createLiveDatasetStore({
     if (!isFailedDatasetRun(run)) return false;
     return connector === undefined ? isConnectionFailureStatus(run.status) : getLiveDatasetConnector(dataset) === connector;
   };
+  const failedBeforeConnectorRetry = (dataset: Dataset): boolean => {
+    if (dataset.source.kind !== 'query' || pendingLoads.has(dataset.id)) return false;
+    const retriedAt = connectorRetriedAt.get(getLiveDatasetConnector(dataset));
+    const run = runs.get(dataset.id) ?? IDLE_DATASET_RUN;
+    return retriedAt !== undefined && isFailedDatasetRun(run) && run.at < retriedAt;
+  };
   const shouldRetrySelectedDataset = (dataset: Dataset, connector?: string): boolean => {
     if (connector === undefined || getLiveDatasetConnector(dataset) !== connector) return false;
     const run = runs.get(dataset.id) ?? IDLE_DATASET_RUN;
@@ -401,6 +531,7 @@ export function createLiveDatasetStore({
 
   return {
     get: (id) => runs.get(id) ?? IDLE_DATASET_RUN,
+    loaderOf: (id) => runLoaders.get(id),
     version: () => version,
     subscribe(listener) {
       listeners.add(listener);
@@ -412,7 +543,11 @@ export function createLiveDatasetStore({
       datasets = next;
       for (const dataset of next) {
         const key = getDatasetLoadKey(dataset);
-        if (key !== '' && loadKeys.get(dataset.id) !== key) void runDataset(dataset);
+        if (key === '') continue;
+        if (loadKeys.get(dataset.id) !== key) {
+          if (!showKeptRun(dataset, key)) void runDataset(dataset);
+        }
+        else if (failedBeforeConnectorRetry(dataset)) refreshDataset(dataset);
       }
     },
     run: runDataset,
@@ -420,16 +555,15 @@ export function createLiveDatasetStore({
     refreshAll: () => liveQueryDatasets().forEach(refreshDataset),
     retryFailed: () =>
       datasets
-        .filter((dataset) => {
-          const run = runs.get(dataset.id) ?? IDLE_DATASET_RUN;
-          if (dataset.source.kind === 'query' || dataset.source.kind === 'store') return isRetryableDatasetFailure(run);
-          return dataset.source.kind === 'file' && isPageCodeFailure(run);
-        })
+        .filter((dataset) => getDatasetLoadKey(dataset) !== '' && isRetryableDatasetFailure(runs.get(dataset.id) ?? IDLE_DATASET_RUN))
         .forEach(refreshDataset),
     retry(connector, selected) {
       const targets = liveQueryDatasets().filter((dataset) => shouldRetryDataset(dataset, connector));
       if (selected !== undefined && shouldRetrySelectedDataset(selected, connector) && !targets.some((dataset) => dataset.id === selected.id))
         targets.push(selected);
+      const at = now();
+      if (connector !== undefined) connectorRetriedAt.set(connector, at);
+      for (const dataset of targets) connectorRetriedAt.set(getLiveDatasetConnector(dataset), at);
       targets.forEach(refreshDataset);
     },
     nudge(at = now()) {
@@ -447,12 +581,15 @@ export function createLiveDatasetStore({
       const key = getDatasetLoadKey(dataset);
       const show = (): void => {
         if (key === '' || loadKeys.get(dataset.id) !== key || pendingLoads.has(dataset.id)) return;
-        setRun(dataset.id, toRunState(result, now(), null, false));
+        const run = toRunState(result, now(), null, false);
+        keepRun(dataset, key, run, !aside());
+        setRun(dataset.id, run);
       };
       const pending = pendingLoads.get(dataset.id);
       if (pending === undefined) show();
       else void pending.then(show);
     },
+    retrying: (id) => retryingLoads.has(id),
     pending: () => pendingLoads.size,
     async settled() {
       while (pendingLoads.size > 0) await Promise.allSettled([...pendingLoads.values()]);

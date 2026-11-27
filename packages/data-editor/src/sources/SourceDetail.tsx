@@ -1,13 +1,14 @@
 import { useMemo, useState, type ReactElement } from 'react';
-import { Pencil } from 'lucide-react';
-import { IconButton } from '@open-artifact/ui';
-import { getDatasetQuery, type Dataset, type DatasetRun, type GetRun, type Parameters } from '@open-artifact/data-core';
+import { BadgeCheck, Pencil, SquareArrowOutUpRight } from 'lucide-react';
+import { IconButton, Tooltip } from '@open-artifact/ui';
+import { getDatasetQuery, getLinkHost, type Dataset, type DatasetRun, type GetRun, type Parameters } from '@open-artifact/data-core';
 import { getCalculationWaits } from '../data/calculations.ts';
 import { getLastSuccessfulRun, isFailedDatasetRun } from '../data/query-store.ts';
 import { getDatasetNotice } from '../data/status.ts';
 import type { SourcePick } from '../state/sources-ui.ts';
+import { OPEN_CERTIFICATION_TEXT, getCertificationWords, type CertificationWords } from './certified.ts';
 import { ExpandableDescription } from './code.tsx';
-import { getShownCalls, getSourceRowStatus, type ConnectionStates } from './grouping.ts';
+import { getSettledRun, getShownCalls, getSourceRowStatus, type ConnectionStates } from './grouping.ts';
 import {
   CalculationFormula,
   CalculationWaits,
@@ -29,6 +30,7 @@ import {
   EDIT_LABEL,
   FILE_LABEL,
   FORMULA_LABEL,
+  LOADING_LABEL,
   QUERY_LABEL,
   RESULT_LABEL,
   TRANSFORM_LABEL,
@@ -37,7 +39,44 @@ import {
   connectorSaidLabel,
   editFileOfLabel,
   editSourceLabel,
+  openInHostTip,
+  openSourceInHostLabel,
 } from './words.ts';
+
+const ICON_LINK_CLASS =
+  'inline-flex size-6 shrink-0 items-center justify-center rounded-control text-fg-muted transition-colors hover:bg-hover hover:text-fg focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent';
+
+/** "<badge> Certified in Sales · By Ada · Nov 3 · Open". */
+function CertifiedLine({ certified }: { certified: CertificationWords }): ReactElement {
+  return (
+    <p className="m-0 flex flex-wrap items-center gap-x-1 text-xs text-fg-muted" data-source-certified="">
+      <Tooltip label={certified.tip}>
+        <span className="inline-flex" role="img" aria-label={certified.words}>
+          <BadgeCheck className="size-3.5 text-accent" aria-hidden />
+        </span>
+      </Tooltip>
+      <span>{certified.words}</span>
+      {certified.detail === null ? null : <span>· {certified.detail}</span>}
+      {certified.link === null ? null : (
+        <span className="inline-flex items-center gap-1">
+          ·
+          <Tooltip label={certified.link.host}>
+            <a
+              href={certified.link.href}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label={certified.link.label}
+              className="inline-flex items-center gap-0.5 text-fg-muted underline underline-offset-2 hover:text-fg"
+            >
+              {OPEN_CERTIFICATION_TEXT}
+              <SquareArrowOutUpRight className="size-3" aria-hidden />
+            </a>
+          </Tooltip>
+        </span>
+      )}
+    </p>
+  );
+}
 
 export interface SourceDetailProps {
   ds: Dataset;
@@ -94,10 +133,14 @@ export function SourceDetail({
   const query = getDatasetQuery(ds);
   const editable = query !== undefined && canEdit;
   const shown = useMemo(() => getShownDatasetResult(ds, run), [ds, run]);
-  const notice = getDatasetNotice(ds, run);
-  const status = getSourceRowStatus(ds, run, now, false);
-  const failed = isFailedDatasetRun(run);
-  const calls = getShownCalls(run);
+  const settled = getSettledRun(run);
+  const running = run.status === 'running';
+  const notice = getDatasetNotice(ds, settled);
+  const status = getSourceRowStatus(ds, settled, now, false);
+  const failed = isFailedDatasetRun(settled);
+  const calls = getShownCalls(settled);
+  const certified = getCertificationWords(ds, settled, now);
+  const linkHost = ds.link === undefined ? '' : getLinkHost(ds.link);
   const waits = source.kind === 'calc' ? getCalculationWaits(source, lookup, runOf) : [];
   const cell = pick !== null && pick.id === ds.id && (pick.row !== undefined || pick.field !== undefined) ? pick : null;
   const target = useMemo(() => (shown === null || cell === null ? null : getResultHighlightTarget(shown, cell)), [shown, cell]);
@@ -125,10 +168,10 @@ export function SourceDetail({
           <QueryArgumentFields call={query} {...(ds.langs === undefined ? {} : { langs: ds.langs })} params={params} />
           {calls !== undefined && calls.length > 0 ? <ToolCallsDetails calls={calls} /> : null}
           <p className="text-xs text-fg-muted [overflow-wrap:anywhere]">{[query.connector, query.tool].filter((part) => part !== '').join(' · ')}</p>
-          {failed && run.meta !== undefined && run.meta.length > 0 ? (
+          {failed && settled.meta !== undefined && settled.meta.length > 0 ? (
             <div className="flex flex-col gap-1">
               <p className="text-[13px] font-medium text-fg">{connectorSaidLabel(query.connector)}</p>
-              <ResultMetadata meta={run.meta} />
+              <ResultMetadata meta={settled.meta} />
             </div>
           ) : null}
         </>
@@ -167,6 +210,8 @@ export function SourceDetail({
         </>
       ),
     });
+  else if (running && notice === null)
+    sections.push({ id: resultId, title: isFile ? FILE_LABEL : RESULT_LABEL, body: <p className="m-0 text-xs text-fg-muted">{LOADING_LABEL}</p> });
   else if (fileEdit !== undefined && source.kind === 'file')
     sections.push({
       id: resultId,
@@ -188,8 +233,20 @@ export function SourceDetail({
             {unused ? <span className="rounded-full bg-surface-2 px-1.5 py-0.5 text-[11px] font-medium text-fg-muted">{UNUSED_SOURCE_LABEL}</span> : null}
             {failed ? null : <SourceStatusReason status={status} />}
           </h2>
-          {editable ? <IconButton size="sm" label={EDIT_LABEL} aria-label={editSourceLabel(title)} icon={<Pencil className="size-3.5" />} onClick={onEdit} /> : null}
+          {linkHost === '' && !editable ? null : (
+            <span className="flex shrink-0 items-center gap-0.5">
+              {linkHost === '' || ds.link === undefined ? null : (
+                <Tooltip label={openInHostTip(linkHost)}>
+                  <a href={ds.link} target="_blank" rel="noopener noreferrer" aria-label={openSourceInHostLabel(title, linkHost)} className={ICON_LINK_CLASS} data-source-link="">
+                    <SquareArrowOutUpRight className="size-3.5" aria-hidden />
+                  </a>
+                </Tooltip>
+              )}
+              {editable ? <IconButton size="sm" label={EDIT_LABEL} aria-label={editSourceLabel(title)} icon={<Pencil className="size-3.5" />} onClick={onEdit} /> : null}
+            </span>
+          )}
         </div>
+        {certified === null ? null : <CertifiedLine certified={certified} />}
         {ds.description === '' ? null : <ExpandableDescription text={ds.description} />}
         {unused ? <p className="text-[13px] text-fg-muted">{UNUSED_SOURCE_DESCRIPTION}</p> : null}
       </div>
@@ -199,7 +256,8 @@ export function SourceDetail({
           ds={ds}
           notice={notice}
           status={status}
-          failedAt={failed ? run.at : null}
+          failedAt={failed ? settled.at : null}
+          running={running}
           editor={canEdit}
           canAskAgent={canAskAgent}
           onConnect={onConnect}
@@ -208,7 +266,7 @@ export function SourceDetail({
         />
       )}
       {waits.length > 0 ? <CalculationWaits inputs={waits} lookup={lookup} onSelect={onSelect} /> : null}
-      {failed && run.answer !== undefined ? <RecordView value={{ [ANSWER_LABEL]: run.answer }} /> : null}
+      {failed && settled.answer !== undefined ? <RecordView value={{ [ANSWER_LABEL]: settled.answer }} /> : null}
       <SourceDetailSections parts={sections} open={sections.find((section) => section.id === open)?.id ?? null} onOpen={setOpen} />
       <SourceUsageCaption unmarked={unmarked && shown !== null} unread={unread} />
     </div>

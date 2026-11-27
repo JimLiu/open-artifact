@@ -74,7 +74,21 @@ const hasOnlyInlineChildren = (element: Element): boolean =>
   [...element.children].every((child) => isWordsAtom(child) || (child.matches(INLINE_TAG_SELECTOR) && hasOnlyInlineChildren(child)));
 const isFieldValueLeaf = (element: Element): boolean => element.childElementCount === 0 && element.matches(SOURCE_FIELD_SELECTOR);
 const isEmptyCell = (element: Element): boolean => element.matches('td, th') && element.childElementCount === 0 && !hasText(element);
-const isWordsElement = (element: Element): boolean => (hasDirectText(element) || isEmptyCell(element)) && !isFieldValueLeaf(element) && hasOnlyInlineChildren(element);
+/** A cell or line holding nothing but one text link: its words are the link's, edited in place. */
+function isLoneLinkHolder(element: Element): boolean {
+  const link = element.firstElementChild;
+  return (
+    element.childElementCount === 1 &&
+    link !== null &&
+    link.matches('a[href]') &&
+    !link.matches(TAB_LIKE_SELECTOR) &&
+    !isWordsAtom(link) &&
+    hasText(link) &&
+    !isBlockBox(element)
+  );
+}
+const isWordsElement = (element: Element): boolean =>
+  (hasDirectText(element) || isEmptyCell(element) || isLoneLinkHolder(element)) && !isFieldValueLeaf(element) && hasOnlyInlineChildren(element);
 
 /** The scrolling (clipping) box `element` sits in, or null for the window. */
 export function getScrollContainer(element: Element): Element | null {

@@ -23,6 +23,7 @@ import { useVersionHistory } from '../history/store.ts';
 import { useAgentActivity } from '../platform/agent-activity.ts';
 import { maybeSession } from '../services/session.ts';
 import { useShellDraws } from '../services/shell.ts';
+import { useDatasets } from '../state/datasets.ts';
 import { useDocument } from '../state/document.ts';
 import { areDraftsFree, useShown } from '../state/shown.ts';
 import { retrySync } from '../sync/index.ts';
@@ -36,7 +37,10 @@ import {
   DESIGN_PANEL_NAME,
   DRAFT_SHOWN_TEXT,
   DRAFT_UNSTARTED_TEXT,
+  countedSourcesName,
+  countedSourcesTip,
   formatAttentionCount,
+  formatSourcesBadge,
   HIDE_SOURCES_TIP,
   HISTORY_DISABLED_BY_COMMENTS,
   HISTORY_PANEL_NAME,
@@ -48,8 +52,6 @@ import {
   REFRESHING_LABEL,
   SAVED_SHOWN_TEXT,
   SOURCES_DISABLED_BY_COMMENTS,
-  SOURCES_PANEL_NAME,
-  SOURCES_TIP,
   withNote,
 } from './words.ts';
 
@@ -186,6 +188,22 @@ function StyleBar(): ReactNode {
   return status === null ? null : <EditStatus words={status} />;
 }
 
+/** The number of sources over the Sources icon; the button's name carries it for screen readers. */
+function SourcesCountBadge({ count, off, open }: { count: number; off: boolean; open: boolean }): ReactElement {
+  return (
+    <span
+      aria-hidden
+      data-dash-sources-count=""
+      className={cn(
+        'pointer-events-none absolute top-0.5 right-0 min-w-3.5 rounded-full px-[3px] text-center text-[9px] leading-3.5 font-semibold tabular-nums',
+        off ? 'bg-chrome-hover text-chrome-muted' : open ? 'bg-chrome-accent text-white' : 'bg-chrome-fg text-chrome',
+      )}
+    >
+      {formatSourcesBadge(count)}
+    </span>
+  );
+}
+
 export interface ToolbarProps {
   data: DashboardData;
   /** The data's words (loading, last updated). */
@@ -210,7 +228,7 @@ export function Toolbar({ data, text, empty, checkWorking }: ToolbarProps): Reac
   const designAvailable = maybeSession()?.canEdit ?? false;
   const attention = data.attention.length > 0 ? formatAttentionCount(data.attention.length) : null;
   const sourcesOpen = panel === 'sources';
-  const bad = data.attention.some((dataset) => maybeDataEngine()?.status(dataset.id)?.tone === 'bad');
+  const sourceCount = useDatasets((state) => state.datasets.length);
   const center: ReactNode = (
     <>
       <PageEditBar tipSide="bottom" />
@@ -263,15 +281,16 @@ export function Toolbar({ data, text, empty, checkWorking }: ToolbarProps): Reac
             <ToolButton
               size="lg"
               tipSide="bottom"
-              label={SOURCES_PANEL_NAME}
+              label={countedSourcesName(sourceCount)}
               icon={<Database aria-hidden />}
               shortcut={SOURCES_SHORTCUT}
               pressed={sourcesOpen}
               disabled={commenting}
-              tip={commenting ? SOURCES_DISABLED_BY_COMMENTS : withNote(sourcesOpen ? HIDE_SOURCES_TIP : SOURCES_TIP, attention)}
+              tip={commenting ? SOURCES_DISABLED_BY_COMMENTS : withNote(sourcesOpen ? HIDE_SOURCES_TIP : countedSourcesTip(sourceCount), attention)}
               onClick={() => togglePanel('sources')}
             />
-            {attention === null ? null : <span aria-hidden className={cn('dash-attention', bad && 'dash-attention-bad')} />}
+            {sourceCount > 0 ? <SourcesCountBadge count={sourceCount} off={commenting} open={sourcesOpen} /> : null}
+            {attention === null ? null : <span aria-hidden className="dash-attention" />}
           </span>
         )}
         {framed ? null : <CommentsButton comments={pageComments} side="bottom" />}

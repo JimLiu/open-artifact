@@ -8,10 +8,11 @@ import type { Dataset } from '@open-artifact/data-core';
 import { sendPageRequest } from '../drafts/request.ts';
 import { ASK_REQUESTS, describeCodeFailure, describeSourceFailures, sourceFailureQuestion } from './request-words.ts';
 
-export function askWhySourcesFailed(failed: Dataset[]): void {
+/** Asks the agent why these sources failed; resolves once the request went out (or couldn't). */
+export async function askWhySourcesFailed(failed: Dataset[]): Promise<void> {
   if (failed.length === 0) return;
   const request = sourceFailureQuestion(failed);
-  void sendPageRequest({ title: request, request, selection: describeSourceFailures(failed) });
+  await sendPageRequest({ title: request, request, selection: describeSourceFailures(failed) });
 }
 
 export function askToFixPage(files: readonly string[]): void {

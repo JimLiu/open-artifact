@@ -11,6 +11,8 @@ import {
   formatVersionTime,
   hadPageBefore,
   listVersionChanges,
+  restoreEarlierDescription,
+  restoreVersionLabel,
   storePathOf,
   versionByline,
   versionChangeName,
@@ -133,6 +135,11 @@ describe('version authors and times', () => {
     assert.equal(versionWho(system), '');
     assert.equal(versionByline('Ann', 'Edited the page'), 'Ann · Edited the page');
     assert.equal(versionByline('', 'Edited the page'), 'Edited the page');
+  });
+
+  it('words the list row’s Restore and its question', () => {
+    assert.equal(restoreVersionLabel('Today at 2:05 PM'), 'Restore the version from Today at 2:05 PM');
+    assert.equal(restoreEarlierDescription('Yesterday at 9:30 AM'), 'Yesterday at 9:30 AM. Everyone will see it.');
   });
 
   it('labels rows', () => {

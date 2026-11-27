@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactElement, type ReactNode, type Ref } from 'react';
-import { Braces, CircleHelp, Database, FileText, Loader2, NotebookPen } from 'lucide-react';
+import { Braces, CircleHelp, Database, FileText, Loader2, Plug } from 'lucide-react';
 import { Button, Tooltip, cn } from '@open-artifact/ui';
 import type { ConnectionFix, Dataset, DatasetRun, DatasetSource } from '@open-artifact/data-core';
 import { connectionFixAriaLabel, connectionFixLabel } from '../data/fixes.ts';
@@ -18,6 +18,7 @@ import {
   type ConnectionStates,
   type SourceRowStatus,
 } from './grouping.ts';
+import { getCertificationWords } from './certified.ts';
 import { useFocusHandoff } from './focus.ts';
 import { RETRY_LABEL, retrySourceLabel } from './words.ts';
 
@@ -25,9 +26,9 @@ import { RETRY_LABEL, retrySourceLabel } from './words.ts';
 export type ConnectSource = (connector: string, fix: ConnectionFix) => Promise<unknown>;
 
 const KIND_ICONS: Readonly<Record<DatasetSource['kind'], typeof Database>> = {
-  query: Database,
+  query: Plug,
   file: FileText,
-  store: NotebookPen,
+  store: Database,
   calc: Braces,
   unsupported: CircleHelp,
 };
@@ -164,13 +165,15 @@ export function SourceRow({ ds, run, now, unasked, down, canAskAgent, rowRef, on
     else if (rowRef) rowRef.current = node;
   };
   const Icon = KIND_ICONS[ds.source.kind];
-  const caption = fixes ? '' : getSourceRowCaption(ds, run, now);
+  const caption = fixes || loading ? '' : getSourceRowCaption(ds, run, now);
+  const certified = getCertificationWords(ds, run, now);
   const main = (
     <button
       ref={setButton}
       type="button"
       data-source-row=""
-      aria-label={getSourceRowAccessibleLabel(title, ds, run, now)}
+      data-row-main=""
+      aria-label={certified === null ? getSourceRowAccessibleLabel(title, ds, run, now) : `${title}, ${certified.words}`}
       aria-description={description === '' ? undefined : description}
       className="flex h-8 w-full min-w-0 items-center gap-1 rounded-[6px] py-1.5 pr-2 pl-2 text-left text-[13px] text-fg focus-visible:outline-2 focus-visible:outline-accent"
       onClick={() => onOpen(ds.id)}

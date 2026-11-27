@@ -31,6 +31,7 @@ import {
 } from '@open-artifact/data-core';
 import { maybeSession } from '../services/session.ts';
 import { useShown } from '../state/shown.ts';
+import { useAgentActivity } from '../platform/agent-activity.ts';
 import { createDatasetsStore, type DatasetsStore } from '../state/datasets.ts';
 import { createCalculationEngine, getFunctionCode } from './calc-engine.ts';
 import { appendCalculationDatasets, getCalculationRun } from './calculations.ts';
@@ -50,6 +51,7 @@ import {
   loadDataset,
   type LiveDatasetStore,
 } from './query-store.ts';
+import { createPageVisibility, type PageVisibility } from './retry.ts';
 import { createSavedRowsReader, type SavedRowsReader } from './saved-rows.ts';
 import { getDashboardNotice, getDatasetNotice, getDatasetStatus, getOldestDatasetUpdate, getToolbarText, partitionUsedDatasets } from './status.ts';
 import { createToolResultCache, getToolCacheGcTime } from './tool-cache.ts';
@@ -94,6 +96,12 @@ export interface DataEngineOptions {
   viewerId?: () => string | null;
   /** The live-data snapshot answers fall back to without connectors (the session's store when left out). */
   snapshot?: LiveSnapshotSource;
+  /** Whether the agent is working: a likely passing failure then isn't tried again by itself. */
+  isAgentWorking?: () => boolean;
+  /** When the page was last shown, on the engine's clock (the document's visibility when left out). */
+  visibility?: PageVisibility;
+  /** Whether the content shown is a draft or a history version rather than the live dashboard. */
+  aside?: () => boolean;
 }
 
 /** The engine that turns the dashboard's datasets into runs and tables for the page and the panels. */
@@ -117,6 +125,8 @@ export interface DataEngine {
   /** `dash.loader(id, {fn, description?})`; throws a TypeError when it isn't one. */
   registerLoader(id: unknown, spec: unknown): void;
   getRun(id: string): DatasetRun;
+  /** The loader code a source's current run loads with: null for none, undefined when it never loaded. */
+  runLoader(id: string): string | null | undefined;
   getTable(id: string): Table | null;
   getDataset(id: string): Dataset | undefined;
   /** The dashboard's sources with the page's calculations after them. */
@@ -158,6 +168,9 @@ const DATASET_LOADER_MESSAGE = 'dash.loader takes a dataset id and {description,
 function emptyPageDataResult(status: Exclude<PageDataStatus, 'ok'>, message: string): PageDataResult {
   return { status, data: [], columns: [], rows: [], message, refreshing: false, truncated: false, meta: [] };
 }
+
+/** What the page reads for a source that hasn't loaded yet. */
+export const notLoadedPageDataResult = (): PageDataResult => emptyPageDataResult('loading', '');
 
 const tableRowCopies = new WeakMap<Table, Row[]>();
 
@@ -217,9 +230,12 @@ export function createDataEngine(options: DataEngineOptions = {}): DataEngine {
     const id = viewerId();
     return id === null || id === '' ? path : resolveSavedRowsPath(path, id);
   };
+  const ownVisibility = options.visibility === undefined ? createPageVisibility(() => clock.now()) : undefined;
+  const visibility: PageVisibility | undefined = ownVisibility ?? options.visibility;
   const env = {
     client,
     clock,
+    ...(visibility === undefined ? {} : { visibility }),
     savedRows: (path: string) => savedRows.load(savedRowsPath(path)),
     ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
     ...(options.base === undefined ? {} : { base: options.base }),
@@ -253,6 +269,9 @@ export function createDataEngine(options: DataEngineOptions = {}): DataEngine {
     reuse: async () => getUpdatesIntervalMs(content.updates),
     clock,
     now,
+    isAgentWorking: options.isAgentWorking ?? (() => useAgentActivity.getState().activity === 'working'),
+    aside: options.aside ?? (() => useShown.getState().shown.mode !== 'live'),
+    ...(visibility === undefined ? {} : { whenShown: () => visibility.whenShown() }),
   });
 
   const getRun = (id: string): DatasetRun => {
@@ -290,6 +309,7 @@ export function createDataEngine(options: DataEngineOptions = {}): DataEngine {
     const usedQueries = used.filter((dataset) => dataset.source.kind === 'query');
     const firstLoad = loading.some((id) => getLastSuccessfulRun(live.get(id)) === null);
     return getToolbarText({
+      retrying: used.filter((dataset) => live.retrying(dataset.id)).length,
       loading: loading.length === 0 ? null : firstLoad ? 'first' : 'again',
       loadingNow: loading.length,
       updatedAt: getOldestDatasetUpdate(usedQueries.length > 0 ? usedQueries : used, getRun, time).at,
@@ -506,6 +526,7 @@ export function createDataEngine(options: DataEngineOptions = {}): DataEngine {
       scheduleSync();
     },
     getRun,
+    runLoader: (id) => live.loaderOf(id),
     getTable: (id) => getRunTable(getRun(id)),
     getDataset: (id) => listedById.get(id),
     datasets: () => listed,
@@ -583,6 +604,7 @@ export function createDataEngine(options: DataEngineOptions = {}): DataEngine {
       stopSnapshot();
       if (ownsSavedRows) savedRows.dispose();
       if (ownsSnapshot) snapshot.dispose();
+      ownVisibility?.stop();
     },
   };
   rebuild();

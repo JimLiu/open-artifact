@@ -2,7 +2,7 @@
 
 import type { ConnectionFix, Dataset, DatasetRun, GetRun } from '@open-artifact/data-core';
 import { getDatasetQuery } from '@open-artifact/data-core';
-import { getConnectionFix, getLastSuccessfulRun, isFailedDatasetRun, isPageCodeFailure } from '../data/query-store.ts';
+import { getConnectionFix, getLastSuccessfulRun, isFailedDatasetRun } from '../data/query-store.ts';
 import { describeLoadFailure, formatTimeAgo, getDatasetStatus, getDatasetUpdatedAt, isJustNow } from '../data/status.ts';
 import { BACK_TO_SOURCES_LABEL, DIDNT_LOAD_LABEL, DIDNT_RUN_LABEL, backToSourceLabel } from './words.ts';
 
@@ -97,7 +97,7 @@ export function isDatasetLoading(dataset: Dataset, run: DatasetRun, unasked = fa
 /** A live query or saved rows that failed (or a file whose loader's code failed): Retry may help. */
 export function isLiveQueryFailure(dataset: Dataset, run: DatasetRun): boolean {
   if (!isFailedDatasetRun(run) || run.status !== 'failed') return false;
-  return dataset.source.kind === 'query' || dataset.source.kind === 'store' || (dataset.source.kind === 'file' && isPageCodeFailure(run));
+  return dataset.source.kind === 'query' || dataset.source.kind === 'store' || dataset.source.kind === 'file';
 }
 
 function isLocalRunEntry(value: unknown): value is LocalRunEntry {
@@ -256,4 +256,9 @@ export function hasRefreshAction(dataset: Dataset, run: DatasetRun, alone = fals
 /** The last good run's tool calls (a running or idle source's are its last good run's). */
 export function getShownCalls(run: DatasetRun): unknown[] | undefined {
   return run.status === 'running' || run.status === 'idle' ? getLastSuccessfulRun(run)?.calls : run.calls;
+}
+
+/** The run a source's detail describes: while it loads again, the one before. */
+export function getSettledRun(run: DatasetRun): DatasetRun {
+  return run.status === 'running' && run.prev !== null ? run.prev : run;
 }

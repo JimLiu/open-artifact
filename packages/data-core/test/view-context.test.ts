@@ -101,6 +101,24 @@ describe('presence', () => {
     });
   });
 
+  it('says which draft is shown and where changes go', () => {
+    const hooks = collectPagePresenceHooks([]);
+    const options = { data: false, dirty: false, place: '', pointed: null, shown: null, filters: [], form: null };
+    const onDraft = buildDashboardPresenceContext(null, hooks, new Map(), {
+      ...options,
+      draft: 'abc',
+      showing: 'drafts/abc',
+      writeTo: 'drafts/abc',
+    });
+    assert.equal(onDraft.showing, 'drafts/abc');
+    assert.equal(onDraft.writeTo, 'drafts/abc');
+    assert.equal(onDraft.draft, 'abc');
+    assert.deepEqual(sanitizePresenceContext(onDraft).full.writeTo, 'drafts/abc');
+    const onDashboard = buildDashboardPresenceContext(null, hooks, new Map(), { ...options, draft: null });
+    assert.equal(Object.hasOwn(onDashboard, 'showing'), false);
+    assert.equal(Object.hasOwn(onDashboard, 'writeTo'), false);
+  });
+
   it('formats hooks and fragments', () => {
     assert.equal(formatPresenceHook('kpi-1'), 'kpi-1');
     assert.deepEqual(formatPresenceHook('Total revenue'), { text: 'Total revenue' });

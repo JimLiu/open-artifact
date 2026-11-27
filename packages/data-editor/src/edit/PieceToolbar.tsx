@@ -6,10 +6,11 @@
  */
 
 import { ArrowUpRight, Bold, EllipsisVertical, Italic, Link, MessagesSquare, Trash2, X } from 'lucide-react';
-import { Fragment, useEffect, useLayoutEffect, useRef, useState, type FocusEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useRef, useState, type FocusEvent as ReactFocusEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { announce, isApplePlatform, MOD } from '@open-artifact/editor-kit';
 import { Card, ChromeButton, ChromeDivider, ChromeMenu, ChromeMenuItem, Tip } from '@open-artifact/editor-kit/react';
 import { cn, isComposingKey } from '@open-artifact/ui';
+import { shortcutLetter } from '@open-artifact/ui/keys';
 import { ASK_AGENT_LABEL } from '../drafts/words.ts';
 import { DASHBOARD_ROOT_ID } from '../page/runtime.ts';
 import { rectOf, type Box, type Edges } from './geometry.ts';
@@ -110,7 +111,7 @@ export function LinkInput({
   invalid: boolean;
   onChange(value: string): void;
   onKeyDown(event: ReactKeyboardEvent<HTMLInputElement>): void;
-  onBlur?(event: FocusEvent<HTMLInputElement>): void;
+  onBlur?(event: ReactFocusEvent<HTMLInputElement>): void;
   onCancel(): void;
   onRemove?(): void;
   onOpen?(): void;
@@ -171,8 +172,9 @@ export function LinkInput({
   );
 }
 
-const isModK = (event: KeyboardEvent): boolean =>
-  (event.metaKey || (event.ctrlKey && !isApplePlatform())) && !event.shiftKey && !event.altKey && event.key.toLowerCase() === 'k';
+/** ⌘K (Ctrl+K elsewhere), the physical K on a non-Latin layout. */
+export const isModK = (event: Pick<KeyboardEvent, 'key' | 'code' | 'metaKey' | 'ctrlKey' | 'shiftKey' | 'altKey'>): boolean =>
+  (event.metaKey || (event.ctrlKey && !isApplePlatform())) && !event.shiftKey && !event.altKey && shortcutLetter(event) === 'k';
 
 export function PieceToolbar({ piece, box, room, visit, onAsk, pressed, rows }: PieceToolbarProps): ReactNode {
   const toolbarRef = useRef<HTMLDivElement>(null);
@@ -195,6 +197,19 @@ export function PieceToolbar({ piece, box, room, visit, onAsk, pressed, rows }: 
   };
   const openLinkRef = useRef(openLink);
   openLinkRef.current = openLink;
+  const closeLinkRef = useRef(closeLink);
+  closeLinkRef.current = closeLink;
+  const linkOpen = link !== null;
+
+  // Going back to the piece's text (a click in it) drops the address being typed.
+  useEffect(() => {
+    if (!linkOpen || visit === null) return;
+    const onFocusIn = (event: FocusEvent): void => {
+      if (event.target instanceof Node && visit.el.contains(event.target)) closeLinkRef.current();
+    };
+    window.addEventListener('focusin', onFocusIn, true);
+    return () => window.removeEventListener('focusin', onFocusIn, true);
+  }, [linkOpen, visit]);
 
   useEffect(() => {
     if (visit === null) return;
@@ -291,6 +306,7 @@ export function PieceToolbar({ piece, box, room, visit, onAsk, pressed, rows }: 
             invalid={link.bad}
             onChange={(url) => setLinkDraft({ ...link, url, bad: false })}
             onBlur={(event) => {
+              if (document.activeElement === event.currentTarget) return;
               if ((event.relatedTarget instanceof Element && event.relatedTarget.closest(`[${LINK_MODE_ATTRIBUTE}]`) !== null) || !document.hasFocus()) return;
               closeLink();
             }}

@@ -51,13 +51,15 @@ export interface DialogProps {
   onKeyCapture?: (event: KeyboardEvent<HTMLElement>) => void;
   /** The element focused when the dialog opens; by default the first one that takes focus. */
   initialFocus?: BaseDialog.Popup.Props['initialFocus'];
+  /** The element focused when the dialog closes; by default the one focused before it opened. */
+  finalFocus?: BaseDialog.Popup.Props['finalFocus'];
 }
 
 /**
  * A modal dialog. Closed by a held Enter, the Enter's repeats don't press
  * what gets the focus next.
  */
-export function Dialog({ open, onOpenChange, title, description, children, footer, className, onOpenChangeComplete, onKeyCapture, initialFocus }: DialogProps) {
+export function Dialog({ open, onOpenChange, title, description, children, footer, className, onOpenChangeComplete, onKeyCapture, initialFocus, finalFocus }: DialogProps) {
   const enterHeld = useRef(false);
   const wasOpen = useRef(open);
   useEffect(() => {
@@ -83,6 +85,7 @@ export function Dialog({ open, onOpenChange, title, description, children, foote
           onKeyDownCapture={keyCapture}
           onKeyUpCapture={keyCapture}
           initialFocus={initialFocus}
+          finalFocus={finalFocus}
         >
           <div className="mb-3 flex items-start gap-3">
             <div className="flex-1">
@@ -115,12 +118,17 @@ export interface ConfirmDialogProps {
    * Delete) can't also confirm. Pointer clicks and Escape work as usual.
    */
   guardEarlyPress?: boolean;
+  /** The element focused when it opens: `'cancel'` for the Cancel button, else as {@link DialogProps.initialFocus}. */
+  initialFocus?: 'cancel' | DialogProps['initialFocus'];
+  /** The element focused when it closes, as {@link DialogProps.finalFocus}. */
+  finalFocus?: DialogProps['finalFocus'];
   onConfirm: () => void;
 }
 
 /** A yes/no dialog. */
-export function ConfirmDialog({ open, onOpenChange, title, description, confirmLabel = 'Confirm', danger, guardEarlyPress, onConfirm }: ConfirmDialogProps) {
+export function ConfirmDialog({ open, onOpenChange, title, description, confirmLabel = 'Confirm', danger, guardEarlyPress, initialFocus, finalFocus, onConfirm }: ConfirmDialogProps) {
   const times = useRef<EarlyPressTimes | null>(null);
+  const cancel = useRef<HTMLButtonElement | null>(null);
   const guarded = Boolean(danger && guardEarlyPress);
   if (!open) times.current = null;
   else if (guarded && !times.current) times.current = { opened: performance.now(), shown: null };
@@ -130,6 +138,8 @@ export function ConfirmDialog({ open, onOpenChange, title, description, confirmL
       onOpenChange={onOpenChange}
       title={title}
       description={description}
+      initialFocus={initialFocus === 'cancel' ? cancel : initialFocus}
+      finalFocus={finalFocus}
       onOpenChangeComplete={guarded ? (shown) => {
         if (shown && times.current && times.current.shown === null) times.current = { ...times.current, shown: performance.now() };
       } : undefined}
@@ -138,7 +148,7 @@ export function ConfirmDialog({ open, onOpenChange, title, description, confirmL
       } : undefined}
       footer={
         <>
-          <Button onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button ref={cancel} onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button
             variant={danger ? 'danger' : 'primary'}
             onClick={() => {

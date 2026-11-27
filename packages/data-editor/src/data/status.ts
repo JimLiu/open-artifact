@@ -31,9 +31,6 @@ import {
 import { formatConjunctionList, formatDisjunctionList, joinSentences, truncateSingleLine } from './util.ts';
 
 export const SOURCE_FAILED_MESSAGE = 'This source failed to load.';
-export const SINGLE_SOURCE_FAILED_MESSAGE = 'A source failed to load.';
-export const SOURCES_FAILED_MESSAGE = 'Sources failed to load.';
-export const SOME_SOURCES_FAILED_MESSAGE = 'Some sources failed to load.';
 export const QUERY_SLOW_MESSAGE = 'The query is taking longer than usual, so this data didn’t load. Try again in a minute.';
 export const DATA_LOAD_FAILED_MESSAGE = 'Failed to load data.';
 export const CALCULATION_FAILED_MESSAGE = 'Couldn’t run.';
@@ -45,6 +42,34 @@ export const MAX_ERROR_SUMMARY_CHARACTERS = 140;
 export const CODE_SOURCE_LABEL = 'Its code';
 
 const decimal = new Intl.NumberFormat('en-US');
+
+/** The dashboard's notice, with the sources that failed when it is about them (its count links to them). */
+export interface SourcesFailureNotice extends DashboardNotice {
+  failed?: Dataset[];
+}
+
+/** What the toolbar's words are made of, with how many sources wait to be tried again. */
+export interface ToolbarWordsContext extends ToolbarTextContext {
+  retrying?: number;
+}
+
+/** "3 sources": the part of the failure notice that links to them. */
+export function describeFailedSourcesCount(count: number): string {
+  return count === 1 ? '1 source' : `${decimal.format(count)} sources`;
+}
+
+export const DIDNT_LOAD_SENTENCE_END = ' didn’t load.';
+export const ASK_AGENT_TO_LOOK_QUESTION = ' Want the agent to look into it?';
+
+/** "1 source didn’t load." / "3 sources didn’t load." */
+export function describeFailedSources(count: number): string {
+  return describeFailedSourcesCount(count) + DIDNT_LOAD_SENTENCE_END;
+}
+
+/** "1 source didn’t load. Retrying…" / "3 sources didn’t load. Retrying…" */
+export function describeRetryingSources(count: number): string {
+  return `${describeFailedSources(count)} Retrying…`;
+}
 
 function describeConnectorLoadFailure(connectors: string): string {
   return `Couldn’t load from ${connectors}.`;
@@ -174,8 +199,9 @@ export function fitDatasetNotice(notice: DatasetNotice, max: number): string {
   return withQuote(truncateSingleLine(why.said, max - withQuote('').length));
 }
 
+/** A source that loads (a query, a file, saved rows) and failed in a way trying again may fix. */
 function isLiveQueryFailure(dataset: Dataset, run: DatasetRun): boolean {
-  return run.status === 'failed' && (dataset.source.kind === 'query' || dataset.source.kind === 'store' || (dataset.source.kind === 'file' && isPageCodeFailure(run)));
+  return run.status === 'failed' && (dataset.source.kind === 'query' || dataset.source.kind === 'store' || dataset.source.kind === 'file');
 }
 
 function getMissingToolHint(source: QuerySource, run: DatasetRun): { tool?: string } {
@@ -196,7 +222,8 @@ export function getDatasetNotice(dataset: Dataset, run: DatasetRun): DatasetNoti
   if (turnedOff !== null) return { text: describeLoadFailure(run), fix: { connector: turnedOff, fix: 'turnOn' } };
   if (run.status === 'declined') return { text: describeLoadFailure(run) };
   if (source.kind === 'file' && isPageCodeFailure(run)) return { text: SOURCE_FAILED_MESSAGE, said: describeLoadFailure(run), retry: 'refresh' };
-  if (run.status !== 'failed' || source.kind === 'file') return { text: describeLoadFailure(run) };
+  if (source.kind === 'file') return { text: describeLoadFailure(run), retry: 'refresh' };
+  if (run.status !== 'failed') return { text: describeLoadFailure(run) };
   if (source.kind === 'store') return { text: describeLoadFailure(run), retry: 'refresh' };
   if (source.kind === 'calc' && run.quoted !== true) return { text: describeLoadFailure(run), ask: true };
   const retry: Pick<DatasetNotice, 'retry'> = isLiveQueryFailure(dataset, run) ? { retry: 'refresh' } : {};
@@ -214,18 +241,23 @@ export function getDatasetNotice(dataset: Dataset, run: DatasetRun): DatasetNoti
   return { text: SOURCE_FAILED_MESSAGE, ...said, ...retry };
 }
 
-function describeConnectionFailures(failed: FailedDataset[]): string {
-  const connectors = [...new Set(failed.map((item) => getLiveDatasetConnector(item.ds)))];
-  const first = failed[0];
-  if (connectors.length < 2 && first !== undefined) return describeLoadFailure(first.run);
-  return describeConnectorLoadFailure(formatConjunctionList(connectors));
+/** A connector still waiting on the person: asked for permission, or for a new connector to be chosen. */
+function isWaitingOnPerson(item: FailedDataset): boolean {
+  const code = item.run.wording?.code;
+  return code === 'heldBack' || code === 'stillUnchosen';
 }
 
-/** Nothing loaded: every source is a calculation or failed without a past result. */
-export function hasNothingLoaded(datasets: Dataset[], getRun: GetRun): boolean {
-  return datasets.every(
-    (dataset) => dataset.source.kind === 'calc' || (isFailedDatasetRun(getRun(dataset.id)) && getLastSuccessfulRun(getRun(dataset.id)) === null),
-  );
+/**
+ * The connection failures in words: one connector's own words (those of one still waiting on the person first), or
+ * the connectors listed, followed by the words of one still waiting on the person.
+ */
+function describeConnectionFailures(failed: FailedDataset[]): string {
+  const connectors = [...new Set(failed.map((item) => getLiveDatasetConnector(item.ds)))];
+  const waiting = failed.find(isWaitingOnPerson);
+  const first = waiting ?? failed[0];
+  if (connectors.length < 2 && first !== undefined) return describeLoadFailure(first.run);
+  const listed = describeConnectorLoadFailure(formatConjunctionList(connectors));
+  return waiting === undefined ? listed : joinSentences(listed, describeLoadFailure(waiting.run));
 }
 
 export function getFailedLiveQueries(datasets: Dataset[], getRun: GetRun): Dataset[] {
@@ -234,14 +266,14 @@ export function getFailedLiveQueries(datasets: Dataset[], getRun: GetRun): Datas
 
 /**
  * The dashboard's notice about its sources: a connection to fix (with the fix when every failed query uses one
- * connector), failed sources to retry or ask about, else a quiet note for a declined one.
+ * connector), failed sources to retry or ask about (listed, so the notice can link to them), else a quiet note for
+ * a declined one.
  */
-export function getDashboardNotice(datasets: Dataset[], getRun: GetRun): DashboardNotice | null {
+export function getDashboardNotice(datasets: Dataset[], getRun: GetRun): SourcesFailureNotice | null {
   const failed: FailedDataset[] = datasets.flatMap((dataset) => {
     const run = getRun(dataset.id);
     return dataset.source.kind !== 'calc' && isFailedDatasetRun(run) ? [{ ds: dataset, run }] : [];
   });
-  const nothingLoaded = hasNothingLoaded(datasets, getRun);
   const unconnected = failed.filter((item) => item.ds.source.kind === 'query' && getConnectionFix(item.run) !== null);
   const first = unconnected[0];
   if (first !== undefined) {
@@ -252,11 +284,12 @@ export function getDashboardNotice(datasets: Dataset[], getRun: GetRun): Dashboa
       ...(fix !== null && unconnected.every((item) => getLiveDatasetConnector(item.ds) === connector) ? { fix: { connector, fix } } : {}),
     };
   }
-  const retryable = failed.filter((item) => isRetryableDatasetFailure(item.run)).length;
+  const retryable = failed.filter((item) => isRetryableDatasetFailure(item.run)).map((item) => item.ds);
   const queries = getFailedLiveQueries(datasets, getRun);
-  if (retryable > 0)
+  if (retryable.length > 0)
     return {
-      text: retryable === 1 ? SINGLE_SOURCE_FAILED_MESSAGE : nothingLoaded ? SOURCES_FAILED_MESSAGE : SOME_SOURCES_FAILED_MESSAGE,
+      text: describeFailedSources(retryable.length),
+      failed: retryable,
       ...(queries.length > 0 ? { ask: queries } : {}),
     };
   const declined = failed.find((item) => getTurnedOffConnector(item.run) !== null) ?? failed[0];
@@ -407,7 +440,8 @@ export function formatUpdatedAgo(at: number, now: number): string {
   return `Updated ${formatTimeAgo(at, now, true)}`;
 }
 
-/** The toolbar's own words: loading, or when the data was last updated. */
-export function getToolbarText(context: ToolbarTextContext): string | null {
+/** The toolbar's own words: sources waiting to be tried again, loading, or when the data was last updated. */
+export function getToolbarText(context: ToolbarWordsContext): string | null {
+  if (context.retrying !== undefined && context.retrying > 0) return describeRetryingSources(context.retrying);
   return getLoadingLabel(context) ?? (context.updatedAt !== null ? formatUpdatedAgo(context.updatedAt, context.now) : null);
 }

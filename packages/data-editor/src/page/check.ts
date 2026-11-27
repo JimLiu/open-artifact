@@ -86,11 +86,15 @@ export function createUserDocumentWriter(
 }
 
 export interface RunReporter {
-  report(report: DashboardRunReport): void;
+  /** `showing`: what the page shows when it isn't the dashboard itself (`drafts/<id>`, `history/<n>`). */
+  report(report: DashboardRunReport, showing?: string | null): void;
   dispose(): void;
 }
 
-/** Debounces the run reports; the latest goes to `data/users/<me>/runs` (a clean one removes it). */
+/**
+ * Debounces the run reports; the latest goes to `data/users/<me>/runs` (a clean one removes it), with `showing` when
+ * the page shows a draft or an earlier version.
+ */
 export function createRunReporter(
   debounceMs = 1000,
   write: UserDocumentWriter = createUserDocumentWriter(USER_RUNS_DOCUMENT, 5000),
@@ -99,16 +103,17 @@ export function createRunReporter(
   let sent = '';
   let timer: ReturnType<typeof setTimeout> | undefined;
   return {
-    report(input) {
+    report(input, showing = null) {
       const clean = isCleanRunReport(input);
-      const key = clean ? 'delete' : JSON.stringify(input);
+      const document = showing === null ? { ...input } : { ...input, showing };
+      const key = clean ? 'delete' : JSON.stringify(document);
       if (key === pending || (!clean && !isActionableRunReport(input))) return;
       pending = key;
       clearTimeout(timer);
       if (key === sent) return;
       timer = setTimeout(() => {
         sent = key;
-        void write(clean ? null : { ...input }).then((outcome) => {
+        void write(clean ? null : document).then((outcome) => {
           if (outcome === 'retry' && sent === key) sent = '';
           if (outcome === 'retry' && pending === key) pending = '';
         });
@@ -154,6 +159,8 @@ export interface PageCheckDocument extends PageCheckFindings {
   v: 1;
   status: PageCheckStatus | 'failed';
   at: string;
+  /** The check is of a draft (`drafts/<id>`), not the dashboard itself. */
+  showing?: string;
 }
 
 export interface PageCheckUnruled {
@@ -168,8 +175,10 @@ export interface PageCheckProps {
   /** The stored files (the same array as `files` unless an edit or a draft is shown). */
   stored?: readonly DashboardFile[];
   faults: readonly PageFault[];
-  /** Checks run only while this is true (loaded, writable, the latest version). */
+  /** Checks run only while this is true (loaded, writable, the dashboard or a draft shown). */
   on: boolean;
+  /** What the page shows when it isn't the dashboard itself (`drafts/<id>`); written on the check. */
+  showing?: string | null;
   /** The page reported its first paint and no source it reads is still loading. */
   settled: boolean;
   /** Output findings, read once the faults are none; null when they can't be read yet. */
@@ -230,7 +239,9 @@ const hasEntryFile = (files: readonly DashboardFile[]): boolean => files.some((f
 export async function runPageCheck({ now, stale, told }: PageCheckRun, state: PageCheckState, deps: PageCheckDependencies): Promise<void> {
   const mark = async (status: PageCheckStatus | 'failed' | null, extra: PageCheckFindings = {}): Promise<boolean> => {
     state.marked = status === 'checking';
-    const written = (await deps.put(status === null ? null : { v: 1, status, at: new Date().toISOString(), ...extra })) === 'ok';
+    const showing = now().showing ?? null;
+    const written =
+      (await deps.put(status === null ? null : { v: 1, status, at: new Date().toISOString(), ...(showing === null ? {} : { showing }), ...extra })) === 'ok';
     if (!written) state.marked = false;
     return written;
   };
@@ -457,8 +468,10 @@ export function useLingeringFlag(flag: boolean, graceMs: number): boolean {
 
 export interface ShownPageState {
   loaded: boolean;
-  /** Reports run only while this is true (loaded, the latest version, not a draft). */
+  /** Reports run only while this is true (the viewer can edit the dashboard). */
   on: boolean;
+  /** What the page shows when it isn't the dashboard itself (`drafts/<id>`, `history/<n>`); a change writes anew. */
+  showing?: string | null;
   settled: boolean;
   files: readonly DashboardFile[];
   filters: Parameters;
@@ -468,8 +481,8 @@ export interface ShownPageState {
 
 /**
  * While the agent's turn runs on a settled page, writes the viewer's rendered page to `data/users/<me>/page` a moment
- * after the turn starts, so the agent can read what the viewer sees; removes it when the turn ends, the page hides or
- * the report turns off.
+ * after the turn starts, so the agent can read what the viewer sees (with `showing` while a draft or an earlier version
+ * is on it); removes it when the turn ends, the page hides, what it shows changes or the report turns off.
  */
 export function useShownPageReport(state: ShownPageState, { graceMs, writer }: { graceMs: number; writer?: UserDocumentWriter }): void {
   const [write] = useState<UserDocumentWriter>(() => writer ?? createUserDocumentWriter(USER_PAGE_DOCUMENT));
@@ -489,8 +502,15 @@ export function useShownPageReport(state: ShownPageState, { graceMs, writer }: {
         timer = setTimeout(send, SHOWN_PAGE_DELAY_MS);
         return;
       }
+      const showing = latest.current.showing ?? null;
       void write(
-        fitShownPageRecord(shown.html, { v: 1, at: new Date().toISOString(), width: shown.width, filters: latest.current.filters }),
+        fitShownPageRecord(shown.html, {
+          v: 1,
+          at: new Date().toISOString(),
+          ...(showing === null ? {} : { showing }),
+          width: shown.width,
+          filters: latest.current.filters,
+        }),
       );
     };
     timer = setTimeout(send, SHOWN_PAGE_DELAY_MS);
@@ -499,5 +519,5 @@ export function useShownPageReport(state: ShownPageState, { graceMs, writer }: {
       clearTimeout(timer);
       window.removeEventListener('pagehide', remove);
     };
-  }, [state.loaded, state.on, turn, state.settled, state.files]);
+  }, [state.loaded, state.on, turn, state.settled, state.files, state.showing ?? null]);
 }

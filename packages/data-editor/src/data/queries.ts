@@ -60,6 +60,7 @@ import {
 import type { McpToolClient } from './mcp.ts';
 import { getToolCacheGcTime } from './tool-cache.ts';
 import { cloneJsonData, errorToMessage, getErrorCode, isNonDataConnector, joinAlternatives, parseJsonOrText, stableStringify } from './util.ts';
+import { RECENTLY_SHOWN_MS, isFlakyLoad, markFlaky } from './retry.ts';
 
 /** What a query runs with: the tool client, and the clock its waits and timings use. */
 export interface QueryEnvironment {
@@ -208,9 +209,13 @@ function isRetryablePayload(error: unknown): boolean {
   return isPlainObject(error) && error.retryable === true;
 }
 
-function hasRetryAfter(error: unknown): boolean {
+function getRetryAfter(error: unknown): number | undefined {
   const value = isPlainObject(error) ? error.retryAfterMs : undefined;
-  return typeof value === 'number' && value > 0;
+  return typeof value === 'number' && value > 0 ? value : undefined;
+}
+
+function hasRetryAfter(error: unknown): boolean {
+  return getRetryAfter(error) !== undefined;
 }
 
 /** A thrown value that isn't an `Error`, or one of the errors code makes by mistake: the page's own code failed. */
@@ -576,11 +581,22 @@ export function mcpErrorToLoadFailure(connector: string, error: unknown): LoadFa
   if (normalized.code === 'consent_required') return connectorConsentRequired(connector);
   if (['not_granted', 'not_declared', 'capability_disabled', 'capability_removed'].includes(normalized.code)) return LIVE_DATA_UNAVAILABLE_RESULT;
   const message = (isPlainObject(error) && typeof error.message === 'string' ? error.message : '') || normalized.message;
+  // A retryable error that asks for no long wait is likely passing; a rate limit is waited out as a busy answer.
+  const wait = getRetryAfter(error);
+  const passing = (failure: LoadFailure): LoadFailure =>
+    isRetryablePayload(error) && code !== 'rate_limited' && (wait ?? 0) <= RECENTLY_SHOWN_MS ? markFlaky(failure, wait) : failure;
   if (code === 'upstream_error')
-    return { ok: false, kind: 'failed', message: normalized.message, ...(isRetryablePayload(error) ? { crowded: true as const } : {}) };
+    return passing({ ok: false, kind: 'failed', message: normalized.message, ...(isRetryablePayload(error) ? { crowded: true as const } : {}) });
   const failure: LoadFailure = { ok: false, kind: 'failed', message };
-  if (code === 'server_unavailable') return { ...failure, unanswered: true, ...(hasRetryAfter(error) ? { crowded: true as const } : {}) };
-  return code === 'rate_limited' ? { ...failure, unanswered: true, crowded: true } : failure;
+  if (code === 'server_unavailable') return passing({ ...failure, unanswered: true, ...(hasRetryAfter(error) ? { crowded: true as const } : {}) });
+  return code === 'rate_limited' ? { ...failure, unanswered: true, crowded: true } : passing(failure);
+}
+
+/** A first call that failed soon after the load began, asking for no wait, is likely passing. */
+function markFirstCallFailure(failure: LoadFailure, error: unknown, elapsed: number): LoadFailure {
+  if (failure.kind !== 'failed' || failure.crowded === true || isFlakyLoad(failure)) return failure;
+  if (elapsed >= RECENTLY_SHOWN_MS || hasRetryAfter(error)) return failure;
+  return markFlaky(failure);
 }
 
 /**
@@ -673,6 +689,7 @@ export async function executeDatasetQuery(
   };
 
   let stopCacheWatch: () => void = () => undefined;
+  let answered = false;
   try {
     const calls: ToolCall[] = [];
     let fetched = false;
@@ -718,6 +735,7 @@ export async function executeDatasetQuery(
           .catch(() => undefined);
       });
     const answer = await pending;
+    answered = true;
     const storedAt = reuse?.refresh === false ? getCachedStoredAt(answer) : null;
     if (storedAt === null || reuse === undefined) {
       const later: ToolCallOptions | undefined = reuse === undefined ? undefined : { cache: { gcTime: cachePolicy.gcTime } };
@@ -745,7 +763,8 @@ export async function executeDatasetQuery(
     if (isStale() || settled) return result ?? finalizeQueryResult(QUERY_TIMED_OUT_FAILURE, 0);
     return await executeDatasetQuery(env, query, isStale, loader, { reuse: { ...reuse, refresh: true } });
   } catch (error) {
-    return mcpErrorToLoadFailure(connector, error);
+    const failure = mcpErrorToLoadFailure(connector, error);
+    return answered ? failure : markFirstCallFailure(failure, error, clock.now() - startedAt);
   } finally {
     stopCacheWatch();
   }

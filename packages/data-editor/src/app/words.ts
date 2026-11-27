@@ -5,6 +5,8 @@ export const DESIGN_PANEL_NAME = 'Design';
 export const HISTORY_PANEL_NAME = 'History';
 
 export const SOURCES_TIP = 'Sources: see where numbers come from';
+/** The Sources tooltip with the count: "Sources (12): see where numbers come from". */
+export const countedSourcesTip = (count: number): string => (count > 0 ? `${countedSourcesName(count)}: see where numbers come from` : SOURCES_TIP);
 export const HIDE_SOURCES_TIP = 'Hide sources';
 export const SOURCES_DISABLED_BY_COMMENTS = 'Turn off comments to see Sources';
 export const DESIGN_DISABLED_BY_COMMENTS = 'Turn off comments to see Design';
@@ -71,6 +73,16 @@ export const COMMENTS_HINT = 'Turn on commenting and click the page.';
 /** "one source needs attention" / "3 sources need attention". */
 export function formatAttentionCount(n: number): string {
   return n === 1 ? 'one source needs attention' : `${n.toLocaleString()} sources need attention`;
+}
+
+/** "Sources (12)": the Sources button's name once there are sources, with the real count. */
+export function countedSourcesName(count: number): string {
+  return count > 0 ? `${SOURCES_PANEL_NAME} (${count})` : SOURCES_PANEL_NAME;
+}
+
+/** The count the Sources button's badge shows: "99+" past 99. */
+export function formatSourcesBadge(count: number): string {
+  return count > 99 ? '99+' : String(count);
 }
 
 /** "{tip} ({note})". */

@@ -20,7 +20,7 @@ import {
   type EditedDataFile,
   type FileEditPhase,
 } from './files.ts';
-import { QUERY_TEST_SHORTCUT } from './QueryEditorDialog.tsx';
+import { FOOTER_NOTE_CLASS, QUERY_TEST_SHORTCUT } from './QueryEditorDialog.tsx';
 import { describeTableResult, formatResultFileSize } from './result.ts';
 import { QueryTestResult } from './ResultView.tsx';
 import { getQuerySaveError, saveDataFile } from './save.ts';
@@ -218,20 +218,22 @@ export function FileEditorDialog({ ds, onClose }: FileEditorDialogProps): ReactE
         </p>
       )}
       <div className="flex flex-wrap items-center justify-end gap-2 pt-4">
-        <p role="status" className={cn('min-w-0 flex-1 basis-40 text-[13px] [overflow-wrap:anywhere] empty:basis-0', notice?.bad === true ? 'text-danger' : 'text-fg-muted')}>
+        <p role="status" className={cn(FOOTER_NOTE_CLASS, notice?.bad === true ? 'text-danger' : 'text-fg-muted')}>
           {notice?.text}
         </p>
-        <Button variant="ghost" disabled={saving} onClick={onClose}>
-          {CANCEL_LABEL}
-        </Button>
-        <Tooltip label={TEST_WITHOUT_SAVING_LABEL} shortcut={QUERY_TEST_SHORTCUT}>
-          <Button aria-keyshortcuts="Meta+Enter Control+Enter" aria-busy={testing || undefined} disabled={!testing && !canTest} onClick={test}>
-            {TEST_LABEL}
+        <span className="flex gap-2">
+          <Button variant="ghost" disabled={saving} onClick={onClose}>
+            {CANCEL_LABEL}
           </Button>
-        </Tooltip>
-        <Button variant={warned ? 'danger' : 'primary'} type="submit" form={fieldId} aria-busy={saving || undefined} disabled={locked || !changed || base === null}>
-          {warned ? SAVE_ANYWAY_LABEL : SAVE_LABEL}
-        </Button>
+          <Tooltip label={TEST_WITHOUT_SAVING_LABEL} shortcut={QUERY_TEST_SHORTCUT}>
+            <Button aria-keyshortcuts="Meta+Enter Control+Enter" aria-busy={testing || undefined} disabled={!testing && !canTest} onClick={test}>
+              {TEST_LABEL}
+            </Button>
+          </Tooltip>
+          <Button variant={warned ? 'danger' : 'primary'} type="submit" form={fieldId} aria-busy={saving || undefined} disabled={locked || !changed || base === null}>
+            {warned ? SAVE_ANYWAY_LABEL : SAVE_LABEL}
+          </Button>
+        </span>
       </div>
     </div>
   );

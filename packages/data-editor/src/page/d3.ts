@@ -86,8 +86,31 @@ const D3_MODULES: readonly object[] = [
   d3Zoom,
 ];
 
+declare module 'd3-selection' {
+  interface Selection<GElement extends d3Selection.BaseType, Datum, PElement extends d3Selection.BaseType, PDatum> {
+    /** Puts `nodes` in place of each element's children. */
+    replaceChildren(...nodes: (Node | string)[]): this;
+  }
+}
+
+/** Selections can swap an element's children in one step, as the DOM's own `replaceChildren` does. */
+function addReplaceChildren(): void {
+  const proto = d3Selection.selection.prototype as unknown as Record<string, unknown>;
+  if (typeof proto['replaceChildren'] === 'function') return;
+  Object.defineProperty(proto, 'replaceChildren', {
+    value: function replaceChildren(this: d3Selection.Selection<d3Selection.BaseType, unknown, d3Selection.BaseType, unknown>, ...nodes: (Node | string)[]) {
+      return this.each(function each(this: d3Selection.BaseType) {
+        if (this instanceof Element) this.replaceChildren(...nodes);
+      });
+    },
+    writable: true,
+    configurable: true,
+  });
+}
+
 /** A fresh `d3` namespace: reads go to the modules; assigning a name replaces it in this namespace only. */
 export function createMutableD3Namespace(): DashboardD3 {
+  addReplaceChildren();
   const namespace: Record<string, unknown> = { version: D3_VERSION };
   const replace = (name: string, value: unknown): void =>
     void Object.defineProperty(namespace, name, { value, writable: true, enumerable: true, configurable: true });

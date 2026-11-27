@@ -108,7 +108,7 @@ export function PageTools({ filters, onPoint }: PageToolsProps): ReactElement | 
   const ask = useCallback((selection: ElementSelection) => askWithEdits(() => askAboutElement(selection, contextRef.current)), []);
   const askFromEdit = useCallback((pick: () => ElementSelection) => askWithEdits(() => askAboutElement(pick(), contextRef.current)), []);
   const canAsk = useCanAskAgent();
-  const canPencil = canWrite && (maybeSession()?.canEdit ?? false);
+  const canPencil = canWrite && (maybeSession()?.canEdit ?? false) && pencil.hasPage;
   const pencilHere =
     canPencil && !editing && !viewingOther && pencil.reason === null
       ? () => {

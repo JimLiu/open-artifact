@@ -107,6 +107,14 @@ describe('edit keys', () => {
     assert.equal(editKeyOf(key('z')), null);
     assert.equal(editKeyOf(key('s', { metaKey: true, altKey: true })), null);
   });
+  it('reads the physical key on a non-Latin layout', () => {
+    assert.equal(editKeyOf({ ...key('ы', { metaKey: true }), code: 'KeyS' }), 'save');
+    assert.equal(editKeyOf({ ...key('я', { ctrlKey: true }), code: 'KeyZ' }), 'undo');
+    assert.equal(editKeyOf({ ...key('я', { metaKey: true, shiftKey: true }), code: 'KeyZ' }), 'redo');
+    // A Latin layout keeps its own letters: on Dvorak the key that types "s" saves, wherever it sits.
+    assert.equal(editKeyOf({ ...key('s', { metaKey: true }), code: 'Semicolon' }), 'save');
+    assert.equal(editKeyOf({ ...key('o', { metaKey: true }), code: 'KeyS' }), null);
+  });
 });
 
 describe('shown content', () => {

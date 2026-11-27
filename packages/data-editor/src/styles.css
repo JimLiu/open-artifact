@@ -156,8 +156,24 @@ body {
   pointer-events: none;
 }
 
-.dash-attention-bad {
-  background: var(--color-danger, #dc2626);
+/* Beside the count badge, which takes the top corner, the dot sits at the bottom. */
+[data-dash-sources-count] ~ .dash-attention {
+  top: auto;
+  bottom: 5px;
+}
+
+/* Where focus lands after a notice is dismissed: a ring on a heading, an inset ring on a region, nothing after a pointer press. */
+[data-focus-landing] {
+  outline: none;
+}
+[data-focus-landing='ring'] {
+  outline: 2px solid var(--color-accent, #2563eb);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+[data-focus-landing='inset'] {
+  outline: 2px solid var(--color-accent, #2563eb);
+  outline-offset: -2px;
 }
 
 .dash-body {

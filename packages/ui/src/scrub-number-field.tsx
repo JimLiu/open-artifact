@@ -4,6 +4,8 @@
  */
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react';
 import { cn } from './cn.ts';
+import { isComposingKey, shortcutLetter } from './keys.ts';
+import { isMinusSign, leadsNumber, limitsKept, refusesMinus, settleNumber, startsWithMinus, type NumberLimit } from './number-limits.ts';
 import { clampNumber, evaluateNumberInput, formatNumber, roundTo, snapToStep, stepDecimals, stepStart } from './numbers.ts';
 
 /** Props of {@link ScrubNumberField}. */
@@ -44,6 +46,12 @@ export interface ScrubNumberFieldProps {
   className?: string;
   /** Tooltip of the drag handle. */
   title?: string;
+  /**
+   * Told when the field changed what the user typed: held it at a bound, or
+   * (in a field whose minimum is zero or more) dropped a leading minus sign.
+   * Called once per commit or key with every change, in order.
+   */
+  onLimit?: (limits: readonly NumberLimit[]) => void;
 }
 
 /**
@@ -58,7 +66,11 @@ export interface ScrubNumberFieldProps {
  *   steps, Home/End go to `min`/`max`. An empty or mixed field steps
  *   from 0 (kept within `min`/`max`).
  * - Typing accepts arithmetic (`12*2`, `100/3`) and a unit; Enter or blur
- *   commits, Escape reverts.
+ *   commits, Escape reverts. ⌘S / Ctrl+S commits before the page saves.
+ * - When `min` is zero or more, a minus sign can't start the number: the
+ *   key does nothing there, and typed text that starts with one keeps its
+ *   number without it. `onLimit` hears about that and about typed values
+ *   held at `min` or `max`.
  * - `mixed` shows "Mixed" until something is entered.
  */
 export function ScrubNumberField({
@@ -80,6 +92,7 @@ export function ScrubNumberField({
   disabled,
   className,
   title,
+  onLimit,
   ...aria
 }: ScrubNumberFieldProps) {
   const big = largeStep ?? step * 10;
@@ -101,8 +114,13 @@ export function ScrubNumberField({
   }, [value, mixed, decimals]);
 
   const fit = (v: number) => roundTo(clampNumber(v, min, max), decimals);
+  const bounds = { min, max };
+  const tell = (limits: readonly NumberLimit[]) => {
+    if (limits.length > 0) onLimit?.(limits);
+  };
 
   const commitText = () => {
+    const typedByUser = editing.current;
     editing.current = false;
     const text = draft.trim();
     if (!text) {
@@ -116,10 +134,12 @@ export function ScrubNumberField({
       setDraft(shown(value));
       return;
     }
-    const next = fit(typed.value);
+    const settled = settleNumber(typed.value, typedByUser && startsWithMinus(text), bounds);
+    const next = fit(settled.value);
     const otherUnit = typedUnit !== undefined && typedUnit !== unit?.toLowerCase() ? typedUnit : undefined;
     setDraft(formatNumber(next, decimals));
     if (next !== value || mixed || otherUnit) onCommit(next, otherUnit);
+    if (typedByUser) tell(limitsKept(settled.limits, next));
   };
 
   /** Puts `target` (fitted) in the field and commits it. */
@@ -134,10 +154,36 @@ export function ScrubNumberField({
   /** Steps from the text being typed, else the value, else {@link stepStart}. */
   const stepBy = (delta: number) => {
     const typed = editing.current ? evaluateNumberInput(draft) : null;
-    settleAt((typed?.value ?? (mixed || value === null ? stepStart(min, max) : value)) + delta);
+    if (typed === null) {
+      settleAt((mixed || value === null ? stepStart(min, max) : value) + delta);
+      return;
+    }
+    // A step from typed text starts at its number, without a minus sign the field refuses.
+    const minusDropped = refusesMinus(bounds) && startsWithMinus(draft);
+    const from = minusDropped ? Math.abs(typed.value) : typed.value;
+    const next = fit(from + delta);
+    settleAt(next);
+    const held = settleNumber(from, false, bounds).limits;
+    tell([...(minusDropped ? [{ reason: 'no-minus' as const, limit: min ?? 0 }] : []), ...limitsKept(held, next)]);
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (isComposingKey(event.nativeEvent)) return;
+    if ((event.metaKey || event.ctrlKey) && !event.altKey && shortcutLetter(event) === 's') {
+      // Commit what is typed, then let the key go on to the page's save.
+      const field = event.currentTarget;
+      field.blur();
+      field.focus({ preventScroll: true });
+      field.select();
+      queueMicrotask(() => field.select());
+      return;
+    }
+    if (refusesMinus(bounds) && isMinusSign(event.key) && !event.ctrlKey && !event.metaKey && leadsNumber(event.currentTarget.value, event.currentTarget.selectionStart ?? 0)) {
+      // Only a leading minus is refused: "10-4" still subtracts.
+      event.preventDefault();
+      tell([{ reason: 'no-minus', limit: min ?? 0 }]);
+      return;
+    }
     const unitStep = event.shiftKey ? big : event.altKey ? small : step;
     switch (event.key) {
       case 'ArrowUp':

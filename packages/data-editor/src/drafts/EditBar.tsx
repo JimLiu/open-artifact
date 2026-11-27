@@ -8,6 +8,7 @@ import type { MouseEvent, ReactNode } from 'react';
 import { Card, ChromeDivider, Tip, TipButton, type ChromeSide } from '@open-artifact/editor-kit/react';
 import { MOD, SHIFT } from '@open-artifact/editor-kit';
 import { Button, cn } from '@open-artifact/ui';
+import { useFocusHandoff } from '../sources/focus.ts';
 import { useShown, areDraftsFree } from '../state/shown.ts';
 import { isDraftBarShown, isDraftWorkingShown } from './draft-state.ts';
 import { cancelPageEdits, redoPageEdit, savePageEdits, undoPageEdit, useEditFlow } from './edit-flow.ts';
@@ -56,12 +57,38 @@ function keepEditFocus(event: MouseEvent): void {
   event.preventDefault();
 }
 
-/** The bar; `words` replaces the hand-edit words (a draft, a remix request). */
-export function EditBar({ edit, words, tipSide = 'bottom' }: { edit: EditBarModel; words?: EditBarWords; tipSide?: ChromeSide }): ReactNode {
+/**
+ * Where focus goes when the bar goes away while it held focus (Save or Cancel pressed from the keyboard): the toolbar's
+ * Sources button, else the page's content. Nothing moves while the window is in the background.
+ */
+export function focusAfterEditBar(): void {
+  if (!document.hasFocus()) return;
+  const sources = document.querySelector<HTMLElement>('[data-dash-sources] button');
+  sources?.focus({ preventScroll: true });
+  if (sources !== null && document.activeElement === sources) return;
+  document.querySelector<HTMLElement>('[data-dash-content]')?.focus({ preventScroll: true });
+}
+
+/**
+ * The bar; `words` replaces the hand-edit words (a draft, a remix request). When it goes away with focus inside and
+ * focus lands nowhere, `onGone` puts it somewhere ({@link focusAfterEditBar} by default).
+ */
+export function EditBar({
+  edit,
+  words,
+  tipSide = 'bottom',
+  onGone = focusAfterEditBar,
+}: {
+  edit: EditBarModel;
+  words?: EditBarWords;
+  tipSide?: ChromeSide;
+  onGone?: () => void;
+}): ReactNode {
   const saving = edit.phase === 'saving';
   const shortcut = edit.keys === true && edit.count > 0 ? `${MOD}S` : undefined;
+  const handoff = useFocusHandoff<HTMLDivElement>(onGone);
   return (
-    <Card role="group" aria-label={words?.group ?? UNSAVED_CHANGES_GROUP} className="p-1">
+    <Card ref={handoff} role="group" aria-label={words?.group ?? UNSAVED_CHANGES_GROUP} className="p-1">
       <TipButton
         square
         aria-label={UNDO_LABEL}

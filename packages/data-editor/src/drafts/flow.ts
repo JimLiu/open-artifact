@@ -270,9 +270,10 @@ async function saveDraftNow(): Promise<void> {
     await waitForFiles(composition.files);
     const done = [id, ...view.older];
     update({ hidden: new Set([...useDraftFlow.getState().hidden, ...done]) });
+    // The page shows the saved dashboard now: say so before the draft is marked and cleared away.
+    say(SAVED_LABEL);
     await markDraftSaved(id);
     await dropFromFlow(done, 'spent');
-    say(SAVED_LABEL);
   } finally {
     update({
       saving: false,
@@ -368,7 +369,7 @@ export async function remixDraft(form: string): Promise<void> {
   const handed = await sendPageRequest({
     title: `Remix as a ${remixFormName(form)}`,
     request: remixPrompt(form, draftId),
-    selection: remixSelection(form),
+    selection: remixSelection(form, draftId),
   });
   if (!handed) {
     update({ asked: false });

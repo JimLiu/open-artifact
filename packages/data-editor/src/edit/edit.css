@@ -227,6 +227,11 @@
   translate: -50% -100%;
 }
 
+/* A tip by the pointer never catches it, so the pointer moves on over the page. */
+.dash-edit-tip[data-follow] {
+  pointer-events: none;
+}
+
 #dash-root [data-dash-lift="home"] {
   opacity: 0.4 !important;
 }

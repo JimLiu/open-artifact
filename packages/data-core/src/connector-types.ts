@@ -324,9 +324,13 @@ export interface CalculationInput extends CalculationResolution {
   ds: Dataset | undefined;
 }
 
+/**
+ * What a calculation gives the page. One its inputs stopped is "error", or "connect" / "declined" when every input
+ * that stopped it waits on the person or was turned off (see `getStoppedCalculationStatus`).
+ */
 export type CalculationData =
   | { status: 'ok'; value: unknown; message: '' }
-  | { status: 'error'; value: null; message: string }
+  | { status: 'error' | 'connect' | 'declined'; value: null; message: string }
   | { status: 'loading'; value: null; message: '' };
 
 export type CalculationFunction = (...inputs: unknown[]) => unknown;

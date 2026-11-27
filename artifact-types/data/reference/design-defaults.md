@@ -7,9 +7,7 @@ These cover what the person didn't specify. Most follow from two facts: readers 
 - Most pages need no notes, but define a metric in plain words where it first appears. Longer ones that the person asks for, such as definitions, fit a closed `<details>` at the foot, its `<summary>` saying what's inside.
 - A caveat that changes how a figure reads stands beside it or in the takeaway. If you left a source out, name it on the page and say why. Show a lift with its interval, and whether that crosses zero. Draw lines point to point, since a curve suggests values the data lacks.
 - `<select class="dash-select">` has the dashboard's look. Its arrow is a background image in the right padding, so style it with `background-color`, not `background` or `padding`.
-- Each chart's code measures its margins from the widest tick and end label as drawn (`getComputedTextLength()`, which is 0 until the chart is in the page) and keeps labels from meeting (fewer ticks, end labels moved apart), since the data sets a label's width and place.
 - Avoid relying on HTML `title` attributes or SVG `<title>` elements as tooltips: they appear sluggishly and do not work on touch devices. Print key values directly so phones and screenshots still show them.
-- A table wider than the pane can scroll sideways in a wrapper with `overflow-x: auto`, or the whole page slides.
 - A screen reader gets nothing from a drawn chart, so its `svg` has `role="img"` and an `aria-label` that says what it shows.
 - Numbers and dates are formatted. A date-only string parses as UTC midnight. Without `d3.utcFormat`, a reader west of UTC sees the day before.
 
@@ -24,7 +22,7 @@ If the person picked a shape, in the questions before a first build, on the empt
 
 ### Look
 
-The dashboard sets plain text defaults and an outer gutter, so don't pad your outer wrapper. `#dash-root { --dash-gutter: 0 }` runs it edge to edge. The page also appears in a narrow pane beside a chat, and narrows when Sources opens. A fixed-width `<svg>` keeps it from narrowing, but `width="100%"` with a `viewBox` is fine. `position: fixed` scrolls with the page, so make a tooltip `absolute` inside a `relative` box.
+The dashboard sets plain text defaults and an outer gutter, so don't pad your outer wrapper. `#dash-root { --dash-gutter: 0 }` runs it edge to edge. The page also appears in a narrow pane beside a chat, and narrows when Sources opens ("Fit" below). `position: fixed` scrolls with the page, so make a tooltip `absolute` inside a `relative` box.
 
 These tokens follow the reader's theme, so a page needs no dark-mode rule. Only these are guaranteed; a name you guess can silently resolve to nothing.
 
@@ -38,11 +36,21 @@ These tokens follow the reader's theme, so a page needs no dark-mode rule. Only 
 
 A page written for the dashboards on claude.ai works as it is: the dashboard sets their names to these tokens, so they follow the theme and the look too. `--cds-` plus the `--dash-` name stands for it (`--cds-page-bg`, `--cds-text-primary`, `--cds-gap-md`, `--cds-pad-lg`, `--cds-radius`, `--cds-font-size-body`, …), as do `--cds-chart-categorical-1` to `-8` for `--dash-chart-1` to `-8`, `--cds-chart-status-critical` for `--dash-chart-critical`, and `--font-anthropic-sans`, `-serif` and `-mono` for the three fonts. Any other `--cds-*` name is no token here, and check reports it. Write the names above in a page of your own.
 
+### Fit
+
+The data, not you, decides how long each label and number is, and the page runs from full width down to about 400px.
+
+- Shorten a long number to fit its place (`1.2M`, with `d3.format(".2~s")`, or `Intl.NumberFormat` with `notation: "compact"`), and give the whole value in its tooltip.
+- Text in an `<svg>` never wraps. A label longer than its room runs into its neighbour or off the edge, so measure it, then shorten it, break it into `<tspan>` lines yourself, or set it in HTML.
+- Size a chart's margins by measuring its longest tick and end label (`getComputedTextLength()`, 0 until the chart is attached), never by estimating.
+- The number of ticks follows the width (`axis.ticks(Math.max(2, width / 80))`, say), and end labels move apart, so no two labels meet when the chart narrows.
+- One element wider than the pane makes the whole page slide sideways. An `<svg>` with a fixed `width` does it, so give it `width="100%"` and a `viewBox`, or size it from `clientWidth`. A table that can't narrow goes in a wrapper with `overflow-x: auto`, so only it scrolls.
+
 ### States
 
-The type shows readers sign-in and load errors and how to fix them, so a connector's message stays off the page. For your CSS, it sets `data-dash-source-state="loading|refreshing|error|stale|empty"` on marks and `data-dash-state="loading|error"` on `#dash-root`. A source whose connector isn't set up, refused its credentials or waits on the reader's permission is stamped `error` but has status `"connect"`, so go by the status. While a source re-runs, its marks keep their last values, so fade the `refreshing` ones, or old numbers sit beside a new filter: `[data-dash-source-state=refreshing] { opacity: .5; }`. A source that failed with rows still up from an earlier load is `stale`: its marks keep those rows, so fade them too, and `#dash-root` says `error`. A page full of `—` reads as broken while it loads. The class `dash-skeleton` draws a placeholder over an element and hides its contents. It fills a box with nothing in it, not even a space, and one that holds only text, a `—` too, gets a short bar. Only your script removes it, when data arrives or the load fails: once the status isn't `"loading"`, or it stays for good.
+The type shows readers sign-in and load errors and how to fix them, so a connector's message stays off the page. For your CSS, it sets `data-dash-source-state="loading|refreshing|error|stale|empty"` on marks and `data-dash-state="loading|error"` on `#dash-root`. A source whose connector isn't set up, refused its credentials or waits on the reader's permission is stamped `error` but has status `"connect"`, so go by the status. While a source re-runs, its marks keep their last values, so fade the `refreshing` ones, or old numbers sit beside a new filter: `[data-dash-source-state=refreshing] { opacity: .5; }`. A source that failed with rows still up from an earlier load is `stale`: its marks keep those rows, so fade them too, and `#dash-root` says `error`. Anything that waits on data gets the class `dash-skeleton` while it loads, since a page full of `—` reads as broken. It draws a placeholder over the element and hides its contents. It fills a box with nothing in it, not even a space, and one that holds only text, a `—` too, gets a short bar. Only your script removes it, when data arrives or the load fails: once the status isn't `"loading"`, or it stays for good.
 
-A chart's box with no `min-height` is at most a line tall until its data arrives, so the page jumps as each one does. Where the status is `"error"`, a quiet "Failed to load" drawn in the chart's place tells the reader which chart failed. `"connect"` is no failure: the dashboard offers the fix itself.
+A chart's box with no `min-height` is at most a line tall until its data arrives, so the page jumps as each one does. Where the status is `"error"`, say so where that chart or figure stands, with a quiet "Failed to load": the type's own notice tells the reader that sources failed, never which part of the page they feed. `"connect"` and `"declined"` are no failures: the dashboard offers the fix, or says the connector is off, by itself.
 
 ### Tables
 

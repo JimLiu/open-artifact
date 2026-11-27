@@ -20,6 +20,7 @@ import {
   type QueryEnvironment,
 } from '../src/data/queries.ts';
 import { createToolResultCache } from '../src/data/tool-cache.ts';
+import { getRetryWait, isFlakyLoad } from '../src/data/retry.ts';
 
 class FakeClock implements PollClock {
   time = 0;
@@ -127,6 +128,18 @@ describe('executing queries', () => {
     const result = await executeDatasetQuery(env, query());
     assert.equal(result.ok, false);
     assert.equal(!result.ok && result.message, 'The warehouse is offline.');
+  });
+
+  it('counts a first call that failed soon, or a retryable error asking a short wait, as likely passing', async () => {
+    const soon = await executeDatasetQuery(environment(() => ({ code: 'internal', message: 'oops' })).env, query());
+    assert.equal(isFlakyLoad(soon), true);
+    const limited = mcpErrorToLoadFailure('sales', { code: 'rate_limited', message: 'slow down', retryable: true, retryAfterMs: 1000 });
+    assert.equal(isFlakyLoad(limited), false);
+    const later = mcpErrorToLoadFailure('sales', { code: 'upstream_error', message: 'later', retryable: true, retryAfterMs: 5000 });
+    assert.equal(isFlakyLoad(later), true);
+    assert.equal(getRetryWait(later), 5000);
+    assert.equal(isFlakyLoad(mcpErrorToLoadFailure('sales', { code: 'upstream_error', message: 'much later', retryable: true, retryAfterMs: 60_000 })), false);
+    assert.equal(isFlakyLoad(await executeDatasetQuery(environment(() => ({ code: 'needs_reauth', message: 'sign in' })).env, query())), false);
   });
 
   it('maps a rejected call', async () => {

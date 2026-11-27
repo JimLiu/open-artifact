@@ -153,6 +153,16 @@ export function keepChangedTweaks(change: StyleTweakChange, stored: StyleTweaks)
   return changed.length === 0 ? null : (Object.fromEntries(changed) as StyleTweakChange);
 }
 
+/**
+ * What stays unsaved once a style save ends: changes made while it ran are kept. After a save, `current` (the change
+ * as it is now) loses what the saved tweaks already say; after a failed one, the change that was being saved comes
+ * back under it. `before` is the stored tweaks the save started from.
+ */
+export function styleAfterSave(current: StyleTweakChange | null, saved: StyleTweakChange, before: StyleTweaks, ok: boolean): StyleTweakChange | null {
+  if (ok) return current === null ? null : keepChangedTweaks(current, mergeStyleTweaks(before, saved));
+  return keepChangedTweaks({ ...saved, ...current }, before);
+}
+
 /** The tweaks the page shows: the stored ones with the unsaved change over them. */
 export function shownStyleTweaks(look: unknown, pending: StyleTweakChange | null): StyleTweaks {
   return mergeStyleTweaks(readStyleTweaks(look), pending ?? {});

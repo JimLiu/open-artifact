@@ -9,10 +9,12 @@ import { Switch as BaseSwitch } from '@base-ui/react/switch';
 import { ToggleGroup } from '@base-ui/react/toggle-group';
 import { Toggle } from '@base-ui/react/toggle';
 import { Check, ChevronDown } from 'lucide-react';
-import { forwardRef, useEffect, useRef, useState, type FocusEvent, type InputHTMLAttributes, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
+import { forwardRef, useEffect, useMemo, useRef, useState, type FocusEvent, type InputHTMLAttributes, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { cn } from './cn.ts';
 import { isComposingKey, preventRepeatedActivation, shortcutLetter } from './keys.ts';
 import { POPUP_CLASS } from './menu.tsx';
+import { isMinusSign, limitsKept, readTypedNumber, refusesMinus, settleNumber, settleTypedText, startsWithMinus, type NumberLimit } from './number-limits.ts';
+import { clampNumber, roundTo } from './numbers.ts';
 import { createSelectAnnouncer } from './select-announce.ts';
 import { DRAG_ENDS, endsDrag, largeStepOf, sliderValueText } from './slider-session.ts';
 
@@ -109,18 +111,94 @@ export interface NumberInputProps {
   placeholder?: string;
   className?: string;
   'aria-label'?: string;
+  /**
+   * Told when the field changed what the user typed: held it at a bound, or
+   * (in a field whose minimum is zero or more) dropped a minus sign. Called
+   * once per commit or key with every change, in order; see
+   * {@link numberLimitMessage} for what to announce.
+   */
+  onLimit?: (limits: readonly NumberLimit[]) => void;
 }
 
-/** A number field whose label can be dragged horizontally to scrub the value. */
-export function NumberInput({ value, onChange, onCommit, label, unit, min, max, step = 1, placeholder, className, ...aria }: NumberInputProps) {
+/** Base UI's step sizes for Alt and Shift with an arrow key (the field sets neither). */
+const SMALL_STEP = 0.1;
+const LARGE_STEP = 10;
+
+/** The decimal separator the locale writes numbers with. */
+function localeDecimal(): string {
+  return new Intl.NumberFormat().formatToParts(1.5).find((part) => part.type === 'decimal')?.value ?? '.';
+}
+
+/**
+ * Commits what is typed in a field before ⌘S / Ctrl+S reaches the page's
+ * save, keeping the field focused with its text selected. The key is not
+ * stopped: the page saves the committed value.
+ */
+function commitBeforeSave(field: HTMLInputElement): void {
+  field.blur();
+  field.focus({ preventScroll: true });
+  field.select();
+  queueMicrotask(() => field.select());
+}
+
+/** True for ⌘S / Ctrl+S (without Alt), on any keyboard layout. */
+function isSaveKey(event: { key: string; code?: string; metaKey: boolean; ctrlKey: boolean; altKey: boolean }): boolean {
+  return (event.metaKey || event.ctrlKey) && !event.altKey && shortcutLetter(event) === 's';
+}
+
+/**
+ * Replaces a field's text as if it were typed, so the field's own input
+ * handling takes it in. False when the browser cannot.
+ */
+function retype(field: HTMLInputElement, text: string): boolean {
+  field.select();
+  return document.execCommand('insertText', false, text);
+}
+
+/**
+ * A number field whose label can be dragged horizontally to scrub the value.
+ *
+ * Typed text past `min` or `max` is held at the bound. When `min` is zero or
+ * more the field takes no negative numbers: the minus key does nothing, and
+ * typed or pasted text that starts with a minus sign keeps its number without
+ * the sign (`-5` is 5, not the minimum). `onLimit` hears about both. ⌘S /
+ * Ctrl+S commits what is typed before the page saves.
+ */
+export function NumberInput({ value, onChange, onCommit, label, unit, min, max, step = 1, placeholder, className, onLimit, ...aria }: NumberInputProps) {
+  const input = useRef<HTMLInputElement>(null);
+  /** The text in the field was typed or pasted and not committed yet. */
+  const typed = useRef(false);
+  const decimal = useMemo(localeDecimal, []);
+  const bounds = { min, max };
+  const tell = (limits: readonly NumberLimit[]) => {
+    if (limits.length > 0) onLimit?.(limits);
+  };
+  /**
+   * The value to pass on for one the field reports. Typed text that starts with a minus sign the field refuses
+   * keeps its number without the sign (left alone, the field would hold it at the minimum). On a commit from typed
+   * text, the changes are told.
+   */
+  const typedValue = (next: number | null, reason: string, event: Event | undefined, committed: boolean): number | null => {
+    const text = input.current?.value;
+    const stepped = reason === 'keyboard' && event instanceof KeyboardEvent && (event.key === 'ArrowUp' || event.key === 'ArrowDown');
+    const fromText = typed.current && text !== undefined && (reason === 'input-change' || reason === 'input-blur' || stepped);
+    if (committed) typed.current = false;
+    if (!fromText) return next;
+    const settled = settleTypedText(text, bounds, decimal);
+    if (settled === null) return next;
+    const minusDropped = settled.limits.some((limit) => limit.reason === 'no-minus');
+    const kept = minusDropped && !stepped ? settled.value : next;
+    if (committed) tell(limitsKept(settled.limits, kept));
+    return kept;
+  };
   return (
     <BaseNumberField.Root
       value={value}
       min={min}
       max={max}
       step={step}
-      onValueChange={(next) => onChange?.(next)}
-      onValueCommitted={(next) => onCommit(next)}
+      onValueChange={(next, details) => onChange?.(typedValue(next, details.reason, details.event, false))}
+      onValueCommitted={(next, details) => onCommit(typedValue(next, details.reason, details.event, true))}
       data-ui-field=""
       className={cn('flex h-7 min-w-0 items-center rounded-control border border-line bg-surface-2 focus-within:border-accent', className)}
     >
@@ -131,10 +209,45 @@ export function NumberInput({ value, onChange, onCommit, label, unit, min, max, 
         </BaseNumberField.ScrubArea>
       ) : null}
       <BaseNumberField.Input
+        ref={input}
         placeholder={placeholder}
         aria-label={aria['aria-label']}
+        onInput={() => {
+          typed.current = true;
+        }}
+        onPaste={() => {
+          typed.current = true;
+        }}
+        onBlur={() => {
+          // The field commits (or turns the text down) during this blur; what is typed after it is new.
+          queueMicrotask(() => {
+            typed.current = false;
+          });
+        }}
         onKeyDown={(event) => {
-          if (event.key === 'Enter' && !isComposingKey(event.nativeEvent)) event.currentTarget.blur();
+          if (isComposingKey(event.nativeEvent)) return;
+          const field = event.currentTarget;
+          if (isSaveKey(event)) {
+            commitBeforeSave(field);
+          } else if (event.key === 'Enter') {
+            field.blur();
+          } else if (refusesMinus(bounds) && isMinusSign(event.key) && !event.ctrlKey && !event.metaKey) {
+            // The field turns the key down too, except with Alt (which types dashes on a Mac).
+            event.preventDefault();
+            tell([{ reason: 'no-minus', limit: min ?? 0 }]);
+          } else if ((event.key === 'ArrowUp' || event.key === 'ArrowDown') && !event.ctrlKey && !event.metaKey && typed.current && refusesMinus(bounds) && startsWithMinus(field.value)) {
+            // Left to the field, a step from "-5" would start at -5 and stop at the minimum.
+            const from = readTypedNumber(field.value, decimal);
+            if (from === null) return;
+            event.preventDefault();
+            const amount = event.altKey ? SMALL_STEP : event.shiftKey ? LARGE_STEP : step;
+            const settled = settleNumber(Math.abs(from), false, bounds);
+            const next = clampNumber(roundTo(Math.abs(from) + (event.key === 'ArrowUp' ? amount : -amount), 10), min, max);
+            if (!retype(field, new Intl.NumberFormat().format(next))) onChange?.(next);
+            typed.current = false;
+            onCommit(next);
+            tell([{ reason: 'no-minus', limit: min ?? 0 }, ...limitsKept(settled.limits, next)]);
+          }
         }}
         className={cn('h-full w-full min-w-0 bg-transparent text-[13px] text-fg outline-none', label === undefined && 'pl-2')}
       />

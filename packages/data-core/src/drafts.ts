@@ -42,11 +42,15 @@ export interface DraftComposition {
   files: DashboardFile[];
   setsParams: boolean;
 }
-/** The selection shown with a remix request: a chip naming the format, and the text the agent reads. */
+/**
+ * The selection shown with a remix request: a chip naming the format, the text the agent reads, and the draft the
+ * agent writes to (`drafts/<id>`).
+ */
 export interface RemixSelection {
   label: string;
   chip: { about: 'remix'; form: string };
   text: string;
+  writeTo: string;
 }
 
 export const REMIX_REFERENCE_PATH = 'reference/remix.md';
@@ -94,7 +98,7 @@ export function remixPrompt(form: string, id: string): string {
   );
 }
 
-export function remixSelection(form: string): RemixSelection {
+export function remixSelection(form: string, id: string): RemixSelection {
   return {
     label: 'Remix as a ' + remixFormName(form),
     chip: { about: 'remix', form },
@@ -106,6 +110,7 @@ export function remixSelection(form: string): RemixSelection {
       '). See ' +
       REMIX_REFERENCE_PATH +
       '.',
+    writeTo: DRAFTS_COLLECTION + '/' + id,
   };
 }
 

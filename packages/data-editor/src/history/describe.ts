@@ -29,6 +29,7 @@ export const RESTORED_MESSAGE = 'Restored.';
 export const RESTORE_FAILED_MESSAGE = 'Couldn’t restore this version. Try again.';
 export const RESTORE_NOT_ALLOWED_MESSAGE = 'You can’t restore versions of this artifact.';
 export const RESTORE_GONE_MESSAGE = 'This version is no longer kept.';
+export const RESTORE_EARLIER_TITLE = 'Restore this earlier version?';
 export const BACK_TO_VERSIONS_LABEL = 'All versions';
 export const BACK_TO_LATEST_LABEL = 'Back to latest';
 export const TOO_MUCH_CHANGED_MESSAGE = 'Too much changed to show line by line.';
@@ -181,6 +182,16 @@ export function versionWho(author: VersionAuthor, options: { withAgent?: boolean
 export function describeVersionRowLabel(when: string, current: boolean, who: string): string {
   if (who === '') return current ? `${when}, current version` : when;
   return current ? `${when}, current version, ${who}` : `${when}, ${who}`;
+}
+
+/** The spoken name of a version row's Restore button. */
+export function restoreVersionLabel(when: string): string {
+  return `Restore the version from ${when}`;
+}
+
+/** What the question before restoring from the list says under its title. */
+export function restoreEarlierDescription(when: string): string {
+  return `${when}. Everyone will see it.`;
 }
 
 /** "{who} · {description}", or the description alone when no one is named. */

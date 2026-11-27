@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState, type FormEvent, type ReactElement } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type ReactElement } from 'react';
 import { CircleAlert, History } from 'lucide-react';
 import { announce } from '@open-artifact/editor-kit';
 import { Button, Dialog, IconButton, INPUT_CLASS, TextInput, Tooltip, cn } from '@open-artifact/ui';
@@ -109,7 +109,8 @@ export interface QueryDraft {
   set(name: string, text: string): void;
   restore(args: string): void;
   cancel(): void;
-  save(meta?: QueryMetaPatch): void;
+  /** Resolves whether it was saved. */
+  save(meta?: QueryMetaPatch): Promise<boolean>;
   test(): void;
 }
 
@@ -220,15 +221,19 @@ export function useQueryDraft(dataset: Dataset): QueryDraft | null {
     },
     save(meta) {
       const args = locked || draft === null || !dirty ? null : validate(QUERY_SAVE_FAILED_MESSAGE);
-      if (draft === null || args === null) return;
+      if (draft === null || args === null) return Promise.resolve(false);
       setPhase('busy');
-      saveQueryArguments(dataset, draft.base, args, meta).then(
+      return saveQueryArguments(dataset, draft.base, args, meta).then(
         () => {
           setSaved(true);
           setTestResult(null);
           setDraft((was) => (was === null ? null : { ...draft, written: true }));
+          return true;
         },
-        (error: unknown) => setPhase({ error: getDraftSaveError(error) }),
+        (error: unknown) => {
+          setPhase({ error: getDraftSaveError(error) });
+          return false;
+        },
       );
     },
     test() {
@@ -240,6 +245,9 @@ export function useQueryDraft(dataset: Dataset): QueryDraft | null {
     },
   };
 }
+
+/** The editor footer's note: one line tall even when empty, beside the buttons until it needs the row. */
+export const FOOTER_NOTE_CLASS = 'min-h-lh min-w-0 flex-1 basis-40 text-[13px] [overflow-wrap:anywhere]';
 
 function getDraftNotice(phase: QueryDraftPhase): { text: string; bad: boolean } | null {
   if (phase === 'idle' || phase === 'invalid') return null;
@@ -384,7 +392,18 @@ export interface QueryEditorDialogProps {
 }
 
 /** Edits a query source: its name, description and arguments, with Test, Save and the history of its versions. */
-export function QueryEditorDialog({ ds, now, params, onClose }: QueryEditorDialogProps): ReactElement | null {
+export function QueryEditorDialog(props: QueryEditorDialogProps): ReactElement | null {
+  // While a save runs, the editor keeps what it showed when the save began: the stored source changes under it.
+  const [held, setHeld] = useState<QueryEditorDialogProps | null>(null);
+  const latest = useRef(props);
+  useLayoutEffect(() => {
+    latest.current = props;
+  });
+  const onSaving = useCallback((saving: boolean) => setHeld(saving ? latest.current : null), []);
+  return <QueryEditor {...(held ?? props)} onClose={props.onClose} onSaving={onSaving} />;
+}
+
+function QueryEditor({ ds, now, params, onClose, onSaving }: QueryEditorDialogProps & { onSaving: (saving: boolean) => void }): ReactElement | null {
   const title = ds.title || ds.id;
   const query = getDatasetQuery(ds);
   const draft = useQueryDraft(ds);
@@ -411,6 +430,10 @@ export function QueryEditorDialog({ ds, now, params, onClose }: QueryEditorDialo
   const [savingMeta, setSavingMeta] = useState(false);
   const unsaved = (draft !== null && draft.dirty && !draft.written && draft.phase !== 'busy') || (metaChanged && !savingMeta && draft?.written !== true);
   const saving = (draft !== null && draft.phase === 'busy' && !draft.written) || savingMeta;
+  useLayoutEffect(() => {
+    onSaving(saving);
+  }, [saving, onSaving]);
+  const [metaError, setMetaError] = useState<string | null>(null);
   useEffect(() => {
     setSourceDraftDirty(unsaved);
   }, [unsaved]);
@@ -451,16 +474,20 @@ export function QueryEditorDialog({ ds, now, params, onClose }: QueryEditorDialo
   const back = (): void => (entry === undefined ? setHistoryOpen(false) : setHistoryId(null));
   const commit = (): void => {
     if (draft.locked || committing.current) return;
+    setMetaError(null);
     if (draft.dirty) {
-      draft.save(metaChanged ? metaPatch : undefined);
+      void draft.save(metaChanged ? metaPatch : undefined);
       return;
     }
     if (!metaChanged) return;
     committing.current = true;
     setSavingMeta(true);
     void saveSourceMetadata(ds, metaPatch)
-      .then((done) => {
-        if (!done) return;
+      .then((failure) => {
+        if (failure !== null) {
+          setMetaError(failure);
+          return;
+        }
         announce(SAVED_LABEL);
         close();
       })
@@ -473,7 +500,8 @@ export function QueryEditorDialog({ ds, now, params, onClose }: QueryEditorDialo
     event.preventDefault();
     commit();
   };
-  const notice = getDraftNotice(draft.phase) ?? (savingMeta ? { text: SAVING_LABEL, bad: false } : null);
+  const notice =
+    getDraftNotice(draft.phase) ?? (savingMeta ? { text: SAVING_LABEL, bad: false } : metaError === null ? null : { text: metaError, bad: true });
   const busy = draft.phase === 'busy' || savingMeta;
   const editedLine = ds.updated === null ? null : editedNote(formatShortDateTime(ds.updated.at), ds.updated.by);
   const caption = `${query.connector || A_CONNECTOR_LABEL} · ${query.tool}`;
@@ -484,29 +512,31 @@ export function QueryEditorDialog({ ds, now, params, onClose }: QueryEditorDialo
     <div className="flex-none">
       <DraftProblems problems={draft.problems} />
       <div className="flex flex-wrap items-center justify-end gap-2 pt-4">
-        <p className={cn('min-w-0 flex-1 basis-40 text-[13px] [overflow-wrap:anywhere] empty:basis-0', notice?.bad === true ? 'text-danger' : 'text-fg-muted')}>
+        <p className={cn(FOOTER_NOTE_CLASS, notice?.bad === true ? 'text-danger' : 'text-fg-muted')}>
           <span role="status">{notice?.text}</span>
           {notice === null ? editedLine : null}
         </p>
         <span className="sr-only" role="status">
           {getTestAnnouncement(draft.tested)}
         </span>
-        <Button variant="ghost" disabled={busy} onClick={() => (unsaved ? setPendingRestore('') : (draft.cancel(), close()))}>
-          {CANCEL_LABEL}
-        </Button>
-        <Tooltip label={TEST_WITHOUT_SAVING_LABEL} shortcut={QUERY_TEST_SHORTCUT}>
-          <Button aria-keyshortcuts="Meta+Enter Control+Enter" aria-busy={draft.phase === 'testing' || undefined} disabled={draft.phase !== 'testing' && !draft.canTest} onClick={draft.test}>
-            {TEST_LABEL}
+        <span className="flex gap-2">
+          <Button variant="ghost" disabled={busy} onClick={() => (unsaved ? setPendingRestore('') : (draft.cancel(), close()))}>
+            {CANCEL_LABEL}
           </Button>
-        </Tooltip>
-        <Button variant="primary" type="submit" form={fieldId} aria-busy={busy || undefined} disabled={draft.locked || savingMeta || (!draft.dirty && draft.phase === 'idle' && !metaChanged)}>
-          {SAVE_LABEL}
-        </Button>
+          <Tooltip label={TEST_WITHOUT_SAVING_LABEL} shortcut={QUERY_TEST_SHORTCUT}>
+            <Button aria-keyshortcuts="Meta+Enter Control+Enter" aria-busy={draft.phase === 'testing' || undefined} disabled={draft.phase !== 'testing' && !draft.canTest} onClick={draft.test}>
+              {TEST_LABEL}
+            </Button>
+          </Tooltip>
+          <Button variant="primary" type="submit" form={fieldId} aria-busy={busy || undefined} disabled={draft.locked || savingMeta || (!draft.dirty && draft.phase === 'idle' && !metaChanged)}>
+            {SAVE_LABEL}
+          </Button>
+        </span>
       </div>
     </div>
   ) : (
     <div className="flex flex-none flex-wrap items-center justify-end gap-2 pt-4">
-      <p className="min-w-0 flex-1 basis-40 text-[13px] text-fg-muted empty:basis-0">{entry === undefined ? null : sameFormat ? (restorable ? RESTORE_NOTE : null) : DIFFERENT_FORMAT_MESSAGE}</p>
+      <p className={cn(FOOTER_NOTE_CLASS, 'text-fg-muted')}>{entry === undefined ? null : sameFormat ? (restorable ? RESTORE_NOTE : null) : DIFFERENT_FORMAT_MESSAGE}</p>
       <Button variant="ghost" onClick={back}>
         {BACK_LABEL}
       </Button>
@@ -527,7 +557,9 @@ export function QueryEditorDialog({ ds, now, params, onClose }: QueryEditorDialo
             <span>{EDIT_LABEL}</span>
             <span className="truncate text-xs font-normal text-fg-muted">{caption}</span>
           </span>
-          {history.length > 0 && showingFields ? <IconButton size="sm" label={HISTORY_LABEL} icon={<History className="size-3.5" />} onClick={() => setHistoryOpen(true)} /> : null}
+          {showingFields ? (
+            <IconButton size="sm" label={HISTORY_LABEL} disabled={history.length === 0} icon={<History className="size-3.5" />} onClick={() => setHistoryOpen(true)} />
+          ) : null}
         </span>
       }
       saving={saving}
@@ -543,7 +575,15 @@ export function QueryEditorDialog({ ds, now, params, onClose }: QueryEditorDialo
         <form id={fieldId} onSubmit={onSubmit} className="flex min-h-0 flex-col gap-3 overflow-auto pr-1">
           <fieldset disabled={fieldsLocked} className="m-0 flex min-w-0 flex-col gap-3 border-0 p-0">
             <LabeledField label={NAME_LABEL} htmlFor={`${fieldId}-name`}>
-              <TextInput id={`${fieldId}-name`} value={fields.title} placeholder={ds.id} onChange={(event) => setFields({ ...fields, title: event.target.value })} />
+              <TextInput
+                id={`${fieldId}-name`}
+                value={fields.title}
+                placeholder={ds.id}
+                onChange={(event) => {
+                  setMetaError(null);
+                  setFields({ ...fields, title: event.target.value });
+                }}
+              />
             </LabeledField>
             <LabeledField label={DESCRIPTION_LABEL} htmlFor={`${fieldId}-description`}>
               <textarea
@@ -551,7 +591,10 @@ export function QueryEditorDialog({ ds, now, params, onClose }: QueryEditorDialo
                 rows={2}
                 value={fields.description}
                 className={cn(INPUT_CLASS, 'h-auto resize-y py-1.5')}
-                onChange={(event) => setFields({ ...fields, description: event.target.value })}
+                onChange={(event) => {
+                  setMetaError(null);
+                  setFields({ ...fields, description: event.target.value });
+                }}
               />
             </LabeledField>
           </fieldset>

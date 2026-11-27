@@ -93,9 +93,17 @@ export function cellToString(value: unknown): string {
   return value === null || value === undefined ? '' : String(value);
 }
 
-/** Text a spreadsheet would run as a formula gets a leading `'` (numbers stay as they are). */
+const FORMULA_START_CHARACTERS: ReadonlySet<string> = new Set(['=', '+', '-', '@']);
+
+/**
+ * Text a spreadsheet would run as a formula gets a leading `'`: text starting with a tab or CR, and text whose first
+ * character past any other leading space is (or folds, under NFKC, to) `=`, `+`, `-` or `@`, unless it is a number.
+ */
 export function escapeSpreadsheetFormula(text: string): string {
-  return /^[=+\-@\t\r]/.test(text) && !NUMERIC_TEXT_PATTERN.test(text) ? `'${text}` : text;
+  if (text.startsWith('\t') || text.startsWith('\r')) return `'${text}`;
+  const first = /^[^\S\t\r]*(.)/su.exec(text)?.[1];
+  if (first === undefined || !FORMULA_START_CHARACTERS.has(first.normalize('NFKC').charAt(0))) return text;
+  return NUMERIC_TEXT_PATTERN.test(text.trim()) ? text : `'${text}`;
 }
 
 /** Like `escapeSpreadsheetFormula`, and text starting with a quote too. */

@@ -284,6 +284,8 @@ export interface SourceFailureNoticeProps {
   status: SourceRowStatus | null;
   /** When the run failed (announced once per failure). */
   failedAt: number | null;
+  /** The source loads again: its fix stays busy meanwhile. */
+  running?: boolean;
   editor: boolean;
   canAskAgent: boolean;
   onConnect: ConnectSource;
@@ -293,7 +295,18 @@ export interface SourceFailureNoticeProps {
 }
 
 /** Why a source failed, with the fix it needs (or Ask your agent), and what the error said. */
-export function SourceFailureNotice({ ds, notice, status, failedAt, editor, canAskAgent, onConnect, onAskWhy, onGone }: SourceFailureNoticeProps): ReactElement {
+export function SourceFailureNotice({
+  ds,
+  notice,
+  status,
+  failedAt,
+  running = false,
+  editor,
+  canAskAgent,
+  onConnect,
+  onAskWhy,
+  onGone,
+}: SourceFailureNoticeProps): ReactElement {
   const handoff = useFocusHandoff<HTMLDivElement>(() => onGone?.());
   const { text, why, said, fix, retry, tool } = notice;
   const [busy, track] = useBusyTracker();
@@ -318,7 +331,8 @@ export function SourceFailureNotice({ ds, notice, status, failedAt, editor, canA
             {fix === undefined ? null : (
               <Button
                 size="sm"
-                disabled={busy}
+                disabled={busy || running}
+                aria-busy={busy || running || undefined}
                 aria-label={connectionFixAriaLabel(fix.fix, fix.connector, canAskAgent)}
                 onClick={(event) => {
                   event.currentTarget.focus();

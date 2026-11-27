@@ -28,7 +28,8 @@ export function addTrustedWindowListener<K extends keyof WindowEventMap>(type: K
 }
 
 /** A menu, popover or dialog is open over the page. */
-export const hasOpenOverlay = (): boolean => document.querySelector('[role="dialog"], [role="alertdialog"], [role="menu"]') !== null;
+/** A dialog or menu is open (a link's card, which goes with the next press, isn't one). */
+export const hasOpenOverlay = (): boolean => document.querySelector('[role="dialog"]:not([data-link-card]), [role="alertdialog"], [role="menu"]') !== null;
 
 export function collectFocusableDescendants(element: Element): HTMLElement[] {
   return [
@@ -116,14 +117,15 @@ export function CardGrip({ card, full, room, onPress }: CardGripProps): ReactNod
   );
 }
 
-/** A tip over `box` (in the layer), on `side`. */
-export function EditTipView({ box, room, side, children }: { box: Box; room: Box; side: TipSide; children: ReactNode }): ReactNode {
+/** A tip over `box` (in the layer), on `side`; one that follows the pointer is marked so it never takes the pointer. */
+export function EditTipView({ box, room, side, follow = false, children }: { box: Box; room: Box; side: TipSide; follow?: boolean; children: ReactNode }): ReactNode {
   const at = toLayerBox(box, room);
   return (
     <div
       role="tooltip"
       className="dash-edit-tip"
       data-side={side}
+      data-follow={follow ? '' : undefined}
       style={{ left: at.left + at.width / 2, top: side === 'top' ? at.top - 8 : at.top + at.height + 8 }}
     >
       {children}

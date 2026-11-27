@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { ArrowLeft, X } from 'lucide-react';
 import { IconButton } from '@open-artifact/ui';
 import type { ConnectionFix, Dataset, DatasetRun, FileSource } from '@open-artifact/data-core';
@@ -103,6 +103,25 @@ function useSourceTrail(): { trail: readonly string[]; open: (id: string) => voi
   };
 }
 
+/** Where the list of sources was scrolled to, kept while a source is open in detail and while the panel is closed. */
+let listScrollTop = 0;
+
+/** The list's scroll container: it comes back where it was left. */
+function useListScroll(listShown: boolean): { ref: (node: HTMLDivElement | null) => void; onScroll: () => void } {
+  const node = useRef<HTMLDivElement | null>(null);
+  useLayoutEffect(() => {
+    if (listShown && node.current !== null) node.current.scrollTop = listScrollTop;
+  }, [listShown]);
+  return {
+    ref: (element) => {
+      node.current = element;
+    },
+    onScroll: () => {
+      if (node.current !== null) listScrollTop = node.current.scrollTop;
+    },
+  };
+}
+
 /** The Sources panel: every source the artifact loads, grouped by where it loads from, and one source in detail. */
 export function SourcesPanel({ onAskWhy, usage, onClose }: SourcesPanelProps): ReactElement {
   const datasets = useDatasets((state) => state.datasets);
@@ -129,6 +148,7 @@ export function SourcesPanel({ onAskWhy, usage, onClose }: SourcesPanelProps): R
   const selected = selectedId === null ? undefined : lookup(selectedId);
   const edited = editing === null ? undefined : lookup(editing);
   const steps = useSourceStepFocus(selected?.id ?? null, selected === undefined ? null : selected.title || selected.id);
+  const listScroll = useListScroll(selected === undefined && datasets.length > 0);
 
   useEffect(() => {
     engine?.select(selected?.id ?? null);
@@ -163,8 +183,8 @@ export function SourcesPanel({ onAskWhy, usage, onClose }: SourcesPanelProps): R
         {header}
         {onClose === undefined ? null : <IconButton size="sm" label={CLOSE_LABEL} icon={<X className="size-4" />} onClick={onClose} />}
       </header>
-      <div className="min-h-0 flex-1 overflow-auto px-2 py-2">
-        {selected !== undefined ? (
+      {selected !== undefined ? (
+        <div key="detail" className="min-h-0 flex-1 overflow-auto px-2 py-2">
           <div className="px-1">
             <SourceDetail
               key={selected.id}
@@ -189,9 +209,13 @@ export function SourcesPanel({ onAskWhy, usage, onClose }: SourcesPanelProps): R
               onNoticeGone={steps.focusBack}
             />
           </div>
-        ) : datasets.length === 0 ? (
+        </div>
+      ) : datasets.length === 0 ? (
+        <div key="empty" className="min-h-0 flex-1 overflow-auto px-2 py-2">
           <p className="px-2 py-6 text-center text-[13px] text-fg-muted">{NO_SOURCES_MESSAGE}</p>
-        ) : (
+        </div>
+      ) : (
+        <div key="list" ref={listScroll.ref} onScroll={listScroll.onScroll} data-sources-list="" className="min-h-0 flex-1 overflow-auto px-2 py-2">
           <ul aria-label={SOURCES_LABEL} className="m-0 flex list-none flex-col gap-0.5 p-0">
             {groups.map((group) => {
               const rows = group.rows.map((dataset) => (
@@ -224,8 +248,8 @@ export function SourcesPanel({ onAskWhy, usage, onClose }: SourcesPanelProps): R
               );
             })}
           </ul>
-        )}
-      </div>
+        </div>
+      )}
       {selected === undefined && datasets.length > 0 ? <RefreshDataRow canChange={canEdit} /> : null}
       {edited === undefined ? null : isFileDataset(edited) ? (
         <FileEditorDialog key={edited.id} ds={edited} onClose={closeEditor} />

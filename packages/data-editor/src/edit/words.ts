@@ -10,6 +10,7 @@
 import type { ReactNode } from 'react';
 import { SOURCE_ATTRIBUTE } from '@open-artifact/data-core';
 import { isApplePlatform } from '@open-artifact/editor-kit';
+import { shortcutLetter } from '@open-artifact/ui/keys';
 import type { DraftEnded, DraftVisit, PageDraft } from './draft.ts';
 import {
   CHAPTER_NEEDS_WORDS,
@@ -115,11 +116,19 @@ export const CHROME_SELECTOR = '[data-mc-chrome]';
 /** Whether an input type is one a words session handles itself (typing and deleting). */
 export const isHandledInputType = (inputType: string): boolean => INSERT_INPUT_TYPES.has(inputType) || DELETE_INPUT_TYPE_PATTERN.test(inputType);
 
-/** ⌘B / ⌘I / ⌘A in words (Ctrl elsewhere), or null. */
-export function wordsShortcutOf(event: Pick<KeyboardEvent, 'key' | 'metaKey' | 'ctrlKey' | 'shiftKey' | 'altKey'>, apple: boolean): 'b' | 'i' | 'a' | null {
+/** ⌘B / ⌘I / ⌘A in words (Ctrl elsewhere), or null; read by the physical key on a non-Latin layout. */
+export function wordsShortcutOf(
+  event: Pick<KeyboardEvent, 'key' | 'metaKey' | 'ctrlKey' | 'shiftKey' | 'altKey'> & { code?: string },
+  apple: boolean,
+): 'b' | 'i' | 'a' | null {
   if (!(event.metaKey || (event.ctrlKey && !apple)) || event.shiftKey || event.altKey) return null;
-  const key = event.key.toLowerCase();
+  const key = shortcutLetter(event);
   return key === 'b' || key === 'i' || key === 'a' ? key : null;
+}
+
+/** Text inside a link, button, summary, label or tab can't take a link of its own. */
+export function isLinkableHost(element: Element): boolean {
+  return element.closest('a, button, summary, label, [role="tab"]') === null;
 }
 
 const highlights = (): HighlightRegistry | undefined => (typeof Highlight === 'function' ? CSS.highlights : undefined);
@@ -165,7 +174,7 @@ interface WordsFormatter {
 
 function createWordsFormatter({ el, selected, select, struck, wordsIn, exec, mark }: WordsFormatterInput): WordsFormatter {
   const doc = el.ownerDocument;
-  const linkable = el.closest('a, button, summary, label, [role="tab"]') === null;
+  const linkable = isLinkableHost(el);
   const offers: Record<WordsFormat, boolean> = {
     bold: Number(getComputedStyle(el).fontWeight) < 500,
     italic: getComputedStyle(el).fontStyle !== 'italic',
@@ -626,7 +635,8 @@ function openWordsSession(words: HTMLElement, selection: Selection, start: Words
     if (parked !== null) highlights()?.set(LINK_PARK_HIGHLIGHT, new Highlight(parked));
     return () => {
       highlights()?.delete(LINK_PARK_HIGHLIGHT);
-      if (!controller.signal.aborted) words.focus({ preventScroll: true });
+      // Only a selection still parked brings the focus back; one already given back stays as the user left it.
+      if (parked !== null && !controller.signal.aborted) words.focus({ preventScroll: true });
     };
   };
   const end = (reason: WordsEndReason): void => {
@@ -762,6 +772,21 @@ function openWordsSession(words: HTMLElement, selection: Selection, start: Words
     if (parked !== null) selectRange(parked);
     parked = null;
   });
+  // Shift-click extends, and a right-click (Ctrl-click on a Mac) opens its menu on, the selection parked while the
+  // toolbar had the focus: it goes back before the browser handles the press.
+  window.addEventListener(
+    'mousedown',
+    (event) => {
+      if (parked === null || !event.isTrusted || !(event.target instanceof Node) || !words.contains(event.target)) return;
+      if (!event.shiftKey && event.button !== 2 && !(event.ctrlKey && isApplePlatform())) return;
+      const range = parked;
+      parked = null;
+      highlights()?.delete(LINK_PARK_HIGHLIGHT);
+      words.focus({ preventScroll: true });
+      selectRange(range);
+    },
+    { capture: true, signal: controller.signal },
+  );
   window.addEventListener(
     'focusin',
     (event) => {

@@ -33,6 +33,21 @@ function harness(sources: Record<string, { status: InputStatus; rows: unknown[] 
 }
 
 describe('calculation engine', () => {
+  it('waits with its inputs that need connecting or were turned off, and reports that as an error', () => {
+    const { engine, reports } = harness({
+      orders: { status: 'connect', rows: [] },
+      refunds: { status: 'declined', rows: [] },
+      costs: { status: 'error', rows: [] },
+    });
+    engine.define('net', { inputs: ['orders', 'refunds'], fn: () => 0 });
+    assert.deepEqual(engine.data('net'), { status: 'connect', value: null, message: 'orders didn’t load, refunds didn’t load.' });
+    assert.equal(reports.at(-1)?.status, 'error');
+    engine.define('refunded', { inputs: ['refunds'], fn: () => 0 });
+    assert.equal(engine.data('refunded').status, 'declined');
+    engine.define('margin', { inputs: ['orders', 'costs'], fn: () => 0 });
+    assert.equal(engine.data('margin').status, 'error');
+  });
+
   it('runs over its inputs and reports once per change', () => {
     const { engine, reports } = harness({ orders: { status: 'ok', rows: [{ n: 1 }, { n: 4 }] } });
     engine.define('total', { inputs: ['orders'], fn: (rows: { n: number }[]) => rows.reduce((sum, row) => sum + row.n, 0), description: 'Sum' });

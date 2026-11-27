@@ -341,7 +341,7 @@ describe('around saved rows', () => {
   const dataset = (id: string, source: Record<string, unknown>): Dataset =>
     content({ [id]: { title: id, source } }).datasets.find((each) => each.id === id) as Dataset;
 
-  it('groups saved rows under artifact storage', () => {
+  it('groups saved rows under Records', () => {
     const groups = groupSourcesByConnector([
       dataset('a', { kind: 'store', path: 'data/team/a' }),
       dataset('f', { kind: 'file', url: '/_blob/x', name: 'f.csv', format: 'csv' }),

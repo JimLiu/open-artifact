@@ -6,6 +6,7 @@ import {
   EARLY_PRESS_MAX_MS,
   EARLY_PRESS_SETTLE_MS,
   earlyPressEnds,
+  guardComposingKeys,
   guardHeldActivation,
   HELD_KEY_GUARD_MAX_MS,
   HELD_KEY_SETTLE_MS,
@@ -14,6 +15,8 @@ import {
   preventRepeatedActivation,
   shortcutLetter,
   withRepeatGuard,
+  type ComposingGuardEvent,
+  type ComposingGuardWindow,
   type KeyGuardEvent,
   type KeyGuardWindow,
 } from '../src/keys.ts';
@@ -228,5 +231,52 @@ describe('early press guard', () => {
     assert.equal(blocksEarlyPress(times, 10, { ...enter, isTrusted: false }), false);
     assert.equal(blocksEarlyPress(times, 10_000, { ...enter, repeat: true }), true);
     assert.equal(blocksEarlyPress(times, 10_000, enter), false);
+  });
+});
+
+describe('composing key guard', () => {
+  function fakeWindow() {
+    const listeners: Array<(event: ComposingGuardEvent) => void> = [];
+    const win: ComposingGuardWindow = {
+      addEventListener: (_type, listener, capture) => {
+        assert.equal(capture, true);
+        listeners.push(listener);
+      },
+      removeEventListener: (_type, listener) => {
+        listeners.splice(listeners.indexOf(listener), 1);
+      },
+    };
+    const press = (key: string, init: { isComposing?: boolean; keyCode?: number; target?: unknown } = {}) => {
+      let stopped = false;
+      for (const listener of [...listeners]) listener({ key, isComposing: init.isComposing, keyCode: init.keyCode, target: init.target ?? null, stopImmediatePropagation: () => (stopped = true) });
+      return stopped;
+    };
+    return { win, press, listeners };
+  }
+  const inside = (match: boolean) => ({ closest: (selector: string) => (match && selector === '.ProseMirror' ? {} : null) });
+
+  it('stops Enter, Escape and Tab while an input method composes', () => {
+    const { win, press } = fakeWindow();
+    guardComposingKeys(win);
+    assert.equal(press('Enter', { isComposing: true }), true);
+    assert.equal(press('Escape', { keyCode: 229 }), true, 'Safari ends a composition with key code 229');
+    assert.equal(press('Tab', { isComposing: true }), true);
+  });
+
+  it('leaves other keys, keys outside a composition and rich text alone', () => {
+    const { win, press } = fakeWindow();
+    guardComposingKeys(win);
+    assert.equal(press('a', { isComposing: true }), false);
+    assert.equal(press('Enter'), false);
+    assert.equal(press('Enter', { isComposing: true, target: inside(true) }), false);
+    assert.equal(press('Enter', { isComposing: true, target: inside(false) }), true);
+  });
+
+  it('comes off again', () => {
+    const { win, press, listeners } = fakeWindow();
+    const stop = guardComposingKeys(win);
+    stop();
+    assert.equal(listeners.length, 0);
+    assert.equal(press('Enter', { isComposing: true }), false);
   });
 });

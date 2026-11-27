@@ -5,6 +5,9 @@
 // save (a commenter only their own folder), the read-only embedded view of a dashboard another page frames through the
 // Shell, the empty dashboard's format picker and file import, and claude.ai's token names drawing as the dashboard's
 // own tokens in light, dark and under a look.
+// The sources: their count on the Sources button, a linked source's Open in its host, the CSV download's byte order
+// mark and the failure notice's link to what didn’t load. Restoring an earlier version from History. The card of a
+// page link that leads away, the Corners field read out at its bound, and the pencil only with a page to edit.
 //
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -15,6 +18,7 @@ import { findChrome, launch } from './lib/browser.mjs';
 import { cli, run } from './lib/cli.mjs';
 import { until } from './lib/http.mjs';
 import { browserOff, fixtures, install, removeTmp, tmpDir, typePath } from './lib/target.mjs';
+import { writeTestConnectors } from '../test-artifacts/test-connectors.mjs';
 
 const T = { timeout: 90000 };
 const TYPE = 'data';
@@ -487,6 +491,79 @@ describe(`${TYPE} in a browser`, { skip: skip() || browserSkip }, () => {
     }
   });
 
+  it('counts the sources on their button, links a failed one from its notice, opens a linked one in its host, and downloads rows a spreadsheet reads as UTF-8', T, async () => {
+    // The fixture's sales connector runs: orders loads, and with the Support tab shown tickets loads and broken's tool
+    // fails, so the dashboard's notice names one source. The orders source gets a link the page keeps (https, a host).
+    const { dir } = install(typePath(TYPE), 'data-sources-type');
+    const home = tmpDir('data-sources-home');
+    const downloads = path.join(home, 'Downloads');
+    fs.mkdirSync(downloads, { recursive: true });
+    const sourcing = cli(dir, {
+      OPEN_ARTIFACT_TYPE_SERVER_HOME: path.join(tmpDir('data-sources-state'), 'state'),
+      HOME: home,
+      OPEN_ARTIFACT_USER: 'E2E',
+      OPEN_ARTIFACT_CONNECTORS: writeTestConnectors(path.join(home, 'connectors')),
+    });
+    const root = path.join(tmpDir('data-sources'), 'dashboard');
+    let page;
+    try {
+      const load = await run(path.join(fixtures, 'data', 'load.mjs'), [sourcing.script, root], { env: sourcing.env() });
+      assert.equal(load.code, 0, `the fixture did not load: ${load.stderr}`);
+      writeDoc(root, 'datasets/orders', { ...readDoc(root, 'datasets/orders'), link: 'https://docs.example.com/orders' });
+      const opened = await sourcing.json(['open', root, '--json']);
+      page = await browser.load(opened.url, { ready: "document.querySelector('#tab-support') && document.querySelector('[data-dash-sources] button')", timeout: 60000, settle: 1000, ignore: [/\/favicon\.ico$/] });
+      // The broken source sits on the Support tab; shown, it loads and fails.
+      await page.evaluate(`document.querySelector('#tab-support').click()`);
+      assert.ok(await page.waitFor(`document.querySelector('[data-dash-sources-notice]')`, 30000), 'the failed source raised no notice');
+
+      // The Sources button carries the count, as its badge and in its name.
+      const button = `document.querySelector('[data-dash-sources] button')`;
+      // Eight: the fixture's six stored sources and the page's two calculations, as many as the Sources list shows.
+      assert.equal(await page.evaluate(`document.querySelector('[data-dash-sources-count]')?.textContent`), '8');
+      assert.equal(await page.evaluate(`${button}.getAttribute('aria-label')`), 'Sources (8)');
+
+      // A source with a link opens it in its host, in a new tab.
+      await page.evaluate(`${button}.click()`);
+      const row = `[...document.querySelectorAll('[data-source-row]')].find(b => b.getAttribute('aria-label').startsWith('Orders by month'))`;
+      assert.ok(await page.waitFor(row, 10000), 'the Sources list shows no orders');
+      assert.equal(await page.evaluate(`document.querySelectorAll('[data-source-row]').length`), 8, 'the badge does not count what the Sources list shows');
+      await page.evaluate(`${row}.click()`);
+      assert.ok(await page.waitFor(`document.querySelector('a[data-source-link]')`, 10000), 'the linked source has no link button');
+      const opens = await page.evaluate(`(() => { const a = document.querySelector('a[data-source-link]'); return { href: a.href, target: a.target, rel: a.rel, name: a.getAttribute('aria-label') }; })()`);
+      assert.deepEqual(opens, {
+        href: 'https://docs.example.com/orders',
+        target: '_blank',
+        rel: 'noopener noreferrer',
+        name: 'Open Orders by month in docs.example.com (opens in a new tab)',
+      });
+
+      // Its rows download as CSV starting with a byte order mark, so spreadsheets read them as UTF-8.
+      const download = `document.querySelector('[aria-label="Download Orders by month"]')`;
+      // The Result section starts folded; opened, its rows offer Download.
+      const result = `[...document.querySelectorAll('.dash-side h3 > button[aria-expanded]')].find(b => b.textContent.trim() === 'Result')`;
+      assert.ok(await page.waitFor(result, 30000), 'the orders source shows no Result');
+      await page.evaluate(`(() => { const b = ${result}; if (b.getAttribute('aria-expanded') !== 'true') b.click(); })()`);
+      assert.ok(await page.waitFor(download, 30000), 'the orders result has no Download');
+      await page.evaluate(`${download}.click()`);
+      const saved = () => fs.readdirSync(downloads).find(name => /^orders.*\.csv$/.test(name));
+      assert.ok(await until(saved, 15000), `no CSV was saved: ${fs.readdirSync(downloads)}`);
+      const bytes = fs.readFileSync(path.join(downloads, saved()));
+      assert.deepEqual([...bytes.subarray(0, 3)], [0xef, 0xbb, 0xbf], 'the CSV has no byte order mark');
+      assert.match(bytes.subarray(3).toString('utf8').split('\n')[0], /\bregion\b.*\brevenue\b/, 'the CSV does not start with the orders’ columns');
+
+      // The notice names how many sources didn’t load; the count is a link to them, here to the one source in detail.
+      const notice = `document.querySelector('[data-dash-sources-notice]')`;
+      const link = `[...${notice}.querySelectorAll('button')].find(b => b.textContent === '1 source')`;
+      assert.ok(await page.waitFor(link, 30000), `the count in the notice is not a link: ${await page.evaluate(`${notice}?.innerText`)}`);
+      assert.match(await page.evaluate(`${notice}.innerText`), /1 source didn’t load\./);
+      await page.evaluate(`${link}.click()`);
+      assert.ok(await page.waitFor(`document.querySelector('[aria-label="Broken source"]')`, 10000), 'the count did not open the failed source');
+    } finally {
+      await page?.close();
+      await sourcing.run(['stop']).catch(() => {});
+    }
+  });
+
   it('prints the dashboard itself, not a blank sheet, beside nothing of the editor', T, async () => {
     // Issue #24: #dash-root carries the print path's mark too, and the rule hiding every unmarked child of a marked
     // element hid the dashboard's own content. The PDF button and the browser's Print both mark the path; `beforeprint`
@@ -632,6 +709,150 @@ describe(`${TYPE} in a browser`, { skip: skip() || browserSkip }, () => {
     } finally {
       await page?.close();
       await exporting.run(['stop']).catch(() => {});
+    }
+  });
+
+  it('restores an earlier version from its row in History after asking, and offers no Restore on the current one', T, async () => {
+    const { dir } = install(typePath(TYPE), 'data-restore-type');
+    // The fixture's sales sources call their connector, so the test one runs.
+    const home = tmpDir('data-restore-home');
+    const restoring = cli(dir, {
+      OPEN_ARTIFACT_TYPE_SERVER_HOME: path.join(tmpDir('data-restore-state'), 'state'),
+      HOME: home,
+      OPEN_ARTIFACT_USER: 'E2E',
+      OPEN_ARTIFACT_CONNECTORS: writeTestConnectors(path.join(home, 'connectors')),
+    });
+    const root = path.join(tmpDir('data-restore'), 'dashboard');
+    let page;
+    try {
+      const load = await run(path.join(fixtures, 'data', 'load.mjs'), [restoring.script, root], { env: restoring.env() });
+      assert.equal(load.code, 0, `the fixture did not load: ${load.stderr}`);
+      // Listing records the load's own edits as a version first, so the rename is a version of its own.
+      await restoring.json(['history', root, '--json']);
+      await restoring.json(['write-db', root, JSON.stringify([{ op: 'update', path: 'dash/meta', data: { title: 'Renamed' } }])]);
+      const before = (await restoring.json(['history', root, '--json'])).versions;
+      assert.ok(before.length >= 2, `the dashboard has ${before.length} version(s)`);
+      const [latest, earlier] = before;
+      const opened = await restoring.json(['open', root, '--json']);
+      page = await browser.load(opened.url, { ready: "document.querySelector('[data-dash-sources] button')", ignore: [/\/favicon\.ico$/] });
+      const one = async expression => (await page.evaluateAll(expression)).find(value => value !== null && value !== undefined);
+
+      await page.evaluateAll(`document.querySelector('button[aria-label="History"]')?.click()`);
+      assert.ok(await page.waitFor(`document.querySelectorAll('li > [data-version]').length === ${before.length}`, 15000), 'History listed no versions');
+      const restoreIn = n => `document.querySelector('[data-version="${n}"]')?.closest('li')?.querySelector('[data-version-restore]')`;
+      assert.equal(await one(`document.querySelector('[data-version="${latest.n}"]') ? Boolean(${restoreIn(latest.n)}) : null`), false, 'the current version offers Restore');
+      assert.match(await one(`${restoreIn(earlier.n)}?.getAttribute('aria-label') ?? null`), /^Restore the version from /);
+
+      // On a precise pointer the row's Restore shows once the row is hovered, and the mouse can press it.
+      const center = selector => `(() => { const r = ${selector}?.getBoundingClientRect(); return r ? [r.x + r.width / 2, r.y + r.height / 2] : null; })()`;
+      const hovers = await one(`matchMedia('(hover: hover) and (pointer: fine)').matches`);
+      if (hovers) {
+        assert.equal(await one(`${restoreIn(earlier.n)} ? getComputedStyle(${restoreIn(earlier.n)}).opacity : null`), '0', 'Restore shows before the row is hovered');
+        const [x, y] = await one(center(`document.querySelector('[data-version="${earlier.n}"]')`));
+        await page.hover(x, y);
+        assert.ok(await page.waitFor(`getComputedStyle(${restoreIn(earlier.n)}).opacity === '1'`, 5000), 'hovering the row did not show its Restore');
+        const [bx, by] = await one(center(restoreIn(earlier.n)));
+        await page.click(bx, by);
+      } else await page.evaluateAll(`${restoreIn(earlier.n)}?.click()`);
+
+      const dialog = `document.querySelector('[role="dialog"]')`;
+      assert.ok(await page.waitFor(`${dialog}?.textContent.includes('Restore this earlier version?')`, 5000), 'Restore asked nothing first');
+      assert.match(await one(`${dialog}?.textContent ?? null`), /\. Everyone will see it\./);
+      // The focus moves in once the dialog is up.
+      const focused = `document.activeElement?.closest('[role="dialog"]') ? document.activeElement.textContent.trim() : null`;
+      assert.ok(await page.waitFor(`(${focused}) !== null`, 5000), 'the question took no focus');
+      assert.equal(await one(focused), 'Cancel', 'the question does not start on Cancel');
+
+      // Cancel puts focus back on the row's Restore and restores nothing.
+      await page.evaluateAll(`[...(${dialog}?.querySelectorAll('button') ?? [])].find(b => b.textContent.trim() === 'Cancel')?.click()`);
+      assert.ok(await page.waitFor(`!${dialog} && document.activeElement === ${restoreIn(earlier.n)}`, 5000), 'Cancel did not hand focus back to Restore');
+      assert.equal((await restoring.json(['history', root, '--json'])).versions.length, before.length);
+
+      await page.evaluateAll(`${restoreIn(earlier.n)}?.click()`);
+      assert.ok(await page.waitFor(`${dialog}?.textContent.includes('Restore this earlier version?')`, 5000));
+      await page.evaluateAll(`[...(${dialog}?.querySelectorAll('button') ?? [])].find(b => b.textContent.trim() === 'Restore')?.click()`);
+      assert.ok(await page.waitFor(`document.body.innerText.includes('Restored.')`, 15000), 'no "Restored." toast');
+      assert.ok(await page.waitFor(`document.querySelectorAll('li > [data-version]').length === ${before.length + 1}`, 15000), 'the list shows no new current version');
+      assert.equal(await one(`document.activeElement?.getAttribute('data-version') ?? null`), String(earlier.n), 'focus did not go to the restored row');
+      assert.equal(await one(`[...document.querySelectorAll('button')].some(b => b.textContent.trim() === 'All versions') ? 'detail' : 'list'`), 'list', 'restoring from the list left the list');
+      const after = (await restoring.json(['history', root, '--json'])).versions;
+      assert.equal(after.length, before.length + 1);
+      assert.equal(await one(`Boolean(${restoreIn(after[0].n)})`), false, 'the new current version offers Restore');
+      assert.deepEqual(page.problems, []);
+    } finally {
+      await page?.close();
+      await restoring.run(['stop']).catch(() => {});
+    }
+  });
+
+  it('shows the card of a page link that leads away, reads out Corners held at its bound, and offers the pencil', T, async () => {
+    const { dir } = install(typePath(TYPE), 'data-links-type');
+    // The fixture's sales sources call their connector, so the test one runs.
+    const home = tmpDir('data-links-home');
+    const linking = cli(dir, {
+      OPEN_ARTIFACT_TYPE_SERVER_HOME: path.join(tmpDir('data-links-state'), 'state'),
+      HOME: home,
+      OPEN_ARTIFACT_USER: 'E2E',
+      OPEN_ARTIFACT_CONNECTORS: writeTestConnectors(path.join(home, 'connectors')),
+    });
+    const root = path.join(tmpDir('data-links'), 'dashboard');
+    let page;
+    try {
+      const load = await run(path.join(fixtures, 'data', 'load.mjs'), [linking.script, root], { env: linking.env() });
+      assert.equal(load.code, 0, `the fixture did not load: ${load.stderr}`);
+      const index = readDoc(root, 'files/index.html');
+      writeDoc(root, 'files/index.html', { ...index, text: `<p id="away">Read <a href="https://www.example.com/guide/start">the guide</a> first.</p>\n${index.text}` });
+      const opened = await linking.json(['open', root, '--json']);
+      page = await browser.load(opened.url, { ready: "document.querySelector('#away a') && document.querySelector('[data-dash-sources] button')", ignore: [/\/favicon\.ico$/] });
+
+      // Resting the pointer on the link shows its card: the host first, the path after it, and Copy link.
+      const [x, y] = await page.evaluate(`(() => { const r = document.querySelector('#away a').getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; })()`);
+      await page.hover(x, y);
+      const card = `document.querySelector('[data-link-details]')`;
+      assert.ok(await page.waitFor(card, 5000), 'resting on the link showed no card');
+      assert.equal(await page.evaluate(`${card}.getAttribute('aria-label')`), 'Link details');
+      assert.equal(await page.evaluate(`${card}.querySelector('a[target="_blank"]')?.getAttribute('aria-label') ?? null`), 'https://www.example.com/guide/start');
+      assert.match(await page.evaluate(`${card}.textContent`), /^example\.com\/guide\/start/);
+      assert.equal(await page.evaluate(`Boolean(${card}.querySelector('button[aria-label="Copy link"]'))`), true, 'the card has no Copy link');
+      // Off the link and the card, it goes.
+      await page.hover(x, y + 200);
+      assert.ok(await page.waitFor(`!${card}`, 5000), 'the card stayed after the pointer left');
+
+      // The owner of a dashboard with a page may edit it.
+      assert.ok(await page.waitFor(`document.querySelector('[data-dash-pencil]')`, 10000), 'a dashboard with a page offers no pencil');
+
+      // Corners typed past its top is held there, and that is read out.
+      await page.evaluate(`document.querySelector('button[aria-label="Design"]').click()`);
+      const field = `document.querySelector('input[aria-label="Corners"]')`;
+      assert.ok(await page.waitFor(field, 10000), 'the Design panel has no Corners field');
+      await page.evaluate(`(() => { const input = ${field}; input.focus(); input.select(); })()`);
+      await page.type('40');
+      await page.press('Enter');
+      const said = `[...document.querySelectorAll('[role="status"][aria-live]')].map(region => region.textContent).join(' ')`;
+      assert.ok(await page.waitFor(`(${said}).includes('Changed to 32. Corners can’t go higher.')`, 5000), `nothing read out the bound: ${await page.evaluate(said)}`);
+      assert.equal(await page.evaluate(`${field}.value`), '32');
+      assert.deepEqual(page.problems, []);
+    } finally {
+      await page?.close();
+      await linking.run(['stop']).catch(() => {});
+    }
+  });
+
+  it('offers no pencil on a dashboard whose files have no page', T, async () => {
+    const { dir } = install(typePath(TYPE), 'data-pageless-type');
+    const pageless = cli(dir, { OPEN_ARTIFACT_TYPE_SERVER_HOME: path.join(tmpDir('data-pageless-state'), 'state'), OPEN_ARTIFACT_USER: 'E2E' });
+    const root = path.join(tmpDir('data-pageless'), 'dashboard');
+    let page;
+    try {
+      const load = await run(path.join(fixtures, 'data', 'load.mjs'), [pageless.script, root], { env: pageless.env() });
+      assert.equal(load.code, 0, `the fixture did not load: ${load.stderr}`);
+      fs.rmSync(docPath(root, 'files/index.html'));
+      const opened = await pageless.json(['open', root, '--json']);
+      page = await browser.load(opened.url, { ready: "document.querySelector('.dash-empty')", settle: 1000, ignore: [/\/favicon\.ico$/] });
+      assert.equal(await page.evaluate(`Boolean(document.querySelector('[data-dash-pencil]'))`), false, 'a dashboard with no page offers the pencil');
+    } finally {
+      await page?.close();
+      await pageless.run(['stop']).catch(() => {});
     }
   });
 });

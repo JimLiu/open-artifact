@@ -388,6 +388,8 @@ function checkDataset(
     return info;
   }
   const { source } = dataset;
+  if (data.link !== undefined && dataset.link === undefined)
+    warn('link is the https address of its sheet, file or table (https://…, no user name or password); the page ignores any other.');
   if (source.kind === 'unsupported') {
     if (source.rawKind === 'rows')
       issue('is an old rows dataset (it shows "Didn’t load"): make its rows a JSON file, upload it, then set the document with a file source and updated.');

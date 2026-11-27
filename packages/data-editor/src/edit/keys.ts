@@ -55,3 +55,57 @@ export function pieceKeyAction({ key, kind, inactiveTab, sourced }: PieceKeyInpu
   if (kind !== 'words' && (key === 'Delete' || key === 'Backspace')) return 'delete';
   return null;
 }
+
+/**
+ * How edit mode treats a link on the page:
+ * - `live`: in a tab or other control that keeps working while editing; left to the page.
+ * - `whole`: the link is all of its piece's words; the piece is picked as usual, with no card.
+ * - `edit`: a link in a piece's words; a press shows its card, holding it opens the link.
+ * - `select`: any other link with words; a press picks its piece as usual and shows its card.
+ * - `card`: a link with no words (an icon or a picture); no card, its click-through tip sits on its picture.
+ */
+export type EditLinkKind = 'live' | 'whole' | 'edit' | 'select' | 'card';
+
+export interface EditLinkFacts {
+  /** Inside a tab or another control that keeps working. */
+  live: boolean;
+  /** It is its piece, holds it, or has all of the piece's words. */
+  whole: boolean;
+  /** The link's own words. */
+  text: string;
+  /** It sits in a words piece. */
+  inWords: boolean;
+}
+
+export function editLinkKind({ live, whole, text, inWords }: EditLinkFacts): EditLinkKind {
+  if (live) return 'live';
+  if (whole) return 'whole';
+  if (text.trim() === '') return 'card';
+  return inWords ? 'edit' : 'select';
+}
+
+/** Links whose press shows a card (and so no click-through tip). */
+export const hasEditLinkCard = (kind: EditLinkKind): boolean => kind === 'edit' || kind === 'select';
+
+/** How long (ms) after an arrow key a caret that lands in a link still counts as moved into it. */
+export const LINK_CARET_MOVED_MS = 400;
+/** How long (ms) a caret moved into a link rests there before the link's card shows. */
+export const LINK_CARET_CARD_MS = 300;
+
+export const isArrowKey = (key: string): boolean => key === 'ArrowLeft' || key === 'ArrowRight' || key === 'ArrowUp' || key === 'ArrowDown';
+
+type LinkKeyEvent = Pick<KeyboardEvent, 'key' | 'altKey' | 'metaKey' | 'ctrlKey' | 'shiftKey' | 'repeat'>;
+
+/**
+ * What Enter does to a link in edit mode:
+ * - `focused`: open the focused link (Enter on a link that has the focus, or Alt+Enter);
+ * - `caret`: open the link the caret is in (Alt+Enter with no link focused);
+ * - `swallow`: a held Enter repeating on a link opens nothing more;
+ * - null: not a link key; Enter goes on as usual.
+ * `focused` is whether a link Enter may open has the focus (not a live or select link, not in the words being typed).
+ */
+export function linkEnterAction(event: LinkKeyEvent, focused: boolean): 'focused' | 'caret' | 'swallow' | null {
+  if (event.key !== 'Enter' || event.metaKey || event.ctrlKey || event.shiftKey) return null;
+  const action = focused ? 'focused' : event.altKey ? 'caret' : null;
+  return action !== null && event.repeat ? 'swallow' : action;
+}

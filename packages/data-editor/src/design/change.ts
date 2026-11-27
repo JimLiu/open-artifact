@@ -5,7 +5,7 @@ import { sendPageRequest } from '../drafts/request.ts';
 import { DESIGN_SYSTEM_ASK_MS, DESIGN_SYSTEM_REQUEST, DESIGN_SYSTEM_SELECTION } from './look-card.ts';
 
 interface ChangeDesignSystemState {
-  /** Change was pressed: busy while the agent works, or {@link DESIGN_SYSTEM_ASK_MS} when it does not start. */
+  /** Change was pressed: busy while the agent works, or for {@link DESIGN_SYSTEM_ASK_MS} when it does not start. */
   asked: boolean;
 }
 
@@ -22,18 +22,21 @@ function settle(): void {
   useChangeDesignSystem.setState({ asked: false });
 }
 
-/** Keeps `asked` on while the agent works; drops it after the wait when the agent does not start. */
+/**
+ * Keeps `asked` on while the agent works (its activity already holds through short pauses); drops it as soon as the
+ * work ends, or after {@link DESIGN_SYSTEM_ASK_MS} when the agent does not start.
+ */
 function holdAsked(): void {
   if (timer !== undefined) clearTimeout(timer);
   stopWatching?.();
-  const arm = (): void => {
-    if (timer !== undefined) clearTimeout(timer);
-    timer = useAgentActivity.getState().activity === 'working' ? undefined : setTimeout(settle, DESIGN_SYSTEM_ASK_MS);
-  };
   stopWatching = useAgentActivity.subscribe((state, previous) => {
-    if (state.activity !== previous.activity) arm();
+    if (state.activity === previous.activity) return;
+    if (state.activity === 'working') {
+      if (timer !== undefined) clearTimeout(timer);
+      timer = undefined;
+    } else if (previous.activity === 'working') settle();
   });
-  arm();
+  timer = useAgentActivity.getState().activity === 'working' ? undefined : setTimeout(settle, DESIGN_SYSTEM_ASK_MS);
 }
 
 /** Asks the agent to change the dashboard's design system (unsaved hand edits are dealt with first). */

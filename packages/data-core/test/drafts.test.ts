@@ -68,8 +68,10 @@ describe('remix', () => {
       remixPrompt('visual-short', 'abc'),
       'Make a Visual short draft: write it under drafts/abc and leave the current page as it is. Read reference/remix.md first.',
     );
-    const selection = remixSelection('dashboard');
+    const selection = remixSelection('dashboard', 'abc');
     assert.equal(selection.label, 'Remix as a Dashboard');
+    assert.equal(selection.writeTo, 'drafts/abc');
+    assert.equal(remixSelection('visual-short', 'xyz').writeTo, 'drafts/xyz');
     assert.deepEqual(selection.chip, { about: 'remix', form: 'dashboard' });
     assert.match(selection.text, /The format picked is Dashboard \(dashboard\)\. See reference\/remix\.md\.$/);
   });

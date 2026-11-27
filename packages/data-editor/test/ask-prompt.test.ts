@@ -87,6 +87,14 @@ describe('selection pill placement', () => {
     assert.equal(positionSelectionPill({ anchor: { left: 100, top: 200, width: 100 }, under: 300, room, words: null }, 120, 36).placed, 'below');
   });
 
+  it('keeps the side it took for the same selection while that side fits', () => {
+    const anchor = { left: 100, top: 200, width: 100 };
+    assert.equal(positionSelectionPill({ anchor, under: 230, room, words: { text: 'x', top: 200 } }, 120, 36, 'below').placed, 'below');
+    assert.equal(positionSelectionPill({ anchor, under: 300, room, words: null }, 120, 36, 'above').placed, 'above');
+    // Below has no room: it goes above after all.
+    assert.equal(positionSelectionPill({ anchor, under: 590, room, words: { text: 'x', top: 200 } }, 120, 36, 'below').placed, 'above');
+  });
+
   it('stays inside the room', () => {
     const place = positionSelectionPill({ anchor: { left: 780, top: 200, width: 10 }, under: 230, room, words: { text: 'x', top: 200 } }, 120, 36);
     assert.equal(place.left, 800 - ASK_PILL_MARGIN - 120);

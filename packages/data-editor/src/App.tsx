@@ -20,8 +20,10 @@ import { useVersionHistory } from './history/store.ts';
 import { followStoredLook, useStyleEditor } from './design/style.ts';
 import { previewLook } from './page/look.ts';
 import { DashboardPage } from './page/DashboardPage.tsx';
+import { PageLinks } from './page/PageLinks.tsx';
 import { PRINT_NOTE_ATTRIBUTE, getPrintDataNote } from './export/print-note.ts';
 import { getStoppedPageFiles } from './page/check.ts';
+import { hasPageEntry } from './page/parse.ts';
 import { useToolbarAnnouncements } from './platform/announcements.ts';
 import { isInlineView } from './platform/inline-view.ts';
 import { useAgentActivity } from './platform/agent-activity.ts';
@@ -67,6 +69,7 @@ function Dashboard(): ReactElement {
   const save = useDocument((state) => state.save);
   const canWrite = useDocument((state) => state.canWrite);
   const editing = useShown((state) => state.editing);
+  const commenting = useShown((state) => state.commenting);
   const notice = useDatasets((state) => state.notice);
   const toolbarText = useDatasets((state) => state.toolbar);
   const sourcesOpen = useSourcesUi((state) => state.open);
@@ -80,7 +83,8 @@ function Dashboard(): ReactElement {
 
   const files = shown.content.files;
   const loading = status === 'connecting';
-  const noPage = files.length === 0 && !loading && save !== 'failed';
+  // Data files alone make no page: the format picker stays until there is an `index.html`.
+  const noPage = !hasPageEntry(files) && !loading && save !== 'failed';
   const empty = noPage && shown.content.datasets.length === 0;
   const visibleNotice = notice !== null && files.length > 0 && notice.text !== dismissed ? notice : null;
   const editable = canWrite && (maybeSession()?.canEdit ?? false);
@@ -108,6 +112,7 @@ function Dashboard(): ReactElement {
     <SourcesNotice
       notice={visibleNotice}
       onSources={sourcesOpen ? undefined : () => openSources()}
+      onFailed={commenting ? undefined : (failed) => openSources(failed.length === 1 ? (failed[0]?.id ?? null) : null)}
       onAskWhy={askWhy}
       onRetry={() => {
         announced.current = null;
@@ -135,7 +140,8 @@ function Dashboard(): ReactElement {
     <div className="dash-app">
       {inline ? null : <Toolbar data={data} text={toolbarText} empty={empty} checkWorking={checkWorking} />}
       <div className="dash-body">
-        <main className="dash-main" data-dash-content="">
+        {/* The content takes focus from script only (when a bar it replaced goes away), never from Tab. */}
+        <main className="dash-main outline-none" data-dash-content="" tabIndex={-1}>
           {above === null ? null : (
             <div className="dash-above" data-uncommentable="">
               {above}
@@ -150,6 +156,7 @@ function Dashboard(): ReactElement {
           />
           {files.length > 0 ? <PrintDataNote data={data} /> : null}
           <PageTools filters={view.filters} onPoint={view.onPoint} />
+          <PageLinks off={editing || commenting} />
           {noPage ? <EmptyDashboard editable={editable} working={working} offer={offerForms} /> : null}
         </main>
         <SidePanel usage={snapshot?.usage ?? null} {...(askWhy === undefined ? {} : { onAskWhy: askWhy })} />

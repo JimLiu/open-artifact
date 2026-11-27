@@ -1,7 +1,17 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { Dataset } from '@open-artifact/data-core';
-import { clampPanelWidth, PAGE_MIN_WIDTH, PANEL_DEFAULT_WIDTH, PANEL_MAX_WIDTH, PANEL_MIN_WIDTH, shownPanel } from '../src/app/panels.ts';
+import {
+  clampPanelWidth,
+  nextPanelStop,
+  ownPanelWidth,
+  PAGE_MIN_WIDTH,
+  PANEL_DEFAULT_WIDTH,
+  PANEL_MAX_WIDTH,
+  PANEL_MIN_WIDTH,
+  resizePress,
+  shownPanel,
+} from '../src/app/panels.ts';
 import { MAX_CHROME_ACTIONS, mergeChromeActions, saveNowAction } from '../src/app/shell-actions.ts';
 import { ASK_REQUESTS, describeCodeFailure, describeSourceFailures, sourceFailureQuestion } from '../src/app/request-words.ts';
 import { workingLineAt, WORKING_FIRST_MS, WORKING_LONG_MS, WORKING_STEP_MS } from '../src/app/working-line.ts';
@@ -115,5 +125,34 @@ describe('page check inputs', () => {
     const open = { id: 'orders', title: '', source: { kind: 'query', connector: 'sales', tool: 'q', call: 'q', args: {}, params: ['region'] } } as unknown as Dataset;
     assert.deepEqual(unruledFilters([calc('x')]), []);
     for (const entry of unruledFilters([open])) assert.equal(entry.dataset, 'orders');
+  });
+});
+
+describe('panel resize handle', () => {
+  const stops = { home: 380, max: 720, min: 280, own: null };
+
+  it('steps home, widest, narrowest, the viewer’s own, then home again', () => {
+    assert.equal(nextPanelStop(380, stops), 720);
+    assert.equal(nextPanelStop(720, stops), 280);
+    assert.equal(nextPanelStop(280, stops), 380);
+    assert.equal(nextPanelStop(280, { ...stops, own: 500 }), 500);
+    assert.equal(nextPanelStop(500, { ...stops, own: 500 }), 380);
+    // A width that is no stop starts from home.
+    assert.equal(nextPanelStop(431, stops), 380);
+    // Stops that meet (a narrow window) count once.
+    assert.equal(nextPanelStop(380, { home: 380, max: 380, min: 280, own: null }), 280);
+  });
+
+  it('takes a press as a drag past 3px along, a click otherwise unless it wandered across', () => {
+    assert.equal(resizePress(0, 0), 'click');
+    assert.equal(resizePress(3, 8), 'click');
+    assert.equal(resizePress(-4, 0), 'drag');
+    assert.equal(resizePress(1, 9), 'none');
+  });
+
+  it('keeps a dragged width as the viewer’s own only when it is no other stop', () => {
+    assert.equal(ownPanelWidth(500, stops), 500);
+    assert.equal(ownPanelWidth(720, stops), null);
+    assert.equal(ownPanelWidth(380, stops), null);
   });
 });

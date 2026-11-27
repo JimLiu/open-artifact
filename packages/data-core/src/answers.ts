@@ -1,6 +1,7 @@
 import type { CachedToolResult, McpError, McpToolResult, ReaderError, ToolCall, ToolCallGot } from './connector-types.ts';
-import type { ResultMetadata, Table, UnknownRecord } from './types.ts';
-import { isPlainObject, normalizeCodeLanguage } from './text.ts';
+import type { ResultCertification, ResultMetadata, Table, UnknownRecord } from './types.ts';
+import { isPlainObject, normalizeCodeLanguage, sanitizeSingleLine } from './text.ts';
+import { parseHttpsLink } from './links.ts';
 import { normalizeTable } from './tables.ts';
 
 /** The error codes a tool call through the host reports as they are; any other failure is "upstream_error". */
@@ -55,7 +56,7 @@ export function getLoaderAnswerError(answer: unknown): string {
 }
 
 function parseResultMetadataEntry(entry: unknown): ResultMetadata[] {
-  if (!isPlainObject(entry)) return [];
+  if (!isPlainObject(entry) || entry.type === 'certified') return [];
   const { label, value, type, lang } = entry;
   if (typeof label !== 'string' || typeof value !== 'string' || label.trim() === '' || value.trim() === '') return [];
   if (type !== 'code') return [{ label, value, type: 'text' }];
@@ -72,9 +73,49 @@ export function parseResultMetadata(value: unknown): ResultMetadata[] {
   }
 }
 
+const FORMAT_CHARACTER_PATTERN = /\p{Cf}/gu;
+const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}/;
+/** The most characters of `by` and `at` a certification keeps. */
+export const MAX_CERTIFICATION_CHARACTERS = 80;
+
+function cleanCertificationText(value: unknown): string {
+  return sanitizeSingleLine(typeof value === 'string' ? value.replace(FORMAT_CHARACTER_PATTERN, '') : '', MAX_CERTIFICATION_CHARACTERS);
+}
+
+/** A certification's time: text starting with an ISO date (a bare date read at noon), else `undefined`. */
+export function parseCertificationTime(value: unknown): number | undefined {
+  const text = cleanCertificationText(value);
+  if (!ISO_DATE_PATTERN.test(text)) return undefined;
+  const time = Date.parse(text.includes('T') ? text : `${text.slice(0, 10)}T12:00`);
+  return Number.isFinite(time) ? time : undefined;
+}
+
+/**
+ * The tool's `{type: "certified", by?, at?, url?}` entry of a `meta` list (the first one), or `undefined`.
+ * `by` is one line, `at` a time, and `url` is kept only when it is a link the page keeps.
+ */
+export function parseResultCertification(value: unknown): ResultCertification | undefined {
+  try {
+    const entry = Array.isArray(value) ? value.find((item) => isPlainObject(item) && item.type === 'certified') : undefined;
+    if (!isPlainObject(entry)) return undefined;
+    const by = cleanCertificationText(entry.by);
+    const at = parseCertificationTime(entry.at);
+    const url = parseHttpsLink(entry.url);
+    return {
+      ...(by === '' ? {} : { by }),
+      ...(at === undefined ? {} : { at }),
+      ...(url === undefined ? {} : { url }),
+    };
+  } catch {
+    return undefined;
+  }
+}
+
 export function withResultMetadata(table: Table, metadata: unknown): Table {
   const meta = parseResultMetadata(metadata);
-  return meta.length === 0 ? table : { ...table, meta };
+  const certified = parseResultCertification(metadata);
+  if (meta.length === 0 && certified === undefined) return table;
+  return { ...table, ...(meta.length === 0 ? {} : { meta }), ...(certified === undefined ? {} : { certified }) };
 }
 
 export function copyResultMetadata(from?: { meta?: ResultMetadata[] }): ResultMetadata[] {

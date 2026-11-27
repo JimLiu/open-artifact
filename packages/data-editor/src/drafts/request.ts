@@ -15,6 +15,8 @@ export interface RequestSelection {
   label: string;
   chip: Record<string, unknown>;
   text: string;
+  /** The draft the agent writes this request's changes to (`drafts/<id>`). */
+  writeTo?: string;
 }
 
 export interface PageRequest {

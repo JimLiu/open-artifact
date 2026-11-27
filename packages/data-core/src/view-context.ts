@@ -46,6 +46,10 @@ export interface DashboardPresenceOptions {
   form: string | null;
   /** The shown draft's id, null when the stored dashboard is shown. */
   draft: string | null;
+  /** What the page shows when it isn't the dashboard itself (`drafts/<id>`, or `history/<n>` for an earlier version); null or left out for the dashboard. */
+  showing?: string | null;
+  /** The draft the viewer's changes are written to (`drafts/<id>`); null or left out for the dashboard itself. */
+  writeTo?: string | null;
 }
 /** A box in the shown view's state: x and y within ±1e9, w and h 1–1e9. */
 export interface ViewArea {
@@ -258,12 +262,15 @@ export function isReportableRunFailure(run: { status: string }): boolean {
   return run.status !== 'ok' && run.status !== 'running';
 }
 
-/** What a dashboard tells the agent of the viewer's screen: mode, selection, place, filters, format, draft and failures. */
+/**
+ * What a dashboard tells the agent of the viewer's screen: mode, selection, place, filters, format, what it shows and
+ * where changes go (`showing`, `writeTo`, `draft`), and failures.
+ */
 export function buildDashboardPresenceContext(
   report: PresenceRunReport | null,
   pageHooks: PagePresenceHooks,
   sourcesById: ReadonlyMap<string, Dataset>,
-  { data, dirty, place, pointed, shown, filters, form, draft }: DashboardPresenceOptions,
+  { data, dirty, place, pointed, shown, filters, form, draft, showing = null, writeTo = null }: DashboardPresenceOptions,
 ): Record<string, unknown> {
   const failures =
     report === null
@@ -281,6 +288,8 @@ export function buildDashboardPresenceContext(
     field: formatPresenceHook([selectedField, stripColumnNamespace(selectedField)].find((name) => pageHooks.fields.has(name))),
     filters: filters.slice(0, MAX_PRESENCE_ARRAY_ITEMS),
     ...(form === null ? {} : { form }),
+    ...(showing === null ? {} : { showing }),
+    ...(writeTo === null ? {} : { writeTo }),
     ...(draft === null ? {} : { draft }),
     ...(report === null
       ? {}

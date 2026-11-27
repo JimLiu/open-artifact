@@ -11,7 +11,7 @@ import { TipButton } from '@open-artifact/editor-kit/react';
 import { leavePageEdit, startPageEdit, useEditFlow } from '../drafts/edit-flow.ts';
 import { EDIT_TOOL_TOOLTIP, EDIT_UNAVAILABLE_REASONS, SAVE_OR_CANCEL_FIRST_LABEL, type EditUnavailableReason } from '../drafts/words.ts';
 import { useCanReachAgent } from '../ask/ask.ts';
-import { canEditPageByHand, isOneWriterPage, isReparseStable, parsePageEntryMarkup } from '../page/parse.ts';
+import { canEditPageByHand, hasPageEntry, isOneWriterPage, isReparseStable, parsePageEntryMarkup } from '../page/parse.ts';
 import { useAgentActivity } from '../platform/agent-activity.ts';
 import { useDocument } from '../state/document.ts';
 import { areDraftsFree, useShown } from '../state/shown.ts';
@@ -36,6 +36,8 @@ export function useCoarsePointer(): boolean {
 
 export interface PencilState {
   editing: boolean;
+  /** The files hold a page (`index.html`) to edit; without one there is no pencil. */
+  hasPage: boolean;
   /** Why Edit is off, or null. */
   reason: EditUnavailableReason | null;
   /** Edit's tooltip. */
@@ -65,6 +67,7 @@ export function usePencil(): PencilState {
   const reason = pencilReason({ editing, viewingVersion, agentWorking, draftShown, commenting, editableByHand, canAsk });
   return {
     editing,
+    hasPage: hasPageEntry(files),
     reason,
     tip: reason === null ? EDIT_TOOL_TOOLTIP : EDIT_UNAVAILABLE_REASONS[reason],
     unsaved,

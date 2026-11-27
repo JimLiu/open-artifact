@@ -72,6 +72,20 @@ describe('writing tables', () => {
     assert.equal(escapeSpreadsheetFormula('+A1'), "'+A1");
     assert.equal(escapeSpreadsheetFormula('plain'), 'plain');
   });
+
+  it('looks past leading spaces and folds the first character before guarding a formula', () => {
+    assert.equal(escapeSpreadsheetFormula(' =A1'), "' =A1");
+    assert.equal(escapeSpreadsheetFormula('\u3000@SUM(A1)'), "'\u3000@SUM(A1)");
+    assert.equal(escapeSpreadsheetFormula('＝A1'), "'＝A1");
+    assert.equal(escapeSpreadsheetFormula('﹢A1'), "'﹢A1");
+    assert.equal(escapeSpreadsheetFormula('\t=A1'), "'\t=A1");
+    assert.equal(escapeSpreadsheetFormula('\rplain'), "'\rplain");
+    assert.equal(escapeSpreadsheetFormula('-5'), '-5');
+    assert.equal(escapeSpreadsheetFormula(' +1.5'), ' +1.5');
+    assert.equal(escapeSpreadsheetFormula('  plain'), '  plain');
+    assert.equal(escapeSpreadsheetFormula(''), '');
+    assert.equal(escapeSpreadsheetFormula('   '), '   ');
+  });
 });
 
 describe('normalizeTable', () => {

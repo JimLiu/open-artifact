@@ -32,12 +32,16 @@ export interface PillPlace {
 
 const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value));
 
-/** Above the anchor when it fits (a picked piece prefers below), centred on it, kept inside the room. */
-export function positionSelectionPill({ anchor, under, room, words }: PillGeometry, width: number, height: number): PillPlace {
+/**
+ * Above the anchor when it fits (a picked piece prefers below), centred on it, kept inside the room. Given `side`
+ * (where the pill was for the same selection), it stays there while it fits.
+ */
+export function positionSelectionPill({ anchor, under, room, words }: PillGeometry, width: number, height: number, side?: 'above' | 'below'): PillPlace {
   const above = anchor.top - height - ASK_PILL_GAP;
   const fitsAbove = above >= room.top + ASK_PILL_MARGIN;
   const fitsBelow = under + height + ASK_PILL_MARGIN <= room.top + room.height;
-  const below = words === null ? fitsBelow || !fitsAbove : !fitsAbove;
+  const prefersBelow = side === undefined ? words === null : side === 'below';
+  const below = prefersBelow ? fitsBelow || !fitsAbove : !fitsAbove;
   const half = ASK_PILL_MARGIN + width / 2;
   const centre = clamp(anchor.left + anchor.width / 2, room.left + half, room.left + room.width - half);
   const top = clamp(below ? under : above, room.top + ASK_PILL_MARGIN, room.top + room.height - height - ASK_PILL_MARGIN);

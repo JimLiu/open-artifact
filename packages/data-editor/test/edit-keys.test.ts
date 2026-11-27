@@ -2,8 +2,18 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { EDIT_UNAVAILABLE_REASONS } from '../src/drafts/words.ts';
 import { rectOf } from '../src/edit/geometry.ts';
-import { describeClickThrough, describePieceKeys, pieceKeyAction } from '../src/edit/keys.ts';
-import { cardGripAt, clipRectToBounds, cutOutClipPath, editMarkInset, insetLineRects, isRowInRoom, mergeLineRects, pickTipSide } from '../src/edit/layer.ts';
+import {
+  describeClickThrough,
+  describePieceKeys,
+  editLinkKind,
+  hasEditLinkCard,
+  isArrowKey,
+  LINK_CARET_CARD_MS,
+  LINK_CARET_MOVED_MS,
+  linkEnterAction,
+  pieceKeyAction,
+} from '../src/edit/keys.ts';
+import { cardGripAt, clipRectToBounds, cutOutClipPath, editMarkInset, insetLineRects, isRowInRoom, mergeLineRects, pickTipSide, placeEditTip, TIP_NEAR_PAD } from '../src/edit/layer.ts';
 import { pencilReason, type PencilInputs } from '../src/edit/pencil.ts';
 
 const room = { left: 0, top: 0, width: 800, height: 600 };
@@ -71,6 +81,22 @@ describe('edit layer', () => {
     assert.equal(pickTipSide(rectOf({ left: 100, top: 10, width: 100, height: 20 }), room, null), 'bottom');
     assert.deepEqual(cardGripAt(rectOf({ left: 100, top: 100, width: 300, height: 200 }), room), { left: 93, top: 114 });
   });
+
+  it('puts a tip by the pointer when only the top of a box near the room’s top is left for it', () => {
+    const strip = rectOf({ left: 0, top: 560, width: 800, height: 40 });
+    const tall = rectOf({ left: 100, top: 10, width: 400, height: 560 });
+    const near = placeEditTip(tall, room, strip, { x: 300, y: 300 });
+    assert.equal(near.follow, true);
+    assert.equal(near.side, 'top');
+    assert.deepEqual(near.anchor, rectOf({ left: 300 - TIP_NEAR_PAD, top: 300 - TIP_NEAR_PAD, width: 2 * TIP_NEAR_PAD, height: 2 * TIP_NEAR_PAD }));
+    // No pointer, or a box with room for the tip: the tip stays with the box.
+    assert.deepEqual(placeEditTip(tall, room, strip, null), { anchor: tall, side: 'top', follow: false });
+    const small = rectOf({ left: 100, top: 200, width: 100, height: 20 });
+    assert.equal(placeEditTip(small, room, strip, { x: 120, y: 210 }).follow, false);
+    // The bottom of the box sits at the room's bottom: nothing below would show, so the tip keeps to the box.
+    const full = rectOf({ left: 100, top: 10, width: 400, height: 580 });
+    assert.equal(placeEditTip(full, room, rectOf({ left: 0, top: 590, width: 800, height: 10 }), { x: 300, y: 300 }).follow, false);
+  });
 });
 
 describe('the pencil', () => {
@@ -92,5 +118,40 @@ describe('the pencil', () => {
   it('needs the agent for a page that cannot be edited by hand only when no agent can be asked', () => {
     assert.equal(pencilReason({ ...free, editableByHand: false }), null);
     assert.equal(pencilReason({ ...free, editableByHand: false, canAsk: false }), 'needs_agent');
+  });
+});
+
+describe('edit mode links', () => {
+  it('sorts links by what a press on them does', () => {
+    const facts = { live: false, whole: false, text: 'the guide', inWords: true };
+    assert.equal(editLinkKind(facts), 'edit');
+    assert.equal(editLinkKind({ ...facts, inWords: false }), 'select');
+    assert.equal(editLinkKind({ ...facts, text: '  ' }), 'card');
+    assert.equal(editLinkKind({ ...facts, whole: true }), 'whole');
+    assert.equal(editLinkKind({ ...facts, live: true, whole: true }), 'live');
+    assert.equal(hasEditLinkCard('edit'), true);
+    assert.equal(hasEditLinkCard('select'), true);
+    assert.equal(hasEditLinkCard('card'), false);
+    assert.equal(hasEditLinkCard('whole'), false);
+  });
+
+  it('opens a focused link on Enter, and the caret’s on Alt+Enter alone', () => {
+    const key = { key: 'Enter', altKey: false, metaKey: false, ctrlKey: false, shiftKey: false, repeat: false };
+    assert.equal(linkEnterAction(key, true), 'focused');
+    assert.equal(linkEnterAction(key, false), null);
+    assert.equal(linkEnterAction({ ...key, altKey: true }, true), 'focused');
+    assert.equal(linkEnterAction({ ...key, altKey: true }, false), 'caret');
+    assert.equal(linkEnterAction({ ...key, altKey: true, shiftKey: true }, false), null);
+    assert.equal(linkEnterAction({ ...key, metaKey: true }, true), null);
+    assert.equal(linkEnterAction({ ...key, ctrlKey: true, altKey: true }, false), null);
+    assert.equal(linkEnterAction({ ...key, repeat: true }, true), 'swallow');
+    assert.equal(linkEnterAction({ ...key, key: 'a' }, true), null);
+  });
+
+  it('knows the arrow keys', () => {
+    assert.equal(isArrowKey('ArrowLeft'), true);
+    assert.equal(isArrowKey('ArrowDown'), true);
+    assert.equal(isArrowKey('Home'), false);
+    assert.ok(LINK_CARET_CARD_MS < LINK_CARET_MOVED_MS);
   });
 });

@@ -1,12 +1,15 @@
 /**
  * The Design panel's Style section: one row per tweak (chart colors, a white
- * page in light mode, font, corners, text size), "Reset all" once something
- * is set, and why the tweaks are held.
+ * page in light mode, font, corners, text size), then a last line that stays
+ * put: "Reset all" (off while nothing is set), or why a draft holds the
+ * tweaks. A note that the look cleared some tweaks goes under it.
  */
 
 import type { ReactNode } from 'react';
 import { getDesignSystemName, parseDashboardLook } from '@open-artifact/data-core';
+import { announce } from '@open-artifact/editor-kit';
 import { Button, NumberInput, SelectInput } from '@open-artifact/ui';
+import { numberLimitMessage } from '@open-artifact/ui/number-limits';
 import { CHART_PALETTES, countStyleTweaks, shownStyleTweaks, withoutStyleTweaks, type StyleTweakChange } from '../page/look.ts';
 import { changeStyle, resetStyle, useStyleEditor } from './style.ts';
 
@@ -59,13 +62,13 @@ export interface StylePanelProps {
 }
 
 export function StylePanel({ stored, draftOwn }: StylePanelProps): ReactNode {
-  const { pending, phase, cleared } = useStyleEditor();
+  const { pending, cleared } = useStyleEditor();
   const tweaks = shownStyleTweaks(stored, pending);
   const look = parseDashboardLook(withoutStyleTweaks(stored));
   const system = getDesignSystemName(stored);
   const lookLabel = look === null ? STYLE_DEFAULT_LABEL : system === null ? STYLE_FROM_LOOK_LABEL : styleFromSystem(system);
-  const held = draftOwn || phase === 'saving';
-  const note = cleared > 0 ? styleCleared(cleared) : draftOwn ? STYLE_DRAFT_HELD_TEXT : null;
+  // Saving holds nothing: a change made while it saves stays to be saved next.
+  const held = draftOwn;
   const corners = Number.parseFloat(look?.corners ?? '8');
   const selectRow = (key: SelectKey, label: string, options: readonly Choice[]): ReactNode => (
     <Row label={label} held={held}>
@@ -94,15 +97,18 @@ export function StylePanel({ stored, draftOwn }: StylePanelProps): ReactNode {
               max={32}
               step={1}
           onCommit={(value) => changeStyle({ corners: value })}
+          onLimit={(limits) => announce(numberLimitMessage(limits, { name: 'Corners' }))}
         />
       </Row>
       {selectRow('size', 'Text size', TEXT_SIZE_OPTIONS)}
-      {countStyleTweaks(tweaks) > 0 || pending !== null ? (
-        <Button variant="ghost" size="sm" className="-ms-2 self-start" disabled={held} onClick={resetStyle}>
+      {draftOwn ? (
+        <p className="mt-1 text-[12px] text-chrome-muted">{STYLE_DRAFT_HELD_TEXT}</p>
+      ) : (
+        <Button variant="ghost" size="sm" className="-ms-2 self-start" disabled={countStyleTweaks(tweaks) === 0 && pending === null} onClick={resetStyle}>
           {RESET_ALL_LABEL}
         </Button>
-      ) : null}
-      {note === null ? null : <p className="mt-1 text-[12px] text-chrome-muted">{note}</p>}
+      )}
+      {cleared > 0 ? <p className="mt-1 text-[12px] text-chrome-muted">{styleCleared(cleared)}</p> : null}
     </section>
   );
 }

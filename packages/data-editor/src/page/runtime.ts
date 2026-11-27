@@ -9,7 +9,7 @@ import {
   parseParameters,
   readSourceAddress,
 } from '@open-artifact/data-core';
-import type { DataEngine, PageDataResult } from '../data/engine.ts';
+import { notLoadedPageDataResult, type DataEngine, type PageDataResult } from '../data/engine.ts';
 import { getDatasetLoadKey } from '../data/query-store.ts';
 import { applyPageLanguage } from '../platform/color-scheme.ts';
 import { isInlineViewLink, showPageLink } from '../platform/inline-view.ts';
@@ -330,7 +330,29 @@ interface MountedPage {
   spell: { shown: boolean } | null;
   dash: DashApi;
   d3: DashboardD3;
+  /** The loader code each `dash.loader` of this mount registered, by dataset id. */
+  loaders: Map<string, string | null>;
   current: boolean;
+}
+
+/** The box the page scrolls in: the root's nearest scrolling ancestor, else the document. */
+function pageScroller(root: Element): Element | null {
+  for (let parent = root.parentElement; parent !== null; parent = parent.parentElement) {
+    const { overflowY } = getComputedStyle(parent);
+    if (overflowY === 'auto' || overflowY === 'scroll') return parent;
+  }
+  return root.ownerDocument.scrollingElement;
+}
+
+/**
+ * Whether a source's current run loads with another loader than the one this mount registered for it (a loader the
+ * page no longer has): the page reads it as not loaded yet rather than the old loader's rows.
+ */
+function hasOtherLoader(engine: DataEngine, mounted: MountedPage, id: string): boolean {
+  const dataset = engine.getDataset(id);
+  if (dataset === undefined || (dataset.source.kind !== 'query' && dataset.source.kind !== 'file')) return false;
+  const ran = engine.runLoader(id);
+  return ran !== undefined && ran !== (mounted.loaders.get(id) ?? null);
 }
 
 /** The mounted page (one at a time) and a version that moves with every change, for components and other modules. */
@@ -585,7 +607,7 @@ export function mountDashboardPage(root: HTMLElement, options: PageMountOptions)
       pages: mounted.n,
       reads,
       datasets: engine.datasets(),
-      status: (id) => engine.getRun(id).status,
+      status: (id) => (hasOtherLoader(engine, mounted, id) ? 'idle' : engine.getRun(id).status),
     });
     if (redrawFrame !== null || checkedVersion === version) return;
     checkedVersion = version;
@@ -692,7 +714,8 @@ export function mountDashboardPage(root: HTMLElement, options: PageMountOptions)
       data(id) {
         if (!isValidDatasetId(id)) return engine.read(id);
         markRead([id, ...(underOf(id) ?? [])]);
-        return engine.read(id);
+        const result = engine.read(id);
+        return hasOtherLoader(engine, mounted, id) ? notLoadedPageDataResult() : result;
       },
       onData(callback) {
         if (typeof callback !== 'function' || !mounted.current) return;
@@ -727,6 +750,12 @@ export function mountDashboardPage(root: HTMLElement, options: PageMountOptions)
         if (!mounted.current) return;
         try {
           engine.registerLoader(id, spec);
+          if (typeof id === 'string') {
+            const before = hasOtherLoader(engine, mounted, id);
+            mounted.loaders.set(id, engine.getDataset(id)?.loader?.code ?? null);
+            // A read before the loader came saw nothing loaded; the page draws again with what its loader has.
+            if (before && asked.includes(id) && !hasOtherLoader(engine, mounted, id)) scheduleRedraw();
+          }
         } catch (error) {
           recordFailure(mounted, 'dash.loader', error instanceof TypeError ? new Error(LOADER_ARGUMENTS_MESSAGE) : error);
         }
@@ -770,6 +799,7 @@ export function mountDashboardPage(root: HTMLElement, options: PageMountOptions)
       spell: null,
       dash,
       d3,
+      loaders: new Map(),
       current: true,
     };
     page = mounted;
@@ -787,7 +817,16 @@ export function mountDashboardPage(root: HTMLElement, options: PageMountOptions)
     try {
       const { body, scripts, oneWriter, kept } = parseDashboardFilesToPage(files, editing);
       if (files.length > 0 && !files.some((file) => file.name === DASHBOARD_ENTRY_FILENAME)) mounted.stops.push(NO_ENTRY_FILE_MESSAGE);
+      // The page keeps its place across a redraw: once the new content is in, and again on the next frame.
+      const scroller = root.isConnected ? pageScroller(root) : null;
+      const scrollTop = scroller?.scrollTop ?? 0;
       root.replaceChildren(body);
+      if (scroller !== null && scrollTop > 0) {
+        scroller.scrollTop = scrollTop;
+        requestAnimationFrame(() => {
+          if (page === mounted && scroller.scrollTop !== scrollTop) scroller.scrollTop = scrollTop;
+        });
+      }
       root.toggleAttribute(ONE_WRITER_ATTRIBUTE, oneWriter);
       if (oneWriter) mounted.guard = createOneWriterGuard(root);
       if (oneWriter && kept !== null && isReparseStable(kept.stored)) mounted.kept = kept;

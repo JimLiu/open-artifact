@@ -223,6 +223,11 @@ export function parseDashboardFilesToPage(files: readonly DashboardFile[], keep 
   return parseDashboardHtml(byName.get(DASHBOARD_ENTRY_FILENAME) ?? '', byName, keep);
 }
 
+/** Whether the files hold the page's entry file (other files alone make no page). */
+export function hasPageEntry(files: readonly DashboardFile[]): boolean {
+  return files.some((file) => file.name === DASHBOARD_ENTRY_FILENAME);
+}
+
 /** The entry file's markup, parsed but not loaded. */
 export function parsePageEntryMarkup(files: readonly DashboardFile[]): DocumentFragment {
   return createPageTemplate(files.find((file) => file.name === DASHBOARD_ENTRY_FILENAME)?.text ?? '').content;

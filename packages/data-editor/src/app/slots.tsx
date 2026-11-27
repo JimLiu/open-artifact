@@ -19,7 +19,8 @@ import { useSourcesUi } from '../state/sources-ui.ts';
 import { usePageSnapshot } from './data-view.ts';
 
 /**
- * The edit tool switch ("Use the page" / Edit) for viewers who can edit. When
+ * The edit tool switch ("Use the page" / Edit) for viewers who can edit a
+ * dashboard that has a page (`index.html`). When
  * the Shell draws the page's actions, it offers `edit_page` / `use_page`
  * there instead.
  */
@@ -27,7 +28,7 @@ export function EditModeSlot(): ReactElement | null {
   const pencil = usePencil();
   const canWrite = useDocument((state) => state.canWrite);
   const inShell = useShellDraws((state) => state.draws.has('actions'));
-  const on = canWrite && (maybeSession()?.canEdit ?? false);
+  const on = canWrite && (maybeSession()?.canEdit ?? false) && (pencil.hasPage || pencil.editing);
   const action: ChromeAction | null = !on
     ? null
     : pencil.editing

@@ -174,9 +174,21 @@ export function copyableResultText(table: Table | null, text?: string | null): s
   return table !== null ? tableToTsv(table) : safeTextForSpreadsheet(text ?? '');
 }
 
-/** The CSV download of a source's rows: `<id>.csv`, its cells safe from spreadsheet formulas. */
+const UTF8_BYTE_ORDER_MARK = '﻿';
+
+/**
+ * The CSV download of a source's rows: `<id>.csv`, its cells safe from spreadsheet formulas. It starts with a byte
+ * order mark so spreadsheets open it as UTF-8, except when the first cell is quoted: some read a mark before a quote
+ * as part of the cell.
+ */
 export function createCsvDownload(id: string, table: Table): { filename: string; text: () => string } {
-  return { filename: `${id}.csv`, text: () => tableToCsv(table) };
+  return {
+    filename: `${id}.csv`,
+    text: () => {
+      const csv = tableToCsv(table);
+      return csv.startsWith('"') ? csv : UTF8_BYTE_ORDER_MARK + csv;
+    },
+  };
 }
 
 /** The scroll offset that centres an item of a viewport. */

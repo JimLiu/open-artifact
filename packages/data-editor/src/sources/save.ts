@@ -13,7 +13,6 @@ import {
   type Parameters,
   type QuerySource,
 } from '@open-artifact/data-core';
-import { toast } from '@open-artifact/ui';
 import { maybeDataEngine } from '../data/engine.ts';
 import { createMcpToolClient } from '../data/mcp.ts';
 import { loadDataset } from '../data/query-store.ts';
@@ -160,8 +159,8 @@ export async function saveQueryArguments(dataset: Dataset, base: string, args: Q
   await writeDataset(dataset.id, { ...metaPatch, source, updated: editStamp(savedAt) });
 }
 
-/** Saves a source's name and description; says why in a toast when it can't. Resolves whether it was saved. */
-export async function saveSourceMetadata(dataset: Dataset, patch: QueryMetaPatch): Promise<boolean> {
+/** Saves a source's name and description. Resolves with why it couldn't, or `null` once saved. */
+export async function saveSourceMetadata(dataset: Dataset, patch: QueryMetaPatch): Promise<string | null> {
   let failure: string | null;
   try {
     const stored = storedDataset(dataset.id);
@@ -174,8 +173,7 @@ export async function saveSourceMetadata(dataset: Dataset, patch: QueryMetaPatch
   } catch (error) {
     failure = getStoreErrorMessage(error) ?? SAVE_RETRY_MESSAGE;
   }
-  if (failure !== null) toast.add({ title: joinSentences(couldNotSaveSourceMessage(dataset.title || dataset.id), failure) });
-  return failure === null;
+  return failure === null ? null : joinSentences(couldNotSaveSourceMessage(dataset.title || dataset.id), failure);
 }
 
 function isFileUnchanged(id: string, url: string): boolean {

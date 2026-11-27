@@ -116,6 +116,8 @@ export function AskPill({ root, off, picked = null, picks = 0, pickedAt = noPick
   optionsRef.current = { picked, pickedAt, off, dataAt, canEdit: onEdit !== null };
   const dismissedRef = useRef<{ words: string | null; picked: number | null }>({ words: null, picked: null });
   const pointerRef = useRef({ down: false, byTouch: false });
+  // The same selection keeps the side its pill took, so the pill doesn't flip while it still fits there.
+  const lastSideRef = useRef<{ on: string | number; side: 'above' | 'below' } | null>(null);
 
   const update = useCallback((): void => {
     const options = optionsRef.current;
@@ -275,12 +277,16 @@ export function AskPill({ root, off, picked = null, picks = 0, pickedAt = noPick
 
   useLayoutEffect(() => {
     const pill = pillRef.current;
+    if (visible === null) lastSideRef.current = null;
     if (pill === null || visible === null) return;
-    const place = positionSelectionPill(visible, pill.offsetWidth, pill.offsetHeight);
+    const on = visible.words?.text ?? picks;
+    const kept = lastSideRef.current?.on === on ? lastSideRef.current.side : undefined;
+    const place = positionSelectionPill(visible, pill.offsetWidth, pill.offsetHeight, kept);
+    lastSideRef.current = { on, side: place.placed };
     pill.style.left = `${place.left}px`;
     pill.style.top = `${place.top}px`;
     setPlaced(place.placed);
-  }, [visible, canAsk]);
+  }, [visible, canAsk, picks]);
 
   // Arrow keys, Home and End move focus among the pill's buttons once one of them has it.
   useEffect(() => {

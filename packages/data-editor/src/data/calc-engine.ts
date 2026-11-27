@@ -1,4 +1,6 @@
 import {
+  getReportedCalculationStatus,
+  getStoppedCalculationStatus,
   isValidDatasetId,
   sanitizeSingleLine,
   sanitizeText,
@@ -127,7 +129,14 @@ export function createCalculationEngine(context: CalculationContext): Calculatio
       };
     });
     const stopped = inputs.filter((input) => input.status !== 'ok' && input.status !== 'loading');
-    if (stopped.length > 0) return calculationErrorResult(`${stopped.map((input) => input.stopped).join(', ')}.`);
+    if (stopped.length > 0)
+      return {
+        data: {
+          status: getStoppedCalculationStatus(stopped.map((input) => input.status)),
+          value: null,
+          message: `${stopped.map((input) => input.stopped).join(', ')}.`,
+        },
+      };
     if (inputs.some((input) => input.status === 'loading')) return { data: { status: 'loading', value: null, message: '' } };
     let value: unknown;
     try {
@@ -144,7 +153,7 @@ export function createCalculationEngine(context: CalculationContext): Calculatio
     const report = {
       id,
       ...fields,
-      status: data.status,
+      status: getReportedCalculationStatus(data.status),
       result: data.status === 'ok' ? cloneJsonData(data.value) : undefined,
       error: data.message,
       cantRun,
