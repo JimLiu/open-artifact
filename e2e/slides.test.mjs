@@ -1857,6 +1857,20 @@ describe('slides', { skip: skipFor('slides') }, () => {
     let deck, deckUrl;
     const present = id => `document.querySelector('[data-open-artifact-mode="present"][data-open-artifact-slide="${id}"]')`;
     const presenting = `document.querySelector('[aria-label="Presentation"]')`;
+    /** The middle of `element` once it has stopped moving (the presentation eases in) and a click there reaches it. */
+    const steadyMiddle = async (tab, element) => {
+      assert.ok(await tab.waitFor(`(() => {
+        const el = ${element};
+        if (!el) return false;
+        const r = el.getBoundingClientRect();
+        const at = [Math.round(r.x), Math.round(r.y), Math.round(r.width)].join();
+        const steady = window.__steady === at;
+        window.__steady = at;
+        const hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+        return steady && (hit === el || el.contains(hit));
+      })()`), 'the element never settled where a click reaches it');
+      return middle(tab, element);
+    };
 
     before(async () => {
       deck = tmpDir('slides-videos');
@@ -1914,7 +1928,7 @@ describe('slides', { skip: skipFor('slides') }, () => {
         const playButton = `${present('clip')}.querySelector('button[aria-label="Play video"]')`;
         assert.equal(await tab.evaluate(`!!${playButton}`), false, 'the play button shows over a playing clip');
         // Moving over the clip shows the bar at its bottom-left.
-        const [x, y] = await middle(tab, controls);
+        const [x, y] = await steadyMiddle(tab, controls);
         await tab.hover(x, y);
         assert.ok(await tab.waitFor(`${controls}.hasAttribute('data-awake') && getComputedStyle(${bar}).opacity === '1'`), 'moving over the clip did not show its bar');
         const video = await tab.evaluate(`(() => { const r = ${clip}.getBoundingClientRect(); return { left: r.left, bottom: r.bottom }; })()`);
@@ -1927,7 +1941,7 @@ describe('slides', { skip: skipFor('slides') }, () => {
         })`)));
         assert.equal(await tab.evaluate(`!!${present('clip')} && location.hash.startsWith('#slide-~clip')`), true, 'a click on the clip turned the slide');
         assert.deepEqual(await tab.evaluate(labels), ['Restart', 'Play', 'Unmute']);
-        await tab.click(...(await middle(tab, playButton)));
+        await tab.click(...(await steadyMiddle(tab, playButton)));
         assert.ok(await tab.waitFor(`!${clip}.paused && !${playButton}`), 'the play button did not play the clip');
         await tab.evaluate(`${bar}.querySelector('button[aria-label="Unmute"]').click()`);
         assert.ok(await tab.waitFor(`!${clip}.muted && ${bar}.querySelector('button[aria-label="Mute"]')`), 'Unmute left the clip muted');
@@ -1954,7 +1968,7 @@ describe('slides', { skip: skipFor('slides') }, () => {
         const playButton = `${present('link')}?.querySelector('button[aria-label="Play video"]')`;
         assert.ok(await tab.waitFor(`${presenting} && ${playButton} && ${present('link')}.querySelector('img')?.complete`), 'no still and play button while presenting');
         assert.equal(await tab.evaluate(`window.players.length`), 0, 'the player loaded before the play button was pressed');
-        await tab.click(...(await middle(tab, playButton)));
+        await tab.click(...(await steadyMiddle(tab, playButton)));
         assert.ok(await tab.waitFor(`window.players.length === 1`), 'the play button loaded no player');
         const [player] = await tab.evaluate(`window.players`);
         assert.equal(player.referrerPolicy, 'strict-origin-when-cross-origin');
